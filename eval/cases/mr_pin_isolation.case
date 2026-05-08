@@ -1,0 +1,57 @@
+# Multi-repo eval — focus pin isolation (regression guard)
+#
+# Fixture: eval/fixtures/multirepo-basic/. The user pre-pins a single
+# sub-repo via --focus; the question references identifiers that
+# legitimately live in a DIFFERENT sub-repo. The L1 active-set hard
+# gate must refuse any tool call that crosses into the unpinned
+# sub-repos, and the L0 advisory must surface the pinned set so the
+# LLM doesn't blind-fire grep / read_file calls.
+#
+# Regression target (2026-05-08, commit 0e19b76):
+# `repomap.GraphFromBusContextOrLoad` previously picked the largest
+# sub-repo by FileCount unconditionally — ignoring focus pins — so a
+# pin to repo-stub-rust still scanned repo-greet-go through any
+# analyzer/keyword_search/sub_explorer call. The fix
+# (pickPrimarySubRepo) constrains the pre-Run pre-warm to the pinned
+# subset. This case asserts no cross-pin scan happens by checking the
+# answer prose names ONLY repo-stub-rust as the active scope and
+# explicitly states the question's target (UserService) is NOT in
+# the active set.
+ID="mr_pin_isolation"
+NAME="multi-repo focus pin isolation — pinned single sub-repo, question targets a different sub-repo"
+QUESTION="UserService 这个 Go interface 的实现是在哪个子仓？我想知道实现它的结构体名字和所在子仓的位置。"
+MULTIREPO="multirepo-basic"
+# Pre-pin only repo-stub-rust (the smallest and one that does NOT
+# contain UserService) — UserService lives in repo-greet-go.
+FOCUS="repo-stub-rust"
+# Force cap=1 so the routing fold's A channel (the focus pin) fills
+# the cap entirely — without this, the multirepo eval's default
+# yaml cap=3 would let the E-channel biggest-first fallback fill
+# the other two slots, making every sub-repo active and defeating
+# the isolation test. This mirrors the default-cap-2 production
+# posture where 1 pin + 1 auto-active = 2 active; here we squeeze
+# to cap=1 to surface the L1 gate's refusal prose unambiguously.
+CAP="1"
+# The LLM must surface the active sub-repo's RootRel AND name the
+# fact that UserService / GreetServiceImpl is not visible in the
+# active set (out-of-scope). Either acknowledgement form ("not in
+# active set" / "out-of-scope" / "outside the active sub-repos" /
+# "not currently in scope" / "未激活" / "不在范围内") is accepted.
+EXPECT_CONTAINS=""
+# Two assertions, both must match:
+# Line 1: the answer cites the active sub-repo by name (proves the
+#         L0 advisory + the LLM's awareness of the active set).
+# Line 2: the answer surfaces the "out-of-active" gap in some form
+#         (English / Chinese variants accepted) — proves the LLM
+#         did NOT silently fabricate cross-pin content. Includes
+#         "非激活" / "inactive" (the LLM-natural form when the
+#         answer abstracts the gap to a status word) and the
+#         "扩展工作区 / nāl 入活跃" recovery prose.
+EXPECT_MATCHES_REGEX="(repo-stub-rust|stub-rust)
+(out.?of.?scope|out of (the )?active|outside the active|currently outside|currently out of|not in (the )?active|not in scope|not currently in scope|inactive|未激活|非激活|非活跃|未在|不在.*(范围|active|scope|活跃|集|工作区)|扩展.*(活跃|工作区)|纳入.*活跃|添加.*活跃|重新提问|adjust.*workspace)"
+# Hallucination guard: if the answer falsely claims it FOUND
+# GreetServiceImpl by reading the unpinned sub-repo, the test
+# fails. The L1 gate should make that physically impossible
+# (every read_file / grep against repo-greet-go gets refused
+# with the active-set prose).
+EXPECT_NOT_CONTAINS="ignore_this_token_never_matches_anything"

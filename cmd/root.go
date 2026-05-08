@@ -106,6 +106,19 @@ var (
 	flagCacheDir       string
 	flagLang           string
 	flagColor          string
+	// flagFocus is the multi-repo focus pin set passed at process
+	// startup. Empty (default) = no pin; the routing fold's A
+	// channel is empty and the auto-active set falls back to
+	// language affinity / biggest-first selection. Each element is
+	// a slug-or-RootRel (resolved through topology.Resolve so the
+	// operator can use whichever form is more memorable). Repeated
+	// `--focus` flags accumulate; comma-separated values inside one
+	// flag are split during parse. Single-repo / no-git workspaces
+	// silently ignore the flag — the topology has no sub-repo to
+	// match. Designed for eval / scripted runs and operator
+	// persistence; the REPL `/repos focus` command continues to work
+	// session-locally on top of this.
+	flagFocus []string
 	flagMaxRetries     int
 	flagMaxStageVisits int
 
@@ -439,6 +452,16 @@ func init() {
 	f.StringVar(&flagCacheDir, "cache-dir", "", "base directory for repo map caches (empty = ~/.codrax/cache; %USERPROFILE%\\.codrax\\cache on Windows)")
 	f.StringVar(&flagLang, "lang", defaultLang, "default response language (zh/en/...); 'off' to disable")
 	f.StringVar(&flagColor, "color", "auto", "color mode for diff rendering: auto (TTY-detect, default) | always | never. NO_COLOR env always forces never.")
+	// --focus pins one or more sub-repos into the multi-repo active
+	// set at startup. Repeatable + comma-separated values supported
+	// (`--focus repoA --focus repoB,repoC`). Each value is a
+	// sub-repo slug OR its path-from-parent (RootRel) — both are
+	// surfaced by `/repos`. Single-repo / no-git workspaces silently
+	// ignore the flag. Equivalent to running `/repos focus <slug>`
+	// once per value at REPL boot, but also works in scripted /
+	// non-REPL invocations and persists across REPL re-entries when
+	// captured in a wrapper.
+	f.StringSliceVar(&flagFocus, "focus", nil, "multi-repo: pin one or more sub-repos by slug or path (repeatable, comma-separated). Single-repo / no-git workspaces ignore the flag.")
 	f.IntVar(&flagMaxRetries, "pipeline-max-retries", 0, "override max consecutive failures per stage; 0 = inherit from codrax.yaml")
 	f.IntVar(&flagMaxStageVisits, "pipeline-max-stage-visits", 0, "override max entries per stage per Run; 0 = inherit from codrax.yaml")
 	f.StringArrayVar(&flagAttachLog, "log", nil, "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin. Repeatable: --log a.log --log b.log attaches both, joined with `# codrax-source: <path>` headers so the LLM can distinguish boundaries. Total bytes capped by codrax.yaml :: log_attach_max_bytes.")
@@ -1123,6 +1146,12 @@ func runREPL(_ *cobra.Command) error {
 		// the REPL package free of an internal/tool/repomap/multigraph
 		// import.
 		Multigraph:                    app.multigraph,
+		// --focus CLI flag → REPL pre-pinned focus map. resolved
+		// against the topology earlier (drops unmatched tokens with
+		// a single Warning); single-repo / no-git workspaces have
+		// no matching sub-repos so the slice is empty and the REPL
+		// boots with the existing no-pin posture.
+		InitialFocusSlugs: resolveFocusFlagAgainstTopology(app.topology, flagFocus),
 		// Push REPL /repos mutations into the session-shared
 		// MultiGraph so the next Run picks them up.
 		OnMultiRepoFocusChange: func(slugs []string) {
@@ -1582,8 +1611,13 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		app.orch.EmitMultiRepoScanNotice(rootRel, slug, started, ok, elapsedMs)
 	}
 	if app.topology != nil && app.multiRepoEnabled {
+		// Resolve --focus inputs (slug-or-path) against the topology.
+		// Single-repo / no-git workspaces have no sub-repo to match
+		// so the resolved slug list stays empty and the carrier
+		// builds with focusSlugs=nil — same posture as no-flag boot.
+		focusSlugs := resolveFocusFlagAgainstTopology(app.topology, flagFocus)
 		mg, err := repomap.BuildOrLoadMultiGraph(
-			app.topology, "", app.multiRepoMaxActive, nil,
+			app.topology, "", app.multiRepoMaxActive, focusSlugs,
 			app.multiRepoScanNotifier,
 		)
 		if err != nil {
@@ -3513,4 +3547,47 @@ func extractKeywords(text string) []string {
 		}
 	}
 	return out
+}
+
+// resolveFocusFlagAgainstTopology turns the --focus flag's slice of
+// slug-or-RootRel tokens into the slug list the multigraph layer
+// expects. Each token is run through topology.Resolve so the
+// operator can use whichever form is more natural (REPL surfaces
+// both). Tokens that fail to resolve are surfaced as a single
+// Warning line and dropped from the focus set; the run continues
+// with the matched subset rather than failing loud — a typo on a
+// stale slug should not block the entire request, and the
+// remaining matches still pin correctly.
+//
+// Single-repo / no-git workspaces have at most one (or zero)
+// sub-repo entries, so most --focus tokens won't match and the
+// helper returns nil — the caller's focusSlugs=nil branch is the
+// existing pre-flag behaviour.
+func resolveFocusFlagAgainstTopology(topo *topology.RepoTopology, raw []string) []string {
+	if topo == nil || len(raw) == 0 {
+		return nil
+	}
+	var slugs []string
+	var unresolved []string
+	seen := map[string]bool{}
+	for _, token := range raw {
+		t := strings.TrimSpace(token)
+		if t == "" {
+			continue
+		}
+		sr := topo.Resolve(t)
+		if sr == nil {
+			unresolved = append(unresolved, t)
+			continue
+		}
+		if seen[sr.Slug] {
+			continue
+		}
+		seen[sr.Slug] = true
+		slugs = append(slugs, sr.Slug)
+	}
+	if len(unresolved) > 0 {
+		logging.Warning("multi-repo: --focus values did not match any sub-repo and were dropped: %v (run with --log-level=info to see the discovered sub-repo list)", unresolved)
+	}
+	return slugs
 }

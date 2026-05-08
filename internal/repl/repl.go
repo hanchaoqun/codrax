@@ -327,6 +327,12 @@ type Config struct {
 	// 2-state pinned/inactive view.
 	Multigraph any
 
+	// InitialFocusSlugs pre-populates the session focus pin map at
+	// REPL boot. Used by the --focus CLI flag (cmd/root.go); REPL
+	// users who pin via /repos focus reach the same map through the
+	// command handler. Empty / nil = no pin (default REPL boot).
+	InitialFocusSlugs []string
+
 	// OnMultiRepoFocusChange is invoked by the REPL when the user
 	// runs /repos focus or /repos unfocus. cmd/root.go wires this to
 	// app.multigraph.SetFocus so the next Run picks up the change.
@@ -607,7 +613,7 @@ func New(cfg Config) *REPL {
 		multiRepoEnabled:         cfg.MultiRepoEnabled,
 		multiRepoMaxActive:       cfg.MultiRepoMaxActive,
 		multigraphForListing:     cfg.Multigraph,
-		multiRepoFocus:           map[string]bool{},
+		multiRepoFocus:           focusMapFromSlugs(cfg.InitialFocusSlugs),
 		onMultiRepoFocusChange:   cfg.OnMultiRepoFocusChange,
 		onMultiRepoCapChange:     cfg.OnMultiRepoCapChange,
 		onMultiRepoRefresh:       cfg.OnMultiRepoRefresh,

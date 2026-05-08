@@ -545,6 +545,25 @@ func keysOf(m map[string]bool) []string {
 	return out
 }
 
+// focusMapFromSlugs constructs the REPL's session-focus map from a
+// caller-supplied slug slice. Used by Provider.InitialFocusSlugs
+// (--focus CLI flag) so the REPL boots with the operator's startup
+// pins already in place: /repos lists them as ★ pinned, the prompt
+// sticky tag carries [focus:X], and the routing fold's A channel
+// honours them on every Run. Nil / empty input returns an empty
+// non-nil map so the REPL's pin-set lookups stay nil-safe.
+func focusMapFromSlugs(slugs []string) map[string]bool {
+	out := make(map[string]bool, len(slugs))
+	for _, s := range slugs {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		out[s] = true
+	}
+	return out
+}
+
 func displayGitMode(mode string) string {
 	if mode == "" {
 		return "-"

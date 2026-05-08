@@ -463,7 +463,7 @@ REPL banner 立即提示:
 | `/repos focus <slug>` | 把子仓固定到 active 集合,跨 turn 不被 LRU 淘汰 |
 | `/repos unfocus [slug]` | 释放固定(无参数 = 全释放) |
 | `/repos refresh` | 强制重新探测父目录(子仓增删后用) |
-| `/repos cap <N>` | 会话级覆盖 active cap(yaml 是默认 3) |
+| `/repos cap <N>` | 会话级覆盖 active cap(yaml 默认 2,硬上限 3 — 设更高自动 clamp) |
 
 `/repos` 输出长这样:
 
@@ -538,19 +538,35 @@ INFO multigraph: typed-lane partial — sub-repos NOT consulted: [legacy-cangjie
 
 ### yaml 配置(`codrax.yaml`)
 
-4 个开关,**默认值已经合理**,通常不需要改:
+5 个开关,**默认值已经合理**,通常不需要改:
 
 ```yaml
-multi_repo_enabled: true              # 默认 true,false 走 legacy 单图 (绕过本特性)
-multi_repo_max_active: 3              # LRU 上限,同时驻留的子仓 *Graph 数
-multi_repo_discovery_depth: 4         # 父目录 BFS 深度
-multi_repo_min_files: 1               # 子仓 file count 下限,过滤空 .git fixture
+multi_repo_enabled: true                    # 默认 true,false 走 legacy 单图 (绕过本特性)
+multi_repo_max_active: 2                    # LRU 上限,默认 2,硬上限 3 (yaml > 3 自动 clamp)
+multi_repo_inactive_preview_count: 2        # L0 prompt advisory 给 LLM 看几个 out-of-active 仓 (默认 2,硬上限 3)
+multi_repo_discovery_depth: 4               # 父目录 BFS 深度
+multi_repo_min_files: 1                     # 子仓 file count 下限,过滤空 .git fixture
 ```
 
 **何时调整 cap**:
-- 默认 3 适合 ≤ 6 子仓 + cross-sub-repo 问题不频繁的场景
-- 跨仓问题多 + 子仓总数 5-10 → 调到 5
-- LRU thrashing 警告(`multigraph: thrashing detected (>5 evictions/60s)`)出现时 → 加大 cap
+- 默认 2 覆盖典型跨仓场景(一个主仓 + 一个协作仓);3 子仓以上的跨仓调查较少
+- 跨仓问题多 + 子仓总数 5-10 → 调到 3(硬上限,yaml 设更高也强制 3)
+- LRU thrashing 警告(`multigraph: thrashing detected (>5 evictions/60s)`)出现时 → 加 cap 或 `/repos focus`
+
+### `--focus` CLI flag(2026-05-08 新增)
+
+在非 REPL / 脚本化 / eval 调用里,用 `--focus` 在启动时预 pin 子仓(等价启动后立刻跑 `/repos focus`):
+
+```bash
+# 单仓 pin
+codrax --repo ~/workspace --focus repo-greet-go --request "..."
+
+# 多 pin(repeatable 或逗号分隔)
+codrax --repo ~/workspace --focus repo-go --focus repo-py --request "..."
+codrax --repo ~/workspace --focus repo-go,repo-py --request "..."
+```
+
+每个值是子仓 **slug 或 RootRel 路径**,通过 `topology.Resolve` 解析,任一形态都可以。匹配不到的 token 会 Warning 提示并丢弃,不阻断 Run。**单仓 / 无 git workspace 静默忽略此 flag**(无 sub-repo 可匹配)。
 
 ### 内存与性能预算
 
@@ -567,8 +583,8 @@ multi_repo_min_files: 1               # 子仓 file count 下限,过滤空 .git 
 
 | 症状 | 原因 | 修复 |
 |---|---|---|
-| answer 漏掉某子仓的 entity | 子仓未在 active 集 | `/repos focus <slug>` 然后重跑 |
-| `partial_typed_lane=true` 出现频繁 | cap 太低 | yaml `multi_repo_max_active: 5` 或 `/repos cap 5` |
+| answer 漏掉某子仓的 entity | 子仓未在 active 集 | `/repos focus <slug>` 然后重跑(REPL)或 `--focus <slug>` 启动(scripted)|
+| `partial_typed_lane=true` 出现频繁 | cap 太低 | yaml `multi_repo_max_active: 3` 或 `/repos cap 3`(硬上限 3)|
 | `thrashing detected` Warning | 同上,LRU 抖动 | 同上 |
 | 写模式跨仓 fail-loud | 设计限制 | cd 进具体子仓重跑 |
 | 没看到 banner 多仓行 | 父目录是单 git 仓(不是 workspace) | 这是预期 — 单仓 quiet UX |

@@ -2521,14 +2521,18 @@ Go 1.24.0。主要依赖：
 
 用户从父目录运行 `codrax --repo .`,父目录下可能有 N 个独立 git 仓(异构语言)。codrax 自动探测拓扑、按需加载、隔离 typed lane,**单仓用户行为字节级不变**。
 
-`codrax.yaml` 4 个开关(全部 pointer-typed、缺省 → code default):
+`codrax.yaml` 5 个开关(全部 pointer-typed、缺省 → code default,clamp helpers 在 internal/config/runtime.go):
 
 ```yaml
-multi_repo_enabled: true              # 默认 true,false 走 legacy 单图
-multi_repo_max_active: 3              # LRU 上限(同时驻留的子仓 *Graph)
-multi_repo_discovery_depth: 4         # 父目录 BFS 深度
-multi_repo_min_files: 1               # 子仓 file count 下限,过滤空目录
+multi_repo_enabled: true                # 默认 true,false 走 legacy 单图
+multi_repo_max_active: 2                # 默认 2,硬上限 3 (yaml > 3 自动 clamp)
+multi_repo_inactive_preview_count: 2    # L0 advisory 给 LLM 列几个 out-of-active 仓 (默认 2,硬上限 3)
+multi_repo_discovery_depth: 4           # 父目录 BFS 深度
+multi_repo_min_files: 1                 # 子仓 file count 下限,过滤空目录
 ```
+
+**CLI flag**(2026-05-08 add):
+- `--focus <slug-or-path>`(repeatable / 逗号分隔)— 启动时预 pin 子仓,等价 REPL 启动后立即 `/repos focus`,但适用 scripted / non-REPL 调用。每 token 经 `topology.Resolve` 解 slug-or-RootRel,匹配不到的 token 一行 Warning + 丢弃,不阻断 Run。**单仓 / 无 git workspace 静默忽略**(无 sub-repo 可匹配)。
 
 REPL `/repos` 命令族(3 处注册:`replCommandAliases` / `slashCommands` / `handleSlash`):
 - `/repos`(默认子命令)— 列出已发现子仓 + active state + cap + focus pin

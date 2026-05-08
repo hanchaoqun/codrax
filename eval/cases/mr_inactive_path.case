@@ -1,0 +1,42 @@
+# Multi-repo eval — L0 advisory recovery path when target lives in
+# an inactive sub-repo
+#
+# Fixture: eval/fixtures/multirepo-basic/. CAP is overridden to 2 so
+# the routing fold (E channel, biggest-first) keeps repo-greet-go
+# (3 files) and one of the smaller two but evicts the other. The
+# question references identifiers that live in repo-tools-py
+# (process_request) — depending on alphabetical tiebreak in E,
+# repo-tools-py may or may not survive.
+#
+# Whichever way the eviction lands, the L0 advisory tells the LLM
+# the active sub-repo set up front, and the L1 gate refuses any
+# read_file / grep against the inactive sub-repo. The LLM must
+# surface the gap to the operator in plain prose at the top of its
+# answer ("X may be in the inactive sub-repo Y; please adjust the
+# workspace scope and re-ask") rather than fabricate a result or
+# burn ReAct iterations on refused tool calls.
+#
+# Regression target: the L0 advisory's "user adjusts workspace"
+# recovery clause + the L1 gate's refusal prose. A regression that
+# silently collapsed the active-set message would have the LLM
+# either claim the identifier doesn't exist (when it does, just in
+# an inactive sub-repo) or repeatedly try to read the inactive
+# sub-repo until exhausted.
+ID="mr_inactive_path"
+NAME="multi-repo inactive path — LLM surfaces missing sub-repo to user, no fabrication"
+QUESTION="标识符 process_request 在仓库里出现在哪些位置？哪个子仓提供了它？它的功能是什么？"
+MULTIREPO="multirepo-basic"
+# Force the cap below the sub-repo count so at least one sub-repo
+# stays inactive per Run.
+CAP="2"
+# The answer must (a) name the identifier and (b) acknowledge
+# the active-set boundary in some form. Two branches are accepted:
+#   1. process_request lives in an active sub-repo (alphabetical
+#      tiebreak puts repo-tools-py active) → answer correctly cites
+#      `repo-tools-py/tools/processor.py`.
+#   2. process_request's sub-repo is inactive → answer surfaces
+#      the gap with recovery prose (the user adjusts workspace
+#      and re-asks).
+EXPECT_CONTAINS="process_request"
+EXPECT_MATCHES_REGEX="(repo-tools-py|tools-py|processor\.py|out.?of.?(active|scope)|outside (the )?active|currently outside|not in (the )?active|未激活|不在(范围|active|scope)|adjust.*scope|/repos focus|workspace scope)"
+EXPECT_NOT_CONTAINS="ignore_this_token_never_matches_anything"

@@ -69,6 +69,18 @@ POST_APPLY_FILE="${POST_APPLY_FILE:-}"
 # sub-repos. Read-mode only — write-mode + multi-repo is a future
 # combination once write fan-out lands.
 MULTIREPO="${MULTIREPO:-}"
+# FOCUS is the comma-separated --focus value forwarded to the binary
+# when MULTIREPO is set. Each token is a slug-or-RootRel resolved by
+# topology.Resolve. Empty (default) = no pin, the routing fold's A
+# channel is empty. Used by mr_pin_isolation / future cases that test
+# operator pin behaviour without REPL interaction.
+FOCUS="${FOCUS:-}"
+# CAP overrides multi_repo_max_active for the eval-specific yaml
+# (multirepo_settings.yaml). Empty (default) keeps the file's own
+# value; setting CAP="2" makes one of the 3 multirepo-basic sub-repos
+# fall outside the active set so mr_inactive_path can test the L1
+# refusal + L0 advisory recovery path.
+CAP="${CAP:-}"
 
 case "$MODE" in
   "" | read | plan | apply) ;;
@@ -196,17 +208,28 @@ run_read_step() {
   if [[ -n "${4:-}" ]]; then
     repo_arg="${4}"
   fi
+  # FOCUS env (multi-repo only): forwarded as --focus per token.
+  # Single-repo / no-MULTIREPO cases ignore FOCUS — the binary's
+  # topology has no sub-repo to match the value, so the flag is a
+  # no-op. Building the args dynamically keeps single-repo runs
+  # byte-identical (no extra flag passed).
+  local -a focus_args=()
+  if [[ -n "$FOCUS" ]]; then
+    focus_args=("--focus" "$FOCUS")
+  fi
   if [[ -n "$LOG" ]]; then
     ./codrax --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
       --log-level debug \
       --log-dir "$logdir" \
       --log-text "$LOG" \
+      "${focus_args[@]}" \
       --request "$QUESTION" \
       >"$out" 2>&1
   else
     ./codrax --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
       --log-level debug \
       --log-dir "$logdir" \
+      "${focus_args[@]}" \
       --request "$QUESTION" \
       >"$out" 2>&1
   fi
@@ -455,14 +478,22 @@ run_one() {
           echo "run $i: FAIL multirepo_setup_fail" >&2
           return
         fi
-        # The multirepo-basic fixture has three sub-repos and the
+        # The multirepo-basic fixture has three sub-repos and most
         # mr_* eval cases assume every one is active. Phase 0
         # (2026-05-08) lowered the default cap from 3 → 2 for
         # production; export the eval-specific override so the
-        # routing fold keeps all three resident. Single-repo cases
-        # bypass this branch and continue to read the operator's
-        # default config.
-        export CODRAX_SETTINGS="$ROOT/eval/fixtures/multirepo_settings.yaml"
+        # routing fold keeps all three resident. CAP env overrides
+        # the yaml at run time for cases (e.g. mr_inactive_path)
+        # that need a smaller cap to make a sub-repo fall outside
+        # the active set. Single-repo cases bypass this branch and
+        # continue to read the operator's default config.
+        local settings_yaml="$ROOT/eval/fixtures/multirepo_settings.yaml"
+        if [[ -n "$CAP" ]]; then
+          local capped_yaml="$OUTDIR/run-$i.settings.yaml"
+          sed -E "s/^(multi_repo_max_active:).*/\1 ${CAP}/" "$settings_yaml" >"$capped_yaml"
+          settings_yaml="$capped_yaml"
+        fi
+        export CODRAX_SETTINGS="$settings_yaml"
         run_read_step "$i" "$out" "$logdir" "$scratch"
         unset CODRAX_SETTINGS
       else
