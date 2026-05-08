@@ -273,6 +273,15 @@ func IsExported(lang, name string) bool {
 // LangArkTS without polluting pure TypeScript repositories
 // (red line L-ArkTS-2). A nil/empty repoRoot returns false.
 //
+// Sub-repo boundary rule (L-ArkTS-3): the ancestor walk stops at any
+// directory that itself contains `.git` (and is not `repoRoot`),
+// because crossing such a boundary leaves the file's owning git
+// repository — an `oh-package.json5` in the parent's tree belongs to
+// a different sub-repo and must not promote files in this one. This
+// is the canonical fix for the multi-repo ArkTS leak even before
+// MultiGraph routing lands, so single-repo and multi-repo callers
+// share one correct semantic.
+//
 // Exported because both scanner.go and tests need to consult it.
 // Implementation lives next to the language constants so the rule
 // stays pinned to one canonical location.
@@ -285,8 +294,20 @@ func IsArkTSProject(repoRoot, relPath string) bool {
 	// projects (entry/src/main/ets/<feature>/<view>) plus headroom.
 	dir := filepath.Dir(relPath)
 	for i := 0; i < 12; i++ {
-		if _, err := os.Stat(filepath.Join(repoRoot, dir, "oh-package.json5")); err == nil {
+		absDir := filepath.Join(repoRoot, dir)
+		if _, err := os.Stat(filepath.Join(absDir, "oh-package.json5")); err == nil {
 			return true
+		}
+		// Sub-repo boundary: if current dir is itself a git repo and
+		// is not the repoRoot, stop the walk. Going further would
+		// peek into a sibling sub-repo's tree, which is the leak we
+		// are guarding against. `.git` may be a directory (independent
+		// repo) or a regular file (worktree/submodule pointer) — both
+		// count as boundaries.
+		if dir != "." && dir != "" {
+			if _, err := os.Stat(filepath.Join(absDir, ".git")); err == nil {
+				return false
+			}
 		}
 		next := filepath.Dir(dir)
 		if next == dir || next == "." || next == string(os.PathSeparator) {
