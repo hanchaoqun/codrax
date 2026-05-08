@@ -1256,6 +1256,42 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	if o.multiRepoSnapshotProvider != nil {
 		o.busCtx.SubRepos, o.busCtx.PendingSubRepos = o.multiRepoSnapshotProvider()
 	}
+	// Phase 4.F routing fold (design §3.5). Pre-trim active set per
+	// Run so the typed-lane queries hit a deterministic, focus-aware
+	// subset. Channels at Run entry:
+	//   A — REPL /repos focus (mg.FocusSlugs)
+	//   D — heuristic language affinity from request keywords
+	//   E — FileCount desc fallback
+	// Channels B (analyzer.RequiredFiles) + C (log frame files) are
+	// applied incrementally: log_triage's validateFrame triggers
+	// EnsureLoadedFor when a frame resolves to an inactive sub-repo,
+	// and the analyzer post-emit hook does the same for RequiredFiles.
+	// Single-repo posture short-circuits inside RouteActiveSet.
+	if mg, _ := o.busCtx.MultiGraph.(*multigraph.MultiGraph); mg != nil {
+		inputs := multigraph.RoutingInputs{
+			FocusSlugs:     mg.FocusSlugs(),
+			QueryLanguages: inferQueryLanguages(request),
+		}
+		decision := mg.RouteActiveSet(inputs)
+		if err := mg.EnsureMany(decision.Active); err != nil {
+			// Fail-loud per design §3.4 R3 — caller fold should have
+			// pre-trimmed; if we trip here, log and degrade to whatever
+			// loaded (single-repo fallback path stays consistent).
+			logging.Warning("multigraph: routing fold EnsureMany failed: %v", err)
+		}
+		// Refresh PendingSubRepos using the routing decision (more
+		// precise than the snapshot-time approximation — surfaces the
+		// sub-repos the fold deliberately left out).
+		if len(decision.Inactive) > 0 {
+			pendingNames := make([]string, 0, len(decision.Inactive))
+			for _, slug := range decision.Inactive {
+				if sr := mg.Topology().SubRepoBySlug(slug); sr != nil {
+					pendingNames = append(pendingNames, sr.RootRel)
+				}
+			}
+			o.busCtx.PendingSubRepos = pendingNames
+		}
+	}
 	// Phase 6 multi-repo telemetry. One log line at Run exit so
 	// operators see resident sub-repo count, eviction pressure, and
 	// thrashing state without having to enable a special debug mode.

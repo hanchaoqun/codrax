@@ -548,6 +548,162 @@ func TestMultiGraph_IterateFileIndex(t *testing.T) {
 	}
 }
 
+// === Routing fold (channels A/B/C/D/E) ===
+
+func TestMultiGraph_RouteActiveSet_Single(t *testing.T) {
+	g := makeGraph("only", []string{"main.go"}, nil)
+	build := func(_, _ string) (*rmtypes.Graph, error) { return g, nil }
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "only-aa", RootAbs: "/parent", RootRel: ".", FileCount: 100},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build})
+	dec := mg.RouteActiveSet(RoutingInputs{})
+	if len(dec.Active) != 1 || dec.Active[0] != "only-aa" {
+		t.Errorf("single-repo route should return [only-aa], got %v", dec.Active)
+	}
+	if dec.Reasons["only-aa"] != "S" {
+		t.Errorf("expected reason S (single), got %q", dec.Reasons["only-aa"])
+	}
+}
+
+func TestMultiGraph_RouteActiveSet_FocusPin(t *testing.T) {
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		return makeGraph(root, []string{"x.go"}, nil), nil
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "a", RootAbs: "/parent/a", RootRel: "a", FileCount: 100},
+		{Slug: "b", RootAbs: "/parent/b", RootRel: "b", FileCount: 50},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 1})
+	// Focus pin "b" — even though "a" is bigger (channel E preference),
+	// channel A (focus) wins.
+	dec := mg.RouteActiveSet(RoutingInputs{FocusSlugs: []string{"b"}})
+	if len(dec.Active) != 1 || dec.Active[0] != "b" {
+		t.Errorf("focus pin should force b active, got %v", dec.Active)
+	}
+	if dec.Reasons["b"] != "A" {
+		t.Errorf("expected reason A (focus), got %q", dec.Reasons["b"])
+	}
+}
+
+func TestMultiGraph_RouteActiveSet_RequiredFiles(t *testing.T) {
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		return makeGraph(root, []string{"x.go"}, nil), nil
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "a", RootAbs: "/parent/a", RootRel: "a", FileCount: 50},
+		{Slug: "b", RootAbs: "/parent/b", RootRel: "b", FileCount: 100},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 1})
+	// Channel B: RequiredFiles → owning sub-repo. With cap=1 and "a"
+	// matching, "a" wins over "b" (which would have won channel E).
+	dec := mg.RouteActiveSet(RoutingInputs{
+		RequiredFiles: []string{"a/main.go"},
+	})
+	if len(dec.Active) != 1 || dec.Active[0] != "a" {
+		t.Errorf("RequiredFiles channel B should pick a, got %v", dec.Active)
+	}
+	if dec.Reasons["a"] != "B" {
+		t.Errorf("expected reason B, got %q", dec.Reasons["a"])
+	}
+}
+
+func TestMultiGraph_RouteActiveSet_LogFrameFiles(t *testing.T) {
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		return makeGraph(root, []string{"x.go"}, nil), nil
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "a", RootAbs: "/parent/a", RootRel: "a"},
+		{Slug: "b", RootAbs: "/parent/b", RootRel: "b"},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 2})
+	dec := mg.RouteActiveSet(RoutingInputs{
+		LogFrameFiles: []string{"a/main.go", "b/lib.rs"},
+	})
+	if len(dec.Active) != 2 {
+		t.Errorf("expected 2 active, got %d", len(dec.Active))
+	}
+	for _, slug := range dec.Active {
+		if dec.Reasons[slug] != "C" {
+			t.Errorf("expected reason C for %s, got %q", slug, dec.Reasons[slug])
+		}
+	}
+}
+
+func TestMultiGraph_RouteActiveSet_LanguageAffinity(t *testing.T) {
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		return makeGraph(root, []string{"x.go"}, nil), nil
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "a-go", RootAbs: "/parent/a", RootRel: "a", PrimaryLangs: []string{"go"}, FileCount: 50},
+		{Slug: "b-rs", RootAbs: "/parent/b", RootRel: "b", PrimaryLangs: []string{"rust"}, FileCount: 50},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 1})
+	dec := mg.RouteActiveSet(RoutingInputs{
+		QueryLanguages: []string{"rust"},
+	})
+	// Channel D should pick b-rs (rust matches).
+	if len(dec.Active) != 1 || dec.Active[0] != "b-rs" {
+		t.Errorf("language affinity should pick b-rs, got %v", dec.Active)
+	}
+	if dec.Reasons["b-rs"] != "D" {
+		t.Errorf("expected reason D, got %q", dec.Reasons["b-rs"])
+	}
+}
+
+func TestMultiGraph_RouteActiveSet_FallbackBiggest(t *testing.T) {
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		return makeGraph(root, []string{"x.go"}, nil), nil
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "a", RootAbs: "/parent/a", RootRel: "a", FileCount: 50},
+		{Slug: "b", RootAbs: "/parent/b", RootRel: "b", FileCount: 200},
+		{Slug: "c", RootAbs: "/parent/c", RootRel: "c", FileCount: 100},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 2})
+	// No A/B/C/D inputs — channel E (FileCount desc) picks b (200), c (100).
+	dec := mg.RouteActiveSet(RoutingInputs{})
+	if len(dec.Active) != 2 {
+		t.Fatalf("expected 2 active, got %d", len(dec.Active))
+	}
+	hasB, hasC := false, false
+	for _, slug := range dec.Active {
+		if slug == "b" {
+			hasB = true
+		}
+		if slug == "c" {
+			hasC = true
+		}
+	}
+	if !hasB || !hasC {
+		t.Errorf("expected b+c active (biggest), got %v", dec.Active)
+	}
+}
+
+func TestMultiGraph_RouteActiveSet_OverflowDrop(t *testing.T) {
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		return makeGraph(root, []string{"x.go"}, nil), nil
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "a", RootAbs: "/parent/a", RootRel: "a"},
+		{Slug: "b", RootAbs: "/parent/b", RootRel: "b"},
+		{Slug: "c", RootAbs: "/parent/c", RootRel: "c"},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 1})
+	dec := mg.RouteActiveSet(RoutingInputs{
+		RequiredFiles: []string{"a/x.go", "b/x.go", "c/x.go"},
+	})
+	if len(dec.Active) != 1 {
+		t.Errorf("cap=1 should yield 1 active, got %d", len(dec.Active))
+	}
+	if len(dec.OverflowDrop) != 2 {
+		t.Errorf("expected 2 overflow dropped slugs, got %v", dec.OverflowDrop)
+	}
+	if len(dec.Inactive) != 2 {
+		t.Errorf("expected 2 inactive, got %v", dec.Inactive)
+	}
+}
+
 // === ImportEdges flatten ===
 
 func TestMultiGraph_ImportEdgesPrefixed(t *testing.T) {

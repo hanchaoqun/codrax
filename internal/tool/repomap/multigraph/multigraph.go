@@ -745,6 +745,200 @@ func (m *MultiGraph) SetCap(n int) {
 	}
 }
 
+// === Routing fold (design §3.5 channels A/B/C/D/E) ===
+
+// RoutingInputs aggregates the signals the routing fold consumes to
+// pick the active sub-repo set. Empty fields are tolerated; the fold
+// degrades through channels in priority order.
+type RoutingInputs struct {
+	// FocusSlugs are user-pinned slugs (REPL /repos focus). Channel A —
+	// MUST be in the active set (caller responsibility to keep within Cap).
+	FocusSlugs []string
+
+	// RequiredFiles are paths-from-parent the analyzer asked for
+	// (MutableState.exactContextRequiredFiles). Channel B — precise.
+	RequiredFiles []string
+
+	// LogFrameFiles are file paths from log-triage frame.File
+	// (paths-from-parent). Channel C — precise.
+	LogFrameFiles []string
+
+	// QueryLanguages are the languages the user's query implies
+	// (e.g., "Go-only question" → ["go"]). Channel D — noisy rank.
+	QueryLanguages []string
+}
+
+// RoutingDecision is the fold's output. Active is the slug list to
+// EnsureMany; SubRepoFocus reasons map slug → channel-letter for
+// telemetry. Inactive is the slugs NOT chosen (becomes
+// PendingSubRepoNames in BusContext).
+type RoutingDecision struct {
+	Active       []string
+	Reasons      map[string]string // slug → "A"|"B"|"C"|"D"|"E"
+	Inactive     []string
+	OverflowDrop []string // slugs that channels B/C wanted but cap excluded
+}
+
+// RouteActiveSet folds the inputs into an Active slug list bounded
+// by Cap. Channel priority A > B > C > D > E. Pre-trim guarantees
+// EnsureMany never returns ErrTooManyActive on the fold's output —
+// the cap fail-loud is a defense-in-depth.
+//
+// Single-repo posture short-circuits to {parent-slug} regardless of
+// inputs. Multi-repo: walks channels in priority order, dedupes,
+// trims to Cap.
+func (m *MultiGraph) RouteActiveSet(inputs RoutingInputs) RoutingDecision {
+	if m == nil || m.topo == nil {
+		return RoutingDecision{}
+	}
+	cap := m.Cap()
+	if cap <= 0 {
+		cap = 3
+	}
+
+	// Single-repo fast path.
+	if m.IsSingle() {
+		slug := m.topo.Repos[0].Slug
+		return RoutingDecision{
+			Active:  []string{slug},
+			Reasons: map[string]string{slug: "S"}, // single-repo
+		}
+	}
+
+	type entry struct {
+		slug   string
+		reason string
+	}
+	seen := make(map[string]string, cap*2)
+	addUnique := func(slug, reason string) {
+		if _, ok := seen[slug]; ok {
+			return
+		}
+		// Verify slug exists in topology (defense against stale focus pins).
+		if m.topo.SubRepoBySlug(slug) == nil {
+			return
+		}
+		seen[slug] = reason
+	}
+
+	// A — focus pins (must be active; over-cap is operator error).
+	for _, slug := range inputs.FocusSlugs {
+		addUnique(slug, "A")
+	}
+	// B — analyzer's RequiredFiles (precise).
+	var bSlugs []string
+	for _, rel := range inputs.RequiredFiles {
+		if sr := m.topo.Lookup(rel); sr != nil {
+			if _, ok := seen[sr.Slug]; !ok {
+				bSlugs = append(bSlugs, sr.Slug)
+			}
+			addUnique(sr.Slug, "B")
+		}
+	}
+	// C — log frame files (precise).
+	var cSlugs []string
+	for _, rel := range inputs.LogFrameFiles {
+		if sr := m.topo.Lookup(rel); sr != nil {
+			if _, ok := seen[sr.Slug]; !ok {
+				cSlugs = append(cSlugs, sr.Slug)
+			}
+			addUnique(sr.Slug, "C")
+		}
+	}
+	// D — language affinity (noisy rank).
+	if len(inputs.QueryLanguages) > 0 {
+		langSet := make(map[string]bool, len(inputs.QueryLanguages))
+		for _, l := range inputs.QueryLanguages {
+			langSet[l] = true
+		}
+		for _, sr := range m.topo.Repos {
+			for _, lang := range sr.PrimaryLangs {
+				if langSet[lang] {
+					addUnique(sr.Slug, "D")
+					break
+				}
+			}
+		}
+	}
+	// E — biggest-first fallback (noisy).
+	if len(seen) < cap {
+		bySize := make([]topology.SubRepo, len(m.topo.Repos))
+		copy(bySize, m.topo.Repos)
+		// Stable sort by FileCount desc (largest first).
+		for i := 0; i < len(bySize); i++ {
+			for j := i + 1; j < len(bySize); j++ {
+				if bySize[j].FileCount > bySize[i].FileCount {
+					bySize[i], bySize[j] = bySize[j], bySize[i]
+				}
+			}
+		}
+		for _, sr := range bySize {
+			if len(seen) >= cap {
+				break
+			}
+			addUnique(sr.Slug, "E")
+		}
+	}
+
+	// Trim to cap (preserving channel priority — earlier-added wins).
+	// Walk topology repos in fixed order to make the trimming stable
+	// across runs (no map iteration ordering surprises).
+	active := make([]string, 0, cap)
+	overflow := make([]string, 0)
+	reasons := make(map[string]string, cap)
+
+	// First pass: emit A entries (always, even if over cap).
+	for slug, reason := range seen {
+		if reason == "A" {
+			active = append(active, slug)
+			reasons[slug] = reason
+		}
+	}
+	// Second pass: emit B/C (precise) up to cap.
+	addRest := func(want string) {
+		if len(active) >= cap {
+			return
+		}
+		// Walk topology in order so emission is stable.
+		for _, sr := range m.topo.Repos {
+			if r, ok := seen[sr.Slug]; ok && r == want {
+				if _, already := reasons[sr.Slug]; already {
+					continue
+				}
+				if len(active) >= cap {
+					overflow = append(overflow, sr.Slug)
+					continue
+				}
+				active = append(active, sr.Slug)
+				reasons[sr.Slug] = want
+			}
+		}
+	}
+	addRest("B")
+	addRest("C")
+	addRest("D")
+	addRest("E")
+
+	// Build inactive list.
+	inactive := make([]string, 0, len(m.topo.Repos)-len(active))
+	activeSet := make(map[string]bool, len(active))
+	for _, slug := range active {
+		activeSet[slug] = true
+	}
+	for _, sr := range m.topo.Repos {
+		if !activeSet[sr.Slug] {
+			inactive = append(inactive, sr.Slug)
+		}
+	}
+
+	return RoutingDecision{
+		Active:       active,
+		Reasons:      reasons,
+		Inactive:     inactive,
+		OverflowDrop: overflow,
+	}
+}
+
 // === Single-repo degenerate helper ===
 
 // Single returns the single-repo *Graph if IsSingle()==true, loading
