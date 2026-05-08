@@ -356,6 +356,17 @@ type appContext struct {
 	// starts skip the BFS walk when the parent's special-files
 	// fingerprint hasn't changed.
 	topology *topology.RepoTopology
+
+	// multiRepoEnabled mirrors codrax.yaml :: multi_repo_enabled
+	// (default true). When false, Phase 4 multigraph routing falls
+	// back to single-graph behaviour; discovery still runs because
+	// the REPL `/repos` command depends on it (it just shows a hint
+	// reminding the user the routing layer is disabled).
+	multiRepoEnabled bool
+
+	// multiRepoMaxActive mirrors codrax.yaml :: multi_repo_max_active
+	// (default 3). The LRU cap on resident sub-repo *Graphs.
+	multiRepoMaxActive int
 }
 
 var app appContext
@@ -1416,17 +1427,42 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	repomap.SetCacheDir(flagCacheDir)
 	logging.Info("paths: repo=%s log-dir=%s memory-dir=%s cache-dir=%s blob-session=%s", flagRepo, flagLogDir, flagMemoryDir, flagCacheDir, blobSessionDir)
 
-	// Multi-repo discovery (Phase 1.2). Always runs — the §3.3.1 fast
-	// path keeps single-repo cost at ~50µs (a single os.Stat for
-	// flagRepo/.git plus a sha256 over the abs path). Phase 2 will
-	// read codrax.yaml :: multi_repo_* knobs to drive Depth / MinFiles;
-	// for now they default to (4, 1). Phase 4 wires the result into
+	// Multi-repo discovery. Always runs — the §3.3.1 fast path keeps
+	// single-repo cost at ~50µs (one os.Stat for flagRepo/.git, one
+	// sha256 over the abs path). Phase 4 wires the result into
 	// BusContext / multigraph routing — until then this is a passive
-	// snapshot consumed by the REPL `/repos` command (Phase 2 commit 2).
+	// snapshot consumed by the REPL `/repos` command. Depth / MinFiles
+	// honour codrax.yaml :: multi_repo_discovery_depth and
+	// :: multi_repo_min_files (see internal/config/runtime.go); the
+	// `multi_repo_enabled` knob is read by Phase 4 wiring, not here —
+	// Discovery itself is unconditional (its product is informational
+	// to the REPL `/repos` command even when routing is disabled).
+	topoDepth := 4
+	topoMinFiles := 1
+	if rs != nil {
+		if rs.MultiRepoDiscoveryDepth != nil && *rs.MultiRepoDiscoveryDepth > 0 {
+			topoDepth = *rs.MultiRepoDiscoveryDepth
+		}
+		if rs.MultiRepoMinFiles != nil && *rs.MultiRepoMinFiles > 0 {
+			topoMinFiles = *rs.MultiRepoMinFiles
+		}
+	}
 	topoOpts := topology.Options{
-		Depth:         4,
-		MinFiles:      1,
+		Depth:         topoDepth,
+		MinFiles:      topoMinFiles,
 		RuntimeAnchor: runtimeAnchor,
+	}
+	// Resolve enabled + cap flags onto app — REPL Config and Phase 4
+	// multigraph wiring both read these. Default true / 3.
+	app.multiRepoEnabled = true
+	app.multiRepoMaxActive = 3
+	if rs != nil {
+		if rs.MultiRepoEnabled != nil {
+			app.multiRepoEnabled = *rs.MultiRepoEnabled
+		}
+		if rs.MultiRepoMaxActive != nil && *rs.MultiRepoMaxActive > 0 {
+			app.multiRepoMaxActive = *rs.MultiRepoMaxActive
+		}
 	}
 	parentSlug := repomapindex.CacheDirSlug(flagRepo)
 	if topo, err := topology.LoadOrDiscover(flagRepo, runtimeAnchor, topoOpts, parentSlug); err == nil && topo != nil {

@@ -586,6 +586,48 @@ type RuntimeSettings struct {
 	// 20.
 	WorktreeKeepMaxCount *int `yaml:"worktree_keep_max_count"`
 
+	// Multi-repo discovery + lazy-load knobs (design v2).
+	//
+	// Codrax can treat a parent directory containing N independent
+	// git repos as a single workspace, with per-sub-repo Graph
+	// isolation routed through a multigraph carrier. The default
+	// posture is on (`multi_repo_enabled: true`) — single-repo
+	// users hit a §3.3.1 fast path with ~50µs added overhead
+	// (one os.Stat for parent/.git, one sha256 over the abs path)
+	// so the correctness of the multi-repo posture is the default
+	// and disabling is opt-out for users who intentionally want
+	// pre-multi-repo behaviour for diagnostic purposes.
+	//
+	// MultiRepoEnabled mirrors `multi_repo_enabled`. nil → true.
+	// false disables BusContext multigraph routing (the discovery
+	// snapshot still runs because the REPL `/repos` command + the
+	// fast-path single-repo case rely on it; cost is the same
+	// ~50µs).
+	MultiRepoEnabled *bool `yaml:"multi_repo_enabled"`
+
+	// MultiRepoMaxActive caps how many sub-repo *Graphs may be
+	// resident in the multigraph LRU at once. Eviction is LRU.
+	// Routing fold (design §3.5) pre-trims candidates to this cap;
+	// EnsureMany is a defence-in-depth fail-loud for callers that
+	// bypass routing. Default 3.
+	MultiRepoMaxActive *int `yaml:"multi_repo_max_active"`
+
+	// MultiRepoDiscoveryDepth caps how deep the parent-directory
+	// BFS walk goes when searching for `.git` boundaries. 0
+	// inherits the default 4, which covers `mono/<group>/<repo>`
+	// (3 levels) plus a safety margin. Operators with deeper
+	// monorepo layouts can raise it; raising past 6 starts to make
+	// node_modules-heavy trees expensive even with the
+	// IsExcludedDirName prune.
+	MultiRepoDiscoveryDepth *int `yaml:"multi_repo_discovery_depth"`
+
+	// MultiRepoMinFiles drops sub-repos whose Tier-1 file count is
+	// below this threshold. Default 1 (only purely-empty roots
+	// dropped). Useful when a parent contains many small `.git`
+	// fixture dirs (test artefacts) that should not pollute the
+	// active set.
+	MultiRepoMinFiles *int `yaml:"multi_repo_min_files"`
+
 	// RepomapTierWarnRatio is the soft floor: per-language Tier-2+
 	// fall-through ratio at which the repomap reporter emits an
 	// INFO line ("trending toward extractor maintenance"). 0
