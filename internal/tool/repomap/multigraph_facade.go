@@ -141,20 +141,8 @@ func GraphFromBusContextOrLoad(ctx *types.BusContext, repoRoot, query string) (*
 		if mg.IsSingle() {
 			return mg.Single()
 		}
-		// Multi-repo posture: pick the largest sub-repo as a "primary"
-		// for this caller until the raw consumer migration lands. The
-		// MultiGraph has the topology and active LRU; we EnsureLoaded
-		// the largest sub-repo (by FileCount) and return its graph.
-		// This keeps single-repo behaviour byte-equivalent and gives
-		// multi-repo callers a deterministic best-effort answer.
 		if topo := mg.Topology(); topo != nil && len(topo.Repos) > 0 {
-			best := &topo.Repos[0]
-			for i := range topo.Repos {
-				if topo.Repos[i].FileCount > best.FileCount {
-					best = &topo.Repos[i]
-				}
-			}
-			return mg.EnsureLoaded(best.Slug)
+			return mg.EnsureLoaded(pickPrimarySubRepo(mg, topo).Slug)
 		}
 	}
 	if repoRoot == "" {
@@ -171,17 +159,59 @@ func GraphFromAgentContextOrLoad(ctx *types.AgentContext, repoRoot, query string
 			return mg.Single()
 		}
 		if topo := mg.Topology(); topo != nil && len(topo.Repos) > 0 {
-			best := &topo.Repos[0]
-			for i := range topo.Repos {
-				if topo.Repos[i].FileCount > best.FileCount {
-					best = &topo.Repos[i]
-				}
-			}
-			return mg.EnsureLoaded(best.Slug)
+			return mg.EnsureLoaded(pickPrimarySubRepo(mg, topo).Slug)
 		}
 	}
 	if repoRoot == "" {
 		return nil, fmt.Errorf("repomap: no MultiGraph and empty repoRoot")
 	}
 	return BuildOrLoadGraph(repoRoot, query)
+}
+
+// pickPrimarySubRepo returns the SubRepo a "best-effort single
+// graph" caller should EnsureLoad. The pre-2026-05-08 helper picked
+// the largest sub-repo by FileCount unconditionally — which ignored
+// operator focus pins and silently scanned a non-pinned sub-repo
+// when the user had pinned smaller ones. The fixed selection is:
+//
+//  1. If the operator has pinned ≥1 sub-repo (mg.FocusSlugs), pick
+//     the largest pinned one. Honours user intent: "I only want
+//     these sub-repos investigated" without exception.
+//  2. Otherwise (no pin), fall back to the largest sub-repo in
+//     topology — preserves the historical best-effort behaviour
+//     for unpinned multi-repo workspaces.
+//
+// Single-repo callers never reach this path (mg.IsSingle short-
+// circuits above). Empty topology is impossible at this site
+// (caller already gates on len(Repos) > 0).
+func pickPrimarySubRepo(mg *multigraph.MultiGraph, topo *topology.RepoTopology) *topology.SubRepo {
+	pinned := mg.FocusSlugs()
+	if len(pinned) > 0 {
+		pinSet := make(map[string]bool, len(pinned))
+		for _, s := range pinned {
+			pinSet[s] = true
+		}
+		var best *topology.SubRepo
+		for i := range topo.Repos {
+			if !pinSet[topo.Repos[i].Slug] {
+				continue
+			}
+			if best == nil || topo.Repos[i].FileCount > best.FileCount {
+				best = &topo.Repos[i]
+			}
+		}
+		if best != nil {
+			return best
+		}
+		// No matching pin found in topology (stale pin set); fall
+		// through to the unpinned-largest path so the helper still
+		// returns a sub-repo rather than nil.
+	}
+	best := &topo.Repos[0]
+	for i := range topo.Repos {
+		if topo.Repos[i].FileCount > best.FileCount {
+			best = &topo.Repos[i]
+		}
+	}
+	return best
 }

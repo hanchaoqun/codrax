@@ -498,18 +498,42 @@ func (o *Orchestrator) SetEmitter(emit render.EventEmitter) {
 // Safe to call before SetEmitter: emit defaults to render.NopEmitter,
 // so the call quietly drops if the emitter has not been wired yet
 // (single-shot tests / partial-init paths).
+//
+// 2026-05-08 fix (Phase 4 lang regression): read o.language directly
+// instead of o.busCtx.Language. The routing fold runs at Run entry
+// BEFORE Run sets `o.busCtx.Language = o.language` (orchestrator.go:
+// 1476), so scans triggered by the routing fold's EnsureMany — i.e.
+// the operator's pinned sub-repos — fired with an empty
+// busCtx.Language and dropped to the English fallback even when
+// --lang=zh. Mid-Run scans (post-line-1476) saw the populated
+// busCtx.Language and rendered Chinese correctly. The mixed-language
+// surface hid two issues at once. Reading o.language (set once at
+// SetLanguage time and stable across the orchestrator's lifetime)
+// removes the dependency on per-Run timing.
 func (o *Orchestrator) EmitMultiRepoScanNotice(rootRel, slug string, started, ok bool, elapsedMs int64) {
 	if o == nil || o.emit == nil {
 		return
 	}
+	lang := o.language
+	if lang == "" && o.busCtx != nil {
+		// Defensive fallback for any caller that constructs an
+		// Orchestrator without SetLanguage. Should not fire in
+		// production paths because cmd/root.go always calls
+		// SetLanguage before any Run.
+		lang = o.busCtx.Language
+	}
 	var noticeKind render.OrchestratorNoticeKind
 	var msg string
-	if started {
+	switch {
+	case started:
 		noticeKind = render.NoticeMultiRepoScanStart
-		msg = multiRepoScanStartMessage(o.busCtx.Language, rootRel)
-	} else {
-		noticeKind = render.NoticeMultiRepoScanEnd
-		msg = multiRepoScanEndMessage(o.busCtx.Language, rootRel, elapsedMs, ok)
+		msg = multiRepoScanStartMessage(lang, rootRel)
+	case ok:
+		noticeKind = render.NoticeMultiRepoScanOK
+		msg = multiRepoScanEndMessage(lang, rootRel, elapsedMs, true)
+	default:
+		noticeKind = render.NoticeMultiRepoScanFail
+		msg = multiRepoScanEndMessage(lang, rootRel, elapsedMs, false)
 	}
 	o.emit(render.Event{
 		Kind:       render.EventOrchestratorNotice,

@@ -259,32 +259,40 @@ func TestSoftMessages_NoVisualShockSymbols(t *testing.T) {
 // =====================================================================
 
 // TestMultiRepoScanMessages_NoticeStyle pins the scan-progress
-// notice strings to the SAME visual style as the rest of the soft-
-// notice family (softForcedReadMessage / softConvergenceStallMessage /
-// softInvestigationReadyMessage):
+// notice strings to the canonical glyph semantics (operator
+// feedback, 2026-05-08 audit):
 //
-//	⟳ <prose>   active work    (canonical glyphRecoverable)
-//	· <prose>   info milestone  (canonical glyphWarning)
-//	✗ <prose>   failure         (canonical glyphFatal)
+//	⟳ <prose>   RETRY only          (planner regenerate, apply re-run, …)
+//	· <prose>   in-progress         (canonical glyphPending)
+//	✓ <prose>   milestone complete  (canonical glyphSuccess)
+//	✗ <prose>   failure             (canonical glyphFatal)
 //
-// All three runes are in status_tokens.go's canonical set so
-// peelGlyphPrefix recognises them and the dock applies the bucket
-// palette to the glyph + the muted body palette to the prose.
+// First-time scan is in-progress (NOT a retry) → · for start, ✓
+// for ok end, ✗ for fail. ⟳ MUST NOT appear here — that would
+// false-signal "we are retrying the scan" to the operator.
+//
 // Localisation parity check across zh / en.
 func TestMultiRepoScanMessages_NoticeStyle(t *testing.T) {
 	for _, lang := range []string{"en", "zh"} {
 		start := multiRepoScanStartMessage(lang, "repo-x")
 		endOK := multiRepoScanEndMessage(lang, "repo-x", 1234, true)
 		endFail := multiRepoScanEndMessage(lang, "repo-x", 1234, false)
-		// Glyph contract — match the soft-notice family.
-		if !strings.HasPrefix(start, "⟳ ") {
-			t.Errorf("%s: scan-start %q must start with \"⟳ \" (active-work glyph)", lang, start)
+		// Glyph contract.
+		if !strings.HasPrefix(start, "· ") {
+			t.Errorf("%s: scan-start %q must start with \"· \" (in-progress glyph, NOT ⟳ which is retry-only)", lang, start)
 		}
-		if !strings.HasPrefix(endOK, "· ") {
-			t.Errorf("%s: scan-end-ok %q must start with \"· \" (info-class glyph)", lang, endOK)
+		if !strings.HasPrefix(endOK, "✓ ") {
+			t.Errorf("%s: scan-end-ok %q must start with \"✓ \" (canonical success rune)", lang, endOK)
 		}
 		if !strings.HasPrefix(endFail, "✗ ") {
 			t.Errorf("%s: scan-end-fail %q must start with \"✗ \" (canonical fatal rune)", lang, endFail)
+		}
+		// Forbid the retry glyph anywhere in the scan messages —
+		// scans are first-time data loads, not retries.
+		for _, m := range []string{start, endOK, endFail} {
+			if strings.Contains(m, "⟳") {
+				t.Errorf("%s: %q leaks the retry glyph ⟳; first-time scans must not signal retry to the operator", lang, m)
+			}
 		}
 		// Sub-repo path wrapped in backticks (consistent with
 		// abandonForcedReadMessage and other path-bearing notices).
@@ -303,7 +311,7 @@ func TestMultiRepoScanMessages_NoticeStyle(t *testing.T) {
 		}
 		// Localisation parity — zh / en messages MUST differ once
 		// the leading glyph is removed (otherwise the lang switch
-		// is a no-op).
+		// is a no-op and a zh user reads English).
 		strip := func(s string) string {
 			runes := []rune(s)
 			if len(runes) <= 2 {

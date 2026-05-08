@@ -1278,14 +1278,7 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		NoticeSelfConsistencyStart,
 		NoticeSelfConsistencyContradictionRewriting,
 		NoticeNoToolCall,
-		NoticeProceedingWithoutExtract,
-		// Multi-repo scan-start sits in the same retry-class
-		// bucket as forced-read: an active "still working" cue
-		// the operator should see as "the system is filling in
-		// data" rather than a quiet info note. Scan-end (OK) and
-		// scan-fail stay in the default statusMeta bucket — the
-		// rune (· vs ✗) carries the success / failure signal.
-		NoticeMultiRepoScanStart:
+		NoticeProceedingWithoutExtract:
 		return statusRecoverable
 	case NoticeYieldKill, NoticeFallbackFailLoud:
 		// Fallback-terminal: we have stopped trying. Yellow on the
@@ -1295,6 +1288,21 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		return statusWarningMuted
 	case NoticeInvestigationReady:
 		return statusObjective
+	case NoticeMultiRepoScanOK:
+		// Match the canonical glyphSuccess (✓) / statusSuccessMuted
+		// (FgGreen) pairing already used by the dock state row's
+		// "stage finished OK" tick — the operator sees the same
+		// green ✓ for both a completed stage and a completed sub-
+		// repo scan, so the success palette stays consistent across
+		// the dock chrome.
+		return statusSuccessMuted
+	case NoticeMultiRepoScanFail:
+		// Match the canonical glyphFatal (✗) / statusFatal (FgRed)
+		// pairing used by the dock state row's "stage finished with
+		// fatal error" marker. A failed sub-repo scan is genuinely
+		// fatal for that sub-repo's evidence — surfacing the red
+		// keeps the colour vocabulary coherent across the dock.
+		return statusFatal
 	}
 	return statusMeta
 }
@@ -1405,11 +1413,7 @@ func softNoticeBodyStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		NoticeSelfConsistencyStart,
 		NoticeSelfConsistencyContradictionRewriting,
 		NoticeNoToolCall,
-		NoticeProceedingWithoutExtract,
-		// Multi-repo scan-start: same retry-class body treatment —
-		// glyph keeps the yellow tint, prose dims so a 50+ sub-repo
-		// scan sequence doesn't fill the dock with loud text.
-		NoticeMultiRepoScanStart:
+		NoticeProceedingWithoutExtract:
 		return statusPrimaryDone
 	case NoticeYieldKill, NoticeFallbackFailLoud:
 		// Fallback-terminal: glyph picks up the yellow tint; the

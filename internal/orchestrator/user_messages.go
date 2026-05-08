@@ -392,30 +392,33 @@ func softProceedingWithoutExtractMessage(lang string) string {
 // multiRepoScanStartMessage / multiRepoScanEndMessage render the
 // user-visible push lines for Phase 4 multi-repo scan progress.
 //
-// Style mirrors the existing investigation-progress notice family
-// (softForcedReadMessage / softConvergenceStallMessage /
-// softInvestigationReadyMessage):
+// 2026-05-08 glyph audit (operator feedback):
 //
-//	⟳ <active work>     — yellow glyph + dim body, "still working"
-//	· <milestone done>  — gray glyph + dim body, info-class
-//	✗ <failure>         — gray glyph + dim body, rune carries the signal
+//	⟳ (yellow rotation arrow) → RETRY ONLY (planner regenerate /
+//	                            apply re-run / verify re-run /
+//	                            answer rewrite). NOT a generic
+//	                            "in-progress" cue.
+//	· (gray dot)              → in-progress. The system is doing
+//	                            work that has not yet completed.
+//	✓ (checkmark)             → milestone complete (success).
+//	✗ (cross)                 → failure / scan errored.
 //
-// Concretely:
+// First-time scan is in-progress (NOT a retry). Concrete shapes:
 //
-//	⟳ 正在扫描子仓 `repo-x`           / ⟳ Scanning sub-repo `repo-x`
-//	· 子仓 `repo-x` 已就绪 (1.2s)      / · Sub-repo `repo-x` ready (1.2s)
+//	· 正在扫描子仓 `repo-x`           / · Scanning sub-repo `repo-x`
+//	✓ 子仓 `repo-x` 已就绪 (1.2s)      / ✓ Sub-repo `repo-x` ready (1.2s)
 //	✗ 子仓 `repo-x` 扫描失败 (820ms)   / ✗ Sub-repo `repo-x` scan failed (820ms)
 //
-// The runes live in status_tokens.go's canonical set so
+// All three runes are in status_tokens.go's canonical set so
 // peelGlyphPrefix splits glyph from body and the dock applies the
 // bucket palette to the glyph + the muted prose palette to the body
 // — same treatment as the rest of the soft-notice family. Bilingual
 // zh / en parity preserved.
 func multiRepoScanStartMessage(lang, rootRel string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 正在扫描子仓 `" + rootRel + "`"
+		return "· 正在扫描子仓 `" + rootRel + "`"
 	}
-	return "⟳ Scanning sub-repo `" + rootRel + "`"
+	return "· Scanning sub-repo `" + rootRel + "`"
 }
 
 func multiRepoScanEndMessage(lang, rootRel string, elapsedMs int64, ok bool) string {
@@ -428,9 +431,9 @@ func multiRepoScanEndMessage(lang, rootRel string, elapsedMs int64, ok bool) str
 		return "✗ Sub-repo `" + rootRel + "` scan failed (" + elapsed + ")"
 	}
 	if zh {
-		return "· 子仓 `" + rootRel + "` 已就绪 (" + elapsed + ")"
+		return "✓ 子仓 `" + rootRel + "` 已就绪 (" + elapsed + ")"
 	}
-	return "· Sub-repo `" + rootRel + "` ready (" + elapsed + ")"
+	return "✓ Sub-repo `" + rootRel + "` ready (" + elapsed + ")"
 }
 
 // formatScanElapsed renders the per-sub-repo scan duration for the
