@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -205,15 +207,34 @@ func (m *MultiGraph) EnsureLoaded(slug string) (*rmtypes.Graph, error) {
 	// build is bounded by the per-sub-repo cache (warm second
 	// run is ms-class), so this serialisation does not hurt
 	// throughput in practice.
+	//
+	// Phase 2 (2026-05-08): Log per-sub-repo scan start + end with
+	// the human-readable RootRel and the slug — without these the
+	// only "repo_map: full scan / cache hit" lines from the build
+	// helper carry no sub-repo identifier, leaving operators with
+	// 50+ sub-repo workspaces unable to correlate timing back to a
+	// specific sub-repo when the REPL appears stuck on
+	// "preparing pipeline".
+	scanStart := time.Now()
+	logging.Info("multigraph: scanning sub-repo %s (slug=%s)", sr.RootRel, slug)
 	g, err := m.build(sr.RootAbs, m.query)
 	if err != nil {
+		elapsedMs := time.Since(scanStart).Milliseconds()
+		logging.Warning("multigraph: scan failed sub-repo %s (slug=%s) elapsed=%dms err=%v",
+			sr.RootRel, slug, elapsedMs, err)
 		m.mu.Unlock()
 		return nil, fmt.Errorf("multigraph.EnsureLoaded(%s): %w", slug, err)
 	}
 	if g == nil {
+		elapsedMs := time.Since(scanStart).Milliseconds()
+		logging.Warning("multigraph: scan returned nil graph sub-repo %s (slug=%s) elapsed=%dms",
+			sr.RootRel, slug, elapsedMs)
 		m.mu.Unlock()
 		return nil, fmt.Errorf("multigraph.EnsureLoaded(%s): build returned nil graph", slug)
 	}
+	elapsedMs := time.Since(scanStart).Milliseconds()
+	logging.Info("multigraph: scan complete sub-repo %s (slug=%s) elapsed=%dms",
+		sr.RootRel, slug, elapsedMs)
 	evictedSlug, _, evicted := m.active.Put(slug, g)
 	if evicted {
 		m.thrash.Record()
