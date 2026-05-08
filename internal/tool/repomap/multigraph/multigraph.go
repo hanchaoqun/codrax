@@ -527,6 +527,42 @@ func (m *MultiGraph) FocusSlugs() []string {
 	return out
 }
 
+// SetFocus replaces the user-pinned slug set. Called by the REPL
+// when /repos focus / /repos unfocus changes pinning between Runs.
+// Concurrency-safe; mutating mid-Run is allowed but the routing fold
+// only consults FocusSlugs at Run entry, so the change takes effect
+// at the next Run.
+func (m *MultiGraph) SetFocus(slugs []string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.focusSet = make(map[string]bool, len(slugs))
+	for _, s := range slugs {
+		m.focusSet[s] = true
+	}
+}
+
+// SetCap resizes the LRU active-set ceiling. The new cap takes
+// effect on the NEXT Put — already-resident graphs are not evicted
+// just because the cap shrank. Operators raising the cap see the
+// extra capacity available immediately. Operators lowering the cap
+// see the LRU bleed off as eviction triggers naturally.
+//
+// Single-repo posture ignores the call (cap stays 1).
+func (m *MultiGraph) SetCap(n int) {
+	if m == nil || n <= 0 {
+		return
+	}
+	if m.IsSingle() {
+		return
+	}
+	if m.active != nil {
+		m.active.SetCap(n)
+	}
+}
+
 // === Single-repo degenerate helper ===
 
 // Single returns the single-repo *Graph if IsSingle()==true, loading

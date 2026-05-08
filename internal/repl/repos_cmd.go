@@ -120,23 +120,35 @@ func (r *REPL) printReposList() {
 
 func (r *REPL) reposFocus(slug string) {
 	r.multiRepoMu.Lock()
-	defer r.multiRepoMu.Unlock()
 	if r.topology == nil || r.topology.SubRepoBySlug(slug) == nil {
+		r.multiRepoMu.Unlock()
 		r.warn("/repos focus: no sub-repo with slug %q (run /repos to list)", slug)
 		return
 	}
 	r.multiRepoFocus[slug] = true
+	pinned := keysOf(r.multiRepoFocus)
+	cb := r.onMultiRepoFocusChange
+	r.multiRepoMu.Unlock()
+	if cb != nil {
+		cb(pinned)
+	}
 	r.info(fmt.Sprintf("/repos focus: pinned %s (will stay active across turns until /repos unfocus)", slug))
 }
 
 func (r *REPL) reposUnfocus(slug string) {
 	r.multiRepoMu.Lock()
-	defer r.multiRepoMu.Unlock()
 	if !r.multiRepoFocus[slug] {
+		r.multiRepoMu.Unlock()
 		r.warn("/repos unfocus: %q is not pinned", slug)
 		return
 	}
 	delete(r.multiRepoFocus, slug)
+	pinned := keysOf(r.multiRepoFocus)
+	cb := r.onMultiRepoFocusChange
+	r.multiRepoMu.Unlock()
+	if cb != nil {
+		cb(pinned)
+	}
 	r.info(fmt.Sprintf("/repos unfocus: released %s", slug))
 }
 
@@ -144,7 +156,11 @@ func (r *REPL) reposUnfocusAll() {
 	r.multiRepoMu.Lock()
 	n := len(r.multiRepoFocus)
 	r.multiRepoFocus = map[string]bool{}
+	cb := r.onMultiRepoFocusChange
 	r.multiRepoMu.Unlock()
+	if cb != nil {
+		cb(nil)
+	}
 	r.info(fmt.Sprintf("/repos unfocus: released %d pinned slug(s)", n))
 }
 
@@ -192,7 +208,11 @@ func (r *REPL) reposRefresh() {
 			delete(r.multiRepoFocus, slug)
 		}
 	}
+	cb := r.onMultiRepoRefresh
 	r.multiRepoMu.Unlock()
+	if cb != nil {
+		cb(fresh)
+	}
 
 	r.info(fmt.Sprintf("/repos refresh: re-discovered %d sub-repo(s) under %s", len(fresh.Repos), parentRoot))
 	r.printReposList()
@@ -201,7 +221,11 @@ func (r *REPL) reposRefresh() {
 func (r *REPL) reposCap(n int) {
 	r.multiRepoMu.Lock()
 	r.multiRepoMaxActiveOverride = n
+	cb := r.onMultiRepoCapChange
 	r.multiRepoMu.Unlock()
+	if cb != nil {
+		cb(n)
+	}
 	r.info(fmt.Sprintf("/repos cap: session-local override set to %d (yaml multi_repo_max_active=%d)", n, r.multiRepoMaxActive))
 }
 

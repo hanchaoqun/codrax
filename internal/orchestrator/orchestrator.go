@@ -71,6 +71,25 @@ type Orchestrator struct {
 	// uses it to decide whether to probe + populates
 	// BusContext.EnvRecommendSettings so tools can gate.
 	envSettings types.EnvRecommendSettings
+
+	// multiGraphProvider returns the *multigraph.MultiGraph that the
+	// upcoming Run should attach to BusContext. Wired by cmd/root.go
+	// via SetMultiGraphProvider; nil in single-shot tests / fixtures.
+	// Run() consults it at entry — REPL state changes (focus / cap)
+	// take effect on the next Run because the provider closes over
+	// the latest mutable state.
+	//
+	// Stored as func() any to keep types/orchestrator free of the
+	// import cycle the multigraph package would otherwise create
+	// (multigraph already imports types). Run() stashes the result
+	// on BusContext.MultiGraph as-is.
+	multiGraphProvider func() any
+
+	// multiRepoSnapshotProvider supplies the BusContext-shape
+	// snapshot of the topology + cap-trimmed pending list. Wired by
+	// cmd/root.go alongside multiGraphProvider; both consulted at
+	// every Run entry.
+	multiRepoSnapshotProvider func() ([]types.SubRepoSnapshot, []string)
 	// mode controls the B0 write-mode dispatch in Run(). Zero value
 	// ("") is treated as ModeRead by busCtx.Mode.Normalize at Run
 	// entry, so every pre-B0 caller sees identical read-only
@@ -523,6 +542,29 @@ func (o *Orchestrator) SetMemoryReader(m types.MemoryReader) {
 // loading codrax.yaml.
 func (o *Orchestrator) SetEnvRecommendSettings(s types.EnvRecommendSettings) {
 	o.envSettings = types.ResolvedEnvRecommendSettings(s)
+}
+
+// SetMultiGraphProvider installs the multi-repo carrier provider.
+// Run() consults the provider at every Run entry — REPL mutations
+// (/repos focus, /repos cap, /repos refresh) take effect on the
+// next Run because the closure captures the latest mutable state.
+//
+// `provider` returns the *multigraph.MultiGraph as `any` to keep
+// orchestrator free of the import cycle that would otherwise arise
+// (multigraph already imports types/SymbolOracle). Pass nil to
+// disable multi-repo wiring; Run falls back to legacy single-graph
+// behaviour.
+func (o *Orchestrator) SetMultiGraphProvider(provider func() any) {
+	o.multiGraphProvider = provider
+}
+
+// SetMultiRepoSnapshotProvider installs the BusContext-shape
+// snapshot provider. Run() copies the result into BusContext.SubRepos +
+// PendingSubRepos so non-MultiGraph-aware consumers (REPL renderer,
+// telemetry, write-mode fail-loud paths) read multi-repo state
+// without a *multigraph.MultiGraph reference.
+func (o *Orchestrator) SetMultiRepoSnapshotProvider(provider func() ([]types.SubRepoSnapshot, []string)) {
+	o.multiRepoSnapshotProvider = provider
 }
 
 // Cancel marks the in-flight Run as canceled with the given reason.
@@ -1201,6 +1243,17 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// HTTP / subprocess / any ctx-aware path immediately rather
 		// than waiting for a cooperative checkpoint.
 		Ctx: o.cancelToken.Context(),
+	}
+
+	// Multi-repo wiring (Phase 4.2). Both providers are nil in
+	// pre-multi-repo callers (single-shot tests, eval harness without
+	// app context) and the BusContext fields stay zero-valued, which
+	// downstream consumers tolerate (legacy single-repo path).
+	if o.multiGraphProvider != nil {
+		o.busCtx.MultiGraph = o.multiGraphProvider()
+	}
+	if o.multiRepoSnapshotProvider != nil {
+		o.busCtx.SubRepos, o.busCtx.PendingSubRepos = o.multiRepoSnapshotProvider()
 	}
 	// env_recommend: probe once at Run entry when enabled. Cached
 	// on BusContext for the lifetime of the Run; tools (run_tests,

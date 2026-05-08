@@ -367,6 +367,21 @@ type appContext struct {
 	// multiRepoMaxActive mirrors codrax.yaml :: multi_repo_max_active
 	// (default 3). The LRU cap on resident sub-repo *Graphs.
 	multiRepoMaxActive int
+
+	// multigraph is the session-shared MultiGraph carrier for the
+	// multi-repo runtime. Constructed once in initApp from app.topology
+	// after multi_repo_enabled/cap are resolved. nil when topology is
+	// missing or multi_repo_enabled=false.
+	//
+	// Mutation surface: SetFocus/SetCap (REPL /repos focus + cap pushes
+	// updates here so the next Run picks them up). Reconstruction on
+	// /repos refresh swaps the pointer (provider closure reads the
+	// latest value).
+	//
+	// Stored as any to avoid pulling multigraph into cmd's import
+	// graph at the field level — the actual access goes through
+	// repomap.MultiGraphFromContext / direct cast in the provider.
+	multigraph any
 }
 
 var app appContext
@@ -1082,6 +1097,28 @@ func runREPL(_ *cobra.Command) error {
 		Topology:              app.topology,
 		MultiRepoEnabled:      app.multiRepoEnabled,
 		MultiRepoMaxActive:    app.multiRepoMaxActive,
+		// Push REPL /repos mutations into the session-shared
+		// MultiGraph so the next Run picks them up.
+		OnMultiRepoFocusChange: func(slugs []string) {
+			if mg, ok := app.multigraph.(interface{ SetFocus([]string) }); ok && mg != nil {
+				mg.SetFocus(slugs)
+			}
+		},
+		OnMultiRepoCapChange: func(n int) {
+			if mg, ok := app.multigraph.(interface{ SetCap(int) }); ok && mg != nil {
+				mg.SetCap(n)
+			}
+		},
+		OnMultiRepoRefresh: func(newTopo *topology.RepoTopology) {
+			// Rebuild MultiGraph from the freshly-discovered topology
+			// so the next Run sees the new sub-repo set + a clean LRU.
+			app.topology = newTopo
+			if app.multiRepoEnabled {
+				if mg, err := repomap.BuildOrLoadMultiGraph(newTopo, "", app.multiRepoMaxActive, nil); err == nil {
+					app.multigraph = mg
+				}
+			}
+		},
 	})
 	if err := r.Loop(); err != nil {
 		logging.Error("repl exited with error: %v", err)
@@ -1491,6 +1528,18 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		// Discovery should never fail for a well-formed flagRepo, but
 		// surface any non-nil error rather than swallowing — fail-loud.
 		logging.Info("multi-repo: discovery error for %s: %v (falling back to single-repo behaviour)", flagRepo, err)
+	}
+
+	// Build the session-shared *MultiGraph carrier when topology is
+	// populated AND multi_repo_enabled (default true). nil here =
+	// orchestrator falls back to legacy single-graph behaviour.
+	if app.topology != nil && app.multiRepoEnabled {
+		mg, err := repomap.BuildOrLoadMultiGraph(app.topology, "", app.multiRepoMaxActive, nil)
+		if err != nil {
+			logging.Info("multi-repo: BuildOrLoadMultiGraph failed (%v) — falling back to single-graph", err)
+		} else {
+			app.multigraph = mg
+		}
 	}
 
 	// B0 write-mode startup housekeeping.
@@ -2761,6 +2810,24 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	}
 	orch.SetThinkAloudMap(taMap)
 	app.orch = orch
+
+	// Multi-repo wiring (Phase 4.2). Both providers close over `app`
+	// so REPL state changes (/repos focus, /repos cap, /repos refresh)
+	// propagate to the next Run via app.multigraph + app.topology.
+	app.orch.SetMultiGraphProvider(func() any {
+		return app.multigraph
+	})
+	app.orch.SetMultiRepoSnapshotProvider(func() ([]types.SubRepoSnapshot, []string) {
+		if app.topology == nil {
+			return nil, nil
+		}
+		subs := repomap.SubRepoSnapshotsFromTopology(app.topology)
+		var pending []string
+		if mg := repomap.MultiGraphFromContext(&types.BusContext{MultiGraph: app.multigraph}); mg != nil {
+			pending = mg.PendingSubRepoNames()
+		}
+		return subs, pending
+	})
 
 	// Stage 3 (commit 40): per-repo Failure Taxonomy wiring.
 	// Lifted out of runREPL into initApp so the single-shot CLI

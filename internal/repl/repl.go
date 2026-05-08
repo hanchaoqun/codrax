@@ -310,6 +310,21 @@ type Config struct {
 	// MultiRepoMaxActive mirrors codrax.yaml :: multi_repo_max_active.
 	// /repos cap <N> overrides this value session-locally.
 	MultiRepoMaxActive int
+
+	// OnMultiRepoFocusChange is invoked by the REPL when the user
+	// runs /repos focus or /repos unfocus. cmd/root.go wires this to
+	// app.multigraph.SetFocus so the next Run picks up the change.
+	// Nil disables the propagation (focus state stays REPL-local).
+	OnMultiRepoFocusChange func(slugs []string)
+
+	// OnMultiRepoCapChange is invoked by /repos cap. cmd/root.go
+	// wires this to app.multigraph.SetCap.
+	OnMultiRepoCapChange func(n int)
+
+	// OnMultiRepoRefresh is invoked by /repos refresh. cmd/root.go
+	// rebuilds app.multigraph from the freshly-discovered topology
+	// so the next Run sees the new sub-repo set.
+	OnMultiRepoRefresh func(newTopology *topology.RepoTopology)
 }
 
 // REPL drives the interactive prompt.
@@ -337,6 +352,9 @@ type REPL struct {
 	multiRepoFocus            map[string]bool
 	multiRepoMaxActiveOverride int
 	multiRepoMu               sync.Mutex // guards focus + override + topology pointer
+	onMultiRepoFocusChange    func(slugs []string)
+	onMultiRepoCapChange      func(n int)
+	onMultiRepoRefresh        func(newTopology *topology.RepoTopology)
 
 	// approveSuccessCount is the per-session tally of clean
 	// /approve completions (apply + verify both green). Used
@@ -559,10 +577,13 @@ func New(cfg Config) *REPL {
 		runtimeAnchor:        cfg.RuntimeAnchor,
 		worktreeKeepTTL:      cfg.WorktreeKeepTTL,
 		worktreeKeepMaxCount: cfg.WorktreeKeepMaxCount,
-		topology:             cfg.Topology,
-		multiRepoEnabled:     cfg.MultiRepoEnabled,
-		multiRepoMaxActive:   cfg.MultiRepoMaxActive,
-		multiRepoFocus:       map[string]bool{},
+		topology:                 cfg.Topology,
+		multiRepoEnabled:         cfg.MultiRepoEnabled,
+		multiRepoMaxActive:       cfg.MultiRepoMaxActive,
+		multiRepoFocus:           map[string]bool{},
+		onMultiRepoFocusChange:   cfg.OnMultiRepoFocusChange,
+		onMultiRepoCapChange:     cfg.OnMultiRepoCapChange,
+		onMultiRepoRefresh:       cfg.OnMultiRepoRefresh,
 		branch:             cfg.Branch,
 		in:                 cfg.In,
 		out:                cfg.Out,

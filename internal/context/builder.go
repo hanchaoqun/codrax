@@ -35,6 +35,16 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		WorkDir:         bus.WorkDir,
 		MainRepoRoot:    bus.MainRepoRoot,
 		Mutable:         bus.Mutable,
+		// Multi-repo mirrors. Phase 4.1 introduced these on
+		// BusContext + AgentContext; the builder copies them across
+		// so agent-scoped tools and the agent prompt builder can
+		// surface multi-repo state without reaching back through the
+		// full BusContext. Defensive copy for the slices to keep
+		// AgentContext mutation isolated from BusContext.
+		MultiGraph:      bus.MultiGraph,
+		SubRepos:        append([]types.SubRepoSnapshot(nil), bus.SubRepos...),
+		ActiveSubRepo:   bus.ActiveSubRepo,
+		PendingSubRepos: append([]string(nil), bus.PendingSubRepos...),
 		AnalysisIR:      bus.AnalysisIR,
 		AttachedLog:     bus.AttachedLog,
 		AttachedHitrace: bus.AttachedHitrace,

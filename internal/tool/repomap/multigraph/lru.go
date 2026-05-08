@@ -51,7 +51,21 @@ func NewLRU(cap int) *LRU {
 
 // Cap returns the maximum number of entries.
 func (c *LRU) Cap() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.cap
+}
+
+// SetCap resizes the cap. The new cap applies on the next Put —
+// already-resident entries are NOT evicted just because the cap
+// shrank. Cap <= 0 is a no-op.
+func (c *LRU) SetCap(n int) {
+	if n <= 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cap = n
 }
 
 // Len returns the current entry count.
