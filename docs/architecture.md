@@ -2513,6 +2513,86 @@ Go 1.24.0。主要依赖：
 3. 可选挂 `ClusterKey`——告诉 repair plan 这条 violation 归属哪个 cluster（同 cluster 的 violation 共一个 owner）
 4. 可选挂 fallback policy（`pipeline_fallback_policy_overrides` yaml 可调）
 
+## 16. Multi-Repo 运行时（discovery + lazy load）
+
+设计源文件：[`docs/design/multi_repo_discovery_and_lazy_load.md`](design/multi_repo_discovery_and_lazy_load.md)（v2,baseline `b558c66`)。
+
+### 16.1 用户面板
+
+用户从父目录运行 `codrax --repo .`,父目录下可能有 N 个独立 git 仓(异构语言)。codrax 自动探测拓扑、按需加载、隔离 typed lane,**单仓用户行为字节级不变**。
+
+`codrax.yaml` 4 个开关(全部 pointer-typed、缺省 → code default):
+
+```yaml
+multi_repo_enabled: true              # 默认 true,false 走 legacy 单图
+multi_repo_max_active: 3              # LRU 上限(同时驻留的子仓 *Graph)
+multi_repo_discovery_depth: 4         # 父目录 BFS 深度
+multi_repo_min_files: 1               # 子仓 file count 下限,过滤空目录
+```
+
+REPL `/repos` 命令族(3 处注册:`replCommandAliases` / `slashCommands` / `handleSlash`):
+- `/repos`(默认子命令)— 列出已发现子仓 + active state + cap + focus pin
+- `/repos focus <slug>` — 会话级固定子仓到 active set
+- `/repos unfocus [slug]` — 释放 (无参数 = 全释放)
+- `/repos refresh` — 强制重新探测 + 重建 MultiGraph
+- `/repos cap <N>` — 会话级覆盖 yaml `multi_repo_max_active`
+
+### 16.2 包结构
+
+```
+internal/tool/repomap/
+  topology/      # discover.go / topology.go — RepoTopology + SubRepo + LoadOrDiscover
+  multigraph/    # multigraph.go / lru.go / oracle.go / locator.go / telemetry.go
+  multigraph_facade.go  # repomap.BuildOrLoadMultiGraph 入口 + GraphFromBus/AgentContextOrLoad
+```
+
+`SubRepo.Slug` 与 `index.CacheDirSlug(rootAbs)` 字节同源(`<basename>-<8hex>`)— 单一 slug 命名空间,避免双映射(设计 §9 #7)。
+
+### 16.3 Z+Y 混合 carrier
+
+`*MultiGraph` 同时实现两类访问:
+- **Z(接口层 fan-out)**:`Oracle()`、`Locator()` 返回 `types.SymbolOracle/SymbolLocator` 实现,内部对每个 active 子仓调用 `repomap.NewSymbolOracle/Locator(g)` 并聚合(`SymbolExists` ANY 命中即 found,`minTier` 取最小)— 共 23 处消费点经 oracle/locator 经此自动多仓聚合
+- **Y(raw 字段 flatten / owner-aware)**:`AllGraphs() map[slug]*Graph`、`GraphFor(rel)`、`Files() []FlattenedFile`、`FileInfoFor(rel)`、`ImportEdges()`、`ScoreFor(rel)`、`QueryScoreFor(rel)`、`Metadata()` 聚合 — 共 58 处 raw 消费点的迁移目标
+
+**单仓退化保障**:`IsSingle()==true` 时 LRU 容量强制 1,所有方法行为字节级等价于直接操作底层 `*Graph`。
+
+### 16.4 关键不变量(红线)
+
+- **R3 partial_typed_lane**:某 active 子仓集 ⊊ topology 时 `MultiGraph.PartialTypedLane()==true`,LLM-facing 摘要必须 disclose `PendingSubRepoNames()`(只暴露 RootRel,**永不暴露 slug** — R6)
+- **EnsureMany 超 cap fail-loud**:`ErrTooManyActive` 是 R3 兜底,正常路径 routing fold 已 pre-trim
+- **Thrashing 检测 fail-loud**:60s 滑动窗口 > 5 evict 触发 trip,Phase 6 telemetry 在 Run 退出时打 `multigraph: thrashing detected` Warning,提示用户调高 cap
+- **跨仓 import edge 不解析**:子仓间 namespace 独立(Go module / Java pom / Cargo crate),`ImportEdges()` flatten 时各子仓内部 path 加 RootRel 前缀避免假阳性
+- **写模式跨仓 ChangePlan 禁止**(设计 §4.5.5):`task.scope=micro` 强制 `kind=patch` 锁定单一 sub-repo;`ViolKind=WriteCrossSubRepoForbidden` 在 write_analyzer 收敛失败时 fail-loud
+
+### 16.5 跨语言全覆盖(15 + 2 别名)
+
+| 语言 | 跨仓风险 | 处理 |
+|---|---|---|
+| Go / Java / Kotlin / Cangjie | LOW | 现有 resolver 单仓内自洽 |
+| **ArkTS** | **HIGH** | Phase 0 `IsArkTSProject` 内联 `.git` boundary 检测修通 leak |
+| Python / JS/TS / Rust / C/C++ / Swift / Ruby / Lua / Proto | LOW | 单仓内 resolver 行为不变 |
+| CUDA(`.cu`/`.cuh`) → Cpp,Obj-C(`.m`/`.mm`) → C/Cpp | LOW | extToLang 别名,继承宿主语言 |
+
+### 16.6 telemetry
+
+每个 Run 退出时(orchestrator.Run 的 deferred snapshot)输出:
+
+```
+multigraph: mode=multi discovered=3 active=2 cap=3 evicted_in_60s=0 pending=[repo-c] thrashing=false
+```
+
+异常路径加 Warning:
+- `multigraph: thrashing detected (>5 evictions/60s) — raise multi_repo_max_active...`
+- `multigraph: typed-lane partial — sub-repos NOT consulted: [repo-c]...`
+
+### 16.7 与现有架构的关系
+
+- **L1 read-mode byte-preserved**:单仓 `IsSingle()` 路径下 `BuildOrLoadGraph(parent_root, query)` 是底层调用,`runReadSchedulerLoop` 完全不变
+- **L2 write_enabled gate**:multi_repo 不引入新写路径,write 模式跨仓 fail-loud 在 write_analyzer 层
+- **L5 worktree cleanup**:`worktree.DiscardByPath` 不变 — write-mode 的 worktree 始终来自 `ActiveSubRepo.RootAbs` 而非 parent
+- **R4 generalization**:discovery / LRU / routing 都通用化,不绑定 codrax 自身路径假设
+- **No backward-compat shim**:`multi_repo_enabled=false` 不引入新 code path 维护成本(MultiGraph 内部退化即可)
+
 ---
 
 **架构概览速记**：

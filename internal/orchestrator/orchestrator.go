@@ -22,6 +22,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 )
@@ -1254,6 +1255,22 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	}
 	if o.multiRepoSnapshotProvider != nil {
 		o.busCtx.SubRepos, o.busCtx.PendingSubRepos = o.multiRepoSnapshotProvider()
+	}
+	// Phase 6 multi-repo telemetry. One log line at Run exit so
+	// operators see resident sub-repo count, eviction pressure, and
+	// thrashing state without having to enable a special debug mode.
+	// Skipped silently when MultiGraph is unset (single-shot tests).
+	if mg, _ := o.busCtx.MultiGraph.(*multigraph.MultiGraph); mg != nil {
+		defer func() {
+			snap := mg.Snapshot()
+			logging.Info("%s", snap.FormatLogLine())
+			if snap.Thrashing {
+				logging.Warning("multigraph: thrashing detected (>5 evictions/60s) — raise multi_repo_max_active in codrax.yaml or `/repos cap N` to fit your active sub-repo set")
+			}
+			if len(snap.Pending) > 0 && !snap.IsSingle {
+				logging.Info("multigraph: typed-lane partial — sub-repos NOT consulted: %v (raise cap or `/repos focus <slug>` to include)", snap.Pending)
+			}
+		}()
 	}
 	// env_recommend: probe once at Run entry when enabled. Cached
 	// on BusContext for the lifetime of the Run; tools (run_tests,
