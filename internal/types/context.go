@@ -3338,6 +3338,27 @@ type BusContext struct {
 	// internal pipeline identifiers out of LLM prompts (R6 red line).
 	PendingSubRepos []string `json:"pending_sub_repos,omitempty"`
 
+	// TypedDenials is the architectural negative-knowledge channel.
+	// Any typed gate that downgrades a structured field (frame.File
+	// cleared by frameFileCorroboratesFunc / oracle.SymbolExists fail
+	// / drift detector FileMoved / evidence ground miss / future MCP
+	// shape mismatch) MUST stamp the corresponding raw token here.
+	//
+	// Three enforcement surfaces consume it (R3 second-axis red line):
+	//   - L1 tool-call: read_file / grep / repo_map registry guards
+	//     call IsPathDenied → typed error to LLM
+	//   - L2 prompt rendering: builder calls Sanitise on raw fields
+	//     (frame.Raw, stall raw text) → LLM cannot extract verbatim
+	//     denied tokens from prose
+	//   - L3 answer validator: ViolDeniedTokenUndeclared fires when
+	//     finalize prose names a denied token without an "unverified"
+	//     caveat
+	//
+	// Append-only during a Run; the orchestrator ZERO-initialises at
+	// Run entry and consumers append via Add. nil-safe: empty value
+	// behaves as "no denials" everywhere.
+	TypedDenials TypedDenialSet `json:"typed_denials,omitempty"`
+
 	// Memory is the read-only handle into the REPL memory store. nil
 	// in single-shot CLI runs / non-REPL test fixtures (no Store to
 	// wire). recall_memory tool nil-checks before calling Search;
@@ -3495,6 +3516,14 @@ type AgentContext struct {
 	SubRepos        []SubRepoSnapshot `json:"sub_repos,omitempty"`
 	ActiveSubRepo   *SubRepoSnapshot  `json:"active_sub_repo,omitempty"`
 	PendingSubRepos []string          `json:"pending_sub_repos,omitempty"`
+
+	// TypedDenials mirrors BusContext.TypedDenials (Phase A.2 of the
+	// negative-knowledge architecture). Tools dispatched from the
+	// agent layer consult it to refuse calls naming denied tokens;
+	// prompt builders call .Sanitise on raw fields. Pointer (rather
+	// than value) so a tool call that stamps a fresh denial mid-
+	// dispatch is visible to subsequent calls in the same loop.
+	TypedDenials *TypedDenialSet `json:"typed_denials,omitempty"`
 
 	// Memory mirrors BusContext.Memory so the recall_memory tool can
 	// query prior-conversation memory from the agent dispatch path.

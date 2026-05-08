@@ -45,6 +45,12 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		SubRepos:        append([]types.SubRepoSnapshot(nil), bus.SubRepos...),
 		ActiveSubRepo:   bus.ActiveSubRepo,
 		PendingSubRepos: append([]string(nil), bus.PendingSubRepos...),
+
+		// TypedDenials shares the SAME pointer (not a copy) — when
+		// a tool call mid-dispatch stamps a new denial, subsequent
+		// calls in the loop see it. Kept on bus's pointer so the
+		// orchestrator's owning channel is the single source.
+		TypedDenials: &bus.TypedDenials,
 		AnalysisIR:      bus.AnalysisIR,
 		AttachedLog:     bus.AttachedLog,
 		AttachedHitrace: bus.AttachedHitrace,
