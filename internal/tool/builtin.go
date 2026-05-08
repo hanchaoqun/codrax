@@ -456,24 +456,26 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
 
-	// L1 TypedDenials gate (Phase C, 2026-05-08). When the search
-	// PATH or the search PATTERN matches a denied token, refuse with
-	// the same typed error read_file emits. Keeps the gate symmetric
-	// across all three repo-discovery tools.
+	// L1 negative-knowledge gate (R3 second-axis enforcement):
+	// the search PATH or the search PATTERN was already shown to be
+	// absent in the current repository by an input-side validator.
+	// Refuse with the generic per-class reason.
 	if ctx != nil {
 		if ctx.TypedDenials.IsPathDenied(p.Path) {
+			denial := findFirstDenial(&ctx.TypedDenials, p.Path, true)
 			return types.ToolResult{
-				ToolName: t.Name(),
-				Success:  false,
-				Summary: fmt.Sprintf("grep refused: search path %q was marked unverifiable by an upstream typed gate (external-source frame / perf stall). Do NOT retry — this path cannot ground the question.", p.Path),
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   denial.HumanRefusalReason("grep"),
 				Timestamp: time.Now(),
 			}, nil
 		}
 		if ctx.TypedDenials.IsSymbolDenied(p.Pattern) {
+			denial := findFirstDenial(&ctx.TypedDenials, p.Pattern, false)
 			return types.ToolResult{
-				ToolName: t.Name(),
-				Success:  false,
-				Summary: fmt.Sprintf("grep refused: search pattern %q was marked unverifiable by an upstream typed gate (oracle / corroborate). The symbol does not exist in the active typed graph; grepping the repo for it is dead-end exploration. Re-anchor on the typed signals (BugClasses / IntentHint).", p.Pattern),
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   denial.HumanRefusalReason("grep"),
 				Timestamp: time.Now(),
 			}, nil
 		}
@@ -920,26 +922,73 @@ func (t *ReadFile) Parameters() json.RawMessage {
 }`)
 }
 
+// findFirstDenial returns the first TypedDenial in s whose token
+// matches `tok`. pathShaped=true selects path-class denials (exact /
+// suffix match, mirroring IsPathDenied); pathShaped=false selects
+// symbol-class denials (exact match). Returns a zero-value denial
+// when no match — caller's HumanRefusalReason then renders the
+// generic "unverified token" fallback.
+func findFirstDenial(s *types.TypedDenialSet, tok string, pathShaped bool) types.TypedDenial {
+	if s == nil || tok == "" {
+		return types.TypedDenial{}
+	}
+	for _, d := range s.Denials {
+		if pathShaped {
+			if !s.IsPathDenied(d.Token) {
+				continue
+			}
+			// Substring/suffix-aware membership check via IsPathDenied
+			// the other direction (does tok match this denial's token?).
+			if d.Token == tok || matchesPath(tok, d.Token) {
+				return d
+			}
+		} else {
+			if !s.IsSymbolDenied(d.Token) {
+				continue
+			}
+			if d.Token == tok {
+				return d
+			}
+		}
+	}
+	return types.TypedDenial{}
+}
+
+// matchesPath mirrors TypedDenialSet.IsPathDenied's suffix logic.
+func matchesPath(query, denial string) bool {
+	if query == denial {
+		return true
+	}
+	// query absolute, denial repo-relative
+	if len(query) > len(denial) && query[len(query)-len(denial)-1] == '/' && query[len(query)-len(denial):] == denial {
+		return true
+	}
+	// reverse direction
+	if len(denial) > len(query) && denial[len(denial)-len(query)-1] == '/' && denial[len(denial)-len(query):] == query {
+		return true
+	}
+	return false
+}
+
 func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	var p readFileParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
 
-	// L1 TypedDenials gate (Phase C, 2026-05-08): when an upstream
-	// gate (log_triage frame corroborate / perf_triage stall
-	// corroborate / future MCP shape mismatch) marked this path as
-	// unverifiable, refuse the read with a typed error message that
-	// includes the denial class. The LLM gets a clear "do NOT retry
-	// this path; the typed gate already determined it is external-
-	// source / unverifiable" signal — closes the bypass where the
-	// LLM extracted the path from frame.Raw and called read_file
-	// despite the gate clearing the typed File field.
+	// L1 negative-knowledge gate (R3 second-axis enforcement):
+	// when an input-side validator has already determined the named
+	// path is not present / not corroborated in the current repo,
+	// refuse the read with the per-class user-facing reason from
+	// HumanRefusalReason — no internal pipeline terminology, no
+	// fixture-specific examples, generic enough to apply to any
+	// attached log / trace / pasted artifact.
 	if ctx != nil && ctx.TypedDenials.IsPathDenied(p.Path) {
+		denial := findFirstDenial(&ctx.TypedDenials, p.Path, true)
 		return types.ToolResult{
-			ToolName: t.Name(),
-			Success:  false,
-			Summary: fmt.Sprintf("read_file refused: path %q was marked unverifiable by an upstream typed gate (external-source log frame / perf stall / MCP shape mismatch). The path appears in the input stream but a corroborate gate confirmed the named function/symbol does NOT exist in the real file at this path. Do NOT retry — the file cannot ground the question. If the question is about the failure semantics named in the input (e.g., race condition / NPE), answer from the typed signals (BugClasses / IntentHint) without grounding into a repo file.", p.Path),
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   denial.HumanRefusalReason("read"),
 			Timestamp: time.Now(),
 		}, nil
 	}

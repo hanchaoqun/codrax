@@ -65,7 +65,7 @@ func TestTypedDenialSet_Sanitise(t *testing.T) {
 	s.Add(TypedDenial{Class: TypedDenialExternalLogFrameUnresolved, Token: "internal/agent/analyzer.go"})
 	prose := "main.writeSession at internal/agent/analyzer.go:100 +0x1e — 3 goroutines"
 	got := s.Sanitise(prose)
-	want := "main.writeSession at <unverified-log-frame>:100 +0x1e — 3 goroutines"
+	want := "main.writeSession at <unverified-external-source>:100 +0x1e — 3 goroutines"
 	if got != want {
 		t.Errorf("Sanitise:\n got  %q\n want %q", got, want)
 	}
@@ -80,8 +80,47 @@ func TestTypedDenialSet_Sanitise_MultiplePathsSubrepo(t *testing.T) {
 	if got == prose {
 		t.Errorf("Sanitise should have replaced tokens; got unchanged %q", got)
 	}
-	if got != "<unverified-symbol>() called from <unverified-log-frame>:42 — <unverified-symbol>'s behaviour in <unverified-log-frame> is suspect" {
-		t.Errorf("Sanitise unexpected result:\n%q", got)
+	want := "<unverified-unknown-symbol>() called from <unverified-external-source>:42 — <unverified-unknown-symbol>'s behaviour in <unverified-external-source> is suspect"
+	if got != want {
+		t.Errorf("Sanitise unexpected result:\n got  %q\n want %q", got, want)
+	}
+}
+
+// TestTypedDenialSet_Sanitise_CrossOSPathSep: a denial stamped with a
+// POSIX path also redacts mentions in prose using Windows separators
+// (and vice versa), so an attached log produced on Linux but rendered
+// to a Windows-running LLM (or the reverse) gets consistent treatment.
+func TestTypedDenialSet_Sanitise_CrossOSPathSep(t *testing.T) {
+	s := &TypedDenialSet{}
+	s.Add(TypedDenial{Class: TypedDenialExternalLogFrameUnresolved, Token: "internal/agent/analyzer.go"})
+	// Prose uses Windows separator
+	prose := `main.writeSession at internal\agent\analyzer.go:100 +0x1e`
+	got := s.Sanitise(prose)
+	want := "main.writeSession at <unverified-external-source>:100 +0x1e"
+	if got != want {
+		t.Errorf("cross-OS Sanitise:\n got  %q\n want %q", got, want)
+	}
+}
+
+// TestTypedDenialSet_IsPathDenied_CrossOSPathSep mirrors the above
+// for the IsPathDenied gate (tool registry refusal path).
+func TestTypedDenialSet_IsPathDenied_CrossOSPathSep(t *testing.T) {
+	s := &TypedDenialSet{}
+	// Token is POSIX
+	s.Add(TypedDenial{Class: TypedDenialExternalLogFrameUnresolved, Token: "internal/agent/analyzer.go"})
+	// Query using Windows separator should still match
+	if !s.IsPathDenied(`internal\agent\analyzer.go`) {
+		t.Errorf("Windows-separator query did not match POSIX-separator denial")
+	}
+	if !s.IsPathDenied(`C:\repo\internal\agent\analyzer.go`) {
+		t.Errorf("Windows abs path did not suffix-match POSIX-separator denial")
+	}
+
+	// Reverse: token is Windows-form, query is POSIX
+	s2 := &TypedDenialSet{}
+	s2.Add(TypedDenial{Class: TypedDenialExternalLogFrameUnresolved, Token: `subdir\file.go`})
+	if !s2.IsPathDenied("subdir/file.go") {
+		t.Errorf("POSIX-separator query did not match Windows-separator denial")
 	}
 }
 

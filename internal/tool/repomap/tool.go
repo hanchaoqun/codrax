@@ -74,6 +74,27 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
 }`)
 }
 
+// findFirstDenialFromCtx returns the first TypedDenial in s matching
+// `tok`. Mirrors internal/tool's findFirstDenial; duplicated rather
+// than imported to avoid the tool→tool/repomap↔tool cycle.
+func findFirstDenialFromCtx(s *ctypes.TypedDenialSet, tok string, pathShaped bool) ctypes.TypedDenial {
+	if s == nil || tok == "" {
+		return ctypes.TypedDenial{}
+	}
+	for _, d := range s.Denials {
+		if pathShaped {
+			if d.Token == tok {
+				return d
+			}
+		} else {
+			if d.Token == tok {
+				return d
+			}
+		}
+	}
+	return ctypes.TypedDenial{}
+}
+
 func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (ctypes.ToolResult, error) {
 	var p repoMapParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -89,25 +110,27 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		p.View = "overview"
 	}
 
-	// L1 TypedDenials gate (Phase C, 2026-05-08). When the
-	// requested target_file / entry_point / query references a
-	// denied token, refuse — repo_map exploration on a typed-denied
-	// anchor is dead-end and risks the same hallucination class
-	// the read_file gate guards against.
+	// L1 negative-knowledge gate (R3 second-axis enforcement):
+	// requested target_file / entry_point already shown absent in
+	// the current repository. Refuse with the generic per-class
+	// reason (no internal pipeline terminology, no fixture-fitted
+	// examples).
 	if ctx != nil {
 		if p.TargetFile != "" && ctx.TypedDenials.IsPathDenied(p.TargetFile) {
+			denial := findFirstDenialFromCtx(&ctx.TypedDenials, p.TargetFile, true)
 			return ctypes.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
-				Summary:   fmt.Sprintf("repo_map refused: target_file %q was marked unverifiable by an upstream typed gate (external-source frame / perf stall). Re-anchor on typed signals.", p.TargetFile),
+				Summary:   denial.HumanRefusalReason("repo_map"),
 				Timestamp: time.Now(),
 			}, nil
 		}
 		if p.EntryPoint != "" && ctx.TypedDenials.IsSymbolDenied(p.EntryPoint) {
+			denial := findFirstDenialFromCtx(&ctx.TypedDenials, p.EntryPoint, false)
 			return ctypes.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
-				Summary:   fmt.Sprintf("repo_map refused: entry_point %q is denied by oracle (symbol does not exist in typed graph).", p.EntryPoint),
+				Summary:   denial.HumanRefusalReason("repo_map"),
 				Timestamp: time.Now(),
 			}, nil
 		}

@@ -134,26 +134,39 @@ func (s *TypedDenialSet) Len() int {
 //
 // Match is exact equality OR suffix match (path ends with token) so
 // "internal/agent/analyzer.go" denies a read_file call with the
-// same path AND a repo-relative variant. Substring is intentionally
-// NOT used — too noisy.
+// same path AND a repo-relative variant. Both '/' and '\' separators
+// are accepted (Windows + POSIX cross-OS) — paths are normalised to
+// '/' before comparison. Substring is intentionally NOT used — too
+// noisy.
 func (s *TypedDenialSet) IsPathDenied(path string) bool {
 	if s == nil || path == "" {
 		return false
 	}
-	path = strings.TrimSpace(path)
+	path = normalisePathSep(strings.TrimSpace(path))
 	for _, d := range s.Denials {
 		if !d.classIsPathShaped() {
 			continue
 		}
-		if path == d.Token {
+		token := normalisePathSep(d.Token)
+		if path == token {
 			return true
 		}
 		// Suffix match for repo-relative ↔ absolute mismatches.
-		if strings.HasSuffix(path, "/"+d.Token) || strings.HasSuffix(d.Token, "/"+path) {
+		if strings.HasSuffix(path, "/"+token) || strings.HasSuffix(token, "/"+path) {
 			return true
 		}
 	}
 	return false
+}
+
+// normalisePathSep converts Windows '\' to POSIX '/' so the gate
+// matches the same logical file regardless of the host OS or the
+// LLM-emitted form (LLMs often emit POSIX paths even on Windows).
+func normalisePathSep(p string) string {
+	if !strings.ContainsRune(p, '\\') {
+		return p
+	}
+	return strings.ReplaceAll(p, "\\", "/")
 }
 
 // IsSymbolDenied reports whether name matches any denial whose class
@@ -188,8 +201,20 @@ func (s *TypedDenialSet) IsSymbolDenied(name string) bool {
 // so the LLM cannot extract verbatim paths/symbols from prose to
 // bypass the typed gate.
 //
-// The placeholder format is "<unverified-{class-suffix}>" so the
-// LLM gets a consistent marker it can learn to recognise.
+// The placeholder format is "<unverified-{class-suffix}>" — generic
+// LLM-facing terminology with no internal pipeline names. Class
+// suffixes:
+//   - external-source     (log frame / perf stall path)
+//   - unknown-symbol      (oracle existence miss)
+//   - moved-or-removed    (drift frame relocated)
+//   - unverified          (evidence subject)
+//   - out-of-scope        (attached extracted token)
+//
+// Cross-OS path handling: when a path-shaped denial's token uses
+// POSIX separators ('/'), Sanitise also matches the Windows variant
+// ('\') in prose — and vice versa — so an attached log emitted on
+// one OS is sanitised correctly on another.
+//
 // Replacement is exact-string substitution; substring is intentional
 // here (raw log lines may contain the token mid-line).
 func (s *TypedDenialSet) Sanitise(prose string) string {
@@ -203,8 +228,31 @@ func (s *TypedDenialSet) Sanitise(prose string) string {
 		}
 		marker := "<unverified-" + sanitiseClassSuffix(d.Class) + ">"
 		out = strings.ReplaceAll(out, d.Token, marker)
+		// Cross-OS variant: if the denial token has separators,
+		// also replace the alternate-separator form.
+		if d.classIsPathShaped() {
+			if alt := alternatePathSepForm(d.Token); alt != "" && alt != d.Token {
+				out = strings.ReplaceAll(out, alt, marker)
+			}
+		}
 	}
 	return out
+}
+
+// alternatePathSepForm returns the path with separators flipped:
+// '/' ↔ '\'. Returns "" when the input has no separator (no flip
+// needed). Used by Sanitise so a denied POSIX path also redacts
+// any Windows-form mention in prose, and vice versa.
+func alternatePathSepForm(p string) string {
+	hasSlash := strings.ContainsRune(p, '/')
+	hasBackslash := strings.ContainsRune(p, '\\')
+	if hasSlash && !hasBackslash {
+		return strings.ReplaceAll(p, "/", "\\")
+	}
+	if hasBackslash && !hasSlash {
+		return strings.ReplaceAll(p, "\\", "/")
+	}
+	return ""
 }
 
 // PathTokens returns the deduplicated list of path-shaped tokens.
@@ -282,20 +330,58 @@ func (d TypedDenial) classIsSymbolShaped() bool {
 }
 
 // sanitiseClassSuffix returns a short marker for the placeholder.
+// Note: these are LLM-facing — kept descriptive but generic, no
+// internal pipeline names ("typed gate" / "TypedDenials" / "Phase X").
 func sanitiseClassSuffix(c TypedDenialClass) string {
 	switch c {
 	case TypedDenialExternalLogFrameUnresolved:
-		return "log-frame"
+		return "external-source"
 	case TypedDenialExternalPerfStallUnresolved:
-		return "perf-stall"
+		return "external-source"
 	case TypedDenialOracleSymbolUnverified:
-		return "symbol"
+		return "unknown-symbol"
 	case TypedDenialDriftFrameRelocated:
-		return "drift-frame"
+		return "moved-or-removed"
 	case TypedDenialEvidenceSubjectUnverified:
-		return "evidence-subject"
+		return "unverified"
 	case TypedDenialAttachedExtractedUnscoped:
-		return "attached-extracted"
+		return "out-of-scope"
 	}
-	return "denied"
+	return "unverified"
+}
+
+// HumanRefusalReason produces an LLM-facing prose explanation for a
+// tool refusal triggered by this denial. The message:
+//
+//   - Uses NO internal pipeline terminology (no "TypedDenials",
+//     "corroborate gate", "BugClass", "IntentHint", phase names, etc.)
+//     — the LLM has no background to interpret those.
+//   - Uses NO fixture-specific examples (no "race condition / NPE")
+//     — over-fitting risks the LLM pattern-matching to the example
+//     instead of reasoning from the actual signal.
+//   - Phrases the situation in terms the LLM CAN understand:
+//     "the path/symbol comes from an external runtime input
+//     (attached log / trace / pasted artifact) but is not present
+//     in this repository" + a generic next-step direction.
+//   - `scope` is the tool name that refused ("read", "grep", etc.)
+//     for context only; the message's substance depends on Class.
+//
+// Used by tool registry refusals (read_file / grep / repo_map) and
+// by prompt-side renderers that explain the deny set to the LLM.
+func (d TypedDenial) HumanRefusalReason(scope string) string {
+	switch d.Class {
+	case TypedDenialExternalLogFrameUnresolved:
+		return "This path appears in an attached runtime log's stack frame, but the named function does not actually exist in the file at this path inside the current repository. The frame likely references code from a different version, a different application, or a build artifact that is not part of this codebase. Do not retry this path — answer the user's question from the information visible in the log itself (the failure type, the call relationships, the message text). The repository file at this path will not provide grounding."
+	case TypedDenialExternalPerfStallUnresolved:
+		return "This path appears in an attached performance trace's tag, but the named symbol does not actually exist in the file at this path inside the current repository. The trace likely captured a different application or a different build. Do not retry this path — answer from what the trace itself shows (the duration, the kind of stall, the call sequence). The repository file at this path will not provide grounding."
+	case TypedDenialOracleSymbolUnverified:
+		return "This symbol name does not exist in any source file indexed for the current repository (or workspace, for multi-repo). Searching the repository for it will return nothing useful. If the user's question is about this name, it likely refers to something outside the codebase — answer from the surrounding context (the attached input, the user's prose) without trying to ground a definition site."
+	case TypedDenialDriftFrameRelocated:
+		return "The position originally referenced (file/line) no longer holds the symbol the input attributes to it — the code has been moved, renamed, or removed since the input was captured. Do not retry the original location; answer from the input's own description and acknowledge that the current code position is not stable for this symbol."
+	case TypedDenialEvidenceSubjectUnverified:
+		return "This identifier was extracted from an evidence claim but cannot be corroborated against any indexed source in the current repository. Searching for it as if it were a real symbol will not produce evidence. Treat it as opaque."
+	case TypedDenialAttachedExtractedUnscoped:
+		return "This token was extracted from an attached external artifact and lies outside the current investigation scope (different repository / module / namespace). Do not search for it in the current repository."
+	}
+	return "This token was marked unverifiable; do not retry."
 }
