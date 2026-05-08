@@ -619,6 +619,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				DomainHints:       domainHints,
 				MaxFiles:          maxFiles,
 				ExactResolution:   exactContract,
+				MultiGraph:        ctx.MultiGraph,
 			})
 			e.searchResult = sr
 			e.searchFingerprint = fp

@@ -339,7 +339,7 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 	entities := extractQuestionEntities(objective)
 
 	query := strings.Join(entities, " ")
-	graph, err := repomap.BuildOrLoadGraph(repoRoot, query)
+	graph, err := repomap.GraphFromAgentContextOrLoad(ctx, repoRoot, query)
 	if err != nil {
 		logging.Debug("[analyzer] repo overview unavailable: %v", err)
 		return "", nil
@@ -1669,7 +1669,7 @@ func analyzerGraphForNormalize(ctx *types.AgentContext, rm types.RequestModel) *
 			types.StripConversationPrefix(rm.RawRequest))
 	}
 	query := strings.Join(entities, " ")
-	g, err := repomap.BuildOrLoadGraph(ctx.RepoRoot, query)
+	g, err := repomap.GraphFromAgentContextOrLoad(ctx, ctx.RepoRoot, query)
 	if err != nil || g == nil {
 		return nil
 	}
@@ -1768,7 +1768,7 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	var graph *repomap.Graph
 	if len(entities) > 0 {
 		query := strings.Join(entities, " ")
-		if g, err := repomap.BuildOrLoadGraph(ctx.RepoRoot, query); err == nil {
+		if g, err := repomap.GraphFromAgentContextOrLoad(ctx, ctx.RepoRoot, query); err == nil {
 			graph = g
 		}
 	}

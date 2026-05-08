@@ -363,7 +363,7 @@ func buildScopedSearchGraph(ctx *types.AgentContext, toolResults []types.ToolRes
 		}
 	}
 	if graph == nil {
-		g, err := repomap.BuildOrLoadGraph(ctx.RepoRoot, egrepQueryFromObjective(ctx.Objective))
+		g, err := repomap.GraphFromAgentContextOrLoad(ctx, ctx.RepoRoot, egrepQueryFromObjective(ctx.Objective))
 		if err != nil || g == nil {
 			return nil, nil
 		}

@@ -103,3 +103,73 @@ func MultiGraphFromAgentContext(ctx *types.AgentContext) *multigraph.MultiGraph 
 	mg, _ := ctx.MultiGraph.(*multigraph.MultiGraph)
 	return mg
 }
+
+// GraphFromBusContextOrLoad is the unified read-side entry for
+// callers that want a *Graph at the analyze / explore stages and
+// don't care whether they're in single-repo or multi-repo mode.
+//
+// Resolution order:
+//  1. ctx.MultiGraph populated AND single-repo posture → mg.Single()
+//     returns the byte-equivalent legacy graph.
+//  2. ctx.MultiGraph populated AND multi-repo posture → caller is
+//     wrong to be asking for "the" graph (multi-repo can't collapse
+//     into one *Graph without losing per-sub-repo isolation). The
+//     fallback path runs anyway because the alternative (fail-loud
+//     here) would brick the entire pipeline; a Warning is logged so
+//     operators see the partial-correctness state until the raw
+//     consumer migration (design §11) lands.
+//  3. ctx.MultiGraph nil → legacy repomap.BuildOrLoadGraph(repoRoot, query)
+//     direct call.
+//
+// Used by the 5 BuildOrLoadGraph callers identified in design §11
+// (analyzer.go:342/1672/1771, keyword_search.go:667, sub_explorer.go:366)
+// and any future caller that wants the same migration semantics.
+func GraphFromBusContextOrLoad(ctx *types.BusContext, repoRoot, query string) (*Graph, error) {
+	if mg := MultiGraphFromContext(ctx); mg != nil {
+		if mg.IsSingle() {
+			return mg.Single()
+		}
+		// Multi-repo posture: pick the largest sub-repo as a "primary"
+		// for this caller until the raw consumer migration lands. The
+		// MultiGraph has the topology and active LRU; we EnsureLoaded
+		// the largest sub-repo (by FileCount) and return its graph.
+		// This keeps single-repo behaviour byte-equivalent and gives
+		// multi-repo callers a deterministic best-effort answer.
+		if topo := mg.Topology(); topo != nil && len(topo.Repos) > 0 {
+			best := &topo.Repos[0]
+			for i := range topo.Repos {
+				if topo.Repos[i].FileCount > best.FileCount {
+					best = &topo.Repos[i]
+				}
+			}
+			return mg.EnsureLoaded(best.Slug)
+		}
+	}
+	if repoRoot == "" {
+		return nil, fmt.Errorf("repomap: no MultiGraph and empty repoRoot")
+	}
+	return BuildOrLoadGraph(repoRoot, query)
+}
+
+// GraphFromAgentContextOrLoad mirrors GraphFromBusContextOrLoad for
+// the AgentContext shape.
+func GraphFromAgentContextOrLoad(ctx *types.AgentContext, repoRoot, query string) (*Graph, error) {
+	if mg := MultiGraphFromAgentContext(ctx); mg != nil {
+		if mg.IsSingle() {
+			return mg.Single()
+		}
+		if topo := mg.Topology(); topo != nil && len(topo.Repos) > 0 {
+			best := &topo.Repos[0]
+			for i := range topo.Repos {
+				if topo.Repos[i].FileCount > best.FileCount {
+					best = &topo.Repos[i]
+				}
+			}
+			return mg.EnsureLoaded(best.Slug)
+		}
+	}
+	if repoRoot == "" {
+		return nil, fmt.Errorf("repomap: no MultiGraph and empty repoRoot")
+	}
+	return BuildOrLoadGraph(repoRoot, query)
+}

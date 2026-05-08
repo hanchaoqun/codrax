@@ -99,6 +99,15 @@ type keywordSearchOptions struct {
 	// exact target and auxiliary/test/doc mentions must not hijack the
 	// candidate ranking.
 	ExactResolution *types.ExactResolutionContract
+	// MultiGraph carries the multi-repo carrier from the calling
+	// AgentContext (Phase 4.3). Stored as `any` to dodge the
+	// types↔multigraph import cycle. nil triggers legacy single-graph
+	// BuildOrLoadGraph(repoRoot, query) behaviour. Single-repo
+	// posture proxies to mg.Single(); multi-repo posture currently
+	// falls back to the largest sub-repo's graph (a documented
+	// half-step until the raw consumer migration in design §11
+	// completes).
+	MultiGraph any
 }
 
 // defaultKeywordSearchMaxFiles is the historical cap preserved for
@@ -210,7 +219,7 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	keywords = expandKeywords(keywords)
 
 	// --- Phase 1: repo_map structural ranking ---
-	repoMapScores, graph := repoMapRank(keywords, opts.Entities, repoRoot)
+	repoMapScores, graph := repoMapRank(keywords, opts.Entities, repoRoot, opts.MultiGraph)
 	// exactEntityAnchors wants user-named entities only. When the
 	// exactEntityAnchors wants the strongest provenance lane available.
 	// Prefer deterministic MentionedEntities (verbatim RawRequest
@@ -647,7 +656,7 @@ func exactPathFiles(graph *repomap.Graph, entity string) []string {
 // Only returns files that matched the query (QueryScores > 0), so
 // infrastructure files with high structural scores but no query relevance
 // are excluded. Also returns the graph for symbol extraction.
-func repoMapRank(keywords []string, entities []string, repoRoot string) (scores map[string]float64, graph *repomap.Graph) {
+func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle any) (scores map[string]float64, graph *repomap.Graph) {
 	terms := make([]string, 0, len(keywords)+len(entities))
 	seen := make(map[string]bool, len(keywords)+len(entities))
 	for _, term := range append(append([]string(nil), keywords...), entities...) {
@@ -664,7 +673,7 @@ func repoMapRank(keywords []string, entities []string, repoRoot string) (scores 
 	}
 	query := strings.Join(terms, " ")
 	var err error
-	graph, err = repomap.BuildOrLoadGraph(repoRoot, query)
+	graph, err = repomap.GraphFromBusContextOrLoad(&types.BusContext{MultiGraph: mgHandle}, repoRoot, query)
 	if err != nil {
 		logging.Debug("[keyword_search] repo_map unavailable: %v", err)
 		return nil, nil

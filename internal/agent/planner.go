@@ -273,6 +273,7 @@ func (e *plannerEvaluator) buildInvestigationSeed(ctx *types.AgentContext) strin
 			DomainHints:       domainHints,
 			MaxFiles:          maxFiles,
 			ExactResolution:   exactContract,
+			MultiGraph:        ctx.MultiGraph,
 		})
 		e.searchResult = sr
 		e.searchFingerprint = fp
