@@ -58,6 +58,9 @@ func TestL0B_EnumerationCardinalityGate_PresentInSource(t *testing.T) {
 	const wantHelperCall = "distinctNamedEntities(rm.AnalyzerHints.Entities) <= 1"
 	const wantErrorMsgFix1 = "ENUMERATED VALUES"
 	const wantErrorMsgFix2 = "is_category_enumeration=false"
+	// 2026-05-08 carve-out: gate must NOT fire on
+	// IsCategoryEnumeration=true + IsRelationalLookup=true + 1 entity.
+	const wantRelationalCarveOut = "!rm.Predicates.IsRelationalLookup"
 
 	src := readAnalyzerSource(t)
 
@@ -73,6 +76,9 @@ func TestL0B_EnumerationCardinalityGate_PresentInSource(t *testing.T) {
 	if !strings.Contains(src, wantErrorMsgFix2) {
 		t.Errorf("L0-B reject message must offer the cat=false escape hatch for legitimate type-name lookups")
 	}
+	if !strings.Contains(src, wantRelationalCarveOut) {
+		t.Errorf("L0-B gate must carry the IsRelationalLookup carve-out (expected substring %q) — without it the gate over-fires on \"filter set X by relation to Y\" questions like \"which packages import X\"", wantRelationalCarveOut)
+	}
 }
 
 // TestL0B_GateClassification_TableDriven exercises the classification
@@ -84,30 +90,55 @@ func TestL0B_GateClassification_TableDriven(t *testing.T) {
 	cases := []struct {
 		name       string
 		cat        bool
+		rel        bool
 		entities   []string
 		wantReject bool
 	}{
-		{"cat_true_zero_entities", true, nil, true},
-		{"cat_true_one_entity", true, []string{"PipelineStage"}, true},
-		{"cat_true_one_entity_with_blanks", true, []string{"PipelineStage", ""}, true},
-		{"cat_true_one_entity_dup", true, []string{"Foo", "FOO"}, true},
-		{"cat_true_two_distinct", true, []string{"StageAnalyze", "StageExplore"}, false},
-		{"cat_true_four_distinct", true, []string{"a", "b", "c", "d"}, false},
-		{"cat_false_one_entity", false, []string{"PipelineStage"}, false},
-		{"cat_false_zero_entities", false, nil, false},
-		{"cat_false_two_distinct", false, []string{"a", "b"}, false},
+		// Original L0-B contract — relational lookup unset.
+		{"cat_true_zero_entities", true, false, nil, true},
+		{"cat_true_one_entity", true, false, []string{"PipelineStage"}, true},
+		{"cat_true_one_entity_with_blanks", true, false, []string{"PipelineStage", ""}, true},
+		{"cat_true_one_entity_dup", true, false, []string{"Foo", "FOO"}, true},
+		{"cat_true_two_distinct", true, false, []string{"StageAnalyze", "StageExplore"}, false},
+		{"cat_true_four_distinct", true, false, []string{"a", "b", "c", "d"}, false},
+		{"cat_false_one_entity", false, false, []string{"PipelineStage"}, false},
+		{"cat_false_zero_entities", false, false, nil, false},
+		{"cat_false_two_distinct", false, false, []string{"a", "b"}, false},
+
+		// 2026-05-08 carve-out — IsRelationalLookup=true + cat=true +
+		// single entity is the structurally correct shape for "filter
+		// set X by relation to Y" questions. Gate must NOT fire.
+		{"relational_lookup_single_entity_pkg_importers",
+			true, true, []string{"internal/analysis/criterion"}, false}, // u4a shape
+		{"relational_lookup_single_entity_pkg_dependents",
+			true, true, []string{"internal/tool/ground"}, false}, // u4b shape
+		{"relational_lookup_single_entity_pkg_exports",
+			true, true, []string{"criterion"}, false}, // u8a shape
+		{"relational_lookup_zero_entities",
+			true, true, nil, false}, // pre-classification, allow through
+		// Edge case: relational lookup with multi-entity emit is also
+		// fine (the LLM resolved more than just the target — bonus).
+		{"relational_lookup_multi_entity",
+			true, true, []string{"X", "Y"}, false},
+		// Edge case: cat=false + rel=true single-entity is unaffected
+		// (gate already passes when cat=false).
+		{"cat_false_rel_true_single", false, true, []string{"X"}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			rm := types.RequestModel{
-				Predicates:    types.SemanticPredicates{IsCategoryEnumeration: c.cat},
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: c.cat,
+					IsRelationalLookup:    c.rel,
+				},
 				AnalyzerHints: types.AnalyzerHints{Entities: c.entities},
 			}
 			gotReject := rm.Predicates.IsCategoryEnumeration &&
+				!rm.Predicates.IsRelationalLookup &&
 				distinctNamedEntities(rm.AnalyzerHints.Entities) <= 1
 			if gotReject != c.wantReject {
-				t.Errorf("classification: cat=%v entities=%v → got reject=%v, want %v",
-					c.cat, c.entities, gotReject, c.wantReject)
+				t.Errorf("classification: cat=%v rel=%v entities=%v → got reject=%v, want %v",
+					c.cat, c.rel, c.entities, gotReject, c.wantReject)
 			}
 		})
 	}

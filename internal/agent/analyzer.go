@@ -1458,7 +1458,38 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// gate catches the cat=true variant of the entity-1 trap; the
 	// cat=false variant (genuine type-name lookup) legitimately
 	// passes through.
+	//
+	// 2026-05-08 — IsRelationalLookup carve-out. The gate above was
+	// over-firing on a structurally distinct question shape: "filter
+	// set X by a relationship to Y" (the LLM-emitted definition of
+	// `is_relational_lookup`). Concrete cases:
+	//   - "哪些包 import 了 internal/analysis/criterion?"  (set =
+	//     packages, relation = imports, target = criterion)
+	//   - "如果删除 internal/tool/ground 哪些文件无法编译?" (set =
+	//     files, relation = depends-on, target = ground)
+	//   - "criterion 包导出哪些 API?"  (set = symbols, relation =
+	//     exported-by, target = criterion)
+	// In each case the entity IS the relation target; the values to
+	// be enumerated (importing packages / dependent files / exported
+	// symbols) are computable only by exploration, not from the
+	// LLM's training context. Forcing the LLM to emit values at
+	// classification time is structurally impossible — it has not
+	// read code yet. Pre-fix the gate exhausted retries on these
+	// shapes (3 attempts × same reject message) and the run died
+	// with no answer.
+	//
+	// IsRelationalLookup is an existing typed predicate the LLM
+	// already emits (see internal/types/analysis_ir.go:381) — no
+	// new signal, no R2' six-spot sync. The carve-out skips the
+	// cardinality reject when the LLM affirms the question is
+	// "set filtered by relation". The original target of L0-B (LLM
+	// confused enclosing TYPE for enumerated VALUES) does NOT carry
+	// IsRelationalLookup=true because that error shape names a
+	// CATEGORY wrapper, not a relation criterion. So the carve-out
+	// preserves L0-B's true-positive coverage while closing the
+	// false-positive on relational lookups.
 	if rm.Predicates.IsCategoryEnumeration &&
+		!rm.Predicates.IsRelationalLookup &&
 		distinctNamedEntities(rm.AnalyzerHints.Entities) <= 1 {
 		return nil, fmt.Errorf(
 			"analyzer: enumeration intent with ≤1 distinct named entity is structurally inconsistent — " +
@@ -1466,7 +1497,11 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 				"so entities must list the ENUMERATED VALUES (e.g. StageAnalyze, StageExplore, ...) " +
 				"not the enclosing TYPE name. Re-emit emit_analysis ONCE with entities populated " +
 				"with the actual enumerated members the user is asking about, OR set " +
-				"is_category_enumeration=false if the question is really a type-name / scalar lookup")
+				"is_category_enumeration=false if the question is really a type-name / scalar lookup. " +
+				"Note: if the question filters a set by a relationship to a named target " +
+				"(e.g. 'which packages import X', 'list X's exports'), set is_relational_lookup=true " +
+				"alongside is_category_enumeration=true — the values are looked up after classification, " +
+				"not stated by you at this step")
 	}
 
 	// Session 11 C0' classification reconcile retired with AnswerShape:
