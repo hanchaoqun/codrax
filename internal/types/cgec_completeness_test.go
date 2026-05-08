@@ -278,6 +278,11 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// validateLaneBlockKindCompliance, dispatched from
 		// contract_check.go after BuildAnswerSupportPlanForBusContext.
 		ViolLaneBlockKindMismatch: true,
+		// Multi-repo write fail-loud (design §4.5.5 / Phase 4.G,
+		// 2026-05-08). Producer wired in
+		// orchestrator/multirepo_write_gate.go ValidateChangePlanScope,
+		// dispatched at plan-emission time in stage hooks.
+		ViolWriteCrossSubRepoForbidden: true,
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                 "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
@@ -345,6 +350,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolCrossCitationConflict: "ViolCrossCitationConflict",
 		// 2026-05-07 lane-discipline audit.
 		ViolLaneBlockKindMismatch: "ViolLaneBlockKindMismatch",
+		// Multi-repo write fail-loud (design §4.5.5 / Phase 4.G).
+		ViolWriteCrossSubRepoForbidden: "ViolWriteCrossSubRepoForbidden",
 	}
 
 	// Match only the "Kind: ViolXxx" composite-literal pattern —

@@ -1325,6 +1325,13 @@ func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 		// (Severity=Medium → RetryEligible=true). Operators may demote
 		// via pipeline_contract_soft_kinds when noise rate is too high.
 		// Listed here as documentation (the comment, not the entry).
+
+		// Multi-repo write fail-loud (design §4.5.5, 2026-05-08).
+		// SOFT here means "no auto-retry pathway" — the actual
+		// fail-loud comes from planPostHook returning an error which
+		// terminates the Run with a user-facing "split into separate
+		// runs" message. Operators cannot promote (Promotable=false).
+		types.ViolWriteCrossSubRepoForbidden: true,
 	}
 }
 

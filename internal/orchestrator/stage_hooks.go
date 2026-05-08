@@ -121,6 +121,24 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		o.busCtx.Mutable.SetResultPlain(msg)
 		return fmt.Errorf("%s", msg)
 	}
+	// Multi-repo write contract gate (P4.G design §4.5.5). Fail-loud
+	// when the ChangePlan touches more than one sub-repo — multi-
+	// repo write is contractually banned because the worktree
+	// cleanup defer cannot reliably undo cross-sub-repo dirtying.
+	// Single-repo posture trivially passes (every path resolves to
+	// the same SubRepoSnapshot).
+	if v := ValidateChangePlanScope(o.busCtx, plan); v != nil {
+		o.busCtx.Mutable.SetResultPlain(fmt.Sprintf("write blocked: %s\n\n%s", v.Detail, v.Repair))
+		// Mirror the violation into the EvidenceClosure ledger so
+		// retry-loop consumers and telemetry see it. Severity High +
+		// non-promotable + LocusTerminal makes it terminal — no
+		// auto-recovery.
+		if cl := o.busCtx.Mutable.EvidenceClosure(); cl != nil {
+			cl.AppendViolation(*v)
+		}
+		return fmt.Errorf("write blocked (multi-repo cross-sub-repo plan): %s", v.Detail)
+	}
+
 	wc := o.busCtx.Mutable.WriteClosure()
 	if len(wc.PendingApplies()) == 0 {
 		for _, c := range plan.Changes {

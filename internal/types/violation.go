@@ -770,6 +770,26 @@ const (
 	// citations under the correct block kind is finalizer-local;
 	// upstream stages have already supplied the right evidence.
 	ViolLaneBlockKindMismatch ViolationKind = "lane_block_kind_mismatch"
+
+	// ViolWriteCrossSubRepoForbidden fires when write-mode plan / apply
+	// emits a ChangePlan that touches files belonging to MORE THAN ONE
+	// discovered sub-repo (multigraph topology). Multi-repo write is
+	// banned by design §4.5.5 — task.scope=micro forces kind=patch
+	// which must lock the worktree to a single sub-repo; violating
+	// this contract risks dirtying multiple parent-tree git roots in
+	// one apply, which the worktree cleanup defer cannot reliably
+	// undo.
+	//
+	// Fires at plan emission time (write_analyzer / planner stage).
+	// Strict by default — there is no graceful degradation; the user
+	// MUST split the change into one ChangePlan per sub-repo. Retry
+	// hint surfaces "split into separate runs" pointer. Single-repo
+	// posture (topology.IsSingle()) trivially never triggers (all
+	// files share one slug).
+	//
+	// Stage = "plan". Layer = "write_contract". SuspectedRoot field
+	// = "change_plan.sub_repo_scope".
+	ViolWriteCrossSubRepoForbidden ViolationKind = "write_cross_sub_repo_forbidden"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -847,6 +867,8 @@ func AllViolationKinds() []ViolationKind {
 		// underfilled.
 		ViolRichnessGlaringGap,
 		ViolPrincipalProseUnderfilled,
+		// Multi-repo write fail-loud (2026-05-08, design §4.5.5).
+		ViolWriteCrossSubRepoForbidden,
 	}
 }
 

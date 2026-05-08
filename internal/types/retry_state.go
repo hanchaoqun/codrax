@@ -501,6 +501,16 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		}
 		return SeverityMedium
 	}
+	// Multi-repo write fail-loud (design §4.5.5, 2026-05-08).
+	// SeveritySoft regardless of isStrict — there is no retry
+	// pathway (the user MUST split the work into separate runs).
+	// Promotable=false at the registry layer means isStrict has no
+	// effect. The actual fail-loud comes from planPostHook returning
+	// an error which terminates the Run — Severity is purely a
+	// telemetry/ledger classification here.
+	if kind == ViolWriteCrossSubRepoForbidden {
+		return SeveritySoft
+	}
 	// Unknown kinds default to Medium — safer than Soft (won't
 	// silently drop) but not Critical (won't unexpectedly fail-loud).
 	return SeverityMedium

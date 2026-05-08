@@ -309,6 +309,13 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// block id with actionable language; composer fallback pairs.
 	types.ViolRichnessGlaringGap:        "uses violation.Repair for fix prose",
 	types.ViolPrincipalProseUnderfilled: "uses violation.Repair for fix prose",
+
+	// Multi-repo write fail-loud (design §4.5.5, 2026-05-08).
+	// Promotable=false + LocusTerminal — never reaches retry composer
+	// (planPostHook returns error which terminates the Run with the
+	// validator's Repair text rendered directly to the user). Generic
+	// fallback would never be invoked.
+	types.ViolWriteCrossSubRepoForbidden: "Promotable=false / LocusTerminal — never retried; Repair text rendered directly",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's

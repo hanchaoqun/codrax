@@ -719,6 +719,23 @@ func init() {
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 
+	// ── Multi-repo write fail-loud (design §4.5.5, 2026-05-08) ──
+	// Strict by default — multi-repo write is banned by contract;
+	// no graceful degrade. FallbackLocus = Plan because the failure
+	// originates in plan emission and the only valid retry is a
+	// re-plan that limits scope to one sub-repo.
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolWriteCrossSubRepoForbidden, DefaultSeverity: SeveritySoft,
+		// SoftByDefault=true because there is no retry pathway —
+		// the user MUST split the work into separate runs. The
+		// fail-loud comes from planPostHook returning an error
+		// (the Run terminates), not from Severity classification.
+		// Promotable=false because operator-promote cannot enable
+		// auto-retry: there's no agent fix for "wrong scope".
+		SoftByDefault: true, Promotable: false, FallbackLocus: LocusTerminal,
+		Layer: "write_contract", CaveatFamilyID: CaveatFamilyAcceptance,
+	})
+
 	// ── Structural / forensic kinds ──
 	// Legacy defaultSoftKinds does NOT list StructuralEnumerationDivergence;
 	// the kind's SOFT semantic comes from its DefaultSeverity flowing
