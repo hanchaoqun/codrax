@@ -255,7 +255,16 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		logging.Info("[run_tests] LLM-selected runner=%s working_dir=%s (manifest auto-detect bypassed)",
 			choice.Runner, runnerPlanRel(ctx.RepoRoot, choice))
 	} else {
-		plans = detectRunnerPlans(ctx.RepoRoot)
+		// Multi-repo: confine manifest discovery to ActiveSubRepo's
+		// root when set (write-mode plan/apply/verify converged the
+		// target). Read-mode + single-repo: ActiveSubRepo == nil →
+		// walkRoot empty → walk repoRoot (byte-identical to pre-multi-
+		// repo behaviour).
+		walkRoot := ""
+		if ctx.ActiveSubRepo != nil && ctx.ActiveSubRepo.RootAbs != "" {
+			walkRoot = ctx.ActiveSubRepo.RootAbs
+		}
+		plans = detectRunnerPlans(ctx.RepoRoot, walkRoot)
 		if len(plans) == 0 {
 			return errResult(t.Name(),
 				"run_tests: no supported test runner detected in "+ctx.RepoRoot+
@@ -606,7 +615,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 // repo. Retained as a thin convenience wrapper for unit tests; Execute
 // uses detectRunnerPlans so multi-project repos are verified end-to-end.
 func detectRunner(repoRoot string) string {
-	plans := detectRunnerPlans(repoRoot)
+	plans := detectRunnerPlans(repoRoot, "")
 	if len(plans) == 0 {
 		return ""
 	}
@@ -674,10 +683,24 @@ func resolveLLMRunnerChoice(repoRoot, runner, workingDir string) (runnerPlan, st
 	}, ""
 }
 
-func detectRunnerPlans(repoRoot string) []runnerPlan {
-	rootAbs, err := filepath.Abs(repoRoot)
+// detectRunnerPlans walks `walkRoot` (or `repoRoot` when walkRoot is
+// empty / equal) discovering manifest files, and returns runnerPlans
+// labelled relative to `repoRoot`. Multi-repo callers (BusContext.
+// ActiveSubRepo non-nil) pass the active sub-repo's RootAbs as
+// walkRoot so the walk is confined to that sub-tree — preventing the
+// MEDIUM-HIGH leak where a sibling sub-repo's manifest hijacks
+// runner detection (design §2 / §4.6 Phase 5).
+//
+// repoRoot stays the LABEL anchor (runnerPlanRel computes paths
+// relative to it). Single-repo / non-multi-repo callers pass walkRoot
+// = "" and behaviour is byte-identical to the pre-multi-repo signature.
+func detectRunnerPlans(repoRoot, walkRoot string) []runnerPlan {
+	if walkRoot == "" {
+		walkRoot = repoRoot
+	}
+	rootAbs, err := filepath.Abs(walkRoot)
 	if err != nil {
-		rootAbs = repoRoot
+		rootAbs = walkRoot
 	}
 	manifests := supportedRunnerManifests()
 	manifestIndex := make(map[string]runnerManifest, len(manifests))
