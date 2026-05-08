@@ -22,6 +22,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1005,7 +1006,32 @@ func (r *REPL) currentStickyTag() string {
 		r.attachedHitrace != "",
 		r.pendingPlanPath != "",
 		r.memoryUnderPressure(),
+		r.currentFocusSlice(),
 	)
+}
+
+// currentFocusSlice returns the operator-pinned sub-repo RootRel
+// list, sorted alphabetically for deterministic prompt rendering.
+// Empty when no pin has been set or when the topology was never
+// populated (single-repo / pre-multi-repo).
+func (r *REPL) currentFocusSlice() []string {
+	r.multiRepoMu.Lock()
+	if len(r.multiRepoFocus) == 0 || r.topology == nil {
+		r.multiRepoMu.Unlock()
+		return nil
+	}
+	out := make([]string, 0, len(r.multiRepoFocus))
+	for slug := range r.multiRepoFocus {
+		// Map slug → RootRel for the prompt display. Slug stays
+		// internal; the LLM-visible / operator-visible name is the
+		// path-derived RootRel.
+		if sr := r.topology.SubRepoBySlug(slug); sr != nil {
+			out = append(out, sr.RootRel)
+		}
+	}
+	r.multiRepoMu.Unlock()
+	sort.Strings(out)
+	return out
 }
 
 // Loop runs the prompt until /exit, /quit, or EOF.

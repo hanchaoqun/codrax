@@ -992,12 +992,22 @@ func formatN(_ string, format string, args ...interface{}) string {
 // branch is the resolved git HEAD (from gitBranchProbe). Empty
 // when the path is not a git repo or git is missing — the marker
 // is dropped entirely, since absence is unambiguous.
-func promptStickyTag(mode, branch string, hasLog, hasTrace, hasPendingPlan, memPressure bool) string {
+func promptStickyTag(mode, branch string, hasLog, hasTrace, hasPendingPlan, memPressure bool, focus []string) string {
 	var b strings.Builder
 	if branch != "" {
 		b.WriteString("[git:")
 		b.WriteString(branch)
 		b.WriteString("]")
+	}
+	// 2026-05-08 add (Phase 3 multi-repo UX): when the operator has
+	// pinned ≥1 sub-repo via /repos focus, surface the pin set in
+	// the prompt so they can tell at a glance which workspace scope
+	// the next request will run against. The signal is typed
+	// (explicit operator action), not noisy (auto routing) — only
+	// pinned sub-repos render here; the auto-active set fluctuates
+	// per question and is left to the dock + /repos query.
+	if tag := composeFocusTag(focus); tag != "" {
+		b.WriteString(tag)
 	}
 	if mode != "" && !strings.EqualFold(mode, "read") {
 		b.WriteString("[mode:")
@@ -1017,6 +1027,31 @@ func promptStickyTag(mode, branch string, hasLog, hasTrace, hasPendingPlan, memP
 		b.WriteString("[mem!]")
 	}
 	return b.String()
+}
+
+// composeFocusTag formats the [focus:...] sticky tag for the current
+// pin set:
+//
+//	0 pinned                 → ""
+//	1 pinned                 → "[focus:repo-a]"
+//	2 pinned                 → "[focus:repo-a,repo-b]"
+//	≥3 pinned                → "[focus:N pinned]"
+//
+// A consistent threshold prevents the tag from growing unbounded in
+// session terminals when an operator pins 5+ sub-repos at once. The
+// authoritative listing stays in `/repos` — the prompt tag is a
+// reminder, not the canonical view.
+func composeFocusTag(focus []string) string {
+	switch len(focus) {
+	case 0:
+		return ""
+	case 1:
+		return "[focus:" + focus[0] + "]"
+	case 2:
+		return "[focus:" + focus[0] + "," + focus[1] + "]"
+	default:
+		return "[focus:" + itoa(len(focus)) + " pinned]"
+	}
 }
 
 // helpLines auto-generates the /help command's bilingual output from
