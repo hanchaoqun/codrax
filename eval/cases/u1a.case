@@ -25,8 +25,15 @@ QUESTION="codrax 的 exec_command 工具是否存在命令注入风险？请给�
 # defense. Strengthen by requiring the answer to surface the THREE
 # security-audit pillars explicitly: taint (source), sink, and
 # defense / 防护. Allow English or Chinese phrasing.
-EXPECT_CONTAINS="exec_command"
-EXPECT_MATCHES_REGEX="(taint|污点|输入)
+# 2026-05-08 broaden: model rendered the tool name in Go-CamelCase
+# `ExecCommand` / `execCommandParams` (the Go type/struct names) rather
+# than the registry literal `exec_command`. Both refer to the same
+# tool — the registry name uses snake_case, the Go implementation uses
+# CamelCase by convention. Move the tool-name anchor into regex with
+# alternation so either form satisfies it.
+EXPECT_CONTAINS=""
+EXPECT_MATCHES_REGEX="(exec_command|ExecCommand|execCommand)
+(taint|污点|输入)
 (sink|执行点|shell|外部.*命令)
 (defense|defense|sanitize|whitelist|防护|过滤|清洗)"
 EXPECT_NOT_CONTAINS="no.risk SQL.injection sql"

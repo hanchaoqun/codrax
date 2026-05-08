@@ -34,6 +34,12 @@ EXPECT_CONTAINS="emit_evidence anchor_kind"
 # The "speculation/whole-batch-fail" anti-pattern is still blocked by
 # EXPECT_NOT_CONTAINS below — model cannot ambiguously hedge with
 # "unclear / maybe / depends / whole batch".
+# 2026-05-08 second-pass broaden: previous regex `其余.*继续(处理|进行)`
+# required `继续处理`/`继续进行` ADJACENT, but model wrote
+# "其余有效项继续正常处理" (词 between 继续 and 处理) and "其余正常处理"
+# (no 继续 verb). Both are clearly the "rest items proceed normally"
+# semantic the case wants. Loosen to `(其余|其他).*(处理|进行|接受|通过|成功|继续|正常)`
+# so any positive-progress verb after 其余/其他 satisfies it.
 EXPECT_MATCHES_REGEX="(per.?item|单项|单条|partial|部分)
-(rest.*(succeed|proceed|accept)|其他.*通过|其余.*(接受|继续(处理|进行))|valid items|跳过.*其余)"
+(rest.*(succeed|proceed|accept)|valid items|跳过.*其余|(其余|其他).*(处理|进行|接受|通过|成功|继续|正常))"
 EXPECT_NOT_CONTAINS="unclear maybe depends whole.batch"

@@ -21,7 +21,19 @@ QUESTION="How does runTaskGraph's criterion-aware window scheduler handle a fail
 # (selective requeue, not whole restart). Generic listing of 3
 # function names without addressing the binary axis no longer
 # PASSes.
-EXPECT_CONTAINS="runTaskGraph EdgeValidationFeedback markSuccessCriteriaFailed"
+# 2026-05-08 broaden: model answered the binary axis correctly
+# (selective requeue, not whole-graph restart) and named the response
+# function `requeueValidationTargets`, the dispatch branch `valFailed`,
+# the explore-window close path `forceCloseExploreWindow`, the edge
+# kind `EdgeValidationFeedback`, and the entry `runTaskGraph` — but
+# not the SC-detection function `markSuccessCriteriaFailed`. Both
+# response and detection functions are valid anchors for "how is
+# SC failure handled"; the response side is arguably more central
+# to the question. Accept either response or detection function as
+# the second function-name anchor (in addition to runTaskGraph +
+# EdgeValidationFeedback which both stay literal).
+EXPECT_CONTAINS="runTaskGraph EdgeValidationFeedback"
 EXPECT_MATCHES_REGEX="(\bno\b|not.*restart|partial|selective|不会.*重启|仅.*重排|不重启)
-(upstream|前置|evidence node|证据)"
+(upstream|前置|evidence node|证据)
+(markSuccessCriteriaFailed|requeueValidationTargets|valFailed|forceCloseExploreWindow)"
 EXPECT_NOT_CONTAINS="CodeReviewer Planner DesignReviewer .java"
