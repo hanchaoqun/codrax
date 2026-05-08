@@ -1079,6 +1079,9 @@ func runREPL(_ *cobra.Command) error {
 		WriteAutoInitRepo:     app.writeAutoInitRepo,
 		WriteScaffoldEnabled:  app.writeScaffoldEnabled,
 		SettingsPath:          app.settingsPath,
+		Topology:              app.topology,
+		MultiRepoEnabled:      app.multiRepoEnabled,
+		MultiRepoMaxActive:    app.multiRepoMaxActive,
 	})
 	if err := r.Loop(); err != nil {
 		logging.Error("repl exited with error: %v", err)

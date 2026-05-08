@@ -40,6 +40,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 )
@@ -295,6 +296,20 @@ type Config struct {
 	// startup. Zero on either disables that gate.
 	WorktreeKeepTTL      time.Duration
 	WorktreeKeepMaxCount int
+
+	// Topology is the multi-repo discovery snapshot for RepoRoot.
+	// Populated by cmd/root.go::initApp; consumed by /repos. Nil
+	// disables the slash command (handler surfaces a typed warning).
+	Topology *topology.RepoTopology
+
+	// MultiRepoEnabled mirrors codrax.yaml :: multi_repo_enabled.
+	// When false, /repos still works (it shows a hint pointing at
+	// the yaml gate) but Phase 4 multigraph routing is bypassed.
+	MultiRepoEnabled bool
+
+	// MultiRepoMaxActive mirrors codrax.yaml :: multi_repo_max_active.
+	// /repos cap <N> overrides this value session-locally.
+	MultiRepoMaxActive int
 }
 
 // REPL drives the interactive prompt.
@@ -307,6 +322,21 @@ type REPL struct {
 	runtimeAnchor     string
 	worktreeKeepTTL   time.Duration
 	worktreeKeepMaxCount int
+
+	// Multi-repo state. topology is a pointer because /repos refresh
+	// rebuilds the snapshot in place by swapping the pointer (the
+	// embedded slice is treated as immutable per-snapshot, so older
+	// references don't tear). multiRepoFocus is the session-local
+	// pin set populated by /repos focus <slug>; Phase 4 routing
+	// reads it through ActiveSubRepoFocus(). multiRepoMaxActiveOverride
+	// is 0 when no /repos cap <N> has been issued (use Config value),
+	// else the session-local override.
+	topology                  *topology.RepoTopology
+	multiRepoEnabled          bool
+	multiRepoMaxActive        int // canonical value (Config.MultiRepoMaxActive)
+	multiRepoFocus            map[string]bool
+	multiRepoMaxActiveOverride int
+	multiRepoMu               sync.Mutex // guards focus + override + topology pointer
 
 	// approveSuccessCount is the per-session tally of clean
 	// /approve completions (apply + verify both green). Used
@@ -529,6 +559,10 @@ func New(cfg Config) *REPL {
 		runtimeAnchor:        cfg.RuntimeAnchor,
 		worktreeKeepTTL:      cfg.WorktreeKeepTTL,
 		worktreeKeepMaxCount: cfg.WorktreeKeepMaxCount,
+		topology:             cfg.Topology,
+		multiRepoEnabled:     cfg.MultiRepoEnabled,
+		multiRepoMaxActive:   cfg.MultiRepoMaxActive,
+		multiRepoFocus:       map[string]bool{},
 		branch:             cfg.Branch,
 		in:                 cfg.In,
 		out:                cfg.Out,
@@ -2037,6 +2071,9 @@ func (r *REPL) handleSlash(line string) bool {
 		// the Ctrl+C path emits, so the rendering / state-saving
 		// behaviour is identical.
 		r.handleCancelCmd(line)
+		return false
+	case "/repos":
+		r.handleReposCmd(line)
 		return false
 	case "/exit", "/quit":
 		fmt.Fprintln(r.out, "  Goodbye!")

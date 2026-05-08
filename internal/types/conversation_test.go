@@ -136,6 +136,11 @@ func TestNormalizeREPLCommandAlias(t *testing.T) {
 		{"\\plan", "/plan"},
 		{"\\approve", "/approve"},
 		{"\\worktree discard plan-1", "/worktree discard plan-1"},
+		// Multi-repo /repos command (Phase 2).
+		{"/repos", "/repos"},
+		{"/repos focus my-repo-1a2b3c4d", "/repos focus my-repo-1a2b3c4d"},
+		{"/repos refresh", "/repos refresh"},
+		{"\\repos cap 5", "/repos cap 5"},
 	}
 	for _, c := range cases {
 		if got := NormalizeREPLCommandAlias(c.in); got != c.want {

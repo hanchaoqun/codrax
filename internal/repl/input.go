@@ -286,6 +286,22 @@ var slashCommands = []slashCommand{
 			{"help", "usage line", "显示用法"},
 		},
 	},
+	{
+		Name:   "/repos",
+		HelpEn: "show multi-repo topology + active sub-repo state",
+		HelpZh: "查看多仓拓扑 + active 子仓状态",
+		Subs: []slashSubcommand{
+			{"", "list discovered sub-repos (default)", "列出已发现的子仓(默认)"},
+			{"focus <slug>", "pin a sub-repo into the active set across turns",
+				"把子仓固定到 active 集合(跨 turn)"},
+			{"unfocus [slug]", "release a focus pin (no arg = release all)",
+				"取消固定(无参数 = 全部取消)"},
+			{"refresh", "force re-discover the parent topology",
+				"强制重新探测父目录拓扑"},
+			{"cap <N>", "session-local override of multi_repo_max_active",
+				"会话级覆盖 multi_repo_max_active"},
+		},
+	},
 	{Name: "/version", HelpEn: "print build version", HelpZh: "打印构建版本"},
 	{Name: "/exit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
 	{Name: "/quit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
@@ -910,7 +926,7 @@ func (m *inputModel) handleSuggestKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 // command whose handler reads a non-empty remainder.
 func needsArg(cmd string) bool {
 	switch cmd {
-	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge", "/branch", "/env", "/baseline", "/approve", "/phase":
+	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge", "/branch", "/env", "/baseline", "/approve", "/phase", "/repos":
 		return true
 	}
 	return false
