@@ -102,6 +102,22 @@ func (r *REPL) printReposList() {
 	// multigraph package directly here).
 	autoActive := r.multiRepoLRUSnapshot()
 
+	// Phase 6 (2026-05-08): when the LRU is empty (no Run has fired
+	// yet so routing fold has not run), preview the slug set the
+	// fold WOULD pick under fallback (focus pins + E-channel
+	// biggest-first fill). Without this preview the listing shows
+	// every non-pinned row as "inactive" pre-Run and the operator
+	// has no way to anticipate what the first request will scan.
+	previewSlugs := map[string]bool{}
+	previewActive := false
+	if len(autoActive) == 0 {
+		previewActive = true
+		focusSlugs := keysOf(r.multiRepoFocus)
+		for _, slug := range r.multiRepoPreviewActiveSet(focusSlugs) {
+			previewSlugs[slug] = true
+		}
+	}
+
 	cap := r.activeMultiRepoMaxActive()
 
 	header := fmt.Sprintf("multi-repo topology — parent=%s slug=%s sub-repos=%d cap=%d",
@@ -123,10 +139,13 @@ func (r *REPL) printReposList() {
 	colorEnabled := r.interactive()
 	for _, sr := range topo.Repos {
 		state := reposRowStateInactive
-		if r.isFocused(sr.Slug) {
+		switch {
+		case r.isFocused(sr.Slug):
 			state = reposRowStatePinned
-		} else if autoActive[sr.Slug] {
+		case autoActive[sr.Slug]:
 			state = reposRowStateAutoActive
+		case previewActive && previewSlugs[sr.Slug]:
+			state = reposRowStatePreview
 		}
 		marker, label := reposRowDecor(state, colorEnabled)
 		langs := strings.Join(sr.PrimaryLangs, ",")
@@ -144,13 +163,36 @@ func (r *REPL) printReposList() {
 	}
 
 	// Legend trailer so the markers are self-explanatory.
-	if colorEnabled {
-		r.info(fmt.Sprintf("  legend: %s pinned (`/repos focus`)  %s auto-active (routing fold)  %s inactive",
-			reposRowGlyphColored(reposRowStatePinned),
-			reposRowGlyphColored(reposRowStateAutoActive),
-			reposRowGlyphColored(reposRowStateInactive)))
+	if previewActive {
+		// Pre-Run path — explain that the `?` marker is a fallback
+		// preview, not the actual active set, so the operator does
+		// not assume scanning has started.
+		if colorEnabled {
+			r.info(fmt.Sprintf("  legend: %s pinned (`/repos focus`)  %s pre-run preview (fallback if no signal)  %s inactive",
+				reposRowGlyphColored(reposRowStatePinned),
+				reposRowGlyphColored(reposRowStatePreview),
+				reposRowGlyphColored(reposRowStateInactive)))
+		} else {
+			r.info("  legend: ★ pinned (`/repos focus`)  ? pre-run preview (fallback)  · inactive")
+		}
+		// Trailer notice so the operator knows the preview is
+		// tentative. Explicitly says routing fold runs PER question
+		// and the actual active set may differ once a question is
+		// asked (B/C/D channels then add their own picks).
+		if isZh(r.language) {
+			r.info("  注:尚未提问,? 标记是无问题信号兜底(focus pin + 文件最多者)的预览;首次提问后 /repos 会显示真实 active 集")
+		} else {
+			r.info("  note: no Run yet — `?` is a fallback preview (focus pins + biggest sub-repos); /repos after first request shows the real active set")
+		}
 	} else {
-		r.info("  legend: ★ pinned (`/repos focus`)  + auto-active (routing fold)  · inactive")
+		if colorEnabled {
+			r.info(fmt.Sprintf("  legend: %s pinned (`/repos focus`)  %s auto-active (routing fold)  %s inactive",
+				reposRowGlyphColored(reposRowStatePinned),
+				reposRowGlyphColored(reposRowStateAutoActive),
+				reposRowGlyphColored(reposRowStateInactive)))
+		} else {
+			r.info("  legend: ★ pinned (`/repos focus`)  + auto-active (routing fold)  · inactive")
+		}
 	}
 
 	if len(focus) > 0 {
@@ -162,11 +204,15 @@ func (r *REPL) printReposList() {
 }
 
 // reposRowState classifies a sub-repo's display state in the /repos
-// listing. Phase 5 (2026-05-08).
+// listing. Phase 5 (2026-05-08) introduced the inactive / auto-
+// active / pinned trio; Phase 6 (2026-05-08) added the pre-Run
+// preview state for sub-repos the routing fold WOULD pick under
+// fallback when no question has been asked yet.
 type reposRowState int
 
 const (
 	reposRowStateInactive reposRowState = iota
+	reposRowStatePreview // pre-Run fallback preview (no LRU yet)
 	reposRowStateAutoActive
 	reposRowStatePinned
 )
@@ -187,6 +233,13 @@ func reposRowDecor(state reposRowState, colorEnabled bool) (marker, label string
 			return pterm.NewStyle(pterm.FgCyan).Sprint("+"), "auto-active"
 		}
 		return "+", "auto-active"
+	case reposRowStatePreview:
+		// Yellow `?` to telegraph "tentative — will fire on the
+		// next Run if no question-specific signal applies".
+		if colorEnabled {
+			return pterm.NewStyle(pterm.FgYellow).Sprint("?"), "preview"
+		}
+		return "?", "preview"
 	default:
 		if colorEnabled {
 			return pterm.NewStyle(pterm.FgDarkGray).Sprint("·"), "inactive"
@@ -211,6 +264,8 @@ func reposRowColor(state reposRowState, body string) string {
 		return pterm.NewStyle(pterm.FgGreen, pterm.Bold).Sprint(body)
 	case reposRowStateAutoActive:
 		return pterm.NewStyle(pterm.FgCyan).Sprint(body)
+	case reposRowStatePreview:
+		return pterm.NewStyle(pterm.FgYellow).Sprint(body)
 	default:
 		return pterm.NewStyle(pterm.FgDarkGray).Sprint(body)
 	}
@@ -236,6 +291,28 @@ func (r *REPL) multiRepoLRUSnapshot() map[string]bool {
 		return map[string]bool{}
 	}
 	return snapper.ActiveSlugSnapshot()
+}
+
+// multiRepoPreviewActiveSet returns the slug list the routing fold
+// would pick under fallback (focus pins + E-channel biggest-first
+// fill) if a Run started right now. Phase 6 (2026-05-08): used by
+// /repos when the LRU is empty (pre-first-Run) so the operator can
+// see which sub-repos would be auto-active before issuing a query.
+//
+// Reflects MultiGraph.PreviewActiveSet through a typed interface
+// the same way multiRepoLRUSnapshot does (avoids the import cycle).
+// Empty slice when MultiGraph is nil or single-repo.
+func (r *REPL) multiRepoPreviewActiveSet(focusSlugs []string) []string {
+	if r == nil {
+		return nil
+	}
+	previewer, ok := r.multigraphForListing.(interface {
+		PreviewActiveSet(focusSlugs []string) []string
+	})
+	if !ok || previewer == nil {
+		return nil
+	}
+	return previewer.PreviewActiveSet(focusSlugs)
 }
 
 // reposFocus pins a sub-repo into the active routing set. The

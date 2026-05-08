@@ -326,6 +326,37 @@ func (m *MultiGraph) ActiveSlugSnapshot() map[string]bool {
 	return out
 }
 
+// PreviewActiveSet returns the slug list the routing fold WOULD
+// pick if a Run started right now with NO question-specific signals
+// (B/C/D channels empty). Phase 6 (2026-05-08) /repos UX uses it
+// when the LRU is empty (pre-first-Run) so the operator sees which
+// sub-repos would be auto-active under fallback before issuing a
+// question — without this, the listing would show every sub-repo
+// as "inactive" with no preview, leaving the operator wondering
+// whether the routing layer is even working.
+//
+// Inputs:
+//   - focusSlugs: current operator pin set (REPL multiRepoFocus).
+//     The fold's A channel honours pins ahead of the cap; without
+//     the parameter the preview would understate the real next-Run
+//     active set.
+//
+// Returns nil for the single-repo / nil receiver case so callers
+// can detect "no preview applicable" vs an explicit empty preview.
+func (m *MultiGraph) PreviewActiveSet(focusSlugs []string) []string {
+	if m == nil || m.IsSingle() {
+		return nil
+	}
+	decision := m.RouteActiveSet(RoutingInputs{
+		FocusSlugs: focusSlugs,
+		// B / C / D / E intentionally empty — the preview is "if
+		// the user submitted a generic question with no path
+		// anchor, no log, no language hint, what would the fold
+		// pick?" The E channel (biggest-first) fills the cap.
+	})
+	return decision.Active
+}
+
 // GraphFor returns the *Graph for the SubRepo owning relPathFromParent
 // IF that graph is currently active. The third return is true on
 // active-hit. When the owning sub-repo exists in topology but is not
