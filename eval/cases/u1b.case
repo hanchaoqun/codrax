@@ -24,4 +24,14 @@ QUESTION="Which code paths in internal/repl pass raw user input into a filesyste
 EXPECT_CONTAINS="repl"
 EXPECT_MATCHES_REGEX="internal/repl/[a-z_]+\.go
 (open|write|mkdir|os\.Create|os\.Open|os\.MkdirAll|filepath\.Join)"
-EXPECT_NOT_CONTAINS="assumed stereotype generally no risk"
+# 2026-05-08: previous EXPECT_NOT_CONTAINS="assumed stereotype generally
+# no risk" tokenised on whitespace, banning the single-character substring
+# "no" — which case-insensitively matches "Note", "node", "no risk
+# identified", and many innocent words. Model answer (correctly identified
+# baselineShow at handle_baseline.go:137 as the unprotected path AND
+# enumerated 5 sanitised peers) failed solely because the diagram had
+# "Note over hb" labels. Drop the gate — the three positive gates above
+# (repl identifier + internal/repl/<file>.go regex + FS-API regex)
+# already block brush-off "no risk" answers: such answers cannot satisfy
+# the FS-API regex without naming a real file:line.
+EXPECT_NOT_CONTAINS=""

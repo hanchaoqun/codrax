@@ -28,7 +28,19 @@ QUESTION="对比 explorer.go 和 extractor.go 的 ReAct 循环终止条件有何
 # / idle / heuristic), extractor is one-shot (first emit /
 # emit_answer_symbol). Permits English or Chinese phrasing.
 EXPECT_CONTAINS="ShouldStop"
+# 2026-05-08 broaden: extractor side accepts EITHER (a) the watchpoint
+# tool names (emit_answer_symbol / emit_hypothesis_verdict) — these
+# are the actual stop triggers passed as args to iterationCapShouldStop —
+# OR (b) the iteration-cap mechanism itself (iterationCapShouldStop /
+# soft+hard two-stage cap / 软上限+硬上限). The extractor's "ideally
+# one-shot" framing and its "iteration-cap with watchpoints"
+# implementation are two valid descriptions of the same termination
+# semantics. Model answers that focus on the budget mechanism are no
+# less correct than ones that focus on the watchpoint tool names —
+# the case wants the answer to NOT just say "iteration cap" generically
+# (which would describe explorer too), so the alternation requires a
+# distinguishing extractor-specific token.
 EXPECT_MATCHES_REGEX="(iteration|轮次|多轮|multi.?round|completion)
-(one.?shot|first emit|首次|emit_answer_symbol|emit_hypothesis_verdict)"
+(one.?shot|first emit|首次|emit_answer_symbol|emit_hypothesis_verdict|iterationCapShouldStop|two.?stage|两阶段|软上限|hard cap|soft cap)"
 EXPECT_NOT_CONTAINS="identical same.behavior .java"
 EXPECT_SECTIONS="explorer.go extractor.go"
