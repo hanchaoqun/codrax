@@ -34,6 +34,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	repomapindex "github.com/hanchaoqun/codrax/internal/tool/repomap/index"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
@@ -345,6 +346,16 @@ type appContext struct {
 	// startup. Zero on either disables that gate.
 	worktreeKeepTTL      time.Duration
 	worktreeKeepMaxCount int
+
+	// topology is the multi-repo discovery snapshot for flagRepo.
+	// Populated unconditionally at initApp (single-repo users get
+	// a one-element snapshot via the §3.3.1 fast path; cost ~50µs).
+	// Consumers (multigraph routing, REPL /repos command) read it;
+	// it is NEVER mutated after initApp returns. Persisted under
+	// <runtime-anchor>/cache/topology/<parent-slug>.json so warm
+	// starts skip the BFS walk when the parent's special-files
+	// fingerprint hasn't changed.
+	topology *topology.RepoTopology
 }
 
 var app appContext
@@ -1404,6 +1415,44 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	}
 	repomap.SetCacheDir(flagCacheDir)
 	logging.Info("paths: repo=%s log-dir=%s memory-dir=%s cache-dir=%s blob-session=%s", flagRepo, flagLogDir, flagMemoryDir, flagCacheDir, blobSessionDir)
+
+	// Multi-repo discovery (Phase 1.2). Always runs — the §3.3.1 fast
+	// path keeps single-repo cost at ~50µs (a single os.Stat for
+	// flagRepo/.git plus a sha256 over the abs path). Phase 2 will
+	// read codrax.yaml :: multi_repo_* knobs to drive Depth / MinFiles;
+	// for now they default to (4, 1). Phase 4 wires the result into
+	// BusContext / multigraph routing — until then this is a passive
+	// snapshot consumed by the REPL `/repos` command (Phase 2 commit 2).
+	topoOpts := topology.Options{
+		Depth:         4,
+		MinFiles:      1,
+		RuntimeAnchor: runtimeAnchor,
+	}
+	parentSlug := repomapindex.CacheDirSlug(flagRepo)
+	if topo, err := topology.LoadOrDiscover(flagRepo, runtimeAnchor, topoOpts, parentSlug); err == nil && topo != nil {
+		app.topology = topo
+		// One INFO line summarising what we found. Single-repo
+		// (RootRel == ".") gets a terse form; multi-repo lists count
+		// and the top sub-repo names so operators can sanity-check
+		// the BFS at a glance without enabling the REPL slash command.
+		if topo.IsSingle() {
+			logging.Info("multi-repo: single-repo mode parent=%s slug=%s", topo.ParentRoot, topo.ParentSlug)
+		} else {
+			names := make([]string, 0, len(topo.Repos))
+			for _, sr := range topo.Repos {
+				names = append(names, sr.RootRel)
+			}
+			preview := names
+			if len(preview) > 5 {
+				preview = preview[:5]
+			}
+			logging.Info("multi-repo: discovered %d sub-repos under %s preview=%v", len(topo.Repos), topo.ParentRoot, preview)
+		}
+	} else if err != nil {
+		// Discovery should never fail for a well-formed flagRepo, but
+		// surface any non-nil error rather than swallowing — fail-loud.
+		logging.Info("multi-repo: discovery error for %s: %v (falling back to single-repo behaviour)", flagRepo, err)
+	}
 
 	// B0 write-mode startup housekeeping.
 	//

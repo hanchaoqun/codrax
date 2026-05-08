@@ -176,6 +176,49 @@ func (t *RepoTopology) Save(runtimeAnchor string) error {
 	return nil
 }
 
+// LoadOrDiscover prefers a cached RepoTopology if present and fresh,
+// otherwise runs Discover and persists the result. Cache freshness
+// (design §3.3.3):
+//   - parentAbs still exists
+//   - every cached SubRepo.RootAbs still exists
+//   - parentAbs mtime ≤ topology.DiscoveredAt (cheap drift signal)
+//
+// On cache miss / staleness the fresh topology is saved best-effort
+// (save failure is non-fatal — the in-memory result is returned).
+func LoadOrDiscover(parentAbs, runtimeAnchor string, opts Options, parentSlug string) (*RepoTopology, error) {
+	if cached, err := Load(runtimeAnchor, parentSlug); err == nil && cached != nil {
+		if isCacheFresh(cached, parentAbs) {
+			return cached, nil
+		}
+	}
+	fresh, err := Discover(parentAbs, opts)
+	if err != nil {
+		return nil, err
+	}
+	_ = fresh.Save(runtimeAnchor) // best-effort
+	return fresh, nil
+}
+
+// isCacheFresh implements the §3.3.3 freshness predicate.
+func isCacheFresh(t *RepoTopology, parentAbs string) bool {
+	if t == nil || t.ParentRoot != parentAbs {
+		return false
+	}
+	parentInfo, err := os.Stat(parentAbs)
+	if err != nil {
+		return false
+	}
+	if parentInfo.ModTime().After(t.DiscoveredAt) {
+		return false
+	}
+	for _, sr := range t.Repos {
+		if _, err := os.Stat(sr.RootAbs); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
 // Load reads a previously persisted RepoTopology. Returns (nil, nil)
 // when the cache file does not exist (cold start).
 func Load(runtimeAnchor, parentSlug string) (*RepoTopology, error) {

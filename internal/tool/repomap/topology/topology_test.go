@@ -259,6 +259,55 @@ func TestLoad_MissingFile(t *testing.T) {
 	}
 }
 
+func TestLoadOrDiscover_CacheFresh(t *testing.T) {
+	parent := resolvedAbs(t, t.TempDir())
+	initGitRepo(t, parent, map[string]string{"main.go": "package main\n"})
+	anchor := filepath.Join(parent, ".codrax")
+
+	first, err := LoadOrDiscover(parent, anchor, Options{}, "")
+	if err != nil {
+		t.Fatalf("first LoadOrDiscover: %v", err)
+	}
+	// LoadOrDiscover passes parentSlug. Compute the canonical one.
+	parentSlug := first.ParentSlug
+	// Re-call with cache available — should hit cache (DiscoveredAt unchanged).
+	second, err := LoadOrDiscover(parent, anchor, Options{}, parentSlug)
+	if err != nil {
+		t.Fatalf("second LoadOrDiscover: %v", err)
+	}
+	if !second.DiscoveredAt.Equal(first.DiscoveredAt) {
+		t.Errorf("cache fresh: expected DiscoveredAt unchanged, got first=%v second=%v",
+			first.DiscoveredAt, second.DiscoveredAt)
+	}
+}
+
+func TestLoadOrDiscover_StaleCacheRediscover(t *testing.T) {
+	parent := resolvedAbs(t, t.TempDir())
+	initGitRepo(t, parent, map[string]string{"main.go": "package main\n"})
+	anchor := filepath.Join(parent, ".codrax")
+
+	first, err := LoadOrDiscover(parent, anchor, Options{}, "")
+	if err != nil {
+		t.Fatalf("first LoadOrDiscover: %v", err)
+	}
+	// Force the cached DiscoveredAt to the past so the parent mtime
+	// (now) appears newer than the cache. This simulates a real-world
+	// "user touched a directory after the cache was written".
+	first.DiscoveredAt = first.DiscoveredAt.Add(-1 * 24 * 60 * 60 * 1e9 /* 1 day */)
+	if err := first.Save(anchor); err != nil {
+		t.Fatalf("Save back-dated: %v", err)
+	}
+
+	second, err := LoadOrDiscover(parent, anchor, Options{}, first.ParentSlug)
+	if err != nil {
+		t.Fatalf("second LoadOrDiscover: %v", err)
+	}
+	if !second.DiscoveredAt.After(first.DiscoveredAt) {
+		t.Errorf("expected fresh re-discovery (newer DiscoveredAt), first=%v second=%v",
+			first.DiscoveredAt, second.DiscoveredAt)
+	}
+}
+
 func TestSubRepoBySlug(t *testing.T) {
 	topo := &RepoTopology{
 		Repos: []SubRepo{
