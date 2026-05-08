@@ -1366,15 +1366,28 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// operators see resident sub-repo count, eviction pressure, and
 	// thrashing state without having to enable a special debug mode.
 	// Skipped silently when MultiGraph is unset (single-shot tests).
+	//
+	// 2026-05-08 audit: previously emitted up to 3 lines per Run
+	// (summary + thrashing + typed-lane-partial), but the partial
+	// line's data (`Pending=[...]`) was already in the summary's
+	// `pending=[X,Y]` field — the extra line only added a one-shot
+	// remediation hint. Collapse to ONE line per Run by appending
+	// the hint to the summary when pending is non-empty for multi-
+	// repo. Thrashing keeps its own Warning-level line because the
+	// urgency is different (operators may want a separate red flag
+	// to grep for in dashboards). Single-repo never sees pending so
+	// the hint is suppressed; single-shot / nil-MultiGraph paths
+	// still render zero lines.
 	if mg, _ := o.busCtx.MultiGraph.(*multigraph.MultiGraph); mg != nil {
 		defer func() {
 			snap := mg.Snapshot()
-			logging.Info("%s", snap.FormatLogLine())
+			line := snap.FormatLogLine()
+			if len(snap.Pending) > 0 && !snap.IsSingle {
+				line += " — raise cap or `/repos focus <slug-or-path>` to include the pending sub-repos"
+			}
+			logging.Info("%s", line)
 			if snap.Thrashing {
 				logging.Warning("multigraph: thrashing detected (>5 evictions/60s) — raise multi_repo_max_active in codrax.yaml or `/repos cap N` to fit your active sub-repo set")
-			}
-			if len(snap.Pending) > 0 && !snap.IsSingle {
-				logging.Info("multigraph: typed-lane partial — sub-repos NOT consulted: %v (raise cap or `/repos focus <slug>` to include)", snap.Pending)
 			}
 		}()
 	}
