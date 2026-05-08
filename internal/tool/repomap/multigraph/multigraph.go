@@ -226,39 +226,58 @@ func (m *MultiGraph) EnsureLoaded(slug string) (*rmtypes.Graph, error) {
 	// only "repo_map: full scan / cache hit" lines from the build
 	// helper carry no sub-repo identifier, leaving operators with
 	// 50+ sub-repo workspaces unable to correlate timing back to a
-	// specific sub-repo when the REPL appears stuck on
-	// "preparing pipeline".
+	// specific sub-repo when the REPL appears stuck on "preparing
+	// pipeline".
+	//
+	// Single-repo guard (2026-05-08 audit): the MultiGraph carrier
+	// wraps single-repo workspaces too — Single() routes through
+	// EnsureLoaded with RootRel=".". Surfacing "scanning sub-repo
+	// `.`" makes no sense to a single-repo operator and clutters
+	// the dock + log with chrome that was designed for multi-repo
+	// disambiguation. Emit the multigraph-level scan logs / scan
+	// notices only when there are ≥2 sub-repos. The legacy
+	// `repo_map: full scan / cache hit` line from the build helper
+	// continues to fire in both postures.
+	emitScanChrome := !m.IsSingle()
 	scanStart := time.Now()
-	logging.Info("multigraph: scanning sub-repo %s (slug=%s)", sr.RootRel, slug)
-	if m.scanNotifier != nil {
-		m.scanNotifier(sr.RootRel, slug, true /*started*/, true /*ok placeholder*/, 0)
+	if emitScanChrome {
+		logging.Info("multigraph: scanning sub-repo %s (slug=%s)", sr.RootRel, slug)
+		if m.scanNotifier != nil {
+			m.scanNotifier(sr.RootRel, slug, true /*started*/, true /*ok placeholder*/, 0)
+		}
 	}
 	g, err := m.build(sr.RootAbs, m.query)
 	if err != nil {
 		elapsedMs := time.Since(scanStart).Milliseconds()
-		logging.Warning("multigraph: scan failed sub-repo %s (slug=%s) elapsed=%dms err=%v",
-			sr.RootRel, slug, elapsedMs, err)
-		if m.scanNotifier != nil {
-			m.scanNotifier(sr.RootRel, slug, false /*ended*/, false /*ok=false*/, elapsedMs)
+		if emitScanChrome {
+			logging.Warning("multigraph: scan failed sub-repo %s (slug=%s) elapsed=%dms err=%v",
+				sr.RootRel, slug, elapsedMs, err)
+			if m.scanNotifier != nil {
+				m.scanNotifier(sr.RootRel, slug, false /*ended*/, false /*ok=false*/, elapsedMs)
+			}
 		}
 		m.mu.Unlock()
 		return nil, fmt.Errorf("multigraph.EnsureLoaded(%s): %w", slug, err)
 	}
 	if g == nil {
 		elapsedMs := time.Since(scanStart).Milliseconds()
-		logging.Warning("multigraph: scan returned nil graph sub-repo %s (slug=%s) elapsed=%dms",
-			sr.RootRel, slug, elapsedMs)
-		if m.scanNotifier != nil {
-			m.scanNotifier(sr.RootRel, slug, false, false, elapsedMs)
+		if emitScanChrome {
+			logging.Warning("multigraph: scan returned nil graph sub-repo %s (slug=%s) elapsed=%dms",
+				sr.RootRel, slug, elapsedMs)
+			if m.scanNotifier != nil {
+				m.scanNotifier(sr.RootRel, slug, false, false, elapsedMs)
+			}
 		}
 		m.mu.Unlock()
 		return nil, fmt.Errorf("multigraph.EnsureLoaded(%s): build returned nil graph", slug)
 	}
 	elapsedMs := time.Since(scanStart).Milliseconds()
-	logging.Info("multigraph: scan complete sub-repo %s (slug=%s) elapsed=%dms",
-		sr.RootRel, slug, elapsedMs)
-	if m.scanNotifier != nil {
-		m.scanNotifier(sr.RootRel, slug, false, true, elapsedMs)
+	if emitScanChrome {
+		logging.Info("multigraph: scan complete sub-repo %s (slug=%s) elapsed=%dms",
+			sr.RootRel, slug, elapsedMs)
+		if m.scanNotifier != nil {
+			m.scanNotifier(sr.RootRel, slug, false, true, elapsedMs)
+		}
 	}
 	evictedSlug, _, evicted := m.active.Put(slug, g)
 	if evicted {

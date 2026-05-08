@@ -108,9 +108,17 @@ func (r *REPL) printReposList() {
 	// biggest-first fill). Without this preview the listing shows
 	// every non-pinned row as "inactive" pre-Run and the operator
 	// has no way to anticipate what the first request will scan.
+	//
+	// Single-repo guard (2026-05-08 audit): the preview machinery
+	// is multi-repo-only (multiRepoPreviewActiveSet returns nil
+	// for IsSingle, the routing fold has nothing to pick from).
+	// Skipping previewActive here means single-repo /repos output
+	// keeps its existing 2-state (pinned / inactive) shape and the
+	// trailer "no Run yet" advice does not bait the operator into
+	// thinking there is a routing decision waiting to be made.
 	previewSlugs := map[string]bool{}
 	previewActive := false
-	if len(autoActive) == 0 {
+	if len(autoActive) == 0 && !topo.IsSingle() {
 		previewActive = true
 		focusSlugs := keysOf(r.multiRepoFocus)
 		for _, slug := range r.multiRepoPreviewActiveSet(focusSlugs) {
