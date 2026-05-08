@@ -33,6 +33,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	repomapindex "github.com/hanchaoqun/codrax/internal/tool/repomap/index"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -1942,6 +1943,18 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		authority.SetSymbolLocatorProvider(func(graph any) types.SymbolLocator {
 			if g, ok := graph.(*rmtypes.Graph); ok {
 				return repomap.NewSymbolLocator(g)
+			}
+			return nil
+		})
+		// Cross-sub-repo locator provider — drift detection in
+		// authority.ComputeForEvidence prefers this when
+		// BusContext.MultiGraph is wired (multi_repo_enabled).
+		// Single-repo posture mg.Locator() forwards through one
+		// graph locator (byte-equivalent); multi-repo posture fans
+		// out via multiGraphLocator across every active sub-repo.
+		authority.SetMultiGraphLocatorProvider(func(mgAny any) types.SymbolLocator {
+			if mg, ok := mgAny.(*multigraph.MultiGraph); ok && mg != nil {
+				return mg.Locator()
 			}
 			return nil
 		})

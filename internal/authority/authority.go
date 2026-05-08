@@ -36,6 +36,14 @@ import (
 var (
 	locatorMu       sync.RWMutex
 	locatorProvider func(graph any) types.SymbolLocator
+
+	// multiGraphLocatorProvider is the cross-sub-repo fan-out
+	// alternative. cmd/root.go installs an adapter that takes a
+	// *multigraph.MultiGraph (as any to keep this package free of
+	// the multigraph import) and returns mg.Locator(). When set,
+	// LocatorFromBusContext prefers it over locatorProvider so
+	// drift detection scans every active sub-repo.
+	multiGraphLocatorProvider func(mg any) types.SymbolLocator
 )
 
 // SetSymbolLocatorProvider registers a function that adapts an opaque
@@ -112,6 +120,53 @@ func LocatorFromGraph(graph any) types.SymbolLocator {
 		return nil
 	}
 	return locatorProvider(graph)
+}
+
+// SetMultiGraphLocatorProvider registers the cross-sub-repo locator
+// adapter. cmd/root.go installs an implementation that returns
+// mg.Locator() so drift detection fans out across active sub-repos.
+// Empty or nil provider disables the multigraph path; LocatorFromBusContext
+// then falls through to the legacy single-graph provider.
+func SetMultiGraphLocatorProvider(p func(mg any) types.SymbolLocator) {
+	locatorMu.Lock()
+	defer locatorMu.Unlock()
+	multiGraphLocatorProvider = p
+}
+
+// LocatorFromBusContext is the preferred entry: prefers the cross-
+// sub-repo fan-out locator (BusContext.MultiGraph) when available,
+// falls back to the single-graph locator wrapping
+// Mutable.SearchGraph(). Either path returning nil tells the caller
+// to skip drift detection (graceful degrade — pre-multi-repo
+// behaviour preserved).
+//
+// P4-cross-sub-repo (2026-05-08) — fixes the false-negative where
+// a panic stack frame from sub-b was unmappable because authority's
+// drift detector only consulted the routed sub-repo's graph.
+func LocatorFromBusContext(bus *types.BusContext) types.SymbolLocator {
+	if bus == nil {
+		return nil
+	}
+	locatorMu.RLock()
+	mgProv := multiGraphLocatorProvider
+	graphProv := locatorProvider
+	locatorMu.RUnlock()
+	if mgProv != nil && bus.MultiGraph != nil {
+		if loc := mgProv(bus.MultiGraph); loc != nil {
+			return loc
+		}
+	}
+	if graphProv == nil {
+		return nil
+	}
+	if bus.Mutable == nil {
+		return nil
+	}
+	g := bus.Mutable.SearchGraph()
+	if g == nil {
+		return nil
+	}
+	return graphProv(g)
 }
 
 // Projection is the atomic projection result from ComputeForEvidence.
@@ -263,11 +318,11 @@ func computeFromLogPerfDrift(item types.EvidenceItem, bus *types.BusContext) (Pr
 		return Projection{}, false
 	}
 
-	// Resolve a SymbolLocator from the bus search graph.
-	var locator types.SymbolLocator
-	if g := bus.Mutable.SearchGraph(); g != nil {
-		locator = LocatorFromGraph(g)
-	}
+	// Resolve a SymbolLocator preferring the cross-sub-repo
+	// multigraph fan-out (P4-cross-sub-repo, 2026-05-08); falls back
+	// to the single-graph locator when MultiGraph isn't wired (legacy
+	// path / single-shot tests).
+	locator := LocatorFromBusContext(bus)
 
 	drift := logtriage.DetectDriftForFrame(*matchedFrame, locator)
 

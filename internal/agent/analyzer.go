@@ -398,6 +398,23 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 	return header + output, graph
 }
 
+// analyzerOracleFromCtx returns the right SymbolOracle for the
+// current Run: cross-sub-repo fan-out via ctx.MultiGraph when
+// multi_repo_enabled, else the legacy single-graph oracle wrapping
+// `graph`. Single-repo posture (mg.IsSingle()) returns the same
+// per-graph oracle as the legacy path — byte-identical.
+//
+// P4-cross-sub-repo (2026-05-08) — eliminates the false-negative
+// where a log/perf-triage entity defined in a non-routed sub-repo
+// (e.g., a panic stack frame's Symbol from sub-b while routing
+// landed on sub-a) was rejected by MergeEntities' oracle gate.
+func analyzerOracleFromCtx(ctx *types.AgentContext, graph *repomap.Graph) types.SymbolOracle {
+	if mg := repomap.MultiGraphFromAgentContext(ctx); mg != nil {
+		return mg.Oracle()
+	}
+	return repomap.NewSymbolOracle(graph)
+}
+
 func renderAnalyzerAuthoritativeLogOverview(bundle *types.LogBundle) string {
 	if !logBundleAuthoritativeFrames(bundle) || bundle == nil || len(bundle.Errors) == 0 {
 		return ""
@@ -1045,7 +1062,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			// Commit 52 P1: oracle gates entity merge against repomap
 			// symbol set. nil graph (single-shot CLI without scan) =
 			// nil oracle = pre-commit-52 byte-identical behaviour.
-			oracle := repomap.NewSymbolOracle(graph)
+			oracle := analyzerOracleFromCtx(ctx, graph)
 			rm.AnalyzerHints.Entities = logtriage.MergeEntities(
 				rm.AnalyzerHints.Entities, logBundle.Entities, oracle)
 		}
@@ -1070,7 +1087,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	if perfBundle != nil && len(perfBundle.Entities) > 0 {
 		before := len(rm.AnalyzerHints.Entities)
 		// Commit 52 P1: same oracle gate for perf-triage entities.
-		oracle := repomap.NewSymbolOracle(graph)
+		oracle := analyzerOracleFromCtx(ctx, graph)
 		rm.AnalyzerHints.Entities = logtriage.MergeEntities(
 			rm.AnalyzerHints.Entities, perfBundle.Entities, oracle)
 		logging.Info("[analyzer] perf-triage: source=%s frames=%d janks=%d stalls=%d entities +%d intent=%q",

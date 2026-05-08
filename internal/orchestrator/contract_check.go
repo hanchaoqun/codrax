@@ -80,8 +80,24 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	// checker so must_include / must_exclude / acceptance(contains_symbol)
 	// substring matches get supplementary oracle validation. nil
 	// oracle (no graph) preserves pre-commit-55 behaviour.
+	//
+	// P4-cross-sub-repo (2026-05-08): when BusContext.MultiGraph is
+	// populated (multi_repo_enabled=true), prefer the multigraph
+	// fan-out oracle so SymbolExists / SymbolExistsFlat queries hit
+	// every active sub-repo. This eliminates the false-positive class
+	// where a real symbol defined in a non-routed sub-repo was
+	// rejected by hallucination gates (validateInlineIdentifierHallucination
+	// / validateDiagramEdgeEndpointHallucination /
+	// validateEnumerationItemLabelHallucination), which all consume
+	// this same oracle. Single-repo IsSingle() posture is byte-
+	// identical because mg.Oracle() forwards through one graph oracle.
 	var oracle types.SymbolOracle
-	if mut != nil {
+	if o != nil && o.busCtx != nil {
+		if mg := repomap.MultiGraphFromContext(o.busCtx); mg != nil {
+			oracle = mg.Oracle()
+		}
+	}
+	if oracle == nil && mut != nil {
 		if g, ok := mut.SearchGraph().(*repotypes.Graph); ok && g != nil {
 			oracle = repomap.NewSymbolOracle(g)
 		}
