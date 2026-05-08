@@ -2641,6 +2641,99 @@ multigraph: mode=multi discovered=3 active=2 cap=3 evicted_in_60s=0 pending=[rep
 
 **剩余 raw consumer migration**(P4.B/C/D/E 设计原始任务)→ 重新分类为 **cross-sub-repo opt-in 增强**,非半成品。LRU + routing 架构使每个 Run 见到正确路由的子仓,跨仓 fan-out API 全部 wired,消费方按需消费。
 
+## 17. 跨输入源 negative knowledge — TypedDenials + BugClass(2026-05-08)
+
+R3 红线第二维度落地:**precise typed signals 必须在每个 LLM 接触面都被 hard-enforce**,而不是 prose 引导。否则 LLM 可以从某个面绕过另一个面的 typed gate(例如 log_triage 清空 `frame.File` 但 `frame.Raw` 里的路径字符串保留 → LLM 抠出来 `read_file` 绕过)。
+
+### 17.1 两个互补原语
+
+| 原语 | 类型 | 用途 |
+|---|---|---|
+| **`TypedDenials`** (`types/typed_denials.go`) | 负向 typed channel | 防止 LLM 顺着不可信的 token 探索 / 引用 |
+| **`BugClass` + `DetectBugClasses`** (`types/bug_class.go` + `analysis/logtriage/bug_class_registry.go`) | 正向 typed channel | 给 LLM 跨语言 canonical 术语 anchor,避免 over-explore |
+
+### 17.2 三层 enforcement(同一 `TypedDenialSet` 数据)
+
+```
+[输入源] log / trace / 未来 MCP / 用户粘贴
+   │
+   ▼
+[Typed gate]  log_triage frameFileCorroboratesFunc / perftriage CorroborateStallFiles /
+              oracle.SymbolExists fail / drift detector / evidence ground miss
+   │ (清结构字段 + stamp ctx.TypedDenials.Add)
+   ▼
+[Three-surface enforcement,数据源 single]
+   ├── L1 tool-call: read_file / grep / repo_map IsPathDenied / IsSymbolDenied → 拒绝 + typed error 给 LLM
+   ├── L2 prompt builder: ctx.TypedDenials.Sanitise(rawText) → 替换 verbatim 为 <unverified-...> marker
+   └── L3 answer validator: prose 仍 verbatim 提到 denied token 且无 caveat → ViolDeniedTokenUndeclared (SOFT,ledger)
+```
+
+### 17.3 BugClass 跨语言数据驱动(19 类 × 60+ pattern × 15 语言)
+
+`internal/analysis/logtriage/bug_class_registry.go`:
+
+| Class | 主要语言/工具签名 |
+|---|---|
+| `race` | Go runtime / Go -race / TSan / Helgrind / JVM ConcurrentModificationException + generic |
+| `deadlock` | Go all-goroutines-asleep / JVM Java-level deadlock / TSan lock-order-inversion / Rust poisoned mutex + generic |
+| `nil_deref` | Go nil ptr / JVM NPE / Kotlin / Swift force-unwrap / Rust Option::unwrap / Python AttributeError NoneType / Ruby NilClass / JS undefined property + generic |
+| `bounds` | Go index OOR / JVM ArrayIndexOOB / Rust panic OOB / Python IndexError / Ruby + generic |
+| `type_assertion` | Go interface conversion / JVM ClassCastException / Python TypeError / Rust downcast |
+| `stack_overflow` | Go goroutine stack exceeded / JVM StackOverflowError / Rust / Python RecursionError / Node RangeError + generic |
+| `div_by_zero` | Go integer divide / JVM ArithmeticException / Python / Ruby ZeroDivisionError + generic |
+| `resource_exhaustion` | Go too-many-open-files / JVM OOM / Linux EMFILE/ENFILE/ENOMEM / Python MemoryError + generic |
+| `unhandled_async` | Node UnhandledPromiseRejection / Python coroutine never awaited / Rust task panicked |
+| `serialization` | Go proto/JSON / JVM JsonMappingException / Python json.JSONDecodeError + generic |
+| `integrity` | Git bad object / generic checksum/hash/signature |
+| `auth` | OAuth / LDAP / JWT + generic |
+| `tls_cert` | Go x509 / Python SSL / JVM PKIX + generic |
+| **`use_after_free`** | ASan / MSan / Valgrind / glibc / Rust unsafe + generic |
+| **`buffer_overflow`** | ASan / UBSan / Valgrind / glibc stack-smashing + generic |
+| **`uncaught_exception`** | Node Uncaught / Python Traceback / Ruby / Swift Fatal error / Lua / **ArkTS .ets** / **Cangjie .cj** |
+| **`filesystem`** | errno (ENOENT/EACCES/...) / Go / Python / JVM + generic |
+| **`encoding`** | Go invalid UTF-8 / Python UnicodeDecodeError / JVM CharacterCodingException / Rust Utf8Error + generic |
+| **`config`** | env var missing / yaml / json + generic |
+
+**全 15 语言覆盖** + **6 工具(TSan/MSan/ASan/UBSan/Valgrind/Helgrind)**。每 class 至少 1 generic 兜底 → 未列语言也能识别。
+
+### 17.4 未知 / 业务侧 bug 兜底(`renderBugClassesSection` 双轨)
+
+`context/builder.go::renderBugClassesSection(detected, modality)`:
+
+- **detected 非空** → "### Detected Patterns" + canonical 双语 label list + matched signature + **VOCABULARY AID 不约束 user intent**(允许 LLM 答 user 的任何角度,canonical 术语只是用词建议)
+- **detected 空** → "### Pattern Classification" + 通用引导 "address user's question using terminology drawn from the input's own content; do NOT invent a generic category, do NOT speculate from unrelated repository symbols just because names look similar; treat unknown identifiers as opaque external names"
+
+modality `"log"` / `"trace"` 各自调整术语(frames vs spans / exception type vs span operation)。**log + trace 完全对称,empty 也渲染兜底。**
+
+不预设用户问 "failure":性能 / 业务审计 / debug breadcrumb 同等支持。
+
+### 17.5 R6 / R4 守则全程
+
+- **R6 内部术语零泄漏**:`BugClass` / `TypedDenials` / class enum string / phase 名 — 永不进 LLM prompt
+- **R4 不 over-fit**:无 fixture-specific 例子("race condition / NPE" 等 canonical 术语来自检测结果本身,不在模板里硬编码)
+- **多场景泛化**:任意 input modality + 任意 user intent + 任意已知/未知 bug 类
+- **跨 OS 路径**:`IsPathDenied` / `Sanitise` 内部 `/` ↔ `\` 双向匹配 + 替换
+
+### 17.6 实施 commits(Phase A → G,11 commits / ~2200 LOC)
+
+| Phase | 内容 |
+|---|---|
+| A.1-A.3 | TypedDenials 类型 + BusContext 字段 + log_triage 入 stamp |
+| B | perf_triage corroborate gate(原本无!)+ stamp |
+| C | tool registry L1 hard gate + 跨 OS 路径 + R6 generic refusal prose |
+| D | LLM prompt L2 sanitisation(post-format)|
+| E.1-E.3 | BugClass 19 类 enum + 跨语言 60+ pattern registry + log/perf 入口接 + skill prompt 渲染(known/unknown 双轨) |
+| F | L3 answer validator ViolDeniedTokenUndeclared + R2' 6 处同步 |
+| G | 文档 + e2e fixture(本节)|
+
+### 17.7 与现有架构关系
+
+- **R3 红线**:本特性是 R3 的 **second-axis 完整收口** —— 第一维度("precise signals 用作硬约束")已存在,第二维度("typed signals 在每个 LLM 接触面同步生效")由 TypedDenials 三层 enforcement 闭环
+- **L1-L8 红线**:无影响,read 模式字节级未变(zero-stamping 路径走 fast no-op)
+- **未来扩展**:加新 input 源(MCP / 用户粘贴 / 未来 attached config)只需在 typed gate 命中时 stamp,不动 enforcement 三层;加新 bug class 只需 1 行 enum + N 行 pattern,不动检测引擎
+
+---
+
 ### 16.11 Cross-sub-repo fan-out — 6 类场景全启用(2026-05-08 收尾)
 
 为多仓 workflow 核心用户,所有 cross-sub-repo 自动 fan-out 全部启用(不再 opt-in 状态):
