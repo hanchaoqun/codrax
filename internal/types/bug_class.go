@@ -78,6 +78,39 @@ const (
 	// BugClassTLSCert — TLS handshake / certificate verification /
 	// chain-of-trust failure.
 	BugClassTLSCert BugClass = "tls_cert"
+
+	// BugClassUseAfterFree — memory accessed after deallocation.
+	// Common in C / C++ / unsafe Rust; surfaced by ASan, MSan, glibc
+	// abort messages, malloc-debug.
+	BugClassUseAfterFree BugClass = "use_after_free"
+
+	// BugClassBufferOverflow — out-of-bounds memory write or read
+	// (heap / stack / global). Distinct from BugClassBounds (which
+	// is the safe-language IndexError sibling); this class names the
+	// memory-unsafe variant detected by ASan / MSan / system aborts.
+	BugClassBufferOverflow BugClass = "buffer_overflow"
+
+	// BugClassUncaughtException — generic unhandled exception that
+	// did not fall into any other class. Catch-all for languages
+	// whose runtime emits "Unhandled exception" / "panic: <generic>"
+	// without finer signature.
+	BugClassUncaughtException BugClass = "uncaught_exception"
+
+	// BugClassFileSystem — file/dir not found / permission denied /
+	// disk full / read-only filesystem. Finer than SignalPermission
+	// (which is HTTP-style auth) and SignalDB (storage backend).
+	BugClassFileSystem BugClass = "filesystem"
+
+	// BugClassEncoding — character-encoding decode / transcode
+	// failure (UTF-8 invalid sequence, charset incompatible) —
+	// distinct from BugClassSerialization (data-format).
+	BugClassEncoding BugClass = "encoding"
+
+	// BugClassConfig — invalid / missing configuration value at
+	// runtime (env var not set, yaml parse failure on user config,
+	// missing required field). Distinct from Validation (input
+	// validation at request boundary).
+	BugClassConfig BugClass = "config"
 )
 
 // IsValidBugClass reports whether c is one of the registered classes.
@@ -87,7 +120,9 @@ func IsValidBugClass(c BugClass) bool {
 	case BugClassRace, BugClassDeadlock, BugClassNilDeref, BugClassBounds,
 		BugClassTypeAssertion, BugClassStackOverflow, BugClassDivByZero,
 		BugClassResourceExhaustion, BugClassUnhandledAsync, BugClassSerialization,
-		BugClassIntegrity, BugClassAuth, BugClassTLSCert:
+		BugClassIntegrity, BugClassAuth, BugClassTLSCert,
+		BugClassUseAfterFree, BugClassBufferOverflow, BugClassUncaughtException,
+		BugClassFileSystem, BugClassEncoding, BugClassConfig:
 		return true
 	}
 	return false
@@ -101,6 +136,8 @@ func AllBugClasses() []BugClass {
 		BugClassTypeAssertion, BugClassStackOverflow, BugClassDivByZero,
 		BugClassResourceExhaustion, BugClassUnhandledAsync, BugClassSerialization,
 		BugClassIntegrity, BugClassAuth, BugClassTLSCert,
+		BugClassUseAfterFree, BugClassBufferOverflow, BugClassUncaughtException,
+		BugClassFileSystem, BugClassEncoding, BugClassConfig,
 	}
 }
 

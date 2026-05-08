@@ -4,8 +4,8 @@ import "testing"
 
 func TestAllBugClasses_Coverage(t *testing.T) {
 	all := AllBugClasses()
-	if len(all) != 13 {
-		t.Errorf("AllBugClasses returned %d, expected 13 — adjust if registry expands", len(all))
+	if len(all) != 19 {
+		t.Errorf("AllBugClasses returned %d, expected 19 — adjust if registry expands", len(all))
 	}
 	seen := make(map[BugClass]bool, len(all))
 	for _, c := range all {
