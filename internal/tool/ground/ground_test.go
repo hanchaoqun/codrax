@@ -1021,6 +1021,22 @@ func TestConditionKeywords_CoversAllSupportedLanguages(t *testing.T) {
 		// 2026-05-08 add: Go select.
 		{"go-select", "select {"},
 		{"go-select-tight", "select{"},
+		// 2026-05-08 add: exception-handling forms.
+		{"java-try", "try {"},
+		{"python-try", "try:"},
+		{"swift-try-tight", "try{"},
+		{"java-catch-paren", "catch (Exception e) {"},
+		{"java-catch-paren-tight", "catch(Exception e) {"},
+		{"swift-catch-brace", "} catch {"},
+		{"python-except", "except ValueError as e:"},
+		{"python-except-bare", "except:"},
+		{"ruby-rescue", "rescue StandardError => e"},
+		{"java-finally", "finally {"},
+		{"python-finally", "finally:"},
+		{"swift-finally-tight", "finally{"},
+		{"ruby-ensure", "ensure cleanup"},
+		{"java-throw", "throw new IllegalArgumentException(msg);"},
+		{"python-raise", "raise ValueError('bad input')"},
 	}
 	gc := &Context{
 		LineIndex: map[string]map[int]string{

@@ -672,7 +672,7 @@ EvidenceKind 11 值是 semantic(direct / conditional / registration / mechanism 
   - call → FileIndex.Relations 找 `ToEP.Name == AnchorSymbol && Line == LineStart`
   - import → imports 找 `imp.Path == AnchorSymbol || imp.Alias == AnchorSymbol`
   - condition / return / assignment 没有 repomap 原语 → 退化为关键词扫(语言中性):
-    - condition:`if`/`if(` `when`/`when(` `unless` `switch`/`switch(` `case` `guard` `match`/`match(` `select {`/`select{` — 覆盖 17 支持语言所有主要 conditional 形态(包含 Rust / Python 3.10+ / Cangjie 的 `match`,Go channel `select {`)
+    - condition:`if`/`if(` `when`/`when(` `unless` `switch`/`switch(` `case` `guard` `match`/`match(` `select {`/`select{` `try {`/`try:`/`try{` `catch `/`catch(`/`catch {` `except `/`except:` `rescue ` `finally {`/`finally:`/`finally{` `ensure ` `throw ` `raise ` — 覆盖 17 支持语言所有主要 conditional 形态(分支 + Rust/Python 3.10+/Cangjie 的 `match`,Go channel `select {`,Java/JS/TS/Kotlin/Cangjie/Swift/C++/Obj-C/Python/Ruby 的异常分发 try/catch/except/rescue/finally/ensure/throw/raise)
     - return:`return ` `return\t` `return(` `return;` `yield `
     - assignment:`:=`(Go) 或单独 `=`(排除 `==`/`!=`/`<=`/`>=`)— 所有语言 `=` 形式通用
 - **R1 fqname_same_file**：同文件内 graph 查 AnchorSymbol 的第一个结构匹配
@@ -708,6 +708,31 @@ Grounding 落地后,`internal/authority::BackfillEvidenceProjector` 把每条 Ev
 - 严重度阶梯:panic > crash > oom > timeout > performance > generic-error > noise
 
 **多语言覆盖**:4 轴均与具体编程语言解耦。Origin / Authority / DriftReason 基于 SearchGraph + LogBundle + PerfBundle 的结构匹配,3 种 bundle 跨 17 支持语言通用;LogPerfSubKind 基于 `LogSignal` enum(11 值,定义于 `internal/types/log_bundle.go`),log_triage stage 跨语言统一抽取到这套 signal 集合后再投影。
+
+### 5.3.2 ClaimForm — 9 种证据语义形态
+
+> *像新闻消息的"句式分类":同一个故事可以是事实直陈("张三是村长" — 定义)、动作链路("张三给李四打电话" — 调用)、条件触发("下雨了才会开伞" — 守卫)、赋值变化("把账户余额设成 100" — 赋值)、结论返回("结案陈词:无罪" — 返回)、否定观察("翻遍档案没找到这个人" — 缺失)、层级标注("用户配置覆盖了默认值" — 优先级角色)、外部观测("监控日志里 14:00 看到崩溃" — 外部观测)、依赖声明("包 A 依赖包 B" — 导入)。落不进这 9 种里的就标 unknown,写答案时不允许作主载荷——靠不住的形态不上头版。*
+
+`internal/types/claim_form.go::ClaimFormOf` 是确定性投影,输入是 evidence 的 4 个 typed 字段(Origin × Scope × DiagramRole × AnchorKind),输出 9 种 ClaimForm 之一。LLM 不直接命名 form——它 emit 4 输入字段,系统投影出 form,再用作 RequiredBlocks(§6.4)的 facet × form gate。
+
+| ClaimForm | 触发条件(优先级递减)| 通俗例子 | 跨 17 语言覆盖 |
+|---|---|---|---|
+| `external_observation` | Origin∈{log, perf} | "日志显示 14:32:15 panic" / "perf 报告 P99 = 2.3s" | log_triage / perf_triage 抽出后跨语言统一 |
+| `absence_fact` | Scope=negative | "在整个仓库 grep 'foobar' 没找到" | 跨语言通用否定信号 |
+| `precedence_role` | DiagramRole∈{config,runtime,override} 等非 default | "yaml 是 default 层、env var 是 override 层" | yaml/toml/json/ini/properties + 各语言 default-struct |
+| `call_edge` | AnchorKind=call | "Foo() 在第 42 行调用 Bar()" | 所有语言函数/方法调用(Go `f()` / Obj-C `[obj msg]` / CUDA `<<<>>>`)|
+| `guard_condition` | AnchorKind=condition | "if err != nil 在第 17 行" / "match arm 在第 30 行" / "catch (NPE) 在第 88 行" | if / when / unless / switch / case / guard / match / select / try / catch / except / rescue / finally / ensure / throw / raise — 跨 17 语言 |
+| `return_fact` | AnchorKind=return | "Func 在第 55 行 return ErrNotFound" | return / yield 跨语言 |
+| `assignment_fact` | AnchorKind=assignment | "x = 100 在第 12 行" / "x := load() 在第 99 行" | `=` / `:=` 跨语言 |
+| `import_edge` | AnchorKind=import | "main.go 第 5 行 import 'fmt'" | import / use / require / #include / @import 跨语言 |
+| `definition_fact` | AnchorKind=definition | "func Run() 定义在第 33 行" / "class Foo 定义在第 7 行" | def / class / type / interface / struct / trait / impl / enum / protocol / message / service / rpc 跨语言 |
+| `unknown` | 以上都不命中(retroactive 或半成品 evidence)| 没有 anchor 的散文片段 | fallback,不进 STRICT gate |
+
+**为什么是 9 个而不是更多**:细粒度 bug 分类由平行通道 `BugClass`(19 类 × 60+ pattern)承担,ClaimForm 只管"答案里这条 evidence 在语义上担当什么角色"。两通道独立——一个 panic frame 可以是 ClaimForm=external_observation 同时 BugClass=null_dereference。
+
+**为什么这 9 种就够**:用户问题模式(8 个 question family,§4.3)穷举下来,主要句式回路就是上面 9 种。"X 是什么?"问 definition_fact;"什么时候会触发 Y?"问 guard_condition;"是哪几个东西?"问 absence_fact 反演出全集 + definition_fact 列名;"为什么崩了?"问 external_observation + 链回 call_edge + guard_condition;"哪个值生效?"问 precedence_role + assignment_fact;"它依赖谁?"问 import_edge + call_edge;"返回啥?"问 return_fact。decorator / annotation / 宏 / generic constraint / channel send-recv / type-param 都自然归入 definition_fact 或 call_edge——不需要新形态。
+
+**多语言中立**:ClaimFormOf 不读源码字符串、不查语言、不调 LLM。Origin / Scope / DiagramRole / AnchorKind 4 个输入都是 typed enum,17 语言走完前面 7-tier grounding 后留下的 typed 信号是统一的,所以 ClaimForm 投影也跨语言统一。
 
 ### 5.4 Explorer 两阶段循环
 

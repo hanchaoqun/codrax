@@ -1370,23 +1370,44 @@ func tier2SymbolTable(it *types.EvidenceItem, gc *Context) bool {
 // around a missed AnchorCondition citation. Every language repomap
 // supports (Go / Java / Kotlin / Cangjie / ArkTS / Python / JS / TS /
 // Rust / C / C++ / Swift / Ruby / Lua / Proto / Obj-C / CUDA) maps
-// at least one of its conditional constructs to one of these
-// patterns:
+// at least one of its conditional / dispatch constructs to one of
+// these patterns:
 //
-//	if / if(           — universal ASCII conditional (every lang above)
-//	when / when(       — Kotlin pattern entry, Ruby `when` inside `case`
-//	unless             — Ruby
-//	switch / switch(   — Go / Java / JS / TS / C / C++ / Swift / Obj-C / CUDA
-//	case               — Go / Java / Ruby / C / C++ / Swift case-arm
-//	guard              — Swift early-exit
-//	match / match(     — 2026-05-08 add: Rust, Python 3.10+, Cangjie
-//	                     pattern-matching conditionals. Without this
-//	                     pattern the ±10 scan missed match-anchored
-//	                     evidence in those languages.
-//	select { / select{ — 2026-05-08 add: Go channel select; the
-//	                     "select {" form (gofmt-canonical) avoids
-//	                     false-positive matches against bare uppercase
-//	                     SQL "SELECT" tokens.
+//	if / if(            — universal ASCII conditional
+//	when / when(        — Kotlin pattern entry, Ruby `when` inside `case`
+//	unless              — Ruby
+//	switch / switch(    — Go / Java / JS / TS / C / C++ / Swift / Obj-C / CUDA
+//	case                — Go / Java / Ruby / C / C++ / Swift case-arm
+//	guard               — Swift early-exit
+//	match / match(      — Rust, Python 3.10+, Cangjie pattern-matching
+//	select { / select{  — Go channel select (the "select {" form
+//	                      avoids false-positive matches against bare
+//	                      uppercase SQL "SELECT" tokens)
+//	try { / try: / try{ — exception-handling entry: Java / JS / TS /
+//	                      Kotlin / Cangjie / Swift / Rust experimental
+//	                      use `try {`; Python uses `try:`. The "{" /
+//	                      ":" suffix avoids matching prose like
+//	                      "try harder".
+//	catch { / catch ( / catch  — Java / JS / TS / Kotlin / Cangjie /
+//	                      C++ / Swift / Obj-C @catch. Three variants
+//	                      cover `catch(Exception e)` (no space),
+//	                      `catch (Exception e)` (with space), and
+//	                      Swift's `do { ... } catch { ... }` form.
+//	except / except:    — Python `except ValueError:` and bare
+//	                      `except:`
+//	rescue              — Ruby `rescue StandardError => e`
+//	finally { / finally: / finally{
+//	                    — Java / JS / TS / Kotlin / Cangjie / C++ /
+//	                      Swift use `finally {`; Python uses
+//	                      `finally:`.
+//	ensure              — Ruby
+//	throw / raise       — explicit failure-dispatch sites: Java /
+//	                      JS / TS / Kotlin / Cangjie / Swift / C++ /
+//	                      Obj-C @throw use `throw`; Python / Ruby
+//	                      use `raise`. Treated as conditional-class
+//	                      because LLMs cite throw / raise lines when
+//	                      explaining "the code raises an error
+//	                      under condition X".
 //
 // elseif / elsif / elif (Lua / Ruby / Python continuation forms) are
 // intentionally NOT listed: they always trail an `if` within the
@@ -1407,6 +1428,13 @@ var conditionKeywords = []string{
 	"guard ",
 	"match ", "match(",
 	"select {", "select{",
+	"try {", "try:", "try{",
+	"catch ", "catch(", "catch {",
+	"except ", "except:",
+	"rescue ",
+	"finally {", "finally:", "finally{",
+	"ensure ",
+	"throw ", "raise ",
 }
 var returnKeywords = []string{"return ", "return\t", "return(", "return;", "yield "}
 
