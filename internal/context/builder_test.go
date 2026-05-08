@@ -3216,9 +3216,14 @@ func TestFormatMultiRepoActiveSetAdvisory_TruncatesInactivePreview(t *testing.T)
 	if strings.Contains(got, "repo-d") || strings.Contains(got, "repo-e") {
 		t.Errorf("inactive preview must respect cap and not leak beyond it: %q", got)
 	}
-	// /repos focus tip present.
-	if !strings.Contains(got, "/repos focus") {
-		t.Errorf("advisory must surface /repos focus tip: %q", got)
+	// Recovery prose present (no LLM-facing slash command literal — LLM
+	// surfaces the gap to the user in plain prose, the user adjusts).
+	if !strings.Contains(got, "adjust the workspace scope") {
+		t.Errorf("advisory must surface user-adjusts-workspace tip: %q", got)
+	}
+	// Auto-prefix policy hint present.
+	if !strings.Contains(got, "first unique match") {
+		t.Errorf("advisory must surface auto-prefix policy: %q", got)
 	}
 }
 

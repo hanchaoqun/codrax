@@ -136,6 +136,30 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		}
 	}
 
+	// L1 active-set hard gate (Phase 1.L1, 2026-05-08): in multi-repo
+	// posture, refuse parent-wide scans, refuse paths that fall inside
+	// inactive sub-repos, and refuse ambiguous bare paths that match
+	// multiple active sub-repos. Reached via the
+	// types.MultiRepoActiveSetGater interface so the gate's
+	// implementation in multigraph stays single-source.
+	if ctx != nil {
+		if gater, ok := ctx.MultiGraph.(ctypes.MultiRepoActiveSetGater); ok && gater != nil {
+			// repo_map points at directories, not single files —
+			// pass fileExists=nil so the gate forces the LLM to
+			// specify a sub-repo prefix on bare paths.
+			gate := gater.ResolveActiveSetPath(ctx, t.Name(), p.Path, nil)
+			if !gate.Allowed {
+				return ctypes.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   gate.RefusalProse,
+					Timestamp: time.Now(),
+				}, nil
+			}
+			p.Path = gate.ResolvedPath
+		}
+	}
+
 	// Resolve LLM-supplied path against ctx.RepoRoot. The LLM treats
 	// the repo root as its own CWD ("." = "the repo I'm investigating"),
 	// but the codrax process CWD is wherever the user invoked the

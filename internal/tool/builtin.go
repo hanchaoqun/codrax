@@ -479,6 +479,26 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				Timestamp: time.Now(),
 			}, nil
 		}
+
+		// L1 multi-repo active-set gate (Phase 1.L1, 2026-05-08): in
+		// multi-repo posture, refuse parent-wide ("" / ".") greps that
+		// would span all sub-repos, refuse paths inside inactive sub-
+		// repos, and reject ambiguous bare paths that resolve into
+		// multiple active sub-repos. fileExists=nil because grep
+		// targets directories — multi-active-sub-repo bare paths
+		// resolve as ambiguous and force the LLM to specify a prefix.
+		if gater, ok := ctx.MultiGraph.(types.MultiRepoActiveSetGater); ok && gater != nil {
+			gate := gater.ResolveActiveSetPath(ctx, t.Name(), p.Path, nil)
+			if !gate.Allowed {
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   gate.RefusalProse,
+					Timestamp: time.Now(),
+				}, nil
+			}
+			p.Path = gate.ResolvedPath
+		}
 	}
 
 	// Resolve relative / "." paths against ctx.RepoRoot so a search
@@ -993,6 +1013,35 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}, nil
 	}
 
+	// L1 multi-repo active-set gate (Phase 1.L1, 2026-05-08): in
+	// multi-repo posture refuse paths inside inactive sub-repos and
+	// auto-prefix bare paths into the unique-matching active sub-repo.
+	// Uses os.Stat as fileExists so the bare-path branch resolves
+	// only to a sub-repo where the file actually exists; ambiguous
+	// or no-match cases surface as a typed refusal.
+	//
+	// Reached via the types.MultiRepoActiveSetGater interface
+	// (BusContext.MultiGraph any → typed cast) so this package
+	// doesn't import the multigraph package directly — that would
+	// re-introduce the tool→multigraph→topology→tool cycle.
+	if ctx != nil {
+		if gater, ok := ctx.MultiGraph.(types.MultiRepoActiveSetGater); ok && gater != nil {
+			gate := gater.ResolveActiveSetPath(ctx, t.Name(), p.Path, func(abs string) bool {
+				info, err := os.Stat(abs)
+				return err == nil && !info.IsDir()
+			})
+			if !gate.Allowed {
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   gate.RefusalProse,
+					Timestamp: time.Now(),
+				}, nil
+			}
+			p.Path = gate.ResolvedPath
+		}
+	}
+
 	// Resolve relative paths against ctx.RepoRoot. The LLM cites paths
 	// in repo-relative form (the canonicaliser also stores them that
 	// way); the banner below echoes p.Path verbatim so those downstream
@@ -1215,6 +1264,25 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	var p listFilesParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+	}
+
+	// L1 multi-repo active-set gate (Phase 1.L1, 2026-05-08): refuse
+	// parent-wide listings that would span all sub-repos, refuse
+	// listings inside inactive sub-repos, and refuse ambiguous bare
+	// paths. fileExists=nil — list_files targets directories.
+	if ctx != nil {
+		if gater, ok := ctx.MultiGraph.(types.MultiRepoActiveSetGater); ok && gater != nil {
+			gate := gater.ResolveActiveSetPath(ctx, t.Name(), p.Path, nil)
+			if !gate.Allowed {
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   gate.RefusalProse,
+					Timestamp: time.Now(),
+				}, nil
+			}
+			p.Path = gate.ResolvedPath
+		}
 	}
 
 	recursiveStr := ""

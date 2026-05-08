@@ -3172,6 +3172,53 @@ type ExecutionSignals struct {
 	HasEnoughFacts bool `json:"has_enough_facts"`
 }
 
+// ActiveSetGateResult is the return shape of MultiRepoActiveSetGater.
+// Lives in internal/types (a leaf package both internal/tool and
+// internal/tool/repomap/multigraph can import) so the file-system
+// tools (read_file, grep, repo_map) can call into the multi-repo
+// gate without taking a direct dependency on the multigraph package
+// (which transitively imports back into internal/tool, producing a
+// cycle).
+type ActiveSetGateResult struct {
+	// Allowed reports whether the tool call may proceed.
+	Allowed bool
+
+	// ResolvedPath is the path the tool should actually use. When the
+	// LLM-supplied path was already absolute or sub-repo-prefixed,
+	// ResolvedPath is identical (modulo leading `./` strip). When the
+	// LLM passed a bare relative path that auto-prefix matched a
+	// unique active sub-repo, ResolvedPath is the prefixed form.
+	ResolvedPath string
+
+	// SubRepoRootRel is the active sub-repo's RootRel that the path
+	// resolved into. Empty when Allowed=false or in the single-repo
+	// bypass.
+	SubRepoRootRel string
+
+	// AutoPrefixed reports whether the gate auto-prefixed an
+	// unprefixed bare path (telemetry / banner display).
+	AutoPrefixed bool
+
+	// RefusalProse is the user-facing refusal text the tool layer
+	// surfaces as the tool's Summary. Empty when Allowed=true.
+	// Generic prose, no internal pipeline terminology (R6 audited).
+	RefusalProse string
+}
+
+// MultiRepoActiveSetGater is the contract the multigraph package
+// implements to expose active-set checks to file-system tools.
+// fileExists may be nil; callers pass an os.Stat-style probe when
+// path-existence semantics matter (read_file's auto-prefix unique-
+// match), or nil when the path is a directory (grep / repo_map).
+type MultiRepoActiveSetGater interface {
+	ResolveActiveSetPath(
+		ctx *BusContext,
+		toolName string,
+		llmPath string,
+		fileExists func(absPath string) bool,
+	) ActiveSetGateResult
+}
+
 // BusContext is the central data structure passed through the pipeline.
 //
 // The Mutable region is the only part of BusContext that tools may
