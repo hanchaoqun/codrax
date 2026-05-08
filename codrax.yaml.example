@@ -90,6 +90,42 @@
 # blob_max_sessions: 7
 
 # ---------------------------------------------------------------------------
+# Final-answer transcript dump
+# ---------------------------------------------------------------------------
+# At the end of every read-mode Run that successfully landed an
+# AnswerDocumentV2, the orchestrator writes a markdown transcript of
+# what the user just saw to <CWD>/.codrax/output/<timestamp>-<pid>.md.
+# The file carries exactly two H1 sections:
+#
+#   # 问题   — the user's request, plus optional `> 附件: log (… KiB)` /
+#             `> 附件: htrace (… KiB)` footnotes when --log / --htrace
+#             / --atrace was attached
+#   # 回答   — the rendered markdown body, byte-identical to what the
+#             one-shot CLI prints to stdout (REPL applies glamour on top;
+#             this file captures the pre-glamour source)
+#
+# Diagram fences (```mermaid) are kept verbatim — the file mirrors the
+# model's output, not a re-rendering. Whether downstream viewers (GitHub,
+# VSCode mermaid plugin) draw the diagrams is the viewer's choice.
+#
+# Write modes (plan / apply / verify) do NOT dump — only read-mode
+# answers. Failed Runs that never landed a V2 carrier are skipped so
+# only the answer the user actually saw is ever written.
+#
+# Retention: each dump prunes the oldest *.md files in the directory
+# until count <= output_max_files - 1, then writes the new file. Other
+# files in the directory are left alone.
+
+# Master switch. Default true — every read-mode answer is captured.
+# Set false to disable the feature entirely (no directory created).
+# output_dump_enabled: true
+
+# Maximum *.md files retained under <CWD>/.codrax/output/. The oldest
+# (by mtime) are pruned before each new write so the directory never
+# grows past this cap. Default 10. Non-positive resets to default.
+# output_max_files: 10
+
+# ---------------------------------------------------------------------------
 # Response language
 # ---------------------------------------------------------------------------
 

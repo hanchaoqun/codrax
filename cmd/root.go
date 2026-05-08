@@ -72,6 +72,16 @@ const (
 	blobSubdir             = "blob"
 	defaultBlobMaxSessions = 7
 
+	// Final-answer transcript dump (read-mode only). The orchestrator
+	// writes one .md file per finalised answer to <runtime-anchor>/output/
+	// after Mutable.SetResult commits. outputSubdir is the directory
+	// name; defaultOutputMaxFiles is the retention cap (oldest *.md
+	// pruned by mtime when count exceeds the cap). Operator override
+	// via codrax.yaml :: output_dump_enabled / output_max_files.
+	outputSubdir           = "output"
+	defaultOutputMaxFiles  = 10
+	defaultOutputDumpOn    = true
+
 	// T3.1 keep-on-success worktree GC defaults.
 	// 168 hours = 7 days; 20 worktrees keeps a busy operator's
 	// disk under control without amputating active try-before-merge
@@ -1360,6 +1370,25 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Final-answer transcript dump. Resolves alongside the blob layout
+	// so a future operator who greps for ".codrax/" sees both artefact
+	// kinds together. outputDumpDir is empty when the feature is gated
+	// off (output_dump_enabled: false); the orchestrator no-ops when
+	// it sees an empty dir. Failures here only WARN — the dump must
+	// never block startup.
+	outputDumpEnabled := defaultOutputDumpOn
+	if rs != nil && rs.OutputDumpEnabled != nil {
+		outputDumpEnabled = *rs.OutputDumpEnabled
+	}
+	outputMaxFiles := defaultOutputMaxFiles
+	if rs != nil && rs.OutputMaxFiles != nil && *rs.OutputMaxFiles > 0 {
+		outputMaxFiles = *rs.OutputMaxFiles
+	}
+	outputDumpDir := ""
+	if outputDumpEnabled {
+		outputDumpDir = filepath.Join(runtimeAnchor, outputSubdir)
+	}
+
 	// Resolve --repo to an absolute path before any tool / orchestrator
 	// reads it. Tools key file-system access off BusContext.RepoRoot, so
 	// a literal "." here would silently fall through to the process CWD
@@ -2553,6 +2582,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	orch.SetLanguage(flagLang)
 	orch.SetEmitter(renderer.Emitter())
 	orch.SetBlobSessionDir(blobSessionDir)
+	orch.SetOutputDump(outputDumpDir, outputMaxFiles)
 	// B2.3 verify→plan retry cap. Zero keeps B1 fail-loud semantics.
 	orch.SetWriteRetryBudget(pipelineSettings.WriteRetryBudget)
 	// Transient-dispatch retry cap. Decoupled from WriteRetryBudget so

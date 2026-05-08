@@ -51,6 +51,15 @@ type Orchestrator struct {
 	attachedLog     string                   // runtime log excerpt attached via --log / /log
 	attachedHitrace string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
 
+	// outputDumpDir is the absolute directory final-answer markdown
+	// transcripts are written into. Empty string disables the dump
+	// entirely (cmd/root.go leaves it empty when output_dump_enabled
+	// is false). outputDumpMax bounds retention by file count; the
+	// dump helper prunes the oldest files past this cap before writing
+	// the new one.
+	outputDumpDir string
+	outputDumpMax int
+
 	// memoryReader is the read handle into the REPL memory store.
 	// Wired by cmd/root.go via SetMemoryReader after the Store is
 	// constructed; nil in single-shot CLI / non-REPL test fixtures.
@@ -487,6 +496,19 @@ func (o *Orchestrator) SetThinkAloudMap(m map[types.AgentName]bool) {
 // persistent layout).
 func (o *Orchestrator) SetBlobSessionDir(dir string) {
 	o.blobSessionDir = dir
+}
+
+// SetOutputDump configures the per-Run final-answer transcript dump.
+// `dir` is the absolute output directory (typically
+// <CWD>/.codrax/output/); empty disables the feature. `max` bounds
+// retention — the dump helper deletes the oldest *.md files in the
+// directory until count <= max-1 before writing a new file, so the
+// directory never grows past `max` entries. Non-positive `max` is
+// treated as "no cap" by the helper but cmd/root.go always passes a
+// concrete default (10), so the no-cap branch is reserved for tests.
+func (o *Orchestrator) SetOutputDump(dir string, max int) {
+	o.outputDumpDir = dir
+	o.outputDumpMax = max
 }
 
 // SetMemoryReader wires the REPL memory store's read handle so each
@@ -4690,6 +4712,27 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 	// invisible. Promotion is cheap (final answer is one log entry
 	// per Run, ≤ 30 KB typical, no rotation impact).
 	logging.Info("[orchestrator] final answer (len=%d):\n%s\n---", len(answer), answer)
+
+	// Final-answer transcript dump. Read mode only — write modes
+	// emit no AnswerDocumentV2 carrier and intermediate retry attempts
+	// that never landed a V2 doc are skipped here, so the file
+	// captures exactly what the user saw on terminal. Best-effort:
+	// the helper logs and swallows every IO error so the dump never
+	// affects the rest of the pipeline.
+	if o.outputDumpDir != "" && o.busCtx.Mutable.AnswerDocumentV2() != nil {
+		writeFinalOutputDump(dumpFinalOutputArgs{
+			dir:      o.outputDumpDir,
+			max:      o.outputDumpMax,
+			request:  types.StripConversationPrefix(o.busCtx.Mutable.Objective()),
+			answer:   answer,
+			hasLog:   o.attachedLog != "",
+			logBytes: len(o.attachedLog),
+			hasTrace: o.attachedHitrace != "",
+			traceB:   len(o.attachedHitrace),
+			now:      time.Now(),
+			pid:      os.Getpid(),
+		})
+	}
 
 	o.emit(render.Event{
 		Kind:      render.EventObjectiveDone,

@@ -61,6 +61,27 @@ type RuntimeSettings struct {
 	BlobPreviewTailBytes *int `yaml:"blob_preview_tail_bytes"`
 	BlobMaxSessions      *int `yaml:"blob_max_sessions"`
 
+	// Final-answer transcript dump.
+	//
+	// When OutputDumpEnabled is true (the default), the orchestrator
+	// writes a markdown transcript of every finalised read-mode answer
+	// to <CWD>/.codrax/output/<timestamp>-<pid>.md after Mutable.SetResult
+	// commits the final string. The file carries two H1 sections — `# 问题`
+	// holds the original user request (plus footnotes for any --log /
+	// --htrace / --atrace attachments) and `# 回答` holds the rendered
+	// answer body verbatim, identical to what the terminal printed in
+	// one-shot mode. Write-mode plan / apply / verify do NOT dump.
+	// Failed finalize Runs (no V2 carrier landed) are skipped — only
+	// the answer the user actually saw is ever written.
+	//
+	// OutputMaxFiles caps retention. On every dump the orchestrator
+	// scans <output_dir>/*.md by mtime and deletes the oldest
+	// (count - max + 1) files before writing the new one, so the
+	// directory never grows past N. Other files in the dir are not
+	// touched. Default 10. Non-positive resets to default.
+	OutputDumpEnabled *bool `yaml:"output_dump_enabled"`
+	OutputMaxFiles    *int  `yaml:"output_max_files"`
+
 	// Fraction-form version of blob_max_inline_bytes. When set AND the
 	// adapter reports a positive context_window, the effective byte
 	// threshold is `context_window * fraction * BytesPerToken` (conservative
