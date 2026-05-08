@@ -45,14 +45,19 @@ func BuildOrLoadMultiGraph(topo *topology.RepoTopology, query string, cap int, f
 	if err != nil {
 		return nil, err
 	}
-	if mg.IsSingle() {
-		// Pre-warm so single-repo callers see byte-identical
-		// behaviour to the legacy BuildOrLoadGraph path with one
-		// fewer round-trip on the first access.
-		if _, err := mg.Single(); err != nil {
-			return nil, fmt.Errorf("repomap.BuildOrLoadMultiGraph: single-repo prewarm: %w", err)
-		}
-	}
+	// Lazy load — DO NOT pre-warm at construction time. Pre-2026-05-08
+	// the facade called mg.Single() here so single-repo callers got
+	// "one fewer round-trip on the first access". Reality:
+	// initApp invokes this synchronously BEFORE the REPL banner prints;
+	// for large repos with no cache, the full BuildOrLoadGraph scan
+	// (10-60s) ran before the user saw any prompt — the entire startup
+	// looked frozen with zero stdout feedback (log_stdout defaults
+	// false). Removing the prewarm restores the pre-multi-repo
+	// behaviour where graph load happens lazily inside the analyzer's
+	// dispatch (covered by the explorer's "repo_map: full scan / cache
+	// hit" INFO line and the existing tool.repo_map progress hooks).
+	// The MultiGraph carrier itself is cheap to construct (~µs:
+	// allocates the LRU + ThrashingTracker + topology pointer).
 	return mg, nil
 }
 
