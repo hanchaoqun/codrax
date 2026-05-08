@@ -1106,6 +1106,16 @@ func helpLines(lang string) []string {
 // first write command. Centralised here so adding a new
 // write command — or moving one — only needs an update in
 // this list rather than re-flowing the help renderer.
+//
+// 2026-05-08: dropped "/branch" — it is a universal git
+// checkout helper (works in any mode, no write_enabled
+// dependency). Keeping it under the write-mode header was
+// misleading, especially because non-write commands like
+// /cancel / /env / /repos / /mermaid had also been pulled
+// under the header by the slashCommands order. The slice
+// has been reordered so EVERY non-write command appears
+// above the first write entry; this classifier therefore
+// only needs to flag the genuinely write-mode commands.
 func isWriteModeCommand(name string) bool {
 	switch name {
 	case "/mode",
@@ -1115,7 +1125,6 @@ func isWriteModeCommand(name string) bool {
 		"/verify",
 		"/worktree",
 		"/merge",
-		"/branch",
 		"/baseline",
 		"/phase",
 		"/pitfalls":

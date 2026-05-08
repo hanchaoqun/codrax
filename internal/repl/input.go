@@ -83,11 +83,22 @@ func (s slashSubcommand) Help(lang string) string {
 	return s.HelpEn
 }
 
+// slashCommands is the canonical /help table. Order is significant:
+// helpLines (messages.go) inserts a "── Write-mode commands ──"
+// header before the first entry that isWriteModeCommand classifies
+// as write-mode, then renders every subsequent entry under that
+// header. To prevent non-write commands from being mis-grouped, ALL
+// non-write commands MUST appear ABOVE the first write entry. The
+// 2026-05-08 ordering audit fixed a regression where /branch /cancel
+// /env /mermaid /repos /version /exit /quit had drifted below the
+// /mode boundary and rendered under the write-mode header.
 var slashCommands = []slashCommand{
+	// ── Universal core: session / memory / display ───────────────
 	{Name: "/help", HelpEn: "show available commands", HelpZh: "显示可用命令"},
 	{Name: "/history", HelpEn: "show recent turns", HelpZh: "显示最近会话"},
 	{Name: "/compact", HelpEn: "compact memory", HelpZh: "压缩 memory(整理索引,腾出空间)"},
 	{Name: "/clear", HelpEn: "wipe conversation memory", HelpZh: "清空会话 memory"},
+	// ── Read-mode input / attach / pipeline-bypass ───────────────
 	{
 		Name:   "/log",
 		HelpEn: "attach a runtime log (no arg = paste mode)",
@@ -130,6 +141,68 @@ var slashCommands = []slashCommand{
 				"要发送的消息(单行;绕过仓库分析与 LLM 工具调用)"},
 		},
 	},
+	// ── Universal repo / runtime ops ─────────────────────────────
+	{
+		Name:   "/repos",
+		HelpEn: "show multi-repo topology + active sub-repo state",
+		HelpZh: "查看多仓拓扑 + active 子仓状态",
+		Subs: []slashSubcommand{
+			{"", "list discovered sub-repos (default)", "列出已发现的子仓(默认)"},
+			{"focus <slug>", "pin a sub-repo into the active set across turns",
+				"把子仓固定到 active 集合(跨 turn)"},
+			{"unfocus [slug]", "release a focus pin (no arg = release all)",
+				"取消固定(无参数 = 全部取消)"},
+			{"refresh", "force re-discover the parent topology",
+				"强制重新探测父目录拓扑"},
+			{"cap <N>", "session-local override of multi_repo_max_active",
+				"会话级覆盖 multi_repo_max_active"},
+		},
+	},
+	{
+		Name:   "/branch",
+		HelpEn: "show or switch the current git branch in the repo",
+		HelpZh: "查看 / 切换当前仓库的 git 分支",
+		Subs: []slashSubcommand{
+			{"<name>", "git checkout <name> in the main repo (use `/branch -b <name>` to create + switch)",
+				"在主仓上 `git checkout <name>`(用 `/branch -b <name>` 创建并切换)"},
+		},
+	},
+	{
+		Name:   "/cancel",
+		HelpEn: "cancel the in-flight Run. TTY mode: use Ctrl+C (the input box is closed during Run). Pipe / scripted stdin: a `/cancel` line on stdin triggers cancel.",
+		HelpZh: "取消正在执行的 Run。TTY 交互模式按 Ctrl+C(运行期输入框关闭,/cancel 输不进去);管道/脚本输入(stdin 重定向)发一行 /cancel 触发。",
+	},
+	{
+		Name:   "/env",
+		HelpEn: "show the probed environment + run env_recommend explain on a stderr excerpt",
+		HelpZh: "查看探测到的环境画像 / 对 stderr 跑 env_recommend 诊断与推荐",
+		Subs: []slashSubcommand{
+			{"show", "render the cached EnvFacts (default subcommand)", "渲染当前环境快照(默认子命令)"},
+			{"probe", "re-run the environment probe and refresh", "重新探测并刷新缓存"},
+			{"explain <stderr>", "run diagnose+recommend on supplied or last-shell stderr", "对参数或最近一次 ! shell 输出跑 diagnose+recommend"},
+			{"cache list", "show entries in the disk cache", "列出磁盘缓存条目"},
+			{"cache clear", "wipe the disk cache", "清空磁盘缓存"},
+			{"stats", "show pipeline counters (calls / stage hits / cache / LLM / docslink)", "查看推荐管线计数器(调用 / 各阶段命中 / 缓存 / LLM / 兜底)"},
+			{"stats reset", "zero the pipeline counters", "清零计数器,重新累计窗口"},
+		},
+	},
+	{
+		Name:   "/mermaid",
+		HelpEn: "show mermaid render counters (succeeded / fallback / library-rejected / unsupported kinds / gate-blocked)",
+		HelpZh: "查看 Mermaid 渲染计数(成功/字符替换/库拒绝/不支持图类/闸门拦截)",
+		Subs: []slashSubcommand{
+			{"stats", "show counters (default subcommand)", "查看计数(默认子命令)"},
+			{"help", "usage line", "显示用法"},
+		},
+	},
+	{Name: "/version", HelpEn: "print build version", HelpZh: "打印构建版本"},
+	{Name: "/exit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
+	{Name: "/quit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
+	// ── Mode boundary + write-mode workflow ──────────────────────
+	// Everything below requires codrax.yaml :: write_enabled: true.
+	// helpLines (messages.go) emits a "── Write-mode commands ──"
+	// header before the first entry whose name matches
+	// isWriteModeCommand — that triggers on /mode here.
 	{
 		Name:   "/mode",
 		HelpEn: "show or set the sticky pipeline mode (write-mode subcommands require write_enabled: true)",
@@ -217,34 +290,6 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
-		Name:   "/branch",
-		HelpEn: "show or switch the current git branch in the repo",
-		HelpZh: "查看 / 切换当前仓库的 git 分支",
-		Subs: []slashSubcommand{
-			{"<name>", "git checkout <name> in the main repo (use `/branch -b <name>` to create + switch)",
-				"在主仓上 `git checkout <name>`(用 `/branch -b <name>` 创建并切换)"},
-		},
-	},
-	{
-		Name:   "/cancel",
-		HelpEn: "cancel the in-flight Run. TTY mode: use Ctrl+C (the input box is closed during Run). Pipe / scripted stdin: a `/cancel` line on stdin triggers cancel.",
-		HelpZh: "取消正在执行的 Run。TTY 交互模式按 Ctrl+C(运行期输入框关闭,/cancel 输不进去);管道/脚本输入(stdin 重定向)发一行 /cancel 触发。",
-	},
-	{
-		Name:   "/env",
-		HelpEn: "show the probed environment + run env_recommend explain on a stderr excerpt",
-		HelpZh: "查看探测到的环境画像 / 对 stderr 跑 env_recommend 诊断与推荐",
-		Subs: []slashSubcommand{
-			{"show", "render the cached EnvFacts (default subcommand)", "渲染当前环境快照(默认子命令)"},
-			{"probe", "re-run the environment probe and refresh", "重新探测并刷新缓存"},
-			{"explain <stderr>", "run diagnose+recommend on supplied or last-shell stderr", "对参数或最近一次 ! shell 输出跑 diagnose+recommend"},
-			{"cache list", "show entries in the disk cache", "列出磁盘缓存条目"},
-			{"cache clear", "wipe the disk cache", "清空磁盘缓存"},
-			{"stats", "show pipeline counters (calls / stage hits / cache / LLM / docslink)", "查看推荐管线计数器(调用 / 各阶段命中 / 缓存 / LLM / 兜底)"},
-			{"stats reset", "zero the pipeline counters", "清零计数器,重新累计窗口"},
-		},
-	},
-	{
 		Name:   "/baseline",
 		HelpEn: "inspect the cached pre-apply test snapshots (one per main-repo HEAD)",
 		HelpZh: "查看按主仓 HEAD 缓存的应用前测试快照",
@@ -277,34 +322,6 @@ var slashCommands = []slashCommand{
 			{"clear", "wipe the cache file (regenerable from future failures)", "清空本地缓存(后续失败时会重新积累)"},
 		},
 	},
-	{
-		Name:   "/mermaid",
-		HelpEn: "show mermaid render counters (succeeded / fallback / library-rejected / unsupported kinds / gate-blocked)",
-		HelpZh: "查看 Mermaid 渲染计数(成功/字符替换/库拒绝/不支持图类/闸门拦截)",
-		Subs: []slashSubcommand{
-			{"stats", "show counters (default subcommand)", "查看计数(默认子命令)"},
-			{"help", "usage line", "显示用法"},
-		},
-	},
-	{
-		Name:   "/repos",
-		HelpEn: "show multi-repo topology + active sub-repo state",
-		HelpZh: "查看多仓拓扑 + active 子仓状态",
-		Subs: []slashSubcommand{
-			{"", "list discovered sub-repos (default)", "列出已发现的子仓(默认)"},
-			{"focus <slug>", "pin a sub-repo into the active set across turns",
-				"把子仓固定到 active 集合(跨 turn)"},
-			{"unfocus [slug]", "release a focus pin (no arg = release all)",
-				"取消固定(无参数 = 全部取消)"},
-			{"refresh", "force re-discover the parent topology",
-				"强制重新探测父目录拓扑"},
-			{"cap <N>", "session-local override of multi_repo_max_active",
-				"会话级覆盖 multi_repo_max_active"},
-		},
-	},
-	{Name: "/version", HelpEn: "print build version", HelpZh: "打印构建版本"},
-	{Name: "/exit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
-	{Name: "/quit", HelpEn: "leave the REPL", HelpZh: "退出 REPL"},
 }
 
 // placeholderRE matches a folded-paste token. Group 1 is the id.

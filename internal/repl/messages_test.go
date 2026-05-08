@@ -445,6 +445,54 @@ func TestHelpLines_WriteModeGroupingHeader(t *testing.T) {
 	}
 }
 
+// TestHelpLines_NonWriteCommandsAboveWriteHeader pins the
+// 2026-05-08 invariant: every non-write command (anything for
+// which isWriteModeCommand returns false) must render ABOVE the
+// "── Write-mode commands ──" header. Putting a non-write entry
+// below the header — e.g. /branch / /cancel / /env / /repos /
+// /version / /exit — would mislead operators into thinking the
+// command needs codrax.yaml :: write_enabled: true. The
+// regression this guards against: slashCommands order drifted so
+// /mode (the header trigger) appeared before genuinely universal
+// helpers, sweeping them into the write-mode section.
+func TestHelpLines_NonWriteCommandsAboveWriteHeader(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		t.Run(lang, func(t *testing.T) {
+			lines := helpLines(lang)
+			joined := strings.Join(lines, "\n")
+			headerSubstr := "Write-mode commands"
+			if isZh(lang) {
+				headerSubstr = "写模式命令"
+			}
+			headerIdx := strings.Index(joined, headerSubstr)
+			if headerIdx < 0 {
+				t.Fatalf("/help (%s) missing write-mode header %q", lang, headerSubstr)
+			}
+			for _, c := range slashCommands {
+				if isWriteModeCommand(c.Name) {
+					continue
+				}
+				cmdIdx := strings.Index(joined, "  "+c.Name+" ")
+				if cmdIdx < 0 {
+					// Pad-aware lookup: helpLines pads the name to
+					// the longest column. Try a tab-loose match.
+					cmdIdx = strings.Index(joined, c.Name)
+				}
+				if cmdIdx < 0 {
+					t.Errorf("%s: non-write command %q absent from /help output", lang, c.Name)
+					continue
+				}
+				if cmdIdx > headerIdx {
+					t.Errorf(
+						"%s: non-write command %q renders BELOW the write-mode header (cmd=%d header=%d) — operator will read it as write-only. "+
+							"Move it earlier in slashCommands or add it to isWriteModeCommand if it really is write-only.",
+						lang, c.Name, cmdIdx, headerIdx)
+				}
+			}
+		})
+	}
+}
+
 // TestClampToTermWidth pins commit 42 P1: long banner lines
 // get truncated with a centered ellipsis so terminals don't
 // wrap them onto a second visual line.
