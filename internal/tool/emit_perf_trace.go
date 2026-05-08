@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/perftriage"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -150,6 +151,35 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 	}
 
 	bundle := toPerfBundle(&p)
+
+	// P-TypedDenials Phase B (2026-05-08): mirror log_triage's frame
+	// corroborate gate on the perf side. PerfStall has the SAME
+	// (File, Symbol) typed pair the log gate validates — a stall
+	// claiming to fire in real_path.go::someSymbol is rejected when
+	// the real file does not contain that symbol identifier.
+	// Pre-Phase-B perf had NO such gate (acknowledged in
+	// internal/analysis/perftriage/merge.go's package doc), letting
+	// LLM-emitted stalls land File / Symbol pairs that grounded into
+	// unrelated real-repo files (same root cause as the
+	// logtri_goroutine_dump hallucination class).
+	clearedStalls := perftriage.CorroborateStallFiles(bundle, ctx.RepoRoot)
+	for _, cs := range clearedStalls {
+		ctx.TypedDenials.Add(types.TypedDenial{
+			Class:  types.TypedDenialExternalPerfStallUnresolved,
+			Token:  cs.OriginalFile,
+			Reason: fmt.Sprintf("perf stall symbol %q does not appear in %s", cs.Symbol, cs.OriginalFile),
+		})
+		// Also stamp the symbol token if it was the offending axis,
+		// so the symbol oracle / hallucination validator side also
+		// refuses to validate it as a real symbol.
+		if cs.Symbol != "" {
+			ctx.TypedDenials.Add(types.TypedDenial{
+				Class:  types.TypedDenialExternalPerfStallUnresolved,
+				Token:  cs.Symbol,
+				Reason: fmt.Sprintf("perf stall symbol %q absent from %s", cs.Symbol, cs.OriginalFile),
+			})
+		}
+	}
 
 	derivePerfLayer4(bundle)
 	ctx.Mutable.SetPerfTrace(bundle)

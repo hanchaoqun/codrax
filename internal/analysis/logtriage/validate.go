@@ -627,6 +627,22 @@ func isWeakFuncToken(tok string) bool {
 	return weakFuncTokenRe.MatchString(tok)
 }
 
+// IdentifiersFromContent returns the set of identifier-shaped tokens
+// in `content`, lowercased for case-insensitive lookup. Exposed so
+// sibling packages (perftriage.CorroborateStallFiles) can use the
+// same regex for symbol corroboration without duplicating the
+// pattern. Same lowercasing convention as loadFileIdentifiers — the
+// existing log gate is case-insensitive for cross-language tolerance
+// (Java methodName vs Python method_name vs Go MethodName all match
+// stable tokens after fold).
+func IdentifiersFromContent(content string) map[string]bool {
+	ids := make(map[string]bool)
+	for _, tok := range logFrameIdentifierRe.FindAllString(content, -1) {
+		ids[strings.ToLower(tok)] = true
+	}
+	return ids
+}
+
 func loadFileIdentifiers(repoRoot, relPath string, cache map[string]map[string]bool) (map[string]bool, bool) {
 	if cache != nil {
 		if ids, ok := cache[relPath]; ok {
