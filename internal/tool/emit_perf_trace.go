@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/analysis/perftriage"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -178,6 +179,18 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 				Token:  cs.Symbol,
 				Reason: fmt.Sprintf("perf stall symbol %q absent from %s", cs.Symbol, cs.OriginalFile),
 			})
+		}
+	}
+
+	// P-BugClass Phase E.3 (2026-05-08): bug-pattern detection on the
+	// raw attached perf trace. Same registry the log channel uses —
+	// some failure signatures (deadlock, race, resource_exhaustion)
+	// also appear in trace tags / panic dumps embedded in trace
+	// streams. Empty result on benign performance traces is the
+	// common case (no false positives on healthy traces).
+	if bundle.Meta.BugClasses == nil {
+		if detected := logtriage.DetectBugClasses(ctx.AttachedHitrace); len(detected) > 0 {
+			bundle.Meta.BugClasses = detected
 		}
 	}
 

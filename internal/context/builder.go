@@ -1855,6 +1855,71 @@ const AttachedLogBlobName = "attached_log.txt"
 // with the other inside the shared WorkDir.
 const AttachedTraceBlobName = "attached_trace.txt"
 
+// renderBugClassesSection produces the LLM-facing "Detected
+// Failure Patterns" block for the log_triage / perf_triage prompt
+// section. Two regimes:
+//
+//   - bundle.Meta.BugClasses non-empty → render canonical bilingual
+//     labels + matched signature substrings, plus a generic
+//     instruction to use those terms verbatim and avoid speculating
+//     about cause from unrelated repository code.
+//   - empty → render an "unknown / business-domain failure" guide so
+//     the LLM understands no standard pattern matched and the
+//     classification must come from the log's own content (custom
+//     business error code, application-specific exception class,
+//     domain term). Same anti-hallucination guard either way.
+//
+// R6 / R4 compliance:
+//   - No internal pipeline terminology (no "BugClass", "TypedDenials",
+//     "registry", phase names)
+//   - No fixture-specific examples (no "race condition / NPE" in the
+//     instructions; only canonical labels from the bundle's actual
+//     detection appear, plus generic prose)
+//   - Generic enough to apply to any input modality (log / trace /
+//     future MCP) and any failure class — known or business-domain
+//
+// Empty section is intentional: when bundle has no signals at all
+// (parser-degraded / informational log), nothing to surface.
+func renderBugClassesSection(detected []types.DetectedBugClass) string {
+	var b strings.Builder
+	if len(detected) > 0 {
+		b.WriteString("### Detected Failure Patterns\n")
+		b.WriteString("The raw log contains one or more well-known failure signatures. " +
+			"The system identified the following canonical failure type(s) — when describing the root cause in your answer, " +
+			"USE THESE EXACT TERMS rather than paraphrasing or inventing alternative names:\n\n")
+		for _, d := range detected {
+			label := d.HumanLabel()
+			if label == "" {
+				continue
+			}
+			b.WriteString("- **" + label + "**")
+			if sig := strings.TrimSpace(d.MatchedSignature); sig != "" {
+				// Single-line signature; trim newlines so the prompt
+				// stays compact.
+				flat := strings.ReplaceAll(strings.ReplaceAll(sig, "\n", " "), "\r", " ")
+				b.WriteString(" — matched: `" + flat + "`")
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\nIMPORTANT: the failure mechanism for these classes is well-documented across the engineering literature. " +
+			"Explain the cause from the log's own evidence (the function names, the message text, the call sequence) — " +
+			"do NOT search the surrounding repository for code that happens to resemble names mentioned in the log. " +
+			"Repository code is supplementary; the log's structured signature is the authoritative cause classification.\n\n")
+		return b.String()
+	}
+	// Empty — unknown / business-domain failure regime.
+	b.WriteString("### Failure Pattern Classification\n")
+	b.WriteString("The raw log did not match any cross-language standard failure signature. " +
+		"This typically means the failure is application-specific (custom exception class, " +
+		"business-domain error code, third-party library or service-specific signature). " +
+		"Classify the failure using terminology drawn from the log's own content " +
+		"(the exception type, the error message, the application module names visible in frames) — " +
+		"do NOT invent a generic category and do NOT speculate that the failure resembles an unrelated repository symbol just because the names look similar. " +
+		"When the log carries identifiers that are NOT defined in this repository, " +
+		"treat them as opaque external names: cite them verbatim and explain the failure from the log's own causality, not from repository introspection.\n\n")
+	return b.String()
+}
+
 // sanitiseSectionForLLM applies ac.TypedDenials.Sanitise to a
 // pre-rendered prompt section so denied tokens (paths the input
 // frame referenced but the typed gate could not corroborate, symbols
@@ -2067,6 +2132,15 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 		"source parameter, caller-side provenance, or exact downstream branch unless a current cited code line explicitly " +
 		"proves that mapping.\n\n")
 
+	// ── Detected failure patterns (cross-language, deterministic) ──
+	// Surfaces canonical bilingual terminology for any well-known
+	// failure signature found in the raw log (Go data race / JVM
+	// deadlock / Python recursion / TLS handshake / etc.). When no
+	// pattern fires, emit the "no canonical pattern detected"
+	// guidance so the LLM knows to derive its own classification
+	// from the log content rather than guess.
+	b.WriteString(renderBugClassesSection(bundle.Meta.BugClasses))
+
 	// ── Front-loaded external-source directive ────────────────
 	//
 	// Session 22 fix: when the log_triage bundle carries ≥1 Error
@@ -2207,6 +2281,15 @@ func formatPerfTriageStructured(bundle *types.PerfBundle) string {
 		"Prefer this view for citing jank frames, stall symbols, and cold-start " +
 		"measurements — the full raw trace is still in the next section for " +
 		"context the structured schema did not capture.\n\n")
+
+	// Cross-language failure pattern detector — same engine the
+	// log_triage section uses. Empty result is the dominant case for
+	// healthy traces; non-empty surfaces canonical terminology when
+	// a panic / deadlock / race signature was embedded in the trace
+	// stream.
+	if len(bundle.Meta.BugClasses) > 0 {
+		b.WriteString(renderBugClassesSection(bundle.Meta.BugClasses))
+	}
 
 	// Meta block
 	if bundle.Meta.Source != "" {

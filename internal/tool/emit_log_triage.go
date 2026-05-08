@@ -291,6 +291,23 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 		keptFrames += countFramesInBundleError(&e)
 	}
 
+	// P-BugClass Phase E.3 (2026-05-08): deterministic cross-language
+	// bug-pattern detection on the raw attached log. Stamps bundle.
+	// Meta.BugClasses with canonical (HumanZh / HumanEn) labels and
+	// matched signature substrings. Downstream context.Builder
+	// renders these as a "## Detected Failure Patterns" section in
+	// the log_triage prompt, giving the LLM canonical terminology
+	// up-front so it does not have to derive (and possibly invent)
+	// it from raw panic text — closes the same hallucination class
+	// the negative-knowledge channel (TypedDenials) guards against,
+	// from the positive direction (give the right answer instead of
+	// only deny the wrong ones).
+	if bundle.Meta.BugClasses == nil {
+		if detected := logtriage.DetectBugClasses(ctx.AttachedLog); len(detected) > 0 {
+			bundle.Meta.BugClasses = detected
+		}
+	}
+
 	ctx.Mutable.SetLogTriage(bundle)
 
 	summary := fmt.Sprintf(
