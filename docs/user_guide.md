@@ -31,6 +31,7 @@
   - [3.3 闲聊与本地转换](#33-闲聊与本地转换)
   - [3.4 记忆与会话](#34-记忆与会话)
   - [3.5 一台机器多仓库](#35-一台机器多仓库)
+  - [3.6 跨仓 workspace(multi-repo discovery)](#36-跨仓-workspacemulti-repo-discovery)
 - [4. 写模式 — plan → apply → verify](#4-写模式--plan--apply--verify)
   - [4.1 启用](#41-启用)
   - [4.2 完整流程](#42-完整流程)
@@ -421,6 +422,171 @@ memory 是**按仓库**隔离的:同一个 codrax 进程切到另一个仓库,�
 ```
 
 所有跨项目的个人级状态(repomap 索引缓存、env-cache.json、未来的其它持久化)都放在 `~/.codrax/cache/`(Windows:`%USERPROFILE%\.codrax\cache\`)。每个仓在 cache 下有独立子目录,与各仓的 `.codrax/`(项目级状态)互不干扰。备份 / 清理只需关注这两个位置。
+
+## 3.6 跨仓 workspace(multi-repo discovery)
+
+> **场景**:父目录下有 N 个独立 git 仓共存(典型:`mono/{frontend,backend,sdk}/<repo>` / mobile-app + backend-service + shared-protos / 多语言异构子项目)。codrax 自动发现全部子仓,跨仓 typed lane 查询(symbol existence / implementers / drift detection)正确,内存可控,**单仓用户零影响**。
+
+### 何时受益
+
+| 你的场景 | 是否受益 |
+|---|---|
+| 单仓:`cd ~/myrepo && codrax` | 🟢 行为字节级不变(默认走 `parent/.git` fast path,~50µs 额外开销) |
+| 多仓:`cd ~/workspace && codrax`(workspace 含多个独立 git 仓) | 🟢 自动发现,跨仓 entity 查询正确 |
+| Monorepo(`go.work` / `Cargo.toml [workspace]` / pnpm workspace) | 🟡 这是**单仓内多 module**,本特性不处理 — 直接 `cd` 进 monorepo 根用单仓模式即可 |
+| 写模式跨多个独立子仓 | 🔴 **禁止** — `task.scope=micro` 强制单子仓;ChangePlan 跨子仓 fail-loud,需要按子仓拆 Run |
+
+### 默认行为(零配置)
+
+无需任何配置,启动时自动:
+
+1. 探测父目录是否本身是 git 仓 → 是 → **单仓 fast path**(立即返回,~50µs)
+2. 否 → BFS 父目录(默认深 4 层),每发现 `.git/` 即创建 `SubRepo` 条目,**剪枝不再深入子仓**
+3. 探测每个子仓的 top-3 主要语言(Go / Python / Rust / TypeScript / ArkTS / ...)+ 文件数 + manifest 指纹
+4. 持久化拓扑到 `<runtime-anchor>/cache/topology/<parent-slug>.json`(下次启动直接复用,除非父目录有新改动)
+
+REPL banner 立即提示:
+
+```
+   CODRAX  v0.1.X  /help · /exit
+   modes: read · plan · apply · verify (write_enabled=true)
+   🗂  multi-repo: 5 sub-repos (active cap=3); /repos for list / focus / refresh
+```
+
+### `/repos` 命令族
+
+启动后任何时候可用:
+
+| 命令 | 作用 |
+|---|---|
+| `/repos` | 列出已发现子仓 + active 状态 + cap + focus pin |
+| `/repos focus <slug>` | 把子仓固定到 active 集合,跨 turn 不被 LRU 淘汰 |
+| `/repos unfocus [slug]` | 释放固定(无参数 = 全释放) |
+| `/repos refresh` | 强制重新探测父目录(子仓增删后用) |
+| `/repos cap <N>` | 会话级覆盖 active cap(yaml 是默认 3) |
+
+`/repos` 输出长这样:
+
+```
+multi-repo topology — parent=/home/user/workspace slug=workspace-1a2b3c4d sub-repos=5 cap=3
+    api-go                          slug=api-go-aabbccdd      git=dir files=240   langs=go            tier=2
+  * web-frontend                    slug=web-frontend-eeff0011 git=dir files=890   langs=typescript    tier=2
+    mobile-arkts                    slug=mobile-arkts-2233aabb git=dir files=156   langs=arkts         tier=2
+    shared-protos                   slug=shared-protos-cc445566 git=dir files=42    langs=proto         tier=1
+    legacy-cangjie                  slug=legacy-cangjie-77889900 git=dir files=68    langs=cangjie       tier=1
+  pinned (focus): web-frontend-eeff0011
+```
+
+`*` 标的是 focus 固定。`tier=2` 表示该子仓的 PrimaryLangs 已经从首次 graph build 校准过(更准);`tier=1` 是基于扩展名启发式的初步估计。
+
+### 跨仓提问的最佳实践
+
+#### ✅ 单子仓问题(80% 场景)— 不需要任何额外操作
+
+```
+❯❯ api-go 怎么处理 OAuth 回调?
+```
+
+routing fold 通过你提到的子仓名(channel B)+ 关键词语言匹配(channel D — `.go` 偏向 api-go)自动选中目标子仓,answer 正确。
+
+#### ✅ 跨子仓问题(15% 场景)— 用 `/repos focus` 多 pin
+
+```
+❯❯ /repos focus api-go-aabbccdd
+❯❯ /repos focus web-frontend-eeff0011
+❯❯ api-go 暴露的 /v1/user 接口在 web-frontend 哪些组件被消费?
+```
+
+两个子仓都 active 后,跨仓 grep + entity 查询自然命中。Hallucination gate 不会误拦真实存在的跨仓 entity。
+
+#### ✅ "全 workspace 范围"问题 — 调高 cap
+
+```
+❯❯ /repos cap 5
+❯❯ workspace 里所有 *Test* 文件都用了什么 mock 框架?
+```
+
+让全部 5 个子仓 active,跨仓 keyword search 自动 aggregate ranking。
+
+#### 🟡 写模式 — 必须 cd 进具体子仓
+
+写模式(`/mode plan|apply|verify`)**禁止**跨子仓 ChangePlan。当前在父目录运行写模式时,plan 阶段如果 LLM emit 的 ChangePlan 触及多个子仓,会 fail-loud:
+
+```
+✗ write blocked: ChangePlan touches 2 sub-repos: api-go, web-frontend — multi-repo write banned by design
+  Repair: split into 2 separate runs, one per sub-repo (cd into each sub-repo and re-issue the request,
+          OR `/repos focus <slug>` then re-run with multi_repo_max_active=1)
+```
+
+正确做法:
+
+```bash
+cd ~/workspace/api-go && codrax --mode=apply --request "..."
+cd ~/workspace/web-frontend && codrax --mode=apply --request "..."
+```
+
+#### 🔴 用户面板的 disclosure(R3 透明)
+
+如果 routing fold 因 cap 限制把某些子仓挡在 active 之外,answer 会自动声明"未参与本次查询的子仓"。Run 退出时 telemetry 行也会列出:
+
+```
+INFO multigraph: typed-lane partial — sub-repos NOT consulted: [legacy-cangjie shared-protos]
+                 (raise cap or `/repos focus <slug>` to include)
+```
+
+这是**精确信号**(R3 红线)— `partial_typed_lane` 是 typed enum boolean,不是噪声。看到这条 log 就知道答案可能漏掉了某些子仓,可决定是 `/repos focus` 后重跑还是接受当前覆盖。
+
+### yaml 配置(`codrax.yaml`)
+
+4 个开关,**默认值已经合理**,通常不需要改:
+
+```yaml
+multi_repo_enabled: true              # 默认 true,false 走 legacy 单图 (绕过本特性)
+multi_repo_max_active: 3              # LRU 上限,同时驻留的子仓 *Graph 数
+multi_repo_discovery_depth: 4         # 父目录 BFS 深度
+multi_repo_min_files: 1               # 子仓 file count 下限,过滤空 .git fixture
+```
+
+**何时调整 cap**:
+- 默认 3 适合 ≤ 6 子仓 + cross-sub-repo 问题不频繁的场景
+- 跨仓问题多 + 子仓总数 5-10 → 调到 5
+- LRU thrashing 警告(`multigraph: thrashing detected (>5 evictions/60s)`)出现时 → 加大 cap
+
+### 内存与性能预算
+
+| 项 | 单仓 | cap=3 多仓 | 备注 |
+|---|---|---|---|
+| 启动开销 | ~50µs | <1s(典型 5 子仓) | BFS + per-sub-repo `git ls-files` |
+| Active 内存 | ~100 MB / 万文件 | ~300 MB | 与 cap 线性 |
+| 拓扑 cache 磁盘 | 0 | <100 KB | 100 子仓也只 1 MB |
+| 跨仓 typed lane 查询 | n/a | O(active 子仓数) | LRU 命中 → ms 级,miss → 子仓全量 build |
+
+100 子仓 × 1 万文件场景:active 仍只 hold 3 个,内存仍 ~300 MB,**与今天单仓 ~3×**。
+
+### 故障排查
+
+| 症状 | 原因 | 修复 |
+|---|---|---|
+| answer 漏掉某子仓的 entity | 子仓未在 active 集 | `/repos focus <slug>` 然后重跑 |
+| `partial_typed_lane=true` 出现频繁 | cap 太低 | yaml `multi_repo_max_active: 5` 或 `/repos cap 5` |
+| `thrashing detected` Warning | 同上,LRU 抖动 | 同上 |
+| 写模式跨仓 fail-loud | 设计限制 | cd 进具体子仓重跑 |
+| 没看到 banner 多仓行 | 父目录是单 git 仓(不是 workspace) | 这是预期 — 单仓 quiet UX |
+| `/repos` 列出空 / 漏子仓 | BFS 深度不够 / 子仓 file count < min | yaml `multi_repo_discovery_depth: 6` 或 `multi_repo_min_files: 0` |
+
+### 完全关闭(回到单图)
+
+```yaml
+# codrax.yaml
+multi_repo_enabled: false
+```
+
+这时:
+- topology discovery 仍跑(REPL `/repos` 命令展示用),~50µs 开销
+- BusContext.MultiGraph 不接入 → 5 个 BuildOrLoadGraph caller 全走 legacy `BuildOrLoadGraph(parent_root, query)`(等同 ship 之前行为)
+- ArkTS leak 修复(Phase 0)依然生效(它绕过 MultiGraph 在 `IsArkTSProject` 内修)
+
+适用场景:**多仓 + workflow 几乎不跨仓 + 单图行为已熟悉**。但默认 true 已经足够安全(单仓零开销),通常不必关。
 
 ---
 
