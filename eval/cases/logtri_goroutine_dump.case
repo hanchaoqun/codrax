@@ -24,13 +24,14 @@ goroutine 120 [running]:
 main.writeSession(0x0, {0x140000a2090, 0x8})
 	internal/agent/analyzer.go:100 +0x1e
 '
-EXPECT_CONTAINS="concurrent"
-# "map" must literally appear (the specific data-structure is a
-# load-bearing anchor). "race" accepts any answer that recognises
-# this as a race / race condition / data race in any language the
-# analysed repo might respond in (English race condition/data race,
-# Chinese 竞态/数据竞争/竞争). Keeps the case's real intent — "did
-# the answer name this as a race bug?" — without over-constraining
-# the vocabulary the LLM may use.
+# 2026-05-08: drop EXPECT_CONTAINS="concurrent" (English-only literal
+# substring) — model answered correctly in Chinese ("并发写入 map")
+# but the literal-match flagged FAIL. Move "concurrent" into the
+# regex channel alongside its Chinese equivalents so the case
+# accepts either language. "map" stays as a literal anchor (the
+# data-structure name is universal). "race" stays as the broad
+# vocabulary alternation (race / race condition / data race /
+# 竞态 / 数据竞争 / 竞争).
 EXPECT_SECTIONS="map"
-EXPECT_MATCHES_REGEX="race|race condition|data race|竞态|数据竞争|竞争"
+EXPECT_MATCHES_REGEX="concurrent|并发
+race|race condition|data race|竞态|数据竞争|竞争"
