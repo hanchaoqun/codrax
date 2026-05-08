@@ -252,3 +252,55 @@ func TestSoftMessages_NoVisualShockSymbols(t *testing.T) {
 		}
 	}
 }
+
+
+// =====================================================================
+// Phase 4 / 6 (2026-05-08) multi-repo scan progress messages
+// =====================================================================
+
+// TestMultiRepoScanMessages_BannerStyle pins the scan-progress notice
+// strings to the SAME visual style as the multi-repo startup banner
+// (`🗂  multi-repo: ...`). When both surfaces share the prefix, the
+// dock reads as a continuation of the banner rather than a distinct
+// row class. Both languages parity check.
+func TestMultiRepoScanMessages_BannerStyle(t *testing.T) {
+	for _, lang := range []string{"en", "zh"} {
+		start := multiRepoScanStartMessage(lang, "repo-x")
+		endOK := multiRepoScanEndMessage(lang, "repo-x", 1234, true)
+		endFail := multiRepoScanEndMessage(lang, "repo-x", 1234, false)
+		for _, m := range []string{start, endOK, endFail} {
+			if !strings.HasPrefix(m, "🗂  multi-repo: ") {
+				t.Errorf("%s: %q must start with the banner-style \"🗂  multi-repo: \" prefix", lang, m)
+			}
+			if !strings.Contains(m, "`repo-x`") {
+				t.Errorf("%s: %q must wrap the sub-repo name in backticks", lang, m)
+			}
+		}
+		// Localisation parity: zh and en messages MUST differ once
+		// the prefix is stripped (otherwise the lang switch is a
+		// no-op and the user reads English under --lang=zh).
+		zhStripped := strings.TrimPrefix(start, "🗂  multi-repo: ")
+		enStripped := strings.TrimPrefix(multiRepoScanStartMessage("en", "repo-x"), "🗂  multi-repo: ")
+		if lang == "zh" && zhStripped == enStripped {
+			t.Errorf("zh start localisation is identical to en (no-op switch): %q", zhStripped)
+		}
+	}
+}
+
+func TestMultiRepoScanMessages_ElapsedFormat(t *testing.T) {
+	cases := []struct {
+		ms   int64
+		want string
+	}{
+		{0, "<1ms"},
+		{500, "500ms"},
+		{1500, "1.5s"},
+		{12345, "12.3s"},
+	}
+	for _, c := range cases {
+		if got := formatScanElapsed(c.ms); got != c.want {
+			t.Errorf("formatScanElapsed(%d) = %q, want %q", c.ms, got, c.want)
+		}
+	}
+}
+

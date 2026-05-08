@@ -391,30 +391,37 @@ func softProceedingWithoutExtractMessage(lang string) string {
 
 // multiRepoScanStartMessage / multiRepoScanEndMessage render the
 // user-visible push lines for Phase 4 multi-repo scan progress.
-// Generic prose, no internal pipeline terminology — the operator
-// sees one line per sub-repo scanned, append-only, so a 50+
-// sub-repo workspace where the spinner sat on "preparing pipeline"
-// for 30 s now surfaces "scanning sub-repo X" / "scan complete X
-// (1.2s)" lines as scanning progresses.
+//
+// Style matches the multi-repo startup banner (multiRepoBannerLine):
+// "🗂  multi-repo: <prose>" — same emoji, same dim FgDarkGray
+// rendering bucket (NoticeMultiRepoScanStart / NoticeMultiRepoScanEnd
+// fall through to statusMeta in orchestratorNoticeStyle), so the
+// scan progress lines feel like sibling banner rows instead of a
+// distinct row class. Bilingual zh / en parity preserved.
+//
+// Generic prose, no internal pipeline terminology. Sub-repo path
+// is wrapped in backticks for visual distinction (matches the
+// existing abandonForcedReadMessage / SubRepoSnapshot rendering).
 func multiRepoScanStartMessage(lang, rootRel string) string {
 	if preferZhMessage(lang) {
-		return "⚳ 正在扫描代码仓 `" + rootRel + "`"
+		return "🗂  multi-repo: 正在扫描子仓 `" + rootRel + "`"
 	}
-	return "⚳ Scanning sub-repo `" + rootRel + "`"
+	return "🗂  multi-repo: scanning sub-repo `" + rootRel + "`"
 }
 
 func multiRepoScanEndMessage(lang, rootRel string, elapsedMs int64, ok bool) string {
 	zh := preferZhMessage(lang)
+	elapsed := formatScanElapsed(elapsedMs)
 	if !ok {
 		if zh {
-			return "✗ 代码仓 `" + rootRel + "` 扫描失败(" + formatScanElapsed(elapsedMs) + ")"
+			return "🗂  multi-repo: 子仓 `" + rootRel + "` 扫描失败 (" + elapsed + ")"
 		}
-		return "✗ Sub-repo `" + rootRel + "` scan failed (" + formatScanElapsed(elapsedMs) + ")"
+		return "🗂  multi-repo: sub-repo `" + rootRel + "` scan failed (" + elapsed + ")"
 	}
 	if zh {
-		return "✓ 代码仓 `" + rootRel + "` 扫描完成(" + formatScanElapsed(elapsedMs) + ")"
+		return "🗂  multi-repo: 子仓 `" + rootRel + "` 已就绪 (" + elapsed + ")"
 	}
-	return "✓ Sub-repo `" + rootRel + "` scan complete (" + formatScanElapsed(elapsedMs) + ")"
+	return "🗂  multi-repo: sub-repo `" + rootRel + "` ready (" + elapsed + ")"
 }
 
 // formatScanElapsed renders the per-sub-repo scan duration for the
