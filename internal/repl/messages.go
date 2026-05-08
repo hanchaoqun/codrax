@@ -214,6 +214,31 @@ func clampToTermWidth(s string, maxWidth int) string {
 	return string(runes[:headLen]) + "…" + string(runes[len(runes)-tailLen:])
 }
 
+// multiRepoBannerLine surfaces the workspace topology at REPL
+// startup so multi-repo users immediately see N sub-repos discovered
+// and the /repos command path. Single-repo posture (parentRoot is
+// itself a git repo) returns "" so the banner stays quiet — no UX
+// chrome for the dominant case.
+//
+// Style mirrors failureTaxonomyBannerLine / unsettledBanner: dim
+// FgDarkGray clamped at bannerMaxWidth, single line, ASCII-safe
+// (mixed CJK / English fits both --lang=zh and --lang=en operators).
+func multiRepoBannerLine(lang string, subRepoCount int, focusCount int, capN int) string {
+	if subRepoCount <= 1 {
+		return ""
+	}
+	if isZh(lang) {
+		if focusCount > 0 {
+			return formatN(lang, "🗂  multi-repo: %d 个子仓 (active cap=%d, focus 已 pin %d 个);/repos 查看", subRepoCount, capN, focusCount)
+		}
+		return formatN(lang, "🗂  multi-repo: %d 个子仓 (active cap=%d);/repos 查看 / focus / refresh", subRepoCount, capN)
+	}
+	if focusCount > 0 {
+		return formatN(lang, "🗂  multi-repo: %d sub-repos (active cap=%d, %d focus-pinned); /repos to inspect", subRepoCount, capN, focusCount)
+	}
+	return formatN(lang, "🗂  multi-repo: %d sub-repos (active cap=%d); /repos for list / focus / refresh", subRepoCount, capN)
+}
+
 // failureTaxonomyBannerLine surfaces the count of learned
 // pitfalls + the inspection command at REPL startup so users
 // who never read the full /help discover the feature exists.

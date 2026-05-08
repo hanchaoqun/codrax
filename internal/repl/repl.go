@@ -1281,6 +1281,21 @@ func (r *REPL) banner() {
 					failureTaxonomyBannerLine(r.language, len(pitfalls)), bannerMaxWidth)))
 		}
 	}
+	// Multi-repo workspace summary (P4-2026-05-08). Shown only when
+	// topology has > 1 sub-repo so single-repo users (the dominant
+	// case) see no extra chrome. Surfaces sub-repo count + active
+	// cap + focus-pin count + "/repos" command discovery.
+	if r.topology != nil && !r.topology.IsSingle() {
+		focusCount := 0
+		r.multiRepoMu.Lock()
+		focusCount = len(r.multiRepoFocus)
+		capN := r.activeMultiRepoMaxActiveLocked(r.multiRepoMaxActiveOverride)
+		r.multiRepoMu.Unlock()
+		if line := multiRepoBannerLine(r.language, len(r.topology.Repos), focusCount, capN); line != "" {
+			fmt.Fprintf(r.out, "  %s\n",
+				pterm.FgDarkGray.Sprint(clampToTermWidth(line, bannerMaxWidth)))
+		}
+	}
 	// Single-pending-plan invariant — user-perception layer. When
 	// the project carries an unsettled plan from a prior session
 	// (REPL was closed before /merge / /reject), surface ONE dim
