@@ -647,6 +647,19 @@ extractor 阶段 LLM 给每条假设写 `confirmed` / `rejected` / `inconclusive
 - `Authority`：factual / conditional / historical / illustrative（强度）
 - `AuthorityReason`：operator-readable 短提示
 
+**多语言覆盖（17 语言）**：AnchorKind 6 值 + EvidenceKind 11 值都是 syntactic / semantic 抽象,与具体语言解耦。tree-sitter grammar 由 `internal/tool/repomap` 维护(每语言独立 extractor 投出统一的 Graph 结构),grounder 只读 Graph,不直接处理 source token。受支持语言映射(`internal/tool/repomap/types/lang.go::extToLang`):
+
+| AnchorKind | Go | Java | Kotlin | Cangjie | ArkTS / TS | Python | JS | Rust | C | C++ | Swift | Ruby | Lua | Proto | Obj-C | CUDA |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| definition | `func`/`type` | `class` | `fun`/`when` | `func`/`class`/`match` | `function`/`class`/`interface` | `def`/`class` | `function`/`class` | `fn`/`struct`/`impl`/`trait`/`enum` | `typedef`/`function` | `class`/`namespace` | `func`/`class`/`protocol` | `class`/`def` | `function` | `message`/`service`/`rpc` | `@interface` | `__global__` |
+| call | `f()` | `f()` | `f()` | `f()` | `f()` | `f()` | `f()` | `f()` | `f()` | `f()` | `f()` | `f()` | `f()` | — | `f()` / `[obj msg]` | `f()` / `<<<>>>` |
+| condition | `if`/`switch`/`select {` | `if`/`switch` | `if`/`when` | `if`/`match` | `if`/`switch` | `if`/`match` | `if`/`switch` | `if`/`match` | `if`/`switch` | `if`/`switch` | `if`/`switch`/`guard` | `if`/`case`/`unless` | `if` | — | `if`/`switch` | `if`/`switch` |
+| return | `return` | `return` | `return` | `return` | `return` | `return`/`yield` | `return`/`yield` | `return` | `return` | `return` | `return` | `return` | `return` | — | `return` | `return` |
+| assignment | `=` / `:=` | `=` | `=` | `=` | `=` | `=` | `=` | `=` | `=` | `=` | `=` | `=` | `=` | `=` | `=` | `=` |
+| import | `import` | `import` | `import` | `import` | `import` | `import` | `import`/`require` | `use` | `#include` | `#include`/`using` | `import` | `require` | `require` | `import` | `#import` | `#include` |
+
+EvidenceKind 11 值是 semantic(direct / conditional / registration / mechanism / relationship / absent + 5 deterministic-only),与具体语言无关,所有支持语言通用。
+
 ### 5.3 Grounding 七层 — 怎么验证一条 citation 真在仓库里
 
 > *像查论文引用：作者写"《XX 大学学报》第 42 期 page 88 提到"，编辑要逐层验证——(1) 拿真实期刊翻到 page 88 看那行有没有这个出处（T1 line_text，最强）；(2) 期刊不在馆但符号表里能查到这条（T2 symbol_table，中等强）；(3) 翻不到那行但同一期刊里能查到（R1 fqname_same_file，恢复）；(4) 文字片段近似匹配（R2 snippet_fuzzy）……七层全失败 → 这条引用列入"未核实"，正文不允许引用。*
@@ -658,7 +671,10 @@ extractor 阶段 LLM 给每条假设写 `confirmed` / `rejected` / `inconclusive
   - definition → `sym.Line == LineStart`
   - call → FileIndex.Relations 找 `ToEP.Name == AnchorSymbol && Line == LineStart`
   - import → imports 找 `imp.Path == AnchorSymbol || imp.Alias == AnchorSymbol`
-  - condition / return / assignment 没有 repomap 原语 → 退化为关键词扫（if/when/unless/switch/case/guard、return/yield、`:=` 或 `=`）
+  - condition / return / assignment 没有 repomap 原语 → 退化为关键词扫(语言中性):
+    - condition:`if`/`if(` `when`/`when(` `unless` `switch`/`switch(` `case` `guard` `match`/`match(` `select {`/`select{` — 覆盖 17 支持语言所有主要 conditional 形态(包含 Rust / Python 3.10+ / Cangjie 的 `match`,Go channel `select {`)
+    - return:`return ` `return\t` `return(` `return;` `yield `
+    - assignment:`:=`(Go) 或单独 `=`(排除 `==`/`!=`/`<=`/`>=`)— 所有语言 `=` 形式通用
 - **R1 fqname_same_file**：同文件内 graph 查 AnchorSymbol 的第一个结构匹配
 - **R2 snippet_fuzzy**：需要 Snippet 字段；±15 行内最佳 token 重合（≥60%）；fallback 字节子串匹配支持 Unicode
 - **R3 package_symbol**：仅 definition / import；同包同目录内找 AnchorSymbol，返回那个文件的 file:line
@@ -667,7 +683,31 @@ extractor 阶段 LLM 给每条假设写 `confirmed` / `rejected` / `inconclusive
 
 七层全 miss → `GroundingUngrounded`，item 进 "Unverified Leads" 段，永不入 citation pool。
 
-**Path 规范化**：所有 Source / file / citation 路径在落地前都过 `internal/tool/ground/path.go::CanonicalRepoRelative(path, repoRoot)`：empty → empty；绝对且在 repoRoot 内 → `filepath.Rel`；绝对且逃逸 → `filepath.Clean` 后保留绝对形式；相对 → `filepath.Clean`。修一条经典 bug：用 `/abs/repo/README.md:7` 引用，但 LineIndex 是 `read_file path=README.md` 建的，相等比较失败导致整批 citation 被 drop。
+**Path 规范化**：所有 Source / file / citation 路径在落地前都过 `internal/tool/ground/path.go::CanonicalRepoRelative(path, repoRoot)`：empty → empty；绝对且在 repoRoot 内 → `filepath.Rel`；绝对且逃逸 → `filepath.Clean` 后保留绝对形式；相对 → `filepath.Clean`。修一条经典 bug：用 `/abs/repo/README.md:7` 引用，但 LineIndex 是 `read_file path=README.md` 建的,相等比较失败导致整批 citation 被 drop。
+
+### 5.3.1 证据投影 — 4 个 typed 轴的覆盖
+
+Grounding 落地后,`internal/authority::BackfillEvidenceProjector` 把每条 EvidenceItem 投影到 4 个 typed 轴上,补齐 LLM 直接 emit 时填不出的来源 / 强度 / 漂移 / 子类信息。LLM-emit 路径走 `emit_evidence` 内嵌钩子;deterministic 路径(concrete_value extractor / mechanism_scan / bridge_literal merge)走 BackfillEvidenceProjector 的 idempotent fallback。
+
+**Origin** (`internal/types/authority.go::ClaimOrigin`,5 值):
+- `unknown`(未投影)
+- `current_repo`(frame 文件存在于 SearchGraph)
+- `log`(frame 来自 attached LogBundle)
+- `perf`(frame 来自 attached PerfBundle)
+- `cross_source`(frame 同时出现在 current_repo 和 log)
+
+**Authority** (`AuthorityCeiling`,5 值,claim 强度上限):
+- `unknown` / `factual`(current_repo 无 drift) / `conditional`(cross-source 或 log+repo) / `historical`(检测到 drift) / `illustrative`(comment / doc / test only)
+
+**DriftReason** (3 值 + 空,`internal/types/answer_surface_plan.go`):
+- `""`(无 drift) / `line_drift`(行号偏移但符号在) / `tail_rename`(symbol 文件内移动) / `file_moved`(文件不在原 path)
+
+**LogPerfSubKind** (`internal/types/log_perf_subkind.go`,9 值,故意 coarse — 细粒度由 `BugClass` 19 类平行通道承担):
+- log 6 桶:`panic_frame` / `oom_frame` / `timeout_frame` / `performance_frame`(慢 API / GC pause / 锁竞争 / 帧丢失)/ `error_frame`(generic 结构化错误)/ `noise_frame`(frame 命中但非错误)
+- perf 3 桶:`perf_jank` / `perf_stall` / `perf_startup`
+- 严重度阶梯:panic > crash > oom > timeout > performance > generic-error > noise
+
+**多语言覆盖**:4 轴均与具体编程语言解耦。Origin / Authority / DriftReason 基于 SearchGraph + LogBundle + PerfBundle 的结构匹配,3 种 bundle 跨 17 支持语言通用;LogPerfSubKind 基于 `LogSignal` enum(11 值,定义于 `internal/types/log_bundle.go`),log_triage stage 跨语言统一抽取到这套 signal 集合后再投影。
 
 ### 5.4 Explorer 两阶段循环
 
