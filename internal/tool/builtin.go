@@ -456,6 +456,29 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
 
+	// L1 TypedDenials gate (Phase C, 2026-05-08). When the search
+	// PATH or the search PATTERN matches a denied token, refuse with
+	// the same typed error read_file emits. Keeps the gate symmetric
+	// across all three repo-discovery tools.
+	if ctx != nil {
+		if ctx.TypedDenials.IsPathDenied(p.Path) {
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Success:  false,
+				Summary: fmt.Sprintf("grep refused: search path %q was marked unverifiable by an upstream typed gate (external-source frame / perf stall). Do NOT retry — this path cannot ground the question.", p.Path),
+				Timestamp: time.Now(),
+			}, nil
+		}
+		if ctx.TypedDenials.IsSymbolDenied(p.Pattern) {
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Success:  false,
+				Summary: fmt.Sprintf("grep refused: search pattern %q was marked unverifiable by an upstream typed gate (oracle / corroborate). The symbol does not exist in the active typed graph; grepping the repo for it is dead-end exploration. Re-anchor on the typed signals (BugClasses / IntentHint).", p.Pattern),
+				Timestamp: time.Now(),
+			}, nil
+		}
+	}
+
 	// Resolve relative / "." paths against ctx.RepoRoot so a search
 	// rooted at the LLM's notion of "the repo" hits the actual --repo
 	// target. The banner below still echoes the LLM-supplied p.Path
@@ -901,6 +924,24 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	var p readFileParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+	}
+
+	// L1 TypedDenials gate (Phase C, 2026-05-08): when an upstream
+	// gate (log_triage frame corroborate / perf_triage stall
+	// corroborate / future MCP shape mismatch) marked this path as
+	// unverifiable, refuse the read with a typed error message that
+	// includes the denial class. The LLM gets a clear "do NOT retry
+	// this path; the typed gate already determined it is external-
+	// source / unverifiable" signal — closes the bypass where the
+	// LLM extracted the path from frame.Raw and called read_file
+	// despite the gate clearing the typed File field.
+	if ctx != nil && ctx.TypedDenials.IsPathDenied(p.Path) {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Success:  false,
+			Summary: fmt.Sprintf("read_file refused: path %q was marked unverifiable by an upstream typed gate (external-source log frame / perf stall / MCP shape mismatch). The path appears in the input stream but a corroborate gate confirmed the named function/symbol does NOT exist in the real file at this path. Do NOT retry — the file cannot ground the question. If the question is about the failure semantics named in the input (e.g., race condition / NPE), answer from the typed signals (BugClasses / IntentHint) without grounding into a repo file.", p.Path),
+			Timestamp: time.Now(),
+		}, nil
 	}
 
 	// Resolve relative paths against ctx.RepoRoot. The LLM cites paths

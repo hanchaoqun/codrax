@@ -89,6 +89,30 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		p.View = "overview"
 	}
 
+	// L1 TypedDenials gate (Phase C, 2026-05-08). When the
+	// requested target_file / entry_point / query references a
+	// denied token, refuse — repo_map exploration on a typed-denied
+	// anchor is dead-end and risks the same hallucination class
+	// the read_file gate guards against.
+	if ctx != nil {
+		if p.TargetFile != "" && ctx.TypedDenials.IsPathDenied(p.TargetFile) {
+			return ctypes.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   fmt.Sprintf("repo_map refused: target_file %q was marked unverifiable by an upstream typed gate (external-source frame / perf stall). Re-anchor on typed signals.", p.TargetFile),
+				Timestamp: time.Now(),
+			}, nil
+		}
+		if p.EntryPoint != "" && ctx.TypedDenials.IsSymbolDenied(p.EntryPoint) {
+			return ctypes.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   fmt.Sprintf("repo_map refused: entry_point %q is denied by oracle (symbol does not exist in typed graph).", p.EntryPoint),
+				Timestamp: time.Now(),
+			}, nil
+		}
+	}
+
 	// Resolve LLM-supplied path against ctx.RepoRoot. The LLM treats
 	// the repo root as its own CWD ("." = "the repo I'm investigating"),
 	// but the codrax process CWD is wherever the user invoked the
