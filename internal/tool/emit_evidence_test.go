@@ -74,6 +74,84 @@ func TestEmitEvidence_AcceptsValidBatch(t *testing.T) {
 	}
 }
 
+// LoadBearingSummary opt-in surface (2026-05-08 add — u7a deep-dive).
+// The flag tells the four EvidenceXxxSurfaceText helpers to append
+// the trimmed summary to the typed surface line so finalize-stage
+// rendering preserves scalars (hashes, version strings, counts) the
+// answer cannot synthesise from typed fields alone.
+
+func TestEmitEvidence_AcceptsLoadBearingSummary(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "TargetSymbol", "source": "internal/agent/foo.go", "line_start": 30, "summary": "first introduced in commit 0123456 with subject feat: shipping carrier", "anchor_kind": "definition", "anchor_symbol": "TargetSymbol", "load_bearing_summary": true}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item, got %d", len(got))
+	}
+	if !got[0].LoadBearingSummary {
+		t.Errorf("LoadBearingSummary did not propagate from input to EvidenceItem")
+	}
+	if got[0].Summary == "" {
+		t.Errorf("Summary lost during item construction")
+	}
+}
+
+func TestEmitEvidence_RejectsLoadBearingSummaryWithEmptySummary(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "TargetSymbol", "source": "internal/agent/foo.go", "line_start": 30, "anchor_kind": "definition", "anchor_symbol": "TargetSymbol", "load_bearing_summary": true}
+        ]
+    }`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("expected failure (empty summary + flag set), got success: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "load_bearing_summary=true requires a non-empty summary") {
+		t.Errorf("expected targeted error message, got: %s", res.Summary)
+	}
+	if len(ctx.Mutable.EmittedEvidence()) != 0 {
+		t.Errorf("buffer should not be touched on failure")
+	}
+}
+
+func TestEmitEvidence_LoadBearingSummaryDefaultsToFalse(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	// Do NOT pass the field at all — default false should propagate.
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "TargetSymbol", "source": "internal/agent/foo.go", "line_start": 30, "summary": "free-form rationale", "anchor_kind": "definition", "anchor_symbol": "TargetSymbol"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item, got %d", len(got))
+	}
+	if got[0].LoadBearingSummary {
+		t.Errorf("LoadBearingSummary should default to false when field omitted from input")
+	}
+}
+
 func TestEmitEvidence_RejectsUnknownKind(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

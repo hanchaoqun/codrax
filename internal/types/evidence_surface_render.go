@@ -119,8 +119,42 @@ func evidenceSurfaceText(item EvidenceItem, includeKind bool, allowSummaryFallba
 // evidence item without relying on its free-form summary text. It is the
 // shared conservative formatter used when downstream stages need a stable,
 // cross-stage-safe surface.
+//
+// LoadBearingSummary opt-in (2026-05-08): when the item carries a
+// summary that the explorer flagged as load-bearing — i.e. the summary
+// holds a scalar the answer cannot synthesise from typed fields alone —
+// the trimmed summary is appended to the structured line so the
+// finalize-stage prompt sees both the typed anchor AND the load-bearing
+// prose. The default (false) preserves the historical strict-evidence
+// behaviour that motivated this helper's "no summary fallback" rule.
 func EvidenceStructuredSemanticLine(item EvidenceItem, includeKind bool) string {
-	return evidenceSurfaceText(item, includeKind, false)
+	line := evidenceSurfaceText(item, includeKind, false)
+	return appendLoadBearingSummary(item, line)
+}
+
+// appendLoadBearingSummary tails a trimmed Summary onto the typed
+// surface line when the explorer marked the item LoadBearingSummary
+// AND the summary is not already substring-present in the line (so
+// callers that already include summary do not double-render).
+//
+// Separator " — " (em-dash with surrounding spaces) is unique enough
+// to round-trip through downstream prose without colliding with
+// typed-line punctuation, while keeping the visual seam light.
+func appendLoadBearingSummary(item EvidenceItem, line string) string {
+	if !item.LoadBearingSummary {
+		return line
+	}
+	summary := strings.TrimSpace(item.Summary)
+	if summary == "" {
+		return line
+	}
+	if strings.Contains(line, summary) {
+		return line
+	}
+	if strings.TrimSpace(line) == "" {
+		return summary
+	}
+	return line + " — " + summary
 }
 
 // EvidenceAuthoritativeSurfaceText returns a summary-free, anchor-local
@@ -131,7 +165,7 @@ func EvidenceStructuredSemanticLine(item EvidenceItem, includeKind bool) string 
 // itself can be replayed verbatim.
 func EvidenceAuthoritativeSurfaceText(item EvidenceItem, includeKind bool) string {
 	if line := evidenceAnchorLocalSurfaceText(item, includeKind); line != "" {
-		return line
+		return appendLoadBearingSummary(item, line)
 	}
 
 	name := strings.TrimSpace(firstNonEmptySurfaceString(item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object))
@@ -141,21 +175,21 @@ func EvidenceAuthoritativeSurfaceText(item EvidenceItem, includeKind bool) strin
 	switch item.AnchorKind {
 	case AnchorDefinition:
 		if name != "" {
-			return prependEvidenceKind(includeKind, item, fmt.Sprintf("definition anchor for %s", name))
+			return appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("definition anchor for %s", name)))
 		}
 	case AnchorCall:
 		switch {
 		case subject != "" && object != "":
-			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s calls %s", subject, object))
+			return appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("%s calls %s", subject, object)))
 		case name != "":
-			return prependEvidenceKind(includeKind, item, fmt.Sprintf("call anchor for %s", name))
+			return appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("call anchor for %s", name)))
 		}
 	case AnchorImport:
 		switch {
 		case subject != "" && object != "":
-			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s imports %s", subject, object))
+			return appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("%s imports %s", subject, object)))
 		case name != "":
-			return prependEvidenceKind(includeKind, item, fmt.Sprintf("import anchor for %s", name))
+			return appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("import anchor for %s", name)))
 		}
 	}
 
@@ -173,7 +207,7 @@ func EvidenceAuthoritativeSurfaceText(item EvidenceItem, includeKind bool) strin
 // evidence rather than a prose-rich interpretation.
 func EvidenceDeterministicSurfaceText(item EvidenceItem, includeKind bool) string {
 	if line := evidenceSurfaceText(item, includeKind, false); line != "" {
-		return line
+		return appendLoadBearingSummary(item, line)
 	}
 	return strings.TrimSpace(item.Summary)
 }
@@ -185,6 +219,9 @@ func EvidenceDeterministicSurfaceText(item EvidenceItem, includeKind bool) strin
 // re-introduce target mentions or operational notes into later stages.
 func EvidencePreferredSurfaceText(item EvidenceItem, contract *ExactResolutionContract, includeKind bool) string {
 	if contract != nil && ExactResolutionContextSurfaceRelevant(contract, item) {
+		// EvidenceStructuredSemanticLine itself routes through
+		// appendLoadBearingSummary, so a load-bearing summary still
+		// surfaces here despite the structured-only contract path.
 		if line := EvidenceStructuredSemanticLine(item, includeKind); line != "" {
 			return line
 		}

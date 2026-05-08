@@ -1743,3 +1743,111 @@ func TestEvidenceStructuredSemanticLine_ConditionWithoutSnippetFallsBackToGuardS
 		t.Fatalf("condition structured surface = %q, want neutral guard surface", got)
 	}
 }
+
+// LoadBearingSummary tail-append (2026-05-08 add — u7a deep-dive).
+// When the explorer flags an item as load-bearing, the summary text
+// must be appended to the typed surface line so finalize-stage
+// rendering preserves scalars (hashes, version strings, counts) the
+// answer cannot synthesise from typed fields alone.
+
+func TestEvidenceStructuredSemanticLine_LoadBearingSummaryTailsOntoTypedLine(t *testing.T) {
+	item := EvidenceItem{
+		Kind:               EvidenceDirect,
+		AnchorKind:         AnchorDefinition,
+		AnchorSymbol:       "TargetSymbol",
+		Source:             "internal/example/file.go",
+		LineStart:          42,
+		Summary:            "first introduced in commit 0123456 with subject feat: shipping carrier struct",
+		LoadBearingSummary: true,
+	}
+
+	got := EvidenceStructuredSemanticLine(item, false)
+	if !strings.Contains(got, "TargetSymbol") {
+		t.Errorf("typed anchor must remain in surface line, got %q", got)
+	}
+	if !strings.Contains(got, "0123456") {
+		t.Errorf("load-bearing summary scalar (hash) missing from surface line, got %q", got)
+	}
+	if !strings.Contains(got, "feat: shipping carrier struct") {
+		t.Errorf("load-bearing summary subject missing from surface line, got %q", got)
+	}
+	if !strings.Contains(got, " — ") {
+		t.Errorf("expected em-dash separator between typed line and summary, got %q", got)
+	}
+}
+
+func TestEvidenceAuthoritativeSurfaceText_LoadBearingSummaryAppendsAfterTypedLine(t *testing.T) {
+	item := EvidenceItem{
+		Kind:               EvidenceDirect,
+		AnchorKind:         AnchorDefinition,
+		AnchorSymbol:       "TargetSymbol",
+		Source:             "internal/example/file.go",
+		LineStart:          42,
+		Summary:            "build version v1.2.3 captured by go version stamp",
+		LoadBearingSummary: true,
+	}
+
+	got := EvidenceAuthoritativeSurfaceText(item, false)
+	if !strings.Contains(got, "TargetSymbol") {
+		t.Errorf("authoritative surface lost typed anchor, got %q", got)
+	}
+	if !strings.Contains(got, "v1.2.3") {
+		t.Errorf("load-bearing version string missing from authoritative surface, got %q", got)
+	}
+}
+
+func TestLoadBearingSummary_DefaultFalseDoesNotChangeStructuredLine(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceDirect,
+		AnchorKind:   AnchorDefinition,
+		AnchorSymbol: "TargetSymbol",
+		Source:       "internal/example/file.go",
+		LineStart:    42,
+		Summary:      "free-form rationale that should stay stripped at finalize stage",
+		// LoadBearingSummary unset → default false
+	}
+
+	got := EvidenceStructuredSemanticLine(item, false)
+	if strings.Contains(got, "free-form rationale") {
+		t.Errorf("default-false summary must remain stripped from structured surface, got %q", got)
+	}
+}
+
+func TestLoadBearingSummary_EmptySummaryNoOp(t *testing.T) {
+	item := EvidenceItem{
+		Kind:               EvidenceDirect,
+		AnchorKind:         AnchorDefinition,
+		AnchorSymbol:       "TargetSymbol",
+		Source:             "internal/example/file.go",
+		LineStart:          42,
+		// Summary intentionally empty
+		LoadBearingSummary: true,
+	}
+
+	got := EvidenceStructuredSemanticLine(item, false)
+	if strings.Contains(got, " — ") {
+		t.Errorf("empty summary must not introduce em-dash separator, got %q", got)
+	}
+	// Should still surface the typed anchor.
+	if !strings.Contains(got, "TargetSymbol") {
+		t.Errorf("typed anchor must surface even when load-bearing summary is empty, got %q", got)
+	}
+}
+
+func TestLoadBearingSummary_IdempotentWhenSummaryAlreadyPresent(t *testing.T) {
+	// EvidenceDeterministicSurfaceText already returns summary as
+	// last-resort fallback when typed line is empty. With the flag,
+	// the helper must not double-append the summary to itself.
+	item := EvidenceItem{
+		Kind:               EvidenceMechanism,
+		Summary:            "load-bearing scalar 0123456",
+		LoadBearingSummary: true,
+		// No typed fields → typed line empty → summary becomes the line
+	}
+
+	got := EvidenceDeterministicSurfaceText(item, false)
+	count := strings.Count(got, "0123456")
+	if count != 1 {
+		t.Errorf("summary scalar should appear exactly once, found %d times in %q", count, got)
+	}
+}

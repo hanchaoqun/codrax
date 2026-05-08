@@ -145,6 +145,17 @@ type emitEvidenceItem struct {
 	Snippet      string  `json:"snippet,omitempty"`
 	ContextRole  string  `json:"context_role_hint,omitempty"`
 	DiagramRole  string  `json:"diagram_role_hint,omitempty"`
+	// LoadBearingSummary opts the summary into authoritative surface
+	// rendering for downstream stages. Default false: typed fields are
+	// the canonical surface and free-form summary text gets stripped
+	// before the next stage sees it. Set true ONLY when the summary
+	// carries a scalar (hash, version string, count, single concrete
+	// identifier from a tool call) that the answer cannot reproduce
+	// from the typed fields (subject / predicate / object /
+	// anchor_symbol / snippet) alone. Schema validation rejects the
+	// flag when summary is empty (an empty summary cannot be load-
+	// bearing).
+	LoadBearingSummary bool `json:"load_bearing_summary,omitempty"`
 
 	// Scope-specific bundles. Each bundle is read only when the Scope
 	// field selects it; ValidateScope enforces that the required
@@ -288,6 +299,10 @@ func emitEvidenceParametersSchema() json.RawMessage {
 							"type":        "string",
 							"enum":        emitEvidenceDiagramRoleNames(),
 							"description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, config = repo/user config-file layer (YAML/JSON/TOML/INI/etc.), runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints.",
+						},
+						"load_bearing_summary": map[string]any{
+							"type":        "boolean",
+							"description": "OPTIONAL. Default false. Set true ONLY when the `summary` text holds a scalar (commit hash, version string, count, single concrete identifier, value derived from a tool / shell / git command output) that the user-facing answer must reproduce verbatim AND the typed fields (subject / predicate / object / anchor_symbol / snippet) cannot themselves carry that scalar. False is correct for the common case where summary is a paraphrase / rationale that the typed fields already encode. The tool rejects this flag when summary is empty.",
 						},
 						"anchor_kind": map[string]any{
 							"type":        "string",
@@ -883,6 +898,17 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 		AnchorSymbol:         anchorSymbol,
 		Snippet:              snippet,
 		Scope:                scope,
+		LoadBearingSummary:   in.LoadBearingSummary,
+	}
+
+	// Reject load_bearing_summary=true on items whose Summary is empty —
+	// an empty summary cannot carry a load-bearing scalar, and accepting
+	// the flag would invite future readers to assume a non-empty pathway.
+	if item.LoadBearingSummary && strings.TrimSpace(summary) == "" {
+		return types.EvidenceItem{}, fmt.Errorf(
+			"items[%d]: load_bearing_summary=true requires a non-empty summary "+
+				"(set the flag only when the summary text holds a scalar the answer must reproduce verbatim)",
+			index)
 	}
 
 	// Wire scope-specific bundles.

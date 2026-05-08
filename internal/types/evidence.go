@@ -637,6 +637,36 @@ type EvidenceItem struct {
 	// items only). Empty value is "no information"; never treated
 	// as "evidence is bad".
 	LogPerfSubKind LogPerfSubKind `json:"log_perf_sub_kind,omitempty"`
+
+	// LoadBearingSummary opts the Summary field into authoritative
+	// surface rendering for the extract / finalize stages (2026-05-08
+	// add — u7a deep-dive root cause). Default false: the extract /
+	// finalize stages strip free-form summary prose to prevent the
+	// LLM from re-introducing nearby-context noise into final
+	// citations (Session-8 strict-evidence rule, internal/context/
+	// builder.go:806). When the explorer determines that Summary
+	// carries a SCALAR the answer cannot synthesise from typed fields
+	// alone — e.g. a commit hash from `git log`, a version string
+	// from `go version`, a value derived from exec_command output —
+	// the evidence becomes a one-shot carrier and dropping its prose
+	// equals dropping the answer.
+	//
+	// Set true ONLY when:
+	//   - the Summary text contains a load-bearing scalar (hash /
+	//     version / count / single concrete identifier) that MUST
+	//     appear in the user-facing answer, AND
+	//   - the typed fields (Subject / Predicate / Object / AnchorSymbol /
+	//     Snippet) cannot reproduce that scalar.
+	//
+	// When true, the four EvidenceXxxSurfaceText helpers append the
+	// trimmed Summary to the typed surface line (separated by " — "),
+	// so finalize-stage prompts see both the typed anchor AND the
+	// load-bearing prose.
+	//
+	// emit_evidence's prompt teaches the LLM the predicate; the
+	// schema rejects the flag when set on items whose Summary is
+	// empty (an empty summary cannot be load-bearing).
+	LoadBearingSummary bool `json:"load_bearing_summary,omitempty"`
 }
 
 // ValidateScope enforces the per-scope required-field invariants on
