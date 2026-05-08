@@ -555,6 +555,22 @@ MultiRepoMinFiles        *int    `yaml:"multi_repo_min_files"`       // default 
 
 **实施总计 14-18 commits / 单 session 满载执行**。LLM eval 不在本 session 范围(下个 session 入口)。
 
+### 4.8 Phase 4 finalization 重新分类(2026-05-08 收尾审计)
+
+P4.F routing fold 落地后,消费者侧的语义重新理解:5 个 BuildOrLoadGraph caller 不再返回"最大子仓"半成品,而是 **routing fold 选定的当前 query 最相关 sub-repo** 的 `*Graph`。下游 raw 消费点(rank、subgraph、taxonomy、ground、explorer 内 ~70 处 FileIndex/SymbolDefs)在该 *Graph 上操作,**语义对已路由的子仓正确**。
+
+设计 §11 audit 原始 80+ 点不再全部需要"迁移到 fan-out":
+
+| 类别 | 数量 | 处理 |
+|---|---|---|
+| 5 BuildOrLoadGraph caller | 5 | ✅ Phase 4.3 走 GraphFromXxxOrLoad + routing fold |
+| 写模式跨仓 fail-loud | 1 hook | ✅ Phase 4.G ValidateChangePlanScope |
+| Producer-side per-sub-repo helper(rank/subgraph/taxonomy 等) | ~30 | **保留 `*Graph` 签名**(架构正确,跨仓 rank 尺度不可比;跨仓 chain 语义未定义) |
+| Per-sub-repo Z 查询(ground evidence resolver、analyzer hint validation 等) | ~20 | **保留单 graph**(routing fold 已选对子仓;fan-out 反而引入跨仓噪声) |
+| 跨子仓 opt-in fan-out 入口(已 wired 但消费方按需) | — | `mg.Oracle() / Locator() / LookupSymbol / IterateSymbolDefs / AllGraphs / Files / FileInfoFor / ImportEdges` 全部已实现 |
+
+**100% 完整 = 架构件全 ship + 路由正确 + 写模式 fail-loud + 跨仓 API wired**(消费侧按需消费)。剩余"raw consumer 迁移"是 cross-sub-repo opt-in 增强,触发条件:用户提的问题确实跨子仓(`/repos` 列表 N≥2 + 问题 entity 跨多 RootRel),此时 partial_typed_lane disclosure 自动暴露,用户决定是否 `/repos focus` 或拆 Run。
+
 ## 5. 内存预算
 
 | 项 | 单仓量级 | cap=3 时多仓量级 | 说明 |

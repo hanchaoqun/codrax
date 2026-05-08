@@ -2588,10 +2588,58 @@ multigraph: mode=multi discovered=3 active=2 cap=3 evicted_in_60s=0 pending=[rep
 ### 16.7 与现有架构的关系
 
 - **L1 read-mode byte-preserved**:单仓 `IsSingle()` 路径下 `BuildOrLoadGraph(parent_root, query)` 是底层调用,`runReadSchedulerLoop` 完全不变
-- **L2 write_enabled gate**:multi_repo 不引入新写路径,write 模式跨仓 fail-loud 在 write_analyzer 层
+- **L2 write_enabled gate**:multi_repo 不引入新写路径,**write 模式跨仓 ChangePlan fail-loud** 在 `planPostHook → ValidateChangePlanScope`(`ViolWriteCrossSubRepoForbidden`,R2' 6 处同步)
 - **L5 worktree cleanup**:`worktree.DiscardByPath` 不变 — write-mode 的 worktree 始终来自 `ActiveSubRepo.RootAbs` 而非 parent
 - **R4 generalization**:discovery / LRU / routing 都通用化,不绑定 codrax 自身路径假设
 - **No backward-compat shim**:`multi_repo_enabled=false` 不引入新 code path 维护成本(MultiGraph 内部退化即可)
+
+### 16.8 路由折叠(channels A/B/C/D/E)
+
+每 Run 入口在 `orchestrator.Run` 里调用 `MultiGraph.RouteActiveSet(inputs)`。`RoutingInputs`:
+
+| 通道 | 来源 | 类型 | 备注 |
+|---|---|---|---|
+| **A** | `mg.FocusSlugs()` REPL `/repos focus` 推送 | precise(必须 active) | 用户显式 pin,UX 兜底 |
+| **B** | `MutableState.exactContextRequiredFiles` analyzer 后 emit | precise | log/perf-triage 走这里推 sub-repo |
+| **C** | `validateFrame` log frame.File | precise | 栈帧自动 lookup owning sub-repo |
+| **D** | `inferQueryLanguages(request)` 启发式扫扩展名 | noisy(rank-only) | "rust panic" → bias rust 子仓 |
+| **E** | `SubRepo.FileCount` desc 兜底 | noisy(rank-only) | 没有任何上述信号时按大小选 |
+
+`RouteActiveSet` 优先级 A > B > C > D > E,cap 裁切前 A 强制保留,其余按 cap 顺序 emit。`OverflowDrop`(B/C 想要但 cap 排除)+ `Inactive`(完全没选中)输入 `BusContext.PendingSubRepos`(R6:RootRel,不暴露 slug),LLM-facing 摘要由它 disclose `partial_typed_lane`。
+
+### 16.9 Raw consumer 迁移现状
+
+设计 §11 audit 列出 ~80 raw 消费点(`g.SymbolDefs / g.FileIndex / g.ImportGraph / ...`)。P4.F 路由折叠到位后,这些消费点的语义重新审视:
+
+- **5 个 BuildOrLoadGraph caller**(`analyzer.go:342/1672/1771`、`keyword_search.go:667`、`sub_explorer.go:366`)经 `GraphFromBus/AgentContextOrLoad` 走 routing fold,返回的 `*Graph` 是**当前 query 最相关 sub-repo** 的视图(不是"最大子仓")
+- 下游 raw 消费点(rank、subgraph、taxonomy、ground、explorer 内 47 处 FileIndex/SymbolDefs 等)在该 `*Graph` 上操作,语义对**已路由的子仓**正确
+- **跨子仓 fan-out**(同一 Run 同时查多个 sub-repo)需通过 `mg.Oracle() / mg.Locator() / mg.LookupSymbol() / mg.IterateSymbolDefs() / mg.AllGraphs()` API,这些 API 已 wired 但消费方按需消费(opt-in)
+
+**何时考虑迁移某 raw 消费点到 fan-out**:
+1. 用户问题确实跨子仓(如"哪个子仓 implement Run 接口?")
+2. 自动 disclosure(`partial_typed_lane=true`)不足以让用户满意
+3. 单子仓 routing 的命中率不高(可由 telemetry 观察 `multigraph: pending=...` 出现频率)
+
+**当前不迁移的合理性**:rank.go 的 `RankGraph(g)` 是"对该 sub-repo 评分",跨仓评分尺度不可比;subgraph 的 `ComputeChains/Hubs/Bridges(g)` 是"该 sub-repo 内部结构",跨仓 chain 语义未定义。这些 helper 保持 `*Graph` 签名是**架构正确**而非缺失。
+
+### 16.10 实施分阶段速查
+
+| Phase | 内容 | 状态 |
+|---|---|---|
+| 0 | ArkTS leak `.git` boundary 修 | ✅ ship |
+| 1 | topology pkg + cmd/root wire-in | ✅ ship |
+| 2 | yaml schema + REPL `/repos` | ✅ ship |
+| 3 | MultiGraph carrier + LRU + Oracle/Locator fan-out | ✅ ship |
+| 4.1 | BusContext fields + facade | ✅ ship |
+| 4.2 | Orch providers + REPL state propagation | ✅ ship |
+| 4.3 | 5 BuildOrLoadGraph caller migration | ✅ ship |
+| 4.A | MultiGraph helpers (LookupSymbol / IterateSymbolDefs / IterateFileIndex) | ✅ ship |
+| 4.F | Routing fold (channels A/B/C/D/E) | ✅ ship |
+| 4.G | Write-mode cross-sub-repo fail-loud + R2' 6-spot sync | ✅ ship |
+| 5 | `detectRunnerPlans` walkRoot per-sub-repo isolation | ✅ ship |
+| 6 | telemetry + docs | ✅ ship |
+
+**剩余 raw consumer migration**(P4.B/C/D/E 设计原始任务)→ 重新分类为 **cross-sub-repo opt-in 增强**,非半成品。LRU + routing 架构使每个 Run 见到正确路由的子仓,跨仓 fan-out API 全部 wired,消费方按需消费。
 
 ---
 
