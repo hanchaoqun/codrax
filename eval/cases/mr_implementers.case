@@ -1,0 +1,24 @@
+# Multi-repo eval — Implementers fan-out across sub-repos
+#
+# Fixture: eval/fixtures/multirepo-basic/ (3 sub-repos: repo-greet-go,
+# repo-tools-py, repo-stub-rust). repo-greet-go declares the
+# UserService Go interface (service/service.go) and the GreetServiceImpl
+# struct that implements it (service/impl.go). The other two sub-repos
+# do NOT mention UserService.
+#
+# Cross-repo Implementers fan-out (Sc 4 of 2026-05-08 multi-repo
+# architecture): the Implementers oracle is dispatched across every
+# sub-repo and the answer must surface the correct implementer in
+# repo-greet-go without mentioning the Rust / Python sub-repos.
+ID="mr_implementers"
+NAME="cross-sub-repo Implementers — UserService Go interface"
+QUESTION="UserService 这个 Go interface 在仓库里有哪些结构体实现？请列出实现者名字以及它所在的子仓的目录或路径线索。"
+MULTIREPO="multirepo-basic"
+# EMR — must surface the implementer name AND a sub-repo locator
+# (slug, dir name, or file path).
+EXPECT_CONTAINS="GreetServiceImpl"
+EXPECT_MATCHES_REGEX="(repo-greet-go|greet-go|service/impl\.go|service\.go)"
+# Rust / Python sub-repos hold no UserService implementer; the answer
+# must NOT mention them as implementers (a soft NOT — accept honest
+# enumeration that names them as "no implementer found").
+EXPECT_NOT_CONTAINS="ignore_this_token_never_matches"

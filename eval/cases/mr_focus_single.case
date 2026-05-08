@@ -1,0 +1,27 @@
+# Multi-repo eval — single-sub-repo focus, no cross-repo confab
+#
+# Fixture: eval/fixtures/multirepo-basic/. The question is scoped to
+# the Rust sub-repo (`unrelated_constant` defined only in
+# repo-stub-rust/src/lib.rs). The Go and Python sub-repos do NOT
+# define this function.
+#
+# Negative-side guarantee for cross-repo fan-out: when the question is
+# clearly scoped to one sub-repo, the answer must NOT spuriously
+# mention the other sub-repos. This validates that fan-out is
+# additive context (not noise added to every answer) — a regression
+# would have the LLM confabulate a Go / Python connection because
+# multi-repo discovery surfaced all three sub-repos in the prompt.
+ID="mr_focus_single"
+NAME="cross-sub-repo discipline — focused Rust question must not mention Go/Python sub-repos"
+QUESTION="函数 unrelated_constant 是在哪个文件里定义的？它返回什么值？请只回答这一个函数的事实，不需要列举仓库其它内容。"
+MULTIREPO="multirepo-basic"
+EXPECT_CONTAINS="unrelated_constant"
+# Locator + return value must surface.
+EXPECT_MATCHES_REGEX="(repo-stub-rust|stub-rust|src/lib\.rs|lib\.rs)
+(42|forty.?two|四十二|常量\s*42)"
+# Negative discipline: the answer must NOT pull in Go/Python sub-repo
+# identifiers as "related" content. We only forbid the strongest
+# cross-noise tokens (other sub-repo struct/function names) — generic
+# words like "Go" or "Python" can legitimately appear as language
+# context.
+EXPECT_NOT_CONTAINS="GreetServiceImpl process_request"

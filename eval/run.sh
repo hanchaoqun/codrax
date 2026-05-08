@@ -61,6 +61,14 @@ MODE="${MODE:-}"
 FIXTURE="${FIXTURE:-}"
 PLAN_EXPECT_REGEX="${PLAN_EXPECT_REGEX:-}"
 POST_APPLY_FILE="${POST_APPLY_FILE:-}"
+# Multi-repo eval (2026-05-08): when MULTIREPO=<seed-name> is set, the
+# runner copies eval/fixtures/<seed-name>/ to a scratch parent dir and
+# `git init`-s each immediate child sub-repo (no .git/ checked into the
+# codrax repo itself). codrax is then dispatched with --repo <scratch>
+# so the topology layer (LoadOrDiscover BFS depth=4) auto-detects the
+# sub-repos. Read-mode only — write-mode + multi-repo is a future
+# combination once write fan-out lands.
+MULTIREPO="${MULTIREPO:-}"
 
 case "$MODE" in
   "" | read | plan | apply) ;;
@@ -76,6 +84,16 @@ fi
 if [[ -n "$FIXTURE" && ! -d "$FIXTURE" ]]; then
   # Resolve after we cd into $ROOT below; defer the dir-exists check.
   :
+fi
+# MULTIREPO and MODE/FIXTURE are mutually exclusive — write-mode +
+# multi-repo is a future combination, not a current eval scenario.
+if [[ -n "$MULTIREPO" && -n "$MODE" && "$MODE" != "read" ]]; then
+  echo "case MULTIREPO=$MULTIREPO is incompatible with MODE=$MODE (multi-repo write-mode not yet supported)" >&2
+  exit 2
+fi
+if [[ -n "$MULTIREPO" && -n "$FIXTURE" ]]; then
+  echo "case MULTIREPO=$MULTIREPO and FIXTURE=$FIXTURE are mutually exclusive" >&2
+  exit 2
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -137,21 +155,56 @@ setup_scratch() {
   ) || return $?
 }
 
+# setup_multirepo_scratch <scratch-parent-dir> — copies the seed under
+# eval/fixtures/$MULTIREPO/ to <scratch-parent>, then git-init's every
+# immediate subdirectory as its own sub-repo (the parent itself stays
+# a plain dir, no .git/ — that is exactly what the topology BFS layer
+# expects). README.md / shared assets at the parent level are NOT
+# committed (they would not belong to any sub-repo). Each sub-repo
+# gets a single seed commit so cgit-friendly tooling treats it as a
+# real repo.
+setup_multirepo_scratch() {
+  local scratch="$1"
+  rm -rf "$scratch"
+  mkdir -p "$scratch"
+  cp -r "$ROOT/eval/fixtures/$MULTIREPO/." "$scratch/"
+  # Init each immediate subdir of $scratch as its own repo.
+  local sub
+  for sub in "$scratch"/*/; do
+    [[ -d "$sub" ]] || continue
+    (
+      cd "$sub"
+      git init -q -b main
+      git -c user.email=eval@codrax -c user.name=eval add -A
+      git -c user.email=eval@codrax -c user.name=eval commit -q -m "seed" 2>/dev/null || true
+    ) || return $?
+  done
+}
+
 # run_read_step / run_plan_step / run_apply_step — the three pipeline
 # invocations. All accept (run-i, out-file, log-dir) as positional args
 # plus any mode-specific extras. Each appends to $out (read mode uses
 # '>' to truncate on first call; write-mode apply appends after plan).
 run_read_step() {
   local i="$1" out="$2" logdir="$3"
+  # Multi-repo eval (2026-05-08): when $4 is set, --repo points at the
+  # multi-repo parent scratch (where each immediate child is its own
+  # git repo), exercising the topology BFS + MultiGraph carrier.
+  # Empty $4 falls back to the historical --repo . (codrax self-repo)
+  # so all existing single-repo cases stay byte-identical.
+  local repo_arg="."
+  if [[ -n "${4:-}" ]]; then
+    repo_arg="${4}"
+  fi
   if [[ -n "$LOG" ]]; then
-    ./codrax --repo . --branch main --pipeline-max-steps 15 \
+    ./codrax --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
       --log-level debug \
       --log-dir "$logdir" \
       --log-text "$LOG" \
       --request "$QUESTION" \
       >"$out" 2>&1
   else
-    ./codrax --repo . --branch main --pipeline-max-steps 15 \
+    ./codrax --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
       --log-level debug \
       --log-dir "$logdir" \
       --request "$QUESTION" \
@@ -395,7 +448,17 @@ run_one() {
       unset CODRAX_SETTINGS
       ;;
     *)
-      run_read_step "$i" "$out" "$logdir"
+      if [[ -n "$MULTIREPO" ]]; then
+        scratch="$OUTDIR/run-$i.parent"
+        if ! setup_multirepo_scratch "$scratch"; then
+          echo "FAIL multirepo_setup_fail" >"$verdict"
+          echo "run $i: FAIL multirepo_setup_fail" >&2
+          return
+        fi
+        run_read_step "$i" "$out" "$logdir" "$scratch"
+      else
+        run_read_step "$i" "$out" "$logdir"
+      fi
       rc=$?
       ;;
   esac

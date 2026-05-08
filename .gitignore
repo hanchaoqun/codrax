@@ -24,6 +24,11 @@
 # keyword-search contamination that ExcludeDirs already guards against.
 /eval/results/
 
+# Sweep artifacts produced by eval/parallel_all.sh — regenerated on
+# every sweep, never useful to commit.
+/eval/parallel_all.log
+/eval/parallel_all_summary.md
+
 # Claude Code runtime state — session-specific scheduling lock + local
 # settings overlay; both regenerate per machine and must not ship.
 /.claude/

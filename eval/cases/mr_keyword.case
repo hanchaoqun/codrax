@@ -1,0 +1,20 @@
+# Multi-repo eval — keyword search fan-out across sub-repos
+#
+# Fixture: eval/fixtures/multirepo-basic/. Only repo-tools-py defines
+# `process_request` (in tools/processor.py). The Go and Rust sub-repos
+# do NOT contain this identifier.
+#
+# Cross-repo keyword/grep fan-out (Sc 5 of 2026-05-08 multi-repo
+# architecture): the analyzer's keyword-search path must dispatch
+# across every sub-repo and the answer must point at the Python
+# sub-repo specifically.
+ID="mr_keyword"
+NAME="cross-sub-repo keyword search — process_request"
+QUESTION="标识符 process_request 在仓库里出现在哪些位置？哪个子仓提供了它？它的功能是什么？"
+MULTIREPO="multirepo-basic"
+# EMR — must surface the locator for the Python sub-repo AND the
+# function's purpose (normalisation / upper-case / strip / 处理请求).
+EXPECT_CONTAINS="process_request"
+EXPECT_MATCHES_REGEX="(repo-tools-py|tools-py|processor\.py|tools/processor)
+(upper|大写|strip|trim|normalis|normaliz|规范化|normalise|.upper\(\)|.strip\(\))"
+EXPECT_NOT_CONTAINS="ignore_this_token_never_matches"

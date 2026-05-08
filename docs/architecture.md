@@ -2641,6 +2641,22 @@ multigraph: mode=multi discovered=3 active=2 cap=3 evicted_in_60s=0 pending=[rep
 
 **剩余 raw consumer migration**(P4.B/C/D/E 设计原始任务)→ 重新分类为 **cross-sub-repo opt-in 增强**,非半成品。LRU + routing 架构使每个 Run 见到正确路由的子仓,跨仓 fan-out API 全部 wired,消费方按需消费。
 
+### 16.12 e2e eval 覆盖(2026-05-08 ship)
+
+**Fixture**:`eval/fixtures/multirepo-basic/` — 三子仓种子(repo-greet-go Go interface+impl、repo-tools-py Python `process_request`、repo-stub-rust Rust 哨兵)。**不含** `.git/` —`eval/run.sh::setup_multirepo_scratch` 在每次 run 时 `git init` 每个 immediate child 子目录。父目录(scratch)留作普通 dir(不是 git repo),正是 topology BFS layer 期望的形状。
+
+**Cases**(均为读模式,`MULTIREPO=multirepo-basic`):
+
+| Case | 验证场景 | 关键 EMR |
+|---|---|---|
+| `mr_implementers` | Sc 4 cross-sub-repo Implementers fan-out | `GreetServiceImpl` + `repo-greet-go` 路径线索 |
+| `mr_keyword` | Sc 5 cross-sub-repo keyword search | `process_request` + `repo-tools-py` 子仓定位 + 函数功能词(upper/strip/normalise/规范化) |
+| `mr_focus_single` | 反向纪律 — 单子仓焦点不踩跨仓噪音 | `unrelated_constant` + Rust 子仓定位 + **NOT** mention 其他两子仓的核心标识符 |
+
+**Runner 改动**(`eval/run.sh`):新 `MULTIREPO=<seed-name>` env(与 `MODE`/`FIXTURE` 互斥) → `setup_multirepo_scratch` → `run_read_step` 第 4 个位置参数传 scratch 路径,`--repo $repo_arg`。零既存单仓 case 字节级影响(repo_arg default `.`)。
+
+**与单元测试的分工**:`internal/tool/repomap/topology/topology_test.go` 已覆盖 BFS / prune-nested / skip-excluded / cache-fresh 等 deterministic 单元行为;e2e eval cases 覆盖 LLM-面 fan-out:Implementers oracle 跨仓分派、keyword search 跨仓 grep、负向纪律(单焦点不串音)。两层互补,不重复。
+
 ## 17. 跨输入源 negative knowledge — TypedDenials + BugClass(2026-05-08)
 
 R3 红线第二维度落地:**precise typed signals 必须在每个 LLM 接触面都被 hard-enforce**,而不是 prose 引导。否则 LLM 可以从某个面绕过另一个面的 typed gate(例如 log_triage 清空 `frame.File` 但 `frame.Raw` 里的路径字符串保留 → LLM 抠出来 `read_file` 绕过)。
