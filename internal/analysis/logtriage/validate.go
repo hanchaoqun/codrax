@@ -53,6 +53,98 @@ type ValidateInput struct {
 // repoRoot is the absolute or relative path to the user repository;
 // "" disables file resolution (every frame.File is cleared — used by
 // unit tests that don't want to hit the filesystem).
+// ClearedFrame records a frame whose File was emitted by the LLM but
+// cleared by the corroborate gate (frameFileCorroboratesFunc) because
+// the real file did not contain the named function. Callers
+// (emit_log_triage Execute) consume this list to stamp
+// ctx.TypedDenials so downstream tool registries / prompt sanitisers
+// can hard-enforce the gate's negative knowledge.
+type ClearedFrame struct {
+	OriginalFile string
+	Func         string
+	Raw          string
+}
+
+// ValidateBundleWithDenials runs ValidateBundle and additionally
+// returns the list of frames whose File the corroborate gate cleared.
+// Use this when the caller has access to a TypedDenialSet to stamp
+// (BusContext.TypedDenials); otherwise call ValidateBundle directly
+// (back-compat single-return wrapper).
+func ValidateBundleWithDenials(in ValidateInput, repoRoot string) (*types.LogBundle, []ClearedFrame) {
+	originals := snapshotFrameFiles(in.Errors)
+	bundle := ValidateBundle(in, repoRoot)
+	if bundle == nil {
+		return nil, nil
+	}
+	cleared := diffClearedFrames(originals, bundle.Errors)
+	return bundle, cleared
+}
+
+// snapshotFrameFiles records (Func, Raw, originalFile) for every
+// frame BEFORE validation runs. Used by ValidateBundleWithDenials to
+// compute the diff after gate clearing. Walks the same tree
+// validateFrame walks (cause-recursive) for symmetry.
+func snapshotFrameFiles(errs []types.LogError) []ClearedFrame {
+	var out []ClearedFrame
+	var walk func(e *types.LogError)
+	walk = func(e *types.LogError) {
+		if e == nil {
+			return
+		}
+		for _, f := range e.Frames {
+			if f.File == "" {
+				continue
+			}
+			out = append(out, ClearedFrame{OriginalFile: f.File, Func: f.Func, Raw: f.Raw})
+		}
+		walk(e.Cause)
+	}
+	for i := range errs {
+		walk(&errs[i])
+	}
+	return out
+}
+
+// diffClearedFrames returns the subset of originals whose post-
+// validation frame still has File="" (cleared by gate). Match by
+// (Func, Raw) tuple — frames are reordered/dropped on Raw==""
+// clamps but Func+Raw is the stable identity.
+func diffClearedFrames(originals []ClearedFrame, validated []types.LogError) []ClearedFrame {
+	if len(originals) == 0 {
+		return nil
+	}
+	// Build set of (Func, Raw) pairs that retained their File post-
+	// validation. Originals NOT in this set were either dropped or
+	// cleared.
+	keptKeys := make(map[string]bool, len(originals))
+	var walk func(e *types.LogError)
+	walk = func(e *types.LogError) {
+		if e == nil {
+			return
+		}
+		for _, f := range e.Frames {
+			if f.File != "" {
+				keptKeys[f.Func+"\x00"+f.Raw] = true
+			}
+		}
+		walk(e.Cause)
+	}
+	for i := range validated {
+		walk(&validated[i])
+	}
+	var cleared []ClearedFrame
+	seen := make(map[string]bool)
+	for _, o := range originals {
+		key := o.Func + "\x00" + o.Raw
+		if keptKeys[key] || seen[key] {
+			continue
+		}
+		seen[key] = true
+		cleared = append(cleared, o)
+	}
+	return cleared
+}
+
 func ValidateBundle(in ValidateInput, repoRoot string) *types.LogBundle {
 	if len(in.Errors) == 0 && len(in.Residue.UnknownChunks) == 0 &&
 		in.Meta.Lang == "" && len(in.Meta.Signals) == 0 {

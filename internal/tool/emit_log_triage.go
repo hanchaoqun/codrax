@@ -255,7 +255,7 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 		RawLogBytes: len(ctx.AttachedLog),
 	}
 
-	bundle := logtriage.ValidateBundle(in, ctx.RepoRoot)
+	bundle, clearedFrames := logtriage.ValidateBundleWithDenials(in, ctx.RepoRoot)
 	if bundle == nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -263,6 +263,21 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 			Summary:   "emit_log_triage rejected: empty bundle after validation (no parseable errors, no residue)",
 			Timestamp: time.Now(),
 		}, nil
+	}
+
+	// P-TypedDenials A.3 (2026-05-08): every frame whose File the
+	// corroborate gate cleared (real file did not contain the named
+	// function) becomes a typed denial. Downstream consumers
+	// (tool registry read_file gate / LLM prompt sanitiser /
+	// answer validator) then refuse to ground or cite this path.
+	// Closes the bypass where the LLM extracted the path from
+	// frame.Raw (still verbatim) and called read_file with it.
+	for _, cf := range clearedFrames {
+		ctx.TypedDenials.Add(types.TypedDenial{
+			Class:  types.TypedDenialExternalLogFrameUnresolved,
+			Token:  cf.OriginalFile,
+			Reason: fmt.Sprintf("frame func %q does not appear in %s", cf.Func, cf.OriginalFile),
+		})
 	}
 
 	// Count pre-validation vs post-validation frame totals for the
