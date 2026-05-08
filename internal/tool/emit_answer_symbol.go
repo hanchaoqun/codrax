@@ -272,6 +272,14 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	// u3a regression class where the extractor LLM emitted items whose
 	// file:line pointed at a call-site line rather than the symbol's
 	// definition line.
+	// P4-cross-sub-repo (Sc 6): wire ground.CrossRepoOracle.
+	if oracleSource, ok := ctx.MultiGraph.(interface {
+		Oracle() types.SymbolOracle
+	}); ok && oracleSource != nil {
+		ground.SetCrossRepoOracle(oracleSource.Oracle())
+	} else {
+		ground.SetCrossRepoOracle(nil)
+	}
 	groundCtx := ground.BuildContext(ctx)
 	stepCandidates := compiledStepCandidateNames(types.BuildAnswerSurfacePlanForBusContext(ctx))
 	built := make([]types.AnswerSymbol, 0, len(p.Items))

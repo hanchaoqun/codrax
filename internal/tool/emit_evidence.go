@@ -540,6 +540,18 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// near-miss LineStart/Source. The Report drives the per-item
 	// feedback in the tool Summary so the LLM sees grounded /
 	// recovered / ungrounded verdicts in the same turn it emitted them.
+	// P4-cross-sub-repo (Sc 6): wire ground's package-level
+	// CrossRepoOracle from BusContext.MultiGraph (type-asserted via
+	// inline interface so internal/tool/ground stays free of the
+	// repomap/multigraph import cycle that tool/ground →
+	// repomap/multigraph → repomap/topology → tool would form).
+	if oracleSource, ok := ctx.MultiGraph.(interface {
+		Oracle() types.SymbolOracle
+	}); ok && oracleSource != nil {
+		ground.SetCrossRepoOracle(oracleSource.Oracle())
+	} else {
+		ground.SetCrossRepoOracle(nil)
+	}
 	gc := ground.BuildContext(ctx)
 	diagramRequiredFiles := exactResolutionDiagramRequiredFiles(ctx, exactResolutionContract)
 	reports := make([]ground.Report, len(built))

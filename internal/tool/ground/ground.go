@@ -25,8 +25,24 @@ import (
 	"strconv"
 	"strings"
 
+	"sync"
+
 	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// crossRepoOracle is the package-level cross-sub-repo SymbolOracle
+// looksLikeCodeIdentifier consults as a last-fallback when the
+// per-graph SymbolDefs check misses. Set by BuildContext from the
+// BusContext.MultiGraph carrier (P4-cross-sub-repo Sc 6, 2026-05-08);
+// scoped to the most recent BuildContext call (sequential per Run,
+// no concurrent overwrite within a single user-facing dispatch).
+//
+// nil disables the fan-out path and reverts to legacy single-graph
+// classification (single-shot tests, multi_repo_enabled=false).
+var (
+	crossRepoOracleMu sync.RWMutex
+	crossRepoOracle   types.SymbolOracle
 )
 
 // gutterLineRe matches the per-line gutter emitted by
@@ -53,6 +69,16 @@ type Context struct {
 	LineIndex map[string]map[int]string // source path → (1-based line → text)
 	Graph     *repomap.Graph            // nil when explorer has not populated MutableState yet
 	RepoRoot  string                    // for path canonicalisation; empty is tolerated (no normalisation)
+
+	// MultiGraphOracle is the cross-sub-repo SymbolOracle wired
+	// from BusContext.MultiGraph (P4-cross-sub-repo, 2026-05-08).
+	// When non-nil, looksLikeCodeIdentifier and other ground-side
+	// "is this a real symbol?" checks fan out across every active
+	// sub-repo's index — eliminates the false-negative where a
+	// real identifier defined in a non-routed sub-repo was
+	// classified as plain English. Single-repo posture is
+	// byte-equivalent (mg.Oracle() forwards through one graph).
+	MultiGraphOracle types.SymbolOracle
 }
 
 // BuildContext assembles a grounding Context from the caller's
@@ -117,7 +143,26 @@ func BuildContext(ctx *types.BusContext) *Context {
 			gc.Graph = g
 		}
 	}
+	// P4-cross-sub-repo (Sc 6, 2026-05-08): the cross-sub-repo oracle
+	// is wired separately by SetCrossRepoOracle (from tool layer that
+	// has access to multigraph) — ground.go cannot import multigraph
+	// directly without a tool→ground→multigraph→topology→tool
+	// cycle. The oracle is consulted as a fallback inside
+	// looksLikeCodeIdentifier; nil disables the fan-out path.
 	return gc
+}
+
+// SetCrossRepoOracle installs the package-level cross-sub-repo
+// SymbolOracle that looksLikeCodeIdentifier consults as a fallback
+// when the per-graph SymbolDefs check misses. Called by the tool
+// layer's emit_evidence / emit_investigation_complete entry points
+// after BuildContext, since those have access to *multigraph.MultiGraph
+// via repomap. Pass nil to clear (single-shot tests reset between
+// runs to avoid cross-test pollution).
+func SetCrossRepoOracle(oracle types.SymbolOracle) {
+	crossRepoOracleMu.Lock()
+	crossRepoOracle = oracle
+	crossRepoOracleMu.Unlock()
 }
 
 // Report is the per-item feedback the emit_evidence tool renders back
@@ -1737,6 +1782,21 @@ func extractCodeIdentifiers(text string, graph *repomap.Graph) []string {
 	return out
 }
 
+// looksLikeCodeIdentifier classifies a token as a code identifier
+// vs plain English. Heuristic order:
+//  1. CamelCase / mixedCase + has both upper and lower → identifier
+//  2. snake_case (contains '_') → identifier
+//  3. lowercase-only ambiguous: defer to graph.SymbolDefs[tok]
+//     existence check.
+//
+// Cross-sub-repo enrichment (P4-cross-sub-repo Sc 6, 2026-05-08):
+// the package-level CrossRepoOracle (set by BuildContext from the
+// BusContext.MultiGraph carrier) is consulted as an additional
+// fallback before returning false on lowercase-only tokens, so
+// identifiers defined only in non-routed sub-repos are still
+// classified as identifiers. Concurrent BuildContext calls are
+// serialised inside BuildContext (which is per-Run) so the
+// package-level overwrite is sequential.
 func looksLikeCodeIdentifier(tok string, graph *repomap.Graph) bool {
 	hasUpper, hasLower, hasUnderscore := false, false, false
 	for _, r := range tok {
@@ -1755,11 +1815,20 @@ func looksLikeCodeIdentifier(tok string, graph *repomap.Graph) bool {
 	if hasUnderscore {
 		return true
 	}
-	if graph == nil {
-		return false
+	// Per-graph fallback (legacy + single-repo).
+	if graph != nil {
+		if defs, ok := graph.SymbolDefs[tok]; ok && len(defs) > 0 {
+			return true
+		}
 	}
-	if defs, ok := graph.SymbolDefs[tok]; ok && len(defs) > 0 {
-		return true
+	// Cross-sub-repo fan-out fallback.
+	crossRepoOracleMu.RLock()
+	oracle := crossRepoOracle
+	crossRepoOracleMu.RUnlock()
+	if oracle != nil {
+		if found, _ := oracle.SymbolExists(tok); found {
+			return true
+		}
 	}
 	return false
 }

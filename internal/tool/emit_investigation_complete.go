@@ -938,6 +938,14 @@ func refreshClosureReadSnapshot(ctx *types.BusContext, closure *types.EvidenceCl
 	if ctx == nil || ctx.Mutable == nil || closure == nil {
 		return
 	}
+	// P4-cross-sub-repo (Sc 6): wire ground.CrossRepoOracle.
+	if oracleSource, ok := ctx.MultiGraph.(interface {
+		Oracle() types.SymbolOracle
+	}); ok && oracleSource != nil {
+		ground.SetCrossRepoOracle(oracleSource.Oracle())
+	} else {
+		ground.SetCrossRepoOracle(nil)
+	}
 	gc := ground.BuildContext(ctx)
 	if gc == nil || len(gc.LineIndex) == 0 {
 		// Even with no ground LineIndex we still want to refresh the
