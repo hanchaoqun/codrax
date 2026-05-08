@@ -529,6 +529,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// causality rendering in downstream answers.
 	if ac.AgentName != types.AgentLogTriager && !finalizerUsesTypedAnswerSupport(ac) {
 		if section := formatLogTriageStructured(ac.LogTriage); section != "" {
+			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionLogTriageExtraction,
 				Content: section,
@@ -537,6 +538,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	}
 	if ac.AgentName != types.AgentPerfTriager {
 		if section := formatPerfTriageStructured(ac.PerfTrace); section != "" {
+			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionPerfTriageExtraction,
 				Content: section,
@@ -563,6 +565,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// Empty AttachedLog is a no-op.
 	if !shouldSuppressAttachedRuntimeLog(ac) {
 		if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir); section != "" {
+			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionAttachedRuntimeLog,
 				Content: section,
@@ -581,6 +584,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// caller-provenance claims.
 	if !shouldSuppressAttachedRuntimeTrace(ac) {
 		if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir); section != "" {
+			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				// Title order matches the user-facing CLI flag order:
 				// HiTrace / atrace / systrace / perfetto are all
@@ -1850,6 +1854,32 @@ const AttachedLogBlobName = "attached_log.txt"
 // log and a performance trace cannot overwrite one attachment blob
 // with the other inside the shared WorkDir.
 const AttachedTraceBlobName = "attached_trace.txt"
+
+// sanitiseSectionForLLM applies ac.TypedDenials.Sanitise to a
+// pre-rendered prompt section so denied tokens (paths the input
+// frame referenced but the typed gate could not corroborate, symbols
+// the oracle marked as unknown, etc.) get redacted to neutral
+// "<unverified-...>" markers BEFORE the section reaches the LLM
+// prompt assembly.
+//
+// L2 of the negative-knowledge enforcement pyramid (R3 second-axis):
+//   - L1 tool-call gate (read_file / grep / repo_map) refuses calls
+//     naming the same tokens
+//   - L2 (this) — prevents the LLM from extracting the tokens out of
+//     prose context (frame.Raw / attached log body / trace tags) to
+//     bypass L1
+//   - L3 answer validator catches answer prose that names denied
+//     tokens without an "unverified" caveat
+//
+// nil-safe: empty TypedDenials passes the section through verbatim
+// (zero behavioural regression for runs without any input-side
+// gate firing — the dominant case).
+func sanitiseSectionForLLM(section string, ac *types.AgentContext) string {
+	if ac == nil || ac.TypedDenials == nil || ac.TypedDenials.Len() == 0 {
+		return section
+	}
+	return ac.TypedDenials.Sanitise(section)
+}
 
 const (
 	attachedLogInlineCap = 4 * 1024 // ≤ 4 KB → inline whole body
