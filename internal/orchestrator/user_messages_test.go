@@ -258,31 +258,65 @@ func TestSoftMessages_NoVisualShockSymbols(t *testing.T) {
 // Phase 4 / 6 (2026-05-08) multi-repo scan progress messages
 // =====================================================================
 
-// TestMultiRepoScanMessages_BannerStyle pins the scan-progress notice
-// strings to the SAME visual style as the multi-repo startup banner
-// (`🗂  multi-repo: ...`). When both surfaces share the prefix, the
-// dock reads as a continuation of the banner rather than a distinct
-// row class. Both languages parity check.
-func TestMultiRepoScanMessages_BannerStyle(t *testing.T) {
+// TestMultiRepoScanMessages_NoticeStyle pins the scan-progress
+// notice strings to the SAME visual style as the rest of the soft-
+// notice family (softForcedReadMessage / softConvergenceStallMessage /
+// softInvestigationReadyMessage):
+//
+//	⟳ <prose>   active work    (canonical glyphRecoverable)
+//	· <prose>   info milestone  (canonical glyphWarning)
+//	✗ <prose>   failure         (canonical glyphFatal)
+//
+// All three runes are in status_tokens.go's canonical set so
+// peelGlyphPrefix recognises them and the dock applies the bucket
+// palette to the glyph + the muted body palette to the prose.
+// Localisation parity check across zh / en.
+func TestMultiRepoScanMessages_NoticeStyle(t *testing.T) {
 	for _, lang := range []string{"en", "zh"} {
 		start := multiRepoScanStartMessage(lang, "repo-x")
 		endOK := multiRepoScanEndMessage(lang, "repo-x", 1234, true)
 		endFail := multiRepoScanEndMessage(lang, "repo-x", 1234, false)
+		// Glyph contract — match the soft-notice family.
+		if !strings.HasPrefix(start, "⟳ ") {
+			t.Errorf("%s: scan-start %q must start with \"⟳ \" (active-work glyph)", lang, start)
+		}
+		if !strings.HasPrefix(endOK, "· ") {
+			t.Errorf("%s: scan-end-ok %q must start with \"· \" (info-class glyph)", lang, endOK)
+		}
+		if !strings.HasPrefix(endFail, "✗ ") {
+			t.Errorf("%s: scan-end-fail %q must start with \"✗ \" (canonical fatal rune)", lang, endFail)
+		}
+		// Sub-repo path wrapped in backticks (consistent with
+		// abandonForcedReadMessage and other path-bearing notices).
 		for _, m := range []string{start, endOK, endFail} {
-			if !strings.HasPrefix(m, "🗂  multi-repo: ") {
-				t.Errorf("%s: %q must start with the banner-style \"🗂  multi-repo: \" prefix", lang, m)
-			}
 			if !strings.Contains(m, "`repo-x`") {
 				t.Errorf("%s: %q must wrap the sub-repo name in backticks", lang, m)
 			}
 		}
-		// Localisation parity: zh and en messages MUST differ once
-		// the prefix is stripped (otherwise the lang switch is a
-		// no-op and the user reads English under --lang=zh).
-		zhStripped := strings.TrimPrefix(start, "🗂  multi-repo: ")
-		enStripped := strings.TrimPrefix(multiRepoScanStartMessage("en", "repo-x"), "🗂  multi-repo: ")
-		if lang == "zh" && zhStripped == enStripped {
-			t.Errorf("zh start localisation is identical to en (no-op switch): %q", zhStripped)
+		// Forbid the banner-style "multi-repo:" topic prefix — the
+		// soft-notice family does not use a topic prefix; the
+		// glyph alone classifies the row.
+		for _, m := range []string{start, endOK, endFail} {
+			if strings.Contains(m, "multi-repo:") {
+				t.Errorf("%s: %q leaks the banner-style \"multi-repo:\" prefix; soft-notice family does not use a topic prefix", lang, m)
+			}
+		}
+		// Localisation parity — zh / en messages MUST differ once
+		// the leading glyph is removed (otherwise the lang switch
+		// is a no-op).
+		strip := func(s string) string {
+			runes := []rune(s)
+			if len(runes) <= 2 {
+				return s
+			}
+			return strings.TrimSpace(string(runes[1:]))
+		}
+		if lang == "zh" {
+			zhStart := strip(start)
+			enStart := strip(multiRepoScanStartMessage("en", "repo-x"))
+			if zhStart == enStart {
+				t.Errorf("zh start localisation is identical to en (no-op switch): %q vs %q", zhStart, enStart)
+			}
 		}
 	}
 }
