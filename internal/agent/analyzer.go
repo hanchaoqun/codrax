@@ -26,6 +26,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -386,6 +387,17 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 	if output == "" {
 		return caution, graph
 	}
+	// P4-cross-sub-repo (Sc 4, 2026-05-08): when multi-repo posture
+	// (≥ 2 sub-repos), prepend a compact cross-sub-repo header so
+	// analyzer's prompt sees every sub-repo's manifest + lang summary
+	// — answers config-precedence / cross-sub-repo orientation
+	// questions naturally without paying the deeper view's budget for
+	// every sub-repo. Single-repo posture skips this section.
+	if mg := repomap.MultiGraphFromAgentContext(ctx); mg != nil && !mg.IsSingle() {
+		if header := renderMultiRepoOverviewHeader(mg); header != "" {
+			output = header + "\n" + output
+		}
+	}
 	// Cap the overview to keep the initial prompt bounded.
 	const maxLen = 4096
 	if len(output) > maxLen {
@@ -396,6 +408,56 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 		header += caution + "\n\n"
 	}
 	return header + output, graph
+}
+
+// renderMultiRepoOverviewHeader builds the compact "## Multi-repo
+// overview" section that buildAnalyzerRepoOverview prepends when the
+// active topology has ≥ 2 sub-repos. Each sub-repo gets one line
+// with RootRel, top-3 PrimaryLangs, FileCount, and the count of
+// recognised manifest/special files (go.mod / Cargo.toml /
+// codrax.yaml / etc.). Sub-repo prefix on SpecialFiles lets the LLM
+// see "sub-a/codrax.yaml" vs "sub-b/codrax.yaml" verbatim — answers
+// cross-sub-repo config-precedence questions without further drilling.
+//
+// Returns "" when topology is unavailable, IsSingle, or zero
+// sub-repos. Caller falls through to per-graph rendering only.
+func renderMultiRepoOverviewHeader(mg *multigraph.MultiGraph) string {
+	if mg == nil || mg.IsSingle() {
+		return ""
+	}
+	subs := mg.SubRepos()
+	if len(subs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Multi-repo overview (cross-sub-repo orientation)\n\n")
+	b.WriteString(fmt.Sprintf("This workspace has %d sub-repos discovered under the parent root. The deeper view below is for the most-relevant sub-repo per the routing fold; cross-sub-repo questions should consult the sub-repo summaries here.\n\n", len(subs)))
+	md := mg.Metadata()
+	for _, sr := range subs {
+		langs := strings.Join(sr.PrimaryLangs, ",")
+		if langs == "" {
+			langs = "-"
+		}
+		b.WriteString(fmt.Sprintf("- `%s` — langs=%s files=%d\n", sr.RootRel, langs, sr.FileCount))
+	}
+	if len(md.SpecialFiles) > 0 {
+		b.WriteString("\n**Cross-sub-repo manifest files** (sub-repo prefix preserved for precedence reasoning):\n")
+		preview := md.SpecialFiles
+		if len(preview) > 16 {
+			preview = preview[:16]
+		}
+		for _, sf := range preview {
+			b.WriteString(fmt.Sprintf("- `%s`\n", sf))
+		}
+		if len(md.SpecialFiles) > len(preview) {
+			b.WriteString(fmt.Sprintf("- _… and %d more_\n", len(md.SpecialFiles)-len(preview)))
+		}
+	}
+	if pending := mg.PendingSubRepoNames(); len(pending) > 0 {
+		b.WriteString(fmt.Sprintf("\n_Note: routing currently inactive on sub-repos: %s. Use `/repos focus <slug>` to pin._\n", strings.Join(pending, ", ")))
+	}
+	b.WriteString("\n---\n")
+	return b.String()
 }
 
 // analyzerOracleFromCtx returns the right SymbolOracle for the
