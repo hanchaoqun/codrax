@@ -138,6 +138,41 @@ func (t *RepoTopology) SubRepoBySlug(slug string) *SubRepo {
 	return nil
 }
 
+// SubRepoByRootRel returns the SubRepo with matching RootRel, or nil.
+// Accepts either slash- or backslash-separated input (Windows-paste
+// compat) and tolerates a leading "./" or trailing "/" — both round-
+// trip to the same canonical RootRel that Discover persists.
+func (t *RepoTopology) SubRepoByRootRel(rootRel string) *SubRepo {
+	if t == nil {
+		return nil
+	}
+	want := strings.TrimSuffix(strings.TrimPrefix(strings.ReplaceAll(rootRel, "\\", "/"), "./"), "/")
+	if want == "" {
+		// Empty after trim is meaningless; the parent-itself entry
+		// canonicalises to "." (handled by direct equality below).
+		return nil
+	}
+	for i := range t.Repos {
+		if t.Repos[i].RootRel == want {
+			return &t.Repos[i]
+		}
+	}
+	return nil
+}
+
+// Resolve looks up a SubRepo by Slug first, then by RootRel — used by
+// surfaces (REPL `/repos focus`) where the user can paste either
+// identifier. Returns nil only when neither lookup matches.
+func (t *RepoTopology) Resolve(token string) *SubRepo {
+	if t == nil {
+		return nil
+	}
+	if sr := t.SubRepoBySlug(token); sr != nil {
+		return sr
+	}
+	return t.SubRepoByRootRel(token)
+}
+
 // CacheFilePath returns where this topology snapshot is persisted on
 // disk under the given runtime anchor. Returns "" if runtimeAnchor or
 // ParentSlug are empty.

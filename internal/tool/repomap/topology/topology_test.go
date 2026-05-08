@@ -322,3 +322,76 @@ func TestSubRepoBySlug(t *testing.T) {
 		t.Errorf("SubRepoBySlug(nope) should be nil")
 	}
 }
+
+func TestSubRepoByRootRel(t *testing.T) {
+	topo := &RepoTopology{
+		Repos: []SubRepo{
+			{Slug: "a", RootRel: "alpha"},
+			{Slug: "n", RootRel: "outer/nested"},
+			{Slug: "self", RootRel: "."},
+		},
+	}
+	cases := []struct {
+		name  string
+		input string
+		want  string // expected Slug (or "" for nil)
+	}{
+		{"exact match", "alpha", "a"},
+		{"nested slash", "outer/nested", "n"},
+		{"backslash variant", `outer\nested`, "n"},
+		{"trailing slash", "alpha/", "a"},
+		{"leading dot-slash", "./alpha", "a"},
+		{"parent dot", ".", "self"},
+		{"empty", "", ""},
+		{"miss", "nope", ""},
+		{"partial prefix not enough", "outer", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := topo.SubRepoByRootRel(tc.input)
+			if tc.want == "" {
+				if got != nil {
+					t.Errorf("SubRepoByRootRel(%q) = %+v, want nil", tc.input, got)
+				}
+				return
+			}
+			if got == nil || got.Slug != tc.want {
+				t.Errorf("SubRepoByRootRel(%q) = %+v, want slug=%q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolve_SlugOrRootRel(t *testing.T) {
+	topo := &RepoTopology{
+		Repos: []SubRepo{
+			{Slug: "slug-a", RootRel: "alpha"},
+			{Slug: "slug-n", RootRel: "outer/nested"},
+		},
+	}
+	// Slug match
+	if got := topo.Resolve("slug-a"); got == nil || got.RootRel != "alpha" {
+		t.Errorf("Resolve(slug) = %+v, want RootRel=alpha", got)
+	}
+	// RootRel match (slash form)
+	if got := topo.Resolve("outer/nested"); got == nil || got.Slug != "slug-n" {
+		t.Errorf("Resolve(rootrel) = %+v, want slug=slug-n", got)
+	}
+	// RootRel match (backslash form — Windows-paste compat)
+	if got := topo.Resolve(`outer\nested`); got == nil || got.Slug != "slug-n" {
+		t.Errorf("Resolve(backslash rootrel) = %+v, want slug=slug-n", got)
+	}
+	// Both lookups miss
+	if got := topo.Resolve("nope"); got != nil {
+		t.Errorf("Resolve(miss) should be nil, got %+v", got)
+	}
+	// Empty
+	if got := topo.Resolve(""); got != nil {
+		t.Errorf("Resolve(empty) should be nil, got %+v", got)
+	}
+	// Nil receiver tolerance
+	var nilTopo *RepoTopology
+	if got := nilTopo.Resolve("slug-a"); got != nil {
+		t.Errorf("nil topology Resolve must return nil, got %+v", got)
+	}
+}

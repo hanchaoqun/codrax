@@ -36,7 +36,7 @@ func (r *REPL) handleReposCmd(line string) {
 	switch strings.ToLower(fields[0]) {
 	case "focus":
 		if len(fields) < 2 {
-			r.warn("/repos focus <slug> — slug required (run /repos to list)")
+			r.warn("/repos focus <slug-or-path> — sub-repo identifier required (run /repos to list; accepts the slug field OR the path column)")
 			return
 		}
 		r.reposFocus(fields[1])
@@ -118,28 +118,60 @@ func (r *REPL) printReposList() {
 	}
 }
 
-func (r *REPL) reposFocus(slug string) {
+// reposFocus pins a sub-repo into the active routing set. The
+// argument may be EITHER the sub-repo's Slug (the `slug=...` field
+// shown by /repos) or its RootRel (the first column the listing
+// renders, e.g. "repo-greet-go" or "repo-c/nested"). topology.Resolve
+// tries Slug first then RootRel, so users can copy-paste whichever
+// is more memorable.
+func (r *REPL) reposFocus(token string) {
 	r.multiRepoMu.Lock()
-	if r.topology == nil || r.topology.SubRepoBySlug(slug) == nil {
+	var sr *topology.SubRepo
+	if r.topology != nil {
+		sr = r.topology.Resolve(token)
+	}
+	if sr == nil {
 		r.multiRepoMu.Unlock()
-		r.warn("/repos focus: no sub-repo with slug %q (run /repos to list)", slug)
+		r.warn("/repos focus: no sub-repo with slug or path %q (run /repos to list)", token)
 		return
 	}
-	r.multiRepoFocus[slug] = true
+	r.multiRepoFocus[sr.Slug] = true
 	pinned := keysOf(r.multiRepoFocus)
 	cb := r.onMultiRepoFocusChange
 	r.multiRepoMu.Unlock()
 	if cb != nil {
 		cb(pinned)
 	}
-	r.info(fmt.Sprintf("/repos focus: pinned %s (will stay active across turns until /repos unfocus)", slug))
+	if sr.RootRel != token && sr.Slug != token {
+		// User passed neither — defensive log, should not happen
+		// because Resolve already matched on one of them. Guard
+		// against future Resolve refactors that loosen matching.
+		r.info(fmt.Sprintf("/repos focus: pinned %s [%s] (will stay active across turns until /repos unfocus)", sr.RootRel, sr.Slug))
+		return
+	}
+	if sr.Slug == token {
+		r.info(fmt.Sprintf("/repos focus: pinned %s (will stay active across turns until /repos unfocus)", sr.Slug))
+		return
+	}
+	// User passed RootRel — echo both so the next /repos unfocus is unambiguous.
+	r.info(fmt.Sprintf("/repos focus: pinned %s [slug=%s] (will stay active across turns until /repos unfocus)", sr.RootRel, sr.Slug))
 }
 
-func (r *REPL) reposUnfocus(slug string) {
+// reposUnfocus releases a single pin. Like reposFocus, the argument
+// can be a Slug or a RootRel. The pin is keyed by Slug internally,
+// so a RootRel input is canonicalised to the matching Slug before
+// the delete.
+func (r *REPL) reposUnfocus(token string) {
 	r.multiRepoMu.Lock()
+	slug := token
+	if r.topology != nil {
+		if sr := r.topology.Resolve(token); sr != nil {
+			slug = sr.Slug
+		}
+	}
 	if !r.multiRepoFocus[slug] {
 		r.multiRepoMu.Unlock()
-		r.warn("/repos unfocus: %q is not pinned", slug)
+		r.warn("/repos unfocus: %q is not pinned", token)
 		return
 	}
 	delete(r.multiRepoFocus, slug)
