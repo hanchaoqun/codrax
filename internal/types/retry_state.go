@@ -511,6 +511,17 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 	if kind == ViolWriteCrossSubRepoForbidden {
 		return SeveritySoft
 	}
+	// L3 negative-knowledge answer validator (TypedDenials Phase F,
+	// 2026-05-08). SOFT-by-default for ledger-only; isStrict promotes
+	// to Medium so operators with attached-log-heavy workflows can
+	// lift it into the retry loop after baseline eval validates the
+	// false-positive rate is low.
+	if kind == ViolDeniedTokenUndeclared {
+		if isStrict {
+			return SeverityMedium
+		}
+		return SeveritySoft
+	}
 	// Unknown kinds default to Medium — safer than Soft (won't
 	// silently drop) but not Critical (won't unexpectedly fail-loud).
 	return SeverityMedium

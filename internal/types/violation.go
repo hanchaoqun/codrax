@@ -790,6 +790,31 @@ const (
 	// Stage = "plan". Layer = "write_contract". SuspectedRoot field
 	// = "change_plan.sub_repo_scope".
 	ViolWriteCrossSubRepoForbidden ViolationKind = "write_cross_sub_repo_forbidden"
+
+	// ViolDeniedTokenUndeclared fires when the finalize-stage answer
+	// prose names a token (file path / symbol identifier) that an
+	// upstream typed gate already determined to be unverifiable
+	// against the current repository (external-source log frame
+	// whose function is absent / perf stall whose symbol is absent /
+	// oracle existence miss / drift relocation), AND the answer
+	// does NOT explicitly disclose the token as
+	// "unverified / external / not in this repository".
+	//
+	// L3 of the negative-knowledge enforcement pyramid (R3 second-
+	// axis): L1 (tool-call gate) prevents the LLM from grounding
+	// the token via read_file/grep/repo_map; L2 (prompt sanitiser)
+	// strips verbatim mentions from raw input fields before they
+	// reach the LLM; L3 (this) catches the case where the LLM still
+	// emits the token in answer prose (e.g., quoted from the user's
+	// own question or paraphrased from a non-sanitised channel).
+	//
+	// SOFT-by-default — the answer ships, but the closure ledger
+	// records the violation for telemetry / future strict-promote
+	// (operators who run heavy attached-log workflows can promote
+	// to retry-eligible via pipeline_contract_strict_kinds yaml).
+	// Stage="finalize". Layer="answer_validator". Detail names the
+	// offending token + the upstream denial class.
+	ViolDeniedTokenUndeclared ViolationKind = "denied_token_undeclared"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -869,6 +894,9 @@ func AllViolationKinds() []ViolationKind {
 		ViolPrincipalProseUnderfilled,
 		// Multi-repo write fail-loud (2026-05-08, design §4.5.5).
 		ViolWriteCrossSubRepoForbidden,
+		// L3 negative-knowledge answer validator (2026-05-08,
+		// TypedDenials Phase F).
+		ViolDeniedTokenUndeclared,
 	}
 }
 

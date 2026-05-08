@@ -316,6 +316,12 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// validator's Repair text rendered directly to the user). Generic
 	// fallback would never be invoked.
 	types.ViolWriteCrossSubRepoForbidden: "Promotable=false / LocusTerminal — never retried; Repair text rendered directly",
+
+	// L3 negative-knowledge answer validator (TypedDenials Phase F,
+	// 2026-05-08). Validator's Violation.Repair names the offending
+	// denied token + the upstream gate class (external_log_frame_unresolved
+	// etc.) verbatim so the generic composer fallback pairs naturally.
+	types.ViolDeniedTokenUndeclared: "uses violation.Repair for fix prose (validator stamps offending denied token + upstream gate class)",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's

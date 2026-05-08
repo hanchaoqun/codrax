@@ -193,6 +193,18 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			// conflicting (file, line) tuples.
 			result.Violations = append(result.Violations,
 				runCrossCitationConflictOracleV2(docV2)...)
+
+			// L3 negative-knowledge answer validator (TypedDenials
+			// Phase F, 2026-05-08). Final answer prose must NOT name
+			// a denied token (path / symbol that an upstream typed
+			// gate marked as unverifiable against the current
+			// repository) WITHOUT an explicit unverified disclosure.
+			// SOFT — ledger-only by default; promotable via
+			// pipeline_contract_strict_kinds yaml.
+			if o != nil && o.busCtx != nil {
+				result.Violations = append(result.Violations,
+					runDeniedTokenAnswerCheck(docV2, &o.busCtx.TypedDenials)...)
+			}
 		}
 	}
 
@@ -1380,6 +1392,13 @@ func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 		// terminates the Run with a user-facing "split into separate
 		// runs" message. Operators cannot promote (Promotable=false).
 		types.ViolWriteCrossSubRepoForbidden: true,
+
+		// L3 negative-knowledge answer validator (TypedDenials Phase F,
+		// 2026-05-08). SOFT-by-default — ledger-only signal, never
+		// blocks shipping; operators may promote via
+		// pipeline_contract_strict_kinds yaml once baseline eval
+		// confirms false-positive rate is low for their workload.
+		types.ViolDeniedTokenUndeclared: true,
 	}
 }
 

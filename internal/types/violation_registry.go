@@ -736,6 +736,19 @@ func init() {
 		Layer: "write_contract", CaveatFamilyID: CaveatFamilyAcceptance,
 	})
 
+	// L3 negative-knowledge answer validator (TypedDenials Phase F).
+	// SOFT-by-default + Promotable=true: ledger-only initially so
+	// the gate can ship without churning baseline eval cases;
+	// operators with strict attached-log workflows can promote via
+	// pipeline_contract_strict_kinds yaml. FallbackLocus=Finalizer
+	// because the only valid retry is finalize-stage rewrite of the
+	// offending answer prose to add the unverified-disclosure caveat.
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolDeniedTokenUndeclared, DefaultSeverity: SeveritySoft,
+		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "answer_validator", CaveatFamilyID: CaveatFamilyConsistency,
+	})
+
 	// ── Structural / forensic kinds ──
 	// Legacy defaultSoftKinds does NOT list StructuralEnumerationDivergence;
 	// the kind's SOFT semantic comes from its DefaultSeverity flowing
