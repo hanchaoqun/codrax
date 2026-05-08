@@ -21,6 +21,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"gopkg.in/yaml.v3"
@@ -36,6 +37,7 @@ type explorerEvaluator struct {
 	fileSymbols               map[string][]string  // path → symbol summaries from repo_map
 	searchResult              *keywordSearchResult // full search result for cross-reference lookups
 	searchFingerprint         string               // T1.2: fingerprint of keyword_search inputs; reuses searchResult across explorer redispatches within one Run when inputs are unchanged
+	multiGraphHandle          any                  // P4-cross-sub-repo (Sc 1, 2026-05-08): cached *multigraph.MultiGraph for fan-out at midLoop hooks where ctx is unavailable
 	analyzerKeywords          []string             // analyzer-provided keywords cached from BuildInitialInstruction for exact-resolution scope hints
 	exactAnchorFiles          []string             // exact-entity anchor files from keyword search, in rank order
 	declarativeAnchorFiles    []string             // declarative registry/defaults/routes anchors for enumeration questions
@@ -623,6 +625,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			})
 			e.searchResult = sr
 			e.searchFingerprint = fp
+			// Cache the multigraph carrier for mid-loop hooks
+			// (observeMidLoop) that don't get ctx — Sc 1
+			// implementer fan-out at line 6406 reads e.multiGraphHandle.
+			e.multiGraphHandle = ctx.MultiGraph
 		}
 		if sr != nil {
 			e.exactAnchorFiles = exactAnchorFilesFromScores(sr.Files)
@@ -2796,14 +2802,54 @@ func expandImplementersFromGraph(graph any, entities []string) ImplementerExpans
 	if graph == nil || len(entities) == 0 {
 		return ImplementerExpansion{}
 	}
-	g, ok := graph.(*repotypes.Graph)
-	if !ok || g == nil {
-		return ImplementerExpansion{}
-	}
 	seenFile := make(map[string]bool)
 	seenName := make(map[string]bool)
 	var files []string
 	var names []string
+
+	// P4-cross-sub-repo (Sc 1, 2026-05-08): when caller passes a
+	// *multigraph.MultiGraph, fan out across every active sub-repo.
+	// Returned files are path-from-parent (sub-repo prefix already
+	// applied by SubRepoRelPath inside the carrier helpers) so cross-
+	// sub-repo implementers don't collide on names like "Service".
+	// Single-repo IsSingle() posture is byte-identical to the legacy
+	// per-graph branch below — the fan-out enumerates one entry.
+	if mg, ok := graph.(*multigraph.MultiGraph); ok && mg != nil {
+		for _, entity := range entities {
+			entity = strings.TrimSpace(entity)
+			if entity == "" {
+				continue
+			}
+			hits := mg.ImplementersOf(entity)
+			if len(hits) == 0 {
+				continue
+			}
+			for _, hit := range hits {
+				sym, _, found := mg.LookupSymbolByID(hit.ID)
+				if !found || sym == nil {
+					continue
+				}
+				file := canonicalExplorerPath(multigraph.SubRepoRelPath(hit.Sub, sym.File))
+				if file != "" && !seenFile[file] {
+					seenFile[file] = true
+					files = append(files, file)
+				}
+				if name := strings.TrimSpace(sym.Name); name != "" {
+					key := strings.ToLower(name)
+					if !seenName[key] {
+						seenName[key] = true
+						names = append(names, name)
+					}
+				}
+			}
+		}
+		return ImplementerExpansion{Files: files, Names: names}
+	}
+
+	g, ok := graph.(*repotypes.Graph)
+	if !ok || g == nil {
+		return ImplementerExpansion{}
+	}
 	for _, entity := range entities {
 		entity = strings.TrimSpace(entity)
 		if entity == "" {
@@ -6362,7 +6408,16 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			rmHints := e.analysisIR.RequestModel.AnalyzerHints
 			candidateEntities := append([]string(nil), rmHints.PrimaryEntities...)
 			candidateEntities = append(candidateEntities, rmHints.Entities...)
-			if files := implementerFilesFromGraph(e.searchResult.Graph, candidateEntities); len(files) > 0 {
+			// P4-cross-sub-repo (Sc 1): prefer cached multigraph
+			// carrier so implementer expansion fans out across active
+			// sub-repos. Falls through to e.searchResult.Graph (single-
+			// graph view) when multigraph isn't wired (single-shot
+			// tests / multi_repo_enabled=false).
+			implTarget := any(e.searchResult.Graph)
+			if e.multiGraphHandle != nil {
+				implTarget = e.multiGraphHandle
+			}
+			if files := implementerFilesFromGraph(implTarget, candidateEntities); len(files) > 0 {
 				typedScope = files
 			}
 		}

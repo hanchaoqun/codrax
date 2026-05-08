@@ -2362,6 +2362,12 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 	// correct + cross-language.
 
 	// Path (a): interface / trait / protocol → implementers.
+	// P4-cross-sub-repo (Sc 1, 2026-05-08): when ctx.MultiGraph is
+	// present (multi_repo_enabled), pass the carrier so
+	// expandImplementersFromGraph fans out via mg.ImplementersOf
+	// across every active sub-repo. The interface declaration may
+	// live in sub-a while implementers are scattered across sub-b/c —
+	// without fan-out the answer would silently drop them.
 	if defs, ok := graph.SymbolDefs[bare]; ok {
 		for _, d := range defs {
 			if d == nil {
@@ -2369,7 +2375,11 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 			}
 			switch d.Kind {
 			case "interface", "trait", "protocol":
-				exp := expandImplementersFromGraph(graph, []string{bare})
+				var implTarget any = graph
+				if mg := repomap.MultiGraphFromAgentContext(ctx); mg != nil {
+					implTarget = mg
+				}
+				exp := expandImplementersFromGraph(implTarget, []string{bare})
 				if len(exp.Names) == 0 {
 					return original
 				}

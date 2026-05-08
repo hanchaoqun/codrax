@@ -175,7 +175,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			// graph's ImplementersOf / Subclasses relations.
 			if rmFull := mut.RequestModel(); rmFull != nil {
 				result.Violations = append(result.Violations,
-					runStructuralEnumerationDivergenceOracleV2(docV2, rmFull, mut)...)
+					runStructuralEnumerationDivergenceOracleV2(docV2, rmFull, mut, o.busCtx)...)
 				// B5-T5: V2 adaptation of the symbol-anchor-mismatch
 				// oracle. Reads the same per-Run rejection counter
 				// + V2 block item counts to detect "explorer never
@@ -860,21 +860,53 @@ func looksLikeIdentifierShape(s string) bool {
 // Summary haystack: concatenation of every BlockSummary.Text +
 // any block.Title strings (verbatim substring match per R2 red
 // line — no fuzzy matching).
-func runStructuralEnumerationDivergenceOracleV2(docV2 *types.AnswerDocumentV2, rm *types.RequestModel, mut *types.MutableState) []types.Violation {
+func runStructuralEnumerationDivergenceOracleV2(docV2 *types.AnswerDocumentV2, rm *types.RequestModel, mut *types.MutableState, busCtx *types.BusContext) []types.Violation {
 	if docV2 == nil || rm == nil || mut == nil {
 		return nil
 	}
 	if !rm.Predicates.IsCategoryEnumeration {
 		return nil
 	}
-	graph, ok := mut.SearchGraph().(*repotypes.Graph)
-	if !ok || graph == nil {
-		return nil
-	}
 	candidateEntities := append([]string(nil), rm.AnalyzerHints.PrimaryEntities...)
 	candidateEntities = append(candidateEntities, rm.AnalyzerHints.Entities...)
 	var ifaceName string
 	var typedImpl []*repotypes.Symbol
+
+	// P4-cross-sub-repo (Sc 1, 2026-05-08): when MultiGraph is wired,
+	// scan implementers across every active sub-repo. The interface
+	// declaration may live in sub-a while implementers span sub-b/c —
+	// without fan-out the divergence oracle would silently agree the
+	// emitted set ⊇ typed set when sub-b/c implementers were never
+	// observed.
+	if mg := repomap.MultiGraphFromContext(busCtx); mg != nil {
+		for _, ent := range candidateEntities {
+			ent = strings.TrimSpace(ent)
+			if ent == "" {
+				continue
+			}
+			hits := mg.ImplementersOf(ent)
+			if len(hits) == 0 {
+				continue
+			}
+			ifaceName = ent
+			for _, hit := range hits {
+				sym, _, ok := mg.LookupSymbolByID(hit.ID)
+				if ok && sym != nil {
+					typedImpl = append(typedImpl, sym)
+				}
+			}
+			break
+		}
+		if len(typedImpl) == 0 {
+			return nil
+		}
+		return enumerateStructuralDivergence(typedImpl, ifaceName, v2EmittedNameSet(docV2), v2SummaryHaystack(docV2))
+	}
+
+	graph, ok := mut.SearchGraph().(*repotypes.Graph)
+	if !ok || graph == nil {
+		return nil
+	}
 	for _, ent := range candidateEntities {
 		ent = strings.TrimSpace(ent)
 		if ent == "" {
