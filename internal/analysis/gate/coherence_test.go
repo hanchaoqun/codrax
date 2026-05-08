@@ -47,7 +47,14 @@ func coherenceFixtureIR(rm types.RequestModel, _ ...string) *types.AnalysisIR {
 
 // ── checkSubtopicCoherence ────────────────────────────────────────
 
-func TestSubtopicCoherence_R1_1_DomainDivergence_Fails(t *testing.T) {
+func TestSubtopicCoherence_R1_1_DomainDivergence_SoftAdvisory(t *testing.T) {
+	// 2026-05-08 R3 audit: R1.1 was demoted from hard fail to soft
+	// advisory. Domain divergence is a NOISY heuristic (system-
+	// inferred from TermGraph package distribution, not an LLM
+	// self-contradiction), and per the R3 red line "noisy signals
+	// only as soft guidance". The gate must now PASS with a
+	// reduced score and an advisory detail naming R1.1; it must
+	// NOT block the analyzer's emit loop.
 	rm := types.RequestModel{
 		TermGraph: types.TermGraph{
 			Canonical: []types.CanonicalTerm{
@@ -55,15 +62,19 @@ func TestSubtopicCoherence_R1_1_DomainDivergence_Fails(t *testing.T) {
 				{ID: "code:b", Surface: "B", Kind: types.TermSymbol, Domain: "orchestrator", Confidence: 0.9},
 			},
 		},
-		// 0 sub-topics — the LLM emitted 1 sub-topic case is also a fail; exercise the boundary.
+		// 0 sub-topics — even with no sub-topic, R1.1 alone does NOT
+		// hard-fail any more.
 	}
 	ir := coherenceFixtureIR(rm)
 	check := checkSubtopicCoherence(ir, nil)
-	if check.Passed {
-		t.Fatalf("R1.1 must fail when 2 distinct domains and ≤1 sub-topic; got %+v", check)
+	if !check.Passed {
+		t.Fatalf("R1.1 alone must NOT fail the gate (soft advisory only); got %+v", check)
 	}
 	if !strings.Contains(check.Detail, "R1.1") || !strings.Contains(check.Detail, "agent") {
-		t.Errorf("detail must cite R1.1 and the divergent domains; got %q", check.Detail)
+		t.Errorf("detail must cite R1.1 and the divergent domains as advisory; got %q", check.Detail)
+	}
+	if check.Score >= 1.0 {
+		t.Errorf("R1.1 advisory must reduce Score below 1.0 to differentiate from clean pass; got %v", check.Score)
 	}
 }
 

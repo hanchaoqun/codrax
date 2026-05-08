@@ -92,13 +92,32 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	// collect every triggering detail and surface them together. The
 	// LLM then sees both diagnostics on one retry and can repair the
 	// IR in one emit instead of bouncing between rules.
-	var details []string
+	var (
+		details          []string // hard-fail reasons (precise typed contradictions)
+		softAdvisories   []string // soft hints (noisy heuristics — never hard-fail alone)
+	)
 	domains := extractDistinctTermDomains(rm.TermGraph)
 
-	// R1.1 — Domain divergence.
+	// R1.1 — Domain divergence (SOFT advisory, NOT hard gate).
+	//
+	// 2026-05-08 R3 audit: extractDistinctTermDomains derives "code
+	// area" from FileInfo.Package on resolver-matched TermSymbols —
+	// a NOISY heuristic that fires on legitimate single-control-flow
+	// questions whose identifiers happen to span multiple packages.
+	// Examples that historically tripped this rule:
+	//   - "executeTool 调用 validateAnalyzerPrescanToolCall 怎么处理 X"
+	//     → spans agent + analysis but is single-control-flow
+	//   - "emit_evidence 接收 batch 缺少 anchor_kind 时怎么处理"
+	//     → spans tool + types but single behaviour question
+	//   - "analyze stage retry 怎么决定" → spans dataflow+tool+orch
+	//     but single mechanism question
+	// Per R3 red line ("noisy signals only as soft guidance"), R1.1
+	// produces an advisory, not a hard fail. R1.2 (precise predicate
+	// contradiction) and R1.3-R1.5 (typed entity orphan / asymmetry /
+	// axis-collapse) remain hard rules — they are typed-precise.
 	if len(domains) >= 2 && nSub <= 1 {
-		details = append(details, fmt.Sprintf(
-			"R1.1 domain_divergence: the question's identifiers span %d distinct code areas %s but only %d sub-topic emitted",
+		softAdvisories = append(softAdvisories, fmt.Sprintf(
+			"R1.1 domain_divergence (advisory): the question's identifiers span %d distinct code areas %s but only %d sub-topic emitted — if the question genuinely spans independent topics, consider re-emitting with sub_topics; if it is a single cross-area control-flow / behaviour question, the current emit is fine",
 			len(domains), formatDomainList(domains), nSub))
 	}
 
@@ -309,10 +328,36 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		// joined by " | " so the LLM sees all diagnostics on one retry.
 		// plainCoherenceDetail's multi-prefix strip (analyzer.go) handles
 		// translating each prefix to plain prose for the LLM hint.
+		//
+		// Soft advisories (R1.1 domain_divergence in 2026-05-08 R3
+		// audit) tag along when a hard rule is also firing — they
+		// give the LLM more context for the repair, but never fail
+		// the gate alone. Joined with the same " | " separator so
+		// retry-hint composer's multi-prefix strip handles them
+		// uniformly.
+		merged := append([]string{}, details...)
+		merged = append(merged, softAdvisories...)
 		return types.GateCheck{
 			Name:   "subtopic_coherence",
 			Passed: false,
-			Detail: strings.Join(details, " | "),
+			Detail: strings.Join(merged, " | "),
+		}
+	}
+
+	if len(softAdvisories) > 0 {
+		// Pass with advisory — Score < 1.0 so retry-budget heuristics
+		// can prefer iter where every check is fully clean, but the
+		// gate does NOT block the IR. R3 second-axis rule: noisy
+		// signals (R1.1 domain_divergence is system-inferred from
+		// TermGraph package distribution, not an LLM self-
+		// contradiction) only steer with soft hints; hard gates
+		// stay reserved for precise typed contradictions (R1.2 +
+		// R1.3 + R1.4 + R1.5).
+		return types.GateCheck{
+			Name:    "subtopic_coherence",
+			Passed:  true,
+			Score:   0.7,
+			Detail:  strings.Join(softAdvisories, " | "),
 		}
 	}
 

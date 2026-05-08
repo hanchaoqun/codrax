@@ -288,6 +288,11 @@ func plainCoherenceDetail(detail string) string {
 // and a future rule addition (R1.6 / R2.3 / etc.) lands in one place.
 func stripCoherencePrefix(d string) string {
 	for _, prefix := range []string{
+		// R1.1 carries two formats: hard-fail (legacy, retained for safety
+		// in case future code re-promotes the rule) and the 2026-05-08
+		// soft-advisory form. Strip both so the LLM never sees the
+		// internal rule code in its retry hint.
+		"R1.1 domain_divergence (advisory): ",
 		"R1.1 domain_divergence: ",
 		"R1.2 predicate_contradiction: ",
 		"R1.3 entity_orphan: ",
