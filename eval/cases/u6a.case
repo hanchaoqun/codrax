@@ -23,4 +23,16 @@ QUESTION="本仓库里 Go error 是怎么 wrap 的？用的是标准库 fmt.Erro
 EXPECT_CONTAINS="fmt.Errorf"
 EXPECT_MATCHES_REGEX="%w
 (internal/[a-z/_]+\.go|cmd/[a-z_]+\.go)"
-EXPECT_NOT_CONTAINS="pkg/errors github.com/pkg/errors"
+# 2026-05-08: drop EXPECT_NOT_CONTAINS — the question literally asks
+# the LLM to choose between fmt.Errorf %w AND github.com/pkg/errors,
+# so any direct answer must mention pkg/errors at least once to
+# negate it ("does NOT use pkg/errors", "third-party github.com/
+# pkg/errors is not imported"). The previous gate banned the
+# substring outright, which forced the model to either elide the
+# negation (weakening the answer) or fail on a structurally-correct
+# negative attestation. The "training-distribution leak" anti-pattern
+# (an answer recommending pkg/errors as the project's actual idiom)
+# is already blocked by the positive gates above: a leak answer
+# could not satisfy both fmt.Errorf + %w + a real internal/<file>.go
+# citation.
+EXPECT_NOT_CONTAINS=""

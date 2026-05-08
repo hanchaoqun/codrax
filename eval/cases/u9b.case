@@ -22,6 +22,18 @@ QUESTION="When emit_evidence receives a batch where exactly one item is missing 
 # 通过" / "valid items proceed" semantic — proving the answer
 # distinguishes from "whole batch fails".
 EXPECT_CONTAINS="emit_evidence anchor_kind"
-EXPECT_MATCHES_REGEX="(per.?item|单项|单条|partial)
-(rest.*(succeed|proceed|accept)|其他.*通过|其余.*接受|valid items)"
+# 2026-05-08 broaden: model answer correctly stated "仅跳过该 item,
+# 其余 item 继续处理" + "部分成功时仍返回 Success: true" — semantic
+# match for per-item reject + rest proceed. The original alternation
+# (单项/单条/partial; 其余.*接受) missed two natural Chinese phrasings:
+#   - "部分" used in "部分成功" — equivalent to "partial" in the
+#     case's intent
+#   - "其余.*继续(处理|进行)" — equivalent to "rest succeed/proceed",
+#     same semantic as "其余.*接受"
+# Add both to the alternation; also accept "跳过.*其余" pattern.
+# The "speculation/whole-batch-fail" anti-pattern is still blocked by
+# EXPECT_NOT_CONTAINS below — model cannot ambiguously hedge with
+# "unclear / maybe / depends / whole batch".
+EXPECT_MATCHES_REGEX="(per.?item|单项|单条|partial|部分)
+(rest.*(succeed|proceed|accept)|其他.*通过|其余.*(接受|继续(处理|进行))|valid items|跳过.*其余)"
 EXPECT_NOT_CONTAINS="unclear maybe depends whole.batch"
