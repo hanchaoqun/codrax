@@ -18,9 +18,20 @@ QUESTION="BaseAgent.executeTool 调用 validateAnalyzerPrescanToolCall 返回非
 # function names — bar = "复述题目函数名". The question asks the
 # binary decision (reject vs execute-then-override). Tighten to
 # require the answer to surface (a) the rejection verdict word
-# AND (b) "before" / "pre-dispatch" / "prior to execution" timing
-# — proving the answer reached the actual control-flow site.
+# AND (b) the "before-execution" timing — proving the answer
+# reached the actual control-flow site.
+#
+# 2026-05-08 broaden: real eval surfaced equivalent phrasings the
+# original alternation missed:
+#   - "early return" (from BaseAgent.executeTool's literal control
+#     flow — gate fires THEN return before tool dispatch)
+#   - "early-return" (hyphenated)
+#   - "rejected before" / "rejected prior to"
+#   - "拦截" (Chinese "intercept" — semantic peer of "reject before")
+# All these are valid phrasings of "rejection happens BEFORE tool
+# execution". Broaden line 2 to accept; the binary-decision
+# constraint stays (line 1 reject/拒绝/denied/blocked still required).
 EXPECT_CONTAINS="executeTool validateAnalyzerPrescanToolCall"
 EXPECT_MATCHES_REGEX="(reject|拒绝|denied|blocked)
-(before|pre.?dispatch|prior to|未执行|未调用)"
+(before|pre.?dispatch|prior to|未执行|未调用|early.?return|拦截)"
 EXPECT_NOT_CONTAINS="ignore swallow silent"
