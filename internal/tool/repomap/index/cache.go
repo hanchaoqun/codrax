@@ -49,17 +49,7 @@ func SetCacheDir(dir string) {
 // os.TempDir()/codrax-cache so the rest of the binary keeps
 // running with a non-persistent cache.
 func CacheDir(repoRoot string) string {
-	abs, err := filepath.Abs(repoRoot)
-	if err != nil {
-		abs = repoRoot
-	}
-	abs, err = filepath.EvalSymlinks(abs)
-	if err != nil {
-		// keep original
-	}
-
-	h := sha256.Sum256([]byte(abs))
-	slug := filepath.Base(abs) + "-" + hex.EncodeToString(h[:4])
+	slug := CacheDirSlug(repoRoot)
 
 	base := cacheBaseDir
 	if base == "" {
@@ -71,6 +61,28 @@ func CacheDir(repoRoot string) string {
 		}
 	}
 	return filepath.Join(base, "repomap", slug)
+}
+
+// CacheDirSlug returns the canonical "<basename>-<8hex>" slug for a
+// repo root path. Exposed so the topology / multigraph packages can
+// mint per-sub-repo slugs that are byte-identical to the slugs
+// CacheDir writes — keeping repomap on-disk cache, multi-graph LRU
+// keys, and topology metadata in a single namespace ("slug 真同源",
+// design §3.3.1 / §9 decision #7).
+//
+// The path is normalised via filepath.Abs + filepath.EvalSymlinks so
+// two callers pointing at the same content produce the same slug
+// regardless of relative-path or symlink form.
+func CacheDirSlug(repoRoot string) string {
+	abs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		abs = repoRoot
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	h := sha256.Sum256([]byte(abs))
+	return filepath.Base(abs) + "-" + hex.EncodeToString(h[:4])
 }
 
 const (
