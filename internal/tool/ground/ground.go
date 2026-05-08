@@ -1365,7 +1365,49 @@ func tier2SymbolTable(it *types.EvidenceItem, gc *Context) bool {
 	return false
 }
 
-var conditionKeywords = []string{"if ", "if(", "when ", "when(", "unless ", "switch ", "switch(", "case ", "guard "}
+// conditionKeywords carries the surface-level lexical signatures the
+// recoverNearestCondition tier scans for in the ±10-line window
+// around a missed AnchorCondition citation. Every language repomap
+// supports (Go / Java / Kotlin / Cangjie / ArkTS / Python / JS / TS /
+// Rust / C / C++ / Swift / Ruby / Lua / Proto / Obj-C / CUDA) maps
+// at least one of its conditional constructs to one of these
+// patterns:
+//
+//	if / if(           — universal ASCII conditional (every lang above)
+//	when / when(       — Kotlin pattern entry, Ruby `when` inside `case`
+//	unless             — Ruby
+//	switch / switch(   — Go / Java / JS / TS / C / C++ / Swift / Obj-C / CUDA
+//	case               — Go / Java / Ruby / C / C++ / Swift case-arm
+//	guard              — Swift early-exit
+//	match / match(     — 2026-05-08 add: Rust, Python 3.10+, Cangjie
+//	                     pattern-matching conditionals. Without this
+//	                     pattern the ±10 scan missed match-anchored
+//	                     evidence in those languages.
+//	select { / select{ — 2026-05-08 add: Go channel select; the
+//	                     "select {" form (gofmt-canonical) avoids
+//	                     false-positive matches against bare uppercase
+//	                     SQL "SELECT" tokens.
+//
+// elseif / elsif / elif (Lua / Ruby / Python continuation forms) are
+// intentionally NOT listed: they always trail an `if` within the
+// ±10 radius the recovery scans, so the original `if` line is the
+// one the recovery snaps to. Adding the trailing forms would only
+// increase noise.
+//
+// SectionParse / SymbolTable tiers still cover language-specific
+// AST nodes; this list is the LAST-RESORT lexical fallback so the
+// grounder never fails-loud on a missed condition citation in any
+// supported language.
+var conditionKeywords = []string{
+	"if ", "if(",
+	"when ", "when(",
+	"unless ",
+	"switch ", "switch(",
+	"case ",
+	"guard ",
+	"match ", "match(",
+	"select {", "select{",
+}
 var returnKeywords = []string{"return ", "return\t", "return(", "return;", "yield "}
 
 func graphMatchDefinition(it *types.EvidenceItem, gc *Context) bool {

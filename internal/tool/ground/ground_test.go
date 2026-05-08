@@ -974,3 +974,95 @@ func TestBuildContext_PicksUpTurnAArtifactsToolResults(t *testing.T) {
 			rep.Valid, rep.Tier)
 	}
 }
+
+// TestConditionKeywords_CoversAllSupportedLanguages locks the
+// recoverNearestCondition / graphMatchCondition lexical fallback
+// against every language repomap supports. For each language we
+// build a synthetic 1-line fixture using that language's canonical
+// conditional construct and assert lineContainsAnyKeyword catches
+// it via the conditionKeywords table.
+//
+// 2026-05-08 audit: Rust / Python 3.10+ / Cangjie all use `match`
+// for pattern-matching conditionals — previously absent from the
+// table. Go's channel `select { ... }` likewise missing. This test
+// pins the gap closures so a future trim of the keyword list
+// cannot silently regress recovery for those languages.
+func TestConditionKeywords_CoversAllSupportedLanguages(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+	}{
+		// Universal `if` / `if(`.
+		{"go-if", "if x > 0 {"},
+		{"java-if", "if (x > 0) {"},
+		{"python-if", "if x > 0:"},
+		{"rust-if", "if x > 0 {"},
+		{"c-if", "if (x > 0) {"},
+		{"swift-if", "if x > 0 {"},
+		{"ruby-if", "if x > 0"},
+		{"lua-if", "if x > 0 then"},
+		{"kotlin-if", "if (x > 0) {"},
+		{"cangjie-if", "if (x > 0) {"},
+		{"arkts-if", "if (x > 0) {"},
+		// switch / case (Go, C, Java, JS, TS, Swift, Obj-C, CUDA).
+		{"go-switch", "switch kind {"},
+		{"c-switch", "switch (kind) {"},
+		{"java-case", "case 1:"},
+		{"swift-case", "case .ready:"},
+		// when (Kotlin), unless (Ruby), guard (Swift).
+		{"kotlin-when", "when (state) {"},
+		{"ruby-when", "when 1"},
+		{"ruby-unless", "unless x.nil?"},
+		{"swift-guard", "guard let v = optional else { return }"},
+		// 2026-05-08 add: match (Rust / Python 3.10+ / Cangjie).
+		{"rust-match", "match value {"},
+		{"python-match", "match command:"},
+		{"cangjie-match", "match (kind) {"},
+		// 2026-05-08 add: Go select.
+		{"go-select", "select {"},
+		{"go-select-tight", "select{"},
+	}
+	gc := &Context{
+		LineIndex: map[string]map[int]string{
+			"fixture.txt": {},
+		},
+	}
+	for i, c := range cases {
+		gc.LineIndex["fixture.txt"][i+1] = c.line
+		it := &types.EvidenceItem{Source: "fixture.txt", LineStart: i + 1}
+		if !lineContainsAnyKeyword(it, gc, conditionKeywords) {
+			t.Errorf("%s: line %q must match conditionKeywords (line=%d)", c.name, c.line, i+1)
+		}
+	}
+}
+
+// TestConditionKeywords_RejectsUnrelatedLines guards against false-
+// positive matches the 2026-05-08 expansion might have introduced.
+// Lines that do not contain a true conditional construct must NOT
+// match — otherwise the recovery snaps to a noise line and the
+// citation lands somewhere semantically irrelevant.
+func TestConditionKeywords_RejectsUnrelatedLines(t *testing.T) {
+	negatives := []struct {
+		name string
+		line string
+	}{
+		// SQL prose in a doc-string (the `select {` constraint
+		// avoids matching bare uppercase SQL SELECT).
+		{"sql-uppercase", "// SELECT * FROM users"},
+		// `select` without the `{` it would have in Go is also
+		// not a conditional anchor.
+		{"select-bare", "select * from users where id = 1"},
+	}
+	gc := &Context{
+		LineIndex: map[string]map[int]string{
+			"fixture.txt": {},
+		},
+	}
+	for i, c := range negatives {
+		gc.LineIndex["fixture.txt"][i+1] = c.line
+		it := &types.EvidenceItem{Source: "fixture.txt", LineStart: i + 1}
+		if lineContainsAnyKeyword(it, gc, conditionKeywords) {
+			t.Errorf("%s: line %q must NOT match conditionKeywords (line=%d)", c.name, c.line, i+1)
+		}
+	}
+}
