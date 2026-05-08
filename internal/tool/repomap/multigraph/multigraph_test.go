@@ -429,6 +429,125 @@ func TestMultiGraph_MetadataAggregate(t *testing.T) {
 	}
 }
 
+// === LookupSymbol / ImplementersOf / LookupSymbolByID / Iter helpers ===
+
+func TestMultiGraph_LookupSymbol_FanOut(t *testing.T) {
+	gA := makeGraph("a", []string{"main.go"}, map[string]string{"Run": "main.go"})
+	gB := makeGraph("b", []string{"main.go"}, map[string]string{"Run": "main.go"})
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		switch root {
+		case "/parent/repo-a":
+			return gA, nil
+		case "/parent/repo-b":
+			return gB, nil
+		}
+		return nil, fmt.Errorf("unknown")
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "repo-a", RootAbs: "/parent/repo-a", RootRel: "repo-a"},
+		{Slug: "repo-b", RootAbs: "/parent/repo-b", RootRel: "repo-b"},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 3})
+	mg.EnsureMany([]string{"repo-a", "repo-b"})
+
+	hits := mg.LookupSymbol("Run")
+	if len(hits) != 2 {
+		t.Fatalf("expected 2 hits (one per sub-repo), got %d", len(hits))
+	}
+	subRels := []string{hits[0].Sub.RootRel, hits[1].Sub.RootRel}
+	sort.Strings(subRels)
+	if subRels[0] != "repo-a" || subRels[1] != "repo-b" {
+		t.Errorf("unexpected sub-repos in hits: %v", subRels)
+	}
+}
+
+func TestMultiGraph_LookupSymbolByID_OwnerAware(t *testing.T) {
+	g := makeGraph("a", []string{"main.go"}, map[string]string{"Run": "main.go"})
+	// Inject a synthetic SymbolID so we can look it up.
+	id := rmtypes.SymbolID("synthetic-id-aabbccdd")
+	g.SymbolByID = map[rmtypes.SymbolID]*rmtypes.Symbol{id: g.SymbolDefs["Run"][0]}
+	build := func(root, _ string) (*rmtypes.Graph, error) { return g, nil }
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "repo-a", RootAbs: "/parent/repo-a", RootRel: "repo-a"},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 3})
+	mg.EnsureLoaded("repo-a")
+
+	sym, sr, hit := mg.LookupSymbolByID(id)
+	if !hit || sym == nil {
+		t.Fatal("LookupSymbolByID miss")
+	}
+	if sr.Slug != "repo-a" {
+		t.Errorf("owning slug = %q, want repo-a", sr.Slug)
+	}
+}
+
+func TestMultiGraph_IterateSymbolDefs(t *testing.T) {
+	gA := makeGraph("a", []string{"main.go"}, map[string]string{"Run": "main.go", "Helper": "main.go"})
+	gB := makeGraph("b", []string{"lib.go"}, map[string]string{"Util": "lib.go"})
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		switch root {
+		case "/parent/repo-a":
+			return gA, nil
+		case "/parent/repo-b":
+			return gB, nil
+		}
+		return nil, fmt.Errorf("unknown")
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "repo-a", RootAbs: "/parent/repo-a", RootRel: "repo-a"},
+		{Slug: "repo-b", RootAbs: "/parent/repo-b", RootRel: "repo-b"},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 3})
+	mg.EnsureMany([]string{"repo-a", "repo-b"})
+
+	visited := map[string]bool{}
+	mg.IterateSymbolDefs(func(name string, defs []*rmtypes.Symbol, sub *topology.SubRepo) bool {
+		visited[name+"@"+sub.RootRel] = true
+		return true
+	})
+	want := []string{"Run@repo-a", "Helper@repo-a", "Util@repo-b"}
+	for _, w := range want {
+		if !visited[w] {
+			t.Errorf("missing iteration entry %q (got %v)", w, visited)
+		}
+	}
+}
+
+func TestMultiGraph_IterateFileIndex(t *testing.T) {
+	gA := makeGraph("a", []string{"main.go", "util.go"}, nil)
+	gB := makeGraph("b", []string{"src/lib.rs"}, nil)
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		switch root {
+		case "/parent/repo-a":
+			return gA, nil
+		case "/parent/repo-b":
+			return gB, nil
+		}
+		return nil, fmt.Errorf("unknown")
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "repo-a", RootAbs: "/parent/repo-a", RootRel: "repo-a"},
+		{Slug: "repo-b", RootAbs: "/parent/repo-b", RootRel: "repo-b"},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 3})
+	mg.EnsureMany([]string{"repo-a", "repo-b"})
+
+	count := 0
+	mg.IterateFileIndex(func(rel string, fi *rmtypes.FileInfo, sub *topology.SubRepo) bool {
+		count++
+		// Internal relpath should match what's in g.FileIndex (sub-repo-relative,
+		// no prefix).
+		if rel == "main.go" && sub.RootRel != "repo-a" {
+			t.Errorf("main.go owner = %q, want repo-a", sub.RootRel)
+		}
+		return true
+	})
+	if count != 3 {
+		t.Errorf("IterateFileIndex visited %d entries, want 3 (2+1)", count)
+	}
+}
+
 // === ImportEdges flatten ===
 
 func TestMultiGraph_ImportEdgesPrefixed(t *testing.T) {

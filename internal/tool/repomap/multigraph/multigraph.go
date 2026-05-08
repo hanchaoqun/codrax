@@ -454,6 +454,188 @@ func (m *MultiGraph) Metadata() rmtypes.Metadata {
 	return out
 }
 
+// === Graph-method fan-out helpers (Y-class richer than Oracle/Locator) ===
+
+// LookupSymbol fans out across active sub-repos and returns every
+// matching definition with its owning sub-repo. The Symbol's File
+// field is rewritten to the path-from-parent form (sub-repo prefix
+// prepended) so callers comparing positions across sub-repos do not
+// collide on "main.go" / "lib.rs". Returns nil on no match.
+//
+// This is the Y-flavoured cousin of Locator().LocateSymbol — same
+// fan-out semantics but returns *Symbol directly so consumers that
+// need richer fields (Kind, Receiver, Signature, ParseTier) than
+// SymbolLocation provides can use them.
+func (m *MultiGraph) LookupSymbol(name string) []SymbolHit {
+	if m == nil {
+		return nil
+	}
+	graphs := m.AllGraphs()
+	if len(graphs) == 0 {
+		return nil
+	}
+	subMap := make(map[string]*topology.SubRepo, len(m.topo.Repos))
+	for i := range m.topo.Repos {
+		subMap[m.topo.Repos[i].Slug] = &m.topo.Repos[i]
+	}
+	var out []SymbolHit
+	for slug, g := range graphs {
+		if g == nil {
+			continue
+		}
+		defs, ok := g.SymbolDefs[name]
+		if !ok || len(defs) == 0 {
+			continue
+		}
+		sr := subMap[slug]
+		for _, sym := range defs {
+			if sym == nil {
+				continue
+			}
+			out = append(out, SymbolHit{Symbol: sym, Sub: sr})
+		}
+	}
+	return out
+}
+
+// SymbolHit pairs a *Symbol with the SubRepo that owns it. The Symbol
+// pointer is shared with the underlying *Graph (treat as read-only;
+// mutating taints the cached graph). Sub.RootRel can be used to
+// rebuild the path-from-parent form when needed.
+type SymbolHit struct {
+	Symbol *rmtypes.Symbol
+	Sub    *topology.SubRepo
+}
+
+// ImplementersOf fans out the "which symbols implement interface
+// `name`?" query across active sub-repos. Returns SymbolID slices
+// with their owning sub-repo. Cross-sub-repo implementers are
+// independent because Go module / Java pom / Cargo crate namespaces
+// are independent (design §3.5).
+type ImplementerHit struct {
+	ID  rmtypes.SymbolID
+	Sub *topology.SubRepo
+}
+
+func (m *MultiGraph) ImplementersOf(interfaceName string) []ImplementerHit {
+	if m == nil {
+		return nil
+	}
+	graphs := m.AllGraphs()
+	if len(graphs) == 0 {
+		return nil
+	}
+	subMap := make(map[string]*topology.SubRepo, len(m.topo.Repos))
+	for i := range m.topo.Repos {
+		subMap[m.topo.Repos[i].Slug] = &m.topo.Repos[i]
+	}
+	var out []ImplementerHit
+	for slug, g := range graphs {
+		if g == nil {
+			continue
+		}
+		ids := g.ImplementersOf(interfaceName)
+		if len(ids) == 0 {
+			continue
+		}
+		sr := subMap[slug]
+		for _, id := range ids {
+			out = append(out, ImplementerHit{ID: id, Sub: sr})
+		}
+	}
+	return out
+}
+
+// LookupSymbolByID fans out the SymbolID lookup across active
+// sub-repos. Returns the (Symbol, SubRepo) of the first match —
+// SymbolID is canonical and globally unique per Symbol so multi
+// matches across sub-repos imply the same logical symbol got indexed
+// twice (which the topology's separate sub-repo namespaces should
+// prevent in practice).
+func (m *MultiGraph) LookupSymbolByID(id rmtypes.SymbolID) (*rmtypes.Symbol, *topology.SubRepo, bool) {
+	if m == nil {
+		return nil, nil, false
+	}
+	graphs := m.AllGraphs()
+	if len(graphs) == 0 {
+		return nil, nil, false
+	}
+	subMap := make(map[string]*topology.SubRepo, len(m.topo.Repos))
+	for i := range m.topo.Repos {
+		subMap[m.topo.Repos[i].Slug] = &m.topo.Repos[i]
+	}
+	for slug, g := range graphs {
+		if g == nil {
+			continue
+		}
+		if sym, ok := g.SymbolByID[id]; ok && sym != nil {
+			return sym, subMap[slug], true
+		}
+	}
+	return nil, nil, false
+}
+
+// IterateSymbolDefs iterates every (name, defs) pair across active
+// sub-repos. Useful for explorer-style "find all symbols matching
+// pattern" scans. The yield func receives the symbol name, defs
+// slice (read-only), and owning sub-repo. Return false to stop.
+//
+// Iteration order is the LRU's internal order; callers MUST NOT
+// depend on it.
+func (m *MultiGraph) IterateSymbolDefs(yield func(name string, defs []*rmtypes.Symbol, sub *topology.SubRepo) bool) {
+	if m == nil {
+		return
+	}
+	graphs := m.AllGraphs()
+	if len(graphs) == 0 {
+		return
+	}
+	subMap := make(map[string]*topology.SubRepo, len(m.topo.Repos))
+	for i := range m.topo.Repos {
+		subMap[m.topo.Repos[i].Slug] = &m.topo.Repos[i]
+	}
+	for slug, g := range graphs {
+		if g == nil {
+			continue
+		}
+		sr := subMap[slug]
+		for name, defs := range g.SymbolDefs {
+			if !yield(name, defs, sr) {
+				return
+			}
+		}
+	}
+}
+
+// IterateFileIndex iterates every (relPathInternal, *FileInfo, sub)
+// across active sub-repos. The internal path is sub-repo-relative
+// (NOT prefixed with sub.RootRel); callers that need
+// path-from-parent form should compose via SubRepoRelPath(sub, rel).
+func (m *MultiGraph) IterateFileIndex(yield func(internalRel string, fi *rmtypes.FileInfo, sub *topology.SubRepo) bool) {
+	if m == nil {
+		return
+	}
+	graphs := m.AllGraphs()
+	if len(graphs) == 0 {
+		return
+	}
+	subMap := make(map[string]*topology.SubRepo, len(m.topo.Repos))
+	for i := range m.topo.Repos {
+		subMap[m.topo.Repos[i].Slug] = &m.topo.Repos[i]
+	}
+	for slug, g := range graphs {
+		if g == nil {
+			continue
+		}
+		sr := subMap[slug]
+		for path, fi := range g.FileIndex {
+			if !yield(path, fi, sr) {
+				return
+			}
+		}
+	}
+}
+
 // === Z-class accessors (interface-layer fan-out) ===
 
 // Oracle returns a SymbolOracle that fans out across every active
