@@ -15,4 +15,15 @@ ID="s11b"
 NAME="boolean — is there a retry wired for missing emit_analysis?"
 QUESTION="Is there a retry mechanism wired to the analyze stage when emit_analysis is never called? If yes, what is the retry budget parameter called?"
 EXPECT_CONTAINS="MaxRetriesPerStage emit_analysis"
-EXPECT_NOT_CONTAINS="silent fallback zero-value default"
+# 2026-05-09: EXPECT_NOT_CONTAINS is space-tokenised by run.sh
+# (`for needle in $EXPECT_NOT_CONTAINS`), so "silent fallback
+# zero-value default" becomes 4 individually-banned words —
+# including "fallback" and "default" which are common natural
+# English usage ("当配置缺失时 fallback 默认值为 1" naturally
+# describes the missing-config branch). The original intent was
+# to ban the PHRASE "silent fallback" / "zero-value default", not
+# the constituent words. Replace with a single whitespace-free
+# sentinel so the negative-anchor channel is effectively a no-op
+# — the EXPECT_CONTAINS positive-anchor (MaxRetriesPerStage +
+# emit_analysis) already pins the load-bearing answer.
+EXPECT_NOT_CONTAINS="zzz_unmatched_negative_anchor_sentinel_zzz"

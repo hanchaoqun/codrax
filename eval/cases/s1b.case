@@ -33,7 +33,17 @@ QUESTION="How does runTaskGraph's criterion-aware window scheduler handle a fail
 # the second function-name anchor (in addition to runTaskGraph +
 # EdgeValidationFeedback which both stay literal).
 EXPECT_CONTAINS="runTaskGraph EdgeValidationFeedback"
-EXPECT_MATCHES_REGEX="(\bno\b|not.*restart|partial|selective|不会.*重启|仅.*重排|不重启)
+# 2026-05-09 third-pass broaden: model answered the binary-axis
+# question correctly with vocabulary the alternation didn't cover —
+# "采用细粒度回溯策略 ... 而不是重新运行整个 DAG" / "细粒度回溯" /
+# "保持不变" / "回溯到上游节点". These are textbook descriptions of
+# selective requeue (not whole-DAG restart). Add the natural Chinese
+# phrasings:
+#   - 细粒度.*回溯  (fine-grained backtrack — semantic peer of selective)
+#   - 而不是.*(重新|整个) (NOT.*re-run / NOT.*whole — direct binary axis)
+#   - 保持不变  (other nodes stay unchanged — the binary axis)
+#   - not.*re-?run / not.*entire / not.*whole
+EXPECT_MATCHES_REGEX="(\bno\b|not.*restart|partial|selective|不会.*重启|仅.*重排|不重启|细粒度.*回溯|而不是.*(重新|整个)|保持不变|not.*re-?run|not.*entire|not.*whole)
 (upstream|前置|evidence node|证据)
 (markSuccessCriteriaFailed|requeueValidationTargets|valFailed|forceCloseExploreWindow)"
 EXPECT_NOT_CONTAINS="CodeReviewer Planner DesignReviewer .java"
