@@ -6,109 +6,109 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// erm_completeness.go — Phase 2 of the commercial-grade
-// remediation (docs/design/commercial_grade_3_pattern_remediation.md).
+// erm_completeness.go — Phase 2 (advisory) + Phase 2.B (post-finalize
+// answer-aware hard gate) of the commercial-grade remediation
+// (docs/design/commercial_grade_3_pattern_remediation.md).
 //
 // Two-tier ERM design:
 //
-//   - Tier 1 (breadth) — existing explorer_erm.go: scalar count
-//     thresholds (≥2 for moderate, ≥3 for complex) drive the
-//     soft-stop signal that lets the explorer LLM decide it has
-//     read enough to answer. Used as the LLM-facing "you can stop
-//     reading" hint.
+//   - Tier 1 (breadth) — explorer_erm.go: scalar count thresholds
+//     (≥2/3 evidence items per question family) drive the soft-stop
+//     signal that lets the explorer LLM decide it has read enough.
 //
 //   - Tier 2 (depth) — this file: per-question-family completeness
 //     validators that gate the finalize stage on hard structural
-//     coverage requirements. Even when Tier 1 fired "satisfied"
-//     after 2-3 evidence items, Tier 2 may demand the call-chain's
-//     entry+exit functions, the count question's exec_command-
-//     derived literal, the config-precedence's three layers, etc.
-//     Failing Tier 2 reroutes back to the explorer with an
-//     LLM-natural "you missed X" hint.
-//
-// CompletionDimension enumerates the structural axes Tier 2
-// validators check. Each question family declares which dimensions
-// apply — a count question doesn't need path-depth; a call-chain
-// question doesn't need scalar-count.
+//     coverage requirements. Each validator runs answer-aware AFTER
+//     finalize composes the AnswerDocumentV2, reading typed blocks
+//     first (Tier 1 input precedence), prose fallback second, and
+//     evidence-pool tertiary.
 //
 // Tonight's eval surfaced two real Tier 2 gaps:
 //   - s7b — "count Criterion Kind constants": LLM read full file,
-//     visual-counted 23 (correct: 25). Fix: require count answers
-//     to derive from a deterministic tool (grep -c / wc -l), not
-//     from a visual scan of read_file output.
-//   - s8a — "buildAnalysisIR → gate.Run call chain": LLM read the
+//     visual-counted 23; ground truth was 25.
+//   - s8a — "buildAnalysisIR → gate.Run call chain": LLM read
 //     reconcile* helpers, declared satisfied at 2-3 items, never
 //     reached normalizer.Normalize / compiler.Compile / hdp.Plan /
-//     binder.BindByRelevance. Fix: require call-chain answers to
-//     evidence both entry and exit functions plus ≥3 mid-segment.
+//     binder.BindByRelevance.
+//
+// Phase 2.B (2026-05-09) replaced the original advisory wire-up with
+// post-finalize hard-gate enforcement: each validator now emits a
+// typed Violation (one of four ViolKinds — see violation_registry.go)
+// that flows through the existing retry / FallbackTarget / caveat
+// machinery. Bounded retry budget is the existing per-kind
+// `state.retryUsedForKind` machinery — no new bookkeeping.
+//
+// Cross-project portability (2026-05-09 audit, after user feedback):
+//   - The original LayerDepthValidator was DROPPED — it hard-coded a
+//     codrax-specific 3-layer config-precedence assumption (default /
+//     config-file / CLI override). Real projects vary widely (Spring
+//     Boot profiles × N + env + cmdline; Kubernetes ConfigMap +
+//     Secret + env + volumeMount + cluster default; remote config
+//     stores adding more layers; static frontends with zero config).
+//     The LLM's typed `MissingRequestedRoles` slot already discloses
+//     missing layers per the user's question shape — no system-side
+//     enforcement needed.
+//   - Function-symbol detection (looksLikeFunctionSymbol) accepts
+//     CamelCase / camelCase / PascalCase / snake_case / qualified
+//     forms — language-neutral.
+//   - Path heuristics in ScalarCountValidator look for ToolName ==
+//     "exec_command" (the codrax tool registry name) — works
+//     regardless of what shell command the LLM ran inside it.
+//   - Caveat templates registered in violation_registry.go are
+//     project-portable (no Unix tool names, no fixed layer counts).
 
 // CompletionDimension enumerates the structural-coverage axes a
-// Tier 2 validator may check. Each value names ONE dimension; a
-// validator may target one dimension, multiple, or none (when the
-// validator doesn't apply to the family).
+// Tier 2 validator may check.
 type CompletionDimension string
 
 const (
-	// DimensionScalarCount applies to count questions (IsCountQuestion=
-	// true). The answer must surface a number derived from a
-	// deterministic counting tool (exec_command running grep -c / wc
-	// -l / find | wc), not from the LLM's visual count of read_file
-	// output. Visual-count is error-prone (s7b regressed off-by-2).
-	DimensionScalarCount CompletionDimension = "scalar_count"
-
-	// DimensionCardinality applies to enumeration questions with an
-	// explicit declared count (EnumerationBoundary.DeclaredCount > 0).
-	// The answer's enumerated item slice must contain ≥ DeclaredCount
-	// items.
-	DimensionCardinality CompletionDimension = "cardinality"
-
-	// DimensionPathDepth applies to call-chain questions. The
-	// evidence must include the chain's entry function AND exit
-	// function AND at least 3 mid-segment functions. Without the
-	// closure check Tier 1's breadth heuristic stops at any 2 found
-	// functions and the LLM produces a partial chain (s8a regressed
-	// missing normalizer/compiler/hdp/binder).
-	DimensionPathDepth CompletionDimension = "path_depth"
-
-	// DimensionLayerDepth applies to config-precedence questions.
-	// The evidence must include all three precedence layers (default
-	// struct / config file / CLI override). Missing any layer
-	// suggests the answer is half-formed.
-	DimensionLayerDepth CompletionDimension = "layer_depth"
-
-	// DimensionEntityParity applies to comparison questions
-	// (buckets ≥ 2). The per-bucket evidence count must balance
-	// within 50% of the largest bucket — heavily lopsided sampling
-	// produces a comparison where one side is well-grounded and
-	// the other is sketched.
+	DimensionScalarCount  CompletionDimension = "scalar_count"
+	DimensionCardinality  CompletionDimension = "cardinality"
+	DimensionPathDepth    CompletionDimension = "path_depth"
 	DimensionEntityParity CompletionDimension = "entity_parity"
 )
 
 // CompletenessValidator is the interface each per-dimension Tier 2
-// check implements. A nil validator returned by FamilyValidator means
-// "no Tier 2 check applies to this family"; the finalize gate
-// proceeds to render.
+// check implements. Returning nil means "no failure"; the finalize
+// gate proceeds.
 type CompletenessValidator interface {
-	// Dimension returns the structural axis this validator covers.
 	Dimension() CompletionDimension
-
-	// Validate inspects the AnalysisIR + accumulated evidence /
-	// answer-symbol slate and returns nil when the family's
-	// completeness requirements are met. On failure it returns a
-	// CompletenessFailure with an LLM-natural FixHint that the
-	// re-explore prompt surfaces.
+	ViolationKind() types.ViolationKind
 	Validate(input ValidatorInput) *CompletenessFailure
 }
 
-// ValidatorInput aggregates the typed signals every validator
-// reads. Built once at finalize-gate entry; readers MUST treat
-// every field as read-only.
+// ValidatorInput aggregates the typed signals every validator reads.
+// Built once at post-finalize gate entry; readers MUST treat every
+// field as read-only.
+//
+// Phase 2.B added AnswerDocumentV2 so validators can do answer-aware
+// validation (read the actual composed answer, not just the evidence
+// pool). The 3-tier input precedence per validator:
+//
+//	Tier 1 (typed blocks): inspect AnswerDocumentV2.Blocks[] typed
+//	    structure (BlockKind / Items / Citations / EdgeAnchors /
+//	    ClaimUses) — the highest-precision signal, never confuses
+//	    legitimate prose with structural gaps.
+//
+//	Tier 2 (prose):  scan block.Text / block.Items[].Text for
+//	    semantic markers (digits, list-item regex, identifier-shaped
+//	    tokens) — fallback when typed signal is incomplete.
+//
+//	Tier 3 (evidence pool): the original Phase 2 advisory mode —
+//	    inspect EvidenceItems / ToolResults directly. Used as a
+//	    fallback only.
+//
+// Each validator's Validate method walks the tiers in order; a Tier 1
+// hit short-circuits without consulting Tier 2/3. This makes false
+// positives bounded — an answer that already covers the dimension
+// via typed structure NEVER trips the validator.
 type ValidatorInput struct {
-	IR             *types.AnalysisIR
-	EvidenceItems  []types.EvidenceItem
-	AnswerSymbols  []types.AnswerSymbol
-	ToolResults    []types.ToolResult
-	RepoFacts      []types.RepoFact
+	IR               *types.AnalysisIR
+	EvidenceItems    []types.EvidenceItem
+	AnswerSymbols    []types.AnswerSymbol
+	ToolResults      []types.ToolResult
+	RepoFacts        []types.RepoFact
+	AnswerDocumentV2 *types.AnswerDocumentV2
 }
 
 // CompletenessFailure describes one Tier 2 violation. FixHint is
@@ -116,22 +116,21 @@ type ValidatorInput struct {
 // prompt — R6-clean (no internal pipeline terms).
 type CompletenessFailure struct {
 	Dimension     CompletionDimension
+	ViolationKind types.ViolationKind
 	Family        types.QuestionFamily
-	Reason        string // brief structural description
-	FixHint       string // LLM-natural prose for re-explore
+	Reason        string   // brief structural description
+	FixHint       string   // LLM-natural prose for re-explore
 	MissingTokens []string // optional: specific symbols/files the validator detected missing
 }
 
 // FamilyValidators returns the slice of CompletenessValidator
 // instances that apply to a given question family. An empty result
-// means Tier 2 is a no-op for the family — the finalize gate
-// proceeds to render without further checks.
+// means Tier 2 is a no-op for the family.
 //
-// Order matters: validators run in sequence and the first non-nil
-// failure surfaces first. The order below sorts by typical
-// likelihood-of-fire (count → path → enumeration → comparison →
-// config) so the LLM gets the most actionable hint first when
-// multiple dimensions fail.
+// LayerDepthValidator was removed from this dispatch in Phase 2.B
+// (2026-05-09) — codrax-specific 3-layer assumption. QFConfigPrecedence
+// now relies on the LLM's MissingRequestedRoles typed slot and the
+// CONFIG PRECEDENCE skill prompt rule for layer coverage.
 func FamilyValidators(family types.QuestionFamily, ir *types.AnalysisIR) []CompletenessValidator {
 	if ir == nil {
 		return nil
@@ -147,18 +146,12 @@ func FamilyValidators(family types.QuestionFamily, ir *types.AnalysisIR) []Compl
 
 	switch family {
 	case types.QFEnumeration:
-		// Cardinality applies only when the analyzer detected an
-		// explicit declared count (e.g., "the 7 stages of X").
 		if rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0 {
 			validators = append(validators, CardinalityValidator{})
 		}
 	case types.QFCallChain:
 		validators = append(validators, PathDepthValidator{})
-	case types.QFConfigPrecedence:
-		validators = append(validators, LayerDepthValidator{})
 	case types.QFComparison:
-		// Comparison validators only fire when the analyzer emitted
-		// ≥2 buckets — the structural minimum for a comparison.
 		if len(rm.Buckets) >= 2 {
 			validators = append(validators, EntityParityValidator{})
 		}
@@ -169,7 +162,7 @@ func FamilyValidators(family types.QuestionFamily, ir *types.AnalysisIR) []Compl
 
 // RunFamilyValidators executes every applicable validator for the
 // given family and returns the first non-nil failure encountered.
-// nil result means all Tier 2 checks passed — finalize may proceed.
+// nil result means all Tier 2 checks passed.
 func RunFamilyValidators(family types.QuestionFamily, input ValidatorInput) *CompletenessFailure {
 	for _, v := range FamilyValidators(family, input.IR) {
 		if fail := v.Validate(input); fail != nil {
@@ -182,67 +175,138 @@ func RunFamilyValidators(family types.QuestionFamily, input ValidatorInput) *Com
 // --- ScalarCountValidator ---------------------------------------
 
 // ScalarCountValidator (DimensionScalarCount) requires a count-
-// question answer to be backed by deterministic-tool output
-// (exec_command running grep -c / wc -l / find | wc), not the
-// LLM's visual count of read_file content. s7b's off-by-2 result
-// would have been caught here: the failing run had no exec_command
-// tool result at all in the trace, only read_file.
+// question answer to be backed by deterministic-tool output.
 //
-// The validator inspects ToolResults for an exec_command invocation
-// whose output looks like a count (a leading integer literal). Any
-// match satisfies the dimension. Future enhancement could check
-// specifically that the count cited in the answer matches the
-// tool's output.
+// Phase 2.B answer-aware 3-tier input:
+//
+//	Tier 1: AnswerDocumentV2.Blocks where Kind=BlockScalar AND its
+//	    Items[].CitationRef points to a Citation whose evidence
+//	    chain ultimately came from a successful exec_command tool
+//	    result.
+//
+//	Tier 2: any block.Text in the answer contains an integer
+//	    literal AND ≥1 successful exec_command in ToolResults
+//	    summary contains an integer.
+//
+//	Tier 3: rejected (no typed evidence at all).
 type ScalarCountValidator struct{}
 
 func (ScalarCountValidator) Dimension() CompletionDimension { return DimensionScalarCount }
+func (ScalarCountValidator) ViolationKind() types.ViolationKind {
+	return types.ViolScalarCountUnsourced
+}
 
 func (ScalarCountValidator) Validate(input ValidatorInput) *CompletenessFailure {
 	if input.IR == nil || !input.IR.RequestModel.Predicates.IsCountQuestion {
 		return nil
 	}
-	for _, tr := range input.ToolResults {
-		if tr.ToolName != "exec_command" {
-			continue
+
+	// Tier 1: answer-aware via typed BlockScalar + citation chain.
+	// If the answer surfaces a count via a BlockScalar block AND has
+	// at least one Citation in the answer doc whose evidence chain
+	// ultimately includes an exec_command tool result, the count
+	// has typed-tool backing.
+	if input.AnswerDocumentV2 != nil {
+		hasScalarBlock := false
+		hasIntegerInAnswer := false
+		for _, blk := range input.AnswerDocumentV2.Blocks {
+			if blk.Kind == types.BlockScalar {
+				hasScalarBlock = true
+				if hasIntegerLiteral(blk.Text) {
+					hasIntegerInAnswer = true
+				}
+				for _, item := range blk.Items {
+					if hasIntegerLiteral(item.Label) || hasIntegerLiteral(item.Text) {
+						hasIntegerInAnswer = true
+					}
+				}
+			}
 		}
-		// Success=true indicates the tool finished without error;
-		// failed calls produce no usable count output.
-		if !tr.Success {
-			continue
-		}
-		summary := strings.TrimSpace(tr.Summary)
-		if summary == "" {
-			continue
-		}
-		// Heuristic: any digit run anywhere in the output indicates
-		// a number was produced. This matches grep -c (single
-		// integer line), wc -l (number padded by whitespace), find
-		// | wc (similar). False-positive rate is acceptable —
-		// the goal is to refuse the case where ZERO exec_command
-		// ran, not to perfectly parse output.
-		if hasIntegerLiteral(summary) {
+		// Tier 1 PASS condition: BlockScalar present AND there's at
+		// least one successful exec_command tool result with an
+		// integer in its summary. The strict citation-chain link
+		// (CitationRef → ToolResult lineage) is not currently
+		// tracked in V2; we approximate by combining the BlockScalar
+		// presence with the exec_command-result presence.
+		if hasScalarBlock && hasIntegerInAnswer && hasExecCommandIntegerResult(input.ToolResults) {
 			return nil
 		}
 	}
-	// No exec_command output found — the answer is being assembled
-	// from visual count.
-	return &CompletenessFailure{
-		Dimension: DimensionScalarCount,
-		Family:    "",
-		Reason:    "count question lacks deterministic-tool-derived count (no exec_command result with integer output)",
-		FixHint: "This is a counting question. Run `exec_command` with a deterministic counting tool (e.g. `grep -c <pattern> <path>` or `find <path> | wc -l`) and use the tool's exact integer output as the answer. Do NOT count by reading the file and tallying matches yourself — visual counts go off-by-one easily.",
+
+	// Tier 2: prose-fallback — answer contains an integer somewhere
+	// AND ToolResults has exec_command with integer.
+	if input.AnswerDocumentV2 != nil && hasExecCommandIntegerResult(input.ToolResults) {
+		// Walk all blocks for any integer literal in prose. If
+		// found, accept — the count likely came from the tool.
+		for _, blk := range input.AnswerDocumentV2.Blocks {
+			if hasIntegerLiteral(blk.Text) {
+				return nil
+			}
+			for _, item := range blk.Items {
+				if hasIntegerLiteral(item.Label) || hasIntegerLiteral(item.Text) {
+					return nil
+				}
+			}
+		}
 	}
+
+	// Tier 3 fallback: original Phase 2 evidence-pool check (kept
+	// for backwards compat when AnswerDocumentV2 is nil — e.g., in
+	// unit tests).
+	if input.AnswerDocumentV2 == nil {
+		if hasExecCommandIntegerResult(input.ToolResults) {
+			return nil
+		}
+	}
+
+	return &CompletenessFailure{
+		Dimension:     DimensionScalarCount,
+		ViolationKind: types.ViolScalarCountUnsourced,
+		Reason:        "count question answer not backed by deterministic-tool output",
+		FixHint:       "This is a counting question. Run a deterministic counting command (such as `grep -c <pattern> <path>` / `find <path> | wc -l` / `wc -l <files>` on Unix-like systems, or your platform's equivalent) and use that exact integer as the answer. Do NOT count by reading a file and tallying matches yourself — visual counts go off-by-one easily on long files, on multi-block declarations spread across blank lines, and on patterns that overlap.",
+	}
+}
+
+// hasExecCommandIntegerResult reports whether ToolResults contains
+// at least one successful exec_command result whose summary contains
+// an integer literal.
+func hasExecCommandIntegerResult(results []types.ToolResult) bool {
+	for _, tr := range results {
+		if tr.ToolName != "exec_command" {
+			continue
+		}
+		if !tr.Success {
+			continue
+		}
+		if hasIntegerLiteral(tr.Summary) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- CardinalityValidator ---------------------------------------
 
 // CardinalityValidator (DimensionCardinality) requires the answer's
-// enumerated item count to satisfy the analyzer's
-// EnumerationBoundary.DeclaredCount when the boundary is non-zero.
-// "The 7 stages" → answer must list 7 items.
+// enumerated item count to satisfy DeclaredCount.
+//
+// Phase 2.B answer-aware 3-tier input:
+//
+//	Tier 1: AnswerDocumentV2 — sum of Items[] across enumeration-
+//	    shaped blocks (BlockBulletList / BlockOrderedList) ≥
+//	    DeclaredCount.
+//
+//	Tier 2: prose-list count via markdown list-item regex on
+//	    block.Text.
+//
+//	Tier 3: len(AnswerSymbols) ≥ DeclaredCount (original Phase 2
+//	    fallback).
 type CardinalityValidator struct{}
 
 func (CardinalityValidator) Dimension() CompletionDimension { return DimensionCardinality }
+func (CardinalityValidator) ViolationKind() types.ViolationKind {
+	return types.ViolCardinalityShort
+}
 
 func (CardinalityValidator) Validate(input ValidatorInput) *CompletenessFailure {
 	if input.IR == nil {
@@ -253,34 +317,105 @@ func (CardinalityValidator) Validate(input ValidatorInput) *CompletenessFailure 
 		return nil
 	}
 	declared := rm.EnumerationBoundary.DeclaredCount
-	got := len(input.AnswerSymbols)
-	if got >= declared {
+
+	// Tier 1: typed BlockBulletList / BlockOrderedList items.
+	if input.AnswerDocumentV2 != nil {
+		typedItems := 0
+		for _, blk := range input.AnswerDocumentV2.Blocks {
+			if blk.Kind == types.BlockBulletList || blk.Kind == types.BlockOrderedList {
+				typedItems += len(blk.Items)
+			}
+		}
+		if typedItems >= declared {
+			return nil
+		}
+
+		// Tier 2: prose markdown list-item count across all blocks.
+		proseItems := 0
+		for _, blk := range input.AnswerDocumentV2.Blocks {
+			proseItems += countMarkdownListItems(blk.Text)
+			for _, item := range blk.Items {
+				proseItems += countMarkdownListItems(item.Text)
+			}
+		}
+		if proseItems >= declared {
+			return nil
+		}
+	}
+
+	// Tier 3: AnswerSymbols slate (original Phase 2 fallback).
+	if len(input.AnswerSymbols) >= declared {
 		return nil
 	}
+
 	return &CompletenessFailure{
-		Dimension: DimensionCardinality,
-		Family:    types.QFEnumeration,
-		Reason:    "enumerated item count below declared boundary",
-		FixHint: "The question stated an explicit count, but the answer surfaces fewer items than that count requires. Continue investigation to find the missing items, or, if no further items can be located, explicitly acknowledge the count mismatch in the answer (e.g., 'the question mentions N but only M are present in the codebase').",
+		Dimension:     DimensionCardinality,
+		ViolationKind: types.ViolCardinalityShort,
+		Family:        types.QFEnumeration,
+		Reason:        "enumerated item count below declared boundary",
+		FixHint:       "The question stated an explicit count, but the answer surfaces fewer items than that count requires. Continue investigation to find the missing items, or, if no further items can be located, explicitly acknowledge the count mismatch in the answer (e.g., 'the question mentions N but only M are present in the codebase').",
 	}
+}
+
+// countMarkdownListItems counts lines beginning with a markdown
+// list marker (`- `, `* `, `<digit>. `). Used by Tier 2 prose
+// fallback in CardinalityValidator.
+func countMarkdownListItems(s string) int {
+	if s == "" {
+		return 0
+	}
+	count := 0
+	for _, line := range strings.Split(s, "\n") {
+		trim := strings.TrimLeft(line, " \t")
+		if trim == "" {
+			continue
+		}
+		if strings.HasPrefix(trim, "- ") || strings.HasPrefix(trim, "* ") {
+			count++
+			continue
+		}
+		// Numbered list: leading digit run + dot + space.
+		dotAt := strings.Index(trim, ". ")
+		if dotAt > 0 {
+			isAllDigits := true
+			for i := 0; i < dotAt; i++ {
+				c := trim[i]
+				if c < '0' || c > '9' {
+					isAllDigits = false
+					break
+				}
+			}
+			if isAllDigits {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 // --- PathDepthValidator -----------------------------------------
 
 // PathDepthValidator (DimensionPathDepth) requires call-chain
 // answers to evidence both entry and exit functions PLUS at least
-// 3 distinct mid-segment functions. s8a's failure mode was the
-// explorer reaching Tier 1 satisfied at 2 reconcile* functions
-// and stopping; the answer missed normalizer.Normalize /
-// compiler.Compile / hdp.Plan / binder.BindByRelevance — all
-// load-bearing mid-segment steps in buildAnalysisIR.
+// 3 distinct mid-segment functions.
 //
-// The validator extracts entry and exit candidates from the
-// question's entities (the user's named subjects) and counts
-// distinct function-symbol mentions across the evidence pool.
+// Phase 2.B answer-aware 3-tier input:
+//
+//	Tier 1: AnswerDocumentV2 — distinct identifier-shaped tokens in
+//	    BlockOrderedList Items + EdgeAnchors / ClaimUses with
+//	    function-related FacetIDs.
+//
+//	Tier 2: distinct identifier-shaped tokens scanned from all
+//	    block.Text + items[].Label / items[].Text.
+//
+//	Tier 3: distinct AnchorSymbol from EvidenceItems (original
+//	    Phase 2 fallback).
 type PathDepthValidator struct{}
 
 func (PathDepthValidator) Dimension() CompletionDimension { return DimensionPathDepth }
+func (PathDepthValidator) ViolationKind() types.ViolationKind {
+	return types.ViolPathDepthInsufficient
+}
 
 func (PathDepthValidator) Validate(input ValidatorInput) *CompletenessFailure {
 	if input.IR == nil {
@@ -293,126 +428,120 @@ func (PathDepthValidator) Validate(input ValidatorInput) *CompletenessFailure {
 		// this as a path question; defer to other validators.
 		return nil
 	}
+	required := len(entities) + 3
 
-	// Count distinct function-symbol mentions across the evidence
-	// pool. We only count symbols that look like Go-style function
-	// or method names (uppercase first letter for exported, or
-	// receiver-method form like `*Type.Method` / `pkg.Func`).
+	// Tier 1: typed BlockOrderedList items + EdgeAnchors.
+	if input.AnswerDocumentV2 != nil {
+		mentions := make(map[string]struct{})
+		for _, blk := range input.AnswerDocumentV2.Blocks {
+			if blk.Kind == types.BlockOrderedList {
+				for _, item := range blk.Items {
+					addIdentifierTokens(mentions, item.Label)
+					addIdentifierTokens(mentions, item.Text)
+				}
+			}
+			// EdgeAnchors carry typed function endpoints in diagram
+			// blocks.
+			for _, ea := range blk.EdgeAnchors {
+				if ea.FromNode != "" {
+					mentions[ea.FromNode] = struct{}{}
+				}
+				if ea.ToNode != "" {
+					mentions[ea.ToNode] = struct{}{}
+				}
+			}
+		}
+		if len(mentions) >= required {
+			return nil
+		}
+
+		// Tier 2: prose scan across all block text + items.
+		for _, blk := range input.AnswerDocumentV2.Blocks {
+			addIdentifierTokens(mentions, blk.Text)
+			for _, item := range blk.Items {
+				addIdentifierTokens(mentions, item.Label)
+				addIdentifierTokens(mentions, item.Text)
+			}
+		}
+		if len(mentions) >= required {
+			return nil
+		}
+	}
+
+	// Tier 3: evidence pool AnchorSymbol fallback.
 	mentions := make(map[string]struct{})
 	for _, ev := range input.EvidenceItems {
 		anchor := strings.TrimSpace(ev.AnchorSymbol)
-		if anchor == "" {
-			continue
-		}
-		if !looksLikeFunctionSymbol(anchor) {
+		if anchor == "" || !looksLikeFunctionSymbol(anchor) {
 			continue
 		}
 		mentions[anchor] = struct{}{}
 	}
-
-	// Path closure heuristic: at least len(entities) + 3 distinct
-	// function symbols. The +3 covers expected mid-segment functions
-	// beyond the two named entities (entry + exit). This generalises
-	// to longer questions ("X → A → B → C → Y" needs 5 entities + 3
-	// = 8 mentions), preventing over-easy satisfaction on nominal
-	// 2-entity questions.
-	required := len(entities) + 3
 	if len(mentions) >= required {
 		return nil
 	}
 
-	missingHint := ""
-	if len(mentions) < required {
-		missingHint = " The current evidence covers " +
-			itoa(len(mentions)) + " distinct functions; this kind of question needs at least " +
-			itoa(required) + "."
-	}
+	missingHint := " The current evidence covers " +
+		itoa(len(mentions)) + " distinct functions; this kind of question needs at least " +
+		itoa(required) + "."
 
 	return &CompletenessFailure{
-		Dimension: DimensionPathDepth,
-		Family:    types.QFCallChain,
-		Reason:    "call-chain evidence does not cover entry → mid-segment → exit",
-		FixHint: "This is a call-chain or processing-pipeline question. The answer must trace from the entry function through the mid-segment processing all the way to the exit function — list every load-bearing intermediate function the data passes through, not just the first two or three." + missingHint + " If the entry function is large (>500 lines), read the full body before stopping; load-bearing pipeline steps are often scattered across the function.",
+		Dimension:     DimensionPathDepth,
+		ViolationKind: types.ViolPathDepthInsufficient,
+		Family:        types.QFCallChain,
+		Reason:        "call-chain evidence does not cover entry → mid-segment → exit",
+		FixHint:       "This is a call-chain or processing-pipeline question. The answer must trace from the entry function through the mid-segment processing all the way to the exit function — list every load-bearing intermediate function the data passes through, not just the first two or three." + missingHint + " If the entry function is large (>500 lines), read the full body before stopping; load-bearing pipeline steps are often scattered across the function.",
 	}
 }
 
-// --- LayerDepthValidator ----------------------------------------
-
-// LayerDepthValidator (DimensionLayerDepth) requires config-
-// precedence answers to surface evidence from all three layers:
-// default struct (Go default constants), config file (yaml), and
-// CLI override (cmd flag binding). Missing any layer suggests the
-// answer is half-formed.
-type LayerDepthValidator struct{}
-
-func (LayerDepthValidator) Dimension() CompletionDimension { return DimensionLayerDepth }
-
-func (LayerDepthValidator) Validate(input ValidatorInput) *CompletenessFailure {
-	if input.IR == nil {
-		return nil
+// addIdentifierTokens splits s on whitespace + common punctuation
+// (`,` `.` `(` `)` `[` `]` `<` `>` ``` `:` `;` `=` `+` `-` `*` `/`
+// `?` `!`) and adds every token that passes looksLikeFunctionSymbol
+// to the dedupe map. Used by PathDepthValidator's Tier 1 + Tier 2.
+func addIdentifierTokens(out map[string]struct{}, s string) {
+	if s == "" {
+		return
 	}
-	hasDefault, hasConfig, hasCLI := false, false, false
-	for _, ev := range input.EvidenceItems {
-		// DiagramRole is the typed precedence-layer marker the
-		// authority projection produces. Three values map to the
-		// three layers we want covered.
-		switch ev.DiagramRole {
-		case types.EvidenceDiagramRoleDefault:
-			hasDefault = true
-		case types.EvidenceDiagramRoleConfig:
-			hasConfig = true
-		case types.EvidenceDiagramRoleOverride, types.EvidenceDiagramRoleRuntime:
-			hasCLI = true
+	splitter := func(r rune) bool {
+		switch r {
+		case ' ', '\t', '\n', '\r', ',', '.', '(', ')', '[', ']',
+			'<', '>', '`', ':', ';', '=', '+', '-', '*', '/', '?', '!',
+			'"', '\'', '|', '&', '\\':
+			return true
 		}
-		// Source path heuristic fallback — language-agnostic only.
-		// Config-file layer detection uses universal config-file
-		// extensions that appear in EVERY language ecosystem
-		// (yaml/yml/toml/json/ini/properties/conf/cfg/env).
-		// Default-struct and CLI-override layers do NOT have a
-		// universal path convention (Go uses cmd/root.go, Java uses
-		// src/main/.../Cli.java, Python uses cli/main.py, Rust uses
-		// src/bin/, etc.) so we rely entirely on the typed DiagramRole
-		// signal for those two layers. Falsely under-firing is the
-		// safer error mode — better to miss a layer-coverage gap than
-		// to falsely accept evidence routed via a Go-specific path
-		// pattern from a non-Go repo.
-		path := strings.ToLower(strings.TrimSpace(ev.Source))
-		if hasConfigFileExtension(path) {
-			hasConfig = true
+		return false
+	}
+	// Custom splitter via FieldsFunc (Go's strings.FieldsFunc).
+	for _, tok := range strings.FieldsFunc(s, splitter) {
+		// "*Type" — strip the leading * via TrimLeft. The function
+		// itself already handles &, * prefixes.
+		if looksLikeFunctionSymbol(tok) {
+			out[strings.TrimSpace(tok)] = struct{}{}
 		}
-	}
-	if hasDefault && hasConfig && hasCLI {
-		return nil
-	}
-
-	missing := []string{}
-	if !hasDefault {
-		missing = append(missing, "default-struct layer (Go code defining the default value)")
-	}
-	if !hasConfig {
-		missing = append(missing, "config-file layer (yaml / toml / json)")
-	}
-	if !hasCLI {
-		missing = append(missing, "CLI-override layer (cmd flag or env var)")
-	}
-	return &CompletenessFailure{
-		Dimension:     DimensionLayerDepth,
-		Family:        types.QFConfigPrecedence,
-		Reason:        "config precedence answer missing one or more layers",
-		FixHint:       "Configuration precedence questions need evidence from all three layers: the default-struct layer (Go code), the config-file layer (yaml / toml), and the CLI-override layer (command-line flag or env var). Continue investigation to surface the missing layer(s).",
-		MissingTokens: missing,
 	}
 }
 
 // --- EntityParityValidator --------------------------------------
 
-// EntityParityValidator (DimensionEntityParity) checks that
-// per-bucket evidence sampling is balanced across comparison
-// buckets. Heavily lopsided sampling means one side of the
-// comparison is well-grounded and the other is sketched.
+// EntityParityValidator (DimensionEntityParity) checks per-bucket
+// evidence sampling balance.
+//
+// Phase 2.B answer-aware 3-tier input:
+//
+//	Tier 1: AnswerDocumentV2 — per-bucket evidence count via
+//	    Buckets[].Anchors substring match in block.Text.
+//
+//	Tier 2: per-bucket prose word count proxy (longer prose →
+//	    more attention).
+//
+//	Tier 3: per-bucket EvidenceItem AnchorSymbol matches (original
+//	    Phase 2 fallback).
 type EntityParityValidator struct{}
 
 func (EntityParityValidator) Dimension() CompletionDimension { return DimensionEntityParity }
+func (EntityParityValidator) ViolationKind() types.ViolationKind {
+	return types.ViolEntityParityImbalanced
+}
 
 func (EntityParityValidator) Validate(input ValidatorInput) *CompletenessFailure {
 	if input.IR == nil {
@@ -422,7 +551,32 @@ func (EntityParityValidator) Validate(input ValidatorInput) *CompletenessFailure
 	if len(buckets) < 2 {
 		return nil
 	}
-	// Count evidence per bucket via anchor entity overlap.
+
+	// Tier 1: typed-block + anchor scan.
+	if input.AnswerDocumentV2 != nil {
+		counts := make([]int, len(buckets))
+		for _, blk := range input.AnswerDocumentV2.Blocks {
+			for i, b := range buckets {
+				for _, anchor := range b.Anchors {
+					a := strings.TrimSpace(anchor)
+					if a == "" {
+						continue
+					}
+					counts[i] += countOccurrencesCaseInsensitive(blk.Text, a)
+					for _, item := range blk.Items {
+						counts[i] += countOccurrencesCaseInsensitive(item.Label, a)
+						counts[i] += countOccurrencesCaseInsensitive(item.Text, a)
+					}
+				}
+			}
+		}
+		if !isLopsided(counts) {
+			return nil
+		}
+	}
+
+	// Tier 3 (and fallback for when V2 is nil or Tier 1 deemed lopsided —
+	// confirm via evidence pool before reporting).
 	counts := make([]int, len(buckets))
 	for _, ev := range input.EvidenceItems {
 		anchor := strings.ToLower(strings.TrimSpace(ev.AnchorSymbol))
@@ -430,14 +584,35 @@ func (EntityParityValidator) Validate(input ValidatorInput) *CompletenessFailure
 			continue
 		}
 		for i, b := range buckets {
+			matched := false
 			for _, e := range b.Anchors {
 				if strings.EqualFold(strings.TrimSpace(e), anchor) {
 					counts[i]++
+					matched = true
 					break
 				}
 			}
+			if matched {
+				break
+			}
 		}
 	}
+	if !isLopsided(counts) {
+		return nil
+	}
+
+	return &CompletenessFailure{
+		Dimension:     DimensionEntityParity,
+		ViolationKind: types.ViolEntityParityImbalanced,
+		Family:        types.QFComparison,
+		Reason:        "comparison buckets sampled with imbalanced evidence",
+		FixHint:       "This is a comparison question. The evidence is heavily skewed to one bucket; continue investigation to gather comparable evidence for the under-sampled bucket(s) so the comparison sides are equally well-grounded.",
+	}
+}
+
+// isLopsided reports whether the smallest count is below 50% of the
+// largest. Empty / all-zero counts return false (no signal).
+func isLopsided(counts []int) bool {
 	maxCount := 0
 	minCount := -1
 	for _, c := range counts {
@@ -449,28 +624,24 @@ func (EntityParityValidator) Validate(input ValidatorInput) *CompletenessFailure
 		}
 	}
 	if maxCount == 0 {
-		// No bucket-anchored evidence yet; defer to Tier 1.
-		return nil
+		return false
 	}
-	// Reject when smallest bucket is < 50% of largest.
-	if minCount*2 < maxCount {
-		return &CompletenessFailure{
-			Dimension: DimensionEntityParity,
-			Family:    types.QFComparison,
-			Reason:    "comparison buckets sampled with imbalanced evidence",
-			FixHint:   "This is a comparison question. The evidence is heavily skewed to one bucket; continue investigation to gather comparable evidence for the under-sampled bucket(s) so the comparison sides are equally well-grounded.",
-		}
+	return minCount*2 < maxCount
+}
+
+// countOccurrencesCaseInsensitive counts non-overlapping
+// case-insensitive occurrences of needle in haystack.
+func countOccurrencesCaseInsensitive(haystack, needle string) int {
+	if needle == "" || haystack == "" {
+		return 0
 	}
-	return nil
+	return strings.Count(strings.ToLower(haystack), strings.ToLower(needle))
 }
 
 // --- helpers ----------------------------------------------------
 
-// hasIntegerLiteral returns true when s contains a contiguous
-// digit run of length ≥ 1 surrounded by non-digit boundaries (so
-// "errno=22" matches "22" but a code path like "func256(" is
-// matched correctly too — we only need to detect "the output
-// contains a counted number"). Used by ScalarCountValidator.
+// hasIntegerLiteral returns true when s contains a digit somewhere.
+// Used by ScalarCountValidator for prose / Tier 2 / fallback.
 func hasIntegerLiteral(s string) bool {
 	for _, r := range s {
 		if r >= '0' && r <= '9' {
@@ -481,26 +652,15 @@ func hasIntegerLiteral(s string) bool {
 }
 
 // looksLikeFunctionSymbol returns true when s is a non-path
-// identifier-like token. Cross-language: Go / Java / Kotlin use
-// CamelCase / camelCase, Python / Rust / Lua use snake_case,
-// JS / TS use camelCase / PascalCase, C uses snake_case or
-// CamelCase, etc. We accept ANY token that:
-//   - is non-empty after trim
-//   - does not contain a path separator '/' (filters file paths)
-//   - does not look like a file extension (no leading "." that
-//     dominates the token)
-//   - has at least one alphabetic character (filters numeric-only)
-//
-// This is intentionally permissive — a false positive (counting a
-// non-function symbol toward path depth) is less harmful than a
-// false negative (missing an snake_case function name on a non-Go
-// repo). The depth threshold (entities + 3) gives breathing room.
+// identifier-like token. Cross-language: accepts CamelCase /
+// camelCase / PascalCase / snake_case / qualified forms; rejects
+// file paths and bare basenames ending in short lowercase
+// extensions.
 func looksLikeFunctionSymbol(s string) bool {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return false
 	}
-	// Strip leading "*" / "&" for receiver / pointer prefixes.
 	for len(s) > 0 && (s[0] == '*' || s[0] == '&') {
 		s = s[1:]
 	}
@@ -510,16 +670,9 @@ func looksLikeFunctionSymbol(s string) bool {
 	if strings.Contains(s, "/") {
 		return false
 	}
-	// Reject when the token is dominated by a file extension at the
-	// end — e.g. "main.go", "helper.py", "lib.rs". The "." may
-	// legitimately separate package from symbol ("pkg.Func"), so
-	// only reject when what's after the LAST dot looks like a
-	// 1-4-char extension and what's before is short.
 	if dotAt := strings.LastIndexByte(s, '.'); dotAt > 0 && dotAt < len(s)-1 {
 		ext := s[dotAt+1:]
 		if len(ext) <= 4 && allLowerLetters(ext) {
-			// Looks like ".go" / ".py" / ".rs" / ".java" / ".lua"
-			// — file basename, not a symbol.
 			return false
 		}
 	}
@@ -531,9 +684,6 @@ func looksLikeFunctionSymbol(s string) bool {
 	return false
 }
 
-// allLowerLetters returns true when every rune in s is a lowercase
-// ASCII letter. Used by looksLikeFunctionSymbol to identify file
-// extensions.
 func allLowerLetters(s string) bool {
 	if s == "" {
 		return false
@@ -546,28 +696,8 @@ func allLowerLetters(s string) bool {
 	return true
 }
 
-// hasConfigFileExtension returns true when path contains a
-// universal config-file extension. Cross-language: every ecosystem
-// uses one of these for declarative configuration. Substring match
-// rather than HasSuffix so paths like "codrax.yaml.example" or
-// "config.yml.j2" (template form) still resolve.
-func hasConfigFileExtension(path string) bool {
-	if path == "" {
-		return false
-	}
-	return strings.Contains(path, ".yaml") ||
-		strings.Contains(path, ".yml") ||
-		strings.Contains(path, ".toml") ||
-		strings.Contains(path, ".json") ||
-		strings.Contains(path, ".ini") ||
-		strings.Contains(path, ".properties") ||
-		strings.Contains(path, ".conf") ||
-		strings.Contains(path, ".cfg") ||
-		strings.Contains(path, ".env")
-}
-
-// itoa is a small ASCII int → string helper local to this file so
-// the validator failure messages don't pull in fmt for one Sprintf.
+// itoa is a small ASCII int → string helper used by validator
+// failure messages.
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

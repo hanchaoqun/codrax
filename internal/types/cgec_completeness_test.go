@@ -287,6 +287,15 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// 2026-05-08). Producer wired in
 		// orchestrator/contract_check.go runDeniedTokenAnswerCheck.
 		ViolDeniedTokenUndeclared: true,
+		// Phase 2.B Tier 2 ERM completeness violations (2026-05-09,
+		// docs/design/commercial_grade_3_pattern_remediation.md).
+		// Producers wired in
+		// orchestrator/orchestrator.go post-finalize hard gate via
+		// internal/agent/erm_completeness.go answer-aware validators.
+		ViolScalarCountUnsourced:   true,
+		ViolPathDepthInsufficient:  true,
+		ViolCardinalityShort:       true,
+		ViolEntityParityImbalanced: true,
 	}
 	pending := map[ViolationKind]string{
 		ViolFamilyMismatch:                 "P9-C-retired-V1-checkShape (V2 block oracles cover read-mode block contract via runV2BlockOracles)",
@@ -299,14 +308,6 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolPredicateAxisMissing:           "B8-T4-retired-V1-predicate-axis-oracle",
 		ViolStepIdentifierUnverified:       "B8-T4-retired-V1-step-identifier-oracle",
 		ViolValueSecondaryCitationOffFocus: "B8-T4-retired-V1-value-secondary-citation-oracle",
-		// Phase 2.B Tier 2 ERM completeness — registered in this commit
-		// (2B.1-2B.4); producers wired by the post-finalize hard-gate
-		// commit (2B.10). Move from pending → covered when the
-		// orchestrator integration lands.
-		ViolScalarCountUnsourced:   "phase2b-tier2-completeness-pending-orchestrator-wireup",
-		ViolPathDepthInsufficient:  "phase2b-tier2-completeness-pending-orchestrator-wireup",
-		ViolCardinalityShort:       "phase2b-tier2-completeness-pending-orchestrator-wireup",
-		ViolEntityParityImbalanced: "phase2b-tier2-completeness-pending-orchestrator-wireup",
 	}
 	// Sanity: AllViolationKinds() must equal covered ∪ pending so the
 	// test itself catches a new kind added to the enum.

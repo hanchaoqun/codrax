@@ -414,11 +414,6 @@ func dimensionUserLabel(lang string, dim agent.CompletionDimension) string {
 			return "调用链覆盖"
 		}
 		return "call-chain coverage"
-	case agent.DimensionLayerDepth:
-		if zh {
-			return "配置层级覆盖"
-		}
-		return "configuration-layer coverage"
 	case agent.DimensionEntityParity:
 		if zh {
 			return "对比平衡"

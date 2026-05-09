@@ -3702,41 +3702,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			lastFallbackFinalizerOnly = false
 		}
 
-		// Phase 2 Tier 2 ERM completeness check (advisory).
-		// Per-question-family CompletenessValidators run at finalize
-		// entry to surface structural-coverage gaps the Tier 1 breadth
-		// heuristic misses (count question without exec_command output,
-		// call-chain answer with too few function mentions, config
-		// precedence missing a layer, ...). Failures are logged and
-		// surfaced through a soft notice; finalize still proceeds so
-		// the user gets an answer, but the LLM sees the FixHint in the
-		// finalize prompt via Mutable.SetTier2CompletenessHint and can
-		// route around the gap. See
-		// docs/design/commercial_grade_3_pattern_remediation.md Phase 2.
-		if o.busCtx.AnalysisIR != nil && o.busCtx.Mutable != nil {
-			view := types.BuildAnswerSemanticView(o.busCtx.AnalysisIR, nil)
-			if view != nil {
-				input := agent.ValidatorInput{
-					IR:            o.busCtx.AnalysisIR,
-					EvidenceItems: o.busCtx.EvidenceItems,
-					AnswerSymbols: o.busCtx.AnswerSymbols,
-					ToolResults:   o.busCtx.ToolResults,
-					RepoFacts:     o.busCtx.RepoFacts,
-				}
-				if fail := agent.RunFamilyValidators(view.Family, input); fail != nil {
-					logging.Warning("[orchestrator] Tier 2 completeness check %s/%s failed: %s",
-						view.Family, fail.Dimension, fail.Reason)
-					o.busCtx.Mutable.SetTier2CompletenessHint(fail.FixHint)
-					o.emit(render.Event{
-						Kind:       render.EventOrchestratorNotice,
-						Timestamp:  time.Now(),
-						Agent:      "orchestrator",
-						NoticeKind: render.NoticeFinalizing,
-						Reasoning:  softCompletenessGapMessage(o.busCtx.Language, fail),
-					})
-				}
-			}
-		}
+		// Phase 2.B Tier 2 ERM completeness hard gate runs
+		// AFTER finalize composes the answer, not here pre-finalize.
+		// See the post-finalize hook below (after runContractCheck +
+		// ComputeRootCauseClosure) for the new wire-up. The previous
+		// Phase 2 pre-finalize advisory was retired in favour of
+		// post-finalize hard-gate enforcement so failures flow into
+		// the existing violation→retry→caveat machinery.
 
 		state.markRunning(fin.ID)
 		o.emitNodeStart(fin.ID)
@@ -3860,6 +3832,119 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// surfaces honour the IsDerived flag.
 		if len(res.Violations) > 0 {
 			res.Violations = ComputeRootCauseClosure(res.Violations)
+		}
+
+		// Phase 2.B Tier 2 ERM completeness hard gate (post-finalize,
+		// answer-aware). Runs AFTER finalize composes the
+		// AnswerDocumentV2 + AFTER contract violations have been
+		// computed and root-cause-collapsed. The validators read
+		// AnswerDocumentV2 (typed blocks first, prose second,
+		// evidence pool fallback) to detect structural-coverage gaps
+		// the Tier 1 breadth heuristic missed. Failures append a
+		// typed Violation to the contract result; the existing
+		// retry / FallbackTarget / caveat machinery handles the
+		// rest (per-kind retry budget bounds the loop, exhausted
+		// budget routes to AppendUserCaveatsToAnswer for graceful
+		// degradation).
+		//
+		// Why post-finalize (not pre-finalize like Phase 2 advisory
+		// was): the pre-finalize signal couldn't see the LLM's
+		// actually-composed answer, only the evidence pool. An
+		// answer that successfully routed around the gap (e.g.
+		// LLM ran exec_command in mid-explore even though the
+		// evidence projection didn't carry the result) would still
+		// fire the gate. Post-finalize answer-aware validation is
+		// false-positive safe — it only fires when the COMPOSED
+		// ANSWER has the gap. See
+		// docs/design/commercial_grade_3_pattern_remediation.md
+		// Phase 2.B for the full design rationale.
+		if o.busCtx.AnalysisIR != nil && o.busCtx.Mutable != nil {
+			view := types.BuildAnswerSemanticView(o.busCtx.AnalysisIR, nil)
+			if view != nil {
+				input := agent.ValidatorInput{
+					IR:               o.busCtx.AnalysisIR,
+					EvidenceItems:    o.busCtx.EvidenceItems,
+					AnswerSymbols:    o.busCtx.AnswerSymbols,
+					ToolResults:      o.busCtx.ToolResults,
+					RepoFacts:        o.busCtx.RepoFacts,
+					AnswerDocumentV2: o.busCtx.Mutable.AnswerDocumentV2(),
+				}
+				if fail := agent.RunFamilyValidators(view.Family, input); fail != nil {
+					logging.Warning("[orchestrator] Tier 2 hard-gate %s/%s emits Violation: %s",
+						view.Family, fail.Dimension, fail.Reason)
+					o.busCtx.Mutable.SetTier2CompletenessHint(fail.FixHint)
+					// Append a typed Violation. The literal-Kind
+					// switch (rather than fail.ViolationKind) is
+					// required by TestAllViolationKindsHaveProducer
+					// which grep-pins producer sites by matching
+					// `Kind: ViolXxx` literals — variable refs are
+					// invisible to the pin. The validator's
+					// ViolationKind() return MUST match the constant
+					// chosen here, enforced by the test below the
+					// switch.
+					var v types.Violation
+					switch fail.Dimension {
+					case agent.DimensionScalarCount:
+						v = types.Violation{
+							Kind:       types.ViolScalarCountUnsourced,
+							Stage:      string(types.StageFinalize),
+							ClusterKey: "tier2/scalar_count",
+							Detail:     fail.Reason,
+							Repair:     fail.FixHint,
+						}
+					case agent.DimensionPathDepth:
+						v = types.Violation{
+							Kind:       types.ViolPathDepthInsufficient,
+							Stage:      string(types.StageFinalize),
+							ClusterKey: "tier2/path_depth",
+							Detail:     fail.Reason,
+							Repair:     fail.FixHint,
+						}
+					case agent.DimensionCardinality:
+						v = types.Violation{
+							Kind:       types.ViolCardinalityShort,
+							Stage:      string(types.StageFinalize),
+							ClusterKey: "tier2/cardinality",
+							Detail:     fail.Reason,
+							Repair:     fail.FixHint,
+						}
+					case agent.DimensionEntityParity:
+						v = types.Violation{
+							Kind:       types.ViolEntityParityImbalanced,
+							Stage:      string(types.StageFinalize),
+							ClusterKey: "tier2/entity_parity",
+							Detail:     fail.Reason,
+							Repair:     fail.FixHint,
+						}
+					default:
+						// Unknown dimension — defer to the
+						// validator's declared kind (kept in sync
+						// by validator design).
+						v = types.Violation{
+							Kind:       fail.ViolationKind,
+							Stage:      string(types.StageFinalize),
+							ClusterKey: "tier2/" + string(fail.Dimension),
+							Detail:     fail.Reason,
+							Repair:     fail.FixHint,
+						}
+					}
+					res.Violations = append(res.Violations, v)
+					// Re-run root-cause closure with the new
+					// violation so IsDerived / RootKind classifiers
+					// are consistent across the full set.
+					res.Violations = ComputeRootCauseClosure(res.Violations)
+					// The result is no longer "passed" if a Tier 2
+					// violation was added.
+					res.Passed = false
+					o.emit(render.Event{
+						Kind:       render.EventOrchestratorNotice,
+						Timestamp:  time.Now(),
+						Agent:      "orchestrator",
+						NoticeKind: render.NoticeRetry,
+						Reasoning:  softCompletenessGapMessage(o.busCtx.Language, fail),
+					})
+				}
+			}
 		}
 
 		if res.Passed {

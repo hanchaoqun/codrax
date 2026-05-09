@@ -232,87 +232,14 @@ func TestPathDepthValidator(t *testing.T) {
 	})
 }
 
-// TestLayerDepthValidator pins config-precedence three-layer coverage.
-func TestLayerDepthValidator(t *testing.T) {
-	t.Run("all_three_layers_passes", func(t *testing.T) {
-		v := LayerDepthValidator{}
-		input := ValidatorInput{
-			IR: &types.AnalysisIR{},
-			EvidenceItems: []types.EvidenceItem{
-				{DiagramRole: types.EvidenceDiagramRoleDefault},
-				{DiagramRole: types.EvidenceDiagramRoleConfig},
-				{DiagramRole: types.EvidenceDiagramRoleOverride},
-			},
-		}
-		if fail := v.Validate(input); fail != nil {
-			t.Errorf("must pass when all 3 layers present; got %+v", fail)
-		}
-	})
-
-	t.Run("missing_cli_layer_fails", func(t *testing.T) {
-		v := LayerDepthValidator{}
-		input := ValidatorInput{
-			IR: &types.AnalysisIR{},
-			EvidenceItems: []types.EvidenceItem{
-				{DiagramRole: types.EvidenceDiagramRoleDefault},
-				{DiagramRole: types.EvidenceDiagramRoleConfig},
-			},
-		}
-		fail := v.Validate(input)
-		if fail == nil {
-			t.Fatal("must fail when CLI layer missing")
-		}
-		if len(fail.MissingTokens) == 0 {
-			t.Error("MissingTokens must list the missing layer")
-		}
-		assertR6CleanFixHint(t, fail.FixHint)
-	})
-
-	t.Run("path_heuristic_yaml_satisfies_config_only_typed_role_for_others", func(t *testing.T) {
-		// Only universal config-file extensions (yaml/toml/json/...)
-		// are detected via path. Default-struct and CLI-override
-		// layers must come from typed DiagramRole because their
-		// paths vary per language ecosystem (Go cmd/root.go vs
-		// Python cli/main.py vs Java src/main/Cli.java vs Rust
-		// src/bin/...). Mix DiagramRole for default+CLI with path
-		// heuristic for config.
-		v := LayerDepthValidator{}
-		input := ValidatorInput{
-			IR: &types.AnalysisIR{},
-			EvidenceItems: []types.EvidenceItem{
-				{DiagramRole: types.EvidenceDiagramRoleDefault, Source: "src/types.rs"}, // default
-				{Source: "config/app.yaml"},                                              // config (path)
-				{DiagramRole: types.EvidenceDiagramRoleOverride, Source: "src/cli.py"},  // CLI
-			},
-		}
-		if fail := v.Validate(input); fail != nil {
-			t.Errorf("typed-DiagramRole + universal-extension must satisfy 3 layers; got %+v", fail)
-		}
-	})
-
-	t.Run("path_heuristic_does_not_use_project_specific_keywords", func(t *testing.T) {
-		// Regression guard against project-specific path keywords.
-		// A non-Go project naming a file "config.go" wouldn't make
-		// sense — but a Python project naming "default_config.py"
-		// or Java "DefaultConfig.java" should NOT be auto-classified
-		// as default-struct based on filename alone. The validator
-		// must rely on typed DiagramRole for default + CLI layers.
-		v := LayerDepthValidator{}
-		input := ValidatorInput{
-			IR: &types.AnalysisIR{},
-			EvidenceItems: []types.EvidenceItem{
-				{Source: "internal/types/config.go"},  // would have been "default" via removed kw
-				{Source: "codrax.yaml.example"},        // config (legit, via .yaml extension)
-				{Source: "cmd/root.go"},                // would have been "CLI" via removed kw
-			},
-		}
-		// Without typed DiagramRole, only the .yaml file resolves;
-		// missing default + CLI → must FAIL.
-		if fail := v.Validate(input); fail == nil {
-			t.Error("path-only Go-specific keywords must not satisfy default/CLI layers (cross-project portability)")
-		}
-	})
-}
+// LayerDepthValidator was removed in Phase 2.B (2026-05-09) — its
+// hard-coded 3-layer assumption (default / config-file / CLI override)
+// was codrax-specific and would over-fire on projects with different
+// configuration shapes (Spring Boot N profiles + env + cmdline,
+// Kubernetes ConfigMap + Secret + env + volumeMount, remote config
+// stores, etc.). Layer disclosure is now LLM-trusted via the typed
+// MissingRequestedRoles slot + the CONFIG PRECEDENCE skill prompt rule.
+// See docs/design/commercial_grade_3_pattern_remediation.md Phase 2.B.
 
 // TestEntityParityValidator pins comparison bucket-balance contract.
 func TestEntityParityValidator(t *testing.T) {
@@ -396,10 +323,13 @@ func TestRunFamilyValidators_RoutingPerFamily(t *testing.T) {
 			wantNValids: 1,
 		},
 		{
-			name:   "qf_config_precedence_routes_layer_validator",
-			family: types.QFConfigPrecedence,
-			ir:     &types.AnalysisIR{},
-			wantNValids: 1,
+			// LayerDepthValidator was REMOVED in Phase 2.B
+			// (codrax-specific 3-layer assumption); QFConfigPrecedence
+			// now relies on the LLM's MissingRequestedRoles typed slot.
+			name:        "qf_config_precedence_no_validators_after_layer_depth_removal",
+			family:      types.QFConfigPrecedence,
+			ir:          &types.AnalysisIR{},
+			wantNValids: 0,
 		},
 	}
 	for _, c := range cases {

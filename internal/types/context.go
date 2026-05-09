@@ -516,6 +516,7 @@ type MutableState struct {
 	// terms. Empty when no Tier 2 gap was detected.
 	tier2CompletenessHint string
 
+
 	// unvalidatedReasons collects per-language static-check stages
 	// that were skipped because their toolchain was unavailable
 	// (e.g. "rust:cargo not in PATH"). emit_change_plan's dry-
@@ -1001,6 +1002,14 @@ func (m *MutableState) Tier2CompletenessHint() string {
 	defer m.mu.RUnlock()
 	return m.tier2CompletenessHint
 }
+
+// Phase 2.B Tier 2 retry budgeting is delegated to the existing
+// per-ViolationKind retry machinery (state.retryUsedForKind) — no
+// dedicated counter on MutableState is needed. The post-finalize
+// hard gate emits a typed Violation (ViolScalarCountUnsourced /
+// ViolPathDepthInsufficient / ViolCardinalityShort /
+// ViolEntityParityImbalanced) and the existing retry budget bounds
+// the loop just like any other contract violation.
 
 // SetLogSegments stores the opaque JSON-marshalled segment payload
 // produced by the two-step segmentation tool. The bytes are copied

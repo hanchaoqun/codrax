@@ -322,6 +322,19 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// denied token + the upstream gate class (external_log_frame_unresolved
 	// etc.) verbatim so the generic composer fallback pairs naturally.
 	types.ViolDeniedTokenUndeclared: "uses violation.Repair for fix prose (validator stamps offending denied token + upstream gate class)",
+
+	// Phase 2.B Tier 2 ERM completeness violations (2026-05-09).
+	// Each validator's CompletenessFailure.FixHint is set as
+	// violation.Repair at the producer site
+	// (orchestrator.go post-finalize hard gate). The hint already
+	// contains LLM-natural, R6-clean prose tailored to the specific
+	// dimension — generic composer fallback (which uses
+	// violation.Repair verbatim) is the right behaviour. No
+	// dedicated summariseExactFix case needed.
+	types.ViolScalarCountUnsourced:   "uses violation.Repair for fix prose (validator stamps deterministic-tool guidance)",
+	types.ViolPathDepthInsufficient:  "uses violation.Repair for fix prose (validator stamps entry/mid/exit coverage guidance)",
+	types.ViolCardinalityShort:       "uses violation.Repair for fix prose (validator stamps declared-count gap guidance)",
+	types.ViolEntityParityImbalanced: "uses violation.Repair for fix prose (validator stamps comparison-balance guidance)",
 }
 
 // TestComposer_AllViolationKindsHaveCase enforces P34's
