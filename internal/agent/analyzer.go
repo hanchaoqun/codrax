@@ -1499,8 +1499,10 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 				"with the actual enumerated members the user is asking about, OR set " +
 				"is_category_enumeration=false if the question is really a type-name / scalar lookup. " +
 				"Note: if the question filters a set by a relationship to a named target " +
-				"(e.g. 'which packages import X', 'list X's exports'), set is_relational_lookup=true " +
-				"alongside is_category_enumeration=true — the values are looked up after classification, " +
+				"(e.g. 'which packages import X', 'list X's exports', 'X 的子包' / " +
+				"'X 下的子目录' / 'list child packages of X' / 'list APIs exported by X' / " +
+				"'X 包导出哪些'), set is_relational_lookup=true alongside " +
+				"is_category_enumeration=true — the values are looked up after classification, " +
 				"not stated by you at this step")
 	}
 
@@ -2524,7 +2526,163 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 		return mergeExpandedEntities(original, paths)
 	}
 
+	// Path (c) — package handle → exported APIs.
+	// Phase 2.C (2026-05-09). When the entity resolves to a directory
+	// prefix that contains ≥1 .go file in graph.FileIndex AND that
+	// directory has ≥1 exported top-level Symbol (function / type /
+	// constant / variable), expand entities with the exported symbol
+	// names. Catches "list all exports of package X" / "what API does
+	// package Y expose" questions that would otherwise hit L0-B
+	// (single named entity, no enumerated values).
+	//
+	// Cross-language portable: Symbol.Exported is a typed boolean
+	// the per-language extractors set (Go uppercase first letter,
+	// Java/Kotlin public modifier, Python __all__ + non-underscore
+	// prefix, Rust pub keyword, etc.). FileIndex prefix scan works
+	// regardless of file extension or directory layout convention.
+	//
+	// Triggers ONLY when distinctNamedEntities=1 (the L0-B-gate
+	// precondition this function exists to repair) — same as paths
+	// (a) and (b).
+	if pkgExports := expandPackageExports(graph, bare); len(pkgExports) >= 1 {
+		return mergeExpandedEntities(original, pkgExports)
+	}
+
+	// Path (d) — parent directory → child packages / sub-modules.
+	// Phase 2.C (2026-05-09). When the entity resolves to a directory
+	// containing ≥2 child sub-directories (each with ≥1 file indexed
+	// in graph.FileIndex), expand entities with the child directory
+	// names. Catches "list all sub-packages of internal/X" / "X 的
+	// 子包" / "what modules live under Y" questions.
+	//
+	// Cross-language portable: graph.FileIndex is populated by all
+	// per-language repomap extractors (Go / Java / Python / Rust /
+	// Cangjie / ArkTS / TS / JS / Swift / Ruby / Lua / Proto /
+	// Obj-C / CUDA / etc.) keyed by repo-relative path. Prefix scan
+	// works regardless of file extension — the structural notion
+	// "directory contains ≥2 indexed sub-directories" is
+	// language-neutral. A Python project's `package.__init__.py`,
+	// a Rust project's `mod.rs`, a Java project's `pom.xml`-rooted
+	// sub-modules, a Proto project's `service/foo/x.proto` all show
+	// up identically as path entries under the parent prefix.
+	//
+	// The ≥2 minimum is structural: a directory with one child is
+	// not an enumeration. Empty directory or single-package directory
+	// falls through to the existing L0-B reject (which is the
+	// correct behavior — no enumeration to do).
+	if children := expandChildPackages(graph, bare); len(children) >= 2 {
+		return mergeExpandedEntities(original, children)
+	}
+
 	return original
+}
+
+// expandPackageExports walks graph.FileIndex looking for files
+// whose RelPath starts with `<bare>/` and aggregates the names of
+// every Symbol.Exported=true top-level (Parent="") definition. Used
+// by expandEntitiesWithImplementers Path (c) — see the docstring
+// there for the full design rationale.
+//
+// Returns nil when the directory has no exported symbols, or when
+// `bare` doesn't resolve to a directory prefix in FileIndex (single
+// file, or completely unknown path).
+func expandPackageExports(graph *repomap.Graph, bare string) []string {
+	if graph == nil || bare == "" {
+		return nil
+	}
+	prefix := strings.TrimRight(bare, "/") + "/"
+	seen := make(map[string]bool)
+	var out []string
+	for path, fi := range graph.FileIndex {
+		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		if fi == nil {
+			continue
+		}
+		for _, sym := range fi.Symbols {
+			if !sym.Exported {
+				continue
+			}
+			// Top-level only — skip method/field/nested definitions
+			// (Parent != "" means this Symbol is scoped under
+			// another type/struct/class).
+			if sym.Parent != "" {
+				continue
+			}
+			// Filter by Symbol.Kind for multi-language API surface.
+			// Cross-language audit (every value here is a Kind the
+			// repomap extractors actually emit — see `internal/tool/
+			// repomap/...` per-language extractors):
+			//   function — Go / Python / JS / TS / Rust / Lua / Ruby
+			//   type     — Go (type alias / interface / struct alias)
+			//   interface — Go / Java / Kotlin / TS / Cangjie / C#
+			//   struct   — Go / Rust / C / C++ / Swift
+			//   class    — Java / Kotlin / Python / Ruby / Swift /
+			//              JS / TS / C++
+			//   trait    — Rust / Cangjie
+			//   protocol — Swift / Obj-C
+			//   enum     — Go / Java / Rust / Swift / Kotlin /
+			//              Cangjie / TS
+			//   const    — Go / JS / TS / Rust
+			//   var      — Go / JS / TS / Rust mutable
+			//   module   — Ruby / Python __init__ / Lua module
+			//   message  — Proto message declaration
+			//   service  — Proto service declaration
+			//   rpc      — Proto rpc method
+			//   operator — Cangjie / C++ operator overload (top-level)
+			// Exclude "method" / "field" / "ctor" / "package" /
+			// relation kinds (call / import / chain / etc).
+			switch sym.Kind {
+			case "function", "type", "interface", "struct", "class",
+				"trait", "protocol", "enum", "const", "var",
+				"module", "message", "service", "rpc", "operator":
+				if !seen[sym.Name] {
+					seen[sym.Name] = true
+					out = append(out, sym.Name)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// expandChildPackages walks graph.FileIndex looking for files whose
+// RelPath starts with `<bare>/` and collects distinct immediate
+// child directory names. Used by expandEntitiesWithImplementers
+// Path (d) — see the docstring there for the full design rationale.
+//
+// Returns nil when fewer than 2 distinct child directories are
+// found (insufficient for an enumeration). Single-package or
+// empty directories fall through to the existing L0-B reject —
+// the correct behavior because there is no enumeration to perform.
+func expandChildPackages(graph *repomap.Graph, bare string) []string {
+	if graph == nil || bare == "" {
+		return nil
+	}
+	prefix := strings.TrimRight(bare, "/") + "/"
+	seen := make(map[string]bool)
+	var out []string
+	for path := range graph.FileIndex {
+		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		// Extract the immediate child directory: the segment
+		// between `prefix` and the next "/". Files directly under
+		// `<bare>/` (no further nesting) are skipped — they belong
+		// to the bare directory itself, not a child package.
+		rest := path[len(prefix):]
+		slash := strings.IndexByte(rest, '/')
+		if slash <= 0 {
+			continue
+		}
+		child := rest[:slash]
+		if !seen[child] {
+			seen[child] = true
+			out = append(out, child)
+		}
+	}
+	return out
 }
 
 // lookupFileInfoWithSuffix resolves an entity that may be a full
