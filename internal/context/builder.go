@@ -1078,32 +1078,39 @@ type Message struct {
 // racing against parallel sub-agents over the shared state. The
 // SubAgentReducer is the single point at which sub-agent results
 // re-enter the parent's state.
+// BuildSubAgentContext narrows the parent BusContext into a child
+// AgentContext for sub-agent dispatch. The bulk of the typed-signal
+// propagation (MultiGraph / TypedDenials / PendingSubRepos / Memory /
+// Ctx / EnvFacts / EnvRecommendSettings) lives in
+// types.SubAgentContext — the single canonical narrowing helper. This
+// function then layers the per-sub-agent scope filtering on top:
+// RepoFacts / EvidenceItems / FlowFindings / ToolResults / MCPResponses
+// are stage-scoped artifacts the parent has accumulated; the sub-agent
+// receives only the slice that overlaps its declared scope.
+//
+// Mutable is intentionally DROPPED by types.SubAgentContext so the
+// sub-agent cannot mutate parent state. The repomap SearchGraph
+// pointer (read-only) is propagated separately via Mutable.SearchGraph
+// so the sub-agent doesn't pay a BuildOrLoadGraph round-trip on every
+// dispatch.
 func BuildSubAgentContext(bus *types.BusContext, req *types.SubAgentRequest) *types.AgentContext {
-	ac := &types.AgentContext{
-		AgentName:    types.AgentName(req.SubAgent),
-		Stage:        bus.PipelineStage,
-		Objective:    req.Objective,
-		Constraints:  append(append([]string{}, req.Scope...), req.Constraints...),
-		MissingPiece: bus.TaskState.Missing,
-		RepoRoot:     bus.RepoRoot,
-		Branch:       bus.Branch,
-		Commit:       bus.Commit,
-		WorkDir:      bus.WorkDir,
-	}
+	ac := types.SubAgentContext(bus, req)
 
-	// Shared read from BusContext
-	ac.RelevantFacts = extractRelevantFacts(bus.RepoFacts)
-	ac.RelevantFiles = filterFilesByScope(bus.RepoFacts, req.Scope)
-	ac.EvidenceItems = filterEvidenceItemsByScope(bus.EvidenceItems, req.Scope)
-	ac.FlowFindings = filterFlowFindingsByEvidence(ac.EvidenceItems, bus.FlowFindings)
-	ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
-	ac.RelevantMCPNotes = extractMCPNotes(bus.MCPResponses)
-	// Propagate the graph handle — Mutable is intentionally not
-	// aliased for sub-agents (they must not mutate parent state), but
-	// the repomap graph is a read-only pointer and reusing it spares
-	// every sub-agent a BuildOrLoadGraph round-trip.
-	if bus.Mutable != nil {
-		ac.SearchGraph = bus.Mutable.SearchGraph()
+	// Per-sub-agent scope filtering. Parent BusContext carries full
+	// stage artifact lists; project them down to what the sub-agent
+	// declared as its scope.
+	if bus != nil {
+		ac.RelevantFacts = extractRelevantFacts(bus.RepoFacts)
+		ac.RelevantFiles = filterFilesByScope(bus.RepoFacts, req.Scope)
+		ac.EvidenceItems = filterEvidenceItemsByScope(bus.EvidenceItems, req.Scope)
+		ac.FlowFindings = filterFlowFindingsByEvidence(ac.EvidenceItems, bus.FlowFindings)
+		ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
+		ac.RelevantMCPNotes = extractMCPNotes(bus.MCPResponses)
+		// SearchGraph is the only Mutable-derived state propagated to
+		// sub-agents — read-only graph handle, no mutation surface.
+		if bus.Mutable != nil {
+			ac.SearchGraph = bus.Mutable.SearchGraph()
+		}
 	}
 
 	return ac

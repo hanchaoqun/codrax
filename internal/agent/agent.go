@@ -1803,32 +1803,27 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	return nil, nil
 }
 
+// buildToolBusContext narrows the agent's AgentContext into a
+// BusContext for tool dispatch. Delegates to types.ToolBusContext
+// (the single canonical narrowing helper) so every typed signal —
+// MultiGraph / TypedDenials / PendingSubRepos / Memory / Ctx etc. —
+// propagates automatically. Adding a new typed signal to AgentContext
+// requires updating types.ToolBusContext + the
+// projectionTypedSignalFields list, after which every narrowing site
+// inherits the change.
+//
+// activeName falls back to the agent's own name when the AgentContext
+// has no AgentName set — preserves the pre-projection behavior where
+// the dispatch site stamped the active agent identity.
 func (b *BaseAgent) buildToolBusContext(ctx *types.AgentContext) *types.BusContext {
-	if ctx == nil {
-		return &types.BusContext{}
+	active := types.AgentName("")
+	if ctx != nil {
+		active = ctx.AgentName
 	}
-	active := ctx.AgentName
 	if active == "" {
 		active = b.name
 	}
-	return &types.BusContext{
-		Mutable:              ctx.Mutable,
-		PipelineStage:        ctx.Stage,
-		ActiveAgent:          active,
-		RepoRoot:             ctx.RepoRoot,
-		Branch:               ctx.Branch,
-		Commit:               ctx.Commit,
-		WorkDir:              ctx.WorkDir,
-		MainRepoRoot:         ctx.MainRepoRoot,
-		AnalysisIR:           ctx.AnalysisIR,
-		AttachedLog:          ctx.AttachedLog,
-		AttachedHitrace:      ctx.AttachedHitrace,
-		Memory:               ctx.Memory,
-		EnvFacts:             ctx.EnvFacts,
-		EnvRecommendSettings: ctx.EnvRecommendSettings,
-		Language:             ctx.Language,
-		Preferences:          ctx.Preferences,
-	}
+	return types.ToolBusContext(ctx, active)
 }
 
 // canParallelizeToolBatch returns true when all tool calls in the
