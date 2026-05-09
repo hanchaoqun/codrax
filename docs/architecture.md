@@ -1016,6 +1016,31 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 把 edge 的语�
 
 violation 集中在 `internal/types/violation.go::ViolationKind` enum 里注册。每个 ViolationKind 还能挂 `ViolKindSpec.SchemaDescriptionFragment`——LLM-facing prose——auto-injected 到 answer-document tool prompt，让 LLM 在第一次 emit 之前就看到约束，而不是 emit 完才知道哪里不合规。
 
+### 6.6.1 Tier 2 答案完整性 hard gate（post-finalize, answer-aware）
+
+> *像出版社的"终审"：编辑（finalize）写完稿子后，主编看的不是用了多少素材（breadth），而是稿子本身有没有把承诺过的维度都讲清楚——许诺给一个数字的稿子里得有数字、许诺一条调用链的稿子得讲到首末两端、许诺三层配置的稿子得三层都到。每条维度的检查只读稿子和素材库的 typed 字段（block.kind / Items / Citations），不去文字里"猜意思"——读得着才说话，读不着就不说话。终审过则发稿；终审不过且预算还有剩，退给编辑改一轮；预算用完则在稿尾贴一段"系统注记"告诉读者哪一维度可能不全。*
+
+`internal/agent/erm_completeness.go` 的 4 个 `CompletenessValidator` 在 finalize 完成 + contract violations 完成 root-cause closure 之后跑（`internal/orchestrator/orchestrator.go:3837` 上面的 post-finalize 钩子）。每个 validator 读 `ValidatorInput`（含 IR / EvidenceItems / AnswerSymbols / ToolResults / **AnswerDocumentV2**），按 3-tier 输入精度选最高可用信号判定，命中失败则向 `contract.Result.Violations` 追加一条 typed Violation，剩余流程（FallbackTarget / RetryBudget / AppendUserCaveatsToAnswer）按既有合约违规一致处理。
+
+**4 个维度 + ViolKind**：
+
+| Dimension | 适用问题 | Tier 1 typed 信号（最高精度）| Tier 2 prose fallback | Tier 3 evidence-pool fallback | ViolKind |
+|---|---|---|---|---|---|
+| `scalar_count` | `IsCountQuestion=true`(任意 family)| `BlockScalar` block 含整数 + ToolResults 有成功 `exec_command` 整数输出 | 任意 block.Text 含整数 + 同上 | 仅 ToolResults 有 `exec_command` 整数 | `ViolScalarCountUnsourced` |
+| `path_depth` | `QFCallChain`(>=2 命名实体) | `BlockOrderedList` Items + `EdgeAnchors.FromNode/ToNode` 函数符号去重 ≥ entities+3 | 全 block 文本扫 identifier-shaped tokens | EvidenceItem.AnchorSymbol 函数符号去重 | `ViolPathDepthInsufficient` |
+| `cardinality` | `QFEnumeration` 且 `EnumerationBoundary.DeclaredCount > 0` | `BlockBulletList`/`BlockOrderedList` Items 总数 ≥ DeclaredCount | block 文本 markdown list-item regex 计数 | len(AnswerSymbols) | `ViolCardinalityShort` |
+| `entity_parity` | `QFComparison`(≥2 buckets)| 各 bucket Anchor 在 block 文本 substring 计数 min ≥ max/2 | (内置于 Tier 1 prose 扫描)| EvidenceItem.AnchorSymbol per-bucket 计数 | `ViolEntityParityImbalanced` |
+
+**为什么 answer-aware（不是 evidence-only 的 pre-finalize advisory）**:pre-finalize 只能看 evidence 池而看不到答案——LLM 可能在 mid-explore 跑过 `exec_command` 但 ToolResults 投影丢了它，或 LLM 的答案本身已经把缺失的维度自然覆盖（例如把 `MissingRequestedRoles` 信息 inline 进 Summary）。post-finalize answer-aware 直接读 *已组装的答案*：答案里数字真有 + 来源真是工具 → Tier 1 命中 → 不 fire；答案缺失 → fire。**false-positive 安全**——只在答案*确实*缺维度时触发。
+
+**LayerDepth 维度被刻意丢弃**(2026-05-09 可移植性审计):原设计的"必须 3 层(default / config-file / CLI override)"是 codrax 自己的 config-precedence 模型,但其它项目场景层数不一(Spring Boot 多 profile + env + cmdline / Kubernetes ConfigMap+Secret+env+volume / 远程配置中心 / 静态前端零配置...)。LLM 已通过 `AnswerDocumentV2.MissingRequestedRoles` typed 槽自然披露缺失层,加 explorer skill 的 `CONFIG PRECEDENCE` 规则给出抽象指引(prompt P2.9),无需 system-side 硬卡。
+
+**双层 ERM 关系**:Tier 1（`internal/agent/explorer_erm.go` 的 breadth heuristic）让 explorer 知道何时停止采证（≥2/3 evidence items per family）；Tier 2（本节）让 finalize 知道答案是否真覆盖了维度。两层正交——explorer 可能 Tier 1 满足后停下而 Tier 2 fail（s7b/s8a 经典形态），retry 把 LLM 拉回 explore/extract 重新采证或重新组答。
+
+**Caveat 模板**:每个 ViolKind 在 `internal/types/violation_registry.go` 挂一个 `CaveatFamilyTier2*` 模板(EN+ZH),Retry 预算耗尽时由 `AppendUserCaveatsToAnswer`(`internal/orchestrator/repair_caveat_materializer.go:110`)写到答案末尾"补充说明"段告知用户系统检测到的覆盖 gap。模板项目可移植——不引用 Unix 工具名(`grep -c` / `wc -l` 这类只在 explorer skill 提示里给 LLM 用作具体例子,user-facing caveat 是抽象的"可靠的计数命令")、不假设固定层数。
+
+**R3 红线合规**:hard gate 全部读 typed 信号（IsCountQuestion bool / DeclaredCount int / Family enum / BlockKind enum / DiagramRole enum / DiagramEdgeAnchor.FromNode/ToNode 字符串字段），不靠关键词匹配；soft 引导（skill prompt 的 `COUNT QUESTIONS` / `CALL-CHAIN COVERAGE` / `CONFIG PRECEDENCE`）走 LLM-natural 散文，二者不混。
+
 ### 6.7 ClaimForm / SurfaceRole / AnswerBlockItem
 
 > *ClaimForm 像论文里的"引用类型"：直接引文（definition_fact）、调用关系（call_edge）、条件断言（guard_condition）、外部观察（external_observation）等。每条引用必须声明自己属于哪类，验证时按对应规则核对——直接引文要求引文行真含目标字符串，调用关系要求两端是真实函数。SurfaceRole 像论文段落"主体段 / 引言 / 注脚"标签：principal 是主体段，验证最严；其他是辅助。*

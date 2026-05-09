@@ -568,6 +568,22 @@ codrax --repo ~/workspace --focus repo-go,repo-py --request "..."
 
 每个值是子仓 **slug 或 RootRel 路径**,通过 `topology.Resolve` 解析,任一形态都可以。匹配不到的 token 会 Warning 提示并丢弃,不阻断 Run。**单仓 / 无 git workspace 静默忽略此 flag**(无 sub-repo 可匹配)。
 
+### `--multi-repo` CLI flag(2026-05-09 新增)
+
+per-Run 覆盖 `codrax.yaml :: multi_repo_enabled`,无需改 yaml:
+
+```bash
+# 临时启用(yaml 关 / 默认覆盖)
+codrax --repo ~/workspace --multi-repo=true --request "..."
+
+# 临时关闭 — 父目录扫到一堆子仓但本次只想用单仓 legacy 路径
+codrax --repo ~/single --multi-repo=false --request "..."
+```
+
+只有显式传 `--multi-repo=true` 或 `--multi-repo=false` 才会覆盖;省略 flag 时 yaml(或 yaml 缺省值 true)继续生效。生效会在启动 INFO 日志输出 `[multi-repo] CLI override: enabled=...`,可直观确认。
+
+`multi_repo_enabled=false` 时 `/repos focus|unfocus|refresh|cap` 会拒绝执行并提示同时给出 yaml 与 `--multi-repo=true` 两条启用方式;`/repos`(不带子命令)的列表仍可查阅,只是不会路由。
+
 ### 内存与性能预算
 
 | 项 | 单仓 | cap=3 多仓 | 备注 |

@@ -119,8 +119,20 @@ var (
 	// persistence; the REPL `/repos focus` command continues to work
 	// session-locally on top of this.
 	flagFocus []string
-	flagMaxRetries     int
-	flagMaxStageVisits int
+	// flagMultiRepoEnabled is the per-run override for
+	// codrax.yaml :: multi_repo_enabled. The flag is a tristate:
+	// nil (when --multi-repo isn't passed) → fall through to yaml;
+	// true / false → override yaml regardless of its value. Read
+	// by resolveRuntimeKnobsForApp once after yaml resolution.
+	//
+	// Why a tristate: the flag must distinguish "not passed → keep
+	// yaml's choice" from "explicitly set to false → disable
+	// regardless of yaml". Cobra's BoolVar can't do that on its
+	// own; we use BoolVarP + cmd.Flags().Changed("multi-repo") to
+	// detect whether the flag was actually set.
+	flagMultiRepoEnabled bool
+	flagMaxRetries       int
+	flagMaxStageVisits   int
 
 	// Log-triage attach flags.
 	//
@@ -462,6 +474,12 @@ func init() {
 	// non-REPL invocations and persists across REPL re-entries when
 	// captured in a wrapper.
 	f.StringSliceVar(&flagFocus, "focus", nil, "multi-repo: pin one or more sub-repos by slug or path (repeatable, comma-separated). Single-repo / no-git workspaces ignore the flag.")
+	// --multi-repo overrides codrax.yaml :: multi_repo_enabled for
+	// this Run. Detected via cmd.Flags().Changed("multi-repo") so
+	// the default (false) at the BoolVar level is ignored when the
+	// operator did NOT pass the flag — yaml's choice (or its nil →
+	// true default) wins in that case.
+	f.BoolVar(&flagMultiRepoEnabled, "multi-repo", false, "enable/disable multi-repo discovery for this run (overrides codrax.yaml :: multi_repo_enabled when passed; no-op when omitted). Use --multi-repo=false to skip discovery on a parent dir that contains many sub-repos.")
 	f.IntVar(&flagMaxRetries, "pipeline-max-retries", 0, "override max consecutive failures per stage; 0 = inherit from codrax.yaml")
 	f.IntVar(&flagMaxStageVisits, "pipeline-max-stage-visits", 0, "override max entries per stage per Run; 0 = inherit from codrax.yaml")
 	f.StringArrayVar(&flagAttachLog, "log", nil, "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin. Repeatable: --log a.log --log b.log attaches both, joined with `# codrax-source: <path>` headers so the LLM can distinguish boundaries. Total bytes capped by codrax.yaml :: log_attach_max_bytes.")
@@ -1568,6 +1586,14 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			// MultiRepoInactivePreviewCountCeiling (3).
 			app.multiRepoInactivePreviewCount = config.ClampMultiRepoInactivePreviewCount(*rs.MultiRepoInactivePreviewCount)
 		}
+	}
+	// CLI override — only applied when the operator passed --multi-repo
+	// explicitly. cmd.Flags().Changed("multi-repo") distinguishes the
+	// "not passed" case from the BoolVar's default false. Logged so the
+	// operator can confirm the override took effect.
+	if cmd.Flags().Changed("multi-repo") {
+		app.multiRepoEnabled = flagMultiRepoEnabled
+		logging.Info("[multi-repo] CLI override: enabled=%t (--multi-repo flag)", flagMultiRepoEnabled)
 	}
 	parentSlug := repomapindex.CacheDirSlug(flagRepo)
 	if topo, err := topology.LoadOrDiscover(flagRepo, runtimeAnchor, topoOpts, parentSlug); err == nil && topo != nil {

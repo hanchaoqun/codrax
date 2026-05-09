@@ -36,6 +36,17 @@ func (r *REPL) handleReposCmd(line string) {
 		return
 	}
 
+	// Master-switch gate: when multi_repo_enabled=false, the
+	// mutating subcommands (focus / unfocus / refresh / cap) are
+	// no-ops because routing is bypassed. Refuse with an actionable
+	// hint pointing at both the yaml and CLI overrides — the bare
+	// /repos listing still works (informational + helps the
+	// operator decide whether to enable).
+	if !r.multiRepoEnabled {
+		r.warn("/repos %s: multi-repo routing is currently disabled. Enable it for this run with `--multi-repo=true` on the command line, or persistently by setting `multi_repo_enabled: true` in codrax.yaml. Run `/repos` (no argument) to list the topology snapshot regardless.", fields[0])
+		return
+	}
+
 	switch strings.ToLower(fields[0]) {
 	case "focus":
 		if len(fields) < 2 {
@@ -131,7 +142,7 @@ func (r *REPL) printReposList() {
 	header := fmt.Sprintf("multi-repo topology — parent=%s slug=%s sub-repos=%d cap=%d",
 		topo.ParentRoot, topo.ParentSlug, len(topo.Repos), cap)
 	if !r.multiRepoEnabled {
-		header += "  [routing disabled — set multi_repo_enabled=true in codrax.yaml to enable]"
+		header += "  [routing disabled — pass --multi-repo=true on the command line, or set multi_repo_enabled: true in codrax.yaml to enable]"
 	}
 	r.info(header)
 
