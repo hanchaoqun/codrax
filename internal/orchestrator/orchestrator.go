@@ -3702,6 +3702,42 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			lastFallbackFinalizerOnly = false
 		}
 
+		// Phase 2 Tier 2 ERM completeness check (advisory).
+		// Per-question-family CompletenessValidators run at finalize
+		// entry to surface structural-coverage gaps the Tier 1 breadth
+		// heuristic misses (count question without exec_command output,
+		// call-chain answer with too few function mentions, config
+		// precedence missing a layer, ...). Failures are logged and
+		// surfaced through a soft notice; finalize still proceeds so
+		// the user gets an answer, but the LLM sees the FixHint in the
+		// finalize prompt via Mutable.SetTier2CompletenessHint and can
+		// route around the gap. See
+		// docs/design/commercial_grade_3_pattern_remediation.md Phase 2.
+		if o.busCtx.AnalysisIR != nil && o.busCtx.Mutable != nil {
+			view := types.BuildAnswerSemanticView(o.busCtx.AnalysisIR, nil)
+			if view != nil {
+				input := agent.ValidatorInput{
+					IR:            o.busCtx.AnalysisIR,
+					EvidenceItems: o.busCtx.EvidenceItems,
+					AnswerSymbols: o.busCtx.AnswerSymbols,
+					ToolResults:   o.busCtx.ToolResults,
+					RepoFacts:     o.busCtx.RepoFacts,
+				}
+				if fail := agent.RunFamilyValidators(view.Family, input); fail != nil {
+					logging.Warning("[orchestrator] Tier 2 completeness check %s/%s failed: %s",
+						view.Family, fail.Dimension, fail.Reason)
+					o.busCtx.Mutable.SetTier2CompletenessHint(fail.FixHint)
+					o.emit(render.Event{
+						Kind:       render.EventOrchestratorNotice,
+						Timestamp:  time.Now(),
+						Agent:      "orchestrator",
+						NoticeKind: render.NoticeFinalizing,
+						Reasoning:  softCompletenessGapMessage(o.busCtx.Language, fail),
+					})
+				}
+			}
+		}
+
 		state.markRunning(fin.ID)
 		o.emitNodeStart(fin.ID)
 		o.busCtx.PipelineStage = types.StageFinalize

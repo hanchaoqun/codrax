@@ -505,6 +505,17 @@ type MutableState struct {
 	// it for the operator's eyes.
 	planCritique string
 
+	// tier2CompletenessHint is the LLM-natural FixHint surfaced by
+	// the Phase 2 Tier 2 ERM completeness validators (count
+	// question lacks deterministic-tool output, call-chain answer
+	// has insufficient function mentions, config-precedence
+	// missing a layer, ...). Set by the orchestrator at finalize
+	// stage entry when a CompletenessValidator detects a gap;
+	// drained into the finalize prompt so the LLM sees what to
+	// route around. R6-clean: contains no internal pipeline
+	// terms. Empty when no Tier 2 gap was detected.
+	tier2CompletenessHint string
+
 	// unvalidatedReasons collects per-language static-check stages
 	// that were skipped because their toolchain was unavailable
 	// (e.g. "rust:cargo not in PATH"). emit_change_plan's dry-
@@ -962,6 +973,33 @@ func (m *MutableState) SetPlanCritique(text string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.planCritique = text
+}
+
+// SetTier2CompletenessHint stores an LLM-natural FixHint produced
+// by a Phase 2 Tier 2 ERM completeness validator. Read by the
+// finalize-stage prompt builder so the LLM sees the structural-
+// coverage gap and can route around it (e.g., "use exec_command
+// for the count" / "list every load-bearing intermediate
+// function"). Empty string clears any prior hint.
+func (m *MutableState) SetTier2CompletenessHint(hint string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tier2CompletenessHint = hint
+}
+
+// Tier2CompletenessHint returns the most-recently-stored Tier 2
+// FixHint, or empty when none was set. Read by the finalize prompt
+// builder.
+func (m *MutableState) Tier2CompletenessHint() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.tier2CompletenessHint
 }
 
 // SetLogSegments stores the opaque JSON-marshalled segment payload

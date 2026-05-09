@@ -42,6 +42,7 @@ const (
 
 	// User-role sections (rendered into the dispatch user message).
 	SectionRetryDirective       = "Retry Directive (READ FIRST)"
+	SectionAnswerCoverageNotes  = "Answer Coverage Notes (READ FIRST)"
 	SectionUserRequest          = "User Request"
 	SectionAnalyzerPrescan      = "Analyzer Pre-scan Findings"
 	SectionPriorConversation    = "Prior Conversation (reference only)"

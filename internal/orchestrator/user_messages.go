@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -368,6 +369,67 @@ func softFinalizingMessage(lang string) string {
 		return "⟳ 正在生成最终答案"
 	}
 	return "⟳ Composing the final answer"
+}
+
+// softCompletenessGapMessage renders the user-visible advisory
+// emitted when a Phase 2 Tier 2 CompletenessValidator detects a
+// structural-coverage gap at finalize entry (count question without
+// deterministic-tool output, call-chain answer with insufficient
+// function mentions, config precedence missing a layer, ...). The
+// message names the dimension that fell short so the user sees what
+// the system noticed; the LLM's actionable FixHint goes into the
+// finalize prompt separately via Mutable.SetTier2CompletenessHint.
+//
+// R6-clean — no internal pipeline term names.
+func softCompletenessGapMessage(lang string, fail *agent.CompletenessFailure) string {
+	if fail == nil {
+		return ""
+	}
+	dim := dimensionUserLabel(lang, fail.Dimension)
+	if preferZhMessage(lang) {
+		return "⟳ 答案在「" + dim + "」维度可能覆盖不足，将提示模型补足"
+	}
+	return "⟳ Answer may under-cover the " + dim + " axis; advising the model to fill the gap"
+}
+
+// dimensionUserLabel converts a CompletionDimension into a user-
+// readable phrase for the soft-notice. Keeps the LLM-facing FixHint
+// (which gives concrete instructions) separate from the user-facing
+// notice (which only names the dimension). R6-clean.
+func dimensionUserLabel(lang string, dim agent.CompletionDimension) string {
+	zh := preferZhMessage(lang)
+	switch dim {
+	case agent.DimensionScalarCount:
+		if zh {
+			return "数量统计"
+		}
+		return "scalar count"
+	case agent.DimensionCardinality:
+		if zh {
+			return "枚举完整性"
+		}
+		return "enumeration cardinality"
+	case agent.DimensionPathDepth:
+		if zh {
+			return "调用链覆盖"
+		}
+		return "call-chain coverage"
+	case agent.DimensionLayerDepth:
+		if zh {
+			return "配置层级覆盖"
+		}
+		return "configuration-layer coverage"
+	case agent.DimensionEntityParity:
+		if zh {
+			return "对比平衡"
+		}
+		return "comparison balance"
+	default:
+		if zh {
+			return "答案完整性"
+		}
+		return "answer completeness"
+	}
 }
 
 // softProceedingWithoutExtractMessage renders the user-visible line

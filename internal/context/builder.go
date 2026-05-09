@@ -443,6 +443,25 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
+	// Phase 2 Tier 2 ERM completeness hint surfacing. The orchestrator
+	// runs CompletenessValidators at finalize entry and stamps an
+	// LLM-natural FixHint into Mutable when a structural-coverage gap
+	// is detected (count question without exec_command output, call-
+	// chain answer with too few function mentions, ...). The hint is
+	// surfaced only at finalize (the stage producing the user-visible
+	// answer) so the LLM can route around the gap when composing the
+	// answer body. R6-clean — the FixHint is constructed by the
+	// validator with no internal pipeline terms; see
+	// internal/agent/erm_completeness.go for the LLM-natural prose.
+	if ac.Stage == types.StageFinalize && ac.Mutable != nil {
+		if hint := ac.Mutable.Tier2CompletenessHint(); strings.TrimSpace(hint) != "" {
+			pc.UserSections = append(pc.UserSections, types.PromptSection{
+				Title:   SectionAnswerCoverageNotes,
+				Content: hint,
+			})
+		}
+	}
+
 	// Split REPL-assembled Objective into prior-conversation context and
 	// the current request. The two go into separate sections so the LLM
 	// cannot confuse conversation continuity with the question to answer.
