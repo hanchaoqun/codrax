@@ -40,6 +40,11 @@ EXPECT_CONTAINS="emit_evidence anchor_kind"
 # (no 继续 verb). Both are clearly the "rest items proceed normally"
 # semantic the case wants. Loosen to `(其余|其他).*(处理|进行|接受|通过|成功|继续|正常)`
 # so any positive-progress verb after 其余/其他 satisfies it.
-EXPECT_MATCHES_REGEX="(per.?item|单项|单条|partial|部分)
+# 2026-05-09 third-pass broaden: model wrote "逐项容错机制" (per-item
+# fault tolerance) — semantic peer of "per-item" but the regex
+# `单项` / `单条` / `部分` didn't include `逐项`, the most natural
+# Chinese rendering of "per-item batch processing". Add `逐项` and
+# `每项` to the alternation.
+EXPECT_MATCHES_REGEX="(per.?item|单项|单条|逐项|每项|partial|部分)
 (rest.*(succeed|proceed|accept)|valid items|跳过.*其余|(其余|其他).*(处理|进行|接受|通过|成功|继续|正常))"
 EXPECT_NOT_CONTAINS="unclear maybe depends whole.batch"

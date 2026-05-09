@@ -32,6 +32,15 @@ QUESTION="BaseAgent.executeTool 调用 validateAnalyzerPrescanToolCall 返回非
 # execution". Broaden line 2 to accept; the binary-decision
 # constraint stays (line 1 reject/拒绝/denied/blocked still required).
 EXPECT_CONTAINS="executeTool validateAnalyzerPrescanToolCall"
+# 2026-05-09 third-pass broaden: real eval kept finding semantic
+# synonyms the alternation didn't cover. Model wrote "执行流直接短路"
+# / "在真正执行工具前" / "完全绕过了工具注册表查找" / "不会被 Dispatch
+# 到注册表" / "不会触发任何工具执行代码" / "中止后续所有执行逻辑" —
+# all are valid "rejection happens BEFORE tool dispatch" phrasings
+# in Chinese. Add: 短路 (short-circuit), 绕过 (bypass), 不会(被)?
+# (.*Dispatch|执行|触发) (won't get dispatched / executed / triggered),
+# 中止.*执行 (abort execution), 工具.*前 / 执行.*前 (before tool /
+# before execution).
 EXPECT_MATCHES_REGEX="(reject|拒绝|denied|blocked)
-(before|pre.?dispatch|prior to|未执行|未调用|early.?return|拦截)"
+(before|pre.?dispatch|prior to|未执行|未调用|early.?return|拦截|短路|绕过|不会.*(Dispatch|执行|触发)|中止.*执行|(工具|执行).*前|先于.*执行)"
 EXPECT_NOT_CONTAINS="ignore swallow silent"
