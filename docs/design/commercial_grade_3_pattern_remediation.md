@@ -290,3 +290,204 @@ Adding a new typed field requires sync at 6 spots:
 ## Status log
 
 - 2026-05-09 02:30 — design doc landed, Phase 3 starting
+- 2026-05-09 03:30 — Phase 3 / 1 / 2 advisory shipped (cf87d17 / 936b0f7 / f32b33c)
+- 2026-05-09 04:00 — Phase 2.B planning starts (post-finalize answer-aware hard gate)
+
+---
+
+## Phase 2.B — Answer-Aware Hard Gate (post-finalize enforcement)
+
+### Architecture
+
+**Insight from deep audit (2026-05-09)**: codrax already has a production-grade
+violation→retry→caveat pipeline. Tier 2 hard-gate enforcement does NOT need
+new orchestrator state — it just needs to:
+
+1. Move CompletenessValidator execution from pre-finalize advisory to
+   post-finalize, AFTER the answer is composed
+2. Validators read AnswerDocumentV2 (typed blocks) + ToolResults +
+   EvidenceItems (3-tier input precedence), NOT just evidence pool
+3. Failures emit a typed Violation with the existing 5-Locus → FallbackTarget
+   machinery handling retry routing
+4. Caveat materialization on retry exhaust is automatic via
+   `AppendUserCaveatsToAnswer` once a CaveatFamily is registered for each
+   new ViolKind
+
+This makes Phase 2.B a *registry update* + *validator refactor* rather than
+a state-machine refactor. Concretely:
+
+### Files touched
+
+| File | Change |
+|---|---|
+| `internal/types/violation.go` | NEW: 5 ViolationKind constants (ViolScalarCountUnsourced / ViolPathDepthInsufficient / ViolLayerDepthIncomplete / ViolCardinalityShort / ViolEntityParityImbalanced) |
+| `internal/types/violation.go::AllViolationKinds()` | append 5 new kinds |
+| `internal/types/violation_registry.go` | NEW: 5 ViolKindSpec entries — Severity / FallbackLocus / Layer / CaveatFamilyID + 5 CaveatFamily templates (EN + ZH) |
+| `internal/orchestrator/retry_state.go::inferViolationLayer` | route 5 new kinds (legacy fallback for the 6th sync site) |
+| `internal/orchestrator/fallback_policy.go` | inherit from registry (default policy already imports specs) — confirm no per-kind override needed |
+| `internal/agent/erm_completeness.go::ValidatorInput` | add `AnswerDocumentV2 *types.AnswerDocumentV2` field |
+| `internal/agent/erm_completeness.go::5 validators` | rewrite as answer-aware: 3-tier input precedence (typed blocks → SurfaceText → fallback) |
+| `internal/orchestrator/orchestrator.go:3862` | new call site: `runPostFinalizeCompletenessGate(out, res, mutable)` AFTER ComputeRootCauseClosure, BEFORE retry budget checks |
+| `internal/orchestrator/orchestrator.go:3705-3739` (current Phase 2 advisory) | DELETE the pre-finalize advisory wire-up (post-finalize gate replaces it; LLM still sees FixHint via the same Mutable.SetTier2CompletenessHint surface, set inside the new validators) |
+
+### 4 ViolationKind designs (LayerDepth dropped)
+
+**LayerDepthValidator removal rationale (cross-project portability)**:
+the original design hard-coded "3 layers (default / config-file / CLI
+override)" — this is codrax's specific config-precedence model. Real
+projects vary widely:
+  - Simple projects: 2 layers (env var + default)
+  - Spring Boot: application.properties × N profiles + env + cmdline + ...
+  - Kubernetes: ConfigMap + Secret + env + volumeMount + cluster default
+  - Remote config (Consul / Apollo / Nacos): adds another layer
+  - Static frontends: zero config layers
+
+A hard validator demanding 3 layers would over-fire on any project that
+isn't codrax-shaped. The correct typed signal already exists:
+`AnswerDocumentV2.MissingRequestedRoles` is LLM-emitted; if the LLM
+correctly identified missing layers, the existing `MissingRequestedRoles`
+section in the rendered answer already discloses the gap. Adding a
+system-side validator on top would either (a) duplicate existing
+disclosure or (b) over-fire on legitimate non-codrax projects.
+
+**Decision**: keep system-side enforcement only for the 4 dimensions that
+are language-portable AND project-portable (count / cardinality /
+path-depth / entity-parity). The config-precedence dimension stays
+LLM-trusted via `MissingRequestedRoles`. The skill prompt rule
+"CONFIG PRECEDENCE" (P2.9 already shipped) gives the LLM the abstract
+guidance ("surface every layer in the precedence chain") without
+mandating a count.
+
+| ViolKind | Dimension | Severity | FallbackLocus | Layer | CaveatFamily |
+|---|---|---|---|---|---|
+| `ViolScalarCountUnsourced` | DimensionScalarCount | hard | LocusExplore | LayerEvidence | tier2_scalar_count |
+| `ViolPathDepthInsufficient` | DimensionPathDepth | hard | LocusExplore | LayerEvidence | tier2_path_depth |
+| `ViolCardinalityShort` | DimensionCardinality | hard | LocusExtract | LayerExtraction | tier2_cardinality |
+| `ViolEntityParityImbalanced` | DimensionEntityParity | hard | LocusExplore | LayerEvidence | tier2_entity_parity |
+
+All use `FixableByAgents = [AgentExplorer]` (or `+ AgentExtractor` for
+Cardinality which can be re-emitted from existing evidence).
+
+The bounded-retry semantics fall out of the existing per-kind retry budget
+machinery (`state.retryUsedForKind(kind)`) — no new bookkeeping needed.
+
+### Per-validator answer-aware redesign (3-tier input)
+
+Each validator now reads `ValidatorInput.AnswerDocumentV2` PLUS the
+existing IR + EvidenceItems + ToolResults. Per-tier precedence makes
+false-positives impossible when the answer ALREADY contains the
+required structural coverage:
+
+| Validator | Tier 1 (typed) | Tier 2 (prose) | Tier 3 (fallback) |
+|---|---|---|---|
+| ScalarCount | doc.Blocks where Kind=BlockScalar AND has Citation linking to ToolResult.ToolName="exec_command" | scan block.Text for digits AND verify ≥1 exec_command in ToolResults with integer summary | reject (zero typed evidence) |
+| Cardinality | sum of Items[] across BlockBulletList/BlockOrderedList ≥ DeclaredCount | regex `^(\d+\.|[-*])` count across block.Text | len(AnswerSymbols) (existing behavior) |
+| PathDepth | distinct AnchorSymbol from EdgeAnchors / ClaimUses with FacetID matching call-chain | distinct identifier-shaped tokens in BlockOrderedList items | distinct AnchorSymbol from EvidenceItems (existing behavior) |
+| EntityParity | per-bucket evidence counts via Buckets[].Anchors substring match in block.Text | per-bucket prose word-count proxy | existing behavior |
+
+### Caveat templates (4 new CaveatFamily entries)
+
+Templates are user-facing, R6-clean (no internal pipeline names),
+project-portable (no Unix / Go / codrax-specific assumptions), and
+abstract enough that the recommendation makes sense across operating
+systems and codebase shapes.
+
+```
+tier2_scalar_count:
+  ZH: 答案中的数字来自人工视读而非确定性的计数工具，建议用一个可靠的计数命令重新核对精确值。
+  EN: The number in the answer was derived by visual counting rather than from a deterministic counting tool; consider re-verifying the exact value with a reliable counting command.
+
+tier2_path_depth:
+  ZH: 调用链答案缺少关键的入口、出口或足够的中间节点，覆盖可能不完整。
+  EN: The call-chain answer is missing the entry, exit, or sufficient intermediate steps; coverage may be incomplete.
+
+tier2_cardinality:
+  ZH: 问题明确指定了条目数量，但答案列出的项目少于声明数量，可能遗漏部分条目。
+  EN: The question stated an explicit count, but the answer contains fewer items than declared; some items may be missing.
+
+tier2_entity_parity:
+  ZH: 对比问题中各方的证据采样不均衡，某一方的支持强度明显弱于另一方。
+  EN: The comparison answer's evidence is skewed; one side is well-grounded while the other relies on weaker support.
+```
+
+**Cross-project portability audit** (2026-05-09):
+- ScalarCount caveat avoids naming specific Unix tools (`grep -c` / `wc -l`)
+  so Windows / restricted-shell users get a meaningful message. The skill
+  prompt's COUNT QUESTIONS rule already gives concrete examples for the
+  LLM during exploration.
+- PathDepth / Cardinality / EntityParity caveats use abstract concepts
+  (entry/exit/intermediate, declared count, balanced sampling) that map
+  to any language ecosystem.
+- LayerDepth dimension was REMOVED from this remediation (was codrax-
+  specific 3-layer assumption); LLM's `MissingRequestedRoles` typed slot
+  already discloses missing layers natively per the user's question
+  shape.
+
+### Wire-up at post-finalize
+
+```
+finalize stage emit_answer_document
+  → runContractCheck() [orchestrator.go:3818]
+    → contract.Result with violations[]
+  → ComputeRootCauseClosure() [orchestrator.go:3862]
+  → [NEW] runPostFinalizeCompletenessGate(out.FinalAnswer, mutable, ir):
+      input := ValidatorInput{
+          IR:               busCtx.AnalysisIR,
+          EvidenceItems:    busCtx.EvidenceItems,
+          AnswerSymbols:    busCtx.AnswerSymbols,
+          ToolResults:      busCtx.ToolResults,
+          AnswerDocumentV2: mutable.AnswerDocumentV2(), // NEW
+      }
+      family := BuildAnswerSemanticView(ir, nil).Family
+      if fail := agent.RunFamilyValidators(family, input); fail != nil {
+          v := dimensionToViolation(fail.Dimension, fail.Reason, fail.FixHint)
+          res.Violations = append(res.Violations, v)
+          mutable.SetTier2CompletenessHint(fail.FixHint)
+      }
+  → existing retry / caveat machinery handles the rest
+    [orchestrator.go:3865-4030]
+```
+
+The existing `AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, lang)`
+at lines 3949 / 3970 / 4003 picks up the new violations automatically once
+their CaveatFamily is registered.
+
+### Sub-tasks (12) for Phase 2.B
+
+1. **2B.1** Add 5 ViolKind constants + AllViolationKinds() append
+2. **2B.2** Register 5 ViolKindSpec entries (Severity / FallbackLocus / Layer / CaveatFamily)
+3. **2B.3** Register 5 CaveatFamily templates (EN + ZH, R6-clean)
+4. **2B.4** retry_state.go::inferViolationLayer — route 5 new kinds
+5. **2B.5** ValidatorInput add AnswerDocumentV2 field
+6. **2B.6** ScalarCountValidator answer-aware rewrite (3-tier)
+7. **2B.7** CardinalityValidator answer-aware rewrite
+8. **2B.8** PathDepthValidator answer-aware rewrite
+9. **2B.9** LayerDepthValidator answer-aware rewrite
+10. **2B.10** EntityParityValidator answer-aware rewrite
+11. **2B.11** Replace pre-finalize advisory with post-finalize hard gate at orchestrator.go:3862; delete the pre-finalize wire-up
+12. **2B.12** Per-validator unit tests + R6 audit + commit + push
+
+### Risk mitigation (false-positive control)
+
+- **3-tier input precedence**: validators ALWAYS check typed evidence first. Pre-existing answers that look right on typed signals never trip the validator.
+- **per-kind retry budget**: bounded at 1 — second persistent fail degrades to caveat-only.
+- **No skill-prompt regression**: existing P2.9 / P2.10 skill prompt rules stay (count → exec_command, call-chain coverage, config precedence). LLM proactively avoids the gap; validators are the safety net.
+- **Eval gate**: full sweep after 2B.12 — verify 95%+ PASS rate maintained, no new regressions on previously-passing cases.
+
+### Prompt audit checkpoints
+
+Before commit:
+- 5 CaveatFamily templates EN + ZH — verify R6 clean, user-friendly tone (not LLM-instructional)
+- TestPromptSnapshot_NoInternalTermsInRenderedOutput
+- TestNoInternalTermsInPrompts (skill side)
+- New TestTier2CaveatFamilies_R6Clean asserting templates contain no internal pipeline terms
+
+### Backward compatibility
+
+- Pre-finalize advisory (current Phase 2) DELETED in 2B.11. The same FixHint
+  surface (Mutable.SetTier2CompletenessHint) is now set INSIDE the
+  post-finalize validators when they fail. The `Answer Coverage Notes`
+  section in the finalize prompt becomes irrelevant for the FIRST finalize
+  attempt (no advisory) but VERY relevant for the RETRY attempt (LLM sees
+  exactly what to fix).
+

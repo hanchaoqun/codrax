@@ -359,6 +359,22 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		// finalizer-side, no upstream stage participates and no
 		// other oracle reports the same condition.
 		types.ViolLaneBlockKindMismatch: "lane → block-kind alignment is a finalizer-local re-render; standalone with no upstream cooccurrence",
+		// Phase 2.B Tier 2 ERM completeness violations (2026-05-09).
+		// Each dimension is a structurally-independent answer-coverage
+		// gap: a ScalarCount problem (visual count vs deterministic
+		// tool) does NOT imply a PathDepth problem (chain too short)
+		// or vice versa. They fire on disjoint question shapes
+		// (count question / call-chain / declared-count enumeration /
+		// comparison) so cooccurrence rules would never apply. The
+		// repair path is per-dimension and orthogonal — explore for
+		// missing tool/function evidence, extract for slate
+		// re-emission. Standalone by design; documented in
+		// docs/design/commercial_grade_3_pattern_remediation.md
+		// Phase 2.B.
+		types.ViolScalarCountUnsourced:   "Tier 2 scalar-count completeness; fires alone on count questions lacking deterministic-tool output",
+		types.ViolPathDepthInsufficient:  "Tier 2 call-chain depth completeness; fires alone when distinct function mentions fall short of entry+exit+mid",
+		types.ViolCardinalityShort:       "Tier 2 declared-count cardinality completeness; fires alone when answer items < EnumerationBoundary.DeclaredCount",
+		types.ViolEntityParityImbalanced: "Tier 2 comparison sampling-parity completeness; fires alone on lopsided per-bucket evidence",
 	}
 
 	for _, kind := range types.AllViolationKinds() {

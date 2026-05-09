@@ -363,6 +363,18 @@ const (
 	CaveatFamilyConsistency      = "consistency"
 	CaveatFamilyAcceptance       = "acceptance"
 	CaveatFamilyShapeFit         = "shape_fit"
+
+	// Phase 2.B Tier 2 ERM completeness families
+	// (docs/design/commercial_grade_3_pattern_remediation.md, 2026-05-09).
+	// One per dimension. Templates are project-portable — no
+	// Unix / Go / codrax-specific assumptions. LayerDepth dimension
+	// was intentionally omitted (was codrax-specific 3-layer
+	// assumption); MissingRequestedRoles typed slot already
+	// discloses missing layers natively.
+	CaveatFamilyTier2ScalarCount  = "tier2_scalar_count"
+	CaveatFamilyTier2PathDepth    = "tier2_path_depth"
+	CaveatFamilyTier2Cardinality  = "tier2_cardinality"
+	CaveatFamilyTier2EntityParity = "tier2_entity_parity"
 )
 
 // init registers the canonical spec for every ViolationKind declared
@@ -413,6 +425,33 @@ func init() {
 		ID: CaveatFamilyShapeFit,
 		ZH: "答案的整体结构与问题最贴合的形态略有出入，可能影响个别局部的清晰度。",
 		EN: "The answer's overall structure does not perfectly match the most natural shape for the question, which may affect clarity in specific spots.",
+	})
+
+	// ── Phase 2.B Tier 2 ERM completeness templates (2026-05-09) ──
+	// All four are project-portable: no Unix / Go / codrax-specific
+	// references in user-facing prose. Skill prompt (P2.9, already
+	// shipped) gives the LLM concrete tool examples during exploration;
+	// these caveats only fire when retry is exhausted and need to make
+	// sense to any developer reading them, on any platform.
+	RegisterCaveatFamily(CaveatFamilyTemplate{
+		ID: CaveatFamilyTier2ScalarCount,
+		ZH: "答案中的数字来自人工视读而非确定性的计数工具，建议用一个可靠的计数命令重新核对精确值。",
+		EN: "The number in the answer was derived by visual counting rather than from a deterministic counting tool; consider re-verifying the exact value with a reliable counting command.",
+	})
+	RegisterCaveatFamily(CaveatFamilyTemplate{
+		ID: CaveatFamilyTier2PathDepth,
+		ZH: "调用链答案缺少关键的入口、出口或足够的中间节点，覆盖可能不完整。",
+		EN: "The call-chain answer is missing the entry, exit, or sufficient intermediate steps; coverage may be incomplete.",
+	})
+	RegisterCaveatFamily(CaveatFamilyTemplate{
+		ID: CaveatFamilyTier2Cardinality,
+		ZH: "问题明确指定了条目数量，但答案列出的项目少于声明数量，可能遗漏部分条目。",
+		EN: "The question stated an explicit count, but the answer contains fewer items than declared; some items may be missing.",
+	})
+	RegisterCaveatFamily(CaveatFamilyTemplate{
+		ID: CaveatFamilyTier2EntityParity,
+		ZH: "对比问题中各方的证据采样不均衡，某一方的支持强度明显弱于另一方。",
+		EN: "The comparison answer's evidence is skewed; one side is well-grounded while the other relies on weaker support.",
 	})
 
 	// ── Original contract-checker kinds ──
@@ -848,5 +887,65 @@ func init() {
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyAcceptance,
 		SchemaDescriptionFragment: "Each support lane (Observed artifact / Current grounded code path / Nearest grounded mechanism / Boundary disclosures) declares an Allowed block kinds list. A principal block whose citations come from a lane MUST be one of that lane's allowed kinds — for example, an Observed artifact lane that allows only summary/caveat cannot be rendered as a principal ordered_list or diagram.",
 		FixableByAgents:           []AgentName{AgentFinalizer},
+	})
+
+	// ── Phase 2.B Tier 2 ERM completeness violations (2026-05-09) ──
+	//
+	// All four kinds are HARD-by-default with retry-eligible
+	// FallbackLocus so the existing budget+caveat machinery handles
+	// the entire post-finalize hard-gate flow. Per-dimension
+	// validators run answer-aware (read AnswerDocumentV2 typed blocks
+	// + ToolResults + EvidenceItems with 3-tier precedence — typed
+	// signals first, prose second, fallback third). Cross-project /
+	// cross-language portable (no Unix tool name in caveat templates,
+	// no Go-shaped path heuristics in validator logic).
+	//
+	// LayerDepth dimension was deliberately excluded — it would
+	// require codrax-specific 3-layer config-precedence assumptions.
+	// LLM's MissingRequestedRoles typed slot already discloses
+	// missing layers; the skill prompt's CONFIG PRECEDENCE rule
+	// gives the LLM the abstract guidance during exploration.
+	//
+	// See docs/design/commercial_grade_3_pattern_remediation.md
+	// Phase 2.B for the full rationale + cross-project portability
+	// audit.
+
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolScalarCountUnsourced, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExplore,
+		Layer: "tier2_completeness", CaveatFamilyID: CaveatFamilyTier2ScalarCount,
+		SchemaDescriptionFragment: "Count / measurement-scalar answers MUST surface a number derived from a deterministic counting tool (the answer cites at least one tool result whose summary contains the integer). Visual counting from read_file output is rejected as unreliable.",
+		// Fix path: explorer re-investigation with a counting tool
+		// (the user's environment determines which — the validator is
+		// platform-neutral, only checks that SOME exec_command result
+		// produced an integer). Extractor cannot help — it has no
+		// shell tools.
+		FixableByAgents: []AgentName{AgentExplorer},
+	})
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolPathDepthInsufficient, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExplore,
+		Layer: "tier2_completeness", CaveatFamilyID: CaveatFamilyTier2PathDepth,
+		SchemaDescriptionFragment: "Call-chain answers MUST cover entry + at least 3 intermediate steps + exit when the user named ≥2 chain endpoints. Stopping at the first 2-3 functions found produces a partial chain that misleads the reader.",
+		// Fix path: explorer reads more functions in the chain.
+		FixableByAgents: []AgentName{AgentExplorer},
+	})
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolCardinalityShort, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExtract,
+		Layer: "tier2_completeness", CaveatFamilyID: CaveatFamilyTier2Cardinality,
+		SchemaDescriptionFragment: "When the question carries an explicit declared count (EnumerationBoundary.DeclaredCount > 0), the answer's enumerated items MUST satisfy that count. Producing fewer items than declared without explicitly disclosing the gap is rejected.",
+		// Fix path: extractor first (re-emit slate from existing
+		// evidence may pick up more items already collected); explorer
+		// fallback if items are genuinely not in the evidence pool.
+		FixableByAgents: []AgentName{AgentExtractor, AgentExplorer},
+	})
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolEntityParityImbalanced, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExplore,
+		Layer: "tier2_completeness", CaveatFamilyID: CaveatFamilyTier2EntityParity,
+		SchemaDescriptionFragment: "Comparison answers (≥2 named buckets) MUST sample evidence comparably across all buckets. Heavily skewed sampling — smallest bucket has fewer than half the evidence of the largest — produces a comparison whose weaker side reads as speculative.",
+		// Fix path: explorer re-investigates the under-sampled bucket(s).
+		FixableByAgents: []AgentName{AgentExplorer},
 	})
 }

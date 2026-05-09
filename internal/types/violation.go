@@ -815,6 +815,61 @@ const (
 	// Stage="finalize". Layer="answer_validator". Detail names the
 	// offending token + the upstream denial class.
 	ViolDeniedTokenUndeclared ViolationKind = "denied_token_undeclared"
+
+	// --- Phase 2.B Tier 2 ERM completeness violations
+	// (post-finalize answer-aware hard gate, 2026-05-09).
+	//
+	// These four kinds replace the original Phase 2 advisory-only
+	// pre-finalize Tier 2 check with full violation+retry+caveat
+	// integration. Each is emitted by a per-dimension answer-aware
+	// validator that reads the composed AnswerDocumentV2 (typed
+	// blocks first, prose fallback) instead of just the evidence
+	// pool. Cross-project and cross-language portable — see
+	// docs/design/commercial_grade_3_pattern_remediation.md
+	// Phase 2.B for the full rationale, including why
+	// LayerDepthValidator was dropped (codrax-specific 3-layer
+	// assumption) in favour of the LLM's MissingRequestedRoles
+	// typed slot.
+	//
+	// All four are HARD-by-default: Severity=hard so the FixHint
+	// surfaces into the retry directive; bounded retry budget is
+	// the existing per-kind machinery (state.retryUsedForKind).
+
+	// ViolScalarCountUnsourced fires when the answer to a count /
+	// measurement question (IsCountQuestion=true) surfaces a
+	// numeric scalar that is NOT linked to a deterministic counting
+	// tool result (exec_command output containing an integer
+	// literal). LLM visual-counting from a read_file output produces
+	// off-by-one errors on long files / multi-block declarations;
+	// this gate forces the count to come from a tool whose output
+	// is reproducible.
+	ViolScalarCountUnsourced ViolationKind = "scalar_count_unsourced"
+
+	// ViolPathDepthInsufficient fires when a call-chain question
+	// (QFCallChain) produces an answer whose distinct function-
+	// symbol mentions are fewer than (named_entities + 3). The
+	// rule catches the s8a-class failure where the LLM stops at the
+	// first 2-3 functions found and misses load-bearing
+	// intermediate steps in a longer pipeline. Cross-language —
+	// validator detects function symbols regardless of naming
+	// convention (CamelCase / snake_case / camelCase / qualified).
+	ViolPathDepthInsufficient ViolationKind = "path_depth_insufficient"
+
+	// ViolCardinalityShort fires when an enumeration question
+	// (QFEnumeration) carries an explicit declared count
+	// (EnumerationBoundary.DeclaredCount > 0) but the answer's
+	// enumerated items (BlockBulletList / BlockOrderedList Items
+	// totals) come up short. The user stated "the 7 stages" or
+	// similar; the answer must surface 7 items or explicitly
+	// disclose the count gap.
+	ViolCardinalityShort ViolationKind = "cardinality_short"
+
+	// ViolEntityParityImbalanced fires when a comparison question
+	// (QFComparison with ≥2 buckets) produces an answer where the
+	// per-bucket evidence count is heavily skewed — smallest bucket
+	// has fewer than half the evidence of the largest. Heavy skew
+	// makes the comparison's weaker side speculative.
+	ViolEntityParityImbalanced ViolationKind = "entity_parity_imbalanced"
 )
 
 // AllViolationKinds returns every declared ViolationKind in a stable
@@ -897,6 +952,12 @@ func AllViolationKinds() []ViolationKind {
 		// L3 negative-knowledge answer validator (2026-05-08,
 		// TypedDenials Phase F).
 		ViolDeniedTokenUndeclared,
+		// Phase 2.B Tier 2 ERM completeness (2026-05-09,
+		// docs/design/commercial_grade_3_pattern_remediation.md).
+		ViolScalarCountUnsourced,
+		ViolPathDepthInsufficient,
+		ViolCardinalityShort,
+		ViolEntityParityImbalanced,
 	}
 }
 
