@@ -33,6 +33,33 @@ func TestScalarCountValidator(t *testing.T) {
 		}
 	})
 
+	t.Run("semantic_count_relational_lookup_skips_validator", func(t *testing.T) {
+		// Phase 2.C carve-out: count question + relational lookup =
+		// semantic count, the answer comes from enumerating a set
+		// (filtered by a property requiring code reading), not from
+		// a single deterministic tool call. Validator must skip so it
+		// doesn't over-fire on "how many agents can do X" / "几个
+		// config key 被废弃了" type questions.
+		v := ScalarCountValidator{}
+		ir := &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Predicates: types.SemanticPredicates{
+					IsCountQuestion:    true,
+					IsRelationalLookup: true,
+				},
+			},
+		}
+		input := ValidatorInput{
+			IR: ir,
+			ToolResults: []types.ToolResult{
+				{ToolName: "read_file", Summary: "no integer output", Success: true},
+			},
+		}
+		if fail := v.Validate(input); fail != nil {
+			t.Errorf("ScalarCountValidator must skip when IsRelationalLookup=true (semantic count); got %+v", fail)
+		}
+	})
+
 	t.Run("count_question_no_exec_command_fails", func(t *testing.T) {
 		v := ScalarCountValidator{}
 		input := ValidatorInput{

@@ -200,6 +200,26 @@ func (ScalarCountValidator) Validate(input ValidatorInput) *CompletenessFailure 
 	if input.IR == nil || !input.IR.RequestModel.Predicates.IsCountQuestion {
 		return nil
 	}
+	// Syntactic vs semantic count carve-out (Phase 2.C audit,
+	// 2026-05-09): a count question that is ALSO a relational lookup
+	// is a SEMANTIC count — the answer is the size of a set whose
+	// members are filtered by a property the LLM has to READ code to
+	// determine ("how many agents can call sub-agents", "how many
+	// endpoints accept JSON", "几个 config key 被废弃"). For these
+	// shapes the count cannot come from a single deterministic tool
+	// call; it comes from enumerating the set, then counting. The
+	// enumeration path (path c/d in expandEntitiesWithImplementers
+	// + EXHAUSTIVE ENUMERATION skill rule) covers the semantic case.
+	// Skipping ScalarCountValidator here prevents the validator from
+	// over-firing on semantically-derived counts that have no
+	// `grep -c`-shaped tool output.
+	//
+	// Syntactic counts (file count / LOC / regex match count) keep
+	// IsRelationalLookup=false and continue to require exec_command
+	// integer output — the validator's original target.
+	if input.IR.RequestModel.Predicates.IsRelationalLookup {
+		return nil
+	}
 
 	// Tier 1: answer-aware via typed BlockScalar + citation chain.
 	// If the answer surfaces a count via a BlockScalar block AND has
