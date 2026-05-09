@@ -57,7 +57,7 @@ func TestCompute_ProjectOrientation_ShrinksBase(t *testing.T) {
 // non-orientation path: anything that fails the orientation
 // predicate (PrimaryEntities present, etc.) keeps the historical
 // complexity-only base. With unit factors moderate complexity
-// produces files=30, iters=16.
+// produces files=40, iters=20 (post-Phase-2.C uplift).
 func TestCompute_NotOrientation_KeepsModerateBase(t *testing.T) {
 	rm := moderateRM()
 	sig := BudgetSignals{
@@ -67,11 +67,11 @@ func TestCompute_NotOrientation_KeepsModerateBase(t *testing.T) {
 		PrescanHitRatio: 1.0,
 	}
 	got := Compute(rm, sig)
-	if got.MaxFiles != 30 {
-		t.Errorf("MaxFiles = %d, want 30 (moderate base, no orientation)", got.MaxFiles)
+	if got.MaxFiles != 40 {
+		t.Errorf("MaxFiles = %d, want 40 (moderate base, no orientation, post-Phase-2.C uplift)", got.MaxFiles)
 	}
-	if got.MaxReactIters != 16 {
-		t.Errorf("MaxReactIters = %d, want 16 (moderate base, no orientation)", got.MaxReactIters)
+	if got.MaxReactIters != 20 {
+		t.Errorf("MaxReactIters = %d, want 20 (moderate base, no orientation, post-Phase-2.C uplift)", got.MaxReactIters)
 	}
 }
 
