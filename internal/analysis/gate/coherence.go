@@ -415,6 +415,21 @@ func checkShapeSubjectCoherence(ir *types.AnalysisIR) types.GateCheck {
 	}
 
 	// R2.2 — Long-form view with high-confidence scalar subject.
+	//
+	// 2026-05-09 IsCountQuestion carve-out (Phase 1 commercial-grade
+	// remediation, registered in
+	// internal/analysis/gate/hard_gate.go::RegisteredHardGates["R2.2"]):
+	// count questions (e.g. "how many lines", "total of N items")
+	// legitimately combine a long-form explanation surface with a
+	// numeric scalar answer — the count itself IS the literal, the
+	// explanation is its derivation. Without this carve-out the
+	// gate over-fires on count questions that the LLM correctly
+	// classifies (s7a eval failure, 2026-05-09).
+	//
+	// Same template as L0-B's IsRelationalLookup carve-out
+	// (analyzer.go:1491). Both gates were over-firing on
+	// structurally-legitimate question shapes that the LLM had no
+	// way to route around without a typed-predicate exemption.
 	view := types.BuildAnswerSemanticView(ir, nil)
 	family := types.QuestionFamily("")
 	isLongForm := false
@@ -425,12 +440,15 @@ func checkShapeSubjectCoherence(ir *types.AnalysisIR) types.GateCheck {
 		isLongForm = !view.NeedsPrincipalScalar()
 	}
 	if isLongForm && isScalarSubjectKind(rm.AnswerSubject.Kind) &&
+		!rm.Predicates.IsCountQuestion &&
 		float32(rm.AnswerSubject.Confidence) >= coherenceSubjectConfidenceFloor {
 		return types.GateCheck{
 			Name:   "shape_subject_coherence",
 			Passed: false,
 			Detail: fmt.Sprintf(
-				"R2.2 longform_scalar_subject: family=%s expects non-scalar payload but AnswerSubject.Kind=%s at confidence %.2f (>= %.2f)",
+				"R2.2 longform_scalar_subject: family=%s expects non-scalar payload but AnswerSubject.Kind=%s at confidence %.2f (>= %.2f). "+
+					"If the question asks for a single computed number aggregated from multiple source units (e.g. 'how many', 'total of'), "+
+					"set is_count_question=true alongside the scalar subject — the count is a derived literal, not a wrong shape.",
 				family, rm.AnswerSubject.Kind, rm.AnswerSubject.Confidence, coherenceSubjectConfidenceFloor),
 		}
 	}
