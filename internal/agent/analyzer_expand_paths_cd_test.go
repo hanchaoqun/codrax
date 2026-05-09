@@ -54,6 +54,75 @@ func TestExpandPackageExports_PathC(t *testing.T) {
 	}
 }
 
+// TestExpandPackageExports_PackageBasenameFallback pins the
+// 2026-05-09 fix that lets path (c) match by FileInfo.Package when
+// the LLM emits the bare package name ("criterion") instead of the
+// full directory path ("internal/analysis/criterion"). u8a sweep
+// rerun showed the model emitted just the basename, the dir-prefix
+// scan didn't match, expansion returned nil, and the L0-B gate
+// rejected the single-entity emit. The Package-name fallback
+// converges on the same exported-symbol harvest regardless of
+// which form the LLM chose.
+func TestExpandPackageExports_PackageBasenameFallback(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/analysis/criterion/grammar.go": {
+				RelPath: "internal/analysis/criterion/grammar.go",
+				Package: "criterion",
+				Symbols: []repomap.Symbol{
+					{Name: "Eval", Kind: "function", Exported: true},
+					{Name: "Kind", Kind: "type", Exported: true},
+				},
+			},
+			"internal/analysis/criterion/eval.go": {
+				RelPath: "internal/analysis/criterion/eval.go",
+				Package: "criterion",
+				Symbols: []repomap.Symbol{
+					{Name: "EvalAll", Kind: "function", Exported: true},
+				},
+			},
+			// Distractor: another "criterion" basename in unrelated
+			// path — must NOT appear since its FileInfo.Package differs.
+			"third_party/criterion/foo.go": {
+				RelPath: "third_party/criterion/foo.go",
+				Package: "differentpkg",
+				Symbols: []repomap.Symbol{
+					{Name: "ShouldNotAppear", Kind: "function", Exported: true},
+				},
+			},
+		},
+	}
+
+	// Test 1: directory-prefix form (existing behavior).
+	gotDir := expandPackageExports(graph, "internal/analysis/criterion")
+	dirSet := map[string]bool{}
+	for _, n := range gotDir {
+		dirSet[n] = true
+	}
+	if !dirSet["Eval"] || !dirSet["EvalAll"] || !dirSet["Kind"] {
+		t.Errorf("dir-prefix form missing one of [Eval EvalAll Kind]; got %v", gotDir)
+	}
+	if dirSet["ShouldNotAppear"] {
+		t.Errorf("dir-prefix form leaked unrelated-pkg symbol; got %v", gotDir)
+	}
+
+	// Test 2: package-basename form (new fallback).
+	gotPkg := expandPackageExports(graph, "criterion")
+	pkgSet := map[string]bool{}
+	for _, n := range gotPkg {
+		pkgSet[n] = true
+	}
+	if !pkgSet["Eval"] || !pkgSet["EvalAll"] || !pkgSet["Kind"] {
+		t.Errorf("package-basename form missing one of [Eval EvalAll Kind]; got %v", gotPkg)
+	}
+	// Distractor with Package="differentpkg" should NOT match
+	// when querying basename "criterion" — only Package field
+	// equality counts.
+	if pkgSet["ShouldNotAppear"] {
+		t.Errorf("package-basename form should ONLY match Package field, not path basename; got %v", gotPkg)
+	}
+}
+
 // TestExpandPackageExports_FiltersUnexportedAndNested pins the
 // filtering rules — unexported symbols and nested (Parent != "")
 // definitions are excluded.

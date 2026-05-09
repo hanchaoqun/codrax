@@ -2593,8 +2593,24 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 // LLM to enumerate fewer than 5 of the actual exports.
 //
 // Returns nil when the directory has no exported symbols, or when
-// `bare` doesn't resolve to a directory prefix in FileIndex (single
-// file, or completely unknown path).
+// `bare` doesn't resolve to a directory prefix OR a package name in
+// FileIndex.
+//
+// Two ways `bare` can match:
+//
+//  1. Directory prefix — `bare="internal/analysis/criterion"`
+//     matches every file under that dir. The full path form the
+//     question text used.
+//
+//  2. Package basename — `bare="criterion"` matches every file
+//     whose FileInfo.Package equals "criterion". The shorter form
+//     LLMs often emit ("the criterion package's exports") even
+//     when the question used the full path.
+//
+// Both forms accumulate into the same exported-symbol output. The
+// LLM emits whichever form is more natural; we accept either so
+// the entity-expansion contract isn't dependent on which form the
+// model chose.
 func expandPackageExports(graph *repomap.Graph, bare string) []string {
 	if graph == nil || bare == "" {
 		return nil
@@ -2603,7 +2619,13 @@ func expandPackageExports(graph *repomap.Graph, bare string) []string {
 	seen := make(map[string]bool)
 	var out []string
 	for path, fi := range graph.FileIndex {
-		if !strings.HasPrefix(path, prefix) {
+		// Match either: directory prefix OR package basename.
+		// Both routes converge on the same exported-symbol harvest
+		// below; the union of the two ensures whichever form the
+		// LLM emitted is honored.
+		matchesPrefix := strings.HasPrefix(path, prefix)
+		matchesPackage := fi != nil && fi.Package != "" && fi.Package == bare
+		if !matchesPrefix && !matchesPackage {
 			continue
 		}
 		if isTestSourcePath(path) {
