@@ -123,6 +123,91 @@ func TestExpandPackageExports_PackageBasenameFallback(t *testing.T) {
 	}
 }
 
+// TestPackageMatchesBare_CrossLanguage pins the cross-language
+// matcher used by Path (c)'s package-basename fallback. Covers Go
+// (short module name), Java/Kotlin/Python/Scala/Cangjie (dotted
+// FQN with last-segment match), and the empty-Package fallback.
+func TestPackageMatchesBare_CrossLanguage(t *testing.T) {
+	cases := []struct {
+		pkg, bare string
+		want      bool
+		desc      string
+	}{
+		// Go / Cangjie / Proto / Rust short forms — exact equality.
+		{"criterion", "criterion", true, "Go short module name exact match"},
+		{"foo", "foo", true, "Cangjie / Proto short decl"},
+
+		// Java / Kotlin dotted package — last-segment equality.
+		{"com.foo.criterion", "criterion", true, "Java FQN last-segment"},
+		{"org.acme.parser", "parser", true, "Kotlin FQN last-segment"},
+
+		// Python dotted module path.
+		{"my_app.services.auth", "auth", true, "Python dotted module last-segment"},
+
+		// Scala dotted FQN.
+		{"com.example.foo.bar", "bar", true, "Scala FQN last-segment"},
+
+		// Distractors — must NOT match.
+		{"criterion-helpers", "criterion", false, "substring not segment match"},
+		{"different", "criterion", false, "no overlap"},
+		{"my.criterion.helpers", "criterion", false, "criterion is mid-segment, not last"},
+		{"", "criterion", false, "empty package (C/C++/Lua/etc.)"},
+		{"criterion", "", false, "empty bare query"},
+		{"foo.", "", false, "trailing-dot edge"},
+
+		// Edge: package equal to bare but with trailing dot.
+		{"foo.", "foo", false, "trailing dot doesn't make 'foo' the last segment"},
+
+		// Single-letter / very short — must still equality-match.
+		{"x", "x", true, "single-letter package equality"},
+	}
+	for _, c := range cases {
+		got := packageMatchesBare(c.pkg, c.bare)
+		if got != c.want {
+			t.Errorf("packageMatchesBare(pkg=%q, bare=%q) = %v, want %v — %s",
+				c.pkg, c.bare, got, c.want, c.desc)
+		}
+	}
+}
+
+// TestExpandPackageExports_JavaDottedPackage pins the live
+// Java/Kotlin scenario where the LLM emits "criterion" but the
+// extractor stamped Package="com.foo.criterion" on every file.
+// Without the last-segment match the package-basename fallback
+// would silently miss every Java file → entity expansion returns
+// nil → L0-B fires.
+func TestExpandPackageExports_JavaDottedPackage(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"src/main/java/com/foo/criterion/Eval.java": {
+				RelPath: "src/main/java/com/foo/criterion/Eval.java",
+				Package: "com.foo.criterion",
+				Symbols: []repomap.Symbol{
+					{Name: "Eval", Kind: "class", Exported: true},
+					{Name: "EvalAll", Kind: "class", Exported: true},
+				},
+			},
+			"src/main/java/com/foo/criterion/Kind.java": {
+				RelPath: "src/main/java/com/foo/criterion/Kind.java",
+				Package: "com.foo.criterion",
+				Symbols: []repomap.Symbol{
+					{Name: "Kind", Kind: "enum", Exported: true},
+				},
+			},
+		},
+	}
+	got := expandPackageExports(graph, "criterion")
+	gotSet := map[string]bool{}
+	for _, n := range got {
+		gotSet[n] = true
+	}
+	for _, want := range []string{"Eval", "EvalAll", "Kind"} {
+		if !gotSet[want] {
+			t.Errorf("Java dotted-package fallback missing %q; got %v", want, got)
+		}
+	}
+}
+
 // TestExpandPackageExports_FiltersUnexportedAndNested pins the
 // filtering rules — unexported symbols and nested (Parent != "")
 // definitions are excluded.

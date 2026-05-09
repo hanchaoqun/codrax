@@ -2596,21 +2596,34 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 // `bare` doesn't resolve to a directory prefix OR a package name in
 // FileIndex.
 //
-// Two ways `bare` can match:
+// Cross-language matching paths (union):
 //
 //  1. Directory prefix — `bare="internal/analysis/criterion"`
 //     matches every file under that dir. The full path form the
 //     question text used.
 //
-//  2. Package basename — `bare="criterion"` matches every file
-//     whose FileInfo.Package equals "criterion". The shorter form
-//     LLMs often emit ("the criterion package's exports") even
-//     when the question used the full path.
+//  2. Exact package equality — `bare="criterion"` matches files
+//     whose FileInfo.Package equals "criterion". Covers Go module
+//     names, Cangjie / Proto / Rust short package decls, and
+//     dotted forms when the LLM emitted the full path.
 //
-// Both forms accumulate into the same exported-symbol output. The
-// LLM emits whichever form is more natural; we accept either so
-// the entity-expansion contract isn't dependent on which form the
-// model chose.
+//  3. Package last-segment — `bare="criterion"` matches files
+//     whose FileInfo.Package's last dotted segment equals
+//     "criterion". Covers Java / Kotlin / Python / Scala dotted
+//     package paths (e.g. Package="com.foo.criterion") where the
+//     LLM naturally emits just the trailing module name in
+//     prose ("the criterion package's exports").
+//
+// All three routes converge on the same exported-symbol harvest.
+// The LLM emits whichever form is most natural for the language
+// ecosystem; we accept the union so the entity-expansion contract
+// is form- and language-independent.
+//
+// False-positive guard: matching is by FileInfo.Package equality
+// (or its last segment), NOT by path basename. A distractor file
+// at "third_party/criterion/foo.go" whose extractor-assigned
+// Package field is "differentpkg" does NOT match a query for
+// "criterion" — the typed Package field is the source of truth.
 func expandPackageExports(graph *repomap.Graph, bare string) []string {
 	if graph == nil || bare == "" {
 		return nil
@@ -2619,12 +2632,10 @@ func expandPackageExports(graph *repomap.Graph, bare string) []string {
 	seen := make(map[string]bool)
 	var out []string
 	for path, fi := range graph.FileIndex {
-		// Match either: directory prefix OR package basename.
-		// Both routes converge on the same exported-symbol harvest
-		// below; the union of the two ensures whichever form the
-		// LLM emitted is honored.
+		// Match any of: directory prefix, exact Package equality,
+		// or Package last-segment equality.
 		matchesPrefix := strings.HasPrefix(path, prefix)
-		matchesPackage := fi != nil && fi.Package != "" && fi.Package == bare
+		matchesPackage := fi != nil && packageMatchesBare(fi.Package, bare)
 		if !matchesPrefix && !matchesPackage {
 			continue
 		}
@@ -2679,6 +2690,38 @@ func expandPackageExports(graph *repomap.Graph, bare string) []string {
 		}
 	}
 	return out
+}
+
+// packageMatchesBare reports whether a FileInfo.Package value
+// matches the user-emitted `bare` entity. Cross-language unifier:
+//
+//   - Empty Package field (C / C++ / CUDA / Obj-C / Lua / static
+//     frontend) — never matches; falls back to directory prefix.
+//   - Exact equality (`Package=="criterion"`, `bare=="criterion"`)
+//     — Go module names, Cangjie / Proto short decls, Rust crates.
+//   - Last-segment equality (`Package=="com.foo.criterion"`,
+//     `bare=="criterion"`) — Java / Kotlin / Python / Scala dotted
+//     package paths where the LLM naturally emits the trailing
+//     module name. Splits on '.' (the universal package-segment
+//     separator across these ecosystems).
+//
+// The check is conservative: only EXACT segment-equality counts,
+// not substring containment, so "criterion-helpers" does not match
+// "criterion".
+func packageMatchesBare(pkg, bare string) bool {
+	if pkg == "" || bare == "" {
+		return false
+	}
+	if pkg == bare {
+		return true
+	}
+	// Last-dotted-segment match (Java / Kotlin / Python / Scala).
+	if dot := strings.LastIndexByte(pkg, '.'); dot >= 0 && dot < len(pkg)-1 {
+		if pkg[dot+1:] == bare {
+			return true
+		}
+	}
+	return false
 }
 
 // isTestSourcePath reports whether `path` looks like a test source
