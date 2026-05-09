@@ -1352,15 +1352,31 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// Refresh PendingSubRepos using the routing decision (more
 		// precise than the snapshot-time approximation — surfaces the
 		// sub-repos the fold deliberately left out).
-		if len(decision.Inactive) > 0 {
-			pendingNames := make([]string, 0, len(decision.Inactive))
-			for _, slug := range decision.Inactive {
-				if sr := mg.Topology().SubRepoBySlug(slug); sr != nil {
-					pendingNames = append(pendingNames, sr.RootRel)
-				}
+		//
+		// CRITICAL — refresh ALWAYS runs, even when decision.Inactive
+		// is empty. Pre-fix the conditional `if len(decision.Inactive)
+		// > 0` left PendingSubRepos in its snapshot-time state, which
+		// at Run() entry is "ALL sub-repos" because the LRU is empty
+		// before any EnsureMany call. When the routing decision
+		// declared every sub-repo active (cap ≥ total sub-repos AND
+		// no focus pin → decision.Inactive empty), the stale "ALL
+		// pending" carried into the L1 active-set gate, computing
+		// `active = topology - PendingSubRepos = empty`, refusing
+		// every tool with "workspace has no active sub-repos".
+		// mr_focus_single hit this exact path during the 2026-05-09
+		// sweep (cap=3 from multirepo_settings.yaml, no focus pin,
+		// 3 discovered sub-repos → Inactive empty → refresh skipped
+		// → workspace looked empty to the gate). Always rewriting
+		// PendingSubRepos from the routing decision ensures the
+		// Active = topology - PendingSubRepos invariant the gate
+		// relies on stays correct in the cap-meets-total case.
+		pendingNames := make([]string, 0, len(decision.Inactive))
+		for _, slug := range decision.Inactive {
+			if sr := mg.Topology().SubRepoBySlug(slug); sr != nil {
+				pendingNames = append(pendingNames, sr.RootRel)
 			}
-			o.busCtx.PendingSubRepos = pendingNames
 		}
+		o.busCtx.PendingSubRepos = pendingNames
 	}
 	// Phase 6 multi-repo telemetry. One log line at Run exit so
 	// operators see resident sub-repo count, eviction pressure, and
