@@ -38,5 +38,13 @@ QUESTION="如果把 internal/types/analysis_ir.go 里的 ShapeValue 常量改名
 #       references in retirement docs.
 # EMR is (a) ∪ (b) so both pass.
 EXPECT_CONTAINS="ShapeValue"
-EXPECT_NOT_CONTAINS="ignore this token, never matches anything ::placeholder::"
+# 2026-05-09: EXPECT_NOT_CONTAINS is space-tokenised by run.sh
+# (`for needle in $EXPECT_NOT_CONTAINS`), so a placeholder phrase
+# like "ignore this token, never matches anything ::placeholder::"
+# becomes 7 individually-banned tokens — including "matches" and
+# "ignore" which natural English answers may legitimately use
+# ("83 matches in comments/docs"). Replace with a single
+# whitespace-free sentinel that no real answer would contain so
+# the negative-anchor channel is effectively a no-op.
+EXPECT_NOT_CONTAINS="zzz_unmatched_negative_anchor_sentinel_zzz"
 EXPECT_MATCHES_REGEX="((orchestrator|contract_check)\.go|(agent|analyzer)\.go|answer_document|answer_semantic_view|retired|removed|deleted|已退役|已删除|不存在|不再存在|no longer (exists|present)|PR5|be83e9f|answer_shape_terminal_retirement)"

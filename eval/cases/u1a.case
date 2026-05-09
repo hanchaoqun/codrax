@@ -32,8 +32,14 @@ QUESTION="codrax 的 exec_command 工具是否存在命令注入风险？请给�
 # CamelCase by convention. Move the tool-name anchor into regex with
 # alternation so either form satisfies it.
 EXPECT_CONTAINS=""
+# 2026-05-09 second-pass broaden: regex is run via grep -E (case-
+# sensitive). Model wrote "Taint Source" / "Taint Sink" with capital
+# T (natural English title-case for security-audit prose) but the
+# regex `taint` lowercase-only didn't match. Same for sink (Sink
+# capital). Use [Tt]aint / [Ss]ink charset alternations so both
+# cases match.
 EXPECT_MATCHES_REGEX="(exec_command|ExecCommand|execCommand)
-(taint|污点|输入)
-(sink|执行点|shell|外部.*命令)
-(defense|defense|sanitize|whitelist|防护|过滤|清洗)"
+([Tt]aint|污点|输入)
+([Ss]ink|执行点|shell|外部.*命令)
+(defense|sanitize|whitelist|防护|过滤|清洗)"
 EXPECT_NOT_CONTAINS="no.risk SQL.injection sql"
