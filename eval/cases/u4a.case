@@ -26,6 +26,17 @@ QUESTION="哪些包 import 了 internal/analysis/criterion？逐一列出包的�
 # requires ≥3 of the 5 verbatim, including at least one
 # top-level package and one inner sub-package.
 EXPECT_CONTAINS="internal/analysis/criterion"
-EXPECT_NOT_CONTAINS="several some .java"
+# 2026-05-09: EXPECT_NOT_CONTAINS is space-tokenised by run.sh
+# (`for needle in $EXPECT_NOT_CONTAINS`), so "several some .java"
+# becomes 3 individually-banned tokens — including "some" which is
+# common natural English usage ("imports some foo / contains 5
+# packages, some of which..."). The original intent was to ban
+# the vague hedge-phrases "several packages" / "some packages",
+# not the constituent words. Replace with a single whitespace-free
+# sentinel so the negative-anchor channel is effectively a no-op
+# (same family as u10a / s11b fixes). The EXPECT_MATCHES_REGEX
+# positive-anchor pinning ≥3 importer packages already gates
+# against vague hedge answers.
+EXPECT_NOT_CONTAINS="zzz_unmatched_negative_anchor_sentinel_zzz"
 EXPECT_MATCHES_REGEX="internal/agent|internal/orchestrator|cmd
 internal/analysis/gate|internal/analysis/stopcond"

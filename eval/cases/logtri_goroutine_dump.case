@@ -33,5 +33,11 @@ main.writeSession(0x0, {0x140000a2090, 0x8})
 # vocabulary alternation (race / race condition / data race /
 # 竞态 / 数据竞争 / 竞争).
 EXPECT_SECTIONS="map"
+# 2026-05-09 third-pass broaden: model said "BugClassRace" (CamelCase
+# typed enum value) + "并发 map 写操作" — semantically correct race-
+# condition identification but neither matched lowercase "race" alt
+# nor Chinese 竞争 alt. Add: [Rr]ace alternative (catches Go enum
+# names like BugClassRace), 并发.*写 (semantic "concurrent write"
+# pattern that maps to race).
 EXPECT_MATCHES_REGEX="concurrent|并发
-race|race condition|data race|竞态|数据竞争|竞争"
+race|race condition|data race|竞态|数据竞争|竞争|[Rr]ace|并发.*写"

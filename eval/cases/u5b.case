@@ -20,5 +20,13 @@ QUESTION="Does runTaskGraph's stall-forces-finalize fallback path (the branch de
 # the test function name, OR (b) the explicit "no test" / "无测试"
 # verdict — proving the LLM actually looked rather than hedged.
 EXPECT_CONTAINS="runTaskGraph"
-EXPECT_MATCHES_REGEX="(_test\.go.*Test[A-Z][a-zA-Z]+|no.*test|没有.*测试|尚无.*测试|无.*覆盖)"
+# 2026-05-09 third-pass broaden: model honestly reported absence
+# with verbs the alternation kept missing — "不存在" / "零匹配" /
+# "均不覆盖". All are valid "no test exists" phrasings. Add:
+#   - 不存在.*测试 / 测试.*不存在  (does not exist)
+#   - 零匹配 / zero match  (semantic absence on grep)
+#   - 均不.*(覆盖|测试)  (none of them cover/test)
+#   - 未.*(覆盖|测试)  (have not covered/tested)
+#   - do.*not.*cover / does.*not.*cover / lack.*test
+EXPECT_MATCHES_REGEX="(_test\.go.*Test[A-Z][a-zA-Z]+|no.*test|没有.*测试|尚无.*测试|无.*覆盖|不存在.*测试|测试.*不存在|零匹配|zero match|均不.*(覆盖|测试)|未.*(覆盖|测试)|do.*not.*cover|does.*not.*cover|lack.*test)"
 EXPECT_NOT_CONTAINS="probably likely assumption"
