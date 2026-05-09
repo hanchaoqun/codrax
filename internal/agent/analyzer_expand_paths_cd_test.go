@@ -192,6 +192,115 @@ func TestExpandChildPackages_MultiLanguage(t *testing.T) {
 	}
 }
 
+// TestIsTestSourcePath pins the cross-language test-source-path
+// filter used by Path (c) and Path (d) to drop test functions /
+// test directories from entity expansion. Without this filter the
+// criterion package's 50+ Test* functions (Go test funcs are
+// Exported=true syntactically) would drown the 9 real exports in
+// the entity hint, leading the LLM to enumerate fewer than 5 of
+// the actual API.
+func TestIsTestSourcePath(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		// Production source — must NOT match
+		{"internal/agent/explorer.go", false},
+		{"src/services/auth/auth.py", false},
+		{"src/lib.rs", false},
+		{"src/main/java/Foo.java", false},
+		{"src/index.ts", false},
+		{"src/handler.kt", false},
+		{"main.cj", false},
+		{"app.lua", false},
+		{"main.swift", false},
+		{"server.cpp", false},
+		// Test source — MUST match
+		{"internal/agent/explorer_test.go", true},                  // Go suffix
+		{"internal/types/types_test.go", true},                     // Go suffix
+		{"src/services/auth/auth_test.py", true},                   // Python suffix
+		{"src/services/test_login.py", true},                       // Python prefix
+		{"tests/integration_test.py", true},                        // Python tests dir
+		{"src/lib_test.rs", true},                                  // Rust suffix
+		{"tests/integration.rs", true},                             // Rust tests dir
+		{"src/main_test.cj", true},                                 // Cangjie suffix
+		{"src/utils_test.lua", true},                               // Lua suffix
+		{"src/parser_spec.lua", true},                              // Lua spec suffix
+		{"test/foo_test.rb", true},                                 // Ruby test dir
+		{"spec/login_spec.rb", true},                               // Ruby spec dir
+		{"src/main/java/AuthTest.java", true},                      // Java Test suffix
+		{"src/test/java/AuthTests.java", true},                     // Java src/test/
+		{"src/utils.test.ts", true},                                // TS .test.
+		{"src/utils.spec.tsx", true},                               // TSX .spec.
+		{"src/__tests__/utils.ts", true},                           // JS __tests__/
+		{"src/HandlerTests.swift", true},                           // Swift Tests
+		{"src/AuthTests.m", true},                                  // Obj-C Tests.m
+		{"src/auth/AuthSpec.scala", true},                          // Scala Spec
+		// Edge cases
+		{"", false},
+		{"foo/contestant.go", false}, // contains "test" but not as suffix/prefix
+	}
+	for _, c := range cases {
+		got := isTestSourcePath(c.path)
+		if got != c.want {
+			t.Errorf("isTestSourcePath(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}
+
+// TestExpandPackageExports_FiltersTestSources pins that test
+// source files are excluded from path (c) expansion. Critical for
+// u8a: criterion package has 50+ test functions whose
+// Symbol.Exported=true syntactically; without this filter they
+// drown the 9 real exports in the entity hint.
+func TestExpandPackageExports_FiltersTestSources(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"pkg/x/api.go": {
+				RelPath: "pkg/x/api.go",
+				Symbols: []repomap.Symbol{
+					{Name: "RealAPI", Kind: "function", Exported: true},
+				},
+			},
+			"pkg/x/api_test.go": {
+				RelPath: "pkg/x/api_test.go",
+				Symbols: []repomap.Symbol{
+					{Name: "TestRealAPI_HappyPath", Kind: "function", Exported: true},
+					{Name: "TestRealAPI_Edge", Kind: "function", Exported: true},
+				},
+			},
+		},
+	}
+	got := expandPackageExports(graph, "pkg/x")
+	if len(got) != 1 || got[0] != "RealAPI" {
+		t.Errorf("expected only [RealAPI] (test fns filtered), got %v", got)
+	}
+}
+
+// TestExpandChildPackages_FiltersTestDirs pins that test-only
+// child directories (`tests/` / `__tests__/` / `spec/`) are
+// excluded from path (d) expansion.
+func TestExpandChildPackages_FiltersTestDirs(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"src/services/auth/auth.go":       {RelPath: "src/services/auth/auth.go"},        // ✓ real pkg
+			"src/services/billing/charge.py":  {RelPath: "src/services/billing/charge.py"},   // ✓ real pkg
+			"src/services/tests/integration.go": {RelPath: "src/services/tests/integration.go"}, // ✗ test dir
+			"src/services/__tests__/utils.ts":   {RelPath: "src/services/__tests__/utils.ts"},   // ✗ test dir
+		},
+	}
+	got := expandChildPackages(graph, "src/services")
+	wantSet := map[string]bool{"auth": true, "billing": true}
+	if len(got) != 2 {
+		t.Errorf("expected 2 real children (test dirs filtered), got %v", got)
+	}
+	for _, n := range got {
+		if !wantSet[n] {
+			t.Errorf("unexpected child name: %q", n)
+		}
+	}
+}
+
 // TestExpandPackageExports_MultiLanguageKinds pins cross-language
 // Symbol.Kind acceptance — Python class, Rust struct/trait/enum,
 // Cangjie operator, Proto message/service/rpc, Java interface,

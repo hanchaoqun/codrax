@@ -2583,6 +2583,15 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 // by expandEntitiesWithImplementers Path (c) — see the docstring
 // there for the full design rationale.
 //
+// Test source files (`_test.go` / `_test.py` / `*Test.java` /
+// `tests/...` / `__tests__/...` / `spec/...` / etc., across all
+// 17 supported languages) are deliberately excluded — test
+// functions are technically Exported=true but they are not the
+// "package API" the user is asking about. Without this filter a
+// 9-export package can return 70+ entries (50+ test functions)
+// that drown out the real API in the entity hint, leading the
+// LLM to enumerate fewer than 5 of the actual exports.
+//
 // Returns nil when the directory has no exported symbols, or when
 // `bare` doesn't resolve to a directory prefix in FileIndex (single
 // file, or completely unknown path).
@@ -2595,6 +2604,9 @@ func expandPackageExports(graph *repomap.Graph, bare string) []string {
 	var out []string
 	for path, fi := range graph.FileIndex {
 		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		if isTestSourcePath(path) {
 			continue
 		}
 		if fi == nil {
@@ -2647,6 +2659,88 @@ func expandPackageExports(graph *repomap.Graph, bare string) []string {
 	return out
 }
 
+// isTestSourcePath reports whether `path` looks like a test source
+// file under any of the 17 supported language ecosystems. Used by
+// expandPackageExports (Path c) and expandChildPackages (Path d) so
+// test functions / test directories don't drown the package's real
+// API surface in the entity-hint output.
+//
+// Cross-language conventions covered:
+//   - Go             — *_test.go
+//   - Python         — *_test.py / test_*.py / pytests/* / tests/*
+//   - Rust           — *_test.rs / tests/*.rs
+//   - Cangjie        — *_test.cj
+//   - Lua            — *_test.lua / *_spec.lua
+//   - Ruby           — *_test.rb / test_*.rb / spec/*.rb
+//   - Java / Kotlin  — *Test.java / *Tests.java / src/test/...
+//   - JS / TS / TSX  — *.test.{js,ts,tsx,jsx} / *.spec.{js,ts,tsx,jsx}
+//                      / __tests__/* / __test__/*
+//   - Swift          — *Tests.swift
+//   - Obj-C          — *Tests.m / *Tests.mm
+//   - Scala          — *Spec.scala / *Test.scala
+//   - C / C++ / CUDA — typically `*_test.cc` / `tests/*` / `test/*`
+//   - Proto          — proto files normally have no test variant;
+//                      proto test fixtures live under tests/
+//
+// Heuristic: union of basename suffix patterns + leading prefix
+// patterns + path-segment markers. Matches the conventions the
+// repomap extractors themselves use to decide whether to mark a
+// file Test=true (where that field exists). No keyword-grep over
+// file content — purely path-based.
+func isTestSourcePath(path string) bool {
+	if path == "" {
+		return false
+	}
+	// Path-segment markers (Java/Maven /src/test/, JS __tests__,
+	// Rust tests/, Python tests/, Ruby spec/, etc.).
+	if strings.Contains(path, "/__tests__/") ||
+		strings.Contains(path, "/__test__/") ||
+		strings.Contains(path, "/src/test/") ||
+		strings.Contains(path, "/tests/") ||
+		strings.HasPrefix(path, "tests/") ||
+		strings.Contains(path, "/test/") ||
+		strings.HasPrefix(path, "test/") ||
+		strings.Contains(path, "/spec/") ||
+		strings.HasPrefix(path, "spec/") {
+		return true
+	}
+	// Basename suffix / prefix patterns.
+	slash := strings.LastIndexByte(path, '/')
+	base := path
+	if slash >= 0 {
+		base = path[slash+1:]
+	}
+	if strings.HasPrefix(base, "test_") || strings.HasPrefix(base, "Test_") {
+		return true
+	}
+	// Generic *_test.<ext> — covers Go / Python / Rust / Cangjie /
+	// Lua / Ruby / C / C++.
+	if strings.Contains(base, "_test.") {
+		return true
+	}
+	// Generic *_spec.<ext> — covers Lua / Ruby / Scala-style.
+	if strings.Contains(base, "_spec.") {
+		return true
+	}
+	// JS / TS / TSX *.test.<ext> / *.spec.<ext>.
+	if strings.Contains(base, ".test.") || strings.Contains(base, ".spec.") {
+		return true
+	}
+	// Java / Kotlin / Swift *Test.<ext> / *Tests.<ext> / *Spec.<ext>.
+	for _, suffix := range []string{
+		"Test.java", "Tests.java",
+		"Test.kt", "Tests.kt",
+		"Test.scala", "Spec.scala",
+		"Tests.swift",
+		"Tests.m", "Tests.mm",
+	} {
+		if strings.HasSuffix(base, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 // expandChildPackages walks graph.FileIndex looking for files whose
 // RelPath starts with `<bare>/` and collects distinct immediate
 // child directory names. Used by expandEntitiesWithImplementers
@@ -2665,6 +2759,9 @@ func expandChildPackages(graph *repomap.Graph, bare string) []string {
 	var out []string
 	for path := range graph.FileIndex {
 		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		if isTestSourcePath(path) {
 			continue
 		}
 		// Extract the immediate child directory: the segment
