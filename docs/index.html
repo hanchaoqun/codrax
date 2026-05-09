@@ -166,7 +166,7 @@
       color: var(--accent-cyan);
     }
 
-    .control-btn.is-paused {
+    .control-btn.is-playing {
       background: var(--accent-cyan);
       color: #fffdf8;
     }
@@ -384,7 +384,7 @@
         </nav>
         <div class="deck-controls" role="group" aria-label="演示控制">
           <button class="control-btn" id="deckPrevBtn" type="button">上页</button>
-          <button class="control-btn" id="deckToggleBtn" type="button" aria-pressed="false">暂停</button>
+          <button class="control-btn" id="deckToggleBtn" type="button" aria-label="开启自动播放" aria-pressed="false">播放</button>
           <button class="control-btn" id="deckNextBtn" type="button">下页</button>
         </div>
       </div>
@@ -394,10 +394,10 @@
       <span class="mobile-badge">CODRAX</span>
     </div>
 
-    <section class="stage" aria-label="自动播放演示">
+    <section class="stage" aria-label="演示文稿">
       <iframe
         id="deckFrame"
-        src="./codrax_authoritative_guide.html?embed=1&autoplay=1&loop=1&interval=6000"
+        src="./codrax_authoritative_guide.html?embed=1&loop=1&interval=6000"
         title="CODRAX authoritative guide"
         loading="eager"
         referrerpolicy="no-referrer"
@@ -419,12 +419,11 @@
     const deckPrevBtn = document.getElementById("deckPrevBtn");
     const deckToggleBtn = document.getElementById("deckToggleBtn");
     const deckNextBtn = document.getElementById("deckNextBtn");
-    let autoplayActive = true;
+    let autoplayActive = false;
 
     if (deckFrame) {
       const deckUrl = new URL("./codrax_authoritative_guide.html", window.location.href);
       deckUrl.searchParams.set("embed", "1");
-      deckUrl.searchParams.set("autoplay", "1");
       deckUrl.searchParams.set("loop", "1");
       deckUrl.searchParams.set("interval", "6000");
       const requestedPage = pageParams.get("page") || pageParams.get("slide") || pageHash;
@@ -441,10 +440,10 @@
 
     function syncToggleButton() {
       [deckToggleBtn].filter(Boolean).forEach((button) => {
-        button.textContent = autoplayActive ? "暂停" : "继续";
-        button.classList.toggle("is-paused", !autoplayActive);
-        button.setAttribute("aria-label", autoplayActive ? "暂停自动播放" : "继续自动播放");
-        button.setAttribute("aria-pressed", String(!autoplayActive));
+        button.textContent = autoplayActive ? "暂停" : "播放";
+        button.classList.toggle("is-playing", autoplayActive);
+        button.setAttribute("aria-label", autoplayActive ? "暂停自动播放" : "开启自动播放");
+        button.setAttribute("aria-pressed", String(autoplayActive));
       });
     }
 

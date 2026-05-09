@@ -520,8 +520,16 @@
       padding: 0.86rem 0.76rem;
     }
     .page-two-balanced .stat strong {
-      font-size: 1.86rem;
-      margin-bottom: 0.34rem;
+      font-size: 1rem;
+      line-height: 1.2;
+      margin-bottom: 0.3rem;
+      color: var(--title-text);
+      letter-spacing: -0.01em;
+    }
+    .page-two-balanced .stat .muted {
+      display: block;
+      font-size: 0.78rem;
+      line-height: 1.36;
     }
 
     /* 流程图节点（线框风格） */
@@ -855,31 +863,56 @@
     }
 
     .page-eight-balanced.compact-slide .content {
-      gap: 0.72rem;
+      gap: 0.58rem;
     }
     .page-eight-balanced.compact-slide .cols-2 {
-      align-items: start;
-      gap: 0.86rem;
+      align-items: stretch;
+      gap: 0.74rem;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .page-eight-balanced.compact-slide .cols-2 > .panel {
+      height: 100%;
+    }
+    .page-eight-balanced.compact-slide .panel {
+      padding: 0.82rem 0.94rem;
+    }
+    .page-eight-balanced.compact-slide .panel p,
+    .page-eight-balanced.compact-slide .mini-list li {
+      font-size: 0.79rem;
+      line-height: 1.32;
     }
     .page-eight-balanced.compact-slide .focus-stack {
-      gap: 0.4rem;
+      gap: 0.34rem;
     }
     .page-eight-balanced.compact-slide .focus-row {
-      padding: 0.56rem 0.62rem;
+      padding: 0.5rem 0.58rem;
+    }
+    .page-eight-balanced.compact-slide .focus-row strong {
+      font-size: 0.82rem;
+    }
+    .page-eight-balanced.compact-slide .focus-row span {
+      font-size: 0.76rem;
+      line-height: 1.28;
     }
     .page-eight-balanced.compact-slide .panel[style] {
-      margin-top: 0.08rem !important;
+      margin-top: 0.04rem !important;
     }
     .page-eight-balanced.compact-slide .quote-box[style] {
-      margin-top: 0.3rem !important;
+      margin-top: 0.22rem !important;
+      font-size: 0.84rem;
+      line-height: 1.34;
     }
 
     .page-thirteen-balanced.compact-slide .content {
       gap: 0.62rem;
     }
     .page-thirteen-balanced.compact-slide .cols-2 {
-      align-items: start;
+      align-items: stretch;
       gap: 0.82rem;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .page-thirteen-balanced.compact-slide .cols-2 > .panel {
+      height: 100%;
     }
     .page-thirteen-balanced.compact-slide .focus-stack {
       gap: 0.36rem;
@@ -888,37 +921,95 @@
       padding: 0.54rem 0.62rem;
     }
     .page-thirteen-balanced.compact-slide .tail-balance-cols .panel {
-      height: auto;
+      height: 100%;
     }
     .page-thirteen-balanced.compact-slide .tail-balance-cols {
       margin-top: 0.12rem !important;
+      gap: 0.82rem;
+    }
+
+    .page-thirteen-actual-tight.compact-slide .content {
+      gap: 0.52rem;
+    }
+    .page-thirteen-actual-tight.compact-slide .balance-strip {
+      padding: 0.42rem 0.62rem;
+    }
+    .page-thirteen-actual-tight.compact-slide .balance-strip p {
+      font-size: 0.77rem;
+      line-height: 1.27;
+    }
+    .page-thirteen-actual-tight.compact-slide .cols-2 {
+      align-items: stretch;
+      gap: 0.74rem;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .page-thirteen-actual-tight.compact-slide .cols-2 > .panel {
+      height: 100%;
+    }
+    .page-thirteen-actual-tight.compact-slide .panel {
+      padding: 0.8rem 0.92rem;
+    }
+    .page-thirteen-actual-tight.compact-slide .mini-list li,
+    .page-thirteen-actual-tight.compact-slide .panel p {
+      font-size: 0.79rem;
+      line-height: 1.32;
+    }
+    .page-thirteen-actual-tight.compact-slide .focus-stack {
+      gap: 0.3rem;
+    }
+    .page-thirteen-actual-tight.compact-slide .focus-row {
+      padding: 0.48rem 0.56rem;
+    }
+    .page-thirteen-actual-tight.compact-slide .focus-row strong {
+      font-size: 0.81rem;
+    }
+    .page-thirteen-actual-tight.compact-slide .focus-row span {
+      font-size: 0.75rem;
+      line-height: 1.28;
+    }
+    .page-thirteen-actual-tight.compact-slide .tail-balance-cols {
+      margin-top: 0.04rem !important;
+    }
+    .page-thirteen-actual-tight.compact-slide .panel .muted[style] {
+      margin-top: 0.46rem !important;
+    }
+    .page-thirteen-actual-tight.compact-slide .tail-balance-cols .quote-box {
+      margin-top: 0 !important;
+      font-size: 0.84rem;
+      line-height: 1.34;
     }
 
     .page-fourteen-tight.compact-slide .content {
-      gap: 0.58rem;
+      gap: 0.48rem;
     }
     .page-fourteen-tight.compact-slide .balance-strip {
-      padding: 0.46rem 0.66rem;
+      padding: 0.4rem 0.6rem;
     }
     .page-fourteen-tight.compact-slide .balance-strip p {
-      font-size: 0.78rem;
-      line-height: 1.28;
+      font-size: 0.75rem;
+      line-height: 1.24;
     }
     .page-fourteen-tight.compact-slide .cols-2 {
-      align-items: start;
-      gap: 0.78rem;
+      align-items: stretch;
+      gap: 0.68rem;
+      grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.02fr);
+    }
+    .page-fourteen-tight.compact-slide .cols-2 > .panel {
+      height: 100%;
+      display: grid;
+      align-content: start;
     }
     .page-fourteen-tight.compact-slide .panel {
-      padding: 0.84rem 0.96rem;
+      padding: 0.78rem 0.9rem;
     }
     .page-fourteen-tight.compact-slide .contract-grid,
     .page-fourteen-tight.compact-slide .answer-pair {
-      gap: 0.46rem;
-      margin-top: 0.42rem;
+      gap: 0.38rem;
+      margin-top: 0.3rem;
     }
     .page-fourteen-tight.compact-slide .contract-item,
     .page-fourteen-tight.compact-slide .answer-item {
-      padding: 0.62rem 0.68rem;
+      padding: 0.54rem 0.62rem;
     }
     .page-fourteen-tight.compact-slide .contract-item strong,
     .page-fourteen-tight.compact-slide .answer-item strong {
@@ -926,26 +1017,37 @@
     }
     .page-fourteen-tight.compact-slide .contract-item span,
     .page-fourteen-tight.compact-slide .answer-item span {
-      font-size: 0.73rem;
-      line-height: 1.3;
+      font-size: 0.72rem;
+      line-height: 1.28;
+    }
+    .page-fourteen-tight.compact-slide .panel .muted {
+      font-size: 0.74rem;
+      line-height: 1.28;
+    }
+    .page-fourteen-tight.compact-slide .panel .muted[style] {
+      margin-top: 0.46rem !important;
     }
     .page-fourteen-tight.compact-slide .cols-3 {
-      gap: 0.7rem;
-      align-items: start;
+      gap: 0.62rem;
+      align-items: stretch;
+      grid-auto-rows: 1fr;
     }
     .page-fourteen-tight.compact-slide .cols-3[style] {
-      margin-top: 0.38rem !important;
+      margin-top: 0.2rem !important;
     }
     .page-fourteen-tight.compact-slide .signal-card {
-      padding: 0.82rem 0.9rem;
+      padding: 0.72rem 0.82rem;
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr;
     }
     .page-fourteen-tight.compact-slide .signal-card h3 {
-      font-size: 0.9rem;
-      margin-bottom: 0.28rem;
+      font-size: 0.87rem;
+      margin-bottom: 0.22rem;
     }
     .page-fourteen-tight.compact-slide .signal-card p {
-      font-size: 0.76rem;
-      line-height: 1.3;
+      font-size: 0.73rem;
+      line-height: 1.26;
     }
 
     .page-fifteen-tight.compact-slide .content {
@@ -1211,7 +1313,7 @@
       color: var(--accent-cyan);
       background: var(--code-bg);
     }
-    .nav button.is-paused {
+    .nav button.is-playing {
       background: var(--accent-cyan);
       color: #fffdf8;
       border-color: transparent;
@@ -1339,6 +1441,60 @@
       .page-fifteen-tight.compact-slide .mini-list li {
         font-size: 0.87rem;
         line-height: 1.4;
+      }
+
+      .slide.page-seven-tight.compact-slide {
+        padding-top: 3.2%;
+        padding-bottom: 3.8%;
+      }
+
+      .slide.page-seven-tight.compact-slide .content {
+        gap: 0.56rem;
+      }
+
+      .slide.page-seven-tight.compact-slide h2 {
+        font-size: 1.82rem;
+        line-height: 1.16;
+        margin-bottom: 0.46rem;
+      }
+
+      .slide.page-seven-tight.compact-slide .lead {
+        font-size: 0.94rem;
+        line-height: 1.44;
+        margin-bottom: 0.34rem;
+      }
+
+      .slide.page-seven-tight.compact-slide .page-seven-flow {
+        gap: 0.54rem;
+        margin: 0.58rem 0 0.42rem;
+      }
+
+      .slide.page-seven-tight.compact-slide .node {
+        padding: 0.58rem 0.54rem;
+        min-height: auto;
+        font-size: 0.78rem;
+      }
+
+      .slide.page-seven-tight.compact-slide .cols-3 {
+        gap: 0.72rem;
+      }
+
+      .slide.page-seven-tight.compact-slide .panel {
+        padding: 0.72rem 0.86rem;
+      }
+
+      .slide.page-seven-tight.compact-slide .panel h3 {
+        font-size: 0.94rem;
+        margin-bottom: 0.3rem;
+      }
+
+      .slide.page-seven-tight.compact-slide .mini-list {
+        gap: 0.32rem;
+      }
+
+      .slide.page-seven-tight.compact-slide .mini-list li {
+        font-size: 0.83rem;
+        line-height: 1.34;
       }
     }
 
@@ -1589,6 +1745,42 @@
         padding-left: 0.64rem;
       }
 
+      .slide.page-seven-tight.compact-slide h2 {
+        font-size: clamp(1.06rem, 4.55vw, 1.22rem);
+      }
+
+      .slide.page-seven-tight.compact-slide .lead {
+        font-size: 0.9rem;
+        line-height: 1.5;
+      }
+
+      .slide.page-seven-tight.compact-slide .page-seven-flow {
+        gap: 0.28rem;
+        margin: 0.42rem 0;
+      }
+
+      .slide.page-seven-tight.compact-slide .node {
+        padding: 0.5rem 0.54rem;
+      }
+
+      .slide.page-seven-tight.compact-slide .panel {
+        padding: 0.64rem 0.68rem;
+      }
+
+      .slide.page-seven-tight.compact-slide .panel h3 {
+        font-size: 0.98rem;
+        margin-bottom: 0.26rem;
+      }
+
+      .slide.page-seven-tight.compact-slide .mini-list {
+        gap: 0.34rem;
+      }
+
+      .slide.page-seven-tight.compact-slide .mini-list li {
+        font-size: 0.88rem;
+        line-height: 1.48;
+      }
+
       .page-eighteen-balanced.compact-slide {
         padding-top: 0.68rem;
       }
@@ -1805,8 +1997,14 @@
       }
 
       .page-two-balanced .stat strong {
-        font-size: 1.12rem;
+        font-size: 0.86rem;
+        line-height: 1.22;
         margin-bottom: 0.22rem;
+      }
+
+      .page-two-balanced .stat .muted {
+        font-size: 0.72rem;
+        line-height: 1.32;
       }
 
       .slide:first-of-type h1 {
@@ -2003,7 +2201,11 @@
       }
 
       .page-two-balanced .stat strong {
-        font-size: 1.02rem;
+        font-size: 0.82rem;
+      }
+
+      .page-two-balanced .stat .muted {
+        font-size: 0.68rem;
       }
 
       .slide:first-of-type .content > div:nth-of-type(1) {
@@ -2096,15 +2298,15 @@
           </div>
         </div>
         <div class="cols-4" style="margin-top: 0.18rem;">
-          <div class="stat"><strong>2</strong><span class="muted">入口：交互 / 单次</span></div>
-          <div class="stat"><strong>2</strong><span class="muted">前置：日志 / 性能现场</span></div>
-          <div class="stat"><strong>2</strong><span class="muted">模式：读 / 写（按需开启）</span></div>
-          <div class="stat"><strong>0</strong><span class="muted">主仓自动写入</span></div>
+          <div class="stat"><strong>边问边查</strong><span class="muted">交互控制台适合摸清陌生系统</span></div>
+          <div class="stat"><strong>一次分析</strong><span class="muted">单次请求适合脚本和持续集成</span></div>
+          <div class="stat"><strong>现场输入</strong><span class="muted">日志和性能文件先分诊再追代码</span></div>
+          <div class="stat"><strong>安全改动</strong><span class="muted">写模式先在沙箱验证，不直接改主仓</span></div>
         </div>
       </div>
     </section>
 
-    <section class="slide compact-slide roomy-slide">
+    <section class="slide compact-slide roomy-slide page-seven-tight">
       <div class="slide-head">
         <div class="kicker">快速上手</div>
         <div class="page-no">03 / 19</div>
@@ -2139,7 +2341,7 @@ codrax --htrace perf.trace -r "为什么这个页面会掉帧？"</div>
           </div>
         </div>
         <div class="quote-box" style="margin-top: 1rem; font-size: 1rem; line-height: 1.48;">
-          把交互控制台当成探索工作台，把单次请求 <code>-r</code> 当成稳定分析入口；把 <code>--log</code> / <code>--htrace</code> 当成现场输入；把写模式看成“先计划、再审批、最后沙箱验证”的工程闭环。
+          把交互控制台当成探索工作台，把单次请求 <code>-r</code> 当成稳定分析入口；多仓父目录下可用 <code>--multi-repo=true</code> 自动发现子仓，再用 <code>--focus</code> 固定本轮目标仓。
         </div>
       </div>
     </section>
@@ -2194,7 +2396,7 @@ codrax --htrace perf.trace -r "为什么这个页面会掉帧？"</div>
           <div class="panel panel-tint-stone">
             <h3>场景 C：崩溃 / 异常排障</h3>
             <div class="code-line" style="margin: 0.5rem 0;">codrax --log crash.log -r "结合日志解释最可能根因，并指出仍缺什么证据"</div>
-            <p class="muted">系统会给出候选根因、已排除项和仍缺失的证据，不只是“猜一个答案”。</p>
+            <p class="muted">系统会先识别空指针、越界、死锁、权限、配置等常见故障类型，再给出候选根因、已排除项和仍缺证据。</p>
           </div>
           <div class="panel panel-tint-stone">
             <h3>场景 D：性能现场 / 掉帧分诊</h3>
@@ -2220,9 +2422,9 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
           <div class="panel panel-tint-stone">
             <h3>交互控制台常用控制</h3>
             <div class="tag-row" style="margin-bottom: 0.5rem;">
-              <span class="tag">/log</span><span class="tag">/htrace</span><span class="tag">/mode</span><span class="tag">/plan</span><span class="tag">/approve</span><span class="tag">/worktree</span>
+              <span class="tag">/log</span><span class="tag">/htrace</span><span class="tag">/repos</span><span class="tag">/mode</span><span class="tag">/plan</span><span class="tag">/approve</span><span class="tag">/worktree</span>
             </div>
-            <p class="muted">前两个负责挂载现场，后四个负责计划、审批和沙箱工作区生命周期。</p>
+            <p class="muted"><code>/log</code> / <code>/htrace</code> 挂现场；<code>/repos</code> 查看和固定子仓；后面几个负责计划、审批和沙箱工作区生命周期。</p>
           </div>
         </div>
       </div>
@@ -2255,7 +2457,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
           </div>
         </div>
         <div class="quote-box" style="margin-top: 1rem;">
-          不要只问“这是什么”，尽量问“它怎么工作、由什么决定、哪些情况会让它失效”。这能迫使问题转化为系统可执行的严密分析。
+          不要只问“这是什么”，尽量问“它怎么工作、由什么决定、哪些情况会让它失效”。如果是在多仓父目录提问，顺手说明目标仓，或先用 <code>/repos</code> 看清子仓列表。
         </div>
       </div>
     </section>
@@ -2268,9 +2470,9 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
       <div class="content">
         <h2>为什么不直接<span class="accent-cyan">把问题丢给大语言模型</span>？</h2>
         <p class="lead">
-          因为在 CODRAX 里，模型没有“看完整个仓库后自由发挥”的权力。分析阶段只能先做 1 到 2 轮轻量预扫，也就是先确认仓库里有没有用户提到的对象，不直接读正文；然后必须把问题写成结构化任务单。如果这一步没写出来，分析阶段会直接报错停下。后面的调查顺序、停止条件、引用是否合法、答案能不能放行，都由确定性代码接管。
+          因为在 CODRAX 里，模型没有“看完整个仓库后自由发挥”的权力。分析阶段只能先做轻量预扫，确认仓库里有没有用户提到的对象；多仓时还要先确定本轮该看哪些子仓。随后它必须把问题写成结构化任务单。写不出来就停下；后面的调查顺序、停止条件、引用合法性和答案放行，都由确定性代码接管。
         </p>
-        <div class="flow" style="margin: 1rem 0 0.6rem;">
+        <div class="flow page-seven-flow">
           <div class="node">用户请求</div>
           <div class="arrow">→</div>
           <div class="node">轻量预扫</div>
@@ -2289,25 +2491,25 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
           <div class="panel panel-tint-stone">
             <h3>模型被限制在很窄的位置</h3>
             <ul class="mini-list">
-              <li>前置分析阶段只能看仓库结构图、只列文件的搜索结果和文件列表，先确认“仓里有没有这个对象”。</li>
-              <li>这个阶段不能读文件正文，更不能直接写最终答案。</li>
-              <li>如果一次调度里没有产出结构化任务单，系统会直接报错重试。</li>
+              <li>前置分析只看仓库结构、搜索结果和文件列表，先确认“仓里有没有这个对象”。</li>
+              <li>这一阶段不能读文件正文，也不能直接写最终答案。</li>
+              <li>如果没有产出结构化任务单，系统会报错重试。</li>
             </ul>
           </div>
           <div class="panel panel-tint-cyan">
             <h3>真正掌舵的是确定性管线</h3>
             <ul class="mini-list">
-              <li>结构化任务单会继续被编成任务图、证据计划、假设集和答案验收规则。</li>
-              <li>这些结构来自固定代码流程，而不是下一轮模型“想到什么就写什么”。</li>
-              <li>同样的问题，再跑一遍，看的仍是同一套停机条件和校验闸门。</li>
+              <li>结构化任务单会继续被编成调查路线、证据清单、候选假设和答案验收规则。</li>
+              <li>这些结构来自固定代码流程；同样的问题再跑一遍，看的仍是同一套停机条件和校验闸门。</li>
+              <li>多仓时会明确本轮参与的子仓；没参与的子仓不会被悄悄当证据。</li>
             </ul>
           </div>
           <div class="panel panel-tint-stone">
             <h3>这就是它的核心价值</h3>
             <ul class="mini-list">
-              <li>能回答时，不只是给一句结论，还会带上证据来源和边界说明。</li>
+              <li>能回答时，会给结论、证据来源和边界说明。</li>
               <li>证据不够时，不会用态度把不确定包装成确定。</li>
-              <li>“会停下”本身就是能力，不是模型刚好比较谦虚。</li>
+              <li>“会停下”本身就是能力，不是模型刚好谦虚。</li>
             </ul>
           </div>
         </div>
@@ -2338,23 +2540,23 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
             <h3>这 6 个问题，最后会压成 5 类结构</h3>
             <div class="focus-stack">
               <div class="focus-row">
-                <strong>01 请求模型</strong>
+                <strong>01 问题归类</strong>
                 <span>先定清楚“这题是什么题、主体是谁、最后想交什么”，这里会被定成“根因排查”。</span>
               </div>
               <div class="focus-row">
-                <strong>02 任务图</strong>
+                <strong>02 调查路线</strong>
                 <span>把调查顺序排出来，例如先查回调入口，再查去重逻辑，再查事务与状态落库。</span>
               </div>
               <div class="focus-row">
-                <strong>03 证据计划</strong>
+                <strong>03 证据清单</strong>
                 <span>把优先材料列出来，例如入口处理代码、状态机、日志、测试和相关配置。</span>
               </div>
               <div class="focus-row">
-                <strong>04 停止条件</strong>
+                <strong>04 收尾标准</strong>
                 <span>写清楚“查到什么程度才算够”，例如关键假设都被证实或排除。</span>
               </div>
               <div class="focus-row">
-                <strong>05 答案契约</strong>
+                <strong>05 答案规则</strong>
                 <span>规定最后必须怎么说，例如一定要区分已证实、已排除、仍缺证据。</span>
               </div>
             </div>
@@ -2365,7 +2567,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
           <p class="muted">因为后面每个阶段都不再直接面对用户原句，而是面对这张结构化任务单。这样系统才能既知道“先查哪里”，也知道“查到什么程度才配回答”，避免一上来就全仓盲搜。</p>
         </div>
         <div class="quote-box" style="margin-top: 0.45rem;">
-          内部名字虽然叫 AnalysisIR，你可以把它理解成“分析任务单”：把一句自然语言问题，翻译成一份可执行、可停机、可验收的调查协议。 
+          内部名字虽然叫 AnalysisIR，你可以把它理解成“分析任务单”：把一句自然语言问题，翻译成一份可执行、可停机、可验收的调查协议；多仓时还会写明本轮锁定哪个子仓。
         </div>
       </div>
     </section>
@@ -2377,9 +2579,9 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
       </div>
       <div class="content">
         <h2>技术一补充：这张任务单不是一条提示词，而是一次<span class="accent-cyan">确定性编译</span></h2>
-        <p class="lead">一旦前置分析阶段交出结构化任务单，后面十几步就交给固定代码管线：纠偏、统一名字、编出调查图、补风险和假设，最后过质量门。模型交的是原料，不是成品。</p>
+        <p class="lead">一旦前置分析阶段交出结构化任务单，后面十几步就交给固定代码管线：纠偏、统一名字、排出调查路线、补风险和假设，最后过质量门。模型交的是原料，不是成品。</p>
         <div class="panel panel-tint-cyan page-nine-strip">
-          <p><span class="accent-cyan">一句话流程：</span>先纠偏，再统一名字，编出调查图，补风险和假设，最后过质量门。</p>
+          <p><span class="accent-cyan">一句话流程：</span>先纠偏，再统一名字，排出调查路线，补风险和假设，最后过质量门。</p>
         </div>
         <div class="cols-2">
           <div class="panel panel-tint-stone">
@@ -2399,7 +2601,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
         </div>
         <div class="cols-2" style="margin-top: 0;">
           <div class="panel panel-tint-cyan">
-            <h3>第 3 步：编出调查图</h3>
+            <h3>第 3 步：排出调查路线</h3>
             <ul class="mini-list">
               <li>排出调查顺序，例如先看回调入口，再看幂等分支，再看事务提交和状态落库。</li>
               <li>同时列出材料单和收尾条件：该读哪些文件、日志、测试，以及查到什么程度才允许结束。</li>
@@ -2415,7 +2617,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
         </div>
         <div class="panel panel-tint-stone page-nine-end" style="margin-top: 0;">
           <h3>第 5 步：过质量门并收尾</h3>
-          <p class="muted">字段不完整、任务图不合法、假设没人负责验证，或结构本身自相矛盾，都会被直接打回重做。换句话说，它更像“编译器”：模型只交原料，真正成形的是受约束的数据结构。</p>
+          <p class="muted">字段不完整、调查路线不合法、假设没人负责验证，或结构本身自相矛盾，都会被直接打回重做。日志里出现但仓库对不上的路径、符号，也会被当成未验证线索隔离，不能直接变成答案证据。</p>
         </div>
       </div>
     </section>
@@ -2531,19 +2733,19 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
             </ul>
           </div>
           <div class="panel panel-tint-stone">
-            <h3>行号漂了，也不会马上放弃</h3>
+            <h3>行号漂了，或现场线索不可信，也不会乱放行</h3>
             <ul class="mini-list">
               <li>先在同文件里按完整名称找，比如代码改动后函数整体下移了十几行。</li>
               <li>再按附近片段在一小段范围里做模糊修复。</li>
               <li>还会看同包同名符号、最近调用点和最近条件点。</li>
-              <li>修复成功会记下“原来报的是哪一行，实际落到了哪一行”；全部失败，这条就只能保留为线索。</li>
+              <li>日志或性能现场里提到的路径、函数，如果仓库里对不上，就只能当线索，不能当最终引用。</li>
             </ul>
           </div>
         </div>
         <div class="cols-2 tail-balance-cols" style="margin-top: 0.3rem;">
           <div class="panel panel-tint-stone">
             <h3>拿一句普通人能懂的话举例</h3>
-            <p class="muted">如果系统说“订单状态是在 <code>applyPayment()</code> 里被写成已支付的”，它不只要给出文件和行号，还要先证明附近几行里真的出现过这个函数，再证明那一处确实是状态写入，而不是旁边另一个看起来很像的分支。</p>
+            <p class="muted">如果系统说“订单状态是在 <code>applyPayment()</code> 里被写成已支付的”，它不只要给出文件和行号，还要证明附近真的出现过这个函数、那里确实是状态写入；如果这个函数名只出现在日志里但仓库查不到，就必须标成未证实线索。</p>
           </div>
           <div class="panel panel-tint-cyan">
             <h3>一句话理解</h3>
@@ -2555,7 +2757,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
       </div>
     </section>
 
-    <section class="slide compact-slide tech-dense-slide">
+    <section class="slide compact-slide tech-dense-slide page-thirteen-actual-tight">
       <div class="slide-head">
         <div class="kicker">引用闭环</div>
         <div class="page-no">13 / 19</div>
@@ -2589,6 +2791,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
             <ul class="mini-list">
               <li>每一轮都会比对：已读文件有没有增加、证据条目有没有增加、引用位置有没有增加，而不是只看模型又说了多少话。</li>
               <li>如果有待读文件一直没被读，系统最多每轮代你补读 3 个关键文件。</li>
+              <li>已经被判定为不可信的日志路径或符号，后面读文件、搜索和最终引用都会避开。</li>
               <li>连续 2 轮没进展，会强制扩大搜索；连续 3 轮还没进展，就结束调查并降级输出。</li>
             </ul>
           </div>
@@ -2596,7 +2799,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
         <div class="cols-2 tail-balance-cols" style="margin-top: 0.2rem;">
           <div class="panel panel-tint-stone">
             <h3>调查结束前，还要先做一次“预演验收”</h3>
-            <p class="muted">当调查代理想宣告“我查完了”时，系统会先模拟最终答案能不能过关：有没有还没读的关键文件、可用引用数量够不够、说法和题型有没有对上。过不了，这次“调查完成”就会被降级，继续查。</p>
+            <p class="muted">当调查代理想宣告“我查完了”时，系统会先模拟最终答案能不能过关：有没有还没读的关键文件、可用引用数量够不够、列表和数字有没有列全、说法和题型有没有对上。过不了就继续查。</p>
           </div>
           <div class="panel panel-tint-cyan">
             <h3>一句话理解</h3>
@@ -2616,11 +2819,11 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
       <div class="content">
         <h2>技术六：<span class="accent-cyan">可执行合约</span>，把答案验收做成硬规则</h2>
         <div class="balance-strip">
-          <p><span class="accent-cyan">一句话流程：</span>先看这题该怎么答，再验引用、证据和目标唯一性。</p>
+          <p><span class="accent-cyan">一句话流程：</span>先看这题该怎么答，再验引用、证据、目标唯一性和答案有没有漏项。</p>
         </div>
         <div class="cols-2">
           <div class="panel panel-tint-stone">
-            <h3>系统会硬验这 4 类题</h3>
+            <h3>系统会硬验这 4 类规则</h3>
             <div class="contract-grid">
               <div class="contract-item">
                 <strong>01 题型匹配</strong>
@@ -2635,11 +2838,11 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
                 <span>关键假设是不是都已经被裁决，必须满足的证据是不是已经齐了。</span>
               </div>
               <div class="contract-item">
-                <strong>04 目标唯一</strong>
-                <span>如果还存在多条解析链，就不允许假装自己已经找准。</span>
+                <strong>04 答案完整</strong>
+                <span>数字题要有来源，列表题要列够，调用链要有关键节点，对比题两边证据不能失衡。</span>
               </div>
             </div>
-            <p class="muted" style="margin-top: 0.62rem;">内部不是一个 <code>if</code>，而是一组可机检规则逐条求值。符号存在、证据数量、引用数量、假设状态和预算边界，都会算进去。内部把这组规则叫 Criterion，也就是答案验收规则。</p>
+            <p class="muted" style="margin-top: 0.62rem;">内部不是一个 <code>if</code>，而是一组可机检规则逐条求值。符号存在、证据数量、引用数量、假设状态、目标唯一性和答案覆盖度，都会算进去。内部把这组规则叫 Criterion，也就是答案验收规则。</p>
           </div>
           <div class="panel panel-tint-cyan">
             <h3>最能体现价值的，是“精确题”和“空结果题”</h3>
@@ -2680,7 +2883,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
       <div class="content">
         <h2>技术六补充：什么时候继续查，什么时候系统代你补读，什么时候降级，什么时候明确失败？</h2>
         <div class="quote-box" style="margin-bottom: 0.65rem;">
-          调查代理说“我查完了”并不算完。系统会先预演一次最终验收，再决定是继续查、补读、降级收尾，还是明确失败。
+          调查代理说“我查完了”并不算完。系统会先预演一次最终验收：引用够不够、题型对不对、数字/列表/调用路径/对比有没有漏，再决定是继续查、补读、降级收尾，还是明确失败。
         </div>
         <div class="cols-2">
           <div class="panel panel-tint-cyan">
@@ -2745,9 +2948,9 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
           <div class="panel panel-tint-stone">
             <h3>执行阶段：只能按计划落地</h3>
             <ul class="mini-list">
-              <li><span class="accent-cyan">W1</span>：写作用域保护。白话说，就是计划里只写了“改超时配置”和“补对应测试”，执行时就不能突然跑去改别的模块。</li>
-              <li><span class="accent-cyan">W1b</span>：改动顺序保护。白话说，就是如果 B 依赖 A，必须先落 A 再落 B，不能顺序颠倒。</li>
-              <li>底层执行工具只接收“路径 + 改动类型”，真正改什么来自已批准的计划，不允许临场从“改配置”一路扩张到“顺手重构半个模块”。</li>
+              <li><span class="accent-cyan">改动范围保护</span>：计划里只写了“改超时配置”和“补对应测试”，执行时就不能突然跑去改别的模块。</li>
+              <li><span class="accent-cyan">改动顺序保护</span>：如果后一个改动依赖前一个改动，必须按顺序落地，不能颠倒。</li>
+              <li><span class="accent-cyan">跨仓写入保护</span>：父目录下有多个独立仓时，一次写模式只能改一个子仓；需要跨仓改动就分开跑。</li>
             </ul>
           </div>
         </div>
@@ -2756,7 +2959,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
           <ul class="mini-list">
             <li>会跑静态检查、预编译检查和常见测试工具探测。</li>
             <li>验证失败后，系统会把失败摘要、测试结果和嫌疑文件回灌给计划阶段，重做下一版计划，例如“测试在订单状态断言上失败”。</li>
-            <li>测试执行命令会自动探测 11 类常见测试工具，成功后还可以保留沙箱工作区继续复核。</li>
+            <li>测试执行命令会自动探测 12 类常见测试工具，成功后还可以保留沙箱工作区继续复核。</li>
           </ul>
         </div>
       </div>
@@ -2775,7 +2978,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
           <div class="arrow">→</div>
           <div class="node">假设排序</div>
           <div class="arrow">→</div>
-          <div class="node">落点校验</div>
+          <div class="node">落点与线索校验</div>
           <div class="arrow">→</div>
           <div class="node">引用对账</div>
           <div class="arrow">→</div>
@@ -2786,11 +2989,11 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
         <div class="cols-3">
           <div class="panel panel-tint-stone">
             <h3>1. 先把“查什么”定下来</h3>
-            <p class="muted">系统会把问题定成根因排查，优先看回调入口、幂等控制、事务提交和状态落库，而不是整个仓库到处翻。</p>
+            <p class="muted">系统会把问题定成根因排查，优先看回调入口、幂等控制、事务提交和状态落库；多仓时还会先锁定相关子仓，而不是整个父目录到处翻。</p>
           </div>
           <div class="panel panel-tint-stone">
             <h3>2. 再让几条假设彼此竞争</h3>
-            <p class="muted">可能是验签失败、幂等把回调吞掉、也可能是事务回滚。谁先查，不看感觉，看哪条最像、最危险、又最容易先排除。</p>
+            <p class="muted">可能是验签失败、幂等把回调吞掉、也可能是事务回滚。谁先查，不看感觉；日志里对不上的路径会先隔离，不能直接当证据。</p>
           </div>
           <div class="panel panel-tint-green panel-rail-green">
             <h3>3. 交付的是“边界清楚的结论”</h3>
@@ -2824,17 +3027,17 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
         <div class="flow page-eighteen-flow">
           <div class="node">
             用户问题 / 附件
-            <span>代码仓、日志、性能现场进入系统。</span>
+            <span>代码仓、子仓列表、日志、性能现场进入系统。</span>
           </div>
           <div class="arrow">→</div>
           <div class="node node-model">
             分诊与分类
-            <span>模型先读现场，再判断这是什么类型的问题，系统同时按固定阈值打信号。</span>
+            <span>模型先读现场，再判断问题类型；系统同时做故障信号识别和可信度过滤。</span>
           </div>
           <div class="arrow">→</div>
           <div class="node node-system">
             生成分析任务单
-            <span>系统把问题翻成一份可执行的调查任务单，里面会写清任务顺序、证据计划和答案要求。</span>
+            <span>系统把问题翻成可执行任务单，写清目标子仓、任务顺序、证据清单和答案要求。</span>
           </div>
           <div class="arrow">→</div>
           <div class="node node-model">
@@ -2844,7 +3047,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
           <div class="arrow">→</div>
           <div class="node node-exit">
             验收与出口
-            <span>系统做对账和验收，只允许继续查、补读、降级或失败。</span>
+            <span>系统做引用对账和答案完整性验收，只允许继续查、补读、降级或失败。</span>
           </div>
         </div>
 
@@ -2856,7 +3059,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
             </div>
             <div class="page-eighteen-textblock page-eighteen-textblock-system">
               <h3>系统硬控的地方</h3>
-              <p>系统负责把问题编成任务图、证据计划和答案要求，再用流程调度、何时停下、引用对账和答案验收来决定放行、降级或失败。</p>
+              <p>系统负责把问题编成调查路线、证据清单和答案要求；多仓时先确定本轮子仓；不可信现场线索会被隔离，再由引用对账和答案验收决定出口。</p>
             </div>
             <div class="page-eighteen-textblock page-eighteen-textblock-write">
               <h3>写模式也受同一边界</h3>
@@ -2864,7 +3067,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
             </div>
           </div>
 
-          <p class="page-eighteen-end">“解释锚定”就是关键结论必须落回真实文件和行号；“推理确定”就是系统只允许有限状态迁移。它靠的不是模型“态度诚实”，而是系统把可走分支限制住。</p>
+          <p class="page-eighteen-end">“解释锚定”就是关键结论必须落回真实文件和行号；“推理确定”就是系统只允许有限状态迁移。它靠的不是模型“态度诚实”，而是系统把可走分支、可用证据和可放行答案都限制住。</p>
         </div>
       </div>
     </section>
@@ -2892,7 +3095,7 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
     <div class="progress-wrap"><div class="progress" id="progress"></div></div>
     <div class="nav">
       <button id="prevBtn" type="button" aria-label="上一页">上页</button>
-      <button id="pauseBtn" type="button" aria-label="暂停自动播放">暂停</button>
+      <button id="pauseBtn" type="button" aria-label="开启自动播放" aria-pressed="false">播放</button>
       <button id="nextBtn" type="button" aria-label="下一页">下页</button>
     </div>
   </div>
@@ -2938,9 +3141,10 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
 
     function updatePauseButton() {
       if (!pauseBtn) return;
-      pauseBtn.textContent = autoplayActive ? "暂停" : "继续";
-      pauseBtn.classList.toggle("is-paused", !autoplayActive);
-      pauseBtn.setAttribute("aria-label", autoplayActive ? "暂停自动播放" : "继续自动播放");
+      pauseBtn.textContent = autoplayActive ? "暂停" : "播放";
+      pauseBtn.classList.toggle("is-playing", autoplayActive);
+      pauseBtn.setAttribute("aria-label", autoplayActive ? "暂停自动播放" : "开启自动播放");
+      pauseBtn.setAttribute("aria-pressed", String(autoplayActive));
     }
 
     function render() {
@@ -3017,6 +3221,11 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
         : null;
     }
 
+    function useSplitClickNavigation() {
+      return typeof window.matchMedia === "function"
+        && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    }
+
     function handleKeyNavigation(event) {
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
       const interactiveTarget = isInteractiveTarget(event.target);
@@ -3036,7 +3245,15 @@ codrax --log hilog.txt --htrace jank.trace -r "卡顿后崩溃的根因"</div>
 
     deck.addEventListener("click", (event) => {
       if (Date.now() < swipeSuppressedUntil) return;
-      if (event.target.closest("button") || event.target.closest("a")) return;
+      if (isInteractiveTarget(event.target)) return;
+      if (useSplitClickNavigation()) {
+        const rect = deck.getBoundingClientRect();
+        const localX = event.clientX - rect.left;
+        if (localX < rect.width / 2) {
+          prevSlide();
+          return;
+        }
+      }
       nextSlide();
     });
 
