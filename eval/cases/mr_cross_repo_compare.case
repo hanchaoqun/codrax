@@ -1,0 +1,87 @@
+# Multi-repo eval — cross-sub-repo COMPARISON question
+#
+# Fixture: eval/fixtures/multirepo-basic/. The question explicitly
+# names TWO sub-repos (repo-greet-go, repo-tools-py) and asks the
+# system to compare them. This is the failure shape forensicked at
+# /home/chatpp/.codrax/logs/chatpp-7d46dee4/codrax-20260510-011154-...log
+# (the cross-sub-repo comparison "对比codrax和opencode...精准无幻觉"
+# exhausted the analyzer's 3-attempt budget on subtopic_coherence's
+# R1.3 + R1.5 combination because sub-repo NAMES are not symbols in
+# the resolver sense — yet the gate demanded resolver-symmetric
+# resolution of every sub-topic anchor).
+#
+# The 2026-05-10 multi-repo entity-vs-scope separation work fixes the
+# class of failure (docs/design/multirepo_entity_scope_separation.md):
+#
+#   B1 PrimaryScopes typed lane — analyzer recognises sub-repo names
+#      as scopes, not symbols, alongside their entity-lane mention
+#   B2 multi-graph SymbolResolver — gate sees every active sub-repo's
+#      SymbolDefs, not only pickPrimarySubRepo's collapse target
+#   B3 coherence gate scope-aware — R1.3 widened to (entities ∪ scopes)
+#      on both sides; R1.5 carve-out skips resolver round-trip for
+#      scope-only sub-topic anchors; R1.8 SOFT advisory when one named
+#      scope is unanchored
+#   B4 multi-scope task_map pre-inject — when ≥2 sub-repos named in
+#      the question, render per-scope mini task_maps so the analyzer
+#      LLM sees structural context for both
+#   B5 retry hint sanitizer — dotted/Go-style internal token shapes
+#      get rewritten to skill-vocab snake_case prose so the LLM
+#      doesn't index gate vocabulary as code identifiers
+#   B6 retry storm fingerprint + early-exit — same gate fingerprint
+#      across retries → break out with a user-actionable caveat
+#
+# Pre-fix expectation: this question would fail with "analyze stage
+# exhausted after 3 attempt(s)" + the gate's R1.3 / R1.5 detail.
+#
+# Post-fix expectation: passes on the first analyze attempt; the
+# answer is a structurally symmetric two-bucket comparison naming
+# the entry identifiers of each sub-repo without confabulating the
+# third (Rust) sub-repo's content.
+ID="mr_cross_repo_compare"
+NAME="cross-sub-repo comparison — analyzer accepts both sub-repos as scopes, answer covers each side"
+QUESTION="对比 repo-greet-go 和 repo-tools-py 这两个子仓:每个子仓核心导出的入口标识符分别是什么?它们各自的功能用途是什么?请分别说明,不要混在一起。"
+MULTIREPO="multirepo-basic"
+# CAP=3 keeps all three sub-repos in the active set so the two
+# explicitly named sub-repos (greet-go, tools-py) are both reachable
+# regardless of biggest-first / alphabetical tiebreak in the
+# routing fold's E channel. The fixture has only 3 sub-repos so
+# cap=3 is the no-eviction posture.
+#
+# A tighter cap (cap=2) is intentionally NOT used here: under cap=2
+# with 3 sub-repos, one MUST be evicted, and the routing fold has no
+# channel today for "this slug was named verbatim in the question"
+# — so the eviction is biased by file count and alphabetical
+# tiebreak, not by the user's intent. That orthogonal gap is its own
+# follow-up; this case verifies the B-series entity-vs-scope fix
+# under a routing posture that lets both named scopes remain active.
+CAP="3"
+# Symmetric two-bucket comparison: BOTH sub-repo names MUST appear
+# in the answer prose. EXPECT_SECTIONS is purpose-built for this
+# shape (run.sh:418); it produces "missing_section:<name>" reasons
+# in summaries when one side is dropped, distinguishing it from a
+# missing load-bearing identifier in EXPECT_CONTAINS.
+EXPECT_SECTIONS="repo-greet-go repo-tools-py"
+# Load-bearing identifiers: GreetServiceImpl is the canonical Go
+# implementer of UserService in repo-greet-go; process_request is
+# the canonical Python entry in repo-tools-py. The answer's
+# bucket-per-sub-repo decomposition must surface both.
+EXPECT_CONTAINS="GreetServiceImpl process_request"
+# Per-bucket regex assertions — each line is one ERE pattern; ALL
+# must match. Catches answers that mention both sub-repo names in
+# header prose but fail to ground each side with concrete locators.
+#
+# Line 1 — repo-greet-go locator (sub-repo name OR canonical file)
+# Line 2 — UserService interface name (the contract)
+# Line 3 — repo-tools-py locator
+# Line 4 — process_request function (the canonical entry)
+EXPECT_MATCHES_REGEX="(repo-greet-go|greet-go|service\.go|service/impl\.go)
+(UserService|GreetServiceImpl|NewGreetServiceImpl)
+(repo-tools-py|tools-py|processor\.py|tools/processor)
+(process_request)"
+# Hallucination guard: do NOT inject the third (Rust) sub-repo's
+# unique identifier as if it were part of the comparison. The
+# question is explicitly scoped to two sub-repos; pulling in
+# unrelated_constant from repo-stub-rust would be cross-pin
+# confabulation — the kind of failure the L0 active-set advisory +
+# B4's named-scope task_map pre-inject are designed to prevent.
+EXPECT_NOT_CONTAINS="unrelated_constant"
