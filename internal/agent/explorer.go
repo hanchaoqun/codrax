@@ -2371,7 +2371,7 @@ func (e *explorerEvaluator) buildCapabilityFocusedStartInstruction(ctx *types.Ag
 	b.WriteString("- Treat helper subsets and validator functions as supporting detail only after the capability surface is settled.\n")
 	b.WriteString("- If implementation detail matters, expand only to the specific helper file already named in these authority files.\n\n")
 	if ctx != nil && ctx.RepoRoot != "" {
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, files, 3, 220); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, files, 3, 220, excludeReadFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -2500,7 +2500,7 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 			}
 			preReadFiles = append(preReadFiles, f)
 		}
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, preReadFiles, 2, 200); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, preReadFiles, 2, 200, excludeReadFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -2617,7 +2617,7 @@ func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.A
 			}
 			preReadFiles = append(preReadFiles, f)
 		}
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, preReadFiles, 2, 200); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, preReadFiles, 2, 200, excludeReadFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -2736,7 +2736,7 @@ func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.A
 			}
 			preReadFiles = append(preReadFiles, f)
 		}
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, preReadFiles, 2, 220); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, preReadFiles, 2, 220, excludeReadFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -2780,7 +2780,7 @@ func (e *explorerEvaluator) buildDeclarativeCandidateStartInstruction(ctx *types
 		b.WriteString("`\n\n")
 	}
 	if ctx != nil && ctx.RepoRoot != "" {
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.declarativeCandidateFiles, 2, 220); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.declarativeCandidateFiles, 2, 220, excludeReadFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -6607,6 +6607,32 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		}
 		if len(scope) > 0 {
 			readCount, coverage, unread := coverageSnapshot(scope, readSet)
+			// L2 (2026-05-10) — drop unread candidates the LLM has
+			// already read in a prior iteration without emitting any
+			// emit_evidence on them. Re-pushing those files
+			// contradicts the LLM's own judgment that they are off-
+			// topic. The structuredEvidence slice IS per-dispatch but
+			// readSet is cumulative — the difference (read but not
+			// cited this dispatch OR any prior) is the LLM's "saw and
+			// declined" signal.
+			cited := make(map[string]bool, len(e.structuredEvidence))
+			for _, ev := range e.structuredEvidence {
+				if ev.Producer != tool.EmitEvidenceProducer {
+					continue
+				}
+				if cf := canonicalEvidenceSourcePath(ev.Source); cf != "" {
+					cited[cf] = true
+				}
+			}
+			filteredUnread := make([]string, 0, len(unread))
+			for _, f := range unread {
+				cf := canonicalExplorerPath(f)
+				if readSet[cf] && !cited[cf] {
+					continue
+				}
+				filteredUnread = append(filteredUnread, f)
+			}
+			unread = filteredUnread
 			if coverage < e.heuristics.MidLoopEnumCoverage && len(unread) >= e.heuristics.EnumMidLoopUnreadFloor {
 				if len(unread) > 5 {
 					unread = unread[:5]
@@ -13233,7 +13259,13 @@ type partialReadHint struct {
 // Returns an empty string when no files can be read (missing paths,
 // empty repoRoot, etc.). Each file header shows the repo-relative
 // path so the LLM can cite the right location without guessing.
-func preReadRequiredFiles(repoRoot string, files []string, maxFiles, maxLines int) string {
+//
+// L2 (2026-05-10): the optional `excludeRead` set lets callers skip
+// files the LLM has already read in a prior dispatch within the same
+// Run. Re-injecting those files wastes prompt tokens and contradicts
+// the LLM's own judgment when it had already chosen not to evidence
+// them. Pass nil for legacy unconditional injection.
+func preReadRequiredFiles(repoRoot string, files []string, maxFiles, maxLines int, excludeRead map[string]bool) string {
 	if repoRoot == "" || len(files) == 0 || maxFiles <= 0 {
 		return ""
 	}
@@ -13242,6 +13274,11 @@ func preReadRequiredFiles(repoRoot string, files []string, maxFiles, maxLines in
 	for _, f := range files {
 		if injected >= maxFiles {
 			break
+		}
+		if excludeRead != nil {
+			if excludeRead[canonicalExplorerPath(f)] {
+				continue
+			}
 		}
 		absPath := filepath.Join(repoRoot, f)
 		content, err := os.ReadFile(absPath)
@@ -13272,6 +13309,38 @@ func preReadRequiredFiles(repoRoot string, files []string, maxFiles, maxLines in
 		injected++
 	}
 	return b.String()
+}
+
+// excludeReadFromCtx pulls the canonical-path set from
+// EvidenceClosure.ReadSet() — files the LLM has already read in any
+// prior dispatch within this Run. Returns nil when the closure is
+// unavailable, signalling preReadRequiredFiles to skip the dedup
+// (legacy unconditional injection).
+//
+// The closure's ReadSet IS already cumulative across dispatches (set
+// from extractFileCoverage on each Observe), so no extra tracking
+// state is needed on the evaluator.
+func excludeReadFromCtx(ctx *types.AgentContext) map[string]bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return nil
+	}
+	rs := closure.ReadSet()
+	if len(rs) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(rs))
+	for f := range rs {
+		canon := canonicalExplorerPath(f)
+		if canon == "" {
+			continue
+		}
+		out[canon] = true
+	}
+	return out
 }
 
 // qualified name. Functions that match are kept; functions that
