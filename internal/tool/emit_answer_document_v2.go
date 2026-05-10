@@ -143,6 +143,24 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		doc.Blocks = append(doc.Blocks, blk)
 	}
 
+	// P1 (2026-05-10) — emit-time pre-validation chokepoint.
+	// Before we persist the doc, run the four STRICT structural
+	// checks (block coverage / principal claim_use / uncertainty
+	// block / facet coverage). When the check fails, the LLM
+	// retries WITHIN THE SAME tool dispatch (BaseAgent's
+	// emitAnswerDocumentRejectSignal captures !LastToolResult.Success
+	// and re-prompts) — saves a full orchestrator-level repair
+	// round (~3-5min wall-clock).
+	//
+	// View-aware: when no view is available (single-shot tests,
+	// pre-AnalysisIR paths) the pre-check returns nil and the
+	// post-emit chain in internal/orchestrator runs unchanged.
+	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
+		if hints := runPreEmitChecks(doc, view); len(hints) > 0 {
+			return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
+		}
+	}
+
 	// v3 B4 (2026-05-04): route the full-emit write through the
 	// unified mutation runtime — same chokepoint as the patch path,
 	// merged-doc validation + persist + telemetry shared.

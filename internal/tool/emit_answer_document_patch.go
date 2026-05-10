@@ -218,6 +218,21 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// merged-doc invariants (id uniqueness / diagram payload /
 	// max blocks) live in ApplyAndPersistMutation.
 	mutation := types.NewPartialMutation(patch)
+
+	// P1 (2026-05-10) — emit-time pre-validation chokepoint, mirror
+	// of the full-emit path. Run on the merged doc shape that the
+	// patch produces: dry-run Apply once, run pre-emit checks, then
+	// hand off to ApplyAndPersistMutation which re-runs Apply
+	// internally. Apply is pure (no side effects on the doc clone)
+	// so the dry-run is safe.
+	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
+		if merged, applyErr := mutation.Apply(prev); applyErr == nil && merged != nil {
+			if hints := runPreEmitChecks(merged, view); len(hints) > 0 {
+				return failEmit(t.Name(), now, "%s", formatEmitFixHints(hints))
+			}
+		}
+	}
+
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
 }
 
