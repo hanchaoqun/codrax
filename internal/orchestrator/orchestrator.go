@@ -14,6 +14,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
+	"github.com/hanchaoqun/codrax/internal/analysis/gate"
 	"github.com/hanchaoqun/codrax/internal/analysis/stopcond"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/env"
@@ -2086,6 +2087,34 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		if o.busCtx != nil && o.busCtx.Mutable != nil {
 			o.busCtx.Mutable.AppendAnswerRetryEvent(string(types.StageAnalyze), lastErr)
 		}
+		// Fix-D (2026-05-10) — R2.2 auto-correction. When the gate
+		// rejected the IR purely because of a scalar AnswerSubject
+		// in a long-form family (the "longform_scalar_subject"
+		// shape contradiction), and we're past the first attempt
+		// so the LLM had a chance to revise on retry, AUTO-CLEAR
+		// the scalar declaration and re-run the gate. This breaks
+		// the fingerprint loop without a redundant LLM round-trip
+		// because:
+		//   1. R2.2's whole point is "drop the scalar declaration
+		//      so downstream auto-inference can re-derive Kind
+		//      from question_kind"
+		//   2. The corrective action is mechanical — clearing one
+		//      typed field and re-running the gate
+		//   3. The LLM has demonstrably failed to make this fix on
+		//      its own (attempt ≥ 1), so further retries will keep
+		//      producing the same fingerprint
+		// Cross-language: works regardless of question language.
+		// Design doc: docs/design/analyzer_failure_remediation.md §3.4.
+		if attempt >= 1 && o.busCtx != nil && o.busCtx.AnalysisIR != nil {
+			if r22AutoCorrectShapeSubject(o.busCtx.AnalysisIR) {
+				logging.Warning("[orchestrator] analyze R2.2 auto-correct on attempt %d: cleared scalar AnswerSubject.Kind; re-running gate", attempt+1)
+				if o.r22RerunGateAfterCorrect() {
+					logging.Info("[orchestrator] analyze R2.2 auto-correct succeeded — gate now passes; continuing pipeline")
+					return used, nil
+				}
+				logging.Warning("[orchestrator] analyze R2.2 auto-correct re-run still rejected; falling through to retry storm detector")
+			}
+		}
 		// Storm detection: the AnalysisIR may carry a typed
 		// QualityGate.Fingerprint. When non-empty, feed it into
 		// the storm detector; same fingerprint ≥ threshold times
@@ -2127,6 +2156,79 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 //   - CN+EN-only per 2026-05-10 user direction (each branch
 //     mono-language; CLI command `/repos` rendered as inline
 //     code identifier in both branches)
+// r22AutoCorrectShapeSubject inspects the AnalysisIR's QualityGate
+// for the R2.2 longform_scalar_subject shape contradiction. When
+// found AND the IR carries a scalar AnswerSubject.Kind, the kind
+// is cleared (set to SubjectUnknown with confidence 0) so the
+// downstream auto-inference path (analyzer.go inferAnswerSubject)
+// re-derives the right kind from question_kind.
+//
+// Returns true when a correction was made (caller should re-run
+// gate); false when:
+//   - the gate did NOT fire R2.2 (different failure mode)
+//   - the AnswerSubject was already non-scalar / Unknown (nothing
+//     to correct)
+//
+// Cross-language: operates on typed IR fields, no string-keyed
+// signal so works regardless of question or repo language.
+//
+// Fix-D 2026-05-10. Design doc:
+// docs/design/analyzer_failure_remediation.md §3.4.
+func r22AutoCorrectShapeSubject(ir *types.AnalysisIR) bool {
+	if ir == nil || !ir.QualityGate.Rejected {
+		return false
+	}
+	hasR22 := false
+	for _, c := range ir.QualityGate.Checks {
+		if c.Passed {
+			continue
+		}
+		if c.Name == "shape_subject_coherence" && strings.HasPrefix(strings.TrimSpace(c.Detail), "R2.2 longform_scalar_subject:") {
+			hasR22 = true
+			break
+		}
+	}
+	if !hasR22 {
+		return false
+	}
+	// Only correct when the AnswerSubject is actually scalar; the
+	// gate could fire for other reasons in the future and we don't
+	// want to broaden the auto-correct surface.
+	switch ir.RequestModel.AnswerSubject.Kind {
+	case types.SubjectStringLiteral, types.SubjectNumeric, types.SubjectReturnValue:
+		ir.RequestModel.AnswerSubject.Kind = types.SubjectUnknown
+		ir.RequestModel.AnswerSubject.Confidence = 0
+		return true
+	}
+	return false
+}
+
+// r22RerunGateAfterCorrect re-runs the analyzer gate on the
+// (auto-corrected) AnalysisIR and returns true when the corrected
+// IR now passes. Side effect: writes the new GateReport back onto
+// the IR so downstream stages see the post-correction state.
+//
+// Mode mirroring follows the analyzer's invocation site at
+// analyzer.go:1889 — read-mode branches honor the full check set;
+// write modes skip the read-mode-only checks. Resolver is intent-
+// ionally nil here: the orchestrator runs this fast-path post-
+// correction to avoid the cost of re-spinning the resolver, and
+// the read-mode-only coherence rules (R1.4 / R1.5) that consult
+// the resolver only fire on emit-time entity validation — they
+// are not the rules that produced R2.2.
+func (o *Orchestrator) r22RerunGateAfterCorrect() bool {
+	if o == nil || o.busCtx == nil || o.busCtx.AnalysisIR == nil {
+		return false
+	}
+	mode := ""
+	if o.busCtx.Mode != "" {
+		mode = string(o.busCtx.Mode)
+	}
+	report := gate.RunWith(o.busCtx.AnalysisIR, gate.GlobalThresholds(), mode, gate.RunOptions{})
+	o.busCtx.AnalysisIR.QualityGate = report
+	return !report.Rejected
+}
+
 func analyzeExhaustedUserHint(busCtx *types.BusContext) string {
 	lang := ""
 	multiRepo := false
