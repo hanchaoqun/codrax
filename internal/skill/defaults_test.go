@@ -45,6 +45,50 @@ func TestExploreSkillOutputFormatStaysToolFirst(t *testing.T) {
 	}
 }
 
+// TestExploreSkillR6_NoInternalGateJargon — 2026-05-10 audit. The
+// EVIDENCE_FLOOR_WAIVER skill prompt described the waiver's effect
+// using internal pipeline gate names ("forced-read and citation-
+// floor gates", "leave the gates active"). Those are implementation
+// concepts, not user-domain language — R6 forbids them in LLM-
+// facing strings. This test pins the user-domain phrasing so a
+// future skill-prompt edit cannot regress.
+func TestExploreSkillR6_NoInternalGateJargon(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill) returned error: %v", err)
+	}
+	// Walk every LLM-facing surface on the skill — Goal /
+	// Workflow / Prohibitions / OutputFormat all flow into the
+	// rendered system prompt verbatim, so any banned token in any
+	// of them is a real R6 leak.
+	corpus := sk.Goal + "\n" + sk.OutputFormat
+	for _, w := range sk.Workflow {
+		corpus += "\n" + w
+	}
+	for _, p := range sk.Prohibitions {
+		corpus += "\n" + p
+	}
+	for _, banned := range []string{
+		"forced-read gate",
+		"forced-read and citation-floor gates",
+		"citation-floor gate",
+		"leave the gates active",
+		"L1 gate",
+		"L2 gate",
+		"L3 gate",
+		"L4 gate",
+		"BusContext",
+		"MutableState",
+		"AnalysisIR",
+	} {
+		if strings.Contains(corpus, banned) {
+			t.Errorf("internal pipeline term %q leaked into LLM-facing explore-skill text", banned)
+		}
+	}
+}
+
 func TestFinalizerSkillStepListPrefersDiagramsWhenHelpful(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
