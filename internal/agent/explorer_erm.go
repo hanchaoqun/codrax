@@ -1225,18 +1225,64 @@ func forEachMatchingDef(
 	if graph == nil || len(entities) == 0 {
 		return
 	}
+	// Multi-language qualified-name expansion (2026-05-10).
+	//
+	// LLM-emitted entities can carry package / namespace / scope
+	// qualifiers — Go "gate.Run", Rust "mod::Type::method", Ruby
+	// "Foo::Bar#baz", Java "com.foo.Bar.method", etc. — but the
+	// graph stores symbols by bare name. The legacy single-key
+	// lookup `entities[strings.ToLower(symName)]` silently missed
+	// every qualified entity, narrowing primaryEntityFiles to
+	// whatever side-entity happened to be bare and dragging the
+	// evidence filter onto the wrong file. See qualified_name.go
+	// for the full failure forensics (s1a 2026-05-10).
+	//
+	// Build a multi-key index: each lookup key (alias) maps back
+	// to the original entity strings that produced it, plus the
+	// prefix segments the caller's symbolMatchesQualifier checks
+	// against Symbol.Receiver / Symbol.Parent / FileInfo.Package.
+	type entityAlias struct {
+		orig    string
+		entLow  string // pre-normalisation lower
+		prefix  []string
+	}
+	keyToAliases := make(map[string][]entityAlias, len(entities))
+	for entLower, entOrig := range entities {
+		keys, prefix := expandEntityNameAliases(entOrig)
+		for _, k := range keys {
+			keyToAliases[k] = append(keyToAliases[k], entityAlias{
+				orig:   entOrig,
+				entLow: entLower,
+				prefix: prefix,
+			})
+		}
+	}
+	if len(keyToAliases) == 0 {
+		return
+	}
 	for symName, defs := range graph.SymbolDefs {
-		entLower := strings.ToLower(symName)
-		entOrig, hit := entities[entLower]
-		if !hit {
+		nameLower := strings.ToLower(symName)
+		matches, ok := keyToAliases[nameLower]
+		if !ok {
 			continue
 		}
-		for _, d := range defs {
-			if d == nil {
-				continue
-			}
-			if !visit(entLower, entOrig, symName, d) {
-				return
+		for _, m := range matches {
+			for _, d := range defs {
+				if d == nil {
+					continue
+				}
+				// Disambiguate qualified entities. When the entity
+				// carried a prefix (e.g. "gate.Run" → prefix ["gate"]),
+				// require the symbol to plausibly belong to that
+				// scope — Receiver / Parent / FileInfo.Package /
+				// directory basename. Single-segment entities (no
+				// prefix) skip this check unconditionally.
+				if !symbolMatchesQualifier(d, m.prefix, graph) {
+					continue
+				}
+				if !visit(m.entLow, m.orig, symName, d) {
+					return
+				}
 			}
 		}
 	}
