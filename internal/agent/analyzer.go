@@ -1738,10 +1738,11 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		return nil, fmt.Errorf(
 			"analyzer: enumeration intent with ≤1 distinct named entity is structurally inconsistent — " +
 				"is_category_enumeration=true means the user is asking 'what kinds/types exist', " +
-				"so entities must list the ENUMERATED VALUES (e.g. StageAnalyze, StageExplore, ...) " +
-				"not the enclosing TYPE name. Re-emit emit_analysis ONCE with entities populated " +
-				"with the actual enumerated members the user is asking about, OR set " +
-				"is_category_enumeration=false if the question is really a type-name / scalar lookup. " +
+				"so entities must list the actual ENUMERATED MEMBERS (e.g. each implementer name, " +
+				"each enum case name, each registered handler name), not the enclosing TYPE name. " +
+				"Re-emit emit_analysis ONCE with entities populated with the actual enumerated " +
+				"members the user is asking about, OR set is_category_enumeration=false if the " +
+				"question is really a type-name / scalar lookup. " +
 				"Note: if the question filters a set by a relationship to a named target " +
 				"(e.g. 'which packages import X', 'list X's exports', 'X 的子包' / " +
 				"'X 下的子目录' / 'list child packages of X' / 'list APIs exported by X' / " +

@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -166,5 +168,59 @@ func TestSanitize_AllVocabLookups(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("entry %q expected to produce %q; got %q", k, want, got)
 		}
+	}
+}
+
+// === Fix-γ regression tests (2026-05-10 R6 audit) ===
+
+// TestEnumerationIntentError_NoGoStageConsts pins the analyzer's
+// enumeration retry hint against re-leaking Go const names. The
+// 2026-05-10 audit found `(e.g. StageAnalyze, StageExplore, ...)`
+// hardcoded in analyzer.go:1741; Fix-β replaced it with plain prose.
+// This test asserts no Stage* / Phase* PascalCase Go names survive
+// (matching the same shape the audit caught).
+func TestEnumerationIntentError_NoGoStageConsts(t *testing.T) {
+	src, err := os.ReadFile("analyzer.go")
+	if err != nil {
+		t.Fatalf("read analyzer.go: %v", err)
+	}
+	body := string(src)
+	// Locate the enumeration-intent block by its anchor sentence.
+	anchor := "enumeration intent with ≤1 distinct named entity is structurally inconsistent"
+	idx := strings.Index(body, anchor)
+	if idx < 0 {
+		t.Fatalf("anchor sentence missing from analyzer.go — has the enumeration block moved?")
+	}
+	// Scan the next ~1200 chars (covers the multi-line fmt.Errorf).
+	end := idx + 1200
+	if end > len(body) {
+		end = len(body)
+	}
+	region := body[idx:end]
+	// Match `Stage<UpperWord>` / `Phase<UpperWord>` shapes the audit
+	// found leaking. These are Go const names from
+	// internal/types/context.go and must never reach the LLM.
+	re := regexp.MustCompile(`\b(Stage|Phase)[A-Z][a-zA-Z]+\b`)
+	if locs := re.FindAllString(region, -1); len(locs) > 0 {
+		t.Errorf("R6 regression: enumeration retry hint leaks Go const(s) %v in:\n%s", locs, region)
+	}
+}
+
+// TestSanitize_GoStyleStageNamesPassThrough documents an expected
+// gap and pins it: the sanitizer's vocab table is hand-curated, not
+// a generic PascalCase scrubber, so a chain like
+// `StageAnalyze, StageExplore` would PASS THROUGH unchanged. The
+// system relies on Fix-β-style source-side discipline to keep such
+// names out of LLM-facing hints in the first place — this test
+// exists so a future writer who is tempted to broaden the
+// sanitizer reads the trade-off here first.
+func TestSanitize_GoStyleStageNamesPassThrough(t *testing.T) {
+	in := "examples include StageAnalyze, StageExplore, and StageExtract"
+	out := sanitizeInternalVocab(in)
+	if out != in {
+		t.Errorf("sanitize unexpectedly rewrote Go-style stage names:\nin:  %q\nout: %q\n"+
+			"NOTE: if you're broadening the sanitizer, review skill prompt + analyzer code"+
+			" for Stage*/Phase* literals before relying on the new behaviour.",
+			in, out)
 	}
 }

@@ -56,7 +56,15 @@ func TestDistinctNamedEntities(t *testing.T) {
 func TestL0B_EnumerationCardinalityGate_PresentInSource(t *testing.T) {
 	const wantPredicateExpr = "rm.Predicates.IsCategoryEnumeration &&"
 	const wantHelperCall = "distinctNamedEntities(rm.AnalyzerHints.Entities) <= 1"
-	const wantErrorMsgFix1 = "ENUMERATED VALUES"
+	// 2026-05-10 R6 audit: the reject message used to read
+	// "ENUMERATED VALUES (e.g. StageAnalyze, StageExplore, ...)" —
+	// the parenthetical leaked Go const names from
+	// internal/types/context.go into an LLM-facing retry hint.
+	// Fix-β realigned the wording to "ENUMERATED MEMBERS (e.g.
+	// each implementer name, each enum case name, ...)" matching
+	// internal/skill/analysis_contract.go:365 exactly. Either token
+	// keeps the cardinality intent legible to the LLM, so the
+	// assertion below accepts both spellings.
 	const wantErrorMsgFix2 = "is_category_enumeration=false"
 	// 2026-05-08 carve-out: gate must NOT fire on
 	// IsCategoryEnumeration=true + IsRelationalLookup=true + 1 entity.
@@ -70,8 +78,8 @@ func TestL0B_EnumerationCardinalityGate_PresentInSource(t *testing.T) {
 	if !strings.Contains(src, wantHelperCall) {
 		t.Errorf("L0-B gate helper call missing: expected substring %q in analyzer.go", wantHelperCall)
 	}
-	if !strings.Contains(src, wantErrorMsgFix1) {
-		t.Errorf("L0-B reject message must explicitly name 'ENUMERATED VALUES' so the LLM retry knows the fix")
+	if !strings.Contains(src, "ENUMERATED MEMBERS") && !strings.Contains(src, "ENUMERATED VALUES") {
+		t.Errorf("L0-B reject message must explicitly name 'ENUMERATED MEMBERS' (or legacy 'ENUMERATED VALUES') so the LLM retry knows the fix")
 	}
 	if !strings.Contains(src, wantErrorMsgFix2) {
 		t.Errorf("L0-B reject message must offer the cat=false escape hatch for legitimate type-name lookups")
