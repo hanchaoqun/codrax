@@ -75,6 +75,22 @@ type emitAnalysisParams struct {
 	// Plan E (2026-05-02) — additional structural-obligation axes.
 	CompletenessObligation *emitCompletenessObligationParam `json:"completeness_obligation,omitempty"`
 	Buckets                []emitQuestionBucketParam        `json:"buckets,omitempty"`
+	// L3 (2026-05-10) — analyzer-emitted per-file recommendations
+	// with confidence + rationale. The downstream explorer threshold-
+	// gates each entry: ≥0.8 → primary file + pre-read; 0.5–0.79 →
+	// pre-read only; <0.5 → discarded. Empty/omitted falls through to
+	// the post-emit entity→file resolver.
+	RequiredFiles []emitRequiredFileParam `json:"required_files,omitempty"`
+}
+
+// emitRequiredFileParam is the wire shape of one required_files entry.
+// Path + Confidence are required; Rationale is recommended for
+// confidence ≥ 0.5 entries (the threshold below which the entry is
+// dropped anyway).
+type emitRequiredFileParam struct {
+	Path       string  `json:"path"`
+	Confidence float64 `json:"confidence"`
+	Rationale  string  `json:"rationale,omitempty"`
 }
 
 // emitPredicatesParam is the wire shape of the required `predicates`
@@ -284,6 +300,19 @@ func buildEmitAnalysisSchema() {
 						"index":   map[string]any{"type": "integer", "minimum": 1, "description": "1-based ordinal in the order labels appear in the question."},
 					},
 					"required": []string{"label"},
+				},
+			},
+			"required_files": map[string]any{
+				"type":        "array",
+				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file will be treated as a primary file by downstream stages AND pre-read into the explorer prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. Empty list is fine: omit when you do not have file-level conviction.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path":       map[string]any{"type": "string", "description": "Repo-relative POSIX path copied from the prescan results (e.g. 'internal/analysis/gate/gate.go')."},
+						"confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Recommendation strength in [0,1]. Threshold bands: ≥0.8 primary + pre-read; 0.5–0.79 pre-read only; <0.5 discarded."},
+						"rationale":  map[string]any{"type": "string", "description": "Short reason for the recommendation. Why this file is structurally needed for the answer (e.g. 'directly implements the entry function the question asks about')."},
+					},
+					"required": []string{"path", "confidence"},
 				},
 			},
 		},
@@ -553,6 +582,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			ExactTargets:      exactTargets,
 			ExactContextTerms: exactContextTerms,
 			ExactContextRoles: exactContextRoles,
+			RequiredFileHints: validateAndBuildRequiredFileHints(p.RequiredFiles, &val),
 			Kind:              kind,
 		},
 		AnswerSubject:        answerSubject,
@@ -1377,3 +1407,109 @@ func nonEmptyStrings(xs []string) []string {
 	}
 	return out
 }
+
+// validateAndBuildRequiredFileHints converts the LLM-emitted
+// required_files array into the typed []types.RequiredFileHint
+// slice the IR consumes. Validation is per-item, fail-soft: invalid
+// entries are dropped silently with a warning appended to the
+// validation result; the rest pass through. This keeps the
+// emit_analysis call from failing hard on a single malformed entry
+// while still surfacing the issue to the operator.
+//
+// Per-entry rules:
+//   - path must be non-empty after TrimSpace + ToSlash + TrimPrefix("./");
+//     empty paths are dropped
+//   - confidence must be in [0,1]; out-of-range entries are clamped
+//     and a warning is recorded; NaN entries are dropped
+//   - rationale is capped at requiredFileHintRationaleMaxChars to
+//     keep the prompt budget bounded; over-cap entries are truncated
+//     with an ellipsis
+//   - confidence < 0.5 entries are kept (the threshold gating happens
+//     at the consumer, not here — preserves "I'm unsure" signal)
+//   - hard cap: at most requiredFileHintsMax entries; excess is dropped
+//
+// Cross-language: paths are POSIX-canonicalised (Windows backslash
+// converted to forward slash) so the same hint set works regardless
+// of the model's path-style preference.
+func validateAndBuildRequiredFileHints(in []emitRequiredFileParam, val *analysisValidationResult) []types.RequiredFileHint {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.RequiredFileHint, 0, len(in))
+	dropped := 0
+	clamped := 0
+	for _, e := range in {
+		if len(out) >= requiredFileHintsMax {
+			dropped++
+			continue
+		}
+		canon := canonicalRequiredFilePath(e.Path)
+		if canon == "" {
+			dropped++
+			continue
+		}
+		conf := e.Confidence
+		if conf != conf { // NaN
+			dropped++
+			continue
+		}
+		if conf < 0 {
+			conf = 0
+			clamped++
+		}
+		if conf > 1 {
+			conf = 1
+			clamped++
+		}
+		rationale := strings.TrimSpace(e.Rationale)
+		if len(rationale) > requiredFileHintRationaleMaxChars {
+			rationale = rationale[:requiredFileHintRationaleMaxChars-1] + "…"
+		}
+		out = append(out, types.RequiredFileHint{
+			Path:       canon,
+			Confidence: conf,
+			Rationale:  rationale,
+		})
+	}
+	if val != nil {
+		if dropped > 0 {
+			val.Warnings = append(val.Warnings,
+				fmt.Sprintf("required_files: %d entries dropped (empty path / NaN confidence / over cap of %d)", dropped, requiredFileHintsMax))
+		}
+		if clamped > 0 {
+			val.Warnings = append(val.Warnings,
+				fmt.Sprintf("required_files: %d entries had confidence clamped into [0,1]", clamped))
+		}
+	}
+	return out
+}
+
+// canonicalRequiredFilePath normalises an LLM-emitted file path to
+// the repo-relative POSIX form the explorer's path lookup uses. Same
+// rules as canonicalExplorerPath: backslash → forward slash, trim
+// "./" prefix, trim whitespace.
+func canonicalRequiredFilePath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	p = strings.ReplaceAll(p, "\\", "/")
+	p = strings.TrimPrefix(p, "./")
+	if p == "" || p == "." {
+		return ""
+	}
+	return p
+}
+
+const (
+	// requiredFileHintsMax caps the number of analyzer file hints
+	// the system will accept per emit_analysis call. Far above any
+	// realistic LLM output (rare to see >10) but defends against
+	// pathological "list every file" emissions that would bloat the
+	// IR and downstream prompt budgets.
+	requiredFileHintsMax = 20
+	// requiredFileHintRationaleMaxChars caps the rationale length so
+	// a populated 20-entry hint list contributes ~4 KB at most when
+	// echoed back through the retry hint composer.
+	requiredFileHintRationaleMaxChars = 200
+)
