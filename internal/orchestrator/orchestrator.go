@@ -1818,7 +1818,6 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// instead of returning an empty result. The user still sees a
 		// reply; the Error field carries the diagnostic for operators.
 		logging.Error("[orchestrator] analyze phase failed (degrading to recovery IR): %v", err)
-		o.busCtx.TaskState.LastError = fmt.Sprintf("analyze: %v", err)
 		// Fix-A (2026-05-10): when the analyzer emit_analysis'd at
 		// least once before the gate rejected it, preserve the
 		// partial RequestModel + AnalyzerHints + Predicates so
@@ -1836,10 +1835,20 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			o.busCtx.AnalysisIR,
 			err,
 		)
-		// Continue execution with the recovery IR. The original
-		// error is preserved in TaskState.LastError so a wrapping
-		// CLI can still surface it. Step budget is bounded by the
-		// per-stage caps already in place.
+		// 2026-05-10 P-audit critical fix: do NOT set TaskState.LastError
+		// here. Line ~1921 below guards `if LastError == "" { runTaskPhase }`
+		// — setting it before the degraded scheduler runs causes the
+		// entire Phase 2 (explorer / extractor / finalizer dispatch)
+		// to be SKIPPED, which is exactly the "(no result)" symptom
+		// users hit on a degraded path. The analyzer error is
+		// preserved on the new AnalysisIR.QualityGate.Detail
+		// ("degraded_semantic_recovery" check) for operator visibility,
+		// and the SoftAnalyzerError field carries the original error
+		// for user-panel hint composition without blocking the
+		// scheduler.
+		o.busCtx.TaskState.SoftAnalyzerError = fmt.Sprintf("analyze: %v", err)
+		// Continue execution with the recovery IR. Step budget is
+		// bounded by the per-stage caps already in place.
 		_ = used
 	} else {
 		stepsUsed += used

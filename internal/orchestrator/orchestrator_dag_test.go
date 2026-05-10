@@ -486,10 +486,23 @@ func TestRunTaskGraph_NilIRFailsFast(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	if explorerCalls != 0 {
-		t.Error("nil-IR path must not dispatch explorer")
+		t.Error("nil-IR path must not dispatch explorer (legacy single-finalize-node graph)")
 	}
-	if busCtx.TaskState.LastError == "" {
-		t.Error("nil-IR path should record a LastError")
+	// 2026-05-10 P-audit follow-up: when the analyzer fails to
+	// produce an IR, the orchestrator now falls back to
+	// buildDegradedSemanticIR (which delegates to the legacy
+	// single-finalize builder for nil partial). The diagnostic
+	// is recorded on TaskState.SoftAnalyzerError (not
+	// LastError) so the runTaskPhase guard at line 1921 still
+	// fires and the finalizer can produce a degraded answer
+	// instead of "(no result)". LastError is reserved for
+	// hard failures where Phase 2 truly cannot run (unknown
+	// pipeline mode etc.).
+	if busCtx.TaskState.SoftAnalyzerError == "" {
+		t.Error("nil-IR path should record analyzer diagnostic on SoftAnalyzerError so the user-panel caveat carries it")
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Errorf("nil-IR path must NOT set LastError (would skip Phase 2 + degraded answer); got %q", busCtx.TaskState.LastError)
 	}
 }
 

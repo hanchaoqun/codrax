@@ -25,6 +25,22 @@ type TaskState struct {
 	// any forward transition. The prompt builder renders it as the
 	// most prominent user section.
 	RetryHint string `json:"retry_hint,omitempty"`
+
+	// SoftAnalyzerError carries the analyzer-stage exhaustion error
+	// when the orchestrator falls back to buildDegradedSemanticIR.
+	// Distinct from LastError because LastError is consumed by the
+	// outer guard at runTaskPhase entry — setting LastError here
+	// would skip explorer/extractor/finalizer dispatch entirely,
+	// turning the degraded path into a no-op "(no result)" output.
+	// SoftAnalyzerError is informational only: rendered into the
+	// user-panel caveat after the degraded answer materialises, and
+	// surfaced to operators via TaskState diagnostics. Empty in the
+	// happy path.
+	//
+	// 2026-05-10 P-audit follow-up. Without this split, the
+	// Fix-A degraded recovery IR could never actually run because
+	// LastError already short-circuited Phase 2.
+	SoftAnalyzerError string `json:"soft_analyzer_error,omitempty"`
 }
 
 // MutableState is the tool-mutable region of pipeline state. Tools
