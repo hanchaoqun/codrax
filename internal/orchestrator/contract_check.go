@@ -2088,12 +2088,23 @@ func validateEnumerationEvidenceCoverage(mut *types.MutableState, view *types.An
 }
 
 // shouldReviewSemanticQuality gates the G5 reviewer dispatch
-// (post_v2_runtime_gap_remediation, 2026-05-04). Skips when:
+// (post_v2_runtime_gap_remediation, 2026-05-04; P4 prefilter
+// 2026-05-10). Skips when:
 //   - any HARD violation already present (we'd double-noise the
 //     answer that's already failing other gates)
 //   - the doc has no body to evaluate (single-block summary-only)
+//   - the doc has emitted no facet declarations at all (no
+//     surface for AnchoredCount/DeclaredCount to evaluate)
 //
 // Returns true to invoke the reviewer.
+//
+// P4 prefilter rationale: the reviewer's load-bearing axis is
+// per-facet AnchoredCount vs DeclaredCount mismatch. A doc that
+// declared zero facets cannot have an anchored-vs-declared gap by
+// construction; running the reviewer on it just spends an LLM
+// round. Forensic data (May-9 sweep): docs with declared count = 0
+// account for ~7% of reviewer dispatches, ~all of which produced
+// either nil verdicts or sub-floor confidence.
 func shouldReviewSemanticQuality(doc *types.AnswerDocumentV2, existing []types.Violation) bool {
 	if doc == nil || len(doc.Blocks) < 2 {
 		// No body — reviewer has nothing to judge.
@@ -2112,7 +2123,20 @@ func shouldReviewSemanticQuality(doc *types.AnswerDocumentV2, existing []types.V
 			return false
 		}
 	}
-	return true
+	// P4 prefilter: skip when no block declared any facet via
+	// block.facet_ids[] OR claim_uses[].facet_id. Walking once is
+	// cheap relative to a reviewer LLM round-trip.
+	for _, b := range doc.Blocks {
+		if len(b.FacetIDs) > 0 {
+			return true
+		}
+		for _, cu := range b.ClaimUses {
+			if strings.TrimSpace(cu.FacetID) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // runSemanticQualityReview dispatches the G5 reviewer LLM and
@@ -2126,7 +2150,13 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 	if o == nil || o.semanticQualityReviewer == nil || doc == nil || mut == nil {
 		return nil
 	}
+	// P4 (2026-05-10): respect operator-tunable floor when set
+	// (yaml `pipeline_semantic_quality_min_confidence`); fall back
+	// to SemanticQualityMinConfidenceDefault (0.92).
 	floor := SemanticQualityMinConfidenceDefault
+	if o.semanticQualityMinConfidence > 0 && o.semanticQualityMinConfidence <= 1 {
+		floor = o.semanticQualityMinConfidence
+	}
 
 	// Project the typed orchestrator state into the reviewer input.
 	view := types.BuildAnswerSemanticViewForBusContext(o.busCtx)

@@ -208,10 +208,14 @@ func TestBuildSemanticQualityInput_NilGuards(t *testing.T) {
 }
 
 // G5-2: shouldReviewSemanticQuality gate.
+//
+// P4 (2026-05-10) prefilter additions: tests now seed FacetIDs so
+// the new "no-facet-declared → skip" branch doesn't make every
+// fixture vacuously skip.
 func TestShouldReviewSemanticQuality_GateSemantics(t *testing.T) {
 	body := []types.AnswerBlock{
 		{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
-		{ID: "b1", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
+		{ID: "b1", Kind: types.BlockOrderedList, FacetIDs: []string{"enumeration_item"}, Items: []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
 	}
 	docFull := &types.AnswerDocumentV2{Blocks: body}
 
@@ -221,9 +225,9 @@ func TestShouldReviewSemanticQuality_GateSemantics(t *testing.T) {
 		t.Error("single-block doc should skip reviewer")
 	}
 
-	// Body present + no hard violations → review.
+	// Body present + no hard violations + facet declared → review.
 	if !shouldReviewSemanticQuality(docFull, nil) {
-		t.Error("body present + no hard violations → reviewer should fire")
+		t.Error("body present + facet declared + no hard violations → reviewer should fire")
 	}
 
 	// Hard violation present → skip.
@@ -240,6 +244,53 @@ func TestShouldReviewSemanticQuality_GateSemantics(t *testing.T) {
 	}
 	if !shouldReviewSemanticQuality(docFull, softViolations) {
 		t.Error("only SOFT violations → reviewer should fire")
+	}
+}
+
+// P4 (2026-05-10) — no-facet-declared prefilter. A doc with body
+// blocks but ZERO declared facets (no block.facet_ids[] and no
+// claim_uses[].facet_id) cannot have the AnchoredCount/DeclaredCount
+// gap the reviewer is looking for; skip the dispatch.
+func TestShouldReviewSemanticQuality_P4_NoFacetDeclared_Skip(t *testing.T) {
+	docNoFacets := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
+			{ID: "b1", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
+		},
+	}
+	if shouldReviewSemanticQuality(docNoFacets, nil) {
+		t.Error("doc with zero declared facets should skip reviewer (P4 prefilter)")
+	}
+
+	// Same shape but with one block.facet_ids declared → review.
+	docWithFacet := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
+			{ID: "b1", Kind: types.BlockOrderedList, FacetIDs: []string{"enumeration_item"}, Items: []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
+		},
+	}
+	if !shouldReviewSemanticQuality(docWithFacet, nil) {
+		t.Error("doc with declared facet should fire reviewer")
+	}
+
+	// Facet declared via claim_uses[].facet_id (alternate path) → review.
+	docWithClaimUseFacet := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
+			{ID: "b1", Kind: types.BlockOrderedList,
+				ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact, FacetID: "current_code_path"}},
+				Items:     []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
+		},
+	}
+	if !shouldReviewSemanticQuality(docWithClaimUseFacet, nil) {
+		t.Error("doc with claim_uses[].facet_id should fire reviewer")
+	}
+}
+
+// P4 — SemanticQualityMinConfidenceDefault constant pinned to 0.92.
+func TestSemanticQualityMinConfidenceDefault_P4(t *testing.T) {
+	if SemanticQualityMinConfidenceDefault != 0.92 {
+		t.Errorf("P4 default floor should be 0.92, got %v", SemanticQualityMinConfidenceDefault)
 	}
 }
 

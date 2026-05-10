@@ -483,6 +483,16 @@ type RuntimeSettings struct {
 	// tolerance. nil = use default (true).
 	PipelineSemanticQualityReviewEnabled *bool `yaml:"pipeline_semantic_quality_review_enabled"`
 
+	// PipelineSemanticQualityMinConfidence (P4, 2026-05-10, default
+	// 0.92) is the symmetric counterpart of
+	// PipelineSelfConsistencyMinConfidence for the G5 second-layer
+	// reviewer. Below the floor a reviewer verdict is silently
+	// dropped (no violation emitted, no repair triggered). nil =
+	// use default 0.92. Lower (e.g. 0.85) restores the pre-2026-05-10
+	// noise band; higher tightens further at the risk of missing
+	// genuine facet-coverage gaps.
+	PipelineSemanticQualityMinConfidence *float64 `yaml:"pipeline_semantic_quality_min_confidence"`
+
 
 	// RepomapMinParseTier (commit 53 P5) hard-gates files whose
 	// repomap parse tier exceeds the floor (Tier 1=primary

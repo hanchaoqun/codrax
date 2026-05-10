@@ -299,7 +299,18 @@ var richnessSofteningWarn = true
 var (
 	selfConsistencyEnabled       = true
 	selfConsistencyRewrite       = true
-	selfConsistencyMinConfidence = 0.8
+	// 2026-05-10 P4 tightening: bumped 0.80 → 0.92. Forensic data
+	// (May-9 sweep, 26 run / 19 case) showed the reviewer at the
+	// 0.85-0.90 confidence band fired on borderline concerns the
+	// answer-document V2 schema didn't structurally need to repair
+	// (the answer was content-correct, the reviewer flagged minor
+	// formatting / facet-anchor density). Raising the floor to
+	// 0.92 keeps high-confidence factual contradictions (the
+	// reviewer's load-bearing case) while filtering out the
+	// noise band that contributed ~10-15% of the total
+	// repair-loop activation rate. operator override path:
+	// yaml `pipeline_self_consistency_min_confidence`.
+	selfConsistencyMinConfidence = 0.92
 )
 
 // G5 (post_v2_runtime_gap_remediation, 2026-05-04). Semantic-quality
@@ -309,6 +320,12 @@ var (
 // high or the false-positive rate exceeds tolerance.
 var (
 	semanticQualityEnabled = true
+	// P4 (2026-05-10): default floor for the G5 reviewer.
+	// orchestrator.SemanticQualityMinConfidenceDefault is 0.92 — keep this
+	// in sync (mirrored here as a Go var so the
+	// PipelineSemanticQualityMinConfidence yaml override has a
+	// distinct cmd-side seam to write into).
+	semanticQualityMinConfidence = 0.92
 )
 
 // maxAttachedTraceBytes is the live cap for the perf-channel
@@ -2026,6 +2043,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineSemanticQualityReviewEnabled != nil {
 			semanticQualityEnabled = *rs.PipelineSemanticQualityReviewEnabled
 		}
+		// P4 (2026-05-10) — operator-tunable G5 reviewer floor.
+		// Symmetric with PipelineSelfConsistencyMinConfidence above.
+		if rs.PipelineSemanticQualityMinConfidence != nil {
+			semanticQualityMinConfidence = *rs.PipelineSemanticQualityMinConfidence
+		}
 		extraSoft := append([]string{}, rs.PipelineContractSoftKinds...)
 		extraStrict := append([]string{}, rs.PipelineContractStrictKinds...)
 		if selfConsistencyEnabled && selfConsistencyRewrite {
@@ -3032,7 +3054,10 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		resolved := config.ResolveProvider(providersCfg, "semantic_quality_reviewer")
 		if adapter, err := llm.NewFromConfig(resolved); err == nil {
 			app.orch.SetSemanticQualityReviewer(orchestrator.NewSemanticQualityReviewer(adapter))
-			logging.Info("[semantic_quality] reviewer enabled: model=%s", adapter.ModelID())
+			// P4 (2026-05-10): apply yaml-resolved floor (default 0.92).
+			app.orch.SetSemanticQualityMinConfidence(semanticQualityMinConfidence)
+			logging.Info("[semantic_quality] reviewer enabled: model=%s min_confidence=%.2f",
+				adapter.ModelID(), semanticQualityMinConfidence)
 		} else {
 			logging.Warning("[semantic_quality] adapter resolve failed (%v); reviewer disabled this Run", err)
 		}

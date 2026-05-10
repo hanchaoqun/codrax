@@ -192,9 +192,18 @@ type SemanticQualityReviewer interface {
 	Review(ctx context.Context, in SemanticQualityInput) (*SemanticQualityResult, error)
 }
 
+// 2026-05-10 P4 tightening: raised 0.85 → 0.92. Same rationale as
+// the parallel self_consistency tighten — the reviewer at confidence
+// 0.85-0.90 was firing on subtle formatting / anchor-depth concerns
+// that did not invalidate the answer. 0.92 keeps the
+// reviewer's high-confidence facet-coverage gaps while filtering
+// the noise band. yaml override
+// `pipeline_semantic_quality_min_confidence` lets operators flip
+// per-deployment.
+//
 // SemanticQualityMinConfidenceDefault is the conservative floor;
 // raise to 0.9 in production once eval-validated.
-const SemanticQualityMinConfidenceDefault = 0.85
+const SemanticQualityMinConfidenceDefault = 0.92
 
 var semanticQualityTool = llm.ToolSchema{
 	Name:        "emit_semantic_quality_review",

@@ -266,8 +266,15 @@ type Orchestrator struct {
 
 	// selfConsistencyMinConfidence (commit 62) is the floor a
 	// reviewer's self-rated confidence must reach for the verdict
-	// to be acted on. Default 0.8.
+	// to be acted on. Default 0.92 (P4 2026-05-10 tightening; was
+	// 0.8 pre-fix). yaml override: pipeline_self_consistency_min_confidence.
 	selfConsistencyMinConfidence float64
+
+	// semanticQualityMinConfidence (P4 2026-05-10) is the symmetric
+	// floor for the G5 reviewer. Default
+	// SemanticQualityMinConfidenceDefault (0.92). yaml override:
+	// pipeline_semantic_quality_min_confidence.
+	semanticQualityMinConfidence float64
 
 	// continuationClassifier is the LLM-driven decision for
 	// "is the current REPL turn a continuation of the prior
@@ -1035,6 +1042,27 @@ func (o *Orchestrator) SetSemanticQualityReviewer(r SemanticQualityReviewer) {
 		return
 	}
 	o.semanticQualityReviewer = r
+}
+
+// SetSemanticQualityMinConfidence sets the G5 reviewer's self-rated
+// confidence floor below which verdicts are silently dropped. 0
+// (or out-of-range) keeps the SemanticQualityMinConfidenceDefault
+// (0.92, set in P4 2026-05-10).
+//
+// Symmetric with SetSelfConsistencyMinConfidence — both reviewer
+// thresholds are operator-tunable via codrax.yaml. The 0.92 default
+// is calibrated against the May-9 sweep (forensic doc:
+// docs/design/finalizer_pretrip_prevention.md §1) — a lower floor
+// adds borderline-confidence noise back; a higher floor risks
+// missing genuine facet-coverage gaps.
+func (o *Orchestrator) SetSemanticQualityMinConfidence(f float64) {
+	if o == nil {
+		return
+	}
+	if f <= 0 || f > 1 {
+		f = SemanticQualityMinConfidenceDefault
+	}
+	o.semanticQualityMinConfidence = f
 }
 
 // SetSelfConsistencyReviewer wires the commit-62 prose-coherence
