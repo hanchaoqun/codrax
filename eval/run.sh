@@ -24,6 +24,11 @@
 
 set -uo pipefail
 
+# 2026-05-10 — honor sweep-private binary snapshot to avoid
+# concurrent-rebuild races. parallel_all.sh sets CODRAX_BIN to a
+# stable copy; standalone usage falls back to ./codrax.
+CODRAX_BIN="${CODRAX_BIN:-./codrax}"
+
 if [[ $# -lt 1 ]]; then
   echo "usage: $0 <case-file> [N]" >&2
   exit 2
@@ -218,7 +223,7 @@ run_read_step() {
     focus_args=("--focus" "$FOCUS")
   fi
   if [[ -n "$LOG" ]]; then
-    ./codrax --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+    "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
       --log-level debug \
       --log-dir "$logdir" \
       --log-text "$LOG" \
@@ -226,7 +231,7 @@ run_read_step() {
       --request "$QUESTION" \
       >"$out" 2>&1
   else
-    ./codrax --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+    "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
       --log-level debug \
       --log-dir "$logdir" \
       "${focus_args[@]}" \
@@ -238,7 +243,7 @@ run_read_step() {
 run_plan_step() {
   local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
   echo "=== plan step (run $i) ===" >"$out"
-  ./codrax --repo "$scratch" --branch main --pipeline-max-steps 15 \
+  "$CODRAX_BIN" --repo "$scratch" --branch main --pipeline-max-steps 15 \
     --mode=plan --plan-out "$plan" \
     --log-level debug \
     --log-dir "$logdir" \
@@ -250,7 +255,7 @@ run_apply_step() {
   local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
   echo "" >>"$out"
   echo "=== apply step (run $i) ===" >>"$out"
-  ./codrax --repo "$scratch" --branch main --pipeline-max-steps 15 \
+  "$CODRAX_BIN" --repo "$scratch" --branch main --pipeline-max-steps 15 \
     --mode=apply --plan-file "$plan" --auto-apply \
     --log-level debug \
     --log-dir "$logdir" \

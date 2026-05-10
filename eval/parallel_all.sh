@@ -32,6 +32,24 @@ TIMEOUT="${TIMEOUT:-1200}"
 SWEEP_START=$(date +%Y%m%d-%H%M%S)
 SUMMARY="eval/parallel_all_summary.md"
 
+# 2026-05-10 — defensive binary snapshot. Sweep hits a wave of
+# LAUNCH_FAIL when a concurrent `go build` (developer iterating in
+# the same tree) rewrites ./codrax mid-flight; running workers
+# get ETXTBSY / "exec format error" / immediate exit. Snapshot
+# the binary into a sweep-private path before any workers fire so
+# future rebuilds in the main tree don't race them. CODRAX_BIN is
+# read by eval/run.sh — when unset / empty, falls back to ./codrax
+# (legacy behaviour).
+SWEEP_BIN="eval/.codrax-sweep-${SWEEP_START}"
+if [[ -x "./codrax" ]]; then
+  if cp ./codrax "$SWEEP_BIN" 2>/dev/null; then
+    chmod +x "$SWEEP_BIN" 2>/dev/null || true
+    export CODRAX_BIN="$SWEEP_BIN"
+    trap 'rm -f "$SWEEP_BIN"' EXIT
+    echo "[$(date +%H:%M:%S)] sweep binary snapshot: $SWEEP_BIN" >&2
+  fi
+fi
+
 echo "# Parallel eval sweep — TypedDenials + BugClass regression check" >"$SUMMARY"
 echo "" >>"$SUMMARY"
 echo "- date: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$SUMMARY"
