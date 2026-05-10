@@ -351,7 +351,19 @@ func DefaultAnalysisLimits() AnalysisLimits {
 	return AnalysisLimits{
 		WarnBelowKeywords:                   8,
 		RejectBelowKeywords:                 0,
-		MaxPrescanRounds:                    2,
+		// MaxPrescanRounds: 2026-05-10 raised default 2 → 3 after
+		// real-eval forensics showed 65% (13/20) of cases hit
+		// "Pre-scan budget reached (3 of 3 rounds used)" — the prior
+		// default forced the analyzer to emit before entity
+		// disambiguation converged, narrowing primaryFiles to wrong
+		// files and feeding noise to downstream stages. The
+		// multi-topic bump heuristic (analyzer.go:78–109) still
+		// adds +1 per ≥2 sub-topics on top of this default, capped
+		// at PrescanRoundsCeil (yaml :: agent_prescan_rounds_ceil,
+		// default 4). Net effect: ~+1 LLM call on the 35% of cases
+		// that previously exhausted, no extra call on cases that
+		// finished in ≤2 rounds.
+		MaxPrescanRounds:                    3,
 		WarnBelowKeywordHitRatio:            0,
 		WarnBelowEntityHitRatio:             0,
 		ClassificationGrepEnabled:           true,

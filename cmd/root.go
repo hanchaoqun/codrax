@@ -133,6 +133,7 @@ var (
 	flagMultiRepoEnabled bool
 	flagMaxRetries       int
 	flagMaxStageVisits   int
+	flagMaxPrescanRounds int
 
 	// Log-triage attach flags.
 	//
@@ -506,6 +507,7 @@ func init() {
 	f.BoolVar(&flagMultiRepoEnabled, "multi-repo", false, "enable/disable multi-repo discovery for this run (overrides codrax.yaml :: multi_repo_enabled when passed; no-op when omitted). Use --multi-repo=false to skip discovery on a parent dir that contains many sub-repos.")
 	f.IntVar(&flagMaxRetries, "pipeline-max-retries", 0, "override max consecutive failures per stage; 0 = inherit from codrax.yaml")
 	f.IntVar(&flagMaxStageVisits, "pipeline-max-stage-visits", 0, "override max entries per stage per Run; 0 = inherit from codrax.yaml")
+	f.IntVar(&flagMaxPrescanRounds, "max-prescan-rounds", 0, "override analyzer prescan budget rounds (codrax.yaml :: analysis_max_prescan_rounds); 0 = inherit from yaml/default. Multi-topic questions still get a +1 bump on top, capped at agent_prescan_rounds_ceil (default 4).")
 	f.StringArrayVar(&flagAttachLog, "log", nil, "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin. Repeatable: --log a.log --log b.log attaches both, joined with `# codrax-source: <path>` headers so the LLM can distinguish boundaries. Total bytes capped by codrax.yaml :: log_attach_max_bytes.")
 	f.StringVar(&flagAttachLogText, "log-text", "", "inline runtime log excerpt (mutually exclusive with --log); for scripted / piped usage")
 	f.StringArrayVar(&flagAttachHitrace, "htrace", nil, "attach an ftrace-compatible trace from file path (or '-' for stdin). Covers HarmonyOS `hdc shell hitrace`, Android `adb shell atrace`, systrace, and perfetto text dumps. Repeatable: --htrace a.trace --htrace b.trace. --atrace is an alias.")
@@ -1902,6 +1904,13 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		if rs.AnalysisMaxPrescanRounds != nil {
 			analysisLimits.MaxPrescanRounds = *rs.AnalysisMaxPrescanRounds
+		}
+		// CLI override wins last (precedence: code default → yaml →
+		// CLI). 0 means "not set" (cobra default), so we honor only
+		// positive values to avoid a zero flag silently disabling the
+		// pre-scan loop.
+		if cmd.Flags().Changed("max-prescan-rounds") && flagMaxPrescanRounds > 0 {
+			analysisLimits.MaxPrescanRounds = flagMaxPrescanRounds
 		}
 		if rs.AnalysisWarnBelowKeywordHitRatio != nil {
 			analysisLimits.WarnBelowKeywordHitRatio = *rs.AnalysisWarnBelowKeywordHitRatio
