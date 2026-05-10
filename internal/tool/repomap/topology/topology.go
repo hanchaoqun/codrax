@@ -102,9 +102,9 @@ func (t *RepoTopology) Lookup(relPathFromParent string) *SubRepo {
 	}
 
 	var (
-		best        *SubRepo
-		bestLen     = -1
-		parentSelf  *SubRepo
+		best       *SubRepo
+		bestLen    = -1
+		parentSelf *SubRepo
 	)
 	for i := range t.Repos {
 		rr := t.Repos[i].RootRel
@@ -225,6 +225,14 @@ func LoadOrDiscover(parentAbs, runtimeAnchor string, opts Options, parentSlug st
 		if isCacheFresh(cached, parentAbs) {
 			return cached, nil
 		}
+	}
+	// When the runtime anchor lives under parentAbs (the normal
+	// <cwd>/.codrax case), creating the cache directory after discovery
+	// would bump parentAbs mtime past DiscoveredAt and make the just-saved
+	// cache look stale on the very next call. Prepare it first; save
+	// remains best-effort below.
+	if runtimeAnchor != "" {
+		_ = os.MkdirAll(filepath.Join(runtimeAnchor, "cache", "topology"), 0o755)
 	}
 	fresh, err := Discover(parentAbs, opts)
 	if err != nil {

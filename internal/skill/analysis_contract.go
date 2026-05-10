@@ -322,7 +322,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("- keywords, entities — string arrays (may be empty).\n")
 	of.WriteString("- intent_confidence, complexity_confidence, kind_confidence — floats in [0.0, 1.0].\n")
 	of.WriteString("- predicates — object with seven required booleans (see Semantic predicates below).\n\n")
-	of.WriteString("Optional fields: sub_topics (array), answer_subject (object), predicate_axis (enum), diagram_hint (object), exact_targets (array), exact_context_terms (array), exact_context_roles (array), language.\n\n")
+	of.WriteString("Optional fields: sub_topics (array), answer_subject (object), predicate_axis (enum), diagram_hint (object), enumeration_boundary (object), completeness_obligation (object), buckets (array), exact_targets (array), exact_context_terms (array), exact_context_roles (array), language, required_files (array), irrelevant_files (array).\n\n")
 	of.WriteString("Everything downstream — the search plan, the evidence plan, the hypothesis set, the quality checks — is derived automatically from your input; do not provide them.\n\n")
 	// Top-level "current-question primacy" rule (2026-05-10 Issue B).
 	// Generalises the per-field cross-turn discipline rules below
@@ -331,9 +331,9 @@ func BuildAnalysisSkill() *Config {
 	// field is current-question only; Prior Conversation participates
 	// ONLY for pronoun / demonstrative resolution.
 	of.WriteString("## Current-question primacy (every intent field)\n\n")
-	of.WriteString("EVERY field you emit — intent, scenario, complexity, question_kind, keywords, entities, predicates (every flag), " +
+	of.WriteString("EVERY field you emit — intent, scenario, complexity, question_kind, intent_confidence, complexity_confidence, kind_confidence, keywords, entities, predicates (every flag), " +
 		"sub_topics, answer_subject, predicate_axis, exact_targets, exact_context_terms, exact_context_roles, " +
-		"diagram_hint, language, completeness_obligation, enumeration_boundary, required_files — MUST be derived from the CURRENT request's text only. " +
+		"diagram_hint, language, completeness_obligation, enumeration_boundary, buckets, required_files, irrelevant_files — MUST be derived from the CURRENT request's text only. " +
 		"The CURRENT request is the user-typed input that drove this dispatch. " +
 		"Prior Conversation entries (visible in the \"Prior Conversation\" section above when present), agent memory recalled by `recall_memory`, and any other historical material " +
 		"are REFERENCE-ONLY context — they MUST NOT be the primary basis for any field's value.\n\n")

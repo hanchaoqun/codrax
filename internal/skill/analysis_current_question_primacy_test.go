@@ -28,6 +28,21 @@ func analysisSkillPrompt(t *testing.T) string {
 	return cfg.OutputFormat
 }
 
+func currentQuestionPrimacyBlock(t *testing.T) string {
+	t.Helper()
+	out := analysisSkillPrompt(t)
+	startIdx := strings.Index(out, "## Current-question primacy")
+	if startIdx < 0 {
+		t.Fatal("primacy heading missing")
+	}
+	endMarker := "Field enums:"
+	endIdx := strings.Index(out[startIdx:], endMarker)
+	if endIdx < 0 {
+		t.Fatal("end-marker 'Field enums:' missing — primacy block placement broken")
+	}
+	return out[startIdx : startIdx+endIdx]
+}
+
 func TestAnalysisSkill_CurrentQuestionPrimacyRulePresent(t *testing.T) {
 	out := analysisSkillPrompt(t)
 	if !strings.Contains(out, "Current-question primacy") {
@@ -42,12 +57,15 @@ func TestAnalysisSkill_CurrentQuestionPrimacy_NamesEveryIntentField(t *testing.T
 	// Pin that the rule explicitly names every intent field —
 	// without explicit enumeration, the LLM can read the rule as
 	// "applies to fields the rule mentions" and skip the rest.
-	out := analysisSkillPrompt(t)
+	out := currentQuestionPrimacyBlock(t)
 	for _, field := range []string{
 		"intent",
 		"scenario",
 		"complexity",
 		"question_kind",
+		"intent_confidence",
+		"complexity_confidence",
+		"kind_confidence",
 		"keywords",
 		"entities",
 		"predicates",
@@ -60,7 +78,9 @@ func TestAnalysisSkill_CurrentQuestionPrimacy_NamesEveryIntentField(t *testing.T
 		"diagram_hint",
 		"completeness_obligation",
 		"enumeration_boundary",
+		"buckets",
 		"required_files",
+		"irrelevant_files",
 	} {
 		if !strings.Contains(out, field) {
 			t.Errorf("primacy rule must name every intent field; missing %q in:\n%s", field, out)
@@ -172,17 +192,7 @@ func TestAnalysisSkill_CurrentQuestionPrimacy_R6Audit(t *testing.T) {
 	// past field-specific prose that legitimately mentions
 	// "explorer agent" as an entity-axes example, so a naive
 	// "next ##" window false-positives there.
-	out := analysisSkillPrompt(t)
-	startIdx := strings.Index(out, "## Current-question primacy")
-	if startIdx < 0 {
-		t.Fatal("primacy heading missing")
-	}
-	endMarker := "Field enums:"
-	endIdx := strings.Index(out[startIdx:], endMarker)
-	if endIdx < 0 {
-		t.Fatal("end-marker 'Field enums:' missing — primacy block placement broken")
-	}
-	region := out[startIdx : startIdx+endIdx]
+	region := currentQuestionPrimacyBlock(t)
 	for _, banned := range []string{
 		"explorer agent", "extractor agent", "finalizer agent", "analyzer agent",
 		"BusContext", "MutableState", "AnalysisIR",
