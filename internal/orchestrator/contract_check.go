@@ -2150,6 +2150,19 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 	if o == nil || o.semanticQualityReviewer == nil || doc == nil || mut == nil {
 		return nil
 	}
+	// P7 (2026-05-10) — surface the reviewer dispatch to the dock
+	// so the user knows the second reviewer is running. Parallels
+	// selfConsistencyReviewStartMessage at the top of
+	// runSelfConsistencyReviewV2.
+	if o.busCtx != nil {
+		o.emit(render.Event{
+			Kind:       render.EventOrchestratorNotice,
+			Timestamp:  time.Now(),
+			Agent:      "orchestrator",
+			NoticeKind: render.NoticeSemanticQualityReviewStart,
+			Reasoning:  semanticQualityReviewStartMessage(o.busCtx.Language),
+		})
+	}
 	// P4 (2026-05-10): respect operator-tunable floor when set
 	// (yaml `pipeline_semantic_quality_min_confidence`); fall back
 	// to SemanticQualityMinConfidenceDefault (0.92).

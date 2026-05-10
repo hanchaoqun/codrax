@@ -239,6 +239,7 @@ const (
 	NoticeSelfConsistencyContradictionRewriting                        // contradictions found, rewriting answer
 	NoticeNoToolCall                                                   // must-emit stage got zero tool_calls; re-prompting
 	NoticeProceedingWithoutExtract                                     // pre-finalize extract dispatch failed; proceeding with prior evidence
+	NoticeSemanticQualityReviewStart                                   // P7 (2026-05-10) — G5 semantic-quality reviewer dispatching (retry-class ⟳)
 
 	// info-class — gray (passive informational)
 	NoticeConvergenceStall                   // CGEC I4 plateau finalizing on current evidence
@@ -248,6 +249,7 @@ const (
 	NoticeYieldKill                          // yield-delta kill: retry produced no progress
 	NoticePlanReview                         // write-mode plan_critic review summary
 	NoticeSelfConsistencyContradictionLogged // contradictions found, NOT rewriting (advisory only)
+	NoticeFinalizeRepairCap                  // P6/P7 (2026-05-10) — finalize repair-loop hard cap reached; ship doc + residual-concerns caveat (info-class ·)
 
 	// progress-class — cyan (forward milestone)
 	NoticeInvestigationReady // explorer signaled investigation_complete

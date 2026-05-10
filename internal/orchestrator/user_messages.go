@@ -101,6 +101,31 @@ func selfConsistencyReviewStartMessage(lang string) string {
 	return "⟳ Checking the answer for inconsistencies"
 }
 
+// semanticQualityReviewStartMessage (P7, 2026-05-10): renders the
+// user-visible status line shown when the G5 semantic-quality
+// reviewer LLM dispatches. Symmetric counterpart of
+// selfConsistencyReviewStartMessage — the user sees a parallel
+// "⟳ 正在审阅答案完整性 / Reviewing answer coverage" cue so the
+// ~3-5s second-reviewer pause is visible (rather than silent dock
+// time the operator can't account for).
+//
+// Red-line audit (R3/R4/R5/R6/R7/SST/CN+EN-only):
+//   - R3 typed: no mutable token; static prose
+//   - R4 generic: no project / case names
+//   - R5: progress cue, never writes answer body
+//   - R6 no internal vocab: "答案完整性" / "answer coverage" are
+//     user-vocab paraphrases of FacetCoverage; "G5" / "reviewer"
+//     never surface
+//   - R7: pure status visibility, no redirect
+//   - SST: shape mirrors selfConsistencyReviewStartMessage
+//   - CN+EN-only per 2026-05-10 user direction
+func semanticQualityReviewStartMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "⟳ 正在审阅答案完整性"
+	}
+	return "⟳ Reviewing answer coverage"
+}
+
 // selfConsistencyContradictionMessage (commit 62): rendered when
 // the reviewer reports >= 1 contradiction at confidence >= floor.
 // Variants: "rewriting" when rewrite-on-contradiction is on (the
@@ -132,11 +157,17 @@ func selfConsistencyContradictionMessage(lang string, rewrite bool, count int) s
 // requeues for another pass) and the pre-finalize Tier-1 floor
 // backtrack — both are "need more evidence before answering" from
 // the user's point of view.
+// P7 (2026-05-10) wording polish: "调查证据" was technical jargon
+// for what is, from the user's point of view, "information / context
+// the system needs to write a good answer". The new phrasing keeps
+// the same trigger surface but reads cleaner. R6 / R4 / CN+EN-only
+// audit clean — no internal vocab; generic; one natural language
+// per branch.
 func softRetryHintMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 正在补齐调查证据"
+		return "⟳ 正在补充更多上下文信息"
 	}
-	return "⟳ Gathering more evidence"
+	return "⟳ Gathering additional context"
 }
 
 // plannerProseFallbackMessage is the user-visible explanation when
@@ -227,11 +258,15 @@ func softInvestigationReadyMessage(lang string) string {
 // from softRetryHintMessage because the scope is different — this
 // retry starts AFTER a candidate answer was produced, so the user
 // message emphasises "answer" rather than "evidence".
+// P7 (2026-05-10) wording polish: "再跑一轮" was technical ("跑"
+// = "run"; "一轮" = "iteration") and didn't tell the user WHAT was
+// running. New phrasing names the action explicitly. R6 / R4 /
+// CN+EN-only audit clean.
 func softAnswerCheckRetryMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 答案待完善，再跑一轮"
+		return "⟳ 答案待完善，正在重新生成"
 	}
-	return "⟳ Answer needs another pass"
+	return "⟳ Refining the answer — regenerating"
 }
 
 // softFallbackTargetMessage (B.7+ audit followup, 2026-05-02) renders a
@@ -272,10 +307,15 @@ func softFallbackTargetMessage(lang string, target FallbackTarget) string {
 		}
 		return "⟳ Reworking the answer structure"
 	case FallbackBackToExplore:
+		// P7 (2026-05-10) wording polish: "证据不足" was easily
+		// misread as "the user's input was insufficient" — actually
+		// the system needs to gather more context internally. New
+		// phrasing makes the subject explicit (the system, not the
+		// user) and avoids "探索" which sounds technical.
 		if zh {
-			return "⟳ 证据不足，继续探索"
+			return "⟳ 还需要更多上下文，继续查找资料"
 		}
-		return "⟳ Need more evidence — exploring further"
+		return "⟳ Gathering more context — continuing to look up material"
 	}
 	return softAnswerCheckRetryMessage(lang)
 }
@@ -439,10 +479,13 @@ func softCompletenessGapMessage(lang string, fail *agent.CompletenessFailure) st
 		return ""
 	}
 	dim := dimensionUserLabel(lang, fail.Dimension)
+	// P7 (2026-05-10) wording polish: "维度" was technical; "方面"
+	// reads cleanly. "提示模型" leaked the internal "model" abstraction;
+	// "引导补足" stays at the user-vocabulary layer. R6 audit clean.
 	if preferZhMessage(lang) {
-		return "⟳ 答案在「" + dim + "」维度可能覆盖不足，将提示模型补足"
+		return "⟳ 答案在「" + dim + "」方面可能覆盖不足，正在引导补足"
 	}
-	return "⟳ Answer may under-cover the " + dim + " axis; advising the model to fill the gap"
+	return "⟳ Answer may under-cover the " + dim + " aspect; guiding the next pass to fill the gap"
 }
 
 // dimensionUserLabel converts a CompletionDimension into a user-

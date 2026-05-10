@@ -1084,17 +1084,29 @@ func (o *Orchestrator) finalizeRepairHardCapValue() int {
 }
 
 // injectResidualConcernsCaveat is the P6 chokepoint helper that
-// writes a single user-visible caveat string into the typed
-// AnswerDocumentV2.Caveats[] surface AND emits a dock notice so
-// the user-facing UI knows the repair-loop terminated by design.
-// Non-destructive: does NOT modify any block.text payload.
+// surfaces a single user-visible caveat when the finalize repair
+// hard cap is reached AND emits a dock notice so the user-facing
+// UI knows the repair-loop terminated by design.
+//
+// P7 (2026-05-10) channel correction: the caveat now flows through
+// the SYSTEM channel (AppendSystemCaveatString → "**补充说明：**" /
+// "**Additional notes:**" heading), NOT the LLM-authored
+// AnswerDocumentV2.Caveats[] slot. The prior P6 implementation
+// wrote into doc.Caveats[] which violates
+// feedback_no_system_backfill_to_user_panel — that slot is for
+// content gaps the LLM itself identified, not orchestrator
+// decisions about repair-loop termination.
+//
+// Returns the answer string with the caveat appended via the
+// system channel; caller assigns back to out.FinalAnswer. Empty
+// (nothing to inject) input returns the answer unchanged.
 //
 // Caller has already decided the cap was exceeded (see the
 // finalizeRepairHardCapValue / state.retryUsed comparison in the
 // contract-failure loop). The caveat content is rendered through
 // softFinalizeRepairCapMessage (CN/EN aware, red-line audited).
 func (o *Orchestrator) injectResidualConcernsCaveat(out *agent.StageOutput, concernCount int) {
-	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+	if o == nil || o.busCtx == nil || out == nil {
 		return
 	}
 	// Multi-repo posture detection: only suggest /repos sub-repo
@@ -1106,22 +1118,21 @@ func (o *Orchestrator) injectResidualConcernsCaveat(out *agent.StageOutput, conc
 		multiRepo = true
 	}
 	caveat := softFinalizeRepairCapMessage(o.busCtx.Language, concernCount, multiRepo)
-	// Write into the typed AnswerDocumentV2.Caveats[] when the doc
-	// is present. Non-V2 carriers (legacy / synthetic test paths)
-	// fall through to AppendUserCaveatsToAnswer downstream.
-	if doc := o.busCtx.Mutable.AnswerDocumentV2(); doc != nil {
-		doc.Caveats = append(doc.Caveats, caveat)
-		o.busCtx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
-	}
+	// System-channel append: writes to the trailing
+	// "**补充说明：**" / "**Additional notes:**" section, distinct
+	// from the LLM-authored "**说明**：" / "**Caveats:**" channel.
+	out.FinalAnswer = AppendSystemCaveatString(out.FinalAnswer, caveat, o.busCtx.Language)
 	// Surface the cap event to the dock so the user knows the
 	// loop terminated by design rather than silently shipping with
-	// hidden caveats. Mirrors the existing NoticeUpstreamCap /
-	// NoticeYieldKill emit pattern.
+	// hidden caveats. P7: dedicated NoticeFinalizeRepairCap kind
+	// (info-class gray) instead of reusing NoticeFallbackFailLoud
+	// (warning yellow) — the answer DID ship, this is informational
+	// not a fail-loud.
 	o.emit(render.Event{
 		Kind:       render.EventOrchestratorNotice,
 		Timestamp:  time.Now(),
 		Agent:      "orchestrator",
-		NoticeKind: render.NoticeFallbackFailLoud,
+		NoticeKind: render.NoticeFinalizeRepairCap,
 		Reasoning:  caveat,
 	})
 }
@@ -2084,11 +2095,57 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 			storm.observe(fp)
 			if storm.exhausted() && attempt+1 < max {
 				logging.Warning("[orchestrator] analyze retry storm: fingerprint %q repeated %d×; breaking early to degraded path", fp, storm.repeatCount())
-				return used, fmt.Errorf("analyze stage early-exit on retry storm (fingerprint=%s, attempts=%d): %s — %s", fp, used, lastErr, retryStormUserCaveat())
+				return used, fmt.Errorf("analyze stage early-exit on retry storm (fingerprint=%s, attempts=%d): %s — %s", fp, used, lastErr, retryStormUserCaveat(o.busCtx))
 			}
 		}
 	}
-	return used, fmt.Errorf("analyze stage exhausted after %d attempt(s): %s", max, lastErr)
+	// P7 (2026-05-10) — user-facing wrapper. Prior shape
+	// "analyze stage exhausted after N attempt(s)" was a raw
+	// orchestration phrase ("analyze stage" is internal stage codename;
+	// "attempt(s)" is operator vocabulary). The wrapper appends a
+	// CN/EN-aware prose hint so the user sees what happened + a
+	// concrete next step. The original technical detail stays in
+	// the error string so ops/eval can still grep it.
+	userHint := analyzeExhaustedUserHint(o.busCtx)
+	return used, fmt.Errorf("analyze stage exhausted after %d attempt(s): %s — %s", max, lastErr, userHint)
+}
+
+// analyzeExhaustedUserHint returns the CN/EN-aware advisory tail
+// appended to the analyze-stage exhaustion error so users see
+// actionable next steps (narrow the question / add log attachment /
+// adjust active sub-repo set when multi-repo) instead of a bare
+// "analyze stage exhausted" technical message.
+//
+// Red-line audit (R3/R4/R5/R6/R7/SST/CN+EN-only):
+//   - R3 typed: lang + multiRepo bool gate the variants
+//   - R4 generic: no project / case names
+//   - R5: error wrapper, never writes answer body
+//   - R6 no internal vocab: "分类" / "classification" are
+//     user-vocab paraphrases of "analyze stage"
+//   - R7: gives concrete next steps the user can take
+//   - SST: shape mirrors retryStormUserCaveat
+//   - CN+EN-only per 2026-05-10 user direction (each branch
+//     mono-language; CLI command `/repos` rendered as inline
+//     code identifier in both branches)
+func analyzeExhaustedUserHint(busCtx *types.BusContext) string {
+	lang := ""
+	multiRepo := false
+	if busCtx != nil {
+		lang = busCtx.Language
+		if mg, ok := busCtx.MultiGraph.(*multigraph.MultiGraph); ok && mg != nil && !mg.IsSingle() {
+			multiRepo = true
+		}
+	}
+	if preferZhMessage(lang) {
+		if multiRepo {
+			return "问题理解阶段反复失败，已无法继续。可尝试细化问题、补充日志/堆栈附件，或通过 `/repos` 调整活跃子仓集合后重提"
+		}
+		return "问题理解阶段反复失败，已无法继续。可尝试细化问题或补充日志/堆栈附件后重提"
+	}
+	if multiRepo {
+		return "Question understanding repeatedly failed and cannot proceed. Try narrowing the question, attaching a log/stacktrace, or adjusting the active sub-repo set via `/repos` and re-asking"
+	}
+	return "Question understanding repeatedly failed and cannot proceed. Try narrowing the question or attaching a log/stacktrace and re-asking"
 }
 
 // newAnalyzeRetryStormDetector returns a detector seeded with a
@@ -2152,24 +2209,43 @@ func (d *analyzeRetryStormDetector) repeatCount() int {
 // retryStormUserCaveat is the user-facing diagnostic the early-exit
 // path appends to the analyze stage error. NO pipeline-internal
 // vocab (R6); generic Chinese+English user vocabulary; gives
-// concrete next steps the user can take from the REPL. Per user
-// directive 2026-05-10: prompts and user-facing strings include
-// only Chinese and English natural language.
+// concrete next steps the user can take.
 //
-// Audit (R3/R4/R5/R6/R7/cross-language):
-//   - R3 typed: fingerprint hex in the error envelope is opaque
-//     and deterministic
-//   - R4 no over-fitting: doesn't name codrax / opencode / specific
-//     gates (subtopic_coherence is internal vocab, kept out)
-//   - R5 no system backfill: explicitly states the answer is degraded
+// P7 (2026-05-10) refresh: split single-repo / multi-repo branches
+// (single-repo MUST NOT mention `/repos` — misleading) and purify
+// each language branch (no "REPL" / "active" English prose mid-CN
+// sentence; CLI command names rendered as inline `code identifiers`
+// stay legitimate per the same convention used by P6).
+//
+// Audit (R3/R4/R5/R6/R7/SST/CN+EN-only):
+//   - R3 typed: fingerprint hex carries the typed signal upstream
+//   - R4 no over-fitting: doesn't name specific gates / cases
+//   - R5 no system backfill: explicitly states answer is degraded
 //   - R6 no internal vocab: "结构性检查" / "structural check"
-//     are user-vocabulary descriptions
-//   - R7 user intent: gives REPL commands (/repos focus, /repos cap)
-//     so the user can adjust workspace scope and re-ask
-//   - cross-language: Chinese + English + REPL command names; no
-//     third natural language
-func retryStormUserCaveat() string {
-	return "分析阶段在同一类结构性检查上反复未通过,已切换到部分降级答案。若问题是跨子仓比较,可在 REPL 中执行 `/repos focus <子仓名>` 缩小到单子仓,或 `/repos cap N` 提高 active 上限后再次提问。"
+//     are user-vocabulary descriptions; "subtopic_coherence" never
+//     surfaces
+//   - R7 user intent: gives concrete next steps (narrow question,
+//     attach log; multi-repo additionally suggests /repos)
+//   - CN+EN-only: monolingual branches, /repos as inline code
+func retryStormUserCaveat(busCtx *types.BusContext) string {
+	lang := ""
+	multiRepo := false
+	if busCtx != nil {
+		lang = busCtx.Language
+		if mg, ok := busCtx.MultiGraph.(*multigraph.MultiGraph); ok && mg != nil && !mg.IsSingle() {
+			multiRepo = true
+		}
+	}
+	if preferZhMessage(lang) {
+		if multiRepo {
+			return "分析阶段在同一类结构性检查上反复未通过，已切换到部分降级答案。可尝试细化问题、补充日志/堆栈附件，或通过 `/repos focus <子仓名>` 缩小到单子仓后再次提问"
+		}
+		return "分析阶段在同一类结构性检查上反复未通过，已切换到部分降级答案。可尝试细化问题或补充日志/堆栈附件后再次提问"
+	}
+	if multiRepo {
+		return "Analysis stage repeatedly failed on the same structural check; switched to a partially degraded answer. Try narrowing the question, attaching a log/stacktrace, or scoping to a single sub-repo via `/repos focus <slug>` and re-asking"
+	}
+	return "Analysis stage repeatedly failed on the same structural check; switched to a partially degraded answer. Try narrowing the question or attaching a log/stacktrace and re-asking"
 }
 
 // runWriteAnalyzePhase dispatches the write_analyze stage in
@@ -4253,6 +4329,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// destructive on text); the doc reaches the user with its
 		// content preserved + transparent residual disclosure.
 		if hardCap := o.finalizeRepairHardCapValue(); hardCap > 0 && state.retryUsed >= hardCap {
+			// P7 (2026-05-10) channel order: P6 system caveat goes
+			// FIRST, then any violation-template caveats from
+			// AppendUserCaveatsToAnswer get appended below it. Both
+			// land under the same "**补充说明：**" heading because
+			// they are both system-side notes; distinct from the
+			// LLM-authored "**说明**：" surface. P6's caveat is the
+			// orchestrator-decision summary; the violation caveats
+			// are kind-specific repair guidance.
 			o.injectResidualConcernsCaveat(out, len(res.Violations))
 			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
 			logging.Warning("[orchestrator] P6 finalize repair hard cap reached (%d/%d); accepting doc with residual-concerns caveat",

@@ -52,10 +52,12 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			if strings.HasPrefix(got, "⟳") == false {
 				t.Errorf("retry-hint must start with the ⟳ soft symbol, got %q", got)
 			}
-			if c.zh && !strings.Contains(got, "证据") {
+			// P7 (2026-05-10) wording polish: "证据" → "上下文信息";
+			// "evidence" → "context".
+			if c.zh && !strings.Contains(got, "上下文") {
 				t.Errorf("zh: retry-hint must be Chinese, got %q", got)
 			}
-			if !c.zh && !strings.Contains(got, "evidence") {
+			if !c.zh && !strings.Contains(got, "context") {
 				t.Errorf("en: retry-hint must be English, got %q", got)
 			}
 
@@ -74,10 +76,12 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			if strings.HasPrefix(got, "⟳") == false {
 				t.Errorf("answer-check must start with the ⟳ soft symbol, got %q", got)
 			}
+			// P7 wording polish: "再跑一轮" → "正在重新生成";
+			// "Answer needs another pass" → "Refining the answer".
 			if c.zh && !strings.Contains(got, "答案") {
 				t.Errorf("zh: answer-check must be Chinese, got %q", got)
 			}
-			if !c.zh && !strings.Contains(got, "Answer") {
+			if !c.zh && !strings.Contains(got, "answer") {
 				t.Errorf("en: answer-check must be English, got %q", got)
 			}
 

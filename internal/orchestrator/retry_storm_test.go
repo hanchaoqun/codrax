@@ -3,6 +3,12 @@ package orchestrator
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
+	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestRetryStormDetector_Threshold — ceil(max/2) ≥ 2.
@@ -98,29 +104,99 @@ func TestRetryStormDetector_NilSafe(t *testing.T) {
 }
 
 // TestRetryStormUserCaveat_RedlineAudit asserts the user-facing
-// caveat string contains no internal vocab and references the user-
-// actionable REPL commands. Pinned per the B6 audit table.
+// caveat strings contain no internal vocab and gate /repos suggestion
+// behind multi-repo posture. P7 (2026-05-10) split single / multi /
+// CN / EN branches.
 func TestRetryStormUserCaveat_RedlineAudit(t *testing.T) {
-	c := retryStormUserCaveat()
-	// R6: must not leak internal pipeline vocab
-	for _, banned := range []string{
-		"subtopic_coherence", "shape_subject_coherence", "R1.", "R2.",
-		"AnalyzerHints", "TermGraph", "QualityGate", "predicates.",
-	} {
-		if strings.Contains(c, banned) {
-			t.Errorf("caveat must not leak internal token %q; got %q", banned, c)
+	// Build small fixture multigraphs for both single + multi.
+	zhMulti := retryStormUserCaveat(retryStormFixtureBusCtx(t, "zh", true))
+	zhSingle := retryStormUserCaveat(retryStormFixtureBusCtx(t, "zh", false))
+	enMulti := retryStormUserCaveat(retryStormFixtureBusCtx(t, "en", true))
+	enSingle := retryStormUserCaveat(retryStormFixtureBusCtx(t, "en", false))
+
+	allMessages := []string{zhMulti, zhSingle, enMulti, enSingle}
+
+	// R6: no internal pipeline vocab.
+	for _, c := range allMessages {
+		for _, banned := range []string{
+			"subtopic_coherence", "shape_subject_coherence", "R1.", "R2.",
+			"AnalyzerHints", "TermGraph", "QualityGate", "predicates.",
+		} {
+			if strings.Contains(c, banned) {
+				t.Errorf("caveat must not leak internal token %q; got %q", banned, c)
+			}
 		}
 	}
-	// R7: must reference user-actionable controls
-	if !strings.Contains(c, "/repos focus") || !strings.Contains(c, "/repos cap") {
-		t.Errorf("caveat must reference REPL commands; got %q", c)
+
+	// Multi-repo branches reference /repos; single-repo branches MUST NOT.
+	if !strings.Contains(zhMulti, "/repos") {
+		t.Errorf("CN multi-repo should reference /repos; got %q", zhMulti)
 	}
-	// Cross-language: Chinese present, English commands present, no
-	// third natural language. (Spot-check absence of common
-	// French/Spanish/German tokens.)
-	for _, tok := range []string{"diese", "todos", "tutti", "cette", "nuestro", "nuestra"} {
-		if strings.Contains(c, tok) {
-			t.Errorf("caveat must not include third-language tokens (%s); got %q", tok, c)
+	if strings.Contains(zhSingle, "/repos") {
+		t.Errorf("CN single-repo MUST NOT reference /repos (misleading); got %q", zhSingle)
+	}
+	if !strings.Contains(enMulti, "/repos") {
+		t.Errorf("EN multi-repo should reference /repos; got %q", enMulti)
+	}
+	if strings.Contains(enSingle, "/repos") {
+		t.Errorf("EN single-repo MUST NOT reference /repos (misleading); got %q", enSingle)
+	}
+
+	// CN-purity: no English prose mid-sentence (CLI command names like
+	// /repos exempted as inline code identifiers, not English prose).
+	englishProseInCN := []string{"REPL", "active 子仓", "active sub-repo"}
+	for _, banned := range englishProseInCN {
+		for _, msg := range []string{zhMulti, zhSingle} {
+			if strings.Contains(msg, banned) {
+				t.Errorf("CN branch must not mix English prose %q; got %q", banned, msg)
+			}
 		}
 	}
+
+	// No third natural language tokens.
+	for _, msg := range allMessages {
+		for _, tok := range []string{"diese", "todos", "tutti", "cette", "esto", "это"} {
+			if strings.Contains(msg, tok) {
+				t.Errorf("must be CN+EN only; banned %q in %q", tok, msg)
+			}
+		}
+	}
+}
+
+// retryStormFixtureBusCtx returns a BusContext with a populated
+// MultiGraph (or nil) shaped for the multiRepo / lang branches the
+// audit test needs to exercise.
+func retryStormFixtureBusCtx(t *testing.T, lang string, multi bool) *types.BusContext {
+	t.Helper()
+	ctx := &types.BusContext{Language: lang}
+	if !multi {
+		return ctx
+	}
+	repos := []topology.SubRepo{
+		{Slug: "a-1", RootAbs: "/p/a", RootRel: "a", FileCount: 1},
+		{Slug: "b-2", RootAbs: "/p/b", RootRel: "b", FileCount: 1},
+	}
+	topo := &topology.RepoTopology{
+		ParentRoot:   "/p",
+		ParentSlug:   "p-deadbeef",
+		Repos:        repos,
+		DiscoveredAt: time.Now(),
+	}
+	build := func(string, string) (*rmtypes.Graph, error) {
+		return &rmtypes.Graph{
+			FileIndex:      map[string]*rmtypes.FileInfo{},
+			SymbolDefs:     map[string][]*rmtypes.Symbol{},
+			ImportGraph:    map[string][]string{},
+			ReverseImports: map[string][]string{},
+			Scores:         map[string]float64{},
+			QueryScores:    map[string]float64{},
+			Metadata:       rmtypes.Metadata{ScanTime: time.Now()},
+		}, nil
+	}
+	mg, err := multigraph.New(multigraph.Config{Topology: topo, Build: build, Cap: 4})
+	if err != nil {
+		t.Fatalf("multigraph.New: %v", err)
+	}
+	ctx.MultiGraph = mg
+	return ctx
 }

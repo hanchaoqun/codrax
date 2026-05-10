@@ -129,6 +129,47 @@ func AppendUserCaveatsToAnswer(answer string, violations []types.Violation, lang
 	return b.String()
 }
 
+// AppendSystemCaveatString renders ONE pre-formatted system caveat
+// as a trailing markdown section appended to the answer text. Same
+// channel as AppendUserCaveatsToAnswer (the "**补充说明：**" /
+// "**Additional notes:**" heading) but bypasses the
+// MaterializeUnresolvedViolationsAsCaveats Violation→template
+// path: callers that already have a final-form caveat string
+// (e.g. P6's softFinalizeRepairCapMessage) write it directly.
+//
+// Why this matters (P7, 2026-05-10): the AnswerDocumentV2.Caveats[]
+// channel is for LLM-authored caveats — content gaps the LLM
+// itself identified. System-injected caveats (orchestrator decisions
+// about repair-loop termination, scope boundaries, etc.) MUST NOT
+// pollute the LLM-authored slot — that violates
+// feedback_no_system_backfill_to_user_panel. They go through this
+// system-side helper instead, keeping the two channels visually
+// distinguishable in the rendered answer.
+//
+// Empty / whitespace-only caveat returns the answer unchanged. Use
+// AppendUserCaveatsToAnswer when the input is a list of
+// types.Violation; use this when the input is a single already-
+// composed user-facing string.
+func AppendSystemCaveatString(answer, caveat, lang string) string {
+	caveat = strings.TrimSpace(caveat)
+	if caveat == "" {
+		return answer
+	}
+	heading := "**Additional notes:**"
+	if isChineseLang(lang) {
+		heading = "**补充说明：**"
+	}
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(answer, "\n"))
+	b.WriteString("\n\n")
+	b.WriteString(heading)
+	b.WriteString("\n\n")
+	b.WriteString("- ")
+	b.WriteString(caveat)
+	b.WriteString("\n")
+	return b.String()
+}
+
 // isChineseLang accepts the same set of variants the renderer
 // already recognises in answerDocumentRequiresChinese (the canonical
 // gate is in tool/emit_answer_document.go). Duplicated here as a

@@ -1276,10 +1276,17 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		NoticeFallbackBackToExplore,
 		NoticeFinalizing,
 		NoticeSelfConsistencyStart,
+		NoticeSemanticQualityReviewStart,
 		NoticeSelfConsistencyContradictionRewriting,
 		NoticeNoToolCall,
 		NoticeProceedingWithoutExtract:
 		return statusRecoverable
+	case NoticeFinalizeRepairCap:
+		// P6/P7: hard-cap reached but the answer DID ship — pure
+		// info-class (gray ·), not the warning yellow used by
+		// FailLoud / YieldKill where the retry stopped without
+		// producing a result.
+		return statusMeta
 	case NoticeYieldKill, NoticeFallbackFailLoud:
 		// Fallback-terminal: we have stopped trying. Yellow on the
 		// glyph signals "this is a noteworthy state" without screaming
@@ -1411,6 +1418,7 @@ func softNoticeBodyStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		NoticeFallbackBackToExplore,
 		NoticeFinalizing,
 		NoticeSelfConsistencyStart,
+		NoticeSemanticQualityReviewStart,
 		NoticeSelfConsistencyContradictionRewriting,
 		NoticeNoToolCall,
 		NoticeProceedingWithoutExtract:
