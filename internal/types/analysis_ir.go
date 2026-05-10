@@ -404,6 +404,23 @@ type AnalyzerHints struct {
 	// consumers. This preserves the analyzer-authored shortlist even when
 	// downstream stages widen Entities for search breadth.
 	PrimaryEntities []string `json:"primary_entities,omitempty"`
+	// PrimaryScopes is the typed sub-repo-name lane parallel to
+	// PrimaryEntities. When the analyzer LLM emits an entity whose
+	// surface form matches an active sub-repo's RootRel verbatim
+	// (NormalizeCodeKey-equivalent), the post-emit projection at
+	// internal/agent/scope_projection.go::projectPrimaryScopes COPIES
+	// that entity here while keeping it in PrimaryEntities. Empty in
+	// single-repo posture (mg.IsSingle()); empty in multi-repo when
+	// no emitted entity matches an active sub-repo. The
+	// internal/analysis/gate/coherence.go scope-aware path (R1.3
+	// widened to (entities ∪ scopes); R1.5 carve-out for scope-only
+	// sub-topics; new R1.8 scope-anchor distribution advisory) reads
+	// this lane to distinguish "structural scope" (sub-repo container,
+	// active-set membership is authoritative) from "code symbol"
+	// (must round-trip through resolver.LookupSymbol).
+	//
+	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.1.
+	PrimaryScopes []string `json:"primary_scopes,omitempty"`
 	// MentionedEntities is the deterministic subset of PrimaryEntities
 	// whose surface forms are explicitly present in RawRequest. This is
 	// the provenance-carrying "user mentioned it" lane: exact-resolution
@@ -501,6 +518,17 @@ type Ambiguity struct {
 type SubTopic struct {
 	Summary  string   `json:"summary"`
 	Entities []string `json:"entities,omitempty"`
+	// Scopes is the per-sub-topic typed sub-repo-name lane parallel
+	// to Entities. Same projection rule as AnalyzerHints.PrimaryScopes:
+	// any SubTopic.Entities surface that matches an active sub-repo's
+	// RootRel (NormalizeCodeKey-equivalent) is COPIED here at
+	// post-emit time by internal/agent/scope_projection.go::projectSubTopicScopes.
+	// Coherence R1.3 considers (Entities ∪ Scopes) when checking
+	// PrimaryEntities overlap; R1.5 skips per-entity resolver lookup
+	// for scope-only sub-topics (active-set membership is authoritative).
+	//
+	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.1.
+	Scopes []string `json:"scopes,omitempty"`
 }
 
 // ── TermGraph ───────────────────────────────────────────────────────────

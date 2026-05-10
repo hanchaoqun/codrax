@@ -1432,6 +1432,15 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	rm.AnalyzerHints.Entities = expandEntitiesWithImplementers(ctx, rm)
 	rm.AnalyzerHints.PrimaryEntities = promoteSubTopicFileAnchorToPrimary(ctx, rm)
 
+	// Multi-repo scope projection — typed lane parallel to PrimaryEntities.
+	// COPY semantics: the matched sub-repo names stay in PrimaryEntities
+	// (legacy consumers untouched) AND get an additional typed home in
+	// PrimaryScopes / SubTopic.Scopes. Empty in single-repo / nil-multigraph
+	// posture so this is byte-additive on the JSON wire (omitempty).
+	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.1.
+	rm.AnalyzerHints.PrimaryScopes = projectPrimaryScopes(ctx, rm.AnalyzerHints.PrimaryEntities)
+	projectSubTopicScopes(ctx, rm.SubTopics)
+
 	// L0-B (2026-05-05) — Enumeration cardinality structural sanity.
 	// When the analyzer LLM (or amplifier R1 flip) declares the
 	// question as IsCategoryEnumeration=true but only emitted ≤1
