@@ -75,11 +75,22 @@ type answerDocumentEvaluator struct {
 	// switch and we don't need to keep nagging).
 	emitFullDocFailStreak int
 
-	// emitPatchNudgeFired tracks whether the switch-to-patch
-	// nudge has already fired in this dispatch. Combined with the
-	// per-key cap (P2 MaxPerKeyInjects=5), this acts as a hard
-	// one-shot to avoid spamming the same recommendation when the
-	// LLM declines to switch.
+	// emitPatchNudgeFired latches once the LLM is observed calling
+	// emit_answer_document_patch (success or failure) — i.e. the LLM
+	// has SEEN and acted on the switch-to-patch nudge. Until that
+	// happens the nudge re-fires on each subsequent
+	// emit_answer_document failure, capped by the per-HintKey cap
+	// (P2 MaxPerKeyInjects=5).
+	//
+	// The 2026-05-10 sweep digest forensic (s7b finalizer iter=1)
+	// exposed why the original one-shot semantics were wrong: the
+	// nudge fired at iter=1, was throttled by MinInjectInterval (a
+	// prior tool-reject hint had injected at iter=0), and the
+	// one-shot guard then prevented it from re-firing at iter=2-4
+	// when the throttle had cleared. The LLM never saw the nudge
+	// and retried emit_answer_document four more times. The fix
+	// pairs this latch with BypassThrottle=true on the LoopSignal
+	// so cross-key spacing can't swallow the nudge a second time.
 	emitPatchNudgeFired bool
 
 	// Shrinkage-salvage knobs, populated from AgentSettings at
@@ -3310,14 +3321,24 @@ func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservat
 // streak resets — a successful prior attempt means the LLM doesn't
 // need this nudge again.
 //
+// Re-fire semantics (2026-05-10 follow-up after sweep forensic): the
+// nudge re-fires on every emit_answer_document failure beyond
+// streak>=2, capped by the per-HintKey cap (P2 MaxPerKeyInjects=5).
+// emitPatchNudgeFired is set ONLY after the LLM is observed calling
+// emit_answer_document_patch — i.e. the LLM has SEEN and acted on
+// the recommendation. The signal also carries BypassThrottle=true
+// so the cross-key MinInjectInterval can't suppress it the way it
+// did at s7b finalizer iter=1.
+//
 // Returns empty signal when:
 //   - LastToolResult is nil (no recent tool call)
-//   - LastToolResult is not emit_answer_document
+//   - LastToolResult is not emit_answer_document (a patch call
+//     latches the nudge; other tools are ignored)
 //   - LastToolResult succeeded (streak resets)
 //   - streak < 2 (only fires after the second failure to give the
 //     LLM one fair chance with the simpler full-doc path)
-//   - emitPatchNudgeFired (one-shot per dispatch; combined with
-//     the per-key cap from P2 acts as a defensive hard cap)
+//   - emitPatchNudgeFired (LLM has switched to patch; no need to
+//     keep nagging)
 //
 // The hint key is "answer_doc.switch_to_patch" — operators can
 // grep traces for this key to measure adoption / impact.
@@ -3326,16 +3347,25 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(obs LoopObservation) L
 		return LoopSignal{}
 	}
 	tn := obs.LastToolResult.ToolName
-	// Successful emit on either path → reset the streak (LLM is
-	// making progress; further attempts shouldn't be told to
-	// switch).
-	if obs.LastToolResult.Success && (tn == "emit_answer_document" || tn == "emit_answer_document_patch") {
+	// LLM acknowledged the nudge by switching to patch. Latch the
+	// gate so further failures don't keep nagging. Patch SUCCESS
+	// also resets the streak so a subsequent unrelated full-doc
+	// retry gets a fresh count.
+	if tn == "emit_answer_document_patch" {
+		e.emitPatchNudgeFired = true
+		if obs.LastToolResult.Success {
+			e.emitFullDocFailStreak = 0
+		}
+		return LoopSignal{}
+	}
+	// Successful full-doc emit → reset the streak (LLM is making
+	// progress; further attempts shouldn't be told to switch).
+	if obs.LastToolResult.Success && tn == "emit_answer_document" {
 		e.emitFullDocFailStreak = 0
 		return LoopSignal{}
 	}
-	// Only count failures of the FULL emit path. Patch failures
-	// are a different repair surface and count separately (we
-	// don't want to nudge from patch back to full-doc).
+	// Only count failures of the FULL emit path. Other tool failures
+	// are unrelated — don't bump the streak on them.
 	if tn != "emit_answer_document" {
 		return LoopSignal{}
 	}
@@ -3347,17 +3377,26 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(obs LoopObservation) L
 	if e.emitPatchNudgeFired {
 		return LoopSignal{}
 	}
-	e.emitPatchNudgeFired = true
+	// Honor the same rejectHintBudget the legacy reject-hint path
+	// uses. Re-firing the patch nudge alongside legacy rejects
+	// would otherwise burn the budget twice as fast; respecting
+	// the cap keeps cross-budget accounting consistent and lets
+	// the legacy "stay silent after exhaustion" contract hold.
+	// MidLoopRejectStopsHintingAfterBudget pins this behaviour.
+	if budget := e.rejectHintBudget(); budget > 0 && e.rejectHintsUsed >= budget {
+		return LoopSignal{}
+	}
 	// The nudge fires INSTEAD of the legacy reject signal on this
 	// observation (the Observe ordering returns this signal first).
 	// Bump rejectHintsUsed so the cross-budget accounting stays
-	// consistent — without this, the LLM gets an extra slot
-	// because we "stole" a legacy hint round.
+	// consistent — every fire stole one legacy reject-hint slot,
+	// so the budget tracks parity per-fire, not per-dispatch.
 	e.rejectHintsUsed++
 	return LoopSignal{
-		HintRequested: true,
-		HintKey:       "answer_doc.switch_to_patch",
-		Hint: "Your last 2 attempts to call `emit_answer_document` were rejected. Switch to `emit_answer_document_patch` on the next attempt — it lets you specify ONLY the blocks that need to change, instead of re-emitting the full document byte-identical. Pass `unchanged_block_ids: [\"id1\", \"id2\", ...]` to assert preservation of every typed annotation field (claim_uses, edge_anchors, facet_ids, surface_role) on blocks you do NOT need to edit — the system clones them byte-identical from your previous emit, so you cannot accidentally drop a field. Use `replace_blocks` for the blocks you DO need to fix; use `add_blocks` for new blocks. The patch tool rejects empty patches and unknown ids, so you only need to focus on the actual fix.",
+		HintRequested:  true,
+		BypassThrottle: true,
+		HintKey:        "answer_doc.switch_to_patch",
+		Hint: "Your last 2+ attempts to call `emit_answer_document` were rejected. Switch to `emit_answer_document_patch` on the next attempt — it lets you specify ONLY the blocks that need to change, instead of re-emitting the full document byte-identical. Pass `unchanged_block_ids: [\"id1\", \"id2\", ...]` to assert preservation of every typed annotation field (claim_uses, edge_anchors, facet_ids, surface_role) on blocks you do NOT need to edit — the system clones them byte-identical from your previous emit, so you cannot accidentally drop a field. Use `replace_blocks` for the blocks you DO need to fix; use `add_blocks` for new blocks. The patch tool rejects empty patches and unknown ids, so you only need to focus on the actual fix.",
 	}
 }
 

@@ -6,6 +6,14 @@
 // emit_answer_document_patch. Reduces u10a-class
 // (8-finalizer-iter) cases where the LLM kept retrying full-doc
 // emits with minor structural fixes.
+//
+// 2026-05-10 PM follow-up after sweep digest forensic: the original
+// one-shot semantics were broken — the nudge fires once and the
+// MinInjectInterval throttle could swallow it. Updated to re-fire
+// on every emit_answer_document failure beyond streak>=2 and to
+// carry BypassThrottle=true; the latch (emitPatchNudgeFired) only
+// closes when the LLM is observed calling
+// emit_answer_document_patch (success or failure).
 package agent
 
 import (
@@ -69,21 +77,78 @@ func TestEmitSwitchToPatchSignal_SecondFailure_NudgeFires(t *testing.T) {
 	}
 }
 
-func TestEmitSwitchToPatchSignal_OneShotPerDispatch(t *testing.T) {
-	// After the nudge fires once, subsequent failures should NOT
-	// re-fire it (one-shot guard).
+func TestEmitSwitchToPatchSignal_RefiresUntilLLMSwitches(t *testing.T) {
+	// 2026-05-10 PM: forensic on s7b finalizer iter=1 showed the
+	// one-shot guard fired even when the policy throttled away the
+	// hint, leaving the LLM unaware of the recommendation. The new
+	// semantics re-fire on every emit_answer_document failure
+	// beyond streak>=2 — the per-HintKey cap (5) bounds total
+	// fires.
 	e := &answerDocumentEvaluator{}
-	obs := LoopObservation{
+	failObs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document", Success: false},
 	}
-	e.emitSwitchToPatchSignal(obs) // 1st
-	got := e.emitSwitchToPatchSignal(obs) // 2nd — fires nudge
-	if !got.HintRequested {
-		t.Fatal("2nd should have fired nudge")
+	e.emitSwitchToPatchSignal(failObs) // 1st failure → no nudge yet
+	for i := 0; i < 5; i++ {
+		got := e.emitSwitchToPatchSignal(failObs)
+		if !got.HintRequested {
+			t.Fatalf("failure #%d (streak=%d): expected re-fire; got %+v",
+				i+2, e.emitFullDocFailStreak, got)
+		}
+		if got.HintKey != "answer_doc.switch_to_patch" {
+			t.Errorf("failure #%d: expected HintKey=answer_doc.switch_to_patch; got %q", i+2, got.HintKey)
+		}
+		if !got.BypassThrottle {
+			t.Errorf("failure #%d: re-fire must carry BypassThrottle=true so MinInjectInterval can't suppress it", i+2)
+		}
 	}
-	got = e.emitSwitchToPatchSignal(obs) // 3rd
-	if got.HintRequested {
-		t.Errorf("3rd failure: nudge should be one-shot; got %+v", got)
+}
+
+func TestEmitSwitchToPatchSignal_LatchesAfterPatchObserved(t *testing.T) {
+	// Once the LLM switches to emit_answer_document_patch (success
+	// or failure), the latch closes — further full-doc failures
+	// don't re-fire the nudge.
+	e := &answerDocumentEvaluator{}
+	failObs := LoopObservation{
+		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document", Success: false},
+	}
+	e.emitSwitchToPatchSignal(failObs)
+	got := e.emitSwitchToPatchSignal(failObs)
+	if !got.HintRequested {
+		t.Fatal("2nd failure: expected nudge before latch")
+	}
+	// LLM acknowledges by calling patch (here: failure case — the
+	// switch happened, the call shape may still be wrong).
+	patchObs := LoopObservation{
+		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document_patch", Success: false},
+	}
+	if sig := e.emitSwitchToPatchSignal(patchObs); sig.HintRequested {
+		t.Errorf("patch observation should latch the nudge silently; got %+v", sig)
+	}
+	if !e.emitPatchNudgeFired {
+		t.Errorf("emitPatchNudgeFired must latch on patch observation; got false")
+	}
+	// Subsequent full-doc failure must NOT re-fire (latch is closed).
+	if sig := e.emitSwitchToPatchSignal(failObs); sig.HintRequested {
+		t.Errorf("after latch: full-doc failure must not re-fire nudge; got %+v", sig)
+	}
+}
+
+func TestEmitSwitchToPatchSignal_RefireBypassesThrottle(t *testing.T) {
+	// Regression: every fire of the nudge must carry
+	// BypassThrottle=true. The 2026-05-10 forensic showed that
+	// without this, MinInjectInterval (default 3) suppressed the
+	// nudge after a prior tool-reject hint at iter-1.
+	e := &answerDocumentEvaluator{emitFullDocFailStreak: 1}
+	failObs := LoopObservation{
+		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document", Success: false},
+	}
+	got := e.emitSwitchToPatchSignal(failObs)
+	if !got.HintRequested {
+		t.Fatal("expected nudge")
+	}
+	if !got.BypassThrottle {
+		t.Errorf("nudge must set BypassThrottle=true so MinInjectInterval cannot drop it; got %+v", got)
 	}
 }
 
@@ -103,7 +168,8 @@ func TestEmitSwitchToPatchSignal_SuccessfulEmitResetsStreak(t *testing.T) {
 }
 
 func TestEmitSwitchToPatchSignal_SuccessfulPatchResetsStreak(t *testing.T) {
-	// LLM accepted the switch, used patch successfully → reset.
+	// LLM accepted the switch, used patch successfully → reset
+	// streak AND latch the nudge.
 	e := &answerDocumentEvaluator{emitFullDocFailStreak: 2}
 	successObs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document_patch", Success: true},
@@ -112,22 +178,30 @@ func TestEmitSwitchToPatchSignal_SuccessfulPatchResetsStreak(t *testing.T) {
 	if e.emitFullDocFailStreak != 0 {
 		t.Errorf("successful patch should reset streak; got %d", e.emitFullDocFailStreak)
 	}
+	if !e.emitPatchNudgeFired {
+		t.Errorf("successful patch should also latch emitPatchNudgeFired")
+	}
 }
 
-func TestEmitSwitchToPatchSignal_FailedPatch_DoesNotIncrementFullStreak(t *testing.T) {
-	// A patch failure is a different repair surface; we don't
-	// want to escalate "switch to patch" further when patch
-	// itself failed.
+func TestEmitSwitchToPatchSignal_FailedPatch_LatchesNudge(t *testing.T) {
+	// A patch failure still means the LLM has SEEN the recommendation
+	// and is iterating on the patch path. Latch the nudge so we
+	// don't second-guess the LLM's choice. The streak is NOT reset
+	// (patch is a different tool surface — its retries are
+	// orthogonal to full-doc retry semantics).
 	e := &answerDocumentEvaluator{emitFullDocFailStreak: 1}
 	patchFailObs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document_patch", Success: false},
 	}
 	got := e.emitSwitchToPatchSignal(patchFailObs)
 	if got.HintRequested {
-		t.Errorf("patch failure: expected no nudge from full-doc evaluator; got %+v", got)
+		t.Errorf("patch failure: expected silent latch (no hint); got %+v", got)
+	}
+	if !e.emitPatchNudgeFired {
+		t.Errorf("patch observation (success or failure) must latch the nudge")
 	}
 	if e.emitFullDocFailStreak != 1 {
-		t.Errorf("patch failure should not bump full-doc streak; got %d", e.emitFullDocFailStreak)
+		t.Errorf("patch failure should not bump or reset full-doc streak; got %d", e.emitFullDocFailStreak)
 	}
 }
 
