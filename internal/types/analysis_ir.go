@@ -458,7 +458,56 @@ type AnalyzerHints struct {
 	// skill -> tool exposure surface answers the question, and which
 	// source files are the canonical authority set for closure.
 	CapabilitySurface *CapabilitySurfaceHint `json:"capability_surface,omitempty"`
-	Kind              string                 `json:"kind,omitempty"`
+	// RequiredFileHints is the analyzer LLM's optional per-file
+	// relevance recommendation. Each entry pairs a repo-relative
+	// path with a confidence ∈ [0,1] and a short rationale. The
+	// downstream explorer threshold-gates on confidence:
+	//
+	//   confidence ≥ 0.8   → file is treated as effective primary
+	//                         AND eligible for prompt pre-read
+	//                         injection (high signal: LLM judged
+	//                         this file structurally needed).
+	//   0.5 ≤ conf < 0.8   → soft hint only; file is eligible for
+	//                         pre-read injection at lower priority
+	//                         but does NOT augment primary-files.
+	//   confidence < 0.5   → discarded (LLM is unsure; let the
+	//                         deterministic resolver decide).
+	//
+	// The field is OPTIONAL. Empty slice falls through to the
+	// existing post-emit entity→file resolver
+	// (analyzer.go::analyzerRequiredFiles) — no migration needed.
+	//
+	// L3 (2026-05-10): added to bypass the entity→file resolver's
+	// failure modes for qualified names + over-broad RequiredFiles.
+	// The LLM has full context (user question + repo summary +
+	// pre-scan results) so it can judge file relevance better than
+	// any post-emit heuristic.
+	//
+	// Design doc: docs/design/forced_read_remediation.md §4.4.
+	RequiredFileHints []RequiredFileHint `json:"required_file_hints,omitempty"`
+	Kind              string             `json:"kind,omitempty"`
+}
+
+// RequiredFileHint is one entry in AnalyzerHints.RequiredFileHints —
+// the analyzer's per-file relevance recommendation with confidence
+// and rationale. Cross-language: paths are repo-relative POSIX-style
+// (canonicalised via canonicalExplorerPath at consume sites); rationale
+// is free-form natural language.
+type RequiredFileHint struct {
+	// Path is the repo-relative file path (e.g.
+	// "internal/analysis/gate/gate.go"). Must be non-empty after
+	// strict-decode validation. Forward-slash normalised.
+	Path string `json:"path"`
+	// Confidence is the analyzer's recommendation strength ∈ [0,1].
+	// 0 = "I'm not confident", 1 = "this file is definitely needed".
+	// Rejected by strict-decode if outside the range or NaN.
+	Confidence float64 `json:"confidence"`
+	// Rationale is a short natural-language reason for the
+	// recommendation (e.g. "directly implements the gate.Run with
+	// 9 sequential check calls"). Required when confidence ≥ 0.5
+	// (the threshold below which the field is discarded anyway).
+	// Length cap 200 chars to keep prompt budget bounded.
+	Rationale string `json:"rationale,omitempty"`
 }
 
 type Intent string
