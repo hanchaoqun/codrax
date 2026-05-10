@@ -724,6 +724,11 @@ func init() {
 		},
 	})
 	RegisterViolKind(ViolKindSpec{
+		Kind: ViolAnswerTopicMismatch, DefaultSeverity: SeverityHigh,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "semantic_quality", CaveatFamilyID: CaveatFamilyAnswerCoverage,
+	})
+	RegisterViolKind(ViolKindSpec{
 		Kind: ViolEnumerationEvidenceUnderspecified, DefaultSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "evidence_pool", CaveatFamilyID: CaveatFamilyEnumerationDepth,

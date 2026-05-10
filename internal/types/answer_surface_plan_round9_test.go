@@ -165,6 +165,36 @@ func TestCollectExternalObservationSeeds_SurfacesStructuredObservations(t *testi
 	t.Fatalf("structured observation seed missing: %+v", seeds)
 }
 
+func TestCollectArtifactExternalObservationSeeds_SurfacesPerfTrace(t *testing.T) {
+	perf := &PerfBundle{
+		Janks: []PerfJank{{
+			DurationMs:  52,
+			TriggerSpan: "RenderList",
+			Reason:      "heavy-compute",
+		}},
+		Stalls: []PerfStall{{
+			DurationMs: 140,
+			Kind:       "io",
+			Symbol:     "LoadAvatar",
+			File:       "ui/profile.go",
+			Line:       88,
+		}},
+	}
+	seeds := CollectArtifactExternalObservationSeeds(nil, perf, nil)
+	var sawJank, sawStall bool
+	for _, seed := range seeds {
+		switch seed.Kind {
+		case "perf_jank":
+			sawJank = seed.Func == "RenderList" && strings.Contains(seed.Raw, "heavy-compute")
+		case "perf_stall":
+			sawStall = seed.Func == "LoadAvatar" && seed.File == "ui/profile.go" && seed.Line == 88
+		}
+	}
+	if !sawJank || !sawStall {
+		t.Fatalf("perf external observation seeds missing jank/stall: %+v", seeds)
+	}
+}
+
 func TestCollectExternalObservationSeeds_WalksCauseChainFrames(t *testing.T) {
 	bundle := &LogBundle{
 		Errors: []LogError{{

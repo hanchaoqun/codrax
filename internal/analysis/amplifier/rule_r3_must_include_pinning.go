@@ -53,11 +53,18 @@ func r3TypedIdentifierMustInclude(rm types.RequestModel, contract *types.AnswerC
 		return nil
 	}
 
-	// Build a case-folded lookup of existing MustInclude so the
-	// dedupe is robust against case-only differences in user-emit.
-	existing := make(map[string]struct{}, len(contract.MustInclude))
+	// Build a case-folded lookup of existing MustInclude / typed terms
+	// so the dedupe is robust against case-only differences in user-emit.
+	existing := make(map[string]struct{}, len(contract.MustInclude)+len(contract.MustIncludeTerms))
 	for _, m := range contract.MustInclude {
 		key := strings.ToLower(strings.TrimSpace(m))
+		if key == "" {
+			continue
+		}
+		existing[key] = struct{}{}
+	}
+	for _, m := range contract.MustIncludeTerms {
+		key := strings.ToLower(strings.TrimSpace(m.Text))
 		if key == "" {
 			continue
 		}
@@ -86,6 +93,12 @@ func r3TypedIdentifierMustInclude(rm types.RequestModel, contract *types.AnswerC
 		return nil
 	}
 	contract.MustInclude = append(contract.MustInclude, added...)
+	for _, term := range added {
+		contract.MustIncludeTerms = append(contract.MustIncludeTerms, types.ContractTerm{
+			Text: term,
+			Kind: types.InferContractTermKind(term),
+		})
+	}
 
 	preview := added
 	if len(preview) > 3 {

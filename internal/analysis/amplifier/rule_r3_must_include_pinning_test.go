@@ -208,3 +208,30 @@ func TestR3_Idempotent(t *testing.T) {
 		t.Errorf("second pass mutated MustInclude: %+v", contract.MustInclude)
 	}
 }
+
+func TestR3_PopulatesTypedMustIncludeTerms(t *testing.T) {
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"emit_evidence", "StageAnalyze"},
+		},
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	contract := types.AnswerContract{}
+	obs := AmplifyPostCompile(rm, &contract)
+	if len(collectR3Observations(obs)) == 0 {
+		t.Fatalf("expected R3 to fire")
+	}
+	if len(contract.MustIncludeTerms) != 2 {
+		t.Fatalf("MustIncludeTerms len=%d, want 2: %+v", len(contract.MustIncludeTerms), contract.MustIncludeTerms)
+	}
+	kinds := map[string]types.ContractTermKind{}
+	for _, term := range contract.MustIncludeTerms {
+		kinds[term.Text] = term.Kind
+	}
+	if kinds["emit_evidence"] != types.ContractTermToolName {
+		t.Fatalf("emit_evidence kind = %q, want tool_name; terms=%+v", kinds["emit_evidence"], contract.MustIncludeTerms)
+	}
+	if kinds["StageAnalyze"] != types.ContractTermSymbol {
+		t.Fatalf("StageAnalyze kind = %q, want symbol; terms=%+v", kinds["StageAnalyze"], contract.MustIncludeTerms)
+	}
+}

@@ -271,28 +271,81 @@ func checkMustInclude(draft Answer, c types.AnswerContract) []Violation {
 // semantics — only identifier-shaped tokens get the strict path.
 func checkMustIncludeOracle(draft Answer, c types.AnswerContract, oracle types.SymbolOracle) []Violation {
 	var out []Violation
-	for _, sym := range c.MustInclude {
-		if sym == "" {
+	for _, term := range normalizedMustIncludeTerms(c) {
+		if strings.TrimSpace(term.Text) == "" {
 			continue
 		}
-		hit := containsSymbol(draft.Text, sym)
-		if hit && oracle != nil && shouldOracleGateInclude(sym) {
-			if !oracleHasReliableSymbol(oracle, sym) {
+		hit := contractTermHit(draft.Text, term, oracle)
+		if !hit {
+			out = append(out, Violation{
+				Kind:       ViolMustInclude,
+				ClusterKey: types.IdentityClusterKey("term:"+term.Text, "must_include"),
+				Detail:     fmt.Sprintf("required %s %q missing from answer", contractTermKindLabel(term.Kind), term.Text),
+				Repair:     "include " + term.Text + " in the final answer",
+			})
+		}
+	}
+	return out
+}
+
+func normalizedMustIncludeTerms(c types.AnswerContract) []types.ContractTerm {
+	out := make([]types.ContractTerm, 0, len(c.MustInclude)+len(c.MustIncludeTerms))
+	seen := map[string]bool{}
+	add := func(term types.ContractTerm) {
+		text := strings.TrimSpace(term.Text)
+		if text == "" {
+			return
+		}
+		kind := term.Kind
+		if !kind.IsValid() {
+			kind = types.InferContractTermKind(text)
+		}
+		key := string(kind) + "\x00" + strings.ToLower(text)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, types.ContractTerm{Text: text, Kind: kind})
+	}
+	for _, sym := range c.MustInclude {
+		add(types.ContractTerm{Text: sym, Kind: types.InferContractTermKind(sym)})
+	}
+	for _, term := range c.MustIncludeTerms {
+		add(term)
+	}
+	return out
+}
+
+func contractTermHit(text string, term types.ContractTerm, oracle types.SymbolOracle) bool {
+	switch term.Kind {
+	case types.ContractTermUserPhrase:
+		return strings.Contains(strings.ToLower(text), strings.ToLower(term.Text))
+	case types.ContractTermToolName, types.ContractTermFileStem:
+		return containsSymbol(text, term.Text)
+	default:
+		hit := containsSymbol(text, term.Text)
+		if hit && oracle != nil && shouldOracleGateInclude(term.Text) {
+			if !oracleHasReliableSymbol(oracle, term.Text) {
 				// Substring matches but the term isn't a real symbol —
 				// treat as miss (LLM hallucinated the include).
 				hit = false
 			}
 		}
-		if !hit {
-			out = append(out, Violation{
-				Kind:       ViolMustInclude,
-				ClusterKey: types.IdentityClusterKey("term:"+sym, "must_include"),
-				Detail:     fmt.Sprintf("required term %q missing from answer", sym),
-				Repair:     "include " + sym + " in the final answer",
-			})
-		}
+		return hit
 	}
-	return out
+}
+
+func contractTermKindLabel(kind types.ContractTermKind) string {
+	switch kind {
+	case types.ContractTermToolName:
+		return "tool name"
+	case types.ContractTermFileStem:
+		return "file stem"
+	case types.ContractTermUserPhrase:
+		return "phrase"
+	default:
+		return "symbol"
+	}
 }
 
 // shouldOracleGateInclude reports whether a must_include term is
@@ -348,23 +401,46 @@ func checkMustExclude(draft Answer, c types.AnswerContract) []Violation {
 // don't raise spurious violations.
 func checkMustExcludeOracle(draft Answer, c types.AnswerContract, oracle types.SymbolOracle) []Violation {
 	var out []Violation
-	for _, sym := range c.MustExclude {
-		if sym == "" {
+	for _, term := range normalizedMustExcludeTerms(c) {
+		if strings.TrimSpace(term.Text) == "" {
 			continue
 		}
-		hit := containsSymbol(draft.Text, sym)
-		if hit && oracle != nil && shouldOracleGateInclude(sym) {
-			if !oracleHasReliableSymbol(oracle, sym) {
-				hit = false
-			}
-		}
+		hit := contractTermHit(draft.Text, term, oracle)
 		if hit {
 			out = append(out, Violation{
 				Kind:       ViolMustExclude,
-				ClusterKey: types.IdentityClusterKey("term:"+sym, "must_exclude"),
-				Detail:     fmt.Sprintf("forbidden term %q present in answer", sym),
+				ClusterKey: types.IdentityClusterKey("term:"+term.Text, "must_exclude"),
+				Detail:     fmt.Sprintf("forbidden %s %q present in answer", contractTermKindLabel(term.Kind), term.Text),
 			})
 		}
+	}
+	return out
+}
+
+func normalizedMustExcludeTerms(c types.AnswerContract) []types.ContractTerm {
+	out := make([]types.ContractTerm, 0, len(c.MustExclude)+len(c.MustExcludeTerms))
+	seen := map[string]bool{}
+	add := func(term types.ContractTerm) {
+		text := strings.TrimSpace(term.Text)
+		if text == "" {
+			return
+		}
+		kind := term.Kind
+		if !kind.IsValid() {
+			kind = types.InferContractTermKind(text)
+		}
+		key := string(kind) + "\x00" + strings.ToLower(text)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, types.ContractTerm{Text: text, Kind: kind})
+	}
+	for _, sym := range c.MustExclude {
+		add(types.ContractTerm{Text: sym, Kind: types.InferContractTermKind(sym)})
+	}
+	for _, term := range c.MustExcludeTerms {
+		add(term)
 	}
 	return out
 }

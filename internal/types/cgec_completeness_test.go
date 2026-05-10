@@ -255,9 +255,10 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// G3 (post_v2_runtime_gap_remediation, 2026-05-04).
 		ViolDiagramEdgeLabelMismatch: true, // orchestrator/contract_check_block.go validateDiagramRelationLegality
 		// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic
-		// quality reviewer thinness signal. Producer wired in
+		// quality reviewer thinness / wrong-topic signals. Producer wired in
 		// orchestrator/contract_check.go runSemanticQualityReview (G5-2).
 		ViolAnswerSemanticUnderfilled: true,
+		ViolAnswerTopicMismatch:       true,
 		// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 		// enumeration evidence pool structural gate. Producer wired
 		// in orchestrator/contract_check.go validateEnumerationEvidenceCoverage.
@@ -357,6 +358,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolDiagramEdgeUnsupported:            "ViolDiagramEdgeUnsupported",
 		ViolDiagramEdgeLabelMismatch:          "ViolDiagramEdgeLabelMismatch",
 		ViolAnswerSemanticUnderfilled:         "ViolAnswerSemanticUnderfilled",
+		ViolAnswerTopicMismatch:               "ViolAnswerTopicMismatch",
 		ViolEnumerationEvidenceUnderspecified: "ViolEnumerationEvidenceUnderspecified",
 		ViolUncertaintyBlockMissing:           "ViolUncertaintyBlockMissing",
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).

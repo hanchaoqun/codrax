@@ -61,6 +61,19 @@ func critEntry(signal string) []types.Criterion {
 	return []types.Criterion{{Kind: types.CritSignalPresent, Expr: signal}}
 }
 
+func currentStatusDiagnosticContract() *types.CurrentStatusDiagnosticContract {
+	return &types.CurrentStatusDiagnosticContract{
+		Required: true,
+		AllowedVerdicts: []types.CurrentStatusVerdict{
+			types.CurrentStatusStillPresent,
+			types.CurrentStatusFixed,
+			types.CurrentStatusNotEnoughEvidence,
+		},
+		RequireHistoricalObservation: true,
+		RequireCurrentVerification:   true,
+	}
+}
+
 // EvidenceNodeSpec carries the per-template fields expandEvidenceNodes
 // needs to build evidence-type TaskNodes. Every template supplies its
 // own IDPrefix / Inputs / Outputs / default Objective / default
@@ -253,26 +266,57 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 
 func templateRootCause(rm types.RequestModel) Output {
 	hints := hintsFromRM(rm)
+	currentStatus := rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic()
+	probeObjective := "Locate failing component and reproduce the observed symptom in the codebase."
+	probeInputs := []string{"user_question", "symptom_description"}
+	probeOutputs := []string{"failing_component", "repro_sites"}
+	evidenceObjective := "Collect call sites, control flow, and recent changes that could explain the symptom."
+	evidenceInputs := []string{"failing_component", "repro_sites"}
+	evidenceOutputs := []string{"evidence_items", "hypothesis_bindings"}
+	validateObjective := "Falsify every hypothesis about root cause against the collected evidence."
+	validateInputs := []string{"evidence_items", "hypothesis_bindings"}
+	validateOutputs := []string{"validation_verdicts"}
+	reconcileObjective := "Select the hypothesis with the strongest supporting evidence."
+	reconcileInputs := []string{"validation_verdicts"}
+	reconcileOutputs := []string{"root_cause_story"}
+	finalObjective := "Present the root cause as a numbered step list with file:line citations."
+	finalInputs := []string{"root_cause_story"}
+	if currentStatus {
+		probeObjective = "Separate the historical observation from the current checkout targets that could still express the same risk."
+		probeInputs = []string{"user_question", "artifact_observation_profile", "symptom_description"}
+		probeOutputs = []string{"historical_observation", "current_code_targets", "repro_sites"}
+		evidenceObjective = "Collect evidence on two lanes: what the artifact/user described historically, and whether current code still has the same risk or an explicit fix boundary."
+		evidenceInputs = []string{"historical_observation", "current_code_targets", "repro_sites"}
+		evidenceOutputs = []string{"historical_observation_evidence", "current_code_verification", "hypothesis_bindings"}
+		validateObjective = "Validate both lanes and classify the current status as still_present, fixed, or not_enough_evidence."
+		validateInputs = []string{"historical_observation_evidence", "current_code_verification", "hypothesis_bindings"}
+		validateOutputs = []string{"current_status_verdicts"}
+		reconcileObjective = "Reconcile the historical observation with current-code verification and keep the verdict boundary explicit."
+		reconcileInputs = []string{"current_status_verdicts"}
+		reconcileOutputs = []string{"current_status_diagnostic"}
+		finalObjective = "Render three answer surfaces: historical observation, current code verification, and a bounded verdict (still_present / fixed / not_enough_evidence)."
+		finalInputs = []string{"current_status_diagnostic"}
+	}
 	probe := types.TaskNode{
 		ID: nodeID(0, "probe"), Type: types.NodeProbe,
-		Objective:   "Locate failing component and reproduce the observed symptom in the codebase.",
-		Inputs:      []string{"user_question", "symptom_description"},
-		Outputs:     []string{"failing_component", "repro_sites"},
+		Objective:   probeObjective,
+		Inputs:      probeInputs,
+		Outputs:     probeOutputs,
 		SearchHints: hints,
 	}
 	evNodes := expandEvidenceNodes(rm, EvidenceNodeSpec{
 		IDPrefix:      nodeID(1, "evidence"),
-		Inputs:        []string{"failing_component", "repro_sites"},
-		Outputs:       []string{"evidence_items", "hypothesis_bindings"},
-		Objective:     "Collect call sites, control flow, and recent changes that could explain the symptom.",
+		Inputs:        evidenceInputs,
+		Outputs:       evidenceOutputs,
+		Objective:     evidenceObjective,
 		Hints:         hints,
 		EvidenceCount: TmplEvidenceCountHigh,
 	})
 	val := types.TaskNode{
 		ID: nodeID(2, "validate"), Type: types.NodeValidate,
-		Objective:       "Falsify every hypothesis about root cause against the collected evidence.",
-		Inputs:          []string{"evidence_items", "hypothesis_bindings"},
-		Outputs:         []string{"validation_verdicts"},
+		Objective:       validateObjective,
+		Inputs:          validateInputs,
+		Outputs:         validateOutputs,
 		EntryConditions: critEntry("has_enough_facts"),
 		SuccessCriteria: []types.Criterion{
 			{Kind: types.CritAllHypothesesDecided},
@@ -280,14 +324,14 @@ func templateRootCause(rm types.RequestModel) Output {
 	}
 	reconcile := types.TaskNode{
 		ID: nodeID(3, "reconcile"), Type: types.NodeReconcile,
-		Objective: "Select the hypothesis with the strongest supporting evidence.",
-		Inputs:    []string{"validation_verdicts"},
-		Outputs:   []string{"root_cause_story"},
+		Objective: reconcileObjective,
+		Inputs:    reconcileInputs,
+		Outputs:   reconcileOutputs,
 	}
 	final := types.TaskNode{
 		ID: nodeID(4, "finalize"), Type: types.NodeFinalize,
-		Objective: "Present the root cause as a numbered step list with file:line citations.",
-		Inputs:    []string{"root_cause_story"},
+		Objective: finalObjective,
+		Inputs:    finalInputs,
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
@@ -324,6 +368,9 @@ func templateRootCause(rm types.RequestModel) Output {
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
 		},
 		Language: rm.Language,
+	}
+	if currentStatus {
+		contract.CurrentStatusDiagnostic = currentStatusDiagnosticContract()
 	}
 	return Output{TaskGraph: graph, EvidencePlan: plan, AnswerContract: contract}
 }
@@ -401,31 +448,56 @@ func templateConfigTrace(rm types.RequestModel) Output {
 
 func templatePerformanceBottleneck(rm types.RequestModel) Output {
 	hints := hintsFromRM(rm)
+	currentStatus := rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic()
+	probeObjective := "Locate the hot paths and measurement points relevant to the user's concern."
+	probeInputs := []string{"user_question", "perf_hints"}
+	probeOutputs := []string{"hot_path_candidates"}
+	evidenceObjective := "Collect loop structures, allocation sites, and any profiling hooks."
+	evidenceInputs := []string{"hot_path_candidates"}
+	evidenceOutputs := []string{"evidence_items", "ranked_bottlenecks"}
+	validateObjective := "Rank candidate bottlenecks by evidence weight."
+	validateInputs := []string{"ranked_bottlenecks"}
+	validateOutputs := []string{"final_ranking"}
+	finalObjective := "Return a short list of the highest-impact symbols to investigate."
+	finalInputs := []string{"final_ranking"}
+	if currentStatus {
+		probeObjective = "Separate the historical trace observation from current checkout performance paths that could still express the same issue."
+		probeInputs = []string{"user_question", "artifact_observation_profile", "perf_hints"}
+		probeOutputs = []string{"historical_performance_observation", "current_hot_path_candidates"}
+		evidenceObjective = "Collect evidence on two lanes: what the trace observed historically, and whether current code still has the same bottleneck/risk or an explicit fix boundary."
+		evidenceInputs = []string{"historical_performance_observation", "current_hot_path_candidates"}
+		evidenceOutputs = []string{"historical_observation_evidence", "current_code_verification", "ranked_bottlenecks"}
+		validateObjective = "Validate both lanes and classify the current performance status as still_present, fixed, or not_enough_evidence."
+		validateInputs = []string{"historical_observation_evidence", "current_code_verification", "ranked_bottlenecks"}
+		validateOutputs = []string{"current_status_verdicts"}
+		finalObjective = "Render three answer surfaces: historical trace observation, current code verification, and a bounded verdict (still_present / fixed / not_enough_evidence)."
+		finalInputs = []string{"current_status_verdicts"}
+	}
 	probe := types.TaskNode{
 		ID: nodeID(0, "probe"), Type: types.NodeProbe,
-		Objective:   "Locate the hot paths and measurement points relevant to the user's concern.",
-		Inputs:      []string{"user_question", "perf_hints"},
-		Outputs:     []string{"hot_path_candidates"},
+		Objective:   probeObjective,
+		Inputs:      probeInputs,
+		Outputs:     probeOutputs,
 		SearchHints: hints,
 	}
 	evNodes := expandEvidenceNodes(rm, EvidenceNodeSpec{
 		IDPrefix:      nodeID(1, "evidence"),
-		Inputs:        []string{"hot_path_candidates"},
-		Outputs:       []string{"evidence_items", "ranked_bottlenecks"},
-		Objective:     "Collect loop structures, allocation sites, and any profiling hooks.",
+		Inputs:        evidenceInputs,
+		Outputs:       evidenceOutputs,
+		Objective:     evidenceObjective,
 		Hints:         hints,
 		EvidenceCount: TmplCitationCountMedium,
 	})
 	val := types.TaskNode{
 		ID: nodeID(2, "validate"), Type: types.NodeValidate,
-		Objective: "Rank candidate bottlenecks by evidence weight.",
-		Inputs:    []string{"ranked_bottlenecks"},
-		Outputs:   []string{"final_ranking"},
+		Objective: validateObjective,
+		Inputs:    validateInputs,
+		Outputs:   validateOutputs,
 	}
 	final := types.TaskNode{
 		ID: nodeID(3, "finalize"), Type: types.NodeFinalize,
-		Objective: "Return a short list of the highest-impact symbols to investigate.",
-		Inputs:    []string{"final_ranking"},
+		Objective: finalObjective,
+		Inputs:    finalInputs,
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
@@ -455,6 +527,9 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
 		},
 		Language: rm.Language,
+	}
+	if currentStatus {
+		contract.CurrentStatusDiagnostic = currentStatusDiagnosticContract()
 	}
 	return Output{TaskGraph: graph, EvidencePlan: plan, AnswerContract: contract}
 }

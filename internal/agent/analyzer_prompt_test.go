@@ -499,6 +499,7 @@ func TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere(t *testing.T) {
 		"intent_confidence", "complexity_confidence",
 		"kind_confidence",
 		"predicates",
+		"diagnostic_profile",
 	}
 	for _, f := range required {
 		if !strings.Contains(workflowCorpus, f) {

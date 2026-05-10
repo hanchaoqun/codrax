@@ -1403,6 +1403,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// JSON serialisation so the LLM-emit wire shape stays unchanged.
 	rm.LogTriage = logBundle
 	rm.PerfTrace = perfBundle
+	rm.ArtifactObservationProfile = types.BuildArtifactObservationProfileForRequest(rm)
 
 	// Sub-topics post-processing: when the LLM detected multiple
 	// independent sub-topics, lift complexity so downstream budgets

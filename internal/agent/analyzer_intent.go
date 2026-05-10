@@ -113,10 +113,18 @@ func reconcileScenario(rm types.RequestModel) (types.Scenario, string) {
 // TaskGraph / AnswerContract selection cannot drift into architecture
 // or role-lookup lanes.
 func reconcileDiagnosticQuestionProfile(rm types.RequestModel) (types.RequestModel, string) {
-	if !rm.Predicates.IsDiagnosticQuestion {
+	if !rm.Predicates.IsDiagnosticQuestion && !rm.DiagnosticProfile.RequiresDiagnosticRootCause() {
 		return rm, ""
 	}
 	var changes []string
+	if !rm.Predicates.IsDiagnosticQuestion {
+		changes = append(changes, "predicate.is_diagnostic_question→true")
+		rm.Predicates.IsDiagnosticQuestion = true
+	}
+	if !rm.DiagnosticProfile.IsDiagnostic {
+		changes = append(changes, "diagnostic_profile.is_diagnostic→true")
+		rm.DiagnosticProfile.IsDiagnostic = true
+	}
 	if rm.Intent != types.IntentRootCause {
 		changes = append(changes, "intent→root_cause")
 		rm.Intent = types.IntentRootCause

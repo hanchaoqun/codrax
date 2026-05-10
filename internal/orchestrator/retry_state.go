@@ -26,15 +26,15 @@ import (
 // populateRetryState writes types.RetryState to the bus mutable
 // after a contract.Check failure, capturing:
 //
-//   1. The previous emit (PrevEmitJSON + PrevEmitSummary projection)
-//      so the LLM sees what fields it already filled.
-//   2. Every violation in the result, scored with severity / layer
-//      / field path so the LLM can prioritise.
-//   3. The retry attempt counter so renderers know we're in a retry.
-//   4. (Phase 1-A2) The RepairPlan summary: LastPrimaryOwner,
-//      OwnerStableAttempts (stability counter), LastPrimaryViolation.
-//      Wired so the orchestrator can detect ping-pong / decide on
-//      escalation without recomputing the plan.
+//  1. The previous emit (PrevEmitJSON + PrevEmitSummary projection)
+//     so the LLM sees what fields it already filled.
+//  2. Every violation in the result, scored with severity / layer
+//     / field path so the LLM can prioritise.
+//  3. The retry attempt counter so renderers know we're in a retry.
+//  4. (Phase 1-A2) The RepairPlan summary: LastPrimaryOwner,
+//     OwnerStableAttempts (stability counter), LastPrimaryViolation.
+//     Wired so the orchestrator can detect ping-pong / decide on
+//     escalation without recomputing the plan.
 //
 // Called BEFORE state.requeue(fin.ID) so the next finalizer dispatch
 // observes the populated state on its first BuildInitialInstruction
@@ -165,8 +165,8 @@ func legacyInferViolationLayer(kind types.ViolationKind) string {
 		return "self_consistency"
 
 	// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — second-layer
-	// reviewer for thinness / coverage gaps.
-	case types.ViolAnswerSemanticUnderfilled:
+	// reviewer for thinness / coverage gaps / wrong-topic answers.
+	case types.ViolAnswerSemanticUnderfilled, types.ViolAnswerTopicMismatch:
 		return "semantic_quality"
 
 	// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) — evidence

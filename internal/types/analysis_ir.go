@@ -72,6 +72,25 @@ type RequestModel struct {
 	// field is a fail-loud signal, not a silent false.
 	Predicates SemanticPredicates `json:"predicates"`
 
+	// DiagnosticProfile is the analyzer LLM's second typed
+	// diagnostic-intent lane. Predicates.IsDiagnosticQuestion remains
+	// the broad "is this a diagnosis?" bit; this profile splits the
+	// cases that previously collapsed when the LLM picked the wrong
+	// broad predicate: current-risk checks, historical regression
+	// checks, and current-version verification. Downstream routing
+	// consumes this profile as a typed safety net and never scans raw
+	// request text for diagnostic keywords.
+	DiagnosticProfile DiagnosticIntentProfile `json:"diagnostic_profile,omitempty"`
+
+	// ArtifactObservationProfile is system-derived from log / trace
+	// triage bundles after emit_analysis. It preserves non-exception
+	// observations (retry loops, line-mapping drift, topic mismatch,
+	// performance symptoms, etc.) as typed facts that TaskGraph and
+	// finalizer prompts can consume without treating unknown_chunks or
+	// raw trace prose as authority. Empty when no structured artifact
+	// observation exists.
+	ArtifactObservationProfile *ArtifactObservationProfile `json:"artifact_observation_profile,omitempty"`
+
 	// SubTopics lists independently-answerable sub-topics detected by
 	// the analyzer. When non-empty, the compiler generates one evidence
 	// DAG node per sub-topic. Empty for single-topic questions.
@@ -400,6 +419,53 @@ type SemanticPredicates struct {
 	// attached runtime artifact; log / trace bundles are evidence when
 	// present, not the trigger source for this predicate.
 	IsDiagnosticQuestion bool `json:"is_diagnostic_question"`
+}
+
+// DiagnosticIntentProfile splits diagnostic intent into the cases that
+// need different downstream treatment. It is emitted by the analyzer LLM
+// as a required structured object and then reconciled with
+// SemanticPredicates. The booleans are deliberately simple typed flags:
+// hard routing may read them directly without similarity scores or raw
+// text scans.
+type DiagnosticIntentProfile struct {
+	// IsDiagnostic is the profile-level mirror of
+	// SemanticPredicates.IsDiagnosticQuestion. Either lane being true
+	// is enough to route into diagnostic root-cause handling.
+	IsDiagnostic bool `json:"is_diagnostic"`
+
+	// CurrentRisk is true when the user asks whether a known or
+	// observed issue can still happen in the current checkout.
+	CurrentRisk bool `json:"current_risk"`
+
+	// HistoricalRegression is true when the user asks about an issue
+	// observed in a previous run/log/trace and whether the current
+	// code still has that regression class.
+	HistoricalRegression bool `json:"historical_regression"`
+
+	// CurrentVersionCheck is true when the answer must explicitly
+	// verify current code rather than only explain the historical
+	// artifact or prior conversation.
+	CurrentVersionCheck bool `json:"current_version_check"`
+
+	// Confidence is the analyzer LLM's confidence in this profile in
+	// [0,1]. Zero means unset/unknown and does not block the typed
+	// booleans.
+	Confidence float64 `json:"confidence,omitempty"`
+}
+
+// RequiresDiagnosticRootCause reports whether the typed profile says
+// downstream should use the diagnostic/root-cause lane. Artifact facts
+// alone do not trigger this; the current request must carry one of the
+// diagnostic intent flags.
+func (p DiagnosticIntentProfile) RequiresDiagnosticRootCause() bool {
+	return p.IsDiagnostic || p.CurrentRisk || p.HistoricalRegression || p.CurrentVersionCheck
+}
+
+// RequiresCurrentStatusDiagnostic reports whether the answer needs the
+// fixed two-lane current-status scaffold: historical observation plus
+// current-code verification plus a bounded verdict.
+func (p DiagnosticIntentProfile) RequiresCurrentStatusDiagnostic() bool {
+	return p.CurrentRisk || p.HistoricalRegression || p.CurrentVersionCheck
 }
 
 // AnalyzerHints is the raw LLM-extracted analyzer output, mirrored onto
@@ -945,13 +1011,64 @@ type StopCondition struct {
 // ── AnswerContract ──────────────────────────────────────────────────────
 
 type AnswerContract struct {
-	Diagram         *DiagramContract         `json:"diagram,omitempty"`
-	ExactResolution *ExactResolutionContract `json:"exact_resolution,omitempty"`
-	MustInclude     []string                 `json:"must_include,omitempty"`
-	MustExclude     []string                 `json:"must_exclude,omitempty"`
-	CitationReq     CitationReq              `json:"citation_requirements"`
-	AcceptanceTests []Criterion              `json:"acceptance_tests,omitempty"`
-	Language        string                   `json:"language"`
+	Diagram                 *DiagramContract                 `json:"diagram,omitempty"`
+	ExactResolution         *ExactResolutionContract         `json:"exact_resolution,omitempty"`
+	CurrentStatusDiagnostic *CurrentStatusDiagnosticContract `json:"current_status_diagnostic,omitempty"`
+	MustInclude             []string                         `json:"must_include,omitempty"`
+	MustIncludeTerms        []ContractTerm                   `json:"must_include_terms,omitempty"`
+	MustExclude             []string                         `json:"must_exclude,omitempty"`
+	MustExcludeTerms        []ContractTerm                   `json:"must_exclude_terms,omitempty"`
+	CitationReq             CitationReq                      `json:"citation_requirements"`
+	AcceptanceTests         []Criterion                      `json:"acceptance_tests,omitempty"`
+	Language                string                           `json:"language"`
+}
+
+// ContractTermKind tells the answer-contract checker what a required
+// term represents. The checker can then choose the right matching
+// oracle: source-code symbols use SymbolOracle, tool names and file
+// stems use literal/token-form matching, and user phrases use phrase
+// containment. This prevents tool/file-stem terms such as
+// "emit_evidence" from being treated as ordinary Go symbols.
+type ContractTermKind string
+
+const (
+	ContractTermSymbol     ContractTermKind = "symbol"
+	ContractTermToolName   ContractTermKind = "tool_name"
+	ContractTermFileStem   ContractTermKind = "file_stem"
+	ContractTermUserPhrase ContractTermKind = "user_phrase"
+)
+
+func (k ContractTermKind) IsValid() bool {
+	switch k {
+	case ContractTermSymbol, ContractTermToolName, ContractTermFileStem, ContractTermUserPhrase:
+		return true
+	}
+	return false
+}
+
+type ContractTerm struct {
+	Text string           `json:"text"`
+	Kind ContractTermKind `json:"kind"`
+}
+
+type CurrentStatusVerdict string
+
+const (
+	CurrentStatusStillPresent      CurrentStatusVerdict = "still_present"
+	CurrentStatusFixed             CurrentStatusVerdict = "fixed"
+	CurrentStatusNotEnoughEvidence CurrentStatusVerdict = "not_enough_evidence"
+)
+
+// CurrentStatusDiagnosticContract is set when the user's diagnostic
+// request asks whether a historical / observed issue still exists in
+// the current checkout. It pins the final answer to three surfaces:
+// historical observation, current-code verification, and a bounded
+// verdict.
+type CurrentStatusDiagnosticContract struct {
+	Required                     bool                   `json:"required"`
+	AllowedVerdicts              []CurrentStatusVerdict `json:"allowed_verdicts,omitempty"`
+	RequireHistoricalObservation bool                   `json:"require_historical_observation"`
+	RequireCurrentVerification   bool                   `json:"require_current_verification"`
 }
 
 type DiagramKind string

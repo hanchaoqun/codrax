@@ -192,6 +192,96 @@ func TestBuildAnalysisIR_DiagnosticPredicatePerfTraceUsesPerformanceScenario(t *
 	}
 }
 
+func TestBuildAnalysisIR_DiagnosticProfileReconcilesWhenPredicateMissed(t *testing.T) {
+	mut := types.NewMutableState("请确认日志里这个历史问题当前版本是否还存在")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "请确认日志里这个历史问题当前版本是否还存在",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityModerate,
+		Predicates: types.SemanticPredicates{IsDiagnosticQuestion: false},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			CurrentRisk:          true,
+			HistoricalRegression: true,
+			CurrentVersionCheck:  true,
+			Confidence:           0.91,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"历史问题", "当前版本"},
+			Entities: []string{"Analyzer"},
+			Kind:     "mechanism",
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.RequestModel.Intent != types.IntentRootCause {
+		t.Fatalf("Intent = %q, want root_cause", ir.RequestModel.Intent)
+	}
+	if !ir.RequestModel.Predicates.IsDiagnosticQuestion {
+		t.Fatal("diagnostic profile should restore IsDiagnosticQuestion")
+	}
+	if ir.AnswerContract.CurrentStatusDiagnostic == nil || !ir.AnswerContract.CurrentStatusDiagnostic.Required {
+		t.Fatalf("CurrentStatusDiagnostic contract missing: %+v", ir.AnswerContract.CurrentStatusDiagnostic)
+	}
+	if profile := ir.RequestModel.ArtifactObservationProfile; profile == nil || profile.Source != "user_request" {
+		t.Fatalf("no-attachment diagnostic should still expose user_request observation profile: %+v", profile)
+	}
+}
+
+func TestBuildAnalysisIR_AttachesArtifactObservationProfileFromLog(t *testing.T) {
+	mut := types.NewMutableState("分析日志里的重试和行号问题")
+	mut.SetLogTriage(&types.LogBundle{
+		Meta: types.LogMeta{Summary: "finalizer repeatedly rewrote an off-topic answer"},
+		Observations: []types.LogObservation{
+			{
+				Kind:       types.LogObservationRetryCycle,
+				Subject:    "final answer",
+				Summary:    "the answer was rewritten repeatedly",
+				Diagnostic: true,
+				Confidence: 0.9,
+			},
+			{
+				Kind:       types.LogObservationLineMapping,
+				Summary:    "line offsets did not match the cited source",
+				Diagnostic: true,
+				Confidence: 0.88,
+			},
+		},
+	})
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "分析日志里的重试和行号问题",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityModerate,
+		Predicates: types.SemanticPredicates{},
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"重试", "行号"},
+			Entities: []string{"Finalizer"},
+			Kind:     "mechanism",
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	profile := ir.RequestModel.ArtifactObservationProfile
+	if profile == nil {
+		t.Fatal("ArtifactObservationProfile = nil")
+	}
+	if !profile.HasRetryLoop || !profile.HasLineMismatch {
+		t.Fatalf("artifact profile did not preserve typed observations: %+v", profile)
+	}
+	if profile.DiagnosticConfidence < 0.9 {
+		t.Fatalf("DiagnosticConfidence = %.2f, want >= 0.9", profile.DiagnosticConfidence)
+	}
+}
+
 // TestBuildAnalysisIR_ReturnValueWithoutCountCue_KeepsGates is the
 // negative control — a regular return_value question ("what does
 // function F return") has a file:line to cite, so the carve-out must

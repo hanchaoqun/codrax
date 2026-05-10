@@ -1,0 +1,113 @@
+package types
+
+import "testing"
+
+func TestBuildArtifactObservationProfile_PreservesNonExceptionLogObservations(t *testing.T) {
+	profile := BuildArtifactObservationProfile(&LogBundle{
+		Meta: LogMeta{Summary: "answer finalizer looped while line anchors drifted"},
+		Observations: []LogObservation{
+			{
+				Kind:       LogObservationRetryCycle,
+				Subject:    "finalizer",
+				Summary:    "finalizer retried the same repair",
+				Evidence:   "retry #2 selected finalizer_only",
+				Diagnostic: true,
+				Confidence: 0.91,
+			},
+			{
+				Kind:       LogObservationLineMapping,
+				Subject:    "line anchors",
+				Summary:    "attached log line numbers differed from current source",
+				Diagnostic: true,
+				Confidence: 0.87,
+			},
+			{
+				Kind:       LogObservationTopicMismatch,
+				Subject:    "answer topic",
+				Summary:    "draft answered the previous question",
+				Diagnostic: true,
+				Confidence: 0.89,
+			},
+		},
+	}, nil)
+	if profile == nil {
+		t.Fatal("profile = nil")
+	}
+	if !profile.HasRetryLoop || !profile.HasLineMismatch || !profile.HasCompletionRewrite {
+		t.Fatalf("non-exception observations not projected: %+v", profile)
+	}
+	if profile.DiagnosticConfidence < 0.91 {
+		t.Fatalf("DiagnosticConfidence = %.2f, want >= 0.91", profile.DiagnosticConfidence)
+	}
+}
+
+func TestBuildArtifactObservationProfile_PreservesTraceSignals(t *testing.T) {
+	profile := BuildArtifactObservationProfile(nil, &PerfBundle{
+		Meta: PerfMeta{Source: "hitrace", Summary: "main thread stalls during scroll"},
+		Janks: []PerfJank{{
+			DurationMs:  48.5,
+			TriggerSpan: "RenderList",
+			Reason:      "heavy-compute",
+		}},
+		Stalls: []PerfStall{{
+			DurationMs: 125.0,
+			Kind:       "io",
+			Symbol:     "LoadAvatar",
+		}},
+	})
+	if profile == nil {
+		t.Fatal("profile = nil")
+	}
+	if profile.Source != "trace" {
+		t.Fatalf("Source = %q, want trace", profile.Source)
+	}
+	if profile.DiagnosticConfidence < 0.85 {
+		t.Fatalf("DiagnosticConfidence = %.2f, want >= 0.85", profile.DiagnosticConfidence)
+	}
+	if !containsProfileString(profile.ObservationKinds, "perf_jank") ||
+		!containsProfileString(profile.ObservationKinds, "perf_stall") {
+		t.Fatalf("trace observations missing: %+v", profile.ObservationKinds)
+	}
+	if !containsProfileString(profile.SubjectCandidates, "RenderList") ||
+		!containsProfileString(profile.SubjectCandidates, "LoadAvatar") {
+		t.Fatalf("trace subjects missing: %+v", profile.SubjectCandidates)
+	}
+}
+
+func TestBuildArtifactObservationProfileForRequest_NoAttachmentUsesTypedDiagnosticFlags(t *testing.T) {
+	profile := BuildArtifactObservationProfileForRequest(RequestModel{
+		RawRequest: "confirm whether the issue observed in the last run still exists in the current checkout",
+		Predicates: SemanticPredicates{IsDiagnosticQuestion: false},
+		DiagnosticProfile: DiagnosticIntentProfile{
+			HistoricalRegression: true,
+			CurrentVersionCheck:  true,
+			Confidence:           0.93,
+		},
+		AnalyzerHints: AnalyzerHints{
+			MentionedEntities: []string{"Finalizer"},
+			ExactTargets:      []string{"emit_evidence"},
+		},
+	})
+	if profile == nil {
+		t.Fatal("profile = nil")
+	}
+	if profile.Source != "user_request" {
+		t.Fatalf("Source = %q, want user_request", profile.Source)
+	}
+	if !containsProfileString(profile.ObservationKinds, "historical_regression_check") ||
+		!containsProfileString(profile.ObservationKinds, "current_version_check") {
+		t.Fatalf("typed diagnostic flags not projected: %+v", profile.ObservationKinds)
+	}
+	if profile.DiagnosticConfidence != 0.93 {
+		t.Fatalf("DiagnosticConfidence = %.2f, want 0.93", profile.DiagnosticConfidence)
+	}
+}
+
+func containsProfileString(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
+}

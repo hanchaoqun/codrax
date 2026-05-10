@@ -62,6 +62,21 @@ func TestCaptureYieldSnapshot_NilClosureSafe(t *testing.T) {
 	}
 }
 
+func TestShouldStopForLowRetryYield_SkipsFinalizerOnlyRepairs(t *testing.T) {
+	if shouldStopForLowRetryYield(1, 1, 0, FallbackFinalizerOnly) {
+		t.Fatal("finalizer-only text repair must not be killed by evidence-yield delta")
+	}
+	if !shouldStopForLowRetryYield(1, 1, 0, FallbackBackToExplore) {
+		t.Fatal("non-finalizer retry with zero yield should stop")
+	}
+	if shouldStopForLowRetryYield(1, 0, 0, FallbackBackToExplore) {
+		t.Fatal("first retry window should not be yield-killed")
+	}
+	if shouldStopForLowRetryYield(1, 1, 1, FallbackBackToExplore) {
+		t.Fatal("meeting MinRetryYield should not stop")
+	}
+}
+
 func TestDominantViolationKind_PicksMostCommon(t *testing.T) {
 	res := contract.Result{
 		Violations: []types.Violation{

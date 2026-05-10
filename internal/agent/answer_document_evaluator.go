@@ -238,6 +238,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if disposition := renderAnswerDocRuntimeGroundingDisposition(ctx); disposition != "" {
 		b.WriteString(disposition)
 	}
+	if currentStatus := renderAnswerDocCurrentStatusDiagnostic(ctx); currentStatus != "" {
+		b.WriteString(currentStatus)
+	}
 	renderedTypedSupport := false
 	if support := renderAnswerDocSupportPlan(ctx); support != "" {
 		renderedTypedSupport = true
@@ -2260,6 +2263,49 @@ func renderAnswerDocRuntimeGroundingDisposition(ctx *types.AgentContext) string 
 	return b.String()
 }
 
+func renderAnswerDocCurrentStatusDiagnostic(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.AnswerContract.CurrentStatusDiagnostic == nil {
+		return ""
+	}
+	contract := ctx.AnalysisIR.AnswerContract.CurrentStatusDiagnostic
+	if !contract.Required {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Current Status Diagnostic\n\n")
+	b.WriteString("This answer must stay on two lanes and end with one bounded verdict.\n\n")
+	b.WriteString("- Historical observation: state what the attached artifact, trace, or user-described prior symptom actually observed. Do not treat that historical fact as proof that the current checkout still behaves the same way.\n")
+	b.WriteString("- Current code verification: cite the current code that was read and explain whether the same risk path is still present, blocked, removed, or not provable from the available evidence.\n")
+	b.WriteString("- Verdict: emit a principal `decision` block whose text starts with exactly one of `still_present`, `fixed`, or `not_enough_evidence`, then explain the evidence boundary.\n\n")
+	if profile := ctx.AnalysisIR.RequestModel.ArtifactObservationProfile; profile != nil {
+		b.WriteString("Typed artifact observations available for the historical lane:\n")
+		if profile.SymptomSummary != "" {
+			fmt.Fprintf(&b, "- Summary: %s\n", profile.SymptomSummary)
+		}
+		if len(profile.ObservationKinds) > 0 {
+			fmt.Fprintf(&b, "- Observation kinds: %s\n", strings.Join(profile.ObservationKinds, ", "))
+		}
+		if profile.HasRetryLoop {
+			b.WriteString("- Runtime/process observation includes a retry loop.\n")
+		}
+		if profile.HasLineMismatch {
+			b.WriteString("- Runtime/process observation includes a line-mapping mismatch.\n")
+		}
+		if profile.HasCompletionRewrite {
+			b.WriteString("- Runtime/process observation includes a completion rewrite / topical repair signal.\n")
+		}
+		limit := len(profile.EvidenceSnippets)
+		if limit > 4 {
+			limit = 4
+		}
+		for i := 0; i < limit; i++ {
+			fmt.Fprintf(&b, "- Evidence snippet: %s\n", profile.EvidenceSnippets[i])
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	plan := answerSupportPlan(ctx)
 	if plan == nil || len(plan.Lanes) == 0 {
@@ -2576,6 +2622,36 @@ func renderAnswerDocExternalObservationSeeds(ctx *types.AgentContext) string {
 			} else {
 				fmt.Fprintf(&b, "- Structured log observation: %s\n", raw)
 			}
+		case "perf_jank":
+			raw := strings.TrimSpace(seed.Raw)
+			if raw == "" {
+				continue
+			}
+			if span := strings.TrimSpace(seed.Func); span != "" {
+				fmt.Fprintf(&b, "- Structured performance jank around `%s`: %s\n", span, raw)
+			} else {
+				fmt.Fprintf(&b, "- Structured performance jank: %s\n", raw)
+			}
+		case "perf_stall":
+			raw := strings.TrimSpace(seed.Raw)
+			if raw == "" {
+				continue
+			}
+			if sym := strings.TrimSpace(seed.Func); sym != "" {
+				fmt.Fprintf(&b, "- Structured performance stall at `%s`: %s", sym, raw)
+			} else {
+				fmt.Fprintf(&b, "- Structured performance stall: %s", raw)
+			}
+			if seed.File != "" && seed.Line > 0 {
+				fmt.Fprintf(&b, " → observed at `%s:%d`", seed.File, seed.Line)
+			}
+			b.WriteString("\n")
+		case "perf_frame", "perf_startup":
+			raw := strings.TrimSpace(seed.Raw)
+			if raw == "" {
+				continue
+			}
+			fmt.Fprintf(&b, "- Structured performance observation: %s\n", raw)
 		default:
 			raw := strings.TrimSpace(seed.Raw)
 			if raw == "" {

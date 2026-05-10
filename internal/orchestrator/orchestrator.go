@@ -2205,6 +2205,7 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 //   - CN+EN-only per 2026-05-10 user direction (each branch
 //     mono-language; CLI command `/repos` rendered as inline
 //     code identifier in both branches)
+//
 // r22AutoCorrectShapeSubject inspects the AnalysisIR's QualityGate
 // for the R2.2 longform_scalar_subject shape contradiction. When
 // found AND the IR carries a scalar AnswerSubject.Kind, the kind
@@ -4583,7 +4584,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		currentSnapshot := captureYieldSnapshot(o.busCtx.Mutable.EvidenceClosure())
 		delta := yieldDelta(state.lastYieldSnapshot, currentSnapshot)
 		minYield := o.settings.ViolationBudget.MinRetryYield
-		if minYield > 0 && state.retryUsed > 0 && delta < minYield {
+		yieldFallback := FallbackTargetForViolationsWithBudget(res.Violations, finalizerLocalRetriesUsed)
+		finalizerOnlyTextRepair := yieldFallback == FallbackFinalizerOnly
+		if shouldStopForLowRetryYield(minYield, state.retryUsed, delta, yieldFallback) {
 			state.yieldKillCount++
 			logging.Warning("[orchestrator] F5 yield kill: Δ=%d below MinRetryYield=%d — stopping retry loop",
 				delta, minYield)
@@ -4605,6 +4608,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			o.emitNodeEnd(fin.ID, true, "")
 			break
 		}
+		if minYield > 0 && state.retryUsed > 0 && delta < minYield && finalizerOnlyTextRepair {
+			logging.Info("[orchestrator] F5 yield check skipped for finalizer-only text repair: Δ=%d below MinRetryYield=%d target=%s",
+				delta, minYield, yieldFallback)
+		}
 		state.lastYieldSnapshot = currentSnapshot
 
 		// Block 3 (architecture overhaul 2026-05-02) — selective
@@ -4622,9 +4629,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		//   - yield-kill check uses captureYieldSnapshot axes
 		//     (ForcedReads + ScannedSetSize naturally correlate to
 		//     explore activity; ViolationsLogged covers all stages),
-		//     so a FinalizerOnly retry that produces no new yield
-		//     drops to the existing kill path before reaching the
-		//     selective switch below.
+		//     so upstream retries with no new evidence stop early.
+		//     FinalizerOnly text repairs are exempt from the yield
+		//     kill because their intended delta is a rewritten answer
+		//     document, not new forced reads or scan growth; per-kind,
+		//     cross-scope, and hard-cap gates still bound the loop.
 		//
 		// The new flow:
 		//   1. Compute the deepest FallbackTarget across the
@@ -6185,9 +6194,9 @@ func dominantViolationKind(res contract.Result) types.ViolationKind {
 // Channel decision per
 // settings.ViolationBudget.UserVisibleViolationCaveat:
 //
-//   true  — prepend digest to answer (pre-B4 default).
-//   false — write digest to logger.Warning only; answer
-//           stays clean (post-B4 default).
+//	true  — prepend digest to answer (pre-B4 default).
+//	false — write digest to logger.Warning only; answer
+//	        stays clean (post-B4 default).
 //
 // Either way the digest also flows into per-stage CGEC summary
 // telemetry via the closure's violation ledger, so operators
@@ -6338,9 +6347,9 @@ func buildDegradedSemanticIR(objective string, partialIR *types.AnalysisIR, anal
 		Scenario:   fallbackScenario(partialIR.RequestModel.Scenario),
 		Complexity: fallbackComplexity(partialIR.RequestModel.Complexity),
 		AnalyzerHints: types.AnalyzerHints{
-			Keywords:          dedupedStrings(partialIR.RequestModel.AnalyzerHints.Keywords),
-			Entities:          dedupedStrings(partialIR.RequestModel.AnalyzerHints.Entities),
-			PrimaryEntities:   dedupedStrings(partialIR.RequestModel.AnalyzerHints.PrimaryEntities),
+			Keywords:        dedupedStrings(partialIR.RequestModel.AnalyzerHints.Keywords),
+			Entities:        dedupedStrings(partialIR.RequestModel.AnalyzerHints.Entities),
+			PrimaryEntities: dedupedStrings(partialIR.RequestModel.AnalyzerHints.PrimaryEntities),
 			// 2026-05-10 P2 audit follow-up: preserve the L3 / L4
 			// typed channels (RequiredFileHints / IrrelevantFiles)
 			// + adjacent multi-repo lanes (PrimaryScopes /

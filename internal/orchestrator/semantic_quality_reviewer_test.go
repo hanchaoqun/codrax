@@ -155,6 +155,12 @@ func TestSemanticQualityReviewer_TopicMismatchUsesLowerTypedFloor(t *testing.T) 
 	if len(filtered) != 1 || filtered[0].Topic != "requested topic" {
 		t.Fatalf("topic-mismatch filter = %+v", filtered)
 	}
+	if got := semanticQualityViolationKind(verdict.Concerns[0]); got != types.ViolAnswerTopicMismatch {
+		t.Fatalf("topic mismatch violation kind = %q, want %q", got, types.ViolAnswerTopicMismatch)
+	}
+	if got := semanticQualityViolationKind(ordinary.Concerns[0]); got != types.ViolAnswerSemanticUnderfilled {
+		t.Fatalf("ordinary semantic violation kind = %q, want %q", got, types.ViolAnswerSemanticUnderfilled)
+	}
 }
 
 // G5-1 SST locks for the typed projection helper.

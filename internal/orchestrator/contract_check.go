@@ -2140,8 +2140,10 @@ func shouldReviewSemanticQuality(doc *types.AnswerDocumentV2, existing []types.V
 }
 
 // runSemanticQualityReview dispatches the G5 reviewer LLM and
-// converts its verdict into types.Violation entries
-// (ViolAnswerSemanticUnderfilled, SOFT-by-default).
+// converts its verdict into types.Violation entries. Coverage and
+// richness concerns use ViolAnswerSemanticUnderfilled (soft by
+// default); topic_mismatch uses ViolAnswerTopicMismatch (high severity
+// by default).
 //
 // Mirrors runSelfConsistencyReviewV2 control flow — reviewer error /
 // nil verdict / sub-floor confidence are non-fatal (answer ships,
@@ -2216,23 +2218,47 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 	out := make([]types.Violation, 0, len(concerns))
 	reasoning := clampReasoningForRepair(verdict.Reasoning)
 	for i, c := range concerns {
+		kind := semanticQualityViolationKind(c)
+		normalizedKind := normaliseSemanticQualityConcernKind(c.Kind)
+		detailPrefix := "answer_underfilled"
+		rootField := "answer_semantic_quality"
 		repair := fmt.Sprintf("[%d/%d] expand the answer to address %q. %s",
 			i+1, len(concerns), c.Topic, c.Suggestion)
+		if kind == types.ViolAnswerTopicMismatch {
+			detailPrefix = "answer_topic_mismatch"
+			rootField = "answer_semantic_topic"
+			repair = fmt.Sprintf("[%d/%d] rewrite the answer around the requested topic %q. %s",
+				i+1, len(concerns), c.Topic, c.Suggestion)
+		}
 		if reasoning != "" {
 			repair += fmt.Sprintf(" Reviewer rationale: %s", reasoning)
 		}
+		detail := fmt.Sprintf("%s[%s:%s] — observation: %s",
+			detailPrefix, normalizedKind, c.Topic, c.Observation)
+		clusterKey := topicClusterKey(c.Topic, "answer_semantic_quality")
+		root := types.SuspectedRoot{
+			IRField:    rootField,
+			Reason:     "reviewer detected " + normalizedKind,
+			Confidence: verdict.Confidence,
+		}
+		if kind == types.ViolAnswerTopicMismatch {
+			out = append(out, types.Violation{
+				Kind:          types.ViolAnswerTopicMismatch,
+				Detail:        detail,
+				Repair:        repair,
+				ClusterKey:    clusterKey,
+				SuspectedRoot: root,
+				Stage:         string(types.StageFinalize),
+			})
+			continue
+		}
 		out = append(out, types.Violation{
-			Kind: types.ViolAnswerSemanticUnderfilled,
-			Detail: fmt.Sprintf("answer_underfilled[%s:%s] — observation: %s",
-				normaliseSemanticQualityConcernKind(c.Kind), c.Topic, c.Observation),
-			Repair:     repair,
-			ClusterKey: topicClusterKey(c.Topic, "answer_semantic_quality"),
-			SuspectedRoot: types.SuspectedRoot{
-				IRField:    "answer_semantic_quality",
-				Reason:     "reviewer detected " + normaliseSemanticQualityConcernKind(c.Kind),
-				Confidence: verdict.Confidence,
-			},
-			Stage: string(types.StageFinalize),
+			Kind:          types.ViolAnswerSemanticUnderfilled,
+			Detail:        detail,
+			Repair:        repair,
+			ClusterKey:    clusterKey,
+			SuspectedRoot: root,
+			Stage:         string(types.StageFinalize),
 		})
 	}
 	logging.Info("[semantic_quality_reviewer] emitted %d concern(s) at confidence=%.2f reasoning=%q",

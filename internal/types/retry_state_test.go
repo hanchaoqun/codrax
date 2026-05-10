@@ -95,6 +95,15 @@ func TestDeriveSeverity_CriticalKindsAreCritical(t *testing.T) {
 	}
 }
 
+func TestDeriveSeverity_TopicMismatchIsHighByDefault(t *testing.T) {
+	if got := DeriveSeverity(ViolAnswerTopicMismatch, false); got != SeverityHigh {
+		t.Fatalf("topic mismatch non-strict severity = %s, want high", got)
+	}
+	if got := ViolationProfileFor(ViolAnswerTopicMismatch, false); !got.RetryEligible {
+		t.Fatalf("topic mismatch should be retry-eligible by default: %+v", got)
+	}
+}
+
 // TestDeriveSeverity_StrictBumpsSoftKindsToMedium covers operator-
 // configured strict promotion: Soft → Medium when isStrict=true.
 func TestDeriveSeverity_StrictBumpsSoftKindsToMedium(t *testing.T) {
@@ -147,8 +156,8 @@ func TestViolationProfileFor_RetryEligibleFromSeverity(t *testing.T) {
 	}{
 		{ViolPrincipalClaimUseMissing, false, SeverityCritical, true},
 		{ViolBlockCoverageMissing, false, SeverityCritical, true},
-		{ViolFacetUncovered, false, SeverityMedium, true},   // not strict → Medium per DeriveSeverity
-		{ViolFacetUncovered, true, SeverityHigh, true},      // strict → High
+		{ViolFacetUncovered, false, SeverityMedium, true}, // not strict → Medium per DeriveSeverity
+		{ViolFacetUncovered, true, SeverityHigh, true},    // strict → High
 		{ViolRichnessRegression, false, SeveritySoft, false},
 		{ViolRichnessRegression, true, SeveritySoft, false}, // soft permanent
 		{ViolPlanCritic, false, SeveritySoft, false},

@@ -1238,8 +1238,9 @@ func BuildAnswerSurfacePlan(
 		perfBundle,
 		plan.SurfaceEvidence,
 	)
-	plan.ExternalObservationSeeds = CollectExternalObservationSeeds(
+	plan.ExternalObservationSeeds = CollectArtifactExternalObservationSeeds(
 		logBundle,
+		perfBundle,
 		plan.LogObservedAnchors,
 	)
 	plan.LogSourceDriftAnchors = CollectArtifactSourceDriftAnchors(
@@ -2238,8 +2239,12 @@ func sortLogSourceDriftAnchors(anchors []LogSourceDriftAnchor) {
 }
 
 func CollectExternalObservationSeeds(bundle *LogBundle, observed []LogSourceDriftAnchor) []ExternalObservationSeed {
+	return CollectArtifactExternalObservationSeeds(bundle, nil, observed)
+}
+
+func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle, observed []LogSourceDriftAnchor) []ExternalObservationSeed {
 	if bundle == nil {
-		return nil
+		return collectPerfExternalObservationSeeds(perf, nil)
 	}
 	anchorByObserved := make(map[string]LogSourceDriftAnchor, len(observed))
 	anchorByFunc := make(map[string]LogSourceDriftAnchor, len(observed))
@@ -2336,6 +2341,15 @@ func CollectExternalObservationSeeds(bundle *LogBundle, observed []LogSourceDrif
 	if len(out) >= 6 {
 		return out
 	}
+	for _, seed := range collectPerfExternalObservationSeeds(perf, observed) {
+		record(seed)
+		if len(out) >= 6 {
+			return out
+		}
+	}
+	if len(out) >= 6 {
+		return out
+	}
 	// Round-9 user red line: "log/trace 里也有大量没有行号的不规则
 	// 输出和打印, 这些信息如果对齐了用户问题意图, 也不能在后续流程中
 	// 被轻易被忽略". Surface Residue.UnknownChunks as residue seeds
@@ -2360,6 +2374,73 @@ func CollectExternalObservationSeeds(bundle *LogBundle, observed []LogSourceDrif
 		if len(out) >= 6 {
 			return out
 		}
+	}
+	return out
+}
+
+func collectPerfExternalObservationSeeds(bundle *PerfBundle, observed []LogSourceDriftAnchor) []ExternalObservationSeed {
+	if bundle == nil || !bundle.HasStructuredObservations() {
+		return nil
+	}
+	anchorByFunc := make(map[string]LogSourceDriftAnchor, len(observed))
+	for _, anchor := range observed {
+		if tail := normalizedSurfaceSymbolTail(anchor.Func); tail != "" {
+			anchorByFunc[tail] = anchor
+		}
+	}
+	var out []ExternalObservationSeed
+	record := func(seed ExternalObservationSeed) {
+		if strings.TrimSpace(seed.Raw) == "" && strings.TrimSpace(seed.Func) == "" {
+			return
+		}
+		if seed.Func != "" {
+			if anchor, ok := anchorByFunc[normalizedSurfaceSymbolTail(seed.Func)]; ok {
+				seed.AnchoredFile = strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+				seed.AnchoredLine = anchor.AnchoredLine
+			}
+		}
+		out = append(out, seed)
+	}
+	for _, j := range bundle.Janks {
+		raw := strings.TrimSpace(j.Reason)
+		if raw == "" {
+			raw = fmt.Sprintf("%.2fms jank", j.DurationMs)
+		}
+		record(ExternalObservationSeed{Kind: "perf_jank", Raw: raw, Func: strings.TrimSpace(j.TriggerSpan)})
+		if len(out) >= 6 {
+			return out
+		}
+	}
+	for _, s := range bundle.Stalls {
+		raw := strings.TrimSpace(s.Kind)
+		if raw == "" {
+			raw = fmt.Sprintf("%.2fms stall", s.DurationMs)
+		}
+		record(ExternalObservationSeed{
+			Kind: "perf_stall",
+			Raw:  raw,
+			File: strings.TrimSpace(strings.ReplaceAll(s.File, `\`, `/`)),
+			Line: s.Line,
+			Func: strings.TrimSpace(s.Symbol),
+		})
+		if len(out) >= 6 {
+			return out
+		}
+	}
+	for _, f := range bundle.Frames {
+		record(ExternalObservationSeed{
+			Kind: "perf_frame",
+			Raw:  fmt.Sprintf("frame %d duration %.2fms", f.FrameNo, f.DurationMs),
+		})
+		if len(out) >= 6 {
+			return out
+		}
+	}
+	if bundle.Startup != nil {
+		record(ExternalObservationSeed{
+			Kind: "perf_startup",
+			Raw:  fmt.Sprintf("%s startup %.2fms", bundle.Startup.Mode, bundle.Startup.AppLaunchMs),
+		})
 	}
 	return out
 }

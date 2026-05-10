@@ -418,6 +418,15 @@ const (
 	// guarantees richer answers. Stage="finalize".
 	ViolAnswerSemanticUnderfilled ViolationKind = "answer_semantic_underfilled"
 
+	// ViolAnswerTopicMismatch fires when the SemanticQualityReviewer
+	// specifically reports kind=topic_mismatch: the final answer's
+	// main subject diverged from the current user request. Unlike
+	// ordinary semantic underfill/richness concerns, this is HIGH
+	// severity by default and retry-eligible: a wrong-topic answer
+	// must not ship just because its prose is otherwise grounded.
+	// Stage="finalize".
+	ViolAnswerTopicMismatch ViolationKind = "answer_topic_mismatch"
+
 	// ViolRichnessGlaringGap fires when an Optional facet is
 	// flagged as EnrichmentGlaring AND has typed-evidence support
 	// (len(SourceCandidate) >= family threshold) AND the rendered V2
@@ -935,8 +944,9 @@ func AllViolationKinds() []ViolationKind {
 		ViolDiagramEdgeLabelMismatch,
 		ViolUncertaintyBlockMissing,
 		// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic-
-		// quality reviewer thinness signal.
+		// quality reviewer thinness / wrong-topic signals.
 		ViolAnswerSemanticUnderfilled,
+		ViolAnswerTopicMismatch,
 		// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 		// enumeration evidence underspecification structural gate.
 		ViolEnumerationEvidenceUnderspecified,

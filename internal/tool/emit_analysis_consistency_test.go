@@ -69,8 +69,9 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 		// replacement for the deleted prose-cue tables and must be
 		// fully populated.
 		"intent_confidence": true, "complexity_confidence": true,
-		"kind_confidence": true,
-		"predicates":      true,
+		"kind_confidence":    true,
+		"predicates":         true,
+		"diagnostic_profile": true,
 	}
 	gotRequired := make(map[string]bool, len(parsed.Required))
 	for _, r := range parsed.Required {
@@ -165,5 +166,48 @@ func TestEmitAnalysisSchemaRequiresSemanticPredicates(t *testing.T) {
 		if !strings.Contains(desc, want) {
 			t.Errorf("predicates.is_diagnostic_question schema description missing %q; got: %q", want, desc)
 		}
+	}
+}
+
+func TestEmitAnalysisSchemaRequiresDiagnosticProfile(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	raw := (&EmitAnalysis{}).Parameters()
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v\nraw=%s", err, string(raw))
+	}
+	propRaw, ok := parsed.Properties["diagnostic_profile"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing property \"diagnostic_profile\"")
+	}
+	var prop struct {
+		Properties map[string]struct {
+			Type        string `json:"type"`
+			Description string `json:"description"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatalf("diagnostic_profile property is not valid JSON schema: %v\nraw=%s", err, string(propRaw))
+	}
+	for _, want := range []string{"is_diagnostic", "current_risk", "historical_regression", "current_version_check", "confidence"} {
+		if _, ok := prop.Properties[want]; !ok {
+			t.Fatalf("diagnostic_profile.%s missing from schema", want)
+		}
+		found := false
+		for _, field := range prop.Required {
+			if field == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("diagnostic_profile.required = %v, want %s included", prop.Required, want)
+		}
+	}
+	desc := prop.Properties["current_version_check"].Description
+	if !strings.Contains(desc, "verify current code") {
+		t.Errorf("diagnostic_profile.current_version_check schema description should mention current-code verification; got: %q", desc)
 	}
 }

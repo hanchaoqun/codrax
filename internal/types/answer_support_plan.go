@@ -189,6 +189,25 @@ func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string
 			return fmt.Sprintf("structured runtime observation about %q: %s", subject, raw), ""
 		}
 		return fmt.Sprintf("structured runtime observation: %s", raw), ""
+	case "perf_jank":
+		if subject := strings.TrimSpace(seed.Func); subject != "" {
+			return fmt.Sprintf("performance trace observed jank around %q: %s", subject, raw), ""
+		}
+		return fmt.Sprintf("performance trace observed jank: %s", raw), ""
+	case "perf_stall":
+		loc := ""
+		if file := strings.TrimSpace(strings.ReplaceAll(seed.File, `\`, `/`)); file != "" && seed.Line > 0 {
+			loc = fmt.Sprintf("%s:%d", file, seed.Line)
+		}
+		if subject := strings.TrimSpace(seed.Func); subject != "" {
+			return fmt.Sprintf("performance trace observed stall at %q: %s", subject, raw), loc
+		}
+		return fmt.Sprintf("performance trace observed stall: %s", raw), loc
+	case "perf_frame", "perf_startup":
+		if raw == "" {
+			return "", ""
+		}
+		return fmt.Sprintf("performance trace observation: %s", raw), ""
 	}
 	if funcLabel := strings.TrimSpace(seed.Func); funcLabel != "" {
 		observedLoc := ""

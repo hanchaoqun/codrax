@@ -423,6 +423,10 @@ func legacyDefaultFallbackPolicy() FallbackPolicy {
 		// quality signal. Finalize-local rewrite expands coverage
 		// using already-available typed evidence; no upstream rerun.
 		types.ViolAnswerSemanticUnderfilled: FallbackFinalizerOnly,
+		// Topic mismatch is also finalize-local: the evidence can be
+		// reused, but the answer must be rewritten around the current
+		// user's subject.
+		types.ViolAnswerTopicMismatch: FallbackFinalizerOnly,
 		// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 		// enumeration evidence pool needs more typed names. Only
 		// the explorer can fix this; finalize-only rewrite would

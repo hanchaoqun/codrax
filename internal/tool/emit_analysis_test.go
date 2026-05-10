@@ -32,6 +32,13 @@ const v4DefaultsJSON = `,
 		"is_category_enumeration": false,
 		"is_history_lookup": false,
 		"is_diagnostic_question": false
+	},
+	"diagnostic_profile": {
+		"is_diagnostic": false,
+		"current_risk": false,
+		"historical_regression": false,
+		"current_version_check": false,
+		"confidence": 0.7
 	}
 `
 
@@ -86,6 +93,7 @@ func TestValidateSelfConsistency_RoleLocateRequiresScalarValueAndSubject(t *test
 		types.ScenarioArchitectureExplain,
 		"mechanism",
 		preds,
+		types.DiagnosticIntentProfile{},
 		types.AxisDefine,
 		[]string{"AnalysisIR"},
 		nil,
@@ -112,6 +120,7 @@ func TestValidateSelfConsistency_DefineAxisSingleTargetRequiresSubjectDisambigua
 		types.ScenarioArchitectureExplain,
 		"mechanism",
 		preds,
+		types.DiagnosticIntentProfile{},
 		types.AxisDefine,
 		[]string{"AnalysisIR"},
 		nil,
@@ -132,6 +141,7 @@ func TestValidateSelfConsistency_DefineAxisSingleTargetAcceptsExplicitRoleLocate
 		types.ScenarioArchitectureExplain,
 		"mechanism",
 		preds,
+		types.DiagnosticIntentProfile{},
 		types.AxisDefine,
 		[]string{"AnalysisIR"},
 		nil,
@@ -149,6 +159,7 @@ func TestValidateSelfConsistency_DiagnosticPredicateAlignsIntentAndScenario(t *t
 		types.ScenarioArchitectureExplain,
 		"mechanism",
 		base,
+		types.DiagnosticIntentProfile{IsDiagnostic: true},
 		types.AxisUnknown,
 		nil,
 		nil,
@@ -163,6 +174,7 @@ func TestValidateSelfConsistency_DiagnosticPredicateAlignsIntentAndScenario(t *t
 		types.ScenarioArchitectureExplain,
 		"mechanism",
 		base,
+		types.DiagnosticIntentProfile{IsDiagnostic: true},
 		types.AxisUnknown,
 		nil,
 		nil,
@@ -177,6 +189,7 @@ func TestValidateSelfConsistency_DiagnosticPredicateAlignsIntentAndScenario(t *t
 		types.ScenarioRootCause,
 		"mechanism",
 		base,
+		types.DiagnosticIntentProfile{IsDiagnostic: true},
 		types.AxisUnknown,
 		nil,
 		nil,
@@ -193,6 +206,7 @@ func TestValidateSelfConsistency_RootCauseRequiresDiagnosticPredicate(t *testing
 		types.ScenarioRootCause,
 		"mechanism",
 		types.SemanticPredicates{},
+		types.DiagnosticIntentProfile{},
 		types.AxisUnknown,
 		nil,
 		nil,
@@ -1329,6 +1343,14 @@ func TestEmitAnalysis_Execute_RejectsMissingPredicateField(t *testing.T) {
 			"is_history_lookup": false,
 			"is_diagnostic_question": false
 		}
+		,
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
+		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if res.Success {
@@ -1336,6 +1358,42 @@ func TestEmitAnalysis_Execute_RejectsMissingPredicateField(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "is_count_question") {
 		t.Errorf("reject summary should name the missing field, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsMissingDiagnosticProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("explain the analyzer")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["a"],
+		"entities": ["Foo"],
+		"question_kind": "mechanism",
+		"intent_confidence": 0.7,
+		"complexity_confidence": 0.7,
+		"kind_confidence": 0.7,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("missing diagnostic_profile object must reject")
+	}
+	if !strings.Contains(res.Summary, "diagnostic_profile object missing") {
+		t.Errorf("reject summary should name the missing diagnostic_profile object, got %q", res.Summary)
 	}
 }
 
@@ -1416,6 +1474,14 @@ func TestEmitAnalysis_Execute_RejectsInconsistentCountIntent(t *testing.T) {
 			"is_history_lookup": false,
 			"is_diagnostic_question": false
 		}
+		,
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
+		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if res.Success {
@@ -1452,6 +1518,14 @@ func TestEmitAnalysis_Execute_RejectsCountWithoutScalar(t *testing.T) {
 			"is_history_lookup": false,
 			"is_diagnostic_question": false
 		}
+		,
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
+		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if res.Success {
@@ -1486,6 +1560,14 @@ func TestEmitAnalysis_Execute_RejectsCategoryEnumerationWithScalar(t *testing.T)
 			"is_category_enumeration": true,
 			"is_history_lookup": false,
 			"is_diagnostic_question": false
+		}
+		,
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1524,6 +1606,14 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 			"is_history_lookup": false,
 			"is_diagnostic_question": false
 		}
+		,
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
+		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if !res.Success {
@@ -1544,6 +1634,9 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 	}
 	if rm.PredicateAxis != types.AxisRegister {
 		t.Errorf("PredicateAxis = %q, want register", rm.PredicateAxis)
+	}
+	if rm.DiagnosticProfile.CurrentRisk || rm.DiagnosticProfile.CurrentVersionCheck || rm.DiagnosticProfile.Confidence != 0.7 {
+		t.Errorf("DiagnosticProfile not plumbed, got %+v", rm.DiagnosticProfile)
 	}
 }
 
@@ -1573,6 +1666,14 @@ func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
 			"is_diagnostic_question": false
+		}
+		,
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1611,6 +1712,14 @@ func TestEmitAnalysis_Execute_DropsInvalidExactContextTermsWithWarning(t *testin
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
 			"is_diagnostic_question": false
+		}
+		,
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1655,6 +1764,14 @@ func TestEmitAnalysis_Execute_PersistsExactTargetsAndHistoryPredicate(t *testing
 			"is_category_enumeration": false,
 			"is_history_lookup": true,
 			"is_diagnostic_question": false
+		}
+		,
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1701,6 +1818,14 @@ func TestEmitAnalysis_Execute_PersistsExactContextTerms(t *testing.T) {
 			"is_history_lookup": false,
 			"is_diagnostic_question": false
 		}
+		,
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
+		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
 	if !res.Success {
@@ -1746,6 +1871,14 @@ func TestEmitAnalysis_Execute_PersistsExactContextRoles(t *testing.T) {
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
 			"is_diagnostic_question": false
+		}
+		,
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1797,6 +1930,14 @@ func TestEmitAnalysis_Execute_PreservesConfigTraceRolesWhenAnswerSubjectDriftsNu
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
 			"is_diagnostic_question": false
+		}
+		,
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))

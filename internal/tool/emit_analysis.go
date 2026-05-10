@@ -69,6 +69,7 @@ type emitAnalysisParams struct {
 	ComplexityConfidence float64                       `json:"complexity_confidence"`
 	KindConfidence       float64                       `json:"kind_confidence"`
 	Predicates           *emitPredicatesParam          `json:"predicates"`
+	DiagnosticProfile    *emitDiagnosticProfileParam   `json:"diagnostic_profile"`
 	PredicateAxis        string                        `json:"predicate_axis,omitempty"`
 	DiagramHint          *emitDiagramHintParam         `json:"diagram_hint,omitempty"`
 	EnumerationBoundary  *emitEnumerationBoundaryParam `json:"enumeration_boundary,omitempty"`
@@ -113,6 +114,18 @@ type emitPredicatesParam struct {
 	IsCategoryEnumeration *bool `json:"is_category_enumeration"`
 	IsHistoryLookup       *bool `json:"is_history_lookup"`
 	IsDiagnosticQuestion  *bool `json:"is_diagnostic_question"`
+}
+
+// emitDiagnosticProfileParam is the required second typed diagnostic
+// lane. Pointer bools make missing fields fail loudly just like
+// predicates, so a stale prompt cannot silently erase the current-risk
+// / historical-regression safety net.
+type emitDiagnosticProfileParam struct {
+	IsDiagnostic         *bool    `json:"is_diagnostic"`
+	CurrentRisk          *bool    `json:"current_risk"`
+	HistoricalRegression *bool    `json:"historical_regression"`
+	CurrentVersionCheck  *bool    `json:"current_version_check"`
+	Confidence           *float64 `json:"confidence"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -266,6 +279,18 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"is_scalar_answer", "is_role_locate_lookup", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration", "is_history_lookup", "is_diagnostic_question"},
 			},
+			"diagnostic_profile": map[string]any{
+				"type":        "object",
+				"description": "Required typed diagnostic-intent profile. Use this as a second safety lane for diagnosis, current-risk, historical-regression, and current-version verification questions. Every boolean field is required; emit true OR false explicitly. Do not infer from raw artifact presence alone.",
+				"properties": map[string]any{
+					"is_diagnostic":         map[string]any{"type": "boolean", "description": "True when the current request expects diagnosis / cause / remediation analysis."},
+					"current_risk":          map[string]any{"type": "boolean", "description": "True when the current request asks whether a known or observed issue can still happen in the current checkout."},
+					"historical_regression": map[string]any{"type": "boolean", "description": "True when the request compares a historical observed symptom against the current version."},
+					"current_version_check": map[string]any{"type": "boolean", "description": "True when the answer must verify current code separately from historical artifact observations."},
+					"confidence":            map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this diagnostic profile in [0,1]."},
+				},
+				"required": []string{"is_diagnostic", "current_risk", "historical_regression", "current_version_check", "confidence"},
+			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
@@ -333,7 +358,7 @@ func buildEmitAnalysisSchema() {
 		"required": []string{
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
 			"intent_confidence", "complexity_confidence", "kind_confidence",
-			"predicates",
+			"predicates", "diagnostic_profile",
 		},
 	}
 
@@ -456,6 +481,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	diagnosticProfile, diagnosticErr := parseDiagnosticProfile(p.DiagnosticProfile)
+	if diagnosticErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + diagnosticErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	if reason := validateConfidenceRange(p.IntentConfidence, p.ComplexityConfidence, p.KindConfidence); reason != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -551,7 +585,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// versus an explanation of the named entity itself, reject here so
 	// the retry hint forces the LLM to reconcile its own classification
 	// instead of a Go reconcile rule papering over the inconsistency.
-	if reason := validateSelfConsistency(intent, scenario, kind, predicates, axis, entities, p.SubTopics, answerSubject); reason != "" {
+	if reason := validateSelfConsistency(intent, scenario, kind, predicates, diagnosticProfile, axis, entities, p.SubTopics, answerSubject); reason != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -605,6 +639,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		ComplexityConfidence:   p.ComplexityConfidence,
 		KindConfidence:         p.KindConfidence,
 		Predicates:             predicates,
+		DiagnosticProfile:      diagnosticProfile,
 		PredicateAxis:          axis,
 		DiagramHint:            diagramHint,
 		EnumerationBoundary:    enumerationBoundary,
@@ -715,6 +750,7 @@ func validateSelfConsistency(
 	scenario types.Scenario,
 	kind string,
 	preds types.SemanticPredicates,
+	diagnostic types.DiagnosticIntentProfile,
 	axis types.PredicateAxis,
 	entities []string,
 	subTopics []types.SubTopic,
@@ -756,6 +792,7 @@ func validateSelfConsistency(
 			return "is_history_lookup=true requires is_scalar_answer=true — history / authorship lookups yield a single scalar / literal"
 		}
 	}
+	diagnosticRequired := preds.IsDiagnosticQuestion || diagnostic.RequiresDiagnosticRootCause()
 	if preds.IsDiagnosticQuestion {
 		if intent != types.IntentRootCause {
 			return "is_diagnostic_question=true requires intent=root_cause — diagnostic questions ask for cause / current-risk analysis, not a general mechanism tour or scalar lookup"
@@ -767,8 +804,8 @@ func validateSelfConsistency(
 			return "is_diagnostic_question=true requires scenario=root_cause or scenario=performance_bottleneck — architecture_explain is for ordinary mechanism tours, not failure diagnosis"
 		}
 	}
-	if intent == types.IntentRootCause && !preds.IsDiagnosticQuestion {
-		return "intent=root_cause requires predicates.is_diagnostic_question=true — keep the diagnostic intent and predicate aligned"
+	if intent == types.IntentRootCause && !diagnosticRequired {
+		return "intent=root_cause requires a diagnostic typed signal — set predicates.is_diagnostic_question=true or diagnostic_profile.is_diagnostic/current_risk/historical_regression/current_version_check=true"
 	}
 	if needsRoleLocateDisambiguation(axis, intent, preds, entities, subTopics) &&
 		answerSubject.Kind == types.SubjectUnknown {
@@ -879,6 +916,48 @@ func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) 
 		IsCategoryEnumeration: *p.IsCategoryEnumeration,
 		IsHistoryLookup:       *p.IsHistoryLookup,
 		IsDiagnosticQuestion:  *p.IsDiagnosticQuestion,
+	}, ""
+}
+
+func parseDiagnosticProfile(p *emitDiagnosticProfileParam) (types.DiagnosticIntentProfile, string) {
+	if p == nil {
+		return types.DiagnosticIntentProfile{},
+			"diagnostic_profile object missing — emit `diagnostic_profile` with is_diagnostic / current_risk / historical_regression / current_version_check each set to true or false, plus confidence in [0,1]"
+	}
+	missing := []string{}
+	if p.IsDiagnostic == nil {
+		missing = append(missing, "is_diagnostic")
+	}
+	if p.CurrentRisk == nil {
+		missing = append(missing, "current_risk")
+	}
+	if p.HistoricalRegression == nil {
+		missing = append(missing, "historical_regression")
+	}
+	if p.CurrentVersionCheck == nil {
+		missing = append(missing, "current_version_check")
+	}
+	if p.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return types.DiagnosticIntentProfile{}, fmt.Sprintf(
+			"diagnostic_profile missing required field(s): %s — every boolean field must be set explicitly and confidence must be present",
+			strings.Join(missing, ", "),
+		)
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return types.DiagnosticIntentProfile{}, fmt.Sprintf(
+			"diagnostic_profile.confidence %.2f out of [0,1]",
+			*p.Confidence,
+		)
+	}
+	return types.DiagnosticIntentProfile{
+		IsDiagnostic:         *p.IsDiagnostic,
+		CurrentRisk:          *p.CurrentRisk,
+		HistoricalRegression: *p.HistoricalRegression,
+		CurrentVersionCheck:  *p.CurrentVersionCheck,
+		Confidence:           *p.Confidence,
 	}, ""
 }
 
@@ -1221,6 +1300,12 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.Predicates.IsRoleLocateLookup {
 		b.WriteString(" role_locate=true")
+	}
+	if rm.DiagnosticProfile.RequiresDiagnosticRootCause() {
+		b.WriteString(" diagnostic_profile=true")
+	}
+	if rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() {
+		b.WriteString(" current_status_check=true")
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

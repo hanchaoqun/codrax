@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/budget"
@@ -17,6 +18,15 @@ func compileT(rm types.RequestModel) Output {
 		HypothesisCount: 1,
 		PrescanHitRatio: 1.0,
 	})
+}
+
+func containsString(in []string, want string) bool {
+	for _, s := range in {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
 
 func sampleRM(scenario types.Scenario, intent types.Intent, complexity types.Complexity) types.RequestModel {
@@ -93,6 +103,39 @@ func TestCompile_RootCause_HasValidationFeedback(t *testing.T) {
 	}
 	if !hasEdge(out.TaskGraph, validateID, evidenceID, types.EdgeValidationFeedback) {
 		t.Fatalf("expected validation_feedback edge %s→%s; edges=%+v", validateID, evidenceID, out.TaskGraph.Edges)
+	}
+}
+
+func TestCompile_RootCause_CurrentStatusDiagnosticHasThreeLaneContract(t *testing.T) {
+	rm := sampleRM(types.ScenarioRootCause, types.IntentRootCause, types.ComplexityComplex)
+	rm.Predicates.IsDiagnosticQuestion = true
+	rm.DiagnosticProfile = types.DiagnosticIntentProfile{
+		IsDiagnostic:        true,
+		CurrentRisk:         true,
+		CurrentVersionCheck: true,
+		Confidence:          0.9,
+	}
+	out := compileT(rm)
+	if out.AnswerContract.CurrentStatusDiagnostic == nil || !out.AnswerContract.CurrentStatusDiagnostic.Required {
+		t.Fatalf("CurrentStatusDiagnostic contract missing: %+v", out.AnswerContract.CurrentStatusDiagnostic)
+	}
+	var finalObjective string
+	var probeOutputs []string
+	for _, n := range out.TaskGraph.Nodes {
+		if n.Type == types.NodeProbe {
+			probeOutputs = n.Outputs
+		}
+		if n.Type == types.NodeFinalize {
+			finalObjective = n.Objective
+		}
+	}
+	if !containsString(probeOutputs, "historical_observation") || !containsString(probeOutputs, "current_code_targets") {
+		t.Fatalf("probe outputs do not carry both lanes: %v", probeOutputs)
+	}
+	if !strings.Contains(finalObjective, "historical observation") ||
+		!strings.Contains(finalObjective, "current code verification") ||
+		!strings.Contains(finalObjective, "still_present") {
+		t.Fatalf("final objective missing current-status surfaces: %q", finalObjective)
 	}
 }
 

@@ -189,12 +189,12 @@ func TestLimitAllowedAndForbidden_TrimsWithEllipsis(t *testing.T) {
 // When CI fails on TestComposer_AllViolationKindsHaveCase, the
 // developer choices are:
 //
-//   1. Add a `case types.ViolXxx: return "..."` branch in
-//      summariseExactFix and add `types.ViolXxx` to this slice
-//      (preferred — the LLM gets actionable repair text).
+//  1. Add a `case types.ViolXxx: return "..."` branch in
+//     summariseExactFix and add `types.ViolXxx` to this slice
+//     (preferred — the LLM gets actionable repair text).
 //
-//   2. Add `types.ViolXxx` to composerExactFixSkipWhitelist below
-//      with a comment explaining why a generic fallback is OK.
+//  2. Add `types.ViolXxx` to composerExactFixSkipWhitelist below
+//     with a comment explaining why a generic fallback is OK.
 var composerExactFixSwitchKinds = map[types.ViolationKind]bool{
 	// Pre-V2 contract kinds.
 	types.ViolFamilyMismatch:       true,
@@ -294,6 +294,7 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// the generic composer fallback pairs with that actionable
 	// Detail.
 	types.ViolAnswerSemanticUnderfilled: "uses violation.Repair for fix prose",
+	types.ViolAnswerTopicMismatch:       "uses violation.Repair for requested-topic rewrite prose",
 	// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 	// enumeration evidence pool structural gate. Repair text names
 	// the missing N − K count + the gap-filling guidance verbatim;
@@ -341,11 +342,11 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 // "violation kind ↔ retry-hint 1:1 mapping" invariant. Every
 // declared ViolationKind must either:
 //
-//   (a) appear in composerExactFixSwitchKinds (has a dedicated
-//       summariseExactFix case), OR
+//	(a) appear in composerExactFixSwitchKinds (has a dedicated
+//	    summariseExactFix case), OR
 //
-//   (b) appear in composerExactFixSkipWhitelist with justification
-//       (intentionally uses the generic fallback).
+//	(b) appear in composerExactFixSkipWhitelist with justification
+//	    (intentionally uses the generic fallback).
 //
 // New ViolationKind constants without coverage will fail this test;
 // the developer must explicitly choose (a) or (b) before merging.
@@ -452,15 +453,15 @@ func TestComposer_V2ViolationsRouteThroughV2Vocabulary(t *testing.T) {
 // composer arm; the test shouts when they diverge.
 //
 // Pinned because:
-//   1. validateClaimFormSupport compares LLM-emitted ClaimForm
-//      against ClaimFormOf(evidence) projection, which only ever
-//      yields one of the AllClaimForms() values. Any LLM-facing
-//      hint listing higher-level "user-friendly" names (e.g. the
-//      pre-R1.2 mechanism_step / enumeration_member / etc.) is a
-//      contract drift bug — those forms can never satisfy the
-//      validator and the LLM gets stuck false-firing.
-//   2. The "no alias layer" red line means LLM and internal share
-//      one vocabulary. This test enforces it structurally.
+//  1. validateClaimFormSupport compares LLM-emitted ClaimForm
+//     against ClaimFormOf(evidence) projection, which only ever
+//     yields one of the AllClaimForms() values. Any LLM-facing
+//     hint listing higher-level "user-friendly" names (e.g. the
+//     pre-R1.2 mechanism_step / enumeration_member / etc.) is a
+//     contract drift bug — those forms can never satisfy the
+//     validator and the LLM gets stuck false-firing.
+//  2. The "no alias layer" red line means LLM and internal share
+//     one vocabulary. This test enforces it structurally.
 func TestComposer_ClaimFormVocabularyMatchesInternalEnum(t *testing.T) {
 	got := buildAllowedSet([]types.Violation{{Kind: types.ViolClaimFormUnsupported}}, Context{})
 	gotSet := map[string]bool{}

@@ -359,6 +359,11 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		// finalizer-side, no upstream stage participates and no
 		// other oracle reports the same condition.
 		types.ViolLaneBlockKindMismatch: "lane → block-kind alignment is a finalizer-local re-render; standalone with no upstream cooccurrence",
+		// Semantic-quality topic mismatch is intentionally standalone:
+		// the reviewer already identified a wrong-subject final answer,
+		// and the repair is a finalizer-local rewrite around the
+		// current request using existing evidence.
+		types.ViolAnswerTopicMismatch: "semantic-quality wrong-topic answer; finalizer-local rewrite only",
 		// Phase 2.B Tier 2 ERM completeness violations (2026-05-09).
 		// Each dimension is a structurally-independent answer-coverage
 		// gap: a ScalarCount problem (visual count vs deterministic

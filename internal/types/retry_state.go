@@ -188,10 +188,10 @@ type RetryBlockSummary struct {
 // JSON is held separately on RetryState.PrevEmitJSON for cases
 // where a larger surface is acceptable.
 type RetryStateSummary struct {
-	BlockSummaries []RetryBlockSummary `json:"block_summaries,omitempty"`
-	CitationsCount int            `json:"citations_count"`
-	CitationFiles  []string       `json:"citation_files,omitempty"`
-	HasExactResolution bool       `json:"has_exact_resolution,omitempty"`
+	BlockSummaries     []RetryBlockSummary `json:"block_summaries,omitempty"`
+	CitationsCount     int                 `json:"citations_count"`
+	CitationFiles      []string            `json:"citation_files,omitempty"`
+	HasExactResolution bool                `json:"has_exact_resolution,omitempty"`
 }
 
 // RetryState is the typed contract surfaced to the LLM on every
@@ -396,6 +396,11 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		ViolBlockCoverageMissing,
 		ViolAuthorityOverreach:
 		return SeverityCritical
+
+	// High by default: wrong-topic final answers are not richness
+	// gaps; they must block shipping even without operator promotion.
+	case ViolAnswerTopicMismatch:
+		return SeverityHigh
 
 	// High: strict-by-default V2 oracle violations + structural
 	// answer-shape mismatches. Eligible for finalize retry.

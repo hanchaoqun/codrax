@@ -404,6 +404,17 @@ func yieldDelta(prev, now yieldSnapshot) int {
 	return d
 }
 
+func shouldStopForLowRetryYield(minYield, retryUsed, delta int, fallback FallbackTarget) bool {
+	if minYield <= 0 || retryUsed <= 0 || delta >= minYield {
+		return false
+	}
+	// Finalizer-only repairs are prose/block rewrites using existing
+	// evidence. Requiring a fresh evidence delta here kills the exact
+	// retry window that should fix must_include, facet anchoring, or
+	// topic_mismatch defects.
+	return fallback != FallbackFinalizerOnly
+}
+
 // allDone returns true when every node is done or failed.
 func (s *graphState) allDone() bool {
 	if s == nil {
@@ -696,7 +707,7 @@ func termSurfaceLookup(ir *types.AnalysisIR) func(string) string {
 //   - ReadSetSize:        |EvidenceClosure.ReadSet|
 //   - PendingReadsSize:   |EvidenceClosure.PendingReads|
 //   - DecidedHypotheses:  count of HypothesisSet entries with a
-//                         non-unknown non-empty Status
+//     non-unknown non-empty Status
 //   - PrescanBytes:       len(PrescanSummaryBlob)
 //
 // A change in any field means "something Env-visible advanced since
@@ -768,9 +779,9 @@ func (a envShape) equals(b envShape) bool {
 //
 //   - UnknownCount:     count of hypotheses still in HypUnknown (or "")
 //   - SatisfiedReqSum:  sum over those unknowns of criterion.EvalAll
-//                       (h.RequiredEvidence, env) hits — the same
-//                       primitive runAutoVerdicts uses to promote
-//                       HypUnknown → HypInconclusive
+//     (h.RequiredEvidence, env) hits — the same
+//     primitive runAutoVerdicts uses to promote
+//     HypUnknown → HypInconclusive
 //
 // Two SC failures with equal hypProgress ⇒ no unknown hypothesis
 // advanced its RequiredEvidence satisfaction between them, even if

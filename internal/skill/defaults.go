@@ -359,6 +359,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 				AppliesTo: AppliesToFilter{Always: true},
 				OnViolation: []types.ViolationKind{
 					types.ViolAnswerSemanticUnderfilled,
+					types.ViolAnswerTopicMismatch,
 				},
 			},
 			{

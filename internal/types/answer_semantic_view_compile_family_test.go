@@ -114,6 +114,28 @@ func TestCompileRootCauseTrace_HasSummaryAndOrderedListRequired(t *testing.T) {
 	}
 }
 
+func TestCompileRootCauseTrace_CurrentStatusDiagnosticRequiresDecisionBlock(t *testing.T) {
+	ir := irForRootCauseTrace()
+	ir.AnswerContract.CurrentStatusDiagnostic = &CurrentStatusDiagnosticContract{Required: true}
+	view := BuildAnswerSemanticView(ir, nil)
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	for _, req := range view.RequiredBlocks {
+		if req.Kind != BlockDecision {
+			continue
+		}
+		if !req.Required || req.MinCount != 1 || req.MaxCount != 1 {
+			t.Fatalf("decision block cardinality wrong: %+v", req)
+		}
+		if !containsClaimForm(req.AcceptableClaimForms, ClaimAbsenceFact) {
+			t.Fatalf("decision block should allow absence verdict support: %+v", req.AcceptableClaimForms)
+		}
+		return
+	}
+	t.Fatalf("current-status diagnostic did not require BlockDecision: %+v", view.RequiredBlocks)
+}
+
 func TestCompileRootCauseTrace_HasUncertaintyRule(t *testing.T) {
 	view := BuildAnswerSemanticView(irForRootCauseTrace(), nil)
 	if len(view.UncertaintyRules) == 0 {

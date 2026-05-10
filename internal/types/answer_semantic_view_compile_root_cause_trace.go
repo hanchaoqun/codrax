@@ -5,16 +5,17 @@ package types
 // an attached log or perf trace observing the failure event.
 //
 // Required blocks:
-//   1× BlockSummary           — core conclusion (cause + observed site)
-//   ≥1× BlockOrderedList      — principal cause chain (innermost frame
-//                               outward; each hop is a step). MaxCount=0
-//                               (no upper-bound assumption — chains can
-//                               be 2 hops or 12 hops; the user's
-//                               question dictates the depth).
-//   0..N× BlockDiagram        — sequence diagram for the cause chain
-//                               when DiagramHint resolves to one.
-//   0..N× BlockCaveat         — drift / log-source / external-source
-//                               disclosures.
+//
+//	1× BlockSummary           — core conclusion (cause + observed site)
+//	≥1× BlockOrderedList      — principal cause chain (innermost frame
+//	                            outward; each hop is a step). MaxCount=0
+//	                            (no upper-bound assumption — chains can
+//	                            be 2 hops or 12 hops; the user's
+//	                            question dictates the depth).
+//	0..N× BlockDiagram        — sequence diagram for the cause chain
+//	                            when DiagramHint resolves to one.
+//	0..N× BlockCaveat         — drift / log-source / external-source
+//	                            disclosures.
 //
 // Diagram plan: sequence diagram with FacetCurrentCodePath as nodes
 // and FacetPrincipalPathEdge as edges (the cause chain is a sequence
@@ -53,6 +54,27 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 			Rationale:       rootCauseTraceOrderedListRationale(plan),
 			SurfaceRoleHint: SurfacePrincipal,
 		},
+	}
+	if ir != nil && ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
+		view.RequiredBlocks = append(view.RequiredBlocks, BlockRequirement{
+			Kind:     BlockDecision,
+			MinCount: 1,
+			MaxCount: 1,
+			Required: true,
+			FacetIDs: []string{
+				string(FacetCurrentCodePath),
+				string(FacetUncertaintyBoundary),
+			},
+			AcceptableClaimForms: []ClaimForm{
+				ClaimDefinitionFact,
+				ClaimCallEdge,
+				ClaimGuardCondition,
+				ClaimAbsenceFact,
+			},
+			Rationale: "State the current-status verdict first: still_present, fixed, or not_enough_evidence. " +
+				"Then explain the boundary using current-code citations and the historical observation lane.",
+			SurfaceRoleHint: SurfacePrincipal,
+		})
 	}
 	view.OptionalBlocks = []BlockRequirement{
 		{

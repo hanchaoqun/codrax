@@ -29,10 +29,9 @@ import (
 //
 // Wired AFTER validateFacetCoverage in runContractCheck — only fires
 // when no hard facet violations remain (avoid double-noise on
-// already-failing answers). Output is SOFT-only via
-// ViolAnswerSemanticUnderfilled; operator may promote to STRICT via
-// pipeline_contract_strict_kinds when a pipeline guarantees richer
-// answers.
+// already-failing answers). Ordinary coverage/richness gaps emit the
+// soft ViolAnswerSemanticUnderfilled signal; wrong-topic answers emit
+// high-severity ViolAnswerTopicMismatch so a topical miss blocks.
 
 // SemanticQualityInput bundles what the reviewer reads. Pure typed
 // projections — no heuristic, no similarity, no frequency. The
@@ -452,6 +451,13 @@ func filterSemanticQualityConcernsByKind(concerns []SemanticQualityConcern, kind
 		}
 	}
 	return out
+}
+
+func semanticQualityViolationKind(concern SemanticQualityConcern) types.ViolationKind {
+	if normaliseSemanticQualityConcernKind(concern.Kind) == semanticConcernTopicMismatch {
+		return types.ViolAnswerTopicMismatch
+	}
+	return types.ViolAnswerSemanticUnderfilled
 }
 
 // renderSemanticQualityUserMessage formats the input as labelled

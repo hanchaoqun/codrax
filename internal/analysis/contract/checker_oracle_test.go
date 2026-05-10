@@ -114,6 +114,31 @@ func TestCheckWithOracle_FlatSymbolFormStillPasses(t *testing.T) {
 	}
 }
 
+func TestCheckWithOracle_ToolNameMustIncludeBypassesSymbolOracle(t *testing.T) {
+	oracle := &stubOracle{tiers: map[string]int{}}
+	draft := Answer{Text: "The explorer records facts by calling `emit_evidence` after reading files."}
+	c := types.AnswerContract{
+		MustIncludeTerms: []types.ContractTerm{{
+			Text: "emit_evidence",
+			Kind: types.ContractTermToolName,
+		}},
+	}
+	res := CheckWithOracle(draft, c, oracle)
+	if !res.Passed {
+		t.Fatalf("tool-name must_include should not require symbol oracle hit; got %+v", res.Violations)
+	}
+}
+
+func TestCheckWithOracle_LegacyKnownToolNameInfersToolKind(t *testing.T) {
+	oracle := &stubOracle{tiers: map[string]int{}}
+	draft := Answer{Text: "The answer mentions `emit_evidence` as the grounding tool."}
+	c := types.AnswerContract{MustInclude: []string{"emit_evidence"}}
+	res := CheckWithOracle(draft, c, oracle)
+	if !res.Passed {
+		t.Fatalf("legacy known tool name should infer tool_name and bypass oracle; got %+v", res.Violations)
+	}
+}
+
 func TestCheckWithOracle_FlatAcceptanceSymbolPasses(t *testing.T) {
 	oracle := &stubOracle{tiers: map[string]int{
 		"EmitEvidence": 1,
