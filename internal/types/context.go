@@ -131,6 +131,19 @@ type MutableState struct {
 	// share the same graph instance with zero I/O.
 	searchGraph any
 
+	// symbolOracle is the cached SymbolOracle the orchestrator
+	// builds once per Run from the same graph as searchGraph. Tools
+	// in internal/tool can't import internal/tool/repomap to
+	// construct the oracle directly (cycle: repomap → tool →
+	// repomap), so the orchestrator wires this field via
+	// SetSymbolOracle and the tools read via SymbolOracle().
+	// Mirrors the SetSearchGraph pattern. Carried as the typed
+	// SymbolOracle interface so internal/types stays decoupled
+	// from internal/tool/repomap.
+	//
+	// 2026-05-10 P1.
+	symbolOracle SymbolOracle
+
 	// phase1Ranking is the explorer's keyword-search file ranking
 	// (top-scored files by the pre-scan), captured once at dispatch
 	// start so downstream tools can cross-reference against ReadSet
@@ -850,6 +863,35 @@ func (m *MutableState) SetSearchGraph(g any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.searchGraph = g
+}
+
+// SymbolOracle returns the orchestrator-wired SymbolOracle for the
+// current Run. nil when not yet set (pre-analyze, unit tests, or
+// runs without a graph). Consumers in internal/tool use this to
+// gate pre-emit hallucination checks without circular imports.
+//
+// 2026-05-10 P1.
+func (m *MutableState) SymbolOracle() SymbolOracle {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.symbolOracle
+}
+
+// SetSymbolOracle stashes a SymbolOracle for downstream tool reads.
+// Called once by the orchestrator after the AnalysisIR + search
+// graph are wired. Pass nil to clear.
+//
+// 2026-05-10 P1.
+func (m *MutableState) SetSymbolOracle(o SymbolOracle) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.symbolOracle = o
 }
 
 // LogTriage returns the validated LogBundle produced by the log_triage

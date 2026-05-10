@@ -52,8 +52,29 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// preEmitOracleFromCtx pulls the SymbolOracle the orchestrator
+// stashed on Mutable. Returns nil when:
+//   - ctx or Mutable is nil (unit-test / no-bus paths)
+//   - the orchestrator hasn't wired the oracle yet
+//
+// Tools in internal/tool can't import internal/tool/repomap to
+// build the oracle directly (cycle: repomap → tool → repomap), so
+// the orchestrator constructs once during explorer wire-up and
+// Mutable.SetSymbolOracle ferries it across the package boundary.
+// Mirrors the SetCrossRepoOracle pattern at
+// internal/tool/ground/ground.go:23.
+//
+// 2026-05-10 P1.
+func preEmitOracleFromCtx(ctx *types.BusContext) types.SymbolOracle {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	return ctx.Mutable.SymbolOracle()
+}
 
 // emitFixHint is the user-facing fix instruction surfaced when a
 // pre-emit check fails. Formatted by formatEmitFixHints into a
@@ -71,13 +92,19 @@ type emitFixHint struct {
 	Reason         string
 }
 
-// runPreEmitChecks runs the 4 STRICT chokepoint checks on the
+// runPreEmitChecks runs the STRICT chokepoint checks on the
 // just-built (but-not-yet-persisted) document. Returns nil when the
 // shape is compliant; otherwise a non-empty list of fix hints the
 // caller wraps in failEmit. view nil → returns nil (no view, no
 // expected shape — pre-emit silently passes through and the
 // post-emit chain takes over).
-func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+//
+// oracle is OPTIONAL — when nil, the enum-label grounding check
+// (P1 2026-05-10) silently passes; the post-emit chain still
+// catches hallucinations via validateEnumerationItemLabelHallucination.
+// Non-nil oracle activates the same gate at the chokepoint to avoid
+// burning a full repair-loop round on a fixable label hallucination.
+func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, oracle types.SymbolOracle) []emitFixHint {
 	if doc == nil || view == nil {
 		return nil
 	}
@@ -103,8 +130,138 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 		hints = append(hints, h...)
 	}
 
+	// 5. Enumeration item label grounding (P1 2026-05-10).
+	// Catches the hallucinated identifier-shape labels that drove
+	// 70% of post-emit repair-loop violations in the 2026-05-10
+	// sweep digest. Mirrors validateEnumerationItemLabelHallucination
+	// at the chokepoint so the LLM gets the fix hint inside the
+	// SAME dispatch instead of paying a full retry round.
+	if h := preCheckEnumerationLabelGrounding(doc, oracle); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+
 	return hints
 }
+
+// preCheckEnumerationLabelGrounding mirrors the post-emit
+// validateEnumerationItemLabelHallucination check at the chokepoint:
+// every list-item's leading identifier must resolve to a Tier 1-2
+// codebase symbol via the typed graph SymbolOracle. When the
+// validator finds hallucinated labels, it returns one fix hint per
+// affected block so the LLM can revise within the same dispatch
+// instead of paying a full repair-loop round downstream.
+//
+// Trigger conditions (mirror the post-emit gate to keep precision
+// contracts identical):
+//
+//   - oracle != nil (caller-side gate; nil → silently no-op so
+//     unit-test paths and no-graph runs keep working)
+//   - block kind ∈ { ordered_list, bullet_list, table } — only
+//     surfaces with "named symbol list" semantics
+//   - leading identifier shape (labelLeadingSymbolIdentifier mirror)
+//     length ≥ 10 chars to avoid stdlib-helper false positives
+//   - oracle returns Tier=0 (not found) OR Tier ≥ 3 (low-confidence
+//     parse) — same gate as contract.must_include / extractor_match
+//
+// Cross-language: the SymbolOracle is populated by repomap which
+// covers all 12+ languages; this check is language-agnostic at
+// the typed-API level.
+//
+// 2026-05-10 P1.
+func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types.SymbolOracle) []emitFixHint {
+	if doc == nil || oracle == nil {
+		return nil
+	}
+	var hints []emitFixHint
+	for _, b := range doc.Blocks {
+		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList && b.Kind != types.BlockTable {
+			continue
+		}
+		var hallucinatedIdents []string
+		seen := make(map[string]bool)
+		for _, it := range b.Items {
+			label := strings.TrimSpace(it.Label)
+			if label == "" {
+				continue
+			}
+			ident := preEmitLabelLeadingIdentifier(label)
+			if len(ident) < preEmitLabelLengthFloor {
+				continue
+			}
+			if !contract.IsIdentifierShaped(ident) {
+				continue
+			}
+			found, tier := oracle.SymbolExistsFlat(ident)
+			if found && tier < 3 {
+				continue
+			}
+			if seen[ident] {
+				continue
+			}
+			seen[ident] = true
+			hallucinatedIdents = append(hallucinatedIdents, ident)
+		}
+		if len(hallucinatedIdents) == 0 {
+			continue
+		}
+		// Shape: one fix hint per affected block carrying every
+		// hallucinated identifier so the LLM sees the full repair
+		// scope without separate hint lines per item.
+		hints = append(hints, emitFixHint{
+			Field: fmt.Sprintf("blocks[id=%q].items[].label", b.ID),
+			ExpectedShape: fmt.Sprintf(
+				"replace these item label leading identifiers with names that exist in the codebase OR drop the items: %s",
+				strings.Join(hallucinatedIdents, ", "),
+			),
+			Reason: "enumeration item labels must lead with codebase-grounded identifiers; the post-emit shape contract rejects fabricated names and forces a full repair retry.",
+		})
+	}
+	return hints
+}
+
+// preEmitLabelLeadingIdentifier extracts the leading
+// identifier-shape token from a label, mirroring
+// labelLeadingSymbolIdentifier at internal/orchestrator/contract_check_block.go:1782.
+// Kept local to avoid an internal/orchestrator dependency in the
+// internal/tool package (would create an import cycle).
+//
+// Behaviour parity (verbatim mirror, see post-emit comment for
+// rationale): returns "" when the label is prose ("Step 1: ..."),
+// when the leading run is too short, or when no identifier prefix
+// is present.
+func preEmitLabelLeadingIdentifier(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return ""
+	}
+	// Identifier scan: collect leading [A-Za-z_][A-Za-z0-9_.]* run.
+	end := 0
+	for i, r := range label {
+		if i == 0 {
+			if !(r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')) {
+				return ""
+			}
+			end = 1
+			continue
+		}
+		if r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' {
+			end = i + 1
+			continue
+		}
+		break
+	}
+	if end == 0 {
+		return ""
+	}
+	return label[:end]
+}
+
+// preEmitLabelLengthFloor mirrors labelHallucinationGateLengthFloor
+// at internal/orchestrator/contract_check_block.go:1825. Identifiers
+// shorter than this are stdlib-helper false positives (Sprintf,
+// Println, New, Get) — too noisy to gate on. Kept local for the same
+// import-cycle reason as preEmitLabelLeadingIdentifier.
+const preEmitLabelLengthFloor = 10
 
 // preCheckRequiredBlocks mirrors the post-emit
 // validateRequiredBlockCoverage core logic (block kind+count) but

@@ -798,6 +798,13 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// decoupled from repomap; tool-side consumers type-assert.
 		if ctx != nil && ctx.Mutable != nil && sr != nil && sr.Graph != nil {
 			ctx.Mutable.SetSearchGraph(sr.Graph)
+			// 2026-05-10 P1: stash the SymbolOracle so the pre-emit
+			// chokepoint in internal/tool can run the enumeration-
+			// label grounding check without importing
+			// internal/tool/repomap (cycle: repomap → tool →
+			// repomap). The oracle is stateless / read-only so
+			// passing the same instance to every tool call is safe.
+			ctx.Mutable.SetSymbolOracle(repomap.NewSymbolOracle(sr.Graph))
 		}
 		// Publish the keyword-search ranking to MutableState so the
 		// CGEC pre-complete phase1-unread gate can cross-reference

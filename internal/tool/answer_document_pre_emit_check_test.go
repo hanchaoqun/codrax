@@ -12,13 +12,13 @@ import (
 // TestRunPreEmitChecks_NilSafe — nil doc / nil view return nil
 // (no spurious rejections; the post-emit chain takes over).
 func TestRunPreEmitChecks_NilSafe(t *testing.T) {
-	if got := runPreEmitChecks(nil, nil); got != nil {
+	if got := runPreEmitChecks(nil, nil, nil); got != nil {
 		t.Errorf("nil/nil: want nil, got %v", got)
 	}
-	if got := runPreEmitChecks(&types.AnswerDocumentV2{}, nil); got != nil {
+	if got := runPreEmitChecks(&types.AnswerDocumentV2{}, nil, nil); got != nil {
 		t.Errorf("nil view: want nil, got %v", got)
 	}
-	if got := runPreEmitChecks(nil, &types.AnswerSemanticView{}); got != nil {
+	if got := runPreEmitChecks(nil, &types.AnswerSemanticView{}, nil); got != nil {
 		t.Errorf("nil doc: want nil, got %v", got)
 	}
 }
@@ -263,7 +263,7 @@ func TestRunPreEmitChecks_AggregatesAcrossAllAxes(t *testing.T) {
 			{ID: "s1", Kind: types.BlockSummary, Text: "x"},
 		},
 	}
-	hints := runPreEmitChecks(doc, view)
+	hints := runPreEmitChecks(doc, view, nil)
 	if len(hints) < 2 {
 		t.Errorf("want ≥2 fix hints (block coverage + uncertainty); got %d (%v)", len(hints), hints)
 	}
