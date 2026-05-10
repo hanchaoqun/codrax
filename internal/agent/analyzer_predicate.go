@@ -68,6 +68,7 @@ func reconcileSemanticPredicates(rm types.RequestModel) (types.SemanticPredicate
 	//   - "what kinds of agents subscribe to event X?" (IsCategoryEnumeration)
 	//   - "how many tools call helper X?" (IsCountQuestion)
 	//   - "when was function X last touched?" (IsHistoryLookup)
+	//   - "why does X fail / does the same risk remain?" (IsDiagnosticQuestion)
 	// Each carries ONE exact target but the answer aggregates across
 	// the repo, which is what IsCrossComponent encodes. Without this
 	// guard, rule 1 silently flips IsCrossComponent=false and the
@@ -155,11 +156,16 @@ func logPredicateReconcile(before, after types.SemanticPredicates, reason string
 //     cross-component dimension.
 //   - IsHistoryLookup: VCS-metadata answer crossing commits / branches
 //     / authors; that history-axis is orthogonal to the named target.
+//   - IsDiagnosticQuestion: root-cause / regression diagnosis can need
+//     falsification and current-risk comparison around one named target.
 //
 // IsRelationalLookup is intentionally NOT folded into this helper: it
 // is checked separately in rule 1's condition list (and the gate
 // rules in coherence.go). Rolling it in here would mask which signal
 // is doing the demotion-block work in audit logs.
 func signalsExplicitMultiAxis(p types.SemanticPredicates) bool {
-	return p.IsCategoryEnumeration || p.IsCountQuestion || p.IsHistoryLookup
+	return p.IsCategoryEnumeration ||
+		p.IsCountQuestion ||
+		p.IsHistoryLookup ||
+		p.IsDiagnosticQuestion
 }

@@ -26,6 +26,17 @@ func TestResolveQuestionFamily_RootCauseTraceWithPerf(t *testing.T) {
 	}
 }
 
+func TestResolveQuestionFamily_RootCauseWithoutArtifact(t *testing.T) {
+	rm := RequestModel{
+		Intent:     IntentRootCause,
+		Scenario:   ScenarioRootCause,
+		Predicates: SemanticPredicates{IsDiagnosticQuestion: true},
+	}
+	if got := ResolveQuestionFamily(rm); got != QFRootCauseTrace {
+		t.Errorf("got %q, want QFRootCauseTrace", got)
+	}
+}
+
 func TestResolveQuestionFamily_TraceWithoutArtifactGoesToCallChain(t *testing.T) {
 	// Trace intent but NO log/perf attached → call chain, not
 	// root cause. Distinguishes "trace this panic" from "how does X
@@ -209,6 +220,26 @@ func TestCompileFacetCoverage_EmptySurfaceInconclusiveNoSoftening(t *testing.T) 
 	for _, sig := range sink.signals {
 		if sig.Kind == "facet_softened" {
 			t.Errorf("R3.1 must skip facet_softened telemetry on empty surface; got %+v", sig)
+		}
+	}
+}
+
+func TestCompileFacetCoverage_RootCauseWithoutArtifactDoesNotRequireObservedArtifact(t *testing.T) {
+	rm := RequestModel{
+		Intent:     IntentRootCause,
+		Scenario:   ScenarioRootCause,
+		Predicates: SemanticPredicates{IsDiagnosticQuestion: true},
+	}
+	plan := CompileFacetCoverage(rm, nil)
+	if plan == nil {
+		t.Fatal("plan must be non-nil")
+	}
+	if plan.Family != QFRootCauseTrace {
+		t.Fatalf("family = %q, want QFRootCauseTrace", plan.Family)
+	}
+	for _, req := range plan.Required {
+		if req.Kind == FacetObservedArtifactFact && req.Required == FacetHardRequired {
+			t.Fatalf("no-attachment root cause must not hard-require observed artifact; got %+v", req)
 		}
 	}
 }

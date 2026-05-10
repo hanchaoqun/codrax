@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"strings"
+
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -102,6 +104,48 @@ func reconcileScenario(rm types.RequestModel) (types.Scenario, string) {
 			"single-topic structural trace uses generic scenario (avoid architecture reconcile window for linear call/flow walkthroughs)"
 	}
 	return rm.Scenario, ""
+}
+
+// reconcileDiagnosticQuestionProfile consumes the analyzer LLM's
+// language-neutral diagnostic predicate. It deliberately does not read
+// raw request text: the semantic judgment lives in emit_analysis, and
+// this helper only keeps the typed fields coherent so downstream
+// TaskGraph / AnswerContract selection cannot drift into architecture
+// or role-lookup lanes.
+func reconcileDiagnosticQuestionProfile(rm types.RequestModel) (types.RequestModel, string) {
+	if !rm.Predicates.IsDiagnosticQuestion {
+		return rm, ""
+	}
+	var changes []string
+	if rm.Intent != types.IntentRootCause {
+		changes = append(changes, "intent→root_cause")
+		rm.Intent = types.IntentRootCause
+	}
+	targetScenario := types.ScenarioRootCause
+	if rm.PerfTrace != nil {
+		targetScenario = types.ScenarioPerformanceBottleneck
+	}
+	switch rm.Scenario {
+	case types.ScenarioRootCause, types.ScenarioPerformanceBottleneck:
+		// Keep an already-diagnostic scenario. PerfTrace prefers the
+		// performance template only when the LLM left the scenario in a
+		// non-diagnostic lane; do not override a deliberate root_cause
+		// classification.
+	default:
+		changes = append(changes, "scenario→"+string(targetScenario))
+		rm.Scenario = targetScenario
+	}
+	if rm.Predicates.IsScalarAnswer || rm.Predicates.IsRoleLocateLookup {
+		// A diagnostic can still ask for the single failing function or
+		// line. The important part is that role/scalar predicates do not
+		// steal the family after root_cause intent is set, so leave the
+		// predicates intact and let the answer surface choose the
+		// diagnostic scaffold.
+	}
+	if len(changes) == 0 {
+		return rm, ""
+	}
+	return rm, "diagnostic semantic predicate aligned " + strings.Join(changes, ", ")
 }
 
 // reconcileIntent is preserved as a thin sanity check that traps the
@@ -267,7 +311,6 @@ func inferAnswerSubject(rm types.RequestModel) (types.AnswerSubject, string) {
 	return types.AnswerSubject{Kind: types.SubjectGeneric, Confidence: 0.1},
 		"hard fallback: question_kind missing — defaulting to Generic (weakest kind)"
 }
-
 
 func multiAxisStructuralSubject(subject types.AnswerSubject) bool {
 	if len(subject.EntityAxes) < 2 {

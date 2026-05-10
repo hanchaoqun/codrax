@@ -129,6 +129,69 @@ func TestBuildAnalysisIR_HistoryLookupStripsAllThreeGates(t *testing.T) {
 	}
 }
 
+func TestBuildAnalysisIR_DiagnosticPredicateReconcilesNoAttachment(t *testing.T) {
+	mut := types.NewMutableState("diagnose the observed failure and whether a similar risk still exists")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "diagnose the observed failure and whether a similar risk still exists",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityModerate,
+		Predicates: types.SemanticPredicates{IsDiagnosticQuestion: true},
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"failure", "risk"},
+			Entities: []string{"Analyzer"},
+			Kind:     "mechanism",
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.RequestModel.Intent != types.IntentRootCause {
+		t.Fatalf("Intent = %q, want root_cause", ir.RequestModel.Intent)
+	}
+	if ir.RequestModel.Scenario != types.ScenarioRootCause {
+		t.Fatalf("Scenario = %q, want root_cause", ir.RequestModel.Scenario)
+	}
+	if got := types.ResolveQuestionFamily(ir.RequestModel); got != types.QFRootCauseTrace {
+		t.Fatalf("family = %q, want %q", got, types.QFRootCauseTrace)
+	}
+}
+
+func TestBuildAnalysisIR_DiagnosticPredicatePerfTraceUsesPerformanceScenario(t *testing.T) {
+	mut := types.NewMutableState("diagnose this performance trace")
+	mut.SetPerfTrace(&types.PerfBundle{
+		IntentHint: "performance",
+		Janks:      []types.PerfJank{{Reason: "frame deadline missed"}},
+	})
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "diagnose this performance trace",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityModerate,
+		Predicates: types.SemanticPredicates{IsDiagnosticQuestion: true},
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"performance", "trace"},
+			Entities: []string{"RenderLoop"},
+			Kind:     "mechanism",
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.RequestModel.Intent != types.IntentRootCause {
+		t.Fatalf("Intent = %q, want root_cause", ir.RequestModel.Intent)
+	}
+	if ir.RequestModel.Scenario != types.ScenarioPerformanceBottleneck {
+		t.Fatalf("Scenario = %q, want performance_bottleneck", ir.RequestModel.Scenario)
+	}
+}
+
 // TestBuildAnalysisIR_ReturnValueWithoutCountCue_KeepsGates is the
 // negative control — a regular return_value question ("what does
 // function F return") has a file:line to cite, so the carve-out must
@@ -253,10 +316,9 @@ func TestBuildAnalysisIR_DiagramContractPropagates(t *testing.T) {
 // operation validateSelfConsistency in emit_analysis rejects this
 // combination upstream and reconcileIntent never sees it.
 //
-// The bundle parameter (session 20) replaced the older hasLogStack
-// bool: reconcileIntent reads bundle.IntentHint directly. A nil
-// bundle is the no-log case; a bundle with IntentHint=RootCause is
-// the "log_triage stage emitted a bundle with a real stack" case.
+// The bundle parameter is retained so the no-longer-strict log hint
+// path remains covered: a nil bundle is the no-log case; a bundle with
+// IntentHint=RootCause is advisory only and must not steal user intent.
 func TestBuildAnalysisIR_ExactResolutionContractPropagates(t *testing.T) {
 	mut := types.NewMutableState("where is explore_mid_loop_hint_budget defined")
 	mut.SetRequestModel(types.RequestModel{
@@ -353,7 +415,7 @@ func TestIsHistoryLookupRequest(t *testing.T) {
 		rm := types.RequestModel{
 			Intent: types.IntentReturnValue,
 			AnalyzerHints: types.AnalyzerHints{
-				Kind:  "history",
+				Kind: "history",
 			},
 			Predicates: types.SemanticPredicates{IsScalarAnswer: true},
 		}

@@ -1518,6 +1518,18 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			))
 			rm.PredicateAxis = axis
 		}
+		if resolved, reason := reconcileDiagnosticQuestionProfile(rm); reason != "" {
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"diagnostic_profile",
+				fmt.Sprintf("intent=%s scenario=%s", rm.Intent, rm.Scenario),
+				fmt.Sprintf("intent=%s scenario=%s", resolved.Intent, resolved.Scenario),
+				0,
+				reason,
+				resolved.Predicates,
+			))
+			logging.Info("[analyzer] diagnostic profile reconciled: %s", reason)
+			rm = resolved
+		}
 		scenarioResolved, scenarioReason := reconcileScenario(rm)
 		if scenarioReason != "" {
 			logScenarioReconcile(rm.Scenario, scenarioResolved, scenarioReason)
@@ -3007,13 +3019,13 @@ func packageMatchesBare(pkg, bare string) bool {
 //   - Ruby           — *_test.rb / test_*.rb / spec/*.rb
 //   - Java / Kotlin  — *Test.java / *Tests.java / src/test/...
 //   - JS / TS / TSX  — *.test.{js,ts,tsx,jsx} / *.spec.{js,ts,tsx,jsx}
-//                      / __tests__/* / __test__/*
+//     / __tests__/* / __test__/*
 //   - Swift          — *Tests.swift
 //   - Obj-C          — *Tests.m / *Tests.mm
 //   - Scala          — *Spec.scala / *Test.scala
 //   - C / C++ / CUDA — typically `*_test.cc` / `tests/*` / `test/*`
 //   - Proto          — proto files normally have no test variant;
-//                      proto test fixtures live under tests/
+//     proto test fixtures live under tests/
 //
 // Heuristic: union of basename suffix patterns + leading prefix
 // patterns + path-segment markers. Matches the conventions the

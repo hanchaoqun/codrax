@@ -545,8 +545,8 @@ type FacetCoverageContract struct {
 //
 // Priority order (first match wins):
 //
-//  1. LogTriage / PerfTrace attached + Intent in {RootCause, Trace}
-//     → QFRootCauseTrace (logtri_go falls here)
+//  1. Intent == RootCause OR LogTriage / PerfTrace attached + Intent == Trace
+//     → QFRootCauseTrace (logtri_go and no-attachment diagnostics fall here)
 //
 //  2. Intent == ConfigQuery OR Scenario == ConfigTrace
 //     → QFConfigPrecedence (s3a falls here)
@@ -574,8 +574,10 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 	hasLog := rm.LogTriage != nil
 	hasPerf := rm.PerfTrace != nil
 
-	// Rule 1: log/perf + cause/trace intent.
-	if (hasLog || hasPerf) && (rm.Intent == IntentRootCause || rm.Intent == IntentTrace) {
+	// Rule 1: root-cause diagnostics always need the diagnostic answer
+	// family. Attached log/perf traces also route trace-shaped requests
+	// here because artifact/current-code drift is part of the answer.
+	if rm.Intent == IntentRootCause || ((hasLog || hasPerf) && rm.Intent == IntentTrace) {
 		return QFRootCauseTrace
 	}
 
@@ -853,8 +855,12 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		// RequiredSubKind, an answer that only cites LogNoiseFrame
 		// evidence would technically pass the form check but miss
 		// the failure shape entirely.
+		artifactRequired := FacetOptional
+		if rm.LogTriage != nil || rm.PerfTrace != nil {
+			artifactRequired = FacetHardRequired
+		}
 		artifactFacet := FacetRequirement{
-			Kind: FacetObservedArtifactFact, Required: FacetHardRequired,
+			Kind: FacetObservedArtifactFact, Required: artifactRequired,
 			AcceptableForms: []ClaimForm{ClaimExternalObservation},
 			RequiredSubKind: rootCauseRequiredSubKind(rm),
 		}

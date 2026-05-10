@@ -391,6 +391,15 @@ type SemanticPredicates struct {
 	// old VCS keyword tables with an explicit analyzer judgment that the
 	// system can then validate against the rest of the classification.
 	IsHistoryLookup bool `json:"is_history_lookup"`
+
+	// IsDiagnosticQuestion: the user is asking to diagnose a failure,
+	// regression, runtime symptom, or observed bad behaviour and wants
+	// a cause / still-present-risk answer rather than an architecture
+	// mechanism tour or scalar role lookup. This is a language-neutral
+	// LLM judgment, not a keyword table. It applies with or without an
+	// attached runtime artifact; log / trace bundles are evidence when
+	// present, not the trigger source for this predicate.
+	IsDiagnosticQuestion bool `json:"is_diagnostic_question"`
 }
 
 // AnalyzerHints is the raw LLM-extracted analyzer output, mirrored onto

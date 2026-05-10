@@ -69,7 +69,7 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 		// fully populated.
 		"intent_confidence": true, "complexity_confidence": true,
 		"kind_confidence": true,
-		"predicates": true,
+		"predicates":      true,
 	}
 	gotRequired := make(map[string]bool, len(parsed.Required))
 	for _, r := range parsed.Required {
@@ -122,7 +122,7 @@ func TestEmitAnalysisSchemaIncludesDiagramHintEnum(t *testing.T) {
 	}
 }
 
-func TestEmitAnalysisSchemaRequiresRoleLocatePredicate(t *testing.T) {
+func TestEmitAnalysisSchemaRequiresSemanticPredicates(t *testing.T) {
 	var parsed struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 	}
@@ -143,17 +143,19 @@ func TestEmitAnalysisSchemaRequiresRoleLocatePredicate(t *testing.T) {
 	if err := json.Unmarshal(propRaw, &prop); err != nil {
 		t.Fatalf("predicates property is not valid JSON schema: %v\nraw=%s", err, string(propRaw))
 	}
-	if _, ok := prop.Properties["is_role_locate_lookup"]; !ok {
-		t.Fatal("predicates.is_role_locate_lookup missing from schema")
-	}
-	found := false
-	for _, field := range prop.Required {
-		if field == "is_role_locate_lookup" {
-			found = true
-			break
+	for _, want := range []string{"is_role_locate_lookup", "is_diagnostic_question"} {
+		if _, ok := prop.Properties[want]; !ok {
+			t.Fatalf("predicates.%s missing from schema", want)
 		}
-	}
-	if !found {
-		t.Fatalf("predicates.required = %v, want is_role_locate_lookup included", prop.Required)
+		found := false
+		for _, field := range prop.Required {
+			if field == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("predicates.required = %v, want %s included", prop.Required, want)
+		}
 	}
 }

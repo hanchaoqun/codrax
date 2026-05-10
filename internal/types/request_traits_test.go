@@ -55,6 +55,23 @@ func TestIsScalarSourceLiteralLookup_RoleLocateAllowedWithoutBundle(t *testing.T
 	}
 }
 
+func TestIsScalarSourceLiteralLookup_DiagnosticPredicateBlocksScalarLaneWithoutBundle(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentRootCause,
+		Complexity:    ComplexitySimple,
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
+		Predicates: SemanticPredicates{
+			IsRoleLocateLookup:   true,
+			IsScalarAnswer:       true,
+			IsDiagnosticQuestion: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: "mechanism"},
+	}
+	if IsScalarSourceLiteralLookup(rm) {
+		t.Fatal("diagnostic questions must not enter the scalar source-literal lane, even without an attached artifact")
+	}
+}
+
 // TestIsScalarSourceLiteralLookup_RoleLocateBlockedByPerfTrace pins
 // the perf channel: HiTrace / atrace / systrace bundle with 2+ stalls
 // or janks is also "multi-step mechanism" evidence and must block the

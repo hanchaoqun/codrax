@@ -29,7 +29,8 @@ func IsScalarSourceLiteralLookup(rm RequestModel) bool {
 		rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.IsCrossComponent ||
 		rm.Predicates.IsRelationalLookup ||
-		rm.Predicates.IsHistoryLookup {
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
 		return false
 	}
 	if !isScalarSourceLiteralSubjectKind(rm.AnswerSubject.Kind) {
@@ -178,7 +179,7 @@ func IsScalarRoleLocateLookup(rm RequestModel) bool {
 //   - complexity: simple — the analyzer's own assessment that scope
 //     is single-entity / 1-2 files
 //   - predicates: is_cross_component / is_count_question /
-//     is_history_lookup / is_scalar_answer ALL false
+//     is_history_lookup / is_diagnostic_question / is_scalar_answer ALL false
 //   - len(PrimaryEntities) == 0 — the user didn't pin to specific code
 //   - len(Entities) == 0 — no identifier-shaped tokens in the request
 //
@@ -209,6 +210,7 @@ func IsProjectOrientationQuestion(rm RequestModel) bool {
 	if rm.Predicates.IsCrossComponent ||
 		rm.Predicates.IsCountQuestion ||
 		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion ||
 		rm.Predicates.IsScalarAnswer {
 		return false
 	}
@@ -248,7 +250,8 @@ func IsSingleTopicStructuralTrace(rm RequestModel) bool {
 	if rm.Predicates.IsRelationalLookup ||
 		rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.IsCountQuestion ||
-		rm.Predicates.IsHistoryLookup {
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
 		return false
 	}
 	switch rm.PredicateAxis {

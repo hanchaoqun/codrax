@@ -33,8 +33,8 @@ func TestReconcileSemanticPredicates(t *testing.T) {
 
 	t.Run("single-topic structural trace clears cross component", func(t *testing.T) {
 		rm := types.RequestModel{
-			RawRequest: "X 是怎么一路调用到 Y 的？",
-			Intent:     types.IntentTrace,
+			RawRequest:    "X 是怎么一路调用到 Y 的？",
+			Intent:        types.IntentTrace,
 			PredicateAxis: types.AxisCall,
 			AnalyzerHints: types.AnalyzerHints{
 				Kind:              "call_chain",
@@ -190,7 +190,7 @@ func TestReconcileSemanticPredicates(t *testing.T) {
 		}
 	})
 
-	t.Run("signalsExplicitMultiAxis helper covers all three signals (B.4)", func(t *testing.T) {
+	t.Run("signalsExplicitMultiAxis helper covers explicit multi-axis signals (B.4)", func(t *testing.T) {
 		if signalsExplicitMultiAxis(types.SemanticPredicates{}) {
 			t.Errorf("zero-value predicates must NOT be multi-axis")
 		}
@@ -203,6 +203,9 @@ func TestReconcileSemanticPredicates(t *testing.T) {
 		if !signalsExplicitMultiAxis(types.SemanticPredicates{IsHistoryLookup: true}) {
 			t.Errorf("IsHistoryLookup must be multi-axis")
 		}
+		if !signalsExplicitMultiAxis(types.SemanticPredicates{IsDiagnosticQuestion: true}) {
+			t.Errorf("IsDiagnosticQuestion must be multi-axis")
+		}
 		// IsRelationalLookup is intentionally NOT folded into the helper —
 		// rule 1 checks it on its own line for separate audit-log signal.
 		if signalsExplicitMultiAxis(types.SemanticPredicates{IsRelationalLookup: true}) {
@@ -212,12 +215,12 @@ func TestReconcileSemanticPredicates(t *testing.T) {
 
 	t.Run("multi-topic trace keeps cross component", func(t *testing.T) {
 		rm := types.RequestModel{
-			RawRequest:     "X 是怎么一路调用到 Y 的？同时 Z 又是怎么接进去的？",
-			Intent:         types.IntentTrace,
-			PredicateAxis:  types.AxisCall,
-			SubTopics:      []types.SubTopic{{Summary: "X -> Y"}, {Summary: "Z -> Y"}},
-			AnalyzerHints:  types.AnalyzerHints{Kind: "call_chain"},
-			Predicates:     types.SemanticPredicates{IsCrossComponent: true},
+			RawRequest:    "X 是怎么一路调用到 Y 的？同时 Z 又是怎么接进去的？",
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			SubTopics:     []types.SubTopic{{Summary: "X -> Y"}, {Summary: "Z -> Y"}},
+			AnalyzerHints: types.AnalyzerHints{Kind: "call_chain"},
+			Predicates:    types.SemanticPredicates{IsCrossComponent: true},
 		}
 		got, reason := reconcileSemanticPredicates(rm)
 		if !got.IsCrossComponent {

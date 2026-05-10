@@ -89,6 +89,22 @@ func TestValidateBundle_ResolvesPathsAndDropsHallucinations(t *testing.T) {
 	}
 }
 
+func TestValidateBundle_OperationalFailureSignalDerivesRootCauseHint(t *testing.T) {
+	got := ValidateBundle(ValidateInput{
+		Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalValidation, types.SignalLogic}},
+		Errors: []types.LogError{{
+			Type:    "ValidationError",
+			Message: "missing evidence before completion",
+		}},
+	}, t.TempDir())
+	if got == nil {
+		t.Fatal("ValidateBundle returned nil")
+	}
+	if got.IntentHint != types.IntentRootCause {
+		t.Fatalf("IntentHint = %q, want root_cause", got.IntentHint)
+	}
+}
+
 // TestValidateBundle_RuntimeInternalFilteredOut verifies Go runtime
 // / node / java.base paths never reach ResolvedFiles even when the
 // LLM emits them.

@@ -91,6 +91,7 @@ func buildInternalVocab() {
 		{"is_relational_lookup", "IsRelationalLookup"},
 		{"is_category_enumeration", "IsCategoryEnumeration"},
 		{"is_history_lookup", "IsHistoryLookup"},
+		{"is_diagnostic_question", "IsDiagnosticQuestion"},
 	}
 	const predsDot = "predicates."
 	const predsGo = "Predicates."

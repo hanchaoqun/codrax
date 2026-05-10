@@ -49,12 +49,11 @@ type LogBundle struct {
 	// drown the analyzer's AnalyzerHints.Entities list.
 	Entities []string `json:"entities,omitempty"`
 
-	// IntentHint is the system's determination of whether the log
-	// represents a debugging / root-cause question. Set to
-	// IntentRootCause when at least one Frame has File+Line>0 and
-	// Meta.Signals intersects {panic, crash, oom}. Otherwise zero.
-	// analyzer.reconcileIntent reads this to override an LLM intent
-	// that failed to pick up the log signal.
+	// IntentHint is the artifact-level diagnostic hint for the parsed
+	// log. Set to IntentRootCause when the bundle carries a resolved
+	// frame or a typed failure signal. This is advisory context for the
+	// analyzer prompt and downstream provenance surfaces; user intent is
+	// still decided by emit_analysis, not by this field alone.
 	IntentHint Intent `json:"intent_hint,omitempty"`
 
 	// Coverage reports the fraction of the raw log that the LLM

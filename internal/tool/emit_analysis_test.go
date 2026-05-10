@@ -30,7 +30,8 @@ const v4DefaultsJSON = `,
 		"is_cross_component": false,
 		"is_relational_lookup": false,
 		"is_category_enumeration": false,
-		"is_history_lookup": false
+		"is_history_lookup": false,
+		"is_diagnostic_question": false
 	}
 `
 
@@ -82,6 +83,7 @@ func TestValidateSelfConsistency_RoleLocateRequiresScalarValueAndSubject(t *test
 	}
 	reason := validateSelfConsistency(
 		types.IntentExplain,
+		types.ScenarioArchitectureExplain,
 		"mechanism",
 		preds,
 		types.AxisDefine,
@@ -103,9 +105,11 @@ func TestValidateSelfConsistency_DefineAxisSingleTargetRequiresSubjectDisambigua
 		IsRelationalLookup:    false,
 		IsCategoryEnumeration: false,
 		IsHistoryLookup:       false,
+		IsDiagnosticQuestion:  false,
 	}
 	reason := validateSelfConsistency(
 		types.IntentExplain,
+		types.ScenarioArchitectureExplain,
 		"mechanism",
 		preds,
 		types.AxisDefine,
@@ -125,6 +129,7 @@ func TestValidateSelfConsistency_DefineAxisSingleTargetAcceptsExplicitRoleLocate
 	}
 	reason := validateSelfConsistency(
 		types.IntentExplain,
+		types.ScenarioArchitectureExplain,
 		"mechanism",
 		preds,
 		types.AxisDefine,
@@ -134,6 +139,67 @@ func TestValidateSelfConsistency_DefineAxisSingleTargetAcceptsExplicitRoleLocate
 	)
 	if reason != "" {
 		t.Fatalf("explicit role-locate classification should pass, got %q", reason)
+	}
+}
+
+func TestValidateSelfConsistency_DiagnosticPredicateAlignsIntentAndScenario(t *testing.T) {
+	base := types.SemanticPredicates{IsDiagnosticQuestion: true}
+	reason := validateSelfConsistency(
+		types.IntentExplain,
+		types.ScenarioArchitectureExplain,
+		"mechanism",
+		base,
+		types.AxisUnknown,
+		nil,
+		nil,
+		types.AnswerSubject{},
+	)
+	if reason == "" || !strings.Contains(reason, "intent=root_cause") {
+		t.Fatalf("expected diagnostic intent alignment reject, got %q", reason)
+	}
+
+	reason = validateSelfConsistency(
+		types.IntentRootCause,
+		types.ScenarioArchitectureExplain,
+		"mechanism",
+		base,
+		types.AxisUnknown,
+		nil,
+		nil,
+		types.AnswerSubject{},
+	)
+	if reason == "" || !strings.Contains(reason, "scenario=root_cause") {
+		t.Fatalf("expected diagnostic scenario alignment reject, got %q", reason)
+	}
+
+	reason = validateSelfConsistency(
+		types.IntentRootCause,
+		types.ScenarioRootCause,
+		"mechanism",
+		base,
+		types.AxisUnknown,
+		nil,
+		nil,
+		types.AnswerSubject{},
+	)
+	if reason != "" {
+		t.Fatalf("aligned diagnostic classification should pass, got %q", reason)
+	}
+}
+
+func TestValidateSelfConsistency_RootCauseRequiresDiagnosticPredicate(t *testing.T) {
+	reason := validateSelfConsistency(
+		types.IntentRootCause,
+		types.ScenarioRootCause,
+		"mechanism",
+		types.SemanticPredicates{},
+		types.AxisUnknown,
+		nil,
+		nil,
+		types.AnswerSubject{},
+	)
+	if reason == "" || !strings.Contains(reason, "is_diagnostic_question=true") {
+		t.Fatalf("expected root_cause/predicate alignment reject, got %q", reason)
 	}
 }
 
@@ -840,6 +906,17 @@ func runEmitAnalysisWithObjective(t *testing.T, objective, payload string) (type
 	return res, mu
 }
 
+func runEmitAnalysisPayload(t *testing.T, objective, payload string) (types.ToolResult, *types.MutableState) {
+	t.Helper()
+	mu := types.NewMutableState(objective)
+	tool := &EmitAnalysis{}
+	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	return res, mu
+}
+
 func runEmitAnalysis(t *testing.T, payload string) (types.ToolResult, *types.MutableState) {
 	t.Helper()
 	return runEmitAnalysisWithObjective(t, "trace the pipeline through analyze", payload)
@@ -852,16 +929,17 @@ func TestEmitAnalysis_Execute_PersistsNormalizedRequestModel(t *testing.T) {
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
 
-	payload := `{
+	payload := withV4Required(`{
 		"intent": "root-cause",
-		"scenario": "architecture_explain",
+		"scenario": "root_cause",
 		"complexity": "moderate",
 		"keywords": ["orchestrator", "pipeline", "analyze"],
 		"entities": ["Orchestrator", "StageAnalyze"],
 		"question_kind": "mechanism",
-	}`
+	}`)
+	payload = strings.Replace(payload, `"is_diagnostic_question": false`, `"is_diagnostic_question": true`, 1)
 
-	res, mu := runEmitAnalysis(t, payload)
+	res, mu := runEmitAnalysisPayload(t, "trace the pipeline through analyze", payload)
 	if !res.Success {
 		t.Fatalf("Execute should succeed, got summary=%q", res.Summary)
 	}
@@ -874,8 +952,8 @@ func TestEmitAnalysis_Execute_PersistsNormalizedRequestModel(t *testing.T) {
 	if rm.Intent != types.IntentRootCause {
 		t.Errorf("Intent = %q, want root_cause", rm.Intent)
 	}
-	if rm.Scenario != types.ScenarioArchitectureExplain {
-		t.Errorf("Scenario = %q, want architecture_explain", rm.Scenario)
+	if rm.Scenario != types.ScenarioRootCause {
+		t.Errorf("Scenario = %q, want root_cause", rm.Scenario)
 	}
 	if len(rm.AnalyzerHints.Keywords) != 3 {
 		t.Errorf("Keywords count = %d, want 3", len(rm.AnalyzerHints.Keywords))
@@ -959,16 +1037,17 @@ func TestEmitAnalysis_Summary_ReportsNormalizedDelta(t *testing.T) {
 
 	// "root-cause" and "register" both coerce to canonical values
 	// and should appear in the "normalized:" clause of the Summary.
-	payload := `{
+	payload := withV4Required(`{
 		"intent": "root-cause",
-		"scenario": "architecture_explain",
+		"scenario": "root_cause",
 		"complexity": "moderate",
 		"keywords": ["a"],
 		"entities": ["Foo"],
 		"question_kind": "register",
-	}`
+	}`)
+	payload = strings.Replace(payload, `"is_diagnostic_question": false`, `"is_diagnostic_question": true`, 1)
 
-	res, _ := runEmitAnalysis(t, payload)
+	res, _ := runEmitAnalysisPayload(t, "trace the pipeline through analyze", payload)
 	if !res.Success {
 		t.Fatalf("Execute should succeed, got %q", res.Summary)
 	}
@@ -1247,7 +1326,8 @@ func TestEmitAnalysis_Execute_RejectsMissingPredicateField(t *testing.T) {
 			"is_cross_component": false,
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
-			"is_history_lookup": false
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1333,7 +1413,8 @@ func TestEmitAnalysis_Execute_RejectsInconsistentCountIntent(t *testing.T) {
 			"is_cross_component": false,
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
-			"is_history_lookup": false
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1368,7 +1449,8 @@ func TestEmitAnalysis_Execute_RejectsCountWithoutScalar(t *testing.T) {
 			"is_cross_component": false,
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
-			"is_history_lookup": false
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1402,7 +1484,8 @@ func TestEmitAnalysis_Execute_RejectsCategoryEnumerationWithScalar(t *testing.T)
 			"is_cross_component": false,
 			"is_relational_lookup": false,
 			"is_category_enumeration": true,
-			"is_history_lookup": false
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1438,7 +1521,8 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 			"is_cross_component": false,
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
-			"is_history_lookup": false
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1487,7 +1571,8 @@ func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 			"is_cross_component": false,
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
-			"is_history_lookup": false
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1524,7 +1609,8 @@ func TestEmitAnalysis_Execute_DropsInvalidExactContextTermsWithWarning(t *testin
 			"is_cross_component": false,
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
-			"is_history_lookup": false
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1567,7 +1653,8 @@ func TestEmitAnalysis_Execute_PersistsExactTargetsAndHistoryPredicate(t *testing
 			"is_cross_component": false,
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
-			"is_history_lookup": true
+			"is_history_lookup": true,
+			"is_diagnostic_question": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1611,7 +1698,8 @@ func TestEmitAnalysis_Execute_PersistsExactContextTerms(t *testing.T) {
 			"is_cross_component": false,
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
-			"is_history_lookup": false
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1656,7 +1744,8 @@ func TestEmitAnalysis_Execute_PersistsExactContextRoles(t *testing.T) {
 			"is_cross_component": false,
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
-			"is_history_lookup": false
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1706,7 +1795,8 @@ func TestEmitAnalysis_Execute_PreservesConfigTraceRolesWhenAnswerSubjectDriftsNu
 			"is_cross_component": false,
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
-			"is_history_lookup": false
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))

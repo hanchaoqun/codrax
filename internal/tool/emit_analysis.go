@@ -112,6 +112,7 @@ type emitPredicatesParam struct {
 	IsRelationalLookup    *bool `json:"is_relational_lookup"`
 	IsCategoryEnumeration *bool `json:"is_category_enumeration"`
 	IsHistoryLookup       *bool `json:"is_history_lookup"`
+	IsDiagnosticQuestion  *bool `json:"is_diagnostic_question"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -261,8 +262,9 @@ func buildEmitAnalysisSchema() {
 					"is_relational_lookup":    map[string]any{"type": "boolean", "description": "True if filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')."},
 					"is_category_enumeration": map[string]any{"type": "boolean", "description": "True if asking 'what kinds / types / categories of X exist'."},
 					"is_history_lookup":       map[string]any{"type": "boolean", "description": "True when the literal answer should come from repository history / authorship metadata (git log / blame / commit history), not from a repo file:line."},
+					"is_diagnostic_question":  map[string]any{"type": "boolean", "description": "True when the current request asks to diagnose a failure, regression, runtime symptom, or observed bad behaviour and expects a cause / still-present-risk answer. Applies with or without an attached runtime artifact. False for ordinary architecture tours, code walkthroughs, or log/trace parser mechanism questions."},
 				},
-				"required": []string{"is_scalar_answer", "is_role_locate_lookup", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration", "is_history_lookup"},
+				"required": []string{"is_scalar_answer", "is_role_locate_lookup", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration", "is_history_lookup", "is_diagnostic_question"},
 			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
@@ -549,7 +551,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// versus an explanation of the named entity itself, reject here so
 	// the retry hint forces the LLM to reconcile its own classification
 	// instead of a Go reconcile rule papering over the inconsistency.
-	if reason := validateSelfConsistency(intent, kind, predicates, axis, entities, p.SubTopics, answerSubject); reason != "" {
+	if reason := validateSelfConsistency(intent, scenario, kind, predicates, axis, entities, p.SubTopics, answerSubject); reason != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -598,10 +600,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			IrrelevantFiles:   validateAndBuildIrrelevantFiles(p.IrrelevantFiles, &val),
 			Kind:              kind,
 		},
-		AnswerSubject:        answerSubject,
-		IntentConfidence:     p.IntentConfidence,
-		ComplexityConfidence: p.ComplexityConfidence,
-		KindConfidence:       p.KindConfidence,
+		AnswerSubject:          answerSubject,
+		IntentConfidence:       p.IntentConfidence,
+		ComplexityConfidence:   p.ComplexityConfidence,
+		KindConfidence:         p.KindConfidence,
 		Predicates:             predicates,
 		PredicateAxis:          axis,
 		DiagramHint:            diagramHint,
@@ -710,6 +712,7 @@ func rejectDegenerateClassification(
 // real failure is observed.
 func validateSelfConsistency(
 	intent types.Intent,
+	scenario types.Scenario,
 	kind string,
 	preds types.SemanticPredicates,
 	axis types.PredicateAxis,
@@ -752,6 +755,20 @@ func validateSelfConsistency(
 		if !preds.IsScalarAnswer {
 			return "is_history_lookup=true requires is_scalar_answer=true — history / authorship lookups yield a single scalar / literal"
 		}
+	}
+	if preds.IsDiagnosticQuestion {
+		if intent != types.IntentRootCause {
+			return "is_diagnostic_question=true requires intent=root_cause — diagnostic questions ask for cause / current-risk analysis, not a general mechanism tour or scalar lookup"
+		}
+		switch scenario {
+		case types.ScenarioRootCause, types.ScenarioPerformanceBottleneck:
+			// ok
+		default:
+			return "is_diagnostic_question=true requires scenario=root_cause or scenario=performance_bottleneck — architecture_explain is for ordinary mechanism tours, not failure diagnosis"
+		}
+	}
+	if intent == types.IntentRootCause && !preds.IsDiagnosticQuestion {
+		return "intent=root_cause requires predicates.is_diagnostic_question=true — keep the diagnostic intent and predicate aligned"
 	}
 	if needsRoleLocateDisambiguation(axis, intent, preds, entities, subTopics) &&
 		answerSubject.Kind == types.SubjectUnknown {
@@ -820,7 +837,7 @@ func needsRoleLocateDisambiguation(
 func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) {
 	if p == nil {
 		return types.SemanticPredicates{},
-			"predicates object missing — emit `predicates` with is_scalar_answer / is_role_locate_lookup / is_count_question / is_cross_component / is_relational_lookup / is_category_enumeration / is_history_lookup each set to true or false"
+			"predicates object missing — emit `predicates` with is_scalar_answer / is_role_locate_lookup / is_count_question / is_cross_component / is_relational_lookup / is_category_enumeration / is_history_lookup / is_diagnostic_question each set to true or false"
 	}
 	missing := []string{}
 	if p.IsScalarAnswer == nil {
@@ -844,6 +861,9 @@ func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) 
 	if p.IsHistoryLookup == nil {
 		missing = append(missing, "is_history_lookup")
 	}
+	if p.IsDiagnosticQuestion == nil {
+		missing = append(missing, "is_diagnostic_question")
+	}
 	if len(missing) > 0 {
 		return types.SemanticPredicates{}, fmt.Sprintf(
 			"predicates missing required field(s): %s — every field must be set explicitly to true or false (no silent default)",
@@ -858,6 +878,7 @@ func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) 
 		IsRelationalLookup:    *p.IsRelationalLookup,
 		IsCategoryEnumeration: *p.IsCategoryEnumeration,
 		IsHistoryLookup:       *p.IsHistoryLookup,
+		IsDiagnosticQuestion:  *p.IsDiagnosticQuestion,
 	}, ""
 }
 
