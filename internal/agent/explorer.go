@@ -1153,6 +1153,65 @@ func (e *explorerEvaluator) uniquePrimaryEntityFile() (string, bool) {
 	return path, true
 }
 
+// effectivePrimaryFiles returns primaryEntityFiles unioned with the
+// repo-relative files the explorer's own emit_evidence has already
+// cited. Two motivations (2026-05-10):
+//
+//  1. The LLM has read the file and judged it relevant enough to
+//     emit grounded evidence. That is a stronger primary-file
+//     signal than the analyzer's pre-investigation entity→file
+//     resolver, which can fail in two ways: package-qualified
+//     names ("gate.Run", "mod::Type::method") that don't match
+//     graph keys, and over-broad analyzer Required Files that
+//     pull in irrelevant files like internal/types/analysis_ir.go.
+//
+//  2. The single-primary evidence filter (filterEvidenceByPrimaryFiles
+//     branch where len(primary) == 1) is destructive: it drops
+//     every item not from the single primary file, including
+//     LLM-emitted evidence pointing at the *real* primary file the
+//     analyzer missed. Augmenting the primary set with emit-cited
+//     files prevents the filter from inverting the LLM's own
+//     citations.
+//
+// Order: analyzer-derived primary files come first (preserved order),
+// then emit-cited files in iteration order. Deduplicated by canonical
+// repo-relative path. Returns nil when both lanes are empty.
+func (e *explorerEvaluator) effectivePrimaryFiles() []string {
+	primary := e.primaryEntityFiles()
+	cited := make(map[string]bool)
+	for _, ev := range e.structuredEvidence {
+		if ev.Producer != tool.EmitEvidenceProducer {
+			continue
+		}
+		canon := canonicalEvidenceSourcePath(ev.Source)
+		if canon == "" {
+			continue
+		}
+		cited[canon] = true
+	}
+	if len(primary) == 0 && len(cited) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(primary)+len(cited))
+	out := make([]string, 0, len(primary)+len(cited))
+	for _, p := range primary {
+		canon := canonicalExplorerPath(p)
+		if canon == "" || seen[canon] {
+			continue
+		}
+		seen[canon] = true
+		out = append(out, p)
+	}
+	for canon := range cited {
+		if seen[canon] {
+			continue
+		}
+		seen[canon] = true
+		out = append(out, canon)
+	}
+	return out
+}
+
 func exactAnchorFilesFromScores(results []keywordFileScore) []string {
 	if len(results) == 0 {
 		return nil
@@ -7855,7 +7914,14 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	questionKind := strings.ToLower(strings.TrimSpace(irQuestionKind(ctx)))
 	var primaryFiles []string
 	if questionKind == "mechanism" || questionKind == "enumeration" {
-		if primary := e.primaryEntityFiles(); len(primary) > 0 {
+		// effectivePrimaryFiles unions the analyzer's entity→file
+		// resolution with files the explorer has already cited via
+		// emit_evidence. Without this union the dotted-form
+		// resolution gap (gate.Run → graph stores "Run", not
+		// "gate.Run") would let the single-primary filter mis-fire
+		// onto a side-entity file and drop every grounded LLM
+		// citation. See effectivePrimaryFiles + qualified_name.go.
+		if primary := e.effectivePrimaryFiles(); len(primary) > 0 {
 			primaryFiles = primary
 			applyFilter := questionKind == "mechanism" || len(primary) == 1
 			if applyFilter {
