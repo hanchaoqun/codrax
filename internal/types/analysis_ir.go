@@ -1100,6 +1100,26 @@ type GateReport struct {
 	Rejected  bool        `json:"rejected"`
 	Retryable bool        `json:"retryable"`
 	Checks    []GateCheck `json:"checks,omitempty"`
+	// Fingerprint is a stable hash of the failure SHAPE (rule names
+	// + rule prefixes from each failed check Detail). Empty when
+	// Rejected==false. The orchestrator's analyze retry loop
+	// (orchestrator.go::runAnalyzePhase) compares fingerprints
+	// across attempts to detect a retry storm: when the SAME
+	// fingerprint repeats ≥ ceil(maxRetries/2) consecutive
+	// attempts, the LLM is stuck in a loop (each attempt
+	// produces a structurally distinct emit but each new shape
+	// fails the same gate combination). Early-exit to the
+	// degraded path saves LLM round-trips and surfaces a
+	// user-actionable diagnostic.
+	//
+	// Forensic anchor: 2026-05-10 chatpp-7d46dee4 log L1320 +
+	// L2714 — TWO turns each burning the full 3-attempt budget on
+	// the same subtopic_coherence gate. Pre-B6 the orchestrator
+	// could not distinguish "LLM is converging" from "LLM is
+	// stuck"; with the fingerprint it can.
+	//
+	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.6.
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 type GateCheck struct {

@@ -1926,6 +1926,16 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 	if max < 1 {
 		max = 1
 	}
+	// B6 (2026-05-10): retry storm detector. When the same gate
+	// failure SHAPE (Fingerprint) repeats ≥ ceil(max/2) consecutive
+	// attempts, the LLM is stuck in a loop and additional retries
+	// are wasted LLM round-trips. Early-exit to the degraded path
+	// with a user-actionable diagnostic. Forensic anchor:
+	// 2026-05-10 chatpp-7d46dee4 log L1320 + L2714 (TWO turns
+	// each burning the full 3-attempt budget on the same
+	// subtopic_coherence gate, then degrading anyway).
+	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.6.
+	storm := newAnalyzeRetryStormDetector(max)
 	var lastErr string
 	used := 0
 	for attempt := 0; attempt < max; attempt++ {
@@ -1955,8 +1965,101 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		if o.busCtx != nil && o.busCtx.Mutable != nil {
 			o.busCtx.Mutable.AppendAnswerRetryEvent(string(types.StageAnalyze), lastErr)
 		}
+		// Storm detection: the AnalysisIR may carry a typed
+		// QualityGate.Fingerprint. When non-empty, feed it into
+		// the storm detector; same fingerprint ≥ threshold times
+		// → break out early.
+		if o.busCtx != nil && o.busCtx.AnalysisIR != nil {
+			fp := o.busCtx.AnalysisIR.QualityGate.Fingerprint
+			storm.observe(fp)
+			if storm.exhausted() && attempt+1 < max {
+				logging.Warning("[orchestrator] analyze retry storm: fingerprint %q repeated %d×; breaking early to degraded path", fp, storm.repeatCount())
+				return used, fmt.Errorf("analyze stage early-exit on retry storm (fingerprint=%s, attempts=%d): %s — %s", fp, used, lastErr, retryStormUserCaveat())
+			}
+		}
 	}
 	return used, fmt.Errorf("analyze stage exhausted after %d attempt(s): %s", max, lastErr)
+}
+
+// newAnalyzeRetryStormDetector returns a detector seeded with a
+// threshold of ceil(max/2). When the SAME non-empty fingerprint is
+// observed `threshold` consecutive times, exhausted() returns true
+// and the orchestrator's retry loop breaks early. Threshold floor
+// is 2 — single-attempt budgets disable the detector implicitly
+// because exhausted() can never reach 2.
+func newAnalyzeRetryStormDetector(maxAttempts int) *analyzeRetryStormDetector {
+	threshold := (maxAttempts + 1) / 2 // ceil(max/2)
+	if threshold < 2 {
+		threshold = 2
+	}
+	return &analyzeRetryStormDetector{max: maxAttempts, threshold: threshold}
+}
+
+type analyzeRetryStormDetector struct {
+	max       int
+	threshold int
+	lastFP    string
+	repeats   int
+}
+
+// observe records one attempt's fingerprint. Empty fingerprint resets
+// the run counter (the LLM made progress in shape, even if the
+// result still failed). Non-empty fingerprint matching the previous
+// observation increments the run counter; differing fingerprint
+// resets it to 1.
+func (d *analyzeRetryStormDetector) observe(fp string) {
+	if d == nil {
+		return
+	}
+	if fp == "" {
+		d.lastFP = ""
+		d.repeats = 0
+		return
+	}
+	if fp == d.lastFP {
+		d.repeats++
+		return
+	}
+	d.lastFP = fp
+	d.repeats = 1
+}
+
+// exhausted reports whether the consecutive same-fingerprint streak
+// has reached the threshold. Returns false when no fingerprint has
+// been observed.
+func (d *analyzeRetryStormDetector) exhausted() bool {
+	return d != nil && d.repeats >= d.threshold
+}
+
+// repeatCount returns the current consecutive same-fingerprint streak.
+func (d *analyzeRetryStormDetector) repeatCount() int {
+	if d == nil {
+		return 0
+	}
+	return d.repeats
+}
+
+// retryStormUserCaveat is the user-facing diagnostic the early-exit
+// path appends to the analyze stage error. NO pipeline-internal
+// vocab (R6); generic Chinese+English user vocabulary; gives
+// concrete next steps the user can take from the REPL. Per user
+// directive 2026-05-10: prompts and user-facing strings include
+// only Chinese and English natural language.
+//
+// Audit (R3/R4/R5/R6/R7/cross-language):
+//   - R3 typed: fingerprint hex in the error envelope is opaque
+//     and deterministic
+//   - R4 no over-fitting: doesn't name codrax / opencode / specific
+//     gates (subtopic_coherence is internal vocab, kept out)
+//   - R5 no system backfill: explicitly states the answer is degraded
+//   - R6 no internal vocab: "结构性检查" / "structural check"
+//     are user-vocabulary descriptions
+//   - R7 user intent: gives REPL commands (/repos focus, /repos cap)
+//     so the user can adjust workspace scope and re-ask
+//   - cross-language: Chinese + English + REPL command names; no
+//     third natural language
+func retryStormUserCaveat() string {
+	return "分析阶段在同一类结构性检查上反复未通过,已切换到部分降级答案。若问题是跨子仓比较,可在 REPL 中执行 `/repos focus <子仓名>` 缩小到单子仓,或 `/repos cap N` 提高 active 上限后再次提问。"
 }
 
 // runWriteAnalyzePhase dispatches the write_analyze stage in

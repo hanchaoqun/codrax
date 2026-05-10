@@ -177,9 +177,20 @@ func RunWith(ir *types.AnalysisIR, th Thresholds, mode string, opts RunOptions) 
 			passed = false
 		}
 	}
-	return types.GateReport{
+	report := types.GateReport{
 		Passed: passed, Rejected: !passed, Retryable: !passed, Checks: checks,
 	}
+	// B6 (2026-05-10): stamp a fingerprint of the rejection shape
+	// onto the report so the orchestrator's analyze retry loop can
+	// detect a retry storm — same failure SHAPE repeated across
+	// attempts means the LLM is stuck in a loop, not converging.
+	// Empty fingerprint when not rejected; never affects passing
+	// reports' wire shape (omitempty in GateReport struct).
+	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.6.
+	if !passed {
+		report.Fingerprint = computeGateFingerprint(report)
+	}
+	return report
 }
 
 // ── individual checks ──────────────────────────────────────────
