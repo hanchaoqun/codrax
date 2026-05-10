@@ -87,6 +87,18 @@ type explorerEvaluator struct {
 	midLoopParallelInjected         bool                  // #34: parallel-batching hint already pushed this dispatch
 	midLoopSymbolRefInjected        bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
 	midLoopPostPrimaryInjected      bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
+	// midLoopBudgetExhaustedSent (2026-05-10 Fix B) tracks the
+	// per-tool one-shot budget-exhausted nudge. The 2026-05-10 sweep
+	// digest forensic on s5b iter=2 exposed the waste: a 6-call
+	// parallel batch of read_file all hard-rejected with "explore
+	// budget exhausted for tool read_file" — 6 LLM-emitted tool
+	// calls, 0 bytes of evidence, the LLM had to plan another iter
+	// before realising the tool was hard-banned. The nudge surfaces
+	// the budget status as a structural directive so subsequent
+	// iters route to other tools or to emit. Per-tool keying lets
+	// independent budgets (read_file, grep, repo_map, list_files)
+	// each fire their own one-shot.
+	midLoopBudgetExhaustedSent      map[string]bool
 	midLoopEvidenceRepairSent       bool                  // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
 	midLoopEvidenceRepairResultsLen int                   // allResults length when the current emit_evidence repair hint fired
 	midLoopClosureRepairSent        bool                  // one-shot: structured closure repair from a downgraded completion already pushed this dispatch
@@ -4282,6 +4294,90 @@ func renderEmitEvidenceRepairHint(targets []evidenceRepairTarget) string {
 	return b.String()
 }
 
+// budgetExhaustedHintMarker is the substring the budget gate writes
+// into a refused tool result Summary. Source of truth:
+// internal/agent/agent.go::executeTool — keep both in sync if either
+// is reworded.
+const budgetExhaustedHintMarker = "explore budget exhausted for tool"
+
+// extractBudgetExhaustedToolName parses the canonical budget-rejection
+// Summary shape (`explore budget exhausted for tool "<name>": …`) and
+// returns the bare tool name. Returns empty string when the marker
+// isn't present or the surrounding shape changes.
+func extractBudgetExhaustedToolName(summary string) string {
+	idx := strings.Index(summary, budgetExhaustedHintMarker)
+	if idx < 0 {
+		return ""
+	}
+	rest := summary[idx+len(budgetExhaustedHintMarker):]
+	q1 := strings.Index(rest, `"`)
+	if q1 < 0 {
+		return ""
+	}
+	q2 := strings.Index(rest[q1+1:], `"`)
+	if q2 < 0 {
+		return ""
+	}
+	return rest[q1+1 : q1+1+q2]
+}
+
+// postBudgetExhaustedSignal fires a per-tool one-shot nudge when the
+// explore budget for a tool refuses an LLM call. Without this nudge
+// the LLM keeps batching parallel calls against the same exhausted
+// tool — every call returns "budget exhausted" but the LLM only
+// learns this AFTER the iter completes, then plans another iter
+// that may include more of the same.
+//
+// BypassThrottle + BypassBudget so the nudge lands on the very next
+// iter regardless of recent injection cadence — the budget condition
+// is structural (next call to <tool> WILL refuse), not a soft hint
+// that politeness rules should defer.
+//
+// Per-tool MaxPerKeyInjects=5 (P2) caps total fires of this key per
+// dispatch, which prevents log spam if the LLM stubbornly keeps
+// trying the exhausted tool.
+func (e *explorerEvaluator) postBudgetExhaustedSignal(obs LoopObservation) LoopSignal {
+	if obs.LastToolResult == nil || obs.LastToolResult.Success {
+		return LoopSignal{}
+	}
+	tool := extractBudgetExhaustedToolName(obs.LastToolResult.Summary)
+	if tool == "" {
+		return LoopSignal{}
+	}
+	if e.midLoopBudgetExhaustedSent == nil {
+		e.midLoopBudgetExhaustedSent = make(map[string]bool)
+	}
+	if e.midLoopBudgetExhaustedSent[tool] {
+		return LoopSignal{}
+	}
+	e.midLoopBudgetExhaustedSent[tool] = true
+	// Tool-specific alternative hints. The list is conservative —
+	// other read-class tools the explorer can still call. We don't
+	// recommend emit_* directly because the LLM also needs to make
+	// progress; emit before further reads would be premature.
+	alternatives := map[string]string{
+		"read_file":  "`grep` (with `files_only=false` to fetch a small line window) or `repo_map`",
+		"grep":       "`read_file` (focused at a specific path:line) or `repo_map`",
+		"repo_map":   "`grep` (for token-anchored discovery) or `list_files`",
+		"list_files": "`grep` or `repo_map`",
+	}
+	alt, ok := alternatives[tool]
+	if !ok {
+		alt = "a different read tool"
+	}
+	hint := fmt.Sprintf(
+		"The `%s` budget is exhausted — every further `%s` call this dispatch will refuse with the same error. Stop calling `%s`. Use %s for the next investigative step, or call `emit_evidence` / `emit_investigation_complete` to advance the investigation. Do not retry the same `%s` call with different arguments — the cap is per-tool, not per-argument.",
+		tool, tool, tool, alt, tool)
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        fmt.Sprintf("explorer.budget_exhausted.%s", tool),
+		Hint:           hint,
+		Progress:       false,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
 func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) LoopSignal {
 	if e.midLoopEvidenceRepairSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_evidence" || !obs.LastToolResult.Success {
 		return LoopSignal{}
@@ -6705,6 +6801,17 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// state being current. Idempotent: once primaryReadSeen is set,
 	// later calls are no-ops.
 	e.observePrimaryRead(iteration, allResults)
+
+	// Budget-exhausted nudge (Fix B 2026-05-10). Fires before any
+	// other signal because the budget condition is structural — it
+	// changes which tools the LLM is allowed to call from this iter
+	// onward. Letting other signals fire first would inject a
+	// repair / closure hint while the LLM is still planning to
+	// re-call the exhausted tool; the budget hint corrects the
+	// misplan in the same iter.
+	if sig := e.postBudgetExhaustedSignal(obs); sig.HintRequested {
+		return sig
+	}
 
 	// Immediate post-anchor push: the most common drift after the
 	// first primary-file read is a text-only recap ("I now understand
