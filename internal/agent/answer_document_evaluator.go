@@ -736,7 +736,215 @@ func renderAnswerDocRetryState(ctx *types.AgentContext) string {
 	if status := renderLiveCoverageStatus(ctx, rs); status != "" {
 		b.WriteString(status)
 	}
+
+	// 6. P3 (2026-05-10) — Mechanical Fix Actions. Same input as
+	// renderRetryRequiredChanges but rendered as structured
+	// Action+Target+Value triples for the 4 typed validator-driven
+	// cluster kinds (block_coverage_missing / facet_uncovered /
+	// principal_claim_use_missing / uncertainty_block_missing).
+	// Reduces "LLM has to re-read prose to figure out the fix" to
+	// "LLM applies each row mechanically". Subjective concerns
+	// (semantic_quality_underfilled / etc.) continue rendering
+	// through the prose path above (Required Changes); both
+	// channels coexist.
+	if mech := renderRetryStructuredFixList(rs); mech != "" {
+		b.WriteString(mech)
+	}
 	return b.String()
+}
+
+// renderRetryStructuredFixList is the P3 surface — emits a
+// structured Action+Target+Value list for the violation kinds the
+// post-emit chain consistently raises. Validator-driven kinds with
+// a known mechanical template render here; subjective LLM-reviewer
+// concerns (semantic_quality_underfilled, richness regressions)
+// fall through to the existing prose path.
+//
+// Output shape:
+//
+//	## Mechanical Fix Actions
+//
+//	Apply each action below mechanically; each entry names a single
+//	emit_answer_document field path to set OR a single block to add.
+//
+//	1. Action: `add_block`
+//	   - Target: `blocks[]`
+//	   - kind: `ordered_list`
+//	   - hint: <one-line user-vocab Why>
+//
+//	2. Action: `set_field`
+//	   - Target: `blocks[id="b1"].claim_uses`
+//	   - Value: `[{claim_form: "definition_fact"}]`
+//	   - hint: <one-line user-vocab Why>
+//
+// Empty when no covered ViolKind is in rs.ActiveViolations (the
+// section silently disappears for non-typed retry shapes).
+//
+// Red-line audit (R3/R4/R5/R6/R7/SST/CN+EN-only):
+//   - R3 typed: each Action / Target / Value comes from the
+//     ScoredViolation's typed Kind / FieldPath / BlockID
+//   - R4 generic: action names + schema fields are universal;
+//     no project / case names appear
+//   - R5: structured retry hint, never writes answer body
+//   - R6 no internal vocab: action names (add_block / set_field /
+//     add_caveat_block) are abstract instructions, not Go types;
+//     schema field paths (blocks[].kind / blocks[id].claim_uses)
+//     are the LLM's emit vocabulary already — they appear in the
+//     skill prompt and in the JSON schema's examples
+//   - R7 actionable: each row is one mechanical edit; LLM can
+//     apply without prose interpretation
+//   - SST: shape mirrors the existing Required Changes section
+//     (## heading, numbered list)
+//   - CN+EN-only: prompt is English (consistent with the rest
+//     of the finalizer skill prose)
+func renderRetryStructuredFixList(rs *types.RetryState) string {
+	if rs == nil || len(rs.ActiveViolations) == 0 {
+		return ""
+	}
+	var rows []structuredFixRow
+	for _, sv := range rs.ActiveViolations {
+		row, ok := classifyViolationToStructuredFix(sv)
+		if !ok {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	var out strings.Builder
+	out.WriteString("## Mechanical Fix Actions\n\n")
+	out.WriteString("Apply each action below mechanically; each entry names a single `emit_answer_document` field path to set OR a single block to add. The Hint line is informational; it does not need interpretation.\n\n")
+	for i, r := range rows {
+		fmt.Fprintf(&out, "%d. Action: `%s`\n", i+1, r.Action)
+		fmt.Fprintf(&out, "   - Target: `%s`\n", r.Target)
+		for k, v := range r.Args {
+			fmt.Fprintf(&out, "   - %s: `%s`\n", k, v)
+		}
+		if r.Hint != "" {
+			fmt.Fprintf(&out, "   - Hint: %s\n", r.Hint)
+		}
+		out.WriteString("\n")
+	}
+	return out.String()
+}
+
+// structuredFixRow is the typed surface a P3 row renders. Action
+// is one of a small enum of mechanical operations the LLM can
+// recognize; Target is a schema field path or `blocks[]`; Args is
+// an ordered key→value map of operation-specific parameters; Hint
+// is an optional one-line user-vocab "why" string.
+type structuredFixRow struct {
+	Action string
+	Target string
+	Args   map[string]string
+	Hint   string
+}
+
+// classifyViolationToStructuredFix returns true with a typed row
+// when the violation's Kind matches one of the four covered
+// validator-driven cluster shapes. Unknown / subjective kinds
+// return ok=false and the caller falls through to the prose
+// renderer.
+func classifyViolationToStructuredFix(sv types.ScoredViolation) (structuredFixRow, bool) {
+	switch sv.Kind {
+	case types.ViolBlockCoverageMissing:
+		// Detail typically reads "required block kind=X appears
+		// N times; the family contract requires at least M".
+		// Extract the kind from the Detail tail (best-effort) so
+		// the row's structured kind matches.
+		row := structuredFixRow{
+			Action: "add_block",
+			Target: "blocks[]",
+			Args: map[string]string{
+				"kind": extractMissingBlockKind(sv),
+			},
+			Hint: strings.TrimSpace(sv.Repair),
+		}
+		return row, true
+	case types.ViolPrincipalClaimUseMissing:
+		row := structuredFixRow{
+			Action: "set_field",
+			Target: principalClaimUseTarget(sv),
+			Args: map[string]string{
+				"value": "[{claim_form: <one of the contract's acceptable forms>}]",
+			},
+			Hint: strings.TrimSpace(sv.Repair),
+		}
+		return row, true
+	case types.ViolFacetUncovered:
+		row := structuredFixRow{
+			Action: "set_field",
+			Target: "blocks[].facet_ids OR blocks[].claim_uses[].facet_id",
+			Args: map[string]string{
+				"value": extractFacetIDFromDetail(sv),
+			},
+			Hint: strings.TrimSpace(sv.Repair),
+		}
+		return row, true
+	case types.ViolUncertaintyBlockMissing:
+		row := structuredFixRow{
+			Action: "add_caveat_block",
+			Target: "blocks[]",
+			Args: map[string]string{
+				"kind": "caveat",
+				"text": "(disclose what was searched and what remained uncertain)",
+			},
+			Hint: strings.TrimSpace(sv.Repair),
+		}
+		return row, true
+	}
+	return structuredFixRow{}, false
+}
+
+// extractMissingBlockKind reads the typed FieldPath when present
+// (carries `blocks[].kind=X`), otherwise scans Detail for the
+// kind=<token> hint the post-emit validator embeds.
+func extractMissingBlockKind(sv types.ScoredViolation) string {
+	if sv.FieldPath != "" {
+		// FieldPath looks like "blocks[].kind=X"
+		if idx := strings.Index(sv.FieldPath, "kind="); idx >= 0 {
+			return strings.TrimSpace(sv.FieldPath[idx+len("kind="):])
+		}
+	}
+	// Fall back to Detail scan: look for "kind=X" first occurrence.
+	if idx := strings.Index(sv.Detail, "kind="); idx >= 0 {
+		tail := sv.Detail[idx+len("kind="):]
+		end := strings.IndexAny(tail, " ;,)\n")
+		if end < 0 {
+			end = len(tail)
+		}
+		return strings.TrimSpace(tail[:end])
+	}
+	return "<missing block kind from validator detail>"
+}
+
+// principalClaimUseTarget builds the FieldPath for a
+// principal-claim-use-missing violation. Falls back to a generic
+// path when BlockID is empty.
+func principalClaimUseTarget(sv types.ScoredViolation) string {
+	if sv.BlockID == "" {
+		return "blocks[].claim_uses"
+	}
+	return fmt.Sprintf("blocks[id=%q].claim_uses", sv.BlockID)
+}
+
+// extractFacetIDFromDetail reads the typed FieldPath when present
+// (validator emits "facet:<kind>"), otherwise scans Detail for the
+// quoted facet kind. Returns the kind or a placeholder.
+func extractFacetIDFromDetail(sv types.ScoredViolation) string {
+	// Detail typically contains: required facet "X" (essential) is not covered: ...
+	if idx := strings.Index(sv.Detail, "facet "); idx >= 0 {
+		tail := sv.Detail[idx+len("facet "):]
+		// Look for the quoted name following "facet ".
+		if start := strings.IndexByte(tail, '"'); start >= 0 {
+			rest := tail[start+1:]
+			if end := strings.IndexByte(rest, '"'); end > 0 {
+				return strings.TrimSpace(rest[:end])
+			}
+		}
+	}
+	return "<missing facet kind from validator detail>"
 }
 
 // renderLiveCoverageStatus is the P2 surface — computes per-block-kind
