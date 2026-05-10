@@ -65,6 +65,37 @@ codrax 的目标是让一个 LLM 在不出错的前提下回答一个真实代�
 
 系统里有大量"信号"——LLM 自评的 predicate、grep 命中数、相似度打分、子话题数量等。架构里有一条明确的红线：**精确信号（typed enum、数值比较、子串完全匹配、schema 校验过的字段）才能驱动硬性 gate**；嘈声信号（ranker 打分、heuristic 分类）只能驱动软提示（skill prompt 提醒、advisory log）。把硬 gate 架在嘈声信号上，必然导致结构正常的请求偶发被拒。
 
+### 1.6 模型 confidence 是 first-class 信号 — 系统侧硬 gate 必须给 typed escape
+
+> *客户的 trace：模型 `<think>` 明确写"the log is external and cannot be grounded"——系统仍硬卡 forced-read，模型被迫读 codrax 自家文件，最终从无关 type 名 confabulate 出错误故事。**模型已经表态、系统理应尊重；硬卡只会换来 hallucination**。*
+
+每一个**系统侧硬 gate**（forced-read / citation-floor / coverage 等）都必须有一条**模型可声明的 typed escape lane**——通过 emit-工具的 typed 字段表态，不靠 `<think>` 自由文本。系统按精确 typed 比较决定是否尊重模型的判断，并对每次 fire 做 audit telemetry 记录，便于事后审计是否被滥用。
+
+**当前已实现的 typed escape**:
+
+| Gate | Escape lane | 典型 reason | 实现 |
+|---|---|---|---|
+| `emit_investigation_complete` forced-read pending list | `evidence_floor_waiver`（model-declared） | `external_only_log` / `external_only_trace` / `no_repo_intersection` / `informational_runtime_only` | `internal/types/evidence_floor_waiver.go` + `internal/tool/emit_investigation_complete.go` |
+| `emit_investigation_complete` citation-floor pre-flight | `evidence_floor_waiver`（model-declared）**或** `LogBundle.IsExternalSource()`（system-derived） | 同上 | 同上 |
+| `emit_investigation_complete` absence-floor | `absence_justification`（model-declared） | 答案就是 zero / not-found | 已有 |
+| log_triage frame 自指陷阱 | 不是 gate，是 **typed signal**：`FrameDriftStatus` 渲染到 prompt section（"Frame ↔ current-code drift warning"） | LineDrift / TailRename / FileMoved / Unmappable | `internal/context/builder.go::renderLogTriageFrameDrift` |
+
+**红线对未来 gate 的约束**:
+- 新增 gate 时，**必须**同步设计 typed escape lane。**不允许**架"系统永远正确"的硬 gate
+- escape 通过 typed 字段表达，**不允许**靠 prompt 文本 / `<think>` 启发式触发（违反 R3）
+- 每个 escape 必须 audit log，字段为 `reason` enum + `rationale` 一句话
+- 系统检测到精确的 typed 反向信号（比如 `LogBundle.IsExternalSource()`）时也可自动 bypass — 但 **model-declared 优先**：模型表态后系统不应再二次审查"我同意不同意"
+
+**未引入 escape 的 gate（已审计、justified）**:
+- 工具参数 schema 校验（`confidence ∈ {high, medium}` / `result_kind ∈ {resolved, absence}`）— 这是 wire-format 边界，LLM 没有可表态空间，nothing to escape
+- L0/L0-B/L0-C analyzer pre-emit shape gate（`is_category_enumeration=true` + 单 entity 互斥）— 这些是**模型自己声明的两个字段互相矛盾**的检测，模型自相矛盾不该用 escape 跳过
+- write-mode L1 byte-identity（`runReadSchedulerLoop` byte-preserved）— 写模式 0 字节副作用红线，无 escape 余地
+
+**总结架构原则**:
+1. 系统的 override 权只能基于精确 typed 信号（R3 红线，1.5 节）
+2. 系统的 override 权**必须**给模型 typed escape 渠道（R6 红线，本节）
+3. 二者合起来：**精确 vs 精确** — 系统说"这条规则成立" + 模型说"我的情况是例外"。两边都用 typed 信号，heuristic 永远只做软引导
+
 ---
 
 ## 2. 整体流水线
