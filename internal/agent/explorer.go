@@ -678,10 +678,30 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				// out .gitignore'd, binary, and language-irrelevant
 				// files) and free (no extra I/O).
 				if ctx.AnalysisIR != nil {
-					e.requiredFileHints = filterValidRequiredFileHints(
-						ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints,
-						sr.Graph,
-					)
+					rawHints := ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints
+					e.requiredFileHints = filterValidRequiredFileHints(rawHints, sr.Graph)
+					// L3 observability — log the high/soft/dropped
+					// distribution per dispatch so operators can
+					// audit how often the analyzer emits useful
+					// per-file confidence and how often the graph
+					// validator drops hallucinated entries. Only
+					// emits when the analyzer actually populated
+					// the field (avoid log noise on every dispatch).
+					if len(rawHints) > 0 {
+						high, soft, low := 0, 0, 0
+						for _, h := range e.requiredFileHints {
+							switch {
+							case h.Confidence >= requiredFileHintHighConfidence:
+								high++
+							case h.Confidence >= requiredFileHintSoftConfidence:
+								soft++
+							default:
+								low++
+							}
+						}
+						logging.Debug("[explorer] required_file_hints: emitted=%d kept=%d (high=%d soft=%d low=%d) dropped_by_graph=%d",
+							len(rawHints), len(e.requiredFileHints), high, soft, low, len(rawHints)-len(e.requiredFileHints))
+					}
 				} else {
 					e.requiredFileHints = nil
 				}

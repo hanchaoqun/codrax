@@ -244,6 +244,53 @@ If you call any other tool or produce text without a tool call, this dispatch wi
 // concrete description of the structural issue rather than a code
 // reference. Internal Detail still flows to logs verbatim via the
 // gate's recordReconcileObservation path.
+// composeRequiredFileHintsRetryAdvice (2026-05-10 L3-T4) builds an
+// optional advisory paragraph appended to the analyzer's retry hint
+// when the prior emit_analysis carried RequiredFileHints whose
+// confidence sat in the borderline band (0.5–0.79). The downstream
+// explorer threshold-bands those entries: ≥0.8 join the primary set
+// + pre-read pool; 0.5–0.79 are pre-read only; <0.5 are dropped.
+//
+// Borderline entries are advisory hints to the LLM that "you can
+// either confirm this file with stronger evidence — push the
+// confidence up — or drop it — let the deterministic resolver
+// decide." This nudges the next dispatch toward a clearer signal
+// rather than the same lukewarm recommendation.
+//
+// Returns empty string when:
+//   - ir is nil
+//   - no RequiredFileHints were emitted
+//   - all hints are already at high confidence (≥0.8) — no advice
+//   - all hints are below 0.5 — already dropped, no advice
+//
+// Cross-language: the returned text uses generic phrasing ("file"
+// not "Go file" / "Python module") so it applies to every language
+// codrax's repomap supports.
+func composeRequiredFileHintsRetryAdvice(ir *types.AnalysisIR) string {
+	if ir == nil {
+		return ""
+	}
+	hints := ir.RequestModel.AnalyzerHints.RequiredFileHints
+	if len(hints) == 0 {
+		return ""
+	}
+	var borderline []types.RequiredFileHint
+	for _, h := range hints {
+		if h.Confidence >= 0.5 && h.Confidence < 0.8 {
+			borderline = append(borderline, h)
+		}
+	}
+	if len(borderline) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Your prior emit listed these files at borderline confidence (0.5–0.79). On retry, either confirm with a stronger rationale (push confidence ≥ 0.8 so the next stage treats the file as primary) OR drop the entry (let the deterministic file resolver decide):\n")
+	for _, h := range borderline {
+		fmt.Fprintf(&b, "  - `%s` (confidence %.2f)\n", h.Path, h.Confidence)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 func composeCoherenceRetryHint(report types.GateReport) string {
 	if !report.Rejected {
 		return ""
@@ -1069,11 +1116,27 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			// reached the prompt — wasted retries until the LLM
 			// happened to guess the right axis to widen.
 			if ctx != nil && ctx.Mutable != nil {
+				baseHint := ""
 				if hint := composeCoherenceRetryHint(ir.QualityGate); hint != "" {
-					ctx.Mutable.SetAnalyzerRetryHint(hint)
+					baseHint = hint
 				} else {
-					ctx.Mutable.SetAnalyzerRetryHint(buildGenericGateRetryHint(detail))
+					baseHint = buildGenericGateRetryHint(detail)
 				}
+				// L3-T4 (2026-05-10) — append a per-file-confidence
+				// nudge when the LLM's prior emit included low- or
+				// borderline-confidence required_files. This is
+				// purely advisory; the LLM is free to keep its prior
+				// recommendations. Only fires when there's
+				// something to comment on (no echo for empty or
+				// unanimously-confident hint sets).
+				if extra := composeRequiredFileHintsRetryAdvice(ir); extra != "" {
+					if baseHint != "" {
+						baseHint = baseHint + "\n\n" + extra
+					} else {
+						baseHint = extra
+					}
+				}
+				ctx.Mutable.SetAnalyzerRetryHint(baseHint)
 			}
 			return out, nil
 		}
