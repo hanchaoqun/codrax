@@ -5,10 +5,21 @@
 # binary.
 #
 # Notes by host OS:
-#   - Linux/macOS: recipes run directly in a POSIX shell.
+#   - Linux:   recipes run directly in a POSIX shell. `make static` produces
+#              a fully static Linux/musl binary natively.
+#   - macOS:   recipes run directly in a POSIX shell. `make` (default), tests,
+#              `make cross-darwin*`, and `make eval-patch*` all work with the
+#              Xcode Command Line Tools' clang. `make static` fail-louds
+#              because Apple does not ship a static libc; for a real Linux
+#              static binary install Homebrew's FiloSottile/musl-cross
+#              tap and pass `MUSL_CC=x86_64-linux-musl-gcc`. `make release`
+#              builds the two darwin legs natively and soft-skips the linux
+#              and windows legs unless musl-gcc / x86_64-w64-mingw32-gcc
+#              are on PATH.
 #   - Windows: recipes run in PowerShell so native `make` works without
-#     requiring MSYS bash. `make static` delegates to WSL and uses musl-gcc
-#     there, because a real Linux static binary is a Linux toolchain job.
+#              requiring MSYS bash. `make static` delegates to WSL and uses
+#              musl-gcc there, because a real Linux static binary is a Linux
+#              toolchain job.
 
 BINARY       := codrax
 GO           := go
@@ -45,6 +56,7 @@ export CGO_CFLAGS := $(CGO_CFLAGS) -w
 
 ifeq ($(OS),Windows_NT)
   HOST_OS := windows
+  HOST_KIND := windows
   SHELL := powershell.exe
   .SHELLFLAGS := -NoProfile -Command
   EXEEXT := .exe
@@ -55,6 +67,16 @@ ifeq ($(OS),Windows_NT)
   WSL_REPO := $(shell powershell -NoProfile -Command "'/mnt/' + (Resolve-Path '.').Path.Substring(0,1).ToLower() + (Resolve-Path '.').Path.Substring(2).Replace('\','/')")
 else
   HOST_OS := unix
+  # HOST_KIND splits unix into darwin vs linux so the static / release
+  # / verify-static recipes can take macOS-specific branches without
+  # duplicating the whole non-Windows block. Anything that is not
+  # macOS (Linux, BSD, …) routes through the linux branch since that
+  # is the historical default.
+  ifeq ($(shell uname -s 2>/dev/null),Darwin)
+    HOST_KIND := darwin
+  else
+    HOST_KIND := linux
+  endif
   EXEEXT :=
   OUT := $(BINARY)
   VERSION_DATE := $(shell date -u '+%Y%m%d')
@@ -101,6 +123,26 @@ static:
 
 static-native:
 	Write-Error 'static-native is a Linux/WSL-only target. Use ''make static'' from Windows.' -ErrorAction Stop
+else ifeq ($(HOST_KIND),darwin)
+# macOS host: a fully static Linux binary needs musl-gcc + GNU
+# binutils, neither of which is in a default macOS toolchain (Apple
+# also does not ship libc.a, so a "macOS-static" output isn't
+# meaningful in the same sense). Fail loud with a path forward
+# instead of half-completing through clang and producing a broken
+# artifact.
+static:
+	@echo "make static targets a fully static Linux binary; macOS hosts cannot build it natively." >&2
+	@echo "Options:" >&2
+	@echo "  - Native macOS binary: 'make' (default), or 'make cross-darwin' / 'make cross-darwin-arm64'" >&2
+	@echo "  - Real Linux static via Homebrew musl-cross:" >&2
+	@echo "      brew install FiloSottile/musl-cross/musl-cross" >&2
+	@echo "      make static MUSL_CC=x86_64-linux-musl-gcc" >&2
+	@echo "  - Or run 'make static' inside a Linux container / VM." >&2
+	@exit 1
+
+static-native:
+	@echo "static-native is Linux-only; on macOS run 'make' for the native binary, or see 'make static' for cross-static guidance." >&2
+	@exit 1
 else
 static: static-native
 
@@ -163,6 +205,29 @@ release: clean-dist
 	& wsl bash -lc "set -euo pipefail; command -v $(MUSL_CC) >/dev/null 2>&1 || { echo 'musl-gcc not found in WSL; install musl-tools first.'; exit 1; }; cd '$(WSL_REPO)' && export GOPROXY='$(WSL_GOPROXY)' GOSUMDB='$(WSL_GOSUMDB)' && CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '-linkmode external -extldflags `"-static`" $(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-linux-amd64 ."
 	Write-Host 'Skipped Darwin artifacts on Windows host.'
 	Get-ChildItem dist
+else ifeq ($(HOST_KIND),darwin)
+# macOS host: build the two darwin legs natively, attempt linux-amd64
+# only if musl-gcc is on PATH (e.g. via Homebrew musl-cross), and
+# attempt windows only if x86_64-w64-mingw32-gcc is present
+# (mingw-w64 brew tap). Both Linux and Windows legs are leading-`-`
+# soft failures so an operator without those toolchains still gets
+# the darwin artifacts. Use 'make release-strict' if you need the
+# whole matrix to fail loud.
+release: clean-dist
+	@mkdir -p dist
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-darwin-amd64 .
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-darwin-arm64 .
+	@if command -v $(MUSL_CC) >/dev/null 2>&1; then \
+		CGO_ENABLED=1 CC=$(MUSL_CC) GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '-linkmode external -extldflags "-static" $(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-linux-amd64 . ; \
+	else \
+		echo "skip dist/$(BINARY)-linux-amd64: $(MUSL_CC) not found (brew install FiloSottile/musl-cross/musl-cross to enable)" >&2 ; \
+	fi
+	@if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then \
+		CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc $(GO) build $(GOFLAGS) -ldflags '$(LD_VERSION) $(LDFLAGS)' -o dist/$(BINARY)-windows-amd64.exe . ; \
+	else \
+		echo "skip dist/$(BINARY)-windows-amd64.exe: x86_64-w64-mingw32-gcc not found (brew install mingw-w64 to enable)" >&2 ; \
+	fi
+	@ls -lh dist/
 else
 release: clean-dist
 	@mkdir -p dist
@@ -298,6 +363,25 @@ verify-static: static
 
 verify-windows-runtime: build
 	$$dlls = (& objdump -p $(OUT) | Select-String 'DLL Name' | Out-String); Write-Host $$dlls; if ($$dlls -match 'libgcc|libstdc\+\+|libwinpthread') { Write-Error 'Unexpected MinGW runtime DLL dependency detected.' -ErrorAction Stop } else { Write-Host 'OK: no MinGW runtime DLL dependencies detected.' }
+else ifeq ($(HOST_KIND),darwin)
+# macOS host: 'make static' fails loud (see static target above), so
+# the standard verify-static path can't run. If a user produced a
+# Linux static binary via musl-cross + 'make static MUSL_CC=…',
+# verify it with the linux flow inside a Linux container/VM. On
+# macOS the natural verification is otool against the native binary;
+# the rule below runs that on whatever $(BINARY) currently exists,
+# and reports the macOS-side runtime deps.
+verify-static:
+	@if [ ! -x "$(BINARY)" ]; then \
+		echo "$(BINARY) not found; run 'make' first." >&2 ; \
+		exit 1 ; \
+	fi
+	@echo "macOS hosts cannot produce a fully static binary natively."
+	@echo "Reporting native dynamic deps via otool -L $(BINARY):"
+	@otool -L $(BINARY) || true
+
+verify-windows-runtime:
+	@echo "verify-windows-runtime is intended for Windows-hosted builds."
 else
 verify-static: static
 	@file $(BINARY) | grep -q "statically linked" && \
@@ -327,12 +411,17 @@ info:
 	try { & gcc --version | Select-Object -First 1 } catch { Write-Host 'gcc not found' }
 else
 info:
-	@echo "HOST_OS: $(HOST_OS)"
-	@echo "GOOS:    $(GOOS)"
-	@echo "GOARCH:  $(GOARCH)"
-	@echo "VERSION: $(VERSION)"
-	@echo "GO:      $(shell $(GO) version)"
-	@echo "CC:      $(shell $(CC) --version 2>/dev/null | head -1 || echo 'not found')"
+	@echo "HOST_OS:   $(HOST_OS)"
+	@echo "HOST_KIND: $(HOST_KIND)"
+	@echo "GOOS:      $(GOOS)"
+	@echo "GOARCH:    $(GOARCH)"
+	@echo "VERSION:   $(VERSION)"
+	@echo "GO:        $(shell $(GO) version)"
+	@echo "CC:        $(shell { $${CC:-cc} --version 2>/dev/null || cc --version 2>/dev/null; } | head -1)"
+ifeq ($(HOST_KIND),darwin)
+	@echo "MUSL_CC:   $(shell command -v $(MUSL_CC) 2>/dev/null || echo 'not found (brew install FiloSottile/musl-cross/musl-cross)')"
+	@echo "MINGW:     $(shell command -v x86_64-w64-mingw32-gcc 2>/dev/null || echo 'not found (brew install mingw-w64)')"
+endif
 endif
 
 # ---------------------------------------------------------------------------
@@ -363,3 +452,9 @@ help:
 	@echo "Windows notes:"
 	@echo "  - Native build/test use PowerShell recipes."
 	@echo "  - make static delegates to WSL and requires musl-gcc there."
+	@echo ""
+	@echo "macOS notes:"
+	@echo "  - 'make' / 'make test' / 'make cross-darwin*' / 'make eval-patch*' work natively (Xcode CLT)."
+	@echo "  - 'make static' fail-louds (Apple does not ship a static libc); use 'make' for native or musl-cross for cross-static."
+	@echo "  - 'make release' soft-skips the linux/windows legs unless musl-gcc / x86_64-w64-mingw32-gcc are on PATH (brew install FiloSottile/musl-cross/musl-cross && brew install mingw-w64)."
+	@echo "  - 'make verify-static' on macOS reports otool deps of the native binary (Linux-static verification needs a Linux host)."
