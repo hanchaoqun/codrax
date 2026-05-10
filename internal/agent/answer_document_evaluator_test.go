@@ -1484,6 +1484,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogSourceDriftGu
 			},
 		},
 		LogTriage: &types.LogBundle{
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
 			Errors: []types.LogError{{
 				Frames: []types.LogFrame{
 					{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
@@ -1935,6 +1936,82 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGroundingDisposition(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
+		Reason:    types.EvidenceFloorWaiverNoRepoIntersection,
+		Rationale: "synthetic frames represent a different deployed build",
+	})
+	mut.RetainEvidenceFloorWaiver()
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel:   types.RequestModel{Scenario: types.ScenarioRootCause, Intent: types.IntentRootCause},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Runtime Grounding Disposition",
+		"`no_repo_intersection`",
+		"synthetic frames represent a different deployed build",
+		"`citation_ref=-1`",
+		"do not present them as the source of the runtime observation",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_LogSourceDriftHonorsRuntimeDisposition(t *testing.T) {
+	plan := &types.AnswerSurfacePlan{
+		RuntimeGroundingDisposition: &types.RuntimeGroundingDisposition{
+			Source:         types.RuntimeGroundingModelDeclared,
+			Reason:         types.EvidenceFloorWaiverNoRepoIntersection,
+			Rationale:      "different deployed build",
+			CitationPolicy: types.RuntimeGroundingCitationRuntimeObservation,
+		},
+		LogSourceDriftAnchors: []types.LogSourceDriftAnchor{{
+			File:         "a.go",
+			ObservedLine: 20,
+			AnchoredLine: 40,
+			Func:         "Run",
+		}},
+	}
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState("q"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel:   types.RequestModel{Scenario: types.ScenarioRootCause, Intent: types.IntentRootCause},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+	ctx.Mutable.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
+		Reason:    plan.RuntimeGroundingDisposition.Reason,
+		Rationale: plan.RuntimeGroundingDisposition.Rationale,
+	})
+	ctx.Mutable.RetainEvidenceFloorWaiver()
+	ctx.EvidenceItems = []types.EvidenceItem{{
+		Source:          "a.go",
+		LineStart:       40,
+		AnchorSymbol:    "Run",
+		GroundingStatus: types.GroundingGrounded,
+		Authority:       types.AuthorityConditional,
+		Origin:          types.ClaimOriginLog,
+		DriftReason:     types.DriftReasonLineDrift,
+	}}
+	ctx.LogTriage = &types.LogBundle{Errors: []types.LogError{{Frames: []types.LogFrame{{File: "a.go", Line: 20, Func: "Run", Raw: "a.go:20"}}}}}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "observation-first for citation purposes") {
+		t.Fatalf("drift section must honor runtime disposition:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Treat the current repo as the authoritative explanation surface") {
+		t.Fatalf("drift section must not contradict runtime disposition:\n%s", prompt)
 	}
 }
 

@@ -35,6 +35,7 @@ type AnswerSurfacePlan struct {
 	LogSourceDriftAnchors          []LogSourceDriftAnchor
 	LogObservedAnchors             []LogSourceDriftAnchor
 	DriftBoundedSurfaceItems       []EvidenceItem
+	RuntimeGroundingDisposition    *RuntimeGroundingDisposition
 
 	ExactResolution          *ExactResolutionContract
 	PreferredExactResolution *AnswerExactResolution
@@ -81,15 +82,17 @@ type AnswerSurfacePlan struct {
 // default?") where return / assignment anchors ARE the mechanism the
 // user is asking about.
 //
-// The judgement uses two structural signals already present on the
+// The judgement uses typed structural signals already present on the
 // surface plan, both populated only by the log_triage / perf_triage
 // pipelines:
 //
-//  1. ExternalObservationSeeds — populated by
+//  1. RuntimeGroundingDisposition — a model-declared or system-detected
+//     statement that runtime artifact facts are observation-first.
+//  2. ExternalObservationSeeds — populated by
 //     CollectExternalObservationSeeds from a non-nil LogBundle (kinds:
 //     "error_type" / "signal" / "log_frame" / "log_residue"). Empty
 //     when no runtime artifact was attached.
-//  2. LogObservedAnchors — runtime frames lifted from the typed
+//  3. LogObservedAnchors — runtime frames lifted from the typed
 //     bundle's resolved files. Empty when no log_triage ran or no
 //     frame resolved.
 //
@@ -106,6 +109,9 @@ type AnswerSurfacePlan struct {
 func (plan *AnswerSurfacePlan) IsCrashSourcedRootCause() bool {
 	if plan == nil {
 		return false
+	}
+	if plan.RuntimeGroundingDisposition.IsActive() {
+		return true
 	}
 	if len(plan.ExternalObservationSeeds) > 0 {
 		return true
@@ -1203,6 +1209,12 @@ func BuildAnswerSurfacePlan(
 		// Round-8: pull PerfBundle so trace-attached runs participate
 		// in the drift-anchor derive pipeline symmetrically with logs.
 		perfBundle = mutable.PerfTrace()
+		plan.RuntimeGroundingDisposition = RuntimeGroundingDispositionFromWaiver(
+			mutable.StableEvidenceFloorWaiver(),
+		)
+	}
+	if plan.RuntimeGroundingDisposition == nil {
+		plan.RuntimeGroundingDisposition = SystemRuntimeGroundingDisposition(logBundle, perfBundle)
 	}
 	plan.StableAbsent = strings.EqualFold(plan.StableInvestigationResultKind, "absence") &&
 		plan.StableAbsenceJustification != ""
@@ -1659,32 +1671,31 @@ func collectAllLogFrames(bundle *LogBundle) []LogFrame {
 	}
 	resolved := make([]LogFrame, 0, 8)
 	// Pass 1: file+line frames first (priority).
-	for _, err := range bundle.Errors {
-		for _, frame := range err.Frames {
-			if len(resolved) >= 8 {
-				return resolved
-			}
-			if frame.File == "" || frame.Line <= 0 {
-				continue
-			}
-			resolved = append(resolved, frame)
+	WalkLogFrames(bundle, func(frame LogFrame) {
+		if len(resolved) >= 8 {
+			return
 		}
+		if frame.File == "" || frame.Line <= 0 {
+			return
+		}
+		resolved = append(resolved, frame)
+	})
+	if len(resolved) >= 8 {
+		return resolved
 	}
 	// Pass 2: symbol-only frames (Func set, File or Line missing).
-	for _, err := range bundle.Errors {
-		for _, frame := range err.Frames {
-			if len(resolved) >= 8 {
-				return resolved
-			}
-			if frame.File != "" && frame.Line > 0 {
-				continue // already taken in pass 1
-			}
-			if strings.TrimSpace(frame.Func) == "" {
-				continue
-			}
-			resolved = append(resolved, frame)
+	WalkLogFrames(bundle, func(frame LogFrame) {
+		if len(resolved) >= 8 {
+			return
 		}
-	}
+		if frame.File != "" && frame.Line > 0 {
+			return // already taken in pass 1
+		}
+		if strings.TrimSpace(frame.Func) == "" {
+			return
+		}
+		resolved = append(resolved, frame)
+	})
 	return resolved
 }
 
@@ -1880,10 +1891,10 @@ func deriveLogObservedAnchorsFromEvidence(bundle *LogBundle, items []EvidenceIte
 // "best candidate wins" semantic):
 //   - For each frame, find the SAME-FILE same-tail item closest to
 //     frame.Line. Project that item only:
-//       * gap ≤ 4   → cross-source factual (observed, no drift)
-//       * gap > 48  → log conditional, DriftReason = line_drift
-//       * 4 < gap ≤ 48 → cross-source factual (close enough, sibling
-//         within function but observed line)
+//   - gap ≤ 4   → cross-source factual (observed, no drift)
+//   - gap > 48  → log conditional, DriftReason = line_drift
+//   - 4 < gap ≤ 48 → cross-source factual (close enough, sibling
+//     within function but observed line)
 //   - Same-file items not picked as "best" by any frame are LEFT
 //     un-projected (sibling anchors in the same function don't
 //     count as drift of the frame).
@@ -2303,35 +2314,36 @@ func CollectExternalObservationSeeds(bundle *LogBundle, observed []LogSourceDrif
 			return out
 		}
 	}
-	for _, err := range bundle.Errors {
-		for _, frame := range err.Frames {
-			if strings.TrimSpace(frame.Raw) == "" && strings.TrimSpace(frame.Func) == "" {
-				continue
-			}
-			seed := ExternalObservationSeed{
-				Kind: "log_frame",
-				Raw:  strings.TrimSpace(frame.Raw),
-				File: strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`)),
-				Line: frame.Line,
-				Func: strings.TrimSpace(frame.Func),
-			}
-			if seed.File != "" && seed.Line > 0 {
-				if anchor, ok := anchorByObserved[fmt.Sprintf("%s:%d", seed.File, seed.Line)]; ok {
-					seed.AnchoredFile = strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
-					seed.AnchoredLine = anchor.AnchoredLine
-				}
-			}
-			if (seed.AnchoredFile == "" || seed.AnchoredLine <= 0) && seed.Func != "" {
-				if anchor, ok := anchorByFunc[normalizedSurfaceSymbolTail(seed.Func)]; ok {
-					seed.AnchoredFile = strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
-					seed.AnchoredLine = anchor.AnchoredLine
-				}
-			}
-			record(seed)
-			if len(out) >= 6 {
-				return out
+	WalkLogFrames(bundle, func(frame LogFrame) {
+		if len(out) >= 6 {
+			return
+		}
+		if strings.TrimSpace(frame.Raw) == "" && strings.TrimSpace(frame.Func) == "" {
+			return
+		}
+		seed := ExternalObservationSeed{
+			Kind: "log_frame",
+			Raw:  strings.TrimSpace(frame.Raw),
+			File: strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`)),
+			Line: frame.Line,
+			Func: strings.TrimSpace(frame.Func),
+		}
+		if seed.File != "" && seed.Line > 0 {
+			if anchor, ok := anchorByObserved[fmt.Sprintf("%s:%d", seed.File, seed.Line)]; ok {
+				seed.AnchoredFile = strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+				seed.AnchoredLine = anchor.AnchoredLine
 			}
 		}
+		if (seed.AnchoredFile == "" || seed.AnchoredLine <= 0) && seed.Func != "" {
+			if anchor, ok := anchorByFunc[normalizedSurfaceSymbolTail(seed.Func)]; ok {
+				seed.AnchoredFile = strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+				seed.AnchoredLine = anchor.AnchoredLine
+			}
+		}
+		record(seed)
+	})
+	if len(out) >= 6 {
+		return out
 	}
 	// Round-9 user red line: "log/trace 里也有大量没有行号的不规则
 	// 输出和打印, 这些信息如果对齐了用户问题意图, 也不能在后续流程中

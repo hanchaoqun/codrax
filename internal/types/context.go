@@ -357,10 +357,16 @@ type MutableState struct {
 	// forced-read and citation-floor gates. Set via
 	// emit_investigation_complete's `evidence_floor_waiver` field;
 	// empty / nil means "no waiver claimed, ordinary repo grounding
-	// applies". Survives window resets (treated as a per-task
-	// declaration; resetting on retry would erase the model's
-	// confident judgment and force re-declaration).
+	// applies". Survives window resets for retry-local gate use
+	// (resetting on retry would erase the model's confident judgment
+	// and force re-declaration).
 	evidenceFloorWaiver *EvidenceFloorWaiver
+
+	// retainedEvidenceFloorWaiver is promoted only after a successful
+	// emit_investigation_complete. Downstream answer-surface builders
+	// read this stable copy so a waiver accepted syntactically but later
+	// rejected by another completion gate cannot leak into finalization.
+	retainedEvidenceFloorWaiver *EvidenceFloorWaiver
 
 	// exploreBudget is the ExploreBudget the orchestrator installs
 	// at the top of runTaskGraph. The explorer's ReAct loop reads
@@ -554,7 +560,6 @@ type MutableState struct {
 	// route around. R6-clean: contains no internal pipeline
 	// terms. Empty when no Tier 2 gap was detected.
 	tier2CompletenessHint string
-
 
 	// unvalidatedReasons collects per-language static-check stages
 	// that were skipped because their toolchain was unavailable
@@ -2966,6 +2971,7 @@ func (m *MutableState) SetEvidenceFloorWaiver(w *EvidenceFloorWaiver) {
 	defer m.mu.Unlock()
 	if w == nil {
 		m.evidenceFloorWaiver = nil
+		m.retainedEvidenceFloorWaiver = nil
 		return
 	}
 	// Defensive copy so the caller's pointer cannot mutate stored state.
@@ -2986,6 +2992,53 @@ func (m *MutableState) EvidenceFloorWaiver() *EvidenceFloorWaiver {
 		return nil
 	}
 	clone := *m.evidenceFloorWaiver
+	return &clone
+}
+
+// ClearEvidenceFloorWaiver clears both the current retry-local waiver
+// and any retained successful waiver. Use this for an explicit model
+// retraction; ResetInvestigationComplete intentionally does not call it.
+func (m *MutableState) ClearEvidenceFloorWaiver() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.evidenceFloorWaiver = nil
+	m.retainedEvidenceFloorWaiver = nil
+}
+
+// RetainEvidenceFloorWaiver promotes the current waiver into the stable
+// answer-surface slot after emit_investigation_complete has passed every
+// completion gate. If no current active waiver exists, the stable slot is
+// cleared so a later normal completion can retract a prior waiver.
+func (m *MutableState) RetainEvidenceFloorWaiver() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.evidenceFloorWaiver.IsActive() {
+		m.retainedEvidenceFloorWaiver = nil
+		return
+	}
+	clone := *m.evidenceFloorWaiver
+	m.retainedEvidenceFloorWaiver = &clone
+}
+
+// StableEvidenceFloorWaiver returns the waiver from the most recently
+// successful emit_investigation_complete, or nil when no successful
+// completion retained one. The returned pointer is a defensive copy.
+func (m *MutableState) StableEvidenceFloorWaiver() *EvidenceFloorWaiver {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if !m.retainedEvidenceFloorWaiver.IsActive() {
+		return nil
+	}
+	clone := *m.retainedEvidenceFloorWaiver
 	return &clone
 }
 

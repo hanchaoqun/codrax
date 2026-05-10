@@ -24,18 +24,41 @@ package types
 // JSON tags are stable — this struct is part of the write-once
 // handoff contract and gets persisted in the Run's debug log.
 type PerfBundle struct {
-	Meta     PerfMeta      `json:"meta"`
-	Frames   []PerfFrame   `json:"frames,omitempty"`
-	Janks    []PerfJank    `json:"janks,omitempty"`
-	Stalls   []PerfStall   `json:"stalls,omitempty"`
-	Startup  *PerfStartup  `json:"startup,omitempty"`
-	Residue  []string      `json:"residue,omitempty"`
-	Coverage float64       `json:"coverage,omitempty"`
+	Meta     PerfMeta     `json:"meta"`
+	Frames   []PerfFrame  `json:"frames,omitempty"`
+	Janks    []PerfJank   `json:"janks,omitempty"`
+	Stalls   []PerfStall  `json:"stalls,omitempty"`
+	Startup  *PerfStartup `json:"startup,omitempty"`
+	Residue  []string     `json:"residue,omitempty"`
+	Coverage float64      `json:"coverage,omitempty"`
 
 	// Layer-4 derivation. Validator-written.
 	ResolvedFiles []string `json:"resolved_files,omitempty"`
 	Entities      []string `json:"entities,omitempty"`
 	IntentHint    string   `json:"intent_hint,omitempty"` // "performance" when any jank present
+}
+
+// HasStructuredObservations reports whether the perf bundle carries at
+// least one typed runtime observation. Residue-only bundles are excluded:
+// they are useful context, but not precise enough to drive hard
+// grounding-disposition decisions.
+func (b *PerfBundle) HasStructuredObservations() bool {
+	if b == nil {
+		return false
+	}
+	return len(b.Frames) > 0 || len(b.Janks) > 0 || len(b.Stalls) > 0 || b.Startup != nil
+}
+
+// IsExternalSource reports whether the trace has structured perf
+// observations but none of them resolve to current-repo files. This is
+// the trace analogue of LogBundle.IsExternalSource: runtime facts remain
+// answer-grade, but repo file:line citations are not the source of those
+// facts.
+func (b *PerfBundle) IsExternalSource() bool {
+	if b == nil {
+		return false
+	}
+	return len(b.ResolvedFiles) == 0 && b.HasStructuredObservations()
 }
 
 // PerfMeta carries trace-level descriptive fields.
@@ -100,22 +123,22 @@ type PerfJank struct {
 // a separate slice so consumers can list stalls without walking
 // Jank.Tags.
 type PerfStall struct {
-	StartTsMs   float64 `json:"start_ts_ms"`
-	DurationMs  float64 `json:"duration_ms"`
-	Kind        string  `json:"kind,omitempty"` // "io" / "lock" / "sync-rpc" / "native-call" / ""
-	Symbol      string  `json:"symbol,omitempty"`
-	File        string  `json:"file,omitempty"`
-	Line        int     `json:"line,omitempty"`
+	StartTsMs  float64 `json:"start_ts_ms"`
+	DurationMs float64 `json:"duration_ms"`
+	Kind       string  `json:"kind,omitempty"` // "io" / "lock" / "sync-rpc" / "native-call" / ""
+	Symbol     string  `json:"symbol,omitempty"`
+	File       string  `json:"file,omitempty"`
+	Line       int     `json:"line,omitempty"`
 }
 
 // PerfStartup carries cold-start / warm-start timing when the trace
 // covers a process-spawn event (detected by `ActivityTaskManager`
 // or `AppInit` tags). Single-occurrence per bundle.
 type PerfStartup struct {
-	Mode           string  `json:"mode"` // "cold" / "warm" / "hot"
-	AppLaunchMs    float64 `json:"app_launch_ms,omitempty"`
-	AbilityInitMs  float64 `json:"ability_init_ms,omitempty"`
-	FirstFrameMs   float64 `json:"first_frame_ms,omitempty"`
+	Mode          string  `json:"mode"` // "cold" / "warm" / "hot"
+	AppLaunchMs   float64 `json:"app_launch_ms,omitempty"`
+	AbilityInitMs float64 `json:"ability_init_ms,omitempty"`
+	FirstFrameMs  float64 `json:"first_frame_ms,omitempty"`
 }
 
 // Jank threshold constants the validator uses to populate Meta.Signals

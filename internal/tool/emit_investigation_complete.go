@@ -91,6 +91,10 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 					}
 				},
 				"required": ["reason", "rationale"]
+			},
+			"clear_evidence_floor_waiver": {
+				"type": "boolean",
+				"description": "OPTIONAL. Set true only to explicitly retract a previously declared evidence_floor_waiver after new investigation shows repo grounding DOES apply. Do not set this together with evidence_floor_waiver."
 			}
 		},
 		"required": ["reason", "confidence", "result_kind"]
@@ -121,6 +125,7 @@ type emitInvestigationCompleteParams struct {
 	ResultKind           string                                  `json:"result_kind"`
 	AbsenceJustification string                                  `json:"absence_justification,omitempty"`
 	EvidenceFloorWaiver  *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
+	ClearEvidenceWaiver  bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
 }
 
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
@@ -186,7 +191,19 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// reads the stored waiver to decide whether to relax. Validate
 	// here so a malformed payload fails early with a clear retry hint
 	// instead of silently being honored or silently being ignored.
-	if p.EvidenceFloorWaiver != nil {
+	if p.ClearEvidenceWaiver && p.EvidenceFloorWaiver != nil {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Summary: "emit_investigation_complete rejected: clear_evidence_floor_waiver cannot be set together with evidence_floor_waiver. " +
+				"Either declare a new waiver or explicitly retract the existing one, not both.",
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	if p.ClearEvidenceWaiver {
+		ctx.Mutable.ClearEvidenceFloorWaiver()
+		logging.Info("[emit_investigation_complete] evidence_floor_waiver explicitly cleared")
+	} else if p.EvidenceFloorWaiver != nil {
 		waiverReason := strings.TrimSpace(p.EvidenceFloorWaiver.Reason)
 		waiverRationale := strings.TrimSpace(p.EvidenceFloorWaiver.Rationale)
 		if waiverReason == "" {
@@ -582,6 +599,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	reason = normalizeLogSourceDriftCompletionReason(ctx, reason)
 	ctx.Mutable.SetInvestigationComplete(reason)
 	ctx.Mutable.SetInvestigationResultKind(resultKind)
+	ctx.Mutable.RetainEvidenceFloorWaiver()
 	summary := fmt.Sprintf("Investigation marked complete (confidence=%s, result_kind=%s): %s", conf, resultKind, reason)
 	if justification != "" {
 		ctx.Mutable.SetAbsenceJustification(justification)
@@ -753,15 +771,15 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 
 	// Model-declared evidence_floor_waiver short-circuits both the
 	// forced-read pending check (Check a) and the citation-floor
-	// pre-flight (Check b). System-derived
-	// LogBundle.IsExternalSource() also short-circuits (only the
-	// citation floor today; we extend it to forced-read here so
-	// the architecture is symmetric: both system-detected and
-	// model-declared external scenarios bypass the same gates).
-	systemDetectedExternalLog := false
+	// pre-flight (Check b). System-derived external runtime artifacts
+	// short-circuit the same gates so log and trace channels stay
+	// symmetric.
+	systemDetectedExternalRuntime := ""
 	if ctx.Mutable != nil {
 		if bundle := ctx.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
-			systemDetectedExternalLog = true
+			systemDetectedExternalRuntime = "system-detected external-source log"
+		} else if perf := ctx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
+			systemDetectedExternalRuntime = "system-detected external-source trace"
 		}
 	}
 	modelDeclaredWaiver := ctx.Mutable.EvidenceFloorWaiver()
@@ -782,12 +800,12 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	// an external-source log. In those scenarios, demanding repo
 	// reads only forces the LLM to read unrelated files and risk
 	// confabulation (the customer-reported logtri_custom failure).
-	if (modelDeclaredWaiver.IsActive() || systemDetectedExternalLog) && len(pending) > 0 {
+	if (modelDeclaredWaiver.IsActive() || systemDetectedExternalRuntime != "") && len(pending) > 0 {
 		var label string
 		if modelDeclaredWaiver.IsActive() {
 			label = fmt.Sprintf("evidence_floor_waiver=%s", modelDeclaredWaiver.Reason)
 		} else {
-			label = "system-detected external-source log"
+			label = systemDetectedExternalRuntime
 		}
 		logging.Info("[emit_investigation_complete] forced-read pending list bypassed by %s (pending=%d)",
 			label, len(pending))
@@ -844,6 +862,10 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 			// to use summary prose and citation_ref=-1 where appropriate;
 			// forcing a repo citation floor here only creates pointless
 			// read-more loops against unrelated files.
+			return ""
+		}
+		if perf := ctx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
+			logging.Info("[emit_investigation_complete] citation-floor bypassed by system-detected external-source trace")
 			return ""
 		}
 		// Model-declared waiver: parallels the system-detected

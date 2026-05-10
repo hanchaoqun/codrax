@@ -282,7 +282,14 @@ func logBundleFrameMatch(b *LogBundle, item EvidenceItem) bool {
 		return false
 	}
 	hit := false
-	walkLogErrorsForFrameMatch(b.Errors, item, &hit)
+	WalkLogFrames(b, func(f LogFrame) {
+		if hit {
+			return
+		}
+		if f.File == item.Source && (item.LineStart == 0 || f.Line == item.LineStart) {
+			hit = true
+		}
+	})
 	return hit
 }
 
@@ -296,54 +303,18 @@ func logBundleFrameInErrors(b *LogBundle, item EvidenceItem) bool {
 		return false
 	}
 	hit := false
-	walkLogErrorsForTypedFrameMatch(b.Errors, item, &hit)
+	WalkLogErrors(b, func(e *LogError) {
+		if hit || e == nil || e.Type == "" {
+			return
+		}
+		for _, f := range e.Frames {
+			if f.File == item.Source && (item.LineStart == 0 || f.Line == item.LineStart) {
+				hit = true
+				return
+			}
+		}
+	})
 	return hit
-}
-
-func walkLogErrorsForFrameMatch(errs []LogError, item EvidenceItem, hit *bool) {
-	if *hit {
-		return
-	}
-	for i := range errs {
-		e := &errs[i]
-		for _, f := range e.Frames {
-			if f.File == item.Source && (item.LineStart == 0 || f.Line == item.LineStart) {
-				*hit = true
-				return
-			}
-		}
-		if e.Cause != nil {
-			walkLogErrorsForFrameMatch([]LogError{*e.Cause}, item, hit)
-			if *hit {
-				return
-			}
-		}
-	}
-}
-
-func walkLogErrorsForTypedFrameMatch(errs []LogError, item EvidenceItem, hit *bool) {
-	if *hit {
-		return
-	}
-	for i := range errs {
-		e := &errs[i]
-		typed := e.Type != ""
-		for _, f := range e.Frames {
-			if !typed {
-				continue
-			}
-			if f.File == item.Source && (item.LineStart == 0 || f.Line == item.LineStart) {
-				*hit = true
-				return
-			}
-		}
-		if e.Cause != nil {
-			walkLogErrorsForTypedFrameMatch([]LogError{*e.Cause}, item, hit)
-			if *hit {
-				return
-			}
-		}
-	}
 }
 
 // perfFrameStallMatch reports whether the item's Source matches

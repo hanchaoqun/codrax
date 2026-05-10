@@ -8,11 +8,11 @@ package types
 //
 // The struct is split into four layers by origin and consumer:
 //
-//   Layer 1 — Meta:     LLM-emitted. Log-as-a-whole classification.
-//   Layer 2 — Errors:   LLM-emitted. Structured error tree.
-//   Layer 3 — Residue:  LLM-emitted. Chunks the LLM could not structure.
-//   Layer 4 — Derived:  System-emitted. Read-only to the LLM; written
-//                       exactly once by logtriage.ValidateBundle.
+//	Layer 1 — Meta:     LLM-emitted. Log-as-a-whole classification.
+//	Layer 2 — Errors:   LLM-emitted. Structured error tree.
+//	Layer 3 — Residue:  LLM-emitted. Chunks the LLM could not structure.
+//	Layer 4 — Derived:  System-emitted. Read-only to the LLM; written
+//	                    exactly once by logtriage.ValidateBundle.
 //
 // The boundary is load-bearing: LLM MUST NOT fill Layer 4 (the emit
 // tool's JSON schema rejects those fields), and the validator MUST
@@ -239,6 +239,45 @@ func AllLogSignals() []LogSignal {
 	}
 }
 
+// WalkLogErrors walks every top-level error and its Cause chain in
+// render order. The top-level Errors slice represents parallel error
+// snapshots; each Cause pointer represents chronological wrapping under
+// that snapshot. Nil bundle / nil visit are no-ops.
+func WalkLogErrors(bundle *LogBundle, visit func(*LogError)) {
+	if bundle == nil {
+		return
+	}
+	if visit == nil {
+		return
+	}
+	var walk func(*LogError)
+	walk = func(err *LogError) {
+		if err == nil {
+			return
+		}
+		visit(err)
+		walk(err.Cause)
+	}
+	for i := range bundle.Errors {
+		walk(&bundle.Errors[i])
+	}
+}
+
+// WalkLogFrames walks every frame from every top-level error and nested
+// Cause in render order. Callers that need priority ordering (for
+// example file+line frames before symbol-only frames) should do their
+// own two-pass filtering on top of this shared traversal.
+func WalkLogFrames(bundle *LogBundle, visit func(LogFrame)) {
+	if visit == nil {
+		return
+	}
+	WalkLogErrors(bundle, func(err *LogError) {
+		for _, frame := range err.Frames {
+			visit(frame)
+		}
+	})
+}
+
 // LogBundleErrorTypes walks every top-level error and its Cause chain,
 // returning the ordered, de-duplicated list of non-empty Type strings.
 // Downstream consumers use this shared helper instead of re-walking the
@@ -249,20 +288,12 @@ func LogBundleErrorTypes(bundle *LogBundle) []string {
 	}
 	var out []string
 	seen := make(map[string]bool)
-	var walk func(*LogError)
-	walk = func(err *LogError) {
-		if err == nil {
-			return
-		}
+	WalkLogErrors(bundle, func(err *LogError) {
 		if t := err.Type; t != "" && !seen[t] {
 			seen[t] = true
 			out = append(out, t)
 		}
-		walk(err.Cause)
-	}
-	for i := range bundle.Errors {
-		walk(&bundle.Errors[i])
-	}
+	})
 	return out
 }
 

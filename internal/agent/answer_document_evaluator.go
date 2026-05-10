@@ -235,6 +235,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if closure := renderAnswerDocAcceptedClosure(ctx); closure != "" {
 		b.WriteString(closure)
 	}
+	if disposition := renderAnswerDocRuntimeGroundingDisposition(ctx); disposition != "" {
+		b.WriteString(disposition)
+	}
 	renderedTypedSupport := false
 	if support := renderAnswerDocSupportPlan(ctx); support != "" {
 		renderedTypedSupport = true
@@ -2240,6 +2243,23 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	return b.String()
 }
 
+func renderAnswerDocRuntimeGroundingDisposition(ctx *types.AgentContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || !plan.RuntimeGroundingDisposition.IsActive() {
+		return ""
+	}
+	d := plan.RuntimeGroundingDisposition
+	var b strings.Builder
+	b.WriteString("## Runtime Grounding Disposition\n\n")
+	b.WriteString("A validated runtime artifact disposition says ordinary current-repo citation floors do not apply to the artifact's own observations.\n")
+	fmt.Fprintf(&b, "- Source: `%s`\n", d.Source)
+	fmt.Fprintf(&b, "- Reason: `%s`\n", d.Reason)
+	fmt.Fprintf(&b, "- Rationale: %s\n", strings.TrimSpace(d.Rationale))
+	b.WriteString("- Citation policy: claims whose source is the attached log / trace itself must use `citation_ref=-1` unless a cited current-repo line literally states the same claim.\n")
+	b.WriteString("- Current repository citations may still be used for explicitly read current-code context, but do not present them as the source of the runtime observation or as proof that the current checkout produced the captured log / trace.\n\n")
+	return b.String()
+}
+
 func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	plan := answerSupportPlan(ctx)
 	if plan == nil || len(plan.Lanes) == 0 {
@@ -2480,7 +2500,11 @@ func renderAnswerDocLogSourceDrift(ctx *types.AgentContext) string {
 	}
 	var b strings.Builder
 	b.WriteString("## Log Source Drift\n\n")
-	b.WriteString("The runtime log resolves to files in this repo, but at least one resolved frame no longer aligns to the same line range in the current checkout. Treat the current repo as the authoritative explanation surface and the log line numbers as an older or shifted build snapshot.\n\n")
+	if plan.RuntimeGroundingDisposition.IsActive() {
+		b.WriteString("The runtime artifact has also been marked as observation-first for citation purposes. Treat the log / trace bytes as authoritative for what was observed; use current repository code only as separately grounded adjacent context, not as proof that this checkout produced the captured runtime state.\n\n")
+	} else {
+		b.WriteString("The runtime log resolves to files in this repo, but at least one resolved frame no longer aligns to the same line range in the current checkout. Treat the current repo as the authoritative explanation surface and the log line numbers as an older or shifted build snapshot.\n\n")
+	}
 	b.WriteString("- Do not claim that the current cited line is the exact crashing line from the log unless that exact line is itself cited.\n")
 	b.WriteString("- Use the current grounded code to explain the nearest verified function / call-chain / guard path, and keep the line-number mismatch as a caveat rather than guessing how the old build differed internally.\n")
 	b.WriteString("- Avoid speculative bypass stories (race, skipped guard, alternate branch) unless a cited anchor explicitly proves them.\n\n")
@@ -3396,7 +3420,7 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(obs LoopObservation) L
 		HintRequested:  true,
 		BypassThrottle: true,
 		HintKey:        "answer_doc.switch_to_patch",
-		Hint: "Your last 2+ attempts to call `emit_answer_document` were rejected. Switch to `emit_answer_document_patch` on the next attempt — it lets you specify ONLY the blocks that need to change, instead of re-emitting the full document byte-identical. Pass `unchanged_block_ids: [\"id1\", \"id2\", ...]` to assert preservation of every typed annotation field (claim_uses, edge_anchors, facet_ids, surface_role) on blocks you do NOT need to edit — the system clones them byte-identical from your previous emit, so you cannot accidentally drop a field. Use `replace_blocks` for the blocks you DO need to fix; use `add_blocks` for new blocks. The patch tool rejects empty patches and unknown ids, so you only need to focus on the actual fix.",
+		Hint:           "Your last 2+ attempts to call `emit_answer_document` were rejected. Switch to `emit_answer_document_patch` on the next attempt — it lets you specify ONLY the blocks that need to change, instead of re-emitting the full document byte-identical. Pass `unchanged_block_ids: [\"id1\", \"id2\", ...]` to assert preservation of every typed annotation field (claim_uses, edge_anchors, facet_ids, surface_role) on blocks you do NOT need to edit — the system clones them byte-identical from your previous emit, so you cannot accidentally drop a field. Use `replace_blocks` for the blocks you DO need to fix; use `add_blocks` for new blocks. The patch tool rejects empty patches and unknown ids, so you only need to focus on the actual fix.",
 	}
 }
 

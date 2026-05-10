@@ -18,10 +18,10 @@ func TestEvidenceFloorWaiverReason_IsValid(t *testing.T) {
 	}
 	for _, bad := range []EvidenceFloorWaiverReason{
 		"",
-		"external",      // missing _only_log
+		"external", // missing _only_log
 		"foo",
 		"EXTERNAL_ONLY_LOG", // case-sensitive
-		"external_log",  // missing _only_
+		"external_log",      // missing _only_
 	} {
 		if bad.IsValid() {
 			t.Errorf("unrecognised value %q must report IsValid()=false", bad)
@@ -151,9 +151,13 @@ func TestMutableState_EvidenceFloorWaiverNilClears(t *testing.T) {
 		Reason:    EvidenceFloorWaiverExternalLog,
 		Rationale: "rationale",
 	})
+	m.RetainEvidenceFloorWaiver()
 	m.SetEvidenceFloorWaiver(nil)
 	if got := m.EvidenceFloorWaiver(); got != nil {
 		t.Errorf("nil Set must clear waiver, got %+v", got)
+	}
+	if got := m.StableEvidenceFloorWaiver(); got != nil {
+		t.Errorf("nil Set must clear retained waiver, got %+v", got)
 	}
 }
 
@@ -162,6 +166,77 @@ func TestMutableState_EvidenceFloorWaiverNilSafe(t *testing.T) {
 	m.SetEvidenceFloorWaiver(&EvidenceFloorWaiver{Reason: EvidenceFloorWaiverExternalLog, Rationale: "x"})
 	if got := m.EvidenceFloorWaiver(); got != nil {
 		t.Errorf("nil MutableState must report nil waiver, got %+v", got)
+	}
+	m.RetainEvidenceFloorWaiver()
+	m.ClearEvidenceFloorWaiver()
+	if got := m.StableEvidenceFloorWaiver(); got != nil {
+		t.Errorf("nil MutableState must report nil stable waiver, got %+v", got)
+	}
+}
+
+func TestMutableState_EvidenceFloorWaiverRetainedOnlyAfterPromotion(t *testing.T) {
+	m := NewMutableState("test")
+	m.SetEvidenceFloorWaiver(&EvidenceFloorWaiver{
+		Reason:    EvidenceFloorWaiverNoRepoIntersection,
+		Rationale: "synthetic frames represent another build",
+	})
+	if got := m.StableEvidenceFloorWaiver(); got != nil {
+		t.Fatalf("waiver must not be stable before promotion, got %+v", got)
+	}
+	m.RetainEvidenceFloorWaiver()
+	got := m.StableEvidenceFloorWaiver()
+	if !got.IsActive() || got.Reason != EvidenceFloorWaiverNoRepoIntersection {
+		t.Fatalf("stable waiver lost after promotion: %+v", got)
+	}
+	got.Rationale = "mutated"
+	if got2 := m.StableEvidenceFloorWaiver(); got2.Rationale == "mutated" {
+		t.Fatalf("stable waiver getter must return defensive copy")
+	}
+	m.ClearEvidenceFloorWaiver()
+	if got := m.EvidenceFloorWaiver(); got != nil {
+		t.Fatalf("clear must remove current waiver, got %+v", got)
+	}
+	if got := m.StableEvidenceFloorWaiver(); got != nil {
+		t.Fatalf("clear must remove stable waiver, got %+v", got)
+	}
+}
+
+func TestRuntimeGroundingDispositionFromWaiver(t *testing.T) {
+	w := &EvidenceFloorWaiver{
+		Reason:    EvidenceFloorWaiverExternalTrace,
+		Rationale: "trace spans are from another service",
+	}
+	d := RuntimeGroundingDispositionFromWaiver(w)
+	if !d.IsActive() {
+		t.Fatalf("runtime grounding disposition inactive: %+v", d)
+	}
+	if d.Source != RuntimeGroundingModelDeclared {
+		t.Errorf("Source = %q, want model_declared", d.Source)
+	}
+	if d.CitationPolicy != RuntimeGroundingCitationRuntimeObservation {
+		t.Errorf("CitationPolicy = %q", d.CitationPolicy)
+	}
+}
+
+func TestSystemRuntimeGroundingDisposition(t *testing.T) {
+	logD := SystemRuntimeGroundingDisposition(&LogBundle{
+		Errors: []LogError{{Type: "panic"}},
+	}, nil)
+	if !logD.IsActive() || logD.Reason != EvidenceFloorWaiverExternalLog ||
+		logD.Source != RuntimeGroundingSystemDetected {
+		t.Fatalf("external log disposition wrong: %+v", logD)
+	}
+
+	perfD := SystemRuntimeGroundingDisposition(nil, &PerfBundle{
+		Stalls: []PerfStall{{Symbol: "main"}},
+	})
+	if !perfD.IsActive() || perfD.Reason != EvidenceFloorWaiverExternalTrace ||
+		perfD.Source != RuntimeGroundingSystemDetected {
+		t.Fatalf("external trace disposition wrong: %+v", perfD)
+	}
+
+	if got := SystemRuntimeGroundingDisposition(&LogBundle{ResolvedFiles: []string{"a.go"}, Errors: []LogError{{Type: "panic"}}}, nil); got != nil {
+		t.Fatalf("resolved log must not produce external disposition: %+v", got)
 	}
 }
 

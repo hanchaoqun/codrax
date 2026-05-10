@@ -75,8 +75,9 @@ codrax 的目标是让一个 LLM 在不出错的前提下回答一个真实代�
 
 | Gate | Escape lane | 典型 reason | 实现 |
 |---|---|---|---|
-| `emit_investigation_complete` forced-read pending list | `evidence_floor_waiver`（model-declared） | `external_only_log` / `external_only_trace` / `no_repo_intersection` / `informational_runtime_only` | `internal/types/evidence_floor_waiver.go` + `internal/tool/emit_investigation_complete.go` |
-| `emit_investigation_complete` citation-floor pre-flight | `evidence_floor_waiver`（model-declared）**或** `LogBundle.IsExternalSource()`（system-derived） | 同上 | 同上 |
+| `emit_investigation_complete` forced-read pending list | `evidence_floor_waiver`（model-declared）或 runtime external disposition（system-derived） | `external_only_log` / `external_only_trace` / `no_repo_intersection` / `informational_runtime_only` | `internal/types/evidence_floor_waiver.go` + `internal/tool/emit_investigation_complete.go` |
+| `emit_investigation_complete` citation-floor pre-flight | `evidence_floor_waiver`（model-declared）**或** `LogBundle.IsExternalSource()` / `PerfBundle.IsExternalSource()`（system-derived） | 同上 | 同上 |
+| finalizer runtime citation policy | `RuntimeGroundingDisposition`（stable answer-surface projection） | 同上 | `internal/types/answer_surface_plan.go` + `internal/agent/answer_document_evaluator.go` |
 | `emit_investigation_complete` absence-floor | `absence_justification`（model-declared） | 答案就是 zero / not-found | 已有 |
 | log_triage frame 自指陷阱 | 不是 gate，是 **typed signal**：`FrameDriftStatus` 渲染到 prompt section（"Frame ↔ current-code drift warning"） | LineDrift / TailRename / FileMoved / Unmappable | `internal/context/builder.go::renderLogTriageFrameDrift` |
 
@@ -85,6 +86,8 @@ codrax 的目标是让一个 LLM 在不出错的前提下回答一个真实代�
 - escape 通过 typed 字段表达，**不允许**靠 prompt 文本 / `<think>` 启发式触发（违反 R3）
 - 每个 escape 必须 audit log，字段为 `reason` enum + `rationale` 一句话
 - 系统检测到精确的 typed 反向信号（比如 `LogBundle.IsExternalSource()`）时也可自动 bypass — 但 **model-declared 优先**：模型表态后系统不应再二次审查"我同意不同意"
+- model-declared escape 只有在 `emit_investigation_complete` 全部 gate 通过后才 promote 到 stable answer surface；finalizer 只读 stable projection，避免"语法接受但 completion 失败"的 waiver 泄漏到最终答案
+- 模型可以通过 `clear_evidence_floor_waiver=true` 显式撤销前一次 waiver；撤销必须是 typed 字段，不能靠 rationale 自由文本推断
 
 **未引入 escape 的 gate（已审计、justified）**:
 - 工具参数 schema 校验（`confidence ∈ {high, medium}` / `result_kind ∈ {resolved, absence}`）— 这是 wire-format 边界，LLM 没有可表态空间，nothing to escape

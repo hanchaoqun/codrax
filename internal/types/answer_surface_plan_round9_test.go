@@ -89,6 +89,33 @@ func TestCollectAllLogFrames_PreservesSymbolOnlyFrames(t *testing.T) {
 	}
 }
 
+func TestCollectAllLogFrames_WalksCauseChain(t *testing.T) {
+	bundle := &LogBundle{
+		Errors: []LogError{{
+			Type: "outer",
+			Frames: []LogFrame{
+				{File: "outer.go", Line: 10, Func: "Outer", Raw: "outer.go:10"},
+			},
+			Cause: &LogError{
+				Type: "inner",
+				Frames: []LogFrame{
+					{File: "inner.go", Line: 20, Func: "Inner", Raw: "inner.go:20"},
+				},
+			},
+		}},
+	}
+	frames := collectAllLogFrames(bundle)
+	got := make(map[string]bool)
+	for _, frame := range frames {
+		got[frame.Func] = true
+	}
+	for _, want := range []string{"Outer", "Inner"} {
+		if !got[want] {
+			t.Fatalf("cause-chain frame %q was not collected: %+v", want, frames)
+		}
+	}
+}
+
 // TestCollectExternalObservationSeeds_SurfacesResidueChunks:
 // round-9 user red line — UnknownChunks (unstructured log/print
 // output) must surface as observation seeds. Pre-fix they were
@@ -115,6 +142,30 @@ func TestCollectExternalObservationSeeds_SurfacesResidueChunks(t *testing.T) {
 	if gotResidue == 0 {
 		t.Errorf("no residue seeds surfaced; got %d total seeds: %+v", len(seeds), seeds)
 	}
+}
+
+func TestCollectExternalObservationSeeds_WalksCauseChainFrames(t *testing.T) {
+	bundle := &LogBundle{
+		Errors: []LogError{{
+			Type: "outer",
+			Cause: &LogError{
+				Type: "inner",
+				Frames: []LogFrame{{
+					File: "inner.go",
+					Line: 22,
+					Func: "Inner",
+					Raw:  "inner.go:22 Inner",
+				}},
+			},
+		}},
+	}
+	seeds := CollectExternalObservationSeeds(bundle, nil)
+	for _, seed := range seeds {
+		if seed.Kind == "log_frame" && seed.File == "inner.go" && seed.Line == 22 {
+			return
+		}
+	}
+	t.Fatalf("nested cause frame did not surface as external observation seed: %+v", seeds)
 }
 
 // TestIntentFrameCap_TraceAndRootCauseLargerThanDefault pins the

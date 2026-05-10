@@ -25,19 +25,19 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	}
 
 	ac := &types.AgentContext{
-		AgentName:       agentName,
-		Stage:           stage,
-		Objective:       objective,
-		MissingPiece:    bus.TaskState.Missing,
-		Constraints:     bus.Constraints,
-		Preferences:     bus.Preferences,
-		Language:        bus.Language,
-		RepoRoot:        bus.RepoRoot,
-		Branch:          bus.Branch,
-		Commit:          bus.Commit,
-		WorkDir:         bus.WorkDir,
-		MainRepoRoot:    bus.MainRepoRoot,
-		Mutable:         bus.Mutable,
+		AgentName:    agentName,
+		Stage:        stage,
+		Objective:    objective,
+		MissingPiece: bus.TaskState.Missing,
+		Constraints:  bus.Constraints,
+		Preferences:  bus.Preferences,
+		Language:     bus.Language,
+		RepoRoot:     bus.RepoRoot,
+		Branch:       bus.Branch,
+		Commit:       bus.Commit,
+		WorkDir:      bus.WorkDir,
+		MainRepoRoot: bus.MainRepoRoot,
+		Mutable:      bus.Mutable,
 		// Multi-repo mirrors. Phase 4.1 introduced these on
 		// BusContext + AgentContext; the builder copies them across
 		// so agent-scoped tools and the agent prompt builder can
@@ -54,7 +54,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		// a tool call mid-dispatch stamps a new denial, subsequent
 		// calls in the loop see it. Kept on bus's pointer so the
 		// orchestrator's owning channel is the single source.
-		TypedDenials: &bus.TypedDenials,
+		TypedDenials:    &bus.TypedDenials,
 		AnalysisIR:      bus.AnalysisIR,
 		AttachedLog:     bus.AttachedLog,
 		AttachedHitrace: bus.AttachedHitrace,
@@ -1942,6 +1942,7 @@ const AttachedTraceBlobName = "attached_trace.txt"
 //     patterns are detected, the LLM is free to address whatever
 //     dimension the user actually asked about; the canonical labels
 //     are a vocabulary aid, not a topic redirect
+//
 // renderPrimaryErrorSignal (Fix-C 2026-05-10) emits a high-priority
 // section quoting the verbatim runtime error MESSAGE before the
 // Detected Patterns + Error tree sections. Frames may be unresolved
@@ -2582,21 +2583,19 @@ func renderLogTriageFrameDrift(bundle *types.LogBundle, locator types.SymbolLoca
 	// Collect frames that warrant warning. Aggregate by drift status
 	// so the section renders compactly.
 	bucket := make(map[types.FrameDriftStatus][]types.LogFrame)
-	for _, err := range bundle.Errors {
-		for _, frame := range err.Frames {
-			if frame.File == "" || frame.Func == "" {
-				continue
-			}
-			drift := logtriage.DetectDriftForFrame(frame, locator)
-			switch drift.Status {
-			case types.DriftStatusLineDrift,
-				types.DriftStatusTailRename,
-				types.DriftStatusFileMoved,
-				types.DriftStatusUnmappable:
-				bucket[drift.Status] = append(bucket[drift.Status], frame)
-			}
+	types.WalkLogFrames(bundle, func(frame types.LogFrame) {
+		if frame.File == "" || frame.Func == "" {
+			return
 		}
-	}
+		drift := logtriage.DetectDriftForFrame(frame, locator)
+		switch drift.Status {
+		case types.DriftStatusLineDrift,
+			types.DriftStatusTailRename,
+			types.DriftStatusFileMoved,
+			types.DriftStatusUnmappable:
+			bucket[drift.Status] = append(bucket[drift.Status], frame)
+		}
+	})
 	if len(bucket) == 0 {
 		return ""
 	}
@@ -3255,9 +3254,9 @@ func bundleHasAuthoritativePerfFrames(bundle *types.PerfBundle) bool {
 //
 //   - Hex pointer literals: 0x0, 0xc0000064c0
 //   - Null sentinels:       nil (Go), <nil>, null (JS / Rust),
-//                           None (Python)
+//     None (Python)
 //   - Booleans:             true / false (Go / Rust / Python /
-//                           Java / Kotlin / C++23)
+//     Java / Kotlin / C++23)
 //   - Integers:             0, -1, 42 (any signed decimal)
 //   - Decimals / scientific: 3.14, -1.5, 1.5e+09, 2.0E-3
 //

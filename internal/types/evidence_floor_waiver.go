@@ -132,3 +132,93 @@ func (w *EvidenceFloorWaiver) IsActive() bool {
 	}
 	return strings.TrimSpace(w.Rationale) != ""
 }
+
+// RuntimeGroundingDispositionSource records where the runtime-grounding
+// disposition came from. The source is telemetry / prompt context; hard
+// logic still keys off the bounded Reason + CitationPolicy.
+type RuntimeGroundingDispositionSource string
+
+const (
+	RuntimeGroundingModelDeclared  RuntimeGroundingDispositionSource = "model_declared"
+	RuntimeGroundingSystemDetected RuntimeGroundingDispositionSource = "system_detected"
+)
+
+// RuntimeGroundingCitationPolicy describes how final answer citations
+// should treat runtime-artifact facts once repo grounding has been
+// declared inapplicable.
+type RuntimeGroundingCitationPolicy string
+
+const (
+	RuntimeGroundingCitationRuntimeObservation RuntimeGroundingCitationPolicy = "runtime_observation_only"
+)
+
+// RuntimeGroundingDisposition is the answer-surface projection of a
+// model-declared waiver or precise system-derived external-artifact
+// signal. It deliberately carries the same bounded reason enum as
+// EvidenceFloorWaiver so downstream stages do not parse free text to
+// decide citation policy.
+type RuntimeGroundingDisposition struct {
+	Source         RuntimeGroundingDispositionSource `json:"source"`
+	Reason         EvidenceFloorWaiverReason         `json:"reason"`
+	Rationale      string                            `json:"rationale"`
+	CitationPolicy RuntimeGroundingCitationPolicy    `json:"citation_policy"`
+}
+
+// IsActive reports whether the disposition is complete enough for
+// downstream prompt / citation-policy consumers.
+func (d *RuntimeGroundingDisposition) IsActive() bool {
+	if d == nil {
+		return false
+	}
+	switch d.Source {
+	case RuntimeGroundingModelDeclared, RuntimeGroundingSystemDetected:
+	default:
+		return false
+	}
+	if !d.Reason.IsValid() {
+		return false
+	}
+	if strings.TrimSpace(d.Rationale) == "" {
+		return false
+	}
+	return d.CitationPolicy == RuntimeGroundingCitationRuntimeObservation
+}
+
+// RuntimeGroundingDispositionFromWaiver projects a model-declared
+// EvidenceFloorWaiver into the answer-surface citation policy consumed
+// by finalization.
+func RuntimeGroundingDispositionFromWaiver(w *EvidenceFloorWaiver) *RuntimeGroundingDisposition {
+	if !w.IsActive() {
+		return nil
+	}
+	return &RuntimeGroundingDisposition{
+		Source:         RuntimeGroundingModelDeclared,
+		Reason:         w.Reason,
+		Rationale:      strings.TrimSpace(w.Rationale),
+		CitationPolicy: RuntimeGroundingCitationRuntimeObservation,
+	}
+}
+
+// SystemRuntimeGroundingDisposition projects precise system-derived
+// runtime-artifact signals into the same citation-policy shape as a
+// model-declared waiver. Model-declared waivers should be preferred by
+// callers when both are available.
+func SystemRuntimeGroundingDisposition(logBundle *LogBundle, perfBundle *PerfBundle) *RuntimeGroundingDisposition {
+	if logBundle != nil && logBundle.IsExternalSource() {
+		return &RuntimeGroundingDisposition{
+			Source:         RuntimeGroundingSystemDetected,
+			Reason:         EvidenceFloorWaiverExternalLog,
+			Rationale:      "structured log errors were extracted, but no stack frame resolved to a current repository file",
+			CitationPolicy: RuntimeGroundingCitationRuntimeObservation,
+		}
+	}
+	if perfBundle != nil && perfBundle.IsExternalSource() {
+		return &RuntimeGroundingDisposition{
+			Source:         RuntimeGroundingSystemDetected,
+			Reason:         EvidenceFloorWaiverExternalTrace,
+			Rationale:      "structured trace observations were extracted, but no trace frame resolved to a current repository file",
+			CitationPolicy: RuntimeGroundingCitationRuntimeObservation,
+		}
+	}
+	return nil
+}

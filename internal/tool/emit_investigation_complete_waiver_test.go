@@ -123,6 +123,87 @@ func TestEmitInvestigationComplete_WaiverStoredOnAcceptance(t *testing.T) {
 	if !strings.Contains(w.Rationale, "services not in this repo") {
 		t.Errorf("Rationale round-trip wrong: got %q", w.Rationale)
 	}
+	stable := mut.StableEvidenceFloorWaiver()
+	if !stable.IsActive() || stable.Reason != types.EvidenceFloorWaiverExternalLog {
+		t.Fatalf("successful completion must retain stable waiver, got %+v", stable)
+	}
+}
+
+func TestEmitInvestigationComplete_WaiverNotStableWhenLaterGateRejects(t *testing.T) {
+	mut := types.NewMutableState("q")
+	params := `{
+		"reason":"positive answer but bad absence field",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"absence_justification":"nothing exists",
+		"evidence_floor_waiver":{
+			"reason":"external_only_log",
+			"rationale":"log frames reference services not in this repo"
+		}
+	}`
+	res := runEIC(t, mut, params)
+	if res.Success {
+		t.Fatalf("contradictory absence field should reject, got Summary=%q", res.Summary)
+	}
+	if !mut.EvidenceFloorWaiver().IsActive() {
+		t.Fatalf("current waiver should remain available for retry")
+	}
+	if got := mut.StableEvidenceFloorWaiver(); got != nil {
+		t.Fatalf("rejected completion must not retain stable waiver, got %+v", got)
+	}
+}
+
+func TestEmitInvestigationComplete_ClearWaiver(t *testing.T) {
+	mut := types.NewMutableState("q")
+	first := `{
+		"reason":"log is external",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{
+			"reason":"external_only_log",
+			"rationale":"log frames reference services not in this repo"
+		}
+	}`
+	if res := runEIC(t, mut, first); !res.Success {
+		t.Fatalf("initial waiver completion failed: %s", res.Summary)
+	}
+	if !mut.StableEvidenceFloorWaiver().IsActive() {
+		t.Fatalf("initial waiver was not retained")
+	}
+
+	clear := `{
+		"reason":"later inspection found repo grounding applies",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"clear_evidence_floor_waiver":true
+	}`
+	if res := runEIC(t, mut, clear); !res.Success {
+		t.Fatalf("clear waiver completion failed: %s", res.Summary)
+	}
+	if got := mut.EvidenceFloorWaiver(); got != nil {
+		t.Fatalf("current waiver should be cleared, got %+v", got)
+	}
+	if got := mut.StableEvidenceFloorWaiver(); got != nil {
+		t.Fatalf("stable waiver should be cleared, got %+v", got)
+	}
+}
+
+func TestEmitInvestigationComplete_ClearWaiverRejectsWithNewWaiver(t *testing.T) {
+	mut := types.NewMutableState("q")
+	params := `{
+		"reason":"ambiguous",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"clear_evidence_floor_waiver":true,
+		"evidence_floor_waiver":{"reason":"external_only_log","rationale":"x"}
+	}`
+	res := runEIC(t, mut, params)
+	if res.Success {
+		t.Fatalf("clear + set must reject, got Summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "clear_evidence_floor_waiver") {
+		t.Fatalf("rejection should name clear field, got %q", res.Summary)
+	}
 }
 
 func TestEmitInvestigationComplete_WaiverAcceptsAllFourReasons(t *testing.T) {

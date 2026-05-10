@@ -118,6 +118,36 @@ func TestRenderFrameDrift_UnmappableFires(t *testing.T) {
 	}
 }
 
+func TestRenderFrameDrift_NestedCauseFrameFires(t *testing.T) {
+	loc := &stubLocator{
+		byName: map[string][]types.SymbolLocation{},
+		byFile: map[string][]types.SymbolLocation{},
+	}
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "java"},
+		Errors: []types.LogError{{
+			Type: "java.lang.RuntimeException",
+			Cause: &types.LogError{
+				Type: "java.lang.IllegalStateException",
+				Frames: []types.LogFrame{{
+					File:       "service/Worker.java",
+					Line:       42,
+					Func:       "doWork",
+					Raw:        "at service.Worker.doWork(Worker.java:42)",
+					Confidence: 1.0,
+				}},
+			},
+		}},
+	}
+	got := renderLogTriageFrameDrift(bundle, loc)
+	if got == "" {
+		t.Fatal("nested Cause frame must trigger drift warning")
+	}
+	if !strings.Contains(got, "service/Worker.java:42") {
+		t.Fatalf("nested Cause frame missing from drift warning:\n%s", got)
+	}
+}
+
 func TestRenderFrameDrift_TailRenameFires(t *testing.T) {
 	// File exists, has SOME symbols, but query function isn't one
 	// of them — function was renamed. drift_detect_test.go's case
