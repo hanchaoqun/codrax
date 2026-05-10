@@ -5,6 +5,27 @@ import (
 	"testing"
 )
 
+// allWorkflowBodies returns the concatenated Workflow + WorkflowTierB
+// bodies. P5-B (2026-05-10) introduced the Tier B partition; tests
+// that pin rule body presence (regardless of the rule's tier) call
+// this helper instead of touching sk.Workflow directly.
+func allWorkflowBodies(sk *Config) string {
+	parts := append([]string(nil), sk.Workflow...)
+	for _, item := range sk.WorkflowTierB {
+		parts = append(parts, item.Body)
+	}
+	return strings.Join(parts, "\n")
+}
+
+// allProhibitionBodies — same dual-tier helper for Prohibitions.
+func allProhibitionBodies(sk *Config) string {
+	parts := append([]string(nil), sk.Prohibitions...)
+	for _, item := range sk.ProhibitionsTierB {
+		parts = append(parts, item.Body)
+	}
+	return strings.Join(parts, "\n")
+}
+
 func TestExploreSkillOutputFormatStaysToolFirst(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
@@ -107,7 +128,12 @@ func TestFinalizerSkill_TeachesTypedDiagramRelationAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
 	}
-	blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	// P5-B (2026-05-10): edge_anchors rule moved to WorkflowTierB
+	// (RequiresDiagram applicability gate). Test reads from the
+	// combined Tier A + Tier B surface so the assertion is
+	// tier-agnostic — it pins rule presence regardless of where
+	// the body lives in the Config struct.
+	blob := strings.Join([]string{sk.Goal, sk.OutputFormat, allWorkflowBodies(sk)}, "\n")
 	for _, want := range []string{
 		"`edge_anchors` is the OPTIONAL block-level array for diagram-edge typed anchors",
 		"relation_kind?: <one of call|guard|import|precedence|contain|observe>",
@@ -161,7 +187,11 @@ func TestFinalizerSkill_TeachesAbstractionLevelMatching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
 	}
-	blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	// P5-B (2026-05-10): abstraction-level matching rule moved to
+	// WorkflowTierB (Intents=[enumerate]+PrincipalKinds=[ordered_list]).
+	// Combined Tier A + Tier B surface so the body assertion stays
+	// stable regardless of where the rule lives.
+	blob := strings.Join([]string{sk.Goal, sk.OutputFormat, allWorkflowBodies(sk)}, "\n")
 
 	// Trigger phrase — recognises the question shape that activates
 	// the rule. Two language surfaces (English + Chinese) so the

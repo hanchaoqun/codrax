@@ -401,6 +401,16 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		outputTitle = SectionExplorationContract
 	}
 
+	// P5-B step 3 (2026-05-10) — tier-aware skill rendering. When
+	// the skill declares any WorkflowTierB / ProhibitionsTierB items,
+	// build the AppliesToContext from the dispatch's runtime state
+	// and concat the matching Tier B bodies onto the Tier A list
+	// before formatting. Skills without Tier B fields render
+	// byte-identical to pre-P5 (the helpers handle the empty case
+	// as no-op).
+	workflowList := skillTierAwareWorkflow(ac, sk)
+	prohibitionList := skillTierAwareProhibitions(ac, sk)
+
 	pc.SystemSections = append(pc.SystemSections,
 		types.PromptSection{
 			Title:   SectionSkillGoal,
@@ -408,7 +418,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		},
 		types.PromptSection{
 			Title:   SectionWorkflow,
-			Content: formatNumberedList(sk.Workflow),
+			Content: formatNumberedList(workflowList),
 		},
 		types.PromptSection{
 			Title:   outputTitle,
@@ -416,10 +426,10 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		},
 	)
 
-	if len(sk.Prohibitions) > 0 {
+	if len(prohibitionList) > 0 {
 		pc.SystemSections = append(pc.SystemSections, types.PromptSection{
 			Title:   SectionProhibitions,
-			Content: formatBulletList(sk.Prohibitions),
+			Content: formatBulletList(prohibitionList),
 		})
 	}
 
