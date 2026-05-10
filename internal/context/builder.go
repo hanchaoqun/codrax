@@ -1966,19 +1966,113 @@ func renderPrimaryErrorSignal(bundle *types.LogBundle) string {
 	}
 	// Parallel-frame detection: count occurrences of each
 	// (file, line) coordinate across ALL frames in this bundle.
-	// A coordinate hit ≥ 2 times means multiple goroutines/threads
-	// crashed at the same line — a strong race indicator.
+	// A coordinate hit ≥ 2 times is a STRUCTURAL signal — multiple
+	// frames at the same point in code — but not necessarily a
+	// concurrency signal. Recursion, repeated exception wrapping,
+	// fan-out callbacks, or just unrelated errors at the same
+	// instrumentation point can all produce duplicate
+	// coordinates. We surface the structural co-occurrence as a
+	// neutral fact and ONLY pair it with the "race / concurrent"
+	// interpretation when a deterministic signal corroborates:
+	//
+	//   - BugClass detector flagged BugClassRace on the raw log
+	//     (covers "concurrent map writes", "race detected", etc.
+	//     across Go / Python / Java / Rust / C++ runtimes), OR
+	//   - the verbatim error message contains a race-vocabulary
+	//     keyword (cross-language / cross-locale, narrow set —
+	//     no broad heuristics).
+	//
+	// Without the corroboration the framing stays neutral so the
+	// LLM can't be led to a wrong concurrency theory by a non-
+	// race duplicate-coordinate pattern.
 	parallel := detectParallelFrameCoordinates(bundle)
 	if len(parallel) > 0 {
-		b.WriteString("\n**Parallel-frame signal**: multiple goroutines / threads / tasks crashed at the SAME line coordinate. " +
-			"This is a strong corroborating signal for a concurrent / racy access pattern (e.g. data race, lock contention) — " +
-			"weight the runtime error message above this hint when deciding the root cause.\n")
+		raceCorroborated := bundleHasRaceCorroboration(bundle)
+		if raceCorroborated {
+			b.WriteString("\n**Parallel-frame signal (race-corroborated)**: multiple goroutines / threads / tasks crashed at the SAME line coordinate AND the runtime error / detected pattern signals a data race. " +
+				"This is a strong corroborating signal for a concurrent / racy access pattern (e.g. data race, lock contention) — " +
+				"weight the runtime error message above this hint when deciding the root cause.\n")
+		} else {
+			b.WriteString("\n**Parallel-frame signal (neutral)**: multiple frames share the SAME line coordinate. " +
+				"This is a structural co-occurrence — NOT necessarily a concurrency or race indicator. " +
+				"Common non-race causes include recursion, repeated exception wrapping, fan-out callbacks, or independent errors hitting the same instrumentation point. " +
+				"Use the verbatim error message above as the authoritative signal.\n")
+		}
 		for _, p := range parallel {
 			fmt.Fprintf(&b, "  - `%s:%d` — %d occurrences across the captured frames\n", p.file, p.line, p.count)
 		}
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// bundleHasRaceCorroboration reports whether the bundle carries a
+// deterministic signal that the parallel-frame coordinate is
+// concurrency-related. Two corroborators (cross-language):
+//
+//  1. The BugClass detector classified ≥ 1 entry as BugClassRace.
+//     The detector covers Go / Python / Java / Rust / C++ runtime
+//     race signatures via internal/analysis/logtriage/bug_class_registry.go.
+//     This is a typed signal — first-match-only but precise.
+//
+//  2. Any error's Type or Message contains a race-vocabulary
+//     keyword. Narrow set (cross-language / cross-locale), kept
+//     minimal so non-race errors don't accidentally trip it:
+//     "race", "concurrent", "data race", "数据竞争", "并发",
+//     "deadlock", "死锁".
+//
+// Returns false when neither lane fires. Used by the Primary Error
+// Signal renderer to gate the "race-corroborated" framing — without
+// this gate, structural co-occurrence (recursion / fan-out /
+// exception wrapping) was being framed as concurrency, biasing the
+// LLM toward incorrect race-condition theories. 2026-05-10 P2
+// audit follow-up.
+func bundleHasRaceCorroboration(bundle *types.LogBundle) bool {
+	if bundle == nil {
+		return false
+	}
+	for _, bc := range bundle.Meta.BugClasses {
+		if bc.Class == types.BugClassRace {
+			return true
+		}
+	}
+	keywords := []string{
+		// Lower-case the input once + match these lower-cased.
+		// Narrow on purpose — broad keywords ("lock", "thread")
+		// would false-fire on non-race errors mentioning lock
+		// names or threading models incidentally.
+		"data race", "race condition", "race detected", "race-detect",
+		"concurrent map", "concurrent write", "concurrent access",
+		"deadlock", "livelock",
+		// Chinese vocabulary covering the same concepts.
+		"数据竞争", "竞态", "并发写", "并发访问", "死锁", "活锁",
+	}
+	for _, e := range bundle.Errors {
+		if matchesAnyRaceKeyword(e.Type, keywords) || matchesAnyRaceKeyword(e.Message, keywords) {
+			return true
+		}
+		if e.Cause != nil {
+			if matchesAnyRaceKeyword(e.Cause.Type, keywords) || matchesAnyRaceKeyword(e.Cause.Message, keywords) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// matchesAnyRaceKeyword reports whether s (case-insensitive)
+// contains any of the keywords. Empty s returns false.
+func matchesAnyRaceKeyword(s string, keywords []string) bool {
+	if s == "" {
+		return false
+	}
+	lower := strings.ToLower(s)
+	for _, k := range keywords {
+		if strings.Contains(lower, k) {
+			return true
+		}
+	}
+	return false
 }
 
 // renderPrimaryErrorEntry renders one top-level error's verbatim

@@ -710,18 +710,65 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 					// L4 — analyzer-declared irrelevant files.
 					// Index by canonical path for O(1) lookup at
 					// every consumer site.
+					//
+					// 2026-05-10 P3 audit follow-up: irrelevant_files
+					// is a HARD exclusion (drops the path from
+					// primary set + pre-read pool + mid-loop hints).
+					// If the analyzer LLM mistakenly declares the
+					// real answer file irrelevant, the explorer
+					// would never surface it. Two-layer validation:
+					//
+					//   (i) Graph membership — a path the LLM
+					//       hallucinated isn't in the repo. Drop it
+					//       silently (no useful exclusion possible
+					//       on a non-existent file).
+					//
+					//   (ii) Defer to evidence — when the explorer
+					//        has ALREADY emit_evidence'd from a
+					//        path, its judgement has more grounding
+					//        than the analyzer's pre-investigation
+					//        guess. Drop those exclusions too so
+					//        the explorer's own citations win.
+					//        (The structuredEvidence slice is
+					//        empty on first dispatch, so this layer
+					//        only fires on subsequent dispatches
+					//        within the same Run.)
 					raw := ctx.AnalysisIR.RequestModel.AnalyzerHints.IrrelevantFiles
 					if len(raw) > 0 {
-						set := make(map[string]bool, len(raw))
-						for _, p := range raw {
-							canon := canonicalExplorerPath(p)
-							if canon != "" {
-								set[canon] = true
+						citedSources := make(map[string]bool, len(e.structuredEvidence))
+						for _, ev := range e.structuredEvidence {
+							if ev.Producer != tool.EmitEvidenceProducer {
+								continue
+							}
+							if cs := canonicalEvidenceSourcePath(ev.Source); cs != "" {
+								citedSources[cs] = true
 							}
 						}
+						set := make(map[string]bool, len(raw))
+						droppedNoGraph := 0
+						droppedCited := 0
+						for _, p := range raw {
+							canon := canonicalExplorerPath(p)
+							if canon == "" {
+								continue
+							}
+							// Layer (i): graph membership.
+							if sr.Graph != nil && sr.Graph.FileIndex != nil {
+								if _, ok := sr.Graph.FileIndex[canon]; !ok {
+									droppedNoGraph++
+									continue
+								}
+							}
+							// Layer (ii): defer to explorer's own citations.
+							if citedSources[canon] {
+								droppedCited++
+								continue
+							}
+							set[canon] = true
+						}
 						e.irrelevantFilesSet = set
-						logging.Debug("[explorer] irrelevant_files: declared=%d canonicalised=%d",
-							len(raw), len(set))
+						logging.Debug("[explorer] irrelevant_files: declared=%d kept=%d (dropped_no_graph=%d, dropped_cited=%d)",
+							len(raw), len(set), droppedNoGraph, droppedCited)
 					} else {
 						e.irrelevantFilesSet = nil
 					}

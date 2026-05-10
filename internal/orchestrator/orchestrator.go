@@ -6325,8 +6325,25 @@ func buildDegradedSemanticIR(objective string, partialIR *types.AnalysisIR, anal
 			Keywords:          dedupedStrings(partialIR.RequestModel.AnalyzerHints.Keywords),
 			Entities:          dedupedStrings(partialIR.RequestModel.AnalyzerHints.Entities),
 			PrimaryEntities:   dedupedStrings(partialIR.RequestModel.AnalyzerHints.PrimaryEntities),
+			// 2026-05-10 P2 audit follow-up: preserve the L3 / L4
+			// typed channels (RequiredFileHints / IrrelevantFiles)
+			// + adjacent multi-repo lanes (PrimaryScopes /
+			// MentionedEntities / DerivedEntities). These signals
+			// were emitted by the LLM and survived the analyzer's
+			// emit-time decoder, so they're trustworthy independent
+			// of whatever made the gate reject. Dropping them in
+			// degraded recovery would force the explorer to fall
+			// back to the deterministic resolver right after the
+			// LLM made its strongest file-relevance judgement
+			// available.
+			MentionedEntities: dedupedStrings(partialIR.RequestModel.AnalyzerHints.MentionedEntities),
+			DerivedEntities:   dedupedStrings(partialIR.RequestModel.AnalyzerHints.DerivedEntities),
+			PrimaryScopes:     dedupedStrings(partialIR.RequestModel.AnalyzerHints.PrimaryScopes),
 			ExactTargets:      dedupedStrings(partialIR.RequestModel.AnalyzerHints.ExactTargets),
 			ExactContextTerms: dedupedStrings(partialIR.RequestModel.AnalyzerHints.ExactContextTerms),
+			ExactContextRoles: append([]types.EvidenceDiagramRole(nil), partialIR.RequestModel.AnalyzerHints.ExactContextRoles...),
+			RequiredFileHints: append([]types.RequiredFileHint(nil), partialIR.RequestModel.AnalyzerHints.RequiredFileHints...),
+			IrrelevantFiles:   dedupedStrings(partialIR.RequestModel.AnalyzerHints.IrrelevantFiles),
 			Kind:              partialIR.RequestModel.AnalyzerHints.Kind,
 		},
 		// Predicates copy keeps semantic flags (is_count_question,
