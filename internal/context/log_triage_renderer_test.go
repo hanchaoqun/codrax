@@ -220,7 +220,7 @@ func TestFormatLogTriageStructured_PrimarySignalSectionPresent(t *testing.T) {
 			{Type: "fatal error", Message: "concurrent map writes"},
 		},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	if !strings.Contains(got, "## Primary Error Signal") {
 		t.Error("Primary Error Signal section missing from formatted output")
 	}
@@ -240,7 +240,7 @@ func TestFormatLogTriageStructured_NoErrors_NoPrimarySection(t *testing.T) {
 		Meta: types.LogMeta{Lang: "go"},
 		Residue: types.LogResidue{UnknownChunks: []string{"ambiguous"}},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	if strings.Contains(got, "## Primary Error Signal") {
 		t.Error("no errors but Primary Error Signal section emitted; should be skipped")
 	}

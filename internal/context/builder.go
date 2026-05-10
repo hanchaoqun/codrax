@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
+	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -559,7 +561,15 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// is a small prompt-budget cost in exchange for consistent
 	// causality rendering in downstream answers.
 	if ac.AgentName != types.AgentLogTriager && !finalizerUsesTypedAnswerSupport(ac) {
-		if section := formatLogTriageStructured(ac.LogTriage); section != "" {
+		// Render-time drift surface (Step 2 2026-05-10): pass the
+		// AgentContext's MultiGraph through so the renderer can run
+		// drift detection per frame and warn when a log frame's path
+		// resolves to a current-repo file but the symbol does not
+		// match (the self-referential synthetic-log trap). nil
+		// MultiGraph → no locator → drift section skipped (graceful
+		// degrade for single-shot CLI flows).
+		locator := authority.LocatorFromMultiGraph(ac.MultiGraph)
+		if section := formatLogTriageStructured(ac.LogTriage, locator); section != "" {
 			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionLogTriageExtraction,
@@ -2551,7 +2561,119 @@ func formatAttachedTrace(raw, workDir string) string {
 //
 // Returns "" when bundle is nil or entirely empty (zero Meta + zero
 // Errors + zero Residue). Caller uses that as the skip signal.
-func formatLogTriageStructured(bundle *types.LogBundle) string {
+// renderLogTriageFrameDrift surfaces per-frame drift verdicts as a
+// prompt section. Only fires when the locator is non-nil (single-
+// shot CLI flows pass nil → graceful degrade) AND at least one
+// frame has a drift status that warrants warning the model
+// (LineDrift / TailRename / FileMoved / Unmappable). When every
+// frame is None (perfect agreement) OR Unknown (insufficient
+// signal), the section is suppressed — the LLM does not need a
+// "frames are fine" preamble that wastes prompt budget.
+//
+// Frames are aggregated by drift status so the LLM gets one
+// directive per status class instead of a per-frame deluge.
+//
+// Returns "" when nothing to surface; the caller appends only when
+// non-empty.
+func renderLogTriageFrameDrift(bundle *types.LogBundle, locator types.SymbolLocator) string {
+	if locator == nil || bundle == nil {
+		return ""
+	}
+	// Collect frames that warrant warning. Aggregate by drift status
+	// so the section renders compactly.
+	bucket := make(map[types.FrameDriftStatus][]types.LogFrame)
+	for _, err := range bundle.Errors {
+		for _, frame := range err.Frames {
+			if frame.File == "" || frame.Func == "" {
+				continue
+			}
+			drift := logtriage.DetectDriftForFrame(frame, locator)
+			switch drift.Status {
+			case types.DriftStatusLineDrift,
+				types.DriftStatusTailRename,
+				types.DriftStatusFileMoved,
+				types.DriftStatusUnmappable:
+				bucket[drift.Status] = append(bucket[drift.Status], frame)
+			}
+		}
+	}
+	if len(bucket) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("### Frame ↔ current-code drift warning\n")
+	b.WriteString("The attached log's frames have been compared against current repository code. " +
+		"The following frames may be MISLEADING if you read the current file at the cited line to explain the log's behaviour — " +
+		"the current content may belong to a different build / version / commit / synthetic context than what the log captured. " +
+		"Treat these frames as OPAQUE OBSERVATION: cite the log's own message / classification / sequence as the authoritative " +
+		"signal, and only use current-repo content to explain the log when an explicit grounded evidence anchor proves the connection.\n\n")
+
+	// Order the buckets by severity so the most-misleading drift
+	// shapes appear first.
+	order := []types.FrameDriftStatus{
+		types.DriftStatusUnmappable,
+		types.DriftStatusTailRename,
+		types.DriftStatusFileMoved,
+		types.DriftStatusLineDrift,
+	}
+	for _, status := range order {
+		frames, ok := bucket[status]
+		if !ok || len(frames) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "- **%s** (%d frame(s)):\n", driftStatusHumanLabel(status), len(frames))
+		// Cap the per-bucket frame list so a log with 100 parallel
+		// goroutines doesn't bloat the prompt.
+		const perBucketCap = 6
+		for i, frame := range frames {
+			if i >= perBucketCap {
+				fmt.Fprintf(&b, "  - ... and %d more\n", len(frames)-perBucketCap)
+				break
+			}
+			fmt.Fprintf(&b, "  - %s:%d %s — %s\n", frame.File, frame.Line, frame.Func, driftStatusGuidance(status))
+		}
+	}
+	b.WriteString("\nDo NOT use the current content of these files at these lines to construct the answer's causal story. " +
+		"Anchor the answer in the log's verbatim message (the runtime's authoritative classification) and the log's own " +
+		"observed sequence. If you genuinely need to inspect current code at a drifted location for adjacent context, " +
+		"treat any read content as suggestive only — never as the definitive explanation of the log's failure.\n\n")
+	return b.String()
+}
+
+// driftStatusHumanLabel returns the LLM-facing label for a drift
+// status. Bilingual-neutral / no internal jargon (R6).
+func driftStatusHumanLabel(s types.FrameDriftStatus) string {
+	switch s {
+	case types.DriftStatusLineDrift:
+		return "Line drift (same file + function, line numbers shifted)"
+	case types.DriftStatusTailRename:
+		return "Function renamed (same file, function name no longer present)"
+	case types.DriftStatusFileMoved:
+		return "Code moved across files (function exists elsewhere in current repo)"
+	case types.DriftStatusUnmappable:
+		return "Unmappable (function and file cannot be located in current repo)"
+	}
+	return string(s)
+}
+
+// driftStatusGuidance is the per-status one-liner suggesting how the
+// LLM should treat frames in that bucket.
+func driftStatusGuidance(s types.FrameDriftStatus) string {
+	switch s {
+	case types.DriftStatusLineDrift:
+		return "function exists but current line numbers differ from the log — line-number citations from current code may be wrong"
+	case types.DriftStatusTailRename:
+		return "function is not at this name in current code — current content at the path is unrelated to the log's claim"
+	case types.DriftStatusFileMoved:
+		return "function is in a different file now — the log's path predates a refactor"
+	case types.DriftStatusUnmappable:
+		return "neither file nor function can be matched in current code — synthetic, removed, or external"
+	}
+	return "drift detected — treat as observation only"
+}
+
+func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLocator) string {
 	if bundle == nil {
 		return ""
 	}
@@ -2626,6 +2748,26 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 		b.WriteString("  - The literal-grounding gate on emit_answer_document rejects citations whose cited line does NOT contain the literal; `-1` is the honest, tool-schema-legal escape.\n")
 		b.WriteString("  - For an ordered hop-chain block or a summary-led explanation answer, cite log content by paraphrasing frames, not by inventing file:line anchors in this repo.\n")
 		b.WriteString("  - For an answer-symbol slate or a multi-topic anchor skeleton, set symbols_completeness=\"unknown\" and omit items[] entirely — those channels require repo-grounded file:line anchors, which external-log content cannot satisfy. The summary prose is the answer.\n\n")
+	}
+
+	// Frame-drift warning (Step 2 2026-05-10). Detects the self-
+	// referential synthetic-log trap where the attached log's frame
+	// paths resolve to current-repo files but the function name or
+	// line claimed in the frame does not match what current code has
+	// at that location. The 2026-05-10 logtri_goroutine_dump failure
+	// is the canonical case: a synthetic Go panic dumps frames
+	// pointing at `internal/agent/analyzer.go:100` (which is a real
+	// codrax file) for a function `main.writeSession` that does not
+	// exist in current code; the model read the real file at that
+	// line and confabulated a story unrelated to the actual panic.
+	//
+	// Surfacing drift status here lets the model see "this frame's
+	// path is in the repo but the symbol does not match what current
+	// code carries there — treat the frame as observation-only" and
+	// avoid grounding the answer against the misleading current
+	// content.
+	if section := renderLogTriageFrameDrift(bundle, locator); section != "" {
+		b.WriteString(section)
 	}
 
 	// ── Meta block ────────────────────────────────────────────

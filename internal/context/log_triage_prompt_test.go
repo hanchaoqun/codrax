@@ -11,7 +11,7 @@ import (
 // TestFormatLogTriageStructured_NilBundle_EmptyString pins the skip
 // signal: nil bundle produces no output so callers append no section.
 func TestFormatLogTriageStructured_NilBundle_EmptyString(t *testing.T) {
-	if got := formatLogTriageStructured(nil); got != "" {
+	if got := formatLogTriageStructured(nil, nil); got != "" {
 		t.Errorf("nil bundle: got %q, want empty", got)
 	}
 }
@@ -20,7 +20,7 @@ func TestFormatLogTriageStructured_NilBundle_EmptyString(t *testing.T) {
 // bundle with no Lang + no Errors + no Residue is treated the same
 // as nil — no section rendered.
 func TestFormatLogTriageStructured_EmptyBundle_EmptyString(t *testing.T) {
-	got := formatLogTriageStructured(&types.LogBundle{})
+	got := formatLogTriageStructured(&types.LogBundle{}, nil)
 	if got != "" {
 		t.Errorf("empty bundle: got %q, want empty", got)
 	}
@@ -40,7 +40,7 @@ func TestFormatLogTriageStructured_MetaRendered(t *testing.T) {
 		Coverage:   0.92,
 		IntentHint: types.IntentRootCause,
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	for _, want := range []string{
 		"Language: java",
 		"Signals: panic, db",
@@ -69,7 +69,7 @@ func TestFormatLogTriageStructured_IncludesRuntimeTupleDiscipline(t *testing.T) 
 			}},
 		}},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	for _, want := range []string{
 		"Stack-frame argument annotations attached by the runtime artifact's panic / exception / traceback dumper",
 		"Do NOT map their positional values to a specific receiver, source parameter, caller-side provenance, or exact downstream branch",
@@ -110,7 +110,7 @@ func TestFormatLogTriageStructured_CauseChainNested(t *testing.T) {
 		Meta:   types.LogMeta{Lang: "java"},
 		Errors: []types.LogError{outer},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	// All three exception types must appear.
 	for _, want := range []string{"RuntimeException", "NullPointerException", "IOException"} {
 		if !strings.Contains(got, want) {
@@ -152,7 +152,7 @@ func TestFormatLogTriageStructured_ResolvedFramesFlaggedForCitation(t *testing.T
 			},
 		}},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 
 	// Resolved frame: ★ marker + file:line quoted.
 	if !strings.Contains(got, "★ resolved") {
@@ -195,7 +195,7 @@ func TestFormatLogTriageStructured_RawFieldRendered(t *testing.T) {
 			}},
 		}},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	if !strings.Contains(got, "raw:") {
 		t.Error("Raw field not rendered under `raw:` label")
 	}
@@ -215,7 +215,7 @@ func TestFormatLogTriageStructured_ProvenanceLegendPresent(t *testing.T) {
 		Meta:   types.LogMeta{Lang: "go"},
 		Errors: []types.LogError{{Type: "X"}},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	for _, want := range []string{
 		"Provenance legend",
 		"safe to cite as `file:line`",
@@ -241,7 +241,7 @@ func TestFormatLogTriageStructured_ParallelSnapshotsLabelled(t *testing.T) {
 			{Type: "panic: goroutine 120"},
 		},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	if !strings.Contains(got, "3 parallel snapshots") {
 		t.Errorf("parallel snapshots not labelled:\n%s", got)
 	}
@@ -257,7 +257,7 @@ func TestFormatLogTriageStructured_UnknownChunksRendered(t *testing.T) {
 		Errors:  []types.LogError{{Type: "X"}},
 		Residue: types.LogResidue{UnknownChunks: []string{"strange boilerplate", "unparseable fragment"}},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	for _, want := range []string{
 		"Unstructured residue",
 		"NOT citeable",
@@ -351,7 +351,7 @@ func TestFormatLogTriageStructured_ExternalSourceDirective_FiresWhenResolvedZero
 		Errors:        []types.LogError{{Type: "KeyError", Message: "'database'"}},
 		ResolvedFiles: nil, // ZERO resolved — frames outside this repo
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	for _, want := range []string{
 		"External-source log",
 		"resolved_files=0",
@@ -387,7 +387,7 @@ func TestFormatLogTriageStructured_ExternalSourceDirective_NoFireWhenResolvedNon
 		Errors:        []types.LogError{{Type: "panic", Message: "runtime error"}},
 		ResolvedFiles: []string{"internal/agent/analyzer.go"},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	if strings.Contains(got, "External-source log") {
 		t.Errorf("directive must not fire when at least one frame resolves to the repo:\n%s", got)
 	}
@@ -405,7 +405,7 @@ func TestFormatLogTriageStructured_ExternalSourceDirective_NoFireWhenErrorsEmpty
 			UnknownChunks: []string{"lorem ipsum dolor sit amet"},
 		},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	if strings.Contains(got, "External-source log") {
 		t.Errorf("directive must not fire on degraded (zero-errors) bundles:\n%s", got)
 	}
@@ -455,7 +455,7 @@ func TestFormatLogTriageStructured_RendersCallChainForPanic(t *testing.T) {
 		ResolvedFiles: []string{"internal/agent/analyzer.go"},
 		Coverage:      1.0,
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	if !strings.Contains(got, "### Call chain (innermost → outer)") {
 		t.Fatalf("panic+crash bundle with 2 resolved frames must render Call chain block; got:\n%s", got)
 	}
@@ -499,7 +499,7 @@ func TestFormatLogTriageStructured_SkipsCallChainForNonCrashSignals(t *testing.T
 		},
 		ResolvedFiles: []string{"a.py", "b.py"},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	if strings.Contains(got, "### Call chain") {
 		t.Errorf("non-crash signals must skip Call chain block; got:\n%s", got)
 	}
@@ -521,7 +521,7 @@ func TestFormatLogTriageStructured_SkipsCallChainWithSingleFrame(t *testing.T) {
 		},
 		ResolvedFiles: []string{"a.go"},
 	}
-	got := formatLogTriageStructured(bundle)
+	got := formatLogTriageStructured(bundle, nil)
 	if strings.Contains(got, "### Call chain") {
 		t.Errorf("single-frame panic must skip Call chain block; got:\n%s", got)
 	}

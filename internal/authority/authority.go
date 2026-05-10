@@ -133,6 +133,28 @@ func SetMultiGraphLocatorProvider(p func(mg any) types.SymbolLocator) {
 	multiGraphLocatorProvider = p
 }
 
+// LocatorFromMultiGraph adapts a *multigraph.MultiGraph (passed as
+// any to honour the no-cycle pattern) into a SymbolLocator using the
+// installed multi-graph provider. Returns nil when the provider is
+// not installed (single-shot CLI flows) OR the input is nil OR the
+// provider returned nil — every call site is nil-safe.
+//
+// Used by render-time consumers that have AgentContext.MultiGraph
+// but no BusContext (e.g. the context package's log-triage section
+// renderer, which needs a locator to surface frame-drift warnings).
+func LocatorFromMultiGraph(mg any) types.SymbolLocator {
+	if mg == nil {
+		return nil
+	}
+	locatorMu.RLock()
+	mgProv := multiGraphLocatorProvider
+	locatorMu.RUnlock()
+	if mgProv == nil {
+		return nil
+	}
+	return mgProv(mg)
+}
+
 // LocatorFromBusContext is the preferred entry: prefers the cross-
 // sub-repo fan-out locator (BusContext.MultiGraph) when available,
 // falls back to the single-graph locator wrapping
