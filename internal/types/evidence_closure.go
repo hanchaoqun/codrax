@@ -871,8 +871,16 @@ func (c *EvidenceClosure) SetScannedSet(files map[string]bool) {
 	defer c.mu.Unlock()
 	c.scannedSet = make(map[string]bool, len(files))
 	for f, v := range files {
-		if v {
-			c.scannedSet[f] = true
+		if !v {
+			continue
+		}
+		// Mirror SetReadSet's canonicalization (line 425): without
+		// this, a caller storing "./internal/foo.go" would not match
+		// an IsScanned("internal/foo.go") lookup, treating the file
+		// as a ghost path and false-warning in runForcedReads.
+		// 2026-05-10 path-canonicalization audit.
+		if canon := c.canonicalize(f); canon != "" {
+			c.scannedSet[canon] = true
 		}
 	}
 }
@@ -888,12 +896,20 @@ func (c *EvidenceClosure) IsScanned(file string) bool {
 	if c == nil || file == "" {
 		return false
 	}
+	// Mirror HasRead's canonicalization (line 452): without this,
+	// IsScanned("./internal/foo.go") misses scannedSet["internal/foo.go"]
+	// and the cgec D4 advisory falsely flags a real file as a ghost
+	// path. 2026-05-10 path-canonicalization audit.
+	canon := c.canonicalize(file)
+	if canon == "" {
+		return false
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if len(c.scannedSet) == 0 {
 		return true
 	}
-	return c.scannedSet[file]
+	return c.scannedSet[canon]
 }
 
 // ScannedSet returns a defensive copy of the scanned-file set.
@@ -945,6 +961,17 @@ func (c *EvidenceClosure) AddPendingRead(p PendingRead) {
 func (c *EvidenceClosure) addPendingReadLocked(p PendingRead) {
 	if p.File == "" {
 		return
+	}
+	// Canonicalize at INSERT time so the dedup compare and every
+	// downstream lookup (ClearPendingReadFor / runForcedReads
+	// readSet match / DrainSatisfiedPendingReads) see a single
+	// canonical form. Without this, two callers raising the same
+	// file with different prefix forms ("./foo.go" vs "foo.go" vs
+	// `foo\go`) bypass the (File, Origin) dedup and produce
+	// duplicate forced-read demands. 2026-05-10
+	// path-canonicalization audit.
+	if canon := c.canonicalize(p.File); canon != "" {
+		p.File = canon
 	}
 	for i, existing := range c.pendingReads {
 		if existing.File != p.File || existing.Origin != p.Origin {
@@ -1102,11 +1129,23 @@ func (c *EvidenceClosure) ClearPendingReadFor(file string) {
 	if c == nil || file == "" {
 		return
 	}
+	// Canonicalize input so the comparison sees the same form
+	// addPendingReadLocked stored. Without this, runForcedReads's
+	// post-success ClearPendingReadFor with the LLM-supplied path
+	// could fail to clear the pending entry (entry stored canonical,
+	// argument raw with "./" prefix) and the forced-read directive
+	// re-fires on the next round. 2026-05-10 audit.
+	canon := c.canonicalize(file)
+	if canon == "" {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	kept := c.pendingReads[:0]
 	for _, p := range c.pendingReads {
-		if p.File == file {
+		// p.File is already canonical because addPendingReadLocked
+		// canonicalizes at insert. Direct equality is correct.
+		if p.File == canon {
 			continue
 		}
 		kept = append(kept, p)

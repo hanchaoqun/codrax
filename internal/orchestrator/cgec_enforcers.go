@@ -127,6 +127,15 @@ func (o *Orchestrator) runForcedReads() int {
 		return 0
 	}
 	closure := o.busCtx.Mutable.EvidenceClosure()
+	// readSet is the canonical-key snapshot. Used at the success-
+	// path bottom (line ~326 closure.SetReadSet(readSet)) to push
+	// the post-forced-read state back to the closure in one shot.
+	// 2026-05-10 path-canonicalization audit: the per-pending-read
+	// loop check is now closure.HasRead(p.File) (canonicalises at
+	// the boundary) instead of `readSet[p.File]` (raw lookup). The
+	// local snapshot still receives `readSet[p.File] = true` after
+	// each successful forced read so the SetReadSet writeback at
+	// the bottom carries the new files.
 	readSet := closure.ReadSet()
 
 	// A1 bridge: grounder-raised RepairReadFile directives are
@@ -144,7 +153,14 @@ func (o *Orchestrator) runForcedReads() int {
 	// operator a grep-able heads-up before the attempt.
 	var toRead []types.PendingRead
 	for _, p := range closure.PendingReads() {
-		if readSet[p.File] {
+		// 2026-05-10 path-canonicalization audit: switched from
+		// raw `readSet[p.File]` to closure.HasRead(p.File). The
+		// readSet map keys are canonical (SetReadSet canonicalizes
+		// at insert), and addPendingReadLocked now canonicalizes
+		// p.File at insert too — but using HasRead bulletproofs
+		// against a future regression where a non-canonical path
+		// slips through the closure boundary.
+		if closure.HasRead(p.File) {
 			closure.ClearPendingReadFor(p.File)
 			continue
 		}
@@ -286,6 +302,9 @@ func (o *Orchestrator) runForcedReads() int {
 		}
 		o.busCtx.Mutable.SetTurnAArtifacts(*artifacts)
 
+		// 2026-05-10 path-canonicalization audit: p.File is canonical
+		// (addPendingReadLocked normalises at insert) so the lookup
+		// key matches readSet's canonical-only contract.
 		readSet[p.File] = true
 		closure.ClearPendingReadFor(p.File)
 		success++
