@@ -1264,14 +1264,17 @@ func unionPrimaryAndDerivedEntities(h types.AnalyzerHints) []string {
 	return out
 }
 
-// nextReadOffset suggests the file offset (1-based line number) the
-// LLM should pass to read_file to continue WITHOUT re-reading
-// already-covered ranges. Strategy: take the largest End of any
-// merged read range, return End+1. When the file has no recorded
-// reads (fresh anchor) returns 1. The offset is a hint, not a
-// constraint — the LLM may pass a different offset to reach a
-// specific section. Helps the LLM avoid the "I already read 1-100
-// so let me re-read 1-100" loop the production trace exposed.
+// nextReadOffset suggests the read_file offset (0-based, matching
+// the tool's schema) the LLM should pass to continue WITHOUT re-
+// reading already-covered ranges. Strategy: take the largest End
+// of any merged 1-based read range and return that value as the
+// 0-based offset (End is 1-based; the next unread 1-based line is
+// End+1, whose 0-based offset is End). When the file has no
+// recorded reads (fresh anchor) returns 0 (start of file). The
+// offset is a hint, not a constraint — the LLM may pass a
+// different offset to reach a specific section. Helps the LLM
+// avoid the "I already read 1-100 so let me re-read 1-100" loop
+// the production trace exposed.
 func nextReadOffset(ranges []types.LineRange) int {
 	maxEnd := 0
 	for _, r := range ranges {
@@ -1280,9 +1283,9 @@ func nextReadOffset(ranges []types.LineRange) int {
 		}
 	}
 	if maxEnd <= 0 {
-		return 1
+		return 0
 	}
-	return maxEnd + 1
+	return maxEnd
 }
 
 // raisePhase1UnreadPendingReads is the session-12 CGEC gate that

@@ -770,3 +770,74 @@ func TestActionString(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderSymbolDemandRationale_OffsetIsZeroBased pins the
+// 2026-05-10 fix: read_file's `offset` parameter is 0-based but the
+// missing-range LineRange is 1-based. Customer-reported phantom
+// forced-read loop on context.go:1322 traced to this renderer
+// emitting `offset=1322` for the 1-based demand `1322-1322`; the
+// LLM read line 1323 instead and the demand persisted forever.
+//
+// Lock: emit `offset=line-1` (via types.LineToReadFileOffset) so
+// the LLM's read actually fetches the demanded line.
+func TestRenderSymbolDemandRationale_OffsetIsZeroBased(t *testing.T) {
+	missing := []types.LineRange{{Start: 1322, End: 1322}}
+	got := renderSymbolDemandRationale(
+		"internal/types/context.go",
+		[]string{"BusContext"},
+		[]SymbolDef{{Name: "BusContext", Line: 1320, EndLine: 1380}},
+		missing,
+		2,
+	)
+	// Missing-range listing remains 1-based (LLM-readable form).
+	if !strings.Contains(got, "Missing line ranges to read: 1322-1322") {
+		t.Errorf("missing-range listing must be 1-based for human readability: %q", got)
+	}
+	// Suggested read_file invocation MUST use 0-based offset.
+	if !strings.Contains(got, "offset=1321") {
+		t.Errorf("suggested offset must be 0-based (1322 → 1321): %q", got)
+	}
+	if strings.Contains(got, "offset=1322") {
+		t.Errorf("buggy 1-based offset must NOT be emitted: %q", got)
+	}
+	if !strings.Contains(got, "limit=1") {
+		t.Errorf("limit must equal range length (1322-1322 = 1 line): %q", got)
+	}
+}
+
+func TestRenderKeywordDemandRationale_OffsetIsZeroBased(t *testing.T) {
+	missing := []types.LineRange{{Start: 50, End: 65}}
+	got := renderKeywordDemandRationale(
+		"a.go",
+		[]int{55},
+		missing,
+		3,
+	)
+	if !strings.Contains(got, "offset=49") {
+		t.Errorf("0-based offset (50 → 49) missing: %q", got)
+	}
+	if strings.Contains(got, "offset=50") {
+		t.Errorf("buggy 1-based offset must NOT appear: %q", got)
+	}
+	if !strings.Contains(got, "limit=16") { // 65 - 50 + 1
+		t.Errorf("limit math (65 - 50 + 1 = 16) wrong: %q", got)
+	}
+}
+
+func TestRenderSmallFileFullRationale_OffsetIsZeroBased(t *testing.T) {
+	missing := []types.LineRange{{Start: 1, End: 12}}
+	got := renderSmallFileFullRationale(
+		"docker-compose.yml",
+		20, 60,
+		missing,
+	)
+	if !strings.Contains(got, "offset=0") {
+		t.Errorf("first line (1) → offset 0 missing: %q", got)
+	}
+	if strings.Contains(got, "offset=1,") || strings.Contains(got, "offset=1)") {
+		t.Errorf("1-based offset 1 must NOT appear (would skip line 1): %q", got)
+	}
+	if !strings.Contains(got, "limit=12") {
+		t.Errorf("limit math (12 - 1 + 1 = 12) wrong: %q", got)
+	}
+}

@@ -650,9 +650,15 @@ func renderSymbolDemandRationale(
 		// remaining ranges are listed above. The LLM can issue one
 		// read_file per range or batch them.
 		first := missing[0]
+		// read_file's offset parameter is 0-based (see
+		// internal/tool/builtin.go schema); LineRange.Start is
+		// 1-based. types.LineToReadFileOffset bridges them so the
+		// suggested invocation actually reads the demanded line
+		// (forensic 2026-05-10: emitting offset=first.Start fed the
+		// LLM a +1 offset that cycled forever).
 		fmt.Fprintf(&b,
 			"Use `read_file(path=%q, offset=%d, limit=%d)` for the first range. ",
-			file, first.Start, first.End-first.Start+1,
+			file, types.LineToReadFileOffset(first.Start), first.End-first.Start+1,
 		)
 	}
 	b.WriteString("This demand is SURGICAL — read ONLY the named ranges; do not paginate the rest of the file.")
@@ -698,9 +704,15 @@ func renderKeywordDemandRationale(
 		b.WriteString(strings.Join(parts, ", "))
 		b.WriteString(". ")
 		first := missing[0]
+		// read_file's offset parameter is 0-based (see
+		// internal/tool/builtin.go schema); LineRange.Start is
+		// 1-based. types.LineToReadFileOffset bridges them so the
+		// suggested invocation actually reads the demanded line
+		// (forensic 2026-05-10: emitting offset=first.Start fed the
+		// LLM a +1 offset that cycled forever).
 		fmt.Fprintf(&b,
 			"Use `read_file(path=%q, offset=%d, limit=%d)` for the first range. ",
-			file, first.Start, first.End-first.Start+1,
+			file, types.LineToReadFileOffset(first.Start), first.End-first.Start+1,
 		)
 	}
 	b.WriteString("This demand is SURGICAL — read ONLY the named ranges; do not paginate the rest of the file.")
@@ -731,9 +743,15 @@ func renderSmallFileFullRationale(
 		b.WriteString(strings.Join(parts, ", "))
 		b.WriteString(". ")
 		first := missing[0]
+		// read_file's offset parameter is 0-based (see
+		// internal/tool/builtin.go schema); LineRange.Start is
+		// 1-based. types.LineToReadFileOffset bridges them so the
+		// suggested invocation actually reads the demanded line
+		// (forensic 2026-05-10: emitting offset=first.Start fed the
+		// LLM a +1 offset that cycled forever).
 		fmt.Fprintf(&b,
 			"Use `read_file(path=%q, offset=%d, limit=%d)` for the first range. ",
-			file, first.Start, first.End-first.Start+1,
+			file, types.LineToReadFileOffset(first.Start), first.End-first.Start+1,
 		)
 	}
 	b.WriteString("This demand is bounded by file size — total read is at most the file's line count.")

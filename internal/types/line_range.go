@@ -83,3 +83,27 @@ func cloneLineRanges(src []LineRange) []LineRange {
 	copy(out, src)
 	return out
 }
+
+// LineToReadFileOffset converts a 1-based line number into the
+// 0-based offset value the read_file tool expects. Used by every
+// system-emitted "Use read_file(offset=N)" suggestion so a 1-based
+// LineRange demand (e.g. {Start: 1322, End: 1322}) maps to the
+// correct read_file invocation that actually fetches line 1322.
+//
+// 2026-05-10 forensic anchor: customer-reported phantom forced-read
+// loop on context.go:1322. The system was emitting offset=1322 for
+// 1-based line 1322; read_file then computed sliceStart=1322 and
+// returned banner "showing lines 1323-…", leaving line 1322 in the
+// missing set forever. The LLM correctly identified the off-by-one
+// at iter=17 ("I've been reading offset=1322 which gives line
+// 1323") but kept following the system's wrong instructions until
+// the read_file budget exhausted.
+//
+// Clamps line ≤ 0 to 0 so the helper is safe on uninitialised
+// LineRange.Start values without panicking.
+func LineToReadFileOffset(line int) int {
+	if line <= 0 {
+		return 0
+	}
+	return line - 1
+}

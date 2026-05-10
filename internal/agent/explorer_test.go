@@ -3677,11 +3677,18 @@ func TestFormatReadFileOffsetGuidance(t *testing.T) {
 		t.Errorf("beyond-top-3 Delta must not leak: %q", got)
 	}
 	// Concrete example covering lines 10-150 (Alpha start → Gamma end).
-	if !contains(got, "offset=10") {
-		t.Errorf("example must start at first symbol's line: %q", got)
+	// 2026-05-10 fix: read_file's offset parameter is 0-based but the
+	// "(covers lines …)" gloss reports 1-based lines. So Alpha's
+	// 1-based start line 10 maps to offset=9, limit stays 141 (=
+	// 150 - 10 + 1), and the parenthetical still reads "lines 10-150".
+	if !contains(got, "offset=9") {
+		t.Errorf("example must use 0-based offset for first symbol's line (line 10 → offset 9): %q", got)
 	}
 	if !contains(got, "limit=141") { // 150 - 10 + 1 = 141
 		t.Errorf("example limit must span Alpha→Gamma: %q", got)
+	}
+	if !contains(got, "(covers lines 10-150)") {
+		t.Errorf("human-readable cover gloss must stay 1-based (lines 10-150): %q", got)
 	}
 }
 

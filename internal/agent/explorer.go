@@ -3890,10 +3890,13 @@ func renderPartialReadHint(h partialReadHint, smallRemainderThreshold int) strin
 		smallRemainderThreshold = types.ResolvedExploreHeuristics(types.ExploreHeuristics{}).PartialReadLineThreshold
 	}
 	if unreadLines <= smallRemainderThreshold {
+		// read_file offset is 0-based (see internal/tool/builtin.go);
+		// h.readEnd is the 1-based last line read. The next unread
+		// 1-based line is h.readEnd+1 → 0-based offset h.readEnd.
 		return fmt.Sprintf("MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
 			"If this function is relevant to the question, call read_file with path=%q offset=%d limit=%d to see the rest.\n",
 			h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
-			h.file, h.readEnd+1, unreadLines)
+			h.file, types.LineToReadFileOffset(h.readEnd+1), unreadLines)
 	}
 	return fmt.Sprintf("MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
 		"If this function is relevant to the question, grep for key identifiers within `%s` (lines %d-%d) to find the important sections, then read those specific ranges.\n",
@@ -6916,10 +6919,12 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		unreadLines := h.symEnd - h.readEnd
 		if unreadLines <= e.heuristics.PartialReadLineThreshold {
 			// Small remainder: direct read is cheaper than grep+read.
+			// read_file offset is 0-based; next unread 1-based line is
+			// h.readEnd+1 → 0-based offset h.readEnd.
 			fmt.Fprintf(&b, "MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
 				"If this function is relevant to the question, call read_file with path=%q offset=%d limit=%d to see the rest.\n",
 				h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
-				h.file, h.readEnd+1, unreadLines)
+				h.file, types.LineToReadFileOffset(h.readEnd+1), unreadLines)
 		} else {
 			// Large remainder: grep-then-read is the Phase 1 strategy.
 			fmt.Fprintf(&b, "MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
@@ -7660,11 +7665,13 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			for _, ph := range partialHints {
 				unreadLines := ph.symEnd - ph.readEnd
 				if unreadLines <= e.heuristics.PartialReadLineThreshold {
+					// read_file offset is 0-based; next unread 1-based
+					// line is ph.readEnd+1 → 0-based offset ph.readEnd.
 					fmt.Fprintf(&hint, "- `%s` in %s (lines %d-%d): you read up to line %d (%.0f%%, %d lines remaining). "+
 						"Call `read_file` with path=%q offset=%d limit=%d to see the rest\n",
 						ph.symbolName, ph.file, ph.symStart, ph.symEnd,
 						ph.readEnd, ph.coverage*100, unreadLines,
-						ph.file, ph.readEnd+1, unreadLines)
+						ph.file, types.LineToReadFileOffset(ph.readEnd+1), unreadLines)
 				} else {
 					fmt.Fprintf(&hint, "- `%s` in %s (lines %d-%d): you read up to line %d (%.0f%%, %d lines remaining). "+
 						"Grep for key identifiers within `%s` (lines %d-%d) to find the important sections, then read those ranges\n",
@@ -8259,12 +8266,16 @@ func (e *explorerEvaluator) formatReadFileOffsetGuidance(path string) string {
 	for i := 0; i < topN; i++ {
 		fmt.Fprintf(&b, "      - %s (lines %d-%d)\n", syms[i].name, syms[i].start, syms[i].end)
 	}
-	// Concrete example spanning the top-N union.
-	offset := syms[0].start
+	// Concrete example spanning the top-N union. read_file offset is
+	// 0-based; the symbol's 1-based start line maps to offset
+	// start-1. The "(covers lines …)" gloss stays in 1-based form so
+	// it matches the symbol-line listing above.
+	startLine := syms[0].start
 	coverEnd := syms[topN-1].end
-	limit := coverEnd - offset + 1
+	offset := types.LineToReadFileOffset(startLine)
+	limit := coverEnd - startLine + 1
 	fmt.Fprintf(&b, "    Example: read_file path=%s offset=%d limit=%d  (covers lines %d-%d).\n",
-		path, offset, limit, offset, coverEnd)
+		path, offset, limit, startLine, coverEnd)
 	return b.String()
 }
 

@@ -164,3 +164,67 @@ func TestCloneLineRanges_IsDefensive(t *testing.T) {
 		t.Error("clone mutation leaked back into src")
 	}
 }
+
+// === LineToReadFileOffset (2026-05-10 customer-reported off-by-one fix) ===
+
+// TestLineToReadFileOffset_HappyPath pins the canonical mapping. The
+// customer-reported phantom forced-read loop on context.go:1322
+// reduced to: 1-based line 1322 → 0-based offset 1321.
+func TestLineToReadFileOffset_HappyPath(t *testing.T) {
+	cases := []struct {
+		line     int
+		wantOff  int
+		describe string
+	}{
+		{1, 0, "first 1-based line maps to offset 0"},
+		{1322, 1321, "customer-reported case: line 1322 → offset 1321"},
+		{3928, 3927, "last line of context.go (3928 lines) → offset 3927"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.describe, func(t *testing.T) {
+			got := LineToReadFileOffset(tc.line)
+			if got != tc.wantOff {
+				t.Errorf("LineToReadFileOffset(%d) = %d, want %d", tc.line, got, tc.wantOff)
+			}
+		})
+	}
+}
+
+// TestLineToReadFileOffset_ZeroAndNegativeClampToZero — defensive
+// against uninitialised LineRange.Start (zero value) so the helper
+// is safe to call inline without an explicit pre-check at every
+// emit site.
+func TestLineToReadFileOffset_ZeroAndNegativeClampToZero(t *testing.T) {
+	for _, line := range []int{0, -1, -1000} {
+		if got := LineToReadFileOffset(line); got != 0 {
+			t.Errorf("LineToReadFileOffset(%d) = %d, want 0 (clamped)", line, got)
+		}
+	}
+}
+
+// TestLineToReadFileOffset_RoundTripWithBanner pins the round-trip
+// against read_file's banner contract:
+//
+//   - LLM passes offset = LineToReadFileOffset(line).
+//   - read_file slices allLines[offset:] and emits a banner with
+//     `showing lines (offset+1)-…` (1-based).
+//   - parseReadFileBanner records line (offset+1) onward as covered.
+//   - The original 1-based `line` is in the covered set, so the
+//     forced-read demand is satisfied on the first attempt.
+//
+// Without LineToReadFileOffset, the LLM would pass the 1-based
+// line directly as offset, read line+1, and never satisfy the
+// demand for `line`.
+func TestLineToReadFileOffset_RoundTripWithBanner(t *testing.T) {
+	for _, line := range []int{1, 5, 100, 1322} {
+		offset := LineToReadFileOffset(line)
+		// read_file's banner reports `sliceStart+1` (1-based) where
+		// sliceStart == offset (0-based). So the banner's first
+		// covered line is offset+1, which must equal `line`.
+		bannerFirstLine := offset + 1
+		if bannerFirstLine != line {
+			t.Errorf("line %d → offset %d → banner shows line %d (want %d)",
+				line, offset, bannerFirstLine, line)
+		}
+	}
+}
