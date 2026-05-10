@@ -49,6 +49,12 @@ type explorerEvaluator struct {
 	// enumerations (e.g. "list 9 internal checks of gate.Run") don't
 	// hijack the registry-shape declarative path.
 	primaryEntitiesRegistrationShape bool
+	// requiredFileHints (2026-05-10 L3) — analyzer-emitted per-file
+	// recommendations with confidence + rationale. Cached on dispatch
+	// entry from ctx.AnalysisIR so the threshold-band consumers
+	// (effectivePrimaryFiles for ≥0.8 hints, preReadRequiredFiles for
+	// ≥0.5 hints) can read without re-traversing the IR.
+	requiredFileHints []types.RequiredFileHint
 	investigationNotes        []string             // assistant analysis messages from ReAct loop
 	userQuestion              string               // original user question, for focus alignment
 	repoRoot                  string               // repository root path, cached from BuildInitialInstruction
@@ -661,9 +667,28 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			declAllowed := declarativeAllowedKinds(analyzerKind, e.predicateAxis)
 			if ctx != nil {
 				e.primaryEntitiesRegistrationShape = primaryEntitiesLookLikeRegistration(ctx.AnalysisIR, sr.Graph, declAllowed)
+				// L3 cache — analyzer-emitted per-file hints.
+				// Validate against the repomap graph: hints whose
+				// `path` is not in graph.FileIndex are LLM
+				// hallucinations (typo, fabricated file, wrong
+				// directory) and dropped here so they never reach
+				// downstream consumers. graph membership is the
+				// authoritative "exists in this repo" signal —
+				// stronger than os.Stat (the graph already filtered
+				// out .gitignore'd, binary, and language-irrelevant
+				// files) and free (no extra I/O).
+				if ctx.AnalysisIR != nil {
+					e.requiredFileHints = filterValidRequiredFileHints(
+						ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints,
+						sr.Graph,
+					)
+				} else {
+					e.requiredFileHints = nil
+				}
 			} else {
 				// No ctx → fail-open (preserve legacy behaviour).
 				e.primaryEntitiesRegistrationShape = true
+				e.requiredFileHints = nil
 			}
 			e.declarativeAnchorFiles = declarativeAnchorFilesFromScores(sr.Files, analyzerKind, e.predicateAxis, e.isEnumerationQuery, e.primaryEntitiesRegistrationShape)
 			e.declarativeCandidateFiles = nil
@@ -1210,11 +1235,27 @@ func (e *explorerEvaluator) effectivePrimaryFiles() []string {
 		}
 		cited[canon] = true
 	}
-	if len(primary) == 0 && len(cited) == 0 {
+	// L3 (2026-05-10): high-confidence analyzer hints (≥0.8) join the
+	// primary-files set. The LLM has full context (user question +
+	// repo summary + pre-scan results) and explicitly judged these
+	// files needed; honoring the recommendation supersedes the
+	// resolver's heuristic when the LLM is confident.
+	highConfHints := make(map[string]bool)
+	for _, h := range e.requiredFileHints {
+		if h.Confidence < requiredFileHintHighConfidence {
+			continue
+		}
+		canon := canonicalExplorerPath(h.Path)
+		if canon == "" {
+			continue
+		}
+		highConfHints[canon] = true
+	}
+	if len(primary) == 0 && len(cited) == 0 && len(highConfHints) == 0 {
 		return nil
 	}
-	seen := make(map[string]bool, len(primary)+len(cited))
-	out := make([]string, 0, len(primary)+len(cited))
+	seen := make(map[string]bool, len(primary)+len(cited)+len(highConfHints))
+	out := make([]string, 0, len(primary)+len(cited)+len(highConfHints))
 	for _, p := range primary {
 		canon := canonicalExplorerPath(p)
 		if canon == "" || seen[canon] {
@@ -1229,6 +1270,157 @@ func (e *explorerEvaluator) effectivePrimaryFiles() []string {
 		}
 		seen[canon] = true
 		out = append(out, canon)
+	}
+	for canon := range highConfHints {
+		if seen[canon] {
+			continue
+		}
+		seen[canon] = true
+		out = append(out, canon)
+	}
+	return out
+}
+
+// L3 threshold bands. Mirrors the established
+// kindConfidenceFloorForNarrowing (0.7) pattern but slightly higher
+// since per-file judgements are easier for an LLM than meta-
+// classification. Values are tuned to give ≥0.8 a strong "primary"
+// signal while ≥0.5 catches softer "this might help" hints.
+const (
+	requiredFileHintHighConfidence = 0.8
+	requiredFileHintSoftConfidence = 0.5
+)
+
+// filterValidRequiredFileHints drops hints whose `Path` does not
+// resolve to a real file in the repomap graph. The graph's
+// FileIndex is the canonical "exists in this repo" set — stronger
+// than os.Stat (the graph already filtered out .gitignore'd, binary,
+// and language-irrelevant files) and free (no extra I/O).
+//
+// Hallucinated paths from the analyzer (typo, wrong directory,
+// fabricated file) are silently dropped here so they never reach
+// downstream consumers and can't waste a primary-files slot or
+// inflate the pre-read pool. A debug log lists each dropped path
+// so operators can audit LLM-side path quality.
+//
+// Fail-open: when graph is nil OR FileIndex is empty (e.g. test
+// harness without a real repo), all hints pass through unchanged.
+//
+// Cross-language: works for every language codrax's repomap
+// supports — graph.FileIndex is populated identically across all
+// scanners (Go / Python / Java / Rust / C++ / Ruby / Swift / etc.).
+func filterValidRequiredFileHints(hints []types.RequiredFileHint, graph *repomap.Graph) []types.RequiredFileHint {
+	if len(hints) == 0 {
+		return nil
+	}
+	if graph == nil || len(graph.FileIndex) == 0 {
+		// Fail-open — graph not available, can't validate.
+		return hints
+	}
+	out := make([]types.RequiredFileHint, 0, len(hints))
+	var dropped []string
+	for _, h := range hints {
+		canon := canonicalExplorerPath(h.Path)
+		if canon == "" {
+			dropped = append(dropped, h.Path)
+			continue
+		}
+		if _, ok := graph.FileIndex[canon]; !ok {
+			dropped = append(dropped, canon)
+			continue
+		}
+		out = append(out, h)
+	}
+	if len(dropped) > 0 {
+		logging.Debug("[explorer] required_file_hints: dropped %d path(s) not in graph: %v", len(dropped), dropped)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// preReadEligibleHintFiles returns the canonical paths from
+// e.requiredFileHints whose confidence ≥ requiredFileHintSoftConfidence
+// (default 0.5). Result is in declaration order from the analyzer
+// emit. Used by callers of preReadRequiredFiles to fold the
+// analyzer's recommended set into the pre-read pool. High-confidence
+// hints (≥0.8) appear first, then soft hints, then the caller's
+// existing files (so the analyzer's strongest recommendations get
+// the limited maxFiles slots).
+func (e *explorerEvaluator) preReadEligibleHintFiles() []string {
+	if len(e.requiredFileHints) == 0 {
+		return nil
+	}
+	type tier struct {
+		path string
+		high bool
+	}
+	tiers := make([]tier, 0, len(e.requiredFileHints))
+	for _, h := range e.requiredFileHints {
+		if h.Confidence < requiredFileHintSoftConfidence {
+			continue
+		}
+		canon := canonicalExplorerPath(h.Path)
+		if canon == "" {
+			continue
+		}
+		tiers = append(tiers, tier{path: canon, high: h.Confidence >= requiredFileHintHighConfidence})
+	}
+	if len(tiers) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(tiers))
+	seen := make(map[string]bool, len(tiers))
+	// High-confidence first.
+	for _, t := range tiers {
+		if !t.high || seen[t.path] {
+			continue
+		}
+		seen[t.path] = true
+		out = append(out, t.path)
+	}
+	// Soft tier next.
+	for _, t := range tiers {
+		if t.high || seen[t.path] {
+			continue
+		}
+		seen[t.path] = true
+		out = append(out, t.path)
+	}
+	return out
+}
+
+// mergeHintFilesIntoPreRead returns the caller's preReadFiles list
+// with high+soft confidence analyzer hints prepended, deduplicated.
+// Used by buildCapabilityFocusedStartInstruction /
+// buildFocusedDepthStartInstruction /
+// buildPrimaryEntityDepthStartInstruction /
+// buildDeclarativeFocusedStartInstruction /
+// buildDeclarativeCandidateStartInstruction so each path's pre-read
+// pool benefits from the L3 typed recommendations.
+func (e *explorerEvaluator) mergeHintFilesIntoPreRead(callerFiles []string) []string {
+	hintFiles := e.preReadEligibleHintFiles()
+	if len(hintFiles) == 0 {
+		return callerFiles
+	}
+	seen := make(map[string]bool, len(callerFiles)+len(hintFiles))
+	out := make([]string, 0, len(callerFiles)+len(hintFiles))
+	for _, f := range hintFiles {
+		canon := canonicalExplorerPath(f)
+		if canon == "" || seen[canon] {
+			continue
+		}
+		seen[canon] = true
+		out = append(out, f)
+	}
+	for _, f := range callerFiles {
+		canon := canonicalExplorerPath(f)
+		if canon == "" || seen[canon] {
+			continue
+		}
+		seen[canon] = true
+		out = append(out, f)
 	}
 	return out
 }
@@ -2371,7 +2563,7 @@ func (e *explorerEvaluator) buildCapabilityFocusedStartInstruction(ctx *types.Ag
 	b.WriteString("- Treat helper subsets and validator functions as supporting detail only after the capability surface is settled.\n")
 	b.WriteString("- If implementation detail matters, expand only to the specific helper file already named in these authority files.\n\n")
 	if ctx != nil && ctx.RepoRoot != "" {
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, files, 3, 220, excludeReadFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(files), 3, 220, excludeReadFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -2500,7 +2692,7 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 			}
 			preReadFiles = append(preReadFiles, f)
 		}
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, preReadFiles, 2, 200, excludeReadFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 200, excludeReadFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -2617,7 +2809,7 @@ func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.A
 			}
 			preReadFiles = append(preReadFiles, f)
 		}
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, preReadFiles, 2, 200, excludeReadFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 200, excludeReadFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -2736,7 +2928,7 @@ func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.A
 			}
 			preReadFiles = append(preReadFiles, f)
 		}
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, preReadFiles, 2, 220, excludeReadFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 220, excludeReadFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -2780,7 +2972,7 @@ func (e *explorerEvaluator) buildDeclarativeCandidateStartInstruction(ctx *types
 		b.WriteString("`\n\n")
 	}
 	if ctx != nil && ctx.RepoRoot != "" {
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.declarativeCandidateFiles, 2, 220, excludeReadFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(e.declarativeCandidateFiles), 2, 220, excludeReadFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
