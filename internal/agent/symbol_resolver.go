@@ -19,6 +19,18 @@
 // "tool") rather than hand-curated per project so the same adapter
 // works on foreign repos. Unknown prefixes return the first path
 // segment as a best-effort domain tag.
+//
+// Multi-repo addendum (B2, 2026-05-10): in multi-repo workspaces the
+// single-graph view is too narrow — analyzerGraphForNormalize collapses
+// the multigraph to one primary sub-repo's *Graph, so a sub-repo
+// outside the primary remains invisible to the resolver. The
+// `multiRepoSymbolResolver` adapter at the bottom of this file
+// delegates to the existing multigraph fan-out APIs (LookupSymbol /
+// IterateSymbolDefs) and uses the owning sub-repo's RootRel as a
+// fallback Domain when the per-graph FileInfo.Package lookup is empty.
+// Single-repo posture continues to use repomapSymbolResolver — the
+// adapter constructor returns nil on IsSingle() so callers fall
+// through to the legacy path.
 package agent
 
 import (
@@ -27,6 +39,9 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
+	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 )
 
 // maxSymbolResolverHits caps the slice LookupSymbol returns so a
@@ -247,4 +262,178 @@ func symbolDomain(g *repomap.Graph, sym *repomap.Symbol) string {
 		return ""
 	}
 	return path.Base(parent)
+}
+
+// === Multi-repo SymbolResolver (B2, 2026-05-10) ===
+//
+// multiRepoSymbolResolver implements normalizer.SymbolResolver atop
+// a *multigraph.MultiGraph. Used by analyzerSymbolResolver when the
+// workspace is multi-repo (≥2 active sub-repos). For single-repo /
+// nil multigraph posture, callers fall back to the legacy
+// repomapSymbolResolver — byte-identical pre-multi-repo behaviour.
+//
+// Lookup strategy:
+//
+//  1. mg.LookupSymbol delegates to the existing cross-sub-repo fan-out
+//     (multigraph.go:588) — returns []SymbolHit{*Symbol, *SubRepo}.
+//  2. NormalizeCodeKey-equivalence fallback iterates SymbolDefs across
+//     all active sub-repos (mg.IterateSymbolDefs, multigraph.go:704).
+//
+// Domain derivation: prefer per-graph symbolDomain (FileInfo.Package
+// or parent-dir basename); fall back to the owning sub-repo's RootRel
+// when the per-graph signal is empty. The RootRel fallback is the
+// "code area" tag that lets coherence R1.4 axis_collapse stay
+// meaningful in cross-sub-repo emit shapes — distinct sub-repos are
+// distinct domains by construction.
+//
+// LookupSymbolStem reuses the package-local stripRoleSuffix /
+// stemSuffixFloor from repomapSymbolResolver — the role-suffix
+// vocabulary is a property of the user's spelling, not of which
+// graph is loaded.
+type multiRepoSymbolResolver struct {
+	mg *multigraph.MultiGraph
+}
+
+// newMultiRepoSymbolResolver returns a multi-graph-backed resolver
+// when mg has ≥2 sub-repos. Returns nil for single-repo / nil
+// receivers so the caller (analyzerSymbolResolver) can fall back to
+// the legacy single-graph adapter without nil-check dance — same
+// contract as newRepomapSymbolResolver.
+func newMultiRepoSymbolResolver(mg *multigraph.MultiGraph) normalizer.SymbolResolver {
+	if mg == nil || mg.IsSingle() {
+		return nil
+	}
+	return &multiRepoSymbolResolver{mg: mg}
+}
+
+// LookupSymbol delegates to mg.LookupSymbol then adapts each
+// multigraph.SymbolHit to a normalizer.SymbolHit. Falls through to
+// a NormalizeCodeKey-equivalence scan via IterateSymbolDefs when
+// the verbatim lookup misses, matching the second-pass shape of
+// repomapSymbolResolver.LookupSymbol.
+func (r *multiRepoSymbolResolver) LookupSymbol(surface string) []normalizer.SymbolHit {
+	if r == nil || r.mg == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(surface)
+	if trimmed == "" {
+		return nil
+	}
+	hits := r.mg.LookupSymbol(trimmed)
+	if len(hits) == 0 {
+		// Case/underscore-insensitive fallback. NormalizeCodeKey on
+		// each name; pull defs whose canonical form matches the
+		// canonical surface.
+		target := normalizer.NormalizeCodeKey(trimmed)
+		if target == "" {
+			return nil
+		}
+		var fb []multigraph.SymbolHit
+		r.mg.IterateSymbolDefs(func(name string, defs []*rmtypes.Symbol, sub *topology.SubRepo) bool {
+			if normalizer.NormalizeCodeKey(name) != target {
+				return true
+			}
+			for _, sym := range defs {
+				if sym == nil {
+					continue
+				}
+				fb = append(fb, multigraph.SymbolHit{Symbol: sym, Sub: sub})
+				if len(fb) >= maxSymbolResolverHits {
+					return false
+				}
+			}
+			return true
+		})
+		if len(fb) == 0 {
+			return nil
+		}
+		hits = fb
+	}
+	return r.adaptHits(hits)
+}
+
+// LookupSymbolStem is the multi-repo counterpart of
+// repomapSymbolResolver.LookupSymbolStem. Same role-suffix stripping
+// (stripRoleSuffix / stemSuffixFloor); fan-out via IterateSymbolDefs.
+func (r *multiRepoSymbolResolver) LookupSymbolStem(surface string) []normalizer.SymbolHit {
+	if r == nil || r.mg == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(surface)
+	if trimmed == "" {
+		return nil
+	}
+	stem := stripRoleSuffix(trimmed)
+	if stem == "" || len(stem) < stemSuffixFloor {
+		return nil
+	}
+	flatStem := normalizer.NormalizeCodeKey(stem)
+	if flatStem == "" || len(flatStem) < stemSuffixFloor {
+		return nil
+	}
+	var hits []multigraph.SymbolHit
+	r.mg.IterateSymbolDefs(func(name string, defs []*rmtypes.Symbol, sub *topology.SubRepo) bool {
+		if !strings.Contains(normalizer.NormalizeCodeKey(name), flatStem) {
+			return true
+		}
+		for _, sym := range defs {
+			if sym == nil {
+				continue
+			}
+			hits = append(hits, multigraph.SymbolHit{Symbol: sym, Sub: sub})
+			if len(hits) >= maxSymbolResolverHits {
+				return false
+			}
+		}
+		return true
+	})
+	if len(hits) == 0 {
+		return nil
+	}
+	return r.adaptHits(hits)
+}
+
+// adaptHits maps multigraph.SymbolHit → normalizer.SymbolHit with
+// per-sub-repo Domain enrichment and dedup. Domain priority:
+//   1. per-graph symbolDomain (FileInfo.Package or parent-dir basename)
+//   2. owning sub-repo's RootRel (cross-sub-repo "code area" tag)
+//
+// Dedup key includes Domain so the same Symbol resolved through
+// different sub-repos (rare but possible — vendored modules etc.)
+// yields distinct hits. The maxSymbolResolverHits cap keeps the
+// final slice bounded.
+func (r *multiRepoSymbolResolver) adaptHits(hits []multigraph.SymbolHit) []normalizer.SymbolHit {
+	if len(hits) == 0 {
+		return nil
+	}
+	out := make([]normalizer.SymbolHit, 0, len(hits))
+	seen := make(map[string]bool, len(hits))
+	all := r.mg.AllGraphs()
+	for _, h := range hits {
+		if h.Symbol == nil {
+			continue
+		}
+		domain := ""
+		if h.Sub != nil {
+			if g, ok := all[h.Sub.Slug]; ok && g != nil {
+				domain = symbolDomain(g, h.Symbol)
+			}
+			if domain == "" {
+				domain = h.Sub.RootRel
+			}
+		}
+		key := h.Symbol.Name + "|" + h.Symbol.File + "|" + domain
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, normalizer.SymbolHit{
+			Canonical: h.Symbol.Name,
+			Domain:    domain,
+		})
+		if len(out) >= maxSymbolResolverHits {
+			break
+		}
+	}
+	return out
 }

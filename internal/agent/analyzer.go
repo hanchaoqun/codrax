@@ -1373,7 +1373,14 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// to gate.RunWith below, where R1.4 (axis_collapse) and R1.5
 	// (entity_unresolvable) query it to validate sub-topic entity
 	// claims against repo ground truth.
-	resolver := newRepomapSymbolResolver(analyzerGraphForNormalize(ctx, rm))
+	// B2 (2026-05-10): in multi-repo posture, wrap the multigraph
+	// fan-out resolver so R1.4/R1.5 in the coherence gate (and the
+	// normalizer's kindEnWord → TermSymbol promotion gate) see every
+	// active sub-repo's SymbolDefs, not just the primary collapsed
+	// from pickPrimarySubRepo. Single-repo / nil-multigraph keeps the
+	// legacy single-graph adapter — byte-identical pre-multi-repo.
+	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.2.
+	resolver := analyzerSymbolResolver(ctx, rm)
 	rm.TermGraph = normalizer.Normalize(
 		rm.RawRequest,
 		normalizer.Options{
@@ -1784,6 +1791,29 @@ func shouldMergeLogTriageEntities(bundle *types.LogBundle) bool {
 // a prior stage) and falls back to an eager BuildOrLoadGraph keyed by
 // the analyzer's entity list. Returns nil on any failure; the caller
 // treats nil graph as "resolver unavailable, use concept fallback".
+// analyzerSymbolResolver returns the right normalizer.SymbolResolver
+// for the current Run. Multi-repo posture (≥2 sub-repos) returns a
+// multiRepoSymbolResolver that fans out across every active
+// sub-repo via mg.LookupSymbol / mg.IterateSymbolDefs. Single-repo
+// / nil-multigraph posture returns the legacy
+// newRepomapSymbolResolver(analyzerGraphForNormalize(...)) — byte-
+// identical to pre-B2 behaviour.
+//
+// This closes the matching wiring gap that
+// analyzerOracleFromCtx (analyzer.go:478) opened on the SymbolOracle
+// path: pre-B2 the oracle path was multi-repo aware but the resolver
+// path collapsed to a single graph, producing the asymmetric
+// resolution noise that fails coherence R1.5 on cross-sub-repo emit
+// shapes (forensic anchor: 2026-05-10 chatpp-7d46dee4 log L2710).
+//
+// Design doc: docs/design/multirepo_entity_scope_separation.md §4.2.
+func analyzerSymbolResolver(ctx *types.AgentContext, rm types.RequestModel) normalizer.SymbolResolver {
+	if mg := repomap.MultiGraphFromAgentContext(ctx); mg != nil && !mg.IsSingle() {
+		return newMultiRepoSymbolResolver(mg)
+	}
+	return newRepomapSymbolResolver(analyzerGraphForNormalize(ctx, rm))
+}
+
 func analyzerGraphForNormalize(ctx *types.AgentContext, rm types.RequestModel) *repomap.Graph {
 	if ctx == nil || ctx.RepoRoot == "" {
 		return nil
