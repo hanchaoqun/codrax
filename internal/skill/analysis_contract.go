@@ -324,6 +324,30 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("- predicates — object with seven required booleans (see Semantic predicates below).\n\n")
 	of.WriteString("Optional fields: sub_topics (array), answer_subject (object), predicate_axis (enum), diagram_hint (object), exact_targets (array), exact_context_terms (array), exact_context_roles (array), language.\n\n")
 	of.WriteString("Everything downstream — the search plan, the evidence plan, the hypothesis set, the quality checks — is derived automatically from your input; do not provide them.\n\n")
+	// Top-level "current-question primacy" rule (2026-05-10 Issue B).
+	// Generalises the per-field cross-turn discipline rules below
+	// (sub_topics line ~387, pronoun-disambiguation line ~370) so the
+	// LLM cannot interpret the per-field rules as opt-in. EVERY intent
+	// field is current-question only; Prior Conversation participates
+	// ONLY for pronoun / demonstrative resolution.
+	of.WriteString("## Current-question primacy (every intent field)\n\n")
+	of.WriteString("EVERY field you emit — intent, scenario, complexity, question_kind, keywords, entities, predicates (every flag), " +
+		"sub_topics, answer_subject, predicate_axis, exact_targets, exact_context_terms, exact_context_roles, " +
+		"diagram_hint, language, completeness_obligation, enumeration_boundary, required_files — MUST be derived from the CURRENT request's text only. " +
+		"The CURRENT request is the user-typed input that drove this dispatch. " +
+		"Prior Conversation entries (visible in the \"Prior Conversation\" section above when present), agent memory recalled by `recall_memory`, and any other historical material " +
+		"are REFERENCE-ONLY context — they MUST NOT be the primary basis for any field's value.\n\n")
+	of.WriteString("The single exception: when the current request leans on a pronoun / demonstrative (\"它\", \"那个\", \"它们\", \"this\", \"that\", \"them\", \"上次\", \"刚才\", \"the same\", \"continue with\") " +
+		"that has no antecedent inside the current request itself, you MAY consult Prior Conversation to resolve the antecedent and copy the resolved CONCRETE identifier verbatim into the relevant field (most often `entities`). " +
+		"This is disambiguation, not lifting: only the resolved name crosses over, never the framing / topic / structural shape of the prior turn.\n\n")
+	of.WriteString("Lifting any of the following from Prior Conversation / memory / historical material is a STRUCTURAL ERROR — the answer the user actually receives is computed from the CURRENT request:\n" +
+		"- A topic / framing / sub-topic from a prior turn (an earlier UI tweak, layout change, performance discussion, design debate)\n" +
+		"- A predicate flag value (`is_cross_component`, `is_category_enumeration`, etc.) inferred from prior-turn shape\n" +
+		"- An entity name that appeared in a prior turn but is NOT named or pronoun-referenced by the current request\n" +
+		"- A predicate axis / answer subject / diagram kind shaped by what the prior turn was asking, not by what the current request asks\n" +
+		"- A sub-repo scope or PrimaryEntity inferred from prior-turn focus rather than the current request\n\n")
+	of.WriteString("If the current request is fully self-contained (no pronoun / demonstrative needing resolution), Prior Conversation has NO bearing on any field. Read the current request, classify from its text, and emit. " +
+		"Treat memory-recalled material the same way: REFERENCE for understanding the user's broader context, never a source of intent fields for THIS dispatch.\n\n")
 	of.WriteString("Field enums:\n\n")
 	of.WriteString(renderEnumTable("intent", analysisIntents))
 	of.WriteString("\n")
