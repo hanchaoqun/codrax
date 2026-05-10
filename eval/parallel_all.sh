@@ -36,11 +36,14 @@ SUMMARY="eval/parallel_all_summary.md"
 # LAUNCH_FAIL when a concurrent `go build` (developer iterating in
 # the same tree) rewrites ./codrax mid-flight; running workers
 # get ETXTBSY / "exec format error" / immediate exit. Snapshot
-# the binary into a sweep-private path before any workers fire so
-# future rebuilds in the main tree don't race them. CODRAX_BIN is
-# read by eval/run.sh — when unset / empty, falls back to ./codrax
-# (legacy behaviour).
-SWEEP_BIN="eval/.codrax-sweep-${SWEEP_START}"
+# the binary to a sweep-private name BUT keep it in the SAME
+# directory as ./codrax — codrax's providers.yaml / codrax.yaml
+# lookup is anchored to exeDir, so the snapshot must sit beside
+# the original config files.
+#
+# CODRAX_BIN is read by eval/run.sh — when unset / empty, falls
+# back to ./codrax (legacy behaviour).
+SWEEP_BIN="./.codrax-sweep-${SWEEP_START}"
 if [[ -x "./codrax" ]]; then
   if cp ./codrax "$SWEEP_BIN" 2>/dev/null; then
     chmod +x "$SWEEP_BIN" 2>/dev/null || true
