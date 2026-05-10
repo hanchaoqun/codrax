@@ -1352,13 +1352,55 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 	}
 	logging.Debug("[extractor] soft-stop correction retry #%d: missingSymbols=%t missingVerdicts=%t",
 		e.retriesUsed, missingSymbols, missingVerdicts)
+	// Fix C (2026-05-10) — when the LLM soft-stops AFTER a failed
+	// emit_X call earlier in this dispatch, the missing-emits hint
+	// alone leaves the LLM without the rejection reason it actually
+	// needs to fix. Prepend the latest failed emit-class tool's
+	// first-line summary so the LLM can address the rejection AND
+	// the missing emit in one response. Without this, the s7b
+	// dispatch-2 pattern repeats: LLM gets generic "you stopped
+	// without emitting" and re-emits the same wrong shape.
+	priorEmitContext := latestExtractorEmitFailureContext(obs.AllToolResults)
+	body := "You stopped without emitting one or more expected tool calls. Please " +
+		strings.Join(missingParts, ", and ") +
+		". If both apply, batch them in parallel in a single response."
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       fmt.Sprintf("extractor.missing_emits.%d", e.retriesUsed),
-		Hint: "You stopped without emitting one or more expected tool calls. Please " +
-			strings.Join(missingParts, ", and ") +
-			". If both apply, batch them in parallel in a single response.",
+		Hint:          priorEmitContext + body,
 	}
+}
+
+// latestExtractorEmitFailureContext returns a short prefix sentence
+// citing the most recent failed emit_* tool result's first-line
+// summary, or empty when none was observed in this dispatch. The
+// summary is truncated so the prefix stays single-sentence and
+// doesn't dwarf the body hint.
+func latestExtractorEmitFailureContext(results []types.ToolResult) string {
+	const maxFirstLine = 240
+	for i := len(results) - 1; i >= 0; i-- {
+		r := results[i]
+		if r.Success {
+			continue
+		}
+		if !strings.HasPrefix(r.ToolName, "emit_") {
+			continue
+		}
+		first := r.Summary
+		if idx := strings.IndexByte(first, '\n'); idx >= 0 {
+			first = first[:idx]
+		}
+		first = strings.TrimSpace(first)
+		if first == "" {
+			return ""
+		}
+		if len(first) > maxFirstLine {
+			first = first[:maxFirstLine] + "…"
+		}
+		return fmt.Sprintf("Your last `%s` call was rejected: %s. Address that rejection in your next attempt. ",
+			r.ToolName, first)
+	}
+	return ""
 }
 
 // DetermineMissingPiece implements Evaluator.
