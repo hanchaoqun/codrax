@@ -64,7 +64,7 @@ func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) 
 	fmt.Fprintf(&b, "Line-text-grounded ratio %.0f%% (%d grounded-via-line_text / %d total) below floor %.0f%%.",
 		ratio*100, tier1, total, floor*100)
 	b.WriteString(" Citation grounding at answer-render time is stricter and will reject anchors that were never read via read_file — ")
-	b.WriteString("explorer must call read_file on the recovered sources before the investigation can complete.")
+	b.WriteString("call read_file on the recovered sources before declaring the investigation complete.")
 	if exhausted := state.retryBudgetExhausted(); exhausted {
 		return b.String(), false, true
 	}

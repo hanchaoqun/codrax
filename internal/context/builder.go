@@ -2450,7 +2450,7 @@ func attachedTracePreamble(state attachedRuntimeTriageState) string {
 	switch state {
 	case attachedTriageProducer:
 		return "The user attached the performance trace below alongside their question. " +
-			"You are the perf-triage producer for this raw artifact: parse it into structured hotspots, stalls, frame spans, and startup or jank envelopes before downstream agents consume it.\n\n"
+			"You are the perf-triage producer for this raw artifact: parse it into structured hotspots, stalls, frame spans, and startup or jank envelopes so the structured form is available for the rest of the answer pipeline.\n\n"
 	case attachedTriageStructured:
 		return "The user attached the performance trace below alongside their question. " +
 			"A structured Perf Triage section is already available above and is the preferred source for hotspots, stalls, frame spans, and startup or jank envelopes. Consult the raw trace only for literal timestamps, thread names, or event tags not visible in the structured section.\n\n"

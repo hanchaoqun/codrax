@@ -183,3 +183,47 @@ func TestWarnLowGroundingIfNeededEmitsAdvisoryNotice(t *testing.T) {
 		t.Fatalf("warning should emit once, events=%d", len(events))
 	}
 }
+
+// TestCheckTier1Floor_RejectMessageR6 — the reject message flows
+// through pendingViolation back into the next dispatch's prompt as
+// LLM-facing context. R6 forbids internal pipeline stage names from
+// LLM-facing strings; the message used to read "explorer must call
+// read_file ..." (2026-05-10 audit). Pin the reworded form so a
+// future edit cannot regress.
+func TestCheckTier1Floor_RejectMessageR6(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.StrictGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("any q")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: "a.go", LineStart: 1,
+		GroundingStatus: types.GroundingRecovered,
+	}})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu}}
+	ir := &types.AnalysisIR{RequestModel: types.RequestModel{Scenario: types.ScenarioGeneric}}
+	state := &graphState{}
+	msg, proceed, _ := o.checkTier1Floor(ir, state)
+	if proceed {
+		t.Skip("strict policy did not reject this evidence shape; nothing to audit")
+	}
+	if msg == "" {
+		t.Fatal("reject message empty when proceed=false")
+	}
+	for _, banned := range []string{
+		"explorer must",
+		"extractor must",
+		"finalizer must",
+		"analyzer must",
+		"BusContext",
+		"MutableState",
+		"AnalysisIR",
+	} {
+		if strings.Contains(msg, banned) {
+			t.Errorf("R6 leak: reject message contains internal term %q: %q", banned, msg)
+		}
+	}
+	if !strings.Contains(msg, "read_file") {
+		t.Errorf("reject message must still tell the model to call read_file: %q", msg)
+	}
+}
