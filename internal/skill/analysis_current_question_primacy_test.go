@@ -43,6 +43,35 @@ func currentQuestionPrimacyBlock(t *testing.T) string {
 	return out[startIdx : startIdx+endIdx]
 }
 
+func semanticPredicatesBlock(t *testing.T) string {
+	t.Helper()
+	out := analysisSkillPrompt(t)
+	startIdx := strings.Index(out, "## Semantic predicates")
+	if startIdx < 0 {
+		t.Fatal("semantic predicates heading missing")
+	}
+	endMarker := "Entities:"
+	endIdx := strings.Index(out[startIdx:], endMarker)
+	if endIdx < 0 {
+		t.Fatal("end-marker 'Entities:' missing after semantic predicates")
+	}
+	return out[startIdx : startIdx+endIdx]
+}
+
+func diagnosticPredicateParagraph(t *testing.T) string {
+	t.Helper()
+	region := semanticPredicatesBlock(t)
+	startIdx := strings.Index(region, "- `is_diagnostic_question`")
+	if startIdx < 0 {
+		t.Fatal("is_diagnostic_question predicate instruction missing")
+	}
+	endIdx := strings.Index(region[startIdx:], "\n\n")
+	if endIdx < 0 {
+		t.Fatal("is_diagnostic_question predicate paragraph terminator missing")
+	}
+	return region[startIdx : startIdx+endIdx]
+}
+
 func TestAnalysisSkill_CurrentQuestionPrimacyRulePresent(t *testing.T) {
 	out := analysisSkillPrompt(t)
 	if !strings.Contains(out, "Current-question primacy") {
@@ -50,6 +79,21 @@ func TestAnalysisSkill_CurrentQuestionPrimacyRulePresent(t *testing.T) {
 	}
 	if !strings.Contains(out, "EVERY field you emit") {
 		t.Errorf("rule must be unambiguous about scope (EVERY field, not opt-in)")
+	}
+}
+
+func TestAnalysisSkill_GoalNamesSemanticPredicatesAndConfidence(t *testing.T) {
+	cfg := BuildAnalysisSkill()
+	if cfg == nil {
+		t.Fatal("BuildAnalysisSkill returned nil")
+	}
+	if strings.Contains(cfg.Goal, "six fields") {
+		t.Fatalf("analysis skill goal must not describe stale six-field classification: %q", cfg.Goal)
+	}
+	for _, want := range []string{"structured emit_analysis fields", "confidence", "semantic predicates"} {
+		if !strings.Contains(cfg.Goal, want) {
+			t.Errorf("analysis skill goal must mention %q; got: %q", want, cfg.Goal)
+		}
 	}
 }
 
@@ -84,6 +128,52 @@ func TestAnalysisSkill_CurrentQuestionPrimacy_NamesEveryIntentField(t *testing.T
 	} {
 		if !strings.Contains(out, field) {
 			t.Errorf("primacy rule must name every intent field; missing %q in:\n%s", field, out)
+		}
+	}
+}
+
+func TestAnalysisSkill_DiagnosticPredicatePromptPinned(t *testing.T) {
+	paragraph := diagnosticPredicateParagraph(t)
+	for _, want := range []string{
+		"is_diagnostic_question",
+		"CURRENT request",
+		"similar problem still exists",
+		"cause / current-risk / remediation analysis",
+		"attached log",
+		"attached trace",
+		"no attachment",
+		"how a log/trace feature itself is implemented",
+		"intent=root_cause",
+		"scenario=performance_bottleneck",
+	} {
+		if !strings.Contains(paragraph, want) {
+			t.Errorf("diagnostic predicate prompt missing %q; got:\n%s", want, paragraph)
+		}
+	}
+
+	block := semanticPredicatesBlock(t)
+	if !strings.Contains(block, "typed flags rather than re-reading the question text") {
+		t.Errorf("semantic predicate block must emphasize typed flags over raw text re-interpretation; got:\n%s", block)
+	}
+}
+
+func TestAnalysisSkill_DiagnosticPredicatePrompt_RedlineAudit(t *testing.T) {
+	paragraph := diagnosticPredicateParagraph(t)
+	for _, banned := range []string{
+		"keyword",
+		"regex",
+		"regexp",
+		"substring",
+		"grep",
+		"TaskGraph",
+		"EvidencePlan",
+		"BusContext",
+		"MutableState",
+		"AnalysisIR",
+		"AnalyzerHints",
+	} {
+		if strings.Contains(paragraph, banned) {
+			t.Errorf("diagnostic predicate prompt leaked banned term %q: %q", banned, paragraph)
 		}
 	}
 }

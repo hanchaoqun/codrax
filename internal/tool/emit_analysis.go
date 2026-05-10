@@ -262,7 +262,7 @@ func buildEmitAnalysisSchema() {
 					"is_relational_lookup":    map[string]any{"type": "boolean", "description": "True if filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')."},
 					"is_category_enumeration": map[string]any{"type": "boolean", "description": "True if asking 'what kinds / types / categories of X exist'."},
 					"is_history_lookup":       map[string]any{"type": "boolean", "description": "True when the literal answer should come from repository history / authorship metadata (git log / blame / commit history), not from a repo file:line."},
-					"is_diagnostic_question":  map[string]any{"type": "boolean", "description": "True when the current request asks to diagnose a failure, regression, runtime symptom, or observed bad behaviour and expects a cause / still-present-risk answer. Applies with or without an attached runtime artifact. False for ordinary architecture tours, code walkthroughs, or log/trace parser mechanism questions."},
+					"is_diagnostic_question":  map[string]any{"type": "boolean", "description": "True when the current request asks to diagnose a failure, regression, runtime symptom, observed bad behaviour, or whether a similar problem still exists, and expects cause / current-risk / remediation analysis. Applies with or without an attached runtime artifact. False for ordinary architecture tours, code walkthroughs, or log/trace parser mechanism questions."},
 				},
 				"required": []string{"is_scalar_answer", "is_role_locate_lookup", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration", "is_history_lookup", "is_diagnostic_question"},
 			},
