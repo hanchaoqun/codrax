@@ -97,6 +97,25 @@ type LoopPolicy struct {
 	// missed it; this complementary gate catches it. Fires on
 	// PhaseMidLoop after a failed LastToolResult; ignores successes.
 	IdenticalErrorStreak int
+
+	// MaxPerKeyInjects caps the number of mid-loop hint injections
+	// that share the same HintKey within a single dispatch. 0
+	// disables the cap. Default 5: legitimate progress signals
+	// rarely need to fire more than 5 times for the same key (e.g.
+	// "read these unread files" + 4 follow-ups as the LLM batches
+	// reads). Beyond that the LLM has either already addressed the
+	// underlying issue OR is structurally unable to address it; in
+	// either case continuing to inject the same hint is spam.
+	//
+	// Sweep digest 2026-05-10: s1b hit midloop_inject=29 in a
+	// single dispatch with 35 explorer iters. The same hint key
+	// repeated dozens of times because BypassBudget=true bypassed
+	// the global MaxMidLoopInjects gate. This per-key cap fires
+	// REGARDLESS of BypassBudget so even "important" hints can't
+	// flood the prompt.
+	//
+	// 2026-05-10 P2.
+	MaxPerKeyInjects int
 }
 
 // DefaultLoopPolicy returns the policy BaseAgent installs when the
@@ -124,6 +143,10 @@ func DefaultLoopPolicy() LoopPolicy {
 		IdenticalToolCallAfterSuccessStreak: 1,
 		IdenticalToolCallAfterFailureStreak: 3,
 		IdenticalErrorStreak:                3,
+		// MaxPerKeyInjects=5 — even BypassBudget hints stop after 5
+		// repeats of the same HintKey. See LoopPolicy.MaxPerKeyInjects
+		// for forensic anchor.
+		MaxPerKeyInjects: 5,
 	}
 }
 
@@ -157,6 +180,15 @@ type loopPolicyState struct {
 
 	// midLoopInjects counts mid-loop hints already accepted.
 	midLoopInjects int
+
+	// perKeyMidLoopInjects counts mid-loop hints accepted PER
+	// HintKey within this dispatch. Used to enforce MaxPerKeyInjects.
+	// Distinct from midLoopInjects which counts the cross-key total.
+	// Empty map until the first inject; lazy-initialised to keep
+	// the zero-value loopPolicyState working.
+	//
+	// 2026-05-10 P2.
+	perKeyMidLoopInjects map[string]int
 
 	// lastAcceptedKey is the HintKey of the most recently accepted
 	// injection. Used for dedup: when the next signal carries the
@@ -492,9 +524,28 @@ func (s *loopPolicyState) Apply(phase LoopPhase, obs LoopObservation, sig LoopSi
 						s.midLoopInjects, s.policy.MaxMidLoopInjects),
 				}
 			}
+			// Per-key cap (2026-05-10 P2). Fires REGARDLESS of
+			// BypassBudget so even "important" hints can't flood
+			// the prompt with the same nag. Empty HintKey is
+			// treated as a generic bucket — a flood of unkeyed
+			// hints from the same evaluator branch still trips
+			// the cap because the key collides under "".
+			if s.policy.MaxPerKeyInjects > 0 && s.perKeyMidLoopInjects[sig.HintKey] >= s.policy.MaxPerKeyInjects {
+				return LoopResult{
+					Outcome: OutcomeContinue,
+					Reason: fmt.Sprintf("per-key mid-loop inject cap reached (key=%q, count=%d/%d)",
+						sig.HintKey, s.perKeyMidLoopInjects[sig.HintKey], s.policy.MaxPerKeyInjects),
+				}
+			}
 			if !sig.BypassBudget {
 				s.midLoopInjects++
 			}
+			// Per-key counter is unconditional (BypassBudget can
+			// only bypass the global, not the per-key spam guard).
+			if s.perKeyMidLoopInjects == nil {
+				s.perKeyMidLoopInjects = make(map[string]int, 4)
+			}
+			s.perKeyMidLoopInjects[sig.HintKey]++
 		}
 		s.setLastInjectIterForPhase(phase, obs.Iteration)
 		s.lastAcceptedKey = sig.HintKey
