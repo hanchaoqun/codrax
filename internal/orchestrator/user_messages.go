@@ -73,6 +73,13 @@ func softConvergenceStallMessage(lang string) string {
 	return "· Finalizing with available evidence"
 }
 
+func lowGroundingWarningMessage(lang, profile string, groundingPct, tier1Pct int) string {
+	if preferZhMessage(lang) {
+		return fmt.Sprintf("· 证据锚点偏弱（profile=%s，grounded=%d%%，line-text=%d%%），将继续用引用校验兜底", profile, groundingPct, tier1Pct)
+	}
+	return fmt.Sprintf("· Evidence grounding is weak (profile=%s, grounded=%d%%, line-text=%d%%); continuing with citation checks", profile, groundingPct, tier1Pct)
+}
+
 // abandonForcedReadMessage renders the user-visible line for the
 // CGEC E2 abandonment path when runForcedReads gives up on a file
 // it cannot read (typically ENOENT / EACCES / IsDir / broken

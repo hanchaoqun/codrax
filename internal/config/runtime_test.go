@@ -33,6 +33,7 @@ analysis_reject_multiple_emit: true
 analysis_max_prescan_rounds: 3
 analysis_warn_below_keyword_hit_ratio: 0.5
 analysis_warn_below_entity_hit_ratio: 0.75
+analysis_evidence_profile: balanced
 providers_config: /etc/codrax/providers.yaml
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -113,6 +114,9 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.AnalysisWarnBelowEntityHitRatio == nil || *s.AnalysisWarnBelowEntityHitRatio != 0.75 {
 		t.Errorf("AnalysisWarnBelowEntityHitRatio = %v", s.AnalysisWarnBelowEntityHitRatio)
+	}
+	if s.AnalysisEvidenceProfile == nil || *s.AnalysisEvidenceProfile != "balanced" {
+		t.Errorf("AnalysisEvidenceProfile = %v", s.AnalysisEvidenceProfile)
 	}
 }
 
@@ -257,4 +261,3 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 		t.Errorf("empty file should leave all fields nil, got %+v", s)
 	}
 }
-

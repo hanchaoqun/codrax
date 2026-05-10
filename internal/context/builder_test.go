@@ -174,12 +174,34 @@ func TestBuildPromptContext_AttachedLogSection_OmittedWhenEmpty(t *testing.T) {
 // whole body rendered verbatim, no elision, no blob.
 func TestFormatAttachedLog_InlineSmall(t *testing.T) {
 	payload := "panic: boom\n\ngoroutine 1 [running]:\nmain.x()\n\t/src/a.go:1 +0x1\n"
-	got := formatAttachedLog(payload, "")
+	got := formatAttachedLog(payload, "", attachedTriageStructured)
 	if !strings.Contains(got, "main.x()") || !strings.Contains(got, "/src/a.go:1") {
 		t.Errorf("small payload not rendered verbatim: %s", got)
 	}
 	if strings.Contains(got, "bytes elided") {
 		t.Errorf("small payload should not have elision marker")
+	}
+}
+
+func TestFormatAttachedLog_PreambleTracksTriageState(t *testing.T) {
+	payload := "panic: boom\nmain.x()\n\t/src/a.go:1\n"
+
+	missing := formatAttachedLog(payload, "", attachedTriageUnavailable)
+	if !strings.Contains(missing, "No structured Log Triage bundle is available") {
+		t.Fatalf("missing-bundle preamble should say raw log is unparsed: %s", missing)
+	}
+	if strings.Contains(missing, "already parsed stack frames") {
+		t.Fatalf("missing-bundle preamble must not claim triage success: %s", missing)
+	}
+
+	structured := formatAttachedLog(payload, "", attachedTriageStructured)
+	if !strings.Contains(structured, "structured Log Triage section is already available") {
+		t.Fatalf("structured-bundle preamble missing preferred structured-source cue: %s", structured)
+	}
+
+	producer := formatAttachedLog(payload, "", attachedTriageProducer)
+	if !strings.Contains(producer, "log-triage producer") {
+		t.Fatalf("producer preamble should instruct the triager to parse: %s", producer)
 	}
 }
 
@@ -191,7 +213,7 @@ func TestFormatAttachedLog_BlobOffload(t *testing.T) {
 	// 8 KB payload above the 4 KB inline cap.
 	const N = 8 * 1024
 	payload := strings.Repeat("A", N)
-	got := formatAttachedLog(payload, dir)
+	got := formatAttachedLog(payload, dir, attachedTriageStructured)
 	if !strings.Contains(got, "bytes elided") {
 		t.Errorf("large payload missing elision marker")
 	}
@@ -215,7 +237,7 @@ func TestFormatAttachedLog_BlobOffload(t *testing.T) {
 func TestFormatAttachedLog_NoWorkDirFallsBack(t *testing.T) {
 	const N = 10 * 1024
 	payload := strings.Repeat("B", N)
-	got := formatAttachedLog(payload, "")
+	got := formatAttachedLog(payload, "", attachedTriageUnavailable)
 	if strings.Contains(got, AttachedLogBlobName) {
 		t.Errorf("no-workdir fallback should not reference blob path")
 	}
@@ -231,7 +253,7 @@ func TestFormatAttachedTrace_BlobOffload_UsesDistinctBlobName(t *testing.T) {
 	dir := t.TempDir()
 	const N = 8 * 1024
 	payload := strings.Repeat("T", N)
-	got := formatAttachedTrace(payload, dir)
+	got := formatAttachedTrace(payload, dir, attachedTriageStructured)
 	if !strings.Contains(got, AttachedTraceBlobName) {
 		t.Fatalf("trace blob path not referenced: %s", got)
 	}
@@ -247,6 +269,28 @@ func TestFormatAttachedTrace_BlobOffload_UsesDistinctBlobName(t *testing.T) {
 	}
 	if len(written) != N {
 		t.Fatalf("trace blob size = %d, want %d", len(written), N)
+	}
+}
+
+func TestFormatAttachedTrace_PreambleTracksTriageState(t *testing.T) {
+	payload := "sched_switch: prev_comm=main next_comm=RenderThread\n"
+
+	missing := formatAttachedTrace(payload, "", attachedTriageUnavailable)
+	if !strings.Contains(missing, "No structured Perf Triage bundle is available") {
+		t.Fatalf("missing-bundle preamble should say raw trace is unparsed: %s", missing)
+	}
+	if strings.Contains(missing, "already extracted structured hotspots") {
+		t.Fatalf("missing-bundle preamble must not claim perf triage success: %s", missing)
+	}
+
+	structured := formatAttachedTrace(payload, "", attachedTriageStructured)
+	if !strings.Contains(structured, "structured Perf Triage section is already available") {
+		t.Fatalf("structured-bundle preamble missing preferred structured-source cue: %s", structured)
+	}
+
+	producer := formatAttachedTrace(payload, "", attachedTriageProducer)
+	if !strings.Contains(producer, "perf-triage producer") {
+		t.Fatalf("producer preamble should instruct the triager to parse: %s", producer)
 	}
 }
 

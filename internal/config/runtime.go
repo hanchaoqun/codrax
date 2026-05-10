@@ -164,14 +164,16 @@ type RuntimeSettings struct {
 	//   - evidence_grounding_floor: minimum (grounded + recovered) /
 	//     total ratio required by emit_investigation_complete. Range
 	//     [0, 1]. 0 disables the gate entirely; 1 requires every item
-	//     grounded. Default 0.5.
+	//     grounded. Default comes from analysis_evidence_profile
+	//     (permissive => 0).
 	EvidenceGroundingFloor *float64 `yaml:"evidence_grounding_floor"`
 
 	//   - evidence_tier1_floor: minimum (Tier-1 proven grounded /
 	//     total) ratio required by emit_investigation_complete.
-	//     Range [0, 1]. 0 disables. Default 0.3. Blocks pure-recovery
-	//     investigations where the LLM never read_file'd the cited
-	//     sources; the finalizer grounder's stricter Tier 2 would
+	//     Range [0, 1]. 0 disables. Default comes from
+	//     analysis_evidence_profile (permissive => 0). Blocks pure-
+	//     recovery investigations where the LLM never read_file'd the
+	//     cited sources; the finalizer grounder's stricter Tier 2 would
 	//     otherwise drop every such citation at cite time.
 	EvidenceTier1Floor *float64 `yaml:"evidence_tier1_floor"`
 
@@ -363,6 +365,13 @@ type RuntimeSettings struct {
 	// stricter) here. The LLM's "investigation complete" claim is
 	// trusted by default; the finalizer's downstream citation
 	// grounding still validates emitted citations against real lines.
+	//
+	// AnalysisEvidenceProfile is the higher-level profile selector:
+	// permissive (default: no hard floors, warning-only), balanced
+	// (0.5 / 0.3 hard floors), strict (0.8 / 0.6 hard floors), or
+	// custom (permissive base plus explicit numeric overrides below).
+	AnalysisEvidenceProfile *string `yaml:"analysis_evidence_profile"`
+
 	AnalysisGroundingFloor *float64 `yaml:"analysis_grounding_floor"`
 
 	// AnalysisEvidenceTier1Floor mirrors above for the Tier-1 gate.

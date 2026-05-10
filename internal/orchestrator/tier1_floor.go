@@ -3,8 +3,10 @@ package orchestrator
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -101,4 +103,110 @@ func countTier1Evidence(
 		}
 	}
 	return tier1, total
+}
+
+type groundingHealth struct {
+	total     int
+	accepted  int
+	tier1     int
+	recovered int
+}
+
+func (h groundingHealth) groundingRatio() float64 {
+	if h.total == 0 {
+		return 1
+	}
+	return float64(h.accepted) / float64(h.total)
+}
+
+func (h groundingHealth) tier1Ratio() float64 {
+	if h.total == 0 {
+		return 1
+	}
+	return float64(h.tier1) / float64(h.total)
+}
+
+func countGroundingHealth(
+	evidence []types.EvidenceItem,
+	contract *types.ExactResolutionContract,
+	scenario types.Scenario,
+	stableAbsent bool,
+	requiredFiles []string,
+	rm types.RequestModel,
+) groundingHealth {
+	var h groundingHealth
+	for _, e := range evidence {
+		if !types.EvidenceCountsTowardTier1FloorInContext(e, contract, scenario, stableAbsent, requiredFiles, rm) {
+			continue
+		}
+		h.total++
+		switch e.GroundingStatus {
+		case types.GroundingGrounded:
+			h.accepted++
+			if e.GroundingTier == types.TierLineText {
+				h.tier1++
+			}
+		case types.GroundingRecovered:
+			h.accepted++
+			h.recovered++
+		case types.GroundingUngrounded:
+			// Advisory warning target.
+		default:
+			// Legacy deterministic facts predate the grounding fields;
+			// match the hard gates and count them as Tier-1.
+			h.accepted++
+			h.tier1++
+		}
+	}
+	return h
+}
+
+func (o *Orchestrator) warnLowGroundingIfNeeded(ir *types.AnalysisIR, warned *bool) {
+	if warned != nil && *warned {
+		return
+	}
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || ir == nil {
+		return
+	}
+	policy := tool.CurrentGroundingPolicy()
+	if policy.WarnGroundingFloor <= 0 && policy.WarnTier1Floor <= 0 {
+		return
+	}
+	evidence := o.busCtx.Mutable.EmittedEvidence()
+	if len(evidence) == 0 {
+		return
+	}
+	contract := types.BuildExactResolutionContract(ir.RequestModel)
+	stableAbsent := strings.EqualFold(strings.TrimSpace(o.busCtx.Mutable.StableInvestigationResultKind()), "absence") &&
+		strings.TrimSpace(o.busCtx.Mutable.StableAbsenceJustification()) != ""
+	requiredFiles := types.ExactResolutionRequiredContextFiles(contract, o.busCtx.Mutable)
+	health := countGroundingHealth(evidence, contract, ir.RequestModel.Scenario, stableAbsent, requiredFiles, ir.RequestModel)
+	if health.total == 0 {
+		return
+	}
+	groundingRatio := health.groundingRatio()
+	tier1Ratio := health.tier1Ratio()
+	lowGrounding := policy.WarnGroundingFloor > 0 && groundingRatio < policy.WarnGroundingFloor
+	lowTier1 := policy.WarnTier1Floor > 0 && tier1Ratio < policy.WarnTier1Floor
+	if !lowGrounding && !lowTier1 {
+		return
+	}
+	if warned != nil {
+		*warned = true
+	}
+	profile := strings.TrimSpace(string(policy.Profile))
+	if profile == "" {
+		profile = string(tool.GroundingProfileCustom)
+	}
+	groundingPct := int(groundingRatio*100 + 0.5)
+	tier1Pct := int(tier1Ratio*100 + 0.5)
+	logging.Warning("[orchestrator] low grounding health: profile=%s grounding_ratio=%.2f tier1_ratio=%.2f accepted=%d recovered=%d tier1=%d total=%d warn_grounding_floor=%.2f warn_tier1_floor=%.2f",
+		profile, groundingRatio, tier1Ratio, health.accepted, health.recovered, health.tier1, health.total, policy.WarnGroundingFloor, policy.WarnTier1Floor)
+	o.emit(render.Event{
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: render.NoticeLowGrounding,
+		Reasoning:  lowGroundingWarningMessage(o.busCtx.Language, profile, groundingPct, tier1Pct),
+	})
 }

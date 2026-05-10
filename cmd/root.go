@@ -1944,16 +1944,22 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		tool.SetAnalysisLimits(analysisLimits)
 
-		// Evidence grounding policy — overridden by codrax.yaml
-		// evidence_grounding_floor (default 0.5) and evidence_tier1_floor
-		// (default 0.3, session-8 upstream-intercept of pure-recovery
-		// investigations).
+		// Evidence grounding policy. analysis_evidence_profile is the
+		// operator-facing selector; legacy numeric fields remain
+		// precise overrides and switch the runtime profile to custom.
 		groundingPolicy := tool.DefaultGroundingPolicy()
+		if rs.AnalysisEvidenceProfile != nil {
+			if p, ok := tool.GroundingPolicyForProfile(*rs.AnalysisEvidenceProfile); ok {
+				groundingPolicy = p
+			} else {
+				logging.Warning("[config] unknown analysis_evidence_profile=%q; using %s", *rs.AnalysisEvidenceProfile, groundingPolicy.Profile)
+			}
+		}
 		if rs.EvidenceGroundingFloor != nil {
-			groundingPolicy.GroundingFloor = *rs.EvidenceGroundingFloor
+			groundingPolicy = groundingPolicy.WithGroundingFloor(*rs.EvidenceGroundingFloor)
 		}
 		if rs.EvidenceTier1Floor != nil {
-			groundingPolicy.Tier1Floor = *rs.EvidenceTier1Floor
+			groundingPolicy = groundingPolicy.WithTier1Floor(*rs.EvidenceTier1Floor)
 		}
 		tool.SetGroundingPolicy(groundingPolicy)
 
@@ -2174,10 +2180,10 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AnalysisGroundingFloor != nil || rs.AnalysisEvidenceTier1Floor != nil {
 			policy := tool.CurrentGroundingPolicy()
 			if rs.AnalysisGroundingFloor != nil {
-				policy.GroundingFloor = *rs.AnalysisGroundingFloor
+				policy = policy.WithGroundingFloor(*rs.AnalysisGroundingFloor)
 			}
 			if rs.AnalysisEvidenceTier1Floor != nil {
-				policy.Tier1Floor = *rs.AnalysisEvidenceTier1Floor
+				policy = policy.WithTier1Floor(*rs.AnalysisEvidenceTier1Floor)
 			}
 			tool.SetGroundingPolicy(policy)
 		}

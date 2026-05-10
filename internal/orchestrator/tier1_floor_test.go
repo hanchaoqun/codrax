@@ -1,8 +1,11 @@
 package orchestrator
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -107,5 +110,76 @@ func TestCountTier1Evidence_ExactAbsenceSkipsNonClosureRelatedContext(t *testing
 	tier1, total := countTier1Evidence(items, contract, types.ScenarioConfigTrace, true, []string{"internal/types/config.go"}, types.RequestModel{})
 	if total != 0 || tier1 != 0 {
 		t.Fatalf("non-closure related_context items should not count during exact-absence closure, got tier1=%d total=%d", tier1, total)
+	}
+}
+
+func TestCountGroundingHealth(t *testing.T) {
+	items := []types.EvidenceItem{
+		{Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText},
+		{Kind: types.EvidenceDirect, GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierSymbolTable},
+		{Kind: types.EvidenceDirect, GroundingStatus: types.GroundingRecovered},
+		{Kind: types.EvidenceDirect, GroundingStatus: types.GroundingUngrounded},
+		{Kind: types.EvidenceDirect},
+	}
+	health := countGroundingHealth(items, nil, types.ScenarioGeneric, false, nil, types.RequestModel{})
+	if health.total != 5 {
+		t.Fatalf("total = %d, want 5", health.total)
+	}
+	if health.accepted != 4 {
+		t.Fatalf("accepted = %d, want 4", health.accepted)
+	}
+	if health.tier1 != 2 {
+		t.Fatalf("tier1 = %d, want 2", health.tier1)
+	}
+	if health.recovered != 1 {
+		t.Fatalf("recovered = %d, want 1", health.recovered)
+	}
+}
+
+func TestWarnLowGroundingIfNeededEmitsAdvisoryNotice(t *testing.T) {
+	prev := tool.CurrentGroundingPolicy()
+	tool.SetGroundingPolicy(tool.DefaultGroundingPolicy())
+	t.Cleanup(func() { tool.SetGroundingPolicy(prev) })
+
+	mu := types.NewMutableState("explain weak evidence")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "a.go",
+		LineStart:       1,
+		GroundingStatus: types.GroundingUngrounded,
+	}})
+	var events []render.Event
+	o := &Orchestrator{
+		busCtx: &types.BusContext{
+			Mutable:  mu,
+			Language: "en",
+		},
+		emit: func(ev render.Event) {
+			events = append(events, ev)
+		},
+	}
+	warned := false
+	o.warnLowGroundingIfNeeded(&types.AnalysisIR{
+		RequestModel: types.RequestModel{Scenario: types.ScenarioGeneric},
+	}, &warned)
+
+	if !warned {
+		t.Fatal("warning flag was not set")
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want 1", len(events))
+	}
+	if events[0].Kind != render.EventOrchestratorNotice || events[0].NoticeKind != render.NoticeLowGrounding {
+		t.Fatalf("unexpected event: %+v", events[0])
+	}
+	if !strings.Contains(events[0].Reasoning, "Evidence grounding is weak") {
+		t.Fatalf("warning message missing user-facing grounding cue: %q", events[0].Reasoning)
+	}
+
+	o.warnLowGroundingIfNeeded(&types.AnalysisIR{
+		RequestModel: types.RequestModel{Scenario: types.ScenarioGeneric},
+	}, &warned)
+	if len(events) != 1 {
+		t.Fatalf("warning should emit once, events=%d", len(events))
 	}
 }

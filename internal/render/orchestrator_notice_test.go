@@ -92,6 +92,7 @@ func TestFormatOrchestratorNotice_ColorByBucket(t *testing.T) {
 		// stands out from the regular gray info row.
 		{"fallback-fail-loud", NoticeFallbackFailLoud, statusWarningMuted.Sprint(body)},
 		{"yield-kill", NoticeYieldKill, statusWarningMuted.Sprint(body)},
+		{"low-grounding", NoticeLowGrounding, statusWarningMuted.Sprint(body)},
 
 		// progress-class
 		{"investigation-ready", NoticeInvestigationReady, statusObjective.Sprint(body)},

@@ -1287,11 +1287,10 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		// FailLoud / YieldKill where the retry stopped without
 		// producing a result.
 		return statusMeta
-	case NoticeYieldKill, NoticeFallbackFailLoud:
-		// Fallback-terminal: we have stopped trying. Yellow on the
-		// glyph signals "this is a noteworthy state" without screaming
-		// red — the body and the surrounding answer carry the actual
-		// content.
+	case NoticeYieldKill, NoticeFallbackFailLoud, NoticeLowGrounding:
+		// Warning-muted: noteworthy but not fatal. Yellow on the glyph
+		// signals "pay attention" without screaming red — the body and
+		// surrounding answer/logs carry the actual content.
 		return statusWarningMuted
 	case NoticeInvestigationReady:
 		return statusObjective
@@ -1423,10 +1422,10 @@ func softNoticeBodyStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		NoticeNoToolCall,
 		NoticeProceedingWithoutExtract:
 		return statusPrimaryDone
-	case NoticeYieldKill, NoticeFallbackFailLoud:
-		// Fallback-terminal: glyph picks up the yellow tint; the
-		// prose body stays at statusMeta (same hue as before this
-		// change) so the row only nudges the eye via the glyph.
+	case NoticeYieldKill, NoticeFallbackFailLoud, NoticeLowGrounding:
+		// Warning-muted: glyph picks up the yellow tint; the prose body
+		// stays at statusMeta so the row nudges the eye without
+		// overwhelming ordinary progress.
 		return statusMeta
 	}
 	return orchestratorNoticeStyle(kind)

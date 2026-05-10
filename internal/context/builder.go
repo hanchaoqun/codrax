@@ -606,7 +606,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	//
 	// Empty AttachedLog is a no-op.
 	if !shouldSuppressAttachedRuntimeLog(ac) {
-		if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir); section != "" {
+		if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir, attachedLogTriageState(ac)); section != "" {
 			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionAttachedRuntimeLog,
@@ -625,7 +625,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// timestamps, event ids) that bait the LLM into spurious
 	// caller-provenance claims.
 	if !shouldSuppressAttachedRuntimeTrace(ac) {
-		if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir); section != "" {
+		if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir, attachedTraceTriageState(ac)); section != "" {
 			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				// Title order matches the user-facing CLI flag order:
@@ -2404,6 +2404,62 @@ const (
 	attachedLogTailCap   = 1 * 1024 // tail preview when blobbed
 )
 
+type attachedRuntimeTriageState int
+
+const (
+	attachedTriageUnavailable attachedRuntimeTriageState = iota
+	attachedTriageProducer
+	attachedTriageStructured
+)
+
+func attachedLogTriageState(ac *types.AgentContext) attachedRuntimeTriageState {
+	if ac != nil && ac.AgentName == types.AgentLogTriager {
+		return attachedTriageProducer
+	}
+	if ac != nil && ac.LogTriage != nil {
+		return attachedTriageStructured
+	}
+	return attachedTriageUnavailable
+}
+
+func attachedTraceTriageState(ac *types.AgentContext) attachedRuntimeTriageState {
+	if ac != nil && ac.AgentName == types.AgentPerfTriager {
+		return attachedTriageProducer
+	}
+	if ac != nil && ac.PerfTrace != nil {
+		return attachedTriageStructured
+	}
+	return attachedTriageUnavailable
+}
+
+func attachedLogPreamble(state attachedRuntimeTriageState) string {
+	switch state {
+	case attachedTriageProducer:
+		return "The user attached the runtime log below alongside their question. " +
+			"You are the log-triage producer for this raw artifact: parse it into the structured log bundle, preserving stack-frame order, error chains, and literal file:line anchors.\n\n"
+	case attachedTriageStructured:
+		return "The user attached the runtime log below alongside their question. " +
+			"A structured Log Triage section is already available above and is the preferred source for stack frames, file:line anchors, function names, and cause chains. Consult the raw log only for literal message text or frames not visible in the structured section.\n\n"
+	default:
+		return "The user attached the runtime log below alongside their question. " +
+			"No structured Log Triage bundle is available in this prompt; the pre-stage may have been skipped, failed, or degraded. Treat this raw log as unparsed input: establish any stack-frame file:line anchors yourself before relying on them downstream.\n\n"
+	}
+}
+
+func attachedTracePreamble(state attachedRuntimeTriageState) string {
+	switch state {
+	case attachedTriageProducer:
+		return "The user attached the performance trace below alongside their question. " +
+			"You are the perf-triage producer for this raw artifact: parse it into structured hotspots, stalls, frame spans, and startup or jank envelopes before downstream agents consume it.\n\n"
+	case attachedTriageStructured:
+		return "The user attached the performance trace below alongside their question. " +
+			"A structured Perf Triage section is already available above and is the preferred source for hotspots, stalls, frame spans, and startup or jank envelopes. Consult the raw trace only for literal timestamps, thread names, or event tags not visible in the structured section.\n\n"
+	default:
+		return "The user attached the performance trace below alongside their question. " +
+			"No structured Perf Triage bundle is available in this prompt; the pre-stage may have been skipped, failed, or degraded. Treat this raw trace as unparsed input: derive hotspots, stalls, timestamps, and thread/event anchors yourself before relying on them downstream.\n\n"
+	}
+}
+
 // formatAttachedLog renders the user-attached runtime log excerpt as a
 // prompt section. Two size regimes keep the overall prompt bounded:
 //
@@ -2414,25 +2470,20 @@ const (
 //     `<workDir>/attached_log.txt` (mirrors the tool/blob pattern),
 //     inline a head+tail preview, and instruct the LLM to use
 //     `read_file` on the blob path for paginated access to the middle.
-//     The explorer has read_file in its tool allowlist; the analyzer
-//     does not, but also does not need the middle frames (its
-//     log_triage pre-stage already ran and extracted them into
-//     EvidencePlan.RequiredFiles / AnalyzerHints.Entities).
+//     The explorer has read_file in its tool allowlist. When the
+//     structured triage bundle is absent, the preamble tells the LLM
+//     this raw artifact is unparsed instead of implying pre-stage
+//     success.
 //
 // Returns "" for empty input so the caller can skip the section.
 // Falls back to head+tail inline when workDir is empty or the blob
 // write fails (no-op degrade, no error surfaces to the caller).
-func formatAttachedLog(raw, workDir string) string {
+func formatAttachedLog(raw, workDir string, state attachedRuntimeTriageState) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
 	}
-	preamble := "The user attached the runtime log below alongside their question. " +
-		"The analyzer has already parsed stack frames from this log and seeded " +
-		"EvidencePlan.RequiredFiles + AnalyzerHints.Entities with the extracted " +
-		"file:line anchors and function names. Read the frames top-to-bottom " +
-		"(innermost failure first) and investigate those specific files rather " +
-		"than hunting for error sources generically.\n\n"
+	preamble := attachedLogPreamble(state)
 
 	if len(raw) <= attachedLogInlineCap {
 		return preamble + "```\n" + raw + "\n```"
@@ -2480,16 +2531,12 @@ func formatAttachedLog(raw, workDir string) string {
 // channel. This avoids prompt leakage from the runtime-log wording
 // and prevents blob-path collisions when a run carries both
 // attachments.
-func formatAttachedTrace(raw, workDir string) string {
+func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
 	}
-	preamble := "The user attached the performance trace below alongside their question. " +
-		"The perf_triage stage has already extracted structured hotspots, stalls, " +
-		"and startup / jank envelopes when possible. Use the validated Perf Triage " +
-		"section first; consult the raw trace only when you need literal timestamps, " +
-		"thread names, or event tags from the attached capture.\n\n"
+	preamble := attachedTracePreamble(state)
 
 	if len(raw) <= attachedLogInlineCap {
 		return preamble + "```\n" + raw + "\n```"

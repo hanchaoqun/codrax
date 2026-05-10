@@ -2093,7 +2093,12 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		// attempt=0.
 		o.emitStageRetryAttempt = attempt
 		out, err := o.dispatchStage(types.StageAnalyze)
-		if err == nil && (out == nil || out.Error == "") && o.busCtx.AnalysisIR != nil {
+		if err == nil && out != nil && out.Error == "" && out.AnalysisIR != nil {
+			// Analyzer retries are attempt-scoped. applyStageOutput keeps
+			// the first non-nil IR for degraded-recovery context, so a
+			// later clean retry must explicitly promote its own IR before
+			// downstream TaskGraph / EvidencePlan consumers run.
+			o.busCtx.AnalysisIR = out.AnalysisIR
 			return used, nil
 		}
 		if out != nil {
@@ -3631,6 +3636,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 
 	var pendingViolation string
 	var pendingValidationTargets []string
+	lowGroundingWarned := false
 
 	if b := ir.EvidencePlan.Budget.MaxReactIters; b > 0 && b < stepBudget {
 		stepBudget = b
@@ -4118,6 +4124,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				continue
 			}
 		}
+		o.warnLowGroundingIfNeeded(ir, &lowGroundingWarned)
 
 		if out, retryMsg, handled := o.handleStructurallyEmptyInvestigation(state, fin.ID); handled {
 			if out == nil {

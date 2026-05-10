@@ -1,6 +1,18 @@
 package tool
 
-import "sync"
+import (
+	"strings"
+	"sync"
+)
+
+type GroundingProfile string
+
+const (
+	GroundingProfilePermissive GroundingProfile = "permissive"
+	GroundingProfileBalanced   GroundingProfile = "balanced"
+	GroundingProfileStrict     GroundingProfile = "strict"
+	GroundingProfileCustom     GroundingProfile = "custom"
+)
 
 // GroundingPolicy holds runtime-tunable knobs for the evidence
 // grounder. Used by emit_investigation_complete to decide whether
@@ -10,6 +22,11 @@ import "sync"
 // Two independent floors run in AND: both must pass. See
 // DefaultGroundingPolicy for the rationale behind each number.
 type GroundingPolicy struct {
+	// Profile names the operator-facing policy family that produced
+	// these thresholds. "custom" means one or more numeric floors were
+	// manually overridden after profile selection.
+	Profile GroundingProfile
+
 	// GroundingFloor is the minimum (grounded + recovered) / total
 	// ratio required by emit_investigation_complete. Range [0, 1].
 	// 0 disables the gate entirely; 1 requires every item grounded.
@@ -28,6 +45,17 @@ type GroundingPolicy struct {
 	// an unrecoverable "explorer satisfied / finalizer stuck"
 	// loop. The Tier-1 floor moves the intercept point upstream.
 	Tier1Floor float64
+
+	// WarnGroundingFloor emits an operator-visible warning when the
+	// same (grounded + recovered) / total ratio falls below this value,
+	// without blocking the run. This keeps the permissive default from
+	// silently shipping weakly grounded investigations.
+	WarnGroundingFloor float64
+
+	// WarnTier1Floor mirrors WarnGroundingFloor for Tier-1 line-text
+	// evidence. A positive value is advisory only; Tier1Floor remains
+	// the hard gate.
+	WarnTier1Floor float64
 }
 
 // DefaultGroundingPolicy returns the shipped defaults.
@@ -53,8 +81,11 @@ type GroundingPolicy struct {
 // behaviour explicitly.
 func DefaultGroundingPolicy() GroundingPolicy {
 	return GroundingPolicy{
-		GroundingFloor: 0,
-		Tier1Floor:     0,
+		Profile:            GroundingProfilePermissive,
+		GroundingFloor:     0,
+		Tier1Floor:         0,
+		WarnGroundingFloor: 0.5,
+		WarnTier1Floor:     0.3,
 	}
 }
 
@@ -65,9 +96,82 @@ func DefaultGroundingPolicy() GroundingPolicy {
 // want strict mode set the yaml fields explicitly.
 func LegacyDefaultGroundingPolicy() GroundingPolicy {
 	return GroundingPolicy{
-		GroundingFloor: 0.5,
-		Tier1Floor:     0.3,
+		Profile:            GroundingProfileBalanced,
+		GroundingFloor:     0.5,
+		Tier1Floor:         0.3,
+		WarnGroundingFloor: 0.5,
+		WarnTier1Floor:     0.3,
 	}
+}
+
+func StrictGroundingPolicy() GroundingPolicy {
+	return GroundingPolicy{
+		Profile:            GroundingProfileStrict,
+		GroundingFloor:     0.8,
+		Tier1Floor:         0.6,
+		WarnGroundingFloor: 0.8,
+		WarnTier1Floor:     0.6,
+	}
+}
+
+func GroundingPolicyForProfile(profile string) (GroundingPolicy, bool) {
+	switch normalizeGroundingProfile(profile) {
+	case GroundingProfilePermissive:
+		return DefaultGroundingPolicy(), true
+	case GroundingProfileBalanced:
+		return LegacyDefaultGroundingPolicy(), true
+	case GroundingProfileStrict:
+		return StrictGroundingPolicy(), true
+	case GroundingProfileCustom:
+		p := DefaultGroundingPolicy()
+		p.Profile = GroundingProfileCustom
+		return p, true
+	default:
+		return DefaultGroundingPolicy(), false
+	}
+}
+
+func normalizeGroundingProfile(profile string) GroundingProfile {
+	switch strings.ToLower(strings.TrimSpace(profile)) {
+	case "", string(GroundingProfilePermissive):
+		return GroundingProfilePermissive
+	case string(GroundingProfileBalanced):
+		return GroundingProfileBalanced
+	case string(GroundingProfileStrict):
+		return GroundingProfileStrict
+	case string(GroundingProfileCustom):
+		return GroundingProfileCustom
+	default:
+		return ""
+	}
+}
+
+func (p GroundingPolicy) WithGroundingFloor(v float64) GroundingPolicy {
+	p.Profile = GroundingProfileCustom
+	p.GroundingFloor = clampRatio(v)
+	if p.WarnGroundingFloor < p.GroundingFloor {
+		p.WarnGroundingFloor = p.GroundingFloor
+	}
+	return p
+}
+
+func (p GroundingPolicy) WithTier1Floor(v float64) GroundingPolicy {
+	p.Profile = GroundingProfileCustom
+	p.Tier1Floor = clampRatio(v)
+	if p.WarnTier1Floor < p.Tier1Floor {
+		p.WarnTier1Floor = p.Tier1Floor
+	}
+	return p
+}
+
+func clampRatio(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 var (
