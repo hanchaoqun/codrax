@@ -2108,19 +2108,39 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		// shape contradiction), and we're past the first attempt
 		// so the LLM had a chance to revise on retry, AUTO-CLEAR
 		// the scalar declaration and re-run the gate. This breaks
-		// the fingerprint loop without a redundant LLM round-trip
-		// because:
-		//   1. R2.2's whole point is "drop the scalar declaration
-		//      so downstream auto-inference can re-derive Kind
-		//      from question_kind"
-		//   2. The corrective action is mechanical — clearing one
-		//      typed field and re-running the gate
-		//   3. The LLM has demonstrably failed to make this fix on
-		//      its own (attempt ≥ 1), so further retries will keep
-		//      producing the same fingerprint
+		// the fingerprint loop without a redundant LLM round-trip.
+		//
+		// Two correctness invariants on this fast-path
+		// (post-2026-05-10 audit):
+		//
+		//   1. STALE-IR FIX: applyStageOutput stores AnalysisIR
+		//      write-once (line ~6020), so a successful retry
+		//      that re-emits a different IR doesn't overwrite
+		//      busCtx.AnalysisIR. Without manual sync, this loop
+		//      sees attempt-0's IR even on attempt N. Mirror the
+		//      latest output's IR + QualityGate over before
+		//      checking R2.2 so the auto-correct sees current data.
+		//
+		//   2. RESOLVER-OMISSION FIX: r22RerunGateAfterCorrect
+		//      can't easily reconstruct the symbol resolver, so
+		//      it re-runs the gate with nil resolver. R1.4 / R1.5
+		//      (subtopic_coherence rules) are no-ops under nil
+		//      resolver. If the rejection report had R2.2 PLUS a
+		//      resolver-backed coherence failure, an unguarded
+		//      auto-correct would silently bypass the coherence
+		//      failure when the post-correction re-run "passes".
+		//      r22AutoCorrectShapeSubject now refuses correction
+		//      when ANY non-R2.2 check is failed in the same
+		//      report — keeps the resolver-backed failures intact
+		//      for the LLM-side retry path to surface.
+		//
 		// Cross-language: works regardless of question language.
 		// Design doc: docs/design/analyzer_failure_remediation.md §3.4.
-		if attempt >= 1 && o.busCtx != nil && o.busCtx.AnalysisIR != nil {
+		if attempt >= 1 && o.busCtx != nil && out != nil && out.AnalysisIR != nil {
+			// Stale-IR sync: mirror the latest output's IR onto
+			// busCtx so the auto-correct + storm detector both
+			// see fresh QualityGate data.
+			o.busCtx.AnalysisIR = out.AnalysisIR
 			if r22AutoCorrectShapeSubject(o.busCtx.AnalysisIR) {
 				logging.Warning("[orchestrator] analyze R2.2 auto-correct on attempt %d: cleared scalar AnswerSubject.Kind; re-running gate", attempt+1)
 				if o.r22RerunGateAfterCorrect() {
@@ -2193,17 +2213,32 @@ func r22AutoCorrectShapeSubject(ir *types.AnalysisIR) bool {
 	if ir == nil || !ir.QualityGate.Rejected {
 		return false
 	}
+	// Walk every failed check. R2.2 must be present AND no other
+	// check may be failed in the same report. The post-correction
+	// re-run uses a nil resolver (the orchestrator can't easily
+	// reconstruct the symbol resolver), and resolver-backed
+	// coherence rules (R1.4 / R1.5 in subtopic_coherence) are
+	// no-ops under nil resolver. Without this guard, an R2.2 fix
+	// would silently bypass a co-firing coherence failure when
+	// the re-run "passes" against an unrun resolver.
 	hasR22 := false
+	otherFails := 0
 	for _, c := range ir.QualityGate.Checks {
 		if c.Passed {
 			continue
 		}
 		if c.Name == "shape_subject_coherence" && strings.HasPrefix(strings.TrimSpace(c.Detail), "R2.2 longform_scalar_subject:") {
 			hasR22 = true
-			break
+			continue
 		}
+		// Any other failed check (subtopic_coherence /
+		// dag_closure / contract_complete / etc.) blocks the
+		// auto-correct; the LLM-side retry path must surface
+		// these too, and our fast-path re-run can't validate
+		// them (nil resolver / lost dispatch context).
+		otherFails++
 	}
-	if !hasR22 {
+	if !hasR22 || otherFails > 0 {
 		return false
 	}
 	// Only correct when the AnswerSubject is actually scalar; the
@@ -2225,12 +2260,17 @@ func r22AutoCorrectShapeSubject(ir *types.AnalysisIR) bool {
 //
 // Mode mirroring follows the analyzer's invocation site at
 // analyzer.go:1889 — read-mode branches honor the full check set;
-// write modes skip the read-mode-only checks. Resolver is intent-
-// ionally nil here: the orchestrator runs this fast-path post-
-// correction to avoid the cost of re-spinning the resolver, and
-// the read-mode-only coherence rules (R1.4 / R1.5) that consult
-// the resolver only fire on emit-time entity validation — they
-// are not the rules that produced R2.2.
+// write modes skip the read-mode-only checks.
+//
+// Resolver is nil here. Read-mode-only coherence rules R1.4 / R1.5
+// (subtopic_coherence) become no-ops under a nil resolver, which
+// would normally let resolver-backed failures slip through this
+// fast-path post-correction. SAFETY GUARD: the caller's gate
+// guard is r22AutoCorrectShapeSubject, which now refuses correction
+// when ANY non-R2.2 check is failed in the same report —
+// guaranteeing that no resolver-backed coherence failure was
+// active when this re-run is invoked. The R1.4 / R1.5 nil-resolver
+// no-op is therefore safe in the only context this function runs.
 func (o *Orchestrator) r22RerunGateAfterCorrect() bool {
 	if o == nil || o.busCtx == nil || o.busCtx.AnalysisIR == nil {
 		return false
