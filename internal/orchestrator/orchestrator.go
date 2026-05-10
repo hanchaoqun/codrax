@@ -1817,14 +1817,29 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// add more context" answer with the original request quoted,
 		// instead of returning an empty result. The user still sees a
 		// reply; the Error field carries the diagnostic for operators.
-		logging.Error("[orchestrator] analyze phase failed (degrading to minimal IR): %v", err)
+		logging.Error("[orchestrator] analyze phase failed (degrading to recovery IR): %v", err)
 		o.busCtx.TaskState.LastError = fmt.Sprintf("analyze: %v", err)
-		o.busCtx.AnalysisIR = buildDegradedFallbackIR(o.busCtx.Mutable.Objective(), err)
-		// Continue execution with the fallback IR instead of returning.
-		// Phase 2 (explore/extract/finalize) will see a single finalize
-		// node + ShapeExplanation contract; explore is skipped, finalizer
-		// produces degraded answer text. The original error is preserved
-		// in TaskState.LastError so a wrapping CLI can still surface it.
+		// Fix-A (2026-05-10): when the analyzer emit_analysis'd at
+		// least once before the gate rejected it, preserve the
+		// partial RequestModel + AnalyzerHints + Predicates so
+		// explorer/extractor still have semantic context to work
+		// with. The richer TaskGraph (probe → evidence → reconcile
+		// → finalize) ensures explore/extract dispatch (legacy
+		// path's single-finalize graph caused them to be skipped,
+		// leading to empty "(no result)" outputs).
+		//
+		// When o.busCtx.AnalysisIR is nil (analyzer NEVER emit_analysis'd),
+		// buildDegradedSemanticIR delegates to the legacy zero-info
+		// builder so behaviour is byte-identical for that branch.
+		o.busCtx.AnalysisIR = buildDegradedSemanticIR(
+			o.busCtx.Mutable.Objective(),
+			o.busCtx.AnalysisIR,
+			err,
+		)
+		// Continue execution with the recovery IR. The original
+		// error is preserved in TaskState.LastError so a wrapping
+		// CLI can still surface it. Step budget is bounded by the
+		// per-stage caps already in place.
 		_ = used
 	} else {
 		stepsUsed += used
@@ -6221,6 +6236,166 @@ func buildDegradedFallbackIR(objective string, analyzerErr error) *types.Analysi
 			},
 		},
 	}
+}
+
+// buildDegradedSemanticIR (Fix-A 2026-05-10) builds a degraded
+// AnalysisIR that PRESERVES the analyzer's last successful partial
+// emit (RequestModel + AnalyzerHints) and includes a richer
+// TaskGraph (probe → evidence → reconcile → finalize) so explorer
+// + extractor still run even when the analyzer's quality gate
+// rejected the IR repeatedly. Compared with buildDegradedFallbackIR
+// (legacy zero-info path), this path keeps the LLM's already-
+// extracted keywords / entities / sub_topics so downstream stages
+// can build a useful answer instead of producing "(no result)".
+//
+// Behaviour rules:
+//   - When partialIR is nil (analyzer never emit_analysis'd):
+//     fall back to the legacy zero-info IR.
+//   - Auto-correct AnswerSubject: scalar kinds → Unknown / 0
+//     (R2.2 family-shape contradiction would otherwise still
+//     reject downstream gates if they re-run).
+//   - Drop EvidencePlan / HypothesisSet / TermGraph (these were
+//     malformed enough to fail the quality gate; keeping them
+//     would just trigger downstream contract failures).
+//   - Set CitationReq.Required = false (relaxed; the analyzer
+//     was uncertain so the answer can't be expected to ground
+//     to specific file:lines).
+//   - TaskGraph: probe + 1 evidence + reconcile + finalize so the
+//     scheduler's readyExplorerWindow returns non-empty and
+//     explorer + extractor + finalizer all dispatch. Step budget
+//     is bounded by the per-stage caps already in place.
+//
+// Cross-language: all preservation is on typed IR fields, not
+// strings, so works regardless of question or repo language.
+//
+// Design doc: docs/design/analyzer_failure_remediation.md §3.1.
+func buildDegradedSemanticIR(objective string, partialIR *types.AnalysisIR, analyzerErr error) *types.AnalysisIR {
+	if partialIR == nil {
+		return buildDegradedFallbackIR(objective, analyzerErr)
+	}
+	// Preserve the LLM's already-classified RequestModel core but
+	// auto-correct any scalar AnswerSubject (R2.2 contradiction).
+	rm := types.RequestModel{
+		RawRequest: objective,
+		Language:   partialIR.RequestModel.Language,
+		Intent:     fallbackIntent(partialIR.RequestModel.Intent),
+		Scenario:   fallbackScenario(partialIR.RequestModel.Scenario),
+		Complexity: fallbackComplexity(partialIR.RequestModel.Complexity),
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords:          dedupedStrings(partialIR.RequestModel.AnalyzerHints.Keywords),
+			Entities:          dedupedStrings(partialIR.RequestModel.AnalyzerHints.Entities),
+			PrimaryEntities:   dedupedStrings(partialIR.RequestModel.AnalyzerHints.PrimaryEntities),
+			ExactTargets:      dedupedStrings(partialIR.RequestModel.AnalyzerHints.ExactTargets),
+			ExactContextTerms: dedupedStrings(partialIR.RequestModel.AnalyzerHints.ExactContextTerms),
+			Kind:              partialIR.RequestModel.AnalyzerHints.Kind,
+		},
+		// Predicates copy keeps semantic flags (is_count_question,
+		// is_role_locate_lookup etc.) so downstream stages still
+		// see the LLM's original semantic classification even if
+		// the rest of the IR was malformed.
+		Predicates:    partialIR.RequestModel.Predicates,
+		PredicateAxis: partialIR.RequestModel.PredicateAxis,
+	}
+	// Auto-correct R2.2 contradiction without relying on the prior
+	// gate report — defensive: if R2.2 fired and was bypassed via
+	// auto-correct elsewhere, rm.AnswerSubject is already Unknown;
+	// if not, we clear it here for the same reason.
+	switch partialIR.RequestModel.AnswerSubject.Kind {
+	case types.SubjectStringLiteral, types.SubjectNumeric, types.SubjectReturnValue:
+		rm.AnswerSubject = types.AnswerSubject{Kind: types.SubjectUnknown, Confidence: 0}
+	default:
+		rm.AnswerSubject = partialIR.RequestModel.AnswerSubject
+	}
+	// Build a richer TaskGraph: probe → evidence → reconcile →
+	// finalize. The IDs and per-node SuccessCriteria mirror the
+	// shape used by templateArchitectureExplain (the simplest
+	// generic template) — explorer/extract loop them as a unit.
+	probe := types.TaskNode{
+		ID: "probe", Type: types.NodeProbe,
+		Objective: "Breadth scan based on analyzer-extracted keywords (degraded recovery path).",
+		Inputs:    []string{"user_question"},
+		Outputs:   []string{"file_candidates"},
+	}
+	evidence := types.TaskNode{
+		ID: "evidence", Type: types.NodeEvidence,
+		Objective: "Collect grounded evidence from the candidate files (degraded recovery path).",
+		Inputs:    []string{"file_candidates"},
+		Outputs:   []string{"evidence_items"},
+	}
+	reconcile := types.TaskNode{
+		ID: "reconcile", Type: types.NodeReconcile,
+		Objective: "Reconcile collected evidence into a coherent answer (degraded recovery path).",
+		Inputs:    []string{"evidence_items"},
+		Outputs:   []string{"answer_summary"},
+	}
+	finalizeNode := types.TaskNode{
+		ID:   "finalize",
+		Type: types.NodeFinalize,
+	}
+	return &types.AnalysisIR{
+		RequestModel: rm,
+		TaskGraph: types.TaskGraph{
+			Nodes: []types.TaskNode{probe, evidence, reconcile, finalizeNode},
+		},
+		AnswerContract: types.AnswerContract{
+			CitationReq: types.CitationReq{Required: false},
+		},
+		QualityGate: types.GateReport{
+			Rejected: false,
+			Checks: []types.GateCheck{
+				{
+					Name:   "degraded_semantic_recovery",
+					Passed: true,
+					Detail: fmt.Sprintf("analyzer exhausted but partial emit preserved: %v — running degraded probe → evidence → reconcile → finalize with kept keywords/entities/predicates", analyzerErr),
+				},
+			},
+		},
+	}
+}
+
+// dedupedStrings returns a trimmed deduplicated copy of in. Empty
+// input returns nil so omitempty JSON tags drop the field cleanly.
+func dedupedStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		t := strings.TrimSpace(s)
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, s)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// fallbackIntent returns the partial-IR intent if non-empty, else
+// IntentExplain (legacy degraded default).
+func fallbackIntent(in types.Intent) types.Intent {
+	if in == "" {
+		return types.IntentExplain
+	}
+	return in
+}
+
+func fallbackScenario(in types.Scenario) types.Scenario {
+	if in == "" {
+		return types.ScenarioGeneric
+	}
+	return in
+}
+
+func fallbackComplexity(in types.Complexity) types.Complexity {
+	if in == "" {
+		return types.ComplexitySimple
+	}
+	return in
 }
 
 // runAnswerReviewerOnSuccess dispatches the end-of-Run
