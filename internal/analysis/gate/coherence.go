@@ -134,14 +134,29 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			nSub))
 	}
 
-	// R1.3 — Sub-topic entity orphan.
-	if nSub >= 1 && len(rm.AnalyzerHints.PrimaryEntities) >= coherenceMinPrimaryEntitiesForOrphan {
-		subEnts := flattenSubTopicEntities(rm.SubTopics)
-		if len(subEnts) > 0 {
-			if !anyOverlap(subEnts, rm.AnalyzerHints.PrimaryEntities) {
+	// R1.3 — Sub-topic entity orphan (scope-aware, B3 2026-05-10).
+	//
+	// Multi-repo lifting: when sub-repo NAMES are part of the
+	// primary entity set (e.g. cross-sub-repo comparison "compare
+	// codrax vs opencode"), they ALSO live in PrimaryScopes via the
+	// typed projection in internal/agent/scope_projection.go. The
+	// rule compares the UNION of (entities ∪ scopes) on both sides
+	// so a sub-topic anchoring a scope (e.g. SubTopic.Scopes=[codrax])
+	// satisfies R1.3 against PrimaryScopes=[codrax, opencode].
+	// Single-repo posture has both Scopes lanes empty, so the union
+	// reduces to PrimaryEntities ∩ subEnts — byte-identical to pre-
+	// B3 behaviour. Forensic anchor: 2026-05-10 chatpp-7d46dee4 log
+	// L1896 emitted internal-symbol sub-topic.entities legitimately
+	// but failed R1.3 because the gate could not see scope as anchor.
+	primaryUnionLen := len(rm.AnalyzerHints.PrimaryEntities) + len(rm.AnalyzerHints.PrimaryScopes)
+	if nSub >= 1 && primaryUnionLen >= coherenceMinPrimaryEntitiesForOrphan {
+		subTokens := flattenSubTopicEntitiesAndScopes(rm.SubTopics)
+		primaryTokens := unionStringLists(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.PrimaryScopes)
+		if len(subTokens) > 0 && len(primaryTokens) > 0 {
+			if !anyOverlap(subTokens, primaryTokens) {
 				details = append(details, fmt.Sprintf(
 					"R1.3 entity_orphan: sub-topic entities %s share no element with primary entities %s",
-					formatStringList(subEnts), formatStringList(rm.AnalyzerHints.PrimaryEntities)))
+					formatStringList(subTokens), formatStringList(primaryTokens)))
 			}
 		}
 	}
@@ -184,6 +199,23 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			if len(st.Entities) == 0 {
 				// No entities to validate — neutral, neither hit
 				// nor miss. Excluded from the asymmetry calculation.
+				continue
+			}
+			// Scope-only carve-out (B3 2026-05-10): if every
+			// non-blank Entities surface ALSO appears in this
+			// sub-topic's Scopes (or in the global PrimaryScopes),
+			// the sub-topic is scope-typed — its grounding is
+			// active-set membership, NOT symbol-table presence.
+			// Skip the resolver round-trip for these and count as
+			// hit. R3 red line: hard gates may not key on noisy
+			// signals; running scope tokens through the resolver
+			// produces an asymmetric resolution pattern that is
+			// signal-side noise (one sub-repo slug may be
+			// NormalizeCodeKey-equivalent to a real symbol while
+			// another is not, even though both are valid scopes).
+			if subTopicScopeOnly(st, rm.AnalyzerHints.PrimaryScopes) {
+				anyHit = true
+				states = append(states, subTopicState{index: i, topic: st, hit: true})
 				continue
 			}
 			s := subTopicState{index: i, topic: st}
@@ -283,6 +315,51 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			details = append(details, fmt.Sprintf(
 				"R1.4 axis_collapse: %d sub-topics all sit in the same code area %s under enumeration intent — your sub-topics enumerate values of one axis (e.g. one mode value per sub_topic) rather than independently-answerable questions. Repair by re-emitting emit_analysis ONCE with EITHER (a) sub_topics omitted entirely (one ordered_list item per enumerated value will be rendered downstream — this is the natural form for \"what kinds of X exist\" questions), OR (b) sub_topics retained but each sub-topic's entities now span >=2 distinct code areas so the question really is multi-axis",
 				nSub, formatDomainList(collapsed)))
+		}
+	}
+
+	// R1.8 — Scope anchor distribution (SOFT advisory, NOT hard gate).
+	//
+	// B3 (2026-05-10): when the LLM emits ≥2 PrimaryScopes (e.g.
+	// cross-sub-repo comparison naming both `codrax` and `opencode`)
+	// AND IsCrossComponent=true, each PrimaryScope ideally has at
+	// least one sub-topic anchored to it. An asymmetric anchoring
+	// (e.g. all 3 sub-topics anchor to `codrax`, none to `opencode`)
+	// produces a lopsided answer that under-serves the user's
+	// compare-and-contrast intent.
+	//
+	// SOFT not HARD because:
+	//  (a) cross-cutting decompositions (one sub-topic that compares
+	//      both scopes for a single aspect) are a legitimate
+	//      alternative shape and would be falsely rejected by HARD
+	//  (b) downstream stages (explorer / extractor / finalizer) can
+	//      recover symmetry by reading both scopes during
+	//      investigation; classification time need not enforce it
+	//
+	// R3 second-axis compliance: the "ideal" distribution depends on
+	// the question's rhetorical shape, which the analyzer cannot see
+	// reliably. Soft only.
+	if rm.Predicates.IsCrossComponent && len(rm.AnalyzerHints.PrimaryScopes) >= 2 && nSub >= 2 {
+		anchored := make(map[string]bool, len(rm.AnalyzerHints.PrimaryScopes))
+		for _, st := range rm.SubTopics {
+			for _, sc := range st.Scopes {
+				anchored[strings.TrimSpace(sc)] = true
+			}
+		}
+		var missing []string
+		for _, scope := range rm.AnalyzerHints.PrimaryScopes {
+			if !anchored[strings.TrimSpace(scope)] {
+				missing = append(missing, scope)
+			}
+		}
+		if len(missing) > 0 {
+			sort.Strings(missing)
+			softAdvisories = append(softAdvisories, fmt.Sprintf(
+				"R1.8 scope_anchor_distribution (advisory): cross-component question with %d sub-repo scopes %s but %d sub-repo(s) %s have no sub-topic anchor — if the answer should compare each sub-repo, consider adding a sub-topic per scope; if a cross-cutting decomposition is intentional, ignore this advisory",
+				len(rm.AnalyzerHints.PrimaryScopes),
+				formatStringList(rm.AnalyzerHints.PrimaryScopes),
+				len(missing),
+				formatStringList(missing)))
 		}
 	}
 
@@ -517,6 +594,105 @@ func flattenSubTopicEntities(subs []types.SubTopic) []string {
 		}
 	}
 	return out
+}
+
+// flattenSubTopicEntitiesAndScopes is the scope-aware companion of
+// flattenSubTopicEntities (B3 2026-05-10). Collects entities AND
+// scopes into one dedup'd list. Used by R1.3 widened so a
+// scope-typed sub-topic anchor (e.g. SubTopic.Scopes=[codrax])
+// satisfies the orphan check against PrimaryScopes.
+func flattenSubTopicEntitiesAndScopes(subs []types.SubTopic) []string {
+	if len(subs) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, 2*len(subs))
+	for _, st := range subs {
+		for _, e := range st.Entities {
+			trimmed := strings.TrimSpace(e)
+			if trimmed == "" || seen[trimmed] {
+				continue
+			}
+			seen[trimmed] = true
+			out = append(out, trimmed)
+		}
+		for _, s := range st.Scopes {
+			trimmed := strings.TrimSpace(s)
+			if trimmed == "" || seen[trimmed] {
+				continue
+			}
+			seen[trimmed] = true
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+// unionStringLists returns the dedup'd union of two slices in
+// case-sensitive form. Used by R1.3 to combine PrimaryEntities ∪
+// PrimaryScopes into one comparison set.
+func unionStringLists(a, b []string) []string {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, s := range a {
+		t := strings.TrimSpace(s)
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	for _, s := range b {
+		t := strings.TrimSpace(s)
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return out
+}
+
+// subTopicScopeOnly returns true when every non-blank Entities
+// surface in `st` is also present (case-sensitive trim-equal) in
+// `st.Scopes` OR the supplied `primaryScopes` list. R1.5's
+// scope-only carve-out uses it to skip the resolver round-trip on
+// sub-topics whose anchors are sub-repo names — those tokens are
+// authoritatively grounded by active-set membership, not by
+// resolver.LookupSymbol.
+func subTopicScopeOnly(st types.SubTopic, primaryScopes []string) bool {
+	if len(st.Entities) == 0 {
+		return false
+	}
+	scopeSet := make(map[string]bool, len(st.Scopes)+len(primaryScopes))
+	for _, s := range st.Scopes {
+		t := strings.TrimSpace(s)
+		if t != "" {
+			scopeSet[t] = true
+		}
+	}
+	for _, s := range primaryScopes {
+		t := strings.TrimSpace(s)
+		if t != "" {
+			scopeSet[t] = true
+		}
+	}
+	if len(scopeSet) == 0 {
+		return false
+	}
+	for _, e := range st.Entities {
+		t := strings.TrimSpace(e)
+		if t == "" {
+			continue
+		}
+		if !scopeSet[t] {
+			return false
+		}
+	}
+	return true
 }
 
 // anyOverlap returns true when the two slices share at least one
