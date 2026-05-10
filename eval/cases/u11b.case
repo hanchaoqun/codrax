@@ -6,28 +6,34 @@
 # measures the failure mode where the LLM names one producer and
 # claims uniqueness without counting.
 #
-# Ground truth (memory feedback_citation_gate_three_surfaces.md and
-# grep-verified against HEAD): CitationReq.Required = false has
-# exactly one production call site — the measurement-scalar carve-
-# out in internal/agent/analyzer.go:781. A correct answer must name
-# both the file AND the fact of uniqueness.
+# Ground truth (grep-verified against HEAD on 2026-05-10):
+# CitationReq.Required = false has exactly three production call
+# sites. A correct answer must name both the files AND the count.
 ID="u11b"
 NAME="locate by role — single producer of CitationReq.Required=false"
 QUESTION="本仓库里，把 CitationReq.Required 设置为 false 的生产代码位点一共有几处？在哪个文件？给出文件路径和行号。"
-# 2026-05-04 strictness audit: previous EC was just `analyzer.go`
-# (one filename) — bar = "复述文件名". Re-verified ground truth via
-# `grep -rn 'CitationReq.*Required.*false\|CitationReq{.*Required:
-# false}' internal/`(non-test, non-md):
-#   1) internal/orchestrator/orchestrator.go:5378
-#      CitationReq: types.CitationReq{Required: false}
-#   2) internal/agent/analyzer.go:1402
+# 2026-05-10 spec refresh: re-verified ground truth via
+# `grep -rnE 'CitationReq\.Required\s*=\s*false|CitationReq\{[^}]*Required:\s*false' --include='*.go' .`
+# filtered for production code (excludes _test.go and comments):
+#   1) internal/agent/analyzer.go:1869
 #      out.AnswerContract.CitationReq.Required = false
-# So the truth is 2 production sites. Strict-bar requires answer to
-# surface BOTH file paths AND the count (2/两/两处). The original
-# spec claimed "exactly one" was the answer — that's stale; current
-# code has two.
+#      (measurement-scalar / history-lookup carve-out in buildAnalysisIR)
+#   2) internal/orchestrator/orchestrator.go:6282
+#      CitationReq: types.CitationReq{Required: false}
+#      (buildDegradedFallbackIR — degraded-path waiver)
+#   3) internal/orchestrator/orchestrator.go:6414
+#      CitationReq: types.CitationReq{Required: false}
+#      (buildDegradedSemanticIR — degraded-semantic-recovery waiver)
+#
+# So the truth is 3 production sites. Strict-bar requires answer
+# to surface BOTH file paths AND the count (3/三).
+#
+# History:
+# - 2026-05-04 spec said 2 (orchestrator + analyzer); the two
+#   degraded-IR paths were added later (commits 2189151 / e502fd9)
+#   so the second orchestrator site appeared, taking the count to 3.
 EXPECT_CONTAINS="analyzer.go orchestrator.go"
-EXPECT_MATCHES_REGEX="\b(2|两|二)\b
+EXPECT_MATCHES_REGEX="\b(3|三)\b
 internal/agent/analyzer\.go
 internal/orchestrator/orchestrator\.go"
 EXPECT_NOT_CONTAINS="multiple.places several.places many.places"
