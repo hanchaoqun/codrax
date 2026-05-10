@@ -340,6 +340,23 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 	if repoRoot == "" {
 		return "", nil
 	}
+	// B4 (2026-05-10): multi-scope pre-inject. When the question names
+	// ≥2 active sub-repo scopes verbatim (cross-sub-repo comparison
+	// shape), render per-scope mini task_maps so the analyzer LLM
+	// sees every named scope's structural context, not only the
+	// pickPrimarySubRepo collapse target. Single-repo / single-scope
+	// falls through to the legacy single-graph path below — byte-
+	// identical for fixtures without ≥2 scope hits.
+	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.4.
+	if scopes := detectScopesFromQuestion(ctx, objective); len(scopes) >= 2 {
+		if rendered, primary := buildMultiScopeRepoOverview(ctx, objective, scopes); rendered != "" {
+			return rendered, primary
+		}
+		// Multi-scope render returned empty (mg topology lookup failed,
+		// EnsureLoaded errored, or every per-scope view was empty);
+		// fall through to single-graph path below — caller never sees
+		// the partial-fail.
+	}
 	// Extract code identifiers from the question to use as the graph
 	// query. extractQuestionEntities pulls CamelCase/snake_case tokens
 	// — exactly the kind of tokens that match file and symbol names.
@@ -414,6 +431,96 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 		header += caution + "\n\n"
 	}
 	return header + output, graph
+}
+
+// buildMultiScopeRepoOverview renders one mini task_map view per
+// active sub-repo named verbatim in the user's question (B4
+// 2026-05-10). The total prompt budget (4096 bytes, matching the
+// single-graph path's cap) is split across scopes; each scope gets
+// a dedicated section so the analyzer LLM can decompose sub-topics
+// per scope without paying the resolver's "primary sub-repo wins"
+// asymmetry tax.
+//
+// Falls back to ("", nil) when:
+//   - mg lookup fails (caller falls through to single-graph path)
+//   - every per-scope view is empty (no relevant files / symbols)
+//   - any scope's RootRel does not resolve to a topology SubRepo
+//
+// The first scope's *Graph is returned as the "primary" so the
+// caller's Mutable.SearchGraph() set still has a valid pointer for
+// downstream legacy consumers (analyzerRequiredFiles ranker etc.).
+// This is a known partial-correctness mode — see multigraph_facade.go
+// design note about caller-wrong-to-ask-for-the-graph in multi-repo
+// mode. The multi-graph oracle / resolver paths (B2) DO see every
+// active sub-repo's symbols so the gate signals stay correct.
+//
+// Design doc: docs/design/multirepo_entity_scope_separation.md §4.4.
+func buildMultiScopeRepoOverview(ctx *types.AgentContext, objective string, scopes []string) (string, *repomap.Graph) {
+	mg := repomap.MultiGraphFromAgentContext(ctx)
+	if mg == nil {
+		return "", nil
+	}
+	topo := mg.Topology()
+	if topo == nil {
+		return "", nil
+	}
+	const totalBudget = 4096
+	perScope := totalBudget / len(scopes)
+	if perScope < 800 {
+		perScope = 800 // floor — too small and the per-scope view is useless
+	}
+	topN := 7
+	if len(scopes) > 2 {
+		topN = 5
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("## Repository overview (pre-computed for sub-repo scopes: %s)\n\n", strings.Join(scopes, ", ")))
+	b.WriteString("The following per-sub-repo task_map shows files and symbols matching the question for each named sub-repo. Use this to inform your sub-topic decomposition and pre-scan targets. You may still call repo_map, grep, or list_files for additional verification.\n\n")
+	if header := renderMultiRepoOverviewHeader(mg); header != "" {
+		b.WriteString(header)
+		b.WriteString("\n")
+	}
+	var primaryGraph *repomap.Graph
+	rendered := 0
+	for i, scope := range scopes {
+		sr := topo.SubRepoByRootRel(scope)
+		if sr == nil {
+			continue
+		}
+		g, err := mg.EnsureLoaded(sr.Slug)
+		if err != nil || g == nil {
+			logging.Debug("[analyzer] multi-scope: EnsureLoaded(%s) failed: %v", sr.Slug, err)
+			continue
+		}
+		if i == 0 || primaryGraph == nil {
+			primaryGraph = g
+		}
+		view := repomap.GenerateView(g, "task_map", repomap.ViewParams{
+			Query: objective,
+			TopN:  topN,
+		})
+		if view == "" {
+			continue
+		}
+		if len(view) > perScope {
+			view = view[:perScope] + "\n... [truncated]\n"
+		}
+		fmt.Fprintf(&b, "\n# Task Map: %s\n\n%s\n", scope, view)
+		rendered++
+	}
+	if rendered == 0 {
+		return "", nil
+	}
+	out := b.String()
+	// Outer cap: same +512 slack we let the single-graph path keep
+	// for the prepended multi-repo header. Truncation is a last
+	// resort — the per-scope per-call cap above usually keeps us
+	// well under this ceiling.
+	if max := totalBudget + 512; len(out) > max {
+		out = out[:max] + "\n... [truncated]\n"
+	}
+	logging.Debug("[analyzer] pre-injected multi-scope view (%d bytes, scopes=%v rendered=%d)", len(out), scopes, rendered)
+	return out, primaryGraph
 }
 
 // renderMultiRepoOverviewHeader builds the compact "## Multi-repo

@@ -98,6 +98,48 @@ func projectSubTopicScopes(ctx *types.AgentContext, subs []types.SubTopic) {
 	}
 }
 
+// detectScopesFromQuestion scans the user's RAW question text for
+// tokens whose NormalizeCodeKey form matches an active sub-repo
+// RootRel. Returns the matched RootRels in original spelling.
+//
+// Used pre-emit by analyzer.go::buildAnalyzerRepoOverview (B4) so the
+// pre-injected task_map can budget across multiple scopes when the
+// user explicitly named ≥2. The post-emit path (projectPrimaryScopes)
+// reads from analyzer-emitted entities; this pre-emit path reads
+// from the raw question text. Both share activeScopeCanonMap as a
+// single source of truth for the "what counts as a scope token"
+// answer.
+//
+// Word-boundary tokenization via tokenizeQuestionCJKAware (defined in
+// explorer.go) — ASCII letter runs and CJK characters are tokenized
+// at boundaries, so "opencodex" canonicalises to "opencodex" (≠
+// "opencode") and does NOT false-match "opencode". Single-repo /
+// nil-mg returns nil.
+func detectScopesFromQuestion(ctx *types.AgentContext, question string) []string {
+	if strings.TrimSpace(question) == "" {
+		return nil
+	}
+	canonByRootRel := activeScopeCanonMap(ctx)
+	if len(canonByRootRel) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(canonByRootRel))
+	var out []string
+	for _, tok := range tokenizeQuestionCJKAware(question) {
+		canon := normalizer.NormalizeCodeKey(strings.TrimSpace(tok))
+		if canon == "" {
+			continue
+		}
+		rel, ok := canonByRootRel[canon]
+		if !ok || seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		out = append(out, rel)
+	}
+	return out
+}
+
 // activeScopeCanonMap returns canonical(RootRel) -> RootRel for
 // every currently active (LRU-resident) sub-repo whose RootRel is
 // not "." (degenerate single-repo case). Empty map when not in
