@@ -493,6 +493,17 @@ type RuntimeSettings struct {
 	// genuine facet-coverage gaps.
 	PipelineSemanticQualityMinConfidence *float64 `yaml:"pipeline_semantic_quality_min_confidence"`
 
+	// PipelineFinalizeRepairHardCap (P6, 2026-05-10, default 2)
+	// caps the number of finalize-stage repair-loop iterations
+	// before the system degrades to "ship doc + residual-concerns
+	// caveat". Independent of every existing budget knob (per-kind
+	// retry, ExecutionPolicy.RetryBudget, FinalizerLocalRetryBudget,
+	// maxUpstreamFallbacksPerRun) — those have looser defaults and
+	// don't directly cap finalize-stage iterations. Forensic anchor:
+	// May-9 sweep showed ~8% of runs took ≥3 repair_exec rounds with
+	// diminishing returns. nil → use FinalizeRepairHardCapDefault (2).
+	PipelineFinalizeRepairHardCap *int `yaml:"pipeline_finalize_repair_hard_cap"`
+
 
 	// RepomapMinParseTier (commit 53 P5) hard-gates files whose
 	// repomap parse tier exceeds the floor (Tier 1=primary

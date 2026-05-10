@@ -276,6 +276,18 @@ type Orchestrator struct {
 	// pipeline_semantic_quality_min_confidence.
 	semanticQualityMinConfidence float64
 
+	// finalizeRepairHardCap (P6 2026-05-10) caps the number of
+	// finalize-stage repair-loop iterations a single Run will
+	// attempt before degrading to "accept doc + residual-concerns
+	// caveat". Independent of ExecutionPolicy.RetryBudget (which
+	// can be set loosely per task graph) and FinalizerLocalRetryBudget
+	// (which only caps the finalize-only-downgrade path). 0 keeps
+	// the FinalizeRepairHardCapDefault (2). Forensic data (May-9
+	// sweep, 26 run): ~8% of runs took ≥3 repair_exec rounds,
+	// with diminishing returns; bounding at 2 caps wall-clock
+	// without changing the typical-case behaviour.
+	finalizeRepairHardCap int
+
 	// continuationClassifier is the LLM-driven decision for
 	// "is the current REPL turn a continuation of the prior
 	// conversation?" (commit 48 read-mode Gap 1). Pre-commit-48
@@ -1042,6 +1054,76 @@ func (o *Orchestrator) SetSemanticQualityReviewer(r SemanticQualityReviewer) {
 		return
 	}
 	o.semanticQualityReviewer = r
+}
+
+// FinalizeRepairHardCapDefault is the conservative default cap on
+// finalize-stage repair-loop iterations. P6 (2026-05-10): 2 means
+// "after two repair attempts the answer ships with a residual-
+// concerns caveat instead of a third LLM round".
+const FinalizeRepairHardCapDefault = 2
+
+// SetFinalizeRepairHardCap installs the operator-tunable hard cap.
+// 0 (or out-of-range) → FinalizeRepairHardCapDefault.
+func (o *Orchestrator) SetFinalizeRepairHardCap(n int) {
+	if o == nil {
+		return
+	}
+	if n <= 0 {
+		n = FinalizeRepairHardCapDefault
+	}
+	o.finalizeRepairHardCap = n
+}
+
+// finalizeRepairHardCapValue returns the effective cap, falling
+// back to FinalizeRepairHardCapDefault when the field is unset.
+func (o *Orchestrator) finalizeRepairHardCapValue() int {
+	if o == nil || o.finalizeRepairHardCap <= 0 {
+		return FinalizeRepairHardCapDefault
+	}
+	return o.finalizeRepairHardCap
+}
+
+// injectResidualConcernsCaveat is the P6 chokepoint helper that
+// writes a single user-visible caveat string into the typed
+// AnswerDocumentV2.Caveats[] surface AND emits a dock notice so
+// the user-facing UI knows the repair-loop terminated by design.
+// Non-destructive: does NOT modify any block.text payload.
+//
+// Caller has already decided the cap was exceeded (see the
+// finalizeRepairHardCapValue / state.retryUsed comparison in the
+// contract-failure loop). The caveat content is rendered through
+// softFinalizeRepairCapMessage (CN/EN aware, red-line audited).
+func (o *Orchestrator) injectResidualConcernsCaveat(out *agent.StageOutput, concernCount int) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	// Multi-repo posture detection: only suggest /repos sub-repo
+	// adjustment when the workspace actually has ≥2 sub-repos.
+	// IsSingle() short-circuits cleanly for legacy single-repo
+	// runs so the caveat doesn't render an inapplicable hint.
+	multiRepo := false
+	if mg, ok := o.busCtx.MultiGraph.(*multigraph.MultiGraph); ok && mg != nil && !mg.IsSingle() {
+		multiRepo = true
+	}
+	caveat := softFinalizeRepairCapMessage(o.busCtx.Language, concernCount, multiRepo)
+	// Write into the typed AnswerDocumentV2.Caveats[] when the doc
+	// is present. Non-V2 carriers (legacy / synthetic test paths)
+	// fall through to AppendUserCaveatsToAnswer downstream.
+	if doc := o.busCtx.Mutable.AnswerDocumentV2(); doc != nil {
+		doc.Caveats = append(doc.Caveats, caveat)
+		o.busCtx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	}
+	// Surface the cap event to the dock so the user knows the
+	// loop terminated by design rather than silently shipping with
+	// hidden caveats. Mirrors the existing NoticeUpstreamCap /
+	// NoticeYieldKill emit pattern.
+	o.emit(render.Event{
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: render.NoticeFallbackFailLoud,
+		Reasoning:  caveat,
+	})
 }
 
 // SetSemanticQualityMinConfidence sets the G5 reviewer's self-rated
@@ -4151,6 +4233,34 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				logging.Debug("[orchestrator]   violation[%d] kind=%s detail=%q repair=%q",
 					i, v.Kind, v.Detail, v.Repair)
 			}
+		}
+
+		// P6 (2026-05-10) finalize repair hard cap. Pre-emptive
+		// chokepoint: when this Run has already burnt
+		// finalizeRepairHardCap finalize-stage retries, ship the
+		// current draft + a single residual-concerns caveat instead
+		// of another LLM round. Independent of every existing budget
+		// (retryBudgetExhausted / per-kind / cross-scope attempts /
+		// upstream-fallback cap) — those gates have looser defaults
+		// and don't cap finalize-stage iterations directly. Forensic
+		// anchor: ~8% of runs in the May-9 sweep took ≥3 repair_exec
+		// rounds with diminishing returns.
+		//
+		// Caveat injection lives in injectResidualConcernsCaveat —
+		// writes one user-vocab line into AnswerDocumentV2.Caveats
+		// (matching CN/EN per BusContext.Language); does NOT modify
+		// answer body. Bypasses applyContractViolations (which is
+		// destructive on text); the doc reaches the user with its
+		// content preserved + transparent residual disclosure.
+		if hardCap := o.finalizeRepairHardCapValue(); hardCap > 0 && state.retryUsed >= hardCap {
+			o.injectResidualConcernsCaveat(out, len(res.Violations))
+			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			logging.Warning("[orchestrator] P6 finalize repair hard cap reached (%d/%d); accepting doc with residual-concerns caveat",
+				state.retryUsed, hardCap)
+			lastFinalize = out
+			state.markDone(fin.ID)
+			o.emitNodeEnd(fin.ID, true, "")
+			break
 		}
 
 		// W2.6 (2026-05-05): cross-scope (kind, fp) attempt budget.

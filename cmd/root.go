@@ -326,6 +326,13 @@ var (
 	// PipelineSemanticQualityMinConfidence yaml override has a
 	// distinct cmd-side seam to write into).
 	semanticQualityMinConfidence = 0.92
+
+	// P6 (2026-05-10): default cap on finalize-stage repair-loop
+	// iterations before degrading to "ship doc + residual-concerns
+	// caveat". Mirror of orchestrator.FinalizeRepairHardCapDefault (2)
+	// so the PipelineFinalizeRepairHardCap yaml override has a
+	// distinct cmd-side seam.
+	finalizeRepairHardCap = 2
 )
 
 // maxAttachedTraceBytes is the live cap for the perf-channel
@@ -2048,6 +2055,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineSemanticQualityMinConfidence != nil {
 			semanticQualityMinConfidence = *rs.PipelineSemanticQualityMinConfidence
 		}
+		// P6 (2026-05-10) — operator-tunable finalize repair hard cap.
+		// nil → orchestrator falls back to FinalizeRepairHardCapDefault (2).
+		if rs.PipelineFinalizeRepairHardCap != nil {
+			finalizeRepairHardCap = *rs.PipelineFinalizeRepairHardCap
+		}
 		extraSoft := append([]string{}, rs.PipelineContractSoftKinds...)
 		extraStrict := append([]string{}, rs.PipelineContractStrictKinds...)
 		if selfConsistencyEnabled && selfConsistencyRewrite {
@@ -2877,6 +2889,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// Block 3 (architecture overhaul 2026-05-02) — selective
 	// upstream fallback cap. Default 2 read from PipelineSettings.
 	orch.SetMaxUpstreamFallbacksPerRun(pipelineSettings.MaxUpstreamFallbacksPerRun)
+	// P6 (2026-05-10) — finalize repair-loop hard cap. Reads the
+	// CLI-level finalizeRepairHardCap (already populated from yaml
+	// PipelineFinalizeRepairHardCap above). Pass 0 → orchestrator
+	// falls back to FinalizeRepairHardCapDefault (2).
+	orch.SetFinalizeRepairHardCap(finalizeRepairHardCap)
 	// Reflexion-pattern critic. Resolved above; nil-safe inside
 	// orchestrator (clearForReplan falls back to heuristic-only hint
 	// when adapter is missing). Tied to the same retry-budget knob —

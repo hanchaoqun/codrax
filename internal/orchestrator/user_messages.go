@@ -316,6 +316,59 @@ func softUpstreamFallbackCapMessage(lang string, used, cap int) string {
 	return fmt.Sprintf("· Retry budget reached (%d/%d) — finalizing with what we have", used, cap)
 }
 
+// softFinalizeRepairCapMessage (P6, 2026-05-10) renders the dock /
+// caveat line shown when the finalize-stage repair-loop hard cap
+// is reached and the answer is shipped with a residual-concerns
+// caveat instead of another LLM round. Mirrors the
+// softUpstreamFallbackCapMessage shape but states "answer delivered
+// + N concerns flagged" and gives an actionable next step.
+//
+// multiRepo gates the sub-repo-specific suggestion (/repos
+// adjustment): single-repo runs never receive that hint because it
+// is structurally inapplicable to a single-sub-repo workspace —
+// surfacing it would mislead operators into thinking a non-existent
+// option exists.
+//
+// Red-line audit (R3/R4/R5/R6/R7/SST/CN+EN-only):
+//   - R3 typed: %d concern count + multiRepo bool are the only
+//     mutable inputs
+//   - R4 generic: no case-specific phrasing, no project names
+//   - R5 not system-write-answer: caveat surface, not answer body
+//   - R6 no internal vocab: "次级关注点" / "residual concern(s)"
+//     are user-vocab paraphrases, not ViolKind names
+//   - R7 user intent: actionable next steps; multi-repo branch
+//     names the actual REPL command (`/repos`) inline as a code
+//     identifier (`backticks`) — not English prose mixed into
+//     the Chinese sentence
+//   - SST: shape matches existing softXxxCapMessage helpers
+//   - CN+EN only: per 2026-05-10 user direction. Each branch is
+//     in ONE natural language only; CLI command names (`/repos`)
+//     count as code identifiers, not English prose, so they are
+//     legitimately preserved across both branches (matches how
+//     the rest of the codebase renders CLI commands inline).
+func softFinalizeRepairCapMessage(lang string, concernCount int, multiRepo bool) string {
+	if preferZhMessage(lang) {
+		if concernCount <= 0 {
+			return "· 答案已交付（已用满质量审阅重试预算）"
+		}
+		if multiRepo {
+			return fmt.Sprintf("· 答案已交付。质量审阅检测到 %d 项次级关注点（详见下方说明）。如需更精确的覆盖，可细化问题，或通过 `/repos` 调整活跃子仓集合后重提",
+				concernCount)
+		}
+		return fmt.Sprintf("· 答案已交付。质量审阅检测到 %d 项次级关注点（详见下方说明）。如需更精确的覆盖，可细化问题后重提",
+			concernCount)
+	}
+	if concernCount <= 0 {
+		return "· Answer delivered (quality-review retry budget exhausted)"
+	}
+	if multiRepo {
+		return fmt.Sprintf("· Answer delivered. Quality review flagged %d residual concern(s) (details follow). For tighter coverage, narrow the question or adjust the active sub-repo set via `/repos` and re-ask",
+			concernCount)
+	}
+	return fmt.Sprintf("· Answer delivered. Quality review flagged %d residual concern(s) (details follow). For tighter coverage, narrow the question and re-ask",
+		concernCount)
+}
+
 // softYieldKillMessage (A.2 audit followup, 2026-05-02) renders the
 // dock line shown when the yield-delta kill gate fires (a retry
 // window produced no new information on any tracked axis). After
