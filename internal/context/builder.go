@@ -1932,6 +1932,180 @@ const AttachedTraceBlobName = "attached_trace.txt"
 //     patterns are detected, the LLM is free to address whatever
 //     dimension the user actually asked about; the canonical labels
 //     are a vocabulary aid, not a topic redirect
+// renderPrimaryErrorSignal (Fix-C 2026-05-10) emits a high-priority
+// section quoting the verbatim runtime error MESSAGE before the
+// Detected Patterns + Error tree sections. Frames may be unresolved
+// (synthetic / vendored / generated code) but the runtime's own
+// error string is always authoritative. Empty bundle / no errors
+// returns "" (skipped section).
+//
+// When ≥ 2 distinct frames across all errors share the same
+// (file, line) coordinate AND any error matches a race-class
+// pattern via inline scan of the message text, surface a
+// corroborating "parallel concurrency" sub-bullet so the LLM
+// recognises the data-race pattern even when the BugClass
+// detector's first-match-only behaviour missed a finer pattern.
+//
+// Cross-language: works on any language whose log triager
+// populates LogError.Type + Message. The parallel-frame
+// detector is purely structural (path coordinate counts),
+// no language-specific code.
+//
+// Design doc: docs/design/analyzer_failure_remediation.md §3.3.
+func renderPrimaryErrorSignal(bundle *types.LogBundle) string {
+	if bundle == nil || len(bundle.Errors) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Primary Error Signal\n\n")
+	b.WriteString("The runtime emitted these verbatim error messages before the stack frames were captured. " +
+		"They are the highest-confidence diagnostic signal — anchor your reasoning on these, especially when frames below are marked `(unresolved)`. " +
+		"Do NOT invent a different theory by reading frame file:line refs in isolation.\n\n")
+	for i := range bundle.Errors {
+		renderPrimaryErrorEntry(&b, &bundle.Errors[i], i+1)
+	}
+	// Parallel-frame detection: count occurrences of each
+	// (file, line) coordinate across ALL frames in this bundle.
+	// A coordinate hit ≥ 2 times means multiple goroutines/threads
+	// crashed at the same line — a strong race indicator.
+	parallel := detectParallelFrameCoordinates(bundle)
+	if len(parallel) > 0 {
+		b.WriteString("\n**Parallel-frame signal**: multiple goroutines / threads / tasks crashed at the SAME line coordinate. " +
+			"This is a strong corroborating signal for a concurrent / racy access pattern (e.g. data race, lock contention) — " +
+			"weight the runtime error message above this hint when deciding the root cause.\n")
+		for _, p := range parallel {
+			fmt.Fprintf(&b, "  - `%s:%d` — %d occurrences across the captured frames\n", p.file, p.line, p.count)
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// renderPrimaryErrorEntry renders one top-level error's verbatim
+// type + message + immediate cause chain heading. Avoids the
+// "Type — Message" inline format used by renderLogError so the
+// message gets its own visual emphasis.
+func renderPrimaryErrorEntry(b *strings.Builder, e *types.LogError, index int) {
+	if e == nil {
+		return
+	}
+	if e.Type != "" && e.Message != "" {
+		fmt.Fprintf(b, "%d. **%s**: `%s`\n", index, e.Type, sanitizeForInlineCode(e.Message))
+	} else if e.Type != "" {
+		fmt.Fprintf(b, "%d. **%s**\n", index, e.Type)
+	} else if e.Message != "" {
+		fmt.Fprintf(b, "%d. `%s`\n", index, sanitizeForInlineCode(e.Message))
+	} else {
+		return
+	}
+	// Walk Cause chain at primary-signal depth so the operator
+	// sees the "X caused by Y" semantics at the top.
+	if e.Cause != nil {
+		fmt.Fprintf(b, "   - caused by **%s**", e.Cause.Type)
+		if e.Cause.Message != "" {
+			fmt.Fprintf(b, ": `%s`", sanitizeForInlineCode(e.Cause.Message))
+		}
+		b.WriteString("\n")
+	}
+}
+
+// sanitizeForInlineCode strips characters that would break the
+// inline backtick rendering. Keeps the message human-readable;
+// only neutralises the backtick itself + control chars.
+func sanitizeForInlineCode(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, "`", "'")
+	// Strip ASCII control chars (newlines / tabs flatten to space).
+	var b strings.Builder
+	for _, r := range s {
+		if r < 0x20 {
+			if r == '\n' || r == '\t' || r == '\r' {
+				b.WriteRune(' ')
+			}
+			continue
+		}
+		b.WriteRune(r)
+	}
+	out := strings.TrimSpace(b.String())
+	if len(out) > 200 {
+		out = out[:200] + "..."
+	}
+	return out
+}
+
+// parallelFrameHit names a (file, line) coordinate that appears in
+// ≥ 2 frames across the bundle.
+type parallelFrameHit struct {
+	file  string
+	line  int
+	count int
+}
+
+// detectParallelFrameCoordinates walks every Error → Frames in the
+// bundle (including nested Cause chains) and returns the (file,
+// line) coordinates that appear ≥ 2 times. Sorted by count
+// descending then file asc for deterministic output.
+//
+// Frames with empty File (frame validator marked unresolvable) are
+// included — the LLM can still infer "3 frames at the same
+// unresolved coordinate" as a co-occurrence signal even when none
+// resolve to real code.
+func detectParallelFrameCoordinates(bundle *types.LogBundle) []parallelFrameHit {
+	if bundle == nil {
+		return nil
+	}
+	type key struct {
+		file string
+		line int
+	}
+	hits := map[key]int{}
+	var walk func(e *types.LogError)
+	walk = func(e *types.LogError) {
+		if e == nil {
+			return
+		}
+		for _, f := range e.Frames {
+			// Use Raw text fallback when File is empty so synthetic
+			// frames still co-locate. Strip leading/trailing space.
+			fileKey := strings.TrimSpace(f.File)
+			if fileKey == "" {
+				// Try to extract <path>:<line> from Raw — fall back
+				// to skipping the frame when neither File nor a
+				// pasrable Raw is present. We don't pattern-match
+				// the raw form here: when File is "", the validator
+				// already failed to corroborate, and using Raw text
+				// as a key would be brittle. Skip.
+				continue
+			}
+			if f.Line <= 0 {
+				continue
+			}
+			hits[key{file: fileKey, line: f.Line}]++
+		}
+		walk(e.Cause)
+	}
+	for i := range bundle.Errors {
+		walk(&bundle.Errors[i])
+	}
+	if len(hits) == 0 {
+		return nil
+	}
+	var out []parallelFrameHit
+	for k, v := range hits {
+		if v >= 2 {
+			out = append(out, parallelFrameHit{file: k.file, line: k.line, count: v})
+		}
+	}
+	// Sort: highest count first, then file asc.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].count != out[j].count {
+			return out[i].count > out[j].count
+		}
+		return out[i].file < out[j].file
+	})
+	return out
+}
+
 func renderBugClassesSection(detected []types.DetectedBugClass, modality string) string {
 	if modality != "trace" {
 		modality = "log" // default
@@ -2200,6 +2374,27 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 		"language and runtime) are observation-only encodings. Do NOT map their positional values to a specific receiver, " +
 		"source parameter, caller-side provenance, or exact downstream branch unless a current cited code line explicitly " +
 		"proves that mapping.\n\n")
+
+	// Fix-C (2026-05-10) ── Primary Error Signal ──
+	// The runtime emits a verbatim error MESSAGE (e.g. "fatal
+	// error: concurrent map writes" / "RuntimeError: config
+	// unavailable") before the stack frames are captured. That
+	// message is the highest-confidence diagnostic signal — when
+	// frames fail to resolve (synthetic / generated / vendored
+	// code), the LLM should still anchor on the message rather
+	// than concocting a theory from unresolved file:line refs.
+	//
+	// This section renders BEFORE Detected Patterns + Errors tree
+	// so the LLM sees the message at maximum salience. When N
+	// goroutines/threads hit the SAME (file, line) coordinate,
+	// surface that as a corroborating "parallel concurrency"
+	// signal — strong evidence of a race condition independent
+	// of the BugClass detector's first-match-only behaviour.
+	//
+	// Forensic anchor: 2026-05-10 sweep b3qhs96tz logtri_goroutine_dump
+	// — model misread "concurrent map writes" → "nil map write"
+	// because frame list ranked higher than error message.
+	b.WriteString(renderPrimaryErrorSignal(bundle))
 
 	// ── Detected patterns (cross-language, deterministic) ──
 	// Surfaces canonical bilingual terminology for any well-known
