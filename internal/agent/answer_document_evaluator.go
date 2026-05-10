@@ -66,6 +66,22 @@ type answerDocumentEvaluator struct {
 	// fallback path.
 	rejectHintsUsed int
 
+	// emitFullDocFailStreak (2026-05-10 P3) counts consecutive
+	// failures of emit_answer_document (NOT _patch) within the
+	// current dispatch. After ≥ 2 failures the evaluator emits a
+	// nudge suggesting the LLM switch to emit_answer_document_patch
+	// for the next attempt. Reset on a successful emit OR a
+	// successful patch attempt (the LLM has accepted the
+	// switch and we don't need to keep nagging).
+	emitFullDocFailStreak int
+
+	// emitPatchNudgeFired tracks whether the switch-to-patch
+	// nudge has already fired in this dispatch. Combined with the
+	// per-key cap (P2 MaxPerKeyInjects=5), this acts as a hard
+	// one-shot to avoid spamming the same recommendation when the
+	// LLM declines to switch.
+	emitPatchNudgeFired bool
+
 	// Shrinkage-salvage knobs, populated from AgentSettings at
 	// construction. See salvagePriorDraftIntoSummary for the
 	// triggering conditions and the salvage contract.
@@ -3186,6 +3202,16 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		if sig := e.unexpectedFinalizerToolSignal(obs); sig.HintRequested {
 			return sig
 		}
+		// P3 (2026-05-10): switch-to-patch nudge after ≥ 2
+		// consecutive emit_answer_document failures. Fires once
+		// per dispatch (one-shot via emitPatchNudgeFired) and
+		// returns BEFORE the field-specific reject signal so the
+		// strategic guidance reaches the LLM at the highest
+		// salience slot. The reject signal still fires on the
+		// next iter via emitAnswerDocumentRejectSignal.
+		if sig := e.emitSwitchToPatchSignal(obs); sig.HintRequested {
+			return sig
+		}
 		if sig := e.emitAnswerDocumentRejectSignal(ctx, obs); sig.HintRequested {
 			return sig
 		}
@@ -3266,6 +3292,72 @@ func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservat
 		HintRequested: true,
 		HintKey:       fmt.Sprintf("answer_doc.unexpected_tool.%d.%s", obs.Iteration, toolList),
 		Hint:          fmt.Sprintf("This stage is a pure answer synthesizer. Do NOT call `%s` or any other read/search tool. Re-emit `emit_answer_document` using only the already-provided grounded evidence: `citations[]`, Diagram Seeds, Exact Resolution Seeds, and the prompt's Diagram Node Allowlist. If a step cannot honestly cite one grounded line, keep that fact in `summary` or set that step's `citation_ref=-1` instead of reopening files. Do not write free-form prose outside the tool call.", toolList),
+	}
+}
+
+// emitSwitchToPatchSignal (P3 2026-05-10) emits a strategic nudge
+// after ≥ 2 consecutive emit_answer_document failures within the
+// current dispatch, suggesting the LLM switch to
+// emit_answer_document_patch on the next attempt. The patch path
+// only requires the LLM to specify the changed blocks (instead of
+// re-emitting the full document byte-identical), which is far less
+// error-prone for the kind of small structural fix that drove the
+// 2026-05-10 sweep digest's u10a 8-finalizer-iter outlier.
+//
+// Streak update side effect: this function maintains
+// emitFullDocFailStreak as a side effect of being called per Observe
+// pass. When LastToolResult is a successful emit (either path), the
+// streak resets — a successful prior attempt means the LLM doesn't
+// need this nudge again.
+//
+// Returns empty signal when:
+//   - LastToolResult is nil (no recent tool call)
+//   - LastToolResult is not emit_answer_document
+//   - LastToolResult succeeded (streak resets)
+//   - streak < 2 (only fires after the second failure to give the
+//     LLM one fair chance with the simpler full-doc path)
+//   - emitPatchNudgeFired (one-shot per dispatch; combined with
+//     the per-key cap from P2 acts as a defensive hard cap)
+//
+// The hint key is "answer_doc.switch_to_patch" — operators can
+// grep traces for this key to measure adoption / impact.
+func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(obs LoopObservation) LoopSignal {
+	if obs.LastToolResult == nil {
+		return LoopSignal{}
+	}
+	tn := obs.LastToolResult.ToolName
+	// Successful emit on either path → reset the streak (LLM is
+	// making progress; further attempts shouldn't be told to
+	// switch).
+	if obs.LastToolResult.Success && (tn == "emit_answer_document" || tn == "emit_answer_document_patch") {
+		e.emitFullDocFailStreak = 0
+		return LoopSignal{}
+	}
+	// Only count failures of the FULL emit path. Patch failures
+	// are a different repair surface and count separately (we
+	// don't want to nudge from patch back to full-doc).
+	if tn != "emit_answer_document" {
+		return LoopSignal{}
+	}
+	// Failed emit_answer_document → bump the streak.
+	e.emitFullDocFailStreak++
+	if e.emitFullDocFailStreak < 2 {
+		return LoopSignal{}
+	}
+	if e.emitPatchNudgeFired {
+		return LoopSignal{}
+	}
+	e.emitPatchNudgeFired = true
+	// The nudge fires INSTEAD of the legacy reject signal on this
+	// observation (the Observe ordering returns this signal first).
+	// Bump rejectHintsUsed so the cross-budget accounting stays
+	// consistent — without this, the LLM gets an extra slot
+	// because we "stole" a legacy hint round.
+	e.rejectHintsUsed++
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       "answer_doc.switch_to_patch",
+		Hint: "Your last 2 attempts to call `emit_answer_document` were rejected. Switch to `emit_answer_document_patch` on the next attempt — it lets you specify ONLY the blocks that need to change, instead of re-emitting the full document byte-identical. Pass `unchanged_block_ids: [\"id1\", \"id2\", ...]` to assert preservation of every typed annotation field (claim_uses, edge_anchors, facet_ids, surface_role) on blocks you do NOT need to edit — the system clones them byte-identical from your previous emit, so you cannot accidentally drop a field. Use `replace_blocks` for the blocks you DO need to fix; use `add_blocks` for new blocks. The patch tool rejects empty patches and unknown ids, so you only need to focus on the actual fix.",
 	}
 }
 
