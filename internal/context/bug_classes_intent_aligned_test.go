@@ -152,8 +152,117 @@ func TestRenderBugClasses_EmptyPatterns_AddressUserQuestion(t *testing.T) {
 	if !strings.Contains(out, "Pattern Classification") {
 		t.Errorf("empty-pattern branch should render '### Pattern Classification' heading; got:\n%s", out)
 	}
-	if !strings.Contains(out, "Address the user's question") {
+	if !strings.Contains(out, "address the user's question") {
 		t.Errorf("empty-pattern branch should preserve user-intent framing; got:\n%s", out)
+	}
+}
+
+// === Issue A 2026-05-10: non-enumerative reframe ===
+
+// TestRenderBugClasses_HowToReadPreambleFiresAlways pins that the
+// "Read + judge" preamble appears for both empty and non-empty
+// bug_class detection — the registry is finite enumeration; the
+// preamble is the unconditional "trust your reading" anchor.
+func TestRenderBugClasses_HowToReadPreambleFiresAlways(t *testing.T) {
+	emptyOut := renderBugClassesSection(nil, "log")
+	matchOut := renderBugClassesSection([]types.DetectedBugClass{raceBugClass()}, "log")
+	for _, out := range []string{emptyOut, matchOut} {
+		if !strings.Contains(out, "How to read this log") {
+			t.Errorf("preamble missing — must fire on every render: %q", out)
+		}
+		if !strings.Contains(out, "form your own judgment") {
+			t.Errorf("preamble must invite the model to form its own judgment: %q", out)
+		}
+		if !strings.Contains(out, "FACTUAL CONTEXT") {
+			t.Errorf("preamble must label registry output as FACTUAL CONTEXT, not verdict: %q", out)
+		}
+		if !strings.Contains(out, "do NOT force-fit") {
+			t.Errorf("preamble must explicitly authorise non-fit when registry labels do not match what the model sees: %q", out)
+		}
+	}
+}
+
+// TestRenderBugClasses_BroadShapeCoverage pins that the empty
+// branch covers a wide cross-stack mental space — failure /
+// retry / resource / concurrency / config / connectivity / build /
+// security / database / runtime hot-path / AI / behavioural /
+// informational. This is the "do not assume crash, do not assume
+// the registry is exhaustive" guidance the customer-reported
+// REPL forced-read iteration storm showed was missing, generalised
+// 2026-05-10 to cover many language / app / orchestration scenarios.
+func TestRenderBugClasses_BroadShapeCoverage(t *testing.T) {
+	out := renderBugClassesSection(nil, "log")
+	for _, shape := range []string{
+		// non-crash shapes the customer scenario surfaced
+		"Iteration / retry / feedback-loop",
+		"forced-read or forced-action cycles",
+		"tool-call retry storms",
+		// resource / capacity (cross-language)
+		"Resource / capacity / throttling / budget",
+		"OOMKilled",
+		"connection-pool",
+		// concurrency / timing
+		"Concurrency / ordering / timing / latency",
+		"replication lag",
+		// configuration drift
+		"Configuration / drift / version-skew",
+		"schema-version mismatch",
+		// connectivity / dependency
+		"Connectivity / dependency / discovery",
+		"DNS resolution failure",
+		// build / deployment / orchestration
+		"Build / test / deployment / orchestration",
+		"CrashLoopBackoff",
+		// security / integrity
+		"Security / policy / integrity",
+		"signature / hash failure",
+		// database / persistence
+		"Database / persistence / cache",
+		"deadlock graph",
+		// runtime hot-path / GC / JIT
+		"runtime hot-path / GC / JIT",
+		// AI / agent / tool-call (the customer scenario class)
+		"AI / agent / tool-call",
+		"LLM iteration loop",
+		// behavioural
+		"Behavioural / business / audit",
+		// clean baseline
+		"Informational baseline",
+		// the meta-rule: list is non-exhaustive
+		"deliberately incomplete",
+		"Do NOT force-fit",
+	} {
+		if !strings.Contains(out, shape) {
+			t.Errorf("empty branch missing %q from broad-coverage list: got %q", shape, out)
+		}
+	}
+}
+
+// TestRenderBugClasses_TraceModalityHasMatchingPreamble — modality
+// substitution preserves the preamble shape for "trace" inputs.
+func TestRenderBugClasses_TraceModalityHasMatchingPreamble(t *testing.T) {
+	out := renderBugClassesSection(nil, "trace")
+	if !strings.Contains(out, "How to read this trace") {
+		t.Errorf("trace modality must substitute noun in preamble heading: %q", out)
+	}
+	if strings.Contains(out, "How to read this log") {
+		t.Errorf("log-noun leaked into trace modality: %q", out)
+	}
+}
+
+// TestRenderBugClasses_PreambleR6 — internal pipeline jargon must
+// stay out of the LLM-facing preamble (R6 red line).
+func TestRenderBugClasses_PreambleR6(t *testing.T) {
+	out := renderBugClassesSection(nil, "log")
+	for _, banned := range []string{
+		"explorer", "extractor", "finalizer", "analyzer",
+		"BusContext", "MutableState",
+		"L1 gate", "L2 gate", "L3", "L4",
+		"BugClass", "DetectedBugClass",
+	} {
+		if strings.Contains(out, banned) {
+			t.Errorf("internal term %q leaked into preamble: %q", banned, out)
+		}
 	}
 }
 

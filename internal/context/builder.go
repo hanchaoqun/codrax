@@ -2214,6 +2214,29 @@ func renderBugClassesSection(detected []types.DetectedBugClass, modality string)
 	}
 
 	var b strings.Builder
+	// Top-of-section preamble. Fires regardless of bug_class state
+	// (matched OR empty) so the "read + judge" framing applies to
+	// every log shape — crash signatures, iteration / retry
+	// patterns, capacity / throttling traces, config drift, business
+	// audit trails, anything else. The classifier output below is
+	// FACTUAL CONTEXT that may help with terminology priming when it
+	// matches; the model's reading of the raw content is always the
+	// authority on what the log shows. Generalised on 2026-05-10
+	// after customer-reported scenarios where bug_class registry
+	// (necessarily a finite enumeration) had no useful entry for the
+	// log shape and the model needed unambiguous permission to form
+	// its own classification.
+	b.WriteString("### How to read this " + inputNoun + "\n")
+	b.WriteString("Read the raw " + inputNoun + " content carefully and form your own judgment about what it shows. " +
+		"This applies to every shape the input may take — crash / panic / exception, " +
+		"iteration storm / retry loop / forced-read cycle, capacity / throttling / OOM warning, " +
+		"timing / span / latency observation, config drift / version mismatch, business audit trail, " +
+		"informational breadcrumb, or any combination. " +
+		"Anything classified by the registry below is FACTUAL CONTEXT (terminology priming when a known signature matches), " +
+		"NOT a verdict that constrains your reading. " +
+		"If the registry's labels do not fit what you actually see in the " + inputNoun + ", trust your reading and use the " +
+		inputNoun + "'s own vocabulary — do NOT force-fit into a class that does not match.\n\n")
+
 	if len(detected) > 0 {
 		b.WriteString("### Detected Patterns\n")
 		b.WriteString("The raw " + inputNoun + " contains one or more well-known signatures:\n\n")
@@ -2280,16 +2303,57 @@ func renderBugClassesSection(detected []types.DetectedBugClass, modality string)
 	}
 	// Empty — unknown / business-domain regime. Modality-neutral guidance
 	// that does NOT presuppose the user is asking about a failure.
+	// 2026-05-10 strengthened broad-coverage version: spans crash,
+	// resource / capacity, concurrency / timing, config / version,
+	// connectivity / dependency, build / test / deployment, security /
+	// policy, behavioural / audit, AI / agent / tool-call iteration,
+	// and clean-baseline shapes — across whatever language / runtime /
+	// application stack the user's repo happens to use. The registry
+	// is enumeration-shaped by construction (finite regex patterns);
+	// this branch is the catch-all that MUST be modality-agnostic and
+	// shape-agnostic. The list below is intentionally broad and
+	// non-exhaustive: its job is to widen the model's mental space,
+	// not to be a checklist.
 	b.WriteString("### Pattern Classification\n")
-	b.WriteString("The raw " + inputNoun + " did not match any cross-language / cross-platform standard signature. " +
-		"This typically means the content is application-specific (custom operation names, " +
-		"business-domain identifiers, third-party library or service-specific terminology) " +
-		"OR the input is informational (no failure signal at all — performance baseline, " +
-		"business audit trail, debug breadcrumb).\n\n" +
-		"Address the user's question using terminology drawn from the " + inputNoun + "'s own content " +
-		"(" + emptyDescriptor + ") — " +
-		"do NOT invent a generic category and do NOT speculate that any name in the " + inputNoun + " resembles an " +
-		"unrelated repository symbol just because the names look similar. " +
+	b.WriteString("The raw " + inputNoun + " did not match any cross-language / cross-platform standard signature in the registry. " +
+		"This is NORMAL for many real-world " + inputNoun + " shapes — the registry covers a finite set of canonical crash / runtime-failure signatures, " +
+		"and useful " + inputNoun + "s come in many other shapes. The list below is non-exhaustive guidance for the kinds of patterns " +
+		"the " + inputNoun + " may show; READ the " + inputNoun + "'s own content first and form the classification yourself from what you see:\n" +
+		"  - Failure / crash patterns the registry didn't recognise — application-specific panic format, custom exception type, " +
+		"non-stdlib stack frames, runtime-specific abort signature, sanitizer-style output the registry doesn't index\n" +
+		"  - Iteration / retry / feedback-loop patterns — the same step repeating with the same complaint across many entries, " +
+		"forced-read or forced-action cycles, exponential-backoff cascades, deadletter / poison-message accumulation, agent or LLM " +
+		"tool-call retry storms\n" +
+		"  - Resource / capacity / throttling / budget signals — quota or rate-limit exhaustion, OOMKilled / out-of-memory abort, " +
+		"disk / inode full, file-descriptor / handle exhaustion, connection-pool / thread-pool saturation, GC pressure or pause warnings, " +
+		"swap thrash, cgroup / container limit reached\n" +
+		"  - Concurrency / ordering / timing / latency observations — lock contention, replication lag, ordering anomalies, " +
+		"timeout cascades, heartbeat miss, slow-query / N+1, scheduler starvation, span / trace duration spikes\n" +
+		"  - Configuration / drift / version-skew patterns — settings differing from a reference, schema-version mismatch, " +
+		"feature-flag inconsistency, environment-variable shape difference, missing / wrong default, RBAC / permission denial, " +
+		"TLS / cipher / cert handshake mismatch\n" +
+		"  - Connectivity / dependency / discovery patterns — DNS resolution failure, endpoint mismatch, downstream service unavailable, " +
+		"connection churn / leak / reset-by-peer, broken pipe, network partition, service-discovery cache stale\n" +
+		"  - Build / test / deployment / orchestration patterns — CI / build failure cascade, test flake / hang / xfail, " +
+		"container start failure (image pull / exec format / entrypoint), pod CrashLoopBackoff / Evicted / Pending, " +
+		"cron schedule miss / job overlap, rolling-update partial failure\n" +
+		"  - Security / policy / integrity patterns — auth denial, policy violation, checksum / signature / hash failure, " +
+		"PII / secret-leak indicator, suspicious-access anomaly, audit-policy fault, encryption / decryption failure\n" +
+		"  - Database / persistence / cache patterns — connection pool exhaustion, transaction lock timeout, deadlock graph, " +
+		"replication lag, sequential-scan warning, cache stampede / miss-storm, key eviction surge\n" +
+		"  - Build / runtime hot-path / GC / JIT patterns — JIT compile bailout, deopt cascade, GC overhead percentage, " +
+		"allocation hot path, fragmentation / large-page churn\n" +
+		"  - AI / agent / tool-call patterns — LLM iteration loop, tool-call retry storm, prompt-context-window overflow, " +
+		"hallucination indicator (claimed X but tool returned Y), prompt-injection detection, model-cost / spend anomaly\n" +
+		"  - Behavioural / business / audit observations — domain event sequence, audit trail, metric drift / KPI anomaly, " +
+		"workflow step ordering, debug breadcrumb, sampled-trace observation\n" +
+		"  - Informational baseline — no anomaly at all (clean run, performance baseline, expected debug output)\n\n" +
+		"This taxonomy covers many common shapes but is deliberately incomplete — your repository's stack, language, runtime, " +
+		"orchestration platform, and business domain may produce shapes outside it. Read the " + inputNoun + "'s own content (" + emptyDescriptor + ") " +
+		"and address the user's question from what you actually see. " +
+		"Do NOT force-fit into any category above when none of them describes what the " + inputNoun + " shows; coin a description in the " +
+		inputNoun + "'s own vocabulary instead. " +
+		"Do NOT speculate that any name in the " + inputNoun + " resembles an unrelated repository symbol just because the names look similar. " +
 		"When the " + inputNoun + " carries identifiers that are NOT defined in this repository, " +
 		"treat them as opaque external names: cite them verbatim and address the user's question from the " +
 		inputNoun + "'s own causality / evidence, not from repository introspection.\n\n")
