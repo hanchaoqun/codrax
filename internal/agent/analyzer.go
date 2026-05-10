@@ -1343,8 +1343,9 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	//   - Entities merge: deterministic keyword union into AnalyzerHints.Entities
 	//     so the normalizer's dual-gate and explorer's keyword_search can
 	//     reach the extracted Func / Pkg / Error.Type tokens.
-	//   - reconcileIntent: receives the bundle pointer and applies the
-	//     IntentHint=RootCause override when the LLM missed the debugging signal.
+	//   - Structured observations remain on rm.LogTriage for prompt,
+	//     answer-surface, and advisory IntentHint consumers; they do
+	//     not hard-override user intent.
 	//   - analyzerRequiredFiles: reads bundle.ResolvedFiles as the first-class
 	//     file seed, merged with the structural ranker output.
 	var logBundle *types.LogBundle

@@ -451,6 +451,27 @@ func TestLogTriageSkill_AdvertisesPerformanceSignal(t *testing.T) {
 	}
 }
 
+func TestLogTriageSkill_TeachesOperationalObservations(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("log-triage-skill")
+	if err != nil {
+		t.Fatalf("log-triage-skill missing: %v", err)
+	}
+	blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"observations[]",
+		"topic_mismatch",
+		"line_mapping",
+		"retry_cycle",
+		"diagnostic=true",
+	} {
+		if !strings.Contains(blob, want) {
+			t.Errorf("log-triage-skill missing observation guidance %q", want)
+		}
+	}
+}
+
 // TestMultiSourceMarker_LogTriageSkillTeachesIt pins the contract:
 // the CLI loadMultiPathSlice + REPL handleLogAppend insert
 // `# codrax-source: <path>` separators between concatenated log

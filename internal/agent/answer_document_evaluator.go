@@ -2564,6 +2564,18 @@ func renderAnswerDocExternalObservationSeeds(ctx *types.AgentContext) string {
 		switch strings.TrimSpace(seed.Kind) {
 		case "error_type":
 			fmt.Fprintf(&b, "- Structured log error type: `%s`\n", seed.Raw)
+		case "signal":
+			fmt.Fprintf(&b, "- Structured runtime signal: `%s`\n", seed.Raw)
+		case "log_observation":
+			raw := strings.TrimSpace(seed.Raw)
+			if raw == "" {
+				continue
+			}
+			if subject := strings.TrimSpace(seed.Func); subject != "" {
+				fmt.Fprintf(&b, "- Structured log observation about `%s`: %s\n", subject, raw)
+			} else {
+				fmt.Fprintf(&b, "- Structured log observation: %s\n", raw)
+			}
 		default:
 			raw := strings.TrimSpace(seed.Raw)
 			if raw == "" {

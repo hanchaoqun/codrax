@@ -14,7 +14,8 @@ import (
 // EmitLogTriage is the log_triager agent's structured exit channel.
 // The LLM reads the attached runtime log and emits a bundle carrying
 // Layer 1 (Meta: lang + signals + summary), Layer 2 (Errors: recursive
-// cause tree + frames), and Layer 3 (Residue: unknown_chunks). Layer 4
+// cause tree + frames), and Layer 3 (Observations + Residue:
+// structured non-stack facts plus unknown_chunks). Layer 4
 // (ResolvedFiles / Entities / IntentHint / Coverage) is system-derived
 // by logtriage.ValidateBundle — the LLM has no channel to write it
 // because those fields are not in the tool's JSON schema.
@@ -33,11 +34,12 @@ type EmitLogTriage struct {
 // The LLM cannot fill Layer 4 because those field names are not in
 // this struct and the JSON schema locks `additionalProperties: false`.
 type emitLogTriageParams struct {
-	Meta          emitLogTriageMeta    `json:"meta"`
-	Errors        []emitLogTriageError `json:"errors,omitempty"`
-	UnknownChunks []string             `json:"unknown_chunks,omitempty"`
-	RawLogBytes   int                  `json:"-"` // filled by Execute from BusContext
-	_             map[string]struct{}  `json:"-"`
+	Meta          emitLogTriageMeta          `json:"meta"`
+	Errors        []emitLogTriageError       `json:"errors,omitempty"`
+	Observations  []emitLogTriageObservation `json:"observations,omitempty"`
+	UnknownChunks []string                   `json:"unknown_chunks,omitempty"`
+	RawLogBytes   int                        `json:"-"` // filled by Execute from BusContext
+	_             map[string]struct{}        `json:"-"`
 }
 
 type emitLogTriageMeta struct {
@@ -60,6 +62,16 @@ type emitLogTriageFrame struct {
 	Func       string  `json:"func,omitempty"`
 	Pkg        string  `json:"pkg,omitempty"`
 	Raw        string  `json:"raw"`
+	Confidence float64 `json:"confidence"`
+}
+
+type emitLogTriageObservation struct {
+	Kind       string  `json:"kind"`
+	Severity   string  `json:"severity,omitempty"`
+	Subject    string  `json:"subject,omitempty"`
+	Summary    string  `json:"summary"`
+	Evidence   string  `json:"evidence,omitempty"`
+	Diagnostic bool    `json:"diagnostic"`
 	Confidence float64 `json:"confidence"`
 }
 
@@ -104,6 +116,14 @@ func buildEmitLogTriageSchema() {
 	signalEnum := make([]string, 0, len(types.AllLogSignals()))
 	for _, s := range types.AllLogSignals() {
 		signalEnum = append(signalEnum, string(s))
+	}
+	observationKindEnum := make([]string, 0, len(types.AllLogObservationKinds()))
+	for _, k := range types.AllLogObservationKinds() {
+		observationKindEnum = append(observationKindEnum, string(k))
+	}
+	observationSeverityEnum := make([]string, 0, len(types.AllLogObservationSeverities()))
+	for _, s := range types.AllLogObservationSeverities() {
+		observationSeverityEnum = append(observationSeverityEnum, string(s))
 	}
 
 	// Language enum: canonical list for the Meta.Lang field. New
@@ -162,6 +182,27 @@ func buildEmitLogTriageSchema() {
 	}
 
 	errorSchema := errorSchemaAtDepth(types.LogBundleCaps.MaxCauseDepth - 1)
+	observationSchema := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"kind", "summary", "diagnostic", "confidence"},
+		"properties": map[string]any{
+			"kind": map[string]any{
+				"type":        "string",
+				"enum":        observationKindEnum,
+				"description": "Coarse family for a non-stack operational observation.",
+			},
+			"severity": map[string]any{
+				"type": "string",
+				"enum": observationSeverityEnum,
+			},
+			"subject":    map[string]any{"type": "string", "maxLength": 120},
+			"summary":    map[string]any{"type": "string", "minLength": 1, "maxLength": 240},
+			"evidence":   map[string]any{"type": "string", "maxLength": 300},
+			"diagnostic": map[string]any{"type": "boolean"},
+			"confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0},
+		},
+	}
 
 	schema := map[string]any{
 		"type":                 "object",
@@ -192,6 +233,12 @@ func buildEmitLogTriageSchema() {
 				"type":     "array",
 				"maxItems": 5,
 				"items":    errorSchema,
+			},
+			"observations": map[string]any{
+				"type":        "array",
+				"maxItems":    types.LogBundleCaps.MaxObservations,
+				"description": "Structured non-stack operational observations: retries, validator/reviewer failures, topical mismatch, line-mapping drift, state transitions, or similar runtime/process facts.",
+				"items":       observationSchema,
 			},
 			"unknown_chunks": map[string]any{
 				"type":     "array",
@@ -234,14 +281,15 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 		}, err
 	}
 
-	// Cross-field sanity: at least one error OR unknown_chunks must be
-	// present. The schema declares errors as required but allows an
-	// empty array; a triage where both are empty is meaningless.
-	if len(p.Errors) == 0 && len(p.UnknownChunks) == 0 {
+	// Cross-field sanity: at least one error, observation, or
+	// unknown_chunk must be present. The schema declares errors as
+	// required but allows an empty array; a triage where every content
+	// channel is empty is meaningless.
+	if len(p.Errors) == 0 && len(p.Observations) == 0 && len(p.UnknownChunks) == 0 {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_log_triage rejected: errors[] and unknown_chunks[] both empty — either emit at least one error or punt the input to unknown_chunks",
+			Summary:   "emit_log_triage rejected: errors[], observations[], and unknown_chunks[] all empty — emit at least one structured fact or punt the input to unknown_chunks",
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -249,10 +297,11 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	// Convert wire-shape to ValidateInput. The conversion walks the
 	// full Cause chain so recursive errors keep their tree intact.
 	in := logtriage.ValidateInput{
-		Meta:        toValidateMeta(p.Meta),
-		Errors:      toValidateErrors(p.Errors),
-		Residue:     types.LogResidue{UnknownChunks: p.UnknownChunks},
-		RawLogBytes: len(ctx.AttachedLog),
+		Meta:         toValidateMeta(p.Meta),
+		Errors:       toValidateErrors(p.Errors),
+		Observations: toValidateObservations(p.Observations),
+		Residue:      types.LogResidue{UnknownChunks: p.UnknownChunks},
+		RawLogBytes:  len(ctx.AttachedLog),
 	}
 
 	bundle, clearedFrames := logtriage.ValidateBundleWithDenials(in, ctx.RepoRoot)
@@ -311,15 +360,15 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	ctx.Mutable.SetLogTriage(bundle)
 
 	summary := fmt.Sprintf(
-		"[emit_log_triage: lang=%s signals=%d errors=%d frames=%d→%d resolved=%d entities=%d intent=%q coverage=%.2f]\n"+
+		"[emit_log_triage: lang=%s signals=%d errors=%d observations=%d frames=%d→%d resolved=%d entities=%d intent=%q coverage=%.2f]\n"+
 			"emit_log_triage recorded",
 		bundle.Meta.Lang, len(bundle.Meta.Signals),
-		len(bundle.Errors), rawFrames, keptFrames,
+		len(bundle.Errors), len(bundle.Observations), rawFrames, keptFrames,
 		len(bundle.ResolvedFiles), len(bundle.Entities),
 		string(bundle.IntentHint), bundle.Coverage)
 
-	logging.Info("[log_triage] validated: lang=%s errors=%d frames_in=%d frames_kept=%d resolved=%d entities=%d intent=%q coverage=%.2f",
-		bundle.Meta.Lang, len(bundle.Errors), rawFrames, keptFrames,
+	logging.Info("[log_triage] validated: lang=%s errors=%d observations=%d frames_in=%d frames_kept=%d resolved=%d entities=%d intent=%q coverage=%.2f",
+		bundle.Meta.Lang, len(bundle.Errors), len(bundle.Observations), rawFrames, keptFrames,
 		len(bundle.ResolvedFiles), len(bundle.Entities),
 		bundle.IntentHint, bundle.Coverage)
 
@@ -355,6 +404,33 @@ func toValidateErrors(in []emitLogTriageError) []types.LogError {
 	out := make([]types.LogError, len(in))
 	for i, e := range in {
 		out[i] = toValidateError(&e)
+	}
+	return out
+}
+
+func toValidateObservations(in []emitLogTriageObservation) []types.LogObservation {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.LogObservation, 0, len(in))
+	for _, obs := range in {
+		kind := types.LogObservationKind(obs.Kind)
+		if !types.IsValidLogObservationKind(kind) {
+			continue
+		}
+		severity := types.LogObservationSeverity(obs.Severity)
+		if severity != "" && !types.IsValidLogObservationSeverity(severity) {
+			severity = ""
+		}
+		out = append(out, types.LogObservation{
+			Kind:       kind,
+			Severity:   severity,
+			Subject:    obs.Subject,
+			Summary:    obs.Summary,
+			Evidence:   obs.Evidence,
+			Diagnostic: obs.Diagnostic,
+			Confidence: obs.Confidence,
+		})
 	}
 	return out
 }

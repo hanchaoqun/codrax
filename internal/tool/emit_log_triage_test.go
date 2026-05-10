@@ -76,6 +76,77 @@ func TestEmitLogTriage_Schema_FrameLocksRawAndConfidence(t *testing.T) {
 	}
 }
 
+func TestEmitLogTriage_Schema_HasObservations(t *testing.T) {
+	tool := &EmitLogTriage{}
+	raw := tool.Parameters()
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	props := schema["properties"].(map[string]any)
+	obsNode, ok := props["observations"].(map[string]any)
+	if !ok {
+		t.Fatal("schema missing observations[]")
+	}
+	item := obsNode["items"].(map[string]any)
+	if item["additionalProperties"] != false {
+		t.Fatal("observation item must lock additionalProperties=false")
+	}
+	req, _ := item["required"].([]any)
+	wantReq := map[string]bool{
+		"kind": true, "summary": true, "diagnostic": true, "confidence": true,
+	}
+	for _, r := range req {
+		if s, ok := r.(string); ok {
+			delete(wantReq, s)
+		}
+	}
+	if len(wantReq) > 0 {
+		t.Fatalf("observation required missing: %v", wantReq)
+	}
+}
+
+func TestEmitLogTriage_Execute_ObservationOnlyAccepted(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:     types.NewMutableState("test"),
+		AttachedLog: "review reported topic mismatch; final answer retried",
+	}
+	params, err := json.Marshal(emitLogTriageParams{
+		Meta: emitLogTriageMeta{Lang: "unknown", Signals: []string{}},
+		Observations: []emitLogTriageObservation{{
+			Kind:       string(types.LogObservationTopicMismatch),
+			Severity:   string(types.LogObservationFailure),
+			Subject:    "answer topic",
+			Summary:    "review reported that the body answered a different topic",
+			Evidence:   "topic mismatch",
+			Diagnostic: true,
+			Confidence: 0.9,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tool := &EmitLogTriage{}
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("success=false, summary=%s", res.Summary)
+	}
+	bundle := bus.Mutable.LogTriage()
+	if bundle == nil || len(bundle.Observations) != 1 {
+		t.Fatalf("bundle observations missing: %+v", bundle)
+	}
+	if bundle.IntentHint != types.IntentRootCause {
+		t.Fatalf("IntentHint = %q, want root_cause", bundle.IntentHint)
+	}
+	if !strings.Contains(res.Summary, "observations=1") {
+		t.Fatalf("summary missing observations count: %q", res.Summary)
+	}
+}
+
 // TestEmitLogTriage_Schema_HasCauseRecursionUpToCap verifies the
 // schema recursion depth matches LogBundleCaps.MaxCauseDepth. We walk
 // into Cause > Cause > ... and count how deep the property exists.

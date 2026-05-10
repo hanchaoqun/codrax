@@ -90,7 +90,8 @@ type AnswerSurfacePlan struct {
 //     statement that runtime artifact facts are observation-first.
 //  2. ExternalObservationSeeds — populated by
 //     CollectExternalObservationSeeds from a non-nil LogBundle (kinds:
-//     "error_type" / "signal" / "log_frame" / "log_residue"). Empty
+//     "error_type" / "signal" / "log_observation" / "log_frame" /
+//     "log_residue"). Empty
 //     when no runtime artifact was attached.
 //  3. LogObservedAnchors — runtime frames lifted from the typed
 //     bundle's resolved files. Empty when no log_triage ran or no
@@ -2281,6 +2282,24 @@ func CollectExternalObservationSeeds(bundle *LogBundle, observed []LogSourceDrif
 		record(ExternalObservationSeed{
 			Kind: "signal",
 			Raw:  name,
+		})
+		if len(out) >= 6 {
+			return out
+		}
+	}
+	for _, obs := range bundle.Observations {
+		summary := strings.TrimSpace(obs.Summary)
+		if summary == "" {
+			continue
+		}
+		raw := summary
+		if len(raw) > 240 {
+			raw = raw[:240]
+		}
+		record(ExternalObservationSeed{
+			Kind: "log_observation",
+			Raw:  raw,
+			Func: strings.TrimSpace(obs.Subject),
 		})
 		if len(out) >= 6 {
 			return out

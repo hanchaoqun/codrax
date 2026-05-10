@@ -9,9 +9,10 @@
 //
 // Responsibility boundary (load-bearing):
 //
-//   - LLM fills Layer 1 (Meta), Layer 2 (Errors), Layer 3 (Residue).
-//     It never fills Layer 4. The emit tool's JSON schema rejects any
-//     attempt to populate those fields directly.
+//   - LLM fills Layer 1 (Meta), Layer 2 (Errors), Layer 3
+//     (Observations + Residue). It never fills Layer 4. The emit
+//     tool's JSON schema rejects any attempt to populate those fields
+//     directly.
 //
 //   - This package fills Layer 4 exactly once per bundle, inside
 //     ValidateBundle. Layer 1-3 values are treated as immutable post-
@@ -22,7 +23,8 @@
 //
 //  1. Schema cross-field constraints (emit tool catches single-field
 //     violations; ValidateBundle catches cross-field ones — e.g. at
-//     least one Error OR Residue.UnknownChunks must be non-empty).
+//     least one Error, Observation, or Residue.UnknownChunks must be
+//     non-empty).
 //  2. Path safety and normalisation: StripBuildPathPrefix → Java
 //     basename resolver → os.Stat inside repo → filepath.Rel rejecting
 //     "../" escapes. Frames whose File cannot be verified keep Func/Pkg

@@ -10,7 +10,9 @@ package types
 //
 //	Layer 1 — Meta:     LLM-emitted. Log-as-a-whole classification.
 //	Layer 2 — Errors:   LLM-emitted. Structured error tree.
-//	Layer 3 — Residue:  LLM-emitted. Chunks the LLM could not structure.
+//	Layer 3 — Observations / Residue:
+//	                    LLM-emitted. Non-stack operational observations
+//	                    plus chunks the LLM could not structure.
 //	Layer 4 — Derived:  System-emitted. Read-only to the LLM; written
 //	                    exactly once by logtriage.ValidateBundle.
 //
@@ -32,7 +34,15 @@ type LogBundle struct {
 	// parallel (Errors slice) vs chronological (Cause recursion).
 	Errors []LogError `json:"errors,omitempty"`
 
-	// ── Layer 3 — Residue ──────────────────────────
+	// ── Layer 3 — Observations / Residue ───────────
+	// Observations captures structured runtime facts that are not an
+	// exception tree: validator/reviewer failures, retry loops,
+	// line-mapping drift, topic mismatch, state transitions, and other
+	// operational breadcrumbs. This closes the gap where non-crash
+	// diagnostic logs had to be punted into UnknownChunks and then
+	// became advisory context only.
+	Observations []LogObservation `json:"observations,omitempty"`
+
 	Residue LogResidue `json:"residue,omitempty"`
 
 	// ── Layer 4 — System-derived ───────────────────
@@ -51,9 +61,10 @@ type LogBundle struct {
 
 	// IntentHint is the artifact-level diagnostic hint for the parsed
 	// log. Set to IntentRootCause when the bundle carries a resolved
-	// frame or a typed failure signal. This is advisory context for the
-	// analyzer prompt and downstream provenance surfaces; user intent is
-	// still decided by emit_analysis, not by this field alone.
+	// frame, a typed failure signal, or a diagnostic observation. This
+	// is advisory context for the analyzer prompt and downstream
+	// provenance surfaces; user intent is still decided by
+	// emit_analysis, not by this field alone.
 	IntentHint Intent `json:"intent_hint,omitempty"`
 
 	// Coverage reports the fraction of the raw log that the LLM
@@ -97,6 +108,111 @@ type LogMeta struct {
 	// (Go runtime / TSan / Java exceptions / Rust panics / Python
 	// errors / etc.).
 	BugClasses []DetectedBugClass `json:"bug_classes,omitempty"`
+}
+
+// LogObservation is one typed, non-stack observation extracted from
+// the log. It is intentionally separate from LogError: forcing
+// validator failures, retry loops, topic mismatches, or line-mapping
+// symptoms into "errors" loses the difference between "the program
+// crashed" and "the process behaved badly".
+type LogObservation struct {
+	// Kind is a coarse semantic family. The enum is narrow enough to
+	// render consistently but deliberately not tied to one product's
+	// log vocabulary.
+	Kind LogObservationKind `json:"kind"`
+
+	// Severity says whether the observation is ordinary context or an
+	// anomalous / failed outcome. The triager emits it; downstream
+	// code treats it as typed guidance, not as a hard verdict.
+	Severity LogObservationSeverity `json:"severity,omitempty"`
+
+	// Subject names the affected concept when the log exposes one
+	// (for example "line number handling", "answer topicality", or a
+	// span / validator name). It is rendered for humans but is not
+	// merged into AnalyzerHints.Entities by default, because many
+	// observation subjects are domain phrases rather than repo symbols.
+	Subject string `json:"subject,omitempty"`
+
+	// Summary is the concise fact the log supports.
+	Summary string `json:"summary"`
+
+	// Evidence is a short verbatim-ish excerpt or pointer from the
+	// log, capped by the emit schema. It is an audit trail, not a repo
+	// citation.
+	Evidence string `json:"evidence,omitempty"`
+
+	// Diagnostic is true when this observation describes a failure,
+	// regression, mismatch, stalled/retried process, or current-risk
+	// verification target rather than neutral context.
+	Diagnostic bool `json:"diagnostic"`
+
+	// Confidence is the triager's self-rated confidence that the
+	// observation is actually supported by the log, in [0,1].
+	Confidence float64 `json:"confidence"`
+}
+
+// LogObservationKind is the canonical enum for non-stack log facts.
+type LogObservationKind string
+
+const (
+	LogObservationRuntimeEvent      LogObservationKind = "runtime_event"
+	LogObservationContractViolation LogObservationKind = "contract_violation"
+	LogObservationRetryCycle        LogObservationKind = "retry_cycle"
+	LogObservationTopicMismatch     LogObservationKind = "topic_mismatch"
+	LogObservationLineMapping       LogObservationKind = "line_mapping"
+	LogObservationArtifactGap       LogObservationKind = "artifact_gap"
+	LogObservationStateChange       LogObservationKind = "state_change"
+	LogObservationPerformance       LogObservationKind = "performance_symptom"
+	LogObservationOther             LogObservationKind = "other"
+)
+
+func AllLogObservationKinds() []LogObservationKind {
+	return []LogObservationKind{
+		LogObservationRuntimeEvent,
+		LogObservationContractViolation,
+		LogObservationRetryCycle,
+		LogObservationTopicMismatch,
+		LogObservationLineMapping,
+		LogObservationArtifactGap,
+		LogObservationStateChange,
+		LogObservationPerformance,
+		LogObservationOther,
+	}
+}
+
+func IsValidLogObservationKind(k LogObservationKind) bool {
+	for _, canonical := range AllLogObservationKinds() {
+		if k == canonical {
+			return true
+		}
+	}
+	return false
+}
+
+// LogObservationSeverity is the triager's coarse severity label.
+type LogObservationSeverity string
+
+const (
+	LogObservationInfo    LogObservationSeverity = "info"
+	LogObservationWarning LogObservationSeverity = "warning"
+	LogObservationFailure LogObservationSeverity = "failure"
+)
+
+func AllLogObservationSeverities() []LogObservationSeverity {
+	return []LogObservationSeverity{
+		LogObservationInfo,
+		LogObservationWarning,
+		LogObservationFailure,
+	}
+}
+
+func IsValidLogObservationSeverity(s LogObservationSeverity) bool {
+	for _, canonical := range AllLogObservationSeverities() {
+		if s == canonical {
+			return true
+		}
+	}
+	return false
 }
 
 // LogError is one error snapshot with optional causal chain. The tree
@@ -334,6 +450,23 @@ func (b *LogBundle) IsExternalSource() bool {
 	return len(b.ResolvedFiles) == 0 && len(b.Errors) > 0
 }
 
+// HasDiagnosticObservations reports whether the bundle contains a
+// typed non-stack observation that should be treated as diagnostic
+// guidance. It intentionally excludes residue-only text: residue is
+// preserved for context, but is not precise enough for downstream
+// routing or answer-surface decisions.
+func (b *LogBundle) HasDiagnosticObservations() bool {
+	if b == nil {
+		return false
+	}
+	for _, obs := range b.Observations {
+		if obs.Diagnostic {
+			return true
+		}
+	}
+	return false
+}
+
 // LogBundleCaps collects the validator-enforced caps in one place so
 // they can be referenced from tests and schema generation without
 // hard-coding magic numbers across packages. Kept as package-level
@@ -362,9 +495,15 @@ var LogBundleCaps = struct {
 	// a deliberate conservative gate because a hallucinated file
 	// seed costs the explorer one wasted read budget.
 	MinResolvedConfidence float64
+
+	// MaxObservations caps structured non-stack observations. Mirrors
+	// UnknownChunks' small prompt budget while preserving the most
+	// important process facts.
+	MaxObservations int
 }{
 	MaxEntities:           32,
 	MaxResolvedFiles:      10,
 	MaxCauseDepth:         5,
 	MinResolvedConfidence: 0.6,
+	MaxObservations:       8,
 }

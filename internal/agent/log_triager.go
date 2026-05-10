@@ -237,6 +237,13 @@ func renderLogTriageStageReport(b *types.LogBundle) string {
 			}
 		}
 	}
+	if len(b.Observations) > 0 {
+		fmt.Fprintf(&sb, "Observations: %d\n", len(b.Observations))
+		for i, obs := range b.Observations {
+			fmt.Fprintf(&sb, "  [%d] %s diagnostic=%t — %s\n",
+				i, obs.Kind, obs.Diagnostic, truncateStr(obs.Summary, 100))
+		}
+	}
 	if len(b.ResolvedFiles) > 0 {
 		fmt.Fprintf(&sb, "ResolvedFiles: %s\n", strings.Join(b.ResolvedFiles, ", "))
 	}

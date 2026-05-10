@@ -21,9 +21,10 @@ var (
 // log_triager agent constructs this from the emit_log_triage tool call
 // and hands it to ValidateBundle.
 type ValidateInput struct {
-	Meta    types.LogMeta
-	Errors  []types.LogError
-	Residue types.LogResidue
+	Meta         types.LogMeta
+	Errors       []types.LogError
+	Observations []types.LogObservation
+	Residue      types.LogResidue
 
 	// RawLogBytes is the byte length of the original log the LLM saw.
 	// Used by Coverage derivation as the denominator for
@@ -146,16 +147,17 @@ func diffClearedFrames(originals []ClearedFrame, validated []types.LogError) []C
 }
 
 func ValidateBundle(in ValidateInput, repoRoot string) *types.LogBundle {
-	if len(in.Errors) == 0 && len(in.Residue.UnknownChunks) == 0 &&
+	if len(in.Errors) == 0 && len(in.Observations) == 0 && len(in.Residue.UnknownChunks) == 0 &&
 		in.Meta.Lang == "" && len(in.Meta.Signals) == 0 {
 		// Nothing to validate.
 		return nil
 	}
 
 	out := &types.LogBundle{
-		Meta:    in.Meta,
-		Errors:  cloneErrors(in.Errors),
-		Residue: in.Residue,
+		Meta:         in.Meta,
+		Errors:       cloneErrors(in.Errors),
+		Observations: cloneObservations(in.Observations),
+		Residue:      in.Residue,
 	}
 
 	// Pass 1: recursion-depth truncate.
@@ -183,8 +185,10 @@ func ValidateBundle(in ValidateInput, repoRoot string) *types.LogBundle {
 		})
 	}
 
-	// Pass 4: dedup + reorder Signals to canonical enum order.
+	// Pass 4: dedup + reorder Signals to canonical enum order and
+	// normalise structured non-stack observations.
 	out.Meta.Signals = normaliseSignals(in.Meta.Signals)
+	out.Observations = normaliseObservations(out.Observations)
 
 	// Pass 5: derive Layer 4.
 	out.ResolvedFiles = deriveResolvedFiles(out.Errors)
@@ -206,6 +210,7 @@ func ValidateBundle(in ValidateInput, repoRoot string) *types.LogBundle {
 //   - Errors: concatenated in input order; no cross-bundle dedup
 //     (parallel error snapshots from different segments are
 //     legitimately distinct).
+//   - Observations: concatenated + de-duplicated by typed identity.
 //   - Residue.UnknownChunks: concatenated + uniqued by prefix.
 //   - Layer 4 fields are RE-DERIVED from the merged Layer 1-3 so they
 //     remain consistent with the final structured content.
@@ -255,17 +260,20 @@ func MergeBundles(parts []*types.LogBundle, rawLogBytes int) *types.LogBundle {
 		merged.Meta.Summary = joined
 	}
 
-	// Errors + Residue: concatenate.
+	// Errors + Observations + Residue: concatenate.
 	for _, p := range parts {
 		if p == nil {
 			continue
 		}
 		merged.Errors = append(merged.Errors, p.Errors...)
+		merged.Observations = append(merged.Observations, p.Observations...)
 		merged.Residue.UnknownChunks = append(merged.Residue.UnknownChunks,
 			p.Residue.UnknownChunks...)
 	}
 
-	// Unique UnknownChunks by full-string equality.
+	// Unique structured observations by typed identity, then unique
+	// UnknownChunks by full-string equality.
+	merged.Observations = normaliseObservations(merged.Observations)
 	merged.Residue.UnknownChunks = dedupeStrings(merged.Residue.UnknownChunks)
 
 	// Re-derive Layer 4 (already-resolved Files need no re-Stat).
@@ -377,6 +385,13 @@ func cloneErrors(in []types.LogError) []types.LogError {
 		}
 	}
 	return out
+}
+
+func cloneObservations(in []types.LogObservation) []types.LogObservation {
+	if len(in) == 0 {
+		return nil
+	}
+	return append([]types.LogObservation(nil), in...)
 }
 
 func cloneErrorPtr(e *types.LogError) *types.LogError {
@@ -687,6 +702,63 @@ func normaliseSignals(in []types.LogSignal) []types.LogSignal {
 	return out
 }
 
+// normaliseObservations clamps confidence, trims oversized prose, drops
+// invalid / empty observations, and de-duplicates by typed identity.
+// It does not infer Diagnostic or Severity from free text; those are
+// LLM-emitted typed fields so downstream hard decisions never depend on
+// keyword tables.
+func normaliseObservations(in []types.LogObservation) []types.LogObservation {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]types.LogObservation, 0, len(in))
+	for _, obs := range in {
+		obs.Kind = types.LogObservationKind(strings.TrimSpace(string(obs.Kind)))
+		if !types.IsValidLogObservationKind(obs.Kind) {
+			continue
+		}
+		obs.Severity = types.LogObservationSeverity(strings.TrimSpace(string(obs.Severity)))
+		if obs.Severity != "" && !types.IsValidLogObservationSeverity(obs.Severity) {
+			obs.Severity = ""
+		}
+		obs.Subject = trimCap(obs.Subject, 120)
+		obs.Summary = trimCap(obs.Summary, 240)
+		obs.Evidence = trimCap(obs.Evidence, 300)
+		if obs.Summary == "" {
+			continue
+		}
+		if obs.Confidence < 0 {
+			obs.Confidence = 0
+		}
+		if obs.Confidence > 1 {
+			obs.Confidence = 1
+		}
+		key := string(obs.Kind) + "|" + string(obs.Severity) + "|" +
+			obs.Subject + "|" + obs.Summary + "|" + obs.Evidence
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, obs)
+		if len(out) >= types.LogBundleCaps.MaxObservations {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func trimCap(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max > 0 && len(s) > max {
+		return s[:max]
+	}
+	return s
+}
+
 // deriveResolvedFiles extracts unique file paths from frames whose
 // File is non-empty (i.e. path resolved in repo), Line > 0, and
 // Confidence >= MinResolvedConfidence. Ordering: Confidence desc,
@@ -831,6 +903,9 @@ func deriveIntentHint(b *types.LogBundle) types.Intent {
 			types.SignalPerformance:
 			return types.IntentRootCause
 		}
+	}
+	if b.HasDiagnosticObservations() {
+		return types.IntentRootCause
 	}
 	return ""
 }

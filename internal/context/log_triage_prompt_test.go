@@ -269,6 +269,38 @@ func TestFormatLogTriageStructured_UnknownChunksRendered(t *testing.T) {
 	}
 }
 
+func TestFormatLogTriageStructured_OperationalObservationsRendered(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "unknown"},
+		Observations: []types.LogObservation{{
+			Kind:       types.LogObservationLineMapping,
+			Severity:   types.LogObservationFailure,
+			Subject:    "line-number handling",
+			Summary:    "the log observed a line-number handling bug and a later answer retry",
+			Evidence:   "semantic reviewer reported requested line-number topic was not addressed",
+			Diagnostic: true,
+			Confidence: 0.9,
+		}},
+		IntentHint: types.IntentRootCause,
+		Coverage:   1,
+	}
+	got := formatLogTriageStructured(bundle, nil)
+	for _, want := range []string{
+		"Operational observations",
+		"kind=line_mapping",
+		"diagnostic=true",
+		"line-number handling",
+		"two lanes: what the log observed, and what current code evidence proves now",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("observation render missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Unstructured residue") {
+		t.Fatalf("observation-only bundle should not be rendered as residue:\n%s", got)
+	}
+}
+
 // TestBuildPromptContext_LogTriageSection_RenderedForExplorer pins
 // the plumbing for downstream consumer agents: when a bundle is on
 // AgentContext.LogTriage, the explorer (and by symmetry extractor /

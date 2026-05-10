@@ -102,6 +102,35 @@ func TestCheckWithOracle_RealSymbolSubstringStillPasses(t *testing.T) {
 	}
 }
 
+func TestCheckWithOracle_FlatSymbolFormStillPasses(t *testing.T) {
+	oracle := &stubOracle{tiers: map[string]int{
+		"EmitEvidence": 1,
+	}}
+	draft := Answer{Text: "The final answer explains how `EmitEvidence` records the grounded item."}
+	c := types.AnswerContract{MustInclude: []string{"emit_evidence"}}
+	res := CheckWithOracle(draft, c, oracle)
+	if !res.Passed {
+		t.Fatalf("flat-form real symbol should satisfy must_include; got %+v", res.Violations)
+	}
+}
+
+func TestCheckWithOracle_FlatAcceptanceSymbolPasses(t *testing.T) {
+	oracle := &stubOracle{tiers: map[string]int{
+		"EmitEvidence": 1,
+	}}
+	draft := Answer{Text: "The final answer explains how `EmitEvidence` records the grounded item."}
+	c := types.AnswerContract{
+		AcceptanceTests: []types.Criterion{{
+			Kind: types.CritContainsSymbol,
+			Expr: "emit_evidence",
+		}},
+	}
+	res := CheckWithOracle(draft, c, oracle)
+	if !res.Passed {
+		t.Fatalf("flat-form real symbol should satisfy acceptance contains_symbol; got %+v", res.Violations)
+	}
+}
+
 // TestCheckWithOracle_PhraseBypassesOracleGate pins that
 // non-identifier-shaped terms (multi-word phrases, short tokens)
 // don't trigger the oracle gate — they keep substring-only
@@ -168,15 +197,15 @@ func TestShouldOracleGateInclude(t *testing.T) {
 		{"my_func", true},
 		{"GetUserToken", true},
 		{"k8sClient", true},
-		{"ab", false},          // too short
-		{"abc", false},         // too short
-		{"foo bar", false},     // phrase
-		{"check this", false},  // phrase
-		{"foo-bar", false},     // hyphen = punctuation
-		{"foo.bar", false},     // dot = punctuation
-		{"camelCase", true},    // identifier
-		{"snake_case", true},   // identifier
-		{"abcd", true},         // 4 chars, lowercase only — passes regex but ambiguous
+		{"ab", false},         // too short
+		{"abc", false},        // too short
+		{"foo bar", false},    // phrase
+		{"check this", false}, // phrase
+		{"foo-bar", false},    // hyphen = punctuation
+		{"foo.bar", false},    // dot = punctuation
+		{"camelCase", true},   // identifier
+		{"snake_case", true},  // identifier
+		{"abcd", true},        // 4 chars, lowercase only — passes regex but ambiguous
 	}
 	for _, c := range cases {
 		if got := shouldOracleGateInclude(c.sym); got != c.want {

@@ -181,6 +181,14 @@ func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string
 			return "", ""
 		}
 		return fmt.Sprintf("structured runtime signal %q", raw), ""
+	case "log_observation":
+		if raw == "" {
+			return "", ""
+		}
+		if subject := strings.TrimSpace(seed.Func); subject != "" {
+			return fmt.Sprintf("structured runtime observation about %q: %s", subject, raw), ""
+		}
+		return fmt.Sprintf("structured runtime observation: %s", raw), ""
 	}
 	if funcLabel := strings.TrimSpace(seed.Func); funcLabel != "" {
 		observedLoc := ""

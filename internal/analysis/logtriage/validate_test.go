@@ -105,6 +105,31 @@ func TestValidateBundle_OperationalFailureSignalDerivesRootCauseHint(t *testing.
 	}
 }
 
+func TestValidateBundle_DiagnosticObservationDerivesRootCauseHint(t *testing.T) {
+	got := ValidateBundle(ValidateInput{
+		Observations: []types.LogObservation{{
+			Kind:       types.LogObservationTopicMismatch,
+			Severity:   types.LogObservationFailure,
+			Subject:    "line-number handling",
+			Summary:    "answer drifted to a different topic after review",
+			Diagnostic: true,
+			Confidence: 1.2, // validator clamps
+		}},
+	}, t.TempDir())
+	if got == nil {
+		t.Fatal("ValidateBundle returned nil")
+	}
+	if got.IntentHint != types.IntentRootCause {
+		t.Fatalf("IntentHint = %q, want root_cause", got.IntentHint)
+	}
+	if len(got.Observations) != 1 {
+		t.Fatalf("observations len = %d, want 1", len(got.Observations))
+	}
+	if got.Observations[0].Confidence != 1 {
+		t.Fatalf("observation confidence should clamp to 1, got %.2f", got.Observations[0].Confidence)
+	}
+}
+
 // TestValidateBundle_RuntimeInternalFilteredOut verifies Go runtime
 // / node / java.base paths never reach ResolvedFiles even when the
 // LLM emits them.
@@ -361,6 +386,28 @@ func TestMergeBundles_SignalUnion_ErrorsConcat(t *testing.T) {
 	if !reflect.DeepEqual(got.Meta.Signals, wantSignals) {
 		t.Errorf("signals union = %v, want %v",
 			got.Meta.Signals, wantSignals)
+	}
+}
+
+func TestMergeBundles_ObservationsDedupAndDeriveHint(t *testing.T) {
+	obs := types.LogObservation{
+		Kind:       types.LogObservationRetryCycle,
+		Severity:   types.LogObservationWarning,
+		Summary:    "answer required a retry before it stayed on topic",
+		Diagnostic: true,
+		Confidence: 0.9,
+	}
+	b1 := &types.LogBundle{Observations: []types.LogObservation{obs}}
+	b2 := &types.LogBundle{Observations: []types.LogObservation{obs}}
+	got := MergeBundles([]*types.LogBundle{b1, b2}, 200)
+	if got == nil {
+		t.Fatal("MergeBundles returned nil")
+	}
+	if len(got.Observations) != 1 {
+		t.Fatalf("observations dedupe failed: %+v", got.Observations)
+	}
+	if got.IntentHint != types.IntentRootCause {
+		t.Fatalf("IntentHint = %q, want root_cause", got.IntentHint)
 	}
 }
 

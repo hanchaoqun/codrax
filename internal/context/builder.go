@@ -2743,13 +2743,14 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 		return ""
 	}
 	if bundle.Meta.Lang == "" && len(bundle.Errors) == 0 &&
+		len(bundle.Observations) == 0 &&
 		len(bundle.Residue.UnknownChunks) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString("The attached runtime log was parsed into the structured view below. " +
-		"Prefer this view for citing frames and reasoning about the error chain. " +
+		"Prefer this view for citing frames, reading typed operational observations, and reasoning about the error chain. " +
 		"When the validated frame set is already authoritative, downstream stages " +
 		"may omit the raw log section to avoid competing interpretations of runtime-only " +
 		"tuple payloads; rely on the structured bundle and residue snippets below.\n\n")
@@ -2861,6 +2862,37 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	}
 	b.WriteString("\n")
 
+	// ── Operational observations ───────────────────────────────
+	//
+	// Not every useful runtime artifact is an exception tree. Codrax
+	// self-logs, product telemetry, and customer operation logs often
+	// expose "answer was retried", "line mapping drifted", "topic
+	// mismatch was reported", or "state changed" without a stack
+	// frame. Render those as typed observations so downstream agents
+	// can align the investigation to the user's diagnostic ask without
+	// treating unknown_chunks as a hidden evidence source.
+	if len(bundle.Observations) > 0 {
+		b.WriteString("### Operational observations\n\n")
+		b.WriteString("These are structured non-stack facts extracted from the log. " +
+			"They are runtime observations, not repo file:line citations by themselves. " +
+			"When the current request asks whether an observed issue still exists, answer in two lanes: what the log observed, and what current code evidence proves now.\n\n")
+		for i, obs := range bundle.Observations {
+			fmt.Fprintf(&b, "  %d. kind=%s", i+1, obs.Kind)
+			if obs.Severity != "" {
+				fmt.Fprintf(&b, " severity=%s", obs.Severity)
+			}
+			fmt.Fprintf(&b, " diagnostic=%t confidence=%.2f", obs.Diagnostic, obs.Confidence)
+			if obs.Subject != "" {
+				fmt.Fprintf(&b, " subject=`%s`", obs.Subject)
+			}
+			fmt.Fprintf(&b, "\n     summary: %s\n", truncateForPrompt(obs.Summary, 240))
+			if obs.Evidence != "" {
+				fmt.Fprintf(&b, "     evidence: %s\n", truncateForPrompt(obs.Evidence, 240))
+			}
+		}
+		b.WriteString("\n")
+	}
+
 	// ── Errors tree ────────────────────────────────────────────
 	if len(bundle.Errors) > 0 {
 		if len(bundle.Errors) > 1 {
@@ -2948,7 +2980,9 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	b.WriteString("The attached performance trace was parsed into the structured view below. " +
 		"Prefer this view for citing jank frames, stall symbols, and cold-start " +
 		"measurements — the full raw trace is still in the next section for " +
-		"context the structured schema did not capture.\n\n")
+		"context the structured schema did not capture. When the current request asks " +
+		"whether an observed trace symptom still exists, answer in two lanes: what the trace " +
+		"observed, and what current code evidence proves now.\n\n")
 
 	// ── Detected patterns (same engine the log_triage section uses) ──
 	// Always render — non-empty surfaces canonical terminology for

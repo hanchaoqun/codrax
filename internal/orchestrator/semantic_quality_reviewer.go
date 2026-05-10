@@ -181,10 +181,27 @@ type SemanticQualityResult struct {
 
 // SemanticQualityConcern is one specific gap.
 type SemanticQualityConcern struct {
+	Kind        string // coverage_gap / topic_mismatch / grounding_gap / diagram_gap / richness_gap
 	Topic       string // ≤ 60 chars
 	Observation string // ≤ 200 chars: what the reviewer saw in the answer
 	Suggestion  string // ≤ 200 chars: what to add / expand
 }
+
+const (
+	semanticConcernCoverageGap   = "coverage_gap"
+	semanticConcernTopicMismatch = "topic_mismatch"
+	semanticConcernGroundingGap  = "grounding_gap"
+	semanticConcernDiagramGap    = "diagram_gap"
+	semanticConcernRichnessGap   = "richness_gap"
+)
+
+// SemanticQualityTopicMismatchMinConfidence is the lower floor for a
+// typed topic-mismatch concern. Topic mismatch is not a richness taste:
+// it means the answer's main subject diverged from the current user
+// request. Keep the global conservative 0.92 floor for ordinary
+// coverage/richness concerns, but accept high-confidence topical misses
+// in the 0.85-0.91 band so a wrong-subject answer cannot ship.
+const SemanticQualityTopicMismatchMinConfidence = 0.85
 
 // SemanticQualityReviewer is the public interface; nil adapter
 // yields a reviewer whose Review returns (nil, nil) — disabled.
@@ -207,7 +224,7 @@ const SemanticQualityMinConfidenceDefault = 0.92
 
 var semanticQualityTool = llm.ToolSchema{
 	Name:        "emit_semantic_quality_review",
-	Description: "Emit your verdict on whether the answer surfaces enough of the required facets, diagram relations, and available richness. Do NOT flag stylistic, abstraction-level, or terminology differences. Only flag MISSING coverage where typed evidence is available. Do NOT cross into self-contradiction territory — that is another reviewer's job.",
+	Description: "Emit your verdict on whether the answer stays on the user's requested topic and surfaces enough of the required facets, diagram relations, and available richness. Do NOT flag stylistic, abstraction-level, or terminology differences. Only flag a wrong-topic answer or MISSING coverage where typed evidence is available. Do NOT cross into self-contradiction territory — that is another reviewer's job.",
 	Parameters: json.RawMessage(`{
   "type": "object",
   "properties": {
@@ -227,6 +244,11 @@ var semanticQualityTool = llm.ToolSchema{
             "maxLength": 60,
             "description": "Concise framing — name the public facet label / diagram contract row / enrichment item at issue."
           },
+          "kind": {
+            "type": "string",
+            "enum": ["coverage_gap", "topic_mismatch", "grounding_gap", "diagram_gap", "richness_gap"],
+            "description": "Typed concern family. Use topic_mismatch only when the answer's main subject does not match the current user request."
+          },
           "observation": {
             "type": "string",
             "maxLength": 200,
@@ -238,7 +260,7 @@ var semanticQualityTool = llm.ToolSchema{
             "description": "What to add / surface. Reference the typed evidence available (do not invent new claims)."
           }
         },
-        "required": ["topic", "observation", "suggestion"]
+        "required": ["topic", "kind", "observation", "suggestion"]
       }
     },
     "confidence": {
@@ -262,10 +284,12 @@ var semanticQualityTool = llm.ToolSchema{
 // abstract pattern, not a verbatim case study.
 //
 // v3 B2 (2026-05-04): reviewer role split into two halves —
-//   (a) reverse-check the system-detected gaps (already raised by
-//       the typed validators) and confirm whether BODY actually
-//       addresses each via equivalent expression;
-//   (b) ADD any coverage gaps the typed validators missed.
+//
+//	(a) reverse-check the system-detected gaps (already raised by
+//	    the typed validators) and confirm whether BODY actually
+//	    addresses each via equivalent expression;
+//	(b) ADD any coverage gaps the typed validators missed.
+//
 // Reviewer MUST NOT restate system-detected gaps verbatim — that
 // would double-bill the LLM on retry.
 const semanticQualityReviewerSystemPrompt = `You are an INDEPENDENT completeness reviewer. The pipeline produced an answer plus typed coverage attestations and a list of system-detected gaps. Your job has TWO parts:
@@ -285,15 +309,17 @@ DEFINITION CLARITY:
 DECISION DISCIPLINE (apply before reporting):
   1. PART A first: walk every SYSTEM-DETECTED GAP and verify whether BODY addresses it. If yes for all → sufficient=true.
   2. PART B second: scan the typed attestations for shortfalls the system did NOT flag.
-  3. Stay within the supplied attestations. Do NOT fetch repo sources, do NOT speculate on missing evidence the prior investigation never produced.
-  4. Stylistic preferences ("the answer would read better if it added a section on X") are NOT concerns. Only typed-evidence-available coverage gaps qualify.
-  5. When a promoted facet is covered=true AND the body engages the cited evidence — that is NOT a concern (abstraction is editorial choice; coverage with grounding is the gate).
-  6. PROMOTED FACET COVERAGE depth: when a facet has DeclaredCount > 0 but AnchoredCount == 0, the declaration is shallow (label-only). Flag only when the shortfall is structurally important (multiple shallow declarations, or the principal facet is shallow).
+  3. TOPIC ALIGNMENT: compare the BODY's main subject with the Original user request. If the BODY answers a different subject, report kind=topic_mismatch. This is not style or abstraction-level feedback; it is wrong-task feedback.
+  4. Stay within the supplied attestations. Do NOT fetch repo sources, do NOT speculate on missing evidence the prior investigation never produced.
+  5. Stylistic preferences ("the answer would read better if it added a section on X") are NOT concerns. Only wrong-topic answers or typed-evidence-available coverage gaps qualify.
+  6. When a promoted facet is covered=true AND the body engages the cited evidence — that is NOT a concern (abstraction is editorial choice; coverage with grounding is the gate).
+  7. PROMOTED FACET COVERAGE depth: when a facet has DeclaredCount > 0 but AnchoredCount == 0, the declaration is shallow (label-only). Flag only when the shortfall is structurally important (multiple shallow declarations, or the principal facet is shallow).
 
 Output via emit_semantic_quality_review:
   - sufficient=true is the COMMON case; mark it true unless you can name a SPECIFIC ADDITIONAL gap supported by the attestations.
   - confidence >= 0.85 to report a gap; below 0.85 mark sufficient=true (rather miss a thin spot than force a rewrite on a defensible answer).
-  - When reporting, name the public semantic label (facet label / relation kind / enrichment label). Use the same language as the answer text in the prose fields. Do NOT restate SYSTEM-DETECTED GAPS — concerns must be ADDITIONS.`
+  - When reporting, choose concern kind carefully. Use topic_mismatch only for wrong-subject answers; use coverage_gap / grounding_gap / diagram_gap / richness_gap for missing-surface concerns.
+  - When reporting, name the public semantic label (facet label / relation kind / enrichment label, or "requested topic" for topic_mismatch). Use the same language as the answer text in the prose fields. Do NOT restate SYSTEM-DETECTED GAPS — concerns must be ADDITIONS.`
 
 // llmSemanticQualityReviewer is the default impl. nil adapter ⇒
 // disabled.
@@ -344,6 +370,7 @@ func unmarshalSemanticQualityResult(raw json.RawMessage) (*SemanticQualityResult
 	var parsed struct {
 		Sufficient bool `json:"sufficient"`
 		Concerns   []struct {
+			Kind        string `json:"kind"`
 			Topic       string `json:"topic"`
 			Observation string `json:"observation"`
 			Suggestion  string `json:"suggestion"`
@@ -364,13 +391,14 @@ func unmarshalSemanticQualityResult(raw json.RawMessage) (*SemanticQualityResult
 	}
 	for _, c := range parsed.Concerns {
 		topic := strings.TrimSpace(c.Topic)
+		kind := normaliseSemanticQualityConcernKind(c.Kind)
 		obs := strings.TrimSpace(c.Observation)
 		sug := strings.TrimSpace(c.Suggestion)
 		if topic == "" || obs == "" || sug == "" {
 			continue
 		}
 		out.Concerns = append(out.Concerns, SemanticQualityConcern{
-			Topic: topic, Observation: obs, Suggestion: sug,
+			Kind: kind, Topic: topic, Observation: obs, Suggestion: sug,
 		})
 	}
 	if !out.Sufficient && len(out.Concerns) == 0 {
@@ -379,13 +407,60 @@ func unmarshalSemanticQualityResult(raw json.RawMessage) (*SemanticQualityResult
 	return out, nil
 }
 
+func normaliseSemanticQualityConcernKind(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case semanticConcernTopicMismatch:
+		return semanticConcernTopicMismatch
+	case semanticConcernGroundingGap:
+		return semanticConcernGroundingGap
+	case semanticConcernDiagramGap:
+		return semanticConcernDiagramGap
+	case semanticConcernRichnessGap:
+		return semanticConcernRichnessGap
+	case semanticConcernCoverageGap:
+		return semanticConcernCoverageGap
+	default:
+		return semanticConcernCoverageGap
+	}
+}
+
+func semanticQualityEffectiveConfidenceFloor(defaultFloor float64, verdict *SemanticQualityResult) float64 {
+	if defaultFloor <= 0 || defaultFloor > 1 {
+		defaultFloor = SemanticQualityMinConfidenceDefault
+	}
+	if verdict == nil {
+		return defaultFloor
+	}
+	for _, concern := range verdict.Concerns {
+		if normaliseSemanticQualityConcernKind(concern.Kind) == semanticConcernTopicMismatch &&
+			defaultFloor > SemanticQualityTopicMismatchMinConfidence {
+			return SemanticQualityTopicMismatchMinConfidence
+		}
+	}
+	return defaultFloor
+}
+
+func filterSemanticQualityConcernsByKind(concerns []SemanticQualityConcern, kind string) []SemanticQualityConcern {
+	if len(concerns) == 0 {
+		return nil
+	}
+	kind = normaliseSemanticQualityConcernKind(kind)
+	out := make([]SemanticQualityConcern, 0, len(concerns))
+	for _, concern := range concerns {
+		if normaliseSemanticQualityConcernKind(concern.Kind) == kind {
+			out = append(out, concern)
+		}
+	}
+	return out
+}
+
 // renderSemanticQualityUserMessage formats the input as labelled
 // markdown sections so the reviewer's prompt-instructed signals
 // match the input shape.
 func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 	var b strings.Builder
 	if s := strings.TrimSpace(in.OriginalRequest); s != "" {
-		fmt.Fprintf(&b, "## Original user request (context only)\n%s\n\n", s)
+		fmt.Fprintf(&b, "## Original user request\n%s\n\n", s)
 	}
 	fmt.Fprintf(&b, "## SUMMARY\n%s\n\n", strings.TrimSpace(in.AnswerSummary))
 	fmt.Fprintf(&b, "## BODY\n%s\n", strings.TrimSpace(in.AnswerBody))

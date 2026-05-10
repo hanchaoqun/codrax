@@ -83,11 +83,11 @@ type Violation = types.Violation
 // compiler resolves both names to the same typed string so comparison,
 // switches, and map keys work identically to the pre-move code.
 const (
-	ViolFamilyMismatch       = types.ViolFamilyMismatch
-	ViolCitation    = types.ViolCitation
-	ViolMustInclude = types.ViolMustInclude
-	ViolMustExclude = types.ViolMustExclude
-	ViolAcceptance  = types.ViolAcceptance
+	ViolFamilyMismatch = types.ViolFamilyMismatch
+	ViolCitation       = types.ViolCitation
+	ViolMustInclude    = types.ViolMustInclude
+	ViolMustExclude    = types.ViolMustExclude
+	ViolAcceptance     = types.ViolAcceptance
 
 	// ViolSuccessCriterion marks a finalize TaskNode.SuccessCriteria
 	// failure that was merged into the Result by the orchestrator
@@ -105,10 +105,10 @@ const (
 	ViolSelfRefLiteral       = types.ViolSelfRefLiteral
 	ViolPreCompleteDowngrade = types.ViolPreCompleteDowngrade
 	ViolLiteralFormFailed    = types.ViolLiteralFormFailed
-	ViolViewSwap            = types.ViolViewSwap
+	ViolViewSwap             = types.ViolViewSwap
 
 	// Commit 53 P2/P4 — read-mode answer-coherence violations.
-	ViolViewIntentMismatch   = types.ViolViewIntentMismatch
+	ViolViewIntentMismatch    = types.ViolViewIntentMismatch
 	ViolSubTopicCountMismatch = types.ViolSubTopicCountMismatch
 	ViolDiagramIdentifier     = types.ViolDiagramIdentifier
 	// Commit 55 Batch A.3 — declared-count drift.
@@ -277,7 +277,7 @@ func checkMustIncludeOracle(draft Answer, c types.AnswerContract, oracle types.S
 		}
 		hit := containsSymbol(draft.Text, sym)
 		if hit && oracle != nil && shouldOracleGateInclude(sym) {
-			if found, tier := oracle.SymbolExists(sym); !found || tier >= 3 {
+			if !oracleHasReliableSymbol(oracle, sym) {
 				// Substring matches but the term isn't a real symbol —
 				// treat as miss (LLM hallucinated the include).
 				hit = false
@@ -323,6 +323,19 @@ func shouldOracleGateInclude(sym string) bool {
 	return true
 }
 
+func oracleHasReliableSymbol(oracle types.SymbolOracle, name string) bool {
+	if oracle == nil {
+		return false
+	}
+	if found, tier := oracle.SymbolExists(name); found && tier < 3 {
+		return true
+	}
+	if found, tier := oracle.SymbolExistsFlat(name); found && tier < 3 {
+		return true
+	}
+	return false
+}
+
 func checkMustExclude(draft Answer, c types.AnswerContract) []Violation {
 	return checkMustExcludeOracle(draft, c, nil)
 }
@@ -341,7 +354,7 @@ func checkMustExcludeOracle(draft Answer, c types.AnswerContract, oracle types.S
 		}
 		hit := containsSymbol(draft.Text, sym)
 		if hit && oracle != nil && shouldOracleGateInclude(sym) {
-			if found, tier := oracle.SymbolExists(sym); !found || tier >= 3 {
+			if !oracleHasReliableSymbol(oracle, sym) {
 				hit = false
 			}
 		}
@@ -380,7 +393,7 @@ func checkAcceptanceOracle(draft Answer, c types.AnswerContract, oracle types.Sy
 		case types.CritContainsSymbol:
 			hit := containsSymbol(draft.Text, a.Expr)
 			if hit && oracle != nil && shouldOracleGateInclude(a.Expr) {
-				if found, tier := oracle.SymbolExists(a.Expr); !found || tier >= 3 {
+				if !oracleHasReliableSymbol(oracle, a.Expr) {
 					hit = false
 				}
 			}

@@ -2197,31 +2197,39 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 		logging.Warning("[semantic_quality_reviewer] dispatch failed (non-fatal): %v", err)
 		return nil
 	}
-	if verdict == nil || verdict.Sufficient || verdict.Confidence < floor {
+	effectiveFloor := semanticQualityEffectiveConfidenceFloor(floor, verdict)
+	if verdict == nil || verdict.Sufficient || verdict.Confidence < effectiveFloor {
 		if verdict != nil {
 			logging.Info("[semantic_quality_reviewer] verdict sufficient=%v confidence=%.2f (floor=%.2f) reasoning=%q",
-				verdict.Sufficient, verdict.Confidence, floor, verdict.Reasoning)
+				verdict.Sufficient, verdict.Confidence, effectiveFloor, verdict.Reasoning)
 		}
 		return nil
 	}
+	concerns := verdict.Concerns
+	if effectiveFloor < floor && verdict.Confidence < floor {
+		concerns = filterSemanticQualityConcernsByKind(concerns, semanticConcernTopicMismatch)
+		if len(concerns) == 0 {
+			return nil
+		}
+	}
 
-	out := make([]types.Violation, 0, len(verdict.Concerns))
+	out := make([]types.Violation, 0, len(concerns))
 	reasoning := clampReasoningForRepair(verdict.Reasoning)
-	for i, c := range verdict.Concerns {
+	for i, c := range concerns {
 		repair := fmt.Sprintf("[%d/%d] expand the answer to address %q. %s",
-			i+1, len(verdict.Concerns), c.Topic, c.Suggestion)
+			i+1, len(concerns), c.Topic, c.Suggestion)
 		if reasoning != "" {
 			repair += fmt.Sprintf(" Reviewer rationale: %s", reasoning)
 		}
 		out = append(out, types.Violation{
 			Kind: types.ViolAnswerSemanticUnderfilled,
-			Detail: fmt.Sprintf("answer_underfilled[%s] — observation: %s",
-				c.Topic, c.Observation),
+			Detail: fmt.Sprintf("answer_underfilled[%s:%s] — observation: %s",
+				normaliseSemanticQualityConcernKind(c.Kind), c.Topic, c.Observation),
 			Repair:     repair,
 			ClusterKey: topicClusterKey(c.Topic, "answer_semantic_quality"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_semantic_quality",
-				Reason:     "reviewer detected coverage / richness thinness",
+				Reason:     "reviewer detected " + normaliseSemanticQualityConcernKind(c.Kind),
 				Confidence: verdict.Confidence,
 			},
 			Stage: string(types.StageFinalize),

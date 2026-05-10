@@ -144,6 +144,27 @@ func TestCollectExternalObservationSeeds_SurfacesResidueChunks(t *testing.T) {
 	}
 }
 
+func TestCollectExternalObservationSeeds_SurfacesStructuredObservations(t *testing.T) {
+	bundle := &LogBundle{
+		Observations: []LogObservation{{
+			Kind:       LogObservationTopicMismatch,
+			Subject:    "line-number handling",
+			Summary:    "answer body discussed emit_evidence instead of the requested line-number bug",
+			Diagnostic: true,
+			Confidence: 0.9,
+		}},
+	}
+	seeds := CollectExternalObservationSeeds(bundle, nil)
+	for _, seed := range seeds {
+		if seed.Kind == "log_observation" &&
+			strings.Contains(seed.Raw, "emit_evidence") &&
+			seed.Func == "line-number handling" {
+			return
+		}
+	}
+	t.Fatalf("structured observation seed missing: %+v", seeds)
+}
+
 func TestCollectExternalObservationSeeds_WalksCauseChainFrames(t *testing.T) {
 	bundle := &LogBundle{
 		Errors: []LogError{{

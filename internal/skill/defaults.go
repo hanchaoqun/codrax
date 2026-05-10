@@ -440,8 +440,9 @@ Completeness honesty contract for emit_answer_symbol:
 	// log and emits ONE emit_log_triage call with a structured view:
 	// layer 1 (Meta — lang, signals, summary), layer 2 (Errors — type,
 	// message, frames, optional recursive Cause chain), layer 3
-	// (Residue — unknown_chunks). The system validates paths against
-	// the repository and derives layer 4 (resolved_files, entities,
+	// (Observations + Residue — typed non-stack facts plus
+	// unknown_chunks). The system validates paths against the
+	// repository and derives layer 4 (resolved_files, entities,
 	// intent_hint, coverage) automatically — the LLM cannot fill
 	// layer 4 because those fields are not in the tool's JSON schema.
 	//
@@ -451,14 +452,15 @@ Completeness honesty contract for emit_answer_symbol:
 	// deterministically post-emit.
 	r.Register(&Config{
 		Name: "log-triage-skill",
-		Goal: "Read the attached runtime log and emit a structured triage bundle (errors + frames + signals + residue) via emit_log_triage exactly once. Path validation and the resolved-files list are derived automatically from your emission — focus on extraction, not resolution.",
+		Goal: "Read the attached runtime log and emit a structured triage bundle (errors + frames + signals + operational observations + residue) via emit_log_triage exactly once. Path validation and the resolved-files list are derived automatically from your emission — focus on extraction, not resolution.",
 		Workflow: []string{
 			"Read the attached runtime log from the 'Attached Runtime Log' section of the user prompt. If the log was oversized and blobbed to attached_log.txt, use read_file with offset/limit to paginate through the middle — the head+tail preview is already visible inline. Multi-file attachments embed `# codrax-source: <path>` headers between bodies; treat each segment as an independent capture (per-process panic, per-time-window snapshot) when grouping errors.",
 			"Identify every stack frame that names a source file with a line number. For each frame, emit: file (as it appears in the log — do NOT normalize paths; path normalization is automatic), line, func (best available identifier), pkg (module/namespace hint when obvious), lang, raw (the original log line for this frame, required), confidence (0.0-1.0, your certainty the frame is real).",
 			"Group frames under the error they belong to. Emit errors[] with one entry per logical error (per goroutine in a Go panic dump, per exception in a multi-exception traceback). For each error set type (exception class / panic type), message (the human-readable text), and frames[] (the stack for THIS error).",
 			"Chain causal errors via the cause pointer. When the log shows 'Caused by:' (Java), 'during handling of' (Python __cause__ / __context__), or '#[source]' (Rust), nest the upstream error in the cause field. Keep the chain shallow — practical depth 3 or so; depth is capped at 5.",
 			"Set meta.lang to the dominant language (go/java/cpp/python/node/rust/ruby/csharp/kotlin/arkts/cangjie/unknown/other). ArkTS is HarmonyOS UI code in .ets / .ts files with V8-style stack frames; Cangjie is HarmonyOS native code in .cj files with JVM-like frames `at demo.cart.Cart.method(Cart.cj:42)`; Kotlin is JVM code in .kt files with frames `at com.example.Foo$bar(Foo.kt:42)`. Two tag-formatted log families share one parser path: hilog (HarmonyOS) lines look like `01-26 11:01:06.870 1051 1051 W 00201/test: message`; Android logcat lines look like `04-15 14:32:18.421  5821  5821 E JsApp: message` — structurally identical: <timestamp> <pid> <tid> <level> <tag>: <body>. Extract the body portion while keeping the full line in the frame's raw field. Set meta.signals from the canonical enum (panic/crash/oom/timeout/permission/db/network/validation/logic/performance/other) by matching the observed symptoms. The 'performance' signal covers operational-but-slow patterns the log itself describes: 'slow API call took 5s', 'frame skipped' / 'Choreographer dropped N frames', 'GC pause 800ms', 'blocked on lock 2s' — distinct from 'timeout' (no operation was cancelled, just slow) and from PerfBundle's jank signals (those come from a perf trace tool; this is for ordinary application logs that happen to mention perf symptoms). Multiple signals are OK when the log describes compound failures. Summary is an optional one-line synopsis. PERFORMANCE traces (HiTrace/atrace/systrace/perfetto) are handled by a SEPARATE perf_triage stage via emit_perf_trace — do NOT attempt to parse trace events here; if the attached text contains `tracing_mark_write: B|pid|tag` events, return an empty errors list with signals=[] and let the perf_triager handle it.",
-			"Log chunks that do NOT structure into an error (build noise, log-level prefixes, unrelated debug output, truncation markers) go into unknown_chunks. Do not punt everything there — only genuinely unparseable pieces. Each chunk capped at 500 chars, at most 8 chunks total.",
+			"Operational observations that do NOT form an exception tree but DO describe a process fact go into observations[] instead of unknown_chunks. Examples by shape, not by keyword: a validator/reviewer rejected an answer, an attempt was retried or forced to rewrite, the answer topic diverged from the requested topic, a file/line/source mapping drifted, an attachment could not be decoded/resolved, or the system changed mode/state. For each observation choose kind from the enum, set severity (info/warning/failure when clear), set diagnostic=true only when the observation describes a failure/regression/mismatch/current-risk target rather than neutral context, and include a concise summary plus short evidence excerpt.",
+			"Log chunks that do NOT structure into an error or observation (build noise, log-level prefixes, unrelated debug output, truncation markers) go into unknown_chunks. Do not punt everything there — only genuinely unparseable pieces. Each chunk capped at 500 chars, at most 8 chunks total.",
 			"Frames with uncertain line numbers or uncertain file paths should be emitted with line=0 or file='' and confidence < 0.5 — such frames stay in the bundle but are NOT added to the repo file list. Zero information loss on partials.",
 		},
 		ToolSuggestions: []string{
@@ -474,6 +476,10 @@ Schema in one glance:
 - errors[]         (required, may be empty) — array of { type, message?, frames[], cause? }
 - errors[].frames[] — { lang?, file?, line?, func?, pkg?, raw (required), confidence (required) }
 - errors[].cause   — recursive error (same shape); for linear causal chains like Java Caused-by
+- observations[]   (optional, ≤8) — non-stack operational facts:
+  { kind, severity?, subject?, summary, evidence?, diagnostic, confidence }
+  kind enum: runtime_event / contract_violation / retry_cycle / topic_mismatch / line_mapping / artifact_gap / state_change / performance_symptom / other
+  severity enum: info / warning / failure
 - unknown_chunks[] (optional) — ≤ 8 strings ≤ 500 chars each, for unstructurable text
 
 Caps (enforced by the tool):
@@ -488,6 +494,7 @@ You emit exactly one emit_log_triage call per dispatch. Do NOT write prose — t
 			"do NOT resolve file paths yourself — emit frames with the file path AS IT APPEARS in the log; build-prefix stripping, Java basename resolution, repo-existence filtering, and runtime-internal filtering are automatic",
 			"do NOT use grep / list_files / repo_map / exec_command — the stage's tool allowlist explicitly excludes them; path verification is automatic",
 			"do NOT invent frames that are not in the log — a frame with confidence 0.9 must correspond to a real log line whose text you can paste into the raw field",
+			"do NOT bury structured process facts in unknown_chunks — if the log supports a non-stack observation, emit observations[] with the typed kind and confidence",
 			"do NOT emit fields outside the documented schema (resolved_files, entities, intent_hint, coverage are derived automatically from your emission, not LLM-emitted); the JSON schema rejects unknown fields",
 			"do NOT punt the entire log to unknown_chunks — extract every stack frame you can; unknown_chunks is for genuinely unparseable noise, not a fallback for lazy extraction",
 			"do NOT produce multiple emit_log_triage calls — exactly one emit per dispatch; a second call replaces the first",

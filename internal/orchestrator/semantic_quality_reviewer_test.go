@@ -71,9 +71,9 @@ func TestSemanticQualityReviewer_ConcernsRequireBothPartsOfThePair(t *testing.T)
 			"sufficient": false,
 			"confidence": 0.92,
 			"concerns": [
-				{"topic": "facet:principal_mechanism", "observation": "body lists API surfaces but does not name the dispatching call site",
+				{"topic": "facet:principal_mechanism", "kind": "coverage_gap", "observation": "body lists API surfaces but does not name the dispatching call site",
 				 "suggestion": "add a body item naming the call edge with file:line"},
-				{"topic": "weak", "observation": "", "suggestion": "fix"}
+				{"topic": "weak", "kind": "coverage_gap", "observation": "", "suggestion": "fix"}
 			]
 		}`,
 	}
@@ -90,6 +90,9 @@ func TestSemanticQualityReviewer_ConcernsRequireBothPartsOfThePair(t *testing.T)
 	}
 	if got.Concerns[0].Topic != "facet:principal_mechanism" {
 		t.Errorf("concern Topic = %q, want facet:principal_mechanism", got.Concerns[0].Topic)
+	}
+	if got.Concerns[0].Kind != semanticConcernCoverageGap {
+		t.Errorf("concern Kind = %q, want %q", got.Concerns[0].Kind, semanticConcernCoverageGap)
 	}
 }
 
@@ -114,6 +117,43 @@ func TestSemanticQualityReviewer_RejectsConfidenceOutOfRange(t *testing.T) {
 	_, err := r.Review(context.Background(), SemanticQualityInput{AnswerSummary: "x", AnswerBody: "y"})
 	if err == nil {
 		t.Error("confidence>1 must err")
+	}
+}
+
+func TestSemanticQualityReviewer_TopicMismatchUsesLowerTypedFloor(t *testing.T) {
+	verdict := &SemanticQualityResult{
+		Sufficient: false,
+		Confidence: 0.90,
+		Concerns: []SemanticQualityConcern{{
+			Kind:        semanticConcernTopicMismatch,
+			Topic:       "requested topic",
+			Observation: "body answers a different symbol",
+			Suggestion:  "answer the requested issue instead",
+		}},
+	}
+	if got := semanticQualityEffectiveConfidenceFloor(0.92, verdict); got != SemanticQualityTopicMismatchMinConfidence {
+		t.Fatalf("topic mismatch floor = %.2f, want %.2f", got, SemanticQualityTopicMismatchMinConfidence)
+	}
+	ordinary := &SemanticQualityResult{
+		Sufficient: false,
+		Confidence: 0.90,
+		Concerns: []SemanticQualityConcern{{
+			Kind:        semanticConcernCoverageGap,
+			Topic:       "mechanism",
+			Observation: "body is thin",
+			Suggestion:  "add evidence",
+		}},
+	}
+	if got := semanticQualityEffectiveConfidenceFloor(0.92, ordinary); got != 0.92 {
+		t.Fatalf("ordinary floor = %.2f, want 0.92", got)
+	}
+	mixed := []SemanticQualityConcern{
+		{Kind: semanticConcernCoverageGap, Topic: "coverage"},
+		{Kind: semanticConcernTopicMismatch, Topic: "requested topic"},
+	}
+	filtered := filterSemanticQualityConcernsByKind(mixed, semanticConcernTopicMismatch)
+	if len(filtered) != 1 || filtered[0].Topic != "requested topic" {
+		t.Fatalf("topic-mismatch filter = %+v", filtered)
 	}
 }
 
@@ -291,6 +331,12 @@ func TestShouldReviewSemanticQuality_P4_NoFacetDeclared_Skip(t *testing.T) {
 func TestSemanticQualityMinConfidenceDefault_P4(t *testing.T) {
 	if SemanticQualityMinConfidenceDefault != 0.92 {
 		t.Errorf("P4 default floor should be 0.92, got %v", SemanticQualityMinConfidenceDefault)
+	}
+}
+
+func TestSemanticQualityTopicMismatchMinConfidence(t *testing.T) {
+	if SemanticQualityTopicMismatchMinConfidence != 0.85 {
+		t.Errorf("topic mismatch floor should be 0.85, got %v", SemanticQualityTopicMismatchMinConfidence)
 	}
 }
 
