@@ -1767,46 +1767,18 @@ func collectArtifactFramesWithOrigin(logBundle *LogBundle, perfBundle *PerfBundl
 	if perfBundle == nil {
 		return resolved, origins
 	}
-	// PerfStall: typed (Symbol, File?, Line?) — primary perf surface.
-	for i := range perfBundle.Stalls {
+	// Perf frames: typed (Symbol, File?, Line?) stalls plus symbol-only
+	// jank/startup markers. PerfBundle.LogFrames is the single source for
+	// this LogFrame-compatible projection.
+	for _, frame := range perfBundle.LogFrames() {
 		if len(resolved) >= cap {
 			break
 		}
-		s := &perfBundle.Stalls[i]
-		if strings.TrimSpace(s.Symbol) == "" {
+		if strings.TrimSpace(frame.Func) == "" {
 			continue
 		}
-		resolved = append(resolved, LogFrame{
-			File: s.File,
-			Line: s.Line,
-			Func: s.Symbol,
-		})
+		resolved = append(resolved, frame)
 		origins = append(origins, ClaimOriginPerf)
-	}
-	// PerfJank: TriggerSpan often carries a symbol-ish identifier
-	// from the trace's tracing_mark_write tags. No file/line; symbol-
-	// axis drift detection picks it up.
-	for i := range perfBundle.Janks {
-		if len(resolved) >= cap {
-			break
-		}
-		j := &perfBundle.Janks[i]
-		span := strings.TrimSpace(j.TriggerSpan)
-		if span == "" {
-			continue
-		}
-		resolved = append(resolved, LogFrame{Func: span})
-		origins = append(origins, ClaimOriginPerf)
-	}
-	// PerfStartup: when the trace covers a startup, surface its mode
-	// marker so a question like "is cold-start slow?" sees
-	// PerfStartup.Mode show up in the artifact frame stream.
-	if perfBundle.Startup != nil && len(resolved) < cap {
-		mode := strings.TrimSpace(perfBundle.Startup.Mode)
-		if mode != "" {
-			resolved = append(resolved, LogFrame{Func: mode + "-startup"})
-			origins = append(origins, ClaimOriginPerf)
-		}
 	}
 	return resolved, origins
 }

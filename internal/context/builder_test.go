@@ -3058,6 +3058,57 @@ func TestShouldSuppressAttachedRuntimeTrace_NoBundle_StillRenders(t *testing.T) 
 	}
 }
 
+func TestFormatPerfTriageStructured_ExternalSourceDirective(t *testing.T) {
+	bundle := &types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"jank"}},
+		Stalls: []types.PerfStall{{
+			Symbol: "ForeignRender",
+			File:   "foreign/render.cpp",
+			Line:   42,
+		}},
+	}
+	got := formatPerfTriageStructured(bundle, nil)
+	for _, want := range []string{
+		"External-source trace",
+		"resolved_files=0",
+		"`citation_ref=-1`",
+		"foreign/render.cpp:42 observed, unresolved",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("perf structured section missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "foreign/render.cpp:42 ★ resolved") {
+		t.Fatalf("unresolved trace file must not be marked citation-grade:\n%s", got)
+	}
+}
+
+func TestFormatPerfTriageStructured_FrameDriftWarning(t *testing.T) {
+	loc := &stubLocator{
+		byName: map[string][]types.SymbolLocation{},
+		byFile: map[string][]types.SymbolLocation{},
+	}
+	bundle := &types.PerfBundle{
+		Meta:          types.PerfMeta{Source: "perfetto"},
+		ResolvedFiles: []string{"app/render.go"},
+		Stalls: []types.PerfStall{{
+			Symbol: "OldRender",
+			File:   "app/render.go",
+			Line:   88,
+		}},
+	}
+	got := formatPerfTriageStructured(bundle, loc)
+	for _, want := range []string{
+		"Frame ↔ current-code drift warning",
+		"app/render.go:88",
+		"OPAQUE OBSERVATION",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("perf drift section missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // TestSanitizeRuntimeFrameRaw_AllLines confirms #5: every line of a
 // multi-line stack-frame raw payload gets scrubbed, not just the
 // first. Real-world Go panics put the runtime tuple on the SECOND
@@ -3146,7 +3197,6 @@ func TestBundleHasAuthoritativeCrashFrames_ResolutionThreshold(t *testing.T) {
 		})
 	}
 }
-
 
 // =====================================================================
 // Phase 1.L0 (2026-05-08) — multi-repo active-set advisory tests
@@ -3250,4 +3300,3 @@ func TestFormatMultiRepoActiveSetAdvisory_ZeroCountFallsBackToConfigDefault(t *t
 		t.Errorf("expected truncation marker for remaining 1: %q", got)
 	}
 }
-

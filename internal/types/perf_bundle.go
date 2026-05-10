@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // PerfBundle is the validated output of the perf_triage pre-stage,
 // mirroring LogBundle for the HiTrace / Android-systrace channel.
 // Written once by the perf_triager agent via SetPerfTrace; read by
@@ -59,6 +61,43 @@ func (b *PerfBundle) IsExternalSource() bool {
 		return false
 	}
 	return len(b.ResolvedFiles) == 0 && b.HasStructuredObservations()
+}
+
+// LogFrames returns the perf bundle's frame-like observations in the
+// shared LogFrame shape used by drift and answer-surface projection.
+// PerfStall.Symbol maps to LogFrame.Func and keeps File/Line when
+// present; jank trigger spans and startup mode are symbol-only frames.
+func (b *PerfBundle) LogFrames() []LogFrame {
+	if b == nil {
+		return nil
+	}
+	var out []LogFrame
+	for i := range b.Stalls {
+		s := &b.Stalls[i]
+		if strings.TrimSpace(s.Symbol) == "" {
+			continue
+		}
+		out = append(out, LogFrame{
+			File: s.File,
+			Line: s.Line,
+			Func: s.Symbol,
+		})
+	}
+	for i := range b.Janks {
+		j := &b.Janks[i]
+		span := strings.TrimSpace(j.TriggerSpan)
+		if span == "" {
+			continue
+		}
+		out = append(out, LogFrame{Func: span})
+	}
+	if b.Startup != nil {
+		mode := strings.TrimSpace(b.Startup.Mode)
+		if mode != "" {
+			out = append(out, LogFrame{Func: mode + "-startup"})
+		}
+	}
+	return out
 }
 
 // PerfMeta carries trace-level descriptive fields.

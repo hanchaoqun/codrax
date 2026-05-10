@@ -126,3 +126,26 @@ func TestBackfillUnprojectedItems_PerfStallTagsItemAsPerfOrigin(t *testing.T) {
 		t.Errorf("DriftReason = %q; want line_drift", out[0].DriftReason)
 	}
 }
+
+func TestPerfBundleLogFrames_ProjectAllFrameLikeSignals(t *testing.T) {
+	perf := &PerfBundle{
+		Stalls: []PerfStall{{Symbol: "Render", File: "ui.go", Line: 60}},
+		Janks:  []PerfJank{{TriggerSpan: "Choreographer#doFrame"}},
+		Startup: &PerfStartup{
+			Mode: "cold",
+		},
+	}
+	frames := perf.LogFrames()
+	if len(frames) != 3 {
+		t.Fatalf("LogFrames len = %d, want 3: %+v", len(frames), frames)
+	}
+	if frames[0].Func != "Render" || frames[0].File != "ui.go" || frames[0].Line != 60 {
+		t.Fatalf("stall frame wrong: %+v", frames[0])
+	}
+	if frames[1].Func != "Choreographer#doFrame" {
+		t.Fatalf("jank trigger frame wrong: %+v", frames[1])
+	}
+	if frames[2].Func != "cold-startup" {
+		t.Fatalf("startup frame wrong: %+v", frames[2])
+	}
+}

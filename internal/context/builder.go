@@ -578,7 +578,8 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		}
 	}
 	if ac.AgentName != types.AgentPerfTriager {
-		if section := formatPerfTriageStructured(ac.PerfTrace); section != "" {
+		locator := authority.LocatorFromMultiGraph(ac.MultiGraph)
+		if section := formatPerfTriageStructured(ac.PerfTrace, locator); section != "" {
 			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionPerfTriageExtraction,
@@ -2577,15 +2578,33 @@ func formatAttachedTrace(raw, workDir string) string {
 // Returns "" when nothing to surface; the caller appends only when
 // non-empty.
 func renderLogTriageFrameDrift(bundle *types.LogBundle, locator types.SymbolLocator) string {
-	if locator == nil || bundle == nil {
+	if bundle == nil {
+		return ""
+	}
+	frames := make([]types.LogFrame, 0, 8)
+	types.WalkLogFrames(bundle, func(frame types.LogFrame) {
+		frames = append(frames, frame)
+	})
+	return renderRuntimeFrameDriftWarning(frames, locator)
+}
+
+func renderPerfTriageFrameDrift(bundle *types.PerfBundle, locator types.SymbolLocator) string {
+	if bundle == nil {
+		return ""
+	}
+	return renderRuntimeFrameDriftWarning(bundle.LogFrames(), locator)
+}
+
+func renderRuntimeFrameDriftWarning(frames []types.LogFrame, locator types.SymbolLocator) string {
+	if locator == nil || len(frames) == 0 {
 		return ""
 	}
 	// Collect frames that warrant warning. Aggregate by drift status
 	// so the section renders compactly.
 	bucket := make(map[types.FrameDriftStatus][]types.LogFrame)
-	types.WalkLogFrames(bundle, func(frame types.LogFrame) {
+	for _, frame := range frames {
 		if frame.File == "" || frame.Func == "" {
-			return
+			continue
 		}
 		drift := logtriage.DetectDriftForFrame(frame, locator)
 		switch drift.Status {
@@ -2595,7 +2614,7 @@ func renderLogTriageFrameDrift(bundle *types.LogBundle, locator types.SymbolLoca
 			types.DriftStatusUnmappable:
 			bucket[drift.Status] = append(bucket[drift.Status], frame)
 		}
-	})
+	}
 	if len(bucket) == 0 {
 		return ""
 	}
@@ -2868,7 +2887,7 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 // Returns "" when bundle is nil or carries no actionable content
 // (zero frames + zero janks + zero stalls + nil startup + zero
 // residue). Caller skips the section.
-func formatPerfTriageStructured(bundle *types.PerfBundle) string {
+func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLocator) string {
 	if bundle == nil {
 		return ""
 	}
@@ -2896,6 +2915,16 @@ func formatPerfTriageStructured(bundle *types.PerfBundle) string {
 	// the log_triage section to avoid input-modality skew.
 	b.WriteString(renderBugClassesSection(bundle.Meta.BugClasses, "trace"))
 
+	if bundle.IsExternalSource() {
+		b.WriteString("⚠ **External-source trace**: the attached trace's structured observations do NOT resolve to any file in this repo (resolved_files=0). The answer must come from the trace's own timing / jank / stall semantics — do NOT open repo files hoping to ground trace literals that are not in this checkout.\n")
+		b.WriteString("  - For scalar or summary claims drawn directly from the trace, use `citation_ref=-1` unless a current repo line literally states the same claim.\n")
+		b.WriteString("  - Quote trace span names, tags, stall symbols, and timing values as runtime observations; do not invent file:line anchors in this repo.\n\n")
+	}
+
+	if section := renderPerfTriageFrameDrift(bundle, locator); section != "" {
+		b.WriteString(section)
+	}
+
 	// Meta block
 	if bundle.Meta.Source != "" {
 		fmt.Fprintf(&b, "- Source: %s\n", bundle.Meta.Source)
@@ -2913,6 +2942,13 @@ func formatPerfTriageStructured(bundle *types.PerfBundle) string {
 		fmt.Fprintf(&b, "- Intent hint: %s\n", bundle.IntentHint)
 	}
 	fmt.Fprintf(&b, "- Coverage: %.2f\n\n", bundle.Coverage)
+	resolvedFile := make(map[string]bool, len(bundle.ResolvedFiles))
+	for _, file := range bundle.ResolvedFiles {
+		file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
+		if file != "" {
+			resolvedFile[file] = true
+		}
+	}
 
 	// Startup envelope
 	if bundle.Startup != nil {
@@ -2962,10 +2998,17 @@ func formatPerfTriageStructured(bundle *types.PerfBundle) string {
 				fmt.Fprintf(&b, " symbol=`%s`", s.Symbol)
 			}
 			if s.File != "" {
+				file := strings.TrimSpace(strings.ReplaceAll(s.File, `\`, `/`))
 				if s.Line > 0 {
-					fmt.Fprintf(&b, " (%s:%d ★ resolved)", s.File, s.Line)
-				} else {
+					if resolvedFile[file] {
+						fmt.Fprintf(&b, " (%s:%d ★ resolved)", s.File, s.Line)
+					} else {
+						fmt.Fprintf(&b, " (%s:%d observed, unresolved)", s.File, s.Line)
+					}
+				} else if resolvedFile[file] {
 					fmt.Fprintf(&b, " (%s ★ resolved)", s.File)
+				} else {
+					fmt.Fprintf(&b, " (%s observed, unresolved)", s.File)
 				}
 			}
 			b.WriteString("\n")

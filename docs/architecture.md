@@ -79,7 +79,7 @@ codrax 的目标是让一个 LLM 在不出错的前提下回答一个真实代�
 | `emit_investigation_complete` citation-floor pre-flight | `evidence_floor_waiver`（model-declared）**或** `LogBundle.IsExternalSource()` / `PerfBundle.IsExternalSource()`（system-derived） | 同上 | 同上 |
 | finalizer runtime citation policy | `RuntimeGroundingDisposition`（stable answer-surface projection） | 同上 | `internal/types/answer_surface_plan.go` + `internal/agent/answer_document_evaluator.go` |
 | `emit_investigation_complete` absence-floor | `absence_justification`（model-declared） | 答案就是 zero / not-found | 已有 |
-| log_triage frame 自指陷阱 | 不是 gate，是 **typed signal**：`FrameDriftStatus` 渲染到 prompt section（"Frame ↔ current-code drift warning"） | LineDrift / TailRename / FileMoved / Unmappable | `internal/context/builder.go::renderLogTriageFrameDrift` |
+| log / trace frame 自指陷阱 | 不是 gate，是 **typed signal**：`FrameDriftStatus` 渲染到 prompt section（"Frame ↔ current-code drift warning"） | LineDrift / TailRename / FileMoved / Unmappable | `internal/context/builder.go::renderLogTriageFrameDrift` / `renderPerfTriageFrameDrift` |
 
 **红线对未来 gate 的约束**:
 - 新增 gate 时，**必须**同步设计 typed escape lane。**不允许**架"系统永远正确"的硬 gate

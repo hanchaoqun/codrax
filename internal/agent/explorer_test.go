@@ -124,7 +124,6 @@ func TestContainsFactoryReference(t *testing.T) {
 	}
 }
 
-
 func TestResolveConditions(t *testing.T) {
 	concreteValues := `## Concrete Values (programmatically extracted from source code)
 
@@ -687,11 +686,10 @@ func TestEnumerationIntentForContext_StructuredNonEnumerationSuppressesRawListVe
 			RequestModel: types.RequestModel{
 				Intent: types.IntentTrace,
 				AnalyzerHints: types.AnalyzerHints{
-					Kind:  "call_chain",
+					Kind: "call_chain",
 				},
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 	if enumerationIntentForContext(ctx) {
@@ -3000,8 +2998,7 @@ func TestOrderedSameFileTracePartialReadHint(t *testing.T) {
 				Intent:        types.IntentTrace,
 				PredicateAxis: types.AxisCall,
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 	hint := eval.orderedSameFileTracePartialReadHint()
@@ -3038,8 +3035,7 @@ func TestMidLoopCheck_PostPrimaryReadPrefersScalarRoleLocateMaterialization(t *t
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
 				Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 	history := []types.ToolResult{{
@@ -4304,8 +4300,7 @@ func TestFilterPartialReadsForPostPrimary_DropsUnrelatedScalarHints(t *testing.T
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
 				Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 		structuredEvidence: []types.EvidenceItem{
 			{
@@ -5116,8 +5111,7 @@ func TestObserveMidLoop_CompletionReadyHintAddsDriftBoundedGuardrail(t *testing.
 				Scenario: types.ScenarioRootCause,
 				Intent:   types.IntentRootCause,
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 		logTriage: &types.LogBundle{
 			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
@@ -5195,8 +5189,7 @@ func TestObserveMidLoop_DriftBoundedAuthoritativeClosureBypassesUnsatisfiedERM(t
 				Scenario: types.ScenarioRootCause,
 				Intent:   types.IntentRootCause,
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 		logTriage: &types.LogBundle{
 			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
@@ -5267,8 +5260,7 @@ func TestDriftBoundedCompletionReadyMode_AllowsObservedCurrentBranchWithoutDrift
 				Scenario: types.ScenarioRootCause,
 				Intent:   types.IntentRootCause,
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 		logTriage: &types.LogBundle{
 			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
@@ -5316,6 +5308,45 @@ func TestDriftBoundedCompletionReadyMode_AllowsObservedCurrentBranchWithoutDrift
 	}
 	if got := eval.driftBoundedCompletionReason(); got == "" {
 		t.Fatal("bounded completion reason should still be available from current observed anchors")
+	}
+}
+
+func TestExplorerCurrentDriftBoundedSurface_UsesPerfTrace(t *testing.T) {
+	eval := &explorerEvaluator{
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentTrace,
+			},
+		},
+		perfTrace: &types.PerfBundle{
+			Stalls: []types.PerfStall{{
+				Symbol: "Render",
+				File:   "ui/render.go",
+				Line:   60,
+			}},
+		},
+		structuredEvidence: []types.EvidenceItem{{
+			Kind:            types.EvidenceDirect,
+			Source:          "ui/render.go",
+			LineStart:       180,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Render",
+			GroundingStatus: types.GroundingGrounded,
+			Origin:          types.ClaimOriginPerf,
+			Authority:       types.AuthorityConditional,
+			DriftReason:     types.DriftReasonLineDrift,
+		}},
+	}
+	observed, drift, items := eval.currentDriftBoundedSurface()
+	if len(observed) != 1 || len(drift) != 1 || len(items) != 1 {
+		t.Fatalf("perf trace drift surface not collected: observed=%+v drift=%+v items=%+v", observed, drift, items)
+	}
+	if drift[0].File != "ui/render.go" || drift[0].ObservedLine != 60 || drift[0].AnchoredLine != 180 {
+		t.Fatalf("perf drift anchor wrong: %+v", drift[0])
+	}
+	if items[0].Origin != types.ClaimOriginPerf {
+		t.Fatalf("perf drift item should be projected as perf origin, got %+v", items[0])
 	}
 }
 
@@ -5684,8 +5715,7 @@ func TestObserveMidLoop_CompletionReadyFiresForMinimalScalarRoleLocate(t *testin
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
 				Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
 		structuredEvidence: []types.EvidenceItem{
@@ -5744,8 +5774,7 @@ func TestObserveMidLoop_MultiTopicExplanationAnchorHint(t *testing.T) {
 					{Summary: "AnalysisIR 如何持有 HypothesisSet", Entities: []string{"AnalysisIR.HypothesisSet", "HypothesisSet"}},
 				},
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
 		structuredEvidence: []types.EvidenceItem{
@@ -5839,8 +5868,7 @@ func TestObserveMidLoop_DriftBoundedCompletionReadyClosureOnlyFastTracks(t *test
 				Scenario: types.ScenarioRootCause,
 				Intent:   types.IntentRootCause,
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 		logTriage: &types.LogBundle{
 			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},

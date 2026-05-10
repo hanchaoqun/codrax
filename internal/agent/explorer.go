@@ -11,10 +11,10 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/dataflow"
-	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/analysis/declarative"
 	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/analysis/subject"
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -59,14 +59,14 @@ type explorerEvaluator struct {
 	// irrelevant files, canonicalised + indexed for O(1) lookup.
 	// Honored as a hard exclusion across pre-read pools, mid-loop
 	// "Read these next:" hints, and primary-file selection.
-	irrelevantFilesSet map[string]bool
-	investigationNotes        []string             // assistant analysis messages from ReAct loop
-	userQuestion              string               // original user question, for focus alignment
-	repoRoot                  string               // repository root path, cached from BuildInitialInstruction
-	preScannedPushCount       int                  // times we pushed for unread pre-scanned files without progress
-	lastPreScannedUnreadCount int                  // count of unread pre-scanned files at last push
-	grepRedirectedFiles       map[string]bool      // files that already received a large-file grep redirect
-	isEnumerationQuery        bool                 // true if user question asks to list/enumerate all items
+	irrelevantFilesSet        map[string]bool
+	investigationNotes        []string        // assistant analysis messages from ReAct loop
+	userQuestion              string          // original user question, for focus alignment
+	repoRoot                  string          // repository root path, cached from BuildInitialInstruction
+	preScannedPushCount       int             // times we pushed for unread pre-scanned files without progress
+	lastPreScannedUnreadCount int             // count of unread pre-scanned files at last push
+	grepRedirectedFiles       map[string]bool // files that already received a large-file grep redirect
+	isEnumerationQuery        bool            // true if user question asks to list/enumerate all items
 	// isOrientationQuery mirrors types.IsProjectOrientationQuestion
 	// (intent=explain + simple complexity + no entities + clean
 	// predicates). Cached at dispatch entry so observeMidLoop can
@@ -75,18 +75,18 @@ type explorerEvaluator struct {
 	// multi-path symbol-anchored skip (applyMultiPathAnchorChecks
 	// → multipath.EvaluateAnchor) — both stages must agree on what
 	// an orientation question is.
-	isOrientationQuery              bool
-	phase0ExtraRound                bool // whether we already gave one extra Phase 0 round for quality gate
-	hasPrescanRepoMap               bool // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
-	structuredEvidence              []types.EvidenceItem
-	flowFindings                    []types.FlowFindingDigest
-	ermRequirements                 []EvidenceRequirement // evidence requirement model
-	cachedConcreteValues            *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
-	midLoopLastResultsLen           int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
-	midLoopSerialStreak             int                   // #34: consecutive iters observed as single-call rounds
-	midLoopParallelInjected         bool                  // #34: parallel-batching hint already pushed this dispatch
-	midLoopSymbolRefInjected        bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
-	midLoopPostPrimaryInjected      bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
+	isOrientationQuery         bool
+	phase0ExtraRound           bool // whether we already gave one extra Phase 0 round for quality gate
+	hasPrescanRepoMap          bool // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
+	structuredEvidence         []types.EvidenceItem
+	flowFindings               []types.FlowFindingDigest
+	ermRequirements            []EvidenceRequirement // evidence requirement model
+	cachedConcreteValues       *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
+	midLoopLastResultsLen      int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
+	midLoopSerialStreak        int                   // #34: consecutive iters observed as single-call rounds
+	midLoopParallelInjected    bool                  // #34: parallel-batching hint already pushed this dispatch
+	midLoopSymbolRefInjected   bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
+	midLoopPostPrimaryInjected bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
 	// midLoopBudgetExhaustedSent (2026-05-10 Fix B) tracks the
 	// per-tool one-shot budget-exhausted nudge. The 2026-05-10 sweep
 	// digest forensic on s5b iter=2 exposed the waste: a 6-call
@@ -99,19 +99,19 @@ type explorerEvaluator struct {
 	// independent budgets (read_file, grep, repo_map, list_files)
 	// each fire their own one-shot.
 	midLoopBudgetExhaustedSent      map[string]bool
-	midLoopEvidenceRepairSent       bool                  // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
-	midLoopEvidenceRepairResultsLen int                   // allResults length when the current emit_evidence repair hint fired
-	midLoopClosureRepairSent        bool                  // one-shot: structured closure repair from a downgraded completion already pushed this dispatch
-	midLoopClosureRepairResultsLen  int                   // allResults length when the current closure repair hint fired
-	midLoopIntentWindowSent         bool                  // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
-	midLoopRankerCoverageSent       bool                  // session-22: ranker-coverage-too-low hint already pushed this dispatch
-	midLoopAbsentRedirectSent       bool                  // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
-	midLoopExternalLogSent          bool                  // one-shot: external-source log runtime frames redirected this dispatch
-	midLoopExactAbsenceContextSent  bool                  // one-shot: exact absence still needs one grounded same-family production anchor before closure
-	midLoopExactAbsenceSent         bool                  // one-shot: exact-resolution absence already looks closure-ready this dispatch
-	midLoopSchemaLevelHintSent      bool                  // one-shot: schema-level evidence nudge already pushed this Run (config-trace + exact-absent only)
-	midLoopAuthoritativeTier1Sent   bool                  // one-shot: authoritative log path is semantically enough but would fail Tier-1 floor before completion
-	midLoopEnumInjected             bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
+	midLoopEvidenceRepairSent       bool // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
+	midLoopEvidenceRepairResultsLen int  // allResults length when the current emit_evidence repair hint fired
+	midLoopClosureRepairSent        bool // one-shot: structured closure repair from a downgraded completion already pushed this dispatch
+	midLoopClosureRepairResultsLen  int  // allResults length when the current closure repair hint fired
+	midLoopIntentWindowSent         bool // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
+	midLoopRankerCoverageSent       bool // session-22: ranker-coverage-too-low hint already pushed this dispatch
+	midLoopAbsentRedirectSent       bool // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
+	midLoopExternalArtifactSent     bool // one-shot: external-source runtime artifact redirected this dispatch
+	midLoopExactAbsenceContextSent  bool // one-shot: exact absence still needs one grounded same-family production anchor before closure
+	midLoopExactAbsenceSent         bool // one-shot: exact-resolution absence already looks closure-ready this dispatch
+	midLoopSchemaLevelHintSent      bool // one-shot: schema-level evidence nudge already pushed this Run (config-trace + exact-absent only)
+	midLoopAuthoritativeTier1Sent   bool // one-shot: authoritative log path is semantically enough but would fail Tier-1 floor before completion
+	midLoopEnumInjected             bool // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
 	// midLoopOrientationFinalizeSent latches the once-per-dispatch
 	// orientation finalize nudge. Without this latch the nudge would
 	// re-render every iteration after the threshold fires, drowning
@@ -297,7 +297,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopIntentWindowSent = false
 		e.midLoopRankerCoverageSent = false
 		e.midLoopAbsentRedirectSent = false
-		e.midLoopExternalLogSent = false
+		e.midLoopExternalArtifactSent = false
 		e.midLoopExactAbsenceSent = false
 		e.midLoopSchemaLevelHintSent = false
 		e.midLoopEnumInjected = false
@@ -408,7 +408,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopIntentWindowSent = false
 	e.midLoopRankerCoverageSent = false
 	e.midLoopAbsentRedirectSent = false
-	e.midLoopExternalLogSent = false
+	e.midLoopExternalArtifactSent = false
 	e.midLoopExactAbsenceContextSent = false
 	e.midLoopExactAbsenceSent = false
 	e.midLoopSchemaLevelHintSent = false
@@ -4714,7 +4714,16 @@ func (e *explorerEvaluator) postClosureReadyBacklogSignal(obs LoopObservation) L
 }
 
 func (e *explorerEvaluator) postExternalLogRedirectSignal(obs LoopObservation) LoopSignal {
-	if e.midLoopExternalLogSent || e.logTriage == nil || !e.logTriage.IsExternalSource() {
+	if e.midLoopExternalArtifactSent {
+		return LoopSignal{}
+	}
+	artifactLabel := ""
+	if e.logTriage != nil && e.logTriage.IsExternalSource() {
+		artifactLabel = "log"
+	} else if e.perfTrace != nil && e.perfTrace.IsExternalSource() {
+		artifactLabel = "trace"
+	}
+	if artifactLabel == "" {
 		return LoopSignal{}
 	}
 	for _, r := range obs.AllToolResults {
@@ -4723,17 +4732,22 @@ func (e *explorerEvaluator) postExternalLogRedirectSignal(obs LoopObservation) L
 		}
 		summary := strings.ToLower(r.Summary)
 		if !strings.Contains(summary, "repo-relative file path") &&
-			!strings.Contains(summary, "runtime log (unresolved)") {
+			!strings.Contains(summary, "runtime log (unresolved)") &&
+			!strings.Contains(summary, "external_perf_stall_unresolved") {
 			continue
 		}
-		e.midLoopExternalLogSent = true
+		e.midLoopExternalArtifactSent = true
+		hintKey := "explorer.mid-loop.external-runtime-no-anchor"
+		if artifactLabel == "log" {
+			hintKey = "explorer.mid-loop.external-log-no-anchor"
+		}
 		return LoopSignal{
 			HintRequested: true,
-			HintKey:       "explorer.mid-loop.external-log-no-anchor",
-			Hint: "MID-LOOP CHECK: the attached log is an external-source trace (resolved_files=0). " +
-				"Runtime frames that do not resolve to repo files cannot go through `emit_evidence`, and reading unrelated repo files just to manufacture citations is wasted work. " +
-				"If the structured Log Triage error chain already answers the question, call `emit_investigation_complete` now — the answer can be composed from the log semantics alone. " +
-				"Only continue repo reads if you have identified a real repository file that explains how this repo handles the logged failure.",
+			HintKey:       hintKey,
+			Hint: fmt.Sprintf("MID-LOOP CHECK: the attached %s is an external-source runtime artifact (resolved_files=0). ", artifactLabel) +
+				"Runtime frames / spans that do not resolve to repo files cannot go through `emit_evidence`, and reading unrelated repo files just to manufacture citations is wasted work. " +
+				"If the structured runtime artifact already answers the question, call `emit_investigation_complete` now — the answer can be composed from the log / trace semantics alone. " +
+				"Only continue repo reads if you have identified a real repository file that explains how this repo handles the observed runtime behavior.",
 			Progress:       true,
 			BypassThrottle: true,
 			BypassBudget:   true,
@@ -5976,11 +5990,11 @@ func (e *explorerEvaluator) driftBoundedCompletionHintReason() string {
 }
 
 func (e *explorerEvaluator) currentDriftBoundedSurface() ([]types.LogSourceDriftAnchor, []types.LogSourceDriftAnchor, []types.EvidenceItem) {
-	if e == nil || e.analysisIR == nil || e.logTriage == nil {
+	if e == nil || e.analysisIR == nil || (e.logTriage == nil && e.perfTrace == nil) {
 		return nil, nil, nil
 	}
-	observed := types.CollectLogObservedAnchors(e.analysisIR.RequestModel, e.logTriage, e.structuredEvidence)
-	drift := types.CollectLogSourceDriftAnchors(e.analysisIR.RequestModel, e.logTriage, e.structuredEvidence)
+	observed := types.CollectArtifactObservedAnchors(e.analysisIR.RequestModel, e.logTriage, e.perfTrace, e.structuredEvidence)
+	drift := types.CollectArtifactSourceDriftAnchors(e.analysisIR.RequestModel, e.logTriage, e.perfTrace, e.structuredEvidence)
 	items := types.CollectDriftBoundedSurfaceItems(observed, drift, e.structuredEvidence)
 	return observed, drift, items
 }
@@ -13536,7 +13550,7 @@ func extractQuestionEntitiesFallback(question string, graph *repomap.Graph) []st
 
 // tokenizeQuestionCJKAware splits a question string on:
 //   - ASCII whitespace
-//   - ASCII punctuation (`.,;:!?`(){}[]<>"'\\``)
+//   - ASCII punctuation such as dots, brackets, quotes, slash, and backslash
 //   - CJK character boundaries (each CJK rune is its own token —
 //     they are word boundaries in Chinese / Japanese / Korean since
 //     those languages don't separate words by spaces)
@@ -13564,15 +13578,15 @@ func tokenizeQuestionCJKAware(s string) []string {
 			r == '/':
 			flush()
 		case r >= 0x4E00 && r <= 0x9FFF, // CJK Unified
-			r >= 0x3400 && r <= 0x4DBF,    // CJK Extension A
-			r >= 0x3000 && r <= 0x303F,    // CJK Symbols
-			r >= 0x3040 && r <= 0x309F,    // Hiragana
-			r >= 0x30A0 && r <= 0x30FF,    // Katakana
-			r >= 0xAC00 && r <= 0xD7AF,    // Hangul
+			r >= 0x3400 && r <= 0x4DBF, // CJK Extension A
+			r >= 0x3000 && r <= 0x303F, // CJK Symbols
+			r >= 0x3040 && r <= 0x309F, // Hiragana
+			r >= 0x30A0 && r <= 0x30FF, // Katakana
+			r >= 0xAC00 && r <= 0xD7AF, // Hangul
 			r == '。' || r == '，' || r == '、' || r == '；' || r == '：' ||
-			r == '！' || r == '？' ||
-			r == '“' || r == '”' || // " "
-			r == '‘' || r == '’': // ' '
+				r == '！' || r == '？' ||
+				r == '“' || r == '”' || // " "
+				r == '‘' || r == '’': // ' '
 			flush()
 		default:
 			cur.WriteRune(r)
