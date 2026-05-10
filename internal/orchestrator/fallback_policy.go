@@ -427,6 +427,10 @@ func legacyDefaultFallbackPolicy() FallbackPolicy {
 		// reused, but the answer must be rewritten around the current
 		// user's subject.
 		types.ViolAnswerTopicMismatch: FallbackFinalizerOnly,
+		// Current-status verdict is a rendered-answer contract: the
+		// finalizer must emit one bounded decision token, no upstream
+		// investigation needed.
+		types.ViolCurrentStatusVerdictMissing: FallbackFinalizerOnly,
 		// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 		// enumeration evidence pool needs more typed names. Only
 		// the explorer can fix this; finalize-only rewrite would

@@ -65,14 +65,15 @@ type emitAnalysisParams struct {
 	// / predicateVerbMap) with cross-language LLM judgement. All
 	// predicate fields are required to be explicit (true OR false) — a
 	// missing field is fail-loud, not a silent default.
-	IntentConfidence     float64                       `json:"intent_confidence"`
-	ComplexityConfidence float64                       `json:"complexity_confidence"`
-	KindConfidence       float64                       `json:"kind_confidence"`
-	Predicates           *emitPredicatesParam          `json:"predicates"`
-	DiagnosticProfile    *emitDiagnosticProfileParam   `json:"diagnostic_profile"`
-	PredicateAxis        string                        `json:"predicate_axis,omitempty"`
-	DiagramHint          *emitDiagramHintParam         `json:"diagram_hint,omitempty"`
-	EnumerationBoundary  *emitEnumerationBoundaryParam `json:"enumeration_boundary,omitempty"`
+	IntentConfidence             float64                                `json:"intent_confidence"`
+	ComplexityConfidence         float64                                `json:"complexity_confidence"`
+	KindConfidence               float64                                `json:"kind_confidence"`
+	Predicates                   *emitPredicatesParam                   `json:"predicates"`
+	DiagnosticProfile            *emitDiagnosticProfileParam            `json:"diagnostic_profile"`
+	ConversationReferenceProfile *emitConversationReferenceProfileParam `json:"conversation_reference_profile,omitempty"`
+	PredicateAxis                string                                 `json:"predicate_axis,omitempty"`
+	DiagramHint                  *emitDiagramHintParam                  `json:"diagram_hint,omitempty"`
+	EnumerationBoundary          *emitEnumerationBoundaryParam          `json:"enumeration_boundary,omitempty"`
 	// Plan E (2026-05-02) — additional structural-obligation axes.
 	CompletenessObligation *emitCompletenessObligationParam `json:"completeness_obligation,omitempty"`
 	Buckets                []emitQuestionBucketParam        `json:"buckets,omitempty"`
@@ -125,7 +126,24 @@ type emitDiagnosticProfileParam struct {
 	CurrentRisk          *bool    `json:"current_risk"`
 	HistoricalRegression *bool    `json:"historical_regression"`
 	CurrentVersionCheck  *bool    `json:"current_version_check"`
+	ObservationSummary   string   `json:"observation_summary,omitempty"`
 	Confidence           *float64 `json:"confidence"`
+}
+
+type emitConversationReferenceProfileParam struct {
+	RequiresPriorContext  *bool                                  `json:"requires_prior_context"`
+	NeedsRepoVerification *bool                                  `json:"needs_repo_verification"`
+	Ambiguity             string                                 `json:"ambiguity"`
+	ResolvedSubjects      []emitResolvedConversationSubjectParam `json:"resolved_subjects,omitempty"`
+}
+
+type emitResolvedConversationSubjectParam struct {
+	Surface          string   `json:"surface"`
+	Kind             string   `json:"kind,omitempty"`
+	Source           string   `json:"source"`
+	Role             string   `json:"role,omitempty"`
+	UseAsExactTarget *bool    `json:"use_as_exact_target"`
+	Confidence       *float64 `json:"confidence"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -287,9 +305,36 @@ func buildEmitAnalysisSchema() {
 					"current_risk":          map[string]any{"type": "boolean", "description": "True when the current request asks whether a known or observed issue can still happen in the current checkout."},
 					"historical_regression": map[string]any{"type": "boolean", "description": "True when the request compares a historical observed symptom against the current version."},
 					"current_version_check": map[string]any{"type": "boolean", "description": "True when the answer must verify current code separately from historical artifact observations."},
+					"observation_summary":   map[string]any{"type": "string", "description": "Optional compact summary of the historical or user-described symptom. Fill this when no log/trace is attached or when the request uses prior conversation to refer to the issue being checked."},
 					"confidence":            map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this diagnostic profile in [0,1]."},
 				},
 				"required": []string{"is_diagnostic", "current_risk", "historical_regression", "current_version_check", "confidence"},
+			},
+			"conversation_reference_profile": map[string]any{
+				"type":        "object",
+				"description": "Optional typed resolution for current requests that rely on Prior Conversation. Use this for ordinary follow-up questions whose concrete subject is not verbatim in the current request. Do not use it for attached log/trace observations; those use diagnostic/artifact profiles.",
+				"properties": map[string]any{
+					"requires_prior_context":  map[string]any{"type": "boolean", "description": "True when the current request cannot be resolved without Prior Conversation."},
+					"needs_repo_verification": map[string]any{"type": "boolean", "description": "True when answering still requires reading repository files after resolving the prior subject."},
+					"ambiguity":               map[string]any{"type": "string", "enum": conversationReferenceAmbiguityValues(), "description": "none when the prior subject is resolved uniquely; ambiguous when multiple prior subjects fit; missing when no prior subject is available."},
+					"resolved_subjects": map[string]any{
+						"type":        "array",
+						"description": "Concrete subjects resolved from Prior Conversation or mixed current/prior context.",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"surface":             map[string]any{"type": "string", "description": "Concrete identifier, path, config key, route, or symbol surface copied from Prior Conversation or current+prior context."},
+								"kind":                map[string]any{"type": "string", "enum": skill.AnalysisAnswerSubjectValues(), "description": "What kind of target this resolved subject is."},
+								"source":              map[string]any{"type": "string", "enum": conversationReferenceSourceValues(), "description": "Where this resolved surface came from."},
+								"role":                map[string]any{"type": "string", "description": "Short role label such as primary_subject, exact_answer_target, context, comparator."},
+								"use_as_exact_target": map[string]any{"type": "boolean", "description": "True only when this prior-derived subject is the exact target the answer must resolve; false for contextual hints."},
+								"confidence":          map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this specific subject resolution."},
+							},
+							"required": []string{"surface", "source", "use_as_exact_target", "confidence"},
+						},
+					},
+				},
+				"required": []string{"requires_prior_context", "needs_repo_verification", "ambiguity"},
 			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
@@ -374,6 +419,24 @@ func buildEmitAnalysisSchema() {
 		return
 	}
 	emitAnalysisSchemaCache = raw
+}
+
+func conversationReferenceSourceValues() []string {
+	values := types.AllConversationReferenceSources()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func conversationReferenceAmbiguityValues() []string {
+	values := types.AllConversationReferenceAmbiguities()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
 }
 
 // Execute is the runtime quality gate. The JSON schema caught the
@@ -487,6 +550,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			ToolName:  t.Name(),
 			Success:   false,
 			Summary:   "emit_analysis rejected: " + diagnosticErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	conversationReferenceProfile, conversationReferenceErr := parseConversationReferenceProfile(p.ConversationReferenceProfile)
+	if conversationReferenceErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + conversationReferenceErr,
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -634,17 +706,18 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			IrrelevantFiles:   validateAndBuildIrrelevantFiles(p.IrrelevantFiles, &val),
 			Kind:              kind,
 		},
-		AnswerSubject:          answerSubject,
-		IntentConfidence:       p.IntentConfidence,
-		ComplexityConfidence:   p.ComplexityConfidence,
-		KindConfidence:         p.KindConfidence,
-		Predicates:             predicates,
-		DiagnosticProfile:      diagnosticProfile,
-		PredicateAxis:          axis,
-		DiagramHint:            diagramHint,
-		EnumerationBoundary:    enumerationBoundary,
-		CompletenessObligation: completenessObligation,
-		Buckets:                buckets,
+		AnswerSubject:                answerSubject,
+		IntentConfidence:             p.IntentConfidence,
+		ComplexityConfidence:         p.ComplexityConfidence,
+		KindConfidence:               p.KindConfidence,
+		Predicates:                   predicates,
+		DiagnosticProfile:            diagnosticProfile,
+		ConversationReferenceProfile: conversationReferenceProfile,
+		PredicateAxis:                axis,
+		DiagramHint:                  diagramHint,
+		EnumerationBoundary:          enumerationBoundary,
+		CompletenessObligation:       completenessObligation,
+		Buckets:                      buckets,
 	}
 	ctx.Mutable.SetRequestModel(rm)
 	recordExactTargetPrescanFindings(ctx, rm, seenBlob)
@@ -957,8 +1030,95 @@ func parseDiagnosticProfile(p *emitDiagnosticProfileParam) (types.DiagnosticInte
 		CurrentRisk:          *p.CurrentRisk,
 		HistoricalRegression: *p.HistoricalRegression,
 		CurrentVersionCheck:  *p.CurrentVersionCheck,
+		ObservationSummary:   strings.TrimSpace(p.ObservationSummary),
 		Confidence:           *p.Confidence,
 	}, ""
+}
+
+func parseConversationReferenceProfile(p *emitConversationReferenceProfileParam) (*types.ConversationReferenceProfile, string) {
+	if p == nil {
+		return nil, ""
+	}
+	var missing []string
+	if p.RequiresPriorContext == nil {
+		missing = append(missing, "requires_prior_context")
+	}
+	if p.NeedsRepoVerification == nil {
+		missing = append(missing, "needs_repo_verification")
+	}
+	if strings.TrimSpace(p.Ambiguity) == "" {
+		missing = append(missing, "ambiguity")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Sprintf(
+			"conversation_reference_profile missing required field(s): %s",
+			strings.Join(missing, ", "),
+		)
+	}
+	ambiguity := types.ConversationReferenceAmbiguity(strings.TrimSpace(p.Ambiguity))
+	if !ambiguity.IsValid() {
+		return nil, fmt.Sprintf(
+			"conversation_reference_profile.ambiguity %q is invalid; use one of %s",
+			p.Ambiguity, strings.Join(conversationReferenceAmbiguityValues(), ", "),
+		)
+	}
+	if !*p.RequiresPriorContext && len(p.ResolvedSubjects) == 0 {
+		return nil, ""
+	}
+	if !*p.RequiresPriorContext && len(p.ResolvedSubjects) > 0 {
+		return nil, "conversation_reference_profile.resolved_subjects require requires_prior_context=true"
+	}
+	out := &types.ConversationReferenceProfile{
+		RequiresPriorContext:  *p.RequiresPriorContext,
+		NeedsRepoVerification: *p.NeedsRepoVerification,
+		Ambiguity:             ambiguity,
+	}
+	for i, raw := range p.ResolvedSubjects {
+		surface := strings.TrimSpace(raw.Surface)
+		if surface == "" {
+			return nil, fmt.Sprintf("conversation_reference_profile.resolved_subjects[%d].surface is required", i)
+		}
+		if raw.UseAsExactTarget == nil {
+			return nil, fmt.Sprintf("conversation_reference_profile.resolved_subjects[%d].use_as_exact_target is required", i)
+		}
+		if raw.Confidence == nil {
+			return nil, fmt.Sprintf("conversation_reference_profile.resolved_subjects[%d].confidence is required", i)
+		}
+		if *raw.Confidence < 0 || *raw.Confidence > 1 {
+			return nil, fmt.Sprintf(
+				"conversation_reference_profile.resolved_subjects[%d].confidence %.2f out of [0,1]",
+				i, *raw.Confidence,
+			)
+		}
+		source := types.ConversationReferenceSource(strings.TrimSpace(raw.Source))
+		if !source.IsValid() {
+			return nil, fmt.Sprintf(
+				"conversation_reference_profile.resolved_subjects[%d].source %q is invalid; use one of %s",
+				i, raw.Source, strings.Join(conversationReferenceSourceValues(), ", "),
+			)
+		}
+		kind := types.AnswerSubjectKind(strings.TrimSpace(raw.Kind))
+		if !kind.IsValid() {
+			return nil, fmt.Sprintf(
+				"conversation_reference_profile.resolved_subjects[%d].kind %q is invalid",
+				i, raw.Kind,
+			)
+		}
+		out.ResolvedSubjects = append(out.ResolvedSubjects, types.ResolvedConversationSubject{
+			Surface:          surface,
+			Kind:             kind,
+			Source:           source,
+			Role:             strings.TrimSpace(raw.Role),
+			UseAsExactTarget: *raw.UseAsExactTarget,
+			Confidence:       *raw.Confidence,
+		})
+	}
+	if out.RequiresPriorContext &&
+		out.Ambiguity == types.ConversationReferenceAmbiguityNone &&
+		len(out.ResolvedSubjects) == 0 {
+		return nil, "conversation_reference_profile.ambiguity=none requires at least one resolved_subject"
+	}
+	return out, ""
 }
 
 func validateExactTargets(raw string, in []string) ([]string, string) {
@@ -1306,6 +1466,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() {
 		b.WriteString(" current_status_check=true")
+	}
+	if rm.ConversationReferenceProfile != nil && rm.ConversationReferenceProfile.RequiresPriorContext {
+		fmt.Fprintf(&b, " conversation_refs=%d", len(rm.ConversationReferenceProfile.ResolvedSubjects))
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

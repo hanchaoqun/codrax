@@ -77,6 +77,10 @@ func BuildArtifactObservationProfileForRequest(rm RequestModel) *ArtifactObserva
 	if rm.DiagnosticProfile.CurrentVersionCheck {
 		profile.ObservationKinds = append(profile.ObservationKinds, "current_version_check")
 	}
+	if summary := strings.TrimSpace(rm.DiagnosticProfile.ObservationSummary); summary != "" {
+		profile.SymptomSummary = clampProfileSnippet(summary)
+		profile.EvidenceSnippets = append(profile.EvidenceSnippets, clampProfileSnippet("diagnostic observation: "+summary))
+	}
 	if profile.SymptomSummary == "" {
 		profile.SymptomSummary = clampProfileSnippet(rm.RawRequest)
 	}
@@ -84,9 +88,13 @@ func BuildArtifactObservationProfileForRequest(rm RequestModel) *ArtifactObserva
 		profile.EvidenceSnippets = append(profile.EvidenceSnippets, clampProfileSnippet("user request: "+raw))
 	}
 	profile.SubjectCandidates = append(profile.SubjectCandidates,
+		rm.AnalyzerHints.Entities...)
+	profile.SubjectCandidates = append(profile.SubjectCandidates,
 		rm.AnalyzerHints.MentionedEntities...)
 	profile.SubjectCandidates = append(profile.SubjectCandidates,
 		rm.AnalyzerHints.PrimaryEntities...)
+	profile.SubjectCandidates = append(profile.SubjectCandidates,
+		rm.AnalyzerHints.DerivedEntities...)
 	profile.SubjectCandidates = append(profile.SubjectCandidates,
 		rm.AnalyzerHints.ExactTargets...)
 	profile.SubjectCandidates = append(profile.SubjectCandidates,

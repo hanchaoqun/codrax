@@ -192,6 +192,41 @@ func TestBuildAnalysisIR_DiagnosticPredicatePerfTraceUsesPerformanceScenario(t *
 	}
 }
 
+func TestBuildAnalysisIR_NoAttachmentNonDiagnosticHasNoObservationContract(t *testing.T) {
+	mut := types.NewMutableState("explorer 阶段是怎么调用 subagent 的")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "explorer 阶段是怎么调用 subagent 的",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityModerate,
+		Predicates: types.SemanticPredicates{IsDiagnosticQuestion: false},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic:         false,
+			CurrentRisk:          false,
+			HistoricalRegression: false,
+			CurrentVersionCheck:  false,
+			Confidence:           0.8,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"explorer", "subagent"},
+			Entities: []string{"explorer", "subagent"},
+			Kind:     "mechanism",
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.RequestModel.ArtifactObservationProfile != nil {
+		t.Fatalf("non-diagnostic no-attachment question should not create observation profile: %+v", ir.RequestModel.ArtifactObservationProfile)
+	}
+	if ir.AnswerContract.CurrentStatusDiagnostic != nil {
+		t.Fatalf("non-diagnostic no-attachment question should not create current-status contract: %+v", ir.AnswerContract.CurrentStatusDiagnostic)
+	}
+}
+
 func TestBuildAnalysisIR_DiagnosticProfileReconcilesWhenPredicateMissed(t *testing.T) {
 	mut := types.NewMutableState("请确认日志里这个历史问题当前版本是否还存在")
 	mut.SetRequestModel(types.RequestModel{
@@ -229,6 +264,50 @@ func TestBuildAnalysisIR_DiagnosticProfileReconcilesWhenPredicateMissed(t *testi
 	}
 	if profile := ir.RequestModel.ArtifactObservationProfile; profile == nil || profile.Source != "user_request" {
 		t.Fatalf("no-attachment diagnostic should still expose user_request observation profile: %+v", profile)
+	}
+}
+
+func TestBuildAnalysisIR_RebuildsArtifactProfileAfterDiagnosticReconcile(t *testing.T) {
+	mut := types.NewMutableState("确认上次那个偏题问题当前版本是否还存在")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "确认上次那个偏题问题当前版本是否还存在",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityModerate,
+		Predicates: types.SemanticPredicates{IsDiagnosticQuestion: true},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic:        false,
+			CurrentVersionCheck: true,
+			ObservationSummary:  "previous final answer drifted off topic",
+			Confidence:          0.88,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords:     []string{"偏题", "当前版本"},
+			Entities:     []string{"Finalizer"},
+			ExactTargets: []string{"emit_evidence"},
+			Kind:         "mechanism",
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	profile := ir.RequestModel.ArtifactObservationProfile
+	if profile == nil {
+		t.Fatal("ArtifactObservationProfile = nil")
+	}
+	if !containsAnalyzerIntentString(profile.ObservationKinds, "diagnostic_question") ||
+		!containsAnalyzerIntentString(profile.ObservationKinds, "current_version_check") {
+		t.Fatalf("profile was not rebuilt from reconciled diagnostic fields: %+v", profile.ObservationKinds)
+	}
+	if profile.SymptomSummary != "previous final answer drifted off topic" {
+		t.Fatalf("SymptomSummary = %q", profile.SymptomSummary)
+	}
+	if !containsAnalyzerIntentString(profile.SubjectCandidates, "Finalizer") ||
+		!containsAnalyzerIntentString(profile.SubjectCandidates, "emit_evidence") {
+		t.Fatalf("profile missing reconciled subject candidates: %+v", profile.SubjectCandidates)
 	}
 }
 
@@ -280,6 +359,15 @@ func TestBuildAnalysisIR_AttachesArtifactObservationProfileFromLog(t *testing.T)
 	if profile.DiagnosticConfidence < 0.9 {
 		t.Fatalf("DiagnosticConfidence = %.2f, want >= 0.9", profile.DiagnosticConfidence)
 	}
+}
+
+func containsAnalyzerIntentString(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
 }
 
 // TestBuildAnalysisIR_ReturnValueWithoutCountCue_KeepsGates is the

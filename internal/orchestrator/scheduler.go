@@ -678,7 +678,13 @@ func termSurfaceLookup(ir *types.AnalysisIR) func(string) string {
 		idx[c.ID] = c.Surface
 	}
 	return func(id string) string {
-		return idx[id]
+		if surface := idx[id]; surface != "" {
+			return surface
+		}
+		if strings.Contains(id, ":") {
+			return ""
+		}
+		return strings.TrimSpace(id)
 	}
 }
 

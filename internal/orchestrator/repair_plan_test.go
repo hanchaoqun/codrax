@@ -364,6 +364,9 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		// and the repair is a finalizer-local rewrite around the
 		// current request using existing evidence.
 		types.ViolAnswerTopicMismatch: "semantic-quality wrong-topic answer; finalizer-local rewrite only",
+		// Current-status verdict validation is a finalizer-local
+		// answer-format contract over existing evidence.
+		types.ViolCurrentStatusVerdictMissing: "current-status diagnostic decision token missing or invalid; finalizer-only rewrite",
 		// Phase 2.B Tier 2 ERM completeness violations (2026-05-09).
 		// Each dimension is a structurally-independent answer-coverage
 		// gap: a ScalarCount problem (visual count vs deterministic

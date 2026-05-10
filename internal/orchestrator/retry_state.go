@@ -168,6 +168,8 @@ func legacyInferViolationLayer(kind types.ViolationKind) string {
 	// reviewer for thinness / coverage gaps / wrong-topic answers.
 	case types.ViolAnswerSemanticUnderfilled, types.ViolAnswerTopicMismatch:
 		return "semantic_quality"
+	case types.ViolCurrentStatusVerdictMissing:
+		return "v2_oracle"
 
 	// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) — evidence
 	// pool structural gate.

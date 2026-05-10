@@ -12,6 +12,7 @@ package compiler
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/budget"
 	"github.com/hanchaoqun/codrax/internal/analysis/sourcemix"
@@ -111,13 +112,43 @@ func chain(ids ...string) []types.TaskEdge {
 // hints.
 func hintsFromRM(rm types.RequestModel) types.SearchHints {
 	var hints types.SearchHints
+	seenKeyword := map[string]bool{}
+	seenEntity := map[string]bool{}
+	addKeyword := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" || seenKeyword[strings.ToLower(id)] {
+			return
+		}
+		seenKeyword[strings.ToLower(id)] = true
+		hints.KeywordIDs = append(hints.KeywordIDs, id)
+	}
+	addEntity := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" || seenEntity[strings.ToLower(id)] {
+			return
+		}
+		seenEntity[strings.ToLower(id)] = true
+		hints.EntityIDs = append(hints.EntityIDs, id)
+	}
 	for _, c := range rm.TermGraph.Canonical {
 		switch c.Kind {
 		case types.TermSymbol:
-			hints.EntityIDs = append(hints.EntityIDs, c.ID)
-			hints.KeywordIDs = append(hints.KeywordIDs, c.ID)
+			addEntity(c.ID)
+			addKeyword(c.ID)
 		case types.TermConcept, types.TermConfig:
-			hints.KeywordIDs = append(hints.KeywordIDs, c.ID)
+			addKeyword(c.ID)
+		}
+	}
+	if profile := rm.ArtifactObservationProfile; profile != nil {
+		for _, candidate := range profile.SubjectCandidates {
+			addEntity(candidate)
+			addKeyword(candidate)
+		}
+	}
+	if profile := rm.ConversationReferenceProfile; profile != nil {
+		for _, candidate := range profile.SubjectCandidates() {
+			addEntity(candidate)
+			addKeyword(candidate)
 		}
 	}
 	return hints

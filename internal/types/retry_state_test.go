@@ -104,6 +104,15 @@ func TestDeriveSeverity_TopicMismatchIsHighByDefault(t *testing.T) {
 	}
 }
 
+func TestDeriveSeverity_CurrentStatusVerdictIsRetryEligible(t *testing.T) {
+	if got := DeriveSeverity(ViolCurrentStatusVerdictMissing, false); got != SeverityMedium {
+		t.Fatalf("current-status verdict severity = %s, want medium", got)
+	}
+	if got := ViolationProfileFor(ViolCurrentStatusVerdictMissing, false); !got.RetryEligible {
+		t.Fatalf("current-status verdict should be retry-eligible by default: %+v", got)
+	}
+}
+
 // TestDeriveSeverity_StrictBumpsSoftKindsToMedium covers operator-
 // configured strict promotion: Soft → Medium when isStrict=true.
 func TestDeriveSeverity_StrictBumpsSoftKindsToMedium(t *testing.T) {

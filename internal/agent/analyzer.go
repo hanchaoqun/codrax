@@ -1403,7 +1403,6 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// JSON serialisation so the LLM-emit wire shape stays unchanged.
 	rm.LogTriage = logBundle
 	rm.PerfTrace = perfBundle
-	rm.ArtifactObservationProfile = types.BuildArtifactObservationProfileForRequest(rm)
 
 	// Sub-topics post-processing: when the LLM detected multiple
 	// independent sub-topics, lift complexity so downstream budgets
@@ -1789,6 +1788,16 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			logging.Debug("[analyzer] R2 auto-keywords added: %v", added)
 		}
 	}
+
+	rm.AnalyzerHints.DerivedEntities = types.DerivedEntitiesFromMentioned(
+		rm.AnalyzerHints.Entities, rm.AnalyzerHints.MentionedEntities)
+
+	// Build the typed observation profile after reconciliation and
+	// entity expansion so no-attachment diagnostics see the final
+	// diagnostic flags, subject inference, and prior-derived entity
+	// hints. Earlier log/trace bundle attachment stays read-only;
+	// this is the single profile consumed by TaskGraph/finalizer.
+	rm.ArtifactObservationProfile = types.BuildArtifactObservationProfileForRequest(rm)
 
 	// Scenario default.
 	if rm.Scenario == "" || (rm.Scenario == types.ScenarioGeneric &&

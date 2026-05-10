@@ -58,6 +58,12 @@ type AnswerSemanticView struct {
 	// question shapes that don't carry that contract.
 	ExactResolution *ExactResolutionContract
 
+	// CurrentStatusDiagnostic is a pointer alias to the answer
+	// contract's current-status diagnostic obligation. Validators use
+	// this typed field, rather than prompt prose, to enforce that
+	// diagnostic follow-up answers emit one bounded verdict token.
+	CurrentStatusDiagnostic *CurrentStatusDiagnosticContract
+
 	// MissingRequestedRoles carries the subset of user-requested
 	// precedence roles that the current grounded config-precedence
 	// surface still shows as absent for the exact target. This is a

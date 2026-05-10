@@ -139,6 +139,65 @@ func TestCompile_RootCause_CurrentStatusDiagnosticHasThreeLaneContract(t *testin
 	}
 }
 
+func TestCompile_SearchHintsIncludeArtifactObservationSubjects(t *testing.T) {
+	rm := sampleRM(types.ScenarioRootCause, types.IntentRootCause, types.ComplexityComplex)
+	rm.Predicates.IsDiagnosticQuestion = true
+	rm.DiagnosticProfile = types.DiagnosticIntentProfile{
+		IsDiagnostic:        true,
+		CurrentVersionCheck: true,
+		Confidence:          0.9,
+	}
+	rm.ArtifactObservationProfile = &types.ArtifactObservationProfile{
+		Source:            "user_request",
+		SubjectCandidates: []string{"Finalizer", "emit_evidence"},
+	}
+
+	out := compileT(rm)
+	var foundEntity, foundKeyword bool
+	for _, n := range out.TaskGraph.Nodes {
+		if containsString(n.SearchHints.EntityIDs, "Finalizer") &&
+			containsString(n.SearchHints.EntityIDs, "emit_evidence") {
+			foundEntity = true
+		}
+		if containsString(n.SearchHints.KeywordIDs, "Finalizer") &&
+			containsString(n.SearchHints.KeywordIDs, "emit_evidence") {
+			foundKeyword = true
+		}
+	}
+	if !foundEntity || !foundKeyword {
+		t.Fatalf("artifact observation subjects not projected into soft search hints: graph=%+v", out.TaskGraph.Nodes)
+	}
+}
+
+func TestCompile_SearchHintsIncludeConversationReferenceSubjects(t *testing.T) {
+	rm := sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate)
+	rm.ConversationReferenceProfile = &types.ConversationReferenceProfile{
+		RequiresPriorContext:  true,
+		NeedsRepoVerification: true,
+		Ambiguity:             types.ConversationReferenceAmbiguityNone,
+		ResolvedSubjects: []types.ResolvedConversationSubject{{
+			Surface: "buildAnalysisIR",
+			Kind:    types.SubjectFunctionName,
+			Source:  types.ConversationReferenceSourcePriorContext,
+			Role:    "primary_subject",
+		}},
+	}
+
+	out := compileT(rm)
+	var foundEntity, foundKeyword bool
+	for _, n := range out.TaskGraph.Nodes {
+		if containsString(n.SearchHints.EntityIDs, "buildAnalysisIR") {
+			foundEntity = true
+		}
+		if containsString(n.SearchHints.KeywordIDs, "buildAnalysisIR") {
+			foundKeyword = true
+		}
+	}
+	if !foundEntity || !foundKeyword {
+		t.Fatalf("conversation reference subjects not projected into soft search hints: graph=%+v", out.TaskGraph.Nodes)
+	}
+}
+
 func TestCompile_ConfigTrace_BudgetReactsToComplexity(t *testing.T) {
 	out := compileT(sampleRM(types.ScenarioConfigTrace, types.IntentConfigQuery, types.ComplexitySimple))
 	// Simple complexity must give a smaller budget than moderate.

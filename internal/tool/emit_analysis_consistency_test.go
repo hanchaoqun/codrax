@@ -206,8 +206,54 @@ func TestEmitAnalysisSchemaRequiresDiagnosticProfile(t *testing.T) {
 			t.Fatalf("diagnostic_profile.required = %v, want %s included", prop.Required, want)
 		}
 	}
+	if _, ok := prop.Properties["observation_summary"]; !ok {
+		t.Fatal("diagnostic_profile.observation_summary missing from schema")
+	}
 	desc := prop.Properties["current_version_check"].Description
 	if !strings.Contains(desc, "verify current code") {
 		t.Errorf("diagnostic_profile.current_version_check schema description should mention current-code verification; got: %q", desc)
+	}
+}
+
+func TestEmitAnalysisSchemaIncludesConversationReferenceProfile(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	raw := (&EmitAnalysis{}).Parameters()
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v\nraw=%s", err, string(raw))
+	}
+	propRaw, ok := parsed.Properties["conversation_reference_profile"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing property \"conversation_reference_profile\"")
+	}
+	var prop struct {
+		Properties map[string]struct {
+			Type        string   `json:"type"`
+			Description string   `json:"description"`
+			Enum        []string `json:"enum"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatalf("conversation_reference_profile property is not valid JSON schema: %v\nraw=%s", err, string(propRaw))
+	}
+	for _, want := range []string{"requires_prior_context", "needs_repo_verification", "ambiguity"} {
+		if _, ok := prop.Properties[want]; !ok {
+			t.Fatalf("conversation_reference_profile.%s missing from schema", want)
+		}
+		found := false
+		for _, field := range prop.Required {
+			if field == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("conversation_reference_profile.required = %v, want %s included", prop.Required, want)
+		}
+	}
+	if !reflect.DeepEqual(prop.Properties["ambiguity"].Enum, []string{"none", "ambiguous", "missing"}) {
+		t.Fatalf("conversation_reference_profile.ambiguity enum = %v", prop.Properties["ambiguity"].Enum)
 	}
 }

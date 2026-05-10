@@ -79,11 +79,14 @@ func ExactResolutionTargets(rm RequestModel) []string {
 	if !exactResolutionEnabled(rm) {
 		return nil
 	}
-	if exactResolutionImplicitTargetsDisabled(rm) {
-		return nil
-	}
 	if targets := exactResolutionSubjectCompatibleCandidates(rm, MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.ExactTargets)); len(targets) > 0 {
 		return dedupeExactResolutionTargets(exactResolutionFindingKindForRM(rm), targets)
+	}
+	if targets := exactResolutionConversationReferenceTargets(rm); len(targets) > 0 {
+		return dedupeExactResolutionTargets(exactResolutionFindingKindForRM(rm), targets)
+	}
+	if exactResolutionImplicitTargetsDisabled(rm) {
+		return nil
 	}
 	if exactResolutionNeedsExplicitDisambiguation(rm) {
 		return nil
@@ -104,6 +107,40 @@ func ExactResolutionTargets(rm RequestModel) []string {
 		// analyzer explicitly disambiguated via exact_targets.
 		return nil
 	}
+}
+
+func exactResolutionConversationReferenceTargets(rm RequestModel) []string {
+	subjects := exactResolutionConversationReferenceSubjects(rm)
+	if len(subjects) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(subjects))
+	for _, subj := range subjects {
+		out = append(out, subj.Surface)
+	}
+	return out
+}
+
+func exactResolutionConversationReferenceSubjects(rm RequestModel) []ResolvedConversationSubject {
+	if rm.ConversationReferenceProfile == nil {
+		return nil
+	}
+	subjects := rm.ConversationReferenceProfile.ExactTargetSubjects()
+	if len(subjects) == 0 {
+		return nil
+	}
+	var out []ResolvedConversationSubject
+	for _, subj := range subjects {
+		kind := subj.Kind
+		if kind == SubjectUnknown {
+			kind = rm.AnswerSubject.Kind
+		}
+		if !exactResolutionCandidateMatchesSubjectKind(kind, subj.Surface) {
+			continue
+		}
+		out = append(out, subj)
+	}
+	return out
 }
 
 func exactResolutionImplicitTargetsDisabled(rm RequestModel) bool {
@@ -493,7 +530,23 @@ func ExactResolutionFocusTerms(c *ExactResolutionContract) []string {
 }
 
 func exactResolutionSubjectLabel(rm RequestModel) string {
-	switch rm.AnswerSubject.Kind {
+	if kind := exactResolutionConversationReferenceSubjectKind(rm); kind != SubjectUnknown &&
+		(rm.AnswerSubject.Kind == SubjectUnknown || rm.AnswerSubject.Kind == SubjectGeneric) {
+		if label := exactResolutionSubjectLabelForKind(kind); label != "" {
+			return label
+		}
+	}
+	if label := exactResolutionSubjectLabelForKind(rm.AnswerSubject.Kind); label != "" {
+		return label
+	}
+	if strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "config_mapping") || rm.Scenario == ScenarioConfigTrace {
+		return "config key"
+	}
+	return "target"
+}
+
+func exactResolutionSubjectLabelForKind(kind AnswerSubjectKind) string {
+	switch kind {
 	case SubjectConfigKey:
 		return "config key"
 	case SubjectFilePath:
@@ -505,10 +558,29 @@ func exactResolutionSubjectLabel(rm RequestModel) string {
 	case SubjectStringLiteral:
 		return "literal"
 	}
-	if strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "config_mapping") || rm.Scenario == ScenarioConfigTrace {
-		return "config key"
+	return ""
+}
+
+func exactResolutionConversationReferenceSubjectKind(rm RequestModel) AnswerSubjectKind {
+	subjects := exactResolutionConversationReferenceSubjects(rm)
+	if len(subjects) == 0 {
+		return SubjectUnknown
 	}
-	return "target"
+	var resolved AnswerSubjectKind
+	for _, subj := range subjects {
+		switch subj.Kind {
+		case SubjectUnknown, SubjectGeneric:
+			continue
+		}
+		if resolved == SubjectUnknown {
+			resolved = subj.Kind
+			continue
+		}
+		if resolved != subj.Kind {
+			return SubjectUnknown
+		}
+	}
+	return resolved
 }
 
 func exactResolutionTargetKind(rm RequestModel) AnswerSubjectKind {
@@ -553,6 +625,9 @@ func exactResolutionScopeHintForPolicy(policy ExactResolutionContextPolicy) stri
 func exactResolutionEnabled(rm RequestModel) bool {
 	if HasCapabilitySurfaceHint(rm) {
 		return false
+	}
+	if len(exactResolutionConversationReferenceSubjects(rm)) > 0 {
+		return true
 	}
 	switch rm.AnswerSubject.Kind {
 	case SubjectConfigKey, SubjectFilePath:

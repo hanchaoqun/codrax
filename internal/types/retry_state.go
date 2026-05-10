@@ -407,6 +407,7 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 	case ViolFacetUncovered,
 		ViolDiagramEdgeUnsupported,
 		ViolUncertaintyBlockMissing,
+		ViolCurrentStatusVerdictMissing,
 		ViolClaimFormUnsupported,
 		ViolFamilyMismatch,
 		ViolViewIntentMismatch,

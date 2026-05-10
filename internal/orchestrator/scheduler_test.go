@@ -551,6 +551,25 @@ func TestTermSurfaceLookup_ResolvesKnownID(t *testing.T) {
 	}
 }
 
+func TestTermSurfaceLookup_ReturnsRawSoftHintCandidate(t *testing.T) {
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			TermGraph: types.TermGraph{
+				Canonical: []types.CanonicalTerm{
+					{ID: "code:foo", Surface: "Foo"},
+				},
+			},
+		},
+	}
+	fn := termSurfaceLookup(ir)
+	if got := fn("Finalizer"); got != "Finalizer" {
+		t.Errorf("raw soft hint candidate should round-trip, got %q", got)
+	}
+	if got := fn("code:missing"); got != "" {
+		t.Errorf("unknown canonical-looking ID should stay hidden, got %q", got)
+	}
+}
+
 // ── helpers ──────────────────────────────────────────────────────
 
 func idsOf(ns []*types.TaskNode) []string {

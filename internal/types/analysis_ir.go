@@ -91,6 +91,13 @@ type RequestModel struct {
 	// observation exists.
 	ArtifactObservationProfile *ArtifactObservationProfile `json:"artifact_observation_profile,omitempty"`
 
+	// ConversationReferenceProfile is the analyzer LLM's typed
+	// resolution of current-turn references to prior conversation. It
+	// lets non-observation follow-up questions carry resolved subjects
+	// to search hints and exact-resolution contracts without pretending
+	// those subjects were verbatim in the current request.
+	ConversationReferenceProfile *ConversationReferenceProfile `json:"conversation_reference_profile,omitempty"`
+
 	// SubTopics lists independently-answerable sub-topics detected by
 	// the analyzer. When non-empty, the compiler generates one evidence
 	// DAG node per sub-topic. Empty for single-topic questions.
@@ -446,6 +453,13 @@ type DiagnosticIntentProfile struct {
 	// verify current code rather than only explain the historical
 	// artifact or prior conversation.
 	CurrentVersionCheck bool `json:"current_version_check"`
+
+	// ObservationSummary is the analyzer LLM's typed, compact
+	// description of the historical / user-described symptom. It is
+	// especially important when no log or trace is attached and the
+	// current request depends on prior conversation for "the issue"
+	// being verified. Empty means no better typed summary was emitted.
+	ObservationSummary string `json:"observation_summary,omitempty"`
 
 	// Confidence is the analyzer LLM's confidence in this profile in
 	// [0,1]. Zero means unset/unknown and does not block the typed

@@ -1734,6 +1734,7 @@ func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.Answer
 	}
 	var out []types.Violation
 	out = append(out, validateRequiredBlockCoverage(doc, view)...)
+	out = append(out, validateCurrentStatusVerdict(doc, view)...)
 	out = append(out, validatePrincipalClaimUse(doc, view)...)
 	out = append(out, validateDiagramEdgeSupport(doc, view)...)
 	out = append(out, validateUncertaintyBlockPresence(doc, view)...)
@@ -1756,6 +1757,102 @@ func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.Answer
 	out = append(out, validateDiagramEdgeEndpointHallucination(doc, oracle)...)
 	out = append(out, validateInlineIdentifierHallucination(doc, oracle)...)
 	return out
+}
+
+func validateCurrentStatusVerdict(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []types.Violation {
+	if doc == nil || view == nil || !requiresCurrentStatusDecision(view) {
+		return nil
+	}
+	allowed := currentStatusAllowedVerdicts(view.CurrentStatusDiagnostic)
+	var decision *types.AnswerBlock
+	for i := range doc.Blocks {
+		if doc.Blocks[i].Kind == types.BlockDecision {
+			decision = &doc.Blocks[i]
+			break
+		}
+	}
+	if decision == nil {
+		return []types.Violation{currentStatusVerdictViolation(
+			"",
+			"current-status diagnostic requires a principal decision block starting with still_present, fixed, or not_enough_evidence",
+		)}
+	}
+	text := strings.TrimSpace(decision.Text)
+	if currentStatusVerdictPrefix(text, allowed) == "" {
+		return []types.Violation{currentStatusVerdictViolation(
+			decision.ID,
+			fmt.Sprintf("decision block %q must start with still_present, fixed, or not_enough_evidence", decision.ID),
+		)}
+	}
+	return nil
+}
+
+func requiresCurrentStatusDecision(view *types.AnswerSemanticView) bool {
+	return view != nil &&
+		view.CurrentStatusDiagnostic != nil &&
+		view.CurrentStatusDiagnostic.Required
+}
+
+func currentStatusAllowedVerdicts(contract *types.CurrentStatusDiagnosticContract) []types.CurrentStatusVerdict {
+	if contract != nil && len(contract.AllowedVerdicts) > 0 {
+		out := make([]types.CurrentStatusVerdict, 0, len(contract.AllowedVerdicts))
+		seen := map[types.CurrentStatusVerdict]bool{}
+		for _, verdict := range contract.AllowedVerdicts {
+			if verdict == "" || seen[verdict] {
+				continue
+			}
+			seen[verdict] = true
+			out = append(out, verdict)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return []types.CurrentStatusVerdict{
+		types.CurrentStatusStillPresent,
+		types.CurrentStatusFixed,
+		types.CurrentStatusNotEnoughEvidence,
+	}
+}
+
+func currentStatusVerdictPrefix(text string, allowed []types.CurrentStatusVerdict) types.CurrentStatusVerdict {
+	head := strings.TrimSpace(strings.ToLower(text))
+	for _, verdict := range allowed {
+		s := string(verdict)
+		if s == "" {
+			continue
+		}
+		if head == s || strings.HasPrefix(head, s+" ") ||
+			strings.HasPrefix(head, s+":") ||
+			strings.HasPrefix(head, s+".") ||
+			strings.HasPrefix(head, s+"\n") ||
+			strings.HasPrefix(head, s+"\t") {
+			return verdict
+		}
+	}
+	return ""
+}
+
+func currentStatusVerdictViolation(blockID, detail string) types.Violation {
+	if strings.TrimSpace(detail) == "" {
+		detail = "current-status diagnostic verdict missing"
+	}
+	key := "current_status_verdict"
+	if strings.TrimSpace(blockID) != "" {
+		key = blockClusterKey(blockID, "current_status_verdict")
+	}
+	return types.Violation{
+		Kind:       types.ViolCurrentStatusVerdictMissing,
+		Detail:     detail,
+		Repair:     "emit a principal decision block whose text starts with exactly one of still_present, fixed, or not_enough_evidence, then explain the current-code evidence boundary",
+		ClusterKey: key,
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "answer_contract.current_status_diagnostic",
+			Reason:     "current-status diagnostic verdict missing or outside allowed enum",
+			Confidence: 1.0,
+		},
+		Stage: string(types.StageFinalize),
+	}
 }
 
 // labelLeadingSymbolIdentifier returns the leading identifier-shape
@@ -2281,7 +2378,7 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 			Detail: fmt.Sprintf(
 				"block %q has %d enumeration item label(s) whose leading identifier does not match any function / type / constant declared in the codebase (likely fabricated identifier): [%s]",
 				blockID, len(hits), strings.Join(pairs, "; ")),
-			Repair: "the leading identifier in each listed label is a fabricated name that no source file declares. Replace with a real identifier the answer should reference — copy verbatim from a grounded evidence anchor or symbol slate. Fabricated names mislead the reader: the file:line citation will point at a different declaration than the rendered name claims.",
+			Repair:     "the leading identifier in each listed label is a fabricated name that no source file declares. Replace with a real identifier the answer should reference — copy verbatim from a grounded evidence anchor or symbol slate. Fabricated names mislead the reader: the file:line citation will point at a different declaration than the rendered name claims.",
 			ClusterKey: blockClusterKey(blockID, "block_items_label"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "block_items_label",
@@ -2488,7 +2585,7 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 			Detail: fmt.Sprintf(
 				"diagram block %q has %d edge endpoint identifier(s) that do not match any function / type / constant declared in the codebase (likely fabricated identifier): [%s]",
 				blockID, len(hits), strings.Join(pairs, "; ")),
-			Repair: "the listed mermaid endpoint identifiers are fabricated names that no source file declares. Replace each with a real identifier from the existing evidence anchors / symbol slate, OR rename the node to a non-symbol-shape label so the diagram clearly conveys an abstract role rather than a fictional code location.",
+			Repair:     "the listed mermaid endpoint identifiers are fabricated names that no source file declares. Replace each with a real identifier from the existing evidence anchors / symbol slate, OR rename the node to a non-symbol-shape label so the diagram clearly conveys an abstract role rather than a fictional code location.",
 			ClusterKey: blockClusterKey(blockID, "diagram_edges"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "diagram_edges",
@@ -2504,7 +2601,7 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 // inlineBacktickIdentRE captures markdown inline-code spans whose
 // content starts with an identifier-shape token. The capture group
 // returns the token UP TO the first non-identifier character — so
-// `\`fmt.Sprintf\`` captures `fmt` (and the validator's leading-ident
+// `fmt.Sprintf` captures `fmt` (and the validator's leading-ident
 // + length floor then drops it as a stdlib reference). Identifier
 // chars: ASCII letter / digit / `_` only — `-` excluded so kebab-
 // case CLI flags don't accidentally match.
@@ -2624,7 +2721,7 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 			Detail: fmt.Sprintf(
 				"block %q has %d inline-backtick identifier(s) in prose text that do not match any function / type / constant declared in the codebase (likely fabricated identifier): [%s]",
 				blockID, len(hits), strings.Join(pairs, "; ")),
-			Repair: "the listed inline-backtick identifiers in this block's prose text are fabricated names that no source file declares. Replace each with a real identifier from the existing evidence anchors / symbol slate, OR remove the inline backticks if the surrounding text is generic prose rather than a code reference. Fabricated names mislead the reader because the inline backtick visually presents them as authoritative code references.",
+			Repair:     "the listed inline-backtick identifiers in this block's prose text are fabricated names that no source file declares. Replace each with a real identifier from the existing evidence anchors / symbol slate, OR remove the inline backticks if the surrounding text is generic prose rather than a code reference. Fabricated names mislead the reader because the inline backtick visually presents them as authoritative code references.",
 			ClusterKey: blockClusterKey(blockID, "inline_identifier"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "inline_identifier",
@@ -2915,4 +3012,3 @@ func blockKindAllowedByLane(kind string, allowed []string) bool {
 	}
 	return false
 }
-

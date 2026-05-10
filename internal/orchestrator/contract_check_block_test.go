@@ -599,6 +599,70 @@ func TestRunV2BlockOracles_NilGuards(t *testing.T) {
 	}
 }
 
+func TestRunV2BlockOracles_CurrentStatusVerdictRequiresEnumPrefix(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{
+			Required: true,
+			AllowedVerdicts: []types.CurrentStatusVerdict{
+				types.CurrentStatusStillPresent,
+				types.CurrentStatusFixed,
+				types.CurrentStatusNotEnoughEvidence,
+			},
+		},
+		RequiredBlocks: []types.BlockRequirement{
+			{
+				Kind:      types.BlockDecision,
+				MinCount:  1,
+				MaxCount:  1,
+				Required:  true,
+				Rationale: "State the current-status verdict first: still_present, fixed, or not_enough_evidence.",
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "decision", Kind: types.BlockDecision, Text: "看起来可能已经修复，但证据不足。"},
+	}}
+	vs := runV2BlockOracles(doc, view)
+	if !hasBlockViolation(vs, types.ViolCurrentStatusVerdictMissing) {
+		t.Fatalf("expected current-status verdict violation, got %+v", vs)
+	}
+
+	doc.Blocks[0].Text = "fixed: current code removed the previously observed path."
+	vs = runV2BlockOracles(doc, view)
+	if hasBlockViolation(vs, types.ViolCurrentStatusVerdictMissing) {
+		t.Fatalf("fixed verdict prefix should pass current-status validator, got %+v", vs)
+	}
+}
+
+func TestRunV2BlockOracles_CurrentStatusMissingDecisionFires(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{
+			Required: true,
+			AllowedVerdicts: []types.CurrentStatusVerdict{
+				types.CurrentStatusStillPresent,
+				types.CurrentStatusFixed,
+				types.CurrentStatusNotEnoughEvidence,
+			},
+		},
+		RequiredBlocks: []types.BlockRequirement{
+			{
+				Kind:      types.BlockDecision,
+				MinCount:  1,
+				MaxCount:  1,
+				Required:  true,
+				Rationale: "State the current-status verdict first: still_present, fixed, or not_enough_evidence.",
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		summaryBlock("summary"),
+	}}
+	vs := runV2BlockOracles(doc, view)
+	if !hasBlockViolation(vs, types.ViolCurrentStatusVerdictMissing) {
+		t.Fatalf("missing decision should trigger current-status verdict violation, got %+v", vs)
+	}
+}
+
 // TestRunV2BlockOracles_PatchMergedDocTriggersSameValidators is a
 // Phase 2-B2 regression guard. It pins the contract that V2 oracle
 // validation is INVARIANT to whether the AnswerDocumentV2 reached
@@ -659,6 +723,15 @@ func TestRunV2BlockOracles_PatchMergedDocTriggersSameValidators(t *testing.T) {
 	if !foundCoverageMissing {
 		t.Errorf("expected ViolBlockCoverageMissing from patch-merged doc; got %+v", violations)
 	}
+}
+
+func hasBlockViolation(vs []types.Violation, kind types.ViolationKind) bool {
+	for _, v := range vs {
+		if v.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 // ── R2.3 V2 重接 facet_uncovered + richness_regression tests ──────

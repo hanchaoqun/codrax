@@ -81,9 +81,11 @@ func TestBuildArtifactObservationProfileForRequest_NoAttachmentUsesTypedDiagnost
 		DiagnosticProfile: DiagnosticIntentProfile{
 			HistoricalRegression: true,
 			CurrentVersionCheck:  true,
+			ObservationSummary:   "previous final answer drifted off topic",
 			Confidence:           0.93,
 		},
 		AnalyzerHints: AnalyzerHints{
+			Entities:          []string{"Analyzer"},
 			MentionedEntities: []string{"Finalizer"},
 			ExactTargets:      []string{"emit_evidence"},
 		},
@@ -97,6 +99,14 @@ func TestBuildArtifactObservationProfileForRequest_NoAttachmentUsesTypedDiagnost
 	if !containsProfileString(profile.ObservationKinds, "historical_regression_check") ||
 		!containsProfileString(profile.ObservationKinds, "current_version_check") {
 		t.Fatalf("typed diagnostic flags not projected: %+v", profile.ObservationKinds)
+	}
+	if profile.SymptomSummary != "previous final answer drifted off topic" {
+		t.Fatalf("SymptomSummary = %q", profile.SymptomSummary)
+	}
+	if !containsProfileString(profile.SubjectCandidates, "Analyzer") ||
+		!containsProfileString(profile.SubjectCandidates, "Finalizer") ||
+		!containsProfileString(profile.SubjectCandidates, "emit_evidence") {
+		t.Fatalf("subject candidates missing analyzer/profile surfaces: %+v", profile.SubjectCandidates)
 	}
 	if profile.DiagnosticConfidence != 0.93 {
 		t.Fatalf("DiagnosticConfidence = %.2f, want 0.93", profile.DiagnosticConfidence)

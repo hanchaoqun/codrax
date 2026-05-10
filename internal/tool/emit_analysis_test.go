@@ -1612,6 +1612,7 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 			"current_risk": false,
 			"historical_regression": false,
 			"current_version_check": false,
+			"observation_summary": "count request is not diagnostic",
 			"confidence": 0.7
 		}
 	}`
@@ -1637,6 +1638,86 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 	}
 	if rm.DiagnosticProfile.CurrentRisk || rm.DiagnosticProfile.CurrentVersionCheck || rm.DiagnosticProfile.Confidence != 0.7 {
 		t.Errorf("DiagnosticProfile not plumbed, got %+v", rm.DiagnosticProfile)
+	}
+	if rm.DiagnosticProfile.ObservationSummary != "count request is not diagnostic" {
+		t.Errorf("DiagnosticProfile.ObservationSummary = %q", rm.DiagnosticProfile.ObservationSummary)
+	}
+}
+
+func TestEmitAnalysis_Execute_PersistsConversationReferenceProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("那个配置项默认值是什么")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "config_trace",
+		"complexity": "simple",
+		"keywords": ["config", "default", "explore"],
+		"entities": ["explore_mid_loop_hint_budget"],
+		"question_kind": "config_mapping",
+		"answer_subject": {
+			"kind": "config_key",
+			"entity_axes": ["config key → value"],
+			"confidence": 0.88
+		},
+		"intent_confidence": 0.91,
+		"complexity_confidence": 0.86,
+		"kind_confidence": 0.82,
+		"predicate_axis": "configure",
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"conversation_reference_profile": {
+			"requires_prior_context": true,
+			"needs_repo_verification": true,
+			"ambiguity": "none",
+			"resolved_subjects": [{
+				"surface": "explore_mid_loop_hint_budget",
+				"kind": "config_key",
+				"source": "prior_context",
+				"role": "primary_subject",
+				"use_as_exact_target": true,
+				"confidence": 0.91
+			}]
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ConversationReferenceProfile == nil {
+		t.Fatalf("ConversationReferenceProfile not persisted: %+v", rm)
+	}
+	profile := rm.ConversationReferenceProfile
+	if !profile.RequiresPriorContext || !profile.NeedsRepoVerification || profile.Ambiguity != types.ConversationReferenceAmbiguityNone {
+		t.Fatalf("ConversationReferenceProfile flags wrong: %+v", profile)
+	}
+	if got := profile.ResolvedSubjects; len(got) != 1 ||
+		got[0].Surface != "explore_mid_loop_hint_budget" ||
+		got[0].Kind != types.SubjectConfigKey ||
+		got[0].Source != types.ConversationReferenceSourcePriorContext ||
+		!got[0].UseAsExactTarget {
+		t.Fatalf("ResolvedSubjects not plumbed: %+v", got)
+	}
+	if len(rm.AnalyzerHints.ExactTargets) != 0 {
+		t.Fatalf("prior-only resolved subject must not be copied into exact_targets: %+v", rm.AnalyzerHints.ExactTargets)
 	}
 }
 

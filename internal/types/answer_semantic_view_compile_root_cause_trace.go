@@ -36,6 +36,9 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 	if ir != nil && ir.AnswerContract.ExactResolution != nil {
 		view.ExactResolution = ir.AnswerContract.ExactResolution
 	}
+	if ir != nil && ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
+		view.CurrentStatusDiagnostic = ir.AnswerContract.CurrentStatusDiagnostic
+	}
 	view.RequiredBlocks = []BlockRequirement{
 		requireSummaryBlock(rootCauseTraceSummaryRationale(plan)),
 		{
@@ -55,7 +58,7 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 			SurfaceRoleHint: SurfacePrincipal,
 		},
 	}
-	if ir != nil && ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
+	if view.CurrentStatusDiagnostic != nil && view.CurrentStatusDiagnostic.Required {
 		view.RequiredBlocks = append(view.RequiredBlocks, BlockRequirement{
 			Kind:     BlockDecision,
 			MinCount: 1,

@@ -410,6 +410,72 @@ func TestBuildExactResolutionContract_RequiresExplicitDisambiguationForMultiPrim
 	}
 }
 
+func TestBuildExactResolutionContract_AllowsPriorContextExactTarget(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "那个配置项默认值是什么？",
+		AnalyzerHints: AnalyzerHints{
+			Kind:     "config_mapping",
+			Entities: []string{"explore_mid_loop_hint_budget"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+		Predicates: SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+		ConversationReferenceProfile: &ConversationReferenceProfile{
+			RequiresPriorContext:  true,
+			NeedsRepoVerification: true,
+			Ambiguity:             ConversationReferenceAmbiguityNone,
+			ResolvedSubjects: []ResolvedConversationSubject{{
+				Surface:          "explore_mid_loop_hint_budget",
+				Kind:             SubjectConfigKey,
+				Source:           ConversationReferenceSourcePriorContext,
+				Role:             "primary_subject",
+				UseAsExactTarget: true,
+				Confidence:       0.92,
+			}},
+		},
+	}
+	contract := BuildExactResolutionContract(rm)
+	if contract == nil {
+		t.Fatal("contract = nil, want prior-context exact-resolution contract")
+	}
+	if got := contract.Targets; len(got) != 1 || got[0] != "explore_mid_loop_hint_budget" {
+		t.Fatalf("Targets = %+v", got)
+	}
+	if contract.TargetKind != SubjectConfigKey || contract.TargetLabel != "config key" {
+		t.Fatalf("target kind/label = %s/%s", contract.TargetKind, contract.TargetLabel)
+	}
+}
+
+func TestBuildExactResolutionContract_IgnoresAmbiguousPriorContextExactTarget(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "那个配置项默认值是什么？",
+		AnalyzerHints: AnalyzerHints{
+			Kind:     "config_mapping",
+			Entities: []string{"explore_mid_loop_hint_budget"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+		Predicates: SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+		ConversationReferenceProfile: &ConversationReferenceProfile{
+			RequiresPriorContext:  true,
+			NeedsRepoVerification: true,
+			Ambiguity:             ConversationReferenceAmbiguityAmbiguous,
+			ResolvedSubjects: []ResolvedConversationSubject{{
+				Surface:          "explore_mid_loop_hint_budget",
+				Kind:             SubjectConfigKey,
+				Source:           ConversationReferenceSourcePriorContext,
+				UseAsExactTarget: true,
+				Confidence:       0.92,
+			}},
+		},
+	}
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("ambiguous prior reference should not create exact-resolution contract: %+v", got)
+	}
+}
+
 func TestExactResolutionContextTerms(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,

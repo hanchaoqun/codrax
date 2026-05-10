@@ -427,6 +427,15 @@ const (
 	// Stage="finalize".
 	ViolAnswerTopicMismatch ViolationKind = "answer_topic_mismatch"
 
+	// ViolCurrentStatusVerdictMissing fires when a current-status
+	// diagnostic answer omits the required principal decision verdict
+	// or starts it with a value outside still_present / fixed /
+	// not_enough_evidence. This is a finalizer-local hard contract:
+	// the evidence can be reused, but the rendered answer must expose
+	// the bounded status explicitly.
+	// Stage="finalize". Layer="v2_oracle".
+	ViolCurrentStatusVerdictMissing ViolationKind = "current_status_verdict_missing"
+
 	// ViolRichnessGlaringGap fires when an Optional facet is
 	// flagged as EnrichmentGlaring AND has typed-evidence support
 	// (len(SourceCandidate) >= family threshold) AND the rendered V2
@@ -947,6 +956,7 @@ func AllViolationKinds() []ViolationKind {
 		// quality reviewer thinness / wrong-topic signals.
 		ViolAnswerSemanticUnderfilled,
 		ViolAnswerTopicMismatch,
+		ViolCurrentStatusVerdictMissing,
 		// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 		// enumeration evidence underspecification structural gate.
 		ViolEnumerationEvidenceUnderspecified,

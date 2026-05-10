@@ -293,8 +293,9 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// runSemanticQualityReview in orchestrator/contract_check.go);
 	// the generic composer fallback pairs with that actionable
 	// Detail.
-	types.ViolAnswerSemanticUnderfilled: "uses violation.Repair for fix prose",
-	types.ViolAnswerTopicMismatch:       "uses violation.Repair for requested-topic rewrite prose",
+	types.ViolAnswerSemanticUnderfilled:   "uses violation.Repair for fix prose",
+	types.ViolAnswerTopicMismatch:         "uses violation.Repair for requested-topic rewrite prose",
+	types.ViolCurrentStatusVerdictMissing: "uses violation.Repair for bounded current-status verdict prose",
 	// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 	// enumeration evidence pool structural gate. Repair text names
 	// the missing N − K count + the gap-filling guidance verbatim;

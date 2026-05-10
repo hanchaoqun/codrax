@@ -116,10 +116,25 @@ func TestCompileRootCauseTrace_HasSummaryAndOrderedListRequired(t *testing.T) {
 
 func TestCompileRootCauseTrace_CurrentStatusDiagnosticRequiresDecisionBlock(t *testing.T) {
 	ir := irForRootCauseTrace()
-	ir.AnswerContract.CurrentStatusDiagnostic = &CurrentStatusDiagnosticContract{Required: true}
+	ir.AnswerContract.CurrentStatusDiagnostic = &CurrentStatusDiagnosticContract{
+		Required: true,
+		AllowedVerdicts: []CurrentStatusVerdict{
+			CurrentStatusStillPresent,
+			CurrentStatusFixed,
+			CurrentStatusNotEnoughEvidence,
+		},
+	}
 	view := BuildAnswerSemanticView(ir, nil)
 	if view == nil {
 		t.Fatal("view nil")
+	}
+	if view.CurrentStatusDiagnostic == nil || !view.CurrentStatusDiagnostic.Required {
+		t.Fatalf("current status diagnostic contract missing from view: %+v", view.CurrentStatusDiagnostic)
+	}
+	if !containsCurrentStatusVerdict(view.CurrentStatusDiagnostic.AllowedVerdicts, CurrentStatusStillPresent) ||
+		!containsCurrentStatusVerdict(view.CurrentStatusDiagnostic.AllowedVerdicts, CurrentStatusFixed) ||
+		!containsCurrentStatusVerdict(view.CurrentStatusDiagnostic.AllowedVerdicts, CurrentStatusNotEnoughEvidence) {
+		t.Fatalf("current status verdict set missing: %+v", view.CurrentStatusDiagnostic.AllowedVerdicts)
 	}
 	for _, req := range view.RequiredBlocks {
 		if req.Kind != BlockDecision {
@@ -134,6 +149,15 @@ func TestCompileRootCauseTrace_CurrentStatusDiagnosticRequiresDecisionBlock(t *t
 		return
 	}
 	t.Fatalf("current-status diagnostic did not require BlockDecision: %+v", view.RequiredBlocks)
+}
+
+func containsCurrentStatusVerdict(in []CurrentStatusVerdict, want CurrentStatusVerdict) bool {
+	for _, got := range in {
+		if got == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCompileRootCauseTrace_HasUncertaintyRule(t *testing.T) {

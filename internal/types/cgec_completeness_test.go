@@ -259,6 +259,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// orchestrator/contract_check.go runSemanticQualityReview (G5-2).
 		ViolAnswerSemanticUnderfilled: true,
 		ViolAnswerTopicMismatch:       true,
+		// Current-status verdict validator.
+		ViolCurrentStatusVerdictMissing: true,
 		// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 		// enumeration evidence pool structural gate. Producer wired
 		// in orchestrator/contract_check.go validateEnumerationEvidenceCoverage.
@@ -359,6 +361,7 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolDiagramEdgeLabelMismatch:          "ViolDiagramEdgeLabelMismatch",
 		ViolAnswerSemanticUnderfilled:         "ViolAnswerSemanticUnderfilled",
 		ViolAnswerTopicMismatch:               "ViolAnswerTopicMismatch",
+		ViolCurrentStatusVerdictMissing:       "ViolCurrentStatusVerdictMissing",
 		ViolEnumerationEvidenceUnderspecified: "ViolEnumerationEvidenceUnderspecified",
 		ViolUncertaintyBlockMissing:           "ViolUncertaintyBlockMissing",
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).
