@@ -6382,7 +6382,7 @@ func TestStructuralCandidateFilesFromPaths_UsesAnalyzerRankedOrder(t *testing.T)
 		"internal/types/config.go",
 		"internal/logging/logger.go",
 		"internal/config/runtime.go",
-	}, "config_mapping", types.AxisConfigure, false)
+	}, "config_mapping", types.AxisConfigure, false, true)
 	if got, want := len(cands), 3; got != want {
 		t.Fatalf("candidate count = %d, want %d (%v)", got, want, cands)
 	}
@@ -6396,7 +6396,7 @@ func TestDeclarativeAnchorFilesFromPaths_PrefersProductionBeforeAuxiliary(t *tes
 		"codrax.yaml.example",
 		"codrax.yaml",
 		"configs/providers.yaml",
-	}, "config_mapping", types.AxisConfigure, false)
+	}, "config_mapping", types.AxisConfigure, false, true)
 	if got, want := len(anchors), 2; got != want {
 		t.Fatalf("anchor count = %d, want %d (%v)", got, want, anchors)
 	}
@@ -6410,7 +6410,7 @@ func TestStructuralCandidateFilesFromPaths_PrefersProductionBeforeAuxiliary(t *t
 		"codrax.yaml.example",
 		"internal/config/runtime.go",
 		"internal/types/config.go",
-	}, "config_mapping", types.AxisConfigure, false)
+	}, "config_mapping", types.AxisConfigure, false, true)
 	if got, want := len(cands), 2; got != want {
 		t.Fatalf("candidate count = %d, want %d (%v)", got, want, cands)
 	}

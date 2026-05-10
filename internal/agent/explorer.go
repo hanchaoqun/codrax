@@ -42,6 +42,13 @@ type explorerEvaluator struct {
 	exactAnchorFiles          []string             // exact-entity anchor files from keyword search, in rank order
 	declarativeAnchorFiles    []string             // declarative registry/defaults/routes anchors for enumeration questions
 	declarativeCandidateFiles []string             // analyzer-ranked structural candidates when no canonical declarative anchors were derived automatically
+	// primaryEntitiesRegistrationShape (2026-05-10 L1) — cached
+	// result of primaryEntitiesLookLikeRegistration computed once
+	// during BuildInitialInstruction. Gates declarativeFocusRelevant's
+	// "enumeration && isEnumeration" branch so function-body
+	// enumerations (e.g. "list 9 internal checks of gate.Run") don't
+	// hijack the registry-shape declarative path.
+	primaryEntitiesRegistrationShape bool
 	investigationNotes        []string             // assistant analysis messages from ReAct loop
 	userQuestion              string               // original user question, for focus alignment
 	repoRoot                  string               // repository root path, cached from BuildInitialInstruction
@@ -644,12 +651,26 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				e.exactAnchorFiles = nil
 			}
 			e.requiredFiles = e.filterRequiredFiles(e.requiredFiles)
-			e.declarativeAnchorFiles = declarativeAnchorFilesFromScores(sr.Files, analyzerKind, e.predicateAxis, e.isEnumerationQuery)
+			// L1 (2026-05-10) — cache the structural registration-shape
+			// check once per dispatch. The result gates
+			// declarativeFocusRelevant's enumeration branch on whether
+			// PrimaryEntities actually land in registry-shaped files.
+			// Computing it here (after sr.Graph is available + before
+			// any declarative-file builder runs) ensures every
+			// downstream call sees a consistent answer.
+			declAllowed := declarativeAllowedKinds(analyzerKind, e.predicateAxis)
+			if ctx != nil {
+				e.primaryEntitiesRegistrationShape = primaryEntitiesLookLikeRegistration(ctx.AnalysisIR, sr.Graph, declAllowed)
+			} else {
+				// No ctx → fail-open (preserve legacy behaviour).
+				e.primaryEntitiesRegistrationShape = true
+			}
+			e.declarativeAnchorFiles = declarativeAnchorFilesFromScores(sr.Files, analyzerKind, e.predicateAxis, e.isEnumerationQuery, e.primaryEntitiesRegistrationShape)
 			e.declarativeCandidateFiles = nil
 			if len(e.declarativeAnchorFiles) == 0 && len(e.requiredFiles) > 0 {
-				e.declarativeAnchorFiles = declarativeAnchorFilesFromPaths(e.requiredFiles, analyzerKind, e.predicateAxis, e.isEnumerationQuery)
+				e.declarativeAnchorFiles = declarativeAnchorFilesFromPaths(e.requiredFiles, analyzerKind, e.predicateAxis, e.isEnumerationQuery, e.primaryEntitiesRegistrationShape)
 				if len(e.declarativeAnchorFiles) == 0 {
-					e.declarativeCandidateFiles = structuralCandidateFilesFromPaths(e.requiredFiles, analyzerKind, e.predicateAxis, e.isEnumerationQuery)
+					e.declarativeCandidateFiles = structuralCandidateFilesFromPaths(e.requiredFiles, analyzerKind, e.predicateAxis, e.isEnumerationQuery, e.primaryEntitiesRegistrationShape)
 				}
 			}
 		}
@@ -1249,14 +1270,114 @@ func (e *explorerEvaluator) primaryEntityFocusRelevant() bool {
 	return ok
 }
 
-func declarativeFocusRelevant(questionKind string, isEnumeration bool, axis types.PredicateAxis) bool {
+// declarativeFocusRelevant decides whether the explorer should
+// route through the declarative-registration depth path. The path
+// pre-reads up to 2 declarative-shaped files and tightens the
+// frontier to registry / route / manifest neighbors.
+//
+// 2026-05-10 L1 tightening: previously, ANY enumeration question
+// with isEnumeration=true triggered this path. The s1a forensic
+// showed function-body enumerations (e.g. "list the 9 internal
+// checks of gate.Run") were mis-routed onto registry files
+// (bug_class_registry.go / violation_registry.go / analysis_ir.go),
+// drowning the real subject file in declarative-shape noise.
+//
+// The new `primaryEntitiesRegistrationShape` parameter — computed
+// by primaryEntitiesLookLikeRegistration and cached on the
+// evaluator — gates the enumeration branch on whether at least one
+// AnalyzerHints.PrimaryEntity structurally resolves to a file
+// classified by `declarative.Classifier.ClassifyPath` as a
+// registration-shaped surface (Registry / Routes / Manifest /
+// Defaults / Wire / Topology / Schema).
+//
+// Fail-open: when the IR has no PrimaryEntities OR the graph is
+// unavailable, primaryEntitiesLookLikeRegistration returns true,
+// preserving the legacy trigger so cases without analyzer hints
+// don't lose the path. AxisRegister is a strong explicit signal
+// from the analyzer; that branch bypasses the structural gate.
+//
+// Cross-language: the helper relies on forEachMatchingDef (the
+// multi-language qualified-name resolver from B fix), so all 12+
+// languages codrax's repomap supports inherit this gate
+// automatically.
+func declarativeFocusRelevant(
+	questionKind string,
+	isEnumeration bool,
+	axis types.PredicateAxis,
+	primaryEntitiesRegistrationShape bool,
+) bool {
 	switch strings.ToLower(strings.TrimSpace(questionKind)) {
 	case "registration", "config_mapping":
 		return true
 	case "enumeration":
-		return isEnumeration || axis == types.AxisRegister
+		if !isEnumeration && axis != types.AxisRegister {
+			return false
+		}
+		if axis == types.AxisRegister {
+			// Explicit register axis from analyzer — strong signal,
+			// keep the legacy bypass.
+			return true
+		}
+		return primaryEntitiesRegistrationShape
 	}
 	return isEnumeration && axis == types.AxisRegister
+}
+
+// primaryEntitiesLookLikeRegistration returns true when at least
+// one entity in ir.RequestModel.AnalyzerHints.PrimaryEntities structurally
+// resolves (via the multi-language resolver in forEachMatchingDef)
+// to a file the declarative classifier marks as registration-shaped.
+//
+// "Registration-shaped" = any kind in `allowedKinds`, which is
+// computed by declarativeAllowedKinds(questionKind, axis) — a
+// function-of-the-question whitelist that already drives the
+// downstream anchor-file selection. We reuse that whitelist so
+// L1's gate fires on the same shape set the rest of the path
+// consumes (no shape drift).
+//
+// Fail-open returns true when:
+//   - ir or graph is nil (no signal to gate on)
+//   - PrimaryEntities is empty (legacy code didn't have this signal)
+//
+// Returns false when PrimaryEntities is populated but every
+// resolved file's ClassifyPath kind falls outside allowedKinds.
+//
+// The check short-circuits on first match for performance.
+func primaryEntitiesLookLikeRegistration(
+	ir *types.AnalysisIR,
+	graph *repomap.Graph,
+	allowedKinds map[declarative.Kind]bool,
+) bool {
+	if ir == nil || graph == nil {
+		return true
+	}
+	if len(ir.RequestModel.AnalyzerHints.PrimaryEntities) == 0 {
+		return true
+	}
+	entities := make(map[string]string, len(ir.RequestModel.AnalyzerHints.PrimaryEntities))
+	for _, e := range ir.RequestModel.AnalyzerHints.PrimaryEntities {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		entities[strings.ToLower(e)] = e
+	}
+	if len(entities) == 0 {
+		return true
+	}
+	found := false
+	forEachMatchingDef(entities, graph, func(_, _, _ string, d *repomap.Symbol) bool {
+		if d == nil || d.File == "" {
+			return true
+		}
+		kind, _ := declarativeClassifier.ClassifyPath(d.File)
+		if kind != declarative.KindNone && allowedKinds[kind] {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 func declarativeAllowedKinds(questionKind string, axis types.PredicateAxis) map[declarative.Kind]bool {
@@ -1279,19 +1400,19 @@ func declarativeAllowedKinds(questionKind string, axis types.PredicateAxis) map[
 	return allowed
 }
 
-func declarativeAnchorFilesFromScores(results []keywordFileScore, questionKind string, axis types.PredicateAxis, isEnumeration bool) []string {
-	if len(results) == 0 || !declarativeFocusRelevant(questionKind, isEnumeration, axis) {
+func declarativeAnchorFilesFromScores(results []keywordFileScore, questionKind string, axis types.PredicateAxis, isEnumeration bool, primaryRegistrationShape bool) []string {
+	if len(results) == 0 || !declarativeFocusRelevant(questionKind, isEnumeration, axis, primaryRegistrationShape) {
 		return nil
 	}
 	paths := make([]string, 0, len(results))
 	for _, result := range results {
 		paths = append(paths, result.Path)
 	}
-	return declarativeAnchorFilesFromPaths(paths, questionKind, axis, isEnumeration)
+	return declarativeAnchorFilesFromPaths(paths, questionKind, axis, isEnumeration, primaryRegistrationShape)
 }
 
-func declarativeAnchorFilesFromPaths(paths []string, questionKind string, axis types.PredicateAxis, isEnumeration bool) []string {
-	if len(paths) == 0 || !declarativeFocusRelevant(questionKind, isEnumeration, axis) {
+func declarativeAnchorFilesFromPaths(paths []string, questionKind string, axis types.PredicateAxis, isEnumeration bool, primaryRegistrationShape bool) []string {
+	if len(paths) == 0 || !declarativeFocusRelevant(questionKind, isEnumeration, axis, primaryRegistrationShape) {
 		return nil
 	}
 	allowed := declarativeAllowedKinds(questionKind, axis)
@@ -1350,8 +1471,8 @@ func (e *explorerEvaluator) answerSurfacePlan() *types.AnswerSurfacePlan {
 	)
 }
 
-func structuralCandidateFilesFromPaths(paths []string, questionKind string, axis types.PredicateAxis, isEnumeration bool) []string {
-	if len(paths) == 0 || !declarativeFocusRelevant(questionKind, isEnumeration, axis) {
+func structuralCandidateFilesFromPaths(paths []string, questionKind string, axis types.PredicateAxis, isEnumeration bool, primaryRegistrationShape bool) []string {
+	if len(paths) == 0 || !declarativeFocusRelevant(questionKind, isEnumeration, axis, primaryRegistrationShape) {
 		return nil
 	}
 	collect := func(allowSecondary bool) []string {
@@ -1985,7 +2106,7 @@ func (e *explorerEvaluator) shouldStartDeclarativeDepth(questionKind string) boo
 	if e.kindConfidence > 0 && e.kindConfidence < kindConfidenceFloorForNarrowing {
 		return false
 	}
-	return declarativeFocusRelevant(questionKind, e.isEnumerationQuery, e.predicateAxis)
+	return declarativeFocusRelevant(questionKind, e.isEnumerationQuery, e.predicateAxis, e.primaryEntitiesRegistrationShape)
 }
 
 func (e *explorerEvaluator) shouldStartDeclarativeCandidateDepth(questionKind string) bool {
@@ -1998,7 +2119,7 @@ func (e *explorerEvaluator) shouldStartDeclarativeCandidateDepth(questionKind st
 	if e.kindConfidence > 0 && e.kindConfidence < kindConfidenceFloorForNarrowing {
 		return false
 	}
-	return declarativeFocusRelevant(questionKind, e.isEnumerationQuery, e.predicateAxis)
+	return declarativeFocusRelevant(questionKind, e.isEnumerationQuery, e.predicateAxis, e.primaryEntitiesRegistrationShape)
 }
 
 // kindConfidenceFloorForNarrowing is the minimum LLM-emitted

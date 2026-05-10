@@ -45,6 +45,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -803,7 +804,20 @@ func declarativeLiteralFallbackRelevant(ctx *types.AgentContext) bool {
 		}
 	}
 	isEnumeration := viewNeedsEnumerationSlate(ctx) || enumerationIntentForContext(ctx)
-	if !declarativeFocusRelevant(irQuestionKind(ctx), isEnumeration, axis) {
+	// L1 (2026-05-10) — recompute the structural registration-shape
+	// gate on the extractor side. The explorer's cache is per-evaluator
+	// state and doesn't ride the bus, so recompute lazily using the
+	// same helper. Fail-open when graph is unavailable.
+	primaryRegShape := true
+	if ctx != nil && ctx.Mutable != nil {
+		if g, ok := ctx.Mutable.SearchGraph().(*repomap.Graph); ok && g != nil {
+			primaryRegShape = primaryEntitiesLookLikeRegistration(
+				ctx.AnalysisIR, g,
+				declarativeAllowedKinds(irQuestionKind(ctx), axis),
+			)
+		}
+	}
+	if !declarativeFocusRelevant(irQuestionKind(ctx), isEnumeration, axis, primaryRegShape) {
 		return false
 	}
 	kind := extractorAnswerSubjectKind(ctx)
