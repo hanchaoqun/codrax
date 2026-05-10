@@ -352,6 +352,16 @@ type MutableState struct {
 	retainedInvestigationResultKind     string
 	retainedInvestigationCompleteReason string
 
+	// evidenceFloorWaiver (2026-05-10) is the model-declared typed
+	// escape lane consumed by emit_investigation_complete's
+	// forced-read and citation-floor gates. Set via
+	// emit_investigation_complete's `evidence_floor_waiver` field;
+	// empty / nil means "no waiver claimed, ordinary repo grounding
+	// applies". Survives window resets (treated as a per-task
+	// declaration; resetting on retry would erase the model's
+	// confident judgment and force re-declaration).
+	evidenceFloorWaiver *EvidenceFloorWaiver
+
 	// exploreBudget is the ExploreBudget the orchestrator installs
 	// at the top of runTaskGraph. The explorer's ReAct loop reads
 	// it before every tool dispatch (BudgetRemaining / RecordToolCall)
@@ -2941,6 +2951,42 @@ func (m *MutableState) InvestigationCompleteReason() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.investigationCompleteReason
+}
+
+// SetEvidenceFloorWaiver records a model-declared waiver from
+// emit_investigation_complete. Called only by the tool layer after
+// strict-decoding the typed payload (Reason validated against
+// EvidenceFloorWaiverReasonValues, Rationale required non-empty).
+// Idempotent — repeated calls overwrite. nil clears.
+func (m *MutableState) SetEvidenceFloorWaiver(w *EvidenceFloorWaiver) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if w == nil {
+		m.evidenceFloorWaiver = nil
+		return
+	}
+	// Defensive copy so the caller's pointer cannot mutate stored state.
+	clone := *w
+	m.evidenceFloorWaiver = &clone
+}
+
+// EvidenceFloorWaiver returns the model-declared waiver, or nil
+// when none has been set. The returned pointer is a fresh copy;
+// mutating it does not affect stored state.
+func (m *MutableState) EvidenceFloorWaiver() *EvidenceFloorWaiver {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.evidenceFloorWaiver == nil {
+		return nil
+	}
+	clone := *m.evidenceFloorWaiver
+	return &clone
 }
 
 // StableInvestigationCompleteReason returns the best available

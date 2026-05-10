@@ -75,17 +75,52 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			"absence_justification": {
 				"type": "string",
 				"description": "OPTIONAL. Set this ONLY when the answer is an honest 'zero' / 'no X' / 'nothing found' that has no direct exact-target definition to cite (e.g. 'how many .py files?' answered 0, 'does handler X exist?' answered no). A single short sentence explaining why the answer is genuinely empty. Leave unset for every non-absence answer. Grounded related-context anchors are allowed when they remain clearly contextual (for example a nearby config family, call chain, or architecture edge) and do not define the missing exact target. This is a declarative claim, not a system override: the framework still audits that at least one investigation-class tool (grep / exec_command / list_files / read_file / repo_map) ran successfully before accepting the waiver."
+			},
+			"evidence_floor_waiver": {
+				"type": "object",
+				"description": "OPTIONAL. The typed escape lane for declaring that ordinary repo-grounding requirements do NOT apply to this investigation. Set this when YOU have confidently determined that pretending to ground against repo code would be misleading — for example: the attached log is from a different system whose paths have no intersection with this repo (a customer-pasted panic from another service); a synthetic-looking log whose frame paths superficially match this repo but represent a different build / version / deployment; the input is informational with no failure component to ground against. Setting the waiver relaxes the forced-read pending-list check and the citation-floor check, telling the system to accept log/trace content as the evidence pool. Audit-only: every fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when the model's reading of the input materially conflicts with the system's default to-look-in-repo posture.",
+				"properties": {
+					"reason": {
+						"type": "string",
+						"enum": ["external_only_log", "external_only_trace", "no_repo_intersection", "informational_runtime_only"],
+						"description": "external_only_log = attached log is from a system whose code is NOT in this repo (canonical: customer-pasted panic from another service). external_only_trace = same for trace. no_repo_intersection = stronger general case: any apparent path overlap is coincidental (e.g. a synthetic log whose frames happen to name current-repo paths but represent a different build). informational_runtime_only = input is debug breadcrumb / clean baseline / performance observation with no failure to ground."
+					},
+					"rationale": {
+						"type": "string",
+						"description": "One sentence explaining why repo grounding does not apply. Audit trail — recorded but not parsed for hard logic."
+					}
+				},
+				"required": ["reason", "rationale"]
 			}
 		},
 		"required": ["reason", "confidence", "result_kind"]
 	}`)
 }
 
+type emitInvestigationCompleteWaiverPayload struct {
+	Reason    string `json:"reason"`
+	Rationale string `json:"rationale"`
+}
+
+// joinEvidenceFloorWaiverReasons returns the back-quoted enum list
+// for retry-hint construction. Sourced from
+// types.EvidenceFloorWaiverReasonValues so the schema description,
+// validator error message, and any future surface stay byte-canonical.
+func joinEvidenceFloorWaiverReasons() string {
+	values := types.EvidenceFloorWaiverReasonValues()
+	parts := make([]string, 0, len(values))
+	for _, v := range values {
+		parts = append(parts, "`"+string(v)+"`")
+	}
+	return strings.Join(parts, ", ")
+}
+
 type emitInvestigationCompleteParams struct {
-	Reason               string `json:"reason"`
-	Confidence           string `json:"confidence"`
-	ResultKind           string `json:"result_kind"`
-	AbsenceJustification string `json:"absence_justification,omitempty"`
+	Reason               string                                  `json:"reason"`
+	Confidence           string                                  `json:"confidence"`
+	ResultKind           string                                  `json:"result_kind"`
+	AbsenceJustification string                                  `json:"absence_justification,omitempty"`
+	EvidenceFloorWaiver  *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
 }
 
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
@@ -145,6 +180,54 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	justification := strings.TrimSpace(p.AbsenceJustification)
 	resultKind, justification = normalizeExactAbsenceCompletion(ctx, resultKind, reason, justification)
+
+	// Strict-decode + store evidence_floor_waiver (typed escape).
+	// The full pre-check chain below (forced-read, citation floor)
+	// reads the stored waiver to decide whether to relax. Validate
+	// here so a malformed payload fails early with a clear retry hint
+	// instead of silently being honored or silently being ignored.
+	if p.EvidenceFloorWaiver != nil {
+		waiverReason := strings.TrimSpace(p.EvidenceFloorWaiver.Reason)
+		waiverRationale := strings.TrimSpace(p.EvidenceFloorWaiver.Rationale)
+		if waiverReason == "" {
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: "emit_investigation_complete rejected: evidence_floor_waiver.reason is required when evidence_floor_waiver is set. " +
+					"Use one of: " + joinEvidenceFloorWaiverReasons() + ".",
+				Success:   false,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		if waiverRationale == "" {
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: "emit_investigation_complete rejected: evidence_floor_waiver.rationale is required (one sentence audit trail). " +
+					"Set it to a short explanation of why repo grounding does not apply, e.g. 'attached log frames reference services not defined in this repo'.",
+				Success:   false,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		typedReason := types.EvidenceFloorWaiverReason(waiverReason)
+		if !typedReason.IsValid() {
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: fmt.Sprintf(
+					"emit_investigation_complete rejected: evidence_floor_waiver.reason=%q is not accepted. Use one of: %s.",
+					waiverReason, joinEvidenceFloorWaiverReasons()),
+				Success:   false,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		ctx.Mutable.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
+			Reason:    typedReason,
+			Rationale: waiverRationale,
+		})
+		// Telemetry: log every fire so post-hoc analysis can spot
+		// misuse patterns. Reason is bounded enum, rationale is
+		// truncated for log hygiene.
+		logging.Info("[emit_investigation_complete] evidence_floor_waiver accepted: reason=%s rationale=%q",
+			typedReason, truncateForLog(waiverRationale, 200))
+	}
 
 	// G1 (Plan E, 2026-05-02) — pre-complete coverage gate.
 	// When the user's question carries a structural obligation
@@ -668,6 +751,21 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		}
 	}
 
+	// Model-declared evidence_floor_waiver short-circuits both the
+	// forced-read pending check (Check a) and the citation-floor
+	// pre-flight (Check b). System-derived
+	// LogBundle.IsExternalSource() also short-circuits (only the
+	// citation floor today; we extend it to forced-read here so
+	// the architecture is symmetric: both system-detected and
+	// model-declared external scenarios bypass the same gates).
+	systemDetectedExternalLog := false
+	if ctx.Mutable != nil {
+		if bundle := ctx.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
+			systemDetectedExternalLog = true
+		}
+	}
+	modelDeclaredWaiver := ctx.Mutable.EvidenceFloorWaiver()
+
 	// Check (a): forced reads still outstanding.
 	// CGEC D3: partition PendingRead entries by ScannedSet
 	// membership. Files the explorer's pre-scan saw (or grep'd /
@@ -678,6 +776,23 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	// with grep OR ignore entirely. The two-section layout makes
 	// the LLM's action different per bucket: READ the scanned
 	// ones, INVESTIGATE (or reject) the unscanned ones.
+	//
+	// 2026-05-10: skip the entire forced-read block when the model
+	// has declared evidence_floor_waiver OR the system has detected
+	// an external-source log. In those scenarios, demanding repo
+	// reads only forces the LLM to read unrelated files and risk
+	// confabulation (the customer-reported logtri_custom failure).
+	if (modelDeclaredWaiver.IsActive() || systemDetectedExternalLog) && len(pending) > 0 {
+		var label string
+		if modelDeclaredWaiver.IsActive() {
+			label = fmt.Sprintf("evidence_floor_waiver=%s", modelDeclaredWaiver.Reason)
+		} else {
+			label = "system-detected external-source log"
+		}
+		logging.Info("[emit_investigation_complete] forced-read pending list bypassed by %s (pending=%d)",
+			label, len(pending))
+		pending = nil
+	}
 	if len(pending) > 0 {
 		var scanned, suspicious []types.PendingRead
 		for _, p := range pending {
@@ -729,6 +844,15 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 			// to use summary prose and citation_ref=-1 where appropriate;
 			// forcing a repo citation floor here only creates pointless
 			// read-more loops against unrelated files.
+			return ""
+		}
+		// Model-declared waiver: parallels the system-detected
+		// external-source bypass above. The model has confidently
+		// declared (via emit_investigation_complete's
+		// evidence_floor_waiver field) that repo grounding does not
+		// apply — honour it.
+		if w := ctx.Mutable.EvidenceFloorWaiver(); w.IsActive() {
+			logging.Info("[emit_investigation_complete] citation-floor bypassed by evidence_floor_waiver=%s", w.Reason)
 			return ""
 		}
 	}
