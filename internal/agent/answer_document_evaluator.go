@@ -726,7 +726,248 @@ func renderAnswerDocRetryState(ctx *types.AgentContext) string {
 	if prev := renderRetryPrevEmit(rs); prev != "" {
 		b.WriteString(prev)
 	}
+
+	// 5. P2 (2026-05-10) — Live coverage status. Computes the
+	// structural-coverage gaps the post-emit validators are about
+	// to check (block kind balance, facet anchoring depth) and
+	// surfaces them so the LLM sees them BEFORE re-emitting.
+	// Only fires on retry (rs.HasContent already gated above);
+	// 0-impact on first dispatch.
+	if status := renderLiveCoverageStatus(ctx, rs); status != "" {
+		b.WriteString(status)
+	}
 	return b.String()
+}
+
+// renderLiveCoverageStatus is the P2 surface — computes per-block-kind
+// counts and per-facet declaration depth from the prior emit and
+// surfaces them in user-vocab prose so the LLM sees the gaps BEFORE
+// re-emitting. Fires on retry path only (caller already gated on
+// rs.HasContent()).
+//
+// User-vocab translation table (R6):
+//   - "DeclaredCount" → "declared on N blocks"
+//   - "AnchoredCount" → "N of them grounded with evidence"
+//   - "BlockRequirement.MinCount" → "required: at least N"
+//   - "BlockRequirement.MaxCount" → "max: N"
+//   - facet kind → AnswerFacetPublicLabel (already user-vocab)
+//
+// Empty when no view (single-shot test path) OR PrevEmitJSON
+// undecodable; the section is opportunistic enrichment, never
+// load-bearing.
+//
+// Red-line audit (R3/R4/R5/R6/R7/SST/CN+EN-only):
+//   - R3 typed: every count comes from the typed BlockRequirement /
+//     FacetRequirement / decoded prior emit doc
+//   - R4 generic: templated; no project / case names
+//   - R5 informational: section is read-only over the prior emit;
+//     never writes answer body
+//   - R6 no internal vocab: "Block kind balance" / "Aspect
+//     coverage" / "grounded with evidence" are user-vocab
+//     paraphrases of the internal AnchoredCount / DeclaredCount /
+//     BlockRequirement metrics
+//   - R7 actionable: each gap line tells the LLM exactly what to
+//     change on retry; passing items are marked so the LLM
+//     doesn't accidentally regress them
+//   - SST: matches the surrounding renderAnswerDocRetryState
+//     section structure (same `##` heading depth, same numbering
+//     model)
+//   - CN+EN-only: prompt is English (consistent with the
+//     surrounding finalizer skill prose)
+func renderLiveCoverageStatus(ctx *types.AgentContext, rs *types.RetryState) string {
+	if rs == nil || len(rs.PrevEmitJSON) == 0 {
+		return ""
+	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil {
+		return ""
+	}
+	var prevDoc types.AnswerDocumentV2
+	if err := json.Unmarshal(rs.PrevEmitJSON, &prevDoc); err != nil {
+		return ""
+	}
+
+	var blockLines []string
+	if line := liveBlockKindBalance(&prevDoc, view); line != "" {
+		blockLines = append(blockLines, line)
+	}
+	var facetLines []string
+	if line := liveAspectCoverage(&prevDoc, view); line != "" {
+		facetLines = append(facetLines, line)
+	}
+	if len(blockLines) == 0 && len(facetLines) == 0 {
+		return ""
+	}
+
+	var out strings.Builder
+	out.WriteString("## Coverage Gaps in Previous Emit (informational)\n\n")
+	out.WriteString("Your previous emit had the following structural-coverage status. Items marked ⚠ are gaps the validator will reject again unless fixed; items marked ✓ are clean (preserve them as-is on retry).\n\n")
+	for _, l := range blockLines {
+		out.WriteString(l)
+	}
+	for _, l := range facetLines {
+		out.WriteString(l)
+	}
+	return out.String()
+}
+
+// liveBlockKindBalance renders the per-required-block kind status
+// line(s) — one bullet per RequiredBlock comparing prior emit
+// count vs MinCount / MaxCount.
+func liveBlockKindBalance(prev *types.AnswerDocumentV2, view *types.AnswerSemanticView) string {
+	if prev == nil || view == nil || len(view.RequiredBlocks) == 0 {
+		return ""
+	}
+	counts := make(map[types.AnswerBlockKind]int, len(prev.Blocks))
+	for _, b := range prev.Blocks {
+		counts[b.Kind]++
+	}
+	var b strings.Builder
+	b.WriteString("**Block kind balance:**\n\n")
+	any := false
+	for _, req := range view.RequiredBlocks {
+		if !req.Required {
+			continue
+		}
+		got := counts[req.Kind]
+		marker := "✓"
+		var detail string
+		if got < req.MinCount {
+			marker = "⚠"
+			detail = fmt.Sprintf("required at least %d", req.MinCount)
+		} else if req.MaxCount > 0 && got > req.MaxCount {
+			marker = "⚠"
+			detail = fmt.Sprintf("over max %d", req.MaxCount)
+		} else if req.MaxCount > 0 && req.MaxCount == req.MinCount {
+			detail = fmt.Sprintf("required exactly %d", req.MinCount)
+		} else {
+			detail = fmt.Sprintf("required at least %d", req.MinCount)
+		}
+		fmt.Fprintf(&b, "  %s `%s` — emitted %d (%s)\n",
+			marker, string(req.Kind), got, detail)
+		any = true
+	}
+	if !any {
+		return ""
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// liveAspectCoverage renders the per-facet declaration depth line(s).
+// Mirrors the post-emit countFacetCoverageDepth metric but renders
+// in user-vocab prose. AnchoredCount = blocks whose payload also
+// carries citation_ref >= 0 OR a claim_uses[] entry with non-empty
+// EvidenceID/ClaimForm.
+func liveAspectCoverage(prev *types.AnswerDocumentV2, view *types.AnswerSemanticView) string {
+	if prev == nil || view == nil || view.FacetCoverage == nil {
+		return ""
+	}
+	if len(view.FacetCoverage.Required) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("**Aspect coverage:**\n\n")
+	any := false
+	for _, req := range view.FacetCoverage.Required {
+		if req.EffectivePromotionPolicy() == types.PromotionAdvisoryOnly {
+			continue
+		}
+		if !req.IsPromoted() {
+			continue
+		}
+		kind := strings.TrimSpace(string(req.Kind))
+		if kind == "" {
+			continue
+		}
+		declared, anchored := liveCountFacetDepth(prev, kind)
+		label := types.AnswerFacetPublicLabel(req.Kind)
+		marker := "✓"
+		var detail string
+		switch {
+		case declared == 0:
+			marker = "⚠"
+			detail = "not declared on any block — set block.facet_ids OR claim_uses[].facet_id"
+		case anchored == 0:
+			marker = "⚠"
+			detail = fmt.Sprintf("declared on %d block(s) but %d grounded with evidence — attach citation_ref to one item, or add a claim_uses[] entry with claim_form/evidence_id",
+				declared, anchored)
+		case anchored < declared:
+			marker = "⚠"
+			detail = fmt.Sprintf("declared on %d block(s); %d grounded with evidence (the rest are label-only)",
+				declared, anchored)
+		default:
+			detail = fmt.Sprintf("declared on %d block(s), all grounded with evidence",
+				declared)
+		}
+		fmt.Fprintf(&b, "  %s %q — %s\n", marker, label, detail)
+		any = true
+	}
+	if !any {
+		return ""
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// liveCountFacetDepth re-implements the post-emit countFacetCoverageDepth
+// helper inline (the orchestrator-package original lives behind an
+// agent-package import boundary). Only the load-bearing variant —
+// block-level FacetIDs declarations + claim_uses[].FacetID — is
+// rendered; the post-emit chain still runs the deeper
+// blockHasAnchoredClaim / blockHasAnchoredListSurface checks.
+func liveCountFacetDepth(doc *types.AnswerDocumentV2, kind string) (declared, anchored int) {
+	if doc == nil || kind == "" {
+		return 0, 0
+	}
+	for _, b := range doc.Blocks {
+		blockDeclares := false
+		for _, fid := range b.FacetIDs {
+			if strings.TrimSpace(fid) == kind {
+				blockDeclares = true
+				declared++
+				break
+			}
+		}
+		if blockDeclares {
+			// Block-level declaration is "anchored" when ANY
+			// claim_uses[] entry on this block names a ClaimForm
+			// or EvidenceID OR any item carries a non-negative
+			// citation_ref (matches the post-emit
+			// blockHasAnchoredListSurface lite path).
+			anchoredHere := false
+			for _, cu := range b.ClaimUses {
+				if cu.ClaimForm != "" || cu.EvidenceID != "" {
+					anchoredHere = true
+					break
+				}
+			}
+			if !anchoredHere {
+				for _, item := range b.Items {
+					if item.CitationRef >= 0 {
+						anchoredHere = true
+						break
+					}
+				}
+			}
+			if anchoredHere {
+				anchored++
+			}
+		}
+		// claim_uses[].facet_id channel — same kind on a claim_use
+		// declares the facet; the per-claim_use's ClaimForm /
+		// EvidenceID counts as anchored.
+		for _, cu := range b.ClaimUses {
+			if strings.TrimSpace(cu.FacetID) != kind {
+				continue
+			}
+			declared++
+			if cu.ClaimForm != "" || cu.EvidenceID != "" {
+				anchored++
+			}
+		}
+	}
+	return declared, anchored
 }
 
 // renderRetryRequiredChanges renders the typed FieldPath + Repair
