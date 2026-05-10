@@ -81,6 +81,12 @@ type emitAnalysisParams struct {
 	// pre-read only; <0.5 → discarded. Empty/omitted falls through to
 	// the post-emit entity→file resolver.
 	RequiredFiles []emitRequiredFileParam `json:"required_files,omitempty"`
+	// L4 (2026-05-10) — analyzer-declared irrelevant files. The
+	// negative-channel counterpart of required_files: paths the
+	// analyzer LLM has read in pre-scan and judged off-topic.
+	// Downstream agents respect this as a hard exclusion across
+	// pre-read pools, mid-loop hints, and primary-file selection.
+	IrrelevantFiles []string `json:"irrelevant_files,omitempty"`
 }
 
 // emitRequiredFileParam is the wire shape of one required_files entry.
@@ -304,7 +310,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"required_files": map[string]any{
 				"type":        "array",
-				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file will be treated as a primary file by downstream stages AND pre-read into the explorer prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. Empty list is fine: omit when you do not have file-level conviction.",
+				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file is treated as a primary file AND its content is pre-read into the prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. Empty list is fine: omit when you do not have file-level conviction.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -314,6 +320,12 @@ func buildEmitAnalysisSchema() {
 					},
 					"required": []string{"path", "confidence"},
 				},
+			},
+			"irrelevant_files": map[string]any{
+				"type":        "array",
+				"description": "Optional. Negative-channel counterpart of required_files. When you have READ a candidate file in pre-scan and judged it OFF-TOPIC for the user's question, list its repo-relative POSIX path here. The file will NOT be re-injected via pre-read content, mid-loop reading suggestions, or primary-file selection — saves prompt tokens and prevents the system from contradicting your judgment on later iterations. Use sparingly: at most 10 paths, only files you actually inspected. Empty list is fine when no candidates need explicit exclusion.",
+				"items":       map[string]any{"type": "string"},
+				"maxItems":    10,
 			},
 		},
 		"required": []string{
@@ -583,6 +595,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			ExactContextTerms: exactContextTerms,
 			ExactContextRoles: exactContextRoles,
 			RequiredFileHints: validateAndBuildRequiredFileHints(p.RequiredFiles, &val),
+			IrrelevantFiles:   validateAndBuildIrrelevantFiles(p.IrrelevantFiles, &val),
 			Kind:              kind,
 		},
 		AnswerSubject:        answerSubject,
@@ -1512,4 +1525,54 @@ const (
 	// a populated 20-entry hint list contributes ~4 KB at most when
 	// echoed back through the retry hint composer.
 	requiredFileHintRationaleMaxChars = 200
+	// irrelevantFilesMax caps the L4 negative-channel list. Smaller
+	// than required_files because declaring a file irrelevant is
+	// cheaper for the LLM than recommending one (no rationale
+	// required) and abuse here is more impactful — a wrong
+	// declaration silently hides answer-bearing files.
+	irrelevantFilesMax = 10
 )
+
+// validateAndBuildIrrelevantFiles canonicalises and caps the
+// LLM-emitted irrelevant_files array. Same rules as the per-entry
+// path canonicaliser used for required_files (forward-slash, strip
+// leading "./", trim whitespace). Empty / duplicate / over-cap
+// entries are dropped silently with a single aggregated warning.
+//
+// Cross-language: paths are POSIX-canonical so the same hint set
+// works regardless of the model's path-style preference.
+//
+// L4 (2026-05-10).
+func validateAndBuildIrrelevantFiles(in []string, val *analysisValidationResult) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	dropped := 0
+	for _, p := range in {
+		if len(out) >= irrelevantFilesMax {
+			dropped++
+			continue
+		}
+		canon := canonicalRequiredFilePath(p)
+		if canon == "" {
+			dropped++
+			continue
+		}
+		if seen[canon] {
+			dropped++
+			continue
+		}
+		seen[canon] = true
+		out = append(out, canon)
+	}
+	if val != nil && dropped > 0 {
+		val.Warnings = append(val.Warnings,
+			fmt.Sprintf("irrelevant_files: %d entries dropped (empty / duplicate / over cap of %d)", dropped, irrelevantFilesMax))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}

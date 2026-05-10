@@ -55,6 +55,11 @@ type explorerEvaluator struct {
 	// (effectivePrimaryFiles for ≥0.8 hints, preReadRequiredFiles for
 	// ≥0.5 hints) can read without re-traversing the IR.
 	requiredFileHints []types.RequiredFileHint
+	// irrelevantFilesSet (2026-05-10 L4) — analyzer-declared
+	// irrelevant files, canonicalised + indexed for O(1) lookup.
+	// Honored as a hard exclusion across pre-read pools, mid-loop
+	// "Read these next:" hints, and primary-file selection.
+	irrelevantFilesSet map[string]bool
 	investigationNotes        []string             // assistant analysis messages from ReAct loop
 	userQuestion              string               // original user question, for focus alignment
 	repoRoot                  string               // repository root path, cached from BuildInitialInstruction
@@ -702,8 +707,27 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 						logging.Debug("[explorer] required_file_hints: emitted=%d kept=%d (high=%d soft=%d low=%d) dropped_by_graph=%d",
 							len(rawHints), len(e.requiredFileHints), high, soft, low, len(rawHints)-len(e.requiredFileHints))
 					}
+					// L4 — analyzer-declared irrelevant files.
+					// Index by canonical path for O(1) lookup at
+					// every consumer site.
+					raw := ctx.AnalysisIR.RequestModel.AnalyzerHints.IrrelevantFiles
+					if len(raw) > 0 {
+						set := make(map[string]bool, len(raw))
+						for _, p := range raw {
+							canon := canonicalExplorerPath(p)
+							if canon != "" {
+								set[canon] = true
+							}
+						}
+						e.irrelevantFilesSet = set
+						logging.Debug("[explorer] irrelevant_files: declared=%d canonicalised=%d",
+							len(raw), len(set))
+					} else {
+						e.irrelevantFilesSet = nil
+					}
 				} else {
 					e.requiredFileHints = nil
+					e.irrelevantFilesSet = nil
 				}
 			} else {
 				// No ctx → fail-open (preserve legacy behaviour).
@@ -1274,25 +1298,37 @@ func (e *explorerEvaluator) effectivePrimaryFiles() []string {
 	if len(primary) == 0 && len(cited) == 0 && len(highConfHints) == 0 {
 		return nil
 	}
+	// L4 (2026-05-10): drop analyzer-declared irrelevant files at
+	// every accumulator. This honors the LLM's negative judgment
+	// across analyzer-derived primaries (where the resolver might
+	// land on a file the LLM already inspected and rejected),
+	// emit-cited paths (defensive), AND high-confidence hints
+	// (defensive — LLM should not contradict itself, but rule wins).
+	dropIrrelevant := func(canon string) bool {
+		if len(e.irrelevantFilesSet) == 0 {
+			return false
+		}
+		return e.irrelevantFilesSet[canon]
+	}
 	seen := make(map[string]bool, len(primary)+len(cited)+len(highConfHints))
 	out := make([]string, 0, len(primary)+len(cited)+len(highConfHints))
 	for _, p := range primary {
 		canon := canonicalExplorerPath(p)
-		if canon == "" || seen[canon] {
+		if canon == "" || seen[canon] || dropIrrelevant(canon) {
 			continue
 		}
 		seen[canon] = true
 		out = append(out, p)
 	}
 	for canon := range cited {
-		if seen[canon] {
+		if seen[canon] || dropIrrelevant(canon) {
 			continue
 		}
 		seen[canon] = true
 		out = append(out, canon)
 	}
 	for canon := range highConfHints {
-		if seen[canon] {
+		if seen[canon] || dropIrrelevant(canon) {
 			continue
 		}
 		seen[canon] = true
@@ -2583,7 +2619,7 @@ func (e *explorerEvaluator) buildCapabilityFocusedStartInstruction(ctx *types.Ag
 	b.WriteString("- Treat helper subsets and validator functions as supporting detail only after the capability surface is settled.\n")
 	b.WriteString("- If implementation detail matters, expand only to the specific helper file already named in these authority files.\n\n")
 	if ctx != nil && ctx.RepoRoot != "" {
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(files), 3, 220, excludeReadFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(files), 3, 220, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -2712,7 +2748,7 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 			}
 			preReadFiles = append(preReadFiles, f)
 		}
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 200, excludeReadFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 200, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -2829,7 +2865,7 @@ func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.A
 			}
 			preReadFiles = append(preReadFiles, f)
 		}
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 200, excludeReadFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 200, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -2948,7 +2984,7 @@ func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.A
 			}
 			preReadFiles = append(preReadFiles, f)
 		}
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 220, excludeReadFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 220, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -2992,7 +3028,7 @@ func (e *explorerEvaluator) buildDeclarativeCandidateStartInstruction(ctx *types
 		b.WriteString("`\n\n")
 	}
 	if ctx != nil && ctx.RepoRoot != "" {
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(e.declarativeCandidateFiles), 2, 220, excludeReadFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(e.declarativeCandidateFiles), 2, 220, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -6840,6 +6876,12 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			for _, f := range unread {
 				cf := canonicalExplorerPath(f)
 				if readSet[cf] && !cited[cf] {
+					continue
+				}
+				// L4 (2026-05-10) — analyzer-declared irrelevant
+				// files never appear in mid-loop hints. Honors the
+				// LLM's negative judgment across iterations.
+				if e.irrelevantFilesSet != nil && e.irrelevantFilesSet[cf] {
 					continue
 				}
 				filteredUnread = append(filteredUnread, f)
@@ -13532,6 +13574,11 @@ func preReadRequiredFiles(repoRoot string, files []string, maxFiles, maxLines in
 // The closure's ReadSet IS already cumulative across dispatches (set
 // from extractFileCoverage on each Observe), so no extra tracking
 // state is needed on the evaluator.
+//
+// L4 (2026-05-10): when called via excludeReadAndIrrelevantFromCtx,
+// the analyzer-declared irrelevant_files are also unioned into the
+// exclusion set so pre-read injection respects the LLM's negative
+// declaration.
 func excludeReadFromCtx(ctx *types.AgentContext) map[string]bool {
 	if ctx == nil || ctx.Mutable == nil {
 		return nil
@@ -13553,6 +13600,31 @@ func excludeReadFromCtx(ctx *types.AgentContext) map[string]bool {
 		out[canon] = true
 	}
 	return out
+}
+
+// excludeReadAndIrrelevantFromCtx returns the union of
+// EvidenceClosure.ReadSet() (L2 dedup) and the explorer's cached
+// irrelevant_files set (L4 negative channel). Both are honored
+// uniformly by preReadRequiredFiles — files the LLM read in a prior
+// dispatch AND files it explicitly declared off-topic are skipped.
+//
+// L4 (2026-05-10).
+func (e *explorerEvaluator) excludeReadAndIrrelevantFromCtx(ctx *types.AgentContext) map[string]bool {
+	rs := excludeReadFromCtx(ctx)
+	if len(e.irrelevantFilesSet) == 0 {
+		return rs
+	}
+	if rs == nil {
+		out := make(map[string]bool, len(e.irrelevantFilesSet))
+		for k, v := range e.irrelevantFilesSet {
+			out[k] = v
+		}
+		return out
+	}
+	for k := range e.irrelevantFilesSet {
+		rs[k] = true
+	}
+	return rs
 }
 
 // qualified name. Functions that match are kept; functions that

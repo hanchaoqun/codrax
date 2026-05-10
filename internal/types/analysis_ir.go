@@ -485,7 +485,33 @@ type AnalyzerHints struct {
 	//
 	// Design doc: docs/design/forced_read_remediation.md §4.4.
 	RequiredFileHints []RequiredFileHint `json:"required_file_hints,omitempty"`
-	Kind              string             `json:"kind,omitempty"`
+	// IrrelevantFiles is the negative-channel counterpart of
+	// RequiredFileHints. The analyzer LLM may explicitly list paths
+	// it has already inspected during pre-scan and judged
+	// off-topic for the user's question. Downstream agents will
+	// not re-inject these files via pre-read pools, mid-loop
+	// "Read these next:" hints, or evidence-filter primary set.
+	//
+	// Use case: when the analyzer's pre-scan harvested many
+	// candidate files but only a few are actually about the user's
+	// subject, declaring the misses keeps subsequent dispatches
+	// from wasting prompt tokens re-pushing them. The customer-
+	// reported phenomenon: model complained about being forced to
+	// read the same 3 unrelated files repeatedly even after it
+	// had judged them irrelevant.
+	//
+	// Optional throughout. Empty list → no negative gating, the
+	// deterministic resolver decides. Cap of 10 entries prevents
+	// abuse; paths are POSIX-canonicalised by the decoder.
+	//
+	// Cross-language: paths are repo-relative POSIX (forward-slash,
+	// no leading "./") and language-agnostic; the explorer's
+	// canonicalExplorerPath normalises before comparison.
+	//
+	// L4 (2026-05-10). Design doc:
+	// docs/design/forced_read_remediation.md §4.5.
+	IrrelevantFiles []string `json:"irrelevant_files,omitempty"`
+	Kind            string   `json:"kind,omitempty"`
 }
 
 // RequiredFileHint is one entry in AnalyzerHints.RequiredFileHints —
