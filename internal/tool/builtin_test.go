@@ -377,6 +377,113 @@ func TestExecCommand(t *testing.T) {
 	})
 }
 
+// fakeActiveSetGater is a stand-in for *multigraph.MultiGraph that
+// can't be imported here without a cycle (internal/tool/repomap →
+// internal/tool). We only need to verify that ExecCommand wires
+// the gate in — the multigraph package's own tests cover the
+// command-classification logic.
+type fakeActiveSetGater struct {
+	pathFn func(*types.BusContext, string, string, func(string) bool) types.ActiveSetGateResult
+	cmdFn  func(*types.BusContext, string, string) types.ActiveSetGateResult
+}
+
+func (f *fakeActiveSetGater) ResolveActiveSetPath(ctx *types.BusContext, toolName, llmPath string, fileExists func(string) bool) types.ActiveSetGateResult {
+	if f.pathFn != nil {
+		return f.pathFn(ctx, toolName, llmPath, fileExists)
+	}
+	return types.ActiveSetGateResult{Allowed: true, ResolvedPath: llmPath}
+}
+
+func (f *fakeActiveSetGater) ResolveActiveSetCommand(ctx *types.BusContext, toolName, command string) types.ActiveSetGateResult {
+	if f.cmdFn != nil {
+		return f.cmdFn(ctx, toolName, command)
+	}
+	return types.ActiveSetGateResult{Allowed: true}
+}
+
+func TestExecCommand_ActiveSetGateRefusesInactive(t *testing.T) {
+	// When the gate refuses, ExecCommand must short-circuit with
+	// the gate's RefusalProse as Summary. The shell command must
+	// NOT execute (we'd see "should-not-run-here" in stdout).
+	gater := &fakeActiveSetGater{
+		cmdFn: func(_ *types.BusContext, toolName, _ string) types.ActiveSetGateResult {
+			return types.ActiveSetGateResult{
+				Allowed:      false,
+				RefusalProse: toolName + " refused: the command references \"repo-greet-go\", which is currently outside the active sub-repo set. The active sub-repos are: repo-stub-rust. If your investigation needs that sub-repo, surface the requirement in plain prose at the top of your final answer — the user will adjust the workspace scope and re-ask.",
+			}
+		},
+	}
+	ctx := &types.BusContext{MultiGraph: gater}
+	tool := &ExecCommand{}
+	params, _ := json.Marshal(execCommandParams{Command: "echo should-not-run-here"})
+
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("gate refusal must produce Success=false; got Summary=%q", result.Summary)
+	}
+	if !strings.Contains(result.Summary, "exec_command refused") {
+		t.Errorf("expected refusal text in Summary; got %q", result.Summary)
+	}
+	if !strings.Contains(result.Summary, "outside the active sub-repo") {
+		t.Errorf("expected canonical active-set phrasing; got %q", result.Summary)
+	}
+	if strings.Contains(result.Summary, "should-not-run-here") {
+		t.Errorf("shell ran despite refusal; got %q", result.Summary)
+	}
+	// R6: the gate refusal must not leak internal pipeline terms
+	// (no "L1", "L2" layer designators, no Go-style PascalCase names).
+	for _, banned := range []string{"L1 gate", "L2 gate", "L3 gate", "L4 gate", "MultiRepoActiveSetGater", "BusContext"} {
+		if strings.Contains(result.Summary, banned) {
+			t.Errorf("internal term %q leaked into LLM-facing refusal: %q", banned, result.Summary)
+		}
+	}
+}
+
+func TestExecCommand_ActiveSetGateAllowsLetsCommandRun(t *testing.T) {
+	// When the gate allows the call, the shell must run normally.
+	gater := &fakeActiveSetGater{
+		cmdFn: func(_ *types.BusContext, _, _ string) types.ActiveSetGateResult {
+			return types.ActiveSetGateResult{Allowed: true}
+		},
+	}
+	ctx := &types.BusContext{MultiGraph: gater}
+	tool := &ExecCommand{}
+	params, _ := json.Marshal(execCommandParams{Command: "echo gate-passed"})
+
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("gate allow → command should run; got Summary=%q", result.Summary)
+	}
+	normalized := strings.ReplaceAll(result.Summary, "\r\n", "\n")
+	if !strings.Contains(normalized, "gate-passed\n") {
+		t.Errorf("expected command stdout 'gate-passed', got %q", result.Summary)
+	}
+}
+
+func TestExecCommand_NoMultiGraph_NoGate(t *testing.T) {
+	// Single-repo (or no multigraph at all): the gate is bypassed
+	// — exec_command must run unchanged for backwards compat.
+	tool := &ExecCommand{}
+	params, _ := json.Marshal(execCommandParams{Command: "echo single-repo-mode"})
+	result, err := tool.Execute(newBusContext(), params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("nil multigraph → command should run; got Summary=%q", result.Summary)
+	}
+	normalized := strings.ReplaceAll(result.Summary, "\r\n", "\n")
+	if !strings.Contains(normalized, "single-repo-mode\n") {
+		t.Errorf("expected stdout, got %q", result.Summary)
+	}
+}
+
 func TestGrepTool(t *testing.T) {
 	t.Run("grep for pattern in file", func(t *testing.T) {
 		tmpDir := t.TempDir()

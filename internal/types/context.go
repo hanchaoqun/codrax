@@ -3315,12 +3315,24 @@ type ActiveSetGateResult struct {
 // fileExists may be nil; callers pass an os.Stat-style probe when
 // path-existence semantics matter (read_file's auto-prefix unique-
 // match), or nil when the path is a directory (grep / repo_map).
+//
+// ResolveActiveSetCommand covers the free-form-shell surface
+// (exec_command). It scans a command string for inactive sub-repo
+// path tokens and refuses with the same prose family as the path
+// gate when one is found. Only ResolvedPath/SubRepoRootRel are
+// unset on this path; refusal carries the same RefusalProse contract.
 type MultiRepoActiveSetGater interface {
 	ResolveActiveSetPath(
 		ctx *BusContext,
 		toolName string,
 		llmPath string,
 		fileExists func(absPath string) bool,
+	) ActiveSetGateResult
+
+	ResolveActiveSetCommand(
+		ctx *BusContext,
+		toolName string,
+		command string,
 	) ActiveSetGateResult
 }
 

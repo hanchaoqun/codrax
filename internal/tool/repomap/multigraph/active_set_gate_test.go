@@ -194,3 +194,172 @@ func TestResolveActiveSetPath_BackslashAcceptedAsWindowsPath(t *testing.T) {
 		t.Errorf("expected SubRepoRootRel=repo-a, got %q", res.SubRepoRootRel)
 	}
 }
+
+// === ResolveActiveSetCommand tests (Fix-α) ===
+//
+// These exercise the exec_command-side gate. The path gate already
+// covered read_file / grep / list_files / repo_map; without this
+// branch the LLM could reach inactive content via free-form shell
+// (`cat <inactive>/file.go`, `cd <inactive> && cmd`, etc.).
+
+func TestResolveActiveSetCommand_SingleRepoBypass(t *testing.T) {
+	mg := gateTestMG(t, []topology.SubRepo{{Slug: "self", RootRel: "."}})
+	ctx := &types.BusContext{MultiGraph: mg}
+	res := mg.ResolveActiveSetCommand(ctx, "exec_command", "cat anything/at/all.go")
+	if !res.Allowed {
+		t.Errorf("single-repo must bypass command gate, got refusal: %s", res.RefusalProse)
+	}
+}
+
+func TestResolveActiveSetCommand_NoInactiveAllPass(t *testing.T) {
+	// Two active sub-repos, none inactive — the gate has nothing to
+	// refuse against so any command passes through.
+	mg := gateTestMG(t, []topology.SubRepo{
+		{Slug: "a", RootRel: "repo-a"},
+		{Slug: "b", RootRel: "repo-b"},
+	})
+	ctx := &types.BusContext{MultiGraph: mg}
+	res := mg.ResolveActiveSetCommand(ctx, "exec_command", "cat repo-a/main.go")
+	if !res.Allowed {
+		t.Errorf("no inactive sub-repos: command must pass; got %s", res.RefusalProse)
+	}
+}
+
+func TestResolveActiveSetCommand_RefusesInactivePathToken(t *testing.T) {
+	// repo-a active, repo-b pinned inactive. `cat repo-b/...` is the
+	// canonical bypass — must refuse.
+	mg := gateTestMG(t, []topology.SubRepo{
+		{Slug: "a", RootRel: "repo-a"},
+		{Slug: "b", RootRel: "repo-b"},
+	})
+	ctx := &types.BusContext{
+		MultiGraph:      mg,
+		PendingSubRepos: []string{"repo-b"},
+	}
+	cases := []string{
+		"cat repo-b/svc/main.go",
+		"grep -r foo repo-b/",
+		"find repo-b -name '*.go'",
+		"head -20 repo-b/Cargo.toml",
+		"cd repo-b && cat Cargo.toml",
+		"ls repo-b",
+	}
+	for _, cmd := range cases {
+		t.Run(cmd, func(t *testing.T) {
+			res := mg.ResolveActiveSetCommand(ctx, "exec_command", cmd)
+			if res.Allowed {
+				t.Errorf("inactive sub-repo reference %q must be refused", cmd)
+			}
+			if !strings.Contains(res.RefusalProse, "outside the active sub-repo") {
+				t.Errorf("refusal prose missing canonical phrasing: %q", res.RefusalProse)
+			}
+			if !strings.Contains(res.RefusalProse, "repo-b") {
+				t.Errorf("refusal must name the inactive slug: %q", res.RefusalProse)
+			}
+			if !strings.Contains(res.RefusalProse, "repo-a") {
+				t.Errorf("refusal must list active alternatives: %q", res.RefusalProse)
+			}
+			// R6 audit: refusal must NOT leak internal jargon.
+			for _, banned := range []string{
+				"L1", "L2", "L3", "L4", "gate ", "gater",
+				"BusContext", "MultiGraph", "ResolveActiveSet",
+			} {
+				if strings.Contains(res.RefusalProse, banned) {
+					t.Errorf("refusal leaks internal term %q: %q", banned, res.RefusalProse)
+				}
+			}
+		})
+	}
+}
+
+func TestResolveActiveSetCommand_AllowsActiveOnly(t *testing.T) {
+	// Commands referencing only the active sub-repo (or nothing
+	// path-shaped) must pass.
+	mg := gateTestMG(t, []topology.SubRepo{
+		{Slug: "a", RootRel: "repo-a"},
+		{Slug: "b", RootRel: "repo-b"},
+	})
+	ctx := &types.BusContext{
+		MultiGraph:      mg,
+		PendingSubRepos: []string{"repo-b"},
+	}
+	cases := []string{
+		"cat repo-a/main.go",
+		"grep -r foo repo-a/",
+		"go test ./...",
+		"echo hello",
+		"wc -l repo-a/main.go",
+	}
+	for _, cmd := range cases {
+		t.Run(cmd, func(t *testing.T) {
+			res := mg.ResolveActiveSetCommand(ctx, "exec_command", cmd)
+			if !res.Allowed {
+				t.Errorf("command %q references only active sub-repo, must pass; got: %s", cmd, res.RefusalProse)
+			}
+		})
+	}
+}
+
+func TestResolveActiveSetCommand_BoundaryNoFalsePositive(t *testing.T) {
+	// Slug `repo-b` must NOT match `repo-b-extra` or `repo-bb`.
+	mg := gateTestMG(t, []topology.SubRepo{
+		{Slug: "a", RootRel: "repo-a"},
+		{Slug: "b", RootRel: "repo-b"},
+	})
+	ctx := &types.BusContext{
+		MultiGraph:      mg,
+		PendingSubRepos: []string{"repo-b"},
+	}
+	cases := []string{
+		"cat repo-b-extra/main.go",
+		"grep repo-bbb sources",
+		"echo Xrepo-b/whatever",
+	}
+	for _, cmd := range cases {
+		t.Run(cmd, func(t *testing.T) {
+			res := mg.ResolveActiveSetCommand(ctx, "exec_command", cmd)
+			if !res.Allowed {
+				t.Errorf("command %q should NOT trigger a false-positive refusal: %s", cmd, res.RefusalProse)
+			}
+		})
+	}
+}
+
+func TestResolveActiveSetCommand_EmptyAndWhitespace(t *testing.T) {
+	mg := gateTestMG(t, []topology.SubRepo{
+		{Slug: "a", RootRel: "repo-a"},
+		{Slug: "b", RootRel: "repo-b"},
+	})
+	ctx := &types.BusContext{
+		MultiGraph:      mg,
+		PendingSubRepos: []string{"repo-b"},
+	}
+	for _, cmd := range []string{"", "   ", "\t\n"} {
+		res := mg.ResolveActiveSetCommand(ctx, "exec_command", cmd)
+		if !res.Allowed {
+			t.Errorf("empty/whitespace command must pass (gate has nothing to scan): %q got %s", cmd, res.RefusalProse)
+		}
+	}
+}
+
+func TestResolveActiveSetCommand_LongerSlugTakesPriority(t *testing.T) {
+	// Two inactive slugs `repo` and `repo-greet-go` — the gate
+	// orders inactive checks longest-first, so the refusal names the
+	// more specific slug.
+	mg := gateTestMG(t, []topology.SubRepo{
+		{Slug: "a", RootRel: "repo-active"},
+		{Slug: "g", RootRel: "repo-greet-go"},
+		{Slug: "r", RootRel: "repo"},
+	})
+	ctx := &types.BusContext{
+		MultiGraph:      mg,
+		PendingSubRepos: []string{"repo-greet-go", "repo"},
+	}
+	res := mg.ResolveActiveSetCommand(ctx, "exec_command", "cat repo-greet-go/svc.go")
+	if res.Allowed {
+		t.Fatalf("expected refusal")
+	}
+	if !strings.Contains(res.RefusalProse, "repo-greet-go") {
+		t.Errorf("refusal should name the longer matching slug: %q", res.RefusalProse)
+	}
+}

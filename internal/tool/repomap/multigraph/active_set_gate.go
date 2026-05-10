@@ -3,6 +3,7 @@ package multigraph
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -284,6 +285,102 @@ func refusalAmbiguous(toolName, path string, candidates []string) string {
 		"%s refused: the bare path %q could resolve into multiple active sub-repos: %s. "+
 			"Re-issue the call with the sub-repo prefix that matches the file you want.",
 		toolName, path, strings.Join(candidates, ", "))
+}
+
+// ResolveActiveSetCommand scans an exec_command-style free-form
+// shell string for inactive sub-repo path tokens and refuses when
+// one is referenced. Closes the bypass where the LLM previously
+// reached out-of-set sources via `cat <inactive>/file`,
+// `grep -r ... <inactive>`, or `cd <inactive> && cmd`.
+//
+// Token shape: a sub-repo's RootRel is a "reference" when it appears
+// in the command bounded on each side by a non-`[A-Za-z0-9_-]`
+// character (so a slug like `repo-greet-go` is matched verbatim and
+// not mistaken for the prefix of `repo-greet-goal`). Path-typical
+// terminators (`/`, ` `, `&`, `;`, `|`, `>`, `<`, `\``, `"`, `'`,
+// `)`, `=`, `:`) all close the token, so both `cat <slug>/foo` and
+// `cd <slug> && cmd` are caught.
+//
+// Single-repo / no-multigraph: bypassed via m.IsSingle() so single-
+// repo callers stay byte-identical.
+func (m *MultiGraph) ResolveActiveSetCommand(
+	ctx *types.BusContext,
+	toolName string,
+	command string,
+) types.ActiveSetGateResult {
+	if m == nil || m.IsSingle() {
+		return types.ActiveSetGateResult{Allowed: true}
+	}
+	topo := m.Topology()
+	if topo == nil || len(topo.Repos) < 2 {
+		return types.ActiveSetGateResult{Allowed: true}
+	}
+	if strings.TrimSpace(command) == "" {
+		return types.ActiveSetGateResult{Allowed: true}
+	}
+
+	pendingSet := make(map[string]bool, len(ctx.PendingSubRepos))
+	for _, p := range ctx.PendingSubRepos {
+		pendingSet[p] = true
+	}
+	var active []topology.SubRepo
+	var inactive []topology.SubRepo
+	for _, sr := range topo.Repos {
+		if pendingSet[sr.RootRel] {
+			inactive = append(inactive, sr)
+		} else {
+			active = append(active, sr)
+		}
+	}
+	// No active sub-repo: defer to the path gate's own behaviour;
+	// callers that hand a free-form command at this point should
+	// not be common in practice.
+	if len(active) == 0 || len(inactive) == 0 {
+		return types.ActiveSetGateResult{Allowed: true}
+	}
+	sort.Slice(active, func(i, j int) bool {
+		return active[i].RootRel < active[j].RootRel
+	})
+
+	// Sort inactive by RootRel length descending so a longer slug
+	// is tested first (defensive: avoids a shorter slug shadowing
+	// a longer one when the command happens to embed both).
+	sort.Slice(inactive, func(i, j int) bool {
+		return len(inactive[i].RootRel) > len(inactive[j].RootRel)
+	})
+
+	for _, sr := range inactive {
+		rel := sr.RootRel
+		if rel == "" || rel == "." {
+			continue
+		}
+		// Boundary class: anything outside [A-Za-z0-9_-] is a
+		// terminator. Hyphens are inside the class because slugs
+		// often contain hyphens internally (`repo-greet-go`) and
+		// we don't want a trailing `-extra` segment to count as a
+		// match end.
+		pattern := `(^|[^A-Za-z0-9_-])` + regexp.QuoteMeta(rel) + `($|[^A-Za-z0-9_-])`
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			continue
+		}
+		if re.MatchString(command) {
+			return types.ActiveSetGateResult{
+				Allowed:      false,
+				RefusalProse: refusalInactiveCommand(toolName, rel, active),
+			}
+		}
+	}
+	return types.ActiveSetGateResult{Allowed: true}
+}
+
+func refusalInactiveCommand(toolName, inactiveRel string, active []topology.SubRepo) string {
+	return fmt.Sprintf(
+		"%s refused: the command references %q, which is currently outside the active sub-repo "+
+			"set. The active sub-repos are: %s. If your investigation needs that sub-repo, "+
+			"surface the requirement in plain prose at the top of your final answer — the "+
+			"user will adjust the workspace scope and re-ask.",
+		toolName, inactiveRel, formatActiveList(active))
 }
 
 func formatActiveList(active []topology.SubRepo) string {

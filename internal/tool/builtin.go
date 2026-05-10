@@ -317,6 +317,26 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
 
+	// Multi-repo active-set gate: the path gate covers read_file /
+	// grep / list_files / repo_map but exec_command is the free-form
+	// shell surface. Without this branch the LLM can `cat
+	// <inactive-sub-repo>/path/file.go` to bypass the workspace scope
+	// the user pinned via /repos focus. Single-repo bypass lives
+	// inside ResolveActiveSetCommand (m.IsSingle()).
+	if ctx != nil && ctx.MultiGraph != nil {
+		if gater, ok := ctx.MultiGraph.(types.MultiRepoActiveSetGater); ok && gater != nil {
+			gate := gater.ResolveActiveSetCommand(ctx, t.Name(), p.Command)
+			if !gate.Allowed {
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   gate.RefusalProse,
+					Timestamp: time.Now(),
+				}, nil
+			}
+		}
+	}
+
 	timeout := 30 * time.Second
 	if p.TimeoutMs > 0 {
 		timeout = time.Duration(p.TimeoutMs) * time.Millisecond
