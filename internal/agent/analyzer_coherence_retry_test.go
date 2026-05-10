@@ -37,8 +37,15 @@ func TestComposeCoherenceRetryHint_FormatsCoherenceFailuresOnly(t *testing.T) {
 	if !strings.Contains(hint, "TermGraph spans 3 distinct") {
 		t.Errorf("hint must surface the R1.1 plain-language detail; got %q", hint)
 	}
-	if !strings.Contains(hint, "IsScalarAnswer=true but 2 sub-topics") {
-		t.Errorf("hint must surface the R2.1 plain-language detail; got %q", hint)
+	// B5 (2026-05-10): the LLM-prompt boundary now sanitizes
+	// dotted/CamelCase IR-internal tokens to user-visible prose. The
+	// raw gate Detail "Predicates.IsScalarAnswer=true" is rewritten to
+	// "the is_scalar_answer flag=true" — same actionable information
+	// in skill-prompt vocabulary, no Python-attr-access or Go-style
+	// shape that tempts the LLM to enumerate the token as a code
+	// entity (forensic anchor: 2026-05-10 chatpp-7d46dee4 log L1316).
+	if !strings.Contains(hint, "is_scalar_answer flag=true but 2 sub-topics") {
+		t.Errorf("hint must surface the R2.1 plain-language detail (sanitized); got %q", hint)
 	}
 	if strings.Contains(hint, "coverage") || strings.Contains(hint, "dag_closure") {
 		t.Errorf("hint must NOT include non-coherence checks; got %q", hint)

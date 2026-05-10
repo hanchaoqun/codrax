@@ -261,7 +261,10 @@ func composeCoherenceRetryHint(report types.GateReport) string {
 	return strings.TrimSpace(b.String())
 }
 
-// plainCoherenceDetail strips internal rule codes ("R1.1", "R1.2",
+// plainCoherenceDetail (note: per-segment loop below now also passes
+// each segment through sanitizeInternalVocab from
+// retry_hint_sanitize.go — B5 2026-05-10) strips internal rule
+// codes ("R1.1", "R1.2",
 // etc.) from the gate's Detail string and returns plain-language
 // prose the LLM can act on. Pre-2026-04-30 the raw Detail flowed
 // straight to the LLM hint and the codes confused models that had
@@ -276,9 +279,17 @@ func plainCoherenceDetail(detail string) string {
 	// B.5 multi-segment path: split on " | ", strip each piece, rejoin.
 	// Single-segment path is byte-identical to the historical loop —
 	// strings.Split on a string without " | " returns a 1-element slice.
+	//
+	// B5 (2026-05-10): each segment now ALSO passes through
+	// sanitizeInternalVocab so dotted / Go-style internal token
+	// shapes don't leak as code-identifier-shaped prose into the
+	// LLM's retry hint (R6 red line direct remediation; forensic
+	// anchor: 2026-05-10 chatpp-7d46dee4 log L1316
+	// entities=[emit_analysis, is_cross_component]).
 	segments := strings.Split(d, " | ")
 	for i, seg := range segments {
-		segments[i] = stripCoherencePrefix(strings.TrimSpace(seg))
+		stripped := stripCoherencePrefix(strings.TrimSpace(seg))
+		segments[i] = sanitizeInternalVocab(stripped)
 	}
 	return strings.Join(segments, " | ")
 }
