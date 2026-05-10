@@ -44,10 +44,14 @@ func auditR6(t *testing.T, label, out string) {
 	for _, banned := range []string{
 		// Pipeline stage names
 		"explorer agent", "extractor agent", "finalizer agent", "analyzer agent",
+		"log-triage producer", "perf-triage producer",
+		"log_triage", "perf_triage", "pre-stage",
 		// Pipeline architecture references that the LLM has no business knowing
 		"downstream agents",
 		"downstream stages",
 		"downstream consumers",
+		"downstream",
+		"answer pipeline",
 		// Internal Go type / package names
 		"BusContext", "MutableState", "AnalysisIR",
 		"AnalyzerHints", "AnswerDocumentV2",

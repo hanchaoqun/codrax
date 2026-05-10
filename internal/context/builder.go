@@ -2436,13 +2436,13 @@ func attachedLogPreamble(state attachedRuntimeTriageState) string {
 	switch state {
 	case attachedTriageProducer:
 		return "The user attached the runtime log below alongside their question. " +
-			"You are the log-triage producer for this raw artifact: parse it into the structured log bundle, preserving stack-frame order, error chains, and literal file:line anchors.\n\n"
+			"Prepare a structured summary for this raw log, preserving stack-frame order, error chains, and literal file:line anchors.\n\n"
 	case attachedTriageStructured:
 		return "The user attached the runtime log below alongside their question. " +
-			"A structured Log Triage section is already available above and is the preferred source for stack frames, file:line anchors, function names, and cause chains. Consult the raw log only for literal message text or frames not visible in the structured section.\n\n"
+			"A structured log summary is already available above and is the preferred source for stack frames, file:line anchors, function names, and cause chains. Consult the raw log only for literal message text or frames not visible in the structured summary.\n\n"
 	default:
 		return "The user attached the runtime log below alongside their question. " +
-			"No structured Log Triage bundle is available in this prompt; the pre-stage may have been skipped, failed, or degraded. Treat this raw log as unparsed input: establish any stack-frame file:line anchors yourself before relying on them downstream.\n\n"
+			"No structured log summary is available in this prompt. Treat this raw log as unparsed input: establish any stack-frame file:line anchors yourself before relying on them later.\n\n"
 	}
 }
 
@@ -2450,13 +2450,13 @@ func attachedTracePreamble(state attachedRuntimeTriageState) string {
 	switch state {
 	case attachedTriageProducer:
 		return "The user attached the performance trace below alongside their question. " +
-			"You are the perf-triage producer for this raw artifact: parse it into structured hotspots, stalls, frame spans, and startup or jank envelopes so the structured form is available for the rest of the answer pipeline.\n\n"
+			"Prepare a structured summary for this raw trace, capturing hotspots, stalls, frame spans, and startup or jank envelopes.\n\n"
 	case attachedTriageStructured:
 		return "The user attached the performance trace below alongside their question. " +
-			"A structured Perf Triage section is already available above and is the preferred source for hotspots, stalls, frame spans, and startup or jank envelopes. Consult the raw trace only for literal timestamps, thread names, or event tags not visible in the structured section.\n\n"
+			"A structured performance summary is already available above and is the preferred source for hotspots, stalls, frame spans, and startup or jank envelopes. Consult the raw trace only for literal timestamps, thread names, or event tags not visible in the structured summary.\n\n"
 	default:
 		return "The user attached the performance trace below alongside their question. " +
-			"No structured Perf Triage bundle is available in this prompt; the pre-stage may have been skipped, failed, or degraded. Treat this raw trace as unparsed input: derive hotspots, stalls, timestamps, and thread/event anchors yourself before relying on them downstream.\n\n"
+			"No structured performance summary is available in this prompt. Treat this raw trace as unparsed input: derive hotspots, stalls, timestamps, and thread/event anchors yourself before relying on them later.\n\n"
 	}
 }
 

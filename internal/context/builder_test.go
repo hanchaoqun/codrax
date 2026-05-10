@@ -187,7 +187,7 @@ func TestFormatAttachedLog_PreambleTracksTriageState(t *testing.T) {
 	payload := "panic: boom\nmain.x()\n\t/src/a.go:1\n"
 
 	missing := formatAttachedLog(payload, "", attachedTriageUnavailable)
-	if !strings.Contains(missing, "No structured Log Triage bundle is available") {
+	if !strings.Contains(missing, "No structured log summary is available") {
 		t.Fatalf("missing-bundle preamble should say raw log is unparsed: %s", missing)
 	}
 	if strings.Contains(missing, "already parsed stack frames") {
@@ -195,12 +195,12 @@ func TestFormatAttachedLog_PreambleTracksTriageState(t *testing.T) {
 	}
 
 	structured := formatAttachedLog(payload, "", attachedTriageStructured)
-	if !strings.Contains(structured, "structured Log Triage section is already available") {
+	if !strings.Contains(structured, "structured log summary is already available") {
 		t.Fatalf("structured-bundle preamble missing preferred structured-source cue: %s", structured)
 	}
 
 	producer := formatAttachedLog(payload, "", attachedTriageProducer)
-	if !strings.Contains(producer, "log-triage producer") {
+	if !strings.Contains(producer, "Prepare a structured summary") {
 		t.Fatalf("producer preamble should instruct the triager to parse: %s", producer)
 	}
 }
@@ -276,7 +276,7 @@ func TestFormatAttachedTrace_PreambleTracksTriageState(t *testing.T) {
 	payload := "sched_switch: prev_comm=main next_comm=RenderThread\n"
 
 	missing := formatAttachedTrace(payload, "", attachedTriageUnavailable)
-	if !strings.Contains(missing, "No structured Perf Triage bundle is available") {
+	if !strings.Contains(missing, "No structured performance summary is available") {
 		t.Fatalf("missing-bundle preamble should say raw trace is unparsed: %s", missing)
 	}
 	if strings.Contains(missing, "already extracted structured hotspots") {
@@ -284,12 +284,12 @@ func TestFormatAttachedTrace_PreambleTracksTriageState(t *testing.T) {
 	}
 
 	structured := formatAttachedTrace(payload, "", attachedTriageStructured)
-	if !strings.Contains(structured, "structured Perf Triage section is already available") {
+	if !strings.Contains(structured, "structured performance summary is already available") {
 		t.Fatalf("structured-bundle preamble missing preferred structured-source cue: %s", structured)
 	}
 
 	producer := formatAttachedTrace(payload, "", attachedTriageProducer)
-	if !strings.Contains(producer, "perf-triage producer") {
+	if !strings.Contains(producer, "Prepare a structured summary") {
 		t.Fatalf("producer preamble should instruct the triager to parse: %s", producer)
 	}
 }
