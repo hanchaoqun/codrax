@@ -305,7 +305,53 @@ func composeCoherenceRetryHint(report types.GateReport) string {
 			fmt.Fprintf(&b, "- %s\n", plainCoherenceDetail(c.Detail))
 		}
 	}
+	// Fix-B (2026-05-10): when R2.2 longform_scalar_subject fires
+	// in this report, append targeted remediation guidance pointing
+	// at the most common cause (LLM treating an error name in the
+	// question as the answer) and the two corrective actions
+	// (unset / non-scalar kind). This sits OUTSIDE the per-rule
+	// loop so it fires regardless of which checks reported the
+	// rule + survives any future check renaming.
+	if reportContainsR22(report) {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(r22RetryAdvice())
+	}
 	return strings.TrimSpace(b.String())
+}
+
+// reportContainsR22 reports whether the gate report has a failed
+// shape_subject_coherence check whose Detail starts with the R2.2
+// rule prefix. Mirrors the orchestrator-side detection in
+// r22AutoCorrectShapeSubject.
+func reportContainsR22(report types.GateReport) bool {
+	for _, c := range report.Checks {
+		if c.Passed {
+			continue
+		}
+		if c.Name != "shape_subject_coherence" {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(c.Detail), "R2.2 longform_scalar_subject:") {
+			return true
+		}
+	}
+	return false
+}
+
+// r22RetryAdvice returns the LLM-facing advisory paragraph that
+// accompanies an R2.2 retry hint. Phrased in language-/domain-
+// neutral structural terms — no internal stage codenames, no
+// language-specific examples (the same advice applies to Go panics,
+// Python tracebacks, Java exceptions, Rust crashes, JS errors, etc.),
+// no per-case curve-fitting (works for root-cause / call-chain /
+// architecture / config-precedence / comparison and any other
+// explanation-shape question).
+//
+// Design doc: docs/design/analyzer_failure_remediation.md §3.2.
+func r22RetryAdvice() string {
+	return "Your prior emit set `answer_subject.kind` to a scalar value, but the question's shape calls for a multi-step explanation (causation, mechanism, sequence, walk-through, comparison) — the answer is the explanation itself, NOT any single name the user happened to mention in the question. To fix on retry: prefer UNSETTING `answer_subject` entirely (the auto-inference from `question_kind` will pick the correct shape), or pick a non-scalar kind only when the question literally asks for ONE named target (e.g. 'which function does X', 'which config key controls Y'). Distinguish the SUBJECT mentioned (an error name, a field, a route, a literal) from the ANSWER WANTED (the explanation of cause / mechanism / behaviour around that subject)."
 }
 
 // plainCoherenceDetail (note: per-segment loop below now also passes
