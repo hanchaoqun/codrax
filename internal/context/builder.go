@@ -2216,9 +2216,7 @@ func renderBugClassesSection(detected []types.DetectedBugClass, modality string)
 	var b strings.Builder
 	if len(detected) > 0 {
 		b.WriteString("### Detected Patterns\n")
-		b.WriteString("The raw " + inputNoun + " contains one or more well-known signatures. " +
-			"The system identified the following canonical type(s) — when these patterns are RELEVANT to what the user asked, " +
-			"USE THESE EXACT TERMS rather than paraphrasing or inventing alternative names:\n\n")
+		b.WriteString("The raw " + inputNoun + " contains one or more well-known signatures:\n\n")
 		for _, d := range detected {
 			label := d.HumanLabel()
 			if label == "" {
@@ -2231,12 +2229,53 @@ func renderBugClassesSection(detected []types.DetectedBugClass, modality string)
 			}
 			b.WriteString("\n")
 		}
-		b.WriteString("\nIMPORTANT: these canonical labels are a VOCABULARY AID, not a topic redirect. " +
-			"Address whatever dimension the user actually asked about (failure cause, performance characterisation, " +
-			"business behaviour, audit, or any other intent). When the user's question DOES touch the detected pattern, " +
-			"explain it from the " + inputNoun + "'s own evidence (" + contentDescriptor + ") — " +
-			"do NOT search the surrounding repository for code that happens to resemble names mentioned in the " + inputNoun + ". " +
-			"Repository code is supplementary; the " + inputNoun + "'s structured signature is the authoritative classification.\n\n")
+		// 2026-05-10 user-intent-aligned reframe.
+		//
+		// Three structural fixes here, all rooted in the user red-line
+		// "user-question intent drives the answer focus, the system
+		// must NOT correct user intent":
+		//
+		//   1. Removed "USE THESE EXACT TERMS rather than paraphrasing"
+		//      — that phrase forced terminology even when the user
+		//      asked about something else (timing / scope / audit /
+		//      etc.). Replaced with intent-conditional guidance.
+		//
+		//   2. Replaced "VOCABULARY AID, not a topic redirect" with
+		//      "FACTUAL CONTEXT (what the runtime / detector
+		//      classified)". The "VOCABULARY AID" framing was too
+		//      passive; "FACTUAL CONTEXT" makes clear the labels are
+		//      data, not lexical hints, while still leaving the user
+		//      question in charge.
+		//
+		//   3. Reordered evidence priority — formerly listed function
+		//      names FIRST, which biased models to interpret arg
+		//      dumps (e.g. (0x0)) as the primary signal and override
+		//      the explicit runtime classification. New ordering puts
+		//      message text + classification first when the question
+		//      is about failure KIND, with frames / args presented as
+		//      observation-only at the time of capture (concrete
+		//      example + explicit "NOT diagnostic of failure KIND").
+		//
+		// Forensic anchor: 2026-05-10 sweep b3jmwty80
+		// logtri_goroutine_dump — model misread "concurrent map
+		// writes" as "nil map writes" because (0x0) arg interpretation
+		// dominated the classification. The Detected Patterns section
+		// gave the right canonical label but framed it as optional
+		// vocabulary; the model treated it as one term among many and
+		// chose its own.
+		b.WriteString("\nThese canonical labels are FACTUAL CONTEXT (what the runtime / detector classified). " +
+			"User-question intent drives the answer focus:\n\n" +
+			"  - When the user asks about FAILURE KIND (root cause, common problem, what went wrong, what kind of error), " +
+			"the canonical label above IS the runtime's authoritative answer for the failure kind — use the term verbatim.\n" +
+			"  - When the user asks about anything ELSE (timing, scope, who, when, frequency, audit, " +
+			"performance characterisation, business behaviour), let that intent drive — frames / timestamps / signals are richer for those dimensions, " +
+			"with the classification as supplementary fact only. Do NOT force the canonical term into an answer that does not need it.\n\n" +
+			"Ground details from the " + inputNoun + "'s own content (" + contentDescriptor + "). " +
+			"Do NOT search the surrounding repository for code that happens to resemble names mentioned in the " + inputNoun + " " +
+			"unless a current cited code line explicitly proves the connection. Repository code is supplementary.\n\n" +
+			"Argument-dump values shown alongside frames (e.g. `(0x0)`, `null`, pointer-literal tuples, register snapshots) are observation-only " +
+			"— they record register state at the moment of capture. They are NOT diagnostic of WHAT KIND of failure the runtime classified " +
+			"(the canonical label above is). They become useful only when the user asks about state at the time of capture.\n\n")
 		return b.String()
 	}
 	// Empty — unknown / business-domain regime. Modality-neutral guidance
