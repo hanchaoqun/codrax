@@ -223,27 +223,17 @@ func compilePrincipalEvidenceSupportLane(family QuestionFamily, plan *AnswerSurf
 		AllowedBlocks: principalEvidenceAllowedBlocks(family),
 		Guidance:      principalEvidenceLaneGuidance(family),
 	}
-	candidates := supportFacetCandidateIDs(plan, principalSupportFacetKinds(family)...)
-	if len(candidates) == 0 {
+	items := PrincipalSupportEvidenceItemsForFamily(family, plan)
+	if len(items) == 0 {
 		return lane
 	}
-	seen := make(map[string]bool, len(candidates))
-	limit := facetSupportEntryLimitForFamily(family, len(candidates))
-	for _, item := range orderedFacetSupportEvidenceItems(family, plan.SurfaceEvidence) {
-		id := strings.TrimSpace(item.ID)
-		if id == "" || !candidates[id] || !principalEvidenceItemEligible(item) {
-			continue
-		}
+	limit := facetSupportEntryLimitForFamily(family, len(items))
+	for _, item := range items {
 		text := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
 		if text == "" {
 			continue
 		}
 		location := supportEntryLocation(item)
-		key := strings.ToLower(text) + "\x00" + strings.ToLower(location)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
 		lane.Entries = append(lane.Entries, AnswerSupportEntry{
 			Text:     text,
 			Detail:   callChainEvidenceSupportDetail(item, text),
@@ -354,6 +344,41 @@ func supportFacetCandidateIDs(plan *AnswerSurfacePlan, facets ...AnswerFacetKind
 	}
 	for _, req := range plan.FacetCoverage.Optional {
 		collect(req)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// PrincipalSupportEvidenceItemsForFamily returns the same ordered,
+// de-duplicated typed evidence pool that the principal support lane
+// consumes for a question family. Consumers that need to reason about
+// the principal evidence shape should use this helper rather than
+// re-walking SurfaceEvidence and facet candidates with local rules.
+func PrincipalSupportEvidenceItemsForFamily(family QuestionFamily, plan *AnswerSurfacePlan) []EvidenceItem {
+	candidates := supportFacetCandidateIDs(plan, principalSupportFacetKinds(family)...)
+	if len(candidates) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(candidates))
+	out := make([]EvidenceItem, 0, len(candidates))
+	for _, item := range orderedFacetSupportEvidenceItems(family, plan.SurfaceEvidence) {
+		id := strings.TrimSpace(item.ID)
+		if id == "" || !candidates[id] || !principalEvidenceItemEligible(item) {
+			continue
+		}
+		text := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
+		if text == "" {
+			continue
+		}
+		location := supportEntryLocation(item)
+		key := strings.ToLower(text) + "\x00" + strings.ToLower(location)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
 	}
 	if len(out) == 0 {
 		return nil

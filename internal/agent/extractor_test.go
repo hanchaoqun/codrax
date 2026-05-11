@@ -718,6 +718,92 @@ func TestExtractor_BuildPrompt_PlainCallChainSkipsAnswerSymbolFloor(t *testing.T
 	}
 }
 
+func TestExtractor_BuildPrompt_ImportEnumerationUsesTypedEvidenceLane(t *testing.T) {
+	mu := types.NewMutableState("list imports")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles:             []string{"internal/agent/explorer.go"},
+		TerminalEvidenceCount: 1,
+	})
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:              "import-types",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/explorer.go",
+		LineStart:       26,
+		AnchorKind:      types.AnchorImport,
+		AnchorSymbol:    "types",
+		Producer:        "explorer.emit_evidence",
+		SurfaceTerms:    []string{"github.com/hanchaoqun/codrax/internal/types"},
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.AgentContext{
+		Objective: "internal/agent/explorer.go import 了哪些 internal/ package？",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
+				AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	if !viewNeedsEnumerationSlate(ctx) {
+		t.Fatal("fixture must still be an enumeration-shaped answer")
+	}
+	if !enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx) {
+		t.Fatal("typed import-edge principal evidence should render through the support lane")
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("import-edge enumeration must not force a symbol-definition answer slate")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if contains(prompt, "Cardinality baseline") || contains(prompt, "emit_answer_symbol batch MUST have") {
+		t.Fatalf("typed import enumeration must not surface symbol-slate cardinality rules:\n%s", prompt)
+	}
+	if !contains(prompt, "non-symbol evidence enumeration") {
+		t.Fatalf("prompt must explain why emit_answer_symbol is inactive for non-symbol principal evidence:\n%s", prompt)
+	}
+}
+
+func TestExtractor_BuildPrompt_DefinitionEnumerationStillRequiresAnswerSymbols(t *testing.T) {
+	mu := types.NewMutableState("list functions")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles:             []string{"internal/agent/explorer.go"},
+		TerminalEvidenceCount: 1,
+	})
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:              "def-explorer",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/explorer.go",
+		LineStart:       42,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "newExplorerAgent",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.AgentContext{
+		Objective: "internal/agent/explorer.go 里有哪些函数？",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
+				AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	if !needsAnswerSymbols(ctx) {
+		t.Fatal("symbol-backed enumerations still need emit_answer_symbol")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "Cardinality baseline") {
+		t.Fatalf("definition enumeration should keep symbol-slate cardinality rules:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_NoArtifacts_GracefulDegrade(t *testing.T) {
 	// When Mutable exists but TurnAArtifacts is nil (unit test
 	// bootstrap, or wiring bug), the prompt must still be usable and

@@ -289,7 +289,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			b.WriteString("\n")
 		} else {
 			b.WriteString("### Structured emit obligations\n\n")
-			b.WriteString("This dispatch does NOT require `emit_answer_symbol`. The principal answer will be rendered downstream from ordered_list / diagram / prose blocks, so do not manufacture a symbol slate just because the user asked for a call chain or mechanism walk. Only the multi-topic anchor skeleton path and the explicit Requested Set Boundary path activate `emit_answer_symbol`.\n\n")
+			b.WriteString("This dispatch does NOT require `emit_answer_symbol`. The principal answer will be rendered downstream from typed ordered_list / diagram / prose support lanes, so do not manufacture a symbol slate just because the user asked for a call chain, mechanism walk, or non-symbol evidence enumeration. Multi-topic anchor skeletons, explicit Requested Set Boundaries, and symbol-backed enumerations activate `emit_answer_symbol`.\n\n")
 		}
 	}
 
@@ -797,7 +797,7 @@ func declarativeLiteralFallbackRelevant(ctx *types.AgentContext) bool {
 	if ctx == nil {
 		return false
 	}
-	requiresSymbolSlate := viewNeedsEnumerationSlate(ctx) || isMultiTopicExplanation(ctx)
+	requiresSymbolSlate := needsAnswerSymbols(ctx)
 	if !requiresSymbolSlate {
 		return false
 	}
@@ -1488,7 +1488,45 @@ func viewNeedsBoundedPrincipalList(ctx *types.AgentContext) bool {
 }
 
 func needsAnswerSymbols(ctx *types.AgentContext) bool {
-	return viewNeedsEnumerationSlate(ctx) || isMultiTopicExplanation(ctx) || viewNeedsBoundedPrincipalList(ctx)
+	if isMultiTopicExplanation(ctx) || viewNeedsBoundedPrincipalList(ctx) {
+		return true
+	}
+	if viewNeedsEnumerationSlate(ctx) {
+		return !enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx)
+	}
+	return false
+}
+
+func enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx *types.AgentContext) bool {
+	if ctx == nil || !viewNeedsEnumerationSlate(ctx) || viewNeedsBoundedPrincipalList(ctx) {
+		return false
+	}
+	plan := extractorAnswerSurfacePlan(ctx)
+	items := types.PrincipalSupportEvidenceItemsForFamily(types.QFEnumeration, plan)
+	if len(items) == 0 {
+		return false
+	}
+	nonSymbolPrincipal := 0
+	symbolPrincipal := 0
+	for _, item := range items {
+		if !extractorEvidenceIsModelAuthoredPrincipal(item) {
+			continue
+		}
+		switch types.ClaimFormOf(item) {
+		case types.ClaimImportEdge, types.ClaimCallEdge:
+			nonSymbolPrincipal++
+		case types.ClaimDefinitionFact, types.ClaimAssignmentFact, types.ClaimReturnFact:
+			symbolPrincipal++
+		}
+	}
+	return nonSymbolPrincipal > 0 && symbolPrincipal == 0
+}
+
+func extractorEvidenceIsModelAuthoredPrincipal(item types.EvidenceItem) bool {
+	if strings.TrimSpace(item.Producer) == "explorer.emit_evidence" {
+		return true
+	}
+	return strings.TrimSpace(item.Producer) != "" && item.Kind.IsLLMEmittable()
 }
 
 func requiredAnswerSymbolCount(ctx *types.AgentContext) int {
