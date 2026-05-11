@@ -569,6 +569,65 @@ func TestEmitInvestigationComplete_CallChainAcceptsLatePrincipalEvidence(t *test
 	}
 }
 
+func TestEmitInvestigationComplete_CallChainRejectsLargeTailGapAfterLateEvidence(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind: types.EvidenceDirect, Source: "internal/agent/analyzer.go", LineStart: 100,
+			Subject: "buildAnalysisIR", AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 180,
+			Subject: "buildAnalysisIR", Object: "normalizer.Normalize", AnchorKind: types.AnchorCall, AnchorSymbol: "normalizer.Normalize",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 530,
+			Subject: "buildAnalysisIR", Object: "compiler.Compile", AnchorKind: types.AnchorCall, AnchorSymbol: "compiler.Compile",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 660,
+			Subject: "buildAnalysisIR", Object: "gate.RunWith", AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              "call_chain",
+				MentionedEntities: []string{"buildAnalysisIR", "gate.Run"},
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"source, one late interior, and sink are covered","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("pre-complete downgrades should be tool-success keepalives, got failure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "531-659") {
+		t.Fatalf("downgrade should name the large late tail gap, got %q", res.Summary)
+	}
+	if got := strings.TrimSpace(mut.InvestigationCompleteReason()); got != "" {
+		t.Fatalf("completion flag must not be set on tail-gap downgrade, got %q", got)
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) != 1 || repairs[0].Kind != types.RepairReadFile {
+		t.Fatalf("repair = %+v, want one read_file repair", repairs)
+	}
+	if len(repairs[0].LineRanges) != 1 || repairs[0].LineRanges[0] != (types.LineRange{Start: 531, End: 659}) {
+		t.Fatalf("repair range = %+v, want 531-659", repairs[0].LineRanges)
+	}
+}
+
 func TestEmitInvestigationComplete_NormalizesResolvedToAbsenceForExactConfigTraceClosure(t *testing.T) {
 	missingKey := "explore_mid_loop_hint_budget"
 	mut := types.NewMutableState("q")

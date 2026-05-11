@@ -1650,6 +1650,8 @@ type callChainPrincipalSpanDemand struct {
 	startLine    int
 	endLine      int
 	lateStart    int
+	demandStart  int
+	demandEnd    int
 	lastInterior int
 }
 
@@ -1679,7 +1681,7 @@ func callChainPrincipalSpanDowngrade(ctx *types.BusContext, closure *types.Evide
 	if !ok {
 		return ""
 	}
-	lineRange := types.LineRange{Start: demand.lateStart, End: demand.endLine - 1}
+	lineRange := types.LineRange{Start: demand.demandStart, End: demand.demandEnd}
 	if lineRange.End < lineRange.Start {
 		return ""
 	}
@@ -1842,6 +1844,19 @@ func callChainPrincipalSpanDemandForEvidence(evidence []types.EvidenceItem, star
 			}
 		}
 		if hasLateInterior {
+			if gapStart, gapEnd, gapPrev, ok := callChainPrincipalTailGapDemand(items, startLine, endLine, lateStart); ok {
+				return callChainPrincipalSpanDemand{
+					source:       source,
+					startHint:    startHint,
+					endHint:      endHint,
+					startLine:    startLine,
+					endLine:      endLine,
+					lateStart:    lateStart,
+					demandStart:  gapStart,
+					demandEnd:    gapEnd,
+					lastInterior: gapPrev,
+				}, true
+			}
 			continue
 		}
 		return callChainPrincipalSpanDemand{
@@ -1851,10 +1866,48 @@ func callChainPrincipalSpanDemandForEvidence(evidence []types.EvidenceItem, star
 			startLine:    startLine,
 			endLine:      endLine,
 			lateStart:    lateStart,
+			demandStart:  lateStart,
+			demandEnd:    endLine - 1,
 			lastInterior: lastInterior,
 		}, true
 	}
 	return callChainPrincipalSpanDemand{}, false
+}
+
+func callChainPrincipalTailGapDemand(items []types.EvidenceItem, startLine, endLine, lateStart int) (int, int, int, bool) {
+	const minPrincipalTailGap = 120
+	if endLine <= startLine || lateStart <= startLine {
+		return 0, 0, 0, false
+	}
+	prev := startLine
+	for _, item := range items {
+		line := item.LineStart
+		if line <= startLine || line >= endLine {
+			continue
+		}
+		if line > prev {
+			gapStart := prev + 1
+			if gapStart < lateStart {
+				gapStart = lateStart
+			}
+			gapEnd := line - 1
+			if gapEnd >= gapStart && gapEnd-gapStart+1 >= minPrincipalTailGap {
+				return gapStart, gapEnd, prev, true
+			}
+		}
+		if line > prev {
+			prev = line
+		}
+	}
+	gapStart := prev + 1
+	if gapStart < lateStart {
+		gapStart = lateStart
+	}
+	gapEnd := endLine - 1
+	if gapEnd >= gapStart && gapEnd-gapStart+1 >= minPrincipalTailGap {
+		return gapStart, gapEnd, prev, true
+	}
+	return 0, 0, 0, false
 }
 
 func callChainPrincipalSpanEvidenceEligible(item types.EvidenceItem) bool {
