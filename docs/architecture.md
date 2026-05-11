@@ -856,11 +856,12 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 - `TerminalAnchorCount`：达到 answer-grade proof 的 item 数
 - `SummarySurfaceMode`：渲染派发提示（如 `AnswerSummarySurfaceDriftBoundedRootCause`）
 
-**AnswerSupportPlan**（root-cause-trace 专用，4 lane）：
+**AnswerSupportPlan**（root-cause-trace 专用，4 lane；current-status diagnostic 会追加 verdict lane）：
 - `SupportLaneObservedArtifact`：log/perf 观察到的事实（**不是**当前代码 mechanism）
 - `SupportLaneCurrentCodePath`：当前 grounded code 的主调用 / 路径链
 - `SupportLaneNearestMechanism`：最近的 guard / assignment / return（解释失败路径）
 - `SupportLaneUncertaintyBound`：drift / proof-boundary caveat
+- `SupportLaneCurrentVerdict`：仅供 `decision` verdict block 跨 historical observation / current verification / boundary evidence 做综合判定；不会放宽 observation/path lane 对普通 `ordered_list` / `diagram` 的边界
 
 每 lane 是 `[]AnswerSupportEntry{Text, Location}`。finalizer 的 prompt builder 渲染时带显式指引——"这条 lane 只能描述 X"——强制把"日志观察到的事"和"当前代码 mechanism"严格分开。否则会发生"observed frame F 是当前代码里 X 的调用点"这种漂移到当前 code 的假断言（log 是旧 build，源码已经 drift）。
 

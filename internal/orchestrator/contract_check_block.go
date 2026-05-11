@@ -1923,9 +1923,12 @@ const labelHallucinationGateLengthFloor = 10
 
 // validateEnumerationItemLabelGrounding (post-shape s1a-20260504-064754
 // hallucination forensic, 2026-05-04) checks that every
-// ordered_list / bullet_list block's items[i].label is supported by
-// at least one EvidenceItem in the dispatch's evidence pool — by
-// substring match against AnchorSymbol / Subject / Object. The
+// ordered_list / bullet_list block's symbol/runtime-shaped
+// items[i].label is supported by at least one EvidenceItem in the
+// dispatch's evidence pool — by substring match against AnchorSymbol
+// / Subject / Object. Display / role / prose labels are not treated
+// as symbol claims; when their item carries a valid citation, the
+// citation grounds the item and this label-specific oracle skips. The
 // case that motivated the oracle: explorer emitted 28 evidence
 // items naming the 9 real gate.Run checks (checkCoverage /
 // checkContractComplete / checkSubtopicCoherence / etc.), but the
@@ -1992,6 +1995,12 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 			if label == "" {
 				continue
 			}
+			if !answerItemLabelNeedsEvidenceToken(label) && answerItemHasResolvedCitation(doc, it) {
+				continue
+			}
+			if !answerItemLabelNeedsEvidenceToken(label) {
+				continue
+			}
 			if diagramTokenSupported(label, support) {
 				continue
 			}
@@ -2022,12 +2031,12 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 		out = append(out, types.Violation{
 			Kind: types.ViolEnumerationLabelUngrounded,
 			Detail: fmt.Sprintf(
-				"block %q has %d enumeration item label(s) that do not match any grounded support token (evidence anchor / grounded snippet selector): [%s]",
+				"block %q has %d symbol/runtime-shaped enumeration item label(s) that do not match any grounded support token (evidence anchor / grounded snippet selector): [%s]",
 				blockID, len(ungrounded), strings.Join(pairs, "; ")),
-			Repair: "for each listed item, copy the label verbatim from a grounded support token — anchor_symbol, subject/object, or a selector/type identifier visibly present on a grounded snippet line — or replace the item with one whose label is grounded. Fabricating identifiers that the evidence does not name is silently misleading; if the answer truly requires an item that no evidence supports, reopen the investigation rather than inventing a label.",
+			Repair: "for each listed symbol/runtime label, copy the label verbatim from a grounded support token — anchor_symbol, subject/object, or a selector/type identifier visibly present on a grounded snippet line — or replace the item label with display prose and keep the citation on the item. Fabricating identifiers that the evidence does not name is silently misleading; if the answer truly requires an item that no evidence supports, reopen the investigation rather than inventing a label.",
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "block_items_label",
-				Reason:     "items[].label not supported by any evidence pool anchor",
+				Reason:     "symbol/runtime-shaped items[].label not supported by any evidence pool anchor",
 				Confidence: 0.85,
 			},
 			ClusterKey: blockClusterKey(blockID, "block_items_label"),
@@ -2035,6 +2044,53 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 		})
 	}
 	return out
+}
+
+type answerItemLabelIntent string
+
+const (
+	answerItemLabelIntentDisplay answerItemLabelIntent = "display"
+	answerItemLabelIntentSymbol  answerItemLabelIntent = "symbol"
+	answerItemLabelIntentRuntime answerItemLabelIntent = "runtime"
+)
+
+var labelFileLineTokenRE = regexp.MustCompile(`(?:^|[\s([])(?:[A-Za-z0-9_.@-]+/)+[A-Za-z0-9_.@-]+:\d+\b`)
+
+func classifyAnswerItemLabelIntent(label string) answerItemLabelIntent {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return answerItemLabelIntentDisplay
+	}
+	if labelFileLineTokenRE.MatchString(label) {
+		return answerItemLabelIntentRuntime
+	}
+	if snippetSelectorTokenRE.MatchString(label) {
+		return answerItemLabelIntentSymbol
+	}
+	if contract.IsIdentifierShaped(label) {
+		return answerItemLabelIntentSymbol
+	}
+	if ident := labelLeadingSymbolIdentifier(label); ident != "" && len(ident) >= 4 {
+		return answerItemLabelIntentSymbol
+	}
+	return answerItemLabelIntentDisplay
+}
+
+func answerItemLabelNeedsEvidenceToken(label string) bool {
+	switch classifyAnswerItemLabelIntent(label) {
+	case answerItemLabelIntentSymbol, answerItemLabelIntentRuntime:
+		return true
+	default:
+		return false
+	}
+}
+
+func answerItemHasResolvedCitation(doc *types.AnswerDocumentV2, item types.AnswerBlockItem) bool {
+	if doc == nil || item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+		return false
+	}
+	cit := doc.Citations[item.CitationRef]
+	return strings.TrimSpace(cit.File) != "" || strings.TrimSpace(cit.Quote) != ""
 }
 
 // validateEnumerationItemLabelExtractorMatch (s1a-20260504-130143
@@ -2868,10 +2924,16 @@ func validateLaneBlockKindCompliance(
 	if doc == nil || supportPlan == nil || len(supportPlan.Lanes) == 0 {
 		return nil
 	}
-	// Build location → lane index, restricted to lanes that actually
+	// Build location → lanes index, restricted to lanes that actually
 	// declare an AllowedBlocks set. Lanes without the field are
 	// treated as unconstrained and contribute no entry to the index.
-	locIndex := make(map[string]laneAttrib)
+	//
+	// A single grounded location may intentionally belong to more
+	// than one lane. Current-status verdict synthesis is the load-
+	// bearing case: the same current-code citation can support both a
+	// path/mechanism block and a bounded `decision` block. Therefore a
+	// block passes when ANY matching lane allows its kind.
+	locIndex := make(map[string][]laneAttrib)
 	for _, lane := range supportPlan.Lanes {
 		if len(lane.AllowedBlocks) == 0 {
 			continue
@@ -2882,13 +2944,7 @@ func validateLaneBlockKindCompliance(
 			if key == "" {
 				continue
 			}
-			// First lane wins for a given location — distinct lanes
-			// should not co-own the same (file, line) anchor; if they
-			// do (defensive), the earlier-declared lane (typically
-			// observed_artifact) keeps the slot.
-			if _, exists := locIndex[key]; !exists {
-				locIndex[key] = attrib
-			}
+			locIndex[key] = appendLaneAttrib(locIndex[key], attrib)
 		}
 	}
 	if len(locIndex) == 0 {
@@ -2956,7 +3012,7 @@ func normalizeLaneLocationKey(location string) string {
 func blockLaneAlignment(
 	doc *types.AnswerDocumentV2,
 	block *types.AnswerBlock,
-	locIndex map[string]laneAttrib,
+	locIndex map[string][]laneAttrib,
 ) (laneAttrib, bool, bool) {
 	var firstMatch laneAttrib
 	matched := false
@@ -2971,20 +3027,35 @@ func blockLaneAlignment(
 		if key == "" {
 			continue
 		}
-		attrib, ok := locIndex[key]
+		attrs, ok := locIndex[key]
 		if !ok {
 			continue
 		}
-		if !matched {
-			firstMatch = attrib
-			matched = true
+		for _, attrib := range attrs {
+			if !matched {
+				firstMatch = attrib
+				matched = true
+			}
+			if blockKindAllowedByLane(string(block.Kind), attrib.allowedBlocks) {
+				allowed = true
+				break
+			}
 		}
-		if blockKindAllowedByLane(string(block.Kind), attrib.allowedBlocks) {
-			allowed = true
+		if allowed {
 			break
 		}
 	}
 	return firstMatch, allowed, matched
+}
+
+func appendLaneAttrib(in []laneAttrib, attrib laneAttrib) []laneAttrib {
+	for _, existing := range in {
+		if existing.title == attrib.title &&
+			strings.Join(existing.allowedBlocks, "\x00") == strings.Join(attrib.allowedBlocks, "\x00") {
+			return in
+		}
+	}
+	return append(in, attrib)
 }
 
 // citationLocationKey renders a Citation as the same canonical

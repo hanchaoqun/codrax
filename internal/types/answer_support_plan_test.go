@@ -125,6 +125,79 @@ func TestBuildAnswerSupportPlan_RootCauseTraceCompilesTypedLanes(t *testing.T) {
 	}
 }
 
+func TestBuildAnswerSupportPlanForAgentContext_CurrentStatusAddsVerdictLane(t *testing.T) {
+	ctx := &AgentContext{
+		AnalysisIR: &AnalysisIR{
+			RequestModel: RequestModel{
+				Intent:    IntentRootCause,
+				LogTriage: &LogBundle{Errors: []LogError{{Type: "panic"}}},
+			},
+			AnswerContract: AnswerContract{
+				CurrentStatusDiagnostic: &CurrentStatusDiagnosticContract{
+					Required: true,
+					AllowedVerdicts: []CurrentStatusVerdict{
+						CurrentStatusStillPresent,
+						CurrentStatusFixed,
+						CurrentStatusNotEnoughEvidence,
+					},
+				},
+			},
+		},
+		LogTriage: &LogBundle{Errors: []LogError{{Type: "panic", Frames: []LogFrame{{
+			File: "internal/agent/analyzer.go",
+			Line: 250,
+			Func: "buildAnalysisIR",
+		}}}}},
+		Mutable: NewMutableState(""),
+		EvidenceItems: []EvidenceItem{
+			{
+				Kind:         EvidenceRelationship,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    743,
+				AnchorKind:   AnchorCall,
+				Subject:      "ParseOutput",
+				Object:       "buildAnalysisIR",
+				AnchorSymbol: "buildAnalysisIR",
+			},
+			{
+				Kind:         EvidenceConditional,
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    978,
+				AnchorKind:   AnchorCondition,
+				AnchorSymbol: "buildAnalysisIR",
+				Condition:    "ctx == nil || ctx.Mutable == nil",
+			},
+		},
+	}
+
+	got := BuildAnswerSupportPlanForAgentContext(ctx)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	var verdictLane *AnswerSupportLane
+	var observedAllowed []string
+	for i := range got.Lanes {
+		switch got.Lanes[i].Kind {
+		case SupportLaneCurrentVerdict:
+			verdictLane = &got.Lanes[i]
+		case SupportLaneObservedArtifact:
+			observedAllowed = append(observedAllowed, got.Lanes[i].AllowedBlocks...)
+		}
+	}
+	if verdictLane == nil {
+		t.Fatalf("current-status diagnostic should add verdict lane; lanes=%+v", got.Lanes)
+	}
+	if strings.Join(verdictLane.AllowedBlocks, ",") != "decision" {
+		t.Fatalf("verdict lane allowed blocks = %v, want [decision]", verdictLane.AllowedBlocks)
+	}
+	if len(verdictLane.Entries) == 0 {
+		t.Fatal("verdict lane should carry located evidence entries for citation routing")
+	}
+	if got, want := strings.Join(observedAllowed, ","), "summary,caveat"; got != want {
+		t.Fatalf("observed lane boundaries should remain narrow, got %q want %q", got, want)
+	}
+}
+
 func TestBuildAnswerSupportPlan_RootCauseTraceKeepsGuardProtectedAccessOutOfNearestMechanism(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		DriftBoundedSurfaceItems: []EvidenceItem{

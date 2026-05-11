@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #
-# Parallel runner — fires N eval cases at once, waits for the batch
-# before starting the next.
+# Parallel runner — keeps up to N eval cases running at once.
 #
 # Usage: bash eval/parallel_all.sh
 #   Optional env vars:
@@ -23,12 +22,17 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=eval/runner_lib.sh
+source "$SCRIPT_DIR/runner_lib.sh"
+
 CASES_GLOB="${CASES_GLOB:-eval/cases/*.case}"
 # shellcheck disable=SC2206
 CASES=($CASES_GLOB)
 TOTAL=${#CASES[@]}
 PARALLEL="${PARALLEL:-4}"
 TIMEOUT="${TIMEOUT:-1200}"
+RESULTS_ROOT="${EVAL_RESULTS_ROOT:-eval/results}"
 SWEEP_START=$(date +%Y%m%d-%H%M%S)
 SUMMARY="eval/parallel_all_summary.md"
 
@@ -61,9 +65,10 @@ echo "- baseline: b10fd9f (post-TypedDenials + BugClass + multi-repo)" >>"$SUMMA
 echo "- total cases: $TOTAL" >>"$SUMMARY"
 echo "- parallel: $PARALLEL" >>"$SUMMARY"
 echo "- timeout: ${TIMEOUT}s per case" >>"$SUMMARY"
+echo "- results_root: $RESULTS_ROOT" >>"$SUMMARY"
 echo "" >>"$SUMMARY"
-echo "| # | case | verdict | reason | sec |" >>"$SUMMARY"
-echo "|--:|------|---------|--------|----:|" >>"$SUMMARY"
+echo "| # | case | verdict | reason | sec | ana | exp | ext | fin | repair | rejects | patch | sem | self |" >>"$SUMMARY"
+echo "|--:|------|---------|--------|----:|----:|----:|----:|----:|-------:|--------:|------:|----:|-----:|" >>"$SUMMARY"
 
 run_one() {
   local idx="$1"
@@ -72,7 +77,7 @@ run_one() {
   case_id=$(basename "$case_file" .case)
   local start_ts
   start_ts=$(date +%s)
-  timeout "$TIMEOUT" bash eval/run.sh "$case_file" 1 >/dev/null 2>&1
+  eval_run_with_timeout "$TIMEOUT" bash eval/run.sh "$case_file" 1 >/dev/null 2>&1
   local rc=$?
   local end_ts
   end_ts=$(date +%s)
@@ -82,15 +87,7 @@ run_one() {
   # Find the latest result dir whose timestamp suffix is >= sweep
   # start (don't read stale dirs from previous sweeps).
   local dir=""
-  for d in $(ls -dt eval/results/"${case_id}"-* 2>/dev/null); do
-    local ts
-    ts=$(basename "$d" | sed "s/${case_id}-//")
-    # Lexicographic compare works because format is YYYYMMDD-HHMMSS
-    if [[ "$ts" > "$SWEEP_START" ]] || [[ "$ts" == "$SWEEP_START"* ]]; then
-      dir="$d"
-      break
-    fi
-  done
+  dir=$(eval_latest_result_dir "$RESULTS_ROOT" "$case_id" "$SWEEP_START" 2>/dev/null || true)
   if [[ -n "$dir" && -f "$dir/run-1.verdict" ]]; then
     local first_line
     first_line=$(head -1 "$dir/run-1.verdict")
@@ -107,20 +104,34 @@ run_one() {
     verdict="LAUNCH_FAIL"
     reason="no fresh result dir produced (LLM API or script error)"
   fi
-  printf "| %d | %s | %s | %s | %ds |\n" "$idx" "$case_id" "$verdict" "$reason" "$elapsed" >>"$SUMMARY"
+  local metrics="$dir/run-1.metrics.txt"
+  local log=""
+  if [[ -n "$dir" ]]; then
+    log=$(ls -t "$dir"/run-1.logs/codrax-*.log 2>/dev/null | head -1)
+  fi
+  local analyzer explorer extractor finalizer repair rejects patches sem self
+  analyzer=$(eval_metric_field "$metrics" analyzer_dispatches)
+  explorer=$(eval_metric_field "$metrics" explorer_dispatches)
+  extractor=$(eval_metric_field "$metrics" extractor_dispatches)
+  finalizer=$(eval_metric_field "$metrics" finalizer_dispatches)
+  repair=$(eval_metric_field "$metrics" repair_plan_lines)
+  rejects=$(eval_count_pattern 'TOOLRESULT emit_answer_document.*ok=false|TOOLRESULT emit_answer_document_patch ok=false|does not yet meet the structural contract' "$log")
+  patches=$(eval_count_pattern 'emit_answer_document_patch params=' "$log")
+  sem=$(eval_count_pattern 'semantic_quality_reviewer.*emitted [1-9]|semantic_quality_reviewer.*verdict sufficient=false' "$log")
+  self=$(eval_count_pattern 'self_consistency_reviewer.*emitted|self_consistency_reviewer.*consistent=false|self_contradiction' "$log")
+  printf "| %d | %s | %s | %s | %ds | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n" \
+    "$idx" "$case_id" "$verdict" "$reason" "$elapsed" \
+    "$analyzer" "$explorer" "$extractor" "$finalizer" "$repair" "$rejects" "$patches" "$sem" "$self" >>"$SUMMARY"
   echo "[$(date +%H:%M:%S)] [$idx/$TOTAL] $case_id → $verdict (${elapsed}s)" >&2
 }
 
-i=0
-while [[ $i -lt $TOTAL ]]; do
-  for ((j = 0; j < PARALLEL && i < TOTAL; j++)); do
-    case_file="${CASES[$i]}"
-    idx=$((i + 1))
-    run_one "$idx" "$case_file" &
-    i=$((i + 1))
-  done
-  wait
+for ((i = 0; i < TOTAL; i++)); do
+  eval_wait_for_slot "$PARALLEL"
+  case_file="${CASES[$i]}"
+  idx=$((i + 1))
+  run_one "$idx" "$case_file" &
 done
+wait
 
 # Tail rollup.
 echo "" >>"$SUMMARY"
@@ -137,22 +148,9 @@ echo "## Pipeline efficiency digest" >>"$SUMMARY"
 echo "" >>"$SUMMARY"
 echo "| case | analyze | explore | extract | finalize | repair_plan | repair_exec | sem_qa |" >>"$SUMMARY"
 echo "|------|--------:|--------:|--------:|---------:|------------:|------------:|-------:|" >>"$SUMMARY"
-metric_field() {
-  # $1 = metrics file path, $2 = key name; emits the value or '-'.
-  local v
-  v=$(grep -oE "^${2}=[0-9]+" "$1" 2>/dev/null | head -1 | cut -d= -f2)
-  echo "${v:--}"
-}
 for case_file in "${CASES[@]}"; do
   case_id=$(basename "$case_file" .case)
-  digest_dir=""
-  for d in $(ls -dt eval/results/"${case_id}"-* 2>/dev/null); do
-    ts=$(basename "$d" | sed "s/${case_id}-//")
-    if [[ "$ts" > "$SWEEP_START" ]] || [[ "$ts" == "$SWEEP_START"* ]]; then
-      digest_dir="$d"
-      break
-    fi
-  done
+  digest_dir=$(eval_latest_result_dir "$RESULTS_ROOT" "$case_id" "$SWEEP_START" 2>/dev/null || true)
   m="${digest_dir}/run-1.metrics.txt"
   if [[ -z "$digest_dir" || ! -f "$m" ]]; then
     printf "| %s | - | - | - | - | - | - | - |\n" "$case_id" >>"$SUMMARY"
@@ -160,13 +158,13 @@ for case_file in "${CASES[@]}"; do
   fi
   printf "| %s | %s | %s | %s | %s | %s | %s | %s |\n" \
     "$case_id" \
-    "$(metric_field "$m" analyzer_dispatches)" \
-    "$(metric_field "$m" explorer_dispatches)" \
-    "$(metric_field "$m" extractor_dispatches)" \
-    "$(metric_field "$m" finalizer_dispatches)" \
-    "$(metric_field "$m" repair_plan_lines)" \
-    "$(metric_field "$m" repair_exec_lines)" \
-    "$(metric_field "$m" semantic_quality_dispatches)" >>"$SUMMARY"
+    "$(eval_metric_field "$m" analyzer_dispatches)" \
+    "$(eval_metric_field "$m" explorer_dispatches)" \
+    "$(eval_metric_field "$m" extractor_dispatches)" \
+    "$(eval_metric_field "$m" finalizer_dispatches)" \
+    "$(eval_metric_field "$m" repair_plan_lines)" \
+    "$(eval_metric_field "$m" repair_exec_lines)" \
+    "$(eval_metric_field "$m" semantic_quality_dispatches)" >>"$SUMMARY"
 done
 
 echo "[$(date +%H:%M:%S)] sweep complete — pass=$total_pass fail=$total_fail of $TOTAL" >&2

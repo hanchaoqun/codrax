@@ -23,6 +23,7 @@ const (
 	SupportLaneCurrentCodePath  AnswerSupportLaneKind = "current_code_path"
 	SupportLaneNearestMechanism AnswerSupportLaneKind = "nearest_mechanism"
 	SupportLaneUncertaintyBound AnswerSupportLaneKind = "uncertainty_boundary"
+	SupportLaneCurrentVerdict   AnswerSupportLaneKind = "current_status_verdict"
 )
 
 type AnswerSupportLane struct {
@@ -53,15 +54,21 @@ func BuildAnswerSupportPlanForAgentContext(ctx *AgentContext) *AnswerSupportPlan
 	view := BuildAnswerSemanticViewForAgentContext(ctx)
 	if view != nil {
 		if out := buildAnswerSupportPlanForFamily(view.Family, plan); out != nil {
-			return out
+			return augmentCurrentStatusVerdictLane(out, view.CurrentStatusDiagnostic)
 		}
 	}
 	if plan.SummarySurfaceMode == AnswerSummarySurfaceDriftBoundedRootCause ||
 		len(plan.LogObservedAnchors) > 0 ||
 		len(plan.LogSourceDriftAnchors) > 0 {
-		return buildAnswerSupportPlanForFamily(QFRootCauseTrace, plan)
+		return augmentCurrentStatusVerdictLane(
+			buildAnswerSupportPlanForFamily(QFRootCauseTrace, plan),
+			currentStatusDiagnosticContractFromIR(ctx.AnalysisIR),
+		)
 	}
-	return BuildAnswerSupportPlan(ctx.AnalysisIR.RequestModel, plan)
+	return augmentCurrentStatusVerdictLane(
+		BuildAnswerSupportPlan(ctx.AnalysisIR.RequestModel, plan),
+		currentStatusDiagnosticContractFromIR(ctx.AnalysisIR),
+	)
 }
 
 // BuildAnswerSupportPlan compiles a family-aware support-lane view from
@@ -93,15 +100,29 @@ func BuildAnswerSupportPlanForBusContext(bus *BusContext) *AnswerSupportPlan {
 	view := BuildAnswerSemanticViewForBusContext(bus)
 	if view != nil {
 		if out := buildAnswerSupportPlanForFamily(view.Family, plan); out != nil {
-			return out
+			return augmentCurrentStatusVerdictLane(out, view.CurrentStatusDiagnostic)
 		}
 	}
 	if plan.SummarySurfaceMode == AnswerSummarySurfaceDriftBoundedRootCause ||
 		len(plan.LogObservedAnchors) > 0 ||
 		len(plan.LogSourceDriftAnchors) > 0 {
-		return buildAnswerSupportPlanForFamily(QFRootCauseTrace, plan)
+		return augmentCurrentStatusVerdictLane(
+			buildAnswerSupportPlanForFamily(QFRootCauseTrace, plan),
+			currentStatusDiagnosticContractFromIR(bus.AnalysisIR),
+		)
 	}
-	return BuildAnswerSupportPlan(bus.AnalysisIR.RequestModel, plan)
+	return augmentCurrentStatusVerdictLane(
+		BuildAnswerSupportPlan(bus.AnalysisIR.RequestModel, plan),
+		currentStatusDiagnosticContractFromIR(bus.AnalysisIR),
+	)
+}
+
+func currentStatusDiagnosticContractFromIR(ir *AnalysisIR) *CurrentStatusDiagnosticContract {
+	if ir == nil || ir.AnswerContract.CurrentStatusDiagnostic == nil ||
+		!ir.AnswerContract.CurrentStatusDiagnostic.Required {
+		return nil
+	}
+	return ir.AnswerContract.CurrentStatusDiagnostic
 }
 
 func buildAnswerSupportPlanForFamily(family QuestionFamily, plan *AnswerSurfacePlan) *AnswerSupportPlan {
@@ -136,6 +157,74 @@ func compileRootCauseSupportPlan(plan *AnswerSurfacePlan) *AnswerSupportPlan {
 		return nil
 	}
 	return out
+}
+
+func augmentCurrentStatusVerdictLane(
+	plan *AnswerSupportPlan,
+	contract *CurrentStatusDiagnosticContract,
+) *AnswerSupportPlan {
+	if plan == nil || contract == nil || !contract.Required {
+		return plan
+	}
+	for _, lane := range plan.Lanes {
+		if lane.Kind == SupportLaneCurrentVerdict {
+			return plan
+		}
+	}
+	lane := compileCurrentStatusVerdictSupportLane(plan)
+	if len(lane.Entries) == 0 {
+		return plan
+	}
+	out := *plan
+	out.Lanes = append(append([]AnswerSupportLane(nil), plan.Lanes...), lane)
+	return &out
+}
+
+func compileCurrentStatusVerdictSupportLane(plan *AnswerSupportPlan) AnswerSupportLane {
+	lane := AnswerSupportLane{
+		Kind:          SupportLaneCurrentVerdict,
+		Title:         "Current status verdict synthesis",
+		AllowedBlocks: []string{"decision"},
+		Guidance: "Use this lane only for the bounded verdict block. It may cite the historical " +
+			"observation, current code verification, and boundary evidence together, but it must not " +
+			"be rendered as path steps, diagram nodes, or a standalone mechanism story.",
+	}
+	if plan == nil {
+		return lane
+	}
+	seen := make(map[string]struct{})
+	for _, sourceLane := range plan.Lanes {
+		if sourceLane.Kind == SupportLaneCurrentVerdict {
+			continue
+		}
+		title := strings.TrimSpace(sourceLane.Title)
+		if title == "" {
+			title = string(sourceLane.Kind)
+		}
+		for _, entry := range sourceLane.Entries {
+			location := strings.TrimSpace(entry.Location)
+			if location == "" {
+				continue
+			}
+			key := strings.ToLower(strings.ReplaceAll(location, `\`, `/`))
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			text := strings.TrimSpace(entry.Text)
+			if text == "" {
+				text = location
+			}
+			lane.Entries = append(lane.Entries, AnswerSupportEntry{
+				Text:     fmt.Sprintf("%s verdict support: %s", title, text),
+				Location: location,
+			})
+			if len(lane.Entries) >= 8 {
+				return lane
+			}
+		}
+	}
+	return lane
 }
 
 func compileObservedArtifactSupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {

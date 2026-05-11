@@ -7,6 +7,8 @@
 /codrax
 # `go build ./eval/repomap_v3/harness/` drops a binary at the repo root.
 /harness
+/.codrax-sweep-*
+.DS_Store
 
 # Runtime artifacts produced by the binary itself. Everything created
 # by the logger, REPL memory store, and tool blob storage lives under
@@ -28,6 +30,10 @@
 # every sweep, never useful to commit.
 /eval/parallel_all.log
 /eval/parallel_all_summary.md
+
+# Release/download artifacts generated locally while testing packaging.
+/docs/download/*.tar.gz
+/docs/download/codrax-*/
 
 # Claude Code runtime state — session-specific scheduling lock + local
 # settings overlay; both regenerate per machine and must not ship.

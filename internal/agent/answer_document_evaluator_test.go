@@ -385,11 +385,42 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SurfacesCardinalityBase
 	if !strings.Contains(prompt, "Alpha") || !strings.Contains(prompt, "Beta") {
 		t.Errorf("prior slate not surfaced: %q", prompt)
 	}
-	if !strings.Contains(prompt, "Required-symbol floor: **2 name(s)**") {
-		t.Errorf("required-symbol floor not surfaced: %q", prompt)
+	if !strings.Contains(prompt, "Required-term floor: **2 term(s)**") {
+		t.Errorf("required-term floor not surfaced: %q", prompt)
 	}
-	if !strings.Contains(prompt, "must preserve all 2 grounded name(s)") {
+	if !strings.Contains(prompt, "Alpha (symbol)") || !strings.Contains(prompt, "Beta (symbol)") {
+		t.Errorf("required-term labels not surfaced: %q", prompt)
+	}
+	if !strings.Contains(prompt, "must preserve all 2 grounded term(s)") {
 		t.Errorf("required-member preservation guidance not surfaced: %q", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_TypedMustIncludeTerms(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentEnumerate},
+			AnswerContract: types.AnswerContract{
+				MustIncludeTerms: []types.ContractTerm{
+					{Text: "emit_evidence", Kind: types.ContractTermToolName},
+					{Text: "providers.yaml", Kind: types.ContractTermFileStem},
+					{Text: "raw prompt", Kind: types.ContractTermUserPhrase},
+				},
+			},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"emit_evidence (tool name)",
+		"providers.yaml (file stem)",
+		"raw prompt (phrase)",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("typed must-include term %q missing from prompt:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "Required-symbol floor") {
+		t.Fatalf("typed must-include prompt should not call every term a symbol:\n%s", prompt)
 	}
 }
 
@@ -529,6 +560,63 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SuppressesStepBackboneW
 	}
 	if strings.Contains(prompt, "## Resolved Step Sequence") {
 		t.Fatalf("legacy step backbone should be suppressed when typed support lanes exist:\n%s", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_CurrentStatusDecisionLane(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "panic"}}},
+			},
+			AnswerContract: types.AnswerContract{
+				CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{
+					Required: true,
+					AllowedVerdicts: []types.CurrentStatusVerdict{
+						types.CurrentStatusStillPresent,
+						types.CurrentStatusFixed,
+						types.CurrentStatusNotEnoughEvidence,
+					},
+				},
+			},
+		},
+		LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "panic", Frames: []types.LogFrame{{Raw: "frame", File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"}}}}},
+		Mutable:   types.NewMutableState(""),
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       743,
+				AnchorKind:      types.AnchorCall,
+				Subject:         "ParseOutput",
+				Object:          "buildAnalysisIR",
+				AnchorSymbol:    "buildAnalysisIR",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceConditional,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       978,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "buildAnalysisIR",
+				Condition:       "ctx == nil || ctx.Mutable == nil",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "bounded `decision` verdict only from the lanes below") {
+		t.Fatalf("current-status support instructions should name the decision verdict lane:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "### Current status verdict synthesis") {
+		t.Fatalf("current-status verdict lane missing from support plan:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Allowed block kinds: decision") {
+		t.Fatalf("current-status verdict lane should explicitly allow decision blocks:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- **decision** (exactly 1)") {
+		t.Fatalf("semantic view should still require summary, path, and decision blocks:\n%s", prompt)
 	}
 }
 

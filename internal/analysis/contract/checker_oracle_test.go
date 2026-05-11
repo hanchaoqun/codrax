@@ -129,6 +129,36 @@ func TestCheckWithOracle_ToolNameMustIncludeBypassesSymbolOracle(t *testing.T) {
 	}
 }
 
+func TestCheckWithOracle_FileStemMustIncludeBypassesSymbolOracle(t *testing.T) {
+	oracle := &stubOracle{tiers: map[string]int{}}
+	draft := Answer{Text: "The active provider lookup reads providers.yaml before falling back."}
+	c := types.AnswerContract{
+		MustIncludeTerms: []types.ContractTerm{{
+			Text: "providers.yaml",
+			Kind: types.ContractTermFileStem,
+		}},
+	}
+	res := CheckWithOracle(draft, c, oracle)
+	if !res.Passed {
+		t.Fatalf("file-stem must_include should not require symbol oracle hit; got %+v", res.Violations)
+	}
+}
+
+func TestCheckWithOracle_UserPhraseMustIncludeUsesPhraseContainment(t *testing.T) {
+	oracle := &stubOracle{tiers: map[string]int{}}
+	draft := Answer{Text: "The final answer explicitly distinguishes the raw prompt from the triage bundle."}
+	c := types.AnswerContract{
+		MustIncludeTerms: []types.ContractTerm{{
+			Text: "raw prompt",
+			Kind: types.ContractTermUserPhrase,
+		}},
+	}
+	res := CheckWithOracle(draft, c, oracle)
+	if !res.Passed {
+		t.Fatalf("user-phrase must_include should use phrase containment, got %+v", res.Violations)
+	}
+}
+
 func TestCheckWithOracle_LegacyKnownToolNameInfersToolKind(t *testing.T) {
 	oracle := &stubOracle{tiers: map[string]int{}}
 	draft := Answer{Text: "The answer mentions `emit_evidence` as the grounding tool."}

@@ -27,7 +27,8 @@ set -uo pipefail
 # 2026-05-10 — honor sweep-private binary snapshot to avoid
 # concurrent-rebuild races. parallel_all.sh sets CODRAX_BIN to a
 # stable copy; standalone usage falls back to ./codrax.
-CODRAX_BIN="${CODRAX_BIN:-./codrax}"
+CODRAX_BIN_FROM_ENV="${CODRAX_BIN:-}"
+CODRAX_BIN="${CODRAX_BIN_FROM_ENV:-./codrax}"
 
 if [[ $# -lt 1 ]]; then
   echo "usage: $0 <case-file> [N]" >&2
@@ -116,13 +117,20 @@ fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# Always rebuild — a stale binary silently invalidates every metric in
-# the summary, and we already learned that lesson once.
-echo "building codrax..." >&2
-make >/dev/null || { echo "build failed" >&2; exit 1; }
+# Standalone eval runs rebuild so metrics never silently use a stale
+# binary. Parallel sweeps pass CODRAX_BIN as a private snapshot; in
+# that mode rebuilding per case defeats the snapshot and dirties the
+# working tree under concurrent runs.
+if [[ -n "$CODRAX_BIN_FROM_ENV" && -x "$CODRAX_BIN" ]]; then
+  echo "using codrax snapshot: $CODRAX_BIN" >&2
+else
+  echo "building codrax..." >&2
+  make build >/dev/null || { echo "build failed" >&2; exit 1; }
+fi
 
 TS="$(date +%Y%m%d-%H%M%S)"
-OUTDIR="eval/results/${ID}-${TS}"
+RESULTS_ROOT="${EVAL_RESULTS_ROOT:-eval/results}"
+OUTDIR="${RESULTS_ROOT}/${ID}-${TS}"
 mkdir -p "$OUTDIR"
 
 echo "case: $ID  ($NAME)" >&2
@@ -218,25 +226,38 @@ run_read_step() {
   # topology has no sub-repo to match the value, so the flag is a
   # no-op. Building the args dynamically keeps single-repo runs
   # byte-identical (no extra flag passed).
-  local -a focus_args=()
-  if [[ -n "$FOCUS" ]]; then
-    focus_args=("--focus" "$FOCUS")
-  fi
   if [[ -n "$LOG" ]]; then
-    "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
-      --log-level debug \
-      --log-dir "$logdir" \
-      --log-text "$LOG" \
-      "${focus_args[@]}" \
-      --request "$QUESTION" \
-      >"$out" 2>&1
+    if [[ -n "$FOCUS" ]]; then
+      "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+        --log-level debug \
+        --log-dir "$logdir" \
+        --log-text "$LOG" \
+        --focus "$FOCUS" \
+        --request "$QUESTION" \
+        >"$out" 2>&1
+    else
+      "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+        --log-level debug \
+        --log-dir "$logdir" \
+        --log-text "$LOG" \
+        --request "$QUESTION" \
+        >"$out" 2>&1
+    fi
   else
-    "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
-      --log-level debug \
-      --log-dir "$logdir" \
-      "${focus_args[@]}" \
-      --request "$QUESTION" \
-      >"$out" 2>&1
+    if [[ -n "$FOCUS" ]]; then
+      "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+        --log-level debug \
+        --log-dir "$logdir" \
+        --focus "$FOCUS" \
+        --request "$QUESTION" \
+        >"$out" 2>&1
+    else
+      "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+        --log-level debug \
+        --log-dir "$logdir" \
+        --request "$QUESTION" \
+        >"$out" 2>&1
+    fi
   fi
 }
 

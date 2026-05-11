@@ -1395,7 +1395,7 @@ func TestEnumerationLabelGrounding_HallucinatedLabelFires(t *testing.T) {
 	if !strings.Contains(vs[0].Detail, "checkAnswerSubjectKindIsValid") {
 		t.Errorf("Detail should name second hallucinated label; got %q", vs[0].Detail)
 	}
-	if !strings.Contains(vs[0].Detail, "2 enumeration item label(s)") {
+	if !strings.Contains(vs[0].Detail, "2 symbol/runtime-shaped enumeration item label(s)") {
 		t.Errorf("Detail should report the count; got %q", vs[0].Detail)
 	}
 	if got, want := vs[0].ClusterKey, `block:list|root:block_items_label`; got != want {
@@ -1630,6 +1630,60 @@ func TestEnumerationLabelGrounding_GroundedSnippetQualifiedSelectorsAlsoSupport(
 	}
 	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
 		t.Errorf("grounded snippet-derived selector tokens should support readable labels; got %+v", vs)
+	}
+}
+
+func TestEnumerationLabelGrounding_DisplayLabelsWithCitationPass(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{
+		{ID: "e1", AnchorSymbol: "buildAnalysisIR"},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 743, Quote: "func buildAnalysisIR(...)"},
+			{File: "internal/agent/analyzer.go", Line: 978, Quote: "if ctx == nil { ... }"},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "list",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "Historical observation", Text: "what the log showed", CitationRef: 0},
+					{ID: "i2", Label: "Current code verification", Text: "what current code proves", CitationRef: 1},
+				},
+			},
+		},
+	}
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Fatalf("display labels with grounded citations should not require evidence-token labels; got %+v", vs)
+	}
+}
+
+func TestEnumerationLabelGrounding_CitedIdentifierStillNeedsSupport(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{
+		{ID: "e1", AnchorSymbol: "checkCoverage"},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "internal/analysis/gate/gate.go", Line: 148, Quote: "checkCoverage(ir)"},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "list",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "checkSignalSufficiency", Text: "fabricated identifier", CitationRef: 0},
+				},
+			},
+		},
+	}
+	vs := validateEnumerationItemLabelGrounding(doc, mut)
+	if len(vs) != 1 || vs[0].Kind != types.ViolEnumerationLabelUngrounded {
+		t.Fatalf("identifier-shaped labels should still require evidence-token support even with a citation; got %+v", vs)
+	}
+	if !strings.Contains(vs[0].Detail, "symbol/runtime-shaped") {
+		t.Fatalf("violation should explain narrowed label scope; got %q", vs[0].Detail)
 	}
 }
 
@@ -2459,6 +2513,95 @@ func TestValidateLaneBlockKindCompliance_AllowedKindPasses(t *testing.T) {
 	violations := validateLaneBlockKindCompliance(doc, supportPlan)
 	if len(violations) != 0 {
 		t.Errorf("expected no violations for summary block sourced from observed_artifact lane; got %+v", violations)
+	}
+}
+
+func TestValidateLaneBlockKindCompliance_CurrentStatusDecisionLanePasses(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/foo.go", Line: 42},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "verdict",
+				Kind:        types.BlockDecision,
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "not_enough_evidence: current code verification is bounded by the available evidence.",
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "current verification", CitationRef: 0},
+				},
+			},
+		},
+	}
+	supportPlan := &types.AnswerSupportPlan{
+		Family: types.QFRootCauseTrace,
+		Lanes: []types.AnswerSupportLane{
+			{
+				Kind:          types.SupportLaneNearestMechanism,
+				Title:         "Nearest grounded mechanism",
+				AllowedBlocks: []string{"summary", "ordered_list"},
+				Entries: []types.AnswerSupportEntry{
+					{Text: "guard exists", Location: "internal/agent/foo.go:42"},
+				},
+			},
+			{
+				Kind:          types.SupportLaneCurrentVerdict,
+				Title:         "Current status verdict synthesis",
+				AllowedBlocks: []string{"decision"},
+				Entries: []types.AnswerSupportEntry{
+					{Text: "verdict support", Location: "internal/agent/foo.go:42"},
+				},
+			},
+		},
+	}
+	if got := validateLaneBlockKindCompliance(doc, supportPlan); len(got) != 0 {
+		t.Fatalf("decision block should pass when a co-owned citation location has a verdict lane, got %+v", got)
+	}
+}
+
+func TestValidateLaneBlockKindCompliance_VerdictLaneDoesNotMaskHopMismatch(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/foo.go", Line: 42},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "path",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "frame Foo", CitationRef: 0},
+				},
+			},
+		},
+	}
+	supportPlan := &types.AnswerSupportPlan{
+		Family: types.QFRootCauseTrace,
+		Lanes: []types.AnswerSupportLane{
+			{
+				Kind:          types.SupportLaneObservedArtifact,
+				Title:         "Observed artifact facts",
+				AllowedBlocks: []string{"summary", "caveat"},
+				Entries: []types.AnswerSupportEntry{
+					{Text: "runtime frame", Location: "internal/agent/foo.go:42"},
+				},
+			},
+			{
+				Kind:          types.SupportLaneCurrentVerdict,
+				Title:         "Current status verdict synthesis",
+				AllowedBlocks: []string{"decision"},
+				Entries: []types.AnswerSupportEntry{
+					{Text: "verdict support", Location: "internal/agent/foo.go:42"},
+				},
+			},
+		},
+	}
+	violations := validateLaneBlockKindCompliance(doc, supportPlan)
+	if len(violations) != 1 {
+		t.Fatalf("verdict lane must not make observation facts valid ordered-list hops; got %+v", violations)
+	}
+	if violations[0].Kind != types.ViolLaneBlockKindMismatch {
+		t.Fatalf("wrong violation kind: got %+v", violations[0])
 	}
 }
 

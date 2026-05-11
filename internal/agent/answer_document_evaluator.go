@@ -279,19 +279,19 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}
 
 	if view.NeedsEnumerationSlate() {
-		must := []string(nil)
+		mustTerms := []types.ContractTerm(nil)
 		if ctx != nil && ctx.AnalysisIR != nil {
-			must = ctx.AnalysisIR.AnswerContract.MustInclude
+			mustTerms = answerDocMustIncludeTerms(ctx.AnalysisIR.AnswerContract)
 		}
 		b.WriteString("## Expected principal-item floor\n\n")
-		if len(must) > 0 {
-			fmt.Fprintf(&b, "Required-symbol floor: **%d name(s)** — %s\n\n",
-				len(must), strings.Join(must, ", "))
+		if len(mustTerms) > 0 {
+			fmt.Fprintf(&b, "Required-term floor: **%d term(s)** — %s\n\n",
+				len(mustTerms), renderAnswerDocContractTermList(mustTerms))
 			fmt.Fprintf(&b,
-				"Your principal enumeration block must preserve all %d grounded name(s). "+
+				"Your principal enumeration block must preserve all %d grounded term(s) according to their labels. "+
 					"If the investigation only established a lower bound or could not prove "+
 					"the full set, disclose that bound in prose or a `caveat` block instead "+
-					"of inventing a retired completeness field.\n\n", len(must))
+					"of inventing a retired completeness field.\n\n", len(mustTerms))
 		} else {
 			b.WriteString("Required-member floor is empty. No explicit minimum member set is enforced for this dispatch — ")
 			b.WriteString("keep the rendered list/table aligned with the prior extraction slate and surfaced evidence.\n\n")
@@ -356,6 +356,59 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}
 
 	return b.String()
+}
+
+func answerDocMustIncludeTerms(contract types.AnswerContract) []types.ContractTerm {
+	out := make([]types.ContractTerm, 0, len(contract.MustInclude)+len(contract.MustIncludeTerms))
+	seen := map[string]struct{}{}
+	add := func(term types.ContractTerm) {
+		text := strings.TrimSpace(term.Text)
+		if text == "" {
+			return
+		}
+		kind := term.Kind
+		if !kind.IsValid() {
+			kind = types.InferContractTermKind(text)
+		}
+		key := string(kind) + "\x00" + strings.ToLower(text)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, types.ContractTerm{Text: text, Kind: kind})
+	}
+	for _, text := range contract.MustInclude {
+		add(types.ContractTerm{Text: text, Kind: types.InferContractTermKind(text)})
+	}
+	for _, term := range contract.MustIncludeTerms {
+		add(term)
+	}
+	return out
+}
+
+func renderAnswerDocContractTermList(terms []types.ContractTerm) string {
+	parts := make([]string, 0, len(terms))
+	for _, term := range terms {
+		text := strings.TrimSpace(term.Text)
+		if text == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s)", text, answerDocContractTermKindLabel(term.Kind)))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func answerDocContractTermKindLabel(kind types.ContractTermKind) string {
+	switch kind {
+	case types.ContractTermToolName:
+		return "tool name"
+	case types.ContractTermFileStem:
+		return "file stem"
+	case types.ContractTermUserPhrase:
+		return "phrase"
+	default:
+		return "symbol"
+	}
 }
 
 func answerDocAllowSubTopicStructure(ctx *types.AgentContext, view *types.AnswerSemanticView) bool {
@@ -2313,7 +2366,11 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	}
 	var b strings.Builder
 	b.WriteString("## Typed Answer Support Lanes\n\n")
-	b.WriteString("- Build the principal `summary` block and principal `ordered_list` items only from the lanes below.\n")
+	if supportPlanAllowsBlockKind(plan, string(types.BlockDecision)) {
+		b.WriteString("- Build the principal `summary` block, principal `ordered_list` items, and bounded `decision` verdict only from the lanes below.\n")
+	} else {
+		b.WriteString("- Build the principal `summary` block and principal `ordered_list` items only from the lanes below.\n")
+	}
 	b.WriteString("- Keep observed runtime facts, current code path facts, nearest grounded mechanism facts, and uncertainty disclosures in their own lanes.\n")
 	b.WriteString("- Do not promote an observation lane into caller-side provenance, old-build internals, or exact mechanism unless a current cited line explicitly proves that stronger claim.\n\n")
 	b.WriteString("- Treat each lane's `Allowed block kinds` as a hard surface boundary. If a lane does not list `ordered_list`, do not turn its entries into principal hop items. If a lane does not list `diagram`, do not turn its entries into diagram edges or nodes.\n\n")
@@ -2358,6 +2415,20 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func supportPlanAllowsBlockKind(plan *types.AnswerSupportPlan, kind string) bool {
+	if plan == nil || strings.TrimSpace(kind) == "" {
+		return false
+	}
+	for _, lane := range plan.Lanes {
+		for _, allowed := range lane.AllowedBlocks {
+			if strings.EqualFold(strings.TrimSpace(allowed), kind) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type exactResolutionSeed struct {

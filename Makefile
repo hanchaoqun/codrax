@@ -297,9 +297,12 @@ endif
 # Override sample count: `make eval-patch SAMPLES=5`. Run a single
 # case via `bash eval/run.sh eval/cases/patch_go_typo.case 3`.
 # ---------------------------------------------------------------------------
-.PHONY: eval-patch eval-patch-go eval-patch-c eval-patch-cpp eval-patch-java eval-patch-python
+.PHONY: eval-runner-test eval-patch eval-patch-go eval-patch-c eval-patch-cpp eval-patch-java eval-patch-python
 
 SAMPLES ?= 3
+
+eval-runner-test:
+	bash eval/runner_lib_test.sh
 
 ifeq ($(HOST_OS),windows)
 eval-patch:
