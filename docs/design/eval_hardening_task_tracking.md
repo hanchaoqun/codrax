@@ -51,7 +51,7 @@ hardening work started from the 2026-05-11 full eval sweep.
 ## Batch 5: Explorer Answer-Ready Early Stop
 
 - [x] Define an answer-ready checklist from TaskGraph/EvidencePlan obligations.
-- [ ] Record which answer faces already have enough typed evidence.
+- [x] Record which answer faces already have enough typed evidence.
 - [x] Stop or soften unread-file pushes once all required faces are covered.
 - [x] Add long-tail regression for architecture/mechanism questions.
 

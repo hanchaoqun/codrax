@@ -4693,6 +4693,11 @@ func TestObserveMidLoop_CompletionReadyHint(t *testing.T) {
 	if !strings.Contains(sig.Hint, "emit_investigation_complete") || !strings.Contains(sig.Hint, "enough evidence") {
 		t.Fatalf("hint should direct immediate closure, got: %s", sig.Hint)
 	}
+	for _, want := range []string{"answer-ready faces", "tool sources", "file coverage", "answer evidence"} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("completion-ready hint should record ready face %q, got: %s", want, sig.Hint)
+		}
+	}
 	if !eval.midLoopCompletionReadySent {
 		t.Fatal("one-shot guard should be set after firing")
 	}
@@ -4706,6 +4711,38 @@ func TestObserveMidLoop_CompletionReadyHint(t *testing.T) {
 	if again.HintRequested && again.HintKey == "explorer.mid-loop.completion-ready" {
 		t.Fatalf("completion-ready hint must be one-shot, fired again: %+v", again)
 	}
+}
+
+func TestExplorerReadinessFaces_RecordsReadyAndMissing(t *testing.T) {
+	ready, missing := explorerReadinessFaces(
+		true,  // tool diversity
+		false, // file coverage
+		true,  // evidence quality
+		true,  // ERM applicable
+		false, // ERM not satisfied
+		true,  // explanation anchors applicable
+		true,  // explanation anchors satisfied
+		true,  // authoritative closure
+	)
+	for _, want := range []string{"tool sources", "answer evidence", "topic anchors", "current-branch failure path"} {
+		if !stringSliceContains(ready, want) {
+			t.Fatalf("ready faces missing %q: ready=%v missing=%v", want, ready, missing)
+		}
+	}
+	for _, want := range []string{"file coverage", "current evidence requirements"} {
+		if !stringSliceContains(missing, want) {
+			t.Fatalf("missing faces missing %q: ready=%v missing=%v", want, ready, missing)
+		}
+	}
+}
+
+func stringSliceContains(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestObserveMidLoop_CompletionReadyRequiresEmitEvidence(t *testing.T) {

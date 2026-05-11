@@ -5275,6 +5275,8 @@ type explorerCompletionReadiness struct {
 	DiscoveredCount          int
 	RelevantRead             int
 	Coverage                 float64
+	ReadyFaces               []string
+	MissingFaces             []string
 }
 
 func cloneEvidenceRequirements(reqs []EvidenceRequirement) []EvidenceRequirement {
@@ -5409,6 +5411,16 @@ func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, 
 	if authoritativeClosure && e.driftBoundedCompletionReadyMode() {
 		hasEnough = true
 	}
+	readyFaces, missingFaces := explorerReadinessFaces(
+		toolDiversity,
+		fileCoverage,
+		evidenceQuality,
+		len(e.ermRequirements) > 0,
+		ermSatisfied,
+		explanationAnchorTotal > 0,
+		explanationAnchorReady,
+		authoritativeClosure,
+	)
 
 	return explorerCompletionReadiness{
 		HasEnough:                hasEnough,
@@ -5429,7 +5441,41 @@ func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, 
 		DiscoveredCount:          len(discovered),
 		RelevantRead:             relevantRead,
 		Coverage:                 coverage,
+		ReadyFaces:               readyFaces,
+		MissingFaces:             missingFaces,
 	}
+}
+
+func explorerReadinessFaces(
+	toolDiversity bool,
+	fileCoverage bool,
+	evidenceQuality bool,
+	ermApplicable bool,
+	ermSatisfied bool,
+	explanationAnchorApplicable bool,
+	explanationAnchorReady bool,
+	authoritativeClosure bool,
+) (ready []string, missing []string) {
+	add := func(ok bool, label string) {
+		if ok {
+			ready = append(ready, label)
+			return
+		}
+		missing = append(missing, label)
+	}
+	add(toolDiversity, "tool sources")
+	add(fileCoverage, "file coverage")
+	add(evidenceQuality, "answer evidence")
+	if ermApplicable {
+		add(ermSatisfied, "current evidence requirements")
+	}
+	if explanationAnchorApplicable {
+		add(explanationAnchorReady, "topic anchors")
+	}
+	if authoritativeClosure {
+		ready = append(ready, "current-branch failure path")
+	}
+	return ready, missing
 }
 
 func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopSignal {
@@ -5495,6 +5541,9 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	if readiness.ExplanationAnchorTotal > 0 {
 		fmt.Fprintf(&b, "- topic anchors ready: %d / %d\n",
 			readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)
+	}
+	if len(readiness.ReadyFaces) > 0 {
+		fmt.Fprintf(&b, "- answer-ready faces: %s\n", strings.Join(readiness.ReadyFaces, ", "))
 	}
 	b.WriteString("Only continue reading if one specific unresolved branch would still change the final answer.")
 	return LoopSignal{
