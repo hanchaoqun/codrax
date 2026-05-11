@@ -1085,12 +1085,12 @@ func (o *Orchestrator) finalizeRepairHardCapValue() int {
 }
 
 // injectResidualConcernsCaveat is the P6 chokepoint helper that
-// surfaces a single user-visible caveat when the finalize repair
-// hard cap is reached AND emits a dock notice so the user-facing
-// UI knows the repair-loop terminated by design.
+// surfaces the unresolved typed concern list when the finalize
+// repair hard cap is reached AND emits a dock notice so the user-
+// facing UI knows the repair-loop terminated by design.
 //
 // P7 (2026-05-10) channel correction: the caveat now flows through
-// the SYSTEM channel (AppendSystemCaveatString → "**补充说明：**" /
+// the SYSTEM channel ("**补充说明：**" /
 // "**Additional notes:**" heading), NOT the LLM-authored
 // AnswerDocumentV2.Caveats[] slot. The prior P6 implementation
 // wrote into doc.Caveats[] which violates
@@ -1104,12 +1104,15 @@ func (o *Orchestrator) finalizeRepairHardCapValue() int {
 //
 // Caller has already decided the cap was exceeded (see the
 // finalizeRepairHardCapValue / state.retryUsed comparison in the
-// contract-failure loop). The caveat content is rendered through
-// softFinalizeRepairCapMessage (CN/EN aware, red-line audited).
-func (o *Orchestrator) injectResidualConcernsCaveat(out *agent.StageOutput, concernCount int) {
+// contract-failure loop). The dock notice is rendered through
+// softFinalizeRepairCapMessage (CN/EN aware, red-line audited);
+// the answer body receives detailed concern lines derived only from
+// typed Violation data.
+func (o *Orchestrator) injectResidualConcernsCaveat(out *agent.StageOutput, violations []types.Violation) {
 	if o == nil || o.busCtx == nil || out == nil {
 		return
 	}
+	concernCount := len(violations)
 	// Multi-repo posture detection: only suggest /repos sub-repo
 	// adjustment when the workspace actually has ≥2 sub-repos.
 	// IsSingle() short-circuits cleanly for legacy single-repo
@@ -1119,10 +1122,12 @@ func (o *Orchestrator) injectResidualConcernsCaveat(out *agent.StageOutput, conc
 		multiRepo = true
 	}
 	caveat := softFinalizeRepairCapMessage(o.busCtx.Language, concernCount, multiRepo)
-	// System-channel append: writes to the trailing
-	// "**补充说明：**" / "**Additional notes:**" section, distinct
-	// from the LLM-authored "**说明**：" / "**Caveats:**" channel.
-	out.FinalAnswer = AppendSystemCaveatString(out.FinalAnswer, caveat, o.busCtx.Language)
+	// System-channel append: writes typed concern detail to the
+	// trailing "**补充说明：**" / "**Additional notes:**" section,
+	// distinct from the LLM-authored "**说明**：" / "**Caveats:**"
+	// channel. The dock summary below intentionally does NOT get
+	// appended to the answer; it is a progress/status message.
+	out.FinalAnswer = AppendResidualConcernDetailsToAnswer(out.FinalAnswer, violations, o.busCtx.Language)
 	// Surface the cap event to the dock so the user knows the
 	// loop terminated by design rather than silently shipping with
 	// hidden caveats. P7: dedicated NoticeFinalizeRepairCap kind
@@ -4559,16 +4564,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// destructive on text); the doc reaches the user with its
 		// content preserved + transparent residual disclosure.
 		if hardCap := o.finalizeRepairHardCapValue(); hardCap > 0 && state.retryUsed >= hardCap {
-			// P7 (2026-05-10) channel order: P6 system caveat goes
-			// FIRST, then any violation-template caveats from
-			// AppendUserCaveatsToAnswer get appended below it. Both
-			// land under the same "**补充说明：**" heading because
-			// they are both system-side notes; distinct from the
-			// LLM-authored "**说明**：" surface. P6's caveat is the
-			// orchestrator-decision summary; the violation caveats
-			// are kind-specific repair guidance.
-			o.injectResidualConcernsCaveat(out, len(res.Violations))
-			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			// P7.1 (2026-05-12) channel split: the dock gets the
+			// concise "answer delivered + N concerns" status, while
+			// the answer's supplementary section lists the actual
+			// typed unresolved concerns. Do not append the dock
+			// status line into the answer body, and do not collapse
+			// concrete violations back into one generic family caveat.
+			o.injectResidualConcernsCaveat(out, res.Violations)
 			logging.Warning("[orchestrator] P6 finalize repair hard cap reached (%d/%d); accepting doc with residual-concerns caveat",
 				state.retryUsed, hardCap)
 			lastFinalize = out

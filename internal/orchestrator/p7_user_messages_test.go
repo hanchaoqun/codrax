@@ -59,6 +59,17 @@ func TestAppendSystemCaveatString_EmptyInputs(t *testing.T) {
 	}
 }
 
+func TestAppendSystemCaveatString_ReusesExistingSystemHeading(t *testing.T) {
+	first := AppendSystemCaveatString("answer body", "first note", "zh")
+	got := AppendSystemCaveatString(first, "second note", "zh")
+	if count := strings.Count(got, "**补充说明：**"); count != 1 {
+		t.Fatalf("system heading count = %d, want 1:\n%s", count, got)
+	}
+	if !strings.Contains(got, "- first note") || !strings.Contains(got, "- second note") {
+		t.Fatalf("both caveat bullets should be preserved:\n%s", got)
+	}
+}
+
 // TestSemanticQualityReviewStartMessage_RedlineAudit — pin the
 // reviewer-start cue's R6 (no internal vocab) + CN+EN-purity +
 // generic shape.

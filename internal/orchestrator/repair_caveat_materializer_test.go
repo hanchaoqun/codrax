@@ -88,11 +88,11 @@ func TestMaterializeCaveats_LangFallback(t *testing.T) {
 // to avoid drowning the user. Test fires 5 distinct families.
 func TestMaterializeCaveats_CapAt3(t *testing.T) {
 	violations := []types.Violation{
-		{Kind: types.ViolRichnessRegression},        // answer_coverage
-		{Kind: types.ViolDiagramEdgeUnsupported},    // diagram_fidelity
+		{Kind: types.ViolRichnessRegression},         // answer_coverage
+		{Kind: types.ViolDiagramEdgeUnsupported},     // diagram_fidelity
 		{Kind: types.ViolEnumerationLabelUngrounded}, // enumeration_depth
-		{Kind: types.ViolGhostAnchor},               // citation_grounding
-		{Kind: types.ViolAuthorityOverreach},        // authority_hedging
+		{Kind: types.ViolGhostAnchor},                // citation_grounding
+		{Kind: types.ViolAuthorityOverreach},         // authority_hedging
 	}
 	caveats := MaterializeUnresolvedViolationsAsCaveats(violations, "zh")
 	if len(caveats) > MaxMaterializedCaveats {
@@ -126,5 +126,69 @@ func TestMaterializeCaveats_StableOrder(t *testing.T) {
 	out2 := MaterializeUnresolvedViolationsAsCaveats(b, "zh")
 	if strings.Join(out1, "|") != strings.Join(out2, "|") {
 		t.Errorf("input order changed output: %v vs %v", out1, out2)
+	}
+}
+
+func TestAppendResidualConcernDetails_PrintsTypedItemsNoDockLeak(t *testing.T) {
+	violations := []types.Violation{
+		{
+			Kind:       types.ViolMustInclude,
+			ClusterKey: types.IdentityClusterKey("term:AnalyzerAgent", "must_include"),
+			Detail:     `required symbol "AnalyzerAgent" missing from answer`,
+			Repair:     "include AnalyzerAgent in the final answer",
+		},
+		{
+			Kind:       types.ViolMustInclude,
+			ClusterKey: types.IdentityClusterKey("term:FinalizerAgent", "must_include"),
+			Detail:     `required symbol "FinalizerAgent" missing from answer`,
+			Repair:     "include FinalizerAgent in the final answer",
+		},
+	}
+
+	out := AppendResidualConcernDetailsToAnswer("answer body", violations, "zh")
+	for _, want := range []string{
+		"**补充说明：**",
+		"质量审阅仍有 2 项未完全解决",
+		"`AnalyzerAgent`",
+		"`FinalizerAgent`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("residual detail output missing %q:\n%s", want, out)
+		}
+	}
+	for _, banned := range []string{"答案已交付", "详见下方说明", "Viol", "must_include"} {
+		if strings.Contains(out, banned) {
+			t.Fatalf("residual detail output leaked %q:\n%s", banned, out)
+		}
+	}
+	if got := strings.Count(out, "**补充说明：**"); got != 1 {
+		t.Fatalf("system notes heading count = %d, want 1:\n%s", got, out)
+	}
+}
+
+func TestAppendResidualConcernDetails_SemanticConcernUsesStructuredObservation(t *testing.T) {
+	violations := []types.Violation{
+		{
+			Kind:       types.ViolAnswerSemanticUnderfilled,
+			ClusterKey: types.TopicClusterKey("source to sink call chain", "answer_semantic_quality"),
+			Detail:     "answer_underfilled[coverage:source to sink call chain] — observation: missing the middle compile and bind calls",
+			Repair:     `[1/1] expand the answer to address "source to sink call chain". Add the missing middle calls. Reviewer rationale: internal reviewer text`,
+		},
+	}
+
+	out := AppendResidualConcernDetailsToAnswer("answer body", violations, "en")
+	for _, want := range []string{
+		"**Additional notes:**",
+		"`source to sink call chain`",
+		"missing the middle compile and bind calls",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("semantic residual output missing %q:\n%s", want, out)
+		}
+	}
+	for _, banned := range []string{"answer_underfilled", "Reviewer rationale", "ViolKind", "IRField"} {
+		if strings.Contains(out, banned) {
+			t.Fatalf("semantic residual output leaked %q:\n%s", banned, out)
+		}
 	}
 }

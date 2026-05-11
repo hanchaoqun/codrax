@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -112,21 +113,7 @@ func AppendUserCaveatsToAnswer(answer string, violations []types.Violation, lang
 	if len(caveats) == 0 {
 		return answer
 	}
-	heading := "**Additional notes:**"
-	if isChineseLang(lang) {
-		heading = "**补充说明：**"
-	}
-	var b strings.Builder
-	b.WriteString(strings.TrimRight(answer, "\n"))
-	b.WriteString("\n\n")
-	b.WriteString(heading)
-	b.WriteString("\n\n")
-	for _, c := range caveats {
-		b.WriteString("- ")
-		b.WriteString(c)
-		b.WriteString("\n")
-	}
-	return b.String()
+	return appendSystemCaveatBullets(answer, caveats, lang)
 }
 
 // AppendSystemCaveatString renders ONE pre-formatted system caveat
@@ -155,18 +142,236 @@ func AppendSystemCaveatString(answer, caveat, lang string) string {
 	if caveat == "" {
 		return answer
 	}
+	return appendSystemCaveatBullets(answer, []string{caveat}, lang)
+}
+
+// AppendResidualConcernDetailsToAnswer renders the finalize-repair
+// hard-cap disclosure. Unlike AppendUserCaveatsToAnswer, this path
+// intentionally preserves per-violation detail from the typed
+// contract/reviewer results so "N residual concern(s)" is followed
+// by the actual unresolved items. It still stays in system-caveat
+// vocabulary: no ViolKind names, no IR fields, no confidence scores.
+func AppendResidualConcernDetailsToAnswer(answer string, violations []types.Violation, lang string) string {
+	bullets := MaterializeResidualConcernDetails(violations, lang)
+	if len(bullets) == 0 {
+		return answer
+	}
+	return appendSystemCaveatBullets(answer, bullets, lang)
+}
+
+// MaterializeResidualConcernDetails converts unresolved violations
+// into the detailed variant used only when the finalize-stage repair
+// hard cap is reached. Inputs are typed system/model outputs; this
+// helper does not infer answer facts or repair missing answer content.
+func MaterializeResidualConcernDetails(violations []types.Violation, lang string) []string {
+	if len(violations) == 0 {
+		return nil
+	}
+	useChinese := isChineseLang(lang)
+	limit := len(violations)
+	if limit > MaxMaterializedCaveats {
+		limit = MaxMaterializedCaveats
+	}
+	out := make([]string, 0, limit+1)
+	if useChinese {
+		if len(violations) > limit {
+			out = append(out, fmt.Sprintf("质量审阅仍有 %d 项未完全解决，以下列出前 %d 项可见边界。", len(violations), limit))
+		} else {
+			out = append(out, fmt.Sprintf("质量审阅仍有 %d 项未完全解决，以下列出可见边界。", len(violations)))
+		}
+	} else {
+		if len(violations) > limit {
+			out = append(out, fmt.Sprintf("Quality review still has %d unresolved concern(s); showing the first %d visible boundary item(s).", len(violations), limit))
+		} else {
+			out = append(out, fmt.Sprintf("Quality review still has %d unresolved concern(s); the visible boundary item(s) are listed below.", len(violations)))
+		}
+	}
+
+	seen := map[string]bool{}
+	for _, v := range violations {
+		if len(out) > limit {
+			break
+		}
+		line := residualConcernLine(v, useChinese)
+		line = strings.TrimSpace(line)
+		if line == "" || seen[line] {
+			continue
+		}
+		seen[line] = true
+		out = append(out, line)
+	}
+	if len(out) == 1 {
+		for _, c := range MaterializeUnresolvedViolationsAsCaveats(violations, lang) {
+			c = strings.TrimSpace(c)
+			if c == "" || seen[c] {
+				continue
+			}
+			seen[c] = true
+			out = append(out, c)
+			if len(out) > limit {
+				break
+			}
+		}
+	}
+	if len(out) == 1 {
+		return nil
+	}
+	return out
+}
+
+func residualConcernLine(v types.Violation, useChinese bool) string {
+	switch v.Kind {
+	case types.ViolMustInclude:
+		if term := residualClusterValue(v.ClusterKey, "term"); term != "" {
+			if useChinese {
+				return "答案仍需明确提及 " + inlineCode(term) + "。"
+			}
+			return "The answer still needs to explicitly mention " + inlineCode(term) + "."
+		}
+	case types.ViolAnswerSemanticUnderfilled, types.ViolAnswerTopicMismatch:
+		topic := residualClusterValue(v.ClusterKey, "topic")
+		observation := residualObservation(v.Detail)
+		suggestion := residualSuggestion(v.Repair)
+		if topic != "" || observation != "" || suggestion != "" {
+			return residualTopicLine(topic, observation, suggestion, useChinese)
+		}
+	}
+
+	subject := firstResidualClusterValue(v.ClusterKey, "term", "symbol", "topic", "label", "file", "path", "block", "block_kind", "relation")
+	if subject != "" {
+		if useChinese {
+			return "与 " + inlineCode(subject) + " 相关的检查仍需补充验证。"
+		}
+		return "The check related to " + inlineCode(subject) + " still needs additional verification."
+	}
+	if caveats := MaterializeUnresolvedViolationsAsCaveats([]types.Violation{v}, langFromChinese(useChinese)); len(caveats) > 0 {
+		return caveats[0]
+	}
+	return ""
+}
+
+func residualTopicLine(topic, observation, suggestion string, useChinese bool) string {
+	subject := strings.TrimSpace(topic)
+	body := strings.TrimSpace(suggestion)
+	if observation != "" {
+		body = observation
+	}
+	if subject == "" {
+		if useChinese {
+			return "仍有一处答案覆盖问题：" + trimSentence(body)
+		}
+		return "One answer-coverage concern remains: " + trimSentence(body)
+	}
+	if body == "" {
+		if useChinese {
+			return "关于 " + inlineCode(subject) + " 的覆盖仍需补充。"
+		}
+		return "Coverage for " + inlineCode(subject) + " still needs to be completed."
+	}
+	if useChinese {
+		return "关于 " + inlineCode(subject) + "：" + trimSentence(body)
+	}
+	return "For " + inlineCode(subject) + ": " + trimSentence(body)
+}
+
+func residualClusterValue(clusterKey, key string) string {
+	prefix := strings.TrimSpace(key) + ":"
+	for _, part := range strings.Split(clusterKey, "|") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(part, prefix))
+		}
+	}
+	return ""
+}
+
+func firstResidualClusterValue(clusterKey string, keys ...string) string {
+	for _, key := range keys {
+		if v := residualClusterValue(clusterKey, key); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func residualObservation(detail string) string {
+	const marker = "observation:"
+	idx := strings.Index(detail, marker)
+	if idx < 0 {
+		return ""
+	}
+	return trimSentence(detail[idx+len(marker):])
+}
+
+func residualSuggestion(repair string) string {
+	repair = strings.TrimSpace(repair)
+	if repair == "" {
+		return ""
+	}
+	if idx := strings.Index(repair, "Reviewer rationale:"); idx >= 0 {
+		repair = strings.TrimSpace(repair[:idx])
+	}
+	if idx := strings.Index(repair, ". "); idx >= 0 && idx+2 < len(repair) {
+		repair = strings.TrimSpace(repair[idx+2:])
+	}
+	return trimSentence(repair)
+}
+
+func trimSentence(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.Trim(s, " \t\r\n—-")
+	return s
+}
+
+func inlineCode(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "`", "")
+	return "`" + s + "`"
+}
+
+func langFromChinese(useChinese bool) string {
+	if useChinese {
+		return "zh"
+	}
+	return "en"
+}
+
+func appendSystemCaveatBullets(answer string, caveats []string, lang string) string {
+	filtered := make([]string, 0, len(caveats))
+	seen := map[string]bool{}
+	for _, caveat := range caveats {
+		caveat = strings.TrimSpace(caveat)
+		if caveat == "" || seen[caveat] {
+			continue
+		}
+		seen[caveat] = true
+		filtered = append(filtered, caveat)
+	}
+	if len(filtered) == 0 {
+		return answer
+	}
 	heading := "**Additional notes:**"
 	if isChineseLang(lang) {
 		heading = "**补充说明：**"
 	}
+	base := strings.TrimRight(answer, "\n")
 	var b strings.Builder
-	b.WriteString(strings.TrimRight(answer, "\n"))
-	b.WriteString("\n\n")
-	b.WriteString(heading)
-	b.WriteString("\n\n")
-	b.WriteString("- ")
-	b.WriteString(caveat)
-	b.WriteString("\n")
+	b.WriteString(base)
+	if strings.Contains(base, heading) {
+		b.WriteString("\n")
+	} else {
+		b.WriteString("\n\n")
+		b.WriteString(heading)
+		b.WriteString("\n\n")
+	}
+	for _, c := range filtered {
+		b.WriteString("- ")
+		b.WriteString(c)
+		b.WriteString("\n")
+	}
 	return b.String()
 }
 

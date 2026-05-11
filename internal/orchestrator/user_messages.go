@@ -363,10 +363,10 @@ func softUpstreamFallbackCapMessage(lang string, used, cap int) string {
 	return fmt.Sprintf("· Retry budget reached (%d/%d) — finalizing with what we have", used, cap)
 }
 
-// softFinalizeRepairCapMessage (P6, 2026-05-10) renders the dock /
-// caveat line shown when the finalize-stage repair-loop hard cap
-// is reached and the answer is shipped with a residual-concerns
-// caveat instead of another LLM round. Mirrors the
+// softFinalizeRepairCapMessage (P6, 2026-05-10) renders the dock
+// notice shown when the finalize-stage repair-loop hard cap is
+// reached and the answer is shipped with residual-concern details
+// instead of another LLM round. Mirrors the
 // softUpstreamFallbackCapMessage shape but states "answer delivered
 // + N concerns flagged" and gives an actionable next step.
 //
@@ -380,7 +380,7 @@ func softUpstreamFallbackCapMessage(lang string, used, cap int) string {
 //   - R3 typed: %d concern count + multiRepo bool are the only
 //     mutable inputs
 //   - R4 generic: no case-specific phrasing, no project names
-//   - R5 not system-write-answer: caveat surface, not answer body
+//   - R5 not system-write-answer: dock/status surface, not answer body
 //   - R6 no internal vocab: "次级关注点" / "residual concern(s)"
 //     are user-vocab paraphrases, not ViolKind names
 //   - R7 user intent: actionable next steps; multi-repo branch
