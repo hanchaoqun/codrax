@@ -20,20 +20,35 @@ import os
 import signal
 import subprocess
 import sys
+import time
 
 timeout = float(sys.argv[1])
 cmd = sys.argv[2:]
 p = subprocess.Popen(cmd, start_new_session=True)
+deadline = time.time() + timeout
 try:
-    sys.exit(p.wait(timeout=timeout))
-except subprocess.TimeoutExpired:
+    while True:
+        rc = p.poll()
+        if rc is not None:
+            sys.exit(rc)
+        if time.time() >= deadline:
+            break
+        time.sleep(min(0.5, max(0.0, deadline - time.time())))
     os.killpg(p.pid, signal.SIGTERM)
-    try:
-        p.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        os.killpg(p.pid, signal.SIGKILL)
-        p.wait()
+    grace_deadline = time.time() + 10
+    while True:
+        rc = p.poll()
+        if rc is not None:
+            sys.exit(124)
+        if time.time() >= grace_deadline:
+            break
+        time.sleep(min(0.25, max(0.0, grace_deadline - time.time())))
+    os.killpg(p.pid, signal.SIGKILL)
+    p.wait()
     sys.exit(124)
+except KeyboardInterrupt:
+    os.killpg(p.pid, signal.SIGTERM)
+    raise
 PY
     return $?
   fi
