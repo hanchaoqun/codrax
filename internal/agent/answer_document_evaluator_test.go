@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -931,6 +932,44 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDecoratedSymbolH
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("decorated symbol header context missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_EnumerationKeepsMoreThanSixSurfaceTerms(t *testing.T) {
+	mut := types.NewMutableState("q")
+	var evidence []types.EvidenceItem
+	for i := 1; i <= 8; i++ {
+		evidence = append(evidence, types.EvidenceItem{
+			ID:           fmt.Sprintf("import-%02d", i),
+			Kind:         types.EvidenceDirect,
+			Scope:        types.ScopeLine,
+			Source:       "internal/agent/explorer.go",
+			LineStart:    10 + i,
+			AnchorKind:   types.AnchorImport,
+			AnchorSymbol: fmt.Sprintf("pkg%d", i),
+			Producer:     "explorer.emit_evidence",
+			SurfaceTerms: []string{fmt.Sprintf("github.com/acme/project/internal/pkg%d", i)},
+		})
+	}
+	mut.AppendEvidence(evidence)
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for i := 1; i <= 8; i++ {
+		want := fmt.Sprintf("github.com/acme/project/internal/pkg%d", i)
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("enumeration surface terms should not be silently capped below complete small sets; missing %q:\n%s", want, prompt)
 		}
 	}
 }

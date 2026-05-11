@@ -503,12 +503,15 @@ func renderAnswerDocSourceHeaderContexts(ctx *types.AgentContext) string {
 			symbol: symbol,
 			text:   answerDocInlineClip(strings.Join(terms, ", "), 240),
 		})
-		if len(rows) >= 6 {
-			break
-		}
 	}
 	if len(rows) == 0 {
 		return ""
+	}
+	limit := answerDocSourceHeaderContextLimit(ctx)
+	omitted := 0
+	if limit > 0 && len(rows) > limit {
+		omitted = len(rows) - limit
+		rows = rows[:limit]
 	}
 	var b strings.Builder
 	b.WriteString("## Model-Emitted Surface Terms\n\n")
@@ -520,8 +523,19 @@ func renderAnswerDocSourceHeaderContexts(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, "- %s:%d — %s\n", r.source, r.line, r.text)
 		}
 	}
+	if omitted > 0 {
+		fmt.Fprintf(&b, "- (%d additional validated surface-term row(s) omitted from this prompt budget; do not treat the shown rows as an exhaustive set.)\n", omitted)
+	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocSourceHeaderContextLimit(ctx *types.AgentContext) int {
+	if ctx != nil && ctx.AnalysisIR != nil &&
+		types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) == types.QFEnumeration {
+		return 64
+	}
+	return 6
 }
 
 func answerDocModelAuthoredSurfaceTerms(ev types.EvidenceItem) bool {

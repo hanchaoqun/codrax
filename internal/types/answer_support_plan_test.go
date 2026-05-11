@@ -787,6 +787,82 @@ func TestBuildAnswerSupportPlan_FacetPrincipalLaneUsesOnlySourceCandidates(t *te
 	}
 }
 
+func TestBuildAnswerSupportPlan_EnumerationPrioritizesModelAuthoredSurfaceEvidence(t *testing.T) {
+	imports := []EvidenceItem{
+		{
+			ID:              "import-logging",
+			Kind:            EvidenceDirect,
+			Scope:           ScopeLine,
+			Source:          "internal/agent/explorer.go",
+			LineStart:       19,
+			AnchorKind:      AnchorImport,
+			AnchorSymbol:    "logging",
+			Producer:        "explorer.emit_evidence",
+			SurfaceTerms:    []string{"github.com/hanchaoqun/codrax/internal/logging"},
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			ID:              "import-types",
+			Kind:            EvidenceDirect,
+			Scope:           ScopeLine,
+			Source:          "internal/agent/explorer.go",
+			LineStart:       26,
+			AnchorKind:      AnchorImport,
+			AnchorSymbol:    "types",
+			Producer:        "explorer.emit_evidence",
+			SurfaceTerms:    []string{"github.com/hanchaoqun/codrax/internal/types"},
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+	var evidence []EvidenceItem
+	var candidates []string
+	for i := 0; i < 20; i++ {
+		id := fmt.Sprintf("bulk-%02d", i)
+		evidence = append(evidence, EvidenceItem{
+			ID:              id,
+			Kind:            EvidenceConcrete,
+			Scope:           ScopeLine,
+			Source:          "internal/agent/explorer.go",
+			LineStart:       1 + i,
+			AnchorKind:      AnchorAssignment,
+			AnchorSymbol:    fmt.Sprintf("helper%d", i),
+			Producer:        "concrete_values",
+			GroundingStatus: GroundingGrounded,
+		})
+		candidates = append(candidates, id)
+	}
+	evidence = append(evidence, imports...)
+	candidates = append(candidates, "import-logging", "import-types")
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: evidence,
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFEnumeration,
+			Required: []FacetRequirement{{
+				Kind:            FacetEnumerationItem,
+				SourceCandidate: candidates,
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentEnumerate}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) < 2 {
+		t.Fatalf("expected principal evidence lane with import entries, got %+v", got)
+	}
+	first := lane.Entries[0].Text + "\n" + lane.Entries[1].Text
+	for _, want := range []string{
+		"github.com/hanchaoqun/codrax/internal/logging",
+		"github.com/hanchaoqun/codrax/internal/types",
+	} {
+		if !strings.Contains(first, want) {
+			t.Fatalf("model-authored import surface terms should outrank bulk concrete values; missing %q in first entries:\n%s\nfull lane: %+v", want, first, lane.Entries)
+		}
+	}
+}
+
 func TestBuildAnswerSupportPlan_FacetFamilyKeepsExternalObservationSoftUnlessFacetRequiresIt(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		ExternalObservationSeeds: []ExternalObservationSeed{

@@ -2218,6 +2218,11 @@ func answerCodeSurfaceMatchesEvidenceEndpoint(label string, ev types.EvidenceIte
 			return true
 		}
 	}
+	for _, term := range ev.SurfaceTerms {
+		if answerCodeSurfaceMatches(label, term) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -3179,6 +3184,10 @@ func runtimeIdentifierTokenMatches(ident, token string) bool {
 //     ContractComplete").
 //   - EvidenceItem.OwnerSymbol — the enclosing function / type when
 //     the anchor is itself nested.
+//   - EvidenceItem.SurfaceTerms — model-authored labels already
+//     validated against the cited source/log/trace line. These cover
+//     package paths, file paths, runtime labels, aliases, and other
+//     code-identity surfaces that are not declaration symbols.
 //   - Grounded snippet selector chains — qualified identifiers that
 //     visibly appear on the grounded line itself (e.g.
 //     normalizer.Normalize, ctx.Mutable.RequestModel,
@@ -3203,6 +3212,9 @@ func buildEvidenceLabelSupportTokens(items []types.EvidenceItem) map[string]stru
 		add(it.OwnerSymbol)
 		add(it.Subject)
 		add(it.Object)
+		for _, term := range it.SurfaceTerms {
+			add(term)
+		}
 		addSnippetDerivedLabelSupportTokens(out, it)
 	}
 	return out

@@ -29,7 +29,8 @@ const (
 )
 
 const callChainSupportEntryLimit = 24
-const facetSupportEntryLimit = 18
+const facetSupportEntryLimitDefault = 18
+const facetSupportEntryLimitEnumerationMax = 64
 
 type AnswerSupportLane struct {
 	Kind          AnswerSupportLaneKind
@@ -227,7 +228,8 @@ func compilePrincipalEvidenceSupportLane(family QuestionFamily, plan *AnswerSurf
 		return lane
 	}
 	seen := make(map[string]bool, len(candidates))
-	for _, item := range orderedFacetSupportEvidenceItems(plan.SurfaceEvidence) {
+	limit := facetSupportEntryLimitForFamily(family, len(candidates))
+	for _, item := range orderedFacetSupportEvidenceItems(family, plan.SurfaceEvidence) {
 		id := strings.TrimSpace(item.ID)
 		if id == "" || !candidates[id] || !principalEvidenceItemEligible(item) {
 			continue
@@ -247,7 +249,7 @@ func compilePrincipalEvidenceSupportLane(family QuestionFamily, plan *AnswerSurf
 			Detail:   callChainEvidenceSupportDetail(item, text),
 			Location: location,
 		})
-		if len(lane.Entries) >= facetSupportEntryLimit {
+		if len(lane.Entries) >= limit {
 			break
 		}
 	}
@@ -359,12 +361,27 @@ func supportFacetCandidateIDs(plan *AnswerSurfacePlan, facets ...AnswerFacetKind
 	return out
 }
 
-func orderedFacetSupportEvidenceItems(items []EvidenceItem) []EvidenceItem {
+func facetSupportEntryLimitForFamily(family QuestionFamily, candidateCount int) int {
+	if family == QFEnumeration {
+		if candidateCount > facetSupportEntryLimitDefault && candidateCount < facetSupportEntryLimitEnumerationMax {
+			return candidateCount
+		}
+		return facetSupportEntryLimitEnumerationMax
+	}
+	return facetSupportEntryLimitDefault
+}
+
+func orderedFacetSupportEvidenceItems(family QuestionFamily, items []EvidenceItem) []EvidenceItem {
 	if len(items) == 0 {
 		return nil
 	}
 	out := append([]EvidenceItem(nil), items...)
 	sort.SliceStable(out, func(i, j int) bool {
+		leftPriority := facetSupportEvidencePriority(family, out[i])
+		rightPriority := facetSupportEvidencePriority(family, out[j])
+		if leftPriority != rightPriority {
+			return leftPriority < rightPriority
+		}
 		leftSource := supportEvidenceSortLocation(out[i])
 		rightSource := supportEvidenceSortLocation(out[j])
 		if leftSource != rightSource {
@@ -376,6 +393,21 @@ func orderedFacetSupportEvidenceItems(items []EvidenceItem) []EvidenceItem {
 		return strings.TrimSpace(out[i].AnchorSymbol) < strings.TrimSpace(out[j].AnchorSymbol)
 	})
 	return out
+}
+
+func facetSupportEvidencePriority(_ QuestionFamily, item EvidenceItem) int {
+	switch {
+	case item.Producer == "explorer.emit_evidence":
+		return 0
+	case item.Kind.IsLLMEmittable() && item.Producer != "":
+		return 1
+	case item.Kind == EvidenceConcrete || item.Producer == "concrete_values":
+		return 2
+	case strings.HasPrefix(item.Producer, "dataflow."):
+		return 3
+	default:
+		return 2
+	}
 }
 
 func principalEvidenceItemEligible(item EvidenceItem) bool {
@@ -396,7 +428,7 @@ func compileFacetUncertaintySupportLane(plan *AnswerSurfacePlan) AnswerSupportLa
 	if plan == nil {
 		return lane
 	}
-	for _, item := range orderedFacetSupportEvidenceItems(plan.SurfaceEvidence) {
+	for _, item := range orderedFacetSupportEvidenceItems(QFGeneric, plan.SurfaceEvidence) {
 		if !uncertaintySupportItemEligible(item) {
 			continue
 		}
