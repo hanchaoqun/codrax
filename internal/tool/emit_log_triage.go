@@ -272,13 +272,26 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	}
 
 	var p emitLogTriageParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("invalid params: %v", err),
-			Timestamp: time.Now(),
-		}, err
+	decoded := false
+	if repaired, fields, ok := repairStringWrappedArrayFields(params); ok {
+		var repairedParams emitLogTriageParams
+		if err := json.Unmarshal(repaired, &repairedParams); err == nil {
+			p = repairedParams
+			params = repaired
+			decoded = true
+			logging.Info("[emit_log_triage] repaired string-wrapped array fields: %v", fields)
+		}
+	}
+	if !decoded {
+		if err := json.Unmarshal(params, &p); err != nil {
+			remapped := RemapStrictDecodeError(err, nil)
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   fmt.Sprintf("invalid params: %v", remapped),
+				Timestamp: time.Now(),
+			}, remapped
+		}
 	}
 
 	// Cross-field sanity: at least one error, observation, or

@@ -246,6 +246,73 @@ func TestEmitLogTriage_Execute_HappyPath(t *testing.T) {
 	}
 }
 
+func TestEmitLogTriage_Execute_RepairsStringWrappedErrorsArray(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:     types.NewMutableState("test"),
+		AttachedLog: "panic: index out of bounds: index=5, size=3",
+	}
+	params := json.RawMessage(`{
+		"meta": {"lang":"cangjie","signals":["crash"]},
+		"errors": "[{\"type\":\"panic\",\"message\":\"index out of bounds: index=5, size=3\",\"frames\":[{\"lang\":\"cangjie\",\"file\":\"src/bridge/Bridge.cj\",\"line\":18,\"func\":\"demo.bridge.ohSum\",\"raw\":\"at demo.bridge.ohSum(src/bridge/Bridge.cj:18)\",\"confidence\":0.95}]}]"
+	}`)
+
+	tool := &EmitLogTriage{}
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("string-wrapped errors[] should be repaired, summary=%s", res.Summary)
+	}
+	bundle := bus.Mutable.LogTriage()
+	if bundle == nil || len(bundle.Errors) != 1 {
+		t.Fatalf("bundle errors missing: %+v", bundle)
+	}
+	if bundle.Errors[0].Type != "panic" || !strings.Contains(bundle.Errors[0].Message, "index out of bounds") {
+		t.Fatalf("error payload not preserved: %+v", bundle.Errors[0])
+	}
+	if len(bundle.Errors[0].Frames) != 1 || bundle.Errors[0].Frames[0].Func != "demo.bridge.ohSum" {
+		t.Fatalf("frame payload not preserved: %+v", bundle.Errors[0].Frames)
+	}
+}
+
+func TestEmitLogTriage_Execute_RepairsStringWrappedWholePayloadFromErrorsField(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:     types.NewMutableState("test"),
+		AttachedLog: "Error: Cangjie native call failed: index out of bounds\npanic: index out of bounds: index=5, size=3",
+	}
+	params := json.RawMessage(`{
+		"errors": "[{\"type\":\"panic\",\"message\":\"index out of bounds: index=5, size=3\",\"frames\":[{\"lang\":\"cangjie\",\"file\":\"src/bridge/Bridge.cj\",\"line\":18,\"func\":\"demo.bridge.ohSum\",\"raw\":\"at demo.bridge.ohSum(src/bridge/Bridge.cj:18)\",\"confidence\":0.95}],\"cause\":{\"type\":\"Error\",\"message\":\"Cangjie native call failed: index out of bounds\",\"frames\":[{\"lang\":\"arkts\",\"file\":\"entry/src/main/ets/bridges/NativeBridge.ets\",\"line\":33,\"func\":\"NativeBridge.invokeOhSum\",\"raw\":\"at NativeBridge.invokeOhSum (entry/src/main/ets/bridges/NativeBridge.ets:33:11)\",\"confidence\":0.95},{\"lang\":\"arkts\",\"file\":\"entry/src/main/ets/pages/Home.ets\",\"line\":54,\"func\":\"HomePage.computeTotal\",\"raw\":\"at HomePage.computeTotal (entry/src/main/ets/pages/Home.ets:54:7)\",\"confidence\":0.95}]}}],\"meta\":{\"lang\":\"arkts\",\"signals\":[\"crash\",\"logic\"],\"summary\":\"mixed ArkTS/Cangjie crash\"},\"observations\":[]}"
+	}`)
+
+	tool := &EmitLogTriage{}
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("whole-payload string should be repaired, summary=%s", res.Summary)
+	}
+	bundle := bus.Mutable.LogTriage()
+	if bundle == nil || len(bundle.Errors) != 1 {
+		t.Fatalf("bundle errors missing: %+v", bundle)
+	}
+	root := bundle.Errors[0]
+	if root.Type != "panic" || !strings.Contains(root.Message, "index out of bounds: index=5") {
+		t.Fatalf("root panic not preserved: %+v", root)
+	}
+	if root.Cause == nil || root.Cause.Type != "Error" ||
+		!strings.Contains(root.Cause.Message, "Cangjie native call failed") {
+		t.Fatalf("cause chain not preserved: %+v", root.Cause)
+	}
+	if got := len(root.Frames) + len(root.Cause.Frames); got != 3 {
+		t.Fatalf("frames across root+cause = %d, want 3; root=%+v cause=%+v", got, root.Frames, root.Cause.Frames)
+	}
+	if !strings.Contains(res.Summary, "frames=3") {
+		t.Fatalf("summary should count repaired frames, got %q", res.Summary)
+	}
+}
+
 // TestEmitLogTriage_Execute_EmptyBundleRejected confirms the
 // cross-field validator: errors[] empty AND unknown_chunks empty =>
 // rejection.

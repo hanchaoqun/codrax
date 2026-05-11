@@ -823,8 +823,7 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 		// then has the array at `key` plus the other top-level keys
 		// re-surfaced. Outer keys not in the wrapped doc are
 		// preserved (the outer probe wins on conflict).
-		wrapped := []byte(`{"` + key + `": ` + trimmed + `}`)
-		if patched, ok := mergeWholeDocStringify(probe, key, wrapped); ok {
+		if patched, ok := mergeWholeDocStringifyVariants(probe, key, trimmed); ok {
 			probe = patched
 			repaired = append(repaired, key)
 			continue
@@ -837,8 +836,7 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 				repaired = append(repaired, key)
 				continue
 			}
-			wrappedC := []byte(`{"` + key + `": ` + normalised + `}`)
-			if patched, ok := mergeWholeDocStringify(probe, key, wrappedC); ok {
+			if patched, ok := mergeWholeDocStringifyVariants(probe, key, normalised); ok {
 				probe = patched
 				repaired = append(repaired, key)
 				continue
@@ -860,6 +858,19 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 		return patched, []string{"<outer-normalisation>"}, true
 	}
 	return patched, repaired, true
+}
+
+func mergeWholeDocStringifyVariants(probe map[string]json.RawMessage, key, trimmed string) (map[string]json.RawMessage, bool) {
+	candidates := []string{
+		`{"` + key + `": ` + trimmed + `}`,
+		`{"` + key + `": ` + trimmed,
+	}
+	for _, candidate := range candidates {
+		if patched, ok := mergeWholeDocStringify(probe, key, []byte(candidate)); ok {
+			return patched, true
+		}
+	}
+	return nil, false
 }
 
 // repairNestedArraysAsString detects the same "JSON-encoded string
