@@ -1755,7 +1755,7 @@ func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.Answer
 	out = append(out, validateEnumerationItemLabelExtractorMatch(doc, view, mut, oracle)...)
 	out = append(out, validateEnumerationItemLabelHallucination(doc, oracle, mut)...)
 	out = append(out, validateDiagramEdgeEndpointHallucination(doc, oracle)...)
-	out = append(out, validateInlineIdentifierHallucination(doc, oracle)...)
+	out = append(out, validateInlineIdentifierHallucination(doc, oracle, mut)...)
 	return out
 }
 
@@ -2001,6 +2001,12 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 			if !answerItemLabelNeedsEvidenceToken(label) {
 				continue
 			}
+			if answerItemLabelSupportedByQuestionBucket(label, mut) {
+				continue
+			}
+			if answerItemLabelSupportedByRuntimeArtifact(label, mut) {
+				continue
+			}
 			if diagramTokenSupported(label, support) {
 				continue
 			}
@@ -2161,6 +2167,116 @@ func answerItemLabelSupportedByAnswerSymbol(label string, mut *types.MutableStat
 		if label == name {
 			return true
 		}
+	}
+	return false
+}
+
+func answerItemLabelSupportedByQuestionBucket(label string, mut *types.MutableState) bool {
+	if mut == nil {
+		return false
+	}
+	rm := mut.RequestModel()
+	if rm == nil {
+		return false
+	}
+	for _, bucket := range rm.QuestionStructure().Buckets {
+		if typedLabelTokenSupportsLabel(bucket.Label, label) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerItemLabelSupportedByRuntimeArtifact(label string, mut *types.MutableState) bool {
+	if mut == nil {
+		return false
+	}
+	if bundle := mut.LogTriage(); bundle != nil {
+		if runtimeLabelSupportedByLogBundle(label, bundle) {
+			return true
+		}
+	}
+	if perf := mut.PerfTrace(); perf != nil {
+		for _, frame := range perf.LogFrames() {
+			if runtimeLabelSupportedByFrame(label, frame) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func runtimeLabelSupportedByLogBundle(label string, bundle *types.LogBundle) bool {
+	if bundle == nil {
+		return false
+	}
+	for _, signal := range bundle.Meta.Signals {
+		if typedLabelTokenSupportsLabel(string(signal), label) {
+			return true
+		}
+	}
+	matched := false
+	types.WalkLogErrors(bundle, func(err *types.LogError) {
+		if matched || err == nil {
+			return
+		}
+		if typedLabelTokenSupportsLabel(err.Type, label) ||
+			typedLabelTokenSupportsLabel(err.Message, label) {
+			matched = true
+		}
+	})
+	if matched {
+		return true
+	}
+	types.WalkLogFrames(bundle, func(frame types.LogFrame) {
+		if matched {
+			return
+		}
+		if runtimeLabelSupportedByFrame(label, frame) {
+			matched = true
+		}
+	})
+	return matched
+}
+
+func runtimeLabelSupportedByFrame(label string, frame types.LogFrame) bool {
+	return typedLabelTokenSupportsLabel(frame.Lang, label) ||
+		typedLabelTokenSupportsLabel(frame.Func, label) ||
+		typedLabelTokenSupportsLabel(frame.Pkg, label) ||
+		typedLabelTokenSupportsLabel(frame.File, label) ||
+		typedLabelTokenSupportsLabel(frame.Raw, label)
+}
+
+func typedLabelTokenSupportsLabel(token, label string) bool {
+	token = strings.TrimSpace(token)
+	label = strings.TrimSpace(label)
+	if token == "" || label == "" {
+		return false
+	}
+	t := strings.ToLower(token)
+	l := strings.ToLower(label)
+	if l == t {
+		return true
+	}
+	if strings.HasPrefix(l, t) && labelBoundaryAfter(l, len(t)) {
+		return true
+	}
+	if strings.HasPrefix(t, l) && labelBoundaryAfter(t, len(l)) {
+		return true
+	}
+	return false
+}
+
+func labelBoundaryAfter(s string, n int) bool {
+	if n >= len(s) {
+		return true
+	}
+	if s[n] >= 0x80 {
+		return true
+	}
+	switch s[n] {
+	case ' ', '\t', '\r', '\n', '.', ':', '/', '\\', '-', '_', '(', ')', '[', ']', '{', '}', ',', ';':
+		return true
 	}
 	return false
 }
@@ -2485,6 +2601,12 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 			if answerItemLabelSupportedByCitedEvidenceSubject(doc, it, label, mut) {
 				continue
 			}
+			if answerItemLabelSupportedByQuestionBucket(label, mut) {
+				continue
+			}
+			if answerItemLabelSupportedByRuntimeArtifact(label, mut) {
+				continue
+			}
 			if answerItemLabelSupportedByAnswerSymbol(label, mut) {
 				continue
 			}
@@ -2800,9 +2922,13 @@ var inlineBacktickIdentRE = regexp.MustCompile("`([A-Za-z_][A-Za-z0-9_]*)`")
 // Default classification: Medium severity, retry-eligible
 // finalizer-only. Operators promote via
 // pipeline_contract_strict_kinds.
-func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle) []types.Violation {
+func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, mutOpt ...*types.MutableState) []types.Violation {
 	if doc == nil || oracle == nil {
 		return nil
+	}
+	var mut *types.MutableState
+	if len(mutOpt) > 0 {
+		mut = mutOpt[0]
 	}
 	type hallucinated struct {
 		ident   string
@@ -2824,6 +2950,9 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 				continue
 			}
 			if !contract.IsIdentifierShaped(ident) {
+				continue
+			}
+			if inlineIdentifierSupportedByRuntimeArtifact(ident, mut) {
 				continue
 			}
 			found, tier := oracle.SymbolExistsFlat(ident)
@@ -2889,6 +3018,56 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 		})
 	}
 	return out
+}
+
+func inlineIdentifierSupportedByRuntimeArtifact(ident string, mut *types.MutableState) bool {
+	if mut == nil {
+		return false
+	}
+	if bundle := mut.LogTriage(); bundle != nil && inlineIdentifierSupportedByLogBundle(ident, bundle) {
+		return true
+	}
+	if perf := mut.PerfTrace(); perf != nil {
+		for _, frame := range perf.LogFrames() {
+			if inlineIdentifierSupportedByRuntimeFrame(ident, frame) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func inlineIdentifierSupportedByLogBundle(ident string, bundle *types.LogBundle) bool {
+	matched := false
+	types.WalkLogFrames(bundle, func(frame types.LogFrame) {
+		if matched {
+			return
+		}
+		if inlineIdentifierSupportedByRuntimeFrame(ident, frame) {
+			matched = true
+		}
+	})
+	return matched
+}
+
+func inlineIdentifierSupportedByRuntimeFrame(ident string, frame types.LogFrame) bool {
+	return runtimeIdentifierTokenMatches(ident, frame.Func) ||
+		runtimeIdentifierTokenMatches(ident, frame.Pkg) ||
+		runtimeIdentifierTokenMatches(ident, frame.Raw)
+}
+
+func runtimeIdentifierTokenMatches(ident, token string) bool {
+	ident = strings.TrimSpace(ident)
+	token = strings.TrimSpace(token)
+	if ident == "" || token == "" {
+		return false
+	}
+	i := strings.ToLower(ident)
+	t := strings.ToLower(token)
+	if i == t {
+		return true
+	}
+	return strings.HasPrefix(t, i) && labelBoundaryAfter(t, len(i))
 }
 
 // buildEvidenceLabelSupportTokens collects every ground-able token

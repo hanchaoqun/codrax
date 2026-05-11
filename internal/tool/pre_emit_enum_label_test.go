@@ -99,6 +99,56 @@ func TestPreCheckEnumLabel_AllGrounded_NoHints(t *testing.T) {
 	}
 }
 
+func TestPreCheckEnumLabel_UserBucketLabel_NoHints(t *testing.T) {
+	oracle := &stubOracle{known: map[string]int{}}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "frames", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{
+				{Label: "ArkTS"},
+				{Label: "仓颉帧"},
+			}},
+		},
+	}
+	ctx := &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Buckets: []types.QuestionBucket{
+					{Label: "ArkTS", Index: 1},
+					{Label: "仓颉", Index: 2},
+				},
+			},
+		},
+	}
+	if hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx); hints != nil {
+		t.Errorf("typed user bucket labels should bypass code-symbol oracle; got %v", hints)
+	}
+}
+
+func TestPreCheckEnumLabel_RuntimeArtifactLabel_NoHints(t *testing.T) {
+	oracle := &stubOracle{known: map[string]int{}}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "frames", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{
+				{Label: "NativeBridge"},
+			}},
+		},
+	}
+	mut := types.NewMutableState("runtime label")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "Error",
+			Frames: []types.LogFrame{{
+				Func: "NativeBridge.invokeOhSum",
+				Raw:  "at NativeBridge.invokeOhSum (NativeBridge.ets:33:11)",
+			}},
+		}},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+	if hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx); hints != nil {
+		t.Errorf("typed runtime artifact labels should bypass code-symbol oracle; got %v", hints)
+	}
+}
+
 func TestPreCheckEnumLabel_AllHallucinated_OneFixHintPerBlock(t *testing.T) {
 	oracle := &stubOracle{known: map[string]int{}}
 	doc := &types.AnswerDocumentV2{

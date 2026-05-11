@@ -53,12 +53,13 @@ func distinctEntityCount(entities []string) int {
 //     direct typed signal for "subjects the LLM identified".
 //  2. rm.Predicates.IsCategoryEnumeration == false — red line #2
 //     forbids overriding the LLM's explicit positive.
-//  3. rm.Intent ∈ {Explain, Trace, RootCause} — narrows the rule
+//  3. rm.Intent ∈ {Explain, Trace} — narrows the rule
 //     to question kinds where multi-subject often indicates the
 //     user wants a categorised list. Excludes IntentEnumerate
-//     (already marked), IntentConfigQuery / IntentReturnValue
-//     (scalar lanes), and IntentUnknown (LLM gave up — don't
-//     compound the guess).
+//     (already marked), IntentRootCause (multi-entity diagnostics
+//     usually name observed frames/components, not enumerated answer
+//     members), IntentConfigQuery / IntentReturnValue (scalar lanes),
+//     and IntentUnknown (LLM gave up — don't compound the guess).
 //  4. len(types.ExactResolutionTargets(rm)) != 1 — a single exact
 //     resolution target is a precise scalar lookup, not an
 //     enumeration even when multiple entities exist on the model.
@@ -91,7 +92,7 @@ func r1MultiSubjectPredicate(in types.RequestModel, out *types.RequestModel) *Ob
 		return nil
 	}
 	switch out.Intent {
-	case types.IntentExplain, types.IntentTrace, types.IntentRootCause:
+	case types.IntentExplain, types.IntentTrace:
 		// fall through to the structural checks
 	default:
 		return nil

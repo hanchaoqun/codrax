@@ -104,7 +104,7 @@ type emitFixHint struct {
 // catches hallucinations via validateEnumerationItemLabelHallucination.
 // Non-nil oracle activates the same gate at the chokepoint to avoid
 // burning a full repair-loop round on a fixable label hallucination.
-func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, oracle types.SymbolOracle) []emitFixHint {
+func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, oracle types.SymbolOracle, ctxOpt ...*types.BusContext) []emitFixHint {
 	if doc == nil || view == nil {
 		return nil
 	}
@@ -136,7 +136,7 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	// sweep digest. Mirrors validateEnumerationItemLabelHallucination
 	// at the chokepoint so the LLM gets the fix hint inside the
 	// SAME dispatch instead of paying a full retry round.
-	if h := preCheckEnumerationLabelGrounding(doc, oracle); len(h) > 0 {
+	if h := preCheckEnumerationLabelGrounding(doc, oracle, ctxOpt...); len(h) > 0 {
 		hints = append(hints, h...)
 	}
 
@@ -296,9 +296,13 @@ func surfaceTermEvidenceAppliesToItem(ev types.EvidenceItem, item types.AnswerBl
 // the typed-API level.
 //
 // 2026-05-10 P1.
-func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types.SymbolOracle) []emitFixHint {
+func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, ctxOpt ...*types.BusContext) []emitFixHint {
 	if doc == nil || oracle == nil {
 		return nil
+	}
+	var ctx *types.BusContext
+	if len(ctxOpt) > 0 {
+		ctx = ctxOpt[0]
 	}
 	var hints []emitFixHint
 	for _, b := range doc.Blocks {
@@ -317,6 +321,12 @@ func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types
 				continue
 			}
 			if !contract.IsIdentifierShaped(ident) {
+				continue
+			}
+			if preEmitLabelSupportedByQuestionBucket(label, ctx) {
+				continue
+			}
+			if preEmitLabelSupportedByRuntimeArtifact(label, ctx) {
 				continue
 			}
 			found, tier := oracle.SymbolExistsFlat(ident)
@@ -345,6 +355,112 @@ func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types
 		})
 	}
 	return hints
+}
+
+func preEmitLabelSupportedByQuestionBucket(label string, ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	for _, bucket := range ctx.AnalysisIR.RequestModel.QuestionStructure().Buckets {
+		if preEmitTypedLabelTokenSupportsLabel(bucket.Label, label) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitLabelSupportedByRuntimeArtifact(label string, ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if bundle := ctx.Mutable.LogTriage(); bundle != nil {
+		if preEmitRuntimeLabelSupportedByLogBundle(label, bundle) {
+			return true
+		}
+	}
+	if perf := ctx.Mutable.PerfTrace(); perf != nil {
+		for _, frame := range perf.LogFrames() {
+			if preEmitRuntimeLabelSupportedByFrame(label, frame) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func preEmitRuntimeLabelSupportedByLogBundle(label string, bundle *types.LogBundle) bool {
+	if bundle == nil {
+		return false
+	}
+	for _, signal := range bundle.Meta.Signals {
+		if preEmitTypedLabelTokenSupportsLabel(string(signal), label) {
+			return true
+		}
+	}
+	matched := false
+	types.WalkLogErrors(bundle, func(err *types.LogError) {
+		if matched || err == nil {
+			return
+		}
+		if preEmitTypedLabelTokenSupportsLabel(err.Type, label) ||
+			preEmitTypedLabelTokenSupportsLabel(err.Message, label) {
+			matched = true
+		}
+	})
+	if matched {
+		return true
+	}
+	types.WalkLogFrames(bundle, func(frame types.LogFrame) {
+		if matched {
+			return
+		}
+		if preEmitRuntimeLabelSupportedByFrame(label, frame) {
+			matched = true
+		}
+	})
+	return matched
+}
+
+func preEmitRuntimeLabelSupportedByFrame(label string, frame types.LogFrame) bool {
+	return preEmitTypedLabelTokenSupportsLabel(frame.Lang, label) ||
+		preEmitTypedLabelTokenSupportsLabel(frame.Func, label) ||
+		preEmitTypedLabelTokenSupportsLabel(frame.Pkg, label) ||
+		preEmitTypedLabelTokenSupportsLabel(frame.File, label) ||
+		preEmitTypedLabelTokenSupportsLabel(frame.Raw, label)
+}
+
+func preEmitTypedLabelTokenSupportsLabel(token, label string) bool {
+	token = strings.TrimSpace(token)
+	label = strings.TrimSpace(label)
+	if token == "" || label == "" {
+		return false
+	}
+	t := strings.ToLower(token)
+	l := strings.ToLower(label)
+	if l == t {
+		return true
+	}
+	if strings.HasPrefix(l, t) && preEmitLabelBoundaryAfter(l, len(t)) {
+		return true
+	}
+	if strings.HasPrefix(t, l) && preEmitLabelBoundaryAfter(t, len(l)) {
+		return true
+	}
+	return false
+}
+
+func preEmitLabelBoundaryAfter(s string, n int) bool {
+	if n >= len(s) {
+		return true
+	}
+	if s[n] >= 0x80 {
+		return true
+	}
+	switch s[n] {
+	case ' ', '\t', '\r', '\n', '.', ':', '/', '\\', '-', '_', '(', ')', '[', ']', '{', '}', ',', ';':
+		return true
+	}
+	return false
 }
 
 // preEmitLabelLeadingIdentifier extracts the leading

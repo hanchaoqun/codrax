@@ -100,7 +100,7 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
               "type": "object",
               "properties": {
                 "id":           {"type": "string"},
-                "label":        {"type": "string", "description": "Primary visible text / row header. For enumeration items, MUST be the verbatim identifier copied from one of the evidence pool's anchor_symbol / subject / object values — fabricated labels (identifiers that do not appear in any emitted evidence) are rejected at validation time."},
+                "label":        {"type": "string", "description": "Primary visible text / row header. For enumeration items, use a verbatim identifier copied from evidence anchor_symbol / subject / object values, OR a verbatim user-named bucket label, OR a typed runtime-artifact label from log/trace triage. Fabricated code labels that are not grounded by those typed channels are rejected at validation time."},
                 "text":         {"type": "string", "description": "Item body / row content."},
                 "citation_ref": {"type": "integer", "description": "Top-level field on the item; zero-based index into citations[], or -1 when no cite backs the item. For scalar / decision blocks (where the literal / verdict sits in block.text), anchor the citation by attaching a one-element items=[{id:\"x\", citation_ref: N}] — there is no top-level value/boolean field on the block."}
               }

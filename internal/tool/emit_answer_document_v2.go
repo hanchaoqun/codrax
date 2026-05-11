@@ -156,7 +156,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// pre-AnalysisIR paths) the pre-check returns nil and the
 	// post-emit chain in internal/orchestrator runs unchanged.
 	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
-		if hints := runPreEmitChecks(doc, view, preEmitOracleFromCtx(ctx)); len(hints) > 0 {
+		if hints := runPreEmitChecks(doc, view, preEmitOracleFromCtx(ctx), ctx); len(hints) > 0 {
 			return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
 		}
 	}

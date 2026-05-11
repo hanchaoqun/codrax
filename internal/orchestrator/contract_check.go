@@ -59,6 +59,11 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	if out == nil {
 		return contract.Result{Passed: true}
 	}
+	if runtimeArtifactCitationFloorWaived(mut, o) {
+		c.CitationReq.Required = false
+		c.CitationReq.MinCitations = 0
+		c.AcceptanceTests = dropCitationCountGEContract(c.AcceptanceTests)
+	}
 	draft := contract.Answer{
 		Text:      out.FinalAnswer,
 		Citations: extractCitationsFromAnswer(out.FinalAnswer),
@@ -293,6 +298,39 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	result.Passed = !hasAnyStrictViolation(result.Violations)
 
 	return result
+}
+
+func runtimeArtifactCitationFloorWaived(mut *types.MutableState, o *Orchestrator) bool {
+	if mut != nil {
+		if bundle := mut.LogTriage(); bundle != nil && bundle.IsExternalSource() {
+			return true
+		}
+		if perf := mut.PerfTrace(); perf != nil && perf.IsExternalSource() {
+			return true
+		}
+	}
+	if o != nil && o.busCtx != nil && o.busCtx.Mutable != nil && o.busCtx.Mutable != mut {
+		if bundle := o.busCtx.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
+			return true
+		}
+		if perf := o.busCtx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
+			return true
+		}
+	}
+	return false
+}
+
+func dropCitationCountGEContract(crits []types.Criterion) []types.Criterion {
+	if len(crits) == 0 {
+		return crits
+	}
+	out := make([]types.Criterion, 0, len(crits))
+	for _, c := range crits {
+		if c.Kind != types.CritCitationCountGE {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func runExternalArtifactDecodedCheck(mut *types.MutableState, draftText string) []types.Violation {

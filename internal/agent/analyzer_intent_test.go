@@ -129,6 +129,111 @@ func TestBuildAnalysisIR_HistoryLookupStripsAllThreeGates(t *testing.T) {
 	}
 }
 
+func TestBuildAnalysisIR_ExternalOnlyRuntimeArtifactStripsAllThreeGates(t *testing.T) {
+	mut := types.NewMutableState("这个混合栈崩溃涉及 ArkTS 和仓颉两种语言，分别在哪一帧出问题？")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "panic",
+			Message: "index out of bounds",
+			Frames: []types.LogFrame{{
+				Lang: "cangjie",
+				Func: "demo.bridge.ohSum",
+				File: "src/bridge/Bridge.cj",
+				Line: 18,
+			}},
+		}},
+	})
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "这个混合栈崩溃涉及 ArkTS 和仓颉两种语言，分别在哪一帧出问题？",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"ArkTS", "仓颉", "panic"},
+			Entities: []string{"ArkTS", "仓颉", "demo.bridge.ohSum", "NativeBridge.invokeOhSum"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+			IsCrossComponent:     true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+			Confidence:   0.9,
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+
+	if ir.RequestModel.Predicates.IsCategoryEnumeration {
+		t.Error("root-cause artifact questions must not be amplified into category enumeration")
+	}
+	if ir.AnswerContract.CitationReq.Required {
+		t.Error("external-only runtime artifact should not require repo citations")
+	}
+	if got := ir.AnswerContract.CitationReq.MinCitations; got != 0 {
+		t.Errorf("AnswerContract.CitationReq.MinCitations = %d, want 0", got)
+	}
+	for _, a := range ir.AnswerContract.AcceptanceTests {
+		if a.Kind == types.CritCitationCountGE {
+			t.Errorf("AcceptanceTests still carries CritCitationCountGE: %+v", a)
+		}
+	}
+	for _, n := range ir.TaskGraph.Nodes {
+		for _, c := range n.SuccessCriteria {
+			if c.Kind == types.CritCitationCountGE {
+				t.Errorf("TaskNode %q SuccessCriteria still carries CritCitationCountGE: %+v", n.ID, c)
+			}
+		}
+	}
+}
+
+func TestBuildAnalysisIR_ResolvedRuntimeArtifactKeepsCitationGates(t *testing.T) {
+	mut := types.NewMutableState("这个 panic 在当前代码哪里触发？")
+	mut.SetLogTriage(&types.LogBundle{
+		ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		Errors: []types.LogError{{
+			Type:    "panic",
+			Message: "boom",
+			Frames: []types.LogFrame{{
+				Lang: "go",
+				Func: "buildAnalysisIR",
+				File: "internal/agent/analyzer.go",
+				Line: 1200,
+			}},
+		}},
+	})
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "这个 panic 在当前代码哪里触发？",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"panic", "buildAnalysisIR"},
+			Entities: []string{"buildAnalysisIR"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+			Confidence:   0.9,
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if !ir.AnswerContract.CitationReq.Required {
+		t.Error("resolved runtime artifact should keep citation gates for current-repo facts")
+	}
+}
+
 func TestBuildAnalysisIR_DiagnosticPredicateReconcilesNoAttachment(t *testing.T) {
 	mut := types.NewMutableState("diagnose the observed failure and whether a similar risk still exists")
 	mut.SetRequestModel(types.RequestModel{

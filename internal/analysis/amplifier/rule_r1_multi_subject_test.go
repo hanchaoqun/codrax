@@ -124,13 +124,12 @@ func TestR1_NoFire_ScalarAnswer(t *testing.T) {
 	}
 }
 
-// TestR1_FiresOnAllAllowedIntents verifies all three allow-listed
-// intents (Explain / Trace / RootCause) actually drive R1 through.
+// TestR1_FiresOnAllAllowedIntents verifies the allow-listed intents
+// (Explain / Trace) actually drive R1 through.
 func TestR1_FiresOnAllAllowedIntents(t *testing.T) {
 	allowIntents := []types.Intent{
 		types.IntentExplain,
 		types.IntentTrace,
-		types.IntentRootCause,
 	}
 	for _, intent := range allowIntents {
 		rm := makeRMWithEntities("Foo", "Bar")
@@ -138,6 +137,22 @@ func TestR1_FiresOnAllAllowedIntents(t *testing.T) {
 		got, _ := Amplify(rm)
 		if !got.Predicates.IsCategoryEnumeration {
 			t.Errorf("R1 should fire for Intent=%s", intent)
+		}
+	}
+}
+
+func TestR1_NoFire_RootCauseMultiEntity(t *testing.T) {
+	rm := makeRMWithEntities("NativeBridge.invokeOhSum", "demo.bridge.ohSum", "panic")
+	rm.Intent = types.IntentRootCause
+	rm.Predicates.IsDiagnosticQuestion = true
+	rm.DiagnosticProfile.IsDiagnostic = true
+	got, obs := Amplify(rm)
+	if got.Predicates.IsCategoryEnumeration {
+		t.Errorf("R1 must NOT infer category enumeration from diagnostic root-cause entities")
+	}
+	for _, ob := range obs {
+		if ob.Rule == "R1_multi_subject_predicate" {
+			t.Errorf("expected no R1 observation for root_cause, got %+v", obs)
 		}
 	}
 }

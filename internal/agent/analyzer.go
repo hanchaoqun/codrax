@@ -1859,10 +1859,17 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		}
 	}
 
-	// Measurement-scalar carve-out. A count question ("how many X",
+	// Citation-free carve-outs. A count question ("how many X",
 	// "统计 …") produces a scalar answer from a tool query
 	// (find | wc -l, list_files count, grep count) with no file:line
-	// to cite. The isMeasurementScalar signal (computed by
+	// to cite. A repository-history lookup answers from VCS metadata,
+	// not source lines. An external-only runtime artifact (log/trace
+	// decoded successfully but no frame resolved to this checkout)
+	// is answer-grade as an observation, but its facts must be
+	// rendered with citation_ref=-1 rather than by hunting for
+	// unrelated current-repo fixtures.
+	//
+	// The isMeasurementScalar signal (computed by
 	// isMeasurementScalarRequest in analyzer_intent.go) is a 0-error
 	// discriminator: it fires on simple complexity + leading count-
 	// verb prefix + intent in {enumerate, return_value}, which is
@@ -1887,8 +1894,12 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	//
 	// The measurement-scalar / history-lookup carve-out is signalled
 	// downstream via Predicates.IsScalarAnswer (read by builder.go's
-	// citation-free Raw Tool Outputs gate) — no shape rewrite needed.
-	if isMeasurementScalar || isHistoryLookup {
+	// citation-free Raw Tool Outputs gate). External-only runtime
+	// artifact disposition is signalled via RequestModel.LogTriage /
+	// PerfTrace and AnswerSurfacePlan.RuntimeGroundingDisposition.
+	// No answer-body synthesis happens here: this only removes
+	// structurally impossible citation floors.
+	if isMeasurementScalar || isHistoryLookup || rm.HasExternalOnlyRuntimeArtifact() {
 		out.AnswerContract.CitationReq.Required = false
 		out.AnswerContract.CitationReq.MinCitations = 0
 		out.AnswerContract.AcceptanceTests = dropCitationCountGE(out.AnswerContract.AcceptanceTests)

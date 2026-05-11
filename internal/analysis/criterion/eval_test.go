@@ -84,6 +84,38 @@ func TestEval_EvidenceCount_Comparison(t *testing.T) {
 	}
 }
 
+func TestEval_CitationCountGE_ExternalSourceLogWaivesFloor(t *testing.T) {
+	env := Env{
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{Type: "panic"}},
+		},
+		DraftCitations: 0,
+	}
+	r := Eval(types.Criterion{Kind: string(KindCitationCountGE), Expr: "2"}, env)
+	if !r.Satisfied {
+		t.Fatalf("external-source log should waive citation_count_ge, got: %s", r.Detail)
+	}
+}
+
+func TestEval_ContractSatisfied_ExternalSourceTraceWaivesFloor(t *testing.T) {
+	env := Env{
+		IR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 2},
+			},
+		},
+		PerfTrace: &types.PerfBundle{
+			Stalls: []types.PerfStall{{Symbol: "renderFrame", Kind: "main_thread"}},
+		},
+		DraftAnswer:    "renderFrame stalls on the main thread",
+		DraftCitations: 0,
+	}
+	r := Eval(types.Criterion{Kind: string(KindContractSatisfied)}, env)
+	if !r.Satisfied {
+		t.Fatalf("external-source trace should waive contract citation floor, got: %s", r.Detail)
+	}
+}
+
 func TestEval_HasEnoughFacts(t *testing.T) {
 	off := Eval(types.Criterion{Kind: string(KindHasEnoughFacts)}, Env{})
 	if off.Satisfied {

@@ -1454,6 +1454,81 @@ func TestEnumerationLabelGrounding_MultiBlockSplitsViolationsPerBlock(t *testing
 	}
 }
 
+func TestEnumerationLabelGrounding_UserBucketLabelsPass(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{{ID: "e1", AnchorSymbol: "unrelatedAnchor"}})
+	mut.SetRequestModel(types.RequestModel{
+		Buckets: []types.QuestionBucket{
+			{Label: "仓颉", Index: 1},
+			{Label: "ArkTS", Index: 2},
+		},
+	})
+	doc := docWithEnumItems("frames", "仓颉帧", "ArkTS")
+
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Fatalf("user bucket labels should satisfy label grounding, got %+v", vs)
+	}
+}
+
+func TestEnumerationLabelGrounding_RuntimeArtifactLabelsPass(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{{ID: "e1", AnchorSymbol: "unrelatedAnchor"}})
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "Error",
+			Frames: []types.LogFrame{{
+				Lang: "arkts",
+				Func: "NativeBridge.invokeOhSum",
+				Raw:  "at NativeBridge.invokeOhSum (NativeBridge.ets:33:11)",
+			}},
+		}},
+	})
+	doc := docWithEnumItems("frames", "ArkTS 捕获帧", "NativeBridge")
+
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Fatalf("typed runtime artifact labels should satisfy label grounding, got %+v", vs)
+	}
+}
+
+func TestEnumerationLabelHallucination_UserBucketLabelPassesOracleMiss(t *testing.T) {
+	mut := &types.MutableState{}
+	mut.SetRequestModel(types.RequestModel{
+		Buckets: []types.QuestionBucket{
+			{Label: "ArkTS", Index: 1},
+			{Label: "仓颉", Index: 2},
+		},
+	})
+	doc := docWithEnumItems("frames", "ArkTS")
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("user bucket label should not require code symbol oracle hit, got %+v", vs)
+	}
+}
+
+func TestInlineIdentifierHallucination_RuntimeFrameIdentifierPassesOracleMiss(t *testing.T) {
+	mut := &types.MutableState{}
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "Error",
+			Frames: []types.LogFrame{{
+				Func: "NativeBridge.invokeOhSum",
+				Raw:  "at NativeBridge.invokeOhSum (NativeBridge.ets:33:11)",
+			}},
+		}},
+	})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "ArkTS side reports `NativeBridge.invokeOhSum` from the attached runtime log.",
+		}},
+	}
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+
+	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("runtime-frame inline identifier should not require code symbol oracle hit, got %+v", vs)
+	}
+}
+
 // TestEnumerationLabelGrounding_SubjectAndObjectAlsoSupport —
 // evidence Subject and Object also count as support tokens.
 func TestEnumerationLabelGrounding_SubjectAndObjectAlsoSupport(t *testing.T) {
