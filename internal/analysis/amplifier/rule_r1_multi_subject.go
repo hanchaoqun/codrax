@@ -60,15 +60,22 @@ func distinctEntityCount(entities []string) int {
 //     usually name observed frames/components, not enumerated answer
 //     members), IntentConfigQuery / IntentReturnValue (scalar lanes),
 //     and IntentUnknown (LLM gave up — don't compound the guess).
-//  4. len(types.ExactResolutionTargets(rm)) != 1 — a single exact
+//  4. NOT structural endpoint trace — a source→sink / call-chain
+//     question may legitimately carry two exact targets plus nearby
+//     context entities, but the principal answer is still one ordered
+//     trace, not a category enumeration. This guard reads only typed
+//     analyzer fields (Intent, PredicateAxis, AnalyzerHints.Kind,
+//     raw-request-validated exact_targets, predicates) so it stays
+//     language-neutral and avoids raw-request keyword matching.
+//  5. len(types.ExactResolutionTargets(rm)) != 1 — a single exact
 //     resolution target is a precise scalar lookup, not an
 //     enumeration even when multiple entities exist on the model.
-//  5. rm.Predicates.IsScalarAnswer == false — the typed scalar-
+//  6. rm.Predicates.IsScalarAnswer == false — the typed scalar-
 //     answer signal stands in for the (non-existent) SubjectScalar
 //     mentioned in the design doc; either form means "answer is
 //     one literal, not a set", which is incompatible with
 //     enumeration.
-//  6. NOT (len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent).
+//  7. NOT (len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent).
 //     Axis-collapse alignment: when the LLM has emitted ≥2
 //     SubTopics in a single-component question, flipping
 //     IsCategoryEnumeration to true creates exactly the four
@@ -101,6 +108,9 @@ func r1MultiSubjectPredicate(in types.RequestModel, out *types.RequestModel) *Ob
 	if len(out.SubTopics) >= 2 && !out.Predicates.IsCrossComponent {
 		return nil
 	}
+	if isStructuralEndpointTraceQuestion(*out) {
+		return nil
+	}
 	count := distinctEntityCount(out.AnalyzerHints.Entities)
 	if count < 2 {
 		return nil
@@ -116,6 +126,39 @@ func r1MultiSubjectPredicate(in types.RequestModel, out *types.RequestModel) *Ob
 		After:  "true",
 		Reason: fmt.Sprintf("AnalyzerHints.Entities has %d distinct named subjects with intent=%s and non-scalar answer", count, out.Intent),
 	}
+}
+
+func isStructuralEndpointTraceQuestion(rm types.RequestModel) bool {
+	if rm.Intent != types.IntentTrace {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	if len(structuralEndpointTraceTargets(rm)) < 2 {
+		return false
+	}
+	switch rm.PredicateAxis {
+	case types.AxisCall, types.AxisCondition, types.AxisRegister:
+		return true
+	}
+	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case types.ReqCallChain, types.ReqConditional, types.ReqMechanism, types.ReqRegistration:
+		return true
+	}
+	return false
+}
+
+func structuralEndpointTraceTargets(rm types.RequestModel) []string {
+	if targets := types.ExactResolutionTargets(rm); len(targets) > 0 {
+		return targets
+	}
+	return types.MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.ExactTargets)
 }
 
 func init() {

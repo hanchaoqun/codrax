@@ -163,6 +163,87 @@ func TestEmitAnswerDocumentV2_AcceptsPreservedModelSurfaceTerm(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_DoesNotRequireUnrelatedPathSurfaceTerm(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:           "ev-normalize",
+		Kind:         types.EvidenceDirect,
+		Producer:     EmitEvidenceProducer,
+		Subject:      "analyzerGraphForNormalize",
+		AnchorSymbol: "analyzerGraphForNormalize",
+		Source:       "internal/agent/analyzer.go",
+		LineStart:    1625,
+		Scope:        types.ScopeLine,
+		SurfaceTerms: []string{"internal/types/enumeration_boundary.go"},
+	}})
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "trace_steps",
+			"kind": "ordered_list",
+			"items": [{
+				"id": "e1",
+				"label": "analyzerGraphForNormalize",
+				"text": "calls normalizer.Normalize and returns a TermGraph.",
+				"citation_ref": 0
+			}]
+		}],
+		"citations": [{
+			"file": "internal/agent/analyzer.go",
+			"line": 1625
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unrelated path-like surface term should not be hard-required; got %+v", res)
+	}
+}
+
+func TestEmitAnswerDocumentV2_RejectsMissingPathSurfaceTermWhenItNamesItem(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:           "ev-widget",
+		Kind:         types.EvidenceDirect,
+		Producer:     EmitEvidenceProducer,
+		Subject:      "Widget",
+		AnchorSymbol: "Widget",
+		Source:       "src/components/Widget.ets",
+		LineStart:    3,
+		Scope:        types.ScopeLine,
+		SurfaceTerms: []string{"src/components/Widget.ets"},
+	}})
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "entry_list",
+			"kind": "ordered_list",
+			"items": [{
+				"id": "e1",
+				"label": "Widget",
+				"text": "declares the component entry.",
+				"citation_ref": 0
+			}]
+		}],
+		"citations": [{
+			"file": "src/components/Widget.ets",
+			"line": 3
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected missing item-identifying path surface term to reject")
+	}
+	if !strings.Contains(res.Summary, "src/components/Widget.ets") {
+		t.Fatalf("rejection should name missing path-like surface term, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocumentV2_RejectsV1FieldsAtTopLevel(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
