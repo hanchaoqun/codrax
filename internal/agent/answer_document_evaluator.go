@@ -301,7 +301,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		if attributeBearingEnumeration {
 			b.WriteString("Two-axis enumeration label rule: the principal `ordered_list.items[].label` is the enumerated member itself (package / module / directory / namespace / type / route), not the per-member attribute discovered for it. Prefer the evidence `subject` or a required-term floor member as the label, and place the related attribute (for example the entry function / owner / default / handler) in `items[].text`, the citation, and any companion table row. Do not use the extracted AnswerSymbol name as the item label when that symbol is the attribute of a member.\n\n")
 		}
-		b.WriteString("Model-emitted `surface_terms` in Evidence Items are exact source/log/trace labels or aliases that the explorer structured explicitly. Preserve each relevant term in the cited item text or label; do not invent terms that are not present in the structured evidence.\n\n")
+		b.WriteString("Model-emitted `surface_terms` in Evidence Items are exact source/log/trace labels or aliases that the investigation structured explicitly. Preserve each relevant term in the cited item text or label; do not invent terms that are not present in the structured evidence.\n\n")
 
 		if ctx != nil && len(ctx.AnswerSymbols) > 0 {
 			b.WriteString("## Prior slate from the extraction pipeline\n\n")
@@ -501,7 +501,7 @@ func renderAnswerDocSourceHeaderContexts(ctx *types.AgentContext) string {
 	}
 	var b strings.Builder
 	b.WriteString("## Model-Emitted Surface Terms\n\n")
-	b.WriteString("The rows below are exact user-visible labels or aliases that the explorer emitted as structured `surface_terms` and the tool validated against already-read source/log/trace lines. When your answer cites the same source or symbol, preserve the relevant terms in the item text or label. Do not add surface terms that are not listed here.\n\n")
+	b.WriteString("The rows below are exact user-visible labels or aliases that the investigation emitted as structured `surface_terms` and the tool validated against already-read source/log/trace lines. When your answer cites the same source or symbol, preserve the relevant terms in the item text or label. Do not add surface terms that are not listed here.\n\n")
 	for _, r := range rows {
 		if r.symbol != "" {
 			fmt.Fprintf(&b, "- %s @ %s:%d — %s\n", r.symbol, r.source, r.line, r.text)
