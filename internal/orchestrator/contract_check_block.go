@@ -3273,12 +3273,13 @@ type laneAttrib struct {
 
 // validateLaneBlockKindCompliance enforces the typed
 // AnswerSupportLane.AllowedBlocks contract as a hard validator. Each
-// active support lane (observed_artifact / current_code_path /
-// nearest_mechanism / uncertainty_boundary) declares the block kinds
-// that may legitimately render its content. This oracle locates the
-// lane each principal block is sourced from by matching its citation
-// pool against AnswerSupportEntry.Location, then rejects the block
-// when its kind is absent from that lane's AllowedBlocks set.
+// active support lane (observed_artifact / principal_evidence /
+// current_code_path / nearest_mechanism / uncertainty_boundary /
+// current_status_verdict) declares the block kinds that may
+// legitimately render its content. This oracle locates the lane each
+// principal block is sourced from by matching its citation pool
+// against AnswerSupportEntry.Location, then rejects the block when
+// its kind is absent from that lane's AllowedBlocks set.
 //
 // Skip conditions (no false positives):
 //

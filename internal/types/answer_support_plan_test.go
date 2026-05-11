@@ -547,6 +547,405 @@ func TestBuildAnswerSupportPlan_CallChainSortsSameFileEvidenceAndCarriesSummaryD
 	}
 }
 
+func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *testing.T) {
+	tests := []struct {
+		name           string
+		rm             RequestModel
+		family         QuestionFamily
+		facet          AnswerFacetKind
+		item           EvidenceItem
+		allowed        string
+		wantText       string
+		wantGuidance   string
+		wantDetailTerm string
+	}{
+		{
+			name:   "config precedence",
+			rm:     RequestModel{Intent: IntentConfigQuery},
+			family: QFConfigPrecedence,
+			facet:  FacetConfigPrecedenceRole,
+			item: EvidenceItem{
+				ID:              "config-role",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "internal/config/runtime.go",
+				LineStart:       112,
+				AnchorKind:      AnchorAssignment,
+				AnchorSymbol:    "PipelineMaxSteps",
+				Snippet:         "PipelineMaxSteps: 50",
+				Summary:         "default runtime budget is overridden by config and then by CLI",
+				GroundingStatus: GroundingGrounded,
+			},
+			allowed:        "summary,scalar,table,ordered_list",
+			wantText:       "PipelineMaxSteps: 50",
+			wantGuidance:   "real default/config/CLI/runtime layer anchors",
+			wantDetailTerm: "overridden by config",
+		},
+		{
+			name:   "role lookup",
+			rm:     RequestModel{AnswerSubject: AnswerSubject{Kind: SubjectFunctionName, Confidence: 0.9}},
+			family: QFRoleLookup,
+			facet:  FacetResolvedLiteralOrSymbol,
+			item: EvidenceItem{
+				ID:              "role-result",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "internal/orchestrator/topology.go",
+				LineStart:       31,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "runReadSchedulerLoop",
+				Summary:         "runReadSchedulerLoop is the read-mode scheduler entrypoint",
+				GroundingStatus: GroundingGrounded,
+			},
+			allowed:        "summary,scalar,section",
+			wantText:       "runReadSchedulerLoop",
+			wantGuidance:   "do not add uncited helper names",
+			wantDetailTerm: "scheduler entrypoint",
+		},
+		{
+			name:   "enumeration",
+			rm:     RequestModel{Intent: IntentEnumerate},
+			family: QFEnumeration,
+			facet:  FacetEnumerationItem,
+			item: EvidenceItem{
+				ID:              "enum-item",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "internal/types/facet_plan.go",
+				LineStart:       54,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "QFCallChain",
+				Summary:         "QFCallChain is one enumerated question family",
+				GroundingStatus: GroundingGrounded,
+			},
+			allowed:        "summary,ordered_list,table,bullet_list,section",
+			wantText:       "QFCallChain",
+			wantGuidance:   "do not invent missing members",
+			wantDetailTerm: "enumerated question family",
+		},
+		{
+			name:   "architecture",
+			rm:     RequestModel{Intent: IntentExplain, Scenario: ScenarioArchitectureExplain},
+			family: QFArchitecture,
+			facet:  FacetComponentRelation,
+			item: EvidenceItem{
+				ID:              "architecture-edge",
+				Kind:            EvidenceRelationship,
+				Scope:           ScopeLine,
+				Source:          "internal/orchestrator/topology.go",
+				LineStart:       62,
+				AnchorKind:      AnchorCall,
+				Subject:         "scheduler",
+				Object:          "explorer",
+				Summary:         "scheduler delegates repository investigation to explorer",
+				GroundingStatus: GroundingGrounded,
+			},
+			allowed:        "summary,section,bullet_list,diagram",
+			wantText:       "scheduler calls explorer",
+			wantGuidance:   "unrelated helper calls",
+			wantDetailTerm: "repository investigation",
+		},
+		{
+			name: "comparison",
+			rm: RequestModel{Buckets: []QuestionBucket{
+				{Label: "read mode", Index: 1},
+				{Label: "write mode", Index: 2},
+			}},
+			family: QFComparison,
+			facet:  FacetCurrentCodePath,
+			item: EvidenceItem{
+				ID:              "comparison-anchor",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "internal/orchestrator/topology.go",
+				LineStart:       88,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "BuildWriteTaskGraph",
+				Summary:         "BuildWriteTaskGraph is the write-mode task graph substitution point",
+				GroundingStatus: GroundingGrounded,
+			},
+			allowed:        "summary,section,table",
+			wantText:       "BuildWriteTaskGraph",
+			wantGuidance:   "bucket labels",
+			wantDetailTerm: "write-mode task graph",
+		},
+		{
+			name:   "generic",
+			rm:     RequestModel{Intent: IntentExplain, Scenario: ScenarioGeneric},
+			family: QFGeneric,
+			facet:  FacetCurrentCodePath,
+			item: EvidenceItem{
+				ID:              "generic-anchor",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       1818,
+				AnchorKind:      AnchorCall,
+				Subject:         "analyzer",
+				Object:          "compiler.Compile",
+				Summary:         "compiler.Compile builds the initial TaskGraph and EvidencePlan",
+				GroundingStatus: GroundingGrounded,
+			},
+			allowed:        "summary,section,ordered_list,bullet_list,diagram",
+			wantText:       "analyzer calls compiler.Compile",
+			wantGuidance:   "do not add uncited helper names",
+			wantDetailTerm: "TaskGraph and EvidencePlan",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan := &AnswerSurfacePlan{
+				SurfaceEvidence: []EvidenceItem{tt.item},
+				FacetCoverage: &FacetCoverageContract{
+					Family: tt.family,
+					Required: []FacetRequirement{{
+						Kind:            tt.facet,
+						SourceCandidate: []string{tt.item.ID},
+					}},
+				},
+			}
+			got := BuildAnswerSupportPlan(tt.rm, plan)
+			if got == nil {
+				t.Fatal("expected support plan")
+			}
+			if got.Family != tt.family {
+				t.Fatalf("family = %q, want %q", got.Family, tt.family)
+			}
+			lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+			if lane == nil {
+				t.Fatalf("missing principal evidence lane: %+v", got.Lanes)
+			}
+			if got, want := strings.Join(lane.AllowedBlocks, ","), tt.allowed; got != want {
+				t.Fatalf("allowed blocks = %q, want %q", got, want)
+			}
+			if !strings.Contains(lane.Guidance, tt.wantGuidance) {
+				t.Fatalf("guidance missing %q: %q", tt.wantGuidance, lane.Guidance)
+			}
+			if len(lane.Entries) != 1 {
+				t.Fatalf("entries = %+v, want exactly one source-candidate entry", lane.Entries)
+			}
+			if !strings.Contains(lane.Entries[0].Text, tt.wantText) {
+				t.Fatalf("entry text missing %q: %+v", tt.wantText, lane.Entries[0])
+			}
+			if !strings.Contains(lane.Entries[0].Detail, tt.wantDetailTerm) {
+				t.Fatalf("entry detail should preserve model-authored enrichment %q: %+v", tt.wantDetailTerm, lane.Entries[0])
+			}
+		})
+	}
+}
+
+func TestBuildAnswerSupportPlan_FacetPrincipalLaneUsesOnlySourceCandidates(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "requested-item",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "internal/types/facet_plan.go",
+				LineStart:       54,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "QFCallChain",
+				Summary:         "QFCallChain is one requested family",
+				GroundingStatus: GroundingGrounded,
+			},
+			{
+				ID:              "nearby-helper",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "internal/types/facet_plan.go",
+				LineStart:       565,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "ResolveQuestionFamily",
+				Summary:         "ResolveQuestionFamily is nearby context but not an enumeration item",
+				GroundingStatus: GroundingGrounded,
+			},
+		},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFEnumeration,
+			Required: []FacetRequirement{{
+				Kind:            FacetEnumerationItem,
+				SourceCandidate: []string{"requested-item"},
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentEnumerate}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil {
+		t.Fatalf("missing principal evidence lane: %+v", got.Lanes)
+	}
+	joined := answerSupportLaneText(lane)
+	if !strings.Contains(joined, "QFCallChain") {
+		t.Fatalf("requested source candidate missing:\n%s", joined)
+	}
+	if strings.Contains(joined, "ResolveQuestionFamily") {
+		t.Fatalf("non-candidate nearby helper must not enter principal lane:\n%s", joined)
+	}
+}
+
+func TestBuildAnswerSupportPlan_FacetFamilyKeepsExternalObservationSoftUnlessFacetRequiresIt(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		ExternalObservationSeeds: []ExternalObservationSeed{
+			{Kind: "error_type", Raw: "panic"},
+		},
+		SurfaceEvidence: []EvidenceItem{{
+			ID:              "architecture-edge",
+			Kind:            EvidenceRelationship,
+			Scope:           ScopeLine,
+			Source:          "internal/orchestrator/topology.go",
+			LineStart:       62,
+			AnchorKind:      AnchorCall,
+			Subject:         "scheduler",
+			Object:          "explorer",
+			GroundingStatus: GroundingGrounded,
+		}},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFArchitecture,
+			Required: []FacetRequirement{{
+				Kind:            FacetComponentRelation,
+				SourceCandidate: []string{"architecture-edge"},
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentExplain, Scenario: ScenarioArchitectureExplain}, plan)
+	if got == nil {
+		t.Fatal("expected architecture support plan")
+	}
+	if observed := answerSupportLaneByKind(got, SupportLaneObservedArtifact); observed != nil {
+		t.Fatalf("non-diagnostic architecture support plan must not promote external log observations into typed principal lanes: %+v", observed)
+	}
+	if principal := answerSupportLaneByKind(got, SupportLanePrincipalEvidence); principal == nil {
+		t.Fatalf("expected principal architecture lane to remain, got %+v", got.Lanes)
+	}
+}
+
+func TestBuildAnswerSupportPlan_FacetPrincipalLaneAcceptsSchemaScopeEvidence(t *testing.T) {
+	item := EvidenceItem{
+		ID:              "file-layer",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeFile,
+		Source:          "codrax.yaml",
+		FileRoleLabel:   FileRoleConfigCanonical,
+		Subject:         "codrax.yaml",
+		Predicate:       "is",
+		Object:          "runtime config layer",
+		Summary:         "codrax.yaml participates in config precedence without a single file:line anchor",
+		GroundingStatus: GroundingGrounded,
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{item},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFConfigPrecedence,
+			Required: []FacetRequirement{{
+				Kind:            FacetConfigPrecedenceRole,
+				SourceCandidate: []string{item.ID},
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentConfigQuery}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 1 {
+		t.Fatalf("expected schema-scope principal entry, got %+v", got.Lanes)
+	}
+	entry := lane.Entries[0]
+	if !strings.Contains(entry.Text, "codrax.yaml is runtime config layer") {
+		t.Fatalf("file-scope structured fact should surface as principal text, got %+v", entry)
+	}
+	if entry.Location != "codrax.yaml" {
+		t.Fatalf("file-scope location = %q, want codrax.yaml", entry.Location)
+	}
+}
+
+func TestBuildAnswerSupportPlan_FacetUncertaintyLaneAcceptsNegativeScopeAbsence(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{{
+			ID:              "absence-proof",
+			Kind:            EvidenceAbsent,
+			Scope:           ScopeNegative,
+			Subject:         "legacy_config_key",
+			Predicate:       "absent",
+			NegativeQuery:   &NegativeQuery{File: "codrax.yaml", Pattern: "legacy_config_key"},
+			NegativeScope:   NegativeScopeFile,
+			ContextRole:     EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: GroundingGrounded,
+		}},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentExplain, Scenario: ScenarioGeneric}, plan)
+	if got == nil {
+		t.Fatal("expected boundary-only support plan")
+	}
+	lane := answerSupportLaneByKind(got, SupportLaneUncertaintyBound)
+	if lane == nil || len(lane.Entries) != 1 {
+		t.Fatalf("negative-scope absence should reach uncertainty lane, got %+v", got.Lanes)
+	}
+	if lane.Entries[0].Location != "codrax.yaml" {
+		t.Fatalf("negative-scope location = %q, want codrax.yaml", lane.Entries[0].Location)
+	}
+	if !strings.Contains(lane.Entries[0].Text, "legacy_config_key absent") {
+		t.Fatalf("negative-scope text should use structured fields, got %+v", lane.Entries[0])
+	}
+}
+
+func TestBuildAnswerSupportPlan_FacetFamilyWithoutTypedCandidatesReturnsNil(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{{
+			ID:              "helper-only",
+			Kind:            EvidenceDirect,
+			Scope:           ScopeLine,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1406,
+			AnchorKind:      AnchorCall,
+			Subject:         "analyzer",
+			Object:          "BuildArtifactObservationProfile",
+			GroundingStatus: GroundingGrounded,
+		}},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFGeneric,
+			Required: []FacetRequirement{{
+				Kind: FacetCurrentCodePath,
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentExplain, Scenario: ScenarioGeneric}, plan)
+	if got != nil {
+		t.Fatalf("generic non-observation question without typed facet candidates should not create a principal hard lane: %+v", got)
+	}
+}
+
+func answerSupportLaneByKind(plan *AnswerSupportPlan, kind AnswerSupportLaneKind) *AnswerSupportLane {
+	if plan == nil {
+		return nil
+	}
+	for i := range plan.Lanes {
+		if plan.Lanes[i].Kind == kind {
+			return &plan.Lanes[i]
+		}
+	}
+	return nil
+}
+
+func answerSupportLaneText(lane *AnswerSupportLane) string {
+	if lane == nil {
+		return ""
+	}
+	var out []string
+	for _, entry := range lane.Entries {
+		out = append(out, entry.Text)
+	}
+	return strings.Join(out, "\n")
+}
+
 func TestCallChainCondenseSupportEntriesPreservesTerminalTailWhenEndpointIsBroad(t *testing.T) {
 	var entries []AnswerSupportEntry
 	for i := 0; i < 20; i++ {

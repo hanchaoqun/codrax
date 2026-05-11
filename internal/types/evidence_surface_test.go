@@ -5,6 +5,29 @@ import (
 	"testing"
 )
 
+func TestEvidenceAuthoritativeSurfaceText_KeepsStructuredDefinitionClaim(t *testing.T) {
+	item := EvidenceItem{
+		Kind:            EvidenceMechanism,
+		Source:          "internal/types/config.go",
+		LineStart:       707,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "DefaultExploreHeuristics",
+		Subject:         "DefaultExploreHeuristics",
+		Predicate:       "explains",
+		Object:          "nearby precedence baseline",
+		Summary:         "operational note that should not drive the finalizer",
+		GroundingStatus: GroundingGrounded,
+	}
+
+	got := EvidenceAuthoritativeSurfaceText(item, true)
+	if !strings.Contains(got, "[mechanism] DefaultExploreHeuristics explains nearby precedence baseline") {
+		t.Fatalf("authoritative surface should preserve structured subject/predicate/object claim, got %q", got)
+	}
+	if strings.Contains(got, "operational note") {
+		t.Fatalf("authoritative surface must not fall back to free-form summary, got %q", got)
+	}
+}
+
 func TestExactResolutionSurfaceEvidencePool_IncludesAnswerChainEvidence(t *testing.T) {
 	emitted := []EvidenceItem{{
 		Kind:            EvidenceDirect,

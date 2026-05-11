@@ -208,6 +208,11 @@ func EvidenceAuthoritativeSurfaceText(item EvidenceItem, includeKind bool) strin
 
 	switch item.AnchorKind {
 	case AnchorDefinition:
+		if object != "" {
+			if line := EvidenceStructuredSemanticLine(item, includeKind); line != "" {
+				return line
+			}
+		}
 		if name != "" {
 			return appendSurfaceTerms(item, appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("definition anchor for %s", name))))
 		}

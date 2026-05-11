@@ -20,14 +20,16 @@ type AnswerSupportPlan struct {
 type AnswerSupportLaneKind string
 
 const (
-	SupportLaneObservedArtifact AnswerSupportLaneKind = "observed_artifact"
-	SupportLaneCurrentCodePath  AnswerSupportLaneKind = "current_code_path"
-	SupportLaneNearestMechanism AnswerSupportLaneKind = "nearest_mechanism"
-	SupportLaneUncertaintyBound AnswerSupportLaneKind = "uncertainty_boundary"
-	SupportLaneCurrentVerdict   AnswerSupportLaneKind = "current_status_verdict"
+	SupportLaneObservedArtifact  AnswerSupportLaneKind = "observed_artifact"
+	SupportLanePrincipalEvidence AnswerSupportLaneKind = "principal_evidence"
+	SupportLaneCurrentCodePath   AnswerSupportLaneKind = "current_code_path"
+	SupportLaneNearestMechanism  AnswerSupportLaneKind = "nearest_mechanism"
+	SupportLaneUncertaintyBound  AnswerSupportLaneKind = "uncertainty_boundary"
+	SupportLaneCurrentVerdict    AnswerSupportLaneKind = "current_status_verdict"
 )
 
 const callChainSupportEntryLimit = 24
+const facetSupportEntryLimit = 18
 
 type AnswerSupportLane struct {
 	Kind          AnswerSupportLaneKind
@@ -79,10 +81,11 @@ func BuildAnswerSupportPlanForAgentContext(ctx *AgentContext) *AnswerSupportPlan
 }
 
 // BuildAnswerSupportPlan compiles a family-aware support-lane view from
-// the resolved RequestModel and current AnswerSurfacePlan. Phase 1 only
-// materializes QFRootCauseTrace, where we need a hard boundary between
-// observed artifact facts, current code path facts, current mechanism
-// facts, and uncertainty disclosures.
+// the resolved RequestModel and current AnswerSurfacePlan. Root-cause
+// and call-chain families use specialised lanes for artifact/current-
+// path/mechanism boundaries; other families reuse facet-backed
+// principal evidence lanes so "main answer" content and exploratory
+// context stay separated without per-case prompt patches.
 func BuildAnswerSupportPlan(rm RequestModel, plan *AnswerSurfacePlan) *AnswerSupportPlan {
 	if plan == nil {
 		return nil
@@ -138,6 +141,8 @@ func buildAnswerSupportPlanForFamily(family QuestionFamily, rm RequestModel, pla
 		return compileRootCauseSupportPlan(rm, plan)
 	case QFCallChain:
 		return compileCallChainSupportPlan(rm, plan)
+	case QFConfigPrecedence, QFRoleLookup, QFEnumeration, QFArchitecture, QFComparison, QFGeneric:
+		return compileFacetEvidenceSupportPlan(family, rm, plan)
 	default:
 		return nil
 	}
@@ -184,6 +189,283 @@ func compileCallChainSupportPlan(rm RequestModel, plan *AnswerSurfacePlan) *Answ
 	}
 	if len(out.Lanes) == 0 {
 		return nil
+	}
+	return out
+}
+
+func compileFacetEvidenceSupportPlan(family QuestionFamily, rm RequestModel, plan *AnswerSurfacePlan) *AnswerSupportPlan {
+	if plan == nil {
+		return nil
+	}
+	out := &AnswerSupportPlan{Family: family}
+	if len(supportFacetCandidateIDs(plan, FacetObservedArtifactFact)) > 0 {
+		if lane := compileObservedArtifactSupportLane(rm, plan); len(lane.Entries) > 0 {
+			out.Lanes = append(out.Lanes, lane)
+		}
+	}
+	if lane := compilePrincipalEvidenceSupportLane(family, plan); len(lane.Entries) > 0 {
+		out.Lanes = append(out.Lanes, lane)
+	}
+	if lane := compileFacetUncertaintySupportLane(plan); len(lane.Entries) > 0 {
+		out.Lanes = append(out.Lanes, lane)
+	}
+	if len(out.Lanes) == 0 {
+		return nil
+	}
+	return out
+}
+
+func compilePrincipalEvidenceSupportLane(family QuestionFamily, plan *AnswerSurfacePlan) AnswerSupportLane {
+	lane := AnswerSupportLane{
+		Kind:          SupportLanePrincipalEvidence,
+		Title:         principalEvidenceLaneTitle(family),
+		AllowedBlocks: principalEvidenceAllowedBlocks(family),
+		Guidance:      principalEvidenceLaneGuidance(family),
+	}
+	candidates := supportFacetCandidateIDs(plan, principalSupportFacetKinds(family)...)
+	if len(candidates) == 0 {
+		return lane
+	}
+	seen := make(map[string]bool, len(candidates))
+	for _, item := range orderedFacetSupportEvidenceItems(plan.SurfaceEvidence) {
+		id := strings.TrimSpace(item.ID)
+		if id == "" || !candidates[id] || !principalEvidenceItemEligible(item) {
+			continue
+		}
+		text := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
+		if text == "" {
+			continue
+		}
+		location := supportEntryLocation(item)
+		key := strings.ToLower(text) + "\x00" + strings.ToLower(location)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		lane.Entries = append(lane.Entries, AnswerSupportEntry{
+			Text:     text,
+			Detail:   callChainEvidenceSupportDetail(item, text),
+			Location: location,
+		})
+		if len(lane.Entries) >= facetSupportEntryLimit {
+			break
+		}
+	}
+	return lane
+}
+
+func principalEvidenceLaneTitle(family QuestionFamily) string {
+	switch family {
+	case QFConfigPrecedence:
+		return "Grounded config / precedence evidence"
+	case QFRoleLookup:
+		return "Grounded role lookup evidence"
+	case QFEnumeration:
+		return "Grounded enumeration evidence"
+	case QFArchitecture:
+		return "Grounded architecture evidence"
+	case QFComparison:
+		return "Grounded comparison evidence"
+	default:
+		return "Grounded principal evidence"
+	}
+}
+
+func principalEvidenceLaneGuidance(family QuestionFamily) string {
+	base := "Use this lane for principal user-visible claims in this family. " +
+		"Each entry is selected from typed facet source candidates, so it may support the block kinds listed below. " +
+		"Evidence notes can enrich the cited fact, but do not add uncited helper names, search hints, prior-turn guesses, or nearby context as new principal claims."
+	switch family {
+	case QFConfigPrecedence:
+		return base + " For config answers, keep scalar/table/list content to real default/config/CLI/runtime layer anchors; general precedence rules belong in prose unless this lane cites that layer."
+	case QFEnumeration:
+		return base + " For enumerations, each principal item must correspond to a listed entry here or to an extractor-backed symbol; do not invent missing members from context."
+	case QFArchitecture:
+		return base + " For architecture answers, sections should describe component responsibilities supported by these anchors; avoid turning unrelated helper calls into architectural layers."
+	case QFComparison:
+		return base + " For comparisons, preserve the user's bucket labels from the semantic view and use these anchors only for the bucket content they actually support."
+	default:
+		return base
+	}
+}
+
+func principalEvidenceAllowedBlocks(family QuestionFamily) []string {
+	switch family {
+	case QFConfigPrecedence:
+		return blockKindStrings(BlockSummary, BlockScalar, BlockTable, BlockOrderedList)
+	case QFRoleLookup:
+		return blockKindStrings(BlockSummary, BlockScalar, BlockSection)
+	case QFEnumeration:
+		return blockKindStrings(BlockSummary, BlockOrderedList, BlockTable, BlockBulletList, BlockSection)
+	case QFArchitecture:
+		return blockKindStrings(BlockSummary, BlockSection, BlockBulletList, BlockDiagram)
+	case QFComparison:
+		return blockKindStrings(BlockSummary, BlockSection, BlockTable)
+	case QFGeneric:
+		return blockKindStrings(BlockSummary, BlockSection, BlockOrderedList, BlockBulletList, BlockDiagram)
+	default:
+		return blockKindStrings(BlockSummary)
+	}
+}
+
+func principalSupportFacetKinds(family QuestionFamily) []AnswerFacetKind {
+	switch family {
+	case QFConfigPrecedence:
+		return []AnswerFacetKind{FacetResolvedLiteralOrSymbol, FacetConfigPrecedenceRole}
+	case QFRoleLookup:
+		return []AnswerFacetKind{FacetResolvedLiteralOrSymbol, FacetCurrentCodePath, FacetNearestMechanism}
+	case QFEnumeration:
+		return []AnswerFacetKind{FacetEnumerationItem}
+	case QFArchitecture:
+		return []AnswerFacetKind{FacetCurrentCodePath, FacetComponentRelation, FacetDiagramSpine}
+	case QFComparison:
+		return []AnswerFacetKind{FacetCurrentCodePath, FacetComponentRelation}
+	case QFGeneric:
+		return []AnswerFacetKind{FacetCurrentCodePath}
+	default:
+		return nil
+	}
+}
+
+func supportFacetCandidateIDs(plan *AnswerSurfacePlan, facets ...AnswerFacetKind) map[string]bool {
+	if plan == nil || plan.FacetCoverage == nil || len(facets) == 0 {
+		return nil
+	}
+	want := make(map[AnswerFacetKind]bool, len(facets))
+	for _, facet := range facets {
+		want[facet] = true
+	}
+	out := make(map[string]bool)
+	collect := func(req FacetRequirement) {
+		if !want[req.Kind] {
+			return
+		}
+		for _, id := range req.SourceCandidate {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				out[id] = true
+			}
+		}
+	}
+	for _, req := range plan.FacetCoverage.Required {
+		collect(req)
+	}
+	for _, req := range plan.FacetCoverage.Optional {
+		collect(req)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func orderedFacetSupportEvidenceItems(items []EvidenceItem) []EvidenceItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := append([]EvidenceItem(nil), items...)
+	sort.SliceStable(out, func(i, j int) bool {
+		leftSource := supportEvidenceSortLocation(out[i])
+		rightSource := supportEvidenceSortLocation(out[j])
+		if leftSource != rightSource {
+			return leftSource < rightSource
+		}
+		if out[i].LineStart != out[j].LineStart {
+			return out[i].LineStart < out[j].LineStart
+		}
+		return strings.TrimSpace(out[i].AnchorSymbol) < strings.TrimSpace(out[j].AnchorSymbol)
+	})
+	return out
+}
+
+func principalEvidenceItemEligible(item EvidenceItem) bool {
+	if item.GroundingStatus == GroundingUngrounded {
+		return false
+	}
+	return supportEvidenceHasUsableLocation(item) && item.IsCitable()
+}
+
+func compileFacetUncertaintySupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {
+	lane := AnswerSupportLane{
+		Kind:          SupportLaneUncertaintyBound,
+		Title:         "Evidence boundary disclosures",
+		AllowedBlocks: blockKindStrings(BlockCaveat, BlockSummary),
+		Guidance: "Use this lane only for scope, absence, drift, or proof-boundary disclosures. " +
+			"It can qualify the principal answer but must not become extra principal list items, table rows, diagram nodes, or comparison buckets.",
+	}
+	if plan == nil {
+		return lane
+	}
+	for _, item := range orderedFacetSupportEvidenceItems(plan.SurfaceEvidence) {
+		if !uncertaintySupportItemEligible(item) {
+			continue
+		}
+		text := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
+		if text == "" {
+			text = strings.TrimSpace(EvidenceDeterministicSurfaceText(item, false))
+		}
+		if text == "" {
+			continue
+		}
+		lane.Entries = append(lane.Entries, AnswerSupportEntry{
+			Text:     text,
+			Detail:   callChainEvidenceSupportDetail(item, text),
+			Location: supportEntryLocation(item),
+		})
+		if len(lane.Entries) >= 4 {
+			break
+		}
+	}
+	return lane
+}
+
+func uncertaintySupportItemEligible(item EvidenceItem) bool {
+	if !supportEvidenceHasUsableLocation(item) {
+		return false
+	}
+	if !item.IsCitable() {
+		return false
+	}
+	return item.ContextRole == EvidenceContextRoleAbsenceSupport ||
+		item.Kind == EvidenceAbsent ||
+		item.DriftReason != "" ||
+		item.Authority == AuthorityConditional
+}
+
+func supportEvidenceHasUsableLocation(item EvidenceItem) bool {
+	if strings.TrimSpace(supportEntryLocation(item)) != "" {
+		return true
+	}
+	switch item.Scope {
+	case ScopeCrossfile:
+		return item.CrossfileQuery != nil && len(item.CrossfileQuery.Files) > 0
+	case ScopeNegative:
+		return item.NegativeQuery != nil && strings.TrimSpace(item.NegativeQuery.File) != ""
+	}
+	return false
+}
+
+func supportEvidenceSortLocation(item EvidenceItem) string {
+	if loc := strings.TrimSpace(strings.ReplaceAll(supportEntryLocation(item), `\`, `/`)); loc != "" {
+		return loc
+	}
+	if item.Scope == ScopeCrossfile && item.CrossfileQuery != nil && len(item.CrossfileQuery.Files) > 0 {
+		files := append([]string(nil), item.CrossfileQuery.Files...)
+		for i := range files {
+			files[i] = strings.TrimSpace(strings.ReplaceAll(files[i], `\`, `/`))
+		}
+		sort.Strings(files)
+		return strings.Join(files, ",")
+	}
+	return ""
+}
+
+func blockKindStrings(kinds ...AnswerBlockKind) []string {
+	out := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		if kind != "" {
+			out = append(out, string(kind))
+		}
 	}
 	return out
 }
@@ -1343,6 +1625,17 @@ func extractNilGuardedPaths(cond string) []string {
 
 func supportEntryLocation(item EvidenceItem) string {
 	src := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+	if src == "" && item.Scope == ScopeNegative && item.NegativeQuery != nil {
+		src = strings.TrimSpace(strings.ReplaceAll(item.NegativeQuery.File, `\`, `/`))
+	}
+	if src == "" && item.Scope == ScopeCrossfile && item.CrossfileQuery != nil && len(item.CrossfileQuery.Files) > 0 {
+		files := append([]string(nil), item.CrossfileQuery.Files...)
+		for i := range files {
+			files[i] = strings.TrimSpace(strings.ReplaceAll(files[i], `\`, `/`))
+		}
+		sort.Strings(files)
+		src = strings.Join(files, ",")
+	}
 	if src == "" {
 		return ""
 	}
