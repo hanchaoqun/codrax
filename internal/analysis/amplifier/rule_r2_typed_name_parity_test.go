@@ -296,6 +296,27 @@ func TestR2_NoFire_AxisCollapseAlignment_EnumerationSingleComponent(t *testing.T
 	}
 }
 
+func TestR2_NoFire_ScalarAnswerTypedPredicateWins(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentReturnValue,
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"emit_analysis", "emit_answer_document"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+	}
+	got, obs := Amplify(rm)
+	if len(got.SubTopics) != 0 {
+		t.Fatalf("R2 must not derive SubTopics when IsScalarAnswer=true, got %+v", got.SubTopics)
+	}
+	for _, o := range obs {
+		if o.Rule == "R2_typed_name_parity_subtopics" {
+			t.Fatalf("unexpected R2 firing for scalar answer: %+v", o)
+		}
+	}
+}
+
 // TestR2_FiresOnCrossComponentEnumeration verifies the escape
 // clause: when IsCrossComponent=true the question legitimately
 // spans subsystems, axis_collapse won't fire on single-domain

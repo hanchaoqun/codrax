@@ -213,9 +213,16 @@ func commonAffix(group []string) string {
 //     to true when entities ≥ 2; if the user wanted multi-subtopic
 //     they would have set IsCrossComponent=true (which legitimately
 //     spans ≥ 2 subsystems and bypasses axis_collapse).
-//  3. distinctEntityCount(rm.AnalyzerHints.Entities) ≥ 2
+//  3. rm.Predicates.IsScalarAnswer == false. A scalar-answer
+//     declaration means the current question expects one compact
+//     answer surface (possibly a small mapping of named subjects to
+//     values), not independent sub-answer lanes. R2's affix grouping
+//     is a soft structural enrichment and must not contradict this
+//     precise typed predicate; otherwise shape_subject_coherence will
+//     reject the model with scalar=true + SubTopics>=2.
+//  4. distinctEntityCount(rm.AnalyzerHints.Entities) ≥ 2
 //     (an empty or single-entity model has nothing to group).
-//  4. commonAffixGroups returns at least one qualifying group.
+//  5. commonAffixGroups returns at least one qualifying group.
 //
 // Source choice — like R1, R2 reads rm.AnalyzerHints.Entities
 // rather than rm.TermGraph.Canonical. The original design used
@@ -243,6 +250,9 @@ func r2TypedNameParitySubTopics(in types.RequestModel, out *types.RequestModel) 
 	// reject any same-domain SubTopics we derive. See gate #2 in
 	// the doc above and internal/analysis/gate/coherence.go R1.4.
 	if out.Predicates.IsCategoryEnumeration && !out.Predicates.IsCrossComponent {
+		return nil
+	}
+	if out.Predicates.IsScalarAnswer {
 		return nil
 	}
 	if distinctEntityCount(out.AnalyzerHints.Entities) < minGroupSize {
