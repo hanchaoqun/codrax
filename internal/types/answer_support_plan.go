@@ -172,7 +172,7 @@ func compileCallChainSupportPlan(rm RequestModel, plan *AnswerSurfacePlan) *Answ
 	if lane := compileObservedArtifactSupportLane(rm, plan); len(lane.Entries) > 0 {
 		out.Lanes = append(out.Lanes, lane)
 	}
-	if lane := compileCallChainCurrentPathSupportLane(plan); len(lane.Entries) > 0 {
+	if lane := compileCallChainCurrentPathSupportLane(rm, plan); len(lane.Entries) > 0 {
 		out.Lanes = append(out.Lanes, lane)
 	}
 	if lane := compileCallChainUncertaintySupportLane(plan); len(lane.Entries) > 0 {
@@ -184,7 +184,7 @@ func compileCallChainSupportPlan(rm RequestModel, plan *AnswerSurfacePlan) *Answ
 	return out
 }
 
-func compileCallChainCurrentPathSupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {
+func compileCallChainCurrentPathSupportLane(rm RequestModel, plan *AnswerSurfacePlan) AnswerSupportLane {
 	lane := AnswerSupportLane{
 		Kind:          SupportLaneCurrentCodePath,
 		Title:         "Current grounded call chain",
@@ -198,29 +198,63 @@ func compileCallChainCurrentPathSupportLane(plan *AnswerSurfacePlan) AnswerSuppo
 		return lane
 	}
 	seen := make(map[string]bool)
-	add := func(text, location string) {
-		text = strings.TrimSpace(text)
-		location = strings.TrimSpace(strings.ReplaceAll(location, `\`, `/`))
-		if text == "" || len(lane.Entries) >= 8 {
+	add := func(entry AnswerSupportEntry) {
+		entry.Text = strings.TrimSpace(entry.Text)
+		entry.Location = strings.TrimSpace(strings.ReplaceAll(entry.Location, `\`, `/`))
+		if entry.Text == "" || len(lane.Entries) >= 8 {
 			return
 		}
-		key := strings.ToLower(text) + "\x00" + strings.ToLower(location)
+		key := strings.ToLower(entry.Text) + "\x00" + strings.ToLower(entry.Location)
 		if seen[key] {
 			return
 		}
 		seen[key] = true
-		lane.Entries = append(lane.Entries, AnswerSupportEntry{
-			Text:     text,
-			Location: location,
-		})
+		lane.Entries = append(lane.Entries, entry)
 	}
+	for _, entry := range selectCallChainSupportEntries(rm, plan) {
+		add(entry)
+	}
+	return lane
+}
+
+func selectCallChainSupportEntries(rm RequestModel, plan *AnswerSurfacePlan) []AnswerSupportEntry {
+	if plan == nil {
+		return nil
+	}
+	stepEntries := callChainStepBackboneEntries(plan)
+	evidenceEntries := callChainSurfaceEvidenceEntries(plan)
+	if callChainPreferSurfaceEvidence(rm, stepEntries, evidenceEntries) {
+		return evidenceEntries
+	}
+	if len(stepEntries) > 0 {
+		return stepEntries
+	}
+	return evidenceEntries
+}
+
+func callChainStepBackboneEntries(plan *AnswerSurfacePlan) []AnswerSupportEntry {
+	if plan == nil || len(plan.StepBackbone) == 0 {
+		return nil
+	}
+	out := make([]AnswerSupportEntry, 0, len(plan.StepBackbone))
 	for _, anchor := range plan.StepBackbone {
 		text := callChainStepSupportText(anchor)
-		add(text, stepSurfaceAnchorLocation(anchor))
+		if text == "" {
+			continue
+		}
+		out = append(out, AnswerSupportEntry{
+			Text:     text,
+			Location: stepSurfaceAnchorLocation(anchor),
+		})
 	}
-	if len(lane.Entries) > 0 {
-		return lane
+	return out
+}
+
+func callChainSurfaceEvidenceEntries(plan *AnswerSurfacePlan) []AnswerSupportEntry {
+	if plan == nil {
+		return nil
 	}
+	var out []AnswerSupportEntry
 	for _, item := range callChainSupportEvidenceItems(plan) {
 		if !callChainPathItemEligible(item) {
 			continue
@@ -229,9 +263,138 @@ func compileCallChainCurrentPathSupportLane(plan *AnswerSurfacePlan) AnswerSuppo
 		if text == "" {
 			continue
 		}
-		add(text, supportEntryLocation(item))
+		out = append(out, AnswerSupportEntry{
+			Text:     text,
+			Location: supportEntryLocation(item),
+		})
 	}
-	return lane
+	return out
+}
+
+func callChainPreferSurfaceEvidence(
+	rm RequestModel,
+	stepEntries []AnswerSupportEntry,
+	evidenceEntries []AnswerSupportEntry,
+) bool {
+	if len(evidenceEntries) == 0 {
+		return false
+	}
+	if len(stepEntries) == 0 {
+		return true
+	}
+	endpoints := callChainRequestedEndpointHints(rm)
+	if len(endpoints) == 0 {
+		return false
+	}
+	stepCoverage := callChainEndpointCoverage(stepEntries, endpoints)
+	evidenceCoverage := callChainEndpointCoverage(evidenceEntries, endpoints)
+	if evidenceCoverage > stepCoverage {
+		return true
+	}
+	if evidenceCoverage == stepCoverage && evidenceCoverage > 0 && len(evidenceEntries) > len(stepEntries)+1 {
+		return true
+	}
+	return false
+}
+
+func callChainEndpointCoverage(entries []AnswerSupportEntry, endpoints []string) int {
+	if len(entries) == 0 || len(endpoints) == 0 {
+		return 0
+	}
+	covered := make(map[string]bool, len(endpoints))
+	for _, endpoint := range endpoints {
+		for _, entry := range entries {
+			if callChainEntryMentionsEndpoint(entry, endpoint) {
+				covered[strings.ToLower(endpoint)] = true
+				break
+			}
+		}
+	}
+	return len(covered)
+}
+
+func callChainEntryMentionsEndpoint(entry AnswerSupportEntry, endpoint string) bool {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return false
+	}
+	haystacks := []string{entry.Text, entry.Location}
+	for _, haystack := range haystacks {
+		if callChainEndpointCompatible(haystack, endpoint) {
+			return true
+		}
+	}
+	return false
+}
+
+func callChainEndpointCompatible(candidate, endpoint string) bool {
+	candidate = strings.TrimSpace(candidate)
+	endpoint = strings.TrimSpace(endpoint)
+	if candidate == "" || endpoint == "" {
+		return false
+	}
+	cLower := strings.ToLower(candidate)
+	eLower := strings.ToLower(endpoint)
+	if strings.Contains(cLower, eLower) {
+		return true
+	}
+	cTail := normalizedSurfaceSymbolTail(candidate)
+	eTail := normalizedSurfaceSymbolTail(endpoint)
+	if cTail == "" || eTail == "" {
+		return false
+	}
+	return cTail == eTail ||
+		strings.HasPrefix(cTail, eTail) ||
+		strings.HasPrefix(eTail, cTail)
+}
+
+func callChainRequestedEndpointHints(rm RequestModel) []string {
+	seen := make(map[string]bool)
+	var out []string
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || callChainEndpointHintLooksLikePath(raw) {
+			return
+		}
+		key := strings.ToLower(raw)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, raw)
+	}
+	for _, entity := range rm.AnalyzerHints.MentionedEntities {
+		add(entity)
+	}
+	if len(out) == 0 {
+		for _, entity := range rm.AnalyzerHints.PrimaryEntities {
+			add(entity)
+		}
+	}
+	if len(out) == 0 {
+		for _, entity := range rm.AnalyzerHints.Entities {
+			add(entity)
+		}
+	}
+	return out
+}
+
+func callChainEndpointHintLooksLikePath(raw string) bool {
+	lower := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`)))
+	if lower == "" || strings.Contains(lower, "/") {
+		return true
+	}
+	for _, suffix := range []string{
+		".go", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
+		".cj", ".cjo", ".ets", ".ts", ".js", ".jsx", ".tsx",
+		".java", ".kt", ".kts", ".py", ".rs", ".rb", ".php", ".swift",
+		".yaml", ".yml", ".json", ".toml", ".ini", ".xml", ".md",
+	} {
+		if strings.HasSuffix(lower, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func callChainStepSupportText(anchor StepSurfaceAnchor) string {

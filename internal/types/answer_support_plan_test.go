@@ -313,6 +313,107 @@ func TestBuildAnswerSupportPlan_CallChainKeepsObservationsOutOfPrincipalPath(t *
 	}
 }
 
+func TestBuildAnswerSupportPlan_CallChainPrefersSurfaceEvidenceWhenStepBackboneMissesEndpoint(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StepBackbone: []StepSurfaceAnchor{
+			{Name: "buildAnalysisIR", File: "internal/agent/analyzer.go", Line: 1039, SurfaceText: "ParseOutput calls buildAnalysisIR"},
+			{Name: "reconcileScenario", File: "internal/agent/analyzer.go", Line: 1534, SurfaceText: "reconcileScenario updates the request scenario"},
+			{Name: "analyzerSymbolResolver", File: "internal/agent/analyzer.go", Line: 1624, SurfaceText: "analyzerSymbolResolver builds the resolver"},
+		},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				Kind:            EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       1625,
+				AnchorKind:      AnchorCall,
+				AnchorSymbol:    "normalizer.Normalize",
+				Subject:         "buildAnalysisIR",
+				Object:          "normalizer.Normalize",
+				Summary:         "normalizer.Normalize builds the TermGraph",
+				GroundingStatus: GroundingGrounded,
+			},
+			{
+				Kind:            EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       1818,
+				AnchorKind:      AnchorCall,
+				AnchorSymbol:    "compiler.Compile",
+				Subject:         "buildAnalysisIR",
+				Object:          "compiler.Compile",
+				Summary:         "compiler.Compile builds TaskGraph and EvidencePlan",
+				GroundingStatus: GroundingGrounded,
+			},
+			{
+				Kind:            EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       1825,
+				AnchorKind:      AnchorCall,
+				AnchorSymbol:    "hdp.Plan",
+				Subject:         "buildAnalysisIR",
+				Object:          "hdp.Plan",
+				Summary:         "hdp.Plan builds hypotheses",
+				GroundingStatus: GroundingGrounded,
+			},
+			{
+				Kind:            EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       1844,
+				AnchorKind:      AnchorCall,
+				AnchorSymbol:    "binder.BindByRelevance",
+				Subject:         "buildAnalysisIR",
+				Object:          "binder.BindByRelevance",
+				Summary:         "binder.BindByRelevance binds hypotheses",
+				GroundingStatus: GroundingGrounded,
+			},
+			{
+				Kind:            EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       1970,
+				AnchorKind:      AnchorCall,
+				AnchorSymbol:    "gate.RunWith",
+				Subject:         "buildAnalysisIR",
+				Object:          "gate.RunWith",
+				Summary:         "gate.RunWith runs the quality gate",
+				GroundingStatus: GroundingGrounded,
+			},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent: IntentTrace,
+		AnalyzerHints: AnalyzerHints{
+			MentionedEntities: []string{"buildAnalysisIR", "gate.Run", "analyzer.go"},
+		},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected call-chain support plan")
+	}
+	var path *AnswerSupportLane
+	for i := range got.Lanes {
+		if got.Lanes[i].Kind == SupportLaneCurrentCodePath {
+			path = &got.Lanes[i]
+			break
+		}
+	}
+	if path == nil {
+		t.Fatalf("missing current path lane: %+v", got.Lanes)
+	}
+	joined := ""
+	for _, entry := range path.Entries {
+		joined += entry.Text + "\n"
+	}
+	for _, want := range []string{"normalizer.Normalize", "compiler.Compile", "hdp.Plan", "binder.BindByRelevance", "gate.RunWith"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("surface evidence endpoint chain missing %q:\n%s", want, joined)
+		}
+	}
+	for _, notWant := range []string{"reconcileScenario", "analyzerSymbolResolver"} {
+		if strings.Contains(joined, notWant) {
+			t.Fatalf("stale step backbone entry %q should not win over endpoint-covering surface evidence:\n%s", notWant, joined)
+		}
+	}
+}
+
 func TestBuildAnswerSupportPlanForAgentContext_CurrentStatusAddsVerdictLane(t *testing.T) {
 	ctx := &AgentContext{
 		AnalysisIR: &AnalysisIR{
