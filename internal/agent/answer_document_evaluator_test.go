@@ -935,6 +935,31 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDecoratedSymbolH
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_DropsUnrelatedPathSurfaceTermContext(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:         types.EvidenceDirect,
+		Source:       "internal/agent/analyzer.go",
+		LineStart:    1322,
+		AnchorKind:   types.AnchorCall,
+		AnchorSymbol: "analyzerGraphForNormalize",
+		Subject:      "buildAnalysisIR",
+		Object:       "analyzerGraphForNormalize",
+		Producer:     "explorer.emit_evidence",
+		SurfaceTerms: []string{"internal/types/enumeration_boundary.go"},
+	}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentTrace},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "internal/types/enumeration_boundary.go") {
+		t.Fatalf("irrelevant source-path surface term should not be rendered into finalizer prompt:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractAndSeeds(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

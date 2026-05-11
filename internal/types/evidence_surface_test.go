@@ -1799,6 +1799,41 @@ func TestEvidenceStructuredSemanticLine_SurfaceTermsTailOntoTypedLine(t *testing
 	}
 }
 
+func TestEvidenceStructuredSemanticLine_SkipsUnrelatedSourcePathSurfaceTerm(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceDirect,
+		AnchorKind:   AnchorCall,
+		AnchorSymbol: "analyzerGraphForNormalize",
+		Subject:      "buildAnalysisIR",
+		Object:       "analyzerGraphForNormalize",
+		Source:       "internal/agent/analyzer.go",
+		LineStart:    1322,
+		SurfaceTerms: []string{"internal/types/enumeration_boundary.go"},
+	}
+
+	got := EvidenceStructuredSemanticLine(item, false)
+	if strings.Contains(got, "internal/types/enumeration_boundary.go") {
+		t.Fatalf("unrelated source-path surface term must not become answer-preservation text, got %q", got)
+	}
+}
+
+func TestEvidenceStructuredSemanticLine_KeepsItemIdentifyingSourcePathSurfaceTerm(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceDirect,
+		AnchorKind:   AnchorDefinition,
+		AnchorSymbol: "Widget",
+		Subject:      "Widget",
+		Source:       "src/components/Widget.ets",
+		LineStart:    3,
+		SurfaceTerms: []string{"src/components/Widget.ets"},
+	}
+
+	got := EvidenceStructuredSemanticLine(item, false)
+	if !strings.Contains(got, "src/components/Widget.ets") {
+		t.Fatalf("item-identifying source-path surface term should be preserved, got %q", got)
+	}
+}
+
 func TestEvidenceAuthoritativeSurfaceText_SurfaceTermsDedupExistingText(t *testing.T) {
 	item := EvidenceItem{
 		Kind:         EvidenceDirect,

@@ -480,6 +480,70 @@ func TestBuildAnswerSupportPlan_CallChainExcludesConcreteValueSideEvidence(t *te
 	}
 }
 
+func TestBuildAnswerSupportPlan_CallChainSortsSameFileEvidenceAndCarriesSummaryDetail(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{
+			{
+				Kind:            EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       30,
+				AnchorKind:      AnchorCall,
+				AnchorSymbol:    "third",
+				Subject:         "buildAnalysisIR",
+				Object:          "third",
+				Summary:         "third records final gate preparation",
+				GroundingStatus: GroundingGrounded,
+			},
+			{
+				Kind:            EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       10,
+				AnchorKind:      AnchorCall,
+				AnchorSymbol:    "first",
+				Subject:         "buildAnalysisIR",
+				Object:          "first",
+				Summary:         "first prepares the normalized request",
+				GroundingStatus: GroundingGrounded,
+			},
+			{
+				Kind:            EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       20,
+				AnchorKind:      AnchorCall,
+				AnchorSymbol:    "second",
+				Subject:         "buildAnalysisIR",
+				Object:          "second",
+				Summary:         "second compiles the task graph",
+				GroundingStatus: GroundingGrounded,
+			},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentTrace}, plan)
+	if got == nil {
+		t.Fatal("expected call-chain support plan")
+	}
+	var path *AnswerSupportLane
+	for i := range got.Lanes {
+		if got.Lanes[i].Kind == SupportLaneCurrentCodePath {
+			path = &got.Lanes[i]
+			break
+		}
+	}
+	if path == nil {
+		t.Fatalf("missing current path lane: %+v", got.Lanes)
+	}
+	if len(path.Entries) != 3 {
+		t.Fatalf("entries = %d, want 3: %+v", len(path.Entries), path.Entries)
+	}
+	if gotOrder := []string{path.Entries[0].Text, path.Entries[1].Text, path.Entries[2].Text}; !strings.Contains(gotOrder[0], "first") || !strings.Contains(gotOrder[1], "second") || !strings.Contains(gotOrder[2], "third") {
+		t.Fatalf("same-file call-chain evidence should be line ordered, got %+v", gotOrder)
+	}
+	if !strings.Contains(path.Entries[0].Detail, "normalized request") || !strings.Contains(path.Entries[1].Detail, "task graph") {
+		t.Fatalf("model-authored summaries should survive as per-hop detail, got %+v", path.Entries)
+	}
+}
+
 func TestCallChainCondenseSupportEntriesPreservesTerminalTailWhenEndpointIsBroad(t *testing.T) {
 	var entries []AnswerSupportEntry
 	for i := 0; i < 20; i++ {

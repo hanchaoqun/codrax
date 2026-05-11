@@ -184,6 +184,32 @@ func TestEmitEvidence_SurfaceTermReviewPromptsModelAuthoredHeaderLabels(t *testi
 	}
 }
 
+func TestEmitEvidence_SurfaceTermReviewIgnoresUnrelatedSourcePathLabels(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/analyzer.go", 1318,
+		"// constructs graph metadata for internal/types/enumeration_boundary.go",
+		"func buildAnalysisIR() {",
+		"  graph := analyzerGraphForNormalize(ctx, rm)",
+		"}",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "buildAnalysisIR", "predicate": "calls", "object": "analyzerGraphForNormalize", "source": "internal/agent/analyzer.go", "line_start": 1320, "summary": "analyzerGraphForNormalize builds the graph used by normalization", "anchor_kind": "call", "anchor_symbol": "analyzerGraphForNormalize"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	if res.Repair != nil && strings.Contains(res.Repair.Hint, "internal/types/enumeration_boundary.go") {
+		t.Fatalf("unrelated source-path label should not trigger surface-term review: %q", res.Repair.Hint)
+	}
+}
+
 func TestEmitEvidence_SurfaceTermReviewSatisfiedWhenHeaderLabelAuthored(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

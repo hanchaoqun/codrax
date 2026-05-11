@@ -39,6 +39,7 @@ type AnswerSupportLane struct {
 
 type AnswerSupportEntry struct {
 	Text     string
+	Detail   string
 	Location string
 }
 
@@ -226,7 +227,7 @@ func selectCallChainSupportEntries(rm RequestModel, plan *AnswerSurfacePlan) []A
 	}
 	endpoints := callChainRequestedEndpointHints(rm)
 	stepEntries := callChainStepBackboneEntries(plan)
-	evidenceEntries := callChainSurfaceEvidenceEntries(plan)
+	evidenceEntries := callChainSurfaceEvidenceEntries(rm, plan)
 	if callChainPreferSurfaceEvidence(rm, stepEntries, evidenceEntries) {
 		return callChainCondenseSupportEntries(evidenceEntries, endpoints, callChainSupportEntryLimit)
 	}
@@ -248,18 +249,19 @@ func callChainStepBackboneEntries(plan *AnswerSurfacePlan) []AnswerSupportEntry 
 		}
 		out = append(out, AnswerSupportEntry{
 			Text:     text,
+			Detail:   callChainStepSupportDetail(anchor, text),
 			Location: stepSurfaceAnchorLocation(anchor),
 		})
 	}
 	return out
 }
 
-func callChainSurfaceEvidenceEntries(plan *AnswerSurfacePlan) []AnswerSupportEntry {
+func callChainSurfaceEvidenceEntries(rm RequestModel, plan *AnswerSurfacePlan) []AnswerSupportEntry {
 	if plan == nil {
 		return nil
 	}
 	var out []AnswerSupportEntry
-	for _, item := range callChainSupportEvidenceItems(plan) {
+	for _, item := range orderedCallChainSupportEvidenceItems(rm, plan) {
 		if !callChainPathItemEligible(item) {
 			continue
 		}
@@ -269,10 +271,89 @@ func callChainSurfaceEvidenceEntries(plan *AnswerSurfacePlan) []AnswerSupportEnt
 		}
 		out = append(out, AnswerSupportEntry{
 			Text:     text,
+			Detail:   callChainEvidenceSupportDetail(item, text),
 			Location: supportEntryLocation(item),
 		})
 	}
 	return out
+}
+
+func orderedCallChainSupportEvidenceItems(rm RequestModel, plan *AnswerSurfacePlan) []EvidenceItem {
+	items := callChainSupportEvidenceItems(plan)
+	if len(items) == 0 {
+		return nil
+	}
+	out := append([]EvidenceItem(nil), items...)
+	if callChainShouldSortSurfaceEvidenceByLine(rm, out) {
+		sort.SliceStable(out, func(i, j int) bool {
+			if out[i].LineStart == out[j].LineStart {
+				return strings.TrimSpace(out[i].AnchorSymbol) < strings.TrimSpace(out[j].AnchorSymbol)
+			}
+			return out[i].LineStart < out[j].LineStart
+		})
+	}
+	return out
+}
+
+func callChainShouldSortSurfaceEvidenceByLine(rm RequestModel, items []EvidenceItem) bool {
+	if len(items) < 3 {
+		return false
+	}
+	if rm.Intent != IntentTrace && NormalizeRequirementKind(rm.AnalyzerHints.Kind) != ReqCallChain {
+		return false
+	}
+	var source string
+	count := 0
+	for _, item := range items {
+		if strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
+			continue
+		}
+		canonical := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+		if source == "" {
+			source = canonical
+		}
+		if canonical != source {
+			return false
+		}
+		count++
+	}
+	return source != "" && count >= 3
+}
+
+func callChainStepSupportDetail(anchor StepSurfaceAnchor, text string) string {
+	for _, raw := range []string{anchor.Chain, anchor.Rationale} {
+		if detail := answerSupportEntryDetail(raw, text); detail != "" {
+			return detail
+		}
+	}
+	return ""
+}
+
+func callChainEvidenceSupportDetail(item EvidenceItem, text string) string {
+	detail := strings.TrimSpace(item.Summary)
+	if cond := strings.TrimSpace(item.Condition); cond != "" && !strings.Contains(strings.ToLower(detail), strings.ToLower(cond)) {
+		if detail == "" {
+			detail = "condition: " + cond
+		} else {
+			detail += "; condition: " + cond
+		}
+	}
+	return answerSupportEntryDetail(detail, text)
+}
+
+func answerSupportEntryDetail(raw, text string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.Contains(strings.ToLower(text), strings.ToLower(raw)) {
+		return ""
+	}
+	const max = 260
+	if len(raw) > max {
+		raw = strings.TrimSpace(raw[:max]) + "..."
+	}
+	return raw
 }
 
 func callChainPreferSurfaceEvidence(

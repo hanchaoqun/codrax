@@ -443,6 +443,10 @@ func renderAnswerDocSymbolHeaderContext(ctx *types.AgentContext, sym types.Answe
 		if !answerDocModelAuthoredSurfaceTerms(ev) {
 			continue
 		}
+		terms := answerDocRelevantSurfaceTerms(ev, sym.Name)
+		if len(terms) == 0 {
+			continue
+		}
 		if strings.TrimSpace(ev.Source) != strings.TrimSpace(sym.File) {
 			continue
 		}
@@ -454,7 +458,7 @@ func renderAnswerDocSymbolHeaderContext(ctx *types.AgentContext, sym types.Answe
 			!sameAnswerDocSymbolName(ev.Subject, sym.Name) {
 			continue
 		}
-		return fmt.Sprintf("%s:%d — %s", ev.Source, ev.LineStart, strings.Join(ev.SurfaceTerms, ", "))
+		return fmt.Sprintf("%s:%d — %s", ev.Source, ev.LineStart, strings.Join(terms, ", "))
 	}
 	return ""
 }
@@ -476,6 +480,10 @@ func renderAnswerDocSourceHeaderContexts(ctx *types.AgentContext) string {
 		if !answerDocModelAuthoredSurfaceTerms(ev) {
 			continue
 		}
+		terms := answerDocRelevantSurfaceTerms(ev)
+		if len(terms) == 0 {
+			continue
+		}
 		source := strings.TrimSpace(ev.Source)
 		if source == "" || ev.LineStart <= 0 {
 			continue
@@ -493,7 +501,7 @@ func renderAnswerDocSourceHeaderContexts(ctx *types.AgentContext) string {
 			source: source,
 			line:   ev.LineStart,
 			symbol: symbol,
-			text:   answerDocInlineClip(strings.Join(ev.SurfaceTerms, ", "), 240),
+			text:   answerDocInlineClip(strings.Join(terms, ", "), 240),
 		})
 		if len(rows) >= 6 {
 			break
@@ -518,6 +526,27 @@ func renderAnswerDocSourceHeaderContexts(ctx *types.AgentContext) string {
 
 func answerDocModelAuthoredSurfaceTerms(ev types.EvidenceItem) bool {
 	return ev.Producer == "explorer.emit_evidence" && len(ev.SurfaceTerms) > 0
+}
+
+func answerDocRelevantSurfaceTerms(ev types.EvidenceItem, extraCandidates ...string) []string {
+	if len(ev.SurfaceTerms) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ev.SurfaceTerms))
+	seen := make(map[string]bool, len(ev.SurfaceTerms))
+	for _, raw := range ev.SurfaceTerms {
+		term := strings.TrimSpace(raw)
+		if term == "" || !types.SurfaceTermShouldBeRequiredForEvidence(term, ev, extraCandidates...) {
+			continue
+		}
+		key := strings.ToLower(term)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, term)
+	}
+	return out
 }
 
 func answerDocHeaderEvidencePool(ctx *types.AgentContext) []types.EvidenceItem {
@@ -2817,6 +2846,7 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	case types.QFCallChain:
 		b.WriteString("- Keep observed runtime facts, current grounded chain hops, and boundary disclosures in their own lanes.\n")
 		b.WriteString("- The current grounded call-chain lane is the principal source for ordered-list items and sequence-diagram edges. Observation entries can explain where the trace came from, but they do not add caller/callee hops unless the current grounded chain lane also contains that hop.\n")
+		b.WriteString("- You may use an entry's `Evidence note` to enrich that SAME hop's explanation. Do not turn nouns from the note into additional hops, targets, diagram nodes, or countable list members unless they also appear as their own lane entry.\n")
 		b.WriteString("- If a function, file, span, or prior-turn subject appears elsewhere in the prompt but not in the current grounded call-chain lane, treat it as background only for the principal path.\n\n")
 	default:
 		b.WriteString("- Keep observed facts, current-code facts, and boundary disclosures in their own lanes.\n")
@@ -2849,6 +2879,9 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 			text := strings.TrimSpace(entry.Text)
 			if text == "" {
 				continue
+			}
+			if detail := strings.TrimSpace(entry.Detail); detail != "" {
+				text += " — Evidence note: " + detail
 			}
 			if loc := strings.TrimSpace(entry.Location); loc != "" {
 				fmt.Fprintf(&b, "- %s (`%s`)\n", text, loc)

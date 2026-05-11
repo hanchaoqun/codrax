@@ -2747,7 +2747,7 @@ func missingSurfaceTermReviewCandidates(item types.EvidenceItem, gc *ground.Cont
 	seen := make(map[string]bool, len(candidates))
 	for _, term := range candidates {
 		key := strings.ToLower(term)
-		if seen[key] || surfaceTermReviewContains(existing, term) {
+		if seen[key] || surfaceTermReviewContains(existing, term) || !types.SurfaceTermShouldBeRequiredForEvidence(term, item) {
 			continue
 		}
 		seen[key] = true

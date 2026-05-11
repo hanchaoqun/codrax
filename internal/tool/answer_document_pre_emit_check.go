@@ -367,7 +367,7 @@ func missingSurfaceTermsForItem(item types.AnswerBlockItem, cite types.Citation,
 			if term == "" || strings.Contains(hay, strings.ToLower(term)) {
 				continue
 			}
-			if !surfaceTermShouldBeRequiredForItem(term, ev, item) {
+			if !types.SurfaceTermShouldBeRequiredForEvidence(term, ev, item.Label) {
 				continue
 			}
 			key := strings.ToLower(term)
@@ -379,75 +379,6 @@ func missingSurfaceTermsForItem(item types.AnswerBlockItem, cite types.Citation,
 		}
 	}
 	return missing
-}
-
-func surfaceTermShouldBeRequiredForItem(term string, ev types.EvidenceItem, item types.AnswerBlockItem) bool {
-	if !surfaceTermLooksLikePathReference(term) {
-		return true
-	}
-	return pathSurfaceTermIdentifiesItem(term, ev, item)
-}
-
-func surfaceTermLooksLikePathReference(term string) bool {
-	return strings.ContainsAny(strings.TrimSpace(term), `/\`)
-}
-
-func pathSurfaceTermIdentifiesItem(term string, ev types.EvidenceItem, item types.AnswerBlockItem) bool {
-	stem := pathSurfaceTermStem(term)
-	if stem == "" {
-		return false
-	}
-	for _, candidate := range []string{
-		item.Label,
-		ev.Subject,
-		ev.AnchorSymbol,
-		ev.Object,
-		ev.OwnerSymbol,
-	} {
-		if pathSurfaceTermStem(candidate) == stem {
-			return true
-		}
-		for _, part := range types.ExactResolutionIdentifierTerms(candidate) {
-			if part != "" && part == stem {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func pathSurfaceTermStem(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	raw = strings.Trim(raw, "`'\"")
-	raw = strings.ReplaceAll(raw, `\`, `/`)
-	if idx := strings.LastIndex(raw, "/"); idx >= 0 {
-		raw = raw[idx+1:]
-	}
-	if idx := strings.LastIndex(raw, "."); idx > 0 {
-		raw = raw[:idx]
-	}
-	raw = strings.Trim(raw, "`'\"")
-	raw = strings.ToLower(strings.TrimSpace(raw))
-	if raw == "" {
-		return ""
-	}
-	var b strings.Builder
-	for _, r := range raw {
-		switch {
-		case r >= 'a' && r <= 'z':
-			b.WriteRune(r)
-		case r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '_' || r == '-' || r == '.':
-			b.WriteRune(r)
-		default:
-			return ""
-		}
-	}
-	return b.String()
 }
 
 func sameSurfaceTermSource(a, b string) bool {

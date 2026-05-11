@@ -168,6 +168,9 @@ func appendSurfaceTerms(item EvidenceItem, line string) string {
 		if term == "" {
 			continue
 		}
+		if !SurfaceTermShouldBeRequiredForEvidence(term, item) {
+			continue
+		}
 		if strings.Contains(line, term) {
 			continue
 		}
