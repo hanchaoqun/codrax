@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -378,6 +379,21 @@ func TestBuildAnswerSupportPlan_CallChainPrefersSurfaceEvidenceWhenStepBackboneM
 			},
 		},
 	}
+	var earlyNoise []EvidenceItem
+	for i := 0; i < 10; i++ {
+		earlyNoise = append(earlyNoise, EvidenceItem{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1320 + i,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "reconcileStep",
+			Subject:         "buildAnalysisIR",
+			Object:          "reconcileStep",
+			Summary:         "early reconcile helper",
+			GroundingStatus: GroundingGrounded,
+		})
+	}
+	plan.SurfaceEvidence = append(earlyNoise, plan.SurfaceEvidence...)
 
 	got := BuildAnswerSupportPlan(RequestModel{
 		Intent: IntentTrace,
@@ -410,6 +426,29 @@ func TestBuildAnswerSupportPlan_CallChainPrefersSurfaceEvidenceWhenStepBackboneM
 	for _, notWant := range []string{"reconcileScenario", "analyzerSymbolResolver"} {
 		if strings.Contains(joined, notWant) {
 			t.Fatalf("stale step backbone entry %q should not win over endpoint-covering surface evidence:\n%s", notWant, joined)
+		}
+	}
+}
+
+func TestCallChainCondenseSupportEntriesPreservesTerminalTailWhenEndpointIsBroad(t *testing.T) {
+	var entries []AnswerSupportEntry
+	for i := 0; i < 20; i++ {
+		entries = append(entries, AnswerSupportEntry{
+			Text: fmt.Sprintf("hop %02d calls gate.RunWith", i),
+		})
+	}
+
+	got := callChainCondenseSupportEntries(entries, []string{"gate.RunWith"}, 12)
+	if len(got) != 12 {
+		t.Fatalf("expected condensed lane at limit, got %d: %+v", len(got), got)
+	}
+	joined := ""
+	for _, entry := range got {
+		joined += entry.Text + "\n"
+	}
+	for _, want := range []string{"hop 14", "hop 15", "hop 16", "hop 17", "hop 18", "hop 19"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("terminal tail entry %q was dropped from condensed call chain:\n%s", want, joined)
 		}
 	}
 }

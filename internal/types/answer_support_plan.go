@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -25,6 +26,8 @@ const (
 	SupportLaneUncertaintyBound AnswerSupportLaneKind = "uncertainty_boundary"
 	SupportLaneCurrentVerdict   AnswerSupportLaneKind = "current_status_verdict"
 )
+
+const callChainSupportEntryLimit = 12
 
 type AnswerSupportLane struct {
 	Kind          AnswerSupportLaneKind
@@ -201,7 +204,7 @@ func compileCallChainCurrentPathSupportLane(rm RequestModel, plan *AnswerSurface
 	add := func(entry AnswerSupportEntry) {
 		entry.Text = strings.TrimSpace(entry.Text)
 		entry.Location = strings.TrimSpace(strings.ReplaceAll(entry.Location, `\`, `/`))
-		if entry.Text == "" || len(lane.Entries) >= 8 {
+		if entry.Text == "" || len(lane.Entries) >= callChainSupportEntryLimit {
 			return
 		}
 		key := strings.ToLower(entry.Text) + "\x00" + strings.ToLower(entry.Location)
@@ -221,15 +224,16 @@ func selectCallChainSupportEntries(rm RequestModel, plan *AnswerSurfacePlan) []A
 	if plan == nil {
 		return nil
 	}
+	endpoints := callChainRequestedEndpointHints(rm)
 	stepEntries := callChainStepBackboneEntries(plan)
 	evidenceEntries := callChainSurfaceEvidenceEntries(plan)
 	if callChainPreferSurfaceEvidence(rm, stepEntries, evidenceEntries) {
-		return evidenceEntries
+		return callChainCondenseSupportEntries(evidenceEntries, endpoints, callChainSupportEntryLimit)
 	}
 	if len(stepEntries) > 0 {
-		return stepEntries
+		return callChainCondenseSupportEntries(stepEntries, endpoints, callChainSupportEntryLimit)
 	}
-	return evidenceEntries
+	return callChainCondenseSupportEntries(evidenceEntries, endpoints, callChainSupportEntryLimit)
 }
 
 func callChainStepBackboneEntries(plan *AnswerSurfacePlan) []AnswerSupportEntry {
@@ -295,6 +299,71 @@ func callChainPreferSurfaceEvidence(
 		return true
 	}
 	return false
+}
+
+func callChainCondenseSupportEntries(entries []AnswerSupportEntry, endpoints []string, limit int) []AnswerSupportEntry {
+	if limit <= 0 || len(entries) <= limit {
+		return append([]AnswerSupportEntry(nil), entries...)
+	}
+	selected := make(map[int]bool, limit)
+	add := func(idx int) {
+		if idx < 0 || idx >= len(entries) || selected[idx] {
+			return
+		}
+		if len(selected) >= limit {
+			return
+		}
+		selected[idx] = true
+	}
+	add(0)
+	for i := 1; i <= 6; i++ {
+		add(len(entries) - i)
+	}
+	terminalEndpoints := callChainTerminalEndpointHints(endpoints)
+	for i, entry := range entries {
+		for _, endpoint := range terminalEndpoints {
+			if callChainEntryMentionsEndpoint(entry, endpoint) {
+				add(i)
+				break
+			}
+		}
+	}
+	for slot := 0; slot < limit && len(selected) < limit; slot++ {
+		idx := 0
+		if limit > 1 {
+			idx = slot * (len(entries) - 1) / (limit - 1)
+		}
+		add(idx)
+	}
+	if len(selected) < limit {
+		for i := range entries {
+			add(i)
+			if len(selected) >= limit {
+				break
+			}
+		}
+	}
+	indices := make([]int, 0, len(selected))
+	for idx := range selected {
+		indices = append(indices, idx)
+	}
+	sort.Ints(indices)
+	out := make([]AnswerSupportEntry, 0, len(indices))
+	for _, idx := range indices {
+		out = append(out, entries[idx])
+	}
+	return out
+}
+
+func callChainTerminalEndpointHints(endpoints []string) []string {
+	if len(endpoints) == 0 {
+		return nil
+	}
+	last := strings.TrimSpace(endpoints[len(endpoints)-1])
+	if last == "" {
+		return nil
+	}
+	return []string{last}
 }
 
 func callChainEndpointCoverage(entries []AnswerSupportEntry, endpoints []string) int {
