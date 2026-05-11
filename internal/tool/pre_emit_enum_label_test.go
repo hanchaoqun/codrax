@@ -430,6 +430,58 @@ func TestPreCheckCallChainItemCitationRoleAlignment_AcceptsMatchingCallEdge(t *t
 	}
 }
 
+func TestPreCheckCallChainItemCitationRoleAlignment_GeneralizesToImportEdge(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "imports",
+			Kind: types.BlockBulletList,
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimImportEdge,
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "i1",
+				Label:       "@kit.ArkUI",
+				Text:        "`Index.ets` imports `@kit.ArkUI`",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "entry/src/main/ets/pages/Index.ets", Line: 20}},
+	}
+	mut := types.NewMutableState("imports")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "import-arkui",
+			Kind:            types.EvidenceDirect,
+			Source:          "entry/src/main/ets/pages/Index.ets",
+			LineStart:       4,
+			AnchorKind:      types.AnchorImport,
+			Subject:         "Index.ets",
+			Object:          "@kit.ArkUI",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "def-index",
+			Kind:            types.EvidenceDirect,
+			Source:          "entry/src/main/ets/pages/Index.ets",
+			LineStart:       20,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "Index",
+			AnchorSymbol:    "Index",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+
+	hints := preCheckCallChainItemCitationRoleAlignment(doc, nil, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("expected generic import-edge role hint, got %d: %+v", len(hints), hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "Index.ets -> @kit.ArkUI") ||
+		!strings.Contains(hints[0].ExpectedShape, "entry/src/main/ets/pages/Index.ets:4") {
+		t.Fatalf("hint should name typed import edge and its citation line, got %+v", hints[0])
+	}
+}
+
 func TestPreCheckEnumLabel_AllHallucinated_OneFixHintPerBlock(t *testing.T) {
 	oracle := &stubOracle{known: map[string]int{}}
 	doc := &types.AnswerDocumentV2{

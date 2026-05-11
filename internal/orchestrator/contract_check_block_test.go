@@ -1312,6 +1312,57 @@ func TestValidateCallChainItemCitationRoleAlignment_AcceptsMatchingCallEdge(t *t
 	}
 }
 
+func TestValidateCallChainItemCitationRoleAlignment_GeneralizesToImportEdge(t *testing.T) {
+	mut := types.NewMutableState("imports")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "import-arkui",
+			Kind:            types.EvidenceDirect,
+			Source:          "entry/src/main/ets/pages/Index.ets",
+			LineStart:       4,
+			AnchorKind:      types.AnchorImport,
+			Subject:         "Index.ets",
+			Object:          "@kit.ArkUI",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "def-index",
+			Kind:            types.EvidenceDirect,
+			Source:          "entry/src/main/ets/pages/Index.ets",
+			LineStart:       20,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "Index",
+			AnchorSymbol:    "Index",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "entry/src/main/ets/pages/Index.ets", Line: 20}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "imports",
+			Kind: types.BlockBulletList,
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimImportEdge,
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "i1",
+				Label:       "@kit.ArkUI",
+				Text:        "`Index.ets` imports `@kit.ArkUI`",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	vs := validateCallChainItemCitationRoleAlignment(doc, nil, mut)
+	if len(vs) != 1 {
+		t.Fatalf("expected one generic citation-role violation, got %d: %+v", len(vs), vs)
+	}
+	if !strings.Contains(vs[0].Detail, "Index.ets -> @kit.ArkUI") ||
+		!strings.Contains(vs[0].Repair, "entry/src/main/ets/pages/Index.ets:4") {
+		t.Fatalf("violation should name typed import edge and repair citation, got %+v", vs[0])
+	}
+}
+
 // ── R2.3 V2 重接 AbsenceScopeBound tests ─────────────────────────
 
 // TestValidateAbsenceScopeBound_BoundedPasses confirms an absent

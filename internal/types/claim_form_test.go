@@ -38,6 +38,65 @@ func TestClaimForm_UsesNonSymbolLabelSurface(t *testing.T) {
 	}
 }
 
+func TestClaimForm_CitationRoleIdentityKindExhaustive(t *testing.T) {
+	for _, c := range AllClaimForms() {
+		switch c.CitationRoleIdentityKind() {
+		case ClaimCitationRoleIdentityNone, ClaimCitationRoleDirectedEdge, ClaimCitationRoleDisplaySurface:
+		default:
+			t.Fatalf("claim form %q returned unknown citation role identity kind %q", c, c.CitationRoleIdentityKind())
+		}
+	}
+	for _, c := range []ClaimForm{ClaimCallEdge, ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation} {
+		if !c.SupportsCitationRoleAlignment() {
+			t.Fatalf("claim form %q should support typed citation-role alignment", c)
+		}
+	}
+}
+
+func TestEvidenceClaimRoleMentionedBySurface_DirectedEdge(t *testing.T) {
+	ev := EvidenceItem{
+		AnchorKind:      AnchorCall,
+		Subject:         "ParseOutput",
+		Object:          "buildAnalysisIR",
+		GroundingStatus: GroundingGrounded,
+	}
+	if !EvidenceClaimRoleMentionedBySurface(ev, []ClaimForm{ClaimCallEdge}, "`ParseOutput` -> `buildAnalysisIR`") {
+		t.Fatalf("directed edge endpoints should be recognized as typed role surface")
+	}
+	if EvidenceClaimRoleMentionedBySurface(ev, []ClaimForm{ClaimCallEdge}, "`ParseOutputX` -> `buildAnalysisIR`") {
+		t.Fatalf("endpoint matching must use code-token boundaries")
+	}
+}
+
+func TestEvidenceClaimRoleMentionedBySurface_DisplaySurface(t *testing.T) {
+	ev := EvidenceItem{
+		Origin:          ClaimOriginLog,
+		Subject:         "java.io.IOException",
+		SurfaceTerms:    []string{"Connection refused"},
+		GroundingStatus: GroundingGrounded,
+	}
+	if !EvidenceClaimRoleMentionedBySurface(ev, []ClaimForm{ClaimExternalObservation}, "Caused by java.io.IOException: Connection refused") {
+		t.Fatalf("display surface terms from typed evidence should be recognized")
+	}
+}
+
+func TestSameEvidenceClaimRole_RejectsDefinitionForCallEdge(t *testing.T) {
+	call := EvidenceItem{
+		ID:         "call",
+		AnchorKind: AnchorCall,
+		Subject:    "ParseOutput",
+		Object:     "buildAnalysisIR",
+	}
+	def := EvidenceItem{
+		AnchorKind:   AnchorDefinition,
+		Subject:      "buildAnalysisIR",
+		AnchorSymbol: "buildAnalysisIR",
+	}
+	if SameEvidenceClaimRole(def, call) {
+		t.Fatalf("definition evidence must not satisfy a call-edge role")
+	}
+}
+
 func TestClaimForm_LabelSurfaceKindAllRegisteredFormsClassified(t *testing.T) {
 	for _, c := range AllClaimForms() {
 		kind := c.LabelSurfaceKind()

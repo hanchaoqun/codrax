@@ -229,6 +229,8 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	if o != nil && o.busCtx != nil {
 		result.Violations = append(result.Violations,
 			runLogErrorMessageLiteralCheck(o.busCtx, draft.Text)...)
+		result.Violations = append(result.Violations,
+			runLogErrorTypeLiteralCheck(o.busCtx, draft.Text)...)
 	}
 
 	// AuthorityCeiling axis: walk the rendered prose looking for
@@ -404,6 +406,39 @@ func runLogErrorMessageLiteralCheck(ctx *types.BusContext, draftText string) []t
 	return out
 }
 
+func runLogErrorTypeLiteralCheck(ctx *types.BusContext, draftText string) []types.Violation {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	bundle := ctx.Mutable.LogTriage()
+	if bundle == nil || !shouldRequireLogErrorMessageLiterals(ctx) {
+		return nil
+	}
+	answer := normalizeRuntimeMessageLiteral(draftText)
+	var out []types.Violation
+	for _, typ := range requiredLogErrorTypesForContract(bundle) {
+		if typ == "" {
+			continue
+		}
+		if runtimeErrorTypeSurfacePresent(answer, typ) {
+			continue
+		}
+		out = append(out, types.Violation{
+			Kind:       types.ViolMustInclude,
+			Detail:     fmt.Sprintf("required runtime error type %q missing from answer", typ),
+			Repair:     fmt.Sprintf("name the runtime error type %q (or its stable short name) in the summary or body; do not collapse it into the message text only", typ),
+			ClusterKey: types.IdentityClusterKey("runtime_error_type:"+typ, "must_include"),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "log_error_type",
+				Reason:     "diagnostic artifact answer omitted structured runtime error type",
+				Confidence: 0.85,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
 func shouldRequireLogErrorMessageLiterals(ctx *types.BusContext) bool {
 	if ctx == nil {
 		return false
@@ -425,6 +460,71 @@ func requiredLogErrorMessagesForContract(bundle *types.LogBundle) []string {
 		messages = messages[:4]
 	}
 	return messages
+}
+
+func requiredLogErrorTypesForContract(bundle *types.LogBundle) []string {
+	errorTypes := types.LogBundleErrorTypes(bundle)
+	if len(errorTypes) > 6 {
+		errorTypes = errorTypes[:6]
+	}
+	return errorTypes
+}
+
+func runtimeErrorTypeSurfacePresent(answer, typ string) bool {
+	answer = normalizeRuntimeMessageLiteral(answer)
+	typ = strings.TrimSpace(typ)
+	if answer == "" || typ == "" {
+		return false
+	}
+	if strings.Contains(answer, typ) {
+		return true
+	}
+	short := runtimeErrorTypeShortName(typ)
+	return short != "" && runtimeTypeTokenAppears(short, answer)
+}
+
+func runtimeErrorTypeShortName(typ string) string {
+	typ = strings.TrimSpace(typ)
+	if typ == "" {
+		return ""
+	}
+	for _, sep := range []string{".", "::", "/", "\\"} {
+		if idx := strings.LastIndex(typ, sep); idx >= 0 && idx+len(sep) < len(typ) {
+			typ = typ[idx+len(sep):]
+		}
+	}
+	return strings.TrimSpace(typ)
+}
+
+func runtimeTypeTokenAppears(needle, haystack string) bool {
+	needle = strings.TrimSpace(needle)
+	haystack = strings.TrimSpace(haystack)
+	if needle == "" || haystack == "" {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(haystack[start:], needle)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		if runtimeTypeBoundary(haystack, pos-1) && runtimeTypeBoundary(haystack, pos+len(needle)) {
+			return true
+		}
+		start = pos + len(needle)
+		if start >= len(haystack) {
+			return false
+		}
+	}
+}
+
+func runtimeTypeBoundary(s string, idx int) bool {
+	if idx < 0 || idx >= len(s) {
+		return true
+	}
+	r := rune(s[idx])
+	return !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '.')
 }
 
 func normalizeRuntimeMessageLiteral(s string) string {

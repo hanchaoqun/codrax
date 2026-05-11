@@ -215,6 +215,68 @@ func TestRunLogErrorMessageLiteralCheck_NonDiagnosticTreatsMessageAsSoftContext(
 	}
 }
 
+func TestRunLogErrorTypeLiteralCheck_RequiresCauseChainTypes(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "java.lang.RuntimeException",
+			Message: "wrapper",
+			Cause: &types.LogError{
+				Type:    "java.io.IOException",
+				Message: "Connection refused",
+			},
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentRootCause,
+				Predicates: types.SemanticPredicates{
+					IsDiagnosticQuestion: true,
+				},
+			},
+		},
+	}
+
+	missing := runLogErrorTypeLiteralCheck(ctx, "RuntimeException wraps Connection refused.")
+	if len(missing) != 1 || missing[0].Kind != types.ViolMustInclude {
+		t.Fatalf("diagnostic artifact answer should preserve cause-chain error types, got %+v", missing)
+	}
+	if !strings.Contains(missing[0].Repair, "java.io.IOException") {
+		t.Fatalf("repair should carry exact missing type, got %+v", missing[0])
+	}
+
+	present := runLogErrorTypeLiteralCheck(ctx, "RuntimeException caused by IOException: Connection refused.")
+	if len(present) != 0 {
+		t.Fatalf("short runtime type name should satisfy gate, got %+v", present)
+	}
+}
+
+func TestRunLogErrorTypeLiteralCheck_NonDiagnosticTreatsTypesAsSoftContext(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "java.io.IOException",
+			Message: "Connection refused",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+			},
+		},
+	}
+
+	got := runLogErrorTypeLiteralCheck(ctx, "This answer discusses the architecture only.")
+	if len(got) != 0 {
+		t.Fatalf("non-diagnostic artifact question must not hard-require error types, got %+v", got)
+	}
+}
+
 func TestRenderViolations_Ordering(t *testing.T) {
 	res := contract.Result{
 		Passed: false,

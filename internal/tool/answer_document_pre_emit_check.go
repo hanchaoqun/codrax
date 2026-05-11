@@ -51,8 +51,6 @@ package tool
 import (
 	"fmt"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -139,10 +137,12 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 		hints = append(hints, h...)
 	}
 
-	// 5b. Call-chain item role alignment. A hop item whose visible
-	// surface names a typed call edge must cite that call edge, not a
-	// nearby definition / guard / adjacent hop that happens to mention
-	// one endpoint.
+	// 5b. Typed item/citation role alignment. An item whose visible
+	// surface names a typed evidence role must cite that same role, not
+	// a nearby definition / guard / adjacent item that happens to share
+	// one endpoint. The projection lives in types so new role shapes
+	// (import/path/span/route/etc.) extend the central contract instead
+	// of adding validator-specific patches.
 	if h := preCheckCallChainItemCitationRoleAlignment(doc, view, ctxOpt...); len(h) > 0 {
 		hints = append(hints, h...)
 	}
@@ -238,28 +238,29 @@ func preCheckCallChainItemCitationRoleAlignment(doc *types.AnswerDocumentV2, vie
 	}
 	var mismatches []mismatch
 	for _, b := range doc.Blocks {
-		if !preEmitBlockRequiresCallEdgeCitationAlignment(b, view) {
+		forms := preEmitBlockCitationRoleForms(b, view)
+		if len(forms) == 0 {
 			continue
 		}
 		for _, item := range b.Items {
 			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
 				continue
 			}
-			expected, ok := preEmitCallEdgeMentionedByItemSurface(item, allEvidence)
+			expected, ok := preEmitClaimRoleMentionedByItemSurface(item, forms, allEvidence)
 			if !ok {
 				continue
 			}
 			cit := doc.Citations[item.CitationRef]
 			cited, found := preEmitCitedEvidenceItems(ctx, cit)
-			if found && preEmitEvidenceSetContainsCallEdge(cited, expected) {
+			if found && types.EvidenceSetContainsSameClaimRole(cited, expected) {
 				continue
 			}
 			mismatches = append(mismatches, mismatch{
 				blockID: b.ID,
 				itemID:  item.ID,
-				edge:    preEmitCallEdgeName(expected),
+				edge:    types.EvidenceClaimRoleName(expected),
 				got:     fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
-				want:    preEmitCallEdgeLocation(expected),
+				want:    types.EvidenceClaimRoleLocation(expected),
 			})
 		}
 	}
@@ -272,28 +273,41 @@ func preCheckCallChainItemCitationRoleAlignment(doc *types.AnswerDocumentV2, vie
 	}
 	return []emitFixHint{{
 		Field: "blocks[].items[].citation_ref",
-		ExpectedShape: "each call-chain item whose visible label/text names a typed call edge must cite the evidence line for that same call edge: " +
+		ExpectedShape: "each item whose visible label/text names a typed evidence role must cite the evidence line for that same role: " +
 			strings.Join(parts, "; "),
-		Reason: "call-chain hop citations must support the role asserted by the item; definition lines or adjacent hops cannot stand in for a call edge named in the item surface.",
+		Reason: "item citations must support the typed role asserted by the item; definition lines or adjacent items cannot stand in for a different role named in the item surface.",
 	}}
 }
 
-func preEmitBlockRequiresCallEdgeCitationAlignment(b types.AnswerBlock, view *types.AnswerSemanticView) bool {
+func preEmitBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemanticView) []types.ClaimForm {
 	switch b.Kind {
 	case types.BlockOrderedList, types.BlockBulletList:
 	default:
-		return false
+		return nil
 	}
+	var forms []types.ClaimForm
 	for _, cu := range b.ClaimUses {
-		if cu.ClaimForm == types.ClaimCallEdge {
-			return true
+		forms = append(forms, cu.ClaimForm)
+	}
+	if view != nil {
+		for _, req := range append(append([]types.BlockRequirement(nil), view.RequiredBlocks...), view.OptionalBlocks...) {
+			if req.Kind != b.Kind || len(req.AcceptableClaimForms) == 0 {
+				continue
+			}
+			if len(req.FacetIDs) > 0 && !preEmitBlockSharesFacet(b, req.FacetIDs) {
+				continue
+			}
+			forms = append(forms, req.AcceptableClaimForms...)
 		}
 	}
 	if containsBlockFacet(b, types.FacetPrincipalPathEdge) {
-		return true
+		forms = append(forms, types.ClaimCallEdge)
 	}
-	return view != nil && (view.Family == types.QFCallChain || view.Family == types.QFRootCauseTrace) &&
-		containsBlockFacet(b, types.FacetCurrentCodePath)
+	if view != nil && (view.Family == types.QFCallChain || view.Family == types.QFRootCauseTrace) &&
+		containsBlockFacet(b, types.FacetCurrentCodePath) {
+		forms = append(forms, types.ClaimCallEdge)
+	}
+	return types.ClaimFormsSupportingCitationRoleAlignment(forms)
 }
 
 func preEmitAnswerEvidenceItems(ctx *types.BusContext) []types.EvidenceItem {
@@ -310,67 +324,40 @@ func preEmitAnswerEvidenceItems(ctx *types.BusContext) []types.EvidenceItem {
 	return out
 }
 
-func preEmitCallEdgeMentionedByItemSurface(item types.AnswerBlockItem, evidence []types.EvidenceItem) (types.EvidenceItem, bool) {
-	surface := strings.TrimSpace(item.Label + "\n" + item.Text)
-	if surface == "" {
-		return types.EvidenceItem{}, false
-	}
-	for _, ev := range evidence {
-		if ev.GroundingStatus == types.GroundingUngrounded || types.ClaimFormOf(ev) != types.ClaimCallEdge {
-			continue
-		}
-		if preEmitCallEdgeEndpointsMentioned(surface, ev) {
-			return ev, true
-		}
-	}
-	return types.EvidenceItem{}, false
-}
-
-func preEmitCallEdgeEndpointsMentioned(surface string, ev types.EvidenceItem) bool {
-	subject := strings.TrimSpace(ev.Subject)
-	object := strings.TrimSpace(ev.Object)
-	if subject == "" || object == "" {
+func preEmitBlockSharesFacet(b types.AnswerBlock, facets []string) bool {
+	if len(facets) == 0 {
 		return false
 	}
-	return preEmitCodeSurfaceAppearsAsToken(subject, surface) &&
-		preEmitCodeSurfaceAppearsAsToken(object, surface)
-}
-
-func preEmitEvidenceSetContainsCallEdge(items []types.EvidenceItem, expected types.EvidenceItem) bool {
-	for _, ev := range items {
-		if types.ClaimFormOf(ev) != types.ClaimCallEdge {
+	for _, facet := range facets {
+		facet = strings.TrimSpace(facet)
+		if facet == "" {
 			continue
 		}
-		if preEmitSameCallEdge(ev, expected) {
-			return true
+		for _, id := range b.FacetIDs {
+			if strings.TrimSpace(id) == facet {
+				return true
+			}
+		}
+		for _, cu := range b.ClaimUses {
+			if strings.TrimSpace(cu.FacetID) == facet {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-func preEmitSameCallEdge(a, b types.EvidenceItem) bool {
-	if strings.TrimSpace(a.ID) != "" && strings.TrimSpace(a.ID) == strings.TrimSpace(b.ID) {
-		return true
+func preEmitClaimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []types.ClaimForm, evidence []types.EvidenceItem) (types.EvidenceItem, bool) {
+	surface := strings.TrimSpace(item.Label + "\n" + item.Text)
+	if surface == "" {
+		return types.EvidenceItem{}, false
 	}
-	return preEmitCodeSurfaceMatches(a.Subject, b.Subject) &&
-		preEmitCodeSurfaceMatches(a.Object, b.Object)
-}
-
-func preEmitCallEdgeName(ev types.EvidenceItem) string {
-	subject := strings.TrimSpace(ev.Subject)
-	object := strings.TrimSpace(ev.Object)
-	if subject == "" || object == "" {
-		return "call_edge"
+	for _, ev := range evidence {
+		if types.EvidenceClaimRoleMentionedBySurface(ev, forms, surface) {
+			return ev, true
+		}
 	}
-	return fmt.Sprintf("%s -> %s", subject, object)
-}
-
-func preEmitCallEdgeLocation(ev types.EvidenceItem) string {
-	source := strings.TrimSpace(ev.Source)
-	if source == "" || ev.LineStart <= 0 {
-		return "the matching call-edge evidence"
-	}
-	return fmt.Sprintf("%s:%d", source, ev.LineStart)
+	return types.EvidenceItem{}, false
 }
 
 func preEmitBlockUsesNonSymbolLabelSurface(b types.AnswerBlock, view *types.AnswerSemanticView) bool {
@@ -473,37 +460,6 @@ func preEmitCodeSurfaceAppearsVerbatim(label, text string) bool {
 		return false
 	}
 	return strings.Contains(text, label)
-}
-
-func preEmitCodeSurfaceAppearsAsToken(label, text string) bool {
-	label = strings.TrimSpace(label)
-	text = strings.TrimSpace(text)
-	if label == "" || text == "" || !types.IsCodeIdentitySurface(label) {
-		return false
-	}
-	start := 0
-	for {
-		idx := strings.Index(text[start:], label)
-		if idx < 0 {
-			return false
-		}
-		pos := start + idx
-		if preEmitCodeSurfaceBoundary(text, pos-1) && preEmitCodeSurfaceBoundary(text, pos+len(label)) {
-			return true
-		}
-		start = pos + len(label)
-		if start >= len(text) {
-			return false
-		}
-	}
-}
-
-func preEmitCodeSurfaceBoundary(s string, idx int) bool {
-	if idx < 0 || idx >= len(s) {
-		return true
-	}
-	r, _ := utf8.DecodeRuneInString(s[idx:])
-	return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
 }
 
 func preEmitCodeSurfaceMatches(a, b string) bool {
