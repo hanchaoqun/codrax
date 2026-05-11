@@ -159,6 +159,59 @@ func (c ClaimForm) IsValid() bool {
 	return false
 }
 
+type ClaimLabelSurfaceKind string
+
+const (
+	ClaimLabelSurfaceUnknown ClaimLabelSurfaceKind = ""
+
+	// ClaimLabelSurfaceSymbolLike means an answer item label, when it
+	// is code-shaped, should still be validated as a source symbol or
+	// declaration-like endpoint.
+	ClaimLabelSurfaceSymbolLike ClaimLabelSurfaceKind = "symbol_like"
+
+	// ClaimLabelSurfaceDisplayLabel means the label itself is a typed
+	// evidence surface (for example an import path or precedence role),
+	// not a source declaration symbol. It still needs citation and
+	// evidence grounding; it just must not be forced through symbol
+	// existence gates.
+	ClaimLabelSurfaceDisplayLabel ClaimLabelSurfaceKind = "display_label"
+)
+
+func (k ClaimLabelSurfaceKind) IsValid() bool {
+	switch k {
+	case ClaimLabelSurfaceSymbolLike, ClaimLabelSurfaceDisplayLabel:
+		return true
+	default:
+		return false
+	}
+}
+
+// LabelSurfaceKind classifies the answer-visible item/table label
+// contract for every known ClaimForm. Keep this switch exhaustive:
+// tests iterate AllClaimForms and fail when a registered ClaimForm
+// falls through to ClaimLabelSurfaceUnknown.
+func (c ClaimForm) LabelSurfaceKind() ClaimLabelSurfaceKind {
+	switch c {
+	case ClaimDefinitionFact, ClaimCallEdge, ClaimGuardCondition,
+		ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact,
+		ClaimExternalObservation:
+		return ClaimLabelSurfaceSymbolLike
+	case ClaimImportEdge, ClaimPrecedenceRole:
+		return ClaimLabelSurfaceDisplayLabel
+	default:
+		return ClaimLabelSurfaceUnknown
+	}
+}
+
+// UsesNonSymbolLabelSurface reports whether answer item/table labels
+// for this claim form are typed display surfaces rather than source
+// declaration symbols. Validators use this to avoid routing labels
+// such as import paths or config precedence roles through symbol-only
+// gates while still requiring citations / evidence grounding.
+func (c ClaimForm) UsesNonSymbolLabelSurface() bool {
+	return c.LabelSurfaceKind() == ClaimLabelSurfaceDisplayLabel
+}
+
 // ClaimFormOf is the deterministic projection. Priority order
 // (highest first; first match wins so subsequent rules never
 // over-ride a stronger signal):
@@ -185,12 +238,12 @@ func (c ClaimForm) IsValid() bool {
 //     through to AnchorKind.
 //
 //  4. AnchorKind switch — repo-side current-mechanism classification:
-//       AnchorCall       → ClaimCallEdge
-//       AnchorCondition  → ClaimGuardCondition
-//       AnchorReturn     → ClaimReturnFact
-//       AnchorAssignment → ClaimAssignmentFact
-//       AnchorImport     → ClaimImportEdge
-//       AnchorDefinition → ClaimDefinitionFact
+//     AnchorCall       → ClaimCallEdge
+//     AnchorCondition  → ClaimGuardCondition
+//     AnchorReturn     → ClaimReturnFact
+//     AnchorAssignment → ClaimAssignmentFact
+//     AnchorImport     → ClaimImportEdge
+//     AnchorDefinition → ClaimDefinitionFact
 //
 //  5. fall-through → ClaimUnknown
 //     Reason: with no Origin, no Negative scope, no DiagramRole,

@@ -209,7 +209,7 @@ func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.Answ
 	if strings.TrimSpace(blk.Title) != "" {
 		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
 	}
-	if text := renderUserSurfaceText(blk.Text); text != "" {
+	if text := renderV2TableText(blk); text != "" {
 		b.WriteString(text)
 		b.WriteString("\n\n")
 	}
@@ -226,6 +226,57 @@ func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.Answ
 		fmt.Fprintf(b, "| %s | %s |\n", escapePipe(label), escapePipe(text))
 	}
 	b.WriteString("\n")
+}
+
+func renderV2TableText(blk types.AnswerBlock) string {
+	text := renderUserSurfaceText(blk.Text)
+	if text == "" {
+		return ""
+	}
+	if len(blk.Items) > 0 && answerDocTextLooksLikeMarkdownTable(text) {
+		return ""
+	}
+	return text
+}
+
+func answerDocTextLooksLikeMarkdownTable(text string) bool {
+	lines := strings.Split(text, "\n")
+	tableRows := 0
+	separatorRows := 0
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if !strings.Contains(line, "|") {
+			continue
+		}
+		if strings.Count(line, "|") < 2 {
+			continue
+		}
+		tableRows++
+		if answerDocMarkdownTableSeparatorLine(line) {
+			separatorRows++
+		}
+	}
+	return tableRows >= 2 && separatorRows > 0
+}
+
+func answerDocMarkdownTableSeparatorLine(line string) bool {
+	line = strings.TrimSpace(strings.Trim(line, "|"))
+	if line == "" {
+		return false
+	}
+	parts := strings.Split(line, "|")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return false
+		}
+		for _, r := range part {
+			if r != '-' && r != ':' && r != ' ' && r != '\t' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, _ answerDocLang) {

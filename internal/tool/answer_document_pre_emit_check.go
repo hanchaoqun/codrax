@@ -133,7 +133,7 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	// 5. Per-item label/citation alignment. A symbol-like list label with
 	// a citation must name the same cited evidence endpoint; otherwise the
 	// rendered answer silently shifts file:line proof across adjacent hops.
-	if h := preCheckItemCitationAlignment(doc, ctxOpt...); len(h) > 0 {
+	if h := preCheckItemCitationAlignment(doc, view, ctxOpt...); len(h) > 0 {
 		hints = append(hints, h...)
 	}
 
@@ -150,7 +150,7 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	return hints
 }
 
-func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctxOpt ...*types.BusContext) []emitFixHint {
 	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
 		return nil
 	}
@@ -166,6 +166,9 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, ctxOpt ...*types
 		switch b.Kind {
 		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
 		default:
+			continue
+		}
+		if preEmitBlockUsesNonSymbolLabelSurface(b, view) {
 			continue
 		}
 		for _, item := range b.Items {
@@ -207,6 +210,31 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, ctxOpt ...*types
 	}}
 }
 
+func preEmitBlockUsesNonSymbolLabelSurface(b types.AnswerBlock, view *types.AnswerSemanticView) bool {
+	for _, cu := range b.ClaimUses {
+		if cu.ClaimForm.UsesNonSymbolLabelSurface() {
+			return true
+		}
+	}
+	return view != nil && view.Family == types.QFConfigPrecedence &&
+		containsBlockFacet(b, types.FacetConfigPrecedenceRole)
+}
+
+func containsBlockFacet(b types.AnswerBlock, facet types.AnswerFacetKind) bool {
+	want := string(facet)
+	for _, id := range b.FacetIDs {
+		if strings.TrimSpace(id) == want {
+			return true
+		}
+	}
+	for _, cu := range b.ClaimUses {
+		if strings.TrimSpace(cu.FacetID) == want {
+			return true
+		}
+	}
+	return false
+}
+
 func preEmitCitedEvidenceItems(ctx *types.BusContext, cit types.Citation) ([]types.EvidenceItem, bool) {
 	if ctx == nil || ctx.Mutable == nil {
 		return nil, false
@@ -215,31 +243,38 @@ func preEmitCitedEvidenceItems(ctx *types.BusContext, cit types.Citation) ([]typ
 	if file == "" || cit.Line <= 0 {
 		return nil, false
 	}
-	artifacts := ctx.Mutable.TurnAArtifacts()
-	if artifacts == nil {
-		return nil, false
-	}
 	var out []types.EvidenceItem
-	for _, ev := range artifacts.EvidenceItems {
+	if artifacts := ctx.Mutable.TurnAArtifacts(); artifacts != nil {
+		out = append(out, preEmitCitedEvidenceFromPool(artifacts.EvidenceItems, file, cit.Line)...)
+	}
+	if emitted := ctx.Mutable.EmittedEvidence(); len(emitted) > 0 {
+		out = append(out, preEmitCitedEvidenceFromPool(emitted, file, cit.Line)...)
+	}
+	return out, len(out) > 0
+}
+
+func preEmitCitedEvidenceFromPool(items []types.EvidenceItem, file string, line int) []types.EvidenceItem {
+	var out []types.EvidenceItem
+	for _, ev := range items {
 		if ev.GroundingStatus == types.GroundingUngrounded {
 			continue
 		}
 		if strings.TrimSpace(ev.Source) != file {
 			continue
 		}
-		if cit.Line < ev.LineStart {
+		if line < ev.LineStart {
 			continue
 		}
 		lineEnd := ev.LineEnd
 		if lineEnd <= 0 {
 			lineEnd = ev.LineStart
 		}
-		if cit.Line > lineEnd {
+		if line > lineEnd {
 			continue
 		}
 		out = append(out, ev)
 	}
-	return out, len(out) > 0
+	return out
 }
 
 func preEmitLabelMatchesAnyEvidenceEndpoint(label string, evidence []types.EvidenceItem) bool {
@@ -257,7 +292,24 @@ func preEmitLabelMatchesEvidenceEndpoint(label string, ev types.EvidenceItem) bo
 			return true
 		}
 	}
+	for _, term := range ev.SurfaceTerms {
+		if preEmitCodeSurfaceAppearsVerbatim(label, term) {
+			return true
+		}
+	}
+	if preEmitCodeSurfaceAppearsVerbatim(label, ev.Snippet) {
+		return true
+	}
 	return false
+}
+
+func preEmitCodeSurfaceAppearsVerbatim(label, text string) bool {
+	label = strings.TrimSpace(label)
+	text = strings.TrimSpace(text)
+	if label == "" || text == "" || !types.IsCodeIdentitySurface(label) {
+		return false
+	}
+	return strings.Contains(text, label)
 }
 
 func preEmitCodeSurfaceMatches(a, b string) bool {

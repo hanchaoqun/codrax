@@ -941,6 +941,56 @@ func TestBuildAnswerSupportPlan_FacetPrincipalLaneAcceptsSchemaScopeEvidence(t *
 	}
 }
 
+func TestBuildAnswerSupportPlan_ConfigPrecedenceDropsConcreteNoiseWhenModelEvidenceExists(t *testing.T) {
+	modelItem := EvidenceItem{
+		ID:              "default-layer",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "cmd/root.go",
+		LineStart:       71,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "defaultMaxSteps",
+		Producer:        "explorer.emit_evidence",
+		DiagramRole:     EvidenceDiagramRoleDefault,
+		Summary:         "defaultMaxSteps defines the code default layer.",
+		GroundingStatus: GroundingGrounded,
+	}
+	concreteNoise := EvidenceItem{
+		ID:              "concrete-noise",
+		Kind:            EvidenceConcrete,
+		Scope:           ScopeLine,
+		Source:          "internal/tool/repomap/topology/discover.go",
+		LineStart:       59,
+		AnchorKind:      AnchorAssignment,
+		AnchorSymbol:    "Discover",
+		Producer:        "concrete_values",
+		GroundingStatus: GroundingGrounded,
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{concreteNoise, modelItem},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFConfigPrecedence,
+			Required: []FacetRequirement{{
+				Kind:            FacetConfigPrecedenceRole,
+				SourceCandidate: []string{"default-layer", "concrete-noise"},
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentConfigQuery}, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil {
+		t.Fatalf("expected config principal lane, got %+v", got)
+	}
+	text := answerSupportLaneText(lane)
+	if !strings.Contains(text, "defaultMaxSteps") {
+		t.Fatalf("model-authored config evidence missing from lane:\n%s", text)
+	}
+	if strings.Contains(text, "Discover") {
+		t.Fatalf("concrete-value noise should not pollute config precedence lane when model-authored evidence exists:\n%s", text)
+	}
+}
+
 func TestBuildAnswerSupportPlan_FacetUncertaintyLaneAcceptsNegativeScopeAbsence(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		SurfaceEvidence: []EvidenceItem{{

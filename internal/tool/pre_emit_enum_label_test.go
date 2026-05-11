@@ -99,6 +99,39 @@ func TestPreCheckEnumLabel_AllGrounded_NoHints(t *testing.T) {
 	}
 }
 
+func TestPreCheckItemCitationAlignment_PrecedenceRoleLabelsAreNotSymbols(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "cmd/root.go", Line: 1430}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "precedence_table",
+			Kind: types.BlockTable,
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimPrecedenceRole,
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "override",
+				Label:       "override",
+				Text:        "CLI flag overrides config when explicitly changed.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	view := &types.AnswerSemanticView{Family: types.QFConfigPrecedence}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		ID:              "override",
+		Source:          "cmd/root.go",
+		LineStart:       1430,
+		AnchorKind:      types.AnchorCondition,
+		AnchorSymbol:    "cmd.Flags().Changed",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+
+	if hints := preCheckItemCitationAlignment(doc, view, ctx); len(hints) != 0 {
+		t.Fatalf("config precedence role labels are display roles, not symbol labels; got %+v", hints)
+	}
+}
+
 func TestPreCheckEnumLabel_UserBucketLabel_NoHints(t *testing.T) {
 	oracle := &stubOracle{known: map[string]int{}}
 	doc := &types.AnswerDocumentV2{
@@ -237,7 +270,7 @@ func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testi
 		},
 	})
 	ctx := &types.BusContext{Mutable: mut}
-	hints := preCheckItemCitationAlignment(doc, ctx)
+	hints := preCheckItemCitationAlignment(doc, nil, ctx)
 	if len(hints) != 1 {
 		t.Fatalf("expected one citation-alignment hint, got %d: %v", len(hints), hints)
 	}

@@ -383,7 +383,36 @@ func PrincipalSupportEvidenceItemsForFamily(family QuestionFamily, plan *AnswerS
 	if len(out) == 0 {
 		return nil
 	}
+	if family == QFConfigPrecedence {
+		out = preferModelAuthoredConfigEvidence(out)
+	}
 	return out
+}
+
+func preferModelAuthoredConfigEvidence(items []EvidenceItem) []EvidenceItem {
+	modelAuthored := 0
+	for _, item := range items {
+		if configEvidenceModelAuthored(item) {
+			modelAuthored++
+		}
+	}
+	if modelAuthored == 0 {
+		return items
+	}
+	out := make([]EvidenceItem, 0, modelAuthored)
+	for _, item := range items {
+		if configEvidenceModelAuthored(item) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func configEvidenceModelAuthored(item EvidenceItem) bool {
+	if strings.TrimSpace(item.Producer) == "explorer.emit_evidence" {
+		return true
+	}
+	return strings.TrimSpace(item.Producer) != "" && item.Kind.IsLLMEmittable()
 }
 
 func facetSupportEntryLimitForFamily(family QuestionFamily, candidateCount int) int {

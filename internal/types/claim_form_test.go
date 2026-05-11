@@ -25,6 +25,31 @@ func TestClaimForm_AllValuesValidExceptUnknown(t *testing.T) {
 	}
 }
 
+func TestClaimForm_UsesNonSymbolLabelSurface(t *testing.T) {
+	for _, c := range []ClaimForm{ClaimImportEdge, ClaimPrecedenceRole} {
+		if !c.UsesNonSymbolLabelSurface() {
+			t.Fatalf("%s should use typed display labels instead of declaration-symbol labels", c)
+		}
+	}
+	for _, c := range []ClaimForm{ClaimDefinitionFact, ClaimCallEdge, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact, ClaimExternalObservation} {
+		if c.UsesNonSymbolLabelSurface() {
+			t.Fatalf("%s should keep symbol/prose-specific validation", c)
+		}
+	}
+}
+
+func TestClaimForm_LabelSurfaceKindAllRegisteredFormsClassified(t *testing.T) {
+	for _, c := range AllClaimForms() {
+		kind := c.LabelSurfaceKind()
+		if !kind.IsValid() {
+			t.Fatalf("ClaimForm %s must declare a valid label surface kind; got %q", c, kind)
+		}
+	}
+	if kind := ClaimUnknown.LabelSurfaceKind(); kind != ClaimLabelSurfaceUnknown {
+		t.Fatalf("ClaimUnknown label surface kind = %q, want unknown", kind)
+	}
+}
+
 // TestClaimFormOf_OriginLogPerfDominates pins priority rule 1:
 // Origin=Log or Origin=Perf returns ClaimExternalObservation
 // regardless of AnchorKind / Scope / DiagramRole.

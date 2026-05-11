@@ -1601,6 +1601,83 @@ func TestInlineIdentifierHallucination_RuntimeFrameIdentifierPassesOracleMiss(t 
 	}
 }
 
+func TestInlineIdentifierHallucination_ConfigKeySnippetPassesOracleMiss(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{{
+		ID:              "runtime-field",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/config/runtime.go",
+		LineStart:       182,
+		AnchorSymbol:    "PipelineMaxSteps",
+		Snippet:         "PipelineMaxSteps *int `yaml:\"pipeline_max_steps\"`",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "`pipeline_max_steps` is the YAML key bound by the runtime config struct.",
+		}},
+	}
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+
+	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("grounded config-key snippet should satisfy inline identifier oracle, got %+v", vs)
+	}
+}
+
+func TestInlineIdentifierHallucination_ConfigKeySnippetRequiresVerbatimSurface(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{{
+		ID:              "runtime-field",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/config/runtime.go",
+		LineStart:       182,
+		AnchorSymbol:    "PipelineMaxSteps",
+		Snippet:         "PipelineMaxSteps *int `yaml:\"pipeline_max_steps\"`",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "`PIPELINE_MAX_STEPS` is not the verbatim YAML key from the grounded snippet.",
+		}},
+	}
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+
+	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) == 0 {
+		t.Fatalf("case-mismatched config-key surface should not pass snippet grounding")
+	}
+}
+
+func TestPrincipalProseUnderfilled_ImportEdgeLabelsPass(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/explorer.go", Line: 13},
+			{File: "internal/agent/explorer.go", Line: 14},
+			{File: "internal/agent/explorer.go", Line: 15},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "imports",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			ClaimUses: []types.RenderedClaimUse{
+				{ClaimForm: types.ClaimImportEdge},
+			},
+			Items: []types.AnswerBlockItem{
+				{ID: "i1", Label: "github.com/hanchaoqun/codrax/internal/analysis/dataflow", Text: "import edge", CitationRef: 0},
+				{ID: "i2", Label: "github.com/hanchaoqun/codrax/internal/analysis/declarative", Text: "import edge", CitationRef: 1},
+				{ID: "i3", Label: "github.com/hanchaoqun/codrax/internal/analysis/normalizer", Text: "import edge", CitationRef: 2},
+			},
+		}},
+	}
+
+	if vs := validatePrincipalProseUnderfilled(doc); len(vs) != 0 {
+		t.Fatalf("import-edge labels are the principal visible surface; no prose-underfilled retry expected, got %+v", vs)
+	}
+}
+
 // TestEnumerationLabelGrounding_SubjectAndObjectAlsoSupport —
 // evidence Subject and Object also count as support tokens.
 func TestEnumerationLabelGrounding_SubjectAndObjectAlsoSupport(t *testing.T) {

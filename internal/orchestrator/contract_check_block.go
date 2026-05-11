@@ -1406,6 +1406,9 @@ func validatePrincipalProseUnderfilled(doc *types.AnswerDocumentV2) []types.Viol
 		if allItemsLabelAnchored {
 			continue
 		}
+		if principalListLabelsAnchoredByClaimSurface(b) {
+			continue
+		}
 		out = append(out, types.Violation{
 			Kind: types.ViolPrincipalProseUnderfilled,
 			Detail: fmt.Sprintf(
@@ -1424,6 +1427,27 @@ func validatePrincipalProseUnderfilled(doc *types.AnswerDocumentV2) []types.Viol
 		})
 	}
 	return out
+}
+
+func principalListLabelsAnchoredByClaimSurface(b types.AnswerBlock) bool {
+	if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList {
+		return false
+	}
+	if len(b.Items) == 0 || len(b.ClaimUses) == 0 {
+		return false
+	}
+	for _, cu := range b.ClaimUses {
+		if !cu.ClaimForm.UsesNonSymbolLabelSurface() {
+			return false
+		}
+	}
+	for _, item := range b.Items {
+		label := strings.TrimSpace(item.Label)
+		if label == "" || item.CitationRef < 0 || !types.IsCodeIdentitySurface(label) {
+			return false
+		}
+	}
+	return true
 }
 
 // countInlineCodeSegments counts Markdown inline-code segments
@@ -2241,11 +2265,23 @@ func answerCodeSurfaceMatchesEvidenceEndpoint(label string, ev types.EvidenceIte
 		}
 	}
 	for _, term := range ev.SurfaceTerms {
-		if answerCodeSurfaceMatches(label, term) {
+		if answerCodeSurfaceAppearsVerbatim(label, term) {
 			return true
 		}
 	}
+	if answerCodeSurfaceAppearsVerbatim(label, ev.Snippet) {
+		return true
+	}
 	return false
+}
+
+func answerCodeSurfaceAppearsVerbatim(label, text string) bool {
+	label = strings.TrimSpace(label)
+	text = strings.TrimSpace(text)
+	if label == "" || text == "" || !types.IsCodeIdentitySurface(label) {
+		return false
+	}
+	return strings.Contains(text, label)
 }
 
 func answerCodeSurfaceMatches(a, b string) bool {

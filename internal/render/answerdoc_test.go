@@ -200,6 +200,31 @@ func TestRenderV2_BlockTableTextOnly(t *testing.T) {
 	}
 }
 
+func TestRenderV2_BlockTableItemsSuppressMarkdownText(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "t1",
+				Kind: types.BlockTable,
+				Text: "| Layer | Source |\n|---|---|\n| override | stale.go:1 |",
+				Items: []types.AnswerBlockItem{
+					{Label: "override", Text: "cmd/root.go:1430"},
+					{Label: "default", Text: "cmd/root.go:71"},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if strings.Contains(out, "stale.go:1") {
+		t.Fatalf("structured table items must be canonical when both items[] and markdown text are present:\n%s", out)
+	}
+	for _, want := range []string{"| override | cmd/root.go:1430 |", "| default | cmd/root.go:71 |"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("structured table output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderV2_BlockDiagram(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
