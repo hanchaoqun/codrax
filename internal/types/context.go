@@ -368,6 +368,15 @@ type MutableState struct {
 	// rejected by another completion gate cannot leak into finalization.
 	retainedEvidenceFloorWaiver *EvidenceFloorWaiver
 
+	// principalSpanWaiver carries the model-declared escape for the
+	// callChainPrincipalSpanDowngrade gate. Set by
+	// emit_investigation_complete's `principal_span_waiver` field; the
+	// gate consumer reads it as "should I relax the source→sink
+	// intermediate-evidence requirement?". Same retention semantics as
+	// evidenceFloorWaiver — survives window resets so the model's
+	// confident judgment does not have to be re-declared every retry.
+	principalSpanWaiver *PrincipalSpanWaiver
+
 	// exploreBudget is the ExploreBudget the orchestrator installs
 	// at the top of runTaskGraph. The explorer's ReAct loop reads
 	// it before every tool dispatch (BudgetRemaining / RecordToolCall)
@@ -3040,6 +3049,52 @@ func (m *MutableState) StableEvidenceFloorWaiver() *EvidenceFloorWaiver {
 	}
 	clone := *m.retainedEvidenceFloorWaiver
 	return &clone
+}
+
+// SetPrincipalSpanWaiver records a model-declared escape for the
+// callChainPrincipalSpanDowngrade gate. Called only by the tool
+// layer after strict-decoding the typed payload (Reason validated
+// against PrincipalSpanWaiverReasonValues, Rationale required
+// non-empty). Idempotent — repeated calls overwrite. nil clears.
+func (m *MutableState) SetPrincipalSpanWaiver(w *PrincipalSpanWaiver) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if w == nil {
+		m.principalSpanWaiver = nil
+		return
+	}
+	clone := *w
+	m.principalSpanWaiver = &clone
+}
+
+// PrincipalSpanWaiver returns the model-declared escape, or nil when
+// none has been set. The returned pointer is a defensive copy.
+func (m *MutableState) PrincipalSpanWaiver() *PrincipalSpanWaiver {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.principalSpanWaiver == nil {
+		return nil
+	}
+	clone := *m.principalSpanWaiver
+	return &clone
+}
+
+// ClearPrincipalSpanWaiver retracts a previously declared escape. Use
+// this when later investigation shows the principal span gate does
+// apply (e.g. the model now believes intermediate evidence exists).
+func (m *MutableState) ClearPrincipalSpanWaiver() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.principalSpanWaiver = nil
 }
 
 // StableInvestigationCompleteReason returns the best available

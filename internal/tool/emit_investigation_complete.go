@@ -95,6 +95,26 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			"clear_evidence_floor_waiver": {
 				"type": "boolean",
 				"description": "OPTIONAL. Set true only to explicitly retract a previously declared evidence_floor_waiver after new investigation shows repo grounding DOES apply. Do not set this together with evidence_floor_waiver."
+			},
+			"principal_span_waiver": {
+				"type": "object",
+				"description": "OPTIONAL. The typed escape lane for the principal source→sink span gate. Set this when YOU have read the source and confirmed there is NO separately-citable user code between the source endpoint and the sink endpoint — for example: source and sink are on the same dispatch / trampoline statement; the lines between contain only plumbing (nil guards, accessor pass-through, logger setup); the intermediate crosses an FFI / JNI / cgo / native-language bridge; the compiler inlined the intermediate call; the dispatch is virtual / interface / closure / reflection so no static call edge exists; the chain continues through an external library / SDK whose intermediates are not in this repo. Setting the waiver tells the system to accept the source→sink span without intermediate evidence. Audit-only: every fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when reading the source has shown there genuinely is no intermediate fact to cite.",
+				"properties": {
+					"reason": {
+						"type": "string",
+						"enum": ["endpoints_directly_adjacent", "no_intermediate_user_code", "platform_bridge_intermediates", "inlined_call", "runtime_dispatched_call", "external_module_continuation"],
+						"description": "endpoints_directly_adjacent = source and sink are on the same statement / line (one-liner dispatch / wrapper / trampoline). no_intermediate_user_code = lines between source and sink contain only plumbing (nil checks, accessor pass-through, defer setup) with no separately-citable user logic. platform_bridge_intermediates = intermediate frames are an FFI / JNI / cgo / cross-language bridge whose hop is in the runtime, not in repo source. inlined_call = compiler / JIT inlined the intermediate so there is no separate frame at the source line. runtime_dispatched_call = dispatch resolved at runtime (interface table, virtual call, closure invocation, reflection) — no static call edge exists between source and sink. external_module_continuation = chain crosses into an external library / SDK whose intermediate frames are not in this repo."
+					},
+					"rationale": {
+						"type": "string",
+						"description": "One sentence explaining which scenario applies in concrete terms (e.g. \"dispatch and handler are on the same statement at foo.go:42\" / \"intermediate is the cgo trampoline at frame N\"). Audit trail — recorded but not parsed for hard logic."
+					}
+				},
+				"required": ["reason", "rationale"]
+			},
+			"clear_principal_span_waiver": {
+				"type": "boolean",
+				"description": "OPTIONAL. Set true only to explicitly retract a previously declared principal_span_waiver after new investigation shows intermediate evidence DOES exist and can be emitted. Do not set this together with principal_span_waiver."
 			}
 		},
 		"required": ["reason", "confidence", "result_kind"]
@@ -119,13 +139,29 @@ func joinEvidenceFloorWaiverReasons() string {
 	return strings.Join(parts, ", ")
 }
 
+// joinPrincipalSpanWaiverReasons returns the back-quoted enum list
+// for retry-hint construction. Sourced from
+// types.PrincipalSpanWaiverReasonValues so the schema enum, the
+// validator error message, and the skill-prompt teaching text stay
+// byte-canonical (one update site for any new reason value).
+func joinPrincipalSpanWaiverReasons() string {
+	values := types.PrincipalSpanWaiverReasonValues()
+	parts := make([]string, 0, len(values))
+	for _, v := range values {
+		parts = append(parts, "`"+string(v)+"`")
+	}
+	return strings.Join(parts, ", ")
+}
+
 type emitInvestigationCompleteParams struct {
-	Reason               string                                  `json:"reason"`
-	Confidence           string                                  `json:"confidence"`
-	ResultKind           string                                  `json:"result_kind"`
-	AbsenceJustification string                                  `json:"absence_justification,omitempty"`
-	EvidenceFloorWaiver  *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
-	ClearEvidenceWaiver  bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
+	Reason                   string                                  `json:"reason"`
+	Confidence               string                                  `json:"confidence"`
+	ResultKind               string                                  `json:"result_kind"`
+	AbsenceJustification     string                                  `json:"absence_justification,omitempty"`
+	EvidenceFloorWaiver      *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
+	ClearEvidenceWaiver      bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
+	PrincipalSpanWaiver      *emitInvestigationCompleteWaiverPayload `json:"principal_span_waiver,omitempty"`
+	ClearPrincipalSpanWaiver bool                                    `json:"clear_principal_span_waiver,omitempty"`
 }
 
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
@@ -244,6 +280,62 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		// truncated for log hygiene.
 		logging.Info("[emit_investigation_complete] evidence_floor_waiver accepted: reason=%s rationale=%q",
 			typedReason, truncateForLog(waiverRationale, 200))
+	}
+
+	// Strict-decode + store principal_span_waiver (typed escape for
+	// the source→sink intermediate-evidence gate). Validated here so
+	// a malformed payload fails early with a clear retry hint, and
+	// the gate consumer below reads only the typed stored value.
+	if p.ClearPrincipalSpanWaiver && p.PrincipalSpanWaiver != nil {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Summary: "emit_investigation_complete rejected: clear_principal_span_waiver cannot be set together with principal_span_waiver. " +
+				"Either declare a new waiver or explicitly retract the existing one, not both.",
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	if p.ClearPrincipalSpanWaiver {
+		ctx.Mutable.ClearPrincipalSpanWaiver()
+		logging.Info("[emit_investigation_complete] principal_span_waiver explicitly cleared")
+	} else if p.PrincipalSpanWaiver != nil {
+		spanReason := strings.TrimSpace(p.PrincipalSpanWaiver.Reason)
+		spanRationale := strings.TrimSpace(p.PrincipalSpanWaiver.Rationale)
+		if spanReason == "" {
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: "emit_investigation_complete rejected: principal_span_waiver.reason is required when principal_span_waiver is set. " +
+					"Use one of: " + joinPrincipalSpanWaiverReasons() + ".",
+				Success:   false,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		if spanRationale == "" {
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: "emit_investigation_complete rejected: principal_span_waiver.rationale is required (one sentence audit trail). " +
+					"Set it to a short concrete explanation, e.g. 'dispatch and handler are on the same statement at foo.go:42' or 'intermediate is the cgo trampoline at frame 3'.",
+				Success:   false,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		typedSpanReason := types.PrincipalSpanWaiverReason(spanReason)
+		if !typedSpanReason.IsValid() {
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: fmt.Sprintf(
+					"emit_investigation_complete rejected: principal_span_waiver.reason=%q is not accepted. Use one of: %s.",
+					spanReason, joinPrincipalSpanWaiverReasons()),
+				Success:   false,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		ctx.Mutable.SetPrincipalSpanWaiver(&types.PrincipalSpanWaiver{
+			Reason:    typedSpanReason,
+			Rationale: spanRationale,
+		})
+		logging.Info("[emit_investigation_complete] principal_span_waiver accepted: reason=%s rationale=%q",
+			typedSpanReason, truncateForLog(spanRationale, 200))
 	}
 
 	// G1 (Plan E, 2026-05-02) — pre-complete coverage gate.
@@ -1664,6 +1756,18 @@ type callChainPrincipalSpanDemand struct {
 // prose keyword scans.
 func callChainPrincipalSpanDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	// §1.6 typed escape: the model can declare via principal_span_waiver
+	// that the source→sink intermediate-evidence requirement does not
+	// apply (endpoints adjacent / platform bridge / inlined / runtime
+	// dispatch / external module / pure plumbing). The waiver is
+	// validated up-stream so reaching this point with IsActive()==true
+	// already means the reason is in the typed enum and the rationale
+	// is non-empty. Bypass the gate so the LLM is not forced to invent
+	// intermediate evidence; the audit log line records the reason for
+	// post-hoc review.
+	if waiver := ctx.Mutable.PrincipalSpanWaiver(); waiver.IsActive() {
 		return ""
 	}
 	rm := ctx.AnalysisIR.RequestModel

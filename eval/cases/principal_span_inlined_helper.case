@@ -1,0 +1,29 @@
+# Principal Span — inlined / plumbing-only intermediate helper
+#
+# Companion to principal_span_adjacent_dispatch.case. Where the
+# adjacent case exercises a one-line switch dispatch, this case
+# targets the same waiver lane for a different reason — a helper
+# function whose body is structurally pure plumbing (a single
+# strings/path canonicalisation + return). Real call chains that
+# pass through such helpers have no separately-citable user logic
+# inside the helper, even though the helper is a real frame.
+#
+# Ground truth (internal/tool/emit_investigation_complete.go ::
+# canonicalCallChainSource, as of commit a8cc07f): the function is
+# four lines, trims path separators and a leading "./". Any
+# call-chain question that traces a Source field from
+# EvidenceItem through canonicalCallChainSource to its consumer
+# (the bySource map in callChainPrincipalSpanDemandForEvidence)
+# crosses a helper that has no separately-citable mechanism hop.
+# This is the canonical `no_intermediate_user_code` waiver scenario
+# (the helper is plumbing — accessor pass-through with trivial
+# normalisation, not a separately-meaningful step in the user's
+# question).
+#
+# A correct answer names canonicalCallChainSource as a pass-through
+# helper and does not invent additional intermediate hops.
+ID="principal_span_inlined_helper"
+NAME="principal span — plumbing-only helper"
+QUESTION="在 codrax 的 callChainPrincipalSpanDemandForEvidence 函数里，EvidenceItem.Source 是如何经过 canonicalCallChainSource 再被放入 bySource map 的？中间这个 helper 有没有用户侧的判断逻辑？"
+EXPECT_CONTAINS="canonicalCallChainSource bySource"
+EXPECT_NOT_CONTAINS="complex.logic multiple.branches business.rule"

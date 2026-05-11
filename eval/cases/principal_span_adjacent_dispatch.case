@@ -1,0 +1,28 @@
+# Principal Span — adjacent endpoints in a typed family dispatch
+#
+# Targets the new principal_span_waiver typed escape introduced for
+# the callChainPrincipalSpanDowngrade hard gate. The question asks
+# to trace a source→sink hop that, by structural construction, has
+# no intermediate user-side code between the two anchors: a typed
+# family dispatch switch where the case body IS the call. Before the
+# waiver, the gate would loop the LLM looking for intermediate
+# evidence that does not exist in source.
+#
+# Ground truth (internal/types/answer_support_plan.go ::
+# buildAnswerSupportPlanForFamily, post-split as of commit a8cc07f):
+# the dispatch is a four-line switch on QuestionFamily. QFCallChain
+# directly returns compileCallChainSupportPlan(rm, plan). There is
+# no intermediate user code between the dispatch entry and the
+# compileCallChainSupportPlan call — the case body is a single
+# return expression. This is the canonical
+# `endpoints_directly_adjacent` waiver scenario.
+#
+# A correct answer names both endpoints and surfaces the directness
+# of the call. The historical failure mode would be either (a) a
+# fabricated intermediate hop or (b) a retry storm asking for
+# nonexistent evidence.
+ID="principal_span_adjacent_dispatch"
+NAME="principal span — adjacent dispatch endpoint"
+QUESTION="在 codrax 里，对一个 QFCallChain 类型的 question，buildAnswerSupportPlanForFamily 是怎么把控制流送到 compileCallChainSupportPlan 的？请描述这个 source→sink 跳转中间是否有用户侧代码。"
+EXPECT_CONTAINS="buildAnswerSupportPlanForFamily compileCallChainSupportPlan QFCallChain"
+EXPECT_NOT_CONTAINS="multiple.intermediate several.hops chain.of.helpers"
