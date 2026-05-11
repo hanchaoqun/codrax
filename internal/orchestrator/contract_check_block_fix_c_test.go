@@ -108,6 +108,25 @@ func TestEnumerationItemLabelHallucination_PackageQualifiedCitedEvidencePasses(t
 	}
 }
 
+func TestEnumerationItemLabelHallucination_QualifiedIdentitySkipsQualifierOracle(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "qualified",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{ID: "go_pkg", Label: "counterfactual.Expand"},
+				{ID: "cpp_ns", Label: "veryLongNamespace::Type"},
+				{ID: "arkts_path", Label: "entry/src/main/ets/pages/Index.ets"},
+				{ID: "scoped_pkg", Label: "@ohos.promptAction.showToast"},
+			},
+		}},
+	}
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle); len(vs) != 0 {
+		t.Fatalf("qualified code identities must not be checked as standalone declaration prefixes; got %+v", vs)
+	}
+}
+
 func TestAnswerItemLabelSupportedByCitedEvidenceSubjectRejectsAdjacentCitationDrift(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

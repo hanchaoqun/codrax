@@ -181,6 +181,25 @@ func TestPreCheckEnumLabel_PackageQualifiedLabelSupportedByCitedEvidence(t *test
 	}
 }
 
+func TestPreCheckEnumLabel_QualifiedIdentitySkipsQualifierOracle(t *testing.T) {
+	oracle := &stubOracle{known: map[string]int{}}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{Label: "counterfactual.Expand"},
+				{Label: "veryLongNamespace::Type"},
+				{Label: "entry/src/main/ets/pages/Index.ets"},
+				{Label: "@ohos.promptAction.showToast"},
+			},
+		}},
+	}
+	if hints := preCheckEnumerationLabelGrounding(doc, oracle); hints != nil {
+		t.Fatalf("qualified code identities should be governed by evidence/citation gates, not qualifier symbol lookup; got %v", hints)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

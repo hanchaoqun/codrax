@@ -473,6 +473,9 @@ func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types
 					continue
 				}
 			}
+			if preEmitLabelStartsWithQualifiedCodeIdentity(label) {
+				continue
+			}
 			found, tier := oracle.SymbolExistsFlat(ident)
 			if found && tier < 3 {
 				continue
@@ -642,6 +645,55 @@ func preEmitLabelLeadingIdentifier(label string) string {
 		return ""
 	}
 	return label[:end]
+}
+
+// preEmitLabelStartsWithQualifiedCodeIdentity mirrors the post-emit
+// contract checker's qualified-identity bypass. Package/module/
+// namespace-qualified labels are validated through citation alignment
+// and evidence endpoints; the declaration oracle is only precise for
+// standalone identifiers.
+func preEmitLabelStartsWithQualifiedCodeIdentity(label string) bool {
+	token := preEmitLeadingCodeIdentityToken(label)
+	if token == "" {
+		return false
+	}
+	if strings.HasPrefix(token, "@") {
+		return true
+	}
+	return strings.Contains(token, ".") ||
+		strings.Contains(token, "::") ||
+		strings.Contains(token, "/") ||
+		strings.Contains(token, `\`)
+}
+
+func preEmitLeadingCodeIdentityToken(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return ""
+	}
+	end := 0
+	for end < len(label) {
+		c := label[end]
+		switch {
+		case c >= 'a' && c <= 'z',
+			c >= 'A' && c <= 'Z',
+			c >= '0' && c <= '9',
+			c == '_', c == '.', c == ':', c == '/', c == '\\', c == '-', c == '@':
+			end++
+			continue
+		default:
+			goto done
+		}
+	}
+done:
+	if end == 0 {
+		return ""
+	}
+	token := strings.Trim(label[:end], ":-")
+	if token == "" || !types.IsCodeIdentitySurface(token) {
+		return ""
+	}
+	return token
 }
 
 // preEmitLabelLengthFloor mirrors labelHallucinationGateLengthFloor

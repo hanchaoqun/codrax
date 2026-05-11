@@ -1910,6 +1910,62 @@ func labelLeadingSymbolIdentifier(label string) string {
 	return label[:end]
 }
 
+// labelStartsWithQualifiedCodeIdentity reports whether a rendered
+// list label begins with a cross-language qualified identity surface
+// rather than a standalone declaration name. Examples include Go
+// package selectors (`normalizer.Normalize`), C++ namespaces
+// (`std::vector`), JS/ArkTS packages (`@scope/pkg.Symbol`), and
+// path/module-qualified names (`entry/src/main/ets/pages/Index.ets`).
+//
+// These surfaces are still code identities, but the qualifier is not
+// necessarily a declaration indexed by SymbolOracle. Hard hallucination
+// checks for them must therefore come from typed evidence / citation
+// alignment, not from asking the declaration oracle whether the leading
+// qualifier exists as a function/type/constant.
+func labelStartsWithQualifiedCodeIdentity(label string) bool {
+	token := leadingCodeIdentityToken(label)
+	if token == "" {
+		return false
+	}
+	if strings.HasPrefix(token, "@") {
+		return true
+	}
+	return strings.Contains(token, ".") ||
+		strings.Contains(token, "::") ||
+		strings.Contains(token, "/") ||
+		strings.Contains(token, `\`)
+}
+
+func leadingCodeIdentityToken(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return ""
+	}
+	end := 0
+	for end < len(label) {
+		c := label[end]
+		switch {
+		case c >= 'a' && c <= 'z',
+			c >= 'A' && c <= 'Z',
+			c >= '0' && c <= '9',
+			c == '_', c == '.', c == ':', c == '/', c == '\\', c == '-', c == '@':
+			end++
+			continue
+		default:
+			goto done
+		}
+	}
+done:
+	if end == 0 {
+		return ""
+	}
+	token := strings.Trim(label[:end], ":-")
+	if token == "" || !types.IsCodeIdentitySurface(token) {
+		return ""
+	}
+	return token
+}
+
 // labelHallucinationGateLengthFloor is the minimum identifier
 // length subject to the SymbolOracle existence gate. Below this
 // floor we trust the evidence-pool substring match and skip the
@@ -2644,6 +2700,9 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 				continue
 			}
 			if answerItemLabelSupportedByAnswerSymbol(label, mut) {
+				continue
+			}
+			if labelStartsWithQualifiedCodeIdentity(label) {
 				continue
 			}
 			ident := labelLeadingSymbolIdentifier(label)
