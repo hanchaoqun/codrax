@@ -6830,14 +6830,6 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 
-	// Immediate post-anchor push: the most common drift after the
-	// first primary-file read is a text-only recap ("I now understand
-	// the function...") before the LLM has followed any next hop.
-	// Fire a one-shot tool-first hint as soon as the anchor enters the
-	// readSet, even before the generic mid-loop min-iteration gate.
-	if sig := e.postPrimaryReadMidLoopSignal(obs); sig.HintRequested {
-		return sig
-	}
 	if sig := e.postEmitEvidenceRepairSignal(obs); sig.HintRequested {
 		return sig
 	}
@@ -6856,18 +6848,6 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if e.awaitingClosureRepair(obs.AllToolResults) {
 		return LoopSignal{}
 	}
-	if sig := e.postReadWithoutEmitSignal(obs); sig.HintRequested {
-		return sig
-	}
-	if sig := e.postExecRedirectBeforeEmitSignal(obs); sig.HintRequested {
-		return sig
-	}
-	if sig := e.postReadWithoutEmitEscalationSignal(obs); sig.HintRequested {
-		return sig
-	}
-	if sig := e.postExternalLogRedirectSignal(obs); sig.HintRequested {
-		return sig
-	}
 	if sig := e.postExactAbsenceClosureSignal(obs); sig.HintRequested {
 		return sig
 	}
@@ -6880,6 +6860,12 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if sig := e.postAuthoritativeTier1CompletionSignal(obs); sig.HintRequested {
 		return sig
 	}
+	// Completion-ready is a typed close signal. It must beat generic
+	// "read more / materialize backlog" nudges once repair-specific
+	// blockers above have had their chance; otherwise a run can keep
+	// widening scope even after the answer faces are already covered.
+	// The post-anchor and read-without-emit nudges below still fire
+	// when completion readiness is not established.
 	if sig := e.postCompletionReadySignal(obs); sig.HintRequested {
 		return sig
 	}
@@ -6887,6 +6873,26 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postCompletionReadyClosureOnlySignal(obs); sig.HintRequested {
+		return sig
+	}
+	// Immediate post-anchor push: the most common drift after the
+	// first primary-file read is a text-only recap ("I now understand
+	// the function...") before the LLM has followed any next hop.
+	// Fire a one-shot tool-first hint as soon as the anchor enters the
+	// readSet, even before the generic mid-loop min-iteration gate.
+	if sig := e.postPrimaryReadMidLoopSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postReadWithoutEmitSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postExecRedirectBeforeEmitSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postReadWithoutEmitEscalationSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postExternalLogRedirectSignal(obs); sig.HintRequested {
 		return sig
 	}
 	if sig := e.postReadWithoutEmitClosureOnlySignal(obs); sig.HintRequested {

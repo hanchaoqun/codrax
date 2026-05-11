@@ -4760,6 +4760,67 @@ func TestObserveMidLoop_CompletionReadyRequiresEmitEvidence(t *testing.T) {
 	}
 }
 
+func TestObserveMidLoop_CompletionReadyBeatsReadWithoutEmitBacklog(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-40 of 120 total]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRegistration,
+				Subject:         "BuildAnalysisIR",
+				Predicate:       "registers",
+				Object:          "analysis pipeline entry",
+				Source:          "internal/agent/analyzer.go",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "AnalysisIR",
+				Predicate:       "defined_in",
+				Object:          "internal/types/analysis_ir.go",
+				Source:          "internal/types/analysis_ir.go",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+		investigationNotes: []string{
+			"[DIRECT] BuildAnalysisIR is the structured IR entrypoint for analyzer dispatch.",
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go\ninternal/types/analysis_ir.go\ninternal/context/builder.go"},
+		newReadResult("internal/agent/analyzer.go"),
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+		newReadResult("internal/types/analysis_ir.go"),
+		newReadResult("internal/context/builder.go"),
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("completion-ready hint should fire, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+	if strings.Contains(sig.Hint, "have read") || strings.Contains(sig.Hint, "recorded any new structured evidence") {
+		t.Fatalf("completion-ready should beat read-without-emit backlog wording, got: %s", sig.Hint)
+	}
+}
+
 func TestObserveMidLoop_CompletionReadyHint_UsesAuthoritativeLogCoverage(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
 		return types.ToolResult{
