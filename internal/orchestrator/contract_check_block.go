@@ -2033,6 +2033,14 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 	// every retry) was wasted work. The cache is keyed off the
 	// internal turnAArtifacts pointer and invalidated on Set / Reset.
 	support := mut.CachedLabelSupportTokens(buildEvidenceLabelSupportTokens)
+	if emitted := mut.EmittedEvidence(); len(emitted) > 0 {
+		if support == nil {
+			support = map[string]struct{}{}
+		}
+		for token := range buildEvidenceLabelSupportTokens(emitted) {
+			support[token] = struct{}{}
+		}
+	}
 	if len(support) == 0 {
 		return nil
 	}
@@ -2171,11 +2179,11 @@ func answerItemLabelSupportedByCitedEvidenceSubject(doc *types.AnswerDocumentV2,
 	if citFile == "" {
 		return false
 	}
-	artifacts := mut.TurnAArtifacts()
-	if artifacts == nil || len(artifacts.EvidenceItems) == 0 {
+	evidence := answerItemLabelSupportEvidenceItems(mut)
+	if len(evidence) == 0 {
 		return false
 	}
-	for _, ev := range artifacts.EvidenceItems {
+	for _, ev := range evidence {
 		if strings.TrimSpace(ev.Source) != citFile {
 			continue
 		}
@@ -2197,11 +2205,11 @@ func answerItemLabelSupportedByEvidenceEndpoint(label string, mut *types.Mutable
 	if mut == nil || !types.IsCodeIdentitySurface(label) {
 		return false
 	}
-	artifacts := mut.TurnAArtifacts()
-	if artifacts == nil {
+	evidence := answerItemLabelSupportEvidenceItems(mut)
+	if len(evidence) == 0 {
 		return false
 	}
-	for _, ev := range artifacts.EvidenceItems {
+	for _, ev := range evidence {
 		if ev.GroundingStatus == types.GroundingUngrounded {
 			continue
 		}
@@ -2210,6 +2218,20 @@ func answerItemLabelSupportedByEvidenceEndpoint(label string, mut *types.Mutable
 		}
 	}
 	return false
+}
+
+func answerItemLabelSupportEvidenceItems(mut *types.MutableState) []types.EvidenceItem {
+	if mut == nil {
+		return nil
+	}
+	var out []types.EvidenceItem
+	if artifacts := mut.TurnAArtifacts(); artifacts != nil && len(artifacts.EvidenceItems) > 0 {
+		out = append(out, artifacts.EvidenceItems...)
+	}
+	if emitted := mut.EmittedEvidence(); len(emitted) > 0 {
+		out = append(out, emitted...)
+	}
+	return out
 }
 
 func answerCodeSurfaceMatchesEvidenceEndpoint(label string, ev types.EvidenceItem) bool {

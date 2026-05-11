@@ -1394,6 +1394,43 @@ func TestEnumerationLabelHallucination_SurfaceTermsSupportImportPathLabels(t *te
 	}
 }
 
+func TestEnumerationLabelGrounding_EmittedSurfaceTermsSupportImportPathLabels(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "import-skill",
+		AnchorKind:      types.AnchorImport,
+		AnchorSymbol:    "skill",
+		Source:          "internal/agent/explorer.go",
+		LineStart:       20,
+		GroundingStatus: types.GroundingGrounded,
+		SurfaceTerms:    []string{"github.com/hanchaoqun/codrax/internal/skill"},
+	}})
+	doc := docWithEnumItems("imports", "internal/skill")
+
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Fatalf("emitted surface_terms should satisfy label grounding even when TurnAArtifacts was capped, got %+v", vs)
+	}
+}
+
+func TestEnumerationLabelHallucination_EmittedSurfaceTermsSupportImportPathLabels(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "import-tool",
+		AnchorKind:      types.AnchorImport,
+		AnchorSymbol:    "tool",
+		Source:          "internal/agent/explorer.go",
+		LineStart:       21,
+		GroundingStatus: types.GroundingGrounded,
+		SurfaceTerms:    []string{"github.com/hanchaoqun/codrax/internal/tool"},
+	}})
+	doc := docWithEnumItems("imports", "internal/tool")
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("emitted surface_terms should bypass declaration-symbol hallucination checks even when TurnAArtifacts was capped, got %+v", vs)
+	}
+}
+
 func TestEnumerationLabelGrounding_AnswerSymbolsSupportCrossLanguageLabels(t *testing.T) {
 	mut := &types.MutableState{}
 	mut.SetEmittedAnswerSymbols([]types.AnswerSymbol{
