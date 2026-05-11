@@ -54,6 +54,11 @@
 # Useful for foreground debugging; keep off for clean REPL UX.
 # log_stdout: false
 
+# Print model thinking lines in full in CLI and REPL by default.
+# Set to true only when you prefer the legacy compact 1-2 sentence
+# terminal summary over full traceability.
+# thinking_truncate: false
+
 # Maximum log files retained per directory. Rotation keeps the most
 # recent N files (PID-aware: files owned by live peer processes are
 # never deleted). 0 falls back to the code default (7).

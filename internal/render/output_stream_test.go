@@ -52,3 +52,49 @@ func TestRenderer_EmitterHonorsConfiguredOutput(t *testing.T) {
 		t.Fatalf("expected reasoning text in configured writer output, got %q", out)
 	}
 }
+
+func TestRenderer_ReasoningDefaultsToFullText(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	longReasoning := strings.Repeat("detail ", reasoningMaxChars/len("detail ")+10) + "TAILMARKER"
+	emit := r.Emitter()
+	emit(Event{
+		Kind:      EventAgentReasoning,
+		Agent:     types.AgentAnalyzer,
+		Iteration: 0,
+		Reasoning: longReasoning,
+		Timestamp: time.Now(),
+	})
+
+	out := buf.String()
+	if !strings.Contains(out, "TAILMARKER") {
+		t.Fatalf("default reasoning output should be untruncated, got %q", out)
+	}
+}
+
+func TestRenderer_ReasoningTruncateOptIn(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+	r.SetThinkingTruncate(true)
+
+	longReasoning := strings.Repeat("detail ", reasoningMaxChars/len("detail ")+10) + "TAILMARKER"
+	emit := r.Emitter()
+	emit(Event{
+		Kind:      EventAgentReasoning,
+		Agent:     types.AgentAnalyzer,
+		Iteration: 0,
+		Reasoning: longReasoning,
+		Timestamp: time.Now(),
+	})
+
+	out := buf.String()
+	if strings.Contains(out, "TAILMARKER") {
+		t.Fatalf("opt-in reasoning truncation should hide tail marker, got %q", out)
+	}
+	if !strings.Contains(out, "...") {
+		t.Fatalf("opt-in reasoning truncation should add ellipsis, got %q", out)
+	}
+}

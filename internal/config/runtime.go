@@ -39,6 +39,11 @@ type RuntimeSettings struct {
 	MemoryDir *string `yaml:"memory_dir"`
 	Lang      *string `yaml:"lang"`
 
+	// Durable model-thinking output in CLI and REPL is full by
+	// default. Set thinking_truncate: true to restore the legacy
+	// 1-2 sentence / 200-char terminal summary.
+	ThinkingTruncate *bool `yaml:"thinking_truncate"`
+
 	// Per-invocation defaults.
 	Repo     *string `yaml:"repo"`
 	Branch   *string `yaml:"branch"`
@@ -513,7 +518,6 @@ type RuntimeSettings struct {
 	// diminishing returns. nil → use FinalizeRepairHardCapDefault (2).
 	PipelineFinalizeRepairHardCap *int `yaml:"pipeline_finalize_repair_hard_cap"`
 
-
 	// RepomapMinParseTier (commit 53 P5) hard-gates files whose
 	// repomap parse tier exceeds the floor (Tier 1=primary
 	// grammar, 2=secondary salvage, 3=regex-only, 4=path-only).
@@ -774,15 +778,15 @@ type RuntimeSettings struct {
 
 	// Agent-level limits. All optional; nil → code default in
 	// types.DefaultAgentSettings().
-	AgentMaxIterations                 *int     `yaml:"agent_max_iterations"`
-	AgentMaxToolHistoryBytes           *int     `yaml:"agent_max_tool_history_bytes"`
+	AgentMaxIterations       *int `yaml:"agent_max_iterations"`
+	AgentMaxToolHistoryBytes *int `yaml:"agent_max_tool_history_bytes"`
 	// Fraction-form twin of AgentMaxToolHistoryBytes. Same resolution
 	// rule as BlobMaxInlineFraction: fraction × context_window × 4
 	// when both fraction and window present, else absolute, else code
 	// default. Tool-history is the second-largest share of an
 	// iteration's prompt (after the user message) so making it model-
 	// aware closes the biggest gap in byte-budget portability.
-	AgentMaxToolHistoryFraction        *float64 `yaml:"agent_max_tool_history_fraction"`
+	AgentMaxToolHistoryFraction *float64 `yaml:"agent_max_tool_history_fraction"`
 	// Context-pressure thresholds (BaseAgent watchdog). When the
 	// adapter reports a positive context_window, the loop estimates
 	// each iteration's assembled-prompt bytes and compares against
@@ -791,8 +795,8 @@ type RuntimeSettings struct {
 	// force-stops the ReAct loop with an injected directive
 	// preferring emit_investigation_complete. Zero (or both nil) on
 	// a legacy yaml inherits the code default (0.7 / 0.9).
-	AgentContextPressureSoftRatio *float64 `yaml:"agent_context_pressure_soft_ratio"`
-	AgentContextPressureHardRatio *float64 `yaml:"agent_context_pressure_hard_ratio"`
+	AgentContextPressureSoftRatio      *float64 `yaml:"agent_context_pressure_soft_ratio"`
+	AgentContextPressureHardRatio      *float64 `yaml:"agent_context_pressure_hard_ratio"`
 	AgentLoopMinInjectInterval         *int     `yaml:"agent_loop_min_inject_interval"`
 	AgentLoopMaxContinuations          *int     `yaml:"agent_loop_max_continuations"`
 	AgentLoopMaxMidLoopInjects         *int     `yaml:"agent_loop_max_midloop_injects"`
@@ -834,14 +838,14 @@ type RuntimeSettings struct {
 	// agent_coder_*      — apply_patch loop. soft = len(plan.TargetPaths)
 	//                      + slack; hard = soft + recovery. Defaults:
 	//                      slack=3, recovery=3.
-	AgentPlannerSoftIterCap     *int `yaml:"agent_planner_soft_iter_cap"`
-	AgentPlannerHardIterCap     *int `yaml:"agent_planner_hard_iter_cap"`
-	AgentExtractorSoftIterCap   *int `yaml:"agent_extractor_soft_iter_cap"`
-	AgentExtractorHardIterCap   *int `yaml:"agent_extractor_hard_iter_cap"`
-	AgentVerifierSoftIterCap    *int `yaml:"agent_verifier_soft_iter_cap"`
-	AgentVerifierHardIterCap    *int `yaml:"agent_verifier_hard_iter_cap"`
-	AgentCoderSoftIterSlack     *int `yaml:"agent_coder_soft_iter_slack"`
-	AgentCoderHardIterRecovery  *int `yaml:"agent_coder_hard_iter_recovery"`
+	AgentPlannerSoftIterCap    *int `yaml:"agent_planner_soft_iter_cap"`
+	AgentPlannerHardIterCap    *int `yaml:"agent_planner_hard_iter_cap"`
+	AgentExtractorSoftIterCap  *int `yaml:"agent_extractor_soft_iter_cap"`
+	AgentExtractorHardIterCap  *int `yaml:"agent_extractor_hard_iter_cap"`
+	AgentVerifierSoftIterCap   *int `yaml:"agent_verifier_soft_iter_cap"`
+	AgentVerifierHardIterCap   *int `yaml:"agent_verifier_hard_iter_cap"`
+	AgentCoderSoftIterSlack    *int `yaml:"agent_coder_soft_iter_slack"`
+	AgentCoderHardIterRecovery *int `yaml:"agent_coder_hard_iter_recovery"`
 
 	// Memory store limits. All optional; nil → code default in
 	// types.DefaultMemorySettings().
@@ -858,21 +862,21 @@ type RuntimeSettings struct {
 	// can dial them without recompiling. nil → code default; missing
 	// sub-policy fields → corresponding hardcoded default for that
 	// Kind from types.DefaultMemoryKindPolicies.
-	MemoryEntityMinRunes         *int                          `yaml:"memory_entity_min_runes"`
-	MemorySessionTieBreakerBonus *int                          `yaml:"memory_session_tie_breaker_bonus"`
+	MemoryEntityMinRunes         *int `yaml:"memory_entity_min_runes"`
+	MemorySessionTieBreakerBonus *int `yaml:"memory_session_tie_breaker_bonus"`
 
 	// MemorySearchMaxLimit / MemoryListMaxLimit — hard caps on
 	// Store.Search / Store.List `limit` opts. Default 20 / 30
 	// (matching the historical hardcoded literals); raise only when
 	// BuildContext's byte budget can clearly absorb the extra
 	// matches.
-	MemorySearchMaxLimit *int `yaml:"memory_search_max_limit"`
-	MemoryListMaxLimit   *int `yaml:"memory_list_max_limit"`
-	MemoryPolicyChitchat         *types.MemoryKindPolicy       `yaml:"memory_policy_chitchat,omitempty"`
-	MemoryPolicyShell            *types.MemoryKindPolicy       `yaml:"memory_policy_shell,omitempty"`
-	MemoryPolicyPipeline         *types.MemoryKindPolicy       `yaml:"memory_policy_pipeline,omitempty"`
-	MemoryPolicyPlan             *types.MemoryKindPolicy       `yaml:"memory_policy_plan,omitempty"`
-	MemoryPolicyDefault          *types.MemoryKindPolicy       `yaml:"memory_policy_default,omitempty"`
+	MemorySearchMaxLimit *int                    `yaml:"memory_search_max_limit"`
+	MemoryListMaxLimit   *int                    `yaml:"memory_list_max_limit"`
+	MemoryPolicyChitchat *types.MemoryKindPolicy `yaml:"memory_policy_chitchat,omitempty"`
+	MemoryPolicyShell    *types.MemoryKindPolicy `yaml:"memory_policy_shell,omitempty"`
+	MemoryPolicyPipeline *types.MemoryKindPolicy `yaml:"memory_policy_pipeline,omitempty"`
+	MemoryPolicyPlan     *types.MemoryKindPolicy `yaml:"memory_policy_plan,omitempty"`
+	MemoryPolicyDefault  *types.MemoryKindPolicy `yaml:"memory_policy_default,omitempty"`
 
 	// Per-shape Summary length ceilings enforced by
 	// emit_answer_document and the shrinkage-salvage trimmer. All
@@ -1018,10 +1022,10 @@ type RuntimeSettings struct {
 	//   MinGroundedPerAnchor=0  → disables L2.
 	//   SmallFileThreshold=0    → disables L4 (small files fall to L5
 	//                             advisory unless L3 fires).
-	CGECMultiPathMinGroundedPerAnchor   *int `yaml:"cgec_multi_path_min_grounded_per_anchor"`
-	CGECMultiPathSymbolContextLines     *int `yaml:"cgec_multi_path_symbol_context_lines"`
-	CGECMultiPathKeywordContextLines    *int `yaml:"cgec_multi_path_keyword_context_lines"`
-	CGECMultiPathSmallFileThreshold     *int `yaml:"cgec_multi_path_small_file_threshold"`
+	CGECMultiPathMinGroundedPerAnchor     *int `yaml:"cgec_multi_path_min_grounded_per_anchor"`
+	CGECMultiPathSymbolContextLines       *int `yaml:"cgec_multi_path_symbol_context_lines"`
+	CGECMultiPathKeywordContextLines      *int `yaml:"cgec_multi_path_keyword_context_lines"`
+	CGECMultiPathSmallFileThreshold       *int `yaml:"cgec_multi_path_small_file_threshold"`
 	CGECMultiPathMaxKeywordAnchorsPerFile *int `yaml:"cgec_multi_path_max_keyword_anchors_per_file"`
 
 	// CGECExternalArtifactDecodedFloor is the minimum fraction of

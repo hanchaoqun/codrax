@@ -61,18 +61,19 @@ var (
 // in initApp; absolute YAML overrides and CLI flags pass through
 // verbatim.
 const (
-	defaultLogDir          = "logs"
-	defaultLogLevel        = "debug"
-	defaultLogStdout       = false
-	defaultMemoryDir       = "memory"
-	defaultLang            = "zh"
-	defaultRepo            = "."
-	defaultBranch          = "main"
-	defaultMaxSteps        = 50
-	defaultProvidersConfig = "providers.yaml"
-	runtimeAnchorDir       = ".codrax"
-	blobSubdir             = "blob"
-	defaultBlobMaxSessions = 7
+	defaultLogDir           = "logs"
+	defaultLogLevel         = "debug"
+	defaultLogStdout        = false
+	defaultMemoryDir        = "memory"
+	defaultLang             = "zh"
+	defaultThinkingTruncate = false
+	defaultRepo             = "."
+	defaultBranch           = "main"
+	defaultMaxSteps         = 50
+	defaultProvidersConfig  = "providers.yaml"
+	runtimeAnchorDir        = ".codrax"
+	blobSubdir              = "blob"
+	defaultBlobMaxSessions  = 7
 
 	// Final-answer transcript dump (read-mode only). The orchestrator
 	// writes one .md file per finalised answer to <runtime-anchor>/output/
@@ -80,9 +81,9 @@ const (
 	// name; defaultOutputMaxFiles is the retention cap (oldest *.md
 	// pruned by mtime when count exceeds the cap). Operator override
 	// via codrax.yaml :: output_dump_enabled / output_max_files.
-	outputSubdir           = "output"
-	defaultOutputMaxFiles  = 10
-	defaultOutputDumpOn    = true
+	outputSubdir          = "output"
+	defaultOutputMaxFiles = 10
+	defaultOutputDumpOn   = true
 
 	// T3.1 keep-on-success worktree GC defaults.
 	// 168 hours = 7 days; 20 worktrees keeps a busy operator's
@@ -94,18 +95,18 @@ const (
 
 // CLI flag variables.
 var (
-	flagProviders      string
-	flagRepo           string
-	flagBranch         string
-	flagRequest        string
-	flagMaxSteps       int
-	flagLogDir         string
-	flagLogLevel       string
-	flagLogStdout      bool
-	flagMemoryDir      string
-	flagCacheDir       string
-	flagLang           string
-	flagColor          string
+	flagProviders string
+	flagRepo      string
+	flagBranch    string
+	flagRequest   string
+	flagMaxSteps  int
+	flagLogDir    string
+	flagLogLevel  string
+	flagLogStdout bool
+	flagMemoryDir string
+	flagCacheDir  string
+	flagLang      string
+	flagColor     string
 	// flagFocus is the multi-repo focus pin set passed at process
 	// startup. Empty (default) = no pin; the routing fold's A
 	// channel is empty and the auto-active set falls back to
@@ -298,8 +299,8 @@ var richnessSofteningWarn = true
 // in the merge block, reviewer construction lives further down
 // where flagRepo / providersCfg are in scope.
 var (
-	selfConsistencyEnabled       = true
-	selfConsistencyRewrite       = true
+	selfConsistencyEnabled = true
+	selfConsistencyRewrite = true
 	// 2026-05-10 P4 tightening: bumped 0.80 → 0.92. Forensic data
 	// (May-9 sweep, 26 run / 19 case) showed the reviewer at the
 	// 0.85-0.90 confidence band fired on borderline concerns the
@@ -1165,21 +1166,21 @@ func runREPL(_ *cobra.Command) error {
 		// loop can call recall_memory without a separate wiring step.
 		// The same adapter is also wired into the orchestrator above,
 		// so pipeline and chitchat see one source of truth.
-		Memory:                memory.NewAdapter(store),
-		EnvSettings:           app.envRecommendSettings,
-		ColorMode:             render.ParseColorMode(flagColor),
-		RuntimeAnchor:         runtimeAnchor,
-		WorktreeKeepTTL:       app.worktreeKeepTTL,
-		WorktreeKeepMaxCount:  app.worktreeKeepMaxCount,
-		PlanStore:             planStore,
-		PlanGroupStore:        planGroupStore,
-		FailureTaxonomy:       app.orch.FailureTaxonomyStore(),
-		AttachedLogMaxBytes:   maxAttachedLogBytes,
-		AttachedTraceMaxBytes: maxAttachedTraceBytes,
-		WriteEnabled:          app.writeEnabled,
-		WriteAutoInitRepo:     app.writeAutoInitRepo,
-		WriteScaffoldEnabled:  app.writeScaffoldEnabled,
-		SettingsPath:          app.settingsPath,
+		Memory:                        memory.NewAdapter(store),
+		EnvSettings:                   app.envRecommendSettings,
+		ColorMode:                     render.ParseColorMode(flagColor),
+		RuntimeAnchor:                 runtimeAnchor,
+		WorktreeKeepTTL:               app.worktreeKeepTTL,
+		WorktreeKeepMaxCount:          app.worktreeKeepMaxCount,
+		PlanStore:                     planStore,
+		PlanGroupStore:                planGroupStore,
+		FailureTaxonomy:               app.orch.FailureTaxonomyStore(),
+		AttachedLogMaxBytes:           maxAttachedLogBytes,
+		AttachedTraceMaxBytes:         maxAttachedTraceBytes,
+		WriteEnabled:                  app.writeEnabled,
+		WriteAutoInitRepo:             app.writeAutoInitRepo,
+		WriteScaffoldEnabled:          app.writeScaffoldEnabled,
+		SettingsPath:                  app.settingsPath,
 		Topology:                      app.topology,
 		MultiRepoEnabled:              app.multiRepoEnabled,
 		MultiRepoMaxActive:            app.multiRepoMaxActive,
@@ -1189,7 +1190,7 @@ func runREPL(_ *cobra.Command) error {
 		// auto-active rows can be color-marked. Stored as any to keep
 		// the REPL package free of an internal/tool/repomap/multigraph
 		// import.
-		Multigraph:                    app.multigraph,
+		Multigraph: app.multigraph,
 		// --focus CLI flag → REPL pre-pinned focus map. resolved
 		// against the topology earlier (drops unmatched tokens with
 		// a single Warning); single-repo / no-git workspaces have
@@ -1308,6 +1309,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	mergedMemoryDir := defaultMemoryDir
 	mergedCacheDir := ""
 	mergedLang := defaultLang
+	mergedThinkingTruncate := defaultThinkingTruncate
 	mergedRepo := defaultRepo
 	mergedBranch := defaultBranch
 	mergedMaxSteps := defaultMaxSteps
@@ -1377,6 +1379,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		if rs.Lang != nil {
 			mergedLang = *rs.Lang
+		}
+		if rs.ThinkingTruncate != nil {
+			mergedThinkingTruncate = *rs.ThinkingTruncate
 		}
 		if rs.Repo != nil {
 			mergedRepo = *rs.Repo
@@ -2715,6 +2720,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 
 	renderer := render.New(os.Stdout, false)
 	renderer.SetLang(flagLang)
+	renderer.SetThinkingTruncate(mergedThinkingTruncate)
 	// log_stdout + TTY conflict: when logger is mirrored to stdout
 	// AND stdout is a terminal, the dock's 3-row anchor would tear
 	// every time the logger writes. Force dock-disabled so events

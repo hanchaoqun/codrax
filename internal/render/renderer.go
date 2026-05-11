@@ -236,6 +236,13 @@ type Renderer struct {
 	// construction so existing callers stay source-compatible.
 	lang string
 
+	// thinkingTruncate controls only durable EventAgentReasoning
+	// lines (CLI and REPL share this renderer path). The default is
+	// false so model thinking is printed in full; operators can opt
+	// back into the legacy 1-2 sentence / 200-char summary via
+	// codrax.yaml when terminal noise matters more than traceability.
+	thinkingTruncate bool
+
 	// cancelHint is rendered as a dim trailer line under the task
 	// list while the spinner is live. Used by the REPL to surface a
 	// "press Ctrl+C to cancel" affordance — without this the spinner
@@ -348,6 +355,17 @@ func (r *Renderer) SetLang(lang string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.lang = lang
+}
+
+// SetThinkingTruncate toggles legacy summarisation for durable model
+// thinking lines. It affects both TTY and non-TTY rendering because
+// CLI single-shot and REPL progress events both pass through
+// EventAgentReasoning. The live dock's one-line stream preview is a
+// separate fixed-width UI surface and intentionally unaffected.
+func (r *Renderer) SetThinkingTruncate(enabled bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.thinkingTruncate = enabled
 }
 
 // SetRouteSummary records a light-route label + detail segments that
@@ -610,21 +628,21 @@ func applyHeadingHierarchy(cfg *ansi.StyleConfig, dark bool) {
 //
 // Hue discipline (post-2026-04-30 redesign):
 //
-//   Two saturated families + gray-scale neutral + one warm accent.
-//   Every prose element belongs to exactly ONE family so the eye
-//   reads "kind of thing" by hue without learning a six-color
-//   vocabulary:
+//	Two saturated families + gray-scale neutral + one warm accent.
+//	Every prose element belongs to exactly ONE family so the eye
+//	reads "kind of thing" by hue without learning a six-color
+//	vocabulary:
 //
-//     blue   39 (#00afff)   — interactive: links, list bullets
-//                              (lists + links share "navigable"
-//                              semantic; both come from "follow
-//                              this elsewhere")
-//     amber  215 (#ffaf5f)  — code: inline `code`, BlockQuote
-//                              (cross-family warm color; reads
-//                              as "literal payload from elsewhere")
-//     gray   238/240/245/252 — structure: HR, table grid, headings
-//                              H3-H6, Emph, dim notes
-//     white  15             — Strong + H1 (max contrast peaks)
+//	  blue   39 (#00afff)   — interactive: links, list bullets
+//	                           (lists + links share "navigable"
+//	                           semantic; both come from "follow
+//	                           this elsewhere")
+//	  amber  215 (#ffaf5f)  — code: inline `code`, BlockQuote
+//	                           (cross-family warm color; reads
+//	                           as "literal payload from elsewhere")
+//	  gray   238/240/245/252 — structure: HR, table grid, headings
+//	                           H3-H6, Emph, dim notes
+//	  white  15             — Strong + H1 (max contrast peaks)
 //
 // Strong = pure white + bold (no color override) is the GitHub-web
 // contract: bold text is its OWN signal, no need to add color on
@@ -1226,7 +1244,7 @@ func pluralS(n int) string {
 // up and stays visible; the spinner continues below. Must be called
 // with r.mu held.
 
-// reasoningMaxChars caps the reasoning summary shown to the user.
+// reasoningMaxChars caps the legacy opt-in reasoning summary shown to the user.
 const reasoningMaxChars = 200
 
 // stripMarkdown removes markdown syntax that clutters a single-line
@@ -1259,32 +1277,36 @@ func stripMarkdown(s string) string {
 	return strings.Join(out, " ")
 }
 
-// formatReasoning extracts the first 1-2 sentences from the LLM's
-// reasoning text and formats them as a dimmed line with an
-// [agent-iteration] tag. Markdown is stripped and leading blank
-// lines are skipped so the display is clean plain text.
-func formatReasoning(agent string, iteration int, text string) string {
+// formatReasoning formats LLM reasoning as a dimmed line with an
+// [agent-iteration] tag. Markdown is stripped and leading blank lines
+// are skipped so the display is clean plain text. When truncate is
+// true the legacy 1-2 sentence / 200-char summary is used; the
+// default caller path passes false so CLI and REPL expose the full
+// model thinking trace.
+func formatReasoning(agent string, iteration int, text string, truncate bool) string {
 	text = stripMarkdown(text)
 	if text == "" {
 		return ""
 	}
 	summary := text
-	// Take roughly 1-2 sentences worth.
-	if idx := strings.Index(summary, ". "); idx > 0 && idx < reasoningMaxChars-20 {
-		// Try to find a second sentence boundary.
-		if idx2 := strings.Index(summary[idx+2:], ". "); idx2 > 0 && idx+2+idx2 < reasoningMaxChars {
-			summary = summary[:idx+2+idx2+1]
+	if truncate {
+		// Take roughly 1-2 sentences worth.
+		if idx := strings.Index(summary, ". "); idx > 0 && idx < reasoningMaxChars-20 {
+			// Try to find a second sentence boundary.
+			if idx2 := strings.Index(summary[idx+2:], ". "); idx2 > 0 && idx+2+idx2 < reasoningMaxChars {
+				summary = summary[:idx+2+idx2+1]
+			}
 		}
-	}
-	if len(summary) > reasoningMaxChars {
-		cut := reasoningMaxChars - 3
-		for cut > 0 && summary[cut] != ' ' {
-			cut--
+		if len(summary) > reasoningMaxChars {
+			cut := reasoningMaxChars - 3
+			for cut > 0 && summary[cut] != ' ' {
+				cut--
+			}
+			if cut == 0 {
+				cut = reasoningMaxChars - 3
+			}
+			summary = summary[:cut] + "..."
 		}
-		if cut == 0 {
-			cut = reasoningMaxChars - 3
-		}
-		summary = summary[:cut] + "..."
 	}
 	tag := fmt.Sprintf("[%s-%d]", agent, iteration+1)
 	return "  " + pterm.FgDarkGray.Sprint("💭 "+tag+" "+summary)

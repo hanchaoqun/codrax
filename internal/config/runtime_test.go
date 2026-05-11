@@ -15,6 +15,7 @@ log_level: debug
 log_stdout: true
 memory_dir: custom_memory
 lang: en
+thinking_truncate: true
 repo: /tmp/project
 branch: develop
 pipeline_max_steps: 100
@@ -57,6 +58,9 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.Lang == nil || *s.Lang != "en" {
 		t.Errorf("Lang = %v", s.Lang)
+	}
+	if s.ThinkingTruncate == nil || *s.ThinkingTruncate != true {
+		t.Errorf("ThinkingTruncate = %v", s.ThinkingTruncate)
 	}
 	if s.Repo == nil || *s.Repo != "/tmp/project" {
 		t.Errorf("Repo = %v", s.Repo)
@@ -209,7 +213,7 @@ func TestLoadRuntimeSettings_FalseIsNotAbsence(t *testing.T) {
 	// absent key. Keep this test to catch that regression.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "codrax.yaml")
-	if err := os.WriteFile(path, []byte("log_stdout: false\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("log_stdout: false\nthinking_truncate: false\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	s, err := LoadRuntimeSettings(path)
@@ -221,6 +225,12 @@ func TestLoadRuntimeSettings_FalseIsNotAbsence(t *testing.T) {
 	}
 	if *s.LogStdout != false {
 		t.Errorf("LogStdout = %v, want false", *s.LogStdout)
+	}
+	if s.ThinkingTruncate == nil {
+		t.Fatalf("ThinkingTruncate should be non-nil when explicitly set to false")
+	}
+	if *s.ThinkingTruncate != false {
+		t.Errorf("ThinkingTruncate = %v, want false", *s.ThinkingTruncate)
 	}
 }
 

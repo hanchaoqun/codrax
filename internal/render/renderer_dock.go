@@ -76,7 +76,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		if ev.Reasoning == "" {
 			return
 		}
-		line := formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning)
+		line := formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning, r.thinkingTruncate)
 		if !r.dockEnabled && r.dock == nil {
 			r.handleEventNonTTY(ev)
 			return
@@ -1633,7 +1633,7 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 			mirrorDockBlockToLog(block)
 		}
 	case EventAgentReasoning:
-		r.emitNonTTYLine(formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning))
+		r.emitNonTTYLine(formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning, r.thinkingTruncate))
 	case EventOrchestratorNotice:
 		// Mirror of the TTY branch above: render WITHOUT the 💭
 		// LLM-thinking prefix or [agent-N] tag so log scrapers and
