@@ -27,7 +27,7 @@ const (
 	SupportLaneCurrentVerdict   AnswerSupportLaneKind = "current_status_verdict"
 )
 
-const callChainSupportEntryLimit = 12
+const callChainSupportEntryLimit = 24
 
 type AnswerSupportLane struct {
 	Kind          AnswerSupportLaneKind

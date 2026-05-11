@@ -1223,12 +1223,14 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 	if !ok || fi == nil {
 		return false
 	}
-	rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, emitPreferredCallTargetNames(it))
-	if !ok {
-		return false
-	}
+	candidates := emitPreferredCallTargetNames(it)
 	caller := enclosingCallableSymbolName(fi, it.LineStart)
-	callee := callRelationTargetName(gc.Graph, fi, rel)
+	callee := ""
+	if exact, ok := sourceLineCallTargetForCandidates(gc, it.Source, it.LineStart, candidates); ok {
+		callee = exact
+	} else if rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); ok {
+		callee = callRelationTargetName(gc.Graph, fi, rel)
+	}
 	if caller == "" || callee == "" {
 		return false
 	}
@@ -1266,6 +1268,146 @@ func emitPreferredCallTargetNames(it *types.EvidenceItem) []string {
 	add(it.Object)
 	add(it.Subject)
 	return out
+}
+
+func sourceLineCallTargetForCandidates(gc *ground.Context, source string, line int, candidates []string) (string, bool) {
+	if gc == nil || source == "" || line <= 0 || len(candidates) == 0 {
+		return "", false
+	}
+	lines := gc.LineIndex[source]
+	if len(lines) == 0 {
+		return "", false
+	}
+	text := strings.TrimSpace(lines[line])
+	if text == "" {
+		return "", false
+	}
+	for _, target := range sourceLineCallTargets(text) {
+		for _, candidate := range candidates {
+			if callExpressionTargetMatchesCandidate(target, candidate) {
+				return target, true
+			}
+		}
+	}
+	return "", false
+}
+
+func sourceLineCallTargets(line string) []string {
+	var out []string
+	seen := make(map[string]bool)
+	for i := 0; i < len(line); i++ {
+		if line[i] != '(' {
+			continue
+		}
+		j := i - 1
+		for j >= 0 && (line[j] == ' ' || line[j] == '\t') {
+			j--
+		}
+		end := j + 1
+		for j >= 0 && isCallTargetByte(line[j]) {
+			j--
+		}
+		start := j + 1
+		if start >= end {
+			continue
+		}
+		target := cleanCallExpressionTarget(line[start:end])
+		if target == "" || seen[target] {
+			continue
+		}
+		seen[target] = true
+		out = append(out, target)
+	}
+	return out
+}
+
+func isCallTargetByte(b byte) bool {
+	return (b >= 'A' && b <= 'Z') ||
+		(b >= 'a' && b <= 'z') ||
+		(b >= '0' && b <= '9') ||
+		b == '_' ||
+		b == '$' ||
+		b == '.' ||
+		b == ':' ||
+		b == '-' ||
+		b == '>' ||
+		b == '<' ||
+		b == ']' ||
+		b == '['
+}
+
+func cleanCallExpressionTarget(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimLeft(raw, ".:")
+	raw = strings.TrimPrefix(raw, "->")
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	return stripTrailingGenericArgs(raw)
+}
+
+func stripTrailingGenericArgs(raw string) string {
+	raw = strings.TrimSpace(raw)
+	for {
+		if !strings.HasSuffix(raw, "]") && !strings.HasSuffix(raw, ">") {
+			return raw
+		}
+		open, close := byte(0), byte(0)
+		switch {
+		case strings.HasSuffix(raw, "]"):
+			open, close = '[', ']'
+		case strings.HasSuffix(raw, ">"):
+			open, close = '<', '>'
+		}
+		depth := 0
+		for i := len(raw) - 1; i >= 0; i-- {
+			switch raw[i] {
+			case close:
+				depth++
+			case open:
+				depth--
+				if depth == 0 {
+					if i == 0 {
+						return raw
+					}
+					raw = strings.TrimSpace(raw[:i])
+					goto next
+				}
+			}
+		}
+		return raw
+	next:
+	}
+}
+
+func callExpressionTargetMatchesCandidate(target, candidate string) bool {
+	target = strings.TrimSpace(target)
+	candidate = strings.TrimSpace(candidate)
+	if target == "" || candidate == "" {
+		return false
+	}
+	if target == candidate {
+		return true
+	}
+	normalizedTarget := normalizeCallExpressionTarget(target)
+	normalizedCandidate := normalizeCallExpressionTarget(candidate)
+	if normalizedTarget == normalizedCandidate {
+		return true
+	}
+	targetTail := types.NormalizedSurfaceSymbolTail(normalizedTarget)
+	candidateTail := types.NormalizedSurfaceSymbolTail(normalizedCandidate)
+	return targetTail != "" && targetTail == candidateTail
+}
+
+func normalizeCallExpressionTarget(raw string) string {
+	raw = stripTrailingGenericArgs(strings.TrimSpace(raw))
+	raw = strings.ReplaceAll(raw, "->", ".")
+	raw = strings.ReplaceAll(raw, "::", ".")
+	for strings.Contains(raw, "..") {
+		raw = strings.ReplaceAll(raw, "..", ".")
+	}
+	return strings.Trim(raw, ".")
 }
 
 func stampEvidenceOwnerSymbol(it *types.EvidenceItem, gc *ground.Context) bool {
@@ -1525,11 +1667,12 @@ func findCallRelationAtLine(fi *repomap.FileInfo, line int, anchorSymbol string)
 //   - Match accepts both the full candidate AND its last dot segment
 //     (so `pkg.Method` candidates also match a relation whose
 //     ToEP.Name is just `Method`).
-//   - When candidates yield no match the helper falls back to the
-//     anchorSymbol="" path (return any call relation at the line).
+//   - When candidates yield no match the helper returns false rather
+//     than substituting a different same-line call target.
 //
-// Behaviour-equivalent to the loop version; gated by
-// TestFindCallRelationAtLineForCandidates_SinglePass.
+// The no-match path is intentionally stricter than the legacy fallback:
+// a wrong callee is worse than leaving the LLM's already-grounded
+// candidate untouched.
 func findCallRelationAtLineForCandidates(fi *repomap.FileInfo, line int, candidates []string) (*repomap.Relation, bool) {
 	if fi == nil || line <= 0 {
 		return nil, false
@@ -1554,14 +1697,10 @@ func findCallRelationAtLineForCandidates(fi *repomap.FileInfo, line int, candida
 	if len(candSet) == 0 {
 		return findCallRelationAtLine(fi, line, "")
 	}
-	var fallback *repomap.Relation
 	for i := range fi.Relations {
 		rel := &fi.Relations[i]
 		if rel.Kind != "call" || rel.Line != line {
 			continue
-		}
-		if fallback == nil {
-			fallback = rel
 		}
 		relName := strings.TrimSpace(rel.ToEP.Name)
 		if relName == "" {
@@ -1570,9 +1709,6 @@ func findCallRelationAtLineForCandidates(fi *repomap.FileInfo, line int, candida
 		if candSet[relName] {
 			return rel, true
 		}
-	}
-	if fallback != nil {
-		return fallback, true
 	}
 	return nil, false
 }

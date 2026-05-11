@@ -453,6 +453,25 @@ func TestCallChainCondenseSupportEntriesPreservesTerminalTailWhenEndpointIsBroad
 	}
 }
 
+func TestCallChainCondenseSupportEntriesKeepsModerateExplicitChainWhole(t *testing.T) {
+	var entries []AnswerSupportEntry
+	for i := 0; i < 13; i++ {
+		entries = append(entries, AnswerSupportEntry{
+			Text: fmt.Sprintf("hop %02d", i),
+		})
+	}
+
+	got := callChainCondenseSupportEntries(entries, []string{"hop 12"}, callChainSupportEntryLimit)
+	if len(got) != len(entries) {
+		t.Fatalf("moderate explicit chain should remain whole, got %d entries want %d", len(got), len(entries))
+	}
+	for i := range entries {
+		if got[i].Text != entries[i].Text {
+			t.Fatalf("entry %d = %q, want %q", i, got[i].Text, entries[i].Text)
+		}
+	}
+}
+
 func TestBuildAnswerSupportPlanForAgentContext_CurrentStatusAddsVerdictLane(t *testing.T) {
 	ctx := &AgentContext{
 		AnalysisIR: &AnalysisIR{

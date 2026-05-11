@@ -2573,7 +2573,7 @@ func TestFindCallRelationAtLineForCandidates_SinglePass(t *testing.T) {
 		{name: "first candidate hits", candidates: []string{"Bar", "X"}, line: 42, wantOK: true, wantTarget: "Bar"},
 		{name: "second candidate hits", candidates: []string{"X", "Baz"}, line: 42, wantOK: true, wantTarget: "Baz"},
 		{name: "qualified candidate matches short", candidates: []string{"pkg.Bar"}, line: 42, wantOK: true, wantTarget: "Bar"},
-		{name: "no match falls back to any call at line", candidates: []string{"Nope"}, line: 42, wantOK: true, wantTarget: "Bar"},
+		{name: "no candidate match does not substitute another call at line", candidates: []string{"Nope"}, line: 42, wantOK: false},
 		{name: "wrong line returns false", candidates: []string{"Bar"}, line: 999, wantOK: false},
 		{name: "empty candidates falls through to anchor=\"\" path", candidates: nil, line: 42, wantOK: true, wantTarget: "Bar"},
 		{name: "all-whitespace candidates → fallback", candidates: []string{"", "  "}, line: 42, wantOK: true, wantTarget: "Bar"},
@@ -2589,6 +2589,86 @@ func TestFindCallRelationAtLineForCandidates_SinglePass(t *testing.T) {
 			}
 			if rel.ToEP.Name != tc.wantTarget {
 				t.Errorf("target=%q want %q", rel.ToEP.Name, tc.wantTarget)
+			}
+		})
+	}
+}
+
+func TestNormalizeCallEvidenceDirection_UsesSourceLineCallTargetBeforeRelationFallback(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/analyzer.go", 1818,
+		"out := compiler.Compile(rm, sig)",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/agent/analyzer.go": {
+				RelPath: "internal/agent/analyzer.go",
+				Symbols: []repomap.Symbol{
+					{Name: "buildAnalysisIR", Kind: "function", Line: 1800, EndLine: 1900},
+				},
+				Relations: []repomap.Relation{
+					{Kind: "call", Line: 1818, ToEP: repomap.RelationEndpoint{Name: "RecomputeBudget"}},
+				},
+			},
+		},
+	})
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"evidence_kind": "direct",
+				"subject": "buildAnalysisIR",
+				"predicate": "calls",
+				"object": "Compile",
+				"source": "internal/agent/analyzer.go",
+				"line_start": 1818,
+				"summary": "buildAnalysisIR calls compiler.Compile",
+				"anchor_kind": "call",
+				"anchor_symbol": "Compile"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item, got %d", len(got))
+	}
+	if got[0].Object != "compiler.Compile" {
+		t.Fatalf("call target = %q, want compiler.Compile", got[0].Object)
+	}
+}
+
+func TestSourceLineCallTargetForCandidates_MatchesCrossLanguageSelectors(t *testing.T) {
+	cases := []struct {
+		name       string
+		line       string
+		candidate  string
+		wantTarget string
+	}{
+		{name: "go selector", line: "out := compiler.Compile(rm, sig)", candidate: "Compile", wantTarget: "compiler.Compile"},
+		{name: "arkts member", line: "this.router.pushUrl({ url: 'pages/Index' })", candidate: "pushUrl", wantTarget: "this.router.pushUrl"},
+		{name: "cpp namespace", line: "auto ok = analysis::compiler::Compile(ir);", candidate: "Compile", wantTarget: "analysis::compiler::Compile"},
+		{name: "cangjie-style module selector", line: "let graph = normalizer.Normalize(request)", candidate: "Normalize", wantTarget: "normalizer.Normalize"},
+		{name: "ts generic", line: "const view = factory.create<ViewModel>(state)", candidate: "create", wantTarget: "factory.create"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ""
+			for _, target := range sourceLineCallTargets(tc.line) {
+				if callExpressionTargetMatchesCandidate(target, tc.candidate) {
+					got = target
+					break
+				}
+			}
+			if got != tc.wantTarget {
+				t.Fatalf("target = %q, want %q", got, tc.wantTarget)
 			}
 		})
 	}
