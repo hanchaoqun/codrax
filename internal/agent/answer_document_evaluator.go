@@ -3101,15 +3101,12 @@ func renderAnswerDocExternalObservationSeeds(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## External Observation Seeds\n\n")
 	b.WriteString("These observations come from the attached runtime / external trace rather than directly from current repo code. They are answer-grade context, but if you surface one as its own `step_list` hop, scalar provenance fact, or boolean rationale without a repo line that literally states the same claim, default that field's `citation_ref` to `-1` instead of borrowing a nearby repo citation.\n\n")
-	limit := len(plan.ExternalObservationSeeds)
-	if limit > 6 {
-		limit = 6
-	}
-	for i := 0; i < limit; i++ {
-		seed := plan.ExternalObservationSeeds[i]
+	for _, seed := range types.SelectExternalObservationSeedsForPrompt(plan.ExternalObservationSeeds, types.ExternalObservationPromptSeedLimit) {
 		switch strings.TrimSpace(seed.Kind) {
 		case "error_type":
 			fmt.Fprintf(&b, "- Structured log error type: `%s`\n", seed.Raw)
+		case "error_message":
+			fmt.Fprintf(&b, "- Structured log error message: `%s`\n", seed.Raw)
 		case "signal":
 			fmt.Fprintf(&b, "- Structured runtime signal: `%s`\n", seed.Raw)
 		case "log_observation":

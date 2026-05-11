@@ -219,6 +219,85 @@ func TestCollectExternalObservationSeeds_WalksCauseChainFrames(t *testing.T) {
 	t.Fatalf("nested cause frame did not surface as external observation seed: %+v", seeds)
 }
 
+func TestSelectExternalObservationSeedsForPrompt_BalancesMetaAndCrossLanguageFrames(t *testing.T) {
+	bundle := &LogBundle{
+		Meta: LogMeta{Signals: []LogSignal{SignalPanic, SignalCrash}},
+		Errors: []LogError{{
+			Type:    "Error",
+			Message: "Cangjie native call failed: index out of bounds",
+			Frames: []LogFrame{
+				{Lang: "arkts", File: "entry/src/main/ets/bridges/NativeBridge.ets", Line: 33, Func: "NativeBridge.invokeOhSum", Raw: "at NativeBridge.invokeOhSum (NativeBridge.ets:33:11)"},
+				{Lang: "arkts", File: "entry/src/main/ets/pages/Home.ets", Line: 54, Func: "HomePage.computeTotal", Raw: "at HomePage.computeTotal (Home.ets:54:7)"},
+			},
+			Cause: &LogError{
+				Type:    "panic",
+				Message: "index out of bounds: index=5, size=3",
+				Frames: []LogFrame{
+					{Lang: "cangjie", File: "src/bridge/Bridge.cj", Line: 18, Func: "demo.bridge.ohSum", Raw: "at demo.bridge.ohSum(src/bridge/Bridge.cj:18)"},
+					{Lang: "cangjie", File: "src/bridge/Bridge.cj", Line: 42, Func: "demo.bridge.checkout", Raw: "at demo.bridge.checkout(src/bridge/Bridge.cj:42)"},
+				},
+			},
+		}},
+	}
+	seeds := CollectExternalObservationSeeds(bundle, nil)
+	if len(seeds) < 8 {
+		t.Fatalf("collector should retain a typed pool beyond the prompt cap; got %d: %+v", len(seeds), seeds)
+	}
+	selected := SelectExternalObservationSeedsForPrompt(seeds, 6)
+	got := make(map[string]bool)
+	gotMessages := make(map[string]bool)
+	for _, seed := range selected {
+		got[seed.Func] = true
+		if seed.Kind == "error_message" {
+			gotMessages[seed.Raw] = true
+		}
+	}
+	for _, want := range []string{
+		"Cangjie native call failed: index out of bounds",
+		"index out of bounds: index=5, size=3",
+	} {
+		if !gotMessages[want] {
+			t.Fatalf("balanced prompt selection should prioritize structured runtime message %q: %+v", want, selected)
+		}
+	}
+	for _, want := range []string{
+		"NativeBridge.invokeOhSum",
+		"HomePage.computeTotal",
+		"demo.bridge.ohSum",
+		"demo.bridge.checkout",
+	} {
+		if !got[want] {
+			t.Fatalf("balanced prompt selection dropped cross-language frame %q: %+v", want, selected)
+		}
+	}
+}
+
+func TestCollectExternalObservationSeeds_UsesDiagnosticFramePoolBeyondSixteen(t *testing.T) {
+	var frames []LogFrame
+	for i := 1; i <= 20; i++ {
+		frames = append(frames, LogFrame{
+			Lang: "cpp",
+			File: "src/engine/chain.cpp",
+			Line: 100 + i,
+			Func: "Engine::Step",
+			Raw:  "at Engine::Step(src/engine/chain.cpp)",
+		})
+	}
+	bundle := &LogBundle{
+		Errors: []LogError{{Type: "panic", Frames: frames}},
+	}
+	seeds := CollectExternalObservationSeeds(bundle, nil)
+	gotFrames := 0
+	for _, seed := range seeds {
+		if seed.Kind == "log_frame" {
+			gotFrames++
+		}
+	}
+	if gotFrames != len(frames) {
+		t.Fatalf("collector should retain the diagnostic frame pool, got %d frames; want %d (seeds=%+v)", gotFrames, len(frames), seeds)
+	}
+}
+
 // TestIntentFrameCap_TraceAndRootCauseLargerThanDefault pins the
 // B.7 audit followup contract (2026-05-02): trace and root-cause
 // questions raise the frame cap above the historical 16 because

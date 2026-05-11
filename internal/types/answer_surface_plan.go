@@ -183,12 +183,27 @@ type LogSourceDriftAnchor struct {
 type ExternalObservationSeed struct {
 	Kind         string
 	Raw          string
+	Lang         string
 	File         string
 	Line         int
 	Func         string
 	AnchoredFile string
 	AnchoredLine int
 }
+
+const (
+	// ExternalObservationPromptSeedLimit is the compact render budget for
+	// finalizer-facing runtime observations. The collector keeps a richer
+	// typed pool; prompt renderers then choose a balanced slice of this size.
+	ExternalObservationPromptSeedLimit = 6
+
+	// Summary/residue pool caps are pathological-log guards only. They do
+	// not control answer coverage: frame coverage uses the existing
+	// root-cause stack budget, and the prompt selector separately balances
+	// messages, languages, files, and frames.
+	externalObservationSummarySeedPoolLimit = 8
+	externalObservationResidueSeedPoolLimit = 4
+)
 
 // DriftReason classifies log-source drift for renderer
 // dispatch. Strings (rather than int enum) so the values
@@ -2242,6 +2257,138 @@ func CollectExternalObservationSeeds(bundle *LogBundle, observed []LogSourceDrif
 	return CollectArtifactExternalObservationSeeds(bundle, nil, observed)
 }
 
+// SelectExternalObservationSeedsForPrompt returns a compact, balanced
+// subset of typed runtime observations for prompt/support-lane surfaces.
+// The collector intentionally keeps more than one prompt's worth of facts;
+// this selector prevents low-specificity meta facts (error type / signal)
+// from starving the stack/span frames that answer frame, trace, and
+// cross-language questions. It uses only typed seed fields.
+func SelectExternalObservationSeedsForPrompt(seeds []ExternalObservationSeed, limit int) []ExternalObservationSeed {
+	if limit <= 0 || len(seeds) == 0 {
+		return nil
+	}
+	if len(seeds) <= limit {
+		out := make([]ExternalObservationSeed, len(seeds))
+		copy(out, seeds)
+		return out
+	}
+	out := make([]ExternalObservationSeed, 0, limit)
+	seen := make(map[string]bool, limit)
+	add := func(seed ExternalObservationSeed) bool {
+		if len(out) >= limit {
+			return false
+		}
+		key := externalObservationSeedKey(seed)
+		if key == "" || seen[key] {
+			return false
+		}
+		seen[key] = true
+		out = append(out, seed)
+		return true
+	}
+
+	summaryCap := 2
+	if limit < 4 {
+		summaryCap = 1
+	}
+	addSummaryKind := func(kind string) {
+		for _, seed := range seeds {
+			if len(out) >= summaryCap {
+				return
+			}
+			if strings.TrimSpace(seed.Kind) == kind {
+				add(seed)
+			}
+		}
+	}
+	for _, kind := range []string{"error_message", "log_observation", "perf_jank", "perf_stall", "error_type", "signal"} {
+		if len(out) >= summaryCap {
+			break
+		}
+		addSummaryKind(kind)
+	}
+	if len(out) == 0 {
+		for _, seed := range seeds {
+			if strings.TrimSpace(seed.Kind) == "signal" && add(seed) {
+				break
+			}
+		}
+	}
+
+	var frames []ExternalObservationSeed
+	for _, seed := range seeds {
+		if externalObservationSeedIsFrame(seed) {
+			frames = append(frames, seed)
+		}
+	}
+	addDiverseFrameGroups := func(group func(ExternalObservationSeed) string) {
+		groups := make(map[string]bool)
+		for _, seed := range frames {
+			if len(out) >= limit {
+				return
+			}
+			g := group(seed)
+			if g == "" || groups[g] {
+				continue
+			}
+			if add(seed) {
+				groups[g] = true
+			}
+		}
+	}
+	addDiverseFrameGroups(func(seed ExternalObservationSeed) string {
+		return strings.ToLower(strings.TrimSpace(seed.Lang))
+	})
+	addDiverseFrameGroups(func(seed ExternalObservationSeed) string {
+		return strings.ToLower(strings.TrimSpace(strings.ReplaceAll(seed.File, `\`, `/`)))
+	})
+	for _, seed := range frames {
+		if len(out) >= limit {
+			break
+		}
+		add(seed)
+	}
+	for _, seed := range seeds {
+		if len(out) >= limit {
+			break
+		}
+		add(seed)
+	}
+	return out
+}
+
+func externalObservationSeedKey(seed ExternalObservationSeed) string {
+	kind := strings.TrimSpace(seed.Kind)
+	raw := strings.TrimSpace(seed.Raw)
+	lang := strings.TrimSpace(strings.ToLower(seed.Lang))
+	file := strings.TrimSpace(strings.ReplaceAll(seed.File, `\`, `/`))
+	fn := strings.TrimSpace(seed.Func)
+	if kind == "" && raw == "" && lang == "" && file == "" && seed.Line <= 0 && fn == "" {
+		return ""
+	}
+	return kind + "|" + raw + "|" + lang + "|" + file + "|" + fmt.Sprintf("%d", seed.Line) + "|" + fn
+}
+
+func externalObservationSeedIsFrame(seed ExternalObservationSeed) bool {
+	switch strings.TrimSpace(seed.Kind) {
+	case "log_frame", "frame", "perf_frame":
+		return true
+	default:
+		return false
+	}
+}
+
+func externalObservationFrameSeedPoolLimit() int {
+	// Reuse the existing root-cause frame budget: attached artifacts are
+	// most often consumed by diagnostic/root-cause/trace surfaces, and this
+	// budget was already raised for deeper stack walks and mixed-language
+	// cause chains.
+	if n := intentFrameCap(IntentRootCause); n > 0 {
+		return n
+	}
+	return 48
+}
+
 func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle, observed []LogSourceDriftAnchor) []ExternalObservationSeed {
 	if bundle == nil {
 		return collectPerfExternalObservationSeeds(perf, nil)
@@ -2259,38 +2406,64 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 	}
 	var out []ExternalObservationSeed
 	seen := make(map[string]bool)
-	record := func(seed ExternalObservationSeed) {
-		key := strings.TrimSpace(seed.Kind) + "|" +
-			strings.TrimSpace(seed.Raw) + "|" +
-			strings.TrimSpace(strings.ReplaceAll(seed.File, `\`, `/`)) + "|" +
-			strings.TrimSpace(seed.Func)
-		if key == "|||" || seen[key] {
-			return
+	record := func(seed ExternalObservationSeed) bool {
+		key := externalObservationSeedKey(seed)
+		if key == "" || seen[key] {
+			return false
 		}
 		seen[key] = true
 		out = append(out, seed)
+		return true
+	}
+	summaryCount := 0
+	recordSummary := func(seed ExternalObservationSeed) {
+		if summaryCount >= externalObservationSummarySeedPoolLimit {
+			return
+		}
+		if record(seed) {
+			summaryCount++
+		}
+	}
+	frameCount := 0
+	frameLimit := externalObservationFrameSeedPoolLimit()
+	recordFrame := func(seed ExternalObservationSeed) {
+		if frameCount >= frameLimit {
+			return
+		}
+		if record(seed) {
+			frameCount++
+		}
+	}
+	residueCount := 0
+	recordResidue := func(seed ExternalObservationSeed) {
+		if residueCount >= externalObservationResidueSeedPoolLimit {
+			return
+		}
+		if record(seed) {
+			residueCount++
+		}
+	}
+	for _, msg := range LogBundleErrorMessages(bundle) {
+		recordSummary(ExternalObservationSeed{
+			Kind: "error_message",
+			Raw:  strings.TrimSpace(msg),
+		})
 	}
 	for _, typ := range LogBundleErrorTypes(bundle) {
-		record(ExternalObservationSeed{
+		recordSummary(ExternalObservationSeed{
 			Kind: "error_type",
 			Raw:  strings.TrimSpace(typ),
 		})
-		if len(out) >= 6 {
-			return out
-		}
 	}
 	for _, sig := range bundle.Meta.Signals {
 		name := strings.TrimSpace(string(sig))
 		if name == "" {
 			continue
 		}
-		record(ExternalObservationSeed{
+		recordSummary(ExternalObservationSeed{
 			Kind: "signal",
 			Raw:  name,
 		})
-		if len(out) >= 6 {
-			return out
-		}
 	}
 	for _, obs := range bundle.Observations {
 		summary := strings.TrimSpace(obs.Summary)
@@ -2301,17 +2474,14 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 		if len(raw) > 240 {
 			raw = raw[:240]
 		}
-		record(ExternalObservationSeed{
+		recordSummary(ExternalObservationSeed{
 			Kind: "log_observation",
 			Raw:  raw,
 			Func: strings.TrimSpace(obs.Subject),
 		})
-		if len(out) >= 6 {
-			return out
-		}
 	}
 	WalkLogFrames(bundle, func(frame LogFrame) {
-		if len(out) >= 6 {
+		if frameCount >= frameLimit {
 			return
 		}
 		if strings.TrimSpace(frame.Raw) == "" && strings.TrimSpace(frame.Func) == "" {
@@ -2320,6 +2490,7 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 		seed := ExternalObservationSeed{
 			Kind: "log_frame",
 			Raw:  strings.TrimSpace(frame.Raw),
+			Lang: strings.TrimSpace(frame.Lang),
 			File: strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`)),
 			Line: frame.Line,
 			Func: strings.TrimSpace(frame.Func),
@@ -2336,28 +2507,19 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 				seed.AnchoredLine = anchor.AnchoredLine
 			}
 		}
-		record(seed)
+		recordFrame(seed)
 	})
-	if len(out) >= 6 {
-		return out
-	}
 	for _, seed := range collectPerfExternalObservationSeeds(perf, observed) {
 		record(seed)
-		if len(out) >= 6 {
-			return out
-		}
-	}
-	if len(out) >= 6 {
-		return out
 	}
 	// Round-9 user red line: "log/trace 里也有大量没有行号的不规则
 	// 输出和打印, 这些信息如果对齐了用户问题意图, 也不能在后续流程中
 	// 被轻易被忽略". Surface Residue.UnknownChunks as residue seeds
 	// so downstream consumers (skill prompts, evidence searches)
 	// can still consult unstructured log/print output that the LLM
-	// extractor couldn't parse into typed errors. Cap at 4 to stay
-	// inside the global 6-seed budget while leaving room for the
-	// log_frame seeds above.
+	// extractor couldn't parse into typed errors. The collector keeps a
+	// larger typed pool; prompt/support renderers choose a balanced
+	// subset so residue never crowds out frames or structured signals.
 	for _, chunk := range bundle.Residue.UnknownChunks {
 		raw := strings.TrimSpace(chunk)
 		if raw == "" {
@@ -2367,13 +2529,10 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 		if len(raw) > 240 {
 			raw = raw[:240]
 		}
-		record(ExternalObservationSeed{
+		recordResidue(ExternalObservationSeed{
 			Kind: "log_residue",
 			Raw:  raw,
 		})
-		if len(out) >= 6 {
-			return out
-		}
 	}
 	return out
 }

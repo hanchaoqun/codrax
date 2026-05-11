@@ -146,7 +146,7 @@ count_pattern() {
     echo 0
     return
   fi
-  n=$(grep -c "$pat" "$file" 2>/dev/null) || n=0
+  n=$(LC_ALL=C grep -a -c "$pat" "$file" 2>/dev/null) || n=0
   echo "${n:-0}"
 }
 
@@ -156,9 +156,14 @@ count_pattern() {
 # post-apply files) are raw bytes and MUST NOT be scoped this way.
 scope_stdout() {
   local out="$1" cleaned
-  cleaned="$(sed -r 's/\x1B\[[0-9;]*[A-Za-z]//g' "$out")"
-  if grep -qF '━━━' <<<"$cleaned"; then
-    cleaned="$(awk 'found{print; next} /━━━/{found=1}' <<<"$cleaned")"
+  # The progress stream can contain multilingual text plus UI-truncated
+  # previews. A preview may cut through a UTF-8 code point before adding
+  # an ellipsis, which makes locale-aware sed/grep abort with
+  # "illegal byte sequence" on macOS. Eval matching is byte-substring
+  # matching, so force byte mode end-to-end here.
+  cleaned="$(LC_ALL=C sed -r 's/\x1B\[[0-9;]*[A-Za-z]//g' "$out")"
+  if LC_ALL=C grep -aqF '━━━' <<<"$cleaned"; then
+    cleaned="$(LC_ALL=C awk 'found{print; next} /━━━/{found=1}' <<<"$cleaned")"
   fi
   printf '%s' "$cleaned"
 }
@@ -389,7 +394,7 @@ write_verdict() {
   # is also safe: an empty plan JSON is 2 bytes ('{}') and a
   # post-apply file erased to zero bytes would obviously fail here.
   local stripped
-  stripped="$(tr -d '[:space:]' <<<"$cleaned")"
+  stripped="$(LC_ALL=C tr -d '[:space:]' <<<"$cleaned")"
   if (( ${#stripped} < 20 )); then
     pass=0
     reasons+=("too_short:${#stripped}chars")
@@ -410,7 +415,7 @@ write_verdict() {
   # channel.
   if [[ -n "$EXPECT_CONTAINS" ]]; then
     for needle in $EXPECT_CONTAINS; do
-      if ! grep -qiF -- "$needle" <<<"$cleaned"; then
+      if ! LC_ALL=C grep -aqiF -- "$needle" <<<"$cleaned"; then
         pass=0
         reasons+=("missing:$needle")
       fi
@@ -418,7 +423,7 @@ write_verdict() {
   fi
   if [[ -n "$EXPECT_NOT_CONTAINS" ]]; then
     for needle in $EXPECT_NOT_CONTAINS; do
-      if grep -qiF -- "$needle" <<<"$cleaned"; then
+      if LC_ALL=C grep -aqiF -- "$needle" <<<"$cleaned"; then
         pass=0
         reasons+=("banned:$needle")
       fi
@@ -433,7 +438,7 @@ write_verdict() {
     IFS=$'\n'
     for rx in $EXPECT_MATCHES_REGEX; do
       [[ -z "$rx" ]] && continue
-      if ! grep -Eq -- "$rx" <<<"$cleaned"; then
+      if ! LC_ALL=C grep -aEq -- "$rx" <<<"$cleaned"; then
         pass=0
         reasons+=("no_regex_match:${rx}")
       fi
@@ -449,7 +454,7 @@ write_verdict() {
   # identifier".
   if [[ -n "$EXPECT_SECTIONS" ]]; then
     for needle in $EXPECT_SECTIONS; do
-      if ! grep -qiF -- "$needle" <<<"$cleaned"; then
+      if ! LC_ALL=C grep -aqiF -- "$needle" <<<"$cleaned"; then
         pass=0
         reasons+=("missing_section:$needle")
       fi

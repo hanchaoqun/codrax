@@ -251,7 +251,7 @@ func compileObservedArtifactSupportLane(plan *AnswerSurfacePlan) AnswerSupportLa
 	if runtimeObservationOnly(plan) {
 		lane.Guidance += " For an external-only runtime artifact with no current-repo intersection, this lane is allowed to carry the principal answer list itself: each item should be an observed frame / event / span from the artifact with citation_ref=-1. Do not substitute current-repo analysis helpers, resolver functions, or nearby implementation details for the artifact facts the user asked about."
 	}
-	for _, seed := range plan.ExternalObservationSeeds {
+	for _, seed := range SelectExternalObservationSeedsForPrompt(plan.ExternalObservationSeeds, ExternalObservationPromptSeedLimit) {
 		text, location := renderExternalObservationSupportEntry(seed)
 		if text == "" {
 			continue
@@ -260,9 +260,6 @@ func compileObservedArtifactSupportLane(plan *AnswerSurfacePlan) AnswerSupportLa
 			Text:     text,
 			Location: location,
 		})
-		if len(lane.Entries) >= 6 {
-			break
-		}
 	}
 	return lane
 }
