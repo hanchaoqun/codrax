@@ -176,10 +176,10 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactFiltersPrincipalFram
 		ExternalObservationSeeds: []ExternalObservationSeed{
 			{Kind: "error_message", Raw: "Cangjie native call failed: index out of bounds"},
 			{Kind: "error_message", Raw: "index out of bounds: index=5, size=3"},
-			{Kind: "log_frame", Lang: "arkts", Func: "NativeBridge.invokeOhSum", File: "entry/src/main/ets/bridges/NativeBridge.ets", Line: 33},
-			{Kind: "log_frame", Lang: "arkts", Func: "HomePage.computeTotal", File: "entry/src/main/ets/pages/Home.ets", Line: 54},
-			{Kind: "log_frame", Lang: "cangjie", Func: "demo.bridge.ohSum", File: "src/bridge/Bridge.cj", Line: 18},
-			{Kind: "log_frame", Lang: "cangjie", Func: "demo.bridge.checkout", File: "src/bridge/Bridge.cj", Line: 42},
+			{Kind: "log_frame", Role: "error_head_frame", Lang: "arkts", Func: "NativeBridge.invokeOhSum", File: "entry/src/main/ets/bridges/NativeBridge.ets", Line: 33},
+			{Kind: "log_frame", Role: "caller_frame", Lang: "arkts", Func: "HomePage.computeTotal", File: "entry/src/main/ets/pages/Home.ets", Line: 54},
+			{Kind: "log_frame", Role: "error_head_frame", Lang: "cangjie", Func: "demo.bridge.ohSum", File: "src/bridge/Bridge.cj", Line: 18},
+			{Kind: "log_frame", Role: "caller_frame", Lang: "cangjie", Func: "demo.bridge.checkout", File: "src/bridge/Bridge.cj", Line: 42},
 		},
 	}
 
@@ -211,8 +211,8 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactFiltersPrincipalFram
 	for _, want := range []string{
 		`structured runtime error message "Cangjie native call failed: index out of bounds"`,
 		`structured runtime error message "index out of bounds: index=5, size=3"`,
-		`runtime artifact includes stack frame "NativeBridge.invokeOhSum"`,
-		`runtime artifact includes stack frame "demo.bridge.ohSum"`,
+		`runtime artifact identifies error head frame "NativeBridge.invokeOhSum"`,
+		`runtime artifact identifies error head frame "demo.bridge.ohSum"`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("observed lane missing principal-safe entry %q:\n%s", want, joined)

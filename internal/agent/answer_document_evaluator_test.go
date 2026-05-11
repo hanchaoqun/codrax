@@ -2156,7 +2156,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 		"## Typed Answer Support Lanes",
 		"### Observed artifact facts",
 		"structured runtime error type",
-		`runtime artifact includes stack frame "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput" at observed internal/agent/analyzer.go:320`,
+		`runtime artifact identifies error head frame "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput" at observed internal/agent/analyzer.go:320`,
 		"internal/agent/analyzer.go:651",
 		"Items rendered under the **Observed artifact facts** lane are runtime trace observations",
 	} {

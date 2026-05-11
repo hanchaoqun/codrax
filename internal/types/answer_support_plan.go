@@ -299,19 +299,31 @@ func selectSupportExternalObservationSeeds(rm RequestModel, seeds []ExternalObse
 			break
 		}
 	}
-	for _, target := range targets {
-		for _, seed := range seeds {
-			if !externalObservationSeedIsFrame(seed) {
-				continue
+	addTargetFrames := func(headOnly bool) int {
+		added := 0
+		for _, target := range targets {
+			for _, seed := range seeds {
+				if !externalObservationSeedIsFrame(seed) {
+					continue
+				}
+				if headOnly && !externalObservationSeedIsErrorHeadFrame(seed) {
+					continue
+				}
+				if externalObservationSeedMatchesTarget(seed, target) && add(seed) {
+					added++
+					break
+				}
 			}
-			if externalObservationSeedMatchesTarget(seed, target) && add(seed) {
-				break
+			if len(out) >= limit {
+				return added
 			}
 		}
-		if len(out) >= limit {
-			return out
-		}
+		return added
 	}
+	if addTargetFrames(true) > 0 {
+		return out
+	}
+	addTargetFrames(false)
 	if len(out) > 0 {
 		return out
 	}
@@ -429,10 +441,17 @@ func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string
 		if file := strings.TrimSpace(strings.ReplaceAll(seed.File, `\`, `/`)); file != "" && seed.Line > 0 {
 			observedLoc = fmt.Sprintf("%s:%d", file, seed.Line)
 		}
-		if observedLoc != "" {
-			return fmt.Sprintf("runtime artifact includes stack frame %q at observed %s", funcLabel, observedLoc), ""
+		rolePrefix := "runtime artifact includes stack frame"
+		switch strings.TrimSpace(seed.Role) {
+		case "error_head_frame":
+			rolePrefix = "runtime artifact identifies error head frame"
+		case "caller_frame":
+			rolePrefix = "runtime artifact includes caller/context frame"
 		}
-		return fmt.Sprintf("runtime artifact includes stack frame %q", funcLabel), ""
+		if observedLoc != "" {
+			return fmt.Sprintf("%s %q at observed %s", rolePrefix, funcLabel, observedLoc), ""
+		}
+		return fmt.Sprintf("%s %q", rolePrefix, funcLabel), ""
 	}
 	if raw == "" {
 		raw = strings.TrimSpace(seed.Func)

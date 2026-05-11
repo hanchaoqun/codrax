@@ -219,6 +219,43 @@ func TestCollectExternalObservationSeeds_WalksCauseChainFrames(t *testing.T) {
 	t.Fatalf("nested cause frame did not surface as external observation seed: %+v", seeds)
 }
 
+func TestCollectExternalObservationSeeds_TagsFirstFramePerErrorAsHead(t *testing.T) {
+	bundle := &LogBundle{
+		Errors: []LogError{{
+			Type: "Error",
+			Frames: []LogFrame{
+				{Lang: "arkts", File: "NativeBridge.ets", Line: 33, Func: "NativeBridge.invokeOhSum"},
+				{Lang: "arkts", File: "Home.ets", Line: 54, Func: "HomePage.computeTotal"},
+			},
+			Cause: &LogError{
+				Type: "panic",
+				Frames: []LogFrame{
+					{Lang: "cangjie", File: "Bridge.cj", Line: 18, Func: "demo.bridge.ohSum"},
+					{Lang: "cangjie", File: "Bridge.cj", Line: 42, Func: "demo.bridge.checkout"},
+				},
+			},
+		}},
+	}
+	seeds := CollectExternalObservationSeeds(bundle, nil)
+	roles := make(map[string]string)
+	for _, seed := range seeds {
+		if seed.Kind == "log_frame" {
+			roles[seed.Func] = seed.Role
+		}
+	}
+	want := map[string]string{
+		"NativeBridge.invokeOhSum": "error_head_frame",
+		"HomePage.computeTotal":    "caller_frame",
+		"demo.bridge.ohSum":        "error_head_frame",
+		"demo.bridge.checkout":     "caller_frame",
+	}
+	for fn, role := range want {
+		if roles[fn] != role {
+			t.Fatalf("frame %s role=%q, want %q (all=%+v)", fn, roles[fn], role, seeds)
+		}
+	}
+}
+
 func TestSelectExternalObservationSeedsForPrompt_BalancesMetaAndCrossLanguageFrames(t *testing.T) {
 	bundle := &LogBundle{
 		Meta: LogMeta{Signals: []LogSignal{SignalPanic, SignalCrash}},

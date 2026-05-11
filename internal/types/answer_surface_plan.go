@@ -183,6 +183,7 @@ type LogSourceDriftAnchor struct {
 type ExternalObservationSeed struct {
 	Kind         string
 	Raw          string
+	Role         string
 	Lang         string
 	File         string
 	Line         int
@@ -2360,13 +2361,14 @@ func SelectExternalObservationSeedsForPrompt(seeds []ExternalObservationSeed, li
 func externalObservationSeedKey(seed ExternalObservationSeed) string {
 	kind := strings.TrimSpace(seed.Kind)
 	raw := strings.TrimSpace(seed.Raw)
+	role := strings.TrimSpace(strings.ToLower(seed.Role))
 	lang := strings.TrimSpace(strings.ToLower(seed.Lang))
 	file := strings.TrimSpace(strings.ReplaceAll(seed.File, `\`, `/`))
 	fn := strings.TrimSpace(seed.Func)
-	if kind == "" && raw == "" && lang == "" && file == "" && seed.Line <= 0 && fn == "" {
+	if kind == "" && raw == "" && role == "" && lang == "" && file == "" && seed.Line <= 0 && fn == "" {
 		return ""
 	}
-	return kind + "|" + raw + "|" + lang + "|" + file + "|" + fmt.Sprintf("%d", seed.Line) + "|" + fn
+	return kind + "|" + raw + "|" + role + "|" + lang + "|" + file + "|" + fmt.Sprintf("%d", seed.Line) + "|" + fn
 }
 
 func externalObservationSeedIsFrame(seed ExternalObservationSeed) bool {
@@ -2376,6 +2378,10 @@ func externalObservationSeedIsFrame(seed ExternalObservationSeed) bool {
 	default:
 		return false
 	}
+}
+
+func externalObservationSeedIsErrorHeadFrame(seed ExternalObservationSeed) bool {
+	return externalObservationSeedIsFrame(seed) && strings.TrimSpace(seed.Role) == "error_head_frame"
 }
 
 func externalObservationFrameSeedPoolLimit() int {
@@ -2480,34 +2486,47 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 			Func: strings.TrimSpace(obs.Subject),
 		})
 	}
-	WalkLogFrames(bundle, func(frame LogFrame) {
+	WalkLogErrors(bundle, func(err *LogError) {
 		if frameCount >= frameLimit {
 			return
 		}
-		if strings.TrimSpace(frame.Raw) == "" && strings.TrimSpace(frame.Func) == "" {
+		if err == nil {
 			return
 		}
-		seed := ExternalObservationSeed{
-			Kind: "log_frame",
-			Raw:  strings.TrimSpace(frame.Raw),
-			Lang: strings.TrimSpace(frame.Lang),
-			File: strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`)),
-			Line: frame.Line,
-			Func: strings.TrimSpace(frame.Func),
-		}
-		if seed.File != "" && seed.Line > 0 {
-			if anchor, ok := anchorByObserved[fmt.Sprintf("%s:%d", seed.File, seed.Line)]; ok {
-				seed.AnchoredFile = strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
-				seed.AnchoredLine = anchor.AnchoredLine
+		for i, frame := range err.Frames {
+			if frameCount >= frameLimit {
+				return
 			}
-		}
-		if (seed.AnchoredFile == "" || seed.AnchoredLine <= 0) && seed.Func != "" {
-			if anchor, ok := anchorByFunc[normalizedSurfaceSymbolTail(seed.Func)]; ok {
-				seed.AnchoredFile = strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
-				seed.AnchoredLine = anchor.AnchoredLine
+			if strings.TrimSpace(frame.Raw) == "" && strings.TrimSpace(frame.Func) == "" {
+				continue
 			}
+			role := "caller_frame"
+			if i == 0 {
+				role = "error_head_frame"
+			}
+			seed := ExternalObservationSeed{
+				Kind: "log_frame",
+				Raw:  strings.TrimSpace(frame.Raw),
+				Role: role,
+				Lang: strings.TrimSpace(frame.Lang),
+				File: strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`)),
+				Line: frame.Line,
+				Func: strings.TrimSpace(frame.Func),
+			}
+			if seed.File != "" && seed.Line > 0 {
+				if anchor, ok := anchorByObserved[fmt.Sprintf("%s:%d", seed.File, seed.Line)]; ok {
+					seed.AnchoredFile = strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+					seed.AnchoredLine = anchor.AnchoredLine
+				}
+			}
+			if (seed.AnchoredFile == "" || seed.AnchoredLine <= 0) && seed.Func != "" {
+				if anchor, ok := anchorByFunc[normalizedSurfaceSymbolTail(seed.Func)]; ok {
+					seed.AnchoredFile = strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+					seed.AnchoredLine = anchor.AnchoredLine
+				}
+			}
+			recordFrame(seed)
 		}
-		recordFrame(seed)
 	})
 	for _, seed := range collectPerfExternalObservationSeeds(perf, observed) {
 		record(seed)
