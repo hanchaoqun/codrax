@@ -157,6 +157,64 @@ func TestRunContractCheck_PassingCase(t *testing.T) {
 	}
 }
 
+func TestRunLogErrorMessageLiteralCheck_DiagnosticRequiresExactRuntimeMessage(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "panic",
+			Message: "index out of bounds: index=5, size=3",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentRootCause,
+				Predicates: types.SemanticPredicates{
+					IsDiagnosticQuestion: true,
+				},
+			},
+		},
+	}
+
+	missing := runLogErrorMessageLiteralCheck(ctx, "仓颉侧发生索引越界，index=5, size=3")
+	if len(missing) != 1 || missing[0].Kind != types.ViolMustInclude {
+		t.Fatalf("diagnostic artifact answer should preserve exact runtime message, got %+v", missing)
+	}
+	if !strings.Contains(missing[0].Repair, "index out of bounds: index=5, size=3") {
+		t.Fatalf("repair should carry exact message, got %+v", missing[0])
+	}
+
+	present := runLogErrorMessageLiteralCheck(ctx, "panic: index out of bounds: index=5, size=3 at Bridge.cj:18")
+	if len(present) != 0 {
+		t.Fatalf("exact runtime message should satisfy gate, got %+v", present)
+	}
+}
+
+func TestRunLogErrorMessageLiteralCheck_NonDiagnosticTreatsMessageAsSoftContext(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "panic",
+			Message: "index out of bounds: index=5, size=3",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+			},
+		},
+	}
+
+	got := runLogErrorMessageLiteralCheck(ctx, "This answer discusses the architecture only.")
+	if len(got) != 0 {
+		t.Fatalf("non-diagnostic artifact question must not hard-require error messages, got %+v", got)
+	}
+}
+
 func TestRenderViolations_Ordering(t *testing.T) {
 	res := contract.Result{
 		Passed: false,

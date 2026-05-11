@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // LogBundle is the validated output of the log_triage pre-stage.
 // It carries the LLM's structured view of the user-attached runtime
 // log plus a system-derived layer that every downstream consumer
@@ -408,6 +410,33 @@ func LogBundleErrorTypes(bundle *LogBundle) []string {
 			seen[t] = true
 			out = append(out, t)
 		}
+	})
+	return out
+}
+
+// LogBundleErrorMessages walks every top-level error and its Cause
+// chain, returning the ordered, de-duplicated list of non-empty
+// Message strings. Unlike Entities, these are answer-surface facts:
+// when a user asks about an attached log, the final answer should
+// preserve the runtime's original diagnostic wording instead of
+// paraphrasing it away.
+func LogBundleErrorMessages(bundle *LogBundle) []string {
+	if bundle == nil {
+		return nil
+	}
+	var out []string
+	seen := make(map[string]bool)
+	WalkLogErrors(bundle, func(err *LogError) {
+		msg := strings.Join(strings.Fields(err.Message), " ")
+		if msg == "" {
+			return
+		}
+		key := strings.ToLower(msg)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, msg)
 	})
 	return out
 }

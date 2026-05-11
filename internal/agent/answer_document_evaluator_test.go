@@ -1642,7 +1642,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogTriageAndDiag
 		},
 		LogTriage: &types.LogBundle{
 			Errors: []types.LogError{{
-				Type: "runtime error: invalid memory address or nil pointer dereference",
+				Type:    "runtime error: invalid memory address or nil pointer dereference",
+				Message: "nil pointer dereference while parsing analyzer output",
 				Frames: []types.LogFrame{
 					{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"},
 					{File: "internal/agent/analyzer.go", Line: 320, Func: "ParseOutput"},
@@ -1656,6 +1657,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersLogTriageAndDiag
 		"## Submission Checklist",
 		"name each structured log error type or exception identifier from Log Triage",
 		"the exact structured log error type(s) you must mention literally in `summary` are: `runtime error: invalid memory address or nil pointer dereference`",
+		"Because the typed request profile marks this as a diagnostic / root-cause artifact question, preserve these structured log error message(s) verbatim in `summary` or body: `nil pointer dereference while parsing analyzer output`",
 		"Every file/path node you keep inside a fenced diagram must also be grounded by `citations[]` or by attached Log Triage frames",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -2075,6 +2077,32 @@ func TestAnswerDocumentEvaluator_BuildRetryInstruction_UsesPluralBlockClaimUsesP
 	}
 	if strings.Contains(hint, "`blocks[].claim_use`") {
 		t.Fatalf("retry instruction must not mention stale blocks[].claim_use path:\n%s", hint)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_DoesNotHardRequireLogMessagesForNonDiagnosticIntent(t *testing.T) {
+	ctx := &types.AgentContext{
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{
+				Type:    "panic",
+				Message: "index out of bounds: index=5, size=3",
+			}},
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "preserve these structured log error message(s) verbatim") {
+		t.Fatalf("non-diagnostic intent must not hard-require log message literals:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Structured log error type") {
+		t.Fatalf("log artifact should still be available as soft context:\n%s", prompt)
 	}
 }
 

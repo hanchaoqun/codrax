@@ -145,6 +145,20 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 			out.DiagnosticConfidence = 0.85
 		}
 	}
+	for _, msg := range LogBundleErrorMessages(bundle) {
+		text := strings.TrimSpace(msg)
+		if text == "" {
+			continue
+		}
+		out.ObservationKinds = append(out.ObservationKinds, "error_message")
+		out.EvidenceSnippets = append(out.EvidenceSnippets, clampProfileSnippet(text))
+		if out.SymptomSummary == "" {
+			out.SymptomSummary = clampProfileSnippet(text)
+		}
+		if out.DiagnosticConfidence < 0.85 {
+			out.DiagnosticConfidence = 0.85
+		}
+	}
 	for _, obs := range bundle.Observations {
 		kind := strings.TrimSpace(string(obs.Kind))
 		if kind != "" {

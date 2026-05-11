@@ -482,6 +482,20 @@ func (p DiagnosticIntentProfile) RequiresCurrentStatusDiagnostic() bool {
 	return p.CurrentRisk || p.HistoricalRegression || p.CurrentVersionCheck
 }
 
+// RequiresDiagnosticArtifactMessageSurface reports whether attached
+// artifact error messages are answer-bearing enough to preserve as
+// exact runtime wording. This intentionally reads only typed analyzer
+// intent/scenario flags, never raw request keywords: ordinary
+// non-observation questions with an incidental attachment should see
+// messages as soft context, while diagnostic/root-cause questions need
+// the runtime's original error wording to remain visible.
+func (rm RequestModel) RequiresDiagnosticArtifactMessageSurface() bool {
+	return rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.Intent == IntentRootCause ||
+		rm.Scenario == ScenarioRootCause
+}
+
 // AnalyzerHints is the raw LLM-extracted analyzer output, mirrored onto
 // the IR so downstream consumers have a single canonical read path.
 type AnalyzerHints struct {

@@ -265,6 +265,11 @@ func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string
 			return "", ""
 		}
 		return fmt.Sprintf("structured runtime error type %q", raw), ""
+	case "error_message":
+		if raw == "" {
+			return "", ""
+		}
+		return fmt.Sprintf("structured runtime error message %q", raw), ""
 	case "signal":
 		if raw == "" {
 			return "", ""

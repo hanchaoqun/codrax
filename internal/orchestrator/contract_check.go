@@ -221,6 +221,10 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		result.Violations = append(result.Violations,
 			runExternalArtifactDecodedCheck(mut, draft.Text)...)
 	}
+	if o != nil && o.busCtx != nil {
+		result.Violations = append(result.Violations,
+			runLogErrorMessageLiteralCheck(o.busCtx, draft.Text)...)
+	}
 
 	// AuthorityCeiling axis: walk the rendered prose looking for
 	// citations whose underlying evidence carries non-factual
@@ -327,6 +331,66 @@ func runExternalArtifactDecodedCheck(mut *types.MutableState, draftText string) 
 		},
 		Stage: string(types.StageFinalize),
 	}}
+}
+
+func runLogErrorMessageLiteralCheck(ctx *types.BusContext, draftText string) []types.Violation {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	bundle := ctx.Mutable.LogTriage()
+	if bundle == nil || !shouldRequireLogErrorMessageLiterals(ctx) {
+		return nil
+	}
+	answer := normalizeRuntimeMessageLiteral(draftText)
+	var out []types.Violation
+	for _, msg := range requiredLogErrorMessagesForContract(bundle) {
+		if msg == "" {
+			continue
+		}
+		if strings.Contains(answer, normalizeRuntimeMessageLiteral(msg)) {
+			continue
+		}
+		out = append(out, types.Violation{
+			Kind:       types.ViolMustInclude,
+			Detail:     fmt.Sprintf("required runtime error message %q missing from answer", msg),
+			Repair:     fmt.Sprintf("preserve the runtime error message %q verbatim in the summary or body; do not translate it away", msg),
+			ClusterKey: types.IdentityClusterKey("runtime_error_message:"+msg, "must_include"),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "log_error_message",
+				Reason:     "diagnostic artifact answer omitted original runtime error wording",
+				Confidence: 0.85,
+			},
+			Stage: string(types.StageFinalize),
+		})
+	}
+	return out
+}
+
+func shouldRequireLogErrorMessageLiterals(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if ctx.AnalysisIR != nil {
+		return ctx.AnalysisIR.RequestModel.RequiresDiagnosticArtifactMessageSurface()
+	}
+	if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			return rm.RequiresDiagnosticArtifactMessageSurface()
+		}
+	}
+	return false
+}
+
+func requiredLogErrorMessagesForContract(bundle *types.LogBundle) []string {
+	messages := types.LogBundleErrorMessages(bundle)
+	if len(messages) > 4 {
+		messages = messages[:4]
+	}
+	return messages
+}
+
+func normalizeRuntimeMessageLiteral(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // runAuthorityOverreachCheck guards against rendered drafts that

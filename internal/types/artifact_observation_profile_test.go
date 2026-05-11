@@ -41,6 +41,39 @@ func TestBuildArtifactObservationProfile_PreservesNonExceptionLogObservations(t 
 	}
 }
 
+func TestBuildArtifactObservationProfile_PreservesErrorMessagesAsTypedEvidence(t *testing.T) {
+	profile := BuildArtifactObservationProfile(&LogBundle{
+		Errors: []LogError{{
+			Type:    "panic",
+			Message: "index out of bounds: index=5, size=3",
+			Cause: &LogError{
+				Type:    "Error",
+				Message: "Cangjie native call failed: index out of bounds",
+			},
+		}},
+	}, nil)
+	if profile == nil {
+		t.Fatal("profile nil")
+	}
+	var sawKind, sawRootMessage, sawCauseMessage bool
+	for _, kind := range profile.ObservationKinds {
+		if kind == "error_message" {
+			sawKind = true
+		}
+	}
+	for _, snippet := range profile.EvidenceSnippets {
+		if snippet == "index out of bounds: index=5, size=3" {
+			sawRootMessage = true
+		}
+		if snippet == "Cangjie native call failed: index out of bounds" {
+			sawCauseMessage = true
+		}
+	}
+	if !sawKind || !sawRootMessage || !sawCauseMessage {
+		t.Fatalf("error messages not surfaced as typed evidence: %+v", profile)
+	}
+}
+
 func TestBuildArtifactObservationProfile_PreservesTraceSignals(t *testing.T) {
 	profile := BuildArtifactObservationProfile(nil, &PerfBundle{
 		Meta: PerfMeta{Source: "hitrace", Summary: "main thread stalls during scroll"},

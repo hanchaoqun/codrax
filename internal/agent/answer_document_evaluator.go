@@ -680,6 +680,9 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 		if explicit := renderRequiredLogTriageTypes(ctx.LogTriage); explicit != "" {
 			items = append(items, explicit)
 		}
+		if explicit := renderRequiredLogTriageMessages(ctx); explicit != "" {
+			items = append(items, explicit)
+		}
 	}
 	if diagramRequired {
 		items = append(items,
@@ -2302,6 +2305,32 @@ func renderRequiredLogTriageTypes(bundle *types.LogBundle) string {
 		return ""
 	}
 	return "For this dispatch, the exact structured log error type(s) you must mention literally in `summary` are: `" + strings.Join(typeNames, "`, `") + "`."
+}
+
+func renderRequiredLogTriageMessages(ctx *types.AgentContext) string {
+	messages := requiredLogErrorMessagesForAgentContext(ctx)
+	if len(messages) == 0 {
+		return ""
+	}
+	return "Because the typed request profile marks this as a diagnostic / root-cause artifact question, preserve these structured log error message(s) verbatim in `summary` or body: `" + strings.Join(messages, "`, `") + "`."
+}
+
+func requiredLogErrorMessagesForAgentContext(ctx *types.AgentContext) []string {
+	if ctx == nil || ctx.LogTriage == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	if !ctx.AnalysisIR.RequestModel.RequiresDiagnosticArtifactMessageSurface() {
+		return nil
+	}
+	return requiredLogErrorMessages(ctx.LogTriage)
+}
+
+func requiredLogErrorMessages(bundle *types.LogBundle) []string {
+	messages := types.LogBundleErrorMessages(bundle)
+	if len(messages) > 4 {
+		messages = messages[:4]
+	}
+	return messages
 }
 
 func renderAnswerDocDiagramFlowSeed(findings []types.FlowFindingDigest) string {
