@@ -777,7 +777,7 @@ var answerDocClaimFormLabels = map[types.ClaimForm]string{
 //
 //  1. ## Hard Rule (top) — preserve every unchanged field byte-identical.
 //  2. ## Required Changes — typed FieldPath + Repair text per violation,
-//     grouped by Severity (Critical first, then High, Medium; Soft skipped).
+//     grouped by repair phase; Soft skipped.
 //  3. ## Active Violations — full set, by Severity + Layer, so the
 //     LLM has cross-layer visibility (R13 fix).
 //  4. ## Previous Emit — typed projection of prev emit (R6/R6.1 fix:
@@ -796,9 +796,9 @@ func renderAnswerDocRetryState(ctx *types.AgentContext) string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Hard Rule (retry attempt %d)\n\n", rs.Attempt)
-	b.WriteString("Your last `emit_answer_document` was rejected. Re-emit by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
+	b.WriteString("Your last `emit_answer_document` was rejected. Re-emit by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths or global rewrite items listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
 
-	// 2. Required Changes (sorted by severity desc, soft excluded).
+	// 2. Required Changes (phase partitioned, soft excluded).
 	if changes := renderRetryRequiredChanges(rs); changes != "" {
 		b.WriteString(changes)
 	}
@@ -1264,29 +1264,42 @@ func liveCountFacetDepth(doc *types.AnswerDocumentV2, kind string) (declared, an
 	return declared, anchored
 }
 
-// renderRetryRequiredChanges renders the typed FieldPath + Repair
-// list for every violation with Severity >= Medium. Soft violations
-// are listed in the Active Violations section but NOT in Required
-// Changes (LLM is informed they exist but not required to fix).
+type retryRepairPhase string
+
+const (
+	retryRepairPhaseStructure   retryRepairPhase = "structure"
+	retryRepairPhaseConsistency retryRepairPhase = "consistency"
+	retryRepairPhaseCoverage    retryRepairPhase = "coverage"
+	retryRepairPhaseRichness    retryRepairPhase = "richness"
+)
+
+// renderRetryRequiredChanges renders the typed FieldPath + Repair list
+// for every violation with Severity >= Medium. Soft violations are
+// listed in the Active Violations section but NOT in Required Changes.
 //
-// Sort order: Critical first, then High, then Medium. Within a
-// severity bucket, preserve producer order (deterministic).
+// Repair work is partitioned by phase so a wrong-topic rewrite does
+// not get bundled with enrichment requests. Within a phase, entries
+// are still severity-sorted Critical -> High -> Medium.
 func renderRetryRequiredChanges(rs *types.RetryState) string {
 	if rs == nil || len(rs.ActiveViolations) == 0 {
 		return ""
 	}
-	type bucket struct {
-		severity types.Severity
-		entries  []types.ScoredViolation
+	type phaseBucket struct {
+		phase   retryRepairPhase
+		entries []types.ScoredViolation
 	}
-	buckets := []*bucket{
-		{severity: types.SeverityCritical},
-		{severity: types.SeverityHigh},
-		{severity: types.SeverityMedium},
+	hasTopicMismatch := retryHasTopicMismatch(rs.ActiveViolations)
+	buckets := []*phaseBucket{}
+	for _, phase := range retryRepairPhaseOrder(hasTopicMismatch) {
+		buckets = append(buckets, &phaseBucket{phase: phase})
 	}
 	for _, sv := range rs.ActiveViolations {
+		if !retryRequiredChangeAllowed(sv, hasTopicMismatch) {
+			continue
+		}
+		phase := retryRepairPhaseForViolation(sv)
 		for _, b := range buckets {
-			if sv.Severity == b.severity {
+			if b.phase == phase {
 				b.entries = append(b.entries, sv)
 				break
 			}
@@ -1294,6 +1307,9 @@ func renderRetryRequiredChanges(rs *types.RetryState) string {
 	}
 	totalActionable := 0
 	for _, b := range buckets {
+		sort.SliceStable(b.entries, func(i, j int) bool {
+			return retryRequiredSeverityRank(b.entries[i].Severity) < retryRequiredSeverityRank(b.entries[j].Severity)
+		})
 		totalActionable += len(b.entries)
 	}
 	if totalActionable == 0 {
@@ -1301,18 +1317,21 @@ func renderRetryRequiredChanges(rs *types.RetryState) string {
 	}
 	var out strings.Builder
 	out.WriteString("## Required Changes\n\n")
-	out.WriteString("Apply each change below. Each entry names the typed FIELD PATH the LLM must edit (relative to your `emit_answer_document` params) and the validator's repair guidance.\n\n")
+	out.WriteString("Apply the first listed group before later groups. If the answer is on the wrong subject, fix that rewrite first; save enrichment-only additions for a later retry.\n\n")
 	for _, b := range buckets {
 		if len(b.entries) == 0 {
 			continue
 		}
-		fmt.Fprintf(&out, "**%s** (must fix):\n\n", strings.ToUpper(string(b.severity)))
+		fmt.Fprintf(&out, "**%s**:\n\n", retryRepairPhaseTitle(b.phase))
 		for _, sv := range b.entries {
 			out.WriteString("- ")
 			if sv.FieldPath != "" {
 				fmt.Fprintf(&out, "field path `%s`", sv.FieldPath)
 			} else {
-				fmt.Fprintf(&out, "kind=%s", sv.Kind)
+				out.WriteString("global fix")
+			}
+			if sv.Severity != "" {
+				fmt.Fprintf(&out, " [%s]", sv.Severity)
 			}
 			if sv.BlockID != "" && !strings.Contains(sv.FieldPath, sv.BlockID) {
 				fmt.Fprintf(&out, " (block id=%q)", sv.BlockID)
@@ -1329,6 +1348,163 @@ func renderRetryRequiredChanges(rs *types.RetryState) string {
 		out.WriteString("\n")
 	}
 	return out.String()
+}
+
+func retryHasTopicMismatch(vs []types.ScoredViolation) bool {
+	for _, sv := range vs {
+		if sv.Kind == types.ViolAnswerTopicMismatch && sv.Severity != types.SeveritySoft {
+			return true
+		}
+	}
+	return false
+}
+
+func retryRequiredChangeAllowed(sv types.ScoredViolation, hasTopicMismatch bool) bool {
+	if sv.Severity == "" || sv.Severity == types.SeveritySoft {
+		return false
+	}
+	if !hasTopicMismatch {
+		return true
+	}
+	if sv.Kind == types.ViolAnswerTopicMismatch {
+		return true
+	}
+	return sv.Severity == types.SeverityCritical
+}
+
+func retryRepairPhaseOrder(hasTopicMismatch bool) []retryRepairPhase {
+	if hasTopicMismatch {
+		return []retryRepairPhase{
+			retryRepairPhaseCoverage,
+			retryRepairPhaseStructure,
+			retryRepairPhaseConsistency,
+			retryRepairPhaseRichness,
+		}
+	}
+	return []retryRepairPhase{
+		retryRepairPhaseStructure,
+		retryRepairPhaseConsistency,
+		retryRepairPhaseCoverage,
+		retryRepairPhaseRichness,
+	}
+}
+
+func retryRepairPhaseForViolation(sv types.ScoredViolation) retryRepairPhase {
+	switch sv.Kind {
+	case types.ViolBlockCoverageMissing,
+		types.ViolPrincipalClaimUseMissing,
+		types.ViolUncertaintyBlockMissing,
+		types.ViolCurrentStatusVerdictMissing,
+		types.ViolLaneBlockKindMismatch,
+		types.ViolMissingRequestedRoleUndisclosed,
+		types.ViolFamilyMismatch,
+		types.ViolViewSwap,
+		types.ViolViewIntentMismatch,
+		types.ViolSubTopicCountMismatch,
+		types.ViolDeclaredCountDrift,
+		types.ViolStructuralEnumerationDivergence,
+		types.ViolScalarCountUnsourced,
+		types.ViolCardinalityShort,
+		types.ViolPathDepthInsufficient,
+		types.ViolEntityParityImbalanced:
+		return retryRepairPhaseStructure
+	case types.ViolAnswerTopicMismatch,
+		types.ViolAnswerSemanticUnderfilled,
+		types.ViolFacetUncovered,
+		types.ViolSubjectAnchorMissing,
+		types.ViolPredicateAxisMissing,
+		types.ViolIntentTraceShallow,
+		types.ViolIntentEnumerateNotList,
+		types.ViolIntentRootCauseNoCause,
+		types.ViolIntentConfigNoTrail:
+		return retryRepairPhaseCoverage
+	case types.ViolRichnessRegression,
+		types.ViolRichnessGlaringGap,
+		types.ViolPrincipalProseUnderfilled,
+		types.ViolEnumerationEvidenceUnderspecified,
+		types.ViolDiagramRelationLabelOnly:
+		return retryRepairPhaseRichness
+	case types.ViolCitation,
+		types.ViolMustInclude,
+		types.ViolMustExclude,
+		types.ViolAcceptance,
+		types.ViolSuccessCriterion,
+		types.ViolGhostAnchor,
+		types.ViolSelfRefLiteral,
+		types.ViolPreCompleteDowngrade,
+		types.ViolLiteralFormFailed,
+		types.ViolDiagramIdentifier,
+		types.ViolDiagramEdgeUnsupported,
+		types.ViolDiagramEdgeLabelMismatch,
+		types.ViolClaimFormUnsupported,
+		types.ViolAbsenceScopeExceeded,
+		types.ViolStepIdentifierUnverified,
+		types.ViolValueSecondaryCitationOffFocus,
+		types.ViolSelfContradiction,
+		types.ViolExternalArtifactUnderdecoded,
+		types.ViolAuthorityOverreach,
+		types.ViolCrossCitationConflict,
+		types.ViolSymbolAnchorMismatch,
+		types.ViolEnumerationLabelUngrounded,
+		types.ViolEnumerationItemLabelExtractorDrift,
+		types.ViolEnumerationLabelHallucinated,
+		types.ViolInlineIdentifierHallucinated,
+		types.ViolDiagramEdgeEndpointHallucinated:
+		return retryRepairPhaseConsistency
+	}
+	if spec, ok := types.ViolKindSpecFor(sv.Kind); ok {
+		switch spec.Layer {
+		case "semantic_quality":
+			return retryRepairPhaseCoverage
+		case "v2_oracle":
+			return retryRepairPhaseStructure
+		case "evidence_pool":
+			return retryRepairPhaseRichness
+		case "contract_check", "self_consistency", "external_artifact", "authority":
+			return retryRepairPhaseConsistency
+		}
+	}
+	switch sv.Layer {
+	case "semantic_quality":
+		return retryRepairPhaseCoverage
+	case "v2_oracle":
+		return retryRepairPhaseStructure
+	case "evidence_pool":
+		return retryRepairPhaseRichness
+	case "contract_check", "self_consistency", "external_artifact", "authority":
+		return retryRepairPhaseConsistency
+	}
+	return retryRepairPhaseConsistency
+}
+
+func retryRepairPhaseTitle(phase retryRepairPhase) string {
+	switch phase {
+	case retryRepairPhaseStructure:
+		return "Payload shape"
+	case retryRepairPhaseConsistency:
+		return "Grounding and consistency"
+	case retryRepairPhaseCoverage:
+		return "Requested topic and coverage"
+	case retryRepairPhaseRichness:
+		return "Supported enrichment"
+	default:
+		return "Required fix"
+	}
+}
+
+func retryRequiredSeverityRank(sev types.Severity) int {
+	switch sev {
+	case types.SeverityCritical:
+		return 0
+	case types.SeverityHigh:
+		return 1
+	case types.SeverityMedium:
+		return 2
+	case types.SeveritySoft:
+		return 3
+	default:
+		return 4
+	}
 }
 
 // renderRetryActiveViolations renders the full violation set

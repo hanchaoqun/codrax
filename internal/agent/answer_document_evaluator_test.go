@@ -3574,7 +3574,7 @@ func TestRenderAnswerDocRetryState_NilOrEmpty(t *testing.T) {
 // TestRenderAnswerDocRetryState_FullPayload pins the 4 required
 // sections + key invariants:
 //   - Hard Rule referenced first
-//   - Required Changes lists Critical first
+//   - Required Changes groups actionable fixes by repair phase
 //   - Active Violations groups by Severity (incl Soft as telemetry)
 //   - Previous Emit shows block-level claim_use + facet_ids verbatim
 func TestRenderAnswerDocRetryState_FullPayload(t *testing.T) {
@@ -3641,15 +3641,15 @@ func TestRenderAnswerDocRetryState_FullPayload(t *testing.T) {
 		}
 	}
 
-	// 2. Required Changes — Critical first, then High; Soft NOT in this section
+	// 2. Required Changes — phase partitioned; Soft NOT in this section
 	cIdx := strings.Index(got, "## Required Changes")
 	if cIdx < 0 {
 		t.Fatal("Required Changes section missing")
 	}
-	criticalIdx := strings.Index(got, "**CRITICAL**")
-	highIdx := strings.Index(got, "**HIGH**")
-	if criticalIdx <= 0 || criticalIdx > highIdx {
-		t.Errorf("CRITICAL must precede HIGH in Required Changes")
+	shapeIdx := strings.Index(got, "**Payload shape**")
+	coverageIdx := strings.Index(got, "**Requested topic and coverage**")
+	if shapeIdx <= 0 || coverageIdx <= 0 || shapeIdx > coverageIdx {
+		t.Errorf("Payload shape fixes must precede requested-topic fixes in Required Changes")
 	}
 	if !strings.Contains(got, `blocks[id="lifecycle"].claim_use`) {
 		t.Errorf("missing typed FieldPath in Required Changes:\n%s", got[cIdx:cIdx+800])
@@ -3688,28 +3688,65 @@ func TestRenderAnswerDocRetryState_FullPayload(t *testing.T) {
 	}
 }
 
-// TestRenderRetryRequiredChanges_GroupsBySeverity verifies the
-// Critical → High → Medium ordering and Soft exclusion.
-func TestRenderRetryRequiredChanges_GroupsBySeverity(t *testing.T) {
+// TestRenderRetryRequiredChanges_GroupsByPhaseThenSeverity verifies
+// phase partitioning, per-phase Critical -> High -> Medium ordering,
+// and Soft exclusion.
+func TestRenderRetryRequiredChanges_GroupsByPhaseThenSeverity(t *testing.T) {
 	rs := &types.RetryState{
 		ActiveViolations: []types.ScoredViolation{
-			{Kind: "k_med", Severity: types.SeverityMedium, Detail: "med"},
-			{Kind: "k_crit", Severity: types.SeverityCritical, Detail: "crit"},
-			{Kind: "k_high", Severity: types.SeverityHigh, Detail: "high"},
-			{Kind: "k_soft", Severity: types.SeveritySoft, Detail: "soft"},
+			{Kind: types.ViolMustInclude, Severity: types.SeverityMedium, Detail: "consistency med"},
+			{Kind: types.ViolBlockCoverageMissing, Severity: types.SeverityMedium, Detail: "shape med"},
+			{Kind: types.ViolPrincipalClaimUseMissing, Severity: types.SeverityCritical, Detail: "shape crit"},
+			{Kind: types.ViolFacetUncovered, Severity: types.SeverityHigh, Detail: "coverage high"},
+			{Kind: types.ViolRichnessGlaringGap, Severity: types.SeverityMedium, Detail: "richness med"},
+			{Kind: types.ViolRichnessRegression, Severity: types.SeveritySoft, Detail: "soft"},
 		},
 	}
 	got := renderRetryRequiredChanges(rs)
-	cIdx := strings.Index(got, "**CRITICAL**")
-	hIdx := strings.Index(got, "**HIGH**")
-	mIdx := strings.Index(got, "**MEDIUM**")
-	if cIdx < 0 || hIdx < 0 || mIdx < 0 {
-		t.Fatalf("missing severity sections; got:\n%s", got)
+	shapeIdx := strings.Index(got, "**Payload shape**")
+	consistencyIdx := strings.Index(got, "**Grounding and consistency**")
+	coverageIdx := strings.Index(got, "**Requested topic and coverage**")
+	richnessIdx := strings.Index(got, "**Supported enrichment**")
+	if shapeIdx < 0 || consistencyIdx < 0 || coverageIdx < 0 || richnessIdx < 0 {
+		t.Fatalf("missing phase sections; got:\n%s", got)
 	}
-	if !(cIdx < hIdx && hIdx < mIdx) {
-		t.Errorf("severity ordering broken: c=%d h=%d m=%d", cIdx, hIdx, mIdx)
+	if !(shapeIdx < consistencyIdx && consistencyIdx < coverageIdx && coverageIdx < richnessIdx) {
+		t.Errorf("phase ordering broken: shape=%d consistency=%d coverage=%d richness=%d", shapeIdx, consistencyIdx, coverageIdx, richnessIdx)
+	}
+	critIdx := strings.Index(got, "shape crit")
+	medIdx := strings.Index(got, "shape med")
+	if critIdx < 0 || medIdx < 0 || critIdx > medIdx {
+		t.Errorf("severity ordering inside phase broken:\n%s", got)
 	}
 	if strings.Contains(got, "soft") {
 		t.Errorf("Soft must not appear in Required Changes:\n%s", got)
+	}
+}
+
+func TestRenderRetryRequiredChanges_TopicMismatchSuppressesEnrichment(t *testing.T) {
+	rs := &types.RetryState{
+		ActiveViolations: []types.ScoredViolation{
+			{Kind: types.ViolAnswerTopicMismatch, Severity: types.SeverityHigh, Detail: "wrong subject"},
+			{Kind: types.ViolAnswerSemanticUnderfilled, Severity: types.SeverityMedium, Detail: "thin explanation"},
+			{Kind: types.ViolRichnessGlaringGap, Severity: types.SeverityMedium, Detail: "missing optional detail"},
+			{Kind: types.ViolPrincipalClaimUseMissing, Severity: types.SeverityCritical, Detail: "missing claim use"},
+		},
+	}
+	got := renderRetryRequiredChanges(rs)
+	topicIdx := strings.Index(got, "wrong subject")
+	shapeIdx := strings.Index(got, "missing claim use")
+	if topicIdx < 0 {
+		t.Fatalf("topic mismatch must stay actionable:\n%s", got)
+	}
+	if shapeIdx < 0 {
+		t.Fatalf("critical structural blocker must stay actionable:\n%s", got)
+	}
+	if topicIdx > shapeIdx {
+		t.Errorf("topic mismatch should lead the repair when present:\n%s", got)
+	}
+	for _, banned := range []string{"thin explanation", "missing optional detail"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("topic-mismatch repair must not bundle enrichment %q:\n%s", banned, got)
+		}
 	}
 }
