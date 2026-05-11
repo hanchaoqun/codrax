@@ -724,6 +724,7 @@ func compileCurrentStatusVerdictSupportLane(plan *AnswerSupportPlan) AnswerSuppo
 			}
 			lane.Entries = append(lane.Entries, AnswerSupportEntry{
 				Text:     fmt.Sprintf("%s verdict support: %s", title, text),
+				Detail:   entry.Detail,
 				Location: location,
 			})
 			if len(lane.Entries) >= 8 {
@@ -768,6 +769,7 @@ func compileObservedArtifactSupportLane(rm RequestModel, plan *AnswerSurfacePlan
 		}
 		lane.Entries = append(lane.Entries, AnswerSupportEntry{
 			Text:     text,
+			Detail:   externalObservationSupportDetail(seed, text),
 			Location: location,
 		})
 	}
@@ -979,6 +981,19 @@ func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string
 	return fmt.Sprintf("runtime observation %q", raw), ""
 }
 
+func externalObservationSupportDetail(seed ExternalObservationSeed, text string) string {
+	var parts []string
+	for _, raw := range []string{seed.Raw} {
+		if detail := answerSupportEntryDetail(raw, text); detail != "" {
+			parts = append(parts, detail)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "; ")
+}
+
 func compileCurrentCodePathSupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {
 	lane := AnswerSupportLane{
 		Kind:          SupportLaneCurrentCodePath,
@@ -999,6 +1014,7 @@ func compileCurrentCodePathSupportLane(plan *AnswerSurfacePlan) AnswerSupportLan
 		}
 		lane.Entries = append(lane.Entries, AnswerSupportEntry{
 			Text:     text,
+			Detail:   callChainEvidenceSupportDetail(item, text),
 			Location: supportEntryLocation(item),
 		})
 		if len(lane.Entries) >= 4 {
@@ -1031,6 +1047,7 @@ func compileNearestMechanismSupportLane(plan *AnswerSurfacePlan, strength rootCa
 		}
 		lane.Entries = append(lane.Entries, AnswerSupportEntry{
 			Text:     text,
+			Detail:   callChainEvidenceSupportDetail(item, text),
 			Location: supportEntryLocation(item),
 		})
 		if len(lane.Entries) >= 3 {

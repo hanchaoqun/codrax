@@ -136,7 +136,7 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactCanBePrincipalList(t
 		},
 		ExternalObservationSeeds: []ExternalObservationSeed{
 			{Kind: "error_message", Raw: "index out of bounds: index=5, size=3"},
-			{Kind: "frame", Func: "demo.bridge.ohSum", File: "src/bridge/Bridge.cj", Line: 18},
+			{Kind: "frame", Raw: "at demo.bridge.ohSum (src/bridge/Bridge.cj:18)", Func: "demo.bridge.ohSum", File: "src/bridge/Bridge.cj", Line: 18},
 		},
 	}
 
@@ -163,6 +163,9 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactCanBePrincipalList(t
 	if !strings.Contains(observed.Guidance, "principal answer list") ||
 		!strings.Contains(observed.Guidance, "Do not substitute current-repo analysis helpers") {
 		t.Fatalf("external-only observed guidance should forbid helper substitution, got: %q", observed.Guidance)
+	}
+	if len(observed.Entries) < 2 || !strings.Contains(observed.Entries[1].Detail, "src/bridge/Bridge.cj:18") {
+		t.Fatalf("observed frame should preserve raw artifact detail separately from the principal label, got %+v", observed.Entries)
 	}
 }
 
@@ -625,6 +628,7 @@ func TestBuildAnswerSupportPlanForAgentContext_CurrentStatusAddsVerdictLane(t *t
 				Subject:      "ParseOutput",
 				Object:       "buildAnalysisIR",
 				AnchorSymbol: "buildAnalysisIR",
+				Summary:      "ParseOutput invokes buildAnalysisIR as the observed analyzer handoff",
 			},
 			{
 				Kind:         EvidenceConditional,
@@ -665,6 +669,26 @@ func TestBuildAnswerSupportPlanForAgentContext_CurrentStatusAddsVerdictLane(t *t
 	}
 }
 
+func TestCompileCurrentStatusVerdictSupportLanePreservesEntryDetail(t *testing.T) {
+	lane := compileCurrentStatusVerdictSupportLane(&AnswerSupportPlan{
+		Lanes: []AnswerSupportLane{{
+			Kind:  SupportLaneCurrentCodePath,
+			Title: "Current grounded code path",
+			Entries: []AnswerSupportEntry{{
+				Text:     "ParseOutput calls buildAnalysisIR",
+				Detail:   "ParseOutput invokes buildAnalysisIR as the observed analyzer handoff",
+				Location: "internal/agent/analyzer.go:743",
+			}},
+		}},
+	})
+	if len(lane.Entries) != 1 {
+		t.Fatalf("verdict lane entries = %+v", lane.Entries)
+	}
+	if !strings.Contains(lane.Entries[0].Detail, "observed analyzer handoff") {
+		t.Fatalf("current-status verdict lane should preserve source evidence detail, got %+v", lane.Entries)
+	}
+}
+
 func TestBuildAnswerSupportPlan_RootCauseTraceKeepsGuardProtectedAccessOutOfNearestMechanism(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		DriftBoundedSurfaceItems: []EvidenceItem{
@@ -676,6 +700,7 @@ func TestBuildAnswerSupportPlan_RootCauseTraceKeepsGuardProtectedAccessOutOfNear
 				Subject:      "ParseOutput",
 				Object:       "buildAnalysisIR",
 				AnchorSymbol: "buildAnalysisIR",
+				Summary:      "ParseOutput calls buildAnalysisIR as the observed frame transition",
 			},
 			{
 				Kind:         EvidenceConditional,
@@ -738,6 +763,7 @@ func TestBuildAnswerSupportPlan_RootCauseTracePathLanePrefersObservedFrameTransi
 				Subject:      "ParseOutput",
 				Object:       "buildAnalysisIR",
 				AnchorSymbol: "buildAnalysisIR",
+				Summary:      "ParseOutput calls buildAnalysisIR as the observed frame transition",
 			},
 			{
 				Kind:         EvidenceConditional,
@@ -789,6 +815,9 @@ func TestBuildAnswerSupportPlan_RootCauseTracePathLanePrefersObservedFrameTransi
 	if strings.Contains(body, "RequestModel") {
 		t.Fatalf("path lane should not elevate intra-function helper calls into the principal path, got:\n%s", body)
 	}
+	if len(pathLane.Entries) == 0 || !strings.Contains(pathLane.Entries[0].Detail, "observed frame transition") {
+		t.Fatalf("path lane should preserve model-emitted evidence detail as enrichment, got %+v", pathLane.Entries)
+	}
 }
 
 func TestBuildAnswerSupportPlan_RootCauseTracePromotesIndependentMechanismCompanion(t *testing.T) {
@@ -818,6 +847,7 @@ func TestBuildAnswerSupportPlan_RootCauseTracePromotesIndependentMechanismCompan
 				AnchorKind:   AnchorAssignment,
 				AnchorSymbol: "buildAnalysisIR",
 				Snippet:      "rm.AnalyzerHints.PrimaryEntities = append([]string(nil), rm.AnalyzerHints.Entities...)",
+				Summary:      "PrimaryEntities snapshots the original analyzer entity shortlist before deterministic augmentation",
 			},
 		},
 	}
@@ -847,6 +877,13 @@ func TestBuildAnswerSupportPlan_RootCauseTracePromotesIndependentMechanismCompan
 		return out
 	}(), "\n"), "PrimaryEntities") {
 		t.Fatalf("mechanism lane should keep the independent companion, got %+v", mechanismLane.Entries)
+	}
+	mechanismDetail := ""
+	for _, entry := range mechanismLane.Entries {
+		mechanismDetail += entry.Detail + "\n"
+	}
+	if !strings.Contains(mechanismDetail, "original analyzer entity shortlist") {
+		t.Fatalf("mechanism lane should preserve structured evidence detail, got %+v", mechanismLane.Entries)
 	}
 }
 

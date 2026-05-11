@@ -848,6 +848,9 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		b.WriteString("Read the scanned files (if any) and/or verify the suspicious anchors, then re-call emit_investigation_complete. Marking complete now will drop every chain anchored in them.")
 		return b.String()
 	}
+	if downgrade := callChainPrincipalSpanDowngrade(ctx, closure); downgrade != "" {
+		return downgrade
+	}
 
 	// Check (b): citation-floor preflight. Requires AnalysisIR.
 	if justification != "" {
@@ -1638,6 +1641,318 @@ func phase1UnreadCanonPath(path, repoRoot string) string {
 		return ""
 	}
 	return path
+}
+
+type callChainPrincipalSpanDemand struct {
+	source       string
+	startHint    string
+	endHint      string
+	startLine    int
+	endLine      int
+	lateStart    int
+	lastInterior int
+}
+
+// callChainPrincipalSpanDowngrade protects the principal source→sink
+// trace from closing while the support lane still has a large, typed
+// evidence hole immediately before the sink. The gate is deliberately
+// language-neutral: it reads only analyzer-emitted endpoints and
+// structured EvidenceItem fields (Source/LineStart/Subject/Object/
+// AnchorSymbol/OwnerSymbol), never Go-specific AST knowledge or raw
+// prose keyword scans.
+func callChainPrincipalSpanDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
+	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent != types.IntentTrace && types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain {
+		return ""
+	}
+	if types.IsProjectOrientationQuestion(rm) {
+		return ""
+	}
+	startHint, endHint, ok := callChainPrincipalEndpointHints(rm)
+	if !ok {
+		return ""
+	}
+	demand, ok := callChainPrincipalSpanDemandForEvidence(ctx.Mutable.EmittedEvidence(), startHint, endHint)
+	if !ok {
+		return ""
+	}
+	lineRange := types.LineRange{Start: demand.lateStart, End: demand.endLine - 1}
+	if lineRange.End < lineRange.Start {
+		return ""
+	}
+	alreadyRead := callChainDemandRangeFullyRead(closure, demand.source, lineRange)
+	rationale := fmt.Sprintf(
+		"source-to-sink call-chain closure has no structured principal evidence in %s:%d-%d between %s and %s; emit grounded intermediate evidence before closing",
+		demand.source, lineRange.Start, lineRange.End, demand.startHint, demand.endHint,
+	)
+	repairKind := types.RepairReadFile
+	if alreadyRead {
+		repairKind = types.RepairEmitEvidence
+		rationale = fmt.Sprintf(
+			"already-read source-to-sink span %s:%d-%d still has no structured principal evidence between %s and %s; stay on this span and emit grounded intermediate evidence before closing",
+			demand.source, lineRange.Start, lineRange.End, demand.startHint, demand.endHint,
+		)
+	}
+	closure.AddRepair(types.RepairDirective{
+		Kind:       repairKind,
+		Files:      []string{demand.source},
+		Rationale:  rationale,
+		Origin:     "pre_complete.call_chain_principal_span",
+		LineRanges: []types.LineRange{lineRange},
+		Stage:      string(types.StageExplore),
+	})
+
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — call-chain principal span is not closure-complete.\n\n")
+	fmt.Fprintf(&b, "The structured evidence proves the source endpoint `%s` at %s:%d and the sink endpoint `%s` at %s:%d, but the principal support lane would jump from line %d to the sink without any model-emitted intermediate evidence in %s:%d-%d.\n\n",
+		demand.startHint, demand.source, demand.startLine,
+		demand.endHint, demand.source, demand.endLine,
+		demand.lastInterior, demand.source, lineRange.Start, lineRange.End)
+	if alreadyRead {
+		b.WriteString("That range is already in read coverage, so do NOT widen scope yet. Re-emit grounded `emit_evidence` items for the intermediate call / handoff / boundary facts from the already-read span, then retry `emit_investigation_complete`.")
+	} else {
+		b.WriteString("Read that source span, then emit grounded `emit_evidence` items for the intermediate call / handoff / boundary facts before retrying `emit_investigation_complete`.")
+	}
+	return b.String()
+}
+
+func callChainPrincipalEndpointHints(rm types.RequestModel) (string, string, bool) {
+	for _, list := range [][]string{
+		rm.AnalyzerHints.MentionedEntities,
+		rm.AnalyzerHints.PrimaryEntities,
+		rm.AnalyzerHints.Entities,
+	} {
+		var filtered []string
+		seen := map[string]bool{}
+		for _, raw := range list {
+			hint := strings.TrimSpace(raw)
+			if hint == "" || !types.IsCodeIdentitySurface(hint) || callChainEndpointHintLooksLikePath(hint) {
+				continue
+			}
+			key := strings.ToLower(hint)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			filtered = append(filtered, hint)
+		}
+		if len(filtered) >= 2 {
+			return filtered[0], filtered[len(filtered)-1], true
+		}
+	}
+	return "", "", false
+}
+
+func callChainEndpointHintLooksLikePath(raw string) bool {
+	s := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	if s == "" {
+		return false
+	}
+	if strings.Contains(s, "/") {
+		return true
+	}
+	lower := strings.ToLower(s)
+	for _, ext := range []string{
+		".go", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
+		".cj", ".cjo", ".ets", ".ts", ".tsx", ".js", ".jsx",
+		".java", ".kt", ".kts", ".py", ".rs", ".rb", ".php", ".swift",
+		".yaml", ".yml", ".json", ".toml", ".ini", ".xml", ".md",
+	} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func callChainPrincipalSpanDemandForEvidence(evidence []types.EvidenceItem, startHint, endHint string) (callChainPrincipalSpanDemand, bool) {
+	if len(evidence) == 0 {
+		return callChainPrincipalSpanDemand{}, false
+	}
+	bySource := make(map[string][]types.EvidenceItem)
+	for _, item := range evidence {
+		if !callChainPrincipalSpanEvidenceEligible(item) {
+			continue
+		}
+		source := canonicalCallChainSource(item.Source)
+		if source == "" {
+			continue
+		}
+		item.Source = source
+		bySource[source] = append(bySource[source], item)
+	}
+	for source, items := range bySource {
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].LineStart == items[j].LineStart {
+				return strings.TrimSpace(items[i].AnchorSymbol) < strings.TrimSpace(items[j].AnchorSymbol)
+			}
+			return items[i].LineStart < items[j].LineStart
+		})
+		startLine := 0
+		for _, item := range items {
+			if callChainEvidenceMatchesEndpoint(item, startHint) {
+				startLine = item.LineStart
+				break
+			}
+		}
+		if startLine <= 0 {
+			continue
+		}
+		endLine := 0
+		for i := len(items) - 1; i >= 0; i-- {
+			item := items[i]
+			if item.LineStart <= startLine {
+				continue
+			}
+			if callChainEvidenceMatchesEndpoint(item, endHint) {
+				endLine = item.LineStart
+				break
+			}
+		}
+		if endLine <= startLine {
+			continue
+		}
+		span := endLine - startLine
+		// Default read_file lazy-limit override is 100 lines; add a
+		// small buffer so this hard gate only fires on a genuinely
+		// multi-window source-to-sink span, not compact straight-line
+		// helpers where no intermediate hop is expected.
+		const minSpanForLateCoverageGate = 120
+		if span < minSpanForLateCoverageGate {
+			continue
+		}
+		lateStart := startLine + (span * 3 / 4)
+		if lateStart <= startLine {
+			continue
+		}
+		hasLateInterior := false
+		lastInterior := startLine
+		for _, item := range items {
+			if item.LineStart <= startLine || item.LineStart >= endLine {
+				continue
+			}
+			if item.LineStart > lastInterior {
+				lastInterior = item.LineStart
+			}
+			if item.LineStart >= lateStart {
+				hasLateInterior = true
+			}
+		}
+		if hasLateInterior {
+			continue
+		}
+		return callChainPrincipalSpanDemand{
+			source:       source,
+			startHint:    startHint,
+			endHint:      endHint,
+			startLine:    startLine,
+			endLine:      endLine,
+			lateStart:    lateStart,
+			lastInterior: lastInterior,
+		}, true
+	}
+	return callChainPrincipalSpanDemand{}, false
+}
+
+func callChainPrincipalSpanEvidenceEligible(item types.EvidenceItem) bool {
+	if strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
+		return false
+	}
+	if item.GroundingStatus == types.GroundingUngrounded {
+		return false
+	}
+	switch item.Kind {
+	case types.EvidenceDirect, types.EvidenceConditional, types.EvidenceMechanism, types.EvidenceRelationship, types.EvidenceRegistration:
+		return true
+	default:
+		return false
+	}
+}
+
+func canonicalCallChainSource(raw string) string {
+	source := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	source = strings.TrimPrefix(source, "./")
+	if source == "." {
+		return ""
+	}
+	return source
+}
+
+func callChainEvidenceMatchesEndpoint(item types.EvidenceItem, endpoint string) bool {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return false
+	}
+	for _, candidate := range []string{
+		item.Subject,
+		item.Object,
+		item.AnchorSymbol,
+		item.OwnerSymbol,
+	} {
+		if callChainCodeTermMatches(candidate, endpoint) {
+			return true
+		}
+	}
+	for _, term := range item.SurfaceTerms {
+		if callChainCodeTermMatches(term, endpoint) {
+			return true
+		}
+	}
+	return false
+}
+
+func callChainCodeTermMatches(candidate, endpoint string) bool {
+	candidate = strings.TrimSpace(candidate)
+	endpoint = strings.TrimSpace(endpoint)
+	if candidate == "" || endpoint == "" {
+		return false
+	}
+	c := strings.ToLower(candidate)
+	e := strings.ToLower(endpoint)
+	if c == e {
+		return true
+	}
+	if len(e) >= 4 && strings.Contains(c, e) {
+		return true
+	}
+	if len(c) >= 4 && strings.Contains(e, c) {
+		return true
+	}
+	tail := callChainEndpointTail(e)
+	if len(tail) >= 4 && strings.Contains(c, tail) {
+		return true
+	}
+	return false
+}
+
+func callChainEndpointTail(s string) string {
+	s = strings.TrimSpace(strings.ReplaceAll(s, "::", "."))
+	if idx := strings.LastIndex(s, "."); idx >= 0 && idx+1 < len(s) {
+		return s[idx+1:]
+	}
+	return s
+}
+
+func callChainDemandRangeFullyRead(closure *types.EvidenceClosure, source string, demand types.LineRange) bool {
+	if closure == nil || source == "" || demand.Start <= 0 || demand.End < demand.Start {
+		return false
+	}
+	if !closure.HasRead(source) {
+		return false
+	}
+	ranges := closure.ReadRanges(source)
+	if len(ranges) == 0 {
+		return true
+	}
+	for _, r := range ranges {
+		if r.Start <= demand.Start && r.End >= demand.End {
+			return true
+		}
+	}
+	return false
 }
 
 // requiresCrossFileCoverage reports whether the question kind should

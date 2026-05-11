@@ -106,8 +106,7 @@ func TestEmitInvestigationComplete_NormalizesLogSourceDriftReasonToBoundedSurfac
 				Scenario: types.ScenarioRootCause,
 				Intent:   types.IntentRootCause,
 			},
-			AnswerContract: types.AnswerContract{
-			},
+			AnswerContract: types.AnswerContract{},
 		},
 	}
 	tool := &EmitInvestigationComplete{}
@@ -414,6 +413,159 @@ func TestEmitInvestigationComplete_CompletionWithoutAbsenceOnEvidenceAccepted(t 
 	}
 	if !res.Success {
 		t.Fatalf("normal completion must succeed: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_CallChainRejectsLatePrincipalSpanGap(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind: types.EvidenceDirect, Source: "internal/agent/analyzer.go", LineStart: 100,
+			Subject: "buildAnalysisIR", AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 160,
+			Subject: "buildAnalysisIR", Object: "normalizer.Normalize", AnchorKind: types.AnchorCall, AnchorSymbol: "normalizer.Normalize",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 300,
+			Subject: "buildAnalysisIR", Object: "gate.RunWith", AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              "call_chain",
+				MentionedEntities: []string{"buildAnalysisIR", "gate.Run", "analyzer.go"},
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"source and sink are covered","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("pre-complete downgrades should be tool-success keepalives, got failure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "call-chain principal span") || !strings.Contains(res.Summary, "250-299") {
+		t.Fatalf("downgrade should name the missing late span, got %q", res.Summary)
+	}
+	if got := strings.TrimSpace(mut.InvestigationCompleteReason()); got != "" {
+		t.Fatalf("completion flag must not be set on span downgrade, got %q", got)
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) != 1 || repairs[0].Kind != types.RepairReadFile {
+		t.Fatalf("repair = %+v, want one read_file repair", repairs)
+	}
+	if len(repairs[0].LineRanges) != 1 || repairs[0].LineRanges[0] != (types.LineRange{Start: 250, End: 299}) {
+		t.Fatalf("repair range = %+v, want 250-299", repairs[0].LineRanges)
+	}
+}
+
+func TestEmitInvestigationComplete_CallChainAlreadyReadGapAsksForEvidenceMaterialization(t *testing.T) {
+	mut := types.NewMutableState("q")
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"internal/agent/analyzer.go": true})
+	closure.SetReadRanges(map[string][]types.LineRange{
+		"internal/agent/analyzer.go": {{Start: 1, End: 320}},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind: types.EvidenceDirect, Source: "internal/agent/analyzer.go", LineStart: 100,
+			Subject: "buildAnalysisIR", AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 160,
+			Subject: "buildAnalysisIR", Object: "normalizer.Normalize", AnchorKind: types.AnchorCall, AnchorSymbol: "normalizer.Normalize",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 300,
+			Subject: "buildAnalysisIR", Object: "gate.RunWith", AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              "call_chain",
+				MentionedEntities: []string{"buildAnalysisIR", "gate.Run"},
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"source and sink are covered","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "already in read coverage") {
+		t.Fatalf("downgrade should keep the explorer on already-read evidence materialization, got %q", res.Summary)
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) != 1 || repairs[0].Kind != types.RepairEmitEvidence {
+		t.Fatalf("repair = %+v, want one emit_evidence repair", repairs)
+	}
+}
+
+func TestEmitInvestigationComplete_CallChainAcceptsLatePrincipalEvidence(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind: types.EvidenceDirect, Source: "internal/agent/analyzer.go", LineStart: 100,
+			Subject: "buildAnalysisIR", AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 160,
+			Subject: "buildAnalysisIR", Object: "normalizer.Normalize", AnchorKind: types.AnchorCall, AnchorSymbol: "normalizer.Normalize",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 260,
+			Subject: "buildAnalysisIR", Object: "compiler.Compile", AnchorKind: types.AnchorCall, AnchorSymbol: "compiler.Compile",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 300,
+			Subject: "buildAnalysisIR", Object: "gate.RunWith", AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              "call_chain",
+				MentionedEntities: []string{"buildAnalysisIR", "gate.Run", "analyzer.go"},
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"source, interior, and sink are covered","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("completion with late principal evidence should succeed: %s", res.Summary)
+	}
+	if got := strings.TrimSpace(mut.InvestigationCompleteReason()); got == "" {
+		t.Fatalf("completion flag should be set")
 	}
 }
 
