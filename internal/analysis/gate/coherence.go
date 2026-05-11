@@ -189,7 +189,16 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	// Evaluates BEFORE R1.4 because the unresolvable-entity repair
 	// (drop / rename) is more specific than the axis-collapse repair
 	// (collapse to list_of_symbols). Disabled when resolver is nil.
-	if resolver != nil && nSub >= 2 {
+	//
+	// External-only runtime artifacts are also excluded. Their typed
+	// LogBundle/PerfBundle entities are answer-bearing observation
+	// surfaces, not current-repo symbols. Running them through the repo
+	// resolver turns accidental name overlap into a false asymmetry
+	// signal (for example one Java class name happens to match a local
+	// symbol while java.io.IOException does not). That violates the
+	// precise-signals-for-hard-gates rule: artifact/source provenance is
+	// precise; repo resolution of external observations is not.
+	if resolver != nil && nSub >= 2 && !rm.HasExternalOnlyRuntimeArtifact() {
 		type subTopicState struct {
 			index int
 			topic types.SubTopic

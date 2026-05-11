@@ -309,6 +309,42 @@ func TestSubtopicCoherence_R1_5_SingleTopic_NoOp(t *testing.T) {
 	}
 }
 
+func TestSubtopicCoherence_R1_5_ExternalOnlyArtifactEntities_BypassRepoResolver(t *testing.T) {
+	// External log entities are typed observation surfaces, not current
+	// checkout symbols. A local repo may accidentally resolve one Java
+	// class name while leaving IOException / endpoint strings unresolved;
+	// that mixed resolver pattern must not hard-fail the analyzer.
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"UserService": {{Canonical: "UserService", Domain: "fixture"}},
+		},
+	}
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsDiagnosticQuestion: true},
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{
+				Type:    "java.lang.RuntimeException",
+				Message: "Failed to process request",
+			}},
+			ResolvedFiles: nil,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"RuntimeException", "NullPointerException", "IOException", "UserService"},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "surface wrapper", Entities: []string{"RuntimeException", "UserService"}},
+			{Summary: "immediate trigger", Entities: []string{"NullPointerException", "UserService"}},
+			{Summary: "external root cause", Entities: []string{"IOException", "10.0.0.5:5432"}},
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+		t.Fatalf("external-only artifact entities must bypass repo-symbol R1.5, got %+v", check)
+	}
+}
+
 func TestSubtopicCoherence_R1_5_CategoryEnumerationPackageMembersBypassSymbolResolver(t *testing.T) {
 	// Cross-language package/module/directory members are often the
 	// answer's principal objects but not symbol-table entries. If the
