@@ -2566,7 +2566,7 @@ func buildEmitEvidenceSurfaceTermReview(items []types.EvidenceItem, gc *ground.C
 func renderEmitEvidenceSurfaceTermReviewHint(suggestions []surfaceTermReviewSuggestion) string {
 	var b strings.Builder
 	b.WriteString("MID-LOOP CHECK: some accepted evidence is anchored under already-read source/header labels that were not model-authored into `surface_terms`.\n")
-	b.WriteString("If any of these labels are part of the user-visible answer, re-emit the affected evidence now with the listed `surface_terms`; do not rely on the finalizer to infer labels from comments or paths.\n")
+	b.WriteString("If any of these labels are part of the user-visible answer, re-emit the affected evidence now with the listed `surface_terms`; do not rely on downstream synthesis to infer labels from comments or paths.\n")
 	for _, s := range suggestions {
 		anchor := strings.TrimSpace(s.anchor)
 		if anchor == "" {
