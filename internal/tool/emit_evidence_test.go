@@ -144,6 +144,72 @@ func TestEmitEvidence_AcceptsGroundedSurfaceTerms(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_SurfaceTermReviewPromptsModelAuthoredHeaderLabels(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", 1,
+		"// Source: developer.huawei.com / openharmony Index.ets minimal sample",
+		"// Surface: @Entry + @Component + build()",
+		"",
+		"@Entry",
+		"@Component",
+		"struct Index {",
+		"  build() {}",
+		"}",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "Index", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", "line_start": 6, "summary": "Index is defined here", "anchor_kind": "definition", "anchor_symbol": "Index", "surface_terms": ["@Entry", "@Component"]}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != EmitEvidenceSurfaceTermReviewCode {
+		t.Fatalf("expected surface-term review repair, got %#v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Hint, "Index.ets") || !strings.Contains(res.Summary, "Index.ets") {
+		t.Fatalf("review should name the grounded header label, repair=%q summary=%q", res.Repair.Hint, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) == 0 {
+		t.Fatal("expected emitted evidence")
+	}
+	if strings.Contains(strings.Join(got[0].SurfaceTerms, ","), "Index.ets") {
+		t.Fatalf("tool must not auto-fill model-authored surface_terms; got %#v", got[0].SurfaceTerms)
+	}
+}
+
+func TestEmitEvidence_SurfaceTermReviewSatisfiedWhenHeaderLabelAuthored(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", 1,
+		"// Source: developer.huawei.com / openharmony Index.ets minimal sample",
+		"",
+		"@Entry",
+		"struct Index {",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "Index", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", "line_start": 4, "summary": "Index is defined here", "anchor_kind": "definition", "anchor_symbol": "Index", "surface_terms": ["Index.ets"]}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	if res.Repair != nil && res.Repair.Code == EmitEvidenceSurfaceTermReviewCode {
+		t.Fatalf("surface-term review should not fire after model-authored label is present: %#v", res.Repair)
+	}
+}
+
 func TestEmitEvidence_RejectsUngroundedSurfaceTerms(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

@@ -101,6 +101,7 @@ type explorerEvaluator struct {
 	midLoopBudgetExhaustedSent      map[string]bool
 	midLoopEvidenceRepairSent       bool // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
 	midLoopEvidenceRepairResultsLen int  // allResults length when the current emit_evidence repair hint fired
+	midLoopSurfaceTermReviewSent    bool // one-shot: model-authored surface_terms review hint already pushed this dispatch
 	midLoopClosureRepairSent        bool // one-shot: structured closure repair from a downgraded completion already pushed this dispatch
 	midLoopClosureRepairResultsLen  int  // allResults length when the current closure repair hint fired
 	midLoopIntentWindowSent         bool // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
@@ -292,6 +293,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopPostPrimaryInjected = false
 		e.midLoopEvidenceRepairSent = false
 		e.midLoopEvidenceRepairResultsLen = 0
+		e.midLoopSurfaceTermReviewSent = false
 		e.midLoopClosureRepairSent = false
 		e.midLoopClosureRepairResultsLen = 0
 		e.midLoopIntentWindowSent = false
@@ -405,6 +407,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopPostPrimaryInjected = false
 	e.midLoopEvidenceRepairSent = false
 	e.midLoopEvidenceRepairResultsLen = 0
+	e.midLoopSurfaceTermReviewSent = false
 	e.midLoopIntentWindowSent = false
 	e.midLoopRankerCoverageSent = false
 	e.midLoopAbsentRedirectSent = false
@@ -4419,6 +4422,25 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 	}
 }
 
+func (e *explorerEvaluator) postEmitEvidenceSurfaceTermReviewSignal(obs LoopObservation) LoopSignal {
+	if e.midLoopSurfaceTermReviewSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_evidence" || !obs.LastToolResult.Success {
+		return LoopSignal{}
+	}
+	repair := obs.LastToolResult.Repair
+	if repair == nil || repair.Code != tool.EmitEvidenceSurfaceTermReviewCode || strings.TrimSpace(repair.Hint) == "" {
+		return LoopSignal{}
+	}
+	e.midLoopSurfaceTermReviewSent = true
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "explorer.mid-loop.surface-terms-review",
+		Hint:           repair.Hint,
+		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
 func (e *explorerEvaluator) postEmitEvidenceRepairClosureOnlySignal(obs LoopObservation) LoopSignal {
 	if !e.awaitingEvidenceRepair(obs.AllToolResults) || e.investigationComplete {
 		return LoopSignal{}
@@ -6887,6 +6909,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	}
 
 	if sig := e.postEmitEvidenceRepairSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postEmitEvidenceSurfaceTermReviewSignal(obs); sig.HintRequested {
 		return sig
 	}
 	if sig := e.postEmitEvidenceRepairClosureOnlySignal(obs); sig.HintRequested {

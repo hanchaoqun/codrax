@@ -294,6 +294,7 @@ func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 				if item.Confidence > existing.Confidence {
 					existing.Confidence = item.Confidence
 				}
+				existing.SurfaceTerms = mergeStrings(existing.SurfaceTerms, item.SurfaceTerms)
 				// Merge Producer too: when two producers contribute to the
 				// same item, prefer the question-relevant one (non-dataflow)
 				// so the rank below still treats the merged item as LLM-
@@ -1113,20 +1114,20 @@ func (d DataflowIntent) String() string {
 //
 // Decision ladder:
 //
-//   Propagate  : Intent ∈ {IntentTrace} OR
-//                PredicateAxis ∈ {AxisCall} with cross-component
-//                signals (Predicates.IsCrossFile or IsCrossComponent).
-//                Captures "trace this value through the system" and
-//                "how does X invoke Y" patterns.
+//	Propagate  : Intent ∈ {IntentTrace} OR
+//	             PredicateAxis ∈ {AxisCall} with cross-component
+//	             signals (Predicates.IsCrossFile or IsCrossComponent).
+//	             Captures "trace this value through the system" and
+//	             "how does X invoke Y" patterns.
 //
-//   Lookup     : Intent ∈ {IntentExplain, IntentRootCause,
-//                IntentReturnValue, IntentEnumerate, IntentConfigQuery}
-//                OR any EvidenceItem.Kind ∈ {EvidenceConditional,
-//                EvidenceRelationship, EvidenceMechanism, EvidenceRegistration}.
-//                Single-hop investigations.
+//	Lookup     : Intent ∈ {IntentExplain, IntentRootCause,
+//	             IntentReturnValue, IntentEnumerate, IntentConfigQuery}
+//	             OR any EvidenceItem.Kind ∈ {EvidenceConditional,
+//	             EvidenceRelationship, EvidenceMechanism, EvidenceRegistration}.
+//	             Single-hop investigations.
 //
-//   None       : nil RequestModel + zero structurally-relevant
-//                evidence. The dataflow run is skipped entirely.
+//	None       : nil RequestModel + zero structurally-relevant
+//	             evidence. The dataflow run is skipped entirely.
 //
 // Caller passes RequestModel when available (production path
 // through explorer); sub-explorer flows that lack a populated

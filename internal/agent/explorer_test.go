@@ -3158,6 +3158,40 @@ func TestObserveMidLoop_EvidenceRepairPrefersStructuredTargets(t *testing.T) {
 	}
 }
 
+func TestObserveMidLoop_SurfaceTermReviewBypassesGenericExpansion(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+	}
+	history := []types.ToolResult{
+		{
+			ToolName: "emit_evidence",
+			Success:  true,
+			Summary:  "emit_evidence accepted 1 item(s)",
+			Repair: &types.ToolRepair{
+				Code: tool.EmitEvidenceSurfaceTermReviewCode,
+				Hint: "MID-LOOP CHECK: re-emit with surface_terms [\"Index.ets\"]",
+			},
+		},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      1,
+		LastToolResult: &history[0],
+		AllToolResults: history,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("surface-term review should trigger an immediate hint, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.surface-terms-review" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.surface-terms-review", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "Index.ets") || !sig.BypassThrottle || !sig.BypassBudget {
+		t.Fatalf("surface-term review hint should preserve exact labels and bypass throttles, got %+v", sig)
+	}
+}
+
 func TestObserveMidLoop_EvidenceRepairStructuredNoopSuppressesSummaryFallback(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:        1,

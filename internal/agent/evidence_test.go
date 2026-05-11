@@ -99,6 +99,33 @@ func TestMergeEvidenceItemsDedupesByStableID(t *testing.T) {
 	}
 }
 
+func TestMergeEvidenceItemsUnionsSurfaceTermsOnSameFact(t *testing.T) {
+	a := types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Subject:      "Index",
+		Predicate:    "direct",
+		Source:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		LineStart:    7,
+		LineEnd:      7,
+		AnchorSymbol: "Index",
+		Producer:     "explorer.emit_evidence",
+		Scope:        types.ScopeLine,
+		SurfaceTerms: []string{"@Entry"},
+	}
+	a.ID = types.StableEvidenceID(a)
+	b := a
+	b.SurfaceTerms = []string{"Index.ets", "@Entry"}
+
+	merged := mergeEvidenceItems([]types.EvidenceItem{a}, []types.EvidenceItem{b})
+	if len(merged) != 1 {
+		t.Fatalf("mergeEvidenceItems count = %d, want 1", len(merged))
+	}
+	terms := strings.Join(merged[0].SurfaceTerms, ",")
+	if !strings.Contains(terms, "@Entry") || !strings.Contains(terms, "Index.ets") {
+		t.Fatalf("merged surface terms lost retry-authored aliases: %#v", merged[0].SurfaceTerms)
+	}
+}
+
 func TestEntityHitsBoundsShortGenericEntities(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -901,9 +928,9 @@ func buildGutterReadResult(path string, startLine int, lines []string, totalLine
 //	## Evidence from `internal/agent/sub_explorer.go`
 //
 // and the parser carried the backticks through, so the grounder
-// looked up `` `internal/agent/sub_explorer.go` `` in its per-
+// looked up “ `internal/agent/sub_explorer.go` “ in its per-
 // file line index and missed every legitimate cite. The fix
-// strips both the legacy `[...]` wrapper and the markdown `` `...` ``
+// strips both the legacy `[...]` wrapper and the markdown “ `...` “
 // wrapper in a single TrimCutset pass.
 func TestParseEvidenceHeaderSource_StripsMarkdownBackticks(t *testing.T) {
 	cases := []struct {

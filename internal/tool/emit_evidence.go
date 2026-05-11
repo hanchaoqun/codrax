@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -192,6 +193,14 @@ type emitNegativeQuery struct {
 // the channel without grepping for a literal.
 const EmitEvidenceProducer = "explorer.emit_evidence"
 
+// EmitEvidenceSurfaceTermReviewCode marks a successful emit_evidence
+// result whose accepted facts are grounded, but whose nearby
+// already-read source/header labels look like user-visible aliases the
+// model did not yet author into surface_terms. The repair is advisory:
+// it asks the model to re-emit structured data when those labels are
+// load-bearing; it never auto-fills answer text.
+const EmitEvidenceSurfaceTermReviewCode = "evidence_surface_terms_review"
+
 func (t *EmitEvidence) Name() string { return "emit_evidence" }
 
 func (t *EmitEvidence) Description() string {
@@ -230,7 +239,7 @@ func (t *EmitEvidence) Description() string {
 		"to recommend how the item should be used for exact-target answers. `diagram_role_hint` may be `default`, " +
 		"`config`, `runtime`, or `override` for config-precedence traces (`config` = grounded repo/user config-file layer such as YAML/JSON/TOML/INI/etc.). These are recommendations only: the tool " +
 		"validates them structurally and may downgrade or ignore inconsistent hints.\n\n" +
-		"surface_terms is optional model-authored structured data for exact user-visible labels / aliases copied verbatim from already-read source, log, or trace lines (for example route names, package/module labels, config keys, macro names, trace span names, original file labels). The tool rejects any surface term that is not grounded in the read window; final answer validation may require preserving accepted terms.\n\n" +
+		"surface_terms is optional model-authored structured data for exact user-visible labels / aliases copied verbatim from already-read source, log, or trace lines (for example route names, package/module labels, config keys, macro names, trace span names, original file labels, and labels in leading documentation/header comments attached to the cited anchor). The tool rejects any surface term that is not grounded in the read window; final answer validation may require preserving accepted terms.\n\n" +
 		"snippet is optional but recommended for conditional / mechanism / registration items: paste " +
 		"1-2 lines of the actual code so the snippet_fuzzy recovery tier can re-anchor if your " +
 		"line_start is off by one.\n\n" +
@@ -309,7 +318,7 @@ func emitEvidenceParametersSchema() json.RawMessage {
 						"surface_terms": map[string]any{
 							"type":        "array",
 							"items":       map[string]any{"type": "string"},
-							"description": "OPTIONAL. Model-authored exact strings from the already-read source/log/trace lines that the final answer should preserve as visible aliases or labels, but that are not already captured by subject/object/anchor_symbol. Use for original file labels, route names, package/module names, config keys, macro names, trace span names, or runtime object labels. Every term must appear verbatim in the cited source window; the tool rejects ungrounded terms.",
+							"description": "OPTIONAL. Model-authored exact strings from the already-read source/log/trace lines that the final answer should preserve as visible aliases or labels, but that are not already captured by subject/object/anchor_symbol. Use for original file labels, route names, package/module names, config keys, macro names, trace span names, runtime object labels, or labels in leading documentation/header comments attached to the cited anchor. Every term must appear verbatim in the cited source window; the tool rejects ungrounded terms.",
 						},
 						"anchor_kind": map[string]any{
 							"type":        "string",
@@ -441,7 +450,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
           "summary":       {"type": "string", "description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals."},
           "context_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, absence_support = grounded evidence that helps justify why the exact target is absent but does NOT define it, related_context = grounded nearby context but not the exact target itself, illustrative_only = comment/doc/test/example mention that should NOT be treated as defining proof. The tool validates and may downgrade the hint."},
           "diagram_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, config = repo/user config-file layer (YAML/JSON/TOML/INI/etc.), runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints."},
-          "surface_terms": {"type": "array", "items": {"type": "string"}, "description": "OPTIONAL exact source/log/trace strings that should remain visible in the final answer as aliases or labels. Every term must appear verbatim in the already-read source window."},
+          "surface_terms": {"type": "array", "items": {"type": "string"}, "description": "OPTIONAL exact source/log/trace strings that should remain visible in the final answer as aliases or labels, including labels from leading documentation/header comments attached to the cited anchor. Every term must appear verbatim in the already-read source window."},
           "anchor_kind":   {"type": "string", "enum": %s, "description": "REQUIRED. What the line_start points at: 'definition' = symbol declaration, 'call' = function/method call site, 'condition' = if/when/switch/case/guard line, 'return' = return or yield, 'assignment' = := or = assignment, 'import' = import/use/require statement. The grounder dispatches on this so wrong kinds produce confusing ungrounded verdicts."},
           "anchor_symbol": {"type": "string", "description": "REQUIRED. The identifier the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias."},
           "snippet":       {"type": "string", "description": "Optional. 1-2 lines of actual code from the cited location. Enables snippet_fuzzy recovery when line_start is off by ±15 lines — recommended for conditional / mechanism / registration items."}
@@ -681,7 +690,11 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 
 	ctx.Mutable.AppendEvidence(built)
 
+	surfaceReview := buildEmitEvidenceSurfaceTermReview(built, gc)
 	summary := renderEmitSummary(ctx, built, reports, ctx.Mutable.EmittedEvidence())
+	if surfaceReview != nil && strings.TrimSpace(surfaceReview.Hint) != "" {
+		summary = strings.TrimRight(summary, "\n") + "\n\n" + surfaceReview.Hint + "\n"
+	}
 	if len(rejectedItems) > 0 || len(autoSwapped) > 0 {
 		var b strings.Builder
 		b.WriteString(summary)
@@ -705,6 +718,11 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		summary = b.String()
 	}
 	repair := buildEmitEvidenceRepair(ctx, built, reports)
+	if repair == nil || (repair.Metadata != nil && repair.Metadata["repair_status"] != "action_required") {
+		if surfaceReview != nil {
+			repair = surfaceReview
+		}
+	}
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Repair:    repair,
@@ -2493,6 +2511,190 @@ func evidenceSurfaceTermWindow(item types.EvidenceItem, fileLines map[int]string
 		}
 	}
 	return b.String()
+}
+
+type surfaceTermReviewSuggestion struct {
+	source string
+	line   int
+	anchor string
+	terms  []string
+}
+
+func buildEmitEvidenceSurfaceTermReview(items []types.EvidenceItem, gc *ground.Context) *types.ToolRepair {
+	if len(items) == 0 || gc == nil || len(gc.LineIndex) == 0 {
+		return nil
+	}
+	suggestions := make([]surfaceTermReviewSuggestion, 0, 4)
+	for _, item := range items {
+		if len(suggestions) >= 4 {
+			break
+		}
+		if item.Producer != EmitEvidenceProducer {
+			continue
+		}
+		if item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered {
+			continue
+		}
+		terms := missingSurfaceTermReviewCandidates(item, gc)
+		if len(terms) == 0 {
+			continue
+		}
+		if len(terms) > 4 {
+			terms = terms[:4]
+		}
+		suggestions = append(suggestions, surfaceTermReviewSuggestion{
+			source: item.Source,
+			line:   item.LineStart,
+			anchor: item.AnchorSymbol,
+			terms:  terms,
+		})
+	}
+	if len(suggestions) == 0 {
+		return nil
+	}
+	return &types.ToolRepair{
+		Code: EmitEvidenceSurfaceTermReviewCode,
+		Hint: renderEmitEvidenceSurfaceTermReviewHint(suggestions),
+		Metadata: map[string]string{
+			"repair_scope":  "surface_terms",
+			"repair_stage":  "explorer",
+			"repair_status": "action_recommended",
+		},
+	}
+}
+
+func renderEmitEvidenceSurfaceTermReviewHint(suggestions []surfaceTermReviewSuggestion) string {
+	var b strings.Builder
+	b.WriteString("MID-LOOP CHECK: some accepted evidence is anchored under already-read source/header labels that were not model-authored into `surface_terms`.\n")
+	b.WriteString("If any of these labels are part of the user-visible answer, re-emit the affected evidence now with the listed `surface_terms`; do not rely on the finalizer to infer labels from comments or paths.\n")
+	for _, s := range suggestions {
+		anchor := strings.TrimSpace(s.anchor)
+		if anchor == "" {
+			anchor = "-"
+		}
+		fmt.Fprintf(&b, "  - `%s:%d` (%s): add surface_terms %s\n",
+			s.source, s.line, anchor, renderQuotedSurfaceTerms(s.terms))
+	}
+	return b.String()
+}
+
+func renderQuotedSurfaceTerms(terms []string) string {
+	parts := make([]string, 0, len(terms))
+	for _, term := range terms {
+		if term = strings.TrimSpace(term); term != "" {
+			parts = append(parts, strconv.Quote(term))
+		}
+	}
+	if len(parts) == 0 {
+		return "[]"
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+func missingSurfaceTermReviewCandidates(item types.EvidenceItem, gc *ground.Context) []string {
+	if item.Source == "" || item.LineStart <= 0 || gc == nil {
+		return nil
+	}
+	if len(gc.LineIndex[item.Source]) == 0 {
+		return nil
+	}
+	comment, _ := extractDocCommentForGroundedItem(gc, item.Source, item.LineStart)
+	if strings.TrimSpace(comment) == "" {
+		return nil
+	}
+	candidates := sourceLabelCandidatesFromText(comment, item.Source)
+	if len(candidates) == 0 {
+		return nil
+	}
+	existing := surfaceTermReviewExistingText(item)
+	out := make([]string, 0, len(candidates))
+	seen := make(map[string]bool, len(candidates))
+	for _, term := range candidates {
+		key := strings.ToLower(term)
+		if seen[key] || surfaceTermReviewContains(existing, term) {
+			continue
+		}
+		seen[key] = true
+		out = append(out, term)
+	}
+	return out
+}
+
+func surfaceTermReviewExistingText(item types.EvidenceItem) string {
+	parts := []string{
+		item.Subject,
+		item.Predicate,
+		item.Object,
+		item.AnchorSymbol,
+		item.Snippet,
+	}
+	parts = append(parts, item.SurfaceTerms...)
+	return "\n" + strings.ToLower(strings.Join(parts, "\n")) + "\n"
+}
+
+func surfaceTermReviewContains(existing, term string) bool {
+	term = strings.ToLower(strings.TrimSpace(term))
+	if term == "" {
+		return true
+	}
+	return strings.Contains(existing, term)
+}
+
+func sourceLabelCandidatesFromText(text, source string) []string {
+	sourceExt := strings.ToLower(filepath.Ext(source))
+	if sourceExt == "" {
+		return nil
+	}
+	tokens := splitSurfaceReviewTokens(text)
+	out := make([]string, 0, len(tokens))
+	seen := make(map[string]bool, len(tokens))
+	for _, tok := range tokens {
+		term := strings.TrimSpace(tok)
+		if !looksLikeSourceLabelForSameExt(term, sourceExt) {
+			continue
+		}
+		key := strings.ToLower(term)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, term)
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
+}
+
+func splitSurfaceReviewTokens(text string) []string {
+	return strings.FieldsFunc(text, func(r rune) bool {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return false
+		}
+		switch r {
+		case '_', '.', '-', '/', ':', '@':
+			return false
+		default:
+			return true
+		}
+	})
+}
+
+func looksLikeSourceLabelForSameExt(term, sourceExt string) bool {
+	term = strings.TrimSpace(term)
+	if term == "" || !types.IsCodeIdentitySurface(term) {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(term))
+	if ext == "" || ext != sourceExt {
+		return false
+	}
+	// A same-extension file-like label is precise enough for an
+	// advisory repair. It avoids domain names such as example.com in a
+	// .go file while still covering cross-language original-source
+	// labels like Index.ets, Widget.cpp, module.cj, and foo.ts.
+	base := strings.TrimSuffix(filepath.Base(term), filepath.Ext(term))
+	return base != "" && strings.ContainsAny(term, "./")
 }
 
 func isSelfRefEvidence(ev *types.EvidenceItem, primaryEntity string) bool {
