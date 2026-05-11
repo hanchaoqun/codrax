@@ -16,7 +16,9 @@ import (
 // Two decoupled budgets:
 //   - transientRetryBudget (orchestrator-owned) caps THIS path so a
 //     network blip during explore / finalize does not drain the
-//     content-retry budget that contract-violation retries depend on.
+//     content-retry budget that contract-violation retries depend on
+//     OR the pipeline step budget that should count productive stage
+//     dispatches.
 //   - retryBudget (graph-owned) is reserved for content retries
 //     (contract violations, validation feedback, etc.).
 //
@@ -94,7 +96,42 @@ func (o *Orchestrator) retryReadStageDispatchError(
 	}
 
 	state.recordTransientRetry()
-	logging.Warning("[orchestrator] retrying %s after transient dispatch error (%d/%d transient budget): %v",
+	logging.Warning("[orchestrator] retrying %s after transient dispatch error (%d/%d transient budget; pipeline step budget unchanged): %v",
+		stage, state.transientRetryUsed, o.transientRetryBudget, err)
+	o.emit(render.Event{
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: render.NoticeRetry,
+		Reasoning:  softRetryHintMessage(o.busCtx.Language),
+	})
+	return true
+}
+
+// retryReadStandaloneDispatchError is the same transient read-mode
+// retry lane for stages that are dispatched as scheduler side-effects
+// rather than graph nodes. Today that means the pre-finalize extract
+// calls. A dropped stream there used to fall through as "proceeding
+// without extract", which let a transport blip erase Turn-B answer
+// symbol / verdict work. The retry is capped by transientRetryBudget
+// and deliberately does not consume the pipeline step budget.
+func (o *Orchestrator) retryReadStandaloneDispatchError(
+	state *graphState,
+	stage types.PipelineStage,
+	err error,
+) bool {
+	if o == nil || state == nil || o.busCtx == nil || err == nil {
+		return false
+	}
+	if o.busCtx.Mode != types.ModeRead || !llm.IsStreamLevelRetryable(err) {
+		return false
+	}
+	if state.transientRetryUsed >= o.transientRetryBudget {
+		return false
+	}
+	state.recordTransientRetry()
+	o.busCtx.TaskState.LastError = ""
+	logging.Warning("[orchestrator] retrying standalone %s after transient dispatch error (%d/%d transient budget; pipeline step budget unchanged): %v",
 		stage, state.transientRetryUsed, o.transientRetryBudget, err)
 	o.emit(render.Event{
 		Kind:       render.EventOrchestratorNotice,

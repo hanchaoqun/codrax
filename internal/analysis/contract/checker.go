@@ -291,6 +291,13 @@ func checkMustIncludeOracle(draft Answer, c types.AnswerContract, oracle types.S
 func normalizedMustIncludeTerms(c types.AnswerContract) []types.ContractTerm {
 	out := make([]types.ContractTerm, 0, len(c.MustInclude)+len(c.MustIncludeTerms))
 	seen := map[string]bool{}
+	typedTexts := make(map[string]bool, len(c.MustIncludeTerms))
+	for _, term := range c.MustIncludeTerms {
+		text := strings.TrimSpace(term.Text)
+		if text != "" {
+			typedTexts[strings.ToLower(text)] = true
+		}
+	}
 	add := func(term types.ContractTerm) {
 		text := strings.TrimSpace(term.Text)
 		if text == "" {
@@ -308,6 +315,9 @@ func normalizedMustIncludeTerms(c types.AnswerContract) []types.ContractTerm {
 		out = append(out, types.ContractTerm{Text: text, Kind: kind})
 	}
 	for _, sym := range c.MustInclude {
+		if typedTexts[strings.ToLower(strings.TrimSpace(sym))] {
+			continue
+		}
 		add(types.ContractTerm{Text: sym, Kind: types.InferContractTermKind(sym)})
 	}
 	for _, term := range c.MustIncludeTerms {

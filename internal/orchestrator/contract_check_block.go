@@ -1753,7 +1753,7 @@ func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.Answer
 	out = append(out, validateAbsenceScopeBound(doc)...)
 	out = append(out, validateEnumerationItemLabelGrounding(doc, mut)...)
 	out = append(out, validateEnumerationItemLabelExtractorMatch(doc, view, mut, oracle)...)
-	out = append(out, validateEnumerationItemLabelHallucination(doc, oracle)...)
+	out = append(out, validateEnumerationItemLabelHallucination(doc, oracle, mut)...)
 	out = append(out, validateDiagramEdgeEndpointHallucination(doc, oracle)...)
 	out = append(out, validateInlineIdentifierHallucination(doc, oracle)...)
 	return out
@@ -2004,6 +2004,9 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 			if diagramTokenSupported(label, support) {
 				continue
 			}
+			if answerItemLabelSupportedByAnswerSymbol(label, mut) {
+				continue
+			}
 			blockUngrounded = append(blockUngrounded, ungroundedItem{
 				itemID: it.ID,
 				label:  label,
@@ -2091,6 +2094,90 @@ func answerItemHasResolvedCitation(doc *types.AnswerDocumentV2, item types.Answe
 	}
 	cit := doc.Citations[item.CitationRef]
 	return strings.TrimSpace(cit.File) != "" || strings.TrimSpace(cit.Quote) != ""
+}
+
+func answerItemLabelSupportedByCitedEvidenceSubject(doc *types.AnswerDocumentV2, item types.AnswerBlockItem, label string, mut *types.MutableState) bool {
+	label = strings.TrimSpace(label)
+	if doc == nil || mut == nil || !types.IsCodeIdentitySurface(label) {
+		return false
+	}
+	if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+		return false
+	}
+	cit := doc.Citations[item.CitationRef]
+	citFile := strings.TrimSpace(cit.File)
+	if citFile == "" {
+		return false
+	}
+	artifacts := mut.TurnAArtifacts()
+	if artifacts == nil || len(artifacts.EvidenceItems) == 0 {
+		return false
+	}
+	for _, ev := range artifacts.EvidenceItems {
+		if strings.TrimSpace(ev.Source) != citFile {
+			continue
+		}
+		if !citationLineMatchesEvidence(cit.Line, ev) {
+			continue
+		}
+		if label == strings.TrimSpace(ev.Subject) || label == strings.TrimSpace(ev.Object) {
+			return true
+		}
+	}
+	return answerItemLabelSupportedByEvidenceEndpoint(label, mut)
+}
+
+func answerItemLabelSupportedByEvidenceEndpoint(label string, mut *types.MutableState) bool {
+	label = strings.TrimSpace(label)
+	if mut == nil || !types.IsCodeIdentitySurface(label) {
+		return false
+	}
+	artifacts := mut.TurnAArtifacts()
+	if artifacts == nil {
+		return false
+	}
+	for _, ev := range artifacts.EvidenceItems {
+		if ev.GroundingStatus == types.GroundingUngrounded {
+			continue
+		}
+		if label == strings.TrimSpace(ev.Subject) || label == strings.TrimSpace(ev.Object) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerItemLabelSupportedByAnswerSymbol(label string, mut *types.MutableState) bool {
+	label = strings.TrimSpace(label)
+	if mut == nil || label == "" {
+		return false
+	}
+	symbols, _ := mut.EmittedAnswerSymbols()
+	for _, sym := range symbols {
+		name := strings.TrimSpace(sym.Name)
+		if name == "" || sym.File == "" || sym.Line <= 0 {
+			continue
+		}
+		if label == name {
+			return true
+		}
+	}
+	return false
+}
+
+func citationLineMatchesEvidence(line int, ev types.EvidenceItem) bool {
+	start := ev.LineStart
+	end := ev.LineEnd
+	if start <= 0 {
+		return true
+	}
+	if line <= 0 {
+		return true
+	}
+	if end <= 0 {
+		end = start
+	}
+	return line >= start && line <= end
 }
 
 // validateEnumerationItemLabelExtractorMatch (s1a-20260504-130143
@@ -2210,6 +2297,10 @@ func validateEnumerationItemLabelExtractorMatch(doc *types.AnswerDocumentV2, vie
 		for _, it := range b.Items {
 			label := strings.TrimSpace(it.Label)
 			if label == "" {
+				continue
+			}
+			if answerItemLabelSupportedByCitedEvidenceSubject(doc, it, label, mut) {
+				matched++
 				continue
 			}
 			ll := strings.ToLower(label)
@@ -2367,9 +2458,13 @@ func viewNeedsExtractorBackedEnumerationSlate(view *types.AnswerSemanticView) bo
 // label is wrong). Operators promote to STRICT via
 // pipeline_contract_strict_kinds when answer-quality regressions
 // are intolerable.
-func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle) []types.Violation {
+func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, mutOpt ...*types.MutableState) []types.Violation {
 	if doc == nil || oracle == nil {
 		return nil
+	}
+	var mut *types.MutableState
+	if len(mutOpt) > 0 {
+		mut = mutOpt[0]
 	}
 	type hallucinated struct {
 		itemID string
@@ -2385,6 +2480,12 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 		for _, it := range b.Items {
 			label := strings.TrimSpace(it.Label)
 			if label == "" {
+				continue
+			}
+			if answerItemLabelSupportedByCitedEvidenceSubject(doc, it, label, mut) {
+				continue
+			}
+			if answerItemLabelSupportedByAnswerSymbol(label, mut) {
 				continue
 			}
 			ident := labelLeadingSymbolIdentifier(label)

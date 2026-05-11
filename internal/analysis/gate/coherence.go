@@ -65,18 +65,21 @@ const (
 // catch SubTopics under-count without resorting to keyword tables.
 //
 // R1.1 Domain divergence: TermGraph carries multiple repomap-verified
-//      domains (FileInfo.Package values seen by normalizer's resolver
-//      pass) but the LLM emitted ≤1 sub-topic — strong evidence the
-//      question covers independent code regions.
+//
+//	domains (FileInfo.Package values seen by normalizer's resolver
+//	pass) but the LLM emitted ≤1 sub-topic — strong evidence the
+//	question covers independent code regions.
 //
 // R1.2 Predicate self-contradiction: LLM emitted IsCrossComponent=true
-//      but ≤1 sub-topic. The LLM is contradicting its own structured
-//      self-assessment.
+//
+//	but ≤1 sub-topic. The LLM is contradicting its own structured
+//	self-assessment.
 //
 // R1.3 Sub-topic entity orphan: SubTopics declare entities[] that share
-//      no element with PrimaryEntities. Either the SubTopics were
-//      improvised after-the-fact or PrimaryEntities is incomplete.
-//      Either way the ChainGraph cannot trace the answer.
+//
+//	no element with PrimaryEntities. Either the SubTopics were
+//	improvised after-the-fact or PrimaryEntities is incomplete.
+//	Either way the ChainGraph cannot trace the answer.
 //
 // All three routes return the SAME check name so the retry hint
 // renderer can ladder a single "subtopic_coherence" follow-up across
@@ -93,8 +96,8 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	// LLM then sees both diagnostics on one retry and can repair the
 	// IR in one emit instead of bouncing between rules.
 	var (
-		details          []string // hard-fail reasons (precise typed contradictions)
-		softAdvisories   []string // soft hints (noisy heuristics — never hard-fail alone)
+		details        []string // hard-fail reasons (precise typed contradictions)
+		softAdvisories []string // soft hints (noisy heuristics — never hard-fail alone)
 	)
 	domains := extractDistinctTermDomains(rm.TermGraph)
 
@@ -221,24 +224,9 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			s := subTopicState{index: i, topic: st}
 			for _, ent := range st.Entities {
 				trimmed := strings.TrimSpace(ent)
-				if hits := resolver.LookupSymbol(trimmed); len(hits) > 0 {
+				if subTopicEntityResolvedForCoherence(trimmed, rm, resolver) {
 					s.hit = true
 					break
-				}
-				// Fix J (2026-05-07 m1b r1 forensic): when exact +
-				// flat lookup misses, try stem-aware fallback for
-				// user concept-form (`AnalyzerAgent`) ↔ repo
-				// implementation-form (`analyzerEvaluator`)
-				// translation. Optional protocol — not every
-				// resolver implementation supports stem matching;
-				// type-assert and skip when absent.
-				if stemr, ok := resolver.(interface {
-					LookupSymbolStem(string) []normalizer.SymbolHit
-				}); ok {
-					if hits := stemr.LookupSymbolStem(trimmed); len(hits) > 0 {
-						s.hit = true
-						break
-					}
 				}
 			}
 			states = append(states, s)
@@ -295,6 +283,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	//    R1.4 would collide with multi-aspect explanations of one
 	//    component.
 	if resolver != nil && nSub >= 2 && !rm.Predicates.IsCrossComponent &&
+		!attributeBearingEnumerationBypassesAxisCollapse(rm) &&
 		(rm.Predicates.IsCategoryEnumeration || rm.Intent == types.IntentEnumerate) {
 		seen := make(map[string]bool)
 		for _, st := range rm.SubTopics {
@@ -306,7 +295,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 				}
 			}
 		}
-		if len(seen) <= 1 {
+		if len(seen) == 1 {
 			collapsed := make([]string, 0, len(seen))
 			for d := range seen {
 				collapsed = append(collapsed, d)
@@ -431,10 +420,10 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		// stay reserved for precise typed contradictions (R1.2 +
 		// R1.3 + R1.4 + R1.5).
 		return types.GateCheck{
-			Name:    "subtopic_coherence",
-			Passed:  true,
-			Score:   0.7,
-			Detail:  strings.Join(softAdvisories, " | "),
+			Name:   "subtopic_coherence",
+			Passed: true,
+			Score:  0.7,
+			Detail: strings.Join(softAdvisories, " | "),
 		}
 	}
 
@@ -462,20 +451,98 @@ func summaryShort(s string, runeMax int) string {
 	return string(r[:runeMax]) + "…"
 }
 
+// subTopicEntityResolvedForCoherence returns true when a sub-topic
+// entity has enough typed grounding to avoid R1.5's hallucination
+// branch. The primary route remains resolver.LookupSymbol /
+// LookupSymbolStem. The category-enumeration fallback is deliberately
+// narrow: it accepts only analyzer-authored bounded member surfaces
+// whose token shape is a cross-language code identity. This covers
+// module/package/directory members in Python, Java/Kotlin, JS/TS,
+// Rust, C/C++, C#, ArkTS, Cangjie, and path-like repo layouts without
+// pretending those containers are Go symbols.
+func subTopicEntityResolvedForCoherence(surface string, rm types.RequestModel, resolver normalizer.SymbolResolver) bool {
+	trimmed := strings.TrimSpace(surface)
+	if trimmed == "" {
+		return false
+	}
+	if resolver != nil {
+		if hits := resolver.LookupSymbol(trimmed); len(hits) > 0 {
+			return true
+		}
+		// Fix J (2026-05-07 m1b r1 forensic): when exact + flat lookup
+		// misses, try stem-aware fallback for user concept-form
+		// (`AnalyzerAgent`) ↔ repo implementation-form
+		// (`analyzerEvaluator`) translation. Optional protocol — not
+		// every resolver implementation supports stem matching.
+		if stemr, ok := resolver.(interface {
+			LookupSymbolStem(string) []normalizer.SymbolHit
+		}); ok {
+			if hits := stemr.LookupSymbolStem(trimmed); len(hits) > 0 {
+				return true
+			}
+		}
+	}
+	return typedEnumerationMemberSurfaceForCoherence(trimmed, rm)
+}
+
+func typedEnumerationMemberSurfaceForCoherence(surface string, rm types.RequestModel) bool {
+	if !categoryEnumerationMemberLaneForCoherence(rm) {
+		return false
+	}
+	if !types.IsCodeIdentitySurface(surface) {
+		return false
+	}
+	for _, ent := range rm.AnalyzerHints.Entities {
+		if strings.TrimSpace(ent) == surface {
+			return true
+		}
+	}
+	return false
+}
+
+func categoryEnumerationMemberLaneForCoherence(rm types.RequestModel) bool {
+	if types.HasBoundedCategoryEnumerationMembers(rm) {
+		return true
+	}
+	if !rm.Predicates.IsCategoryEnumeration || rm.Predicates.IsRelationalLookup {
+		return false
+	}
+	return len(rm.AnalyzerHints.Entities) > 1 && len(rm.SubTopics) > 0
+}
+
+// attributeBearingEnumerationBypassesAxisCollapse prevents R1.4 from
+// forcing a retry when the analyzer has already materialized a
+// two-axis enumeration: principal members plus per-member attributes.
+// In that shape, sub-topics can be analyzer scaffolding for attribute
+// discovery rather than independently-answerable code areas. The
+// condition requires an explicit typed two-axis signal beyond "there
+// are sub_topics" so ordinary one-axis enum over-decomposition keeps
+// R1.4 protection.
+func attributeBearingEnumerationBypassesAxisCollapse(rm types.RequestModel) bool {
+	if !types.HasAttributeBearingEnumeration(rm) {
+		return false
+	}
+	return rm.Predicates.IsRelationalLookup ||
+		rm.PredicateAxis != types.AxisUnknown ||
+		len(rm.AnalyzerHints.RequiredFileHints) > 1
+}
+
 // checkShapeSubjectCoherence enforces two cross-signal invariants on
 // the AnswerSemanticView ↔ AnswerSubject ↔ Predicates triangle. Both
 // routes catch genuine LLM contradictions rather than judgement calls.
 //
 // R2.1 Scalar vs multi-topic: Predicates.IsScalarAnswer is true but
-//      the LLM emitted ≥2 sub-topics. A scalar answer cannot be the
-//      union of multiple independently-answerable sub-topics.
+//
+//	the LLM emitted ≥2 sub-topics. A scalar answer cannot be the
+//	union of multiple independently-answerable sub-topics.
 //
 // R2.2 Long-form view with scalar subject: the compiled
-//      AnswerSemanticView's principal payload is NOT a scalar
-//      (i.e. an explanation / call-chain / enumeration prose answer)
-//      but AnswerSubject.Kind is one of the single-value subject
-//      kinds (Numeric, StringLiteral, ReturnValue) at confidence ≥
-//      floor. Long-form answers cannot "be" a single literal value.
+//
+//	AnswerSemanticView's principal payload is NOT a scalar
+//	(i.e. an explanation / call-chain / enumeration prose answer)
+//	but AnswerSubject.Kind is one of the single-value subject
+//	kinds (Numeric, StringLiteral, ReturnValue) at confidence ≥
+//	floor. Long-form answers cannot "be" a single literal value.
 func checkShapeSubjectCoherence(ir *types.AnalysisIR) types.GateCheck {
 	rm := ir.RequestModel
 	nSub := len(rm.SubTopics)

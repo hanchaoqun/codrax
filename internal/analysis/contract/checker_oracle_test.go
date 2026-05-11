@@ -169,6 +169,37 @@ func TestCheckWithOracle_LegacyKnownToolNameInfersToolKind(t *testing.T) {
 	}
 }
 
+func TestCheckWithOracle_CrossLanguagePackageTermsDoNotRequireSymbolOracle(t *testing.T) {
+	oracle := &stubOracle{tiers: map[string]int{}}
+	draft := Answer{Text: "Members include `com.example.api`, `react-dom`, `@scope/pkg`, and `foo::bar`."}
+	c := types.AnswerContract{MustInclude: []string{
+		"com.example.api",
+		"react-dom",
+		"@scope/pkg",
+		"foo::bar",
+	}}
+	res := CheckWithOracle(draft, c, oracle)
+	if !res.Passed {
+		t.Fatalf("cross-language package/module must_include terms should not require Go symbol oracle hits; got %+v", res.Violations)
+	}
+}
+
+func TestCheckWithOracle_TypedTermOverridesLegacyMustIncludeKind(t *testing.T) {
+	oracle := &stubOracle{tiers: map[string]int{}}
+	draft := Answer{Text: "The member list includes `findings_validator` and its entry function `Validate`."}
+	c := types.AnswerContract{
+		MustInclude: []string{"findings_validator"},
+		MustIncludeTerms: []types.ContractTerm{{
+			Text: "findings_validator",
+			Kind: types.ContractTermFileStem,
+		}},
+	}
+	res := CheckWithOracle(draft, c, oracle)
+	if !res.Passed {
+		t.Fatalf("typed file-stem term must override legacy symbol lane and bypass symbol oracle; got %+v", res.Violations)
+	}
+}
+
 func TestCheckWithOracle_FlatAcceptanceSymbolPasses(t *testing.T) {
 	oracle := &stubOracle{tiers: map[string]int{
 		"EmitEvidence": 1,

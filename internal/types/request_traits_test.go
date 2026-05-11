@@ -35,6 +35,111 @@ func TestIsScalarSourceLiteralLookup_RoleLocateBlockedByLogFrames(t *testing.T) 
 	}
 }
 
+func TestHasAttributeBearingEnumeration_TypedOnly(t *testing.T) {
+	rm := RequestModel{
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsRelationalLookup:    true,
+		},
+		EnumerationBoundary: &RequestedEnumerationBoundary{
+			DeclaredCount: 25,
+			SourceQuote:   "all packages",
+		},
+	}
+	if !HasAttributeBearingEnumeration(rm) {
+		t.Fatal("category enumeration + relational lookup + boundary should be attribute-bearing")
+	}
+
+	rm.EnumerationBoundary = nil
+	rm.CompletenessObligation = &CompletenessObligation{Required: true, SourceQuote: "all packages"}
+	if !HasAttributeBearingEnumeration(rm) {
+		t.Fatal("category enumeration + relational lookup + completeness obligation should be attribute-bearing")
+	}
+
+	rm.Predicates.IsRelationalLookup = false
+	rm.PredicateAxis = AxisDefine
+	rm.AnalyzerHints.Entities = []string{"aggregator", "compiler"}
+	if !HasAttributeBearingEnumeration(rm) {
+		t.Fatal("category enumeration + predicate axis + exhaustive multi-member entity set should be attribute-bearing")
+	}
+
+	rm.PredicateAxis = AxisUnknown
+	rm.SubTopics = []SubTopic{{Summary: "members"}, {Summary: "attributes"}}
+	if !HasAttributeBearingEnumeration(rm) {
+		t.Fatal("category enumeration + subtopic split + exhaustive multi-member entity set should be attribute-bearing")
+	}
+
+	rm.CompletenessObligation = nil
+	rm.AnalyzerHints.RequiredFileHints = []RequiredFileHint{
+		{Path: "a.go", Confidence: 0.9},
+		{Path: "b.go", Confidence: 0.9},
+	}
+	if !HasAttributeBearingEnumeration(rm) {
+		t.Fatal("category enumeration + subtopic split + required file hints for multiple members should be attribute-bearing")
+	}
+
+	rm.AnalyzerHints.RequiredFileHints = nil
+	rm.SubTopics = nil
+	if HasAttributeBearingEnumeration(rm) {
+		t.Fatal("plain enumeration must not be treated as attribute-bearing")
+	}
+}
+
+func TestHasBoundedCategoryEnumerationMembers_TypedOnly(t *testing.T) {
+	rm := RequestModel{
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"aggregator", "compiler"},
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all subpackages"},
+	}
+	if !HasBoundedCategoryEnumerationMembers(rm) {
+		t.Fatal("category enumeration + multi-member completeness should expose a bounded member lane")
+	}
+
+	rm.Predicates.IsRelationalLookup = true
+	if HasBoundedCategoryEnumerationMembers(rm) {
+		t.Fatal("relational lookup entities are not a plain principal-member lane")
+	}
+
+	rm.Predicates.IsRelationalLookup = false
+	rm.Predicates.IsCategoryEnumeration = false
+	if HasBoundedCategoryEnumerationMembers(rm) {
+		t.Fatal("non-enumeration request must not expose bounded enumeration members")
+	}
+}
+
+func TestIsCodeIdentitySurface_CrossLanguage(t *testing.T) {
+	accepted := []string{
+		"aggregator",
+		"findings_validator",
+		"com.example.api",
+		"react-dom",
+		"@scope/pkg",
+		"foo::bar",
+		"packages/core",
+		"ohos.ability",
+	}
+	for _, surface := range accepted {
+		if !IsCodeIdentitySurface(surface) {
+			t.Fatalf("expected %q to be accepted as a cross-language code identity", surface)
+		}
+	}
+
+	rejected := []string{
+		"",
+		"two words",
+		"entry point",
+		"foo,bar",
+		"needs?answer",
+	}
+	for _, surface := range rejected {
+		if IsCodeIdentitySurface(surface) {
+			t.Fatalf("expected %q to be rejected as prose / punctuation, not a code identity", surface)
+		}
+	}
+}
+
 // TestIsScalarSourceLiteralLookup_RoleLocateAllowedWithoutBundle is
 // the negative-control: same RM minus the bundle → role-locate
 // short-circuit is restored. Confirms the fix is gated by the

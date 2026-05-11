@@ -1359,6 +1359,18 @@ func TestEnumerationLabelGrounding_AllLabelsMatchAnchorPasses(t *testing.T) {
 	}
 }
 
+func TestEnumerationLabelGrounding_AnswerSymbolsSupportCrossLanguageLabels(t *testing.T) {
+	mut := &types.MutableState{}
+	mut.SetEmittedAnswerSymbols([]types.AnswerSymbol{
+		{Name: "Index", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets", Line: 7},
+		{Name: "defaultHeader", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", Line: 8},
+	}, types.CompletenessComplete)
+	doc := docWithEnumItems("arkts", "Index", "defaultHeader")
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Fatalf("file:line-backed AnswerSymbols must support ArkTS/Cangjie/C++ labels even when evidence-token cache is empty; got %+v", vs)
+	}
+}
+
 // TestEnumerationLabelGrounding_HallucinatedLabelFires — the s1a
 // failure mode reproduced as a unit test: 3 grounded labels +
 // 2 fabricated labels (no evidence anchor); oracle reports the 2.
@@ -2300,6 +2312,34 @@ func TestEnumerationItemLabelExtractorMatch_RelaxedSubstringPasses(t *testing.T)
 		"checkCoverage — 资源检查", "checkDAGClosure (closure check)", "checkBudgetSanity")
 	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut, nil); len(vs) != 0 {
 		t.Errorf("substring containment MUST pass; got %+v", vs)
+	}
+}
+
+func TestEnumerationItemLabelExtractorMatch_CitedMemberSubjectsPassForTwoAxisEnumeration(t *testing.T) {
+	mut := mutWithSymbols("Validate", "Normalize", "MergePerfBundles")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{Subject: "findings_validator", AnchorSymbol: "Validate", Source: "internal/analysis/findings_validator/validator.go", LineStart: 70},
+		{Subject: "normalizer", AnchorSymbol: "Normalize", Source: "internal/analysis/normalizer/normalizer.go", LineStart: 72},
+		{Subject: "perftriage", AnchorSymbol: "MergePerfBundles", Source: "internal/analysis/perftriage/merge.go", LineStart: 48},
+	}})
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/analysis/findings_validator/validator.go", Line: 70},
+			{File: "internal/analysis/normalizer/normalizer.go", Line: 72},
+			{File: "internal/analysis/perftriage/merge.go", Line: 48},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "packages",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{ID: "pkg1", Label: "findings_validator", Text: "entry function `Validate`", CitationRef: 0},
+				{ID: "pkg2", Label: "normalizer", Text: "entry function `Normalize`", CitationRef: 1},
+				{ID: "pkg3", Label: "perftriage", Text: "entry function `MergePerfBundles`", CitationRef: 2},
+			},
+		}},
+	}
+	if vs := validateEnumerationItemLabelExtractorMatch(doc, enumView(), mut, nil); len(vs) != 0 {
+		t.Fatalf("two-axis enumeration member labels backed by cited evidence subjects must pass; got %+v", vs)
 	}
 }
 

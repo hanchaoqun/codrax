@@ -160,6 +160,9 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
 		}
 	}
+	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) > 0 {
+		return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
+	}
 
 	// v3 B4 (2026-05-04): route the full-emit write through the
 	// unified mutation runtime — same chokepoint as the patch path,
@@ -217,26 +220,26 @@ func detectV1FieldsInV2Emit(raw json.RawMessage) string {
 // repairBlocksAsString is the layered recovery entry-point. The
 // layers, in order:
 //
-//   1. Path A — pure-array stringify (`{"blocks":"[…]"}`); the LLM
-//      stringified just the blocks array; everything else is at
-//      top-level.
-//   2. Path B — whole-document stringify (`{"blocks":"[…], \"citations\":[…]"}`);
-//      the LLM put the entire answer body inside the blocks string.
-//   3. Path C — structured control-char normalisation: Paths A/B fail
-//      when raw \n / \r / \t / 0x00–0x1F appears inside a string
-//      literal (strict json.Unmarshal rejects unescaped control
-//      bytes in strings). The state-machine pass walks every byte,
-//      re-escapes control bytes ONLY inside string scope, and retries
-//      Paths A/B.
-//   4. Path D (heuristic) — brace-balanced block extraction: when
-//      everything above fails, walk the trimmed string and emit one
-//      `{...}` element per top-level brace pair. Each candidate is
-//      individually json.Unmarshal-validated before being kept; bad
-//      blocks are silently dropped. Validators downstream still run
-//      on the recovered set so a partial recovery does not silently
-//      ship — block-coverage / claim-use / facet-coverage oracles
-//      will reject if the recovered set is below the contract floor,
-//      triggering the standard reject→LLM-retry path.
+//  1. Path A — pure-array stringify (`{"blocks":"[…]"}`); the LLM
+//     stringified just the blocks array; everything else is at
+//     top-level.
+//  2. Path B — whole-document stringify (`{"blocks":"[…], \"citations\":[…]"}`);
+//     the LLM put the entire answer body inside the blocks string.
+//  3. Path C — structured control-char normalisation: Paths A/B fail
+//     when raw \n / \r / \t / 0x00–0x1F appears inside a string
+//     literal (strict json.Unmarshal rejects unescaped control
+//     bytes in strings). The state-machine pass walks every byte,
+//     re-escapes control bytes ONLY inside string scope, and retries
+//     Paths A/B.
+//  4. Path D (heuristic) — brace-balanced block extraction: when
+//     everything above fails, walk the trimmed string and emit one
+//     `{...}` element per top-level brace pair. Each candidate is
+//     individually json.Unmarshal-validated before being kept; bad
+//     blocks are silently dropped. Validators downstream still run
+//     on the recovered set so a partial recovery does not silently
+//     ship — block-coverage / claim-use / facet-coverage oracles
+//     will reject if the recovered set is below the contract floor,
+//     triggering the standard reject→LLM-retry path.
 //
 // Each layer falls through to the next on failure. Returns
 // `(repaired, true)` on the first successful layer; `(nil, false)`
@@ -738,7 +741,6 @@ func normalizeControlCharsInJSONStrings(s string) (string, bool) {
 	return out.String(), true
 }
 
-
 func mustMarshal(v interface{}) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b
@@ -1183,7 +1185,6 @@ var answerDocumentV2MisplacedHints = []MisplacedFieldHint{
 		},
 	},
 }
-
 
 // enrichCitationsWithEnclosingFunction populates each Citation's
 // EnclosingFunction field by looking up the cite's (File, Line) in

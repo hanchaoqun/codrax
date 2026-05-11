@@ -33,11 +33,11 @@ import (
 type commentStyle int
 
 const (
-	commentStyleNone         commentStyle = iota
-	commentStyleDoubleSlash               // // and ///
-	commentStyleHash                      // #
-	commentStyleBlock                     // /** ... */ (Java, JSDoc)
-	commentStyleHTML                      // <!-- ... -->
+	commentStyleNone        commentStyle = iota
+	commentStyleDoubleSlash              // // and ///
+	commentStyleHash                     // #
+	commentStyleBlock                    // /** ... */ (Java, JSDoc)
+	commentStyleHTML                     // <!-- ... -->
 )
 
 // extCommentStyle returns the comment style for a file extension.
@@ -106,9 +106,11 @@ const (
 //
 //  1. For Python: try docstring on the line(s) after lineStart
 //     (function body's first statement). If found, return.
-//  2. Otherwise, walk UPWARD from lineStart-1 through any blank
-//     line (single blank tolerated to allow "decorator over def"
-//     idiom; multi-blank stops the walk).
+//  2. Otherwise, first move the search anchor above any decorator /
+//     annotation / attribute stack directly attached to the definition
+//     (Python/TypeScript/ArkTS @decorators, Java/Kotlin annotations,
+//     Rust #[attrs], C/C++/C# attributes). Then walk UPWARD from that
+//     anchor through any blank line (single blank tolerated).
 //  3. Collect contiguous comment lines matching the file's comment
 //     style. Stop at first non-comment line.
 //  4. Reverse to reading order, strip prefixes, apply length filter.
@@ -129,22 +131,74 @@ func ExtractLeadingDocComment(content []byte, lineStart int, path string) (text 
 		// fall through to # comment fallback below
 	}
 
+	commentAnchorLine := docCommentAnchorLine(lines, lineStart)
 	style := extCommentStyle(ext)
 	switch style {
 	case commentStyleDoubleSlash:
-		return extractAboveLinePrefix(lines, lineStart, "//")
+		return extractAboveLinePrefix(lines, commentAnchorLine, "//")
 	case commentStyleHash:
-		return extractAboveLinePrefix(lines, lineStart, "#")
+		return extractAboveLinePrefix(lines, commentAnchorLine, "#")
 	case commentStyleBlock:
 		// Java: try /** ... */ first; fall back to // if block absent.
-		if t, l := extractBlockCommentAbove(lines, lineStart); t != "" {
+		if t, l := extractBlockCommentAbove(lines, commentAnchorLine); t != "" {
 			return t, l
 		}
-		return extractAboveLinePrefix(lines, lineStart, "//")
+		return extractAboveLinePrefix(lines, commentAnchorLine, "//")
 	case commentStyleHTML:
-		return extractHTMLBlockAbove(lines, lineStart)
+		return extractHTMLBlockAbove(lines, commentAnchorLine)
 	}
 	return "", 0
+}
+
+// docCommentAnchorLine returns the line that a leading documentation
+// comment should attach to. Many languages place metadata between a
+// doc comment and the definition it describes:
+//
+//	// docs
+//	@Entry / @Deprecated / #[derive(...)] / [[nodiscard]]
+//	class C
+//
+// The definition line itself remains lineStart for symbol grounding;
+// only doc-comment discovery uses this adjusted anchor. The detector
+// is intentionally structural: it recognises comment-adjacent metadata
+// syntax, not domain words, so it covers ArkTS/TS/Python decorators,
+// Java/Kotlin annotations, Rust attributes, C/C++ attributes, C#
+// attributes, Swift attributes, and similar Cangjie/ArkUI surfaces
+// without introducing a keyword hard gate.
+func docCommentAnchorLine(lines []string, lineStart int) int {
+	if lineStart <= 1 || lineStart > len(lines) {
+		return lineStart
+	}
+	anchor := lineStart
+	for skipped := 0; anchor > 1 && skipped < maxInLines; skipped++ {
+		prev := strings.TrimSpace(lines[anchor-2])
+		if !isMetadataLineAboveDefinition(prev) {
+			break
+		}
+		anchor--
+	}
+	return anchor
+}
+
+func isMetadataLineAboveDefinition(trimmed string) bool {
+	if trimmed == "" {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(trimmed, "@"):
+		return true
+	case strings.HasPrefix(trimmed, "#[") || strings.HasPrefix(trimmed, "#!["):
+		return true
+	case strings.HasPrefix(trimmed, "[["):
+		return true
+	case strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]"):
+		return true
+	case strings.HasPrefix(trimmed, "__attribute__") ||
+		strings.HasPrefix(trimmed, "__declspec") ||
+		strings.HasPrefix(trimmed, "alignas("):
+		return true
+	}
+	return false
 }
 
 // extractAboveLinePrefix walks upward from the line above lineStart

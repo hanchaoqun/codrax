@@ -136,15 +136,16 @@ type emitEvidenceItem struct {
 	// LineStart / LineEnd use FlexInt so LLMs that emit numeric
 	// strings ("42") or floats (42.0) pass strict schema validation
 	// instead of failing the whole batch on format pedantry.
-	LineStart    FlexInt `json:"line_start,omitempty"`
-	LineEnd      FlexInt `json:"line_end,omitempty"`
-	Condition    string  `json:"condition,omitempty"`
-	Summary      string  `json:"summary,omitempty"`
-	AnchorKind   string  `json:"anchor_kind,omitempty"`
-	AnchorSymbol string  `json:"anchor_symbol,omitempty"`
-	Snippet      string  `json:"snippet,omitempty"`
-	ContextRole  string  `json:"context_role_hint,omitempty"`
-	DiagramRole  string  `json:"diagram_role_hint,omitempty"`
+	LineStart    FlexInt  `json:"line_start,omitempty"`
+	LineEnd      FlexInt  `json:"line_end,omitempty"`
+	Condition    string   `json:"condition,omitempty"`
+	Summary      string   `json:"summary,omitempty"`
+	AnchorKind   string   `json:"anchor_kind,omitempty"`
+	AnchorSymbol string   `json:"anchor_symbol,omitempty"`
+	Snippet      string   `json:"snippet,omitempty"`
+	ContextRole  string   `json:"context_role_hint,omitempty"`
+	DiagramRole  string   `json:"diagram_role_hint,omitempty"`
+	SurfaceTerms []string `json:"surface_terms,omitempty"`
 	// LoadBearingSummary opts the summary into authoritative surface
 	// rendering for downstream stages. Default false: typed fields are
 	// the canonical surface and free-form summary text gets stripped
@@ -229,6 +230,7 @@ func (t *EmitEvidence) Description() string {
 		"to recommend how the item should be used for exact-target answers. `diagram_role_hint` may be `default`, " +
 		"`config`, `runtime`, or `override` for config-precedence traces (`config` = grounded repo/user config-file layer such as YAML/JSON/TOML/INI/etc.). These are recommendations only: the tool " +
 		"validates them structurally and may downgrade or ignore inconsistent hints.\n\n" +
+		"surface_terms is optional model-authored structured data for exact user-visible labels / aliases copied verbatim from already-read source, log, or trace lines (for example route names, package/module labels, config keys, macro names, trace span names, original file labels). The tool rejects any surface term that is not grounded in the read window; final answer validation may require preserving accepted terms.\n\n" +
 		"snippet is optional but recommended for conditional / mechanism / registration items: paste " +
 		"1-2 lines of the actual code so the snippet_fuzzy recovery tier can re-anchor if your " +
 		"line_start is off by one.\n\n" +
@@ -303,6 +305,11 @@ func emitEvidenceParametersSchema() json.RawMessage {
 						"load_bearing_summary": map[string]any{
 							"type":        "boolean",
 							"description": "OPTIONAL. Default false. Set true ONLY when the `summary` text holds a scalar (commit hash, version string, count, single concrete identifier, value derived from a tool / shell / git command output) that the user-facing answer must reproduce verbatim AND the typed fields (subject / predicate / object / anchor_symbol / snippet) cannot themselves carry that scalar. False is correct for the common case where summary is a paraphrase / rationale that the typed fields already encode. The tool rejects this flag when summary is empty.",
+						},
+						"surface_terms": map[string]any{
+							"type":        "array",
+							"items":       map[string]any{"type": "string"},
+							"description": "OPTIONAL. Model-authored exact strings from the already-read source/log/trace lines that the final answer should preserve as visible aliases or labels, but that are not already captured by subject/object/anchor_symbol. Use for original file labels, route names, package/module names, config keys, macro names, trace span names, or runtime object labels. Every term must appear verbatim in the cited source window; the tool rejects ungrounded terms.",
 						},
 						"anchor_kind": map[string]any{
 							"type":        "string",
@@ -434,6 +441,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
           "summary":       {"type": "string", "description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals."},
           "context_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, absence_support = grounded evidence that helps justify why the exact target is absent but does NOT define it, related_context = grounded nearby context but not the exact target itself, illustrative_only = comment/doc/test/example mention that should NOT be treated as defining proof. The tool validates and may downgrade the hint."},
           "diagram_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, config = repo/user config-file layer (YAML/JSON/TOML/INI/etc.), runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints."},
+          "surface_terms": {"type": "array", "items": {"type": "string"}, "description": "OPTIONAL exact source/log/trace strings that should remain visible in the final answer as aliases or labels. Every term must appear verbatim in the already-read source window."},
           "anchor_kind":   {"type": "string", "enum": %s, "description": "REQUIRED. What the line_start points at: 'definition' = symbol declaration, 'call' = function/method call site, 'condition' = if/when/switch/case/guard line, 'return' = return or yield, 'assignment' = := or = assignment, 'import' = import/use/require statement. The grounder dispatches on this so wrong kinds produce confusing ungrounded verdicts."},
           "anchor_symbol": {"type": "string", "description": "REQUIRED. The identifier the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias."},
           "snippet":       {"type": "string", "description": "Optional. 1-2 lines of actual code from the cited location. Enables snippet_fuzzy recovery when line_start is off by ±15 lines — recommended for conditional / mechanism / registration items."}
@@ -570,6 +578,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	gc := ground.BuildContext(ctx)
 	diagramRequiredFiles := exactResolutionDiagramRequiredFiles(ctx, exactResolutionContract)
 	reports := make([]ground.Report, len(built))
+	surfaceTermRejects := make([]string, 0)
 	for i := range built {
 		// Per-scope dispatch: ScopeLine routes to the existing tier
 		// cascade; schema-level scopes (File / Crossfile / Negative)
@@ -614,6 +623,14 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		built[i].ID = types.StableEvidenceID(built[i])
 		r.ItemID = built[i].ID
 		reports[i] = r
+		if err := validateEvidenceSurfaceTerms(i, built[i], gc); err != nil {
+			surfaceTermRejects = append(surfaceTermRejects, err.Error())
+		}
+	}
+	if len(surfaceTermRejects) > 0 {
+		return failEmit(t.Name(), now,
+			"surface_terms must be exact strings from already-read source lines:\n%s",
+			strings.Join(surfaceTermRejects, "\n"))
 	}
 
 	// 2026-05-03 (Phase 6 stage 2): retired the codename-grounding
@@ -899,6 +916,7 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 		Snippet:              snippet,
 		Scope:                scope,
 		LoadBearingSummary:   in.LoadBearingSummary,
+		SurfaceTerms:         normalizeEvidenceSurfaceTerms(in.SurfaceTerms),
 	}
 
 	// Reject load_bearing_summary=true on items whose Summary is empty —
@@ -2402,6 +2420,79 @@ func extractDocCommentForGroundedItem(gc *ground.Context, source string, lineSta
 	}
 	content := []byte(strings.Join(parts, "\n"))
 	return types.ExtractLeadingDocComment(content, lineStart, source)
+}
+
+func normalizeEvidenceSurfaceTerms(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for _, raw := range in {
+		term := strings.TrimSpace(raw)
+		if term == "" {
+			continue
+		}
+		if len(term) > 120 {
+			term = term[:120]
+		}
+		key := strings.ToLower(term)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, term)
+		if len(out) >= 12 {
+			break
+		}
+	}
+	return out
+}
+
+func validateEvidenceSurfaceTerms(index int, item types.EvidenceItem, gc *ground.Context) error {
+	if len(item.SurfaceTerms) == 0 {
+		return nil
+	}
+	if gc == nil || len(gc.LineIndex) == 0 || strings.TrimSpace(item.Source) == "" {
+		return fmt.Errorf("items[%d]: surface_terms require already-read source lines for source=%q", index, item.Source)
+	}
+	fileLines := gc.LineIndex[item.Source]
+	if len(fileLines) == 0 {
+		return fmt.Errorf("items[%d]: surface_terms require source %q to have been read with read_file", index, item.Source)
+	}
+	window := evidenceSurfaceTermWindow(item, fileLines)
+	for _, term := range item.SurfaceTerms {
+		if !strings.Contains(window, term) {
+			return fmt.Errorf("items[%d]: surface_terms term %q is not grounded in the already-read source window for %s:%d", index, term, item.Source, item.LineStart)
+		}
+	}
+	return nil
+}
+
+func evidenceSurfaceTermWindow(item types.EvidenceItem, fileLines map[int]string) string {
+	if len(fileLines) == 0 {
+		return ""
+	}
+	start, end := item.LineStart, item.LineEnd
+	if start <= 0 {
+		start = 1
+	}
+	if end < start {
+		end = start
+	}
+	start -= 8
+	if start < 1 {
+		start = 1
+	}
+	end += 8
+	var b strings.Builder
+	for i := start; i <= end; i++ {
+		if line, ok := fileLines[i]; ok {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
 }
 
 func isSelfRefEvidence(ev *types.EvidenceItem, primaryEntity string) bool {

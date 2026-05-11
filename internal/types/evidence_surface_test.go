@@ -329,8 +329,7 @@ func TestBuildAnswerSurfacePlan_UsesMinimalSummaryModeForRoleLocateScalar(t *tes
 				IsScalarAnswer: true,
 			},
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 
 	plan := BuildAnswerSurfacePlan(ir, NewMutableState(""), nil, nil, nil, nil)
@@ -353,8 +352,7 @@ func TestBuildAnswerSurfacePlan_UsesMinimalSummaryModeForUnnamedRoleLocateFallba
 				Kind: "mechanism",
 			},
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 
 	plan := BuildAnswerSurfacePlan(ir, NewMutableState(""), nil, nil, nil, nil)
@@ -435,8 +433,7 @@ func TestBuildAnswerSurfacePlan_CollectsLogSourceDriftAnchors(t *testing.T) {
 			Scenario: ScenarioRootCause,
 			Intent:   IntentRootCause,
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 	evidence := []EvidenceItem{
 		{
@@ -626,8 +623,7 @@ func TestBuildAnswerSurfacePlan_LogObservedAnchorsPreferAuthoritativeBindings(t 
 			Scenario: ScenarioRootCause,
 			Intent:   IntentRootCause,
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 	evidence := []EvidenceItem{
 		{
@@ -719,8 +715,7 @@ func TestBuildAnswerSurfacePlan_CollectsExternalObservationSeeds(t *testing.T) {
 			Scenario: ScenarioRootCause,
 			Intent:   IntentRootCause,
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 	evidence := []EvidenceItem{
 		{
@@ -891,8 +886,7 @@ func TestBuildAnswerSurfacePlan_CollectsDriftBoundedSurfaceItems(t *testing.T) {
 			Scenario: ScenarioRootCause,
 			Intent:   IntentRootCause,
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 	evidence := []EvidenceItem{
 		{
@@ -977,8 +971,7 @@ func TestBuildAnswerSurfacePlan_DriftBoundedSurfaceSkipsOuterFunctionNoiseWhenCa
 			Scenario: ScenarioRootCause,
 			Intent:   IntentRootCause,
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 	evidence := []EvidenceItem{
 		{
@@ -1082,8 +1075,7 @@ func TestBuildAnswerSurfacePlan_DriftBoundedSurfaceUsesOwnerSymbolForLineLocalCo
 			Scenario: ScenarioRootCause,
 			Intent:   IntentRootCause,
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 	evidence := []EvidenceItem{
 		{
@@ -1182,9 +1174,8 @@ func TestBuildAnswerSurfacePlan_CompilesStepBackboneFromAnswerSymbols(t *testing
 		},
 	}, CompletenessLowerBound)
 	ir := &AnalysisIR{
-		RequestModel: RequestModel{Intent: IntentTrace},
-		AnswerContract: AnswerContract{
-		},
+		RequestModel:   RequestModel{Intent: IntentTrace},
+		AnswerContract: AnswerContract{},
 	}
 	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, nil)
 	if plan == nil {
@@ -1203,9 +1194,8 @@ func TestBuildAnswerSurfacePlan_CompilesStepBackboneFromAnswerSymbols(t *testing
 
 func TestBuildAnswerSurfacePlan_CompilesFallbackStepBackboneFromEvidence(t *testing.T) {
 	ir := &AnalysisIR{
-		RequestModel: RequestModel{Intent: IntentTrace},
-		AnswerContract: AnswerContract{
-		},
+		RequestModel:   RequestModel{Intent: IntentTrace},
+		AnswerContract: AnswerContract{},
 	}
 	evidence := []EvidenceItem{
 		{
@@ -1259,9 +1249,8 @@ func TestBuildAnswerSurfacePlan_AugmentsLowerBoundStepBackboneWithEvidence(t *te
 		{Name: "gate.Run", File: "internal/agent/analyzer.go", Line: 1334, Kind: KindFunction},
 	}, CompletenessLowerBound)
 	ir := &AnalysisIR{
-		RequestModel: RequestModel{Intent: IntentTrace},
-		AnswerContract: AnswerContract{
-		},
+		RequestModel:   RequestModel{Intent: IntentTrace},
+		AnswerContract: AnswerContract{},
 	}
 	evidence := []EvidenceItem{
 		{
@@ -1344,8 +1333,7 @@ func TestBuildAnswerSurfacePlan_DoesNotAugmentCompleteOrBoundedStepBackbone(t *t
 				SourceQuote:   "3 checks",
 			},
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 	evidence := []EvidenceItem{
 		{
@@ -1389,8 +1377,7 @@ func TestBuildAnswerSurfacePlan_DropsOwnerFromRequestedEnumerationBoundaryStepBa
 				SourceQuote:   "3 checks",
 			},
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 
 	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, nil)
@@ -1417,8 +1404,7 @@ func TestBuildAnswerSurfacePlan_CompilesExplanationAnchorBackboneFromEvidence(t 
 				{Summary: "AnalysisIR 如何持有 HypothesisSet", Entities: []string{"AnalysisIR.HypothesisSet", "HypothesisSet"}},
 			},
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 	evidence := []EvidenceItem{
 		{
@@ -1473,8 +1459,7 @@ func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneSkipsAuxiliaryEvidence(
 				{Summary: "Orchestrator 的职责", Entities: []string{"Orchestrator"}},
 			},
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 	evidence := []EvidenceItem{
 		{
@@ -1507,8 +1492,7 @@ func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneUsesGroundedSummaryBrid
 				{Summary: "code default / codrax.yaml / CLI 三层配置的覆盖优先级顺序", Entities: []string{"codrax.yaml", "CLI"}},
 			},
 		},
-		AnswerContract: AnswerContract{
-		},
+		AnswerContract: AnswerContract{},
 	}
 	evidence := []EvidenceItem{
 		{
@@ -1796,6 +1780,41 @@ func TestEvidenceAuthoritativeSurfaceText_LoadBearingSummaryAppendsAfterTypedLin
 	}
 }
 
+func TestEvidenceStructuredSemanticLine_SurfaceTermsTailOntoTypedLine(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceDirect,
+		AnchorKind:   AnchorDefinition,
+		AnchorSymbol: "Index",
+		Source:       "entry/src/main/ets/pages/Index.ets",
+		LineStart:    42,
+		SurfaceTerms: []string{"Index.ets", "@Entry"},
+	}
+
+	got := EvidenceStructuredSemanticLine(item, false)
+	if !strings.Contains(got, "Index") {
+		t.Fatalf("typed anchor must remain in surface line, got %q", got)
+	}
+	if !strings.Contains(got, "surface_terms: Index.ets, @Entry") {
+		t.Fatalf("surface_terms should be rendered for downstream finalizer preservation, got %q", got)
+	}
+}
+
+func TestEvidenceAuthoritativeSurfaceText_SurfaceTermsDedupExistingText(t *testing.T) {
+	item := EvidenceItem{
+		Kind:         EvidenceDirect,
+		AnchorKind:   AnchorDefinition,
+		AnchorSymbol: "Index",
+		Source:       "entry/src/main/ets/pages/Index.ets",
+		LineStart:    42,
+		SurfaceTerms: []string{"Index"},
+	}
+
+	got := EvidenceAuthoritativeSurfaceText(item, false)
+	if strings.Count(got, "Index") != 1 {
+		t.Fatalf("surface_terms already present in typed text should not be duplicated, got %q", got)
+	}
+}
+
 func TestLoadBearingSummary_DefaultFalseDoesNotChangeStructuredLine(t *testing.T) {
 	item := EvidenceItem{
 		Kind:         EvidenceDirect,
@@ -1815,11 +1834,11 @@ func TestLoadBearingSummary_DefaultFalseDoesNotChangeStructuredLine(t *testing.T
 
 func TestLoadBearingSummary_EmptySummaryNoOp(t *testing.T) {
 	item := EvidenceItem{
-		Kind:               EvidenceDirect,
-		AnchorKind:         AnchorDefinition,
-		AnchorSymbol:       "TargetSymbol",
-		Source:             "internal/example/file.go",
-		LineStart:          42,
+		Kind:         EvidenceDirect,
+		AnchorKind:   AnchorDefinition,
+		AnchorSymbol: "TargetSymbol",
+		Source:       "internal/example/file.go",
+		LineStart:    42,
 		// Summary intentionally empty
 		LoadBearingSummary: true,
 	}

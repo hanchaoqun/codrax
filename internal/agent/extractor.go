@@ -273,6 +273,9 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 						fmt.Fprintf(&b, "- **Exhaustive demand:** the user asked for every match (`%s` in the question). `completeness=lower_bound` is REJECTED — use `complete` when you have grounded all matches, or `unknown` when the investigation could not determine the full set.\n",
 							rm.CompletenessObligation.SourceQuote)
 					}
+					if types.HasAttributeBearingEnumeration(rm) {
+						b.WriteString("- **Two-axis enumeration:** the question asks for a principal member set plus a related per-member attribute. Apply the `completeness` claim to the principal members only. Do not downgrade the principal member slate to `unknown` solely because some attributes are unresolved; put grounded attribute facts in each item's `rationale`, and mark missing attributes as unresolved in the rationale / downstream caveat.\n")
+					}
 					if len(rm.Buckets) >= 2 {
 						labels := make([]string, 0, len(rm.Buckets))
 						for _, bk := range rm.Buckets {
@@ -354,6 +357,10 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		b.WriteString("Rules for this slate:\n")
 		fmt.Fprintf(&b, "- Keep `items[]` within %d principal member(s).\n", count)
 		b.WriteString("- Choose the members that answer the bounded set itself, not every adjacent helper, guard, compatibility shim, or side condition that appears nearby in the same owner flow.\n")
+		if ctx != nil && ctx.AnalysisIR != nil && types.HasAttributeBearingEnumeration(ctx.AnalysisIR.RequestModel) {
+			b.WriteString("- This is an attribute-bearing enumeration: each `items[]` entry should be the principal member itself. Put the per-member attribute in `rationale` with its own grounded file:line when available; if the attribute is not grounded for that member, say so in `rationale` instead of dropping the member.\n")
+			b.WriteString("- `complete` means the principal member set is complete. Attribute gaps do not make the member set incomplete; they become caveat/rationale text for downstream rendering.\n")
+		}
 		b.WriteString("- If the owner flow contains extra caveat-only items beyond the bounded set, leave them out of the main slate and let downstream prose mention them only as follow-on context.\n")
 		b.WriteString("- Use `complete` only when you can name the full bounded set; otherwise use `lower_bound`.\n\n")
 		if plan != nil && len(plan.StepBackbone) > 0 {
@@ -1516,6 +1523,9 @@ func answerSymbolMaterializationHint(ctx *types.AgentContext) string {
 	syms, _ := ctx.Mutable.EmittedAnswerSymbols()
 	if viewNeedsBoundedPrincipalList(ctx) {
 		if boundary := requestedEnumerationBoundary(ctx); boundary != nil {
+			if ctx.AnalysisIR != nil && types.HasAttributeBearingEnumeration(ctx.AnalysisIR.RequestModel) {
+				return fmt.Sprintf("The user explicitly requested the bounded principal set `%s` (%d item(s)), but the accepted `emit_answer_symbol` slate currently contains only %d grounded principal member(s). Re-emit `emit_answer_symbol` with the full principal member slate for that bounded set. For this attribute-bearing enumeration, each item is the principal member; put the related per-member attribute in `rationale` with a grounded file:line when available, and mark unresolved attributes in the rationale/caveat instead of dropping the member. Keep the slate within %d items.", boundary.SourceQuote, boundary.DeclaredCount, len(syms), boundary.DeclaredCount)
+			}
 			return fmt.Sprintf("The user explicitly requested the bounded principal set `%s` (%d item(s)), but the accepted `emit_answer_symbol` slate currently contains only %d grounded item(s). Re-emit `emit_answer_symbol` now with the full principal member slate for that bounded set. Reuse the compiled candidate pool's exact file:line + symbol names when available, keep the slate within %d items, and leave adjacent caveat-only checks out of the main slate.", boundary.SourceQuote, boundary.DeclaredCount, len(syms), boundary.DeclaredCount)
 		}
 	}

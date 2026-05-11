@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 
@@ -67,7 +68,7 @@ func TestRunTaskGraph_HappyPath(t *testing.T) {
 	var observedExplorerHints []string
 
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
+		Language: "en",
 	})
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -125,7 +126,7 @@ func TestRunTaskGraph_ContractFailureBacktracks(t *testing.T) {
 	var explorerCalls, finalizeCalls int
 
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
+		Language: "en",
 		CitationReq: types.CitationReq{
 			Required:     true,
 			Granularity:  "file_line",
@@ -188,7 +189,7 @@ func TestRunTaskGraph_FinalizeSuccessCriterionFailureBacktracks(t *testing.T) {
 	var explorerCalls, finalizeCalls int
 
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
+		Language: "en",
 	})
 	// Attach the SuccessCriterion to the finalize node. The
 	// orchestrator's buildEnv wires DraftCitations from the rendered
@@ -242,7 +243,7 @@ func TestRunTaskGraph_FinalizeSuccessCriterionFailureBacktracks(t *testing.T) {
 func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
 
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
+		Language: "en",
 		CitationReq: types.CitationReq{
 			Required:     true,
 			Granularity:  "file_line",
@@ -350,7 +351,7 @@ func TestRunTaskGraph_RetryableExploreErrorRequeuesWindow(t *testing.T) {
 	var explorerCalls, finalizeCalls int
 
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
+		Language: "en",
 	})
 	// Disable graph-level content retry so this test isolates the
 	// transient retry path (budget decoupling means transient retry
@@ -409,7 +410,7 @@ func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
 	var explorerCalls, finalizeCalls int
 
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
+		Language: "en",
 	})
 	// Same reason as RetryableExploreErrorRequeuesWindow: keep the test
 	// isolated to transient retry by disabling graph-level content retry.
@@ -456,6 +457,60 @@ func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
 	}
 	if finalizeCalls != 2 {
 		t.Fatalf("finalize calls = %d, want 2", finalizeCalls)
+	}
+}
+
+func TestRunTaskGraph_RetryableExtractErrorRetriesBeforeFinalize(t *testing.T) {
+	var explorerCalls, extractorCalls, finalizeCalls int
+
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{{ID: "ev-explore", Source: "src.go", LineStart: 1}},
+			}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			extractorCalls++
+			if extractorCalls == 1 {
+				return nil, io.ErrUnexpectedEOF
+			}
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "Recovered answer after extract retry.",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetTransientRetryBudget(1)
+
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
+	}
+	if explorerCalls != 1 {
+		t.Fatalf("explorer calls = %d, want 1", explorerCalls)
+	}
+	if extractorCalls != 2 {
+		t.Fatalf("extractor calls = %d, want 2", extractorCalls)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalize calls = %d, want 1", finalizeCalls)
 	}
 }
 
@@ -512,7 +567,7 @@ func TestRunTaskGraph_EvidencePlanBudgetCapsSteps(t *testing.T) {
 	// loop should respect the IR cap.
 
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
+		Language: "en",
 		CitationReq: types.CitationReq{
 			Required:     true,
 			Granularity:  "file_line",

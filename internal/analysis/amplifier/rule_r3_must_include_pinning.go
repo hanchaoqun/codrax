@@ -23,10 +23,14 @@ import (
 //     entities that are not the answer's principal subjects.
 //  2. distinctEntityCount(rm.AnalyzerHints.Entities) ≥ 1. Empty
 //     entity list = nothing to pin.
-//  3. At least one entity is identifier-shaped (isIdentifierLike).
-//     Concept-words ("stage" / "agent" / lowercase prose) are
-//     dropped — pinning them would force the finalizer to write
-//     dictionary words verbatim, which is meaningless.
+//  3. At least one entity is identifier-shaped. By default this uses
+//     the strict isIdentifierLike filter (CamelCase / snake_case /
+//     dotted names) so concept-words ("stage" / "agent" / lowercase
+//     prose) are dropped. For an explicit exhaustive / bounded
+//     category enumeration, however, the analyzer contract says
+//     Entities already ARE the enumerated members when
+//     IsRelationalLookup=false, so lowercase package/module/directory
+//     names are valid code entities and must be pinned too.
 //  4. The entity is not already present in
 //     out.AnswerContract.MustInclude (dedupe).
 //
@@ -73,9 +77,10 @@ func r3TypedIdentifierMustInclude(rm types.RequestModel, contract *types.AnswerC
 
 	var added []string
 	seen := make(map[string]struct{}, len(rm.AnalyzerHints.Entities))
+	trustEnumerationMembers := exhaustiveEnumerationPinsMembers(rm)
 	for _, e := range rm.AnalyzerHints.Entities {
 		t := strings.TrimSpace(e)
-		if !isIdentifierLike(t) {
+		if !isMustIncludePinCandidate(t, trustEnumerationMembers) {
 			continue
 		}
 		key := strings.ToLower(t)
@@ -96,7 +101,7 @@ func r3TypedIdentifierMustInclude(rm types.RequestModel, contract *types.AnswerC
 	for _, term := range added {
 		contract.MustIncludeTerms = append(contract.MustIncludeTerms, types.ContractTerm{
 			Text: term,
-			Kind: types.InferContractTermKind(term),
+			Kind: pinnedEnumerationTermKind(term, trustEnumerationMembers),
 		})
 	}
 
@@ -116,6 +121,50 @@ func r3TypedIdentifierMustInclude(rm types.RequestModel, contract *types.AnswerC
 		Reason: fmt.Sprintf("pinned %d typed identifier(s): %s%s under enumeration intent",
 			len(added), strings.Join(preview, ", "), suffix),
 	}
+}
+
+func exhaustiveEnumerationPinsMembers(rm types.RequestModel) bool {
+	return types.HasBoundedCategoryEnumerationMembers(rm)
+}
+
+func isMustIncludePinCandidate(s string, trustEnumerationMember bool) bool {
+	if isIdentifierLike(s) {
+		return true
+	}
+	if !trustEnumerationMember {
+		return false
+	}
+	return types.IsCodeIdentitySurface(s)
+}
+
+func pinnedEnumerationTermKind(term string, trustEnumerationMember bool) types.ContractTermKind {
+	kind := types.InferContractTermKind(term)
+	if !trustEnumerationMember || kind != types.ContractTermSymbol {
+		return kind
+	}
+	if looksLikePackageModuleMember(term) {
+		return types.ContractTermFileStem
+	}
+	return kind
+}
+
+func looksLikePackageModuleMember(term string) bool {
+	t := strings.TrimSpace(term)
+	if !types.IsCodeIdentitySurface(t) {
+		return false
+	}
+	for _, r := range t {
+		if r == '.' || r == '-' || r == '/' || r == ':' || r == '@' {
+			return true
+		}
+		if r >= 'A' && r <= 'Z' {
+			return false
+		}
+		if r >= 'a' && r <= 'z' {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {

@@ -106,6 +106,93 @@ func TestR3_DropsProseEntities(t *testing.T) {
 	}
 }
 
+func TestR3_PinsLowercaseMembersForExhaustiveEnumeration(t *testing.T) {
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{
+				"aggregator",
+				"compiler",
+				"findings_validator",
+				"com.example.api",
+				"react-dom",
+				"@scope/pkg",
+				"foo::bar",
+				"packages/core",
+			},
+		},
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		CompletenessObligation: &types.CompletenessObligation{
+			Required:    true,
+			SourceQuote: "all packages",
+		},
+	}
+	contract := types.AnswerContract{}
+	obs := AmplifyPostCompile(rm, &contract)
+	r3 := collectR3Observations(obs)
+	if len(r3) != 1 {
+		t.Fatalf("expected 1 R3 observation, got %+v", r3)
+	}
+	if len(contract.MustInclude) != 8 {
+		t.Fatalf("expected 8 cross-language package/module members to be pinned, got %d (%+v)",
+			len(contract.MustInclude), contract.MustInclude)
+	}
+	kinds := map[string]types.ContractTermKind{}
+	for _, term := range contract.MustIncludeTerms {
+		kinds[term.Text] = term.Kind
+	}
+	for _, want := range []string{
+		"aggregator",
+		"compiler",
+		"findings_validator",
+		"com.example.api",
+		"react-dom",
+		"@scope/pkg",
+		"foo::bar",
+		"packages/core",
+	} {
+		found := false
+		for _, got := range contract.MustInclude {
+			if got == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("missing pinned member %q in %+v", want, contract.MustInclude)
+		}
+		if kinds[want] != types.ContractTermFileStem {
+			t.Fatalf("member %q kind=%q, want file_stem; terms=%+v", want, kinds[want], contract.MustIncludeTerms)
+		}
+	}
+}
+
+func TestR3_PinsLowercaseMembersWithRequiredFileHints(t *testing.T) {
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"aggregator", "compiler"},
+			RequiredFileHints: []types.RequiredFileHint{
+				{Path: "internal/analysis/aggregator/aggregator.go", Confidence: 0.9},
+				{Path: "internal/analysis/compiler/compile.go", Confidence: 0.9},
+			},
+		},
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	contract := types.AnswerContract{}
+	obs := AmplifyPostCompile(rm, &contract)
+	r3 := collectR3Observations(obs)
+	if len(r3) != 1 {
+		t.Fatalf("expected 1 R3 observation, got %+v", r3)
+	}
+	if len(contract.MustInclude) != 2 {
+		t.Fatalf("expected required-file-hinted lowercase members to be pinned, got %+v", contract.MustInclude)
+	}
+	for _, term := range contract.MustIncludeTerms {
+		if term.Kind != types.ContractTermFileStem {
+			t.Fatalf("required-file-hinted member %q kind=%q, want file_stem", term.Text, term.Kind)
+		}
+	}
+}
+
 // TestR3_DedupesAgainstExisting covers gate #4: entities already
 // present in MustInclude must not be re-added.
 func TestR3_DedupesAgainstExisting(t *testing.T) {

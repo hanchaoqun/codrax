@@ -122,7 +122,9 @@ func (t *EmitAnswerSymbol) Description() string {
 		"'complete' is a falsifiable honesty assertion — it is cross-checked against the " +
 		"expected answer count (the larger of: how many items the investigation found, and " +
 		"how many the classification declared required), and downgraded to 'lower_bound' on " +
-		"mismatch with a warning."
+		"mismatch with a warning. For attribute-bearing enumerations ('list all X and each X's Y'), " +
+		"the slate item is X, not Y: apply completeness to the principal X set, and put the related " +
+		"Y fact or its unresolved status in rationale."
 }
 
 func (t *EmitAnswerSymbol) Parameters() json.RawMessage {
@@ -230,6 +232,11 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	if ctx.AnalysisIR != nil {
 		if obl := ctx.AnalysisIR.RequestModel.CompletenessObligation; obl.IsActive() {
 			if claim == types.CompletenessLowerBound {
+				if types.HasAttributeBearingEnumeration(ctx.AnalysisIR.RequestModel) {
+					return failEmit(t.Name(), now,
+						"the user demanded an exhaustive principal set (%q in the question), so completeness=lower_bound is not honest for the member slate. This is an attribute-bearing enumeration: emit `complete` when the principal members are all grounded, even if some per-member attributes are unresolved; record grounded attributes or unresolved attribute status in each item's rationale. Use `unknown` only when the principal member set itself cannot be determined",
+						obl.SourceQuote)
+				}
 				return failEmit(t.Name(), now,
 					"the user demanded an exhaustive answer (%q in the question), so completeness=lower_bound is not honest — it asserts \"more exist beyond this slate\" while the question requires every match. Set completeness=complete when you have grounded all matches; use completeness=unknown if the investigation could not determine the full set",
 					obl.SourceQuote)

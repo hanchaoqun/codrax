@@ -1,6 +1,9 @@
 package types
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // HasNonEmptyAmbiguity reports whether the request carries at least one
 // analyzer-emitted ambiguity clause with real content. Shared by
@@ -14,6 +17,88 @@ func HasNonEmptyAmbiguity(rm RequestModel) bool {
 		}
 	}
 	return false
+}
+
+// HasAttributeBearingEnumeration reports whether the request asks for
+// an exhaustive / bounded set of principal members AND also asks for a
+// related per-member attribute. Example shape: "list all X and, for
+// each X, name its Y". The completeness axes must stay separate:
+// membership completeness is about X, while attribute completeness is
+// about whether every X has a grounded Y.
+//
+// The signal is intentionally typed-only. It consumes analyzer
+// predicates, PredicateAxis, AnalyzerHints entity cardinality, and
+// QuestionStructure fields; it never scans raw request text, so
+// downstream prompts and validators do not learn new keyword tables.
+// A relational lookup is directly two-axis. A non-relational category
+// enumeration becomes two-axis-risky when the analyzer emitted an
+// exhaustive / bounded multi-member set plus any typed sign that the
+// answer has structure beyond "just the names" (predicate axis or
+// sub-topic split). That shape means "member set" and "member facet"
+// must not share one completeness bit.
+func HasAttributeBearingEnumeration(rm RequestModel) bool {
+	if !rm.Predicates.IsCategoryEnumeration {
+		return false
+	}
+	if rm.Predicates.IsRelationalLookup {
+		return true
+	}
+	if !hasExhaustiveMultiMemberSet(rm) {
+		return false
+	}
+	return rm.PredicateAxis != AxisUnknown || len(rm.SubTopics) > 0
+}
+
+// HasBoundedCategoryEnumerationMembers reports whether the analyzer
+// produced a typed, multi-member category-enumeration lane that is
+// bounded by a declared count, an active completeness obligation, or
+// multiple required file hints. Downstream hard gates use this only to
+// avoid over-interpreting package/module/directory member names as
+// missing symbols; it is not proof that every member is correct.
+func HasBoundedCategoryEnumerationMembers(rm RequestModel) bool {
+	if !rm.Predicates.IsCategoryEnumeration || rm.Predicates.IsRelationalLookup {
+		return false
+	}
+	return hasExhaustiveMultiMemberSet(rm)
+}
+
+func hasExhaustiveMultiMemberSet(rm RequestModel) bool {
+	if len(rm.AnalyzerHints.Entities) <= 1 {
+		return false
+	}
+	if rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0 {
+		return true
+	}
+	if len(rm.AnalyzerHints.RequiredFileHints) > 1 {
+		return true
+	}
+	return rm.CompletenessObligation.IsActive()
+}
+
+// IsCodeIdentitySurface accepts cross-language code identity surfaces
+// that are single tokens but may not be Go-style identifiers: Python
+// modules (foo_bar), Java/Kotlin packages (com.example.foo), Rust /
+// npm packages (foo-bar), scoped JS packages (@scope/pkg), C++/C#
+// namespaces (foo::bar), and path-like package names. It rejects
+// whitespace and prose punctuation so free-form phrases cannot become
+// code identities by accident.
+func IsCodeIdentitySurface(s string) bool {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return false
+	}
+	hasAlphaNum := false
+	for _, r := range t {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			hasAlphaNum = true
+		case r == '_' || r == '.' || r == '-' || r == '/' || r == ':' || r == '@':
+			continue
+		default:
+			return false
+		}
+	}
+	return hasAlphaNum
 }
 
 // IsScalarSourceLiteralLookup reports whether the request resolves to

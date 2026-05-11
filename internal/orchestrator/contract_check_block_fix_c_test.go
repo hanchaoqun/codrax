@@ -26,8 +26,8 @@ func TestEnumerationItemLabelHallucination_S1aR1Reproduction(t *testing.T) {
 		"checkHypothesisCoverage",
 		"checkSubtopicCoherence",
 		"checkShapeSubjectCoherence",
-		"checkNamingConvention",   // hallucination — should fire
-		"checkSignalSufficiency",  // hallucination — should fire
+		"checkNamingConvention",  // hallucination — should fire
+		"checkSignalSufficiency", // hallucination — should fire
 	)
 	// Oracle confirms only the 7 real names; the 2 hallucinations
 	// return Tier=0 (not found in graph).
@@ -127,9 +127,9 @@ func TestEnumerationItemLabelHallucination_ProseLabelSkips(t *testing.T) {
 // the leading identifier.
 func TestEnumerationItemLabelHallucination_LabelWithSeparator(t *testing.T) {
 	doc := docWithEnumItems("list1",
-		"checkSignalSufficiency — 信号充分性",     // hallucination + em-dash separator
-		"checkBudgetSanity (gate.go:150)",       // real + paren separator
-		"checkBudgetSanity: 预算合理性",            // real + colon separator
+		"checkSignalSufficiency — 信号充分性",  // hallucination + em-dash separator
+		"checkBudgetSanity (gate.go:150)", // real + paren separator
+		"checkBudgetSanity: 预算合理性",        // real + colon separator
 	)
 	oracle := &stubOracleFixB{tiers: map[string]int{
 		"checkBudgetSanity": 1,
@@ -141,6 +141,53 @@ func TestEnumerationItemLabelHallucination_LabelWithSeparator(t *testing.T) {
 	}
 	if !strings.Contains(vs[0].Detail, "checkSignalSufficiency") {
 		t.Errorf("detail must list checkSignalSufficiency; got: %s", vs[0].Detail)
+	}
+}
+
+func TestEnumerationItemLabelHallucination_CitedCrossLanguageMemberSubjectPasses(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/analysis/findings_validator/validator.go", Line: 70},
+			{File: "src/render_engine/main.cpp", Line: 42},
+			{File: "entry/src/main/ets/pages/Index.ets", Line: 18},
+			{File: "src/cangjie_core/main.cj", Line: 9},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "packages",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{ID: "go_pkg", Label: "findings_validator", CitationRef: 0},
+				// Deliberately citation-shifted: finalizers sometimes
+				// offset citation_ref while the typed evidence endpoint is
+				// still authoritative for the member label.
+				{ID: "cpp_dir", Label: "render_engine", CitationRef: 0},
+				{ID: "arkts_mod", Label: "arkts_ability", CitationRef: 2},
+				{ID: "cj_pkg", Label: "cangjie_core", CitationRef: 3},
+			},
+		}},
+	}
+	mut := mutWithEvidence([]types.EvidenceItem{
+		{Subject: "findings_validator", AnchorSymbol: "Validate", Source: "internal/analysis/findings_validator/validator.go", LineStart: 70},
+		{Subject: "render_engine", AnchorSymbol: "Render", Source: "src/render_engine/main.cpp", LineStart: 42},
+		{Subject: "arkts_ability", AnchorSymbol: "onPageShow", Source: "entry/src/main/ets/pages/Index.ets", LineStart: 18},
+		{Subject: "cangjie_core", AnchorSymbol: "main", Source: "src/cangjie_core/main.cj", LineStart: 9},
+	})
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("cited package/module/directory subjects are legitimate cross-language member labels, got %+v", vs)
+	}
+}
+
+func TestEnumerationItemLabelHallucination_AnswerSymbolCrossLanguageLabelsPass(t *testing.T) {
+	doc := docWithEnumItems("arkts", "ParentComponent", "defaultHeader")
+	mut := &types.MutableState{}
+	mut.SetEmittedAnswerSymbols([]types.AnswerSymbol{
+		{Name: "ParentComponent", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/03_state_management.ets", Line: 34},
+		{Name: "defaultHeader", File: "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", Line: 8},
+	}, types.CompletenessComplete)
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("file:line-backed AnswerSymbols must bypass symbol-oracle hallucination checks for non-Go languages; got %+v", vs)
 	}
 }
 

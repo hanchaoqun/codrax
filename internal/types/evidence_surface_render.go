@@ -129,7 +129,7 @@ func evidenceSurfaceText(item EvidenceItem, includeKind bool, allowSummaryFallba
 // behaviour that motivated this helper's "no summary fallback" rule.
 func EvidenceStructuredSemanticLine(item EvidenceItem, includeKind bool) string {
 	line := evidenceSurfaceText(item, includeKind, false)
-	return appendLoadBearingSummary(item, line)
+	return appendSurfaceTerms(item, appendLoadBearingSummary(item, line))
 }
 
 // appendLoadBearingSummary tails a trimmed Summary onto the typed
@@ -157,6 +157,37 @@ func appendLoadBearingSummary(item EvidenceItem, line string) string {
 	return line + " — " + summary
 }
 
+func appendSurfaceTerms(item EvidenceItem, line string) string {
+	if len(item.SurfaceTerms) == 0 {
+		return line
+	}
+	terms := make([]string, 0, len(item.SurfaceTerms))
+	seen := make(map[string]bool, len(item.SurfaceTerms))
+	for _, raw := range item.SurfaceTerms {
+		term := strings.TrimSpace(raw)
+		if term == "" {
+			continue
+		}
+		if strings.Contains(line, term) {
+			continue
+		}
+		key := strings.ToLower(term)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		terms = append(terms, term)
+	}
+	if len(terms) == 0 {
+		return line
+	}
+	tail := "surface_terms: " + strings.Join(terms, ", ")
+	if strings.TrimSpace(line) == "" {
+		return tail
+	}
+	return line + "; " + tail
+}
+
 // EvidenceAuthoritativeSurfaceText returns a summary-free, anchor-local
 // surface for downstream channels that the system treats as
 // authoritative prompt material. Unlike EvidenceDeterministicSurfaceText,
@@ -165,7 +196,7 @@ func appendLoadBearingSummary(item EvidenceItem, line string) string {
 // itself can be replayed verbatim.
 func EvidenceAuthoritativeSurfaceText(item EvidenceItem, includeKind bool) string {
 	if line := evidenceAnchorLocalSurfaceText(item, includeKind); line != "" {
-		return appendLoadBearingSummary(item, line)
+		return appendSurfaceTerms(item, appendLoadBearingSummary(item, line))
 	}
 
 	name := strings.TrimSpace(firstNonEmptySurfaceString(item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object))
@@ -175,21 +206,21 @@ func EvidenceAuthoritativeSurfaceText(item EvidenceItem, includeKind bool) strin
 	switch item.AnchorKind {
 	case AnchorDefinition:
 		if name != "" {
-			return appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("definition anchor for %s", name)))
+			return appendSurfaceTerms(item, appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("definition anchor for %s", name))))
 		}
 	case AnchorCall:
 		switch {
 		case subject != "" && object != "":
-			return appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("%s calls %s", subject, object)))
+			return appendSurfaceTerms(item, appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("%s calls %s", subject, object))))
 		case name != "":
-			return appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("call anchor for %s", name)))
+			return appendSurfaceTerms(item, appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("call anchor for %s", name))))
 		}
 	case AnchorImport:
 		switch {
 		case subject != "" && object != "":
-			return appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("%s imports %s", subject, object)))
+			return appendSurfaceTerms(item, appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("%s imports %s", subject, object))))
 		case name != "":
-			return appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("import anchor for %s", name)))
+			return appendSurfaceTerms(item, appendLoadBearingSummary(item, prependEvidenceKind(includeKind, item, fmt.Sprintf("import anchor for %s", name))))
 		}
 	}
 
@@ -207,7 +238,7 @@ func EvidenceAuthoritativeSurfaceText(item EvidenceItem, includeKind bool) strin
 // evidence rather than a prose-rich interpretation.
 func EvidenceDeterministicSurfaceText(item EvidenceItem, includeKind bool) string {
 	if line := evidenceSurfaceText(item, includeKind, false); line != "" {
-		return appendLoadBearingSummary(item, line)
+		return appendSurfaceTerms(item, appendLoadBearingSummary(item, line))
 	}
 	return strings.TrimSpace(item.Summary)
 }

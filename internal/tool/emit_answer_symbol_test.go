@@ -313,6 +313,50 @@ func TestEmitAnswerSymbol_RejectsBeyondRequestedEnumerationBoundary(t *testing.T
 	}
 }
 
+func TestEmitAnswerSymbol_AttributeBearingEnumerationRejectsLowerBoundWithTwoAxisHint(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			PredicateAxis: types.AxisDefine,
+			AnalyzerHints: types.AnalyzerHints{
+				Entities: []string{"aggregator", "compiler"},
+			},
+			EnumerationBoundary: &types.RequestedEnumerationBoundary{
+				DeclaredCount: 2,
+				SourceQuote:   "all packages",
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all packages",
+			},
+		},
+	}
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "aggregator", "file": "internal/analysis/aggregator/aggregator.go", "line": 1, "kind": "package", "rationale": "entry function New at internal/analysis/aggregator/aggregator.go:112"}
+        ],
+        "completeness": "lower_bound"
+    }`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("lower_bound must reject for exhaustive attribute-bearing enumeration")
+	}
+	for _, want := range []string{
+		"attribute-bearing enumeration",
+		"principal members",
+		"per-member attributes",
+		"rationale",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("reject summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestEmitAnswerSymbol_ReusesCompiledStepCandidateNameAtSameLine(t *testing.T) {
 	tool := &EmitAnswerSymbol{}
 	ctx := newAnswerSymbolCtx()

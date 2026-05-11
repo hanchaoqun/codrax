@@ -667,6 +667,18 @@ type EvidenceItem struct {
 	// schema rejects the flag when set on items whose Summary is
 	// empty (an empty summary cannot be load-bearing).
 	LoadBearingSummary bool `json:"load_bearing_summary,omitempty"`
+
+	// SurfaceTerms are model-authored, source-grounded user-visible
+	// aliases / labels that should survive into the final answer even
+	// when they are not the code symbol itself. Examples include
+	// original file labels in header comments, config keys, route
+	// names, package/module labels, macro names, trace span names, or
+	// runtime object labels. The emit_evidence tool accepts this field
+	// only when each term is a verbatim substring of already-read
+	// source lines around the evidence anchor. The system may validate
+	// that finalizer output preserves these terms, but it must not
+	// invent or auto-fill them.
+	SurfaceTerms []string `json:"surface_terms,omitempty"`
 }
 
 // ValidateScope enforces the per-scope required-field invariants on

@@ -561,6 +561,13 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			fmt.Fprintf(&b, "The user demands every match (`%s` in the question). Every grep / repo_map / list_files candidate file MUST be either read_file'd OR explicitly excluded by a narrower follow-up grep before you call emit_investigation_complete with result_kind='resolved'. The framework refuses premature completion when scanned candidates remain unread under this obligation. The honest fallback when the investigation legitimately cannot enumerate the full set is result_kind='absence' with absence_justification, OR an emit_investigation_complete that explicitly notes the un-read scope.\n\n",
 				rm.CompletenessObligation.SourceQuote)
 		}
+		if types.HasAttributeBearingEnumeration(rm) {
+			b.WriteString("### Attribute-bearing Enumeration Discipline\n\n")
+			b.WriteString("This request has two axes: an exhaustive principal member set plus a per-member attribute. Keep those axes separate while investigating. Coverage completeness applies to the principal members; attribute certainty is recorded per member.\n")
+			b.WriteString("- Support all language surfaces the repo map can expose: packages, modules, namespaces, crates, directories, files, classes, functions, methods, routes, config keys, and registry entries. Do not assume Go-only package/function naming.\n")
+			b.WriteString("- Once a principal member has a grounded attribute candidate, emit that candidate as evidence. If the attribute is ambiguous or not grounded for that member after the relevant file/list/grep scope has been checked, record the member with an explicit unresolved-attribute note instead of widening indefinitely.\n")
+			b.WriteString("- When the bounded / exhaustive principal member set is covered, call emit_investigation_complete. Do not keep searching solely to prove a unique attribute when the final answer can carry a caveat for that member.\n\n")
+		}
 		if len(rm.Buckets) >= 2 {
 			labels := make([]string, 0, len(rm.Buckets))
 			for _, bk := range rm.Buckets {

@@ -108,6 +108,45 @@ func TestShouldStop_AllCriteriaMet_ReturnsTrue(t *testing.T) {
 	}
 }
 
+func TestExplorer_BuildInitialInstruction_AttributeBearingEnumerationIsCrossLanguage(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: "list all modules and each module entry point",
+		RepoRoot:  ".",
+		Mutable:   types.NewMutableState(""),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "list all modules and each module entry point",
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsRelationalLookup:    true,
+				},
+				PredicateAxis: types.AxisCall,
+				EnumerationBoundary: &types.RequestedEnumerationBoundary{
+					DeclaredCount: 4,
+					SourceQuote:   "all modules",
+				},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all modules",
+				},
+			},
+		},
+	}
+	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Attribute-bearing Enumeration Discipline",
+		"Support all language surfaces",
+		"Do not assume Go-only",
+		"unresolved-attribute note",
+		"Do not keep searching solely to prove a unique attribute",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("attribute-bearing explorer prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 // -----------------------------------------------------------------------------
 // ParseOutput quality-floor branches
 // -----------------------------------------------------------------------------

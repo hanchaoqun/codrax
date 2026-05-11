@@ -3917,17 +3917,18 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if read := o.runForcedReads(); read > 0 {
 				logging.Info("[CGEC] E2 pre-dispatch forced-read %d file(s) before explore retry", read)
 			}
-			stepsUsed++
 			if _, err := o.dispatchStage(types.StageExplore); err != nil {
 				logging.Error("[orchestrator] DAG explore window failed: %v", err)
 				if o.retryReadStageDispatchError(state, types.StageExplore, window, nil, err) {
 					continue
 				}
+				stepsUsed++
 				for _, n := range window {
 					state.markFailed(n.ID)
 					o.emitNodeEnd(n.ID, false, err.Error())
 				}
 			} else {
+				stepsUsed++
 				// Post-dispatch criterion evaluation. Separate
 				// validate-node failure from non-validate failure:
 				// validate failures trigger fine-grained
@@ -4207,23 +4208,30 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		} else {
 			o.busCtx.PipelineStage = types.StageExtract
 			o.busCtx.TaskState.Stage = types.StageExtract
-			stepsUsed++
-			if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
-				logging.Warning("[orchestrator] pre-finalize extract dispatch failed (continuing): %v", exErr)
-				// Soft notice so the user sees WHY the next event is
-				// "正在生成最终答案" instead of an extract success
-				// row. Without this the scrollback jumps from
-				// "✗/⟳ 未能提炼关键发现" straight to finalize with no
-				// explanation of the transition.
-				o.emit(render.Event{
-					Kind:       render.EventOrchestratorNotice,
-					Timestamp:  time.Now(),
-					Agent:      "orchestrator",
-					NoticeKind: render.NoticeProceedingWithoutExtract,
-					Reasoning:  softProceedingWithoutExtractMessage(o.busCtx.Language),
-				})
-			} else {
+			for {
+				if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
+					if o.retryReadStandaloneDispatchError(state, types.StageExtract, exErr) {
+						continue
+					}
+					stepsUsed++
+					logging.Warning("[orchestrator] pre-finalize extract dispatch failed (continuing): %v", exErr)
+					// Soft notice so the user sees WHY the next event is
+					// "正在生成最终答案" instead of an extract success
+					// row. Without this the scrollback jumps from
+					// "✗/⟳ 未能提炼关键发现" straight to finalize with no
+					// explanation of the transition.
+					o.emit(render.Event{
+						Kind:       render.EventOrchestratorNotice,
+						Timestamp:  time.Now(),
+						Agent:      "orchestrator",
+						NoticeKind: render.NoticeProceedingWithoutExtract,
+						Reasoning:  softProceedingWithoutExtractMessage(o.busCtx.Language),
+					})
+					break
+				}
+				stepsUsed++
 				o.drainHypothesisVerdicts()
+				break
 			}
 			lastFallbackFinalizerOnly = false
 		}
@@ -4263,7 +4271,6 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			NoticeKind: render.NoticeFinalizing,
 			Reasoning:  softFinalizingMessage(o.busCtx.Language),
 		})
-		stepsUsed++
 		out, err := o.dispatchStage(types.StageFinalize)
 		if err != nil {
 			logging.Error("[orchestrator] DAG finalize failed: %v", err)
@@ -4280,10 +4287,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if o.retryReadStageDispatchError(state, types.StageFinalize, nil, fin, err) {
 				continue
 			}
+			stepsUsed++
 			state.markFailed(fin.ID)
 			o.emitNodeEnd(fin.ID, false, err.Error())
 			break
 		}
+		stepsUsed++
 		lastFinalize = out
 
 		// Evaluate finalize node's SuccessCriteria alongside
@@ -4888,23 +4897,30 @@ contractFailureBreak:
 		// Extract before forced finalize.
 		o.busCtx.PipelineStage = types.StageExtract
 		o.busCtx.TaskState.Stage = types.StageExtract
-		stepsUsed++
-		if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
-			logging.Warning("[orchestrator] pre-forced-finalize extract dispatch failed (continuing): %v", exErr)
-			// Force-finalize escape path: same transparency requirement
-			// as the normal DAG branch — let the user see that we are
-			// dropping extract results before finalize starts, instead
-			// of silently jumping from "未能提炼关键发现" to "正在生成
-			// 最终答案".
-			o.emit(render.Event{
-				Kind:       render.EventOrchestratorNotice,
-				Timestamp:  time.Now(),
-				Agent:      "orchestrator",
-				NoticeKind: render.NoticeProceedingWithoutExtract,
-				Reasoning:  softProceedingWithoutExtractMessage(o.busCtx.Language),
-			})
-		} else {
+		for {
+			if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
+				if o.retryReadStandaloneDispatchError(state, types.StageExtract, exErr) {
+					continue
+				}
+				stepsUsed++
+				logging.Warning("[orchestrator] pre-forced-finalize extract dispatch failed (continuing): %v", exErr)
+				// Force-finalize escape path: same transparency requirement
+				// as the normal DAG branch — let the user see that we are
+				// dropping extract results before finalize starts, instead
+				// of silently jumping from "未能提炼关键发现" to "正在生成
+				// 最终答案".
+				o.emit(render.Event{
+					Kind:       render.EventOrchestratorNotice,
+					Timestamp:  time.Now(),
+					Agent:      "orchestrator",
+					NoticeKind: render.NoticeProceedingWithoutExtract,
+					Reasoning:  softProceedingWithoutExtractMessage(o.busCtx.Language),
+				})
+				break
+			}
+			stepsUsed++
 			o.drainHypothesisVerdicts()
+			break
 		}
 
 		o.busCtx.PipelineStage = types.StageFinalize
@@ -4940,9 +4956,9 @@ contractFailureBreak:
 			err error
 		)
 		for attempt := 0; attempt < forceFinalizeMaxAttempts; attempt++ {
-			stepsUsed++
 			out, err = o.dispatchStage(types.StageFinalize)
 			if err == nil {
+				stepsUsed++
 				break
 			}
 			// L5 force-finalize retry is restricted to stream-level
@@ -4954,9 +4970,11 @@ contractFailureBreak:
 			// L1 (they could duplicate streamed content), so L5's
 			// retries are the only coverage they get.
 			if !llm.IsStreamLevelRetryable(err) {
+				stepsUsed++
 				break
 			}
 			if attempt+1 >= forceFinalizeMaxAttempts {
+				stepsUsed++
 				break
 			}
 			logging.Warning("[orchestrator] forced finalize transient failure (attempt %d/%d): %v — retrying",

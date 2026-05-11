@@ -309,6 +309,74 @@ func TestSubtopicCoherence_R1_5_SingleTopic_NoOp(t *testing.T) {
 	}
 }
 
+func TestSubtopicCoherence_R1_5_CategoryEnumerationPackageMembersBypassSymbolResolver(t *testing.T) {
+	// Cross-language package/module/directory members are often the
+	// answer's principal objects but not symbol-table entries. If the
+	// analyzer has already emitted a typed bounded enumeration member
+	// lane, R1.5 must not hard-fail merely because some package-shaped
+	// members do not resolve as symbols while a sibling happens to.
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"criterion": {{Canonical: "criterion", Domain: "analysis"}},
+			// findings_validator / @scope/pkg / com.example.api
+			// deliberately absent: valid package surfaces, not symbols.
+		},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCrossComponent:      true, // isolate R1.5 from R1.4 here
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"criterion", "findings_validator", "@scope/pkg", "com.example.api"},
+			RequiredFileHints: []types.RequiredFileHint{
+				{Path: "internal/analysis/criterion/doc.go", Confidence: 0.9},
+				{Path: "internal/analysis/findings_validator/doc.go", Confidence: 0.9},
+			},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "criterion", Entities: []string{"criterion"}},
+			{Summary: "other package members", Entities: []string{"findings_validator", "@scope/pkg", "com.example.api"}},
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	check := checkSubtopicCoherence(ir, resolver)
+	if !check.Passed {
+		t.Fatalf("R1.5 must accept typed cross-language package members as grounded enumeration members; got %+v", check)
+	}
+	if strings.Contains(check.Detail, "R1.5") {
+		t.Fatalf("detail must not include an R1.5 hard-fail; got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_5_UnboundedCategoryEnumerationMembersBypassSymbolResolver(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"criterion": {{Canonical: "criterion", Domain: "analysis"}},
+		},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCrossComponent:      true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"criterion", "priority", "risk", "sourcemix", "stopcond", "subject"},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "first package group", Entities: []string{"criterion"}},
+			{Summary: "last package group", Entities: []string{"priority", "risk", "sourcemix", "stopcond", "subject"}},
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	check := checkSubtopicCoherence(ir, resolver)
+	if !check.Passed {
+		t.Fatalf("R1.5 must not require package/module members to resolve as symbols in typed category enumerations; got %+v", check)
+	}
+}
+
 // ── R1.4 axis_collapse ────────────────────────────────────────────
 
 func TestSubtopicCoherence_R1_4_EnumerationCollapsesToSingleDomain_Fails(t *testing.T) {
@@ -439,6 +507,69 @@ func TestSubtopicCoherence_R1_4_NilResolver_NoOp(t *testing.T) {
 	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, nil); !check.Passed {
 		t.Fatalf("nil resolver must disable R1.4; got %+v", check)
+	}
+}
+
+func TestSubtopicCoherence_R1_4_ZeroResolvedDomains_NoOp(t *testing.T) {
+	resolver := &fakeSymbolResolver{byEntity: map[string][]normalizer.SymbolHit{}}
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCrossComponent:      false,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"priority", "risk", "sourcemix", "stopcond", "subject"},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "priority", Entities: []string{"priority"}},
+			{Summary: "risk", Entities: []string{"risk"}},
+			{Summary: "sourcemix", Entities: []string{"sourcemix"}},
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+		t.Fatalf("R1.4 must not infer axis collapse from zero resolver domains; got %+v", check)
+	}
+}
+
+func TestSubtopicCoherence_R1_4_AttributeBearingPackageEnumeration_NoOp(t *testing.T) {
+	// The "list every package and each package's entry point" shape is
+	// a two-axis enumeration: principal members plus per-member
+	// attribute. Package members may all sit in one code area or miss
+	// symbol resolution entirely; collapsing that shape in analyzer
+	// retries loses the attribute lane and causes downstream loops.
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"criterion": {{Canonical: "criterion", Domain: "analysis"}},
+			// compiler is intentionally unresolved as a package member.
+		},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCrossComponent:      false,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"criterion", "compiler"},
+			RequiredFileHints: []types.RequiredFileHint{
+				{Path: "internal/analysis/criterion/doc.go", Confidence: 0.9},
+				{Path: "internal/analysis/compiler/doc.go", Confidence: 0.9},
+			},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "principal members", Entities: []string{"criterion"}},
+			{Summary: "per-member entry points", Entities: []string{"compiler"}},
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	check := checkSubtopicCoherence(ir, resolver)
+	if !check.Passed {
+		t.Fatalf("R1.4 must skip typed attribute-bearing package enumeration; got %+v", check)
+	}
+	if strings.Contains(check.Detail, "R1.4") {
+		t.Fatalf("detail must not include an R1.4 hard-fail; got %q", check.Detail)
 	}
 }
 

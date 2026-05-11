@@ -646,6 +646,49 @@ func TestExtractor_BuildPrompt_EnumerationBoundaryOverridesDisplayedFloor(t *tes
 	}
 }
 
+func TestExtractor_BuildPrompt_AttributeBearingEnumerationSplitsCompletenessAxes(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{TerminalEvidenceCount: 40})
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "list all packages and each package entry point",
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				PredicateAxis: types.AxisDefine,
+				AnalyzerHints: types.AnalyzerHints{
+					PrimaryEntities: []string{"packages"},
+					Entities:        []string{"aggregator", "compiler", "gate"},
+				},
+				EnumerationBoundary: &types.RequestedEnumerationBoundary{
+					DeclaredCount: 3,
+					SourceQuote:   "all packages",
+				},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all packages",
+				},
+			},
+		},
+	}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Two-axis enumeration",
+		"Apply the `completeness` claim to the principal members only",
+		"Attribute gaps do not make the member set incomplete",
+		"Put the per-member attribute in `rationale`",
+	} {
+		if !contains(prompt, want) {
+			t.Fatalf("attribute-bearing enumeration prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestExtractor_BuildPrompt_PlainCallChainSkipsAnswerSymbolFloor(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{TerminalEvidenceCount: 12})

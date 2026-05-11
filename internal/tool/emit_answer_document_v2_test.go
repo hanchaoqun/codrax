@@ -82,6 +82,87 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_RejectsMissingModelSurfaceTerm(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:           "ev-index",
+		Kind:         types.EvidenceDirect,
+		Producer:     EmitEvidenceProducer,
+		Subject:      "Index",
+		AnchorSymbol: "Index",
+		Source:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		LineStart:    7,
+		Scope:        types.ScopeLine,
+		SurfaceTerms: []string{"Index.ets"},
+	}})
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "entry_list",
+			"kind": "ordered_list",
+			"items": [{
+				"id": "e1",
+				"label": "Index",
+				"text": "struct Index with @Entry + @Component",
+				"citation_ref": 0
+			}]
+		}],
+		"citations": [{
+			"file": "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+			"line": 7
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected missing surface term to reject")
+	}
+	if !strings.Contains(res.Summary, "surface_terms") || !strings.Contains(res.Summary, "Index.ets") {
+		t.Fatalf("rejection should name missing model surface term, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocumentV2_AcceptsPreservedModelSurfaceTerm(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:           "ev-index",
+		Kind:         types.EvidenceDirect,
+		Producer:     EmitEvidenceProducer,
+		Subject:      "Index",
+		AnchorSymbol: "Index",
+		Source:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		LineStart:    7,
+		Scope:        types.ScopeLine,
+		SurfaceTerms: []string{"Index.ets"},
+	}})
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "entry_list",
+			"kind": "ordered_list",
+			"items": [{
+				"id": "e1",
+				"label": "Index",
+				"text": "struct Index, original source label Index.ets, with @Entry + @Component",
+				"citation_ref": 0
+			}]
+		}],
+		"citations": [{
+			"file": "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+			"line": 7
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected surface term preserving emit to succeed; got %+v", res)
+	}
+}
+
 func TestEmitAnswerDocumentV2_RejectsV1FieldsAtTopLevel(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

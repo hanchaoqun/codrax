@@ -280,8 +280,10 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 
 	if view.NeedsEnumerationSlate() {
 		mustTerms := []types.ContractTerm(nil)
+		attributeBearingEnumeration := false
 		if ctx != nil && ctx.AnalysisIR != nil {
 			mustTerms = answerDocMustIncludeTerms(ctx.AnalysisIR.AnswerContract)
+			attributeBearingEnumeration = types.HasAttributeBearingEnumeration(ctx.AnalysisIR.RequestModel)
 		}
 		b.WriteString("## Expected principal-item floor\n\n")
 		if len(mustTerms) > 0 {
@@ -296,22 +298,43 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 			b.WriteString("Required-member floor is empty. No explicit minimum member set is enforced for this dispatch — ")
 			b.WriteString("keep the rendered list/table aligned with the prior extraction slate and surfaced evidence.\n\n")
 		}
+		if attributeBearingEnumeration {
+			b.WriteString("Two-axis enumeration label rule: the principal `ordered_list.items[].label` is the enumerated member itself (package / module / directory / namespace / type / route), not the per-member attribute discovered for it. Prefer the evidence `subject` or a required-term floor member as the label, and place the related attribute (for example the entry function / owner / default / handler) in `items[].text`, the citation, and any companion table row. Do not use the extracted AnswerSymbol name as the item label when that symbol is the attribute of a member.\n\n")
+		}
+		b.WriteString("Model-emitted `surface_terms` in Evidence Items are exact source/log/trace labels or aliases that the explorer structured explicitly. Preserve each relevant term in the cited item text or label; do not invent terms that are not present in the structured evidence.\n\n")
 
 		if ctx != nil && len(ctx.AnswerSymbols) > 0 {
 			b.WriteString("## Prior slate from the extraction pipeline\n\n")
-			b.WriteString("The prior analysis phase produced this symbol list. ")
+			if attributeBearingEnumeration {
+				b.WriteString("The prior analysis phase produced this attribute slate for the enumerated members. ")
+				b.WriteString("Treat each symbol name below as the member's grounded attribute unless it is also the member label in the required-term floor. ")
+			} else {
+				b.WriteString("The prior analysis phase produced this symbol list. ")
+			}
 			b.WriteString("Use it as the starting point; adding items requires evidence from the ")
 			b.WriteString("Evidence Items section, removing items requires a rationale in the ")
-			b.WriteString("symbol's `rationale` field.\n\n")
+			b.WriteString("symbol's `rationale` field. When a slate line includes model-emitted `surface_terms`, ")
+			b.WriteString("preserve those exact structured terms in the row text or label; keep the repo-relative path as the citation.\n\n")
 			for _, s := range ctx.AnswerSymbols {
 				if s.File != "" && s.Line > 0 {
-					fmt.Fprintf(&b, "- %s (%s:%d)\n", s.Name, s.File, s.Line)
+					fmt.Fprintf(&b, "- %s (%s:%d)", s.Name, s.File, s.Line)
 				} else {
-					fmt.Fprintf(&b, "- %s\n", s.Name)
+					fmt.Fprintf(&b, "- %s", s.Name)
 				}
+				if r := strings.TrimSpace(s.Rationale); r != "" {
+					fmt.Fprintf(&b, " — %s", r)
+				}
+				if doc := renderAnswerDocSymbolHeaderContext(ctx, s); doc != "" {
+					fmt.Fprintf(&b, " — surface_terms: %s", doc)
+				}
+				b.WriteString("\n")
 			}
 			b.WriteString("\n")
 		}
+	}
+
+	if headerContext := renderAnswerDocSourceHeaderContexts(ctx); headerContext != "" {
+		b.WriteString(headerContext)
 	}
 
 	// Multi-topic: guide the finalizer to address each sub-topic.
@@ -361,6 +384,13 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 func answerDocMustIncludeTerms(contract types.AnswerContract) []types.ContractTerm {
 	out := make([]types.ContractTerm, 0, len(contract.MustInclude)+len(contract.MustIncludeTerms))
 	seen := map[string]struct{}{}
+	typedTexts := make(map[string]struct{}, len(contract.MustIncludeTerms))
+	for _, term := range contract.MustIncludeTerms {
+		text := strings.TrimSpace(term.Text)
+		if text != "" {
+			typedTexts[strings.ToLower(text)] = struct{}{}
+		}
+	}
 	add := func(term types.ContractTerm) {
 		text := strings.TrimSpace(term.Text)
 		if text == "" {
@@ -378,6 +408,9 @@ func answerDocMustIncludeTerms(contract types.AnswerContract) []types.ContractTe
 		out = append(out, types.ContractTerm{Text: text, Kind: kind})
 	}
 	for _, text := range contract.MustInclude {
+		if _, typed := typedTexts[strings.ToLower(strings.TrimSpace(text))]; typed {
+			continue
+		}
 		add(types.ContractTerm{Text: text, Kind: types.InferContractTermKind(text)})
 	}
 	for _, term := range contract.MustIncludeTerms {
@@ -396,6 +429,125 @@ func renderAnswerDocContractTermList(terms []types.ContractTerm) string {
 		parts = append(parts, fmt.Sprintf("%s (%s)", text, answerDocContractTermKindLabel(term.Kind)))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func renderAnswerDocSymbolHeaderContext(ctx *types.AgentContext, sym types.AnswerSymbol) string {
+	if ctx == nil || strings.TrimSpace(sym.Name) == "" || strings.TrimSpace(sym.File) == "" {
+		return ""
+	}
+	evidence := answerDocHeaderEvidencePool(ctx)
+	for _, ev := range evidence {
+		if !answerDocModelAuthoredSurfaceTerms(ev) {
+			continue
+		}
+		if strings.TrimSpace(ev.Source) != strings.TrimSpace(sym.File) {
+			continue
+		}
+		if ev.LineStart <= 0 || (sym.Line > 0 && ev.LineStart > sym.Line+8) {
+			continue
+		}
+		if !sameAnswerDocSymbolName(ev.AnchorSymbol, sym.Name) &&
+			!sameAnswerDocSymbolName(ev.Object, sym.Name) &&
+			!sameAnswerDocSymbolName(ev.Subject, sym.Name) {
+			continue
+		}
+		return fmt.Sprintf("%s:%d — %s", ev.Source, ev.LineStart, strings.Join(ev.SurfaceTerms, ", "))
+	}
+	return ""
+}
+
+func renderAnswerDocSourceHeaderContexts(ctx *types.AgentContext) string {
+	evidence := answerDocHeaderEvidencePool(ctx)
+	if len(evidence) == 0 {
+		return ""
+	}
+	type row struct {
+		source string
+		line   int
+		symbol string
+		text   string
+	}
+	rows := make([]row, 0, 6)
+	seen := map[string]struct{}{}
+	for _, ev := range evidence {
+		if !answerDocModelAuthoredSurfaceTerms(ev) {
+			continue
+		}
+		source := strings.TrimSpace(ev.Source)
+		if source == "" || ev.LineStart <= 0 {
+			continue
+		}
+		key := source + "\x00" + strconv.Itoa(ev.LineStart) + "\x00" + strings.TrimSpace(ev.AnchorSymbol)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		symbol := strings.TrimSpace(ev.AnchorSymbol)
+		if symbol == "" {
+			symbol = strings.TrimSpace(ev.Object)
+		}
+		rows = append(rows, row{
+			source: source,
+			line:   ev.LineStart,
+			symbol: symbol,
+			text:   answerDocInlineClip(strings.Join(ev.SurfaceTerms, ", "), 240),
+		})
+		if len(rows) >= 6 {
+			break
+		}
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Model-Emitted Surface Terms\n\n")
+	b.WriteString("The rows below are exact user-visible labels or aliases that the explorer emitted as structured `surface_terms` and the tool validated against already-read source/log/trace lines. When your answer cites the same source or symbol, preserve the relevant terms in the item text or label. Do not add surface terms that are not listed here.\n\n")
+	for _, r := range rows {
+		if r.symbol != "" {
+			fmt.Fprintf(&b, "- %s @ %s:%d — %s\n", r.symbol, r.source, r.line, r.text)
+		} else {
+			fmt.Fprintf(&b, "- %s:%d — %s\n", r.source, r.line, r.text)
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func answerDocModelAuthoredSurfaceTerms(ev types.EvidenceItem) bool {
+	return ev.Producer == "explorer.emit_evidence" && len(ev.SurfaceTerms) > 0
+}
+
+func answerDocHeaderEvidencePool(ctx *types.AgentContext) []types.EvidenceItem {
+	if ctx == nil {
+		return nil
+	}
+	evidence := ctx.EvidenceItems
+	if ctx.Mutable != nil {
+		evidence = mergeEvidenceItems(ctx.Mutable.EmittedEvidence(), evidence)
+	}
+	return evidence
+}
+
+func sameAnswerDocSymbolName(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
+func answerDocInlineClip(s string, limit int) string {
+	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+	if limit <= 0 || len([]rune(s)) <= limit {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= limit {
+		return s
+	}
+	cut := r[:limit]
+	for i := len(cut) - 1; i >= limit/2; i-- {
+		if cut[i] == ' ' {
+			return strings.TrimSpace(string(cut[:i])) + "..."
+		}
+	}
+	return strings.TrimSpace(string(cut)) + "..."
 }
 
 func answerDocContractTermKindLabel(kind types.ContractTermKind) string {
@@ -456,6 +608,12 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				}
 			case types.BlockOrderedList:
 				if br.SurfaceRoleHint == types.SurfacePrincipal && view.Family == types.QFEnumeration {
+					if ctx != nil && ctx.AnalysisIR != nil && types.HasAttributeBearingEnumeration(ctx.AnalysisIR.RequestModel) {
+						items = append(items,
+							"Emit the principal `ordered_list` block with one item per principal member, not one item per related attribute. In a two-axis enumeration, `items[].label` is the member label (for example package / module / directory / namespace / type / route); the related attribute (for example entry function / owner / default / handler) belongs in `items[].text`, citations, and any companion table row.",
+							"Ground member labels from the evidence `subject`, required-term floor, or a verbatim member name already surfaced by the typed enumeration profile. Do not use an AnswerSymbol name as the item label when that symbol is the per-member attribute; using the attribute as the label makes the answer look complete while dropping the member axis.",
+						)
+					}
 					items = append(items,
 						"Emit the principal `ordered_list` block with `items[]` (each item carries `id`, optional `label`, `text`, top-level `citation_ref=N` (zero-based index into doc.citations[])); declare the block-level `claim_uses=[{claim_form=definition_fact}]` (or `call_edge` / `assignment_fact` when the cited lines are call sites or assignments). EVERY item.label MUST be grounded in the evidence pool: prefer a verbatim anchor_symbol / subject / object, or a selector-qualified identifier visibly present on a grounded snippet line (for example a qualified call or type name). Fabricated labels are rejected by the structural enumeration grounding oracle.",
 						"Preserve every grounded member from the prior slate / required-member floor. If the investigation only established a lower bound or an unknown full set, disclose that bound in prose or a `caveat` block; do NOT invent a retired completeness field.",
@@ -669,6 +827,9 @@ func renderAnswerDocEnumerationBoundary(ctx *types.AgentContext, view *types.Ans
 	if hasCompleteness {
 		fmt.Fprintf(&b, "The user demanded an exhaustive answer (`%s` in the question). Every grounded match must appear in the rendered answer. If the investigation legitimately could not determine the full set, disclose that bound explicitly in prose or a `caveat` block — do not invent a separate completeness payload field.\n\n",
 			qs.CompletenessObligation.SourceQuote)
+	}
+	if types.HasAttributeBearingEnumeration(rm) {
+		b.WriteString("This is an attribute-bearing enumeration: separate the principal member set from per-member attributes. Keep the principal `ordered_list` / `table` rows aligned to the member set; render related attributes inside each row's text when grounded, and disclose unresolved attributes in the row or a caveat. Do not reduce the principal item count just because an attribute is missing.\n\n")
 	}
 	if hasBuckets {
 		labels := make([]string, 0, len(qs.Buckets))

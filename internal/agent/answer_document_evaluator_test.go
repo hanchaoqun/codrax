@@ -401,6 +401,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_TypedMustIncludeTerms(t
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{Intent: types.IntentEnumerate},
 			AnswerContract: types.AnswerContract{
+				MustInclude: []string{"providers.yaml"},
 				MustIncludeTerms: []types.ContractTerm{
 					{Text: "emit_evidence", Kind: types.ContractTermToolName},
 					{Text: "providers.yaml", Kind: types.ContractTermFileStem},
@@ -421,6 +422,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_TypedMustIncludeTerms(t
 	}
 	if strings.Contains(prompt, "Required-symbol floor") {
 		t.Fatalf("typed must-include prompt should not call every term a symbol:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "providers.yaml (symbol)") {
+		t.Fatalf("typed file-stem term should override duplicate legacy symbol lane:\n%s", prompt)
 	}
 }
 
@@ -691,6 +695,60 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedEnumera
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_AttributeBearingEnumerationGuidance(t *testing.T) {
+	mut := types.NewMutableState("q")
+	syms := []types.AnswerSymbol{{
+		Name:      "aggregator",
+		File:      "internal/analysis/aggregator/aggregator.go",
+		Line:      1,
+		Kind:      types.KindPackage,
+		Rationale: "entry function New at internal/analysis/aggregator/aggregator.go:112",
+	}}
+	mut.SetEmittedAnswerSymbols(syms, types.CompletenessComplete)
+	ctx := &types.AgentContext{
+		Mutable:                  mut,
+		AnswerSymbols:            syms,
+		AnswerSymbolCompleteness: types.CompletenessComplete,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "list all packages and each package entry point",
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				PredicateAxis: types.AxisDefine,
+				AnalyzerHints: types.AnalyzerHints{
+					PrimaryEntities: []string{"packages"},
+					Entities:        []string{"aggregator", "compiler"},
+				},
+				EnumerationBoundary: &types.RequestedEnumerationBoundary{
+					DeclaredCount: 1,
+					SourceQuote:   "all packages",
+				},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all packages",
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"attribute-bearing enumeration",
+		"separate the principal member set from per-member attributes",
+		"Do not reduce the principal item count just because an attribute is missing",
+		"Two-axis enumeration label rule",
+		"the principal `ordered_list.items[].label` is the enumerated member itself",
+		"Do not use an AnswerSymbol name as the item label when that symbol is the per-member attribute",
+		"entry function New at internal/analysis/aggregator/aggregator.go:112",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("attribute-bearing finalizer prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 // TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclude
 // checks the other branch: when MustInclude is empty, the prompt
 // says there is no explicit required-member floor, so the finalizer
@@ -706,6 +764,50 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclu
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if !strings.Contains(prompt, "Required-member floor is empty") {
 		t.Errorf("no-floor branch missing: %q", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDecoratedSymbolHeaderContext(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:         types.EvidenceDirect,
+		Source:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		LineStart:    7,
+		AnchorKind:   types.AnchorDefinition,
+		AnchorSymbol: "Index",
+		Subject:      "Index",
+		Producer:     "explorer.emit_evidence",
+		SurfaceTerms: []string{"Index.ets", "@Entry"},
+	}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+		AnswerSymbols: []types.AnswerSymbol{{
+			Name:      "Index",
+			File:      "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+			Line:      7,
+			Kind:      types.KindStruct,
+			Rationale: "@Entry 页面入口",
+		}},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"surface_terms",
+		"preserve those exact structured terms",
+		"Model-Emitted Surface Terms",
+		"Index.ets, @Entry",
+		"internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets:7",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("decorated symbol header context missing %q:\n%s", want, prompt)
+		}
 	}
 }
 

@@ -145,7 +145,6 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 			break
 		}
 
-		stepsUsed++
 		out, dispatchErr := o.dispatchStage(stage)
 
 		if dispatchErr != nil {
@@ -235,7 +234,7 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 						}
 						o.busCtx.Mutable.SetPlanningHint(stallHint)
 					}
-					logging.Warning("[orchestrator] %s transient dispatch error; requeued for retry %d/%d (transient budget): %v",
+					logging.Warning("[orchestrator] %s transient dispatch error; requeued for retry %d/%d (transient budget; pipeline step budget unchanged): %v",
 						stage, state.transientRetryUsed, o.transientRetryBudget, reason)
 					o.emit(render.Event{
 						Kind:       render.EventOrchestratorNotice,
@@ -259,6 +258,7 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 				logging.Warning("[orchestrator] %s transient dispatch error but transient retry budget exhausted (%d/%d); going terminal",
 					stage, state.transientRetryUsed, o.transientRetryBudget)
 			}
+			stepsUsed++
 			if out == nil {
 				switch stage {
 				case types.StageApply:
@@ -285,6 +285,8 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 			if strings.TrimSpace(out.Error) == "" {
 				out.Error = friendlyDispatchErr(dispatchErr)
 			}
+		} else {
+			stepsUsed++
 		}
 		// Soft (StageOutput-level) failures still get the post-hook
 		// because StageOutput is meaningful — the agent declared its
@@ -473,7 +475,6 @@ func (s *graphState) readyWriteWindow(env criterion.Env) (ready []*types.TaskNod
 	}
 	return ready, blocked
 }
-
 
 // computeStallSignature derives a stable summary of what the just-
 // failed dispatch attempt did, used by transientStallPlateau to

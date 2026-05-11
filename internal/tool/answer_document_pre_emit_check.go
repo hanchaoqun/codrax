@@ -87,9 +87,9 @@ func preEmitOracleFromCtx(ctx *types.BusContext) types.SymbolOracle {
 // should emit; Reason is the one-sentence "why" so the LLM
 // understands the structural requirement, not just the literal fix.
 type emitFixHint struct {
-	Field          string
-	ExpectedShape  string
-	Reason         string
+	Field         string
+	ExpectedShape string
+	Reason        string
 }
 
 // runPreEmitChecks runs the STRICT chokepoint checks on the
@@ -141,6 +141,134 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	}
 
 	return hints
+}
+
+func preCheckModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusContext) []emitFixHint {
+	if doc == nil || ctx == nil {
+		return nil
+	}
+	evidence := modelSurfaceTermEvidence(ctx)
+	if len(evidence) == 0 {
+		return nil
+	}
+	var hints []emitFixHint
+	for _, b := range doc.Blocks {
+		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList && b.Kind != types.BlockTable {
+			continue
+		}
+		for _, it := range b.Items {
+			if it.CitationRef < 0 || it.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			cite := doc.Citations[it.CitationRef]
+			missing := missingSurfaceTermsForItem(it, cite, evidence)
+			if len(missing) == 0 {
+				continue
+			}
+			field := fmt.Sprintf("blocks[id=%q].items[id=%q].text", b.ID, it.ID)
+			if strings.TrimSpace(it.ID) == "" {
+				field = fmt.Sprintf("blocks[id=%q].items[].text", b.ID)
+			}
+			hints = append(hints, emitFixHint{
+				Field: field,
+				ExpectedShape: "include these model-emitted surface_terms in the cited item text or label: " +
+					strings.Join(missing, ", "),
+				Reason: "the explorer explicitly structured these source-visible labels; final answer validation requires preserving them instead of letting the system invent or append them later.",
+			})
+		}
+	}
+	return hints
+}
+
+func modelSurfaceTermEvidence(ctx *types.BusContext) []types.EvidenceItem {
+	var pool []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		pool = append(pool, ctx.Mutable.EmittedEvidence()...)
+	}
+	if ctx != nil {
+		pool = append(pool, ctx.EvidenceItems...)
+	}
+	out := make([]types.EvidenceItem, 0, len(pool))
+	seen := make(map[string]bool, len(pool))
+	for _, ev := range pool {
+		if ev.Producer != EmitEvidenceProducer || len(ev.SurfaceTerms) == 0 {
+			continue
+		}
+		key := ev.ID
+		if key == "" {
+			key = ev.Source + "\x00" + fmt.Sprint(ev.LineStart) + "\x00" + strings.Join(ev.SurfaceTerms, "\x00")
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, ev)
+	}
+	return out
+}
+
+func missingSurfaceTermsForItem(item types.AnswerBlockItem, cite types.Citation, evidence []types.EvidenceItem) []string {
+	if strings.TrimSpace(cite.File) == "" {
+		return nil
+	}
+	hay := strings.ToLower(item.Label + "\n" + item.Text)
+	seen := make(map[string]bool)
+	var missing []string
+	for _, ev := range evidence {
+		if !sameSurfaceTermSource(ev.Source, cite.File) {
+			continue
+		}
+		if !surfaceTermLineClose(ev, cite) {
+			continue
+		}
+		if !surfaceTermEvidenceAppliesToItem(ev, item) {
+			continue
+		}
+		for _, term := range ev.SurfaceTerms {
+			term = strings.TrimSpace(term)
+			if term == "" || strings.Contains(hay, strings.ToLower(term)) {
+				continue
+			}
+			key := strings.ToLower(term)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			missing = append(missing, term)
+		}
+	}
+	return missing
+}
+
+func sameSurfaceTermSource(a, b string) bool {
+	a = strings.TrimPrefix(strings.TrimSpace(a), "./")
+	b = strings.TrimPrefix(strings.TrimSpace(b), "./")
+	return a != "" && b != "" && a == b
+}
+
+func surfaceTermLineClose(ev types.EvidenceItem, cite types.Citation) bool {
+	if cite.Line <= 0 || ev.LineStart <= 0 {
+		return true
+	}
+	end := ev.LineEnd
+	if end < ev.LineStart {
+		end = ev.LineStart
+	}
+	return cite.Line >= ev.LineStart-8 && cite.Line <= end+8
+}
+
+func surfaceTermEvidenceAppliesToItem(ev types.EvidenceItem, item types.AnswerBlockItem) bool {
+	hay := strings.ToLower(item.Label + "\n" + item.Text)
+	for _, key := range []string{ev.Subject, ev.AnchorSymbol, ev.Object, ev.OwnerSymbol} {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if strings.Contains(hay, strings.ToLower(key)) {
+			return true
+		}
+	}
+	return strings.TrimSpace(ev.Subject) == "" && strings.TrimSpace(ev.AnchorSymbol) == ""
 }
 
 // preCheckEnumerationLabelGrounding mirrors the post-emit
@@ -384,9 +512,9 @@ func preCheckUncertaintyBlock(doc *types.AnswerDocumentV2, view *types.AnswerSem
 		return nil
 	}
 	return []emitFixHint{{
-		Field: "blocks[].kind=caveat",
+		Field:         "blocks[].kind=caveat",
 		ExpectedShape: "emit a caveat block disclosing what was searched and what remained uncertain",
-		Reason: "the question's contract carries uncertainty rules that require explicit boundary disclosure",
+		Reason:        "the question's contract carries uncertainty rules that require explicit boundary disclosure",
 	}}
 }
 

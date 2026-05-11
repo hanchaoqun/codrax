@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -355,7 +356,7 @@ func TestWriteScheduler_PlanTransientStreamStall_Retries(t *testing.T) {
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 	o.SetMode(types.ModePlan) // plan-only graph, no worktree provisioning
-	o.SetAutoInitRepo(true) // plan stage's new bare-dir gate; tests run against tmp dirs
+	o.SetAutoInitRepo(true)   // plan stage's new bare-dir gate; tests run against tmp dirs
 	o.SetScaffoldEnabled(true)
 	// SetTransientRetryBudget controls THIS retry path. SetWriteRetryBudget
 	// is for verify→plan SC retry — kept at zero here to verify the two
@@ -487,6 +488,48 @@ func TestWriteScheduler_TransientBudget_DoesNotDrainSCBudget(t *testing.T) {
 	// SC one untouched).
 	if busCtx.TaskState.LastError != "" {
 		t.Errorf("LastError should be empty after successful retry; got %q", busCtx.TaskState.LastError)
+	}
+}
+
+func TestWriteScheduler_TransientRetry_DoesNotDrainStepBudget(t *testing.T) {
+	expectedPlan := &types.ChangePlan{
+		ID:          "plan-step-budget",
+		TargetPaths: []string{"main.go"},
+		Changes:     []types.FileChange{{Path: "main.go", Kind: "modify"}},
+	}
+	planCalls := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(dagIR(types.AnswerContract{Language: "en"})),
+		types.AgentPlanner: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			planCalls++
+			if planCalls == 1 {
+				return nil, io.ErrUnexpectedEOF
+			}
+			ctx.Mutable.SetChangePlan(expectedPlan)
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	// One step is spent by analyze, leaving exactly one write-graph
+	// step. The EOF retry must be free, otherwise the second planner
+	// dispatch never gets budget.
+	o.SetMaxSteps(2)
+	o.SetMode(types.ModePlan)
+	o.SetAutoInitRepo(true)
+	o.SetScaffoldEnabled(true)
+	o.SetTransientRetryBudget(1)
+
+	busCtx, _ := o.Run("step budget decouple test", t.TempDir(), "main")
+
+	if planCalls != 2 {
+		t.Fatalf("planner should retry once on EOF; got %d", planCalls)
+	}
+	if busCtx.Mutable.ChangePlan() == nil {
+		t.Fatal("ChangePlan should land after free transient retry")
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError should be empty after successful retry; got %q", busCtx.TaskState.LastError)
 	}
 }
 

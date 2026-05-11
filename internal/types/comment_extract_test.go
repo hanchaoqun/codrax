@@ -218,6 +218,98 @@ func TestExtractLeadingDocComment_TypeScript(t *testing.T) {
 	}
 }
 
+func TestExtractLeadingDocComment_ArkTSDecoratorStack(t *testing.T) {
+	src := []byte(strings.Join([]string{
+		"// Source: developer.huawei.com / openharmony Index.ets minimal sample",
+		"// Surface: @Entry + @Component + build()",
+		"",
+		"@Entry",
+		"@Component",
+		"struct Index {",
+		"  build() {}",
+		"}",
+	}, "\n"))
+	text, line := ExtractLeadingDocComment(src, 6, "Index.ets")
+	if text == "" {
+		t.Fatalf("expected decorator-aware doc comment")
+	}
+	if !strings.Contains(text, "Index.ets minimal sample") {
+		t.Fatalf("missing source filename alias: %q", text)
+	}
+	if !strings.Contains(text, "@Entry + @Component") {
+		t.Fatalf("missing decorator surface: %q", text)
+	}
+	if line != 1 {
+		t.Fatalf("expected startLine=1, got %d", line)
+	}
+}
+
+func TestExtractLeadingDocComment_MultiLanguageMetadataStacks(t *testing.T) {
+	cases := []struct {
+		name      string
+		path      string
+		lines     []string
+		lineStart int
+		want      string
+	}{
+		{
+			name: "python decorator",
+			path: "mod.py",
+			lines: []string{
+				"# build_card renders the reusable card body.",
+				"@builder",
+				"def build_card():",
+				"    pass",
+			},
+			lineStart: 3,
+			want:      "reusable card body",
+		},
+		{
+			name: "java annotation",
+			path: "Gateway.java",
+			lines: []string{
+				"/**",
+				" * Gateway handles request fanout.",
+				" */",
+				"@Deprecated",
+				"public class Gateway {}",
+			},
+			lineStart: 5,
+			want:      "request fanout",
+		},
+		{
+			name: "rust attribute",
+			path: "lib.rs",
+			lines: []string{
+				"/// Engine coordinates render passes.",
+				"#[derive(Debug)]",
+				"pub struct Engine;",
+			},
+			lineStart: 3,
+			want:      "render passes",
+		},
+		{
+			name: "cpp attribute",
+			path: "engine.cpp",
+			lines: []string{
+				"// render_fast returns the cached result.",
+				"[[nodiscard]]",
+				"int render_fast();",
+			},
+			lineStart: 3,
+			want:      "cached result",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text, _ := ExtractLeadingDocComment([]byte(strings.Join(tc.lines, "\n")), tc.lineStart, tc.path)
+			if !strings.Contains(text, tc.want) {
+				t.Fatalf("ExtractLeadingDocComment() = %q, want substring %q", text, tc.want)
+			}
+		})
+	}
+}
+
 func TestExtractLeadingDocComment_BlankLineAboveDef(t *testing.T) {
 	// Single blank line between comment and def should still be
 	// captured (Go's gofmt-respecting style).
