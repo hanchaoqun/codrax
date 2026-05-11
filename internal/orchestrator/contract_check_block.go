@@ -2126,9 +2126,12 @@ func answerItemLabelSupportedByCitedEvidenceSubject(doc *types.AnswerDocumentV2,
 		if !citationLineMatchesEvidence(cit.Line, ev) {
 			continue
 		}
-		if label == strings.TrimSpace(ev.Subject) || label == strings.TrimSpace(ev.Object) {
+		if answerCodeSurfaceMatchesEvidenceEndpoint(label, ev) {
 			return true
 		}
+	}
+	if answerItemHasResolvedCitation(doc, item) {
+		return false
 	}
 	return answerItemLabelSupportedByEvidenceEndpoint(label, mut)
 }
@@ -2146,11 +2149,41 @@ func answerItemLabelSupportedByEvidenceEndpoint(label string, mut *types.Mutable
 		if ev.GroundingStatus == types.GroundingUngrounded {
 			continue
 		}
-		if label == strings.TrimSpace(ev.Subject) || label == strings.TrimSpace(ev.Object) {
+		if answerCodeSurfaceMatchesEvidenceEndpoint(label, ev) {
 			return true
 		}
 	}
 	return false
+}
+
+func answerCodeSurfaceMatchesEvidenceEndpoint(label string, ev types.EvidenceItem) bool {
+	for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+		if answerCodeSurfaceMatches(label, endpoint) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerCodeSurfaceMatches(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	if strings.EqualFold(a, b) {
+		return true
+	}
+	if types.IsCodeIdentitySurface(a) && types.IsCodeIdentitySurface(b) {
+		aFold := strings.ToLower(strings.TrimSpace(a))
+		bFold := strings.ToLower(strings.TrimSpace(b))
+		if strings.Contains(aFold, bFold) || strings.Contains(bFold, aFold) {
+			return true
+		}
+	}
+	aTail := types.NormalizedSurfaceSymbolTail(a)
+	bTail := types.NormalizedSurfaceSymbolTail(b)
+	return aTail != "" && bTail != "" && strings.EqualFold(aTail, bTail)
 }
 
 func answerItemLabelSupportedByAnswerSymbol(label string, mut *types.MutableState) bool {
@@ -2601,6 +2634,9 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 			if answerItemLabelSupportedByCitedEvidenceSubject(doc, it, label, mut) {
 				continue
 			}
+			if answerItemLabelSupportedByEvidenceEndpoint(label, mut) {
+				continue
+			}
 			if answerItemLabelSupportedByQuestionBucket(label, mut) {
 				continue
 			}
@@ -2953,6 +2989,9 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 				continue
 			}
 			if inlineIdentifierSupportedByRuntimeArtifact(ident, mut) {
+				continue
+			}
+			if answerItemLabelSupportedByEvidenceEndpoint(token, mut) {
 				continue
 			}
 			found, tier := oracle.SymbolExistsFlat(ident)

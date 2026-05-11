@@ -79,6 +79,75 @@ func TestEnumerationItemLabelHallucination_AllRealSymbolsPass(t *testing.T) {
 	}
 }
 
+func TestEnumerationItemLabelHallucination_PackageQualifiedCitedEvidencePasses(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "h1",
+				Label:       "normalizer.Normalize",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 1625}},
+	}
+	mut := types.NewMutableState("call chain")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1625,
+		AnchorKind:      types.AnchorCall,
+		Subject:         "buildAnalysisIR",
+		Object:          "normalizer.Normalize",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("package-qualified call label backed by cited evidence should pass; got %+v", vs)
+	}
+}
+
+func TestAnswerItemLabelSupportedByCitedEvidenceSubjectRejectsAdjacentCitationDrift(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "h9",
+				Label:       "gate.RunWith",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 1850}},
+	}
+	item := doc.Blocks[0].Items[0]
+	mut := types.NewMutableState("call chain")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1850,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "buildAnalysisIR",
+			Object:          "counterfactual.Expand",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1970,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "buildAnalysisIR",
+			Object:          "gate.RunWith",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	if answerItemLabelSupportedByCitedEvidenceSubject(doc, item, "gate.RunWith", mut) {
+		t.Fatal("label must not be supported by matching evidence at a different cited line")
+	}
+}
+
 // TestEnumerationItemLabelHallucination_NilOracleSkips confirms
 // that callers passing nil oracle disable the validator (unit-test
 // path / no-graph runs).

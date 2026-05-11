@@ -430,6 +430,56 @@ func TestBuildAnswerSupportPlan_CallChainPrefersSurfaceEvidenceWhenStepBackboneM
 	}
 }
 
+func TestBuildAnswerSupportPlan_CallChainExcludesConcreteValueSideEvidence(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{
+			{
+				Kind:            EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       1818,
+				AnchorKind:      AnchorCall,
+				Subject:         "buildAnalysisIR",
+				Object:          "compiler.Compile",
+				GroundingStatus: GroundingGrounded,
+			},
+			{
+				Kind:            EvidenceConcrete,
+				Source:          "internal/agent/answer_document_evaluator.go",
+				LineStart:       2102,
+				AnchorKind:      AnchorCall,
+				Subject:         "renderAnswerDocDiagramContract",
+				Object:          `"## Diagram Contract\n\n"`,
+				GroundingStatus: GroundingGrounded,
+			},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent: IntentTrace,
+		AnalyzerHints: AnalyzerHints{
+			MentionedEntities: []string{"buildAnalysisIR", "gate.Run"},
+		},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected call-chain support plan")
+	}
+	var joined string
+	for _, lane := range got.Lanes {
+		if lane.Kind != SupportLaneCurrentCodePath {
+			continue
+		}
+		for _, entry := range lane.Entries {
+			joined += entry.Text + "\n"
+		}
+	}
+	if !strings.Contains(joined, "compiler.Compile") {
+		t.Fatalf("expected principal call edge to remain, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "renderAnswerDocDiagramContract") || strings.Contains(joined, "Diagram Contract") {
+		t.Fatalf("concrete-value side evidence must not enter principal call-chain lane:\n%s", joined)
+	}
+}
+
 func TestCallChainCondenseSupportEntriesPreservesTerminalTailWhenEndpointIsBroad(t *testing.T) {
 	var entries []AnswerSupportEntry
 	for i := 0; i < 20; i++ {

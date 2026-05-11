@@ -141,6 +141,41 @@ func TestFixI_DotQualifiedSkipsViaLeadingIdent(t *testing.T) {
 	}
 }
 
+func TestFixI_PackageQualifiedInlineBacktickSupportedByEvidenceEndpoint(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "caveat1",
+			Kind: types.BlockCaveat,
+			Text: "The direct chain includes `normalizer.Normalize` and `counterfactual.Expand`.",
+		}},
+	}
+	mut := types.NewMutableState("call chain")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1625,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "buildAnalysisIR",
+			Object:          "normalizer.Normalize",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceConditional,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1850,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "buildAnalysisIR",
+			Object:          "counterfactual.Expand",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("package-qualified inline identifiers backed by evidence endpoints should pass; got %+v", vs)
+	}
+}
+
 // TestFixI_TitleAndItemTextScanned — Title field + Items[].Text
 // (in addition to Text field) get scanned.
 func TestFixI_TitleAndItemTextScanned(t *testing.T) {

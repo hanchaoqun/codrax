@@ -130,7 +130,14 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 		hints = append(hints, h...)
 	}
 
-	// 5. Enumeration item label grounding (P1 2026-05-10).
+	// 5. Per-item label/citation alignment. A symbol-like list label with
+	// a citation must name the same cited evidence endpoint; otherwise the
+	// rendered answer silently shifts file:line proof across adjacent hops.
+	if h := preCheckItemCitationAlignment(doc, ctxOpt...); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+
+	// 6. Enumeration item label grounding (P1 2026-05-10).
 	// Catches the hallucinated identifier-shape labels that drove
 	// 70% of post-emit repair-loop violations in the 2026-05-10
 	// sweep digest. Mirrors validateEnumerationItemLabelHallucination
@@ -141,6 +148,137 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	}
 
 	return hints
+}
+
+func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
+		return nil
+	}
+	ctx := ctxOpt[0]
+	type mismatch struct {
+		blockID string
+		itemID  string
+		label   string
+		cite    string
+	}
+	var mismatches []mismatch
+	for _, b := range doc.Blocks {
+		switch b.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			continue
+		}
+		for _, item := range b.Items {
+			label := strings.TrimSpace(item.Label)
+			if label == "" || !types.IsCodeIdentitySurface(label) {
+				continue
+			}
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			cit := doc.Citations[item.CitationRef]
+			evidence, found := preEmitCitedEvidenceItems(ctx, cit)
+			if !found {
+				continue
+			}
+			if preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence) {
+				continue
+			}
+			mismatches = append(mismatches, mismatch{
+				blockID: b.ID,
+				itemID:  item.ID,
+				label:   label,
+				cite:    fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
+			})
+		}
+	}
+	if len(mismatches) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(mismatches))
+	for _, m := range mismatches {
+		parts = append(parts, fmt.Sprintf("block=%q item=%q label=%q citation=%s", m.blockID, m.itemID, m.label, m.cite))
+	}
+	return []emitFixHint{{
+		Field: "blocks[].items[].citation_ref",
+		ExpectedShape: "each symbol-like item label must cite the evidence line whose subject/object/anchor names that same symbol: " +
+			strings.Join(parts, "; "),
+		Reason: "list item labels and citation_ref values must stay aligned; adjacent call-chain hops cannot borrow each other's citations.",
+	}}
+}
+
+func preEmitCitedEvidenceItems(ctx *types.BusContext, cit types.Citation) ([]types.EvidenceItem, bool) {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil, false
+	}
+	file := strings.TrimSpace(cit.File)
+	if file == "" || cit.Line <= 0 {
+		return nil, false
+	}
+	artifacts := ctx.Mutable.TurnAArtifacts()
+	if artifacts == nil {
+		return nil, false
+	}
+	var out []types.EvidenceItem
+	for _, ev := range artifacts.EvidenceItems {
+		if ev.GroundingStatus == types.GroundingUngrounded {
+			continue
+		}
+		if strings.TrimSpace(ev.Source) != file {
+			continue
+		}
+		if cit.Line < ev.LineStart {
+			continue
+		}
+		lineEnd := ev.LineEnd
+		if lineEnd <= 0 {
+			lineEnd = ev.LineStart
+		}
+		if cit.Line > lineEnd {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out, len(out) > 0
+}
+
+func preEmitLabelMatchesAnyEvidenceEndpoint(label string, evidence []types.EvidenceItem) bool {
+	for _, ev := range evidence {
+		if preEmitLabelMatchesEvidenceEndpoint(label, ev) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitLabelMatchesEvidenceEndpoint(label string, ev types.EvidenceItem) bool {
+	for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+		if preEmitCodeSurfaceMatches(label, endpoint) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitCodeSurfaceMatches(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	if strings.EqualFold(a, b) {
+		return true
+	}
+	if types.IsCodeIdentitySurface(a) && types.IsCodeIdentitySurface(b) {
+		aFold := strings.ToLower(strings.TrimSpace(a))
+		bFold := strings.ToLower(strings.TrimSpace(b))
+		if strings.Contains(aFold, bFold) || strings.Contains(bFold, aFold) {
+			return true
+		}
+	}
+	aTail := types.NormalizedSurfaceSymbolTail(a)
+	bTail := types.NormalizedSurfaceSymbolTail(b)
+	return aTail != "" && bTail != "" && strings.EqualFold(aTail, bTail)
 }
 
 func preCheckModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusContext) []emitFixHint {
@@ -328,6 +466,12 @@ func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types
 			}
 			if preEmitLabelSupportedByRuntimeArtifact(label, ctx) {
 				continue
+			}
+			if ctx != nil && it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) {
+				if evidence, found := preEmitCitedEvidenceItems(ctx, doc.Citations[it.CitationRef]); found &&
+					preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence) {
+					continue
+				}
 			}
 			found, tier := oracle.SymbolExistsFlat(ident)
 			if found && tier < 3 {

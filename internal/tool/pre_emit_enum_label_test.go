@@ -149,6 +149,85 @@ func TestPreCheckEnumLabel_RuntimeArtifactLabel_NoHints(t *testing.T) {
 	}
 }
 
+func TestPreCheckEnumLabel_PackageQualifiedLabelSupportedByCitedEvidence(t *testing.T) {
+	oracle := &stubOracle{known: map[string]int{}}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "h1",
+				Label:       "normalizer.Normalize",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 1625}},
+	}
+	mut := types.NewMutableState("call chain")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		EvidenceItems: []types.EvidenceItem{{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1625,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "buildAnalysisIR",
+			Object:          "normalizer.Normalize",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+	if hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx); hints != nil {
+		t.Fatalf("package-qualified cited evidence label should bypass declaration oracle; got %v", hints)
+	}
+}
+
+func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "h9",
+				Label:       "gate.RunWith",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 1850}},
+	}
+	mut := types.NewMutableState("call chain")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceConditional,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       1850,
+				AnchorKind:      types.AnchorCall,
+				Subject:         "buildAnalysisIR",
+				Object:          "counterfactual.Expand",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       1970,
+				AnchorKind:      types.AnchorCall,
+				Subject:         "buildAnalysisIR",
+				Object:          "gate.RunWith",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+	hints := preCheckItemCitationAlignment(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("expected one citation-alignment hint, got %d: %v", len(hints), hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "gate.RunWith") ||
+		!strings.Contains(hints[0].ExpectedShape, "internal/agent/analyzer.go:1850") {
+		t.Fatalf("hint should name drifted label and cited line, got %+v", hints[0])
+	}
+}
+
 func TestPreCheckEnumLabel_AllHallucinated_OneFixHintPerBlock(t *testing.T) {
 	oracle := &stubOracle{known: map[string]int{}}
 	doc := &types.AnswerDocumentV2{

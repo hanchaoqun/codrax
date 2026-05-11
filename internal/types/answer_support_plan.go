@@ -572,6 +572,11 @@ func compileCallChainUncertaintySupportLane(plan *AnswerSurfacePlan) AnswerSuppo
 }
 
 func callChainPathItemEligible(item EvidenceItem) bool {
+	switch item.Kind {
+	case EvidenceDirect, EvidenceConditional, EvidenceRegistration, EvidenceMechanism, EvidenceRelationship:
+	default:
+		return false
+	}
 	switch item.AnchorKind {
 	case AnchorCall, AnchorDefinition, AnchorCondition, AnchorAssignment, AnchorReturn:
 		return item.GroundingStatus != GroundingUngrounded
