@@ -56,7 +56,7 @@ func TestRenderRetryStructuredFixList_PrincipalClaimUse(t *testing.T) {
 	if !strings.Contains(got, "Action: `set_field`") {
 		t.Errorf("missing set_field action; got %q", got)
 	}
-	if !strings.Contains(got, `Target: ` + "`blocks[id=\"l1\"].claim_uses`") {
+	if !strings.Contains(got, `Target: `+"`blocks[id=\"l1\"].claim_uses`") {
 		t.Errorf("missing per-block target; got %q", got)
 	}
 }
@@ -99,6 +99,71 @@ func TestRenderRetryStructuredFixList_UncertaintyBlock(t *testing.T) {
 	}
 	if !strings.Contains(got, "kind: `caveat`") {
 		t.Errorf("missing caveat kind arg; got %q", got)
+	}
+	if kIdx, textIdx := strings.Index(got, "kind: `caveat`"), strings.Index(got, "text: `"); kIdx < 0 || textIdx < 0 || kIdx > textIdx {
+		t.Errorf("structured args must render in deterministic kind-then-text order; got %q", got)
+	}
+}
+
+func TestRenderRetryStructuredFixList_CurrentStatusVerdict(t *testing.T) {
+	rs := &types.RetryState{
+		ActiveViolations: []types.ScoredViolation{
+			{
+				Kind:     types.ViolCurrentStatusVerdictMissing,
+				Severity: types.SeverityMedium,
+				BlockID:  "decision_current",
+				Repair:   "emit a principal decision block whose text starts with exactly one of still_present, fixed, or not_enough_evidence",
+			},
+		},
+	}
+	got := renderRetryStructuredFixList(rs)
+	if !strings.Contains(got, "Action: `set_field`") {
+		t.Errorf("missing set_field action; got %q", got)
+	}
+	if !strings.Contains(got, `Target: `+"`blocks[id=\"decision_current\"].text`") {
+		t.Errorf("missing decision text target; got %q", got)
+	}
+	if !strings.Contains(got, "still_present | fixed | not_enough_evidence") {
+		t.Errorf("missing bounded verdict prefixes; got %q", got)
+	}
+}
+
+func TestRenderRetryStructuredFixList_LaneBlockKindMismatch(t *testing.T) {
+	rs := &types.RetryState{
+		ActiveViolations: []types.ScoredViolation{
+			{
+				Kind:     types.ViolLaneBlockKindMismatch,
+				Severity: types.SeverityMedium,
+				BlockID:  "observed_steps",
+				Repair:   "change the block kind to one of [summary caveat]",
+			},
+		},
+	}
+	got := renderRetryStructuredFixList(rs)
+	if !strings.Contains(got, `Target: `+"`blocks[id=\"observed_steps\"].kind`") {
+		t.Errorf("missing block kind target; got %q", got)
+	}
+	if !strings.Contains(got, "one of the block kinds named in the repair hint") {
+		t.Errorf("missing value guidance; got %q", got)
+	}
+}
+
+func TestRenderRetryStructuredFixList_MissingRequestedRoles(t *testing.T) {
+	rs := &types.RetryState{
+		ActiveViolations: []types.ScoredViolation{
+			{
+				Kind:     types.ViolMissingRequestedRoleUndisclosed,
+				Severity: types.SeverityMedium,
+				Repair:   `set to [{role:"runtime", label:"CLI"}]`,
+			},
+		},
+	}
+	got := renderRetryStructuredFixList(rs)
+	if !strings.Contains(got, "Target: `missing_requested_roles[]`") {
+		t.Errorf("missing missing_requested_roles target; got %q", got)
+	}
+	if !strings.Contains(got, `set to [{role:"runtime", label:"CLI"}]`) {
+		t.Errorf("missing exact repair value guidance; got %q", got)
 	}
 }
 

@@ -600,15 +600,20 @@ func TestLoopPolicy_IdenticalOnlyAtMidLoop(t *testing.T) {
 // detector (step 1c) does NOT fire and we isolate the error-streak
 // detector (step 1d).
 func midLoopObsWithFailedTool(iter int, errorSummary string, variant byte) LoopObservation {
+	return midLoopObsWithNamedFailedTool(iter, "emit_answer_document", errorSummary, variant)
+}
+
+func midLoopObsWithNamedFailedTool(iter int, toolName, errorSummary string, variant byte) LoopObservation {
 	return LoopObservation{
 		Phase:     PhaseMidLoop,
 		Iteration: iter,
 		Response: llm.Response{ToolCalls: []llm.ToolCall{
-			{Name: "emit_answer_document", Params: []byte{'{', 'x', ':', variant, '}'}},
+			{Name: toolName, Params: []byte{'{', 'x', ':', variant, '}'}},
 		}},
 		LastToolResult: &types.ToolResult{
-			Success: false,
-			Summary: errorSummary,
+			ToolName: toolName,
+			Success:  false,
+			Summary:  errorSummary,
 		},
 		AllToolResults: make([]types.ToolResult, iter+1),
 	}
@@ -643,6 +648,28 @@ func TestLoopPolicy_IdenticalErrorStreak_ForcesStop(t *testing.T) {
 	}
 	if !strings.Contains(r.Reason, "shape=step_list forbids boolean") {
 		t.Errorf("stop reason should echo the repeating error, got %q", r.Reason)
+	}
+}
+
+func TestLoopPolicy_IdenticalErrorStreak_CoversAnswerDocumentPatch(t *testing.T) {
+	s := newTestPolicyState(DefaultLoopPolicy())
+
+	errMsg := "unknown block id \"missing\" in replace_blocks"
+	for i := 0; i < 3; i++ {
+		r := s.Apply(PhaseMidLoop, midLoopObsWithNamedFailedTool(i,
+			"emit_answer_document_patch", errMsg, byte('a'+i)), LoopSignal{})
+		if r.Outcome == OutcomeStop && strings.Contains(r.Reason, "same error class") {
+			t.Fatalf("iter=%d stopped too early on patch error streak: %s", i, r.Reason)
+		}
+	}
+	r := s.Apply(PhaseMidLoop, midLoopObsWithNamedFailedTool(3,
+		"emit_answer_document_patch", errMsg, 'z'), LoopSignal{})
+	if r.Outcome != OutcomeStop {
+		t.Fatalf("patch errors must use the shared identical-error guard, got %v (%s)",
+			r.Outcome, r.Reason)
+	}
+	if !strings.Contains(r.Reason, "unknown block id") {
+		t.Errorf("stop reason should preserve the patch error class, got %q", r.Reason)
 	}
 }
 

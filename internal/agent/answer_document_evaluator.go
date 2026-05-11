@@ -904,8 +904,8 @@ func renderRetryStructuredFixList(rs *types.RetryState) string {
 	for i, r := range rows {
 		fmt.Fprintf(&out, "%d. Action: `%s`\n", i+1, r.Action)
 		fmt.Fprintf(&out, "   - Target: `%s`\n", r.Target)
-		for k, v := range r.Args {
-			fmt.Fprintf(&out, "   - %s: `%s`\n", k, v)
+		for _, arg := range r.Args {
+			fmt.Fprintf(&out, "   - %s: `%s`\n", arg.Name, arg.Value)
 		}
 		if r.Hint != "" {
 			fmt.Fprintf(&out, "   - Hint: %s\n", r.Hint)
@@ -917,21 +917,25 @@ func renderRetryStructuredFixList(rs *types.RetryState) string {
 
 // structuredFixRow is the typed surface a P3 row renders. Action
 // is one of a small enum of mechanical operations the LLM can
-// recognize; Target is a schema field path or `blocks[]`; Args is
-// an ordered key→value map of operation-specific parameters; Hint
+// recognize; Target is a schema field path or `blocks[]`; Args are
+// ordered operation-specific parameters; Hint
 // is an optional one-line user-vocab "why" string.
 type structuredFixRow struct {
 	Action string
 	Target string
-	Args   map[string]string
+	Args   []structuredFixArg
 	Hint   string
 }
 
+type structuredFixArg struct {
+	Name  string
+	Value string
+}
+
 // classifyViolationToStructuredFix returns true with a typed row
-// when the violation's Kind matches one of the four covered
-// validator-driven cluster shapes. Unknown / subjective kinds
-// return ok=false and the caller falls through to the prose
-// renderer.
+// when the violation's Kind matches a covered validator-driven
+// cluster shape. Unknown / subjective kinds return ok=false and the
+// caller falls through to the prose renderer.
 func classifyViolationToStructuredFix(sv types.ScoredViolation) (structuredFixRow, bool) {
 	switch sv.Kind {
 	case types.ViolBlockCoverageMissing:
@@ -942,8 +946,8 @@ func classifyViolationToStructuredFix(sv types.ScoredViolation) (structuredFixRo
 		row := structuredFixRow{
 			Action: "add_block",
 			Target: "blocks[]",
-			Args: map[string]string{
-				"kind": extractMissingBlockKind(sv),
+			Args: []structuredFixArg{
+				{Name: "kind", Value: extractMissingBlockKind(sv)},
 			},
 			Hint: strings.TrimSpace(sv.Repair),
 		}
@@ -952,8 +956,8 @@ func classifyViolationToStructuredFix(sv types.ScoredViolation) (structuredFixRo
 		row := structuredFixRow{
 			Action: "set_field",
 			Target: principalClaimUseTarget(sv),
-			Args: map[string]string{
-				"value": "[{claim_form: <one of the contract's acceptable forms>}]",
+			Args: []structuredFixArg{
+				{Name: "value", Value: "[{claim_form: <one of the contract's acceptable forms>}]"},
 			},
 			Hint: strings.TrimSpace(sv.Repair),
 		}
@@ -962,8 +966,8 @@ func classifyViolationToStructuredFix(sv types.ScoredViolation) (structuredFixRo
 		row := structuredFixRow{
 			Action: "set_field",
 			Target: "blocks[].facet_ids OR blocks[].claim_uses[].facet_id",
-			Args: map[string]string{
-				"value": extractFacetIDFromDetail(sv),
+			Args: []structuredFixArg{
+				{Name: "value", Value: extractFacetIDFromDetail(sv)},
 			},
 			Hint: strings.TrimSpace(sv.Repair),
 		}
@@ -972,9 +976,40 @@ func classifyViolationToStructuredFix(sv types.ScoredViolation) (structuredFixRo
 		row := structuredFixRow{
 			Action: "add_caveat_block",
 			Target: "blocks[]",
-			Args: map[string]string{
-				"kind": "caveat",
-				"text": "(disclose what was searched and what remained uncertain)",
+			Args: []structuredFixArg{
+				{Name: "kind", Value: "caveat"},
+				{Name: "text", Value: "(disclose what was searched and what remained uncertain)"},
+			},
+			Hint: strings.TrimSpace(sv.Repair),
+		}
+		return row, true
+	case types.ViolCurrentStatusVerdictMissing:
+		row := structuredFixRow{
+			Action: "set_field",
+			Target: currentStatusVerdictTarget(sv),
+			Args: []structuredFixArg{
+				{Name: "prefix", Value: "still_present | fixed | not_enough_evidence"},
+				{Name: "text", Value: "(start with one prefix above, then explain the current-code evidence boundary)"},
+			},
+			Hint: strings.TrimSpace(sv.Repair),
+		}
+		return row, true
+	case types.ViolLaneBlockKindMismatch:
+		row := structuredFixRow{
+			Action: "set_field",
+			Target: laneBlockKindTarget(sv),
+			Args: []structuredFixArg{
+				{Name: "value", Value: "(one of the block kinds named in the repair hint)"},
+			},
+			Hint: strings.TrimSpace(sv.Repair),
+		}
+		return row, true
+	case types.ViolMissingRequestedRoleUndisclosed:
+		row := structuredFixRow{
+			Action: "set_field",
+			Target: "missing_requested_roles[]",
+			Args: []structuredFixArg{
+				{Name: "value", Value: missingRequestedRolesValueHint(sv)},
 			},
 			Hint: strings.TrimSpace(sv.Repair),
 		}
@@ -1013,6 +1048,34 @@ func principalClaimUseTarget(sv types.ScoredViolation) string {
 		return "blocks[].claim_uses"
 	}
 	return fmt.Sprintf("blocks[id=%q].claim_uses", sv.BlockID)
+}
+
+func currentStatusVerdictTarget(sv types.ScoredViolation) string {
+	if sv.FieldPath != "" {
+		return sv.FieldPath
+	}
+	if sv.BlockID != "" {
+		return fmt.Sprintf("blocks[id=%q].text", sv.BlockID)
+	}
+	return "blocks[kind=decision].text OR add a decision block"
+}
+
+func laneBlockKindTarget(sv types.ScoredViolation) string {
+	if sv.FieldPath != "" {
+		return sv.FieldPath
+	}
+	if sv.BlockID != "" {
+		return fmt.Sprintf("blocks[id=%q].kind", sv.BlockID)
+	}
+	return "blocks[].kind"
+}
+
+func missingRequestedRolesValueHint(sv types.ScoredViolation) string {
+	repair := strings.TrimSpace(sv.Repair)
+	if repair == "" {
+		return "(copy the exact missing role set named by the active requirement)"
+	}
+	return repair
 }
 
 // extractFacetIDFromDetail reads the typed FieldPath when present

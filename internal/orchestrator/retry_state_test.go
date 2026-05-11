@@ -11,10 +11,10 @@ import (
 // retry_state_test.go — R14-c3+c4 lock tests.
 
 // TestPopulateRetryState_RoundTrip pins the basic flow:
-//   1. orchestrator builds RetryState from prev emit + violations
-//   2. SetRetryState writes to MutableState
-//   3. RetryState() reads back the same pointer
-//   4. RetryStateSummary captures block-level + item-level annotations
+//  1. orchestrator builds RetryState from prev emit + violations
+//  2. SetRetryState writes to MutableState
+//  3. RetryState() reads back the same pointer
+//  4. RetryStateSummary captures block-level + item-level annotations
 func TestPopulateRetryState_RoundTrip(t *testing.T) {
 	mut := &types.MutableState{}
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
@@ -129,16 +129,16 @@ func TestPopulateRetryState_RoundTrip(t *testing.T) {
 // TestInferViolationLayer_KeyKindsMapped pins kind→layer routing.
 func TestInferViolationLayer_KeyKindsMapped(t *testing.T) {
 	cases := map[types.ViolationKind]string{
-		types.ViolBlockCoverageMissing:     "v2_oracle",
-		types.ViolPrincipalClaimUseMissing: "v2_oracle",
-		types.ViolFacetUncovered:           "v2_oracle",
-		types.ViolSelfContradiction:        "self_consistency",
+		types.ViolBlockCoverageMissing:         "v2_oracle",
+		types.ViolPrincipalClaimUseMissing:     "v2_oracle",
+		types.ViolFacetUncovered:               "v2_oracle",
+		types.ViolSelfContradiction:            "self_consistency",
 		types.ViolExternalArtifactUnderdecoded: "external_artifact",
-		types.ViolAuthorityOverreach:       "authority",
-		types.ViolGhostAnchor:              "cgec",
-		types.ViolPlanCritic:               "reviewer",
-		types.ViolViewIntentMismatch:       "answer_oracle",
-		types.ViolCitation:                 "contract_check",
+		types.ViolAuthorityOverreach:           "authority",
+		types.ViolGhostAnchor:                  "cgec",
+		types.ViolPlanCritic:                   "reviewer",
+		types.ViolViewIntentMismatch:           "answer_oracle",
+		types.ViolCitation:                     "contract_check",
 	}
 	for k, want := range cases {
 		if got := inferViolationLayer(k); got != want {
@@ -152,9 +152,10 @@ func TestExtractBlockIDFromDetail(t *testing.T) {
 	cases := map[string]string{
 		`principal block id="lifecycle" kind=section has no claim_use`: "lifecycle",
 		`block id="s1" diagram kind mismatch`:                          "s1",
-		`required facet "X"`:                                           "",
-		``:                                                              "",
-		`block id=lifecycle (no quotes)`:                               "",
+		`principal block "observed_steps" has kind="ordered_list"`:     "observed_steps",
+		`required facet "X"`:             "",
+		``:                               "",
+		`block id=lifecycle (no quotes)`: "",
 	}
 	for in, want := range cases {
 		if got := extractBlockIDFromDetail(in); got != want {
@@ -171,6 +172,14 @@ func TestInferFieldPathFromKind(t *testing.T) {
 	}
 	if got := inferFieldPathFromKind(types.ViolFacetUncovered, `required facet "X"`); !strings.Contains(got, "facet_ids") {
 		t.Errorf("FacetUncovered field path = %q, want contains facet_ids", got)
+	}
+	if got := inferFieldPathFromKind(types.ViolCurrentStatusVerdictMissing,
+		`principal block id="decision_current" kind=decision has invalid verdict`); got != `blocks[id="decision_current"].text` {
+		t.Errorf("CurrentStatusVerdictMissing field path = %q", got)
+	}
+	if got := inferFieldPathFromKind(types.ViolLaneBlockKindMismatch,
+		`principal block "observed_steps" has kind="ordered_list"`); got != `blocks[id="observed_steps"].kind` {
+		t.Errorf("LaneBlockKindMismatch field path = %q", got)
 	}
 	if got := inferFieldPathFromKind(types.ViolRichnessRegression, "anything"); got != "" {
 		t.Errorf("RichnessRegression must yield empty field path; got %q", got)

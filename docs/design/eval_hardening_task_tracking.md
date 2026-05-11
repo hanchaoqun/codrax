@@ -44,9 +44,9 @@ hardening work started from the 2026-05-11 full eval sweep.
 ## Batch 4: Repair Layering And Deterministic Small Fixes
 
 - [x] Partition finalizer retry repairs into shape, grounding/consistency, topic/coverage, and enrichment groups.
-- [ ] Apply deterministic small fixes for safe structural cases.
+- [x] Apply deterministic small fixes for safe structural cases.
 - [x] Prevent wrong-topic repairs from bundling underfilled/enrichment requests in the same required-change list.
-- [ ] Add retry-loop guard for repeated identical patch failures.
+- [x] Add retry-loop guard coverage for repeated identical patch failures.
 
 ## Batch 5: Explorer Answer-Ready Early Stop
 

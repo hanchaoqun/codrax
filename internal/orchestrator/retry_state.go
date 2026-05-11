@@ -223,20 +223,22 @@ func legacyInferViolationLayer(kind types.ViolationKind) string {
 
 // extractBlockIDFromDetail tries to pull a block id out of the
 // violation Detail string when present. Conservative — only
-// matches the canonical pattern `block id="<X>"` that the V2
-// oracles use; returns "" on no match.
+// matches the canonical block-id detail patterns that the validators
+// emit; returns "" on no match.
 func extractBlockIDFromDetail(detail string) string {
-	const marker = `block id="`
-	idx := strings.Index(detail, marker)
-	if idx < 0 {
-		return ""
+	for _, marker := range []string{`block id="`, `principal block "`} {
+		idx := strings.Index(detail, marker)
+		if idx < 0 {
+			continue
+		}
+		rest := detail[idx+len(marker):]
+		end := strings.Index(rest, `"`)
+		if end < 0 {
+			continue
+		}
+		return rest[:end]
 	}
-	rest := detail[idx+len(marker):]
-	end := strings.Index(rest, `"`)
-	if end < 0 {
-		return ""
-	}
-	return rest[:end]
+	return ""
 }
 
 // inferFieldPathFromKind suggests the V2 field path the LLM should
@@ -275,6 +277,16 @@ func inferFieldPathFromKind(kind types.ViolationKind, detail string) string {
 		return "blocks[kind=diagram].diagram"
 	case types.ViolUncertaintyBlockMissing:
 		return "blocks (add new block kind=caveat)"
+	case types.ViolCurrentStatusVerdictMissing:
+		if blockID != "" {
+			return fmt.Sprintf("blocks[id=%q].text", blockID)
+		}
+		return "blocks[kind=decision].text"
+	case types.ViolLaneBlockKindMismatch:
+		if blockID != "" {
+			return fmt.Sprintf("blocks[id=%q].kind", blockID)
+		}
+		return "blocks[*].kind"
 	case types.ViolClaimFormUnsupported:
 		if blockID != "" {
 			return fmt.Sprintf("blocks[id=%q].claim_use.claim_form", blockID)
