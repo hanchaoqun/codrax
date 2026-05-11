@@ -428,7 +428,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_TypedMustIncludeTerms(t
 	}
 }
 
-func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStepBackboneForStepList(t *testing.T) {
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupportLanesFromStepBackbone(t *testing.T) {
 	mut := types.NewMutableState("")
 	syms := []types.AnswerSymbol{
 		{Name: "RequestModel", File: "internal/agent/analyzer.go", Line: 616, Rationale: "在 buildAnalysisIR 内部获取 LLM 输出的 RequestModel，是后续步骤的输入基础"},
@@ -446,19 +446,25 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStepBackboneForS
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
-		"## Resolved Step Sequence",
-		"ordered lower-bound sequence",
-		"`RequestModel` (internal/agent/analyzer.go:616)",
-		"`gate.Run` (internal/agent/analyzer.go:1062)",
-		"Do not merge one anchor's citation with semantics that only appear in another file / definition",
+		"## Typed Answer Support Lanes",
+		"### Current grounded call chain",
+		"Allowed block kinds: summary, ordered_list, diagram",
+		"`RequestModel`",
+		"internal/agent/analyzer.go:616",
+		"`gate.Run`",
+		"internal/agent/analyzer.go:1062",
+		"runtime frames as additional principal hops",
 	} {
 		if !strings.Contains(prompt, want) {
-			t.Fatalf("step backbone prompt missing %q:\n%s", want, prompt)
+			t.Fatalf("call-chain support prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "## Resolved Step Sequence") {
+		t.Fatalf("call-chain support lanes should replace legacy step sequence prompt:\n%s", prompt)
 	}
 }
 
-func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersFallbackStepBackboneFromEvidence(t *testing.T) {
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupportLanesFromEvidence(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel:   types.RequestModel{Intent: types.IntentTrace},
@@ -497,13 +503,122 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersFallbackStepBack
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
-		"## Resolved Step Sequence",
-		"`checkCoverage` (internal/analysis/gate/gate.go:127)",
-		"`checkDAGClosure` (internal/analysis/gate/gate.go:128)",
-		"`checkBudgetSanity` (internal/analysis/gate/gate.go:129)",
+		"## Typed Answer Support Lanes",
+		"### Current grounded call chain",
+		"`checkCoverage`",
+		"internal/analysis/gate/gate.go:127",
+		"`checkDAGClosure`",
+		"internal/analysis/gate/gate.go:128",
+		"`checkBudgetSanity`",
+		"internal/analysis/gate/gate.go:129",
 	} {
 		if !strings.Contains(prompt, want) {
-			t.Fatalf("fallback step backbone prompt missing %q:\n%s", want, prompt)
+			t.Fatalf("fallback call-chain support prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "## Resolved Step Sequence") {
+		t.Fatalf("call-chain support lanes should replace legacy fallback step sequence prompt:\n%s", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalBoundaryForPriorContext(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentReturnValue,
+				AnswerSubject: types.AnswerSubject{
+					Kind:       types.SubjectConfigKey,
+					Confidence: 0.9,
+				},
+				ConversationReferenceProfile: &types.ConversationReferenceProfile{
+					RequiresPriorContext:  true,
+					NeedsRepoVerification: true,
+					Ambiguity:             types.ConversationReferenceAmbiguityNone,
+					ResolvedSubjects: []types.ResolvedConversationSubject{{
+						Surface:          "explore_mid_loop_hint_budget",
+						Kind:             types.SubjectConfigKey,
+						Source:           types.ConversationReferenceSourcePriorContext,
+						Role:             "asked_default_value",
+						UseAsExactTarget: true,
+					}},
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Principal Answer Boundary",
+		"Resolved prior-context focus:",
+		"not an authorization to add neighboring subjects as answer members",
+		"surface `explore_mid_loop_hint_budget`",
+		"kind `config_key`",
+		"eligible exact target",
+		"For role lookups, answer with the single role-bearing literal",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("principal boundary prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalBoundaryBindsDiagramsToUserIntent(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentTrace},
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					Minimum:        1,
+					PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+				},
+			},
+		},
+		Mutable: types.NewMutableState(""),
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRelationship,
+				Source:          "entry/src/main/ets/pages/Index.ets",
+				LineStart:       42,
+				AnchorKind:      types.AnchorCall,
+				Subject:         "Index.ets.render",
+				Object:          "NativeBridge.invokeOhSum",
+				AnchorSymbol:    "NativeBridge.invokeOhSum",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceRelationship,
+				Source:          "src/native/sum.cpp",
+				LineStart:       18,
+				AnchorKind:      types.AnchorCall,
+				Subject:         "NativeBridge.invokeOhSum",
+				Object:          "demo.bridge.ohSum",
+				AnchorSymbol:    "demo.bridge.ohSum",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceRelationship,
+				Source:          "src/bridge/Bridge.cj",
+				LineStart:       27,
+				AnchorKind:      types.AnchorCall,
+				Subject:         "demo.bridge.ohSum",
+				Object:          "Bridge.sum",
+				AnchorSymbol:    "Bridge.sum",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Principal Answer Boundary",
+		"Any diagram must obey the same principal boundary as the prose blocks",
+		"For call-chain answers, the principal ordered list and any sequence diagram contain only the requested chain hops",
+		"### Current grounded call chain",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("diagram boundary prompt missing %q:\n%s", want, prompt)
 		}
 	}
 }

@@ -254,6 +254,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 			b.WriteString(observations)
 		}
 	}
+	if boundary := renderAnswerDocPrincipalAnswerBoundary(ctx, view, renderedTypedSupport); boundary != "" {
+		b.WriteString(boundary)
+	}
 	if checklist := renderAnswerDocSubmissionChecklist(ctx, view, e.diagramRequired); checklist != "" {
 		b.WriteString(checklist)
 	}
@@ -567,7 +570,9 @@ func answerDocAllowSubTopicStructure(ctx *types.AgentContext, view *types.Answer
 	if ctx == nil || ctx.AnalysisIR == nil || len(ctx.AnalysisIR.RequestModel.SubTopics) <= 1 {
 		return false
 	}
-	if view != nil && view.Family == types.QFRootCauseTrace && answerSupportPlan(ctx) != nil {
+	if view != nil &&
+		(view.Family == types.QFRootCauseTrace || view.Family == types.QFCallChain) &&
+		answerSupportPlan(ctx) != nil {
 		return false
 	}
 	return true
@@ -769,7 +774,7 @@ func renderAnswerDocStepBackbone(ctx *types.AgentContext, view *types.AnswerSema
 	// reintroduces summary/rationale prose from answer symbols and can
 	// overpower the stricter support lanes with a more speculative
 	// sequence. Suppress the legacy scaffold in that mode.
-	if view.Family == types.QFRootCauseTrace && answerSupportPlan(ctx) != nil {
+	if (view.Family == types.QFRootCauseTrace || view.Family == types.QFCallChain) && answerSupportPlan(ctx) != nil {
 		return ""
 	}
 	plan := answerSurfacePlan(ctx)
@@ -2800,13 +2805,23 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	} else {
 		b.WriteString("- Build the principal `summary` block and principal `ordered_list` items only from the lanes below.\n")
 	}
-	b.WriteString("- Keep observed runtime facts, current code path facts, nearest grounded mechanism facts, and uncertainty disclosures in their own lanes.\n")
-	b.WriteString("- Do not promote an observation lane into caller-side provenance, old-build internals, or exact mechanism unless a current cited line explicitly proves that stronger claim.\n\n")
 	b.WriteString("- Treat each lane's `Allowed block kinds` as a hard surface boundary. If a lane does not list `ordered_list`, do not turn its entries into principal hop items. If a lane does not list `diagram`, do not turn its entries into diagram edges or nodes.\n\n")
-	b.WriteString("- Items rendered under the **Observed artifact facts** lane are runtime trace observations (the system tags them by typed source: panic / exception / traceback / perf bundle, regardless of language). They prove that the runtime hit the cited frame, but do NOT, by themselves, prove which source parameter was nil, which caller originated the value, or which exact downstream branch executed. Promotion to caller-side provenance / source-parameter mapping / exact mechanism requires a separately-cited current-code line.\n\n")
-	b.WriteString("- If a function, file, or hop appears elsewhere in the prompt but does NOT appear in the current code path / nearest mechanism / boundary lanes below, treat it as background only: do not turn it into a principal ordered-list hop, summary claim, or diagram node.\n\n")
-	b.WriteString("- In drift-bounded root-cause answers, a current guard plus a later dereference proves the current code contains both sites; it does NOT by itself prove the runtime artifact actually passed the guard and reached the dereference path.\n\n")
-	b.WriteString("- If the lanes below do NOT recover a grounded inner trigger statement, do NOT fill the gap with generic language-runtime guesses such as nil-map write, nil-slice index, field dereference, or similar builtin panic classes. State only that the exact internal trigger remains unrecovered in the current checkout.\n\n")
+	switch plan.Family {
+	case types.QFRootCauseTrace:
+		b.WriteString("- Keep observed runtime facts, current code path facts, nearest grounded mechanism facts, and uncertainty disclosures in their own lanes.\n")
+		b.WriteString("- Do not promote an observation lane into caller-side provenance, old-build internals, or exact mechanism unless a current cited line explicitly proves that stronger claim.\n\n")
+		b.WriteString("- Items rendered under the **Observed artifact facts** lane are runtime trace observations (the system tags them by typed source: panic / exception / traceback / perf bundle, regardless of language). They prove that the runtime hit the cited frame, but do NOT, by themselves, prove which source parameter was nil, which caller originated the value, or which exact downstream branch executed. Promotion to caller-side provenance / source-parameter mapping / exact mechanism requires a separately-cited current-code line.\n\n")
+		b.WriteString("- If a function, file, or hop appears elsewhere in the prompt but does NOT appear in the current code path / nearest mechanism / boundary lanes below, treat it as background only: do not turn it into a principal ordered-list hop, summary claim, or diagram node.\n\n")
+		b.WriteString("- In drift-bounded root-cause answers, a current guard plus a later dereference proves the current code contains both sites; it does NOT by itself prove the runtime artifact actually passed the guard and reached the dereference path.\n\n")
+		b.WriteString("- If the lanes below do NOT recover a grounded inner trigger statement, do NOT fill the gap with generic language-runtime guesses such as nil-map write, nil-slice index, field dereference, or similar builtin panic classes. State only that the exact internal trigger remains unrecovered in the current checkout.\n\n")
+	case types.QFCallChain:
+		b.WriteString("- Keep observed runtime facts, current grounded chain hops, and boundary disclosures in their own lanes.\n")
+		b.WriteString("- The current grounded call-chain lane is the principal source for ordered-list items and sequence-diagram edges. Observation entries can explain where the trace came from, but they do not add caller/callee hops unless the current grounded chain lane also contains that hop.\n")
+		b.WriteString("- If a function, file, span, or prior-turn subject appears elsewhere in the prompt but not in the current grounded call-chain lane, treat it as background only for the principal path.\n\n")
+	default:
+		b.WriteString("- Keep observed facts, current-code facts, and boundary disclosures in their own lanes.\n")
+		b.WriteString("- If a function, file, symbol, trace span, or prior-turn subject appears elsewhere in the prompt but not in a lane that allows the block kind you are writing, treat it as background only.\n\n")
+	}
 	hasMechanismLane := false
 	for _, lane := range plan.Lanes {
 		if lane.Kind == types.SupportLaneNearestMechanism && len(lane.Entries) > 0 {
@@ -2814,7 +2829,7 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 			break
 		}
 	}
-	if !hasMechanismLane {
+	if plan.Family == types.QFRootCauseTrace && !hasMechanismLane {
 		b.WriteString("- If the **Nearest grounded mechanism** lane is absent, do NOT invent a likely internal cause, specific nil-bearing variable, receiver field, or caller-side provenance from the current code path or boundary lanes alone. Keep the answer at the level of the observed frame, the grounded current path, and the explicit uncertainty boundary.\n\n")
 	}
 	for _, lane := range plan.Lanes {
@@ -2858,6 +2873,132 @@ func supportPlanAllowsBlockKind(plan *types.AnswerSupportPlan, kind string) bool
 		}
 	}
 	return false
+}
+
+func renderAnswerDocPrincipalAnswerBoundary(ctx *types.AgentContext, view *types.AnswerSemanticView, supportRendered bool) string {
+	if ctx == nil || ctx.AnalysisIR == nil || view == nil {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	plan := answerSurfacePlan(ctx)
+	hasRuntimeObservations := plan != nil && len(plan.ExternalObservationSeeds) > 0
+	hasPriorContext := rm.ConversationReferenceProfile != nil && rm.ConversationReferenceProfile.RequiresPriorContext
+	hasArtifactProfile := rm.ArtifactObservationProfile != nil
+	hasExact := view.ExactResolution != nil
+	hasDiagram := (view.DiagramPlan != nil && view.DiagramPlan.Kind != "") ||
+		(plan != nil && plan.Diagram != nil && (plan.Diagram.Required || len(plan.Diagram.PreferredKinds) > 0))
+	if !supportRendered && !hasRuntimeObservations && !hasPriorContext && !hasArtifactProfile && !hasExact && !hasDiagram {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Principal Answer Boundary\n\n")
+	b.WriteString("- Principal blocks answer the current request's target and answer shape only. Search hints, related context, prior-turn resolutions, nearby anchors, and runtime observations are guidance unless a block requirement, exact target, support lane, prior slate, or cited line makes them principal.\n")
+	b.WriteString("- Do not let a grounded neighbor replace the user's requested subject. A helper, caller, config peer, trace span, or previous-turn subject may support context, but it becomes a main answer member only when it directly satisfies the requested role / hop / bucket / scalar / verdict.\n")
+	if hasRuntimeObservations || hasArtifactProfile {
+		b.WriteString("- Runtime log / trace observations can state what was observed. They do not prove the current checkout's call path, source parameter, branch, or mechanism without a separately cited current-code line.\n")
+	}
+	if supportRendered {
+		b.WriteString("- When support lanes are present, they are the authoritative source boundary for principal blocks. Keep each lane in the block kinds it allows.\n")
+	}
+	if hasDiagram {
+		b.WriteString("- Any diagram must obey the same principal boundary as the prose blocks. Do not add diagram nodes or edges solely because they appeared in search guidance, nearby context, prior conversation, or an attached artifact.\n")
+	}
+	if familyLine := principalBoundaryFamilyLine(view.Family); familyLine != "" {
+		fmt.Fprintf(&b, "- %s\n", familyLine)
+	}
+	if prior := renderPrincipalBoundaryPriorContext(rm.ConversationReferenceProfile); prior != "" {
+		b.WriteString("\n")
+		b.WriteString(prior)
+	}
+	if subjects := renderPrincipalBoundaryArtifactSubjects(rm.ArtifactObservationProfile); subjects != "" {
+		b.WriteString("\n")
+		b.WriteString(subjects)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func principalBoundaryFamilyLine(family types.QuestionFamily) string {
+	switch family {
+	case types.QFCallChain:
+		return "For call-chain answers, the principal ordered list and any sequence diagram contain only the requested chain hops, in verified order; observed frames and adjacent helpers stay contextual unless promoted by the current grounded chain lane."
+	case types.QFRootCauseTrace:
+		return "For root-cause answers, separate observed symptoms, current code path, nearest grounded mechanism, and uncertainty; do not turn one lane into another."
+	case types.QFEnumeration:
+		return "For enumeration answers, list only members of the requested set; related attributes belong inside each row's text or table cells, not as extra principal members."
+	case types.QFComparison:
+		return "For comparison answers, preserve the user-named buckets exactly; search results or prior context cannot create extra buckets."
+	case types.QFArchitecture:
+		return "For architecture answers, sections are requested layers or component groups; helper files and call sites can support a section but are not standalone layers by default."
+	case types.QFConfigPrecedence:
+		return "For config-precedence answers, keep precedence layers tied to validated roles and file:line anchors; related same-family keys are background unless the exact-resolution contract admits them."
+	case types.QFRoleLookup:
+		return "For role lookups, answer with the single role-bearing literal; surrounding pipeline details stay supporting context."
+	case types.QFGeneric:
+		return "For general explanations, optional sections, lists, and diagrams must refine the user's requested topic rather than introduce a new answer axis from background context."
+	default:
+		return ""
+	}
+}
+
+func renderPrincipalBoundaryPriorContext(profile *types.ConversationReferenceProfile) string {
+	if profile == nil || !profile.RequiresPriorContext {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Resolved prior-context focus:\n")
+	b.WriteString("- Use these resolved subjects to choose the current focus and repository verification path. They are not an authorization to add neighboring subjects as answer members.\n")
+	if profile.Ambiguity != "" && profile.Ambiguity != types.ConversationReferenceAmbiguityNone {
+		fmt.Fprintf(&b, "- Ambiguity: `%s`; disclose the ambiguity instead of guessing a principal target.\n", profile.Ambiguity)
+	}
+	limit := len(profile.ResolvedSubjects)
+	if limit > 6 {
+		limit = 6
+	}
+	for i := 0; i < limit; i++ {
+		subj := profile.ResolvedSubjects[i]
+		surface := strings.TrimSpace(subj.Surface)
+		if surface == "" {
+			continue
+		}
+		parts := []string{fmt.Sprintf("surface `%s`", surface)}
+		if subj.Kind != "" {
+			parts = append(parts, fmt.Sprintf("kind `%s`", subj.Kind))
+		}
+		if subj.Role != "" {
+			parts = append(parts, fmt.Sprintf("role `%s`", strings.TrimSpace(subj.Role)))
+		}
+		if subj.Source != "" {
+			parts = append(parts, fmt.Sprintf("source `%s`", subj.Source))
+		}
+		if subj.UseAsExactTarget {
+			parts = append(parts, "eligible exact target")
+		}
+		fmt.Fprintf(&b, "- %s\n", strings.Join(parts, ", "))
+	}
+	return b.String()
+}
+
+func renderPrincipalBoundaryArtifactSubjects(profile *types.ArtifactObservationProfile) string {
+	if profile == nil || len(profile.SubjectCandidates) == 0 {
+		return ""
+	}
+	limit := len(profile.SubjectCandidates)
+	if limit > 6 {
+		limit = 6
+	}
+	var b strings.Builder
+	b.WriteString("Observation-derived subject focus:\n")
+	b.WriteString("- These subjects came from a structured artifact or user-observation profile. Use them as focus hints; do not treat the full candidate list as the principal answer set.\n")
+	for i := 0; i < limit; i++ {
+		subject := strings.TrimSpace(profile.SubjectCandidates[i])
+		if subject == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "- `%s`\n", subject)
+	}
+	return b.String()
 }
 
 type exactResolutionSeed struct {

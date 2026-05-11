@@ -51,6 +51,9 @@ func BuildAnswerSupportPlanForAgentContext(ctx *AgentContext) *AnswerSupportPlan
 	if plan == nil {
 		return nil
 	}
+	if len(ctx.AnswerSymbols) > 0 {
+		ApplyAnswerSymbolStepBackbone(plan, ctx.AnalysisIR, ctx.AnswerSymbols, ctx.AnswerSymbolCompleteness)
+	}
 	view := BuildAnswerSemanticViewForAgentContext(ctx)
 	if view != nil {
 		if out := buildAnswerSupportPlanForFamily(view.Family, ctx.AnalysisIR.RequestModel, plan); out != nil {
@@ -129,6 +132,8 @@ func buildAnswerSupportPlanForFamily(family QuestionFamily, rm RequestModel, pla
 	switch family {
 	case QFRootCauseTrace:
 		return compileRootCauseSupportPlan(rm, plan)
+	case QFCallChain:
+		return compileCallChainSupportPlan(rm, plan)
 	default:
 		return nil
 	}
@@ -157,6 +162,190 @@ func compileRootCauseSupportPlan(rm RequestModel, plan *AnswerSurfacePlan) *Answ
 		return nil
 	}
 	return out
+}
+
+func compileCallChainSupportPlan(rm RequestModel, plan *AnswerSurfacePlan) *AnswerSupportPlan {
+	if plan == nil {
+		return nil
+	}
+	out := &AnswerSupportPlan{Family: QFCallChain}
+	if lane := compileObservedArtifactSupportLane(rm, plan); len(lane.Entries) > 0 {
+		out.Lanes = append(out.Lanes, lane)
+	}
+	if lane := compileCallChainCurrentPathSupportLane(plan); len(lane.Entries) > 0 {
+		out.Lanes = append(out.Lanes, lane)
+	}
+	if lane := compileCallChainUncertaintySupportLane(plan); len(lane.Entries) > 0 {
+		out.Lanes = append(out.Lanes, lane)
+	}
+	if len(out.Lanes) == 0 {
+		return nil
+	}
+	return out
+}
+
+func compileCallChainCurrentPathSupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {
+	lane := AnswerSupportLane{
+		Kind:          SupportLaneCurrentCodePath,
+		Title:         "Current grounded call chain",
+		AllowedBlocks: []string{"summary", "ordered_list", "diagram"},
+		Guidance: "Use this lane for the principal ordered path and any sequence diagram. " +
+			"Preserve the hop order already established by these entries. Do not add nearby helpers, " +
+			"search-hint subjects, prior-turn subjects, or runtime frames as additional principal hops " +
+			"unless they also appear in this lane or are separately cited as part of the same requested chain.",
+	}
+	if plan == nil {
+		return lane
+	}
+	seen := make(map[string]bool)
+	add := func(text, location string) {
+		text = strings.TrimSpace(text)
+		location = strings.TrimSpace(strings.ReplaceAll(location, `\`, `/`))
+		if text == "" || len(lane.Entries) >= 8 {
+			return
+		}
+		key := strings.ToLower(text) + "\x00" + strings.ToLower(location)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		lane.Entries = append(lane.Entries, AnswerSupportEntry{
+			Text:     text,
+			Location: location,
+		})
+	}
+	for _, anchor := range plan.StepBackbone {
+		text := callChainStepSupportText(anchor)
+		add(text, stepSurfaceAnchorLocation(anchor))
+	}
+	if len(lane.Entries) > 0 {
+		return lane
+	}
+	for _, item := range callChainSupportEvidenceItems(plan) {
+		if !callChainPathItemEligible(item) {
+			continue
+		}
+		text := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
+		if text == "" {
+			continue
+		}
+		add(text, supportEntryLocation(item))
+	}
+	return lane
+}
+
+func callChainStepSupportText(anchor StepSurfaceAnchor) string {
+	name := strings.TrimSpace(anchor.Name)
+	text := strings.TrimSpace(anchor.SurfaceText)
+	if text == "" {
+		text = strings.TrimSpace(anchor.Rationale)
+	}
+	switch {
+	case name == "" && text == "":
+		return ""
+	case name == "":
+		return text
+	case text == "":
+		return fmt.Sprintf("`%s` is one grounded hop in the resolved sequence.", name)
+	default:
+		return fmt.Sprintf("`%s` — %s", name, text)
+	}
+}
+
+func callChainSupportEvidenceItems(plan *AnswerSurfacePlan) []EvidenceItem {
+	if plan == nil {
+		return nil
+	}
+	if len(plan.DriftBoundedSurfaceItems) > 0 {
+		return DriftBoundedRenderableSurfaceItems(plan.DriftBoundedSurfaceItems)
+	}
+	if len(plan.SurfaceEvidence) == 0 {
+		return nil
+	}
+	candidateIDs := callChainPrincipalCandidateIDs(plan.FacetCoverage)
+	out := make([]EvidenceItem, 0, len(plan.SurfaceEvidence))
+	for _, item := range plan.SurfaceEvidence {
+		if len(candidateIDs) > 0 {
+			id := strings.TrimSpace(item.ID)
+			if id == "" || !candidateIDs[id] {
+				continue
+			}
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func callChainPrincipalCandidateIDs(facets *FacetCoverageContract) map[string]bool {
+	if facets == nil {
+		return nil
+	}
+	out := make(map[string]bool)
+	collect := func(req FacetRequirement) {
+		switch req.Kind {
+		case FacetPrincipalPathEdge, FacetCurrentCodePath:
+		default:
+			return
+		}
+		for _, id := range req.SourceCandidate {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				out[id] = true
+			}
+		}
+	}
+	for _, req := range facets.Required {
+		collect(req)
+	}
+	for _, req := range facets.Optional {
+		collect(req)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func compileCallChainUncertaintySupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {
+	lane := AnswerSupportLane{
+		Kind:          SupportLaneUncertaintyBound,
+		Title:         "Call-chain boundary disclosures",
+		AllowedBlocks: []string{"summary", "caveat"},
+		Guidance: "Use this lane only to disclose runtime/current-code drift, incomplete chain proof, " +
+			"or scope limits. Do not turn these entries into ordered-list hops or diagram edges.",
+	}
+	if plan == nil {
+		return lane
+	}
+	for _, anchor := range plan.LogSourceDriftAnchors {
+		file := strings.TrimSpace(anchor.File)
+		if file == "" || anchor.ObservedLine <= 0 || anchor.AnchoredLine <= 0 {
+			continue
+		}
+		funcLabel := strings.TrimSpace(firstNonEmptySurfaceString(anchor.Func, anchor.OriginalFunc))
+		text := fmt.Sprintf("observed chain frame %s:%d", file, anchor.ObservedLine)
+		if funcLabel != "" {
+			text += fmt.Sprintf(" in %s", funcLabel)
+		}
+		text += fmt.Sprintf(" maps to current grounded anchor %s:%d", file, anchor.AnchoredLine)
+		lane.Entries = append(lane.Entries, AnswerSupportEntry{
+			Text:     text,
+			Location: fmt.Sprintf("%s:%d", file, anchor.AnchoredLine),
+		})
+		if len(lane.Entries) >= 3 {
+			break
+		}
+	}
+	return lane
+}
+
+func callChainPathItemEligible(item EvidenceItem) bool {
+	switch item.AnchorKind {
+	case AnchorCall, AnchorDefinition, AnchorCondition, AnchorAssignment, AnchorReturn:
+		return item.GroundingStatus != GroundingUngrounded
+	default:
+		return false
+	}
 }
 
 func augmentCurrentStatusVerdictLane(
@@ -826,4 +1015,15 @@ func supportEntryLocation(item EvidenceItem) string {
 		return fmt.Sprintf("%s:%d", src, item.LineStart)
 	}
 	return src
+}
+
+func stepSurfaceAnchorLocation(anchor StepSurfaceAnchor) string {
+	file := strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`))
+	if file == "" {
+		return ""
+	}
+	if anchor.Line > 0 {
+		return fmt.Sprintf("%s:%d", file, anchor.Line)
+	}
+	return file
 }

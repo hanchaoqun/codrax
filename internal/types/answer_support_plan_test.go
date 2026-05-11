@@ -228,6 +228,91 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactFiltersPrincipalFram
 	}
 }
 
+func TestBuildAnswerSupportPlan_CallChainCompilesCurrentPathLaneFromStepBackbone(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StepBackbone: []StepSurfaceAnchor{
+			{Name: "Index.ets.render", File: "entry/src/main/ets/pages/Index.ets", Line: 42, SurfaceText: "Index.ets.render dispatches the UI action"},
+			{Name: "native_bridge_sum", File: "src/native/sum.cpp", Line: 18, SurfaceText: "native_bridge_sum calls into the native bridge"},
+			{Name: "demo.bridge.ohSum", File: "src/bridge/Bridge.cj", Line: 27, SurfaceText: "demo.bridge.ohSum returns the bridged result"},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentTrace}, plan)
+	if got == nil {
+		t.Fatal("expected call-chain support plan")
+	}
+	if got.Family != QFCallChain {
+		t.Fatalf("family = %q, want %q", got.Family, QFCallChain)
+	}
+	var path *AnswerSupportLane
+	for i := range got.Lanes {
+		if got.Lanes[i].Kind == SupportLaneCurrentCodePath {
+			path = &got.Lanes[i]
+			break
+		}
+	}
+	if path == nil {
+		t.Fatalf("missing current path lane: %+v", got.Lanes)
+	}
+	if got, want := strings.Join(path.AllowedBlocks, ","), "summary,ordered_list,diagram"; got != want {
+		t.Fatalf("call-chain path allowed blocks = %q, want %q", got, want)
+	}
+	joined := ""
+	for _, entry := range path.Entries {
+		joined += entry.Text + " @ " + entry.Location + "\n"
+	}
+	for _, want := range []string{
+		"Index.ets.render",
+		"entry/src/main/ets/pages/Index.ets:42",
+		"native_bridge_sum",
+		"src/native/sum.cpp:18",
+		"demo.bridge.ohSum",
+		"src/bridge/Bridge.cj:27",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("call-chain lane missing %q:\n%s", want, joined)
+		}
+	}
+	if !strings.Contains(path.Guidance, "search-hint subjects, prior-turn subjects, or runtime frames") {
+		t.Fatalf("call-chain guidance should bound non-principal context, got: %q", path.Guidance)
+	}
+}
+
+func TestBuildAnswerSupportPlan_CallChainKeepsObservationsOutOfPrincipalPath(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		ExternalObservationSeeds: []ExternalObservationSeed{
+			{Kind: "perf_frame", Raw: "trace span: RenderList"},
+		},
+		StepBackbone: []StepSurfaceAnchor{
+			{Name: "RenderList", File: "ui/list.ets", Line: 88, SurfaceText: "RenderList schedules cell rendering"},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentTrace}, plan)
+	if got == nil {
+		t.Fatal("expected call-chain support plan")
+	}
+	var observed *AnswerSupportLane
+	var path *AnswerSupportLane
+	for i := range got.Lanes {
+		switch got.Lanes[i].Kind {
+		case SupportLaneObservedArtifact:
+			observed = &got.Lanes[i]
+		case SupportLaneCurrentCodePath:
+			path = &got.Lanes[i]
+		}
+	}
+	if observed == nil || path == nil {
+		t.Fatalf("expected observed + path lanes, got: %+v", got.Lanes)
+	}
+	if strings.Contains(strings.Join(observed.AllowedBlocks, ","), "ordered_list") {
+		t.Fatalf("non-external-only observation lane must not allow principal hop items: %+v", observed.AllowedBlocks)
+	}
+	if !strings.Contains(path.Guidance, "runtime frames as additional principal hops") {
+		t.Fatalf("path lane must forbid observation-frame promotion, got: %q", path.Guidance)
+	}
+}
+
 func TestBuildAnswerSupportPlanForAgentContext_CurrentStatusAddsVerdictLane(t *testing.T) {
 	ctx := &AgentContext{
 		AnalysisIR: &AnalysisIR{
