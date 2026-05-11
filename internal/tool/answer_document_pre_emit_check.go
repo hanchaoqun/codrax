@@ -51,6 +51,8 @@ package tool
 import (
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -137,6 +139,14 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 		hints = append(hints, h...)
 	}
 
+	// 5b. Call-chain item role alignment. A hop item whose visible
+	// surface names a typed call edge must cite that call edge, not a
+	// nearby definition / guard / adjacent hop that happens to mention
+	// one endpoint.
+	if h := preCheckCallChainItemCitationRoleAlignment(doc, view, ctxOpt...); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+
 	// 6. Enumeration item label grounding (P1 2026-05-10).
 	// Catches the hallucinated identifier-shape labels that drove
 	// 70% of post-emit repair-loop violations in the 2026-05-10
@@ -208,6 +218,159 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 			strings.Join(parts, "; "),
 		Reason: "list item labels and citation_ref values must stay aligned; adjacent call-chain hops cannot borrow each other's citations.",
 	}}
+}
+
+func preCheckCallChainItemCitationRoleAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
+		return nil
+	}
+	ctx := ctxOpt[0]
+	allEvidence := preEmitAnswerEvidenceItems(ctx)
+	if len(allEvidence) == 0 {
+		return nil
+	}
+	type mismatch struct {
+		blockID string
+		itemID  string
+		edge    string
+		got     string
+		want    string
+	}
+	var mismatches []mismatch
+	for _, b := range doc.Blocks {
+		if !preEmitBlockRequiresCallEdgeCitationAlignment(b, view) {
+			continue
+		}
+		for _, item := range b.Items {
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			expected, ok := preEmitCallEdgeMentionedByItemSurface(item, allEvidence)
+			if !ok {
+				continue
+			}
+			cit := doc.Citations[item.CitationRef]
+			cited, found := preEmitCitedEvidenceItems(ctx, cit)
+			if found && preEmitEvidenceSetContainsCallEdge(cited, expected) {
+				continue
+			}
+			mismatches = append(mismatches, mismatch{
+				blockID: b.ID,
+				itemID:  item.ID,
+				edge:    preEmitCallEdgeName(expected),
+				got:     fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
+				want:    preEmitCallEdgeLocation(expected),
+			})
+		}
+	}
+	if len(mismatches) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(mismatches))
+	for _, m := range mismatches {
+		parts = append(parts, fmt.Sprintf("block=%q item=%q asserts %s but cites %s; cite %s", m.blockID, m.itemID, m.edge, m.got, m.want))
+	}
+	return []emitFixHint{{
+		Field: "blocks[].items[].citation_ref",
+		ExpectedShape: "each call-chain item whose visible label/text names a typed call edge must cite the evidence line for that same call edge: " +
+			strings.Join(parts, "; "),
+		Reason: "call-chain hop citations must support the role asserted by the item; definition lines or adjacent hops cannot stand in for a call edge named in the item surface.",
+	}}
+}
+
+func preEmitBlockRequiresCallEdgeCitationAlignment(b types.AnswerBlock, view *types.AnswerSemanticView) bool {
+	switch b.Kind {
+	case types.BlockOrderedList, types.BlockBulletList:
+	default:
+		return false
+	}
+	for _, cu := range b.ClaimUses {
+		if cu.ClaimForm == types.ClaimCallEdge {
+			return true
+		}
+	}
+	if containsBlockFacet(b, types.FacetPrincipalPathEdge) {
+		return true
+	}
+	return view != nil && (view.Family == types.QFCallChain || view.Family == types.QFRootCauseTrace) &&
+		containsBlockFacet(b, types.FacetCurrentCodePath)
+}
+
+func preEmitAnswerEvidenceItems(ctx *types.BusContext) []types.EvidenceItem {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	var out []types.EvidenceItem
+	if artifacts := ctx.Mutable.TurnAArtifacts(); artifacts != nil && len(artifacts.EvidenceItems) > 0 {
+		out = append(out, artifacts.EvidenceItems...)
+	}
+	if emitted := ctx.Mutable.EmittedEvidence(); len(emitted) > 0 {
+		out = append(out, emitted...)
+	}
+	return out
+}
+
+func preEmitCallEdgeMentionedByItemSurface(item types.AnswerBlockItem, evidence []types.EvidenceItem) (types.EvidenceItem, bool) {
+	surface := strings.TrimSpace(item.Label + "\n" + item.Text)
+	if surface == "" {
+		return types.EvidenceItem{}, false
+	}
+	for _, ev := range evidence {
+		if ev.GroundingStatus == types.GroundingUngrounded || types.ClaimFormOf(ev) != types.ClaimCallEdge {
+			continue
+		}
+		if preEmitCallEdgeEndpointsMentioned(surface, ev) {
+			return ev, true
+		}
+	}
+	return types.EvidenceItem{}, false
+}
+
+func preEmitCallEdgeEndpointsMentioned(surface string, ev types.EvidenceItem) bool {
+	subject := strings.TrimSpace(ev.Subject)
+	object := strings.TrimSpace(ev.Object)
+	if subject == "" || object == "" {
+		return false
+	}
+	return preEmitCodeSurfaceAppearsAsToken(subject, surface) &&
+		preEmitCodeSurfaceAppearsAsToken(object, surface)
+}
+
+func preEmitEvidenceSetContainsCallEdge(items []types.EvidenceItem, expected types.EvidenceItem) bool {
+	for _, ev := range items {
+		if types.ClaimFormOf(ev) != types.ClaimCallEdge {
+			continue
+		}
+		if preEmitSameCallEdge(ev, expected) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitSameCallEdge(a, b types.EvidenceItem) bool {
+	if strings.TrimSpace(a.ID) != "" && strings.TrimSpace(a.ID) == strings.TrimSpace(b.ID) {
+		return true
+	}
+	return preEmitCodeSurfaceMatches(a.Subject, b.Subject) &&
+		preEmitCodeSurfaceMatches(a.Object, b.Object)
+}
+
+func preEmitCallEdgeName(ev types.EvidenceItem) string {
+	subject := strings.TrimSpace(ev.Subject)
+	object := strings.TrimSpace(ev.Object)
+	if subject == "" || object == "" {
+		return "call_edge"
+	}
+	return fmt.Sprintf("%s -> %s", subject, object)
+}
+
+func preEmitCallEdgeLocation(ev types.EvidenceItem) string {
+	source := strings.TrimSpace(ev.Source)
+	if source == "" || ev.LineStart <= 0 {
+		return "the matching call-edge evidence"
+	}
+	return fmt.Sprintf("%s:%d", source, ev.LineStart)
 }
 
 func preEmitBlockUsesNonSymbolLabelSurface(b types.AnswerBlock, view *types.AnswerSemanticView) bool {
@@ -310,6 +473,37 @@ func preEmitCodeSurfaceAppearsVerbatim(label, text string) bool {
 		return false
 	}
 	return strings.Contains(text, label)
+}
+
+func preEmitCodeSurfaceAppearsAsToken(label, text string) bool {
+	label = strings.TrimSpace(label)
+	text = strings.TrimSpace(text)
+	if label == "" || text == "" || !types.IsCodeIdentitySurface(label) {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(text[start:], label)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		if preEmitCodeSurfaceBoundary(text, pos-1) && preEmitCodeSurfaceBoundary(text, pos+len(label)) {
+			return true
+		}
+		start = pos + len(label)
+		if start >= len(text) {
+			return false
+		}
+	}
+}
+
+func preEmitCodeSurfaceBoundary(s string, idx int) bool {
+	if idx < 0 || idx >= len(s) {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(s[idx:])
+	return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
 }
 
 func preEmitCodeSurfaceMatches(a, b string) bool {

@@ -1222,6 +1222,96 @@ func TestValidateClaimFormSupport_EmptyClaimFormSkipped(t *testing.T) {
 	}
 }
 
+func TestValidateCallChainItemCitationRoleAlignment_RejectsDefinitionForNamedCallEdge(t *testing.T) {
+	mut := types.NewMutableState("panic source")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "call-parse-build",
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1039,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "def-build",
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1289,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "buildAnalysisIR",
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 1289}},
+		Blocks: []types.AnswerBlock{{
+			ID:       "hops",
+			Kind:     types.BlockOrderedList,
+			FacetIDs: []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimCallEdge,
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "h1",
+				Label:       "buildAnalysisIR",
+				Text:        "`ParseOutput` -> `buildAnalysisIR`",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	vs := validateCallChainItemCitationRoleAlignment(doc, nil, mut)
+	if len(vs) != 1 {
+		t.Fatalf("expected one call-chain citation role violation, got %d: %+v", len(vs), vs)
+	}
+	if vs[0].Kind != types.ViolClaimFormUnsupported {
+		t.Fatalf("kind = %q, want %q", vs[0].Kind, types.ViolClaimFormUnsupported)
+	}
+	if !strings.Contains(vs[0].Detail, "ParseOutput -> buildAnalysisIR") ||
+		!strings.Contains(vs[0].Repair, "internal/agent/analyzer.go:1039") {
+		t.Fatalf("violation should name typed call edge and repair citation, got %+v", vs[0])
+	}
+}
+
+func TestValidateCallChainItemCitationRoleAlignment_AcceptsMatchingCallEdge(t *testing.T) {
+	mut := types.NewMutableState("panic source")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "call-parse-build",
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1039,
+		AnchorKind:      types.AnchorCall,
+		Subject:         "ParseOutput",
+		Object:          "buildAnalysisIR",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 1039}},
+		Blocks: []types.AnswerBlock{{
+			ID:       "hops",
+			Kind:     types.BlockOrderedList,
+			FacetIDs: []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimCallEdge,
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "h1",
+				Label:       "buildAnalysisIR",
+				Text:        "`ParseOutput` -> `buildAnalysisIR`",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if vs := validateCallChainItemCitationRoleAlignment(doc, nil, mut); len(vs) != 0 {
+		t.Fatalf("matching call-edge citation should pass, got %+v", vs)
+	}
+}
+
 // ── R2.3 V2 重接 AbsenceScopeBound tests ─────────────────────────
 
 // TestValidateAbsenceScopeBound_BoundedPasses confirms an absent

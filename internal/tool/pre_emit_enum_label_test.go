@@ -341,6 +341,95 @@ func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testi
 	}
 }
 
+func TestPreCheckCallChainItemCitationRoleAlignment_RejectsDefinitionForNamedCallEdge(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:       "hops",
+			Kind:     types.BlockOrderedList,
+			FacetIDs: []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimCallEdge,
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "h1",
+				Label:       "buildAnalysisIR",
+				Text:        "`ParseOutput` -> `buildAnalysisIR`",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 1289}},
+	}
+	mut := types.NewMutableState("panic source")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "call-parse-build",
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1039,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "ParseOutput",
+			Object:          "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "def-build",
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1289,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "buildAnalysisIR",
+			AnchorSymbol:    "buildAnalysisIR",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+
+	hints := preCheckCallChainItemCitationRoleAlignment(doc, nil, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("expected role-alignment hint, got %d: %+v", len(hints), hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "ParseOutput -> buildAnalysisIR") ||
+		!strings.Contains(hints[0].ExpectedShape, "internal/agent/analyzer.go:1039") {
+		t.Fatalf("hint should name the typed call edge and its citation line, got %+v", hints[0])
+	}
+}
+
+func TestPreCheckCallChainItemCitationRoleAlignment_AcceptsMatchingCallEdge(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:       "hops",
+			Kind:     types.BlockOrderedList,
+			FacetIDs: []string{string(types.FacetPrincipalPathEdge)},
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimCallEdge,
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "h1",
+				Label:       "buildAnalysisIR",
+				Text:        "`ParseOutput` -> `buildAnalysisIR`",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 1039}},
+	}
+	mut := types.NewMutableState("panic source")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "call-parse-build",
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1039,
+		AnchorKind:      types.AnchorCall,
+		Subject:         "ParseOutput",
+		Object:          "buildAnalysisIR",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if hints := preCheckCallChainItemCitationRoleAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("matching call-edge citation should pass, got %+v", hints)
+	}
+}
+
 func TestPreCheckEnumLabel_AllHallucinated_OneFixHintPerBlock(t *testing.T) {
 	oracle := &stubOracle{known: map[string]int{}}
 	doc := &types.AnswerDocumentV2{

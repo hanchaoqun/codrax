@@ -1558,6 +1558,184 @@ func validateClaimFormSupport(doc *types.AnswerDocumentV2, mut *types.MutableSta
 	return out
 }
 
+func validateCallChainItemCitationRoleAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState) []types.Violation {
+	if doc == nil || mut == nil {
+		return nil
+	}
+	allEvidence := answerItemLabelSupportEvidenceItems(mut)
+	if len(allEvidence) == 0 {
+		return nil
+	}
+	var out []types.Violation
+	for _, b := range doc.Blocks {
+		if !answerBlockRequiresCallEdgeCitationAlignment(b, view) {
+			continue
+		}
+		for _, item := range b.Items {
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			expected, ok := answerCallEdgeMentionedByItemSurface(item, allEvidence)
+			if !ok {
+				continue
+			}
+			cit := doc.Citations[item.CitationRef]
+			cited := answerCitedEvidenceItems(mut, cit)
+			if answerEvidenceSetContainsCallEdge(cited, expected) {
+				continue
+			}
+			out = append(out, types.Violation{
+				Kind: types.ViolClaimFormUnsupported,
+				Detail: fmt.Sprintf(
+					"call-chain item block=%q item=%q visibly names call edge %s but citation_ref points at %s, whose evidence does not project to that call_edge",
+					b.ID, item.ID, answerCallEdgeName(expected), answerCitationLocation(cit)),
+				Repair: fmt.Sprintf(
+					"change item citation_ref to the citation for the matching call-edge evidence at %s, or rewrite the item so it no longer asserts that call edge.",
+					answerCallEdgeLocation(expected)),
+				ClusterKey: blockClusterKey(b.ID, "answer_call_chain_citation_role"),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "answer_call_chain_citation_role",
+					Reason:     "call-chain item citation supports a different semantic role than the visible hop surface",
+					Confidence: 0.86,
+				},
+				Stage: string(types.StageFinalize),
+			})
+		}
+	}
+	return out
+}
+
+func answerBlockRequiresCallEdgeCitationAlignment(b types.AnswerBlock, view *types.AnswerSemanticView) bool {
+	switch b.Kind {
+	case types.BlockOrderedList, types.BlockBulletList:
+	default:
+		return false
+	}
+	for _, cu := range b.ClaimUses {
+		if cu.ClaimForm == types.ClaimCallEdge {
+			return true
+		}
+	}
+	if answerBlockHasFacet(b, types.FacetPrincipalPathEdge) {
+		return true
+	}
+	return view != nil && (view.Family == types.QFCallChain || view.Family == types.QFRootCauseTrace) &&
+		answerBlockHasFacet(b, types.FacetCurrentCodePath)
+}
+
+func answerBlockHasFacet(b types.AnswerBlock, facet types.AnswerFacetKind) bool {
+	want := string(facet)
+	for _, id := range b.FacetIDs {
+		if strings.TrimSpace(id) == want {
+			return true
+		}
+	}
+	for _, cu := range b.ClaimUses {
+		if strings.TrimSpace(cu.FacetID) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func answerCallEdgeMentionedByItemSurface(item types.AnswerBlockItem, evidence []types.EvidenceItem) (types.EvidenceItem, bool) {
+	surface := strings.TrimSpace(item.Label + "\n" + item.Text)
+	if surface == "" {
+		return types.EvidenceItem{}, false
+	}
+	for _, ev := range evidence {
+		if ev.GroundingStatus == types.GroundingUngrounded || types.ClaimFormOf(ev) != types.ClaimCallEdge {
+			continue
+		}
+		if answerCallEdgeEndpointsMentioned(surface, ev) {
+			return ev, true
+		}
+	}
+	return types.EvidenceItem{}, false
+}
+
+func answerCallEdgeEndpointsMentioned(surface string, ev types.EvidenceItem) bool {
+	subject := strings.TrimSpace(ev.Subject)
+	object := strings.TrimSpace(ev.Object)
+	if subject == "" || object == "" {
+		return false
+	}
+	return answerCodeSurfaceAppearsAsToken(subject, surface) &&
+		answerCodeSurfaceAppearsAsToken(object, surface)
+}
+
+func answerCitedEvidenceItems(mut *types.MutableState, cit types.Citation) []types.EvidenceItem {
+	file := strings.TrimSpace(cit.File)
+	if mut == nil || file == "" {
+		return nil
+	}
+	var out []types.EvidenceItem
+	for _, ev := range answerItemLabelSupportEvidenceItems(mut) {
+		if ev.GroundingStatus == types.GroundingUngrounded {
+			continue
+		}
+		if !answerCitationSourceMatches(file, ev.Source) {
+			continue
+		}
+		if !citationLineMatchesEvidence(cit.Line, ev) {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+func answerCitationSourceMatches(citationFile, evidenceSource string) bool {
+	citationFile = strings.TrimSpace(strings.ReplaceAll(citationFile, `\`, `/`))
+	evidenceSource = strings.TrimSpace(strings.ReplaceAll(evidenceSource, `\`, `/`))
+	return citationFile != "" && citationFile == evidenceSource
+}
+
+func answerEvidenceSetContainsCallEdge(items []types.EvidenceItem, expected types.EvidenceItem) bool {
+	for _, ev := range items {
+		if types.ClaimFormOf(ev) != types.ClaimCallEdge {
+			continue
+		}
+		if answerSameCallEdge(ev, expected) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerSameCallEdge(a, b types.EvidenceItem) bool {
+	if strings.TrimSpace(a.ID) != "" && strings.TrimSpace(a.ID) == strings.TrimSpace(b.ID) {
+		return true
+	}
+	return answerCodeSurfaceMatches(a.Subject, b.Subject) &&
+		answerCodeSurfaceMatches(a.Object, b.Object)
+}
+
+func answerCallEdgeName(ev types.EvidenceItem) string {
+	subject := strings.TrimSpace(ev.Subject)
+	object := strings.TrimSpace(ev.Object)
+	if subject == "" || object == "" {
+		return "call_edge"
+	}
+	return fmt.Sprintf("%s -> %s", subject, object)
+}
+
+func answerCallEdgeLocation(ev types.EvidenceItem) string {
+	source := strings.TrimSpace(ev.Source)
+	if source == "" || ev.LineStart <= 0 {
+		return "the matching call-edge evidence"
+	}
+	return fmt.Sprintf("%s:%d", source, ev.LineStart)
+}
+
+func answerCitationLocation(cit types.Citation) string {
+	source := strings.TrimSpace(cit.File)
+	if source == "" || cit.Line <= 0 {
+		return "an unresolved citation"
+	}
+	return fmt.Sprintf("%s:%d", source, cit.Line)
+}
+
 // validateAbsenceScopeBound (R2.3 V2 重接, post_shape_residual_audit.md
 // 2026-05-04) fires when the V2 doc claims a NEGATIVE finding
 // (ExactResolution.Status == AnswerExactResolutionAbsent) but no
@@ -1773,6 +1951,7 @@ func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.Answer
 	out = append(out, validatePrincipalProseUnderfilled(doc)...)
 	out = append(out, validateRichnessRegression(doc, view)...)
 	out = append(out, validateClaimFormSupport(doc, mut)...)
+	out = append(out, validateCallChainItemCitationRoleAlignment(doc, view, mut)...)
 	out = append(out, validateMissingRequestedRoleDisclosure(doc, view)...)
 	out = append(out, validateAbsenceScopeBound(doc)...)
 	out = append(out, validateEnumerationItemLabelGrounding(doc, mut)...)
@@ -2282,6 +2461,37 @@ func answerCodeSurfaceAppearsVerbatim(label, text string) bool {
 		return false
 	}
 	return strings.Contains(text, label)
+}
+
+func answerCodeSurfaceAppearsAsToken(label, text string) bool {
+	label = strings.TrimSpace(label)
+	text = strings.TrimSpace(text)
+	if label == "" || text == "" || !types.IsCodeIdentitySurface(label) {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(text[start:], label)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		if answerCodeSurfaceBoundary(text, pos-1) && answerCodeSurfaceBoundary(text, pos+len(label)) {
+			return true
+		}
+		start = pos + len(label)
+		if start >= len(text) {
+			return false
+		}
+	}
+}
+
+func answerCodeSurfaceBoundary(s string, idx int) bool {
+	if idx < 0 || idx >= len(s) {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(s[idx:])
+	return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
 }
 
 func answerCodeSurfaceMatches(a, b string) bool {
