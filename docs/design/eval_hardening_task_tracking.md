@@ -6,7 +6,7 @@ hardening work started from the 2026-05-11 full eval sweep.
 ## Current Evidence
 
 - Sweep: `PARALLEL=4 TIMEOUT=1200 CASES_GLOB="eval/cases/*.case eval/cases/harmony/*.case" bash eval/parallel_all.sh`
-- Completed at audit time: 20 / 65 cases, all PASS.
+- Completed at latest audit time: 39 / 65 cases.
 - Main observed risks:
   - eval harness portability and workspace pollution
   - finalizer support-lane/block-kind contract conflicts
@@ -14,6 +14,8 @@ hardening work started from the 2026-05-11 full eval sweep.
   - coarse `must_include` matching without term provenance
   - oversized mixed repair bundles
   - explorer long-tail loops after enough answer evidence exists
+  - analyzer retry storms when a typed single-axis enumeration is
+    over-decomposed into multiple resolver-identical sub-topics
 
 ## Batch 1: Eval Harness Commercialization
 
@@ -60,5 +62,14 @@ hardening work started from the 2026-05-11 full eval sweep.
 - [ ] Audit LLM-facing prompt changes before editing prompt text.
 - [ ] Keep prompt changes contract-oriented, not keyword hacks.
 - [ ] Verify no prompt violates repository red lines.
-- [ ] Run focused unit tests and `go test ./...`.
-- [ ] Re-run targeted eval cases that previously exposed long-tail failures.
+- [x] Run focused unit tests and `go test ./...`.
+- [x] Re-run targeted eval cases that previously exposed long-tail failures.
+
+## Batch 7: Analyzer Single-Axis Enumeration Canonicalization
+
+- [x] Audit `qf_architecture` failure and identify R1.4 axis-collapse retry storm.
+- [x] Add typed deterministic auto-collapse for sole R1.4 failures.
+- [x] Preserve collapsed sub-topic entities as soft downstream search hints.
+- [x] Refuse mixed-failure and cross-component cases so resolver-backed gates are not bypassed.
+- [x] Run focused analyzer/orchestrator tests.
+- [x] Re-run the targeted `qf_architecture` eval case.

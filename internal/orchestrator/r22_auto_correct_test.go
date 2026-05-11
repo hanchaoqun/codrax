@@ -11,6 +11,7 @@ package orchestrator
 import (
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -195,4 +196,182 @@ func TestR22AutoCorrect_R22Solo_StillCorrects(t *testing.T) {
 	if ir.RequestModel.AnswerSubject.Kind != types.SubjectUnknown {
 		t.Errorf("kind should be cleared; got %v", ir.RequestModel.AnswerSubject.Kind)
 	}
+}
+
+// === R1.4 single-axis enumeration auto-collapse (2026-05-11 eval audit) ===
+
+func TestR14AutoCollapseEnumerationSubtopics_CollapsesSoleAxisFailure(t *testing.T) {
+	ir := &types.AnalysisIR{}
+	ir.RequestModel.Intent = types.IntentEnumerate
+	ir.RequestModel.Predicates.IsCategoryEnumeration = true
+	ir.RequestModel.AnalyzerHints.Entities = []string{"PipelineStage"}
+	ir.RequestModel.AnalyzerHints.DerivedEntities = []string{"StageAnalyze"}
+	ir.RequestModel.SubTopics = []types.SubTopic{
+		{Summary: "analysis and exploration", Entities: []string{"StageAnalyze", "StageExplore"}},
+		{Summary: "extraction and finalization", Entities: []string{"StageExtract", "StageFinalize"}},
+	}
+	ir.QualityGate.Rejected = true
+	ir.QualityGate.Checks = []types.GateCheck{
+		{Name: "subtopic_coherence", Passed: false, Detail: "R1.4 axis_collapse: 2 sub-topics all sit in the same code area [types] under enumeration intent"},
+		{Name: "coverage", Passed: true, Detail: "ok"},
+	}
+
+	if !r14AutoCollapseEnumerationSubtopics(ir) {
+		t.Fatal("R1.4 sole-fail enumeration: expected deterministic collapse")
+	}
+	if len(ir.RequestModel.SubTopics) != 0 {
+		t.Fatalf("SubTopics should be cleared; got %#v", ir.RequestModel.SubTopics)
+	}
+	for _, want := range []string{"PipelineStage", "StageAnalyze", "StageExplore", "StageExtract", "StageFinalize"} {
+		if !testStringSliceContains(ir.RequestModel.AnalyzerHints.Entities, want) {
+			t.Fatalf("AnalyzerHints.Entities missing %q after collapse: %#v", want, ir.RequestModel.AnalyzerHints.Entities)
+		}
+	}
+	for _, want := range []string{"StageAnalyze", "StageExplore", "StageExtract", "StageFinalize"} {
+		if !testStringSliceContains(ir.RequestModel.AnalyzerHints.DerivedEntities, want) {
+			t.Fatalf("AnalyzerHints.DerivedEntities missing %q after collapse: %#v", want, ir.RequestModel.AnalyzerHints.DerivedEntities)
+		}
+	}
+	if ir.QualityGate.Rejected || len(ir.QualityGate.Checks) != 0 {
+		t.Fatalf("QualityGate should be cleared for caller re-run; got %#v", ir.QualityGate)
+	}
+}
+
+func TestR14AutoCollapseEnumerationSubtopics_RequiresEnumerationTypedIntent(t *testing.T) {
+	ir := &types.AnalysisIR{}
+	ir.RequestModel.Intent = types.IntentExplain
+	ir.RequestModel.SubTopics = []types.SubTopic{
+		{Summary: "one", Entities: []string{"A"}},
+		{Summary: "two", Entities: []string{"B"}},
+	}
+	ir.QualityGate.Rejected = true
+	ir.QualityGate.Checks = []types.GateCheck{
+		{Name: "subtopic_coherence", Passed: false, Detail: "R1.4 axis_collapse: ..."},
+	}
+
+	if r14AutoCollapseEnumerationSubtopics(ir) {
+		t.Fatal("non-enumeration typed request: expected no collapse")
+	}
+	if len(ir.RequestModel.SubTopics) != 2 {
+		t.Fatalf("SubTopics should be preserved; got %#v", ir.RequestModel.SubTopics)
+	}
+}
+
+func TestR14AutoCollapseEnumerationSubtopics_RefusesMixedFailures(t *testing.T) {
+	ir := &types.AnalysisIR{}
+	ir.RequestModel.Intent = types.IntentEnumerate
+	ir.RequestModel.Predicates.IsCategoryEnumeration = true
+	ir.RequestModel.SubTopics = []types.SubTopic{
+		{Summary: "one", Entities: []string{"A"}},
+		{Summary: "two", Entities: []string{"B"}},
+	}
+	ir.QualityGate.Rejected = true
+	ir.QualityGate.Checks = []types.GateCheck{
+		{Name: "subtopic_coherence", Passed: false, Detail: "R1.4 axis_collapse: ..."},
+		{Name: "contract_complete", Passed: false, Detail: "missing exact-resolution contract"},
+	}
+
+	if r14AutoCollapseEnumerationSubtopics(ir) {
+		t.Fatal("R1.4 plus another failed check: expected no collapse")
+	}
+	if len(ir.RequestModel.SubTopics) != 2 {
+		t.Fatalf("SubTopics should be preserved on mixed failure; got %#v", ir.RequestModel.SubTopics)
+	}
+}
+
+func TestR14AutoCollapseEnumerationSubtopics_PreservesCrossComponentSubtopics(t *testing.T) {
+	ir := &types.AnalysisIR{}
+	ir.RequestModel.Intent = types.IntentEnumerate
+	ir.RequestModel.Predicates.IsCategoryEnumeration = true
+	ir.RequestModel.Predicates.IsCrossComponent = true
+	ir.RequestModel.SubTopics = []types.SubTopic{
+		{Summary: "repo a", Entities: []string{"A"}},
+		{Summary: "repo b", Entities: []string{"B"}},
+	}
+	ir.QualityGate.Rejected = true
+	ir.QualityGate.Checks = []types.GateCheck{
+		{Name: "subtopic_coherence", Passed: false, Detail: "R1.4 axis_collapse: ..."},
+	}
+
+	if r14AutoCollapseEnumerationSubtopics(ir) {
+		t.Fatal("cross-component request: expected no collapse")
+	}
+}
+
+func TestAutoCorrectAnalyzerStageOutput_R14ClearsErrorBeforeApply(t *testing.T) {
+	o := &Orchestrator{
+		busCtx: &types.BusContext{
+			Mode:      types.ModeRead,
+			TaskState: types.TaskState{LastError: "old analyzer gate error"},
+		},
+	}
+	out := &agent.StageOutput{
+		Error:        "analyzer quality gate rejected: subtopic_coherence",
+		MissingPiece: types.MissingUnderstanding,
+		RetryHint:    "retry analyzer",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				SubTopics: []types.SubTopic{
+					{Summary: "one", Entities: []string{"A"}},
+					{Summary: "two", Entities: []string{"B"}},
+				},
+			},
+			TaskGraph: types.TaskGraph{
+				Nodes: []types.TaskNode{
+					{ID: "n0", Type: types.NodeEvidence, Objective: "collect", Hypotheses: []string{"h0"}},
+					{ID: "n1", Type: types.NodeFinalize, Objective: "render", Hypotheses: []string{"h0"}},
+				},
+				Edges: []types.TaskEdge{
+					{From: "n0", To: "n1", EdgeType: types.EdgeHardDependency},
+				},
+				ExecutionPolicy: types.ExecutionPolicy{
+					MaxParallelism: 1,
+					RetryBudget:    1,
+					CriticalPath:   []string{"n0", "n1"},
+				},
+			},
+			EvidencePlan: types.EvidencePlan{
+				Budget: types.EvidenceBudget{MaxFiles: 5, MaxReactIters: 8},
+			},
+			AnswerContract: types.AnswerContract{Language: "en"},
+			QualityGate: types.GateReport{
+				Rejected: true,
+				Checks: []types.GateCheck{
+					{Name: "subtopic_coherence", Passed: false, Detail: "R1.4 axis_collapse: ..."},
+				},
+			},
+		},
+	}
+
+	if !o.autoCorrectAnalyzerStageOutput(out, 0) {
+		t.Fatal("R1.4 stage output: expected auto-correct to pass")
+	}
+	if out.Error != "" {
+		t.Fatalf("stage error should be cleared before apply/render; got %q", out.Error)
+	}
+	if out.MissingPiece != types.MissingNone {
+		t.Fatalf("missing piece = %q, want %q", out.MissingPiece, types.MissingNone)
+	}
+	if out.RetryHint != "" {
+		t.Fatalf("retry hint should be cleared; got %q", out.RetryHint)
+	}
+	if o.busCtx.TaskState.LastError != "" {
+		t.Fatalf("bus LastError should be cleared; got %q", o.busCtx.TaskState.LastError)
+	}
+	if out.AnalysisIR.QualityGate.Rejected {
+		t.Fatalf("quality gate should pass after correction: %#v", out.AnalysisIR.QualityGate)
+	}
+}
+
+func testStringSliceContains(in []string, want string) bool {
+	for _, got := range in {
+		if got == want {
+			return true
+		}
+	}
+	return false
 }

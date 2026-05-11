@@ -2116,52 +2116,15 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		if o.busCtx != nil && o.busCtx.Mutable != nil {
 			o.busCtx.Mutable.AppendAnswerRetryEvent(string(types.StageAnalyze), lastErr)
 		}
-		// Fix-D (2026-05-10) — R2.2 auto-correction. When the gate
-		// rejected the IR purely because of a scalar AnswerSubject
-		// in a long-form family (the "longform_scalar_subject"
-		// shape contradiction), and we're past the first attempt
-		// so the LLM had a chance to revise on retry, AUTO-CLEAR
-		// the scalar declaration and re-run the gate. This breaks
-		// the fingerprint loop without a redundant LLM round-trip.
-		//
-		// Two correctness invariants on this fast-path
-		// (post-2026-05-10 audit):
-		//
-		//   1. STALE-IR FIX: applyStageOutput stores AnalysisIR
-		//      write-once (line ~6020), so a successful retry
-		//      that re-emits a different IR doesn't overwrite
-		//      busCtx.AnalysisIR. Without manual sync, this loop
-		//      sees attempt-0's IR even on attempt N. Mirror the
-		//      latest output's IR + QualityGate over before
-		//      checking R2.2 so the auto-correct sees current data.
-		//
-		//   2. RESOLVER-OMISSION FIX: r22RerunGateAfterCorrect
-		//      can't easily reconstruct the symbol resolver, so
-		//      it re-runs the gate with nil resolver. R1.4 / R1.5
-		//      (subtopic_coherence rules) are no-ops under nil
-		//      resolver. If the rejection report had R2.2 PLUS a
-		//      resolver-backed coherence failure, an unguarded
-		//      auto-correct would silently bypass the coherence
-		//      failure when the post-correction re-run "passes".
-		//      r22AutoCorrectShapeSubject now refuses correction
-		//      when ANY non-R2.2 check is failed in the same
-		//      report — keeps the resolver-backed failures intact
-		//      for the LLM-side retry path to surface.
-		//
-		// Cross-language: works regardless of question language.
-		// Design doc: docs/design/analyzer_failure_remediation.md §3.4.
-		if attempt >= 1 && o.busCtx != nil && out != nil && out.AnalysisIR != nil {
-			// Stale-IR sync: mirror the latest output's IR onto
-			// busCtx so the auto-correct + storm detector both
-			// see fresh QualityGate data.
+		// Fix-D / B7 (2026-05-10..11) — typed analyzer
+		// auto-corrections. applyStageOutput stores AnalysisIR
+		// write-once, so a failed retry can leave busCtx pointing at
+		// stale gate data. Mirror the latest failed emit before any
+		// deterministic correction or retry-storm accounting.
+		if o.busCtx != nil && out != nil && out.AnalysisIR != nil {
 			o.busCtx.AnalysisIR = out.AnalysisIR
-			if r22AutoCorrectShapeSubject(o.busCtx.AnalysisIR) {
-				logging.Warning("[orchestrator] analyze R2.2 auto-correct on attempt %d: cleared scalar AnswerSubject.Kind; re-running gate", attempt+1)
-				if o.r22RerunGateAfterCorrect() {
-					logging.Info("[orchestrator] analyze R2.2 auto-correct succeeded — gate now passes; continuing pipeline")
-					return used, nil
-				}
-				logging.Warning("[orchestrator] analyze R2.2 auto-correct re-run still rejected; falling through to retry storm detector")
+			if o.autoCorrectAnalyzerStageOutput(out, attempt) {
+				return used, nil
 			}
 		}
 		// Storm detection: the AnalysisIR may carry a typed
@@ -2268,34 +2231,118 @@ func r22AutoCorrectShapeSubject(ir *types.AnalysisIR) bool {
 	return false
 }
 
-// r22RerunGateAfterCorrect re-runs the analyzer gate on the
-// (auto-corrected) AnalysisIR and returns true when the corrected
-// IR now passes. Side effect: writes the new GateReport back onto
-// the IR so downstream stages see the post-correction state.
-//
-// Mode mirroring follows the analyzer's invocation site at
-// analyzer.go:1889 — read-mode branches honor the full check set;
-// write modes skip the read-mode-only checks.
-//
-// Resolver is nil here. Read-mode-only coherence rules R1.4 / R1.5
-// (subtopic_coherence) become no-ops under a nil resolver, which
-// would normally let resolver-backed failures slip through this
-// fast-path post-correction. SAFETY GUARD: the caller's gate
-// guard is r22AutoCorrectShapeSubject, which now refuses correction
-// when ANY non-R2.2 check is failed in the same report —
-// guaranteeing that no resolver-backed coherence failure was
-// active when this re-run is invoked. The R1.4 / R1.5 nil-resolver
-// no-op is therefore safe in the only context this function runs.
-func (o *Orchestrator) r22RerunGateAfterCorrect() bool {
-	if o == nil || o.busCtx == nil || o.busCtx.AnalysisIR == nil {
+func (o *Orchestrator) autoCorrectAnalyzerStageOutput(output *agent.StageOutput, attempt int) bool {
+	if output == nil || output.AnalysisIR == nil || output.Error == "" {
 		return false
 	}
 	mode := ""
-	if o.busCtx.Mode != "" {
+	if o != nil && o.busCtx != nil && o.busCtx.Mode != "" {
 		mode = string(o.busCtx.Mode)
 	}
-	report := gate.RunWith(o.busCtx.AnalysisIR, gate.GlobalThresholds(), mode, gate.RunOptions{})
-	o.busCtx.AnalysisIR.QualityGate = report
+	if r14AutoCollapseEnumerationSubtopics(output.AnalysisIR) {
+		logging.Warning("[orchestrator] analyze R1.4 auto-correct on attempt %d: collapsed single-axis enumeration sub_topics; re-running gate", attempt+1)
+		if rerunAnalyzerGateReport(output.AnalysisIR, mode) {
+			clearAnalyzerStageOutputError(output)
+			if o != nil && o.busCtx != nil {
+				o.busCtx.TaskState.LastError = ""
+			}
+			logging.Info("[orchestrator] analyze R1.4 auto-correct succeeded — gate now passes; continuing pipeline")
+			return true
+		}
+		logging.Warning("[orchestrator] analyze R1.4 auto-correct re-run still rejected; falling through to retry storm detector")
+	}
+	// Fix-D (2026-05-10) — R2.2 auto-correction. When the
+	// gate rejected the IR purely because of a scalar AnswerSubject in
+	// a long-form family, and we're past the first attempt so the LLM
+	// had a chance to revise on retry, AUTO-CLEAR the scalar
+	// declaration and re-run the gate. The helper refuses mixed
+	// failures so the nil resolver re-run cannot bypass
+	// resolver-backed checks.
+	if attempt >= 1 && r22AutoCorrectShapeSubject(output.AnalysisIR) {
+		logging.Warning("[orchestrator] analyze R2.2 auto-correct on attempt %d: cleared scalar AnswerSubject.Kind; re-running gate", attempt+1)
+		if rerunAnalyzerGateReport(output.AnalysisIR, mode) {
+			clearAnalyzerStageOutputError(output)
+			if o != nil && o.busCtx != nil {
+				o.busCtx.TaskState.LastError = ""
+			}
+			logging.Info("[orchestrator] analyze R2.2 auto-correct succeeded — gate now passes; continuing pipeline")
+			return true
+		}
+		logging.Warning("[orchestrator] analyze R2.2 auto-correct re-run still rejected; falling through to retry storm detector")
+	}
+	return false
+}
+
+func clearAnalyzerStageOutputError(output *agent.StageOutput) {
+	if output == nil {
+		return
+	}
+	output.Error = ""
+	output.MissingPiece = types.MissingNone
+	output.RetryHint = ""
+}
+
+// r14AutoCollapseEnumerationSubtopics inspects the AnalysisIR's
+// QualityGate for the R1.4 axis_collapse shape. When the analyzer
+// already typed the request as a single-axis enumeration and the
+// only failing gate check is R1.4, it collapses SubTopics back to the
+// canonical single-topic representation. The enumerated values remain
+// available as Entities / DerivedEntities so downstream search keeps
+// breadth, while the compiler no longer treats each value as an
+// independently-answerable evidence lane.
+//
+// This is deliberately structural and language-agnostic:
+//   - it consumes typed predicates/intent plus the schema-validated
+//     gate code, never request-text keywords;
+//   - it refuses mixed failures because the post-correction gate
+//     re-run cannot reconstruct the resolver;
+//   - it mirrors gate R1.4's self-judged cross-component carve-out.
+func r14AutoCollapseEnumerationSubtopics(ir *types.AnalysisIR) bool {
+	if ir == nil || !ir.QualityGate.Rejected {
+		return false
+	}
+	rm := &ir.RequestModel
+	if len(rm.SubTopics) < 2 || rm.Predicates.IsCrossComponent ||
+		(!rm.Predicates.IsCategoryEnumeration && rm.Intent != types.IntentEnumerate) {
+		return false
+	}
+	hasR14 := false
+	for _, c := range ir.QualityGate.Checks {
+		if c.Passed {
+			continue
+		}
+		if c.Name == "subtopic_coherence" && strings.HasPrefix(strings.TrimSpace(c.Detail), "R1.4 axis_collapse:") {
+			hasR14 = true
+			continue
+		}
+		return false
+	}
+	if !hasR14 {
+		return false
+	}
+
+	var subtopicTerms []string
+	for _, st := range rm.SubTopics {
+		subtopicTerms = append(subtopicTerms, st.Entities...)
+		subtopicTerms = append(subtopicTerms, st.Scopes...)
+	}
+	rm.AnalyzerHints.Entities = dedupedStrings(append(rm.AnalyzerHints.Entities, subtopicTerms...))
+	rm.AnalyzerHints.DerivedEntities = dedupedStrings(append(rm.AnalyzerHints.DerivedEntities, subtopicTerms...))
+	rm.SubTopics = nil
+	ir.QualityGate = types.GateReport{}
+	return true
+}
+
+// rerunAnalyzerGateReport re-runs the analyzer gate on a
+// structurally-corrected IR and writes the fresh report back. Resolver
+// is intentionally nil; callers must prove that any resolver-backed
+// failure was either removed structurally (R1.4) or absent (R2.2).
+func rerunAnalyzerGateReport(ir *types.AnalysisIR, mode string) bool {
+	if ir == nil {
+		return false
+	}
+	report := gate.RunWith(ir, gate.GlobalThresholds(), mode, gate.RunOptions{})
+	ir.QualityGate = report
 	return !report.Rejected
 }
 
@@ -5973,6 +6020,10 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 			FactCount:     subFacts,
 			Error:         subErr,
 		})
+	}
+
+	if stage == types.StageAnalyze {
+		o.autoCorrectAnalyzerStageOutput(output, o.emitStageRetryAttempt)
 	}
 
 	o.applyStageOutput(output)
