@@ -191,6 +191,45 @@ func TestCompileFacetCoverage_HardDegradesToSoftWhenNoCandidate(t *testing.T) {
 	}
 }
 
+func TestCompileFacetCoverage_ExternalOnlyRuntimeDoesNotPromoteCurrentCodePath(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentRootCause,
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "panic", Frames: []LogFrame{{
+				File: "src/bridge/Bridge.cj",
+				Line: 18,
+				Func: "demo.bridge.ohSum",
+			}}}},
+			ResolvedFiles: nil,
+		},
+	}
+	surface := []EvidenceItem{
+		{ID: "repo-helper", Source: "internal/analysis/logtriage/resolver_harmonyos.go", LineStart: 27, AnchorKind: AnchorDefinition},
+	}
+	plan := CompileFacetCoverage(rm, surface)
+	if plan == nil {
+		t.Fatal("plan must be non-nil")
+	}
+	for _, req := range plan.Required {
+		if req.Kind == FacetCurrentCodePath {
+			t.Fatalf("external-only runtime artifact must not keep current_code_path in Required facets: %+v", req)
+		}
+	}
+	var current *FacetRequirement
+	for i := range plan.Optional {
+		if plan.Optional[i].Kind == FacetCurrentCodePath {
+			current = &plan.Optional[i]
+			break
+		}
+	}
+	if current == nil {
+		t.Fatal("current_code_path should remain optional enrichment for external-only artifacts")
+	}
+	if current.EffectivePromotionPolicy() != PromotionAdvisoryOnly || current.IsPromoted() {
+		t.Fatalf("external-only current_code_path should be advisory-only, got policy=%s promoted=%v", current.EffectivePromotionPolicy(), current.IsPromoted())
+	}
+}
+
 // TestCompileFacetCoverage_EmptySurfaceInconclusiveNoSoftening
 // pins R3.1 (post_shape_residual_audit.md, 2026-05-04): when
 // CompileFacetCoverage runs at analyzer-time (before any emit_evidence

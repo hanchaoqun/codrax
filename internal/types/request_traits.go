@@ -211,6 +211,22 @@ func hasMultiFrameArtifactEvidence(rm RequestModel) bool {
 	return false
 }
 
+// HasExternalOnlyRuntimeArtifact reports whether the current request
+// carries a structured runtime artifact whose facts are observation-
+// only for this checkout: the log / trace has answer-grade events, but
+// none of its frames resolved to current repository files. Downstream
+// answer-shape compilers use this precise typed signal to avoid turning
+// artifact observations into current-code path obligations.
+func (rm RequestModel) HasExternalOnlyRuntimeArtifact() bool {
+	if rm.LogTriage != nil && rm.LogTriage.IsExternalSource() {
+		return true
+	}
+	if rm.PerfTrace != nil && rm.PerfTrace.IsExternalSource() {
+		return true
+	}
+	return false
+}
+
 func isScalarSourceLiteralSubjectKind(kind AnswerSubjectKind) bool {
 	switch kind {
 	case SubjectFunctionName,

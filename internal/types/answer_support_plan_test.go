@@ -125,12 +125,55 @@ func TestBuildAnswerSupportPlan_RootCauseTraceCompilesTypedLanes(t *testing.T) {
 	}
 }
 
+func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactCanBePrincipalList(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		RuntimeGroundingDisposition: &RuntimeGroundingDisposition{
+			Source:         RuntimeGroundingSystemDetected,
+			Reason:         EvidenceFloorWaiverExternalLog,
+			Rationale:      "structured log errors were extracted, but no stack frame resolved to a current repository file",
+			CitationPolicy: RuntimeGroundingCitationRuntimeObservation,
+		},
+		ExternalObservationSeeds: []ExternalObservationSeed{
+			{Kind: "error_message", Raw: "index out of bounds: index=5, size=3"},
+			{Kind: "frame", Func: "demo.bridge.ohSum", File: "src/bridge/Bridge.cj", Line: 18},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent:    IntentRootCause,
+		LogTriage: &LogBundle{Errors: []LogError{{Type: "panic"}}},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	var observed *AnswerSupportLane
+	for i := range got.Lanes {
+		if got.Lanes[i].Kind == SupportLaneObservedArtifact {
+			observed = &got.Lanes[i]
+			break
+		}
+	}
+	if observed == nil {
+		t.Fatal("expected observed artifact lane")
+	}
+	if got, want := strings.Join(observed.AllowedBlocks, ","), "summary,ordered_list,bullet_list,caveat"; got != want {
+		t.Fatalf("external-only observed lane allowed blocks = %q, want %q", got, want)
+	}
+	if !strings.Contains(observed.Guidance, "principal answer list") ||
+		!strings.Contains(observed.Guidance, "Do not substitute current-repo analysis helpers") {
+		t.Fatalf("external-only observed guidance should forbid helper substitution, got: %q", observed.Guidance)
+	}
+}
+
 func TestBuildAnswerSupportPlanForAgentContext_CurrentStatusAddsVerdictLane(t *testing.T) {
 	ctx := &AgentContext{
 		AnalysisIR: &AnalysisIR{
 			RequestModel: RequestModel{
-				Intent:    IntentRootCause,
-				LogTriage: &LogBundle{Errors: []LogError{{Type: "panic"}}},
+				Intent: IntentRootCause,
+				LogTriage: &LogBundle{
+					Errors:        []LogError{{Type: "panic"}},
+					ResolvedFiles: []string{"internal/agent/analyzer.go"},
+				},
 			},
 			AnswerContract: AnswerContract{
 				CurrentStatusDiagnostic: &CurrentStatusDiagnosticContract{
@@ -143,11 +186,14 @@ func TestBuildAnswerSupportPlanForAgentContext_CurrentStatusAddsVerdictLane(t *t
 				},
 			},
 		},
-		LogTriage: &LogBundle{Errors: []LogError{{Type: "panic", Frames: []LogFrame{{
-			File: "internal/agent/analyzer.go",
-			Line: 250,
-			Func: "buildAnalysisIR",
-		}}}}},
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "panic", Frames: []LogFrame{{
+				File: "internal/agent/analyzer.go",
+				Line: 250,
+				Func: "buildAnalysisIR",
+			}}}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		},
 		Mutable: NewMutableState(""),
 		EvidenceItems: []EvidenceItem{
 			{

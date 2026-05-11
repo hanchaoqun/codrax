@@ -6,16 +6,18 @@ package types
 // components and their relations.
 //
 // Required blocks:
-//   1× BlockSummary           — high-level architecture conclusion.
-//   ≥1× BlockSection          — one section per layer / component
-//                               group (MaxCount=0; layer count varies).
-//   ≥1× BlockDiagram          — flowchart visualising the architecture
-//                               (Required=true).
+//
+//	1× BlockSummary           — high-level architecture conclusion.
+//	≥1× BlockSection          — one section per layer / component
+//	                            group (MaxCount=0; layer count varies).
+//	0..1× BlockDiagram        — optional unless the current request
+//	                            explicitly asked for a visual diagram.
 //
 // Optional:
-//   0..N× BlockBulletList     — within a section, an unordered list
-//                               of sub-components.
-//   0..N× BlockCaveat         — out-of-scope / convention-only caveats.
+//
+//	0..N× BlockBulletList     — within a section, an unordered list
+//	                            of sub-components.
+//	0..N× BlockCaveat         — out-of-scope / convention-only caveats.
 func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView {
 	view := &AnswerSemanticView{
 		Family: QFArchitecture,
@@ -39,15 +41,18 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 			Required: true,
 			FacetIDs: []string{
 				string(FacetComponentRelation),
-				string(FacetNearestMechanism),
 			},
 			AcceptableClaimForms: []ClaimForm{
 				ClaimDefinitionFact,
+				ClaimImportEdge,
+				ClaimCallEdge,
 			},
-			Rationale: "One section per architectural layer / component group. The body MUST combine TWO axes: (a) WHAT the component does — its role / purpose / responsibility, expressed as an active sentence whose subject is the component and whose predicate is a behavioural verb (an action the component performs for the system, not just an internal data structure it owns); (b) WHERE the component lives — grounded file:line references supporting (a). Listing only file:line locations or only internal type names without an active behaviour sentence is incomplete; describing the role without grounded references is unverified. Each section needs both axes.",
+			Rationale:       "One section per architectural layer / component group. The body MUST combine TWO axes: (a) WHAT the component does — its role / purpose / responsibility, expressed as an active sentence whose subject is the component and whose predicate is a behavioural verb (an action the component performs for the system, not just an internal data structure it owns); (b) WHERE the component lives — grounded file:line references supporting (a). Listing only file:line locations or only internal type names without an active behaviour sentence is incomplete; describing the role without grounded references is unverified. Each section needs both axes.",
 			SurfaceRoleHint: SurfacePrincipal,
 		},
-		{
+	}
+	if diagramRequiredByUserIntent(plan) {
+		view.RequiredBlocks = append(view.RequiredBlocks, BlockRequirement{
 			Kind:     BlockDiagram,
 			MinCount: 1,
 			MaxCount: 1,
@@ -58,7 +63,7 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 			},
 			Rationale: "A flowchart showing the components and their relations. Top-down direction " +
 				"for layered architectures; left-right for pipelines.",
-		},
+		})
 	}
 	view.OptionalBlocks = []BlockRequirement{
 		{
@@ -75,6 +80,15 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 				"the architecture description is bounded to a sub-tree, disclose the scope.",
 			string(FacetUncertaintyBoundary),
 		),
+	}
+	if !diagramRequiredByUserIntent(plan) && diagramPreferredByEvidence(plan) {
+		view.OptionalBlocks = append(view.OptionalBlocks, optionalDiagramBlock(
+			"Add a component diagram only when it directly serves the architecture question and every "+
+				"node/relation is grounded. Do not emit a diagram when prose sections answer the user's "+
+				"requested comparison or explanation more directly.",
+			string(FacetDiagramSpine),
+			string(FacetComponentRelation),
+		))
 	}
 	view.DiagramPlan = diagramPlanFor(plan, DiagramArchitecture,
 		[]string{string(FacetComponentRelation)},

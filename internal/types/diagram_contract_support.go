@@ -15,9 +15,12 @@ func EffectiveDiagramContract(contract *DiagramContract, supportedKinds []Diagra
 	}
 	out := *contract
 	supported := normalizeSupportedDiagramKinds(supportedKinds)
-	if out.Required && len(supported) == 0 {
-		out.Required = false
-		return &out
+	if len(supported) == 0 {
+		if out.Required {
+			out.Required = false
+			return &out
+		}
+		return nil
 	}
 	if len(out.PreferredKinds) == 0 {
 		if len(supported) > 0 {

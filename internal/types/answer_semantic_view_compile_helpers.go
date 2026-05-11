@@ -21,6 +21,29 @@ func requireSummaryBlock(rationale string) BlockRequirement {
 	}
 }
 
+func diagramRequiredByUserIntent(plan *AnswerSurfacePlan) bool {
+	return plan != nil && plan.Diagram != nil && plan.Diagram.Required
+}
+
+func diagramPreferredByEvidence(plan *AnswerSurfacePlan) bool {
+	return plan != nil && plan.Diagram != nil && len(plan.Diagram.PreferredKinds) > 0
+}
+
+func runtimeObservationOnly(plan *AnswerSurfacePlan) bool {
+	return plan != nil && plan.RuntimeGroundingDisposition.IsActive()
+}
+
+func optionalDiagramBlock(rationale string, facetIDs ...string) BlockRequirement {
+	return BlockRequirement{
+		Kind:      BlockDiagram,
+		MinCount:  0,
+		MaxCount:  1,
+		Required:  false,
+		Rationale: strings.TrimSpace(rationale),
+		FacetIDs:  appendUniqueStr(nil, facetIDs...),
+	}
+}
+
 // applyExactAbsenceSummaryLead rewrites scalar-first families into a
 // summary-led contract when the compiled surface plan has already
 // concluded the exact target is absent.
@@ -99,10 +122,10 @@ func applyExactAbsenceSummaryLead(view *AnswerSemanticView, plan *AnswerSurfaceP
 // scope / external-source disclosures.
 func optionalCaveatBlock(rationale string, facetIDs ...string) BlockRequirement {
 	return BlockRequirement{
-		Kind:            BlockCaveat,
-		MinCount:        0,
-		MaxCount:        0, // 0 = no upper limit (R5: no layer assumption)
-		Required:        false,
+		Kind:      BlockCaveat,
+		MinCount:  0,
+		MaxCount:  0, // 0 = no upper limit (R5: no layer assumption)
+		Required:  false,
 		Rationale: rationale,
 		FacetIDs:  appendUniqueStr(nil, facetIDs...),
 	}

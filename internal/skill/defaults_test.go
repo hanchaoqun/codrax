@@ -99,9 +99,9 @@ func TestFinalizerSkillStepListPrefersDiagramsWhenHelpful(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Even when the Diagram Contract does NOT require one",
-		"3+ hops",
-		"actor/role handoffs",
-		"easier to see than to read in prose",
+		"directly serves the user's requested answer",
+		"Do not add a diagram as generic enrichment",
+		"do not let a diagram replace the block shape",
 	} {
 		if !strings.Contains(sk.OutputFormat, want) {
 			t.Fatalf("finalize-skill OutputFormat missing %q:\n%s", want, sk.OutputFormat)

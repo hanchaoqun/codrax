@@ -716,12 +716,13 @@ func TestReconcileDiagramContract(t *testing.T) {
 	}
 
 	cases := []struct {
-		name      string
-		rm        types.RequestModel
-		bundle    *types.LogBundle
-		wantNil   bool
-		wantKind  types.DiagramKind
-		wantScope types.DiagramScope
+		name         string
+		rm           types.RequestModel
+		bundle       *types.LogBundle
+		wantNil      bool
+		wantRequired bool
+		wantKind     types.DiagramKind
+		wantScope    types.DiagramScope
 	}{
 		{
 			name:    "step_list without structural cues stays nil",
@@ -729,28 +730,31 @@ func TestReconcileDiagramContract(t *testing.T) {
 			wantNil: true,
 		},
 		{
-			name: "trace intent prefers call dag",
+			name: "trace intent prefers call dag without requiring diagram",
 			rm: types.RequestModel{
 				Intent: types.IntentTrace,
 			},
-			wantKind:  types.DiagramCallDAG,
-			wantScope: types.DiagramScopeOverall,
+			wantKind:     types.DiagramCallDAG,
+			wantScope:    types.DiagramScopeOverall,
+			wantRequired: false,
 		},
 		{
-			name: "architecture scenario prefers architecture diagram",
+			name: "architecture scenario prefers architecture diagram without requiring it",
 			rm: types.RequestModel{
 				Scenario: types.ScenarioArchitectureExplain,
 			},
-			wantKind:  types.DiagramArchitecture,
-			wantScope: types.DiagramScopeOverall,
+			wantKind:     types.DiagramArchitecture,
+			wantScope:    types.DiagramScopeOverall,
+			wantRequired: false,
 		},
 		{
-			name: "scalar call question still requires diagram",
+			name: "scalar call question only prefers diagram",
 			rm: types.RequestModel{
 				PredicateAxis: types.AxisCall,
 			},
-			wantKind:  types.DiagramCallDAG,
-			wantScope: types.DiagramScopeOverall,
+			wantKind:     types.DiagramCallDAG,
+			wantScope:    types.DiagramScopeOverall,
+			wantRequired: false,
 		},
 		{
 			name: "generic configure question does not auto-require diagram",
@@ -761,21 +765,23 @@ func TestReconcileDiagramContract(t *testing.T) {
 			wantNil: true,
 		},
 		{
-			name: "config trace still requires diagram",
+			name: "config trace prefers diagram without replacing requested answer shape",
 			rm: types.RequestModel{
 				PredicateAxis: types.AxisConfigure,
 				Scenario:      types.ScenarioConfigTrace,
 				Intent:        types.IntentConfigQuery,
 			},
-			wantKind:  types.DiagramArchitecture,
-			wantScope: types.DiagramScopeOverall,
+			wantKind:     types.DiagramArchitecture,
+			wantScope:    types.DiagramScopeOverall,
+			wantRequired: false,
 		},
 		{
-			name:      "log call chain requires diagram",
-			rm:        types.RequestModel{},
-			bundle:    logBundle,
-			wantKind:  types.DiagramCallDAG,
-			wantScope: types.DiagramScopeOverall,
+			name:         "log call chain prefers diagram without requiring it",
+			rm:           types.RequestModel{},
+			bundle:       logBundle,
+			wantKind:     types.DiagramCallDAG,
+			wantScope:    types.DiagramScopeOverall,
+			wantRequired: false,
 		},
 		{
 			name: "multi-topic scopes diagram per subtopic",
@@ -786,8 +792,18 @@ func TestReconcileDiagramContract(t *testing.T) {
 					{Summary: "B"},
 				},
 			},
-			wantKind:  types.DiagramCallDAG,
-			wantScope: types.DiagramScopePerSubTopic,
+			wantKind:     types.DiagramCallDAG,
+			wantScope:    types.DiagramScopePerSubTopic,
+			wantRequired: false,
+		},
+		{
+			name: "explicit diagram hint is the only hard diagram request",
+			rm: types.RequestModel{
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence},
+			},
+			wantKind:     types.DiagramSequence,
+			wantScope:    types.DiagramScopeOverall,
+			wantRequired: true,
 		},
 		{
 			name: "plain scalar without structural cues stays nil",
@@ -819,11 +835,15 @@ func TestReconcileDiagramContract(t *testing.T) {
 			if got == nil {
 				t.Fatal("expected non-nil diagram contract")
 			}
-			if !got.Required {
-				t.Fatalf("Required = false, want true (%+v)", got)
+			if got.Required != tc.wantRequired {
+				t.Fatalf("Required = %v, want %v (%+v)", got.Required, tc.wantRequired, got)
 			}
-			if got.Minimum != 1 {
-				t.Fatalf("Minimum = %d, want 1", got.Minimum)
+			wantMinimum := 0
+			if tc.wantRequired {
+				wantMinimum = 1
+			}
+			if got.Minimum != wantMinimum {
+				t.Fatalf("Minimum = %d, want %d", got.Minimum, wantMinimum)
 			}
 			if len(got.PreferredKinds) == 0 || got.PreferredKinds[0] != tc.wantKind {
 				t.Fatalf("PreferredKinds = %v, want first %q", got.PreferredKinds, tc.wantKind)

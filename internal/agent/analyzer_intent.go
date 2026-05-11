@@ -373,51 +373,54 @@ func reconcileDiagramContract(rm types.RequestModel, bundle *types.LogBundle) *t
 			addKind(kind)
 		}
 	}
+	prefer := func(reason string, kinds ...types.DiagramKind) {
+		addReason(reason)
+		for _, kind := range kinds {
+			addKind(kind)
+		}
+	}
 
 	if rm.DiagramHint != nil && rm.DiagramHint.Kind != types.DiagramNone {
-		require("llm_hint", rm.DiagramHint.Kind)
+		require("explicit_diagram_request", rm.DiagramHint.Kind)
 	}
 	if rm.Intent == types.IntentTrace {
-		require("trace_intent", types.DiagramCallDAG, types.DiagramSequence)
+		prefer("trace_intent", types.DiagramCallDAG, types.DiagramSequence)
 	}
 	if rm.Predicates.IsCrossComponent {
-		require("cross_component", types.DiagramArchitecture)
+		prefer("cross_component", types.DiagramArchitecture)
 	}
 	if resolvedLogFrameCount(bundle) >= 2 {
-		require("log_call_chain", types.DiagramCallDAG, types.DiagramSequence)
+		prefer("log_call_chain", types.DiagramCallDAG, types.DiagramSequence)
 	}
 
 	switch rm.PredicateAxis {
 	case types.AxisCall:
-		require("axis_call", types.DiagramCallDAG, types.DiagramSequence)
+		prefer("axis_call", types.DiagramCallDAG, types.DiagramSequence)
 	case types.AxisCondition:
-		require("axis_condition", types.DiagramFlow)
+		prefer("axis_condition", types.DiagramFlow)
 	case types.AxisRegister:
-		require("axis_register", types.DiagramArchitecture, types.DiagramCallDAG)
+		prefer("axis_register", types.DiagramArchitecture, types.DiagramCallDAG)
 	case types.AxisConfigure:
 		if rm.Scenario == types.ScenarioConfigTrace {
-			require("axis_configure", types.DiagramArchitecture, types.DiagramFlow)
+			prefer("axis_configure", types.DiagramArchitecture, types.DiagramFlow)
 		}
 	case types.AxisImplement:
-		require("axis_implement", types.DiagramArchitecture)
+		prefer("axis_implement", types.DiagramArchitecture)
 	}
 
 	switch rm.AnalyzerHints.Kind {
 	case "call_chain":
-		require("question_kind_call_chain", types.DiagramCallDAG, types.DiagramSequence)
+		prefer("question_kind_call_chain", types.DiagramCallDAG, types.DiagramSequence)
 	case "conditional":
-		require("question_kind_conditional", types.DiagramFlow)
+		prefer("question_kind_conditional", types.DiagramFlow)
 	case "registration":
-		require("question_kind_registration", types.DiagramArchitecture, types.DiagramCallDAG)
+		prefer("question_kind_registration", types.DiagramArchitecture, types.DiagramCallDAG)
 	}
 	if rm.Scenario == types.ScenarioArchitectureExplain && !isScalarSourceLiteralLookup(rm) {
-		require("architecture_scenario", types.DiagramArchitecture)
-	}
-	if !required {
-		return nil
+		prefer("architecture_scenario", types.DiagramArchitecture)
 	}
 	if len(preferred) == 0 {
-		addKind(types.DiagramFlow)
+		return nil
 	}
 	scope := types.DiagramScopeOverall
 	if len(rm.SubTopics) > 1 {
@@ -425,12 +428,19 @@ func reconcileDiagramContract(rm types.RequestModel, bundle *types.LogBundle) *t
 		addReason("multi_topic_scope")
 	}
 	return &types.DiagramContract{
-		Required:       true,
-		Minimum:        1,
+		Required:       required,
+		Minimum:        mapDiagramMinimum(required),
 		PreferredKinds: preferred,
 		ScopeHint:      scope,
 		Reasons:        reasons,
 	}
+}
+
+func mapDiagramMinimum(required bool) int {
+	if required {
+		return 1
+	}
+	return 0
 }
 
 func resolvedLogFrameCount(bundle *types.LogBundle) int {

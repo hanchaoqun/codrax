@@ -114,6 +114,44 @@ func TestCompileRootCauseTrace_HasSummaryAndOrderedListRequired(t *testing.T) {
 	}
 }
 
+func TestCompileRootCauseTrace_ExternalOnlyPrincipalListUsesObservedArtifact(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent: IntentRootCause,
+			LogTriage: &LogBundle{
+				Errors: []LogError{{Type: "panic", Frames: []LogFrame{{
+					File: "src/bridge/Bridge.cj",
+					Line: 18,
+					Func: "demo.bridge.ohSum",
+				}}}},
+			},
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		RuntimeGroundingDisposition: SystemRuntimeGroundingDisposition(ir.RequestModel.LogTriage, nil),
+	}
+	view := BuildAnswerSemanticView(ir, plan)
+	var list *BlockRequirement
+	for i := range view.RequiredBlocks {
+		if view.RequiredBlocks[i].Kind == BlockOrderedList {
+			list = &view.RequiredBlocks[i]
+			break
+		}
+	}
+	if list == nil {
+		t.Fatal("root-cause external-only answer still needs a principal observation list")
+	}
+	if !containsString(list.FacetIDs, string(FacetObservedArtifactFact)) {
+		t.Fatalf("external-only list facet_ids = %v, want observed_artifact_fact", list.FacetIDs)
+	}
+	if containsString(list.FacetIDs, string(FacetCurrentCodePath)) {
+		t.Fatalf("external-only artifact list must not require current_code_path: %v", list.FacetIDs)
+	}
+	if !containsClaimForm(list.AcceptableClaimForms, ClaimExternalObservation) {
+		t.Fatalf("external-only list must accept external_observation claims: %+v", list.AcceptableClaimForms)
+	}
+}
+
 func TestCompileRootCauseTrace_CurrentStatusDiagnosticRequiresDecisionBlock(t *testing.T) {
 	ir := irForRootCauseTrace()
 	ir.AnswerContract.CurrentStatusDiagnostic = &CurrentStatusDiagnosticContract{
@@ -380,22 +418,35 @@ func TestCompileCallChain_ResolvesFamily(t *testing.T) {
 	}
 }
 
-func TestCompileCallChain_HasOrderedListRequired(t *testing.T) {
+func TestCompileCallChain_HasOrderedListRequiredAndDiagramOptionalByDefault(t *testing.T) {
 	view := BuildAnswerSemanticView(irForCallChain(), nil)
-	hasList, hasDiagram := false, false
+	hasList, hasRequiredDiagram := false, false
 	for _, b := range view.RequiredBlocks {
 		if b.Kind == BlockOrderedList && b.Required {
 			hasList = true
 		}
 		if b.Kind == BlockDiagram && b.Required {
-			hasDiagram = true
+			hasRequiredDiagram = true
 		}
 	}
 	if !hasList {
 		t.Error("call chain must require ordered list of hops")
 	}
+	if hasRequiredDiagram {
+		t.Error("call chain must not require diagram unless the user requested one")
+	}
+}
+
+func TestCompileCallChain_UserDiagramContractRequiresDiagram(t *testing.T) {
+	view := BuildAnswerSemanticView(irForCallChain(), planRequiringDiagram())
+	hasDiagram := false
+	for _, b := range view.RequiredBlocks {
+		if b.Kind == BlockDiagram && b.Required {
+			hasDiagram = true
+		}
+	}
 	if !hasDiagram {
-		t.Error("call chain must require diagram block")
+		t.Error("explicit diagram contract should require call-chain diagram block")
 	}
 }
 
@@ -470,7 +521,7 @@ func TestCompileArchitecture_ResolvesFamily(t *testing.T) {
 	}
 }
 
-func TestCompileArchitecture_HasSectionAndDiagramRequired(t *testing.T) {
+func TestCompileArchitecture_HasSectionRequiredAndDiagramOptionalByDefault(t *testing.T) {
 	view := BuildAnswerSemanticView(irForArchitecture(), nil)
 	hasSection, hasDiagram := false, false
 	for _, b := range view.RequiredBlocks {
@@ -484,8 +535,21 @@ func TestCompileArchitecture_HasSectionAndDiagramRequired(t *testing.T) {
 	if !hasSection {
 		t.Error("architecture must require BlockSection for layers")
 	}
+	if hasDiagram {
+		t.Error("architecture must not require BlockDiagram unless the user requested one")
+	}
+}
+
+func TestCompileArchitecture_UserDiagramContractRequiresDiagram(t *testing.T) {
+	view := BuildAnswerSemanticView(irForArchitecture(), planRequiringDiagram())
+	hasDiagram := false
+	for _, b := range view.RequiredBlocks {
+		if b.Kind == BlockDiagram && b.Required {
+			hasDiagram = true
+		}
+	}
 	if !hasDiagram {
-		t.Error("architecture must require BlockDiagram")
+		t.Error("explicit diagram contract should require BlockDiagram")
 	}
 }
 

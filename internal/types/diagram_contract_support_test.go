@@ -20,6 +20,16 @@ func TestEffectiveDiagramContract_DropsHardRequirementWithoutSupport(t *testing.
 	}
 }
 
+func TestEffectiveDiagramContract_DropsSoftPreferenceWithoutSupport(t *testing.T) {
+	base := &DiagramContract{
+		Required:       false,
+		PreferredKinds: []DiagramKind{DiagramArchitecture},
+	}
+	if got := EffectiveDiagramContract(base, nil); got != nil {
+		t.Fatalf("soft diagram preference without grounded support should be dropped, got %+v", got)
+	}
+}
+
 func TestSupportedDiagramKindsForAnswer_ConfigTraceNeedsMultipleValidatedRoles(t *testing.T) {
 	items := []EvidenceItem{
 		{

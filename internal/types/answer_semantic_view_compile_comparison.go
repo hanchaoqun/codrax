@@ -68,14 +68,11 @@ func compileComparison(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 			Required: true,
 			FacetIDs: []string{
 				string(FacetBucketLabel),
-				string(FacetCurrentCodePath),
-			},
-			AcceptableClaimForms: []ClaimForm{
-				ClaimDefinitionFact, ClaimCallEdge,
 			},
 			Rationale: "One section per user-named bucket; section Title is the verbatim " +
-				"bucket label from the question. Body carries grounded code references " +
-				"that establish each side's claim on the comparison axis.",
+				"bucket label from the question. Body answers that bucket on the user's " +
+				"comparison axis; add citations or code-path details only when the axis itself " +
+				"requires them, rather than forcing every comparison into current-code-path form.",
 			SurfaceRoleHint: SurfacePrincipal,
 		},
 	}

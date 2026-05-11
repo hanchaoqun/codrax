@@ -864,16 +864,31 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			AcceptableForms: []ClaimForm{ClaimExternalObservation},
 			RequiredSubKind: rootCauseRequiredSubKind(rm),
 		}
+		currentCodeRequired := FacetHardRequired
+		nearestRequired := FacetSoftRequired
+		diagramRequired := FacetOptional
+		diagramForms := []ClaimForm{ClaimCallEdge, ClaimGuardCondition}
+		if rm.HasExternalOnlyRuntimeArtifact() {
+			// External-only runtime artifacts are answer-grade for
+			// observed frames / events but cannot prove today's
+			// current-code path. Keep current-code and diagram facets
+			// enrichment-only so helper functions discovered during
+			// the investigation cannot displace the user's artifact
+			// question.
+			currentCodeRequired = FacetOptional
+			nearestRequired = FacetOptional
+			diagramForms = []ClaimForm{ClaimExternalObservation}
+		}
 		return append([]FacetRequirement{
 			artifactFacet,
-			{Kind: FacetCurrentCodePath, Required: FacetHardRequired,
+			{Kind: FacetCurrentCodePath, Required: currentCodeRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
 					ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact}},
-			{Kind: FacetNearestMechanism, Required: FacetSoftRequired,
+			{Kind: FacetNearestMechanism, Required: nearestRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
 			{Kind: FacetUncertaintyBoundary, Required: FacetSoftRequired},
-			{Kind: FacetDiagramSpine, Required: FacetOptional,
-				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimGuardCondition}},
+			{Kind: FacetDiagramSpine, Required: diagramRequired,
+				AcceptableForms: diagramForms},
 		}, common...)
 	case QFConfigPrecedence:
 		return append([]FacetRequirement{

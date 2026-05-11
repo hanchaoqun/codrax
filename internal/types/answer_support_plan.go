@@ -228,10 +228,17 @@ func compileCurrentStatusVerdictSupportLane(plan *AnswerSupportPlan) AnswerSuppo
 }
 
 func compileObservedArtifactSupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {
+	allowedBlocks := []string{"summary", "caveat"}
+	if runtimeObservationOnly(plan) {
+		allowedBlocks = []string{"summary", "ordered_list", "bullet_list", "caveat"}
+		if diagramPreferredByEvidence(plan) {
+			allowedBlocks = append(allowedBlocks, "diagram")
+		}
+	}
 	lane := AnswerSupportLane{
 		Kind:          SupportLaneObservedArtifact,
 		Title:         "Observed artifact facts",
-		AllowedBlocks: []string{"summary", "caveat"},
+		AllowedBlocks: allowedBlocks,
 		Guidance: "Use this lane only for facts that came from the attached runtime artifact " +
 			"(log / perf trace / external observation). The system populates this lane " +
 			"from items the typed evidence projector tagged Origin=log or Origin=perf, " +
@@ -240,6 +247,9 @@ func compileObservedArtifactSupportLane(plan *AnswerSurfacePlan) AnswerSupportLa
 			"which signal triggered) but they do not prove caller-side provenance, " +
 			"source-parameter mapping, or exact downstream branch execution unless " +
 			"a separately-cited current-code line establishes that mapping.",
+	}
+	if runtimeObservationOnly(plan) {
+		lane.Guidance += " For an external-only runtime artifact with no current-repo intersection, this lane is allowed to carry the principal answer list itself: each item should be an observed frame / event / span from the artifact with citation_ref=-1. Do not substitute current-repo analysis helpers, resolver functions, or nearby implementation details for the artifact facts the user asked about."
 	}
 	for _, seed := range plan.ExternalObservationSeeds {
 		text, location := renderExternalObservationSupportEntry(seed)

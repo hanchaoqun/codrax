@@ -5,16 +5,18 @@ package types
 // A to B" — answer is an ordered sequence of call/dispatch hops.
 //
 // Required blocks:
-//   1× BlockSummary           — what initiates the chain, what terminal
-//                               state is reached, main guard.
-//   ≥1× BlockOrderedList      — the hops themselves (each item is one
-//                               function / dispatch / branch).
-//   ≥1× BlockDiagram          — sequence diagram is REQUIRED for call
-//                               chains (Required=true).
+//
+//	1× BlockSummary           — what initiates the chain, what terminal
+//	                            state is reached, main guard.
+//	≥1× BlockOrderedList      — the hops themselves (each item is one
+//	                            function / dispatch / branch).
+//	0..1× BlockDiagram        — optional unless the current request
+//	                            explicitly asked for a visual diagram.
 //
 // Optional:
-//   0..N× BlockCaveat         — drift / log-source caveats when an
-//                               attached log was the chain's seed.
+//
+//	0..N× BlockCaveat         — drift / log-source caveats when an
+//	                            attached log was the chain's seed.
 func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView {
 	view := &AnswerSemanticView{
 		Family: QFCallChain,
@@ -29,7 +31,7 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 	view.RequiredBlocks = []BlockRequirement{
 		requireSummaryBlock(
 			"State what initiates the chain, what terminal state it reaches, and the main guard or " +
-				"branch point if there is one. Keep it short — the ordered list and diagram below carry the detail."),
+				"branch point if there is one. Keep it short — the ordered list carries the hop detail."),
 		{
 			Kind:     BlockOrderedList,
 			MinCount: 1,
@@ -47,7 +49,9 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 				"with file:line; the order matches the actual control flow.",
 			SurfaceRoleHint: SurfacePrincipal,
 		},
-		{
+	}
+	if diagramRequiredByUserIntent(plan) {
+		view.RequiredBlocks = append(view.RequiredBlocks, BlockRequirement{
 			Kind:     BlockDiagram,
 			MinCount: 1,
 			MaxCount: 1,
@@ -58,7 +62,7 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 			},
 			Rationale: "A sequence diagram showing the chain visually — actor-to-actor edges " +
 				"matching the ordered list. Use Mermaid sequenceDiagram form.",
-		},
+		})
 	}
 	view.OptionalBlocks = []BlockRequirement{
 		optionalCaveatBlock(
@@ -66,6 +70,14 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 				"frames and current code lines.",
 			string(FacetObservedArtifactFact),
 		),
+	}
+	if !diagramRequiredByUserIntent(plan) && diagramPreferredByEvidence(plan) {
+		view.OptionalBlocks = append(view.OptionalBlocks, optionalDiagramBlock(
+			"Add a small sequence diagram only when it directly clarifies the call chain the user asked for "+
+				"and every node/edge is grounded. Do not add a diagram as a substitute for the ordered hops.",
+			string(FacetDiagramSpine),
+			string(FacetCurrentCodePath),
+		))
 	}
 	view.DiagramPlan = diagramPlanFor(plan, DiagramSequence,
 		[]string{string(FacetCurrentCodePath)},

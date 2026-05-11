@@ -7,19 +7,21 @@ package types
 // explanations.
 //
 // Required blocks:
-//   1× BlockSummary           — the answer's main body. For Generic
-//                               family the Summary is often longer
-//                               than other families because the
-//                               explanation lives there directly.
+//
+//	1× BlockSummary           — the answer's main body. For Generic
+//	                            family the Summary is often longer
+//	                            than other families because the
+//	                            explanation lives there directly.
 //
 // Optional:
-//   0..N× BlockSection        — sub-headed body sections (when
-//                               multiple topics).
-//   0..N× BlockOrderedList    — when the explanation walks a sequence.
-//   0..N× BlockBulletList     — when listing parallel items.
-//   0..N× BlockDiagram        — only when control flow / dispatch /
-//                               architecture is part of the answer.
-//   0..N× BlockCaveat         — out-of-scope / convention-only caveats.
+//
+//	0..N× BlockSection        — sub-headed body sections (when
+//	                            multiple topics).
+//	0..N× BlockOrderedList    — when the explanation walks a sequence.
+//	0..N× BlockBulletList     — when listing parallel items.
+//	0..N× BlockDiagram        — only when control flow / dispatch /
+//	                            architecture is part of the answer.
+//	0..N× BlockCaveat         — out-of-scope / convention-only caveats.
 //
 // QFGeneric intentionally has no BlockScalar / BlockDecision / BlockTable
 // in the optional set — those are reserved for the family-specific
@@ -75,8 +77,9 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 			MinCount: 0,
 			MaxCount: 1,
 			Required: false,
-			Rationale: "Add a diagram when the answer involves control flow, dispatch, timing, " +
-				"architecture, or fan-out — visual structure aids comprehension. Optional otherwise.",
+			Rationale: "Add a diagram only when the current question asks for a visual / structural " +
+				"walkthrough or when grounded evidence has a relationship shape that prose would obscure. " +
+				"Do not add a diagram as a generic enrichment when it would distract from the user's requested answer.",
 		},
 		optionalCaveatBlock(
 			"When the explanation is bounded to a sub-tree, or when external/log evidence "+

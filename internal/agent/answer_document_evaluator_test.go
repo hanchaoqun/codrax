@@ -518,12 +518,15 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SuppressesStepBackboneW
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				Intent:    types.IntentRootCause,
-				LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "panic"}}},
+				Intent: types.IntentRootCause,
+				LogTriage: &types.LogBundle{
+					Errors:        []types.LogError{{Type: "panic"}},
+					ResolvedFiles: []string{"internal/agent/analyzer.go"},
+				},
 			},
 			AnswerContract: types.AnswerContract{},
 		},
-		LogTriage:                &types.LogBundle{Errors: []types.LogError{{Type: "panic", Frames: []types.LogFrame{{Raw: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR(0x0)\n\tinternal/agent/analyzer.go:250 +0x1e", File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"}}}}},
+		LogTriage:                &types.LogBundle{Errors: []types.LogError{{Type: "panic", Frames: []types.LogFrame{{Raw: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR(0x0)\n\tinternal/agent/analyzer.go:250 +0x1e", File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"}}}}, ResolvedFiles: []string{"internal/agent/analyzer.go"}},
 		Mutable:                  mut,
 		AnswerSymbols:            syms,
 		AnswerSymbolCompleteness: types.CompletenessLowerBound,
@@ -571,8 +574,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_CurrentStatusDecisionLa
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				Intent:    types.IntentRootCause,
-				LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "panic"}}},
+				Intent: types.IntentRootCause,
+				LogTriage: &types.LogBundle{
+					Errors:        []types.LogError{{Type: "panic"}},
+					ResolvedFiles: []string{"internal/agent/analyzer.go"},
+				},
 			},
 			AnswerContract: types.AnswerContract{
 				CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{
@@ -585,8 +591,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_CurrentStatusDecisionLa
 				},
 			},
 		},
-		LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "panic", Frames: []types.LogFrame{{Raw: "frame", File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"}}}}},
-		Mutable:   types.NewMutableState(""),
+		LogTriage: &types.LogBundle{
+			Errors:        []types.LogError{{Type: "panic", Frames: []types.LogFrame{{Raw: "frame", File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR"}}}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		},
+		Mutable: types.NewMutableState(""),
 		EvidenceItems: []types.EvidenceItem{
 			{
 				Kind:            types.EvidenceRelationship,

@@ -343,7 +343,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"diagram_hint": map[string]any{
 				"type":        "object",
-				"description": "Optional. Suggests the diagram family that would best explain the answer. The deterministic analyzer compiler derives the final diagram contract from stronger structural signals, so omit when unsure.",
+				"description": "Optional. Emit only when the CURRENT request explicitly asks for a diagram / visual / drawing, or when the answer would be structurally incomplete without a visual. Omit for ordinary call-chain, architecture, log, or trace questions where prose/list/table blocks answer the user directly.",
 				"properties": map[string]any{
 					"kind": stringProp{Type: "string", Enum: skill.AnalysisDiagramKindValues()},
 				},

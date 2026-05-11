@@ -55,6 +55,7 @@ func compileConfigPrecedence(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 			FacetIDs: []string{string(FacetResolvedLiteralOrSymbol)},
 			AcceptableClaimForms: []ClaimForm{
 				ClaimDefinitionFact,
+				ClaimAssignmentFact,
 			},
 			Rationale: "Emit the resolved scalar value (or boolean / literal) with its authoritative " +
 				"file:line citation. When the value is genuinely absent, set status=absent on the " +
