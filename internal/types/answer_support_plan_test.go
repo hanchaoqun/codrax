@@ -165,6 +165,69 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactCanBePrincipalList(t
 	}
 }
 
+func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactFiltersPrincipalFramesBySubTopics(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		RuntimeGroundingDisposition: &RuntimeGroundingDisposition{
+			Source:         RuntimeGroundingSystemDetected,
+			Reason:         EvidenceFloorWaiverExternalLog,
+			Rationale:      "attached log frames did not resolve to current repo files",
+			CitationPolicy: RuntimeGroundingCitationRuntimeObservation,
+		},
+		ExternalObservationSeeds: []ExternalObservationSeed{
+			{Kind: "error_message", Raw: "Cangjie native call failed: index out of bounds"},
+			{Kind: "error_message", Raw: "index out of bounds: index=5, size=3"},
+			{Kind: "log_frame", Lang: "arkts", Func: "NativeBridge.invokeOhSum", File: "entry/src/main/ets/bridges/NativeBridge.ets", Line: 33},
+			{Kind: "log_frame", Lang: "arkts", Func: "HomePage.computeTotal", File: "entry/src/main/ets/pages/Home.ets", Line: 54},
+			{Kind: "log_frame", Lang: "cangjie", Func: "demo.bridge.ohSum", File: "src/bridge/Bridge.cj", Line: 18},
+			{Kind: "log_frame", Lang: "cangjie", Func: "demo.bridge.checkout", File: "src/bridge/Bridge.cj", Line: 42},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent:    IntentRootCause,
+		LogTriage: &LogBundle{Errors: []LogError{{Type: "Error"}}},
+		SubTopics: []SubTopic{
+			{Summary: "ArkTS frame", Entities: []string{"NativeBridge.invokeOhSum"}},
+			{Summary: "Cangjie frame", Entities: []string{"demo.bridge.ohSum"}},
+		},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	var observed *AnswerSupportLane
+	for i := range got.Lanes {
+		if got.Lanes[i].Kind == SupportLaneObservedArtifact {
+			observed = &got.Lanes[i]
+			break
+		}
+	}
+	if observed == nil {
+		t.Fatal("expected observed artifact lane")
+	}
+	joined := ""
+	for _, entry := range observed.Entries {
+		joined += entry.Text + "\n"
+	}
+	for _, want := range []string{
+		`structured runtime error message "Cangjie native call failed: index out of bounds"`,
+		`structured runtime error message "index out of bounds: index=5, size=3"`,
+		`runtime artifact includes stack frame "NativeBridge.invokeOhSum"`,
+		`runtime artifact includes stack frame "demo.bridge.ohSum"`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("observed lane missing principal-safe entry %q:\n%s", want, joined)
+		}
+	}
+	for _, notWant := range []string{"HomePage.computeTotal", "demo.bridge.checkout"} {
+		if strings.Contains(joined, notWant) {
+			t.Fatalf("observed lane should keep non-target support frame %q out of principal-safe entries:\n%s", notWant, joined)
+		}
+	}
+	if !strings.Contains(observed.Guidance, "only frame entries listed in this lane are principal-safe") {
+		t.Fatalf("focused observed lane should warn about support-only frames, got: %q", observed.Guidance)
+	}
+}
+
 func TestBuildAnswerSupportPlanForAgentContext_CurrentStatusAddsVerdictLane(t *testing.T) {
 	ctx := &AgentContext{
 		AnalysisIR: &AnalysisIR{

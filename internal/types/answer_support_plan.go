@@ -53,7 +53,7 @@ func BuildAnswerSupportPlanForAgentContext(ctx *AgentContext) *AnswerSupportPlan
 	}
 	view := BuildAnswerSemanticViewForAgentContext(ctx)
 	if view != nil {
-		if out := buildAnswerSupportPlanForFamily(view.Family, plan); out != nil {
+		if out := buildAnswerSupportPlanForFamily(view.Family, ctx.AnalysisIR.RequestModel, plan); out != nil {
 			return augmentCurrentStatusVerdictLane(out, view.CurrentStatusDiagnostic)
 		}
 	}
@@ -61,7 +61,7 @@ func BuildAnswerSupportPlanForAgentContext(ctx *AgentContext) *AnswerSupportPlan
 		len(plan.LogObservedAnchors) > 0 ||
 		len(plan.LogSourceDriftAnchors) > 0 {
 		return augmentCurrentStatusVerdictLane(
-			buildAnswerSupportPlanForFamily(QFRootCauseTrace, plan),
+			buildAnswerSupportPlanForFamily(QFRootCauseTrace, ctx.AnalysisIR.RequestModel, plan),
 			currentStatusDiagnosticContractFromIR(ctx.AnalysisIR),
 		)
 	}
@@ -80,7 +80,7 @@ func BuildAnswerSupportPlan(rm RequestModel, plan *AnswerSurfacePlan) *AnswerSup
 	if plan == nil {
 		return nil
 	}
-	return buildAnswerSupportPlanForFamily(ResolveQuestionFamily(rm), plan)
+	return buildAnswerSupportPlanForFamily(ResolveQuestionFamily(rm), rm, plan)
 }
 
 // BuildAnswerSupportPlanForBusContext mirrors
@@ -99,7 +99,7 @@ func BuildAnswerSupportPlanForBusContext(bus *BusContext) *AnswerSupportPlan {
 	}
 	view := BuildAnswerSemanticViewForBusContext(bus)
 	if view != nil {
-		if out := buildAnswerSupportPlanForFamily(view.Family, plan); out != nil {
+		if out := buildAnswerSupportPlanForFamily(view.Family, bus.AnalysisIR.RequestModel, plan); out != nil {
 			return augmentCurrentStatusVerdictLane(out, view.CurrentStatusDiagnostic)
 		}
 	}
@@ -107,7 +107,7 @@ func BuildAnswerSupportPlanForBusContext(bus *BusContext) *AnswerSupportPlan {
 		len(plan.LogObservedAnchors) > 0 ||
 		len(plan.LogSourceDriftAnchors) > 0 {
 		return augmentCurrentStatusVerdictLane(
-			buildAnswerSupportPlanForFamily(QFRootCauseTrace, plan),
+			buildAnswerSupportPlanForFamily(QFRootCauseTrace, bus.AnalysisIR.RequestModel, plan),
 			currentStatusDiagnosticContractFromIR(bus.AnalysisIR),
 		)
 	}
@@ -125,23 +125,23 @@ func currentStatusDiagnosticContractFromIR(ir *AnalysisIR) *CurrentStatusDiagnos
 	return ir.AnswerContract.CurrentStatusDiagnostic
 }
 
-func buildAnswerSupportPlanForFamily(family QuestionFamily, plan *AnswerSurfacePlan) *AnswerSupportPlan {
+func buildAnswerSupportPlanForFamily(family QuestionFamily, rm RequestModel, plan *AnswerSurfacePlan) *AnswerSupportPlan {
 	switch family {
 	case QFRootCauseTrace:
-		return compileRootCauseSupportPlan(plan)
+		return compileRootCauseSupportPlan(rm, plan)
 	default:
 		return nil
 	}
 }
 
-func compileRootCauseSupportPlan(plan *AnswerSurfacePlan) *AnswerSupportPlan {
+func compileRootCauseSupportPlan(rm RequestModel, plan *AnswerSurfacePlan) *AnswerSupportPlan {
 	if plan == nil {
 		return nil
 	}
 	mechanismStrength := rootCauseMechanismSupportStrength(plan)
 	out := &AnswerSupportPlan{Family: QFRootCauseTrace}
 
-	if lane := compileObservedArtifactSupportLane(plan); len(lane.Entries) > 0 {
+	if lane := compileObservedArtifactSupportLane(rm, plan); len(lane.Entries) > 0 {
 		out.Lanes = append(out.Lanes, lane)
 	}
 	if lane := compileCurrentCodePathSupportLane(plan); len(lane.Entries) > 0 {
@@ -227,7 +227,7 @@ func compileCurrentStatusVerdictSupportLane(plan *AnswerSupportPlan) AnswerSuppo
 	return lane
 }
 
-func compileObservedArtifactSupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {
+func compileObservedArtifactSupportLane(rm RequestModel, plan *AnswerSurfacePlan) AnswerSupportLane {
 	allowedBlocks := []string{"summary", "caveat"}
 	if runtimeObservationOnly(plan) {
 		allowedBlocks = []string{"summary", "ordered_list", "bullet_list", "caveat"}
@@ -250,8 +250,11 @@ func compileObservedArtifactSupportLane(plan *AnswerSurfacePlan) AnswerSupportLa
 	}
 	if runtimeObservationOnly(plan) {
 		lane.Guidance += " For an external-only runtime artifact with no current-repo intersection, this lane is allowed to carry the principal answer list itself: each item should be an observed frame / event / span from the artifact with citation_ref=-1. Do not substitute current-repo analysis helpers, resolver functions, or nearby implementation details for the artifact facts the user asked about."
+		if len(principalObservationTargets(rm)) > 0 {
+			lane.Guidance += " This dispatch has analyzer-resolved principal artifact targets; only frame entries listed in this lane are principal-safe. Other frames from the full log are supporting context unless the user explicitly asked for the full stack."
+		}
 	}
-	for _, seed := range SelectExternalObservationSeedsForPrompt(plan.ExternalObservationSeeds, ExternalObservationPromptSeedLimit) {
+	for _, seed := range selectSupportExternalObservationSeeds(rm, plan.ExternalObservationSeeds, ExternalObservationPromptSeedLimit) {
 		text, location := renderExternalObservationSupportEntry(seed)
 		if text == "" {
 			continue
@@ -262,6 +265,117 @@ func compileObservedArtifactSupportLane(plan *AnswerSurfacePlan) AnswerSupportLa
 		})
 	}
 	return lane
+}
+
+func selectSupportExternalObservationSeeds(rm RequestModel, seeds []ExternalObservationSeed, limit int) []ExternalObservationSeed {
+	if limit <= 0 || len(seeds) == 0 {
+		return nil
+	}
+	targets := principalObservationTargets(rm)
+	if len(targets) == 0 {
+		return SelectExternalObservationSeedsForPrompt(seeds, limit)
+	}
+	out := make([]ExternalObservationSeed, 0, limit)
+	seen := make(map[string]bool, limit)
+	add := func(seed ExternalObservationSeed) bool {
+		if len(out) >= limit {
+			return false
+		}
+		key := externalObservationSeedKey(seed)
+		if key == "" || seen[key] {
+			return false
+		}
+		seen[key] = true
+		out = append(out, seed)
+		return true
+	}
+
+	for _, seed := range SelectExternalObservationSeedsForPrompt(seeds, limit) {
+		if externalObservationSeedIsFrame(seed) {
+			continue
+		}
+		add(seed)
+		if len(out) >= 2 {
+			break
+		}
+	}
+	for _, target := range targets {
+		for _, seed := range seeds {
+			if !externalObservationSeedIsFrame(seed) {
+				continue
+			}
+			if externalObservationSeedMatchesTarget(seed, target) && add(seed) {
+				break
+			}
+		}
+		if len(out) >= limit {
+			return out
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	return SelectExternalObservationSeedsForPrompt(seeds, limit)
+}
+
+func principalObservationTargets(rm RequestModel) []string {
+	var out []string
+	seen := make(map[string]bool)
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		key := strings.ToLower(s)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, s)
+	}
+	for _, topic := range rm.SubTopics {
+		for _, entity := range topic.Entities {
+			add(entity)
+		}
+	}
+	return out
+}
+
+func externalObservationSeedMatchesTarget(seed ExternalObservationSeed, target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return false
+	}
+	for _, candidate := range []string{
+		seed.Func,
+		normalizedSurfaceSymbolTail(seed.Func),
+		seed.File,
+		fileBaseNoExt(seed.File),
+	} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if strings.EqualFold(candidate, target) ||
+			strings.EqualFold(normalizedSurfaceSymbolTail(candidate), normalizedSurfaceSymbolTail(target)) {
+			return true
+		}
+	}
+	return false
+}
+
+func fileBaseNoExt(path string) string {
+	path = strings.TrimSpace(strings.ReplaceAll(path, `\`, `/`))
+	if path == "" {
+		return ""
+	}
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		path = path[i+1:]
+	}
+	if i := strings.LastIndex(path, "."); i > 0 {
+		path = path[:i]
+	}
+	return path
 }
 
 func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string, string) {
