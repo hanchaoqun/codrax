@@ -1678,6 +1678,33 @@ func TestPrincipalProseUnderfilled_ImportEdgeLabelsPass(t *testing.T) {
 	}
 }
 
+func TestPrincipalProseUnderfilled_ExternalObservationDisplayLabelsPass(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: ".codrax/logs/run.log", Line: 42},
+			{File: ".codrax/logs/run.log", Line: 77},
+			{File: ".codrax/logs/run.log", Line: 91},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "observed_routes",
+			Kind:        types.BlockBulletList,
+			SurfaceRole: types.SurfacePrincipal,
+			ClaimUses: []types.RenderedClaimUse{
+				{ClaimForm: types.ClaimExternalObservation},
+			},
+			Items: []types.AnswerBlockItem{
+				{ID: "r1", Label: "GET /api/v1/users", Text: "observed route", CitationRef: 0},
+				{ID: "s1", Label: "checkout span", Text: "observed trace span", CitationRef: 1},
+				{ID: "m1", Label: "retry storm", Text: "observed runtime symptom", CitationRef: 2},
+			},
+		}},
+	}
+
+	if vs := validatePrincipalProseUnderfilled(doc); len(vs) != 0 {
+		t.Fatalf("external-observation route/span labels are typed principal surfaces; got %+v", vs)
+	}
+}
+
 // TestEnumerationLabelGrounding_SubjectAndObjectAlsoSupport —
 // evidence Subject and Object also count as support tokens.
 func TestEnumerationLabelGrounding_SubjectAndObjectAlsoSupport(t *testing.T) {

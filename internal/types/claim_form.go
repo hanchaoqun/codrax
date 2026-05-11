@@ -193,10 +193,9 @@ func (k ClaimLabelSurfaceKind) IsValid() bool {
 func (c ClaimForm) LabelSurfaceKind() ClaimLabelSurfaceKind {
 	switch c {
 	case ClaimDefinitionFact, ClaimCallEdge, ClaimGuardCondition,
-		ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact,
-		ClaimExternalObservation:
+		ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact:
 		return ClaimLabelSurfaceSymbolLike
-	case ClaimImportEdge, ClaimPrecedenceRole:
+	case ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation:
 		return ClaimLabelSurfaceDisplayLabel
 	default:
 		return ClaimLabelSurfaceUnknown

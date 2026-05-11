@@ -26,12 +26,12 @@ func TestClaimForm_AllValuesValidExceptUnknown(t *testing.T) {
 }
 
 func TestClaimForm_UsesNonSymbolLabelSurface(t *testing.T) {
-	for _, c := range []ClaimForm{ClaimImportEdge, ClaimPrecedenceRole} {
+	for _, c := range []ClaimForm{ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation} {
 		if !c.UsesNonSymbolLabelSurface() {
 			t.Fatalf("%s should use typed display labels instead of declaration-symbol labels", c)
 		}
 	}
-	for _, c := range []ClaimForm{ClaimDefinitionFact, ClaimCallEdge, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact, ClaimExternalObservation} {
+	for _, c := range []ClaimForm{ClaimDefinitionFact, ClaimCallEdge, ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact} {
 		if c.UsesNonSymbolLabelSurface() {
 			t.Fatalf("%s should keep symbol/prose-specific validation", c)
 		}

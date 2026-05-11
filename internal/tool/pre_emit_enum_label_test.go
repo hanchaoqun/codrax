@@ -132,6 +132,67 @@ func TestPreCheckItemCitationAlignment_PrecedenceRoleLabelsAreNotSymbols(t *test
 	}
 }
 
+func TestPreCheckItemCitationAlignment_ExternalObservationLabelsAreNotSymbols(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: ".codrax/logs/run.log", Line: 42}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "observed_route",
+			Kind: types.BlockTable,
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimExternalObservation,
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "route",
+				Label:       "GET /api/v1/users",
+				Text:        "runtime observation from the attached artifact",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:              "route",
+		Source:          ".codrax/logs/run.log",
+		LineStart:       42,
+		Origin:          types.ClaimOriginLog,
+		SurfaceTerms:    []string{"GET /api/v1/users"},
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("external observation route/span labels are typed display labels, not source symbols; got %+v", hints)
+	}
+}
+
+func TestPreCheckItemCitationAlignment_MacroLabelSnippetSatisfiesSymbolSurface(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "include/codrax_config.h", Line: 7}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "macro_value",
+			Kind: types.BlockTable,
+			Items: []types.AnswerBlockItem{{
+				ID:          "macro",
+				Label:       "CODRAX_MAX_STEPS",
+				Text:        "compile-time fallback value",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:              "macro",
+		Source:          "include/codrax_config.h",
+		LineStart:       7,
+		AnchorKind:      types.AnchorDefinition,
+		Snippet:         "#define CODRAX_MAX_STEPS 50",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("macro labels should keep symbol-like validation but pass via verbatim grounded snippet; got %+v", hints)
+	}
+}
+
 func TestPreCheckEnumLabel_UserBucketLabel_NoHints(t *testing.T) {
 	oracle := &stubOracle{known: map[string]int{}}
 	doc := &types.AnswerDocumentV2{

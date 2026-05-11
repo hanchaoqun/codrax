@@ -1443,7 +1443,7 @@ func principalListLabelsAnchoredByClaimSurface(b types.AnswerBlock) bool {
 	}
 	for _, item := range b.Items {
 		label := strings.TrimSpace(item.Label)
-		if label == "" || item.CitationRef < 0 || !types.IsCodeIdentitySurface(label) {
+		if label == "" || item.CitationRef < 0 {
 			return false
 		}
 	}
