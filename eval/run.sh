@@ -591,6 +591,12 @@ run_one() {
       ;;
     *)
       cleaned="$(scope_stdout "$out")"
+      if (( rc != 0 )); then
+        extra_reasons+=("read_exit:$rc")
+      fi
+      if LC_ALL=C grep -aqF '(no result)' <<<"$cleaned"; then
+        extra_reasons+=("no_result")
+      fi
       ;;
   esac
 

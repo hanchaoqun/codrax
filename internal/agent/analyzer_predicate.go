@@ -83,6 +83,23 @@ func reconcileSemanticPredicates(rm types.RequestModel) (types.SemanticPredicate
 		return resolved,
 			"single exact-target lookup keeps one answer topic; nearby layers/anchors are context, not independent cross-component sub-topics"
 	}
+	// Role-locate scalar lookup: "which function/type/sub-repo/struct
+	// plays this role?" can cross files or sub-repos during search, but
+	// the user still expects one bounded locating answer. Treating that
+	// as multi-component decomposition forces the analyzer into R1.2
+	// subtopic retries, and in focused multi-repo runs it can never be
+	// repaired because the out-of-active scope is not a valid current
+	// repo symbol. Keep the role-locate contract and let downstream
+	// exact/absence/out-of-scope handling disclose limits.
+	if resolved.IsRoleLocateLookup &&
+		resolved.IsScalarAnswer &&
+		len(rm.SubTopics) <= 1 &&
+		!resolved.IsRelationalLookup &&
+		!signalsExplicitMultiAxis(resolved) {
+		resolved.IsCrossComponent = false
+		return resolved,
+			"single role-locate scalar lookup keeps one answer topic; cross-file or cross-repo search breadth is context, not independent cross-component sub-topics"
+	}
 	// Single ordered trace rule: a source-to-sink walkthrough may span
 	// multiple files/packages, but it is still one topic when the
 	// request does not split into independent sub-topics or set-style

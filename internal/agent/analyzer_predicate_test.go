@@ -80,6 +80,56 @@ func TestReconcileSemanticPredicates(t *testing.T) {
 		}
 	})
 
+	t.Run("single role-locate scalar clears cross component", func(t *testing.T) {
+		rm := types.RequestModel{
+			RawRequest: "UserService 这个 Go interface 的实现是在哪个子仓？实现它的结构体名字是什么？",
+			Intent:     types.IntentExplain,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              "mechanism",
+				Entities:          []string{"UserService"},
+				PrimaryEntities:   []string{"UserService"},
+				MentionedEntities: []string{"UserService"},
+			},
+			Predicates: types.SemanticPredicates{
+				IsCrossComponent:   true,
+				IsRoleLocateLookup: true,
+				IsScalarAnswer:     true,
+			},
+		}
+		got, reason := reconcileSemanticPredicates(rm)
+		if got.IsCrossComponent {
+			t.Fatalf("single role-locate scalar should not remain cross-component")
+		}
+		if reason == "" {
+			t.Fatal("reason = empty, want reconcile reason")
+		}
+	})
+
+	t.Run("non-scalar role-locate keeps cross component", func(t *testing.T) {
+		rm := types.RequestModel{
+			RawRequest: "哪些实现类扮演 UserService 的不同角色？",
+			Intent:     types.IntentExplain,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              "mechanism",
+				Entities:          []string{"UserService"},
+				PrimaryEntities:   []string{"UserService"},
+				MentionedEntities: []string{"UserService"},
+			},
+			Predicates: types.SemanticPredicates{
+				IsCrossComponent:   true,
+				IsRoleLocateLookup: true,
+				IsScalarAnswer:     false,
+			},
+		}
+		got, reason := reconcileSemanticPredicates(rm)
+		if !got.IsCrossComponent {
+			t.Fatalf("non-scalar role-locate should preserve cross-component signal")
+		}
+		if reason != "" {
+			t.Fatalf("reason = %q; want empty", reason)
+		}
+	})
+
 	t.Run("cross_component without sub_topics preserved (defer to gate retry)", func(t *testing.T) {
 		// Pre-2026-05-02 the now-removed R1.2 auto-fix demoted
 		// IsCrossComponent=true → false whenever SubTopics was empty.
