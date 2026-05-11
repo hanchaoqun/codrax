@@ -57,7 +57,7 @@ func TestBuildArtifactObservationProfile_PreservesErrorMessagesAsTypedEvidence(t
 	}
 	var sawKind, sawRootMessage, sawCauseMessage bool
 	for _, kind := range profile.ObservationKinds {
-		if kind == "error_message" {
+		if kind == ObservationKindErrorMessage {
 			sawKind = true
 		}
 	}
@@ -97,8 +97,8 @@ func TestBuildArtifactObservationProfile_PreservesTraceSignals(t *testing.T) {
 	if profile.DiagnosticConfidence < 0.85 {
 		t.Fatalf("DiagnosticConfidence = %.2f, want >= 0.85", profile.DiagnosticConfidence)
 	}
-	if !containsProfileString(profile.ObservationKinds, "perf_jank") ||
-		!containsProfileString(profile.ObservationKinds, "perf_stall") {
+	if !ObservationKindsContain(profile.ObservationKinds, ObservationKindPerfJank) ||
+		!ObservationKindsContain(profile.ObservationKinds, ObservationKindPerfStall) {
 		t.Fatalf("trace observations missing: %+v", profile.ObservationKinds)
 	}
 	if !containsProfileString(profile.SubjectCandidates, "RenderList") ||
@@ -129,8 +129,8 @@ func TestBuildArtifactObservationProfileForRequest_NoAttachmentUsesTypedDiagnost
 	if profile.Source != "user_request" {
 		t.Fatalf("Source = %q, want user_request", profile.Source)
 	}
-	if !containsProfileString(profile.ObservationKinds, "historical_regression_check") ||
-		!containsProfileString(profile.ObservationKinds, "current_version_check") {
+	if !ObservationKindsContain(profile.ObservationKinds, ObservationKindHistoricalRegressionCheck) ||
+		!ObservationKindsContain(profile.ObservationKinds, ObservationKindCurrentVersionCheck) {
 		t.Fatalf("typed diagnostic flags not projected: %+v", profile.ObservationKinds)
 	}
 	if profile.SymptomSummary != "previous final answer drifted off topic" {

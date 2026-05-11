@@ -32,19 +32,7 @@ func SurfaceTermLooksLikeSourcePathReference(term string) bool {
 	if term == "" || !strings.Contains(term, "/") {
 		return false
 	}
-	ext := strings.ToLower(filepath.Ext(term))
-	if ext == "" {
-		return false
-	}
-	switch ext {
-	case ".go", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
-		".cj", ".cjo", ".ets", ".ts", ".tsx", ".js", ".jsx",
-		".java", ".kt", ".kts", ".py", ".rs", ".rb", ".php", ".swift",
-		".yaml", ".yml", ".json", ".toml", ".ini", ".xml", ".md":
-		return true
-	default:
-		return false
-	}
+	return IsCodeOrConfigPathExtension(filepath.Ext(term))
 }
 
 func SurfaceTermIdentifiesAnyCandidate(term string, candidates ...string) bool {

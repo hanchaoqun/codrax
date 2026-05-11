@@ -2813,7 +2813,7 @@ func renderAnswerDocCurrentStatusDiagnostic(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, "- Summary: %s\n", profile.SymptomSummary)
 		}
 		if len(profile.ObservationKinds) > 0 {
-			fmt.Fprintf(&b, "- Observation kinds: %s\n", strings.Join(profile.ObservationKinds, ", "))
+			fmt.Fprintf(&b, "- Observation kinds: %s\n", strings.Join(types.ObservationKindStrings(profile.ObservationKinds), ", "))
 		}
 		if profile.HasRetryLoop {
 			b.WriteString("- Runtime/process observation includes a retry loop.\n")

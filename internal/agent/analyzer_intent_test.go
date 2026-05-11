@@ -403,8 +403,8 @@ func TestBuildAnalysisIR_RebuildsArtifactProfileAfterDiagnosticReconcile(t *test
 	if profile == nil {
 		t.Fatal("ArtifactObservationProfile = nil")
 	}
-	if !containsAnalyzerIntentString(profile.ObservationKinds, "diagnostic_question") ||
-		!containsAnalyzerIntentString(profile.ObservationKinds, "current_version_check") {
+	if !types.ObservationKindsContain(profile.ObservationKinds, types.ObservationKindDiagnosticQuestion) ||
+		!types.ObservationKindsContain(profile.ObservationKinds, types.ObservationKindCurrentVersionCheck) {
 		t.Fatalf("profile was not rebuilt from reconciled diagnostic fields: %+v", profile.ObservationKinds)
 	}
 	if profile.SymptomSummary != "previous final answer drifted off topic" {

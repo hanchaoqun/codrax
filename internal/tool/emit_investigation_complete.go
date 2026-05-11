@@ -1756,18 +1756,7 @@ func callChainEndpointHintLooksLikePath(raw string) bool {
 	if strings.Contains(s, "/") {
 		return true
 	}
-	lower := strings.ToLower(s)
-	for _, ext := range []string{
-		".go", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
-		".cj", ".cjo", ".ets", ".ts", ".tsx", ".js", ".jsx",
-		".java", ".kt", ".kts", ".py", ".rs", ".rb", ".php", ".swift",
-		".yaml", ".yml", ".json", ".toml", ".ini", ".xml", ".md",
-	} {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	return false
+	return types.HasCodeOrConfigPathSuffix(strings.ToLower(s))
 }
 
 func callChainPrincipalSpanDemandForEvidence(evidence []types.EvidenceItem, startHint, endHint string) (callChainPrincipalSpanDemand, bool) {

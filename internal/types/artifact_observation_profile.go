@@ -10,15 +10,15 @@ import (
 // rather than raw artifact text so hard routing can consume precise
 // booleans while prompts can still surface the evidence snippets.
 type ArtifactObservationProfile struct {
-	Source               string   `json:"source,omitempty"`
-	ObservationKinds     []string `json:"observation_kind,omitempty"`
-	SymptomSummary       string   `json:"symptom_summary,omitempty"`
-	EvidenceSnippets     []string `json:"evidence_snippets,omitempty"`
-	SubjectCandidates    []string `json:"subject_candidates,omitempty"`
-	HasRetryLoop         bool     `json:"has_retry_loop,omitempty"`
-	HasLineMismatch      bool     `json:"has_line_mismatch,omitempty"`
-	HasCompletionRewrite bool     `json:"has_completion_rewrite,omitempty"`
-	DiagnosticConfidence float64  `json:"diagnostic_confidence,omitempty"`
+	Source               string            `json:"source,omitempty"`
+	ObservationKinds     []ObservationKind `json:"observation_kind,omitempty"`
+	SymptomSummary       string            `json:"symptom_summary,omitempty"`
+	EvidenceSnippets     []string          `json:"evidence_snippets,omitempty"`
+	SubjectCandidates    []string          `json:"subject_candidates,omitempty"`
+	HasRetryLoop         bool              `json:"has_retry_loop,omitempty"`
+	HasLineMismatch      bool              `json:"has_line_mismatch,omitempty"`
+	HasCompletionRewrite bool              `json:"has_completion_rewrite,omitempty"`
+	DiagnosticConfidence float64           `json:"diagnostic_confidence,omitempty"`
 }
 
 // BuildArtifactObservationProfile merges the structured log and trace
@@ -37,7 +37,7 @@ func BuildArtifactObservationProfile(logBundle *LogBundle, perfBundle *PerfBundl
 		mergePerfObservationProfile(&out, perfBundle)
 	}
 	out.Source = strings.Join(dedupeStrings(sources), "+")
-	out.ObservationKinds = dedupeStrings(out.ObservationKinds)
+	out.ObservationKinds = dedupeObservationKinds(out.ObservationKinds)
 	out.EvidenceSnippets = dedupeStrings(out.EvidenceSnippets)
 	out.SubjectCandidates = dedupeStrings(out.SubjectCandidates)
 	if out.Source == "" &&
@@ -64,18 +64,18 @@ func BuildArtifactObservationProfileForRequest(rm RequestModel) *ArtifactObserva
 		profile = &ArtifactObservationProfile{}
 	}
 	profile.Source = joinProfileSource(profile.Source, "user_request")
-	profile.ObservationKinds = append(profile.ObservationKinds, "request_diagnostic")
+	profile.ObservationKinds = append(profile.ObservationKinds, ObservationKindRequestDiagnostic)
 	if rm.DiagnosticProfile.IsDiagnostic {
-		profile.ObservationKinds = append(profile.ObservationKinds, "diagnostic_question")
+		profile.ObservationKinds = append(profile.ObservationKinds, ObservationKindDiagnosticQuestion)
 	}
 	if rm.DiagnosticProfile.CurrentRisk {
-		profile.ObservationKinds = append(profile.ObservationKinds, "current_risk_check")
+		profile.ObservationKinds = append(profile.ObservationKinds, ObservationKindCurrentRiskCheck)
 	}
 	if rm.DiagnosticProfile.HistoricalRegression {
-		profile.ObservationKinds = append(profile.ObservationKinds, "historical_regression_check")
+		profile.ObservationKinds = append(profile.ObservationKinds, ObservationKindHistoricalRegressionCheck)
 	}
 	if rm.DiagnosticProfile.CurrentVersionCheck {
-		profile.ObservationKinds = append(profile.ObservationKinds, "current_version_check")
+		profile.ObservationKinds = append(profile.ObservationKinds, ObservationKindCurrentVersionCheck)
 	}
 	if summary := strings.TrimSpace(rm.DiagnosticProfile.ObservationSummary); summary != "" {
 		profile.SymptomSummary = clampProfileSnippet(summary)
@@ -110,7 +110,7 @@ func BuildArtifactObservationProfileForRequest(rm RequestModel) *ArtifactObserva
 	} else if profile.DiagnosticConfidence == 0 && rm.Predicates.IsDiagnosticQuestion {
 		profile.DiagnosticConfidence = 0.7
 	}
-	profile.ObservationKinds = dedupeStrings(profile.ObservationKinds)
+	profile.ObservationKinds = dedupeObservationKinds(profile.ObservationKinds)
 	profile.EvidenceSnippets = dedupeStrings(profile.EvidenceSnippets)
 	profile.SubjectCandidates = dedupeStrings(profile.SubjectCandidates)
 	return profile
@@ -124,12 +124,12 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 		out.SymptomSummary = clampProfileSnippet(summary)
 	}
 	for _, sig := range bundle.Meta.Signals {
-		name := strings.TrimSpace(string(sig))
-		if name == "" {
+		kind := MakeLogSignalObservationKind(sig)
+		if kind == "" {
 			continue
 		}
-		out.ObservationKinds = append(out.ObservationKinds, "signal:"+name)
-		out.EvidenceSnippets = append(out.EvidenceSnippets, name)
+		out.ObservationKinds = append(out.ObservationKinds, kind)
+		out.EvidenceSnippets = append(out.EvidenceSnippets, strings.TrimSpace(string(sig)))
 		if out.DiagnosticConfidence < 0.75 {
 			out.DiagnosticConfidence = 0.75
 		}
@@ -139,7 +139,7 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 		if name == "" {
 			continue
 		}
-		out.ObservationKinds = append(out.ObservationKinds, "error_type")
+		out.ObservationKinds = append(out.ObservationKinds, ObservationKindErrorType)
 		out.EvidenceSnippets = append(out.EvidenceSnippets, name)
 		if out.DiagnosticConfidence < 0.85 {
 			out.DiagnosticConfidence = 0.85
@@ -150,7 +150,7 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 		if text == "" {
 			continue
 		}
-		out.ObservationKinds = append(out.ObservationKinds, "error_message")
+		out.ObservationKinds = append(out.ObservationKinds, ObservationKindErrorMessage)
 		out.EvidenceSnippets = append(out.EvidenceSnippets, clampProfileSnippet(text))
 		if out.SymptomSummary == "" {
 			out.SymptomSummary = clampProfileSnippet(text)
@@ -160,8 +160,7 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 		}
 	}
 	for _, obs := range bundle.Observations {
-		kind := strings.TrimSpace(string(obs.Kind))
-		if kind != "" {
+		if kind := ObservationKindFromLogObservation(obs.Kind); kind != "" {
 			out.ObservationKinds = append(out.ObservationKinds, kind)
 		}
 		if out.SymptomSummary == "" {
@@ -202,20 +201,20 @@ func mergePerfObservationProfile(out *ArtifactObservationProfile, bundle *PerfBu
 		out.SymptomSummary = clampProfileSnippet(summary)
 	}
 	for _, sig := range bundle.Meta.Signals {
-		name := strings.TrimSpace(sig)
-		if name == "" {
+		kind := MakePerfSignalObservationKind(sig)
+		if kind == "" {
 			continue
 		}
-		out.ObservationKinds = append(out.ObservationKinds, "perf_signal:"+name)
-		out.EvidenceSnippets = append(out.EvidenceSnippets, name)
+		out.ObservationKinds = append(out.ObservationKinds, kind)
+		out.EvidenceSnippets = append(out.EvidenceSnippets, strings.TrimSpace(sig))
 	}
 	for _, f := range bundle.Frames {
-		out.ObservationKinds = append(out.ObservationKinds, "perf_frame")
+		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfFrame)
 		out.EvidenceSnippets = append(out.EvidenceSnippets,
 			clampProfileSnippet(fmt.Sprintf("frame %d duration %.2fms", f.FrameNo, f.DurationMs)))
 	}
 	for _, j := range bundle.Janks {
-		out.ObservationKinds = append(out.ObservationKinds, "perf_jank")
+		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfJank)
 		if span := strings.TrimSpace(j.TriggerSpan); span != "" {
 			out.SubjectCandidates = append(out.SubjectCandidates, span)
 		}
@@ -223,7 +222,7 @@ func mergePerfObservationProfile(out *ArtifactObservationProfile, bundle *PerfBu
 			clampProfileSnippet(fmt.Sprintf("jank %.2fms %s", j.DurationMs, strings.TrimSpace(j.Reason))))
 	}
 	for _, s := range bundle.Stalls {
-		out.ObservationKinds = append(out.ObservationKinds, "perf_stall")
+		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfStall)
 		if sym := strings.TrimSpace(s.Symbol); sym != "" {
 			out.SubjectCandidates = append(out.SubjectCandidates, sym)
 		}
@@ -231,7 +230,7 @@ func mergePerfObservationProfile(out *ArtifactObservationProfile, bundle *PerfBu
 			clampProfileSnippet(fmt.Sprintf("stall %.2fms %s", s.DurationMs, strings.TrimSpace(s.Kind))))
 	}
 	if bundle.Startup != nil {
-		out.ObservationKinds = append(out.ObservationKinds, "perf_startup")
+		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfStartup)
 		out.EvidenceSnippets = append(out.EvidenceSnippets,
 			clampProfileSnippet(fmt.Sprintf("%s startup %.2fms", bundle.Startup.Mode, bundle.Startup.AppLaunchMs)))
 	}
