@@ -74,7 +74,7 @@ func (t *EmitWriteAnalysis) Name() string { return "emit_write_analysis" }
 // Description — one short sentence; strategy guidance lives in
 // write-analysis-skill.
 func (t *EmitWriteAnalysis) Description() string {
-	return "Emits the structured WriteAnalysisIR characterising the user's code-change request: task category, scope, risk, constraints, and expected outcomes. Call EXACTLY once per dispatch. " +
+	return "Emits the structured write-analysis record characterising the user's code-change request: task category, scope, risk, constraints, and expected outcomes. Call EXACTLY once per dispatch. " +
 		"The system validates enum values + cross-field consistency before storing the IR — invalid emits are rejected with the schema reminder so the next attempt can correct."
 }
 
@@ -106,7 +106,7 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_write_analysis requires BusContext.Mutable",
+			Summary:   "emit_write_analysis requires a writable context",
 			Timestamp: time.Now(),
 		}, nil
 	}

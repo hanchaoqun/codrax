@@ -125,7 +125,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_plan_skeleton requires BusContext.Mutable",
+			Summary:   "emit_plan_skeleton requires a writable context",
 			Timestamp: time.Now(),
 		}, nil
 	}

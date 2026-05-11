@@ -103,7 +103,7 @@ func (t *EmitLogSegmentation) Execute(ctx *types.BusContext, params json.RawMess
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_log_segmentation requires BusContext.Mutable",
+			Summary:   "emit_log_segmentation requires a writable context",
 			Timestamp: time.Now(),
 		}, nil
 	}

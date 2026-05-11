@@ -66,10 +66,10 @@ const EmitHypothesisVerdictProducer = "explorer.emit_hypothesis_verdict"
 func (t *EmitHypothesisVerdict) Name() string { return "emit_hypothesis_verdict" }
 
 func (t *EmitHypothesisVerdict) Description() string {
-	return "Emit a verdict for each hypothesis from the analyzer's hypothesis set that the " +
+	return "Emit a verdict for each hypothesis from the prior hypothesis set that the " +
 		"investigation has reached a conclusion on. Call this during the extraction stage AFTER the " +
 		"investigation transcript has been read, with one item per hypothesis you can confidently " +
-		"judge. hypothesis_id MUST match a real ID from the analyzer's hypothesis set; typos are " +
+		"judge. hypothesis_id MUST match a real ID from the prior hypothesis set; typos are " +
 		"flagged. status is one of: confirmed (transcript supports it), rejected (transcript " +
 		"falsifies it), inconclusive (investigated but evidence is insufficient — distinct from " +
 		"'never investigated'). Both confirmed and rejected REQUIRE a citation in the form " +
@@ -106,7 +106,7 @@ func (t *EmitHypothesisVerdict) Execute(ctx *types.BusContext, params json.RawMe
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_hypothesis_verdict requires BusContext.Mutable; the caller did not provide one (sub-agents are not supported)",
+			Summary:   "emit_hypothesis_verdict requires a writable context; the caller did not provide one (sub-agents are not supported)",
 			Timestamp: now,
 		}, nil
 	}

@@ -237,7 +237,7 @@ var defaultCooccurrenceRules = []CooccurrenceRule{
 			types.ViolEnumerationLabelUngrounded,
 			types.ViolEnumerationItemLabelExtractorDrift,
 		},
-		Reason: "enumeration labels are grounded against the extractor's declared symbol slate; a count drift means surplus items have no extractor anchor, guaranteeing UngroundedLabel and ExtractorDrift downstream",
+		Reason: "enumeration labels are grounded against the prior declared symbol slate; a count drift means surplus items have no slate anchor, guaranteeing UngroundedLabel and ExtractorDrift downstream",
 	},
 
 	// ─────────────────────────────────────────────────────────────

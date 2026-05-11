@@ -65,7 +65,7 @@ func ApplyAndPersistMutation(
 ) (types.ToolResult, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return failEmit(toolName, now,
-			"%s requires BusContext.Mutable", toolName)
+			"%s requires a writable context", toolName)
 	}
 
 	merged, err := mutation.Apply(prev)

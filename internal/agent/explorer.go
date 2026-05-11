@@ -532,7 +532,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			display = display[:15]
 		}
 		b.WriteString("### Suggested Search Terms\n\n")
-		b.WriteString("Use these for grep (from the analyzer's classification):\n`")
+		b.WriteString("Use these for grep (from the classification above):\n`")
 		b.WriteString(strings.Join(display, "`, `"))
 		b.WriteString("`\n\n")
 	}
@@ -2731,7 +2731,7 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 	b.WriteString("Workflow:\n")
 	b.WriteString("- Use `read_file` on the anchor file immediately. If it is large, first use `grep` WITHIN that file (`files_only=false`) to locate the exact symbol body.\n")
 	b.WriteString("- Extract direct evidence about the named entity before widening the search.\n")
-	b.WriteString("- Expand outward only to files directly referenced by the anchor, the analyzer's required files, or files named by unresolved symbols from your notes.\n")
+	b.WriteString("- Expand outward only to files directly referenced by the anchor, the required-file list above, or files named by unresolved symbols from your notes.\n")
 	b.WriteString("- Do NOT run broad repo-wide synonym/variant grep until after you have read the anchor file.\n\n")
 	if banner := e.buildPrimaryTargetBanner(); banner != "" {
 		b.WriteString(banner)
@@ -3088,7 +3088,7 @@ func (e *explorerEvaluator) buildDeclarativeCandidateStartInstruction(ctx *types
 	b.WriteString("\nWorkflow:\n")
 	b.WriteString("- Use the file contents, not the path spelling, to decide whether a candidate is the right surface. Prefer files that define schemas, manifests, defaults, registry tables, route tables, or direct binding structs/maps.\n")
 	b.WriteString("- Read ONE candidate first and emit evidence from it before opening generic implementation files.\n")
-	b.WriteString("- Expand only to direct neighbors that the candidate explicitly references or that are already present in the analyzer's required-file list.\n")
+	b.WriteString("- Expand only to direct neighbors that the candidate explicitly references or that are already present in the required-file list above.\n")
 	b.WriteString("- If the first candidate turns out not to be a declarative surface, move to the next candidate instead of broadening repo-wide.\n\n")
 	if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
 		b.WriteString(banner)
@@ -3709,7 +3709,7 @@ func (e *explorerEvaluator) buildExactResolutionScopeBanner(ctx *types.AgentCont
 	}
 	var b strings.Builder
 	b.WriteString("### Same-Family Repo Symbols\n\n")
-	b.WriteString("If the exact target stays absent, read these same-family symbols before jumping to a different config family. They were ranked from repo_map using the analyzer's current keywords plus the exact-target family terms:\n")
+	b.WriteString("If the exact target stays absent, read these same-family symbols before jumping to a different config family. They were ranked from repo_map using the question's current keywords plus the exact-target family terms:\n")
 	for _, cand := range cands {
 		if cand.Line > 0 {
 			fmt.Fprintf(&b, "- `%s` in `%s:%d`\n", cand.Symbol, cand.File, cand.Line)
@@ -5902,7 +5902,7 @@ func (e *explorerEvaluator) postExplanationAnchorSignal(obs LoopObservation) Loo
 	}
 	e.midLoopExplanationAnchorSent = true
 	var b strings.Builder
-	b.WriteString("MID-LOOP CHECK: this is a multi-topic explanation answer, and the current evidence still lacks one grounded anchor line per sub-topic. Before closing, make sure each sub-topic has one load-bearing symbol/field/owner line that the extractor can turn into the Key Anchors skeleton.\n")
+	b.WriteString("MID-LOOP CHECK: this is a multi-topic explanation answer, and the current evidence still lacks one grounded anchor line per sub-topic. Before closing, make sure each sub-topic has one load-bearing symbol/field/owner line that the next pass can turn into the Key Anchors skeleton.\n")
 	total := len(anchors) + len(missing)
 	if total == 0 {
 		total = len(e.analysisIR.RequestModel.SubTopics)

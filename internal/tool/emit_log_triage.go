@@ -266,7 +266,7 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_log_triage requires BusContext.Mutable",
+			Summary:   "emit_log_triage requires a writable context",
 			Timestamp: time.Now(),
 		}, nil
 	}

@@ -74,7 +74,7 @@ Use structural judgement, not keyword matching. A message containing "再" might
 
 When the prior section is empty or absent, the only legal answer is "fresh" — there is no prior turn to continue from.
 
-When uncertain, emit "fresh". The downstream cost of falsely treating a continuation as fresh (re-doing some analysis the prior turn already did) is much smaller than the cost of falsely treating a fresh question as continuation (poisoning the analyzer's entity disambiguation with stale prior-turn entities).`
+When uncertain, emit "fresh". The downstream cost of falsely treating a continuation as fresh (re-doing some analysis the prior turn already did) is much smaller than the cost of falsely treating a fresh question as continuation (poisoning the next classification pass's entity disambiguation with stale prior-turn entities).`
 
 // llmContinuationClassifier is the default implementation. One Chat
 // call per turn with tool_choice=required.

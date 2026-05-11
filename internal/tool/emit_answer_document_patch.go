@@ -55,7 +55,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats` / `replace_snippets`: when present, replace the corresponding document-level field.\n\n" +
-		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` / `remove_block_ids` MUST exist in the previous emit; every `add_blocks` id MUST NOT. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. Block kind is validated against the canonical AnswerBlockKind list. The merged document is written to Mutable as if you had called `emit_answer_document` with the full payload.\n\n" +
+		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` / `remove_block_ids` MUST exist in the previous emit; every `add_blocks` id MUST NOT. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. Block kind is validated against the canonical block-kind enum. The merged document is stored as if you had called `emit_answer_document` with the full payload.\n\n" +
 		"Empty patches are rejected — every retry MUST declare some change (set `unchanged_block_ids` to assert preservation if no edits are needed).\n\n" +
 		"BLOCK CONTRACT (same shape replace_blocks / add_blocks payloads must follow as a full emit):\n\n" +
 		BuildAnswerDocumentSemanticContractDescription()
@@ -140,7 +140,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	now := time.Now()
 	if ctx == nil || ctx.Mutable == nil {
 		return failEmit(t.Name(), now,
-			"emit_answer_document_patch requires BusContext.Mutable")
+			"emit_answer_document_patch requires a writable context")
 	}
 
 	// Locate the previous emit. Prefer Mutable.AnswerDocumentV2()

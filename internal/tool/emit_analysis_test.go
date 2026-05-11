@@ -1273,8 +1273,8 @@ func TestEmitAnalysis_Execute_MissingMutableFails(t *testing.T) {
 	if res.Success {
 		t.Error("nil Mutable should fail")
 	}
-	if !strings.Contains(res.Summary, "Mutable") {
-		t.Errorf("failure Summary should mention Mutable, got %q", res.Summary)
+	if !strings.Contains(res.Summary, "writable context") {
+		t.Errorf("failure Summary should mention missing writable context, got %q", res.Summary)
 	}
 }
 

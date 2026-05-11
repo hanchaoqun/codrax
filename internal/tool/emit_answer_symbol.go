@@ -172,7 +172,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_answer_symbol requires BusContext.Mutable; the caller did not provide one (sub-agents are not supported)",
+			Summary:   "emit_answer_symbol requires a writable context; the caller did not provide one (sub-agents are not supported)",
 			Timestamp: now,
 		}, nil
 	}

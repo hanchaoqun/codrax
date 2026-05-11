@@ -369,12 +369,12 @@ func buildEmitAnalysisSchema() {
 			},
 			"buckets": map[string]any{
 				"type":        "array",
-				"description": "Optional. Emit when the user EXPLICITLY partitions the answer into named groups — phrases that pair multiple labels with parallel asks (e.g. 'X for A, Y for B' / 'A 和 B 分别...' / 'list ... separately for A and B' / 'compare A vs B'). Each bucket's label MUST be verbatim from the question; the analyzer's anchor entities go in anchors[]. Decision rule: if the answer would naturally split into N sections each titled by a user-named label, emit one bucket per label in the order they appear. Leave omitted for single-topic questions or for multi-topic questions where the user did NOT name the partitions.",
+				"description": "Optional. Emit when the user EXPLICITLY partitions the answer into named groups — phrases that pair multiple labels with parallel asks (e.g. 'X for A, Y for B' / 'A 和 B 分别...' / 'list ... separately for A and B' / 'compare A vs B'). Each bucket's label MUST be verbatim from the question; your anchor entities go in anchors[]. Decision rule: if the answer would naturally split into N sections each titled by a user-named label, emit one bucket per label in the order they appear. Leave omitted for single-topic questions or for multi-topic questions where the user did NOT name the partitions.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"label":   map[string]any{"type": "string", "description": "Verbatim label copied from the user's question (e.g. when the question pairs two named modes / phases / sides, copy each name as the bucket label)."},
-						"anchors": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Entities the analyzer resolved as members of this bucket."},
+						"anchors": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Entities you resolved as members of this bucket."},
 						"index":   map[string]any{"type": "integer", "minimum": 1, "description": "1-based ordinal in the order labels appear in the question."},
 					},
 					"required": []string{"label"},
@@ -465,7 +465,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_analysis requires BusContext.Mutable; the caller did not provide one (sub-agents are not supported)",
+			Summary:   "emit_analysis requires a writable context; the caller did not provide one (sub-agents are not supported)",
 			Timestamp: time.Now(),
 		}, nil
 	}

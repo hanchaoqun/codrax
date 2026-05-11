@@ -214,7 +214,7 @@ func TestEmitWriteAnalysis_RequiresMutable(t *testing.T) {
 	if res.Success {
 		t.Error("expected failure when Mutable is nil")
 	}
-	if !strings.Contains(res.Summary, "Mutable") {
-		t.Errorf("rejection summary = %q; expected 'Mutable' mention", res.Summary)
+	if !strings.Contains(res.Summary, "writable context") {
+		t.Errorf("rejection summary = %q; expected 'writable context' mention", res.Summary)
 	}
 }

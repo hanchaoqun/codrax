@@ -188,7 +188,7 @@ func validatePlanScopeKindAlignment(ctx *types.BusContext, changes []types.FileC
 			path = fmt.Sprintf("changes[%d]", i)
 		}
 		return fmt.Sprintf(
-			"task.scope=micro forbids kind=modify on %q — micro-scope tasks (one function / one constant / one line in one file, per the analyzer's classification) MUST use kind=patch with a unified diff. "+
+			"task.scope=micro forbids kind=modify on %q — micro-scope tasks (one function / one constant / one line in one file, per the prior classification) MUST use kind=patch with a unified diff. "+
 				"A whole-file overwrite for a one-line edit collapses the diff the user reviews. "+
 				"Re-emit this change with kind=patch and a unified diff that touches only the affected line(s); "+
 				"the change-plan-skill prompt's WORKED EXAMPLE shows the exact format (--- / +++ headers, @@ hunk header with line counts, ' '/'-'/'+' line prefixes, byte-for-byte context match including tabs). "+

@@ -1605,7 +1605,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// REPL turn whose Prior Conversation memory contains a `/approve`
 	// line in summary doesn't false-fire.
 	if probe := types.StripConversationPrefix(request); types.IsREPLControlInput(probe) {
-		err := fmt.Errorf("orchestrator: request %q is a REPL control command, not a code question — slash commands must be intercepted by the REPL dispatcher (or removed from CLI --request); refusing to dispatch the analyzer because it would iterate to its budget cap rejecting its own emit_analysis call", probe)
+		err := fmt.Errorf("orchestrator: request %q is a REPL control command, not a code question — slash commands must be intercepted by the REPL dispatcher (or removed from CLI --request); refusing to start analysis because it would iterate to its budget cap rejecting its own emit_analysis call", probe)
 		o.busCtx.TaskState.LastError = err.Error()
 		return o.busCtx, err
 	}

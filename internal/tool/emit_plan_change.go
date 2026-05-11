@@ -67,7 +67,7 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_plan_change requires BusContext.Mutable",
+			Summary:   "emit_plan_change requires a writable context",
 			Timestamp: time.Now(),
 		}, nil
 	}

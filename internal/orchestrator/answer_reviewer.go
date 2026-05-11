@@ -87,17 +87,17 @@ type AnswerRetryEvent struct {
 // instead of applies_to_kinds + applies_to_paths).
 var answerPatternTool = llm.ToolSchema{
 	Name:        "emit_answer_pattern",
-	Description: "Distill the answer-finding difficulty into a reusable abstract pitfall the analyzer should remember on FUTURE requests in this repo. Emit ONLY when the underlying mis-classification or mis-shaping generalises (a pattern, not a single instance). Skip this tool when the difficulty was one-off, request-specific, or too unclear to abstract.",
+	Description: "Distill the answer-finding difficulty into a reusable abstract pitfall the next classification pass should remember on FUTURE requests in this repo. Emit ONLY when the underlying mis-classification or mis-shaping generalises (a pattern, not a single instance). Skip this tool when the difficulty was one-off, request-specific, or too unclear to abstract.",
 	Parameters: json.RawMessage(`{
   "type": "object",
   "properties": {
     "name": {
       "type": "string",
-      "description": "Short label (max 60 chars) the analyzer sees when scoring relevance. Abstract — describe the KIND of mis-classification or mis-shaping, not the specific request. ALWAYS in English regardless of the user's request language: dedup uses whitespace-token overlap so a Chinese name like 多主题分类不当 would never deduplicate against a future English-named sibling. Bad: \"FooBar question got wrong answer\". Good: \"enumeration on this repo counts interfaces not implementations\"."
+      "description": "Short label (max 60 chars) the next classification pass sees when scoring relevance. Abstract — describe the KIND of mis-classification or mis-shaping, not the specific request. ALWAYS in English regardless of the user's request language: dedup uses whitespace-token overlap so a Chinese name like 多主题分类不当 would never deduplicate against a future English-named sibling. Bad: \"FooBar question got wrong answer\". Good: \"enumeration on this repo counts interfaces not implementations\"."
     },
     "description": {
       "type": "string",
-      "description": "2-4 sentences (50-300 chars total) describing the pattern: what shape of mis-classification or mis-shaping produces this difficulty, how to recognise it, why it matters. Optimised for the analyzer's reading — terse, declarative, actionable."
+      "description": "2-4 sentences (50-300 chars total) describing the pattern: what shape of mis-classification or mis-shaping produces this difficulty, how to recognise it, why it matters. Optimised for the next classification pass's reading — terse, declarative, actionable."
     },
     "trigger": {
       "type": "string",

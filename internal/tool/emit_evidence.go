@@ -470,7 +470,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_evidence requires BusContext.Mutable; the caller did not provide one (sub-agents are not supported)",
+			Summary:   "emit_evidence requires a writable context; the caller did not provide one (sub-agents are not supported)",
 			Timestamp: now,
 		}, nil
 	}

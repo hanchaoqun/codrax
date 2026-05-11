@@ -945,7 +945,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	if ac.Mutable != nil && !finalizerUsesTypedAnswerSupport(ac) {
 		if verdicts := ac.Mutable.EmittedHypothesisVerdicts(); len(verdicts) > 0 {
 			var vc strings.Builder
-			vc.WriteString("The extractor (Turn B) reached the following verdicts on the hypotheses the analyzer posed. " +
+			vc.WriteString("The prior extraction pass reached the following verdicts on the hypotheses posed during classification. " +
 				"When writing the final answer, carry these verdicts forward: confirmed hypotheses become load-bearing " +
 				"claims, rejected ones become caveats, and inconclusive ones are acknowledged as open questions. " +
 				"Cite the file:line anchor from the verdict whenever you reference the conclusion.\n\n")
@@ -1794,7 +1794,7 @@ var rawToolOutputSkipTools = map[string]bool{
 // produces a valid document. For citation-free scalar answers (a
 // BlockScalar with no citation floor), citation_ref=-1 on the value
 // is the correct answer.
-const rawToolOutputPreamble = "These are the raw outputs of commands the explorer ran during the investigation. " +
+const rawToolOutputPreamble = "These are the raw outputs of commands run during the investigation. " +
 	"Use them as the source of TRUTH for citation-free scalar answers whose literal comes from command / VCS output (counts, totals, sizes, version numbers, commit hashes, subject lines). " +
 	"These tool outputs are NOT repo files — they MUST NOT appear in citations[]. " +
 	"For a citation-free scalar answer (BlockScalar with no citation floor) emit a `scalar` block whose `text` starts with the literal taken directly from the tool output tail, and attach a one-element `items=[{id:\"v\", citation_ref:-1}]` anchor; -1 is the correct choice because the " +
@@ -3944,7 +3944,7 @@ func formatAnalyzerPrescanForPlan(ir *types.AnalysisIR) string {
 
 	if len(requiredFiles) > 0 {
 		b.WriteString("\n### Pre-scored relevant files (top of repo_map ranking)\n")
-		b.WriteString("These paths scored highest for the analyzer's entity query — read them first if your plan needs to touch this area.\n")
+		b.WriteString("These paths scored highest for the question's entity query — read them first if your plan needs to touch this area.\n")
 		for _, f := range requiredFiles {
 			if f = strings.TrimSpace(f); f != "" {
 				fmt.Fprintf(&b, "- %s\n", f)

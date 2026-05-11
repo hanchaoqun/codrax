@@ -112,7 +112,7 @@ func (t *EmitPerfSegmentation) Execute(ctx *types.BusContext, params json.RawMes
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_perf_segmentation requires BusContext.Mutable",
+			Summary:   "emit_perf_segmentation requires a writable context",
 			Timestamp: time.Now(),
 		}, nil
 	}

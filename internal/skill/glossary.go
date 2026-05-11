@@ -166,6 +166,16 @@ var InternalTermsBlocklist = []string{
 	"T1b",
 	"T1c",
 
+	// Agent self-reference jargon — leaks the multi-agent
+	// architecture to the LLM. Use neutral phrasing instead:
+	//   "the explorer" → "the investigation"
+	//   "the extractor" → "the prior slate" / "the answer-symbol slate"
+	//   "the analyzer"  → "the classification" / "the question"
+	// (the bare token "finalizer" is already banned above.)
+	"the explorer",
+	"the extractor",
+	"the analyzer",
+
 	// Design-doc / commit-tracking acronyms.
 	"CGEC",
 	"ERM",

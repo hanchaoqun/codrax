@@ -121,7 +121,7 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_perf_trace requires BusContext.Mutable",
+			Summary:   "emit_perf_trace requires a writable context",
 			Timestamp: time.Now(),
 		}, nil
 	}

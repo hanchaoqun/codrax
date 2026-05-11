@@ -194,8 +194,8 @@ func TestEmitChangePlan_NilMutableGracefullyFails(t *testing.T) {
 	if res.Success {
 		t.Fatal("expected Success=false for nil Mutable")
 	}
-	if !strings.Contains(res.Summary, "Mutable") {
-		t.Errorf("summary should name the missing Mutable, got: %s", res.Summary)
+	if !strings.Contains(res.Summary, "writable context") {
+		t.Errorf("summary should name the missing writable context, got: %s", res.Summary)
 	}
 }
 

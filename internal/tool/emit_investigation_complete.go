@@ -583,7 +583,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Stage:      string(types.StageExplore),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "CitationReq",
-					Reason:     "closure snapshot fails preflight; evidence insufficient or citations outside ReadSet",
+					Reason:     "closure snapshot fails preflight; evidence insufficient or citations outside the already-read file set",
 					Confidence: 0.70,
 				},
 			})
@@ -753,17 +753,17 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 				closure.AddRepair(types.RepairDirective{
 					Kind:      types.RepairExpandSearch,
 					Keywords:  kws,
-					Rationale: fmt.Sprintf("evidence cites %d file(s) findings_validator flagged as unverified: %s — re-grep the repo to confirm the correct locations", len(hits), strings.Join(hits, "; ")),
+					Rationale: fmt.Sprintf("evidence cites %d file(s) the prior findings check flagged as unverified: %s — re-grep the repo to confirm the correct locations", len(hits), strings.Join(hits, "; ")),
 					Origin:    "pre_complete.evidence_on_unverified_path",
 				})
 				logging.Info("[CGEC] C2 downgrade: evidence cites unverified path(s) count=%d", len(hits))
 				var b strings.Builder
-				b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — evidence cites files the analyzer findings_validator flagged as unverified.\n\n")
+				b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — evidence cites files the prior findings check flagged as unverified.\n\n")
 				b.WriteString("The following evidence sources were unable to be verified against the repo graph:\n")
 				for _, h := range hits {
 					b.WriteString("  - " + h + "\n")
 				}
-				b.WriteString("\nRe-run grep to confirm the correct file paths (the analyzer may have hallucinated them). After finding real evidence anchors, re-call emit_investigation_complete.")
+				b.WriteString("\nRe-run grep to confirm the correct file paths (the prior pass may have hallucinated them). After finding real evidence anchors, re-call emit_investigation_complete.")
 				return b.String()
 			}
 		}
@@ -835,7 +835,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 			b.WriteString("\n")
 		}
 		if len(suspicious) > 0 {
-			b.WriteString("## Suspicious Anchors (files NOT in the explorer's ScannedSet — possibly hallucinated paths)\n")
+			b.WriteString("## Suspicious Anchors (files NOT in the investigation's scanned set — possibly hallucinated paths)\n")
 			for i, p := range suspicious {
 				if i >= max {
 					fmt.Fprintf(&b, "  ... and %d more\n", len(suspicious)-max)
@@ -1002,7 +1002,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		closure.AddRepair(types.RepairDirective{
 			Kind:      types.RepairExpandSearch,
 			Keywords:  kws,
-			Rationale: fmt.Sprintf("evidence buffer has only %d of %d required cite-eligible items — broaden grep coverage with stems / conceptual synonyms of the analyzer keywords above", eligible, min),
+			Rationale: fmt.Sprintf("evidence buffer has only %d of %d required cite-eligible items — broaden grep coverage with stems / conceptual synonyms of the keywords above", eligible, min),
 			Origin:    "pre_complete.citation_floor_low",
 		})
 		logging.Info("[CGEC] B1c expand_search: origin=pre_complete.citation_floor_low eligible=%d min=%d keywords=%d", eligible, min, len(kws))
