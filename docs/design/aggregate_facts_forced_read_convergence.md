@@ -442,6 +442,122 @@ semantic keyword match on the user request, and it does not synthesize answers.
 - Write-stage exec remains available for worktree-contained apply/verify
   commands.
 
+## Workstream K: Cross-Language Assignment / Member Initializer Evidence
+
+### Problem
+
+The latest architecture/sequence E2E showed `AnchorAssignment` still behaves as
+if every assignment-like fact were `:=` or `=`. That is too narrow for the
+languages Codrax supports:
+
+- Go struct/composite literals: `EntryConditions: critEntry(...)`
+- TypeScript / ArkTS object literals: `entryConditions: buildEntry(...)`
+- C / C++ designated initializers: `.entry_conditions = build_entry(...)`
+- Rust / Swift / Kotlin / Java / Cangjie property or named-field
+  initialization surfaces
+- config/object formats where the visible key is the principal surface
+
+When these facts cannot be represented as assignment evidence, the explorer
+either emits a nearby helper/call anchor or the finalizer loses a useful
+source-grounded detail. That is a cross-language evidence-carrier gap, not a
+Go struct-literal corner case.
+
+### Design
+
+Make repomap/tree-sitter the primary carrier and keep lexical fallback precise:
+
+- Add typed line features for assignment-like source shapes:
+  `assignment` for variable/property assignment statements and
+  `member_initializer` for field/object/designated initializer entries.
+- Map language-specific AST node names to those features inside repomap
+  extraction. ArkTS rides the TypeScript grammar; Cangjie emits the same
+  feature through its Go-native parser/scanner path because no tree-sitter
+  grammar is authoritative for Cangjie.
+- `ground.AnchorAssignment` consumes those features first. When the cited
+  non-comment line has a typed assignment/member-initializer feature, that line
+  is a valid assignment-shaped anchor; the model-authored fields/snippet still
+  carry the user-visible subject/value surface downstream.
+- If AST features are absent because the file fell back to a lower parse tier,
+  use a structural line-syntax fallback that recognizes assignment operators,
+  map/object/struct field entries, and designated initializers. The fallback
+  reads only the model-authored `EvidenceItem` plus already-read source text; it
+  never scans the user request or fabricates answer content.
+- Keep symbol oracles out of this path. A field label, YAML key, object member,
+  route label, or designated initializer is a source-surface assignment fact,
+  not necessarily a repo symbol definition.
+
+### Tests
+
+- Go composite literal field assignment grounds on both the field label and RHS
+  helper call.
+- ArkTS / TypeScript object literal member entries ground as assignment facts.
+- C / C++ designated initializers ground as assignment facts.
+- Cangjie-style named member/property initialization has a covered fallback
+  path until the parser emits the typed feature directly.
+- Comment-only lines mentioning the same surface do not ground assignment
+  evidence.
+- Existing `:=` / `=` assignment grounding stays unchanged.
+
+## Workstream L: Alias-Resolved Subtopic Coherence
+
+### Problem
+
+The analyzer still sometimes emits conceptual aliases such as
+`read_scheduler_loop` / `write_scheduler_loop` while the repo contains
+`runReadSchedulerLoop` / `runWriteSchedulerLoop`. The second attempt usually
+recovers, but the first attempt retry is a symptom of a typed resolution gap:
+subtopic coherence has exact, flat, file-surface, and role-suffix resolution,
+but no bounded action-prefix alias lane.
+
+### Design
+
+Add a resolver lane that is stricter than fuzzy search:
+
+- Normalize the analyzer surface and repo symbols by case/separator.
+- Accept only a small set of structural action-prefix variants on repo symbols
+  (`run`, `build`, `make`, `new`, `create`, `load`, `parse`, `handle`) when
+  the remaining flat form equals the analyzer surface.
+- Require a unique match before the hard coherence gate treats the entity as
+  resolved.
+- Keep this lane inside the resolver/gate boundary only; it is a typed
+  existence proof for coherence, not a canonical answer-member rewrite.
+
+### Tests
+
+- `read_scheduler_loop` resolves uniquely to `runReadSchedulerLoop`.
+- Ambiguous prefix matches do not resolve.
+- Short stems and ordinary prose surfaces do not resolve.
+
+## Workstream M: Diagram Preference Propagation
+
+### Problem
+
+The diagram validator now catches semantic/body mismatches, but the finalizer
+still sometimes emits `diagram.kind=architecture` with a `sequenceDiagram`
+body on the first try. That means the schema boundary is correct while the
+first-pass preference signal is too weak.
+
+### Design
+
+Keep the validator as the hard boundary and improve upstream preference
+ordering:
+
+- Preserve explicit `DiagramHint` ordering when the current evidence supports
+  the requested kind.
+- When the user asks for a sequence diagram and the grounded architecture
+  evidence is the only available seed, present that as "sequence requested,
+  architecture seed available" instead of encouraging an architecture kind with
+  sequence syntax.
+- Continue to reject unsupported Mermaid families at runtime through the
+  diagram syntax profile registry.
+
+### Tests
+
+- Explicit sequence hint remains the first preferred diagram kind when support
+  exists.
+- `architecture` + `sequenceDiagram` mismatch still triggers validator repair.
+- Unsupported Mermaid directives remain rejected rather than silently rendered.
+
 ## Delivery Order
 
 1. Land this design document.
@@ -467,3 +583,7 @@ semantic keyword match on the user request, and it does not synthesize answers.
    richness remains vulnerable to doc-comment line drift.
 10. Implement Workstream J before running further real E2E evals; otherwise
     read-mode validation can pollute the user's checkout while investigating.
+11. Implement Workstream K before more field/config/count evals; otherwise
+    cross-language assignment facts continue to fall through to helper anchors.
+12. Implement Workstreams L/M as bounded first-pass quality improvements after
+    K, keeping all hard gates on typed resolver/profile signals.

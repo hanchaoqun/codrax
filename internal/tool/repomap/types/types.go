@@ -293,6 +293,21 @@ const (
 	// composite value.
 	LineFeatureCompositeLiteral LineFeature = "composite_literal"
 
+	// LineFeatureAssignment — variable / property assignment shape:
+	// `x = y`, `x := y`, `obj.field = y`, `val x = y`,
+	// `let x = y`, `const x = y`, etc. This is a source-shape
+	// feature, not a semantic dataflow guarantee.
+	LineFeatureAssignment LineFeature = "assignment"
+
+	// LineFeatureMemberInitializer — field/object/designated
+	// initializer entry inside a composite value: Go
+	// `Field: value`, JS/TS/ArkTS `{ field: value }`, Rust
+	// `field: value`, C/C++ `.field = value`, and equivalent
+	// language-specific named-member initializer surfaces. This lets
+	// downstream assignment evidence carry visible member labels
+	// without pretending those labels are symbol definitions.
+	LineFeatureMemberInitializer LineFeature = "member_initializer"
+
 	// LineFeatureArrowFunction — JS / TS arrow `(x) => y` or
 	// Rust closure shape. Lambda body marker.
 	LineFeatureArrowFunction LineFeature = "arrow_function"
@@ -360,7 +375,8 @@ func (f LineFeature) IsBlockTerminator() bool {
 
 // IsEvidenceShape reports whether `f` describes a source-line
 // shape worth deeper analysis by the concrete_values producer
-// (return / call / new / composite literal / arrow function).
+// (return / call / new / composite literal / assignment /
+// member-initializer / arrow function).
 // Phase 6 stage 18 typed replacement for the explorer's
 // isEvidenceLine token tables.
 func (f LineFeature) IsEvidenceShape() bool {
@@ -369,6 +385,8 @@ func (f LineFeature) IsEvidenceShape() bool {
 		LineFeatureCallExpression,
 		LineFeatureNewExpression,
 		LineFeatureCompositeLiteral,
+		LineFeatureAssignment,
+		LineFeatureMemberInitializer,
 		LineFeatureArrowFunction:
 		return true
 	}

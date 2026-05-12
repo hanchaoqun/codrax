@@ -225,6 +225,50 @@ func (r *repomapSymbolResolver) LookupSymbolStem(surface string) []normalizer.Sy
 	return hits
 }
 
+// LookupSymbolActionAlias resolves analyzer concept surfaces that
+// dropped a repo symbol's leading action verb while preserving the
+// rest of the identifier exactly after case/separator normalization:
+// `read_scheduler_loop` ↔ `runReadSchedulerLoop`. This is stricter
+// than LookupSymbolStem: it only strips a bounded action-prefix enum
+// from repo symbols and requires the remaining flat form to equal the
+// analyzer surface. Callers that use this for hard gates should still
+// require a unique hit.
+func (r *repomapSymbolResolver) LookupSymbolActionAlias(surface string) []normalizer.SymbolHit {
+	if r == nil || r.graph == nil {
+		return nil
+	}
+	target := normalizedActionAliasSurface(surface)
+	if target == "" {
+		return nil
+	}
+	hits := make([]normalizer.SymbolHit, 0, maxSymbolResolverHits)
+	seen := make(map[string]bool, maxSymbolResolverHits)
+	for name, defs := range r.graph.SymbolDefs {
+		stem := stripActionPrefix(name)
+		if stem == "" || normalizer.NormalizeCodeKey(stem) != target {
+			continue
+		}
+		for _, sym := range defs {
+			if sym == nil || sym.Name == "" {
+				continue
+			}
+			key := sym.Name + "|" + sym.File
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			hits = append(hits, normalizer.SymbolHit{
+				Canonical: sym.Name,
+				Domain:    symbolDomain(r.graph, sym),
+			})
+			if len(hits) >= maxSymbolResolverHits {
+				return hits
+			}
+		}
+	}
+	return hits
+}
+
 // stripRoleSuffix removes a recognised role-naming suffix (case-
 // insensitive) from the end of name and returns the remaining
 // stem. Returns "" when no role suffix matches. Used by
@@ -243,6 +287,45 @@ func stripRoleSuffix(name string) string {
 		// `_` to get `request`).
 		stem = strings.TrimRight(stem, "_-")
 		return stem
+	}
+	return ""
+}
+
+var actionPrefixCanonicalLowers = []string{
+	"run", "build", "make", "new", "create", "load", "parse", "handle",
+}
+
+const actionAliasFloor = 8
+
+func normalizedActionAliasSurface(surface string) string {
+	trimmed := strings.TrimSpace(surface)
+	if trimmed == "" {
+		return ""
+	}
+	target := normalizer.NormalizeCodeKey(trimmed)
+	if len(target) < actionAliasFloor {
+		return ""
+	}
+	return target
+}
+
+func stripActionPrefix(name string) string {
+	if name == "" {
+		return ""
+	}
+	lower := strings.ToLower(name)
+	for _, prefix := range actionPrefixCanonicalLowers {
+		if !strings.HasPrefix(lower, prefix) || len(name) <= len(prefix) {
+			continue
+		}
+		boundary := name[len(prefix)]
+		if boundary != '_' && boundary != '-' && (boundary < 'A' || boundary > 'Z') {
+			continue
+		}
+		stem := strings.TrimLeft(name[len(prefix):], "_-")
+		if stem != "" {
+			return stem
+		}
 	}
 	return ""
 }
@@ -514,6 +597,40 @@ func (r *multiRepoSymbolResolver) LookupSymbolStem(surface string) []normalizer.
 	var hits []multigraph.SymbolHit
 	r.mg.IterateSymbolDefs(func(name string, defs []*rmtypes.Symbol, sub *topology.SubRepo) bool {
 		if !strings.Contains(normalizer.NormalizeCodeKey(name), flatStem) {
+			return true
+		}
+		for _, sym := range defs {
+			if sym == nil {
+				continue
+			}
+			hits = append(hits, multigraph.SymbolHit{Symbol: sym, Sub: sub})
+			if len(hits) >= maxSymbolResolverHits {
+				return false
+			}
+		}
+		return true
+	})
+	if len(hits) == 0 {
+		return nil
+	}
+	return r.adaptHits(hits)
+}
+
+// LookupSymbolActionAlias is the multi-repo counterpart of
+// repomapSymbolResolver.LookupSymbolActionAlias. Same bounded prefix
+// stripping; fan-out via IterateSymbolDefs.
+func (r *multiRepoSymbolResolver) LookupSymbolActionAlias(surface string) []normalizer.SymbolHit {
+	if r == nil || r.mg == nil {
+		return nil
+	}
+	target := normalizedActionAliasSurface(surface)
+	if target == "" {
+		return nil
+	}
+	var hits []multigraph.SymbolHit
+	r.mg.IterateSymbolDefs(func(name string, defs []*rmtypes.Symbol, sub *topology.SubRepo) bool {
+		stem := stripActionPrefix(name)
+		if stem == "" || normalizer.NormalizeCodeKey(stem) != target {
 			return true
 		}
 		for _, sym := range defs {

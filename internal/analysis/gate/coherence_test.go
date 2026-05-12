@@ -16,6 +16,7 @@ import (
 type fakeSymbolResolver struct {
 	byEntity map[string][]normalizer.SymbolHit
 	byFile   map[string][]normalizer.SymbolHit
+	byAlias  map[string][]normalizer.SymbolHit
 }
 
 func (f *fakeSymbolResolver) LookupSymbol(surface string) []normalizer.SymbolHit {
@@ -33,6 +34,16 @@ func (f *fakeSymbolResolver) LookupFileSurface(surface string) []normalizer.Symb
 		return nil
 	}
 	if hits, ok := f.byFile[strings.TrimSpace(surface)]; ok {
+		return hits
+	}
+	return nil
+}
+
+func (f *fakeSymbolResolver) LookupSymbolActionAlias(surface string) []normalizer.SymbolHit {
+	if f == nil {
+		return nil
+	}
+	if hits, ok := f.byAlias[strings.TrimSpace(surface)]; ok {
 		return hits
 	}
 	return nil
@@ -253,6 +264,24 @@ func TestSubtopicCoherence_R1_5_OneEntityResolves_Passes(t *testing.T) {
 	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
 		t.Fatalf("R1.5 must pass when at least one entity per sub-topic resolves; got %+v", check)
+	}
+}
+
+func TestSubtopicCoherence_R1_5_UniqueActionAliasResolves(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byAlias: map[string][]normalizer.SymbolHit{
+			"read_scheduler_loop": {{Canonical: "runReadSchedulerLoop", Domain: "orchestrator"}},
+		},
+	}
+	if !subTopicEntityResolvedForCoherence("read_scheduler_loop", types.RequestModel{}, resolver) {
+		t.Fatal("unique action-prefix alias must resolve for coherence")
+	}
+	resolver.byAlias["read_scheduler_loop"] = []normalizer.SymbolHit{
+		{Canonical: "runReadSchedulerLoop", Domain: "orchestrator"},
+		{Canonical: "buildReadSchedulerLoop", Domain: "orchestrator"},
+	}
+	if subTopicEntityResolvedForCoherence("read_scheduler_loop", types.RequestModel{}, resolver) {
+		t.Fatal("ambiguous action-prefix alias must not satisfy hard coherence")
 	}
 }
 

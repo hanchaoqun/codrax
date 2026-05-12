@@ -41,7 +41,9 @@ func TestLookupSymbolStem_M1bR1Reproduction(t *testing.T) {
 		"finalizerEvaluator": "internal/agent/finalizer.go",
 	})
 	r := newRepomapSymbolResolver(g)
-	stemR := r.(interface{ LookupSymbolStem(string) []normalizer.SymbolHit })
+	stemR := r.(interface {
+		LookupSymbolStem(string) []normalizer.SymbolHit
+	})
 	for _, ent := range []string{"AnalyzerAgent", "FinalizerAgent"} {
 		hits := stemR.LookupSymbolStem(ent)
 		if len(hits) == 0 {
@@ -54,11 +56,11 @@ func TestLookupSymbolStem_M1bR1Reproduction(t *testing.T) {
 // suffix the stripper recognises.
 func TestLookupSymbolStem_RoleSuffixVariants(t *testing.T) {
 	cases := []struct {
-		name      string
-		userEntity string
-		repoSym   string
+		name        string
+		userEntity  string
+		repoSym     string
 		mustResolve bool
-		note      string
+		note        string
 	}{
 		{"Agent", "AnalyzerAgent", "analyzerEvaluator", true, "Agent → flat-stem analyzer ⊂ analyzerevaluator"},
 		{"Handler", "RequestHandler", "requestProcessor", true, "Handler → request ⊂ requestprocessor"},
@@ -82,7 +84,9 @@ func TestLookupSymbolStem_RoleSuffixVariants(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := fakeGraphForStem(map[string]string{tc.repoSym: "x.go"})
 			r := newRepomapSymbolResolver(g)
-			stemR := r.(interface{ LookupSymbolStem(string) []normalizer.SymbolHit })
+			stemR := r.(interface {
+				LookupSymbolStem(string) []normalizer.SymbolHit
+			})
 			hits := stemR.LookupSymbolStem(tc.userEntity)
 			gotResolved := len(hits) > 0
 			if gotResolved != tc.mustResolve {
@@ -100,7 +104,9 @@ func TestLookupSymbolStem_NoSuffixMatchReturnsNil(t *testing.T) {
 		"realFunctionName": "x.go",
 	})
 	r := newRepomapSymbolResolver(g)
-	stemR := r.(interface{ LookupSymbolStem(string) []normalizer.SymbolHit })
+	stemR := r.(interface {
+		LookupSymbolStem(string) []normalizer.SymbolHit
+	})
 	if hits := stemR.LookupSymbolStem("PlainNoun"); len(hits) != 0 {
 		t.Errorf("no role suffix → nil; got %d hits", len(hits))
 	}
@@ -116,7 +122,9 @@ func TestLookupSymbolStem_StemTooShortReturnsNil(t *testing.T) {
 		"abcManager": "x.go", // contains "abc"
 	})
 	r := newRepomapSymbolResolver(g)
-	stemR := r.(interface{ LookupSymbolStem(string) []normalizer.SymbolHit })
+	stemR := r.(interface {
+		LookupSymbolStem(string) []normalizer.SymbolHit
+	})
 	// "AService" → strip "service" → "a" (1 char, below floor)
 	if hits := stemR.LookupSymbolStem("AService"); len(hits) != 0 {
 		t.Errorf("stem 'a' below floor → nil; got %d hits", len(hits))
@@ -140,7 +148,9 @@ func TestLookupSymbolStem_NilResolverTolerated(t *testing.T) {
 func TestLookupSymbolStem_EmptyGraphReturnsNil(t *testing.T) {
 	g := fakeGraphForStem(nil)
 	r := newRepomapSymbolResolver(g)
-	stemR := r.(interface{ LookupSymbolStem(string) []normalizer.SymbolHit })
+	stemR := r.(interface {
+		LookupSymbolStem(string) []normalizer.SymbolHit
+	})
 	if hits := stemR.LookupSymbolStem("AnalyzerAgent"); len(hits) != 0 {
 		t.Errorf("empty graph → nil; got %d hits", len(hits))
 	}
@@ -150,15 +160,57 @@ func TestLookupSymbolStem_EmptyGraphReturnsNil(t *testing.T) {
 // graph symbols, return up to maxSymbolResolverHits.
 func TestLookupSymbolStem_MultiHit(t *testing.T) {
 	g := fakeGraphForStem(map[string]string{
-		"analyzerEvaluator":  "internal/agent/analyzer.go",
-		"analyzerHelper":     "internal/agent/analyzer_helper.go",
-		"runAnalyzer":        "internal/runner.go",
+		"analyzerEvaluator": "internal/agent/analyzer.go",
+		"analyzerHelper":    "internal/agent/analyzer_helper.go",
+		"runAnalyzer":       "internal/runner.go",
 	})
 	r := newRepomapSymbolResolver(g)
-	stemR := r.(interface{ LookupSymbolStem(string) []normalizer.SymbolHit })
+	stemR := r.(interface {
+		LookupSymbolStem(string) []normalizer.SymbolHit
+	})
 	hits := stemR.LookupSymbolStem("AnalyzerAgent")
 	if len(hits) < 2 {
 		t.Errorf("multi-symbol stem-match should return ≥2 hits; got %d", len(hits))
+	}
+}
+
+func TestLookupSymbolActionAlias_ActionPrefixVariants(t *testing.T) {
+	g := fakeGraphForStem(map[string]string{
+		"runReadSchedulerLoop":  "internal/orchestrator/scheduler.go",
+		"runWriteSchedulerLoop": "internal/orchestrator/write_scheduler.go",
+		"runnerConfig":          "internal/orchestrator/config.go",
+	})
+	r := newRepomapSymbolResolver(g)
+	aliasR := r.(interface {
+		LookupSymbolActionAlias(string) []normalizer.SymbolHit
+	})
+	hits := aliasR.LookupSymbolActionAlias("read_scheduler_loop")
+	if len(hits) != 1 {
+		t.Fatalf("read_scheduler_loop alias hits=%v, want exactly one", hits)
+	}
+	if hits[0].Canonical != "runReadSchedulerLoop" {
+		t.Fatalf("canonical=%q, want runReadSchedulerLoop", hits[0].Canonical)
+	}
+	if hits := aliasR.LookupSymbolActionAlias("runner_config"); len(hits) != 0 {
+		t.Fatalf("runner_config must not strip embedded run prefix; got %v", hits)
+	}
+}
+
+func TestLookupSymbolActionAlias_AmbiguousAndShortSurfaces(t *testing.T) {
+	g := fakeGraphForStem(map[string]string{
+		"runReadSchedulerLoop":   "internal/orchestrator/scheduler.go",
+		"buildReadSchedulerLoop": "internal/orchestrator/builder.go",
+		"newConfig":              "internal/config/runtime.go",
+	})
+	r := newRepomapSymbolResolver(g)
+	aliasR := r.(interface {
+		LookupSymbolActionAlias(string) []normalizer.SymbolHit
+	})
+	if hits := aliasR.LookupSymbolActionAlias("read_scheduler_loop"); len(hits) != 2 {
+		t.Fatalf("ambiguous action alias hits=%v, want two candidates for caller-side uniqueness gate", hits)
+	}
+	if hits := aliasR.LookupSymbolActionAlias("config"); len(hits) != 0 {
+		t.Fatalf("short action alias surface must not resolve; got %v", hits)
 	}
 }
 
@@ -194,4 +246,3 @@ func TestStripRoleSuffix_TableInvariants(t *testing.T) {
 		})
 	}
 }
-

@@ -196,11 +196,14 @@ type Report struct {
 //     + Line == LineStart
 //     - import     → FileInfo.Imports + imp.Path/Alias match +
 //     imp.Line == LineStart
-//     - condition/return/assignment → no repomap primitive, degrade
-//     to line-text scan for the kind's keyword set
+//     - condition/return → no repomap primitive, degrade to
+//     line-text scan for the kind's keyword set
 //     (if/when/unless/switch/case/guard for
-//     condition; return/yield for return; := or
-//     standalone = for assignment)
+//     condition; return/yield for return)
+//     - assignment → repomap LineFeatureAssignment /
+//     LineFeatureMemberInitializer when available, otherwise a
+//     structural line-syntax fallback for `=`, `:=`, and
+//     field/object/designated initializers
 //
 //  3. Recovery R1-R5 — implemented in Step 11 of the redesign.
 //     Placeholder here so GroundItem can be wired end-to-end first.
@@ -1621,9 +1624,37 @@ func lineContainsAssignment(it *types.EvidenceItem, gc *Context) bool {
 	if !exists {
 		return false
 	}
-	// Accept `:=` anywhere on the line, or a bare `=` that is not
-	// part of `==`/`!=`/`<=`/`>=`. The repo has no curated stopword
-	// list for this by design — the rule is structural.
+	if isLineComment(fileLines, it.LineStart, it.Source) && !configSurfaceAllowsLooseLineGrounding(it) {
+		return false
+	}
+	if graphLineHasAssignmentFeature(gc.Graph, it.Source, it.LineStart) {
+		return true
+	}
+	return sourceLineHasAssignmentSyntax(text)
+}
+
+func graphLineHasAssignmentFeature(graph *repomap.Graph, source string, line int) bool {
+	if graph == nil || source == "" || line <= 0 {
+		return false
+	}
+	for _, feature := range graph.LineFeaturesAt(source, line) {
+		switch feature {
+		case repomap.LineFeatureAssignment, repomap.LineFeatureMemberInitializer:
+			return true
+		}
+	}
+	return false
+}
+
+func sourceLineHasAssignmentSyntax(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	// Accept `:=` anywhere on the line, or a bare assignment `=`
+	// that is not part of comparison / arrow / lambda syntax. The
+	// repo has no curated stopword list for this by design: the rule
+	// is structural and language-surface based.
 	if strings.Contains(text, ":=") {
 		return true
 	}
@@ -1639,12 +1670,149 @@ func lineContainsAssignment(it *types.EvidenceItem, gc *Context) bool {
 		if i+1 < len(text) {
 			next = text[i+1]
 		}
-		if prev == '=' || prev == '!' || prev == '<' || prev == '>' || next == '=' {
+		if prev == '=' || prev == '!' || prev == '<' || prev == '>' || prev == '-' ||
+			next == '=' || next == '>' {
 			continue
 		}
 		return true
 	}
-	return false
+	return sourceLineHasMemberInitializerSyntax(text)
+}
+
+func sourceLineHasMemberInitializerSyntax(text string) bool {
+	colon := structuralMemberInitializerColon(text)
+	if colon <= 0 || colon >= len(text)-1 {
+		return false
+	}
+	lhs := memberInitializerKeySurface(text[:colon])
+	rhs := strings.TrimSpace(text[colon+1:])
+	if lhs == "" || rhs == "" {
+		return false
+	}
+	lowerLHS := strings.ToLower(lhs)
+	if lowerLHS == "default" || strings.HasPrefix(lowerLHS, "case ") {
+		return false
+	}
+	if strings.HasPrefix(rhs, ":") || strings.HasPrefix(rhs, "=") ||
+		strings.HasPrefix(rhs, "//") || strings.HasPrefix(rhs, "/*") {
+		return false
+	}
+	if looksLikePureTypeAnnotationValue(rhs) {
+		return false
+	}
+	return true
+}
+
+func structuralMemberInitializerColon(text string) int {
+	quote := byte(0)
+	escaped := false
+	for i := 0; i < len(text); i++ {
+		ch := text[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch ch {
+		case '\'', '"', '`':
+			quote = ch
+		case ':':
+			prev := byte(' ')
+			if i > 0 {
+				prev = text[i-1]
+			}
+			next := byte(' ')
+			if i+1 < len(text) {
+				next = text[i+1]
+			}
+			if prev == ':' || prev == '?' || next == ':' || next == '=' || next == '/' {
+				continue
+			}
+			return i
+		}
+	}
+	return -1
+}
+
+func memberInitializerKeySurface(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	if idx := strings.LastIndexAny(s, "{[,("); idx >= 0 && idx < len(s)-1 {
+		s = strings.TrimSpace(s[idx+1:])
+	}
+	s = strings.TrimLeft(s, ".*&")
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if (strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`)) ||
+		(strings.HasPrefix(s, `'`) && strings.HasSuffix(s, `'`)) ||
+		(strings.HasPrefix(s, "`") && strings.HasSuffix(s, "`")) {
+		return s
+	}
+	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") && len(s) > 2 {
+		return s
+	}
+	if strings.ContainsAny(s, " \t") {
+		return ""
+	}
+	if len(identifierTokenRe.FindAllString(s, -1)) == 0 {
+		return ""
+	}
+	return s
+}
+
+func looksLikePureTypeAnnotationValue(rhs string) bool {
+	raw := strings.TrimSpace(rhs)
+	endsSemicolon := strings.HasSuffix(raw, ";")
+	s := strings.TrimSuffix(raw, ";")
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	if endsSemicolon && typeAnnotationSurface(s) {
+		return true
+	}
+	if strings.ContainsAny(s, "({[\"'`,}") {
+		return false
+	}
+	if strings.Contains(s, "=>") || strings.ContainsAny(s, "=+-*/%&|") {
+		return false
+	}
+	toks := identifierTokenRe.FindAllString(s, -1)
+	return len(toks) == 1 && toks[0] == s
+}
+
+func typeAnnotationSurface(s string) bool {
+	if len(identifierTokenRe.FindAllString(s, -1)) == 0 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9':
+			continue
+		case r == '_', r == '.', r == '<', r == '>',
+			r == '[', r == ']', r == '|', r == '&',
+			r == '?', r == ':', r == ' ', r == '\t':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func lineCorroboratesCallSite(lineText string, it *types.EvidenceItem, graph *repomap.Graph, lineNo int) bool {

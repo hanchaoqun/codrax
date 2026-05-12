@@ -83,6 +83,7 @@ func SupportedDiagramKindsForAnswer(
 	}
 	if architectureDiagramSupported(answerChains) {
 		add(DiagramArchitecture)
+		add(DiagramSequence)
 	}
 	if configTraceDiagramSupported(scenario, stableAbsent, contract, requiredFiles, evidence) {
 		add(DiagramArchitecture)

@@ -476,7 +476,10 @@ func summaryShort(s string, runeMax int) string {
 // subTopicEntityResolvedForCoherence returns true when a sub-topic
 // entity has enough typed grounding to avoid R1.5's hallucination
 // branch. The primary route remains resolver.LookupSymbol /
-// LookupSymbolStem. A resolver may also expose LookupFileSurface for
+// LookupSymbolStem. A resolver may also expose
+// LookupSymbolActionAlias for unique action-prefix alias surfaces
+// (`read_scheduler_loop` ↔ `runReadSchedulerLoop`) and
+// LookupFileSurface for
 // repo-file anchors: sub-topic entities such as `orchestrator.go`,
 // `Index.ets`, `foo.cj`, `src/lib.cpp`, or `package.json` are valid
 // structural surfaces when they resolve to a unique FileIndex member,
@@ -504,6 +507,13 @@ func subTopicEntityResolvedForCoherence(surface string, rm types.RequestModel, r
 			LookupSymbolStem(string) []normalizer.SymbolHit
 		}); ok {
 			if hits := stemr.LookupSymbolStem(trimmed); len(hits) > 0 {
+				return true
+			}
+		}
+		if aliasr, ok := resolver.(interface {
+			LookupSymbolActionAlias(string) []normalizer.SymbolHit
+		}); ok {
+			if hits := aliasr.LookupSymbolActionAlias(trimmed); len(hits) == 1 {
 				return true
 			}
 		}

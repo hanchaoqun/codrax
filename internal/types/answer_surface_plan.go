@@ -1081,6 +1081,42 @@ func RenderAnswerChainDiagramFence(chains []AnswerChain) string {
 	return RenderLinearDiagramFence(nodes, 5)
 }
 
+func RenderAnswerChainSequenceDiagramFence(chains []AnswerChain) string {
+	nodes := make([]string, 0, len(chains))
+	seen := make(map[string]bool)
+	for _, chain := range chains {
+		label := firstNonEmptySurfaceString(
+			chain.Item.DisplayLocation(true),
+			strings.TrimSpace(chain.Item.Source),
+			strings.TrimSpace(chain.Item.Subject),
+			strings.TrimSpace(chain.Item.AnchorSymbol),
+		)
+		label = strings.TrimSpace(label)
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		nodes = append(nodes, label)
+		if len(nodes) >= 5 {
+			break
+		}
+	}
+	if len(nodes) < 2 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("```mermaid\n")
+	b.WriteString("sequenceDiagram\n")
+	for i, label := range nodes {
+		fmt.Fprintf(&b, "    participant p%d as %q\n", i, label)
+	}
+	for i := 0; i < len(nodes)-1; i++ {
+		fmt.Fprintf(&b, "    p%d->>p%d: next\n", i, i+1)
+	}
+	b.WriteString("```")
+	return b.String()
+}
+
 func RenderDriftBoundedSurfaceDiagramFence(items []EvidenceItem) string {
 	items = DriftBoundedRenderableSurfaceItems(items)
 	if len(items) == 0 {
@@ -1241,6 +1277,11 @@ func CompileDiagramSurfaceFence(
 				return kind, fence
 			}
 		case DiagramSequence, DiagramCallDAG:
+			if kind == DiagramSequence {
+				if fence := RenderAnswerChainSequenceDiagramFence(answerChains); fence != "" {
+					return kind, fence
+				}
+			}
 			if fence := RenderLogAnchorDiagramFence(logObserved); fence != "" {
 				return kind, fence
 			}

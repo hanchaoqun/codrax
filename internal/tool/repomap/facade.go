@@ -48,16 +48,18 @@ type (
 // ---- LineFeature value re-exports -----------------------------------
 
 const (
-	LineFeatureReturnStmt       = types.LineFeatureReturnStmt
-	LineFeatureBreakStmt        = types.LineFeatureBreakStmt
-	LineFeatureRaiseStmt        = types.LineFeatureRaiseStmt
-	LineFeatureThrowStmt        = types.LineFeatureThrowStmt
-	LineFeatureCallExpression   = types.LineFeatureCallExpression
-	LineFeatureNewExpression    = types.LineFeatureNewExpression
-	LineFeatureCompositeLiteral = types.LineFeatureCompositeLiteral
-	LineFeatureArrowFunction    = types.LineFeatureArrowFunction
-	LineFeatureUnknownEffect    = types.LineFeatureUnknownEffect
-	LineFeatureGuard            = types.LineFeatureGuard
+	LineFeatureReturnStmt        = types.LineFeatureReturnStmt
+	LineFeatureBreakStmt         = types.LineFeatureBreakStmt
+	LineFeatureRaiseStmt         = types.LineFeatureRaiseStmt
+	LineFeatureThrowStmt         = types.LineFeatureThrowStmt
+	LineFeatureCallExpression    = types.LineFeatureCallExpression
+	LineFeatureNewExpression     = types.LineFeatureNewExpression
+	LineFeatureCompositeLiteral  = types.LineFeatureCompositeLiteral
+	LineFeatureAssignment        = types.LineFeatureAssignment
+	LineFeatureMemberInitializer = types.LineFeatureMemberInitializer
+	LineFeatureArrowFunction     = types.LineFeatureArrowFunction
+	LineFeatureUnknownEffect     = types.LineFeatureUnknownEffect
+	LineFeatureGuard             = types.LineFeatureGuard
 )
 
 // ---- language constant re-exports -----------------------------------

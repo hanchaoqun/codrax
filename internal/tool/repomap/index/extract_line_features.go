@@ -61,6 +61,11 @@ func extractLineFeatures(root *sitter.Node, src []byte) map[int][]types.LineFeat
 //   - throw_statement (Java/JS/TS) → LineFeatureThrowStmt
 //   - call_expression / method_invocation → LineFeatureCallExpression
 //   - new_expression / object_creation_expression → LineFeatureNewExpression
+//   - assignment_statement / assignment_expression / short_var_declaration
+//     / variable_declarator / init_declarator / let_declaration
+//     / property_declaration → LineFeatureAssignment
+//   - keyed_element / pair / field_initializer / initializer_pair
+//     / designated_initializer → LineFeatureMemberInitializer
 //   - arrow_function / lambda_expression → LineFeatureArrowFunction
 //   - composite_literal (Go) / struct_expression (Rust) /
 //     object (JS) → LineFeatureCompositeLiteral
@@ -106,6 +111,18 @@ func walkLineFeatures(node *sitter.Node, src []byte, add func(int, types.LineFea
 		}
 	case "new_expression", "object_creation_expression":
 		add(line, types.LineFeatureNewExpression)
+	case "assignment_statement", "assignment_expression",
+		"augmented_assignment",
+		"short_var_declaration",
+		"variable_declarator", "init_declarator",
+		"let_declaration", "lexical_declaration",
+		"property_declaration":
+		add(line, types.LineFeatureAssignment)
+	case "keyed_element",
+		"pair", "pair_pattern",
+		"field_initializer",
+		"initializer_pair", "designated_initializer":
+		add(line, types.LineFeatureMemberInitializer)
 	case "arrow_function", "lambda_expression",
 		"lambda", "closure_expression":
 		add(line, types.LineFeatureArrowFunction)

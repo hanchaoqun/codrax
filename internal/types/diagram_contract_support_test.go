@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEffectiveDiagramContract_DropsHardRequirementWithoutSupport(t *testing.T) {
 	base := &DiagramContract{
@@ -28,6 +31,41 @@ func TestEffectiveDiagramContract_DropsSoftPreferenceWithoutSupport(t *testing.T
 	if got := EffectiveDiagramContract(base, nil); got != nil {
 		t.Fatalf("soft diagram preference without grounded support should be dropped, got %+v", got)
 	}
+}
+
+func TestSupportedDiagramKindsForAnswer_AnswerChainsSupportSequencePreference(t *testing.T) {
+	chains := []AnswerChain{
+		{Item: EvidenceItem{Source: "internal/agent/analyzer.go", LineStart: 10, AnchorKind: AnchorDefinition, AnchorSymbol: "Analyze"}},
+		{Item: EvidenceItem{Source: "internal/agent/explorer.go", LineStart: 20, AnchorKind: AnchorDefinition, AnchorSymbol: "Explore"}},
+	}
+	supported := SupportedDiagramKindsForAnswer(ScenarioArchitectureExplain, false, nil, nil, nil, nil, chains, nil)
+	if !diagramKindSliceContains(supported, DiagramArchitecture) || !diagramKindSliceContains(supported, DiagramSequence) {
+		t.Fatalf("answer chains supported kinds=%v, want architecture and sequence", supported)
+	}
+	dc := EffectiveDiagramContract(&DiagramContract{
+		Required:       true,
+		Minimum:        1,
+		PreferredKinds: []DiagramKind{DiagramSequence, DiagramArchitecture},
+	}, supported)
+	if dc == nil || len(dc.PreferredKinds) == 0 || dc.PreferredKinds[0] != DiagramSequence {
+		t.Fatalf("effective diagram contract=%+v, want sequence preference preserved", dc)
+	}
+	kind, fence := CompileDiagramSurfaceFence(dc, ScenarioArchitectureExplain, nil, nil, nil, nil, chains, nil)
+	if kind != DiagramSequence {
+		t.Fatalf("compiled diagram kind=%s, want sequence", kind)
+	}
+	if !strings.Contains(fence, "sequenceDiagram") {
+		t.Fatalf("compiled fence=%q, want sequenceDiagram", fence)
+	}
+}
+
+func diagramKindSliceContains(kinds []DiagramKind, want DiagramKind) bool {
+	for _, got := range kinds {
+		if got == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSupportedDiagramKindsForAnswer_ConfigTraceNeedsMultipleValidatedRoles(t *testing.T) {

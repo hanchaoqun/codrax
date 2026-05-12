@@ -882,6 +882,145 @@ func TestGroundItem_AttachSnippetPreservesStatementLocalLine(t *testing.T) {
 	}
 }
 
+func TestGroundItem_AssignmentAcceptsCrossLanguageMemberInitializers(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		line string
+	}{
+		{
+			name: "go composite literal field",
+			path: "internal/agent/explorer.go",
+			line: "\tEntryConditions: critEntry(\"has_enough_facts\"),",
+		},
+		{
+			name: "arkts object literal member",
+			path: "entry/src/main/ets/pages/Index.ets",
+			line: "\tentryConditions: buildEntry(\"ready\"),",
+		},
+		{
+			name: "typescript quoted object key",
+			path: "src/config.ts",
+			line: "\t\"entryConditions\": buildEntry(\"ready\"),",
+		},
+		{
+			name: "cpp designated initializer",
+			path: "src/config.cpp",
+			line: "\t.entry_conditions = build_entry(),",
+		},
+		{
+			name: "cangjie named member fallback",
+			path: "src/main.cj",
+			line: "\tentryConditions: buildEntry(\"ready\"),",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			history := []types.ToolResult{
+				buildGutterReadResult(tc.path, 40, []string{tc.line}, 100),
+			}
+			gc := &Context{LineIndex: buildLineIndex(history, "")}
+			it := &types.EvidenceItem{
+				Kind:         types.EvidenceDirect,
+				Source:       tc.path,
+				LineStart:    40,
+				Scope:        types.ScopeLine,
+				AnchorKind:   types.AnchorAssignment,
+				AnchorSymbol: "OwnerSymbolNotOnInitializerLine",
+				Subject:      "OwnerSymbolNotOnInitializerLine",
+			}
+			rep := GroundItem(it, gc)
+			if rep.Status != types.GroundingGrounded {
+				t.Fatalf("assignment initializer grounding status=%s note=%q, want grounded", rep.Status, rep.Note)
+			}
+			if it.GroundingTier != types.TierSymbolTable {
+				t.Fatalf("assignment initializer tier=%s, want symbol_table fallback", it.GroundingTier)
+			}
+		})
+	}
+}
+
+func TestGroundItem_AssignmentConsumesRepomapLineFeature(t *testing.T) {
+	const path = "src/widget.ets"
+	history := []types.ToolResult{
+		buildGutterReadResult(path, 12, []string{
+			"\tentryConditions buildEntry(\"ready\")",
+		}, 40),
+	}
+	gc := &Context{
+		LineIndex: buildLineIndex(history, ""),
+		Graph: &repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+			path: {
+				RelPath:  path,
+				Language: repomap.LangArkTS,
+				LineFeatures: map[int][]repomap.LineFeature{
+					12: {repomap.LineFeatureMemberInitializer},
+				},
+			},
+		}},
+	}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Source:       path,
+		LineStart:    12,
+		Scope:        types.ScopeLine,
+		AnchorKind:   types.AnchorAssignment,
+		AnchorSymbol: "OwnerSymbolNotOnInitializerLine",
+		Subject:      "OwnerSymbolNotOnInitializerLine",
+	}
+	rep := GroundItem(it, gc)
+	if rep.Status != types.GroundingGrounded {
+		t.Fatalf("repomap member-initializer feature grounding status=%s note=%q, want grounded", rep.Status, rep.Note)
+	}
+}
+
+func TestGroundItem_AssignmentRejectsCommentOnlyMemberInitializer(t *testing.T) {
+	const path = "internal/agent/explorer.go"
+	history := []types.ToolResult{
+		buildGutterReadResult(path, 40, []string{
+			"\t// EntryConditions: critEntry(\"has_enough_facts\"),",
+		}, 100),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Source:       path,
+		LineStart:    40,
+		Scope:        types.ScopeLine,
+		AnchorKind:   types.AnchorAssignment,
+		AnchorSymbol: "OwnerSymbolNotOnInitializerLine",
+		Subject:      "OwnerSymbolNotOnInitializerLine",
+	}
+	rep := GroundItem(it, gc)
+	if rep.Status == types.GroundingGrounded {
+		t.Fatalf("comment-only member initializer grounded unexpectedly: tier=%s note=%q", it.GroundingTier, it.GroundingNote)
+	}
+}
+
+func TestGroundItem_AssignmentRejectsPureTypeAnnotationMember(t *testing.T) {
+	const path = "src/config.ts"
+	history := []types.ToolResult{
+		buildGutterReadResult(path, 18, []string{
+			"\tentryConditions: EntryCondition[];",
+		}, 40),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Source:       path,
+		LineStart:    18,
+		Scope:        types.ScopeLine,
+		AnchorKind:   types.AnchorAssignment,
+		AnchorSymbol: "OwnerSymbolNotOnInitializerLine",
+		Subject:      "OwnerSymbolNotOnInitializerLine",
+	}
+	rep := GroundItem(it, gc)
+	if rep.Status == types.GroundingGrounded {
+		t.Fatalf("pure type annotation grounded as assignment unexpectedly: tier=%s note=%q", it.GroundingTier, it.GroundingNote)
+	}
+}
+
 // TestGroundItem_Tier1AcceptsRealCodeLine is the positive control:
 // when the anchor actually lands on a code line (not a comment), Tier 1
 // should still accept it. Guards against the comment-exclusion gate
