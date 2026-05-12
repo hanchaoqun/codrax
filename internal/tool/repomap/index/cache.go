@@ -405,8 +405,12 @@ func LoadCachedHashes(dir string) map[string]string {
 	return hashes
 }
 
-// ChangedFiles returns the list of files that changed since the cache was written.
-// Uses git diff if possible, otherwise compares hashes.
+// ChangedFiles returns the list of files whose current bytes differ from
+// the cached hash snapshot. This deliberately compares content hashes even
+// in git repositories: a clean checkout after pull/rebase/commit can have
+// no working-tree diff while the on-disk bytes still differ from an older
+// repomap cache. Correct symbol spans matter more than the small hashing
+// cost.
 func ChangedFiles(repoRoot, cacheDir string, entries []FileEntry) []string {
 	cachedHashes := LoadCachedHashes(cacheDir)
 	if cachedHashes == nil {
@@ -418,13 +422,6 @@ func ChangedFiles(repoRoot, cacheDir string, entries []FileEntry) []string {
 		return all
 	}
 
-	// Try git-based detection first (fast)
-	gitChanged := gitChangedSince(repoRoot, cacheDir)
-	if gitChanged != nil {
-		return gitChanged
-	}
-
-	// Fallback: compare hashes
 	var changed []string
 	currentFiles := make(map[string]bool)
 	for _, entry := range entries {
@@ -450,32 +447,6 @@ func ChangedFiles(repoRoot, cacheDir string, entries []FileEntry) []string {
 	for path := range cachedHashes {
 		if !currentFiles[path] {
 			changed = append(changed, path)
-		}
-	}
-	return changed
-}
-
-func gitChangedSince(repoRoot, cacheDir string) []string {
-	metaPath := filepath.Join(cacheDir, cacheMetaFile)
-	info, err := os.Stat(metaPath)
-	if err != nil {
-		return nil
-	}
-
-	// Use modification time of cache as reference
-	since := info.ModTime().Format("2006-01-02T15:04:05")
-	cmd, cancel := tool.NewGitCommand(nil, "-C", repoRoot, "diff", "--name-only", "--diff-filter=ACMRD", "--since="+since)
-	defer cancel()
-	out, err := cmd.Output()
-	if err != nil {
-		return nil
-	}
-
-	var changed []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			changed = append(changed, line)
 		}
 	}
 	return changed

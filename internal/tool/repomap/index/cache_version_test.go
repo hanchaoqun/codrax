@@ -3,7 +3,9 @@ package index
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -127,4 +129,72 @@ func TestCacheChecksumMismatchInvalidates(t *testing.T) {
 	if got := LoadFileInfos(dir); got != nil {
 		t.Errorf("expected nil on checksum mismatch, got %+v", got)
 	}
+}
+
+func TestChangedFilesUsesHashesForCleanCommittedRepo(t *testing.T) {
+	repo := t.TempDir()
+	if err := runGitForCacheTest(repo, "init"); err != nil {
+		t.Skipf("git unavailable for cache invalidation regression: %v", err)
+	}
+	if err := runGitForCacheTest(repo, "config", "user.email", "cache-test@example.com"); err != nil {
+		t.Skipf("git config failed: %v", err)
+	}
+	if err := runGitForCacheTest(repo, "config", "user.name", "cache-test"); err != nil {
+		t.Skipf("git config failed: %v", err)
+	}
+	const rel = "a.go"
+	current := []byte("package main\n\nfunc Current() {}\n")
+	abs := filepath.Join(repo, rel)
+	if err := os.WriteFile(abs, current, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runGitForCacheTest(repo, "add", rel); err != nil {
+		t.Fatal(err)
+	}
+	if err := runGitForCacheTest(repo, "commit", "-m", "current"); err != nil {
+		t.Fatal(err)
+	}
+
+	cacheDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cacheDir, cacheMetaFile), []byte("# meta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	staleHashes := "# File Hashes\n\n" + rel + "\tdeadbeef\tgo\t1\n"
+	if err := os.WriteFile(filepath.Join(cacheDir, cacheHashesFile), []byte(staleHashes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := ChangedFiles(repo, cacheDir, []FileEntry{{
+		RelPath:  rel,
+		AbsPath:  abs,
+		Language: types.LangGo,
+		Size:     int64(len(current)),
+	}})
+	if len(got) != 1 || got[0] != rel {
+		t.Fatalf("clean committed repo with stale cached hash should reparse %s, got %v", rel, got)
+	}
+}
+
+func runGitForCacheTest(repo string, args ...string) error {
+	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return &gitCacheTestError{args: args, out: strings.TrimSpace(string(out)), err: err}
+	}
+	return nil
+}
+
+type gitCacheTestError struct {
+	args []string
+	out  string
+	err  error
+}
+
+func (e *gitCacheTestError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.out == "" {
+		return e.err.Error()
+	}
+	return e.err.Error() + ": " + e.out
 }
