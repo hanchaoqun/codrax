@@ -332,6 +332,48 @@ func TestBuildAnalysisIR_NoAttachmentNonDiagnosticHasNoObservationContract(t *te
 	}
 }
 
+func TestBuildAnalysisIR_IsolatedCurrentVersionCheckDoesNotHijackConfigLookup(t *testing.T) {
+	mut := types.NewMutableState("feature_x_timeout 在默认值 / yaml / CLI 三层的有效值是什么")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "feature_x_timeout 在默认值 / yaml / CLI 三层的有效值是什么",
+		Intent:     types.IntentConfigQuery,
+		Scenario:   types.ScenarioGeneric,
+		Complexity: types.ComplexitySimple,
+		Predicates: types.SemanticPredicates{IsDiagnosticQuestion: false},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic:         false,
+			CurrentRisk:          false,
+			HistoricalRegression: false,
+			CurrentVersionCheck:  true,
+			Confidence:           0.85,
+		},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey, Confidence: 0.9},
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"feature_x_timeout", "yaml", "CLI", "default"},
+			Entities: []string{"feature_x_timeout"},
+			Kind:     "config_mapping",
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.RequestModel.Intent == types.IntentRootCause || ir.RequestModel.Predicates.IsDiagnosticQuestion {
+		t.Fatalf("isolated current_version_check hijacked config lookup into diagnostic lane: intent=%s preds=%+v", ir.RequestModel.Intent, ir.RequestModel.Predicates)
+	}
+	if ir.RequestModel.ArtifactObservationProfile != nil {
+		t.Fatalf("isolated current_version_check should not create observation profile: %+v", ir.RequestModel.ArtifactObservationProfile)
+	}
+	if ir.AnswerContract.CurrentStatusDiagnostic != nil {
+		t.Fatalf("isolated current_version_check should not create current-status contract: %+v", ir.AnswerContract.CurrentStatusDiagnostic)
+	}
+	if ir.AnswerContract.ExactResolution == nil {
+		t.Fatal("config lookup should keep exact-resolution contract")
+	}
+}
+
 func TestBuildAnalysisIR_DiagnosticProfileReconcilesWhenPredicateMissed(t *testing.T) {
 	mut := types.NewMutableState("请确认日志里这个历史问题当前版本是否还存在")
 	mut.SetRequestModel(types.RequestModel{

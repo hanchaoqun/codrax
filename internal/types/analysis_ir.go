@@ -469,17 +469,20 @@ type DiagnosticIntentProfile struct {
 
 // RequiresDiagnosticRootCause reports whether the typed profile says
 // downstream should use the diagnostic/root-cause lane. Artifact facts
-// alone do not trigger this; the current request must carry one of the
-// diagnostic intent flags.
+// alone do not trigger this; the current request must carry a
+// diagnostic intent flag. CurrentVersionCheck is intentionally not a
+// standalone trigger: ordinary exact/config/value lookups also require
+// reading the current checkout, but they are not current-status
+// diagnostics unless paired with diagnostic/risk/regression intent.
 func (p DiagnosticIntentProfile) RequiresDiagnosticRootCause() bool {
-	return p.IsDiagnostic || p.CurrentRisk || p.HistoricalRegression || p.CurrentVersionCheck
+	return p.IsDiagnostic || p.CurrentRisk || p.HistoricalRegression
 }
 
 // RequiresCurrentStatusDiagnostic reports whether the answer needs the
 // fixed two-lane current-status scaffold: historical observation plus
 // current-code verification plus a bounded verdict.
 func (p DiagnosticIntentProfile) RequiresCurrentStatusDiagnostic() bool {
-	return p.CurrentRisk || p.HistoricalRegression || p.CurrentVersionCheck
+	return p.CurrentRisk || p.HistoricalRegression || (p.IsDiagnostic && p.CurrentVersionCheck)
 }
 
 // RequiresDiagnosticArtifactMessageSurface reports whether attached

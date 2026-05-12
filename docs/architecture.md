@@ -449,7 +449,7 @@ LLM 通过 `emit_analysis` 一次性写出的 `RequestModel`（`internal/types/a
 | Intent reconcile | 8 | analyzer_intent.reconcileIntent | count + enumerate 罕见组合 → return_value（防御纵深） |
 | AnswerSubject 推断 | 9 | inferAnswerSubject | LLM 给 unknown 时按双语 cue + question_kind fallback；最弱 fallback 是 SubjectGeneric (confidence=0.1)，永不让下游拿到 SubjectUnknown |
 | PredicateAxis pass-through | 10 | reconcilePredicateAxis | 当前 no-op，留作未来 axis suppression 钩子 |
-| Diagnostic profile reconcile | 11 | reconcileDiagnosticQuestionProfile | `DiagnosticProfile` 是 broad predicate 的第二道 typed safety net；诊断 / current-risk / 历史回归 / 当前版本验证会把 intent/scenario 修正到 root-cause 族，不扫 RawRequest 关键词 |
+| Diagnostic profile reconcile | 11 | reconcileDiagnosticQuestionProfile | `DiagnosticProfile` 是 broad predicate 的第二道 typed safety net；诊断 / current-risk / 历史回归会把 intent/scenario 修正到 root-cause 族。`current_version_check` 只有和诊断信号成对出现时才进入 current-status scaffold，避免普通 config/exact/value lookup 被诊断模板劫持；不扫 RawRequest 关键词 |
 | Scenario reconcile | 12 | reconcileScenario | 单话题结构 trace 的 architecture 问题 → generic（避开模板开销） |
 | Capability surface | 13 | inline | stage / tool / skill capability 类问题产出 `CapabilitySurfaceHint` |
 | Measurement-scalar / history-lookup 检测 | 14 | analyzer_intent | 捕获 isMeasurementScalarRequest（count 动词 + simple + enumerate/return_value）和 isHistoryLookupRequest |
@@ -479,7 +479,7 @@ LLM 通过 `emit_analysis` 一次性写出的 `RequestModel`（`internal/types/a
 
 **ConversationReferenceProfile** 是 `emit_analysis` 的通用 prior-context lane：普通无附件 follow-up（"刚才那个配置项默认值是什么？"）把上文解析出的 subject 写成 `{surface, kind, source, role, use_as_exact_target, confidence}`。compiler 的搜索 hint 合并它的 `SubjectCandidates()`，`BuildExactResolutionContract` 允许 `source=prior_context|mixed` 且 `use_as_exact_target=true` 的 subject 进入 exact-resolution，但 provenance 保持 prior_context，不伪装成当前请求 verbatim mention。
 
-**ArtifactObservationProfile** 是 log / trace / no-attachment diagnostic 共用的观察 lane：字段包括 `observation_kind`、`symptom_summary`、`evidence_snippets`、`subject_candidates`、`has_retry_loop`、`has_line_mismatch`、`has_completion_rewrite`、`diagnostic_confidence`。构建顺序刻意放在 diagnostic reconcile 与 entity expansion 之后，避免无附件问题只记录代词化 RawRequest 而丢掉后处理补齐的诊断类型和 subject。
+**ArtifactObservationProfile** 是 log / trace / no-attachment diagnostic 共用的观察 lane：字段包括 `observation_kind`、`symptom_summary`、`evidence_snippets`、`subject_candidates`、`has_retry_loop`、`has_line_mismatch`、`has_completion_rewrite`、`diagnostic_confidence`。构建顺序刻意放在 diagnostic reconcile 与 entity expansion 之后，避免无附件问题只记录代词化 RawRequest 而丢掉后处理补齐的诊断类型和 subject。`current_version_check` 不单独创建这个 profile；只有 `is_diagnostic` / `current_risk` / `historical_regression`（或 reconciled `is_diagnostic_question`）确认用户要的是 still-present / fixed / not-enough-evidence 当前状态诊断时，才走观察 lane 和 current-status contract。
 
 ### 4.5 跨信号 coherence 闸门
 

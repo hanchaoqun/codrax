@@ -200,6 +200,46 @@ func TestValidateSelfConsistency_DiagnosticPredicateAlignsIntentAndScenario(t *t
 	}
 }
 
+func TestValidateSelfConsistency_CurrentVersionCheckRequiresDiagnosticCompanion(t *testing.T) {
+	reason := validateSelfConsistency(
+		types.IntentConfigQuery,
+		types.ScenarioGeneric,
+		"config_mapping",
+		types.SemanticPredicates{IsDiagnosticQuestion: false},
+		types.DiagnosticIntentProfile{
+			CurrentVersionCheck: true,
+			Confidence:          0.9,
+		},
+		types.AxisConfigure,
+		[]string{"feature_x_timeout"},
+		nil,
+		types.AnswerSubject{Kind: types.SubjectConfigKey},
+	)
+	if reason == "" || !strings.Contains(reason, "current_version_check=true is only valid") {
+		t.Fatalf("expected isolated current_version_check reject, got %q", reason)
+	}
+
+	reason = validateSelfConsistency(
+		types.IntentRootCause,
+		types.ScenarioRootCause,
+		"mechanism",
+		types.SemanticPredicates{IsDiagnosticQuestion: false},
+		types.DiagnosticIntentProfile{
+			CurrentRisk:         true,
+			CurrentVersionCheck: true,
+			ObservationSummary:  "previous run rewrote the wrong topic",
+			Confidence:          0.9,
+		},
+		types.AxisUnknown,
+		[]string{"Finalizer"},
+		nil,
+		types.AnswerSubject{},
+	)
+	if reason != "" {
+		t.Fatalf("diagnostic current-status profile should pass, got %q", reason)
+	}
+}
+
 func TestValidateSelfConsistency_RootCauseRequiresDiagnosticPredicate(t *testing.T) {
 	reason := validateSelfConsistency(
 		types.IntentRootCause,

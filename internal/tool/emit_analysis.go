@@ -304,7 +304,7 @@ func buildEmitAnalysisSchema() {
 					"is_diagnostic":         map[string]any{"type": "boolean", "description": "True when the current request expects diagnosis / cause / remediation analysis."},
 					"current_risk":          map[string]any{"type": "boolean", "description": "True when the current request asks whether a known or observed issue can still happen in the current checkout."},
 					"historical_regression": map[string]any{"type": "boolean", "description": "True when the request compares a historical observed symptom against the current version."},
-					"current_version_check": map[string]any{"type": "boolean", "description": "True when the answer must verify current code separately from historical artifact observations."},
+					"current_version_check": map[string]any{"type": "boolean", "description": "True only for diagnostic current-status questions where the answer must verify current code separately from historical artifact observations; false for ordinary exact/config/value/location lookups."},
 					"observation_summary":   map[string]any{"type": "string", "description": "Optional compact summary of the historical or user-described symptom. Fill this when no log/trace is attached or when the request uses prior conversation to refer to the issue being checked."},
 					"confidence":            map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this diagnostic profile in [0,1]."},
 				},
@@ -866,6 +866,10 @@ func validateSelfConsistency(
 		}
 	}
 	diagnosticRequired := preds.IsDiagnosticQuestion || diagnostic.RequiresDiagnosticRootCause()
+	if diagnostic.CurrentVersionCheck && !preds.IsDiagnosticQuestion &&
+		!diagnostic.IsDiagnostic && !diagnostic.CurrentRisk && !diagnostic.HistoricalRegression {
+		return "diagnostic_profile.current_version_check=true is only valid for diagnostic current-status questions — pair it with predicates.is_diagnostic_question=true or diagnostic_profile.is_diagnostic/current_risk/historical_regression=true when the user asks whether an observed issue is still present; for ordinary current-code exact/config/value/location lookup, set current_version_check=false"
+	}
 	if preds.IsDiagnosticQuestion {
 		if intent != types.IntentRootCause {
 			return "is_diagnostic_question=true requires intent=root_cause — diagnostic questions ask for cause / current-risk analysis, not a general mechanism tour or scalar lookup"
@@ -878,7 +882,7 @@ func validateSelfConsistency(
 		}
 	}
 	if intent == types.IntentRootCause && !diagnosticRequired {
-		return "intent=root_cause requires a diagnostic typed signal — set predicates.is_diagnostic_question=true or diagnostic_profile.is_diagnostic/current_risk/historical_regression/current_version_check=true"
+		return "intent=root_cause requires a diagnostic typed signal — set predicates.is_diagnostic_question=true or diagnostic_profile.is_diagnostic/current_risk/historical_regression=true"
 	}
 	if needsRoleLocateDisambiguation(axis, intent, preds, entities, subTopics) &&
 		answerSubject.Kind == types.SubjectUnknown {

@@ -5,25 +5,28 @@
 # adversarial: the answer should name specific code paths where
 # user-controlled strings reach filesystem APIs, not abstract advice.
 #
-# Ground truth: the REPL passes the user's free-text request into
-# the pipeline; the analyzer and explorer only treat it as content.
-# File paths that touch the FS (log_dir, memory_dir) are resolved
-# from CLI flags / YAML at boot time, so there is no direct REPL
-# → FS path. A grounded answer will say that; a hallucinated answer
-# will invent unchecked paths.
+# Ground truth: ordinary chat/request text is only pipeline content,
+# and store paths such as log_dir / memory_dir are resolved from CLI
+# flags / YAML at boot time. REPL attachment commands are different:
+# `/log <path>`, `/log append <path>`, `/htrace <path>`, and
+# `/htrace append <path>` intentionally read the operator-supplied
+# path with os.ReadFile. A grounded answer should either name those
+# direct read surfaces with file:line anchors or explain why another
+# alleged surface is bounded by store-ID validation / directory
+# enumeration.
 ID="u1b"
 NAME="security audit — REPL input reaching filesystem operations"
 QUESTION="Which code paths in internal/repl pass raw user input into a filesystem operation (open / write / mkdir) without sanitization? Name the files and line ranges."
 # 2026-05-04 strictness audit: previous EC was just `repl` — the
 # question's path token; bar = "复述题目". Tighten by requiring the
-# answer to either name the FS-API surface (open|write|mkdir from
+# answer to either name the FS-API surface (read|open|write|mkdir from
 # the question itself) AND a specific repl file (commands.go or
 # session.go are likely sites — answer must verify path lineage,
 # not just claim no risk). Negative gates already block the
 # stereotype brush-off.
 EXPECT_CONTAINS="repl"
 EXPECT_MATCHES_REGEX="internal/repl/[a-z_]+\.go
-(open|write|mkdir|os\.Create|os\.Open|os\.MkdirAll|filepath\.Join)"
+(read|open|write|mkdir|os\.ReadFile|os\.Create|os\.Open|os\.MkdirAll|filepath\.Join)"
 # 2026-05-08: previous EXPECT_NOT_CONTAINS="assumed stereotype generally
 # no risk" tokenised on whitespace, banning the single-character substring
 # "no" — which case-insensitively matches "Note", "node", "no risk
