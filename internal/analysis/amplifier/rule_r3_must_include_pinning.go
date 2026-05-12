@@ -17,10 +17,14 @@ import (
 //
 // Gates:
 //
-//  1. rm.Predicates.IsCategoryEnumeration == true. Either LLM-emit
-//     or R1-flipped. If false, the question is not enumeration —
-//     MustInclude pinning would over-constrain the answer with
-//     entities that are not the answer's principal subjects.
+//  1. types.CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) == true.
+//     This shared typed trait proves AnalyzerHints.Entities is a
+//     principal-member lane, not merely a mixed search / relation-target
+//     hint. Relation-shaped enumerations ("which handlers call X",
+//     "which modules import Y", "which agents can invoke Z") fail here:
+//     they need extractor AnswerSymbols / support lanes to establish
+//     principal members after exploration, instead of pinning every
+//     analyzer entity up front.
 //  2. distinctEntityCount(rm.AnalyzerHints.Entities) ≥ 1. Empty
 //     entity list = nothing to pin.
 //  3. At least one entity is identifier-shaped. By default this uses
@@ -50,9 +54,10 @@ import (
 // existing MustInclude entries). Emits one Observation summarising
 // the pin count + first few names.
 func r3TypedIdentifierMustInclude(rm types.RequestModel, contract *types.AnswerContract) *Observation {
-	if !rm.Predicates.IsCategoryEnumeration {
+	if !types.CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) {
 		return nil
 	}
+	trustEnumerationMembers := exhaustiveEnumerationPinsMembers(rm)
 	if distinctEntityCount(rm.AnalyzerHints.Entities) == 0 {
 		return nil
 	}
@@ -77,7 +82,6 @@ func r3TypedIdentifierMustInclude(rm types.RequestModel, contract *types.AnswerC
 
 	var added []string
 	seen := make(map[string]struct{}, len(rm.AnalyzerHints.Entities))
-	trustEnumerationMembers := exhaustiveEnumerationPinsMembers(rm)
 	for _, e := range rm.AnalyzerHints.Entities {
 		t := strings.TrimSpace(e)
 		if !isMustIncludePinCandidate(t, trustEnumerationMembers) {

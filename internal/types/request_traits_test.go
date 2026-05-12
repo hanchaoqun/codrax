@@ -109,6 +109,40 @@ func TestHasBoundedCategoryEnumerationMembers_TypedOnly(t *testing.T) {
 	}
 }
 
+func TestCanUseAnalyzerEntitiesAsHardPrincipalMembers_TypedOnly(t *testing.T) {
+	rm := RequestModel{
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"StageAnalyze", "StageExplore"},
+		},
+	}
+	if !CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) {
+		t.Fatal("plain category enumeration entities should be eligible as hard principal members")
+	}
+
+	rm.Predicates.IsRelationalLookup = true
+	rm.EnumerationBoundary = &RequestedEnumerationBoundary{
+		DeclaredCount: 2,
+		SourceQuote:   "2 agents",
+	}
+	rm.CompletenessObligation = &CompletenessObligation{Required: true, SourceQuote: "all agents"}
+	if CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) {
+		t.Fatal("relation-shaped enumeration entities are mixed search hints, not a hard principal-member lane")
+	}
+
+	rm.Predicates.IsRelationalLookup = false
+	rm.Predicates.IsCategoryEnumeration = false
+	if CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) {
+		t.Fatal("non-enumeration entities must not seed principal-member obligations")
+	}
+
+	rm.Predicates.IsCategoryEnumeration = true
+	rm.AnalyzerHints.Entities = nil
+	if CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) {
+		t.Fatal("empty entity list must not seed principal-member obligations")
+	}
+}
+
 func TestIsCodeIdentitySurface_CrossLanguage(t *testing.T) {
 	accepted := []string{
 		"aggregator",

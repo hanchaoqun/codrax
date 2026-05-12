@@ -356,7 +356,7 @@ for _, obs := range postObs {
 
 ### R3 — Typed-Identifier MustInclude Pinning
 
-**输入:** `rm.AnalyzerHints.Entities`, `rm.TermGraph`, `rm.Predicates`, `out.AnswerContract.MustInclude`
+**输入:** `types.CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm)`, `rm.AnalyzerHints.Entities`, `rm.Predicates`, `out.AnswerContract.MustInclude`
 
 **关键时序约束:** R3 依赖 `compiler.Compile` 已生成 `out.AnswerContract`。R3 必须在 `AmplifyPostCompile` pass 内运行,不能在 pre-compile pass 内。
 
@@ -364,15 +364,15 @@ for _, obs := range postObs {
 
 **触发条件:**
 
-1. `rm.Predicates.IsCategoryEnumeration == true`(包含 R1 触发后的结果 — R1 必须先于 R3 跑)
-2. AND `rm.AnalyzerHints.Entities` 中存在 typed identifier — 即 `rm.TermGraph.Canonical` 中 `Kind ∈ {TermSymbol, TermConfig, TermLiteral, TermCommand}` 且其 `Surface` 在 `rm.AnalyzerHints.Entities` 列表中
-3. AND 该 identifier 不在 `out.AnswerContract.MustInclude`
+1. `types.CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) == true`(包含 R1 触发后的结果 — R1 必须先于 R3 跑)
+2. AND `rm.AnalyzerHints.Entities` 中存在可作为 hard floor 的 code-identity surface。默认接受 identifier-like surface；当 `types.HasBoundedCategoryEnumerationMembers(rm)` 为真时，也接受 lowercase package/module/directory/namespace/path surface
+3. AND 该 surface 不在 `out.AnswerContract.MustInclude` / `out.AnswerContract.MustIncludeTerms`
 
 **动作:**
-- 把符合条件的 typed identifier append 进 `out.AnswerContract.MustInclude`(去重)
+- 把符合条件的 typed surface append 进 `out.AnswerContract.MustInclude` / `MustIncludeTerms`(去重，并按 `ContractTermKind` 区分 symbol/tool_name/file_stem/user_phrase)
 - 记录 `Observation{Rule: "R3_typed_identifier_mustinclude", Field: "answer_contract.must_include", ...}`
 
-**理由:** 当问题被识别为 enumeration AND analyzer 已确认这些 identifier 是命名实体(TermKind 非 concept),它们就是答案必含项。不依赖 question 文本的 keyword 匹配。
+**理由:** 当问题被识别为一轴 principal-member enumeration AND analyzer 已确认 `AnalyzerHints.Entities` 是成员 lane 时，这些 surface 才是答案必含项。不依赖 question 文本的 keyword 匹配。关系型枚举(`is_relational_lookup=true`,例如“哪些 handler 调 X / 哪些模块 import Y / 哪些 agent 可以调用 Z”)不满足这个 trait：`AnalyzerHints.Entities` 在该形态下混有关系目标、工具、runtime helper、搜索 anchor 和候选成员，只能做软探索提示。真正的 principal member 覆盖应由探索/抽取后的 `AnswerSymbols`、support lane、step backbone 或 aggregate facts 承载，避免把上下文 helper 硬塞进最终答案。
 
 ### R4 — Buckets Derivation(推迟到 Phase 5)
 

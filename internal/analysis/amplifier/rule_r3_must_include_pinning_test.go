@@ -68,7 +68,7 @@ func TestR3_NoFire_NotEnumeration(t *testing.T) {
 	}
 }
 
-// TestR3_NoFire_EmptyEntities covers gate #2.
+// TestR3_NoFire_EmptyEntities covers the empty-entity no-op path.
 func TestR3_NoFire_EmptyEntities(t *testing.T) {
 	rm := types.RequestModel{
 		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
@@ -190,6 +190,37 @@ func TestR3_PinsLowercaseMembersWithRequiredFileHints(t *testing.T) {
 		if term.Kind != types.ContractTermFileStem {
 			t.Fatalf("required-file-hinted member %q kind=%q, want file_stem", term.Text, term.Kind)
 		}
+	}
+}
+
+func TestR3_NoFire_RelationalEnumerationEntitiesAreSearchHints(t *testing.T) {
+	rm := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{
+				"SubAgent",
+				"ProposeSubAgents",
+				"SubAgentRuntime",
+				"SubExplorer",
+				"RegisterDefaultSubAgents",
+				"capability_surface",
+			},
+		},
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsRelationalLookup:    true,
+		},
+	}
+	contract := types.AnswerContract{}
+	obs := AmplifyPostCompile(rm, &contract)
+	r3 := collectR3Observations(obs)
+	if len(r3) != 0 {
+		t.Fatalf("R3 must not hard-pin relation-shaped enumeration entities, got %+v", r3)
+	}
+	if len(contract.MustInclude) != 0 {
+		t.Fatalf("relation target/helper entities must remain soft hints, got MustInclude=%+v", contract.MustInclude)
+	}
+	if len(contract.MustIncludeTerms) != 0 {
+		t.Fatalf("relation target/helper entities must not become typed hard terms, got %+v", contract.MustIncludeTerms)
 	}
 }
 

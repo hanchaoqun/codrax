@@ -62,6 +62,36 @@ func HasBoundedCategoryEnumerationMembers(rm RequestModel) bool {
 	return hasExhaustiveMultiMemberSet(rm)
 }
 
+// CanUseAnalyzerEntitiesAsHardPrincipalMembers reports whether
+// AnalyzerHints.Entities may seed hard principal-member obligations
+// such as AnswerContract.MustInclude.
+//
+// This is intentionally stricter than "entities are useful". Entities
+// are always useful as soft search / exploration hints, but hard gates
+// need a positive principal-member lane. Relation-shaped enumerations
+// ("which callers of X", "which modules import Y", "which agents can
+// invoke Z") are two-axis by definition: AnalyzerHints.Entities can
+// contain the answer member candidates, the relation target, runtime
+// helpers, tool names, and nearby anchors. Until the analyzer exposes a
+// separate typed member field for that shape, those mixed entities must
+// not become hard answer-member floors.
+//
+// The signal is schema-only and language-neutral. It does not scan
+// RawRequest text, so it applies uniformly to Go, C/C++, ArkTS,
+// Cangjie, Java/Kotlin, JS/TS, Python, Rust, and path/module surfaces.
+func CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm RequestModel) bool {
+	if !rm.Predicates.IsCategoryEnumeration {
+		return false
+	}
+	if len(rm.AnalyzerHints.Entities) == 0 {
+		return false
+	}
+	if rm.Predicates.IsRelationalLookup {
+		return false
+	}
+	return true
+}
+
 func hasExhaustiveMultiMemberSet(rm RequestModel) bool {
 	if len(rm.AnalyzerHints.Entities) <= 1 {
 		return false
