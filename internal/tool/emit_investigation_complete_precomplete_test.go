@@ -478,10 +478,15 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExplanationFunctionSubject_N
 	closure.SetReadSet(map[string]bool{"internal/tool/repomap/tool.go": true})
 	mut.AppendEvidence([]types.EvidenceItem{
 		{
-			Source:    "internal/tool/repomap/tool.go",
-			LineStart: 133,
-			LineEnd:   133,
-			Kind:      types.EvidenceDirect,
+			ID:              "build-graph-def",
+			Source:          "internal/tool/repomap/tool.go",
+			LineStart:       133,
+			LineEnd:         133,
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildOrLoadGraph",
+			GroundingStatus: types.GroundingGrounded,
 		},
 	})
 
@@ -534,10 +539,15 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ConfigFamilyFunctionSubject_
 	closure.SetReadSet(map[string]bool{"internal/config/runtime.go": true})
 	mut.AppendEvidence([]types.EvidenceItem{
 		{
-			Source:    "internal/config/runtime.go",
-			LineStart: 32,
-			LineEnd:   32,
-			Kind:      types.EvidenceDirect,
+			ID:              "runtime-def",
+			Source:          "internal/config/runtime.go",
+			LineStart:       32,
+			LineEnd:         32,
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "RuntimeSettings",
+			GroundingStatus: types.GroundingGrounded,
 		},
 	})
 

@@ -462,6 +462,73 @@ func ApplyEvidenceStepBackbone(plan *AnswerSurfacePlan, ir *AnalysisIR, evidence
 	}
 }
 
+// ApplyPrincipalEvidenceStepBackbone promotes facet-bound principal
+// evidence into the ordered-list backbone for enumeration answers.
+// The generic evidence backbone intentionally requires a 3-anchor
+// same-file run so mechanism/call-chain answers do not grow from
+// isolated helper facts. Enumerations are different: a valid answer
+// can have one member, and the facet contract has already selected
+// which evidence items are principal members. This helper runs after
+// FacetCoverage is compiled so it consumes that typed principal lane
+// instead of raw evidence or search output.
+func ApplyPrincipalEvidenceStepBackbone(plan *AnswerSurfacePlan, ir *AnalysisIR) {
+	if plan == nil || ir == nil || len(plan.StepBackbone) > 0 {
+		return
+	}
+	if ResolveQuestionFamily(ir.RequestModel) != QFEnumeration {
+		return
+	}
+	items := principalSupportEvidenceItemsForFacetsRaw(QFEnumeration, plan, principalSupportFacetKinds(QFEnumeration)...)
+	if len(items) == 0 {
+		return
+	}
+	anchors := make([]StepSurfaceAnchor, 0, len(items))
+	seen := make(map[string]bool, len(items))
+	for _, item := range items {
+		name := principalEvidenceStepAnchorName(item)
+		file := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+		if name == "" || file == "" || item.LineStart <= 0 {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d:%s", file, item.LineStart, strings.ToLower(name))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		anchors = append(anchors, StepSurfaceAnchor{
+			Name:        name,
+			File:        file,
+			Line:        item.LineStart,
+			SurfaceText: strings.TrimSpace(EvidencePreferredSurfaceText(item, nil, true)),
+		})
+	}
+	if len(anchors) == 0 {
+		return
+	}
+	plan.StepBackbone = anchors
+	if plan.StepBackboneCompleteness == "" {
+		plan.StepBackboneCompleteness = CompletenessLowerBound
+	}
+}
+
+func principalEvidenceStepAnchorName(item EvidenceItem) string {
+	switch ClaimFormOf(item) {
+	case ClaimReturnFact:
+		if name := firstNonEmptySurfaceString(item.Object, item.AnchorSymbol, item.Subject); name != "" {
+			return name
+		}
+	case ClaimImportEdge:
+		if name := firstNonEmptySurfaceString(item.Object, item.AnchorSymbol, item.Subject); name != "" {
+			return name
+		}
+	case ClaimAssignmentFact:
+		if name := firstNonEmptySurfaceString(item.Subject, item.AnchorSymbol, item.Object); name != "" {
+			return name
+		}
+	}
+	return firstNonEmptySurfaceString(item.AnchorSymbol, item.Subject, item.Object)
+}
+
 func applyRequestedEnumerationBoundaryStepBackbone(plan *AnswerSurfacePlan, ir *AnalysisIR) {
 	if plan == nil || ir == nil || !answerWantsStepBackbone(ir) || len(plan.StepBackbone) == 0 {
 		return
@@ -1324,6 +1391,8 @@ func BuildAnswerSurfacePlan(
 		richnessSink = mutable
 	}
 	plan.FacetCoverage = CompileFacetCoverage(ir.RequestModel, plan.SurfaceEvidence, richnessSink)
+	ApplyPrincipalEvidenceStepBackbone(plan, ir)
+	applyRequestedEnumerationBoundaryStepBackbone(plan, ir)
 
 	if plan.ExactResolution == nil || len(plan.ExactResolution.Targets) == 0 {
 		return plan

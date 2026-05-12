@@ -1264,6 +1264,41 @@ func TestBuildAnswerSurfacePlan_CompilesFallbackStepBackboneFromEvidence(t *test
 	}
 }
 
+func TestBuildAnswerSurfacePlan_EnumerationPrincipalEvidenceSeedsSingleItemBackbone(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent:     IntentEnumerate,
+			Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		},
+		AnswerContract: AnswerContract{},
+	}
+	evidence := []EvidenceItem{{
+		ID:              "agent-explorer",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/types/enums.go",
+		LineStart:       117,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "AgentExplorer",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}}
+
+	plan := BuildAnswerSurfacePlan(ir, NewMutableState(""), nil, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.StepBackbone) != 1 {
+		t.Fatalf("enumeration principal backbone anchors = %d, want 1: %+v", len(plan.StepBackbone), plan.StepBackbone)
+	}
+	if got := plan.StepBackbone[0]; got.Name != "AgentExplorer" || got.File != "internal/types/enums.go" || got.Line != 117 {
+		t.Fatalf("principal backbone anchor = %+v", got)
+	}
+	if plan.StepBackboneCompleteness != CompletenessLowerBound {
+		t.Fatalf("principal backbone completeness = %q, want %q", plan.StepBackboneCompleteness, CompletenessLowerBound)
+	}
+}
+
 func TestBuildAnswerSurfacePlan_AugmentsLowerBoundStepBackboneWithEvidence(t *testing.T) {
 	mut := NewMutableState("")
 	mut.SetEmittedAnswerSymbols([]AnswerSymbol{

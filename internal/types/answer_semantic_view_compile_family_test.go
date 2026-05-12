@@ -526,6 +526,34 @@ func TestCompileEnumeration_OutranksFunctionSubjectForCategoryEnumeration(t *tes
 	}
 }
 
+func TestCompileEnumeration_PrincipalListAllowsAllFacetPrincipalForms(t *testing.T) {
+	view := BuildAnswerSemanticView(irForEnumeration(), nil)
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	var list *BlockRequirement
+	for i := range view.RequiredBlocks {
+		if view.RequiredBlocks[i].Kind == BlockOrderedList {
+			list = &view.RequiredBlocks[i]
+			break
+		}
+	}
+	if list == nil {
+		t.Fatal("enumeration ordered-list requirement missing")
+	}
+	for _, want := range []ClaimForm{
+		ClaimDefinitionFact,
+		ClaimAssignmentFact,
+		ClaimReturnFact,
+		ClaimImportEdge,
+		ClaimCallEdge,
+	} {
+		if !containsClaimForm(list.AcceptableClaimForms, want) {
+			t.Fatalf("enumeration principal list missing acceptable claim form %s: %+v", want, list.AcceptableClaimForms)
+		}
+	}
+}
+
 func containsClaimForm(items []ClaimForm, want ClaimForm) bool {
 	for _, item := range items {
 		if item == want {

@@ -721,7 +721,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// (Success=true so the LLM sees the explanation but does NOT
 	// flip investigationComplete). The explorer's ShouldStop sees
 	// the flag still false and continues the loop.
-	if downgrade := preCompleteContractCheck(ctx, justification); downgrade != "" {
+	if downgrade := preCompleteContractCheck(ctx, justification, aggregateFacts); downgrade != "" {
 		if ctx != nil && ctx.Mutable != nil {
 			closure := ctx.Mutable.EvidenceClosure()
 			closure.BumpPreCompleteDowngrades(1)
@@ -834,9 +834,13 @@ func CurrentInvestigationCompletePolicy() string {
 // exempted from check (b): the absence carve-out already waives
 // MinCitations, and the LLM has explicitly told the system it cannot
 // cite anything.
-func preCompleteContractCheck(ctx *types.BusContext, justification string) string {
+func preCompleteContractCheck(ctx *types.BusContext, justification string, aggregateFactsOpt ...[]types.AnswerAggregateFact) string {
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
+	}
+	var aggregateFacts []types.AnswerAggregateFact
+	if len(aggregateFactsOpt) > 0 {
+		aggregateFacts = aggregateFactsOpt[0]
 	}
 	// Honor agent_investigation_complete_policy=override. The DAG
 	// scheduler will skip all criteria when this policy is set, so
@@ -1021,6 +1025,9 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 			return downgrade
 		}
 		if downgrade := deterministicCountProofDowngrade(ctx, closure); downgrade != "" {
+			return downgrade
+		}
+		if downgrade := principalSupportMaterializationDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
 			return downgrade
 		}
 	}
@@ -1215,6 +1222,108 @@ func deterministicCountProofDowngrade(ctx *types.BusContext, closure *types.Evid
 	b.WriteString("This is a count question whose answer is a derived integer. The investigation has read/evidence items, but no successful `exec_command` result with an integer count. Do not close from visual tallying of read_file or grep snippets.\n\n")
 	b.WriteString("Run a deterministic counting command that prints the final integer (for example: `rg ... | <production/comment/test filter> | wc -l`, `find ... | wc -l`, `wc -l ...`, or the platform-equivalent command for the repository language), then re-call emit_investigation_complete. If the count depends on reading and judging each candidate rather than a fixed syntax match, mark the question as relationship-filtered so the enumerate-then-count path applies.")
 	return b.String()
+}
+
+func principalSupportMaterializationDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return ""
+	}
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if !principalSupportMaterializationRequired(ctx, view, aggregateFacts) {
+		return ""
+	}
+	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
+	if plan == nil {
+		return ""
+	}
+	if len(types.PrincipalSupportEvidenceItemsForFamily(view.Family, plan)) > 0 {
+		return ""
+	}
+	if syms, _ := ctx.Mutable.EmittedAnswerSymbols(); len(syms) > 0 {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if closure != nil {
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairEmitEvidence,
+			Files:     completionMaterializationReadFiles(closure),
+			Keywords:  dedupStringsPreserveOrder(append(append([]string{}, rm.AnalyzerHints.ExactTargets...), append(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities...)...)),
+			Rationale: "the investigation has citable material, but none has been emitted into the typed principal support lane for this answer family",
+			Origin:    "pre_complete.principal_support_materialization",
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — typed principal evidence handoff is missing.\n\n")
+	fmt.Fprintf(&b, "The resolved answer family is `%s`, which renders principal user-visible claims from typed support lanes. The current evidence buffer may contain raw reads or nearby context, but after facet binding it has 0 citable principal-support item(s).\n\n", view.Family)
+	b.WriteString("Do not close from raw read_file / repo_map memory or closure prose alone. Stay on the already-read answer-bearing lines when possible, emit `emit_evidence` items whose `anchor_kind` and `anchor_symbol` point at the exact principal member / scalar / component / layer lines, then re-call `emit_investigation_complete`. If the answer is genuinely a derived count or scalar, carry it through `aggregate_facts` with the verified value instead of burying it in `reason` prose.")
+	return b.String()
+}
+
+func principalSupportMaterializationRequired(ctx *types.BusContext, view *types.AnswerSemanticView, aggregateFacts []types.AnswerAggregateFact) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil || view == nil {
+		return false
+	}
+	if w := ctx.Mutable.EvidenceFloorWaiver(); w.IsActive() {
+		return false
+	}
+	if bundle := ctx.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
+		return false
+	}
+	if perf := ctx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
+		return false
+	}
+	if aggregateFactsCanCarryPrincipalAnswer(ctx.AnalysisIR.RequestModel, view.Family, aggregateFacts) {
+		return false
+	}
+	switch view.Family {
+	case types.QFConfigPrecedence, types.QFRoleLookup, types.QFEnumeration, types.QFArchitecture:
+		return true
+	default:
+		return false
+	}
+}
+
+func aggregateFactsCanCarryPrincipalAnswer(rm types.RequestModel, family types.QuestionFamily, facts []types.AnswerAggregateFact) bool {
+	if len(facts) == 0 {
+		return false
+	}
+	for _, fact := range facts {
+		switch fact.Kind {
+		case types.AnswerAggregateScalar:
+			if family == types.QFConfigPrecedence || family == types.QFRoleLookup {
+				return true
+			}
+		case types.AnswerAggregateTotalCount, types.AnswerAggregateUniqueCount,
+			types.AnswerAggregateGroupedCount, types.AnswerAggregateBucketCount,
+			types.AnswerAggregateExcluded:
+			if rm.Predicates.IsCountQuestion {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func completionMaterializationReadFiles(closure *types.EvidenceClosure) []string {
+	if closure == nil {
+		return nil
+	}
+	readSet := closure.ReadSet()
+	if len(readSet) == 0 {
+		return nil
+	}
+	files := make([]string, 0, len(readSet))
+	for file := range readSet {
+		file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
+		if file != "" {
+			files = append(files, file)
+		}
+	}
+	sort.Strings(files)
+	if len(files) > 6 {
+		files = files[:6]
+	}
+	return files
 }
 
 func hasDeterministicCountToolResult(ctx *types.BusContext) bool {

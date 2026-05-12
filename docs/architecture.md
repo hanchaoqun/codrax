@@ -878,6 +878,10 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 
 `validateLaneBlockKindCompliance` 把 `AllowedBlocks[]` 从 prompt 提示升级为 hard validator：principal block 如果引用的 citation 全部来自某条 lane，而 block.kind 不在该 lane 的 AllowedBlocks 中，`emit_answer_document` 会被拒收。这样 root-cause / call-chain / config-precedence / role-lookup / enumeration / architecture / comparison / generic 都复用同一套 principal-vs-context 边界，不靠每个 case 在 prompt 里补丁。
 
+**principal handoff preflight**：`emit_investigation_complete` 在 `resolved` 收尾前会重新编译 `AnswerSemanticView → AnswerSurfacePlan → AnswerSupportPlan`。对于 config-precedence / role-lookup / enumeration / architecture 这类主答案必须落在 typed principal lane 的 family，如果 facet binding 后 `PrincipalSupportEvidenceItemsForFamily` 仍为 0，就软降级本次 completion，并要求 explorer 留在已读主线锚点上补 `emit_evidence`。这条门只读 typed family、facet source candidate、ClaimForm、aggregate_facts 等精确信号；不会从 raw `read_file` / `repo_map` / closure prose 自动合成答案。若答案本身是模型通过 `aggregate_facts` 提交的 verified count / scalar，则 aggregate lane 是合法 handoff，不触发 principal lane 门。
+
+**enumeration single-member backbone**：普通机制/调用链的 evidence fallback 仍要求 3 个同文件锚点，避免孤立 helper 膨胀成主链；但枚举题的合法集合可以只有 1 个成员。因此 `BuildAnswerSurfacePlan` 会在 `FacetCoverage` 之后，从 facet-bound `FacetEnumerationItem` principal evidence 生成 `StepBackbone`，即使只有一个 model-authored member。这样下游 prompt / finalizer 能复用探索期已经 emit 的主项，而不是退回 raw 工具输出或被 helper 名称填充。
+
 #### Structured Aggregate Facts — 探索期聚合结构的 typed handoff
 
 `AnswerAggregateFact` 是 explorer → finalizer 的结构化聚合通道。它解决的是"探索阶段已经算清楚了唯一文件集合、跨维度分组、bucket 统计，但信息在 closure prose / retry 中被压扁或写错"的问题。

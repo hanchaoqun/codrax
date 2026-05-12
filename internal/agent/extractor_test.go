@@ -1934,6 +1934,57 @@ func TestExtractor_ParseOutput_DoesNotSynthesizeFallbackSlateForSingleTopicExpla
 	}
 }
 
+func TestExtractor_ParseOutput_DoesNotSynthesizeFallbackFromRawReadFileOnly(t *testing.T) {
+	mu := types.NewMutableState("Which skills are registered by default?")
+	mu.SetRequestModel(types.RequestModel{
+		Intent:        types.IntentEnumerate,
+		PredicateAxis: types.AxisRegister,
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
+	})
+	mu.SetEmittedAnswerSymbols(nil, types.CompletenessUnknown)
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"internal/skill/defaults.go"},
+		ToolResults: []types.ToolResult{
+			buildGutterReadResult("internal/skill/defaults.go", 10, []string{
+				`\t\tName: "analysis-skill",`,
+				`\t\tName: "explore-skill",`,
+			}, 20),
+		},
+	})
+	ctx := &types.AgentContext{
+		Objective: "Which skills are registered by default?",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
+				AnalyzerHints: types.AnalyzerHints{Kind: "registration"},
+				PredicateAxis: types.AxisRegister,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			Kind:      types.EvidenceRegistration,
+			Scope:     types.ScopeLine,
+			Source:    "internal/skill/defaults.go",
+			LineStart: 10,
+			Summary:   "RegisterDefaults has default registrations",
+		}},
+	}
+
+	e := &extractorEvaluator{}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if len(out.AnswerSymbols) != 0 {
+		t.Fatalf("raw read_file literals must not system-fill the answer slate: %+v", out.AnswerSymbols)
+	}
+	if out.AnswerSymbolCompleteness != "" {
+		t.Fatalf("empty fallback should not claim completeness, got %q", out.AnswerSymbolCompleteness)
+	}
+}
+
 func TestExtractor_ParseOutput_DoesNotAugmentModelSlateFromReadFileLiterals(t *testing.T) {
 	mu := types.NewMutableState("Which skills are registered by default?")
 	mu.SetRequestModel(types.RequestModel{

@@ -1159,6 +1159,102 @@ func TestEmitInvestigationComplete_Tier1FloorAcceptsMixed(t *testing.T) {
 	}
 }
 
+func TestEmitInvestigationComplete_DowngradesWhenPrincipalSupportLaneMissing(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("Which agents can call subagents?")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "context-guard",
+		Kind:            types.EvidenceConditional,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/subagent_runtime.go",
+		LineStart:       42,
+		AnchorKind:      types.AnchorCondition,
+		AnchorSymbol:    "Validate",
+		Subject:         "SubAgentRuntime",
+		Summary:         "SubAgentRuntime validates proposals before execution",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: enumerationPrincipalGateIR(),
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"found enough context","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("principal support downgrade is a soft pre-complete result, got hard failure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "typed principal evidence handoff is missing") {
+		t.Fatalf("summary should explain missing principal handoff, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("downgraded completion must not mark investigation complete")
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 || repairs[len(repairs)-1].Kind != types.RepairEmitEvidence {
+		t.Fatalf("expected RepairEmitEvidence queued, got %+v", repairs)
+	}
+}
+
+func TestEmitInvestigationComplete_AllowsFacetBoundPrincipalSupport(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("Which agents can call subagents?")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "agent-explorer",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/enums.go",
+		LineStart:       117,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "AgentExplorer",
+		Subject:         "AgentExplorer",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: enumerationPrincipalGateIR(),
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"principal member is grounded","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("facet-bound principal support should pass: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should be stored after principal support passes")
+	}
+}
+
+func enumerationPrincipalGateIR() *types.AnalysisIR {
+	return &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		},
+		AnswerContract: types.AnswerContract{
+			CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 1},
+		},
+	}
+}
+
 // TestEmitInvestigationComplete_Tier1FloorDisabledWhenZero — floor=0
 // preserves session-7 backward-compat behaviour (no Tier-1 gate).
 func TestEmitInvestigationComplete_Tier1FloorDisabledWhenZero(t *testing.T) {

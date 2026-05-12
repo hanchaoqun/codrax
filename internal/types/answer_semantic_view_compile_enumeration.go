@@ -5,21 +5,23 @@ package types
 // implementer / subclass / handler / config-source of Z".
 //
 // Required blocks:
-//   1× BlockSummary           — describe what the list enumerates +
-//                               the terminal criterion used to pick.
-//   ≥1× BlockOrderedList OR BlockTable OR BlockBulletList — the actual
-//                               enumeration. The OR is enforced at
-//                               B4 validator level via "at least one
-//                               principal-list block" rule.
-//                               MaxCount=0 (no bucket-count assumption).
+//
+//	1× BlockSummary           — describe what the list enumerates +
+//	                            the terminal criterion used to pick.
+//	≥1× BlockOrderedList OR BlockTable OR BlockBulletList — the actual
+//	                            enumeration. The OR is enforced at
+//	                            B4 validator level via "at least one
+//	                            principal-list block" rule.
+//	                            MaxCount=0 (no bucket-count assumption).
 //
 // Optional:
-//   0..N× BlockSection        — when the user partitioned the answer
-//                               into named buckets (e.g. "X for A,
-//                               Y for B"), each bucket becomes its
-//                               own section.
-//   0..N× BlockCaveat         — completeness / scope / typed-graph-vs-
-//                               narrative divergence caveats.
+//
+//	0..N× BlockSection        — when the user partitioned the answer
+//	                            into named buckets (e.g. "X for A,
+//	                            Y for B"), each bucket becomes its
+//	                            own section.
+//	0..N× BlockCaveat         — completeness / scope / typed-graph-vs-
+//	                            narrative divergence caveats.
 //
 // The user's question MAY name buckets via QuestionStructure.Buckets;
 // the count is NOT capped here (R5: 不假设最大 bucket 数).
@@ -46,6 +48,10 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 			FacetIDs: []string{string(FacetEnumerationItem)},
 			AcceptableClaimForms: []ClaimForm{
 				ClaimDefinitionFact,
+				ClaimAssignmentFact,
+				ClaimReturnFact,
+				ClaimImportEdge,
+				ClaimCallEdge,
 			},
 			Rationale: "The enumeration itself. Each item names the member with its authoritative " +
 				"file:line. Order is alphabetic OR meaningful (e.g. precedence) — describe which in " +

@@ -800,7 +800,6 @@ func extractorDeclarativeLiteralFallback(ctx *types.AgentContext) []types.Answer
 		return nil
 	}
 	subj := extractorAnswerSubjectKind(ctx)
-	lineIndex := extractorReadFileLineIndex(ctx)
 	seen := make(map[string]bool, len(pool))
 	out := make([]types.AnswerSymbol, 0, len(pool))
 	add := func(raw string, quoted bool, source string, line int, chain, rationale string) {
@@ -833,6 +832,13 @@ func extractorDeclarativeLiteralFallback(ctx *types.AgentContext) []types.Answer
 		// scopes (Line / LineRange / Section) feed symbol synthesis
 		// candidates. Skipping them here prevents spurious file:line
 		// literals from getting attributed to schema-level evidence.
+		//
+		// This fallback consumes only structured evidence fields the
+		// investigator already emitted. It deliberately does not scan
+		// raw read_file text near the evidence line; if a visible
+		// literal is load-bearing, the explorer must carry it through
+		// Object / Summary / surface_terms on emit_evidence so the
+		// downstream answer is model-authored rather than system-filled.
 		if !ev.Scope.IsLineShaped() {
 			continue
 		}
@@ -847,9 +853,6 @@ func extractorDeclarativeLiteralFallback(ctx *types.AgentContext) []types.Answer
 		}
 		if ev.Kind == types.EvidenceRegistration {
 			add(extractorSingleTokenCandidate(ev.Object), false, ev.Source, ev.LineStart, ev.Object, "terminal literal extracted from registration evidence")
-		}
-		for _, near := range extractorReadFileLiteralCandidates(lineIndex, ev.Source, ctx.RepoRoot, ev.LineStart, ev.LineEnd) {
-			add(near.token, true, ev.Source, near.line, near.text, "literal extracted from read_file lines near grounded evidence")
 		}
 	}
 	if len(out) == 0 {
