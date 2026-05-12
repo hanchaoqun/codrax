@@ -82,7 +82,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"aggregate_facts": {
 				"type": "array",
-				"description": "OPTIONAL but expected for derived scalar/count answers. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, and excluded-candidate counts. Use this instead of burying aggregates only in reason prose. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream but no value is inferred automatically.",
+				"description": "OPTIONAL but expected for derived scalar/count answers. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, and excluded-candidate counts. Use this instead of burying aggregates only in reason prose. Count values must be numeric strings with units kept in unit. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream but no value is inferred automatically.",
 				"items": {
 					"type": "object",
 					"properties": {
@@ -97,7 +97,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"value": {
 							"type": "string",
-							"description": "Exact value to preserve, e.g. \"4\", \"3\", \"2\", \"none\", or a version/hash string."
+							"description": "Exact value to preserve. For count kinds use a non-negative integer string such as \"0\", \"3\", or \"12\"; put words like files/locations in unit."
 						},
 						"unit": {
 							"type": "string",
@@ -117,7 +117,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"members": {
 							"type": "array",
-							"description": "Optional principal members backing the aggregate, such as file:line labels for total_count or file paths for unique_count.",
+							"description": "Optional exact principal members backing the aggregate, such as file:line labels for total_count or file paths for unique_count. If you provide members for a count fact, the member count must equal value; omit members rather than provide samples.",
 							"items": {"type": "string"}
 						},
 						"excluded": {

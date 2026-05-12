@@ -2811,6 +2811,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("## Structured Aggregate Facts\n\n")
 	b.WriteString("- These aggregate facts were emitted by the investigator through `emit_investigation_complete.aggregate_facts` after exploration. They are model-authored structured handoff values, not system-synthesised answer text.\n")
 	b.WriteString("- Preserve each `value` exactly when the corresponding fact answers the user's requested scalar, unique-set, group, bucket, or exclusion question. Use `members` for requested concrete lists such as file paths or file:line locations.\n")
+	b.WriteString("- When a `members` entry is a source location such as `file.ext:line` and you render it as an ordered-list or table item, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Reserve `citation_ref:-1` for scalar aggregate values that have no source-location member citation.\n")
 	b.WriteString("- Do not recompute new aggregate values in finalization. If these facts conflict with typed support lanes, citations, or raw tool outputs, state the evidence boundary instead of inventing a reconciliation.\n\n")
 	b.WriteString(renderStructuredAggregateFacts(plan.StableAggregateFacts, 16))
 	b.WriteString("\n")

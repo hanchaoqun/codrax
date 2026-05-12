@@ -673,6 +673,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStructuredAggreg
 		"kind=`total_count`, label=production assignment locations, value=`4`",
 		"kind=`unique_count`, label=unique files, value=`3`",
 		"internal/orchestrator/orchestrator.go",
+		"create or reuse a matching `citations[]` entry",
 		"Do not recompute new aggregate values in finalization",
 	} {
 		if !strings.Contains(prompt, want) {

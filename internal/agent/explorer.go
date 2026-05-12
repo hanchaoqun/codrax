@@ -568,7 +568,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("### Structured Aggregate Handoff\n\n")
 			b.WriteString("When the answer depends on derived totals, unique-set sizes, per-dimension counts, user-bucket counts, or excluded-candidate counts, include `aggregate_facts` in your successful `emit_investigation_complete` call. Do this even when the same numbers also appear in your reason prose.\n")
 			b.WriteString("- Use `total_count` for the principal hit count, `unique_count` for distinct file/package/module sets, `grouped_count` for syntax/category/language dimensions, `bucket_count` for user-named partitions, and `excluded_count` for comments/tests/docs/unrelated candidates that were deliberately not counted.\n")
-			b.WriteString("- Put concrete members in `members` when they are part of the user's requested answer, such as file:line labels or distinct file paths. Put rejected candidates in `excluded` rather than mixing them into principal members.\n")
+			b.WriteString("- Put concrete members in `members` when they are part of the user's requested answer, such as file:line labels or distinct file paths. A count fact with `members` is treated as an exact counted set, so the number of members must match `value`; omit `members` instead of providing samples.\n")
+			b.WriteString("- When a count fact's members are source locations spanning multiple files, also emit a companion `unique_count` fact for the distinct file set. Put rejected candidates in `excluded` rather than mixing them into principal members.\n")
 			b.WriteString("- Values must come from your verified command output, grounded evidence, or explicit candidate classification. Do not leave later answer writing to recompute aggregates from prose.\n\n")
 		}
 		if types.HasAttributeBearingEnumeration(rm) {

@@ -81,7 +81,7 @@ func TestEmitInvestigationComplete_AcceptsStructuredAggregateFacts(t *testing.T)
 				"label":"production assignment locations",
 				"value":"4",
 				"unit":"locations",
-				"members":["internal/a.go:10","src/native/foo.cpp:22"]
+				"members":["internal/a.go:10","internal/a.go:20","src/native/foo.cpp:22","src/native/foo.cpp:23"]
 			},
 			{
 				"kind":"unique_count",
@@ -128,6 +128,38 @@ func TestEmitInvestigationComplete_RejectsInvalidAggregateFacts(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "aggregate_facts[0]") {
 		t.Fatalf("rejection should name aggregate fact path: %s", res.Summary)
+	}
+	if got := mut.StableInvestigationAggregateFacts(); len(got) != 0 {
+		t.Fatalf("rejected aggregate facts must not be retained: %+v", got)
+	}
+}
+
+func TestEmitInvestigationComplete_RejectsInconsistentAggregateFacts(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"done",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"total_count",
+			"label":"production locations",
+			"value":"2",
+			"unit":"locations",
+			"members":["internal/a.go:10","src/native/foo.cpp:22"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("missing unique_count companion should reject")
+	}
+	if !strings.Contains(res.Summary, "unique_count") {
+		t.Fatalf("rejection should explain missing unique_count companion: %s", res.Summary)
 	}
 	if got := mut.StableInvestigationAggregateFacts(); len(got) != 0 {
 		t.Fatalf("rejected aggregate facts must not be retained: %+v", got)

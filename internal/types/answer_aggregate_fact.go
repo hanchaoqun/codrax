@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -106,6 +107,12 @@ func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateF
 	}
 	if len(out) == 0 {
 		return nil, nil
+	}
+	if err := validateAggregateCountCardinality(out); err != nil {
+		return nil, err
+	}
+	if err := validateAggregateFileLineMemberCompanions(out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -216,6 +223,153 @@ func renderAggregateDimensionsKey(dims []AnswerAggregateDimension) string {
 		parts = append(parts, d.Name+"="+d.Value)
 	}
 	return strings.Join(parts, ";")
+}
+
+func validateAggregateCountCardinality(facts []AnswerAggregateFact) error {
+	for _, fact := range facts {
+		want, ok, err := parseAggregateCountValue(fact)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		switch fact.Kind {
+		case AnswerAggregateTotalCount, AnswerAggregateUniqueCount, AnswerAggregateGroupedCount, AnswerAggregateBucketCount:
+			if len(fact.Members) == 0 || want > maxAnswerAggregateMembers {
+				continue
+			}
+			if len(fact.Members) != want {
+				return fmt.Errorf("%s %q has value %d but %d member(s); omit partial members or provide the exact counted member set",
+					fact.Kind, fact.Label, want, len(fact.Members))
+			}
+		case AnswerAggregateExcluded:
+			if len(fact.Excluded) == 0 || want > maxAnswerAggregateMembers {
+				continue
+			}
+			if len(fact.Excluded) != want {
+				return fmt.Errorf("%s %q has value %d but %d excluded item(s); omit partial exclusions or provide the exact excluded set",
+					fact.Kind, fact.Label, want, len(fact.Excluded))
+			}
+		}
+	}
+	return nil
+}
+
+func parseAggregateCountValue(fact AnswerAggregateFact) (int, bool, error) {
+	switch fact.Kind {
+	case AnswerAggregateTotalCount, AnswerAggregateUniqueCount, AnswerAggregateGroupedCount, AnswerAggregateBucketCount, AnswerAggregateExcluded:
+	default:
+		return 0, false, nil
+	}
+	value := strings.TrimSpace(fact.Value)
+	if value == "" {
+		return 0, false, fmt.Errorf("%s %q requires a non-negative integer value", fact.Kind, fact.Label)
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 0 {
+		return 0, false, fmt.Errorf("%s %q has non-integer count value %q; put units in unit and keep value numeric",
+			fact.Kind, fact.Label, fact.Value)
+	}
+	return n, true, nil
+}
+
+func validateAggregateFileLineMemberCompanions(facts []AnswerAggregateFact) error {
+	for _, fact := range facts {
+		if fact.Kind != AnswerAggregateTotalCount && fact.Kind != AnswerAggregateGroupedCount && fact.Kind != AnswerAggregateBucketCount {
+			continue
+		}
+		files := aggregateFileLineMemberFiles(fact.Members)
+		if len(files) < 2 {
+			continue
+		}
+		if aggregateFactsContainUniqueFileSet(facts, files) {
+			continue
+		}
+		return fmt.Errorf("%s %q lists %d file:line member(s) across %d distinct file(s) but aggregate_facts does not include a matching unique_count fact with the distinct file members",
+			fact.Kind, fact.Label, aggregateFileLineMemberCount(fact.Members), len(files))
+	}
+	return nil
+}
+
+func aggregateFileLineMemberFiles(members []string) []string {
+	if len(members) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, member := range members {
+		surface, ok := ParseAnswerSourceLocationSurface(member)
+		if !ok || surface.File == "" {
+			continue
+		}
+		if seen[surface.File] {
+			continue
+		}
+		seen[surface.File] = true
+		out = append(out, surface.File)
+	}
+	return out
+}
+
+func aggregateFileLineMemberCount(members []string) int {
+	count := 0
+	for _, member := range members {
+		if _, ok := ParseAnswerSourceLocationSurface(member); ok {
+			count++
+		}
+	}
+	return count
+}
+
+func aggregateFactsContainUniqueFileSet(facts []AnswerAggregateFact, want []string) bool {
+	if len(want) == 0 {
+		return false
+	}
+	wantSet := map[string]bool{}
+	for _, file := range want {
+		wantSet[file] = true
+	}
+	for _, fact := range facts {
+		if fact.Kind != AnswerAggregateUniqueCount || strings.TrimSpace(fact.Value) != fmt.Sprintf("%d", len(wantSet)) {
+			continue
+		}
+		gotFiles := aggregatePathMemberFiles(fact.Members)
+		if len(gotFiles) != len(wantSet) {
+			continue
+		}
+		matched := true
+		for _, file := range gotFiles {
+			if !wantSet[file] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregatePathMemberFiles(members []string) []string {
+	if len(members) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, raw := range members {
+		file := normalizeAnswerLocationFile(strings.Trim(raw, "`'\" "))
+		if file == "" || !HasCodeOrConfigPathSuffix(file) || strings.Contains(file, "\n") {
+			continue
+		}
+		if seen[file] {
+			continue
+		}
+		seen[file] = true
+		out = append(out, file)
+	}
+	return out
 }
 
 func cloneAnswerAggregateFacts(in []AnswerAggregateFact) []AnswerAggregateFact {
