@@ -136,7 +136,7 @@ func principalSupportFacetKinds(family QuestionFamily) []AnswerFacetKind {
 	case QFComparison:
 		return []AnswerFacetKind{FacetCurrentCodePath, FacetComponentRelation}
 	case QFGeneric:
-		return []AnswerFacetKind{FacetCurrentCodePath}
+		return []AnswerFacetKind{FacetResolvedLiteralOrSymbol, FacetCurrentCodePath}
 	default:
 		return nil
 	}
@@ -340,4 +340,3 @@ func uncertaintySupportItemEligible(item EvidenceItem) bool {
 		item.DriftReason != "" ||
 		item.Authority == AuthorityConditional
 }
-

@@ -610,6 +610,54 @@ func TestExtractor_BuildPrompt_DeterministicEvidencePrefersTypedSurface(t *testi
 	}
 }
 
+func TestExtractor_BuildPrompt_RendersAcceptedClosureAsStructuredHandoff(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedClosureReason: "grep + exec_command confirmed 4 production sites: analyzer.go:1903, contract_check.go:63, orchestrator.go:6362, orchestrator.go:6494; two comment hits were excluded",
+		AcceptedResultKind:    "resolved",
+		EvidenceItems: []types.EvidenceItem{{
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/orchestrator/orchestrator.go",
+			LineStart:       6362,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "CitationReq",
+			Snippet:         "CitationReq: types.CitationReq{Required: false}",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	})
+	ctx := &types.AgentContext{
+		Objective: "count production sites",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentReturnValue,
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+				},
+			},
+		},
+	}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Accepted exploration closure",
+		"result_kind: `resolved`",
+		"confirmed 4 production sites",
+		"orchestrator.go:6362",
+		"Deterministic evidence the investigation extracted",
+	} {
+		if !contains(prompt, want) {
+			t.Fatalf("prompt missing accepted closure handoff %q:\n%s", want, prompt)
+		}
+	}
+	if !contains(prompt, "do not fall back to earlier stale notes") {
+		t.Fatalf("prompt must tell extractor to prefer accepted closure over stale early notes:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_EnumerationBoundaryOverridesDisplayedFloor(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{TerminalEvidenceCount: 15})

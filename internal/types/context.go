@@ -718,6 +718,22 @@ type TurnAArtifacts struct {
 	// Subject to pruneToolHistory so the slice is bounded.
 	ToolResults []ToolResult
 
+	// AcceptedClosureReason is the model-authored rationale from the
+	// successful emit_investigation_complete call. It is carried as
+	// structured exploration context so downstream stages can preserve
+	// the investigator's resolved count / set / boundary / verdict
+	// instead of reconstructing from stale early grep notes. It is not
+	// a citation and not system-synthesised answer text: finalization
+	// must reconcile it with the typed evidence and tool outputs.
+	AcceptedClosureReason string
+
+	// AcceptedResultKind mirrors emit_investigation_complete.result_kind
+	// for the successful closure ("resolved" or "absence"). Kept with
+	// AcceptedClosureReason so extractor/finalizer can distinguish a
+	// positive resolved set from a bounded no-hit result without
+	// parsing prose.
+	AcceptedResultKind string
+
 	// EvidenceItems is the deterministic evidence the explorer's
 	// ParseOutput already produced (concrete values, flow findings,
 	// mechanism scan, grounded markdown items if the legacy channel

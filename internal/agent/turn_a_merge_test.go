@@ -73,6 +73,24 @@ func TestMergeTurnAArtifactsWithPrior_AccumulatesAcrossWindows(t *testing.T) {
 	}
 }
 
+func TestMergeTurnAArtifactsWithPrior_PreservesAcceptedClosureWhenCurrentEmpty(t *testing.T) {
+	prior := &types.TurnAArtifacts{
+		AcceptedClosureReason: "resolved 4 grounded sites after excluding comments",
+		AcceptedResultKind:    "resolved",
+	}
+	current := types.TurnAArtifacts{
+		UserQuestion: "same question",
+	}
+
+	got := mergeTurnAArtifactsWithPrior(prior, current)
+	if got.AcceptedClosureReason != prior.AcceptedClosureReason {
+		t.Fatalf("AcceptedClosureReason = %q, want prior %q", got.AcceptedClosureReason, prior.AcceptedClosureReason)
+	}
+	if got.AcceptedResultKind != prior.AcceptedResultKind {
+		t.Fatalf("AcceptedResultKind = %q, want prior %q", got.AcceptedResultKind, prior.AcceptedResultKind)
+	}
+}
+
 // TestMergeTurnAArtifactsWithPrior_EvidenceDedupesByID ensures an item
 // reported in both windows collapses rather than doubling up — matching
 // mergeEvidenceItems's documented contract.

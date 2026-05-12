@@ -953,11 +953,22 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			{Kind: FacetUncertaintyBoundary, Required: FacetSoftRequired},
 		}, common...)
 	case QFGeneric:
-		return append([]FacetRequirement{
+		facets := []FacetRequirement{
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
-				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
+				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
+					ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact,
+					ClaimImportEdge}},
 			{Kind: FacetUncertaintyBoundary, Required: FacetOptional},
-		}, common...)
+		}
+		if rm.Predicates.IsScalarAnswer || rm.Predicates.IsCountQuestion ||
+			rm.Intent == IntentReturnValue || rm.AnswerSubject.Kind != SubjectUnknown {
+			facets = append([]FacetRequirement{{
+				Kind: FacetResolvedLiteralOrSymbol, Required: FacetSoftRequired,
+				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimAssignmentFact,
+					ClaimReturnFact, ClaimAbsenceFact},
+			}}, facets...)
+		}
+		return append(facets, common...)
 	}
 	return nil
 }

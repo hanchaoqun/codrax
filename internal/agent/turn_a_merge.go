@@ -32,6 +32,10 @@ import "github.com/hanchaoqun/codrax/internal/types"
 //   - ToolResults: concat. Tool calls are a time-ordered event stream;
 //     a legitimate investigation may grep the same pattern twice across
 //     windows, and dropping one call would misreport the investigation.
+//   - AcceptedClosureReason / AcceptedResultKind: current when present,
+//     otherwise prior. Later windows may contain the accepted completion
+//     rationale after a repair, but a closure-only retry must not erase a
+//     previously accepted rationale with an empty value.
 //   - EvidenceItems: mergeEvidenceItems(prior, current). Already ID-deduped.
 //   - FlowFindings: mergeFlowFindings(prior, current). Already ID-deduped.
 //   - TerminalEvidenceCount: max(prior, current). Must not regress — a
@@ -45,6 +49,12 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 	merged := current
 	merged.ReadFiles = mergeStrings(prior.ReadFiles, current.ReadFiles)
 	merged.ToolResults = append(append([]types.ToolResult(nil), prior.ToolResults...), current.ToolResults...)
+	if merged.AcceptedClosureReason == "" {
+		merged.AcceptedClosureReason = prior.AcceptedClosureReason
+	}
+	if merged.AcceptedResultKind == "" {
+		merged.AcceptedResultKind = prior.AcceptedResultKind
+	}
 	merged.EvidenceItems = mergeEvidenceItems(prior.EvidenceItems, current.EvidenceItems)
 	merged.FlowFindings = mergeFlowFindings(prior.FlowFindings, current.FlowFindings)
 	if prior.TerminalEvidenceCount > merged.TerminalEvidenceCount {

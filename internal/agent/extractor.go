@@ -37,6 +37,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/axis"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
@@ -143,6 +144,10 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		b.WriteString("alone, and set `completeness` to `unknown` for any answer-symbol emission.\n\n")
 	} else {
 		b.WriteString("## Investigation transcript digest\n\n")
+
+		if closure := renderExtractorAcceptedClosure(ctx, ta); closure != "" {
+			b.WriteString(closure)
+		}
 
 		// Investigation notes: up to 6 entries, trimmed for prompt length
 		if len(ta.InvestigationNotes) > 0 {
@@ -391,6 +396,46 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 	}
 
 	return b.String()
+}
+
+func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArtifacts) string {
+	reason := ""
+	resultKind := ""
+	if ta != nil {
+		reason = strings.TrimSpace(ta.AcceptedClosureReason)
+		resultKind = strings.TrimSpace(ta.AcceptedResultKind)
+	}
+	if reason == "" && ctx != nil && ctx.Mutable != nil {
+		reason = strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason())
+	}
+	if resultKind == "" && ctx != nil && ctx.Mutable != nil {
+		resultKind = strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind())
+	}
+	if reason == "" && resultKind == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Accepted exploration closure\n\n")
+	if resultKind != "" {
+		fmt.Fprintf(&b, "- result_kind: `%s`\n", resultKind)
+	}
+	if reason != "" {
+		fmt.Fprintf(&b, "- model-authored closure reason: %s\n", truncateExtractorPromptText(reason, 900))
+	}
+	b.WriteString("- Treat this as the investigator's structured handoff, not as a citation. Preserve resolved counts, listed members, excluded candidates, and scope boundaries when they are supported by the evidence/tool outputs below; do not fall back to earlier stale notes that conflict with this accepted closure.\n\n")
+	return b.String()
+}
+
+func truncateExtractorPromptText(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	trimmed := s[:max]
+	for len(trimmed) > 0 && !utf8.RuneStart(trimmed[len(trimmed)-1]) {
+		trimmed = trimmed[:len(trimmed)-1]
+	}
+	return strings.TrimSpace(trimmed) + "…[truncated]"
 }
 
 // ShouldStop implements Evaluator.

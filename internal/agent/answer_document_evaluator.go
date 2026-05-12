@@ -27,6 +27,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -2771,9 +2772,31 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	if plan.StableAbsent {
 		b.WriteString("- The stable state currently remains an accepted bounded absence / no-hit result for the exact target under the explored scope.\n")
 	}
-	b.WriteString("- Treat prior closure state only as a scope / completeness floor.\n")
-	b.WriteString("- Rebuild user-visible principal claims from the typed support lanes, current citations, and the semantic view below. Do not copy prior closure prose into the `summary` block or principal `ordered_list` items.\n\n")
+	if strings.TrimSpace(plan.StableInvestigationResultKind) != "" {
+		fmt.Fprintf(&b, "- result_kind: `%s`\n", strings.TrimSpace(plan.StableInvestigationResultKind))
+	}
+	if reason := strings.TrimSpace(plan.StableInvestigationReason); reason != "" {
+		fmt.Fprintf(&b, "- model-authored closure reason: %s\n", truncateAnswerDocPromptText(reason, 900))
+	}
+	if justification := strings.TrimSpace(plan.StableAbsenceJustification); justification != "" {
+		fmt.Fprintf(&b, "- absence justification: %s\n", truncateAnswerDocPromptText(justification, 500))
+	}
+	b.WriteString("- Treat this closure as a structured exploration handoff, not as a citation and not as system-written answer text.\n")
+	b.WriteString("- Preserve resolved counts, listed members, excluded candidates, scope boundaries, and verdicts from the closure when they are supported by the typed support lanes, current citations, or raw tool outputs below. If older analyzer/pre-scan notes conflict with the accepted closure, prefer the accepted closure plus the latest grounded evidence.\n")
+	b.WriteString("- Rebuild the user-visible prose yourself inside `emit_answer_document`; do not invent facts beyond the closure/evidence boundary.\n\n")
 	return b.String()
+}
+
+func truncateAnswerDocPromptText(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	trimmed := s[:max]
+	for len(trimmed) > 0 && !utf8.RuneStart(trimmed[len(trimmed)-1]) {
+		trimmed = trimmed[:len(trimmed)-1]
+	}
+	return strings.TrimSpace(trimmed) + "…[truncated]"
 }
 
 func renderAnswerDocRuntimeGroundingDisposition(ctx *types.AgentContext) string {

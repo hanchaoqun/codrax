@@ -8792,6 +8792,8 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			InvestigationNotes:    e.investigationNotes,
 			ReadFiles:             readFilesList,
 			ToolResults:           toolResults,
+			AcceptedClosureReason: strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()),
+			AcceptedResultKind:    strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()),
 			EvidenceItems:         strictEvidence,
 			FlowFindings:          rankedFindings,
 			TerminalEvidenceCount: terminalEvidenceCount,
@@ -8841,6 +8843,9 @@ func shouldSeedTurnAStrictEvidenceFromRanked(ctx *types.AgentContext, questionKi
 	}
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
+	}
+	if !needsAnswerSymbols(ctx) {
+		return true
 	}
 	return types.HasCapabilitySurfaceHint(ctx.AnalysisIR.RequestModel)
 }

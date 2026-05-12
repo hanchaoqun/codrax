@@ -787,6 +787,65 @@ func TestBuildAnswerSupportPlan_FacetPrincipalLaneUsesOnlySourceCandidates(t *te
 	}
 }
 
+func TestBuildAnswerSupportPlan_GenericScalarKeepsModelAuthoredAssignments(t *testing.T) {
+	modelAssignment := EvidenceItem{
+		ID:              "model-assignment",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       6362,
+		AnchorKind:      AnchorAssignment,
+		AnchorSymbol:    "CitationReq",
+		Subject:         "AnswerContract",
+		Predicate:       "sets",
+		Object:          "false",
+		Snippet:         "CitationReq: types.CitationReq{Required: false}",
+		Summary:         "orchestrator.go:6362 initializes AnswerContract.CitationReq.Required to false",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	concreteNoise := EvidenceItem{
+		ID:              "concrete-noise",
+		Kind:            EvidenceConcrete,
+		Scope:           ScopeLine,
+		Source:          "internal/types/evidence_closure.go",
+		LineStart:       1870,
+		AnchorKind:      AnchorCall,
+		AnchorSymbol:    "BumpViolationsLogged",
+		Subject:         "EvidenceClosure.BumpViolationsLogged",
+		Predicate:       "calls",
+		Object:          "c.bumpStat",
+		Producer:        "concrete_values",
+		GroundingStatus: GroundingGrounded,
+	}
+	rm := RequestModel{
+		Intent:        IntentReturnValue,
+		AnswerSubject: AnswerSubject{Kind: SubjectNumeric, Confidence: 0.95},
+		Predicates: SemanticPredicates{
+			IsScalarAnswer:  true,
+			IsCountQuestion: true,
+		},
+	}
+	evidence := []EvidenceItem{concreteNoise, modelAssignment}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: evidence,
+		FacetCoverage:   CompileFacetCoverage(rm, evidence),
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) == 0 {
+		t.Fatalf("missing principal evidence lane: %+v", got)
+	}
+	if !strings.Contains(lane.Entries[0].Text, "CitationReq") ||
+		!strings.Contains(lane.Entries[0].Location, "internal/orchestrator/orchestrator.go:6362") {
+		t.Fatalf("model-authored assignment should be the leading scalar/count support entry, got %+v", lane.Entries[0])
+	}
+}
+
 func TestBuildAnswerSupportPlan_EnumerationPrioritizesModelAuthoredSurfaceEvidence(t *testing.T) {
 	imports := []EvidenceItem{
 		{
