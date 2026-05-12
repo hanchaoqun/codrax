@@ -61,8 +61,10 @@ func compilePrincipalEvidenceSupportLane(family QuestionFamily, plan *AnswerSurf
 		if text == "" {
 			continue
 		}
-		lane.Entries = append(lane.Entries,
-			answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text)))
+		entry := answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text))
+		entry.MemberSurface = PrincipalMemberSurfaceForEvidenceSet(item, items)
+		entry.Detail = appendPrincipalMemberSurfaceDetail(entry.Detail, entry.MemberSurface)
+		lane.Entries = append(lane.Entries, entry)
 		if len(lane.Entries) >= limit {
 			break
 		}
@@ -91,7 +93,8 @@ func principalEvidenceLaneGuidance(family QuestionFamily) string {
 	base := "Use this lane for principal user-visible claims in this family. " +
 		"Each entry is selected from typed facet source candidates, so it may support the block kinds listed below. " +
 		"Evidence notes can enrich the cited fact, but do not add uncited helper names, search hints, prior-turn guesses, or nearby context as new principal claims. " +
-		"When entries use different visible syntax or label surfaces (assignment, object/struct literal, import/path, route, macro, table label), preserve each entry's own snippet/operator instead of collapsing them into one generic wording."
+		"When entries use different visible syntax or label surfaces (assignment, object/struct literal, import/path, route, macro, table label), preserve each entry's own snippet/operator instead of collapsing them into one generic wording. " +
+		"When an entry says member_surface=source_location, the cited file/path/line is the principal member label; do not replace it with a helper symbol or imported endpoint."
 	switch family {
 	case QFConfigPrecedence:
 		return base + " For config answers, keep scalar/table/list content to real default/config/CLI/runtime layer anchors; general precedence rules belong in prose unless this lane cites that layer."
@@ -197,7 +200,7 @@ func PrincipalSupportEvidenceItemsForFacet(family QuestionFamily, plan *AnswerSu
 func principalSupportEvidenceItemsForFacets(family QuestionFamily, plan *AnswerSurfacePlan, facets ...AnswerFacetKind) []EvidenceItem {
 	out := principalSupportEvidenceItemsForFacetsRaw(family, plan, facets...)
 	if family == QFEnumeration {
-		return enumerationPrincipalEvidenceMatchingBackbone(plan, out)
+		return curateEnumerationPrincipalEvidence(plan, out)
 	}
 	return out
 }
@@ -246,18 +249,114 @@ func compileEnumerationSupportingContextLane(plan *AnswerSurfacePlan) AnswerSupp
 	if len(items) == 0 {
 		return lane
 	}
-	for _, item := range enumerationEvidenceNotMatchingBackbone(plan, items) {
+	for _, item := range enumerationSupportingContextEvidence(plan, items) {
 		text := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
 		if text == "" {
 			continue
 		}
-		lane.Entries = append(lane.Entries,
-			answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text)))
+		entry := answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text))
+		entry.MemberSurface = PrincipalMemberSurfaceForEvidenceSet(item, items)
+		entry.Detail = appendPrincipalMemberSurfaceDetail(entry.Detail, entry.MemberSurface)
+		lane.Entries = append(lane.Entries, entry)
 		if len(lane.Entries) >= facetSupportEntryLimitDefault {
 			break
 		}
 	}
 	return lane
+}
+
+func appendPrincipalMemberSurfaceDetail(detail string, surface AnswerPrincipalMemberSurface) string {
+	if surface == PrincipalMemberSurfaceUnknown {
+		return strings.TrimSpace(detail)
+	}
+	detail = strings.TrimSpace(detail)
+	member := "member_surface=" + string(surface)
+	if detail == "" {
+		return member
+	}
+	if strings.Contains(detail, member) {
+		return detail
+	}
+	return detail + "; " + member
+}
+
+func curateEnumerationPrincipalEvidence(plan *AnswerSurfacePlan, items []EvidenceItem) []EvidenceItem {
+	if len(items) == 0 {
+		return nil
+	}
+	if plan != nil && len(plan.StepBackbone) > 0 {
+		return enumerationPrincipalEvidenceMatchingBackbone(plan, items)
+	}
+	return filterDominantEnumerationPrincipalSurface(items)
+}
+
+func enumerationSupportingContextEvidence(plan *AnswerSurfacePlan, items []EvidenceItem) []EvidenceItem {
+	if len(items) == 0 {
+		return nil
+	}
+	principal := curateEnumerationPrincipalEvidence(plan, items)
+	if len(principal) == 0 {
+		return nil
+	}
+	principalIDs := make(map[string]bool, len(principal))
+	for _, item := range principal {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			principalIDs[id] = true
+		}
+	}
+	var out []EvidenceItem
+	for _, item := range items {
+		id := strings.TrimSpace(item.ID)
+		if id != "" && principalIDs[id] {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func filterDominantEnumerationPrincipalSurface(items []EvidenceItem) []EvidenceItem {
+	if len(items) < 3 {
+		return items
+	}
+	counts := make(map[AnswerPrincipalMemberSurface]int)
+	for _, item := range items {
+		group := PrincipalMemberSurfaceForEvidenceSet(item, items)
+		if group == PrincipalMemberSurfaceUnknown {
+			continue
+		}
+		counts[group]++
+	}
+	if len(counts) < 2 {
+		return items
+	}
+	var best AnswerPrincipalMemberSurface
+	bestCount := 0
+	tied := false
+	for group, count := range counts {
+		switch {
+		case count > bestCount:
+			best = group
+			bestCount = count
+			tied = false
+		case count == bestCount:
+			tied = true
+		}
+	}
+	if tied || bestCount < 2 {
+		return items
+	}
+	out := make([]EvidenceItem, 0, bestCount)
+	for _, item := range items {
+		group := PrincipalMemberSurfaceForEvidenceSet(item, items)
+		if group == best {
+			out = append(out, item)
+		}
+	}
+	if len(out) == 0 {
+		return items
+	}
+	return out
 }
 
 func enumerationPrincipalEvidenceMatchingBackbone(plan *AnswerSurfacePlan, items []EvidenceItem) []EvidenceItem {

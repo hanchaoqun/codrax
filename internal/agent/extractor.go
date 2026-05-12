@@ -1654,10 +1654,12 @@ func enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx *types.AgentCon
 		if !extractorEvidenceIsModelAuthoredPrincipal(item) {
 			continue
 		}
-		switch types.ClaimFormOf(item) {
-		case types.ClaimImportEdge, types.ClaimCallEdge:
+		surface := types.PrincipalMemberSurfaceForEvidenceSet(item, items)
+		if surface.IsNonSymbol() {
 			nonSymbolPrincipal++
-		case types.ClaimDefinitionFact, types.ClaimAssignmentFact, types.ClaimReturnFact:
+			continue
+		}
+		if surface.IsSymbolLike() {
 			symbolPrincipal++
 		}
 	}

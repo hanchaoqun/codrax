@@ -478,14 +478,14 @@ func ApplyPrincipalEvidenceStepBackbone(plan *AnswerSurfacePlan, ir *AnalysisIR)
 	if ResolveQuestionFamily(ir.RequestModel) != QFEnumeration {
 		return
 	}
-	items := principalSupportEvidenceItemsForFacetsRaw(QFEnumeration, plan, principalSupportFacetKinds(QFEnumeration)...)
+	items := PrincipalSupportEvidenceItemsForFamily(QFEnumeration, plan)
 	if len(items) == 0 {
 		return
 	}
 	anchors := make([]StepSurfaceAnchor, 0, len(items))
 	seen := make(map[string]bool, len(items))
 	for _, item := range items {
-		name := principalEvidenceStepAnchorName(item)
+		name := principalEvidenceStepAnchorName(item, items)
 		file := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
 		if name == "" || file == "" || item.LineStart <= 0 {
 			continue
@@ -511,7 +511,18 @@ func ApplyPrincipalEvidenceStepBackbone(plan *AnswerSurfacePlan, ir *AnalysisIR)
 	}
 }
 
-func principalEvidenceStepAnchorName(item EvidenceItem) string {
+func principalEvidenceStepAnchorName(item EvidenceItem, peers []EvidenceItem) string {
+	if PrincipalMemberSurfaceForEvidenceSet(item, peers) == PrincipalMemberSurfaceSourceLocation {
+		if source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)); source != "" {
+			if ClaimFormOf(item) == ClaimImportEdge {
+				return source
+			}
+			if item.LineStart > 0 {
+				return fmt.Sprintf("%s:%d", source, item.LineStart)
+			}
+			return source
+		}
+	}
 	switch ClaimFormOf(item) {
 	case ClaimReturnFact:
 		if name := firstNonEmptySurfaceString(item.Object, item.AnchorSymbol, item.Subject); name != "" {

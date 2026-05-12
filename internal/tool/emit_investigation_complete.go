@@ -83,14 +83,14 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"aggregate_facts": {
 				"type": "array",
-				"description": "OPTIONAL but expected for derived scalar/count answers. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, and excluded-candidate counts. Use this instead of burying aggregates only in reason prose. Count values must be numeric strings with units kept in unit. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream but no value is inferred automatically.",
+				"description": "OPTIONAL but expected for derived scalar/count answers and exhaustive member enumerations. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, and excluded-candidate counts. Use this instead of burying aggregates or complete member lists only in reason prose. Count/member-set values must be numeric strings with units kept in unit. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream but no value is inferred automatically.",
 				"items": {
 					"type": "object",
 					"properties": {
 						"kind": {
 							"type": "string",
-							"enum": ["total_count", "unique_count", "grouped_count", "bucket_count", "excluded_count", "scalar_value"],
-							"description": "total_count = total principal hits; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar."
+							"enum": ["total_count", "unique_count", "grouped_count", "bucket_count", "excluded_count", "scalar_value", "member_set"],
+							"description": "total_count = total principal hits; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members)."
 						},
 						"label": {
 							"type": "string",
@@ -118,7 +118,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"members": {
 							"type": "array",
-							"description": "Optional exact principal members backing the aggregate, such as file:line labels for total_count or file paths for unique_count. If you provide members for a count fact, the member count must equal value; omit members rather than provide samples.",
+							"description": "Optional exact principal members backing the aggregate, such as enum/type names, file:line labels for total_count, or file paths for unique_count. For member_set this is required and must be the complete answer member set. If you provide members for a count fact, the member count must equal value; omit members rather than provide samples.",
 							"items": {"type": "string"}
 						},
 						"excluded": {
@@ -1025,13 +1025,16 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		if downgrade := fieldValueCountCoverageDowngrade(ctx, closure); downgrade != "" {
 			return downgrade
 		}
-		if downgrade := deterministicCountProofDowngrade(ctx, closure); downgrade != "" {
+		if downgrade := deterministicCountProofDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
+			return downgrade
+		}
+		if downgrade := principalRequiredTermHandoffDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
+			return downgrade
+		}
+		if downgrade := exhaustiveEnumerationMemberSetDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
 			return downgrade
 		}
 		if downgrade := principalSupportMaterializationDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
-			return downgrade
-		}
-		if downgrade := principalRequiredTermHandoffDowngrade(ctx, closure); downgrade != "" {
 			return downgrade
 		}
 	}
@@ -1202,12 +1205,15 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 	return b.String()
 }
 
-func deterministicCountProofDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
+func deterministicCountProofDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if !rm.Predicates.IsCountQuestion || rm.Predicates.IsRelationalLookup {
+	if !rm.Predicates.IsCountQuestion {
+		return ""
+	}
+	if aggregateFactsContainCountAnswer(aggregateFacts) {
 		return ""
 	}
 	if hasDeterministicCountToolResult(ctx) {
@@ -1224,8 +1230,63 @@ func deterministicCountProofDowngrade(ctx *types.BusContext, closure *types.Evid
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — deterministic count proof is missing.\n\n")
 	b.WriteString("This is a count question whose answer is a derived integer. The investigation has read/evidence items, but no successful `exec_command` result with an integer count. Do not close from visual tallying of read_file or grep snippets.\n\n")
-	b.WriteString("Run a deterministic counting command that prints the final integer (for example: `rg ... | <production/comment/test filter> | wc -l`, `find ... | wc -l`, `wc -l ...`, or the platform-equivalent command for the repository language), then re-call emit_investigation_complete. If the count depends on reading and judging each candidate rather than a fixed syntax match, mark the question as relationship-filtered so the enumerate-then-count path applies.")
+	b.WriteString("Run a deterministic counting command that prints the final integer (for example: `rg ... | <production/comment/test filter> | wc -l`, `find ... | wc -l`, `wc -l ...`, or the platform-equivalent command for the repository language), or emit `aggregate_facts` with an exact count/member set derived from verified candidate classification. Then re-call emit_investigation_complete.")
 	return b.String()
+}
+
+func aggregateFactsContainCountAnswer(facts []types.AnswerAggregateFact) bool {
+	for _, fact := range facts {
+		switch fact.Kind {
+		case types.AnswerAggregateTotalCount, types.AnswerAggregateUniqueCount,
+			types.AnswerAggregateGroupedCount, types.AnswerAggregateBucketCount,
+			types.AnswerAggregateMemberSet:
+			return true
+		}
+	}
+	return false
+}
+
+func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.CompletenessObligation == nil || !rm.CompletenessObligation.Required {
+		return ""
+	}
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if view == nil || view.Family != types.QFEnumeration || !view.NeedsEnumerationSlate() {
+		return ""
+	}
+	if aggregateFactsContainMemberSet(aggregateFacts) {
+		return ""
+	}
+	if syms, claim := ctx.Mutable.EmittedAnswerSymbols(); len(syms) > 0 && claim == types.CompletenessComplete {
+		return ""
+	}
+	if closure != nil {
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairEmitEvidence,
+			Files:     completionMaterializationReadFiles(closure),
+			Keywords:  dedupStringsPreserveOrder(append(append([]string{}, rm.AnalyzerHints.ExactTargets...), append(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities...)...)),
+			Rationale: "exhaustive enumeration needs a typed member_set handoff or a completed answer-symbol slate so finalization does not reconstruct the list from prose",
+			Origin:    "pre_complete.exhaustive_member_set",
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — exhaustive member-set handoff is missing.\n\n")
+	b.WriteString("The current question requires an exhaustive enumeration. Do not close with the complete list only in tool-output memory, thinking text, or the closure reason.\n\n")
+	b.WriteString("Either emit the completed `emit_answer_symbol` slate, or include `aggregate_facts` with kind=`member_set`, value equal to the exact member count, and `members` containing every principal answer member copied from your verified search/read/command results. Include source locations in member strings or support_refs when available. Then re-call `emit_investigation_complete`.")
+	return b.String()
+}
+
+func aggregateFactsContainMemberSet(facts []types.AnswerAggregateFact) bool {
+	for _, fact := range facts {
+		if fact.Kind == types.AnswerAggregateMemberSet && len(fact.Members) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func principalSupportMaterializationDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
@@ -1263,7 +1324,7 @@ func principalSupportMaterializationDowngrade(ctx *types.BusContext, closure *ty
 	return b.String()
 }
 
-func principalRequiredTermHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
+func principalRequiredTermHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return ""
 	}
@@ -1285,7 +1346,7 @@ func principalRequiredTermHandoffDowngrade(ctx *types.BusContext, closure *types
 	}
 	support := types.PrincipalSupportEvidenceItemsForFamily(view.Family, plan)
 	syms, _ := ctx.Mutable.EmittedAnswerSymbols()
-	missing := completionMissingPrincipalHandoffTerms(terms, support, syms)
+	missing := completionMissingPrincipalHandoffTerms(terms, support, syms, aggregateFacts)
 	if len(missing) == 0 {
 		return ""
 	}
@@ -1349,6 +1410,7 @@ func completionMissingPrincipalHandoffTerms(
 	terms []types.ContractTerm,
 	support []types.EvidenceItem,
 	syms []types.AnswerSymbol,
+	aggregateFacts []types.AnswerAggregateFact,
 ) []types.ContractTerm {
 	if len(terms) == 0 {
 		return nil
@@ -1356,12 +1418,47 @@ func completionMissingPrincipalHandoffTerms(
 	var missing []types.ContractTerm
 	for _, term := range terms {
 		if completionTermCoveredByAnswerSymbol(term, syms) ||
-			completionTermCoveredBySupportEvidence(term, support) {
+			completionTermCoveredBySupportEvidence(term, support) ||
+			completionTermCoveredByAggregateFacts(term, aggregateFacts) {
 			continue
 		}
 		missing = append(missing, term)
 	}
 	return missing
+}
+
+func completionTermCoveredByAggregateFacts(term types.ContractTerm, facts []types.AnswerAggregateFact) bool {
+	needle := completionTermFold(term.Text)
+	if needle == "" {
+		return false
+	}
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateMemberSet {
+			continue
+		}
+		for _, member := range fact.Members {
+			if completionAggregateMemberContainsTerm(member, needle) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func completionAggregateMemberContainsTerm(member, foldedNeedle string) bool {
+	member = completionTermFold(member)
+	if member == "" || foldedNeedle == "" {
+		return false
+	}
+	if member == foldedNeedle {
+		return true
+	}
+	for _, sep := range []string{" @ ", "\t", " | ", ":", " "} {
+		if idx := strings.Index(member, sep); idx > 0 && strings.TrimSpace(member[:idx]) == foldedNeedle {
+			return true
+		}
+	}
+	return false
 }
 
 func completionTermCoveredByAnswerSymbol(term types.ContractTerm, syms []types.AnswerSymbol) bool {
@@ -1480,6 +1577,10 @@ func aggregateFactsCanCarryPrincipalAnswer(rm types.RequestModel, family types.Q
 		switch fact.Kind {
 		case types.AnswerAggregateScalar:
 			if family == types.QFConfigPrecedence || family == types.QFRoleLookup {
+				return true
+			}
+		case types.AnswerAggregateMemberSet:
+			if family == types.QFEnumeration {
 				return true
 			}
 		case types.AnswerAggregateTotalCount, types.AnswerAggregateUniqueCount,

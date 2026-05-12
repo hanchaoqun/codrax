@@ -21,6 +21,7 @@ const (
 	AnswerAggregateBucketCount  AnswerAggregateKind = "bucket_count"
 	AnswerAggregateExcluded     AnswerAggregateKind = "excluded_count"
 	AnswerAggregateScalar       AnswerAggregateKind = "scalar_value"
+	AnswerAggregateMemberSet    AnswerAggregateKind = "member_set"
 )
 
 var allAnswerAggregateKinds = []AnswerAggregateKind{
@@ -30,6 +31,7 @@ var allAnswerAggregateKinds = []AnswerAggregateKind{
 	AnswerAggregateBucketCount,
 	AnswerAggregateExcluded,
 	AnswerAggregateScalar,
+	AnswerAggregateMemberSet,
 }
 
 // AllAnswerAggregateKinds returns the canonical non-empty aggregate
@@ -73,7 +75,7 @@ type AnswerAggregateFact struct {
 const (
 	maxAnswerAggregateFacts      = 16
 	maxAnswerAggregateDimensions = 8
-	maxAnswerAggregateMembers    = 80
+	maxAnswerAggregateMembers    = 200
 	maxAnswerAggregateTextLen    = 240
 )
 
@@ -251,6 +253,15 @@ func validateAggregateCountCardinality(facts []AnswerAggregateFact) error {
 				return fmt.Errorf("%s %q has value %d but %d excluded item(s); omit partial exclusions or provide the exact excluded set",
 					fact.Kind, fact.Label, want, len(fact.Excluded))
 			}
+		case AnswerAggregateMemberSet:
+			if len(fact.Members) == 0 {
+				return fmt.Errorf("%s %q requires exact members; use scalar_value for prose-only summaries",
+					fact.Kind, fact.Label)
+			}
+			if len(fact.Members) != want {
+				return fmt.Errorf("%s %q has value %d but %d member(s); provide the exact member set or omit the fact",
+					fact.Kind, fact.Label, want, len(fact.Members))
+			}
 		}
 	}
 	return nil
@@ -258,7 +269,7 @@ func validateAggregateCountCardinality(facts []AnswerAggregateFact) error {
 
 func parseAggregateCountValue(fact AnswerAggregateFact) (int, bool, error) {
 	switch fact.Kind {
-	case AnswerAggregateTotalCount, AnswerAggregateUniqueCount, AnswerAggregateGroupedCount, AnswerAggregateBucketCount, AnswerAggregateExcluded:
+	case AnswerAggregateTotalCount, AnswerAggregateUniqueCount, AnswerAggregateGroupedCount, AnswerAggregateBucketCount, AnswerAggregateExcluded, AnswerAggregateMemberSet:
 	default:
 		return 0, false, nil
 	}

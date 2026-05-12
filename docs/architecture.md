@@ -874,13 +874,15 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 - `SupportLaneUncertaintyBound`：drift / proof-boundary caveat
 - `SupportLaneCurrentVerdict`：仅供 `decision` verdict block 跨 historical observation / current verification / boundary evidence 做综合判定；不会放宽 observation/path lane 对普通 `ordered_list` / `diagram` 的边界
 
-每 lane 是 `[]AnswerSupportEntry{Text, Detail, Location}`，并带 `AllowedBlocks[]`。finalizer 的 prompt builder 渲染时带显式指引——"这条 lane 只能描述 X / 只能进入这些 block kind"——强制把"日志观察到的事"、"当前代码 mechanism"、"主线枚举/配置/比较证据"严格分开。否则会发生"observed frame F 是当前代码里 X 的调用点"这种漂移到当前 code 的假断言（log 是旧 build，源码已经 drift），或把 search hint / helper name 强塞成主答案。
+每 lane 是 `[]AnswerSupportEntry{Text, Detail, Location, ClaimForm, MemberSurface}`，并带 `AllowedBlocks[]`。finalizer 的 prompt builder 渲染时带显式指引——"这条 lane 只能描述 X / 只能进入这些 block kind"——强制把"日志观察到的事"、"当前代码 mechanism"、"主线枚举/配置/比较证据"严格分开。`MemberSurface` 是主答案成员的 typed 可见形态：`symbol_like` 继续走符号/定义校验，`display_label` 允许 import path、config role、route/macro/table label 这类非符号标签，`source_location` 明确表示 file/path/line 本身就是主项。它由 `ClaimForm` + peer set 的 source/endpoint 分布推导（例如多个 source 指向同一个 import endpoint → source path 是主项；一个 source 指向多个 endpoint → endpoint label 是主项），不读问题原文关键词。否则会发生"observed frame F 是当前代码里 X 的调用点"这种漂移到当前 code 的假断言（log 是旧 build，源码已经 drift），或把 search hint / helper name 强塞成主答案。
 
 `validateLaneBlockKindCompliance` 把 `AllowedBlocks[]` 从 prompt 提示升级为 hard validator：principal block 如果引用的 citation 全部来自某条 lane，而 block.kind 不在该 lane 的 AllowedBlocks 中，`emit_answer_document` 会被拒收。这样 root-cause / call-chain / config-precedence / role-lookup / enumeration / architecture / comparison / generic 都复用同一套 principal-vs-context 边界，不靠每个 case 在 prompt 里补丁。`architecture` 的 principal lane 同时允许 `section` 与 `ordered_list`：静态层/组件用 section，探索期已经结构化出的 pipeline / dispatch / handoff 步骤可以继续用 ordered_list 下传，不会被 hard gate 压成 prose。
 
 **typed comparison bucket safety net**：当 analyzer 漏发 `buckets[]`，但它自己已经结构化出 `IsCrossComponent=true`、≥2 个 sub-topic、以及 ≥2 个高置信 `RequiredFileHints`，并且这些文件标签逐字出现在当前 `RawRequest`，`QuestionStructure()` 会把这些文件标签编译成 comparison buckets。这个 safety net 不扫描“compare/对比”等原文关键词，RawRequest 只用于和 `NormalizeBuckets` 一样的精确 provenance 校验。目的不是补答案，而是保住用户的两侧/多侧分区，避免 comparison 问题退化成 enumeration 后把 return/assignment 等支撑证据误当成 principal member。
 
-**principal handoff preflight**：`emit_investigation_complete` 在 `resolved` 收尾前会重新编译 `AnswerSemanticView → AnswerSurfacePlan → AnswerSupportPlan`。对于 config-precedence / role-lookup / enumeration / architecture 这类主答案必须落在 typed principal lane 的 family，如果 facet binding 后 `PrincipalSupportEvidenceItemsForFamily` 仍为 0，就软降级本次 completion，并要求 explorer 留在已读主线锚点上补 `emit_evidence`。这条门只读 typed family、facet source candidate、ClaimForm、aggregate_facts 等精确信号；不会从 raw `read_file` / `repo_map` / closure prose 自动合成答案。若答案本身是模型通过 `aggregate_facts` 提交的 verified count / scalar，则 aggregate lane 是合法 handoff，不触发 principal lane 门。
+**principal handoff preflight**：`emit_investigation_complete` 在 `resolved` 收尾前会重新编译 `AnswerSemanticView → AnswerSurfacePlan → AnswerSupportPlan`。对于 config-precedence / role-lookup / enumeration / architecture 这类主答案必须落在 typed principal lane 的 family，如果 facet binding 后 `PrincipalSupportEvidenceItemsForFamily` 仍为 0，就软降级本次 completion，并要求 explorer 留在已读主线锚点上补 `emit_evidence`。这条门只读 typed family、facet source candidate、ClaimForm、MemberSurface、aggregate_facts 等精确信号；不会从 raw `read_file` / `repo_map` / closure prose 自动合成答案。若答案本身是模型通过 `aggregate_facts` 提交的 verified count / scalar / `member_set`，则 aggregate lane 是合法 handoff，不触发 principal lane 门。
+
+**exhaustive member-set preflight**：当 analyzer 编译出 `CompletenessObligation.Required=true` 且 family 是 enumeration，`resolved` completion 不能只把完整列表留在 thinking、命令输出、closure reason 或普通 prose 里。explorer 必须二选一：提交 complete 的 `emit_answer_symbol` slate，或在 `aggregate_facts` 里提交 `kind=member_set`、`value=len(members)`、`members=[...]` 的模型结构化完整成员集。系统只校验这个模型 emit 的结构自洽，不从 raw 工具输出补答案。
 
 **enumeration single-member backbone**：普通机制/调用链的 evidence fallback 仍要求 3 个同文件锚点，避免孤立 helper 膨胀成主链；但枚举题的合法集合可以只有 1 个成员。因此 `BuildAnswerSurfacePlan` 会在 `FacetCoverage` 之后，从 facet-bound `FacetEnumerationItem` principal evidence 生成 `StepBackbone`，即使只有一个 model-authored member。这样下游 prompt / finalizer 能复用探索期已经 emit 的主项，而不是退回 raw 工具输出或被 helper 名称填充。
 
@@ -890,14 +892,14 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 
 | 字段 | 含义 |
 |---|---|
-| `kind` | 闭枚举：`total_count` / `unique_count` / `grouped_count` / `bucket_count` / `excluded_count` / `scalar_value` |
+| `kind` | 闭枚举：`total_count` / `unique_count` / `grouped_count` / `bucket_count` / `excluded_count` / `scalar_value` / `member_set` |
 | `label` / `value` / `unit` | 用户可读名称、精确保留值、单位；count kind 的 `value` 必须是非负整数字符串，单位放 `unit` |
 | `dimensions[]` | typed 轴，如 `scope=production`、`syntax=struct_literal`、`bucket=runtime`、`language=ArkTS` |
-| `members[]` | 精确成员集合，例如 `file:line` 位点或 distinct file paths；给了 members 就表示完整集合，不是 sample |
+| `members[]` | 精确成员集合，例如 enum/type names、`file:line` 位点或 distinct file paths；给了 members 就表示完整集合，不是 sample；`member_set` 必须带完整 members |
 | `excluded[]` | 被排除候选集合，供 `excluded_count` 或边界说明使用 |
 | `support_refs[]` | 模型声明的支撑来源标签，如 `tool:exec_command:grep_wc_l:4` |
 
-`emit_investigation_complete` 对 `aggregate_facts` 做纯结构校验：kind 闭枚举、长度上限、去重、count value 数字化、`len(members)==value` / `len(excluded)==value` 的自洽校验；当 `total_count` / `grouped_count` / `bucket_count` 的 members 是跨文件 `file:line` 集合时，必须同时提交匹配的 `unique_count` 文件集合 fact。系统不从 raw evidence 合成答案值，只验证模型自己 emit 的 typed facts 自洽，然后把通过的 facts 存进 Mutable stable projection。
+`emit_investigation_complete` 对 `aggregate_facts` 做纯结构校验：kind 闭枚举、长度上限、去重、count / member-set value 数字化、`len(members)==value` / `len(excluded)==value` 的自洽校验；当 `total_count` / `grouped_count` / `bucket_count` 的 members 是跨文件 `file:line` 集合时，必须同时提交匹配的 `unique_count` 文件集合 fact。系统不从 raw evidence 合成答案值，只验证模型自己 emit 的 typed facts 自洽，然后把通过的 facts 存进 Mutable stable projection。
 
 finalizer 看到 `## Structured Aggregate Facts` 后只做保真消费：保留 `value`，用 `members` 生成用户要求的文件/行号/成员列表；如果 member 是 `file.ext:line` 并渲染成 list/table item，必须创建或复用匹配 citation 并设置 `citation_ref`。这条规则把"scalar 数字"和"源位置列表"分开：count 本身可以来自命令级测量，源位置成员仍必须按普通 repo citation 落地。
 
@@ -1252,7 +1254,7 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 
 **证据排名**：`rankEvidenceByRelevance = entity overlap × kindWeight × sourceWeight × bridgeBonus × producerBoost`。LLM 通过 emit_evidence 提交且非 ungrounded 的获 1.5x producerBoost；EvidenceConcrete kindWeight=0.50；axis affinity 通过 `axis::Affinity(PredicateAxis, AnchorKind)` 调节。
 
-**结构化 completion handoff**：`emit_investigation_complete` 除了 `reason` / `result_kind` / waiver / absence 外，还能提交 `aggregate_facts` 和 `principal_span_waiver`。`aggregate_facts` 是模型已验证出的聚合表（总数、唯一集合、分组、bucket、排除集合、其他 scalar），系统只做结构自洽校验并稳定保存；`principal_span_waiver` 是 call-chain span gap gate 的 typed escape，必须给合法 reason enum + rationale，可用 `clear_principal_span_waiver=true` 显式撤销。
+**结构化 completion handoff**：`emit_investigation_complete` 除了 `reason` / `result_kind` / waiver / absence 外，还能提交 `aggregate_facts` 和 `principal_span_waiver`。`aggregate_facts` 是模型已验证出的聚合/成员表（总数、唯一集合、分组、bucket、完整 member_set、排除集合、其他 scalar），系统只做结构自洽校验并稳定保存；`principal_span_waiver` 是 call-chain span gap gate 的 typed escape，必须给合法 reason enum + rationale，可用 `clear_principal_span_waiver=true` 显式撤销。
 
 **子 Agent**：explorer 可通过 `propose_sub_agents` 工具向编排器申请派生并行 sub_explorer 实例分摊独立调查子问题。sub_explorer **不共享 Mutable**（`BuildSubAgentContext` 故意把 `ac.Mutable` 留 nil）；`todo_write` / `emit_*` 在 sub-agent 上下文会被拒。
 

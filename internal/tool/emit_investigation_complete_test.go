@@ -1243,6 +1243,111 @@ func TestEmitInvestigationComplete_AllowsFacetBoundPrincipalSupport(t *testing.T
 	}
 }
 
+func TestEmitInvestigationComplete_DowngradesExhaustiveEnumerationWithoutMemberSet(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all public enum types")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "intent",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       642,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Intent",
+		Subject:         "Intent",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all public enum types",
+	}
+	bus := &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: ir,
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"the command output listed all members","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("exhaustive member-set downgrade is a soft pre-complete result, got hard failure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "exhaustive member-set handoff is missing") {
+		t.Fatalf("summary should ask for structured member_set handoff, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("downgraded completion must not mark investigation complete")
+	}
+}
+
+func TestEmitInvestigationComplete_AllowsExhaustiveEnumerationMemberSet(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all public enum types")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "intent",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       642,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Intent",
+		Subject:         "Intent",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all public enum types",
+	}
+	bus := &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: ir,
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"member set carried through aggregate_facts",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"public enum types",
+			"value":"1",
+			"unit":"types",
+			"members":["Intent"],
+			"support_refs":["internal/types/analysis_ir.go:642"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("member_set aggregate should satisfy exhaustive handoff: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should be stored after member_set aggregate passes")
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateMemberSet || len(facts[0].Members) != 1 {
+		t.Fatalf("member_set aggregate should be retained, got %+v", facts)
+	}
+}
+
 func TestEmitInvestigationComplete_DowngradesWhenRequiredEnumerationTermsLackTypedHandoff(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

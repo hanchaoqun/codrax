@@ -25,7 +25,11 @@ func renderStructuredAggregateFacts(facts []types.AnswerAggregateFact, maxFacts 
 		if dims := renderAggregateDimensions(fact.Dimensions); dims != "" {
 			fmt.Fprintf(&b, ", dimensions=[%s]", dims)
 		}
-		if members := renderAggregateStringList(fact.Members, 12); members != "" {
+		memberLimit := 12
+		if fact.Kind == types.AnswerAggregateMemberSet {
+			memberLimit = 200
+		}
+		if members := renderAggregateStringList(fact.Members, memberLimit); members != "" {
 			fmt.Fprintf(&b, ", members=[%s]", members)
 		}
 		if excluded := renderAggregateStringList(fact.Excluded, 8); excluded != "" {

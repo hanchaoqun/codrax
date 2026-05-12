@@ -926,6 +926,100 @@ func TestBuildAnswerSupportPlan_EnumerationBackboneSeparatesPrincipalFromSupport
 	}
 }
 
+func TestBuildAnswerSupportPlan_EnumerationOrientsImportEdgesToSourceMembers(t *testing.T) {
+	const targetPkg = "github.com/hanchaoqun/codrax/internal/tool/ground"
+	importA := EvidenceItem{
+		ID:              "emit-evidence-import",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/tool/emit_evidence.go",
+		LineStart:       18,
+		AnchorKind:      AnchorImport,
+		Subject:         "EmitEvidence",
+		Object:          targetPkg,
+		SurfaceTerms:    []string{targetPkg},
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	importB := EvidenceItem{
+		ID:              "explorer-import",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/agent/explorer.go",
+		LineStart:       22,
+		AnchorKind:      AnchorImport,
+		Subject:         "explorer",
+		Object:          targetPkg,
+		SurfaceTerms:    []string{targetPkg},
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	helper := EvidenceItem{
+		ID:              "same-file-helper",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/tool/emit_investigation_complete.go",
+		LineStart:       2250,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "multiPathToolHistory",
+		Subject:         "multiPathToolHistory",
+		Snippet:         "func multiPathToolHistory(...)",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{importA, importB, helper},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFEnumeration,
+			Required: []FacetRequirement{{
+				Kind:            FacetEnumerationItem,
+				SourceCandidate: []string{importA.ID, importB.ID, helper.ID},
+			}},
+		},
+	}
+
+	ApplyPrincipalEvidenceStepBackbone(plan, &AnalysisIR{RequestModel: RequestModel{Intent: IntentEnumerate}})
+	if len(plan.StepBackbone) != 2 {
+		t.Fatalf("source-location import edges should build a two-member backbone, got %+v", plan.StepBackbone)
+	}
+	for _, anchor := range plan.StepBackbone {
+		if strings.Contains(anchor.Name, "multiPathToolHistory") || strings.Contains(anchor.Name, targetPkg) {
+			t.Fatalf("principal backbone should use importing source files, got %+v", plan.StepBackbone)
+		}
+		if !strings.HasSuffix(anchor.Name, ".go") {
+			t.Fatalf("source-location member should be a source path label, got %+v", plan.StepBackbone)
+		}
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentEnumerate}, plan)
+	principalLane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if principalLane == nil || len(principalLane.Entries) != 2 {
+		t.Fatalf("expected only import-edge principal entries, got %+v", got)
+	}
+	for _, entry := range principalLane.Entries {
+		if entry.MemberSurface != PrincipalMemberSurfaceSourceLocation {
+			t.Fatalf("reverse import-edge member should be source_location, got %+v", entry)
+		}
+		if strings.Contains(entry.Text, "multiPathToolHistory") {
+			t.Fatalf("context helper must not be promoted into the principal lane: %+v", principalLane.Entries)
+		}
+	}
+	contextLane := answerSupportLaneByKind(got, SupportLaneNearestMechanism)
+	if contextLane == nil || !strings.Contains(answerSupportLaneText(contextLane), "multiPathToolHistory") {
+		t.Fatalf("outlier helper should remain available as support context, got %+v", got)
+	}
+
+	obligations := PrincipalSupportMemberObligations(got)
+	if len(obligations) != 2 {
+		t.Fatalf("expected one obligation per importing source file, got %+v", obligations)
+	}
+	for _, ob := range obligations {
+		if !strings.HasSuffix(ob.Label, ".go") || strings.Contains(ob.Label, "->") || strings.Contains(ob.Label, targetPkg) {
+			t.Fatalf("source-location obligation label should be the importing file path, got %+v", ob)
+		}
+	}
+}
+
 func TestBuildAnswerSupportPlan_GenericScalarKeepsModelAuthoredAssignments(t *testing.T) {
 	modelAssignment := EvidenceItem{
 		ID:              "model-assignment",

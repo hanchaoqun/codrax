@@ -333,6 +333,87 @@ func build() {
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_RelationalCountAlsoNeedsStructuredProof(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeTestFile(t, repoRoot, "internal/orchestrator/orchestrator.go", `
+package orchestrator
+
+func build() {
+	Contract{CitationReq: CitationReq{Required: false}}
+}
+`)
+
+	mut := types.NewMutableState("CitationReq.Required=false 的位置有几处？")
+	mut.SetRepoRoot(repoRoot)
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"internal/orchestrator/orchestrator.go": true})
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       5,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    "CitationReq.Required",
+		Subject:         "CitationReq.Required",
+		Object:          "false",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: repoRoot,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "CitationReq.Required=false 的位置有几处？",
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:     true,
+					IsCountQuestion:    true,
+					IsRelationalLookup: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Entities: []string{"CitationReq.Required"},
+					Keywords: []string{"false"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "one candidate was classified",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "deterministic count proof is missing") {
+		t.Fatalf("relational count should still require proof handoff, got: %s", res.Summary)
+	}
+
+	params, _ = json.Marshal(map[string]any{
+		"reason":      "classified exact member set",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "total_count",
+			"label":   "production assignment locations",
+			"value":   "1",
+			"unit":    "locations",
+			"members": []string{"internal/orchestrator/orchestrator.go:5"},
+		}},
+	})
+	res, err = tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error after aggregate handoff: %v", err)
+	}
+	if strings.Contains(res.Summary, "deterministic count proof is missing") {
+		t.Fatalf("structured aggregate handoff should clear deterministic-count downgrade: %s", res.Summary)
+	}
+}
+
 func writeTestFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))

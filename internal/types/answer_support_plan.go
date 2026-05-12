@@ -60,6 +60,7 @@ type AnswerSupportEntry struct {
 	Source        string
 	LineStart     int
 	AnchorKind    AnchorKind
+	MemberSurface AnswerPrincipalMemberSurface
 	Producer      string
 	GroundingTier GroundingTier
 }
@@ -242,6 +243,7 @@ func answerSupportEntryForEvidence(item EvidenceItem, text, detail string) Answe
 		Source:        strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)),
 		LineStart:     item.LineStart,
 		AnchorKind:    item.AnchorKind,
+		MemberSurface: PrincipalMemberSurfaceForEvidenceSet(item, nil),
 		Producer:      strings.TrimSpace(item.Producer),
 		GroundingTier: item.GroundingTier,
 	}

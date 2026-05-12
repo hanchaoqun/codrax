@@ -132,6 +132,13 @@ func principalSupportMemberObligation(entry AnswerSupportEntry) AnswerSupportMem
 	addTerm(entry.Object)
 	addTerm(entry.AnchorSymbol)
 	addTerm(entry.OwnerSymbol)
+	if principalMemberSurfaceForSupportEntry(entry) == PrincipalMemberSurfaceSourceLocation {
+		if entry.ClaimForm == ClaimImportEdge {
+			addTerm(source)
+		} else {
+			addTerm(normalizeAnswerSupportLocation(entry.Location))
+		}
+	}
 	if ob.Label == "" && len(ob.SurfaceTerms) > 0 {
 		ob.Label = ob.SurfaceTerms[0]
 	}
@@ -213,6 +220,18 @@ func appendEquivalentSupportMemberLocation(ob *AnswerSupportMemberObligation, lo
 }
 
 func principalSupportMemberLabel(entry AnswerSupportEntry) string {
+	if principalMemberSurfaceForSupportEntry(entry) == PrincipalMemberSurfaceSourceLocation {
+		source, _ := supportMemberSourceLine(entry.Source, entry.LineStart, entry.Location)
+		if entry.ClaimForm == ClaimImportEdge && strings.TrimSpace(source) != "" {
+			return strings.TrimSpace(source)
+		}
+		if location := normalizeAnswerSupportLocation(entry.Location); location != "" {
+			return location
+		}
+		if strings.TrimSpace(source) != "" {
+			return strings.TrimSpace(source)
+		}
+	}
 	if entry.ClaimForm == ClaimImportEdge && strings.TrimSpace(entry.Subject) != "" && strings.TrimSpace(entry.Object) != "" {
 		return fmt.Sprintf("%s -> %s", strings.TrimSpace(entry.Subject), strings.TrimSpace(entry.Object))
 	}
@@ -227,6 +246,19 @@ func principalSupportMemberLabel(entry AnswerSupportEntry) string {
 		}
 	}
 	return ""
+}
+
+func principalMemberSurfaceForSupportEntry(entry AnswerSupportEntry) AnswerPrincipalMemberSurface {
+	if entry.MemberSurface != PrincipalMemberSurfaceUnknown {
+		return entry.MemberSurface
+	}
+	if entry.ClaimForm.UsesNonSymbolLabelSurface() {
+		return PrincipalMemberSurfaceDisplayLabel
+	}
+	if entry.ClaimForm.LabelSurfaceKind() == ClaimLabelSurfaceSymbolLike {
+		return PrincipalMemberSurfaceSymbolLike
+	}
+	return PrincipalMemberSurfaceUnknown
 }
 
 // MissingPrincipalSupportMembers returns the member obligations that

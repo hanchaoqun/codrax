@@ -54,6 +54,8 @@ func TestNormalizeAnswerAggregateFacts_RejectsInvalid(t *testing.T) {
 		{name: "value", in: []AnswerAggregateFact{{Kind: AnswerAggregateTotalCount, Label: "x"}}},
 		{name: "count value unit drift", in: []AnswerAggregateFact{{Kind: AnswerAggregateTotalCount, Label: "x", Value: "3 files"}}},
 		{name: "member cardinality", in: []AnswerAggregateFact{{Kind: AnswerAggregateBucketCount, Label: "runtime bucket", Value: "3", Members: []string{"a.go:1", "b.go:2"}}}},
+		{name: "member set requires members", in: []AnswerAggregateFact{{Kind: AnswerAggregateMemberSet, Label: "enum types", Value: "2"}}},
+		{name: "member set cardinality", in: []AnswerAggregateFact{{Kind: AnswerAggregateMemberSet, Label: "enum types", Value: "2", Members: []string{"Intent"}}}},
 		{name: "excluded cardinality", in: []AnswerAggregateFact{{Kind: AnswerAggregateExcluded, Label: "tests", Value: "2", Excluded: []string{"a_test.go"}}}},
 	}
 	for _, tc := range cases {
@@ -62,6 +64,26 @@ func TestNormalizeAnswerAggregateFacts_RejectsInvalid(t *testing.T) {
 				t.Fatalf("expected validation error")
 			}
 		})
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_AcceptsMemberSet(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "public string enum types",
+		Value:   "4",
+		Unit:    "types",
+		Members: []string{"Intent", "Scenario", "Complexity", "QuestionFamily"},
+		SupportRefs: []string{
+			"internal/types/analysis_ir.go:642",
+			"internal/types/facet_plan.go:9",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("member_set aggregate should validate: %v", err)
+	}
+	if len(got) != 1 || got[0].Kind != AnswerAggregateMemberSet || len(got[0].Members) != 4 {
+		t.Fatalf("member_set not preserved: %+v", got)
 	}
 }
 
