@@ -44,6 +44,17 @@ type ChangeImpactNarrowingDiagnostic struct {
 	MissingMembers []AnswerSupportMemberObligation
 }
 
+// ChangeImpactFileOutputLabelDiagnostic reports a typed rendering failure for
+// change-impact questions whose requested principal surface is files: the
+// answer cites the right support member but renders the principal item label as
+// a site (`file:line`) or another non-file surface. The validator is driven by
+// ChangeImpactProfile + support-lane obligations + citation refs, not by raw
+// request wording.
+type ChangeImpactFileOutputLabelDiagnostic struct {
+	ExpectedCount int
+	MissingLabels []AnswerSupportMemberObligation
+}
+
 // LocationHint returns the citation shape a repair prompt should ask
 // for. It deliberately exposes equivalent definition anchors instead
 // of pretending there is only one exact line when the typed evidence
@@ -393,6 +404,75 @@ func ChangeImpactPrincipalNarrowing(doc *AnswerDocumentV2, plan *AnswerSupportPl
 		MissingForms:   missingForms,
 		MissingMembers: missingMembers,
 	}
+}
+
+func ChangeImpactFileOutputLabelDrift(doc *AnswerDocumentV2, plan *AnswerSupportPlan) *ChangeImpactFileOutputLabelDiagnostic {
+	if doc == nil || plan == nil || plan.ChangeImpactProfile == nil ||
+		!plan.ChangeImpactProfile.Active() ||
+		plan.ChangeImpactProfile.RequestedOutput != ImpactOutputFiles {
+		return nil
+	}
+	obligations := PrincipalSupportMemberObligations(plan)
+	if len(obligations) == 0 {
+		return nil
+	}
+	// Label-surface drift is a finalizer-local rewrite only when the
+	// typed file members are otherwise present. If members are missing,
+	// the broader coverage/narrowing gates should explain the upstream
+	// principal-set failure first.
+	if len(MissingPrincipalSupportMembers(doc, plan)) > 0 {
+		return nil
+	}
+	var missing []AnswerSupportMemberObligation
+	for _, ob := range obligations {
+		if strings.TrimSpace(ob.Source) == "" {
+			continue
+		}
+		if answerDocumentLabelsFileOutputMember(doc, ob) {
+			continue
+		}
+		if answerDocumentCoversSupportMember(doc, ob) {
+			missing = append(missing, ob)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return &ChangeImpactFileOutputLabelDiagnostic{
+		ExpectedCount: len(obligations),
+		MissingLabels: missing,
+	}
+}
+
+func answerDocumentLabelsFileOutputMember(doc *AnswerDocumentV2, ob AnswerSupportMemberObligation) bool {
+	if doc == nil {
+		return false
+	}
+	want := normalizeAnswerSupportPath(ob.Source)
+	if want == "" {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if !answerBlockCanCarryPrincipalMember(block) {
+			continue
+		}
+		for _, item := range block.Items {
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			if !citationCoversSupportMember(doc.Citations[item.CitationRef], ob) {
+				continue
+			}
+			labelFile, ok := ParseAnswerFilePathSurface(item.Label)
+			if !ok {
+				continue
+			}
+			if answerLocationFileMatches(labelFile, want) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func appendUniqueClaimForm(in []ClaimForm, form ClaimForm) []ClaimForm {

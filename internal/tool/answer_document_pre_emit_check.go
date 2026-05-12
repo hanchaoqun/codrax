@@ -323,6 +323,14 @@ func preCheckPrincipalSupportMemberCoverage(doc *types.AnswerDocumentV2, ctxOpt 
 		return nil
 	}
 	supportPlan := types.BuildAnswerSupportPlanForBusContext(ctxOpt[0])
+	if labelDrift := types.ChangeImpactFileOutputLabelDrift(doc, supportPlan); labelDrift != nil {
+		return []emitFixHint{{
+			Field: "blocks[].items[].label",
+			ExpectedShape: "this change-impact answer requested files as the principal output, so each principal item label must be the file path, not a file:line site. Use exactly " +
+				changeImpactFileLabelsForHint(labelDrift),
+			Reason: "file:line anchors are supporting evidence for each file member; rendering sites as the principal labels changes the user's requested output surface and lets stale prose counts drift from the typed file set.",
+		}}
+	}
 	if narrowing := types.ChangeImpactPrincipalNarrowing(doc, supportPlan); narrowing != nil {
 		return []emitFixHint{{
 			Field: "blocks[].items[]",
@@ -354,6 +362,33 @@ func preCheckPrincipalSupportMemberCoverage(doc *types.AnswerDocumentV2, ctxOpt 
 			strings.Join(parts, "; "),
 		Reason: "the investigation already emitted these as answer-grade principal evidence; the final answer must preserve the members or add a cited caveat item for a real exclusion instead of relying on system-added caveats.",
 	}}
+}
+
+func changeImpactFileLabelsForHint(diag *types.ChangeImpactFileOutputLabelDiagnostic) string {
+	if diag == nil || len(diag.MissingLabels) == 0 {
+		return "one file-path label per typed file obligation"
+	}
+	parts := make([]string, 0, len(diag.MissingLabels))
+	for _, member := range diag.MissingLabels {
+		label := strings.TrimSpace(member.Source)
+		if label == "" {
+			label = strings.TrimSpace(member.Label)
+		}
+		if label == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%q", label))
+		if len(parts) >= 8 {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return "one file-path label per typed file obligation"
+	}
+	if diag.ExpectedCount > len(parts) {
+		parts = append(parts, fmt.Sprintf("... (%d typed file members total)", diag.ExpectedCount))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func changeImpactTargetForHint(diag *types.ChangeImpactNarrowingDiagnostic) string {

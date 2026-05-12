@@ -2798,7 +2798,7 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- absence justification: %s\n", truncateAnswerDocPromptText(justification, 500))
 	}
 	b.WriteString("- Treat this closure as a structured exploration handoff, not as a citation and not as system-written answer text.\n")
-	b.WriteString("- Preserve resolved counts, listed members, excluded candidates, scope boundaries, and verdicts from the closure when they are supported by the typed support lanes, current citations, or raw tool outputs below. If older analyzer/pre-scan notes conflict with the accepted closure, prefer the accepted closure plus the latest grounded evidence.\n")
+	b.WriteString("- Preserve resolved counts, listed members, excluded candidates, scope boundaries, and verdicts from the closure only when the same value is carried by structured aggregate facts, typed support lanes, current citations, or raw tool outputs below. If unstructured closure prose conflicts with typed member obligations, principal support lanes, or structured aggregate facts, prefer the typed/structured handoff.\n")
 	b.WriteString("- Rebuild the user-visible prose yourself inside `emit_answer_document`; do not invent facts beyond the closure/evidence boundary.\n\n")
 	return b.String()
 }
@@ -2976,6 +2976,10 @@ func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan) st
 	var b strings.Builder
 	b.WriteString("### Principal Member Obligations\n\n")
 	fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s). Render each member as a principal `ordered_list`, `bullet_list`, or `table` item with a citation to the listed location. These rows are a stable member-to-citation map; do not satisfy them by prose-only mentions in `summary`.\n", len(obligations))
+	if plan != nil && plan.ChangeImpactProfile != nil && plan.ChangeImpactProfile.Active() &&
+		plan.ChangeImpactProfile.RequestedOutput == types.ImpactOutputFiles {
+		fmt.Fprintf(&b, "This is a change-impact file enumeration: the %d member(s) below are the file set. Use each file path as the item label; keep file:line anchors only in item text/citations. Do not copy numeric file counts from unstructured closure prose when they disagree with this typed member set.\n", len(obligations))
+	}
 	b.WriteString("For large repairs that change many member citations, re-emit a full `emit_answer_document` with a fresh `citations[]` pool instead of patching stale citation indexes.\n\n")
 	for _, ob := range obligations {
 		label := strings.TrimSpace(ob.Label)

@@ -3191,3 +3191,66 @@ func TestValidatePrincipalSupportMemberCoverage_ChangeImpactAssignmentOnlyNarrow
 		t.Fatalf("detail should name typed narrowing and missing non-assignment site, got %q", got[0].Detail)
 	}
 }
+
+func TestValidatePrincipalSupportMemberCoverage_ChangeImpactFilesRequireFileLabels(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/context/builder.go", Line: 1729},
+			{File: "internal/analysis/gate/gate.go", Line: 301},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "files",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{
+				{ID: "builder", Label: "internal/context/builder.go:1729", Text: "guard site in the file", CitationRef: 0},
+				{ID: "gate", Label: "internal/analysis/gate/gate.go", Text: "guard site in the file", CitationRef: 1},
+			},
+		}},
+	}
+	supportPlan := &types.AnswerSupportPlan{
+		Family: types.QFEnumeration,
+		ChangeImpactProfile: &types.ChangeImpactProfile{
+			IsChangeImpact:  true,
+			RequestedOutput: types.ImpactOutputFiles,
+		},
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{
+				{
+					Text:          "builder guard",
+					Location:      "internal/context/builder.go:1729",
+					ClaimForm:     types.ClaimGuardCondition,
+					MemberSurface: types.PrincipalMemberSurfaceSourceLocation,
+					Subject:       "CitationReq.Required",
+					SurfaceTerms:  []string{"CitationReq.Required"},
+					Source:        "internal/context/builder.go",
+					LineStart:     1729,
+				},
+				{
+					Text:          "gate guard",
+					Location:      "internal/analysis/gate/gate.go:301",
+					ClaimForm:     types.ClaimGuardCondition,
+					MemberSurface: types.PrincipalMemberSurfaceSourceLocation,
+					Subject:       "CitationReq.Required",
+					SurfaceTerms:  []string{"CitationReq.Required"},
+					Source:        "internal/analysis/gate/gate.go",
+					LineStart:     301,
+				},
+			},
+		}},
+	}
+
+	got := validatePrincipalSupportMemberCoverage(doc, supportPlan)
+	if len(got) != 1 {
+		t.Fatalf("expected file-output label drift violation, got %+v", got)
+	}
+	if got[0].Kind != types.ViolAnswerTopicMismatch {
+		t.Fatalf("wrong kind: %+v", got[0])
+	}
+	if !strings.Contains(got[0].Detail, "file:line sites") ||
+		!strings.Contains(got[0].Repair, "item label is the affected file path") {
+		t.Fatalf("violation should explain file-output label drift, got %+v", got[0])
+	}
+}

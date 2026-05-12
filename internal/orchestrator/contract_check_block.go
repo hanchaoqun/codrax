@@ -3664,6 +3664,39 @@ func validatePrincipalSupportMemberCoverage(
 	doc *types.AnswerDocumentV2,
 	supportPlan *types.AnswerSupportPlan,
 ) []types.Violation {
+	if labelDrift := types.ChangeImpactFileOutputLabelDrift(doc, supportPlan); labelDrift != nil {
+		var labels []string
+		for _, member := range labelDrift.MissingLabels {
+			label := strings.TrimSpace(member.Source)
+			if label == "" {
+				label = strings.TrimSpace(member.Label)
+			}
+			if label == "" {
+				continue
+			}
+			labels = append(labels, fmt.Sprintf("%q", label))
+			if len(labels) >= 8 {
+				break
+			}
+		}
+		if labelDrift.ExpectedCount > len(labels) {
+			labels = append(labels, fmt.Sprintf("... (%d typed file members total)", labelDrift.ExpectedCount))
+		}
+		return []types.Violation{{
+			Kind: types.ViolAnswerTopicMismatch,
+			Detail: fmt.Sprintf(
+				"change-impact file-output answer cited typed file members but rendered one or more principal labels as file:line sites instead of file paths: %s",
+				strings.Join(labels, ", ")),
+			Repair: "rewrite the principal list/table so each item label is the affected file path. Keep file:line anchors in item text/citations as supporting reasons, and if the answer mentions a file count, use the typed file-member count from the principal support lane.",
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_support.change_impact.file_output_surface",
+				Reason:     "final answer rendered site labels for a typed change-impact request whose requested output is files",
+				Confidence: 0.92,
+			},
+			Stage:      string(types.StageFinalize),
+			ClusterKey: blockClusterKey("change_impact", "file_output_label_drift"),
+		}}
+	}
 	if narrowing := types.ChangeImpactPrincipalNarrowing(doc, supportPlan); narrowing != nil {
 		target := strings.TrimSpace(narrowing.Target)
 		if target == "" {

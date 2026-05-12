@@ -1230,6 +1230,68 @@ func TestPrincipalSupportMemberObligations_ChangeImpactFilesCoalesceByFile(t *te
 	}
 }
 
+func TestChangeImpactFileOutputLabelDrift_RequiresFileLabels(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		ChangeImpactProfile: &ChangeImpactProfile{
+			IsChangeImpact:  true,
+			RequestedOutput: ImpactOutputFiles,
+		},
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{
+				{
+					Text:          "builder guard reads Required",
+					Location:      "internal/context/builder.go:1729",
+					ClaimForm:     ClaimGuardCondition,
+					MemberSurface: PrincipalMemberSurfaceSourceLocation,
+					Subject:       "CitationReq.Required",
+					SurfaceTerms:  []string{"CitationReq.Required"},
+					Source:        "internal/context/builder.go",
+					LineStart:     1729,
+				},
+				{
+					Text:          "gate guard reads Required",
+					Location:      "internal/analysis/gate/gate.go:301",
+					ClaimForm:     ClaimGuardCondition,
+					MemberSurface: PrincipalMemberSurfaceSourceLocation,
+					Subject:       "CitationReq.Required",
+					SurfaceTerms:  []string{"CitationReq.Required"},
+					Source:        "internal/analysis/gate/gate.go",
+					LineStart:     301,
+				},
+			},
+		}},
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{
+			{File: "internal/context/builder.go", Line: 1729},
+			{File: "internal/analysis/gate/gate.go", Line: 301},
+		},
+		Blocks: []AnswerBlock{{
+			ID:          "files",
+			Kind:        BlockOrderedList,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{
+				{Label: "internal/context/builder.go:1729", Text: "guard site in the affected file", CitationRef: 0},
+				{Label: "internal/analysis/gate/gate.go", Text: "guard site in the affected file", CitationRef: 1},
+			},
+		}},
+	}
+	diag := ChangeImpactFileOutputLabelDrift(doc, plan)
+	if diag == nil || len(diag.MissingLabels) != 1 {
+		t.Fatalf("file-output answer should reject site-shaped principal labels, got %+v", diag)
+	}
+	if diag.MissingLabels[0].Source != "internal/context/builder.go" {
+		t.Fatalf("missing file label = %+v", diag.MissingLabels[0])
+	}
+	doc.Blocks[0].Items[0].Label = "internal/context/builder.go"
+	if got := ChangeImpactFileOutputLabelDrift(doc, plan); got != nil {
+		t.Fatalf("file-path labels should satisfy file-output principal surface, got %+v", got)
+	}
+}
+
 func TestCompileFacetCoverage_OrdinaryEnumerationDoesNotPromoteGuardSites(t *testing.T) {
 	assign := EvidenceItem{
 		ID:              "assignment",

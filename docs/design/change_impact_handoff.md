@@ -141,6 +141,24 @@ principal support lane contained only `assignment_fact` members.
      member when its citation points inside that file. It should not be forced
      through symbol endpoint matching.
 
+10. File-output prose/count drift can survive a PASS
+
+   - `internal/agent/answer_document_evaluator.go::renderAnswerDocPrincipalMemberObligations`
+     correctly exposes the typed principal lane, but older prompt text also
+     allowed the finalizer to preserve numeric closure prose when it appeared
+     "supported" by the evidence.
+   - A `u10b` run accepted a final answer whose principal list contained seven
+     affected files, while the lead summary and caveat repeated the explorer's
+     stale unstructured closure count of six files.
+   - `internal/types/answer_support_member_coverage.go::MissingPrincipalSupportMembers`
+     detected member omission, not surface drift: a file:line item label can
+     cite the right typed location and still violate `requested_output=files`.
+   - The generalized fix is to make `requested_output=files` a load-bearing
+     label-surface contract: the item label is the file path; file:line anchors
+     remain supporting evidence inside item text/citations. Numeric file counts
+     must come from the typed file obligation count or `aggregate_facts`, not
+     from unstructured closure prose.
+
 ## Generalized Design
 
 ### Typed profile
@@ -250,6 +268,29 @@ label-grounding validators only learn that file paths are display locations,
 not declaration symbols. They do not invent file members or waive typed
 coverage.
 
+### File-output surface contract
+
+When `ChangeImpactProfile.RequestedOutput=files`, the principal member surface
+is the file path, even if the supporting evidence is a specific source line.
+Validators enforce this by reading only:
+
+- the typed `ChangeImpactProfile`;
+- `AnswerSupportPlan` principal obligations derived from model-emitted
+  evidence;
+- `AnswerDocumentV2.blocks[].items[].label`;
+- `AnswerDocumentV2.citations[]`.
+
+If an answer cites the right member but labels it as `file:line`, the pre-emit
+and post-emit checks ask for a finalizer-only rewrite. This is not a prose
+keyword check and it does not synthesize missing answer content; it only
+preserves the model's own structured file members at the user-requested
+surface.
+
+The finalizer prompt now states that the typed principal lane member count is
+the file count for this profile. Unstructured closure reason text is treated as
+audit context only when it conflicts with typed obligations or structured
+aggregate facts.
+
 ### Structured answer carrier recovery
 
 `emit_answer_document` flat-mode recovery should be schema-aware:
@@ -297,6 +338,10 @@ the model already emitted in the tool payload.
       change-impact outputs while preserving search hints.
 - [x] Accept typed file-output principal labels backed by citations in that
       file, without weakening ordinary symbol-label grounding.
+- [x] Reject change-impact file-output principal items that label cited members
+      as `file:line` sites instead of file paths.
+- [x] Teach the finalizer to use typed file obligations / aggregate facts as
+      the source of file counts instead of stale unstructured closure prose.
 - [ ] Re-run `u10b` and keep the random eval sweep moving.
 
 ## Red Lines

@@ -682,6 +682,68 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalMemberO
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_FileImpactObligationsUseFileCount(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				ChangeImpactProfile: &types.ChangeImpactProfile{
+					IsChangeImpact:  true,
+					RequestedOutput: types.ImpactOutputFiles,
+					Target:          "CitationReq.Required",
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 1},
+			},
+		},
+		Mutable: types.NewMutableState(""),
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID:              "builder-required",
+				Kind:            types.EvidenceConditional,
+				Scope:           types.ScopeLine,
+				Source:          "internal/context/builder.go",
+				LineStart:       1729,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "Required",
+				Subject:         "CitationReq.Required",
+				Condition:       "if c.CitationReq.Required",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: types.GroundingGrounded,
+				GroundingTier:   types.TierLineText,
+			},
+			{
+				ID:              "gate-required",
+				Kind:            types.EvidenceConditional,
+				Scope:           types.ScopeLine,
+				Source:          "internal/analysis/gate/gate.go",
+				LineStart:       301,
+				AnchorKind:      types.AnchorCondition,
+				AnchorSymbol:    "Required",
+				Subject:         "CitationReq.Required",
+				Condition:       "if c.CitationReq.Required && c.CitationReq.MinCitations < 0",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: types.GroundingGrounded,
+				GroundingTier:   types.TierLineText,
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"This is a change-impact file enumeration",
+		"the 2 member(s) below are the file set",
+		"Use each file path as the item label",
+		"Do not copy numeric file counts from unstructured closure prose",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("file-impact obligation prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStructuredAggregateFacts(t *testing.T) {
 	mut := types.NewMutableState("")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
