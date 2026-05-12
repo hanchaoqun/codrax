@@ -731,7 +731,55 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 			if !strings.Contains(lane.Entries[0].Detail, tt.wantDetailTerm) {
 				t.Fatalf("entry detail should preserve model-authored enrichment %q: %+v", tt.wantDetailTerm, lane.Entries[0])
 			}
+			if !strings.Contains(lane.Entries[0].Detail, "typed_surface: claim_form=") {
+				t.Fatalf("entry detail should carry typed surface metadata for finalizer enrichment: %+v", lane.Entries[0])
+			}
 		})
+	}
+}
+
+func TestBuildAnswerSupportPlan_FacetPrincipalLanePreservesDisplaySurfaceMetadata(t *testing.T) {
+	item := EvidenceItem{
+		ID:              "import-edge",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "entry/src/main/ets/pages/Index.ets",
+		LineStart:       3,
+		AnchorKind:      AnchorImport,
+		Subject:         "Index.ets",
+		Object:          "@kit.ArkUI",
+		Producer:        "explorer.emit_evidence",
+		SurfaceTerms:    []string{"@kit.ArkUI"},
+		GroundingStatus: GroundingGrounded,
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{item},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFEnumeration,
+			Required: []FacetRequirement{{
+				Kind:            FacetEnumerationItem,
+				SourceCandidate: []string{item.ID},
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentEnumerate}, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 1 {
+		t.Fatalf("expected one principal import-edge entry, got %+v", got)
+	}
+	detail := lane.Entries[0].Detail
+	for _, want := range []string{
+		"claim_form=import_edge",
+		"label_surface=display_label",
+		"anchor_kind=import",
+	} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("display-surface metadata missing %q from detail %q", want, detail)
+		}
+	}
+	if !strings.Contains(lane.Guidance, "preserve each entry's own snippet/operator") {
+		t.Fatalf("principal lane guidance should protect per-entry visible syntax, got %q", lane.Guidance)
 	}
 }
 

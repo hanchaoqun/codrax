@@ -89,7 +89,8 @@ func principalEvidenceLaneTitle(family QuestionFamily) string {
 func principalEvidenceLaneGuidance(family QuestionFamily) string {
 	base := "Use this lane for principal user-visible claims in this family. " +
 		"Each entry is selected from typed facet source candidates, so it may support the block kinds listed below. " +
-		"Evidence notes can enrich the cited fact, but do not add uncited helper names, search hints, prior-turn guesses, or nearby context as new principal claims."
+		"Evidence notes can enrich the cited fact, but do not add uncited helper names, search hints, prior-turn guesses, or nearby context as new principal claims. " +
+		"When entries use different visible syntax or label surfaces (assignment, object/struct literal, import/path, route, macro, table label), preserve each entry's own snippet/operator instead of collapsing them into one generic wording."
 	switch family {
 	case QFConfigPrecedence:
 		return base + " For config answers, keep scalar/table/list content to real default/config/CLI/runtime layer anchors; general precedence rules belong in prose unless this lane cites that layer."

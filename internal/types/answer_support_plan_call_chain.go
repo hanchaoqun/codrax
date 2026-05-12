@@ -182,7 +182,67 @@ func callChainEvidenceSupportDetail(item EvidenceItem, text string) string {
 			detail += "; condition: " + cond
 		}
 	}
+	if surface := answerSupportEvidenceSurfaceMetadata(item, text); surface != "" {
+		if detail == "" {
+			detail = surface
+		} else {
+			detail += "; " + surface
+		}
+	}
 	return answerSupportEntryDetail(detail, text)
+}
+
+func answerSupportEvidenceSurfaceMetadata(item EvidenceItem, text string) string {
+	form := ClaimFormOf(item)
+	parts := make([]string, 0, 5)
+	if form != ClaimUnknown {
+		parts = append(parts, "claim_form="+string(form))
+		if label := form.LabelSurfaceKind(); label != ClaimLabelSurfaceUnknown {
+			parts = append(parts, "label_surface="+string(label))
+		}
+	}
+	if item.AnchorKind != "" {
+		parts = append(parts, "anchor_kind="+string(item.AnchorKind))
+	}
+	if terms := answerSupportSurfaceTermsForDetail(item, text); len(terms) > 0 {
+		parts = append(parts, "surface_terms="+strings.Join(terms, ","))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "typed_surface: " + strings.Join(parts, "; ")
+}
+
+func answerSupportSurfaceTermsForDetail(item EvidenceItem, text string) []string {
+	terms := evidenceDisplayRoleTerms(item)
+	if len(terms) == 0 {
+		return nil
+	}
+	textLower := strings.ToLower(text)
+	out := make([]string, 0, len(terms))
+	seen := make(map[string]bool, len(terms))
+	for _, raw := range terms {
+		term := strings.TrimSpace(raw)
+		if term == "" {
+			continue
+		}
+		if !SurfaceTermShouldBeRequiredForEvidence(term, item) {
+			continue
+		}
+		key := strings.ToLower(term)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if key != "" && strings.Contains(textLower, key) {
+			continue
+		}
+		out = append(out, term)
+		if len(out) >= 4 {
+			break
+		}
+	}
+	return out
 }
 
 func answerSupportEntryDetail(raw, text string) string {
