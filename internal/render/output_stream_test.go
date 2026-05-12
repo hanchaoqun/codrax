@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/pterm/pterm"
 )
 
 // TestRenderer_EmitterHonorsConfiguredOutput locks the renderer's
@@ -96,5 +97,19 @@ func TestRenderer_ReasoningTruncateOptIn(t *testing.T) {
 	}
 	if !strings.Contains(out, "...") {
 		t.Fatalf("opt-in reasoning truncation should add ellipsis, got %q", out)
+	}
+}
+
+func TestFormatReasoningStylesTagAndBodySeparately(t *testing.T) {
+	pterm.EnableColor()
+	defer pterm.DisableColor()
+
+	got := formatReasoning("analyzer", 0, "Readable detail.", false)
+	expected := "  " + statusMeta.Sprint("💭 [analyzer-1]") + " " + statusDetail.Sprint("Readable detail.")
+	if got != expected {
+		t.Fatalf("reasoning style should keep tag muted and body readable\nwant %q\ngot  %q", expected, got)
+	}
+	if plain := stripAnsiEscapes(got); plain != "  💭 [analyzer-1] Readable detail." {
+		t.Fatalf("styled reasoning changed visible text: %q", plain)
 	}
 }
