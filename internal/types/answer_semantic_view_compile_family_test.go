@@ -494,6 +494,38 @@ func TestCompileEnumeration_HasOptionalBucketSection(t *testing.T) {
 	}
 }
 
+func TestCompileEnumeration_OutranksFunctionSubjectForCategoryEnumeration(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent: IntentEnumerate,
+			AnswerSubject: AnswerSubject{
+				Kind:       SubjectFunctionName,
+				EntityAxes: []string{"Agent -> SubAgent"},
+				Confidence: 0.9,
+			},
+			Predicates: SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+		},
+	}
+	view := BuildAnswerSemanticView(ir, nil)
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	if view.Family != QFEnumeration {
+		t.Fatalf("family=%s, want enumeration; function-like answer_subject must not steal set-valued requests", view.Family)
+	}
+	for _, req := range view.RequiredBlocks {
+		if req.Kind == BlockScalar {
+			t.Fatalf("category enumeration must not require scalar block: %+v", view.RequiredBlocks)
+		}
+	}
+	if !view.NeedsOrderedPrincipalList() {
+		t.Fatalf("category enumeration should still require a principal member list")
+	}
+}
+
 func containsClaimForm(items []ClaimForm, want ClaimForm) bool {
 	for _, item := range items {
 		if item == want {

@@ -109,6 +109,37 @@ func TestHasBoundedCategoryEnumerationMembers_TypedOnly(t *testing.T) {
 	}
 }
 
+func TestIsCategoryEnumerationAnswerShape_TypedOnly(t *testing.T) {
+	rm := RequestModel{
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	if !IsCategoryEnumerationAnswerShape(rm) {
+		t.Fatal("explicit category-enumeration predicate should mark set-valued answer shape")
+	}
+
+	rm = RequestModel{Intent: IntentEnumerate}
+	if !IsCategoryEnumerationAnswerShape(rm) {
+		t.Fatal("enumerate intent without scalar contradiction should mark set-valued answer shape")
+	}
+
+	rm.Predicates.IsScalarAnswer = true
+	if IsCategoryEnumerationAnswerShape(rm) {
+		t.Fatal("scalar answer predicate must keep enumerate intent out of set-valued answer shape")
+	}
+
+	rm.Predicates.IsScalarAnswer = false
+	rm.Predicates.IsRoleLocateLookup = true
+	if IsCategoryEnumerationAnswerShape(rm) {
+		t.Fatal("role-locate predicate must keep enumerate intent out of set-valued answer shape")
+	}
+
+	rm.Predicates.IsRoleLocateLookup = false
+	rm.Predicates.IsCountQuestion = true
+	if IsCategoryEnumerationAnswerShape(rm) {
+		t.Fatal("count predicate must keep enumerate intent out of set-valued answer shape")
+	}
+}
+
 func TestCanUseAnalyzerEntitiesAsHardPrincipalMembers_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{IsCategoryEnumeration: true},

@@ -557,10 +557,11 @@ type FacetCoverageContract struct {
 //  4. AnswerSubject.Kind ∈ {SubjectFunctionName, SubjectHandlerRoute,
 //     SubjectConfigKey, SubjectStructField, SubjectInterface}
 //     AND QuestionStructure.HasAnyObligation()=false
+//     AND IsCategoryEnumerationAnswerShape(rm)=false
 //     → QFRoleLookup (typical "what's the X for Y" questions)
 //
-//  5. QuestionStructure.HasAnyObligation()=true
-//     OR Intent == Enumerate
+//  5. QuestionStructure.HasAnyObligation()=true OR
+//     IsCategoryEnumerationAnswerShape(rm)=true
 //     → QFEnumeration (s5a / m1a fall here)
 //
 //  6. Intent == Explain AND Scenario == ArchitectureExplain
@@ -588,6 +589,7 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 
 	view := rm.QuestionStructure()
 	hasObligation := view.HasAnyObligation()
+	isEnumerationAnswer := IsCategoryEnumerationAnswerShape(rm)
 	bucketCount := len(view.Buckets)
 
 	// Rule 3 (R4.4): comparison family. When the question carries
@@ -614,8 +616,11 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 	}
 
 	// Rule 5: role-lookup detection (named-entity subject + no
-	// enumeration obligation).
-	if !hasObligation {
+	// enumeration obligation). A typed category-enumeration answer
+	// shape wins over a function-like AnswerSubject.Kind; otherwise a
+	// relational enumeration can be stolen by QFRoleLookup and forced
+	// into a scalar block.
+	if !hasObligation && !isEnumerationAnswer {
 		switch rm.AnswerSubject.Kind {
 		case SubjectFunctionName, SubjectHandlerRoute,
 			SubjectConfigKey, SubjectStructField, SubjectInterface:
@@ -624,7 +629,7 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 	}
 
 	// Rule 6: enumeration / obligation-bearing.
-	if hasObligation || rm.Intent == IntentEnumerate {
+	if hasObligation || isEnumerationAnswer {
 		// bucketCount < 2 by construction (QFComparison absorbed
 		// the multi-bucket case above).
 		return QFEnumeration

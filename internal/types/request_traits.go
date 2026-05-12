@@ -62,6 +62,31 @@ func HasBoundedCategoryEnumerationMembers(rm RequestModel) bool {
 	return hasExhaustiveMultiMemberSet(rm)
 }
 
+// IsCategoryEnumerationAnswerShape reports whether the user's answer
+// shape is a set of principal members, as opposed to a single scalar
+// role/literal that happens to be phrased with "which".
+//
+// The strongest signal is Predicates.IsCategoryEnumeration. Intent
+// Enumerate is accepted as a fallback only when the scalar/role/count
+// predicates do not contradict it. This keeps "which function handles
+// X?" in the role-lookup lane when the analyzer marks it as a scalar
+// role lookup, while preserving true set-valued questions even if the
+// analyzer also emitted a function-like AnswerSubject.Kind.
+func IsCategoryEnumerationAnswerShape(rm RequestModel) bool {
+	if rm.Predicates.IsCategoryEnumeration {
+		return true
+	}
+	if rm.Intent != IntentEnumerate {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsCountQuestion {
+		return false
+	}
+	return true
+}
+
 // CanUseAnalyzerEntitiesAsHardPrincipalMembers reports whether
 // AnalyzerHints.Entities may seed hard principal-member obligations
 // such as AnswerContract.MustInclude.
@@ -80,7 +105,7 @@ func HasBoundedCategoryEnumerationMembers(rm RequestModel) bool {
 // RawRequest text, so it applies uniformly to Go, C/C++, ArkTS,
 // Cangjie, Java/Kotlin, JS/TS, Python, Rust, and path/module surfaces.
 func CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm RequestModel) bool {
-	if !rm.Predicates.IsCategoryEnumeration {
+	if !IsCategoryEnumerationAnswerShape(rm) {
 		return false
 	}
 	if len(rm.AnalyzerHints.Entities) == 0 {
