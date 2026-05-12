@@ -218,6 +218,9 @@ onto a set-valued answer:
 - set `intent=enumerate`;
 - set `question_kind=enumeration`;
 - set `predicates.is_category_enumeration=true`;
+- set `predicates.is_relational_lookup=true`;
+- clear `predicates.is_cross_component` so a broad affected-file/site set is
+  not mistaken for a multi-topic component comparison;
 - clear scalar/count flags that contradict a set-valued principal answer;
 - leave `requested_output=steps` alone so genuine migration-procedure questions
   can still use mechanism/trace scaffolds.

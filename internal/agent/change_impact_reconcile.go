@@ -25,6 +25,7 @@ func reconcileChangeImpactProfile(rm types.RequestModel) (types.RequestModel, st
 	rm.AnalyzerHints.Kind = string(types.ReqEnumeration)
 	rm.Predicates.IsCategoryEnumeration = true
 	rm.Predicates.IsRelationalLookup = true
+	rm.Predicates.IsCrossComponent = false
 	rm.Predicates.IsScalarAnswer = false
 	rm.Predicates.IsCountQuestion = false
 	rm.Predicates.IsRoleLocateLookup = false
@@ -55,6 +56,7 @@ func changeImpactClassificationSummary(rm types.RequestModel) string {
 		"kind=" + strings.TrimSpace(rm.AnalyzerHints.Kind),
 		fmt.Sprintf("cat=%t", rm.Predicates.IsCategoryEnumeration),
 		fmt.Sprintf("rel=%t", rm.Predicates.IsRelationalLookup),
+		fmt.Sprintf("cross=%t", rm.Predicates.IsCrossComponent),
 		fmt.Sprintf("scalar=%t", rm.Predicates.IsScalarAnswer),
 	}, " ")
 }

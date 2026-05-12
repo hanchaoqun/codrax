@@ -44,6 +44,7 @@ func TestReconcileChangeImpactProfile_ForcesAffectedFileSetRouting(t *testing.T)
 		Predicates: types.SemanticPredicates{
 			IsScalarAnswer:        true,
 			IsRoleLocateLookup:    true,
+			IsCrossComponent:      true,
 			IsCategoryEnumeration: false,
 			IsRelationalLookup:    false,
 		},
@@ -66,6 +67,9 @@ func TestReconcileChangeImpactProfile_ForcesAffectedFileSetRouting(t *testing.T)
 	}
 	if !got.Predicates.IsCategoryEnumeration || !got.Predicates.IsRelationalLookup {
 		t.Fatalf("set-valued impact output should be category+relational, got %+v", got.Predicates)
+	}
+	if got.Predicates.IsCrossComponent {
+		t.Fatalf("set-valued impact output should not require multi-topic cross-component decomposition, got %+v", got.Predicates)
 	}
 	if got.Predicates.IsScalarAnswer || got.Predicates.IsCountQuestion || got.Predicates.IsRoleLocateLookup {
 		t.Fatalf("set-valued impact output should clear scalar predicates, got %+v", got.Predicates)
@@ -108,6 +112,7 @@ func TestBuildAnalysisIR_ChangeImpactFileOutputRoutesEnumeration(t *testing.T) {
 		Predicates: types.SemanticPredicates{
 			IsScalarAnswer:     true,
 			IsRoleLocateLookup: true,
+			IsCrossComponent:   true,
 		},
 		ChangeImpactProfile: &types.ChangeImpactProfile{
 			IsChangeImpact:  true,
@@ -128,6 +133,9 @@ func TestBuildAnalysisIR_ChangeImpactFileOutputRoutesEnumeration(t *testing.T) {
 	}
 	if !rm.Predicates.IsCategoryEnumeration || !rm.Predicates.IsRelationalLookup {
 		t.Fatalf("change-impact file output should be set-valued relational enumeration, got %+v", rm.Predicates)
+	}
+	if rm.Predicates.IsCrossComponent {
+		t.Fatalf("change-impact file output should not require cross-component sub-topic fan-out, got %+v", rm.Predicates)
 	}
 	if got := types.ResolveQuestionFamily(rm); got != types.QFEnumeration {
 		t.Fatalf("question family = %q, want %q", got, types.QFEnumeration)
