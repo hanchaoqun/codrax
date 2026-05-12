@@ -123,6 +123,30 @@ func TestResolveQuestionFamily_BucketsRouteToComparison(t *testing.T) {
 	}
 }
 
+func TestResolveQuestionFamily_InferredRequiredFileBucketsRouteToComparison(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "对比 explorer.go 和 extractor.go 的 ReAct 循环终止条件有何不同？逐条列出差异。",
+		Intent:     IntentExplain,
+		Scenario:   ScenarioArchitectureExplain,
+		Predicates: SemanticPredicates{IsCrossComponent: true},
+		SubTopics: []SubTopic{
+			{Summary: "explorer side", Entities: []string{"explorerEvaluator", "ShouldStop"}},
+			{Summary: "extractor side", Entities: []string{"extractorEvaluator", "ShouldStop"}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			RequiredFileHints: []RequiredFileHint{
+				{Path: "internal/agent/explorer.go", Confidence: 0.95},
+				{Path: "internal/agent/extractor.go", Confidence: 0.95},
+				{Path: "internal/agent/iteration_cap.go", Confidence: 0.8},
+			},
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "逐条"},
+	}
+	if got := ResolveQuestionFamily(rm); got != QFComparison {
+		t.Errorf("got %q, want QFComparison", got)
+	}
+}
+
 func TestResolveQuestionFamily_EnumerationFromCompleteness(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentExplain,

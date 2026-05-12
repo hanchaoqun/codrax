@@ -136,6 +136,54 @@ func TestRequestModel_QuestionStructure_Synthesizes(t *testing.T) {
 	}
 }
 
+func TestEffectiveQuestionBuckets_InferFromTypedRequiredFiles(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "对比 explorer.go 和 extractor.go 的 ReAct 循环终止条件有何不同？",
+		Predicates: SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		SubTopics: []SubTopic{
+			{Summary: "explorer side", Entities: []string{"explorerEvaluator"}},
+			{Summary: "extractor side", Entities: []string{"extractorEvaluator"}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			RequiredFileHints: []RequiredFileHint{
+				{Path: "internal/agent/extractor.go", Confidence: 0.95},
+				{Path: "internal/agent/iteration_cap.go", Confidence: 0.95},
+				{Path: "internal/agent/explorer.go", Confidence: 0.95},
+			},
+		},
+	}
+	buckets := rm.QuestionStructure().Buckets
+	if len(buckets) != 2 {
+		t.Fatalf("buckets len=%d, want 2: %+v", len(buckets), buckets)
+	}
+	if buckets[0].Label != "explorer.go" || buckets[1].Label != "extractor.go" {
+		t.Fatalf("bucket order/labels = %+v, want explorer.go then extractor.go", buckets)
+	}
+	if !rm.QuestionStructure().HasAnyObligation() {
+		t.Fatal("inferred comparison buckets should make QuestionStructure obligation-bearing")
+	}
+}
+
+func TestEffectiveQuestionBuckets_NoInferWithoutTypedParallelShape(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "explorer.go 和 extractor.go 如何协作？",
+		Predicates: SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			RequiredFileHints: []RequiredFileHint{
+				{Path: "internal/agent/explorer.go", Confidence: 0.95},
+				{Path: "internal/agent/extractor.go", Confidence: 0.95},
+			},
+		},
+	}
+	if buckets := rm.QuestionStructure().Buckets; len(buckets) != 0 {
+		t.Fatalf("single-topic typed shape must not infer buckets: %+v", buckets)
+	}
+}
+
 // TestRequestModel_BackCompat_ZeroValueQuestionStructure pins that
 // pre-Plan-E callers (no QuestionStructure fields set) get a
 // safe-zero view that all gates should short-circuit on.

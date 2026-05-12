@@ -1,6 +1,9 @@
 package types
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // question_structure.go — typed model for the structural obligations a
 // user's question carries that downstream stages must enforce.
@@ -226,6 +229,124 @@ func (rm RequestModel) QuestionStructure() QuestionStructureView {
 	return QuestionStructureView{
 		EnumerationBoundary:    rm.EnumerationBoundary,
 		CompletenessObligation: rm.CompletenessObligation,
-		Buckets:                rm.Buckets,
+		Buckets:                EffectiveQuestionBuckets(rm),
 	}
+}
+
+// EffectiveQuestionBuckets returns the analyzer-emitted bucket
+// partition when present, with a typed safety net for cross-file /
+// cross-component comparison-like questions where the analyzer omitted
+// buckets but already emitted all ingredients needed to preserve the
+// user's partition downstream:
+//
+//   - IsCrossComponent=true,
+//   - two or more analyzer sub-topics, and
+//   - two or more high-confidence RequiredFileHints whose visible file
+//     labels are present in RawRequest.
+//
+// This deliberately does NOT scan the raw request for comparison cue
+// words. RawRequest is used only as a precise provenance check for the
+// bucket labels, just like NormalizeBuckets. The inferred buckets are
+// structure, not answer content: they let QFComparison keep both sides
+// visible instead of letting an enumeration/completeness obligation
+// flatten support evidence into principal members.
+func EffectiveQuestionBuckets(rm RequestModel) []QuestionBucket {
+	if len(rm.Buckets) >= 2 {
+		return rm.Buckets
+	}
+	if len(rm.Buckets) > 0 {
+		return rm.Buckets
+	}
+	return inferRequiredFileComparisonBuckets(rm)
+}
+
+func inferRequiredFileComparisonBuckets(rm RequestModel) []QuestionBucket {
+	if !rm.Predicates.IsCrossComponent || len(rm.SubTopics) < 2 {
+		return nil
+	}
+	raw := strings.TrimSpace(rm.RawRequest)
+	if raw == "" || len(rm.AnalyzerHints.RequiredFileHints) < 2 {
+		return nil
+	}
+	var candidates []requiredFileBucketCandidate
+	seen := map[string]bool{}
+	for sourceIdx, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if hint.Confidence < 0.8 {
+			continue
+		}
+		label, order := requiredFileBucketLabel(raw, hint.Path)
+		if label == "" {
+			continue
+		}
+		key := strings.ToLower(label)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		candidates = append(candidates, requiredFileBucketCandidate{
+			label:  label,
+			path:   strings.TrimSpace(hint.Path),
+			order:  order,
+			source: sourceIdx,
+		})
+	}
+	if len(candidates) < 2 {
+		return nil
+	}
+	sortQuestionBucketCandidates(candidates)
+	out := make([]QuestionBucket, 0, len(candidates))
+	for i, c := range candidates {
+		out = append(out, QuestionBucket{
+			Label:   c.label,
+			Anchors: []string{c.path},
+			Index:   i + 1,
+		})
+	}
+	return out
+}
+
+type requiredFileBucketCandidate struct {
+	label  string
+	path   string
+	order  int
+	source int
+}
+
+func requiredFileBucketLabel(raw, path string) (string, int) {
+	path = strings.TrimSpace(strings.ReplaceAll(path, `\`, `/`))
+	if path == "" {
+		return "", -1
+	}
+	base := path
+	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	for _, label := range []string{base, path} {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			continue
+		}
+		if order := foldedSurfaceIndex(raw, label); order >= 0 {
+			return label, order
+		}
+	}
+	return "", -1
+}
+
+func foldedSurfaceIndex(raw, label string) int {
+	foldRaw := foldEnumerationBoundarySurface(raw)
+	foldLabel := foldEnumerationBoundarySurface(label)
+	if foldRaw == "" || foldLabel == "" {
+		return -1
+	}
+	return strings.Index(foldRaw, foldLabel)
+}
+
+func sortQuestionBucketCandidates(candidates []requiredFileBucketCandidate) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].order != candidates[j].order {
+			return candidates[i].order < candidates[j].order
+		}
+		return candidates[i].source < candidates[j].source
+	})
 }
