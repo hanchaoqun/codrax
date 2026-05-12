@@ -166,6 +166,56 @@ func TestEmitInvestigationComplete_RejectsInconsistentAggregateFacts(t *testing.
 	}
 }
 
+func TestEmitInvestigationComplete_RejectsDecoratorMemberSetMismatchedToEvidence(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Entities: []string{"@Builder"}},
+		}},
+	}
+	seedReadFileHistory(bus, "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", 1,
+		"// Source: openharmony @Styles and @Extend decorators",
+		"",
+		"@Styles function commonCardStyle() {",
+		"  .width('100%')",
+		"}",
+	)
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceRegistration,
+		Source:          "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets",
+		LineStart:       3,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "commonCardStyle",
+		Object:          "Styles",
+		SurfaceTerms:    []string{"@Styles", "commonCardStyle"},
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"member set carried through aggregate_facts",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"@Builder reusable fragments",
+			"value":"1",
+			"members":["commonCardStyle"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected decorator aggregate mismatch rejection, got success")
+	}
+	if !strings.Contains(res.Summary, "requested decorator \"@Builder\"") || !strings.Contains(res.Summary, "@Styles") {
+		t.Fatalf("rejection should explain aggregate member mismatch, got %q", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_NormalizesLogSourceDriftReasonToBoundedSurface(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{

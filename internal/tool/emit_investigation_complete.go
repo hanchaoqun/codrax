@@ -290,6 +290,14 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if err := validateAggregateRequestedDecoratorAlignment(ctx, aggregateFacts); err != nil {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Summary:   fmt.Sprintf("emit_investigation_complete rejected: %v", err),
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// Strict-decode + store evidence_floor_waiver (typed escape).
 	// The full pre-check chain below (forced-read, citation floor)
@@ -778,6 +786,88 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		Success:   true,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func validateAggregateRequestedDecoratorAlignment(ctx *types.BusContext, facts []types.AnswerAggregateFact) error {
+	if ctx == nil || ctx.Mutable == nil || len(facts) == 0 {
+		return nil
+	}
+	requested := requestedDecoratorSurfaceTerms(ctx)
+	if len(requested) == 0 {
+		return nil
+	}
+	gc := ground.BuildContext(ctx)
+	evidence := ctx.Mutable.EmittedEvidence()
+	if len(evidence) == 0 {
+		return nil
+	}
+	for i, fact := range facts {
+		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 {
+			continue
+		}
+		claimed := aggregateFactClaimedRequestedDecorator(fact, requested)
+		if claimed == "" {
+			continue
+		}
+		for _, member := range fact.Members {
+			ev, ok := aggregateMemberEvidence(member, evidence)
+			if !ok {
+				continue
+			}
+			actual := attachedDecoratorSurfaceTermSet(ev, gc)
+			if len(actual) == 0 || actual[claimed] {
+				continue
+			}
+			actualList := make([]string, 0, len(actual))
+			for term := range actual {
+				actualList = append(actualList, term)
+			}
+			sort.Strings(actualList)
+			return fmt.Errorf(
+				"aggregate_facts[%d] member %q is listed under requested decorator %q, but its typed evidence at %s:%d is attached to %s; correct the member_set or move the member to a separate related-context aggregate",
+				i, member, claimed, ev.Source, ev.LineStart, strings.Join(actualList, ", "))
+		}
+	}
+	return nil
+}
+
+func aggregateFactClaimedRequestedDecorator(fact types.AnswerAggregateFact, requested map[string]bool) string {
+	add := []string{fact.Label}
+	for _, d := range fact.Dimensions {
+		add = append(add, d.Name, d.Value)
+	}
+	for _, raw := range add {
+		term := decoratorSurfaceTermFromLabel(raw)
+		if term != "" && requested[term] {
+			return term
+		}
+	}
+	return ""
+}
+
+func aggregateMemberEvidence(member string, evidence []types.EvidenceItem) (types.EvidenceItem, bool) {
+	want := aggregateMemberKey(member)
+	if want == "" {
+		return types.EvidenceItem{}, false
+	}
+	for _, ev := range evidence {
+		for _, raw := range aggregateEvidenceMemberLabels(ev) {
+			if aggregateMemberKey(raw) == want {
+				return ev, true
+			}
+		}
+	}
+	return types.EvidenceItem{}, false
+}
+
+func aggregateEvidenceMemberLabels(ev types.EvidenceItem) []string {
+	out := []string{ev.AnchorSymbol, ev.Subject, ev.Object}
+	out = append(out, ev.SurfaceTerms...)
+	return out
+}
+
+func aggregateMemberKey(raw string) string {
+	return types.NormalizedSurfaceSymbolTail(raw)
 }
 
 // investigationCompletePolicy holds the operator-configured policy
