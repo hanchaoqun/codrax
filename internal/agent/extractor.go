@@ -525,20 +525,22 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 
 	// Answer-symbol drain + cardinality validator.
 	syms, claim := ctx.Mutable.EmittedAnswerSymbols()
-	fallback := extractorDeclarativeLiteralFallback(ctx)
+	definitionFallback := extractorPrincipalDefinitionSymbolFallback(ctx)
+	literalFallback := extractorDeclarativeLiteralFallback(ctx)
+	fallback := mergeAnswerSymbolFallbacks(definitionFallback, literalFallback)
 	if len(syms) == 0 && len(fallback) > 0 {
 		syms = fallback
 		claim = types.CompletenessLowerBound
-		logging.Info("[extractor] synthesized %d declarative literal answer symbol(s) from grounded evidence fallback", len(syms))
+		logging.Info("[extractor] synthesized %d answer symbol(s) from grounded structured evidence fallback", len(syms))
 	} else {
-		if augmented := mergeDeclarativeFallbackSymbols(syms, fallback); len(augmented) > len(syms) {
-			logging.Info("[extractor] augmented answer-symbol slate from %d to %d item(s) using declarative literal fallback", len(syms), len(augmented))
+		if augmented := mergeAnswerSymbolFallbacks(syms, fallback); len(augmented) > len(syms) {
+			logging.Info("[extractor] augmented answer-symbol slate from %d to %d item(s) using grounded structured evidence fallback", len(syms), len(augmented))
 			syms = augmented
 			if claim == types.CompletenessUnknown {
 				claim = types.CompletenessLowerBound
 			}
 		}
-		if refined := trimDeclarativeSlateToTerminals(syms, fallback); len(refined) > 0 && len(refined) < len(syms) {
+		if refined := trimDeclarativeSlateToTerminals(syms, literalFallback); len(refined) > 0 && len(refined) < len(syms) {
 			logging.Info("[extractor] pruned answer-symbol slate from %d to %d item(s) using declarative terminal filter", len(syms), len(refined))
 			syms = refined
 			if claim == types.CompletenessUnknown {
@@ -705,6 +707,130 @@ func validateCompletenessClaim(ctx *types.AgentContext, syms []types.AnswerSymbo
 		})
 	}
 	return types.CompletenessLowerBound
+}
+
+func extractorPrincipalDefinitionSymbolFallback(ctx *types.AgentContext) []types.AnswerSymbol {
+	if ctx == nil || !needsAnswerSymbols(ctx) || !viewNeedsEnumerationSlate(ctx) {
+		return nil
+	}
+	plan := extractorAnswerSurfacePlan(ctx)
+	if plan == nil {
+		return nil
+	}
+	items := types.PrincipalSupportEvidenceItemsForFamily(types.QFEnumeration, plan)
+	if len(items) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(items))
+	out := make([]types.AnswerSymbol, 0, len(items))
+	for _, ev := range items {
+		if types.ClaimFormOf(ev) != types.ClaimDefinitionFact {
+			continue
+		}
+		if !ev.IsCitable() || !ev.Scope.IsLineShaped() || ev.LineStart <= 0 {
+			continue
+		}
+		name := extractorDefinitionSymbolName(ev)
+		source := extractorEvidenceRepoSource(ctx, ev.Source)
+		if name == "" || source == "" {
+			continue
+		}
+		sym := types.AnswerSymbol{
+			Name:      name,
+			File:      source,
+			Line:      ev.LineStart,
+			Kind:      extractorDefinitionAnswerSymbolKind(ctx),
+			Chain:     strings.TrimSpace(ev.Summary),
+			Rationale: "principal definition extracted from grounded structured evidence",
+		}
+		key := answerSymbolDedupKey(sym)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, sym)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func extractorDefinitionSymbolName(ev types.EvidenceItem) string {
+	for _, raw := range []string{ev.AnchorSymbol, ev.Subject, ev.Object} {
+		if name := normalizeExtractorDefinitionSymbol(raw); name != "" {
+			return name
+		}
+	}
+	for _, raw := range ev.SurfaceTerms {
+		if name := normalizeExtractorDefinitionSymbol(raw); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+func normalizeExtractorDefinitionSymbol(raw string) string {
+	name := normalizeExtractorFallbackToken(raw)
+	if name == "" {
+		return ""
+	}
+	if strings.ContainsAny(name, " \t\r\n{}()[];,") {
+		return ""
+	}
+	return name
+}
+
+func extractorEvidenceRepoSource(ctx *types.AgentContext, source string) string {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return ""
+	}
+	if ctx != nil && ctx.RepoRoot != "" {
+		source = ground.CanonicalRepoRelative(source, ctx.RepoRoot)
+	} else {
+		source = canonicalExplorerPath(source)
+	}
+	if source == "" || strings.HasPrefix(source, ".codrax/") {
+		return ""
+	}
+	return source
+}
+
+func extractorDefinitionAnswerSymbolKind(ctx *types.AgentContext) types.AnswerSymbolKind {
+	switch extractorAnswerSubjectKind(ctx) {
+	case types.SubjectFunctionName:
+		return types.KindFunction
+	case types.SubjectInterface:
+		return types.KindInterface
+	case types.SubjectStructField:
+		return types.KindField
+	case types.SubjectEnumValue:
+		return types.KindConst
+	case types.SubjectTypeName, types.SubjectGeneric, types.SubjectUnknown:
+		return types.KindType
+	default:
+		return types.KindType
+	}
+}
+
+func mergeAnswerSymbolFallbacks(groups ...[]types.AnswerSymbol) []types.AnswerSymbol {
+	var out []types.AnswerSymbol
+	seen := make(map[string]bool)
+	for _, group := range groups {
+		for _, sym := range group {
+			if strings.TrimSpace(sym.Name) == "" {
+				continue
+			}
+			key := answerSymbolDedupKey(sym)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, sym)
+		}
+	}
+	return out
 }
 
 func extractorDeclarativeLiteralFallback(ctx *types.AgentContext) []types.AnswerSymbol {

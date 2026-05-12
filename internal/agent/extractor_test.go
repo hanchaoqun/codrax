@@ -1684,6 +1684,73 @@ func TestExtractor_ParseOutput_EmptySlateFallsBackToDeclarativeLiterals(t *testi
 	}
 }
 
+func TestExtractor_ParseOutput_EmptySlateFallsBackToPrincipalDefinitionSymbols(t *testing.T) {
+	mu := types.NewMutableState("List all public string enum type names.")
+	rm := types.RequestModel{
+		Intent:        types.IntentEnumerate,
+		AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectTypeName},
+	}
+	mu.SetRequestModel(rm)
+	mu.SetEmittedAnswerSymbols(nil, types.CompletenessUnknown)
+	ctx := &types.AgentContext{
+		Objective: "List all public string enum type names.",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel:   rm,
+			AnswerContract: types.AnswerContract{},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID:              "enum-intent",
+				Kind:            types.EvidenceDirect,
+				Scope:           types.ScopeLine,
+				Source:          "internal/types/analysis_ir.go",
+				LineStart:       642,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "Intent",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID:              "enum-complexity",
+				Kind:            types.EvidenceDirect,
+				Scope:           types.ScopeLine,
+				Source:          "internal/types/analysis_ir.go",
+				LineStart:       678,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "Complexity",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	e := &extractorEvaluator{}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
+		t.Fatalf("definition fallback should preserve an honest lower_bound claim, got %q", out.AnswerSymbolCompleteness)
+	}
+	if len(out.AnswerSymbols) != 2 {
+		t.Fatalf("definition fallback should synthesize both principal symbols, got %+v", out.AnswerSymbols)
+	}
+	got := make(map[string]types.AnswerSymbol, len(out.AnswerSymbols))
+	for _, sym := range out.AnswerSymbols {
+		got[sym.Name] = sym
+		if sym.Kind != types.KindType {
+			t.Fatalf("type-name definition fallback should emit kind=type, got %+v", sym)
+		}
+	}
+	for _, want := range []string{"Intent", "Complexity"} {
+		if got[want].Line == 0 {
+			t.Fatalf("definition fallback missing %q: %+v", want, out.AnswerSymbols)
+		}
+	}
+}
+
 func TestExtractor_ParseOutput_PrunesDeclarativeHelperSymbols(t *testing.T) {
 	mu := types.NewMutableState("Which skills are registered by default?")
 	mu.SetRequestModel(types.RequestModel{
