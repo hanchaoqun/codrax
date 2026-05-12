@@ -77,6 +77,7 @@ codrax 的目标是让一个 LLM 在不出错的前提下回答一个真实代�
 |---|---|---|---|
 | `emit_investigation_complete` forced-read pending list | `evidence_floor_waiver`（model-declared）或 runtime external disposition（system-derived） | `external_only_log` / `external_only_trace` / `no_repo_intersection` / `informational_runtime_only` | `internal/types/evidence_floor_waiver.go` + `internal/tool/emit_investigation_complete.go` |
 | `emit_investigation_complete` citation-floor pre-flight | `evidence_floor_waiver`（model-declared）**或** `LogBundle.IsExternalSource()` / `PerfBundle.IsExternalSource()`（system-derived） | 同上 | 同上 |
+| call-chain source→sink span gap | `principal_span_waiver`（model-declared） | `endpoints_directly_adjacent` / `no_intermediate_user_code` / `platform_bridge_intermediates` / `inlined_call` / `runtime_dispatched_call` / `external_module_continuation` | `internal/types/principal_span_waiver.go` + `internal/tool/emit_investigation_complete.go` |
 | finalizer runtime citation policy | `RuntimeGroundingDisposition`（stable answer-surface projection） | 同上 | `internal/types/answer_surface_plan.go` + `internal/agent/answer_document_evaluator.go` |
 | `emit_investigation_complete` absence-floor | `absence_justification`（model-declared） | 答案就是 zero / not-found | 已有 |
 | log / trace frame 自指陷阱 | 不是 gate，是 **typed signal**：`FrameDriftStatus` 渲染到 prompt section（"Frame ↔ current-code drift warning"） | LineDrift / TailRename / FileMoved / Unmappable | `internal/context/builder.go::renderLogTriageFrameDrift` / `renderPerfTriageFrameDrift` |
@@ -432,45 +433,53 @@ LLM 通过 `emit_analysis` 一次性写出的 `RequestModel`（`internal/types/a
 
 > *Predicate 像勾选项：与其用关键词表去检查问题里有没有"几个"、"多少"、"how many"、"count"等等不同语言的表达（永远列不全），不如直接让 LLM 自己判断"这个问题要不要数数"，✓ 或 ✗ 二选一。AnswerSubject 像"答案的形状"：用户问"哪个函数处理 X"答案就该是 function_name；问"X 的默认值"答案就该是 string_literal 或 numeric——下游照"形状"渲染答案就不会跑偏。*
 
-### 4.4 buildAnalysisIR — 33 步确定性后处理
+### 4.4 buildAnalysisIR — 核心确定性后处理
 
-`emit_analysis` 调用一返回，analyzer 就跑一条 33 步的确定性管线把 RequestModel 装配成完整 `AnalysisIR`。每一步要么是 reconcile（修正 LLM 的不一致），要么是补全（infer 漏掉的字段），要么是产出（基于已有信号生成下游所需结构）：
+`emit_analysis` 调用一返回，analyzer 就跑一条确定性管线把 RequestModel 装配成完整 `AnalysisIR`。每一步要么是 reconcile（修正 LLM 的不一致），要么是补全（infer 漏掉的字段），要么是产出（基于已有信号生成下游所需结构）。下表保留当前代码的关键 checkpoints；源码注释是行级真源，新增 typed lane 时必须在这里补 producer / consumer 路径说明。
 
 | 阶段 | 步骤 | 包/函数 | 作用 |
 |---|---|---|---|
-| 附挂 | 1 | analyzer.go inline | 挂上 LogTriage / PerfTrace bundle，merge entity（`logtriage.MergeEntities` 经 SymbolResolver 验证） |
-| 子话题归一 | 2 | inline | `SubTopics > 5` 截到 5；`SubTopics > 1` 把 simple → moderate |
-| Predicate reconcile | 3 | analyzer_predicate.reconcileSemanticPredicates | 单 exact target 没多话题没多轴信号 → `is_cross_component=true` 降 false |
-| Complexity 7 规则 | 4 | analyzer_complexity.reconcileComplexity | sub-topics≥3 锁 complex / cross-component 锁 complex / 单实体单话题 → simple / 多实体多关键词 → complex / sparse-prompt 强制 simple / mechanism 多实体 → complex / enumeration+relational → moderate |
-| Intent reconcile | 5 | analyzer_intent.reconcileIntent | count + enumerate 罕见组合 → return_value（防御纵深） |
-| AnswerSubject 推断 | 6 | inferAnswerSubject | LLM 给 unknown 时按双语 cue + question_kind fallback；最弱 fallback 是 SubjectGeneric (confidence=0.1)，永不让下游拿到 SubjectUnknown |
-| PredicateAxis pass-through | 7 | reconcilePredicateAxis | 当前 no-op，留作未来 axis suppression 钩子 |
-| Scenario reconcile | 8 | reconcileScenario | 单话题结构 trace 的 architecture 问题 → generic（避开模板开销） |
-| Capability surface | 9 | inline | stage / tool / skill capability 类问题产出 `CapabilitySurfaceHint` |
-| Measurement-scalar / history-lookup 检测 | 10 | analyzer_intent | 捕获 isMeasurementScalarRequest（count 动词 + simple + enumerate/return_value）和 isHistoryLookupRequest |
-| Sub-topic 实体合并 | 11 | inline | 把 sub-topic 的 entities 并进主 entity 集，保留 PrimaryEntities / MentionedEntities 的来源标 |
-| 边界 scope 收窄 | 12 | analyzer_boundary.reconcileEnumerationBoundaryScope | 用户声明有界（"the 7 checks"）且单 owner 时丢掉子话题，把 entity 收窄到 owner，让结构成单话题 |
-| Normalize | 13 | normalizer.Normalize | 抽 RawRequest 里的 surface，用 repomap-backed SymbolResolver canonicalize，建 alias 边；产出 TermGraph.Canonical + Aliases |
-| Amplifier pre-compile | 14 | amplifier.Amplify | 用 TermGraph 形 + 已有 typed 字段填补 LLM 漏掉的 optional predicate（R1 多 subject、R2 typed-name parity 等） |
-| Implementer 展开 | 15 | inline + Graph.ImplementersOf / FileIndex / SymbolDefs | enumeration intent 命名 entity 是 graph 中的 interface/trait/protocol 时，把实现者 / file basename / sub-topic file anchor 提升到 PrimaryEntities |
-| Cardinality sanity | 16 | inline | `IsCategoryEnumeration=true` 但 distinct named entities ≤ 1 → 硬失败 retry |
-| Auto-keyword boost | 17 | appendDeclarativeKeywords | registration / config_mapping / call_chain / source-literal subject 问题追加 declarative filename stems |
-| Scenario infer | 18 | compiler.InferScenario | 没填 Scenario 时填默认 |
-| Compile pass 1 | 19 | compiler.Compile | RequestModel + BudgetSignals → TaskGraph + AnswerContract |
-| Risk evaluate | 20 | risk.Evaluate | 六维 0-5 |
-| HDP plan | 21 | hdp.Plan | 派生 hypothesis 集 |
-| Budget recompute | 22 | compiler.RecomputeBudget | 用真实 hypothesis 数重算 EvidencePlan |
-| Amplifier post-compile | 23 | amplifier.AmplifyPostCompile | enumeration over named entity 时把 typed identifier pin 进 `AnswerContract.MustInclude` |
-| Hypothesis 绑定 | 24 | binder.BindByRelevance | hypothesis ↔ TaskNode 相关性绑定 |
-| Counterfactual | 25 | counterfactual.Expand | complex + ambiguous explain/root_cause 触发，新分支再 BindByRelevance |
-| Measurement-scalar carve-out | 26 | inline | isMeasurementScalar / isHistoryLookup 时剥 3 层 citation gate（CitationReq.Required / AcceptanceTests / SuccessCriteria 中的 CritCitationCountGE） |
-| Diagram contract | 27 | analyzer_intent.reconcileDiagramContract | 综合 intent + predicates + axis + log evidence + scenario，产 DiagramContract.Required + PreferredKinds + ScopeHint |
-| Exact resolution contract | 28 | types.BuildExactResolutionContract | 有 exact_targets 时建 TargetKind + TargetLabel + RequireTargetMention + AliasRequiresProof + RelatedContextPolicy |
-| IR 装配 | 29 | inline | 组装 final AnalysisIR |
-| Required files | 30 | analyzerRequiredFiles | 用 repomap graph 查实体的定义文件，写进 EvidencePlan.RequiredFiles |
-| Quality gate | 31 | gate.RunWith | 9 项 hard / 1 项 soft 检查；写模式跳 hypothesis_coverage / contract_complete / subtopic_coherence / shape_subject_coherence（写流水线另有套 criterion） |
-| Mutable writeback | 32 | inline | 把 reconciled RequestModel 写回 ctx.Mutable，下游工具 / extractor 能读到 |
-| Observability | 33 | EmitReconcileSummary | 输出 `[reconcile-shadow]` 行，聚合所有 reconcile 事件 |
+| RawRequest / language | 1 | analyzer.go inline | 缺 RawRequest 时 strip prior conversation prefix；缺 Language 时按请求和偏好 detect |
+| Entity provenance | 2 | MentionedEntitiesFromRawRequest | 在确定性增强前冻结 PrimaryEntities / MentionedEntities，区分当前请求 verbatim 与后续派生 subject |
+| Enumeration boundary scope | 3 | reconcileEnumerationBoundaryScope | 用户声明有界且单 owner 时把 breadth 收窄到 owner；不再走 regex 恢复 EnumerationBoundary |
+| 附挂 | 4 | analyzer.go inline | 挂上 LogTriage / PerfTrace bundle，merge entity（`logtriage.MergeEntities` 经 SymbolResolver 验证） |
+| 子话题归一 | 5 | inline | `SubTopics > 5` 截到 5；`SubTopics > 1` 把 simple → moderate |
+| Predicate reconcile | 6 | analyzer_predicate.reconcileSemanticPredicates | 单 exact target 没多话题没多轴信号 → `is_cross_component=true` 降 false |
+| Complexity 7 规则 | 7 | analyzer_complexity.reconcileComplexity | sub-topics≥3 锁 complex / cross-component 锁 complex / 单实体单话题 → simple / 多实体多关键词 → complex / sparse-prompt 强制 simple / mechanism 多实体 → complex / enumeration+relational → moderate |
+| Intent reconcile | 8 | analyzer_intent.reconcileIntent | count + enumerate 罕见组合 → return_value（防御纵深） |
+| AnswerSubject 推断 | 9 | inferAnswerSubject | LLM 给 unknown 时按双语 cue + question_kind fallback；最弱 fallback 是 SubjectGeneric (confidence=0.1)，永不让下游拿到 SubjectUnknown |
+| PredicateAxis pass-through | 10 | reconcilePredicateAxis | 当前 no-op，留作未来 axis suppression 钩子 |
+| Diagnostic profile reconcile | 11 | reconcileDiagnosticQuestionProfile | `DiagnosticProfile` 是 broad predicate 的第二道 typed safety net；诊断 / current-risk / 历史回归 / 当前版本验证会把 intent/scenario 修正到 root-cause 族，不扫 RawRequest 关键词 |
+| Scenario reconcile | 12 | reconcileScenario | 单话题结构 trace 的 architecture 问题 → generic（避开模板开销） |
+| Capability surface | 13 | inline | stage / tool / skill capability 类问题产出 `CapabilitySurfaceHint` |
+| Measurement-scalar / history-lookup 检测 | 14 | analyzer_intent | 捕获 isMeasurementScalarRequest（count 动词 + simple + enumerate/return_value）和 isHistoryLookupRequest |
+| Sub-topic 实体合并 | 15 | inline | 把 sub-topic 的 entities 并进主 entity 集，保留 PrimaryEntities / MentionedEntities 的来源标 |
+| Derived entities | 16 | types.DerivedEntitiesFromMentioned | 从 MentionedEntities 派生稳定别名，供 no-attachment / prior-context 搜索提示使用 |
+| Normalize | 17 | normalizer.Normalize | 抽 RawRequest 里的 surface，用 repomap-backed SymbolResolver canonicalize，建 alias 边；产出 TermGraph.Canonical + Aliases |
+| Amplifier pre-compile | 18 | amplifier.Amplify | 用 TermGraph 形 + 已有 typed 字段填补 LLM 漏掉的 optional predicate（R1 多 subject、R2 typed-name parity 等） |
+| Implementer 展开 | 19 | inline + Graph.ImplementersOf / FileIndex / SymbolDefs | enumeration intent 命名 entity 是 graph 中的 interface/trait/protocol 时，把实现者 / file basename / sub-topic file anchor 提升到 PrimaryEntities |
+| Multi-repo scope projection | 20 | projectPrimaryScopes / projectSubTopicScopes | 把已匹配子仓投到 PrimaryScopes / SubTopic.Scopes，legacy PrimaryEntities 保持 copy 语义 |
+| Cardinality sanity | 21 | inline | `IsCategoryEnumeration=true` 且非 relational lookup、distinct named entities ≤ 1 → 硬失败 retry |
+| Auto-keyword boost | 22 | appendDeclarativeKeywords | registration / config_mapping / call_chain / source-literal subject 问题追加 declarative filename stems |
+| Derived entities refresh | 23 | types.DerivedEntitiesFromMentioned | 在 entity expansion / keyword boost 后重算，保证下游看到最终 entity 形态 |
+| ArtifactObservationProfile | 24 | types.BuildArtifactObservationProfileForRequest | 在所有 reconcile / entity expansion 后构建 typed 观察 profile；log / trace / no-attachment diagnostic 共用，不读 raw prose 做硬判断 |
+| Scenario infer | 25 | compiler.InferScenario | 没填 Scenario 时填默认；source-literal lookup / capability surface 有 carve-out |
+| Compile pass 1 | 26 | compiler.Compile | RequestModel + BudgetSignals → TaskGraph + AnswerContract |
+| Risk evaluate | 27 | risk.Evaluate | 六维 0-5 |
+| HDP plan | 28 | hdp.Plan | 派生 hypothesis 集 |
+| Budget recompute | 29 | compiler.RecomputeBudget | 用真实 hypothesis 数重算 EvidencePlan |
+| Amplifier post-compile | 30 | amplifier.AmplifyPostCompile | enumeration over named entity 时把 typed identifier pin 进 `AnswerContract.MustInclude` |
+| Hypothesis 绑定 | 31 | binder.BindByRelevance | hypothesis ↔ TaskNode 相关性绑定 |
+| Counterfactual | 32 | counterfactual.Expand | complex + ambiguous explain/root_cause 触发，新分支再 BindByRelevance |
+| Measurement-scalar carve-out | 33 | inline | isMeasurementScalar / isHistoryLookup / external-only runtime artifact 时剥 3 层 citation gate（CitationReq.Required / AcceptanceTests / SuccessCriteria 中的 CritCitationCountGE） |
+| Diagram contract | 34 | analyzer_intent.reconcileDiagramContract | 综合 intent + predicates + axis + log evidence + scenario，产 DiagramContract.Required + PreferredKinds + ScopeHint |
+| Exact resolution contract | 35 | types.BuildExactResolutionContract | 有 exact_targets 或高置信 prior-context exact subject 时建 TargetKind + TargetLabel + provenance + RequireTargetMention + AliasRequiresProof + RelatedContextPolicy |
+| IR 装配 / required files | 36 | inline + analyzerRequiredFiles | 组装 final AnalysisIR，并用 repomap graph 查实体定义文件写进 EvidencePlan.RequiredFiles |
+| Quality / writeback / observability | 37 | gate.RunWith + Mutable.SetRequestModel + EmitReconcileSummary | 运行质量门、把 reconciled RequestModel 写回 Mutable、输出 `[reconcile-shadow]` 聚合事件 |
+
+**ConversationReferenceProfile** 是 `emit_analysis` 的通用 prior-context lane：普通无附件 follow-up（"刚才那个配置项默认值是什么？"）把上文解析出的 subject 写成 `{surface, kind, source, role, use_as_exact_target, confidence}`。compiler 的搜索 hint 合并它的 `SubjectCandidates()`，`BuildExactResolutionContract` 允许 `source=prior_context|mixed` 且 `use_as_exact_target=true` 的 subject 进入 exact-resolution，但 provenance 保持 prior_context，不伪装成当前请求 verbatim mention。
+
+**ArtifactObservationProfile** 是 log / trace / no-attachment diagnostic 共用的观察 lane：字段包括 `observation_kind`、`symptom_summary`、`evidence_snippets`、`subject_candidates`、`has_retry_loop`、`has_line_mismatch`、`has_completion_rewrite`、`diagnostic_confidence`。构建顺序刻意放在 diagnostic reconcile 与 entity expansion 之后，避免无附件问题只记录代词化 RawRequest 而丢掉后处理补齐的诊断类型和 subject。
 
 ### 4.5 跨信号 coherence 闸门
 
@@ -855,15 +864,36 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 - `StepBackbone`：step_list 答案的有序 step anchor
 - `TerminalAnchorCount`：达到 answer-grade proof 的 item 数
 - `SummarySurfaceMode`：渲染派发提示（如 `AnswerSummarySurfaceDriftBoundedRootCause`）
+- `StableAggregateFacts`：explorer 通过 `emit_investigation_complete.aggregate_facts` 成功提交并通过结构校验的聚合事实，finalizer 只读取这份 stable projection
 
-**AnswerSupportPlan**（root-cause-trace 专用，4 lane；current-status diagnostic 会追加 verdict lane）：
+**AnswerSupportPlan**（按 question family 编译的 support lane 合同）：
 - `SupportLaneObservedArtifact`：log/perf 观察到的事实（**不是**当前代码 mechanism）
+- `SupportLanePrincipalEvidence`：config / role lookup / enumeration / architecture / comparison / generic 等普通题型的主线证据；由 facet source candidates 筛选，不从 raw evidence pool 随机捞上下文
 - `SupportLaneCurrentCodePath`：当前 grounded code 的主调用 / 路径链
 - `SupportLaneNearestMechanism`：最近的 guard / assignment / return（解释失败路径）
 - `SupportLaneUncertaintyBound`：drift / proof-boundary caveat
 - `SupportLaneCurrentVerdict`：仅供 `decision` verdict block 跨 historical observation / current verification / boundary evidence 做综合判定；不会放宽 observation/path lane 对普通 `ordered_list` / `diagram` 的边界
 
-每 lane 是 `[]AnswerSupportEntry{Text, Location}`。finalizer 的 prompt builder 渲染时带显式指引——"这条 lane 只能描述 X"——强制把"日志观察到的事"和"当前代码 mechanism"严格分开。否则会发生"observed frame F 是当前代码里 X 的调用点"这种漂移到当前 code 的假断言（log 是旧 build，源码已经 drift）。
+每 lane 是 `[]AnswerSupportEntry{Text, Detail, Location}`，并带 `AllowedBlocks[]`。finalizer 的 prompt builder 渲染时带显式指引——"这条 lane 只能描述 X / 只能进入这些 block kind"——强制把"日志观察到的事"、"当前代码 mechanism"、"主线枚举/配置/比较证据"严格分开。否则会发生"observed frame F 是当前代码里 X 的调用点"这种漂移到当前 code 的假断言（log 是旧 build，源码已经 drift），或把 search hint / helper name 强塞成主答案。
+
+`validateLaneBlockKindCompliance` 把 `AllowedBlocks[]` 从 prompt 提示升级为 hard validator：principal block 如果引用的 citation 全部来自某条 lane，而 block.kind 不在该 lane 的 AllowedBlocks 中，`emit_answer_document` 会被拒收。这样 root-cause / call-chain / config-precedence / role-lookup / enumeration / architecture / comparison / generic 都复用同一套 principal-vs-context 边界，不靠每个 case 在 prompt 里补丁。
+
+#### Structured Aggregate Facts — 探索期聚合结构的 typed handoff
+
+`AnswerAggregateFact` 是 explorer → finalizer 的结构化聚合通道。它解决的是"探索阶段已经算清楚了唯一文件集合、跨维度分组、bucket 统计，但信息在 closure prose / retry 中被压扁或写错"的问题。
+
+| 字段 | 含义 |
+|---|---|
+| `kind` | 闭枚举：`total_count` / `unique_count` / `grouped_count` / `bucket_count` / `excluded_count` / `scalar_value` |
+| `label` / `value` / `unit` | 用户可读名称、精确保留值、单位；count kind 的 `value` 必须是非负整数字符串，单位放 `unit` |
+| `dimensions[]` | typed 轴，如 `scope=production`、`syntax=struct_literal`、`bucket=runtime`、`language=ArkTS` |
+| `members[]` | 精确成员集合，例如 `file:line` 位点或 distinct file paths；给了 members 就表示完整集合，不是 sample |
+| `excluded[]` | 被排除候选集合，供 `excluded_count` 或边界说明使用 |
+| `support_refs[]` | 模型声明的支撑来源标签，如 `tool:exec_command:grep_wc_l:4` |
+
+`emit_investigation_complete` 对 `aggregate_facts` 做纯结构校验：kind 闭枚举、长度上限、去重、count value 数字化、`len(members)==value` / `len(excluded)==value` 的自洽校验；当 `total_count` / `grouped_count` / `bucket_count` 的 members 是跨文件 `file:line` 集合时，必须同时提交匹配的 `unique_count` 文件集合 fact。系统不从 raw evidence 合成答案值，只验证模型自己 emit 的 typed facts 自洽，然后把通过的 facts 存进 Mutable stable projection。
+
+finalizer 看到 `## Structured Aggregate Facts` 后只做保真消费：保留 `value`，用 `members` 生成用户要求的文件/行号/成员列表；如果 member 是 `file.ext:line` 并渲染成 list/table item，必须创建或复用匹配 citation 并设置 `citation_ref`。这条规则把"scalar 数字"和"源位置列表"分开：count 本身可以来自命令级测量，源位置成员仍必须按普通 repo citation 落地。
 
 ### 5.11 EvidenceClosure — 跨阶段状态总线
 
@@ -1039,9 +1069,11 @@ Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 把 edge 的语�
 
 **Layer 2 completeness**（默认 soft，按 `pipeline_contract_strict_kinds` 提到 strict）：
 - `validateRequiredBlockCoverage`：每个 Required=true 的 BlockRequirement 都按 MinCount ≤ actual ≤ MaxCount（MaxCount>0 时）出现，否则 `ViolBlockCoverageMissing`
+- `validateCurrentStatusVerdict`：`AnswerContract.CurrentStatusDiagnostic.Required=true` 时必须有 `decision` block，且 text 以 `still_present` / `fixed` / `not_enough_evidence` 之一开头，否则 `ViolCurrentStatusVerdictMissing`
 - `validatePrincipalClaimUse`：surface_role=principal 且 view 的 AcceptableClaimForms 非空时，block 必须挂 claim_uses[] 且至少一条 entry 覆盖每个声明的 claim form，否则 `ViolClaimCoverageMissing`
 - `validateUncertaintyBlockPresence`：UncertaintyRule 的 trigger facet 在文档里被覆盖时，ExpectedBlockKind（通常 BlockCaveat）必须出现，否则 `ViolUncertaintyBlockMissing` 并把 rule 的 MissingMessage 作 repair text
 - `validateFacetCoverage`：FacetHardRequired 的 facet 必有至少 1 个 block 在 `block.facet_ids[]` 声明它或带 grounded citation，否则 `ViolFacetUncovered`
+- `validateLaneBlockKindCompliance`：principal block 的 citation 若全部来自某条 support lane，则 block.kind 必须在该 lane 的 `AllowedBlocks[]` 中，否则 `ViolLaneBlockKindMismatch`
 
 **Layer 3 richness**（telemetry，不阻塞）：
 - `validateRichnessRegression`：optional facet 覆盖率比基线低 → 软违规
@@ -1192,14 +1224,14 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 | Skill | analysis-skill（由 BuildAnalysisSkill 程序化构建，字段 SST 来自 analysis_contract.go） |
 | 工具 | emit_analysis + 三个 evidence-lite 预扫工具（repo_map / grep `files_only=true` / list_files） |
 | 输入 | 用户原始请求 + 已挂的 LogBundle / PerfBundle |
-| 工作 | Phase A 1-2 轮预扫（运行时 gate）→ Phase B 一次 emit_analysis → ParseOutput 跑 33 步确定性管线 |
+| 工作 | Phase A 1-2 轮预扫（运行时 gate）→ Phase B 一次 emit_analysis → ParseOutput 跑确定性 IR 构建管线 |
 | 输出 | `BusContext.AnalysisIR`（TaskGraph / EvidencePlan / AnswerContract / HypothesisSet / QualityGate） |
 
 **Evidence-lite 边界**：由 `AnalysisHardRules` 的 `EVIDENCE-LITE BOUNDARY:` 规则 + `BaseAgent.executeTool::validateAnalyzerPrescanToolCall` 共同强制——只允 repo_map / grep(files_only=true) / list_files 三个工具；grep 没带 files_only=true 合成失败 ToolResult；预扫硬上限 `analysis_max_prescan_rounds`（默认 2）由 `analyzerEvaluator.Observe` 在 PhaseMidLoop 强制；超限下一次预扫返回 StopRequested。
 
 **emit_analysis 调用次数 gate**：扫本次 dispatch 的 tool-result 流统计 emit_analysis 次数：0 次 → 强告警 + hard error + 重试；1 次 = happy path；>1 次按 `analysis_reject_multiple_emit` 决定 warning/error，IR 以最后一次为准。
 
-详细的 RequestModel 和 33 步管线见 §4。
+详细的 RequestModel 和 buildAnalysisIR 确定性管线见 §4。
 
 ### 7.4 explore — Turn A：调查 + 证据收集
 
@@ -1214,6 +1246,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 
 **证据排名**：`rankEvidenceByRelevance = entity overlap × kindWeight × sourceWeight × bridgeBonus × producerBoost`。LLM 通过 emit_evidence 提交且非 ungrounded 的获 1.5x producerBoost；EvidenceConcrete kindWeight=0.50；axis affinity 通过 `axis::Affinity(PredicateAxis, AnchorKind)` 调节。
 
+**结构化 completion handoff**：`emit_investigation_complete` 除了 `reason` / `result_kind` / waiver / absence 外，还能提交 `aggregate_facts` 和 `principal_span_waiver`。`aggregate_facts` 是模型已验证出的聚合表（总数、唯一集合、分组、bucket、排除集合、其他 scalar），系统只做结构自洽校验并稳定保存；`principal_span_waiver` 是 call-chain span gap gate 的 typed escape，必须给合法 reason enum + rationale，可用 `clear_principal_span_waiver=true` 显式撤销。
+
 **子 Agent**：explorer 可通过 `propose_sub_agents` 工具向编排器申请派生并行 sub_explorer 实例分摊独立调查子问题。sub_explorer **不共享 Mutable**（`BuildSubAgentContext` 故意把 `ac.Mutable` 留 nil）；`todo_write` / `emit_*` 在 sub-agent 上下文会被拒。
 
 ### 7.5 extract — Turn B：答案结构化 + 假设判定
@@ -1225,7 +1259,7 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 | 允许工具 | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` |
 | 禁止工具 | 所有读取工具 + emit_evidence |
 | ShouldStop | `iteration >= 2` |
-| 输入 | TurnAArtifacts digest + AnalysisIR.HypothesisSet + AnswerContract.MustInclude + (measurement-scalar only) Raw Tool Outputs 段 |
+| 输入 | TurnAArtifacts digest + AnalysisIR.HypothesisSet + AnswerContract.MustInclude + accepted closure / aggregate facts + (measurement-scalar only) Raw Tool Outputs 段 |
 | 输出 | StageOutput.{AnswerSymbols, AnswerSymbolCompleteness} + 回写 HypothesisSet[i].Status |
 
 详见 §5.9。Turn B 看不到新文件——所有信息在 Turn A 快照里冻结，retry 带不来新信息。错了就降级 lower_bound，不是 retry。
@@ -1237,7 +1271,7 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 | Agent | finalizer |
 | Skill | answer-document-skill |
 | 工具 | `emit_answer_document` 或 `emit_answer_document_patch` |
-| 输入 | AnalysisIR.AnswerContract + AnswerSymbols + completeness + HypothesisSet + Turn A 的 StageReport + AnswerSemanticView + AnswerSurfacePlan / AnswerSupportPlan |
+| 输入 | AnalysisIR.AnswerContract + AnswerSymbols + completeness + HypothesisSet + Turn A 的 StageReport + AnswerSemanticView + AnswerSurfacePlan / AnswerSupportPlan + Structured Aggregate Facts |
 | 工作 | 按 view 的 RequiredBlocks 构造 typed AnswerDocumentV2 → emit → renderer 渲染 |
 | 输出 | StageOutput.FinalAnswer 写进 task.Result |
 
@@ -1248,6 +1282,8 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 **Shrinkage-salvage**：检测到 "iter 0 rich prose → iter 1 压缩 summary" 时，把 `findLastPreToolCallDraft(messages)` 选中的上一轮 draft verbatim 复制进 summary，UTF-8 边界 trim 到 cap，追加双语 caveat，log `[finalizer/shrinkage]`。由 `agent_finalizer_*` 控制（preserve_prior_prose / shrinkage_min_prose_len / shrinkage_ratio）。
 
 **Citation Quote 截断**：`citation_quote_max_chars`（默认 500）UTF-8 边界静默截，file/line 始终保留。
+
+**Current-status diagnostic verdict**：当前版本验证类诊断（历史观察 + 当前代码是否仍存在）必须输出 principal `decision` block，text 以 `still_present` / `fixed` / `not_enough_evidence` 开头。prompt 会给三车道指引，contract check 再用 typed enum 做硬校验；模型不能用"看起来可能已修复"这种非枚举结论绕过。
 
 ### 7.7 Summary 长度：block-kind-tiered cap
 
@@ -1801,7 +1837,9 @@ type AnalysisIR struct {
     RequestModel   RequestModel    // Intent / Scenario / Complexity / SemanticPredicates /
                                    // PredicateAxis / SubTopics / TermGraph / RiskMatrix /
                                    // AnalyzerHints / AnswerSubject / EnumerationBoundary /
-                                   // CompletenessObligation / Buckets / ExactTargets / ...
+                                   // CompletenessObligation / Buckets / ExactTargets /
+                                   // DiagnosticProfile / ArtifactObservationProfile /
+                                   // ConversationReferenceProfile / ...
     TaskGraph      TaskGraph       // Nodes / Edges / ExecutionPolicy
     EvidencePlan   EvidencePlan    // Budget / SourceMix / StopConditions /
                                    // NodeBudgetHints / RequiredFiles
@@ -1849,6 +1887,8 @@ BusContext 中**唯一**允许工具直接 mutate 的区域，通过指针共享
 | `emittedAnswerSymbols` + `emittedAnswerSymbolCompleteness` | extractor 产 |
 | `emittedHypothesisVerdicts` | extractor 产，drainHypothesisVerdicts 写回 IR |
 | `turnAArtifacts` | Turn A 冻结快照 |
+| `investigationAggregateFacts` / retained aggregate facts | explorer completion 成功后保存 `aggregate_facts`；finalizer 通过 AnswerSurfacePlan.StableAggregateFacts 消费 |
+| `principalSpanWaiver` | explorer completion 声明的 call-chain span gap typed escape，可显式 clear |
 | `searchGraph` | repomap.Graph handle |
 | `phase1Ranking` | explorer Phase 1 排名 |
 | `dispatchToolResults` | per-dispatch 内 grounding 用 |
@@ -1974,7 +2014,7 @@ sequenceDiagram
     A->>Tool: 1-2 轮预扫（repo_map / grep files_only / list_files）
     A->>LLM: emit_analysis 指令
     LLM->>Tool: emit_analysis(v4 RequestModel)
-    A->>A: buildAnalysisIR 33 步管线
+    A->>A: buildAnalysisIR 确定性管线
     A-->>Orch: StageOutput.AnalysisIR
     end
 
@@ -2436,6 +2476,8 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 
 **响应语言**：`-lang`（默认 `zh`）→ `orchestrator.SetLanguage` → append 到 `BusContext.Preferences` → 作 "User Preferences" system 段渲染。始终带 fallback 分句——另一语言提问能用那语言回答。`-lang=off` / `none` 回退。
 
+**Thinking 输出截断**：CLI 单次运行和 REPL 都通过 `EventAgentReasoning` 渲染模型 thinking。`thinking_truncate` 默认 `false`， durable thinking 行完整打印；设为 `true` 时恢复 legacy 的 1-2 句 / 200 字符摘要。这个开关只影响终端持久输出，不影响 live dock 的固定宽度一行预览。
+
 ### 13.6 internal/mcp — MCP（Model Context Protocol）外置工具桥
 
 可选 MCP server 接入：在 `providers.yaml` 配置后，对应工具会作为常规 tool 暴露给 explorer / planner（按 skill allowlist）。`MCPResponses` 记录 tool 调用结果作 prompt section。
@@ -2544,12 +2586,15 @@ Blob session 根**不**做 per-repo 分区——一个进程所有 Run 共用 `<
 
 ### 14.9 依赖
 
-Go 1.24.0。主要依赖：
+Go 1.25.0（`go.mod` 真值源）。主要依赖：
 
 - `gopkg.in/yaml.v3` — 配置解析
 - `github.com/spf13/cobra` — CLI
-- `github.com/charmbracelet/glamour` / `huh` / `lipgloss` — TUI / markdown 渲染
+- `github.com/charmbracelet/bubbletea` / `bubbles` / `glamour` / `huh` / `lipgloss` — TUI / markdown 渲染
 - `github.com/pterm/pterm` — 进度显示
+- `github.com/aymanbagabas/go-udiff` — unified diff 解析 / 渲染辅助
+- `github.com/pgavlin/mermaid-ascii` — Mermaid 文本预览
+- `github.com/mattn/go-runewidth` — CJK 宽度计算
 - `github.com/smacker/go-tree-sitter` — 代码解析（多语言）
 - `golang.org/x/term` / `golang.org/x/sys` — 终端控制 + 信号
 
