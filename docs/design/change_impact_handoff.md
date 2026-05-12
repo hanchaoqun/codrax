@@ -98,6 +98,49 @@ principal support lane contained only `assignment_fact` members.
      though the LLM used the documented citation schema. This is a generic
      downstream carrier drift, not a change-impact-only problem.
 
+7. Change-impact profile does not yet reconcile the core family fields
+
+   - `internal/agent/analyzer.go` runs typed reconcile helpers before
+     `types.ResolveQuestionFamily` is later evaluated by support-plan and
+     finalizer code.
+   - A trace showed the LLM correctly emitting
+     `change_impact_profile.requested_output=files` while still choosing
+     `intent=trace` / `question_kind=call_chain`.
+   - `internal/types/facet_plan.go::ResolveQuestionFamily` gives trace intent
+     higher priority than enumeration, so the answer inherited call-chain
+     facets (`principal_path_edge`, `diagram_spine`, exact-resolution absence)
+     even though the user asked for a file set.
+   - This is a typed contradiction, not a wording problem: an active
+     change-impact profile with file/site/symbol output says the principal
+     answer is an affected-member set.
+
+8. Exact-resolution is the wrong hard contract for broad impact answers
+
+   - `internal/types/exact_lookup.go::BuildExactResolutionContract` consumes
+     raw-request-aligned `exact_targets`.
+   - For a change-impact question, the target (`CitationReq.Required`) is the
+     changed surface whose impact is being explored, not the final answer
+     target to resolve as present/absent.
+   - Keeping the exact-resolution contract caused the finalizer to emit
+     `exact_resolution.status=absent` and then chase negative-scope proof,
+     despite the field definition itself being cited.
+   - The target remains a search hint through `ChangeImpactProfile`, but it
+     must not create final-answer absence obligations for broad affected-site
+     outputs.
+
+9. File-output citation alignment is still line-label shaped
+
+   - `internal/types/answer_support_member_coverage.go` now coalesces
+     `requested_output=files` obligations by unique file while retaining
+     equivalent file:line anchors.
+   - `internal/tool/answer_document_pre_emit_check.go` and
+     `internal/orchestrator/contract_check_block.go` still mostly accept
+     source-location display labels only when the label is `file:line`.
+   - A file-output answer whose item label is just
+     `internal/analysis/compiler/templates.go` is a valid typed principal
+     member when its citation points inside that file. It should not be forced
+     through symbol endpoint matching.
+
 ## Generalized Design
 
 ### Typed profile
@@ -166,6 +209,44 @@ The guard should not synthesize missing members. It should request a
 finalizer-only rewrite when support lanes already contain the members, or an
 explore/extract retry when typed support lanes are incomplete.
 
+### Typed family reconcile
+
+When `ChangeImpactProfile.Active()` and `requested_output` is `files`, `sites`,
+or `symbols`, analyzer post-processing must reconcile the typed classification
+onto a set-valued answer:
+
+- set `intent=enumerate`;
+- set `question_kind=enumeration`;
+- set `predicates.is_category_enumeration=true`;
+- clear scalar/count flags that contradict a set-valued principal answer;
+- leave `requested_output=steps` alone so genuine migration-procedure questions
+  can still use mechanism/trace scaffolds.
+
+This rule consumes only the typed profile emitted by the analyzer. It does not
+scan raw text for "files", "impact", or language-specific cues.
+
+### Exact-resolution boundary
+
+`BuildExactResolutionContract` must opt out for active change-impact profiles
+whose output is broad affected members (`files`, `sites`, `symbols`, or
+`unknown`). Exact targets can still seed search through analyzer hints and
+`ChangeImpactProfile.SubjectCandidates`; they do not imply a finalizer
+present/absent verdict block.
+
+### File-output label alignment
+
+When a principal list/table item label is a code/config path, the label is
+aligned if:
+
+- the label equals or suffix-matches the citation's file path; and
+- the citation points inside that same file.
+
+For active `requested_output=files` support lanes, member coverage still reads
+the typed support plan and requires one cited row per file obligation. The
+label-grounding validators only learn that file paths are display locations,
+not declaration symbols. They do not invent file members or waive typed
+coverage.
+
 ### Structured answer carrier recovery
 
 `emit_answer_document` flat-mode recovery should be schema-aware:
@@ -207,6 +288,12 @@ the model already emitted in the tool payload.
 - [x] Add a fallback shape filter so citation objects cannot be decoded as
       answer blocks.
 - [x] Run focused tests and `go test ./...`.
+- [x] Reconcile active change-impact file/site/symbol outputs away from
+      trace/call-chain family drift.
+- [x] Disable exact-resolution final-answer contracts for broad
+      change-impact outputs while preserving search hints.
+- [x] Accept typed file-output principal labels backed by citations in that
+      file, without weakening ordinary symbol-label grounding.
 - [ ] Re-run `u10b` and keep the random eval sweep moving.
 
 ## Red Lines

@@ -33,6 +33,110 @@ func TestDropCitationCountGE(t *testing.T) {
 	}
 }
 
+func TestReconcileChangeImpactProfile_ForcesAffectedFileSetRouting(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentTrace,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:         string(types.ReqCallChain),
+			Entities:     []string{"CitationReq.Required"},
+			ExactTargets: []string{"CitationReq.Required"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsScalarAnswer:        true,
+			IsRoleLocateLookup:    true,
+			IsCategoryEnumeration: false,
+			IsRelationalLookup:    false,
+		},
+		ChangeImpactProfile: &types.ChangeImpactProfile{
+			IsChangeImpact:  true,
+			Target:          "CitationReq.Required",
+			TargetKind:      types.SubjectStructField,
+			RequestedOutput: types.ImpactOutputFiles,
+		},
+	}
+	got, reason := reconcileChangeImpactProfile(rm)
+	if reason == "" {
+		t.Fatal("expected active change-impact profile to reconcile classification")
+	}
+	if got.Intent != types.IntentEnumerate {
+		t.Fatalf("intent = %q, want enumerate", got.Intent)
+	}
+	if got.AnalyzerHints.Kind != string(types.ReqEnumeration) {
+		t.Fatalf("question kind = %q, want enumeration", got.AnalyzerHints.Kind)
+	}
+	if !got.Predicates.IsCategoryEnumeration || !got.Predicates.IsRelationalLookup {
+		t.Fatalf("set-valued impact output should be category+relational, got %+v", got.Predicates)
+	}
+	if got.Predicates.IsScalarAnswer || got.Predicates.IsCountQuestion || got.Predicates.IsRoleLocateLookup {
+		t.Fatalf("set-valued impact output should clear scalar predicates, got %+v", got.Predicates)
+	}
+	if len(got.AnalyzerHints.ExactTargets) != 1 {
+		t.Fatalf("reconcile should preserve search-side exact target hints; exact final-answer contract is disabled in types/exact_lookup, got %+v", got.AnalyzerHints.ExactTargets)
+	}
+}
+
+func TestReconcileChangeImpactProfile_LeavesStepOutputAlone(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:        types.IntentExplain,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		ChangeImpactProfile: &types.ChangeImpactProfile{
+			IsChangeImpact:  true,
+			Target:          "CitationReq.Required",
+			RequestedOutput: types.ImpactOutputSteps,
+		},
+	}
+	got, reason := reconcileChangeImpactProfile(rm)
+	if reason != "" {
+		t.Fatalf("step-output impact questions should keep mechanism/trace routing, got reason %q", reason)
+	}
+	if got.Intent != rm.Intent || got.AnalyzerHints.Kind != rm.AnalyzerHints.Kind {
+		t.Fatalf("step-output reconcile changed classification: %+v", got)
+	}
+}
+
+func TestBuildAnalysisIR_ChangeImpactFileOutputRoutesEnumeration(t *testing.T) {
+	mut := types.NewMutableState("Which files need changes if CitationReq.Required changes shape?")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "Which files need changes if CitationReq.Required changes shape?",
+		Intent:     types.IntentTrace,
+		Complexity: types.ComplexityModerate,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:         string(types.ReqCallChain),
+			Entities:     []string{"CitationReq.Required"},
+			ExactTargets: []string{"CitationReq.Required"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsScalarAnswer:     true,
+			IsRoleLocateLookup: true,
+		},
+		ChangeImpactProfile: &types.ChangeImpactProfile{
+			IsChangeImpact:  true,
+			Target:          "CitationReq.Required",
+			TargetKind:      types.SubjectStructField,
+			RequestedOutput: types.ImpactOutputFiles,
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	rm := ir.RequestModel
+	if rm.Intent != types.IntentEnumerate || rm.AnalyzerHints.Kind != string(types.ReqEnumeration) {
+		t.Fatalf("change-impact file output should route as enumeration, got intent=%q kind=%q", rm.Intent, rm.AnalyzerHints.Kind)
+	}
+	if !rm.Predicates.IsCategoryEnumeration || !rm.Predicates.IsRelationalLookup {
+		t.Fatalf("change-impact file output should be set-valued relational enumeration, got %+v", rm.Predicates)
+	}
+	if got := types.ResolveQuestionFamily(rm); got != types.QFEnumeration {
+		t.Fatalf("question family = %q, want %q", got, types.QFEnumeration)
+	}
+	if ir.AnswerContract.ExactResolution != nil {
+		t.Fatalf("broad change-impact output should not compile exact-resolution absence contract: %+v", ir.AnswerContract.ExactResolution)
+	}
+}
+
 // TestBuildAnalysisIR_CountQuestionStripsAllThreeGates verifies that
 // a count question (predicates.is_count_question=true) produces zero
 // citation gate anywhere in the IR:

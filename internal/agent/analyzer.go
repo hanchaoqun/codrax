@@ -1566,6 +1566,18 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 				capabilityQuery.Binding.Stage, capabilityQuery.Binding.Agent, capabilityQuery.Binding.Skill, capabilityQuery.Tool)
 			rm = resolved
 		}
+		if resolved, reason := reconcileChangeImpactProfile(rm); reason != "" {
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"change_impact_profile",
+				changeImpactClassificationSummary(rm),
+				changeImpactClassificationSummary(resolved),
+				resolved.KindConfidence,
+				reason,
+				resolved.Predicates,
+			))
+			logging.Info("[analyzer] change-impact profile reconciled: %s", reason)
+			rm = resolved
+		}
 		// Measurement-scalar signal — captures the reconciled-Intent
 		// case (LLM picked enumerate, reconcileIntent downgraded to
 		// return_value via IsCountQuestion), the LLM-direct case

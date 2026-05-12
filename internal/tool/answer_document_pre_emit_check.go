@@ -206,6 +206,9 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 				continue
 			}
 			cit := doc.Citations[item.CitationRef]
+			if types.AnswerLocationLabelMatchesCitation(label, cit) {
+				continue
+			}
 			if surface, ok := types.ParseAnswerSourceLocationSurface(label); ok {
 				if types.AnswerSourceLocationSurfaceMatchesCitation(surface, cit) {
 					continue
@@ -809,7 +812,7 @@ func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types
 				continue
 			}
 			if ctx != nil && it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) &&
-				types.AnswerSourceLocationLabelMatchesCitation(label, doc.Citations[it.CitationRef]) {
+				types.AnswerLocationLabelMatchesCitation(label, doc.Citations[it.CitationRef]) {
 				continue
 			}
 			ident := preEmitLabelLeadingIdentifier(label)

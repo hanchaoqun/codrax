@@ -153,6 +153,27 @@ func TestPreCheckItemCitationAlignment_SourceLocationLabelsMatchCitation(t *test
 	}
 }
 
+func TestPreCheckItemCitationAlignment_FilePathLabelMatchesCitationFile(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/analysis/compiler/templates.go", Line: 256}},
+		Blocks: []types.AnswerBlock{{
+			ID:        "files",
+			Kind:      types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimAssignmentFact}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "file",
+				Label:       "internal/analysis/compiler/templates.go",
+				Text:        "This file contains affected construction sites.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("file-output display labels should align to citations in the same file, got %+v", hints)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_SourceLocationLabelsRejectCitationDrift(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 1904}},

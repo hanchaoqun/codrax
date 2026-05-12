@@ -193,6 +193,32 @@ func TestEnumerationLabelGrounding_SourceLocationLabelUsesCitation(t *testing.T)
 	}
 }
 
+func TestEnumerationLabelGrounding_FilePathLabelUsesCitationFile(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{{
+		ID:              "other",
+		Source:          "elsewhere/file.go",
+		LineStart:       1,
+		AnchorSymbol:    "OtherSymbol",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "files",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "file",
+				Label:       "veryLongDirectory/foo.cpp",
+				Text:        "The requested file member.",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "veryLongDirectory/foo.cpp", Line: 12}},
+	}
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Fatalf("file-path display labels should be grounded by a citation in the same file, got %+v", vs)
+	}
+}
+
 func TestEnumerationLabelHallucination_SourceLocationLabelSkipsOracle(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

@@ -52,3 +52,42 @@ func TestAnswerSourceLocationLabelMatchesCitation(t *testing.T) {
 		t.Fatal("non-path labels must not be treated as source locations")
 	}
 }
+
+func TestAnswerFilePathLabelMatchesCitation(t *testing.T) {
+	if !AnswerFilePathLabelMatchesCitation("internal/analysis/compiler/templates.go", Citation{
+		File: "internal/analysis/compiler/templates.go",
+		Line: 256,
+	}) {
+		t.Fatal("repo-relative file label should match a citation inside the same file")
+	}
+	if !AnswerFilePathLabelMatchesCitation("templates.go", Citation{
+		File: "internal/analysis/compiler/templates.go",
+		Line: 366,
+	}) {
+		t.Fatal("basename file label should match citation suffix")
+	}
+	if !AnswerFilePathLabelMatchesCitation("entry/src/main/ets/pages/Index.ets", Citation{
+		File: "entry/src/main/ets/pages/Index.ets",
+		Line: 20,
+	}) {
+		t.Fatal("ArkTS file label should use the shared code/config path extension registry")
+	}
+	if !AnswerFilePathLabelMatchesCitation("src/main/cangjie/main.cj", Citation{
+		File: "src/main/cangjie/main.cj",
+		Line: 3,
+	}) {
+		t.Fatal("Cangjie file label should use the shared code/config path extension registry")
+	}
+	if AnswerFilePathLabelMatchesCitation("internal/agent/analyzer.go", Citation{
+		File: "internal/tool/emit_analysis.go",
+		Line: 1,
+	}) {
+		t.Fatal("different file must not match")
+	}
+	if AnswerFilePathLabelMatchesCitation("CitationReq.Required", Citation{
+		File: "internal/types/analysis_ir.go",
+		Line: 1244,
+	}) {
+		t.Fatal("symbol-like labels must not be treated as file paths")
+	}
+}

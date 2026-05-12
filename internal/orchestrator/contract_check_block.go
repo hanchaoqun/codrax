@@ -1485,7 +1485,10 @@ func principalListLabelsAnchoredByClaimSurface(b types.AnswerBlock) bool {
 		if label == "" || item.CitationRef < 0 {
 			return false
 		}
-		if _, ok := types.ParseAnswerSourceLocationSurface(label); !ok {
+		if _, ok := types.ParseAnswerSourceLocationSurface(label); ok {
+			continue
+		}
+		if _, ok := types.ParseAnswerFilePathSurface(label); !ok {
 			allSourceLocationLabels = false
 		}
 	}
@@ -2292,7 +2295,7 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 				continue
 			}
 			if it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) &&
-				types.AnswerSourceLocationLabelMatchesCitation(label, doc.Citations[it.CitationRef]) {
+				types.AnswerLocationLabelMatchesCitation(label, doc.Citations[it.CitationRef]) {
 				continue
 			}
 			if !answerItemLabelNeedsEvidenceToken(label) && answerItemHasResolvedCitation(doc, it) {
@@ -2411,7 +2414,7 @@ func answerItemLabelSupportedByCitedEvidenceSubject(doc *types.AnswerDocumentV2,
 		return false
 	}
 	cit := doc.Citations[item.CitationRef]
-	if types.AnswerSourceLocationLabelMatchesCitation(label, cit) {
+	if types.AnswerLocationLabelMatchesCitation(label, cit) {
 		return true
 	}
 	if mut == nil || !types.IsCodeIdentitySurface(label) {

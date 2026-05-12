@@ -76,6 +76,51 @@ func AnswerSourceLocationLabelMatchesCitation(label string, cit Citation) bool {
 	return ok && AnswerSourceLocationSurfaceMatchesCitation(surface, cit)
 }
 
+// ParseAnswerFilePathSurface parses a whole item label when the label itself
+// is a repo file path without a line suffix. This supports answer surfaces
+// where the principal member is the file (for example change-impact
+// requested_output=files), while keeping path detection structural through the
+// known code/config extension registry.
+func ParseAnswerFilePathSurface(label string) (string, bool) {
+	raw := strings.TrimSpace(label)
+	if raw == "" || strings.ContainsAny(raw, "\n\r") {
+		return "", false
+	}
+	raw = strings.Trim(raw, "`'\" ")
+	raw = strings.ReplaceAll(raw, `\`, `/`)
+	if strings.Contains(raw, ":") {
+		return "", false
+	}
+	if !IsCodeOrConfigPathExtension(filepath.Ext(raw)) {
+		return "", false
+	}
+	return normalizeAnswerLocationFile(raw), true
+}
+
+// AnswerFilePathLabelMatchesCitation reports whether a file-path principal
+// label is backed by a citation in that same file. Unlike
+// AnswerSourceLocationLabelMatchesCitation it does not require the label to
+// carry a line number, because the file is the answer member and the cited
+// line is supporting evidence for that file member.
+func AnswerFilePathLabelMatchesCitation(label string, cit Citation) bool {
+	fileLabel, ok := ParseAnswerFilePathSurface(label)
+	if !ok {
+		return false
+	}
+	citationFile := normalizeAnswerLocationFile(cit.File)
+	if citationFile == "" {
+		return false
+	}
+	return answerLocationFileMatches(fileLabel, citationFile)
+}
+
+// AnswerLocationLabelMatchesCitation accepts either a precise file:line label
+// or a file-only label aligned to a citation in that file.
+func AnswerLocationLabelMatchesCitation(label string, cit Citation) bool {
+	return AnswerSourceLocationLabelMatchesCitation(label, cit) ||
+		AnswerFilePathLabelMatchesCitation(label, cit)
+}
+
 func parseAnswerLineSurface(raw string) (int, int, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

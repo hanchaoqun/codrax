@@ -32,6 +32,50 @@ func TestBuildExactResolutionContract_ConfigKey(t *testing.T) {
 	}
 }
 
+func TestBuildExactResolutionContract_ChangeImpactFileOutputDoesNotCreateAbsenceContract(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "Which production files need changes if CitationReq.Required changes shape?",
+		Intent:     IntentEnumerate,
+		AnalyzerHints: AnalyzerHints{
+			Kind:            string(ReqEnumeration),
+			PrimaryEntities: []string{"CitationReq.Required"},
+			ExactTargets:    []string{"CitationReq.Required"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectStructField},
+		ChangeImpactProfile: &ChangeImpactProfile{
+			IsChangeImpact:  true,
+			Target:          "CitationReq.Required",
+			TargetKind:      SubjectStructField,
+			RequestedOutput: ImpactOutputFiles,
+		},
+	}
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("broad change-impact file output should not create exact-resolution contract, got %+v", got)
+	}
+}
+
+func TestBuildExactResolutionContract_ChangeImpactStepOutputKeepsExactContract(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "How should CitationReq.Required be migrated step by step?",
+		Intent:     IntentExplain,
+		AnalyzerHints: AnalyzerHints{
+			Kind:            string(ReqMechanism),
+			PrimaryEntities: []string{"CitationReq.Required"},
+			ExactTargets:    []string{"CitationReq.Required"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectStructField},
+		ChangeImpactProfile: &ChangeImpactProfile{
+			IsChangeImpact:  true,
+			Target:          "CitationReq.Required",
+			TargetKind:      SubjectStructField,
+			RequestedOutput: ImpactOutputSteps,
+		},
+	}
+	if got := BuildExactResolutionContract(rm); got == nil {
+		t.Fatal("step-output impact questions may still need exact target grounding")
+	}
+}
+
 func TestBuildExactResolutionContract_PrefersRawRequestMentionedTargets(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",

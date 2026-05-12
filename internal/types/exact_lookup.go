@@ -626,6 +626,9 @@ func exactResolutionEnabled(rm RequestModel) bool {
 	if HasCapabilitySurfaceHint(rm) {
 		return false
 	}
+	if changeImpactDisablesExactResolution(rm) {
+		return false
+	}
 	if len(exactResolutionConversationReferenceSubjects(rm)) > 0 {
 		return true
 	}
@@ -640,6 +643,19 @@ func exactResolutionEnabled(rm RequestModel) bool {
 		return rm.Predicates.IsScalarAnswer || len(primary) <= 1
 	}
 	return strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "config_mapping") || rm.Scenario == ScenarioConfigTrace
+}
+
+func changeImpactDisablesExactResolution(rm RequestModel) bool {
+	profile := rm.ChangeImpactProfile
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	switch profile.RequestedOutput {
+	case ImpactOutputFiles, ImpactOutputSites, ImpactOutputSymbols, ImpactOutputUnknown, "":
+		return true
+	default:
+		return false
+	}
 }
 
 func exactResolutionFindingKindForRM(rm RequestModel) string {
