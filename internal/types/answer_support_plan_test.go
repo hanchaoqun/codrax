@@ -664,7 +664,7 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 				Summary:         "BuildWriteTaskGraph is the write-mode task graph substitution point",
 				GroundingStatus: GroundingGrounded,
 			},
-			allowed:        "summary,section,table",
+			allowed:        "summary,section,table,ordered_list,bullet_list",
 			wantText:       "BuildWriteTaskGraph",
 			wantGuidance:   "bucket labels",
 			wantDetailTerm: "write-mode task graph",
@@ -1065,6 +1065,71 @@ func TestBuildAnswerSupportPlan_EnumerationPrioritizesModelAuthoredSurfaceEviden
 	}
 	if strings.Contains(answerSupportLaneText(lane), "helper0") {
 		t.Fatalf("model-authored enumeration evidence should exclude bulk concrete side evidence: %+v", lane.Entries)
+	}
+	if lane.Entries[0].ClaimForm != ClaimImportEdge || lane.Entries[0].LabelSurface != ClaimLabelSurfaceDisplayLabel {
+		t.Fatalf("principal support entry should preserve typed import surface metadata, got %+v", lane.Entries[0])
+	}
+	if len(lane.Entries[0].SurfaceTerms) == 0 {
+		t.Fatalf("principal support entry should preserve surface_terms for downstream member coverage, got %+v", lane.Entries[0])
+	}
+}
+
+func TestMissingPrincipalSupportMembers_EnumerationRequiresCitedPrincipalRows(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{
+				{
+					Text:         "agent imports criterion",
+					Location:     "internal/agent/extractor.go:43",
+					ClaimForm:    ClaimImportEdge,
+					LabelSurface: ClaimLabelSurfaceDisplayLabel,
+					Subject:      "agent",
+					Object:       "github.com/hanchaoqun/codrax/internal/analysis/criterion",
+					SurfaceTerms: []string{"agent", "github.com/hanchaoqun/codrax/internal/analysis/criterion"},
+				},
+				{
+					Text:         "cmd imports criterion",
+					Location:     "cmd/root.go:51",
+					ClaimForm:    ClaimImportEdge,
+					LabelSurface: ClaimLabelSurfaceDisplayLabel,
+					Subject:      "cmd",
+					Object:       "github.com/hanchaoqun/codrax/internal/analysis/criterion",
+					SurfaceTerms: []string{"cmd", "github.com/hanchaoqun/codrax/internal/analysis/criterion"},
+				},
+			},
+		}},
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{
+			{File: "cmd/root.go", Line: 51},
+		},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockTable,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "cmd",
+				Text:        "imports criterion",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	missing := MissingPrincipalSupportMembers(doc, plan)
+	if len(missing) != 1 || !strings.Contains(missing[0].Location, "internal/agent/extractor.go:43") {
+		t.Fatalf("expected only the uncited agent member to be missing, got %+v", missing)
+	}
+	doc.Citations = append(doc.Citations, Citation{File: "internal/agent/extractor.go", Line: 43})
+	doc.Blocks[0].Items = append(doc.Blocks[0].Items, AnswerBlockItem{
+		Label:       "agent",
+		Text:        "imports criterion",
+		CitationRef: 1,
+	})
+	if got := MissingPrincipalSupportMembers(doc, plan); len(got) != 0 {
+		t.Fatalf("all cited principal rows should satisfy support-member coverage, got %+v", got)
 	}
 }
 

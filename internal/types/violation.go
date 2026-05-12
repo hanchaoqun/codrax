@@ -789,6 +789,22 @@ const (
 	// upstream stages have already supplied the right evidence.
 	ViolLaneBlockKindMismatch ViolationKind = "lane_block_kind_mismatch"
 
+	// ViolPrincipalSupportMemberOmitted fires when QFEnumeration's
+	// typed principal_evidence support lane contains an answer-grade
+	// member, but the final AnswerDocumentV2 has no principal
+	// ordered_list / bullet_list / table item citing that member's
+	// location. This catches the class where exploration already
+	// emitted the correct import/path/route/macro/symbol member, but
+	// finalization compresses the answer and silently drops one row.
+	//
+	// The signal is fully typed: support-lane membership + claim_form
+	// + citation_ref file:line equality. It never scans the user's
+	// request for keywords and stays portable across Go, C/C++,
+	// Cangjie, ArkTS, and future repository languages. Recovery is
+	// finalizer-local: render the omitted member from existing
+	// evidence, or explicitly caveat the exclusion.
+	ViolPrincipalSupportMemberOmitted ViolationKind = "principal_support_member_omitted"
+
 	// ViolWriteCrossSubRepoForbidden fires when write-mode plan / apply
 	// emits a ChangePlan that touches files belonging to MORE THAN ONE
 	// discovered sub-repo (multigraph topology). Multi-repo write is
@@ -941,6 +957,7 @@ func AllViolationKinds() []ViolationKind {
 		ViolDiagramEdgeEndpointHallucinated,
 		ViolEnumerationItemLabelExtractorDrift,
 		ViolLaneBlockKindMismatch,
+		ViolPrincipalSupportMemberOmitted,
 		ViolStructuralEnumerationDivergence,
 		ViolCrossCitationConflict,
 		// CGEC frequency bridges (R10).

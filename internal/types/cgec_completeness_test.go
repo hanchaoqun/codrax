@@ -281,6 +281,11 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// validateLaneBlockKindCompliance, dispatched from
 		// contract_check.go after BuildAnswerSupportPlanForBusContext.
 		ViolLaneBlockKindMismatch: true,
+		// Principal support member coverage (2026-05-12).
+		// Producer wired in orchestrator/contract_check_block.go
+		// validatePrincipalSupportMemberCoverage, dispatched from
+		// contract_check.go next to support-lane block-kind checks.
+		ViolPrincipalSupportMemberOmitted: true,
 		// Multi-repo write fail-loud (design §4.5.5 / Phase 4.G,
 		// 2026-05-08). Producer wired in
 		// orchestrator/multirepo_write_gate.go ValidateChangePlanScope,
@@ -367,7 +372,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// B6-F1 (post-shape consolidated audit, 2026-05-04).
 		ViolCrossCitationConflict: "ViolCrossCitationConflict",
 		// 2026-05-07 lane-discipline audit.
-		ViolLaneBlockKindMismatch: "ViolLaneBlockKindMismatch",
+		ViolLaneBlockKindMismatch:         "ViolLaneBlockKindMismatch",
+		ViolPrincipalSupportMemberOmitted: "ViolPrincipalSupportMemberOmitted",
 		// Multi-repo write fail-loud (design §4.5.5 / Phase 4.G).
 		ViolWriteCrossSubRepoForbidden: "ViolWriteCrossSubRepoForbidden",
 		// L3 negative-knowledge answer validator (Phase F).

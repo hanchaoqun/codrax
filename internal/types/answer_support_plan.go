@@ -44,6 +44,25 @@ type AnswerSupportEntry struct {
 	Text     string
 	Detail   string
 	Location string
+
+	// Typed evidence projection fields are copied from the source
+	// EvidenceItem when the entry originates from structured
+	// evidence. They let downstream validators reason about the
+	// evidence member itself instead of parsing the human-readable
+	// Text / Detail strings.
+	EvidenceID    string
+	ClaimForm     ClaimForm
+	LabelSurface  ClaimLabelSurfaceKind
+	Subject       string
+	Object        string
+	AnchorSymbol  string
+	OwnerSymbol   string
+	SurfaceTerms  []string
+	Source        string
+	LineStart     int
+	AnchorKind    AnchorKind
+	Producer      string
+	GroundingTier GroundingTier
 }
 
 // BuildAnswerSupportPlanForAgentContext compiles the current typed
@@ -206,6 +225,34 @@ func supportEntryLocation(item EvidenceItem) string {
 		return fmt.Sprintf("%s:%d", src, item.LineStart)
 	}
 	return src
+}
+
+func answerSupportEntryForEvidence(item EvidenceItem, text, detail string) AnswerSupportEntry {
+	form := ClaimFormOf(item)
+	entry := AnswerSupportEntry{
+		Text:          strings.TrimSpace(text),
+		Detail:        strings.TrimSpace(detail),
+		Location:      supportEntryLocation(item),
+		EvidenceID:    strings.TrimSpace(item.ID),
+		ClaimForm:     form,
+		LabelSurface:  form.LabelSurfaceKind(),
+		Subject:       strings.TrimSpace(item.Subject),
+		Object:        strings.TrimSpace(item.Object),
+		AnchorSymbol:  strings.TrimSpace(item.AnchorSymbol),
+		OwnerSymbol:   strings.TrimSpace(item.OwnerSymbol),
+		Source:        strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)),
+		LineStart:     item.LineStart,
+		AnchorKind:    item.AnchorKind,
+		Producer:      strings.TrimSpace(item.Producer),
+		GroundingTier: item.GroundingTier,
+	}
+	for _, term := range item.SurfaceTerms {
+		term = strings.TrimSpace(term)
+		if term != "" {
+			entry.SurfaceTerms = append(entry.SurfaceTerms, term)
+		}
+	}
+	return entry
 }
 
 func stepSurfaceAnchorLocation(anchor StepSurfaceAnchor) string {

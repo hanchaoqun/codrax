@@ -23,6 +23,38 @@ func TestRunPreEmitChecks_NilSafe(t *testing.T) {
 	}
 }
 
+func TestPreCheckAbsenceScopeBound_RequiresNegativeCitation(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Citations: []types.Citation{
+			{File: "codrax.yaml", Line: 12},
+		},
+	}
+	if got := preCheckAbsenceScopeBound(doc); len(got) != 1 {
+		t.Fatalf("expected absence-scope pre-emit hint, got %+v", got)
+	}
+	doc.Citations = append(doc.Citations, types.Citation{
+		File: "codrax.yaml", Scope: types.ScopeNegative, NegativePattern: "legacy_config_key",
+	})
+	if got := preCheckAbsenceScopeBound(doc); len(got) != 0 {
+		t.Fatalf("negative-scope citation should satisfy absence pre-check, got %+v", got)
+	}
+}
+
+func TestPreEmitBlockCitationRoleForms_TableParticipates(t *testing.T) {
+	block := types.AnswerBlock{
+		ID:   "table",
+		Kind: types.BlockTable,
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimImportEdge,
+		}},
+	}
+	got := preEmitBlockCitationRoleForms(block, nil)
+	if len(got) != 1 || got[0] != types.ClaimImportEdge {
+		t.Fatalf("table blocks should participate in typed citation-role alignment, got %+v", got)
+	}
+}
+
 // TestPreCheckRequiredBlocks_MinCount — required block kind under-emitted.
 func TestPreCheckRequiredBlocks_MinCount(t *testing.T) {
 	view := &types.AnswerSemanticView{

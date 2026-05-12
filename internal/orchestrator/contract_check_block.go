@@ -1614,7 +1614,7 @@ func validateCallChainItemCitationRoleAlignment(doc *types.AnswerDocumentV2, vie
 
 func answerBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemanticView) []types.ClaimForm {
 	switch b.Kind {
-	case types.BlockOrderedList, types.BlockBulletList:
+	case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
 	default:
 		return nil
 	}
@@ -3609,6 +3609,51 @@ func validateLaneBlockKindCompliance(
 				Confidence: 0.9,
 			},
 			ClusterKey: blockClusterKey(blockID, "lane_block_kind"),
+		})
+	}
+	return out
+}
+
+// validatePrincipalSupportMemberCoverage makes the typed support lane
+// load-bearing for enumeration answers: every answer-grade principal
+// evidence member selected by the compiler must be represented by a
+// cited item/row in the final principal list/table. This is deliberately
+// location/typed-entry based, not request-keyword based, so it works for
+// imports, macros, routes, config keys, ArkTS/Cangjie/C/C++ symbols, and
+// future claim forms that project into the principal support lane.
+func validatePrincipalSupportMemberCoverage(
+	doc *types.AnswerDocumentV2,
+	supportPlan *types.AnswerSupportPlan,
+) []types.Violation {
+	missing := types.MissingPrincipalSupportMembers(doc, supportPlan)
+	if len(missing) == 0 {
+		return nil
+	}
+	var out []types.Violation
+	for _, member := range missing {
+		label := strings.TrimSpace(member.Label)
+		if label == "" {
+			label = strings.TrimSpace(member.Location)
+		}
+		form := string(member.ClaimForm)
+		if form == "" {
+			form = "principal_evidence"
+		}
+		out = append(out, types.Violation{
+			Kind: types.ViolPrincipalSupportMemberOmitted,
+			Detail: fmt.Sprintf(
+				"enumeration principal support member %q (%s at %s) is not represented by any principal ordered_list / bullet_list / table item with a matching citation_ref",
+				label, form, member.Location),
+			Repair: fmt.Sprintf(
+				"re-emit the answer document so the principal enumeration list/table includes an item for %q and cites %s. If this evidence is genuinely out-of-scope, add a caveat item that cites the same location and explains the exclusion instead of silently dropping it.",
+				label, member.Location),
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_support.principal_evidence.member_coverage",
+				Reason:     "final answer omitted an answer-grade principal support evidence member",
+				Confidence: 0.9,
+			},
+			Stage:      string(types.StageFinalize),
+			ClusterKey: blockClusterKey("principal_support", "member_omitted:"+strings.ToLower(member.Location)),
 		})
 	}
 	return out

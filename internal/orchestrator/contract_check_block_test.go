@@ -3071,3 +3071,60 @@ func TestValidateLaneBlockKindCompliance_NonPrincipalBlockSkipped(t *testing.T) 
 		t.Errorf("non-principal block must be skipped; got %+v", got)
 	}
 }
+
+func TestValidatePrincipalSupportMemberCoverage_EnumerationOmissionFires(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "cmd/root.go", Line: 51},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "items",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "cmd",
+				Label:       "cmd",
+				Text:        "imports criterion",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	supportPlan := &types.AnswerSupportPlan{
+		Family: types.QFEnumeration,
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{
+				{
+					Text:         "cmd imports criterion",
+					Location:     "cmd/root.go:51",
+					ClaimForm:    types.ClaimImportEdge,
+					LabelSurface: types.ClaimLabelSurfaceDisplayLabel,
+					Subject:      "cmd",
+					Object:       "github.com/hanchaoqun/codrax/internal/analysis/criterion",
+					SurfaceTerms: []string{"cmd", "github.com/hanchaoqun/codrax/internal/analysis/criterion"},
+				},
+				{
+					Text:         "agent imports criterion",
+					Location:     "internal/agent/extractor.go:43",
+					ClaimForm:    types.ClaimImportEdge,
+					LabelSurface: types.ClaimLabelSurfaceDisplayLabel,
+					Subject:      "agent",
+					Object:       "github.com/hanchaoqun/codrax/internal/analysis/criterion",
+					SurfaceTerms: []string{"agent", "github.com/hanchaoqun/codrax/internal/analysis/criterion"},
+				},
+			},
+		}},
+	}
+
+	got := validatePrincipalSupportMemberCoverage(doc, supportPlan)
+	if len(got) != 1 {
+		t.Fatalf("expected omitted principal support member violation, got %+v", got)
+	}
+	if got[0].Kind != types.ViolPrincipalSupportMemberOmitted {
+		t.Fatalf("wrong kind: %+v", got[0])
+	}
+	if !strings.Contains(got[0].Detail, "internal/agent/extractor.go:43") {
+		t.Fatalf("detail should name omitted member location, got %q", got[0].Detail)
+	}
+}

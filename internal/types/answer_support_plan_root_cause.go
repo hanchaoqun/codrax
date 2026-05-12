@@ -56,11 +56,8 @@ func compileCurrentCodePathSupportLane(plan *AnswerSurfacePlan) AnswerSupportLan
 		if text == "" {
 			continue
 		}
-		lane.Entries = append(lane.Entries, AnswerSupportEntry{
-			Text:     text,
-			Detail:   callChainEvidenceSupportDetail(item, text),
-			Location: supportEntryLocation(item),
-		})
+		lane.Entries = append(lane.Entries,
+			answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text)))
 		if len(lane.Entries) >= 4 {
 			break
 		}
@@ -89,11 +86,8 @@ func compileNearestMechanismSupportLane(plan *AnswerSurfacePlan, strength rootCa
 		if text == "" {
 			continue
 		}
-		lane.Entries = append(lane.Entries, AnswerSupportEntry{
-			Text:     text,
-			Detail:   callChainEvidenceSupportDetail(item, text),
-			Location: supportEntryLocation(item),
-		})
+		lane.Entries = append(lane.Entries,
+			answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text)))
 		if len(lane.Entries) >= 3 {
 			break
 		}

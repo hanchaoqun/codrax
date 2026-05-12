@@ -147,6 +147,21 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 		hints = append(hints, h...)
 	}
 
+	// 5c. Principal support member coverage. For enumeration answers,
+	// every answer-grade member already selected into the principal
+	// support lane must be rendered as a cited item/row; the finalizer
+	// should not compress away explorer-emitted members.
+	if h := preCheckPrincipalSupportMemberCoverage(doc, ctxOpt...); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+
+	// 5d. Bounded exact absence. Keep the absence hard gate inside
+	// the emit dispatch too, so missing negative-scope citations are
+	// repaired before the doc reaches the orchestrator retry loop.
+	if h := preCheckAbsenceScopeBound(doc); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+
 	// 6. Enumeration item label grounding (P1 2026-05-10).
 	// Catches the hallucinated identifier-shape labels that drove
 	// 70% of post-emit repair-loop violations in the 2026-05-10
@@ -291,9 +306,53 @@ func preCheckCallChainItemCitationRoleAlignment(doc *types.AnswerDocumentV2, vie
 	}}
 }
 
+func preCheckPrincipalSupportMemberCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil {
+		return nil
+	}
+	supportPlan := types.BuildAnswerSupportPlanForBusContext(ctxOpt[0])
+	missing := types.MissingPrincipalSupportMembers(doc, supportPlan)
+	if len(missing) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(missing))
+	for _, m := range missing {
+		label := strings.TrimSpace(m.Label)
+		if label == "" {
+			label = m.Location
+		}
+		parts = append(parts, fmt.Sprintf("%q at %s", label, m.Location))
+		if len(parts) >= 6 {
+			break
+		}
+	}
+	return []emitFixHint{{
+		Field: "blocks[].items[].citation_ref",
+		ExpectedShape: "include one principal ordered_list / bullet_list / table item for each principal support evidence member, citing its exact file:line: " +
+			strings.Join(parts, "; "),
+		Reason: "the investigation already emitted these as answer-grade principal evidence; the final answer must preserve the members or add a cited caveat item for a real exclusion instead of relying on system-added caveats.",
+	}}
+}
+
+func preCheckAbsenceScopeBound(doc *types.AnswerDocumentV2) []emitFixHint {
+	if doc == nil || doc.ExactResolution == nil || doc.ExactResolution.Status != types.AnswerExactResolutionAbsent {
+		return nil
+	}
+	for _, c := range doc.Citations {
+		if c.Scope == types.ScopeNegative && strings.TrimSpace(c.NegativePattern) != "" {
+			return nil
+		}
+	}
+	return []emitFixHint{{
+		Field:         "citations[]",
+		ExpectedShape: "when exact_resolution.status is absent, include at least one citation with scope=\"negative\" and a non-empty negative_pattern that names the bounded search/query proving absence.",
+		Reason:        "an exact absence answer needs a typed negative-scope proof; a normal file:line citation or vague prose cannot bound what was searched.",
+	}}
+}
+
 func preEmitBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemanticView) []types.ClaimForm {
 	switch b.Kind {
-	case types.BlockOrderedList, types.BlockBulletList:
+	case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
 	default:
 		return nil
 	}

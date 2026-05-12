@@ -69,11 +69,9 @@ func compileCurrentStatusVerdictSupportLane(plan *AnswerSupportPlan) AnswerSuppo
 			if text == "" {
 				text = location
 			}
-			lane.Entries = append(lane.Entries, AnswerSupportEntry{
-				Text:     fmt.Sprintf("%s verdict support: %s", title, text),
-				Detail:   entry.Detail,
-				Location: location,
-			})
+			entry.Text = fmt.Sprintf("%s verdict support: %s", title, text)
+			entry.Location = location
+			lane.Entries = append(lane.Entries, entry)
 			if len(lane.Entries) >= 8 {
 				return lane
 			}

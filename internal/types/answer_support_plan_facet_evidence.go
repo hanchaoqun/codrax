@@ -56,12 +56,8 @@ func compilePrincipalEvidenceSupportLane(family QuestionFamily, plan *AnswerSurf
 		if text == "" {
 			continue
 		}
-		location := supportEntryLocation(item)
-		lane.Entries = append(lane.Entries, AnswerSupportEntry{
-			Text:     text,
-			Detail:   callChainEvidenceSupportDetail(item, text),
-			Location: location,
-		})
+		lane.Entries = append(lane.Entries,
+			answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text)))
 		if len(lane.Entries) >= limit {
 			break
 		}
@@ -116,7 +112,7 @@ func principalEvidenceAllowedBlocks(family QuestionFamily) []string {
 	case QFArchitecture:
 		return blockKindStrings(BlockSummary, BlockSection, BlockBulletList, BlockDiagram)
 	case QFComparison:
-		return blockKindStrings(BlockSummary, BlockSection, BlockTable)
+		return blockKindStrings(BlockSummary, BlockSection, BlockTable, BlockOrderedList, BlockBulletList)
 	case QFGeneric:
 		return blockKindStrings(BlockSummary, BlockSection, BlockOrderedList, BlockBulletList, BlockDiagram)
 	default:
@@ -376,11 +372,8 @@ func compileFacetUncertaintySupportLane(plan *AnswerSurfacePlan) AnswerSupportLa
 		if text == "" {
 			continue
 		}
-		lane.Entries = append(lane.Entries, AnswerSupportEntry{
-			Text:     text,
-			Detail:   callChainEvidenceSupportDetail(item, text),
-			Location: supportEntryLocation(item),
-		})
+		lane.Entries = append(lane.Entries,
+			answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text)))
 		if len(lane.Entries) >= facetUncertaintySupportEntryLimit {
 			break
 		}

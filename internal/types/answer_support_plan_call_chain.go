@@ -113,11 +113,8 @@ func callChainSurfaceEvidenceEntries(rm RequestModel, plan *AnswerSurfacePlan) [
 		if text == "" {
 			continue
 		}
-		out = append(out, AnswerSupportEntry{
-			Text:     text,
-			Detail:   callChainEvidenceSupportDetail(item, text),
-			Location: supportEntryLocation(item),
-		})
+		out = append(out,
+			answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text)))
 	}
 	return out
 }

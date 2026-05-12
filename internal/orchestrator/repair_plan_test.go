@@ -359,6 +359,10 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		// finalizer-side, no upstream stage participates and no
 		// other oracle reports the same condition.
 		types.ViolLaneBlockKindMismatch: "lane → block-kind alignment is a finalizer-local re-render; standalone with no upstream cooccurrence",
+		// Principal support member omission is likewise finalizer-local:
+		// the support lane already contains the evidence, and the fix is
+		// to render/caveat that member rather than re-investigate.
+		types.ViolPrincipalSupportMemberOmitted: "principal support member omitted from enumeration surface; finalizer-local render coverage",
 		// Semantic-quality topic mismatch is intentionally standalone:
 		// the reviewer already identified a wrong-subject final answer,
 		// and the repair is a finalizer-local rewrite around the

@@ -164,6 +164,8 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			if supportPlan := types.BuildAnswerSupportPlanForBusContext(o.busCtx); supportPlan != nil {
 				result.Violations = append(result.Violations,
 					validateLaneBlockKindCompliance(docV2, supportPlan)...)
+				result.Violations = append(result.Violations,
+					validatePrincipalSupportMemberCoverage(docV2, supportPlan)...)
 			}
 			// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 			// enumeration evidence pool structural gate. Fires when

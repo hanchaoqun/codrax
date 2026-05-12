@@ -898,6 +898,13 @@ func init() {
 		SchemaDescriptionFragment: "Each support lane (Observed artifact / Principal evidence / Current grounded code path / Nearest grounded mechanism / Boundary disclosures / Current-status verdict) declares an Allowed block kinds list. A principal block whose citations come from a lane MUST be one of that lane's allowed kinds — for example, an Observed artifact lane that allows only summary/caveat cannot be rendered as a principal ordered_list or diagram.",
 		FixableByAgents:           []AgentName{AgentFinalizer},
 	})
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolPrincipalSupportMemberOmitted, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
+		SchemaDescriptionFragment: "For enumeration answers, every entry in the Principal evidence support lane MUST be represented by a cited ordered_list / bullet_list / table item unless the answer explicitly caveats why that member is out of scope.",
+		FixableByAgents:           []AgentName{AgentFinalizer},
+	})
 
 	// ── Phase 2.B Tier 2 ERM completeness violations (2026-05-09) ──
 	//

@@ -263,6 +263,7 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	types.ViolDiagramEdgeEndpointHallucinated:    "uses violation.Repair for fix prose (validator stamps per-block list of fabricated mermaid endpoint identifiers + the rewrite directive)",
 	types.ViolStructuralEnumerationDivergence:    "uses violation.Repair for fix prose",
 	types.ViolLaneBlockKindMismatch:              "uses violation.Repair for fix prose (validator emits per-block lane attribution + AllowedBlocks set)",
+	types.ViolPrincipalSupportMemberOmitted:      "uses violation.Repair for fix prose (validator emits omitted support member label + exact citation location)",
 	types.ViolRichnessRegression:                 "uses violation.Repair for fix prose",
 	types.ViolValueSecondaryCitationOffFocus:     "uses violation.Repair for fix prose",
 
