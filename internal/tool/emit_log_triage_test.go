@@ -147,6 +147,34 @@ func TestEmitLogTriage_Execute_ObservationOnlyAccepted(t *testing.T) {
 	}
 }
 
+func TestEmitLogTriage_Execute_SalvagesStringWrappedErrorsFromMalformedSibling(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:     types.NewMutableState("test"),
+		AttachedLog: "downstream timeout\nretry exhausted\ncircuit breaker opened\n",
+	}
+	params := json.RawMessage(`{
+		"meta":{"lang":"unknown","signals":["timeout"]},
+		"errors":"[{\"type\":\"downstream.timeout\",\"message\":\"downstream timeout upstream=user-svc\",\"frames\":[{\"raw\":\"downstream timeout upstream=user-svc\",\"confidence\":0.95}]},{\"type\":\"retry.exhausted\",\"message\":\"attempts=3\",\"frames\":[{\"raw\":\"retry exhausted attempts=3\",\"confidence\":0.95}]}]",
+		"observations":[{"kind":"runtime_event","summary":"circuit breaker opened","diagnostic":true,"confidence":0.95},"confidence":0.95]
+	}`)
+
+	tool := &EmitLogTriage{}
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("success=false, summary=%s", res.Summary)
+	}
+	bundle := bus.Mutable.LogTriage()
+	if bundle == nil || len(bundle.Errors) != 2 {
+		t.Fatalf("string-wrapped errors should survive malformed sibling field, bundle=%+v summary=%s", bundle, res.Summary)
+	}
+	if bundle.Errors[0].Type != "downstream.timeout" || bundle.Errors[1].Type != "retry.exhausted" {
+		t.Fatalf("unexpected error types: %+v", bundle.Errors)
+	}
+}
+
 // TestEmitLogTriage_Schema_HasCauseRecursionUpToCap verifies the
 // schema recursion depth matches LogBundleCaps.MaxCauseDepth. We walk
 // into Cause > Cause > ... and count how deep the property exists.

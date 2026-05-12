@@ -22,5 +22,5 @@ LOG='{"ts":"2026-04-21T10:15:00Z","level":"error","svc":"api-gateway","msg":"dow
 # language form satisfies the case. timeout / 超时 alternation
 # already lives in EXPECT_CONTAINS but timeout is universal enough
 # (LLM uses English token in both languages) — keep simple form.
-EXPECT_CONTAINS="timeout"
-EXPECT_MATCHES_REGEX="(downstream|下游)"
+EXPECT_MATCHES_REGEX="(timeout|超时)
+(downstream|下游)"

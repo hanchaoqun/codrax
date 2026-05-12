@@ -1,8 +1,10 @@
 package tool
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -284,6 +286,15 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	}
 	if !decoded {
 		if err := json.Unmarshal(params, &p); err != nil {
+			if salvaged, fields, ok := salvageLogTriageStringWrappedArrays(params); ok {
+				p = salvaged
+				decoded = true
+				logging.Info("[emit_log_triage] salvaged string-wrapped array fields from partially malformed payload: %v", fields)
+			}
+		}
+	}
+	if !decoded {
+		if err := json.Unmarshal(params, &p); err != nil {
 			remapped := RemapStrictDecodeError(err, nil)
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -391,6 +402,104 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 		Summary:   summary,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func salvageLogTriageStringWrappedArrays(raw json.RawMessage) (emitLogTriageParams, []string, bool) {
+	var out emitLogTriageParams
+	var fields []string
+	if metaRaw, ok := extractTopLevelJSONValue(raw, "meta"); ok {
+		_ = json.Unmarshal(metaRaw, &out.Meta)
+	}
+	if encoded, ok := extractTopLevelJSONStringField(raw, "errors"); ok {
+		var errors []emitLogTriageError
+		if decodeStringWrappedJSONArray(encoded, &errors) == nil {
+			out.Errors = errors
+			fields = append(fields, "errors")
+		}
+	}
+	if encoded, ok := extractTopLevelJSONStringField(raw, "observations"); ok {
+		var observations []emitLogTriageObservation
+		if decodeStringWrappedJSONArray(encoded, &observations) == nil {
+			out.Observations = observations
+			fields = append(fields, "observations")
+		}
+	}
+	if encoded, ok := extractTopLevelJSONStringField(raw, "unknown_chunks"); ok {
+		var chunks []string
+		if decodeStringWrappedJSONArray(encoded, &chunks) == nil {
+			out.UnknownChunks = chunks
+			fields = append(fields, "unknown_chunks")
+		}
+	}
+	if len(fields) == 0 {
+		return emitLogTriageParams{}, nil, false
+	}
+	return out, fields, true
+}
+
+func decodeStringWrappedJSONArray(encoded string, out any) error {
+	encoded = strings.TrimSpace(encoded)
+	if !strings.HasPrefix(encoded, "[") {
+		return fmt.Errorf("not an array")
+	}
+	return json.Unmarshal([]byte(encoded), out)
+}
+
+func extractTopLevelJSONStringField(raw json.RawMessage, field string) (string, bool) {
+	value, ok := extractTopLevelJSONValue(raw, field)
+	if !ok || len(value) == 0 || value[0] != '"' {
+		return "", false
+	}
+	var out string
+	if err := json.Unmarshal(value, &out); err != nil {
+		return "", false
+	}
+	return out, true
+}
+
+func extractTopLevelJSONValue(raw json.RawMessage, field string) (json.RawMessage, bool) {
+	if len(raw) == 0 || field == "" {
+		return nil, false
+	}
+	quotedField, _ := json.Marshal(field)
+	searchFrom := 0
+	for searchFrom < len(raw) {
+		idx := bytes.Index(raw[searchFrom:], quotedField)
+		if idx < 0 {
+			return nil, false
+		}
+		pos := searchFrom + idx + len(quotedField)
+		for pos < len(raw) && isJSONSpace(raw[pos]) {
+			pos++
+		}
+		if pos >= len(raw) || raw[pos] != ':' {
+			searchFrom = searchFrom + idx + len(quotedField)
+			continue
+		}
+		pos++
+		for pos < len(raw) && isJSONSpace(raw[pos]) {
+			pos++
+		}
+		if pos >= len(raw) {
+			return nil, false
+		}
+		dec := json.NewDecoder(bytes.NewReader(raw[pos:]))
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return nil, false
+		}
+		return value, true
+	}
+	return nil, false
+}
+
+func isJSONSpace(b byte) bool {
+	switch b {
+	case ' ', '\n', '\r', '\t':
+		return true
+	default:
+		return false
+	}
 }
 
 // toValidateMeta converts wire-shape to validator input, dropping
