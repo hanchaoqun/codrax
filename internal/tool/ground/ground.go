@@ -324,7 +324,7 @@ func attachGroundedLineSnippet(it *types.EvidenceItem, gc *Context) {
 			}
 		default:
 			if it.AnchorSymbol != "" {
-				if matched, matchedOK := findAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol); matchedOK {
+				if matched, matchedOK := VerifyLineAnchor(gc, it.Source, it.LineStart, it.AnchorSymbol, 2); matchedOK {
 					lineNo = matched
 				}
 			} else if matched, matchedOK := findCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph); matchedOK {
@@ -747,7 +747,9 @@ func recoverFQNameSameFile(it *types.EvidenceItem, gc *Context) (string, int, bo
 		shortName := lastDotSegment(name)
 		for _, sym := range gc.Graph.SymbolsInFile(it.Source) {
 			if (sym.Name == name || sym.Name == shortName) && sym.Line > 0 {
-				return "", sym.Line, true
+				if line := canonicalGraphSymbolLine(gc, it.Source, sym.Line, name); line > 0 {
+					return "", line, true
+				}
 			}
 		}
 	}
@@ -879,10 +881,14 @@ func recoverPackageSymbol(it *types.EvidenceItem, gc *Context) (string, int, boo
 		}
 		candPkg, candDir := packageOrDir(gc.Graph, sym.File)
 		if originalPkg != "" && candPkg != "" && originalPkg == candPkg {
-			return sym.File, sym.Line, true
+			if line := canonicalGraphSymbolLine(gc, sym.File, sym.Line, name); line > 0 {
+				return sym.File, line, true
+			}
 		}
 		if originalDir != "" && candDir != "" && originalDir == candDir {
-			return sym.File, sym.Line, true
+			if line := canonicalGraphSymbolLine(gc, sym.File, sym.Line, name); line > 0 {
+				return sym.File, line, true
+			}
 		}
 	}
 	return "", 0, false
@@ -1500,10 +1506,28 @@ func graphMatchDefinition(it *types.EvidenceItem, gc *Context) bool {
 			continue
 		}
 		if sym.Name == name || lastDotSegment(name) == sym.Name {
+			if line := canonicalGraphSymbolLine(gc, it.Source, sym.Line, name); line > 0 {
+				it.LineStart = line
+			}
 			return true
 		}
 	}
 	return false
+}
+
+func canonicalGraphSymbolLine(gc *Context, source string, graphLine int, anchor string) int {
+	if graphLine <= 0 {
+		return 0
+	}
+	if matched, ok := VerifyLineAnchor(gc, source, graphLine, anchor, 2); ok {
+		return matched
+	}
+	if gc != nil {
+		if fileLines, ok := gc.LineIndex[source]; ok && isLineComment(fileLines, graphLine, source) {
+			return 0
+		}
+	}
+	return graphLine
 }
 
 func graphMatchCall(it *types.EvidenceItem, gc *Context) bool {

@@ -333,6 +333,31 @@ func TestDiagramKindBodyCoherence_FlowBodyRejectsSequenceKind(t *testing.T) {
 	}
 }
 
+func TestDiagramKindBodyCoherence_UnsupportedKnownMermaidDirectiveFails(t *testing.T) {
+	doc := docWithDiagramKind(
+		"class",
+		"classDiagram\n  class AnalyzerAgent\n",
+		types.DiagramArchitecture,
+	)
+	doc.Blocks[0].Diagram.Language = "mermaid"
+	view := &types.AnswerSemanticView{
+		DiagramPlan: &types.DiagramFacetGraph{
+			Kind:     types.DiagramArchitecture,
+			Required: false,
+		},
+	}
+	vs := validateDiagramEdgeSupport(doc, view)
+	if len(vs) != 1 {
+		t.Fatalf("known unsupported Mermaid syntax must fail exactly once, got %+v", vs)
+	}
+	if !strings.Contains(vs[0].Detail, "unsupported") {
+		t.Fatalf("detail should name unsupported syntax family, got %q", vs[0].Detail)
+	}
+	if !strings.Contains(vs[0].Repair, "flowchart/graph") {
+		t.Fatalf("repair should direct the model to a supported carrier syntax, got %q", vs[0].Repair)
+	}
+}
+
 // TestFixF_IsCodeContextRelationKind_Table pins the relation-kind
 // branch.
 func TestFixF_IsCodeContextRelationKind_Table(t *testing.T) {

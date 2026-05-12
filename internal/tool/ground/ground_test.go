@@ -163,6 +163,101 @@ func TestGroundItem_RecoveryR1FQNameSameFile(t *testing.T) {
 	}
 }
 
+func TestGroundItem_GraphDefinitionLineCanonicalizesDocCommentToDefinition(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/orchestrator/orchestrator.go", 3620, []string{
+			"// runReadSchedulerLoop owns the read-mode task graph.",
+			"// It schedules analyzer, explorer, extractor, and finalizer.",
+			"// The comment is useful context but not the definition.",
+			"//",
+			"// More doc text.",
+			"func (o *Orchestrator) runReadSchedulerLoop(state *graphState) (*agent.StageOutput, string, bool) {",
+		}, 3700),
+	}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/orchestrator/orchestrator.go": {
+				RelPath: "internal/orchestrator/orchestrator.go",
+				Symbols: []repomap.Symbol{{
+					Name: "runReadSchedulerLoop",
+					Kind: "method",
+					Line: 3620,
+				}},
+			},
+		},
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, ""), Graph: graph}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Source:       "internal/orchestrator/orchestrator.go",
+		LineStart:    3620,
+		AnchorKind:   types.AnchorDefinition,
+		AnchorSymbol: "runReadSchedulerLoop",
+	}
+	r := GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingGrounded {
+		t.Fatalf("status: %q, want grounded", it.GroundingStatus)
+	}
+	if it.GroundingTier != types.TierSymbolTable {
+		t.Fatalf("tier: %q, want symbol_table", it.GroundingTier)
+	}
+	if it.LineStart != 3625 {
+		t.Fatalf("LineStart = %d, want canonical definition line 3625", it.LineStart)
+	}
+	if r.OriginalLine != 3620 || r.AdjustedLine != 3625 {
+		t.Fatalf("report lines = %d→%d, want 3620→3625", r.OriginalLine, r.AdjustedLine)
+	}
+	if !strings.Contains(it.Snippet, "func (o *Orchestrator) runReadSchedulerLoop") {
+		t.Fatalf("snippet = %q, want function definition line", it.Snippet)
+	}
+}
+
+func TestGroundItem_RecoveryR1CanonicalizesGraphDocCommentLine(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/orchestrator/orchestrator.go", 3620, []string{
+			"// runReadSchedulerLoop owns the read-mode task graph.",
+			"// It schedules analyzer, explorer, extractor, and finalizer.",
+			"// The comment is useful context but not the definition.",
+			"//",
+			"// More doc text.",
+			"func (o *Orchestrator) runReadSchedulerLoop(state *graphState) (*agent.StageOutput, string, bool) {",
+		}, 3700),
+	}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/orchestrator/orchestrator.go": {
+				RelPath: "internal/orchestrator/orchestrator.go",
+				Symbols: []repomap.Symbol{{
+					Name: "runReadSchedulerLoop",
+					Kind: "method",
+					Line: 3620,
+				}},
+			},
+		},
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, ""), Graph: graph}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Source:       "internal/orchestrator/orchestrator.go",
+		LineStart:    3608,
+		AnchorKind:   types.AnchorDefinition,
+		AnchorSymbol: "runReadSchedulerLoop",
+	}
+	r := GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingRecovered {
+		t.Fatalf("status: %q, want recovered", it.GroundingStatus)
+	}
+	if it.GroundingTier != types.TierFQNameSameFile {
+		t.Fatalf("tier: %q, want fqname_same_file", it.GroundingTier)
+	}
+	if it.LineStart != 3625 {
+		t.Fatalf("LineStart = %d, want canonical definition line 3625", it.LineStart)
+	}
+	if r.OriginalLine != 3608 || r.AdjustedLine != 3625 {
+		t.Fatalf("report lines = %d→%d, want 3608→3625", r.OriginalLine, r.AdjustedLine)
+	}
+}
+
 // TestGroundItem_Ungrounded exercises the fail-through path. No
 // read_file history, no matching graph entry — every tier fails
 // and the item is marked ungrounded with an explanatory note.

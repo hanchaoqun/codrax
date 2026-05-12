@@ -352,22 +352,12 @@ func validateDiagramKindBodyCoherence(diagramBlock *types.AnswerBlock) *types.Vi
 	if !strings.EqualFold(strings.TrimSpace(diagramBlock.Diagram.Language), "mermaid") {
 		return nil
 	}
-	family := mermaidBodySyntaxFamily(diagramBlock.Diagram.Body)
-	if family == "" {
+	family := types.MermaidBodySyntaxFamily(diagramBlock.Diagram.Body)
+	if family == types.MermaidSyntaxUnknown {
 		return nil
 	}
 	kind := diagramBlock.Diagram.Kind
-	mismatch := false
-	switch family {
-	case "sequence":
-		mismatch = kind != types.DiagramNone && kind != types.DiagramSequence
-	case "flow":
-		// Mermaid flowchart/graph syntax is the carrier for flow,
-		// architecture, and call-DAG semantic families. The only
-		// impossible declaration is `sequence`.
-		mismatch = kind == types.DiagramSequence
-	}
-	if !mismatch {
+	if types.DiagramKindAllowsMermaidSyntax(kind, family) {
 		return nil
 	}
 	return &types.Violation{
@@ -376,8 +366,8 @@ func validateDiagramKindBodyCoherence(diagramBlock *types.AnswerBlock) *types.Vi
 			"diagram block id=%q declared semantic kind=%s but its Mermaid body uses %s syntax",
 			diagramBlock.ID, kind, family),
 		Repair: fmt.Sprintf(
-			"re-emit the diagram with diagram.kind=%s, or rewrite diagram.body to match the declared semantic family",
-			family),
+			"re-emit the diagram so diagram.kind and diagram.body agree: %s",
+			types.MermaidSyntaxRepairAdvice(kind, family)),
 		ClusterKey: blockClusterKey(diagramBlock.ID, "diagram_kind_body"),
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "diagram_kind",
@@ -386,26 +376,6 @@ func validateDiagramKindBodyCoherence(diagramBlock *types.AnswerBlock) *types.Vi
 		},
 		Stage: string(types.StageFinalize),
 	}
-}
-
-func mermaidBodySyntaxFamily(body string) string {
-	for _, line := range strings.Split(body, "\n") {
-		lower := strings.ToLower(strings.TrimSpace(line))
-		if lower == "" || strings.HasPrefix(lower, "%%") {
-			continue
-		}
-		switch {
-		case strings.HasPrefix(lower, "sequencediagram"):
-			return "sequence"
-		case strings.HasPrefix(lower, "flowchart ") ||
-			strings.HasPrefix(lower, "flowchart\t") ||
-			strings.HasPrefix(lower, "graph "):
-			return "flow"
-		default:
-			return ""
-		}
-	}
-	return ""
 }
 
 // validateDiagramRelationLegality is the Phase 3-C5 Layer-2 check.
@@ -3085,7 +3055,7 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 // grounding, per the explicit "conceptual role labels are fine
 // without a citation" prompt contract in skill/defaults.go.
 func isCodeContextDiagramKind(k types.DiagramKind) bool {
-	return k == types.DiagramCallDAG
+	return types.DiagramKindUsesCodeEndpoints(k)
 }
 
 // isCodeContextRelationKind reports whether a typed relation

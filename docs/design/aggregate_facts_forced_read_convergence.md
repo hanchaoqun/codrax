@@ -292,6 +292,112 @@ The hard boundary must use typed runtime state, not subjective reviewer taste.
 - Required diagram edge shortfall promotes to strict
   `diagram_edge_unsupported`.
 
+## Workstream G: Diagram Syntax Profile Registry
+
+### Problem
+
+Workstream E fixed one observed contradiction (`sequenceDiagram` body with
+`diagram.kind=architecture`), but a local switch still leaves the same class
+of bug open for future diagram families. Users can ask for many visual shapes;
+the system cannot safely enumerate those requests in prompts or validators one
+case at a time.
+
+### Design
+
+Introduce a `DiagramSyntaxProfile` registry in `internal/types`:
+
+- `DiagramKind` remains the semantic answer family.
+- `MermaidSyntaxFamily` is the concrete body directive family.
+- Each current semantic kind declares compatible Mermaid families:
+  - `flow` -> flowchart / graph syntax,
+  - `sequence` -> sequenceDiagram syntax,
+  - `call_dag` -> flowchart / graph syntax plus code-endpoint semantics,
+  - `architecture` -> flowchart / graph syntax.
+- Known Mermaid directives whose edge semantics are not currently parsed
+  (`classDiagram`, `stateDiagram`, `erDiagram`, C4, etc.) are classified as
+  `unsupported`, not silently accepted.
+- Validators consume `DiagramKindAllowsMermaidSyntax` and
+  `DiagramKindUsesCodeEndpoints` instead of local kind switches.
+
+This makes support extensible: adding a new diagram type means adding a typed
+profile, edge parser semantics, prompt surface, and tests in one place. It does
+not pretend the current system can fully support arbitrary Mermaid directives
+without typed parser/validator support.
+
+### Tests
+
+- Every current `DiagramKind` has a syntax profile.
+- `sequenceDiagram` is accepted only for `sequence`.
+- `flowchart` / `graph` is accepted for `flow`, `architecture`, and `call_dag`.
+- Known unsupported Mermaid directives are rejected with a rewrite/omit repair
+  instead of slipping past edge grounding.
+
+## Workstream H: Evidence Grounding Definition-Line Canonicalization
+
+### Problem
+
+The architecture/sequence E2E still showed `emit_evidence` repeatedly turning
+`runReadSchedulerLoop` back into the first doc-comment line. Workstream C fixed
+`emit_answer_symbol`, but the earlier evidence grounding path still trusted
+repomap's symbol line directly. When a parser reports the doc-comment start as
+the symbol line, typed evidence becomes citable yet points at prose instead of
+the definition.
+
+### Design
+
+Reuse the shared `ground.VerifyLineAnchor` path inside evidence grounding:
+
+- When graph-based definition recovery returns a symbol line, canonicalize it
+  through the already-read source line index.
+- If the graph line is a doc comment and the adjacent definition line contains
+  the same model-authored anchor, rewrite the evidence line to that definition
+  line.
+- If the graph line is a doc comment and no adjacent definition with the same
+  anchor exists, do not accept the comment as recovered proof.
+- When no line index exists, preserve the old graph-only behavior; the system
+  must not invent line corrections without source text.
+- Snippet attachment for definition-like anchors uses the same verifier so the
+  support lane carries the executable/type line, not the doc-comment sentence.
+
+This is a grounding canonicalization over model-authored structured evidence
+plus already-read source text. It does not synthesize answer content.
+
+### Tests
+
+- `emit_evidence` at a doc-comment line canonicalizes to the adjacent function
+  definition line.
+- Same-file graph recovery from an unrelated claimed line also canonicalizes to
+  the adjacent definition line when repomap reports the doc-comment line.
+- Existing graph-only recovery stays unchanged when no read-file line index is
+  available.
+
+## Workstream I: Principal Surface Profile Extension Point
+
+### Problem
+
+`MemberSurface` already separates symbol-like, display-label, and
+source-location answer members. That covers today's import/path/config-role
+and architecture evidence, but future answer families may introduce other
+visible principal surfaces such as routes, macros, spans, protocol messages, or
+aggregate buckets.
+
+### Design
+
+Keep the boundary typed and extensible:
+
+- Principal-surface classification must be derived from `ClaimForm`,
+  relation orientation, aggregate fact kind, and evidence fields.
+- Symbol oracles only guard symbol-like surfaces.
+- Display-label/source-location surfaces satisfy answer obligations through
+  grounded member labels and citations, not symbol lookup.
+- Future surfaces should extend the profile/classification layer first, then
+  inherit the existing support-lane and `MissingPrincipalSupportMembers`
+  validators.
+
+This is the general answer to "can the system enumerate every user ask": no,
+but it can force each new answer-surface family to declare its typed profile
+before it can influence hard gates.
+
 ## Delivery Order
 
 1. Land this design document.
@@ -311,3 +417,7 @@ The hard boundary must use typed runtime state, not subjective reviewer taste.
 7. Re-run focused tests, full `go test ./...`, then the architecture/sequence
    E2E to confirm analyzer retries and final answer quality improve without
    system-authored answer completion.
+8. Implement Workstream G before adding more diagram prompt variants, so any
+   future diagram syntax goes through the same profile/validator/test surface.
+9. Implement Workstream H before further E2E tuning; otherwise support-lane
+   richness remains vulnerable to doc-comment line drift.
