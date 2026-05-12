@@ -300,7 +300,7 @@ for _, obs := range postObs {
    - 不包含 `IntentEnumerate`(已是 enumeration,不需要补)
    - 不包含 `IntentRootCause / IntentConfigQuery / IntentReturnValue / IntentUnknown`
 4. AND NOT structural endpoint trace:若 `Intent=Trace`, `PredicateAxis∈{call,condition,register}` 或 `question_kind∈{call_chain,conditional,mechanism,registration}`,且 exact targets/mentioned targets ≥2,则这是 source→sink 链路,不是 category enumeration。
-5. AND NOT single-topic mechanism explanation:若 `Intent=Explain`, `question_kind∈{mechanism,conditional,registration}` 或 `PredicateAxis∈{condition,call,register}`,且没有 structural obligation / ambiguity / cross-component / 多 subtopic,则 multiple entities 只是同一机制的参与对象,不能升级成 principal-member enumeration。
+5. AND NOT `types.IsSingleTopicMechanismExplanation(rm)`:若 `Intent=Explain`, `question_kind∈{mechanism,conditional,registration}` 或 `PredicateAxis∈{condition,call,register}`,且没有 structural obligation / ambiguity / cross-component / 多 subtopic,则 multiple entities 只是同一机制的参与对象,不能升级成 principal-member enumeration。该 typed trait 同时被 `ResolveQuestionFamily` 复用,把这类问题送往轻量 `QFGeneric` 而不是 `QFArchitecture` / `QFRoleLookup`。
 6. AND `len(types.ExactResolutionTargets(rm)) != 1`(单 exact target 不是 enumeration)
 7. AND `rm.Predicates.IsScalarAnswer == false`(scalar 答案不是 enumeration;原文档写 `SubjectScalar` 但该枚举值不存在,`IsScalarAnswer` 是同等 typed 信号)
 8. **AND NOT `(len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent)`**(Phase 3.2-fix axis_collapse alignment)

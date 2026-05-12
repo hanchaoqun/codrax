@@ -117,7 +117,7 @@ func r1MultiSubjectPredicate(in types.RequestModel, out *types.RequestModel) *Ob
 	if isStructuralEndpointTraceQuestion(*out) {
 		return nil
 	}
-	if isSingleTopicMechanismExplanation(*out) {
+	if types.IsSingleTopicMechanismExplanation(*out) {
 		return nil
 	}
 	count := distinctEntityCount(out.AnalyzerHints.Entities)
@@ -161,37 +161,6 @@ func isStructuralEndpointTraceQuestion(rm types.RequestModel) bool {
 		return true
 	}
 	return false
-}
-
-func isSingleTopicMechanismExplanation(rm types.RequestModel) bool {
-	if rm.Intent != types.IntentExplain {
-		return false
-	}
-	if rm.Predicates.IsScalarAnswer ||
-		rm.Predicates.IsRelationalLookup ||
-		rm.Predicates.IsCategoryEnumeration ||
-		rm.Predicates.IsCountQuestion ||
-		rm.Predicates.IsHistoryLookup ||
-		rm.Predicates.IsDiagnosticQuestion ||
-		rm.Predicates.IsCrossComponent {
-		return false
-	}
-	if len(rm.SubTopics) > 1 || types.HasNonEmptyAmbiguity(rm) {
-		return false
-	}
-	if rm.QuestionStructure().HasAnyObligation() {
-		return false
-	}
-	switch rm.PredicateAxis {
-	case types.AxisCondition, types.AxisCall, types.AxisRegister:
-		return true
-	}
-	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
-	case types.ReqMechanism, types.ReqConditional, types.ReqRegistration:
-		return true
-	default:
-		return false
-	}
 }
 
 func structuralEndpointTraceTargets(rm types.RequestModel) []string {

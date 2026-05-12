@@ -117,6 +117,47 @@ func CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm RequestModel) bool {
 	return true
 }
 
+// IsSingleTopicMechanismExplanation reports whether the request asks
+// for one mechanism / condition / registration explanation rather than
+// an answer-member set, scalar lookup, or architecture decomposition.
+//
+// This trait intentionally consumes only typed analyzer fields. It is
+// shared by the analyzer amplifier and QuestionFamily routing so the
+// system does not upgrade mechanism participants (tool names, fields,
+// helpers, routes, macros, spans, config keys, etc.) into hard
+// principal members or architecture components merely because more
+// than one identifier is involved.
+func IsSingleTopicMechanismExplanation(rm RequestModel) bool {
+	if rm.Intent != IntentExplain {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.Predicates.IsCrossComponent {
+		return false
+	}
+	if len(rm.SubTopics) > 1 || HasNonEmptyAmbiguity(rm) {
+		return false
+	}
+	if rm.QuestionStructure().HasAnyObligation() {
+		return false
+	}
+	switch rm.PredicateAxis {
+	case AxisCondition, AxisCall, AxisRegister:
+		return true
+	}
+	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case ReqMechanism, ReqConditional, ReqRegistration:
+		return true
+	default:
+		return false
+	}
+}
+
 func hasExhaustiveMultiMemberSet(rm RequestModel) bool {
 	if len(rm.AnalyzerHints.Entities) <= 1 {
 		return false

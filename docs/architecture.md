@@ -296,7 +296,7 @@ Skill 是**纯配置**。Agent 加载它后，按 `Workflow` 决定 prompt、按
 | 子包 | 职责 |
 |---|---|
 | `normalizer` | 把请求文本和 LLM 给的实体收编为 TermGraph（canonical 名 + alias 边），用 repomap-backed `SymbolResolver` 验证哪些 surface 真的是 repo 里的 symbol |
-| `amplifier` | 用 typed 信号（TermGraph kind / confidence / Intent / AnswerSubject / Entities / question_kind / obligation）填补 LLM 漏掉的 optional predicate，并用机制/链路 guard 防止把上下文实体误升成 principal members；纯结构化规则不读 prose |
+| `amplifier` | 用 typed 信号（TermGraph kind / confidence / Intent / AnswerSubject / Entities / question_kind / obligation）填补 LLM 漏掉的 optional predicate，并复用 `IsSingleTopicMechanismExplanation` / 链路 guard 防止把上下文实体误升成 principal members；纯结构化规则不读 prose |
 | `axis` | PredicateAxis × AnchorKind affinity 矩阵（call × call=1.6, call × definition=0.9 等），驱动 evidence ranker 重排 |
 | `binder` | 把 hypothesis 按相关性绑定到 TaskNode（Jaccard(hyp terms, node hints) + surface 提及 + kind-family 亲和） |
 | `budget` | 计算 EvidencePlan budget：`base × termFactor × hypFactor × probeFactor`，复杂度 / 假设数 / prescan 命中率倍乘 |

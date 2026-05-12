@@ -169,6 +169,22 @@ func TestResolveQuestionFamily_Architecture(t *testing.T) {
 	}
 }
 
+func TestResolveQuestionFamily_SingleTopicMechanismExplainUsesGeneric(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisCondition,
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqMechanism),
+			Entities: []string{"emit_evidence", "anchor_kind", "EmitEvidence"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName, Confidence: 0.9},
+	}
+	if got := ResolveQuestionFamily(rm); got != QFGeneric {
+		t.Errorf("single-topic mechanism explanation got %q, want QFGeneric", got)
+	}
+}
+
 func TestResolveQuestionFamily_GenericFallthrough(t *testing.T) {
 	// No intent / no scenario / no subject / no obligation → generic.
 	rm := RequestModel{}

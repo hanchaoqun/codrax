@@ -174,6 +174,34 @@ func TestCanUseAnalyzerEntitiesAsHardPrincipalMembers_TypedOnly(t *testing.T) {
 	}
 }
 
+func TestIsSingleTopicMechanismExplanation_TypedOnly(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		PredicateAxis: AxisCondition,
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqMechanism),
+			Entities: []string{"emit_evidence", "anchor_kind", "EmitEvidence"},
+		},
+	}
+	if !IsSingleTopicMechanismExplanation(rm) {
+		t.Fatal("single-topic mechanism explanation should be recognized from typed fields")
+	}
+
+	rm.Predicates.IsCrossComponent = true
+	if IsSingleTopicMechanismExplanation(rm) {
+		t.Fatal("cross-component explanations are not the single-topic mechanism lane")
+	}
+
+	rm.Predicates.IsCrossComponent = false
+	rm.EnumerationBoundary = &RequestedEnumerationBoundary{
+		DeclaredCount: 3,
+		SourceQuote:   "3 steps",
+	}
+	if IsSingleTopicMechanismExplanation(rm) {
+		t.Fatal("structural obligations should keep bounded mechanism questions out of the lightweight lane")
+	}
+}
+
 func TestIsCodeIdentitySurface_CrossLanguage(t *testing.T) {
 	accepted := []string{
 		"aggregator",

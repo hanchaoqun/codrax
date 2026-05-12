@@ -554,20 +554,23 @@ type FacetCoverageContract struct {
 //  3. Intent == Trace AND no obligation
 //     → QFCallChain (s1a/s8a style "how does X reach Y" questions)
 //
-//  4. AnswerSubject.Kind ∈ {SubjectFunctionName, SubjectHandlerRoute,
+//  4. IsSingleTopicMechanismExplanation(rm)=true
+//     → QFGeneric (mechanism/condition explanation, not architecture)
+//
+//  5. AnswerSubject.Kind ∈ {SubjectFunctionName, SubjectHandlerRoute,
 //     SubjectConfigKey, SubjectStructField, SubjectInterface}
 //     AND QuestionStructure.HasAnyObligation()=false
 //     AND IsCategoryEnumerationAnswerShape(rm)=false
 //     → QFRoleLookup (typical "what's the X for Y" questions)
 //
-//  5. QuestionStructure.HasAnyObligation()=true OR
+//  6. QuestionStructure.HasAnyObligation()=true OR
 //     IsCategoryEnumerationAnswerShape(rm)=true
 //     → QFEnumeration (s5a / m1a fall here)
 //
-//  6. Intent == Explain AND Scenario == ArchitectureExplain
+//  7. Intent == Explain AND Scenario == ArchitectureExplain
 //     → QFArchitecture
 //
-//  7. fallthrough → QFGeneric
+//  8. fallthrough → QFGeneric
 //
 // Phase 0 trace data on s1a / s5a / m1a / s3a / logtri_go
 // confirms each branch hits at least one case.
@@ -615,7 +618,15 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		}
 	}
 
-	// Rule 5: role-lookup detection (named-entity subject + no
+	// Rule 5: single-topic mechanism explanations. These are lighter
+	// than architecture decompositions and must not be stolen by the
+	// function-like role-lookup gate below: multiple identifiers are
+	// participants in one mechanism, not a principal member slate.
+	if !hasObligation && !isEnumerationAnswer && IsSingleTopicMechanismExplanation(rm) {
+		return QFGeneric
+	}
+
+	// Rule 6: role-lookup detection (named-entity subject + no
 	// enumeration obligation). A typed category-enumeration answer
 	// shape wins over a function-like AnswerSubject.Kind; otherwise a
 	// relational enumeration can be stolen by QFRoleLookup and forced
@@ -628,14 +639,14 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		}
 	}
 
-	// Rule 6: enumeration / obligation-bearing.
+	// Rule 7: enumeration / obligation-bearing.
 	if hasObligation || isEnumerationAnswer {
 		// bucketCount < 2 by construction (QFComparison absorbed
 		// the multi-bucket case above).
 		return QFEnumeration
 	}
 
-	// Rule 7: architecture explain.
+	// Rule 8: architecture explain.
 	if rm.Intent == IntentExplain && rm.Scenario == ScenarioArchitectureExplain {
 		return QFArchitecture
 	}
