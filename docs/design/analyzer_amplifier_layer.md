@@ -296,12 +296,14 @@ for _, obs := range postObs {
    - 去掉空白/case-fold 后的 distinct count。重复同一名字 N 次仍计为 1 subject。
    - 不再使用 confidence-gap 截断 — LLM emit 的命名实体不带 rarity 噪音(那是 normalizer ranker 的问题)。
 2. AND `rm.Predicates.IsCategoryEnumeration == false`(red line #2:不覆盖 LLM 已填正值)
-3. AND `rm.Intent ∈ {IntentExplain, IntentTrace, IntentRootCause}`
+3. AND `rm.Intent ∈ {IntentExplain, IntentTrace}`
    - 不包含 `IntentEnumerate`(已是 enumeration,不需要补)
-   - 不包含 `IntentConfigQuery / IntentReturnValue / IntentUnknown`
-4. AND `len(types.ExactResolutionTargets(rm)) != 1`(单 exact target 不是 enumeration)
-5. AND `rm.Predicates.IsScalarAnswer == false`(scalar 答案不是 enumeration;原文档写 `SubjectScalar` 但该枚举值不存在,`IsScalarAnswer` 是同等 typed 信号)
-6. **AND NOT `(len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent)`**(Phase 3.2-fix axis_collapse alignment)
+   - 不包含 `IntentRootCause / IntentConfigQuery / IntentReturnValue / IntentUnknown`
+4. AND NOT structural endpoint trace:若 `Intent=Trace`, `PredicateAxis∈{call,condition,register}` 或 `question_kind∈{call_chain,conditional,mechanism,registration}`,且 exact targets/mentioned targets ≥2,则这是 source→sink 链路,不是 category enumeration。
+5. AND NOT single-topic mechanism explanation:若 `Intent=Explain`, `question_kind∈{mechanism,conditional,registration}` 或 `PredicateAxis∈{condition,call,register}`,且没有 structural obligation / ambiguity / cross-component / 多 subtopic,则 multiple entities 只是同一机制的参与对象,不能升级成 principal-member enumeration。
+6. AND `len(types.ExactResolutionTargets(rm)) != 1`(单 exact target 不是 enumeration)
+7. AND `rm.Predicates.IsScalarAnswer == false`(scalar 答案不是 enumeration;原文档写 `SubjectScalar` 但该枚举值不存在,`IsScalarAnswer` 是同等 typed 信号)
+8. **AND NOT `(len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent)`**(Phase 3.2-fix axis_collapse alignment)
    - 当 LLM 已经 emit ≥2 SubTopics 在单组件问题上,翻转 IsCategoryEnumeration 到 true 会激活下游 axis_collapse gate(`internal/analysis/gate/coherence.go::R1.4`)的全部 4 个触发条件,导致 analyzer 进入 retry storm 直到 budget 耗尽,整个 Run 失败
    - 信任 LLM 的 SubTopics 结构判断;若 IsCrossComponent=true,SubTopics 合法跨子系统,axis_collapse 不会 trigger,R1 可以安全 fire
    - empirical:2026-05-05 m1a runs 全 IsCrossComponent=true,本 gate 不阻塞 R1 fire
@@ -310,7 +312,7 @@ for _, obs := range postObs {
 - 设 `rm.Predicates.IsCategoryEnumeration = true`
 - 记录 `Observation{Rule: "R1_multi_subject_predicate", Field: "predicates.is_category_enumeration", Before: "false", After: "true", Reason: "AnalyzerHints.Entities has N distinct named subjects with intent=X and non-scalar answer"}`
 
-**理由:** `AnalyzerHints.Entities` 是 LLM 在 emit_analysis 里直接产出的"我识别到了哪些命名实体"清单(纯 typed slot,无 keyword 表/正则匹配)。R1 把这个已有结构信号 propagate 到 predicates 层。Intent 限定 + scalar 排除 + single-exact-target 排除 + axis_collapse 对齐四道闸门确保不误触发也不踩 retry storm。
+**理由:** `AnalyzerHints.Entities` 是 LLM 在 emit_analysis 里直接产出的"我识别到了哪些命名实体"清单(纯 typed slot,无 keyword 表/正则匹配)。R1 把这个已有结构信号 propagate 到 predicates 层。Intent 限定 + scalar 排除 + single-exact-target 排除 + structural endpoint trace guard + single-topic mechanism guard + axis_collapse 对齐确保不把机制参与对象误当答案成员,也不踩 retry storm。
 
 **与下游 reconciler 的兼容(post Phase 2.1-fix wiring):**
 - Amplify 在 reconcile 链之后跑(因 TermGraph 依赖,见 §4.2),所以 reconcileSemanticPredicates / reconcileComplexity 看不到 R1 写入的 `IsCategoryEnumeration=true`,无法触发 simple→moderate 升级。

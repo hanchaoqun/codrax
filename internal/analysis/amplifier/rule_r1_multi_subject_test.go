@@ -165,6 +165,52 @@ func TestR1_NoFire_StructuralEndpointTrace(t *testing.T) {
 	}
 }
 
+func TestR1_NoFire_SingleTopicMechanismExplanation(t *testing.T) {
+	rm := makeRMWithEntities("emit_evidence", "anchor_kind", "EmitEvidence")
+	rm.Intent = types.IntentExplain
+	rm.PredicateAxis = types.AxisCondition
+	rm.AnalyzerHints.Kind = string(types.ReqMechanism)
+	rm.AnswerSubject = types.AnswerSubject{
+		Kind:       types.SubjectFunctionName,
+		Confidence: 0.95,
+	}
+
+	got, obs := Amplify(rm)
+	if got.Predicates.IsCategoryEnumeration {
+		t.Errorf("R1 must NOT turn a single-topic mechanism explanation into a category enumeration")
+	}
+	for _, ob := range obs {
+		if ob.Rule == "R1_multi_subject_predicate" {
+			t.Errorf("expected no R1 observation for mechanism explanation, got %+v", obs)
+		}
+	}
+}
+
+func TestR1_SingleTopicMechanismExplanation_ObligationStillAllowsEnumeration(t *testing.T) {
+	rm := makeRMWithEntities("StepOne", "StepTwo", "StepThree")
+	rm.Intent = types.IntentExplain
+	rm.PredicateAxis = types.AxisCondition
+	rm.AnalyzerHints.Kind = string(types.ReqMechanism)
+	rm.EnumerationBoundary = &types.RequestedEnumerationBoundary{
+		DeclaredCount: 3,
+		SourceQuote:   "3 steps",
+	}
+
+	got, obs := Amplify(rm)
+	if !got.Predicates.IsCategoryEnumeration {
+		t.Errorf("R1 should still fire when a typed structural obligation proves a bounded answer set")
+	}
+	r1Count := 0
+	for _, ob := range obs {
+		if ob.Rule == "R1_multi_subject_predicate" {
+			r1Count++
+		}
+	}
+	if r1Count != 1 {
+		t.Fatalf("expected exactly 1 R1 observation, got %d (full obs: %+v)", r1Count, obs)
+	}
+}
+
 func TestR1_FiresOnTraceEnumerationWithoutEndpointTargets(t *testing.T) {
 	rm := makeRMWithEntities("StageAnalyze", "StageExplore", "StageExtract")
 	rm.Intent = types.IntentTrace

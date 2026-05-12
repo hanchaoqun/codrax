@@ -67,15 +67,21 @@ func distinctEntityCount(entities []string) int {
 //     analyzer fields (Intent, PredicateAxis, AnalyzerHints.Kind,
 //     raw-request-validated exact_targets, predicates) so it stays
 //     language-neutral and avoids raw-request keyword matching.
-//  5. len(types.ExactResolutionTargets(rm)) != 1 — a single exact
+//  5. NOT single-topic mechanism explanation — a "how/when does X
+//     behave" question often emits several code identifiers because
+//     they are participants in one mechanism. Those entities are
+//     search/context anchors, not principal answer members. This guard
+//     uses only typed intent / requirement-kind / axis / topic /
+//     obligation fields, never request keywords.
+//  6. len(types.ExactResolutionTargets(rm)) != 1 — a single exact
 //     resolution target is a precise scalar lookup, not an
 //     enumeration even when multiple entities exist on the model.
-//  6. rm.Predicates.IsScalarAnswer == false — the typed scalar-
+//  7. rm.Predicates.IsScalarAnswer == false — the typed scalar-
 //     answer signal stands in for the (non-existent) SubjectScalar
 //     mentioned in the design doc; either form means "answer is
 //     one literal, not a set", which is incompatible with
 //     enumeration.
-//  7. NOT (len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent).
+//  8. NOT (len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent).
 //     Axis-collapse alignment: when the LLM has emitted ≥2
 //     SubTopics in a single-component question, flipping
 //     IsCategoryEnumeration to true creates exactly the four
@@ -109,6 +115,9 @@ func r1MultiSubjectPredicate(in types.RequestModel, out *types.RequestModel) *Ob
 		return nil
 	}
 	if isStructuralEndpointTraceQuestion(*out) {
+		return nil
+	}
+	if isSingleTopicMechanismExplanation(*out) {
 		return nil
 	}
 	count := distinctEntityCount(out.AnalyzerHints.Entities)
@@ -152,6 +161,37 @@ func isStructuralEndpointTraceQuestion(rm types.RequestModel) bool {
 		return true
 	}
 	return false
+}
+
+func isSingleTopicMechanismExplanation(rm types.RequestModel) bool {
+	if rm.Intent != types.IntentExplain {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.Predicates.IsCrossComponent {
+		return false
+	}
+	if len(rm.SubTopics) > 1 || types.HasNonEmptyAmbiguity(rm) {
+		return false
+	}
+	if rm.QuestionStructure().HasAnyObligation() {
+		return false
+	}
+	switch rm.PredicateAxis {
+	case types.AxisCondition, types.AxisCall, types.AxisRegister:
+		return true
+	}
+	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case types.ReqMechanism, types.ReqConditional, types.ReqRegistration:
+		return true
+	default:
+		return false
+	}
 }
 
 func structuralEndpointTraceTargets(rm types.RequestModel) []string {
