@@ -190,6 +190,18 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 				continue
 			}
 			cit := doc.Citations[item.CitationRef]
+			if surface, ok := types.ParseAnswerSourceLocationSurface(label); ok {
+				if types.AnswerSourceLocationSurfaceMatchesCitation(surface, cit) {
+					continue
+				}
+				mismatches = append(mismatches, mismatch{
+					blockID: b.ID,
+					itemID:  item.ID,
+					label:   label,
+					cite:    fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
+				})
+				continue
+			}
 			evidence, found := preEmitCitedEvidenceItems(ctx, cit)
 			if !found {
 				continue
@@ -214,9 +226,9 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 	}
 	return []emitFixHint{{
 		Field: "blocks[].items[].citation_ref",
-		ExpectedShape: "each symbol-like item label must cite the evidence line whose subject/object/anchor names that same symbol: " +
+		ExpectedShape: "each symbol-like item label must cite the evidence line whose subject/object/anchor names that same symbol; each source-location label must cite that same file:line: " +
 			strings.Join(parts, "; "),
-		Reason: "list item labels and citation_ref values must stay aligned; adjacent call-chain hops cannot borrow each other's citations.",
+		Reason: "list item labels and citation_ref values must stay aligned; adjacent call-chain hops or nearby source locations cannot borrow each other's citations.",
 	}}
 }
 
@@ -657,6 +669,10 @@ func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types
 		for _, it := range b.Items {
 			label := strings.TrimSpace(it.Label)
 			if label == "" {
+				continue
+			}
+			if ctx != nil && it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) &&
+				types.AnswerSourceLocationLabelMatchesCitation(label, doc.Citations[it.CitationRef]) {
 				continue
 			}
 			ident := preEmitLabelLeadingIdentifier(label)

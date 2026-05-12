@@ -2064,7 +2064,7 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 		"Each facet names a semantic surface the answer must touch; the parenthesised hint names the evidence shape that supports it. " +
 		"Cover every HARD facet that has grounded evidence; SOFT facets are recommended but not strictly required; OPTIONAL facets add richness when they fit.\n\n")
 	b.WriteString("To declare a facet on a block, set `block.facet_ids` (or `block.claim_uses[j].facet_id`) to the verbatim string shown after `facet_id:` on each line below — that exact string MUST appear in the emit. The rightmost hint (when present) names the block kind(s) that typically cover the facet so you know where to place it.\n\n")
-	b.WriteString("Each line ends with `(evidence: N)` — N is the count of typed evidence items already bound to the facet. " +
+	b.WriteString("Each line ends with `(evidence: N)` — N is the curated answer-grade evidence count when a typed support lane exists, otherwise the count of typed evidence items already bound to the facet. " +
 		"For SOFT facets this count gates the coverage demand: when N=0 the facet is skipped (no typed evidence to surface), so do NOT invent claims for it. " +
 		"For HARD facets, coverage is demanded regardless of N (the question pinned the facet as essential). " +
 		"A SOFT facet with N≥1 is **elevated** — its line carries an `(elevated)` marker AFTER the evidence count, and you must cover it as if it were HARD; the typed evidence is available, so the answer must surface it.\n\n")
@@ -2084,7 +2084,7 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 		// R7: verbatim facet_id string the LLM must copy.
 		fmt.Fprintf(&b, " `facet_id: %q`.", string(req.Kind))
 		// Phase 5-E2: typed evidence count surfaces the gate input.
-		fmt.Fprintf(&b, " (evidence: %d)", len(req.SourceCandidate))
+		fmt.Fprintf(&b, " (evidence: %d)", answerDocFacetPromptEvidenceCount(plan, req))
 		// G6-3 (post_v2_runtime_gap_remediation, 2026-05-04): SOFT
 		// facets with typed evidence available are elevated to HARD
 		// gating. Surface the typed signal so the LLM knows this
@@ -2127,6 +2127,18 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocFacetPromptEvidenceCount(plan *types.AnswerSurfacePlan, req types.FacetRequirement) int {
+	raw := len(req.SourceCandidate)
+	if plan == nil || plan.FacetCoverage == nil {
+		return raw
+	}
+	curated := len(types.PrincipalSupportEvidenceItemsForFacet(plan.FacetCoverage.Family, plan, req.Kind))
+	if curated <= 0 {
+		return raw
+	}
+	return curated
 }
 
 func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
@@ -4040,7 +4052,7 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		// strategic guidance reaches the LLM at the highest
 		// salience slot. The reject signal still fires on the
 		// next iter via emitAnswerDocumentRejectSignal.
-		if sig := e.emitSwitchToPatchSignal(obs); sig.HintRequested {
+		if sig := e.emitSwitchToPatchSignal(ctx, obs); sig.HintRequested {
 			return sig
 		}
 		if sig := e.emitAnswerDocumentRejectSignal(ctx, obs); sig.HintRequested {
@@ -4155,6 +4167,8 @@ func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservat
 //   - LastToolResult is not emit_answer_document (a patch call
 //     latches the nudge; other tools are ignored)
 //   - LastToolResult succeeded (streak resets)
+//   - no previous successful answer-document payload exists for the
+//     patch tool to use as its base
 //   - streak < 2 (only fires after the second failure to give the
 //     LLM one fair chance with the simpler full-doc path)
 //   - emitPatchNudgeFired (LLM has switched to patch; no need to
@@ -4162,7 +4176,7 @@ func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservat
 //
 // The hint key is "answer_doc.switch_to_patch" — operators can
 // grep traces for this key to measure adoption / impact.
-func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(obs LoopObservation) LoopSignal {
+func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	if obs.LastToolResult == nil {
 		return LoopSignal{}
 	}
@@ -4197,6 +4211,9 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(obs LoopObservation) L
 	if e.emitPatchNudgeFired {
 		return LoopSignal{}
 	}
+	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
+		return LoopSignal{}
+	}
 	// Honor the same rejectHintBudget the legacy reject-hint path
 	// uses. Re-firing the patch nudge alongside legacy rejects
 	// would otherwise burn the budget twice as fast; respecting
@@ -4218,6 +4235,29 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(obs LoopObservation) L
 		HintKey:        "answer_doc.switch_to_patch",
 		Hint:           "Your last 2+ attempts to call `emit_answer_document` were rejected. Switch to `emit_answer_document_patch` on the next attempt — it lets you specify ONLY the blocks that need to change, instead of re-emitting the full document byte-identical. Pass `unchanged_block_ids: [\"id1\", \"id2\", ...]` to assert preservation of every typed annotation field (claim_uses, edge_anchors, facet_ids, surface_role) on blocks you do NOT need to edit — the system clones them byte-identical from your previous emit, so you cannot accidentally drop a field. Use `replace_blocks` for the blocks you DO need to fix; use `add_blocks` for new blocks. The patch tool rejects empty patches and unknown ids, so you only need to focus on the actual fix.",
 	}
+}
+
+func answerDocumentPatchBaseAvailable(ctx *types.AgentContext, primary *types.MutableState) bool {
+	if answerDocumentPatchBaseAvailableInMutable(primary) {
+		return true
+	}
+	if ctx == nil || ctx.Mutable == nil || ctx.Mutable == primary {
+		return false
+	}
+	return answerDocumentPatchBaseAvailableInMutable(ctx.Mutable)
+}
+
+func answerDocumentPatchBaseAvailableInMutable(mut *types.MutableState) bool {
+	if mut == nil {
+		return false
+	}
+	if doc := mut.AnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
+		return true
+	}
+	if rs := mut.RetryState(); rs != nil && len(rs.PrevEmitJSON) > 0 {
+		return true
+	}
+	return false
 }
 
 func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {

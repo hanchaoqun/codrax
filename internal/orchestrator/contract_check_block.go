@@ -2249,6 +2249,10 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 			if label == "" {
 				continue
 			}
+			if it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) &&
+				types.AnswerSourceLocationLabelMatchesCitation(label, doc.Citations[it.CitationRef]) {
+				continue
+			}
 			if !answerItemLabelNeedsEvidenceToken(label) && answerItemHasResolvedCitation(doc, it) {
 				continue
 			}
@@ -2358,13 +2362,19 @@ func answerItemHasResolvedCitation(doc *types.AnswerDocumentV2, item types.Answe
 
 func answerItemLabelSupportedByCitedEvidenceSubject(doc *types.AnswerDocumentV2, item types.AnswerBlockItem, label string, mut *types.MutableState) bool {
 	label = strings.TrimSpace(label)
-	if doc == nil || mut == nil || !types.IsCodeIdentitySurface(label) {
+	if doc == nil {
 		return false
 	}
 	if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
 		return false
 	}
 	cit := doc.Citations[item.CitationRef]
+	if types.AnswerSourceLocationLabelMatchesCitation(label, cit) {
+		return true
+	}
+	if mut == nil || !types.IsCodeIdentitySurface(label) {
+		return false
+	}
 	citFile := strings.TrimSpace(cit.File)
 	if citFile == "" {
 		return false

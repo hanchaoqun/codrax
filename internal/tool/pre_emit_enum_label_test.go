@@ -132,6 +132,72 @@ func TestPreCheckItemCitationAlignment_PrecedenceRoleLabelsAreNotSymbols(t *test
 	}
 }
 
+func TestPreCheckItemCitationAlignment_SourceLocationLabelsMatchCitation(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 1903}},
+		Blocks: []types.AnswerBlock{{
+			ID:        "locations",
+			Kind:      types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimAssignmentFact}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "loc",
+				Label:       "internal/agent/analyzer.go:1903",
+				Text:        "This location carries the requested assignment.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("source-location display labels should align to citation file:line, got %+v", hints)
+	}
+}
+
+func TestPreCheckItemCitationAlignment_SourceLocationLabelsRejectCitationDrift(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 1904}},
+		Blocks: []types.AnswerBlock{{
+			ID:        "locations",
+			Kind:      types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimAssignmentFact}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "loc",
+				Label:       "internal/agent/analyzer.go:1903",
+				Text:        "This location is one line away from the citation.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
+	hints := preCheckItemCitationAlignment(doc, nil, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("source-location citation drift should produce one hint, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "source-location label") {
+		t.Fatalf("hint should explain source-location alignment, got %+v", hints[0])
+	}
+}
+
+func TestPreCheckEnumLabel_SourceLocationLabelSkipsSymbolOracle(t *testing.T) {
+	oracle := &stubOracle{known: map[string]int{}}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "veryLongDirectory/foo.cpp", Line: 12}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "locs",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "loc",
+				Label:       "veryLongDirectory/foo.cpp:12",
+				Text:        "The requested location.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if hints := preCheckEnumerationLabelGrounding(doc, oracle, &types.BusContext{}); len(hints) != 0 {
+		t.Fatalf("source-location display labels should not be checked as symbols, got %+v", hints)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_ExternalObservationLabelsAreNotSymbols(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Citations: []types.Citation{{File: ".codrax/logs/run.log", Line: 42}},

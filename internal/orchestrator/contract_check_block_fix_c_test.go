@@ -167,6 +167,52 @@ func TestAnswerItemLabelSupportedByCitedEvidenceSubjectRejectsAdjacentCitationDr
 	}
 }
 
+func TestEnumerationLabelGrounding_SourceLocationLabelUsesCitation(t *testing.T) {
+	mut := mutWithEvidence([]types.EvidenceItem{{
+		ID:              "other",
+		Source:          "elsewhere/file.go",
+		LineStart:       1,
+		AnchorSymbol:    "OtherSymbol",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "locations",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "loc",
+				Label:       "veryLongDirectory/foo.cpp:12",
+				Text:        "The requested location.",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "veryLongDirectory/foo.cpp", Line: 12}},
+	}
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Fatalf("source-location display labels should be grounded by their own citation, got %+v", vs)
+	}
+}
+
+func TestEnumerationLabelHallucination_SourceLocationLabelSkipsOracle(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "locations",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "loc",
+				Label:       "veryLongDirectory/foo.cpp:12",
+				Text:        "The requested location.",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "veryLongDirectory/foo.cpp", Line: 12}},
+	}
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle); len(vs) != 0 {
+		t.Fatalf("source-location display labels should not be checked as source symbols, got %+v", vs)
+	}
+}
+
 // TestEnumerationItemLabelHallucination_NilOracleSkips confirms
 // that callers passing nil oracle disable the validator (unit-test
 // path / no-graph runs).

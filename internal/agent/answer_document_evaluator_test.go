@@ -158,6 +158,56 @@ func TestRenderAnswerDocFacetCoverage_EvidenceCountAnnotation(t *testing.T) {
 	}
 }
 
+func TestRenderAnswerDocFacetCoverage_UsesCuratedPrincipalEvidenceCount(t *testing.T) {
+	modelItem := types.EvidenceItem{
+		ID:              "literal-model",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1903,
+		AnchorKind:      types.AnchorAssignment,
+		Subject:         "CitationReq.Required",
+		Object:          "false",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	evidence := []types.EvidenceItem{modelItem}
+	for i := 0; i < 20; i++ {
+		evidence = append(evidence, types.EvidenceItem{
+			ID:              fmt.Sprintf("noise-%02d", i),
+			Kind:            types.EvidenceConcrete,
+			Scope:           types.ScopeLine,
+			Source:          "internal/tool/noise.go",
+			LineStart:       i + 1,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    fmt.Sprintf("helper%d", i),
+			Producer:        "concrete_values",
+			GroundingStatus: types.GroundingGrounded,
+		})
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer: true,
+				},
+			},
+		},
+		EvidenceItems: evidence,
+	}
+
+	got := renderAnswerDocFacetCoverage(ctx)
+	if !strings.Contains(got, `facet_id: "resolved_literal_or_symbol"`) ||
+		!strings.Contains(got, "Resolved literal or symbol") ||
+		!strings.Contains(got, "(evidence: 1)") {
+		t.Fatalf("facet prompt should render curated principal evidence count, got:\n%s", got)
+	}
+	if strings.Contains(got, "(evidence: 21)") {
+		t.Fatalf("facet prompt should not expose broad raw candidate count as answer-grade evidence:\n%s", got)
+	}
+}
+
 // G6-3 (post_v2_runtime_gap_remediation, 2026-05-04): SOFT facets
 // with typed evidence available (IsPromoted=true) carry an
 // `(elevated)` marker after the evidence count, signalling to the

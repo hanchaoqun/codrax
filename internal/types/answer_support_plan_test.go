@@ -941,6 +941,53 @@ func TestBuildAnswerSupportPlan_GenericScalarDedupesSameTypedSurfaceRole(t *test
 	}
 }
 
+func TestPrincipalSupportEvidenceItemsForFacetCuratesBroadCandidates(t *testing.T) {
+	modelItem := EvidenceItem{
+		ID:              "literal-model",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1903,
+		AnchorKind:      AnchorAssignment,
+		Subject:         "CitationReq.Required",
+		Object:          "false",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	evidence := []EvidenceItem{modelItem}
+	candidates := []string{modelItem.ID}
+	for i := 0; i < 20; i++ {
+		id := fmt.Sprintf("noise-%02d", i)
+		evidence = append(evidence, EvidenceItem{
+			ID:              id,
+			Kind:            EvidenceConcrete,
+			Scope:           ScopeLine,
+			Source:          "internal/tool/noise.go",
+			LineStart:       i + 1,
+			AnchorKind:      AnchorAssignment,
+			AnchorSymbol:    fmt.Sprintf("helper%d", i),
+			Producer:        "concrete_values",
+			GroundingStatus: GroundingGrounded,
+		})
+		candidates = append(candidates, id)
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: evidence,
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFGeneric,
+			Required: []FacetRequirement{{
+				Kind:            FacetResolvedLiteralOrSymbol,
+				SourceCandidate: candidates,
+			}},
+		},
+	}
+
+	items := PrincipalSupportEvidenceItemsForFacet(QFGeneric, plan, FacetResolvedLiteralOrSymbol)
+	if len(items) != 1 || items[0].ID != "literal-model" {
+		t.Fatalf("facet-scoped principal evidence should keep model-authored answer fact only, got %+v", items)
+	}
+}
+
 func TestBuildAnswerSupportPlan_EnumerationPrioritizesModelAuthoredSurfaceEvidence(t *testing.T) {
 	imports := []EvidenceItem{
 		{

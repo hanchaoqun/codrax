@@ -181,7 +181,20 @@ func supportFacetCandidateIDs(plan *AnswerSurfacePlan, facets ...AnswerFacetKind
 // the principal evidence shape should use this helper rather than
 // re-walking SurfaceEvidence and facet candidates with local rules.
 func PrincipalSupportEvidenceItemsForFamily(family QuestionFamily, plan *AnswerSurfacePlan) []EvidenceItem {
-	candidates := supportFacetCandidateIDs(plan, principalSupportFacetKinds(family)...)
+	return principalSupportEvidenceItemsForFacets(family, plan, principalSupportFacetKinds(family)...)
+}
+
+// PrincipalSupportEvidenceItemsForFacet returns the same curated
+// model-authored / de-duplicated principal evidence pool, scoped to a
+// single facet. Prompt renderers use this as the answer-grade evidence
+// count so broad raw SourceCandidate pools do not look like hundreds of
+// equally principal facts.
+func PrincipalSupportEvidenceItemsForFacet(family QuestionFamily, plan *AnswerSurfacePlan, facet AnswerFacetKind) []EvidenceItem {
+	return principalSupportEvidenceItemsForFacets(family, plan, facet)
+}
+
+func principalSupportEvidenceItemsForFacets(family QuestionFamily, plan *AnswerSurfacePlan, facets ...AnswerFacetKind) []EvidenceItem {
+	candidates := supportFacetCandidateIDs(plan, facets...)
 	if len(candidates) == 0 {
 		return nil
 	}

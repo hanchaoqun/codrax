@@ -23,9 +23,18 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func ctxWithAnswerPatchBase() *types.AgentContext {
+	mut := types.NewMutableState("retry")
+	mut.SetRetryState(&types.RetryState{
+		Attempt:      1,
+		PrevEmitJSON: []byte(`{"blocks":[{"id":"s1","kind":"summary","text":"x"}]}`),
+	})
+	return &types.AgentContext{Mutable: mut}
+}
+
 func TestEmitSwitchToPatchSignal_NoLastResult_NoOp(t *testing.T) {
 	e := &answerDocumentEvaluator{}
-	if got := e.emitSwitchToPatchSignal(LoopObservation{}); got.HintRequested {
+	if got := e.emitSwitchToPatchSignal(nil, LoopObservation{}); got.HintRequested {
 		t.Errorf("nil LastToolResult: expected no hint; got %+v", got)
 	}
 }
@@ -35,7 +44,7 @@ func TestEmitSwitchToPatchSignal_NonEmitTool_NoOp(t *testing.T) {
 	obs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "read_file", Success: false},
 	}
-	if got := e.emitSwitchToPatchSignal(obs); got.HintRequested {
+	if got := e.emitSwitchToPatchSignal(nil, obs); got.HintRequested {
 		t.Errorf("non-emit tool: expected no hint; got %+v", got)
 	}
 }
@@ -45,7 +54,7 @@ func TestEmitSwitchToPatchSignal_FirstFailure_NoNudge(t *testing.T) {
 	obs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document", Success: false},
 	}
-	got := e.emitSwitchToPatchSignal(obs)
+	got := e.emitSwitchToPatchSignal(nil, obs)
 	if got.HintRequested {
 		t.Errorf("1st failure: expected no nudge (LLM gets one fair chance); got %+v", got)
 	}
@@ -56,13 +65,14 @@ func TestEmitSwitchToPatchSignal_FirstFailure_NoNudge(t *testing.T) {
 
 func TestEmitSwitchToPatchSignal_SecondFailure_NudgeFires(t *testing.T) {
 	e := &answerDocumentEvaluator{}
+	ctx := ctxWithAnswerPatchBase()
 	obs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document", Success: false},
 	}
 	// 1st failure: no nudge.
-	e.emitSwitchToPatchSignal(obs)
+	e.emitSwitchToPatchSignal(ctx, obs)
 	// 2nd failure: nudge.
-	got := e.emitSwitchToPatchSignal(obs)
+	got := e.emitSwitchToPatchSignal(ctx, obs)
 	if !got.HintRequested {
 		t.Fatalf("2nd failure: expected nudge; got %+v", got)
 	}
@@ -77,6 +87,18 @@ func TestEmitSwitchToPatchSignal_SecondFailure_NudgeFires(t *testing.T) {
 	}
 }
 
+func TestEmitSwitchToPatchSignal_NoPatchBase_NoNudge(t *testing.T) {
+	e := &answerDocumentEvaluator{}
+	obs := LoopObservation{
+		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document", Success: false},
+	}
+	e.emitSwitchToPatchSignal(nil, obs)
+	got := e.emitSwitchToPatchSignal(nil, obs)
+	if got.HintRequested {
+		t.Fatalf("patch nudge must not fire before a previous successful answer document exists; got %+v", got)
+	}
+}
+
 func TestEmitSwitchToPatchSignal_RefiresUntilLLMSwitches(t *testing.T) {
 	// 2026-05-10 PM: forensic on s7b finalizer iter=1 showed the
 	// one-shot guard fired even when the policy throttled away the
@@ -85,12 +107,13 @@ func TestEmitSwitchToPatchSignal_RefiresUntilLLMSwitches(t *testing.T) {
 	// beyond streak>=2 — the per-HintKey cap (5) bounds total
 	// fires.
 	e := &answerDocumentEvaluator{}
+	ctx := ctxWithAnswerPatchBase()
 	failObs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document", Success: false},
 	}
-	e.emitSwitchToPatchSignal(failObs) // 1st failure → no nudge yet
+	e.emitSwitchToPatchSignal(ctx, failObs) // 1st failure → no nudge yet
 	for i := 0; i < 5; i++ {
-		got := e.emitSwitchToPatchSignal(failObs)
+		got := e.emitSwitchToPatchSignal(ctx, failObs)
 		if !got.HintRequested {
 			t.Fatalf("failure #%d (streak=%d): expected re-fire; got %+v",
 				i+2, e.emitFullDocFailStreak, got)
@@ -109,11 +132,12 @@ func TestEmitSwitchToPatchSignal_LatchesAfterPatchObserved(t *testing.T) {
 	// or failure), the latch closes — further full-doc failures
 	// don't re-fire the nudge.
 	e := &answerDocumentEvaluator{}
+	ctx := ctxWithAnswerPatchBase()
 	failObs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document", Success: false},
 	}
-	e.emitSwitchToPatchSignal(failObs)
-	got := e.emitSwitchToPatchSignal(failObs)
+	e.emitSwitchToPatchSignal(ctx, failObs)
+	got := e.emitSwitchToPatchSignal(ctx, failObs)
 	if !got.HintRequested {
 		t.Fatal("2nd failure: expected nudge before latch")
 	}
@@ -122,14 +146,14 @@ func TestEmitSwitchToPatchSignal_LatchesAfterPatchObserved(t *testing.T) {
 	patchObs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document_patch", Success: false},
 	}
-	if sig := e.emitSwitchToPatchSignal(patchObs); sig.HintRequested {
+	if sig := e.emitSwitchToPatchSignal(ctx, patchObs); sig.HintRequested {
 		t.Errorf("patch observation should latch the nudge silently; got %+v", sig)
 	}
 	if !e.emitPatchNudgeFired {
 		t.Errorf("emitPatchNudgeFired must latch on patch observation; got false")
 	}
 	// Subsequent full-doc failure must NOT re-fire (latch is closed).
-	if sig := e.emitSwitchToPatchSignal(failObs); sig.HintRequested {
+	if sig := e.emitSwitchToPatchSignal(ctx, failObs); sig.HintRequested {
 		t.Errorf("after latch: full-doc failure must not re-fire nudge; got %+v", sig)
 	}
 }
@@ -140,10 +164,11 @@ func TestEmitSwitchToPatchSignal_RefireBypassesThrottle(t *testing.T) {
 	// without this, MinInjectInterval (default 3) suppressed the
 	// nudge after a prior tool-reject hint at iter-1.
 	e := &answerDocumentEvaluator{emitFullDocFailStreak: 1}
+	ctx := ctxWithAnswerPatchBase()
 	failObs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document", Success: false},
 	}
-	got := e.emitSwitchToPatchSignal(failObs)
+	got := e.emitSwitchToPatchSignal(ctx, failObs)
 	if !got.HintRequested {
 		t.Fatal("expected nudge")
 	}
@@ -160,8 +185,8 @@ func TestEmitSwitchToPatchSignal_SuccessfulEmitResetsStreak(t *testing.T) {
 	successObs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document", Success: true},
 	}
-	e.emitSwitchToPatchSignal(failObs)    // streak = 1
-	e.emitSwitchToPatchSignal(successObs) // streak resets
+	e.emitSwitchToPatchSignal(nil, failObs)    // streak = 1
+	e.emitSwitchToPatchSignal(nil, successObs) // streak resets
 	if e.emitFullDocFailStreak != 0 {
 		t.Errorf("successful emit should reset streak; got %d", e.emitFullDocFailStreak)
 	}
@@ -174,7 +199,7 @@ func TestEmitSwitchToPatchSignal_SuccessfulPatchResetsStreak(t *testing.T) {
 	successObs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document_patch", Success: true},
 	}
-	e.emitSwitchToPatchSignal(successObs)
+	e.emitSwitchToPatchSignal(nil, successObs)
 	if e.emitFullDocFailStreak != 0 {
 		t.Errorf("successful patch should reset streak; got %d", e.emitFullDocFailStreak)
 	}
@@ -193,7 +218,7 @@ func TestEmitSwitchToPatchSignal_FailedPatch_LatchesNudge(t *testing.T) {
 	patchFailObs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document_patch", Success: false},
 	}
-	got := e.emitSwitchToPatchSignal(patchFailObs)
+	got := e.emitSwitchToPatchSignal(nil, patchFailObs)
 	if got.HintRequested {
 		t.Errorf("patch failure: expected silent latch (no hint); got %+v", got)
 	}
@@ -209,10 +234,11 @@ func TestEmitSwitchToPatchSignal_HintIsLanguageNeutral(t *testing.T) {
 	// R6 audit: no internal stage names ("explorer" / "extractor"
 	// / "downstream stage"), no internal field names.
 	e := &answerDocumentEvaluator{emitFullDocFailStreak: 1}
+	ctx := ctxWithAnswerPatchBase()
 	obs := LoopObservation{
 		LastToolResult: &types.ToolResult{ToolName: "emit_answer_document", Success: false},
 	}
-	got := e.emitSwitchToPatchSignal(obs)
+	got := e.emitSwitchToPatchSignal(ctx, obs)
 	if !got.HintRequested {
 		t.Fatal("expected nudge")
 	}
