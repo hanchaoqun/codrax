@@ -284,9 +284,13 @@ func principalSupportEvidenceSurfaceRoleKey(item EvidenceItem) string {
 		string(item.AnchorKind),
 		strings.TrimSpace(item.AnchorSymbol),
 		strings.TrimSpace(item.OwnerSymbol),
-		strings.TrimSpace(item.Subject),
-		strings.TrimSpace(item.Object),
-		strings.TrimSpace(item.Condition),
+	}
+	if item.AnchorKind != AnchorAssignment {
+		parts = append(parts,
+			strings.TrimSpace(item.Subject),
+			strings.TrimSpace(item.Object),
+			strings.TrimSpace(item.Condition),
+		)
 	}
 	for i := range parts {
 		parts[i] = strings.ToLower(parts[i])

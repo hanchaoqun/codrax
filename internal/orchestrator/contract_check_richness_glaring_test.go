@@ -280,6 +280,31 @@ func TestValidatePrincipalProseUnderfilled_LabelAnchoredOrderedListSkips(t *test
 	}
 }
 
+func TestValidatePrincipalProseUnderfilled_SourceLocationLabelsSkip(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "locations",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimAssignmentFact,
+				}},
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "internal/agent/analyzer.go:1903", Text: "sets the field", CitationRef: 0},
+					{ID: "i2", Label: "internal/orchestrator/contract_check.go:63", Text: "sets the field", CitationRef: 1},
+					{ID: "i3", Label: "internal/orchestrator/orchestrator.go:6362", Text: "sets the field", CitationRef: 2},
+					{ID: "i4", Label: "internal/orchestrator/orchestrator.go:6494", Text: "sets the field", CitationRef: 3},
+				},
+			},
+		},
+	}
+	if vs := validatePrincipalProseUnderfilled(doc); len(vs) != 0 {
+		t.Fatalf("source-location labels are user-visible evidence anchors and should not force helper-name inline code; got %+v", vs)
+	}
+}
+
 // TestValidatePrincipalProseUnderfilled_BelowClaimFloorSkipped — only 2
 // claim_uses → below floor=3 → no violation regardless of prose.
 func TestValidatePrincipalProseUnderfilled_BelowClaimFloorSkipped(t *testing.T) {

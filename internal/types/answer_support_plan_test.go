@@ -916,6 +916,7 @@ func TestBuildAnswerSupportPlan_GenericScalarDedupesSameTypedSurfaceRole(t *test
 	countCarrier := base
 	countCarrier.ID = "assignment-count-carrier"
 	countCarrier.Summary = "4"
+	countCarrier.Object = "4"
 	countCarrier.LoadBearingSummary = true
 	rm := RequestModel{
 		Intent:        IntentReturnValue,

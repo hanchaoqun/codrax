@@ -1436,18 +1436,24 @@ func principalListLabelsAnchoredByClaimSurface(b types.AnswerBlock) bool {
 	if len(b.Items) == 0 || len(b.ClaimUses) == 0 {
 		return false
 	}
+	claimFormsUseDisplayLabels := true
 	for _, cu := range b.ClaimUses {
 		if !cu.ClaimForm.UsesNonSymbolLabelSurface() {
-			return false
+			claimFormsUseDisplayLabels = false
+			break
 		}
 	}
+	allSourceLocationLabels := true
 	for _, item := range b.Items {
 		label := strings.TrimSpace(item.Label)
 		if label == "" || item.CitationRef < 0 {
 			return false
 		}
+		if _, ok := types.ParseAnswerSourceLocationSurface(label); !ok {
+			allSourceLocationLabels = false
+		}
 	}
-	return true
+	return claimFormsUseDisplayLabels || allSourceLocationLabels
 }
 
 // countInlineCodeSegments counts Markdown inline-code segments
