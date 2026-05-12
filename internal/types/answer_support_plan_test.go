@@ -1075,7 +1075,21 @@ func TestBuildAnswerSupportPlan_ChangeImpactKeepsHeterogeneousAffectedSites(t *t
 		Producer:        "explorer.emit_evidence",
 		GroundingStatus: GroundingGrounded,
 	}
-	evidence := []EvidenceItem{def, assign, guard, call}
+	unrelatedRequired := EvidenceItem{
+		ID:              "required-block",
+		Kind:            EvidenceConditional,
+		Scope:           ScopeLine,
+		Source:          "internal/tool/answer_document_pre_emit_check.go",
+		LineStart:       1115,
+		AnchorKind:      AnchorCondition,
+		AnchorSymbol:    "Required",
+		Object:          "req.Required",
+		Condition:       "!req.Required",
+		Summary:         "Required belongs to RequiredBlock, not CitationReq.Required",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	evidence := []EvidenceItem{def, assign, guard, call, unrelatedRequired}
 	rm := RequestModel{
 		Intent: IntentEnumerate,
 		Predicates: SemanticPredicates{
@@ -1126,6 +1140,9 @@ func TestBuildAnswerSupportPlan_ChangeImpactKeepsHeterogeneousAffectedSites(t *t
 		if !strings.Contains(locationText, want) {
 			t.Fatalf("principal lane missing affected site %q:\n%s", want, locationText)
 		}
+	}
+	if strings.Contains(locationText, "answer_document_pre_emit_check.go") {
+		t.Fatalf("owner-qualified change-impact target should not promote a different Required field:\n%s", locationText)
 	}
 	if !strings.Contains(principalLane.Guidance, "Direct assignments are only one affected-site role") {
 		t.Fatalf("impact guidance should warn against assignment-only narrowing: %q", principalLane.Guidance)

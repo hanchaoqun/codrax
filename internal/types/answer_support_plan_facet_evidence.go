@@ -291,12 +291,181 @@ func curateEnumerationPrincipalEvidence(plan *AnswerSurfacePlan, items []Evidenc
 		return nil
 	}
 	if plan != nil && plan.ChangeImpactProfile != nil && plan.ChangeImpactProfile.Active() {
+		if filtered := filterChangeImpactPrincipalEvidence(plan.ChangeImpactProfile, items); len(filtered) > 0 {
+			return filtered
+		}
 		return items
 	}
 	if plan != nil && len(plan.StepBackbone) > 0 {
 		return enumerationPrincipalEvidenceMatchingBackbone(plan, items)
 	}
 	return filterDominantEnumerationPrincipalSurface(items)
+}
+
+func filterChangeImpactPrincipalEvidence(profile *ChangeImpactProfile, items []EvidenceItem) []EvidenceItem {
+	target := parseChangeImpactPrincipalTarget(profile)
+	if !target.ownerQualified {
+		return items
+	}
+	out := make([]EvidenceItem, 0, len(items))
+	for _, item := range items {
+		if changeImpactEvidenceMatchesTarget(item, items, target) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+type changeImpactPrincipalTarget struct {
+	raw            string
+	owner          string
+	leaf           string
+	path           string
+	ownerQualified bool
+}
+
+func parseChangeImpactPrincipalTarget(profile *ChangeImpactProfile) changeImpactPrincipalTarget {
+	if profile == nil || !profile.Active() {
+		return changeImpactPrincipalTarget{}
+	}
+	raw := strings.TrimSpace(profile.Target)
+	normalized := normalizeChangeImpactTargetSurface(raw)
+	parts := strings.Split(normalized, ".")
+	if len(parts) < 2 {
+		return changeImpactPrincipalTarget{raw: raw, path: normalized}
+	}
+	owner := strings.TrimSpace(parts[len(parts)-2])
+	leaf := strings.TrimSpace(parts[len(parts)-1])
+	if owner == "" || leaf == "" {
+		return changeImpactPrincipalTarget{raw: raw, path: normalized}
+	}
+	return changeImpactPrincipalTarget{
+		raw:            raw,
+		owner:          owner,
+		leaf:           leaf,
+		path:           owner + "." + leaf,
+		ownerQualified: true,
+	}
+}
+
+func changeImpactEvidenceMatchesTarget(item EvidenceItem, peers []EvidenceItem, target changeImpactPrincipalTarget) bool {
+	if !target.ownerQualified {
+		return true
+	}
+	if changeImpactEvidenceHasTargetPath(item, target.path) {
+		return true
+	}
+	if changeImpactEvidenceDefinesOwner(item, target.owner) {
+		return true
+	}
+	if changeImpactEvidenceDefinesLeaf(item, target.leaf) &&
+		changeImpactHasNearbyOwnerDefinition(item, peers, target.owner) {
+		return true
+	}
+	return false
+}
+
+func changeImpactEvidenceHasTargetPath(item EvidenceItem, targetPath string) bool {
+	if strings.TrimSpace(targetPath) == "" {
+		return false
+	}
+	for _, surface := range changeImpactEvidenceTargetSurfaces(item) {
+		if normalized := normalizeChangeImpactTargetSurface(surface); normalized != "" &&
+			strings.Contains(normalized, targetPath) {
+			return true
+		}
+	}
+	return false
+}
+
+func changeImpactEvidenceTargetSurfaces(item EvidenceItem) []string {
+	out := []string{
+		item.AnchorSymbol,
+		item.OwnerSymbol,
+		item.Subject,
+		item.Object,
+		item.Predicate,
+		item.Condition,
+		item.Snippet,
+	}
+	out = append(out, item.SurfaceTerms...)
+	return out
+}
+
+func changeImpactEvidenceDefinesOwner(item EvidenceItem, owner string) bool {
+	if strings.TrimSpace(owner) == "" || ClaimFormOf(item) != ClaimDefinitionFact {
+		return false
+	}
+	return changeImpactSurfaceEquals(item.AnchorSymbol, owner) ||
+		changeImpactSurfaceEquals(item.Subject, owner) ||
+		changeImpactSurfaceEquals(item.OwnerSymbol, owner)
+}
+
+func changeImpactEvidenceDefinesLeaf(item EvidenceItem, leaf string) bool {
+	if strings.TrimSpace(leaf) == "" || ClaimFormOf(item) != ClaimDefinitionFact {
+		return false
+	}
+	return changeImpactSurfaceEquals(item.AnchorSymbol, leaf) ||
+		changeImpactSurfaceEquals(item.Subject, leaf) ||
+		changeImpactSurfaceEquals(item.Object, leaf)
+}
+
+func changeImpactHasNearbyOwnerDefinition(item EvidenceItem, peers []EvidenceItem, owner string) bool {
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
+		return false
+	}
+	source := normalizeAnswerSupportPath(item.Source)
+	for _, peer := range peers {
+		if normalizeAnswerSupportPath(peer.Source) != source || peer.LineStart <= 0 {
+			continue
+		}
+		if absInt(peer.LineStart-item.LineStart) > definitionSupportMemberCitationWindow {
+			continue
+		}
+		if changeImpactEvidenceDefinesOwner(peer, owner) {
+			return true
+		}
+	}
+	return false
+}
+
+func changeImpactSurfaceEquals(surface, target string) bool {
+	return normalizeChangeImpactTargetSurface(surface) == normalizeChangeImpactTargetSurface(target)
+}
+
+func normalizeChangeImpactTargetSurface(surface string) string {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(
+		`\\`, `/`,
+		"::", ".",
+		"->", ".",
+		"?.", ".",
+		"[", ".",
+		"]", "",
+		"(", " ",
+		")", " ",
+		"{", " ",
+		"}", " ",
+		"`", "",
+		"\"", "",
+		"'", "",
+	)
+	surface = replacer.Replace(surface)
+	fields := strings.FieldsFunc(surface, func(r rune) bool {
+		switch r {
+		case ' ', '\t', '\n', '\r', ',', ';', ':', '=', '!', '<', '>', '+', '-', '*', '/', '&', '|':
+			return true
+		default:
+			return false
+		}
+	})
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.ToLower(strings.Join(fields, "."))
 }
 
 func enumerationSupportingContextEvidence(plan *AnswerSurfacePlan, items []EvidenceItem) []EvidenceItem {

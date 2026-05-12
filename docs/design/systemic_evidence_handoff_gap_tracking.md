@@ -26,6 +26,7 @@ structured data, not raw thinking text or system-invented answer content.
 | G6 | Assignment/field evidence is still uneven across Go structs, C/C++ designated initializers, ArkTS object literals, Cangjie declarations, and config syntaxes. | `internal/tool/repomap`, `internal/types/claim_form.go`, `internal/types/answer_principal_member_surface.go`, `internal/agent/explorer.go` | Prefer tree-sitter/repomap surfaces to classify assignment/field/member evidence into language-neutral `ClaimForm` + `MemberSurface`. Fallback string evidence remains soft guidance, not a hard gate. | Design target |
 | G7 | Aggregate count/member-set drift appears when the model emits only prose counts or partial aggregate facts. | `internal/types/answer_aggregate_fact.go`, `internal/tool/emit_investigation_complete.go`, `internal/agent/aggregate_fact_render.go` | Keep aggregate facts model-owned and structurally self-consistent: `len(members)==value`, file:line totals require `unique_count`, member-set value may be canonicalized only from emitted members. | Existing, keep enforcing |
 | G8 | Diagrams and block shapes can reflect system scaffolding instead of the user's requested answer surface. | `internal/types/answer_semantic_view_*`, `internal/agent/answer_document_evaluator.go`, `internal/orchestrator/contract_check_block.go` | Compile answer family and allowed block kinds from typed profiles/facets; finalizer may enrich diagrams from grounded seeds, but principal blocks must stay aligned to the user-requested surface. | Existing, keep auditing |
+| G9 | Owner-qualified change-impact targets can be polluted by unrelated fields with the same leaf name. | `internal/types/answer_support_plan_facet_evidence.go` | For `Owner.member` targets, principal evidence must structurally match the owner-qualified path or define the owner itself; leaf-only matches stay context. This covers Go selectors, C/C++ `::` / `->`, ArkTS/Cangjie member paths, and config-like dotted paths. | Implemented in this phase |
 
 ## Implementation Order
 
@@ -33,10 +34,12 @@ structured data, not raw thinking text or system-invented answer content.
    still contain file-count drift. This is a finalizer-local contract fix.
 2. Re-run `u10b` and a random eval shard. Any new failures are assigned to the
    ledger before code changes.
-3. Expand G6 using repomap/tree-sitter surfaces rather than language-specific
+3. Land G9 before broad random eval resumes; a PASS that includes an unrelated
+   same-leaf field is a principal-set correctness failure, not a richness issue.
+4. Expand G6 using repomap/tree-sitter surfaces rather than language-specific
    prompt patches. This must include Go, C/C++, Cangjie, ArkTS, and mixed
    repositories.
-4. Continue sampling G2/G4/G5/G8 with random eval order. If an issue is already
+5. Continue sampling G2/G4/G5/G8 with random eval order. If an issue is already
    covered by an existing typed lane, strengthen the consumer/gate instead of
    adding another prompt-only rule.
 

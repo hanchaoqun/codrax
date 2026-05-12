@@ -159,6 +159,23 @@ principal support lane contained only `assignment_fact` members.
      must come from the typed file obligation count or `aggregate_facts`, not
      from unstructured closure prose.
 
+11. Owner-qualified field targets can be polluted by same-leaf fields
+
+   - `internal/types/answer_support_plan_facet_evidence.go::curateEnumerationPrincipalEvidence`
+     preserved all heterogeneous evidence for active change-impact profiles.
+     That fixed assignment-only narrowing, but it also let an unrelated
+     `req.Required` / `RequiredBlock.Required` guard become a principal member
+     for the target `CitationReq.Required`.
+   - The finalizer could recognize the distinction in prose, but
+     `MissingPrincipalSupportMembers` forced it to include the unrelated file
+     because the support lane had already promoted the wrong typed member.
+   - The generalized fix is owner-qualified filtering for change-impact
+     principal evidence. When the target is a field/member path such as
+     `CitationReq.Required`, principal evidence must structurally match that
+     path (`*.CitationReq.Required`) or define the owner itself (`CitationReq`).
+     Leaf-only evidence (`req.Required`) remains support context, not a
+     principal affected file.
+
 ## Generalized Design
 
 ### Typed profile
@@ -291,6 +308,27 @@ the file count for this profile. Unstructured closure reason text is treated as
 audit context only when it conflicts with typed obligations or structured
 aggregate facts.
 
+### Owner-qualified target filter
+
+For change-impact profiles whose target is an owner-qualified path
+(`Owner.member`, `Owner::member`, `owner->member`, etc.), the principal support
+curator filters evidence by typed surfaces:
+
+- keep evidence whose structured fields (`subject`, `object`, `condition`,
+  `snippet`, `surface_terms`, `anchor_symbol`, `owner_symbol`) contain the
+  normalized owner-qualified target;
+- keep definition evidence for the owner itself, because the type/schema
+  declaration is part of the migration surface;
+- keep a leaf field/member definition only when a nearby definition evidence
+  item in the same file identifies the owner;
+- demote leaf-only evidence with a different owner into supporting context.
+
+The filter does not read raw request keywords and does not infer answer
+members from repository text. It consumes the analyzer-emitted target and
+model-emitted structured evidence fields, so it generalizes across Go field
+selectors, C/C++ `::` / `->` members, ArkTS object/property access, Cangjie
+members, and other repo-map backed languages.
+
 ### Structured answer carrier recovery
 
 `emit_answer_document` flat-mode recovery should be schema-aware:
@@ -342,6 +380,8 @@ the model already emitted in the tool payload.
       as `file:line` sites instead of file paths.
 - [x] Teach the finalizer to use typed file obligations / aggregate facts as
       the source of file counts instead of stale unstructured closure prose.
+- [x] Filter change-impact principal evidence by owner-qualified target path so
+      unrelated same-leaf fields stay support context.
 - [ ] Re-run `u10b` and keep the random eval sweep moving.
 
 ## Red Lines
