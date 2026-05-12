@@ -52,7 +52,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `replace_blocks`: full block payloads that replace the previous emit's block with the same id. Each entry must carry a non-empty id that exists in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids of previous-emit blocks to drop.\n" +
-		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited.\n" +
+		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. If you replace the citation pool, also replace/remove every previous block that contains non-negative `items[].citation_ref`; unchanged blocks keep old integer indexes and cannot be safely carried across a new pool.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats` / `replace_snippets`: when present, replace the corresponding document-level field.\n\n" +
 		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` / `remove_block_ids` MUST exist in the previous emit; every `add_blocks` id MUST NOT. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. Block kind is validated against the canonical block-kind enum. The merged document is stored as if you had called `emit_answer_document` with the full payload.\n\n" +

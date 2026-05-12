@@ -122,6 +122,9 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	if h := preCheckRequiredBlocks(doc, view); len(h) > 0 {
 		hints = append(hints, h...)
 	}
+	if h := preCheckSummaryLeadBlock(doc, view); len(h) > 0 {
+		hints = append(hints, h...)
+	}
 
 	// 2. Principal-block claim_use presence.
 	if h := preCheckPrincipalClaimUse(doc, view); len(h) > 0 {
@@ -216,6 +219,55 @@ func preCheckCitationPoolIntegrity(doc *types.AnswerDocumentV2) []emitFixHint {
 		ExpectedShape: expected,
 		Reason:        "citation_ref is an index into the model-emitted citations[] array; semantic coverage checks cannot run correctly until the carrier's citation pool is structurally complete.",
 	}}
+}
+
+func preCheckSummaryLeadBlock(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+	if doc == nil || view == nil || !viewRequiresSummaryBlock(view) || len(doc.Blocks) == 0 {
+		return nil
+	}
+	firstRenderable := -1
+	summaryAt := -1
+	for i, block := range doc.Blocks {
+		if !answerBlockHasRenderableSurface(block) {
+			continue
+		}
+		if firstRenderable < 0 {
+			firstRenderable = i
+		}
+		if block.Kind == types.BlockSummary && summaryAt < 0 {
+			summaryAt = i
+		}
+	}
+	if summaryAt < 0 || firstRenderable < 0 || summaryAt == firstRenderable {
+		return nil
+	}
+	return []emitFixHint{{
+		Field:         "blocks[]",
+		ExpectedShape: "place the required summary block first in blocks[] before principal lists, tables, sections, diagrams, or caveats",
+		Reason:        "the summary block is the answer lead-in; rendering it after detail blocks makes the user-facing answer read backwards even when the facts and citations are correct.",
+	}}
+}
+
+func viewRequiresSummaryBlock(view *types.AnswerSemanticView) bool {
+	if view == nil {
+		return false
+	}
+	for _, req := range view.RequiredBlocks {
+		if req.Kind == types.BlockSummary && req.Required {
+			return true
+		}
+	}
+	return false
+}
+
+func answerBlockHasRenderableSurface(block types.AnswerBlock) bool {
+	if strings.TrimSpace(block.Text) != "" ||
+		strings.TrimSpace(block.Title) != "" ||
+		len(block.Items) > 0 ||
+		block.Diagram != nil {
+		return true
+	}
+	return false
 }
 
 func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctxOpt ...*types.BusContext) []emitFixHint {

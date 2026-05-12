@@ -377,6 +377,25 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 	if p.ReplaceCitations != nil && len(p.AppendCitations) > 0 {
 		return fmt.Errorf("patch: replace_citations and append_citations are mutually exclusive (contract invariant 5); set exactly one")
 	}
+	if p.ReplaceCitations != nil {
+		for _, b := range prev.Blocks {
+			if removeSet[b.ID] || replaceSet[b.ID] {
+				continue
+			}
+			if answerBlockHasCitationRefs(b) {
+				return fmt.Errorf("patch: replace_citations cannot preserve citation-bearing block %q; replace/remove that block too, use append_citations, or re-emit a full emit_answer_document so every citation_ref is renumbered against the new pool", b.ID)
+			}
+		}
+	}
 
 	return nil
+}
+
+func answerBlockHasCitationRefs(b AnswerBlock) bool {
+	for _, item := range b.Items {
+		if item.CitationRef >= 0 {
+			return true
+		}
+	}
+	return false
 }

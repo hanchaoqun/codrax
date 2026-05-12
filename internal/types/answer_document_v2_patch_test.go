@@ -212,6 +212,13 @@ func TestApplyPatch_ReplaceCitations(t *testing.T) {
 	prev := samplePrevDoc()
 	patch := &AnswerDocumentV2Patch{
 		ReplaceCitations: []Citation{{File: "z.go", Line: 99}},
+		ReplaceBlocks: []AnswerBlock{{
+			ID:   "list1",
+			Kind: BlockOrderedList,
+			Items: []AnswerBlockItem{
+				{ID: "i1", Label: "A", CitationRef: 0},
+			},
+		}},
 	}
 	got, err := ApplyAnswerDocumentV2Patch(prev, patch)
 	if err != nil {
@@ -219,6 +226,20 @@ func TestApplyPatch_ReplaceCitations(t *testing.T) {
 	}
 	if len(got.Citations) != 1 || got.Citations[0].File != "z.go" {
 		t.Errorf("citations not replaced; got %+v", got.Citations)
+	}
+}
+
+func TestApplyPatch_ReplaceCitationsRejectsInheritedCitationRefs(t *testing.T) {
+	prev := samplePrevDoc()
+	patch := &AnswerDocumentV2Patch{
+		UnchangedBlockIDs: []string{"list1"},
+		ReplaceBlocks:     []AnswerBlock{{ID: "s1", Kind: BlockSummary, Text: "fixed"}},
+		ReplaceCitations:  []Citation{{File: "z.go", Line: 99}},
+	}
+	if _, err := ApplyAnswerDocumentV2Patch(prev, patch); err == nil {
+		t.Fatal("replace_citations must reject preserved citation-bearing blocks")
+	} else if !strings.Contains(err.Error(), "citation-bearing block") {
+		t.Fatalf("error should name citation-bearing block invariant, got %v", err)
 	}
 }
 

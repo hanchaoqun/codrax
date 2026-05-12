@@ -89,6 +89,33 @@ func TestPreCheckCitationPoolIntegrity_CatchesMissingAndOutOfRangeRefs(t *testin
 	}
 }
 
+func TestPreCheckSummaryLeadBlock_RequiresSummaryFirstWhenViewRequiresIt(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, Required: true, MinCount: 1},
+			{Kind: types.BlockOrderedList, Required: true, MinCount: 1},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "list", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "i1", Label: "A"}}},
+			{ID: "summary", Kind: types.BlockSummary, Text: "lead"},
+		},
+	}
+	hints := preCheckSummaryLeadBlock(doc, view)
+	if len(hints) != 1 {
+		t.Fatalf("summary after detail blocks should produce one hint, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "first") {
+		t.Fatalf("hint should ask for summary first, got %+v", hints[0])
+	}
+
+	doc.Blocks[0], doc.Blocks[1] = doc.Blocks[1], doc.Blocks[0]
+	if hints := preCheckSummaryLeadBlock(doc, view); len(hints) != 0 {
+		t.Fatalf("summary-first document should pass, got %+v", hints)
+	}
+}
+
 // TestPreCheckRequiredBlocks_MinCount — required block kind under-emitted.
 func TestPreCheckRequiredBlocks_MinCount(t *testing.T) {
 	view := &types.AnswerSemanticView{

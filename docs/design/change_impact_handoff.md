@@ -207,6 +207,22 @@ principal support lane contained only `assignment_fact` members.
      the model-emitted `citations[]` pool. The repair prompt tells the model to
      preserve or extend its own citation pool; runtime code does not synthesize
      missing citations.
+   - A later retry showed the patch-specific variant: `emit_answer_document_patch`
+     replaced the whole citation pool while leaving old blocks unchanged, so
+     those old blocks' integer `citation_ref` values now pointed at different
+     file:line anchors. Patch application must reject this structural coupling:
+     replacing citations is only valid when all citation-bearing inherited
+     blocks are also replaced / removed, or when the model uses a full emit.
+
+14. Summary block can drift to the tail after repair
+
+   - The final accepted document rendered the principal list and table first,
+     then the summary paragraph. The facts were correct, but the answer shape
+     was backwards for a user-facing file-listing answer.
+   - The generalized fix is an order contract, not content rewriting: when the
+     semantic view requires a `summary` block, the first rendered block must be
+     `summary`. The LLM still owns the summary text; runtime only rejects a
+     structurally inverted block order.
 
 ## Generalized Design
 
