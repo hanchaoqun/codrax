@@ -3128,3 +3128,66 @@ func TestValidatePrincipalSupportMemberCoverage_EnumerationOmissionFires(t *test
 		t.Fatalf("detail should name omitted member location, got %q", got[0].Detail)
 	}
 }
+
+func TestValidatePrincipalSupportMemberCoverage_ChangeImpactAssignmentOnlyNarrowing(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 1903},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "items",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "assignment",
+				Label:       "CitationReq.Required",
+				Text:        "direct assignment site",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	supportPlan := &types.AnswerSupportPlan{
+		Family: types.QFEnumeration,
+		ChangeImpactProfile: &types.ChangeImpactProfile{
+			IsChangeImpact:  true,
+			Target:          "CitationReq.Required",
+			RequestedOutput: types.ImpactOutputFiles,
+		},
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{
+				{
+					Text:         "CitationReq.Required assignment",
+					Location:     "internal/agent/analyzer.go:1903",
+					ClaimForm:    types.ClaimAssignmentFact,
+					Subject:      "CitationReq.Required",
+					SurfaceTerms: []string{"CitationReq.Required"},
+					Source:       "internal/agent/analyzer.go",
+					LineStart:    1903,
+				},
+				{
+					Text:         "CitationReq.Required guard",
+					Location:     "internal/analysis/gate/gate.go:414",
+					ClaimForm:    types.ClaimGuardCondition,
+					Subject:      "CitationReq.Required",
+					SurfaceTerms: []string{"CitationReq.Required"},
+					Source:       "internal/analysis/gate/gate.go",
+					LineStart:    414,
+				},
+			},
+		}},
+	}
+
+	got := validatePrincipalSupportMemberCoverage(doc, supportPlan)
+	if len(got) != 1 {
+		t.Fatalf("expected assignment-only narrowing violation, got %+v", got)
+	}
+	if got[0].Kind != types.ViolAnswerTopicMismatch {
+		t.Fatalf("wrong kind: %+v", got[0])
+	}
+	if !strings.Contains(got[0].Detail, "assignment-shaped evidence") ||
+		!strings.Contains(got[0].Detail, "internal/analysis/gate/gate.go:414") {
+		t.Fatalf("detail should name typed narrowing and missing non-assignment site, got %q", got[0].Detail)
+	}
+}

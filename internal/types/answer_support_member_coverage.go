@@ -32,6 +32,18 @@ type AnswerSupportMemberObligation struct {
 	EquivalentLocations []string
 }
 
+// ChangeImpactNarrowingDiagnostic reports a typed impact-answer failure:
+// the support lane contains non-assignment affected-site evidence, but the
+// rendered principal answer only carries assignment-shaped members. The
+// diagnostic is derived from support-lane claim forms and citation coverage,
+// not from raw wording in the user's question or the answer prose.
+type ChangeImpactNarrowingDiagnostic struct {
+	Target         string
+	CoveredForms   []ClaimForm
+	MissingForms   []ClaimForm
+	MissingMembers []AnswerSupportMemberObligation
+}
+
 // LocationHint returns the citation shape a repair prompt should ask
 // for. It deliberately exposes equivalent definition anchors instead
 // of pretending there is only one exact line when the typed evidence
@@ -280,6 +292,63 @@ func MissingPrincipalSupportMembers(doc *AnswerDocumentV2, plan *AnswerSupportPl
 		out = append(out, ob)
 	}
 	return out
+}
+
+func ChangeImpactPrincipalNarrowing(doc *AnswerDocumentV2, plan *AnswerSupportPlan) *ChangeImpactNarrowingDiagnostic {
+	if doc == nil || plan == nil || plan.ChangeImpactProfile == nil ||
+		!plan.ChangeImpactProfile.RequestedBroadAffectedSites() {
+		return nil
+	}
+	obligations := PrincipalSupportMemberObligations(plan)
+	if len(obligations) == 0 {
+		return nil
+	}
+	var supportHasNonAssignment bool
+	var coveredForms []ClaimForm
+	var missingForms []ClaimForm
+	var missingMembers []AnswerSupportMemberObligation
+	for _, ob := range obligations {
+		if ob.ClaimForm != ClaimAssignmentFact {
+			supportHasNonAssignment = true
+		}
+		if answerDocumentCoversSupportMember(doc, ob) {
+			coveredForms = appendUniqueClaimForm(coveredForms, ob.ClaimForm)
+			continue
+		}
+		if ob.ClaimForm != ClaimAssignmentFact {
+			missingForms = appendUniqueClaimForm(missingForms, ob.ClaimForm)
+			missingMembers = append(missingMembers, ob)
+		}
+	}
+	if !supportHasNonAssignment || len(missingMembers) == 0 {
+		return nil
+	}
+	for _, form := range coveredForms {
+		if form != ClaimAssignmentFact && form != ClaimUnknown {
+			return nil
+		}
+	}
+	if len(coveredForms) == 0 {
+		return nil
+	}
+	return &ChangeImpactNarrowingDiagnostic{
+		Target:         strings.TrimSpace(plan.ChangeImpactProfile.Target),
+		CoveredForms:   coveredForms,
+		MissingForms:   missingForms,
+		MissingMembers: missingMembers,
+	}
+}
+
+func appendUniqueClaimForm(in []ClaimForm, form ClaimForm) []ClaimForm {
+	if form == "" {
+		form = ClaimUnknown
+	}
+	for _, existing := range in {
+		if existing == form {
+			return in
+		}
+	}
+	return append(in, form)
 }
 
 func answerDocumentCoversSupportMember(doc *AnswerDocumentV2, ob AnswerSupportMemberObligation) bool {

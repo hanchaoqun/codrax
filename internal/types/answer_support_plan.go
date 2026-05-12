@@ -12,8 +12,9 @@ import (
 // claims are safe to build and which grounded evidence entries belong
 // to each lane.
 type AnswerSupportPlan struct {
-	Family QuestionFamily
-	Lanes  []AnswerSupportLane
+	Family              QuestionFamily
+	ChangeImpactProfile *ChangeImpactProfile
+	Lanes               []AnswerSupportLane
 }
 
 type AnswerSupportLaneKind string
@@ -156,13 +157,19 @@ func currentStatusDiagnosticContractFromIR(ir *AnalysisIR) *CurrentStatusDiagnos
 }
 
 func buildAnswerSupportPlanForFamily(family QuestionFamily, rm RequestModel, plan *AnswerSurfacePlan) *AnswerSupportPlan {
+	withProfile := func(out *AnswerSupportPlan) *AnswerSupportPlan {
+		if out != nil {
+			out.ChangeImpactProfile = rm.ChangeImpactProfile
+		}
+		return out
+	}
 	switch family {
 	case QFRootCauseTrace:
-		return compileRootCauseSupportPlan(rm, plan)
+		return withProfile(compileRootCauseSupportPlan(rm, plan))
 	case QFCallChain:
-		return compileCallChainSupportPlan(rm, plan)
+		return withProfile(compileCallChainSupportPlan(rm, plan))
 	case QFConfigPrecedence, QFRoleLookup, QFEnumeration, QFArchitecture, QFComparison, QFGeneric:
-		return compileFacetEvidenceSupportPlan(family, rm, plan)
+		return withProfile(compileFacetEvidenceSupportPlan(family, rm, plan))
 	default:
 		return nil
 	}

@@ -157,9 +157,9 @@ explore/extract retry when typed support lanes are incomplete.
 - [x] Update support-lane guidance for impact answers.
 - [x] Add tests proving guard/read/call/validation sites enter principal lane.
 - [x] Add negative test: ordinary enumeration still keeps homogeneous curation.
-- [ ] Add finalizer/contract tests preventing assignment-only narrowing when
+- [x] Add finalizer/contract tests preventing assignment-only narrowing when
       typed impact profile requires broad affected sites.
-- [ ] Run focused tests and `go test ./...`.
+- [x] Run focused tests and `go test ./...`.
 - [ ] Re-run `u10b` and keep the random eval sweep moving.
 
 ## Red Lines

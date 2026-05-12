@@ -320,6 +320,16 @@ func preCheckPrincipalSupportMemberCoverage(doc *types.AnswerDocumentV2, ctxOpt 
 		return nil
 	}
 	supportPlan := types.BuildAnswerSupportPlanForBusContext(ctxOpt[0])
+	if narrowing := types.ChangeImpactPrincipalNarrowing(doc, supportPlan); narrowing != nil {
+		return []emitFixHint{{
+			Field: "blocks[].items[]",
+			ExpectedShape: "the current request is a change-impact affected-site question for " +
+				changeImpactTargetForHint(narrowing) +
+				"; principal list/table items cannot be narrowed to direct assignment evidence only. Include typed affected-site members for non-assignment roles already present in the support lane, citing matching file:line anchors: " +
+				changeImpactMissingMembersForHint(narrowing),
+			Reason: "direct assignments are only one affected-site role; the investigation emitted non-assignment affected sites as principal evidence, so the final answer must preserve them instead of shrinking the user's affected-site criterion.",
+		}}
+	}
 	missing := types.MissingPrincipalSupportMembers(doc, supportPlan)
 	if len(missing) == 0 {
 		return nil
@@ -341,6 +351,35 @@ func preCheckPrincipalSupportMemberCoverage(doc *types.AnswerDocumentV2, ctxOpt 
 			strings.Join(parts, "; "),
 		Reason: "the investigation already emitted these as answer-grade principal evidence; the final answer must preserve the members or add a cited caveat item for a real exclusion instead of relying on system-added caveats.",
 	}}
+}
+
+func changeImpactTargetForHint(diag *types.ChangeImpactNarrowingDiagnostic) string {
+	if diag == nil || strings.TrimSpace(diag.Target) == "" {
+		return "the requested target"
+	}
+	return diag.Target
+}
+
+func changeImpactMissingMembersForHint(diag *types.ChangeImpactNarrowingDiagnostic) string {
+	if diag == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(diag.MissingMembers))
+	for _, m := range diag.MissingMembers {
+		label := strings.TrimSpace(m.Label)
+		if label == "" {
+			label = m.Location
+		}
+		form := string(m.ClaimForm)
+		if form == "" {
+			form = "principal_evidence"
+		}
+		parts = append(parts, fmt.Sprintf("%q (%s at %s)", label, form, m.LocationHint()))
+		if len(parts) >= 6 {
+			break
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 func preCheckAbsenceScopeBound(doc *types.AnswerDocumentV2) []emitFixHint {

@@ -1130,6 +1130,28 @@ func TestBuildAnswerSupportPlan_ChangeImpactKeepsHeterogeneousAffectedSites(t *t
 	if !strings.Contains(principalLane.Guidance, "Direct assignments are only one affected-site role") {
 		t.Fatalf("impact guidance should warn against assignment-only narrowing: %q", principalLane.Guidance)
 	}
+
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "internal/agent/analyzer.go", Line: 1903}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockOrderedList,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "CitationReq.Required",
+				Text:        "direct assignment site",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	narrowing := ChangeImpactPrincipalNarrowing(doc, got)
+	if narrowing == nil {
+		t.Fatalf("assignment-only rendered answer should be diagnosed as change-impact narrowing")
+	}
+	if len(narrowing.MissingForms) == 0 {
+		t.Fatalf("narrowing diagnostic should name non-assignment missing forms: %+v", narrowing)
+	}
 }
 
 func TestCompileFacetCoverage_OrdinaryEnumerationDoesNotPromoteGuardSites(t *testing.T) {

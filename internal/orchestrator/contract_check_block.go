@@ -3661,6 +3661,41 @@ func validatePrincipalSupportMemberCoverage(
 	doc *types.AnswerDocumentV2,
 	supportPlan *types.AnswerSupportPlan,
 ) []types.Violation {
+	if narrowing := types.ChangeImpactPrincipalNarrowing(doc, supportPlan); narrowing != nil {
+		target := strings.TrimSpace(narrowing.Target)
+		if target == "" {
+			target = "requested target"
+		}
+		var missing []string
+		for _, member := range narrowing.MissingMembers {
+			label := strings.TrimSpace(member.Label)
+			if label == "" {
+				label = strings.TrimSpace(member.Location)
+			}
+			form := string(member.ClaimForm)
+			if form == "" {
+				form = "principal_evidence"
+			}
+			missing = append(missing, fmt.Sprintf("%q (%s at %s)", label, form, member.LocationHint()))
+			if len(missing) >= 6 {
+				break
+			}
+		}
+		return []types.Violation{{
+			Kind: types.ViolAnswerTopicMismatch,
+			Detail: fmt.Sprintf(
+				"change-impact answer for %q narrowed the principal set to assignment-shaped evidence while non-assignment affected-site support members are missing: %s",
+				target, strings.Join(missing, "; ")),
+			Repair: "rewrite the principal list/table around the requested affected-site criterion. Include every non-assignment affected site already present in the principal support lane with matching citations; direct assignments are only one affected-site role.",
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "answer_support.change_impact.principal_boundary",
+				Reason:     "final answer narrowed a typed change-impact affected-site request to assignment-only evidence",
+				Confidence: 0.92,
+			},
+			Stage:      string(types.StageFinalize),
+			ClusterKey: blockClusterKey("change_impact", "assignment_only_narrowing"),
+		}}
+	}
 	missing := types.MissingPrincipalSupportMembers(doc, supportPlan)
 	if len(missing) == 0 {
 		return nil
