@@ -13,11 +13,11 @@
 // intent surfaces in different code shapes:
 //
 //   - "X registers Y" can be a function call to a registry method
-//     (AxisCall-shape evidence) OR a map literal assignment
+//     (AxisCall-shape evidence) OR a map/object literal assignment
 //     (AxisAssignment-shape evidence). Both are acceptable proof.
 //   - "configure X" usually surfaces as an assignment to a config
-//     struct (Assignment) but can also be a defaults function
-//     (Definition).
+//     struct (Assignment/Initializer) but can also be a defaults
+//     function (Definition).
 //
 // Returning a SET avoids the false-positive of insisting on one
 // canonical shape — the LLM's evidence emission is shape-agnostic
@@ -55,10 +55,10 @@ func PredicateAxisToAnchorKinds(axis PredicateAxis) []AnchorKind {
 		// Registration surfaces as either:
 		//   - a method call to a registry: registry.Register("x", h)
 		//     → AnchorCall on the registry method
-		//   - a map literal entry: handlers["x"] = h
-		//     → AnchorAssignment on the map index
+		//   - a map/object literal entry: "x": h or handlers["x"] = h
+		//     → AnchorInitializer / AnchorAssignment on the map index
 		// Both are legitimate registration evidence.
-		return []AnchorKind{AnchorCall, AnchorAssignment}
+		return []AnchorKind{AnchorCall, AnchorAssignment, AnchorInitializer}
 	case AxisDefine:
 		return []AnchorKind{AnchorDefinition}
 	case AxisReturn:
@@ -66,9 +66,10 @@ func PredicateAxisToAnchorKinds(axis PredicateAxis) []AnchorKind {
 	case AxisConfigure:
 		// Configuration surfaces as either:
 		//   - an assignment: cfg.MaxConn = 10 (Assignment)
+		//   - a struct/object initializer: Cfg{MaxConn: 10} (Initializer)
 		//   - a defaults function: func defaultCfg() Cfg{...} (Definition)
 		// Both are legitimate configure-axis evidence.
-		return []AnchorKind{AnchorAssignment, AnchorDefinition}
+		return []AnchorKind{AnchorAssignment, AnchorInitializer, AnchorDefinition}
 	case AxisCondition:
 		return []AnchorKind{AnchorCondition}
 	case AxisImplement:

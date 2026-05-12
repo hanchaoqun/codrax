@@ -1066,14 +1066,14 @@ func ConfigTraceDiagramRoleAnchorCompatible(role EvidenceDiagramRole, item Evide
 		return item.Source != "" && LooksLikeConfigFilePath(item.Source)
 	case EvidenceDiagramRoleDefault:
 		switch item.AnchorKind {
-		case AnchorDefinition, AnchorAssignment, AnchorReturn:
+		case AnchorDefinition, AnchorAssignment, AnchorInitializer, AnchorReturn:
 			return true
 		default:
 			return false
 		}
 	case EvidenceDiagramRoleRuntime, EvidenceDiagramRoleOverride:
 		switch item.AnchorKind {
-		case AnchorAssignment, AnchorCall, AnchorCondition:
+		case AnchorAssignment, AnchorInitializer, AnchorCall, AnchorCondition:
 			return true
 		default:
 			return false

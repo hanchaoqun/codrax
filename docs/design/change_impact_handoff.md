@@ -402,6 +402,29 @@ same-leaf filter. It also generalizes across languages because the normalized
 target comparison accepts selectors, namespace members, property accesses, and
 config-like dotted paths already represented in read source text.
 
+### Initializer evidence surface
+
+Change-impact affected sites are not always calls, guards, definitions, or
+direct assignments. Many production sites are member initializers:
+
+- Go composite literals: `T{Field: v}`
+- C/C++ designated initializers: `.field = v`
+- ArkTS / TypeScript object literals: `{ field: v }`
+- Cangjie named arguments: `T(field: v)`
+- YAML/JSON/TOML-like config object leaves
+
+These rows now use `anchor_kind=initializer`. The value is assignment-like for
+grounding and `ClaimFormOf` (`ClaimAssignmentFact`) but remains distinct from
+`anchor_kind=assignment`, so the final answer can describe initialization sites
+without pretending they are `=` writes or symbol definitions. The enum is wired
+through `emit_evidence` schema validation, repomap-backed grounding fallbacks,
+facet/call-chain/root-cause support lanes, exact lookup compatibility, predicate
+axis compatibility, and concrete-value projection.
+
+This is still model-owned evidence: Codrax does not convert a `definition`
+answer into an initializer answer after the fact. The explorer prompt tells the
+model which typed enum to use, and downstream gates consume that precise enum.
+
 ### Owner-qualified target filter
 
 For change-impact profiles whose target is an owner-qualified path
@@ -478,6 +501,9 @@ the model already emitted in the tool payload.
       unrelated same-leaf fields stay support context.
 - [x] Downgrade completion when a change-impact source line names the target
       but the accepted evidence only carries it in summary prose.
+- [x] Add `anchor_kind=initializer` for struct/object/designated/config member
+      initializer sites so affected literal rows do not masquerade as
+      definitions.
 - [ ] Re-run `u10b` and keep the random eval sweep moving.
 
 ## Red Lines

@@ -74,6 +74,46 @@ func TestEmitEvidence_AcceptsValidBatch(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_AcceptsInitializerAnchorKind(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/orchestrator/orchestrator.go", 6362,
+		"CitationReq: types.CitationReq{Required: false},",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {
+            "kind": "direct",
+            "subject": "CitationReq.Required",
+            "object": "false",
+            "source": "internal/orchestrator/orchestrator.go",
+            "line_start": 6362,
+            "summary": "CitationReq.Required is initialized to false",
+            "snippet": "CitationReq: types.CitationReq{Required: false},",
+            "anchor_kind": "initializer",
+            "anchor_symbol": "CitationReq.Required"
+          }
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item, got %d", len(got))
+	}
+	if got[0].AnchorKind != types.AnchorInitializer {
+		t.Fatalf("anchor kind = %s, want initializer", got[0].AnchorKind)
+	}
+	if form := types.ClaimFormOf(got[0]); form != types.ClaimAssignmentFact {
+		t.Fatalf("initializer claim form = %s, want assignment_fact", form)
+	}
+}
+
 // LoadBearingSummary opt-in surface (2026-05-08 add — u7a deep-dive).
 // The flag tells the four EvidenceXxxSurfaceText helpers to append
 // the trimmed summary to the typed surface line so finalize-stage

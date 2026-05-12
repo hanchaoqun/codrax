@@ -200,7 +200,7 @@ type Report struct {
 //     line-text scan for the kind's keyword set
 //     (if/when/unless/switch/case/guard for
 //     condition; return/yield for return)
-//     - assignment → repomap LineFeatureAssignment /
+//     - assignment/initializer → repomap LineFeatureAssignment /
 //     LineFeatureMemberInitializer when available, otherwise a
 //     structural line-syntax fallback for `=`, `:=`, and
 //     field/object/designated initializers
@@ -321,7 +321,7 @@ func attachGroundedLineSnippet(it *types.EvidenceItem, gc *Context) {
 			if matched, matchedOK := findCallCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph); matchedOK {
 				lineNo = matched
 			}
-		case types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment:
+		case types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer:
 			if matched, matchedOK := findCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph); matchedOK {
 				lineNo = matched
 			}
@@ -1417,7 +1417,7 @@ func tier2SymbolTable(it *types.EvidenceItem, gc *Context) bool {
 		return lineContainsAnyKeyword(it, gc, conditionKeywords)
 	case types.AnchorReturn:
 		return lineContainsAnyKeyword(it, gc, returnKeywords)
-	case types.AnchorAssignment:
+	case types.AnchorAssignment, types.AnchorInitializer:
 		return lineContainsAssignment(it, gc)
 	}
 	return false

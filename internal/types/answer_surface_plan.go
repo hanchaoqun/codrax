@@ -336,7 +336,7 @@ func compileEvidenceStepBackbone(evidence []EvidenceItem) []StepSurfaceAnchor {
 			continue
 		}
 		switch item.AnchorKind {
-		case AnchorDefinition, AnchorCall, AnchorCondition, AnchorAssignment:
+		case AnchorDefinition, AnchorCall, AnchorCondition, AnchorAssignment, AnchorInitializer:
 		default:
 			continue
 		}
@@ -742,7 +742,7 @@ func explanationAnchorCandidateScore(topic SubTopic, item EvidenceItem) int {
 	switch item.AnchorKind {
 	case AnchorDefinition:
 		score += 6
-	case AnchorAssignment:
+	case AnchorAssignment, AnchorInitializer:
 		score += 4
 	case AnchorCall, AnchorCondition:
 		score += 3
@@ -1234,7 +1234,7 @@ func driftBoundedDiagramNodeLabel(item EvidenceItem) string {
 			return ""
 		}
 		return fmt.Sprintf("if %s @ %s", condition, location)
-	case item.AnchorKind == AnchorAssignment:
+	case item.AnchorKind == AnchorAssignment || item.AnchorKind == AnchorInitializer:
 		expr := strings.TrimSpace(firstNonEmptySurfaceString(item.Object, item.Snippet, item.AnchorSymbol, item.Subject))
 		if expr == "" {
 			return ""
@@ -2882,7 +2882,7 @@ func bestDriftBoundedFunctionItem(items []EvidenceItem, anchorFiles map[string]b
 			score += 500
 		case AnchorDefinition:
 			score += 400
-		case AnchorAssignment:
+		case AnchorAssignment, AnchorInitializer:
 			score += 300
 		case AnchorReturn:
 			score += 200
@@ -2931,7 +2931,7 @@ func bestDriftBoundedCompanionItem(items []EvidenceItem, anchorFiles map[string]
 		}
 		score := 0
 		switch item.AnchorKind {
-		case AnchorAssignment:
+		case AnchorAssignment, AnchorInitializer:
 			score += 500
 		case AnchorReturn:
 			score += 450
@@ -2980,7 +2980,7 @@ func bestDriftBoundedFallbackItem(items []EvidenceItem, anchorFiles map[string]b
 			score += 250
 		case AnchorDefinition:
 			score += 200
-		case AnchorReturn, AnchorAssignment:
+		case AnchorReturn, AnchorAssignment, AnchorInitializer:
 			score += 150
 		default:
 			score += 100

@@ -806,7 +806,7 @@ func principalSupportEvidenceSurfaceRoleKey(item EvidenceItem) string {
 		strings.TrimSpace(item.AnchorSymbol),
 		strings.TrimSpace(item.OwnerSymbol),
 	}
-	if item.AnchorKind != AnchorAssignment {
+	if item.AnchorKind != AnchorAssignment && item.AnchorKind != AnchorInitializer {
 		parts = append(parts,
 			strings.TrimSpace(item.Subject),
 			strings.TrimSpace(item.Object),

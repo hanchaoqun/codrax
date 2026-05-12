@@ -42,10 +42,11 @@ func TestPredicateAxisToAnchorKinds_KnownPairs(t *testing.T) {
 	}
 }
 
-func TestPredicateAxisToAnchorKinds_RegisterAcceptsCallAndAssignment(t *testing.T) {
+func TestPredicateAxisToAnchorKinds_RegisterAcceptsCallAssignmentAndInitializer(t *testing.T) {
 	got := PredicateAxisToAnchorKinds(AxisRegister)
 	hasCall := false
 	hasAssign := false
+	hasInitializer := false
 	for _, k := range got {
 		if k == AnchorCall {
 			hasCall = true
@@ -53,26 +54,33 @@ func TestPredicateAxisToAnchorKinds_RegisterAcceptsCallAndAssignment(t *testing.
 		if k == AnchorAssignment {
 			hasAssign = true
 		}
+		if k == AnchorInitializer {
+			hasInitializer = true
+		}
 	}
-	if !hasCall || !hasAssign {
-		t.Errorf("AxisRegister allowed set = %v; want both AnchorCall and AnchorAssignment", got)
+	if !hasCall || !hasAssign || !hasInitializer {
+		t.Errorf("AxisRegister allowed set = %v; want AnchorCall, AnchorAssignment, and AnchorInitializer", got)
 	}
 }
 
-func TestPredicateAxisToAnchorKinds_ConfigureAcceptsAssignmentAndDefinition(t *testing.T) {
+func TestPredicateAxisToAnchorKinds_ConfigureAcceptsAssignmentInitializerAndDefinition(t *testing.T) {
 	got := PredicateAxisToAnchorKinds(AxisConfigure)
 	hasAssign := false
+	hasInitializer := false
 	hasDef := false
 	for _, k := range got {
 		if k == AnchorAssignment {
 			hasAssign = true
 		}
+		if k == AnchorInitializer {
+			hasInitializer = true
+		}
 		if k == AnchorDefinition {
 			hasDef = true
 		}
 	}
-	if !hasAssign || !hasDef {
-		t.Errorf("AxisConfigure allowed set = %v; want both AnchorAssignment and AnchorDefinition", got)
+	if !hasAssign || !hasInitializer || !hasDef {
+		t.Errorf("AxisConfigure allowed set = %v; want AnchorAssignment, AnchorInitializer, and AnchorDefinition", got)
 	}
 }
 

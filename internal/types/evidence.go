@@ -136,22 +136,30 @@ const (
 // return statement?" from Subject text, which was the source of the
 // same-name-across-receivers misgrounding class.
 //
-// AnchorImport covers `import`/`use`/`require` statements whose
-// AnchorSymbol is typically a package path or alias.
+// AnchorInitializer covers field/property/member initialization inside
+// aggregate/object/named-argument/designated literals, such as Go
+// `T{Field: v}`, C/C++ `.field = v`, ArkTS `{ field: v }`, Cangjie
+// `T(field: v)`, and config-like object leaves. It is assignment-like for
+// ClaimForm and grounding, but distinct from AnchorAssignment so answers can
+// describe initialization sites without pretending they are `=` statements.
+//
+// AnchorImport covers `import`/`use`/`require` statements whose AnchorSymbol is
+// typically a package path or alias.
 type AnchorKind string
 
 const (
-	AnchorDefinition AnchorKind = "definition"
-	AnchorCall       AnchorKind = "call"
-	AnchorCondition  AnchorKind = "condition"
-	AnchorReturn     AnchorKind = "return"
-	AnchorAssignment AnchorKind = "assignment"
-	AnchorImport     AnchorKind = "import"
+	AnchorDefinition  AnchorKind = "definition"
+	AnchorCall        AnchorKind = "call"
+	AnchorCondition   AnchorKind = "condition"
+	AnchorReturn      AnchorKind = "return"
+	AnchorAssignment  AnchorKind = "assignment"
+	AnchorInitializer AnchorKind = "initializer"
+	AnchorImport      AnchorKind = "import"
 )
 
 var allAnchorKinds = []AnchorKind{
 	AnchorDefinition, AnchorCall, AnchorCondition,
-	AnchorReturn, AnchorAssignment, AnchorImport,
+	AnchorReturn, AnchorAssignment, AnchorInitializer, AnchorImport,
 }
 
 // AllAnchorKinds returns the canonical list of every AnchorKind value

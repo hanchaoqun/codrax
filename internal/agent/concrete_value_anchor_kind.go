@@ -13,9 +13,9 @@ import (
 //
 // extractConcreteValues + the language-aware scanners in
 // concrete_values_lang.go emit 11 distinct kind tags, but the
-// EvidenceItem AnchorKind axis is the closed 6-value set declared
+// EvidenceItem AnchorKind axis is the closed 7-value set declared
 // in types/evidence.go (definition / call / condition / return /
-// assignment / import). Without this projection, every
+// assignment / initializer / import). Without this projection, every
 // concrete_values evidence item lands at AnchorKind="" and
 // ClaimFormOf falls through to ClaimUnknown — Phase 0 trace data
 // (docs/design/semantic_surface_contract_p0_trace.md §2)
@@ -24,11 +24,11 @@ import (
 // to a real AnchorKind, and Phase 4's facet-coverage / claim-form
 // oracles can run inferred-coverage paths instead of degrading.
 //
-// Mapping is many-to-one (11 → 6) because the syntactic categories
+// Mapping is many-to-one (11 → 7) because the syntactic categories
 // the extractor distinguishes (e.g. "binds" / "maps" / "config")
 // share an underlying anchor shape (assignment-like) at the
 // AnchorKind axis. The mapping is conservative: when a category
-// has no clean fit in the 6-value set (e.g. "implements", which is
+// has no clean fit in the anchor-kind set (e.g. "implements", which is
 // closer to a structural relation than a single anchor), we map to
 // the closest definition-style anchor — this errs on
 // over-classification rather than dropping back to AnchorKind="",
@@ -58,10 +58,14 @@ func concreteValueKindToAnchorKind(kind string) types.AnchorKind {
 	case "conditional":
 		return types.AnchorCondition
 
-	// Assignment-shape: variable assignments + map literal entries
-	// + config-leaf assignments all set a value at a key.
-	case "assigns", "maps", "config":
+	// Assignment-shape: variable assignments set a value via a write.
+	case "assigns":
 		return types.AnchorAssignment
+
+	// Initializer-shape: map/object/contract entries + config-leaf
+	// rows set values inside declarative member surfaces.
+	case "maps", "config":
+		return types.AnchorInitializer
 
 	// Definition-shape: structural relations the extractor
 	// surfaces (decorator targets, struct embeds, interface
@@ -135,7 +139,7 @@ var defaultConcreteValueDefaultMethodPrefixes = []string{
 }
 
 var (
-	concreteValueRoleMu               sync.RWMutex
+	concreteValueRoleMu                sync.RWMutex
 	concreteValueConfigLayerExtensions = append([]string(nil), defaultConcreteValueConfigLayerExtensions...)
 	concreteValueRuntimeMethodPrefixes = append([]string(nil), defaultConcreteValueRuntimeMethodPrefixes...)
 	concreteValueDefaultMethodPrefixes = append([]string(nil), defaultConcreteValueDefaultMethodPrefixes...)

@@ -1203,6 +1203,62 @@ func supportLaneHasSource(lane *AnswerSupportLane, source string) bool {
 	return false
 }
 
+func TestBuildAnswerSupportPlan_ChangeImpactInitializerIsAssignmentLike(t *testing.T) {
+	target := "CitationReq.Required"
+	initializer := EvidenceItem{
+		ID:              "initializer",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       6362,
+		AnchorKind:      AnchorInitializer,
+		AnchorSymbol:    target,
+		Subject:         target,
+		Snippet:         "CitationReq: types.CitationReq{Required: false},",
+		Summary:         "orchestrator initializes CitationReq.Required",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsRelationalLookup:    true,
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration)},
+		ChangeImpactProfile: &ChangeImpactProfile{
+			IsChangeImpact:    true,
+			Target:            target,
+			TargetKind:        SubjectStructField,
+			Scope:             ImpactScopeProduction,
+			RequestedOutput:   ImpactOutputFiles,
+			AffectedSiteKinds: []ImpactAffectedSiteKind{ImpactSiteAssignment},
+			Confidence:        0.92,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence:     []EvidenceItem{initializer},
+		ChangeImpactProfile: rm.ChangeImpactProfile,
+		FacetCoverage:       CompileFacetCoverage(rm, []EvidenceItem{initializer}),
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	principalLane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if principalLane == nil || len(principalLane.Entries) != 1 {
+		t.Fatalf("expected initializer principal evidence lane, got %+v", got)
+	}
+	entry := principalLane.Entries[0]
+	if entry.AnchorKind != AnchorInitializer {
+		t.Fatalf("entry anchor kind = %s, want initializer: %+v", entry.AnchorKind, entry)
+	}
+	if entry.ClaimForm != ClaimAssignmentFact {
+		t.Fatalf("initializer must project to assignment_fact, got %s", entry.ClaimForm)
+	}
+	if !strings.Contains(entry.Text, "CitationReq") || !strings.Contains(entry.Text, "Required") {
+		t.Fatalf("initializer target surface was not preserved: %+v", entry)
+	}
+}
+
 func TestBuildAnswerSupportPlan_ChangeImpactDocumentationCanPromoteMechanismEvidence(t *testing.T) {
 	docEvidence := EvidenceItem{
 		ID:              "doc",

@@ -249,7 +249,7 @@ func renderDriftBoundedSurfaceItemClause(item types.EvidenceItem, zh bool) strin
 	object := strings.TrimSpace(firstNonEmpty(item.Object, item.AnchorSymbol))
 	name := strings.TrimSpace(firstNonEmpty(item.AnchorSymbol, item.Subject, item.Object))
 	actorName := strings.TrimSpace(firstNonEmpty(item.Subject, item.OwnerSymbol, item.AnchorSymbol, item.Object))
-	if item.AnchorKind == types.AnchorCondition || item.AnchorKind == types.AnchorReturn || item.AnchorKind == types.AnchorAssignment {
+	if item.AnchorKind == types.AnchorCondition || item.AnchorKind == types.AnchorReturn || item.AnchorKind == types.AnchorAssignment || item.AnchorKind == types.AnchorInitializer {
 		actorName = strings.TrimSpace(firstNonEmpty(item.OwnerSymbol, item.Subject, item.AnchorSymbol, item.Object))
 	}
 	switch {
@@ -273,11 +273,19 @@ func renderDriftBoundedSurfaceItemClause(item types.EvidenceItem, zh bool) strin
 			return fmt.Sprintf("`%s` 在 `%s` 返回 `%s`", actorName, location, object)
 		}
 		return fmt.Sprintf("`%s` returns `%s` at `%s`", actorName, object, location)
-	case item.AnchorKind == types.AnchorAssignment && subject != "" && object != "" && location != "":
+	case (item.AnchorKind == types.AnchorAssignment || item.AnchorKind == types.AnchorInitializer) && subject != "" && object != "" && location != "":
 		if zh {
-			return fmt.Sprintf("`%s` 在 `%s` 赋值 `%s`", subject, location, object)
+			verb := "赋值"
+			if item.AnchorKind == types.AnchorInitializer {
+				verb = "初始化"
+			}
+			return fmt.Sprintf("`%s` 在 `%s` %s `%s`", subject, location, verb, object)
 		}
-		return fmt.Sprintf("`%s` assigns `%s` at `%s`", subject, object, location)
+		verb := "assigns"
+		if item.AnchorKind == types.AnchorInitializer {
+			verb = "initializes"
+		}
+		return fmt.Sprintf("`%s` %s `%s` at `%s`", subject, verb, object, location)
 	}
 	text := strings.TrimSpace(types.EvidenceStructuredSemanticLine(item, false))
 	if text == "" {

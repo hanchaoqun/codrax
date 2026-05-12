@@ -20,17 +20,21 @@ func evidenceAnchorLocalSurfaceText(item EvidenceItem, includeKind bool) string 
 	snippet := strings.TrimSpace(item.Snippet)
 	locationName := strings.TrimSpace(firstNonEmptySurfaceString(item.OwnerSymbol, item.AnchorSymbol, item.Subject))
 	switch item.AnchorKind {
-	case AnchorAssignment:
+	case AnchorAssignment, AnchorInitializer:
+		label := "assignment anchor"
+		if item.AnchorKind == AnchorInitializer {
+			label = "initializer anchor"
+		}
 		if snippet != "" {
 			return prependEvidenceKind(includeKind, item, snippet)
 		}
 		switch {
 		case locationName != "" && strings.TrimSpace(item.AnchorSymbol) != "":
-			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s assignment anchor for %s", locationName, strings.TrimSpace(item.AnchorSymbol)))
+			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s %s for %s", locationName, label, strings.TrimSpace(item.AnchorSymbol)))
 		case locationName != "":
-			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s assignment anchor", locationName))
+			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s %s", locationName, label))
 		case strings.TrimSpace(item.AnchorSymbol) != "":
-			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s assignment anchor", strings.TrimSpace(item.AnchorSymbol)))
+			return prependEvidenceKind(includeKind, item, fmt.Sprintf("%s %s", strings.TrimSpace(item.AnchorSymbol), label))
 		}
 	case AnchorReturn:
 		if snippet != "" {

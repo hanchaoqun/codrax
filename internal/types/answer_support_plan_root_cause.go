@@ -73,7 +73,7 @@ func compileNearestMechanismSupportLane(plan *AnswerSurfacePlan, strength rootCa
 		Kind:          SupportLaneNearestMechanism,
 		Title:         "Nearest grounded mechanism",
 		AllowedBlocks: []string{"summary", "ordered_list"},
-		Guidance: "Use this lane for the closest current-code guard / assignment / return / " +
+		Guidance: "Use this lane for the closest current-code guard / assignment / initializer / return / " +
 			"definition that helps explain the failure path. Do not promote this lane into " +
 			"caller-side provenance or old-build internals unless current citations explicitly prove it. " +
 			"A current guard condition plus a later dereference proves the code contains both sites; by itself it does NOT prove the runtime artifact actually passed that guard and reached the dereference path.",
@@ -274,7 +274,7 @@ func rootCauseMechanismItemEligible(plan *AnswerSurfacePlan, item EvidenceItem) 
 			return false
 		}
 		return !rootCauseGuardProtectedCompanion(plan, item)
-	case AnchorAssignment:
+	case AnchorAssignment, AnchorInitializer:
 		if rootCauseControlHeaderCompanion(item) {
 			return false
 		}
@@ -315,7 +315,7 @@ func rootCauseGuardProtectedCompanion(plan *AnswerSurfacePlan, candidate Evidenc
 	if plan == nil || candidate.LineStart <= 0 {
 		return false
 	}
-	if candidate.AnchorKind != AnchorAssignment && candidate.AnchorKind != AnchorReturn {
+	if candidate.AnchorKind != AnchorAssignment && candidate.AnchorKind != AnchorInitializer && candidate.AnchorKind != AnchorReturn {
 		return false
 	}
 	expr := strings.TrimSpace(candidate.Snippet)

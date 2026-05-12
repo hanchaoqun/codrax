@@ -241,6 +241,7 @@ func (c ClaimForm) UsesNonSymbolLabelSurface() bool {
 //     AnchorCondition  → ClaimGuardCondition
 //     AnchorReturn     → ClaimReturnFact
 //     AnchorAssignment → ClaimAssignmentFact
+//     AnchorInitializer → ClaimAssignmentFact
 //     AnchorImport     → ClaimImportEdge
 //     AnchorDefinition → ClaimDefinitionFact
 //
@@ -278,7 +279,7 @@ func ClaimFormOf(item EvidenceItem) ClaimForm {
 		return ClaimGuardCondition
 	case AnchorReturn:
 		return ClaimReturnFact
-	case AnchorAssignment:
+	case AnchorAssignment, AnchorInitializer:
 		return ClaimAssignmentFact
 	case AnchorImport:
 		return ClaimImportEdge

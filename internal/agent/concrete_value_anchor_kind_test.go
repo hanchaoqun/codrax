@@ -6,7 +6,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// TestConcreteValueKindToAnchorKind_AllKnownKinds pins the 11→6
+// TestConcreteValueKindToAnchorKind_AllKnownKinds pins the 11→7
 // projection table. Adding a new kind in concrete_values_lang.go
 // (or explorer.go's inline scanners) MUST add an arm here to keep
 // the projection deterministic.
@@ -21,8 +21,8 @@ func TestConcreteValueKindToAnchorKind_AllKnownKinds(t *testing.T) {
 		{"binds", types.AnchorCall},
 		{"conditional", types.AnchorCondition},
 		{"assigns", types.AnchorAssignment},
-		{"maps", types.AnchorAssignment},
-		{"config", types.AnchorAssignment},
+		{"maps", types.AnchorInitializer},
+		{"config", types.AnchorInitializer},
 		{"decorates", types.AnchorDefinition},
 		{"embeds", types.AnchorDefinition},
 		{"implements", types.AnchorDefinition},
@@ -39,7 +39,7 @@ func TestConcreteValueKindToAnchorKind_AllKnownKinds(t *testing.T) {
 // TestConcreteValueKindToAnchorKind_UnknownReturnsEmpty pins the
 // fallback contract: an unknown kind MUST return AnchorKind="" so
 // ClaimFormOf falls through to ClaimUnknown rather than
-// fabricating a wrong projection. This keeps the 11→6 mapping a
+// fabricating a wrong projection. This keeps the 11→7 mapping a
 // closed set; new kinds get explicit handling, never silent
 // misclassification.
 func TestConcreteValueKindToAnchorKind_UnknownReturnsEmpty(t *testing.T) {
@@ -51,17 +51,18 @@ func TestConcreteValueKindToAnchorKind_UnknownReturnsEmpty(t *testing.T) {
 }
 
 // TestConcreteValueKindToAnchorKind_ProjectsToValidAnchorKind
-// guards: every known mapping must land on one of the 6 declared
+// guards: every known mapping must land on one of the declared
 // AnchorKind constants. Catches a future typo that would silently
 // produce a non-canonical AnchorKind value.
 func TestConcreteValueKindToAnchorKind_ProjectsToValidAnchorKind(t *testing.T) {
 	valid := map[types.AnchorKind]bool{
-		types.AnchorDefinition: true,
-		types.AnchorCall:       true,
-		types.AnchorCondition:  true,
-		types.AnchorReturn:     true,
-		types.AnchorAssignment: true,
-		types.AnchorImport:     true,
+		types.AnchorDefinition:  true,
+		types.AnchorCall:        true,
+		types.AnchorCondition:   true,
+		types.AnchorReturn:      true,
+		types.AnchorAssignment:  true,
+		types.AnchorInitializer: true,
+		types.AnchorImport:      true,
 	}
 	for _, k := range []string{
 		"returns", "errors", "calls", "binds", "conditional",
@@ -258,9 +259,9 @@ func TestConcreteValueProjection_LogFrameWinsOverProjection(t *testing.T) {
 		Source:      "src/x.go",
 		LineStart:   10,
 		Producer:    "concrete_values",
-		AnchorKind:  types.AnchorAssignment, // L1 set
+		AnchorKind:  types.AnchorAssignment,          // L1 set
 		DiagramRole: types.EvidenceDiagramRoleConfig, // L2 set
-		Origin:      types.ClaimOriginLog, // backfiller set
+		Origin:      types.ClaimOriginLog,            // backfiller set
 	}
 	if got := types.ClaimFormOf(ev); got != types.ClaimExternalObservation {
 		t.Errorf("Origin=Log should win over AnchorKind/DiagramRole projections; got %q (expected external_observation)", got)

@@ -261,6 +261,7 @@ func TestClaimFormOf_AnchorKindDispatch(t *testing.T) {
 		{AnchorCondition, ClaimGuardCondition},
 		{AnchorReturn, ClaimReturnFact},
 		{AnchorAssignment, ClaimAssignmentFact},
+		{AnchorInitializer, ClaimAssignmentFact},
 		{AnchorImport, ClaimImportEdge},
 		{AnchorDefinition, ClaimDefinitionFact},
 	}
