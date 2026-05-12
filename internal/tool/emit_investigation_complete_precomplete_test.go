@@ -302,6 +302,22 @@ func build() {
 
 	mut.AppendDispatchToolResult(types.ToolResult{
 		ToolName: "exec_command",
+		Summary:  "internal/agent/analyzer.go:5:\tout.AnswerContract.CitationReq.Required = false\n",
+		Success:  true,
+	})
+	res, err = tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error after match listing: %v", err)
+	}
+	if !strings.Contains(res.Summary, "deterministic count proof is missing") {
+		t.Fatalf("grep match listing must not clear deterministic-count downgrade: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open after match listing output")
+	}
+
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
 		Summary:  "count=1\n",
 		Success:  true,
 	})

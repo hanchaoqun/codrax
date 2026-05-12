@@ -288,8 +288,10 @@ func (ScalarCountValidator) Validate(input ValidatorInput) *CompletenessFailure 
 }
 
 // hasExecCommandIntegerResult reports whether ToolResults contains
-// at least one successful exec_command result whose summary contains
-// an integer literal.
+// at least one successful exec_command result whose summary is a
+// scalar count proof. Match listings with file:line numbers are
+// rejected by DeterministicCountProofInteger; otherwise the finalizer
+// can still ship a number it visually counted from grep/read output.
 func hasExecCommandIntegerResult(results []types.ToolResult) bool {
 	for _, tr := range results {
 		if tr.ToolName != "exec_command" {
@@ -298,7 +300,7 @@ func hasExecCommandIntegerResult(results []types.ToolResult) bool {
 		if !tr.Success {
 			continue
 		}
-		if hasIntegerLiteral(tr.Summary) {
+		if _, ok := types.DeterministicCountProofInteger(tr.Summary); ok {
 			return true
 		}
 	}

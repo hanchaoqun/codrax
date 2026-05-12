@@ -14,8 +14,8 @@ import (
 //     internal pipeline term substrings)
 
 // TestScalarCountValidator pins the count-question Tier 2 contract.
-// Pass when ToolResults contains an exec_command result with an
-// integer literal in summary; fail otherwise.
+// Pass when ToolResults contains an exec_command result with a scalar
+// count proof; fail for read_file-only evidence and grep match listings.
 func TestScalarCountValidator(t *testing.T) {
 	makeIR := func(isCount bool) *types.AnalysisIR {
 		return &types.AnalysisIR{
@@ -88,6 +88,23 @@ func TestScalarCountValidator(t *testing.T) {
 		}
 		if fail := v.Validate(input); fail != nil {
 			t.Errorf("ScalarCountValidator must pass when exec_command returns integer; got %+v", fail)
+		}
+	})
+
+	t.Run("count_question_exec_command_match_listing_fails", func(t *testing.T) {
+		v := ScalarCountValidator{}
+		input := ValidatorInput{
+			IR: makeIR(true),
+			ToolResults: []types.ToolResult{
+				{
+					ToolName: "exec_command",
+					Summary:  "internal/orchestrator/contract_check.go:63:\tc.CitationReq.Required = false\n",
+					Success:  true,
+				},
+			},
+		}
+		if fail := v.Validate(input); fail == nil {
+			t.Error("ScalarCountValidator must fail when exec_command returns a match listing instead of a final count")
 		}
 	})
 
@@ -246,11 +263,11 @@ func TestPathDepthValidator(t *testing.T) {
 		input := ValidatorInput{
 			IR: makeIR("entryPoint", "exit_point"),
 			EvidenceItems: []types.EvidenceItem{
-				{AnchorSymbol: "Entry"},          // PascalCase
-				{AnchorSymbol: "process_data"},   // snake_case
-				{AnchorSymbol: "validateInput"},  // camelCase
-				{AnchorSymbol: "pkg.HelperFn"},   // qualified
-				{AnchorSymbol: "exit_point"},     // matches one entity
+				{AnchorSymbol: "Entry"},         // PascalCase
+				{AnchorSymbol: "process_data"},  // snake_case
+				{AnchorSymbol: "validateInput"}, // camelCase
+				{AnchorSymbol: "pkg.HelperFn"},  // qualified
+				{AnchorSymbol: "exit_point"},    // matches one entity
 			},
 		}
 		if fail := v.Validate(input); fail != nil {
@@ -344,9 +361,9 @@ func TestRunFamilyValidators_RoutingPerFamily(t *testing.T) {
 			wantNValids: 1,
 		},
 		{
-			name:   "qf_call_chain_routes_path_validator",
-			family: types.QFCallChain,
-			ir:     &types.AnalysisIR{},
+			name:        "qf_call_chain_routes_path_validator",
+			family:      types.QFCallChain,
+			ir:          &types.AnalysisIR{},
 			wantNValids: 1,
 		},
 		{

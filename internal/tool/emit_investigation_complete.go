@@ -1153,7 +1153,7 @@ func hasDeterministicCountToolResult(ctx *types.BusContext) bool {
 		if tr.ToolName != "exec_command" || !tr.Success {
 			continue
 		}
-		if hasIntegerLiteralInText(tr.Summary) {
+		if _, ok := types.DeterministicCountProofInteger(tr.Summary); ok {
 			return true
 		}
 	}
@@ -1170,10 +1170,6 @@ func deterministicCountToolResults(ctx *types.BusContext) []types.ToolResult {
 		out = append(out, ctx.Mutable.DispatchToolResults()...)
 	}
 	return out
-}
-
-func hasIntegerLiteralInText(text string) bool {
-	return regexp.MustCompile(`(^|[^A-Za-z0-9_])-?[0-9]+([^A-Za-z0-9_]|$)`).FindStringIndex(text) != nil
 }
 
 type fieldValueCountTarget struct {
