@@ -55,6 +55,40 @@ func TestPreEmitBlockCitationRoleForms_TableParticipates(t *testing.T) {
 	}
 }
 
+func TestPreCheckCitationPoolIntegrity_CatchesMissingAndOutOfRangeRefs(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "files",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{ID: "a", CitationRef: 0},
+				{ID: "b", CitationRef: 2},
+			},
+		}},
+	}
+	hints := preCheckCitationPoolIntegrity(doc)
+	if len(hints) != 1 {
+		t.Fatalf("missing citation pool should produce one hint, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].Field, "citations") {
+		t.Fatalf("hint should target citations[], got %+v", hints[0])
+	}
+
+	doc.Citations = []types.Citation{
+		{File: "a.go", Line: 1},
+		{File: "b.go", Line: 2},
+	}
+	hints = preCheckCitationPoolIntegrity(doc)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "at least 3") {
+		t.Fatalf("out-of-range citation_ref should ask for enough citation entries, got %+v", hints)
+	}
+
+	doc.Citations = append(doc.Citations, types.Citation{File: "c.go", Line: 3})
+	if hints := preCheckCitationPoolIntegrity(doc); len(hints) != 0 {
+		t.Fatalf("complete citation pool should pass, got %+v", hints)
+	}
+}
+
 // TestPreCheckRequiredBlocks_MinCount — required block kind under-emitted.
 func TestPreCheckRequiredBlocks_MinCount(t *testing.T) {
 	view := &types.AnswerSemanticView{

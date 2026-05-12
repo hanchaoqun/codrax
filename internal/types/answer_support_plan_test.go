@@ -1089,7 +1089,20 @@ func TestBuildAnswerSupportPlan_ChangeImpactKeepsHeterogeneousAffectedSites(t *t
 		Producer:        "explorer.emit_evidence",
 		GroundingStatus: GroundingGrounded,
 	}
-	evidence := []EvidenceItem{def, assign, guard, call, unrelatedRequired}
+	mechanismComment := EvidenceItem{
+		ID:              "comment-only",
+		Kind:            EvidenceMechanism,
+		Scope:           ScopeLine,
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       6327,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "CitationReq",
+		Subject:         "CitationReq",
+		Summary:         "comment describes CitationReq.Required fallback behavior",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	evidence := []EvidenceItem{def, assign, guard, call, unrelatedRequired, mechanismComment}
 	rm := RequestModel{
 		Intent: IntentEnumerate,
 		Predicates: SemanticPredicates{
@@ -1144,8 +1157,15 @@ func TestBuildAnswerSupportPlan_ChangeImpactKeepsHeterogeneousAffectedSites(t *t
 	if strings.Contains(locationText, "answer_document_pre_emit_check.go") {
 		t.Fatalf("owner-qualified change-impact target should not promote a different Required field:\n%s", locationText)
 	}
+	if strings.Contains(locationText, "orchestrator.go") {
+		t.Fatalf("mechanism/comment-only evidence should remain support context for production code-site impact answers:\n%s", locationText)
+	}
 	if !strings.Contains(principalLane.Guidance, "Direct assignments are only one affected-site role") {
 		t.Fatalf("impact guidance should warn against assignment-only narrowing: %q", principalLane.Guidance)
+	}
+	contextLane := answerSupportLaneByKind(got, SupportLaneNearestMechanism)
+	if contextLane == nil || !supportLaneHasSource(contextLane, "internal/orchestrator/orchestrator.go") {
+		t.Fatalf("filtered mechanism evidence should remain available as support context, got %+v", got)
 	}
 
 	doc := &AnswerDocumentV2{
@@ -1168,6 +1188,58 @@ func TestBuildAnswerSupportPlan_ChangeImpactKeepsHeterogeneousAffectedSites(t *t
 	}
 	if len(narrowing.MissingForms) == 0 {
 		t.Fatalf("narrowing diagnostic should name non-assignment missing forms: %+v", narrowing)
+	}
+}
+
+func supportLaneHasSource(lane *AnswerSupportLane, source string) bool {
+	if lane == nil {
+		return false
+	}
+	for _, entry := range lane.Entries {
+		if entry.Source == source {
+			return true
+		}
+	}
+	return false
+}
+
+func TestBuildAnswerSupportPlan_ChangeImpactDocumentationCanPromoteMechanismEvidence(t *testing.T) {
+	docEvidence := EvidenceItem{
+		ID:              "doc",
+		Kind:            EvidenceMechanism,
+		Scope:           ScopeLine,
+		Source:          "docs/api.md",
+		LineStart:       24,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "CitationReq",
+		Subject:         "CitationReq",
+		Summary:         "documentation describes CitationReq.Required",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	rm := RequestModel{
+		Intent:        IntentEnumerate,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration)},
+		ChangeImpactProfile: &ChangeImpactProfile{
+			IsChangeImpact:    true,
+			Target:            "CitationReq.Required",
+			RequestedOutput:   ImpactOutputFiles,
+			AffectedSiteKinds: []ImpactAffectedSiteKind{ImpactSiteDocumentation},
+			Confidence:        0.9,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence:     []EvidenceItem{docEvidence},
+		ChangeImpactProfile: rm.ChangeImpactProfile,
+		FacetCoverage:       CompileFacetCoverage(rm, []EvidenceItem{docEvidence}),
+	}
+	got := BuildAnswerSupportPlan(rm, plan)
+	principalLane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if principalLane == nil || len(principalLane.Entries) != 1 {
+		t.Fatalf("documentation impact requests may promote mechanism evidence, got %+v", got)
+	}
+	if principalLane.Entries[0].Source != "docs/api.md" {
+		t.Fatalf("unexpected promoted documentation evidence: %+v", principalLane.Entries[0])
 	}
 }
 

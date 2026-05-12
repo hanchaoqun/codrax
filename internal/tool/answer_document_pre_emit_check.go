@@ -110,6 +110,14 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	}
 	var hints []emitFixHint
 
+	// 0. Citation-pool carrier integrity. Run this before semantic
+	// member checks so a retry that dropped citations[] or references
+	// an out-of-range index gets a direct schema repair instead of a
+	// misleading "all principal members are missing" diagnosis.
+	if h := preCheckCitationPoolIntegrity(doc); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+
 	// 1. Required block kind + count compliance.
 	if h := preCheckRequiredBlocks(doc, view); len(h) > 0 {
 		hints = append(hints, h...)
@@ -173,6 +181,41 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	}
 
 	return hints
+}
+
+func preCheckCitationPoolIntegrity(doc *types.AnswerDocumentV2) []emitFixHint {
+	if doc == nil {
+		return nil
+	}
+	maxRef := -1
+	refCount := 0
+	for _, block := range doc.Blocks {
+		for _, item := range block.Items {
+			if item.CitationRef < 0 {
+				continue
+			}
+			refCount++
+			if item.CitationRef > maxRef {
+				maxRef = item.CitationRef
+			}
+		}
+	}
+	if refCount == 0 {
+		return nil
+	}
+	if len(doc.Citations) > maxRef {
+		return nil
+	}
+	expected := "preserve / emit a top-level citations[] pool with at least " +
+		fmt.Sprintf("%d entries so every non-negative blocks[].items[].citation_ref resolves to an existing citation object", maxRef+1)
+	if len(doc.Citations) == 0 {
+		expected = "preserve / emit the top-level citations[] pool; this payload contains cited items but no citations[] entries"
+	}
+	return []emitFixHint{{
+		Field:         "citations[]",
+		ExpectedShape: expected,
+		Reason:        "citation_ref is an index into the model-emitted citations[] array; semantic coverage checks cannot run correctly until the carrier's citation pool is structurally complete.",
+	}}
 }
 
 func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctxOpt ...*types.BusContext) []emitFixHint {

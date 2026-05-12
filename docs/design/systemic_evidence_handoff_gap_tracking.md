@@ -27,6 +27,8 @@ structured data, not raw thinking text or system-invented answer content.
 | G7 | Aggregate count/member-set drift appears when the model emits only prose counts or partial aggregate facts. | `internal/types/answer_aggregate_fact.go`, `internal/tool/emit_investigation_complete.go`, `internal/agent/aggregate_fact_render.go` | Keep aggregate facts model-owned and structurally self-consistent: `len(members)==value`, file:line totals require `unique_count`, member-set value may be canonicalized only from emitted members. | Existing, keep enforcing |
 | G8 | Diagrams and block shapes can reflect system scaffolding instead of the user's requested answer surface. | `internal/types/answer_semantic_view_*`, `internal/agent/answer_document_evaluator.go`, `internal/orchestrator/contract_check_block.go` | Compile answer family and allowed block kinds from typed profiles/facets; finalizer may enrich diagrams from grounded seeds, but principal blocks must stay aligned to the user-requested surface. | Existing, keep auditing |
 | G9 | Owner-qualified change-impact targets can be polluted by unrelated fields with the same leaf name. | `internal/types/answer_support_plan_facet_evidence.go` | For `Owner.member` targets, principal evidence must structurally match the owner-qualified path or define the owner itself; leaf-only matches stay context. This covers Go selectors, C/C++ `::` / `->`, ArkTS/Cangjie member paths, and config-like dotted paths. | Implemented in this phase |
+| G10 | Change-impact file answers can promote documentation / mechanism comments as production code sites. | `internal/types/answer_support_plan_facet_evidence.go` | Treat mechanism, related-context, and illustrative evidence as support context for change-impact principal lanes unless the analyzer's typed profile explicitly requests documentation / generated / build artifacts. Code-site answers should be driven by direct / conditional / relationship / registration evidence, not comment-only mechanism anchors. | Implemented in this phase |
+| G11 | Finalizer retry can drop `citations[]` or reference an out-of-range citation index, then downstream diagnostics misreport principal-member coverage. | `internal/tool/answer_document_pre_emit_check.go` | Add a schema-shape pre-check for `blocks[].items[].citation_ref` against the emitted citation pool before semantic member checks. The repair asks the model to preserve / extend its own citation pool; system code never invents citations. | Implemented in this phase |
 
 ## Implementation Order
 
@@ -36,10 +38,13 @@ structured data, not raw thinking text or system-invented answer content.
    ledger before code changes.
 3. Land G9 before broad random eval resumes; a PASS that includes an unrelated
    same-leaf field is a principal-set correctness failure, not a richness issue.
-4. Expand G6 using repomap/tree-sitter surfaces rather than language-specific
+4. Expand G10 before broad eval resumes; otherwise comment-only anchors can
+   become principal production-code file members and force finalizer into
+   count / role contradictions.
+5. Expand G6 using repomap/tree-sitter surfaces rather than language-specific
    prompt patches. This must include Go, C/C++, Cangjie, ArkTS, and mixed
    repositories.
-5. Continue sampling G2/G4/G5/G8 with random eval order. If an issue is already
+6. Continue sampling G2/G4/G5/G8 with random eval order. If an issue is already
    covered by an existing typed lane, strengthen the consumer/gate instead of
    adding another prompt-only rule.
 

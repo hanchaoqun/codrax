@@ -291,7 +291,7 @@ func curateEnumerationPrincipalEvidence(plan *AnswerSurfacePlan, items []Evidenc
 		return nil
 	}
 	if plan != nil && plan.ChangeImpactProfile != nil && plan.ChangeImpactProfile.Active() {
-		if filtered := filterChangeImpactPrincipalEvidence(plan.ChangeImpactProfile, items); len(filtered) > 0 {
+		if filtered, ok := filterChangeImpactPrincipalEvidence(plan.ChangeImpactProfile, items); ok {
 			return filtered
 		}
 		return items
@@ -302,18 +302,69 @@ func curateEnumerationPrincipalEvidence(plan *AnswerSurfacePlan, items []Evidenc
 	return filterDominantEnumerationPrincipalSurface(items)
 }
 
-func filterChangeImpactPrincipalEvidence(profile *ChangeImpactProfile, items []EvidenceItem) []EvidenceItem {
+func filterChangeImpactPrincipalEvidence(profile *ChangeImpactProfile, items []EvidenceItem) ([]EvidenceItem, bool) {
+	if len(items) == 0 || profile == nil || !profile.Active() {
+		return nil, false
+	}
+	candidates := make([]EvidenceItem, 0, len(items))
+	roleFiltered := false
+	for _, item := range items {
+		if !changeImpactPrincipalEvidenceRoleEligible(profile, item) {
+			roleFiltered = true
+			continue
+		}
+		candidates = append(candidates, item)
+	}
+	if roleFiltered && len(candidates) == 0 {
+		return nil, true
+	}
+	if len(candidates) == 0 {
+		return nil, false
+	}
 	target := parseChangeImpactPrincipalTarget(profile)
 	if !target.ownerQualified {
-		return items
+		if roleFiltered {
+			return candidates, true
+		}
+		return nil, false
 	}
-	out := make([]EvidenceItem, 0, len(items))
-	for _, item := range items {
-		if changeImpactEvidenceMatchesTarget(item, items, target) {
+	out := make([]EvidenceItem, 0, len(candidates))
+	for _, item := range candidates {
+		if changeImpactEvidenceMatchesTarget(item, candidates, target) {
 			out = append(out, item)
 		}
 	}
-	return out
+	if len(out) > 0 {
+		return out, true
+	}
+	if roleFiltered {
+		return candidates, true
+	}
+	return nil, false
+}
+
+func changeImpactPrincipalEvidenceRoleEligible(profile *ChangeImpactProfile, item EvidenceItem) bool {
+	switch item.ContextRole {
+	case EvidenceContextRoleRelatedContext, EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleAbsenceSupport:
+		return false
+	}
+	if item.Kind != EvidenceMechanism {
+		return true
+	}
+	return changeImpactProfileAllowsMechanismPrincipal(profile)
+}
+
+func changeImpactProfileAllowsMechanismPrincipal(profile *ChangeImpactProfile) bool {
+	if profile == nil {
+		return false
+	}
+	for _, kind := range profile.AffectedSiteKinds {
+		switch kind {
+		case ImpactSiteDocumentation, ImpactSiteGenerated, ImpactSiteBuild:
+			return true
+		}
+	}
+	return false
 }
 
 type changeImpactPrincipalTarget struct {

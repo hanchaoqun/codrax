@@ -176,6 +176,38 @@ principal support lane contained only `assignment_fact` members.
      Leaf-only evidence (`req.Required`) remains support context, not a
      principal affected file.
 
+12. Documentation / mechanism comments can masquerade as production code sites
+
+   - A later `u10b` run exposed a different pollution mode: the explorer found
+     comment lines in `internal/orchestrator/orchestrator.go` describing a
+     degraded fallback setting, emitted them as `EvidenceMechanism` +
+     `AnchorDefinition`, and the owner-qualified rule kept them because they
+     mentioned `CitationReq`.
+   - The final answer then listed `orchestrator.go` as a production code file
+     that "writes Required=false", even though the cited anchors were
+     documentation comments rather than executable code. The self-consistency
+     reviewer also detected the downstream count contradiction, because the
+     list had six file members while the role buckets only added up to five.
+   - The generalized fix is a typed role boundary, not a comment keyword check:
+     for change-impact principal lanes, `EvidenceMechanism`, related-context,
+     and illustrative evidence are support context unless
+     `ChangeImpactProfile.AffectedSiteKinds` explicitly includes
+     `documentation`, `generated`, or `build`. Executable code-site answers stay
+     grounded in direct / conditional / relationship / registration evidence.
+
+13. Citation-pool carrier drift can hide the real repair
+
+   - In the same run, finalizer retries temporarily dropped `citations[]` or
+     referenced a non-existent citation index while trying to preserve the
+     principal list. The existing pre-check then reported broad principal
+     support-member misses, which is technically true but not the repair the
+     model needed first.
+   - The generalized fix is a carrier-level pre-check before semantic
+     support-member checks: every non-negative `citation_ref` must point into
+     the model-emitted `citations[]` pool. The repair prompt tells the model to
+     preserve or extend its own citation pool; runtime code does not synthesize
+     missing citations.
+
 ## Generalized Design
 
 ### Typed profile
@@ -231,6 +263,9 @@ The support lane should explicitly name the impact boundary:
   itself is an affected site.
 - when `requested_output=files`, file paths are the principal members and
   file:line affected sites are evidence/rationale for those files.
+- mechanism / related-context / illustrative evidence is supporting context for
+  code-site impact answers. It becomes principal only when the typed profile
+  requests documentation, generated artifacts, or build artifacts.
 
 ### Final-answer guard
 
