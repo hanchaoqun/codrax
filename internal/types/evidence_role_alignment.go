@@ -231,6 +231,7 @@ func displaySurfaceTermsOverlap(a, b EvidenceItem) bool {
 
 func evidenceDisplayRoleTerms(ev EvidenceItem) []string {
 	var out []string
+	form := ClaimFormOf(ev)
 	add := func(s string) {
 		s = strings.TrimSpace(s)
 		if s == "" {
@@ -244,16 +245,23 @@ func evidenceDisplayRoleTerms(ev EvidenceItem) []string {
 		out = append(out, s)
 	}
 	for _, term := range ev.SurfaceTerms {
+		if form == ClaimPrecedenceRole && isGenericPrecedenceRoleSurfaceTerm(term) {
+			continue
+		}
 		add(term)
 	}
 	add(ev.Subject)
 	add(ev.Object)
 	add(ev.AnchorSymbol)
 	add(ev.OwnerSymbol)
-	if ev.DiagramRole != EvidenceDiagramRoleUnknown && ev.DiagramRole != EvidenceDiagramRoleDefault {
+	if form == ClaimPrecedenceRole {
+		add(ev.Source)
+	} else if ev.DiagramRole != EvidenceDiagramRoleUnknown && ev.DiagramRole != EvidenceDiagramRoleDefault {
 		add(string(ev.DiagramRole))
 	}
-	if ev.RequestedDiagramRole != EvidenceDiagramRoleUnknown && ev.RequestedDiagramRole != EvidenceDiagramRoleDefault {
+	if form != ClaimPrecedenceRole &&
+		ev.RequestedDiagramRole != EvidenceDiagramRoleUnknown &&
+		ev.RequestedDiagramRole != EvidenceDiagramRoleDefault {
 		add(string(ev.RequestedDiagramRole))
 	}
 	if ev.FileRoleLabel != "" {
@@ -263,6 +271,23 @@ func evidenceDisplayRoleTerms(ev EvidenceItem) []string {
 		add(string(ev.LogPerfSubKind))
 	}
 	return out
+}
+
+func isGenericPrecedenceRoleSurfaceTerm(term string) bool {
+	switch normalizedDisplaySurface(term) {
+	case "config",
+		"configcanonical",
+		"configuration",
+		"default",
+		"defaults",
+		"runtime",
+		"override",
+		"overrides",
+		"yaml":
+		return true
+	default:
+		return false
+	}
 }
 
 func displaySurfaceAppears(term, surface string) bool {
