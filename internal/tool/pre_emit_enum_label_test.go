@@ -402,8 +402,70 @@ func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testi
 		t.Fatalf("expected one citation-alignment hint, got %d: %v", len(hints), hints)
 	}
 	if !strings.Contains(hints[0].ExpectedShape, "gate.RunWith") ||
-		!strings.Contains(hints[0].ExpectedShape, "internal/agent/analyzer.go:1850") {
-		t.Fatalf("hint should name drifted label and cited line, got %+v", hints[0])
+		!strings.Contains(hints[0].ExpectedShape, "current_citation=internal/agent/analyzer.go:1850") ||
+		!strings.Contains(hints[0].ExpectedShape, "candidate_citations=[internal/agent/analyzer.go:1970]") {
+		t.Fatalf("hint should name invalid current cite and typed candidate line, got %+v", hints[0])
+	}
+	if strings.Contains(hints[0].ExpectedShape, "cite internal/agent/analyzer.go:1850") {
+		t.Fatalf("hint must not present the current invalid citation as the target, got %+v", hints[0])
+	}
+}
+
+func TestPreCheckItemCitationAlignment_DoesNotPresentCurrentCitationAsTarget(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "agents",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "a1",
+				Label:       "RegisterDefaultSubAgents",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/sub_explorer.go", Line: 31}},
+	}
+	mut := types.NewMutableState("which agents can call subagents")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/agent/sub_explorer.go",
+				LineStart:       31,
+				AnchorKind:      types.AnchorReturn,
+				Subject:         "SubExplorer.Name",
+				Object:          `"explorer"`,
+				AnchorSymbol:    "Name",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/agent/subagent.go",
+				LineStart:       63,
+				AnchorKind:      types.AnchorDefinition,
+				Subject:         "RegisterDefaultSubAgents",
+				AnchorSymbol:    "RegisterDefaultSubAgents",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+
+	hints := preCheckItemCitationAlignment(doc, nil, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("expected one citation-alignment hint, got %d: %v", len(hints), hints)
+	}
+	hint := hints[0].ExpectedShape
+	for _, want := range []string{
+		"current_citation=internal/agent/sub_explorer.go:31",
+		"current_citation is INVALID",
+		"candidate_citations=[internal/agent/subagent.go:63]",
+	} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("hint missing %q: %+v", want, hints[0])
+		}
+	}
+	if strings.Contains(hint, "should cite internal/agent/sub_explorer.go:31") {
+		t.Fatalf("hint must not make the invalid current citation look like the desired target: %+v", hints[0])
 	}
 }
 

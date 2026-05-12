@@ -181,10 +181,11 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 	}
 	ctx := ctxOpt[0]
 	type mismatch struct {
-		blockID string
-		itemID  string
-		label   string
-		cite    string
+		blockID    string
+		itemID     string
+		label      string
+		cite       string
+		candidates []string
 	}
 	var mismatches []mismatch
 	for _, b := range doc.Blocks {
@@ -210,10 +211,11 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 					continue
 				}
 				mismatches = append(mismatches, mismatch{
-					blockID: b.ID,
-					itemID:  item.ID,
-					label:   label,
-					cite:    fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
+					blockID:    b.ID,
+					itemID:     item.ID,
+					label:      label,
+					cite:       fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
+					candidates: preEmitCandidateCitationLocationsForLabel(ctx, label, 4),
 				})
 				continue
 			}
@@ -225,10 +227,11 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 				continue
 			}
 			mismatches = append(mismatches, mismatch{
-				blockID: b.ID,
-				itemID:  item.ID,
-				label:   label,
-				cite:    fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
+				blockID:    b.ID,
+				itemID:     item.ID,
+				label:      label,
+				cite:       fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
+				candidates: preEmitCandidateCitationLocationsForLabel(ctx, label, 4),
 			})
 		}
 	}
@@ -237,11 +240,17 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 	}
 	parts := make([]string, 0, len(mismatches))
 	for _, m := range mismatches {
-		parts = append(parts, fmt.Sprintf("block=%q item=%q label=%q citation=%s", m.blockID, m.itemID, m.label, m.cite))
+		part := fmt.Sprintf("block=%q item=%q label=%q current_citation=%s", m.blockID, m.itemID, m.label, m.cite)
+		if len(m.candidates) > 0 {
+			part += " candidate_citations=[" + strings.Join(m.candidates, ", ") + "]"
+		} else {
+			part += " candidate_citations=[]"
+		}
+		parts = append(parts, part)
 	}
 	return []emitFixHint{{
 		Field: "blocks[].items[].citation_ref",
-		ExpectedShape: "each symbol-like item label must cite the evidence line whose subject/object/anchor names that same symbol; each source-location label must cite that same file:line: " +
+		ExpectedShape: "each symbol-like item label must cite the evidence line whose subject/object/anchor names that same label; each source-location label must cite that exact file:line. current_citation is INVALID, not a target. Use a candidate_citations entry when present, or change the label to an endpoint actually present at current_citation: " +
 			strings.Join(parts, "; "),
 		Reason: "list item labels and citation_ref values must stay aligned; adjacent call-chain hops or nearby source locations cannot borrow each other's citations.",
 	}}
@@ -505,6 +514,36 @@ func preEmitLabelMatchesAnyEvidenceEndpoint(label string, evidence []types.Evide
 		}
 	}
 	return false
+}
+
+func preEmitCandidateCitationLocationsForLabel(ctx *types.BusContext, label string, limit int) []string {
+	if limit <= 0 {
+		limit = 4
+	}
+	var out []string
+	seen := make(map[string]bool)
+	for _, ev := range preEmitAnswerEvidenceItems(ctx) {
+		if ev.GroundingStatus == types.GroundingUngrounded {
+			continue
+		}
+		if !preEmitLabelMatchesEvidenceEndpoint(label, ev) {
+			continue
+		}
+		file := strings.TrimSpace(ev.Source)
+		if file == "" || ev.LineStart <= 0 {
+			continue
+		}
+		loc := fmt.Sprintf("%s:%d", file, ev.LineStart)
+		if seen[loc] {
+			continue
+		}
+		seen[loc] = true
+		out = append(out, loc)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
 }
 
 func preEmitLabelMatchesEvidenceEndpoint(label string, ev types.EvidenceItem) bool {
