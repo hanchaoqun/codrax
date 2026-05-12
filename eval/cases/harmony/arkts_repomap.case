@@ -6,9 +6,9 @@
 # question forces the analyzer to use repomap to enumerate
 # components and their decorators.
 #
-# PR-0 deliverable: eval/fixtures/testdata/arkts_minimal/ with
-# at least Index.ets + UserCard.ets containing @Entry @Component
-# struct and @Builder.
+# Current fixture uses the in-repo tree-sitter ArkTS corpus under
+# internal/thirdparty/tree-sitter-arkts/corpus/sources/. Pin the real
+# corpus path instead of the old PR-0 placeholder filename.
 #
 # Ground truth: at least 2 @Component declarations + 1 @Entry +
 # 1 @Builder. Question names them so EXPECT_CONTAINS pins concrete
@@ -17,4 +17,4 @@ ID="arkts_repomap"
 NAME="repomap ArkTS @Entry @Component struct + @Builder enumeration"
 QUESTION="仓库里有哪些 @Entry 标记的 ArkTS 页面入口，以及哪些 @Builder 复用片段？分别列出文件路径和函数名。"
 EXPECT_CONTAINS="@Entry @Component"
-EXPECT_SECTIONS="Index.ets"
+EXPECT_SECTIONS="01_entry_component_minimal.ets"

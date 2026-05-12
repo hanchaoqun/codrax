@@ -589,6 +589,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	diagramRequiredFiles := exactResolutionDiagramRequiredFiles(ctx, exactResolutionContract)
 	reports := make([]ground.Report, len(built))
 	surfaceTermRejects := make([]string, 0)
+	surfaceAlignmentRejects := make([]string, 0)
 	for i := range built {
 		// Per-scope dispatch: ScopeLine routes to the existing tier
 		// cascade; schema-level scopes (File / Crossfile / Negative)
@@ -636,11 +637,19 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		if err := validateEvidenceSurfaceTerms(i, built[i], gc); err != nil {
 			surfaceTermRejects = append(surfaceTermRejects, err.Error())
 		}
+		if err := validateRequestedDecoratorRegistrationAlignment(i, built[i], gc, ctx); err != nil {
+			surfaceAlignmentRejects = append(surfaceAlignmentRejects, err.Error())
+		}
 	}
 	if len(surfaceTermRejects) > 0 {
 		return failEmit(t.Name(), now,
 			"surface_terms must be exact strings from already-read source lines:\n%s",
 			strings.Join(surfaceTermRejects, "\n"))
+	}
+	if len(surfaceAlignmentRejects) > 0 {
+		return failEmit(t.Name(), now,
+			"evidence surface alignment failed:\n%s",
+			strings.Join(surfaceAlignmentRejects, "\n"))
 	}
 
 	// 2026-05-03 (Phase 6 stage 2): retired the codename-grounding
@@ -2624,6 +2633,155 @@ func validateEvidenceSurfaceTerms(index int, item types.EvidenceItem, gc *ground
 	return nil
 }
 
+func validateRequestedDecoratorRegistrationAlignment(index int, item types.EvidenceItem, gc *ground.Context, ctx *types.BusContext) error {
+	if item.Kind != types.EvidenceRegistration || item.AnchorKind != types.AnchorDefinition {
+		return nil
+	}
+	requested := requestedDecoratorSurfaceTerms(ctx)
+	if len(requested) == 0 {
+		return nil
+	}
+	claimed := decoratorSurfaceTermFromLabel(item.Object)
+	if claimed == "" || !requested[claimed] {
+		return nil
+	}
+	actual := attachedDecoratorSurfaceTermSet(item, gc)
+	if len(actual) == 0 || actual[claimed] {
+		return nil
+	}
+	actualList := make([]string, 0, len(actual))
+	for term := range actual {
+		actualList = append(actualList, term)
+	}
+	sort.Strings(actualList)
+	return fmt.Errorf(
+		"items[%d]: registration object %q claims requested decorator %q, but attached source decorators at %s:%d are %s; re-emit this evidence with the actual decorator object or mark it as related context instead of a principal %s member",
+		index, item.Object, claimed, item.Source, item.LineStart, strings.Join(actualList, ", "), claimed)
+}
+
+func requestedDecoratorSurfaceTerms(ctx *types.BusContext) map[string]bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	out := make(map[string]bool)
+	add := func(raw string) {
+		term := decoratorSurfaceTermFromLabel(raw)
+		if term != "" {
+			out[term] = true
+		}
+	}
+	for _, raw := range rm.AnalyzerHints.Entities {
+		add(raw)
+	}
+	for _, raw := range rm.AnalyzerHints.PrimaryEntities {
+		add(raw)
+	}
+	for _, st := range rm.SubTopics {
+		for _, raw := range st.Entities {
+			add(raw)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func attachedDecoratorSurfaceTermSet(item types.EvidenceItem, gc *ground.Context) map[string]bool {
+	out := make(map[string]bool)
+	add := func(raw string) {
+		if term := decoratorSurfaceTermFromLabel(raw); term != "" {
+			out[term] = true
+		}
+	}
+	for _, term := range repomapDecoratorSurfaceTermsForEvidence(item, gc) {
+		add(term)
+	}
+	for _, term := range decoratorSurfaceCandidatesAroundItem(item, gc) {
+		add(term)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func repomapDecoratorSurfaceTermsForEvidence(item types.EvidenceItem, gc *ground.Context) []string {
+	if gc == nil || gc.Graph == nil || item.Source == "" || item.LineStart <= 0 {
+		return nil
+	}
+	source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+	if source == "" {
+		return nil
+	}
+	var out []string
+	seen := make(map[string]bool)
+	add := func(raw string) {
+		if term := decoratorSurfaceTermFromLabel(raw); term != "" && !seen[term] {
+			seen[term] = true
+			out = append(out, term)
+		}
+	}
+	for _, fi := range gc.Graph.Files {
+		if fi == nil || strings.TrimSpace(strings.ReplaceAll(fi.RelPath, `\`, `/`)) != source {
+			continue
+		}
+		for _, sym := range fi.Symbols {
+			if sym.Line != item.LineStart {
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(sym.Kind)) {
+			case "builder", "styles", "extend", "component", "annotation", "decorator":
+				add(decoratorSurfaceTermFromSymbolKind(sym.Kind))
+			}
+			for _, match := range decoratorSurfaceTermRe.FindAllString(sym.Doc, -1) {
+				add(match)
+			}
+		}
+		break
+	}
+	return out
+}
+
+func decoratorSurfaceTermFromSymbolKind(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "builder":
+		return "@Builder"
+	case "styles":
+		return "@Styles"
+	case "extend":
+		return "@Extend"
+	case "component":
+		return "@Component"
+	case "annotation", "decorator":
+		return ""
+	default:
+		return raw
+	}
+}
+
+func decoratorSurfaceTermFromLabel(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	match := decoratorSurfaceTermRe.FindString(raw)
+	if match != "" {
+		return match
+	}
+	raw = strings.Trim(raw, "`'\"")
+	if raw == "" || strings.ContainsAny(raw, " \t\r\n/\\.:,;()[]{}<>") {
+		return ""
+	}
+	for _, r := range raw {
+		if !(r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')) {
+			return ""
+		}
+	}
+	return "@" + raw
+}
+
 func evidenceSurfaceTermWindow(item types.EvidenceItem, fileLines map[int]string) string {
 	if len(fileLines) == 0 {
 		return ""
@@ -2763,24 +2921,12 @@ func decoratorSurfaceCandidatesAroundItem(item types.EvidenceItem, gc *ground.Co
 	if len(fileLines) == 0 {
 		return nil
 	}
-	start := item.LineStart - 8
-	if start < 1 {
-		start = 1
-	}
-	end := item.LineStart + 2
 	seen := make(map[string]bool)
 	var out []string
-	for line := start; line <= end; line++ {
-		text, ok := fileLines[line]
-		if !ok {
-			continue
-		}
+	addFromLine := func(text string) {
 		text = strings.TrimSpace(text)
-		if text == "" {
-			continue
-		}
-		if !strings.HasPrefix(text, "@") {
-			continue
+		if text == "" || !strings.HasPrefix(text, "@") {
+			return
 		}
 		for _, match := range decoratorSurfaceTermRe.FindAllString(text, -1) {
 			if !seen[match] {
@@ -2788,6 +2934,20 @@ func decoratorSurfaceCandidatesAroundItem(item types.EvidenceItem, gc *ground.Co
 				out = append(out, match)
 			}
 		}
+	}
+	if text, ok := fileLines[item.LineStart]; ok {
+		addFromLine(text)
+	}
+	for line := item.LineStart - 1; line >= 1; line-- {
+		text, ok := fileLines[line]
+		if !ok {
+			break
+		}
+		text = strings.TrimSpace(text)
+		if text == "" || !strings.HasPrefix(text, "@") {
+			break
+		}
+		addFromLine(text)
 	}
 	return out
 }

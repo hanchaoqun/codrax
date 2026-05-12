@@ -223,6 +223,74 @@ func TestEmitEvidence_SurfaceTermReviewPromptsDecoratorCompanions(t *testing.T) 
 	}
 }
 
+func TestEmitEvidence_SurfaceTermReviewDoesNotPullParentDecoratorOntoNestedMethod(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", 1,
+		"// Source: developer.huawei.com codelabs / @Builder decorator example",
+		"// Surface: @Builder + @BuilderParam + UI element reuse mechanism",
+		"",
+		"@Component",
+		"struct CardComponent {",
+		"  @BuilderParam customHeader: () => void",
+		"",
+		"  @Builder defaultHeader() {",
+		"    Text('Default Header').fontSize(20)",
+		"  }",
+		"}",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "registration", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/02_builder_decorator.ets", "line_start": 8, "summary": "@Builder method defaultHeader", "anchor_kind": "definition", "anchor_symbol": "defaultHeader", "surface_terms": ["@Builder", "defaultHeader"]}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	if res.Repair != nil && res.Repair.Code == EmitEvidenceSurfaceTermReviewCode &&
+		(strings.Contains(res.Repair.Hint, "@Component") || strings.Contains(res.Repair.Hint, "@BuilderParam")) {
+		t.Fatalf("nested method review should not require parent/sibling decorators, repair=%q", res.Repair.Hint)
+	}
+}
+
+func TestEmitEvidence_RejectsRequestedDecoratorObjectMismatch(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Entities: []string{"@Builder"}},
+			SubTopics:     []types.SubTopic{{Summary: "list @Builder fragments", Entities: []string{"@Builder"}}},
+		},
+	}
+	seedReadFileHistory(ctx, "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", 1,
+		"// Source: openharmony @Styles and @Extend decorators",
+		"// Surface: @Styles function + @Extend(Type) attribute method chains",
+		"",
+		"@Styles function commonCardStyle() {",
+		"  .width('100%')",
+		"}",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "registration", "object": "Builder", "predicate": "registers", "source": "internal/thirdparty/tree-sitter-arkts/corpus/sources/04_styles_extend.ets", "line_start": 4, "summary": "@Styles function commonCardStyle", "anchor_kind": "definition", "anchor_symbol": "commonCardStyle", "surface_terms": ["@Styles", "commonCardStyle"]}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected decorator alignment rejection, got success summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "requested decorator \"@Builder\"") || !strings.Contains(res.Summary, "@Styles") {
+		t.Fatalf("rejection should explain requested vs attached decorator, got %q", res.Summary)
+	}
+}
+
 func TestEmitEvidence_SurfaceTermReviewIgnoresUnrelatedSourcePathLabels(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
