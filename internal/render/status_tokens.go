@@ -9,18 +9,19 @@ import "github.com/pterm/pterm"
 // answer prose. Each token below maps to a single semantic role; the
 // brightness ladder (most → least intense) is:
 //
-//   final answer prose (rendered by glamour, NOT a token here)
-//     ▶ statusPrimary           — current stage label
-//     ▶ statusTopicLabel        — "关注点 1：" / "Focus 1:"
-//     ▶ statusDetail            — thinking / tool-call detail
-//     ▶ statusTopicText         — focus-area body text
-//     ▶ statusSecondary         — "识别到 N 个关注点" / "N focus areas"
-//     ▶ statusFatal             — fatal error text body
-//     ▶ statusRecoverable       — recoverable error text body
-//     ▶ statusWarningMuted      — minor warnings
-//     ▶ statusMeta              — elapsed / round / Ctrl+C
-//     ▶ statusSpinner           — ⠇ frame, · bullet
-//     ▶ statusSuccessMuted      — ✓ checkmark
+//	final answer prose (rendered by glamour, NOT a token here)
+//	  ▶ statusPrimary           — current stage label
+//	  ▶ statusTopicLabel        — "关注点 1：" / "Focus 1:"
+//	  ▶ statusReasoningBody     — model thinking body
+//	  ▶ statusDetail            — tool-call / live status detail
+//	  ▶ statusTopicText         — focus-area body text
+//	  ▶ statusSecondary         — "识别到 N 个关注点" / "N focus areas"
+//	  ▶ statusFatal             — fatal error text body
+//	  ▶ statusRecoverable       — recoverable error text body
+//	  ▶ statusWarningMuted      — minor warnings
+//	  ▶ statusMeta              — elapsed / round / Ctrl+C
+//	  ▶ statusSpinner           — ⠇ frame, · bullet
+//	  ▶ statusSuccessMuted      — ✓ checkmark
 //
 // Every token uses pterm.NewStyle so the same Sprint API works
 // everywhere; passing pterm.Style by value means each call gets an
@@ -30,8 +31,11 @@ import "github.com/pterm/pterm"
 //   - statusPrimary uses xterm slot 75 (#5fafff mid blue) on dark
 //     and slot 25 on light — clear without competing with the
 //     bordered final answer's H1 white.
-//   - statusDetail uses 246 (#949494) so thinking traces read as
-//     "background info" not "current focus".
+//   - statusReasoningBody uses plain ANSI white, without bold or a
+//     background, because pterm's FgGray is an alias of FgDarkGray in
+//     the pinned version and remains too low-contrast for long model
+//     thinking on black REPL backgrounds. The muted tag still keeps
+//     thinking below answer prose.
 //   - statusFatal uses 167 (#d75f5f) NOT 196 (#ff0000) — same red
 //     family but ~30% less luminance so a verify-failure doesn't
 //     blast the whole pane red.
@@ -42,8 +46,8 @@ var (
 	// Light blue is the brightness peak of the status family;
 	// done labels demote to a muted grey so the timeline reads
 	// as "this is happening now" / "this already finished".
-	statusPrimary      = pterm.NewStyle(pterm.FgLightBlue)
-	statusPrimaryDone  = pterm.NewStyle(pterm.FgGray)
+	statusPrimary     = pterm.NewStyle(pterm.FgLightBlue)
+	statusPrimaryDone = pterm.NewStyle(pterm.FgGray)
 
 	// Objective line — the user's own question echoed back at the
 	// top of the status area. Visually distinct from statusPrimary
@@ -57,19 +61,20 @@ var (
 	// emulators, some tmux themes, and IDE-integrated terminals, so
 	// "objective looks distinct" must be carried by hue alone for
 	// universal correctness.
-	statusObjective    = pterm.NewStyle(pterm.FgLightCyan)
+	statusObjective     = pterm.NewStyle(pterm.FgLightCyan)
 	statusObjectiveDone = pterm.NewStyle(pterm.FgCyan)
 
-	statusDetail       = pterm.NewStyle(pterm.FgGray)
-	statusSecondary    = pterm.NewStyle(pterm.FgGray)
-	statusTopicLabel   = pterm.NewStyle(pterm.FgLightBlue)
+	statusReasoningBody = pterm.NewStyle(pterm.FgWhite)
+	statusDetail        = pterm.NewStyle(pterm.FgGray)
+	statusSecondary     = pterm.NewStyle(pterm.FgGray)
+	statusTopicLabel    = pterm.NewStyle(pterm.FgLightBlue)
 	// Topic body lives below the spotlighted parent line; dim it
 	// to a regular grey so the topic_label "关注点 N：" carries
 	// the eye and the body is supporting context rather than
 	// competing with prose answers further down.
-	statusTopicText    = pterm.NewStyle(pterm.FgGray)
-	statusMeta         = pterm.NewStyle(pterm.FgDarkGray)
-	statusSpinner      = pterm.NewStyle(pterm.FgGray)
+	statusTopicText = pterm.NewStyle(pterm.FgGray)
+	statusMeta      = pterm.NewStyle(pterm.FgDarkGray)
+	statusSpinner   = pterm.NewStyle(pterm.FgGray)
 	// statusStream paints the rolling 20-30 char streaming tail at
 	// the END of the live bar. Light magenta breaks visually from the
 	// gray-family meta segments above so the user reads "this part is

@@ -1279,12 +1279,12 @@ func stripMarkdown(s string) string {
 
 // formatReasoning formats LLM reasoning as a quiet line with an
 // [agent-iteration] tag. The glyph/tag stay in the meta palette while
-// the body uses statusDetail, which keeps thinking below final-answer
-// prose but readable on dark terminal backgrounds. Markdown is stripped
-// and leading blank lines are skipped so the display is clean plain
-// text. When truncate is true the legacy 1-2 sentence / 200-char
-// summary is used; the default caller path passes false so CLI and
-// REPL expose the full model thinking trace.
+// the body uses statusReasoningBody, which keeps thinking below
+// final-answer prose but readable on dark terminal backgrounds. Markdown
+// is stripped and leading blank lines are skipped so the display is clean
+// plain text. When truncate is true the legacy 1-2 sentence / 200-char
+// summary is used; the default caller path passes false so CLI and REPL
+// expose the full model thinking trace.
 func formatReasoning(agent string, iteration int, text string, truncate bool) string {
 	text = stripMarkdown(text)
 	if text == "" {
@@ -1311,7 +1311,7 @@ func formatReasoning(agent string, iteration int, text string, truncate bool) st
 		}
 	}
 	tag := fmt.Sprintf("[%s-%d]", agent, iteration+1)
-	return "  " + statusMeta.Sprint("💭 "+tag) + " " + statusDetail.Sprint(summary)
+	return "  " + statusMeta.Sprint("💭 "+tag) + " " + statusReasoningBody.Sprint(summary)
 }
 
 // truncByDisplayWidth clamps a styled (ANSI-CSI-bearing) line to at

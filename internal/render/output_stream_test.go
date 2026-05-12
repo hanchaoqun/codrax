@@ -105,7 +105,7 @@ func TestFormatReasoningStylesTagAndBodySeparately(t *testing.T) {
 	defer pterm.DisableColor()
 
 	got := formatReasoning("analyzer", 0, "Readable detail.", false)
-	expected := "  " + statusMeta.Sprint("💭 [analyzer-1]") + " " + statusDetail.Sprint("Readable detail.")
+	expected := "  " + statusMeta.Sprint("💭 [analyzer-1]") + " " + statusReasoningBody.Sprint("Readable detail.")
 	if got != expected {
 		t.Fatalf("reasoning style should keep tag muted and body readable\nwant %q\ngot  %q", expected, got)
 	}
