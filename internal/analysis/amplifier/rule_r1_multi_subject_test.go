@@ -186,6 +186,40 @@ func TestR1_NoFire_SingleTopicMechanismExplanation(t *testing.T) {
 	}
 }
 
+func TestR1_NoFire_ArchitectureNarrativeExplanation(t *testing.T) {
+	rm := makeRMWithEntities(
+		"Orchestrator",
+		"BusContext",
+		"AnalyzerAgent",
+		"ExplorerAgent",
+		"ExtractorAgent",
+		"FinalizerAgent",
+		"PipelineStage",
+		"AgentContext",
+	)
+	rm.Intent = types.IntentExplain
+	rm.Scenario = types.ScenarioArchitectureExplain
+	rm.Complexity = types.ComplexityComplex
+	rm.PredicateAxis = types.AxisCall
+	rm.DiagramHint = &types.DiagramHint{Kind: types.DiagramSequence}
+	rm.Predicates.IsCrossComponent = true
+	rm.SubTopics = []types.SubTopic{
+		{Summary: "orchestrator scheduling", Entities: []string{"Orchestrator", "PipelineStage"}},
+		{Summary: "agent responsibilities", Entities: []string{"AnalyzerAgent", "ExplorerAgent"}},
+		{Summary: "context propagation", Entities: []string{"BusContext", "AgentContext"}},
+	}
+
+	got, obs := Amplify(rm)
+	if got.Predicates.IsCategoryEnumeration {
+		t.Errorf("R1 must NOT turn architecture narrative participants into a category enumeration")
+	}
+	for _, ob := range obs {
+		if ob.Rule == "R1_multi_subject_predicate" {
+			t.Errorf("expected no R1 observation for architecture narrative, got %+v", obs)
+		}
+	}
+}
+
 func TestR1_SingleTopicMechanismExplanation_ObligationStillAllowsEnumeration(t *testing.T) {
 	rm := makeRMWithEntities("StepOne", "StepTwo", "StepThree")
 	rm.Intent = types.IntentExplain

@@ -554,23 +554,27 @@ type FacetCoverageContract struct {
 //  3. Intent == Trace AND no obligation
 //     → QFCallChain (s1a/s8a style "how does X reach Y" questions)
 //
-//  4. IsSingleTopicMechanismExplanation(rm)=true
+//  4. IsArchitectureNarrativeExplanation(rm)=true
+//     → QFArchitecture (logical view / architecture / diagram
+//     narrative; component names are context, not a member slate)
+//
+//  5. IsSingleTopicMechanismExplanation(rm)=true
 //     → QFGeneric (mechanism/condition explanation, not architecture)
 //
-//  5. AnswerSubject.Kind ∈ {SubjectFunctionName, SubjectHandlerRoute,
+//  6. AnswerSubject.Kind ∈ {SubjectFunctionName, SubjectHandlerRoute,
 //     SubjectConfigKey, SubjectStructField, SubjectInterface}
 //     AND QuestionStructure.HasAnyObligation()=false
 //     AND IsCategoryEnumerationAnswerShape(rm)=false
 //     → QFRoleLookup (typical "what's the X for Y" questions)
 //
-//  6. QuestionStructure.HasAnyObligation()=true OR
+//  7. QuestionStructure.HasAnyObligation()=true OR
 //     IsCategoryEnumerationAnswerShape(rm)=true
 //     → QFEnumeration (s5a / m1a fall here)
 //
-//  7. Intent == Explain AND Scenario == ArchitectureExplain
+//  8. Intent == Explain AND Scenario == ArchitectureExplain
 //     → QFArchitecture
 //
-//  8. fallthrough → QFGeneric
+//  9. fallthrough → QFGeneric
 //
 // Phase 0 trace data on s1a / s5a / m1a / s3a / logtri_go
 // confirms each branch hits at least one case.
@@ -618,7 +622,16 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		}
 	}
 
-	// Rule 5: single-topic mechanism explanations. These are lighter
+	// Rule 5: architecture narratives. These are prose/diagram shaped
+	// and can carry many component names without being an answer-member
+	// enumeration. Keep this before enumeration so an analyzer-side
+	// category drift without an explicit structural obligation does not
+	// steal the architecture scaffold.
+	if IsArchitectureNarrativeExplanation(rm) {
+		return QFArchitecture
+	}
+
+	// Rule 6: single-topic mechanism explanations. These are lighter
 	// than architecture decompositions and must not be stolen by the
 	// function-like role-lookup gate below: multiple identifiers are
 	// participants in one mechanism, not a principal member slate.
@@ -626,7 +639,7 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		return QFGeneric
 	}
 
-	// Rule 6: role-lookup detection (named-entity subject + no
+	// Rule 7: role-lookup detection (named-entity subject + no
 	// enumeration obligation). A typed category-enumeration answer
 	// shape wins over a function-like AnswerSubject.Kind; otherwise a
 	// relational enumeration can be stolen by QFRoleLookup and forced
@@ -639,14 +652,14 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		}
 	}
 
-	// Rule 7: enumeration / obligation-bearing.
+	// Rule 8: enumeration / obligation-bearing.
 	if hasObligation || isEnumerationAnswer {
 		// bucketCount < 2 by construction (QFComparison absorbed
 		// the multi-bucket case above).
 		return QFEnumeration
 	}
 
-	// Rule 8: architecture explain.
+	// Rule 9: architecture explain.
 	if rm.Intent == IntentExplain && rm.Scenario == ScenarioArchitectureExplain {
 		return QFArchitecture
 	}

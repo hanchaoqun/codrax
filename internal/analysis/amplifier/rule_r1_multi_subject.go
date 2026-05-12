@@ -73,15 +73,20 @@ func distinctEntityCount(entities []string) int {
 //     search/context anchors, not principal answer members. This guard
 //     uses only typed intent / requirement-kind / axis / topic /
 //     obligation fields, never request keywords.
-//  6. len(types.ExactResolutionTargets(rm)) != 1 — a single exact
+//  6. NOT architecture narrative explanation — logical-view /
+//     architecture / diagram questions name components because the
+//     answer is the relationship narrative. Component names remain
+//     search hints until an explicit enumeration obligation proves
+//     they are principal members.
+//  7. len(types.ExactResolutionTargets(rm)) != 1 — a single exact
 //     resolution target is a precise scalar lookup, not an
 //     enumeration even when multiple entities exist on the model.
-//  7. rm.Predicates.IsScalarAnswer == false — the typed scalar-
+//  8. rm.Predicates.IsScalarAnswer == false — the typed scalar-
 //     answer signal stands in for the (non-existent) SubjectScalar
 //     mentioned in the design doc; either form means "answer is
 //     one literal, not a set", which is incompatible with
 //     enumeration.
-//  8. NOT (len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent).
+//  9. NOT (len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent).
 //     Axis-collapse alignment: when the LLM has emitted ≥2
 //     SubTopics in a single-component question, flipping
 //     IsCategoryEnumeration to true creates exactly the four
@@ -118,6 +123,9 @@ func r1MultiSubjectPredicate(in types.RequestModel, out *types.RequestModel) *Ob
 		return nil
 	}
 	if types.IsSingleTopicMechanismExplanation(*out) {
+		return nil
+	}
+	if types.IsArchitectureNarrativeExplanation(*out) {
 		return nil
 	}
 	count := distinctEntityCount(out.AnalyzerHints.Entities)

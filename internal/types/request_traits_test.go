@@ -174,6 +174,41 @@ func TestCanUseAnalyzerEntitiesAsHardPrincipalMembers_TypedOnly(t *testing.T) {
 	}
 }
 
+func TestArchitectureNarrativeExplanation_TypedBoundary(t *testing.T) {
+	rm := RequestModel{
+		Intent:     IntentExplain,
+		Scenario:   ScenarioArchitectureExplain,
+		Complexity: ComplexityComplex,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCrossComponent:      true,
+		},
+		DiagramHint: &DiagramHint{Kind: DiagramSequence},
+		SubTopics: []SubTopic{
+			{Summary: "调度机制", Entities: []string{"Orchestrator", "PipelineStage"}},
+			{Summary: "Agent职责", Entities: []string{"AnalyzerAgent", "ExplorerAgent"}},
+			{Summary: "上下文传播", Entities: []string{"BusContext", "AgentContext"}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"Orchestrator", "AnalyzerAgent", "ExplorerAgent", "AgentContext"},
+		},
+	}
+	if !IsArchitectureNarrativeExplanation(rm) {
+		t.Fatal("architecture view + diagram + subtopics should be recognized as narrative, not a member slate")
+	}
+	if CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) {
+		t.Fatal("architecture narrative entities must remain soft hints even when category drift is present")
+	}
+	if HasBoundedCategoryEnumerationMembers(rm) {
+		t.Fatal("architecture narrative must not expose a bounded principal-member lane")
+	}
+
+	rm.CompletenessObligation = &CompletenessObligation{Required: true, SourceQuote: "all components"}
+	if IsArchitectureNarrativeExplanation(rm) {
+		t.Fatal("explicit completeness obligation should keep an architecture/member-list hybrid out of narrative-only lane")
+	}
+}
+
 func TestIsSingleTopicMechanismExplanation_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Intent:        IntentExplain,

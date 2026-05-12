@@ -105,6 +105,9 @@ func IsCategoryEnumerationAnswerShape(rm RequestModel) bool {
 // RawRequest text, so it applies uniformly to Go, C/C++, ArkTS,
 // Cangjie, Java/Kotlin, JS/TS, Python, Rust, and path/module surfaces.
 func CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm RequestModel) bool {
+	if IsArchitectureNarrativeExplanation(rm) {
+		return false
+	}
 	if !IsCategoryEnumerationAnswerShape(rm) {
 		return false
 	}
@@ -115,6 +118,53 @@ func CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm RequestModel) bool {
 		return false
 	}
 	return true
+}
+
+// IsArchitectureNarrativeExplanation reports whether the request is
+// asking for an architecture / logical-view / diagram narrative rather
+// than a principal member set.
+//
+// Architecture explanations often name many components because the
+// answer is a decomposition plus relationships between components.
+// Those names are excellent search hints, but they are not necessarily
+// the answer members. This trait is the shared typed boundary that
+// keeps analyzer amplification, family routing, and must-include
+// pinning from treating component participants as a bounded
+// enumeration unless the request also carries an explicit structural
+// enumeration obligation.
+//
+// The signal is intentionally schema-only: Scenario, Intent,
+// DiagramHint, SubTopics, predicates, and QuestionStructure. No raw
+// request keyword matching is used, so the rule is language-neutral
+// across Go, C/C++, ArkTS, Cangjie, Java/Kotlin, JS/TS, Python, Rust,
+// and mixed-language repositories.
+func IsArchitectureNarrativeExplanation(rm RequestModel) bool {
+	if rm.Intent != IntentExplain || rm.Scenario != ScenarioArchitectureExplain {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	if IsSingleTopicMechanismExplanation(rm) {
+		return false
+	}
+	if rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0 {
+		return false
+	}
+	if rm.CompletenessObligation.IsActive() {
+		return false
+	}
+	if len(rm.QuestionStructure().Buckets) >= 2 {
+		return false
+	}
+	return rm.DiagramHint != nil ||
+		len(rm.SubTopics) > 1 ||
+		rm.Predicates.IsCrossComponent ||
+		rm.Complexity == ComplexityComplex
 }
 
 // IsSingleTopicMechanismExplanation reports whether the request asks
@@ -163,6 +213,9 @@ func IsSingleTopicMechanismExplanation(rm RequestModel) bool {
 
 func hasExhaustiveMultiMemberSet(rm RequestModel) bool {
 	if len(rm.AnalyzerHints.Entities) <= 1 {
+		return false
+	}
+	if IsArchitectureNarrativeExplanation(rm) {
 		return false
 	}
 	if rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0 {

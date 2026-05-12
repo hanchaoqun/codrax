@@ -296,7 +296,7 @@ Skill 是**纯配置**。Agent 加载它后，按 `Workflow` 决定 prompt、按
 | 子包 | 职责 |
 |---|---|
 | `normalizer` | 把请求文本和 LLM 给的实体收编为 TermGraph（canonical 名 + alias 边），用 repomap-backed `SymbolResolver` 验证哪些 surface 真的是 repo 里的 symbol |
-| `amplifier` | 用 typed 信号（TermGraph kind / confidence / Intent / AnswerSubject / Entities / question_kind / obligation）填补 LLM 漏掉的 optional predicate，并复用 `IsSingleTopicMechanismExplanation` / 链路 guard 防止把上下文实体误升成 principal members；纯结构化规则不读 prose |
+| `amplifier` | 用 typed 信号（TermGraph kind / confidence / Intent / AnswerSubject / Entities / question_kind / obligation）填补 LLM 漏掉的 optional predicate，并复用 `IsSingleTopicMechanismExplanation` / `IsArchitectureNarrativeExplanation` / 链路 guard 防止把上下文实体误升成 principal members；纯结构化规则不读 prose |
 | `axis` | PredicateAxis × AnchorKind affinity 矩阵（call × call=1.6, call × definition=0.9 等），驱动 evidence ranker 重排 |
 | `binder` | 把 hypothesis 按相关性绑定到 TaskNode（Jaccard(hyp terms, node hints) + surface 提及 + kind-family 亲和） |
 | `budget` | 计算 EvidencePlan budget：`base × termFactor × hypFactor × probeFactor`，复杂度 / 假设数 / prescan 命中率倍乘 |
@@ -877,6 +877,8 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 每 lane 是 `[]AnswerSupportEntry{Text, Detail, Location, ClaimForm, MemberSurface}`，并带 `AllowedBlocks[]`。finalizer 的 prompt builder 渲染时带显式指引——"这条 lane 只能描述 X / 只能进入这些 block kind"——强制把"日志观察到的事"、"当前代码 mechanism"、"主线枚举/配置/比较证据"严格分开。`MemberSurface` 是主答案成员的 typed 可见形态：`symbol_like` 继续走符号/定义校验，`display_label` 允许 import path、config role、route/macro/table label 这类非符号标签，`source_location` 明确表示 file/path/line 本身就是主项。它由 `ClaimForm` + peer set 的 source/endpoint 分布推导（例如多个 source 指向同一个 import endpoint → source path 是主项；一个 source 指向多个 endpoint → endpoint label 是主项），不读问题原文关键词。否则会发生"observed frame F 是当前代码里 X 的调用点"这种漂移到当前 code 的假断言（log 是旧 build，源码已经 drift），或把 search hint / helper name 强塞成主答案。
 
 `validateLaneBlockKindCompliance` 把 `AllowedBlocks[]` 从 prompt 提示升级为 hard validator：principal block 如果引用的 citation 全部来自某条 lane，而 block.kind 不在该 lane 的 AllowedBlocks 中，`emit_answer_document` 会被拒收。这样 root-cause / call-chain / config-precedence / role-lookup / enumeration / architecture / comparison / generic 都复用同一套 principal-vs-context 边界，不靠每个 case 在 prompt 里补丁。`architecture` 的 principal lane 同时允许 `section` 与 `ordered_list`：静态层/组件用 section，探索期已经结构化出的 pipeline / dispatch / handoff 步骤可以继续用 ordered_list 下传，不会被 hard gate 压成 prose。
+
+**architecture narrative boundary**：`IsArchitectureNarrativeExplanation` 是架构/逻辑视图/图示题的 typed safety net。当 `Intent=explain`、`Scenario=architecture_explain`，并且有 `DiagramHint` / 多 `SubTopics` / cross-component / complex 等结构信号时，组件名只作为关系叙事的 search hint，不自动变成 enumeration principal members。只有 `EnumerationBoundary` / `CompletenessObligation` / buckets 等显式结构义务存在时，架构题才切回枚举/比较 member slate。这条边界同时被 R1 amplifier、R3 MustInclude pinning、`ResolveQuestionFamily` 复用，避免 "逻辑视图 + 时序图" 这类题被误编译成 bounded enumeration 后反复要求 typed handoff。
 
 **typed comparison bucket safety net**：当 analyzer 漏发 `buckets[]`，但它自己已经结构化出 `IsCrossComponent=true`、≥2 个 sub-topic、以及 ≥2 个高置信 `RequiredFileHints`，并且这些文件标签逐字出现在当前 `RawRequest`，`QuestionStructure()` 会把这些文件标签编译成 comparison buckets。这个 safety net 不扫描“compare/对比”等原文关键词，RawRequest 只用于和 `NormalizeBuckets` 一样的精确 provenance 校验。目的不是补答案，而是保住用户的两侧/多侧分区，避免 comparison 问题退化成 enumeration 后把 return/assignment 等支撑证据误当成 principal member。
 

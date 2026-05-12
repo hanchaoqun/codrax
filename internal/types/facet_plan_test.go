@@ -169,6 +169,35 @@ func TestResolveQuestionFamily_Architecture(t *testing.T) {
 	}
 }
 
+func TestResolveQuestionFamily_ArchitectureNarrativeBeatsEnumerationDrift(t *testing.T) {
+	rm := RequestModel{
+		Intent:     IntentExplain,
+		Scenario:   ScenarioArchitectureExplain,
+		Complexity: ComplexityComplex,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCrossComponent:      true,
+		},
+		DiagramHint: &DiagramHint{Kind: DiagramSequence},
+		SubTopics: []SubTopic{
+			{Summary: "orchestrator scheduling", Entities: []string{"Orchestrator", "PipelineStage"}},
+			{Summary: "agent responsibilities", Entities: []string{"AnalyzerAgent", "ExplorerAgent"}},
+			{Summary: "context propagation", Entities: []string{"BusContext", "AgentContext"}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"Orchestrator", "AnalyzerAgent", "ExplorerAgent", "AgentContext"},
+		},
+	}
+	if got := ResolveQuestionFamily(rm); got != QFArchitecture {
+		t.Errorf("architecture narrative with category drift got %q, want QFArchitecture", got)
+	}
+
+	rm.CompletenessObligation = &CompletenessObligation{Required: true, SourceQuote: "all components"}
+	if got := ResolveQuestionFamily(rm); got != QFEnumeration {
+		t.Errorf("explicit completeness obligation should still route to enumeration, got %q", got)
+	}
+}
+
 func TestResolveQuestionFamily_SingleTopicMechanismExplainUsesGeneric(t *testing.T) {
 	rm := RequestModel{
 		Intent:        IntentExplain,

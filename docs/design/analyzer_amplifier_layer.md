@@ -300,10 +300,11 @@ for _, obs := range postObs {
    - 不包含 `IntentEnumerate`(已是 enumeration,不需要补)
    - 不包含 `IntentRootCause / IntentConfigQuery / IntentReturnValue / IntentUnknown`
 4. AND NOT structural endpoint trace:若 `Intent=Trace`, `PredicateAxis∈{call,condition,register}` 或 `question_kind∈{call_chain,conditional,mechanism,registration}`,且 exact targets/mentioned targets ≥2,则这是 source→sink 链路,不是 category enumeration。
-5. AND NOT `types.IsSingleTopicMechanismExplanation(rm)`:若 `Intent=Explain`, `question_kind∈{mechanism,conditional,registration}` 或 `PredicateAxis∈{condition,call,register}`,且没有 structural obligation / ambiguity / cross-component / 多 subtopic,则 multiple entities 只是同一机制的参与对象,不能升级成 principal-member enumeration。该 typed trait 同时被 `ResolveQuestionFamily` 复用,把这类问题送往轻量 `QFGeneric` 而不是 `QFArchitecture` / `QFRoleLookup`。
-6. AND `len(types.ExactResolutionTargets(rm)) != 1`(单 exact target 不是 enumeration)
-7. AND `rm.Predicates.IsScalarAnswer == false`(scalar 答案不是 enumeration;原文档写 `SubjectScalar` 但该枚举值不存在,`IsScalarAnswer` 是同等 typed 信号)
-8. **AND NOT `(len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent)`**(Phase 3.2-fix axis_collapse alignment)
+5. AND NOT `types.IsSingleTopicMechanismExplanation(rm)`:若 `Intent=Explain`, `question_kind∈{mechanism,conditional,registration}` 或 `PredicateAxis∈{condition,call,register}`,且没有 structural obligation / ambiguity / 多 subtopic,则 multiple entities 只是同一机制的参与对象,不能升级成 principal-member enumeration。该 typed trait 同时被 `ResolveQuestionFamily` 复用,把这类问题送往轻量 `QFGeneric` 而不是 `QFArchitecture` / `QFRoleLookup`。
+6. AND NOT `types.IsArchitectureNarrativeExplanation(rm)`:若 `Intent=Explain` + `Scenario=architecture_explain`,且存在 `DiagramHint` / 多 `SubTopics` / cross-component / complex 等结构信号,则 multiple entities 是架构叙事里的 component/context anchors,不是 member slate。除非 `EnumerationBoundary` / `CompletenessObligation` / buckets 等显式结构义务存在,否则不允许 R1 把它升级成 bounded enumeration。这条 guard 不读 RawRequest keyword。
+7. AND `len(types.ExactResolutionTargets(rm)) != 1`(单 exact target 不是 enumeration)
+8. AND `rm.Predicates.IsScalarAnswer == false`(scalar 答案不是 enumeration;原文档写 `SubjectScalar` 但该枚举值不存在,`IsScalarAnswer` 是同等 typed 信号)
+9. **AND NOT `(len(rm.SubTopics) >= 2 AND !rm.Predicates.IsCrossComponent)`**(Phase 3.2-fix axis_collapse alignment)
    - 当 LLM 已经 emit ≥2 SubTopics 在单组件问题上,翻转 IsCategoryEnumeration 到 true 会激活下游 axis_collapse gate(`internal/analysis/gate/coherence.go::R1.4`)的全部 4 个触发条件,导致 analyzer 进入 retry storm 直到 budget 耗尽,整个 Run 失败
    - 信任 LLM 的 SubTopics 结构判断;若 IsCrossComponent=true,SubTopics 合法跨子系统,axis_collapse 不会 trigger,R1 可以安全 fire
    - empirical:2026-05-05 m1a runs 全 IsCrossComponent=true,本 gate 不阻塞 R1 fire
@@ -312,7 +313,7 @@ for _, obs := range postObs {
 - 设 `rm.Predicates.IsCategoryEnumeration = true`
 - 记录 `Observation{Rule: "R1_multi_subject_predicate", Field: "predicates.is_category_enumeration", Before: "false", After: "true", Reason: "AnalyzerHints.Entities has N distinct named subjects with intent=X and non-scalar answer"}`
 
-**理由:** `AnalyzerHints.Entities` 是 LLM 在 emit_analysis 里直接产出的"我识别到了哪些命名实体"清单(纯 typed slot,无 keyword 表/正则匹配)。R1 把这个已有结构信号 propagate 到 predicates 层。Intent 限定 + scalar 排除 + single-exact-target 排除 + structural endpoint trace guard + single-topic mechanism guard + axis_collapse 对齐确保不把机制参与对象误当答案成员,也不踩 retry storm。
+**理由:** `AnalyzerHints.Entities` 是 LLM 在 emit_analysis 里直接产出的"我识别到了哪些命名实体"清单(纯 typed slot,无 keyword 表/正则匹配)。R1 把这个已有结构信号 propagate 到 predicates 层。Intent 限定 + scalar 排除 + single-exact-target 排除 + structural endpoint trace guard + single-topic mechanism guard + architecture narrative guard + axis_collapse 对齐确保不把机制参与对象、架构组件、上下文 helper 误当答案成员,也不踩 retry storm。
 
 **与下游 reconciler 的兼容(post Phase 2.1-fix wiring):**
 - Amplify 在 reconcile 链之后跑(因 TermGraph 依赖,见 §4.2),所以 reconcileSemanticPredicates / reconcileComplexity 看不到 R1 写入的 `IsCategoryEnumeration=true`,无法触发 simple→moderate 升级。
@@ -374,7 +375,7 @@ for _, obs := range postObs {
 - 把符合条件的 typed surface append 进 `out.AnswerContract.MustInclude` / `MustIncludeTerms`(去重，并按 `ContractTermKind` 区分 symbol/tool_name/file_stem/user_phrase)
 - 记录 `Observation{Rule: "R3_typed_identifier_mustinclude", Field: "answer_contract.must_include", ...}`
 
-**理由:** 当问题被识别为一轴 principal-member enumeration AND analyzer 已确认 `AnalyzerHints.Entities` 是成员 lane 时，这些 surface 才是答案必含项。不依赖 question 文本的 keyword 匹配。关系型枚举(`is_relational_lookup=true`,例如“哪些 handler 调 X / 哪些模块 import Y / 哪些 agent 可以调用 Z”)不满足这个 trait：`AnalyzerHints.Entities` 在该形态下混有关系目标、工具、runtime helper、搜索 anchor 和候选成员，只能做软探索提示。真正的 principal member 覆盖应由探索/抽取后的 `AnswerSymbols`、support lane、step backbone 或 aggregate facts 承载，避免把上下文 helper 硬塞进最终答案。
+**理由:** 当问题被识别为一轴 principal-member enumeration AND analyzer 已确认 `AnalyzerHints.Entities` 是成员 lane 时，这些 surface 才是答案必含项。不依赖 question 文本的 keyword 匹配。关系型枚举(`is_relational_lookup=true`,例如“哪些 handler 调 X / 哪些模块 import Y / 哪些 agent 可以调用 Z”)不满足这个 trait：`AnalyzerHints.Entities` 在该形态下混有关系目标、工具、runtime helper、搜索 anchor 和候选成员，只能做软探索提示。架构叙事(`IsArchitectureNarrativeExplanation=true`)同样不满足：组件名是逻辑视图/时序图的上下文节点,不是必须逐项枚举的 principal member。真正的 principal member 覆盖应由探索/抽取后的 `AnswerSymbols`、support lane、step backbone 或 aggregate facts 承载，避免把上下文 helper / component label 硬塞进最终答案。
 
 ### R4 — Buckets Derivation(推迟到 Phase 5)
 
