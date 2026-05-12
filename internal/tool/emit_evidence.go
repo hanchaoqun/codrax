@@ -7,6 +7,7 @@ import (
 	"math"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -2735,10 +2736,8 @@ func missingSurfaceTermReviewCandidates(item types.EvidenceItem, gc *ground.Cont
 		return nil
 	}
 	comment, _ := extractDocCommentForGroundedItem(gc, item.Source, item.LineStart)
-	if strings.TrimSpace(comment) == "" {
-		return nil
-	}
 	candidates := sourceLabelCandidatesFromText(comment, item.Source)
+	candidates = append(candidates, decoratorSurfaceCandidatesAroundItem(item, gc)...)
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -2755,6 +2754,42 @@ func missingSurfaceTermReviewCandidates(item types.EvidenceItem, gc *ground.Cont
 	}
 	return out
 }
+
+func decoratorSurfaceCandidatesAroundItem(item types.EvidenceItem, gc *ground.Context) []string {
+	if gc == nil || item.Source == "" || item.LineStart <= 0 {
+		return nil
+	}
+	fileLines := gc.LineIndex[item.Source]
+	if len(fileLines) == 0 {
+		return nil
+	}
+	start := item.LineStart - 8
+	if start < 1 {
+		start = 1
+	}
+	end := item.LineStart + 2
+	seen := make(map[string]bool)
+	var out []string
+	for line := start; line <= end; line++ {
+		text, ok := fileLines[line]
+		if !ok {
+			continue
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		for _, match := range decoratorSurfaceTermRe.FindAllString(text, -1) {
+			if !seen[match] {
+				seen[match] = true
+				out = append(out, match)
+			}
+		}
+	}
+	return out
+}
+
+var decoratorSurfaceTermRe = regexp.MustCompile(`@[A-Za-z_][A-Za-z0-9_]*`)
 
 func surfaceTermReviewExistingText(item types.EvidenceItem) string {
 	parts := []string{
