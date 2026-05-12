@@ -76,11 +76,16 @@ func (ob AnswerSupportMemberObligation) LocationHint() string {
 
 // PrincipalSupportMemberObligations returns the answer-grade
 // principal evidence entries whose locations should appear as
-// cited list/table items in QFEnumeration answers. Other families can
-// use principal support lanes for enrichment or context; forcing all
-// entries there to render as one item each would be too strict.
+// cited list/table items in QFEnumeration answers when the support plan
+// explicitly treats the lane as a member slate. Other families, and
+// enumeration-shaped fallbacks with enrichment-only policy, can use
+// principal support lanes for grounded context; forcing all entries there
+// to render as one item each would be too strict.
 func PrincipalSupportMemberObligations(plan *AnswerSupportPlan) []AnswerSupportMemberObligation {
 	if plan == nil || plan.Family != QFEnumeration {
+		return nil
+	}
+	if !plan.PrincipalMemberCoverage.RequiresMemberCoverage() {
 		return nil
 	}
 	seen := make(map[string]int)

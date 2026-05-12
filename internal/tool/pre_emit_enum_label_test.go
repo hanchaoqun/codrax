@@ -543,6 +543,61 @@ func TestPreCheckCallChainItemCitationRoleAlignment_RejectsDefinitionForNamedCal
 	}
 }
 
+func TestPreCheckCallChainItemCitationRoleAlignment_ExplicitClaimUsesDoNotWidenToViewForms(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:       "comparison",
+			Kind:     types.BlockTable,
+			FacetIDs: []string{string(types.FacetCurrentCodePath)},
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimDefinitionFact,
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "root-cause-budget",
+				Label:       "templateRootCause RetryBudget",
+				Text:        "`templateRootCause` uses the same `subTopicRetryBudgetBoost` enum family as `templateArchitectureExplain`, but this row is citing the template definition fact.",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/analysis/compiler/templates.go", Line: 354}},
+	}
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind:                 types.BlockTable,
+			FacetIDs:             []string{string(types.FacetCurrentCodePath)},
+			AcceptableClaimForms: []types.ClaimForm{types.ClaimCallEdge},
+		}},
+	}
+	mut := types.NewMutableState("compare templateArchitectureExplain and templateRootCause")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "call-edge",
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/analysis/compiler/templates.go",
+			LineStart:       244,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "templateArchitectureExplain",
+			Object:          "subTopicRetryBudgetBoost",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "definition",
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/analysis/compiler/templates.go",
+			LineStart:       354,
+			AnchorKind:      types.AnchorInitializer,
+			Subject:         "templateRootCause",
+			Object:          "TmplRetryBudgetVeryHigh",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if hints := preCheckCallChainItemCitationRoleAlignment(doc, view, ctx); len(hints) != 0 {
+		t.Fatalf("explicit block claim_uses should not be widened to semantic-view call-edge forms, got %+v", hints)
+	}
+}
+
 func TestPreCheckCallChainItemCitationRoleAlignment_AcceptsMatchingCallEdge(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

@@ -541,6 +541,9 @@ func preEmitBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemant
 	for _, cu := range b.ClaimUses {
 		forms = append(forms, cu.ClaimForm)
 	}
+	if len(forms) > 0 {
+		return types.ClaimFormsSupportingCitationRoleAlignment(forms)
+	}
 	if view != nil {
 		for _, req := range append(append([]types.BlockRequirement(nil), view.RequiredBlocks...), view.OptionalBlocks...) {
 			if req.Kind != b.Kind || len(req.AcceptableClaimForms) == 0 {

@@ -96,16 +96,25 @@ func TestSemanticQualityReviewer_ConcernsRequireBothPartsOfThePair(t *testing.T)
 	}
 }
 
-func TestSemanticQualityReviewer_RejectsContradictoryEmit(t *testing.T) {
-	// sufficient=false but no concerns named — reviewer emit is
-	// itself inconsistent; promote to err so caller drops verdict.
+func TestSemanticQualityReviewer_FallbackConcernForInsufficientWithoutConcerns(t *testing.T) {
+	// sufficient=false is a load-bearing model verdict. If the model omits
+	// concerns, keep the retry signal alive with a generic concern derived
+	// from the model-emitted reasoning instead of dropping the verdict as a
+	// non-fatal dispatch failure.
 	adapter := &fakeSemanticQualityAdapter{
-		wantParams: `{"sufficient": false, "confidence": 0.9}`,
+		wantParams: `{"sufficient": false, "confidence": 0.93, "reasoning": "the answer follows the wrong comparison axis"}`,
 	}
 	r := NewSemanticQualityReviewer(adapter)
-	_, err := r.Review(context.Background(), SemanticQualityInput{AnswerSummary: "x", AnswerBody: "y"})
-	if err == nil {
-		t.Error("sufficient=false with empty concerns must err")
+	got, err := r.Review(context.Background(), SemanticQualityInput{AnswerSummary: "x", AnswerBody: "y"})
+	if err != nil {
+		t.Fatalf("review err: %v", err)
+	}
+	if got == nil || got.Sufficient || len(got.Concerns) != 1 {
+		t.Fatalf("expected one fallback concern, got %+v", got)
+	}
+	if got.Concerns[0].Topic != "semantic quality review" ||
+		!strings.Contains(got.Concerns[0].Observation, "wrong comparison axis") {
+		t.Fatalf("fallback concern should preserve reviewer rationale, got %+v", got.Concerns[0])
 	}
 }
 

@@ -14,7 +14,13 @@ import (
 type AnswerSupportPlan struct {
 	Family              QuestionFamily
 	ChangeImpactProfile *ChangeImpactProfile
-	Lanes               []AnswerSupportLane
+	// PrincipalMemberCoverage tells downstream gates whether entries in
+	// the principal evidence lane are a hard member slate or enrichment
+	// anchors for a broader prose/table answer. The zero value preserves
+	// the historical QFEnumeration behavior for hand-built plans; compiled
+	// plans set it explicitly from typed request structure.
+	PrincipalMemberCoverage PrincipalMemberCoveragePolicy
+	Lanes                   []AnswerSupportLane
 }
 
 type AnswerSupportLaneKind string
@@ -27,6 +33,18 @@ const (
 	SupportLaneUncertaintyBound  AnswerSupportLaneKind = "uncertainty_boundary"
 	SupportLaneCurrentVerdict    AnswerSupportLaneKind = "current_status_verdict"
 )
+
+type PrincipalMemberCoveragePolicy string
+
+const (
+	PrincipalMemberCoveragePolicyDefault        PrincipalMemberCoveragePolicy = ""
+	PrincipalMemberCoveragePolicyRequired       PrincipalMemberCoveragePolicy = "required"
+	PrincipalMemberCoveragePolicyEnrichmentOnly PrincipalMemberCoveragePolicy = "enrichment_only"
+)
+
+func (p PrincipalMemberCoveragePolicy) RequiresMemberCoverage() bool {
+	return p != PrincipalMemberCoveragePolicyEnrichmentOnly
+}
 
 const callChainSupportEntryLimit = 24
 const facetSupportEntryLimitDefault = 18

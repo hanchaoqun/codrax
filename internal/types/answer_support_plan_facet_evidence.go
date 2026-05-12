@@ -22,6 +22,9 @@ func compileFacetEvidenceSupportPlan(family QuestionFamily, rm RequestModel, pla
 		return nil
 	}
 	out := &AnswerSupportPlan{Family: family}
+	if family == QFEnumeration {
+		out.PrincipalMemberCoverage = principalMemberCoveragePolicyForEnumeration(rm)
+	}
 	if len(supportFacetCandidateIDs(plan, FacetObservedArtifactFact)) > 0 {
 		if lane := compileObservedArtifactSupportLane(rm, plan); len(lane.Entries) > 0 {
 			out.Lanes = append(out.Lanes, lane)
@@ -105,6 +108,9 @@ func principalEvidenceLaneGuidance(family QuestionFamily, rm RequestModel) strin
 			}
 			return base + " For change-impact enumerations, affected sites are the principal members. Direct assignments are only one affected-site role; include readers, guards, validators, construction sites, serializers, call adapters, import edges, and definitions when this lane contains typed evidence for them. Do not narrow the user's affected-site criterion to one role unless the typed impact profile says the requested output is that one role."
 		}
+		if principalMemberCoveragePolicyForEnumeration(rm) == PrincipalMemberCoveragePolicyEnrichmentOnly {
+			return base + " For enumeration-shaped mechanism, architecture, or comparison fallbacks, these entries are grounded enrichment anchors, not a one-row-per-entry member slate. Use them only for the user's requested axes or claims, and keep helper/context entries out of principal lists."
+		}
 		return base + " For enumerations, each principal item must correspond to a listed entry here or to an extractor-backed symbol; do not invent missing members from context."
 	case QFArchitecture:
 		return base + " For architecture answers, sections should describe component responsibilities supported by these anchors; avoid turning unrelated helper calls into architectural layers."
@@ -113,6 +119,38 @@ func principalEvidenceLaneGuidance(family QuestionFamily, rm RequestModel) strin
 	default:
 		return base
 	}
+}
+
+func principalMemberCoveragePolicyForEnumeration(rm RequestModel) PrincipalMemberCoveragePolicy {
+	if enumerationRequestRequiresPrincipalMemberCoverage(rm) {
+		return PrincipalMemberCoveragePolicyRequired
+	}
+	return PrincipalMemberCoveragePolicyEnrichmentOnly
+}
+
+func enumerationRequestRequiresPrincipalMemberCoverage(rm RequestModel) bool {
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return true
+	}
+	if rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0 {
+		return true
+	}
+	if rm.CompletenessObligation.IsActive() {
+		return true
+	}
+	if rm.Predicates.IsCategoryEnumeration || rm.Predicates.IsRelationalLookup {
+		return true
+	}
+	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case ReqEnumeration, ReqRegistration:
+		return true
+	case ReqMechanism, ReqCallChain, ReqConfigMapping, ReqReturnValue, ReqHistory, ReqConditional:
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer || rm.Predicates.IsRoleLocateLookup || rm.Predicates.IsCountQuestion {
+		return false
+	}
+	return rm.Intent == IntentEnumerate
 }
 
 func principalEvidenceAllowedBlocks(family QuestionFamily) []string {

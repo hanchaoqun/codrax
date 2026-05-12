@@ -33,6 +33,10 @@ structured data, not raw thinking text or system-invented answer content.
 | G13 | Retry full emits can put `summary` after lists/tables, rendering the answer backwards even when the facts pass. | `internal/tool/answer_document_pre_emit_check.go` | When the semantic view requires a summary block, pre-emit enforces that the first rendered block is `summary`. This is order-only; it does not create or rewrite content. | Implemented in this phase |
 | G14 | Change-impact exploration can emit a real affected line as context because the target is present only in `summary`, not in target-bearing structured fields. | `internal/types/answer_support_plan_facet_evidence.go`, `internal/tool/emit_investigation_complete.go`, `internal/agent/explorer.go` | For active change-impact broad outputs, pre-complete checks the already-read source line against the typed target. If the line names the target but the evidence fields do not, completion is downgraded and the model must re-emit grounded evidence with the target in `snippet` / `subject` / `object` / `surface_terms`. The system never promotes summary text into the answer set. | Implemented in this phase |
 | G15 | Struct/object/config initializer rows can be mislabeled as `definition`, causing citation role drift and dry `definition_fact` prose for non-symbol principal sites. | `internal/types/evidence.go`, `internal/tool/emit_evidence.go`, `internal/tool/ground/ground.go`, `internal/types/answer_support_plan_*` | Add a first-class `AnchorInitializer` surface and wire it through schema, grounding, `ClaimFormOf`, exact lookup, call-chain/root-cause/facet support lanes, axis compatibility, and concrete-value projection. This covers Go literal fields, C/C++ designated initializers, ArkTS object properties, Cangjie named arguments, and config object leaves without case-specific prompt patches. | Implemented in this phase |
+| G16 | Comparison / mechanism answers can be routed through `QFEnumeration` after analyzer drift, then every principal support entry is forced into the main answer as if it were a user-requested set member. | `internal/types/answer_support_plan.go`, `internal/types/answer_support_plan_facet_evidence.go`, `internal/types/answer_support_member_coverage.go`, `internal/agent/answer_document_evaluator.go` | Split support lanes into two typed policies: `required` member coverage for real set-valued enumerations / change-impact / explicit boundaries, and `enrichment_only` for enumeration-shaped mechanism or comparison fallbacks. The policy consumes typed request fields (`ChangeImpactProfile`, predicates, `QuestionStructure`, `AnalyzerHints.Kind`) and never scans user text. | Implemented in this phase |
+| G17 | Citation role alignment can widen an explicitly emitted block `claim_uses` to all semantic-view acceptable forms, so comparison prose that merely names two endpoints is treated as a call-edge assertion. | `internal/tool/answer_document_pre_emit_check.go`, `internal/types/evidence_role_alignment.go` | Let block-local `claim_uses` take precedence. Semantic-view acceptable forms are a fallback only when the block did not emit claim-use forms. Facet-derived call-edge widening remains available for untyped call-chain blocks, but it must not override explicit non-edge claim forms. | Implemented in this phase |
+| G18 | `semantic_quality_reviewer` can emit `sufficient=false` without structured concerns; current parsing turns that into a non-fatal dispatch failure and ships the answer. | `internal/orchestrator/semantic_quality_reviewer.go`, `internal/orchestrator/contract_check.go` | Treat the model's structured `sufficient=false` verdict as load-bearing even when concerns are malformed. Normalize it into a generic semantic-quality concern using only the model-emitted verdict / confidence / reasoning, so the finalizer gets a retry signal instead of a silent pass. | Implemented in this phase |
+| G19 | Line-owner / enclosing-function drift can render a valid citation under the wrong function name after retries. | `internal/tool/emit_evidence.go`, `internal/tool/emit_answer_document_v2.go`, repomap extraction | Add a focused regression check around file-symbol span lookup before changing behavior. If drift reproduces, fix the shared owner/span lookup rather than patching a single template or language. | Investigating |
 
 ## Implementation Order
 
@@ -56,7 +60,17 @@ structured data, not raw thinking text or system-invented answer content.
 8. Land G15 with G6: initializer is a typed evidence surface, not a
    definition-like fallback. The prompt only teaches the model which enum to
    choose; hard consumers use the enum and deterministic grounding.
-9. Continue sampling G2/G4/G5/G8 with random eval order. If an issue is already
+9. Land G16/G17 together because they are the same principal-vs-context
+   boundary at two layers: one controls whether support entries become hard
+   answer members, the other controls whether an item surface asserts an edge
+   role. Both must prefer local typed contracts over broad semantic defaults.
+10. Land G18 before trusting PASS results. A reviewer that says
+   `sufficient=false` has already supplied a precise structured verdict; a
+   malformed concern list is a retry-shaping problem, not permission to ship.
+11. Investigate G19 with a file-symbol span regression before broad changes.
+   Owner lookup is language-neutral infrastructure, so fixes must sit in the
+   shared repomap / citation enrichment path.
+12. Continue sampling G2/G4/G5/G8 with random eval order. If an issue is already
    covered by an existing typed lane, strengthen the consumer/gate instead of
    adding another prompt-only rule.
 

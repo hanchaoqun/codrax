@@ -234,7 +234,7 @@ var semanticQualityTool = llm.ToolSchema{
     "concerns": {
       "type": "array",
       "maxItems": 5,
-      "description": "List up to 5 specific gaps. Empty when sufficient=true.",
+      "description": "List up to 5 specific gaps. Empty when sufficient=true; required to contain at least one concrete concern when sufficient=false.",
       "items": {
         "type": "object",
         "properties": {
@@ -273,7 +273,7 @@ var semanticQualityTool = llm.ToolSchema{
       "maxLength": 300
     }
   },
-  "required": ["sufficient", "confidence"]
+  "required": ["sufficient", "concerns", "confidence"]
 }`),
 }
 
@@ -318,6 +318,7 @@ Output via emit_semantic_quality_review:
   - sufficient=true is the COMMON case; mark it true unless you can name a SPECIFIC ADDITIONAL gap supported by the attestations.
   - confidence >= 0.85 to report a gap; below 0.85 mark sufficient=true (rather miss a thin spot than force a rewrite on a defensible answer).
   - When reporting, choose concern kind carefully. Use topic_mismatch only for wrong-subject answers; use coverage_gap / grounding_gap / diagram_gap / richness_gap for missing-surface concerns.
+  - If you cannot name at least one concrete concern, emit sufficient=true. Never emit sufficient=false with an empty concerns array.
   - When reporting, name the public semantic label (facet label / relation kind / enrichment label, or "requested topic" for topic_mismatch). Use the same language as the answer text in the prose fields. Do NOT restate SYSTEM-DETECTED GAPS — concerns must be ADDITIONS.`
 
 // llmSemanticQualityReviewer is the default impl. nil adapter ⇒
@@ -401,9 +402,22 @@ func unmarshalSemanticQualityResult(raw json.RawMessage) (*SemanticQualityResult
 		})
 	}
 	if !out.Sufficient && len(out.Concerns) == 0 {
-		return nil, fmt.Errorf("semantic_quality_reviewer: sufficient=false but no concerns named")
+		out.Concerns = append(out.Concerns, semanticQualityFallbackConcern(out.Reasoning))
 	}
 	return out, nil
+}
+
+func semanticQualityFallbackConcern(reasoning string) SemanticQualityConcern {
+	observation := clampReasoningForRepair(reasoning)
+	if observation == "" {
+		observation = "the reviewer marked the answer insufficient but did not emit a structured concern"
+	}
+	return SemanticQualityConcern{
+		Kind:        semanticConcernCoverageGap,
+		Topic:       "semantic quality review",
+		Observation: observation,
+		Suggestion:  "rewrite using only the typed evidence already supplied, and make the missing coverage or topic alignment described by the reviewer rationale explicit",
+	}
 }
 
 func normaliseSemanticQualityConcernKind(kind string) string {

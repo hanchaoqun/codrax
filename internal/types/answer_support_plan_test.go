@@ -738,6 +738,101 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 	}
 }
 
+func TestBuildAnswerSupportPlan_EnumerationMechanismFallbackUsesEnrichmentPolicy(t *testing.T) {
+	item := EvidenceItem{
+		ID:              "template-budget",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/analysis/compiler/templates.go",
+		LineStart:       354,
+		AnchorKind:      AnchorInitializer,
+		AnchorSymbol:    "RetryBudget",
+		Subject:         "templateRootCause",
+		Object:          "TmplRetryBudgetVeryHigh",
+		Summary:         "templateRootCause sets the retry budget for root-cause answers",
+		GroundingStatus: GroundingGrounded,
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{item},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFEnumeration,
+			Required: []FacetRequirement{{
+				Kind:            FacetEnumerationItem,
+				SourceCandidate: []string{item.ID},
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent:        IntentEnumerate,
+		Scenario:      ScenarioArchitectureExplain,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	if got.PrincipalMemberCoverage != PrincipalMemberCoveragePolicyEnrichmentOnly {
+		t.Fatalf("mechanism-shaped enumerate fallback policy = %q, want enrichment_only", got.PrincipalMemberCoverage)
+	}
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 1 {
+		t.Fatalf("expected principal evidence lane entry for enrichment, got %+v", got)
+	}
+	if !strings.Contains(lane.Guidance, "not a one-row-per-entry member slate") {
+		t.Fatalf("guidance should preserve enrichment-only boundary, got %q", lane.Guidance)
+	}
+	if obligations := PrincipalSupportMemberObligations(got); len(obligations) != 0 {
+		t.Fatalf("enrichment-only enumeration fallback must not force one member per support entry, got %+v", obligations)
+	}
+}
+
+func TestBuildAnswerSupportPlan_CategoryEnumerationKeepsRequiredMemberPolicy(t *testing.T) {
+	item := EvidenceItem{
+		ID:              "import-edge",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "entry/src/main/ets/pages/Index.ets",
+		LineStart:       3,
+		AnchorKind:      AnchorImport,
+		Subject:         "Index.ets",
+		Object:          "@kit.ArkUI",
+		SurfaceTerms:    []string{"Index.ets", "@kit.ArkUI"},
+		GroundingStatus: GroundingGrounded,
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{item},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFEnumeration,
+			Required: []FacetRequirement{{
+				Kind:            FacetEnumerationItem,
+				SourceCandidate: []string{item.ID},
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsRelationalLookup:    true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration)},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	if got.PrincipalMemberCoverage != PrincipalMemberCoveragePolicyRequired {
+		t.Fatalf("category enumeration policy = %q, want required", got.PrincipalMemberCoverage)
+	}
+	obligations := PrincipalSupportMemberObligations(got)
+	if len(obligations) != 1 {
+		t.Fatalf("set-valued enumeration should require one cited principal row, got %+v", obligations)
+	}
+	if !strings.Contains(obligations[0].Location, "entry/src/main/ets/pages/index.ets:3") {
+		t.Fatalf("obligation should preserve typed citation location, got %+v", obligations[0])
+	}
+}
+
 func TestBuildAnswerSupportPlan_FacetPrincipalLanePreservesDisplaySurfaceMetadata(t *testing.T) {
 	item := EvidenceItem{
 		ID:              "import-edge",
