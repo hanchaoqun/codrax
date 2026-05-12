@@ -479,6 +479,27 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_TypedMustIncludeTerms(t
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_MustIncludeTermsAreNotPrincipalFloorWithoutSlate(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentEnumerate},
+			AnswerContract: types.AnswerContract{
+				MustInclude: []string{"SubAgentRuntime", "ProposeSubAgents"},
+			},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "Required answer-term coverage:") {
+		t.Fatalf("must_include terms should still be surfaced as answer coverage:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "must preserve all 2 grounded term(s)") {
+		t.Fatalf("must_include terms without answer-symbol slate must not become principal item floor:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "do not turn a helper, tool, file stem, attribute, or mechanism component into a principal list member") {
+		t.Fatalf("prompt should guard against context helper promotion:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupportLanesFromStepBackbone(t *testing.T) {
 	mut := types.NewMutableState("")
 	syms := []types.AnswerSymbol{

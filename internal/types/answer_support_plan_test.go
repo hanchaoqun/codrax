@@ -1184,6 +1184,52 @@ func TestMissingPrincipalSupportMembers_EnumerationRequiresCitedPrincipalRows(t 
 	}
 }
 
+func TestMissingPrincipalSupportMembers_CaveatBlockTextCanExplainExclusion(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{{
+				Text:         "helper returns false",
+				Location:     "internal/agent/agent.go:1515",
+				ClaimForm:    ClaimReturnFact,
+				AnchorSymbol: "isReadFilePathMiss",
+				SurfaceTerms: []string{"isReadFilePathMiss", "false"},
+				Source:       "internal/agent/agent.go",
+				LineStart:    1515,
+			}},
+		}},
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "internal/agent/agent.go", Line: 1515}},
+		Blocks: []AnswerBlock{
+			{
+				ID:          "items",
+				Kind:        BlockOrderedList,
+				SurfaceRole: SurfacePrincipal,
+				FacetIDs:    []string{string(FacetEnumerationItem)},
+				Items: []AnswerBlockItem{{
+					Label:       "explorer",
+					Text:        "the only principal member",
+					CitationRef: -1,
+				}},
+			},
+			{
+				ID:   "excluded_helper",
+				Kind: BlockCaveat,
+				Text: "`isReadFilePathMiss` is a helper return fact, not a member of the requested agent set.",
+				Items: []AnswerBlockItem{{
+					ID:          "cite",
+					CitationRef: 0,
+				}},
+			},
+		},
+	}
+	if got := MissingPrincipalSupportMembers(doc, plan); len(got) != 0 {
+		t.Fatalf("caveat block text with matching citation should satisfy excluded support member, got %+v", got)
+	}
+}
+
 func TestMissingPrincipalSupportMembers_DefinitionAnchorsCoalesceAndAcceptEquivalentCitation(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Family: QFEnumeration,

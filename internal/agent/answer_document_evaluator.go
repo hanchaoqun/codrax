@@ -287,20 +287,27 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 
 	if view.NeedsEnumerationSlate() {
 		mustTerms := []types.ContractTerm(nil)
+		principalTerms := []types.ContractTerm(nil)
 		attributeBearingEnumeration := false
 		if ctx != nil && ctx.AnalysisIR != nil {
 			mustTerms = answerDocMustIncludeTerms(ctx.AnalysisIR.AnswerContract)
+			principalTerms = answerDocPrincipalItemFloorTerms(ctx, mustTerms)
 			attributeBearingEnumeration = types.HasAttributeBearingEnumeration(ctx.AnalysisIR.RequestModel)
 		}
 		b.WriteString("## Expected principal-item floor\n\n")
-		if len(mustTerms) > 0 {
+		if len(principalTerms) > 0 {
 			fmt.Fprintf(&b, "Required-term floor: **%d term(s)** — %s\n\n",
-				len(mustTerms), renderAnswerDocContractTermList(mustTerms))
+				len(principalTerms), renderAnswerDocContractTermList(principalTerms))
 			fmt.Fprintf(&b,
 				"Your principal enumeration block must preserve all %d grounded term(s) according to their labels. "+
 					"If the investigation only established a lower bound or could not prove "+
 					"the full set, disclose that bound in prose or a `caveat` block instead "+
-					"of inventing a retired completeness field.\n\n", len(mustTerms))
+					"of inventing a retired completeness field.\n\n", len(principalTerms))
+		} else if len(mustTerms) > 0 {
+			fmt.Fprintf(&b, "Required answer-term coverage: %s\n\n", renderAnswerDocContractTermList(mustTerms))
+			b.WriteString("These terms are coverage anchors for the answer text, not a principal-item floor. ")
+			b.WriteString("Mention them in the summary, rationale, caveat, or row text only when they are relevant to the user's requested set; ")
+			b.WriteString("do not turn a helper, tool, file stem, attribute, or mechanism component into a principal list member merely because it appears here.\n\n")
 		} else {
 			b.WriteString("Required-member floor is empty. No explicit minimum member set is enforced for this dispatch — ")
 			b.WriteString("keep the rendered list/table aligned with the prior extraction slate and surfaced evidence.\n\n")
@@ -422,6 +429,34 @@ func answerDocMustIncludeTerms(contract types.AnswerContract) []types.ContractTe
 	}
 	for _, term := range contract.MustIncludeTerms {
 		add(term)
+	}
+	return out
+}
+
+func answerDocPrincipalItemFloorTerms(ctx *types.AgentContext, terms []types.ContractTerm) []types.ContractTerm {
+	if ctx == nil || len(ctx.AnswerSymbols) == 0 || len(terms) == 0 {
+		return nil
+	}
+	symbols := make(map[string]bool, len(ctx.AnswerSymbols))
+	for _, sym := range ctx.AnswerSymbols {
+		name := strings.TrimSpace(sym.Name)
+		if name == "" {
+			continue
+		}
+		symbols[strings.ToLower(name)] = true
+	}
+	if len(symbols) == 0 {
+		return nil
+	}
+	out := make([]types.ContractTerm, 0, len(terms))
+	for _, term := range terms {
+		text := strings.TrimSpace(term.Text)
+		if text == "" {
+			continue
+		}
+		if symbols[strings.ToLower(text)] {
+			out = append(out, term)
+		}
 	}
 	return out
 }

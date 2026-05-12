@@ -288,7 +288,9 @@ func answerDocumentCaveatsSupportMember(doc *AnswerDocumentV2, ob AnswerSupportM
 			if !citationCoversSupportMember(doc.Citations[item.CitationRef], ob) {
 				continue
 			}
-			if len(ob.SurfaceTerms) == 0 || answerItemSurfaceMentionsSupportMember(item, ob) {
+			if len(ob.SurfaceTerms) == 0 ||
+				answerItemSurfaceMentionsSupportMember(item, ob) ||
+				answerTextMentionsSupportMember(block.Text, ob) {
 				return true
 			}
 		}
@@ -323,7 +325,11 @@ func answerBlockCanCarryPrincipalMember(block AnswerBlock) bool {
 }
 
 func answerItemSurfaceMentionsSupportMember(item AnswerBlockItem, ob AnswerSupportMemberObligation) bool {
-	surface := strings.TrimSpace(item.Label + "\n" + item.Text)
+	return answerTextMentionsSupportMember(item.Label+"\n"+item.Text, ob)
+}
+
+func answerTextMentionsSupportMember(text string, ob AnswerSupportMemberObligation) bool {
+	surface := strings.TrimSpace(text)
 	if surface == "" {
 		return false
 	}
