@@ -1161,14 +1161,13 @@ func VerifyLineAnchor(gc *Context, source string, line int, anchor string, radiu
 	if !ok {
 		return 0, false
 	}
-	matched, ok := findAnchorLine(fileLines, line, radius, anchor)
-	if !ok {
-		return 0, false
+	if matched, ok := findNonCommentAnchorLine(fileLines, line, radius, anchor, source); ok {
+		return matched, true
 	}
-	if isLineComment(fileLines, matched, source) {
-		return 0, false
+	if matched, ok := findAdjacentDocCommentDefinitionLine(fileLines, line, 12, anchor, source); ok {
+		return matched, true
 	}
-	return matched, true
+	return 0, false
 }
 
 // HasFileInIndex reports whether source has been read_file'd (or
@@ -1198,15 +1197,8 @@ func findAnchorLine(fileLines map[int]string, center, radius int, anchor string)
 	useSubstring := len(anchorTokens) == 0
 	// Center-first: if the claimed line matches, take it.
 	if text, ok := fileLines[center]; ok {
-		if useSubstring {
-			if nonASCIISubstringMatch(anchor, text) {
-				return center, true
-			}
-		} else {
-			have := tokenSet(text)
-			if have[anchor] || (seg != anchor && have[seg]) {
-				return center, true
-			}
+		if lineContainsAnchor(text, anchor, seg, useSubstring) {
+			return center, true
 		}
 	}
 	// Nearest-neighbour scan.
@@ -1219,15 +1211,8 @@ func findAnchorLine(fileLines map[int]string, center, radius int, anchor string)
 		if !ok {
 			continue
 		}
-		if useSubstring {
-			if !nonASCIISubstringMatch(anchor, text) {
-				continue
-			}
-		} else {
-			have := tokenSet(text)
-			if !have[anchor] && (seg == anchor || !have[seg]) {
-				continue
-			}
+		if !lineContainsAnchor(text, anchor, seg, useSubstring) {
+			continue
 		}
 		d := i - center
 		if d < 0 {
@@ -1242,6 +1227,70 @@ func findAnchorLine(fileLines map[int]string, center, radius int, anchor string)
 		return bestLine, true
 	}
 	return 0, false
+}
+
+func findNonCommentAnchorLine(fileLines map[int]string, center, radius int, anchor, source string) (int, bool) {
+	seg := lastDotSegment(anchor)
+	anchorTokens := tokenSet(anchor)
+	useSubstring := len(anchorTokens) == 0
+	if text, ok := fileLines[center]; ok &&
+		lineContainsAnchor(text, anchor, seg, useSubstring) &&
+		!isLineComment(fileLines, center, source) {
+		return center, true
+	}
+	bestLine, bestDist := 0, radius+1
+	for i := center - radius; i <= center+radius; i++ {
+		if i == center || i <= 0 || isLineComment(fileLines, i, source) {
+			continue
+		}
+		text, ok := fileLines[i]
+		if !ok || !lineContainsAnchor(text, anchor, seg, useSubstring) {
+			continue
+		}
+		d := i - center
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			bestLine = i
+		}
+	}
+	if bestLine > 0 {
+		return bestLine, true
+	}
+	return 0, false
+}
+
+func findAdjacentDocCommentDefinitionLine(fileLines map[int]string, center, maxLookahead int, anchor, source string) (int, bool) {
+	if maxLookahead <= 0 || !isLineComment(fileLines, center, source) {
+		return 0, false
+	}
+	seg := lastDotSegment(anchor)
+	anchorTokens := tokenSet(anchor)
+	useSubstring := len(anchorTokens) == 0
+	for i := center + 1; i <= center+maxLookahead; i++ {
+		text, ok := fileLines[i]
+		if !ok {
+			return 0, false
+		}
+		if strings.TrimSpace(text) == "" || isLineComment(fileLines, i, source) {
+			continue
+		}
+		if lineContainsAnchor(text, anchor, seg, useSubstring) {
+			return i, true
+		}
+		return 0, false
+	}
+	return 0, false
+}
+
+func lineContainsAnchor(text, anchor, seg string, useSubstring bool) bool {
+	if useSubstring {
+		return nonASCIISubstringMatch(anchor, text)
+	}
+	have := tokenSet(text)
+	return have[anchor] || (seg != anchor && have[seg])
 }
 
 // findCorroboratingLine is the legacy-fallback counterpart of

@@ -63,6 +63,43 @@ func TestEmitAnswerSymbol_AcceptsValidBatch(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerSymbol_CanonicalizesDocCommentLineToDefinition(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	seedReadFileHistory(ctx, "internal/tool/tool.go", 11,
+		"// Tool defines the interface for all local tools.",
+		"//",
+		"// IsWrite reports whether the tool's primary purpose is to mutate the",
+		"// filesystem. It backs the requires_write permission boundary: read-only",
+		"// agents must not be granted access to tools that return true here.",
+		"// Implementations should embed ReadOnly or WriteCapable to satisfy this",
+		"// method without boilerplate.",
+		"type Tool interface {",
+		"    Name() string",
+		"}",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "Tool", "file": "internal/tool/tool.go", "line": 11, "kind": "interface"}
+        ],
+        "completeness": "complete"
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got, _ := ctx.Mutable.EmittedAnswerSymbols()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item, got %d", len(got))
+	}
+	if got[0].Line != 18 {
+		t.Fatalf("line = %d, want canonical definition line 18", got[0].Line)
+	}
+}
+
 // TestEmitAnswerSymbol_CountFieldMatch pins commit 49 read-
 // mode Gap 2: when LLM emits a self-declared count, the
 // validator rejects on len(items) mismatch with hint to

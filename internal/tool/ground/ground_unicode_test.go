@@ -28,8 +28,8 @@ func TestQuoteCorroboratesLine_ChineseLiteralViaSubstring(t *testing.T) {
 // full window, not just the center line.
 func TestQuoteCorroboratesLine_NeighbourLineMatch(t *testing.T) {
 	fileLines := map[int]string{
-		8: `# preamble`,
-		9: `print("placeholder")`,
+		8:  `# preamble`,
+		9:  `print("placeholder")`,
 		10: `print("我已经想好了一个1-100之间的数字！")`, // truth lives at +1
 	}
 	quote := "我已经想好了一个1-100之间的数字！"
@@ -162,6 +162,36 @@ func TestVerifyLineAnchor_ASCIIPathStillStrict(t *testing.T) {
 	}
 	if _, ok := VerifyLineAnchor(gc, "x.go", 1, "FooBar", 2); !ok {
 		t.Errorf("ASCII 'FooBar' must match exact identifier")
+	}
+}
+
+// TestVerifyLineAnchor_DocCommentLineCanonicalizesToDefinition
+// covers the extractor-stage retry loop where the model cites the
+// first line of a doc comment copied from grounded evidence while the
+// actual symbol definition sits immediately after the comment block.
+// The public verifier should return the definition line, not reject
+// on the comment mention or leave the citation pinned to prose.
+func TestVerifyLineAnchor_DocCommentLineCanonicalizesToDefinition(t *testing.T) {
+	gc := &Context{
+		LineIndex: map[string]map[int]string{
+			"internal/tool/tool.go": {
+				11: "// Tool defines the interface for all local tools.",
+				12: "//",
+				13: "// IsWrite reports whether the tool's primary purpose is to mutate the",
+				14: "// filesystem.",
+				15: "// agents must not be granted access to tools that return true here.",
+				16: "// Implementations should embed ReadOnly or WriteCapable to satisfy this",
+				17: "// method without boilerplate.",
+				18: "type Tool interface {",
+			},
+		},
+	}
+	matched, ok := VerifyLineAnchor(gc, "internal/tool/tool.go", 11, "Tool", 2)
+	if !ok {
+		t.Fatalf("doc-comment line should verify through adjacent definition")
+	}
+	if matched != 18 {
+		t.Fatalf("matched line = %d, want definition line 18", matched)
 	}
 }
 

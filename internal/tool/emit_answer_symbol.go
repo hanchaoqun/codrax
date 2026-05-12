@@ -366,7 +366,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 //
 // In that case the LLM has all it needs to emit a K-item slate; the
 // reject prose names the typed floor so the LLM doesn't fall back to
-// a "skip emit_answer_symbol" escape. v3.1 D2'' (2026-05-05). Pure
+// a "skip emit_answer_symbol" escape. v3.1 D2” (2026-05-05). Pure
 // typed-integer comparisons — no keyword matching, no language-
 // specific detection.
 //
@@ -452,7 +452,9 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 		}
 	}
 	if groundCtx != nil && ground.HasFileInIndex(groundCtx, file) {
-		if _, ok := ground.VerifyLineAnchor(groundCtx, file, lineN, name, 2); !ok {
+		if matchedLine, ok := ground.VerifyLineAnchor(groundCtx, file, lineN, name, 2); ok {
+			lineN = matchedLine
+		} else {
 			leaf := name
 			if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
 				leaf = name[idx+1:]
@@ -460,7 +462,9 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 			if leaf == name {
 				return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain no identifier token matching it). Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN)
 			}
-			if _, ok := ground.VerifyLineAnchor(groundCtx, file, lineN, leaf, 2); !ok {
+			if matchedLine, ok := ground.VerifyLineAnchor(groundCtx, file, lineN, leaf, 2); ok {
+				lineN = matchedLine
+			} else {
 				return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain neither %q nor its leaf %q). Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN, name, leaf)
 			}
 		}

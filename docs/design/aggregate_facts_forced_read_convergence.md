@@ -136,6 +136,49 @@ entire enclosing symbol span.
 - Existing EOF clamp, surgical drain, small-file, and keyword-anchor tests
   remain unchanged.
 
+## Workstream C: AnswerSymbol Definition-Line Canonicalization
+
+### Problem
+
+The same-shape architecture run showed a downstream extractor loop after
+Workstreams A/B had converged. Turn A emitted useful evidence for symbols such
+as `Tool`, `BuildAgentContext`, `TaskState`, and `Message`, but several entries
+pointed at the first line of a doc comment rather than the executable/type
+definition line. `emit_answer_symbol` then rejected the slate because the cited
+line was comment-only, while the extractor had no read tools available to
+re-open the file and locate the adjacent definition.
+
+This is not a `Tool`-specific problem. It appears anywhere a model carries a
+model-authored structured symbol `{name, file, line, kind}` from a documentation
+anchor into an answer-symbol channel whose contract requires the definition
+line.
+
+### Design
+
+Extend the shared grounding verifier, not the extractor prompt:
+
+- `ground.VerifyLineAnchor` must prefer a non-comment line that bears the
+  anchor within the ordinary ±radius window.
+- If the claimed line is a pure comment, the verifier may scan forward through
+  the directly-adjacent doc-comment block and return the first non-comment line
+  only when that line contains the same typed anchor.
+- The caller (`emit_answer_symbol`) must store the matched line returned by the
+  verifier, so the persisted `AnswerSymbol.Line` becomes the canonical
+  definition line.
+- No new answer item may be invented. This is only field canonicalization over a
+  model-authored structured item plus already-read source text.
+- The lookahead is bounded and adjacency-based. It must not search the whole
+  file or use noisy similarity.
+
+### Tests
+
+- `VerifyLineAnchor` maps a Go doc-comment line to the adjacent `type Tool`
+  definition line.
+- `emit_answer_symbol` accepts a doc-comment line for `Tool` and persists the
+  definition line.
+- Existing strictness remains: unrelated comments and non-adjacent definitions
+  still reject.
+
 ## Delivery Order
 
 1. Land this design document.
@@ -147,3 +190,6 @@ entire enclosing symbol span.
    - no repeated whole-span forced-read loop after principal evidence exists,
    - finalizer receives aggregate facts and citable principal evidence without
      system-authored answer completion.
+5. Implement Workstream C if the same-shape run shows doc-comment-to-definition
+   drift in the AnswerSymbol slate, then re-run focused and full tests before
+   commit/push.
