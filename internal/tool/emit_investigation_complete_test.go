@@ -1243,6 +1243,62 @@ func TestEmitInvestigationComplete_AllowsFacetBoundPrincipalSupport(t *testing.T
 	}
 }
 
+func TestEmitInvestigationComplete_DowngradesWhenRequiredEnumerationTermsLackTypedHandoff(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all agents")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "agent-explorer",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/enums.go",
+		LineStart:       117,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "AgentExplorer",
+		Subject:         "AgentExplorer",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.AnalyzerHints.Entities = []string{"AgentExplorer", "AgentFinalizer"}
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all agents",
+	}
+	ir.AnswerContract.MustIncludeTerms = []types.ContractTerm{
+		{Text: "AgentExplorer", Kind: types.ContractTermSymbol},
+		{Text: "AgentFinalizer", Kind: types.ContractTermSymbol},
+	}
+	bus := &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: ir,
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"only one member grounded","confidence":"high","result_kind":"resolved"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("required-term handoff downgrade is a soft pre-complete result, got hard failure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "required principal members lack typed handoff") ||
+		!strings.Contains(res.Summary, "AgentFinalizer") {
+		t.Fatalf("summary should name missing typed handoff member, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("downgraded completion must not mark investigation complete")
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 || repairs[len(repairs)-1].Origin != "pre_complete.principal_required_term_handoff" {
+		t.Fatalf("expected principal required-term handoff repair, got %+v", repairs)
+	}
+}
+
 func enumerationPrincipalGateIR() *types.AnalysisIR {
 	return &types.AnalysisIR{
 		RequestModel: types.RequestModel{

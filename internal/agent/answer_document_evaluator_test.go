@@ -641,6 +641,47 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalSupportLaneBac
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalMemberObligations(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 1},
+			},
+		},
+		Mutable: types.NewMutableState(""),
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "enum-intent",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/types/analysis_ir.go",
+			LineStart:       642,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Intent",
+			Subject:         "Intent",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"### Principal Member Obligations",
+		"Intent",
+		"internal/types/analysis_ir.go:642",
+		"evidence_id=enum-intent",
+		"fresh `citations[]` pool",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("principal member obligation prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStructuredAggregateFacts(t *testing.T) {
 	mut := types.NewMutableState("")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{

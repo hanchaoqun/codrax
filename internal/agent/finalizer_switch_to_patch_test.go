@@ -230,6 +230,39 @@ func TestEmitSwitchToPatchSignal_FailedPatch_LatchesNudge(t *testing.T) {
 	}
 }
 
+func TestEmitPatchRejectFullRewriteSignal_FailedPatchRequestsFreshFullEmit(t *testing.T) {
+	e := &answerDocumentEvaluator{}
+	ctx := ctxWithAnswerPatchBase()
+	obs := LoopObservation{
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document_patch",
+			Success:  false,
+			Summary:  `patch: unchanged_block_ids["new_block"] not present in previous emit`,
+		},
+	}
+
+	got := e.emitPatchRejectFullRewriteSignal(ctx, obs)
+	if !got.HintRequested {
+		t.Fatalf("failed patch should request a full rewrite hint; got %+v", got)
+	}
+	if got.HintKey != "answer_doc.patch_rewrite" {
+		t.Fatalf("HintKey=%q, want answer_doc.patch_rewrite", got.HintKey)
+	}
+	for _, want := range []string{
+		"emit_answer_document",
+		"fresh `citations[]` array",
+		"renumber every `blocks[].items[].citation_ref`",
+		"Stop patching",
+	} {
+		if !strings.Contains(got.Hint, want) {
+			t.Errorf("patch rewrite hint missing %q:\n%s", want, got.Hint)
+		}
+	}
+	if !got.BypassThrottle || !got.BypassBudget {
+		t.Errorf("patch rewrite hint must bypass throttle/budget; got %+v", got)
+	}
+}
+
 func TestEmitSwitchToPatchSignal_HintIsLanguageNeutral(t *testing.T) {
 	// R6 audit: no internal stage names ("explorer" / "extractor"
 	// / "downstream stage"), no internal field names.

@@ -54,3 +54,55 @@ func InferContractTermKind(term string) ContractTermKind {
 	}
 	return ContractTermSymbol
 }
+
+// NormalizedMustIncludeTerms merges the legacy string list and the
+// typed term list into one de-duplicated, kind-bearing sequence. Keep
+// this in types/ so contract checking, finalizer prompting, and
+// investigation preflight consume the same hard-term semantics.
+func NormalizedMustIncludeTerms(c AnswerContract) []ContractTerm {
+	return normalizeContractTerms(c.MustInclude, c.MustIncludeTerms)
+}
+
+// NormalizedMustExcludeTerms mirrors NormalizedMustIncludeTerms for
+// exclusion gates.
+func NormalizedMustExcludeTerms(c AnswerContract) []ContractTerm {
+	return normalizeContractTerms(c.MustExclude, c.MustExcludeTerms)
+}
+
+func normalizeContractTerms(legacy []string, typed []ContractTerm) []ContractTerm {
+	out := make([]ContractTerm, 0, len(legacy)+len(typed))
+	seen := map[string]struct{}{}
+	typedTexts := make(map[string]struct{}, len(typed))
+	for _, term := range typed {
+		text := strings.TrimSpace(term.Text)
+		if text != "" {
+			typedTexts[strings.ToLower(text)] = struct{}{}
+		}
+	}
+	add := func(term ContractTerm) {
+		text := strings.TrimSpace(term.Text)
+		if text == "" {
+			return
+		}
+		kind := term.Kind
+		if !kind.IsValid() {
+			kind = InferContractTermKind(text)
+		}
+		key := string(kind) + "\x00" + strings.ToLower(text)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, ContractTerm{Text: text, Kind: kind})
+	}
+	for _, text := range legacy {
+		if _, alreadyTyped := typedTexts[strings.ToLower(strings.TrimSpace(text))]; alreadyTyped {
+			continue
+		}
+		add(ContractTerm{Text: text, Kind: InferContractTermKind(text)})
+	}
+	for _, term := range typed {
+		add(term)
+	}
+	return out
+}

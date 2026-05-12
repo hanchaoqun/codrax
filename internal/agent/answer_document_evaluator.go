@@ -396,41 +396,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 }
 
 func answerDocMustIncludeTerms(contract types.AnswerContract) []types.ContractTerm {
-	out := make([]types.ContractTerm, 0, len(contract.MustInclude)+len(contract.MustIncludeTerms))
-	seen := map[string]struct{}{}
-	typedTexts := make(map[string]struct{}, len(contract.MustIncludeTerms))
-	for _, term := range contract.MustIncludeTerms {
-		text := strings.TrimSpace(term.Text)
-		if text != "" {
-			typedTexts[strings.ToLower(text)] = struct{}{}
-		}
-	}
-	add := func(term types.ContractTerm) {
-		text := strings.TrimSpace(term.Text)
-		if text == "" {
-			return
-		}
-		kind := term.Kind
-		if !kind.IsValid() {
-			kind = types.InferContractTermKind(text)
-		}
-		key := string(kind) + "\x00" + strings.ToLower(text)
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		out = append(out, types.ContractTerm{Text: text, Kind: kind})
-	}
-	for _, text := range contract.MustInclude {
-		if _, typed := typedTexts[strings.ToLower(strings.TrimSpace(text))]; typed {
-			continue
-		}
-		add(types.ContractTerm{Text: text, Kind: types.InferContractTermKind(text)})
-	}
-	for _, term := range contract.MustIncludeTerms {
-		add(term)
-	}
-	return out
+	return types.NormalizedMustIncludeTerms(contract)
 }
 
 func answerDocPrincipalItemFloorTerms(ctx *types.AgentContext, terms []types.ContractTerm) []types.ContractTerm {
@@ -2940,6 +2906,9 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	b.WriteString("- Treat each lane's `Allowed block kinds` as a hard surface boundary. If a lane does not list `ordered_list`, do not turn its entries into principal hop items. If a lane does not list `diagram`, do not turn its entries into diagram edges or nodes.\n\n")
 	b.WriteString("- In principal blocks, put inline backticks around code / file / config surfaces only when that exact surface is visible in a lane entry, a lane `typed_surface` / `surface_terms` value, an exact target, or the cited source line. Names that appear only in `Evidence note`, retry diagnostics, raw tool output, search hints, or nearby context are background: use plain prose for them or omit them.\n")
 	b.WriteString("- If the user's scalar / count question also asks for concrete members, files, paths, or line numbers, the scalar conclusion is not enough: add an `ordered_list` or `table` drawn from the principal lane entries. If the user asked only for the scalar value, do not invent a member list.\n\n")
+	if obligations := renderAnswerDocPrincipalMemberObligations(plan); obligations != "" {
+		b.WriteString(obligations)
+	}
 	switch plan.Family {
 	case types.QFRootCauseTrace:
 		b.WriteString("- Keep observed runtime facts, current code path facts, nearest grounded mechanism facts, and uncertainty disclosures in their own lanes.\n")
@@ -2996,6 +2965,38 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		}
 		b.WriteString("\n")
 	}
+	return b.String()
+}
+
+func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan) string {
+	obligations := types.PrincipalSupportMemberObligations(plan)
+	if len(obligations) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Principal Member Obligations\n\n")
+	fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s). Render each member as a principal `ordered_list`, `bullet_list`, or `table` item with a citation to the listed location. These rows are a stable member-to-citation map; do not satisfy them by prose-only mentions in `summary`.\n", len(obligations))
+	b.WriteString("For large repairs that change many member citations, re-emit a full `emit_answer_document` with a fresh `citations[]` pool instead of patching stale citation indexes.\n\n")
+	for _, ob := range obligations {
+		label := strings.TrimSpace(ob.Label)
+		if label == "" {
+			label = strings.TrimSpace(ob.Location)
+		}
+		loc := strings.TrimSpace(ob.LocationHint())
+		if loc == "" {
+			loc = strings.TrimSpace(ob.Location)
+		}
+		form := strings.TrimSpace(string(ob.ClaimForm))
+		if form == "" {
+			form = "principal_evidence"
+		}
+		if id := strings.TrimSpace(ob.EvidenceID); id != "" {
+			fmt.Fprintf(&b, "- %s — %s — %s — evidence_id=%s\n", label, loc, form, id)
+		} else {
+			fmt.Fprintf(&b, "- %s — %s — %s\n", label, loc, form)
+		}
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 
@@ -4111,6 +4112,9 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		if sig := e.emitSwitchToPatchSignal(ctx, obs); sig.HintRequested {
 			return sig
 		}
+		if sig := e.emitPatchRejectFullRewriteSignal(ctx, obs); sig.HintRequested {
+			return sig
+		}
 		if sig := e.emitAnswerDocumentRejectSignal(ctx, obs); sig.HintRequested {
 			return sig
 		}
@@ -4314,6 +4318,28 @@ func answerDocumentPatchBaseAvailableInMutable(mut *types.MutableState) bool {
 		return true
 	}
 	return false
+}
+
+func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
+	if obs.LastToolResult == nil ||
+		obs.LastToolResult.ToolName != "emit_answer_document_patch" ||
+		obs.LastToolResult.Success {
+		return LoopSignal{}
+	}
+	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
+		return LoopSignal{}
+	}
+	e.rejectHintsUsed++
+	hint := "Your last `emit_answer_document_patch` call was rejected. Stop patching for this repair and re-emit a complete `emit_answer_document` payload instead: build a fresh `citations[]` array, then renumber every `blocks[].items[].citation_ref` against that fresh zero-based citation pool. Preserve the same user-facing facts from the previous answer and the typed support lanes, but do not reuse stale patch-only block ids or citation indexes from rejected patch attempts. If the repair needs many list/table member or citation changes, a full emit is safer than piecemeal patching. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call."
+	hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "answer_doc.patch_rewrite",
+		Hint:           hint,
+		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
 }
 
 func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {

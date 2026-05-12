@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -1030,6 +1031,9 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		if downgrade := principalSupportMaterializationDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
 			return downgrade
 		}
+		if downgrade := principalRequiredTermHandoffDowngrade(ctx, closure); downgrade != "" {
+			return downgrade
+		}
 	}
 
 	// Check (b): citation-floor preflight. Requires AnalysisIR.
@@ -1257,6 +1261,191 @@ func principalSupportMaterializationDowngrade(ctx *types.BusContext, closure *ty
 	fmt.Fprintf(&b, "The resolved answer family is `%s`, which renders principal user-visible claims from typed support lanes. The current evidence buffer may contain raw reads or nearby context, but after facet binding it has 0 citable principal-support item(s).\n\n", view.Family)
 	b.WriteString("Do not close from raw read_file / repo_map memory or closure prose alone. Stay on the already-read answer-bearing lines when possible, emit `emit_evidence` items whose `anchor_kind` and `anchor_symbol` point at the exact principal member / scalar / component / layer lines, then re-call `emit_investigation_complete`. If the answer is genuinely a derived count or scalar, carry it through `aggregate_facts` with the verified value instead of burying it in `reason` prose.")
 	return b.String()
+}
+
+func principalRequiredTermHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !types.HasBoundedCategoryEnumerationMembers(rm) {
+		return ""
+	}
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if view == nil || !view.NeedsEnumerationSlate() {
+		return ""
+	}
+	terms := completionPrincipalHandoffTerms(ctx.AnalysisIR.AnswerContract)
+	if len(terms) == 0 {
+		return ""
+	}
+	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
+	if plan == nil {
+		return ""
+	}
+	support := types.PrincipalSupportEvidenceItemsForFamily(view.Family, plan)
+	syms, _ := ctx.Mutable.EmittedAnswerSymbols()
+	missing := completionMissingPrincipalHandoffTerms(terms, support, syms)
+	if len(missing) == 0 {
+		return ""
+	}
+	rmHints := rm.AnalyzerHints
+	if closure != nil {
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairEmitEvidence,
+			Files:     completionMaterializationReadFiles(closure),
+			Keywords:  completionMissingTermKeywords(missing, rmHints),
+			Rationale: fmt.Sprintf("bounded enumeration has %d hard required term(s) without typed citable principal handoff", len(missing)),
+			Origin:    "pre_complete.principal_required_term_handoff",
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — required principal members lack typed handoff.\n\n")
+	fmt.Fprintf(&b, "The current answer is a bounded enumeration with %d required answer term(s), but %d term(s) have no matching typed AnswerSymbol or citable principal-support evidence item yet.\n\n", len(terms), len(missing))
+	b.WriteString("Do not close from raw grep / read_file prose, prior reasoning, or a count-only closure. Emit one grounded `emit_evidence` item per missing member using the exact source/log/trace label as `anchor_symbol`, `subject`, `object`, or `surface_terms`, with a real file:line citation from an already-read source when possible; or emit the completed symbol slate before retrying `emit_investigation_complete`.\n\n")
+	b.WriteString("First missing terms:\n")
+	limit := minInt(len(missing), 12)
+	for i := 0; i < limit; i++ {
+		fmt.Fprintf(&b, "  - %s (%s)\n", missing[i].Text, missing[i].Kind)
+	}
+	if len(missing) > limit {
+		fmt.Fprintf(&b, "  ... and %d more\n", len(missing)-limit)
+	}
+	return b.String()
+}
+
+func completionPrincipalHandoffTerms(contract types.AnswerContract) []types.ContractTerm {
+	all := types.NormalizedMustIncludeTerms(contract)
+	if len(all) == 0 {
+		return nil
+	}
+	out := make([]types.ContractTerm, 0, len(all))
+	for _, term := range all {
+		if completionContractTermNeedsPrincipalHandoff(term) {
+			out = append(out, term)
+		}
+	}
+	return out
+}
+
+func completionContractTermNeedsPrincipalHandoff(term types.ContractTerm) bool {
+	text := strings.TrimSpace(term.Text)
+	if text == "" {
+		return false
+	}
+	kind := term.Kind
+	if !kind.IsValid() {
+		kind = types.InferContractTermKind(text)
+	}
+	switch kind {
+	case types.ContractTermSymbol, types.ContractTermToolName, types.ContractTermFileStem:
+		return true
+	default:
+		return false
+	}
+}
+
+func completionMissingPrincipalHandoffTerms(
+	terms []types.ContractTerm,
+	support []types.EvidenceItem,
+	syms []types.AnswerSymbol,
+) []types.ContractTerm {
+	if len(terms) == 0 {
+		return nil
+	}
+	var missing []types.ContractTerm
+	for _, term := range terms {
+		if completionTermCoveredByAnswerSymbol(term, syms) ||
+			completionTermCoveredBySupportEvidence(term, support) {
+			continue
+		}
+		missing = append(missing, term)
+	}
+	return missing
+}
+
+func completionTermCoveredByAnswerSymbol(term types.ContractTerm, syms []types.AnswerSymbol) bool {
+	needle := completionTermFold(term.Text)
+	if needle == "" {
+		return false
+	}
+	for _, sym := range syms {
+		if completionTermFold(sym.Name) == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func completionTermCoveredBySupportEvidence(term types.ContractTerm, support []types.EvidenceItem) bool {
+	needle := completionTermFold(term.Text)
+	if needle == "" {
+		return false
+	}
+	for _, item := range support {
+		if item.GroundingStatus == types.GroundingUngrounded ||
+			strings.TrimSpace(item.Source) == "" ||
+			item.LineStart <= 0 {
+			continue
+		}
+		for _, surface := range completionEvidenceStructuredSurfaces(item, term.Kind) {
+			if completionTermFold(surface) == needle {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func completionEvidenceStructuredSurfaces(item types.EvidenceItem, kind types.ContractTermKind) []string {
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		out = append(out, s)
+	}
+	for _, s := range []string{
+		item.AnchorSymbol,
+		item.OwnerSymbol,
+		item.Subject,
+		item.Object,
+	} {
+		add(s)
+	}
+	for _, term := range item.SurfaceTerms {
+		add(term)
+	}
+	if kind == types.ContractTermFileStem {
+		src := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+		add(src)
+		add(path.Base(src))
+		ext := path.Ext(src)
+		if ext != "" {
+			add(strings.TrimSuffix(path.Base(src), ext))
+		}
+	}
+	return dedupStringsPreserveOrder(out)
+}
+
+func completionTermFold(s string) string {
+	s = strings.TrimSpace(strings.ReplaceAll(s, `\`, `/`))
+	if s == "" {
+		return ""
+	}
+	return strings.ToLower(s)
+}
+
+func completionMissingTermKeywords(missing []types.ContractTerm, hints types.AnalyzerHints) []string {
+	raw := make([]string, 0, len(missing)+len(hints.ExactTargets)+len(hints.PrimaryEntities)+len(hints.Entities))
+	for _, term := range missing {
+		raw = append(raw, term.Text)
+	}
+	raw = append(raw, hints.ExactTargets...)
+	raw = append(raw, hints.PrimaryEntities...)
+	raw = append(raw, hints.Entities...)
+	return dedupStringsPreserveOrder(raw)
 }
 
 func principalSupportMaterializationRequired(ctx *types.BusContext, view *types.AnswerSemanticView, aggregateFacts []types.AnswerAggregateFact) bool {
