@@ -3639,14 +3639,15 @@ func validatePrincipalSupportMemberCoverage(
 		if form == "" {
 			form = "principal_evidence"
 		}
+		locationHint := member.LocationHint()
 		out = append(out, types.Violation{
 			Kind: types.ViolPrincipalSupportMemberOmitted,
 			Detail: fmt.Sprintf(
 				"enumeration principal support member %q (%s at %s) is not represented by any principal ordered_list / bullet_list / table item with a matching citation_ref",
-				label, form, member.Location),
+				label, form, locationHint),
 			Repair: fmt.Sprintf(
-				"re-emit the answer document so the principal enumeration list/table includes an item for %q and cites %s. If this evidence is genuinely out-of-scope, add a caveat item that cites the same location and explains the exclusion instead of silently dropping it.",
-				label, member.Location),
+				"re-emit the answer document so the principal enumeration list/table includes an item for %q and cites %s. If this evidence is genuinely out-of-scope, add a caveat item that cites a matching typed location and explains the exclusion instead of silently dropping it.",
+				label, locationHint),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "answer_support.principal_evidence.member_coverage",
 				Reason:     "final answer omitted an answer-grade principal support evidence member",

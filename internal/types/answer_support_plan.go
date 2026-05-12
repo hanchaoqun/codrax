@@ -29,7 +29,6 @@ const (
 
 const callChainSupportEntryLimit = 24
 const facetSupportEntryLimitDefault = 18
-const facetSupportEntryLimitEnumerationMax = 64
 const facetUncertaintySupportEntryLimit = 4
 
 type AnswerSupportLane struct {

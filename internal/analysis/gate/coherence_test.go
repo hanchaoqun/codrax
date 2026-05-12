@@ -293,6 +293,32 @@ func TestSubtopicCoherence_R1_5_AllConceptual_NoOp(t *testing.T) {
 	}
 }
 
+func TestSubtopicCoherence_R1_5_DiagnosticFacetSubTopicsBypassResolverAsymmetry(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"ExecCommand": {{Canonical: "ExecCommand", Domain: "tool"}},
+			// source/sink/protection facet labels and stdlib names may
+			// legitimately have zero repo-symbol hits.
+		},
+	}
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent:     true,
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{IsDiagnostic: true, CurrentRisk: true},
+		SubTopics: []types.SubTopic{
+			{Summary: "taint source", Entities: []string{"ExecCommand"}},
+			{Summary: "sink", Entities: []string{"exec.Command", "shell sink"}},
+			{Summary: "protection", Entities: []string{"allowlist", "sandbox"}},
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
+		t.Fatalf("diagnostic facet sub-topics should not hard-fail on resolver asymmetry; got %+v", check)
+	}
+}
+
 func TestSubtopicCoherence_R1_5_SingleTopic_NoOp(t *testing.T) {
 	// Single-topic IR doesn't go through the multi-topic anchor
 	// backbone, so R1.5 should not fire even with an unresolvable

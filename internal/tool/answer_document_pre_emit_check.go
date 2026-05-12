@@ -321,14 +321,14 @@ func preCheckPrincipalSupportMemberCoverage(doc *types.AnswerDocumentV2, ctxOpt 
 		if label == "" {
 			label = m.Location
 		}
-		parts = append(parts, fmt.Sprintf("%q at %s", label, m.Location))
+		parts = append(parts, fmt.Sprintf("%q at %s", label, m.LocationHint()))
 		if len(parts) >= 6 {
 			break
 		}
 	}
 	return []emitFixHint{{
 		Field: "blocks[].items[].citation_ref",
-		ExpectedShape: "include one principal ordered_list / bullet_list / table item for each principal support evidence member, citing its exact file:line: " +
+		ExpectedShape: "include one principal ordered_list / bullet_list / table item for each principal support evidence member, citing a matching typed file:line: " +
 			strings.Join(parts, "; "),
 		Reason: "the investigation already emitted these as answer-grade principal evidence; the final answer must preserve the members or add a cited caveat item for a real exclusion instead of relying on system-added caveats.",
 	}}

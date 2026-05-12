@@ -1133,6 +1133,149 @@ func TestMissingPrincipalSupportMembers_EnumerationRequiresCitedPrincipalRows(t 
 	}
 }
 
+func TestMissingPrincipalSupportMembers_DefinitionAnchorsCoalesceAndAcceptEquivalentCitation(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{
+				{
+					Text:         "CitationReq type declaration",
+					Location:     "internal/types/analysis_ir.go:1229",
+					ClaimForm:    ClaimDefinitionFact,
+					AnchorSymbol: "CitationReq",
+					SurfaceTerms: []string{"CitationReq"},
+					Source:       "internal/types/analysis_ir.go",
+					LineStart:    1229,
+				},
+				{
+					Text:         "CitationReq.Required field declaration",
+					Location:     "internal/types/analysis_ir.go:1232",
+					ClaimForm:    ClaimDefinitionFact,
+					AnchorSymbol: "CitationReq",
+					SurfaceTerms: []string{"CitationReq"},
+					Source:       "internal/types/analysis_ir.go",
+					LineStart:    1232,
+				},
+			},
+		}},
+	}
+
+	obligations := PrincipalSupportMemberObligations(plan)
+	if len(obligations) != 1 {
+		t.Fatalf("definition anchors for the same typed member should coalesce, got %+v", obligations)
+	}
+	if !strings.Contains(obligations[0].LocationHint(), "internal/types/analysis_ir.go:1232") {
+		t.Fatalf("coalesced definition obligation should expose equivalent anchors, got %q", obligations[0].LocationHint())
+	}
+
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "internal/types/analysis_ir.go", Line: 1232}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockBulletList,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "CitationReq",
+				Text:        "type definition",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if got := MissingPrincipalSupportMembers(doc, plan); len(got) != 0 {
+		t.Fatalf("equivalent definition anchor should satisfy member coverage, got %+v", got)
+	}
+
+	doc.Citations[0].Line = 1234
+	if got := MissingPrincipalSupportMembers(doc, plan); len(got) != 0 {
+		t.Fatalf("nearby line in the same typed definition span should satisfy member coverage, got %+v", got)
+	}
+}
+
+func TestMissingPrincipalSupportMembers_AssignmentStillRequiresExactCitationLine(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{{
+				Text:         "CitationReq.Required is assigned",
+				Location:     "internal/agent/analyzer.go:1903",
+				ClaimForm:    ClaimAssignmentFact,
+				AnchorSymbol: "CitationReq.Required",
+				SurfaceTerms: []string{"CitationReq.Required"},
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    1903,
+			}},
+		}},
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "internal/agent/analyzer.go", Line: 1904}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockOrderedList,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "CitationReq.Required",
+				Text:        "assignment site",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if got := MissingPrincipalSupportMembers(doc, plan); len(got) != 1 {
+		t.Fatalf("non-definition facts must still require exact cited line, got %+v", got)
+	}
+	doc.Citations[0].Line = 1903
+	if got := MissingPrincipalSupportMembers(doc, plan); len(got) != 0 {
+		t.Fatalf("exact assignment line should satisfy member coverage, got %+v", got)
+	}
+}
+
+func TestBuildAnswerSupportPlan_EnumerationPrincipalLaneDoesNotSilentlyCapMembers(t *testing.T) {
+	const n = 70
+	evidence := make([]EvidenceItem, 0, n)
+	candidates := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("PublicEnum%02d", i)
+		id := fmt.Sprintf("enum-%02d", i)
+		evidence = append(evidence, EvidenceItem{
+			ID:              id,
+			Kind:            EvidenceDirect,
+			Scope:           ScopeLine,
+			Source:          "internal/types/generated_enums.go",
+			LineStart:       10 + i,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    name,
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: GroundingGrounded,
+		})
+		candidates = append(candidates, id)
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: evidence,
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFEnumeration,
+			Required: []FacetRequirement{{
+				Kind:            FacetEnumerationItem,
+				SourceCandidate: candidates,
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentEnumerate}, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil {
+		t.Fatalf("missing principal evidence lane: %+v", got)
+	}
+	if len(lane.Entries) != n {
+		t.Fatalf("enumeration principal support lane must preserve every evidence-backed member; entries=%d want=%d", len(lane.Entries), n)
+	}
+	if !strings.Contains(lane.Entries[len(lane.Entries)-1].Text, "PublicEnum69") {
+		t.Fatalf("tail principal member was capped away or reordered unexpectedly: %+v", lane.Entries[len(lane.Entries)-1])
+	}
+}
+
 func TestBuildAnswerSupportPlan_FacetFamilyKeepsExternalObservationSoftUnlessFacetRequiresIt(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		ExternalObservationSeeds: []ExternalObservationSeed{

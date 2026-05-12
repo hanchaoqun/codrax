@@ -198,7 +198,8 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	// symbol while java.io.IOException does not). That violates the
 	// precise-signals-for-hard-gates rule: artifact/source provenance is
 	// precise; repo resolution of external observations is not.
-	if resolver != nil && nSub >= 2 && !rm.HasExternalOnlyRuntimeArtifact() {
+	if resolver != nil && nSub >= 2 && !rm.HasExternalOnlyRuntimeArtifact() &&
+		!diagnosticFacetSubTopicsBypassResolverAsymmetry(rm) {
 		type subTopicState struct {
 			index int
 			topic types.SubTopic
@@ -443,6 +444,18 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		Detail: fmt.Sprintf("sub-topics=%d domains=%d primary_entities=%d buckets=%d",
 			nSub, len(domains), len(rm.AnalyzerHints.PrimaryEntities), len(rm.Buckets)),
 	}
+}
+
+func diagnosticFacetSubTopicsBypassResolverAsymmetry(rm types.RequestModel) bool {
+	// Diagnostic questions often decompose into analysis facets such
+	// as source / sink / guard / verdict. Those facet labels and
+	// standard-library sinks are valid search axes even when they are
+	// not repo declarations, so resolver hit/miss asymmetry is too
+	// noisy for a hard analyzer gate. Downstream evidence validators
+	// still require grounded proof before those facets reach the final
+	// answer.
+	return rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.RequiresDiagnosticRootCause()
 }
 
 // summaryShort truncates a sub-topic summary for inclusion in a gate

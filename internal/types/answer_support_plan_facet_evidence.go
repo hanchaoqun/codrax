@@ -296,10 +296,12 @@ func principalSupportEvidenceSurfaceRoleKey(item EvidenceItem) string {
 
 func facetSupportEntryLimitForFamily(family QuestionFamily, candidateCount int) int {
 	if family == QFEnumeration {
-		if candidateCount > facetSupportEntryLimitDefault && candidateCount < facetSupportEntryLimitEnumerationMax {
-			return candidateCount
-		}
-		return facetSupportEntryLimitEnumerationMax
+		// Enumeration lane entries are principal answer members, not
+		// optional enrichment. Capping them silently drops part of the
+		// closed set before the finalizer sees it, so keep the full
+		// typed evidence member set and let explicit uncertainty /
+		// completeness contracts disclose any real boundary.
+		return candidateCount
 	}
 	return facetSupportEntryLimitDefault
 }
