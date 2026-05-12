@@ -66,6 +66,74 @@ func TestEmitInvestigationComplete_AbsenceWithoutEvidenceAccepted(t *testing.T) 
 	}
 }
 
+func TestEmitInvestigationComplete_AcceptsStructuredAggregateFacts(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"deterministic count and candidate classification complete",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"total_count",
+				"label":"production assignment locations",
+				"value":"4",
+				"unit":"locations",
+				"members":["internal/a.go:10","src/native/foo.cpp:22"]
+			},
+			{
+				"kind":"unique_count",
+				"label":"unique files",
+				"value":"2",
+				"unit":"files",
+				"members":["internal/a.go","src/native/foo.cpp"]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("aggregate facts completion should be accepted: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "aggregate_facts: 2") {
+		t.Fatalf("summary should report aggregate fact handoff: %s", res.Summary)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 2 || got[0].Kind != types.AnswerAggregateTotalCount || got[1].Value != "2" {
+		t.Fatalf("stable aggregate facts not stored: %+v", got)
+	}
+}
+
+func TestEmitInvestigationComplete_RejectsInvalidAggregateFacts(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"done",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{"kind":"guess","label":"x","value":"1"}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("invalid aggregate kind should reject")
+	}
+	if !strings.Contains(res.Summary, "aggregate_facts[0]") {
+		t.Fatalf("rejection should name aggregate fact path: %s", res.Summary)
+	}
+	if got := mut.StableInvestigationAggregateFacts(); len(got) != 0 {
+		t.Fatalf("rejected aggregate facts must not be retained: %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_NormalizesLogSourceDriftReasonToBoundedSurface(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{

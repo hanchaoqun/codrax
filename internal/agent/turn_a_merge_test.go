@@ -77,6 +77,11 @@ func TestMergeTurnAArtifactsWithPrior_PreservesAcceptedClosureWhenCurrentEmpty(t
 	prior := &types.TurnAArtifacts{
 		AcceptedClosureReason: "resolved 4 grounded sites after excluding comments",
 		AcceptedResultKind:    "resolved",
+		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
+			Kind:  types.AnswerAggregateUniqueCount,
+			Label: "unique files",
+			Value: "3",
+		}},
 	}
 	current := types.TurnAArtifacts{
 		UserQuestion: "same question",
@@ -88,6 +93,9 @@ func TestMergeTurnAArtifactsWithPrior_PreservesAcceptedClosureWhenCurrentEmpty(t
 	}
 	if got.AcceptedResultKind != prior.AcceptedResultKind {
 		t.Fatalf("AcceptedResultKind = %q, want prior %q", got.AcceptedResultKind, prior.AcceptedResultKind)
+	}
+	if len(got.AcceptedAggregateFacts) != 1 || got.AcceptedAggregateFacts[0].Value != "3" {
+		t.Fatalf("AcceptedAggregateFacts = %+v, want prior", got.AcceptedAggregateFacts)
 	}
 }
 

@@ -236,6 +236,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if closure := renderAnswerDocAcceptedClosure(ctx); closure != "" {
 		b.WriteString(closure)
 	}
+	if aggregates := renderAnswerDocAggregateFacts(ctx); aggregates != "" {
+		b.WriteString(aggregates)
+	}
 	if disposition := renderAnswerDocRuntimeGroundingDisposition(ctx); disposition != "" {
 		b.WriteString(disposition)
 	}
@@ -2796,6 +2799,21 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	b.WriteString("- Treat this closure as a structured exploration handoff, not as a citation and not as system-written answer text.\n")
 	b.WriteString("- Preserve resolved counts, listed members, excluded candidates, scope boundaries, and verdicts from the closure when they are supported by the typed support lanes, current citations, or raw tool outputs below. If older analyzer/pre-scan notes conflict with the accepted closure, prefer the accepted closure plus the latest grounded evidence.\n")
 	b.WriteString("- Rebuild the user-visible prose yourself inside `emit_answer_document`; do not invent facts beyond the closure/evidence boundary.\n\n")
+	return b.String()
+}
+
+func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || len(plan.StableAggregateFacts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Structured Aggregate Facts\n\n")
+	b.WriteString("- These aggregate facts were emitted by the investigator through `emit_investigation_complete.aggregate_facts` after exploration. They are model-authored structured handoff values, not system-synthesised answer text.\n")
+	b.WriteString("- Preserve each `value` exactly when the corresponding fact answers the user's requested scalar, unique-set, group, bucket, or exclusion question. Use `members` for requested concrete lists such as file paths or file:line locations.\n")
+	b.WriteString("- Do not recompute new aggregate values in finalization. If these facts conflict with typed support lanes, citations, or raw tool outputs, state the evidence boundary instead of inventing a reconciliation.\n\n")
+	b.WriteString(renderStructuredAggregateFacts(plan.StableAggregateFacts, 16))
+	b.WriteString("\n")
 	return b.String()
 }
 

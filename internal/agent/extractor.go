@@ -401,9 +401,11 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArtifacts) string {
 	reason := ""
 	resultKind := ""
+	var aggregateFacts []types.AnswerAggregateFact
 	if ta != nil {
 		reason = strings.TrimSpace(ta.AcceptedClosureReason)
 		resultKind = strings.TrimSpace(ta.AcceptedResultKind)
+		aggregateFacts = ta.AcceptedAggregateFacts
 	}
 	if reason == "" && ctx != nil && ctx.Mutable != nil {
 		reason = strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason())
@@ -411,7 +413,10 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 	if resultKind == "" && ctx != nil && ctx.Mutable != nil {
 		resultKind = strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind())
 	}
-	if reason == "" && resultKind == "" {
+	if len(aggregateFacts) == 0 && ctx != nil && ctx.Mutable != nil {
+		aggregateFacts = ctx.Mutable.StableInvestigationAggregateFacts()
+	}
+	if reason == "" && resultKind == "" && len(aggregateFacts) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -421,6 +426,10 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 	}
 	if reason != "" {
 		fmt.Fprintf(&b, "- model-authored closure reason: %s\n", truncateExtractorPromptText(reason, 900))
+	}
+	if len(aggregateFacts) > 0 {
+		b.WriteString("- structured aggregate facts:\n")
+		b.WriteString(renderStructuredAggregateFacts(aggregateFacts, 16))
 	}
 	b.WriteString("- Treat this as the investigator's structured handoff, not as a citation. Preserve resolved counts, listed members, excluded candidates, and scope boundaries when they are supported by the evidence/tool outputs below; do not fall back to earlier stale notes that conflict with this accepted closure.\n\n")
 	return b.String()

@@ -564,6 +564,13 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			fmt.Fprintf(&b, "The user demands every match (`%s` in the question). Every grep / repo_map / list_files candidate file MUST be either read_file'd OR explicitly excluded by a narrower follow-up grep before you call emit_investigation_complete with result_kind='resolved'. The framework refuses premature completion when scanned candidates remain unread under this obligation. The honest fallback when the investigation legitimately cannot enumerate the full set is result_kind='absence' with absence_justification, OR an emit_investigation_complete that explicitly notes the un-read scope.\n\n",
 				rm.CompletenessObligation.SourceQuote)
 		}
+		if rm.Predicates.IsCountQuestion || len(rm.Buckets) >= 2 || rm.EnumerationBoundary != nil {
+			b.WriteString("### Structured Aggregate Handoff\n\n")
+			b.WriteString("When the answer depends on derived totals, unique-set sizes, per-dimension counts, user-bucket counts, or excluded-candidate counts, include `aggregate_facts` in your successful `emit_investigation_complete` call. Do this even when the same numbers also appear in your reason prose.\n")
+			b.WriteString("- Use `total_count` for the principal hit count, `unique_count` for distinct file/package/module sets, `grouped_count` for syntax/category/language dimensions, `bucket_count` for user-named partitions, and `excluded_count` for comments/tests/docs/unrelated candidates that were deliberately not counted.\n")
+			b.WriteString("- Put concrete members in `members` when they are part of the user's requested answer, such as file:line labels or distinct file paths. Put rejected candidates in `excluded` rather than mixing them into principal members.\n")
+			b.WriteString("- Values must come from your verified command output, grounded evidence, or explicit candidate classification. Do not leave later answer writing to recompute aggregates from prose.\n\n")
+		}
 		if types.HasAttributeBearingEnumeration(rm) {
 			b.WriteString("### Attribute-bearing Enumeration Discipline\n\n")
 			b.WriteString("This request has two axes: an exhaustive principal member set plus a per-member attribute. Keep those axes separate while investigating. Coverage completeness applies to the principal members; attribute certainty is recorded per member.\n")
@@ -8788,15 +8795,16 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			strictEvidence = append(strictEvidence, rankedEvidence[:limit]...)
 		}
 		snapshot := types.TurnAArtifacts{
-			UserQuestion:          e.userQuestion,
-			InvestigationNotes:    e.investigationNotes,
-			ReadFiles:             readFilesList,
-			ToolResults:           toolResults,
-			AcceptedClosureReason: strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()),
-			AcceptedResultKind:    strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()),
-			EvidenceItems:         strictEvidence,
-			FlowFindings:          rankedFindings,
-			TerminalEvidenceCount: terminalEvidenceCount,
+			UserQuestion:           e.userQuestion,
+			InvestigationNotes:     e.investigationNotes,
+			ReadFiles:              readFilesList,
+			ToolResults:            toolResults,
+			AcceptedClosureReason:  strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()),
+			AcceptedResultKind:     strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()),
+			AcceptedAggregateFacts: ctx.Mutable.StableInvestigationAggregateFacts(),
+			EvidenceItems:          strictEvidence,
+			FlowFindings:           rankedFindings,
+			TerminalEvidenceCount:  terminalEvidenceCount,
 		}
 		// Cross-window accumulation. When the DAG scheduler requeues
 		// the explore node (e.g. SuccessCriteria failed → retry window),

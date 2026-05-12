@@ -615,6 +615,22 @@ func TestExtractor_BuildPrompt_RendersAcceptedClosureAsStructuredHandoff(t *test
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
 		AcceptedClosureReason: "grep + exec_command confirmed 4 production sites: analyzer.go:1903, contract_check.go:63, orchestrator.go:6362, orchestrator.go:6494; two comment hits were excluded",
 		AcceptedResultKind:    "resolved",
+		AcceptedAggregateFacts: []types.AnswerAggregateFact{
+			{
+				Kind:    types.AnswerAggregateTotalCount,
+				Label:   "production sites",
+				Value:   "4",
+				Unit:    "locations",
+				Members: []string{"internal/orchestrator/orchestrator.go:6362"},
+			},
+			{
+				Kind:     types.AnswerAggregateExcluded,
+				Label:    "comment hits",
+				Value:    "2",
+				Unit:     "lines",
+				Excluded: []string{"internal/orchestrator/orchestrator.go:6396"},
+			},
+		},
 		EvidenceItems: []types.EvidenceItem{{
 			Kind:            types.EvidenceDirect,
 			Scope:           types.ScopeLine,
@@ -646,6 +662,9 @@ func TestExtractor_BuildPrompt_RendersAcceptedClosureAsStructuredHandoff(t *test
 		"Accepted exploration closure",
 		"result_kind: `resolved`",
 		"confirmed 4 production sites",
+		"structured aggregate facts",
+		"kind=`total_count`, label=production sites, value=`4`",
+		"kind=`excluded_count`, label=comment hits, value=`2`",
 		"orchestrator.go:6362",
 		"Deterministic evidence the investigation extracted",
 	} {

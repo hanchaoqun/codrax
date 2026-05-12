@@ -28,6 +28,9 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 		FlowFindings: []FlowFindingDigest{
 			{ID: "ff1", Path: []string{"src", "sink"}, Confidence: 0.7},
 		},
+		AcceptedAggregateFacts: []AnswerAggregateFact{
+			{Kind: AnswerAggregateTotalCount, Label: "matches", Value: "3", Members: []string{"a.go:5"}},
+		},
 		TerminalEvidenceCount: 3,
 	}
 	m.SetTurnAArtifacts(original)
@@ -52,6 +55,9 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 	}
 	if len(got.FlowFindings) != 1 || got.FlowFindings[0].ID != "ff1" {
 		t.Errorf("FlowFindings not preserved: %+v", got.FlowFindings)
+	}
+	if len(got.AcceptedAggregateFacts) != 1 || got.AcceptedAggregateFacts[0].Value != "3" {
+		t.Errorf("AcceptedAggregateFacts not preserved: %+v", got.AcceptedAggregateFacts)
 	}
 	if got.TerminalEvidenceCount != 3 {
 		t.Errorf("TerminalEvidenceCount: got %d, want 3", got.TerminalEvidenceCount)
@@ -104,10 +110,17 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	m := NewMutableState("")
 	m.SetTurnAArtifacts(TurnAArtifacts{
 		ReadFiles: []string{"a.go", "b.go"},
+		AcceptedAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateTotalCount,
+			Label:   "matches",
+			Value:   "2",
+			Members: []string{"a.go:1"},
+		}},
 	})
 	first := m.TurnAArtifacts()
 	first.ReadFiles[0] = "MUTATED.go"
 	first.ReadFiles = append(first.ReadFiles, "c.go")
+	first.AcceptedAggregateFacts[0].Members[0] = "mutated.go:1"
 
 	second := m.TurnAArtifacts()
 	if second.ReadFiles[0] != "a.go" {
@@ -115,6 +128,9 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	}
 	if len(second.ReadFiles) != 2 {
 		t.Errorf("read-side append leaked back: len=%d", len(second.ReadFiles))
+	}
+	if second.AcceptedAggregateFacts[0].Members[0] != "a.go:1" {
+		t.Errorf("aggregate fact mutation leaked back: %+v", second.AcceptedAggregateFacts)
 	}
 }
 

@@ -620,6 +620,67 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalSupportLaneBac
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStructuredAggregateFacts(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:  types.AnswerAggregateTotalCount,
+			Label: "production assignment locations",
+			Value: "4",
+			Unit:  "locations",
+			Members: []string{
+				"internal/agent/analyzer.go:1903",
+				"internal/orchestrator/contract_check.go:63",
+			},
+		},
+		{
+			Kind:  types.AnswerAggregateUniqueCount,
+			Label: "unique files",
+			Value: "3",
+			Unit:  "files",
+			Members: []string{
+				"internal/agent/analyzer.go",
+				"internal/orchestrator/contract_check.go",
+				"internal/orchestrator/orchestrator.go",
+			},
+		},
+	})
+	mut.SetInvestigationComplete("deterministic count and classification complete")
+	mut.SetInvestigationResultKind("resolved")
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentReturnValue,
+				AnswerSubject: types.AnswerSubject{
+					Kind:       types.SubjectNumeric,
+					Confidence: 0.95,
+				},
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+		Mutable: mut,
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Structured Aggregate Facts",
+		"emit_investigation_complete.aggregate_facts",
+		"kind=`total_count`, label=production assignment locations, value=`4`",
+		"kind=`unique_count`, label=unique files, value=`3`",
+		"internal/orchestrator/orchestrator.go",
+		"Do not recompute new aggregate values in finalization",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("aggregate prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalBoundaryForPriorContext(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

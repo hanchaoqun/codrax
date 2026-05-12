@@ -36,6 +36,9 @@ import "github.com/hanchaoqun/codrax/internal/types"
 //     otherwise prior. Later windows may contain the accepted completion
 //     rationale after a repair, but a closure-only retry must not erase a
 //     previously accepted rationale with an empty value.
+//   - AcceptedAggregateFacts: current when present, otherwise prior.
+//     These are structured model-emitted closure facts, so the last
+//     successful completion window owns them.
 //   - EvidenceItems: mergeEvidenceItems(prior, current). Already ID-deduped.
 //   - FlowFindings: mergeFlowFindings(prior, current). Already ID-deduped.
 //   - TerminalEvidenceCount: max(prior, current). Must not regress — a
@@ -54,6 +57,9 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 	}
 	if merged.AcceptedResultKind == "" {
 		merged.AcceptedResultKind = prior.AcceptedResultKind
+	}
+	if len(merged.AcceptedAggregateFacts) == 0 {
+		merged.AcceptedAggregateFacts = prior.AcceptedAggregateFacts
 	}
 	merged.EvidenceItems = mergeEvidenceItems(prior.EvidenceItems, current.EvidenceItems)
 	merged.FlowFindings = mergeFlowFindings(prior.FlowFindings, current.FlowFindings)

@@ -80,6 +80,60 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 				"type": "string",
 				"description": "OPTIONAL. Set this ONLY when the answer is an honest 'zero' / 'no X' / 'nothing found' that has no direct exact-target definition to cite (e.g. 'how many .py files?' answered 0, 'does handler X exist?' answered no). A single short sentence explaining why the answer is genuinely empty. Leave unset for every non-absence answer. Grounded related-context anchors are allowed when they remain clearly contextual (for example a nearby config family, call chain, or architecture edge) and do not define the missing exact target. This is a declarative claim, not a system override: the framework still audits that at least one investigation-class tool (grep / exec_command / list_files / read_file / repo_map) ran successfully before accepting the waiver."
 			},
+			"aggregate_facts": {
+				"type": "array",
+				"description": "OPTIONAL but expected for derived scalar/count answers. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, and excluded-candidate counts. Use this instead of burying aggregates only in reason prose. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream but no value is inferred automatically.",
+				"items": {
+					"type": "object",
+					"properties": {
+						"kind": {
+							"type": "string",
+							"enum": ["total_count", "unique_count", "grouped_count", "bucket_count", "excluded_count", "scalar_value"],
+							"description": "total_count = total principal hits; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar."
+						},
+						"label": {
+							"type": "string",
+							"description": "User-visible name of this aggregate, e.g. production assignment locations, unique files, direct assignments, struct literal initializers, CLI bucket."
+						},
+						"value": {
+							"type": "string",
+							"description": "Exact value to preserve, e.g. \"4\", \"3\", \"2\", \"none\", or a version/hash string."
+						},
+						"unit": {
+							"type": "string",
+							"description": "Optional unit such as locations, files, functions, packages, buckets, candidates."
+						},
+						"dimensions": {
+							"type": "array",
+							"description": "Optional typed axes that make the aggregate precise, e.g. [{name:\"scope\", value:\"production\"}, {name:\"syntax\", value:\"struct_literal\"}].",
+							"items": {
+								"type": "object",
+								"properties": {
+									"name":  {"type": "string"},
+									"value": {"type": "string"}
+								},
+								"required": ["name", "value"]
+							}
+						},
+						"members": {
+							"type": "array",
+							"description": "Optional principal members backing the aggregate, such as file:line labels for total_count or file paths for unique_count.",
+							"items": {"type": "string"}
+						},
+						"excluded": {
+							"type": "array",
+							"description": "Optional excluded candidate labels for excluded_count or for explaining why a total is bounded.",
+							"items": {"type": "string"}
+						},
+						"support_refs": {
+							"type": "array",
+							"description": "Optional evidence ids, file:line labels, or command labels that back this aggregate.",
+							"items": {"type": "string"}
+						}
+					},
+					"required": ["kind", "label", "value"]
+				}
+			},
 			"evidence_floor_waiver": {
 				"type": "object",
 				"description": "OPTIONAL. The typed escape lane for declaring that ordinary repo-grounding requirements do NOT apply to this investigation. Set this when YOU have confidently determined that pretending to ground against repo code would be misleading — for example: the attached log is from a different system whose paths have no intersection with this repo (a customer-pasted panic from another service); a synthetic-looking log whose frame paths superficially match this repo but represent a different build / version / deployment; the input is informational with no failure component to ground against. Setting the waiver relaxes the forced-read pending-list check and the citation-floor check, telling the system to accept log/trace content as the evidence pool. Audit-only: every fire is logged so a reviewer can spot misuse. Do NOT set this to escape ordinary investigation work — only when the model's reading of the input materially conflicts with the system's default to-look-in-repo posture.",
@@ -162,6 +216,7 @@ type emitInvestigationCompleteParams struct {
 	Confidence               string                                  `json:"confidence"`
 	ResultKind               string                                  `json:"result_kind"`
 	AbsenceJustification     string                                  `json:"absence_justification,omitempty"`
+	AggregateFacts           []types.AnswerAggregateFact             `json:"aggregate_facts,omitempty"`
 	EvidenceFloorWaiver      *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
 	ClearEvidenceWaiver      bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
 	PrincipalSpanWaiver      *emitInvestigationCompleteWaiverPayload `json:"principal_span_waiver,omitempty"`
@@ -225,6 +280,15 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	justification := strings.TrimSpace(p.AbsenceJustification)
 	resultKind, justification = normalizeExactAbsenceCompletion(ctx, resultKind, reason, justification)
+	aggregateFacts, err := types.NormalizeAnswerAggregateFacts(p.AggregateFacts)
+	if err != nil {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Summary:   fmt.Sprintf("emit_investigation_complete rejected: %v", err),
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// Strict-decode + store evidence_floor_waiver (typed escape).
 	// The full pre-check chain below (forced-read, citation floor)
@@ -693,13 +757,18 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 
 	reason = normalizeLogSourceDriftCompletionReason(ctx, reason)
+	ctx.Mutable.SetInvestigationAggregateFacts(aggregateFacts)
 	ctx.Mutable.SetInvestigationComplete(reason)
 	ctx.Mutable.SetInvestigationResultKind(resultKind)
+	ctx.Mutable.RetainInvestigationAggregateFacts()
 	ctx.Mutable.RetainEvidenceFloorWaiver()
 	summary := fmt.Sprintf("Investigation marked complete (confidence=%s, result_kind=%s): %s", conf, resultKind, reason)
 	if justification != "" {
 		ctx.Mutable.SetAbsenceJustification(justification)
 		summary += fmt.Sprintf(" | absence_justification: %s", justification)
+	}
+	if len(aggregateFacts) > 0 {
+		summary += fmt.Sprintf(" | aggregate_facts: %d", len(aggregateFacts))
 	}
 
 	return types.ToolResult{

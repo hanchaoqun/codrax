@@ -44,6 +44,7 @@ type AnswerSurfacePlan struct {
 	StableInvestigationResultKind string
 	StableAbsenceJustification    string
 	StableInvestigationReason     string
+	StableAggregateFacts          []AnswerAggregateFact
 	StableAbsent                  bool
 	ExactContextRequiredFiles     []string
 	CapabilitySurface             *CapabilitySurfaceHint
@@ -1216,6 +1217,7 @@ func BuildAnswerSurfacePlan(
 		plan.StableInvestigationResultKind = strings.TrimSpace(mutable.StableInvestigationResultKind())
 		plan.StableAbsenceJustification = strings.TrimSpace(mutable.StableAbsenceJustification())
 		plan.StableInvestigationReason = strings.TrimSpace(mutable.StableInvestigationCompleteReason())
+		plan.StableAggregateFacts = mutable.StableInvestigationAggregateFacts()
 		plan.ExactContextRequiredFiles = mutable.ExactContextRequiredFiles()
 		if syms, claim := mutable.EmittedAnswerSymbols(); len(syms) > 0 {
 			ApplyAnswerSymbolStepBackbone(plan, ir, syms, claim)

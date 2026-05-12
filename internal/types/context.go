@@ -329,8 +329,9 @@ type MutableState struct {
 	// finalizer chose an explanation shape instead of a literal 0 /
 	// false / [] shape. Declarative, not command: the audit
 	// (hasInvestigationEvidence ≥1 investigation tool) still runs.
-	absenceJustification    string
-	investigationResultKind string
+	absenceJustification        string
+	investigationResultKind     string
+	investigationAggregateFacts []AnswerAggregateFact
 	// exactContextRequiredFiles stores repo-relative production files
 	// that the explorer structurally ranked as same-scope related-
 	// context anchors for an exact-resolution task. When an
@@ -351,6 +352,7 @@ type MutableState struct {
 	retainedAbsenceJustification        string
 	retainedInvestigationResultKind     string
 	retainedInvestigationCompleteReason string
+	retainedInvestigationAggregateFacts []AnswerAggregateFact
 
 	// evidenceFloorWaiver (2026-05-10) is the model-declared typed
 	// escape lane consumed by emit_investigation_complete's
@@ -733,6 +735,13 @@ type TurnAArtifacts struct {
 	// positive resolved set from a bounded no-hit result without
 	// parsing prose.
 	AcceptedResultKind string
+
+	// AcceptedAggregateFacts are model-authored structured aggregates
+	// emitted on the successful emit_investigation_complete call. They
+	// preserve derived totals, unique-set counts, per-bucket counts,
+	// and excluded-candidate counts without asking downstream stages to
+	// re-parse prose closure text.
+	AcceptedAggregateFacts []AnswerAggregateFact
 
 	// EvidenceItems is the deterministic evidence the explorer's
 	// ParseOutput already produced (concrete values, flow findings,
@@ -2430,6 +2439,9 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	if a.FlowFindings != nil {
 		snap.FlowFindings = append([]FlowFindingDigest(nil), a.FlowFindings...)
 	}
+	if a.AcceptedAggregateFacts != nil {
+		snap.AcceptedAggregateFacts = cloneAnswerAggregateFacts(a.AcceptedAggregateFacts)
+	}
 	m.turnAArtifacts = &snap
 	// Snapshot changed → invalidate the memoised label-support pool.
 	m.cachedLabelSupport = nil
@@ -2464,6 +2476,9 @@ func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
 	}
 	if m.turnAArtifacts.FlowFindings != nil {
 		out.FlowFindings = append([]FlowFindingDigest(nil), m.turnAArtifacts.FlowFindings...)
+	}
+	if m.turnAArtifacts.AcceptedAggregateFacts != nil {
+		out.AcceptedAggregateFacts = cloneAnswerAggregateFacts(m.turnAArtifacts.AcceptedAggregateFacts)
 	}
 	return &out
 }
@@ -3140,6 +3155,7 @@ func (m *MutableState) ResetInvestigationComplete() {
 	m.investigationCompleteReason = ""
 	m.absenceJustification = ""
 	m.investigationResultKind = ""
+	m.investigationAggregateFacts = nil
 	m.exactContextRequiredFiles = nil
 }
 
@@ -3229,6 +3245,48 @@ func (m *MutableState) SetInvestigationResultKind(kind string) {
 	if !strings.EqualFold(kind, "absence") {
 		m.retainedAbsenceJustification = ""
 	}
+}
+
+// SetInvestigationAggregateFacts stores the current model-emitted
+// aggregate facts from emit_investigation_complete. The facts become
+// stable answer-surface data only after RetainInvestigationAggregateFacts
+// runs on a successful completion.
+func (m *MutableState) SetInvestigationAggregateFacts(facts []AnswerAggregateFact) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.investigationAggregateFacts = cloneAnswerAggregateFacts(facts)
+}
+
+// RetainInvestigationAggregateFacts promotes the current aggregate
+// facts after emit_investigation_complete has passed every completion
+// gate. A successful completion without aggregate facts clears any
+// prior retained aggregate handoff for this task.
+func (m *MutableState) RetainInvestigationAggregateFacts() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.retainedInvestigationAggregateFacts = cloneAnswerAggregateFacts(m.investigationAggregateFacts)
+}
+
+// StableInvestigationAggregateFacts returns the accepted aggregate
+// handoff for downstream extraction/finalization. It never exposes a
+// downgraded completion's current facts unless the investigation flag
+// is actually set.
+func (m *MutableState) StableInvestigationAggregateFacts() []AnswerAggregateFact {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.investigationComplete && len(m.investigationAggregateFacts) > 0 {
+		return cloneAnswerAggregateFacts(m.investigationAggregateFacts)
+	}
+	return cloneAnswerAggregateFacts(m.retainedInvestigationAggregateFacts)
 }
 
 // InvestigationResultKind returns the structured completion
