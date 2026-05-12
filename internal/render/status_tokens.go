@@ -31,11 +31,12 @@ import "github.com/pterm/pterm"
 //   - statusPrimary uses xterm slot 75 (#5fafff mid blue) on dark
 //     and slot 25 on light — clear without competing with the
 //     bordered final answer's H1 white.
-//   - statusReasoningBody uses high-intensity ANSI white, without bold
-//     or a background, because pterm's FgGray is an alias of
-//     FgDarkGray in the pinned version and plain FgWhite still reads
-//     too dim in several black-background REPL themes. The muted tag
-//     and lack of bold/background keep thinking below answer prose.
+//   - statusReasoningBody uses dim ANSI white, without bold or a
+//     background. pterm's FgGray is an alias of FgDarkGray in the
+//     pinned version and is too low-contrast for long model thinking
+//     on black REPL backgrounds; full-bright white competes with
+//     answer prose. FgWhite+Fuzzy keeps the body readable but visually
+//     below normal text, while the tag remains even more muted.
 //   - statusFatal uses 167 (#d75f5f) NOT 196 (#ff0000) — same red
 //     family but ~30% less luminance so a verify-failure doesn't
 //     blast the whole pane red.
@@ -64,7 +65,7 @@ var (
 	statusObjective     = pterm.NewStyle(pterm.FgLightCyan)
 	statusObjectiveDone = pterm.NewStyle(pterm.FgCyan)
 
-	statusReasoningBody = pterm.NewStyle(pterm.FgLightWhite)
+	statusReasoningBody = pterm.NewStyle(pterm.FgWhite, pterm.Fuzzy)
 	statusDetail        = pterm.NewStyle(pterm.FgGray)
 	statusSecondary     = pterm.NewStyle(pterm.FgGray)
 	statusTopicLabel    = pterm.NewStyle(pterm.FgLightBlue)
