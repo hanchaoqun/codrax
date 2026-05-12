@@ -892,6 +892,53 @@ func TestBuildAnswerSupportPlan_GenericScalarKeepsModelAuthoredAssignments(t *te
 		!strings.Contains(lane.Entries[0].Location, "internal/orchestrator/orchestrator.go:6362") {
 		t.Fatalf("model-authored assignment should be the leading scalar/count support entry, got %+v", lane.Entries[0])
 	}
+	if strings.Contains(answerSupportLaneText(lane), "BumpViolationsLogged") {
+		t.Fatalf("deterministic concrete-value side evidence must not pollute model-authored scalar/count lane: %+v", lane.Entries)
+	}
+}
+
+func TestBuildAnswerSupportPlan_GenericScalarDedupesSameTypedSurfaceRole(t *testing.T) {
+	base := EvidenceItem{
+		ID:              "assignment",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1903,
+		AnchorKind:      AnchorAssignment,
+		AnchorSymbol:    "CitationReq.Required",
+		Subject:         "AnswerContract.CitationReq.Required",
+		Object:          "false",
+		Snippet:         "out.AnswerContract.CitationReq.Required = false",
+		Summary:         "sets the citation requirement flag to false",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	countCarrier := base
+	countCarrier.ID = "assignment-count-carrier"
+	countCarrier.Summary = "4"
+	countCarrier.LoadBearingSummary = true
+	rm := RequestModel{
+		Intent:        IntentReturnValue,
+		AnswerSubject: AnswerSubject{Kind: SubjectNumeric, Confidence: 0.95},
+		Predicates: SemanticPredicates{
+			IsScalarAnswer:  true,
+			IsCountQuestion: true,
+		},
+	}
+	evidence := []EvidenceItem{base, countCarrier}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: evidence,
+		FacetCoverage:   CompileFacetCoverage(rm, evidence),
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil {
+		t.Fatalf("expected principal support lane, got %+v", got)
+	}
+	if len(lane.Entries) != 1 {
+		t.Fatalf("same file:line + claim surface should collapse to one entry, got %+v", lane.Entries)
+	}
 }
 
 func TestBuildAnswerSupportPlan_EnumerationPrioritizesModelAuthoredSurfaceEvidence(t *testing.T) {
@@ -967,6 +1014,9 @@ func TestBuildAnswerSupportPlan_EnumerationPrioritizesModelAuthoredSurfaceEviden
 		if !strings.Contains(first, want) {
 			t.Fatalf("model-authored import surface terms should outrank bulk concrete values; missing %q in first entries:\n%s\nfull lane: %+v", want, first, lane.Entries)
 		}
+	}
+	if strings.Contains(answerSupportLaneText(lane), "helper0") {
+		t.Fatalf("model-authored enumeration evidence should exclude bulk concrete side evidence: %+v", lane.Entries)
 	}
 }
 

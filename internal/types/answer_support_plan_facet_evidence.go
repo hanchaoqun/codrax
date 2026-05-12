@@ -207,16 +207,14 @@ func PrincipalSupportEvidenceItemsForFamily(family QuestionFamily, plan *AnswerS
 	if len(out) == 0 {
 		return nil
 	}
-	if family == QFConfigPrecedence {
-		out = preferModelAuthoredConfigEvidence(out)
-	}
-	return out
+	out = preferModelAuthoredPrincipalEvidence(out)
+	return dedupePrincipalSupportEvidenceBySurfaceRole(out)
 }
 
-func preferModelAuthoredConfigEvidence(items []EvidenceItem) []EvidenceItem {
+func preferModelAuthoredPrincipalEvidence(items []EvidenceItem) []EvidenceItem {
 	modelAuthored := 0
 	for _, item := range items {
-		if configEvidenceModelAuthored(item) {
+		if principalEvidenceModelAuthored(item) {
 			modelAuthored++
 		}
 	}
@@ -225,18 +223,62 @@ func preferModelAuthoredConfigEvidence(items []EvidenceItem) []EvidenceItem {
 	}
 	out := make([]EvidenceItem, 0, modelAuthored)
 	for _, item := range items {
-		if configEvidenceModelAuthored(item) {
+		if principalEvidenceModelAuthored(item) {
 			out = append(out, item)
 		}
 	}
 	return out
 }
 
-func configEvidenceModelAuthored(item EvidenceItem) bool {
+func principalEvidenceModelAuthored(item EvidenceItem) bool {
 	if strings.TrimSpace(item.Producer) == "explorer.emit_evidence" {
 		return true
 	}
 	return strings.TrimSpace(item.Producer) != "" && item.Kind.IsLLMEmittable()
+}
+
+func dedupePrincipalSupportEvidenceBySurfaceRole(items []EvidenceItem) []EvidenceItem {
+	if len(items) < 2 {
+		return items
+	}
+	seen := make(map[string]bool, len(items))
+	out := make([]EvidenceItem, 0, len(items))
+	for _, item := range items {
+		key := principalSupportEvidenceSurfaceRoleKey(item)
+		if key != "" {
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func principalSupportEvidenceSurfaceRoleKey(item EvidenceItem) string {
+	location := strings.TrimSpace(strings.ToLower(supportEntryLocation(item)))
+	if location == "" {
+		return ""
+	}
+	form := ClaimFormOf(item)
+	if form == ClaimUnknown {
+		return ""
+	}
+	parts := []string{
+		location,
+		string(form),
+		string(item.AnchorKind),
+		strings.TrimSpace(item.AnchorSymbol),
+		strings.TrimSpace(item.OwnerSymbol),
+		strings.TrimSpace(item.Subject),
+		strings.TrimSpace(item.Object),
+		strings.TrimSpace(item.Condition),
+	}
+	for i := range parts {
+		parts[i] = strings.ToLower(parts[i])
+	}
+	return strings.Join(parts, "\x00")
 }
 
 func facetSupportEntryLimitForFamily(family QuestionFamily, candidateCount int) int {
