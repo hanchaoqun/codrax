@@ -109,6 +109,9 @@ func TestFormatReasoningStylesTagAndBodySeparately(t *testing.T) {
 	if got != expected {
 		t.Fatalf("reasoning style should keep tag muted and body readable\nwant %q\ngot  %q", expected, got)
 	}
+	if wantBody := pterm.NewStyle(pterm.FgLightWhite).Sprint("Readable detail."); !strings.Contains(got, wantBody) {
+		t.Fatalf("reasoning body should use high-intensity white for black-background readability\nwant body %q\ngot       %q", wantBody, got)
+	}
 	if plain := stripAnsiEscapes(got); plain != "  💭 [analyzer-1] Readable detail." {
 		t.Fatalf("styled reasoning changed visible text: %q", plain)
 	}
