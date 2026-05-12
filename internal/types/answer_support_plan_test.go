@@ -989,6 +989,57 @@ func TestPrincipalSupportEvidenceItemsForFacetCuratesBroadCandidates(t *testing.
 	}
 }
 
+func TestPrincipalSupportEvidenceItemsForFacetKeepsDeterministicReturnFact(t *testing.T) {
+	modelDefinition := EvidenceItem{
+		ID:              "model-definition",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/agent/sub_explorer.go",
+		LineStart:       31,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "Name",
+		Subject:         "SubExplorer.Name",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	deterministicReturn := EvidenceItem{
+		ID:              "terminal-return",
+		Kind:            EvidenceConcrete,
+		Scope:           ScopeLine,
+		Source:          "internal/agent/sub_explorer.go",
+		LineStart:       32,
+		AnchorKind:      AnchorReturn,
+		AnchorSymbol:    "Name",
+		Subject:         "SubExplorer.Name",
+		Predicate:       "returns",
+		Object:          `"explorer"`,
+		Producer:        "bridge_literal_terminal",
+		GroundingStatus: GroundingGrounded,
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{modelDefinition, deterministicReturn},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFRoleLookup,
+			Required: []FacetRequirement{{
+				Kind:            FacetResolvedLiteralOrSymbol,
+				SourceCandidate: []string{modelDefinition.ID, deterministicReturn.ID},
+			}},
+		},
+	}
+
+	items := PrincipalSupportEvidenceItemsForFacet(QFRoleLookup, plan, FacetResolvedLiteralOrSymbol)
+	if len(items) != 2 {
+		t.Fatalf("principal support should keep model definition plus deterministic return fact, got %+v", items)
+	}
+	forms := map[ClaimForm]bool{}
+	for _, item := range items {
+		forms[ClaimFormOf(item)] = true
+	}
+	if !forms[ClaimDefinitionFact] || !forms[ClaimReturnFact] {
+		t.Fatalf("expected definition_fact and return_fact support, got forms=%v items=%+v", forms, items)
+	}
+}
+
 func TestBuildAnswerSupportPlan_EnumerationPrioritizesModelAuthoredSurfaceEvidence(t *testing.T) {
 	imports := []EvidenceItem{
 		{

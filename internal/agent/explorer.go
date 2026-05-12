@@ -9856,7 +9856,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 							method:   qualName,
 							kind:     cv.kind,
 							value:    cv.value,
-							line:     li + 1,
+							line:     concreteValueAbsoluteLine(ctxStart+1, cv.lineOffset),
 						})
 					}
 				}
@@ -9886,7 +9886,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 					method:   qualName,
 					kind:     cv.kind,
 					value:    cv.value,
-					line:     sym.Line,
+					line:     concreteValueAbsoluteLine(sym.Line, cv.lineOffset),
 				})
 			}
 		}
@@ -10751,8 +10751,13 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// to the per-file extractConcreteValues + multi-pass tracer above,
 	// this pass is graph-wide and bounded by symbol-name matching.
 	// See memory/project_baseline_2026_04_13_post_phase4.md.
-	bridgeItems := extractBridgeLiteralChains(graph, repoRoot, allRelevantForEvidence)
-	bridgeItems = filterEvidenceItemsByFileSet(bridgeItems, filesToScan)
+	bridgeEvidence := extractBridgeLiteralEvidence(graph, repoRoot, allRelevantForEvidence)
+	bridgeTerminalItems := filterEvidenceItemsByFileSet(bridgeEvidence.terminalReturns, filesToScan)
+	if len(bridgeTerminalItems) > 0 {
+		logging.Debug("[explorer] bridge literal terminal returns: %d items", len(bridgeTerminalItems))
+		cvEvidence = append(cvEvidence, bridgeTerminalItems...)
+	}
+	bridgeItems := filterEvidenceItemsByFileSet(bridgeEvidence.chains, filesToScan)
 	if len(bridgeItems) > 0 {
 		logging.Debug("[explorer] bridge literal chains: %d items", len(bridgeItems))
 		// CGEC: record per-item anchor file so the promotion helper
@@ -11502,8 +11507,19 @@ type concreteValue struct {
 }
 
 type concreteValueEntry struct {
-	kind  string // "returns", "binds ONLY", "binds"
-	value string // the concrete value
+	kind       string // "returns", "binds ONLY", "binds"
+	value      string // the concrete value
+	lineOffset int    // zero-based line offset within the scanned snippet
+}
+
+func concreteValueAbsoluteLine(snippetStartLine, lineOffset int) int {
+	if snippetStartLine <= 0 {
+		return 0
+	}
+	if lineOffset < 0 {
+		lineOffset = 0
+	}
+	return snippetStartLine + lineOffset
 }
 
 // Phase 6 stage 23 (2026-05-03) — typed family predicates that
@@ -11662,9 +11678,18 @@ func declarationConcreteValueContext(sym repomap.Symbol) (receiver, method strin
 // Cost is bounded by graph symbol count + body size per matching
 // function. On codrax-scale repos this is a few hundred short body
 // reads, sub-millisecond total.
+type bridgeLiteralEvidence struct {
+	chains          []types.EvidenceItem
+	terminalReturns []types.EvidenceItem
+}
+
 func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerValues []concreteValue) []types.EvidenceItem {
+	return extractBridgeLiteralEvidence(graph, repoRoot, consumerValues).chains
+}
+
+func extractBridgeLiteralEvidence(graph *repomap.Graph, repoRoot string, consumerValues []concreteValue) bridgeLiteralEvidence {
 	if graph == nil {
-		return nil
+		return bridgeLiteralEvidence{}
 	}
 	// isRegName matches function names from the "registration family"
 	// across the currently indexed imperative languages. It is a
@@ -11747,6 +11772,8 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 		class   string
 		method  string
 		literal string
+		file    string
+		line    int
 	}
 	type builderIdentity struct {
 		factory string
@@ -11794,7 +11821,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 							bindings = append(bindings, binding{
 								fnQual:        qual,
 								file:          fi.RelPath,
-								line:          sym.Line,
+								line:          concreteValueAbsoluteLine(sym.Line, cv.lineOffset),
 								verb:          cv.kind,
 								targetClass:   tgt,
 								targetFactory: factory,
@@ -11857,6 +11884,8 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 							class:   owner,
 							method:  sym.Name,
 							literal: lit,
+							file:    fi.RelPath,
+							line:    concreteValueAbsoluteLine(sym.Line, cv.lineOffset),
 						})
 						break // first literal wins per method
 					}
@@ -11888,7 +11917,40 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 		builderByFactory[id.factory] = append(builderByFactory[id.factory], id)
 	}
 	var items []types.EvidenceItem
+	var terminalReturns []types.EvidenceItem
 	seen := make(map[string]bool)
+	seenTerminalReturns := make(map[string]bool)
+	addTerminalReturn := func(id identity) {
+		if id.class == "" || id.method == "" || id.literal == "" || id.file == "" || id.line <= 0 {
+			return
+		}
+		subject := id.class + "." + id.method
+		object := strconv.Quote(id.literal)
+		key := strings.ToLower(id.file) + "\x00" + strconv.Itoa(id.line) + "\x00" +
+			strings.ToLower(subject) + "\x00" + object
+		if seenTerminalReturns[key] {
+			return
+		}
+		seenTerminalReturns[key] = true
+		item := types.EvidenceItem{
+			Kind:         types.EvidenceConcrete,
+			Subject:      subject,
+			Predicate:    "returns",
+			Object:       object,
+			Summary:      fmt.Sprintf("`%s()` returns %s", subject, object),
+			Source:       id.file,
+			LineStart:    id.line,
+			LineEnd:      id.line,
+			Confidence:   0.95,
+			Producer:     "bridge_literal_terminal",
+			Scope:        types.ScopeLine,
+			AnchorKind:   types.AnchorReturn,
+			AnchorSymbol: id.method,
+			OwnerSymbol:  id.class,
+		}
+		item.ID = types.StableEvidenceID(item)
+		terminalReturns = append(terminalReturns, item)
+	}
 
 	// Pass C — Join on class identifier (existing bridge_literal chains).
 	// Requires BOTH bindings AND identities; skips silently if either
@@ -11898,6 +11960,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 			ids := idByClass[b.targetClass]
 			if len(ids) > 0 {
 				for _, id := range ids {
+					addTerminalReturn(id)
 					summary := fmt.Sprintf(
 						"`%s()` %s New%s(...) → `%s.%s()` returns %q",
 						b.fnQual, b.verb, b.targetClass, b.targetClass, id.method, id.literal)
@@ -11984,6 +12047,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 					// canonical choice when multiple identity methods
 					// coexist; Pass B ordering puts Name first.
 					id := ids[0]
+					addTerminalReturn(id)
 					chainTail = fmt.Sprintf(" → `%s.%s()` returns %q",
 						b.targetClass, id.method, id.literal)
 				}
@@ -12012,7 +12076,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 		}
 	}
 
-	return items
+	return bridgeLiteralEvidence{chains: items, terminalReturns: terminalReturns}
 }
 
 // parseConsumerGateField extracts the last capitalised identifier
@@ -12340,6 +12404,13 @@ func stripCommentLines(lines []string) []string {
 //     response types flow through the existing evidence pipeline.
 func extractConcreteValues(source, lang string) []concreteValueEntry {
 	var results []concreteValueEntry
+	appendEntry := func(kind, value string, lineOffset int) {
+		results = append(results, concreteValueEntry{
+			kind:       kind,
+			value:      value,
+			lineOffset: lineOffset,
+		})
+	}
 	// Pre-strip comment-only lines so none of the pattern scanners
 	// below can parse comment text as code. The constructor-passing
 	// call scanner in particular is vulnerable: a line like
@@ -12350,9 +12421,13 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 	lines := stripCommentLines(strings.Split(source, "\n"))
 
 	// Count non-blank, non-brace-only lines to detect "single-statement" bodies.
-	var registerCalls []string
+	type registerCall struct {
+		value      string
+		lineOffset int
+	}
+	var registerCalls []registerCall
 
-	for _, line := range lines {
+	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
 		// Extract the "value expression" from return statements, arrow
@@ -12405,20 +12480,14 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 			if len(rest) >= 2 &&
 				((rest[0] == '"' && rest[len(rest)-1] == '"') ||
 					(rest[0] == '\'' && rest[len(rest)-1] == '\'')) {
-				results = append(results, concreteValueEntry{
-					kind:  "returns",
-					value: rest,
-				})
+				appendEntry("returns", rest, i)
 				continue
 			}
 			// Boolean / nil / null / none
 			lower := strings.ToLower(rest)
 			if lower == "true" || lower == "false" || lower == "nil" ||
 				lower == "null" || lower == "none" {
-				results = append(results, concreteValueEntry{
-					kind:  "returns",
-					value: rest,
-				})
+				appendEntry("returns", rest, i)
 				continue
 			}
 			// Number
@@ -12430,26 +12499,17 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 				}
 			}
 			if isNum && len(rest) > 0 {
-				results = append(results, concreteValueEntry{
-					kind:  "returns",
-					value: rest,
-				})
+				appendEntry("returns", rest, i)
 				continue
 			}
 			// Type literal: return Type{...} or return &Type{...}
 			if strings.Contains(rest, "{") {
-				results = append(results, concreteValueEntry{
-					kind:  "returns",
-					value: rest,
-				})
+				appendEntry("returns", rest, i)
 				continue
 			}
 			// Simple expression: return string(x), return x
 			if !strings.Contains(rest, "\n") && len(rest) < 40 {
-				results = append(results, concreteValueEntry{
-					kind:  "returns",
-					value: rest,
-				})
+				appendEntry("returns", rest, i)
 			}
 		}
 
@@ -12467,10 +12527,7 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 					parts := strings.Fields(lhs)
 					varName := parts[len(parts)-1]
 					if len(varName) >= 2 && len(rhs) < 80 {
-						results = append(results, concreteValueEntry{
-							kind:  "assigns",
-							value: varName + " := " + rhs,
-						})
+						appendEntry("assigns", varName+" := "+rhs, i)
 					}
 				}
 			}
@@ -12540,7 +12597,7 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 						}
 					}
 					if hasConstructor {
-						registerCalls = append(registerCalls, inner)
+						registerCalls = append(registerCalls, registerCall{value: inner, lineOffset: i})
 					}
 				}
 			}
@@ -12588,10 +12645,7 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 			break
 		}
 		if target != "" && decoratorArgs != "" {
-			results = append(results, concreteValueEntry{
-				kind:  "decorates",
-				value: fmt.Sprintf("@%s(%s) → %s", decorator, decoratorArgs, target),
-			})
+			appendEntry("decorates", fmt.Sprintf("@%s(%s) → %s", decorator, decoratorArgs, target), i)
 		}
 	}
 
@@ -12601,10 +12655,15 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 		if len(registerCalls) > 1 {
 			qualifier = "binds"
 		}
-		results = append(results, concreteValueEntry{
-			kind:  qualifier,
-			value: strings.Join(registerCalls, ", "),
-		})
+		values := make([]string, 0, len(registerCalls))
+		firstOffset := registerCalls[0].lineOffset
+		for _, call := range registerCalls {
+			values = append(values, call.value)
+			if call.lineOffset < firstOffset {
+				firstOffset = call.lineOffset
+			}
+		}
+		appendEntry(qualifier, strings.Join(values, ", "), firstOffset)
 	}
 
 	// Language-aware structural facts: executable snippets can emit
@@ -12658,10 +12717,7 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 	//     values table doesn't flood on long function bodies.
 	if calls := extractCallTargetsWithLang(lines, lang, 6); len(calls) > 0 {
 		for _, c := range calls {
-			results = append(results, concreteValueEntry{
-				kind:  "calls",
-				value: c,
-			})
+			appendEntry("calls", c, 0)
 		}
 	}
 
@@ -12674,7 +12730,8 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 	//   "/api/users": NewUserHandler(),
 	//   "explore": "explorer",
 	var mapEntries []string
-	for _, line := range lines {
+	mapFirstOffset := -1
+	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		// Look for "key: value" pattern with trailing comma.
 		// Skip lines that are struct field declarations (have type names
@@ -12711,13 +12768,13 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 		}
 		if hasMapping {
 			mapEntries = append(mapEntries, key+" → "+val)
+			if mapFirstOffset < 0 || i < mapFirstOffset {
+				mapFirstOffset = i
+			}
 		}
 	}
 	if len(mapEntries) > 0 {
-		results = append(results, concreteValueEntry{
-			kind:  "maps",
-			value: strings.Join(mapEntries, "; "),
-		})
+		appendEntry("maps", strings.Join(mapEntries, "; "), mapFirstOffset)
 	}
 
 	return results

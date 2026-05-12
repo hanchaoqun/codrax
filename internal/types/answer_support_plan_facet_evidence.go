@@ -222,9 +222,13 @@ func principalSupportEvidenceItemsForFacets(family QuestionFamily, plan *AnswerS
 
 func preferModelAuthoredPrincipalEvidence(items []EvidenceItem) []EvidenceItem {
 	modelAuthored := 0
+	modelForms := make(map[ClaimForm]bool)
 	for _, item := range items {
 		if principalEvidenceModelAuthored(item) {
 			modelAuthored++
+			if form := ClaimFormOf(item); form != ClaimUnknown {
+				modelForms[form] = true
+			}
 		}
 	}
 	if modelAuthored == 0 {
@@ -235,6 +239,17 @@ func preferModelAuthoredPrincipalEvidence(items []EvidenceItem) []EvidenceItem {
 		if principalEvidenceModelAuthored(item) {
 			out = append(out, item)
 		}
+	}
+	for _, item := range items {
+		if principalEvidenceModelAuthored(item) {
+			continue
+		}
+		form := ClaimFormOf(item)
+		if form != ClaimReturnFact || modelForms[form] {
+			continue
+		}
+		modelForms[form] = true
+		out = append(out, item)
 	}
 	return out
 }

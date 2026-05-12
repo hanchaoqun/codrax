@@ -721,7 +721,7 @@ func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFile
 	sourceWeight := 0.5
 	if readFiles != nil && readFiles[item.Source] {
 		sourceWeight = 1.0
-	} else if item.Producer == "concrete_values" {
+	} else if item.Producer == "concrete_values" || item.Producer == "bridge_literal_terminal" {
 		sourceWeight = 1.0
 	}
 

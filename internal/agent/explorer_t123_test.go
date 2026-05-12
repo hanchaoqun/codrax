@@ -460,8 +460,8 @@ func TestExtractCallTargetsWithLang_LuaColonCalls(t *testing.T) {
 // concreteValueEntry list.
 func TestExtractConcreteValues_EmitsCallsKind(t *testing.T) {
 	src := `func (o *orchestrator) dispatchStage() {
-	if proposal := extractSubAgentProposal(); proposal != nil {
-		merged, err := o.subRuntime.Run(proposal)
+		if proposal := extractSubAgentProposal(); proposal != nil {
+			merged, err := o.subRuntime.Run(proposal)
 		_ = merged
 		_ = err
 	}
@@ -476,6 +476,22 @@ func TestExtractConcreteValues_EmitsCallsKind(t *testing.T) {
 	if !hasCalls {
 		t.Errorf("expected \"calls → subRuntime.Run\" entry in %v", entries)
 	}
+}
+
+func TestExtractConcreteValues_ReturnsCarryLineOffset(t *testing.T) {
+	src := `func (s *SubExplorer) Name() string {
+	return "explorer"
+}`
+	entries := extractConcreteValues(src, "go")
+	for _, e := range entries {
+		if e.kind == "returns" && e.value == `"explorer"` {
+			if e.lineOffset != 1 {
+				t.Fatalf("return literal lineOffset=%d, want 1 in %+v", e.lineOffset, e)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected return literal entry, got %+v", entries)
 }
 
 func TestExtractConcreteValues_EmitsLuaColonCallsKind(t *testing.T) {

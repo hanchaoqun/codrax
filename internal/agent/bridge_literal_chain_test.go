@@ -81,7 +81,8 @@ func (s *SubExplorer) Name() string {
 		"sub_explorer.go": subExplorer,
 	}
 	graph, root := buildFakeGraph(t, files, contents)
-	got := extractBridgeLiteralChains(graph, root, nil)
+	extraction := extractBridgeLiteralEvidence(graph, root, nil)
+	got := extraction.chains
 	if len(got) == 0 {
 		t.Fatalf("expected at least one bridge chain, got 0")
 	}
@@ -104,6 +105,20 @@ func (s *SubExplorer) Name() string {
 	}
 	if !foundReal {
 		t.Fatalf("expected chain containing RegisterDefaultSubAgents/SubExplorer/\"explorer\"; got: %+v", got)
+	}
+	foundTerminal := false
+	for _, it := range extraction.terminalReturns {
+		if it.Subject == "SubExplorer.Name" &&
+			it.Predicate == "returns" &&
+			it.Object == `"explorer"` &&
+			it.Source == "sub_explorer.go" &&
+			it.LineStart == 10 &&
+			it.AnchorKind == types.AnchorReturn {
+			foundTerminal = true
+		}
+	}
+	if !foundTerminal {
+		t.Fatalf("expected terminal return companion for SubExplorer.Name at sub_explorer.go:10, got %+v", extraction.terminalReturns)
 	}
 }
 
@@ -191,7 +206,7 @@ func NewOpaque() *Opaque { return &Opaque{} }
 func (o *Opaque) Do() {}
 `
 	files := map[string][]repomap.Symbol{
-		"reg.go":    {{Name: "RegisterOpaque", Kind: "function", File: "reg.go", Line: 3, EndLine: 5}},
+		"reg.go": {{Name: "RegisterOpaque", Kind: "function", File: "reg.go", Line: 3, EndLine: 5}},
 		"opaque.go": {
 			{Name: "Opaque", Kind: "type", File: "opaque.go", Line: 3, EndLine: 3},
 			{Name: "NewOpaque", Kind: "function", File: "opaque.go", Line: 5, EndLine: 5},
@@ -258,7 +273,7 @@ func NewBeta() *Beta { return &Beta{} }
 func (b *Beta) Key() string { return "beta-key" }
 `
 	files := map[string][]repomap.Symbol{
-		"reg.go":   {{Name: "RegisterAll", Kind: "function", File: "reg.go", Line: 3, EndLine: 6}},
+		"reg.go": {{Name: "RegisterAll", Kind: "function", File: "reg.go", Line: 3, EndLine: 6}},
 		"alpha.go": {
 			{Name: "Alpha", Kind: "type", File: "alpha.go", Line: 3, EndLine: 3},
 			{Name: "NewAlpha", Kind: "function", File: "alpha.go", Line: 5, EndLine: 5},
@@ -645,9 +660,9 @@ func TestSingularize(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"SubAgents", "SubAgent"},
 		{"Handlers", "Handler"},
-		{"Agent", "Agent"},   // already singular
-		{"s", "s"},           // too short to strip
-		{"", ""},             // empty
+		{"Agent", "Agent"},          // already singular
+		{"s", "s"},                  // too short to strip
+		{"", ""},                    // empty
 		{"Kubernetes", "Kubernete"}, // Over-applies — known limitation
 	}
 	for _, c := range cases {
