@@ -1139,8 +1139,8 @@ func TestBuildAnswerSupportPlan_ChangeImpactKeepsHeterogeneousAffectedSites(t *t
 			SurfaceRole: SurfacePrincipal,
 			FacetIDs:    []string{string(FacetEnumerationItem)},
 			Items: []AnswerBlockItem{{
-				Label:       "CitationReq.Required",
-				Text:        "direct assignment site",
+				Label:       "internal/agent/analyzer.go",
+				Text:        "direct assignment site for CitationReq.Required",
 				CitationRef: 0,
 			}},
 		}},
@@ -1151,6 +1151,82 @@ func TestBuildAnswerSupportPlan_ChangeImpactKeepsHeterogeneousAffectedSites(t *t
 	}
 	if len(narrowing.MissingForms) == 0 {
 		t.Fatalf("narrowing diagnostic should name non-assignment missing forms: %+v", narrowing)
+	}
+}
+
+func TestPrincipalSupportMemberObligations_ChangeImpactFilesCoalesceByFile(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		ChangeImpactProfile: &ChangeImpactProfile{
+			IsChangeImpact:  true,
+			RequestedOutput: ImpactOutputFiles,
+		},
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{
+				{
+					Text:          "template requires citations",
+					Location:      "internal/analysis/compiler/templates.go:256",
+					ClaimForm:     ClaimAssignmentFact,
+					MemberSurface: PrincipalMemberSurfaceSourceLocation,
+					AnchorSymbol:  "CitationReq",
+					SurfaceTerms:  []string{"CitationReq"},
+					Source:        "internal/analysis/compiler/templates.go",
+					LineStart:     256,
+				},
+				{
+					Text:          "another template requires citations",
+					Location:      "internal/analysis/compiler/templates.go:366",
+					ClaimForm:     ClaimAssignmentFact,
+					MemberSurface: PrincipalMemberSurfaceSourceLocation,
+					AnchorSymbol:  "CitationReq",
+					SurfaceTerms:  []string{"CitationReq"},
+					Source:        "internal/analysis/compiler/templates.go",
+					LineStart:     366,
+				},
+				{
+					Text:          "gate checks citation requirement",
+					Location:      "internal/analysis/gate/gate.go:301",
+					ClaimForm:     ClaimGuardCondition,
+					MemberSurface: PrincipalMemberSurfaceSourceLocation,
+					AnchorSymbol:  "CitationReq.Required",
+					SurfaceTerms:  []string{"CitationReq.Required"},
+					Source:        "internal/analysis/gate/gate.go",
+					LineStart:     301,
+				},
+			},
+		}},
+	}
+
+	obligations := PrincipalSupportMemberObligations(plan)
+	if len(obligations) != 2 {
+		t.Fatalf("file-output impact answers should require unique files, got %+v", obligations)
+	}
+	if obligations[0].Label != "internal/analysis/compiler/templates.go" {
+		t.Fatalf("first file obligation should label the file path, got %+v", obligations[0])
+	}
+	if !strings.Contains(obligations[0].LocationHint(), "internal/analysis/compiler/templates.go:366") {
+		t.Fatalf("coalesced file obligation should retain equivalent site anchors, got %q", obligations[0].LocationHint())
+	}
+
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{
+			{File: "internal/analysis/compiler/templates.go", Line: 256},
+			{File: "internal/analysis/gate/gate.go", Line: 301},
+		},
+		Blocks: []AnswerBlock{{
+			ID:          "files",
+			Kind:        BlockTable,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{
+				{Label: "internal/analysis/compiler/templates.go", Text: "template construction sites", CitationRef: 0},
+				{Label: "internal/analysis/gate/gate.go", Text: "guard site", CitationRef: 1},
+			},
+		}},
+	}
+	if got := MissingPrincipalSupportMembers(doc, plan); len(got) != 0 {
+		t.Fatalf("one cited row per file should satisfy file-output obligations, got %+v", got)
 	}
 }
 

@@ -74,6 +74,9 @@ func PrincipalSupportMemberObligations(plan *AnswerSupportPlan) []AnswerSupportM
 	}
 	seen := make(map[string]int)
 	var out []AnswerSupportMemberObligation
+	fileLevel := plan.ChangeImpactProfile != nil &&
+		plan.ChangeImpactProfile.Active() &&
+		plan.ChangeImpactProfile.RequestedOutput == ImpactOutputFiles
 	for _, lane := range plan.Lanes {
 		if lane.Kind != SupportLanePrincipalEvidence {
 			continue
@@ -83,7 +86,13 @@ func PrincipalSupportMemberObligations(plan *AnswerSupportPlan) []AnswerSupportM
 				continue
 			}
 			ob := principalSupportMemberObligation(entry)
+			if fileLevel {
+				ob = principalSupportFileMemberObligation(ob)
+			}
 			key := principalSupportMemberDedupKey(ob)
+			if fileLevel {
+				key = principalSupportFileMemberDedupKey(ob)
+			}
 			if key == "" {
 				continue
 			}
@@ -96,6 +105,53 @@ func PrincipalSupportMemberObligations(plan *AnswerSupportPlan) []AnswerSupportM
 		}
 	}
 	return out
+}
+
+func principalSupportFileMemberObligation(ob AnswerSupportMemberObligation) AnswerSupportMemberObligation {
+	source := strings.TrimSpace(ob.Source)
+	if source == "" {
+		return ob
+	}
+	source = normalizeAnswerSupportPath(source)
+	if source == "" {
+		return ob
+	}
+	if ob.Location != "" {
+		appendEquivalentSupportMemberLocation(&ob, ob.Location)
+	}
+	ob.Label = source
+	ob.Location = ""
+	if ob.LineStart > 0 {
+		ob.Location = normalizeAnswerSupportLocation(fmt.Sprintf("%s:%d", source, ob.LineStart))
+	}
+	if ob.Location == "" && len(ob.EquivalentLocations) > 0 {
+		ob.Location = ob.EquivalentLocations[0]
+		ob.EquivalentLocations = ob.EquivalentLocations[1:]
+	}
+	ob.SurfaceTerms = appendSupportMemberSurfaceTerm(ob.SurfaceTerms, source)
+	return ob
+}
+
+func principalSupportFileMemberDedupKey(ob AnswerSupportMemberObligation) string {
+	source := normalizeAnswerSupportPath(ob.Source)
+	if source == "" {
+		return ""
+	}
+	return "file\x00" + source
+}
+
+func appendSupportMemberSurfaceTerm(in []string, term string) []string {
+	term = strings.TrimSpace(term)
+	if term == "" {
+		return in
+	}
+	key := strings.ToLower(term)
+	for _, existing := range in {
+		if strings.ToLower(strings.TrimSpace(existing)) == key {
+			return in
+		}
+	}
+	return append(in, term)
 }
 
 func principalSupportEntryRequiresMemberCoverage(entry AnswerSupportEntry) bool {

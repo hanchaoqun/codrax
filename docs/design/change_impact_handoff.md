@@ -70,6 +70,10 @@ principal support lane contained only `assignment_fact` members.
    - For "list the files/sites" questions, answer members are locations or
      files, not code symbols. Existing `member_surface=source_location`
      helps, but only after the right evidence enters a principal lane.
+   - When `requested_output=files`, per-line affected sites should collapse to
+     unique file members while retaining the affected lines as equivalent
+     support anchors. Otherwise the finalizer is forced to list every repeated
+     construction site even though the user asked for files.
 
 5. Finalizer can narrow the user's criterion
 
@@ -147,6 +151,8 @@ The support lane should explicitly name the impact boundary:
   call adapters are also principal when typed evidence supports them;
 - contextual helper mechanisms remain context unless the emitted evidence
   itself is an affected site.
+- when `requested_output=files`, file paths are the principal members and
+  file:line affected sites are evidence/rationale for those files.
 
 ### Final-answer guard
 
@@ -186,6 +192,11 @@ the model already emitted in the tool payload.
 - [x] Project impact targets into compiler search hints.
 - [x] Extend enumeration facet acceptable forms when impact profile is active.
 - [x] Preserve heterogeneous principal evidence for impact profiles.
+- [x] Treat `requested_output=files|sites` as a typed source-location member
+      surface so extractor does not force file/path answers through
+      `emit_answer_symbol`.
+- [x] Coalesce `requested_output=files` support obligations by unique file while
+      preserving affected file:line anchors as equivalent support locations.
 - [x] Update support-lane guidance for impact answers.
 - [x] Add tests proving guard/read/call/validation sites enter principal lane.
 - [x] Add negative test: ordinary enumeration still keeps homogeneous curation.

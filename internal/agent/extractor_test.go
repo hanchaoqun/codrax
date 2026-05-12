@@ -838,6 +838,74 @@ func TestExtractor_BuildPrompt_ImportEnumerationUsesTypedEvidenceLane(t *testing
 	}
 }
 
+func TestExtractor_BuildPrompt_ChangeImpactFileEnumerationUsesSupportLane(t *testing.T) {
+	mu := types.NewMutableState("list affected files")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles:             []string{"internal/types/analysis_ir.go", "internal/analysis/gate/gate.go"},
+		TerminalEvidenceCount: 2,
+	})
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "def-citation-req",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/types/analysis_ir.go",
+			LineStart:       1243,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "CitationReq",
+			Subject:         "CitationReq",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "guard-required",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/analysis/gate/gate.go",
+			LineStart:       301,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "CitationReq.Required",
+			Subject:         "CitationReq.Required",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.AgentContext{
+		Objective: "Which production files need changes if CitationReq.Required changes?",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
+				AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				ChangeImpactProfile: &types.ChangeImpactProfile{
+					IsChangeImpact:  true,
+					Target:          "CitationReq.Required",
+					RequestedOutput: types.ImpactOutputFiles,
+					Scope:           types.ImpactScopeProduction,
+					Confidence:      0.9,
+				},
+			},
+		},
+	}
+
+	if !viewNeedsEnumerationSlate(ctx) {
+		t.Fatal("fixture must remain enumeration-shaped")
+	}
+	if !enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx) {
+		t.Fatal("typed requested_output=files should render through support lanes even when evidence includes definitions")
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("change-impact file enumeration must not force emit_answer_symbol")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "does NOT require `emit_answer_symbol`") {
+		t.Fatalf("prompt should explicitly disable answer-symbol slate for file-output impact answers:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_DefinitionEnumerationStillRequiresAnswerSymbols(t *testing.T) {
 	mu := types.NewMutableState("list functions")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

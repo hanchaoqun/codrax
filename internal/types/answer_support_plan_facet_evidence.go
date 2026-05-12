@@ -31,7 +31,7 @@ func compileFacetEvidenceSupportPlan(family QuestionFamily, rm RequestModel, pla
 		out.Lanes = append(out.Lanes, lane)
 	}
 	if family == QFEnumeration {
-		if lane := compileEnumerationSupportingContextLane(plan); len(lane.Entries) > 0 {
+		if lane := compileEnumerationSupportingContextLane(rm, plan); len(lane.Entries) > 0 {
 			out.Lanes = append(out.Lanes, lane)
 		}
 	}
@@ -62,7 +62,7 @@ func compilePrincipalEvidenceSupportLane(family QuestionFamily, rm RequestModel,
 			continue
 		}
 		entry := answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text))
-		entry.MemberSurface = PrincipalMemberSurfaceForEvidenceSet(item, items)
+		entry.MemberSurface = PrincipalMemberSurfaceForRequest(rm, item, items)
 		entry.Detail = appendPrincipalMemberSurfaceDetail(entry.Detail, entry.MemberSurface)
 		lane.Entries = append(lane.Entries, entry)
 		if len(lane.Entries) >= limit {
@@ -100,6 +100,9 @@ func principalEvidenceLaneGuidance(family QuestionFamily, rm RequestModel) strin
 		return base + " For config answers, keep scalar/table/list content to real default/config/CLI/runtime layer anchors; general precedence rules belong in prose unless this lane cites that layer."
 	case QFEnumeration:
 		if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+			if rm.ChangeImpactProfile.RequestedOutput == ImpactOutputFiles {
+				return base + " For change-impact file enumerations, file paths are the principal members and affected file:line sites are supporting reasons for those files. Direct assignments are only one affected-site role; include files backed by readers, guards, validators, construction sites, serializers, call adapters, import edges, and definitions when this lane contains typed evidence for them. Do not narrow the user's affected-file criterion to one role unless the typed impact profile says the requested output is that one role."
+			}
 			return base + " For change-impact enumerations, affected sites are the principal members. Direct assignments are only one affected-site role; include readers, guards, validators, construction sites, serializers, call adapters, import edges, and definitions when this lane contains typed evidence for them. Do not narrow the user's affected-site criterion to one role unless the typed impact profile says the requested output is that one role."
 		}
 		return base + " For enumerations, each principal item must correspond to a listed entry here or to an extractor-backed symbol; do not invent missing members from context."
@@ -239,7 +242,7 @@ func principalSupportEvidenceItemsForFacetsRaw(family QuestionFamily, plan *Answ
 	return dedupePrincipalSupportEvidenceBySurfaceRole(out)
 }
 
-func compileEnumerationSupportingContextLane(plan *AnswerSurfacePlan) AnswerSupportLane {
+func compileEnumerationSupportingContextLane(rm RequestModel, plan *AnswerSurfacePlan) AnswerSupportLane {
 	lane := AnswerSupportLane{
 		Kind:          SupportLaneNearestMechanism,
 		Title:         "Grounded enumeration support context",
@@ -258,7 +261,7 @@ func compileEnumerationSupportingContextLane(plan *AnswerSurfacePlan) AnswerSupp
 			continue
 		}
 		entry := answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text))
-		entry.MemberSurface = PrincipalMemberSurfaceForEvidenceSet(item, items)
+		entry.MemberSurface = PrincipalMemberSurfaceForRequest(rm, item, items)
 		entry.Detail = appendPrincipalMemberSurfaceDetail(entry.Detail, entry.MemberSurface)
 		lane.Entries = append(lane.Entries, entry)
 		if len(lane.Entries) >= facetSupportEntryLimitDefault {

@@ -1648,13 +1648,17 @@ func enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx *types.AgentCon
 	if len(items) == 0 {
 		return false
 	}
+	rm := types.RequestModel{}
+	if ctx.AnalysisIR != nil {
+		rm = ctx.AnalysisIR.RequestModel
+	}
 	nonSymbolPrincipal := 0
 	symbolPrincipal := 0
 	for _, item := range items {
 		if !extractorEvidenceIsModelAuthoredPrincipal(item) {
 			continue
 		}
-		surface := types.PrincipalMemberSurfaceForEvidenceSet(item, items)
+		surface := types.PrincipalMemberSurfaceForRequest(rm, item, items)
 		if surface.IsNonSymbol() {
 			nonSymbolPrincipal++
 			continue

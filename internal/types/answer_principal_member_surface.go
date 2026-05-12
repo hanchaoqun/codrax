@@ -28,6 +28,33 @@ func (s AnswerPrincipalMemberSurface) IsSymbolLike() bool {
 	return s == PrincipalMemberSurfaceSymbolLike
 }
 
+// PrincipalMemberSurfaceForRequest layers typed request intent over the
+// evidence-only surface classifier. It is intentionally narrow: only
+// structured profiles that explicitly ask for file/site impact members can
+// override a definition-like evidence item into a source-location member.
+// No raw request text or keyword scoring is consulted.
+func PrincipalMemberSurfaceForRequest(rm RequestModel, item EvidenceItem, peers []EvidenceItem) AnswerPrincipalMemberSurface {
+	if requestWantsSourceLocationMemberSurface(rm, item) {
+		return PrincipalMemberSurfaceSourceLocation
+	}
+	return PrincipalMemberSurfaceForEvidenceSet(item, peers)
+}
+
+func requestWantsSourceLocationMemberSurface(rm RequestModel, item EvidenceItem) bool {
+	if strings.TrimSpace(item.Source) == "" {
+		return false
+	}
+	if rm.ChangeImpactProfile == nil || !rm.ChangeImpactProfile.Active() {
+		return false
+	}
+	switch rm.ChangeImpactProfile.RequestedOutput {
+	case ImpactOutputFiles, ImpactOutputSites:
+		return true
+	default:
+		return false
+	}
+}
+
 // PrincipalMemberSurfaceForEvidenceSet returns the answer-visible member
 // surface for item within its typed peer set. The peer set lets relation
 // evidence orient itself without keyword checks:
