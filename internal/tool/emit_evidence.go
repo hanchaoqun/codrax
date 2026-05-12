@@ -2779,6 +2779,9 @@ func decoratorSurfaceCandidatesAroundItem(item types.EvidenceItem, gc *ground.Co
 		if text == "" {
 			continue
 		}
+		if !strings.HasPrefix(text, "@") {
+			continue
+		}
 		for _, match := range decoratorSurfaceTermRe.FindAllString(text, -1) {
 			if !seen[match] {
 				seen[match] = true
