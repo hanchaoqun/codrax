@@ -92,8 +92,7 @@ Add a precise, typed short-circuit before the L1 symbol-span demand:
 
 1. Compute the question-related symbols as today.
 2. If those symbols exist, check whether every demanded symbol is already
-   represented by citable grounded/recovered model-authored evidence in the
-   same file.
+   represented by strict-citable model-authored evidence in the same file.
 3. Coverage must come from typed evidence surfaces:
    - `EvidenceItem.AnchorSymbol`
    - `EvidenceItem.Subject`
@@ -103,9 +102,10 @@ Add a precise, typed short-circuit before the L1 symbol-span demand:
 4. The evidence must be answer-grade enough to cite:
    - same file,
    - `LineStart > 0`,
-   - grounding status is `grounded` or `recovered`,
+   - `EvidenceItem.IsCitable()` is true,
    - grounding tier is line/source grade,
-   - producer is model-authored or LLM-emittable evidence.
+   - producer is an `emit_evidence` lane and the evidence kind is
+     LLM-emittable.
 5. If every question-related symbol is covered this way, skip the symbol-span
    forced read with a specific `SignalEvidenceVerified` reason. Otherwise keep
    the existing L1 surgical demand.

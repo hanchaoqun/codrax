@@ -32,8 +32,8 @@ func TestEvaluate_S1_AllSymbolRegionsReadSkips(t *testing.T) {
 	// Read each symbol's def-region with the default ±15 context window.
 	closure.SetReadRanges(map[string][]types.LineRange{
 		repoFile: {
-			{Start: 207, End: 237}, // failureTaxonomyBannerLine ±15 around 222
-			{Start: 475, End: 506}, // unsettledBanner ±15 around 490
+			{Start: 207, End: 237},   // failureTaxonomyBannerLine ±15 around 222
+			{Start: 475, End: 506},   // unsettledBanner ±15 around 490
 			{Start: 1212, End: 1283}, // printBanner ±15 around 1227-1268
 			{Start: 1288, End: 1319}, // memorySummaryLine ±15 around 1303
 		},
@@ -272,6 +272,168 @@ func TestEvaluate_EvidenceFromAnchorSymbolPromotedToWanted(t *testing.T) {
 
 	if dec.Signal != SignalSymbolAnchored {
 		t.Fatalf("Signal = %v, want SignalSymbolAnchored (evidence-cited symbol must be checked)", dec.Signal)
+	}
+}
+
+// TestEvaluate_S1_TypedEvidenceCoversLargeSymbolSkipsSpanDemand
+// pins the large-symbol convergence path: once the model has emitted
+// citable typed evidence naming the demanded symbol at an
+// answer-bearing line, L1 must not require reading the whole enclosing
+// function/struct body just to satisfy a span gate.
+func TestEvaluate_S1_TypedEvidenceCoversLargeSymbolSkipsSpanDemand(t *testing.T) {
+	const file = "internal/orchestrator/orchestrator.go"
+	closure := types.NewEvidenceClosure("")
+	closure.SetFileTotalLines(map[string]int{file: 7000})
+	oracle := fakeOracle{byFile: map[string][]SymbolDef{
+		file: {
+			{Name: "dispatchStage", Line: 5649, EndLine: 6063},
+		},
+	}}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceRelationship,
+			Subject:         "dispatchStage",
+			Object:          "ag.Execute",
+			Source:          file,
+			LineStart:       5978,
+			AnchorSymbol:    "dispatchStage",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+			Scope:           types.ScopeLine,
+		},
+	}
+	cfg := Config{MinGroundedPerAnchor: 99, SymbolContextLines: 15}
+
+	dec := EvaluateAnchor(file, closure, evidence, oracle, []string{"dispatchStage"}, nil, cfg)
+
+	if dec.Signal != SignalEvidenceVerified {
+		t.Fatalf("Signal = %v, want SignalEvidenceVerified. Reason: %s", dec.Signal, dec.Reason)
+	}
+	if dec.Action != ActionSkip {
+		t.Fatalf("Action = %v, want ActionSkip", dec.Action)
+	}
+	if !strings.Contains(dec.Reason, "citable model-authored typed evidence") {
+		t.Fatalf("reason should name typed evidence coverage, got: %s", dec.Reason)
+	}
+}
+
+// TestEvaluate_S1_TypedEvidencePartialCoverageDemandsOnlyUncoveredSymbols
+// guards the non-seesaw behavior: evidence for one large symbol
+// should not globally waive every other question-related symbol in
+// the file. The demand remains surgical and only names uncovered
+// symbols.
+func TestEvaluate_S1_TypedEvidencePartialCoverageDemandsOnlyUncoveredSymbols(t *testing.T) {
+	const file = "internal/orchestrator/orchestrator.go"
+	closure := types.NewEvidenceClosure("")
+	closure.SetFileTotalLines(map[string]int{file: 7000})
+	oracle := fakeOracle{byFile: map[string][]SymbolDef{
+		file: {
+			{Name: "Run", Line: 1343, EndLine: 1999},
+			{Name: "dispatchStage", Line: 5649, EndLine: 6063},
+		},
+	}}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceRelationship,
+			Subject:         "dispatchStage",
+			Object:          "ag.Execute",
+			Source:          file,
+			LineStart:       5978,
+			AnchorSymbol:    "dispatchStage",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+			Scope:           types.ScopeLine,
+		},
+	}
+	cfg := Config{MinGroundedPerAnchor: 99, SymbolContextLines: 15}
+
+	dec := EvaluateAnchor(file, closure, evidence, oracle, []string{"Run", "dispatchStage"}, nil, cfg)
+
+	if dec.Signal != SignalSymbolDemand {
+		t.Fatalf("Signal = %v, want SignalSymbolDemand. Reason: %s", dec.Signal, dec.Reason)
+	}
+	if dec.Action != ActionDemandSurgicalRead {
+		t.Fatalf("Action = %v, want ActionDemandSurgicalRead", dec.Action)
+	}
+	if len(dec.Symbols) != 1 || dec.Symbols[0] != "Run" {
+		t.Fatalf("Symbols = %+v, want only Run as uncovered", dec.Symbols)
+	}
+	for _, r := range dec.Demand {
+		if r.Start >= 5600 || r.End >= 5600 {
+			t.Fatalf("demand must not include dispatchStage span once typed evidence covers it; got %+v", dec.Demand)
+		}
+	}
+}
+
+// TestEvaluate_S1_RawOrSystemEvidenceDoesNotBypassSymbolDemand makes
+// the hard-gate boundary explicit. A grounded-looking item that was
+// not produced by an emit_evidence lane can still promote a symbol
+// into the relevance set, but it cannot waive the whole-symbol read.
+func TestEvaluate_S1_RawOrSystemEvidenceDoesNotBypassSymbolDemand(t *testing.T) {
+	const file = "internal/orchestrator/orchestrator.go"
+	closure := types.NewEvidenceClosure("")
+	closure.SetFileTotalLines(map[string]int{file: 7000})
+	oracle := fakeOracle{byFile: map[string][]SymbolDef{
+		file: {{Name: "dispatchStage", Line: 5649, EndLine: 6063}},
+	}}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceRelationship,
+			Subject:         "dispatchStage",
+			Source:          file,
+			LineStart:       5978,
+			AnchorSymbol:    "dispatchStage",
+			Producer:        "system.summary",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+			Scope:           types.ScopeLine,
+		},
+	}
+	cfg := Config{MinGroundedPerAnchor: 99, SymbolContextLines: 15}
+
+	dec := EvaluateAnchor(file, closure, evidence, oracle, nil, nil, cfg)
+
+	if dec.Signal != SignalSymbolDemand {
+		t.Fatalf("Signal = %v, want SignalSymbolDemand; system evidence must not waive symbol-span demand", dec.Signal)
+	}
+	if dec.Action != ActionDemandSurgicalRead {
+		t.Fatalf("Action = %v, want ActionDemandSurgicalRead", dec.Action)
+	}
+}
+
+// TestEvaluate_S1_QualifiedTypedEvidenceCoversDefinitionTail locks
+// the cross-language surface normalizer used by the coverage gate:
+// qualified symbols such as namespace/class/member names may cover a
+// repomap symbol with the same terminal definition name, without
+// relying on user-text keyword matching.
+func TestEvaluate_S1_QualifiedTypedEvidenceCoversDefinitionTail(t *testing.T) {
+	const file = "src/pipeline/Stage.ets"
+	closure := types.NewEvidenceClosure("")
+	closure.SetFileTotalLines(map[string]int{file: 1000})
+	oracle := fakeOracle{byFile: map[string][]SymbolDef{
+		file: {{Name: "execute", Line: 410, EndLine: 560}},
+	}}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "PipelineStage.execute",
+			Source:          file,
+			LineStart:       448,
+			AnchorSymbol:    "PipelineStage.execute",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+			Scope:           types.ScopeLine,
+		},
+	}
+	cfg := Config{MinGroundedPerAnchor: 99, SymbolContextLines: 15}
+
+	dec := EvaluateAnchor(file, closure, evidence, oracle, []string{"PipelineStage.execute"}, nil, cfg)
+
+	if dec.Signal != SignalEvidenceVerified {
+		t.Fatalf("Signal = %v, want SignalEvidenceVerified. Reason: %s", dec.Signal, dec.Reason)
 	}
 }
 

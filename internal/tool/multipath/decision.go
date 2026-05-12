@@ -22,54 +22,56 @@
 // from "how many lines did the LLM mechanically paginate?". Five
 // signals run in priority order. The first one that decides wins:
 //
-//  L0 — SignalFullyRead (HasFullyRead bypass).
-//    Merged ranges already cover every line; demanding more would
-//    page past EOF. Inherited from the old gate; preserved as the
-//    leading short-circuit.
+//	L0 — SignalFullyRead (HasFullyRead bypass).
+//	  Merged ranges already cover every line; demanding more would
+//	  page past EOF. Inherited from the old gate; preserved as the
+//	  leading short-circuit.
 //
-//  L1 — Symbol-anchored verification (precision; CODE files).
-//    For each primary anchor file with repomap symbols, identify the
-//    question-related symbols whose definitions live in that file.
-//    Verify every such symbol's [def_line - SymbolContextLines ..
-//    def_end + SymbolContextLines] region is covered. All clear →
-//    SignalSymbolAnchored / Skip. Some uncovered →
-//    SignalSymbolDemand / DemandSurgicalRead with the missing
-//    slivers as the demand.
+//	L1 — Symbol-anchored verification (precision; CODE files).
+//	  For each primary anchor file with repomap symbols, identify the
+//	  question-related symbols whose definitions live in that file.
+//	  Verify every such symbol's [def_line - SymbolContextLines ..
+//	  def_end + SymbolContextLines] region is covered. All clear →
+//	  SignalSymbolAnchored / Skip. If a missing symbol already has
+//	  citable model-authored typed evidence at an answer-bearing line,
+//	  treat that symbol as covered. Some still-uncovered symbols →
+//	  SignalSymbolDemand / DemandSurgicalRead with only those missing
+//	  slivers as the demand.
 //
-//  L2 — Grounded-evidence count (output quality).
-//    If the LLM has emitted >= MinGroundedPerAnchor grounded (Tier 1
-//    / Tier 2) evidence items whose Source equals the file, the LLM
-//    has demonstrated localised understanding → bypass with
-//    SignalEvidenceVerified.
+//	L2 — Grounded-evidence count (output quality).
+//	  If the LLM has emitted >= MinGroundedPerAnchor grounded (Tier 1
+//	  / Tier 2) evidence items whose Source equals the file, the LLM
+//	  has demonstrated localised understanding → bypass with
+//	  SignalEvidenceVerified.
 //
-//  L3 — Keyword-anchored verification (NON-symbolic files).
-//    For files where repomap returns no symbols (typically *.md /
-//    *.yaml / *.toml / *.json / *.json5 / *.ini / Dockerfile /
-//    Makefile / shell scripts), use the LLM's own grep history to
-//    locate answer-bearing lines: every line where grep matched a
-//    question entity becomes a keyword anchor (±KeywordContextLines
-//    context). All clear → SignalKeywordAnchored / Skip; missing →
-//    SignalKeywordDemand / DemandSurgicalRead with the missing
-//    slivers. Only fires when the LLM has actually grep'd the file
-//    for question entities (anchorLines empty → skip to L4).
+//	L3 — Keyword-anchored verification (NON-symbolic files).
+//	  For files where repomap returns no symbols (typically *.md /
+//	  *.yaml / *.toml / *.json / *.json5 / *.ini / Dockerfile /
+//	  Makefile / shell scripts), use the LLM's own grep history to
+//	  locate answer-bearing lines: every line where grep matched a
+//	  question entity becomes a keyword anchor (±KeywordContextLines
+//	  context). All clear → SignalKeywordAnchored / Skip; missing →
+//	  SignalKeywordDemand / DemandSurgicalRead with the missing
+//	  slivers. Only fires when the LLM has actually grep'd the file
+//	  for question entities (anchorLines empty → skip to L4).
 //
-//  L4 — Small-file full-read demand (NON-symbolic files, bounded).
-//    A file whose total line count is <= SmallFileThreshold (default
-//    300) is small enough that "read the rest of it" is bounded —
-//    typical config files (codrax.yaml, package.json, pyproject.toml,
-//    Dockerfile, README.md) fit easily. Demand the unread slivers
-//    via MissingContextRegions(file, [1, totalLines], 0) →
-//    SignalSmallFileFull / DemandSurgicalRead. The threshold is the
-//    boundary "noise cost is bounded by file size" — reading 300
-//    lines of irrelevant config has limited blast radius.
+//	L4 — Small-file full-read demand (NON-symbolic files, bounded).
+//	  A file whose total line count is <= SmallFileThreshold (default
+//	  300) is small enough that "read the rest of it" is bounded —
+//	  typical config files (codrax.yaml, package.json, pyproject.toml,
+//	  Dockerfile, README.md) fit easily. Demand the unread slivers
+//	  via MissingContextRegions(file, [1, totalLines], 0) →
+//	  SignalSmallFileFull / DemandSurgicalRead. The threshold is the
+//	  boundary "noise cost is bounded by file size" — reading 300
+//	  lines of irrelevant config has limited blast radius.
 //
-//  L5 — SignalOpaqueAdvisory (LARGE non-symbolic files, last resort).
-//    File is large (> SmallFileThreshold), has no symbols, no
-//    grounded evidence, and no keyword grep history pointing into
-//    it. The system has no defensible specific demand to make.
-//    Emit a non-blocking RepairExpandSearch advisory so the LLM is
-//    informed but completion is NOT blocked — the LLM may legitimately
-//    judge the file unrelated and proceed.
+//	L5 — SignalOpaqueAdvisory (LARGE non-symbolic files, last resort).
+//	  File is large (> SmallFileThreshold), has no symbols, no
+//	  grounded evidence, and no keyword grep history pointing into
+//	  it. The system has no defensible specific demand to make.
+//	  Emit a non-blocking RepairExpandSearch advisory so the LLM is
+//	  informed but completion is NOT blocked — the LLM may legitimately
+//	  judge the file unrelated and proceed.
 //
 // File-type detection is signal-driven, NOT extension-based: a file
 // is "non-symbolic" when oracle.SymbolsInFile returns empty,
@@ -361,6 +363,26 @@ func EvaluateAnchor(
 			dec.Reason = fmt.Sprintf("all %d question-related symbol regions covered (±%d ctx)", len(symbols), cfg.SymbolContextLines)
 			return dec
 		}
+		uncoveredSymbols := symbolsWithoutTypedEvidenceCoverage(file, symbols, evidence, cfg.RepoRoot)
+		switch {
+		case len(uncoveredSymbols) == 0:
+			dec.Signal = SignalEvidenceVerified
+			dec.Action = ActionSkip
+			dec.Reason = fmt.Sprintf("citable model-authored typed evidence covers all %d question-related symbol surface(s); whole symbol span read not required", len(symbols))
+			return dec
+		case len(uncoveredSymbols) < len(symbols):
+			filteredMissing := closure.MissingContextRegions(file, symbolRegions(uncoveredSymbols), cfg.SymbolContextLines)
+			if len(filteredMissing) == 0 {
+				covered := len(symbols) - len(uncoveredSymbols)
+				dec.Signal = SignalEvidenceVerified
+				dec.Action = ActionSkip
+				dec.Reason = fmt.Sprintf("read ranges cover %d symbol(s) and citable model-authored typed evidence covers %d symbol(s); whole symbol span read not required", len(uncoveredSymbols), covered)
+				return dec
+			}
+			symbols = uncoveredSymbols
+			dec.Symbols = symbolNames(symbols)
+			missing = filteredMissing
+		}
 		// L1 negative — surgical demand. Build a precise rationale
 		// naming the missing slivers + the symbols they belong to.
 		// The point is to make the LLM read THIS chunk, not a
@@ -476,21 +498,13 @@ func questionRelatedSymbols(
 	}
 	wanted := make(map[string]bool, len(entities))
 	for _, e := range entities {
-		key := strings.ToLower(strings.TrimSpace(e))
-		if key == "" {
-			continue
-		}
-		wanted[key] = true
+		addWantedSurfaceKeys(wanted, e, true)
 	}
 	for _, ev := range evidence {
 		if !sameFile(ev.Source, file, repoRoot) {
 			continue
 		}
-		key := strings.ToLower(strings.TrimSpace(ev.AnchorSymbol))
-		if key == "" {
-			continue
-		}
-		wanted[key] = true
+		addWantedSurfaceKeys(wanted, ev.AnchorSymbol, true)
 	}
 	if len(wanted) == 0 {
 		return nil
@@ -498,11 +512,14 @@ func questionRelatedSymbols(
 	out := make([]SymbolDef, 0)
 	seen := make(map[string]bool)
 	for _, s := range all {
-		key := strings.ToLower(strings.TrimSpace(s.Name))
-		if key == "" || !wanted[key] || seen[key] {
+		if !surfaceKeySetIntersects(wanted, symbolSurfaceKeys(s.Name, true)) {
 			continue
 		}
-		seen[key] = true
+		seenKey := strings.ToLower(strings.TrimSpace(s.Name))
+		if seenKey == "" || seen[seenKey] {
+			continue
+		}
+		seen[seenKey] = true
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -537,6 +554,121 @@ func symbolNames(symbols []SymbolDef) []string {
 	out := make([]string, 0, len(symbols))
 	for _, s := range symbols {
 		out = append(out, s.Name)
+	}
+	return out
+}
+
+const modelAuthoredEvidenceProducer = "explorer.emit_evidence"
+
+// symbolsWithoutTypedEvidenceCoverage returns the subset of symbols
+// that still need ordinary symbol-span reads. A symbol is removed
+// from the demand set only when the model has already emitted a
+// citable typed evidence item in the same file whose structured
+// surfaces name that symbol. This is a precise L1 escape hatch for
+// large structs/functions: raw read_file prose and system-generated
+// helpers do not count, but answer-grade emit_evidence rows do.
+func symbolsWithoutTypedEvidenceCoverage(
+	file string,
+	symbols []SymbolDef,
+	evidence []types.EvidenceItem,
+	repoRoot string,
+) []SymbolDef {
+	if len(symbols) == 0 || len(evidence) == 0 {
+		return symbols
+	}
+	covered := typedEvidenceCoveredSymbolKeys(file, evidence, repoRoot)
+	if len(covered) == 0 {
+		return symbols
+	}
+	out := make([]SymbolDef, 0, len(symbols))
+	for _, sym := range symbols {
+		if surfaceKeySetIntersects(covered, symbolSurfaceKeys(sym.Name, true)) {
+			continue
+		}
+		out = append(out, sym)
+	}
+	return out
+}
+
+func typedEvidenceCoveredSymbolKeys(file string, evidence []types.EvidenceItem, repoRoot string) map[string]bool {
+	covered := make(map[string]bool)
+	for _, ev := range evidence {
+		if !typedEvidenceCanCoverSymbol(ev, file, repoRoot) {
+			continue
+		}
+		addWantedSurfaceKeys(covered, ev.AnchorSymbol, true)
+		addWantedSurfaceKeys(covered, ev.OwnerSymbol, true)
+		addWantedSurfaceKeys(covered, ev.Subject, true)
+		addWantedSurfaceKeys(covered, ev.Object, true)
+		for _, term := range ev.SurfaceTerms {
+			// Surface terms often carry paths, routes, and package
+			// labels. Exact surface matches are always valid, but
+			// tail-matching slashy labels can turn "foo.go" into
+			// "go", which is not a defensible symbol waiver.
+			addWantedSurfaceKeys(covered, term, !strings.ContainsAny(term, `/\`))
+		}
+	}
+	return covered
+}
+
+func typedEvidenceCanCoverSymbol(ev types.EvidenceItem, file string, repoRoot string) bool {
+	if !sameFile(ev.Source, file, repoRoot) || ev.LineStart <= 0 {
+		return false
+	}
+	if !modelAuthoredTypedEvidence(ev) {
+		return false
+	}
+	if !ev.IsCitable() {
+		return false
+	}
+	switch ev.GroundingTier {
+	case types.TierLineText, types.TierSymbolTable, types.TierLineRange:
+		return true
+	default:
+		return false
+	}
+}
+
+func modelAuthoredTypedEvidence(ev types.EvidenceItem) bool {
+	producer := strings.TrimSpace(ev.Producer)
+	return producer != "" &&
+		(producer == modelAuthoredEvidenceProducer || strings.HasSuffix(producer, ".emit_evidence")) &&
+		ev.Kind.IsLLMEmittable()
+}
+
+func addWantedSurfaceKeys(dst map[string]bool, raw string, includeTail bool) {
+	for _, key := range symbolSurfaceKeys(raw, includeTail) {
+		dst[key] = true
+	}
+}
+
+func surfaceKeySetIntersects(set map[string]bool, keys []string) bool {
+	for _, key := range keys {
+		if set[key] {
+			return true
+		}
+	}
+	return false
+}
+
+func symbolSurfaceKeys(raw string, includeTail bool) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	seen := make(map[string]bool, 2)
+	add := func(key string) {
+		key = strings.ToLower(strings.TrimSpace(key))
+		if key == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	add(raw)
+	if includeTail {
+		add(types.NormalizedSurfaceSymbolTail(raw))
 	}
 	return out
 }
