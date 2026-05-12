@@ -239,6 +239,84 @@ func TestFieldValueCountTargetFromContext_DoesNotTreatUnrelatedCountAsValueLiter
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_CountRequiresDeterministicCommandOutput(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeTestFile(t, repoRoot, "internal/agent/analyzer.go", `
+package agent
+
+func build() {
+	out.AnswerContract.CitationReq.Required = false
+}
+`)
+
+	mut := types.NewMutableState("本仓库里，把 CitationReq.Required 设置为 false 的生产代码位点一共有几处？")
+	mut.SetRepoRoot(repoRoot)
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"internal/agent/analyzer.go": true})
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       5,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    "CitationReq.Required",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: repoRoot,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "本仓库里，把 CitationReq.Required 设置为 false 的生产代码位点一共有几处？",
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Entities: []string{"CitationReq.Required"},
+					Keywords: []string{"false"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "all candidate lines were read",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "deterministic count proof is missing") {
+		t.Fatalf("expected deterministic-count downgrade, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open without command-backed count")
+	}
+
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Summary:  "count=1\n",
+		Success:  true,
+	})
+	res, err = tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error after count proof: %v", err)
+	}
+	if strings.Contains(res.Summary, "deterministic count proof is missing") {
+		t.Fatalf("deterministic count proof should clear downgrade: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should close after command-backed count")
+	}
+}
+
 func writeTestFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))

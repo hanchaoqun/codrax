@@ -951,6 +951,9 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		if downgrade := fieldValueCountCoverageDowngrade(ctx, closure); downgrade != "" {
 			return downgrade
 		}
+		if downgrade := deterministicCountProofDowngrade(ctx, closure); downgrade != "" {
+			return downgrade
+		}
 	}
 
 	// Check (b): citation-floor preflight. Requires AnalysisIR.
@@ -1117,6 +1120,60 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		min, eligible)
 	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files you actually read, or read additional files first.")
 	return b.String()
+}
+
+func deterministicCountProofDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !rm.Predicates.IsCountQuestion || rm.Predicates.IsRelationalLookup {
+		return ""
+	}
+	if hasDeterministicCountToolResult(ctx) {
+		return ""
+	}
+	if closure != nil {
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairExpandSearch,
+			Keywords:  dedupStringsPreserveOrder(append(append([]string{}, rm.AnalyzerHints.ExactTargets...), append(rm.AnalyzerHints.Entities, rm.AnalyzerHints.Keywords...)...)),
+			Rationale: "count question lacks deterministic command output; run exec_command with a counting pipeline that prints the final integer, then use that exact output as the count proof",
+			Origin:    "pre_complete.deterministic_count_proof",
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — deterministic count proof is missing.\n\n")
+	b.WriteString("This is a count question whose answer is a derived integer. The investigation has read/evidence items, but no successful `exec_command` result with an integer count. Do not close from visual tallying of read_file or grep snippets.\n\n")
+	b.WriteString("Run a deterministic counting command that prints the final integer (for example: `rg ... | <production/comment/test filter> | wc -l`, `find ... | wc -l`, `wc -l ...`, or the platform-equivalent command for the repository language), then re-call emit_investigation_complete. If the count depends on reading and judging each candidate rather than a fixed syntax match, mark the question as relationship-filtered so the enumerate-then-count path applies.")
+	return b.String()
+}
+
+func hasDeterministicCountToolResult(ctx *types.BusContext) bool {
+	for _, tr := range deterministicCountToolResults(ctx) {
+		if tr.ToolName != "exec_command" || !tr.Success {
+			continue
+		}
+		if hasIntegerLiteralInText(tr.Summary) {
+			return true
+		}
+	}
+	return false
+}
+
+func deterministicCountToolResults(ctx *types.BusContext) []types.ToolResult {
+	if ctx == nil {
+		return nil
+	}
+	var out []types.ToolResult
+	out = append(out, ctx.ToolResults...)
+	if ctx.Mutable != nil {
+		out = append(out, ctx.Mutable.DispatchToolResults()...)
+	}
+	return out
+}
+
+func hasIntegerLiteralInText(text string) bool {
+	return regexp.MustCompile(`(^|[^A-Za-z0-9_])-?[0-9]+([^A-Za-z0-9_]|$)`).FindStringIndex(text) != nil
 }
 
 type fieldValueCountTarget struct {
