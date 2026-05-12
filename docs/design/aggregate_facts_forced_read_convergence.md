@@ -398,6 +398,50 @@ This is the general answer to "can the system enumerate every user ask": no,
 but it can force each new answer-surface family to declare its typed profile
 before it can influence hard gates.
 
+## Workstream J: Read-Mode Shell Mutation Gate
+
+### Problem
+
+The architecture/sequence E2E exposed an L1 red-line failure. A reconcile
+dispatch was routed through `StageExplore`, where `exec_command` is exposed for
+deterministic read-only computations. The model used free-form shell heredocs
+to write `docs/ARCHITECTURE.md` and PlantUML files in read mode. Prompt text
+already said "do not modify files", but a prompt-only prohibition cannot
+enforce byte preservation.
+
+### Design
+
+Make `exec_command` read-mode safe at the tool execution boundary:
+
+- Any non-write pipeline stage must pass a deterministic read-only shell
+  validator before execution.
+- Write stages (`StagePlan`, `StageApply`, `StageVerify`,
+  `StageWriteAnalyze`) preserve their existing escape hatch because they run
+  under the write-mode/worktree contract.
+- The validator permits common read-only command pipelines used for counts and
+  inspection (`find ... | wc -l`, `grep`, `rg`, `git status`, `git diff`,
+  `sed -n`, `awk`, `sort`, `uniq`, etc.).
+- It rejects precise shell mutation surfaces:
+  - output/input redirection and heredocs (`>`, `>>`, `<<`, `2>`, `&>`),
+  - command substitution,
+  - mutating command names (`mkdir`, `rm`, `mv`, `cp`, `tee`, shells,
+    language interpreters, etc. via allowlist exclusion),
+  - mutating options on otherwise read-oriented tools (`find -delete`,
+    `find -exec`, `sed -i`, unsafe `git` subcommands).
+- The gate is lexical and quote-aware, so operators inside quoted grep/printf
+  patterns do not false-trigger.
+
+This is a hard gate over the exact shell string the model authored. It is not a
+semantic keyword match on the user request, and it does not synthesize answers.
+
+### Tests
+
+- Read mode rejects heredoc writes and does not create the target file.
+- Read mode rejects `mkdir`, `tee`, `find -delete`, `git clean`, and `sed -i`.
+- Read mode allows read-only pipelines and quoted operator characters.
+- Write-stage exec remains available for worktree-contained apply/verify
+  commands.
+
 ## Delivery Order
 
 1. Land this design document.
@@ -421,3 +465,5 @@ before it can influence hard gates.
    future diagram syntax goes through the same profile/validator/test surface.
 9. Implement Workstream H before further E2E tuning; otherwise support-lane
    richness remains vulnerable to doc-comment line drift.
+10. Implement Workstream J before running further real E2E evals; otherwise
+    read-mode validation can pollute the user's checkout while investigating.

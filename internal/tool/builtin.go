@@ -316,6 +316,13 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	if err := json.Unmarshal(params, &p); err != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
+	if shouldGateExecCommandAsReadOnly(ctx) {
+		if err := validateReadOnlyExecCommand(p.Command); err != nil {
+			result := readOnlyExecRefusal(p.Command, err)
+			result.Timestamp = time.Now()
+			return result, nil
+		}
+	}
 
 	// Multi-repo active-set gate: the path gate covers read_file /
 	// grep / list_files / repo_map but exec_command is the free-form

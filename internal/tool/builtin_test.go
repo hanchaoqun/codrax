@@ -377,6 +377,82 @@ func TestExecCommand(t *testing.T) {
 	})
 }
 
+func TestExecCommand_ReadModeShellWriteGate(t *testing.T) {
+	t.Run("rejects heredoc redirection without writing", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		ctx := newBusContext()
+		ctx.RepoRoot = tmpDir
+		ctx.Mode = types.ModeRead
+		ctx.PipelineStage = types.StageExplore
+		tool := &ExecCommand{}
+		params, _ := json.Marshal(execCommandParams{
+			Command: "cat > docs/ARCHITECTURE.md << 'EOF'\nhello\nEOF",
+		})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Success {
+			t.Fatalf("read-mode write redirection must be refused; got %q", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "read-mode shell commands must be read-only") {
+			t.Fatalf("expected read-only refusal, got %q", result.Summary)
+		}
+		if _, err := os.Stat(filepath.Join(tmpDir, "docs", "ARCHITECTURE.md")); !os.IsNotExist(err) {
+			t.Fatalf("refused command must not create docs/ARCHITECTURE.md; stat err=%v", err)
+		}
+	})
+
+	t.Run("rejects mutating commands", func(t *testing.T) {
+		for _, command := range []string{
+			"mkdir -p docs/diagrams",
+			"printf hi | tee docs/out.txt",
+			"find . -name '*.tmp' -delete",
+			"git clean -fd",
+			"sed -i 's/a/b/' file.txt",
+		} {
+			if err := validateReadOnlyExecCommand(command); err == nil {
+				t.Fatalf("validateReadOnlyExecCommand(%q) unexpectedly allowed", command)
+			}
+		}
+	})
+
+	t.Run("allows read-only pipelines and quoted operators", func(t *testing.T) {
+		for _, command := range []string{
+			"printf 'a > b\\n' | wc -l",
+			"find . -name '*.go' | wc -l",
+			"git status --short && git diff --stat",
+			"grep -R 'StageExplore' internal | head -5",
+		} {
+			if err := validateReadOnlyExecCommand(command); err != nil {
+				t.Fatalf("validateReadOnlyExecCommand(%q) = %v, want allowed", command, err)
+			}
+		}
+	})
+
+	t.Run("write stage keeps worktree debug escape hatch", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		ctx := newBusContext()
+		ctx.RepoRoot = tmpDir
+		ctx.Mode = types.ModeApply
+		ctx.PipelineStage = types.StageApply
+		tool := &ExecCommand{}
+		params, _ := json.Marshal(execCommandParams{
+			Command: "mkdir -p out && printf hi > out/result.txt",
+		})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("write-stage exec_command should run in the worktree context; got %q", result.Summary)
+		}
+		if _, err := os.Stat(filepath.Join(tmpDir, "out", "result.txt")); err != nil {
+			t.Fatalf("write-stage command did not create expected temp file: %v", err)
+		}
+	})
+}
+
 // fakeActiveSetGater is a stand-in for *multigraph.MultiGraph that
 // can't be imported here without a cycle (internal/tool/repomap →
 // internal/tool). We only need to verify that ExecCommand wires
