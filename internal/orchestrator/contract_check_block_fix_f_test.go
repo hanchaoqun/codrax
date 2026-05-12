@@ -268,6 +268,71 @@ func TestFixF_IsCodeContextDiagramKind_Table(t *testing.T) {
 	}
 }
 
+func TestDiagramKindBodyCoherence_SequenceBodyRequiresSequenceKind(t *testing.T) {
+	doc := docWithDiagramKind(
+		"seq",
+		"sequenceDiagram\n",
+		types.DiagramArchitecture,
+	)
+	doc.Blocks[0].Diagram.Language = "mermaid"
+	view := &types.AnswerSemanticView{
+		DiagramPlan: &types.DiagramFacetGraph{
+			Kind:     types.DiagramArchitecture,
+			Required: false,
+		},
+	}
+	vs := validateDiagramEdgeSupport(doc, view)
+	if len(vs) != 1 {
+		t.Fatalf("sequence body + architecture kind must fail exactly once, got %+v", vs)
+	}
+	if vs[0].Kind != types.ViolDiagramEdgeUnsupported {
+		t.Fatalf("kind = %q, want %q", vs[0].Kind, types.ViolDiagramEdgeUnsupported)
+	}
+	if !strings.Contains(vs[0].Detail, "sequence") || !strings.Contains(vs[0].Detail, "architecture") {
+		t.Fatalf("detail should explain kind/body mismatch, got %q", vs[0].Detail)
+	}
+}
+
+func TestDiagramKindBodyCoherence_FlowBodyAllowsArchitectureKind(t *testing.T) {
+	doc := docWithDiagramKind(
+		"arch",
+		"flowchart TD\n",
+		types.DiagramArchitecture,
+	)
+	doc.Blocks[0].Diagram.Language = "mermaid"
+	view := &types.AnswerSemanticView{
+		DiagramPlan: &types.DiagramFacetGraph{
+			Kind:     types.DiagramArchitecture,
+			Required: false,
+		},
+	}
+	if vs := validateDiagramEdgeSupport(doc, view); len(vs) != 0 {
+		t.Fatalf("flowchart syntax is valid for architecture semantic diagrams; got %+v", vs)
+	}
+}
+
+func TestDiagramKindBodyCoherence_FlowBodyRejectsSequenceKind(t *testing.T) {
+	doc := docWithDiagramKind(
+		"flow",
+		"graph LR\n",
+		types.DiagramSequence,
+	)
+	doc.Blocks[0].Diagram.Language = "mermaid"
+	view := &types.AnswerSemanticView{
+		DiagramPlan: &types.DiagramFacetGraph{
+			Kind:     types.DiagramSequence,
+			Required: false,
+		},
+	}
+	vs := validateDiagramEdgeSupport(doc, view)
+	if len(vs) != 1 {
+		t.Fatalf("flow body + sequence kind must fail exactly once, got %+v", vs)
+	}
+	if !strings.Contains(vs[0].Detail, "flow") || !strings.Contains(vs[0].Detail, "sequence") {
+		t.Fatalf("detail should explain kind/body mismatch, got %q", vs[0].Detail)
+	}
+}
+
 // TestFixF_IsCodeContextRelationKind_Table pins the relation-kind
 // branch.
 func TestFixF_IsCodeContextRelationKind_Table(t *testing.T) {

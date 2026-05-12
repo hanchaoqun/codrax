@@ -3,6 +3,7 @@ package agent
 import (
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 )
 
@@ -143,6 +144,50 @@ func TestSymbolResolver_PathFallbackWhenPackageMissing(t *testing.T) {
 		if len(hits) != 1 || hits[0].Domain != c.domain {
 			t.Fatalf("file=%q expected domain=%q, got hits=%+v", c.file, c.domain, hits)
 		}
+	}
+}
+
+func TestSymbolResolver_LookupFileSurface_ExactAndUniqueBasename(t *testing.T) {
+	g := makeGraph(nil, map[string]*repomap.FileInfo{
+		"internal/orchestrator/orchestrator.go": {RelPath: "internal/orchestrator/orchestrator.go", Package: "orchestrator"},
+		"entry/src/main/ets/pages/Index.ets":    {RelPath: "entry/src/main/ets/pages/Index.ets", Package: "pages"},
+		"pkg/foo.cj":                            {RelPath: "pkg/foo.cj", Package: "pkg"},
+		"src/lib.cpp":                           {RelPath: "src/lib.cpp", Package: "src"},
+	})
+	r := newRepomapSymbolResolver(g).(interface {
+		LookupFileSurface(string) []normalizer.SymbolHit
+	})
+	cases := []struct {
+		query string
+		want  string
+	}{
+		{"internal/orchestrator/orchestrator.go", "internal/orchestrator/orchestrator.go"},
+		{"orchestrator.go", "internal/orchestrator/orchestrator.go"},
+		{"Index.ets", "entry/src/main/ets/pages/Index.ets"},
+		{"pkg/foo.cj", "pkg/foo.cj"},
+		{"src/lib.cpp", "src/lib.cpp"},
+	}
+	for _, tc := range cases {
+		hits := r.LookupFileSurface(tc.query)
+		if len(hits) != 1 {
+			t.Fatalf("LookupFileSurface(%q) hits=%d, want 1", tc.query, len(hits))
+		}
+		if hits[0].Canonical != tc.want {
+			t.Fatalf("LookupFileSurface(%q) canonical=%q, want %q", tc.query, hits[0].Canonical, tc.want)
+		}
+	}
+}
+
+func TestSymbolResolver_LookupFileSurface_AmbiguousBasenameReturnsNil(t *testing.T) {
+	g := makeGraph(nil, map[string]*repomap.FileInfo{
+		"internal/a/config.go": {RelPath: "internal/a/config.go"},
+		"internal/b/config.go": {RelPath: "internal/b/config.go"},
+	})
+	r := newRepomapSymbolResolver(g).(interface {
+		LookupFileSurface(string) []normalizer.SymbolHit
+	})
+	if hits := r.LookupFileSurface("config.go"); len(hits) != 0 {
+		t.Fatalf("ambiguous basename must not become a hard gate signal; got %+v", hits)
 	}
 }
 

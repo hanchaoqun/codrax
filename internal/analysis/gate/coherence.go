@@ -476,12 +476,16 @@ func summaryShort(s string, runeMax int) string {
 // subTopicEntityResolvedForCoherence returns true when a sub-topic
 // entity has enough typed grounding to avoid R1.5's hallucination
 // branch. The primary route remains resolver.LookupSymbol /
-// LookupSymbolStem. The category-enumeration fallback is deliberately
-// narrow: it accepts only analyzer-authored bounded member surfaces
-// whose token shape is a cross-language code identity. This covers
-// module/package/directory members in Python, Java/Kotlin, JS/TS,
-// Rust, C/C++, C#, ArkTS, Cangjie, and path-like repo layouts without
-// pretending those containers are Go symbols.
+// LookupSymbolStem. A resolver may also expose LookupFileSurface for
+// repo-file anchors: sub-topic entities such as `orchestrator.go`,
+// `Index.ets`, `foo.cj`, `src/lib.cpp`, or `package.json` are valid
+// structural surfaces when they resolve to a unique FileIndex member,
+// even though they are not symbols. The category-enumeration fallback
+// is deliberately narrow: it accepts only analyzer-authored bounded
+// member surfaces whose token shape is a cross-language code identity.
+// This covers module/package/directory members in Python, Java/Kotlin,
+// JS/TS, Rust, C/C++, C#, ArkTS, Cangjie, and path-like repo layouts
+// without pretending those containers are Go symbols.
 func subTopicEntityResolvedForCoherence(surface string, rm types.RequestModel, resolver normalizer.SymbolResolver) bool {
 	trimmed := strings.TrimSpace(surface)
 	if trimmed == "" {
@@ -500,6 +504,13 @@ func subTopicEntityResolvedForCoherence(surface string, rm types.RequestModel, r
 			LookupSymbolStem(string) []normalizer.SymbolHit
 		}); ok {
 			if hits := stemr.LookupSymbolStem(trimmed); len(hits) > 0 {
+				return true
+			}
+		}
+		if filer, ok := resolver.(interface {
+			LookupFileSurface(string) []normalizer.SymbolHit
+		}); ok {
+			if hits := filer.LookupFileSurface(trimmed); len(hits) > 0 {
 				return true
 			}
 		}

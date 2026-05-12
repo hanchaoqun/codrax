@@ -42,6 +42,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	coretypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
 // maxSymbolResolverHits caps the slice LookupSymbol returns so a
@@ -118,6 +119,19 @@ func (r *repomapSymbolResolver) LookupSymbol(surface string) []normalizer.Symbol
 		}
 	}
 	return hits
+}
+
+// LookupFileSurface resolves analyzer-emitted file surfaces against
+// repomap's FileIndex. It is intentionally separate from LookupSymbol:
+// a repo file path / basename is a structural anchor for architecture,
+// trace, config, and cross-language questions, but it must not be
+// smuggled into the symbol table. Exact repo-relative paths win; short
+// basenames and suffix paths are accepted only when unique.
+func (r *repomapSymbolResolver) LookupFileSurface(surface string) []normalizer.SymbolHit {
+	if r == nil || r.graph == nil || len(r.graph.FileIndex) == 0 {
+		return nil
+	}
+	return lookupFileSurfaceInGraph(surface, r.graph)
 }
 
 // roleSuffixCanonicalLowers is the canonical list of role-naming
@@ -264,6 +278,78 @@ func symbolDomain(g *repomap.Graph, sym *repomap.Symbol) string {
 	return path.Base(parent)
 }
 
+func lookupFileSurfaceInGraph(surface string, g *repomap.Graph) []normalizer.SymbolHit {
+	if g == nil || len(g.FileIndex) == 0 {
+		return nil
+	}
+	query := normalizeFileSurfaceForResolver(surface)
+	if query == "" || !coretypes.HasCodeOrConfigPathSuffix(query) {
+		return nil
+	}
+	if fi := g.FileIndex[query]; fi != nil {
+		return []normalizer.SymbolHit{{Canonical: query, Domain: fileInfoDomain(query, fi)}}
+	}
+	var (
+		matchPath string
+		matchInfo *rmtypes.FileInfo
+		matches   int
+	)
+	for rel, fi := range g.FileIndex {
+		if fi == nil {
+			continue
+		}
+		rel = strings.TrimSpace(strings.ReplaceAll(rel, "\\", "/"))
+		if rel == "" {
+			continue
+		}
+		if fileSurfaceMatches(query, rel) {
+			matchPath = rel
+			matchInfo = fi
+			matches++
+			if matches > 1 {
+				return nil
+			}
+		}
+	}
+	if matches != 1 {
+		return nil
+	}
+	return []normalizer.SymbolHit{{Canonical: matchPath, Domain: fileInfoDomain(matchPath, matchInfo)}}
+}
+
+func normalizeFileSurfaceForResolver(surface string) string {
+	s := strings.TrimSpace(strings.ReplaceAll(surface, "\\", "/"))
+	for strings.HasPrefix(s, "./") {
+		s = strings.TrimPrefix(s, "./")
+	}
+	s = strings.TrimPrefix(s, "/")
+	return path.Clean(s)
+}
+
+func fileSurfaceMatches(query, rel string) bool {
+	if query == "" || rel == "" {
+		return false
+	}
+	if rel == query {
+		return true
+	}
+	if strings.Contains(query, "/") {
+		return strings.HasSuffix(rel, "/"+query)
+	}
+	return path.Base(rel) == query
+}
+
+func fileInfoDomain(rel string, fi *rmtypes.FileInfo) string {
+	if fi != nil && strings.TrimSpace(fi.Package) != "" {
+		return strings.TrimSpace(fi.Package)
+	}
+	parent := path.Dir(strings.TrimSpace(rel))
+	if parent == "" || parent == "." {
+		return ""
+	}
+	return path.Base(parent)
+}
+
 // === Multi-repo SymbolResolver (B2, 2026-05-10) ===
 //
 // multiRepoSymbolResolver implements normalizer.SymbolResolver atop
@@ -352,6 +438,60 @@ func (r *multiRepoSymbolResolver) LookupSymbol(surface string) []normalizer.Symb
 	return r.adaptHits(hits)
 }
 
+// LookupFileSurface is the multi-repo counterpart to the single-graph
+// file-surface resolver. It accepts exact path-from-parent, exact
+// sub-repo-internal path, and unique basename/suffix matches across
+// the active set. Ambiguous basenames return nil so R1.5 remains a
+// precise hard gate.
+func (r *multiRepoSymbolResolver) LookupFileSurface(surface string) []normalizer.SymbolHit {
+	if r == nil || r.mg == nil {
+		return nil
+	}
+	query := normalizeFileSurfaceForResolver(surface)
+	if query == "" || !coretypes.HasCodeOrConfigPathSuffix(query) {
+		return nil
+	}
+	if fi, sub, ok := r.mg.FileInfoFor(query); ok {
+		canon := multigraph.SubRepoRelPath(sub, fi.RelPath)
+		return []normalizer.SymbolHit{{Canonical: canon, Domain: fileSurfaceDomain(canon, fi, sub)}}
+	}
+	var (
+		matchCanon string
+		matchInfo  *rmtypes.FileInfo
+		matchSub   *topology.SubRepo
+		matches    int
+	)
+	r.mg.IterateFileIndex(func(internalRel string, fi *rmtypes.FileInfo, sub *topology.SubRepo) bool {
+		if fi == nil {
+			return true
+		}
+		internalRel = normalizeFileSurfaceForResolver(internalRel)
+		canon := multigraph.SubRepoRelPath(sub, internalRel)
+		if fileSurfaceMatches(query, internalRel) || fileSurfaceMatches(query, canon) {
+			matchCanon = canon
+			matchInfo = fi
+			matchSub = sub
+			matches++
+			return matches <= 1
+		}
+		return true
+	})
+	if matches != 1 {
+		return nil
+	}
+	return []normalizer.SymbolHit{{Canonical: matchCanon, Domain: fileSurfaceDomain(matchCanon, matchInfo, matchSub)}}
+}
+
+func fileSurfaceDomain(rel string, fi *rmtypes.FileInfo, sub *topology.SubRepo) string {
+	if fi != nil && strings.TrimSpace(fi.Package) != "" {
+		return strings.TrimSpace(fi.Package)
+	}
+	if sub != nil && strings.TrimSpace(sub.RootRel) != "" && sub.RootRel != "." {
+		return strings.TrimSpace(sub.RootRel)
+	}
+	return fileInfoDomain(rel, fi)
+}
+
 // LookupSymbolStem is the multi-repo counterpart of
 // repomapSymbolResolver.LookupSymbolStem. Same role-suffix stripping
 // (stripRoleSuffix / stemSuffixFloor); fan-out via IterateSymbolDefs.
@@ -395,8 +535,8 @@ func (r *multiRepoSymbolResolver) LookupSymbolStem(surface string) []normalizer.
 
 // adaptHits maps multigraph.SymbolHit → normalizer.SymbolHit with
 // per-sub-repo Domain enrichment and dedup. Domain priority:
-//   1. per-graph symbolDomain (FileInfo.Package or parent-dir basename)
-//   2. owning sub-repo's RootRel (cross-sub-repo "code area" tag)
+//  1. per-graph symbolDomain (FileInfo.Package or parent-dir basename)
+//  2. owning sub-repo's RootRel (cross-sub-repo "code area" tag)
 //
 // Dedup key includes Domain so the same Symbol resolved through
 // different sub-repos (rare but possible — vendored modules etc.)

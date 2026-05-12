@@ -346,6 +346,63 @@ func TestSemanticQualityTopicMismatchMinConfidence(t *testing.T) {
 	}
 }
 
+func TestSemanticQualityStrictCoverageViolation_ShallowPromotedFacet(t *testing.T) {
+	in := SemanticQualityInput{
+		PromotedFacetCoverage: []FacetCoverageDepth{
+			{Kind: string(types.FacetCurrentCodePath), DeclaredCount: 4, AnchoredCount: 0},
+		},
+	}
+	concern := SemanticQualityConcern{
+		Kind:  semanticConcernCoverageGap,
+		Topic: "Current code path",
+	}
+	got, ok := semanticQualityStrictCoverageViolation(concern, in)
+	if !ok {
+		t.Fatal("shallow promoted facet coverage gap should become a strict runtime violation")
+	}
+	if got != types.ViolPrincipalProseUnderfilled {
+		t.Fatalf("kind=%q, want %q", got, types.ViolPrincipalProseUnderfilled)
+	}
+}
+
+func TestSemanticQualityStrictCoverageViolation_RichnessGapRemainsSoft(t *testing.T) {
+	in := SemanticQualityInput{
+		PromotedFacetCoverage: []FacetCoverageDepth{
+			{Kind: string(types.FacetCurrentCodePath), DeclaredCount: 4, AnchoredCount: 0},
+		},
+	}
+	concern := SemanticQualityConcern{
+		Kind:  semanticConcernRichnessGap,
+		Topic: "Current code path",
+	}
+	if got, ok := semanticQualityStrictCoverageViolation(concern, in); ok {
+		t.Fatalf("richness_gap must remain soft, got strict kind %q", got)
+	}
+}
+
+func TestSemanticQualityStrictCoverageViolation_RequiredDiagramGap(t *testing.T) {
+	in := SemanticQualityInput{
+		DiagramContract: &SemanticDiagramSummary{
+			Required:     true,
+			BlockPresent: true,
+			Edges: []SemanticDiagramEdgeContract{
+				{RelationKind: "call", MinExpected: 2, MinSatisfied: 1},
+			},
+		},
+	}
+	concern := SemanticQualityConcern{
+		Kind:  semanticConcernDiagramGap,
+		Topic: "diagram",
+	}
+	got, ok := semanticQualityStrictCoverageViolation(concern, in)
+	if !ok {
+		t.Fatal("required diagram edge shortfall should become a strict runtime violation")
+	}
+	if got != types.ViolDiagramEdgeUnsupported {
+		t.Fatalf("kind=%q, want %q", got, types.ViolDiagramEdgeUnsupported)
+	}
+}
+
 // R4 lock — reviewer prompts + retry hint surface must NOT contain
 // stage codenames or Go type names.
 func TestSemanticQualityReviewer_Prompts_NoLLMFacingJargon(t *testing.T) {

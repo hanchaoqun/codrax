@@ -255,6 +255,9 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 	if diagramBlock == nil || diagramBlock.Diagram == nil {
 		return nil
 	}
+	if v := validateDiagramKindBodyCoherence(diagramBlock); v != nil {
+		return []types.Violation{*v}
+	}
 	// Kind-mismatch HARD reject only when the plan is REQUIRED. When
 	// the explore phase couldn't find enough typed-edge evidence to
 	// mandate a specific diagram kind (DiagramPlan.Required=false —
@@ -340,6 +343,69 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 	// endpoints. Plus each DiagramFacetGraph.EdgeRelations contract
 	// with Min>0 must be met by at least Min labelled edges.
 	return validateDiagramRelationLegality(doc, view, diagramBlock, edges)
+}
+
+func validateDiagramKindBodyCoherence(diagramBlock *types.AnswerBlock) *types.Violation {
+	if diagramBlock == nil || diagramBlock.Diagram == nil {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(diagramBlock.Diagram.Language), "mermaid") {
+		return nil
+	}
+	family := mermaidBodySyntaxFamily(diagramBlock.Diagram.Body)
+	if family == "" {
+		return nil
+	}
+	kind := diagramBlock.Diagram.Kind
+	mismatch := false
+	switch family {
+	case "sequence":
+		mismatch = kind != types.DiagramNone && kind != types.DiagramSequence
+	case "flow":
+		// Mermaid flowchart/graph syntax is the carrier for flow,
+		// architecture, and call-DAG semantic families. The only
+		// impossible declaration is `sequence`.
+		mismatch = kind == types.DiagramSequence
+	}
+	if !mismatch {
+		return nil
+	}
+	return &types.Violation{
+		Kind: types.ViolDiagramEdgeUnsupported,
+		Detail: fmt.Sprintf(
+			"diagram block id=%q declared semantic kind=%s but its Mermaid body uses %s syntax",
+			diagramBlock.ID, kind, family),
+		Repair: fmt.Sprintf(
+			"re-emit the diagram with diagram.kind=%s, or rewrite diagram.body to match the declared semantic family",
+			family),
+		ClusterKey: blockClusterKey(diagramBlock.ID, "diagram_kind_body"),
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "diagram_kind",
+			Reason:     "diagram semantic kind disagrees with Mermaid syntax family",
+			Confidence: 0.85,
+		},
+		Stage: string(types.StageFinalize),
+	}
+}
+
+func mermaidBodySyntaxFamily(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		if lower == "" || strings.HasPrefix(lower, "%%") {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(lower, "sequencediagram"):
+			return "sequence"
+		case strings.HasPrefix(lower, "flowchart ") ||
+			strings.HasPrefix(lower, "flowchart\t") ||
+			strings.HasPrefix(lower, "graph "):
+			return "flow"
+		default:
+			return ""
+		}
+	}
+	return ""
 }
 
 // validateDiagramRelationLegality is the Phase 3-C5 Layer-2 check.

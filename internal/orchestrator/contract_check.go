@@ -2433,6 +2433,20 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 			rootField = "answer_semantic_topic"
 			repair = fmt.Sprintf("[%d/%d] rewrite the answer around the requested topic %q. %s",
 				i+1, len(concerns), c.Topic, c.Suggestion)
+		} else if strictKind, ok := semanticQualityStrictCoverageViolation(c, in); ok {
+			kind = strictKind
+			switch strictKind {
+			case types.ViolPrincipalProseUnderfilled:
+				detailPrefix = "answer_prose_underfilled"
+				rootField = "answer_prose_density"
+				repair = fmt.Sprintf("[%d/%d] add inline grounded identifiers for the shallow required facet %q. %s",
+					i+1, len(concerns), c.Topic, c.Suggestion)
+			case types.ViolDiagramEdgeUnsupported:
+				detailPrefix = "answer_diagram_gap"
+				rootField = "diagram_block"
+				repair = fmt.Sprintf("[%d/%d] repair the required diagram coverage for %q. %s",
+					i+1, len(concerns), c.Topic, c.Suggestion)
+			}
 		}
 		if reasoning != "" {
 			repair += fmt.Sprintf(" Reviewer rationale: %s", reasoning)
@@ -2456,6 +2470,17 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 			})
 			continue
 		}
+		if kind == types.ViolPrincipalProseUnderfilled || kind == types.ViolDiagramEdgeUnsupported {
+			out = append(out, types.Violation{
+				Kind:          kind,
+				Detail:        detail,
+				Repair:        repair,
+				ClusterKey:    clusterKey,
+				SuspectedRoot: root,
+				Stage:         string(types.StageFinalize),
+			})
+			continue
+		}
 		out = append(out, types.Violation{
 			Kind:          types.ViolAnswerSemanticUnderfilled,
 			Detail:        detail,
@@ -2468,4 +2493,85 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 	logging.Info("[semantic_quality_reviewer] emitted %d concern(s) at confidence=%.2f reasoning=%q",
 		len(verdict.Concerns), verdict.Confidence, verdict.Reasoning)
 	return out
+}
+
+func semanticQualityStrictCoverageViolation(
+	concern SemanticQualityConcern,
+	in SemanticQualityInput,
+) (types.ViolationKind, bool) {
+	switch normaliseSemanticQualityConcernKind(concern.Kind) {
+	case semanticConcernCoverageGap, semanticConcernGroundingGap:
+		if semanticQualityConcernTargetsShallowPromotedFacet(concern, in) {
+			return types.ViolPrincipalProseUnderfilled, true
+		}
+	case semanticConcernDiagramGap:
+		if semanticQualityInputHasHardDiagramGap(in) {
+			return types.ViolDiagramEdgeUnsupported, true
+		}
+	}
+	return "", false
+}
+
+func semanticQualityConcernTargetsShallowPromotedFacet(
+	concern SemanticQualityConcern,
+	in SemanticQualityInput,
+) bool {
+	if len(in.PromotedFacetCoverage) == 0 {
+		return false
+	}
+	topic := semanticQualityTopicKey(concern.Topic)
+	shallow := 0
+	matched := false
+	for _, fc := range in.PromotedFacetCoverage {
+		if fc.DeclaredCount <= 0 || fc.AnchoredCount > 0 {
+			continue
+		}
+		shallow++
+		if topic == "" {
+			continue
+		}
+		if topic == semanticQualityTopicKey(fc.Kind) ||
+			topic == semanticQualityTopicKey(types.AnswerFacetPublicLabelString(fc.Kind)) {
+			matched = true
+		}
+	}
+	if matched {
+		return true
+	}
+	return topic == "" && shallow == 1
+}
+
+func semanticQualityInputHasHardDiagramGap(in SemanticQualityInput) bool {
+	d := in.DiagramContract
+	if d == nil || !d.Required {
+		return false
+	}
+	if !d.BlockPresent || d.BodyTrimmedLen == 0 {
+		return true
+	}
+	for _, edge := range d.Edges {
+		if edge.MinExpected > edge.MinSatisfied {
+			return true
+		}
+	}
+	return false
+}
+
+func semanticQualityTopicKey(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '_' || r == '-' || r == ' ':
+			b.WriteRune('_')
+		}
+	}
+	return strings.Trim(b.String(), "_")
 }

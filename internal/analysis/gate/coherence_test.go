@@ -15,6 +15,7 @@ import (
 // matters; no test today depends on iteration order beyond presence).
 type fakeSymbolResolver struct {
 	byEntity map[string][]normalizer.SymbolHit
+	byFile   map[string][]normalizer.SymbolHit
 }
 
 func (f *fakeSymbolResolver) LookupSymbol(surface string) []normalizer.SymbolHit {
@@ -22,6 +23,16 @@ func (f *fakeSymbolResolver) LookupSymbol(surface string) []normalizer.SymbolHit
 		return nil
 	}
 	if hits, ok := f.byEntity[strings.TrimSpace(surface)]; ok {
+		return hits
+	}
+	return nil
+}
+
+func (f *fakeSymbolResolver) LookupFileSurface(surface string) []normalizer.SymbolHit {
+	if f == nil {
+		return nil
+	}
+	if hits, ok := f.byFile[strings.TrimSpace(surface)]; ok {
 		return hits
 	}
 	return nil
@@ -368,6 +379,44 @@ func TestSubtopicCoherence_R1_5_ExternalOnlyArtifactEntities_BypassRepoResolver(
 	ir := coherenceFixtureIR(rm)
 	if check := checkSubtopicCoherence(ir, resolver); !check.Passed {
 		t.Fatalf("external-only artifact entities must bypass repo-symbol R1.5, got %+v", check)
+	}
+}
+
+func TestSubtopicCoherence_R1_5_FileSurfaceEntitiesResolve(t *testing.T) {
+	// Architecture / trace planning often uses files as principal
+	// surfaces: `Index.ets`, `foo.cj`, `orchestrator.go`, or
+	// `src/lib.cpp` are valid anchors when FileIndex resolves them,
+	// even though they are not symbols. R1.5 must consume the typed
+	// file-surface lane instead of forcing the LLM to invent symbol
+	// names for a file-shaped sub-topic.
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"Orchestrator": {{Canonical: "Orchestrator", Domain: "orchestrator"}},
+		},
+		byFile: map[string][]normalizer.SymbolHit{
+			"orchestrator.go": {{Canonical: "internal/orchestrator/orchestrator.go", Domain: "orchestrator"}},
+			"Index.ets":       {{Canonical: "entry/src/main/ets/pages/Index.ets", Domain: "pages"}},
+			"pkg/foo.cj":      {{Canonical: "pkg/foo.cj", Domain: "pkg"}},
+			"src/lib.cpp":     {{Canonical: "src/lib.cpp", Domain: "src"}},
+		},
+	}
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCrossComponent: true},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"Orchestrator", "logical view"},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "symbol-backed control flow", Entities: []string{"Orchestrator"}},
+			{Summary: "file-backed sequence diagram", Entities: []string{"orchestrator.go", "Index.ets", "pkg/foo.cj", "src/lib.cpp"}},
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	check := checkSubtopicCoherence(ir, resolver)
+	if !check.Passed {
+		t.Fatalf("R1.5 must accept file-surface entities resolved by FileIndex; got %+v", check)
+	}
+	if strings.Contains(check.Detail, "R1.5") {
+		t.Fatalf("detail must not include an R1.5 hard-fail; got %q", check.Detail)
 	}
 }
 

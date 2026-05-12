@@ -179,6 +179,119 @@ Extend the shared grounding verifier, not the extractor prompt:
 - Existing strictness remains: unrelated comments and non-adjacent definitions
   still reject.
 
+## Workstream D: Sub-topic Entity Surface Typing
+
+### Problem
+
+After Workstream C, the same architecture/sequence request still burned two
+analyzer attempts. The first attempt marked the request as cross-component
+without emitting `sub_topics`. The second attempt repaired that but used file
+surfaces (`orchestrator.go`, `context.go`, `explorer.go`) as sub-topic
+entities. The subtopic-coherence R1.5 gate treated those as failed repo-symbol
+lookups and rejected them, even though they were valid FileIndex members and
+were already listed as high-confidence required files.
+
+This is the same principal/context boundary in another layer: answer-bearing
+objects can be symbols, files, paths, packages, modules, routes, or config
+keys. A hard gate that assumes every entity must be a symbol causes retry
+storms and may pressure the model into inventing symbol names.
+
+### Design
+
+- Keep `normalizer.SymbolResolver.LookupSymbol` as the symbol lane.
+- Add an optional `LookupFileSurface(surface)` capability on resolver
+  implementations. The gate consumes it only through an interface assertion, so
+  tests and older adapters remain nil-safe.
+- A file surface resolves when:
+  - the exact repo-relative path is in FileIndex, or
+  - a basename / suffix resolves to exactly one FileIndex entry.
+- Ambiguous basenames return no hit. A hard gate must not treat noisy path
+  guesses as proof.
+- Reuse the central cross-language code/config suffix table, so Go, C/C++,
+  Cangjie, ArkTS/ETS, Java/Kotlin, JS/TS, Python, Rust, Swift, Lua, Proto, and
+  declarative config files share the same policy.
+- Multi-repo resolution works against active sub-repos and returns the
+  path-from-parent form, still requiring uniqueness across the active set.
+
+### Tests
+
+- R1.5 accepts mixed symbol-backed and file-backed sub-topics.
+- File-surface lookup accepts exact paths and unique basenames across Go,
+  ArkTS/ETS, Cangjie, and C++ examples.
+- Ambiguous basenames return no file hit and therefore cannot satisfy a hard
+  coherence gate.
+
+## Workstream E: Diagram Kind/Body Coherence
+
+### Problem
+
+The final answer emitted a `diagram` block whose Mermaid body started with
+`sequenceDiagram`, while the structured `diagram.kind` was `architecture`.
+Existing validators allowed this when the family diagram plan was advisory,
+because plan-kind mismatch is intentionally relaxed for optional diagrams.
+That relaxation is correct for semantic family choice, but the body syntax and
+declared semantic family still cannot contradict each other.
+
+### Design
+
+- Validate the diagram block's own structured payload before edge grounding:
+  - `sequenceDiagram` body requires `diagram.kind=sequence`.
+  - `flowchart` / `graph` body is compatible with `flow`, `architecture`, or
+    `call_dag`, but incompatible with `sequence`.
+- The check is structural and precise: it reads the Mermaid directive in
+  `diagram.body`, not the user request text and not a fuzzy label.
+- Keep optional diagram family flexibility: architecture answers may still use
+  flowchart syntax; call DAG answers may still use flowchart syntax.
+- Emit a finalizer-local repair so the model reuses existing citations and
+  fixes only the diagram payload.
+
+### Tests
+
+- `sequenceDiagram` body + `architecture` kind fails.
+- `flowchart` body + `architecture` kind passes.
+- `graph` body + `sequence` kind fails.
+
+## Workstream F: Precise Semantic Quality Promotion
+
+### Problem
+
+The semantic-quality reviewer correctly observed that the final answer declared
+the `current_code_path` facet multiple times but anchored it zero times. The
+same reviewer also noticed typed evidence (`PipelineStage`, `Run`,
+`runAnalyzePhase`, `runTaskGraph`, `runReadSchedulerLoop`, `IsWriteGraph`,
+`stageMapping`, `builtinStageBindings`) was not surfaced in prose. However,
+`answer_semantic_underfilled` is soft by default, so the answer shipped with a
+thin and partly wrong topology narrative.
+
+Making every richness concern strict would overfit and create false positives.
+The hard boundary must use typed runtime state, not subjective reviewer taste.
+
+### Design
+
+- Keep ordinary `richness_gap` as soft.
+- Promote only reviewer concerns that align with precise typed gaps:
+  - `coverage_gap` / `grounding_gap` becomes a strict
+    `principal_prose_underfilled` violation when it targets a promoted facet
+    whose `DeclaredCount > 0` and `AnchoredCount == 0`.
+  - `diagram_gap` becomes strict `diagram_edge_unsupported` only when the
+    typed diagram contract is required and the block is absent/empty or edge
+    minimums are not satisfied.
+  - `topic_mismatch` remains the existing high-severity
+    `answer_topic_mismatch` path.
+- Matching concern topics to facets uses the typed facet id / public label
+  projection supplied to the reviewer. It does not scan the user's raw text for
+  keywords.
+- The repair locus remains finalizer-only: the evidence and citations already
+  exist; the model must re-render the answer around them.
+
+### Tests
+
+- Shallow promoted facet coverage gap promotes to strict
+  `principal_prose_underfilled`.
+- `richness_gap` stays soft even when a promoted facet exists.
+- Required diagram edge shortfall promotes to strict
+  `diagram_edge_unsupported`.
+
 ## Delivery Order
 
 1. Land this design document.
@@ -193,3 +306,8 @@ Extend the shared grounding verifier, not the extractor prompt:
 5. Implement Workstream C if the same-shape run shows doc-comment-to-definition
    drift in the AnswerSymbol slate, then re-run focused and full tests before
    commit/push.
+6. Implement Workstreams D/E/F together because they are all runtime
+   classification/finalizer boundary fixes surfaced by the same E2E.
+7. Re-run focused tests, full `go test ./...`, then the architecture/sequence
+   E2E to confirm analyzer retries and final answer quality improve without
+   system-authored answer completion.
