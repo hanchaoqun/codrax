@@ -164,6 +164,79 @@ CitationReq.Required = false
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_ChangeImpactRequiresStructuredTargetHandoff(t *testing.T) {
+	mut := types.NewMutableState("Which production files need changes if CitationReq.Required changes?")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[internal/agent/analyzer.go: showing lines 1914-1916 of 2200 total]\n" +
+			" 1914│ \tif isMeasurementScalar || isHistoryLookup || rm.HasExternalOnlyRuntimeArtifact() {\n" +
+			" 1915│ \t\tout.AnswerContract.CitationReq.Required = false\n" +
+			" 1916│ \t}\n",
+	})
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "understructured",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1915,
+		LineEnd:         1915,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    "Required",
+		Condition:       "isMeasurementScalar || isHistoryLookup || rm.HasExternalOnlyRuntimeArtifact()",
+		Summary:         "production assignment site sets CitationReq.Required to false",
+		Producer:        EmitEvidenceProducer,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsRelationalLookup:    true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqEnumeration),
+					Entities: []string{"CitationReq.Required"},
+				},
+				ChangeImpactProfile: &types.ChangeImpactProfile{
+					IsChangeImpact:  true,
+					Target:          "CitationReq.Required",
+					RequestedOutput: types.ImpactOutputFiles,
+					Scope:           types.ImpactScopeProduction,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "all affected files were inspected",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "change-impact target handoff is under-structured") {
+		t.Fatalf("expected change-impact handoff downgrade, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "internal/agent/analyzer.go:1915") {
+		t.Fatalf("downgrade should name the under-structured line, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open until the target is carried in structured evidence fields")
+	}
+}
+
 func TestFieldValueCountCandidates_CoversCrossLanguageInitializerSurfaces(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeTestFile(t, repoRoot, "src/config.ets", `

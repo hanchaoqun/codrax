@@ -1124,6 +1124,9 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		if downgrade := exhaustiveEnumerationMemberSetDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
 			return downgrade
 		}
+		if downgrade := changeImpactTargetStructuredHandoffDowngrade(ctx, closure); downgrade != "" {
+			return downgrade
+		}
 		if downgrade := principalSupportMaterializationDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
 			return downgrade
 		}
@@ -1377,6 +1380,94 @@ func aggregateFactsContainMemberSet(facts []types.AnswerAggregateFact) bool {
 		}
 	}
 	return false
+}
+
+func changeImpactTargetStructuredHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return ""
+	}
+	profile := ctx.AnalysisIR.RequestModel.ChangeImpactProfile
+	if profile == nil || !profile.Active() || !profile.RequestedBroadAffectedSites() {
+		return ""
+	}
+	gc := ground.BuildContext(ctx)
+	sourceText := func(item types.EvidenceItem) string {
+		return changeImpactReadTextForEvidence(gc, item)
+	}
+	gaps := types.ChangeImpactPrincipalTargetSurfaceGaps(profile, ctx.Mutable.EmittedEvidence(), sourceText)
+	if len(gaps) == 0 {
+		return ""
+	}
+	files := make([]string, 0, len(gaps))
+	for _, item := range gaps {
+		if file := strings.TrimSpace(item.Source); file != "" {
+			files = append(files, file)
+		}
+	}
+	files = dedupStringsPreserveOrder(files)
+	if closure != nil {
+		rm := ctx.AnalysisIR.RequestModel
+		keywords := dedupStringsPreserveOrder(append(
+			append([]string{strings.TrimSpace(profile.Target)}, rm.AnalyzerHints.ExactTargets...),
+			append(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities...)...,
+		))
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairEmitEvidence,
+			Files:     files,
+			Keywords:  keywords,
+			Rationale: "change-impact affected-site evidence names the target on the cited source line, but the model did not carry that target through structured evidence fields",
+			Origin:    "pre_complete.change_impact_target_surface",
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — change-impact target handoff is under-structured.\n\n")
+	fmt.Fprintf(&b, "The active change-impact target is `%s`. The cited source line(s) below name that target, but the corresponding `emit_evidence` item(s) do not carry it in structured fields such as `anchor_symbol`, `subject`, `object`, `condition`, `snippet`, or `surface_terms`. Summary prose alone is not a principal-member handoff.\n\n", strings.TrimSpace(profile.Target))
+	b.WriteString("Re-emit corrected grounded evidence for these already-read anchor lines, preserving the actual source line in `snippet` and putting the target/owner-qualified member path into a structured field. Then re-call `emit_investigation_complete`.\n")
+	limit := minInt(len(gaps), 8)
+	for i := 0; i < limit; i++ {
+		item := gaps[i]
+		fmt.Fprintf(&b, "  - %s — %s\n", supportLocationForCompletion(item), strings.TrimSpace(changeImpactReadTextForEvidence(gc, item)))
+	}
+	if len(gaps) > limit {
+		fmt.Fprintf(&b, "  ... and %d more\n", len(gaps)-limit)
+	}
+	return b.String()
+}
+
+func changeImpactReadTextForEvidence(gc *ground.Context, item types.EvidenceItem) string {
+	if gc == nil || strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
+		return ""
+	}
+	lines := gc.LineIndex[item.Source]
+	if len(lines) == 0 {
+		return ""
+	}
+	start := item.LineStart
+	end := item.LineEnd
+	if end < start {
+		end = start
+	}
+	if end-start > 6 {
+		end = start + 6
+	}
+	var parts []string
+	for line := start; line <= end; line++ {
+		if text := strings.TrimSpace(lines[line]); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func supportLocationForCompletion(item types.EvidenceItem) string {
+	source := strings.TrimSpace(item.Source)
+	if source == "" {
+		return "-"
+	}
+	if item.LineStart > 0 {
+		return fmt.Sprintf("%s:%d", source, item.LineStart)
+	}
+	return source
 }
 
 func principalSupportMaterializationDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {

@@ -587,6 +587,18 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("- Keep the owner context and the leaf field/value surface together when filtering matches. A bare leaf field in an unrelated owner is context, not a principal hit.\n")
 			b.WriteString("- Classify every candidate as production assignment, comment/doc/test, or unrelated. Do not close on a direct selector grep if aggregate/object/designated-initializer candidates remain unread.\n\n")
 		}
+		if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() && rm.ChangeImpactProfile.RequestedBroadAffectedSites() {
+			target := strings.TrimSpace(rm.ChangeImpactProfile.Target)
+			if target == "" {
+				target = "the changed target"
+			}
+			b.WriteString("### Change-impact Principal Evidence Handoff\n\n")
+			fmt.Fprintf(&b, "The active change-impact target is `%s`. For every affected production site you intend downstream synthesis to list as a principal file/site/symbol, emit grounded evidence whose structured fields carry the target or owner-qualified member path. Summary prose alone is not a handoff.\n\n", target)
+			b.WriteString("- Put the actual cited source line in `snippet` when the line contains the affected selector/member/config path.\n")
+			b.WriteString("- Preserve the target in `anchor_symbol`, `subject`, `object`, `condition`, or `surface_terms` when that surface is visible on the already-read line. For owner-qualified fields, keep owner + member together rather than emitting only the leaf field name.\n")
+			b.WriteString("- If a line is merely a comment, documentation note, adjacent helper, or different owner with the same leaf name, emit it as context (`related_context` / `illustrative_only`) instead of a principal affected site.\n")
+			b.WriteString("- This applies across languages: selectors, namespace/member paths, object literals, designated initializers, property accesses, imports, config keys, generated/build declarations, and bridge adapters should all use the same structured evidence fields rather than relying on final-answer reconstruction.\n\n")
+		}
 		if len(rm.Buckets) >= 2 {
 			labels := make([]string, 0, len(rm.Buckets))
 			for _, bk := range rm.Buckets {

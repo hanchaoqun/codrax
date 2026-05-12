@@ -31,6 +31,7 @@ structured data, not raw thinking text or system-invented answer content.
 | G11 | Finalizer retry can drop `citations[]` or reference an out-of-range citation index, then downstream diagnostics misreport principal-member coverage. | `internal/tool/answer_document_pre_emit_check.go` | Add a schema-shape pre-check for `blocks[].items[].citation_ref` against the emitted citation pool before semantic member checks. The repair asks the model to preserve / extend its own citation pool; system code never invents citations. | Implemented in this phase |
 | G12 | Patch retries can replace the citation pool while preserving old citation-bearing blocks, causing citation role drift across unchanged content. | `internal/types/answer_document_v2_patch.go`, `internal/tool/emit_answer_document_patch.go` | If a patch uses `replace_citations`, every inherited block with non-negative `citation_ref` must also be replaced or removed. Otherwise use `append_citations` or full emit. This keeps citation indexes structural instead of relying on the model to remember hidden coupling. | Implemented in this phase |
 | G13 | Retry full emits can put `summary` after lists/tables, rendering the answer backwards even when the facts pass. | `internal/tool/answer_document_pre_emit_check.go` | When the semantic view requires a summary block, pre-emit enforces that the first rendered block is `summary`. This is order-only; it does not create or rewrite content. | Implemented in this phase |
+| G14 | Change-impact exploration can emit a real affected line as context because the target is present only in `summary`, not in target-bearing structured fields. | `internal/types/answer_support_plan_facet_evidence.go`, `internal/tool/emit_investigation_complete.go`, `internal/agent/explorer.go` | For active change-impact broad outputs, pre-complete checks the already-read source line against the typed target. If the line names the target but the evidence fields do not, completion is downgraded and the model must re-emit grounded evidence with the target in `snippet` / `subject` / `object` / `surface_terms`. The system never promotes summary text into the answer set. | Implemented in this phase |
 
 ## Implementation Order
 
@@ -48,7 +49,10 @@ structured data, not raw thinking text or system-invented answer content.
    repositories.
 6. Land G12/G13 before continuing random eval. They are carrier/rendering
    stability fixes and apply to every answer family, not just change-impact.
-7. Continue sampling G2/G4/G5/G8 with random eval order. If an issue is already
+7. Land G14 before broad eval resumes; otherwise real affected sites can be
+   visible in read-file output but absent from the principal lane because the
+   model failed to structure the target.
+8. Continue sampling G2/G4/G5/G8 with random eval order. If an issue is already
    covered by an existing typed lane, strengthen the consumer/gate instead of
    adding another prompt-only rule.
 

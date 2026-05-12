@@ -224,6 +224,28 @@ principal support lane contained only `assignment_fact` members.
      `summary`. The LLM still owns the summary text; runtime only rejects a
      structurally inverted block order.
 
+15. Target-bearing affected lines can be stranded in support context
+
+   - A later accepted `u10b` run showed `internal/agent/analyzer.go:1915` in
+     the explorer evidence buffer as an `assignment_fact`, and the cited source
+     line contained `out.AnswerContract.CitationReq.Required = false`.
+   - The emitted evidence carried the target only in free-form `summary`; its
+     structured fields had `anchor_symbol=Required` and a condition expression
+     unrelated to the assignment target. The owner-qualified target filter
+     correctly refused to promote this item, because reading `summary` would
+     also promote negative/context sentences such as "not CitationReq.Required".
+   - Result: the finalizer's principal lane omitted a real affected production
+     site and placed it in a caveat. This is an evidence handoff failure, not a
+     finalizer synthesis failure.
+   - The generalized fix is a pre-complete structural handoff gate: when an
+     active change-impact profile has a broad file/site/symbol output, and an
+     already-read source line names the owner-qualified target, any
+     model-emitted affected-site evidence at that line must carry the target in
+     structured fields (`snippet`, `subject`, `object`, `condition`,
+     `anchor_symbol`, or `surface_terms`). If it does not, completion is
+     downgraded and the model must re-emit the evidence. Runtime code does not
+     recover the answer member from `summary` text.
+
 ## Generalized Design
 
 ### Typed profile
@@ -359,6 +381,27 @@ the file count for this profile. Unstructured closure reason text is treated as
 audit context only when it conflicts with typed obligations or structured
 aggregate facts.
 
+### Target-surface materialization gate
+
+For active broad change-impact outputs, `emit_investigation_complete` performs
+one additional handoff check before finalization:
+
+- input signals are precise: the analyzer's typed `ChangeImpactProfile`, the
+  deterministic `ClaimForm` projection, model-emitted evidence fields, and
+  already-read source-line text from the grounding index;
+- if the source line contains the normalized owner-qualified target but the
+  evidence fields do not, the tool returns a `RepairEmitEvidence` downgrade;
+- the repair asks the explorer to re-emit the same grounded line with the
+  target in a structured field, usually by copying the actual line into
+  `snippet`;
+- summary text remains audit prose and is never promoted into principal answer
+  members.
+
+This keeps the principal lane complete without weakening the owner-qualified
+same-leaf filter. It also generalizes across languages because the normalized
+target comparison accepts selectors, namespace members, property accesses, and
+config-like dotted paths already represented in read source text.
+
 ### Owner-qualified target filter
 
 For change-impact profiles whose target is an owner-qualified path
@@ -433,6 +476,8 @@ the model already emitted in the tool payload.
       the source of file counts instead of stale unstructured closure prose.
 - [x] Filter change-impact principal evidence by owner-qualified target path so
       unrelated same-leaf fields stay support context.
+- [x] Downgrade completion when a change-impact source line names the target
+      but the accepted evidence only carries it in summary prose.
 - [ ] Re-run `u10b` and keep the random eval sweep moving.
 
 ## Red Lines

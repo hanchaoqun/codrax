@@ -367,6 +367,65 @@ func changeImpactProfileAllowsMechanismPrincipal(profile *ChangeImpactProfile) b
 	return false
 }
 
+// ChangeImpactPrincipalTargetSurfaceGaps returns model-emitted impact-site
+// evidence whose cited source text names the owner-qualified target, but whose
+// structured evidence fields do not. Callers use this as a repair signal: the
+// answer member must be re-emitted with the target in subject/object/snippet /
+// surface_terms rather than recovered from free-form summary prose.
+func ChangeImpactPrincipalTargetSurfaceGaps(profile *ChangeImpactProfile, items []EvidenceItem, sourceText func(EvidenceItem) string) []EvidenceItem {
+	if len(items) == 0 || profile == nil || !profile.Active() || !profile.RequestedBroadAffectedSites() {
+		return nil
+	}
+	target := parseChangeImpactPrincipalTarget(profile)
+	if !target.ownerQualified || strings.TrimSpace(target.path) == "" {
+		return nil
+	}
+	candidates := make([]EvidenceItem, 0, len(items))
+	for _, item := range orderedFacetSupportEvidenceItems(QFEnumeration, items) {
+		if !principalEvidenceItemEligible(item) ||
+			!changeImpactPrincipalEvidenceRoleEligible(profile, item) ||
+			!changeImpactPrincipalEvidenceClaimEligible(item) {
+			continue
+		}
+		candidates = append(candidates, item)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(candidates))
+	out := make([]EvidenceItem, 0, len(candidates))
+	for _, item := range candidates {
+		if changeImpactEvidenceMatchesTarget(item, candidates, target) {
+			continue
+		}
+		if sourceText == nil || !changeImpactSourceTextHasTarget(sourceText(item), target.path) {
+			continue
+		}
+		key := principalSupportEvidenceSurfaceRoleKey(item)
+		if key == "" {
+			key = strings.ToLower(supportEntryLocation(item))
+		}
+		if key != "" && seen[key] {
+			continue
+		}
+		if key != "" {
+			seen[key] = true
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func changeImpactPrincipalEvidenceClaimEligible(item EvidenceItem) bool {
+	switch ClaimFormOf(item) {
+	case ClaimDefinitionFact, ClaimAssignmentFact, ClaimGuardCondition,
+		ClaimCallEdge, ClaimReturnFact, ClaimImportEdge:
+		return true
+	default:
+		return false
+	}
+}
+
 type changeImpactPrincipalTarget struct {
 	raw            string
 	owner          string
@@ -421,8 +480,7 @@ func changeImpactEvidenceHasTargetPath(item EvidenceItem, targetPath string) boo
 		return false
 	}
 	for _, surface := range changeImpactEvidenceTargetSurfaces(item) {
-		if normalized := normalizeChangeImpactTargetSurface(surface); normalized != "" &&
-			strings.Contains(normalized, targetPath) {
+		if changeImpactSourceTextHasTarget(surface, targetPath) {
 			return true
 		}
 	}
@@ -482,6 +540,14 @@ func changeImpactHasNearbyOwnerDefinition(item EvidenceItem, peers []EvidenceIte
 
 func changeImpactSurfaceEquals(surface, target string) bool {
 	return normalizeChangeImpactTargetSurface(surface) == normalizeChangeImpactTargetSurface(target)
+}
+
+func changeImpactSourceTextHasTarget(surface, targetPath string) bool {
+	if strings.TrimSpace(targetPath) == "" {
+		return false
+	}
+	normalized := normalizeChangeImpactTargetSurface(surface)
+	return normalized != "" && strings.Contains(normalized, targetPath)
 }
 
 func normalizeChangeImpactTargetSurface(surface string) string {

@@ -1243,6 +1243,58 @@ func TestBuildAnswerSupportPlan_ChangeImpactDocumentationCanPromoteMechanismEvid
 	}
 }
 
+func TestChangeImpactPrincipalTargetSurfaceGaps_FindsUnderstructuredSourceLine(t *testing.T) {
+	profile := &ChangeImpactProfile{
+		IsChangeImpact:  true,
+		Target:          "CitationReq.Required",
+		RequestedOutput: ImpactOutputFiles,
+	}
+	understructured := EvidenceItem{
+		ID:              "understructured",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1915,
+		AnchorKind:      AnchorAssignment,
+		AnchorSymbol:    "Required",
+		Condition:       "isMeasurementScalar || isHistoryLookup",
+		Summary:         "sets CitationReq.Required to false",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	structured := understructured
+	structured.ID = "structured"
+	structured.Source = "internal/orchestrator/contract_check.go"
+	structured.LineStart = 63
+	structured.AnchorSymbol = "CitationReq.Required"
+	structured.Snippet = "c.CitationReq.Required = false"
+	unrelated := understructured
+	unrelated.ID = "unrelated"
+	unrelated.Source = "internal/tool/answer_document_pre_emit_check.go"
+	unrelated.LineStart = 400
+	unrelated.Summary = "Required belongs to another owner, not CitationReq.Required"
+	items := []EvidenceItem{understructured, structured, unrelated}
+
+	gaps := ChangeImpactPrincipalTargetSurfaceGaps(profile, items, func(item EvidenceItem) string {
+		switch item.ID {
+		case "understructured":
+			return "out.AnswerContract.CitationReq.Required = false"
+		case "structured":
+			return "c.CitationReq.Required = false"
+		case "unrelated":
+			return "if !req.Required { return nil }"
+		default:
+			return ""
+		}
+	})
+	if len(gaps) != 1 {
+		t.Fatalf("expected one under-structured target handoff gap, got %+v", gaps)
+	}
+	if gaps[0].ID != "understructured" {
+		t.Fatalf("unexpected gap item: %+v", gaps[0])
+	}
+}
+
 func TestPrincipalSupportMemberObligations_ChangeImpactFilesCoalesceByFile(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Family: QFEnumeration,
