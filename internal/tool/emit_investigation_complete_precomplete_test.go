@@ -3,6 +3,8 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -68,6 +70,183 @@ func TestEmitInvestigationComplete_PreCompleteCheck_NoPendingReads_Allows(t *tes
 	}
 	if !mut.IsInvestigationComplete() {
 		t.Errorf("InvestigationComplete should be set when no blockers")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_FieldValueCountRejectsUnreadAggregateLiteral(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeTestFile(t, repoRoot, "internal/agent/analyzer.go", `
+package agent
+
+func build() {
+	out.AnswerContract.CitationReq.Required = false
+}
+`)
+	writeTestFile(t, repoRoot, "internal/orchestrator/orchestrator.go", `
+package orchestrator
+
+func fallback() any {
+	return AnswerContract{
+		CitationReq: types.CitationReq{Required: false},
+	}
+}
+`)
+	writeTestFile(t, repoRoot, "internal/orchestrator/orchestrator_test.go", `
+package orchestrator
+
+func testOnly() {
+	_ = types.CitationReq{Required: false}
+}
+`)
+	writeTestFile(t, repoRoot, "docs/design.md", `
+CitationReq.Required = false
+`)
+
+	mut := types.NewMutableState("本仓库里，把 CitationReq.Required 设置为 false 的生产代码位点一共有几处？")
+	mut.SetRepoRoot(repoRoot)
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"internal/agent/analyzer.go": true})
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       5,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    "CitationReq.Required",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: repoRoot,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "本仓库里，把 CitationReq.Required 设置为 false 的生产代码位点一共有几处？",
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Entities: []string{"CitationReq.Required"},
+					Keywords: []string{"false"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "direct assignment count is covered",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "field/value count coverage is incomplete") {
+		t.Fatalf("expected field/value downgrade, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "internal/orchestrator/orchestrator.go:5") {
+		t.Fatalf("downgrade should name unread aggregate literal, got: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "orchestrator_test.go") || strings.Contains(res.Summary, "docs/design.md") {
+		t.Fatalf("downgrade must filter tests/docs from production candidates, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open after field/value downgrade")
+	}
+	repairs := closure.PendingRepairs()
+	if len(repairs) == 0 || repairs[len(repairs)-1].Kind != types.RepairExpandSearch {
+		t.Fatalf("expected expand-search repair, got %+v", repairs)
+	}
+}
+
+func TestFieldValueCountCandidates_CoversCrossLanguageInitializerSurfaces(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeTestFile(t, repoRoot, "src/config.ets", `
+export const cfg: CitationReq = {
+  required: false,
+}
+`)
+	writeTestFile(t, repoRoot, "native/options.cpp", `
+struct CitationReq cfg = {
+  .required = false,
+};
+`)
+	writeTestFile(t, repoRoot, "cj/config.cj", `
+let cfg = CitationReq(
+  required: false
+)
+`)
+	writeTestFile(t, repoRoot, "cj/compiled.cjo", `
+let cfg = CitationReq(
+  required: false
+)
+`)
+
+	got := scanRepoForFieldValueCountCandidates(repoRoot, fieldValueCountTarget{
+		Full:    "CitationReq.required",
+		Owner:   "CitationReq",
+		Field:   "required",
+		Literal: "false",
+	})
+	var surfaces []string
+	for _, c := range got {
+		surfaces = append(surfaces, fmt.Sprintf("%s:%d", c.File, c.Line))
+	}
+	joined := strings.Join(surfaces, "\n")
+	for _, want := range []string{
+		"src/config.ets:2",
+		"native/options.cpp:2",
+		"cj/config.cj:2",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing cross-language candidate %s in:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, ".cjo") {
+		t.Fatalf("compiled Cangjie artifact must not be scanned as source: %s", joined)
+	}
+}
+
+func TestFieldValueCountTargetFromContext_DoesNotTreatUnrelatedCountAsValueLiteral(t *testing.T) {
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RawRequest: "列出 Top 3 个 Foo.Bar 的调用点",
+		Predicates: types.SemanticPredicates{
+			IsScalarAnswer:  true,
+			IsCountQuestion: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"Foo.Bar"},
+			Keywords: []string{"3"},
+		},
+	}}}
+	if target, ok := fieldValueCountTargetFromContext(ctx); ok {
+		t.Fatalf("unrelated count should not become a field/value target: %+v", target)
+	}
+
+	ctx.AnalysisIR.RequestModel.RawRequest = "Foo.timeout = 30 的生产代码位点有几处？"
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Foo.timeout"}
+	target, ok := fieldValueCountTargetFromContext(ctx)
+	if !ok {
+		t.Fatal("code-adjacent numeric literal should become a field/value target")
+	}
+	if target.Full != "Foo.timeout" || target.Field != "timeout" || target.Literal != "30" {
+		t.Fatalf("target = %+v, want Foo.timeout/timeout/30", target)
+	}
+}
+
+func writeTestFile(t *testing.T, root, rel, content string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", rel, err)
+	}
+	if err := os.WriteFile(path, []byte(strings.TrimPrefix(content, "\n")), 0o644); err != nil {
+		t.Fatalf("write %s: %v", rel, err)
 	}
 }
 

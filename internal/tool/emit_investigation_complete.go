@@ -3,6 +3,10 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -943,6 +947,11 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	if downgrade := callChainPrincipalSpanDowngrade(ctx, closure); downgrade != "" {
 		return downgrade
 	}
+	if justification == "" {
+		if downgrade := fieldValueCountCoverageDowngrade(ctx, closure); downgrade != "" {
+			return downgrade
+		}
+	}
 
 	// Check (b): citation-floor preflight. Requires AnalysisIR.
 	if justification != "" {
@@ -1108,6 +1117,366 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		min, eligible)
 	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files you actually read, or read additional files first.")
 	return b.String()
+}
+
+type fieldValueCountTarget struct {
+	Full    string
+	Owner   string
+	Field   string
+	Literal string
+}
+
+type fieldValueCountCandidate struct {
+	File string
+	Line int
+	Text string
+}
+
+func fieldValueCountCoverageDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
+	target, ok := fieldValueCountTargetFromContext(ctx)
+	if !ok {
+		return ""
+	}
+	candidates := scanRepoForFieldValueCountCandidates(ctx.RepoRoot, target)
+	if len(candidates) == 0 {
+		return ""
+	}
+	var missing []fieldValueCountCandidate
+	for _, c := range candidates {
+		if fieldValueCountCandidateCovered(c, closure, ctx.Mutable.EmittedEvidence()) {
+			continue
+		}
+		missing = append(missing, c)
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	if closure != nil {
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairExpandSearch,
+			Keywords:  dedupFieldValueSearchKeywords(target),
+			Rationale: fmt.Sprintf("field/value count for %s=%s has %d production candidate line(s) not yet read or evidenced; broaden beyond selector assignment syntax to aggregate/object/designated-initializer forms", target.Full, target.Literal, len(missing)),
+			Origin:    "pre_complete.field_value_count_coverage",
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — field/value count coverage is incomplete.\n\n")
+	fmt.Fprintf(&b, "The request is a typed count/scalar lookup for `%s = %s`. Direct selector searches only cover one syntax family; production code may also set the same field through aggregate/object/designated-initializer forms such as `%s: %s`.\n\n",
+		target.Full, target.Literal, target.Field, target.Literal)
+	b.WriteString("Read or emit evidence for these production candidate line(s) before closing:\n")
+	const maxMissing = 8
+	for i, c := range missing {
+		if i >= maxMissing {
+			fmt.Fprintf(&b, "  ... and %d more candidate line(s)\n", len(missing)-maxMissing)
+			break
+		}
+		fmt.Fprintf(&b, "  - %s:%d — %s\n", c.File, c.Line, c.Text)
+	}
+	b.WriteString("\nUse a deterministic broader search over both the full target and the leaf field/value surface, then classify every candidate as production assignment, non-production, comment, or unrelated before re-calling emit_investigation_complete.")
+	return b.String()
+}
+
+func fieldValueCountTargetFromContext(ctx *types.BusContext) (fieldValueCountTarget, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return fieldValueCountTarget{}, false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !rm.Predicates.IsCountQuestion && !rm.Predicates.IsScalarAnswer {
+		return fieldValueCountTarget{}, false
+	}
+	for _, candidate := range fieldValueCountTargetCandidates(rm) {
+		full, owner, field, ok := splitFieldValueTarget(candidate)
+		if !ok {
+			continue
+		}
+		literal, ok := fieldValueCountLiteralFromRequestModel(rm, full, field)
+		if !ok {
+			continue
+		}
+		return fieldValueCountTarget{
+			Full:    full,
+			Owner:   owner,
+			Field:   field,
+			Literal: literal,
+		}, true
+	}
+	return fieldValueCountTarget{}, false
+}
+
+func fieldValueCountTargetCandidates(rm types.RequestModel) []string {
+	var out []string
+	appendAll := func(values []string) {
+		for _, v := range values {
+			v = strings.TrimSpace(v)
+			if v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	appendAll(rm.AnalyzerHints.ExactTargets)
+	appendAll(rm.AnalyzerHints.MentionedEntities)
+	appendAll(rm.AnalyzerHints.PrimaryEntities)
+	appendAll(rm.AnalyzerHints.Entities)
+	rawPattern := regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b`)
+	appendAll(rawPattern.FindAllString(rm.RawRequest, -1))
+	return dedupStringsPreserveOrder(out)
+}
+
+func splitFieldValueTarget(candidate string) (full, owner, field string, ok bool) {
+	full = strings.Trim(strings.TrimSpace(candidate), "`'\"")
+	if full == "" || strings.ContainsAny(full, `/\`) {
+		return "", "", "", false
+	}
+	if strings.Contains(full, "..") || strings.HasPrefix(full, ".") || strings.HasSuffix(full, ".") {
+		return "", "", "", false
+	}
+	parts := strings.Split(full, ".")
+	if len(parts) < 2 {
+		return "", "", "", false
+	}
+	for _, p := range parts {
+		if !isCodeIdentifier(p) {
+			return "", "", "", false
+		}
+	}
+	field = parts[len(parts)-1]
+	owner = parts[len(parts)-2]
+	if len(owner) < 2 || len(field) < 2 {
+		return "", "", "", false
+	}
+	return full, owner, field, true
+}
+
+func isCodeIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	first := s[0]
+	return first == '_' || (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')
+}
+
+func fieldValueCountLiteralFromRequestModel(rm types.RequestModel, fullTarget, field string) (string, bool) {
+	surfaces := make([]string, 0, 1+len(rm.AnalyzerHints.Keywords)+len(rm.AnalyzerHints.Entities))
+	surfaces = append(surfaces, rm.RawRequest)
+	surfaces = append(surfaces, rm.AnalyzerHints.Keywords...)
+	surfaces = append(surfaces, rm.AnalyzerHints.Entities...)
+	text := " " + strings.Join(surfaces, " ") + " "
+	lower := strings.ToLower(text)
+	for _, lit := range []string{"false", "true", "nil", "null", "undefined"} {
+		if regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_])`+regexp.QuoteMeta(lit)+`([^A-Za-z0-9_]|$)`).FindStringIndex(lower) != nil {
+			return lit, true
+		}
+	}
+	return fieldValueAdjacentLiteral(text, fullTarget, field)
+}
+
+func fieldValueAdjacentLiteral(text, fullTarget, field string) (string, bool) {
+	if strings.TrimSpace(text) == "" {
+		return "", false
+	}
+	targets := []string{fullTarget, field}
+	value := `("[^"\n]{1,80}"|'[^'\n]{1,80}'|-?[0-9]+(?:\.[0-9]+)?)`
+	for _, target := range targets {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+		patterns := []*regexp.Regexp{
+			regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(target) + `\s*(?:=|:|=>)\s*` + value),
+			regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(target) + `[^=\n:]{0,80}(?:=|:|=>)\s*` + value),
+		}
+		for _, pattern := range patterns {
+			match := pattern.FindStringSubmatch(text)
+			if len(match) >= 3 {
+				lit := strings.TrimSpace(match[len(match)-1])
+				if lit != "" {
+					return strings.Trim(lit, "`"), true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+func scanRepoForFieldValueCountCandidates(repoRoot string, target fieldValueCountTarget) []fieldValueCountCandidate {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" || target.Field == "" || target.Literal == "" {
+		return nil
+	}
+	linePattern := regexp.MustCompile(`(^|[^A-Za-z0-9_])\.?` + regexp.QuoteMeta(target.Field) + `\s*(?::|=|=>)\s*` + regexp.QuoteMeta(target.Literal) + `([^A-Za-z0-9_]|$)`)
+	var out []fieldValueCountCandidate
+	_ = filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, relOK := fieldValueRelPath(repoRoot, path)
+		if d.IsDir() {
+			if !relOK || rel == "." {
+				return nil
+			}
+			if fieldValueSkipDir(rel, d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !relOK || !fieldValueProductionSourcePath(rel) {
+			return nil
+		}
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		lines := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
+		for i, line := range lines {
+			if fieldValueCommentOnlyLine(line) || !linePattern.MatchString(line) {
+				continue
+			}
+			if !fieldValueOwnerNearby(lines, i, target) {
+				continue
+			}
+			out = append(out, fieldValueCountCandidate{
+				File: rel,
+				Line: i + 1,
+				Text: strings.TrimSpace(line),
+			})
+			if len(out) >= 64 {
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].File == out[j].File {
+			return out[i].Line < out[j].Line
+		}
+		return out[i].File < out[j].File
+	})
+	return out
+}
+
+func fieldValueRelPath(repoRoot, path string) (string, bool) {
+	rel, err := filepath.Rel(repoRoot, path)
+	if err != nil {
+		return "", false
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == "" {
+		rel = "."
+	}
+	return rel, true
+}
+
+func fieldValueSkipDir(rel, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	if DirNameMatchesExcludePattern(name, ExcludeDirPatternsAnyLevel) {
+		return true
+	}
+	parts := strings.Split(strings.Trim(rel, "/"), "/")
+	return len(parts) == 1 && ExcludeDirsRootOnlySet[parts[0]]
+}
+
+func fieldValueProductionSourcePath(rel string) bool {
+	lower := strings.ToLower(filepath.ToSlash(strings.TrimSpace(rel)))
+	if lower == "" || types.LooksLikeTestFilePath(lower) {
+		return false
+	}
+	if strings.Contains(lower, "/testdata/") || strings.HasPrefix(lower, "testdata/") ||
+		strings.Contains(lower, "/fixtures/") || strings.HasPrefix(lower, "fixtures/") {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(lower))
+	switch ext {
+	case ".go", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx",
+		".m", ".mm", ".java", ".kt", ".kts", ".js", ".jsx", ".mjs", ".cjs",
+		".ts", ".tsx", ".ets", ".py", ".rb", ".rs", ".swift", ".lua", ".cs",
+		".php", ".scala", ".cj", ".json", ".yaml", ".yml", ".toml":
+		return true
+	default:
+		return false
+	}
+}
+
+func fieldValueCommentOnlyLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return trimmed == "" ||
+		strings.HasPrefix(trimmed, "//") ||
+		strings.HasPrefix(trimmed, "#") ||
+		strings.HasPrefix(trimmed, "/*") ||
+		strings.HasPrefix(trimmed, "*") ||
+		strings.HasPrefix(trimmed, "--")
+}
+
+func fieldValueOwnerNearby(lines []string, index int, target fieldValueCountTarget) bool {
+	if index < 0 || index >= len(lines) {
+		return false
+	}
+	if strings.Contains(lines[index], target.Full) || strings.Contains(lines[index], target.Owner) {
+		return true
+	}
+	start := index - 4
+	if start < 0 {
+		start = 0
+	}
+	end := index + 2
+	if end >= len(lines) {
+		end = len(lines) - 1
+	}
+	for i := start; i <= end; i++ {
+		if fieldValueCommentOnlyLine(lines[i]) {
+			continue
+		}
+		if strings.Contains(lines[i], target.Owner) || strings.Contains(lines[i], target.Full) {
+			return true
+		}
+	}
+	return false
+}
+
+func fieldValueCountCandidateCovered(c fieldValueCountCandidate, closure *types.EvidenceClosure, evidence []types.EvidenceItem) bool {
+	if closure != nil && closure.HasReadLine(c.File, c.Line) {
+		return true
+	}
+	for _, ev := range evidence {
+		if filepath.ToSlash(strings.TrimSpace(ev.Source)) != c.File {
+			continue
+		}
+		start := ev.LineStart
+		end := ev.LineEnd
+		if end <= 0 {
+			end = start
+		}
+		if start > 0 && c.Line >= start && c.Line <= end {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupFieldValueSearchKeywords(target fieldValueCountTarget) []string {
+	return dedupStringsPreserveOrder([]string{target.Full, target.Owner, target.Field, target.Literal})
+}
+
+func dedupStringsPreserveOrder(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
 }
 
 func explanationAnchorBackboneDowngrade(ctx *types.BusContext) string {

@@ -571,6 +571,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("- Once a principal member has a grounded attribute candidate, emit that candidate as evidence. If the attribute is ambiguous or not grounded for that member after the relevant file/list/grep scope has been checked, record the member with an explicit unresolved-attribute note instead of widening indefinitely.\n")
 			b.WriteString("- When the bounded / exhaustive principal member set is covered, call emit_investigation_complete. Do not keep searching solely to prove a unique attribute when the final answer can carry a caveat for that member.\n\n")
 		}
+		if (rm.Predicates.IsCountQuestion || rm.Predicates.IsScalarAnswer) && requestModelHasFieldValueLookupSurface(rm) {
+			b.WriteString("### Field/Value Count Discipline\n\n")
+			b.WriteString("This request asks for a scalar/count about a specific field being set to a literal value. Search every syntax family that can express the same assignment before closing:\n")
+			b.WriteString("- Full selector/member writes, such as `Owner.Field = value` or `object.Owner.Field = value`.\n")
+			b.WriteString("- Aggregate/object/named-argument literals, such as `Owner{Field: value}`, `Owner: { Field: value }`, `Field = value`, and C/C++ designated initializers like `.field = value` when the nearby initializer owner is the requested type/member.\n")
+			b.WriteString("- Keep the owner context and the leaf field/value surface together when filtering matches. A bare leaf field in an unrelated owner is context, not a principal hit.\n")
+			b.WriteString("- Classify every candidate as production assignment, comment/doc/test, or unrelated. Do not close on a direct selector grep if aggregate/object/designated-initializer candidates remain unread.\n\n")
+		}
 		if len(rm.Buckets) >= 2 {
 			labels := make([]string, 0, len(rm.Buckets))
 			for _, bk := range rm.Buckets {
@@ -13722,6 +13730,41 @@ func requestModelFromContext(ctx *types.AgentContext) *types.RequestModel {
 		return ctx.Mutable.RequestModel()
 	}
 	return nil
+}
+
+func requestModelHasFieldValueLookupSurface(rm types.RequestModel) bool {
+	hasDottedEntity := false
+	for _, group := range [][]string{
+		rm.AnalyzerHints.ExactTargets,
+		rm.AnalyzerHints.MentionedEntities,
+		rm.AnalyzerHints.PrimaryEntities,
+		rm.AnalyzerHints.Entities,
+		{rm.RawRequest},
+	} {
+		for _, value := range group {
+			value = strings.TrimSpace(value)
+			if value == "" || strings.ContainsAny(value, `/\`) {
+				continue
+			}
+			if strings.Count(value, ".") >= 1 {
+				hasDottedEntity = true
+				break
+			}
+		}
+		if hasDottedEntity {
+			break
+		}
+	}
+	if !hasDottedEntity {
+		return false
+	}
+	lower := strings.ToLower(" " + rm.RawRequest + " " + strings.Join(rm.AnalyzerHints.Keywords, " ") + " " + strings.Join(rm.AnalyzerHints.Entities, " ") + " ")
+	for _, lit := range []string{" false ", " true ", " nil ", " null ", " undefined "} {
+		if strings.Contains(lower, lit) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasStructuredRequestModel(ctx *types.AgentContext, rm *types.RequestModel) bool {
