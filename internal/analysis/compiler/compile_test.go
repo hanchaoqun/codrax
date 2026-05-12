@@ -198,6 +198,32 @@ func TestCompile_SearchHintsIncludeConversationReferenceSubjects(t *testing.T) {
 	}
 }
 
+func TestCompile_SearchHintsIncludeChangeImpactTarget(t *testing.T) {
+	rm := sampleRM(types.ScenarioGeneric, types.IntentEnumerate, types.ComplexityComplex)
+	rm.ChangeImpactProfile = &types.ChangeImpactProfile{
+		IsChangeImpact:  true,
+		Target:          "CitationReq.Required",
+		TargetKind:      types.SubjectStructField,
+		Scope:           types.ImpactScopeProduction,
+		RequestedOutput: types.ImpactOutputFiles,
+		Confidence:      0.92,
+	}
+
+	out := compileT(rm)
+	var foundEntity, foundKeyword bool
+	for _, n := range out.TaskGraph.Nodes {
+		if containsString(n.SearchHints.EntityIDs, "CitationReq.Required") {
+			foundEntity = true
+		}
+		if containsString(n.SearchHints.KeywordIDs, "CitationReq.Required") {
+			foundKeyword = true
+		}
+	}
+	if !foundEntity || !foundKeyword {
+		t.Fatalf("change impact target not projected into soft search hints: graph=%+v", out.TaskGraph.Nodes)
+	}
+}
+
 func TestCompile_ConfigTrace_BudgetReactsToComplexity(t *testing.T) {
 	out := compileT(sampleRM(types.ScenarioConfigTrace, types.IntentConfigQuery, types.ComplexitySimple))
 	// Simple complexity must give a smaller budget than moderate.

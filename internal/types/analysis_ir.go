@@ -98,6 +98,14 @@ type RequestModel struct {
 	// those subjects were verbatim in the current request.
 	ConversationReferenceProfile *ConversationReferenceProfile `json:"conversation_reference_profile,omitempty"`
 
+	// ChangeImpactProfile is the analyzer LLM's typed lane for
+	// migration / affected-site questions: "which files/sites would
+	// need changes if target X changed shape". Downstream planners use
+	// it to preserve heterogeneous principal evidence (definition,
+	// assignment, read, guard, call, validation, serialization, etc.)
+	// instead of narrowing the answer to one dominant claim form.
+	ChangeImpactProfile *ChangeImpactProfile `json:"change_impact_profile,omitempty"`
+
 	// SubTopics lists independently-answerable sub-topics detected by
 	// the analyzer. When non-empty, the compiler generates one evidence
 	// DAG node per sub-topic. Empty for single-topic questions.

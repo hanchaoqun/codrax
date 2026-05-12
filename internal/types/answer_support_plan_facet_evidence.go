@@ -27,7 +27,7 @@ func compileFacetEvidenceSupportPlan(family QuestionFamily, rm RequestModel, pla
 			out.Lanes = append(out.Lanes, lane)
 		}
 	}
-	if lane := compilePrincipalEvidenceSupportLane(family, plan); len(lane.Entries) > 0 {
+	if lane := compilePrincipalEvidenceSupportLane(family, rm, plan); len(lane.Entries) > 0 {
 		out.Lanes = append(out.Lanes, lane)
 	}
 	if family == QFEnumeration {
@@ -44,12 +44,12 @@ func compileFacetEvidenceSupportPlan(family QuestionFamily, rm RequestModel, pla
 	return out
 }
 
-func compilePrincipalEvidenceSupportLane(family QuestionFamily, plan *AnswerSurfacePlan) AnswerSupportLane {
+func compilePrincipalEvidenceSupportLane(family QuestionFamily, rm RequestModel, plan *AnswerSurfacePlan) AnswerSupportLane {
 	lane := AnswerSupportLane{
 		Kind:          SupportLanePrincipalEvidence,
 		Title:         principalEvidenceLaneTitle(family),
 		AllowedBlocks: principalEvidenceAllowedBlocks(family),
-		Guidance:      principalEvidenceLaneGuidance(family),
+		Guidance:      principalEvidenceLaneGuidance(family, rm),
 	}
 	items := PrincipalSupportEvidenceItemsForFamily(family, plan)
 	if len(items) == 0 {
@@ -89,7 +89,7 @@ func principalEvidenceLaneTitle(family QuestionFamily) string {
 	}
 }
 
-func principalEvidenceLaneGuidance(family QuestionFamily) string {
+func principalEvidenceLaneGuidance(family QuestionFamily, rm RequestModel) string {
 	base := "Use this lane for principal user-visible claims in this family. " +
 		"Each entry is selected from typed facet source candidates, so it may support the block kinds listed below. " +
 		"Evidence notes can enrich the cited fact, but do not add uncited helper names, search hints, prior-turn guesses, or nearby context as new principal claims. " +
@@ -99,6 +99,9 @@ func principalEvidenceLaneGuidance(family QuestionFamily) string {
 	case QFConfigPrecedence:
 		return base + " For config answers, keep scalar/table/list content to real default/config/CLI/runtime layer anchors; general precedence rules belong in prose unless this lane cites that layer."
 	case QFEnumeration:
+		if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+			return base + " For change-impact enumerations, affected sites are the principal members. Direct assignments are only one affected-site role; include readers, guards, validators, construction sites, serializers, call adapters, import edges, and definitions when this lane contains typed evidence for them. Do not narrow the user's affected-site criterion to one role unless the typed impact profile says the requested output is that one role."
+		}
 		return base + " For enumerations, each principal item must correspond to a listed entry here or to an extractor-backed symbol; do not invent missing members from context."
 	case QFArchitecture:
 		return base + " For architecture answers, sections should describe component responsibilities supported by these anchors; avoid turning unrelated helper calls into architectural layers."
@@ -283,6 +286,9 @@ func appendPrincipalMemberSurfaceDetail(detail string, surface AnswerPrincipalMe
 func curateEnumerationPrincipalEvidence(plan *AnswerSurfacePlan, items []EvidenceItem) []EvidenceItem {
 	if len(items) == 0 {
 		return nil
+	}
+	if plan != nil && plan.ChangeImpactProfile != nil && plan.ChangeImpactProfile.Active() {
+		return items
 	}
 	if plan != nil && len(plan.StepBackbone) > 0 {
 		return enumerationPrincipalEvidenceMatchingBackbone(plan, items)

@@ -1020,6 +1020,158 @@ func TestBuildAnswerSupportPlan_EnumerationOrientsImportEdgesToSourceMembers(t *
 	}
 }
 
+func TestBuildAnswerSupportPlan_ChangeImpactKeepsHeterogeneousAffectedSites(t *testing.T) {
+	def := EvidenceItem{
+		ID:              "definition",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       1235,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "CitationReq",
+		Subject:         "CitationReq",
+		Summary:         "CitationReq defines the changed field",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	assign := EvidenceItem{
+		ID:              "assignment",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1903,
+		AnchorKind:      AnchorAssignment,
+		AnchorSymbol:    "CitationReq.Required",
+		Subject:         "CitationReq.Required",
+		Summary:         "analyzer assigns CitationReq.Required",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	guard := EvidenceItem{
+		ID:              "guard",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/analysis/gate/gate.go",
+		LineStart:       414,
+		AnchorKind:      AnchorCondition,
+		AnchorSymbol:    "CitationReq.Required",
+		Subject:         "CitationReq.Required",
+		Condition:       "req.Required && req.MinCitations > 0",
+		Summary:         "gate reads CitationReq.Required in a guard",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	call := EvidenceItem{
+		ID:              "call",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/context/builder.go",
+		LineStart:       288,
+		AnchorKind:      AnchorCall,
+		AnchorSymbol:    "CitationReq.Required",
+		Subject:         "CitationReq.Required",
+		Object:          "BuildContext",
+		Summary:         "context builder consumes CitationReq.Required",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	evidence := []EvidenceItem{def, assign, guard, call}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsRelationalLookup:    true,
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration)},
+		ChangeImpactProfile: &ChangeImpactProfile{
+			IsChangeImpact:  true,
+			Target:          "CitationReq.Required",
+			TargetKind:      SubjectStructField,
+			Scope:           ImpactScopeProduction,
+			RequestedOutput: ImpactOutputFiles,
+			AffectedSiteKinds: []ImpactAffectedSiteKind{
+				ImpactSiteDefinition,
+				ImpactSiteAssignment,
+				ImpactSiteGuard,
+				ImpactSiteCall,
+			},
+			Confidence: 0.92,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence:     evidence,
+		ChangeImpactProfile: rm.ChangeImpactProfile,
+		FacetCoverage:       CompileFacetCoverage(rm, evidence),
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	principalLane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if principalLane == nil {
+		t.Fatalf("missing principal lane: %+v", got)
+	}
+	if len(principalLane.Entries) != 4 {
+		t.Fatalf("change-impact principal lane should keep heterogeneous affected sites, got %+v", principalLane.Entries)
+	}
+	var locations []string
+	for _, entry := range principalLane.Entries {
+		locations = append(locations, entry.Location)
+	}
+	locationText := strings.Join(locations, "\n")
+	for _, want := range []string{
+		"analysis_ir.go",
+		"analyzer.go",
+		"gate.go",
+		"builder.go",
+	} {
+		if !strings.Contains(locationText, want) {
+			t.Fatalf("principal lane missing affected site %q:\n%s", want, locationText)
+		}
+	}
+	if !strings.Contains(principalLane.Guidance, "Direct assignments are only one affected-site role") {
+		t.Fatalf("impact guidance should warn against assignment-only narrowing: %q", principalLane.Guidance)
+	}
+}
+
+func TestCompileFacetCoverage_OrdinaryEnumerationDoesNotPromoteGuardSites(t *testing.T) {
+	assign := EvidenceItem{
+		ID:              "assignment",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "x.go",
+		LineStart:       10,
+		AnchorKind:      AnchorAssignment,
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	guard := EvidenceItem{
+		ID:              "guard",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "x.go",
+		LineStart:       20,
+		AnchorKind:      AnchorCondition,
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	rm := RequestModel{
+		Intent:        IntentEnumerate,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration)},
+	}
+	coverage := CompileFacetCoverage(rm, []EvidenceItem{assign, guard})
+	if coverage == nil || len(coverage.Required) == 0 {
+		t.Fatalf("missing coverage: %+v", coverage)
+	}
+	var candidates []string
+	for _, req := range coverage.Required {
+		if req.Kind == FacetEnumerationItem {
+			candidates = req.SourceCandidate
+		}
+	}
+	if len(candidates) != 1 || candidates[0] != "assignment" {
+		t.Fatalf("ordinary enumeration should not make guard principal, candidates=%v", candidates)
+	}
+}
+
 func TestBuildAnswerSupportPlan_GenericScalarKeepsModelAuthoredAssignments(t *testing.T) {
 	modelAssignment := EvidenceItem{
 		ID:              "model-assignment",

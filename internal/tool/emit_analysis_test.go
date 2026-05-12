@@ -1761,6 +1761,78 @@ func TestEmitAnalysis_Execute_PersistsConversationReferenceProfile(t *testing.T)
 	}
 }
 
+func TestEmitAnalysis_Execute_PersistsChangeImpactProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("Which production files would need changes if CitationReq.Required changed type?")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "complex",
+		"keywords": ["CitationReq", "Required", "production"],
+		"entities": ["CitationReq.Required"],
+		"question_kind": "enumeration",
+		"answer_subject": {
+			"kind": "file_path",
+			"entity_axes": ["changed target → affected files"],
+			"confidence": 0.91
+		},
+		"intent_confidence": 0.93,
+		"complexity_confidence": 0.88,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": true,
+			"is_relational_lookup": true,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"change_impact_profile": {
+			"is_change_impact": true,
+			"target": "CitationReq.Required",
+			"target_kind": "struct_field",
+			"scope": "production",
+			"requested_output": "files",
+			"affected_site_kinds": ["definition", "assignment", "read", "guard", "validation"],
+			"confidence": 0.92,
+			"rationale": "answer asks affected production files for a target type change"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "change_impact=CitationReq.Required") {
+		t.Fatalf("summary should surface typed impact lane, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ChangeImpactProfile == nil || !rm.ChangeImpactProfile.Active() {
+		t.Fatalf("ChangeImpactProfile not persisted: %+v", rm)
+	}
+	profile := rm.ChangeImpactProfile
+	if profile.Target != "CitationReq.Required" ||
+		profile.TargetKind != types.SubjectStructField ||
+		profile.Scope != types.ImpactScopeProduction ||
+		profile.RequestedOutput != types.ImpactOutputFiles {
+		t.Fatalf("ChangeImpactProfile fields wrong: %+v", profile)
+	}
+	if got := profile.AffectedSiteKinds; len(got) != 5 || got[2] != types.ImpactSiteRead {
+		t.Fatalf("AffectedSiteKinds not preserved: %+v", got)
+	}
+}
+
 func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

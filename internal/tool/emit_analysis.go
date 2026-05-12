@@ -71,6 +71,7 @@ type emitAnalysisParams struct {
 	Predicates                   *emitPredicatesParam                   `json:"predicates"`
 	DiagnosticProfile            *emitDiagnosticProfileParam            `json:"diagnostic_profile"`
 	ConversationReferenceProfile *emitConversationReferenceProfileParam `json:"conversation_reference_profile,omitempty"`
+	ChangeImpactProfile          *emitChangeImpactProfileParam          `json:"change_impact_profile,omitempty"`
 	PredicateAxis                string                                 `json:"predicate_axis,omitempty"`
 	DiagramHint                  *emitDiagramHintParam                  `json:"diagram_hint,omitempty"`
 	EnumerationBoundary          *emitEnumerationBoundaryParam          `json:"enumeration_boundary,omitempty"`
@@ -144,6 +145,17 @@ type emitResolvedConversationSubjectParam struct {
 	Role             string   `json:"role,omitempty"`
 	UseAsExactTarget *bool    `json:"use_as_exact_target"`
 	Confidence       *float64 `json:"confidence"`
+}
+
+type emitChangeImpactProfileParam struct {
+	IsChangeImpact    *bool    `json:"is_change_impact"`
+	Target            string   `json:"target,omitempty"`
+	TargetKind        string   `json:"target_kind,omitempty"`
+	Scope             string   `json:"scope,omitempty"`
+	RequestedOutput   string   `json:"requested_output,omitempty"`
+	AffectedSiteKinds []string `json:"affected_site_kinds,omitempty"`
+	Confidence        *float64 `json:"confidence"`
+	Rationale         string   `json:"rationale,omitempty"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -336,6 +348,28 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"requires_prior_context", "needs_repo_verification", "ambiguity"},
 			},
+			"change_impact_profile": map[string]any{
+				"type":        "object",
+				"description": "Optional typed profile for migration / affected-site questions. Use only when the CURRENT request asks which code sites, files, symbols, APIs, config locations, or downstream artifacts would need changes if a named target changed. Do not use for ordinary mechanism explanations, current-status diagnostics, or simple value lookups.",
+				"properties": map[string]any{
+					"is_change_impact": map[string]any{"type": "boolean", "description": "True when the answer set is affected sites/files/symbols under a target change; false or omit for ordinary enumeration."},
+					"target":           map[string]any{"type": "string", "description": "The changed target: symbol, field, type, API, config key, file path, module, or package surface."},
+					"target_kind":      map[string]any{"type": "string", "enum": skill.AnalysisAnswerSubjectValues(), "description": "What kind of target is being changed, when known."},
+					"scope":            map[string]any{"type": "string", "enum": impactScopeValues(), "description": "Requested affected-code boundary: production, test, all, or unknown."},
+					"requested_output": map[string]any{"type": "string", "enum": impactRequestedOutputValues(), "description": "Principal member surface the user asked for: files, sites, symbols, steps, or unknown."},
+					"affected_site_kinds": map[string]any{
+						"type":        "array",
+						"description": "Structural site roles expected to be principal affected members. Pick language-neutral roles; include multiple roles when the change affects writers and readers/validators/builders.",
+						"items": map[string]any{
+							"type": "string",
+							"enum": impactAffectedSiteKindValues(),
+						},
+					},
+					"confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this impact profile in [0,1]."},
+					"rationale":  map[string]any{"type": "string", "description": "Short audit rationale for why this is or is not a change-impact question."},
+				},
+				"required": []string{"is_change_impact", "confidence"},
+			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
@@ -432,6 +466,33 @@ func conversationReferenceSourceValues() []string {
 
 func conversationReferenceAmbiguityValues() []string {
 	values := types.AllConversationReferenceAmbiguities()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func impactScopeValues() []string {
+	values := types.AllImpactScopes()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func impactRequestedOutputValues() []string {
+	values := types.AllImpactRequestedOutputs()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func impactAffectedSiteKindValues() []string {
+	values := types.AllImpactAffectedSiteKinds()
 	out := make([]string, 0, len(values))
 	for _, v := range values {
 		out = append(out, string(v))
@@ -559,6 +620,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			ToolName:  t.Name(),
 			Success:   false,
 			Summary:   "emit_analysis rejected: " + conversationReferenceErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	changeImpactProfile, changeImpactErr := parseChangeImpactProfile(p.ChangeImpactProfile)
+	if changeImpactErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + changeImpactErr,
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -713,6 +783,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Predicates:                   predicates,
 		DiagnosticProfile:            diagnosticProfile,
 		ConversationReferenceProfile: conversationReferenceProfile,
+		ChangeImpactProfile:          changeImpactProfile,
 		PredicateAxis:                axis,
 		DiagramHint:                  diagramHint,
 		EnumerationBoundary:          enumerationBoundary,
@@ -1125,6 +1196,88 @@ func parseConversationReferenceProfile(p *emitConversationReferenceProfileParam)
 	return out, ""
 }
 
+func parseChangeImpactProfile(p *emitChangeImpactProfileParam) (*types.ChangeImpactProfile, string) {
+	if p == nil {
+		return nil, ""
+	}
+	var missing []string
+	if p.IsChangeImpact == nil {
+		missing = append(missing, "is_change_impact")
+	}
+	if p.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Sprintf(
+			"change_impact_profile missing required field(s): %s",
+			strings.Join(missing, ", "),
+		)
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("change_impact_profile.confidence %.2f out of [0,1]", *p.Confidence)
+	}
+	if !*p.IsChangeImpact {
+		return nil, ""
+	}
+	target := strings.TrimSpace(p.Target)
+	if target == "" {
+		return nil, "change_impact_profile.target is required when is_change_impact=true"
+	}
+	targetKind := types.AnswerSubjectKind(strings.TrimSpace(p.TargetKind))
+	if !targetKind.IsValid() {
+		return nil, fmt.Sprintf(
+			"change_impact_profile.target_kind %q is invalid; use one of %s",
+			p.TargetKind, strings.Join(skill.AnalysisAnswerSubjectValues(), ", "),
+		)
+	}
+	scope := types.ImpactScope(strings.TrimSpace(p.Scope))
+	if scope == "" {
+		scope = types.ImpactScopeUnknown
+	}
+	if !scope.IsValid() {
+		return nil, fmt.Sprintf(
+			"change_impact_profile.scope %q is invalid; use one of %s",
+			p.Scope, strings.Join(impactScopeValues(), ", "),
+		)
+	}
+	requestedOutput := types.ImpactRequestedOutput(strings.TrimSpace(p.RequestedOutput))
+	if requestedOutput == "" {
+		requestedOutput = types.ImpactOutputUnknown
+	}
+	if !requestedOutput.IsValid() {
+		return nil, fmt.Sprintf(
+			"change_impact_profile.requested_output %q is invalid; use one of %s",
+			p.RequestedOutput, strings.Join(impactRequestedOutputValues(), ", "),
+		)
+	}
+	seenKinds := map[types.ImpactAffectedSiteKind]bool{}
+	var kinds []types.ImpactAffectedSiteKind
+	for i, raw := range p.AffectedSiteKinds {
+		kind := types.ImpactAffectedSiteKind(strings.TrimSpace(raw))
+		if !kind.IsValid() {
+			return nil, fmt.Sprintf(
+				"change_impact_profile.affected_site_kinds[%d] %q is invalid; use one of %s",
+				i, raw, strings.Join(impactAffectedSiteKindValues(), ", "),
+			)
+		}
+		if seenKinds[kind] {
+			continue
+		}
+		seenKinds[kind] = true
+		kinds = append(kinds, kind)
+	}
+	return &types.ChangeImpactProfile{
+		IsChangeImpact:    true,
+		Target:            target,
+		TargetKind:        targetKind,
+		Scope:             scope,
+		RequestedOutput:   requestedOutput,
+		AffectedSiteKinds: kinds,
+		Confidence:        *p.Confidence,
+		Rationale:         strings.TrimSpace(p.Rationale),
+	}, ""
+}
+
 func validateExactTargets(raw string, in []string) ([]string, string) {
 	if len(in) == 0 {
 		return nil, ""
@@ -1473,6 +1626,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.ConversationReferenceProfile != nil && rm.ConversationReferenceProfile.RequiresPriorContext {
 		fmt.Fprintf(&b, " conversation_refs=%d", len(rm.ConversationReferenceProfile.ResolvedSubjects))
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.IsChangeImpact {
+		fmt.Fprintf(&b, " change_impact=%s", rm.ChangeImpactProfile.Target)
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

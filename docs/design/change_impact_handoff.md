@@ -148,15 +148,15 @@ explore/extract retry when typed support lanes are incomplete.
 
 ## Implementation Checklist
 
-- [ ] Add `ChangeImpactProfile` and `ImpactAffectedSiteKind` types.
-- [ ] Extend `emit_analysis` schema, parser, summary, and tests.
-- [ ] Update analyzer prompt text with contract-oriented impact guidance.
-- [ ] Project impact targets into compiler search hints.
-- [ ] Extend enumeration facet acceptable forms when impact profile is active.
-- [ ] Preserve heterogeneous principal evidence for impact profiles.
-- [ ] Update support-lane guidance for impact answers.
-- [ ] Add tests proving guard/read/call/validation sites enter principal lane.
-- [ ] Add negative test: ordinary enumeration still keeps homogeneous curation.
+- [x] Add `ChangeImpactProfile` and `ImpactAffectedSiteKind` types.
+- [x] Extend `emit_analysis` schema, parser, summary, and tests.
+- [x] Update analyzer prompt text with contract-oriented impact guidance.
+- [x] Project impact targets into compiler search hints.
+- [x] Extend enumeration facet acceptable forms when impact profile is active.
+- [x] Preserve heterogeneous principal evidence for impact profiles.
+- [x] Update support-lane guidance for impact answers.
+- [x] Add tests proving guard/read/call/validation sites enter principal lane.
+- [x] Add negative test: ordinary enumeration still keeps homogeneous curation.
 - [ ] Add finalizer/contract tests preventing assignment-only narrowing when
       typed impact profile requires broad affected sites.
 - [ ] Run focused tests and `go test ./...`.

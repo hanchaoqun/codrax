@@ -151,5 +151,11 @@ func hintsFromRM(rm types.RequestModel) types.SearchHints {
 			addKeyword(candidate)
 		}
 	}
+	if profile := rm.ChangeImpactProfile; profile != nil {
+		for _, candidate := range profile.SubjectCandidates() {
+			addEntity(candidate)
+			addKeyword(candidate)
+		}
+	}
 	return hints
 }

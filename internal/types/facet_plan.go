@@ -951,10 +951,21 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimGuardCondition}},
 		}, common...)
 	case QFEnumeration:
+		forms := []ClaimForm{
+			ClaimDefinitionFact,
+			ClaimAssignmentFact,
+			ClaimReturnFact,
+			ClaimImportEdge,
+		}
+		if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+			forms = append(forms,
+				ClaimGuardCondition,
+				ClaimCallEdge,
+			)
+		}
 		return append([]FacetRequirement{
 			{Kind: FacetEnumerationItem, Required: FacetHardRequired,
-				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimAssignmentFact,
-					ClaimReturnFact, ClaimImportEdge}},
+				AcceptableForms: forms},
 			{Kind: FacetUncertaintyBoundary, Required: FacetSoftRequired},
 		}, common...)
 	case QFArchitecture:

@@ -49,6 +49,7 @@ type AnswerSurfacePlan struct {
 	ExactContextRequiredFiles     []string
 	CapabilitySurface             *CapabilitySurfaceHint
 	CapabilityAuthorityFiles      []string
+	ChangeImpactProfile           *ChangeImpactProfile
 
 	SurfaceEvidence []EvidenceItem
 
@@ -1324,6 +1325,7 @@ func BuildAnswerSurfacePlan(
 
 	plan := &AnswerSurfacePlan{
 		RequestedEnumerationBoundary: ir.RequestModel.EnumerationBoundary,
+		ChangeImpactProfile:          ir.RequestModel.ChangeImpactProfile,
 	}
 
 	plan.ExactResolution = ir.AnswerContract.ExactResolution

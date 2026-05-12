@@ -29,6 +29,16 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 	view := &AnswerSemanticView{
 		Family: QFEnumeration,
 	}
+	acceptableClaimForms := []ClaimForm{
+		ClaimDefinitionFact,
+		ClaimAssignmentFact,
+		ClaimReturnFact,
+		ClaimImportEdge,
+		ClaimCallEdge,
+	}
+	if ir != nil && ir.RequestModel.ChangeImpactProfile != nil && ir.RequestModel.ChangeImpactProfile.Active() {
+		acceptableClaimForms = append(acceptableClaimForms, ClaimGuardCondition)
+	}
 	if plan != nil {
 		view.FacetCoverage = plan.FacetCoverage
 		view.SummaryMode = plan.SummarySurfaceMode
@@ -41,18 +51,12 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 			"Describe what the list enumerates and the terminal criterion used to pick the items, " +
 				"so the reader understands what kind of item each row is and why these belong (and none of the others)."),
 		{
-			Kind:     BlockOrderedList,
-			MinCount: 1,
-			MaxCount: 0, // no bucket / member count assumption
-			Required: true,
-			FacetIDs: []string{string(FacetEnumerationItem)},
-			AcceptableClaimForms: []ClaimForm{
-				ClaimDefinitionFact,
-				ClaimAssignmentFact,
-				ClaimReturnFact,
-				ClaimImportEdge,
-				ClaimCallEdge,
-			},
+			Kind:                 BlockOrderedList,
+			MinCount:             1,
+			MaxCount:             0, // no bucket / member count assumption
+			Required:             true,
+			FacetIDs:             []string{string(FacetEnumerationItem)},
+			AcceptableClaimForms: acceptableClaimForms,
 			Rationale: "The enumeration itself. Each item names the member with its authoritative " +
 				"file:line. Order is alphabetic OR meaningful (e.g. precedence) — describe which in " +
 				"the summary block.",
