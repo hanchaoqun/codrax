@@ -82,7 +82,10 @@ const (
 // NormalizeAnswerAggregateFacts validates and canonicalizes aggregate
 // facts emitted by the model. The checks are structural only: closed
 // kind enum, required label/value, bounded list sizes, and whitespace
-// trimming. They do not infer or repair values from evidence.
+// trimming. They do not infer or repair values from evidence. The one
+// derived canonicalization is member_set.value: when the model emitted
+// the complete members array but omitted value, value is set to
+// len(members) from that same model-authored structured payload.
 func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateFact, error) {
 	if len(in) == 0 {
 		return nil, nil
@@ -132,9 +135,6 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 	if fact.Label == "" {
 		return AnswerAggregateFact{}, fmt.Errorf("label is required")
 	}
-	if fact.Value == "" {
-		return AnswerAggregateFact{}, fmt.Errorf("value is required")
-	}
 	dims, err := normalizeAnswerAggregateDimensions(raw.Dimensions)
 	if err != nil {
 		return AnswerAggregateFact{}, err
@@ -143,6 +143,12 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 	fact.Members = normalizeAggregateStrings(raw.Members, maxAnswerAggregateMembers)
 	fact.Excluded = normalizeAggregateStrings(raw.Excluded, maxAnswerAggregateMembers)
 	fact.SupportRefs = normalizeAggregateStrings(raw.SupportRefs, maxAnswerAggregateMembers)
+	if fact.Kind == AnswerAggregateMemberSet && fact.Value == "" && len(fact.Members) > 0 {
+		fact.Value = strconv.Itoa(len(fact.Members))
+	}
+	if fact.Value == "" {
+		return AnswerAggregateFact{}, fmt.Errorf("value is required")
+	}
 	return fact, nil
 }
 

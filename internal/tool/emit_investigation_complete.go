@@ -83,7 +83,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"aggregate_facts": {
 				"type": "array",
-				"description": "OPTIONAL but expected for derived scalar/count answers and exhaustive member enumerations. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, and excluded-candidate counts. Use this instead of burying aggregates or complete member lists only in reason prose. Count/member-set values must be numeric strings with units kept in unit. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream but no value is inferred automatically.",
+				"description": "OPTIONAL but expected for derived scalar/count answers and exhaustive member enumerations. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, and excluded-candidate counts. Use this instead of burying aggregates or complete member lists only in reason prose. Count values must be numeric strings with units kept in unit. For kind=member_set, value may be omitted when members contains the complete set; the framework canonicalizes value to len(members) from that same model-authored payload. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream and no value is inferred from raw evidence.",
 				"items": {
 					"type": "object",
 					"properties": {
@@ -98,7 +98,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"value": {
 							"type": "string",
-							"description": "Exact value to preserve. For count kinds use a non-negative integer string such as \"0\", \"3\", or \"12\"; put words like files/locations in unit."
+							"description": "Exact value to preserve. For count kinds use a non-negative integer string such as \"0\", \"3\", or \"12\"; put words like files/locations in unit. For kind=member_set only, this may be omitted when members is the complete exact set."
 						},
 						"unit": {
 							"type": "string",

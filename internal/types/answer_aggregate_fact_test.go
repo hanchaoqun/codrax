@@ -87,6 +87,38 @@ func TestNormalizeAnswerAggregateFacts_AcceptsMemberSet(t *testing.T) {
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_CanonicalizesMemberSetValueFromMembers(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "pipeline stages",
+		Unit:    "stages",
+		Members: []string{"analyze", "explore", "extract", "finalize"},
+	}})
+	if err != nil {
+		t.Fatalf("member_set without value should validate from structured members: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d facts, want 1: %+v", len(got), got)
+	}
+	if got[0].Value != "4" {
+		t.Fatalf("member_set value = %q, want canonical len(members)=4", got[0].Value)
+	}
+	if len(got[0].Members) != 4 {
+		t.Fatalf("members not preserved: %+v", got[0].Members)
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_NonMemberSetStillRequiresValue(t *testing.T) {
+	_, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateTotalCount,
+		Label:   "pipeline stages",
+		Members: []string{"analyze", "explore", "extract", "finalize"},
+	}})
+	if err == nil {
+		t.Fatal("total_count without value must still reject; members may be samples")
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_AcceptsGroupedAndBucketCounts(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
 		{
