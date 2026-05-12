@@ -215,9 +215,10 @@ func TestExtractor_ParseOutputDrainsEmittedBuffers(t *testing.T) {
 // -----------------------------------------------------------------------------
 //
 // validateCompletenessClaim runs inside ParseOutput and checks the
-// LLM's "complete" claim against max(TerminalEvidenceCount,
-// len(MustInclude)). A mismatch downgrades complete → lower_bound.
-// Other claims pass through unchanged.
+// LLM's "complete" claim only against precise typed floors such as an
+// explicit requested boundary. Turn A terminal counts and analyzer
+// MustInclude are soft guidance; they are intentionally not hard
+// cardinality gates because they can contain proof-chain helpers.
 
 func extractorCtxWithBaseline(termCount int, mustInclude []string, syms []types.AnswerSymbol, claim types.CompletenessClaim) *types.AgentContext {
 	mu := types.NewMutableState("")
@@ -293,9 +294,10 @@ func TestExtractor_Validator_Complete_EnumerationBoundaryOverridesTerminalBaseli
 	}
 }
 
-func TestExtractor_Validator_Complete_TerminalCountShortfall_Downgrade(t *testing.T) {
-	// Turn A found 5 terminal items, LLM only emitted 2 and claimed
-	// complete. β baseline catches this; downgrade to lower_bound.
+func TestExtractor_Validator_Complete_TerminalCountShortfall_IsSoftGuidance(t *testing.T) {
+	// Turn A found 5 terminal candidates, but without a typed requested
+	// boundary those candidates are soft guidance: they may include
+	// proof-chain helpers rather than answer members.
 	syms := []types.AnswerSymbol{
 		{Name: "A", File: "a.go", Line: 1, Kind: "function"},
 		{Name: "B", File: "b.go", Line: 2, Kind: "function"},
@@ -303,19 +305,17 @@ func TestExtractor_Validator_Complete_TerminalCountShortfall_Downgrade(t *testin
 	ctx := extractorCtxWithBaseline(5, nil, syms, types.CompletenessComplete)
 	e := &extractorEvaluator{}
 	out, _ := e.ParseOutput(ctx, nil, nil, nil)
-	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
-		t.Errorf("β shortfall must downgrade to lower_bound, got %q", out.AnswerSymbolCompleteness)
+	if out.AnswerSymbolCompleteness != types.CompletenessComplete {
+		t.Errorf("terminal candidate shortfall must not hard-downgrade without a typed floor, got %q", out.AnswerSymbolCompleteness)
 	}
-	// Slate MUST still be rendered — it becomes the floor for the
-	// softened prompt, not dropped entirely.
 	if len(out.AnswerSymbols) != 2 {
-		t.Errorf("downgrade must preserve slate as floor, got %d items", len(out.AnswerSymbols))
+		t.Errorf("slate should stay model-authored, got %d items", len(out.AnswerSymbols))
 	}
 }
 
-func TestExtractor_Validator_Complete_MustIncludeShortfall_Downgrade(t *testing.T) {
-	// Analyzer's MustInclude lists 4 names, LLM only emitted 2 and
-	// claimed complete. γ baseline catches this independently of β.
+func TestExtractor_Validator_Complete_MustIncludeShortfall_IsSoftGuidance(t *testing.T) {
+	// Analyzer MustInclude may contain helper/tool/mechanism terms.
+	// It is surfaced to the model, but cannot force slate padding.
 	syms := []types.AnswerSymbol{
 		{Name: "A", File: "a.go", Line: 1, Kind: "function"},
 		{Name: "B", File: "b.go", Line: 2, Kind: "function"},
@@ -323,25 +323,30 @@ func TestExtractor_Validator_Complete_MustIncludeShortfall_Downgrade(t *testing.
 	ctx := extractorCtxWithBaseline(0, []string{"X", "Y", "Z", "W"}, syms, types.CompletenessComplete)
 	e := &extractorEvaluator{}
 	out, _ := e.ParseOutput(ctx, nil, nil, nil)
-	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
-		t.Errorf("γ shortfall must downgrade to lower_bound, got %q", out.AnswerSymbolCompleteness)
+	if out.AnswerSymbolCompleteness != types.CompletenessComplete {
+		t.Errorf("must-include shortfall must not hard-downgrade without a typed floor, got %q", out.AnswerSymbolCompleteness)
 	}
 }
 
-func TestExtractor_Validator_Complete_MaxOfTwoBaselines(t *testing.T) {
-	// β=2 γ=3 — max = 3. LLM emits 2 with complete → downgrade.
-	// This test pins the max() semantics: either baseline alone
-	// would have different verdicts (β=2 would pass, γ=3 would fail),
-	// and max catches the stricter one.
+func TestExtractor_Validator_Complete_HardBoundaryStillDowngrades(t *testing.T) {
 	syms := []types.AnswerSymbol{
 		{Name: "A", File: "a.go", Line: 1, Kind: "function"},
 		{Name: "B", File: "b.go", Line: 2, Kind: "function"},
 	}
 	ctx := extractorCtxWithBaseline(2, []string{"X", "Y", "Z"}, syms, types.CompletenessComplete)
+	ctx.AnalysisIR.RequestModel = types.RequestModel{
+		RawRequest:    "What order do gate.Run's 3 checks execute in?",
+		Intent:        types.IntentTrace,
+		AnalyzerHints: types.AnalyzerHints{MentionedEntities: []string{"gate.Run"}},
+		EnumerationBoundary: &types.RequestedEnumerationBoundary{
+			DeclaredCount: 3,
+			SourceQuote:   "3 checks",
+		},
+	}
 	e := &extractorEvaluator{}
 	out, _ := e.ParseOutput(ctx, nil, nil, nil)
 	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
-		t.Errorf("max baseline must catch γ=3, got %q", out.AnswerSymbolCompleteness)
+		t.Errorf("typed boundary shortfall must downgrade, got %q", out.AnswerSymbolCompleteness)
 	}
 }
 
@@ -547,19 +552,19 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 		"Deterministic evidence the investigation extracted",
 		"registration",
 		"Register",
-		"Cardinality baseline",
+		"Cardinality guidance",
 	} {
 		if !contains(prompt, section) {
 			t.Errorf("prompt missing investigation digest section/content %q", section)
 		}
 	}
-	// Baseline numbers surfaced — terminal-evidence count AND must-include count.
-	if !contains(prompt, "terminal-evidence count") || !contains(prompt, "must-include count") {
+	// Guidance numbers surfaced — terminal-evidence count and analyzer
+	// required-name count.
+	if !contains(prompt, "terminal-evidence count") || !contains(prompt, "required-name count") {
 		t.Error("prompt must surface the cardinality baselines by name")
 	}
-	// Effective floor = max(3, 2) = 3
-	if !contains(prompt, "Effective floor") || !contains(prompt, "3") {
-		t.Error("prompt must surface effective floor")
+	if !contains(prompt, "Hard typed floor") || !contains(prompt, "soft search/completeness reminders") {
+		t.Error("prompt must separate hard typed floors from soft guidance counts")
 	}
 	// Post-cleanup invariant: the dynamic prompt MUST NOT repeat the
 	// full tool contract (role, allowed/forbidden list, output format,
@@ -702,13 +707,13 @@ func TestExtractor_BuildPrompt_EnumerationBoundaryOverridesDisplayedFloor(t *tes
 
 	e := &extractorEvaluator{}
 	prompt := e.BuildInitialInstruction(ctx, nil)
-	if !contains(prompt, "Requested set boundary override") || !contains(prompt, "7 item(s) from `7 checks`") {
+	if !contains(prompt, "Hard typed floor") || !contains(prompt, "7 item(s), from requested boundary `7 checks`") {
 		t.Fatalf("prompt must surface requested boundary override, got %q", prompt)
 	}
-	if !contains(prompt, "bounded principal set overrides the wider evidence floor") {
-		t.Fatalf("prompt must explain why the displayed floor changed, got %q", prompt)
+	if !contains(prompt, "because this floor is typed and precise") {
+		t.Fatalf("prompt must explain why this floor is hard, got %q", prompt)
 	}
-	if !contains(prompt, "MUST have") || !contains(prompt, "7 items") {
+	if !contains(prompt, "MUST have") || !contains(prompt, "7 item(s)") {
 		t.Fatalf("prompt must reuse the requested boundary as the completeness floor, got %q", prompt)
 	}
 }
@@ -866,7 +871,7 @@ func TestExtractor_BuildPrompt_DefinitionEnumerationStillRequiresAnswerSymbols(t
 		t.Fatal("symbol-backed enumerations still need emit_answer_symbol")
 	}
 	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !contains(prompt, "Cardinality baseline") {
+	if !contains(prompt, "Cardinality guidance") {
 		t.Fatalf("definition enumeration should keep symbol-slate cardinality rules:\n%s", prompt)
 	}
 }
@@ -1929,7 +1934,7 @@ func TestExtractor_ParseOutput_DoesNotSynthesizeFallbackSlateForSingleTopicExpla
 	}
 }
 
-func TestExtractor_ParseOutput_AugmentsDeclarativeSlateFromReadFileLiterals(t *testing.T) {
+func TestExtractor_ParseOutput_DoesNotAugmentModelSlateFromReadFileLiterals(t *testing.T) {
 	mu := types.NewMutableState("Which skills are registered by default?")
 	mu.SetRequestModel(types.RequestModel{
 		Intent:        types.IntentEnumerate,
@@ -2013,11 +2018,11 @@ func TestExtractor_ParseOutput_AugmentsDeclarativeSlateFromReadFileLiterals(t *t
 	if err != nil {
 		t.Fatalf("ParseOutput: %v", err)
 	}
-	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
-		t.Fatalf("augmented declarative slate should be lower_bound, got %q", out.AnswerSymbolCompleteness)
+	if out.AnswerSymbolCompleteness != types.CompletenessUnknown {
+		t.Fatalf("model-authored unknown claim should not be system-upgraded, got %q", out.AnswerSymbolCompleteness)
 	}
-	if len(out.AnswerSymbols) != 4 {
-		t.Fatalf("read_file-backed fallback should augment the slate to four items, got %+v", out.AnswerSymbols)
+	if len(out.AnswerSymbols) != 2 {
+		t.Fatalf("read_file fallback must not augment a model-authored slate, got %+v", out.AnswerSymbols)
 	}
 	got := make(map[string]bool, len(out.AnswerSymbols))
 	for _, sym := range out.AnswerSymbols {
@@ -2026,9 +2031,14 @@ func TestExtractor_ParseOutput_AugmentsDeclarativeSlateFromReadFileLiterals(t *t
 			t.Fatalf("augmented symbol %q should be literal, got %q", sym.Name, sym.Kind)
 		}
 	}
-	for _, want := range []string{"analysis-skill", "explore-skill", "extract-skill", "answer-document-skill"} {
+	for _, want := range []string{"analysis-skill", "explore-skill"} {
 		if !got[want] {
-			t.Fatalf("augmented slate missing %q: %+v", want, out.AnswerSymbols)
+			t.Fatalf("model slate missing %q: %+v", want, out.AnswerSymbols)
+		}
+	}
+	for _, unwanted := range []string{"extract-skill", "answer-document-skill"} {
+		if got[unwanted] {
+			t.Fatalf("system fallback must not append %q to a model-authored slate: %+v", unwanted, out.AnswerSymbols)
 		}
 	}
 }

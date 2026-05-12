@@ -835,6 +835,97 @@ func TestBuildAnswerSupportPlan_FacetPrincipalLaneUsesOnlySourceCandidates(t *te
 	}
 }
 
+func TestBuildAnswerSupportPlan_EnumerationBackboneSeparatesPrincipalFromSupportContext(t *testing.T) {
+	principal := EvidenceItem{
+		ID:              "agent-explorer",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/types/enums.go",
+		LineStart:       117,
+		AnchorKind:      AnchorAssignment,
+		AnchorSymbol:    "AgentExplorer",
+		Subject:         "AgentExplorer",
+		Object:          "explorer",
+		Snippet:         `AgentExplorer AgentName = "explorer"`,
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	mechanism := EvidenceItem{
+		ID:              "registration-helper",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/agent/subagent.go",
+		LineStart:       63,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "RegisterDefaultSubAgents",
+		Subject:         "RegisterDefaultSubAgents",
+		Snippet:         "func RegisterDefaultSubAgents(...)",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	decoder := EvidenceItem{
+		ID:              "proposal-decoder",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       6204,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "extractSubAgentProposal",
+		Subject:         "extractSubAgentProposal",
+		Snippet:         "func extractSubAgentProposal(...)",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	plan := &AnswerSurfacePlan{
+		StepBackbone: []StepSurfaceAnchor{{
+			Name: "AgentExplorer",
+			File: "internal/types/enums.go",
+			Line: 117,
+		}},
+		StepBackboneCompleteness: CompletenessComplete,
+		SurfaceEvidence:          []EvidenceItem{principal, mechanism, decoder},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFEnumeration,
+			Required: []FacetRequirement{{
+				Kind:            FacetEnumerationItem,
+				SourceCandidate: []string{principal.ID, mechanism.ID, decoder.ID},
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentEnumerate}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	principalLane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if principalLane == nil {
+		t.Fatalf("missing principal lane: %+v", got.Lanes)
+	}
+	principalText := answerSupportLaneText(principalLane)
+	if !strings.Contains(principalText, "AgentExplorer") {
+		t.Fatalf("backbone-matched principal evidence missing:\n%s", principalText)
+	}
+	for _, helper := range []string{"RegisterDefaultSubAgents", "extractSubAgentProposal"} {
+		if strings.Contains(principalText, helper) {
+			t.Fatalf("support helper %q must not become a principal enumeration member:\n%s", helper, principalText)
+		}
+	}
+	contextLane := answerSupportLaneByKind(got, SupportLaneNearestMechanism)
+	if contextLane == nil {
+		t.Fatalf("expected support context lane for non-principal proof helpers: %+v", got.Lanes)
+	}
+	contextText := answerSupportLaneText(contextLane)
+	for _, helper := range []string{"RegisterDefaultSubAgents", "extractSubAgentProposal"} {
+		if !strings.Contains(contextText, helper) {
+			t.Fatalf("support helper %q should remain available for explanation context:\n%s", helper, contextText)
+		}
+	}
+	curated := PrincipalSupportEvidenceItemsForFamily(QFEnumeration, plan)
+	if len(curated) != 1 || curated[0].ID != principal.ID {
+		t.Fatalf("principal evidence helper should return only the backbone principal, got %+v", curated)
+	}
+}
+
 func TestBuildAnswerSupportPlan_GenericScalarKeepsModelAuthoredAssignments(t *testing.T) {
 	modelAssignment := EvidenceItem{
 		ID:              "model-assignment",

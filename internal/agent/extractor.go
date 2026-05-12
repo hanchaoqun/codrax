@@ -18,14 +18,12 @@ package agent
 // the tool-schema layer (ToolSuggestions allowlist). Every fact it
 // emits must trace back to Turn A's snapshot.
 //
-// The cardinality validator closes the completeness-claim loophole:
-// when the LLM claims CompletenessComplete but len(items) falls
-// below max(Turn A's TerminalEvidenceCount, len(AnswerContract.MustInclude)),
-// ParseOutput downgrades the claim to CompletenessLowerBound, logs
-// a warning diagnosing the mismatch, and lets the finalizer render
-// the softened floor prompt instead of the Translation-mode prompt.
-// The schema-level check still rejects malformed calls; this is the
-// semantic second layer.
+// The cardinality validator closes the completeness-claim loophole for
+// precise typed floors: explicit requested boundaries and analyzer-
+// resolved sub-topic counts. Investigation candidate counts and
+// AnswerContract.MustInclude stay soft because they can include proof-
+// chain context. The schema-level check still rejects malformed calls;
+// this is the semantic second layer.
 //
 // ShouldStop is deliberately one-shot (iteration >= 1). Turn B
 // cannot read new files, so a retry has no new information to work
@@ -110,9 +108,9 @@ type extractorEvaluator struct {
 //
 // The prompt below therefore carries ONLY what changes per dispatch:
 // the user question, the Turn A transcript digest (investigation
-// notes, read files, top evidence, flow findings), the cardinality
-// baseline (β + γ + floor), and the hypothesis set. Graceful degrade
-// on nil TurnAArtifacts is preserved.
+// notes, read files, top evidence, flow findings), cardinality
+// guidance (soft investigation counts plus hard typed floors), and the
+// hypothesis set. Graceful degrade on nil TurnAArtifacts is preserved.
 func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	e.retriesUsed = 0
 	if ctx != nil && ctx.ExtractorSoftIterCapOverride > 0 {
@@ -231,41 +229,36 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		}
 
 		if needsAnswerSymbols(ctx) {
-			// Cardinality baseline — β + γ + effective floor. This is
-			// still rendered inline because it is dynamic (depends on
-			// this dispatch's Turn A count and the analyzer's MustInclude
-			// list), even though the honesty-contract EXPLANATION lives
-			// in the skill config. Only render it when this dispatch
-			// actually expects an answer-symbol slate; showing a
-			// completeness floor on plain call-chain/mechanism questions
-			// pushes the model toward an unnecessary emit_answer_symbol.
-			b.WriteString("### Cardinality baseline (for completeness claim)\n\n")
+			// Cardinality guidance is split into:
+			//   - hard typed floors: explicit requested boundaries or
+			//     analyzer-resolved sub-topic counts, both precise enough
+			//     to reject a complete claim; and
+			//   - soft context counts: Turn A terminal candidates and
+			//     analyzer MustInclude hints, both useful reminders but
+			//     too noisy to force mechanism helpers into the answer
+			//     slate.
+			b.WriteString("### Cardinality guidance (for completeness claim)\n\n")
 			fmt.Fprintf(&b, "- **Investigation terminal-evidence count:** %d\n", ta.TerminalEvidenceCount)
 			if ctx != nil && ctx.AnalysisIR != nil {
 				must := ctx.AnalysisIR.AnswerContract.MustInclude
-				fmt.Fprintf(&b, "- **Analyzer must-include count:** %d name(s)", len(must))
+				fmt.Fprintf(&b, "- **Analyzer required-name count:** %d name(s)", len(must))
 				if len(must) > 0 {
 					fmt.Fprintf(&b, " — %s", strings.Join(must, ", "))
 				}
 				b.WriteString("\n")
-				baseline := ta.TerminalEvidenceCount
-				if len(must) > baseline {
-					baseline = len(must)
-				}
-				if boundary := requestedEnumerationBoundary(ctx); boundary != nil {
-					baseline = boundary.DeclaredCount
-					fmt.Fprintf(&b, "- **Requested set boundary override:** %d item(s) from `%s`\n", boundary.DeclaredCount, boundary.SourceQuote)
-					b.WriteString("- **Effective floor (bounded principal set overrides the wider evidence floor):** ")
+				hardFloor := requiredAnswerSymbolCount(ctx)
+				if boundary := requestedEnumerationBoundary(ctx); boundary != nil && viewNeedsBoundedPrincipalList(ctx) {
+					fmt.Fprintf(&b, "- **Hard typed floor:** %d item(s), from requested boundary `%s`\n", boundary.DeclaredCount, boundary.SourceQuote)
+				} else if isMultiTopicExplanation(ctx) {
+					fmt.Fprintf(&b, "- **Hard typed floor:** %d anchor(s), from analyzer-resolved sub-topic count\n", hardFloor)
 				} else {
-					b.WriteString("- **Effective floor (the larger of the two):** ")
+					b.WriteString("- **Hard typed floor:** none. Treat terminal-evidence and required-name counts as soft search/completeness reminders only; do not add helpers, tools, files, or mechanism components to `items[]` merely to satisfy those counts.\n")
 				}
-				fmt.Fprintf(&b, "%d\n", baseline)
-				if baseline > 0 {
-					fmt.Fprintf(&b, "\nIf you claim `complete`, your `emit_answer_symbol` batch MUST have ≥ %d items. ",
-						baseline)
+				if hardFloor > 0 {
+					fmt.Fprintf(&b, "\nIf you claim `complete`, your `emit_answer_symbol` batch MUST have ≥ %d item(s) because this floor is typed and precise. ", hardFloor)
 					b.WriteString("If you cannot reach that floor, emit what you have and choose `lower_bound`.\n")
 				} else {
-					b.WriteString("\nNo baseline data — your claim will be trusted as-is.\n")
+					b.WriteString("\nNo hard typed floor — your claim will be trusted as-is when the slate directly matches the user's requested entity type.\n")
 				}
 				// Plan E (2026-05-02) — surface CompletenessObligation +
 				// Buckets to the extractor prompt so the LLM knows up
@@ -533,21 +526,12 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 		claim = types.CompletenessLowerBound
 		logging.Info("[extractor] synthesized %d answer symbol(s) from grounded structured evidence fallback", len(syms))
 	} else {
-		if augmented := mergeAnswerSymbolFallbacks(syms, fallback); len(augmented) > len(syms) {
-			logging.Info("[extractor] augmented answer-symbol slate from %d to %d item(s) using grounded structured evidence fallback", len(syms), len(augmented))
-			syms = augmented
-			if claim == types.CompletenessUnknown {
-				claim = types.CompletenessLowerBound
-			}
-		}
 		if refined := trimDeclarativeSlateToTerminals(syms, literalFallback); len(refined) > 0 && len(refined) < len(syms) {
 			logging.Info("[extractor] pruned answer-symbol slate from %d to %d item(s) using declarative terminal filter", len(syms), len(refined))
 			syms = refined
 			if claim == types.CompletenessUnknown {
 				claim = types.CompletenessLowerBound
 			}
-		} else if len(syms) > 0 && len(fallback) > 0 && claim == types.CompletenessUnknown {
-			claim = types.CompletenessLowerBound
 		}
 	}
 	if len(syms) > 0 {
@@ -619,81 +603,55 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 	return out, nil
 }
 
-// validateCompletenessClaim is the cardinality validator for the
-// extractor's answer-symbol slate. When the LLM claims "complete"
-// but the emitted slate is smaller than the baseline Turn A
-// produced OR smaller than the analyzer's MustInclude floor, the
-// claim is downgraded to "lower_bound" and a warning is logged. The downgrade is the honest terminal state — the finalizer
-// will render the softened floor prompt that preserves the emitted
-// symbols as a floor while allowing the LLM to add evidence-backed
-// names on top.
+// validateCompletenessClaim is the hard cardinality validator for the
+// extractor's answer-symbol slate.
 //
-// The baseline is max(TerminalEvidenceCount, len(MustInclude)):
+// Only precise typed floors are allowed to downgrade a model's
+// "complete" claim:
+//   - RequestedEnumerationBoundary, when the user explicitly declared
+//     the bounded principal set size.
+//   - Multi-topic explanation sub-topic count, where the analyzer
+//     resolved one anchor obligation per topic.
 //
-//   - TerminalEvidenceCount (β baseline) comes from Turn A's
-//     deterministic extraction pipeline and reflects "how many
-//     terminal-literal evidence items did the explorer find?". If
-//     Turn A found N and the LLM emits fewer, the LLM has silently
-//     dropped some — the claim cannot be "complete".
+// Turn A TerminalEvidenceCount and analyzer MustInclude remain useful
+// prompt guidance, but they are noisy: terminal candidates often
+// include proof-chain helpers, and MustInclude can contain tools,
+// files, or mechanism components. They must not hard-force the model
+// to pad the slate with non-answer members.
 //
-//   - len(MustInclude) (γ baseline) comes from the analyzer's
-//     AnswerContract hints and reflects "which names does the
-//     analyzer consider mandatory?". The analyzer often lists too
-//     few (it runs before investigation) but what it lists is
-//     authoritative — a "complete" slate cannot be missing a
-//     MustInclude name.
-//
-// Taking max() gives us the strictest of the two floors, which is
-// the correct cross-check: either baseline catches a partial slate.
-//
-// Claims other than "complete" are passed through unchanged.
-// "lower_bound" is always honest by definition; "unknown" always
-// drops the slate at rendering time. Only "complete" can be a lie.
+// Claims other than "complete" are passed through unchanged. A
+// complete claim with no hard typed floor is trusted after the normal
+// emit_answer_symbol schema and axis gates have accepted the slate.
 func validateCompletenessClaim(ctx *types.AgentContext, syms []types.AnswerSymbol, claim types.CompletenessClaim) types.CompletenessClaim {
 	if claim != types.CompletenessComplete {
 		return claim
 	}
 
-	baseline := 0
 	termCount := 0
 	mustInclude := 0
-	boundaryCount := 0
-	if boundary := requestedEnumerationBoundary(ctx); boundary != nil {
-		boundaryCount = boundary.DeclaredCount
-		baseline = boundaryCount
-	} else {
-		if ctx != nil && ctx.Mutable != nil {
-			if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
-				termCount = ta.TerminalEvidenceCount
-			}
-		}
-		if ctx != nil && ctx.AnalysisIR != nil {
-			mustInclude = len(ctx.AnalysisIR.AnswerContract.MustInclude)
-		}
-		baseline = termCount
-		if mustInclude > baseline {
-			baseline = mustInclude
+	if ctx != nil && ctx.Mutable != nil {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			termCount = ta.TerminalEvidenceCount
 		}
 	}
-
-	if baseline <= 0 {
-		// No baseline data to validate against. This happens on REPL
-		// turns where Turn A did not produce terminal-literal
-		// evidence AND the analyzer did not set MustInclude. We trust
-		// the claim — there is nothing structural to cross-check.
-		logging.Debug("[extractor] completeness=complete passed through: no baseline data (termCount=%d mustInclude=%d boundary=%d)",
-			termCount, mustInclude, boundaryCount)
+	if ctx != nil && ctx.AnalysisIR != nil {
+		mustInclude = len(ctx.AnalysisIR.AnswerContract.MustInclude)
+	}
+	hardFloor := requiredAnswerSymbolCount(ctx)
+	if hardFloor <= 0 {
+		logging.Debug("[extractor] completeness=complete passed through: no hard typed cardinality floor (termCount=%d mustInclude=%d)",
+			termCount, mustInclude)
 		return claim
 	}
 
-	if len(syms) >= baseline {
-		logging.Debug("[extractor] completeness=complete cleared cardinality gate: %d items ≥ baseline %d (termCount=%d mustInclude=%d)",
-			len(syms), baseline, termCount, mustInclude)
+	if len(syms) >= hardFloor {
+		logging.Debug("[extractor] completeness=complete cleared hard cardinality gate: %d items ≥ hardFloor %d (termCount=%d mustInclude=%d)",
+			len(syms), hardFloor, termCount, mustInclude)
 		return claim
 	}
 
-	logging.Warning("[extractor] completeness=complete DOWNGRADED to lower_bound: %d items < baseline %d (termCount=%d mustInclude=%d). The slate is preserved as a floor; the finalizer will use the softened prompt.",
-		len(syms), baseline, termCount, mustInclude)
+	logging.Warning("[extractor] completeness=complete DOWNGRADED to lower_bound: %d items < hard typed floor %d (termCount=%d mustInclude=%d). The slate is preserved as a floor; the finalizer will use the softened prompt.",
+		len(syms), hardFloor, termCount, mustInclude)
 	// R8: surface the silent downgrade on the AnalyzerDecision channel
 	// so the end-of-Run operator summary catches it.
 	if ctx != nil && ctx.Mutable != nil {
@@ -702,7 +660,7 @@ func validateCompletenessClaim(ctx *types.AgentContext, syms []types.AnswerSymbo
 			Stage:  string(types.StageExtract),
 			Before: string(types.CompletenessComplete),
 			After:  string(types.CompletenessLowerBound),
-			Reason: fmt.Sprintf("%d items < baseline %d", len(syms), baseline),
+			Reason: fmt.Sprintf("%d items < hard typed floor %d", len(syms), hardFloor),
 			Detail: fmt.Sprintf("termCount=%d mustInclude=%d", termCount, mustInclude),
 		})
 	}
@@ -909,9 +867,10 @@ func extractorDeclarativeLiteralFallback(ctx *types.AgentContext) []types.Answer
 //     from adjacent grounded rows, and merging collapses duplicates
 //     into a single answer entry. Matches the semantic the registration
 //     / enumeration-of-literals cases rely on
-//     (TestExtractor_ParseOutput_AugmentsDeclarativeSlateFromReadFileLiterals
-//     pins this invariant: 2 current + 4 fallback extractions of skill
-//     name strings → 4 unique answers).
+//     Fallback synthesis still relies on this invariant when the model
+//     emitted no slate. A model-authored slate is no longer augmented
+//     from fallback literals; downstream should retry or disclose the
+//     model's completeness claim instead of system-padding answers.
 //
 //   - symbol kinds (method / function / type / ...): (Name, File, Line).
 //     Name alone collapsed cross-file same-name methods (Run on

@@ -30,6 +30,11 @@ func compileFacetEvidenceSupportPlan(family QuestionFamily, rm RequestModel, pla
 	if lane := compilePrincipalEvidenceSupportLane(family, plan); len(lane.Entries) > 0 {
 		out.Lanes = append(out.Lanes, lane)
 	}
+	if family == QFEnumeration {
+		if lane := compileEnumerationSupportingContextLane(plan); len(lane.Entries) > 0 {
+			out.Lanes = append(out.Lanes, lane)
+		}
+	}
 	if lane := compileFacetUncertaintySupportLane(plan); len(lane.Entries) > 0 {
 		out.Lanes = append(out.Lanes, lane)
 	}
@@ -190,6 +195,14 @@ func PrincipalSupportEvidenceItemsForFacet(family QuestionFamily, plan *AnswerSu
 }
 
 func principalSupportEvidenceItemsForFacets(family QuestionFamily, plan *AnswerSurfacePlan, facets ...AnswerFacetKind) []EvidenceItem {
+	out := principalSupportEvidenceItemsForFacetsRaw(family, plan, facets...)
+	if family == QFEnumeration {
+		return enumerationPrincipalEvidenceMatchingBackbone(plan, out)
+	}
+	return out
+}
+
+func principalSupportEvidenceItemsForFacetsRaw(family QuestionFamily, plan *AnswerSurfacePlan, facets ...AnswerFacetKind) []EvidenceItem {
 	candidates := supportFacetCandidateIDs(plan, facets...)
 	if len(candidates) == 0 {
 		return nil
@@ -218,6 +231,109 @@ func principalSupportEvidenceItemsForFacets(family QuestionFamily, plan *AnswerS
 	}
 	out = preferModelAuthoredPrincipalEvidence(out)
 	return dedupePrincipalSupportEvidenceBySurfaceRole(out)
+}
+
+func compileEnumerationSupportingContextLane(plan *AnswerSurfacePlan) AnswerSupportLane {
+	lane := AnswerSupportLane{
+		Kind:          SupportLaneNearestMechanism,
+		Title:         "Grounded enumeration support context",
+		AllowedBlocks: blockKindStrings(BlockSummary, BlockTable, BlockSection, BlockCaveat),
+		Guidance: "Use this lane to explain why the principal members satisfy the requested set, " +
+			"or to disclose nearby proof boundaries. These entries are supporting mechanism / context: " +
+			"do not turn them into additional principal ordered-list or bullet-list members.",
+	}
+	items := principalSupportEvidenceItemsForFacetsRaw(QFEnumeration, plan, principalSupportFacetKinds(QFEnumeration)...)
+	if len(items) == 0 {
+		return lane
+	}
+	for _, item := range enumerationEvidenceNotMatchingBackbone(plan, items) {
+		text := strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
+		if text == "" {
+			continue
+		}
+		lane.Entries = append(lane.Entries,
+			answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text)))
+		if len(lane.Entries) >= facetSupportEntryLimitDefault {
+			break
+		}
+	}
+	return lane
+}
+
+func enumerationPrincipalEvidenceMatchingBackbone(plan *AnswerSurfacePlan, items []EvidenceItem) []EvidenceItem {
+	if plan == nil || len(plan.StepBackbone) == 0 || len(items) == 0 {
+		return items
+	}
+	out := make([]EvidenceItem, 0, len(items))
+	for _, item := range items {
+		if enumerationEvidenceMatchesStepBackbone(plan.StepBackbone, item) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func enumerationEvidenceNotMatchingBackbone(plan *AnswerSurfacePlan, items []EvidenceItem) []EvidenceItem {
+	if plan == nil || len(plan.StepBackbone) == 0 || len(items) == 0 {
+		return nil
+	}
+	out := make([]EvidenceItem, 0, len(items))
+	for _, item := range items {
+		if !enumerationEvidenceMatchesStepBackbone(plan.StepBackbone, item) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func enumerationEvidenceMatchesStepBackbone(backbone []StepSurfaceAnchor, item EvidenceItem) bool {
+	source := normalizeAnswerSupportPath(item.Source)
+	if source == "" || item.LineStart <= 0 {
+		return false
+	}
+	itemNames := normalizedEnumerationEvidenceNames(item)
+	for _, anchor := range backbone {
+		anchorFile := normalizeAnswerSupportPath(anchor.File)
+		if anchorFile == "" || anchorFile != source {
+			continue
+		}
+		if anchor.Line > 0 && anchor.Line == item.LineStart {
+			return true
+		}
+		if normalizedEnumerationName(anchor.Name) == "" {
+			continue
+		}
+		if anchor.Line > 0 && absInt(anchor.Line-item.LineStart) > definitionSupportMemberCitationWindow {
+			continue
+		}
+		if itemNames[normalizedEnumerationName(anchor.Name)] {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizedEnumerationEvidenceNames(item EvidenceItem) map[string]bool {
+	out := make(map[string]bool, 6+len(item.SurfaceTerms))
+	for _, raw := range []string{item.AnchorSymbol, item.Subject, item.Object} {
+		if name := normalizedEnumerationName(raw); name != "" {
+			out[name] = true
+		}
+	}
+	for _, raw := range item.SurfaceTerms {
+		if name := normalizedEnumerationName(raw); name != "" {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+func normalizedEnumerationName(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	return strings.ToLower(NormalizedSurfaceSymbolTail(raw))
 }
 
 func preferModelAuthoredPrincipalEvidence(items []EvidenceItem) []EvidenceItem {
