@@ -183,6 +183,16 @@ func TestResolveQuestionFamily_SingleTopicMechanismExplainUsesGeneric(t *testing
 	if got := ResolveQuestionFamily(rm); got != QFGeneric {
 		t.Errorf("single-topic mechanism explanation got %q, want QFGeneric", got)
 	}
+
+	rm.Complexity = ComplexityComplex
+	if got := ResolveQuestionFamily(rm); got != QFGeneric {
+		t.Errorf("post-reconcile complex single-topic mechanism got %q, want QFGeneric", got)
+	}
+
+	rm.Predicates.IsCrossComponent = true
+	if got := ResolveQuestionFamily(rm); got != QFGeneric {
+		t.Errorf("bare cross-component single-topic mechanism got %q, want QFGeneric", got)
+	}
 }
 
 func TestResolveQuestionFamily_GenericFallthrough(t *testing.T) {

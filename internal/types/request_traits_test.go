@@ -188,11 +188,20 @@ func TestIsSingleTopicMechanismExplanation_TypedOnly(t *testing.T) {
 	}
 
 	rm.Predicates.IsCrossComponent = true
+	if !IsSingleTopicMechanismExplanation(rm) {
+		t.Fatal("bare cross-component breadth without subtopics should still stay in the single-topic mechanism lane")
+	}
+
+	rm.SubTopics = []SubTopic{
+		{Summary: "first branch", Entities: []string{"First"}},
+		{Summary: "second branch", Entities: []string{"Second"}},
+	}
 	if IsSingleTopicMechanismExplanation(rm) {
-		t.Fatal("cross-component explanations are not the single-topic mechanism lane")
+		t.Fatal("multiple sub-topics should keep the request out of the single-topic mechanism lane")
 	}
 
 	rm.Predicates.IsCrossComponent = false
+	rm.SubTopics = nil
 	rm.EnumerationBoundary = &RequestedEnumerationBoundary{
 		DeclaredCount: 3,
 		SourceQuote:   "3 steps",

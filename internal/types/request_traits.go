@@ -126,7 +126,11 @@ func CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm RequestModel) bool {
 // system does not upgrade mechanism participants (tool names, fields,
 // helpers, routes, macros, spans, config keys, etc.) into hard
 // principal members or architecture components merely because more
-// than one identifier is involved.
+// than one identifier is involved. A bare IsCrossComponent=true flag
+// is not enough to disqualify this lane: without multiple subtopics,
+// buckets, or a relational lookup, it may only mean the mechanism
+// crosses files during implementation while still remaining one user
+// question.
 func IsSingleTopicMechanismExplanation(rm RequestModel) bool {
 	if rm.Intent != IntentExplain {
 		return false
@@ -136,8 +140,7 @@ func IsSingleTopicMechanismExplanation(rm RequestModel) bool {
 		rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.IsCountQuestion ||
 		rm.Predicates.IsHistoryLookup ||
-		rm.Predicates.IsDiagnosticQuestion ||
-		rm.Predicates.IsCrossComponent {
+		rm.Predicates.IsDiagnosticQuestion {
 		return false
 	}
 	if len(rm.SubTopics) > 1 || HasNonEmptyAmbiguity(rm) {
