@@ -57,6 +57,11 @@ func TestFixI_S1aR1ProductionRegression(t *testing.T) {
 	if vs[0].Kind != types.ViolInlineIdentifierHallucinated {
 		t.Errorf("kind = %q, want ViolInlineIdentifierHallucinated", vs[0].Kind)
 	}
+	if !strings.Contains(vs[0].Detail, "answer-grade evidence surface") ||
+		!strings.Contains(vs[0].Repair, "typed support lane") ||
+		strings.Contains(vs[0].Repair, "no source file declares") {
+		t.Fatalf("repair must steer the finalizer toward validated principal surfaces, got detail=%q repair=%q", vs[0].Detail, vs[0].Repair)
+	}
 	for _, fake := range []string{"checkAnswerContract", "checkSubtopicConsistency",
 		"checkShapeSubjectConsistency", "checkCriterionResolution", "checkCoherence"} {
 		if !strings.Contains(vs[0].Detail, fake) {

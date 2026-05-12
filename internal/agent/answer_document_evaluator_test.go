@@ -572,6 +572,54 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupport
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalSupportLaneBacktickBoundary(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentReturnValue,
+				AnswerSubject: types.AnswerSubject{
+					Kind:       types.SubjectNumeric,
+					Confidence: 0.95,
+				},
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+		Mutable: types.NewMutableState(""),
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID:              "required-false-1",
+				Kind:            types.EvidenceDirect,
+				Scope:           types.ScopeLine,
+				Source:          "internal/agent/analyzer.go",
+				LineStart:       1903,
+				AnchorKind:      types.AnchorAssignment,
+				AnchorSymbol:    "CitationReq.Required",
+				Subject:         "AnswerContract.CitationReq.Required",
+				Object:          "false",
+				Snippet:         "out.AnswerContract.CitationReq.Required = false",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Typed Answer Support Lanes",
+		"inline backticks around code / file / config surfaces only when that exact surface is visible in a lane entry",
+		"Names that appear only in `Evidence note`, retry diagnostics, raw tool output, search hints, or nearby context are background",
+		"If the user's scalar / count question also asks for concrete members, files, paths, or line numbers",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("principal support prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalBoundaryForPriorContext(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

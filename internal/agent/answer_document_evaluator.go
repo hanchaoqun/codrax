@@ -2884,6 +2884,8 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		b.WriteString("- Build the principal `summary` block and principal `ordered_list` items only from the lanes below.\n")
 	}
 	b.WriteString("- Treat each lane's `Allowed block kinds` as a hard surface boundary. If a lane does not list `ordered_list`, do not turn its entries into principal hop items. If a lane does not list `diagram`, do not turn its entries into diagram edges or nodes.\n\n")
+	b.WriteString("- In principal blocks, put inline backticks around code / file / config surfaces only when that exact surface is visible in a lane entry, a lane `typed_surface` / `surface_terms` value, an exact target, or the cited source line. Names that appear only in `Evidence note`, retry diagnostics, raw tool output, search hints, or nearby context are background: use plain prose for them or omit them.\n")
+	b.WriteString("- If the user's scalar / count question also asks for concrete members, files, paths, or line numbers, the scalar conclusion is not enough: add an `ordered_list` or `table` drawn from the principal lane entries. If the user asked only for the scalar value, do not invent a member list.\n\n")
 	switch plan.Family {
 	case types.QFRootCauseTrace:
 		b.WriteString("- Keep observed runtime facts, current code path facts, nearest grounded mechanism facts, and uncertainty disclosures in their own lanes.\n")

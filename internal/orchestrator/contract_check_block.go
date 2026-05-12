@@ -3348,13 +3348,13 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 		out = append(out, types.Violation{
 			Kind: types.ViolInlineIdentifierHallucinated,
 			Detail: fmt.Sprintf(
-				"block %q has %d inline-backtick identifier(s) in prose text that do not match any function / type / constant declared in the codebase (likely fabricated identifier): [%s]",
+				"block %q has %d inline-backtick identifier(s) in prose text that are not validated by the symbol oracle or by an answer-grade evidence surface (likely fabricated or background-only code reference): [%s]",
 				blockID, len(hits), strings.Join(pairs, "; ")),
-			Repair:     "the listed inline-backtick identifiers in this block's prose text are fabricated names that no source file declares. Replace each with a real identifier from the existing evidence anchors / symbol slate, OR remove the inline backticks if the surrounding text is generic prose rather than a code reference. Fabricated names mislead the reader because the inline backtick visually presents them as authoritative code references.",
+			Repair:     "for each listed inline-backtick identifier, either cite and use the exact surface from a typed support lane / symbol slate / answer-grade evidence anchor, or remove the inline backticks and keep the wording as ordinary context prose. Do not promote helper names from retry diagnostics, Evidence notes, raw tool output, search hints, or nearby context into authoritative code references.",
 			ClusterKey: blockClusterKey(blockID, "inline_identifier"),
 			SuspectedRoot: types.SuspectedRoot{
 				IRField:    "inline_identifier",
-				Reason:     "answer prose used inline-backtick identifiers the codebase does not declare (fabricated names)",
+				Reason:     "answer prose used inline-backtick identifiers outside the validated principal evidence surface",
 				Confidence: 0.9,
 			},
 			Stage: string(types.StageFinalize),
