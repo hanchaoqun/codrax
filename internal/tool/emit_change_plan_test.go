@@ -422,7 +422,7 @@ func TestDetectDepsCycle_UnitTable(t *testing.T) {
 		wantCyc bool // true → any non-empty cycle string is acceptable
 	}{
 		{
-			name: "empty graph",
+			name:    "empty graph",
 			changes: []emitChangePlanChange{},
 			wantCyc: false,
 		},
@@ -567,6 +567,48 @@ func TestEmitChangePlan_PatchPreflight_AcceptsValidDiff(t *testing.T) {
 	}
 	if !res.Success {
 		t.Fatalf("valid diff should pass pre-flight; got FAIL: %s", res.Summary)
+	}
+	if ctx.Mutable.ChangePlan() == nil {
+		t.Error("accepted emit must install a ChangePlan on Mutable")
+	}
+}
+
+func TestEmitChangePlan_PatchPreflight_TolerantToMissingContextMarkers(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git not available; pre-flight check skipped")
+	}
+	ctx := gitWorktreeFixture(t, "def greet(name):\n    if not name:\n        name = \"world\"\n    retrun f\"Hello, {name}!\"\n")
+	ctx.Mutable = types.NewMutableState("test")
+
+	tool := &EmitChangePlan{}
+	// The unchanged context lines below carry the file indentation
+	// only. A strict unified diff needs one extra leading space marker
+	// before each context line. This is a generic LLM serialization
+	// error: the model authored the correct source lines but omitted
+	// the diff marker, so the tool may normalize the patch envelope
+	// without inventing content.
+	missingMarkers := `--- a/file.txt
++++ b/file.txt
+@@ -2,3 +2,3 @@
+    if not name:
+        name = "world"
+-    retrun f"Hello, {name}!"
++    return f"Hello, {name}!"
+`
+	params := json.RawMessage(`{
+		"request": "fix typo",
+		"summary": "Fix a one-line typo. The context marker normalizer should accept the model-authored patch body.",
+		"changes": [
+			{"path": "file.txt", "kind": "patch", "patch": ` + jsonString(missingMarkers) + `, "rationale": "test"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("missing-context-marker diff should pass pre-flight via structural normalization; got FAIL: %s", res.Summary)
 	}
 	if ctx.Mutable.ChangePlan() == nil {
 		t.Error("accepted emit must install a ChangePlan on Mutable")

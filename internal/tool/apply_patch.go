@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -461,6 +462,10 @@ func CheckUnifiedDiff(repoRoot, patchText string) error {
 // precise guidance for regeneration, and we only landed in the
 // fallback because git rejected.
 func runUnifiedDiff(repoRoot, patchText string, checkOnly bool) error {
+	if repaired, changed := normalizeUnifiedDiffContextMarkers(repoRoot, patchText); changed {
+		logging.Info("[apply_patch] normalized unified-diff context marker omissions before git apply")
+		patchText = repaired
+	}
 	gitErr := runGitApply(repoRoot, patchText, checkOnly)
 	if gitErr == nil {
 		return nil
@@ -477,6 +482,147 @@ func runUnifiedDiff(repoRoot, patchText string, checkOnly bool) error {
 	// "corrupt patch at line N") is what the planner-retry pipeline
 	// is wired to consume in composePatchRejection.
 	return gitErr
+}
+
+func normalizeUnifiedDiffContextMarkers(repoRoot, patchText string) (string, bool) {
+	if strings.TrimSpace(repoRoot) == "" || strings.TrimSpace(patchText) == "" {
+		return patchText, false
+	}
+	lines := strings.Split(patchText, "\n")
+	trailingNewline := strings.HasSuffix(patchText, "\n")
+	cache := map[string][]string{}
+	currentPath := ""
+	var fileLines []string
+	inHunk := false
+	oldLine := 0
+	changed := false
+
+	loadLines := func(path string) []string {
+		path = strings.TrimSpace(strings.TrimPrefix(strings.ReplaceAll(path, `\`, `/`), "b/"))
+		if path == "" || path == "/dev/null" {
+			return nil
+		}
+		if got, ok := cache[path]; ok {
+			return got
+		}
+		data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(path)))
+		if err != nil {
+			cache[path] = nil
+			return nil
+		}
+		got := strings.Split(string(data), "\n")
+		if len(got) > 0 && got[len(got)-1] == "" {
+			got = got[:len(got)-1]
+		}
+		cache[path] = got
+		return got
+	}
+
+	for i, line := range lines {
+		if i == len(lines)-1 && line == "" && trailingNewline {
+			continue
+		}
+		if !inHunk && strings.HasPrefix(line, "+++ ") {
+			currentPath = unifiedDiffHeaderPath(line)
+			fileLines = loadLines(currentPath)
+			inHunk = false
+			oldLine = 0
+			continue
+		}
+		if strings.HasPrefix(line, "@@ ") {
+			if start, ok := parseUnifiedDiffOldStart(line); ok {
+				inHunk = true
+				oldLine = start
+				if fileLines == nil {
+					fileLines = loadLines(currentPath)
+				}
+			} else {
+				inHunk = false
+				oldLine = 0
+			}
+			continue
+		}
+		if !inHunk || oldLine <= 0 {
+			continue
+		}
+		if strings.HasPrefix(line, "diff --git ") {
+			inHunk = false
+			currentPath = ""
+			fileLines = nil
+			oldLine = 0
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "+"):
+			continue
+		case strings.HasPrefix(line, "-"):
+			oldLine++
+			continue
+		case strings.HasPrefix(line, "\\"):
+			continue
+		}
+		if oldLine > len(fileLines) {
+			continue
+		}
+		actual := fileLines[oldLine-1]
+		if repaired, ok := repairUnifiedDiffContextMarker(line, actual); ok {
+			lines[i] = repaired
+			changed = true
+		}
+		oldLine++
+	}
+	if !changed {
+		return patchText, false
+	}
+	out := strings.Join(lines, "\n")
+	if trailingNewline && !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	return out, true
+}
+
+func unifiedDiffHeaderPath(line string) string {
+	fields := strings.Fields(strings.TrimSpace(line))
+	if len(fields) < 2 {
+		return ""
+	}
+	return fields[1]
+}
+
+func parseUnifiedDiffOldStart(line string) (int, bool) {
+	rest := strings.TrimPrefix(line, "@@ -")
+	if rest == line {
+		return 0, false
+	}
+	end := strings.IndexByte(rest, ' ')
+	if end < 0 {
+		return 0, false
+	}
+	spec := rest[:end]
+	if comma := strings.IndexByte(spec, ','); comma >= 0 {
+		spec = spec[:comma]
+	}
+	n, err := strconv.Atoi(spec)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+func repairUnifiedDiffContextMarker(line, actual string) (string, bool) {
+	if strings.HasPrefix(line, " ") {
+		if strings.TrimPrefix(line, " ") == actual {
+			return line, false
+		}
+		if line == actual {
+			return " " + line, true
+		}
+		return line, false
+	}
+	if line == actual {
+		return " " + line, true
+	}
+	return line, false
 }
 
 // runPatchTool runs GNU `patch(1) -p1` against repoRoot with the
@@ -519,14 +665,14 @@ func runPatchTool(repoRoot, patchText string, checkOnly bool) error {
 // unified-diff imperfections, not one sampled bug. The session-35
 // e2e run surfaced two failure modes across N=3:
 //
-//   (1) hunk header line-count off by one (@@ -22,6 +22,6 @@ over
-//       5 actual body lines). The body was byte-correct; only the
-//       redundant metadata was wrong.
+//	(1) hunk header line-count off by one (@@ -22,6 +22,6 @@ over
+//	    5 actual body lines). The body was byte-correct; only the
+//	    redundant metadata was wrong.
 //
-//   (2) patch body missing its final `\n` terminator. Git's parser
-//       treats a non-terminated last line as EOF rather than a
-//       content line, which surfaced as "corrupt patch at line N"
-//       in the trace where N was the body length.
+//	(2) patch body missing its final `\n` terminator. Git's parser
+//	    treats a non-terminated last line as EOF rather than a
+//	    content line, which surfaced as "corrupt patch at line N"
+//	    in the trace where N was the body length.
 //
 // Fix (1) via git's own `--recount` flag — git's man page frames
 // this exactly as the workaround for "hand-edited patches that
