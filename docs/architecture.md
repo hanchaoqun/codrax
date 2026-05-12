@@ -876,7 +876,7 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 
 每 lane 是 `[]AnswerSupportEntry{Text, Detail, Location}`，并带 `AllowedBlocks[]`。finalizer 的 prompt builder 渲染时带显式指引——"这条 lane 只能描述 X / 只能进入这些 block kind"——强制把"日志观察到的事"、"当前代码 mechanism"、"主线枚举/配置/比较证据"严格分开。否则会发生"observed frame F 是当前代码里 X 的调用点"这种漂移到当前 code 的假断言（log 是旧 build，源码已经 drift），或把 search hint / helper name 强塞成主答案。
 
-`validateLaneBlockKindCompliance` 把 `AllowedBlocks[]` 从 prompt 提示升级为 hard validator：principal block 如果引用的 citation 全部来自某条 lane，而 block.kind 不在该 lane 的 AllowedBlocks 中，`emit_answer_document` 会被拒收。这样 root-cause / call-chain / config-precedence / role-lookup / enumeration / architecture / comparison / generic 都复用同一套 principal-vs-context 边界，不靠每个 case 在 prompt 里补丁。
+`validateLaneBlockKindCompliance` 把 `AllowedBlocks[]` 从 prompt 提示升级为 hard validator：principal block 如果引用的 citation 全部来自某条 lane，而 block.kind 不在该 lane 的 AllowedBlocks 中，`emit_answer_document` 会被拒收。这样 root-cause / call-chain / config-precedence / role-lookup / enumeration / architecture / comparison / generic 都复用同一套 principal-vs-context 边界，不靠每个 case 在 prompt 里补丁。`architecture` 的 principal lane 同时允许 `section` 与 `ordered_list`：静态层/组件用 section，探索期已经结构化出的 pipeline / dispatch / handoff 步骤可以继续用 ordered_list 下传，不会被 hard gate 压成 prose。
 
 **principal handoff preflight**：`emit_investigation_complete` 在 `resolved` 收尾前会重新编译 `AnswerSemanticView → AnswerSurfacePlan → AnswerSupportPlan`。对于 config-precedence / role-lookup / enumeration / architecture 这类主答案必须落在 typed principal lane 的 family，如果 facet binding 后 `PrincipalSupportEvidenceItemsForFamily` 仍为 0，就软降级本次 completion，并要求 explorer 留在已读主线锚点上补 `emit_evidence`。这条门只读 typed family、facet source candidate、ClaimForm、aggregate_facts 等精确信号；不会从 raw `read_file` / `repo_map` / closure prose 自动合成答案。若答案本身是模型通过 `aggregate_facts` 提交的 verified count / scalar，则 aggregate lane 是合法 handoff，不触发 principal lane 门。
 
@@ -1047,7 +1047,7 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 | QFConfigPrecedence | 1 summary + ≥1 scalar 或 table（终值或层级网格） | ordered_list / caveat | — |
 | QFCallChain | 1 summary + ≥1 ordered_list（hops）+ **1 diagram（sequence，必填）** | caveat（drift） | required |
 | QFEnumeration | 1 summary + ≥1 ordered_list / table / bullet_list（枚举，MaxCount=0） | section（buckets）/ caveat | — |
-| QFArchitecture | 1 summary + ≥1 section（每组件层）+ **1 diagram（flowchart/architecture，必填）** | bullet_list / caveat | required |
+| QFArchitecture | 1 summary + ≥1 section（每组件层） | bullet_list / ordered_list（pipeline / handoff）/ diagram（用户要求或证据强支撑）/ caveat | optional |
 | QFComparison | 1 summary（命名所有 bucket）+ 恰 N 个 section（N=user buckets） | table / caveat | — |
 | QFGeneric | 1 summary（解释直接放这里） | section / list / diagram / caveat | optional |
 

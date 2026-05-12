@@ -622,6 +622,16 @@ func TestCompileArchitecture_NoMaxLayerAssumption(t *testing.T) {
 	}
 }
 
+func TestCompileArchitecture_AllowsOrderedPipelineEnrichment(t *testing.T) {
+	view := BuildAnswerSemanticView(irForArchitecture(), nil)
+	for _, b := range view.OptionalBlocks {
+		if b.Kind == BlockOrderedList {
+			return
+		}
+	}
+	t.Fatal("architecture answers should allow an optional ordered list for grounded pipelines / handoffs")
+}
+
 // ── QFGeneric 3 cases ──────────────────────────────────────────────
 
 func TestCompileGeneric_ResolvesFamily(t *testing.T) {

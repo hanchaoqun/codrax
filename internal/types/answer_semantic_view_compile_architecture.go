@@ -17,6 +17,9 @@ package types
 //
 //	0..N× BlockBulletList     — within a section, an unordered list
 //	                            of sub-components.
+//	0..N× BlockOrderedList    — when the architecture answer walks an
+//	                            ordered pipeline, dispatch, or handoff
+//	                            among grounded components.
 //	0..N× BlockCaveat         — out-of-scope / convention-only caveats.
 func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView {
 	view := &AnswerSemanticView{
@@ -74,6 +77,16 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 			FacetIDs: []string{string(FacetComponentRelation)},
 			Rationale: "Within a layer section, a bullet list enumerating the sub-components is " +
 				"often clearer than dense prose.",
+		},
+		{
+			Kind:     BlockOrderedList,
+			MinCount: 0,
+			MaxCount: 0,
+			Required: false,
+			FacetIDs: []string{string(FacetComponentRelation), string(FacetCurrentCodePath)},
+			Rationale: "When the architecture question is really about an ordered pipeline, " +
+				"dispatch path, or handoff between components, preserve the grounded sequence " +
+				"as an ordered list instead of compressing it into prose.",
 		},
 		optionalCaveatBlock(
 			"When some components are mentioned by convention only (no on-disk file), or when "+

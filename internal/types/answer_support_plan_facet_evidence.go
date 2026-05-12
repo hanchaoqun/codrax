@@ -115,7 +115,7 @@ func principalEvidenceAllowedBlocks(family QuestionFamily) []string {
 	case QFEnumeration:
 		return blockKindStrings(BlockSummary, BlockOrderedList, BlockTable, BlockBulletList, BlockSection)
 	case QFArchitecture:
-		return blockKindStrings(BlockSummary, BlockSection, BlockBulletList, BlockDiagram)
+		return blockKindStrings(BlockSummary, BlockSection, BlockOrderedList, BlockBulletList, BlockDiagram)
 	case QFComparison:
 		return blockKindStrings(BlockSummary, BlockSection, BlockTable, BlockOrderedList, BlockBulletList)
 	case QFGeneric:

@@ -640,7 +640,7 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 				Summary:         "scheduler delegates repository investigation to explorer",
 				GroundingStatus: GroundingGrounded,
 			},
-			allowed:        "summary,section,bullet_list,diagram",
+			allowed:        "summary,section,ordered_list,bullet_list,diagram",
 			wantText:       "scheduler calls explorer",
 			wantGuidance:   "unrelated helper calls",
 			wantDetailTerm: "repository investigation",
