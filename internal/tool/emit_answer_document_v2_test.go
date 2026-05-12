@@ -481,6 +481,42 @@ func TestRepairBlocksAsString_WholeDocumentStringify(t *testing.T) {
 	}
 }
 
+func TestRepairBlocksAsString_WholeDocumentStringifyWithTrailingBrace(t *testing.T) {
+	raw := json.RawMessage(`{"blocks": "[{\"id\":\"b1\",\"kind\":\"summary\",\"text\":\"hi\"}], \"citations\": [{\"file\":\"x.go\",\"line\":1}], \"caveats\": [\"c1\"]}"}`)
+	patched, ok := repairBlocksAsString(raw)
+	if !ok {
+		t.Fatal("repair did not fire on whole-document stringify with trailing object brace")
+	}
+	var p emitAnswerDocumentV2Params
+	if err := json.Unmarshal(patched, &p); err != nil {
+		t.Fatalf("repaired payload no longer parses: %v\npayload=%s", err, patched)
+	}
+	if len(p.Blocks) != 1 || p.Blocks[0].ID != "b1" {
+		t.Fatalf("blocks lost during repair: %+v", p.Blocks)
+	}
+	if len(p.Citations) != 1 || p.Citations[0].File != "x.go" || p.Citations[0].Line != 1 {
+		t.Fatalf("citations not lifted to typed citation pool: %+v", p.Citations)
+	}
+	if len(p.Caveats) != 1 || p.Caveats[0] != "c1" {
+		t.Fatalf("caveats not lifted to top level: %+v", p.Caveats)
+	}
+}
+
+func TestRepairBlocksAsString_BraceFallbackSkipsCitationObjects(t *testing.T) {
+	raw := json.RawMessage(`{"blocks": "[{\"id\":\"b1\",\"kind\":\"summary\",\"text\":\"hi\"}], \"citations\": [{\"file\":\"x.go\",\"line\":1}], trailing"}`)
+	patched, ok := repairBlocksAsString(raw)
+	if !ok {
+		t.Fatal("brace fallback did not recover the valid answer block")
+	}
+	var p emitAnswerDocumentV2Params
+	if err := json.Unmarshal(patched, &p); err != nil {
+		t.Fatalf("brace fallback produced invalid payload: %v\npayload=%s", err, patched)
+	}
+	if len(p.Blocks) != 1 || p.Blocks[0].ID != "b1" {
+		t.Fatalf("brace fallback should keep only block-shaped objects, got %+v", p.Blocks)
+	}
+}
+
 // TestEmitAnswerDocumentV2_WholeDocumentStringifyAccepted is the
 // end-to-end version: a finalizer-shaped LLM emit where the whole
 // answer body was JSON.stringify'd into the blocks key MUST now be

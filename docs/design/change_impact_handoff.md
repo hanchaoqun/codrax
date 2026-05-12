@@ -80,6 +80,20 @@ principal support lane contained only `assignment_fact` members.
      support-member coverage checks, but without an impact profile the
      checks cannot tell that assignment-only is an impermissible narrowing.
 
+6. Final-answer document flat-mode can lose typed citations
+
+   - `internal/tool/emit_answer_document_v2.go` tolerates `blocks` arriving as
+     a JSON-encoded string, including the common whole-document form
+     `[{block...}], "citations": [...]`.
+   - A newer trace showed the same form with the closing object brace included
+     inside the string: `[{block...}], "citations": [...]}`. The existing
+     repair path did not recognize that shape, fell through to brace-balanced
+     recovery, and then treated citation objects such as
+     `{"file":"x.go","line":1}` as if they were answer blocks.
+   - Result: finalizer saw contradictory `unknown field file/line` errors even
+     though the LLM used the documented citation schema. This is a generic
+     downstream carrier drift, not a change-impact-only problem.
+
 ## Generalized Design
 
 ### Typed profile
@@ -146,6 +160,24 @@ The guard should not synthesize missing members. It should request a
 finalizer-only rewrite when support lanes already contain the members, or an
 explore/extract retry when typed support lanes are incomplete.
 
+### Structured answer carrier recovery
+
+`emit_answer_document` flat-mode recovery should be schema-aware:
+
+- if a stringified `blocks` payload begins with a blocks array and continues
+  with document-level siblings, rebuild the full document object and preserve
+  `citations`, `caveats`, `exact_resolution`, `snippets`, and
+  `missing_requested_roles` at the top level;
+- support both `[{block...}], "citations": [...]` and
+  `[{block...}], "citations": [...]}` without forcing the model into repeated
+  schema guessing;
+- keep the final brace-balanced fallback, but only retain objects that are
+  block-shaped (`id` + `kind`). Citation objects must never enter the block
+  decoder.
+
+This is a typed carrier repair, not answer completion: it only preserves fields
+the model already emitted in the tool payload.
+
 ## Implementation Checklist
 
 - [x] Add `ChangeImpactProfile` and `ImpactAffectedSiteKind` types.
@@ -159,6 +191,10 @@ explore/extract retry when typed support lanes are incomplete.
 - [x] Add negative test: ordinary enumeration still keeps homogeneous curation.
 - [x] Add finalizer/contract tests preventing assignment-only narrowing when
       typed impact profile requires broad affected sites.
+- [x] Repair `emit_answer_document` flat-mode whole-document string recovery so
+      emitted citation pools survive trailing-brace payloads.
+- [x] Add a fallback shape filter so citation objects cannot be decoded as
+      answer blocks.
 - [x] Run focused tests and `go test ./...`.
 - [ ] Re-run `u10b` and keep the random eval sweep moving.
 

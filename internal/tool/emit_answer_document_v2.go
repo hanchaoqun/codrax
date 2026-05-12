@@ -312,10 +312,20 @@ func tryRepairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 			return patched, true
 		}
 	}
-	// Path B: whole-document stringify — wrap in `{"blocks": ...}`
-	// and merge.
-	wrapped := []byte(`{"blocks": ` + trimmed + `}`)
-	if patched, ok := finishStringWrappedRepair(probe, wrapped); ok {
+	// Path B: whole-document stringify — the LLM sometimes places
+	// the whole answer body inside the blocks string:
+	//
+	//   "[{block...}], \"citations\": [...]"
+	//
+	// and sometimes includes the closing object brace too:
+	//
+	//   "[{block...}], \"citations\": [...]}"
+	//
+	// Build the candidate object from the leading blocks array plus
+	// sibling fields instead of blindly suffixing a brace, otherwise
+	// the second shape falls through to Path D and citation objects
+	// can be mistaken for block objects.
+	if patched, ok := finishWholeDocumentStringRepair(probe, trimmed); ok {
 		return patched, true
 	}
 	// Path C inner pass: the outer parse succeeded, but the decoded
@@ -331,8 +341,7 @@ func tryRepairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 				return patched, true
 			}
 		}
-		wrappedC := []byte(`{"blocks": ` + normalised + `}`)
-		if patched, ok := finishStringWrappedRepair(probe, wrappedC); ok {
+		if patched, ok := finishWholeDocumentStringRepair(probe, normalised); ok {
 			return patched, true
 		}
 	}
@@ -422,7 +431,7 @@ func extractBlocksByBraceBalance(raw json.RawMessage) (json.RawMessage, bool) {
 					continue
 				}
 				var probe map[string]json.RawMessage
-				if err := json.Unmarshal([]byte(candidate), &probe); err == nil {
+				if err := json.Unmarshal([]byte(candidate), &probe); err == nil && isAnswerBlockCandidate(probe) {
 					elements = append(elements, json.RawMessage(candidate))
 				}
 				// Else drop silently — downstream validators catch
@@ -460,6 +469,25 @@ func extractBlocksByBraceBalance(raw json.RawMessage) (json.RawMessage, bool) {
 		return nil, false
 	}
 	return patched, true
+}
+
+// isAnswerBlockCandidate is Path D's structural filter. The brace
+// extractor scans the entire stringified payload, so top-level sibling
+// objects such as citations (`{"file":"x.go","line":1}`) can appear at
+// the same brace depth as real answer blocks. Keep only block-shaped
+// objects here; NormalizeEmitAnswerBlock still performs the full
+// validation later.
+func isAnswerBlockCandidate(probe map[string]json.RawMessage) bool {
+	if len(probe) == 0 {
+		return false
+	}
+	if _, ok := probe["id"]; !ok {
+		return false
+	}
+	if _, ok := probe["kind"]; !ok {
+		return false
+	}
+	return true
 }
 
 // isolateBlocksStringBody finds the `blocks` string value within a
@@ -642,6 +670,78 @@ func finishStringWrappedRepair(probe map[string]json.RawMessage, wrapped []byte)
 		return nil, false
 	}
 	return patched, true
+}
+
+// finishWholeDocumentStringRepair repairs the common flat-mode shape
+// where the `blocks` value is a string that begins with a blocks array
+// and may continue with additional top-level document fields. It keeps
+// all recovered sibling fields (citations / caveats / exact_resolution /
+// snippets / missing_requested_roles) in the document-level container.
+func finishWholeDocumentStringRepair(probe map[string]json.RawMessage, trimmed string) (json.RawMessage, bool) {
+	trimmed = strings.TrimSpace(trimmed)
+	if !strings.HasPrefix(trimmed, "[") {
+		return nil, false
+	}
+	arrayEnd := findMatchingJSONClose(trimmed, 0, '[', ']')
+	if arrayEnd < 0 {
+		return nil, false
+	}
+	blocks := strings.TrimSpace(trimmed[:arrayEnd+1])
+	rest := strings.TrimSpace(trimmed[arrayEnd+1:])
+	if rest == "" {
+		return finishStringWrappedRepair(probe, []byte(`{"blocks": `+blocks+`}`))
+	}
+	if !strings.HasPrefix(rest, ",") {
+		return nil, false
+	}
+
+	candidates := []string{
+		`{"blocks": ` + blocks + rest,
+		`{"blocks": ` + blocks + rest + `}`,
+	}
+	for _, candidate := range candidates {
+		if patched, ok := finishStringWrappedRepair(probe, []byte(candidate)); ok {
+			return patched, true
+		}
+	}
+	return nil, false
+}
+
+func findMatchingJSONClose(s string, openAt int, open, close byte) int {
+	if openAt < 0 || openAt >= len(s) || s[openAt] != open {
+		return -1
+	}
+	depth := 0
+	inStr := false
+	esc := false
+	for i := openAt; i < len(s); i++ {
+		c := s[i]
+		if inStr {
+			if esc {
+				esc = false
+				continue
+			}
+			switch c {
+			case '\\':
+				esc = true
+			case '"':
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inStr = true
+		case open:
+			depth++
+		case close:
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // normalizeControlCharsInJSONStrings is a deterministic recovery
