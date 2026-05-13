@@ -111,15 +111,15 @@ func pyExtractFunc(node *sitter.Node, src []byte, file, parent string) (types.Sy
 	}
 
 	return types.Symbol{
-		Name:     name,
-		Kind:     kind,
-		File:     file,
-		Line:     nodeLine(node),
-		EndLine:  nodeEndLine(node),
-		Exported: !strings.HasPrefix(name, "_"),
-		Parent:   parent,
+		Name:      name,
+		Kind:      kind,
+		File:      file,
+		Line:      nodeLine(node),
+		EndLine:   nodeEndLine(node),
+		Exported:  !strings.HasPrefix(name, "_"),
+		Parent:    parent,
 		Signature: sig,
-		Doc:      pyDocstring(node, src),
+		Doc:       pyDocstring(node, src),
 	}, true
 }
 
@@ -186,10 +186,44 @@ func pyExtractClass(node *sitter.Node, src []byte, file string) (cls []types.Sym
 				}
 			case "decorated_definition":
 				methods = append(methods, pyExtractDecorated(ch, src, file, name)...)
+			case "expression_statement":
+				if s, ok := pyExtractClassField(ch, src, file, name); ok {
+					methods = append(methods, s)
+				}
 			}
 		}
 	}
 	return
+}
+
+func pyExtractClassField(node *sitter.Node, src []byte, file, parent string) (types.Symbol, bool) {
+	if node == nil || parent == "" || node.NamedChildCount() == 0 {
+		return types.Symbol{}, false
+	}
+	assign := node.NamedChild(0)
+	if assign == nil || assign.Type() != "assignment" {
+		return types.Symbol{}, false
+	}
+	left := assign.ChildByFieldName("left")
+	if left == nil {
+		left = assign.NamedChild(0)
+	}
+	if left == nil || left.Type() != "identifier" {
+		return types.Symbol{}, false
+	}
+	name := strings.TrimSpace(nodeText(left, src))
+	if name == "" {
+		return types.Symbol{}, false
+	}
+	return types.Symbol{
+		Name:     name,
+		Kind:     "field",
+		File:     file,
+		Line:     nodeLine(assign),
+		EndLine:  nodeEndLine(assign),
+		Exported: !strings.HasPrefix(name, "_"),
+		Parent:   parent,
+	}, true
 }
 
 func pyDocstring(node *sitter.Node, src []byte) string {

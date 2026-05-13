@@ -690,7 +690,7 @@ extractor 阶段 LLM 给每条假设写 `confirmed` / `rejected` / `inconclusive
 - `Authority`：factual / conditional / historical / illustrative（强度）
 - `AuthorityReason`：operator-readable 短提示
 
-**多语言覆盖（17 语言）**：AnchorKind 6 值 + EvidenceKind 11 值都是 syntactic / semantic 抽象,与具体语言解耦。tree-sitter grammar 由 `internal/tool/repomap` 维护(每语言独立 extractor 投出统一的 Graph 结构),grounder 只读 Graph,不直接处理 source token。受支持语言映射(`internal/tool/repomap/types/lang.go::extToLang`):
+**多语言覆盖（15 个 canonical read languages + CUDA/Obj-C remap）**：AnchorKind 6 值 + EvidenceKind 11 值都是 syntactic / semantic 抽象,与具体语言解耦。tree-sitter grammar 由 `internal/tool/repomap` 维护(每语言独立 extractor 投出统一的 Graph 结构),grounder 只读 Graph,不直接处理 source token。权威矩阵是 `internal/tool/repomap/types/lang.go::SupportedReadLanguages()`：Go、Python、JavaScript、TypeScript、Java、Kotlin、Rust、C、C++、Ruby、Swift、Lua、Proto、ArkTS、Cangjie。`extToLang` 还把 CUDA (`.cu` / `.cuh`) 映射到 C++、Obj-C (`.m`) 映射到 C、Obj-C++ (`.mm`) 映射到 C++；ArkTS `.ts` 只在 `oh-package.json5` 项目内 promotion，`.cjo` 编译产物被 scanner 拒绝。
 
 | AnchorKind | Go | Java | Kotlin | Cangjie | ArkTS / TS | Python | JS | Rust | C | C++ | Swift | Ruby | Lua | Proto | Obj-C | CUDA |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -702,6 +702,8 @@ extractor 阶段 LLM 给每条假设写 `confirmed` / `rejected` / `inconclusive
 | import | `import` | `import` | `import` | `import` | `import` | `import` | `import`/`require` | `use` | `#include` | `#include`/`using` | `import` | `require` | `require` | `import` | `#import` | `#include` |
 
 EvidenceKind 11 值是 semantic(direct / conditional / registration / mechanism / relationship / absent + 5 deterministic-only),与具体语言无关,所有支持语言通用。
+
+**member carrier matrix**：字段 / 属性 / 常量 / 表成员不是 Go 专属能力。repomap 的 member extraction 通过 `Symbol{Name, Kind, Parent}` 统一表达，`extract_member_matrix_test.go` 直接遍历 `SupportedReadLanguages()`，保证每个 canonical language 至少有一条 parent-qualified member carrier。Go struct field、Python class attr、JS/TS class/interface property、Java/Kotlin field、Rust struct field、C struct field、C++ class field、Ruby class const、Swift property、Lua module method、Proto message field、ArkTS state field、Cangjie class field 都走同一 downstream surface；新增语言若没有测试 case 会直接失败。
 
 ### 5.3 Grounding 七层 — 怎么验证一条 citation 真在仓库里
 
@@ -903,7 +905,7 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 
 `emit_investigation_complete` 对 `aggregate_facts` 做纯结构校验：kind 闭枚举、长度上限、去重、count / member-set value 数字化、`len(members)==value` / `len(excluded)==value` 的自洽校验；当 `total_count` / `grouped_count` / `bucket_count` 的 members 是跨文件 `file:line` 集合时，必须同时提交匹配的 `unique_count` 文件集合 fact。系统不从 raw evidence 合成答案值，只验证模型自己 emit 的 typed facts 自洽，然后把通过的 facts 存进 Mutable stable projection。
 
-finalizer 看到 `## Structured Aggregate Facts` 后只做保真消费：保留 `value`，用 `members` 生成用户要求的文件/行号/成员列表；如果 member 是 `file.ext:line` 并渲染成 list/table item，必须创建或复用匹配 citation 并设置 `citation_ref`。这条规则把"scalar 数字"和"源位置列表"分开：count 本身可以来自命令级测量，源位置成员仍必须按普通 repo citation 落地。
+finalizer 看到 `## Structured Aggregate Facts` 后只做保真消费：保留 `value`，用 `members` 生成用户要求的文件/行号/成员列表；如果 member 是 `file.ext:line` 并渲染成 list/table item，必须创建或复用匹配 citation 并设置 `citation_ref`。`emit_answer_document` 的 pre-emit hard gate 会检查 model-authored `scalar_value` 是否出现在可见答案块 / item 表面；缺失会在同一 tool turn 要求 finalizer 重发，而不是由系统从 thinking 或 closure prose 补答案。这条规则把"scalar 数字/字面值"和"源位置列表"分开：count 本身可以来自命令级测量，源位置成员仍必须按普通 repo citation 落地。
 
 ### 5.11 EvidenceClosure — 跨阶段状态总线
 

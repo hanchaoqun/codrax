@@ -93,6 +93,8 @@ func (p *cangjieParser) run() {
 			p.parseForeignFunc(modifiers, decorators)
 		case t.Kind == cjTokKeyword && t.Text == "operator":
 			p.parseOperatorFunc(modifiers, decorators, "")
+		case t.Kind == cjTokKeyword && (t.Text == "let" || t.Text == "var" || t.Text == "const"):
+			p.parsePropertyDecl(t.Text, modifiers, decorators, "")
 		case t.Kind == cjTokKeyword && t.Text == "init":
 			// Top-level init — unusual but legal inside a class
 			// body. At file scope just consume.
@@ -535,6 +537,8 @@ func (p *cangjieParser) parseBody(parent string) int {
 			p.parseOperatorFunc(mods, decorators, parent)
 		case t.Kind == cjTokKeyword && t.Text == "foreign":
 			p.parseForeignFunc(mods, decorators)
+		case t.Kind == cjTokKeyword && (t.Text == "let" || t.Text == "var" || t.Text == "const"):
+			p.parsePropertyDecl(t.Text, mods, decorators, parent)
 		default:
 			// Skip one token; a property decl / expression body
 			// will eventually hit the closing brace.
@@ -547,6 +551,71 @@ func (p *cangjieParser) parseBody(parent string) int {
 		p.advance()
 	}
 	return endLine
+}
+
+// parsePropertyDecl captures Cangjie `let` / `var` / `const` declarations.
+// Inside class / struct / interface bodies these are answer-grade fields;
+// at top level they are module variables / constants. The parser consumes
+// only the declaration header on the current source line and skips any
+// initializer without interpreting expression tokens.
+func (p *cangjieParser) parsePropertyDecl(keyword string, mods, decorators []string, parent string) {
+	start := p.cur()
+	p.advance() // let / var / const
+	if p.cur().Kind != cjTokIdent {
+		p.skipToPropertyBoundary(start.Line)
+		return
+	}
+	name := p.cur().Text
+	p.advance()
+	signature := ""
+	if p.cur().Kind == cjTokColon {
+		p.advance()
+		var parts []string
+		for p.cur().Kind != cjTokEOF && p.cur().Kind != cjTokEq &&
+			p.cur().Kind != cjTokSemicolon && p.cur().Kind != cjTokComma &&
+			p.cur().Kind != cjTokRBrace && p.cur().Line == start.Line {
+			if p.cur().Text != "" {
+				parts = append(parts, p.cur().Text)
+			}
+			p.advance()
+		}
+		signature = strings.TrimSpace(strings.Join(parts, ""))
+	}
+	kind := "field"
+	if parent == "" {
+		kind = "var"
+		if keyword == "let" || keyword == "const" {
+			kind = "const"
+		}
+	}
+	p.syms = append(p.syms, types.Symbol{
+		Name:      name,
+		Kind:      kind,
+		File:      p.file,
+		Line:      start.Line,
+		EndLine:   start.Line,
+		Exported:  hasExportModifier(mods),
+		Parent:    parent,
+		Signature: signature,
+		Doc:       strings.TrimSpace(strings.Join(append([]string{}, append(mods, decorators...)...), " ")),
+	})
+	p.skipToPropertyBoundary(start.Line)
+}
+
+func (p *cangjieParser) skipToPropertyBoundary(startLine int) {
+	for p.cur().Kind != cjTokEOF {
+		switch p.cur().Kind {
+		case cjTokSemicolon:
+			p.advance()
+			return
+		case cjTokRBrace:
+			return
+		}
+		if p.cur().Line > startLine {
+			return
+		}
+		p.advance()
+	}
 }
 
 // collectInheritanceParents consumes the optional `<:` list after a

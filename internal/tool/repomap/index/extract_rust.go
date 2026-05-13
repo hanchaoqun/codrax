@@ -43,9 +43,7 @@ func extractRust(root *sitter.Node, src []byte, file string) (pkg string, syms [
 			}
 
 		case "struct_item":
-			if s, ok := rustExtractStruct(ch, src, file); ok {
-				syms = append(syms, s)
-			}
+			syms = append(syms, rustExtractStruct(ch, src, file)...)
 
 		case "enum_item":
 			if s, ok := rustExtractEnum(ch, src, file); ok {
@@ -155,12 +153,13 @@ func rustExtractFunc(node *sitter.Node, src []byte, file, parent string) (types.
 	}, true
 }
 
-func rustExtractStruct(node *sitter.Node, src []byte, file string) (types.Symbol, bool) {
+func rustExtractStruct(node *sitter.Node, src []byte, file string) []types.Symbol {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
-		return types.Symbol{}, false
+		return nil
 	}
-	return types.Symbol{
+	name := nodeText(nameNode, src)
+	out := []types.Symbol{{
 		Name:     nodeText(nameNode, src),
 		Kind:     "struct",
 		File:     file,
@@ -168,7 +167,46 @@ func rustExtractStruct(node *sitter.Node, src []byte, file string) (types.Symbol
 		EndLine:  nodeEndLine(node),
 		Exported: rustIsPublic(node, src),
 		Doc:      prevSiblingComment(node, src),
-	}, true
+	}}
+	for _, field := range rustStructFieldNodes(node) {
+		nameNode := field.ChildByFieldName("name")
+		if nameNode == nil {
+			nameNode = childByType(field, "field_identifier")
+		}
+		if nameNode == nil {
+			continue
+		}
+		fieldName := strings.TrimSpace(nodeText(nameNode, src))
+		if fieldName == "" {
+			continue
+		}
+		signature := ""
+		if typeNode := field.ChildByFieldName("type"); typeNode != nil {
+			signature = strings.TrimSpace(nodeText(typeNode, src))
+		}
+		out = append(out, types.Symbol{
+			Name:      fieldName,
+			Kind:      "field",
+			File:      file,
+			Line:      nodeLine(field),
+			EndLine:   nodeEndLine(field),
+			Exported:  rustIsPublic(field, src),
+			Parent:    name,
+			Signature: signature,
+		})
+	}
+	return out
+}
+
+func rustStructFieldNodes(node *sitter.Node) []*sitter.Node {
+	var out []*sitter.Node
+	walkNamedChildren(node, true, func(ch *sitter.Node) {
+		switch ch.Type() {
+		case "field_declaration", "field_declaration_list_field", "struct_field":
+			out = append(out, ch)
+		}
+	})
+	return out
 }
 
 func rustExtractEnum(node *sitter.Node, src []byte, file string) (types.Symbol, bool) {

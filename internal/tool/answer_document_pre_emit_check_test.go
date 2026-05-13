@@ -125,6 +125,44 @@ func TestPreCheckCallChainItemCitationRoleAlignment_SkipsChangeImpactSourcePrinc
 	}
 }
 
+func TestPreCheckAggregateScalarValueCoverage_RequiresModelAuthoredScalarFacts(t *testing.T) {
+	mu := types.NewMutableState("scalar aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "retry budget parameter name",
+		Value: "MaxRetriesPerStage",
+	}, {
+		Kind:  types.AnswerAggregateScalar,
+		Label: "retry attempt counter field",
+		Value: "EmitStageRetryAttempt",
+	}})
+	mu.SetInvestigationComplete("structured scalar facts accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "Yes. The analyze stage retries through prependEmitRetryDirective and the attempt counter is `EmitStageRetryAttempt`.",
+		}},
+	}
+
+	hints := preCheckAggregateScalarValueCoverage(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("missing scalar aggregate value should produce one hint, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "MaxRetriesPerStage") {
+		t.Fatalf("hint should name the omitted model-authored scalar, got %+v", hints[0])
+	}
+	if strings.Contains(hints[0].ExpectedShape, "EmitStageRetryAttempt") {
+		t.Fatalf("visible scalar should not be reported missing, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Text += " The retry budget parameter is `MaxRetriesPerStage`."
+	if got := preCheckAggregateScalarValueCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("all scalar aggregate values are visible; got hints %+v", got)
+	}
+}
+
 func TestPreCheckCitationPoolIntegrity_CatchesMissingAndOutOfRangeRefs(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

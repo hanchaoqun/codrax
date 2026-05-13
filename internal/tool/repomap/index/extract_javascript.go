@@ -204,12 +204,19 @@ func jsExtractClass(node *sitter.Node, src []byte, file string) (cls []types.Sym
 	if body := node.ChildByFieldName("body"); body != nil {
 		for j := 0; j < int(body.NamedChildCount()); j++ {
 			member := body.NamedChild(j)
-			if member.Type() == "method_definition" || member.Type() == "public_field_definition" {
+			if member.Type() == "method_definition" || member.Type() == "public_field_definition" ||
+				member.Type() == "field_definition" {
 				mName := member.ChildByFieldName("name")
+				if mName == nil {
+					mName = childByType(member, "property_identifier")
+				}
+				if mName == nil {
+					mName = childByType(member, "identifier")
+				}
 				if mName != nil {
 					mn := nodeText(mName, src)
 					kind := "method"
-					if member.Type() == "public_field_definition" {
+					if member.Type() == "public_field_definition" || member.Type() == "field_definition" {
 						kind = "field"
 					}
 					arity := 0
@@ -292,31 +299,50 @@ func jsExtractInterface(node *sitter.Node, src []byte, file string) []types.Symb
 	if body := node.ChildByFieldName("body"); body != nil {
 		for j := 0; j < int(body.NamedChildCount()); j++ {
 			member := body.NamedChild(j)
-			if member.Type() != "method_signature" && member.Type() != "method_definition" {
-				continue
-			}
-			mn := member.ChildByFieldName("name")
-			if mn == nil {
-				continue
-			}
-			arity := 0
-			if params := member.ChildByFieldName("parameters"); params != nil {
-				for k := 0; k < int(params.NamedChildCount()); k++ {
-					p := params.NamedChild(k)
-					if p.Type() == "required_parameter" || p.Type() == "optional_parameter" {
-						arity++
+			switch member.Type() {
+			case "method_signature", "method_definition":
+				mn := member.ChildByFieldName("name")
+				if mn == nil {
+					continue
+				}
+				arity := 0
+				if params := member.ChildByFieldName("parameters"); params != nil {
+					for k := 0; k < int(params.NamedChildCount()); k++ {
+						p := params.NamedChild(k)
+						if p.Type() == "required_parameter" || p.Type() == "optional_parameter" {
+							arity++
+						}
 					}
 				}
+				out = append(out, types.Symbol{
+					Name:    nodeText(mn, src),
+					Kind:    "method",
+					File:    file,
+					Line:    nodeLine(member),
+					EndLine: nodeEndLine(member),
+					Parent:  ifaceName,
+					Arity:   arity,
+				})
+			case "property_signature", "public_field_definition", "field_definition":
+				mn := member.ChildByFieldName("name")
+				if mn == nil {
+					mn = childByType(member, "property_identifier")
+				}
+				if mn == nil {
+					mn = childByType(member, "identifier")
+				}
+				if mn == nil {
+					continue
+				}
+				out = append(out, types.Symbol{
+					Name:    nodeText(mn, src),
+					Kind:    "field",
+					File:    file,
+					Line:    nodeLine(member),
+					EndLine: nodeEndLine(member),
+					Parent:  ifaceName,
+				})
 			}
-			out = append(out, types.Symbol{
-				Name:    nodeText(mn, src),
-				Kind:    "method",
-				File:    file,
-				Line:    nodeLine(member),
-				EndLine: nodeEndLine(member),
-				Parent:  ifaceName,
-				Arity:   arity,
-			})
 		}
 	}
 	return out

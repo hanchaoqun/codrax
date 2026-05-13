@@ -34,12 +34,10 @@ func extractCCpp(root *sitter.Node, src []byte, file, lang string) (pkg string, 
 
 		case "declaration":
 			// Could be function declaration (prototype), variable, or typedef
-			syms = append(syms, cExtractDeclaration(ch, src, file, isHeader)...)
+			syms = append(syms, cExtractDeclaration(ch, src, file, isHeader, "")...)
 
 		case "struct_specifier":
-			if s, ok := cExtractStruct(ch, src, file, isHeader); ok {
-				syms = append(syms, s)
-			}
+			syms = append(syms, cExtractStruct(ch, src, file, isHeader)...)
 
 		case "enum_specifier":
 			if s, ok := cExtractEnumSpec(ch, src, file, isHeader); ok {
@@ -130,8 +128,14 @@ func cExtractFunc(node *sitter.Node, src []byte, file string, isHeader bool) (ty
 	}, true
 }
 
-func cExtractDeclaration(node *sitter.Node, src []byte, file string, isHeader bool) []types.Symbol {
+func cExtractDeclaration(node *sitter.Node, src []byte, file string, isHeader bool, parent string) []types.Symbol {
 	var syms []types.Symbol
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		ch := node.NamedChild(i)
+		if ch.Type() == "struct_specifier" {
+			syms = append(syms, cExtractStruct(ch, src, file, isHeader)...)
+		}
+	}
 	// look for function declarators (prototypes) in the declaration
 	walkNamedChildren(node, false, func(ch *sitter.Node) {
 		if ch.Type() == "function_declarator" {
@@ -139,27 +143,36 @@ func cExtractDeclaration(node *sitter.Node, src []byte, file string, isHeader bo
 				name := nodeText(nameNode, src)
 				name = strings.TrimLeft(name, "*& ")
 				if name != "" {
+					kind := "function"
+					if parent != "" {
+						kind = "method"
+					}
 					syms = append(syms, types.Symbol{
 						Name:     name,
-						Kind:     "function",
+						Kind:     kind,
 						File:     file,
 						Line:     nodeLine(node),
 						EndLine:  nodeEndLine(node),
 						Exported: isHeader,
+						Parent:   parent,
 					})
 				}
 			}
 		}
 	})
+	if parent != "" {
+		syms = append(syms, cExtractFieldDeclarators(node, src, file, isHeader, parent)...)
+	}
 	return syms
 }
 
-func cExtractStruct(node *sitter.Node, src []byte, file string, isHeader bool) (types.Symbol, bool) {
+func cExtractStruct(node *sitter.Node, src []byte, file string, isHeader bool) []types.Symbol {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
-		return types.Symbol{}, false
+		return nil
 	}
-	return types.Symbol{
+	name := nodeText(nameNode, src)
+	out := []types.Symbol{{
 		Name:     nodeText(nameNode, src),
 		Kind:     "struct",
 		File:     file,
@@ -167,7 +180,17 @@ func cExtractStruct(node *sitter.Node, src []byte, file string, isHeader bool) (
 		EndLine:  nodeEndLine(node),
 		Exported: isHeader,
 		Doc:      prevSiblingComment(node, src),
-	}, true
+	}}
+	if body := childByType(node, "field_declaration_list"); body != nil {
+		for i := 0; i < int(body.NamedChildCount()); i++ {
+			field := body.NamedChild(i)
+			if field.Type() != "field_declaration" && field.Type() != "declaration" {
+				continue
+			}
+			out = append(out, cExtractFieldDeclarators(field, src, file, isHeader, name)...)
+		}
+	}
+	return out
 }
 
 func cExtractEnumSpec(node *sitter.Node, src []byte, file string, isHeader bool) (types.Symbol, bool) {
@@ -252,17 +275,67 @@ func cppExtractClass(node *sitter.Node, src []byte, file string, isHeader bool) 
 					methods = append(methods, s)
 				}
 			case "declaration":
-				decls := cExtractDeclaration(member, src, file, isHeader)
-				for idx := range decls {
-					decls[idx].Parent = name
-				}
-				methods = append(methods, decls...)
+				methods = append(methods, cExtractDeclaration(member, src, file, isHeader, name)...)
+			case "field_declaration":
+				methods = append(methods, cExtractFieldDeclarators(member, src, file, isHeader, name)...)
 			case "access_specifier":
 				// skip
 			}
 		}
 	}
 	return
+}
+
+func cExtractFieldDeclarators(node *sitter.Node, src []byte, file string, isHeader bool, parent string) []types.Symbol {
+	if node == nil || parent == "" {
+		return nil
+	}
+	var out []types.Symbol
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		ch := node.NamedChild(i)
+		if ch.Type() == "function_declarator" || ch.Type() == "struct_specifier" ||
+			ch.Type() == "primitive_type" || ch.Type() == "type_identifier" ||
+			ch.Type() == "storage_class_specifier" || ch.Type() == "type_qualifier" {
+			continue
+		}
+		name := cDeclaratorName(ch, src)
+		if name == "" {
+			continue
+		}
+		out = append(out, types.Symbol{
+			Name:      name,
+			Kind:      "field",
+			File:      file,
+			Line:      nodeLine(node),
+			EndLine:   nodeEndLine(node),
+			Exported:  isHeader,
+			Parent:    parent,
+			Signature: strings.TrimSpace(nodeText(node, src)),
+		})
+	}
+	return out
+}
+
+func cDeclaratorName(node *sitter.Node, src []byte) string {
+	if node == nil {
+		return ""
+	}
+	switch node.Type() {
+	case "identifier", "field_identifier":
+		return strings.TrimLeft(strings.TrimSpace(nodeText(node, src)), "*& ")
+	case "init_declarator", "array_declarator", "pointer_declarator", "reference_declarator",
+		"parenthesized_declarator":
+		if inner := node.ChildByFieldName("declarator"); inner != nil {
+			return cDeclaratorName(inner, src)
+		}
+	case "declaration":
+		for i := 0; i < int(node.NamedChildCount()); i++ {
+			if name := cDeclaratorName(node.NamedChild(i), src); name != "" {
+				return name
+			}
+		}
+	}
+	return ""
 }
 
 func cExtractCalls(root *sitter.Node, src []byte, file string) []types.Relation {

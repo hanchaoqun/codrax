@@ -260,6 +260,17 @@ func swiftExtractProperty(node *sitter.Node, src []byte, file, parent string) (t
 		nameNode = childByType(node, "identifier")
 	}
 	if nameNode == nil {
+		walkNamedChildren(node, true, func(ch *sitter.Node) {
+			if nameNode != nil {
+				return
+			}
+			switch ch.Type() {
+			case "simple_identifier", "identifier":
+				nameNode = ch
+			}
+		})
+	}
+	if nameNode == nil {
 		return types.Symbol{}, false
 	}
 	name := nodeText(nameNode, src)

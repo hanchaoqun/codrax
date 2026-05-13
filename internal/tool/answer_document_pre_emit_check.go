@@ -166,7 +166,15 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 		hints = append(hints, h...)
 	}
 
-	// 5d. Bounded exact absence. Keep the absence hard gate inside
+	// 5d. Model-authored scalar aggregate preservation. A scalar_value
+	// aggregate fact is an explicit typed handoff from exploration, not
+	// scratchpad prose; the finalizer must carry the value into visible
+	// answer blocks instead of remembering it only in thinking.
+	if h := preCheckAggregateScalarValueCoverage(doc, ctxOpt...); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+
+	// 5e. Bounded exact absence. Keep the absence hard gate inside
 	// the emit dispatch too, so missing negative-scope citations are
 	// repaired before the doc reaches the orchestrator retry loop.
 	if h := preCheckAbsenceScopeBound(doc); len(h) > 0 {
@@ -460,6 +468,138 @@ func preCheckPrincipalSupportMemberCoverage(doc *types.AnswerDocumentV2, ctxOpt 
 			strings.Join(parts, "; "),
 		Reason: "the investigation already emitted these as answer-grade principal evidence; the final answer must preserve the members or add a cited caveat item for a real exclusion instead of relying on system-added caveats.",
 	}}
+}
+
+func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
+		return nil
+	}
+	facts := ctxOpt[0].Mutable.StableInvestigationAggregateFacts()
+	if len(facts) == 0 {
+		return nil
+	}
+	surface := preEmitVisibleAnswerSurface(doc)
+	if strings.TrimSpace(surface) == "" {
+		return nil
+	}
+	type missingScalar struct {
+		label string
+		value string
+	}
+	var missing []missingScalar
+	seen := make(map[string]bool)
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateScalar {
+			continue
+		}
+		value := strings.TrimSpace(fact.Value)
+		if value == "" || preEmitAggregateScalarValueAppears(value, surface) {
+			continue
+		}
+		key := strings.ToLower(value)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		missing = append(missing, missingScalar{
+			label: strings.TrimSpace(fact.Label),
+			value: value,
+		})
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(missing))
+	for _, m := range missing {
+		if m.label != "" {
+			parts = append(parts, fmt.Sprintf("label=%q value=%q", m.label, m.value))
+		} else {
+			parts = append(parts, fmt.Sprintf("value=%q", m.value))
+		}
+	}
+	return []emitFixHint{{
+		Field: "blocks[].text OR blocks[].items[].label/text",
+		ExpectedShape: "include every model-emitted scalar_value aggregate in the visible answer surface: " +
+			strings.Join(parts, "; "),
+		Reason: "the investigation already handed these scalar values to the final answer as structured data; leaving them only in thinking, citations, or closure notes drops the user's requested literal.",
+	}}
+}
+
+func preEmitVisibleAnswerSurface(doc *types.AnswerDocumentV2) string {
+	if doc == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, block := range doc.Blocks {
+		appendPreEmitSurface(&b, block.Title)
+		appendPreEmitSurface(&b, block.Text)
+		for _, item := range block.Items {
+			appendPreEmitSurface(&b, item.Label)
+			appendPreEmitSurface(&b, item.Text)
+		}
+		if block.Diagram != nil {
+			appendPreEmitSurface(&b, block.Diagram.Body)
+		}
+	}
+	for _, caveat := range doc.Caveats {
+		appendPreEmitSurface(&b, caveat)
+	}
+	return b.String()
+}
+
+func appendPreEmitSurface(b *strings.Builder, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	if b.Len() > 0 {
+		b.WriteByte('\n')
+	}
+	b.WriteString(text)
+}
+
+func preEmitAggregateScalarValueAppears(value, surface string) bool {
+	value = strings.TrimSpace(value)
+	surface = strings.TrimSpace(surface)
+	if value == "" || surface == "" {
+		return false
+	}
+	if types.CodeSurfaceAppearsAsToken(value, surface) {
+		return true
+	}
+	return preEmitDisplaySurfaceAppears(value, surface)
+}
+
+func preEmitDisplaySurfaceAppears(value, surface string) bool {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	surface = strings.Join(strings.Fields(strings.TrimSpace(surface)), " ")
+	if value == "" || surface == "" {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(surface[start:], value)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		if preEmitDisplaySurfaceBoundary(surface, pos-1) &&
+			preEmitDisplaySurfaceBoundary(surface, pos+len(value)) {
+			return true
+		}
+		start = pos + len(value)
+		if start >= len(surface) {
+			return false
+		}
+	}
+}
+
+func preEmitDisplaySurfaceBoundary(s string, idx int) bool {
+	if idx < 0 || idx >= len(s) {
+		return true
+	}
+	r := rune(s[idx])
+	return !(r == '_' || r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z')
 }
 
 func changeImpactFileLabelsForHint(diag *types.ChangeImpactFileOutputLabelDiagnostic) string {

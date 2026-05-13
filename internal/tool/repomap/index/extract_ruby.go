@@ -46,7 +46,7 @@ func extractRuby(root *sitter.Node, src []byte, file string) (pkg string, syms [
 				syms = append(syms, s)
 			}
 		case "assignment":
-			if s, ok := rubyExtractConstant(ch, src, file); ok {
+			if s, ok := rubyExtractConstant(ch, src, file, ""); ok {
 				syms = append(syms, s)
 			}
 		case "call":
@@ -115,6 +115,10 @@ func rubyExtractClassLike(node *sitter.Node, src []byte, file, kind string) (cls
 				cls = append(cls, nestedCls...)
 				methods = append(methods, nestedMethods...)
 				rels = append(rels, nestedRels...)
+			case "assignment":
+				if s, ok := rubyExtractConstant(ch, src, file, name); ok {
+					methods = append(methods, s)
+				}
 			}
 		}
 	}
@@ -150,7 +154,7 @@ func rubyExtractMethod(node *sitter.Node, src []byte, file, parent string) (type
 	}, true
 }
 
-func rubyExtractConstant(node *sitter.Node, src []byte, file string) (types.Symbol, bool) {
+func rubyExtractConstant(node *sitter.Node, src []byte, file, parent string) (types.Symbol, bool) {
 	// Only top-level CONSTANT = ... (LHS starts with uppercase).
 	left := node.ChildByFieldName("left")
 	if left == nil {
@@ -167,6 +171,7 @@ func rubyExtractConstant(node *sitter.Node, src []byte, file string) (types.Symb
 		Line:     nodeLine(node),
 		EndLine:  nodeEndLine(node),
 		Exported: true,
+		Parent:   parent,
 	}, true
 }
 
