@@ -30,8 +30,17 @@ func compileFacetEvidenceSupportPlan(family QuestionFamily, rm RequestModel, pla
 			out.Lanes = append(out.Lanes, lane)
 		}
 	}
-	if lane := compilePrincipalEvidenceSupportLane(family, rm, plan); len(lane.Entries) > 0 {
-		out.Lanes = append(out.Lanes, lane)
+	aggregatePrincipal := false
+	if family == QFEnumeration {
+		if lane := compileChangeImpactAggregateMemberSupportLane(rm, plan); len(lane.Entries) > 0 {
+			out.Lanes = append(out.Lanes, lane)
+			aggregatePrincipal = true
+		}
+	}
+	if !aggregatePrincipal {
+		if lane := compilePrincipalEvidenceSupportLane(family, rm, plan); len(lane.Entries) > 0 {
+			out.Lanes = append(out.Lanes, lane)
+		}
 	}
 	if family == QFEnumeration {
 		if lane := compileEnumerationSupportingContextLane(rm, plan); len(lane.Entries) > 0 {
@@ -42,6 +51,155 @@ func compileFacetEvidenceSupportPlan(family QuestionFamily, rm RequestModel, pla
 		out.Lanes = append(out.Lanes, lane)
 	}
 	if len(out.Lanes) == 0 {
+		return nil
+	}
+	return out
+}
+
+func compileChangeImpactAggregateMemberSupportLane(rm RequestModel, plan *AnswerSurfacePlan) AnswerSupportLane {
+	lane := AnswerSupportLane{
+		Kind:          SupportLanePrincipalEvidence,
+		Title:         "Model-emitted affected source member set",
+		AllowedBlocks: principalEvidenceAllowedBlocks(QFEnumeration),
+		Guidance: "Use this lane as the principal member slate for this change-impact answer. " +
+			"Every entry comes from the investigator's structured `emit_investigation_complete.aggregate_facts` member_set payload, not from raw thinking or closure prose. " +
+			"For requested_output=files, file paths are the principal item labels and multiple file:line entries for the same file are equivalent supporting anchors. " +
+			"For requested_output=sites, the cited source location is the principal item label. " +
+			"Descriptive change-type text may enrich the same row, but it is not a call edge, assignment edge, or symbol-definition claim unless another typed evidence lane independently says so. " +
+			"Do not add helper symbols, adjacent context, or search hints as extra principal members.",
+	}
+	if plan == nil || rm.ChangeImpactProfile == nil || !rm.ChangeImpactProfile.Active() {
+		return lane
+	}
+	switch rm.ChangeImpactProfile.RequestedOutput {
+	case ImpactOutputFiles, ImpactOutputSites:
+	default:
+		return lane
+	}
+	seen := map[string]bool{}
+	for factIdx, fact := range plan.StableAggregateFacts {
+		if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+			continue
+		}
+		for memberIdx, member := range fact.Members {
+			entry, ok := changeImpactAggregateMemberSupportEntry(rm.ChangeImpactProfile, fact, factIdx, memberIdx, member)
+			if !ok {
+				continue
+			}
+			key := strings.ToLower(entry.Location) + "\x00" + strings.ToLower(entry.Text)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			lane.Entries = append(lane.Entries, entry)
+			if len(lane.Entries) >= facetSupportEntryLimitDefault {
+				return lane
+			}
+		}
+	}
+	return lane
+}
+
+func changeImpactAggregateMemberSupportEntry(profile *ChangeImpactProfile, fact AnswerAggregateFact, factIdx, memberIdx int, member string) (AnswerSupportEntry, bool) {
+	if profile == nil || !profile.Active() {
+		return AnswerSupportEntry{}, false
+	}
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return AnswerSupportEntry{}, false
+	}
+	var file string
+	var line int
+	var location string
+	var display string
+	var terms []string
+	if surface, ok := ParseAnswerSourceLocationSurface(member); ok {
+		file = surface.File
+		line = surface.LineStart
+		location = aggregateMemberStartLocation(surface)
+		display = strings.TrimSpace(member)
+		terms = append(terms, display, file, location)
+	} else if profile.RequestedOutput == ImpactOutputFiles {
+		if parsedFile, ok := ParseAnswerFilePathSurface(member); ok {
+			ref, refOK := changeImpactAggregateSupportLocationForFile(fact.SupportRefs, parsedFile)
+			if !refOK {
+				return AnswerSupportEntry{}, false
+			}
+			file = ref.File
+			line = ref.LineStart
+			location = aggregateMemberStartLocation(ref)
+			display = parsedFile
+			terms = append(terms, display, location)
+		}
+	}
+	if file == "" || line <= 0 || location == "" {
+		return AnswerSupportEntry{}, false
+	}
+	text := display
+	if label := strings.TrimSpace(fact.Label); label != "" {
+		text = label + ": " + display
+	}
+	detail := "source=emit_investigation_complete.aggregate_facts; aggregate_kind=member_set; member_surface=source_location"
+	return AnswerSupportEntry{
+		Text:          text,
+		Detail:        detail,
+		Location:      location,
+		EvidenceID:    aggregateMemberEvidenceID(factIdx, memberIdx),
+		ClaimForm:     ClaimUnknown,
+		LabelSurface:  ClaimLabelSurfaceDisplayLabel,
+		SurfaceTerms:  dedupeAggregateMemberTerms(terms),
+		Source:        file,
+		LineStart:     line,
+		MemberSurface: PrincipalMemberSurfaceSourceLocation,
+		Producer:      "explorer.emit_investigation_complete.aggregate_facts",
+		GroundingTier: TierLineText,
+	}, true
+}
+
+func aggregateMemberEvidenceID(factIdx, memberIdx int) string {
+	return "aggregate_fact:member_set:" + intString(factIdx) + ":" + intString(memberIdx)
+}
+
+func aggregateMemberStartLocation(surface AnswerSourceLocationSurface) string {
+	if surface.File == "" || surface.LineStart <= 0 {
+		return ""
+	}
+	return surface.File + ":" + intString(surface.LineStart)
+}
+
+func changeImpactAggregateSupportLocationForFile(refs []string, wantFile string) (AnswerSourceLocationSurface, bool) {
+	wantFile = normalizeAnswerSupportPath(wantFile)
+	if wantFile == "" {
+		return AnswerSourceLocationSurface{}, false
+	}
+	for _, ref := range refs {
+		surface, ok := ParseAnswerSourceLocationSurface(ref)
+		if !ok {
+			continue
+		}
+		if normalizeAnswerSupportPath(surface.File) == wantFile {
+			return surface, true
+		}
+	}
+	return AnswerSourceLocationSurface{}, false
+}
+
+func dedupeAggregateMemberTerms(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, term := range in {
+		term = strings.TrimSpace(term)
+		if term == "" {
+			continue
+		}
+		key := strings.ToLower(term)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, term)
+	}
+	if len(out) == 0 {
 		return nil
 	}
 	return out

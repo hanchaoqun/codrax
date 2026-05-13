@@ -1088,6 +1088,57 @@ func TestExtractor_BuildPrompt_ChangeImpactFileEnumerationUsesSupportLane(t *tes
 	}
 }
 
+func TestExtractor_BuildPrompt_ChangeImpactAggregateMemberSetSkipsAnswerSymbol(t *testing.T) {
+	mu := types.NewMutableState("list affected files from aggregate")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles:             []string{"internal/agent/analyzer.go"},
+		TerminalEvidenceCount: 0,
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "affected source members",
+		Value: "1",
+		Members: []string{
+			"internal/agent/analyzer.go:1935-1949",
+		},
+	}})
+	mu.SetInvestigationComplete("aggregate member set emitted")
+	ctx := &types.AgentContext{
+		Objective: "If ShapeValue is renamed, list affected files.",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
+				AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				ChangeImpactProfile: &types.ChangeImpactProfile{
+					IsChangeImpact:  true,
+					Target:          "ShapeValue",
+					RequestedOutput: types.ImpactOutputFiles,
+					Scope:           types.ImpactScopeProduction,
+					Confidence:      0.9,
+				},
+			},
+		},
+	}
+
+	if !viewNeedsEnumerationSlate(ctx) {
+		t.Fatal("fixture must remain enumeration-shaped")
+	}
+	if !enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx) {
+		t.Fatal("model-emitted aggregate member_set should render through typed support lanes")
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("aggregate-backed file enumeration must not force emit_answer_symbol")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "does NOT require `emit_answer_symbol`") {
+		t.Fatalf("prompt should disable answer-symbol slate when aggregate member_set carries non-symbol members:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_DefinitionEnumerationStillRequiresAnswerSymbols(t *testing.T) {
 	mu := types.NewMutableState("list functions")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

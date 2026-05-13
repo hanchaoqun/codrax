@@ -2348,6 +2348,92 @@ func TestBuildAnswerSupportPlan_FacetFamilyWithoutTypedCandidatesReturnsNil(t *t
 	}
 }
 
+func TestBuildAnswerSupportPlan_ChangeImpactUsesAggregateMemberSetAsPrincipalLane(t *testing.T) {
+	profile := &ChangeImpactProfile{
+		IsChangeImpact:  true,
+		Target:          "ShapeValue",
+		TargetKind:      SubjectEnumValue,
+		RequestedOutput: ImpactOutputFiles,
+		Scope:           ImpactScopeProduction,
+		Confidence:      0.9,
+	}
+	unrelated := EvidenceItem{
+		ID:              "unrelated-definition",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       1083,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "ContractTermKind.IsValid",
+		Subject:         "ContractTermKind.IsValid",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	plan := &AnswerSurfacePlan{
+		ChangeImpactProfile: profile,
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "affected source members",
+			Value: "3",
+			Members: []string{
+				"internal/agent/analyzer.go:1935-1949",
+				"internal/types/answer_semantic_view_helpers.go:17-18",
+				"internal/types/answer_semantic_view_helpers.go:122",
+			},
+		}},
+		SurfaceEvidence: []EvidenceItem{unrelated},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFEnumeration,
+			Required: []FacetRequirement{{
+				Kind:            FacetEnumerationItem,
+				SourceCandidate: []string{unrelated.ID},
+			}},
+		},
+	}
+	rm := RequestModel{
+		Intent:              IntentEnumerate,
+		AnalyzerHints:       AnalyzerHints{Kind: string(ReqEnumeration)},
+		ChangeImpactProfile: profile,
+		Predicates:          SemanticPredicates{IsCategoryEnumeration: true},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 3 {
+		t.Fatalf("aggregate member_set should compile into three source members, got %+v", got)
+	}
+	if !strings.Contains(lane.Title, "Model-emitted") {
+		t.Fatalf("principal lane should identify aggregate origin, got %q", lane.Title)
+	}
+	if strings.Contains(answerSupportLaneText(lane), "ContractTermKind") {
+		t.Fatalf("facet helper must not replace the aggregate principal member set: %+v", lane.Entries)
+	}
+	for _, entry := range lane.Entries {
+		if entry.ClaimForm != ClaimUnknown || entry.MemberSurface != PrincipalMemberSurfaceSourceLocation {
+			t.Fatalf("aggregate source members should be non-symbol principal entries, got %+v", entry)
+		}
+		if entry.Producer != "explorer.emit_investigation_complete.aggregate_facts" {
+			t.Fatalf("aggregate source member producer not preserved: %+v", entry)
+		}
+	}
+	obligations := PrincipalSupportMemberObligations(got)
+	if len(obligations) != 2 {
+		t.Fatalf("requested_output=files should coalesce duplicate file sites into two file obligations, got %+v", obligations)
+	}
+	gotLabels := map[string]bool{}
+	for _, ob := range obligations {
+		gotLabels[ob.Label] = true
+		if ob.ClaimForm != ClaimUnknown {
+			t.Fatalf("aggregate source member should not masquerade as a symbol claim, got %+v", ob)
+		}
+	}
+	for _, want := range []string{"internal/agent/analyzer.go", "internal/types/answer_semantic_view_helpers.go"} {
+		if !gotLabels[want] {
+			t.Fatalf("missing file obligation %q from %+v", want, obligations)
+		}
+	}
+}
+
 func answerSupportLaneByKind(plan *AnswerSupportPlan, kind AnswerSupportLaneKind) *AnswerSupportLane {
 	if plan == nil {
 		return nil

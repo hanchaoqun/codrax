@@ -155,3 +155,41 @@ func TestBackfillReturnTypeNames_NoFunctionReturnsNil(t *testing.T) {
 		t.Errorf("expected nil ReturnTypeNames; got %v", got)
 	}
 }
+
+func TestExtractGoStructFields(t *testing.T) {
+	syms, _, _, ok := parseLanguageForTest(t, types.LangGo, `package config
+
+type Runtime struct {
+	MaxRetryBudgetCeil int
+	Min, Max           int
+	embedded.Logger
+}
+`)
+	if !ok {
+		t.Skip("tree-sitter-go not available")
+	}
+	fields := map[string]types.Symbol{}
+	for _, sym := range syms {
+		if sym.Kind == "field" {
+			fields[sym.Name] = sym
+		}
+	}
+	for _, name := range []string{"MaxRetryBudgetCeil", "Min", "Max"} {
+		sym, ok := fields[name]
+		if !ok {
+			t.Fatalf("missing struct field symbol %q; symbols=%+v", name, syms)
+		}
+		if sym.Parent != "Runtime" {
+			t.Fatalf("field %s parent = %q, want Runtime", name, sym.Parent)
+		}
+		if sym.File != "test.go" || sym.Line <= 0 {
+			t.Fatalf("field %s location not populated: %+v", name, sym)
+		}
+	}
+	if _, ok := fields["Logger"]; ok {
+		t.Fatalf("embedded fields should stay embedding relations, not named field symbols: %+v", fields["Logger"])
+	}
+	if fields["MaxRetryBudgetCeil"].Signature != "int" {
+		t.Fatalf("field type signature not preserved: %+v", fields["MaxRetryBudgetCeil"])
+	}
+}

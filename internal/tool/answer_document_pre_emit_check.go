@@ -380,11 +380,14 @@ func preCheckCallChainItemCitationRoleAlignment(doc *types.AnswerDocumentV2, vie
 			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
 				continue
 			}
+			cit := doc.Citations[item.CitationRef]
+			if preEmitItemMatchesSourceLocationPrincipalMember(ctx, item, cit) {
+				continue
+			}
 			expected, ok := preEmitClaimRoleMentionedByItemSurface(item, forms, allEvidence)
 			if !ok {
 				continue
 			}
-			cit := doc.Citations[item.CitationRef]
 			cited, found := preEmitCitedEvidenceItems(ctx, cit)
 			if found && types.EvidenceSetContainsSameClaimRole(cited, expected) {
 				continue
@@ -563,6 +566,92 @@ func preEmitBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemant
 		forms = append(forms, types.ClaimCallEdge)
 	}
 	return types.ClaimFormsSupportingCitationRoleAlignment(forms)
+}
+
+func preEmitItemMatchesSourceLocationPrincipalMember(ctx *types.BusContext, item types.AnswerBlockItem, cit types.Citation) bool {
+	if ctx == nil {
+		return false
+	}
+	plan := types.BuildAnswerSupportPlanForBusContext(ctx)
+	if plan == nil || plan.ChangeImpactProfile == nil || !plan.ChangeImpactProfile.Active() {
+		return false
+	}
+	label := strings.TrimSpace(item.Label)
+	if label == "" {
+		return false
+	}
+	switch plan.ChangeImpactProfile.RequestedOutput {
+	case types.ImpactOutputFiles:
+		if !types.AnswerFilePathLabelMatchesCitation(label, cit) {
+			return false
+		}
+	case types.ImpactOutputSites:
+		if !types.AnswerSourceLocationLabelMatchesCitation(label, cit) {
+			return false
+		}
+	default:
+		return false
+	}
+	for _, ob := range types.PrincipalSupportMemberObligations(plan) {
+		if preEmitSourcePrincipalObligationMatchesItem(ob, label, cit, plan.ChangeImpactProfile.RequestedOutput) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitSourcePrincipalObligationMatchesItem(ob types.AnswerSupportMemberObligation, label string, cit types.Citation, output types.ImpactRequestedOutput) bool {
+	switch output {
+	case types.ImpactOutputFiles:
+		labelFile, ok := types.ParseAnswerFilePathSurface(label)
+		if !ok {
+			return false
+		}
+		if preEmitNormalizePath(ob.Source) != preEmitNormalizePath(labelFile) {
+			return false
+		}
+		return preEmitNormalizePath(cit.File) == preEmitNormalizePath(labelFile)
+	case types.ImpactOutputSites:
+		surface, ok := types.ParseAnswerSourceLocationSurface(label)
+		if !ok || !types.AnswerSourceLocationSurfaceMatchesCitation(surface, cit) {
+			return false
+		}
+		return preEmitSupportObligationHasCitation(ob, cit)
+	default:
+		return false
+	}
+}
+
+func preEmitSupportObligationHasCitation(ob types.AnswerSupportMemberObligation, cit types.Citation) bool {
+	want := preEmitCitationLocationKey(cit)
+	if want == "" {
+		return false
+	}
+	if preEmitNormalizeLocation(ob.Location) == want {
+		return true
+	}
+	for _, loc := range ob.EquivalentLocations {
+		if preEmitNormalizeLocation(loc) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitCitationLocationKey(cit types.Citation) string {
+	file := preEmitNormalizePath(cit.File)
+	if file == "" || cit.Line <= 0 {
+		return ""
+	}
+	return file + ":" + fmt.Sprintf("%d", cit.Line)
+}
+
+func preEmitNormalizeLocation(location string) string {
+	return strings.ToLower(strings.TrimSpace(strings.ReplaceAll(location, `\`, `/`)))
+}
+
+func preEmitNormalizePath(path string) string {
+	return strings.ToLower(strings.TrimSpace(strings.ReplaceAll(path, `\`, `/`)))
 }
 
 func preEmitAnswerEvidenceItems(ctx *types.BusContext) []types.EvidenceItem {

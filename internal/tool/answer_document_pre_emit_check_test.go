@@ -55,6 +55,76 @@ func TestPreEmitBlockCitationRoleForms_TableParticipates(t *testing.T) {
 	}
 }
 
+func TestPreCheckCallChainItemCitationRoleAlignment_SkipsChangeImpactSourcePrincipalRows(t *testing.T) {
+	mu := types.NewMutableState("change impact aggregate members")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "affected source members",
+		Value: "1",
+		Members: []string{
+			"internal/agent/analyzer.go:1935",
+		},
+	}})
+	mu.SetInvestigationComplete("aggregate member set emitted")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:              "bad-edge-context",
+		Kind:            types.EvidenceRelationship,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       1234,
+		AnchorKind:      types.AnchorCall,
+		Subject:         "ShapeValue",
+		Object:          "ShapeScalar",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+				Predicates:    types.SemanticPredicates{IsCategoryEnumeration: true},
+				ChangeImpactProfile: &types.ChangeImpactProfile{
+					IsChangeImpact:  true,
+					Target:          "ShapeValue",
+					RequestedOutput: types.ImpactOutputFiles,
+					Scope:           types.ImpactScopeProduction,
+					Confidence:      0.9,
+				},
+			},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFEnumeration,
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind:                 types.BlockOrderedList,
+			Required:             true,
+			AcceptableClaimForms: []types.ClaimForm{types.ClaimCallEdge},
+			SurfaceRoleHint:      types.SurfacePrincipal,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 1935}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "files",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "analyzer",
+				Label:       "internal/agent/analyzer.go",
+				Text:        "rename ShapeValue -> ShapeScalar in the comment-only affected site",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if hints := preCheckCallChainItemCitationRoleAlignment(doc, view, ctx); len(hints) != 0 {
+		t.Fatalf("source-location principal member should not be reinterpreted as an edge role, got %+v", hints)
+	}
+}
+
 func TestPreCheckCitationPoolIntegrity_CatchesMissingAndOutOfRangeRefs(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

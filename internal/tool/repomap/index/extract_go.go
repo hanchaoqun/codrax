@@ -226,6 +226,62 @@ func goExtractTypes(node *sitter.Node, src []byte, file string) []types.Symbol {
 			sym.RequiredMethods = goExtractInterfaceMethods(typeNode, src)
 		}
 		syms = append(syms, sym)
+		if kind == "struct" && typeNode != nil {
+			syms = append(syms, goExtractStructFields(name, typeNode, src, file)...)
+		}
+	}
+	return syms
+}
+
+func goExtractStructFields(typeName string, structNode *sitter.Node, src []byte, file string) []types.Symbol {
+	if structNode == nil || structNode.Type() != "struct_type" {
+		return nil
+	}
+	body := childByType(structNode, "field_declaration_list")
+	if body == nil {
+		return nil
+	}
+	var syms []types.Symbol
+	for i := 0; i < int(body.NamedChildCount()); i++ {
+		field := body.NamedChild(i)
+		if field == nil || field.Type() != "field_declaration" {
+			continue
+		}
+		nameNodes := childrenByType(field, "field_identifier")
+		if len(nameNodes) == 0 {
+			if nameNode := field.ChildByFieldName("name"); nameNode != nil && nameNode.Type() == "field_identifier" {
+				nameNodes = append(nameNodes, nameNode)
+			}
+		}
+		if len(nameNodes) == 0 {
+			continue
+		}
+		signature := strings.TrimSpace(nodeText(field, src))
+		typeText := ""
+		if typeNode := field.ChildByFieldName("type"); typeNode != nil {
+			typeText = strings.TrimSpace(nodeText(typeNode, src))
+		}
+		fieldSignature := typeText
+		if fieldSignature == "" {
+			fieldSignature = signature
+		}
+		for _, nameNode := range nameNodes {
+			name := strings.TrimSpace(nodeText(nameNode, src))
+			if name == "" || name == "_" {
+				continue
+			}
+			syms = append(syms, types.Symbol{
+				Name:      name,
+				Kind:      "field",
+				File:      file,
+				Line:      nodeLine(field),
+				EndLine:   nodeEndLine(field),
+				Exported:  unicode.IsUpper(rune(name[0])),
+				Parent:    typeName,
+				Signature: fieldSignature,
+				Doc:       prevSiblingComment(field, src),
+			})
+		}
 	}
 	return syms
 }

@@ -179,7 +179,9 @@ func principalSupportEntryRequiresMemberCoverage(entry AnswerSupportEntry) bool 
 		ClaimAssignmentFact, ClaimReturnFact, ClaimPrecedenceRole,
 		ClaimExternalObservation, ClaimImportEdge:
 		return true
-	case ClaimAbsenceFact, ClaimUnknown:
+	case ClaimUnknown:
+		return principalMemberSurfaceForSupportEntry(entry) == PrincipalMemberSurfaceSourceLocation
+	case ClaimAbsenceFact:
 		return false
 	default:
 		return false
