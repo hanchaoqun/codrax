@@ -2726,12 +2726,12 @@ func extractQuotedLiterals(s string) []string {
 //
 //  1. rm.Predicates.IsCategoryEnumeration is true (question is an
 //     enumeration of values).
-//  2. distinctNamedEntities(rm.AnalyzerHints.Entities) is exactly 1
-//     (the LLM has the wrapper handle but not the values).
-//  3. The single entity is a known Symbol in the repo graph with
+//  2. At least one analyzer entity is a known Symbol in the repo graph with
 //     Kind ∈ {interface, trait, protocol} — the language-agnostic
 //     marker that "this token is the interface side of an
-//     implements relation". populateImplementers (graph build
+//     implements relation". The entity list may also contain partial
+//     candidate implementers the LLM guessed from prior context; those
+//     candidates must not prevent typed graph expansion. populateImplementers (graph build
 //     post-pass) cross-references this against every concrete type
 //     whose method set / `impl Trait` / `extends Class` / Python
 //     ABC subclass list satisfies the interface, regardless of
@@ -2763,23 +2763,11 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 	if !rm.Predicates.IsCategoryEnumeration {
 		return original
 	}
-	if distinctNamedEntities(original) != 1 {
+	if distinctNamedEntities(original) == 0 {
 		return original
 	}
 	graph := analyzerGraphForNormalize(ctx, rm)
 	if graph == nil {
-		return original
-	}
-	// Pick the single distinct entity (case-trim).
-	var bare string
-	for _, e := range original {
-		t := strings.TrimSpace(e)
-		if t != "" {
-			bare = t
-			break
-		}
-	}
-	if bare == "" {
 		return original
 	}
 	// Two expansion paths share the same shape:
@@ -2798,24 +2786,35 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 	// across every active sub-repo. The interface declaration may
 	// live in sub-a while implementers are scattered across sub-b/c —
 	// without fan-out the answer would silently drop them.
-	if defs, ok := graph.SymbolDefs[bare]; ok {
-		for _, d := range defs {
-			if d == nil {
-				continue
-			}
-			switch d.Kind {
-			case "interface", "trait", "protocol":
-				var implTarget any = graph
-				if mg := repomap.MultiGraphFromAgentContext(ctx); mg != nil {
-					implTarget = mg
-				}
-				exp := expandImplementersFromGraph(implTarget, []string{bare})
-				if len(exp.Names) == 0 {
-					return original
-				}
-				return mergeExpandedEntities(original, exp.Names)
-			}
+	if targets := implementerExpansionTargetsFromEntities(graph, original); len(targets) > 0 {
+		var implTarget any = graph
+		if mg := repomap.MultiGraphFromAgentContext(ctx); mg != nil {
+			implTarget = mg
 		}
+		exp := expandImplementersFromGraph(implTarget, targets)
+		if len(exp.Names) > 0 {
+			return mergeExpandedEntities(original, exp.Names)
+		}
+	}
+
+	if distinctNamedEntities(original) != 1 {
+		return original
+	}
+	// Pick the single distinct entity (case-trim). The remaining
+	// path/package/directory expansions are single-handle repairs; if
+	// the analyzer already emitted multiple entities, expanding a path
+	// import set or package API from only the first token would mix
+	// unrelated axes.
+	var bare string
+	for _, e := range original {
+		t := strings.TrimSpace(e)
+		if t != "" {
+			bare = t
+			break
+		}
+	}
+	if bare == "" {
+		return original
 	}
 
 	// Path (b): entity is a file path that resolves in graph.FileIndex
@@ -2901,6 +2900,42 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 	}
 
 	return original
+}
+
+func implementerExpansionTargetsFromEntities(graph *repomap.Graph, entities []string) []string {
+	if graph == nil || len(entities) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(entities))
+	var out []string
+	for _, entity := range entities {
+		entity = strings.TrimSpace(entity)
+		if entity == "" || seen[strings.ToLower(entity)] {
+			continue
+		}
+		if !entityIsInterfaceLikeInGraph(graph, entity) {
+			continue
+		}
+		seen[strings.ToLower(entity)] = true
+		out = append(out, entity)
+	}
+	return out
+}
+
+func entityIsInterfaceLikeInGraph(graph *repomap.Graph, entity string) bool {
+	if graph == nil || strings.TrimSpace(entity) == "" {
+		return false
+	}
+	for _, d := range graph.SymbolDefs[entity] {
+		if d == nil {
+			continue
+		}
+		switch d.Kind {
+		case "interface", "trait", "protocol":
+			return true
+		}
+	}
+	return false
 }
 
 // expandPackageExports walks graph.FileIndex looking for files

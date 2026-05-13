@@ -596,6 +596,33 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsDecoratedSplitRelation(t *tes
 	}
 }
 
+func TestPreEmitAggregateMemberSupportRefMember_CitesLabelAtLocation(t *testing.T) {
+	mu := types.NewMutableState("implementer aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "LoopController implementers",
+		Value:   "1",
+		Members: []string{"explorerEvaluator @ internal/agent/explorer.go:30"},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	item := types.AnswerBlockItem{
+		ID:          "explorer",
+		Label:       "explorerEvaluator",
+		Text:        "implements LoopController.",
+		CitationRef: 0,
+	}
+	citation := types.Citation{File: "internal/agent/explorer.go", Line: 30}
+
+	if !preEmitCitationSupportsAggregateItem(ctx, item.Label, item.Text, citation) {
+		t.Fatal("label plus matching citation should satisfy support-ref aggregate member")
+	}
+	got := preEmitCandidateCitationLocationsForAggregateItem(ctx, item.Label, item.Text, 4)
+	if len(got) != 1 || got[0] != "internal/agent/explorer.go:30" {
+		t.Fatalf("support-ref aggregate member should suggest its typed location, got %v", got)
+	}
+}
+
 func TestPreCheckCitationPoolIntegrity_CatchesMissingAndOutOfRangeRefs(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

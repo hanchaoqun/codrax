@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	codtypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestImplementerFilesFromGraph_TypedSubset verifies P2 #4's typed
@@ -100,5 +101,75 @@ func TestImplementerFilesFromGraph_NoMatchingInterfaceReturnsNil(t *testing.T) {
 	}
 	if got := implementerFilesFromGraph(g, []string{"Foo"}); got != nil {
 		t.Errorf("expected nil when no interface matches; got %v", got)
+	}
+}
+
+func TestExpandEntitiesWithImplementers_MergesCompleteSetWhenInterfaceAndPartialCandidatesPresent(t *testing.T) {
+	for _, lang := range repotypes.SupportedReadLanguages() {
+		t.Run(lang, func(t *testing.T) {
+			ifaceKind := "interface"
+			switch lang {
+			case repotypes.LangRust:
+				ifaceKind = "trait"
+			case repotypes.LangSwift:
+				ifaceKind = "protocol"
+			}
+			ifaceName := "LoopController"
+			ifaceFile := &repotypes.FileInfo{RelPath: "src/loop_iface." + lang, Language: lang}
+			implAFile := &repotypes.FileInfo{RelPath: "src/eval_a." + lang, Language: lang}
+			implBFile := &repotypes.FileInfo{RelPath: "src/eval_b." + lang, Language: lang}
+
+			ifaceSym := repotypes.Symbol{Name: ifaceName, Kind: ifaceKind, File: ifaceFile.RelPath}
+			ifaceSym.ID = repotypes.DeriveSymbolID(ifaceFile, &ifaceSym)
+			ifaceFile.Symbols = []repotypes.Symbol{ifaceSym}
+
+			implA := repotypes.Symbol{Name: "evalA", Kind: "class", File: implAFile.RelPath, Implements: []repotypes.SymbolID{ifaceSym.ID}}
+			implA.ID = repotypes.DeriveSymbolID(implAFile, &implA)
+			implAFile.Symbols = []repotypes.Symbol{implA}
+			implB := repotypes.Symbol{Name: "evalB", Kind: "class", File: implBFile.RelPath, Implements: []repotypes.SymbolID{ifaceSym.ID}}
+			implB.ID = repotypes.DeriveSymbolID(implBFile, &implB)
+			implBFile.Symbols = []repotypes.Symbol{implB}
+
+			ifacePtr := &ifaceFile.Symbols[0]
+			g := &repotypes.Graph{
+				Files: []*repotypes.FileInfo{ifaceFile, implAFile, implBFile},
+				FileIndex: map[string]*repotypes.FileInfo{
+					ifaceFile.RelPath: ifaceFile,
+					implAFile.RelPath: implAFile,
+					implBFile.RelPath: implBFile,
+				},
+				SymbolDefs: map[string][]*repotypes.Symbol{ifaceName: {ifacePtr}},
+				SymbolByID: map[repotypes.SymbolID]*repotypes.Symbol{
+					ifacePtr.ID: ifacePtr,
+					implA.ID:    &implAFile.Symbols[0],
+					implB.ID:    &implBFile.Symbols[0],
+				},
+			}
+			mu := codtypes.NewMutableState("list all implementers")
+			mu.SetSearchGraph(g)
+			ctx := &codtypes.AgentContext{RepoRoot: t.TempDir(), Mutable: mu}
+			rm := codtypes.RequestModel{
+				Intent: codtypes.IntentEnumerate,
+				Predicates: codtypes.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				AnalyzerHints: codtypes.AnalyzerHints{
+					Entities: []string{ifaceName, "evalA"},
+				},
+			}
+
+			got := expandEntitiesWithImplementers(ctx, rm)
+			want := map[string]bool{ifaceName: false, "evalA": false, "evalB": false}
+			for _, entity := range got {
+				if _, ok := want[entity]; ok {
+					want[entity] = true
+				}
+			}
+			for entity, seen := range want {
+				if !seen {
+					t.Fatalf("expanded entities for %s missing %q: got %v", lang, entity, got)
+				}
+			}
+		})
 	}
 }

@@ -20,6 +20,15 @@ func TestParseAnswerSourceLocationSurface_CrossLanguagePaths(t *testing.T) {
 	}
 }
 
+func TestParseAnswerSourceLocationSurface_DoesNotSwallowSupportRefComposite(t *testing.T) {
+	if _, ok := ParseAnswerSourceLocationSurface("explorerEvaluator @ internal/agent/explorer.go:30"); ok {
+		t.Fatal("support-ref composite member must not parse as a single source location")
+	}
+	if _, ok := ParseAnswerSourceLocationSurface("Component | entry/src/main/ets/pages/Index.ets:20"); ok {
+		t.Fatal("pipe support-ref composite member must not parse as a single source location")
+	}
+}
+
 func TestAnswerSourceLocationLabelMatchesCitation(t *testing.T) {
 	if !AnswerSourceLocationLabelMatchesCitation("internal/agent/analyzer.go:1903", Citation{
 		File: "internal/agent/analyzer.go",

@@ -1835,6 +1835,12 @@ func preEmitAggregateMemberLabelTextMatches(label, text, member string) bool {
 	if member == "" {
 		return false
 	}
+	for _, candidate := range preEmitAggregateMemberDisplayCandidates(member) {
+		if preEmitTypedLabelTokenSupportsLabel(candidate, label) ||
+			preEmitTypedLabelTokenSupportsLabel(label, candidate) {
+			return true
+		}
+	}
 	for _, surface := range preEmitAggregateMemberRelationSurfaces(member) {
 		left, right, ok := preEmitAggregateMemberLabelRelationParts(surface)
 		if !ok {
@@ -1891,6 +1897,9 @@ func preEmitAggregateMemberCitationMatches(fact types.AnswerAggregateFact, membe
 	if surface, ok := types.ParseAnswerSourceLocationSurface(member); ok {
 		return preEmitCitationMatchesSourceLocation(cit, surface)
 	}
+	if label, loc, ok := preEmitAggregateSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		return preEmitCitationMatchesSourceLocation(cit, loc)
+	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
 	var bareRefs []types.AnswerSourceLocationSurface
 	for _, ref := range fact.SupportRefs {
@@ -1918,6 +1927,9 @@ func preEmitAggregateMemberCitationMatches(fact types.AnswerAggregateFact, membe
 func preEmitAggregateMemberSupportLocation(fact types.AnswerAggregateFact, memberIdx int, member string) (source string, line int, ok bool) {
 	if surface, parsed := types.ParseAnswerSourceLocationSurface(member); parsed {
 		return surface.File, surface.LineStart, true
+	}
+	if label, loc, parsed := preEmitAggregateSupportRefMemberLocation(member); parsed && strings.TrimSpace(label) != "" {
+		return loc.File, loc.LineStart, true
 	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
 	var bareRefs []types.AnswerSourceLocationSurface

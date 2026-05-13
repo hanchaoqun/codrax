@@ -180,12 +180,22 @@ func principalSupportEntryRequiresMemberCoverage(entry AnswerSupportEntry) bool 
 		ClaimExternalObservation, ClaimImportEdge:
 		return true
 	case ClaimUnknown:
-		return principalMemberSurfaceForSupportEntry(entry) == PrincipalMemberSurfaceSourceLocation
+		surface := principalMemberSurfaceForSupportEntry(entry)
+		return surface == PrincipalMemberSurfaceSourceLocation ||
+			(surface == PrincipalMemberSurfaceDisplayLabel &&
+				supportEntryIsAggregateMemberSet(entry))
 	case ClaimAbsenceFact:
 		return false
 	default:
 		return false
 	}
+}
+
+func supportEntryIsAggregateMemberSet(entry AnswerSupportEntry) bool {
+	if strings.HasPrefix(strings.TrimSpace(entry.EvidenceID), "aggregate_fact:member_set:") {
+		return true
+	}
+	return strings.TrimSpace(entry.Producer) == "explorer.emit_investigation_complete.aggregate_facts"
 }
 
 func principalSupportMemberObligation(entry AnswerSupportEntry) AnswerSupportMemberObligation {

@@ -1161,6 +1161,9 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		if downgrade := fieldValueCountCoverageDowngrade(ctx, closure); downgrade != "" {
 			return downgrade
 		}
+		if downgrade := historyCountAggregateHandoffDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
+			return downgrade
+		}
 		if downgrade := deterministicCountProofDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
 			return downgrade
 		}
@@ -1421,6 +1424,32 @@ func repoGroundingBypassLabel(ctx *types.BusContext) (string, bool) {
 		return "system-detected external-source trace", true
 	}
 	return "", false
+}
+
+func historyCountAggregateHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !rm.Predicates.IsCountQuestion || !rm.Predicates.IsHistoryLookup {
+		return ""
+	}
+	if aggregateFactsContainCountAnswer(aggregateFacts) {
+		return ""
+	}
+	if closure != nil {
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairEmitEvidence,
+			Keywords:  dedupStringsPreserveOrder(append(append([]string{}, rm.AnalyzerHints.ExactTargets...), append(rm.AnalyzerHints.Entities, rm.AnalyzerHints.Keywords...)...)),
+			Rationale: "history count needs a model-authored aggregate fact for the verified filtered result so broad command-output counts cannot be mistaken for the answer",
+			Origin:    "pre_complete.history_count_aggregate_handoff",
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — history count aggregate handoff is missing.\n\n")
+	b.WriteString("This is a historical count question. Raw git / shell output can contain broad candidate counts, commit-message matches, and the verified filtered result at the same time; finalization must not choose among those numbers from raw output memory.\n\n")
+	b.WriteString("Emit `aggregate_facts` with kind=`total_count`, `unique_count`, or `member_set` for the verified answer count. Use `dimensions` to name the history window, filter basis, and any broad candidate pool / exclusions when they differ. The value must come from your verified tool output or structured evidence, not from closure prose. Then re-call `emit_investigation_complete`.")
+	return b.String()
 }
 
 func deterministicCountProofDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {

@@ -783,6 +783,74 @@ func build() {
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCountRequiresAggregateHandoff(t *testing.T) {
+	mut := types.NewMutableState("recent commits touching runTaskGraph")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Summary:  "count=14\n",
+		Success:  true,
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "最近 20 次修改 internal/orchestrator/ 的 commit 中，有多少个直接涉及 runTaskGraph？",
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+					IsHistoryLookup: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Entities: []string{"internal/orchestrator", "runTaskGraph"},
+					Keywords: []string{"recent commits"},
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "broad git output is available",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "history count aggregate handoff is missing") {
+		t.Fatalf("history count should require model-authored aggregate handoff, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open until the verified history count is structured")
+	}
+
+	params, _ = json.Marshal(map[string]any{
+		"reason":      "verified each recent commit against the function body and call sites",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":  "total_count",
+			"label": "recent commits directly involving runTaskGraph",
+			"value": "0",
+			"unit":  "commits",
+			"dimensions": []map[string]any{
+				{"name": "history_window", "value": "20 commits touching internal/orchestrator"},
+				{"name": "filter_basis", "value": "verified function body or call-site involvement"},
+			},
+		}},
+	})
+	res, err = tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error after aggregate handoff: %v", err)
+	}
+	if strings.Contains(res.Summary, "history count aggregate handoff is missing") {
+		t.Fatalf("structured aggregate handoff should clear history-count downgrade: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should close after model-authored history count aggregate")
+	}
+}
+
 func writeTestFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))

@@ -26,6 +26,11 @@ func ParseAnswerSourceLocationSurface(label string) (AnswerSourceLocationSurface
 		return AnswerSourceLocationSurface{}, false
 	}
 	raw = strings.Trim(raw, "`'\" ")
+	for _, sep := range []string{" @ ", " | ", "\t"} {
+		if strings.Contains(raw, sep) {
+			return AnswerSourceLocationSurface{}, false
+		}
+	}
 	raw = strings.ReplaceAll(raw, `\`, `/`)
 	colon := strings.LastIndex(raw, ":")
 	if colon <= 0 || colon == len(raw)-1 {

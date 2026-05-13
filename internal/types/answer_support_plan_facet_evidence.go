@@ -159,6 +159,10 @@ func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, membe
 			location = aggregateMemberStartLocation(AnswerSourceLocationSurface{File: source, LineStart: line})
 		}
 	}
+	displayMember := member
+	if label, _, ok := aggregateSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		displayMember = strings.TrimSpace(label)
+	}
 	surface := aggregateMemberSurface(member, location)
 	entry := AnswerSupportEntry{
 		Text:          member,
@@ -167,7 +171,7 @@ func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, membe
 		EvidenceID:    aggregateMemberEvidenceID(factIdx, memberIdx),
 		ClaimForm:     ClaimUnknown,
 		LabelSurface:  ClaimLabelSurfaceDisplayLabel,
-		SurfaceTerms:  dedupeAggregateMemberTerms([]string{member, location, source}),
+		SurfaceTerms:  dedupeAggregateMemberTerms([]string{displayMember, member, location, source}),
 		Source:        source,
 		LineStart:     line,
 		MemberSurface: surface,
@@ -397,6 +401,9 @@ func sameAggregateMemberEvidenceLocation(ev EvidenceItem, source string, line in
 func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, member string) (source string, line int, location string) {
 	if surface, ok := ParseAnswerSourceLocationSurface(member); ok {
 		return surface.File, surface.LineStart, aggregateMemberStartLocation(surface)
+	}
+	if refMember, refLocation, ok := aggregateSupportRefMemberLocation(member); ok && strings.TrimSpace(refMember) != "" {
+		return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
 	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
 	var bareRefs []AnswerSourceLocationSurface

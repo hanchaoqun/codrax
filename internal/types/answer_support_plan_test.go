@@ -2206,6 +2206,56 @@ func TestMissingPrincipalSupportMembers_AcceptsModelRelationWithoutSymbolEndpoin
 	}
 }
 
+func TestBuildAnswerSupportPlan_GenericAggregateSupportRefMemberUsesLabelAndCitation(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "LoopController implementers",
+			Value: "1",
+			Members: []string{
+				"explorerEvaluator @ internal/agent/explorer.go:30",
+			},
+		}},
+	}
+	support := BuildAnswerSupportPlan(RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{
+			Required:    true,
+			SourceQuote: "all implementers",
+		},
+	}, plan)
+	obligations := PrincipalSupportMemberObligations(support)
+	if len(obligations) != 1 {
+		t.Fatalf("support-ref member should produce one principal obligation, got %+v", obligations)
+	}
+	if obligations[0].Label != "explorerEvaluator" {
+		t.Fatalf("support-ref member should use the label as principal surface, got %+v", obligations[0])
+	}
+	if obligations[0].Location != "internal/agent/explorer.go:30" {
+		t.Fatalf("support-ref member should carry the citation location, got %+v", obligations[0])
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "internal/agent/explorer.go", Line: 30}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockOrderedList,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "explorerEvaluator",
+				Text:        "implements LoopController.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if got := MissingPrincipalSupportMembers(doc, support); len(got) != 0 {
+		t.Fatalf("label plus matching citation should satisfy support-ref member coverage, got %+v", got)
+	}
+}
+
 func TestMissingPrincipalSupportMembers_AssignmentStillRequiresExactCitationLine(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Family: QFEnumeration,
