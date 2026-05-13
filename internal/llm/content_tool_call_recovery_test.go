@@ -259,6 +259,81 @@ func TestRecoverTextToolCalls_PrunesUnknownFieldsFromRecoveredParams(t *testing.
 	}
 }
 
+func TestRecoverTextToolCalls_RepairsMissingTrailingObjectCloser(t *testing.T) {
+	content := `{"name":"emit_analysis","arguments":{"entities":["recoverTextToolCalls"],"question_kind":"unknown"}`
+	got := recoverTextToolCalls(Response{Content: content}, []ToolSchema{{Name: "emit_analysis"}}, ChatOptions{})
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_analysis" {
+		t.Fatalf("expected missing final object closer to recover, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+	if got.Content != "" || got.StopReason != "tool_use" {
+		t.Fatalf("recovered call should clear content and use tool stop, got stop=%q content=%q", got.StopReason, got.Content)
+	}
+}
+
+func TestRecoverTextToolCalls_DoesNotRepairMidMemberTruncation(t *testing.T) {
+	content := `{"name":"emit_analysis","arguments":{"entities":["recoverTextToolCalls"],`
+	got := recoverTextToolCalls(Response{Content: content}, []ToolSchema{{Name: "emit_analysis"}}, ChatOptions{})
+	if len(got.ToolCalls) != 0 || got.Content != content {
+		t.Fatalf("mid-member truncation should stay as content, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+}
+
+func TestRecoverTextToolCalls_RepairsSingleQuotedJSONArguments(t *testing.T) {
+	content := `{"name":"emit_analysis","arguments": '{"entities":["recoverTextToolCalls"],"question_kind":"unknown"}'`
+	got := recoverTextToolCalls(Response{Content: content}, []ToolSchema{{Name: "emit_analysis"}}, ChatOptions{})
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_analysis" {
+		t.Fatalf("expected single-quoted JSON arguments to recover, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+	if string(got.ToolCalls[0].Params) != `{"entities":["recoverTextToolCalls"],"question_kind":"unknown"}` {
+		t.Fatalf("params = %s", got.ToolCalls[0].Params)
+	}
+}
+
+func TestRecoverTextToolCalls_DoesNotRepairSingleQuotedProseArguments(t *testing.T) {
+	content := `{"name":"emit_analysis","arguments": 'entities are recoverTextToolCalls'}`
+	got := recoverTextToolCalls(Response{Content: content}, []ToolSchema{{Name: "emit_analysis"}}, ChatOptions{})
+	if len(got.ToolCalls) != 0 || got.Content != content {
+		t.Fatalf("single-quoted prose should stay as content, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+}
+
+func TestRecoverTextToolCalls_WrapsSingleRequiredArrayArguments(t *testing.T) {
+	content := `{"name":"emit_evidence","arguments":[{"source":"a.go","line_start":3}]}`
+	tools := []ToolSchema{{
+		Name: "emit_evidence",
+		Parameters: json.RawMessage(`{
+			"type":"object",
+			"properties":{"items":{"type":"array"}},
+			"required":["items"]
+		}`),
+	}}
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{})
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_evidence" {
+		t.Fatalf("expected array arguments to wrap under items, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+	var params struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(got.ToolCalls[0].Params, &params); err != nil {
+		t.Fatalf("params json: %v", err)
+	}
+	if len(params.Items) != 1 || params.Items[0]["source"] != "a.go" {
+		t.Fatalf("items = %#v", params.Items)
+	}
+}
+
+func TestRecoverTextToolCalls_DoesNotWrapArrayArgumentsWithoutSchemaMatch(t *testing.T) {
+	content := `{"name":"emit_evidence","arguments":[{"source":"a.go"}]}`
+	tools := []ToolSchema{{
+		Name:       "emit_evidence",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"item":{"type":"object"}},"required":["item"]}`),
+	}}
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{})
+	if len(got.ToolCalls) != 0 || got.Content != content {
+		t.Fatalf("array arguments without single required array field should stay as content, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+}
+
 func TestRecoverTextToolCalls_ConservativeBoundaries(t *testing.T) {
 	tools := []ToolSchema{{Name: "emit_analysis"}}
 	cases := []struct {

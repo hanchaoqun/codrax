@@ -17,7 +17,8 @@ import (
 //   - only fires when tools were actually supplied and tool_choice
 //     did not forbid tools;
 //   - always accepts only complete JSON / tool_call envelopes for known
-//     tools;
+//     tools; compatibility mode may repair a missing trailing closer or
+//     a single-quoted JSON argument string after normal JSON decode fails;
 //   - only in required-tool stages, also accepts wrapper prose around
 //     fenced, tagged, or balanced JSON-object envelopes.
 //
@@ -77,11 +78,11 @@ func parseTextToolCallJSON(content string, allowed map[string]bool, schemaInfos 
 	if content == "" {
 		return nil, false
 	}
-	var raw any
-	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+	raw, ok := decodeTextToolCallJSON(content)
+	if !ok {
 		return nil, false
 	}
-	calls, ok := parseTextToolCallValue(raw, allowed)
+	calls, ok := parseTextToolCallValue(raw, allowed, textToolSchemaInfoByName(schemaInfos))
 	if !ok || len(calls) == 0 {
 		if allowBareArgs {
 			if call, bareOK := parseBareTextToolCallArgs(raw, schemaInfos, forcedName); bareOK {
@@ -92,6 +93,152 @@ func parseTextToolCallJSON(content string, allowed map[string]bool, schemaInfos 
 	}
 	calls = sanitizeRecoveredToolCallParams(calls, schemaInfos)
 	return renumberGeneratedContentToolCallIDs(calls), true
+}
+
+func decodeTextToolCallJSON(content string) (any, bool) {
+	var raw any
+	if err := json.Unmarshal([]byte(content), &raw); err == nil {
+		return raw, true
+	}
+	repaired, ok := repairMissingTrailingJSONClosers(content)
+	if ok {
+		if err := json.Unmarshal([]byte(repaired), &raw); err == nil {
+			return raw, true
+		}
+	}
+	repaired, ok = repairSingleQuotedJSONArgument(content)
+	if !ok {
+		return nil, false
+	}
+	if err := json.Unmarshal([]byte(repaired), &raw); err != nil {
+		return nil, false
+	}
+	return raw, true
+}
+
+func repairMissingTrailingJSONClosers(content string) (string, bool) {
+	s := strings.TrimSpace(content)
+	if s == "" || (s[0] != '{' && s[0] != '[') {
+		return "", false
+	}
+	last := s[len(s)-1]
+	if last == ',' || last == ':' || last == '{' || last == '[' {
+		return "", false
+	}
+	stack := make([]byte, 0, 4)
+	inString := false
+	escaped := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			stack = append(stack, '}')
+		case '[':
+			stack = append(stack, ']')
+		case '}', ']':
+			if len(stack) == 0 || stack[len(stack)-1] != ch {
+				return "", false
+			}
+			stack = stack[:len(stack)-1]
+		}
+	}
+	if inString || len(stack) == 0 || len(stack) > 4 {
+		return "", false
+	}
+	var b strings.Builder
+	b.Grow(len(s) + len(stack))
+	b.WriteString(s)
+	for i := len(stack) - 1; i >= 0; i-- {
+		b.WriteByte(stack[i])
+	}
+	return b.String(), true
+}
+
+func repairSingleQuotedJSONArgument(content string) (string, bool) {
+	s := strings.TrimSpace(content)
+	if !strings.HasPrefix(s, "{") {
+		return "", false
+	}
+	for _, key := range textToolArgKeys() {
+		keyStart, valueStart, ok := findSingleQuotedJSONArgumentValue(s, key)
+		if !ok {
+			continue
+		}
+		valueEnd := strings.LastIndexByte(s[valueStart:], '\'')
+		if valueEnd < 0 {
+			return "", false
+		}
+		valueEnd += valueStart
+		inner := strings.TrimSpace(s[valueStart:valueEnd])
+		if inner == "" || (inner[0] != '{' && inner[0] != '[') {
+			return "", false
+		}
+		var innerRaw any
+		if err := json.Unmarshal([]byte(inner), &innerRaw); err != nil {
+			return "", false
+		}
+		candidate := s[:keyStart] + inner + s[valueEnd+1:]
+		var raw any
+		if err := json.Unmarshal([]byte(candidate), &raw); err == nil {
+			return candidate, true
+		}
+		repaired, ok := repairMissingTrailingJSONClosers(candidate)
+		if !ok {
+			return "", false
+		}
+		if err := json.Unmarshal([]byte(repaired), &raw); err != nil {
+			return "", false
+		}
+		return repaired, true
+	}
+	return "", false
+}
+
+func findSingleQuotedJSONArgumentValue(s, key string) (int, int, bool) {
+	token := `"` + key + `"`
+	pos := strings.Index(s, token)
+	if pos < 0 {
+		return 0, 0, false
+	}
+	i := pos + len(token)
+	for i < len(s) && isJSONSpace(s[i]) {
+		i++
+	}
+	if i >= len(s) || s[i] != ':' {
+		return 0, 0, false
+	}
+	i++
+	for i < len(s) && isJSONSpace(s[i]) {
+		i++
+	}
+	if i >= len(s) || s[i] != '\'' {
+		return 0, 0, false
+	}
+	return i, i + 1, true
+}
+
+func isJSONSpace(ch byte) bool {
+	switch ch {
+	case ' ', '\n', '\r', '\t':
+		return true
+	default:
+		return false
+	}
 }
 
 type textToolSchemaInfo struct {
@@ -116,6 +263,14 @@ func textToolSchemaInfos(tools []ToolSchema) (map[string]bool, []textToolSchemaI
 		})
 	}
 	return allowed, infos
+}
+
+func textToolSchemaInfoByName(infos []textToolSchemaInfo) map[string]textToolSchemaInfo {
+	byName := make(map[string]textToolSchemaInfo, len(infos))
+	for _, info := range infos {
+		byName[info.name] = info
+	}
+	return byName
 }
 
 func textToolRequiredFields(schema json.RawMessage) []string {
@@ -180,7 +335,7 @@ func parseBareTextToolCallArgs(raw any, infos []textToolSchemaInfo, forcedName s
 			if !ok || !textToolRequiredFieldsPresent(argsMap, info.required) {
 				return ToolCall{}, false
 			}
-			params, ok := normalizeTextToolCallArgs(args)
+			params, ok := normalizeTextToolCallArgs(args, &info)
 			if !ok {
 				return ToolCall{}, false
 			}
@@ -201,7 +356,7 @@ func parseBareTextToolCallArgs(raw any, infos []textToolSchemaInfo, forcedName s
 	if len(matched) != 1 {
 		return ToolCall{}, false
 	}
-	params, ok := normalizeTextToolCallArgs(m)
+	params, ok := normalizeTextToolCallArgs(m, &matched[0])
 	if !ok {
 		return ToolCall{}, false
 	}
@@ -395,7 +550,7 @@ func textToolCallNameAndArgs(m map[string]any) (string, any, bool) {
 	return normalizeRecoveredToolCallName(name), args, true
 }
 
-func normalizeTextToolCallArgs(raw any) (json.RawMessage, bool) {
+func normalizeTextToolCallArgs(raw any, info *textToolSchemaInfo) (json.RawMessage, bool) {
 	if raw == nil {
 		return json.RawMessage(`{}`), true
 	}
@@ -411,13 +566,83 @@ func normalizeTextToolCallArgs(raw any) (json.RawMessage, bool) {
 		raw = decoded
 	}
 	if _, ok := raw.(map[string]any); !ok {
-		return nil, false
+		wrapped, wrapOK := wrapSingleRequiredTextToolArg(raw, info)
+		if !wrapOK {
+			return nil, false
+		}
+		raw = wrapped
 	}
 	b, err := json.Marshal(raw)
 	if err != nil {
 		return nil, false
 	}
 	return json.RawMessage(b), true
+}
+
+func wrapSingleRequiredTextToolArg(raw any, info *textToolSchemaInfo) (map[string]any, bool) {
+	if info == nil || len(info.required) != 1 {
+		return nil, false
+	}
+	field := info.required[0]
+	if field == "" || !textToolSchemaPropertyAcceptsValue(info.parameters, field, raw) {
+		return nil, false
+	}
+	return map[string]any{field: raw}, true
+}
+
+func textToolSchemaPropertyAcceptsValue(schema json.RawMessage, field string, raw any) bool {
+	valueType := jsonSchemaTypeForValue(raw)
+	if valueType == "" || len(schema) == 0 {
+		return false
+	}
+	var objectSchema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(schema, &objectSchema); err != nil {
+		return false
+	}
+	prop, ok := objectSchema.Properties[field]
+	if !ok || len(prop) == 0 {
+		return false
+	}
+	var propSchema struct {
+		Type any `json:"type"`
+	}
+	if err := json.Unmarshal(prop, &propSchema); err != nil {
+		return false
+	}
+	return jsonSchemaTypeAllows(propSchema.Type, valueType)
+}
+
+func jsonSchemaTypeForValue(raw any) string {
+	switch raw.(type) {
+	case []any:
+		return "array"
+	case map[string]any:
+		return "object"
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	case float64:
+		return "number"
+	default:
+		return ""
+	}
+}
+
+func jsonSchemaTypeAllows(raw any, valueType string) bool {
+	switch x := raw.(type) {
+	case string:
+		return x == valueType || (x == "integer" && valueType == "number")
+	case []any:
+		for _, item := range x {
+			if s, ok := item.(string); ok && (s == valueType || (s == "integer" && valueType == "number")) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func textToolCallStringField(m map[string]any, key string) string {
@@ -599,12 +824,12 @@ func balancedJSONObjectEnd(s string, start int) (int, bool) {
 	return 0, false
 }
 
-func parseTextToolCallValue(v any, allowed map[string]bool) ([]ToolCall, bool) {
+func parseTextToolCallValue(v any, allowed map[string]bool, infoByName map[string]textToolSchemaInfo) ([]ToolCall, bool) {
 	switch x := v.(type) {
 	case []any:
 		var out []ToolCall
 		for _, item := range x {
-			calls, ok := parseTextToolCallValue(item, allowed)
+			calls, ok := parseTextToolCallValue(item, allowed, infoByName)
 			if !ok {
 				return nil, false
 			}
@@ -613,12 +838,12 @@ func parseTextToolCallValue(v any, allowed map[string]bool) ([]ToolCall, bool) {
 		return out, len(out) > 0
 	case map[string]any:
 		if rawCalls, ok := x["tool_calls"]; ok {
-			return parseTextToolCallsArray(rawCalls, allowed)
+			return parseTextToolCallsArray(rawCalls, allowed, infoByName)
 		}
 		if rawCall, ok := x["function_call"]; ok {
-			return parseTextToolCallValue(rawCall, allowed)
+			return parseTextToolCallValue(rawCall, allowed, infoByName)
 		}
-		call, ok := parseSingleTextToolCall(x, allowed, 0)
+		call, ok := parseSingleTextToolCall(x, allowed, infoByName, 0)
 		if !ok {
 			return nil, false
 		}
@@ -628,7 +853,7 @@ func parseTextToolCallValue(v any, allowed map[string]bool) ([]ToolCall, bool) {
 	}
 }
 
-func parseTextToolCallsArray(raw any, allowed map[string]bool) ([]ToolCall, bool) {
+func parseTextToolCallsArray(raw any, allowed map[string]bool, infoByName map[string]textToolSchemaInfo) ([]ToolCall, bool) {
 	items, ok := raw.([]any)
 	if !ok || len(items) == 0 {
 		return nil, false
@@ -639,7 +864,7 @@ func parseTextToolCallsArray(raw any, allowed map[string]bool) ([]ToolCall, bool
 		if !ok {
 			return nil, false
 		}
-		call, ok := parseSingleTextToolCall(m, allowed, i)
+		call, ok := parseSingleTextToolCall(m, allowed, infoByName, i)
 		if !ok {
 			return nil, false
 		}
@@ -648,12 +873,17 @@ func parseTextToolCallsArray(raw any, allowed map[string]bool) ([]ToolCall, bool
 	return out, true
 }
 
-func parseSingleTextToolCall(m map[string]any, allowed map[string]bool, idx int) (ToolCall, bool) {
+func parseSingleTextToolCall(m map[string]any, allowed map[string]bool, infoByName map[string]textToolSchemaInfo, idx int) (ToolCall, bool) {
 	name, args, ok := textToolCallNameAndArgs(m)
 	if !ok || !allowed[name] {
 		return ToolCall{}, false
 	}
-	params, ok := normalizeTextToolCallArgs(args)
+	info, hasInfo := infoByName[name]
+	var infoPtr *textToolSchemaInfo
+	if hasInfo {
+		infoPtr = &info
+	}
+	params, ok := normalizeTextToolCallArgs(args, infoPtr)
 	if !ok {
 		return ToolCall{}, false
 	}
