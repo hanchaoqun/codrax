@@ -892,12 +892,23 @@ func preEmitAggregateMemberRelationSurfaces(member string) []string {
 	if member == "" {
 		return nil
 	}
-	out := []string{member}
+	var out []string
+	add := func(surface string) {
+		surface = strings.TrimSpace(surface)
+		if surface == "" {
+			return
+		}
+		out = append(out, surface)
+		for _, candidate := range types.AnswerAggregateMemberDisplayCandidates(surface) {
+			out = append(out, candidate)
+		}
+	}
+	add(member)
 	for _, sep := range []string{" @ ", "\t", " | "} {
 		if idx := strings.Index(member, sep); idx > 0 {
 			prefix := strings.TrimSpace(member[:idx])
 			if prefix != "" {
-				out = append(out, prefix)
+				add(prefix)
 			}
 		}
 	}
@@ -930,8 +941,8 @@ func preEmitRelationPartsAppearInSameAnswerUnit(left, right string, doc *types.A
 }
 
 func preEmitTextContainsAllAggregateParts(text, left, right string) bool {
-	return preEmitAggregateScalarValueAppears(left, text) &&
-		preEmitAggregateScalarValueAppears(right, text)
+	return preEmitAggregateDisplayPartAppears(left, text) &&
+		preEmitAggregateDisplayPartAppears(right, text)
 }
 
 func preEmitVisibleAnswerSurface(doc *types.AnswerDocumentV2) string {
@@ -1026,9 +1037,40 @@ func preEmitAggregateScalarValueAppears(value, surface string) bool {
 	return preEmitDisplaySurfaceAppears(value, surface)
 }
 
+func preEmitAggregateDisplayPartAppears(value, surface string) bool {
+	if preEmitAggregateScalarValueAppears(value, surface) {
+		return true
+	}
+	return preEmitDisplaySurfaceAppearsFold(value, surface)
+}
+
 func preEmitDisplaySurfaceAppears(value, surface string) bool {
 	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
 	surface = strings.Join(strings.Fields(strings.TrimSpace(surface)), " ")
+	if value == "" || surface == "" {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(surface[start:], value)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		if preEmitDisplaySurfaceBoundary(surface, pos-1) &&
+			preEmitDisplaySurfaceBoundary(surface, pos+len(value)) {
+			return true
+		}
+		start = pos + len(value)
+		if start >= len(surface) {
+			return false
+		}
+	}
+}
+
+func preEmitDisplaySurfaceAppearsFold(value, surface string) bool {
+	value = strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
+	surface = strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(surface)), " "))
 	if value == "" || surface == "" {
 		return false
 	}
@@ -1770,7 +1812,7 @@ func preEmitAggregateMemberLabelTextMatches(label, text, member string) bool {
 			continue
 		}
 		if preEmitTypedLabelTokenSupportsLabel(left, label) &&
-			preEmitAggregateScalarValueAppears(right, text) {
+			preEmitAggregateDisplayPartAppears(right, text) {
 			return true
 		}
 	}

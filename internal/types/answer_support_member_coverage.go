@@ -595,11 +595,70 @@ func supportMemberTermAppears(term, surface string) bool {
 		return false
 	}
 	for _, candidate := range supportMemberDisplayCandidates(term) {
-		if displaySurfaceAppears(candidate, surface) || CodeSurfaceAppearsAsToken(candidate, surface) {
+		if supportMemberDisplaySurfaceAppears(candidate, surface) ||
+			CodeSurfaceAppearsAsToken(candidate, surface) ||
+			supportMemberRelationPartsAppear(candidate, surface) {
 			return true
 		}
 	}
 	return false
+}
+
+func supportMemberDisplaySurfaceAppears(term, surface string) bool {
+	if displaySurfaceAppears(term, surface) {
+		return true
+	}
+	term = strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(term)), " "))
+	surface = strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(surface)), " "))
+	if term == "" || surface == "" {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(surface[start:], term)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		if displaySurfaceBoundary(surface, pos-1) && displaySurfaceBoundary(surface, pos+len(term)) {
+			return true
+		}
+		start = pos + len(term)
+		if start >= len(surface) {
+			return false
+		}
+	}
+}
+
+func supportMemberRelationPartsAppear(candidate, surface string) bool {
+	for _, relationSurface := range supportMemberRelationSurfacePrefixes(candidate) {
+		left, right, ok := AnswerAggregateMemberRelationParts(relationSurface)
+		if !ok {
+			continue
+		}
+		if supportMemberDisplaySurfaceAppears(left, surface) &&
+			supportMemberDisplaySurfaceAppears(right, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func supportMemberRelationSurfacePrefixes(term string) []string {
+	term = strings.TrimSpace(term)
+	if term == "" {
+		return nil
+	}
+	out := []string{term}
+	for _, sep := range []string{" @ ", "\t", " | "} {
+		if idx := strings.Index(term, sep); idx > 0 {
+			prefix := strings.TrimSpace(term[:idx])
+			if prefix != "" {
+				out = append(out, prefix)
+			}
+		}
+	}
+	return out
 }
 
 func supportMemberDisplayCandidates(term string) []string {

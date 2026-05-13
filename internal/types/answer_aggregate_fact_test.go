@@ -1,6 +1,11 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+)
 
 func TestNormalizeAnswerAggregateFacts_DedupesAndTrims(t *testing.T) {
 	in := []AnswerAggregateFact{
@@ -166,6 +171,61 @@ func TestNormalizeAnswerAggregateFacts_DedupesQualifiedRelationMemberSetVariants
 	}
 }
 
+func TestAnswerAggregateMemberDisplayCandidates_RelationDecoratorVariants(t *testing.T) {
+	candidates := AnswerAggregateMemberDisplayCandidates("declarative → New (Classifier)")
+	if !stringSliceContains(candidates, "declarative → New (Classifier)") ||
+		!stringSliceContains(candidates, "declarative → New(Classifier)") ||
+		!stringSliceContains(candidates, "declarative/New(Classifier)") {
+		t.Fatalf("decorated relation member should expose spaced and compact displays, got %+v", candidates)
+	}
+	left, right, ok := AnswerAggregateMemberRelationParts("priority → Score(priority)")
+	if !ok || left != "priority" || right != "Score(priority)" {
+		t.Fatalf("decorated relation should parse as relation parts, got left=%q right=%q ok=%v", left, right, ok)
+	}
+}
+
+func TestAnswerAggregateMemberDisplayCandidates_AllSupportedLanguageQualifiers(t *testing.T) {
+	samples := map[string]string{
+		repotypes.LangGo:         "compiler → compiler.Compile",
+		repotypes.LangPython:     "module → package.submodule.run",
+		repotypes.LangJavaScript: "module → Controller.handle",
+		repotypes.LangTypeScript: "service → App.Service.resolve",
+		repotypes.LangJava:       "service → com.example.Service.handle",
+		repotypes.LangKotlin:     "service → com.example.Service.handle",
+		repotypes.LangRust:       "crate → crate::module::run",
+		repotypes.LangC:          "module → init_module",
+		repotypes.LangCpp:        "namespace → core::Parser::Parse",
+		repotypes.LangRuby:       "module → Admin::Users.call",
+		repotypes.LangSwift:      "module → App.Service.start",
+		repotypes.LangLua:        "module → M.render",
+		repotypes.LangProto:      "service → api.v1.UserService.ListUsers",
+		repotypes.LangArkTS:      "component → EntryComponent.build",
+		repotypes.LangCangjie:    "package → pkg::Service::run",
+	}
+	for _, lang := range repotypes.SupportedReadLanguages() {
+		sample, ok := samples[lang]
+		if !ok {
+			t.Fatalf("missing aggregate relation qualifier sample for supported language %q", lang)
+		}
+		left, right, parsed := AnswerAggregateMemberRelationParts(sample)
+		if !parsed {
+			t.Fatalf("%s sample did not parse as relation member: %q", lang, sample)
+		}
+		if left == "" || right == "" {
+			t.Fatalf("%s sample parsed empty relation part: left=%q right=%q", lang, left, right)
+		}
+		candidates := AnswerAggregateMemberDisplayCandidates(sample)
+		if len(candidates) == 0 {
+			t.Fatalf("%s sample produced no display candidates: %q", lang, sample)
+		}
+		if tail := NormalizedSurfaceSymbolTail(right); tail != "" && tail != strings.ToLower(right) {
+			if !stringSliceContainsFold(candidates, left+" → "+tail) {
+				t.Fatalf("%s sample should expose tail relation candidate %q, got %+v", lang, left+" → "+tail, candidates)
+			}
+		}
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_DoesNotCollapseAmbiguousQualifiedRelationTails(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
 		{
@@ -192,6 +252,15 @@ func TestNormalizeAnswerAggregateFacts_DoesNotCollapseAmbiguousQualifiedRelation
 func stringSliceContains(in []string, want string) bool {
 	for _, got := range in {
 		if got == want {
+			return true
+		}
+	}
+	return false
+}
+
+func stringSliceContainsFold(in []string, want string) bool {
+	for _, got := range in {
+		if strings.EqualFold(got, want) {
 			return true
 		}
 	}

@@ -499,6 +499,52 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsSplitRelationInSameItem(t *te
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_AcceptsDecoratedSplitRelation(t *testing.T) {
+	mu := types.NewMutableState("entry function aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "sub-packages and their entry-point functions",
+		Value: "2",
+		Members: []string{
+			"declarative → New (Classifier) @ internal/analysis/declarative/classifier.go:138",
+			"priority → Score(priority) @ internal/analysis/priority/score.go:34",
+		},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all subpackages",
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "list",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:    "decl",
+				Label: "declarative",
+				Text:  "入口函数是 `New(Classifier)`。",
+			}, {
+				ID:    "priority",
+				Label: "priority",
+				Text:  "入口函数是 `Score(priority)`。",
+			}},
+		}},
+	}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("decorated split relation members should satisfy member_set visibility, got %+v", got)
+	}
+}
+
 func TestPreCheckCitationPoolIntegrity_CatchesMissingAndOutOfRangeRefs(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

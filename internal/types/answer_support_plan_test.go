@@ -2171,6 +2171,41 @@ func TestMissingPrincipalSupportMembers_AcceptsSplitRelationMemberSurface(t *tes
 	}
 }
 
+func TestMissingPrincipalSupportMembers_AcceptsModelRelationWithoutSymbolEndpoint(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{{
+				Text:         "declarative → New (Classifier) @ internal/analysis/declarative/classifier.go:138",
+				Location:     "internal/analysis/declarative/classifier.go:138",
+				ClaimForm:    ClaimDefinitionFact,
+				SurfaceTerms: []string{"declarative → New (Classifier) @ internal/analysis/declarative/classifier.go:138"},
+				Source:       "internal/analysis/declarative/classifier.go",
+				LineStart:    138,
+			}},
+		}},
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "internal/analysis/declarative/classifier.go", Line: 138}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockOrderedList,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "declarative",
+				Text:        "入口函数是 `New(Classifier)`。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if got := MissingPrincipalSupportMembers(doc, plan); len(got) != 0 {
+		t.Fatalf("split decorated relation member should satisfy support-member coverage, got %+v", got)
+	}
+}
+
 func TestMissingPrincipalSupportMembers_AssignmentStillRequiresExactCitationLine(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Family: QFEnumeration,
