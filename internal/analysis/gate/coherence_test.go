@@ -285,6 +285,36 @@ func TestSubtopicCoherence_R1_5_UniqueActionAliasResolves(t *testing.T) {
 	}
 }
 
+func TestSubtopicCoherence_R1_5_UserMentionedFieldAndLocalSurfacesPass(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"callChainPrincipalSpanDemandForEvidence": {{Canonical: "callChainPrincipalSpanDemandForEvidence", Domain: "tool"}},
+			"canonicalCallChainSource":                {{Canonical: "canonicalCallChainSource", Domain: "tool"}},
+		},
+	}
+	rm := types.RequestModel{
+		RawRequest: "在 callChainPrincipalSpanDemandForEvidence 里，EvidenceItem.Source 是如何经过 canonicalCallChainSource 再被放入 bySource map 的？",
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "source normalizer", Entities: []string{"canonicalCallChainSource"}},
+			{Summary: "field surface", Entities: []string{"EvidenceItem.Source"}},
+			{Summary: "local aggregation map", Entities: []string{"bySource"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	if !check.Passed {
+		t.Fatalf("R1.5 must not reject exact user-mentioned field/local-variable search leads; got %+v", check)
+	}
+	if !subTopicEntityResolvedForCoherence("EvidenceItem.Source", rm, resolver) {
+		t.Fatal("user-mentioned field path should satisfy coherence as a search lead")
+	}
+	if !subTopicEntityResolvedForCoherence("bySource", rm, resolver) {
+		t.Fatal("user-mentioned local variable should satisfy coherence as a search lead")
+	}
+}
+
 func TestSubtopicCoherence_R1_5_NilResolver_NoOp(t *testing.T) {
 	// Pre-RunOptions callers (Run, tests, write mode) pass nil resolver
 	// → R1.5 must be a no-op so existing R1.1/R1.2/R1.3 behaviour is

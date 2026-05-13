@@ -489,6 +489,14 @@ func summaryShort(s string, runeMax int) string {
 // This covers module/package/directory members in Python, Java/Kotlin,
 // JS/TS, Rust, C/C++, C#, ArkTS, Cangjie, and path-like repo layouts
 // without pretending those containers are Go symbols.
+//
+// A user-mentioned code surface is also valid for this specific hard gate even
+// when the repo symbol resolver cannot resolve it. R1.5 exists to catch
+// analyzer-invented sub-topic entities, not to reject local variables, struct
+// field paths (`EvidenceItem.Source`), map names (`bySource`), macro labels, or
+// other exact identifiers the user explicitly asked about. Those surfaces stay
+// search leads for the explorer; later evidence/exact-resolution gates decide
+// whether they exist in current code.
 func subTopicEntityResolvedForCoherence(surface string, rm types.RequestModel, resolver normalizer.SymbolResolver) bool {
 	trimmed := strings.TrimSpace(surface)
 	if trimmed == "" {
@@ -525,7 +533,21 @@ func subTopicEntityResolvedForCoherence(surface string, rm types.RequestModel, r
 			}
 		}
 	}
+	if subTopicEntityMentionedByCurrentRequest(trimmed, rm) {
+		return true
+	}
 	return typedEnumerationMemberSurfaceForCoherence(trimmed, rm)
+}
+
+func subTopicEntityMentionedByCurrentRequest(surface string, rm types.RequestModel) bool {
+	raw := strings.TrimSpace(rm.RawRequest)
+	if raw == "" || strings.TrimSpace(surface) == "" {
+		return false
+	}
+	if types.CodeSurfaceAppearsAsToken(surface, raw) {
+		return true
+	}
+	return len(types.MentionedEntitiesFromRawRequest(raw, []string{surface})) > 0
 }
 
 func typedEnumerationMemberSurfaceForCoherence(surface string, rm types.RequestModel) bool {
