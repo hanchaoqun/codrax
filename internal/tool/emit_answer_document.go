@@ -89,13 +89,13 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
           "kind": {
             "type": "string",
             "enum": ["summary", "section", "ordered_list", "bullet_list", "scalar", "decision", "table", "diagram", "caveat"],
-            "description": "Block kind. Required. Each kind expects a specific payload field — the wrong payload location is the most common shape error: summary/section/scalar/decision/caveat use block.text; ordered_list/bullet_list/table use block.items[]; **kind=diagram REQUIRES the sibling diagram object below (with kind, language, body) — diagram body NEVER goes in block.text**."
+            "description": "Block kind. Required. Each kind expects a specific payload field — the wrong payload location is the most common shape error: summary/section/scalar/decision/caveat use block.text; ordered_list/bullet_list use block.items[]; table may use visible items[] rows OR a markdown table in block.text (do not add citation-only empty items when using text); **kind=diagram REQUIRES the sibling diagram object below (with kind, language, body) — diagram body NEVER goes in block.text**."
           },
           "title": {"type": "string", "description": "Optional sub-heading for section / table / diagram / caveat blocks."},
           "text": {"type": "string", "description": "Block body prose. Used by summary / section / scalar / decision / caveat. Markdown-flavoured. NEVER use this field on diagram blocks — diagram body lives in diagram.body."},
           "items": {
             "type": "array",
-            "description": "Block items for ordered_list / bullet_list / table. For tables each item is one row.",
+            "description": "Block items for ordered_list / bullet_list / table. For tables each item is one visible row with label/text; if the table is already a markdown table in block.text, leave items empty rather than adding citation-only placeholder rows.",
             "items": {
               "type": "object",
               "properties": {

@@ -225,6 +225,33 @@ func TestRenderV2_BlockTableItemsSuppressMarkdownText(t *testing.T) {
 	}
 }
 
+func TestRenderV2_BlockTableTextSurvivesCitationOnlyItems(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "t1",
+				Kind: types.BlockTable,
+				Text: "| Layer | Source | Value |\n|---|---|---|\n| default | internal/types/config.go:943 | absent |",
+				Items: []types.AnswerBlockItem{
+					{ID: "r1", CitationRef: 0},
+					{ID: "r2", CitationRef: 1},
+				},
+			},
+		},
+		Citations: []types.Citation{
+			{File: "internal/types/config.go", Line: 943},
+			{File: "cmd/root.go", Line: 2429},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "| default | internal/types/config.go:943 | absent |") {
+		t.Fatalf("markdown table text should render when items are citation-only anchors:\n%s", out)
+	}
+	if strings.Contains(out, "|  |  |") {
+		t.Fatalf("citation-only table items must not render empty rows:\n%s", out)
+	}
+}
+
 func TestRenderV2_BlockDiagram(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

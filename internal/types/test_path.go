@@ -2,6 +2,23 @@ package types
 
 import "strings"
 
+var supportedReadSourceExtsForTestPath = []string{
+	".go",
+	".py", ".pyi",
+	".js", ".jsx", ".mjs", ".cjs",
+	".ts", ".tsx", ".ets",
+	".java",
+	".kt", ".kts",
+	".rs",
+	".c", ".h", ".m",
+	".cc", ".cpp", ".cxx", ".hpp", ".hh", ".cu", ".cuh", ".mm",
+	".rb",
+	".swift",
+	".lua",
+	".proto",
+	".cj",
+}
+
 // LooksLikeTestFilePath reports whether a repo-relative path follows a
 // conventional test/spec location or filename pattern for the
 // languages Codrax understands. This is a deterministic language-rule
@@ -14,6 +31,7 @@ func LooksLikeTestFilePath(relPath string) bool {
 	if lower == "" {
 		return false
 	}
+	lower = strings.TrimPrefix(lower, "./")
 	base := lower
 	if slash := strings.LastIndex(base, "/"); slash != -1 {
 		base = base[slash+1:]
@@ -21,6 +39,12 @@ func LooksLikeTestFilePath(relPath string) bool {
 	baseRaw := normalized
 	if slash := strings.LastIndex(baseRaw, "/"); slash != -1 {
 		baseRaw = baseRaw[slash+1:]
+	}
+	if looksLikeLanguageNeutralTestContainer(lower) && hasSupportedReadSourceExtension(base) {
+		return true
+	}
+	if looksLikeLanguageNeutralTestFile(base) {
+		return true
 	}
 
 	switch {
@@ -59,18 +83,75 @@ func LooksLikeTestFilePath(relPath string) bool {
 		(strings.Contains(lower, "/tests/") || strings.Contains(lower, "/spec/") ||
 			strings.HasPrefix(lower, "tests/") || strings.HasPrefix(lower, "spec/")):
 		return true
-	case strings.HasSuffix(base, "_test.c") || strings.HasSuffix(base, "_test.cc") ||
-		strings.HasSuffix(base, "_test.cpp") || strings.HasSuffix(base, "_test.cxx") ||
-		strings.HasSuffix(base, "_unittest.cc") || strings.HasSuffix(base, "_unittest.cpp"):
+	case strings.HasSuffix(base, "_test.c") || strings.HasSuffix(base, "_test.h") ||
+		strings.HasSuffix(base, "_test.cc") || strings.HasSuffix(base, "_test.cpp") ||
+		strings.HasSuffix(base, "_test.cxx") || strings.HasSuffix(base, "_test.hpp") ||
+		strings.HasSuffix(base, "_test.hh") || strings.HasSuffix(base, "_test.cu") ||
+		strings.HasSuffix(base, "_test.cuh") || strings.HasSuffix(base, "_test.m") ||
+		strings.HasSuffix(base, "_test.mm") || strings.HasSuffix(base, "_unittest.cc") ||
+		strings.HasSuffix(base, "_unittest.cpp") || strings.HasSuffix(base, "_unittest.cu"):
 		return true
 	}
 
-	for _, ext := range []string{".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"} {
+	for _, ext := range []string{".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".ets"} {
 		if strings.HasSuffix(base, ".test"+ext) || strings.HasSuffix(base, ".spec"+ext) {
 			return true
 		}
 	}
 	return false
+}
+
+func looksLikeLanguageNeutralTestContainer(lowerPath string) bool {
+	if lowerPath == "" {
+		return false
+	}
+	lowerPath = strings.TrimPrefix(lowerPath, "./")
+	switch {
+	case strings.HasPrefix(lowerPath, "tests/"),
+		strings.HasPrefix(lowerPath, "test/"),
+		strings.HasPrefix(lowerPath, "spec/"),
+		strings.HasPrefix(lowerPath, "__tests__/"),
+		strings.HasPrefix(lowerPath, "ohostest/"),
+		strings.Contains(lowerPath, "/tests/"),
+		strings.Contains(lowerPath, "/__tests__/"),
+		strings.Contains(lowerPath, "/src/test/"),
+		strings.Contains(lowerPath, "/src/androidtest/"),
+		strings.Contains(lowerPath, "/src/ohostest/"):
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeLanguageNeutralTestFile(base string) bool {
+	for _, ext := range supportedReadSourceExtensions() {
+		if strings.HasSuffix(base, "_test"+ext) ||
+			strings.HasSuffix(base, "_tests"+ext) ||
+			strings.HasSuffix(base, "_spec"+ext) ||
+			strings.HasSuffix(base, ".test"+ext) ||
+			strings.HasSuffix(base, ".tests"+ext) ||
+			strings.HasSuffix(base, ".spec"+ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSupportedReadSourceExtension(base string) bool {
+	for _, ext := range supportedReadSourceExtensions() {
+		if strings.HasSuffix(base, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func supportedReadSourceExtensions() []string {
+	// Mirror the repomap read-mode language matrix, including
+	// extension remaps: CUDA/Objective-C live in the C/C++ buckets,
+	// ArkTS promotes .ts in Harmony projects but .ets is explicit,
+	// and Cangjie compiled .cjo is intentionally absent.
+	return supportedReadSourceExtsForTestPath
 }
 
 func hasJavaTestPrefix(base string) bool {

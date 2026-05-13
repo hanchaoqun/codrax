@@ -514,6 +514,9 @@ func compilePrincipalEvidenceSupportLane(family QuestionFamily, rm RequestModel,
 		Guidance:      principalEvidenceLaneGuidance(family, rm),
 	}
 	items := PrincipalSupportEvidenceItemsForFamily(family, plan)
+	if family == QFConfigPrecedence {
+		items = curateConfigPrecedencePrincipalEvidence(rm, plan, items)
+	}
 	if len(items) == 0 {
 		return lane
 	}
@@ -532,6 +535,97 @@ func compilePrincipalEvidenceSupportLane(family QuestionFamily, rm RequestModel,
 		}
 	}
 	return lane
+}
+
+func curateConfigPrecedencePrincipalEvidence(rm RequestModel, plan *AnswerSurfacePlan, items []EvidenceItem) []EvidenceItem {
+	if len(items) == 0 || plan == nil {
+		return items
+	}
+	contract := plan.ExactResolution
+	if contract == nil {
+		contract = BuildExactResolutionContract(rm)
+	}
+	if contract == nil || contract.TargetKind != SubjectConfigKey {
+		return items
+	}
+	if plan.PreferredExactResolution == nil ||
+		plan.PreferredExactResolution.Status != AnswerExactResolutionAbsent {
+		return items
+	}
+	requested := ConfigTraceRequestedDiagramRoles(contract)
+	if len(requested) == 0 {
+		return items
+	}
+	requestedSet := make(map[EvidenceDiagramRole]bool, len(requested))
+	for _, role := range requested {
+		requestedSet[role] = true
+	}
+	bestByRole := make(map[EvidenceDiagramRole]EvidenceItem, len(requestedSet))
+	bestRankByRole := make(map[EvidenceDiagramRole]int, len(requestedSet))
+	var unscoped []EvidenceItem
+	for _, item := range items {
+		role := ConfigTraceCoverageRoleInFiles(contract, plan.ExactContextRequiredFiles, item)
+		if role == EvidenceDiagramRoleUnknown || !requestedSet[role] {
+			// In exact-absence config traces, generic absence proofs and
+			// same-family helper anchors belong to the exact-resolution /
+			// uncertainty lanes. They are not additional user-requested
+			// precedence rows unless they carry a validated requested role.
+			continue
+		}
+		rank := configPrecedencePrincipalRoleRank(role, item)
+		if existingRank, ok := bestRankByRole[role]; ok && existingRank <= rank {
+			continue
+		}
+		bestByRole[role] = item
+		bestRankByRole[role] = rank
+	}
+	for _, role := range requested {
+		if item, ok := bestByRole[role]; ok {
+			unscoped = append(unscoped, item)
+		}
+	}
+	if len(unscoped) == 0 {
+		return nil
+	}
+	return unscoped
+}
+
+func configPrecedencePrincipalRoleRank(role EvidenceDiagramRole, item EvidenceItem) int {
+	rank := facetSupportEvidencePriority(QFConfigPrecedence, item) * 100
+	if item.GroundingStatus == GroundingGrounded {
+		rank -= 20
+	}
+	if item.DiagramRole == role || CanonicalEvidenceDiagramRole(string(item.RequestedDiagramRole)) == role {
+		rank -= 16
+	}
+	if item.ContextRole == EvidenceContextRoleAbsenceSupport || item.Kind == EvidenceAbsent {
+		rank += 8
+	}
+	switch role {
+	case EvidenceDiagramRoleConfig:
+		if LooksLikeConfigFilePath(item.Source) {
+			rank -= 10
+		}
+		if item.Scope == ScopeFile || item.Scope == ScopeSection || item.Scope == ScopeNegative {
+			rank -= 4
+		}
+	case EvidenceDiagramRoleDefault:
+		switch item.AnchorKind {
+		case AnchorDefinition, AnchorAssignment, AnchorInitializer:
+			rank -= 10
+		case AnchorReturn:
+			rank -= 4
+		}
+	case EvidenceDiagramRoleRuntime, EvidenceDiagramRoleOverride:
+		switch item.AnchorKind {
+		case AnchorAssignment, AnchorInitializer, AnchorCall, AnchorCondition:
+			rank -= 8
+		}
+	}
+	if strings.TrimSpace(item.AnchorSymbol) != "" {
+		rank -= 2
+	}
+	return rank
 }
 
 func principalEvidenceLaneTitle(family QuestionFamily) string {

@@ -2,8 +2,19 @@ package types
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func syntheticConfigAbsenceKeyForTest() string {
+	return strings.Join([]string{
+		"explore",
+		"xyz",
+		"phantom",
+		"unique",
+		"budget",
+	}, "_")
+}
 
 func TestBuildExactResolutionContract_ConfigKey(t *testing.T) {
 	rm := RequestModel{
@@ -946,6 +957,33 @@ func TestBuildExactResolutionContract_ConfigTraceUsesConfigKeyTargetKindWhenAnsw
 	want := []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride}
 	if !reflect.DeepEqual(contract.RequestedContextRoles, want) {
 		t.Fatalf("RequestedContextRoles = %v, want %v", contract.RequestedContextRoles, want)
+	}
+}
+
+func TestExactResolutionEvidenceSupportsAbsenceUsesNegativeQueryPattern(t *testing.T) {
+	target := syntheticConfigAbsenceKeyForTest()
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{target},
+		AllowAbsence:         true,
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+	}
+	ev := EvidenceItem{
+		Kind:            EvidenceAbsent,
+		Scope:           ScopeNegative,
+		Source:          "codrax.yaml.example",
+		ContextRole:     EvidenceContextRoleAbsenceSupport,
+		NegativeQuery:   &NegativeQuery{File: "codrax.yaml.example", Pattern: target},
+		NegativeScope:   NegativeScopeFile,
+		GroundingStatus: GroundingGrounded,
+	}
+	if !ExactResolutionEvidenceSupportsAbsence(contract, ev) {
+		t.Fatal("negative_query.pattern should be a typed exact-target absence proof")
+	}
+	ev.NegativeQuery.Pattern = "another_config_key"
+	if ExactResolutionEvidenceSupportsAbsence(contract, ev) {
+		t.Fatal("negative evidence for another target must not prove this exact-target absence")
 	}
 }
 

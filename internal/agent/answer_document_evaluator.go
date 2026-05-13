@@ -695,7 +695,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				)
 			case types.BlockTable:
 				items = append(items,
-					"Emit the principal `table` block with the markdown table inside its `text`; each row corresponds to a grounded entity, with citations[] entries for every cited file:line.",
+					"Emit the principal `table` block either as a markdown table inside `text` OR as visible `items[]` rows with `label`/`text`. Do not mix a markdown table in `text` with citation-only empty `items[]`; empty row placeholders render poorly and do not add grounding. Each visible row must correspond to a grounded entity, with citations[] entries for every cited file:line.",
 				)
 			case types.BlockSummary:
 				items = append(items,

@@ -396,6 +396,9 @@ func TestIsTestFilePath_CoversLanguageConventions(t *testing.T) {
 		"src/foo.spec.ts",
 		"src/foo.test.jsx",
 		"src/foo.spec.tsx",
+		// ArkTS / HarmonyOS.
+		"entry/src/ohosTest/ets/pages/Index.test.ets",
+		"src/__tests__/Widget.spec.ets",
 		// Java / Kotlin — Test / Tests suffix + Test / IT prefix.
 		"src/main/FooTest.java",
 		"src/main/FooTests.java",
@@ -406,6 +409,11 @@ func TestIsTestFilePath_CoversLanguageConventions(t *testing.T) {
 		"lib/foo_test.cc",
 		"lib/foo_test.cpp",
 		"lib/foo_unittest.cc",
+		"lib/kernel_test.cu",
+		"lib/view_test.mm",
+		// Proto / Cangjie use the shared test-container and suffix lanes.
+		"tests/service.proto",
+		"tests/cangjie/feature_test.cj",
 	}
 	for _, p := range testFiles {
 		if !isTestFilePath(p) {
@@ -419,9 +427,13 @@ func TestIsTestFilePath_CoversLanguageConventions(t *testing.T) {
 		"lib/foo.rb",
 		"src/foo.js",
 		"src/foo.ts",
+		"entry/src/main/ets/pages/Index.ets",
 		"src/main/Foo.java",
 		"src/main/Foo.kt",
 		"lib/foo.cc",
+		"lib/kernel.cu",
+		"pkg/service.proto",
+		"src/cangjie/feature.cj",
 		// Tricky near-misses: "test" in the middle or as a directory.
 		"internal/test/helpers.go", // directory named "test", file itself is production
 		"pkg/contest.py",           // not a test file despite "test" substring

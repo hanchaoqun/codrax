@@ -52,12 +52,18 @@ func LooksLikeAuxiliaryEvidencePath(relPath string) bool {
 	if lower == "" {
 		return false
 	}
+	lower = strings.TrimPrefix(lower, "./")
 	if LooksLikeTestFilePath(lower) {
 		return true
 	}
 	switch {
 	case strings.Contains(lower, "/testdata/"),
 		strings.HasPrefix(lower, "testdata/"),
+		strings.Contains(lower, "/tests/"),
+		strings.HasPrefix(lower, "tests/"),
+		strings.HasPrefix(lower, "test/"),
+		strings.Contains(lower, "/__tests__/"),
+		strings.HasPrefix(lower, "__tests__/"),
 		strings.Contains(lower, "/fixtures/"),
 		strings.HasPrefix(lower, "fixtures/"),
 		strings.Contains(lower, "/examples/"),

@@ -2346,6 +2346,109 @@ func TestBuildAnswerSupportPlan_ConfigPrecedenceDropsConcreteNoiseWhenModelEvide
 	}
 }
 
+func TestBuildAnswerSupportPlan_ConfigPrecedenceExactAbsenceKeepsRequestedRolesPrincipal(t *testing.T) {
+	target := syntheticConfigAbsenceKeyForTest()
+	rm := RequestModel{
+		RawRequest:    target + " 在默认值 / codrax.yaml / CLI flag 三层里各自是什么？",
+		Intent:        IntentConfigQuery,
+		Scenario:      ScenarioConfigTrace,
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+		AnalyzerHints: AnalyzerHints{
+			Kind:              string(ReqConfigMapping),
+			ExactTargets:      []string{target},
+			ExactContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+		},
+	}
+	contract := BuildExactResolutionContract(rm)
+	if contract == nil {
+		t.Fatal("expected exact-resolution contract")
+	}
+	plan := &AnswerSurfacePlan{
+		ExactResolution: contract,
+		PreferredExactResolution: &AnswerExactResolution{
+			Status:      AnswerExactResolutionAbsent,
+			ContextMode: AnswerExactResolutionContextGroundedOnly,
+		},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "default-layer",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "internal/types/explore_budget.go",
+				LineStart:       40,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "ExploreBudget",
+				Summary:         "ExploreBudget is the same explore-budget family and has no xyz phantom field",
+				ContextRole:     EvidenceContextRoleRelatedContext,
+				DiagramRole:     EvidenceDiagramRoleDefault,
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+			{
+				ID:                   "config-layer-absence",
+				Kind:                 EvidenceAbsent,
+				Scope:                ScopeNegative,
+				Source:               "codrax.yaml.example",
+				ContextRole:          EvidenceContextRoleAbsenceSupport,
+				RequestedDiagramRole: EvidenceDiagramRoleConfig,
+				NegativeQuery:        &NegativeQuery{File: "codrax.yaml.example", Pattern: target},
+				NegativeScope:        NegativeScopeFile,
+				SurfaceTerms:         []string{"codrax.yaml", target},
+				Producer:             "explorer.emit_evidence",
+				GroundingStatus:      GroundingGrounded,
+				GroundingTier:        TierNegativeConfirmed,
+			},
+			{
+				ID:              "skill-defaults-boundary",
+				Kind:            EvidenceAbsent,
+				Scope:           ScopeNegative,
+				Source:          "internal/skill/defaults.go",
+				ContextRole:     EvidenceContextRoleAbsenceSupport,
+				Summary:         "exact key absent from skill defaults registry",
+				NegativeQuery:   &NegativeQuery{File: "internal/skill/defaults.go", Pattern: target},
+				NegativeScope:   NegativeScopeFile,
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierNegativeConfirmed,
+			},
+			{
+				ID:              "override-missing-boundary",
+				Kind:            EvidenceAbsent,
+				Scope:           ScopeNegative,
+				Source:          "cmd/root.go",
+				ContextRole:     EvidenceContextRoleAbsenceSupport,
+				Summary:         "exact key absent from CLI flag bindings",
+				NegativeQuery:   &NegativeQuery{File: "cmd/root.go", Pattern: target},
+				NegativeScope:   NegativeScopeFile,
+				SurfaceTerms:    []string{"CLI flag"},
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierNegativeConfirmed,
+			},
+		},
+	}
+	plan.FacetCoverage = CompileFacetCoverage(rm, plan.SurfaceEvidence)
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil {
+		t.Fatalf("expected principal config lane, got %+v", got)
+	}
+	text := answerSupportLaneText(lane)
+	if !strings.Contains(text, "ExploreBudget") || !supportLaneHasSource(lane, "codrax.yaml.example") {
+		t.Fatalf("principal lane should keep requested default/config role anchors, got entries=%+v text:\n%s", lane.Entries, text)
+	}
+	if supportLaneHasSource(lane, "internal/skill/defaults.go") || supportLaneHasSource(lane, "cmd/root.go") {
+		t.Fatalf("boundary-only absence proofs must not become extra principal precedence rows: %+v", lane.Entries)
+	}
+	boundary := answerSupportLaneByKind(got, SupportLaneUncertaintyBound)
+	if boundary == nil || !supportLaneHasSource(boundary, "internal/skill/defaults.go") ||
+		!supportLaneHasSource(boundary, "cmd/root.go") {
+		t.Fatalf("dropped boundary proofs should remain available in uncertainty lane, got %+v", got.Lanes)
+	}
+}
+
 func TestBuildAnswerSupportPlan_FacetUncertaintyLaneAcceptsNegativeScopeAbsence(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		SurfaceEvidence: []EvidenceItem{{

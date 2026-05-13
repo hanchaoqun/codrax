@@ -671,7 +671,8 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			unit = "matching files"
 		}
 		countBanner := fmt.Sprintf("[grep: %d %s]\n", nres.Matches, unit)
-		summary, ref := StoreBlob(ctx, t.Name(), countBanner+paramsBanner+nres.Output)
+		matchOutput := annotateAnalyzerPrescanGrepOutput(ctx, p.FilesOnly, nres.Output)
+		summary, ref := StoreBlob(ctx, t.Name(), countBanner+paramsBanner+matchOutput)
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   true,
@@ -833,7 +834,8 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		countBanner = fmt.Sprintf("[grep: %d %s]\n", lines, unit)
 	}
-	output = countBanner + paramsBanner + output
+	matchOutput := annotateAnalyzerPrescanGrepOutput(ctx, p.FilesOnly, output)
+	output = countBanner + paramsBanner + matchOutput
 
 	summary, ref := StoreBlob(ctx, t.Name(), output)
 	return types.ToolResult{
@@ -843,6 +845,92 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func annotateAnalyzerPrescanGrepOutput(ctx *types.BusContext, filesOnly bool, output string) string {
+	if ctx == nil || ctx.PipelineStage != types.StageAnalyze || strings.TrimSpace(output) == "" {
+		return output
+	}
+	var production []string
+	var auxiliary []string
+	var passthrough []string
+	for _, raw := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if path, ok := analyzerGrepOutputLinePath(line, filesOnly); ok {
+			if types.LooksLikeAuxiliaryEvidencePath(path) {
+				auxiliary = append(auxiliary, raw)
+			} else {
+				production = append(production, raw)
+			}
+			continue
+		}
+		passthrough = append(passthrough, raw)
+	}
+	if len(auxiliary) == 0 {
+		return output
+	}
+	var b strings.Builder
+	if len(production) > 0 {
+		b.WriteString("[prescan production matches]\n")
+		for _, line := range production {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+	} else {
+		b.WriteString("[prescan production matches]\n")
+		b.WriteString("no non-auxiliary matches found\n")
+	}
+	if len(passthrough) > 0 {
+		b.WriteString("[prescan other output]\n")
+		for _, line := range passthrough {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+	}
+	b.WriteString("[prescan auxiliary matches - not production proof]\n")
+	for _, line := range auxiliary {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func analyzerGrepOutputLinePath(line string, filesOnly bool) (string, bool) {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "[") {
+		return "", false
+	}
+	if filesOnly {
+		if strings.Contains(line, "/") || strings.Contains(line, `\`) || strings.Contains(line, ".") {
+			return line, true
+		}
+		return "", false
+	}
+	for i, r := range line {
+		if r != ':' && r != '-' {
+			continue
+		}
+		rest := line[i+1:]
+		digitEnd := 0
+		for digitEnd < len(rest) && rest[digitEnd] >= '0' && rest[digitEnd] <= '9' {
+			digitEnd++
+		}
+		if digitEnd == 0 {
+			continue
+		}
+		if digitEnd >= len(rest) || (rest[digitEnd] != ':' && rest[digitEnd] != '-') {
+			continue
+		}
+		path := strings.TrimSpace(line[:i])
+		if path == "" {
+			continue
+		}
+		return path, true
+	}
+	return "", false
 }
 
 // fileTypeToGlobs maps a language/file type name to glob patterns,

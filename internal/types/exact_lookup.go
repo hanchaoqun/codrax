@@ -1411,8 +1411,7 @@ func ExactResolutionEvidenceSupportsAbsence(c *ExactResolutionContract, item Evi
 	if item.ContextRole != EvidenceContextRoleAbsenceSupport {
 		return false
 	}
-	if !ExactResolutionTextsMentionAnyTarget(c,
-		item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
+	if !ExactResolutionEvidenceMentionsAnyTarget(c, item) {
 		return false
 	}
 	if c != nil &&
@@ -1422,6 +1421,38 @@ func ExactResolutionEvidenceSupportsAbsence(c *ExactResolutionContract, item Evi
 		return false
 	}
 	return true
+}
+
+// ExactResolutionEvidenceMentionsAnyTarget reports whether an evidence
+// item explicitly names one of the contract's exact targets through a
+// structured field. This is intentionally broader than the prose-only
+// ExactResolutionTextsMentionAnyTarget call sites: negative evidence
+// proves absence through NegativeQuery.Pattern, and schema/config
+// evidence often preserves the user-visible key in SurfaceTerms rather
+// than Subject/Object.
+func ExactResolutionEvidenceMentionsAnyTarget(c *ExactResolutionContract, item EvidenceItem) bool {
+	texts := []string{
+		item.Subject,
+		item.Predicate,
+		item.Object,
+		item.AnchorSymbol,
+		item.Condition,
+		item.Snippet,
+		item.Summary,
+	}
+	texts = append(texts, item.SurfaceTerms...)
+	if item.NegativeQuery != nil {
+		texts = append(texts,
+			item.NegativeQuery.File,
+			item.NegativeQuery.Pattern,
+			item.NegativeQuery.Section,
+		)
+	}
+	if item.CrossfileQuery != nil {
+		texts = append(texts, item.CrossfileQuery.Pattern)
+		texts = append(texts, item.CrossfileQuery.Files...)
+	}
+	return ExactResolutionTextsMentionAnyTarget(c, texts...)
 }
 
 // ExactResolutionAbsenceClosureReady reports whether the current
@@ -1831,7 +1862,7 @@ func looksLikeExactPathToken(s string) bool {
 }
 
 func exactResolutionEvidenceSurface(item EvidenceItem) string {
-	return strings.Join([]string{
+	parts := []string{
 		item.Source,
 		item.Subject,
 		item.Predicate,
@@ -1840,7 +1871,16 @@ func exactResolutionEvidenceSurface(item EvidenceItem) string {
 		item.Condition,
 		item.Snippet,
 		item.Summary,
-	}, "\n")
+	}
+	parts = append(parts, item.SurfaceTerms...)
+	if item.NegativeQuery != nil {
+		parts = append(parts, item.NegativeQuery.File, item.NegativeQuery.Pattern, item.NegativeQuery.Section)
+	}
+	if item.CrossfileQuery != nil {
+		parts = append(parts, item.CrossfileQuery.Pattern)
+		parts = append(parts, item.CrossfileQuery.Files...)
+	}
+	return strings.Join(parts, "\n")
 }
 
 func exactResolutionCanonicalPath(path string) string {

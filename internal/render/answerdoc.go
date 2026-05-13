@@ -219,10 +219,23 @@ func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.Answ
 	// Two-column rendering: Label | Text. More elaborate column
 	// shapes are postponed to a later refinement; the V2 schema
 	// already gives Label + Text + CitationRef on each item.
+	rendered := 0
+	for _, it := range blk.Items {
+		if strings.TrimSpace(it.Label) == "" && strings.TrimSpace(it.Text) == "" {
+			continue
+		}
+		rendered++
+	}
+	if rendered == 0 {
+		return
+	}
 	b.WriteString("| Item | Detail |\n|---|---|\n")
 	for _, it := range blk.Items {
 		label := strings.TrimSpace(it.Label)
 		text := strings.TrimSpace(it.Text)
+		if label == "" && text == "" {
+			continue
+		}
 		fmt.Fprintf(b, "| %s | %s |\n", escapePipe(label), escapePipe(text))
 	}
 	b.WriteString("\n")
@@ -233,10 +246,19 @@ func renderV2TableText(blk types.AnswerBlock) string {
 	if text == "" {
 		return ""
 	}
-	if len(blk.Items) > 0 && answerDocTextLooksLikeMarkdownTable(text) {
+	if answerDocBlockHasVisibleItems(blk) && answerDocTextLooksLikeMarkdownTable(text) {
 		return ""
 	}
 	return text
+}
+
+func answerDocBlockHasVisibleItems(blk types.AnswerBlock) bool {
+	for _, it := range blk.Items {
+		if strings.TrimSpace(it.Label) != "" || strings.TrimSpace(it.Text) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func answerDocTextLooksLikeMarkdownTable(text string) bool {

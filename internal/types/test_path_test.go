@@ -17,6 +17,13 @@ func TestLooksLikeTestFilePath(t *testing.T) {
 		"lua/spec/router_spec.lua",
 		"src/components/Button.test.tsx",
 		"src/app.spec.ts",
+		"entry/src/ohosTest/ets/pages/Index.test.ets",
+		"src/__tests__/widget.spec.ets",
+		"tests/service.proto",
+		"tests/cangjie/feature_test.cj",
+		"test/cangjie/feature.cj",
+		"cuda/kernel_test.cu",
+		"objc/foo_test.mm",
 		"native/foo_unittest.cpp",
 	}
 	for _, path := range positive {
@@ -49,6 +56,9 @@ func TestLooksLikeAuxiliaryEvidencePath(t *testing.T) {
 		"fixtures/config.yaml",
 		"examples/demo/main.go",
 		"testdata/input.json",
+		"tests/input.yaml",
+		"test/input.json",
+		"src/__tests__/snapshot.json",
 		"internal/skill/analysis_contract.go",
 	}
 	for _, path := range positive {

@@ -821,6 +821,99 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("analyze files_only separates production and auxiliary matches", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(tmpDir, "src"), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "src", "App.ets"), []byte("const marker = \"NeedleRole\"\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "src", "App.test.ets"), []byte("const marker = \"NeedleRole\"\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		ctx := newBusContext()
+		ctx.PipelineStage = types.StageAnalyze
+		ctx.RepoRoot = tmpDir
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "NeedleRole", Path: ".", FilesOnly: true})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		prodIdx := strings.Index(result.Summary, "[prescan production matches]")
+		auxIdx := strings.Index(result.Summary, "[prescan auxiliary matches - not production proof]")
+		if prodIdx < 0 || auxIdx < 0 || auxIdx <= prodIdx {
+			t.Fatalf("expected production and auxiliary sections in order, got:\n%s", result.Summary)
+		}
+		prodPathIdx := strings.Index(result.Summary, "src/App.ets")
+		auxPathIdx := strings.Index(result.Summary, "src/App.test.ets")
+		if prodPathIdx < 0 || auxPathIdx < 0 || !(prodIdx < prodPathIdx && prodPathIdx < auxIdx && auxIdx < auxPathIdx) {
+			t.Fatalf("expected ArkTS production path before auxiliary test path, got:\n%s", result.Summary)
+		}
+	})
+
+	t.Run("analyze files_only marks auxiliary-only matches without production proof", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(tmpDir, "tests", "cangjie"), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "tests", "cangjie", "feature_test.cj"), []byte("let marker = \"NeedleOnly\"\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		ctx := newBusContext()
+		ctx.PipelineStage = types.StageAnalyze
+		ctx.RepoRoot = tmpDir
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "NeedleOnly", Path: ".", FilesOnly: true})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "no non-auxiliary matches found") ||
+			!strings.Contains(result.Summary, "[prescan auxiliary matches - not production proof]") ||
+			!strings.Contains(result.Summary, "tests/cangjie/feature_test.cj") {
+			t.Fatalf("expected Cangjie test-only match to be labelled auxiliary-only, got:\n%s", result.Summary)
+		}
+	})
+
+	t.Run("analyze line grep labels auxiliary-only context output", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(tmpDir, "src", "__tests__"), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "src", "__tests__", "Widget.spec.ets"), []byte("const marker = \"NeedleLine\"\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		ctx := newBusContext()
+		ctx.PipelineStage = types.StageAnalyze
+		ctx.RepoRoot = tmpDir
+		tool := &GrepTool{}
+		contextLines := 1
+		params, _ := json.Marshal(grepToolParams{Pattern: "NeedleLine", Path: ".", ContextLines: &contextLines})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "no non-auxiliary matches found") ||
+			!strings.Contains(result.Summary, "[prescan auxiliary matches - not production proof]") ||
+			!strings.Contains(result.Summary, "Widget.spec.ets") {
+			t.Fatalf("expected ArkTS test-only line grep to be labelled auxiliary-only, got:\n%s", result.Summary)
+		}
+	})
+
 	// Noise exclusion tests: grep should skip directories that produce
 	// noise without useful signal (.git, logs, memory, node_modules, etc.)
 
