@@ -293,7 +293,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		principalTerms := []types.ContractTerm(nil)
 		attributeBearingEnumeration := false
 		if ctx != nil && ctx.AnalysisIR != nil {
-			mustTerms = answerDocMustIncludeTerms(ctx.AnalysisIR.AnswerContract)
+			mustTerms = answerDocMustIncludeTerms(ctx, ctx.AnalysisIR.AnswerContract)
 			principalTerms = answerDocPrincipalItemFloorTerms(ctx, mustTerms)
 			attributeBearingEnumeration = types.HasAttributeBearingEnumeration(ctx.AnalysisIR.RequestModel)
 		}
@@ -398,7 +398,13 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	return b.String()
 }
 
-func answerDocMustIncludeTerms(contract types.AnswerContract) []types.ContractTerm {
+func answerDocMustIncludeTerms(ctx *types.AgentContext, contract types.AnswerContract) []types.ContractTerm {
+	if ctx != nil && ctx.Mutable != nil {
+		contract = types.RelaxAnalyzerEntityMustIncludeWithAggregateMemberSet(
+			contract,
+			ctx.Mutable.StableInvestigationAggregateFacts(),
+		)
+	}
 	return types.NormalizedMustIncludeTerms(contract)
 }
 
@@ -2815,8 +2821,9 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("## Structured Aggregate Facts\n\n")
 	b.WriteString("- These aggregate facts were emitted by the investigator through `emit_investigation_complete.aggregate_facts` after exploration. They are model-authored structured handoff values, not system-synthesised answer text.\n")
 	b.WriteString("- Preserve each `value` exactly when the corresponding fact answers the user's requested scalar, unique-set, group, bucket, exclusion, or exhaustive-member question. Use `members` for requested concrete lists such as enum/type names, file paths, or file:line locations.\n")
-	b.WriteString("- When a `members` entry is a source location such as `file.ext:line` and you render it as an ordered-list or table item, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Reserve `citation_ref:-1` for scalar aggregate values that have no source-location member citation.\n")
-	b.WriteString("- Do not recompute new aggregate values in finalization. If these facts conflict with typed support lanes, citations, or raw tool outputs, state the evidence boundary instead of inventing a reconciliation.\n\n")
+	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Reserve `citation_ref:-1` only for member labels that have no citable source-location handoff.\n")
+	b.WriteString("- Do not render internal provenance strings such as `source=emit_investigation_complete.aggregate_facts` in the user-visible answer text. Use provenance only to choose the correct member set and citations.\n")
+	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, typed support lanes, citations, or raw tool outputs conflict with these facts, prefer the structured member_set for the principal list and state the evidence boundary instead of inventing a reconciliation.\n\n")
 	b.WriteString(renderStructuredAggregateFacts(plan.StableAggregateFacts, 16))
 	b.WriteString("\n")
 	return b.String()

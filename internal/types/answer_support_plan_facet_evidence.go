@@ -121,13 +121,14 @@ func compileGenericAggregateMemberSupportLane(rm RequestModel, plan *AnswerSurfa
 	if plan == nil || !enumerationRequestRequiresPrincipalMemberCoverage(rm) {
 		return lane
 	}
+	supportEvidence := genericAggregateSupportEvidenceByMemberLabel(plan.SurfaceEvidence)
 	seen := map[string]bool{}
 	for factIdx, fact := range plan.StableAggregateFacts {
 		if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
 			continue
 		}
 		for memberIdx, member := range fact.Members {
-			entry, ok := genericAggregateMemberSupportEntry(fact, factIdx, memberIdx, member)
+			entry, ok := genericAggregateMemberSupportEntry(fact, factIdx, memberIdx, member, supportEvidence)
 			if !ok {
 				continue
 			}
@@ -142,12 +143,19 @@ func compileGenericAggregateMemberSupportLane(rm RequestModel, plan *AnswerSurfa
 	return lane
 }
 
-func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, memberIdx int, member string) (AnswerSupportEntry, bool) {
+func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, memberIdx int, member string, supportEvidence map[string]EvidenceItem) (AnswerSupportEntry, bool) {
 	member = strings.TrimSpace(member)
 	if member == "" {
 		return AnswerSupportEntry{}, false
 	}
 	source, line, location := aggregateMemberStructuredLocation(fact, member)
+	if location == "" {
+		if ev, ok := aggregateMemberEvidenceByLabel(member, supportEvidence); ok {
+			source = strings.TrimSpace(strings.ReplaceAll(ev.Source, `\`, `/`))
+			line = ev.LineStart
+			location = aggregateMemberStartLocation(AnswerSourceLocationSurface{File: source, LineStart: line})
+		}
+	}
 	surface := aggregateMemberSurface(member, location)
 	entry := AnswerSupportEntry{
 		Text:          member,
@@ -165,7 +173,78 @@ func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, membe
 	if location != "" {
 		entry.GroundingTier = TierLineText
 	}
+	if ev, ok := aggregateMemberEvidenceByLabel(member, supportEvidence); ok && sameAggregateMemberEvidenceLocation(ev, source, line) {
+		entry.ClaimForm = ClaimFormOf(ev)
+		entry.LabelSurface = entry.ClaimForm.LabelSurfaceKind()
+		entry.Subject = strings.TrimSpace(ev.Subject)
+		entry.Object = strings.TrimSpace(ev.Object)
+		entry.AnchorSymbol = strings.TrimSpace(ev.AnchorSymbol)
+		entry.OwnerSymbol = strings.TrimSpace(ev.OwnerSymbol)
+		entry.AnchorKind = ev.AnchorKind
+		entry.Producer = firstNonEmptySurfaceString(strings.TrimSpace(ev.Producer), entry.Producer)
+		entry.GroundingTier = ev.GroundingTier
+		entry.SurfaceTerms = dedupeAggregateMemberTerms(append(entry.SurfaceTerms, aggregateEvidenceMemberLabels(ev)...))
+		if entry.ClaimForm != ClaimUnknown {
+			entry.Detail = strings.TrimSpace(entry.Detail + "; claim_form=" + string(entry.ClaimForm) + "; anchor_kind=" + string(ev.AnchorKind))
+			if entry.ClaimForm == ClaimTextReferenceFact {
+				entry.Detail += "; text_reference=true; not_definition_call_or_assignment=true"
+			}
+		}
+	}
 	return entry, true
+}
+
+func genericAggregateSupportEvidenceByMemberLabel(items []EvidenceItem) map[string]EvidenceItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make(map[string]EvidenceItem, len(items))
+	for _, item := range items {
+		if item.Source == "" || item.LineStart <= 0 {
+			continue
+		}
+		if item.GroundingStatus == GroundingUngrounded {
+			continue
+		}
+		for _, label := range aggregateEvidenceMemberLabels(item) {
+			key := aggregateMemberKey(label)
+			if key == "" {
+				continue
+			}
+			if existing, ok := out[key]; ok && changeImpactSupportEvidenceRank(existing) >= changeImpactSupportEvidenceRank(item) {
+				continue
+			}
+			out[key] = item
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func aggregateMemberEvidenceByLabel(member string, support map[string]EvidenceItem) (EvidenceItem, bool) {
+	if len(support) == 0 {
+		return EvidenceItem{}, false
+	}
+	for _, candidate := range aggregateMemberDisplayCandidates(member) {
+		key := aggregateMemberKey(candidate)
+		if key == "" {
+			continue
+		}
+		if ev, ok := support[key]; ok {
+			return ev, true
+		}
+	}
+	return EvidenceItem{}, false
+}
+
+func sameAggregateMemberEvidenceLocation(ev EvidenceItem, source string, line int) bool {
+	source = normalizeAnswerSupportPath(source)
+	if source == "" || line <= 0 {
+		return false
+	}
+	return normalizeAnswerSupportPath(ev.Source) == source && ev.LineStart == line
 }
 
 func aggregateMemberStructuredLocation(fact AnswerAggregateFact, member string) (source string, line int, location string) {
@@ -204,6 +283,33 @@ func aggregateSupportRefMemberLocation(ref string) (member string, location Answ
 		return "", surface, true
 	}
 	return "", AnswerSourceLocationSurface{}, false
+}
+
+func aggregateMemberDisplayCandidates(member string) []string {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return nil
+	}
+	out := []string{member}
+	for _, sep := range []string{" @ ", "\t", " | "} {
+		if idx := strings.Index(member, sep); idx > 0 {
+			prefix := strings.TrimSpace(member[:idx])
+			if prefix != "" {
+				out = append(out, prefix)
+			}
+		}
+	}
+	return dedupeAggregateMemberTerms(out)
+}
+
+func aggregateEvidenceMemberLabels(ev EvidenceItem) []string {
+	out := []string{ev.AnchorSymbol, ev.Subject, ev.Object, ev.OwnerSymbol}
+	out = append(out, ev.SurfaceTerms...)
+	return out
+}
+
+func aggregateMemberKey(raw string) string {
+	return NormalizedSurfaceSymbolTail(raw)
 }
 
 func aggregateMemberSurface(member string, location string) AnswerPrincipalMemberSurface {

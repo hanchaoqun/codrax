@@ -90,7 +90,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						"kind": {
 							"type": "string",
 							"enum": ["total_count", "unique_count", "grouped_count", "bucket_count", "excluded_count", "scalar_value", "member_set"],
-							"description": "total_count = total principal hits; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members)."
+							"description": "total_count = total principal hits or a typed pre-filter candidate pool when dimensions name that stage; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members)."
 						},
 						"label": {
 							"type": "string",
@@ -106,7 +106,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"dimensions": {
 							"type": "array",
-							"description": "Optional typed axes that make the aggregate precise, e.g. [{name:\"scope\", value:\"production\"}, {name:\"syntax\", value:\"struct_literal\"}].",
+							"description": "Optional typed axes that make the aggregate precise, e.g. [{name:\"scope\", value:\"production\"}, {name:\"syntax\", value:\"struct_literal\"}, {name:\"stage\", value:\"candidate_pre_filter\"}, {name:\"basis\", value:\"verified_member_set\"}]. If a broad candidate search count differs from the final verified member_set, emit companion total_count/excluded_count facts with dimensions that explain the stage/basis instead of burying the discrepancy in prose.",
 							"items": {
 								"type": "object",
 								"properties": {
@@ -1531,7 +1531,7 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 	if strings.TrimSpace(invalid) != "" {
 		fmt.Fprintf(&b, "A `member_set` was present but is not usable as citable principal-member data: %s\n\n", invalid)
 	}
-	b.WriteString("Either emit the completed `emit_answer_symbol` slate, or include `aggregate_facts` with kind=`member_set`, value equal to the exact member count, and `members` containing every principal answer member copied from your verified search/read/command results. For code symbols, paths, routes, config keys, macros, spans, and source-location members, each member must be backed by typed evidence already emitted through `emit_evidence`, or by member-specific `support_refs` such as `Member @ path/file.ext:123` that point to the same grounded evidence line. Exclude related-context/helper candidates from the principal member_set. Then re-call `emit_investigation_complete`.")
+	b.WriteString("Either emit the completed `emit_answer_symbol` slate, or include `aggregate_facts` with kind=`member_set`, value equal to the exact member count, and `members` containing every principal answer member copied from your verified search/read/command results. For code symbols, paths, routes, config keys, macros, spans, and source-location members, each member must be backed by typed evidence already emitted through `emit_evidence`, or by member-specific `support_refs` such as `Member @ path/file.ext:123` that point to the same grounded evidence line. Exclude related-context/helper candidates from the principal member_set. If your broad candidate search count is different from the verified member_set count, also emit companion total_count/excluded_count aggregate facts with dimensions that name the candidate stage and exclusion basis. Then re-call `emit_investigation_complete`.")
 	return b.String()
 }
 

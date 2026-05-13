@@ -2548,6 +2548,73 @@ func TestBuildAnswerSupportPlan_GenericEnumerationUsesAggregateMemberSetAsPrinci
 	}
 }
 
+func TestBuildAnswerSupportPlan_GenericAggregateMemberSetReusesTypedEvidenceLocations(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "public enum members",
+			Value:   "2",
+			Members: []string{"Intent", "RouteKind"},
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "go-intent",
+				Kind:            EvidenceDirect,
+				Source:          "internal/types/analysis_ir.go",
+				LineStart:       653,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "Intent",
+				Subject:         "Intent",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+			{
+				ID:              "arkts-route",
+				Kind:            EvidenceDirect,
+				Source:          "entry/src/main/ets/router/RouteKind.ets",
+				LineStart:       12,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "RouteKind",
+				Subject:         "RouteKind",
+				SurfaceTerms:    []string{"RouteKind"},
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+		},
+	}
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqEnumeration),
+			Entities: []string{"Intent", "RouteKind"},
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all enum types"},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 2 {
+		t.Fatalf("aggregate member_set should compile into two principal entries, got %+v", got)
+	}
+	if lane.Entries[0].Location != "internal/types/analysis_ir.go:653" ||
+		lane.Entries[0].ClaimForm != ClaimDefinitionFact ||
+		lane.Entries[0].AnchorSymbol != "Intent" {
+		t.Fatalf("Go member should inherit typed evidence citation metadata, got %+v", lane.Entries[0])
+	}
+	if lane.Entries[1].Location != "entry/src/main/ets/router/RouteKind.ets:12" ||
+		lane.Entries[1].ClaimForm != ClaimDefinitionFact ||
+		lane.Entries[1].AnchorSymbol != "RouteKind" {
+		t.Fatalf("ArkTS member should inherit typed evidence citation metadata, got %+v", lane.Entries[1])
+	}
+	obligations := PrincipalSupportMemberObligations(got)
+	if len(obligations) != 2 {
+		t.Fatalf("typed evidence-backed aggregate members should become cited obligations, got %+v", obligations)
+	}
+}
+
 func answerSupportLaneByKind(plan *AnswerSupportPlan, kind AnswerSupportLaneKind) *AnswerSupportLane {
 	if plan == nil {
 		return nil

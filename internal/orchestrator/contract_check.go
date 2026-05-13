@@ -64,6 +64,12 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		c.CitationReq.MinCitations = 0
 		c.AcceptanceTests = dropCitationCountGEContract(c.AcceptanceTests)
 	}
+	if mut != nil {
+		c = types.RelaxAnalyzerEntityMustIncludeWithAggregateMemberSet(
+			c,
+			mut.StableInvestigationAggregateFacts(),
+		)
+	}
 	draft := contract.Answer{
 		Text:      out.FinalAnswer,
 		Citations: extractCitationsFromAnswer(out.FinalAnswer),

@@ -35,7 +35,11 @@ func renderStructuredAggregateFacts(facts []types.AnswerAggregateFact, maxFacts 
 		if excluded := renderAggregateStringList(fact.Excluded, 8); excluded != "" {
 			fmt.Fprintf(&b, ", excluded=[%s]", excluded)
 		}
-		if refs := renderAggregateStringList(fact.SupportRefs, 8); refs != "" {
+		refLimit := 8
+		if fact.Kind == types.AnswerAggregateMemberSet {
+			refLimit = 200
+		}
+		if refs := renderAggregateStringList(fact.SupportRefs, refLimit); refs != "" {
 			fmt.Fprintf(&b, ", support_refs=[%s]", refs)
 		}
 		b.WriteString("\n")

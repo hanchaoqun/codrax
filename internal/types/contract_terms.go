@@ -69,6 +69,60 @@ func NormalizedMustExcludeTerms(c AnswerContract) []ContractTerm {
 	return normalizeContractTerms(c.MustExclude, c.MustExcludeTerms)
 }
 
+// RelaxAnalyzerEntityMustIncludeWithAggregateMemberSet demotes analyzer-derived
+// must_include pins once exploration has emitted an authoritative member_set.
+//
+// AnalyzerHints.Entities are useful early search hints, but exhaustive
+// enumerations can narrow or exclude candidates only after reading code and
+// emitting aggregate_facts.member_set. At that point the member_set becomes the
+// hard principal-member contract; analyzer_entity terms must not keep pulling
+// stale candidates back into finalizer retries. Explicit user/template terms
+// remain untouched because they are not marked source=analyzer_entity.
+func RelaxAnalyzerEntityMustIncludeWithAggregateMemberSet(c AnswerContract, facts []AnswerAggregateFact) AnswerContract {
+	if !answerAggregateFactsHaveMemberSet(facts) {
+		return c
+	}
+	drop := map[string]bool{}
+	preserve := map[string]bool{}
+	var filteredTerms []ContractTerm
+	for _, term := range c.MustIncludeTerms {
+		text := strings.TrimSpace(term.Text)
+		if text == "" {
+			continue
+		}
+		key := strings.ToLower(text)
+		if term.Source == ContractTermSourceAnalyzerEntity {
+			drop[key] = true
+			continue
+		}
+		preserve[key] = true
+		filteredTerms = append(filteredTerms, term)
+	}
+	if len(drop) == 0 {
+		return c
+	}
+	var filteredLegacy []string
+	for _, text := range c.MustInclude {
+		key := strings.ToLower(strings.TrimSpace(text))
+		if key != "" && drop[key] && !preserve[key] {
+			continue
+		}
+		filteredLegacy = append(filteredLegacy, text)
+	}
+	c.MustInclude = filteredLegacy
+	c.MustIncludeTerms = filteredTerms
+	return c
+}
+
+func answerAggregateFactsHaveMemberSet(facts []AnswerAggregateFact) bool {
+	for _, fact := range facts {
+		if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeContractTerms(legacy []string, typed []ContractTerm) []ContractTerm {
 	out := make([]ContractTerm, 0, len(legacy)+len(typed))
 	seen := map[string]struct{}{}
