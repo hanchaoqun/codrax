@@ -229,3 +229,42 @@ func TestResolveProvider_RecoverTextToolCalls_Inheritance(t *testing.T) {
 		t.Fatalf("absent recover_text_tool_calls should remain nil so factory defaults false, got %v", bare.RecoverTextToolCalls)
 	}
 }
+
+func TestResolveProvider_ToolParamCompat_Inheritance(t *testing.T) {
+	splitDisabled := false
+	cfg := &types.ProvidersConfig{
+		LLM: types.LLMProvidersConfig{
+			Default: types.LLMProviderConfig{
+				Provider: "openai", APIKey: "k", Model: "local", BaseURL: "u",
+				ToolParamCompat: &types.ToolParamCompatConfig{Mode: types.ToolParamCompatRepair},
+			},
+			Agents: map[string]types.LLMProviderConfig{
+				"analyzer": {},
+				"finalizer": {
+					ToolParamCompat: &types.ToolParamCompatConfig{
+						Mode:              types.ToolParamCompatAudit,
+						SplitStringArrays: &splitDisabled,
+					},
+				},
+			},
+		},
+	}
+
+	inherited := ResolveProvider(cfg, "analyzer")
+	if inherited.ToolParamCompat == nil || inherited.ToolParamCompat.Mode != types.ToolParamCompatRepair {
+		t.Fatalf("analyzer should inherit tool_param_compat repair mode, got %+v", inherited.ToolParamCompat)
+	}
+	overridden := ResolveProvider(cfg, "finalizer")
+	if overridden.ToolParamCompat == nil || overridden.ToolParamCompat.Mode != types.ToolParamCompatAudit {
+		t.Fatalf("finalizer explicit tool_param_compat should override default, got %+v", overridden.ToolParamCompat)
+	}
+	if overridden.ToolParamCompat.SplitStringArrays == nil || *overridden.ToolParamCompat.SplitStringArrays {
+		t.Fatalf("finalizer split_string_arrays=false should survive merge, got %+v", overridden.ToolParamCompat)
+	}
+	bare := ResolveProvider(&types.ProvidersConfig{
+		LLM: types.LLMProvidersConfig{Default: types.LLMProviderConfig{Provider: "openai", APIKey: "k", Model: "x", BaseURL: "u"}},
+	}, "analyzer")
+	if bare.ToolParamCompat != nil {
+		t.Fatalf("absent tool_param_compat should remain nil so runtime defaults off, got %+v", bare.ToolParamCompat)
+	}
+}

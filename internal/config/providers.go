@@ -57,6 +57,10 @@ func merge(dst, src *types.LLMProviderConfig) {
 	if src.RecoverTextToolCalls != nil {
 		dst.RecoverTextToolCalls = src.RecoverTextToolCalls
 	}
+	if src.ToolParamCompat != nil {
+		copied := *src.ToolParamCompat
+		dst.ToolParamCompat = &copied
+	}
 	if src.Stream != nil {
 		dst.Stream = src.Stream
 	}

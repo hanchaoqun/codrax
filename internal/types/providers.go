@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // ProvidersConfig is the top-level configuration from providers.yaml.
 type ProvidersConfig struct {
 	LLM LLMProvidersConfig `yaml:"llm"`
@@ -26,6 +28,12 @@ type LLMProviderConfig struct {
 	// explicit true/false wins. Default when absent everywhere is
 	// false so fully compliant providers keep byte-identical behavior.
 	RecoverTextToolCalls *bool `yaml:"recover_text_tool_calls"`
+
+	// ToolParamCompat controls the schema-aware tool parameter compatibility
+	// layer that runs after protocol/text tool-call recovery but before
+	// local tool execution. nil = inherit from default; absent everywhere
+	// means off, preserving compliant provider behavior byte-for-byte.
+	ToolParamCompat *ToolParamCompatConfig `yaml:"tool_param_compat"`
 
 	// ContextWindow is the deploy-time-declared max input token window of
 	// the selected model. Used by the runtime to derive byte budgets
@@ -138,4 +146,52 @@ type LLMProviderConfig struct {
 	// compromising legitimate slow first-byte paths. Zero inherits
 	// the code default.
 	StreamFirstByteTimeoutSeconds int `yaml:"stream_first_byte_timeout_seconds"`
+}
+
+const (
+	ToolParamCompatOff    = "off"
+	ToolParamCompatAudit  = "audit"
+	ToolParamCompatRepair = "repair"
+)
+
+// ToolParamCompatConfig is a provider-scoped compatibility policy for small /
+// local models that emit protocol-level tool calls with mechanically wrong
+// JSON value types (for example "offset":"140" where the schema says integer).
+// It is intentionally separate from RecoverTextToolCalls: that knob recovers
+// missing protocol tool_calls from assistant text, while this knob normalizes
+// already-present tool_call arguments against the tool schema.
+type ToolParamCompatConfig struct {
+	// Mode is one of off, audit, repair. Empty means off.
+	Mode string `yaml:"mode"`
+
+	// SplitStringArrays controls the conservative string -> []string rule for
+	// array-of-string fields. nil defaults to true in audit/repair mode because
+	// local models often emit "a,b,c" for keywords/entities; set false to keep
+	// only JSON-stringified array repair.
+	SplitStringArrays *bool `yaml:"split_string_arrays"`
+}
+
+func (c ToolParamCompatConfig) NormalizedMode() string {
+	switch strings.ToLower(strings.TrimSpace(c.Mode)) {
+	case "", ToolParamCompatOff:
+		return ToolParamCompatOff
+	case ToolParamCompatAudit:
+		return ToolParamCompatAudit
+	case ToolParamCompatRepair:
+		return ToolParamCompatRepair
+	default:
+		return ""
+	}
+}
+
+func (c ToolParamCompatConfig) Enabled() bool {
+	mode := c.NormalizedMode()
+	return mode == ToolParamCompatAudit || mode == ToolParamCompatRepair
+}
+
+func (c ToolParamCompatConfig) SplitStringArraysEnabled() bool {
+	if c.SplitStringArrays == nil {
+		return true
+	}
+	return *c.SplitStringArrays
 }

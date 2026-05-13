@@ -15,6 +15,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -173,6 +174,13 @@ type Dependencies struct {
 	// per segment) read from this handle. Optional: agents that only
 	// use the skill the orchestrator passed in leave it nil.
 	Skills *skill.Registry
+
+	// ToolParamCompatByAgent carries provider-scoped compatibility policy for
+	// schema-aware tool argument normalization. Absent agent key means off.
+	// Kept outside llm.Adapter because it lives at the agent/tool boundary:
+	// the adapter knows bytes from the provider, while the agent owns the
+	// exact tool schema catalog for the current dispatch.
+	ToolParamCompatByAgent map[types.AgentName]types.ToolParamCompatConfig
 }
 
 // BaseAgent provides the common ReAct loop implementation.
@@ -1100,6 +1108,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}, err
 		}
 
+		resp.ToolCalls = b.normalizeToolCallParams(resp.ToolCalls, toolSchemas)
+
 		// DIAGNOSTIC — dump assistant response (debug only).
 		logging.Debug("[diag %s] iter=%d ASSISTANT content_len=%d tool_calls=%d",
 			b.name, i, len(resp.Content), len(resp.ToolCalls))
@@ -1669,6 +1679,66 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 	}
 
 	return schemas
+}
+
+func (b *BaseAgent) normalizeToolCallParams(calls []llm.ToolCall, schemas []llm.ToolSchema) []llm.ToolCall {
+	if len(calls) == 0 || len(schemas) == 0 || b == nil || b.deps == nil {
+		return calls
+	}
+	cfg := b.toolParamCompatConfig()
+	mode := cfg.NormalizedMode()
+	if mode != types.ToolParamCompatAudit && mode != types.ToolParamCompatRepair {
+		return calls
+	}
+	byName := make(map[string]json.RawMessage, len(schemas))
+	for _, schema := range schemas {
+		if strings.TrimSpace(schema.Name) == "" || len(schema.Parameters) == 0 {
+			continue
+		}
+		if _, exists := byName[schema.Name]; !exists {
+			byName[schema.Name] = schema.Parameters
+		}
+	}
+	if len(byName) == 0 {
+		return calls
+	}
+
+	var out []llm.ToolCall
+	for i, call := range calls {
+		schema, ok := byName[call.Name]
+		if !ok {
+			continue
+		}
+		normalized, report := toolparam.Normalize(call.Params, schema, cfg)
+		if !report.Changed() {
+			continue
+		}
+		if mode == types.ToolParamCompatAudit {
+			logging.Info("[tool_param_compat] agent=%s tool=%s audit repairable: %s",
+				b.name, call.Name, report.Summary(6))
+			continue
+		}
+		if out == nil {
+			out = append([]llm.ToolCall(nil), calls...)
+		}
+		out[i].Params = normalized
+		logging.Warning("[tool_param_compat] agent=%s tool=%s params normalized: %s",
+			b.name, call.Name, report.Summary(6))
+	}
+	if out == nil {
+		return calls
+	}
+	return out
+}
+
+func (b *BaseAgent) toolParamCompatConfig() types.ToolParamCompatConfig {
+	if b == nil || b.deps == nil || len(b.deps.ToolParamCompatByAgent) == 0 {
+		return types.ToolParamCompatConfig{}
+	}
+	if cfg, ok := b.deps.ToolParamCompatByAgent[b.name]; ok {
+		return cfg
+	}
+	return types.ToolParamCompatConfig{}
 }
 
 // buildInitialMessages is the sole entry point for producing the

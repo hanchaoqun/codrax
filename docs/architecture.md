@@ -365,6 +365,8 @@ type Adapter interface {
 
 Per-agent 模型路由在 `providers.yaml` 配，不同 agent 可指向不同模型 / 不同 provider。Provider 级降级链（主模型 → fast 模型）也在 provider config 声明，由 `FallbackAdapter` 串起。
 
+**本地模型兼容边界**：兼容层分成两段，避免把本地小模型的问题污染 prompt 或远程大模型默认路径。`recover_text_tool_calls` 在 adapter 层把 assistant 文本里的完整工具调用 envelope 恢复成协议级 `tool_calls`；`tool_param_compat` 在 `BaseAgent` 的 agent/tool 边界运行，用本轮真实 `ToolSchema` 对协议级 tool-call 参数做确定性类型归一化（如 string integer → integer、JSON-stringified array → array）。两者默认关闭 / off；`tool_param_compat` 还支持 `audit` 只打日志不改 payload。代码落点见 `docs/design/local_model_tool_param_compat.md`。
+
 **ChatOptions 的回调家族**：
 - `OnContentDelta(delta)` — 流式 content chunk
 - `OnToolCallDelta(index, name, argsChunk)` — 流式 tool call 参数 chunk（**被动**观察，不影响 adapter 内部累积，让 finalizer 预览这条流不破坏最终 parse）
@@ -2513,9 +2515,9 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 
 `llm.default` block + `llm.agents.<name>` overrides。Merge order：agent-level → default-level → 环境变量。**Non-zero merge 规则**：agent-level 字段为零值时继承 default-level；非零总是胜出。允许一份 providers.yaml 跨异构模型按字段独立 scale。
 
-`llm.default` 字段：`provider` / `api_key` / `model` / `base_url` / `think_aloud` / `stream` / `context_window` / `max_output_tokens` / `max_output_fraction` / `tls_ca_file` / `tls_insecure_skip_verify` / `request_timeout_seconds` / `retry_max_attempts` / `stream_stall_timeout_seconds` / `stream_first_byte_timeout_seconds`。
+`llm.default` 字段：`provider` / `api_key` / `model` / `base_url` / `think_aloud` / `recover_text_tool_calls` / `tool_param_compat` / `stream` / `context_window` / `max_output_tokens` / `max_output_fraction` / `tls_ca_file` / `tls_insecure_skip_verify` / `request_timeout_seconds` / `retry_max_attempts` / `stream_stall_timeout_seconds` / `stream_first_byte_timeout_seconds`。
 
-**Per-agent override**：任一字段都能 per-agent 覆盖。Boolean 字段用 nil-sentinel：nil = 继承，true/false = override。
+**Per-agent override**：任一字段都能 per-agent 覆盖。Boolean 字段用 nil-sentinel：nil = 继承，true/false = override。`tool_param_compat.mode` 接受 `off` / `audit` / `repair`：`off` 默认且不进入 runtime policy map；`audit` 只记录可修复项；`repair` 才会在 tool 执行前改写 schema 可证明的机械类型错误。
 
 **Fallback slot**：可选 `<name>_fallback` 给任一 agent。
 

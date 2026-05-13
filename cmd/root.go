@@ -2629,6 +2629,10 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			app.defaultLLM.RequestTimeout(),
 			app.defaultLLM.RetryMaxAttempts())
 	}
+	toolParamCompatByAgent, err := resolveToolParamCompatByAgent(providersCfg)
+	if err != nil {
+		return err
+	}
 
 	// Memory summarizer adapter routing. When providers.yaml carries
 	// an explicit `agents.memory_summarizer` entry, route the one-shot
@@ -2765,15 +2769,16 @@ func initApp(cmd *cobra.Command, _ []string) error {
 
 	agentCfg := pipelineSettings.Agent
 	deps := &agent.Dependencies{
-		LLM:               app.defaultLLM,
-		Tools:             toolRegistry,
-		MCPServers:        mcpRegistry,
-		SubAgents:         subAgentRegistry,
-		Skills:            skillRegistry,
-		MaxIterations:     agentCfg.MaxIterations,
-		Emit:              renderer.Emitter(),
-		ExploreHeuristics: pipelineSettings.Explore.Heuristics,
-		AgentSettings:     agentCfg,
+		LLM:                    app.defaultLLM,
+		Tools:                  toolRegistry,
+		MCPServers:             mcpRegistry,
+		SubAgents:              subAgentRegistry,
+		Skills:                 skillRegistry,
+		MaxIterations:          agentCfg.MaxIterations,
+		Emit:                   renderer.Emitter(),
+		ExploreHeuristics:      pipelineSettings.Explore.Heuristics,
+		AgentSettings:          agentCfg,
+		ToolParamCompatByAgent: toolParamCompatByAgent,
 		LoopPolicy: agent.LoopPolicy{
 			MinInjectInterval: agentCfg.LoopMinInjectInterval,
 			MaxContinuations:  agentCfg.LoopMaxContinuations,
@@ -3383,6 +3388,47 @@ func createDefaultAdapter(cfg *types.ProvidersConfig) llm.Adapter {
 		return &placeholderAdapter{}
 	}
 	return adapter
+}
+
+func resolveToolParamCompatByAgent(cfg *types.ProvidersConfig) (map[types.AgentName]types.ToolParamCompatConfig, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+	if cfg.LLM.Default.ToolParamCompat != nil {
+		if mode := cfg.LLM.Default.ToolParamCompat.NormalizedMode(); mode == "" {
+			return nil, fmt.Errorf("providers.yaml: llm.default.tool_param_compat.mode must be one of off, audit, repair; got %q",
+				cfg.LLM.Default.ToolParamCompat.Mode)
+		}
+	}
+	for name, raw := range cfg.LLM.Agents {
+		if raw.ToolParamCompat == nil {
+			continue
+		}
+		if mode := raw.ToolParamCompat.NormalizedMode(); mode == "" {
+			return nil, fmt.Errorf("providers.yaml: llm.agents.%s.tool_param_compat.mode must be one of off, audit, repair; got %q",
+				name, raw.ToolParamCompat.Mode)
+		}
+	}
+
+	out := make(map[types.AgentName]types.ToolParamCompatConfig)
+	for _, name := range types.AllAgentNames() {
+		resolved := config.ResolveProvider(cfg, string(name))
+		if resolved.ToolParamCompat == nil {
+			continue
+		}
+		compat := *resolved.ToolParamCompat
+		mode := compat.NormalizedMode()
+		if mode == types.ToolParamCompatOff {
+			continue
+		}
+		out[name] = compat
+		logging.Info("[tool_param_compat] agent=%s mode=%s split_string_arrays=%t",
+			name, mode, compat.SplitStringArraysEnabled())
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
 }
 
 // placeholderAdapter is a minimal LLM adapter for testing the pipeline structure.

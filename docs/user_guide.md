@@ -882,7 +882,22 @@ llm:
     think_aloud: true                   # 是否要求模型在工具调用旁夹 1-2 句推理摘要
 ```
 
-### 5.1.5 每个 agent 用不同模型(可选)
+### 5.1.5 本地小模型 tool-call 兼容(可选)
+
+对 OpenAI-compatible 本地 / 小模型，先只打开审计模式观察：
+
+```yaml
+llm:
+  default:
+    recover_text_tool_calls: true       # 文本里的完整工具调用 envelope → protocol tool_calls
+    tool_param_compat:
+      mode: audit                       # off | audit | repair; audit 不改执行
+      split_string_arrays: true
+```
+
+确认日志里的 `[tool_param_compat] ... audit repairable` 都是机械类型错误后，再对需要的 provider / agent 切到 `repair`。它只按工具 JSON Schema 修确定性问题，例如 `"offset":"146"` → `146`、JSON 字符串里的 array/object 解包、`"a,b"` → `["a","b"]`；不会补缺失字段、猜 path、删 unknown 字段或修 prose。远程大模型建议保持默认 `off`。
+
+### 5.1.6 每个 agent 用不同模型(可选)
 
 每个 agent 都从 `default` 继承缺省值,只覆盖你要变的字段:
 
@@ -1231,7 +1246,7 @@ CLI 单次模式输出:
 → 第一次启动会扫整个仓建 repomap 索引。后续走 cache(`cache_dir`),快得多。
 
 **单次 Run 太慢 / token 太贵**
-→ analyzer / extractor / chitchat_classifier 路由到便宜模型(5.1.5);或 `pipeline_max_steps` 调小。
+→ analyzer / extractor / chitchat_classifier 路由到便宜模型(5.1.6);或 `pipeline_max_steps` 调小。
 
 **`repomap: tier degradation` WARN**
 → 某种语言的 tree-sitter 解析失败率偏高。问题不大,但建议升级 codrax 或反馈给团队。
