@@ -148,7 +148,7 @@ func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, membe
 	if member == "" {
 		return AnswerSupportEntry{}, false
 	}
-	source, line, location := aggregateMemberStructuredLocation(fact, member)
+	source, line, location := aggregateMemberStructuredLocation(fact, memberIdx, member)
 	if location == "" {
 		if ev, ok := aggregateMemberEvidenceByLabel(member, supportEvidence); ok {
 			source = strings.TrimSpace(strings.ReplaceAll(ev.Source, `\`, `/`))
@@ -247,19 +247,31 @@ func sameAggregateMemberEvidenceLocation(ev EvidenceItem, source string, line in
 	return normalizeAnswerSupportPath(ev.Source) == source && ev.LineStart == line
 }
 
-func aggregateMemberStructuredLocation(fact AnswerAggregateFact, member string) (source string, line int, location string) {
+func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, member string) (source string, line int, location string) {
 	if surface, ok := ParseAnswerSourceLocationSurface(member); ok {
 		return surface.File, surface.LineStart, aggregateMemberStartLocation(surface)
 	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
+	var bareRefs []AnswerSourceLocationSurface
 	for _, ref := range fact.SupportRefs {
 		refMember, refLocation, ok := aggregateSupportRefMemberLocation(ref)
 		if !ok {
 			continue
 		}
-		if refMember != "" && strings.ToLower(refMember) != memberKey {
+		if refMember == "" {
+			bareRefs = append(bareRefs, refLocation)
 			continue
 		}
+		if strings.ToLower(refMember) == memberKey {
+			return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
+		}
+	}
+	if len(bareRefs) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(bareRefs) {
+		refLocation := bareRefs[memberIdx]
+		return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
+	}
+	if len(bareRefs) == 1 {
+		refLocation := bareRefs[0]
 		return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
 	}
 	return "", 0, ""
@@ -313,7 +325,7 @@ func aggregateMemberKey(raw string) string {
 }
 
 func aggregateMemberSurface(member string, location string) AnswerPrincipalMemberSurface {
-	if strings.TrimSpace(location) != "" {
+	if _, ok := ParseAnswerSourceLocationSurface(member); ok {
 		return PrincipalMemberSurfaceSourceLocation
 	}
 	if IsCodeIdentitySurface(member) {

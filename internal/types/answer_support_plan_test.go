@@ -2595,12 +2595,92 @@ func TestBuildAnswerSupportPlan_GenericEnumerationUsesAggregateMemberSetAsPrinci
 		t.Fatalf("aggregate member order not preserved: %+v", lane.Entries)
 	}
 	if lane.Entries[0].Location != "internal/types/analysis_ir.go:653" ||
-		lane.Entries[0].MemberSurface != PrincipalMemberSurfaceSourceLocation {
-		t.Fatalf("member-specific support_ref should become citable source-location support: %+v", lane.Entries[0])
+		lane.Entries[0].MemberSurface != PrincipalMemberSurfaceSymbolLike {
+		t.Fatalf("member-specific support_ref should cite the location without replacing the symbol member surface: %+v", lane.Entries[0])
 	}
 	if lane.Entries[2].Location != "internal/types/enums.go:6" ||
 		lane.Entries[2].MemberSurface != PrincipalMemberSurfaceSourceLocation {
 		t.Fatalf("file:line member should remain the principal source-location surface: %+v", lane.Entries[2])
+	}
+}
+
+func TestBuildAnswerSupportPlan_GenericAggregateMemberSetParallelSupportRefs(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "internal import packages",
+			Value:   "2",
+			Members: []string{"github.com/acme/project/internal/foo", "github.com/acme/project/internal/bar"},
+			SupportRefs: []string{
+				"internal/agent/explorer.go:13",
+				"internal/agent/explorer.go:14",
+			},
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "import-foo",
+				Kind:            EvidenceDirect,
+				Source:          "internal/agent/explorer.go",
+				LineStart:       13,
+				AnchorKind:      AnchorImport,
+				Object:          "github.com/acme/project/internal/foo",
+				SurfaceTerms:    []string{"github.com/acme/project/internal/foo"},
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+			{
+				ID:              "import-bar",
+				Kind:            EvidenceDirect,
+				Source:          "internal/agent/explorer.go",
+				LineStart:       14,
+				AnchorKind:      AnchorImport,
+				Object:          "github.com/acme/project/internal/bar",
+				SurfaceTerms:    []string{"github.com/acme/project/internal/bar"},
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+		},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFEnumeration,
+			Required: []FacetRequirement{{
+				Kind: FacetEnumerationItem,
+			}},
+		},
+	}
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqEnumeration),
+			Entities: []string{"internal/agent/explorer.go"},
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all internal imports"},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 2 {
+		t.Fatalf("parallel support refs should preserve the two aggregate members, got %+v", got)
+	}
+	if lane.Entries[0].Text != "github.com/acme/project/internal/foo" ||
+		lane.Entries[0].Location != "internal/agent/explorer.go:13" ||
+		lane.Entries[0].MemberSurface == PrincipalMemberSurfaceSourceLocation {
+		t.Fatalf("first import member should keep package label and line 13 support, got %+v", lane.Entries[0])
+	}
+	if lane.Entries[1].Text != "github.com/acme/project/internal/bar" ||
+		lane.Entries[1].Location != "internal/agent/explorer.go:14" ||
+		lane.Entries[1].MemberSurface == PrincipalMemberSurfaceSourceLocation {
+		t.Fatalf("second import member should keep package label and line 14 support, got %+v", lane.Entries[1])
+	}
+	obligations := PrincipalSupportMemberObligations(got)
+	if len(obligations) != 2 {
+		t.Fatalf("package members should become two obligations, got %+v", obligations)
+	}
+	if obligations[0].Label != "github.com/acme/project/internal/foo" ||
+		obligations[1].Label != "github.com/acme/project/internal/bar" {
+		t.Fatalf("obligations must use package labels, not container file labels: %+v", obligations)
 	}
 }
 
