@@ -1585,18 +1585,20 @@ func exhaustiveEnumerationMemberSetUsable(ctx *types.BusContext, facts []types.A
 }
 
 type aggregateMemberSupportIndex struct {
-	byLabel    map[string][]types.EvidenceItem
-	byLocation map[string][]types.EvidenceItem
-	byID       map[string]types.EvidenceItem
-	answerSyms map[string]types.AnswerSymbol
+	byLabel             map[string][]types.EvidenceItem
+	byLocation          map[string][]types.EvidenceItem
+	byID                map[string]types.EvidenceItem
+	answerSyms          map[string]types.AnswerSymbol
+	toolLinesByLocation map[string][]string
 }
 
 func buildAggregateMemberSupportIndex(ctx *types.BusContext) aggregateMemberSupportIndex {
 	idx := aggregateMemberSupportIndex{
-		byLabel:    map[string][]types.EvidenceItem{},
-		byLocation: map[string][]types.EvidenceItem{},
-		byID:       map[string]types.EvidenceItem{},
-		answerSyms: map[string]types.AnswerSymbol{},
+		byLabel:             map[string][]types.EvidenceItem{},
+		byLocation:          map[string][]types.EvidenceItem{},
+		byID:                map[string]types.EvidenceItem{},
+		answerSyms:          map[string]types.AnswerSymbol{},
+		toolLinesByLocation: map[string][]string{},
 	}
 	if ctx == nil || ctx.Mutable == nil {
 		return idx
@@ -1628,7 +1630,62 @@ func buildAggregateMemberSupportIndex(ctx *types.BusContext) aggregateMemberSupp
 			idx.answerSyms[key] = sym
 		}
 	}
+	for _, result := range aggregateSupportToolResults(ctx) {
+		if !result.Success || !aggregateSupportToolResultEligible(result.ToolName) {
+			continue
+		}
+		for loc, lines := range aggregateToolResultLinesByLocation(result.Summary) {
+			idx.toolLinesByLocation[loc] = append(idx.toolLinesByLocation[loc], lines...)
+		}
+	}
 	return idx
+}
+
+func aggregateSupportToolResults(ctx *types.BusContext) []types.ToolResult {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	var out []types.ToolResult
+	out = append(out, ctx.Mutable.DispatchToolResults()...)
+	if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+		out = append(out, ta.ToolResults...)
+	}
+	return out
+}
+
+func aggregateSupportToolResultEligible(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "grep", "exec_command", "read_file", "repo_map", "list_files":
+		return true
+	default:
+		return false
+	}
+}
+
+var aggregateToolLocationPattern = regexp.MustCompile(`\b[^\s"'` + "`" + `]+:\d+\b`)
+
+func aggregateToolResultLinesByLocation(summary string) map[string][]string {
+	if strings.TrimSpace(summary) == "" {
+		return nil
+	}
+	out := map[string][]string{}
+	for _, line := range strings.Split(summary, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		for _, raw := range aggregateToolLocationPattern.FindAllString(trimmed, -1) {
+			loc := aggregateSupportLocationFromSurface(raw)
+			if loc == "" {
+				continue
+			}
+			out[loc] = append(out[loc], trimmed)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func aggregateMemberSetMemberUsable(fact types.AnswerAggregateFact, member string, support aggregateMemberSupportIndex) bool {
@@ -1645,8 +1702,12 @@ func aggregateMemberSetMemberUsable(fact types.AnswerAggregateFact, member strin
 	if aggregateMemberCoveredByEvidenceLabels(labels, support.byLabel) {
 		return true
 	}
-	if label, loc, ok := aggregateMemberSupportRefParts(member); ok && aggregateLocationEvidenceMatchesLabels(loc, aggregateSupportLabels(label, labels), support.byLocation) {
-		return true
+	if label, loc, ok := aggregateMemberSupportRefParts(member); ok {
+		refLabels := aggregateSupportLabels(label, labels)
+		if aggregateLocationEvidenceMatchesLabels(loc, refLabels, support.byLocation) ||
+			aggregateToolLocationMatchesLabels(loc, refLabels, support.toolLinesByLocation) {
+			return true
+		}
 	}
 	for _, ref := range fact.SupportRefs {
 		ref = strings.TrimSpace(ref)
@@ -1663,7 +1724,9 @@ func aggregateMemberSetMemberUsable(fact types.AnswerAggregateFact, member strin
 		if !aggregateSupportLabelMatchesMember(label, labels) {
 			continue
 		}
-		if aggregateLocationEvidenceMatchesLabels(loc, aggregateSupportLabels(label, labels), support.byLocation) {
+		refLabels := aggregateSupportLabels(label, labels)
+		if aggregateLocationEvidenceMatchesLabels(loc, refLabels, support.byLocation) ||
+			aggregateToolLocationMatchesLabels(loc, refLabels, support.toolLinesByLocation) {
 			return true
 		}
 	}
@@ -1800,6 +1863,29 @@ func aggregateLocationEvidenceMatchesLabels(location string, labels []string, by
 	for _, ev := range byLocation[location] {
 		if aggregateEvidenceMatchesAnyLabel(ev, labels) {
 			return true
+		}
+	}
+	return false
+}
+
+func aggregateToolLocationMatchesLabels(location string, labels []string, byLocation map[string][]string) bool {
+	if location == "" || len(labels) == 0 {
+		return false
+	}
+	lines := byLocation[location]
+	if len(lines) == 0 {
+		return false
+	}
+	for _, line := range lines {
+		foldedLine := strings.ToLower(line)
+		for _, label := range labels {
+			label = strings.TrimSpace(label)
+			if label == "" {
+				continue
+			}
+			if strings.Contains(foldedLine, strings.ToLower(label)) {
+				return true
+			}
 		}
 	}
 	return false

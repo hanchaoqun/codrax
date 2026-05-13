@@ -477,6 +477,62 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ReusesRetainedAggregateFacts
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_MemberSetSupportRefsCanUseDeterministicToolOutput(t *testing.T) {
+	mut := types.NewMutableState("list all enum types")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"internal/types/analysis_ir.go:653:type Intent string",
+			"internal/types/analysis_ir.go:673:type Scenario string",
+		}, "\n"),
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqEnumeration),
+					Entities: []string{"Intent", "Scenario"},
+				},
+				CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "all enum types"},
+			},
+			AnswerContract: types.AnswerContract{
+				MustIncludeTerms: []types.ContractTerm{
+					{Text: "Intent", Kind: types.ContractTermSymbol},
+					{Text: "Scenario", Kind: types.ContractTermSymbol},
+				},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "grep output verified both enum type declarations",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "enum type names",
+			"value":        "2",
+			"members":      []string{"Intent", "Scenario"},
+			"support_refs": []string{"Intent @ internal/types/analysis_ir.go:653", "Scenario @ internal/types/analysis_ir.go:673"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "exhaustive member-set handoff is missing") {
+		t.Fatalf("deterministic grep support_refs should satisfy member_set support without per-member emit_evidence: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("deterministic tool-supported member_set should complete")
+	}
+}
+
 func TestFieldValueCountCandidates_CoversCrossLanguageInitializerSurfaces(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeTestFile(t, repoRoot, "src/config.ets", `
