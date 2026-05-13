@@ -85,6 +85,10 @@ type OpenAIAdapter struct {
 	streamFirstByteTimeout time.Duration
 
 	stream bool
+	// recoverTextToolCalls is an opt-in provider compatibility shim for
+	// small OpenAI-compatible models that write tool-call envelopes into
+	// assistant content instead of the protocol tool_calls field.
+	recoverTextToolCalls bool
 	// httpClient is the non-streaming client; honors requestTimeout
 	// as the outer cap on a single round-trip.
 	httpClient *http.Client
@@ -123,12 +127,13 @@ type TLSOptions struct {
 // being added — callers continue to compile because zero-value
 // fields trip the "must be positive" guard in NewOpenAIAdapter.
 type AdapterOptions struct {
-	Stream           bool
-	ContextWindow    int
-	MaxOutputTokens  int
-	RequestTimeout   time.Duration
-	RetryMaxAttempts int
-	TLS              TLSOptions
+	Stream               bool
+	RecoverTextToolCalls bool
+	ContextWindow        int
+	MaxOutputTokens      int
+	RequestTimeout       time.Duration
+	RetryMaxAttempts     int
+	TLS                  TLSOptions
 
 	// StreamStallTimeout is how long the SSE scanner may go without
 	// receiving a single byte before the watchdog aborts the request.
@@ -189,6 +194,7 @@ func NewOpenAIAdapter(apiKey, model, baseURL string, opts AdapterOptions) *OpenA
 		streamStallTimeout:     stallTimeout,
 		streamFirstByteTimeout: firstByteTimeout,
 		stream:                 opts.Stream,
+		recoverTextToolCalls:   opts.RecoverTextToolCalls,
 		httpClient:             buildHTTPClient(opts.TLS, baseURL, opts.RequestTimeout),
 		// Streaming client gets NO outer timeout (Duration(0)); the
 		// per-request context + streamStallTimeout watchdog own
@@ -357,6 +363,9 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 			resp, err = o.doRequest(ctx, bodyBytes)
 		}
 		if err == nil {
+			if o.recoverTextToolCalls {
+				resp = recoverTextToolCalls(resp, tools, opts)
+			}
 			// Diagnostic floor: every successful response logs its
 			// finish_reason + completion_tokens at debug, escalating
 			// to a warning when the server hit a length cap. This

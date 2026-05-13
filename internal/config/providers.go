@@ -54,6 +54,9 @@ func merge(dst, src *types.LLMProviderConfig) {
 	if src.ThinkAloud != nil {
 		dst.ThinkAloud = src.ThinkAloud
 	}
+	if src.RecoverTextToolCalls != nil {
+		dst.RecoverTextToolCalls = src.RecoverTextToolCalls
+	}
 	if src.Stream != nil {
 		dst.Stream = src.Stream
 	}

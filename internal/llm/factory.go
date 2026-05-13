@@ -66,6 +66,10 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 	if cfg.Stream != nil {
 		stream = *cfg.Stream
 	}
+	recoverTextToolCalls := false
+	if cfg.RecoverTextToolCalls != nil {
+		recoverTextToolCalls = *cfg.RecoverTextToolCalls
+	}
 
 	// Resolve the three operator-tunable sizing knobs. Symmetric to
 	// the input-side resolution chain (ContextWindow + fraction-form
@@ -102,6 +106,7 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 
 	return NewOpenAIAdapter(cfg.APIKey, cfg.Model, cfg.BaseURL, AdapterOptions{
 		Stream:                 stream,
+		RecoverTextToolCalls:   recoverTextToolCalls,
 		ContextWindow:          cfg.ContextWindow,
 		MaxOutputTokens:        maxOutputTokens,
 		RequestTimeout:         requestTimeout,

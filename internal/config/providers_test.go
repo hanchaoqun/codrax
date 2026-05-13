@@ -195,3 +195,37 @@ func TestResolveProvider_OutputAndHTTPSizing_Inheritance(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveProvider_RecoverTextToolCalls_Inheritance(t *testing.T) {
+	enabled := true
+	disabled := false
+	cfg := &types.ProvidersConfig{
+		LLM: types.LLMProvidersConfig{
+			Default: types.LLMProviderConfig{
+				Provider: "openai", APIKey: "k", Model: "big", BaseURL: "u",
+				RecoverTextToolCalls: &enabled,
+			},
+			Agents: map[string]types.LLMProviderConfig{
+				"analyzer": {},
+				"finalizer": {
+					RecoverTextToolCalls: &disabled,
+				},
+			},
+		},
+	}
+
+	inherited := ResolveProvider(cfg, "analyzer")
+	if inherited.RecoverTextToolCalls == nil || !*inherited.RecoverTextToolCalls {
+		t.Fatalf("analyzer should inherit recover_text_tool_calls=true, got %v", inherited.RecoverTextToolCalls)
+	}
+	overridden := ResolveProvider(cfg, "finalizer")
+	if overridden.RecoverTextToolCalls == nil || *overridden.RecoverTextToolCalls {
+		t.Fatalf("finalizer explicit false should override default true, got %v", overridden.RecoverTextToolCalls)
+	}
+	bare := ResolveProvider(&types.ProvidersConfig{
+		LLM: types.LLMProvidersConfig{Default: types.LLMProviderConfig{Provider: "openai", APIKey: "k", Model: "x", BaseURL: "u"}},
+	}, "analyzer")
+	if bare.RecoverTextToolCalls != nil {
+		t.Fatalf("absent recover_text_tool_calls should remain nil so factory defaults false, got %v", bare.RecoverTextToolCalls)
+	}
+}

@@ -19,6 +19,14 @@ type LLMProviderConfig struct {
 	BaseURL    string `yaml:"base_url"`
 	ThinkAloud *bool  `yaml:"think_aloud"` // nil = inherit from default; true/false = per-agent override
 
+	// RecoverTextToolCalls enables a narrow compatibility shim for
+	// OpenAI-compatible providers that receive a tool catalog but
+	// serialize tool-call envelopes into assistant content instead of
+	// the protocol-level tool_calls field. nil = inherit from default;
+	// explicit true/false wins. Default when absent everywhere is
+	// false so fully compliant providers keep byte-identical behavior.
+	RecoverTextToolCalls *bool `yaml:"recover_text_tool_calls"`
+
 	// ContextWindow is the deploy-time-declared max input token window of
 	// the selected model. Used by the runtime to derive byte budgets
 	// (blob_max_inline / agent_max_tool_history) via the fraction-form

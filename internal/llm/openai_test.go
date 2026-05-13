@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,6 +168,49 @@ func TestBuildRequest_ToolChoiceWire(t *testing.T) {
 			t.Errorf("empty tools should suppress tool_choice even when required, got: %s", b)
 		}
 	})
+}
+
+func TestOpenAIAdapter_TextToolCallRecoveryOptIn(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		body, err := json.Marshal(map[string]any{
+			"choices": []any{map[string]any{
+				"finish_reason": "stop",
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "Here is the function call:\n\n```\n{\"name\":\"grep\",\"arguments\":{\"pattern\":\"Agent\",\"files_only\":true}}\n```",
+				},
+			}},
+		})
+		if err != nil {
+			t.Fatalf("marshal test response: %v", err)
+		}
+		_, _ = w.Write(body)
+	})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	tools := []ToolSchema{{Name: "grep"}}
+	opts := ChatOptions{ToolChoice: "required"}
+
+	disabled := NewOpenAIAdapter("k", "m", server.URL, testAdapterOpts(AdapterOptions{}))
+	resp, err := disabled.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, tools, opts)
+	if err != nil {
+		t.Fatalf("disabled Chat: %v", err)
+	}
+	if len(resp.ToolCalls) != 0 || resp.Content == "" {
+		t.Fatalf("disabled recovery should leave assistant content untouched, got content=%q calls=%+v", resp.Content, resp.ToolCalls)
+	}
+
+	enabled := NewOpenAIAdapter("k", "m", server.URL, testAdapterOpts(AdapterOptions{RecoverTextToolCalls: true}))
+	resp, err = enabled.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, tools, opts)
+	if err != nil {
+		t.Fatalf("enabled Chat: %v", err)
+	}
+	if resp.StopReason != "tool_use" || resp.Content != "" || len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Name != "grep" {
+		t.Fatalf("enabled recovery should convert content envelope to tool call, got stop=%q content=%q calls=%+v",
+			resp.StopReason, resp.Content, resp.ToolCalls)
+	}
 }
 
 // TestBuildHTTPClient_TLSOptions pins the http.Client construction
