@@ -585,6 +585,65 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 	}
 }
 
+func TestExtractor_BuildPrompt_CapsAnalyzerSoftGuidanceNames(t *testing.T) {
+	var must []string
+	for i := 0; i < extractorMaxSoftGuidanceNames+5; i++ {
+		must = append(must, fmt.Sprintf("Name%02d", i))
+	}
+	mu := types.NewMutableState("list names")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{TerminalEvidenceCount: 1})
+	ctx := &types.AgentContext{
+		Objective: "list names",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel:   types.RequestModel{Intent: types.IntentEnumerate},
+			AnswerContract: types.AnswerContract{MustInclude: must},
+		},
+	}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "Analyzer required-name count") || !contains(prompt, "(+5 more)") {
+		t.Fatalf("prompt should keep exact count but cap the name preview:\n%s", prompt)
+	}
+	if contains(prompt, "Name34") || contains(prompt, "Name35") || contains(prompt, "Name36") {
+		t.Fatalf("soft guidance names past the display cap should not be expanded:\n%s", prompt)
+	}
+}
+
+func TestExtractor_BuildPrompt_MemberSetSuppressesAnalyzerSoftGuidanceNames(t *testing.T) {
+	mu := types.NewMutableState("list enum types")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		TerminalEvidenceCount: 1,
+		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "verified enum members",
+			Value:   "2",
+			Members: []string{"Intent", "Scenario"},
+		}},
+	})
+	ctx := &types.AgentContext{
+		Objective: "list all enum types",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentEnumerate},
+			AnswerContract: types.AnswerContract{MustInclude: []string{
+				"Intent", "Scenario", "HelperThatShouldStaySoft",
+			}},
+		},
+	}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "accepted `aggregate_facts.member_set`") {
+		t.Fatalf("prompt should tell extractor that member_set supersedes analyzer soft names:\n%s", prompt)
+	}
+	if contains(prompt, "HelperThatShouldStaySoft") {
+		t.Fatalf("analyzer soft guidance names must not be expanded once member_set is accepted:\n%s", prompt)
+	}
+	if !contains(prompt, "members=[`Intent`, `Scenario`]") {
+		t.Fatalf("accepted member_set should remain visible as typed handoff:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_DeterministicEvidencePrefersTypedSurface(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

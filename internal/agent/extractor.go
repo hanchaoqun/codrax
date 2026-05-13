@@ -60,6 +60,11 @@ const (
 	extractorMaxValueFacts      = 32   // hard cap for value-bearing evidence facts shown
 	extractorMaxEvidenceSummary = 200  // max summary chars per evidence item
 	extractorMaxFlowFindings    = 10   // max dataflow findings shown
+	// Display-only cap for analyzer soft guidance names. The exact
+	// unique count remains visible; the list is capped because analyzer
+	// MustInclude can contain broad search candidates, while accepted
+	// aggregate_facts.member_set is the authoritative typed answer set.
+	extractorMaxSoftGuidanceNames = 32
 )
 
 // extractorEvaluator is the Turn B evaluator. It is a separate type
@@ -248,10 +253,14 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			b.WriteString("### Cardinality guidance (for completeness claim)\n\n")
 			fmt.Fprintf(&b, "- **Investigation terminal-evidence count:** %d\n", ta.TerminalEvidenceCount)
 			if ctx != nil && ctx.AnalysisIR != nil {
-				must := ctx.AnalysisIR.AnswerContract.MustInclude
+				must := extractorSoftGuidanceNames(ctx.AnalysisIR.AnswerContract.MustInclude)
 				fmt.Fprintf(&b, "- **Analyzer required-name count:** %d name(s)", len(must))
 				if len(must) > 0 {
-					fmt.Fprintf(&b, " — %s", strings.Join(must, ", "))
+					if extractorHasAcceptedMemberSet(ta) {
+						b.WriteString(" — names omitted because accepted `aggregate_facts.member_set` already carries the authoritative principal set")
+					} else {
+						fmt.Fprintf(&b, " — %s", extractorSoftGuidanceNamePreview(must))
+					}
 				}
 				b.WriteString("\n")
 				hardFloor := requiredAnswerSymbolCount(ctx)
@@ -397,6 +406,51 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 	}
 
 	return b.String()
+}
+
+func extractorSoftGuidanceNames(names []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, name)
+	}
+	return out
+}
+
+func extractorSoftGuidanceNamePreview(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	limit := extractorMaxSoftGuidanceNames
+	if len(names) < limit {
+		limit = len(names)
+	}
+	preview := strings.Join(names[:limit], ", ")
+	if len(names) > limit {
+		preview += fmt.Sprintf(", … (+%d more)", len(names)-limit)
+	}
+	return preview
+}
+
+func extractorHasAcceptedMemberSet(ta *types.TurnAArtifacts) bool {
+	if ta == nil {
+		return false
+	}
+	for _, fact := range ta.AcceptedAggregateFacts {
+		if fact.Kind == types.AnswerAggregateMemberSet && len(fact.Members) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArtifacts) string {
