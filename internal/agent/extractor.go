@@ -55,7 +55,9 @@ const (
 	extractorMaxNotes           = 6    // max investigation note entries shown in prompt
 	extractorMaxNoteChars       = 1200 // max chars per note before truncation
 	extractorMaxEvidence        = 24   // max ranked evidence items shown
-	extractorMaxValueFacts      = 16   // max value-bearing evidence facts shown
+	extractorMinValueFacts      = 12   // minimum value-bearing evidence facts shown when present
+	extractorDefaultValueFacts  = 16   // default value-bearing evidence facts shown
+	extractorMaxValueFacts      = 32   // hard cap for value-bearing evidence facts shown
 	extractorMaxEvidenceSummary = 200  // max summary chars per evidence item
 	extractorMaxFlowFindings    = 10   // max dataflow findings shown
 )
@@ -442,11 +444,25 @@ type extractorValueFact struct {
 	index   int
 }
 
+type extractorValueRankProfile string
+
+const (
+	extractorValueRankGeneric     extractorValueRankProfile = "generic"
+	extractorValueRankScalar      extractorValueRankProfile = "scalar_value"
+	extractorValueRankConfig      extractorValueRankProfile = "config_value"
+	extractorValueRankTrace       extractorValueRankProfile = "trace"
+	extractorValueRankDiagnostic  extractorValueRankProfile = "diagnostic"
+	extractorValueRankComparison  extractorValueRankProfile = "comparison"
+	extractorValueRankEnumeration extractorValueRankProfile = "enumeration"
+)
+
 func renderExtractorValueEvidenceFacts(ctx *types.AgentContext, ta *types.TurnAArtifacts) string {
 	if ta == nil || len(ta.EvidenceItems) == 0 {
 		return ""
 	}
 	needles := extractorValueEvidenceNeedles(ctx, ta)
+	profile := extractorValueEvidenceRankProfileFor(ctx)
+	limit := extractorValueEvidenceDisplayLimit(ctx, ta, profile)
 	candidates := make([]extractorValueFact, 0, len(ta.EvidenceItems))
 	hasRelevant := false
 	for i, item := range ta.EvidenceItems {
@@ -464,7 +480,7 @@ func renderExtractorValueEvidenceFacts(ctx *types.AgentContext, ta *types.TurnAA
 		if label == "" {
 			label = strings.TrimSpace(string(item.Kind))
 		}
-		score := extractorValueEvidenceScore(item, label, surface, needles)
+		score := extractorValueEvidenceScore(item, label, surface, needles, profile)
 		if score > 0 {
 			hasRelevant = true
 		}
@@ -499,7 +515,7 @@ func renderExtractorValueEvidenceFacts(ctx *types.AgentContext, ta *types.TurnAA
 	for i, candidate := range candidates {
 		if i == 0 {
 			b.WriteString("### Value-bearing evidence facts\n\n")
-			b.WriteString("These rows are a typed lens over evidence the investigator already emitted. Rows that overlap the request, sub-topics, aggregate facts, or answer contract are shown first; this is soft visibility guidance, not a hard gate. Preserve exact constants, defaults, assignment targets, return literals, and config values from this section when they answer the user's requested dimensions; do not invent values that are not present here or in the evidence list.\n\n")
+			b.WriteString("These rows are a typed lens over evidence the investigator already emitted. Rows that overlap the request, sub-topics, aggregate facts, or answer contract are shown first, then weighted by the typed question profile (intent/scenario/answer-subject/axis/question-structure); this is soft visibility guidance, not a hard gate. Preserve exact constants, defaults, assignment targets, return literals, and config values from this section when they answer the user's requested dimensions; do not invent values that are not present here or in the evidence list.\n\n")
 		}
 		loc := candidate.item.DisplayLocation(true)
 		fmt.Fprintf(&b, "- `%s`", candidate.label)
@@ -507,12 +523,88 @@ func renderExtractorValueEvidenceFacts(ctx *types.AgentContext, ta *types.TurnAA
 			fmt.Fprintf(&b, " @ %s", loc)
 		}
 		fmt.Fprintf(&b, ": %s\n", candidate.surface)
-		if i+1 >= extractorMaxValueFacts {
+		if i+1 >= limit {
 			break
 		}
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func extractorValueEvidenceDisplayLimit(ctx *types.AgentContext, ta *types.TurnAArtifacts, profile extractorValueRankProfile) int {
+	limit := extractorDefaultValueFacts
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm := ctx.AnalysisIR.RequestModel
+		if len(rm.SubTopics) >= 2 {
+			limit += extractorMinInt(len(rm.SubTopics)*3, 8)
+		}
+		if buckets := rm.QuestionStructure().Buckets; len(buckets) >= 2 {
+			limit += extractorMinInt(len(buckets)*3, 8)
+		}
+		if rm.Complexity == types.ComplexityComplex {
+			limit += 4
+		}
+		if rm.Predicates.IsCrossComponent || rm.Predicates.IsCategoryEnumeration || rm.Predicates.IsRelationalLookup {
+			limit += 4
+		}
+	}
+	if ta != nil {
+		if len(ta.AcceptedAggregateFacts) > 0 {
+			limit += extractorMinInt(len(ta.AcceptedAggregateFacts)*2, 6)
+		}
+	}
+	switch profile {
+	case extractorValueRankComparison, extractorValueRankEnumeration, extractorValueRankDiagnostic:
+		limit += 4
+	case extractorValueRankScalar:
+		limit -= 2
+	}
+	if limit < extractorMinValueFacts {
+		return extractorMinValueFacts
+	}
+	if limit > extractorMaxValueFacts {
+		return extractorMaxValueFacts
+	}
+	return limit
+}
+
+func extractorMinInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func extractorValueEvidenceRankProfileFor(ctx *types.AgentContext) extractorValueRankProfile {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return extractorValueRankGeneric
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.DiagnosticProfile.RequiresDiagnosticRootCause() || rm.Predicates.IsDiagnosticQuestion || rm.Intent == types.IntentRootCause || rm.Scenario == types.ScenarioRootCause {
+		return extractorValueRankDiagnostic
+	}
+	if rm.Intent == types.IntentTrace || rm.PredicateAxis == types.AxisCall {
+		return extractorValueRankTrace
+	}
+	if rm.Intent == types.IntentConfigQuery || rm.Scenario == types.ScenarioConfigTrace || rm.AnswerSubject.Kind == types.SubjectConfigKey || rm.PredicateAxis == types.AxisConfigure {
+		return extractorValueRankConfig
+	}
+	if rm.Intent == types.IntentReturnValue ||
+		rm.AnswerSubject.Kind == types.SubjectReturnValue ||
+		rm.AnswerSubject.Kind == types.SubjectNumeric ||
+		rm.AnswerSubject.Kind == types.SubjectStringLiteral ||
+		rm.AnswerSubject.Kind == types.SubjectEnumValue ||
+		rm.PredicateAxis == types.AxisReturn {
+		return extractorValueRankScalar
+	}
+	view := rm.QuestionStructure()
+	if view.ResolvedDeclaredCount() > 0 || view.CompletenessObligation.IsActive() || rm.Predicates.IsCountQuestion || rm.Predicates.IsCategoryEnumeration || rm.Intent == types.IntentEnumerate {
+		return extractorValueRankEnumeration
+	}
+	if len(view.Buckets) >= 2 || len(rm.SubTopics) >= 2 || (rm.Intent == types.IntentExplain && rm.Scenario == types.ScenarioArchitectureExplain) {
+		return extractorValueRankComparison
+	}
+	return extractorValueRankGeneric
 }
 
 func extractorValueEvidenceNeedles(ctx *types.AgentContext, ta *types.TurnAArtifacts) map[string]bool {
@@ -529,7 +621,16 @@ func extractorValueEvidenceNeedles(ctx *types.AgentContext, ta *types.TurnAArtif
 		if ctx.AnalysisIR != nil {
 			rm := ctx.AnalysisIR.RequestModel
 			add(rm.RawRequest)
-			add(rm.Language)
+			add(string(rm.AnswerSubject.Kind))
+			add(string(rm.PredicateAxis))
+			if view := rm.QuestionStructure(); len(view.Buckets) > 0 {
+				for _, bucket := range view.Buckets {
+					add(bucket.Label)
+					for _, anchor := range bucket.Anchors {
+						add(anchor)
+					}
+				}
+			}
 			for _, sub := range rm.SubTopics {
 				add(sub.Summary)
 				for _, entity := range sub.Entities {
@@ -559,10 +660,8 @@ func extractorValueEvidenceNeedles(ctx *types.AgentContext, ta *types.TurnAArtif
 		add(ta.UserQuestion)
 		add(ta.AcceptedClosureReason)
 		for _, fact := range ta.AcceptedAggregateFacts {
-			add(string(fact.Kind))
 			add(fact.Label)
 			add(fact.Value)
-			add(fact.Unit)
 			for _, dim := range fact.Dimensions {
 				add(dim.Name)
 				add(dim.Value)
@@ -581,7 +680,7 @@ func extractorValueEvidenceNeedles(ctx *types.AgentContext, ta *types.TurnAArtif
 	return needles
 }
 
-func extractorValueEvidenceScore(item types.EvidenceItem, label, surface string, needles map[string]bool) int {
+func extractorValueEvidenceScore(item types.EvidenceItem, label, surface string, needles map[string]bool, profile extractorValueRankProfile) int {
 	if len(needles) == 0 {
 		return 0
 	}
@@ -609,22 +708,111 @@ func extractorValueEvidenceScore(item types.EvidenceItem, label, surface string,
 	if score == 0 {
 		return 0
 	}
-	switch item.Kind {
-	case types.EvidenceConcrete:
-		score += 12
-	case types.EvidenceDirect:
-		score += 6
-	}
-	switch item.AnchorKind {
-	case types.AnchorAssignment, types.AnchorInitializer, types.AnchorReturn:
-		score += 10
-	case types.AnchorDefinition:
-		score += 6
-	}
+	score += extractorValueEvidenceKindBoost(item.Kind, profile)
+	score += extractorValueEvidenceAnchorBoost(item.AnchorKind, profile)
 	if item.LoadBearingSummary {
-		score += 10
+		score += extractorValueEvidenceLoadBearingBoost(profile)
 	}
 	return score
+}
+
+func extractorValueEvidenceKindBoost(kind types.EvidenceKind, profile extractorValueRankProfile) int {
+	switch kind {
+	case types.EvidenceConcrete:
+		switch profile {
+		case extractorValueRankScalar, extractorValueRankConfig, extractorValueRankEnumeration:
+			return 16
+		case extractorValueRankDiagnostic:
+			return 14
+		default:
+			return 12
+		}
+	case types.EvidenceDirect:
+		switch profile {
+		case extractorValueRankComparison:
+			return 10
+		case extractorValueRankTrace, extractorValueRankDiagnostic:
+			return 8
+		default:
+			return 6
+		}
+	default:
+		return 0
+	}
+}
+
+func extractorValueEvidenceAnchorBoost(kind types.AnchorKind, profile extractorValueRankProfile) int {
+	switch profile {
+	case extractorValueRankScalar:
+		switch kind {
+		case types.AnchorReturn:
+			return 22
+		case types.AnchorAssignment, types.AnchorInitializer:
+			return 16
+		case types.AnchorDefinition:
+			return 4
+		}
+	case extractorValueRankConfig:
+		switch kind {
+		case types.AnchorAssignment, types.AnchorInitializer:
+			return 20
+		case types.AnchorDefinition:
+			return 10
+		case types.AnchorReturn:
+			return 6
+		}
+	case extractorValueRankTrace:
+		switch kind {
+		case types.AnchorCall, types.AnchorReturn, types.AnchorCondition:
+			return 16
+		case types.AnchorAssignment, types.AnchorInitializer:
+			return 10
+		case types.AnchorDefinition:
+			return 4
+		}
+	case extractorValueRankDiagnostic:
+		switch kind {
+		case types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer:
+			return 16
+		case types.AnchorCall:
+			return 10
+		case types.AnchorDefinition:
+			return 6
+		}
+	case extractorValueRankComparison:
+		switch kind {
+		case types.AnchorDefinition:
+			return 14
+		case types.AnchorAssignment, types.AnchorInitializer:
+			return 12
+		case types.AnchorReturn:
+			return 6
+		}
+	case extractorValueRankEnumeration:
+		switch kind {
+		case types.AnchorDefinition, types.AnchorInitializer, types.AnchorAssignment:
+			return 12
+		case types.AnchorReturn:
+			return 8
+		}
+	default:
+		switch kind {
+		case types.AnchorAssignment, types.AnchorInitializer, types.AnchorReturn:
+			return 10
+		case types.AnchorDefinition:
+			return 6
+		}
+	}
+	return 0
+}
+
+func extractorValueEvidenceLoadBearingBoost(profile extractorValueRankProfile) int {
+	switch profile {
+	case extractorValueRankTrace, extractorValueRankDiagnostic:
+		return 14
+	default:
+		return 10
+	}
 }
 
 func extractorTokenSet(text string) []string {
@@ -636,7 +824,7 @@ func extractorTokenSet(text string) []string {
 	var out []string
 	add := func(tok string) {
 		tok = strings.Trim(strings.ToLower(tok), "_")
-		if len(tok) < 2 || seen[tok] {
+		if len(tok) < 2 || extractorLowSignalToken(tok) || seen[tok] {
 			return
 		}
 		seen[tok] = true
@@ -703,6 +891,27 @@ func extractorIdentifierPieces(word string) []string {
 	}
 	flush(len(runes))
 	return pieces
+}
+
+func extractorLowSignalToken(tok string) bool {
+	switch tok {
+	case "a", "an", "and", "are", "as", "at", "be", "been", "being",
+		"by", "can", "could", "did", "do", "does", "for", "from", "go",
+		"had", "has", "have", "how", "in", "into", "is", "it", "its",
+		"of", "on", "or", "should", "that", "the", "their", "these",
+		"this", "those", "to", "was", "were", "what", "when", "where",
+		"which", "who", "why", "with", "would":
+		return true
+	case "answer", "answers", "block", "blocks", "candidate", "candidates",
+		"claim", "claims", "code", "context", "count", "counts", "detail",
+		"details", "fact", "facts", "file", "files", "line", "lines",
+		"list", "lists", "member", "members", "node", "nodes", "question",
+		"request", "result", "results", "section", "sections", "summary",
+		"value", "values":
+		return true
+	default:
+		return false
+	}
 }
 
 func extractorValueEvidenceCandidate(item types.EvidenceItem) bool {

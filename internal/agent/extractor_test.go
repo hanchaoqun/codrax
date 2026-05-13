@@ -694,6 +694,109 @@ func TestExtractor_BuildPrompt_RendersValueBearingEvidenceLens(t *testing.T) {
 	}
 }
 
+func TestExtractor_BuildPrompt_ValueLensUsesTypedQuestionProfile(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:       types.EvidenceDirect,
+				Scope:      types.ScopeLine,
+				Source:     "pkg/config.go",
+				LineStart:  10,
+				AnchorKind: types.AnchorDefinition,
+				Snippet:    "const DefaultTimeout = 30",
+				Subject:    "DefaultTimeout",
+			},
+			{
+				Kind:       types.EvidenceDirect,
+				Scope:      types.ScopeLine,
+				Source:     "pkg/config.go",
+				LineStart:  20,
+				AnchorKind: types.AnchorReturn,
+				Snippet:    "return DefaultTimeout",
+				Subject:    "DefaultTimeout",
+			},
+		},
+	})
+	ctx := &types.AgentContext{
+		Objective: "what does DefaultTimeout return",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest:    "What does DefaultTimeout return?",
+				Intent:        types.IntentReturnValue,
+				PredicateAxis: types.AxisReturn,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectReturnValue},
+			},
+		},
+	}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	sectionStart := strings.Index(prompt, "### Value-bearing evidence facts")
+	if sectionStart < 0 {
+		t.Fatalf("prompt missing value-bearing section:\n%s", prompt)
+	}
+	valueSection := prompt[sectionStart:]
+	returnAt := strings.Index(valueSection, "return DefaultTimeout")
+	defAt := strings.Index(valueSection, "const DefaultTimeout = 30")
+	if returnAt < 0 || defAt < 0 {
+		t.Fatalf("prompt missing return/definition facts:\n%s", valueSection)
+	}
+	if returnAt > defAt {
+		t.Fatalf("return-value profile should rank return evidence before definition evidence:\n%s", valueSection)
+	}
+}
+
+func TestExtractor_BuildPrompt_ValueLensDynamicLimitExpandsForMultiBucket(t *testing.T) {
+	items := make([]types.EvidenceItem, 0, 24)
+	for i := 0; i < 24; i++ {
+		items = append(items, types.EvidenceItem{
+			Kind:         types.EvidenceDirect,
+			Scope:        types.ScopeLine,
+			Source:       "pkg/config.go",
+			LineStart:    i + 1,
+			AnchorKind:   types.AnchorAssignment,
+			AnchorSymbol: "CommonBudget",
+			Snippet:      fmt.Sprintf("CommonBudget%d = %d", i, i),
+			Subject:      "CommonBudget",
+		})
+	}
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: items})
+	ctx := &types.AgentContext{
+		Objective: "compare CommonBudget across Alpha and Beta",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "compare CommonBudget across Alpha and Beta",
+				Intent:     types.IntentExplain,
+				Scenario:   types.ScenarioArchitectureExplain,
+				Complexity: types.ComplexityComplex,
+				Predicates: types.SemanticPredicates{IsCrossComponent: true},
+				SubTopics: []types.SubTopic{
+					{Summary: "Alpha CommonBudget", Entities: []string{"CommonBudget"}},
+					{Summary: "Beta CommonBudget", Entities: []string{"CommonBudget"}},
+					{Summary: "Gamma CommonBudget", Entities: []string{"CommonBudget"}},
+				},
+				Buckets: []types.QuestionBucket{
+					{Label: "Alpha", Anchors: []string{"CommonBudget"}, Index: 1},
+					{Label: "Beta", Anchors: []string{"CommonBudget"}, Index: 2},
+				},
+			},
+		},
+	}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	sectionStart := strings.Index(prompt, "### Value-bearing evidence facts")
+	if sectionStart < 0 {
+		t.Fatalf("prompt missing value-bearing section:\n%s", prompt)
+	}
+	valueSection := prompt[sectionStart:]
+	if got := strings.Count(valueSection, "CommonBudget"); got <= extractorDefaultValueFacts {
+		t.Fatalf("dynamic multi-bucket limit did not expand beyond default; got %d entries:\n%s", got, valueSection)
+	}
+}
+
 func TestExtractor_BuildPrompt_RendersAcceptedClosureAsStructuredHandoff(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
