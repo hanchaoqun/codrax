@@ -495,7 +495,22 @@ func aggregateRelationSurfaceParts(member string) (string, string, bool) {
 			return left, right, true
 		}
 	}
+	if left, right, ok := aggregateCompactDotRelationParts(member); ok {
+		return left, right, true
+	}
 	return "", "", false
+}
+
+func aggregateCompactDotRelationParts(member string) (string, string, bool) {
+	if strings.Count(member, ".") != 1 || strings.ContainsAny(member, `/\`) || HasCodeOrConfigPathSuffix(member) {
+		return "", "", false
+	}
+	parts := strings.Split(member, ".")
+	left, right := trimAggregateMemberSurface(parts[0]), trimAggregateMemberSurface(parts[1])
+	if !aggregateRelationAtomOK(left) || !aggregateRelationPartOK(right) {
+		return "", "", false
+	}
+	return left, right, true
 }
 
 func aggregateColonLooksLikeDisplayRelation(member string) bool {

@@ -3041,6 +3041,63 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetPrefersRelationSlateOve
 	}
 }
 
+func TestBuildAnswerSupportPlan_GenericAggregateMemberSetRelationEvidenceRequiresLeftScope(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "scoped scoring helpers",
+			Value:   "2",
+			Members: []string{"priority.Score", "subject.Score"},
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "priority-score",
+				Kind:            EvidenceDirect,
+				Source:          "internal/analysis/priority/score.go",
+				LineStart:       23,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "Score",
+				Subject:         "priority.Score",
+				SurfaceTerms:    []string{"Score", "priority"},
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+			{
+				ID:              "subject-score",
+				Kind:            EvidenceDirect,
+				Source:          "internal/analysis/subject/score.go",
+				LineStart:       34,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "Score",
+				Subject:         "subject.Score",
+				SurfaceTerms:    []string{"Score", "subject"},
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+		},
+	}
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true, IsRelationalLookup: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqEnumeration),
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all scoped scoring helpers"},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 2 {
+		t.Fatalf("relation member_set should compile into two principal entries, got %+v", got)
+	}
+	if lane.Entries[0].Location != "internal/analysis/priority/score.go:23" ||
+		lane.Entries[1].Location != "internal/analysis/subject/score.go:34" {
+		t.Fatalf("relation evidence must bind by left scope plus right endpoint, got %+v", lane.Entries)
+	}
+}
+
 func answerSupportLaneByKind(plan *AnswerSupportPlan, kind AnswerSupportLaneKind) *AnswerSupportLane {
 	if plan == nil {
 		return nil

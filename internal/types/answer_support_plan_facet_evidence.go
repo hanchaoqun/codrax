@@ -146,7 +146,7 @@ func compileGenericAggregateMemberSupportLane(rm RequestModel, plan *AnswerSurfa
 	return lane
 }
 
-func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, memberIdx int, member string, supportEvidence map[string]EvidenceItem) (AnswerSupportEntry, bool) {
+func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, memberIdx int, member string, supportEvidence *aggregateMemberEvidenceIndex) (AnswerSupportEntry, bool) {
 	member = strings.TrimSpace(member)
 	if member == "" {
 		return AnswerSupportEntry{}, false
@@ -197,11 +197,17 @@ func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, membe
 	return entry, true
 }
 
-func genericAggregateSupportEvidenceByMemberLabel(items []EvidenceItem) map[string]EvidenceItem {
+type aggregateMemberEvidenceIndex struct {
+	byKey map[string]EvidenceItem
+	items []EvidenceItem
+}
+
+func genericAggregateSupportEvidenceByMemberLabel(items []EvidenceItem) *aggregateMemberEvidenceIndex {
 	if len(items) == 0 {
 		return nil
 	}
 	out := make(map[string]EvidenceItem, len(items))
+	var indexed []EvidenceItem
 	for _, item := range items {
 		if item.Source == "" || item.LineStart <= 0 {
 			continue
@@ -209,6 +215,7 @@ func genericAggregateSupportEvidenceByMemberLabel(items []EvidenceItem) map[stri
 		if item.GroundingStatus == GroundingUngrounded {
 			continue
 		}
+		indexed = append(indexed, item)
 		for _, label := range aggregateEvidenceMemberLabels(item) {
 			key := aggregateMemberKey(label)
 			if key == "" {
@@ -220,26 +227,163 @@ func genericAggregateSupportEvidenceByMemberLabel(items []EvidenceItem) map[stri
 			out[key] = item
 		}
 	}
-	if len(out) == 0 {
+	if len(indexed) == 0 {
 		return nil
 	}
-	return out
+	return &aggregateMemberEvidenceIndex{byKey: out, items: indexed}
 }
 
-func aggregateMemberEvidenceByLabel(member string, support map[string]EvidenceItem) (EvidenceItem, bool) {
-	if len(support) == 0 {
+func aggregateMemberEvidenceByLabel(member string, support *aggregateMemberEvidenceIndex) (EvidenceItem, bool) {
+	if support == nil || len(support.items) == 0 {
 		return EvidenceItem{}, false
+	}
+	if left, right, ok := AnswerAggregateMemberRelationParts(member); ok {
+		return aggregateRelationMemberEvidence(left, right, support.items)
 	}
 	for _, candidate := range aggregateMemberDisplayCandidates(member) {
 		key := aggregateMemberKey(candidate)
 		if key == "" {
 			continue
 		}
-		if ev, ok := support[key]; ok {
+		if ev, ok := support.byKey[key]; ok {
 			return ev, true
 		}
 	}
 	return EvidenceItem{}, false
+}
+
+func aggregateRelationMemberEvidence(left, right string, items []EvidenceItem) (EvidenceItem, bool) {
+	var best EvidenceItem
+	bestRank := -1
+	found := false
+	for _, item := range items {
+		if !aggregateEvidenceSupportsRelationMember(item, left, right) {
+			continue
+		}
+		rank := changeImpactSupportEvidenceRank(item)
+		if found && rank <= bestRank {
+			continue
+		}
+		best = item
+		bestRank = rank
+		found = true
+	}
+	return best, found
+}
+
+func aggregateEvidenceSupportsRelationMember(ev EvidenceItem, left, right string) bool {
+	return aggregateEvidenceEndpointSupportsRelationRight(ev, right) &&
+		aggregateEvidenceOrSourceSupportsRelationLeft(ev, left)
+}
+
+func aggregateEvidenceOrSourceSupportsRelationLeft(ev EvidenceItem, left string) bool {
+	if aggregateEvidenceEndpointSupportsRelationLeft(ev, left) {
+		return true
+	}
+	return aggregatePathSegmentsSupportToken(ev.Source, left)
+}
+
+func aggregateEvidenceEndpointSupportsRelationLeft(ev EvidenceItem, left string) bool {
+	left = trimAggregateMemberSurface(left)
+	if left == "" {
+		return false
+	}
+	for _, label := range aggregateEvidenceMemberLabels(ev) {
+		label = trimAggregateMemberSurface(label)
+		if label == "" {
+			continue
+		}
+		if strings.EqualFold(label, left) {
+			return true
+		}
+		if candidateLeft, _, ok := AnswerAggregateMemberRelationParts(label); ok && strings.EqualFold(candidateLeft, left) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateEvidenceEndpointSupportsRelationRight(ev EvidenceItem, right string) bool {
+	candidates := aggregateRelationRightMatchCandidates(right)
+	if len(candidates) == 0 {
+		return false
+	}
+	for _, label := range aggregateEvidenceMemberLabels(ev) {
+		if aggregateRelationLabelMatchesAny(label, candidates) {
+			return true
+		}
+		if _, candidateRight, ok := AnswerAggregateMemberRelationParts(label); ok &&
+			aggregateRelationLabelMatchesAny(candidateRight, candidates) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateRelationRightMatchCandidates(right string) []string {
+	right = trimAggregateMemberSurface(right)
+	if right == "" {
+		return nil
+	}
+	out := []string{right}
+	out = append(out, aggregateRelationPartDisplayForms(right)...)
+	if base, _, ok := aggregateRelationPartDecorator(right); ok {
+		out = append(out, base)
+	}
+	if tail := aggregateRelationPartDisplayTail(right); tail != "" {
+		out = append(out, tail)
+	}
+	if tail := aggregateRelationPartTail(right); tail != "" {
+		out = append(out, tail)
+	}
+	return dedupeAggregateMemberTerms(out)
+}
+
+func aggregateRelationLabelMatchesAny(label string, candidates []string) bool {
+	label = trimAggregateMemberSurface(label)
+	if label == "" {
+		return false
+	}
+	for _, candidate := range candidates {
+		if strings.EqualFold(label, candidate) {
+			return true
+		}
+	}
+	labelTail := NormalizedSurfaceSymbolTail(label)
+	if labelTail == "" {
+		return false
+	}
+	for _, candidate := range candidates {
+		if candidateTail := NormalizedSurfaceSymbolTail(candidate); candidateTail != "" && labelTail == candidateTail {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregatePathSegmentsSupportToken(path string, token string) bool {
+	path = strings.TrimSpace(strings.ReplaceAll(path, `\`, `/`))
+	token = trimAggregateMemberSurface(token)
+	if path == "" || token == "" {
+		return false
+	}
+	want := strings.ToLower(token)
+	for _, segment := range strings.Split(path, "/") {
+		segment = strings.TrimSpace(segment)
+		if segment == "" {
+			continue
+		}
+		base := segment
+		if dot := strings.LastIndex(base, "."); dot > 0 {
+			base = base[:dot]
+		}
+		for _, candidate := range []string{segment, base} {
+			if strings.ToLower(candidate) == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func sameAggregateMemberEvidenceLocation(ev EvidenceItem, source string, line int) bool {
@@ -305,12 +449,12 @@ func aggregateMemberDisplayCandidates(member string) []string {
 	if member == "" {
 		return nil
 	}
-	out := []string{member}
+	out := AnswerAggregateMemberDisplayCandidates(member)
 	for _, sep := range []string{" @ ", "\t", " | "} {
 		if idx := strings.Index(member, sep); idx > 0 {
 			prefix := strings.TrimSpace(member[:idx])
 			if prefix != "" {
-				out = append(out, prefix)
+				out = append(out, AnswerAggregateMemberDisplayCandidates(prefix)...)
 			}
 		}
 	}

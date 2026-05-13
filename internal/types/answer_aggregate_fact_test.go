@@ -184,6 +184,49 @@ func TestAnswerAggregateMemberDisplayCandidates_RelationDecoratorVariants(t *tes
 	}
 }
 
+func TestAnswerAggregateMemberRelationParts_CompactDotAcrossSupportedLanguages(t *testing.T) {
+	samples := map[string]string{
+		repotypes.LangGo:         "compiler.Compile",
+		repotypes.LangPython:     "module.run",
+		repotypes.LangJavaScript: "Controller.handle",
+		repotypes.LangTypeScript: "Service.resolve",
+		repotypes.LangJava:       "Service.handle",
+		repotypes.LangKotlin:     "Service.handle",
+		repotypes.LangRust:       "crate::run",
+		repotypes.LangC:          "module.init_module",
+		repotypes.LangCpp:        "Parser::Parse",
+		repotypes.LangRuby:       "Admin::call",
+		repotypes.LangSwift:      "Service.start",
+		repotypes.LangLua:        "M.render",
+		repotypes.LangProto:      "UserService.ListUsers",
+		repotypes.LangArkTS:      "EntryComponent.build",
+		repotypes.LangCangjie:    "Service::run",
+	}
+	for _, lang := range repotypes.SupportedReadLanguages() {
+		sample, ok := samples[lang]
+		if !ok {
+			t.Fatalf("missing compact relation sample for supported language %q", lang)
+		}
+		left, right, parsed := AnswerAggregateMemberRelationParts(sample)
+		if !parsed {
+			t.Fatalf("%s compact sample did not parse as relation member: %q", lang, sample)
+		}
+		if left == "" || right == "" {
+			t.Fatalf("%s compact sample parsed empty relation part: left=%q right=%q", lang, left, right)
+		}
+	}
+	for _, sample := range []string{"package.submodule.run", "internal/types/foo.go", "github.com/acme/pkg"} {
+		if left, right, ok := AnswerAggregateMemberRelationParts(sample); ok {
+			t.Fatalf("ambiguous/path-like compact surface %q must stay literal, got left=%q right=%q", sample, left, right)
+		}
+	}
+	candidates := AnswerAggregateMemberDisplayCandidates("compiler.Compile")
+	if !stringSliceContains(candidates, "compiler → Compile") ||
+		!stringSliceContains(candidates, "compiler/Compile") {
+		t.Fatalf("compact relation should expose split display candidates, got %+v", candidates)
+	}
+}
+
 func TestAnswerAggregateMemberDisplayCandidates_AllSupportedLanguageQualifiers(t *testing.T) {
 	samples := map[string]string{
 		repotypes.LangGo:         "compiler → compiler.Compile",

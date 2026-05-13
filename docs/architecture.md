@@ -1258,7 +1258,7 @@ CLI flag `--htrace` / `--atrace` 是别名（同存储）。REPL `/htrace <path>
 
 **证据排名**：`rankEvidenceByRelevance = entity overlap × kindWeight × sourceWeight × bridgeBonus × producerBoost`。LLM 通过 emit_evidence 提交且非 ungrounded 的获 1.5x producerBoost；EvidenceConcrete kindWeight=0.50；axis affinity 通过 `axis::Affinity(PredicateAxis, AnchorKind)` 调节。
 
-**结构化 completion handoff**：`emit_investigation_complete` 除了 `reason` / `result_kind` / waiver / absence 外，还能提交 `aggregate_facts` 和 `principal_span_waiver`。`aggregate_facts` 是模型已验证出的聚合/成员表（总数、唯一集合、分组、bucket、完整 member_set、排除集合、其他 scalar），系统只做结构自洽校验并稳定保存；`principal_span_waiver` 是 call-chain span gap gate 的 typed escape，必须给合法 reason enum + rationale，可用 `clear_principal_span_waiver=true` 显式撤销。
+**结构化 completion handoff**：`emit_investigation_complete` 除了 `reason` / `result_kind` / waiver / absence 外，还能提交 `aggregate_facts` 和 `principal_span_waiver`。`aggregate_facts` 是模型已验证出的聚合/成员表（总数、唯一集合、分组、bucket、完整 member_set、排除集合、其他 scalar），系统只做结构自洽校验并稳定保存；`principal_span_waiver` 是 call-chain span gap gate 的 typed escape，必须给合法 reason enum + rationale，可用 `clear_principal_span_waiver=true` 显式撤销。`member_set` 里的关系成员走统一的 compact-relation 解析：`left → right` / `left:right` / `left/right` / `left::right` / 安全的单段 `left.right` 都归一到同一个 typed relation，但多段 package/module qualified name、源码路径、配置路径保持 literal。Support lane 绑定 relation member 时必须同时验证 left scope（证据端点或 source path segment）和 right endpoint，避免跨语言同名函数/方法只因尾名相同就抢走 citation。
 
 **子 Agent**：explorer 可通过 `propose_sub_agents` 工具向编排器申请派生并行 sub_explorer 实例分摊独立调查子问题。sub_explorer **不共享 Mutable**（`BuildSubAgentContext` 故意把 `ac.Mutable` 留 nil）；`todo_write` / `emit_*` 在 sub-agent 上下文会被拒。
 
