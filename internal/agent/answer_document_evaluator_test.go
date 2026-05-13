@@ -158,6 +158,173 @@ func TestRenderAnswerDocFacetCoverage_EvidenceCountAnnotation(t *testing.T) {
 	}
 }
 
+func TestRenderAnswerDocTypedExplorationEnrichment_RendersStructuredRowsAndFlow(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel:   types.RequestModel{Intent: types.IntentExplain},
+			AnswerContract: types.AnswerContract{},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "cfg-default",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/config/runtime.go",
+			LineStart:       42,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "DefaultLimit",
+			Subject:         "DefaultLimit",
+			Object:          "16",
+			Snippet:         "DefaultLimit: 16,",
+			Summary:         "raw thinking note that must not be surfaced",
+			SurfaceTerms:    []string{"DefaultLimit"},
+			GroundingStatus: types.GroundingGrounded,
+		}},
+		FlowFindings: []types.FlowFindingDigest{{
+			ID:      "flow-1",
+			Path:    []string{"loadConfig", "normalize", "compile"},
+			Sources: []string{"codrax.yaml"},
+			Sinks:   []string{"RuntimeConfig"},
+		}},
+	}
+	got := renderAnswerDocTypedExplorationEnrichment(ctx, false)
+	for _, want := range []string{
+		"## Typed Exploration Enrichment Facts",
+		"model-emitted `EvidenceItems`, deterministic evidence projections, and `FlowFindings`",
+		"lane=value_fact",
+		"DefaultLimit: 16,",
+		"### Flow/source-sink rows",
+		"path=loadConfig -> normalize -> compile",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed enrichment prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "raw thinking note") {
+		t.Fatalf("typed enrichment must not replay non-load-bearing free-form summary:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocTypedExplorationEnrichment_ContextDoesNotBecomePrincipal(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel:   types.RequestModel{Intent: types.IntentEnumerate},
+			AnswerContract: types.AnswerContract{},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "nearby-helper",
+			Kind:            types.EvidenceRelationship,
+			Scope:           types.ScopeLine,
+			Source:          "internal/agent/helper.go",
+			LineStart:       77,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "helper",
+			Subject:         "NearbyHelper",
+			Object:          "Target",
+			Snippet:         "NearbyHelper()",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	got := renderAnswerDocTypedExplorationEnrichment(ctx, true)
+	for _, want := range []string{
+		"Because typed support lanes are present, those lanes remain the principal boundary",
+		"They are not a member slate by themselves",
+		"Do not promote an enrichment fact into a new principal ordered-list member",
+		"lane=context_enrichment_fact",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed enrichment boundary prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "### Principal Member Obligations") {
+		t.Fatalf("enrichment rows must not create principal member obligations:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocTypedExplorationEnrichment_CoversQuestionFamilies(t *testing.T) {
+	cases := []struct {
+		name string
+		rm   types.RequestModel
+		item types.EvidenceItem
+		want string
+	}{
+		{
+			name: "scalar",
+			rm: types.RequestModel{
+				Intent:        types.IntentReturnValue,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectNumeric},
+			},
+			item: types.EvidenceItem{Kind: types.EvidenceDirect, AnchorKind: types.AnchorReturn, AnchorSymbol: "limit", Subject: "limit", Snippet: "return 16"},
+			want: "lane=value_fact",
+		},
+		{
+			name: "config",
+			rm: types.RequestModel{
+				Intent:        types.IntentConfigQuery,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			item: types.EvidenceItem{Kind: types.EvidenceDirect, AnchorKind: types.AnchorInitializer, AnchorSymbol: "llm_stream", Subject: "llm_stream", Snippet: "llm_stream: true"},
+			want: "lane=value_fact",
+		},
+		{
+			name: "trace",
+			rm:   types.RequestModel{Intent: types.IntentTrace, PredicateAxis: types.AxisCall},
+			item: types.EvidenceItem{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "Analyze", Object: "Compile", Snippet: "Compile(ir)"},
+			want: "lane=chain_or_intermediate_fact",
+		},
+		{
+			name: "diagnostic",
+			rm:   types.RequestModel{Intent: types.IntentRootCause, Scenario: types.ScenarioRootCause},
+			item: types.EvidenceItem{Kind: types.EvidenceConflict, AnchorKind: types.AnchorCondition, Subject: "guard", Condition: "ctx == nil", Snippet: "if ctx == nil { return }"},
+			want: "lane=boundary_or_exclusion_fact",
+		},
+		{
+			name: "comparison",
+			rm:   types.RequestModel{Intent: types.IntentExplain, Scenario: types.ScenarioArchitectureExplain, SubTopics: []types.SubTopic{{Summary: "A"}, {Summary: "B"}}},
+			item: types.EvidenceItem{Kind: types.EvidenceDirect, AnchorKind: types.AnchorImport, Subject: "agent", Object: "internal/types", Snippet: "import \"github.com/hanchaoqun/codrax/internal/types\""},
+			want: "lane=chain_or_intermediate_fact",
+		},
+		{
+			name: "enumeration",
+			rm:   types.RequestModel{Intent: types.IntentEnumerate, Predicates: types.SemanticPredicates{IsCategoryEnumeration: true}},
+			item: types.EvidenceItem{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, Subject: "ExplorerAgent", Object: "agent implementation", SurfaceTerms: []string{"ExplorerAgent"}},
+			want: "lane=context_enrichment_fact",
+		},
+		{
+			name: "generic",
+			rm:   types.RequestModel{Intent: types.IntentExplain, Scenario: types.ScenarioGeneric},
+			item: types.EvidenceItem{Kind: types.EvidenceAbsent, Scope: types.ScopeNegative, Source: "internal/agent/agent.go", NegativeQuery: &types.NegativeQuery{File: "internal/agent/agent.go", Pattern: "typed handoff"}, NegativeScope: types.NegativeScopeFile, Subject: "typed handoff"},
+			want: "lane=boundary_or_exclusion_fact",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			item := tc.item
+			item.ID = "ev-" + tc.name
+			if item.Scope == "" {
+				item.Scope = types.ScopeLine
+			}
+			if item.Source == "" {
+				item.Source = "internal/agent/example.go"
+			}
+			if item.LineStart == 0 && item.Scope == types.ScopeLine {
+				item.LineStart = 10
+			}
+			if item.GroundingStatus == "" {
+				item.GroundingStatus = types.GroundingGrounded
+			}
+			ctx := &types.AgentContext{
+				AnalysisIR:    &types.AnalysisIR{RequestModel: tc.rm, AnswerContract: types.AnswerContract{}},
+				EvidenceItems: []types.EvidenceItem{item},
+			}
+			got := renderAnswerDocTypedExplorationEnrichment(ctx, false)
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("%s enrichment missing %q:\n%s", tc.name, tc.want, got)
+			}
+		})
+	}
+}
+
 func TestRenderAnswerDocFacetCoverage_UsesCuratedPrincipalEvidenceCount(t *testing.T) {
 	modelItem := types.EvidenceItem{
 		ID:              "literal-model",

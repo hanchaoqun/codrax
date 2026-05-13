@@ -258,6 +258,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 			b.WriteString(observations)
 		}
 	}
+	if enrichment := renderAnswerDocTypedExplorationEnrichment(ctx, renderedTypedSupport); enrichment != "" {
+		b.WriteString(enrichment)
+	}
 	if boundary := renderAnswerDocPrincipalAnswerBoundary(ctx, view, renderedTypedSupport); boundary != "" {
 		b.WriteString(boundary)
 	}
@@ -2817,6 +2820,363 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString(renderStructuredAggregateFacts(plan.StableAggregateFacts, 16))
 	b.WriteString("\n")
 	return b.String()
+}
+
+const (
+	answerDocDefaultEnrichmentFacts = 14
+	answerDocMaxEnrichmentFacts     = 28
+	answerDocMaxFlowEnrichmentFacts = 6
+)
+
+type answerDocEnrichmentFact struct {
+	item    types.EvidenceItem
+	lane    string
+	label   string
+	surface string
+	score   int
+	index   int
+}
+
+func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportRendered bool) string {
+	if ctx == nil {
+		return ""
+	}
+	plan := answerSurfacePlan(ctx)
+	evidence := answerDocumentAuthorityEvidencePool(ctx)
+	if plan != nil {
+		evidence = mergeEvidenceItems(evidence, plan.SurfaceEvidence)
+	}
+	facts := selectAnswerDocTypedEnrichmentFacts(ctx, evidence, answerDocSupportEvidenceIDs(ctx), supportRendered)
+	flowLines := selectAnswerDocFlowEnrichmentLines(ctx.FlowFindings, answerDocFlowEnrichmentLimit(ctx))
+	if len(facts) == 0 && len(flowLines) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Typed Exploration Enrichment Facts\n\n")
+	b.WriteString("- This section is a typed replay of structured exploration handoff only: model-emitted `EvidenceItems`, deterministic evidence projections, and `FlowFindings`. It does not read raw thinking text, raw investigation notes, or unstructured closure prose.\n")
+	b.WriteString("- Use these facts to enrich the same principal subject, block, facet, hop, scalar, or verdict that the current request asks for. They are not a member slate by themselves.\n")
+	b.WriteString("- Do not promote an enrichment fact into a new principal ordered-list member, diagram node/edge, exact target, or countable bucket unless a typed support lane, exact-resolution contract, answer-symbol slate, structured aggregate fact, or cited source line independently makes it principal.\n")
+	if supportRendered {
+		b.WriteString("- Because typed support lanes are present, those lanes remain the principal boundary. Treat rows here as context, detail, exclusions, or same-item explanation only.\n")
+	}
+	b.WriteString("\n")
+
+	if len(facts) > 0 {
+		b.WriteString("### Evidence enrichment rows\n\n")
+		for _, fact := range facts {
+			loc := fact.item.DisplayLocation(true)
+			fmt.Fprintf(&b, "- lane=%s", fact.lane)
+			if fact.label != "" {
+				fmt.Fprintf(&b, " label=`%s`", fact.label)
+			}
+			if loc != "" {
+				fmt.Fprintf(&b, " @ %s", loc)
+			}
+			fmt.Fprintf(&b, ": %s", fact.surface)
+			if role := answerDocEvidenceRoleTag(fact.item); role != "" {
+				fmt.Fprintf(&b, " (%s)", role)
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+	if len(flowLines) > 0 {
+		b.WriteString("### Flow/source-sink rows\n\n")
+		for _, line := range flowLines {
+			fmt.Fprintf(&b, "- %s\n", line)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func selectAnswerDocTypedEnrichmentFacts(
+	ctx *types.AgentContext,
+	evidence []types.EvidenceItem,
+	supportIDs map[string]bool,
+	supportRendered bool,
+) []answerDocEnrichmentFact {
+	if len(evidence) == 0 {
+		return nil
+	}
+	needles := extractorValueEvidenceNeedles(ctx, nil)
+	profile := extractorValueEvidenceRankProfileFor(ctx)
+	limit := answerDocEnrichmentDisplayLimit(ctx, profile)
+	candidates := make([]answerDocEnrichmentFact, 0, len(evidence))
+	hasRelevant := false
+	for i, item := range evidence {
+		if supportRendered && supportIDs[answerDocEvidenceIdentity(item)] {
+			continue
+		}
+		lane := answerDocEnrichmentLaneForEvidence(item)
+		if lane == "" {
+			continue
+		}
+		surface := strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(item, false))
+		if surface == "" {
+			continue
+		}
+		label := answerDocEnrichmentEvidenceLabel(item)
+		score := answerDocEnrichmentEvidenceScore(item, label, surface, lane, needles, profile)
+		if score > 0 {
+			hasRelevant = true
+		}
+		candidates = append(candidates, answerDocEnrichmentFact{
+			item:    item,
+			lane:    lane,
+			label:   label,
+			surface: surface,
+			score:   score,
+			index:   i,
+		})
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	if hasRelevant {
+		filtered := candidates[:0]
+		for _, candidate := range candidates {
+			if candidate.score > 0 {
+				filtered = append(filtered, candidate)
+			}
+		}
+		candidates = filtered
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		return candidates[i].index < candidates[j].index
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates
+}
+
+func answerDocEnrichmentDisplayLimit(ctx *types.AgentContext, profile extractorValueRankProfile) int {
+	limit := answerDocDefaultEnrichmentFacts
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm := ctx.AnalysisIR.RequestModel
+		if len(rm.SubTopics) >= 2 {
+			limit += extractorMinInt(len(rm.SubTopics)*2, 6)
+		}
+		if buckets := rm.QuestionStructure().Buckets; len(buckets) >= 2 {
+			limit += extractorMinInt(len(buckets)*2, 6)
+		}
+		if rm.Complexity == types.ComplexityComplex {
+			limit += 4
+		}
+		if rm.Predicates.IsCrossComponent || rm.Predicates.IsRelationalLookup || rm.Predicates.IsCategoryEnumeration {
+			limit += 4
+		}
+	}
+	switch profile {
+	case extractorValueRankTrace, extractorValueRankDiagnostic, extractorValueRankComparison, extractorValueRankEnumeration:
+		limit += 4
+	case extractorValueRankScalar:
+		limit -= 2
+	}
+	if limit < 8 {
+		return 8
+	}
+	if limit > answerDocMaxEnrichmentFacts {
+		return answerDocMaxEnrichmentFacts
+	}
+	return limit
+}
+
+func answerDocEnrichmentLaneForEvidence(item types.EvidenceItem) string {
+	switch item.Kind {
+	case types.EvidenceConcrete:
+		return "value_fact"
+	case types.EvidenceDataflowPath:
+		return "flow_fact"
+	case types.EvidenceAbsent, types.EvidenceConflict, types.EvidenceUnresolved, types.EvidenceTruncated:
+		return "boundary_or_exclusion_fact"
+	}
+	switch item.ContextRole {
+	case types.EvidenceContextRoleAbsenceSupport, types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleRelatedContext:
+		return "context_enrichment_fact"
+	}
+	switch item.AnchorKind {
+	case types.AnchorAssignment, types.AnchorInitializer, types.AnchorReturn:
+		return "value_fact"
+	case types.AnchorCall, types.AnchorCondition, types.AnchorImport:
+		return "chain_or_intermediate_fact"
+	}
+	if item.LoadBearingSummary || len(item.SurfaceTerms) > 0 {
+		return "context_enrichment_fact"
+	}
+	switch item.Authority {
+	case types.AuthorityConditional, types.AuthorityHistorical, types.AuthorityIllustrative:
+		return "boundary_or_exclusion_fact"
+	}
+	return ""
+}
+
+func answerDocEnrichmentEvidenceLabel(item types.EvidenceItem) string {
+	for _, raw := range []string{item.Subject, item.AnchorSymbol, item.OwnerSymbol, item.Object, item.Source} {
+		if label := strings.TrimSpace(raw); label != "" {
+			return label
+		}
+	}
+	if item.AnchorKind != "" {
+		return string(item.AnchorKind)
+	}
+	return string(item.Kind)
+}
+
+func answerDocEnrichmentEvidenceScore(
+	item types.EvidenceItem,
+	label string,
+	surface string,
+	lane string,
+	needles map[string]bool,
+	profile extractorValueRankProfile,
+) int {
+	score := extractorValueEvidenceScore(item, label, surface, needles, profile)
+	switch lane {
+	case "value_fact":
+		score += 8
+	case "flow_fact":
+		score += 10
+	case "chain_or_intermediate_fact":
+		switch profile {
+		case extractorValueRankTrace, extractorValueRankDiagnostic, extractorValueRankComparison:
+			score += 10
+		default:
+			score += 5
+		}
+	case "boundary_or_exclusion_fact":
+		switch profile {
+		case extractorValueRankDiagnostic, extractorValueRankComparison:
+			score += 10
+		default:
+			score += 6
+		}
+	case "context_enrichment_fact":
+		score += 4
+	}
+	if len(item.SurfaceTerms) > 0 {
+		score += 4
+	}
+	switch item.ContextRole {
+	case types.EvidenceContextRoleRelatedContext, types.EvidenceContextRoleAbsenceSupport:
+		score += 2
+	case types.EvidenceContextRoleIllustrativeOnly:
+		score -= 2
+	}
+	if score == 0 && len(needles) == 0 {
+		return 1
+	}
+	return score
+}
+
+func answerDocEvidenceRoleTag(item types.EvidenceItem) string {
+	var parts []string
+	if item.Kind != "" {
+		parts = append(parts, "kind="+string(item.Kind))
+	}
+	if form := types.ClaimFormOf(item); form != types.ClaimUnknown {
+		parts = append(parts, "claim_form="+string(form))
+	}
+	if item.ContextRole != "" {
+		parts = append(parts, "context_role="+string(item.ContextRole))
+	}
+	if item.Authority != "" {
+		parts = append(parts, "authority="+string(item.Authority))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func answerDocSupportEvidenceIDs(ctx *types.AgentContext) map[string]bool {
+	plan := answerSupportPlan(ctx)
+	if plan == nil {
+		return nil
+	}
+	ids := map[string]bool{}
+	for _, lane := range plan.Lanes {
+		for _, entry := range lane.Entries {
+			for _, raw := range []string{
+				entry.EvidenceID,
+				answerDocEvidenceIdentity(types.EvidenceItem{
+					ID:           entry.EvidenceID,
+					Source:       entry.Source,
+					LineStart:    entry.LineStart,
+					AnchorKind:   entry.AnchorKind,
+					Subject:      entry.Subject,
+					Object:       entry.Object,
+					AnchorSymbol: entry.AnchorSymbol,
+					OwnerSymbol:  entry.OwnerSymbol,
+				}),
+			} {
+				key := strings.TrimSpace(raw)
+				if key != "" {
+					ids[key] = true
+				}
+			}
+		}
+	}
+	return ids
+}
+
+func answerDocEvidenceIdentity(item types.EvidenceItem) string {
+	if id := strings.TrimSpace(item.ID); id != "" {
+		return id
+	}
+	return types.StableEvidenceID(item)
+}
+
+func selectAnswerDocFlowEnrichmentLines(findings []types.FlowFindingDigest, limit int) []string {
+	if len(findings) == 0 || limit <= 0 {
+		return nil
+	}
+	out := make([]string, 0, extractorMinInt(len(findings), limit))
+	for _, ff := range findings {
+		parts := make([]string, 0, 5)
+		if ff.ID != "" {
+			parts = append(parts, "id="+ff.ID)
+		}
+		if len(ff.Path) > 0 {
+			parts = append(parts, "path="+strings.Join(ff.Path, " -> "))
+		}
+		if len(ff.Sources) > 0 || len(ff.Sinks) > 0 {
+			parts = append(parts, "source_sink="+strings.Join(ff.Sources, ", ")+" => "+strings.Join(ff.Sinks, ", "))
+		}
+		if len(ff.Hops) > 0 {
+			parts = append(parts, "hops="+strings.Join(ff.Hops, " -> "))
+		}
+		if len(ff.Conditions) > 0 {
+			parts = append(parts, "conditions="+strings.Join(ff.Conditions, "; "))
+		}
+		if ff.UnsupportedReason != "" {
+			parts = append(parts, "boundary="+ff.UnsupportedReason)
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		out = append(out, strings.Join(parts, " | "))
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func answerDocFlowEnrichmentLimit(ctx *types.AgentContext) int {
+	limit := 3
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm := ctx.AnalysisIR.RequestModel
+		if rm.Intent == types.IntentTrace || rm.PredicateAxis == types.AxisCall || rm.Predicates.IsCrossComponent {
+			limit = answerDocMaxFlowEnrichmentFacts
+		}
+		if rm.Complexity == types.ComplexityComplex && limit < answerDocMaxFlowEnrichmentFacts {
+			limit++
+		}
+	}
+	return limit
 }
 
 func truncateAnswerDocPromptText(s string, max int) string {
