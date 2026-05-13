@@ -3,6 +3,7 @@ package agent
 import (
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -96,6 +97,114 @@ func TestReconcileChangeImpactProfile_LeavesStepOutputAlone(t *testing.T) {
 	if got.Intent != rm.Intent || got.AnalyzerHints.Kind != rm.AnalyzerHints.Kind {
 		t.Fatalf("step-output reconcile changed classification: %+v", got)
 	}
+}
+
+func TestReconcileQualifiedCodeSymbolConfigDrift_RoutesQualifiedSymbolsToComparison(t *testing.T) {
+	graph := &repomap.Graph{SymbolDefs: map[string][]*repomap.Symbol{
+		"templateArchitectureExplain": {{
+			Name: "templateArchitectureExplain",
+			Kind: "function",
+			File: "internal/analysis/compiler/templates.go",
+		}},
+		"templateRootCause": {{
+			Name: "templateRootCause",
+			Kind: "function",
+			File: "internal/analysis/compiler/templates.go",
+		}},
+		"TaskGraph": {{
+			Name: "TaskGraph",
+			Kind: "struct",
+			File: "internal/types/analysis_ir.go",
+		}},
+	}}
+	rm := types.RequestModel{
+		RawRequest: "compiler.templateArchitectureExplain 和 compiler.templateRootCause 在 TaskGraph 节点数、citation 下限、retry budget 上分别有什么差异？逐项对比并给出具体数值。",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioConfigTrace,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:              string(types.ReqConfigMapping),
+			Entities:          []string{"compiler.templateArchitectureExplain", "compiler.templateRootCause", "TaskGraph"},
+			PrimaryEntities:   []string{"compiler.templateArchitectureExplain", "compiler.templateRootCause", "TaskGraph"},
+			MentionedEntities: []string{"compiler.templateArchitectureExplain", "compiler.templateRootCause", "TaskGraph"},
+		},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey, Confidence: 0.8},
+		PredicateAxis: types.AxisConfigure,
+		Predicates: types.SemanticPredicates{
+			IsScalarAnswer:     false,
+			IsRoleLocateLookup: false,
+			IsCountQuestion:    false,
+		},
+	}
+
+	got, reason := reconcileQualifiedCodeSymbolConfigDrift(rm, graph)
+	if reason == "" {
+		t.Fatal("expected qualified code symbols to reconcile config drift")
+	}
+	if got.Scenario != types.ScenarioArchitectureExplain {
+		t.Fatalf("scenario = %q, want architecture_explain", got.Scenario)
+	}
+	if got.AnalyzerHints.Kind != string(types.ReqMechanism) {
+		t.Fatalf("question kind = %q, want mechanism", got.AnalyzerHints.Kind)
+	}
+	if got.AnswerSubject.Kind != types.SubjectGeneric {
+		t.Fatalf("answer subject = %q, want generic", got.AnswerSubject.Kind)
+	}
+	if got.PredicateAxis != types.AxisUnknown {
+		t.Fatalf("predicate axis = %q, want unknown", got.PredicateAxis)
+	}
+	if !got.Predicates.IsCrossComponent {
+		t.Fatal("qualified comparison should mark cross-component for comparison routing")
+	}
+	if len(got.Buckets) != 2 {
+		t.Fatalf("buckets len = %d, want 2: %+v", len(got.Buckets), got.Buckets)
+	}
+	if got.Buckets[0].Label != "compiler.templateArchitectureExplain" ||
+		got.Buckets[1].Label != "compiler.templateRootCause" {
+		t.Fatalf("unexpected bucket labels: %+v", got.Buckets)
+	}
+	if len(got.SubTopics) != 2 {
+		t.Fatalf("subtopics len = %d, want 2: %+v", len(got.SubTopics), got.SubTopics)
+	}
+	if !containsStringSlice(got.AnalyzerHints.Entities, "templateArchitectureExplain") ||
+		!containsStringSlice(got.AnalyzerHints.Entities, "templateRootCause") {
+		t.Fatalf("canonical code aliases should be added as derived search entities: %+v", got.AnalyzerHints.Entities)
+	}
+	if gotFamily := types.ResolveQuestionFamily(got); gotFamily != types.QFComparison {
+		t.Fatalf("question family = %q, want comparison", gotFamily)
+	}
+}
+
+func TestReconcileQualifiedCodeSymbolConfigDrift_LeavesRealConfigTraceWithoutSymbolProof(t *testing.T) {
+	rm := types.RequestModel{
+		RawRequest: "server.port 和 server.host 的默认配置有什么区别？",
+		Intent:     types.IntentConfigQuery,
+		Scenario:   types.ScenarioConfigTrace,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:              string(types.ReqConfigMapping),
+			Entities:          []string{"server.port", "server.host"},
+			PrimaryEntities:   []string{"server.port", "server.host"},
+			MentionedEntities: []string{"server.port", "server.host"},
+		},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey, Confidence: 0.8},
+		PredicateAxis: types.AxisConfigure,
+	}
+
+	got, reason := reconcileQualifiedCodeSymbolConfigDrift(rm, &repomap.Graph{SymbolDefs: map[string][]*repomap.Symbol{}})
+	if reason != "" {
+		t.Fatalf("real config trace without code-symbol proof should not reconcile: %s", reason)
+	}
+	if got.Scenario != types.ScenarioConfigTrace || got.Intent != types.IntentConfigQuery {
+		t.Fatalf("config trace changed unexpectedly: %+v", got)
+	}
+}
+
+func containsStringSlice(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestBuildAnalysisIR_ChangeImpactFileOutputRoutesEnumeration(t *testing.T) {

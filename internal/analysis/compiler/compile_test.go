@@ -224,6 +224,28 @@ func TestCompile_SearchHintsIncludeChangeImpactTarget(t *testing.T) {
 	}
 }
 
+func TestCompile_SearchHintsIncludeAnalyzerEntities(t *testing.T) {
+	rm := sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate)
+	rm.AnalyzerHints.Entities = []string{"Namespace::Planner::Build", "templateArchitectureExplain"}
+	rm.AnalyzerHints.DerivedEntities = []string{"PlannerBuild"}
+
+	out := compileT(rm)
+	var foundQualified, foundDerived bool
+	for _, n := range out.TaskGraph.Nodes {
+		if containsString(n.SearchHints.EntityIDs, "Namespace::Planner::Build") &&
+			containsString(n.SearchHints.KeywordIDs, "templateArchitectureExplain") {
+			foundQualified = true
+		}
+		if containsString(n.SearchHints.EntityIDs, "PlannerBuild") &&
+			containsString(n.SearchHints.KeywordIDs, "PlannerBuild") {
+			foundDerived = true
+		}
+	}
+	if !foundQualified || !foundDerived {
+		t.Fatalf("analyzer entities should project into soft search hints: graph=%+v", out.TaskGraph.Nodes)
+	}
+}
+
 func TestCompile_ConfigTrace_BudgetReactsToComplexity(t *testing.T) {
 	out := compileT(sampleRM(types.ScenarioConfigTrace, types.IntentConfigQuery, types.ComplexitySimple))
 	// Simple complexity must give a smaller budget than moderate.

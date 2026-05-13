@@ -109,7 +109,11 @@ func chain(ids ...string) []types.TaskEdge {
 }
 
 // hintsFromRM copies every symbol-kind term into the node's search
-// hints.
+// hints, then merges analyzer/profile subject lanes as soft guidance.
+// AnalyzerHints are deliberately hints only: they improve recall for
+// language forms the raw-text normalizer does not fully tokenize
+// (C++ `::`, Cangjie / ArkTS qualified members, prior-resolved
+// subjects), but never become hard gates by themselves.
 func hintsFromRM(rm types.RequestModel) types.SearchHints {
 	var hints types.SearchHints
 	seenKeyword := map[string]bool{}
@@ -138,6 +142,14 @@ func hintsFromRM(rm types.RequestModel) types.SearchHints {
 		case types.TermConcept, types.TermConfig:
 			addKeyword(c.ID)
 		}
+	}
+	for _, candidate := range rm.AnalyzerHints.Entities {
+		addEntity(candidate)
+		addKeyword(candidate)
+	}
+	for _, candidate := range rm.AnalyzerHints.DerivedEntities {
+		addEntity(candidate)
+		addKeyword(candidate)
 	}
 	if profile := rm.ArtifactObservationProfile; profile != nil {
 		for _, candidate := range profile.SubjectCandidates {

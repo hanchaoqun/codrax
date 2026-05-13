@@ -1578,6 +1578,18 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			logging.Info("[analyzer] change-impact profile reconciled: %s", reason)
 			rm = resolved
 		}
+		if resolved, reason := reconcileQualifiedCodeSymbolConfigDrift(rm, analyzerGraphForNormalize(ctx, rm)); reason != "" {
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"qualified_code_symbol_config_drift",
+				fmt.Sprintf("intent=%s scenario=%s kind=%s subject=%s axis=%s", rm.Intent, rm.Scenario, rm.AnalyzerHints.Kind, rm.AnswerSubject.Kind, rm.PredicateAxis),
+				fmt.Sprintf("intent=%s scenario=%s kind=%s subject=%s axis=%s", resolved.Intent, resolved.Scenario, resolved.AnalyzerHints.Kind, resolved.AnswerSubject.Kind, resolved.PredicateAxis),
+				resolved.KindConfidence,
+				reason,
+				resolved.Predicates,
+			))
+			logging.Info("[analyzer] qualified code-symbol config drift reconciled: %s", reason)
+			rm = resolved
+		}
 		// Measurement-scalar signal — captures the reconciled-Intent
 		// case (LLM picked enumerate, reconcileIntent downgraded to
 		// return_value via IsCountQuestion), the LLM-direct case
