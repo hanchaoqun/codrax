@@ -2825,12 +2825,27 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("- These aggregate facts were emitted by the investigator through `emit_investigation_complete.aggregate_facts` after exploration. They are model-authored structured handoff values, not system-synthesised answer text.\n")
 	b.WriteString("- Preserve each `value` exactly when the corresponding fact answers the user's requested scalar, unique-set, group, bucket, exclusion, or exhaustive-member question. Use `members` for requested concrete lists such as enum/type names, file paths, or file:line locations.\n")
 	b.WriteString("- For `member_set` rows, `principal_member_set=true` marks the concrete principal slate. `coverage_axis_only=true` rows are audit/coverage context for a richer relation slate and must not create duplicate principal rows.\n")
+	if relationRefs := types.PrincipalRelationMemberSetFactRefs(plan.StableAggregateFacts); len(relationRefs) > 0 {
+		b.WriteString("- Relation contract: principal relation `member_set` rows answer a qualifying-member lookup. Start from the qualifying member(s) in that typed set, then explain the relation evidence; do not substitute a mechanism-only architecture explanation for the direct member answer.\n")
+		if answerDocHasMultiMemberAggregateRef(relationRefs) {
+			b.WriteString("- For multi-member relation sets, render the qualifying members as list/table rows before any broader mechanism narrative.\n")
+		}
+	}
 	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, `Member | file.ext:line`, or `Member (file.ext:line)`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Reserve `citation_ref:-1` only for member labels that have no citable source-location handoff.\n")
 	b.WriteString("- Do not render internal provenance strings such as `source=emit_investigation_complete.aggregate_facts` in the user-visible answer text. Use provenance only to choose the correct member set and citations.\n")
 	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, typed support lanes, citations, or raw tool outputs conflict with these facts, prefer the structured member_set for the principal list and state the evidence boundary instead of inventing a reconciliation.\n\n")
 	b.WriteString(renderStructuredAggregateFacts(plan.StableAggregateFacts, 16))
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocHasMultiMemberAggregateRef(refs []types.AnswerAggregateFactRef) bool {
+	for _, ref := range refs {
+		if len(ref.Fact.Members) > 1 {
+			return true
+		}
+	}
+	return false
 }
 
 const (

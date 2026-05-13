@@ -50,6 +50,7 @@ package tool
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
@@ -183,6 +184,12 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 		hints = append(hints, h...)
 	}
 	if h := preCheckAggregateMemberSetCoverage(doc, ctxOpt...); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+	if h := preCheckAggregateCardinalityConsistency(doc, ctxOpt...); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+	if h := preCheckRelationMemberSetAnswerShape(doc, ctxOpt...); len(h) > 0 {
 		hints = append(hints, h...)
 	}
 
@@ -805,11 +812,12 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 		return nil
 	}
 	ctx := ctxOpt[0]
-	if ctx.AnalysisIR == nil || !types.RequiresExhaustiveEnumerationMemberSetHandoff(ctx.AnalysisIR.RequestModel) {
-		return nil
-	}
 	facts := ctx.Mutable.StableInvestigationAggregateFacts()
 	if len(facts) == 0 {
+		return nil
+	}
+	principalRefs := types.PrincipalAggregateMemberSetFactRefs(facts)
+	if len(principalRefs) == 0 {
 		return nil
 	}
 	surface := preEmitVisibleAnswerSurface(doc)
@@ -822,7 +830,7 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	}
 	var missing []missingMember
 	seen := make(map[string]bool)
-	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(facts) {
+	for _, ref := range principalRefs {
 		fact := ref.Fact
 		for _, member := range fact.Members {
 			if preEmitAggregateMemberAppearsInDocument(member, doc, surface) {
@@ -862,10 +870,318 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	}
 	return []emitFixHint{{
 		Field: "blocks[].items[].label/text OR blocks[].text",
-		ExpectedShape: "include every model-emitted member_set member in the visible exhaustive enumeration answer: " +
+		ExpectedShape: "include every model-emitted principal member_set member in the visible answer: " +
 			strings.Join(parts, "; "),
-		Reason: "the investigation handed off the complete principal member set as structured data; finalization must preserve those model-authored members instead of compressing the answer to a partial symbol slate or prose summary.",
+		Reason: "the investigation handed off this complete principal member set as structured data; finalization must preserve those model-authored members even when the request family was routed as architecture, scalar, relation, or generic prose.",
 	}}
+}
+
+func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
+		return nil
+	}
+	refs := types.PrincipalAggregateMemberSetFactRefs(ctxOpt[0].Mutable.StableInvestigationAggregateFacts())
+	if len(refs) == 0 {
+		return nil
+	}
+	uniquePrincipalSet := len(refs) == 1
+	type mismatch struct {
+		label    string
+		expected int
+		got      int
+		blockID  string
+	}
+	var mismatches []mismatch
+	for _, ref := range refs {
+		fact := ref.Fact
+		expected := len(fact.Members)
+		if expected == 0 {
+			continue
+		}
+		if declared, ok := preEmitParseAggregateFactCount(fact.Value); ok && declared != expected {
+			mismatches = append(mismatches, mismatch{
+				label:    strings.TrimSpace(fact.Label),
+				expected: expected,
+				got:      declared,
+				blockID:  fmt.Sprintf("aggregate_facts[%d].value", ref.Index),
+			})
+			continue
+		}
+		for _, claim := range preEmitAggregateScopedCountClaims(doc, fact, uniquePrincipalSet) {
+			if claim.value == expected {
+				continue
+			}
+			mismatches = append(mismatches, mismatch{
+				label:    strings.TrimSpace(fact.Label),
+				expected: expected,
+				got:      claim.value,
+				blockID:  claim.blockID,
+			})
+		}
+	}
+	if len(mismatches) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(mismatches))
+	seen := map[string]bool{}
+	for _, m := range mismatches {
+		key := fmt.Sprintf("%s\x00%d\x00%d\x00%s", strings.ToLower(m.label), m.expected, m.got, m.blockID)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		label := m.label
+		if label == "" {
+			label = "principal member_set"
+		}
+		parts = append(parts, fmt.Sprintf("label=%q expected_count=%d visible_count=%d surface=%s", label, m.expected, m.got, m.blockID))
+		if len(parts) >= 8 {
+			break
+		}
+	}
+	return []emitFixHint{{
+		Field: "blocks[].text/count claims",
+		ExpectedShape: "make every visible count claim for a model-emitted principal member_set equal the member_set cardinality: " +
+			strings.Join(parts, "; "),
+		Reason: "aggregate_facts.member_set is the authoritative model-authored principal set; final text may display it, but it must not introduce a different count for that same set.",
+	}}
+}
+
+func preCheckRelationMemberSetAnswerShape(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
+		return nil
+	}
+	refs := types.PrincipalRelationMemberSetFactRefs(ctxOpt[0].Mutable.StableInvestigationAggregateFacts())
+	if len(refs) == 0 {
+		return nil
+	}
+	var missing []string
+	for _, ref := range refs {
+		fact := ref.Fact
+		if len(fact.Members) <= 1 {
+			continue
+		}
+		if preEmitStructuredMemberBlockCoversFact(doc, fact) {
+			continue
+		}
+		label := strings.TrimSpace(fact.Label)
+		if label == "" {
+			label = fmt.Sprintf("aggregate_facts[%d]", ref.Index)
+		}
+		missing = append(missing, fmt.Sprintf("label=%q members=%d", label, len(fact.Members)))
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return []emitFixHint{{
+		Field: "blocks[kind=ordered_list|bullet_list|table].items[]",
+		ExpectedShape: "render every multi-member relation principal member_set as direct list/table rows before mechanism explanation: " +
+			strings.Join(missing, "; "),
+		Reason: "relation lookups ask for qualifying members plus proof; a mechanism-only paragraph or compressed prose can hide members and recreate the original off-topic architecture answer.",
+	}}
+}
+
+type preEmitAggregateCountClaim struct {
+	value   int
+	blockID string
+}
+
+func preEmitParseAggregateFactCount(value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact, uniquePrincipalSet bool) []preEmitAggregateCountClaim {
+	if doc == nil {
+		return nil
+	}
+	expected := len(fact.Members)
+	if expected == 0 {
+		return nil
+	}
+	var out []preEmitAggregateCountClaim
+	for _, block := range doc.Blocks {
+		surface := strings.TrimSpace(block.Title + "\n" + block.Text)
+		if surface == "" {
+			continue
+		}
+		if !preEmitBlockBindsToAggregateCount(block, surface, fact, uniquePrincipalSet) {
+			continue
+		}
+		for _, value := range preEmitScopedCountValues(surface, expected) {
+			out = append(out, preEmitAggregateCountClaim{
+				value:   value,
+				blockID: preEmitBlockCountSurfaceID(block),
+			})
+		}
+	}
+	return out
+}
+
+func preEmitBlockBindsToAggregateCount(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, uniquePrincipalSet bool) bool {
+	if preEmitAggregateDisplayPartAppears(strings.TrimSpace(fact.Label), surface) {
+		return true
+	}
+	for _, member := range fact.Members {
+		if preEmitAggregateMemberAppearsInText(member, surface) {
+			return true
+		}
+	}
+	if !uniquePrincipalSet {
+		return false
+	}
+	switch block.Kind {
+	case types.BlockScalar:
+		return true
+	default:
+		return false
+	}
+}
+
+func preEmitBlockCountSurfaceID(block types.AnswerBlock) string {
+	id := strings.TrimSpace(block.ID)
+	if id == "" {
+		id = string(block.Kind)
+	}
+	return fmt.Sprintf("blocks[id=%q kind=%q]", id, block.Kind)
+}
+
+func preEmitScopedCountValues(surface string, expected int) []int {
+	values := preEmitCountLikeIntegers(surface)
+	if len(values) == 0 {
+		return nil
+	}
+	if len(values) == 1 {
+		return values
+	}
+	for _, value := range values {
+		if value == expected {
+			return nil
+		}
+	}
+	return []int{values[0]}
+}
+
+func preEmitCountLikeIntegers(surface string) []int {
+	var out []int
+	for i := 0; i < len(surface); {
+		if surface[i] < '0' || surface[i] > '9' {
+			i++
+			continue
+		}
+		start := i
+		for i < len(surface) && surface[i] >= '0' && surface[i] <= '9' {
+			i++
+		}
+		end := i
+		if preEmitIntegerLooksLikeSourceOrIdentifier(surface, start, end) {
+			continue
+		}
+		value, err := strconv.Atoi(surface[start:end])
+		if err != nil {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
+func preEmitIntegerLooksLikeSourceOrIdentifier(surface string, start, end int) bool {
+	if start > 0 {
+		prev := surface[start-1]
+		if prev == ':' || prev == '/' || prev == '\\' || prev == '.' || prev == '-' || prev == '#' ||
+			prev == '_' || prev >= 'A' && prev <= 'Z' || prev >= 'a' && prev <= 'z' {
+			return true
+		}
+	}
+	if end < len(surface) {
+		next := surface[end]
+		if next == ':' || next == '/' || next == '\\' || next == '.' || next == '-' ||
+			next == '_' || next >= 'A' && next <= 'Z' || next >= 'a' && next <= 'z' {
+			return true
+		}
+	}
+	if strings.HasPrefix(surface[end:], "行") {
+		return true
+	}
+	prefix := strings.ToLower(strings.TrimSpace(surface[:start]))
+	last := ""
+	for i := len(prefix) - 1; i >= 0; i-- {
+		ch := prefix[i]
+		if ch >= 'a' && ch <= 'z' {
+			continue
+		}
+		last = prefix[i+1:]
+		break
+	}
+	if last == "" {
+		last = prefix
+	}
+	switch last {
+	case "line", "lines", "ln", "l":
+		return true
+	default:
+		return false
+	}
+}
+
+func preEmitStructuredMemberBlockCoversFact(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact) bool {
+	if doc == nil || len(fact.Members) == 0 {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			continue
+		}
+		matched := make(map[int]bool, len(fact.Members))
+		for _, item := range block.Items {
+			itemSurface := strings.TrimSpace(item.Label + "\n" + item.Text)
+			if itemSurface == "" {
+				continue
+			}
+			for idx, member := range fact.Members {
+				if matched[idx] {
+					continue
+				}
+				if preEmitAggregateMemberAppearsInText(member, itemSurface) {
+					matched[idx] = true
+				}
+			}
+		}
+		if len(matched) == len(fact.Members) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitAggregateMemberAppearsInText(member string, surface string) bool {
+	candidates := preEmitAggregateMemberDisplayCandidates(member)
+	if len(candidates) == 0 {
+		return true
+	}
+	if preEmitAnyAggregateMemberAppears(candidates, surface) {
+		return true
+	}
+	for _, relationSurface := range preEmitAggregateMemberRelationSurfaces(member) {
+		left, right, ok := types.AnswerAggregateMemberRelationParts(relationSurface)
+		if !ok {
+			continue
+		}
+		if preEmitTextContainsAllAggregateParts(surface, left, right) {
+			return true
+		}
+	}
+	return false
 }
 
 func preEmitAggregateMemberAppearsInDocument(member string, doc *types.AnswerDocumentV2, surface string) bool {

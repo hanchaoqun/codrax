@@ -1170,6 +1170,9 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		if downgrade := principalRequiredTermHandoffDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
 			return downgrade
 		}
+		if downgrade := relationMemberSetHandoffDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
+			return downgrade
+		}
 		if downgrade := exhaustiveEnumerationMemberSetDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
 			return downgrade
 		}
@@ -1491,6 +1494,37 @@ func aggregateFactsContainCountAnswer(facts []types.AnswerAggregateFact) bool {
 		}
 	}
 	return false
+}
+
+func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !types.RequiresRelationMemberSetHandoff(rm) {
+		return ""
+	}
+	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)
+	if ok {
+		return ""
+	}
+	if closure != nil {
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairEmitEvidence,
+			Files:     completionMaterializationReadFiles(closure),
+			Keywords:  dedupStringsPreserveOrder(append(append([]string{}, types.StructuralRelationScopeCandidates(rm)...), append(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities...)...)),
+			Rationale: "relation lookup needs a typed principal member_set so finalization answers with qualifying members before mechanism explanation",
+			Origin:    "pre_complete.relation_member_set",
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — relation member-set handoff is missing.\n\n")
+	b.WriteString("The current question is a typed relation lookup with a set/count/enumerate answer shape. Do not close with only a mechanism explanation, raw read_file memory, or closure prose; finalization needs the qualifying members as model-authored structured data.\n\n")
+	if strings.TrimSpace(invalid) != "" {
+		fmt.Fprintf(&b, "A `member_set` was present but is not usable as relation principal-member data: %s\n\n", invalid)
+	}
+	b.WriteString("Emit `aggregate_facts` with kind=`member_set`, value equal to the exact qualifying-member count, and members containing the verified relation answer set. For relation rows you may use compact surfaces such as `caller → callee`, `package: entry`, `module/import`, or a plain qualifying member when the relation target is already clear from the request and evidence. Each member must be backed by typed evidence or member-specific support_refs. Then re-call `emit_investigation_complete`.")
+	return b.String()
 }
 
 func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {

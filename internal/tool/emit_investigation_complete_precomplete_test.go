@@ -73,6 +73,73 @@ func TestEmitInvestigationComplete_PreCompleteCheck_NoPendingReads_Allows(t *tes
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_RelationLookupRequiresMemberSetHandoff(t *testing.T) {
+	mut := types.NewMutableState("哪些 agent 可以调用 subagent？")
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsRelationalLookup:    true,
+					IsCategoryEnumeration: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Entities: []string{"agent", "subagent"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "SubAgentRuntime validates proposals and runs registered subagents.",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "relation member-set handoff is missing") {
+		t.Fatalf("expected relation member-set downgrade, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open until relation member_set is emitted")
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 || repairs[len(repairs)-1].Origin != "pre_complete.relation_member_set" {
+		t.Fatalf("expected relation member-set repair directive, got %+v", repairs)
+	}
+
+	mut = types.NewMutableState("哪些 agent 可以调用 subagent？")
+	bus.Mutable = mut
+	params, _ = json.Marshal(map[string]any{
+		"reason":      "verified qualifying member set",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "member_set",
+			"label":   "agents that can invoke subagents",
+			"value":   "1",
+			"members": []string{"explorer agent"},
+		}},
+	})
+	res, err = tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "relation member-set handoff is missing") {
+		t.Fatalf("accepted relation member_set should satisfy handoff, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete after relation member_set handoff")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_FieldValueCountRejectsUnreadAggregateLiteral(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeTestFile(t, repoRoot, "internal/agent/analyzer.go", `

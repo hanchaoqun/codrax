@@ -890,6 +890,8 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 
 **exhaustive member-set preflight**：`RequiresExhaustiveEnumerationMemberSetHandoff` 是闭集主项枚举的 typed predicate。它消费 `Intent`、`Predicates`、`QuestionStructure`、`AnalyzerHints.Kind` 等结构信号，识别 completeness / declared-count / bounded category enumeration，不扫描 raw request 关键词。当该 predicate 为真且 family 是 enumeration，explorer 的 Turn A readiness、S1 soft-stop fallback、`emit_investigation_complete` preflight 都不能绕过模型结构化 handoff：`resolved` completion 必须在 `aggregate_facts` 里提交 `kind=member_set`、`value=len(members)`、`members=[...]` 的完整主项集合。finalizer 的 `emit_answer_document` pre-check 还会确认已接受的 member_set 每个成员都进入可见答案。系统只校验模型 emit 的结构自洽和可见性，不从 raw 工具输出 / thinking / closure prose 补答案。
 
+**relation member-set contract**：`RequiresRelationMemberSetHandoff` 是关系型 set/count/enumerate 问题的 typed contract。它只消费 `Predicates.IsRelationalLookup` 以及 set/count/enumerate 结构信号，显式跳过 scalar role lookup 和机制型 architecture explanation，不扫描 raw request 关键词。当它触发时，explorer 不能用"机制解释已经清楚"直接 `resolved`，必须在 `aggregate_facts.member_set` 中提交 qualifying members；finalizer 再从同一 principal member_set 开始回答，随后解释 relation evidence。若 relation member_set 有多个成员，`emit_answer_document` pre-check 要求 list/table rows 先显式展示成员，避免又退回一段泛泛架构说明。
+
 **enumeration single-member backbone**：普通机制/调用链的 evidence fallback 仍要求 3 个同文件锚点，避免孤立 helper 膨胀成主链；但枚举题的合法集合可以只有 1 个成员。因此 `BuildAnswerSurfacePlan` 会在 `FacetCoverage` 之后，从 facet-bound `FacetEnumerationItem` principal evidence 生成 `StepBackbone`，即使只有一个 model-authored member。这样下游 prompt / finalizer 能复用探索期已经 emit 的主项，而不是退回 raw 工具输出或被 helper 名称填充。
 
 #### Structured Aggregate Facts — 探索期聚合结构的 typed handoff
@@ -907,7 +909,7 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 
 `emit_investigation_complete` 对 `aggregate_facts` 做纯结构校验：kind 闭枚举、长度上限、去重、count / member-set value 数字化、`len(members)==value` / `len(excluded)==value` 的自洽校验；当 `total_count` / `grouped_count` / `bucket_count` 的 members 是跨文件 `file:line` 集合时，必须同时提交匹配的 `unique_count` 文件集合 fact。系统不从 raw evidence 合成答案值，只验证模型自己 emit 的 typed facts 自洽，然后把通过的 facts 存进 Mutable stable projection。
 
-finalizer 看到 `## Structured Aggregate Facts` 后只做保真消费：保留 `value`，用 `members` 生成用户要求的文件/行号/成员列表；如果 member 是 `file.ext:line` 并渲染成 list/table item，必须创建或复用匹配 citation 并设置 `citation_ref`。`emit_answer_document` 的 pre-emit hard gate 会检查 model-authored `scalar_value` 是否出现在可见答案块 / item 表面；缺失会在同一 tool turn 要求 finalizer 重发，而不是由系统从 thinking 或 closure prose 补答案。这条规则把"scalar 数字/字面值"和"源位置列表"分开：count 本身可以来自命令级测量，源位置成员仍必须按普通 repo citation 落地。
+finalizer 看到 `## Structured Aggregate Facts` 后只做保真消费：保留 `value`，用 `members` 生成用户要求的文件/行号/成员列表；如果 member 是 `file.ext:line` 并渲染成 list/table item，必须创建或复用匹配 citation 并设置 `citation_ref`。`emit_answer_document` 的 pre-emit hard gate 会检查 model-authored `scalar_value` 是否出现在可见答案块 / item 表面，也会把任意 principal `member_set` 视为答案主项：所有成员必须可见，绑定到该 member_set 的显式 count claim 必须等于 `len(members)`。这条 cardinality gate 只在 block title/text 与 fact label/member surface 精确绑定，或唯一 principal set 的 scalar block 上比较整数；源码行号、路径数字、引用编号不会变成集合数量。缺失或冲突会在同一 tool turn 要求 finalizer 重发，而不是由系统从 thinking 或 closure prose 补答案。这条规则把"scalar 数字/字面值"和"源位置列表"分开：count 本身可以来自命令级测量，源位置成员仍必须按普通 repo citation 落地。
 
 ### 5.11 EvidenceClosure — 跨阶段状态总线
 

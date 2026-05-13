@@ -415,6 +415,135 @@ func TestPreCheckAggregateMemberSetCoverage_RequiresVisibleModelAuthoredMembers(
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_PrincipalFactsDoNotDependOnRequestFamily(t *testing.T) {
+	mu := types.NewMutableState("relation aggregate handoff routed as architecture")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "agents that can invoke subagents",
+		Value:   "1",
+		Members: []string{"explorer"},
+	}})
+	mu.SetInvestigationComplete("structured relation member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: false,
+					IsRelationalLookup:    false,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "SubAgentRuntime validates proposals and dispatches registered subagents through the orchestration layer.",
+	}}}
+
+	hints := preCheckAggregateMemberSetCoverage(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("model-authored principal member_set must be preserved independent of analyzer family, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "explorer") {
+		t.Fatalf("hint should name the omitted qualifying member, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Text = "可以调用 subagent 的是 `explorer`；SubAgentRuntime 只是执行层。"
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("visible qualifying member should satisfy family-independent coverage, got %+v", got)
+	}
+}
+
+func TestPreCheckAggregateCardinalityConsistency_RejectsScopedCountMismatch(t *testing.T) {
+	members := []string{
+		"AnalyzerAgent", "ExplorerAgent", "ExtractorAgent", "FinalizerAgent",
+		"PipelineStage", "AgentContext", "StageOutput", "BaseAgent",
+		"SubAgentRuntime", "SubAgentRegistry",
+	}
+	mu := types.NewMutableState("aggregate cardinality handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "typed handoff participants",
+		Value:   "10",
+		Members: members,
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	items := make([]types.AnswerBlockItem, 0, len(members))
+	for _, member := range members {
+		items = append(items, types.AnswerBlockItem{Label: member})
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "typed handoff participants 一共有 8 个，下面列全。",
+	}, {
+		ID:    "members",
+		Kind:  types.BlockOrderedList,
+		Items: items,
+	}}}
+
+	hints := preCheckAggregateCardinalityConsistency(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("summary count must match member_set cardinality, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "expected_count=10") ||
+		!strings.Contains(hints[0].ExpectedShape, "visible_count=8") {
+		t.Fatalf("hint should report scoped count mismatch, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Text = "typed handoff participants 一共有 10 个；其中 `AnalyzerAgent` 的关键证据在 internal/agent/analyzer.go:1649。"
+	if got := preCheckAggregateCardinalityConsistency(doc, ctx); len(got) != 0 {
+		t.Fatalf("correct count plus source line number should pass, got %+v", got)
+	}
+}
+
+func TestPreCheckRelationMemberSetAnswerShape_RequiresStructuredRowsForMultiMemberRelations(t *testing.T) {
+	mu := types.NewMutableState("relation aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "subpackage entries",
+		Value: "2",
+		Members: []string{
+			"aggregator → Aggregate",
+			"compiler → Compile",
+		},
+	}})
+	mu.SetInvestigationComplete("structured relation member set accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "subpackage entries 是 aggregator → Aggregate 和 compiler → Compile；机制上由 analyzer 编译后分发。",
+	}}}
+
+	hints := preCheckRelationMemberSetAnswerShape(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("multi-member relation set should require direct rows, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "members=2") {
+		t.Fatalf("hint should describe the relation member_set size, got %+v", hints[0])
+	}
+
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:   "entries",
+		Kind: types.BlockTable,
+		Items: []types.AnswerBlockItem{{
+			Label: "aggregator",
+			Text:  "入口函数是 `Aggregate`。",
+		}, {
+			Label: "compiler",
+			Text:  "入口函数是 `Compile`。",
+		}},
+	})
+	if got := preCheckRelationMemberSetAnswerShape(doc, ctx); len(got) != 0 {
+		t.Fatalf("table rows with split relation parts should satisfy relation answer shape, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_AcceptsRelationDisplayVariants(t *testing.T) {
 	mu := types.NewMutableState("entry function aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

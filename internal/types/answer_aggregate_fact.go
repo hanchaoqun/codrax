@@ -176,6 +176,47 @@ func PrincipalAggregateMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAg
 	return out
 }
 
+// PrincipalRelationMemberSetFactRefs returns principal member_set facts whose
+// members carry an explicit compact relation surface such as `caller → callee`,
+// `pkg: Entry`, `pkg/Entry`, or `Type::Member`.
+//
+// This is a typed aggregate helper, not a natural-language classifier. It only
+// consumes model-authored member_set rows plus the same language-neutral
+// relation parser used by member-set canonicalization. Callers use it to apply
+// relation-answer shape rules without coupling those rules to Go symbols,
+// English/Chinese keywords, or a specific question family.
+func PrincipalRelationMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAggregateFactRef {
+	refs := PrincipalAggregateMemberSetFactRefs(facts)
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]AnswerAggregateFactRef, 0, len(refs))
+	for _, ref := range refs {
+		if AnswerAggregateFactHasRelationMembers(ref.Fact) {
+			out = append(out, ref)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// AnswerAggregateFactHasRelationMembers reports whether at least one principal
+// member is an explicit two-part relation display surface. It deliberately does
+// not inspect labels, dimensions, raw prompts, or closure prose.
+func AnswerAggregateFactHasRelationMembers(fact AnswerAggregateFact) bool {
+	if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+		return false
+	}
+	for _, member := range fact.Members {
+		if _, _, ok := AnswerAggregateMemberRelationParts(member); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func aggregateRelationLeftAxisSet(fact AnswerAggregateFact) (map[string]bool, bool) {
 	if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
 		return nil, false

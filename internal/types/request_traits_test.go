@@ -172,6 +172,37 @@ func TestRequiresExhaustiveEnumerationMemberSetHandoff_TypedOnly(t *testing.T) {
 	}
 }
 
+func TestRequiresRelationMemberSetHandoff_TypedOnly(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsRelationalLookup:    true,
+			IsCategoryEnumeration: true,
+		},
+	}
+	if !RequiresRelationMemberSetHandoff(rm) {
+		t.Fatal("set-valued relation lookup should require a structured relation member_set handoff")
+	}
+
+	rm.Predicates.IsCategoryEnumeration = false
+	rm.Predicates.IsCountQuestion = true
+	if !RequiresRelationMemberSetHandoff(rm) {
+		t.Fatal("relation count lookup should require a structured member_set so the count has a verified member basis")
+	}
+
+	rm.Predicates.IsCountQuestion = false
+	rm.Predicates.IsRoleLocateLookup = true
+	if RequiresRelationMemberSetHandoff(rm) {
+		t.Fatal("scalar role-location relation must not require a member_set")
+	}
+
+	rm.Predicates.IsRoleLocateLookup = false
+	rm.Intent = IntentExplain
+	if RequiresRelationMemberSetHandoff(rm) {
+		t.Fatal("mechanism-only relation explanation must not require a qualifying-member set")
+	}
+}
+
 func TestIsCategoryEnumerationAnswerShape_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{IsCategoryEnumeration: true},

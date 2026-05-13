@@ -117,6 +117,31 @@ func RequiresExhaustiveEnumerationMemberSetHandoff(rm RequestModel) bool {
 	}
 }
 
+// RequiresRelationMemberSetHandoff reports whether a relation lookup needs a
+// model-authored principal member_set before exploration may close.
+//
+// This is the relation-shaped counterpart to
+// RequiresExhaustiveEnumerationMemberSetHandoff. It only consumes typed answer
+// shape signals: relational lookup + set/count/enumerate shape. It intentionally
+// skips scalar role-location relations ("which function handles X?") and pure
+// architecture explanations ("how A talks to B?"), because those are answered
+// by a resolved literal or mechanism narrative rather than a qualifying-member
+// set.
+func RequiresRelationMemberSetHandoff(rm RequestModel) bool {
+	if !rm.Predicates.IsRelationalLookup {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer || rm.Predicates.IsRoleLocateLookup {
+		return false
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return false
+	}
+	return rm.Intent == IntentEnumerate ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsCountQuestion
+}
+
 // IsCategoryEnumerationAnswerShape reports whether the user's answer
 // shape is a set of principal members, as opposed to a single scalar
 // role/literal that happens to be phrased with "which".
