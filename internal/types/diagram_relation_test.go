@@ -47,6 +47,7 @@ func TestRelationForClaimForm_AllKinds(t *testing.T) {
 		{ClaimPrecedenceRole, DiagramRelPrecedence},
 		{ClaimExternalObservation, DiagramRelObserve},
 		{ClaimDefinitionFact, DiagramRelUnknown},
+		{ClaimTextReferenceFact, DiagramRelUnknown},
 		{ClaimUnknown, DiagramRelUnknown},
 	}
 	for _, c := range cases {

@@ -125,6 +125,12 @@ const (
 	// statement. Supports "package P depends on Q" but NOT
 	// "package P calls Q at runtime" — that's ClaimCallEdge.
 	ClaimImportEdge ClaimForm = "import_edge"
+
+	// ClaimTextReferenceFact: evidence cites source/config/doc/comment text
+	// whose visible surface is itself the fact. Supports "this file/site
+	// mentions label L" or "this documentation line would need updating";
+	// it cannot prove that L is defined, assigned, returned, or called.
+	ClaimTextReferenceFact ClaimForm = "text_reference_fact"
 )
 
 // allClaimForms is the canonical iteration order for tests and
@@ -139,6 +145,7 @@ var allClaimForms = []ClaimForm{
 	ClaimPrecedenceRole,
 	ClaimExternalObservation,
 	ClaimImportEdge,
+	ClaimTextReferenceFact,
 }
 
 // AllClaimForms returns the canonical iteration order. Returned
@@ -195,7 +202,8 @@ func (c ClaimForm) LabelSurfaceKind() ClaimLabelSurfaceKind {
 	case ClaimDefinitionFact, ClaimCallEdge, ClaimGuardCondition,
 		ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact:
 		return ClaimLabelSurfaceSymbolLike
-	case ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation:
+	case ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation,
+		ClaimTextReferenceFact:
 		return ClaimLabelSurfaceDisplayLabel
 	default:
 		return ClaimLabelSurfaceUnknown
@@ -242,8 +250,9 @@ func (c ClaimForm) UsesNonSymbolLabelSurface() bool {
 //     AnchorReturn     → ClaimReturnFact
 //     AnchorAssignment → ClaimAssignmentFact
 //     AnchorInitializer → ClaimAssignmentFact
-//     AnchorImport     → ClaimImportEdge
-//     AnchorDefinition → ClaimDefinitionFact
+//     AnchorImport        → ClaimImportEdge
+//     AnchorTextReference → ClaimTextReferenceFact
+//     AnchorDefinition    → ClaimDefinitionFact
 //
 //  5. fall-through → ClaimUnknown
 //     Reason: with no Origin, no Negative scope, no DiagramRole,
@@ -283,6 +292,8 @@ func ClaimFormOf(item EvidenceItem) ClaimForm {
 		return ClaimAssignmentFact
 	case AnchorImport:
 		return ClaimImportEdge
+	case AnchorTextReference:
+		return ClaimTextReferenceFact
 	case AnchorDefinition:
 		return ClaimDefinitionFact
 	}

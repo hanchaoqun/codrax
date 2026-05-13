@@ -76,13 +76,14 @@ func compileChangeImpactAggregateMemberSupportLane(rm RequestModel, plan *Answer
 	default:
 		return lane
 	}
+	supportEvidence := changeImpactSupportEvidenceByLocation(plan.SurfaceEvidence)
 	seen := map[string]bool{}
 	for factIdx, fact := range plan.StableAggregateFacts {
 		if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
 			continue
 		}
 		for memberIdx, member := range fact.Members {
-			entry, ok := changeImpactAggregateMemberSupportEntry(rm.ChangeImpactProfile, fact, factIdx, memberIdx, member)
+			entry, ok := changeImpactAggregateMemberSupportEntry(rm.ChangeImpactProfile, fact, factIdx, memberIdx, member, supportEvidence)
 			if !ok {
 				continue
 			}
@@ -100,7 +101,7 @@ func compileChangeImpactAggregateMemberSupportLane(rm RequestModel, plan *Answer
 	return lane
 }
 
-func changeImpactAggregateMemberSupportEntry(profile *ChangeImpactProfile, fact AnswerAggregateFact, factIdx, memberIdx int, member string) (AnswerSupportEntry, bool) {
+func changeImpactAggregateMemberSupportEntry(profile *ChangeImpactProfile, fact AnswerAggregateFact, factIdx, memberIdx int, member string, supportEvidence map[string]EvidenceItem) (AnswerSupportEntry, bool) {
 	if profile == nil || !profile.Active() {
 		return AnswerSupportEntry{}, false
 	}
@@ -140,7 +141,7 @@ func changeImpactAggregateMemberSupportEntry(profile *ChangeImpactProfile, fact 
 		text = label + ": " + display
 	}
 	detail := "source=emit_investigation_complete.aggregate_facts; aggregate_kind=member_set; member_surface=source_location"
-	return AnswerSupportEntry{
+	entry := AnswerSupportEntry{
 		Text:          text,
 		Detail:        detail,
 		Location:      location,
@@ -153,7 +154,74 @@ func changeImpactAggregateMemberSupportEntry(profile *ChangeImpactProfile, fact 
 		MemberSurface: PrincipalMemberSurfaceSourceLocation,
 		Producer:      "explorer.emit_investigation_complete.aggregate_facts",
 		GroundingTier: TierLineText,
-	}, true
+	}
+	if ev, ok := supportEvidence[changeImpactSupportLocationKey(file, line)]; ok {
+		entry.ClaimForm = ClaimFormOf(ev)
+		entry.LabelSurface = entry.ClaimForm.LabelSurfaceKind()
+		entry.Subject = strings.TrimSpace(ev.Subject)
+		entry.Object = strings.TrimSpace(ev.Object)
+		entry.AnchorSymbol = strings.TrimSpace(ev.AnchorSymbol)
+		entry.OwnerSymbol = strings.TrimSpace(ev.OwnerSymbol)
+		entry.AnchorKind = ev.AnchorKind
+		entry.Producer = firstNonEmptySurfaceString(strings.TrimSpace(ev.Producer), entry.Producer)
+		entry.GroundingTier = ev.GroundingTier
+		entry.SurfaceTerms = dedupeAggregateMemberTerms(append(entry.SurfaceTerms, append(ev.SurfaceTerms, ev.AnchorSymbol, ev.Subject, ev.Object)...))
+		if entry.ClaimForm != ClaimUnknown {
+			entry.Detail = strings.TrimSpace(entry.Detail + "; claim_form=" + string(entry.ClaimForm) + "; anchor_kind=" + string(ev.AnchorKind))
+			if entry.ClaimForm == ClaimTextReferenceFact {
+				entry.Detail += "; text_reference=true; not_definition_call_or_assignment=true"
+			}
+		}
+	}
+	return entry, true
+}
+
+func changeImpactSupportEvidenceByLocation(items []EvidenceItem) map[string]EvidenceItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make(map[string]EvidenceItem, len(items))
+	for _, item := range items {
+		if item.Source == "" || item.LineStart <= 0 {
+			continue
+		}
+		if item.GroundingStatus == GroundingUngrounded {
+			continue
+		}
+		key := changeImpactSupportLocationKey(item.Source, item.LineStart)
+		if key == "" {
+			continue
+		}
+		if existing, ok := out[key]; ok && changeImpactSupportEvidenceRank(existing) >= changeImpactSupportEvidenceRank(item) {
+			continue
+		}
+		out[key] = item
+	}
+	return out
+}
+
+func changeImpactSupportEvidenceRank(item EvidenceItem) int {
+	rank := 0
+	if item.GroundingStatus == GroundingGrounded {
+		rank += 4
+	} else if item.GroundingStatus == GroundingRecovered {
+		rank += 2
+	}
+	if strings.TrimSpace(item.Producer) != "" && item.Kind.IsLLMEmittable() {
+		rank += 2
+	}
+	if ClaimFormOf(item) == ClaimTextReferenceFact {
+		rank += 1
+	}
+	return rank
+}
+
+func changeImpactSupportLocationKey(file string, line int) string {
+	file = normalizeAnswerLocationFile(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)))
+	if file == "" || line <= 0 {
+		return ""
+	}
+	return file + ":" + intString(line)
 }
 
 func aggregateMemberEvidenceID(factIdx, memberIdx int) string {
@@ -580,7 +648,7 @@ func ChangeImpactPrincipalTargetSurfaceGaps(profile *ChangeImpactProfile, items 
 	for _, item := range orderedFacetSupportEvidenceItems(QFEnumeration, items) {
 		if !principalEvidenceItemEligible(item) ||
 			!changeImpactPrincipalEvidenceRoleEligible(profile, item) ||
-			!changeImpactPrincipalEvidenceClaimEligible(item) {
+			!changeImpactPrincipalEvidenceClaimEligible(profile, item) {
 			continue
 		}
 		candidates = append(candidates, item)
@@ -612,11 +680,13 @@ func ChangeImpactPrincipalTargetSurfaceGaps(profile *ChangeImpactProfile, items 
 	return out
 }
 
-func changeImpactPrincipalEvidenceClaimEligible(item EvidenceItem) bool {
+func changeImpactPrincipalEvidenceClaimEligible(profile *ChangeImpactProfile, item EvidenceItem) bool {
 	switch ClaimFormOf(item) {
 	case ClaimDefinitionFact, ClaimAssignmentFact, ClaimGuardCondition,
 		ClaimCallEdge, ClaimReturnFact, ClaimImportEdge:
 		return true
+	case ClaimTextReferenceFact:
+		return profile != nil && profile.AllowsTextReferencePrincipal()
 	default:
 		return false
 	}

@@ -962,6 +962,9 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 				ClaimGuardCondition,
 				ClaimCallEdge,
 			)
+			if rm.ChangeImpactProfile.AllowsTextReferencePrincipal() {
+				forms = append(forms, ClaimTextReferenceFact)
+			}
 		}
 		return append([]FacetRequirement{
 			{Kind: FacetEnumerationItem, Required: FacetHardRequired,

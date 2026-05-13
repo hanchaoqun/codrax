@@ -158,3 +158,21 @@ func (p *ChangeImpactProfile) RequestedBroadAffectedSites() bool {
 		return false
 	}
 }
+
+// AllowsTextReferencePrincipal reports whether source text references can be a
+// principal affected-site surface for this change-impact request. This is typed
+// off analyzer-emitted site roles, not raw question keywords, so documentation,
+// generated headers, and build/config prose can be carried without promoting
+// arbitrary nearby comments in ordinary code-structure questions.
+func (p *ChangeImpactProfile) AllowsTextReferencePrincipal() bool {
+	if !p.Active() {
+		return false
+	}
+	for _, kind := range p.AffectedSiteKinds {
+		switch kind {
+		case ImpactSiteDocumentation, ImpactSiteGenerated, ImpactSiteBuild, ImpactSiteConfig:
+			return true
+		}
+	}
+	return false
+}

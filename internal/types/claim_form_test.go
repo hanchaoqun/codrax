@@ -18,15 +18,15 @@ func TestClaimForm_AllValuesValidExceptUnknown(t *testing.T) {
 	// declared constant. Adding a new ClaimForm constant requires
 	// updating the allClaimForms slice; this guard catches that
 	// drift via length comparison against the known constant count
-	// (9 as of 2026-05-02 Phase 0; bump this assertion if you add
+	// (10 as of 2026-05-13 text-reference surface; bump this assertion if you add
 	// a new ClaimForm).
-	if len(AllClaimForms()) != 9 {
-		t.Errorf("AllClaimForms length %d != 9 — update allClaimForms slice when adding a new ClaimForm constant", len(AllClaimForms()))
+	if len(AllClaimForms()) != 10 {
+		t.Errorf("AllClaimForms length %d != 10 — update allClaimForms slice when adding a new ClaimForm constant", len(AllClaimForms()))
 	}
 }
 
 func TestClaimForm_UsesNonSymbolLabelSurface(t *testing.T) {
-	for _, c := range []ClaimForm{ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation} {
+	for _, c := range []ClaimForm{ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation, ClaimTextReferenceFact} {
 		if !c.UsesNonSymbolLabelSurface() {
 			t.Fatalf("%s should use typed display labels instead of declaration-symbol labels", c)
 		}
@@ -46,7 +46,7 @@ func TestClaimForm_CitationRoleIdentityKindExhaustive(t *testing.T) {
 			t.Fatalf("claim form %q returned unknown citation role identity kind %q", c, c.CitationRoleIdentityKind())
 		}
 	}
-	for _, c := range []ClaimForm{ClaimCallEdge, ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation} {
+	for _, c := range []ClaimForm{ClaimCallEdge, ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation, ClaimTextReferenceFact} {
 		if !c.SupportsCitationRoleAlignment() {
 			t.Fatalf("claim form %q should support typed citation-role alignment", c)
 		}
@@ -263,6 +263,7 @@ func TestClaimFormOf_AnchorKindDispatch(t *testing.T) {
 		{AnchorAssignment, ClaimAssignmentFact},
 		{AnchorInitializer, ClaimAssignmentFact},
 		{AnchorImport, ClaimImportEdge},
+		{AnchorTextReference, ClaimTextReferenceFact},
 		{AnchorDefinition, ClaimDefinitionFact},
 	}
 	for _, c := range cases {

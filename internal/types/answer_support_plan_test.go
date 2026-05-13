@@ -2434,6 +2434,62 @@ func TestBuildAnswerSupportPlan_ChangeImpactUsesAggregateMemberSetAsPrincipalLan
 	}
 }
 
+func TestBuildAnswerSupportPlan_ChangeImpactAggregateMemberInheritsTextReferenceSupport(t *testing.T) {
+	profile := &ChangeImpactProfile{
+		IsChangeImpact:    true,
+		Target:            "ShapeValue",
+		TargetKind:        SubjectEnumValue,
+		RequestedOutput:   ImpactOutputFiles,
+		Scope:             ImpactScopeAll,
+		AffectedSiteKinds: []ImpactAffectedSiteKind{ImpactSiteDocumentation},
+		Confidence:        0.9,
+	}
+	textRef := EvidenceItem{
+		ID:              "shapevalue-comment",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       1235,
+		AnchorKind:      AnchorTextReference,
+		AnchorSymbol:    "ShapeValue",
+		Subject:         "ShapeValue",
+		Snippet:         "// ShapeStepList / ShapeValue / ShapeBoolean / ShapeConfigValue /",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+		GroundingTier:   TierLineText,
+	}
+	plan := &AnswerSurfacePlan{
+		ChangeImpactProfile: profile,
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "affected source members",
+			Members:     []string{"internal/types/analysis_ir.go"},
+			SupportRefs: []string{"internal/types/analysis_ir.go:1235"},
+		}},
+		SurfaceEvidence: []EvidenceItem{textRef},
+		FacetCoverage:   CompileFacetCoverage(RequestModel{ChangeImpactProfile: profile}, []EvidenceItem{textRef}),
+	}
+	rm := RequestModel{
+		Intent:              IntentEnumerate,
+		AnalyzerHints:       AnalyzerHints{Kind: string(ReqEnumeration)},
+		ChangeImpactProfile: profile,
+		Predicates:          SemanticPredicates{IsCategoryEnumeration: true},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 1 {
+		t.Fatalf("aggregate text-reference member should compile into principal lane, got %+v", got)
+	}
+	entry := lane.Entries[0]
+	if entry.ClaimForm != ClaimTextReferenceFact || entry.AnchorKind != AnchorTextReference {
+		t.Fatalf("aggregate member did not inherit text_reference support: %+v", entry)
+	}
+	if !strings.Contains(entry.Detail, "not_definition_call_or_assignment=true") {
+		t.Fatalf("text-reference boundary detail missing: %+v", entry)
+	}
+}
+
 func answerSupportLaneByKind(plan *AnswerSupportPlan, kind AnswerSupportLaneKind) *AnswerSupportLane {
 	if plan == nil {
 		return nil

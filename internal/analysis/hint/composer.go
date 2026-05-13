@@ -481,7 +481,7 @@ func buildAllowedSet(violations []types.Violation, ctx Context) []Allowed {
 		}
 	case types.ViolPrincipalClaimUseMissing,
 		types.ViolClaimFormUnsupported:
-		// Surface the 9 allowed claim_form values so the LLM has
+		// Surface every canonical claim_form value so the LLM has
 		// something concrete to swap onto its principal block.
 		// (Per-block AcceptableClaimForms narrowing happens in the
 		// validator's repair text; this Allowed list is the global
@@ -492,21 +492,11 @@ func buildAllowedSet(violations []types.Violation, ctx Context) []Allowed {
 		// derivation_step / divergence_caveat) and renames (assignment
 		// / observed_artifact_fact) are gone. Validator
 		// validateClaimFormSupport compares against ClaimFormOf(evidence)
-		// projection; only these 9 values can match.
-		for _, form := range []string{
-			"definition_fact",
-			"call_edge",
-			"guard_condition",
-			"assignment_fact",
-			"return_fact",
-			"absence_fact",
-			"precedence_role",
-			"external_observation",
-			"import_edge",
-		} {
+		// projection; only AllClaimForms values can match.
+		for _, form := range types.AllClaimForms() {
 			out = append(out, Allowed{
 				Kind:  AllowedClaimForm,
-				Value: form,
+				Value: string(form),
 				Hint:  "valid claim_form for principal block annotation",
 			})
 		}

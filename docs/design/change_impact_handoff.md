@@ -522,6 +522,11 @@ the model already emitted in the tool payload.
 - [x] Add `anchor_kind=initializer` for struct/object/designated/config member
       initializer sites so affected literal rows do not masquerade as
       definitions.
+- [x] Add `anchor_kind=text_reference` / `claim_form=text_reference_fact` for
+      documentation, generated-header, config-prose, and comment-only affected
+      sites. Aggregate member-set lanes inherit this typed support shape from
+      citable support refs, while code anchors can no longer be snippet-fuzzy
+      recovered from pure comments.
 - [ ] Re-run `u10b` and keep the random eval sweep moving.
 
 ## Red Lines

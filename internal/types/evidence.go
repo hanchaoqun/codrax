@@ -145,21 +145,30 @@ const (
 //
 // AnchorImport covers `import`/`use`/`require` statements whose AnchorSymbol is
 // typically a package path or alias.
+//
+// AnchorTextReference covers a source/config/doc/comment line where the
+// visible text itself is the evidence. It is intentionally NOT code syntax:
+// downstream may use it for documentation references, examples, generated
+// headers, or config prose, but must not treat it as a definition/call/
+// assignment proof. This gives comment/doc/example evidence a first-class
+// surface instead of laundering it through initializer/assignment anchors.
 type AnchorKind string
 
 const (
-	AnchorDefinition  AnchorKind = "definition"
-	AnchorCall        AnchorKind = "call"
-	AnchorCondition   AnchorKind = "condition"
-	AnchorReturn      AnchorKind = "return"
-	AnchorAssignment  AnchorKind = "assignment"
-	AnchorInitializer AnchorKind = "initializer"
-	AnchorImport      AnchorKind = "import"
+	AnchorDefinition    AnchorKind = "definition"
+	AnchorCall          AnchorKind = "call"
+	AnchorCondition     AnchorKind = "condition"
+	AnchorReturn        AnchorKind = "return"
+	AnchorAssignment    AnchorKind = "assignment"
+	AnchorInitializer   AnchorKind = "initializer"
+	AnchorImport        AnchorKind = "import"
+	AnchorTextReference AnchorKind = "text_reference"
 )
 
 var allAnchorKinds = []AnchorKind{
 	AnchorDefinition, AnchorCall, AnchorCondition,
 	AnchorReturn, AnchorAssignment, AnchorInitializer, AnchorImport,
+	AnchorTextReference,
 }
 
 // AllAnchorKinds returns the canonical list of every AnchorKind value

@@ -114,6 +114,48 @@ func TestEmitEvidence_AcceptsInitializerAnchorKind(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_AcceptsTextReferenceAnchorKind(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/types/analysis_ir.go", 1235,
+		"// ShapeStepList / ShapeValue / ShapeBoolean / ShapeConfigValue /",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {
+            "kind": "direct",
+            "subject": "ShapeValue",
+            "source": "internal/types/analysis_ir.go",
+            "line_start": 1235,
+            "summary": "comment text mentions ShapeValue as a retired shape label",
+            "snippet": "// ShapeStepList / ShapeValue / ShapeBoolean / ShapeConfigValue /",
+            "anchor_kind": "text_reference",
+            "anchor_symbol": "ShapeValue"
+          }
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item, got %d", len(got))
+	}
+	if got[0].AnchorKind != types.AnchorTextReference {
+		t.Fatalf("anchor kind = %s, want text_reference", got[0].AnchorKind)
+	}
+	if got[0].ContextRole == types.EvidenceContextRoleIllustrativeOnly {
+		t.Fatalf("intentional text_reference must not be auto-downgraded to illustrative_only")
+	}
+	if form := types.ClaimFormOf(got[0]); form != types.ClaimTextReferenceFact {
+		t.Fatalf("text_reference claim form = %s, want text_reference_fact", form)
+	}
+}
+
 // LoadBearingSummary opt-in surface (2026-05-08 add — u7a deep-dive).
 // The flag tells the four EvidenceXxxSurfaceText helpers to append
 // the trimmed summary to the typed surface line so finalize-stage

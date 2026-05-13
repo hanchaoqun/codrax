@@ -38,6 +38,9 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 	}
 	if ir != nil && ir.RequestModel.ChangeImpactProfile != nil && ir.RequestModel.ChangeImpactProfile.Active() {
 		acceptableClaimForms = append(acceptableClaimForms, ClaimGuardCondition)
+		if ir.RequestModel.ChangeImpactProfile.AllowsTextReferencePrincipal() {
+			acceptableClaimForms = append(acceptableClaimForms, ClaimTextReferenceFact)
+		}
 	}
 	if plan != nil {
 		view.FacetCoverage = plan.FacetCoverage

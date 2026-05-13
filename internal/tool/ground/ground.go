@@ -797,6 +797,9 @@ func recoverSnippetFuzzy(it *types.EvidenceItem, gc *Context) (string, int, bool
 				continue
 			}
 			if nonASCIISubstringMatch(snippet, text) {
+				if it.AnchorKind != types.AnchorTextReference && isLineComment(fileLines, i, it.Source) && !configSurfaceAllowsLooseLineGrounding(it) {
+					continue
+				}
 				return "", i, true
 			}
 		}
@@ -826,6 +829,9 @@ func recoverSnippetFuzzy(it *types.EvidenceItem, gc *Context) (string, int, bool
 		}
 	}
 	if bestScore >= threshold && bestLine > 0 {
+		if it.AnchorKind != types.AnchorTextReference && isLineComment(fileLines, bestLine, it.Source) && !configSurfaceAllowsLooseLineGrounding(it) {
+			return "", 0, false
+		}
 		return "", bestLine, true
 	}
 	return "", 0, false
@@ -1019,6 +1025,14 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 	fileLines, ok := gc.LineIndex[it.Source]
 	if !ok {
 		return false
+	}
+	if it.AnchorKind == types.AnchorTextReference {
+		if it.AnchorSymbol != "" {
+			_, ok := findAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol)
+			return ok
+		}
+		text, exists := lookupLineWithNeighbours(fileLines, it.LineStart, 2)
+		return exists && lineCorroborates(text, it.Subject, it.Object, it.Condition, gc.Graph)
 	}
 	if it.AnchorKind == types.AnchorCall {
 		matchedLine, ok := findCallCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph)
@@ -1411,6 +1425,8 @@ func tier2SymbolTable(it *types.EvidenceItem, gc *Context) bool {
 		}
 	}
 	switch it.AnchorKind {
+	case types.AnchorTextReference:
+		return false
 	case types.AnchorImport:
 		return graphMatchImport(it, gc)
 	case types.AnchorCondition:

@@ -215,9 +215,9 @@ func (t *EmitEvidence) Description() string {
 		"(the identifier the grounder should find on that line).\n\n" +
 		"There are TWO different kind fields with different jobs:\n" +
 		"  - evidence_kind = the SEMANTIC fact shape (direct / conditional / registration / mechanism / relationship)\n" +
-		"  - anchor_kind   = the CODE syntax at source:line_start (definition / call / condition / return / assignment / initializer / import)\n" +
+		"  - anchor_kind   = the source surface at source:line_start (definition / call / condition / return / assignment / initializer / import / text_reference)\n" +
 		"Never put `direct` / `conditional` / `registration` / `mechanism` / `relationship` into anchor_kind. " +
-		"Never put `definition` / `call` / `condition` / `return` / `assignment` / `initializer` / `import` into evidence_kind.\n\n" +
+		"Never put `definition` / `call` / `condition` / `return` / `assignment` / `initializer` / `import` / `text_reference` into evidence_kind.\n\n" +
 		"anchor_kind tells the grounder what KIND of code location you are pointing at:\n" +
 		"  - definition: the line is a function/type/const/var declaration\n" +
 		"  - call:       the line contains a function/method call (anchor_symbol = callee name)\n" +
@@ -226,6 +226,7 @@ func (t *EmitEvidence) Description() string {
 		"  - assignment: the line assigns (:= or =)\n" +
 		"  - initializer: the line initializes a field/property/member inside a struct/object/named-argument/designated/config literal\n" +
 		"  - import:     the line is an import / use / require (anchor_symbol = package path/alias)\n\n" +
+		"  - text_reference: the line's visible source/config/doc/comment text is itself the evidence; use this for documentation references, examples, generated headers, config prose, or comment-only mentions. It does NOT prove a definition/call/assignment.\n\n" +
 		"anchor_symbol is the concrete identifier the grounder should see at line_start. For a " +
 		"method call 'x.Execute()' at line 42 the anchor_symbol is 'Execute' and anchor_kind is 'call'. " +
 		"For a struct type declaration 'type Orchestrator struct' the anchor_symbol is 'Orchestrator' " +
@@ -327,7 +328,7 @@ func emitEvidenceParametersSchema() json.RawMessage {
 						"anchor_kind": map[string]any{
 							"type":        "string",
 							"enum":        emitAnchorKindNames(),
-							"description": "REQUIRED. Code syntax at line_start, NOT the semantic evidence shape. definition = symbol declaration, call = function/method call site, condition = if/when/switch/case/guard line, return = return or yield, assignment = := or = assignment/write, initializer = field/property/member inside a struct/object/named-argument/designated/config literal, import = import/use/require statement. Values like direct/conditional/registration belong in evidence_kind, not here. The grounder dispatches on this so wrong anchor kinds produce confusing ungrounded verdicts.",
+							"description": "REQUIRED. Source surface at line_start, NOT the semantic evidence shape. definition = symbol declaration, call = function/method call site, condition = if/when/switch/case/guard line, return = return or yield, assignment = := or = assignment/write, initializer = field/property/member inside a struct/object/named-argument/designated/config literal, import = import/use/require statement, text_reference = visible source/config/doc/comment text is itself the evidence and must not be treated as definition/call/assignment proof. Values like direct/conditional/registration belong in evidence_kind, not here. The grounder dispatches on this so wrong anchor kinds produce confusing ungrounded verdicts.",
 						},
 						"anchor_symbol": map[string]any{
 							"type":        "string",
@@ -455,7 +456,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
           "context_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, absence_support = grounded evidence that helps justify why the exact target is absent but does NOT define it, related_context = grounded nearby context but not the exact target itself, illustrative_only = comment/doc/test/example mention that should NOT be treated as defining proof. The tool validates and may downgrade the hint."},
           "diagram_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, config = repo/user config-file layer (YAML/JSON/TOML/INI/etc.), runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints."},
           "surface_terms": {"type": "array", "items": {"type": "string"}, "description": "OPTIONAL exact source/log/trace strings that should remain visible in the final answer as aliases or labels, including labels from leading documentation/header comments attached to the cited anchor. Every term must appear verbatim in the already-read source window."},
-          "anchor_kind":   {"type": "string", "enum": %s, "description": "REQUIRED. What the line_start points at: 'definition' = symbol declaration, 'call' = function/method call site, 'condition' = if/when/switch/case/guard line, 'return' = return or yield, 'assignment' = := or = assignment/write, 'initializer' = field/property/member inside a struct/object/named-argument/designated/config literal, 'import' = import/use/require statement. The grounder dispatches on this so wrong kinds produce confusing ungrounded verdicts."},
+          "anchor_kind":   {"type": "string", "enum": %s, "description": "REQUIRED. What line_start points at: 'definition' = symbol declaration, 'call' = function/method call site, 'condition' = if/when/switch/case/guard line, 'return' = return or yield, 'assignment' = := or = assignment/write, 'initializer' = field/property/member inside a struct/object/named-argument/designated/config literal, 'import' = import/use/require statement, 'text_reference' = visible source/config/doc/comment text itself. text_reference is for docs/examples/generated headers/config prose/comment-only mentions and cannot prove a definition/call/assignment."},
           "anchor_symbol": {"type": "string", "description": "REQUIRED. The identifier the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias."},
           "snippet":       {"type": "string", "description": "Optional. 1-2 lines of actual code from the cited location. Enables snippet_fuzzy recovery when line_start is off by ±15 lines — recommended for conditional / mechanism / registration items."}
         },
@@ -1056,7 +1057,9 @@ func parseEvidenceDiagramRoleHint(index int, raw string) (types.EvidenceDiagramR
 }
 
 func validatedEvidenceContextRole(ev types.EvidenceItem, gc *ground.Context, contract *types.ExactResolutionContract) types.EvidenceContextRole {
-	if evidenceLooksIllustrative(ev, gc) && !configFileSurfaceCanCarryDiagramRole(ev) {
+	if ev.AnchorKind != types.AnchorTextReference &&
+		evidenceLooksIllustrative(ev, gc) &&
+		!configFileSurfaceCanCarryDiagramRole(ev) {
 		return types.EvidenceContextRoleIllustrativeOnly
 	}
 	switch ev.ContextRole {

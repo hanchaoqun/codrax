@@ -833,6 +833,49 @@ func TestGroundItem_Tier1RejectsCommentLine(t *testing.T) {
 	}
 }
 
+func TestGroundItem_TextReferenceAcceptsCommentLine(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/types/analysis_ir.go", 1235, []string{
+			"\t// ShapeStepList / ShapeValue / ShapeBoolean / ShapeConfigValue /",
+		}, 1300),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Source:       "internal/types/analysis_ir.go",
+		LineStart:    1235,
+		AnchorKind:   types.AnchorTextReference,
+		AnchorSymbol: "ShapeValue",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingGrounded || it.GroundingTier != types.TierLineText {
+		t.Fatalf("text_reference comment evidence status=%s tier=%s note=%q, want grounded line_text",
+			it.GroundingStatus, it.GroundingTier, it.GroundingNote)
+	}
+}
+
+func TestGroundItem_SnippetFuzzyRejectsCommentOnlyCodeAnchor(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/types/analysis_ir.go", 1235, []string{
+			"\t// ShapeStepList / ShapeValue / ShapeBoolean / ShapeConfigValue /",
+		}, 1300),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Source:       "internal/types/analysis_ir.go",
+		LineStart:    1234,
+		AnchorKind:   types.AnchorInitializer,
+		AnchorSymbol: "ShapeValue",
+		Snippet:      "ShapeStepList / ShapeValue / ShapeBoolean / ShapeConfigValue",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("comment-only initializer recovered unexpectedly: status=%s tier=%s note=%q",
+			it.GroundingStatus, it.GroundingTier, it.GroundingNote)
+	}
+}
+
 func TestGroundItem_AttachSnippetPreservesStatementLocalLine(t *testing.T) {
 	history := []types.ToolResult{
 		buildGutterReadResult("internal/agent/analyzer.go", 977, []string{
