@@ -192,6 +192,9 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	if h := preCheckAbsenceScopeBound(doc); len(h) > 0 {
 		hints = append(hints, h...)
 	}
+	if h := preCheckMultiRepoAbsentScopeBoundary(doc, ctxOpt...); len(h) > 0 {
+		hints = append(hints, h...)
+	}
 
 	// 6. Enumeration item label grounding (P1 2026-05-10).
 	// Catches the hallucinated identifier-shape labels that drove
@@ -292,6 +295,37 @@ func preCheckRuntimeObservationRepoContamination(doc *types.AnswerDocumentV2, ct
 		}
 	}
 	return nil
+}
+
+func preCheckMultiRepoAbsentScopeBoundary(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || doc.ExactResolution == nil ||
+		doc.ExactResolution.Status != types.AnswerExactResolutionAbsent ||
+		len(ctxOpt) == 0 || ctxOpt[0] == nil {
+		return nil
+	}
+	pending := ctxOpt[0].PendingSubRepos
+	if len(pending) == 0 {
+		return nil
+	}
+	body := strings.ToLower(answerDocumentVisibleText(doc))
+	for _, root := range pending {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		if strings.Contains(body, strings.ToLower(root)) {
+			return nil
+		}
+	}
+	preview := pending
+	if len(preview) > 3 {
+		preview = preview[:3]
+	}
+	return []emitFixHint{{
+		Field:         "blocks[].text/items[].text/caveats[]",
+		ExpectedShape: "state that the absence is scoped to the active sub-repo set and name the out-of-active sub-repo(s) not consulted: " + strings.Join(preview, ", "),
+		Reason:        "multi-repo absence is a scope verdict, not a workspace-wide fact; inactive sub-repos may contain the requested target and must be disclosed instead of collapsed into plain absence.",
+	}}
 }
 
 var visibleInternalCarrierTerms = []string{

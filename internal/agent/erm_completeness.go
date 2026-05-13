@@ -685,6 +685,9 @@ func (EntityParityValidator) Validate(input ValidatorInput) *CompletenessFailure
 	if len(buckets) < 2 {
 		return nil
 	}
+	if aggregateFactsCoverComparisonBuckets(input.AggregateFacts, buckets) {
+		return nil
+	}
 
 	// Tier 1: typed-block + anchor scan.
 	if input.AnswerDocumentV2 != nil {
@@ -742,6 +745,76 @@ func (EntityParityValidator) Validate(input ValidatorInput) *CompletenessFailure
 		Reason:        "comparison buckets sampled with imbalanced evidence",
 		FixHint:       "This is a comparison question. The evidence is heavily skewed to one bucket; continue investigation to gather comparable evidence for the under-sampled bucket(s) so the comparison sides are equally well-grounded.",
 	}
+}
+
+func aggregateFactsCoverComparisonBuckets(facts []types.AnswerAggregateFact, buckets []types.QuestionBucket) bool {
+	if len(facts) == 0 || len(buckets) < 2 {
+		return false
+	}
+	for _, bucket := range buckets {
+		if !aggregateFactsCoverComparisonBucket(facts, bucket) {
+			return false
+		}
+	}
+	return true
+}
+
+func aggregateFactsCoverComparisonBucket(facts []types.AnswerAggregateFact, bucket types.QuestionBucket) bool {
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 {
+			continue
+		}
+		if aggregateFactMatchesComparisonBucket(fact, bucket) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateFactMatchesComparisonBucket(fact types.AnswerAggregateFact, bucket types.QuestionBucket) bool {
+	candidates := append([]string{bucket.Label}, bucket.Anchors...)
+	surfaces := []string{fact.Label}
+	for _, dim := range fact.Dimensions {
+		surfaces = append(surfaces, dim.Value)
+	}
+	for _, candidate := range candidates {
+		for _, surface := range surfaces {
+			if typedBucketSurfaceMatch(candidate, surface) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func typedBucketSurfaceMatch(bucket, surface string) bool {
+	bucket = strings.TrimSpace(bucket)
+	surface = strings.TrimSpace(surface)
+	if bucket == "" || surface == "" {
+		return false
+	}
+	b := strings.ToLower(bucket)
+	s := strings.ToLower(surface)
+	if b == s {
+		return true
+	}
+	if strings.HasPrefix(s, b) && bucketSurfaceBoundaryAfter(s, len(b)) {
+		return true
+	}
+	if strings.HasPrefix(b, s) && bucketSurfaceBoundaryAfter(b, len(s)) {
+		return true
+	}
+	return false
+}
+
+func bucketSurfaceBoundaryAfter(s string, n int) bool {
+	if n >= len(s) {
+		return true
+	}
+	if s[n] >= 0x80 {
+		return true
+	}
+	return strings.ContainsRune(" \t\r\n:/\\|,;()[]{}<>-_.", rune(s[n]))
 }
 
 // isLopsided reports whether the smallest count is below 50% of the

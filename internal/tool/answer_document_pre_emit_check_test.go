@@ -212,6 +212,30 @@ func TestPreCheckVisibleInternalCarrierTermsAllowsTypedToolNameSubject(t *testin
 	}
 }
 
+func TestPreCheckMultiRepoAbsentScopeBoundaryRequiresInactiveDisclosure(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Blocks: []types.AnswerBlock{{
+			ID:   "s",
+			Kind: types.BlockSummary,
+			Text: "active repos did not define `process_request`.",
+		}},
+	}
+	ctx := &types.BusContext{PendingSubRepos: []string{"repo-tools-py"}}
+	hints := preCheckMultiRepoAbsentScopeBoundary(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("expected inactive-scope disclosure hint, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "repo-tools-py") {
+		t.Fatalf("hint must name inactive sub-repo, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Text = "`process_request` is absent in the active scope; `repo-tools-py` is outside the active sub-repo set and was not consulted."
+	if hints := preCheckMultiRepoAbsentScopeBoundary(doc, ctx); len(hints) != 0 {
+		t.Fatalf("explicit inactive-scope disclosure should pass, got %+v", hints)
+	}
+}
+
 func TestPreEmitBlockCitationRoleForms_TableParticipates(t *testing.T) {
 	block := types.AnswerBlock{
 		ID:   "table",

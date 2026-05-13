@@ -380,6 +380,56 @@ func TestEntityParityValidator(t *testing.T) {
 		}
 		assertR6CleanFixHint(t, fail.FixHint)
 	})
+
+	t.Run("complete_member_sets_allow_asymmetric_bucket_sizes", func(t *testing.T) {
+		v := EntityParityValidator{}
+		input := ValidatorInput{
+			IR: makeIR("repo-greet-go", "repo-tools-py"),
+			EvidenceItems: []types.EvidenceItem{
+				{AnchorSymbol: "repo-greet-goSym"}, {AnchorSymbol: "repo-greet-goSym"},
+				{AnchorSymbol: "repo-greet-goSym"}, {AnchorSymbol: "repo-greet-goSym"},
+				{AnchorSymbol: "repo-greet-goSym"},
+				{AnchorSymbol: "repo-tools-pySym"},
+			},
+			AggregateFacts: []types.AnswerAggregateFact{
+				{
+					Kind:    types.AnswerAggregateMemberSet,
+					Label:   "repo-greet-go exported entries",
+					Value:   "5",
+					Members: []string{"UserService", "GreetServiceImpl", "NewGreetServiceImpl", "Greet", "Goodbye"},
+				},
+				{
+					Kind:    types.AnswerAggregateMemberSet,
+					Label:   "repo-tools-py exported entries",
+					Value:   "2",
+					Members: []string{"process_request", "echo"},
+				},
+			},
+		}
+		if fail := v.Validate(input); fail != nil {
+			t.Fatalf("complete per-bucket member_set facts should beat raw evidence-count skew, got %+v", fail)
+		}
+	})
+
+	t.Run("partial_member_set_coverage_still_fails", func(t *testing.T) {
+		v := EntityParityValidator{}
+		input := ValidatorInput{
+			IR: makeIR("repo-greet-go", "repo-tools-py"),
+			EvidenceItems: []types.EvidenceItem{
+				{AnchorSymbol: "repo-greet-goSym"}, {AnchorSymbol: "repo-greet-goSym"},
+				{AnchorSymbol: "repo-greet-goSym"}, {AnchorSymbol: "repo-greet-goSym"},
+			},
+			AggregateFacts: []types.AnswerAggregateFact{{
+				Kind:    types.AnswerAggregateMemberSet,
+				Label:   "repo-greet-go exported entries",
+				Value:   "4",
+				Members: []string{"UserService", "GreetServiceImpl", "Greet", "Goodbye"},
+			}},
+		}
+		if fail := v.Validate(input); fail == nil {
+			t.Fatal("one bucket without a complete member_set must still fail when evidence is skewed")
+		}
+	})
 }
 
 // TestRunFamilyValidators pins the per-family routing — the helper
