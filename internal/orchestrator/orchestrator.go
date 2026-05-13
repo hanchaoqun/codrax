@@ -4442,6 +4442,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					AnswerSymbols:    o.busCtx.AnswerSymbols,
 					ToolResults:      o.busCtx.ToolResults,
 					RepoFacts:        o.busCtx.RepoFacts,
+					AggregateFacts:   o.busCtx.Mutable.StableInvestigationAggregateFacts(),
 					AnswerDocumentV2: o.busCtx.Mutable.AnswerDocumentV2(),
 				}
 				if fail := agent.RunFamilyValidators(view.Family, input); fail != nil {

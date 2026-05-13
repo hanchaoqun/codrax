@@ -2273,7 +2273,10 @@ func validateEnumerationEvidenceCoverage(mut *types.MutableState, view *types.An
 		if s == "" {
 			continue
 		}
-		uniqueAnchors[s] = struct{}{}
+		uniqueAnchors["evidence:"+strings.ToLower(s)] = struct{}{}
+	}
+	for _, key := range aggregateMemberSetEnumerationAnchorKeys(mut.StableInvestigationAggregateFacts()) {
+		uniqueAnchors[key] = struct{}{}
 	}
 	if len(uniqueAnchors) >= declared {
 		return nil
@@ -2295,6 +2298,61 @@ func validateEnumerationEvidenceCoverage(mut *types.MutableState, view *types.An
 		},
 		Stage: string(types.StageExtract),
 	}}
+}
+
+func aggregateMemberSetEnumerationAnchorKeys(facts []types.AnswerAggregateFact) []string {
+	var out []string
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateMemberSet {
+			continue
+		}
+		for _, member := range fact.Members {
+			if key := aggregateMemberEnumerationAnchorKey(fact, member); key != "" {
+				out = append(out, key)
+			}
+		}
+	}
+	return out
+}
+
+func aggregateMemberEnumerationAnchorKey(fact types.AnswerAggregateFact, member string) string {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return ""
+	}
+	if surface, ok := types.ParseAnswerSourceLocationSurface(member); ok {
+		return "aggregate-location:" + aggregateEnumerationPathLineKey(surface.File, surface.LineStart)
+	}
+	for _, ref := range fact.SupportRefs {
+		if surface, ok := aggregateEnumerationSupportRefLocation(ref, member); ok {
+			return "aggregate-location:" + aggregateEnumerationPathLineKey(surface.File, surface.LineStart)
+		}
+	}
+	return "aggregate-member:" + strings.ToLower(member)
+}
+
+func aggregateEnumerationSupportRefLocation(ref, member string) (types.AnswerSourceLocationSurface, bool) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return types.AnswerSourceLocationSurface{}, false
+	}
+	memberKey := strings.ToLower(strings.TrimSpace(member))
+	for _, sep := range []string{" @ ", "\t", " | "} {
+		idx := strings.Index(ref, sep)
+		if idx <= 0 {
+			continue
+		}
+		prefix := strings.ToLower(strings.TrimSpace(ref[:idx]))
+		if prefix != "" && prefix != memberKey {
+			continue
+		}
+		return types.ParseAnswerSourceLocationSurface(strings.TrimSpace(ref[idx+len(sep):]))
+	}
+	return types.ParseAnswerSourceLocationSurface(ref)
+}
+
+func aggregateEnumerationPathLineKey(file string, line int) string {
+	return strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)) + ":" + strconv.Itoa(line)
 }
 
 // shouldReviewSemanticQuality gates the G5 reviewer dispatch

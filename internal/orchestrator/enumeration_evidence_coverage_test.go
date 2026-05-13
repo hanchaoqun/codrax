@@ -65,6 +65,48 @@ func TestValidateEnumerationEvidenceCoverage_SkipsWhenAnchorCountAtOrAboveDeclar
 	}
 }
 
+func TestValidateEnumerationEvidenceCoverage_SkipsWithAggregateMemberSetSourceLocations(t *testing.T) {
+	mut := mutWithEvidenceAnchors("CitationReq.Required")
+	setRequestModelWithBoundary(mut, 4, types.IntentEnumerate)
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "verified source locations",
+		Value: "4",
+		Members: []string{
+			"internal/agent/analyzer.go:1927",
+			"internal/orchestrator/contract_check.go:63",
+			"internal/orchestrator/orchestrator.go:6397",
+			"internal/orchestrator/orchestrator.go:6529",
+		},
+	}})
+	mut.SetInvestigationComplete("resolved through aggregate_facts.member_set")
+	view := &types.AnswerSemanticView{Family: types.QFEnumeration}
+
+	if vs := validateEnumerationEvidenceCoverage(mut, view); len(vs) != 0 {
+		t.Fatalf("source-location member_set is the principal anchor set; got %+v", vs)
+	}
+}
+
+func TestValidateEnumerationEvidenceCoverage_FiresWhenAggregateMemberSetBelowDeclared(t *testing.T) {
+	mut := mutWithEvidenceAnchors("CitationReq.Required")
+	setRequestModelWithBoundary(mut, 4, types.IntentEnumerate)
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "partial source locations",
+		Value: "2",
+		Members: []string{
+			"internal/agent/analyzer.go:1927",
+			"internal/orchestrator/contract_check.go:63",
+		},
+	}})
+	mut.SetInvestigationComplete("partial set")
+	view := &types.AnswerSemanticView{Family: types.QFEnumeration}
+
+	if vs := validateEnumerationEvidenceCoverage(mut, view); len(vs) == 0 {
+		t.Fatal("partial aggregate member_set must not mask an evidence coverage gap")
+	}
+}
+
 // Trigger 3: no DeclaredCount → skip (修 B is declared-count-only;
 // implicit completeness is by design out of scope to preserve R3).
 func TestValidateEnumerationEvidenceCoverage_SkipsWhenNoDeclaredCount(t *testing.T) {

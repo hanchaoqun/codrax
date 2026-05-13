@@ -134,6 +134,53 @@ func TestScalarCountValidator(t *testing.T) {
 			t.Error("ScalarCountValidator must fail when exec_command summary has no integer literal")
 		}
 	})
+
+	t.Run("count_question_accepted_member_set_visible_count_passes", func(t *testing.T) {
+		v := ScalarCountValidator{}
+		input := ValidatorInput{
+			IR: makeIR(true),
+			AggregateFacts: []types.AnswerAggregateFact{{
+				Kind:  types.AnswerAggregateMemberSet,
+				Label: "verified assignment sites",
+				Value: "4",
+				Members: []string{
+					"internal/a.go:10",
+					"internal/b.go:20",
+					"internal/c.go:30",
+					"internal/c.go:40",
+				},
+			}},
+			AnswerDocumentV2: &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID:   "summary",
+				Kind: types.BlockSummary,
+				Text: "共有 4 处生产代码位点。",
+			}}},
+		}
+		if fail := v.Validate(input); fail != nil {
+			t.Errorf("ScalarCountValidator must accept visible count from accepted aggregate member_set; got %+v", fail)
+		}
+	})
+
+	t.Run("count_question_accepted_member_set_hidden_count_fails", func(t *testing.T) {
+		v := ScalarCountValidator{}
+		input := ValidatorInput{
+			IR: makeIR(true),
+			AggregateFacts: []types.AnswerAggregateFact{{
+				Kind:    types.AnswerAggregateMemberSet,
+				Label:   "verified assignment sites",
+				Value:   "4",
+				Members: []string{"a.go:1", "b.go:2", "c.go:3", "d.go:4"},
+			}},
+			AnswerDocumentV2: &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID:   "summary",
+				Kind: types.BlockSummary,
+				Text: "已列出生产代码位点。",
+			}}},
+		}
+		if fail := v.Validate(input); fail == nil {
+			t.Error("ScalarCountValidator must not accept aggregate count unless the answer visibly preserves the same integer")
+		}
+	})
 }
 
 // TestCardinalityValidator pins the declared-count contract.

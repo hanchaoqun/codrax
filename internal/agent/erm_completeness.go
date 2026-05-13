@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -108,6 +109,7 @@ type ValidatorInput struct {
 	AnswerSymbols    []types.AnswerSymbol
 	ToolResults      []types.ToolResult
 	RepoFacts        []types.RepoFact
+	AggregateFacts   []types.AnswerAggregateFact
 	AnswerDocumentV2 *types.AnswerDocumentV2
 }
 
@@ -221,6 +223,19 @@ func (ScalarCountValidator) Validate(input ValidatorInput) *CompletenessFailure 
 		return nil
 	}
 
+	// Tier 0: model-authored aggregate handoff. For semantic counts
+	// whose exact value is the size of a verified member set, forcing
+	// an additional exec_command is both wasteful and sometimes the
+	// wrong abstraction: the explorer already emitted the exact
+	// member_set/total_count through structured aggregate_facts after
+	// reading and classifying candidates. This still does not let the
+	// system invent an answer: the value must come from accepted
+	// aggregate_facts, and the composed answer must visibly contain
+	// the same integer.
+	if aggregateFactsProvideVisibleCount(input.AggregateFacts, input.AnswerDocumentV2) {
+		return nil
+	}
+
 	// Tier 1: answer-aware via typed BlockScalar + citation chain.
 	// If the answer surfaces a count via a BlockScalar block AND has
 	// at least one Citation in the answer doc whose evidence chain
@@ -305,6 +320,103 @@ func hasExecCommandIntegerResult(results []types.ToolResult) bool {
 		}
 	}
 	return false
+}
+
+func aggregateFactsProvideVisibleCount(facts []types.AnswerAggregateFact, doc *types.AnswerDocumentV2) bool {
+	if len(facts) == 0 || doc == nil {
+		return false
+	}
+	visible := answerDocumentIntegerSet(doc)
+	if len(visible) == 0 {
+		return false
+	}
+	for _, fact := range facts {
+		n, ok := aggregateFactExactCount(fact)
+		if !ok {
+			continue
+		}
+		if visible[n] {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateFactExactCount(fact types.AnswerAggregateFact) (int, bool) {
+	value := strings.TrimSpace(fact.Value)
+	if value == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	switch fact.Kind {
+	case types.AnswerAggregateMemberSet:
+		if len(fact.Members) == 0 || len(fact.Members) != n {
+			return 0, false
+		}
+		return n, true
+	case types.AnswerAggregateTotalCount,
+		types.AnswerAggregateUniqueCount,
+		types.AnswerAggregateGroupedCount,
+		types.AnswerAggregateBucketCount,
+		types.AnswerAggregateExcluded,
+		types.AnswerAggregateScalar:
+		if len(fact.Members) > 0 && len(fact.Members) != n {
+			return 0, false
+		}
+		return n, true
+	default:
+		return 0, false
+	}
+}
+
+func answerDocumentIntegerSet(doc *types.AnswerDocumentV2) map[int]bool {
+	out := map[int]bool{}
+	if doc == nil {
+		return out
+	}
+	collect := func(text string) {
+		for _, n := range integerLiteralsInText(text) {
+			out[n] = true
+		}
+	}
+	for _, blk := range doc.Blocks {
+		collect(blk.Text)
+		collect(blk.Title)
+		for _, item := range blk.Items {
+			collect(item.Label)
+			collect(item.Text)
+		}
+	}
+	return out
+}
+
+func integerLiteralsInText(text string) []int {
+	var out []int
+	start := -1
+	flush := func(end int) {
+		if start < 0 {
+			return
+		}
+		n, err := strconv.Atoi(text[start:end])
+		if err == nil {
+			out = append(out, n)
+		}
+		start = -1
+	}
+	for i, r := range text {
+		if r >= '0' && r <= '9' {
+			if start < 0 {
+				start = i
+			}
+			continue
+		}
+		flush(i)
+	}
+	flush(len(text))
+	return out
 }
 
 // --- CardinalityValidator ---------------------------------------
