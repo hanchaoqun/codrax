@@ -604,6 +604,19 @@ func TestPreEmitAggregateMemberSupportRefMember_CitesLabelAtLocation(t *testing.
 		Value:   "1",
 		Members: []string{"explorerEvaluator (internal/agent/explorer.go:30)"},
 	}})
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:              "explorer-definition",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/explorer.go",
+		LineStart:       12,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "explorerEvaluator",
+		Subject:         "explorerEvaluator",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
 	mu.SetInvestigationComplete("structured member set accepted")
 	ctx := &types.BusContext{Mutable: mu}
 	item := types.AnswerBlockItem{
@@ -617,9 +630,12 @@ func TestPreEmitAggregateMemberSupportRefMember_CitesLabelAtLocation(t *testing.
 	if !preEmitCitationSupportsAggregateItem(ctx, item.Label, item.Text, citation) {
 		t.Fatal("label plus matching citation should satisfy support-ref aggregate member")
 	}
+	if !preEmitCitationSupportsAggregateItem(ctx, item.Label, item.Text, types.Citation{File: "internal/agent/explorer.go", Line: 12}) {
+		t.Fatal("typed definition citation for the same aggregate member should also satisfy support-ref aggregate member")
+	}
 	got := preEmitCandidateCitationLocationsForAggregateItem(ctx, item.Label, item.Text, 4)
-	if len(got) != 1 || got[0] != "internal/agent/explorer.go:30" {
-		t.Fatalf("support-ref aggregate member should suggest its typed location, got %v", got)
+	if len(got) != 2 || got[0] != "internal/agent/explorer.go:30" || got[1] != "internal/agent/explorer.go:12" {
+		t.Fatalf("support-ref aggregate member should suggest support and definition anchors, got %v", got)
 	}
 }
 

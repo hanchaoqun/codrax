@@ -715,6 +715,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupport
 				Kind:            types.EvidenceDirect,
 				Source:          "internal/analysis/gate/gate.go",
 				LineStart:       127,
+				LineEnd:         130,
 				AnchorKind:      types.AnchorCall,
 				AnchorSymbol:    "checkCoverage",
 				Summary:         "checkCoverage is appended as the first gate check",
@@ -746,6 +747,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupport
 		"### Current grounded call chain",
 		"`checkCoverage`",
 		"internal/analysis/gate/gate.go:127",
+		"equivalent typed anchors: `internal/analysis/gate/gate.go:130`",
 		"`checkDAGClosure`",
 		"internal/analysis/gate/gate.go:128",
 		"`checkBudgetSanity`",
@@ -907,6 +909,60 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_FileImpactObligationsUs
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("file-impact obligation prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersEquivalentPrincipalAnchors(t *testing.T) {
+	mut := types.NewMutableState("all implementers")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "LoopController implementers",
+		Value:   "1",
+		Members: []string{"analyzerEvaluator (internal/agent/analyzer.go:887)"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqEnumeration),
+					Entities: []string{"analyzerEvaluator"},
+				},
+				CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "all implementers"},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 1},
+			},
+		},
+		Mutable: mut,
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "analyzer-definition",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       46,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "analyzerEvaluator",
+			Subject:         "analyzerEvaluator",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"equivalent typed anchors",
+		"internal/agent/analyzer.go:887",
+		"internal/agent/analyzer.go:46",
+		"one of internal/agent/analyzer.go:887, internal/agent/analyzer.go:46",
+		"Do not churn `citation_ref`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("principal equivalent-anchor prompt missing %q:\n%s", want, prompt)
 		}
 	}
 }

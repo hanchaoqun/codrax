@@ -2825,7 +2825,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("- These aggregate facts were emitted by the investigator through `emit_investigation_complete.aggregate_facts` after exploration. They are model-authored structured handoff values, not system-synthesised answer text.\n")
 	b.WriteString("- Preserve each `value` exactly when the corresponding fact answers the user's requested scalar, unique-set, group, bucket, exclusion, or exhaustive-member question. Use `members` for requested concrete lists such as enum/type names, file paths, or file:line locations.\n")
 	b.WriteString("- For `member_set` rows, `principal_member_set=true` marks the concrete principal slate. `coverage_axis_only=true` rows are audit/coverage context for a richer relation slate and must not create duplicate principal rows.\n")
-	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Reserve `citation_ref:-1` only for member labels that have no citable source-location handoff.\n")
+	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, `Member | file.ext:line`, or `Member (file.ext:line)`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Reserve `citation_ref:-1` only for member labels that have no citable source-location handoff.\n")
 	b.WriteString("- Do not render internal provenance strings such as `source=emit_investigation_complete.aggregate_facts` in the user-visible answer text. Use provenance only to choose the correct member set and citations.\n")
 	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, typed support lanes, citations, or raw tool outputs conflict with these facts, prefer the structured member_set for the principal list and state the evidence boundary instead of inventing a reconciliation.\n\n")
 	b.WriteString(renderStructuredAggregateFacts(plan.StableAggregateFacts, 16))
@@ -3359,7 +3359,11 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 				text += " — Evidence note: " + detail
 			}
 			if loc := strings.TrimSpace(entry.Location); loc != "" {
-				fmt.Fprintf(&b, "- %s (`%s`)\n", text, loc)
+				if equivalents := renderSupportEntryEquivalentLocations(entry.EquivalentLocations); equivalents != "" {
+					fmt.Fprintf(&b, "- %s (`%s`; equivalent typed anchors: %s)\n", text, loc, equivalents)
+				} else {
+					fmt.Fprintf(&b, "- %s (`%s`)\n", text, loc)
+				}
 			} else {
 				fmt.Fprintf(&b, "- %s\n", text)
 			}
@@ -3376,7 +3380,8 @@ func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan) st
 	}
 	var b strings.Builder
 	b.WriteString("### Principal Member Obligations\n\n")
-	fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s). Render each member as a principal `ordered_list`, `bullet_list`, or `table` item with a citation to the listed location. These rows are a stable member-to-citation map; do not satisfy them by prose-only mentions in `summary`.\n", len(obligations))
+	fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s). Render each member as a principal `ordered_list`, `bullet_list`, or `table` item with a citation to the listed location or one of its equivalent typed anchors. These rows are a stable member-to-citation map; do not satisfy them by prose-only mentions in `summary`.\n", len(obligations))
+	b.WriteString("When one member has both a definition/declaration anchor and an implementation/proof anchor, keep it as one principal member. Do not churn `citation_ref` just to swap between those equivalent anchors; cite one accepted anchor and mention the other only as same-row enrichment when it helps the user.\n")
 	if plan != nil && plan.ChangeImpactProfile != nil && plan.ChangeImpactProfile.Active() &&
 		plan.ChangeImpactProfile.RequestedOutput == types.ImpactOutputFiles {
 		fmt.Fprintf(&b, "This is a change-impact file enumeration: the %d member(s) below are the file set. Use each file path as the item label; keep file:line anchors only in item text/citations. Do not copy numeric file counts from unstructured closure prose when they disagree with this typed member set.\n", len(obligations))
@@ -3403,6 +3408,36 @@ func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan) st
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func renderSupportEntryEquivalentLocations(locations []string) string {
+	if len(locations) == 0 {
+		return ""
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, location := range locations {
+		location = strings.TrimSpace(location)
+		if location == "" {
+			continue
+		}
+		key := strings.ToLower(strings.ReplaceAll(location, `\`, `/`))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, "`"+location+"`")
+		if len(out) >= 4 {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	if len(locations) > len(out) {
+		out = append(out, fmt.Sprintf("... (%d total)", len(locations)))
+	}
+	return strings.Join(out, ", ")
 }
 
 func supportPlanAllowsBlockKind(plan *types.AnswerSupportPlan, kind string) bool {

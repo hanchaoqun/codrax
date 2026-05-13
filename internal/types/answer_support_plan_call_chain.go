@@ -91,11 +91,21 @@ func callChainStepBackboneEntries(plan *AnswerSurfacePlan) []AnswerSupportEntry 
 		if text == "" {
 			continue
 		}
-		out = append(out, AnswerSupportEntry{
-			Text:     text,
-			Detail:   callChainStepSupportDetail(anchor, text),
-			Location: stepSurfaceAnchorLocation(anchor),
-		})
+		entry := AnswerSupportEntry{
+			Text:      text,
+			Detail:    callChainStepSupportDetail(anchor, text),
+			Location:  stepSurfaceAnchorLocation(anchor),
+			Source:    strings.TrimSpace(strings.ReplaceAll(anchor.File, `\`, `/`)),
+			LineStart: anchor.Line,
+			LineEnd:   anchor.LineEnd,
+		}
+		if entry.Source != "" && entry.LineEnd > entry.LineStart {
+			entry.EquivalentLocations = appendAnswerSupportEquivalentLocation(
+				entry.EquivalentLocations,
+				fmt.Sprintf("%s:%d", entry.Source, entry.LineEnd),
+			)
+		}
+		out = append(out, entry)
 	}
 	return out
 }

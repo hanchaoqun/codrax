@@ -21,6 +21,7 @@ type AnswerSupportMemberObligation struct {
 	SurfaceTerms []string
 	Source       string
 	LineStart    int
+	LineEnd      int
 
 	// EquivalentLocations holds other file:line anchors that describe
 	// the same typed principal member. Definition facts commonly have
@@ -207,6 +208,10 @@ func principalSupportMemberObligation(entry AnswerSupportEntry) AnswerSupportMem
 		ClaimForm:  entry.ClaimForm,
 		Source:     source,
 		LineStart:  line,
+		LineEnd:    supportMemberLineEnd(line, entry.LineEnd),
+	}
+	for _, location := range entry.EquivalentLocations {
+		appendEquivalentSupportMemberLocation(&ob, location)
 	}
 	seen := make(map[string]bool)
 	addTerm := func(s string) {
@@ -281,6 +286,9 @@ func mergePrincipalSupportMemberObligation(dst *AnswerSupportMemberObligation, s
 	}
 	if dst.LineStart <= 0 {
 		dst.LineStart = src.LineStart
+	}
+	if dst.LineEnd <= 0 || (src.LineEnd > 0 && src.LineEnd > dst.LineEnd) {
+		dst.LineEnd = src.LineEnd
 	}
 	seen := make(map[string]bool, len(dst.SurfaceTerms)+len(src.SurfaceTerms))
 	for _, term := range dst.SurfaceTerms {
@@ -765,6 +773,9 @@ func citationCoversSupportMember(cit Citation, ob AnswerSupportMemberObligation)
 			return true
 		}
 	}
+	if citationWithinSupportMemberRange(cit, ob) {
+		return true
+	}
 	return citationWithinDefinitionSupportMemberWindow(cit, ob)
 }
 
@@ -779,6 +790,16 @@ func citationWithinDefinitionSupportMemberWindow(cit Citation, ob AnswerSupportM
 		return false
 	}
 	return absInt(cit.Line-ob.LineStart) <= definitionSupportMemberCitationWindow
+}
+
+func citationWithinSupportMemberRange(cit Citation, ob AnswerSupportMemberObligation) bool {
+	if strings.TrimSpace(ob.Source) == "" || ob.LineStart <= 0 || ob.LineEnd <= ob.LineStart {
+		return false
+	}
+	if cit.Line <= 0 || normalizeAnswerSupportPath(cit.File) != normalizeAnswerSupportPath(ob.Source) {
+		return false
+	}
+	return cit.Line >= ob.LineStart && cit.Line <= ob.LineEnd
 }
 
 func supportMemberCoverageLocations(ob AnswerSupportMemberObligation) []string {
@@ -796,10 +817,20 @@ func supportMemberCoverageLocations(ob AnswerSupportMemberObligation) []string {
 		out = append(out, location)
 	}
 	add(ob.Location)
+	if ob.LineEnd > ob.LineStart && strings.TrimSpace(ob.Source) != "" {
+		add(fmt.Sprintf("%s:%d", ob.Source, ob.LineEnd))
+	}
 	for _, location := range ob.EquivalentLocations {
 		add(location)
 	}
 	return out
+}
+
+func supportMemberLineEnd(lineStart, lineEnd int) int {
+	if lineStart <= 0 || lineEnd <= lineStart {
+		return 0
+	}
+	return lineEnd
 }
 
 func normalizeAnswerSupportLocation(location string) string {

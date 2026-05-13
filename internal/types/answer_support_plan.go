@@ -63,6 +63,14 @@ type AnswerSupportEntry struct {
 	Detail   string
 	Location string
 
+	// EquivalentLocations holds additional file:line anchors that
+	// describe the same principal support entry. A common cross-language
+	// shape is "member label + implementation/proof support_ref" plus a
+	// separate typed definition evidence item for that same member. Keeping
+	// both anchors on one entry prevents downstream citation repair from
+	// treating declaration and implementation evidence as competing members.
+	EquivalentLocations []string
+
 	// Typed evidence projection fields are copied from the source
 	// EvidenceItem when the entry originates from structured
 	// evidence. They let downstream validators reason about the
@@ -78,6 +86,7 @@ type AnswerSupportEntry struct {
 	SurfaceTerms  []string
 	Source        string
 	LineStart     int
+	LineEnd       int
 	AnchorKind    AnchorKind
 	MemberSurface AnswerPrincipalMemberSurface
 	Producer      string
@@ -267,10 +276,17 @@ func answerSupportEntryForEvidence(item EvidenceItem, text, detail string) Answe
 		OwnerSymbol:   strings.TrimSpace(item.OwnerSymbol),
 		Source:        strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)),
 		LineStart:     item.LineStart,
+		LineEnd:       item.LineEnd,
 		AnchorKind:    item.AnchorKind,
 		MemberSurface: PrincipalMemberSurfaceForEvidenceSet(item, nil),
 		Producer:      strings.TrimSpace(item.Producer),
 		GroundingTier: item.GroundingTier,
+	}
+	if entry.Source != "" && entry.LineEnd > entry.LineStart {
+		entry.EquivalentLocations = appendAnswerSupportEquivalentLocation(
+			entry.EquivalentLocations,
+			fmt.Sprintf("%s:%d", entry.Source, entry.LineEnd),
+		)
 	}
 	for _, term := range item.SurfaceTerms {
 		term = strings.TrimSpace(term)
@@ -279,6 +295,20 @@ func answerSupportEntryForEvidence(item EvidenceItem, text, detail string) Answe
 		}
 	}
 	return entry
+}
+
+func appendAnswerSupportEquivalentLocation(in []string, location string) []string {
+	location = strings.TrimSpace(strings.ReplaceAll(location, `\`, `/`))
+	if location == "" {
+		return in
+	}
+	key := normalizeAnswerSupportLocation(location)
+	for _, existing := range in {
+		if normalizeAnswerSupportLocation(existing) == key {
+			return in
+		}
+	}
+	return append(in, location)
 }
 
 func stepSurfaceAnchorLocation(anchor StepSurfaceAnchor) string {

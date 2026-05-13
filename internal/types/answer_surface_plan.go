@@ -224,6 +224,7 @@ type StepSurfaceAnchor struct {
 	Name        string
 	File        string
 	Line        int
+	LineEnd     int
 	Kind        AnswerSymbolKind
 	Rationale   string
 	Chain       string
@@ -354,6 +355,7 @@ func compileEvidenceStepBackbone(evidence []EvidenceItem) []StepSurfaceAnchor {
 			Name:        name,
 			File:        file,
 			Line:        item.LineStart,
+			LineEnd:     item.LineEnd,
 			SurfaceText: strings.TrimSpace(EvidencePreferredSurfaceText(item, nil, true)),
 		})
 	}
@@ -610,6 +612,7 @@ func CompileExplanationAnchorBackbone(ir *AnalysisIR, evidence []EvidenceItem) (
 				Name:        name,
 				File:        strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`)),
 				Line:        item.LineStart,
+				LineEnd:     item.LineEnd,
 				Rationale:   strings.TrimSpace(topic.Summary),
 				SurfaceText: strings.TrimSpace(EvidencePreferredSurfaceText(item, nil, true)),
 			}

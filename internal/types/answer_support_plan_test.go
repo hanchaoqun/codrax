@@ -2135,6 +2135,50 @@ func TestMissingPrincipalSupportMembers_DefinitionAnchorsCoalesceAndAcceptEquiva
 	}
 }
 
+func TestMissingPrincipalSupportMembers_AcceptsTypedEvidenceLineRangeCitation(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{{
+				Text:         "ArkTS initializer range",
+				Location:     "entry/src/main/ets/pages/index.ets:42",
+				ClaimForm:    ClaimAssignmentFact,
+				AnchorSymbol: "pageConfig",
+				SurfaceTerms: []string{"pageConfig"},
+				Source:       "entry/src/main/ets/pages/index.ets",
+				LineStart:    42,
+				LineEnd:      44,
+			}},
+		}},
+	}
+
+	obligations := PrincipalSupportMemberObligations(plan)
+	if len(obligations) != 1 {
+		t.Fatalf("range-backed principal member should produce one obligation, got %+v", obligations)
+	}
+	if !strings.Contains(obligations[0].LocationHint(), "entry/src/main/ets/pages/index.ets:44") {
+		t.Fatalf("range-backed obligation should expose line_end as an accepted typed anchor, got %q", obligations[0].LocationHint())
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "entry/src/main/ets/pages/index.ets", Line: 43}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockTable,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "pageConfig",
+				Text:        "initializer value",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if got := MissingPrincipalSupportMembers(doc, plan); len(got) != 0 {
+		t.Fatalf("citation inside typed evidence line range should satisfy member coverage, got %+v", got)
+	}
+}
+
 func TestMissingPrincipalSupportMembers_AcceptsSplitRelationMemberSurface(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Family: QFEnumeration,
@@ -3035,6 +3079,181 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetReusesTypedEvidenceLoca
 	obligations := PrincipalSupportMemberObligations(got)
 	if len(obligations) != 2 {
 		t.Fatalf("typed evidence-backed aggregate members should become cited obligations, got %+v", obligations)
+	}
+}
+
+func TestBuildAnswerSupportPlan_GenericAggregateMemberSetCoAnchorsSupportRefAndTypedDefinition(t *testing.T) {
+	cases := []struct {
+		name     string
+		member   string
+		defFile  string
+		defLine  int
+		implFile string
+		implLine int
+		symbol   string
+	}{
+		{
+			name:     "go_same_file_method_proof",
+			member:   "analyzerEvaluator (internal/agent/analyzer.go:887)",
+			defFile:  "internal/agent/analyzer.go",
+			defLine:  46,
+			implFile: "internal/agent/analyzer.go",
+			implLine: 887,
+			symbol:   "analyzerEvaluator",
+		},
+		{
+			name:     "arkts_same_file_lifecycle_proof",
+			member:   "LifecycleObserver (entry/src/main/ets/lifecycle/Observer.ets:88)",
+			defFile:  "entry/src/main/ets/lifecycle/Observer.ets",
+			defLine:  12,
+			implFile: "entry/src/main/ets/lifecycle/Observer.ets",
+			implLine: 88,
+			symbol:   "LifecycleObserver",
+		},
+		{
+			name:     "cpp_header_definition_source_implementation",
+			member:   "ParserObserver (src/parser/observer.cpp:73)",
+			defFile:  "include/parser/observer.h",
+			defLine:  15,
+			implFile: "src/parser/observer.cpp",
+			implLine: 73,
+			symbol:   "ParserObserver",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := &AnswerSurfacePlan{
+				StableAggregateFacts: []AnswerAggregateFact{{
+					Kind:    AnswerAggregateMemberSet,
+					Label:   "typed implementers",
+					Value:   "1",
+					Members: []string{tc.member},
+				}},
+				SurfaceEvidence: []EvidenceItem{{
+					ID:              "definition-" + tc.name,
+					Kind:            EvidenceDirect,
+					Scope:           ScopeLine,
+					Source:          tc.defFile,
+					LineStart:       tc.defLine,
+					AnchorKind:      AnchorDefinition,
+					AnchorSymbol:    tc.symbol,
+					Subject:         tc.symbol,
+					Producer:        "explorer.emit_evidence",
+					GroundingStatus: GroundingGrounded,
+					GroundingTier:   TierLineText,
+				}},
+			}
+			rm := RequestModel{
+				Intent:     IntentEnumerate,
+				Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+				AnalyzerHints: AnalyzerHints{
+					Kind:     string(ReqEnumeration),
+					Entities: []string{tc.symbol},
+				},
+				CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all implementers"},
+			}
+
+			got := BuildAnswerSupportPlan(rm, plan)
+			lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+			if lane == nil || len(lane.Entries) != 1 {
+				t.Fatalf("aggregate member_set should compile into one principal entry, got %+v", got)
+			}
+			if lane.Entries[0].EvidenceID != "aggregate_fact:member_set:0:0" {
+				t.Fatalf("aggregate member evidence id should preserve zero-based fact/member indexes, got %+v", lane.Entries[0])
+			}
+			wantImpl := tc.implFile + ":" + intString(tc.implLine)
+			wantDef := tc.defFile + ":" + intString(tc.defLine)
+			if !strings.EqualFold(lane.Entries[0].Location, wantImpl) {
+				t.Fatalf("model support_ref should remain the primary aggregate anchor, got %+v", lane.Entries[0])
+			}
+			if !stringSliceContainsFold(lane.Entries[0].EquivalentLocations, wantDef) {
+				t.Fatalf("typed definition should be retained as an equivalent anchor, got %+v", lane.Entries[0])
+			}
+
+			obligations := PrincipalSupportMemberObligations(got)
+			if len(obligations) != 1 {
+				t.Fatalf("co-anchored member should stay one obligation, got %+v", obligations)
+			}
+			for _, citation := range []Citation{
+				{File: tc.implFile, Line: tc.implLine},
+				{File: tc.defFile, Line: tc.defLine},
+			} {
+				doc := &AnswerDocumentV2{
+					Citations: []Citation{citation},
+					Blocks: []AnswerBlock{{
+						ID:          "items",
+						Kind:        BlockOrderedList,
+						SurfaceRole: SurfacePrincipal,
+						FacetIDs:    []string{string(FacetEnumerationItem)},
+						Items: []AnswerBlockItem{{
+							Label:       tc.symbol,
+							Text:        "typed implementer",
+							CitationRef: 0,
+						}},
+					}},
+				}
+				if missing := MissingPrincipalSupportMembers(doc, got); len(missing) != 0 {
+					t.Fatalf("citation %+v should satisfy co-anchored member coverage, got %+v", citation, missing)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildAnswerSupportPlan_GenericAggregateMemberSetDoesNotCoAnchorAmbiguousCrossFileDefinitions(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "typed implementers",
+			Value:   "1",
+			Members: []string{"ParserObserver (src/parser/observer.cpp:73)"},
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "parser-observer-a",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "include/parser/observer.h",
+				LineStart:       15,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "ParserObserver",
+				Subject:         "ParserObserver",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+			{
+				ID:              "parser-observer-b",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "third_party/parser/observer.h",
+				LineStart:       9,
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "ParserObserver",
+				Subject:         "ParserObserver",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+		},
+	}
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqEnumeration),
+			Entities: []string{"ParserObserver"},
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all implementers"},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 1 {
+		t.Fatalf("aggregate member_set should compile into one principal entry, got %+v", got)
+	}
+	if len(lane.Entries[0].EquivalentLocations) != 0 {
+		t.Fatalf("ambiguous cross-file same-name definitions must not become equivalent anchors, got %+v", lane.Entries[0])
 	}
 }
 
