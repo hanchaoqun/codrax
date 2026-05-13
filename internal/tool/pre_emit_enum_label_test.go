@@ -525,6 +525,42 @@ func TestPreCheckItemCitationAlignment_AggregateMemberSetColonUsesTypedEvidenceC
 	}
 }
 
+func TestPreCheckItemCitationAlignment_AggregateRelationAcceptsSplitRowCitation(t *testing.T) {
+	mut := types.NewMutableState("aggregate relation split row citation")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal/analysis subpackages",
+		Value:   "1",
+		Members: []string{"aggregator → Aggregate"},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/analysis/aggregator/aggregator.go",
+		LineStart:       129,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Aggregate",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/analysis/aggregator/aggregator.go", Line: 129}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "subpackages",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "aggregator",
+				Label:       "aggregator",
+				Text:        "入口函数 Aggregate，定义于 aggregator.go:129。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("split aggregate relation row should allow citation to the typed right-side proof, got %v", hints)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

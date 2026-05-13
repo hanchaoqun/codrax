@@ -2988,6 +2988,59 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetReusesTypedEvidenceLoca
 	}
 }
 
+func TestBuildAnswerSupportPlan_GenericAggregateMemberSetPrefersRelationSlateOverLeftAxis(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{
+			{
+				Kind:    AnswerAggregateMemberSet,
+				Label:   "internal/analysis subpackage directories",
+				Value:   "2",
+				Members: []string{"aggregator", "compiler"},
+			},
+			{
+				Kind:    AnswerAggregateMemberSet,
+				Label:   "subpackage entry functions",
+				Value:   "2",
+				Members: []string{"aggregator → Aggregate", "compiler → Compile"},
+			},
+		},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "axis-helper",
+				Kind:            EvidenceDirect,
+				Source:          "internal/agent/explorer.go",
+				LineStart:       6440,
+				AnchorKind:      AnchorAssignment,
+				AnchorSymbol:    "filterPartialReadsByAuthoritativeFrames",
+				SurfaceTerms:    []string{"aggregator"},
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+		},
+	}
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true, IsRelationalLookup: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqEnumeration),
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all subpackages and entry functions"},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 2 {
+		t.Fatalf("relation member_set should be the only principal slate, got %+v", got)
+	}
+	if lane.Entries[0].Text != "aggregator → Aggregate" || lane.Entries[1].Text != "compiler → Compile" {
+		t.Fatalf("principal entries should preserve relation members, got %+v", lane.Entries)
+	}
+	if strings.Contains(answerSupportLaneText(lane), "filterPartialReadsByAuthoritativeFrames") {
+		t.Fatalf("left-axis helper evidence must not become principal via label reuse: %+v", lane.Entries)
+	}
+}
+
 func answerSupportLaneByKind(plan *AnswerSupportPlan, kind AnswerSupportLaneKind) *AnswerSupportLane {
 	if plan == nil {
 		return nil

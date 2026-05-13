@@ -499,6 +499,57 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsSplitRelationInSameItem(t *te
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_RelationSlateSubsumesLeftAxis(t *testing.T) {
+	mu := types.NewMutableState("entry relation aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "subpackage directories",
+			Value:   "2",
+			Members: []string{"aggregator", "compiler"},
+		},
+		{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "subpackage entries",
+			Value:   "2",
+			Members: []string{"aggregator → Aggregate", "compiler → Compile"},
+		},
+	})
+	mu.SetInvestigationComplete("structured member sets accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true, IsRelationalLookup: true},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all subpackages and their entry functions",
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "list",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:    "agg",
+				Label: "aggregator",
+				Text:  "入口函数是 `Aggregate`。",
+			}, {
+				ID:    "comp",
+				Label: "compiler",
+				Text:  "入口函数是 `Compile`。",
+			}},
+		}},
+	}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("left-axis coverage set should not require duplicate principal rows, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_AcceptsDecoratedSplitRelation(t *testing.T) {
 	mu := types.NewMutableState("entry function aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

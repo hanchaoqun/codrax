@@ -392,6 +392,67 @@ func TestNormalizeAnswerAggregateFacts_FileLineMembersRequireUniqueFileFact(t *t
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefs_RelationSetSubsumesLeftAxis(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "packages",
+			Value:   "3",
+			Members: []string{"aggregator", "declarative", "priority"},
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "package entry functions",
+			Value:   "3",
+			Members: []string{"aggregator → Aggregate", "declarative → New (Classifier)", "priority → Score(priority)"},
+		},
+	}
+
+	got := PrincipalAggregateMemberSetFactRefs(facts)
+	if len(got) != 1 {
+		t.Fatalf("left-axis member set should be coverage context, got %+v", got)
+	}
+	if got[0].Index != 1 || got[0].Fact.Label != "package entry functions" {
+		t.Fatalf("principal slate should preserve the richer relation fact and original index, got %+v", got[0])
+	}
+}
+
+func TestPrincipalAggregateMemberSetFactRefs_DoesNotSuppressRightAxisOrDifferentDimensions(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "entry functions",
+			Value:   "2",
+			Members: []string{"Aggregate", "Compile"},
+		},
+		{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "production package entries",
+			Value: "2",
+			Dimensions: []AnswerAggregateDimension{{
+				Name:  "scope",
+				Value: "production",
+			}},
+			Members: []string{"aggregator → Aggregate", "compiler → Compile"},
+		},
+		{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "test packages",
+			Value: "2",
+			Dimensions: []AnswerAggregateDimension{{
+				Name:  "scope",
+				Value: "tests",
+			}},
+			Members: []string{"aggregator", "compiler"},
+		},
+	}
+
+	got := PrincipalAggregateMemberSetFactRefs(facts)
+	if len(got) != 3 {
+		t.Fatalf("right-axis and different-dimension sets should remain principal, got %+v", got)
+	}
+}
+
 func TestMutableState_StableInvestigationAggregateFactsRetention(t *testing.T) {
 	mu := NewMutableState("q")
 	facts := []AnswerAggregateFact{{

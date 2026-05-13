@@ -74,6 +74,20 @@ type AnswerAggregateFact struct {
 	SupportRefs []string                   `json:"support_refs,omitempty"`
 }
 
+// AnswerAggregateFactRef preserves the original aggregate_facts index while
+// passing a curated view downstream. Support-lane evidence IDs and finalizer
+// repair hints must continue to point at the model-emitted structured payload,
+// not at a re-numbered system projection.
+type AnswerAggregateFactRef struct {
+	Index int
+	Fact  AnswerAggregateFact
+}
+
+type aggregateRelationMemberSetFact struct {
+	fact AnswerAggregateFact
+	left map[string]bool
+}
+
 const (
 	maxAnswerAggregateFacts      = 16
 	maxAnswerAggregateDimensions = 8
@@ -119,6 +133,142 @@ func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateF
 		return nil, err
 	}
 	return out, nil
+}
+
+// PrincipalAggregateMemberSetFactRefs returns the member_set facts that should
+// act as the user-visible principal slate. When the model emits both a left-axis
+// set ("packages") and a richer relation set ("package -> entry"), the relation
+// set subsumes the left-axis set: the axis is useful coverage/audit context, but
+// requiring it as a second principal lane makes finalization duplicate rows or
+// cite package labels as if they were function definitions.
+//
+// This is intentionally language-neutral. It consumes only model-authored
+// aggregate member surfaces plus the shared compact relation parser; it does not
+// inspect raw prompts, thinking text, or repo-language-specific syntax.
+func PrincipalAggregateMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAggregateFactRef {
+	if len(facts) == 0 {
+		return nil
+	}
+	var relationFacts []aggregateRelationMemberSetFact
+	for _, fact := range facts {
+		if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+			continue
+		}
+		left, ok := aggregateRelationLeftAxisSet(fact)
+		if !ok {
+			continue
+		}
+		relationFacts = append(relationFacts, aggregateRelationMemberSetFact{fact: fact, left: left})
+	}
+	out := make([]AnswerAggregateFactRef, 0, len(facts))
+	for idx, fact := range facts {
+		if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+			continue
+		}
+		if aggregateMemberSetIsSubsumedLeftAxis(fact, relationFacts) {
+			continue
+		}
+		out = append(out, AnswerAggregateFactRef{Index: idx, Fact: fact})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func aggregateRelationLeftAxisSet(fact AnswerAggregateFact) (map[string]bool, bool) {
+	if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+		return nil, false
+	}
+	left := make(map[string]bool, len(fact.Members))
+	parsed := 0
+	for _, member := range fact.Members {
+		l, _, ok := AnswerAggregateMemberRelationParts(member)
+		if !ok {
+			continue
+		}
+		key := aggregateAxisMemberKey(l)
+		if key == "" {
+			continue
+		}
+		left[key] = true
+		parsed++
+	}
+	return left, parsed > 0 && len(left) > 0
+}
+
+func aggregateMemberSetIsSubsumedLeftAxis(fact AnswerAggregateFact, relationFacts []aggregateRelationMemberSetFact) bool {
+	if len(relationFacts) == 0 || fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+		return false
+	}
+	if _, isRelation := aggregateRelationLeftAxisSet(fact); isRelation {
+		return false
+	}
+	axis := make(map[string]bool, len(fact.Members))
+	for _, member := range fact.Members {
+		key := aggregateAxisMemberKey(member)
+		if key == "" {
+			return false
+		}
+		axis[key] = true
+	}
+	if len(axis) == 0 {
+		return false
+	}
+	for _, relation := range relationFacts {
+		if !aggregateFactDimensionsCompatible(fact.Dimensions, relation.fact.Dimensions) {
+			continue
+		}
+		if aggregateAxisSetSubsetOf(axis, relation.left) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateFactDimensionsCompatible(a, b []AnswerAggregateDimension) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return true
+	}
+	if len(a) != len(b) {
+		return false
+	}
+	ak := make([]string, 0, len(a))
+	bk := make([]string, 0, len(b))
+	for _, dim := range a {
+		ak = append(ak, strings.ToLower(strings.TrimSpace(dim.Name))+"\x00"+strings.ToLower(strings.TrimSpace(dim.Value)))
+	}
+	for _, dim := range b {
+		bk = append(bk, strings.ToLower(strings.TrimSpace(dim.Name))+"\x00"+strings.ToLower(strings.TrimSpace(dim.Value)))
+	}
+	sort.Strings(ak)
+	sort.Strings(bk)
+	for i := range ak {
+		if ak[i] != bk[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func aggregateAxisSetSubsetOf(axis, relationLeft map[string]bool) bool {
+	if len(axis) == 0 || len(relationLeft) == 0 {
+		return false
+	}
+	for key := range axis {
+		if !relationLeft[key] {
+			return false
+		}
+	}
+	return true
+}
+
+func aggregateAxisMemberKey(member string) string {
+	member = trimAggregateMemberSurface(member)
+	if member == "" {
+		return ""
+	}
+	return strings.ToLower(member)
 }
 
 func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact, error) {

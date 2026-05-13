@@ -565,6 +565,9 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 			if types.AnswerLocationLabelMatchesCitation(label, cit) {
 				continue
 			}
+			if preEmitCitationSupportsAggregateItem(ctx, label, item.Text, cit) {
+				continue
+			}
 			if surface, ok := types.ParseAnswerSourceLocationSurface(label); ok {
 				if types.AnswerSourceLocationSurfaceMatchesCitation(surface, cit) {
 					continue
@@ -819,10 +822,8 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	}
 	var missing []missingMember
 	seen := make(map[string]bool)
-	for _, fact := range facts {
-		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 {
-			continue
-		}
+	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(facts) {
+		fact := ref.Fact
 		for _, member := range fact.Members {
 			if preEmitAggregateMemberAppearsInDocument(member, doc, surface) {
 				continue
@@ -1471,10 +1472,8 @@ func preEmitCandidateCitationLocationsForAggregateItem(ctx *types.BusContext, la
 		seen[key] = true
 		out = append(out, loc)
 	}
-	for _, fact := range ctx.Mutable.StableInvestigationAggregateFacts() {
-		if fact.Kind != types.AnswerAggregateMemberSet {
-			continue
-		}
+	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(ctx.Mutable.StableInvestigationAggregateFacts()) {
+		fact := ref.Fact
 		for idx, member := range fact.Members {
 			if !preEmitAggregateMemberLabelTextMatches(label, text, member) {
 				continue
@@ -1486,13 +1485,45 @@ func preEmitCandidateCitationLocationsForAggregateItem(ctx *types.BusContext, la
 				if ev.GroundingStatus == types.GroundingUngrounded || ev.Source == "" || ev.LineStart <= 0 {
 					continue
 				}
-				if preEmitEvidenceSupportsAggregateMember(ev, member) {
+				if preEmitEvidenceSupportsAggregateMemberCitation(ev, member) {
 					add(ev.Source, ev.LineStart)
 				}
 			}
 		}
 	}
 	return out
+}
+
+func preEmitCitationSupportsAggregateItem(ctx *types.BusContext, label, text string, cit types.Citation) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	label = strings.TrimSpace(label)
+	text = strings.TrimSpace(text)
+	if label == "" || text == "" {
+		return false
+	}
+	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(ctx.Mutable.StableInvestigationAggregateFacts()) {
+		fact := ref.Fact
+		for idx, member := range fact.Members {
+			if !preEmitAggregateMemberLabelTextMatches(label, text, member) {
+				continue
+			}
+			if preEmitAggregateMemberCitationMatches(fact, idx, member, cit) {
+				return true
+			}
+			evidence, found := preEmitCitedEvidenceItems(ctx, cit)
+			if !found {
+				continue
+			}
+			for _, ev := range evidence {
+				if preEmitEvidenceSupportsAggregateMemberCitation(ev, member) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func preEmitLabelMatchesEvidenceEndpoint(label string, ev types.EvidenceItem) bool {
@@ -1787,10 +1818,8 @@ func preEmitLabelSupportedByAggregateMemberSet(label string, item types.AnswerBl
 	if len(facts) == 0 {
 		return false
 	}
-	for _, fact := range facts {
-		if fact.Kind != types.AnswerAggregateMemberSet {
-			continue
-		}
+	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(facts) {
+		fact := ref.Fact
 		for _, member := range fact.Members {
 			if !preEmitAggregateMemberLabelTextMatches(label, item.Text, member) {
 				continue
@@ -1922,11 +1951,19 @@ func preEmitCitationMatchesAggregateEvidence(ctx *types.BusContext, member strin
 		return false
 	}
 	for _, ev := range evidence {
-		if preEmitEvidenceSupportsAggregateMember(ev, member) {
+		if preEmitEvidenceSupportsAggregateMemberCitation(ev, member) {
 			return true
 		}
 	}
 	return false
+}
+
+func preEmitEvidenceSupportsAggregateMemberCitation(ev types.EvidenceItem, member string) bool {
+	if left, right, ok := preEmitAggregateMemberLabelRelationParts(member); ok {
+		return preEmitEvidenceEndpointSupportsToken(ev, right) &&
+			preEmitEvidenceOrSourceSupportsRelationLeft(ev, left)
+	}
+	return preEmitEvidenceSupportsAggregateMember(ev, member)
 }
 
 func preEmitEvidenceSupportsAggregateMember(ev types.EvidenceItem, member string) bool {
@@ -1937,6 +1974,42 @@ func preEmitEvidenceSupportsAggregateMember(ev types.EvidenceItem, member string
 	for _, candidate := range preEmitAggregateMemberDisplayCandidates(member) {
 		if preEmitLabelMatchesEvidenceEndpoint(candidate, ev) {
 			return true
+		}
+	}
+	return false
+}
+
+func preEmitEvidenceOrSourceSupportsRelationLeft(ev types.EvidenceItem, left string) bool {
+	left = strings.TrimSpace(left)
+	if left == "" {
+		return false
+	}
+	if preEmitEvidenceEndpointSupportsToken(ev, left) {
+		return true
+	}
+	return preEmitPathSegmentsSupportToken(ev.Source, left)
+}
+
+func preEmitPathSegmentsSupportToken(path string, token string) bool {
+	path = strings.TrimSpace(strings.ReplaceAll(path, `\`, `/`))
+	token = strings.TrimSpace(token)
+	if path == "" || token == "" {
+		return false
+	}
+	want := strings.ToLower(strings.Trim(token, "`\"' "))
+	for _, segment := range strings.Split(path, "/") {
+		segment = strings.TrimSpace(segment)
+		if segment == "" {
+			continue
+		}
+		base := segment
+		if dot := strings.LastIndex(base, "."); dot > 0 {
+			base = base[:dot]
+		}
+		for _, candidate := range []string{segment, base} {
+			if strings.ToLower(candidate) == want {
+				return true
+			}
 		}
 	}
 	return false

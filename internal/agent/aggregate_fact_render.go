@@ -14,11 +14,24 @@ func renderStructuredAggregateFacts(facts []types.AnswerAggregateFact, maxFacts 
 	if maxFacts <= 0 || maxFacts > len(facts) {
 		maxFacts = len(facts)
 	}
+	principalMemberSets := map[int]bool{}
+	if refs := types.PrincipalAggregateMemberSetFactRefs(facts); len(refs) > 0 {
+		for _, ref := range refs {
+			principalMemberSets[ref.Index] = true
+		}
+	}
 	var b strings.Builder
 	for i := 0; i < maxFacts; i++ {
 		fact := facts[i]
 		fmt.Fprintf(&b, "- kind=`%s`, label=%s, value=`%s`",
 			fact.Kind, fact.Label, fact.Value)
+		if fact.Kind == types.AnswerAggregateMemberSet {
+			if principalMemberSets[i] {
+				b.WriteString(", principal_member_set=true")
+			} else {
+				b.WriteString(", coverage_axis_only=true")
+			}
+		}
 		if fact.Unit != "" {
 			fmt.Fprintf(&b, ", unit=%s", fact.Unit)
 		}
