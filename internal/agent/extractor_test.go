@@ -620,6 +620,17 @@ func TestExtractor_BuildPrompt_RendersValueBearingEvidenceLens(t *testing.T) {
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
 		EvidenceItems: []types.EvidenceItem{
 			{
+				Kind:       types.EvidenceConcrete,
+				Scope:      types.ScopeLine,
+				Source:     "internal/types/analysis_ir.go",
+				LineStart:  278,
+				AnchorKind: types.AnchorAssignment,
+				Snippet:    "case SubjectFunctionName, SubjectTypeName, SubjectConfigKey:",
+				Subject:    "AnswerSubjectKind.IsValid",
+				Predicate:  "validates",
+				Summary:    "forced-read context value unrelated to the requested answer",
+			},
+			{
 				Kind:       types.EvidenceDirect,
 				Scope:      types.ScopeLine,
 				Source:     "internal/analysis/compiler/templates.go",
@@ -668,6 +679,7 @@ func TestExtractor_BuildPrompt_RendersValueBearingEvidenceLens(t *testing.T) {
 		"TmplRetryBudgetMedium   = 3",
 		"RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium)",
 		"Preserve exact constants",
+		"soft visibility guidance",
 	} {
 		if !contains(prompt, want) {
 			t.Fatalf("prompt missing value-bearing lens content %q:\n%s", want, prompt)
@@ -676,6 +688,9 @@ func TestExtractor_BuildPrompt_RendersValueBearingEvidenceLens(t *testing.T) {
 	valueSection := prompt[strings.Index(prompt, "### Value-bearing evidence facts"):]
 	if strings.Contains(valueSection, "func templateArchitectureExplain") {
 		t.Fatalf("plain function definition should not pollute value-bearing lens:\n%s", valueSection)
+	}
+	if strings.Contains(valueSection, "AnswerSubjectKind.IsValid") {
+		t.Fatalf("unrelated forced-read value should not outrank request-relevant facts:\n%s", valueSection)
 	}
 }
 

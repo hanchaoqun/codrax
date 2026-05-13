@@ -32,6 +32,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -214,7 +215,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			b.WriteString("\n")
 		}
 
-		if lens := renderExtractorValueEvidenceFacts(ta.EvidenceItems); lens != "" {
+		if lens := renderExtractorValueEvidenceFacts(ctx, ta); lens != "" {
 			b.WriteString(lens)
 		}
 
@@ -433,23 +434,28 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 	return b.String()
 }
 
-func renderExtractorValueEvidenceFacts(items []types.EvidenceItem) string {
-	if len(items) == 0 {
+type extractorValueFact struct {
+	item    types.EvidenceItem
+	label   string
+	surface string
+	score   int
+	index   int
+}
+
+func renderExtractorValueEvidenceFacts(ctx *types.AgentContext, ta *types.TurnAArtifacts) string {
+	if ta == nil || len(ta.EvidenceItems) == 0 {
 		return ""
 	}
-	var b strings.Builder
-	count := 0
-	for _, item := range items {
+	needles := extractorValueEvidenceNeedles(ctx, ta)
+	candidates := make([]extractorValueFact, 0, len(ta.EvidenceItems))
+	hasRelevant := false
+	for i, item := range ta.EvidenceItems {
 		if !extractorValueEvidenceCandidate(item) {
 			continue
 		}
 		surface := strings.TrimSpace(types.EvidenceDeterministicSurfaceText(item, false))
 		if surface == "" {
 			continue
-		}
-		if count == 0 {
-			b.WriteString("### Value-bearing evidence facts\n\n")
-			b.WriteString("These rows are a typed lens over evidence the investigator already emitted. Preserve exact constants, defaults, assignment targets, return literals, and config values from this section when they answer the user's requested dimensions; do not invent values that are not present here or in the evidence list.\n\n")
 		}
 		label := strings.TrimSpace(extractorFirstNonEmptyString(item.Subject, item.AnchorSymbol, item.OwnerSymbol, item.Object))
 		if label == "" {
@@ -458,22 +464,245 @@ func renderExtractorValueEvidenceFacts(items []types.EvidenceItem) string {
 		if label == "" {
 			label = strings.TrimSpace(string(item.Kind))
 		}
-		loc := item.DisplayLocation(true)
-		fmt.Fprintf(&b, "- `%s`", label)
+		score := extractorValueEvidenceScore(item, label, surface, needles)
+		if score > 0 {
+			hasRelevant = true
+		}
+		candidates = append(candidates, extractorValueFact{
+			item:    item,
+			label:   label,
+			surface: surface,
+			score:   score,
+			index:   i,
+		})
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	if hasRelevant {
+		filtered := candidates[:0]
+		for _, candidate := range candidates {
+			if candidate.score > 0 {
+				filtered = append(filtered, candidate)
+			}
+		}
+		candidates = filtered
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		return candidates[i].index < candidates[j].index
+	})
+
+	var b strings.Builder
+	for i, candidate := range candidates {
+		if i == 0 {
+			b.WriteString("### Value-bearing evidence facts\n\n")
+			b.WriteString("These rows are a typed lens over evidence the investigator already emitted. Rows that overlap the request, sub-topics, aggregate facts, or answer contract are shown first; this is soft visibility guidance, not a hard gate. Preserve exact constants, defaults, assignment targets, return literals, and config values from this section when they answer the user's requested dimensions; do not invent values that are not present here or in the evidence list.\n\n")
+		}
+		loc := candidate.item.DisplayLocation(true)
+		fmt.Fprintf(&b, "- `%s`", candidate.label)
 		if loc != "" {
 			fmt.Fprintf(&b, " @ %s", loc)
 		}
-		fmt.Fprintf(&b, ": %s\n", surface)
-		count++
-		if count >= extractorMaxValueFacts {
+		fmt.Fprintf(&b, ": %s\n", candidate.surface)
+		if i+1 >= extractorMaxValueFacts {
 			break
 		}
 	}
-	if count == 0 {
-		return ""
-	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func extractorValueEvidenceNeedles(ctx *types.AgentContext, ta *types.TurnAArtifacts) map[string]bool {
+	needles := map[string]bool{}
+	add := func(text string) {
+		for _, tok := range extractorTokenSet(text) {
+			if len(tok) >= 2 {
+				needles[tok] = true
+			}
+		}
+	}
+	if ctx != nil {
+		add(ctx.Objective)
+		if ctx.AnalysisIR != nil {
+			rm := ctx.AnalysisIR.RequestModel
+			add(rm.RawRequest)
+			add(rm.Language)
+			for _, sub := range rm.SubTopics {
+				add(sub.Summary)
+				for _, entity := range sub.Entities {
+					add(entity)
+				}
+				for _, scope := range sub.Scopes {
+					add(scope)
+				}
+			}
+			hints := rm.AnalyzerHints
+			for _, values := range [][]string{
+				hints.Keywords,
+				hints.Entities,
+				hints.PrimaryEntities,
+				hints.MentionedEntities,
+				hints.DerivedEntities,
+				hints.ExactTargets,
+				ctx.AnalysisIR.AnswerContract.MustInclude,
+			} {
+				for _, value := range values {
+					add(value)
+				}
+			}
+		}
+	}
+	if ta != nil {
+		add(ta.UserQuestion)
+		add(ta.AcceptedClosureReason)
+		for _, fact := range ta.AcceptedAggregateFacts {
+			add(string(fact.Kind))
+			add(fact.Label)
+			add(fact.Value)
+			add(fact.Unit)
+			for _, dim := range fact.Dimensions {
+				add(dim.Name)
+				add(dim.Value)
+			}
+			for _, member := range fact.Members {
+				add(member)
+			}
+			for _, excluded := range fact.Excluded {
+				add(excluded)
+			}
+			for _, ref := range fact.SupportRefs {
+				add(ref)
+			}
+		}
+	}
+	return needles
+}
+
+func extractorValueEvidenceScore(item types.EvidenceItem, label, surface string, needles map[string]bool) int {
+	if len(needles) == 0 {
+		return 0
+	}
+	score := 0
+	seen := map[string]bool{}
+	for _, text := range []string{
+		label,
+		surface,
+		item.Subject,
+		item.Predicate,
+		item.Object,
+		item.AnchorSymbol,
+		item.OwnerSymbol,
+		item.Source,
+		item.Summary,
+		item.Snippet,
+	} {
+		for _, tok := range extractorTokenSet(text) {
+			if needles[tok] && !seen[tok] {
+				seen[tok] = true
+				score += 6
+			}
+		}
+	}
+	if score == 0 {
+		return 0
+	}
+	switch item.Kind {
+	case types.EvidenceConcrete:
+		score += 12
+	case types.EvidenceDirect:
+		score += 6
+	}
+	switch item.AnchorKind {
+	case types.AnchorAssignment, types.AnchorInitializer, types.AnchorReturn:
+		score += 10
+	case types.AnchorDefinition:
+		score += 6
+	}
+	if item.LoadBearingSummary {
+		score += 10
+	}
+	return score
+}
+
+func extractorTokenSet(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(tok string) {
+		tok = strings.Trim(strings.ToLower(tok), "_")
+		if len(tok) < 2 || seen[tok] {
+			return
+		}
+		seen[tok] = true
+		out = append(out, tok)
+	}
+	var b strings.Builder
+	flush := func() {
+		word := b.String()
+		b.Reset()
+		if word == "" {
+			return
+		}
+		add(word)
+		for _, piece := range extractorIdentifierPieces(word) {
+			add(piece)
+		}
+	}
+	for _, r := range text {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			b.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return out
+}
+
+func extractorIdentifierPieces(word string) []string {
+	runes := []rune(strings.Trim(word, "_"))
+	if len(runes) == 0 {
+		return nil
+	}
+	var pieces []string
+	start := 0
+	flush := func(end int) {
+		if end <= start {
+			return
+		}
+		piece := string(runes[start:end])
+		for _, sub := range strings.FieldsFunc(piece, func(r rune) bool { return r == '_' }) {
+			if sub != "" {
+				pieces = append(pieces, sub)
+			}
+		}
+		start = end
+	}
+	for i := 1; i < len(runes); i++ {
+		prev := runes[i-1]
+		cur := runes[i]
+		nextLower := i+1 < len(runes) && unicode.IsLower(runes[i+1])
+		if cur == '_' {
+			flush(i)
+			start = i + 1
+			continue
+		}
+		if unicode.IsUpper(cur) && (unicode.IsLower(prev) || unicode.IsDigit(prev) || nextLower) {
+			flush(i)
+			continue
+		}
+		if unicode.IsDigit(cur) != unicode.IsDigit(prev) && (unicode.IsDigit(cur) || unicode.IsDigit(prev)) {
+			flush(i)
+		}
+	}
+	flush(len(runes))
+	return pieces
 }
 
 func extractorValueEvidenceCandidate(item types.EvidenceItem) bool {
