@@ -91,6 +91,9 @@ func RequiresExhaustiveEnumerationMemberSetHandoff(rm RequestModel) bool {
 	if IsArchitectureNarrativeExplanation(rm) {
 		return false
 	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return false
+	}
 	if rm.CompletenessObligation.IsActive() {
 		return true
 	}
@@ -98,7 +101,7 @@ func RequiresExhaustiveEnumerationMemberSetHandoff(rm RequestModel) bool {
 		return true
 	}
 	if rm.Predicates.IsRelationalLookup {
-		return false
+		return rm.Intent == IntentEnumerate && rm.Predicates.IsCategoryEnumeration
 	}
 	if !rm.Predicates.IsCategoryEnumeration {
 		return false

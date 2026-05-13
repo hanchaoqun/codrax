@@ -131,8 +131,8 @@ func TestRequiresExhaustiveEnumerationMemberSetHandoff_TypedOnly(t *testing.T) {
 
 	rm.EnumerationBoundary = nil
 	rm.Predicates.IsRelationalLookup = true
-	if RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
-		t.Fatal("unbounded relational enumeration should not force a complete member_set")
+	if !RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		t.Fatal("set-valued relational enumeration should require structured member_set handoff")
 	}
 
 	rm.Predicates.IsRelationalLookup = false
@@ -140,6 +140,19 @@ func TestRequiresExhaustiveEnumerationMemberSetHandoff_TypedOnly(t *testing.T) {
 	rm.CompletenessObligation = &CompletenessObligation{Required: true, SourceQuote: "all"}
 	if RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
 		t.Fatal("scalar contradiction must keep the request out of exhaustive member-set handoff")
+	}
+
+	role := RequestModel{
+		Intent: IntentReturnValue,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsRelationalLookup:    true,
+			IsRoleLocateLookup:    true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqReturnValue)},
+	}
+	if RequiresExhaustiveEnumerationMemberSetHandoff(role) {
+		t.Fatal("scalar role-locate relation lookup must not require member_set handoff")
 	}
 
 	arch := RequestModel{
