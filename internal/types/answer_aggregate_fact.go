@@ -178,6 +178,9 @@ func canonicalAggregateMemberSetKey(members []string) string {
 	if len(members) == 0 {
 		return ""
 	}
+	if relaxed, ok := canonicalAggregateMemberSetRelaxedKey(members); ok {
+		return relaxed
+	}
 	keys := make([]string, 0, len(members))
 	seen := map[string]bool{}
 	for _, member := range members {
@@ -190,6 +193,34 @@ func canonicalAggregateMemberSetKey(members []string) string {
 	}
 	sort.Strings(keys)
 	return strings.Join(keys, "\x1f")
+}
+
+func canonicalAggregateMemberSetRelaxedKey(members []string) (string, bool) {
+	if len(members) < 2 {
+		return "", false
+	}
+	keys := make([]string, 0, len(members))
+	seen := map[string]bool{}
+	relaxedAny := false
+	for _, member := range members {
+		key, ok, relaxed := aggregateRelationSurfaceRelaxedKey(member)
+		if !ok {
+			key = AnswerAggregateMemberSurfaceKey(member)
+		}
+		if key == "" || seen[key] {
+			return "", false
+		}
+		if relaxed {
+			relaxedAny = true
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	if !relaxedAny {
+		return "", false
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "\x1f"), true
 }
 
 // AnswerAggregateMemberSurfaceKey canonicalizes a model-emitted member_set
@@ -220,15 +251,25 @@ func AnswerAggregateMemberDisplayCandidates(member string) []string {
 	}
 	out := []string{member}
 	if left, right, ok := aggregateRelationSurfaceParts(member); ok {
-		out = append(out,
-			left+" → "+right,
-			left+" -> "+right,
-			left+": "+right,
-			left+"/"+right,
-			left+"::"+right,
-		)
+		out = append(out, aggregateRelationDisplayCandidates(left, right)...)
+		if tail := aggregateRelationPartDisplayTail(right); tail != "" && !strings.EqualFold(tail, right) {
+			out = append(out, aggregateRelationDisplayCandidates(left, tail)...)
+		}
 	}
 	return dedupAggregateMemberCandidates(out)
+}
+
+func aggregateRelationDisplayCandidates(left, right string) []string {
+	if left == "" || right == "" {
+		return nil
+	}
+	return []string{
+		left + " → " + right,
+		left + " -> " + right,
+		left + ": " + right,
+		left + "/" + right,
+		left + "::" + right,
+	}
 }
 
 func AnswerAggregateMemberRelationParts(member string) (left string, right string, ok bool) {
@@ -241,6 +282,20 @@ func aggregateRelationSurfaceKey(member string) (string, bool) {
 		return "", false
 	}
 	return "relation:" + aggregateRelationPartKey(left) + "\x00" + aggregateRelationPartKey(right), true
+}
+
+func aggregateRelationSurfaceRelaxedKey(member string) (key string, ok bool, relaxed bool) {
+	left, right, ok := aggregateRelationSurfaceParts(member)
+	if !ok {
+		return "", false, false
+	}
+	leftKey := aggregateRelationPartKey(left)
+	rightKey := aggregateRelationPartKey(right)
+	tail := aggregateRelationPartTail(right)
+	if tail == "" || strings.EqualFold(tail, rightKey) {
+		return "relation:" + leftKey + "\x00" + rightKey, true, false
+	}
+	return "relation:" + leftKey + "\x00" + tail, true, true
 }
 
 func aggregateRelationSurfaceParts(member string) (string, string, bool) {
@@ -293,6 +348,32 @@ func aggregateRelationPartOK(part string) bool {
 	if part == "" || strings.ContainsAny(part, `/\`) {
 		return false
 	}
+	if strings.Contains(part, ".") {
+		return aggregateQualifiedRelationPartOK(part)
+	}
+	return aggregateRelationAtomOK(part)
+}
+
+func aggregateQualifiedRelationPartOK(part string) bool {
+	if HasCodeOrConfigPathSuffix(part) {
+		return false
+	}
+	if strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".") || strings.Contains(part, "..") {
+		return false
+	}
+	segments := strings.Split(part, ".")
+	if len(segments) < 2 {
+		return false
+	}
+	for _, segment := range segments {
+		if !aggregateRelationAtomOK(segment) {
+			return false
+		}
+	}
+	return true
+}
+
+func aggregateRelationAtomOK(part string) bool {
 	hasAlphaNum := false
 	for _, r := range part {
 		switch {
@@ -308,6 +389,25 @@ func aggregateRelationPartOK(part string) bool {
 
 func aggregateRelationPartKey(part string) string {
 	return strings.ToLower(trimAggregateMemberSurface(part))
+}
+
+func aggregateRelationPartTail(part string) string {
+	if !aggregateQualifiedRelationPartOK(part) {
+		return ""
+	}
+	return NormalizedSurfaceSymbolTail(part)
+}
+
+func aggregateRelationPartDisplayTail(part string) string {
+	part = trimAggregateMemberSurface(part)
+	if !aggregateQualifiedRelationPartOK(part) {
+		return ""
+	}
+	idx := strings.LastIndex(part, ".")
+	if idx < 0 || idx >= len(part)-1 {
+		return ""
+	}
+	return strings.TrimSpace(part[idx+1:])
 }
 
 func trimAggregateMemberSurface(s string) string {

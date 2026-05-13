@@ -138,6 +138,57 @@ func TestNormalizeAnswerAggregateFacts_DedupesEquivalentMemberSetDisplayVariants
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_DedupesQualifiedRelationMemberSetVariants(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "subpackage directory and entry function",
+			Value:   "3",
+			Members: []string{"aggregator → Aggregate", "declarative → Classify", "hint → Compose"},
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "all subpackages and entry functions",
+			Value:   "3",
+			Members: []string{"hint → Composer.Compose", "aggregator → Aggregator.Aggregate", "declarative → Classifier.Classify"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("qualified relation member variants should validate: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("qualified relation variants should dedupe to one fact, got %+v", got)
+	}
+	candidates := AnswerAggregateMemberDisplayCandidates("aggregator → Aggregator.Aggregate")
+	if !stringSliceContains(candidates, "aggregator → Aggregate") ||
+		!stringSliceContains(candidates, "aggregator/Aggregate") {
+		t.Fatalf("qualified relation display should expose tail renderings, got %+v", candidates)
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_DoesNotCollapseAmbiguousQualifiedRelationTails(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "overloaded handlers",
+			Value:   "2",
+			Members: []string{"api → HTTP.Handle", "api → GRPC.Handle"},
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "ambiguous handler surface",
+			Value:   "1",
+			Members: []string{"api → Handle"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ambiguous qualified relation members should still validate: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ambiguous qualified tails must not collapse into one member set, got %+v", got)
+	}
+}
+
 func stringSliceContains(in []string, want string) bool {
 	for _, got := range in {
 		if got == want {

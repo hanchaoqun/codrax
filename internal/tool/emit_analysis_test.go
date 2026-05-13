@@ -104,6 +104,98 @@ func TestValidateSelfConsistency_RoleLocateRequiresScalarValueAndSubject(t *test
 	}
 }
 
+func TestReconcileSetValuedRoleLocatePredicates(t *testing.T) {
+	preds := types.SemanticPredicates{
+		IsScalarAnswer:        false,
+		IsRoleLocateLookup:    true,
+		IsCategoryEnumeration: true,
+	}
+	got, reason := reconcileSetValuedRoleLocatePredicates(types.IntentEnumerate, preds, nil)
+	if reason == "" {
+		t.Fatal("expected set-valued role-locate normalization reason")
+	}
+	if got.IsRoleLocateLookup {
+		t.Fatalf("set-valued role-locate must be normalized out of scalar lane: %+v", got)
+	}
+	if !got.IsCategoryEnumeration {
+		t.Fatalf("category enumeration signal must be preserved: %+v", got)
+	}
+
+	scalar := types.SemanticPredicates{
+		IsScalarAnswer:     true,
+		IsRoleLocateLookup: true,
+	}
+	got, reason = reconcileSetValuedRoleLocatePredicates(types.IntentReturnValue, scalar, nil)
+	if reason != "" || !got.IsRoleLocateLookup {
+		t.Fatalf("scalar role-locate must remain intact, got %+v reason=%q", got, reason)
+	}
+}
+
+func TestEmitAnalysis_SetValuedRoleLocateNormalizesToEnumeration(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数。")
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["internal/analysis", "subpackage", "entry", "function"],
+		"entities": ["internal/analysis"],
+		"question_kind": "enumeration",
+		"answer_subject": {"kind": "function_name"},
+		"completeness_obligation": {"required": true, "source_quote": "所有子包"},
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": true,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": true,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.8
+		}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("set-valued role-locate should normalize instead of rejecting, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "set-valued role-locate normalized") {
+		t.Fatalf("summary should disclose predicate normalization, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.Predicates.IsRoleLocateLookup {
+		t.Fatalf("role-locate scalar lane should be cleared: %+v", rm.Predicates)
+	}
+	if !rm.Predicates.IsCategoryEnumeration || !rm.Predicates.IsRelationalLookup {
+		t.Fatalf("set-valued enumeration signals should be preserved: %+v", rm.Predicates)
+	}
+	if !types.RequiresExhaustiveEnumerationMemberSetHandoff(*rm) {
+		t.Fatalf("normalized exhaustive enumeration should still require member_set handoff: %+v", rm.Predicates)
+	}
+}
+
 func TestValidateSelfConsistency_DefineAxisSingleTargetRequiresSubjectDisambiguation(t *testing.T) {
 	preds := types.SemanticPredicates{
 		IsScalarAnswer:        false,

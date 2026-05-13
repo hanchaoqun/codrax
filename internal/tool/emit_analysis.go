@@ -299,7 +299,7 @@ func buildEmitAnalysisSchema() {
 				"description": "Cross-language semantic self-assessment of the question. Every field is required; emit true OR false explicitly. A missing field is fail-loud rejection, not a silent default.",
 				"properties": map[string]any{
 					"is_scalar_answer":        map[string]any{"type": "boolean", "description": "True if the answer is a single scalar (a number, a literal, a path) rather than a set or sequence."},
-					"is_role_locate_lookup":   map[string]any{"type": "boolean", "description": "True when the request names a clue / output / context entity, but the answer is a DIFFERENT single literal that plays a role relative to that clue (entry function, defining file, config key, route, owner symbol, etc.). Implies is_scalar_answer=true and requires answer_subject.kind."},
+					"is_role_locate_lookup":   map[string]any{"type": "boolean", "description": "True only for scalar lookups where the request names a clue / output / context entity, but the answer is one DIFFERENT literal that plays a role relative to that clue (entry function, defining file, config key, route, owner symbol, etc.). For set-valued tables such as every package -> entry function, set this false and use category/relational enumeration predicates. Implies is_scalar_answer=true and requires answer_subject.kind."},
 					"is_count_question":       map[string]any{"type": "boolean", "description": "True when the answer is a single number that must be computed by aggregating values across multiple source units — e.g. counting items, summing lines of code, summing file sizes, totalling bytes across a directory tree. Implies is_scalar_answer. Set false when the answer is a number that already exists as a single source-code literal (a const declaration, a default value, an enum ordinal) — that case is is_scalar_answer=true without is_count_question."},
 					"is_cross_component":      map[string]any{"type": "boolean", "description": "True if the question genuinely spans multiple distinct components / subsystems / independently-answerable code regions. Leave false for a single named target that merely needs nearby context, precedence layers, or override stages, and also leave false for one ordered source-to-sink call/flow trace even when that chain crosses files or packages."},
 					"is_relational_lookup":    map[string]any{"type": "boolean", "description": "True if filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')."},
@@ -605,6 +605,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if reconciled, reason := reconcileSetValuedRoleLocatePredicates(intent, predicates, p.SubTopics); reason != "" {
+		predicates = reconciled
+		val.Warnings = append(val.Warnings, reason)
+	}
 	diagnosticProfile, diagnosticErr := parseDiagnosticProfile(p.DiagnosticProfile)
 	if diagnosticErr != "" {
 		return types.ToolResult{
@@ -889,6 +893,48 @@ func rejectDegenerateClassification(
 // implies complexity=complex) because a few of those would trip on
 // legitimate edge cases; callers should add a check here only when a
 // real failure is observed.
+func reconcileSetValuedRoleLocatePredicates(
+	intent types.Intent,
+	preds types.SemanticPredicates,
+	subTopics []types.SubTopic,
+) (types.SemanticPredicates, string) {
+	if !preds.IsRoleLocateLookup || preds.IsScalarAnswer {
+		return preds, ""
+	}
+	if !setValuedRoleLocateShape(intent, preds, subTopics) {
+		return preds, ""
+	}
+	preds.IsRoleLocateLookup = false
+	if !preds.IsCategoryEnumeration {
+		preds.IsRelationalLookup = true
+	}
+	return preds, "set-valued role-locate normalized to relational/category enumeration; scalar role-locate is reserved for one located literal"
+}
+
+func setValuedRoleLocateShape(intent types.Intent, preds types.SemanticPredicates, subTopics []types.SubTopic) bool {
+	if preds.IsCategoryEnumeration || preds.IsRelationalLookup {
+		return true
+	}
+	if intent == types.IntentEnumerate {
+		return true
+	}
+	return len(trimSubTopicsForConsistency(subTopics)) > 1
+}
+
+func trimSubTopicsForConsistency(subTopics []types.SubTopic) []types.SubTopic {
+	if len(subTopics) == 0 {
+		return nil
+	}
+	out := make([]types.SubTopic, 0, len(subTopics))
+	for _, st := range subTopics {
+		if strings.TrimSpace(st.Summary) == "" && len(trimStringSlice(st.Entities)) == 0 {
+			continue
+		}
+		out = append(out, st)
+	}
+	return out
+}
+
 func validateSelfConsistency(
 	intent types.Intent,
 	scenario types.Scenario,
