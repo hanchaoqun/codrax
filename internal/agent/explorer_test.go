@@ -793,6 +793,32 @@ func TestBuildInitialInstructionRetry(t *testing.T) {
 	}
 }
 
+func TestBuildInitialInstructionArchitectureRoleOutputHandoff(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "describe the read-mode pipeline architecture",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+			},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Architecture Role / Output Handoff",
+		"typed output artifact",
+		"evidence_kind=\"mechanism\"",
+		"role/output facts enrich sections",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("architecture prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestPhase0QualityGate(t *testing.T) {
 	t.Run("firstSoftStop with investigationComplete bypasses gate", func(t *testing.T) {
 		// Completion is model-triggered. When the LLM has called

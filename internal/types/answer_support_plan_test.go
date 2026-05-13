@@ -2255,6 +2255,69 @@ func TestBuildAnswerSupportPlan_FacetFamilyKeepsExternalObservationSoftUnlessFac
 	}
 }
 
+func TestBuildAnswerSupportPlan_ArchitectureCarriesRoleOutputEnrichment(t *testing.T) {
+	principal := EvidenceItem{
+		ID:              "stage-boundary",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/orchestrator/topology.go",
+		LineStart:       24,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "pipelineTopology",
+		Subject:         "pipelineTopology",
+		GroundingStatus: GroundingGrounded,
+		Producer:        "explorer.emit_evidence",
+	}
+	output := EvidenceItem{
+		ID:                 "analyze-output",
+		Kind:               EvidenceMechanism,
+		Scope:              ScopeLine,
+		Source:             "internal/agent/analyzer.go",
+		LineStart:          36,
+		AnchorKind:         AnchorDefinition,
+		AnchorSymbol:       "analyzerEvaluator",
+		Subject:            "StageAnalyze",
+		Predicate:          "produces",
+		Object:             "AnalysisIR / TaskGraph / EvidencePlan",
+		Summary:            "StageAnalyze classifies the request and emits AnalysisIR with TaskGraph, EvidencePlan, and hypotheses for downstream stages.",
+		LoadBearingSummary: true,
+		GroundingStatus:    GroundingGrounded,
+		Producer:           "explorer.emit_evidence",
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{principal, output},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFArchitecture,
+			Required: []FacetRequirement{{
+				Kind:            FacetComponentRelation,
+				SourceCandidate: []string{principal.ID},
+			}},
+			Optional: []FacetRequirement{{
+				Kind:            FacetNearestMechanism,
+				SourceCandidate: []string{output.ID},
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentExplain, Scenario: ScenarioArchitectureExplain}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	lane := answerSupportLaneByKind(got, SupportLaneNearestMechanism)
+	if lane == nil {
+		t.Fatalf("expected architecture role/output enrichment lane, got %+v", got.Lanes)
+	}
+	if !strings.Contains(lane.Guidance, "produces") || !strings.Contains(lane.Guidance, "typed IRs") {
+		t.Fatalf("guidance should describe role/output artifacts, got %q", lane.Guidance)
+	}
+	if len(lane.Entries) != 1 {
+		t.Fatalf("enrichment entries=%d want 1: %+v", len(lane.Entries), lane.Entries)
+	}
+	if !strings.Contains(lane.Entries[0].Text, "AnalysisIR") || !strings.Contains(lane.Entries[0].Text, "TaskGraph") {
+		t.Fatalf("role/output entry lost structured artifact detail: %+v", lane.Entries[0])
+	}
+}
+
 func TestBuildAnswerSupportPlan_FacetPrincipalLaneAcceptsSchemaScopeEvidence(t *testing.T) {
 	item := EvidenceItem{
 		ID:              "file-layer",

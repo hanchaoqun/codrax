@@ -42,6 +42,11 @@ func compileFacetEvidenceSupportPlan(family QuestionFamily, rm RequestModel, pla
 			out.Lanes = append(out.Lanes, lane)
 		}
 	}
+	if family == QFArchitecture {
+		if lane := compileArchitectureRoleOutputSupportLane(plan); len(lane.Entries) > 0 {
+			out.Lanes = append(out.Lanes, lane)
+		}
+	}
 	if family == QFEnumeration {
 		if lane := compileEnumerationSupportingContextLane(rm, plan); len(lane.Entries) > 0 {
 			out.Lanes = append(out.Lanes, lane)
@@ -666,7 +671,7 @@ func principalEvidenceLaneGuidance(family QuestionFamily, rm RequestModel) strin
 		}
 		return base + " For enumerations, each principal item must correspond to a listed entry here or to an extractor-backed symbol; do not invent missing members from context."
 	case QFArchitecture:
-		return base + " For architecture answers, sections should describe component responsibilities supported by these anchors; avoid turning unrelated helper calls into architectural layers."
+		return base + " For architecture answers, sections should describe component responsibilities supported by these anchors; include grounded produced artifacts / consumed inputs / handoff outputs when the role-output lane supplies them, and avoid turning unrelated helper calls into architectural layers."
 	case QFComparison:
 		return base + " For comparisons, preserve the user's bucket labels from the semantic view and use these anchors only for the bucket content they actually support."
 	default:
@@ -831,6 +836,39 @@ func principalSupportEvidenceItemsForFacetsRaw(family QuestionFamily, plan *Answ
 	}
 	out = preferModelAuthoredPrincipalEvidence(out)
 	return dedupePrincipalSupportEvidenceBySurfaceRole(out)
+}
+
+func compileArchitectureRoleOutputSupportLane(plan *AnswerSurfacePlan) AnswerSupportLane {
+	lane := AnswerSupportLane{
+		Kind:          SupportLaneNearestMechanism,
+		Title:         "Grounded architecture role / output enrichment",
+		AllowedBlocks: blockKindStrings(BlockSummary, BlockSection, BlockOrderedList, BlockBulletList, BlockDiagram),
+		Guidance: "Use this lane to enrich architecture sections with what a component, stage, module, or layer produces, consumes, validates, or hands off. " +
+			"Entries here are grounded role/output facts, such as produced artifacts, typed IRs, plans, verdicts, reports, state transitions, or handoff boundaries. " +
+			"They may deepen the section that already answers the user's requested architecture, but they are not standalone layers or list members unless the principal architecture lane also carries that component. " +
+			"Do not invent stage products from naming conventions; preserve only the model-emitted structured evidence or deterministic source lines shown in the entries.",
+	}
+	items := PrincipalSupportEvidenceItemsForFacet(QFArchitecture, plan, FacetNearestMechanism)
+	if len(items) == 0 {
+		return lane
+	}
+	for _, item := range items {
+		text := strings.TrimSpace(EvidenceDeterministicSurfaceText(item, false))
+		if text == "" {
+			text = strings.TrimSpace(EvidenceAuthoritativeSurfaceText(item, false))
+		}
+		if text == "" {
+			continue
+		}
+		entry := answerSupportEntryForEvidence(item, text, callChainEvidenceSupportDetail(item, text))
+		entry.MemberSurface = PrincipalMemberSurfaceDisplayLabel
+		entry.Detail = appendPrincipalMemberSurfaceDetail(entry.Detail, entry.MemberSurface)
+		lane.Entries = append(lane.Entries, entry)
+		if len(lane.Entries) >= facetSupportEntryLimitDefault {
+			break
+		}
+	}
+	return lane
 }
 
 func compileEnumerationSupportingContextLane(rm RequestModel, plan *AnswerSurfacePlan) AnswerSupportLane {

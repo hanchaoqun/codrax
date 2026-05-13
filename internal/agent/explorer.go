@@ -579,6 +579,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("- Once a principal member has a grounded attribute candidate, emit that candidate as evidence. If the attribute is ambiguous or not grounded for that member after the relevant file/list/grep scope has been checked, record the member with an explicit unresolved-attribute note instead of widening indefinitely.\n")
 			b.WriteString("- When the bounded / exhaustive principal member set is covered, call emit_investigation_complete. Do not keep searching solely to prove a unique attribute when the final answer can carry a caveat for that member.\n\n")
 		}
+		if types.ResolveQuestionFamily(rm) == types.QFArchitecture {
+			b.WriteString("### Architecture Role / Output Handoff\n\n")
+			b.WriteString("Architecture answers need both component boundaries and role/output detail. For each stage, layer, module, agent, subsystem, or pipeline component you intend downstream synthesis to describe, emit structured evidence for:\n")
+			b.WriteString("- the component anchor itself (`definition`, `registration`, `import`, or call/dispatch relation when that is the real boundary);\n")
+			b.WriteString("- the role or responsibility it performs, preferably as `evidence_kind=\"mechanism\"` with grounded subject/object fields and a concise model-authored summary;\n")
+			b.WriteString("- any typed output artifact, plan, IR, report, verdict, state transition, or handoff product it produces/consumes when the source line or doc comment names one.\n")
+			b.WriteString("Use `surface_terms` for exact artifact labels visible in the read lines, and set `load_bearing_summary=true` only when the role/output wording cannot be reconstructed from subject/object/anchor/snippet alone. These role/output facts enrich sections; they do not create extra architectural layers unless the boundary evidence also makes them principal.\n\n")
+		}
 		if (rm.Predicates.IsCountQuestion || rm.Predicates.IsScalarAnswer) && requestModelHasFieldValueLookupSurface(rm) {
 			b.WriteString("### Field/Value Count Discipline\n\n")
 			b.WriteString("This request asks for a scalar/count about a specific field being set to a literal value. Search every syntax family that can express the same assignment before closing:\n")
