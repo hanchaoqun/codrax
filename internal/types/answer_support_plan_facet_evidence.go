@@ -432,23 +432,7 @@ func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, 
 }
 
 func aggregateSupportRefMemberLocation(ref string) (member string, location AnswerSourceLocationSurface, ok bool) {
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return "", AnswerSourceLocationSurface{}, false
-	}
-	for _, sep := range []string{" @ ", "\t", " | "} {
-		idx := strings.Index(ref, sep)
-		if idx <= 0 {
-			continue
-		}
-		if surface, parsed := ParseAnswerSourceLocationSurface(strings.TrimSpace(ref[idx+len(sep):])); parsed {
-			return strings.TrimSpace(ref[:idx]), surface, true
-		}
-	}
-	if surface, parsed := ParseAnswerSourceLocationSurface(ref); parsed {
-		return "", surface, true
-	}
-	return "", AnswerSourceLocationSurface{}, false
+	return ParseAnswerSupportRefMemberLocation(ref)
 }
 
 func aggregateMemberDisplayCandidates(member string) []string {
@@ -457,6 +441,9 @@ func aggregateMemberDisplayCandidates(member string) []string {
 		return nil
 	}
 	out := AnswerAggregateMemberDisplayCandidates(member)
+	if label, _, ok := ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		out = append(out, AnswerAggregateMemberDisplayCandidates(label)...)
+	}
 	for _, sep := range []string{" @ ", "\t", " | "} {
 		if idx := strings.Index(member, sep); idx > 0 {
 			prefix := strings.TrimSpace(member[:idx])

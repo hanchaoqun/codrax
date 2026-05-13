@@ -905,6 +905,9 @@ func preEmitAggregateMemberRelationSurfaces(member string) []string {
 		}
 	}
 	add(member)
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		add(label)
+	}
 	for _, sep := range []string{" @ ", "\t", " | "} {
 		if idx := strings.Index(member, sep); idx > 0 {
 			prefix := strings.TrimSpace(member[:idx])
@@ -976,6 +979,9 @@ func preEmitAggregateMemberDisplayCandidates(member string) []string {
 	out := types.AnswerAggregateMemberDisplayCandidates(member)
 	if len(out) == 0 {
 		out = []string{member}
+	}
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		out = append(out, types.AnswerAggregateMemberDisplayCandidates(label)...)
 	}
 	for _, sep := range []string{" @ ", "\t", " | "} {
 		if idx := strings.Index(member, sep); idx > 0 {
@@ -2048,23 +2054,7 @@ func preEmitEvidenceEndpointSupportsToken(ev types.EvidenceItem, token string) b
 }
 
 func preEmitAggregateSupportRefMemberLocation(ref string) (member string, location types.AnswerSourceLocationSurface, ok bool) {
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return "", types.AnswerSourceLocationSurface{}, false
-	}
-	for _, sep := range []string{" @ ", "\t", " | "} {
-		idx := strings.Index(ref, sep)
-		if idx <= 0 {
-			continue
-		}
-		if surface, parsed := types.ParseAnswerSourceLocationSurface(strings.TrimSpace(ref[idx+len(sep):])); parsed {
-			return strings.TrimSpace(ref[:idx]), surface, true
-		}
-	}
-	if surface, parsed := types.ParseAnswerSourceLocationSurface(ref); parsed {
-		return "", surface, true
-	}
-	return "", types.AnswerSourceLocationSurface{}, false
+	return types.ParseAnswerSupportRefMemberLocation(ref)
 }
 
 func preEmitCitationMatchesSourceLocation(cit types.Citation, loc types.AnswerSourceLocationSurface) bool {

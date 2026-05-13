@@ -1793,25 +1793,11 @@ func aggregateMemberCoveredByEvidenceLabels(labels []string, byLabel map[string]
 }
 
 func aggregateMemberSupportRefParts(raw string) (label string, location string, ok bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	label, loc, parsed := types.ParseAnswerSupportRefMemberLocation(raw)
+	if !parsed {
 		return "", "", false
 	}
-	for _, sep := range []string{" @ ", "\t", " | "} {
-		idx := strings.Index(raw, sep)
-		if idx <= 0 {
-			continue
-		}
-		label = strings.TrimSpace(raw[:idx])
-		loc := strings.TrimSpace(raw[idx+len(sep):])
-		if key := aggregateSupportLocationFromSurface(loc); key != "" {
-			return label, key, true
-		}
-	}
-	if key := aggregateSupportLocationFromSurface(raw); key != "" {
-		return "", key, true
-	}
-	return "", "", false
+	return label, aggregateSupportLocationKey(loc.File, loc.LineStart), true
 }
 
 func aggregateSupportLocationFromSurface(raw string) string {

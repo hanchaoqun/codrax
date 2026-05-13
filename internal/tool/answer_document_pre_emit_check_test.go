@@ -602,7 +602,7 @@ func TestPreEmitAggregateMemberSupportRefMember_CitesLabelAtLocation(t *testing.
 		Kind:    types.AnswerAggregateMemberSet,
 		Label:   "LoopController implementers",
 		Value:   "1",
-		Members: []string{"explorerEvaluator @ internal/agent/explorer.go:30"},
+		Members: []string{"explorerEvaluator (internal/agent/explorer.go:30)"},
 	}})
 	mu.SetInvestigationComplete("structured member set accepted")
 	ctx := &types.BusContext{Mutable: mu}

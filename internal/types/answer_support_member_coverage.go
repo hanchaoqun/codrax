@@ -660,6 +660,9 @@ func supportMemberRelationSurfacePrefixes(term string) []string {
 		return nil
 	}
 	out := []string{term}
+	if label, _, ok := ParseAnswerSupportRefMemberLocation(term); ok && strings.TrimSpace(label) != "" {
+		out = append(out, label)
+	}
 	for _, sep := range []string{" @ ", "\t", " | "} {
 		if idx := strings.Index(term, sep); idx > 0 {
 			prefix := strings.TrimSpace(term[:idx])
@@ -698,6 +701,11 @@ func supportMemberDisplayCandidates(term string) []string {
 		}
 	}
 	add(term)
+	if label, _, ok := ParseAnswerSupportRefMemberLocation(term); ok && strings.TrimSpace(label) != "" {
+		for _, candidate := range AnswerAggregateMemberDisplayCandidates(label) {
+			add(candidate)
+		}
+	}
 	for _, sep := range []string{" @ ", "\t", " | "} {
 		if idx := strings.Index(term, sep); idx > 0 {
 			prefix := strings.TrimSpace(term[:idx])

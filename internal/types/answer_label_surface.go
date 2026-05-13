@@ -81,6 +81,38 @@ func AnswerSourceLocationLabelMatchesCitation(label string, cit Citation) bool {
 	return ok && AnswerSourceLocationSurfaceMatchesCitation(surface, cit)
 }
 
+// ParseAnswerSupportRefMemberLocation parses composite member surfaces where a
+// user-visible label is paired with a citable source/config location, such as
+// "Foo @ src/foo.go:10", "Foo | src/foo.go:10", or
+// "Foo (src/foo.go:10)". This is display grammar for model-authored typed
+// handoff data; it never infers a fact from prose.
+func ParseAnswerSupportRefMemberLocation(raw string) (label string, location AnswerSourceLocationSurface, ok bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", AnswerSourceLocationSurface{}, false
+	}
+	for _, sep := range []string{" @ ", "\t", " | "} {
+		idx := strings.Index(raw, sep)
+		if idx <= 0 {
+			continue
+		}
+		if surface, parsed := ParseAnswerSourceLocationSurface(strings.TrimSpace(raw[idx+len(sep):])); parsed {
+			return strings.TrimSpace(raw[:idx]), surface, true
+		}
+	}
+	if strings.HasSuffix(raw, ")") {
+		if idx := strings.LastIndex(raw, "("); idx > 0 {
+			if surface, parsed := ParseAnswerSourceLocationSurface(strings.TrimSpace(raw[idx+1 : len(raw)-1])); parsed {
+				return strings.TrimSpace(raw[:idx]), surface, true
+			}
+		}
+	}
+	if surface, parsed := ParseAnswerSourceLocationSurface(raw); parsed {
+		return "", surface, true
+	}
+	return "", AnswerSourceLocationSurface{}, false
+}
+
 // ParseAnswerFilePathSurface parses a whole item label when the label itself
 // is a repo file path without a line suffix. This supports answer surfaces
 // where the principal member is the file (for example change-impact

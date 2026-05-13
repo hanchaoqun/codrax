@@ -2213,7 +2213,7 @@ func TestBuildAnswerSupportPlan_GenericAggregateSupportRefMemberUsesLabelAndCita
 			Label: "LoopController implementers",
 			Value: "1",
 			Members: []string{
-				"explorerEvaluator @ internal/agent/explorer.go:30",
+				"explorerEvaluator (internal/agent/explorer.go:30)",
 			},
 		}},
 	}

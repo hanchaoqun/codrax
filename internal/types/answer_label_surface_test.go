@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseAnswerSourceLocationSurface_CrossLanguagePaths(t *testing.T) {
 	cases := []string{
@@ -26,6 +29,29 @@ func TestParseAnswerSourceLocationSurface_DoesNotSwallowSupportRefComposite(t *t
 	}
 	if _, ok := ParseAnswerSourceLocationSurface("Component | entry/src/main/ets/pages/Index.ets:20"); ok {
 		t.Fatal("pipe support-ref composite member must not parse as a single source location")
+	}
+}
+
+func TestParseAnswerSupportRefMemberLocation_CompositeDisplays(t *testing.T) {
+	cases := []struct {
+		raw   string
+		label string
+		file  string
+		line  int
+	}{
+		{"explorerEvaluator @ internal/agent/explorer.go:30", "explorerEvaluator", "internal/agent/explorer.go", 30},
+		{"Component | entry/src/main/ets/pages/Index.ets:20", "Component", "entry/src/main/ets/pages/Index.ets", 20},
+		{"RouteHandler (src/routes/user.ts:42)", "RouteHandler", "src/routes/user.ts", 42},
+	}
+	for _, tc := range cases {
+		label, loc, ok := ParseAnswerSupportRefMemberLocation(tc.raw)
+		if !ok {
+			t.Fatalf("ParseAnswerSupportRefMemberLocation(%q) = false", tc.raw)
+		}
+		if label != tc.label || !strings.EqualFold(loc.File, tc.file) || loc.LineStart != tc.line {
+			t.Fatalf("ParseAnswerSupportRefMemberLocation(%q) = (%q, %+v), want %q %s:%d",
+				tc.raw, label, loc, tc.label, tc.file, tc.line)
+		}
 	}
 }
 
