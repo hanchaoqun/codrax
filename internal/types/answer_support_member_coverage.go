@@ -594,13 +594,80 @@ func supportMemberTermAppears(term, surface string) bool {
 	if term == "" || surface == "" {
 		return false
 	}
-	if displaySurfaceAppears(term, surface) || CodeSurfaceAppearsAsToken(term, surface) {
-		return true
-	}
-	if tail := NormalizedSurfaceSymbolTail(term); tail != "" && tail != term {
-		return displaySurfaceAppears(tail, surface) || CodeSurfaceAppearsAsToken(tail, surface)
+	for _, candidate := range supportMemberDisplayCandidates(term) {
+		if displaySurfaceAppears(candidate, surface) || CodeSurfaceAppearsAsToken(candidate, surface) {
+			return true
+		}
 	}
 	return false
+}
+
+func supportMemberDisplayCandidates(term string) []string {
+	term = strings.TrimSpace(term)
+	if term == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	var add func(string)
+	add = func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return
+		}
+		key := strings.ToLower(candidate)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, candidate)
+		if tail := supportMemberSurfaceSymbolTail(candidate); tail != "" && strings.ToLower(tail) != key {
+			add(tail)
+		}
+		if normalizedTail := NormalizedSurfaceSymbolTail(candidate); normalizedTail != "" && normalizedTail != strings.ToLower(candidate) {
+			add(normalizedTail)
+		}
+	}
+	add(term)
+	for _, sep := range []string{" @ ", "\t", " | "} {
+		if idx := strings.Index(term, sep); idx > 0 {
+			prefix := strings.TrimSpace(term[:idx])
+			if prefix == "" {
+				continue
+			}
+			for _, candidate := range AnswerAggregateMemberDisplayCandidates(prefix) {
+				add(candidate)
+			}
+		}
+	}
+	for _, candidate := range AnswerAggregateMemberDisplayCandidates(term) {
+		add(candidate)
+	}
+	return out
+}
+
+func supportMemberSurfaceSymbolTail(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if fields := strings.Fields(raw); len(fields) > 0 {
+		raw = fields[0]
+	}
+	raw = strings.TrimSuffix(raw, "()")
+	raw = strings.Trim(raw, "`")
+	if idx := strings.LastIndex(raw, "::"); idx >= 0 {
+		raw = raw[idx+2:]
+	}
+	if idx := strings.LastIndexAny(raw, `/\`); idx >= 0 {
+		raw = raw[idx+1:]
+	}
+	if idx := strings.LastIndex(raw, "."); idx >= 0 {
+		raw = raw[idx+1:]
+	}
+	raw = strings.Trim(raw, "()")
+	raw = strings.TrimLeft(raw, "*&")
+	return strings.TrimSpace(raw)
 }
 
 func citationLocationKeyForSupportMember(cit Citation) string {

@@ -381,6 +381,74 @@ func TestPreCheckEnumLabel_QualifiedIdentitySkipsQualifierOracle(t *testing.T) {
 	}
 }
 
+func TestPreCheckEnumLabel_AggregateMemberSetPackageLabelNoOracle(t *testing.T) {
+	oracle := &stubOracle{known: map[string]int{}}
+	mut := types.NewMutableState("package label from aggregate member set")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "internal/analysis subpackages",
+		Value: "1",
+		Members: []string{
+			"findings_validator.Validate",
+		},
+		SupportRefs: []string{
+			"internal/analysis/findings_validator/validator.go:70",
+		},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	ctx := &types.BusContext{Mutable: mut}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/analysis/findings_validator/validator.go", Line: 70}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "subpackages",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "findings-validator",
+				Label:       "findings_validator",
+				Text:        "入口函数 Validate，定义于 validator.go:70。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx); hints != nil {
+		t.Fatalf("typed aggregate package labels should not be forced through symbol oracle; got %v", hints)
+	}
+}
+
+func TestPreCheckEnumLabel_AggregateMemberSetPackageLabelRejectsCitationDrift(t *testing.T) {
+	oracle := &stubOracle{known: map[string]int{}}
+	mut := types.NewMutableState("package label citation drift")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "internal/analysis subpackages",
+		Value:       "1",
+		Members:     []string{"findings_validator.Validate"},
+		SupportRefs: []string{"internal/analysis/findings_validator/validator.go:70"},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	ctx := &types.BusContext{Mutable: mut}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/analysis/gate/gate.go", Line: 128}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "subpackages",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "findings-validator",
+				Label:       "findings_validator",
+				Text:        "入口函数 Validate，定义于 validator.go:70。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("citation drift should still fail package-label grounding, got %v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "findings_validator") {
+		t.Fatalf("hint should name the drifting label, got %+v", hints[0])
+	}
+}
+
 func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

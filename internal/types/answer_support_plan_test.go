@@ -2135,6 +2135,42 @@ func TestMissingPrincipalSupportMembers_DefinitionAnchorsCoalesceAndAcceptEquiva
 	}
 }
 
+func TestMissingPrincipalSupportMembers_AcceptsSplitRelationMemberSurface(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{{
+				Text:         "aggregator.Aggregate @ aggregator.go:132",
+				Location:     "internal/analysis/aggregator/aggregator.go:132",
+				ClaimForm:    ClaimDefinitionFact,
+				AnchorSymbol: "Aggregate",
+				SurfaceTerms: []string{"aggregator.Aggregate @ aggregator.go:132"},
+				Source:       "internal/analysis/aggregator/aggregator.go",
+				LineStart:    132,
+			}},
+		}},
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "internal/analysis/aggregator/aggregator.go", Line: 132}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockOrderedList,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "aggregator",
+				Text:        "Aggregate is the entry point.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if got := MissingPrincipalSupportMembers(doc, plan); len(got) != 0 {
+		t.Fatalf("split label/text relation member should satisfy support-member coverage, got %+v", got)
+	}
+}
+
 func TestMissingPrincipalSupportMembers_AssignmentStillRequiresExactCitationLine(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Family: QFEnumeration,

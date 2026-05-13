@@ -629,6 +629,9 @@ func exactResolutionEnabled(rm RequestModel) bool {
 	if changeImpactDisablesExactResolution(rm) {
 		return false
 	}
+	if exactResolutionDisabledForSetValuedRelation(rm) {
+		return false
+	}
 	if len(exactResolutionConversationReferenceSubjects(rm)) > 0 {
 		return true
 	}
@@ -643,6 +646,16 @@ func exactResolutionEnabled(rm RequestModel) bool {
 		return rm.Predicates.IsScalarAnswer || len(primary) <= 1
 	}
 	return strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "config_mapping") || rm.Scenario == ScenarioConfigTrace
+}
+
+func exactResolutionDisabledForSetValuedRelation(rm RequestModel) bool {
+	if rm.Predicates.IsScalarAnswer {
+		return false
+	}
+	if rm.Intent == IntentEnumerate {
+		return true
+	}
+	return rm.Predicates.IsRelationalLookup || rm.Predicates.IsCategoryEnumeration
 }
 
 func changeImpactDisablesExactResolution(rm RequestModel) bool {

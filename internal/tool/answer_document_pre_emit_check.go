@@ -805,8 +805,11 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 			continue
 		}
 		for _, member := range fact.Members {
+			if preEmitAggregateMemberAppearsInDocument(member, doc, surface) {
+				continue
+			}
 			candidates := preEmitAggregateMemberDisplayCandidates(member)
-			if len(candidates) == 0 || preEmitAnyAggregateMemberAppears(candidates, surface) {
+			if len(candidates) == 0 {
 				continue
 			}
 			key := strings.ToLower(candidates[0])
@@ -845,6 +848,73 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	}}
 }
 
+func preEmitAggregateMemberAppearsInDocument(member string, doc *types.AnswerDocumentV2, surface string) bool {
+	candidates := preEmitAggregateMemberDisplayCandidates(member)
+	if len(candidates) == 0 {
+		return true
+	}
+	if preEmitAnyAggregateMemberAppears(candidates, surface) {
+		return true
+	}
+	for _, relationSurface := range preEmitAggregateMemberRelationSurfaces(member) {
+		left, right, ok := types.AnswerAggregateMemberRelationParts(relationSurface)
+		if !ok {
+			continue
+		}
+		if preEmitRelationPartsAppearInSameAnswerUnit(left, right, doc) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitAggregateMemberRelationSurfaces(member string) []string {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return nil
+	}
+	out := []string{member}
+	for _, sep := range []string{" @ ", "\t", " | "} {
+		if idx := strings.Index(member, sep); idx > 0 {
+			prefix := strings.TrimSpace(member[:idx])
+			if prefix != "" {
+				out = append(out, prefix)
+			}
+		}
+	}
+	return dedupPreEmitStringCandidates(out)
+}
+
+func preEmitRelationPartsAppearInSameAnswerUnit(left, right string, doc *types.AnswerDocumentV2) bool {
+	if doc == nil || strings.TrimSpace(left) == "" || strings.TrimSpace(right) == "" {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if preEmitTextContainsAllAggregateParts(block.Title+"\n"+block.Text, left, right) {
+			return true
+		}
+		for _, item := range block.Items {
+			if preEmitTextContainsAllAggregateParts(item.Label+"\n"+item.Text, left, right) {
+				return true
+			}
+		}
+		if block.Diagram != nil && preEmitTextContainsAllAggregateParts(block.Diagram.Body, left, right) {
+			return true
+		}
+	}
+	for _, caveat := range doc.Caveats {
+		if preEmitTextContainsAllAggregateParts(caveat, left, right) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitTextContainsAllAggregateParts(text, left, right string) bool {
+	return preEmitAggregateScalarValueAppears(left, text) &&
+		preEmitAggregateScalarValueAppears(right, text)
+}
+
 func preEmitVisibleAnswerSurface(doc *types.AnswerDocumentV2) string {
 	if doc == nil {
 		return ""
@@ -872,12 +942,15 @@ func preEmitAggregateMemberDisplayCandidates(member string) []string {
 	if member == "" {
 		return nil
 	}
-	out := []string{member}
+	out := types.AnswerAggregateMemberDisplayCandidates(member)
+	if len(out) == 0 {
+		out = []string{member}
+	}
 	for _, sep := range []string{" @ ", "\t", " | "} {
 		if idx := strings.Index(member, sep); idx > 0 {
 			prefix := strings.TrimSpace(member[:idx])
 			if prefix != "" {
-				out = append(out, prefix)
+				out = append(out, types.AnswerAggregateMemberDisplayCandidates(prefix)...)
 			}
 		}
 	}
@@ -1560,6 +1633,9 @@ func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types
 					preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence) {
 					continue
 				}
+				if preEmitLabelSupportedByAggregateMemberSet(label, it, doc.Citations[it.CitationRef], ctx) {
+					continue
+				}
 			}
 			if preEmitLabelStartsWithQualifiedCodeIdentity(label) {
 				continue
@@ -1590,6 +1666,144 @@ func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types
 		})
 	}
 	return hints
+}
+
+func preEmitLabelSupportedByAggregateMemberSet(label string, item types.AnswerBlockItem, cit types.Citation, ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	label = strings.TrimSpace(label)
+	if label == "" || strings.TrimSpace(item.Text) == "" {
+		return false
+	}
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) == 0 {
+		return false
+	}
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateMemberSet {
+			continue
+		}
+		for idx, member := range fact.Members {
+			if !preEmitAggregateMemberLabelTextMatches(label, item.Text, member) {
+				continue
+			}
+			if preEmitAggregateMemberCitationMatches(fact, idx, member, cit) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func preEmitAggregateMemberLabelTextMatches(label, text, member string) bool {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return false
+	}
+	for _, surface := range preEmitAggregateMemberRelationSurfaces(member) {
+		left, right, ok := preEmitAggregateMemberLabelRelationParts(surface)
+		if !ok {
+			continue
+		}
+		if preEmitTypedLabelTokenSupportsLabel(left, label) &&
+			preEmitAggregateScalarValueAppears(right, text) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitAggregateMemberLabelRelationParts(member string) (left string, right string, ok bool) {
+	if left, right, ok := types.AnswerAggregateMemberRelationParts(member); ok {
+		return left, right, true
+	}
+	member = strings.TrimSpace(strings.Trim(member, "`\"' "))
+	if strings.Count(member, ".") != 1 || strings.ContainsAny(member, `/\`) {
+		return "", "", false
+	}
+	parts := strings.Split(member, ".")
+	left, right = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	if !preEmitAggregateSimpleRelationPartOK(left) || !preEmitAggregateSimpleRelationPartOK(right) {
+		return "", "", false
+	}
+	return left, right, true
+}
+
+func preEmitAggregateSimpleRelationPartOK(part string) bool {
+	part = strings.TrimSpace(part)
+	if part == "" {
+		return false
+	}
+	hasAlphaNum := false
+	for _, r := range part {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9':
+			hasAlphaNum = true
+		case r == '_' || r == '-' || r == '$':
+		default:
+			return false
+		}
+	}
+	return hasAlphaNum
+}
+
+func preEmitAggregateMemberCitationMatches(fact types.AnswerAggregateFact, memberIdx int, member string, cit types.Citation) bool {
+	if strings.TrimSpace(cit.File) == "" || cit.Line <= 0 {
+		return false
+	}
+	if surface, ok := types.ParseAnswerSourceLocationSurface(member); ok {
+		return preEmitCitationMatchesSourceLocation(cit, surface)
+	}
+	memberKey := strings.ToLower(strings.TrimSpace(member))
+	var bareRefs []types.AnswerSourceLocationSurface
+	for _, ref := range fact.SupportRefs {
+		refMember, loc, ok := preEmitAggregateSupportRefMemberLocation(ref)
+		if !ok {
+			continue
+		}
+		if refMember == "" {
+			bareRefs = append(bareRefs, loc)
+			continue
+		}
+		if strings.ToLower(refMember) == memberKey && preEmitCitationMatchesSourceLocation(cit, loc) {
+			return true
+		}
+	}
+	if len(bareRefs) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(bareRefs) {
+		return preEmitCitationMatchesSourceLocation(cit, bareRefs[memberIdx])
+	}
+	if len(bareRefs) == 1 {
+		return preEmitCitationMatchesSourceLocation(cit, bareRefs[0])
+	}
+	return false
+}
+
+func preEmitAggregateSupportRefMemberLocation(ref string) (member string, location types.AnswerSourceLocationSurface, ok bool) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", types.AnswerSourceLocationSurface{}, false
+	}
+	for _, sep := range []string{" @ ", "\t", " | "} {
+		idx := strings.Index(ref, sep)
+		if idx <= 0 {
+			continue
+		}
+		if surface, parsed := types.ParseAnswerSourceLocationSurface(strings.TrimSpace(ref[idx+len(sep):])); parsed {
+			return strings.TrimSpace(ref[:idx]), surface, true
+		}
+	}
+	if surface, parsed := types.ParseAnswerSourceLocationSurface(ref); parsed {
+		return "", surface, true
+	}
+	return "", types.AnswerSourceLocationSurface{}, false
+}
+
+func preEmitCitationMatchesSourceLocation(cit types.Citation, loc types.AnswerSourceLocationSurface) bool {
+	return strings.TrimSpace(strings.ReplaceAll(cit.File, `\`, `/`)) == strings.TrimSpace(strings.ReplaceAll(loc.File, `\`, `/`)) &&
+		cit.Line == loc.LineStart
 }
 
 func preEmitLabelSupportedByQuestionBucket(label string, ctx *types.BusContext) bool {

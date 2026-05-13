@@ -385,6 +385,27 @@ func TestBuildExactResolutionContract_DoesNotTriggerOnEnumeration(t *testing.T) 
 	}
 }
 
+func TestBuildExactResolutionContract_DoesNotPromoteEnumerationScopePath(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数。",
+		Intent:     IntentEnumerate,
+		AnalyzerHints: AnalyzerHints{
+			PrimaryEntities:   []string{"internal/analysis"},
+			MentionedEntities: []string{"internal/analysis"},
+			ExactTargets:      []string{"internal/analysis"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
+		Predicates: SemanticPredicates{
+			IsScalarAnswer:        false,
+			IsRelationalLookup:    true,
+			IsCategoryEnumeration: true,
+		},
+	}
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("contract = %+v, want nil: path/module scopes in set-valued enumeration are relation targets, not exact-answer targets", got)
+	}
+}
+
 func TestBuildExactResolutionContract_DisabledForCapabilitySurfaceQuestions(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "analyzer stage 能调用 read_file 吗？",

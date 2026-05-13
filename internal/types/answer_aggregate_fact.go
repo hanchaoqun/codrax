@@ -2,8 +2,10 @@ package types
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // AnswerAggregateKind names a model-emitted aggregate fact that the
@@ -100,10 +102,7 @@ func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateF
 		if err != nil {
 			return nil, fmt.Errorf("aggregate_facts[%d]: %w", i, err)
 		}
-		key := strings.ToLower(string(fact.Kind)) + "\x00" +
-			strings.ToLower(fact.Label) + "\x00" +
-			strings.ToLower(fact.Value) + "\x00" +
-			strings.ToLower(renderAggregateDimensionsKey(fact.Dimensions))
+		key := AnswerAggregateFactIdentity(fact)
 		if seen[key] {
 			continue
 		}
@@ -150,6 +149,169 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 		return AnswerAggregateFact{}, fmt.Errorf("value is required")
 	}
 	return fact, nil
+}
+
+// AnswerAggregateFactIdentity returns the stable semantic identity for a
+// model-authored aggregate fact. For ordinary scalar/count facts, the label is
+// part of the identity because it names the measured quantity. For member_set
+// facts, the exact member set is the principal answer payload, while label is
+// display metadata that may drift across explore/reconcile retries. Treating
+// equivalent member sets as one handoff prevents downstream hard gates from
+// requiring duplicate exhaustive lists in different surface formats.
+func AnswerAggregateFactIdentity(fact AnswerAggregateFact) string {
+	var b strings.Builder
+	b.WriteString(strings.ToLower(strings.TrimSpace(string(fact.Kind))))
+	b.WriteByte('\x00')
+	b.WriteString(strings.ToLower(strings.TrimSpace(fact.Value)))
+	b.WriteByte('\x00')
+	b.WriteString(strings.ToLower(renderAggregateDimensionsKey(fact.Dimensions)))
+	b.WriteByte('\x00')
+	if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
+		b.WriteString(canonicalAggregateMemberSetKey(fact.Members))
+		return b.String()
+	}
+	b.WriteString(strings.ToLower(strings.TrimSpace(fact.Label)))
+	return b.String()
+}
+
+func canonicalAggregateMemberSetKey(members []string) string {
+	if len(members) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(members))
+	seen := map[string]bool{}
+	for _, member := range members {
+		key := AnswerAggregateMemberSurfaceKey(member)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "\x1f")
+}
+
+// AnswerAggregateMemberSurfaceKey canonicalizes a model-emitted member_set
+// member for equivalence checks. It is deliberately conservative: only compact
+// two-part identifier relations are normalized across separators such as
+// "pkg/Fn", "pkg → Fn", "pkg -> Fn", and "Type::Member". Paths, routes, and
+// source locations remain literal surfaces so hard gates do not collapse
+// unrelated answer members.
+func AnswerAggregateMemberSurfaceKey(member string) string {
+	member = trimAggregateMemberSurface(member)
+	if member == "" {
+		return ""
+	}
+	if key, ok := aggregateRelationSurfaceKey(member); ok {
+		return key
+	}
+	return "literal:" + strings.ToLower(member)
+}
+
+// AnswerAggregateMemberDisplayCandidates returns exact visible spellings that
+// should satisfy a member_set hard gate for the same model-authored member.
+// These are display variants of the structured member, not inferred answer
+// facts.
+func AnswerAggregateMemberDisplayCandidates(member string) []string {
+	member = trimAggregateMemberSurface(member)
+	if member == "" {
+		return nil
+	}
+	out := []string{member}
+	if left, right, ok := aggregateRelationSurfaceParts(member); ok {
+		out = append(out,
+			left+" → "+right,
+			left+" -> "+right,
+			left+"/"+right,
+			left+"::"+right,
+		)
+	}
+	return dedupAggregateMemberCandidates(out)
+}
+
+func AnswerAggregateMemberRelationParts(member string) (left string, right string, ok bool) {
+	return aggregateRelationSurfaceParts(member)
+}
+
+func aggregateRelationSurfaceKey(member string) (string, bool) {
+	left, right, ok := aggregateRelationSurfaceParts(member)
+	if !ok {
+		return "", false
+	}
+	return "relation:" + aggregateRelationPartKey(left) + "\x00" + aggregateRelationPartKey(right), true
+}
+
+func aggregateRelationSurfaceParts(member string) (string, string, bool) {
+	member = trimAggregateMemberSurface(member)
+	if member == "" {
+		return "", "", false
+	}
+	for _, sep := range []string{"→", "->", "=>", "::"} {
+		if strings.Count(member, sep) != 1 {
+			continue
+		}
+		parts := strings.Split(member, sep)
+		left, right := trimAggregateMemberSurface(parts[0]), trimAggregateMemberSurface(parts[1])
+		if aggregateRelationPartOK(left) && aggregateRelationPartOK(right) {
+			return left, right, true
+		}
+	}
+	if strings.Count(member, "/") == 1 && !strings.ContainsAny(member, " \t\n\r") {
+		parts := strings.Split(member, "/")
+		left, right := trimAggregateMemberSurface(parts[0]), trimAggregateMemberSurface(parts[1])
+		if aggregateRelationPartOK(left) && aggregateRelationPartOK(right) {
+			return left, right, true
+		}
+	}
+	return "", "", false
+}
+
+func aggregateRelationPartOK(part string) bool {
+	part = trimAggregateMemberSurface(part)
+	if part == "" || strings.ContainsAny(part, `/\`) {
+		return false
+	}
+	hasAlphaNum := false
+	for _, r := range part {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+			hasAlphaNum = true
+		case r == '_' || r == '-' || r == '$':
+		default:
+			return false
+		}
+	}
+	return hasAlphaNum
+}
+
+func aggregateRelationPartKey(part string) string {
+	return strings.ToLower(trimAggregateMemberSurface(part))
+}
+
+func trimAggregateMemberSurface(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.Trim(s, "`'\"")
+	s = strings.Join(strings.Fields(s), " ")
+	return strings.TrimSpace(s)
+}
+
+func dedupAggregateMemberCandidates(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = trimAggregateMemberSurface(s)
+		if s == "" {
+			continue
+		}
+		key := strings.ToLower(s)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 func normalizeAnswerAggregateDimensions(in []AnswerAggregateDimension) ([]AnswerAggregateDimension, error) {

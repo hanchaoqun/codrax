@@ -1404,23 +1404,7 @@ func mergeCompletionAggregateFacts(current, stable []types.AnswerAggregateFact) 
 }
 
 func completionAggregateFactIdentity(fact types.AnswerAggregateFact) string {
-	var b strings.Builder
-	b.WriteString(strings.ToLower(strings.TrimSpace(string(fact.Kind))))
-	b.WriteByte('\x00')
-	b.WriteString(strings.ToLower(strings.TrimSpace(fact.Label)))
-	b.WriteByte('\x00')
-	for _, dim := range fact.Dimensions {
-		name := strings.ToLower(strings.TrimSpace(dim.Name))
-		value := strings.ToLower(strings.TrimSpace(dim.Value))
-		if name == "" && value == "" {
-			continue
-		}
-		b.WriteString(name)
-		b.WriteByte('=')
-		b.WriteString(value)
-		b.WriteByte(';')
-	}
-	return b.String()
+	return types.AnswerAggregateFactIdentity(fact)
 }
 
 func repoGroundingBypassLabel(ctx *types.BusContext) (string, bool) {

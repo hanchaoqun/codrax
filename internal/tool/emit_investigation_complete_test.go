@@ -1484,6 +1484,29 @@ func TestEmitInvestigationComplete_AllowsExhaustiveEnumerationMemberSet(t *testi
 	}
 }
 
+func TestMergeCompletionAggregateFacts_DedupesEquivalentMemberSetRetries(t *testing.T) {
+	current := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "all subpackages and entry functions",
+		Value:   "2",
+		Members: []string{"aggregator → Aggregate", "compiler → Compile"},
+	}}
+	stable := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "subpackage directory and entry function",
+		Value:   "2",
+		Members: []string{"aggregator/Aggregate", "compiler/Compile"},
+	}}
+
+	got := mergeCompletionAggregateFacts(current, stable)
+	if len(got) != 1 {
+		t.Fatalf("equivalent retry member_set facts should merge to one authoritative set, got %+v", got)
+	}
+	if got[0].Label != "all subpackages and entry functions" {
+		t.Fatalf("current retry aggregate should win over retained display metadata, got %+v", got[0])
+	}
+}
+
 func TestEmitInvestigationComplete_RejectsUnsupportedExhaustiveEnumerationMemberSet(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

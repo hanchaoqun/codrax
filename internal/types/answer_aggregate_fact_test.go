@@ -108,6 +108,55 @@ func TestNormalizeAnswerAggregateFacts_CanonicalizesMemberSetValueFromMembers(t 
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_DedupesEquivalentMemberSetDisplayVariants(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "subpackage directory and entry function",
+			Value:   "3",
+			Members: []string{"aggregator/Aggregate", "compiler/Compile", "Type::Member"},
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "all subpackages and entry functions",
+			Value:   "3",
+			Members: []string{"compiler → Compile", "aggregator -> Aggregate", "Type/Member"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("equivalent member_set display variants should validate: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("equivalent member sets should dedupe to one fact, got %+v", got)
+	}
+	if got[0].Label != "subpackage directory and entry function" {
+		t.Fatalf("dedupe should preserve first model-authored display fact, got %+v", got[0])
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_DoesNotCollapseDistinctPathMembers(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "production files",
+			Value:   "1",
+			Members: []string{"src/main.cpp"},
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "production files alternate",
+			Value:   "1",
+			Members: []string{"src → main.cpp"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("path-like member sets should still validate: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("path-like and relation-like members must remain distinct, got %+v", got)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_NonMemberSetStillRequiresValue(t *testing.T) {
 	_, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:    AnswerAggregateTotalCount,
