@@ -163,6 +163,63 @@ func TestPreCheckAggregateScalarValueCoverage_RequiresModelAuthoredScalarFacts(t
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_RequiresVisibleModelAuthoredMembers(t *testing.T) {
+	mu := types.NewMutableState("enum aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "public enum types",
+		Value:   "3",
+		Members: []string{"Intent", "QuestionFamily", "Scenario @ internal/types/analysis_ir.go:673"},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqEnumeration),
+					Entities: []string{"Intent", "QuestionFamily", "Scenario"},
+				},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all public enum types",
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "list",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:    "intent",
+				Label: "Intent",
+			}, {
+				ID:    "scenario",
+				Label: "Scenario",
+			}},
+		}},
+	}
+
+	hints := preCheckAggregateMemberSetCoverage(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("missing member_set value should produce one hint, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "QuestionFamily") {
+		t.Fatalf("hint should name the omitted model-authored member, got %+v", hints[0])
+	}
+	if strings.Contains(hints[0].ExpectedShape, "Scenario") {
+		t.Fatalf("visible display prefix should satisfy member entry, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Items = append(doc.Blocks[0].Items, types.AnswerBlockItem{ID: "family", Label: "QuestionFamily"})
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("all member_set members are visible; got hints %+v", got)
+	}
+}
+
 func TestPreCheckCitationPoolIntegrity_CatchesMissingAndOutOfRangeRefs(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

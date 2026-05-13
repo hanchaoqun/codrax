@@ -606,6 +606,53 @@ func TestParseOutput_WritesTurnAArtifactsAndLeavesSlateEmpty(t *testing.T) {
 	}
 }
 
+func TestParseOutput_ExhaustiveEnumerationRequiresMemberSetHandoffBeforeTurnB(t *testing.T) {
+	eval := phase11Eval("List all public enum types")
+	eval.isEnumerationQuery = true
+	ctx := parseOutputCtx(string(types.ReqEnumeration), "list_of_symbols")
+	ctx.Mutable = types.NewMutableState("List all public enum types")
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentEnumerate
+	ctx.AnalysisIR.RequestModel.Predicates = types.SemanticPredicates{IsCategoryEnumeration: true}
+	ctx.AnalysisIR.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all public enum types",
+	}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints = types.AnalyzerHints{
+		Kind:     string(types.ReqEnumeration),
+		Entities: []string{"Intent", "QuestionFamily", "Scenario"},
+	}
+	eval.analysisIR = ctx.AnalysisIR
+
+	out, err := eval.ParseOutput(ctx, nil, phase11ToolResults(), nil)
+	if err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	if out.SignalUpdates == nil {
+		t.Fatal("SignalUpdates must be populated")
+	}
+	if out.SignalUpdates.HasEnoughFacts {
+		t.Fatal("exhaustive enumeration must not advance to extractor without accepted aggregate_facts.member_set")
+	}
+	if !strings.Contains(out.RetryHint, "aggregate_facts.member_set") {
+		t.Fatalf("retry hint should direct a structured member_set handoff, got %q", out.RetryHint)
+	}
+
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "public enum types",
+		Value:   "3",
+		Members: []string{"Intent", "QuestionFamily", "Scenario"},
+	}})
+	ctx.Mutable.SetInvestigationComplete("member set accepted")
+	out, err = eval.ParseOutput(ctx, nil, phase11ToolResults(), nil)
+	if err != nil {
+		t.Fatalf("ParseOutput with member_set error: %v", err)
+	}
+	if out.SignalUpdates == nil || !out.SignalUpdates.HasEnoughFacts {
+		t.Fatalf("accepted member_set should satisfy structured handoff, got signals=%+v hint=%q", out.SignalUpdates, out.RetryHint)
+	}
+}
+
 func TestParseOutput_NoMutableStateGracefullyDegrades(t *testing.T) {
 	// Defensive: ParseOutput must not panic when ctx.Mutable is nil.
 	// The TurnA handoff snapshot is simply skipped and the rest of

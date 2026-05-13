@@ -564,7 +564,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			fmt.Fprintf(&b, "The user demands every match (`%s` in the question). Every grep / repo_map / list_files candidate file MUST be either read_file'd OR explicitly excluded by a narrower follow-up grep before you call emit_investigation_complete with result_kind='resolved'. The framework refuses premature completion when scanned candidates remain unread under this obligation. The honest fallback when the investigation legitimately cannot enumerate the full set is result_kind='absence' with absence_justification, OR an emit_investigation_complete that explicitly notes the un-read scope.\n\n",
 				rm.CompletenessObligation.SourceQuote)
 		}
-		if rm.Predicates.IsCountQuestion || len(rm.Buckets) >= 2 || rm.EnumerationBoundary != nil || (rm.CompletenessObligation != nil && rm.CompletenessObligation.Required) {
+		if rm.Predicates.IsCountQuestion || len(rm.Buckets) >= 2 || rm.EnumerationBoundary != nil || (rm.CompletenessObligation != nil && rm.CompletenessObligation.Required) || types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
 			b.WriteString("### Structured Aggregate Handoff\n\n")
 			b.WriteString("When the answer depends on derived totals, unique-set sizes, per-dimension counts, user-bucket counts, excluded-candidate counts, or an exhaustive principal member list, include `aggregate_facts` in your successful `emit_investigation_complete` call. Do this even when the same numbers or member names also appear in your reason prose.\n")
 			b.WriteString("- Use `member_set` for an exact exhaustive list of principal answer members, `total_count` for the principal hit count, `unique_count` for distinct file/package/module sets, `grouped_count` for syntax/category/language dimensions, `bucket_count` for user-named partitions, and `excluded_count` for comments/tests/docs/unrelated candidates that were deliberately not counted.\n")
@@ -5504,6 +5504,46 @@ func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, 
 	}
 }
 
+func (e *explorerEvaluator) needsStructuredMemberSetHandoff(ctx *types.AgentContext) bool {
+	var ir *types.AnalysisIR
+	if ctx != nil && ctx.AnalysisIR != nil {
+		ir = ctx.AnalysisIR
+	} else if e != nil {
+		ir = e.analysisIR
+	}
+	if ir == nil {
+		return false
+	}
+	rm := ir.RequestModel
+	if !types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		return false
+	}
+	var view *types.AnswerSemanticView
+	if ctx != nil {
+		view = types.BuildAnswerSemanticViewForAgentContext(ctx)
+	} else if e != nil && e.mutable != nil {
+		view = types.BuildAnswerSemanticViewForBusContext(&types.BusContext{
+			AnalysisIR: ir,
+			Mutable:    e.mutable,
+		})
+	} else {
+		view = types.BuildAnswerSemanticView(ir, nil)
+	}
+	return view != nil && view.Family == types.QFEnumeration && view.NeedsEnumerationSlate()
+}
+
+func acceptedStructuredMemberSetHandoff(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	for _, fact := range ctx.Mutable.StableInvestigationAggregateFacts() {
+		if fact.Kind == types.AnswerAggregateMemberSet && len(fact.Members) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func explorerReadinessFaces(
 	toolDiversity bool,
 	fileCoverage bool,
@@ -5602,6 +5642,9 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	}
 	if len(readiness.ReadyFaces) > 0 {
 		fmt.Fprintf(&b, "- answer-ready faces: %s\n", strings.Join(readiness.ReadyFaces, ", "))
+	}
+	if e.needsStructuredMemberSetHandoff(nil) {
+		b.WriteString("- this is an exhaustive principal-member enumeration; your successful close must include `aggregate_facts` with kind=`member_set`, numeric `value`, and every principal member in `members`\n")
 	}
 	b.WriteString("Only continue reading if one specific unresolved branch would still change the final answer.")
 	return LoopSignal{
@@ -6797,6 +6840,10 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 		return false
 	}
 	if e.phase != 1 || len(e.ermRequirements) == 0 {
+		return false
+	}
+	if e.analysisIR != nil && types.RequiresExhaustiveEnumerationMemberSetHandoff(e.analysisIR.RequestModel) {
+		logging.Debug("[explorer] ShouldStop iter=%d: suppressing S1 fallback because exhaustive enumeration requires structured member_set completion", iteration)
 		return false
 	}
 	var notesForCheck []string
@@ -8568,7 +8615,11 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// Primary signal: the LLM explicitly called emit_investigation_complete.
 	// When set, it overrides ALL heuristic calculations — the LLM
 	// declared it has enough evidence, and we trust it.
-	if ctx != nil && ctx.Mutable != nil && ctx.Mutable.IsInvestigationComplete() && !readiness.HasEnough {
+	missingStructuredMemberSet := e.needsStructuredMemberSetHandoff(ctx) && !acceptedStructuredMemberSetHandoff(ctx)
+	if missingStructuredMemberSet {
+		readiness.HasEnough = false
+	}
+	if ctx != nil && ctx.Mutable != nil && ctx.Mutable.IsInvestigationComplete() && !readiness.HasEnough && !missingStructuredMemberSet {
 		logging.Debug("[explorer] HasEnoughFacts promoted by emit_investigation_complete (heuristic was: toolDiv=%v fileCov=%v evQual=%v)",
 			readiness.ToolDiversity, readiness.FileCoverage, readiness.EvidenceQuality)
 		readiness.HasEnough = true
@@ -8840,7 +8891,10 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 
 	if !signals.HasEnoughFacts {
 		var hintKey string
-		if !readiness.ToolDiversity {
+		if missingStructuredMemberSet {
+			hintKey = "explorer.retry.structured-member-set"
+			out.RetryHint = "Previous attempt gathered an exhaustive principal-member enumeration but did not close through a model-authored aggregate_facts.member_set. Reuse the already-read evidence, call emit_investigation_complete(result_kind=\"resolved\"), and include aggregate_facts with kind=\"member_set\", value=len(members), and every principal answer member in members[]. Do not leave the complete set only in thinking, read_file output, or closure prose."
+		} else if !readiness.ToolDiversity {
 			hintKey = "explorer.retry.tool-diversity"
 			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. Use both grep and read_file."
 		} else if !readiness.EvidenceQuality {

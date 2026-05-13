@@ -1347,7 +1347,7 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 		return ""
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if rm.CompletenessObligation == nil || !rm.CompletenessObligation.Required {
+	if !types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
 		return ""
 	}
 	view := types.BuildAnswerSemanticViewForBusContext(ctx)

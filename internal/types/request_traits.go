@@ -62,6 +62,58 @@ func HasBoundedCategoryEnumerationMembers(rm RequestModel) bool {
 	return hasExhaustiveMultiMemberSet(rm)
 }
 
+// RequiresExhaustiveEnumerationMemberSetHandoff reports whether a
+// set-valued enumeration answer must be carried downstream as a
+// model-authored aggregate_facts.member_set before later stages are
+// allowed to treat the exploration as complete.
+//
+// This is the shared typed boundary for closed principal member lists:
+// the explorer may discover rich candidates through grep/read/repomap,
+// but a complete answer set must be emitted through a structured
+// handoff so extractor/finalizer do not reconstruct it from thinking,
+// tool prose, or chain-ranking leftovers. The predicate is deliberately
+// schema-only. It consumes analyzer intent, predicates, question
+// structure, and requirement kind; it never scans raw request keywords,
+// so the rule applies equally to Go, Python, JavaScript/TypeScript,
+// Java/Kotlin, Rust, C/C++, Ruby, Swift, Lua, Proto, ArkTS, Cangjie,
+// and mixed-language repositories.
+func RequiresExhaustiveEnumerationMemberSetHandoff(rm RequestModel) bool {
+	if !IsCategoryEnumerationAnswerShape(rm) {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	if IsArchitectureNarrativeExplanation(rm) {
+		return false
+	}
+	if rm.CompletenessObligation.IsActive() {
+		return true
+	}
+	if rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0 {
+		return true
+	}
+	if rm.Predicates.IsRelationalLookup {
+		return false
+	}
+	if !rm.Predicates.IsCategoryEnumeration {
+		return false
+	}
+	if !hasExhaustiveMultiMemberSet(rm) {
+		return false
+	}
+	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case ReqEnumeration, ReqRegistration:
+		return rm.Intent == IntentEnumerate
+	default:
+		return false
+	}
+}
+
 // IsCategoryEnumerationAnswerShape reports whether the user's answer
 // shape is a set of principal members, as opposed to a single scalar
 // role/literal that happens to be phrased with "which".

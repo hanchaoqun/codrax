@@ -109,6 +109,56 @@ func TestHasBoundedCategoryEnumerationMembers_TypedOnly(t *testing.T) {
 	}
 }
 
+func TestRequiresExhaustiveEnumerationMemberSetHandoff_TypedOnly(t *testing.T) {
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqEnumeration),
+			Entities: []string{"Intent", "QuestionFamily", "Scenario"},
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all public enum types"},
+	}
+	if !RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		t.Fatal("exhaustive category enumeration should require a structured member_set handoff")
+	}
+
+	rm.CompletenessObligation = nil
+	rm.EnumerationBoundary = &RequestedEnumerationBoundary{DeclaredCount: 3, SourceQuote: "three public enum types"}
+	if !RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		t.Fatal("declared-count enumeration should require a structured member_set handoff")
+	}
+
+	rm.EnumerationBoundary = nil
+	rm.Predicates.IsRelationalLookup = true
+	if RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		t.Fatal("unbounded relational enumeration should not force a complete member_set")
+	}
+
+	rm.Predicates.IsRelationalLookup = false
+	rm.Predicates.IsScalarAnswer = true
+	rm.CompletenessObligation = &CompletenessObligation{Required: true, SourceQuote: "all"}
+	if RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		t.Fatal("scalar contradiction must keep the request out of exhaustive member-set handoff")
+	}
+
+	arch := RequestModel{
+		Intent:      IntentExplain,
+		Scenario:    ScenarioArchitectureExplain,
+		Complexity:  ComplexityComplex,
+		Predicates:  SemanticPredicates{IsCategoryEnumeration: true, IsCrossComponent: true},
+		DiagramHint: &DiagramHint{Kind: DiagramSequence},
+		SubTopics:   []SubTopic{{Summary: "A"}, {Summary: "B"}},
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqEnumeration),
+			Entities: []string{"Analyzer", "Explorer", "Finalizer"},
+		},
+	}
+	if RequiresExhaustiveEnumerationMemberSetHandoff(arch) {
+		t.Fatal("architecture narrative component names are context, not an exhaustive principal member_set")
+	}
+}
+
 func TestIsCategoryEnumerationAnswerShape_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{IsCategoryEnumeration: true},

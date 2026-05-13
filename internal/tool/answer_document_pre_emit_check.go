@@ -173,6 +173,9 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	if h := preCheckAggregateScalarValueCoverage(doc, ctxOpt...); len(h) > 0 {
 		hints = append(hints, h...)
 	}
+	if h := preCheckAggregateMemberSetCoverage(doc, ctxOpt...); len(h) > 0 {
+		hints = append(hints, h...)
+	}
 
 	// 5e. Bounded exact absence. Keep the absence hard gate inside
 	// the emit dispatch too, so missing negative-scope citations are
@@ -525,6 +528,73 @@ func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ..
 	}}
 }
 
+func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
+		return nil
+	}
+	ctx := ctxOpt[0]
+	if ctx.AnalysisIR == nil || !types.RequiresExhaustiveEnumerationMemberSetHandoff(ctx.AnalysisIR.RequestModel) {
+		return nil
+	}
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) == 0 {
+		return nil
+	}
+	surface := preEmitVisibleAnswerSurface(doc)
+	if strings.TrimSpace(surface) == "" {
+		return nil
+	}
+	type missingMember struct {
+		label  string
+		member string
+	}
+	var missing []missingMember
+	seen := make(map[string]bool)
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 {
+			continue
+		}
+		for _, member := range fact.Members {
+			candidates := preEmitAggregateMemberDisplayCandidates(member)
+			if len(candidates) == 0 || preEmitAnyAggregateMemberAppears(candidates, surface) {
+				continue
+			}
+			key := strings.ToLower(candidates[0])
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			missing = append(missing, missingMember{
+				label:  strings.TrimSpace(fact.Label),
+				member: candidates[0],
+			})
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(missing))
+	for _, m := range missing {
+		if m.label != "" {
+			parts = append(parts, fmt.Sprintf("label=%q member=%q", m.label, m.member))
+		} else {
+			parts = append(parts, fmt.Sprintf("member=%q", m.member))
+		}
+		if len(parts) >= 12 {
+			break
+		}
+	}
+	if len(missing) > len(parts) {
+		parts = append(parts, fmt.Sprintf("... %d more omitted member(s)", len(missing)-len(parts)))
+	}
+	return []emitFixHint{{
+		Field: "blocks[].items[].label/text OR blocks[].text",
+		ExpectedShape: "include every model-emitted member_set member in the visible exhaustive enumeration answer: " +
+			strings.Join(parts, "; "),
+		Reason: "the investigation handed off the complete principal member set as structured data; finalization must preserve those model-authored members instead of compressing the answer to a partial symbol slate or prose summary.",
+	}}
+}
+
 func preEmitVisibleAnswerSurface(doc *types.AnswerDocumentV2) string {
 	if doc == nil {
 		return ""
@@ -545,6 +615,50 @@ func preEmitVisibleAnswerSurface(doc *types.AnswerDocumentV2) string {
 		appendPreEmitSurface(&b, caveat)
 	}
 	return b.String()
+}
+
+func preEmitAggregateMemberDisplayCandidates(member string) []string {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return nil
+	}
+	out := []string{member}
+	for _, sep := range []string{" @ ", "\t", " | "} {
+		if idx := strings.Index(member, sep); idx > 0 {
+			prefix := strings.TrimSpace(member[:idx])
+			if prefix != "" {
+				out = append(out, prefix)
+			}
+		}
+	}
+	return dedupPreEmitStringCandidates(out)
+}
+
+func dedupPreEmitStringCandidates(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	var out []string
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		key := strings.ToLower(s)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, s)
+	}
+	return out
+}
+
+func preEmitAnyAggregateMemberAppears(candidates []string, surface string) bool {
+	for _, candidate := range candidates {
+		if preEmitAggregateScalarValueAppears(candidate, surface) {
+			return true
+		}
+	}
+	return false
 }
 
 func appendPreEmitSurface(b *strings.Builder, text string) {
