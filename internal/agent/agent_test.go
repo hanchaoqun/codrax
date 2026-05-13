@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -540,6 +543,7 @@ func TestIsReadFilePathMiss(t *testing.T) {
 type stubEvaluator struct {
 	parseCalls   int
 	panicMessage string
+	messages     []llm.Message
 }
 
 func (s *stubEvaluator) BuildInitialInstruction(_ *types.AgentContext, _ *skill.Config) string {
@@ -547,9 +551,10 @@ func (s *stubEvaluator) BuildInitialInstruction(_ *types.AgentContext, _ *skill.
 }
 func (s *stubEvaluator) ShouldStop(_ llm.Response, _ int) bool { return false }
 func (s *stubEvaluator) ParseOutput(
-	_ *types.AgentContext, _ []llm.Message, _ []types.ToolResult, _ []types.MCPResponse,
+	_ *types.AgentContext, messages []llm.Message, _ []types.ToolResult, _ []types.MCPResponse,
 ) (*StageOutput, error) {
 	s.parseCalls++
+	s.messages = append([]llm.Message(nil), messages...)
 	if s.panicMessage != "" {
 		panic(s.panicMessage)
 	}
@@ -582,6 +587,49 @@ func TestSalvagePartialDispatch_RecoversPanic(t *testing.T) {
 type errFake string
 
 func (e errFake) Error() string { return string(e) }
+
+type transientPartialLLM struct{}
+
+func (transientPartialLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
+	if opts.OnToolCallDelta != nil {
+		opts.OnToolCallDelta(0, "emit_answer_document", `{"summary":"partial structured summary from interrupted stream`)
+	}
+	return llm.Response{}, io.ErrUnexpectedEOF
+}
+
+func (transientPartialLLM) ModelID() string               { return "transient-partial" }
+func (transientPartialLLM) MaxContextTokens() int         { return 128000 }
+func (transientPartialLLM) MaxOutputTokens() int          { return 4096 }
+func (transientPartialLLM) RequestTimeout() time.Duration { return 0 }
+func (transientPartialLLM) RetryMaxAttempts() int         { return 0 }
+
+func TestBaseAgent_FinalizeTransientErrorDoesNotSynthesizePartialSummary(t *testing.T) {
+	eval := &stubEvaluator{}
+	b := NewBaseAgent(types.AgentFinalizer, &Dependencies{
+		LLM:           transientPartialLLM{},
+		MaxIterations: 1,
+	}, eval)
+	ctx := &types.AgentContext{
+		Stage:   types.StageFinalize,
+		Mutable: types.NewMutableState(""),
+	}
+
+	out, err := b.Execute(ctx, &skill.Config{})
+	if err == nil {
+		t.Fatal("Execute should return the transient stream error")
+	}
+	if out == nil || !strings.Contains(out.Error, "LLM call failed") {
+		t.Fatalf("Execute should return structured failure output, got out=%+v err=%v", out, err)
+	}
+	if eval.parseCalls != 1 {
+		t.Fatalf("transient failure should still salvage deterministic artifacts via ParseOutput, got %d calls", eval.parseCalls)
+	}
+	for _, msg := range eval.messages {
+		if msg.Role == "assistant" && strings.Contains(msg.Content, "partial structured summary") {
+			t.Fatalf("partial finalizer stream must stay UI-only, not become assistant fallback content: %+v", eval.messages)
+		}
+	}
+}
 
 // TestToolChoiceForStage pins the per-stage tool_choice mapping. The
 // stages whose evaluator treats "no tool call this turn" as a retry

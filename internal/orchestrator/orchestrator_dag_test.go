@@ -431,7 +431,7 @@ func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
 		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			finalizeCalls++
 			if finalizeCalls == 1 {
-				return nil, context.DeadlineExceeded
+				return nil, io.ErrUnexpectedEOF
 			}
 			return &agent.StageOutput{
 				MissingPiece: types.MissingNone,
@@ -442,7 +442,11 @@ func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
 
 	ar, sr, sar := buildRegistries(agentFns)
 	o := New(types.PipelineSettings{}, ar, sr, sar)
-	o.SetMaxSteps(20)
+	// Analyze, explore, and the successful finalizer consume the
+	// available productive steps. The EOF retry itself must be free;
+	// if the transient lane charged the step budget, the second
+	// finalizer dispatch would never run.
+	o.SetMaxSteps(4)
 	o.SetTransientRetryBudget(1) // enable read-mode transient retry
 
 	busCtx, err := o.Run("explain X", "/tmp/repo", "main")

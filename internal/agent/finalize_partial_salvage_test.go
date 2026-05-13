@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// TestFinalizePreviewHook_PartialReturnsAccumulated covers the new
-// Partial() getter the orchestrator's force-finalize path consults
-// when a Chat error fires before the emit_answer_document tool call
-// closes. Without this getter, in-flight summary text decoded from
-// argument chunks would be discarded on EOF / stream stall.
+// TestFinalizePreviewHook_PartialReturnsAccumulated covers the
+// preview buffer's read API. Partial summary text is useful for live
+// UI preview/debugging, but BaseAgent must keep it out of fallback
+// answer synthesis on EOF / stream stall; see
+// TestBaseAgent_FinalizeTransientErrorDoesNotSynthesizePartialSummary.
 func TestFinalizePreviewHook_PartialReturnsAccumulated(t *testing.T) {
 	h := newFinalizePreviewHook(nil) // nil emit OK — Partial doesn't emit
 	if got := h.Partial(); got != "" {
