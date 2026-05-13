@@ -104,8 +104,9 @@ func r3TypedIdentifierMustInclude(rm types.RequestModel, contract *types.AnswerC
 	contract.MustInclude = append(contract.MustInclude, added...)
 	for _, term := range added {
 		contract.MustIncludeTerms = append(contract.MustIncludeTerms, types.ContractTerm{
-			Text: term,
-			Kind: pinnedEnumerationTermKind(term, trustEnumerationMembers),
+			Text:   term,
+			Kind:   pinnedEnumerationTermKind(term, trustEnumerationMembers),
+			Source: types.ContractTermSourceAnalyzerEntity,
 		})
 	}
 

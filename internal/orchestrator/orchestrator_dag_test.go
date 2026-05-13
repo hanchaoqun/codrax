@@ -121,6 +121,69 @@ func TestRunTaskGraph_HappyPath(t *testing.T) {
 	}
 }
 
+func TestRunTaskGraph_ExplorerRetryHintRequeuesBeforeExtract(t *testing.T) {
+	var explorerCalls, extractorCalls, finalizeCalls int
+	var observedExplorerHints []string
+
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	ir.TaskGraph.ExecutionPolicy.RetryBudget = 1
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			observedExplorerHints = append(observedExplorerHints, ctx.RetryHint)
+			if explorerCalls == 1 {
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingFacts,
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: false},
+					RetryHint:     "emit aggregate_facts.member_set before completing",
+				}, nil
+			}
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				EvidenceItems: []types.EvidenceItem{{ID: "ev", Source: "src.go", LineStart: 1}},
+			}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			extractorCalls++
+			if explorerCalls < 2 {
+				t.Fatalf("extractor must not run before explorer satisfies its own fact retry")
+			}
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "ok"}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !busCtx.TaskState.IsTerminal {
+		t.Fatal("want terminal")
+	}
+	if explorerCalls != 2 {
+		t.Fatalf("explorer calls = %d, want 2", explorerCalls)
+	}
+	if extractorCalls != 1 {
+		t.Fatalf("extractor calls = %d, want 1", extractorCalls)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalize calls = %d, want 1", finalizeCalls)
+	}
+	if len(observedExplorerHints) < 2 || !strings.Contains(observedExplorerHints[1], "aggregate_facts.member_set") {
+		t.Fatalf("second explorer dispatch must receive the stage retry hint, got %+v", observedExplorerHints)
+	}
+}
+
 func TestRunTaskGraph_ContractFailureBacktracks(t *testing.T) {
 
 	var explorerCalls, finalizeCalls int

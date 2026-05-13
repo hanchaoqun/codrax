@@ -352,4 +352,9 @@ func TestR3_PopulatesTypedMustIncludeTerms(t *testing.T) {
 	if kinds["StageAnalyze"] != types.ContractTermSymbol {
 		t.Fatalf("StageAnalyze kind = %q, want symbol; terms=%+v", kinds["StageAnalyze"], contract.MustIncludeTerms)
 	}
+	for _, term := range contract.MustIncludeTerms {
+		if term.Source != types.ContractTermSourceAnalyzerEntity {
+			t.Fatalf("R3 term %q source=%q, want analyzer_entity", term.Text, term.Source)
+		}
+	}
 }

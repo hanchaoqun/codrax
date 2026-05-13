@@ -1711,6 +1711,10 @@ func completionMissingPrincipalHandoffTerms(
 			completionTermCoveredByAggregateFacts(term, aggregateFacts) {
 			continue
 		}
+		if term.Source == types.ContractTermSourceAnalyzerEntity &&
+			aggregateFactsContainMemberSet(aggregateFacts) {
+			continue
+		}
 		missing = append(missing, term)
 	}
 	return missing

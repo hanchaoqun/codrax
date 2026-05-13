@@ -88,12 +88,16 @@ func normalizeContractTerms(legacy []string, typed []ContractTerm) []ContractTer
 		if !kind.IsValid() {
 			kind = InferContractTermKind(text)
 		}
+		source := term.Source
+		if !source.IsValid() {
+			source = ""
+		}
 		key := string(kind) + "\x00" + strings.ToLower(text)
 		if _, ok := seen[key]; ok {
 			return
 		}
 		seen[key] = struct{}{}
-		out = append(out, ContractTerm{Text: text, Kind: kind})
+		out = append(out, ContractTerm{Text: text, Kind: kind, Source: source})
 	}
 	for _, text := range legacy {
 		if _, alreadyTyped := typedTexts[strings.ToLower(strings.TrimSpace(text))]; alreadyTyped {

@@ -432,7 +432,7 @@ func TestRenderWindowHint_StructuralOutput(t *testing.T) {
 		},
 	}
 	surfaces := map[string]string{"k1": "explorer", "k2": "tool", "e1": "Explorer"}
-	hint := renderWindowHint(window, nil, nil, func(id string) string { return surfaces[id] }, "", nil)
+	hint := renderWindowHint(window, nil, nil, func(id string) string { return surfaces[id] }, "", "", nil)
 	for _, want := range []string{"Locate the explorer agent", "Read its tools", "explorer", "Explorer", "tool"} {
 		if !strings.Contains(hint, want) {
 			t.Errorf("hint missing %q\n%s", want, hint)
@@ -442,7 +442,7 @@ func TestRenderWindowHint_StructuralOutput(t *testing.T) {
 
 func TestRenderWindowHint_PrependsViolationPreamble(t *testing.T) {
 	hint := renderWindowHint(nil, nil, nil, func(string) string { return "" },
-		"citation count too low; collect more file:line anchors", nil)
+		"citation count too low; collect more file:line anchors", "", nil)
 	if !strings.Contains(hint, "previous final answer") {
 		t.Errorf("missing preamble: %s", hint)
 	}
@@ -452,7 +452,7 @@ func TestRenderWindowHint_PrependsViolationPreamble(t *testing.T) {
 }
 
 func TestRenderWindowHint_ValidationTargets(t *testing.T) {
-	hint := renderWindowHint(nil, nil, []string{"n1_evidence"}, func(string) string { return "" }, "", nil)
+	hint := renderWindowHint(nil, nil, []string{"n1_evidence"}, func(string) string { return "" }, "", "", nil)
 	if !strings.Contains(hint, "n1_evidence") {
 		t.Errorf("expected validation target name in hint: %s", hint)
 	}
@@ -462,7 +462,7 @@ func TestRenderWindowHint_ValidationTargets(t *testing.T) {
 }
 
 func TestRenderWindowHint_EmptyAllReturnsEmpty(t *testing.T) {
-	if got := renderWindowHint(nil, nil, nil, func(string) string { return "" }, "", nil); got != "" {
+	if got := renderWindowHint(nil, nil, nil, func(string) string { return "" }, "", "", nil); got != "" {
 		t.Errorf("empty inputs should yield empty hint; got %q", got)
 	}
 }
@@ -479,7 +479,7 @@ func TestRenderWindowHint_RendersRepairReadFile(t *testing.T) {
 			Origin:    "emit_answer_document.grounder",
 		},
 	}
-	hint := renderWindowHint(nil, nil, nil, func(string) string { return "" }, "", repairs)
+	hint := renderWindowHint(nil, nil, nil, func(string) string { return "" }, "", "", repairs)
 	if !strings.Contains(hint, "Forced Read List") {
 		t.Errorf("expected Forced Read List header, got: %s", hint)
 	}
@@ -497,7 +497,7 @@ func TestRenderWindowHint_RendersRepairEmitEvidence(t *testing.T) {
 			Origin:    "emit_investigation_complete.exact_absence_precedence",
 		},
 	}
-	hint := renderWindowHint(nil, nil, nil, func(string) string { return "" }, "", repairs)
+	hint := renderWindowHint(nil, nil, nil, func(string) string { return "" }, "", "", repairs)
 	if !strings.Contains(hint, "Evidence Materialization") {
 		t.Errorf("expected Evidence Materialization header, got: %s", hint)
 	}
@@ -512,7 +512,7 @@ func TestRenderWindowHint_RendersMultipleDirectives(t *testing.T) {
 		{Kind: types.RepairReadFile, Files: []string{"a.go"}, Rationale: "missing"},
 		{Kind: types.RepairRebindSubject, Subject: "skill_name", Rationale: "answer-shape mismatch"},
 	}
-	hint := renderWindowHint(nil, nil, nil, func(string) string { return "" }, "", repairs)
+	hint := renderWindowHint(nil, nil, nil, func(string) string { return "" }, "", "", repairs)
 	if !strings.Contains(hint, "Forced Read List") {
 		t.Errorf("missing Forced Read List section: %s", hint)
 	}

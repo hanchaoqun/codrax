@@ -598,9 +598,10 @@ func renderWindowHint(
 	validationTargets []string,
 	termSurface func(string) string,
 	prevViolation string,
+	prevStageRetry string,
 	repairs []types.RepairDirective,
 ) string {
-	if len(window) == 0 && len(blocks) == 0 && len(validationTargets) == 0 && prevViolation == "" && len(repairs) == 0 {
+	if len(window) == 0 && len(blocks) == 0 && len(validationTargets) == 0 && prevViolation == "" && prevStageRetry == "" && len(repairs) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -609,6 +610,11 @@ func renderWindowHint(
 		b.WriteString("The previous final answer failed the answer-shape contract:\n\n")
 		b.WriteString("  " + prevViolation + "\n\n")
 		b.WriteString("Re-run the investigation focused on closing this gap.\n\n")
+	}
+	if prevStageRetry != "" {
+		b.WriteString("The previous explore attempt reported unresolved evidence gaps:\n\n")
+		b.WriteString("  " + prevStageRetry + "\n\n")
+		b.WriteString("Re-run the same stage focused on closing this structured handoff gap before extract/finalize.\n\n")
 	}
 
 	// CGEC D2: structured RepairDirective sections come BEFORE the

@@ -3593,6 +3593,35 @@ func (o *Orchestrator) handleStructurallyEmptyInvestigation(state *graphState, f
 	}, "", true
 }
 
+func readExploreOutputRequestsFactRetry(output *agent.StageOutput) bool {
+	if output == nil || output.MissingPiece != types.MissingFacts {
+		return false
+	}
+	if strings.TrimSpace(output.RetryHint) == "" {
+		return false
+	}
+	return output.SignalUpdates == nil || !output.SignalUpdates.HasEnoughFacts
+}
+
+func (o *Orchestrator) requeueExploreWindowForFactRetry(state *graphState, window []*types.TaskNode, output *agent.StageOutput) bool {
+	if !readExploreOutputRequestsFactRetry(output) {
+		return false
+	}
+	if state == nil || state.retryBudgetExhausted() {
+		logging.Warning("[orchestrator] explore requested fact retry but retry budget is exhausted; continuing toward finalize")
+		return false
+	}
+	for _, n := range window {
+		if n == nil {
+			continue
+		}
+		state.requeue(n.ID)
+	}
+	state.recordRetry()
+	logging.Info("[orchestrator] explore requested fact retry; requeued %d node(s)", len(window))
+	return true
+}
+
 // structurallyEmptyAnswerForUser returns a user-facing prose message
 // for the degenerate case where the explore phase produced no
 // successful read / search / evidence — the operator-style msg is
@@ -3688,6 +3717,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	})
 
 	var pendingViolation string
+	var pendingStageRetry string
 	var pendingValidationTargets []string
 	lowGroundingWarned := false
 
@@ -3889,8 +3919,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if o.busCtx.Mutable != nil {
 				pendingRepairs = o.busCtx.Mutable.EvidenceClosure().ConsumeRepairs()
 			}
-			hint := renderWindowHint(window, blocked, pendingValidationTargets, resolveSurface, pendingViolation, pendingRepairs)
+			hint := renderWindowHint(window, blocked, pendingValidationTargets, resolveSurface, pendingViolation, pendingStageRetry, pendingRepairs)
 			pendingViolation = ""
+			pendingStageRetry = ""
 			pendingValidationTargets = nil
 			o.applyWindowHint(hint)
 			for _, n := range window {
@@ -3922,7 +3953,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if read := o.runForcedReads(); read > 0 {
 				logging.Info("[CGEC] E2 pre-dispatch forced-read %d file(s) before explore retry", read)
 			}
-			if _, err := o.dispatchStage(types.StageExplore); err != nil {
+			if out, err := o.dispatchStage(types.StageExplore); err != nil {
 				logging.Error("[orchestrator] DAG explore window failed: %v", err)
 				if o.retryReadStageDispatchError(state, types.StageExplore, window, nil, err) {
 					continue
@@ -3934,6 +3965,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				}
 			} else {
 				stepsUsed++
+				if o.requeueExploreWindowForFactRetry(state, window, out) {
+					pendingStageRetry = out.RetryHint
+					continue
+				}
 				// Post-dispatch criterion evaluation. Separate
 				// validate-node failure from non-validate failure:
 				// validate failures trigger fine-grained

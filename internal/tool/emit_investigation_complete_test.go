@@ -1448,6 +1448,127 @@ func TestEmitInvestigationComplete_AllowsExhaustiveEnumerationMemberSet(t *testi
 	}
 }
 
+func TestEmitInvestigationComplete_MemberSetNarrowsAnalyzerEntityCandidates(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all public enum types with const sets")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "intent",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       642,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Intent",
+		Subject:         "Intent",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.AnalyzerHints.Entities = []string{"Intent", "CandidateWithoutConstSet"}
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all public enum types with const sets",
+	}
+	ir.AnswerContract.MustIncludeTerms = []types.ContractTerm{
+		{Text: "Intent", Kind: types.ContractTermSymbol, Source: types.ContractTermSourceAnalyzerEntity},
+		{Text: "CandidateWithoutConstSet", Kind: types.ContractTermSymbol, Source: types.ContractTermSourceAnalyzerEntity},
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"member set contains the verified filtered members",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"public enum types with const sets",
+			"value":"1",
+			"unit":"types",
+			"members":["Intent"],
+			"support_refs":["internal/types/analysis_ir.go:642"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("verified member_set should supersede analyzer-entity candidates: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "required principal members lack typed handoff") {
+		t.Fatalf("analyzer-entity candidates absent from member_set must not block completion: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should be stored after analyzer candidates are narrowed by member_set")
+	}
+}
+
+func TestEmitInvestigationComplete_MemberSetDoesNotWaiveExplicitRequiredTerms(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all agents")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "agent-explorer",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/enums.go",
+		LineStart:       117,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "AgentExplorer",
+		Subject:         "AgentExplorer",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.AnalyzerHints.Entities = []string{"AgentExplorer", "AgentFinalizer"}
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all agents",
+	}
+	ir.AnswerContract.MustIncludeTerms = []types.ContractTerm{
+		{Text: "AgentExplorer", Kind: types.ContractTermSymbol},
+		{Text: "AgentFinalizer", Kind: types.ContractTermSymbol},
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"member set carried one member only",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"agents",
+			"value":"1",
+			"unit":"agents",
+			"members":["AgentExplorer"],
+			"support_refs":["internal/types/enums.go:117"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("required-term handoff downgrade is a soft pre-complete result, got hard failure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "required principal members lack typed handoff") ||
+		!strings.Contains(res.Summary, "AgentFinalizer") {
+		t.Fatalf("explicit required terms must still block when absent from member_set, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("downgraded completion must not mark investigation complete")
+	}
+}
+
 func TestEmitInvestigationComplete_CanonicalizesMemberSetValue(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

@@ -1085,9 +1085,29 @@ func (k ContractTermKind) IsValid() bool {
 	return false
 }
 
+// ContractTermSource records where a hard-term obligation came from.
+// Empty is the legacy / explicit-contract default and remains hard.
+// Analyzer-entity pins are softer: they are useful as principal
+// candidates, but a later model-authored member_set may narrow them
+// to the verified answer set.
+type ContractTermSource string
+
+const (
+	ContractTermSourceAnalyzerEntity ContractTermSource = "analyzer_entity"
+)
+
+func (s ContractTermSource) IsValid() bool {
+	switch s {
+	case "", ContractTermSourceAnalyzerEntity:
+		return true
+	}
+	return false
+}
+
 type ContractTerm struct {
-	Text string           `json:"text"`
-	Kind ContractTermKind `json:"kind"`
+	Text   string             `json:"text"`
+	Kind   ContractTermKind   `json:"kind"`
+	Source ContractTermSource `json:"source,omitempty"`
 }
 
 type CurrentStatusVerdict string
