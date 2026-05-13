@@ -1505,6 +1505,9 @@ func stabilizeConditionAnchorClaim(it *types.EvidenceItem, gc *ground.Context) b
 	if strings.Contains(window, claim) || strings.Contains(claim, window) {
 		return false
 	}
+	if conditionClaimCorroboratedBySnippet(it, window) {
+		return false
+	}
 	it.Kind = types.EvidenceUnresolved
 	it.Confidence = 0
 	it.GroundingStatus = types.GroundingUngrounded
@@ -1513,6 +1516,43 @@ func stabilizeConditionAnchorClaim(it *types.EvidenceItem, gc *ground.Context) b
 		"this condition anchor is not supported by the grounded source lines at the cited location. Keep condition anchors tied to the actual current-code guard text shown by the read_file gutter or drop the speculative conditional claim. Do NOT repair this item.",
 	)
 	return true
+}
+
+func conditionClaimCorroboratedBySnippet(it *types.EvidenceItem, normalizedWindow string) bool {
+	if it == nil || strings.TrimSpace(normalizedWindow) == "" {
+		return false
+	}
+	if !conditionClaimUsesExplicitOmission(it.Condition) {
+		return false
+	}
+	fragments := conditionClaimOmissionFragments(it.Condition)
+	if len(fragments) == 0 {
+		return false
+	}
+	for _, fragment := range fragments {
+		if !strings.Contains(normalizedWindow, fragment) {
+			return false
+		}
+	}
+	return true
+}
+
+func conditionClaimUsesExplicitOmission(condition string) bool {
+	return strings.Contains(condition, "...") || strings.Contains(condition, "…")
+}
+
+func conditionClaimOmissionFragments(condition string) []string {
+	condition = strings.ReplaceAll(condition, "…", "...")
+	rawParts := strings.Split(condition, "...")
+	parts := make([]string, 0, len(rawParts))
+	for _, part := range rawParts {
+		part = normalizeStatementLocalAnchorClaim(part)
+		if len(part) < 3 {
+			continue
+		}
+		parts = append(parts, part)
+	}
+	return parts
 }
 
 func statementLocalAnchorWindowText(gc *ground.Context, source string, line, span int) string {

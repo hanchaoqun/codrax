@@ -2300,6 +2300,86 @@ func TestEmitEvidence_DemotesConditionClaimThatDoesNotMatchGroundedLine(t *testi
 	}
 }
 
+func TestEmitEvidence_ConditionSnippetCorroboratesAbbreviatedClaimAcrossLanguages(t *testing.T) {
+	cases := []struct {
+		name   string
+		file   string
+		line   string
+		cond   string
+		anchor string
+	}{
+		{
+			name:   "go selector chain with elided threshold",
+			file:   "internal/analysis/criterion/eval.go",
+			line:   "if env.IR.AnswerContract.CitationReq.Required && env.DraftCitations < env.IR.AnswerContract.CitationReq.MinCitations {",
+			cond:   "if env.IR.AnswerContract.CitationReq.Required && ...",
+			anchor: "Required",
+		},
+		{
+			name:   "arkts property chain with elided rhs",
+			file:   "entry/src/main/ets/pages/Index.ets",
+			line:   "if (this.config.citation.required && this.state.ready) {",
+			cond:   "if this.config.citation.required && ...",
+			anchor: "required",
+		},
+		{
+			name:   "cpp member chain with elided rhs",
+			file:   "src/citation.cpp",
+			line:   "if (ctx.config.citation.required && budget.remaining() > 0) {",
+			cond:   "if ctx.config.citation.required && ...",
+			anchor: "required",
+		},
+		{
+			name:   "cangjie member chain with elided rhs",
+			file:   "src/citation.cj",
+			line:   "if (ctx.config.citation.required && ctx.ready) {",
+			cond:   "if ctx.config.citation.required && ...",
+			anchor: "required",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := &EmitEvidence{}
+			ctx := newEmitCtx()
+			seedReadFileHistory(ctx, tc.file, 42, tc.line)
+			body, err := json.Marshal(map[string]any{
+				"items": []map[string]any{{
+					"scope":         "line",
+					"evidence_kind": "direct",
+					"subject":       "owner",
+					"source":        tc.file,
+					"line_start":    42,
+					"condition":     tc.cond,
+					"summary":       "guard reads the target member before deciding the path",
+					"anchor_kind":   "condition",
+					"anchor_symbol": tc.anchor,
+					"snippet":       tc.line,
+				}},
+			})
+			if err != nil {
+				t.Fatalf("marshal params: %v", err)
+			}
+
+			res, err := tool.Execute(ctx, json.RawMessage(body))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !res.Success {
+				t.Fatalf("expected success, got: %s", res.Summary)
+			}
+			got := ctx.Mutable.EmittedEvidence()
+			if len(got) != 1 {
+				t.Fatalf("want 1 item, got %d", len(got))
+			}
+			if got[0].Kind == types.EvidenceUnresolved || got[0].GroundingStatus != types.GroundingGrounded {
+				t.Fatalf("condition with exact snippet should remain grounded, kind=%s status=%s note=%q",
+					got[0].Kind, got[0].GroundingStatus, got[0].GroundingNote)
+			}
+		})
+	}
+}
+
 func TestEmitEvidence_RejectsEmptyItems(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
