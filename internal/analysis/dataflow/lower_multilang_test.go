@@ -8,23 +8,7 @@ import (
 
 func TestNewLowererRegistry_CoversAllSupportedReadLanguages(t *testing.T) {
 	registry := newLowererRegistry()
-	for _, lang := range []string{
-		repomap.LangGo,
-		repomap.LangPython,
-		repomap.LangJavaScript,
-		repomap.LangTypeScript,
-		repomap.LangArkTS,
-		repomap.LangCangjie,
-		repomap.LangJava,
-		repomap.LangKotlin,
-		repomap.LangRust,
-		repomap.LangRuby,
-		repomap.LangSwift,
-		repomap.LangLua,
-		repomap.LangProto,
-		repomap.LangC,
-		repomap.LangCpp,
-	} {
+	for _, lang := range repomap.SupportedReadLanguages() {
 		if _, ok := registry[lang]; !ok {
 			t.Fatalf("language %q missing from lowerer registry", lang)
 		}
@@ -96,22 +80,13 @@ func TestDetectGuard_TypedFeature(t *testing.T) {
 // includes LineFeatureUnknownEffect at the given line and verify
 // detectUnknownEffect returns the language's descriptor.
 func TestDetectUnknownEffect_TypedFeature(t *testing.T) {
-	cases := []struct {
-		lang string
-	}{
-		{repomap.LangKotlin}, {repomap.LangRuby}, {repomap.LangSwift},
-		{repomap.LangLua}, {repomap.LangArkTS}, {repomap.LangGo},
-		{repomap.LangPython}, {repomap.LangJavaScript}, {repomap.LangTypeScript},
-		{repomap.LangRust}, {repomap.LangC}, {repomap.LangCpp},
-		{repomap.LangJava}, {repomap.LangCangjie},
-	}
-	for _, c := range cases {
+	for _, lang := range repomap.SupportedReadLanguages() {
 		fi := &repomap.FileInfo{
-			Language:     c.lang,
+			Language:     lang,
 			LineFeatures: map[int][]repomap.LineFeature{1: {repomap.LineFeatureUnknownEffect}},
 		}
 		if got := detectUnknownEffect(fi, 1, "irrelevant"); got == "" {
-			t.Errorf("language %s: typed feature should yield descriptor; got empty", c.lang)
+			t.Errorf("language %s: typed feature should yield descriptor; got empty", lang)
 		}
 	}
 }

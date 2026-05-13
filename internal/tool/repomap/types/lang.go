@@ -88,6 +88,50 @@ const (
 	LangProto = "proto"
 )
 
+// supportedReadLanguages is the authoritative read-mode language
+// matrix for repomap-backed code understanding. Keep this list in
+// lockstep with extToLang / scanner promotions; downstream language
+// coverage tests consume this helper instead of hand-maintaining
+// partial language samples.
+var supportedReadLanguages = []string{
+	LangGo,
+	LangPython,
+	LangJavaScript,
+	LangTypeScript,
+	LangJava,
+	LangKotlin,
+	LangRust,
+	LangC,
+	LangCpp,
+	LangRuby,
+	LangSwift,
+	LangLua,
+	LangProto,
+	LangArkTS,
+	LangCangjie,
+}
+
+// SupportedReadLanguages returns the complete repomap read-mode
+// language matrix in stable declaration order. The returned slice is a
+// defensive copy so callers can sort or filter without mutating the
+// process-wide authority list.
+func SupportedReadLanguages() []string {
+	out := make([]string, len(supportedReadLanguages))
+	copy(out, supportedReadLanguages)
+	return out
+}
+
+// IsSupportedReadLanguage reports whether lang is present in the
+// authoritative repomap read-mode language matrix.
+func IsSupportedReadLanguage(lang string) bool {
+	for _, declared := range supportedReadLanguages {
+		if lang == declared {
+			return true
+		}
+	}
+	return false
+}
+
 // extToLang maps file extensions to language identifiers.
 //
 // Note: ".ts" maps to LangTypeScript here. The scanner promotes ".ts"
@@ -95,23 +139,23 @@ const (
 // oh-package.json5 — see scanner.go::promoteArkTSExt. Pure TypeScript
 // projects therefore keep LangTypeScript and are not polluted.
 var extToLang = map[string]string{
-	".go":   LangGo,
-	".py":   LangPython,
-	".pyi":  LangPython,
-	".js":   LangJavaScript,
-	".jsx":  LangJavaScript,
-	".mjs":  LangJavaScript,
-	".ts":   LangTypeScript,
-	".tsx":  LangTypeScript,
-	".java": LangJava,
-	".rs":   LangRust,
-	".c":    LangC,
-	".h":    LangC,
-	".cc":   LangCpp,
-	".cpp":  LangCpp,
-	".cxx":  LangCpp,
-	".hpp":  LangCpp,
-	".hh":   LangCpp,
+	".go":    LangGo,
+	".py":    LangPython,
+	".pyi":   LangPython,
+	".js":    LangJavaScript,
+	".jsx":   LangJavaScript,
+	".mjs":   LangJavaScript,
+	".ts":    LangTypeScript,
+	".tsx":   LangTypeScript,
+	".java":  LangJava,
+	".rs":    LangRust,
+	".c":     LangC,
+	".h":     LangC,
+	".cc":    LangCpp,
+	".cpp":   LangCpp,
+	".cxx":   LangCpp,
+	".hpp":   LangCpp,
+	".hh":    LangCpp,
 	".ets":   LangArkTS,
 	".cj":    LangCangjie,
 	".kt":    LangKotlin,

@@ -117,6 +117,15 @@ func MakeSymbolID(lang, pkg, receiver, name string, arity int) SymbolID {
 	return types.MakeSymbolID(lang, pkg, receiver, name, arity)
 }
 
+// SupportedReadLanguages returns repomap's authoritative read-mode
+// language matrix. Downstream matrix tests should consume this helper
+// instead of maintaining partial local language lists.
+func SupportedReadLanguages() []string { return types.SupportedReadLanguages() }
+
+// IsSupportedReadLanguage reports whether lang is in repomap's
+// authoritative read-mode language matrix.
+func IsSupportedReadLanguage(lang string) bool { return types.IsSupportedReadLanguage(lang) }
+
 // SetCacheDir overrides the base directory for repo map caches.
 func SetCacheDir(dir string) { index.SetCacheDir(dir) }
 
