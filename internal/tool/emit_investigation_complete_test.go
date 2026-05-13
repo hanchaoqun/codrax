@@ -108,6 +108,42 @@ func TestEmitInvestigationComplete_AcceptsStructuredAggregateFacts(t *testing.T)
 	}
 }
 
+func TestEmitInvestigationComplete_AcceptsStringEncodedAggregateFacts(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+	encodedFacts, err := json.Marshal([]map[string]any{{
+		"kind":    "member_set",
+		"label":   "enum type names",
+		"value":   "2",
+		"members": []string{"Intent", "Scenario"},
+	}})
+	if err != nil {
+		t.Fatalf("marshal facts: %v", err)
+	}
+	paramsBytes, err := json.Marshal(map[string]any{
+		"reason":          "model emitted valid aggregate_facts JSON inside a string field",
+		"confidence":      "high",
+		"result_kind":     "resolved",
+		"aggregate_facts": string(encodedFacts),
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	res, err := tool.Execute(bus, paramsBytes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("string-encoded aggregate facts should be accepted when the string is a complete JSON array: %s", res.Summary)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || got[0].Kind != types.AnswerAggregateMemberSet || got[0].Members[1] != "Scenario" {
+		t.Fatalf("string-encoded aggregate facts not retained: %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_RejectsInvalidAggregateFacts(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}

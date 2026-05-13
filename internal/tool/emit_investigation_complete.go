@@ -224,6 +224,69 @@ type emitInvestigationCompleteParams struct {
 	ClearPrincipalSpanWaiver bool                                    `json:"clear_principal_span_waiver,omitempty"`
 }
 
+func (p *emitInvestigationCompleteParams) UnmarshalJSON(data []byte) error {
+	type rawParams struct {
+		Reason                   string                                  `json:"reason"`
+		Confidence               string                                  `json:"confidence"`
+		ResultKind               string                                  `json:"result_kind"`
+		AbsenceJustification     string                                  `json:"absence_justification,omitempty"`
+		AggregateFacts           json.RawMessage                         `json:"aggregate_facts,omitempty"`
+		EvidenceFloorWaiver      *emitInvestigationCompleteWaiverPayload `json:"evidence_floor_waiver,omitempty"`
+		ClearEvidenceWaiver      bool                                    `json:"clear_evidence_floor_waiver,omitempty"`
+		PrincipalSpanWaiver      *emitInvestigationCompleteWaiverPayload `json:"principal_span_waiver,omitempty"`
+		ClearPrincipalSpanWaiver bool                                    `json:"clear_principal_span_waiver,omitempty"`
+	}
+	var raw rawParams
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	facts, err := decodeAggregateFactsPayload(raw.AggregateFacts)
+	if err != nil {
+		return err
+	}
+	*p = emitInvestigationCompleteParams{
+		Reason:                   raw.Reason,
+		Confidence:               raw.Confidence,
+		ResultKind:               raw.ResultKind,
+		AbsenceJustification:     raw.AbsenceJustification,
+		AggregateFacts:           facts,
+		EvidenceFloorWaiver:      raw.EvidenceFloorWaiver,
+		ClearEvidenceWaiver:      raw.ClearEvidenceWaiver,
+		PrincipalSpanWaiver:      raw.PrincipalSpanWaiver,
+		ClearPrincipalSpanWaiver: raw.ClearPrincipalSpanWaiver,
+	}
+	return nil
+}
+
+func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFact, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return nil, nil
+	}
+	var payload []byte
+	if strings.HasPrefix(trimmed, `"`) {
+		var encoded string
+		if err := json.Unmarshal(raw, &encoded); err != nil {
+			return nil, err
+		}
+		encoded = strings.TrimSpace(encoded)
+		if encoded == "" {
+			return nil, nil
+		}
+		if !strings.HasPrefix(encoded, "[") {
+			return nil, fmt.Errorf("aggregate_facts string must contain a JSON array")
+		}
+		payload = []byte(encoded)
+	} else {
+		payload = raw
+	}
+	var facts []types.AnswerAggregateFact
+	if err := json.Unmarshal(payload, &facts); err != nil {
+		return nil, err
+	}
+	return facts, nil
+}
+
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return types.ToolResult{
@@ -298,6 +361,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	effectiveAggregateFacts := effectiveCompletionAggregateFacts(ctx, aggregateFacts)
 
 	// Strict-decode + store evidence_floor_waiver (typed escape).
 	// The full pre-check chain below (forced-read, citation floor)
@@ -730,7 +794,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// (Success=true so the LLM sees the explanation but does NOT
 	// flip investigationComplete). The explorer's ShouldStop sees
 	// the flag still false and continues the loop.
-	if downgrade := preCompleteContractCheck(ctx, justification, aggregateFacts); downgrade != "" {
+	if downgrade := preCompleteContractCheck(ctx, justification, effectiveAggregateFacts); downgrade != "" {
 		if ctx != nil && ctx.Mutable != nil {
 			closure := ctx.Mutable.EvidenceClosure()
 			closure.BumpPreCompleteDowngrades(1)
@@ -766,7 +830,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 
 	reason = normalizeLogSourceDriftCompletionReason(ctx, reason)
-	ctx.Mutable.SetInvestigationAggregateFacts(aggregateFacts)
+	ctx.Mutable.SetInvestigationAggregateFacts(effectiveAggregateFacts)
 	ctx.Mutable.SetInvestigationComplete(reason)
 	ctx.Mutable.SetInvestigationResultKind(resultKind)
 	ctx.Mutable.RetainInvestigationAggregateFacts()
@@ -776,8 +840,8 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		ctx.Mutable.SetAbsenceJustification(justification)
 		summary += fmt.Sprintf(" | absence_justification: %s", justification)
 	}
-	if len(aggregateFacts) > 0 {
-		summary += fmt.Sprintf(" | aggregate_facts: %d", len(aggregateFacts))
+	if len(effectiveAggregateFacts) > 0 {
+		summary += fmt.Sprintf(" | aggregate_facts: %d", len(effectiveAggregateFacts))
 	}
 
 	return types.ToolResult{
@@ -933,6 +997,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 	if len(aggregateFactsOpt) > 0 {
 		aggregateFacts = aggregateFactsOpt[0]
 	}
+	aggregateFacts = effectiveCompletionAggregateFacts(ctx, aggregateFacts)
 	// Honor agent_investigation_complete_policy=override. The DAG
 	// scheduler will skip all criteria when this policy is set, so
 	// running the pre-complete gates would contradict operator
@@ -1298,6 +1363,94 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 	fmt.Fprintf(&b, "The answer contract requires ≥%d citation(s) but the current evidence buffer has only %d cite-eligible item(s) (Source non-empty AND in the read-files list).\n",
 		min, eligible)
 	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files you actually read, or read additional files first.")
+	return b.String()
+}
+
+func effectiveCompletionAggregateFacts(ctx *types.BusContext, current []types.AnswerAggregateFact) []types.AnswerAggregateFact {
+	current = cloneCompletionAggregateFacts(current)
+	if ctx == nil || ctx.Mutable == nil {
+		return current
+	}
+	stable := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(stable) == 0 {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			stable = ta.AcceptedAggregateFacts
+		}
+	}
+	if len(current) == 0 {
+		return cloneCompletionAggregateFacts(stable)
+	}
+	if len(stable) == 0 {
+		return current
+	}
+	return mergeCompletionAggregateFacts(current, stable)
+}
+
+func cloneCompletionAggregateFacts(in []types.AnswerAggregateFact) []types.AnswerAggregateFact {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.AnswerAggregateFact, len(in))
+	for i, fact := range in {
+		out[i] = fact
+		if fact.Dimensions != nil {
+			out[i].Dimensions = append([]types.AnswerAggregateDimension(nil), fact.Dimensions...)
+		}
+		if fact.Members != nil {
+			out[i].Members = append([]string(nil), fact.Members...)
+		}
+		if fact.Excluded != nil {
+			out[i].Excluded = append([]string(nil), fact.Excluded...)
+		}
+		if fact.SupportRefs != nil {
+			out[i].SupportRefs = append([]string(nil), fact.SupportRefs...)
+		}
+	}
+	return out
+}
+
+func mergeCompletionAggregateFacts(current, stable []types.AnswerAggregateFact) []types.AnswerAggregateFact {
+	out := cloneCompletionAggregateFacts(current)
+	seen := make(map[string]bool, len(out))
+	for _, fact := range out {
+		if key := completionAggregateFactIdentity(fact); key != "" {
+			seen[key] = true
+		}
+	}
+	for _, fact := range stable {
+		key := completionAggregateFactIdentity(fact)
+		if key != "" && seen[key] {
+			continue
+		}
+		cloned := cloneCompletionAggregateFacts([]types.AnswerAggregateFact{fact})
+		if len(cloned) == 0 {
+			continue
+		}
+		out = append(out, cloned[0])
+		if key != "" {
+			seen[key] = true
+		}
+	}
+	return out
+}
+
+func completionAggregateFactIdentity(fact types.AnswerAggregateFact) string {
+	var b strings.Builder
+	b.WriteString(strings.ToLower(strings.TrimSpace(string(fact.Kind))))
+	b.WriteByte('\x00')
+	b.WriteString(strings.ToLower(strings.TrimSpace(fact.Label)))
+	b.WriteByte('\x00')
+	for _, dim := range fact.Dimensions {
+		name := strings.ToLower(strings.TrimSpace(dim.Name))
+		value := strings.ToLower(strings.TrimSpace(dim.Value))
+		if name == "" && value == "" {
+			continue
+		}
+		b.WriteString(name)
+		b.WriteByte('=')
+		b.WriteString(value)
+		b.WriteByte(';')
+	}
 	return b.String()
 }
 

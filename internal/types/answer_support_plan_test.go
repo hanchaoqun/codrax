@@ -2490,6 +2490,64 @@ func TestBuildAnswerSupportPlan_ChangeImpactAggregateMemberInheritsTextReference
 	}
 }
 
+func TestBuildAnswerSupportPlan_GenericEnumerationUsesAggregateMemberSetAsPrincipalLane(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "enum type names",
+			Value:       "3",
+			Members:     []string{"Intent", "Scenario", "internal/types/enums.go:6"},
+			SupportRefs: []string{"Intent @ internal/types/analysis_ir.go:653", "Scenario @ internal/types/analysis_ir.go:673"},
+		}},
+		SurfaceEvidence: []EvidenceItem{{
+			ID:              "helper",
+			Kind:            EvidenceDirect,
+			Source:          "internal/types/helper.go",
+			LineStart:       10,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "HelperContext",
+			GroundingStatus: GroundingGrounded,
+			GroundingTier:   TierLineText,
+		}},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFEnumeration,
+			Required: []FacetRequirement{{
+				Kind:            FacetEnumerationItem,
+				SourceCandidate: []string{"helper"},
+			}},
+		},
+	}
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqEnumeration),
+			Entities: []string{"Intent", "Scenario", "HelperContext"},
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all enum types"},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 3 {
+		t.Fatalf("aggregate member_set should compile into the full principal lane, got %+v", got)
+	}
+	if strings.Contains(answerSupportLaneText(lane), "HelperContext") {
+		t.Fatalf("facet helper must not replace aggregate principal members: %+v", lane.Entries)
+	}
+	if lane.Entries[0].Text != "Intent" || lane.Entries[1].Text != "Scenario" {
+		t.Fatalf("aggregate member order not preserved: %+v", lane.Entries)
+	}
+	if lane.Entries[0].Location != "internal/types/analysis_ir.go:653" ||
+		lane.Entries[0].MemberSurface != PrincipalMemberSurfaceSourceLocation {
+		t.Fatalf("member-specific support_ref should become citable source-location support: %+v", lane.Entries[0])
+	}
+	if lane.Entries[2].Location != "internal/types/enums.go:6" ||
+		lane.Entries[2].MemberSurface != PrincipalMemberSurfaceSourceLocation {
+		t.Fatalf("file:line member should remain the principal source-location surface: %+v", lane.Entries[2])
+	}
+}
+
 func answerSupportLaneByKind(plan *AnswerSupportPlan, kind AnswerSupportLaneKind) *AnswerSupportLane {
 	if plan == nil {
 		return nil

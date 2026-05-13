@@ -3262,8 +3262,10 @@ func (m *MutableState) SetInvestigationAggregateFacts(facts []AnswerAggregateFac
 
 // RetainInvestigationAggregateFacts promotes the current aggregate
 // facts after emit_investigation_complete has passed every completion
-// gate. A successful completion without aggregate facts clears any
-// prior retained aggregate handoff for this task.
+// gate. The completion tool is responsible for carrying forward any
+// already-accepted aggregate handoff when a later repair/reconcile
+// window closes without re-emitting it; this method only snapshots the
+// current post-gate value.
 func (m *MutableState) RetainInvestigationAggregateFacts() {
 	if m == nil {
 		return

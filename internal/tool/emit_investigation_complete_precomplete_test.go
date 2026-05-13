@@ -397,6 +397,86 @@ func TestEmitInvestigationComplete_PreCompleteCheck_RejectsUncitedChangeImpactFi
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_ReusesRetainedAggregateFacts(t *testing.T) {
+	mut := types.NewMutableState("list all enum types")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/analysis_ir.go",
+			LineStart:       653,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Intent",
+			Subject:         "Intent",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/analysis_ir.go",
+			LineStart:       673,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Scenario",
+			Subject:         "Scenario",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	accepted := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "enum type names",
+		Value:       "2",
+		Members:     []string{"Intent", "Scenario"},
+		SupportRefs: []string{"Intent @ internal/types/analysis_ir.go:653", "Scenario @ internal/types/analysis_ir.go:673"},
+	}}
+	mut.SetInvestigationAggregateFacts(accepted)
+	mut.SetInvestigationComplete("accepted member set")
+	mut.RetainInvestigationAggregateFacts()
+	mut.ResetInvestigationComplete()
+
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqEnumeration),
+					Entities: []string{"Intent", "Scenario"},
+				},
+				CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "all enum types"},
+			},
+			AnswerContract: types.AnswerContract{
+				MustIncludeTerms: []types.ContractTerm{
+					{Text: "Intent", Kind: types.ContractTermSymbol},
+					{Text: "Scenario", Kind: types.ContractTermSymbol},
+				},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "closure-only reconcile; prior typed member_set remains authoritative",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "required principal members lack typed handoff") ||
+		strings.Contains(res.Summary, "exhaustive member-set handoff is missing") {
+		t.Fatalf("retained member_set should satisfy later closure-only completion, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("closure-only completion should complete by reusing retained aggregate facts")
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || len(got[0].Members) != 2 || got[0].Members[0] != "Intent" {
+		t.Fatalf("retained aggregate facts not preserved after closure-only completion: %+v", got)
+	}
+}
+
 func TestFieldValueCountCandidates_CoversCrossLanguageInitializerSurfaces(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeTestFile(t, repoRoot, "src/config.ets", `

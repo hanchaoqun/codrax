@@ -32,7 +32,7 @@ func compileFacetEvidenceSupportPlan(family QuestionFamily, rm RequestModel, pla
 	}
 	aggregatePrincipal := false
 	if family == QFEnumeration {
-		if lane := compileChangeImpactAggregateMemberSupportLane(rm, plan); len(lane.Entries) > 0 {
+		if lane := compileAggregateMemberSupportLane(rm, plan); len(lane.Entries) > 0 {
 			out.Lanes = append(out.Lanes, lane)
 			aggregatePrincipal = true
 		}
@@ -99,6 +99,121 @@ func compileChangeImpactAggregateMemberSupportLane(rm RequestModel, plan *Answer
 		}
 	}
 	return lane
+}
+
+func compileAggregateMemberSupportLane(rm RequestModel, plan *AnswerSurfacePlan) AnswerSupportLane {
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return compileChangeImpactAggregateMemberSupportLane(rm, plan)
+	}
+	return compileGenericAggregateMemberSupportLane(rm, plan)
+}
+
+func compileGenericAggregateMemberSupportLane(rm RequestModel, plan *AnswerSurfacePlan) AnswerSupportLane {
+	lane := AnswerSupportLane{
+		Kind:          SupportLanePrincipalEvidence,
+		Title:         "Model-emitted enumeration member set",
+		AllowedBlocks: principalEvidenceAllowedBlocks(QFEnumeration),
+		Guidance: "Use this lane as the principal member slate for this exhaustive enumeration answer. " +
+			"Every entry comes from the investigator's structured `emit_investigation_complete.aggregate_facts` member_set payload, not from raw thinking, closure prose, grep memory, or analyzer search hints. " +
+			"Preserve all entries as the user-visible member set. If an entry carries a source location or member-specific support_ref, cite that anchor; otherwise treat the entry as a model-authored aggregate member label and do not invent a citation or helper symbol for it. " +
+			"Supporting evidence may enrich why a member qualifies, but it must not add extra principal members.",
+	}
+	if plan == nil || !enumerationRequestRequiresPrincipalMemberCoverage(rm) {
+		return lane
+	}
+	seen := map[string]bool{}
+	for factIdx, fact := range plan.StableAggregateFacts {
+		if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+			continue
+		}
+		for memberIdx, member := range fact.Members {
+			entry, ok := genericAggregateMemberSupportEntry(fact, factIdx, memberIdx, member)
+			if !ok {
+				continue
+			}
+			key := strings.ToLower(strings.TrimSpace(entry.Text)) + "\x00" + strings.ToLower(strings.TrimSpace(entry.Location))
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			lane.Entries = append(lane.Entries, entry)
+		}
+	}
+	return lane
+}
+
+func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, memberIdx int, member string) (AnswerSupportEntry, bool) {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return AnswerSupportEntry{}, false
+	}
+	source, line, location := aggregateMemberStructuredLocation(fact, member)
+	surface := aggregateMemberSurface(member, location)
+	entry := AnswerSupportEntry{
+		Text:          member,
+		Detail:        "source=emit_investigation_complete.aggregate_facts; aggregate_kind=member_set; member_surface=" + string(surface),
+		Location:      location,
+		EvidenceID:    aggregateMemberEvidenceID(factIdx, memberIdx),
+		ClaimForm:     ClaimUnknown,
+		LabelSurface:  ClaimLabelSurfaceDisplayLabel,
+		SurfaceTerms:  dedupeAggregateMemberTerms([]string{member, location, source}),
+		Source:        source,
+		LineStart:     line,
+		MemberSurface: surface,
+		Producer:      "explorer.emit_investigation_complete.aggregate_facts",
+	}
+	if location != "" {
+		entry.GroundingTier = TierLineText
+	}
+	return entry, true
+}
+
+func aggregateMemberStructuredLocation(fact AnswerAggregateFact, member string) (source string, line int, location string) {
+	if surface, ok := ParseAnswerSourceLocationSurface(member); ok {
+		return surface.File, surface.LineStart, aggregateMemberStartLocation(surface)
+	}
+	memberKey := strings.ToLower(strings.TrimSpace(member))
+	for _, ref := range fact.SupportRefs {
+		refMember, refLocation, ok := aggregateSupportRefMemberLocation(ref)
+		if !ok {
+			continue
+		}
+		if refMember != "" && strings.ToLower(refMember) != memberKey {
+			continue
+		}
+		return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
+	}
+	return "", 0, ""
+}
+
+func aggregateSupportRefMemberLocation(ref string) (member string, location AnswerSourceLocationSurface, ok bool) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", AnswerSourceLocationSurface{}, false
+	}
+	for _, sep := range []string{" @ ", "\t", " | "} {
+		idx := strings.Index(ref, sep)
+		if idx <= 0 {
+			continue
+		}
+		if surface, parsed := ParseAnswerSourceLocationSurface(strings.TrimSpace(ref[idx+len(sep):])); parsed {
+			return strings.TrimSpace(ref[:idx]), surface, true
+		}
+	}
+	if surface, parsed := ParseAnswerSourceLocationSurface(ref); parsed {
+		return "", surface, true
+	}
+	return "", AnswerSourceLocationSurface{}, false
+}
+
+func aggregateMemberSurface(member string, location string) AnswerPrincipalMemberSurface {
+	if strings.TrimSpace(location) != "" {
+		return PrincipalMemberSurfaceSourceLocation
+	}
+	if IsCodeIdentitySurface(member) {
+		return PrincipalMemberSurfaceSymbolLike
+	}
+	return PrincipalMemberSurfaceDisplayLabel
 }
 
 func changeImpactAggregateMemberSupportEntry(profile *ChangeImpactProfile, fact AnswerAggregateFact, factIdx, memberIdx int, member string, supportEvidence map[string]EvidenceItem) (AnswerSupportEntry, bool) {
