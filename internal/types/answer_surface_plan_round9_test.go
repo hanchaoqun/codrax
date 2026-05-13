@@ -256,6 +256,32 @@ func TestCollectExternalObservationSeeds_TagsFirstFramePerErrorAsHead(t *testing
 	}
 }
 
+func TestCollectExternalObservationSeeds_DefaultsFrameLanguageFromBundle(t *testing.T) {
+	bundle := &LogBundle{
+		Meta: LogMeta{Lang: "python"},
+		Errors: []LogError{{
+			Type: "RuntimeError",
+			Frames: []LogFrame{{
+				File: "/app/src/loader.py",
+				Line: 25,
+				Func: "load_config",
+				Raw:  "File \"/app/src/loader.py\", line 25, in load_config",
+			}},
+		}},
+	}
+	seeds := CollectExternalObservationSeeds(bundle, nil)
+	for _, seed := range seeds {
+		if seed.Kind != "log_frame" {
+			continue
+		}
+		if seed.Lang != "python" {
+			t.Fatalf("frame seed lang=%q, want bundle language python (seed=%+v)", seed.Lang, seed)
+		}
+		return
+	}
+	t.Fatalf("expected a log_frame seed, got %+v", seeds)
+}
+
 func TestSelectExternalObservationSeedsForPrompt_BalancesMetaAndCrossLanguageFrames(t *testing.T) {
 	bundle := &LogBundle{
 		Meta: LogMeta{Signals: []LogSignal{SignalPanic, SignalCrash}},
@@ -283,19 +309,21 @@ func TestSelectExternalObservationSeedsForPrompt_BalancesMetaAndCrossLanguageFra
 	selected := SelectExternalObservationSeedsForPrompt(seeds, 6)
 	got := make(map[string]bool)
 	gotMessages := make(map[string]bool)
+	gotChains := make(map[string]bool)
 	for _, seed := range selected {
 		got[seed.Func] = true
 		if seed.Kind == "error_message" {
 			gotMessages[seed.Raw] = true
 		}
-	}
-	for _, want := range []string{
-		"Cangjie native call failed: index out of bounds",
-		"index out of bounds: index=5, size=3",
-	} {
-		if !gotMessages[want] {
-			t.Fatalf("balanced prompt selection should prioritize structured runtime message %q: %+v", want, selected)
+		if seed.Kind == "error_chain" {
+			gotChains[seed.Raw] = true
 		}
+	}
+	if !gotMessages["Cangjie native call failed: index out of bounds"] {
+		t.Fatalf("balanced prompt selection should preserve the top-level runtime message: %+v", selected)
+	}
+	if !gotChains[`runtime cause chain: upstream panic("index out of bounds: index=5, size=3") is wrapped / re-raised as top-level Error("Cangjie native call failed: index out of bounds")`] {
+		t.Fatalf("balanced prompt selection should preserve the typed cause-chain direction: %+v", selected)
 	}
 	for _, want := range []string{
 		"NativeBridge.invokeOhSum",

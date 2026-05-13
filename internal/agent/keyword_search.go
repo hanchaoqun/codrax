@@ -109,6 +109,12 @@ type keywordSearchOptions struct {
 	// exact target and auxiliary/test/doc mentions must not hijack the
 	// candidate ranking.
 	ExactResolution *types.ExactResolutionContract
+	// SuppressExactEntityAnchors disables the unique-symbol fast path.
+	// Used for observation-only runtime artifacts: analyzer entities
+	// such as "load" / "config" / "KeyError" describe an attached
+	// external artifact, not current-repo targets, so an exact repo
+	// symbol collision must remain soft ranking at most.
+	SuppressExactEntityAnchors bool
 	// MultiGraph carries the multi-repo carrier from the calling
 	// AgentContext (Phase 4.3). Stored as `any` to dodge the
 	// types↔multigraph import cycle. nil triggers legacy single-graph
@@ -169,7 +175,7 @@ func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
 // same Run re-dispatches explorer with identical analyzer output.
 // Order-independent: slices are sorted before joining so keyword
 // permutations produce the same key.
-func keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints, exactTargets []string, exactPolicy string, maxFiles int) string {
+func keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints, exactTargets []string, exactPolicy string, maxFiles int, suppressExactAnchors bool) string {
 	cp := func(s []string) []string {
 		if len(s) == 0 {
 			return nil
@@ -195,6 +201,10 @@ func keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEnti
 	b.WriteString(strings.TrimSpace(strings.ToLower(exactPolicy)))
 	b.WriteByte('|')
 	b.WriteString(strconv.Itoa(maxFiles))
+	b.WriteByte('|')
+	if suppressExactAnchors {
+		b.WriteString("suppress_exact_anchors")
+	}
 	return b.String()
 }
 
@@ -235,14 +245,7 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	// Prefer deterministic MentionedEntities (verbatim RawRequest
 	// surfaces), fall back to analyzer-authored PrimaryEntities, then to
 	// the broadened Entities list only when no narrower lane exists.
-	anchorEntities := opts.MentionedEntities
-	if len(anchorEntities) == 0 {
-		anchorEntities = opts.PrimaryEntities
-	}
-	if len(anchorEntities) == 0 {
-		anchorEntities = opts.Entities
-	}
-	exactAnchors := exactEntityAnchors(graph, anchorEntities)
+	exactAnchors := exactEntityAnchorsForKeywordSearchOptions(graph, opts)
 
 	// --- Phase 2: grep IDF-weighted scoring ---
 	grepScores, grepHits := grepIDFSearch(keywords, repoRoot)
@@ -403,6 +406,20 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	logging.Debug("[keyword_search] %d keywords, %d entities → %d files scored (cap=%d)",
 		len(keywords), len(opts.Entities), len(results), maxFiles)
 	return &keywordSearchResult{Files: results, Graph: graph, MultiGraph: opts.MultiGraph}
+}
+
+func exactEntityAnchorsForKeywordSearchOptions(graph *repomap.Graph, opts keywordSearchOptions) map[string]exactEntityAnchor {
+	if opts.SuppressExactEntityAnchors {
+		return nil
+	}
+	anchorEntities := opts.MentionedEntities
+	if len(anchorEntities) == 0 {
+		anchorEntities = opts.PrimaryEntities
+	}
+	if len(anchorEntities) == 0 {
+		anchorEntities = opts.Entities
+	}
+	return exactEntityAnchors(graph, anchorEntities)
 }
 
 func shouldDeprioritizeAuxiliaryExactHit(path string, contract *types.ExactResolutionContract) bool {

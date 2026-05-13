@@ -39,6 +39,10 @@ import "github.com/hanchaoqun/codrax/internal/types"
 //   - AcceptedAggregateFacts: current when present, otherwise prior.
 //     These are structured model-emitted closure facts, so the last
 //     successful completion window owns them.
+//   - RuntimeObservationOnlyCompletion: logical OR. Once a retry
+//     window has accepted an external artifact-only completion, later
+//     closure-only windows must not erase the fact that no repo reads
+//     were required.
 //   - EvidenceItems: mergeEvidenceItems(prior, current). Already ID-deduped.
 //   - FlowFindings: mergeFlowFindings(prior, current). Already ID-deduped.
 //   - TerminalEvidenceCount: max(prior, current). Must not regress — a
@@ -61,6 +65,7 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 	if len(merged.AcceptedAggregateFacts) == 0 {
 		merged.AcceptedAggregateFacts = prior.AcceptedAggregateFacts
 	}
+	merged.RuntimeObservationOnlyCompletion = prior.RuntimeObservationOnlyCompletion || current.RuntimeObservationOnlyCompletion
 	merged.EvidenceItems = mergeEvidenceItems(prior.EvidenceItems, current.EvidenceItems)
 	merged.FlowFindings = mergeFlowFindings(prior.FlowFindings, current.FlowFindings)
 	if prior.TerminalEvidenceCount > merged.TerminalEvidenceCount {

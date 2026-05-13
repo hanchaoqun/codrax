@@ -31,7 +31,8 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 		AcceptedAggregateFacts: []AnswerAggregateFact{
 			{Kind: AnswerAggregateTotalCount, Label: "matches", Value: "3", Members: []string{"a.go:5"}},
 		},
-		TerminalEvidenceCount: 3,
+		RuntimeObservationOnlyCompletion: true,
+		TerminalEvidenceCount:            3,
 	}
 	m.SetTurnAArtifacts(original)
 	got := m.TurnAArtifacts()
@@ -58,6 +59,9 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 	}
 	if len(got.AcceptedAggregateFacts) != 1 || got.AcceptedAggregateFacts[0].Value != "3" {
 		t.Errorf("AcceptedAggregateFacts not preserved: %+v", got.AcceptedAggregateFacts)
+	}
+	if !got.RuntimeObservationOnlyCompletion {
+		t.Error("RuntimeObservationOnlyCompletion not preserved")
 	}
 	if got.TerminalEvidenceCount != 3 {
 		t.Errorf("TerminalEvidenceCount: got %d, want 3", got.TerminalEvidenceCount)

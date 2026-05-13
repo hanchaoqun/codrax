@@ -3445,7 +3445,25 @@ func inlineIdentifierSupportedByCurrentRequestProposal(ident string, mut *types.
 }
 
 func inlineIdentifierSupportedByLogBundle(ident string, bundle *types.LogBundle) bool {
+	for _, signal := range bundle.Meta.Signals {
+		if typedLabelTokenSupportsLabel(string(signal), ident) {
+			return true
+		}
+	}
 	matched := false
+	types.WalkLogErrors(bundle, func(err *types.LogError) {
+		if matched || err == nil {
+			return
+		}
+		if typedLabelTokenSupportsLabel(err.Type, ident) ||
+			typedLabelTokenSupportsLabel(err.Message, ident) {
+			matched = true
+		}
+	})
+	if matched {
+		return true
+	}
+	matched = false
 	types.WalkLogFrames(bundle, func(frame types.LogFrame) {
 		if matched {
 			return

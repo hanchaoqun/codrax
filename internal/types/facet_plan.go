@@ -747,6 +747,9 @@ func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem, sinks ...Rich
 		if family == QFConfigPrecedence && req.Kind == FacetConfigPrecedenceRole {
 			bound = bindConfigPrecedenceRoleCandidates(bound, rm, surface)
 		}
+		if observationOnlyRuntimeSuppressesRepoFacet(rm, bound.Kind) {
+			bound.SourceCandidate = nil
+		}
 		// Phase 1 fallback: if a HARD requirement has no candidate,
 		// degrade to SOFT so we don't report false-fail in trace
 		// observation. Phase 4 may revisit this rule with stricter
@@ -897,7 +900,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		nearestRequired := FacetSoftRequired
 		diagramRequired := FacetOptional
 		diagramForms := []ClaimForm{ClaimCallEdge, ClaimGuardCondition}
-		if rm.HasExternalOnlyRuntimeArtifact() {
+		if rm.HasObservationOnlyRuntimeArtifact() {
 			// External-only runtime artifacts are answer-grade for
 			// observed frames / events but cannot prove today's
 			// current-code path. Keep current-code and diagram facets
@@ -1014,6 +1017,22 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		return append(facets, common...)
 	}
 	return nil
+}
+
+func observationOnlyRuntimeSuppressesRepoFacet(rm RequestModel, kind AnswerFacetKind) bool {
+	if !rm.HasObservationOnlyRuntimeArtifact() {
+		return false
+	}
+	switch kind {
+	case FacetCurrentCodePath,
+		FacetNearestMechanism,
+		FacetPrincipalPathEdge,
+		FacetBranchGuard,
+		FacetComponentRelation,
+		FacetUncertaintyBoundary:
+		return true
+	}
+	return false
 }
 
 // commonFacets adds bucket / enumeration-item facets that EVERY

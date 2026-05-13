@@ -647,7 +647,12 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		}
 	}
 
-	if len(analyzerKeywords) > 0 {
+	runtimeObservationOnly := observationOnlyRuntimeArtifactForExplorer(ctx)
+	if runtimeObservationOnly {
+		b.WriteString(e.buildRuntimeObservationOnlyStartInstruction(ctx))
+	}
+
+	if len(analyzerKeywords) > 0 && !runtimeObservationOnly {
 		// Run graduated keyword search before Phase 1 starts.
 		// This gives the LLM a pre-ranked file list instead of
 		// making it guess which grep patterns to use.
@@ -676,7 +681,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			exactTargets = exactContract.Targets
 			exactPolicy = string(exactContract.RelatedContextPolicy)
 		}
-		fp := keywordSearchFingerprint(analyzerKeywords, analyzerEntities, irMentionedEntities(ctx), irPrimaryEntities(ctx), domainHints, exactTargets, exactPolicy, maxFiles)
+		fp := keywordSearchFingerprint(analyzerKeywords, analyzerEntities, irMentionedEntities(ctx), irPrimaryEntities(ctx), domainHints, exactTargets, exactPolicy, maxFiles, false)
 		var sr *keywordSearchResult
 		if e.searchResult != nil && e.searchFingerprint != "" && e.searchFingerprint == fp {
 			logging.Debug("[keyword_search] cache hit fp=%s (%d files, %d keywords)",
@@ -2744,6 +2749,23 @@ func (e *explorerEvaluator) buildCapabilityFocusedStartInstruction(ctx *types.Ag
 	b.WriteString("- `[CONDITIONAL] symbol line N: <what narrower helper subset or validator does>`\n")
 	b.WriteString("- `[ABSENT] <what is not exposed on the stage capability surface>`\n\n")
 	b.WriteString("Read the authority files now and emit evidence before widening.\n")
+	return b.String()
+}
+
+func (e *explorerEvaluator) buildRuntimeObservationOnlyStartInstruction(ctx *types.AgentContext) string {
+	var b strings.Builder
+	b.WriteString("## Runtime Artifact Only Start\n\n")
+	b.WriteString("The attached runtime artifact has no current-repo intersection, and this request does not ask for current-version verification. Treat the Log / Trace Triage section and the attached artifact bytes as the evidence pool.\n\n")
+	b.WriteString("Workflow:\n")
+	b.WriteString("- Do not run repo breadth search (`repo_map`, `grep`, `list_files`) and do not read current-repo files just because artifact labels resemble repo symbols.\n")
+	b.WriteString("- Explain the artifact's own observed frames, spans, messages, or cause chain. If those facts are already present in the Log / Trace Triage section, proceed to completion instead of looking for same-named tests or helpers.\n")
+	b.WriteString("- If you emit evidence, keep it artifact-scoped: use the runtime frame / message labels from the attached artifact and do not cite current-repo files as proof of the observation.\n")
+	b.WriteString("- If the artifact is sufficient, call `emit_investigation_complete` with a resolved result and, when needed, `evidence_floor_waiver.reason=\"external_only_log\"` or `\"external_only_trace\"` so the final answer preserves the observation-only boundary.\n\n")
+	if ctx != nil && ctx.LogTriage != nil {
+		if len(ctx.LogTriage.Errors) > 0 {
+			b.WriteString("The structured log triage already extracted runtime error facts; prefer those over repository lookups.\n\n")
+		}
+	}
 	return b.String()
 }
 
@@ -8868,9 +8890,12 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			AcceptedClosureReason:  strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()),
 			AcceptedResultKind:     strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()),
 			AcceptedAggregateFacts: ctx.Mutable.StableInvestigationAggregateFacts(),
-			EvidenceItems:          strictEvidence,
-			FlowFindings:           rankedFindings,
-			TerminalEvidenceCount:  terminalEvidenceCount,
+			RuntimeObservationOnlyCompletion: observationOnlyRuntimeArtifactForExplorer(ctx) &&
+				strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()) != "" &&
+				strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()) != "",
+			EvidenceItems:         strictEvidence,
+			FlowFindings:          rankedFindings,
+			TerminalEvidenceCount: terminalEvidenceCount,
 		}
 		// Cross-window accumulation. When the DAG scheduler requeues
 		// the explore node (e.g. SuccessCriteria failed → retry window),

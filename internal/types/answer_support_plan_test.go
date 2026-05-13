@@ -178,6 +178,7 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactFiltersPrincipalFram
 			CitationPolicy: RuntimeGroundingCitationRuntimeObservation,
 		},
 		ExternalObservationSeeds: []ExternalObservationSeed{
+			{Kind: "error_chain", Raw: `runtime cause chain: upstream panic("index out of bounds: index=5, size=3") is wrapped / re-raised as top-level Error("Cangjie native call failed: index out of bounds")`},
 			{Kind: "error_message", Raw: "Cangjie native call failed: index out of bounds"},
 			{Kind: "error_message", Raw: "index out of bounds: index=5, size=3"},
 			{Kind: "log_frame", Role: "error_head_frame", Lang: "arkts", Func: "NativeBridge.invokeOhSum", File: "entry/src/main/ets/bridges/NativeBridge.ets", Line: 33},
@@ -213,10 +214,10 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactFiltersPrincipalFram
 		joined += entry.Text + "\n"
 	}
 	for _, want := range []string{
+		`runtime cause chain: upstream panic("index out of bounds: index=5, size=3") is wrapped / re-raised as top-level Error("Cangjie native call failed: index out of bounds")`,
 		`structured runtime error message "Cangjie native call failed: index out of bounds"`,
-		`structured runtime error message "index out of bounds: index=5, size=3"`,
-		`runtime artifact identifies error head frame "NativeBridge.invokeOhSum"`,
-		`runtime artifact identifies error head frame "demo.bridge.ohSum"`,
+		`runtime artifact identifies error head stack frame "NativeBridge.invokeOhSum"`,
+		`runtime artifact identifies error head stack frame "demo.bridge.ohSum"`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("observed lane missing principal-safe entry %q:\n%s", want, joined)
@@ -229,6 +230,61 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactFiltersPrincipalFram
 	}
 	if !strings.Contains(observed.Guidance, "only frame entries listed in this lane are principal-safe") {
 		t.Fatalf("focused observed lane should warn about support-only frames, got: %q", observed.Guidance)
+	}
+}
+
+func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactKeepsRepresentativeFramesForErrorTargets(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		RuntimeGroundingDisposition: &RuntimeGroundingDisposition{
+			Source:         RuntimeGroundingSystemDetected,
+			Reason:         EvidenceFloorWaiverExternalLog,
+			Rationale:      "attached Python traceback frames did not resolve to current repo files",
+			CitationPolicy: RuntimeGroundingCitationRuntimeObservation,
+		},
+		ExternalObservationSeeds: []ExternalObservationSeed{
+			{Kind: "error_chain", Raw: `runtime cause chain: upstream KeyError("KeyError: 'database'") is wrapped / re-raised as top-level RuntimeError("config unavailable")`},
+			{Kind: "error_message", Raw: "config unavailable"},
+			{Kind: "error_message", Raw: "'database'"},
+			{Kind: "log_frame", Role: "error_head_frame", Lang: "python", Func: "load", File: "/app/src/config.py", Line: 42},
+			{Kind: "log_frame", Role: "caller_frame", Lang: "python", Func: "safe_load", File: "/usr/lib/python3.11/yaml/__init__.py", Line: 125},
+			{Kind: "log_frame", Role: "error_head_frame", Lang: "python", Func: "load_config", File: "/app/src/loader.py", Line: 25},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent:    IntentRootCause,
+		LogTriage: &LogBundle{Meta: LogMeta{Lang: "python"}, Errors: []LogError{{Type: "RuntimeError"}}},
+		SubTopics: []SubTopic{
+			{Summary: "outer exception", Entities: []string{"RuntimeError"}},
+			{Summary: "inner exception", Entities: []string{"KeyError"}},
+		},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	var observed *AnswerSupportLane
+	for i := range got.Lanes {
+		if got.Lanes[i].Kind == SupportLaneObservedArtifact {
+			observed = &got.Lanes[i]
+			break
+		}
+	}
+	if observed == nil {
+		t.Fatal("expected observed artifact lane")
+	}
+	joined := ""
+	for _, entry := range observed.Entries {
+		joined += entry.Text + "\n"
+	}
+	for _, want := range []string{
+		`runtime cause chain: upstream KeyError("KeyError: 'database'") is wrapped / re-raised as top-level RuntimeError("config unavailable")`,
+		`structured runtime error message "config unavailable"`,
+		`traceback frame "load"`,
+		`traceback frame "load_config"`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("observed lane missing %q:\n%s", want, joined)
+		}
 	}
 }
 

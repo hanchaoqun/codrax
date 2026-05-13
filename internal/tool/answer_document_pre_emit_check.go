@@ -117,6 +117,15 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	if h := preCheckCitationPoolIntegrity(doc); len(h) > 0 {
 		hints = append(hints, h...)
 	}
+	if h := preCheckNegativeCitationBounds(doc); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+	if h := preCheckRuntimeObservationRepoContamination(doc, ctxOpt...); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+	if h := preCheckVisibleInternalCarrierTerms(doc, ctxOpt...); len(h) > 0 {
+		hints = append(hints, h...)
+	}
 
 	// 1. Required block kind + count compliance.
 	if h := preCheckRequiredBlocks(doc, view); len(h) > 0 {
@@ -230,6 +239,158 @@ func preCheckCitationPoolIntegrity(doc *types.AnswerDocumentV2) []emitFixHint {
 		ExpectedShape: expected,
 		Reason:        "citation_ref is an index into the model-emitted citations[] array; semantic coverage checks cannot run correctly until the carrier's citation pool is structurally complete.",
 	}}
+}
+
+func preCheckNegativeCitationBounds(doc *types.AnswerDocumentV2) []emitFixHint {
+	if doc == nil {
+		return nil
+	}
+	for _, c := range doc.Citations {
+		if c.Scope != types.ScopeNegative {
+			continue
+		}
+		if strings.TrimSpace(c.NegativePattern) != "" {
+			continue
+		}
+		return []emitFixHint{{
+			Field:         "citations[]",
+			ExpectedShape: "remove negative-scope citations that are not bounded absence proofs, or add `negative_pattern` naming the exact query whose zero matches prove the absence",
+			Reason:        "a citation rendered as an absence proof must be reproducible; attached log / trace observations should use citation_ref=-1 instead of a fake negative citation.",
+		}}
+	}
+	return nil
+}
+
+func preCheckRuntimeObservationRepoContamination(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil {
+		return nil
+	}
+	ctx := ctxOpt[0]
+	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
+	if plan == nil || !plan.RuntimeGroundingDisposition.IsActive() || plan.CurrentStatusDiagnosticRequired {
+		return nil
+	}
+	if len(doc.Citations) > 0 {
+		return []emitFixHint{{
+			Field:         "citations[]",
+			ExpectedShape: "for an observation-only external runtime artifact answer, omit current-repo citations and set runtime-observation items to `citation_ref=-1`",
+			Reason:        "this request asks what the attached log / trace observed; current-repo citations would imply the checkout produced or proves the external artifact.",
+		}}
+	}
+	currentRepoSources := currentRepoEvidenceSources(ctx)
+	if len(currentRepoSources) == 0 {
+		return nil
+	}
+	body := strings.ToLower(answerDocumentVisibleText(doc))
+	for _, source := range currentRepoSources {
+		if strings.Contains(body, strings.ToLower(source)) {
+			return []emitFixHint{{
+				Field:         "blocks[].text/items[].text",
+				ExpectedShape: "remove current-repo file paths and helper-specific caveats from this observation-only runtime answer; explain only the attached artifact facts and the generic no-repo-intersection boundary",
+				Reason:        "the typed runtime-grounding disposition says the artifact has no current-repo intersection, so repo helper paths are unrelated context, not answer evidence.",
+			}}
+		}
+	}
+	return nil
+}
+
+var visibleInternalCarrierTerms = []string{
+	"citation_ref",
+	"citations[]",
+	"exact_resolution",
+	"context_mode",
+	"claim_uses",
+	"facet_ids",
+	"surface_role",
+	"emit_answer_document",
+	"emit_answer_document_patch",
+	"Answer" + "Document",
+	"Answer" + "DocumentV2",
+}
+
+func preCheckVisibleInternalCarrierTerms(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	body := answerDocumentVisibleText(doc)
+	if strings.TrimSpace(body) == "" {
+		return nil
+	}
+	rawRequest := ""
+	if len(ctxOpt) > 0 && ctxOpt[0] != nil && ctxOpt[0].AnalysisIR != nil {
+		rawRequest = ctxOpt[0].AnalysisIR.RequestModel.RawRequest
+	}
+	var leaked []string
+	for _, term := range visibleInternalCarrierTerms {
+		if !strings.Contains(body, term) {
+			continue
+		}
+		if rawRequest != "" && strings.Contains(rawRequest, term) {
+			continue
+		}
+		leaked = append(leaked, term)
+	}
+	if len(leaked) == 0 {
+		return nil
+	}
+	return []emitFixHint{{
+		Field:         "blocks[].text/items[].text/caveats[]",
+		ExpectedShape: "remove internal answer-carrier field names from user-visible prose: " + strings.Join(leaked, ", "),
+		Reason:        "schema carrier names are implementation details; unless the user explicitly asked about them, state provenance, uncertainty, and citation boundaries in plain product language.",
+	}}
+}
+
+func currentRepoEvidenceSources(ctx *types.BusContext) []string {
+	if ctx == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(item types.EvidenceItem) {
+		if item.Origin != types.ClaimOriginCurrentRepo && item.Origin != types.ClaimOriginUnknown {
+			return
+		}
+		source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+		if source == "" || !strings.Contains(source, "/") || seen[source] {
+			return
+		}
+		seen[source] = true
+		out = append(out, source)
+	}
+	for _, item := range ctx.EvidenceItems {
+		add(item)
+	}
+	if ctx.Mutable != nil {
+		for _, item := range ctx.Mutable.EmittedEvidence() {
+			add(item)
+		}
+	}
+	return out
+}
+
+func answerDocumentVisibleText(doc *types.AnswerDocumentV2) string {
+	if doc == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, block := range doc.Blocks {
+		b.WriteString(block.Title)
+		b.WriteByte('\n')
+		b.WriteString(block.Text)
+		b.WriteByte('\n')
+		for _, item := range block.Items {
+			b.WriteString(item.Label)
+			b.WriteByte('\n')
+			b.WriteString(item.Text)
+			b.WriteByte('\n')
+		}
+		if block.Diagram != nil {
+			b.WriteString(block.Diagram.Body)
+			b.WriteByte('\n')
+		}
+	}
+	for _, caveat := range doc.Caveats {
+		b.WriteString(caveat)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func preCheckSummaryLeadBlock(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {

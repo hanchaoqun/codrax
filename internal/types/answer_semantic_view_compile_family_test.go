@@ -362,6 +362,29 @@ func TestCompileRoleLookup_HasScalarRequired(t *testing.T) {
 	}
 }
 
+func TestCompileRoleLookup_CurrentCodePathHasSectionPlacement(t *testing.T) {
+	view := BuildAnswerSemanticView(irForRoleLookup(), &AnswerSurfacePlan{
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFRoleLookup,
+			Required: []FacetRequirement{
+				{Kind: FacetCurrentCodePath, Required: FacetSoftRequired, SourceCandidate: []string{"call"}},
+			},
+		},
+	})
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	for _, block := range view.OptionalBlocks {
+		if block.Kind != BlockSection {
+			continue
+		}
+		if containsString(block.FacetIDs, string(FacetCurrentCodePath)) {
+			return
+		}
+	}
+	t.Fatalf("role lookup current_code_path should have a section placement hint: %+v", view.OptionalBlocks)
+}
+
 func TestCompileRoleLookup_HasNoDiagram(t *testing.T) {
 	view := BuildAnswerSemanticView(irForRoleLookup(), nil)
 	if view.DiagramPlan != nil && view.DiagramPlan.Required {

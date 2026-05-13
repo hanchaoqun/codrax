@@ -431,6 +431,17 @@ func (rm RequestModel) HasExternalOnlyRuntimeArtifact() bool {
 	return false
 }
 
+// HasObservationOnlyRuntimeArtifact reports the narrower external-
+// runtime shape where the user's current request can be answered from
+// the attached artifact itself and does NOT ask for current-checkout
+// verification. Downstream hard-focus and enrichment surfaces use this
+// to keep external observations from being polluted by unrelated repo
+// symbols that merely resemble artifact labels.
+func (rm RequestModel) HasObservationOnlyRuntimeArtifact() bool {
+	return rm.HasExternalOnlyRuntimeArtifact() &&
+		!rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic()
+}
+
 func isScalarSourceLiteralSubjectKind(kind AnswerSubjectKind) bool {
 	switch kind {
 	case SubjectFunctionName,

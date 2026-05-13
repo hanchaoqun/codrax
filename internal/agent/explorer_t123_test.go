@@ -233,6 +233,29 @@ func TestExactEntityAnchors_SubTopicEntityHazard_NarrowingWithPrimary(t *testing
 	}
 }
 
+func TestExactEntityAnchors_ObservationOnlyRuntimeSuppressesFastPath(t *testing.T) {
+	loadSym := &repotypes.Symbol{Name: "load", File: "internal/env/cache/disk_cache.go"}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repotypes.FileInfo{
+			"internal/env/cache/disk_cache.go": {RelPath: "internal/env/cache/disk_cache.go"},
+		},
+		SymbolDefs: map[string][]*repotypes.Symbol{
+			"load": {loadSym},
+		},
+	}
+	opts := keywordSearchOptions{
+		PrimaryEntities:            []string{"load"},
+		SuppressExactEntityAnchors: true,
+	}
+	if got := exactEntityAnchorsForKeywordSearchOptions(graph, opts); len(got) != 0 {
+		t.Fatalf("observation-only runtime entities must not create exact repo anchors, got %+v", got)
+	}
+	opts.SuppressExactEntityAnchors = false
+	if got := exactEntityAnchorsForKeywordSearchOptions(graph, opts); len(got) != 1 {
+		t.Fatalf("ordinary repo questions should still get exact anchors, got %+v", got)
+	}
+}
+
 func TestKeywordSearchCandidatePaths_IncludeAnchorOnlyFiles(t *testing.T) {
 	candidates := keywordSearchCandidatePaths(
 		map[string]float64{"internal/context/builder.go": 42},

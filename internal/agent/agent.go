@@ -1505,6 +1505,47 @@ func isReadFilePathMiss(name string, r *types.ToolResult) bool {
 	return false
 }
 
+func observationOnlyRuntimeBlocksTool(ctx *types.AgentContext, name string) bool {
+	if ctx == nil || ctx.Stage != types.StageExplore {
+		return false
+	}
+	if !observationOnlyRuntimeArtifactForExplorer(ctx) {
+		return false
+	}
+	switch types.CanonicalToolName(name) {
+	case "read_file", "grep", "repo_map", "list_files", "exec_command",
+		"git_diff", "git_log", "propose_sub_agents", "run_tests":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateObservationOnlyRuntimeToolCall(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+	if !observationOnlyRuntimeBlocksTool(ctx, tc.Name) {
+		return nil
+	}
+	canonical := types.CanonicalToolName(tc.Name)
+	msg := fmt.Sprintf(
+		"%s rejected: this is an observation-only runtime artifact question. "+
+			"Do not search or read the current repository; use the structured Log/Trace Triage facts already in the prompt and close with emit_investigation_complete.",
+		tc.Name)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Summary:   msg,
+		Success:   false,
+		Timestamp: time.Now(),
+		Repair: &types.ToolRepair{
+			Code: "observation_only_runtime_repo_tool",
+			Hint: "The attached runtime artifact is the answer source for this request. Do not substitute current-repo files, fixtures, helper symbols, sub-agents, or shell output for the artifact. Re-read the Log/Trace Triage section and call emit_investigation_complete with an evidence_floor_waiver when the artifact is sufficient.",
+			Metadata: map[string]string{
+				"tool":   canonical,
+				"policy": "runtime_observation_only",
+			},
+		},
+	}
+}
+
 // salvagePartialDispatch runs the evaluator's ParseOutput for its
 // side-effects only, so a mid-loop LLM failure does not erase work
 // the dispatch already accumulated on shared ctx.Mutable. The
@@ -1561,6 +1602,9 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 	// citable evidence vs. navigation hints or side-effects.
 	if b.deps.Tools != nil {
 		for _, toolName := range sk.ToolSuggestions {
+			if observationOnlyRuntimeBlocksTool(ctx, toolName) {
+				continue
+			}
 			t, err := b.deps.Tools.Get(toolName)
 			if err != nil {
 				continue
@@ -1589,8 +1633,10 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 		}
 	}
 
-	// Add MCP tools
-	if b.deps.MCPServers != nil {
+	// Add MCP tools. Observation-only runtime artifact answers should
+	// close from the structured triage payload; exposing extra tool
+	// surfaces invites look-alike repo / fixture substitution.
+	if b.deps.MCPServers != nil && !observationOnlyRuntimeArtifactForExplorer(ctx) {
 		for _, ts := range b.deps.MCPServers.ListAllTools() {
 			schemas = append(schemas, llm.ToolSchema{
 				Name:        ts.Name,
@@ -1605,6 +1651,9 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 	// so the agent can only propose sub-tasks for its own kind.
 	if b.deps.SubAgents != nil && b.deps.Tools != nil {
 		if _, err := b.deps.SubAgents.Get(string(b.name)); err == nil {
+			if observationOnlyRuntimeBlocksTool(ctx, "propose_sub_agents") {
+				return schemas
+			}
 			if t, err := b.deps.Tools.Get("propose_sub_agents"); err == nil {
 				params := t.Parameters()
 				if psa, ok := t.(*tool.ProposeSubAgents); ok {
@@ -1690,6 +1739,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	// summaries would flood the seen-blob with irrelevant code
 	// snippets and mask true hit ratios).
 	if violation := validateAnalyzerPrescanToolCall(ctx, tc); violation != nil {
+		return violation, nil
+	}
+	if violation := validateObservationOnlyRuntimeToolCall(ctx, tc); violation != nil {
 		return violation, nil
 	}
 

@@ -7,16 +7,18 @@ package types
 // playing a role relative to the clue.
 //
 // Required blocks:
-//   1× BlockSummary           — name the subject + the role result
-//   1× BlockScalar            — the resolved literal (function name /
-//                               handler / config key / etc.) with
-//                               authoritative file:line.
+//
+//	1× BlockSummary           — name the subject + the role result
+//	1× BlockScalar            — the resolved literal (function name /
+//	                            handler / config key / etc.) with
+//	                            authoritative file:line.
 //
 // Optional:
-//   0..1× BlockSection        — supporting context (call-site, owner
-//                               type, neighboring symbols when the
-//                               resolved literal alone is ambiguous).
-//   0..N× BlockCaveat         — drift / absence / scope caveats.
+//
+//	0..1× BlockSection        — supporting context (call-site, owner
+//	                            type, neighboring symbols when the
+//	                            resolved literal alone is ambiguous).
+//	0..N× BlockCaveat         — drift / absence / scope caveats.
 func compileRoleLookup(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView {
 	view := &AnswerSemanticView{
 		Family: QFRoleLookup,
@@ -52,7 +54,7 @@ func compileRoleLookup(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 			MinCount: 0,
 			MaxCount: 1,
 			Required: false,
-			FacetIDs: []string{string(FacetNearestMechanism)},
+			FacetIDs: []string{string(FacetNearestMechanism), string(FacetCurrentCodePath)},
 			Rationale: "Add a supporting section when the resolved literal alone is ambiguous — " +
 				"surrounding type, call-site, or sibling symbols that disambiguate which role this " +
 				"specific literal plays.",

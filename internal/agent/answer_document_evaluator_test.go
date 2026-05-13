@@ -2787,7 +2787,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 		"## Typed Answer Support Lanes",
 		"### Observed artifact facts",
 		"structured runtime error type",
-		`runtime artifact identifies error head frame "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput" at observed internal/agent/analyzer.go:320`,
+		`runtime artifact identifies error head stack frame "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput" at observed internal/agent/analyzer.go:320`,
 		"internal/agent/analyzer.go:651",
 		"Items rendered under the **Observed artifact facts** lane are runtime trace observations",
 	} {
@@ -2818,11 +2818,58 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 		"`no_repo_intersection`",
 		"synthetic frames represent a different deployed build",
 		"`citation_ref=-1`",
-		"do not present them as the source of the runtime observation",
+		"This dispatch is observation-only",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_RuntimeObservationOnlySuppressesRepoEnrichment(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{
+			Func: "load_config",
+		}}}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: mut.LogTriage(),
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:           "repo-helper",
+			Source:       "internal/env/cache/disk_cache.go",
+			LineStart:    179,
+			Kind:         types.EvidenceConcrete,
+			Subject:      "Cache.load",
+			AnchorKind:   types.AnchorReturn,
+			AnchorSymbol: "Cache.load",
+			Origin:       types.ClaimOriginCurrentRepo,
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, banned := range []string{
+		"lane=value_fact label=`Cache.load`",
+		"internal/env/cache/disk_cache.go:179",
+		"`current_code_path\"`. (evidence: 1)",
+	} {
+		if strings.Contains(prompt, banned) {
+			t.Fatalf("observation-only runtime prompt leaked repo enrichment %q:\n%s", banned, prompt)
+		}
+	}
+	if !strings.Contains(prompt, "This dispatch is observation-only") {
+		t.Fatalf("prompt missing observation-only boundary:\n%s", prompt)
 	}
 }
 

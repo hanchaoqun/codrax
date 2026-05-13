@@ -307,6 +307,9 @@ func TestCompileFacetCoverage_ExternalOnlyRuntimeDoesNotPromoteCurrentCodePath(t
 	if current.EffectivePromotionPolicy() != PromotionAdvisoryOnly || current.IsPromoted() {
 		t.Fatalf("external-only current_code_path should be advisory-only, got policy=%s promoted=%v", current.EffectivePromotionPolicy(), current.IsPromoted())
 	}
+	if len(current.SourceCandidate) != 0 {
+		t.Fatalf("external-only observation answers must not bind unrelated current-repo evidence as current_code_path candidates: %+v", current.SourceCandidate)
+	}
 }
 
 // TestCompileFacetCoverage_EmptySurfaceInconclusiveNoSoftening

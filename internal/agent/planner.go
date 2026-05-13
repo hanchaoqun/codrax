@@ -259,7 +259,8 @@ func (e *plannerEvaluator) buildInvestigationSeed(ctx *types.AgentContext) strin
 		exactTargets = exactContract.Targets
 		exactPolicy = string(exactContract.RelatedContextPolicy)
 	}
-	fp := keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints, exactTargets, exactPolicy, maxFiles)
+	suppressExactAnchors := observationOnlyRuntimeArtifactForExplorer(ctx)
+	fp := keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints, exactTargets, exactPolicy, maxFiles, suppressExactAnchors)
 
 	var sr *keywordSearchResult
 	switch {
@@ -267,13 +268,14 @@ func (e *plannerEvaluator) buildInvestigationSeed(ctx *types.AgentContext) strin
 		sr = e.searchResult
 	default:
 		sr = keywordSearchWithOptions(keywords, ctx.RepoRoot, keywordSearchOptions{
-			Entities:          entities,
-			MentionedEntities: mentionedEntities,
-			PrimaryEntities:   primaryEntities,
-			DomainHints:       domainHints,
-			MaxFiles:          maxFiles,
-			ExactResolution:   exactContract,
-			MultiGraph:        ctx.MultiGraph,
+			Entities:                   entities,
+			MentionedEntities:          mentionedEntities,
+			PrimaryEntities:            primaryEntities,
+			DomainHints:                domainHints,
+			MaxFiles:                   maxFiles,
+			ExactResolution:            exactContract,
+			SuppressExactEntityAnchors: suppressExactAnchors,
+			MultiGraph:                 ctx.MultiGraph,
 		})
 		e.searchResult = sr
 		e.searchFingerprint = fp
@@ -510,24 +512,24 @@ func (p *repoTestProfile) empty() bool {
 // Single source of truth would be ideal but circular import would
 // result; this tiny map stays in sync with run_tests.go's table.
 var plannerManifestRunner = map[string]string{
-	"go.mod":                "go (go test)",
-	"package.json":          "node (npm test)",
-	"pyproject.toml":        "python (pytest)",
-	"pytest.ini":            "python (pytest)",
-	"setup.py":              "python (pytest)",
-	"Cargo.toml":            "rust (cargo test)",
-	"pom.xml":               "java (mvn test)",
-	"build.gradle":          "java (gradlew test)",
-	"build.gradle.kts":      "java (gradlew test)",
-	"Gemfile":               "ruby (rspec)",
-	"CMakeLists.txt":        "cmake (ctest)",
-	"meson.build":           "meson (meson test)",
-	"Makefile":              "make (make check)",
-	"oh-package.json5":      "hvigor (hvigorw test)",
-	"build-profile.json5":   "hvigor (hvigorw test)",
-	"hvigorfile.ts":         "hvigor (hvigorw test)",
-	"cjpm.toml":             "cjpm (cjpm test)",
-	"Package.swift":         "swift (swift test)",
+	"go.mod":              "go (go test)",
+	"package.json":        "node (npm test)",
+	"pyproject.toml":      "python (pytest)",
+	"pytest.ini":          "python (pytest)",
+	"setup.py":            "python (pytest)",
+	"Cargo.toml":          "rust (cargo test)",
+	"pom.xml":             "java (mvn test)",
+	"build.gradle":        "java (gradlew test)",
+	"build.gradle.kts":    "java (gradlew test)",
+	"Gemfile":             "ruby (rspec)",
+	"CMakeLists.txt":      "cmake (ctest)",
+	"meson.build":         "meson (meson test)",
+	"Makefile":            "make (make check)",
+	"oh-package.json5":    "hvigor (hvigorw test)",
+	"build-profile.json5": "hvigor (hvigorw test)",
+	"hvigorfile.ts":       "hvigor (hvigorw test)",
+	"cjpm.toml":           "cjpm (cjpm test)",
+	"Package.swift":       "swift (swift test)",
 }
 
 // extractTestProfile walks the repomap Graph (zero disk I/O — the

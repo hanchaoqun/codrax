@@ -2080,7 +2080,8 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 	b.WriteString("Each line ends with `(evidence: N)` — N is the curated answer-grade evidence count when a typed support lane exists, otherwise the count of typed evidence items already bound to the facet. " +
 		"For SOFT facets this count gates the coverage demand: when N=0 the facet is skipped (no typed evidence to surface), so do NOT invent claims for it. " +
 		"For HARD facets, coverage is demanded regardless of N (the question pinned the facet as essential). " +
-		"A SOFT facet with N≥1 is **elevated** — its line carries an `(elevated)` marker AFTER the evidence count, and you must cover it as if it were HARD; the typed evidence is available, so the answer must surface it.\n\n")
+		"A SOFT facet with N≥1 is **elevated** — its line carries an `(elevated)` marker AFTER the evidence count, and you must cover it as if it were HARD; the typed evidence is available, so the answer must surface it. " +
+		"If an elevated facet is not already listed on a Required Answer Blocks row, attach that facet_id to the closest existing block whose payload actually covers it; do not wait for a tool rejection and do not create an unrelated block just to carry the id.\n\n")
 
 	emit := func(req types.FacetRequirement) {
 		label := types.AnswerFacetPublicLabel(req.Kind)
@@ -2123,6 +2124,8 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 		// R7: reverse lookup — which block kind(s) cover this facet.
 		if owners, ok := facetToBlocks[req.Kind]; ok && len(owners) > 0 {
 			fmt.Fprintf(&b, " Place on block kind: %s.", formatBlocks(owners))
+		} else if fallback := types.BlockKindForFacetForPrompt(req.Kind); fallback != "" {
+			fmt.Fprintf(&b, " Place on block kind: `%s`.", string(fallback))
 		}
 		b.WriteString("\n")
 	}
@@ -2913,6 +2916,9 @@ func selectAnswerDocTypedEnrichmentFacts(
 	candidates := make([]answerDocEnrichmentFact, 0, len(evidence))
 	hasRelevant := false
 	for i, item := range evidence {
+		if runtimeObservationOnlyForAnswerDoc(ctx) && answerDocEvidenceIsCurrentRepoOnly(item) {
+			continue
+		}
 		if supportRendered && supportIDs[answerDocEvidenceIdentity(item)] {
 			continue
 		}
@@ -2960,6 +2966,21 @@ func selectAnswerDocTypedEnrichmentFacts(
 		candidates = candidates[:limit]
 	}
 	return candidates
+}
+
+func answerDocEvidenceIsCurrentRepoOnly(item types.EvidenceItem) bool {
+	switch item.Origin {
+	case types.ClaimOriginLog, types.ClaimOriginPerf, types.ClaimOriginCrossSource:
+		return false
+	case types.ClaimOriginCurrentRepo:
+		return true
+	}
+	source := strings.TrimSpace(item.Source)
+	if source == "" {
+		return false
+	}
+	source = strings.ReplaceAll(source, `\`, `/`)
+	return strings.Contains(source, "/")
 }
 
 func answerDocEnrichmentDisplayLimit(ctx *types.AgentContext, profile extractorValueRankProfile) int {
@@ -3211,8 +3232,20 @@ func renderAnswerDocRuntimeGroundingDisposition(ctx *types.AgentContext) string 
 	fmt.Fprintf(&b, "- Reason: `%s`\n", d.Reason)
 	fmt.Fprintf(&b, "- Rationale: %s\n", strings.TrimSpace(d.Rationale))
 	b.WriteString("- Citation policy: claims whose source is the attached log / trace itself must use `citation_ref=-1` unless a cited current-repo line literally states the same claim.\n")
-	b.WriteString("- Current repository citations may still be used for explicitly read current-code context, but do not present them as the source of the runtime observation or as proof that the current checkout produced the captured log / trace.\n\n")
+	b.WriteString("- Do not put attached-log / external-trace paths into `citations[]` just to quote artifact text. `citations[]` is for current-repo lines or bounded negative-scope proofs with `negative_pattern`; runtime observations stay on `citation_ref=-1`.\n")
+	if runtimeObservationOnlyForAnswerDoc(ctx) {
+		b.WriteString("- This dispatch is observation-only: the current request asks what the runtime artifact shows, not whether the current checkout still has the issue. Leave current-repo files, helper symbols, and citations out of the answer even if an earlier exploration step read them accidentally.\n\n")
+	} else {
+		b.WriteString("- Current repository citations may still be used for explicitly read current-code context, but do not present them as the source of the runtime observation or as proof that the current checkout produced the captured log / trace.\n\n")
+	}
 	return b.String()
+}
+
+func runtimeObservationOnlyForAnswerDoc(ctx *types.AgentContext) bool {
+	plan := answerSurfacePlan(ctx)
+	return plan != nil &&
+		plan.RuntimeGroundingDisposition.IsActive() &&
+		!plan.CurrentStatusDiagnosticRequired
 }
 
 func renderAnswerDocCurrentStatusDiagnostic(ctx *types.AgentContext) string {

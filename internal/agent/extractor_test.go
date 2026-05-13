@@ -459,6 +459,30 @@ func TestExtractor_R4Gate_FilesRead_BypassesGate(t *testing.T) {
 	}
 }
 
+func TestExtractor_R4Gate_RuntimeObservationOnlyCompletion_BypassesGate(t *testing.T) {
+	// External log / trace explanation can be complete without any
+	// current-repo read/search evidence. The explorer sets this typed
+	// flag only after a successful artifact-only completion, so the
+	// empty-investigation gate must accept it instead of forcing a
+	// fixture read.
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		UserQuestion:                     "explain this traceback",
+		AcceptedClosureReason:            "external traceback fully explains the failure",
+		AcceptedResultKind:               "resolved",
+		RuntimeObservationOnlyCompletion: true,
+	})
+	ctx := &types.AgentContext{
+		Objective: "explain this traceback",
+		Mutable:   mu,
+	}
+	e := &extractorEvaluator{}
+	out, _ := e.ParseOutput(ctx, nil, nil, nil)
+	if out.Error != "" {
+		t.Errorf("runtime artifact-only completion must bypass R4, got Error=%q", out.Error)
+	}
+}
+
 func TestExtractor_R4Gate_KeyEvidence_BypassesGate(t *testing.T) {
 	// Zero files read is acceptable when key evidence is present —
 	// the R7/R8 path populates ctx.EvidenceItems from programmatic

@@ -117,3 +117,29 @@ func TestHandleStructurallyEmptyInvestigation_IgnoresUnknownState(t *testing.T) 
 	}
 }
 
+func TestHandleStructurallyEmptyInvestigation_AcceptsRuntimeObservationOnlyCompletion(t *testing.T) {
+	graph := testReadGraph()
+	state := newGraphState(graph)
+
+	o := &Orchestrator{
+		emit: render.NopEmitter,
+		busCtx: &types.BusContext{
+			Mutable: func() *types.MutableState {
+				mu := types.NewMutableState("explain this traceback")
+				mu.SetTurnAArtifacts(types.TurnAArtifacts{
+					UserQuestion:                     "explain this traceback",
+					AcceptedClosureReason:            "external traceback fully explains the failure",
+					AcceptedResultKind:               "resolved",
+					RuntimeObservationOnlyCompletion: true,
+				})
+				return mu
+			}(),
+			AnalysisIR: &types.AnalysisIR{TaskGraph: graph},
+		},
+	}
+
+	out, retryMsg, handled := o.handleStructurallyEmptyInvestigation(state, "finalize")
+	if handled {
+		t.Fatalf("runtime artifact-only completion must not be treated as structurally empty: out=%+v retryMsg=%q", out, retryMsg)
+	}
+}

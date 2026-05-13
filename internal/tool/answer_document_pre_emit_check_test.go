@@ -41,6 +41,140 @@ func TestPreCheckAbsenceScopeBound_RequiresNegativeCitation(t *testing.T) {
 	}
 }
 
+func TestPreCheckNegativeCitationBoundsRejectsUnboundedAbsenceCitation(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "runtime observation uses citation_ref=-1",
+			Items: []types.AnswerBlockItem{{
+				ID:          "runtime",
+				CitationRef: -1,
+			}},
+		}},
+		Citations: []types.Citation{{
+			File:  "/app/src/",
+			Scope: types.ScopeNegative,
+			Quote: "RuntimeError: config unavailable",
+		}},
+	}
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil)
+	if len(hints) == 0 {
+		t.Fatal("expected unbounded negative citation rejection")
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "negative_pattern") ||
+		!strings.Contains(hints[0].Reason, "citation_ref=-1") {
+		t.Fatalf("hint should steer external observations away from fake absence citations: %+v", hints[0])
+	}
+}
+
+func TestPreCheckRuntimeObservationRepoContaminationRejectsRepoPath(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{Func: "load_config"}}}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: mut.LogTriage(),
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic: true,
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			Source: "internal/env/cache/disk_cache.go",
+			Origin: types.ClaimOriginCurrentRepo,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "c",
+		Kind: types.BlockCaveat,
+		Text: "当前仓库代码中，`internal/env/cache/disk_cache.go:179` 有一个无关守卫。",
+	}}}
+	hints := preCheckRuntimeObservationRepoContamination(doc, ctx)
+	if len(hints) == 0 {
+		t.Fatal("expected repo contamination hint")
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "observation-only runtime answer") {
+		t.Fatalf("unexpected hint: %+v", hints[0])
+	}
+}
+
+func TestPreCheckRuntimeObservationRepoContaminationAllowsCurrentStatus(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{Func: "load_config"}}}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: mut.LogTriage(),
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic:        true,
+					CurrentVersionCheck: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{Required: true},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			Source: "internal/env/cache/disk_cache.go",
+			Origin: types.ClaimOriginCurrentRepo,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/env/cache/disk_cache.go", Line: 179}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "d",
+			Kind: types.BlockDecision,
+			Text: "not_enough_evidence: current code at `internal/env/cache/disk_cache.go:179` is only a comparison point.",
+		}},
+	}
+	if hints := preCheckRuntimeObservationRepoContamination(doc, ctx); len(hints) != 0 {
+		t.Fatalf("current-status diagnostics must allow current-code verification citations, got %+v", hints)
+	}
+}
+
+func TestPreCheckVisibleInternalCarrierTermsRejectsUnaskedCitationRefLeak(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "c",
+		Kind: types.BlockCaveat,
+		Text: "这些日志事实来自外部工件，citation_ref=-1。",
+	}}}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RawRequest: "解释这个 traceback",
+	}}}
+	hints := preCheckVisibleInternalCarrierTerms(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("expected internal carrier leak rejection, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "citation_ref") {
+		t.Fatalf("hint must name leaked carrier term, got %+v", hints[0])
+	}
+}
+
+func TestPreCheckVisibleInternalCarrierTermsAllowsExplicitUserQuestion(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "s",
+		Kind: types.BlockSummary,
+		Text: "citation_ref 是结构化答案里的引用索引。",
+	}}}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RawRequest: "citation_ref 是什么意思？",
+	}}}
+	if hints := preCheckVisibleInternalCarrierTerms(doc, ctx); len(hints) != 0 {
+		t.Fatalf("explicit user question about carrier term should pass, got %+v", hints)
+	}
+}
+
 func TestPreEmitBlockCitationRoleForms_TableParticipates(t *testing.T) {
 	block := types.AnswerBlock{
 		ID:   "table",

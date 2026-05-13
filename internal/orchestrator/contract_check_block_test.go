@@ -1787,6 +1787,32 @@ func TestInlineIdentifierHallucination_RuntimeFrameIdentifierPassesOracleMiss(t 
 	}
 }
 
+func TestInlineIdentifierHallucination_RuntimeErrorTypePassesOracleMiss(t *testing.T) {
+	mut := &types.MutableState{}
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "RuntimeError",
+			Message: "config unavailable",
+			Cause: &types.LogError{
+				Type:    "KeyError",
+				Message: "KeyError: 'database'",
+			},
+		}},
+	})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "The attached traceback reports `RuntimeError` wrapping `KeyError`.",
+		}},
+	}
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+
+	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("runtime error types should not require code symbol oracle hits, got %+v", vs)
+	}
+}
+
 func TestInlineIdentifierHallucination_ConfigKeySnippetPassesOracleMiss(t *testing.T) {
 	mut := mutWithEvidence([]types.EvidenceItem{{
 		ID:              "runtime-field",

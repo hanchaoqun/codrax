@@ -2440,6 +2440,9 @@ func (e *extractorEvaluator) extractorInvestigationEmpty(ctx *types.AgentContext
 // window cannot silently flow into finalization.
 func InvestigationStructurallyEmpty(ta *types.TurnAArtifacts, evidence []types.EvidenceItem) bool {
 	if ta != nil {
+		if ta.RuntimeObservationOnlyCompletion {
+			return false
+		}
 		if len(ta.ReadFiles) > 0 {
 			return false
 		}

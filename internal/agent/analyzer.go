@@ -1923,7 +1923,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// PerfTrace and AnswerSurfacePlan.RuntimeGroundingDisposition.
 	// No answer-body synthesis happens here: this only removes
 	// structurally impossible citation floors.
-	if isMeasurementScalar || isHistoryLookup || rm.HasExternalOnlyRuntimeArtifact() {
+	if isMeasurementScalar || isHistoryLookup || rm.HasObservationOnlyRuntimeArtifact() {
 		out.AnswerContract.CitationReq.Required = false
 		out.AnswerContract.CitationReq.MinCitations = 0
 		out.AnswerContract.AcceptanceTests = dropCitationCountGE(out.AnswerContract.AcceptanceTests)

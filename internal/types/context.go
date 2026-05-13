@@ -743,6 +743,15 @@ type TurnAArtifacts struct {
 	// re-parse prose closure text.
 	AcceptedAggregateFacts []AnswerAggregateFact
 
+	// RuntimeObservationOnlyCompletion marks the narrow case where Turn
+	// A legitimately completed from a structured external log / trace
+	// artifact without any current-repo read/search evidence. It is set
+	// only after a typed observation-only RequestModel and a successful
+	// emit_investigation_complete result_kind, so downstream empty-
+	// investigation gates can accept the artifact handoff without
+	// forcing fixture reads or repo citations.
+	RuntimeObservationOnlyCompletion bool
+
 	// EvidenceItems is the deterministic evidence the explorer's
 	// ParseOutput already produced (concrete values, flow findings,
 	// mechanism scan, grounded markdown items if the legacy channel

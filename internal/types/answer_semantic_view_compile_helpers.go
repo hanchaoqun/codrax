@@ -30,7 +30,9 @@ func diagramPreferredByEvidence(plan *AnswerSurfacePlan) bool {
 }
 
 func runtimeObservationOnly(plan *AnswerSurfacePlan) bool {
-	return plan != nil && plan.RuntimeGroundingDisposition.IsActive()
+	return plan != nil &&
+		plan.RuntimeGroundingDisposition.IsActive() &&
+		!plan.CurrentStatusDiagnosticRequired
 }
 
 func optionalDiagramBlock(rationale string, facetIDs ...string) BlockRequirement {

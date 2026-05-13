@@ -10,6 +10,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -490,6 +491,90 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 			t.Errorf("malformed params should fall through, got violation: %+v", got)
 		}
 	})
+}
+
+func TestValidateObservationOnlyRuntimeToolCall(t *testing.T) {
+	observationOnlyCtx := &types.AgentContext{
+		Stage: types.StageExplore,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				LogTriage: &types.LogBundle{
+					Errors: []types.LogError{{Type: "RuntimeError"}},
+				},
+			},
+		},
+	}
+	for _, name := range []string{"grep", "read_file", "repo_map", "list_files", "exec_command", "propose_sub_agents"} {
+		t.Run("blocks "+name, func(t *testing.T) {
+			got := validateObservationOnlyRuntimeToolCall(observationOnlyCtx, llm.ToolCall{Name: name, Params: json.RawMessage(`{}`)})
+			if got == nil {
+				t.Fatalf("tool %q should be blocked for observation-only runtime artifact", name)
+			}
+			if got.Success {
+				t.Fatalf("tool %q block must be a failed ToolResult", name)
+			}
+			if got.Repair == nil || got.Repair.Code != "observation_only_runtime_repo_tool" {
+				t.Fatalf("tool %q repair metadata missing: %+v", name, got.Repair)
+			}
+		})
+	}
+
+	if got := validateObservationOnlyRuntimeToolCall(observationOnlyCtx, llm.ToolCall{Name: "emit_investigation_complete", Params: json.RawMessage(`{}`)}); got != nil {
+		t.Fatalf("emit_investigation_complete must remain available, got %+v", got)
+	}
+
+	currentStatusCtx := &types.AgentContext{
+		Stage: types.StageExplore,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				LogTriage: &types.LogBundle{
+					Errors: []types.LogError{{Type: "RuntimeError"}},
+				},
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					CurrentRisk: true,
+				},
+			},
+		},
+	}
+	if got := validateObservationOnlyRuntimeToolCall(currentStatusCtx, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{}`)}); got != nil {
+		t.Fatalf("current-status diagnostics must keep repo tools available, got %+v", got)
+	}
+}
+
+func TestBuildToolSchemas_ObservationOnlyRuntimeHidesRepoTools(t *testing.T) {
+	registry := tool.NewRegistry()
+	registry.Register(&tool.GrepTool{})
+	registry.Register(&tool.ReadFile{})
+	registry.Register(&tool.ListFiles{})
+	registry.Register(&tool.ExecCommand{})
+	registry.Register(&tool.EmitInvestigationComplete{})
+
+	agent := NewBaseAgent(types.AgentExplorer, &Dependencies{Tools: registry}, &stubEvaluator{})
+	ctx := &types.AgentContext{
+		Stage: types.StageExplore,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				LogTriage: &types.LogBundle{
+					Errors: []types.LogError{{Type: "RuntimeError"}},
+				},
+			},
+		},
+	}
+	schemas := agent.buildToolSchemas(&skill.Config{
+		ToolSuggestions: []string{"grep", "read_file", "list_files", "exec_command", "emit_investigation_complete"},
+	}, ctx)
+	got := map[string]bool{}
+	for _, s := range schemas {
+		got[s.Name] = true
+	}
+	for _, blocked := range []string{"grep", "read_file", "list_files", "exec_command"} {
+		if got[blocked] {
+			t.Fatalf("observation-only runtime schema exposed repo tool %q: %+v", blocked, schemas)
+		}
+	}
+	if !got["emit_investigation_complete"] {
+		t.Fatalf("emit_investigation_complete must stay exposed for artifact-only closure: %+v", schemas)
+	}
 }
 
 // TestIsReadFilePathMiss covers the Summary-substring classifier that

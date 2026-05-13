@@ -82,6 +82,7 @@ func TestMergeTurnAArtifactsWithPrior_PreservesAcceptedClosureWhenCurrentEmpty(t
 			Label: "unique files",
 			Value: "3",
 		}},
+		RuntimeObservationOnlyCompletion: true,
 	}
 	current := types.TurnAArtifacts{
 		UserQuestion: "same question",
@@ -96,6 +97,9 @@ func TestMergeTurnAArtifactsWithPrior_PreservesAcceptedClosureWhenCurrentEmpty(t
 	}
 	if len(got.AcceptedAggregateFacts) != 1 || got.AcceptedAggregateFacts[0].Value != "3" {
 		t.Fatalf("AcceptedAggregateFacts = %+v, want prior", got.AcceptedAggregateFacts)
+	}
+	if !got.RuntimeObservationOnlyCompletion {
+		t.Fatal("RuntimeObservationOnlyCompletion must survive closure-only retry windows")
 	}
 }
 

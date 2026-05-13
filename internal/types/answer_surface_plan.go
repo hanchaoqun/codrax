@@ -21,21 +21,22 @@ import (
 // NeedsEnumerationSlate / etc.) for the obligation signals that
 // previously came from the shape enum.
 type AnswerSurfacePlan struct {
-	RequestedEnumerationBoundary   *RequestedEnumerationBoundary
-	Diagram                        *DiagramContract
-	DiagramHardRequirementDropped  bool
-	CompiledDiagramKind            DiagramKind
-	CompiledDiagramFence           string
-	StepBackbone                   []StepSurfaceAnchor
-	StepBackboneCompleteness       CompletenessClaim
-	ExplanationAnchorBackbone      []StepSurfaceAnchor
-	ExplanationAnchorCompleteness  CompletenessClaim
-	ExplanationAnchorMissingTopics []string
-	ExternalObservationSeeds       []ExternalObservationSeed
-	LogSourceDriftAnchors          []LogSourceDriftAnchor
-	LogObservedAnchors             []LogSourceDriftAnchor
-	DriftBoundedSurfaceItems       []EvidenceItem
-	RuntimeGroundingDisposition    *RuntimeGroundingDisposition
+	RequestedEnumerationBoundary    *RequestedEnumerationBoundary
+	Diagram                         *DiagramContract
+	DiagramHardRequirementDropped   bool
+	CompiledDiagramKind             DiagramKind
+	CompiledDiagramFence            string
+	StepBackbone                    []StepSurfaceAnchor
+	StepBackboneCompleteness        CompletenessClaim
+	ExplanationAnchorBackbone       []StepSurfaceAnchor
+	ExplanationAnchorCompleteness   CompletenessClaim
+	ExplanationAnchorMissingTopics  []string
+	ExternalObservationSeeds        []ExternalObservationSeed
+	LogSourceDriftAnchors           []LogSourceDriftAnchor
+	LogObservedAnchors              []LogSourceDriftAnchor
+	DriftBoundedSurfaceItems        []EvidenceItem
+	RuntimeGroundingDisposition     *RuntimeGroundingDisposition
+	CurrentStatusDiagnosticRequired bool
 
 	ExactResolution          *ExactResolutionContract
 	PreferredExactResolution *AnswerExactResolution
@@ -1327,6 +1328,10 @@ func BuildAnswerSurfacePlan(
 		RequestedEnumerationBoundary: ir.RequestModel.EnumerationBoundary,
 		ChangeImpactProfile:          ir.RequestModel.ChangeImpactProfile,
 	}
+	plan.CurrentStatusDiagnosticRequired = ir.RequestModel.DiagnosticProfile.RequiresCurrentStatusDiagnostic()
+	if ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
+		plan.CurrentStatusDiagnosticRequired = true
+	}
 
 	plan.ExactResolution = ir.AnswerContract.ExactResolution
 	if plan.ExactResolution == nil {
@@ -2427,7 +2432,7 @@ func SelectExternalObservationSeedsForPrompt(seeds []ExternalObservationSeed, li
 			}
 		}
 	}
-	for _, kind := range []string{"error_message", "log_observation", "perf_jank", "perf_stall", "error_type", "signal"} {
+	for _, kind := range []string{"error_chain", "error_message", "log_observation", "perf_jank", "perf_stall", "error_type", "signal"} {
 		if len(out) >= summaryCap {
 			break
 		}
@@ -2580,6 +2585,16 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 			Raw:  strings.TrimSpace(msg),
 		})
 	}
+	WalkLogErrors(bundle, func(err *LogError) {
+		raw := renderLogErrorCauseChainSeed(err)
+		if raw == "" {
+			return
+		}
+		recordSummary(ExternalObservationSeed{
+			Kind: "error_chain",
+			Raw:  raw,
+		})
+	})
 	for _, typ := range LogBundleErrorTypes(bundle) {
 		recordSummary(ExternalObservationSeed{
 			Kind: "error_type",
@@ -2633,7 +2648,7 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 				Kind: "log_frame",
 				Raw:  strings.TrimSpace(frame.Raw),
 				Role: role,
-				Lang: strings.TrimSpace(frame.Lang),
+				Lang: firstNonEmptySurfaceString(frame.Lang, bundle.Meta.Lang),
 				File: strings.TrimSpace(strings.ReplaceAll(frame.File, `\`, `/`)),
 				Line: frame.Line,
 				Func: strings.TrimSpace(frame.Func),
@@ -2679,6 +2694,36 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 		})
 	}
 	return out
+}
+
+func renderLogErrorCauseChainSeed(err *LogError) string {
+	if err == nil || err.Cause == nil {
+		return ""
+	}
+	outer := logErrorSurface(err)
+	inner := logErrorSurface(err.Cause)
+	if outer == "" || inner == "" {
+		return ""
+	}
+	return fmt.Sprintf("runtime cause chain: upstream %s is wrapped / re-raised as top-level %s", inner, outer)
+}
+
+func logErrorSurface(err *LogError) string {
+	if err == nil {
+		return ""
+	}
+	typ := strings.TrimSpace(err.Type)
+	msg := strings.TrimSpace(strings.Join(strings.Fields(err.Message), " "))
+	switch {
+	case typ != "" && msg != "":
+		return fmt.Sprintf("%s(%q)", typ, msg)
+	case typ != "":
+		return typ
+	case msg != "":
+		return fmt.Sprintf("%q", msg)
+	default:
+		return ""
+	}
 }
 
 func collectPerfExternalObservationSeeds(bundle *PerfBundle, observed []LogSourceDriftAnchor) []ExternalObservationSeed {

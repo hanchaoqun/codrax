@@ -113,6 +113,13 @@ func irExactResolutionContract(ctx *types.AgentContext) *types.ExactResolutionCo
 	return ctx.AnalysisIR.AnswerContract.ExactResolution
 }
 
+func observationOnlyRuntimeArtifactForExplorer(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return ctx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact()
+}
+
 // analyzerRequiredFilesFromIR returns the analyzer's EvidencePlan
 // RequiredFiles list (T3a), or nil when the IR is unavailable. This
 // is a deliberate thin wrapper so the explorer's consumer loop

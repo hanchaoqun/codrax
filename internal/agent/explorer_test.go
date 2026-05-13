@@ -1345,6 +1345,51 @@ func TestBuildFocusedDepthStartInstruction_SurfacesAuthoritativeLogFunctionAncho
 	}
 }
 
+func TestExplorerObservationOnlyRuntimeSkipsRepoKeywordSearch(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "fixture_test.go"), []byte("package sample\n// RuntimeError config unavailable\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{Func: "load_config"}}}},
+	}
+	mut := types.NewMutableState("解释 traceback")
+	mut.SetLogTriage(logBundle)
+	ctx := &types.AgentContext{
+		Objective: "解释这个 traceback 发生了什么",
+		RepoRoot:  repo,
+		Mutable:   mut,
+		LogTriage: logBundle,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: logBundle,
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Keywords: []string{"RuntimeError", "config unavailable"},
+					Entities: []string{"RuntimeError", "load"},
+					Kind:     "mechanism",
+				},
+			},
+		},
+	}
+
+	eval := &explorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if eval.searchResult != nil {
+		t.Fatalf("observation-only runtime artifact should not run repo keyword search, got %+v", eval.searchResult)
+	}
+	if !strings.Contains(prompt, "Runtime Artifact Only Start") {
+		t.Fatalf("prompt missing runtime-only start guidance:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Focused Depth Start") || strings.Contains(prompt, "fixture_test.go") {
+		t.Fatalf("runtime-only prompt leaked repo search/focus context:\n%s", prompt)
+	}
+}
+
 func TestBuildInitialInstruction_CapabilityQueryStartsFocusedAuthorityDepth(t *testing.T) {
 	repo := t.TempDir()
 	files := map[string]string{

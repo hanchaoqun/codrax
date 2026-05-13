@@ -39,6 +39,9 @@ func compileObservedArtifactSupportLane(rm RequestModel, plan *AnswerSurfacePlan
 	}
 	if runtimeObservationOnly(plan) {
 		lane.Guidance += " For an external-only runtime artifact with no current-repo intersection, this lane is allowed to carry the principal answer list itself: each item should be an observed frame / event / span from the artifact with citation_ref=-1. Do not substitute current-repo analysis helpers, resolver functions, or nearby implementation details for the artifact facts the user asked about."
+		if externalObservationSeedsContainKind(plan.ExternalObservationSeeds, "error_chain") {
+			lane.Guidance += " When an entry says `runtime cause chain`, preserve its direction: the upstream/caused-by error happened first and the top-level error is the wrapper or re-raise."
+		}
 		if len(principalObservationTargets(rm)) > 0 {
 			lane.Guidance += " This dispatch has analyzer-resolved principal artifact targets; only frame entries listed in this lane are principal-safe. Other frames from the full log are supporting context unless the user explicitly asked for the full stack."
 		}
@@ -55,6 +58,19 @@ func compileObservedArtifactSupportLane(rm RequestModel, plan *AnswerSurfacePlan
 		})
 	}
 	return lane
+}
+
+func externalObservationSeedsContainKind(seeds []ExternalObservationSeed, kind string) bool {
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return false
+	}
+	for _, seed := range seeds {
+		if strings.TrimSpace(seed.Kind) == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func selectSupportExternalObservationSeeds(rm RequestModel, seeds []ExternalObservationSeed, limit int) []ExternalObservationSeed {
@@ -89,6 +105,24 @@ func selectSupportExternalObservationSeeds(rm RequestModel, seeds []ExternalObse
 			break
 		}
 	}
+	addRepresentativeFrames := func(headOnly bool) int {
+		added := 0
+		for _, seed := range seeds {
+			if !externalObservationSeedIsFrame(seed) {
+				continue
+			}
+			if headOnly && !externalObservationSeedIsErrorHeadFrame(seed) {
+				continue
+			}
+			if add(seed) {
+				added++
+			}
+			if len(out) >= limit {
+				return added
+			}
+		}
+		return added
+	}
 	addTargetFrames := func(headOnly bool) int {
 		added := 0
 		for _, target := range targets {
@@ -110,10 +144,24 @@ func selectSupportExternalObservationSeeds(rm RequestModel, seeds []ExternalObse
 		}
 		return added
 	}
-	if addTargetFrames(true) > 0 {
+	targetFrameCount := addTargetFrames(true)
+	if targetFrameCount > 0 {
 		return out
 	}
-	addTargetFrames(false)
+	targetFrameCount += addTargetFrames(false)
+	if targetFrameCount > 0 {
+		return out
+	}
+	// If the analyzer resolved principal targets to error types or
+	// messages rather than frame functions/files, no frame can match the
+	// target surface directly. Keep the typed error facts, but also carry
+	// representative frames so downstream answers can explain the runtime
+	// artifact without collapsing to message-only prose. This is still
+	// typed-field driven: we select frame seeds from LogBundle / PerfBundle,
+	// not by scanning raw user text for traceback / panic keywords.
+	if addRepresentativeFrames(true) == 0 {
+		addRepresentativeFrames(false)
+	}
 	if len(out) > 0 {
 		return out
 	}
@@ -183,6 +231,11 @@ func fileBaseNoExt(path string) string {
 func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string, string) {
 	raw := strings.TrimSpace(seed.Raw)
 	switch strings.TrimSpace(seed.Kind) {
+	case "error_chain":
+		if raw == "" {
+			return "", ""
+		}
+		return raw, ""
 	case "error_type":
 		if raw == "" {
 			return "", ""
@@ -231,12 +284,13 @@ func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string
 		if file := strings.TrimSpace(strings.ReplaceAll(seed.File, `\`, `/`)); file != "" && seed.Line > 0 {
 			observedLoc = fmt.Sprintf("%s:%d", file, seed.Line)
 		}
-		rolePrefix := "runtime artifact includes stack frame"
+		frameNoun := externalObservationFrameNoun(seed)
+		rolePrefix := "runtime artifact includes " + frameNoun
 		switch strings.TrimSpace(seed.Role) {
 		case "error_head_frame":
-			rolePrefix = "runtime artifact identifies error head frame"
+			rolePrefix = "runtime artifact identifies error head " + frameNoun
 		case "caller_frame":
-			rolePrefix = "runtime artifact includes caller/context frame"
+			rolePrefix = "runtime artifact includes caller/context " + frameNoun
 		}
 		if observedLoc != "" {
 			return fmt.Sprintf("%s %q at observed %s", rolePrefix, funcLabel, observedLoc), ""
@@ -260,6 +314,17 @@ func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string
 		return fmt.Sprintf("runtime observation %q aligns to %s", raw, location), location
 	}
 	return fmt.Sprintf("runtime observation %q", raw), ""
+}
+
+func externalObservationFrameNoun(seed ExternalObservationSeed) string {
+	switch strings.ToLower(strings.TrimSpace(seed.Lang)) {
+	case "python", "py":
+		return "traceback frame"
+	case "arkts", "cangjie", "cj", "java", "kotlin", "swift", "ruby", "javascript", "js", "typescript", "ts", "lua", "rust", "go", "golang", "c", "cpp", "c++", "objc", "objective-c", "cuda":
+		return "stack frame"
+	default:
+		return "stack frame"
+	}
 }
 
 func externalObservationSupportDetail(seed ExternalObservationSeed, text string) string {
