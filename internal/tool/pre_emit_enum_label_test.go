@@ -415,8 +415,36 @@ func TestPreCheckEnumLabel_AggregateMemberSetPackageLabelNoOracle(t *testing.T) 
 	}
 }
 
-func TestPreCheckEnumLabel_AggregateMemberSetPackageLabelRejectsCitationDrift(t *testing.T) {
+func TestPreCheckEnumLabel_AggregateMemberSetColonPackageLabelNoOracle(t *testing.T) {
 	oracle := &stubOracle{known: map[string]int{}}
+	mut := types.NewMutableState("package colon label from aggregate member set")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal/analysis subpackages",
+		Value:   "1",
+		Members: []string{"counterfactual: Expand"},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	ctx := &types.BusContext{Mutable: mut}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/analysis/counterfactual/expander.go", Line: 59}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "subpackages",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "counterfactual",
+				Label:       "counterfactual",
+				Text:        "入口函数 Expand，定义于 expander.go:59。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx); hints != nil {
+		t.Fatalf("typed aggregate colon package labels should not be forced through symbol oracle; got %v", hints)
+	}
+}
+
+func TestPreCheckItemCitationAlignment_AggregateMemberSetPackageLabelRejectsCitationDrift(t *testing.T) {
 	mut := types.NewMutableState("package label citation drift")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:        types.AnswerAggregateMemberSet,
@@ -440,12 +468,60 @@ func TestPreCheckEnumLabel_AggregateMemberSetPackageLabelRejectsCitationDrift(t 
 			}},
 		}},
 	}
-	hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx)
+	hints := preCheckItemCitationAlignment(doc, nil, ctx)
 	if len(hints) != 1 {
-		t.Fatalf("citation drift should still fail package-label grounding, got %v", hints)
+		t.Fatalf("citation drift should still fail aggregate package-label citation alignment, got %v", hints)
 	}
-	if !strings.Contains(hints[0].ExpectedShape, "findings_validator") {
+	if !strings.Contains(hints[0].ExpectedShape, "findings_validator") ||
+		!strings.Contains(hints[0].ExpectedShape, "internal/analysis/findings_validator/validator.go:70") {
 		t.Fatalf("hint should name the drifting label, got %+v", hints[0])
+	}
+	if hints := preCheckEnumerationLabelGrounding(doc, &stubOracle{known: map[string]int{}}, ctx); hints != nil {
+		t.Fatalf("label grounding should not misclassify typed aggregate display labels as fabricated, got %v", hints)
+	}
+}
+
+func TestPreCheckItemCitationAlignment_AggregateMemberSetColonUsesTypedEvidenceCandidate(t *testing.T) {
+	mut := types.NewMutableState("colon aggregate package label citation drift")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal/analysis subpackages",
+		Value:   "1",
+		Members: []string{"counterfactual: Expand"},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/analysis/counterfactual/expander.go",
+		LineStart:       59,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Expand",
+		Object:          "counterfactual",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/analysis/counterfactual/expand.go", Line: 15}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "subpackages",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "counterfactual",
+				Label:       "counterfactual",
+				Text:        "入口函数 Expand，定义于 expander.go:59。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	hints := preCheckItemCitationAlignment(doc, nil, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("aggregate relation member with wrong citation should get one citation hint, got %v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "internal/analysis/counterfactual/expander.go:59") {
+		t.Fatalf("hint should point at typed evidence candidate, got %+v", hints[0])
+	}
+	if hints := preCheckEnumerationLabelGrounding(doc, &stubOracle{known: map[string]int{}}, ctx); hints != nil {
+		t.Fatalf("label grounding should not fight aggregate citation repair, got %v", hints)
 	}
 }
 

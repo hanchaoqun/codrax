@@ -2580,6 +2580,47 @@ func answerItemLabelSupportedByRuntimeArtifact(label string, mut *types.MutableS
 	return false
 }
 
+func answerItemLabelSupportedByAggregateMemberSet(label string, item types.AnswerBlockItem, mut *types.MutableState) bool {
+	label = strings.TrimSpace(label)
+	if mut == nil || label == "" || strings.TrimSpace(item.Text) == "" {
+		return false
+	}
+	for _, fact := range mut.StableInvestigationAggregateFacts() {
+		if fact.Kind != types.AnswerAggregateMemberSet {
+			continue
+		}
+		for _, member := range fact.Members {
+			if answerAggregateMemberLabelTextMatches(label, item.Text, member) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func answerAggregateMemberLabelTextMatches(label, text, member string) bool {
+	for _, surface := range types.AnswerAggregateMemberDisplayCandidates(member) {
+		left, right, ok := types.AnswerAggregateMemberRelationParts(surface)
+		if !ok {
+			continue
+		}
+		if typedLabelTokenSupportsLabel(left, label) &&
+			answerAggregateMemberTextContains(right, text) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerAggregateMemberTextContains(token, text string) bool {
+	token = strings.TrimSpace(token)
+	text = strings.TrimSpace(text)
+	if token == "" || text == "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(text), strings.ToLower(token))
+}
+
 func runtimeLabelSupportedByLogBundle(label string, bundle *types.LogBundle) bool {
 	if bundle == nil {
 		return false
@@ -2982,6 +3023,9 @@ func validateEnumerationItemLabelHallucination(doc *types.AnswerDocumentV2, orac
 				continue
 			}
 			if answerItemLabelSupportedByRuntimeArtifact(label, mut) {
+				continue
+			}
+			if answerItemLabelSupportedByAggregateMemberSet(label, it, mut) {
 				continue
 			}
 			if answerItemLabelSupportedByAnswerSymbol(label, mut) {

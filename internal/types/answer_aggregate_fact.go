@@ -223,6 +223,7 @@ func AnswerAggregateMemberDisplayCandidates(member string) []string {
 		out = append(out,
 			left+" → "+right,
 			left+" -> "+right,
+			left+": "+right,
 			left+"/"+right,
 			left+"::"+right,
 		)
@@ -257,6 +258,13 @@ func aggregateRelationSurfaceParts(member string) (string, string, bool) {
 			return left, right, true
 		}
 	}
+	if strings.Count(member, ":") == 1 && aggregateColonLooksLikeDisplayRelation(member) {
+		parts := strings.Split(member, ":")
+		left, right := trimAggregateMemberSurface(parts[0]), trimAggregateMemberSurface(parts[1])
+		if aggregateRelationPartOK(left) && aggregateRelationPartOK(right) {
+			return left, right, true
+		}
+	}
 	if strings.Count(member, "/") == 1 && !strings.ContainsAny(member, " \t\n\r") {
 		parts := strings.Split(member, "/")
 		left, right := trimAggregateMemberSurface(parts[0]), trimAggregateMemberSurface(parts[1])
@@ -265,6 +273,19 @@ func aggregateRelationSurfaceParts(member string) (string, string, bool) {
 		}
 	}
 	return "", "", false
+}
+
+func aggregateColonLooksLikeDisplayRelation(member string) bool {
+	idx := strings.Index(member, ":")
+	if idx <= 0 || idx >= len(member)-1 {
+		return false
+	}
+	before := member[idx-1]
+	after := member[idx+1]
+	// Keep colon support to display labels such as "package: Entry".
+	// Source locations, URLs, drive letters, and dense key:value strings
+	// remain literal member surfaces.
+	return unicode.IsSpace(rune(before)) || unicode.IsSpace(rune(after))
 }
 
 func aggregateRelationPartOK(part string) bool {

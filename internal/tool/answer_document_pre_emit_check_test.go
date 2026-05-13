@@ -421,7 +421,7 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsRelationDisplayVariants(t *te
 		Kind:    types.AnswerAggregateMemberSet,
 		Label:   "subpackage directory and entry function",
 		Value:   "2",
-		Members: []string{"aggregator/Aggregate", "compiler → Compile"},
+		Members: []string{"aggregator/Aggregate", "compiler: Compile"},
 	}})
 	mu.SetInvestigationComplete("structured member set accepted")
 	ctx := &types.BusContext{

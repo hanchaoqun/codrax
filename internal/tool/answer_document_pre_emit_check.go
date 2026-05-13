@@ -580,9 +580,28 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 			}
 			evidence, found := preEmitCitedEvidenceItems(ctx, cit)
 			if !found {
+				if candidates := preEmitCandidateCitationLocationsForAggregateItem(ctx, label, item.Text, 4); len(candidates) > 0 {
+					mismatches = append(mismatches, mismatch{
+						blockID:    b.ID,
+						itemID:     item.ID,
+						label:      label,
+						cite:       fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
+						candidates: candidates,
+					})
+				}
 				continue
 			}
 			if preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence) {
+				continue
+			}
+			if candidates := preEmitCandidateCitationLocationsForAggregateItem(ctx, label, item.Text, 4); len(candidates) > 0 {
+				mismatches = append(mismatches, mismatch{
+					blockID:    b.ID,
+					itemID:     item.ID,
+					label:      label,
+					cite:       fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
+					candidates: candidates,
+				})
 				continue
 			}
 			mismatches = append(mismatches, mismatch{
@@ -1388,6 +1407,52 @@ func preEmitCandidateCitationLocationsForLabel(ctx *types.BusContext, label stri
 	return out
 }
 
+func preEmitCandidateCitationLocationsForAggregateItem(ctx *types.BusContext, label, text string, limit int) []string {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	if limit <= 0 {
+		limit = 4
+	}
+	var out []string
+	seen := make(map[string]bool)
+	add := func(file string, line int) {
+		file = strings.TrimSpace(file)
+		if file == "" || line <= 0 || len(out) >= limit {
+			return
+		}
+		loc := fmt.Sprintf("%s:%d", file, line)
+		key := strings.ToLower(strings.ReplaceAll(loc, `\`, `/`))
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, loc)
+	}
+	for _, fact := range ctx.Mutable.StableInvestigationAggregateFacts() {
+		if fact.Kind != types.AnswerAggregateMemberSet {
+			continue
+		}
+		for idx, member := range fact.Members {
+			if !preEmitAggregateMemberLabelTextMatches(label, text, member) {
+				continue
+			}
+			if source, line, ok := preEmitAggregateMemberSupportLocation(fact, idx, member); ok {
+				add(source, line)
+			}
+			for _, ev := range preEmitAnswerEvidenceItems(ctx) {
+				if ev.GroundingStatus == types.GroundingUngrounded || ev.Source == "" || ev.LineStart <= 0 {
+					continue
+				}
+				if preEmitEvidenceSupportsAggregateMember(ev, member) {
+					add(ev.Source, ev.LineStart)
+				}
+			}
+		}
+	}
+	return out
+}
+
 func preEmitLabelMatchesEvidenceEndpoint(label string, ev types.EvidenceItem) bool {
 	for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
 		if preEmitCodeSurfaceMatches(label, endpoint) {
@@ -1684,13 +1749,11 @@ func preEmitLabelSupportedByAggregateMemberSet(label string, item types.AnswerBl
 		if fact.Kind != types.AnswerAggregateMemberSet {
 			continue
 		}
-		for idx, member := range fact.Members {
+		for _, member := range fact.Members {
 			if !preEmitAggregateMemberLabelTextMatches(label, item.Text, member) {
 				continue
 			}
-			if preEmitAggregateMemberCitationMatches(fact, idx, member, cit) {
-				return true
-			}
+			return true
 		}
 	}
 	return false
@@ -1779,6 +1842,82 @@ func preEmitAggregateMemberCitationMatches(fact types.AnswerAggregateFact, membe
 		return preEmitCitationMatchesSourceLocation(cit, bareRefs[0])
 	}
 	return false
+}
+
+func preEmitAggregateMemberSupportLocation(fact types.AnswerAggregateFact, memberIdx int, member string) (source string, line int, ok bool) {
+	if surface, parsed := types.ParseAnswerSourceLocationSurface(member); parsed {
+		return surface.File, surface.LineStart, true
+	}
+	memberKey := strings.ToLower(strings.TrimSpace(member))
+	var bareRefs []types.AnswerSourceLocationSurface
+	for _, ref := range fact.SupportRefs {
+		refMember, loc, parsed := preEmitAggregateSupportRefMemberLocation(ref)
+		if !parsed {
+			continue
+		}
+		if strings.TrimSpace(refMember) == "" {
+			bareRefs = append(bareRefs, loc)
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(refMember)) == memberKey {
+			return loc.File, loc.LineStart, true
+		}
+	}
+	if len(bareRefs) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(bareRefs) {
+		loc := bareRefs[memberIdx]
+		return loc.File, loc.LineStart, true
+	}
+	if len(bareRefs) == 1 {
+		loc := bareRefs[0]
+		return loc.File, loc.LineStart, true
+	}
+	return "", 0, false
+}
+
+func preEmitCitationMatchesAggregateEvidence(ctx *types.BusContext, member string, cit types.Citation) bool {
+	evidence, found := preEmitCitedEvidenceItems(ctx, cit)
+	if !found {
+		return false
+	}
+	for _, ev := range evidence {
+		if preEmitEvidenceSupportsAggregateMember(ev, member) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitEvidenceSupportsAggregateMember(ev types.EvidenceItem, member string) bool {
+	if left, right, ok := preEmitAggregateMemberLabelRelationParts(member); ok {
+		return preEmitEvidenceEndpointSupportsToken(ev, left) &&
+			preEmitEvidenceEndpointSupportsToken(ev, right)
+	}
+	for _, candidate := range preEmitAggregateMemberDisplayCandidates(member) {
+		if preEmitLabelMatchesEvidenceEndpoint(candidate, ev) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitEvidenceEndpointSupportsToken(ev types.EvidenceItem, token string) bool {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return false
+	}
+	for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+		if preEmitTypedLabelTokenSupportsLabel(endpoint, token) ||
+			preEmitTypedLabelTokenSupportsLabel(token, endpoint) {
+			return true
+		}
+	}
+	for _, term := range ev.SurfaceTerms {
+		if preEmitTypedLabelTokenSupportsLabel(term, token) ||
+			preEmitTypedLabelTokenSupportsLabel(token, term) {
+			return true
+		}
+	}
+	return preEmitCodeSurfaceAppearsVerbatim(token, ev.Snippet)
 }
 
 func preEmitAggregateSupportRefMemberLocation(ref string) (member string, location types.AnswerSourceLocationSurface, ok bool) {

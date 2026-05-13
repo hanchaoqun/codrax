@@ -2141,11 +2141,11 @@ func TestMissingPrincipalSupportMembers_AcceptsSplitRelationMemberSurface(t *tes
 		Lanes: []AnswerSupportLane{{
 			Kind: SupportLanePrincipalEvidence,
 			Entries: []AnswerSupportEntry{{
-				Text:         "aggregator.Aggregate @ aggregator.go:132",
+				Text:         "aggregator: Aggregate @ aggregator.go:132",
 				Location:     "internal/analysis/aggregator/aggregator.go:132",
 				ClaimForm:    ClaimDefinitionFact,
 				AnchorSymbol: "Aggregate",
-				SurfaceTerms: []string{"aggregator.Aggregate @ aggregator.go:132"},
+				SurfaceTerms: []string{"aggregator: Aggregate @ aggregator.go:132"},
 				Source:       "internal/analysis/aggregator/aggregator.go",
 				LineStart:    132,
 			}},

@@ -127,6 +127,34 @@ func TestEnumerationItemLabelHallucination_QualifiedIdentitySkipsQualifierOracle
 	}
 }
 
+func TestEnumerationItemLabelHallucination_AggregateMemberDisplayLabelPasses(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "subpackages",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "counterfactual",
+				Label:       "counterfactual",
+				Text:        "入口函数 Expand，定义于 expander.go:59。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/analysis/counterfactual/expander.go", Line: 59}},
+	}
+	mut := types.NewMutableState("typed aggregate member labels")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "subpackages and entry functions",
+		Value:   "1",
+		Members: []string{"counterfactual: Expand"},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("model-emitted aggregate member display labels must not be treated as fabricated symbols; got %+v", vs)
+	}
+}
+
 func TestAnswerItemLabelSupportedByCitedEvidenceSubjectRejectsAdjacentCitationDrift(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

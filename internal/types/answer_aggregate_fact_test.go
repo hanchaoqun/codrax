@@ -120,7 +120,7 @@ func TestNormalizeAnswerAggregateFacts_DedupesEquivalentMemberSetDisplayVariants
 			Kind:    AnswerAggregateMemberSet,
 			Label:   "all subpackages and entry functions",
 			Value:   "3",
-			Members: []string{"compiler → Compile", "aggregator -> Aggregate", "Type/Member"},
+			Members: []string{"compiler: Compile", "aggregator -> Aggregate", "Type/Member"},
 		},
 	})
 	if err != nil {
@@ -132,6 +132,19 @@ func TestNormalizeAnswerAggregateFacts_DedupesEquivalentMemberSetDisplayVariants
 	if got[0].Label != "subpackage directory and entry function" {
 		t.Fatalf("dedupe should preserve first model-authored display fact, got %+v", got[0])
 	}
+	candidates := AnswerAggregateMemberDisplayCandidates("compiler: Compile")
+	if !stringSliceContains(candidates, "compiler → Compile") || !stringSliceContains(candidates, "compiler/Compile") {
+		t.Fatalf("colon relation display should expose equivalent renderings, got %+v", candidates)
+	}
+}
+
+func stringSliceContains(in []string, want string) bool {
+	for _, got := range in {
+		if got == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestNormalizeAnswerAggregateFacts_DoesNotCollapseDistinctPathMembers(t *testing.T) {
