@@ -175,6 +175,43 @@ func TestPreCheckVisibleInternalCarrierTermsAllowsExplicitUserQuestion(t *testin
 	}
 }
 
+func TestPreCheckVisibleInternalCarrierTermsAllowsExplicitEmitToolGlob(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "s",
+		Kind: types.BlockSummary,
+		Text: "AnalyzerAgent 使用 `emit_analysis`，FinalizerAgent 使用 `emit_answer_document`。",
+	}}}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RawRequest: "AnalyzerAgent 和 FinalizerAgent 分别通过哪一个 emit_* 工具写出结构化输出？两个 agent 各列一个工具名。",
+	}}}
+	if hints := preCheckVisibleInternalCarrierTerms(doc, ctx); len(hints) != 0 {
+		t.Fatalf("explicit emit_* tool-name question should pass, got %+v", hints)
+	}
+}
+
+func TestPreCheckVisibleInternalCarrierTermsAllowsTypedToolNameSubject(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "s",
+		Kind: types.BlockSummary,
+		Text: "FinalizerAgent 使用 `emit_answer_document`。",
+	}}}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RawRequest: "FinalizerAgent 写结构化输出的工具名是什么？",
+		AnswerSubject: types.AnswerSubject{
+			Kind: types.SubjectStringLiteral,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"FinalizerAgent", "emit_answer_document"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+	}}}
+	if hints := preCheckVisibleInternalCarrierTerms(doc, ctx); len(hints) != 0 {
+		t.Fatalf("typed tool-name subject should pass, got %+v", hints)
+	}
+}
+
 func TestPreEmitBlockCitationRoleForms_TableParticipates(t *testing.T) {
 	block := types.AnswerBlock{
 		ID:   "table",

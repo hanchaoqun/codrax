@@ -1037,7 +1037,9 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		raisePhase1UnreadPendingReads(ctx, closure)
 		applyMultiPathAnchorChecks(ctx, closure)
 	}
-	if downgrade := explanationAnchorBackboneDowngrade(ctx); downgrade != "" {
+	if label, ok := repoGroundingBypassLabel(ctx); ok {
+		logging.Info("[emit_investigation_complete] multi-topic anchor backbone bypassed by %s", label)
+	} else if downgrade := explanationAnchorBackboneDowngrade(ctx); downgrade != "" {
 		return downgrade
 	}
 
@@ -1094,21 +1096,6 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		}
 	}
 
-	// Model-declared evidence_floor_waiver short-circuits both the
-	// forced-read pending check (Check a) and the citation-floor
-	// pre-flight (Check b). System-derived external runtime artifacts
-	// short-circuit the same gates so log and trace channels stay
-	// symmetric.
-	systemDetectedExternalRuntime := ""
-	if ctx.Mutable != nil {
-		if bundle := ctx.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
-			systemDetectedExternalRuntime = "system-detected external-source log"
-		} else if perf := ctx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
-			systemDetectedExternalRuntime = "system-detected external-source trace"
-		}
-	}
-	modelDeclaredWaiver := ctx.Mutable.EvidenceFloorWaiver()
-
 	// Check (a): forced reads still outstanding.
 	// CGEC D3: partition PendingRead entries by ScannedSet
 	// membership. Files the explorer's pre-scan saw (or grep'd /
@@ -1125,13 +1112,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 	// an external-source log. In those scenarios, demanding repo
 	// reads only forces the LLM to read unrelated files and risk
 	// confabulation (the customer-reported logtri_custom failure).
-	if (modelDeclaredWaiver.IsActive() || systemDetectedExternalRuntime != "") && len(pending) > 0 {
-		var label string
-		if modelDeclaredWaiver.IsActive() {
-			label = fmt.Sprintf("evidence_floor_waiver=%s", modelDeclaredWaiver.Reason)
-		} else {
-			label = systemDetectedExternalRuntime
-		}
+	if label, ok := repoGroundingBypassLabel(ctx); ok && len(pending) > 0 {
 		logging.Info("[emit_investigation_complete] forced-read pending list bypassed by %s (pending=%d)",
 			label, len(pending))
 		pending = nil
@@ -1206,26 +1187,14 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		return ""
 	}
 	if ctx.Mutable != nil {
-		if bundle := ctx.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
-			// External-source logs (resolved_files=0) are answered from
-			// the structured log semantics, not from repo file:line
-			// anchors. Builder/front-end already teach downstream stages
-			// to use summary prose and citation_ref=-1 where appropriate;
-			// forcing a repo citation floor here only creates pointless
-			// read-more loops against unrelated files.
-			return ""
-		}
-		if perf := ctx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
-			logging.Info("[emit_investigation_complete] citation-floor bypassed by system-detected external-source trace")
-			return ""
-		}
-		// Model-declared waiver: parallels the system-detected
-		// external-source bypass above. The model has confidently
-		// declared (via emit_investigation_complete's
-		// evidence_floor_waiver field) that repo grounding does not
-		// apply — honour it.
-		if w := ctx.Mutable.EvidenceFloorWaiver(); w.IsActive() {
-			logging.Info("[emit_investigation_complete] citation-floor bypassed by evidence_floor_waiver=%s", w.Reason)
+		if label, ok := repoGroundingBypassLabel(ctx); ok {
+			// External-source logs/traces and model-declared waivers are
+			// answered from structured runtime semantics, not from repo
+			// file:line anchors. Builder/front-end already teach
+			// downstream stages to use summary prose and citation_ref=-1
+			// where appropriate; forcing a repo citation floor here only
+			// creates pointless read-more loops against unrelated files.
+			logging.Info("[emit_investigation_complete] citation-floor bypassed by %s", label)
 			return ""
 		}
 	}
@@ -1452,6 +1421,22 @@ func completionAggregateFactIdentity(fact types.AnswerAggregateFact) string {
 		b.WriteByte(';')
 	}
 	return b.String()
+}
+
+func repoGroundingBypassLabel(ctx *types.BusContext) (string, bool) {
+	if ctx == nil || ctx.Mutable == nil {
+		return "", false
+	}
+	if w := ctx.Mutable.EvidenceFloorWaiver(); w.IsActive() {
+		return fmt.Sprintf("evidence_floor_waiver=%s", w.Reason), true
+	}
+	if bundle := ctx.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
+		return "system-detected external-source log", true
+	}
+	if perf := ctx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
+		return "system-detected external-source trace", true
+	}
+	return "", false
 }
 
 func deterministicCountProofDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {

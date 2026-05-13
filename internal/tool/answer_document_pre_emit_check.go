@@ -322,7 +322,7 @@ func preCheckVisibleInternalCarrierTerms(doc *types.AnswerDocumentV2, ctxOpt ...
 		if !strings.Contains(body, term) {
 			continue
 		}
-		if rawRequest != "" && strings.Contains(rawRequest, term) {
+		if visibleInternalCarrierTermWasRequested(term, rawRequest, ctxOpt...) {
 			continue
 		}
 		leaked = append(leaked, term)
@@ -335,6 +335,61 @@ func preCheckVisibleInternalCarrierTerms(doc *types.AnswerDocumentV2, ctxOpt ...
 		ExpectedShape: "remove internal answer-carrier field names from user-visible prose: " + strings.Join(leaked, ", "),
 		Reason:        "schema carrier names are implementation details; unless the user explicitly asked about them, state provenance, uncertainty, and citation boundaries in plain product language.",
 	}}
+}
+
+func visibleInternalCarrierTermWasRequested(term, rawRequest string, ctxOpt ...*types.BusContext) bool {
+	term = strings.TrimSpace(term)
+	if term == "" {
+		return false
+	}
+	if rawRequest != "" && strings.Contains(rawRequest, term) {
+		return true
+	}
+	if types.InferContractTermKind(term) != types.ContractTermToolName {
+		return false
+	}
+	// Exact user-authored tool-glob surfaces such as `emit_*` are a
+	// literal request for concrete emit tool names. This is not semantic
+	// keyword matching: only the exact code-like glob unlocks known
+	// tool-name terms, so ordinary prose cannot disable the carrier leak
+	// guard.
+	if strings.Contains(rawRequest, "emit_*") && strings.HasPrefix(term, "emit_") {
+		return true
+	}
+	if len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].AnalysisIR == nil {
+		return false
+	}
+	rm := ctxOpt[0].AnalysisIR.RequestModel
+	if rm.AnswerSubject.Kind != types.SubjectStringLiteral &&
+		!rm.Predicates.IsRoleLocateLookup {
+		return false
+	}
+	return requestModelNamesExactToolTerm(rm, term)
+}
+
+func requestModelNamesExactToolTerm(rm types.RequestModel, term string) bool {
+	if term == "" {
+		return false
+	}
+	matches := func(values []string) bool {
+		for _, value := range values {
+			if value == term {
+				return true
+			}
+		}
+		return false
+	}
+	if matches(rm.AnalyzerHints.Entities) ||
+		matches(rm.AnalyzerHints.ExactTargets) ||
+		matches(rm.AnswerSubject.EntityAxes) {
+		return true
+	}
+	for _, topic := range rm.SubTopics {
+		if matches(topic.Entities) {
+			return true
+		}
+	}
+	return false
 }
 
 func currentRepoEvidenceSources(ctx *types.BusContext) []string {

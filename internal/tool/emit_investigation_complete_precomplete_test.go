@@ -1107,6 +1107,60 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiTopicExplanationAnchors
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_WaiverBypassesMultiTopicAnchors(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.EvidenceClosure().SetReadSet(map[string]bool{
+		"attached-log": true,
+	})
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Source:          "attached-log",
+		LineStart:       1,
+		AnchorKind:      types.AnchorTextReference,
+		AnchorSymbol:    "RuntimeError",
+		Kind:            types.EvidenceDirect,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+		Origin:          types.ClaimOriginLog,
+	}})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				SubTopics: []types.SubTopic{
+					{Summary: "top-level exception", Entities: []string{"RuntimeError"}},
+					{Summary: "missing external service", Entities: []string{"ExternalService"}},
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "attached runtime artifact is sufficient and external to this repo",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"evidence_floor_waiver": map[string]any{
+			"reason":    string(types.EvidenceFloorWaiverExternalLog),
+			"rationale": "runtime artifact names services that are not defined in the current repository",
+		},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "multi-topic explanation still lacks") {
+		t.Fatalf("runtime waiver must bypass repo-anchor skeleton gate, got: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("unexpected downgrade after waiver: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set when runtime waiver bypasses repo anchors")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_SingleTopicExplanationSkipsAnchorSkeleton(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.EvidenceClosure().SetReadSet(map[string]bool{
