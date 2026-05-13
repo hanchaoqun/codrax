@@ -1089,8 +1089,7 @@ func runStructuralEnumerationDivergenceOracleV2(docV2 *types.AnswerDocumentV2, r
 	if !rm.Predicates.IsCategoryEnumeration {
 		return nil
 	}
-	candidateEntities := append([]string(nil), rm.AnalyzerHints.PrimaryEntities...)
-	candidateEntities = append(candidateEntities, rm.AnalyzerHints.Entities...)
+	candidateEntities := types.StructuralRelationScopeCandidates(*rm)
 	var ifaceName string
 	var typedImpl []*repotypes.Symbol
 

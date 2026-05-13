@@ -772,6 +772,76 @@ func TestBuildEmitEvidenceRepair_EmitsStructuredNoopEnvelopeForCoveredRecoveredI
 	}
 }
 
+func TestRenderEmitSummary_SplitsCurrentBatchFromCumulativeAudit(t *testing.T) {
+	current := []types.EvidenceItem{
+		{
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       852,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   "line_text",
+			Kind:            types.EvidenceDirect,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "buildAnalysisIR",
+		},
+	}
+	all := []types.EvidenceItem{
+		{
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       852,
+			GroundingStatus: types.GroundingUngrounded,
+			Kind:            types.EvidenceDirect,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "buildAnalysisIR",
+		},
+		current[0],
+	}
+	reports := []ground.Report{{AdjustedLine: 852}}
+
+	summary := renderEmitSummary(nil, current, reports, all)
+	for _, want := range []string{
+		"Current batch: 1 grounded / 0 recovered / 0 ungrounded.",
+		"Evidence buffer (audit, cumulative): 1 grounded / 0 recovered / 1 ungrounded across 1 file(s).",
+		"Active repair targets in buffer: none (1 old covered/non-actionable audit row(s) omitted from active repair).",
+		"Do not re-emit a full consolidated evidence set just to change the cumulative audit tally.",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, summary)
+		}
+	}
+}
+
+func TestActiveEmitEvidenceRepairTally_CountsOnlyActionableCurrentBufferRows(t *testing.T) {
+	active, auditOnly := activeEmitEvidenceRepairTally([]types.EvidenceItem{
+		{
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       100,
+			GroundingStatus: types.GroundingUngrounded,
+			AnchorSymbol:    "Missing",
+			Subject:         "Missing",
+		},
+		{
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       200,
+			GroundingStatus: types.GroundingGrounded,
+			AnchorSymbol:    "Recovered",
+			Subject:         "Recovered",
+		},
+		{
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       201,
+			GroundingStatus: types.GroundingRecovered,
+			AnchorSymbol:    "Recovered",
+			Subject:         "Recovered",
+		},
+	})
+	if active.ungrounded != 1 || active.recovered != 0 {
+		t.Fatalf("active tally = %+v, want 1 actionable ungrounded and 0 recovered", active)
+	}
+	if auditOnly != 1 {
+		t.Fatalf("auditOnly = %d, want covered recovered row omitted from active tally", auditOnly)
+	}
+}
+
 func TestEmitEvidence_PreservesValidatedDiagramRoleHint(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

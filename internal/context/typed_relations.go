@@ -2,7 +2,6 @@ package context
 
 import (
 	"sort"
-	"strings"
 
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -104,25 +103,13 @@ func shouldProbeTypedRelations(rm *types.RequestModel) bool {
 	return false
 }
 
-// candidateEntityNames returns the analyzer-emitted entity tokens
-// the probe should attempt to resolve. PrimaryEntities first
-// (analyzer-curated subjects), then Entities (broader pool). Empty
-// strings dropped, deduped, order preserved.
+// candidateEntityNames returns the narrow, provenance-carrying entity
+// tokens the probe should attempt to resolve. Broad analyzer Entities
+// can include repo-map expansion/context helpers; those remain search
+// hints and must not seed typed_graph relation gates unless no newer
+// provenance lane exists.
 func candidateEntityNames(rm *types.RequestModel) []string {
-	hints := rm.AnalyzerHints
-	raw := append([]string(nil), hints.PrimaryEntities...)
-	raw = append(raw, hints.Entities...)
-	seen := make(map[string]bool, len(raw))
-	out := make([]string, 0, len(raw))
-	for _, s := range raw {
-		s = strings.TrimSpace(s)
-		if s == "" || seen[s] {
-			continue
-		}
-		seen[s] = true
-		out = append(out, s)
-	}
-	return out
+	return types.StructuralRelationScopeCandidates(*rm)
 }
 
 // probeImplements walks Graph.ImplementersOf for one entity name.

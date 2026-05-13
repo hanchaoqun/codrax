@@ -172,6 +172,45 @@ func CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm RequestModel) bool {
 	return true
 }
 
+// StructuralRelationScopeCandidates returns the narrow entity lane that may
+// seed structural relation probes / hard divergence oracles.
+//
+// The important boundary is provenance, not spelling: broad
+// AnalyzerHints.Entities can later be widened with repo-map candidates,
+// helper names, and context objects. Those are useful search hints but are too
+// noisy for hard relation gates. This helper therefore prefers the
+// request-mentioned lane, exact targets, and the analyzer's original primary
+// shortlist. It only falls back to Entities for legacy callers that have no
+// provenance split at all and no known derived lane.
+func StructuralRelationScopeCandidates(rm RequestModel) []string {
+	var out []string
+	add := func(values []string) {
+		for _, value := range values {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				continue
+			}
+			dup := false
+			for _, existing := range out {
+				if strings.EqualFold(existing, value) {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				out = append(out, value)
+			}
+		}
+	}
+	add(rm.AnalyzerHints.MentionedEntities)
+	add(rm.AnalyzerHints.ExactTargets)
+	add(rm.AnalyzerHints.PrimaryEntities)
+	if len(out) == 0 && len(rm.AnalyzerHints.DerivedEntities) == 0 {
+		add(rm.AnalyzerHints.Entities)
+	}
+	return out
+}
+
 // IsArchitectureNarrativeExplanation reports whether the request is
 // asking for an architecture / logical-view / diagram narrative rather
 // than a principal member set.

@@ -1925,11 +1925,14 @@ func evidenceSemantic(it types.EvidenceItem) string {
 //	      → ungrounded: <reason>
 //	          fix: (A) read_file ...; (B) re-emit with different anchor_symbol; (C) drop if speculative
 //
-//	Evidence so far: G grounded / R recovered / U ungrounded across N files.
+//	Current batch: G grounded / R recovered / U ungrounded.
+//	Evidence buffer (audit, cumulative): G grounded / R recovered / U ungrounded across N files.
+//	Active repair targets in buffer: R recovered / U ungrounded (repair current rows or ToolRepair targets only).
 //
 // allEvidence is the mutable buffer after Append, used for the global
-// tally so the LLM sees cumulative state across multiple emit_evidence
-// calls in the same dispatch.
+// audit tally so the LLM sees cumulative state across multiple
+// emit_evidence calls without mistaking stale covered rows for work
+// that requires a full consolidated re-emit.
 func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, reports []ground.Report, allEvidence []types.EvidenceItem) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "emit_evidence accepted %d item(s)\n\n", len(items))
@@ -1980,31 +1983,113 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 			}
 		}
 	}
-	// Global tally across this dispatch's accumulated emit_evidence.
-	var g, rc, u int
-	sources := make(map[string]struct{})
-	for _, e := range allEvidence {
-		sources[e.Source] = struct{}{}
-		switch e.GroundingStatus {
-		case types.GroundingGrounded:
-			g++
-		case types.GroundingRecovered:
-			rc++
-		case types.GroundingUngrounded:
-			u++
+	batch := evidenceGroundingTally(items)
+	cumulative := evidenceGroundingTally(allEvidence)
+	active, auditOnly := activeEmitEvidenceRepairTally(allEvidence)
+	fmt.Fprintf(&b, "\nCurrent batch: %d grounded / %d recovered / %d ungrounded.\n",
+		batch.grounded, batch.recovered, batch.ungrounded)
+	fmt.Fprintf(&b, "Evidence buffer (audit, cumulative): %d grounded / %d recovered / %d ungrounded across %d file(s).\n",
+		cumulative.grounded, cumulative.recovered, cumulative.ungrounded, emitEvidenceSourceCount(allEvidence))
+	if active.recovered == 0 && active.ungrounded == 0 {
+		fmt.Fprintf(&b, "Active repair targets in buffer: none")
+		if auditOnly > 0 {
+			fmt.Fprintf(&b, " (%d old covered/non-actionable audit row(s) omitted from active repair).", auditOnly)
+		} else {
+			fmt.Fprintf(&b, ".")
 		}
+		b.WriteString(" Do not re-emit a full consolidated evidence set just to change the cumulative audit tally.\n")
+	} else {
+		fmt.Fprintf(&b, "Active repair targets in buffer: %d recovered / %d ungrounded. Repair only current item rows above or structured ToolRepair targets; do not re-emit a full consolidated evidence set just to change the cumulative audit tally.\n",
+			active.recovered, active.ungrounded)
 	}
-	srcList := make([]string, 0, len(sources))
-	for s := range sources {
-		srcList = append(srcList, s)
-	}
-	sort.Strings(srcList)
-	fmt.Fprintf(&b, "\nEvidence so far: %d grounded / %d recovered / %d ungrounded across %d file(s).\n",
-		g, rc, u, len(srcList))
 	if shouldNudgeDiagramRoleHints(ctx, items) {
 		b.WriteString("Config-precedence task detected: when an evidence item represents code defaults, a config-file layer (YAML/JSON/TOML/INI/etc.), a runtime binding layer, or a high-precedence override layer, set `diagram_role_hint` on that item so downstream diagram rendering can reuse validated structure instead of inferring roles from prose.\n")
 	}
 	return b.String()
+}
+
+type emitEvidenceGroundingTally struct {
+	grounded   int
+	recovered  int
+	ungrounded int
+}
+
+func evidenceGroundingTally(items []types.EvidenceItem) emitEvidenceGroundingTally {
+	var tally emitEvidenceGroundingTally
+	for _, item := range items {
+		switch item.GroundingStatus {
+		case types.GroundingGrounded:
+			tally.grounded++
+		case types.GroundingRecovered:
+			tally.recovered++
+		case types.GroundingUngrounded:
+			tally.ungrounded++
+		}
+	}
+	return tally
+}
+
+func emitEvidenceSourceCount(items []types.EvidenceItem) int {
+	sources := make(map[string]struct{})
+	for _, item := range items {
+		source := canonicalEmitPath(item.Source)
+		if source == "" {
+			source = strings.TrimSpace(item.Source)
+		}
+		if source == "" {
+			continue
+		}
+		sources[source] = struct{}{}
+	}
+	return len(sources)
+}
+
+func activeEmitEvidenceRepairTally(items []types.EvidenceItem) (active emitEvidenceGroundingTally, auditOnly int) {
+	if len(items) == 0 {
+		return active, 0
+	}
+	groundedByFile := make(map[string][]groundedRepairCarrier)
+	for _, item := range items {
+		if item.Source == "" || item.LineStart <= 0 || item.GroundingStatus != types.GroundingGrounded {
+			continue
+		}
+		file := canonicalEmitPath(item.Source)
+		if file == "" {
+			file = item.Source
+		}
+		tails := make(map[string]bool)
+		for _, tail := range types.EvidenceSurfaceSymbolTails(item) {
+			tails[tail] = true
+		}
+		groundedByFile[file] = append(groundedByFile[file], groundedRepairCarrier{
+			line:  item.LineStart,
+			tails: tails,
+		})
+	}
+	for _, item := range items {
+		switch item.GroundingStatus {
+		case types.GroundingRecovered, types.GroundingUngrounded:
+		default:
+			continue
+		}
+		file := canonicalEmitPath(item.Source)
+		if file == "" {
+			file = item.Source
+		}
+		if item.Source == "" || item.LineStart <= 0 ||
+			evidenceRepairShouldDrop(item) ||
+			evidenceRepairCoveredByGroundedSibling(item, file, item.LineStart, groundedByFile[file]) {
+			auditOnly++
+			continue
+		}
+		switch item.GroundingStatus {
+		case types.GroundingRecovered:
+			active.recovered++
+		case types.GroundingUngrounded:
+			active.ungrounded++
+		}
+	}
+	return active, auditOnly
 }
 
 func shouldNudgeDiagramRoleHints(ctx *types.BusContext, items []types.EvidenceItem) bool {

@@ -94,6 +94,18 @@ func TestProbeTypedRelations_NoMatchingInterfaceSkips(t *testing.T) {
 	}
 }
 
+func TestProbeTypedRelations_DerivedContextEntityDoesNotSeedHint(t *testing.T) {
+	g := buildLooperGraphForTypedRelations(t)
+	rm := enumerationRequestModel()
+	rm.AnalyzerHints.MentionedEntities = []string{"internal/analysis"}
+	rm.AnalyzerHints.PrimaryEntities = []string{"internal/analysis"}
+	rm.AnalyzerHints.Entities = []string{"internal/analysis", "Looper"}
+	rm.AnalyzerHints.DerivedEntities = []string{"Looper"}
+	if hints := ProbeTypedRelations(g, rm); hints != nil {
+		t.Errorf("derived/context relation entity must remain a search hint, got %+v", hints)
+	}
+}
+
 func TestProbeTypedRelations_NilGraphSkips(t *testing.T) {
 	if hints := ProbeTypedRelations(nil, enumerationRequestModel()); hints != nil {
 		t.Errorf("expected no hints when graph is nil; got %v", hints)

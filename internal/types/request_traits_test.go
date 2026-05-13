@@ -224,6 +224,46 @@ func TestCanUseAnalyzerEntitiesAsHardPrincipalMembers_TypedOnly(t *testing.T) {
 	}
 }
 
+func TestStructuralRelationScopeCandidates_UsesProvenanceLanes(t *testing.T) {
+	rm := RequestModel{
+		AnalyzerHints: AnalyzerHints{
+			MentionedEntities: []string{"UserFacingInterface"},
+			ExactTargets:      []string{"ExactFallback"},
+			PrimaryEntities:   []string{"PrimaryInterface"},
+			Entities:          []string{"UserFacingInterface", "ContextHelper", "SymbolResolver"},
+			DerivedEntities:   []string{"ContextHelper", "SymbolResolver"},
+		},
+	}
+	got := StructuralRelationScopeCandidates(rm)
+	want := []string{"UserFacingInterface", "ExactFallback", "PrimaryInterface"}
+	if len(got) != len(want) {
+		t.Fatalf("candidates = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("candidates = %+v, want %+v", got, want)
+		}
+	}
+}
+
+func TestStructuralRelationScopeCandidates_LegacyEntitiesFallback(t *testing.T) {
+	rm := RequestModel{
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"Looper", "Looper", "Other"},
+		},
+	}
+	got := StructuralRelationScopeCandidates(rm)
+	want := []string{"Looper", "Other"}
+	if len(got) != len(want) {
+		t.Fatalf("legacy candidates = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("legacy candidates = %+v, want %+v", got, want)
+		}
+	}
+}
+
 func TestArchitectureNarrativeExplanation_TypedBoundary(t *testing.T) {
 	rm := RequestModel{
 		Intent:     IntentExplain,
