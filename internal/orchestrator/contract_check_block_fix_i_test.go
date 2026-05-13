@@ -181,6 +181,48 @@ func TestFixI_PackageQualifiedInlineBacktickSupportedByEvidenceEndpoint(t *testi
 	}
 }
 
+func TestFixI_ChangeImpactCurrentRequestProposalSurfacePasses(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "The proposed new name `ShapeScalar` is a request surface, not an existing repo symbol.",
+		}},
+	}
+	mut := types.NewMutableState("rename")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "如果把 internal/types/analysis_ir.go 里的 ShapeValue 常量改名为 ShapeScalar，还需要改哪些文件？",
+		ChangeImpactProfile: &types.ChangeImpactProfile{
+			IsChangeImpact:  true,
+			Target:          "ShapeValue",
+			RequestedOutput: types.ImpactOutputFiles,
+		},
+	})
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("user-proposed change-impact surface should not be treated as a fabricated existing symbol; got %+v", vs)
+	}
+}
+
+func TestFixI_NonChangeImpactCurrentRequestIdentifierStillRequiresEvidence(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "The answer cites `ShapeScalar` as an existing code identifier.",
+		}},
+	}
+	mut := types.NewMutableState("lookup")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "ShapeScalar 是什么？",
+	})
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	vs := validateInlineIdentifierHallucination(doc, oracle, mut)
+	if len(vs) != 1 {
+		t.Fatalf("non-change-impact request text alone must not vouch for an existing code identifier; got %+v", vs)
+	}
+}
+
 // TestFixI_TitleAndItemTextScanned — Title field + Items[].Text
 // (in addition to Text field) get scanned.
 func TestFixI_TitleAndItemTextScanned(t *testing.T) {

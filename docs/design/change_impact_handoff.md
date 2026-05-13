@@ -344,6 +344,24 @@ whose output is broad affected members (`files`, `sites`, `symbols`, or
 `ChangeImpactProfile.SubjectCandidates`; they do not imply a finalizer
 present/absent verdict block.
 
+### Completion member-set boundary
+
+When `ChangeImpactProfile.Active()` and `requested_output` is `files` or
+`sites`, a resolved investigation must carry the complete principal member set
+through model-authored `emit_investigation_complete.aggregate_facts` with
+`kind=member_set`.
+
+- `requested_output=files`: members may be file paths only when `support_refs`
+  contains a citable file:line anchor for each file. File:line members are also
+  valid and are coalesced downstream by file.
+- `requested_output=sites`: every member must be a file:line surface.
+- Thinking text, grep output memory, read-file memory, investigation notes, and
+  closure prose are audit context only. They do not satisfy the principal
+  member-set handoff.
+- User-proposed replacement names in the current request are proposal surfaces.
+  They may be rendered verbatim, but they do not become current-code proof unless
+  another typed evidence lane independently grounds that claim.
+
 ### File-output label alignment
 
 When a principal list/table item label is a code/config path, the label is

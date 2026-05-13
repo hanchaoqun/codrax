@@ -237,6 +237,166 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ChangeImpactRequiresStructur
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_ChangeImpactFilesRequireAggregateMemberSet(t *testing.T) {
+	mut := types.NewMutableState("Which production files need changes if CitationReq.Required changes?")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "structured-target",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1915,
+		LineEnd:         1915,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    "CitationReq.Required",
+		Subject:         "CitationReq.Required",
+		Summary:         "production assignment site sets CitationReq.Required to false",
+		Producer:        EmitEvidenceProducer,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqEnumeration),
+				Entities: []string{"CitationReq.Required"},
+			},
+			ChangeImpactProfile: &types.ChangeImpactProfile{
+				IsChangeImpact:  true,
+				Target:          "CitationReq.Required",
+				RequestedOutput: types.ImpactOutputFiles,
+				Scope:           types.ImpactScopeProduction,
+			},
+		}},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "all affected files were inspected",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "change-impact principal member_set handoff is missing") {
+		t.Fatalf("expected change-impact member_set downgrade, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open until affected files are emitted through aggregate_facts.member_set")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_AllowsChangeImpactFilesAggregateMemberSet(t *testing.T) {
+	mut := types.NewMutableState("Which production files need changes if CitationReq.Required changes?")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "structured-target",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1915,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    "CitationReq.Required",
+		Subject:         "CitationReq.Required",
+		Producer:        EmitEvidenceProducer,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+			ChangeImpactProfile: &types.ChangeImpactProfile{
+				IsChangeImpact:  true,
+				Target:          "CitationReq.Required",
+				RequestedOutput: types.ImpactOutputFiles,
+				Scope:           types.ImpactScopeProduction,
+			},
+		}},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "all affected files were inspected",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "affected production files",
+			"members":      []string{"internal/agent/analyzer.go"},
+			"support_refs": []string{"internal/agent/analyzer.go:1915"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "change-impact principal member_set handoff is missing") {
+		t.Fatalf("valid aggregate member_set should satisfy the handoff: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete after citable member_set handoff")
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateMemberSet || facts[0].Value != "1" {
+		t.Fatalf("member_set aggregate should be retained and canonicalized, got %+v", facts)
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_RejectsUncitedChangeImpactFileMembers(t *testing.T) {
+	mut := types.NewMutableState("Which production files need changes if CitationReq.Required changes?")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+			ChangeImpactProfile: &types.ChangeImpactProfile{
+				IsChangeImpact:  true,
+				Target:          "CitationReq.Required",
+				RequestedOutput: types.ImpactOutputFiles,
+				Scope:           types.ImpactScopeProduction,
+			},
+		}},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "all affected files were inspected",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "member_set",
+			"label":   "affected production files",
+			"members": []string{"internal/agent/analyzer.go"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "not usable as citable source-location principal data") {
+		t.Fatalf("file members without support refs should be rejected, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open for uncited file members")
+	}
+}
+
 func TestFieldValueCountCandidates_CoversCrossLanguageInitializerSurfaces(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeTestFile(t, repoRoot, "src/config.ets", `

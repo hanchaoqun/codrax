@@ -3334,6 +3334,9 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 			if inlineIdentifierSupportedByRuntimeArtifact(ident, mut) {
 				continue
 			}
+			if inlineIdentifierSupportedByCurrentRequestProposal(ident, mut) {
+				continue
+			}
 			if answerItemLabelSupportedByEvidenceEndpoint(token, mut) {
 				continue
 			}
@@ -3417,6 +3420,27 @@ func inlineIdentifierSupportedByRuntimeArtifact(ident string, mut *types.Mutable
 		}
 	}
 	return false
+}
+
+func inlineIdentifierSupportedByCurrentRequestProposal(ident string, mut *types.MutableState) bool {
+	ident = strings.TrimSpace(ident)
+	if ident == "" || mut == nil {
+		return false
+	}
+	rm := mut.RequestModel()
+	if rm == nil || rm.ChangeImpactProfile == nil || !rm.ChangeImpactProfile.Active() {
+		return false
+	}
+	switch rm.ChangeImpactProfile.RequestedOutput {
+	case types.ImpactOutputFiles, types.ImpactOutputSites, types.ImpactOutputSymbols, types.ImpactOutputSteps, types.ImpactOutputUnknown:
+	default:
+		return false
+	}
+	raw := strings.TrimSpace(rm.RawRequest)
+	if raw == "" {
+		return false
+	}
+	return strings.Contains(raw, ident)
 }
 
 func inlineIdentifierSupportedByLogBundle(ident string, bundle *types.LogBundle) bool {

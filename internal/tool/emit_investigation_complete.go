@@ -1127,6 +1127,9 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		if downgrade := changeImpactTargetStructuredHandoffDowngrade(ctx, closure); downgrade != "" {
 			return downgrade
 		}
+		if downgrade := changeImpactPrincipalMemberSetDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
+			return downgrade
+		}
 		if downgrade := principalSupportMaterializationDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
 			return downgrade
 		}
@@ -1380,6 +1383,111 @@ func aggregateFactsContainMemberSet(facts []types.AnswerAggregateFact) bool {
 		}
 	}
 	return false
+}
+
+func changeImpactPrincipalMemberSetDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	profile := rm.ChangeImpactProfile
+	if profile == nil || !profile.Active() {
+		return ""
+	}
+	switch profile.RequestedOutput {
+	case types.ImpactOutputFiles, types.ImpactOutputSites:
+	default:
+		return ""
+	}
+	ok, invalid := changeImpactAggregatePrincipalMemberSetUsable(profile, aggregateFacts)
+	if ok {
+		return ""
+	}
+	if closure != nil {
+		keywords := dedupStringsPreserveOrder(append(
+			append([]string{strings.TrimSpace(profile.Target)}, rm.AnalyzerHints.ExactTargets...),
+			append(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities...)...,
+		))
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairEmitEvidence,
+			Files:     completionMaterializationReadFiles(closure),
+			Keywords:  keywords,
+			Rationale: "change-impact file/site answers need a model-emitted aggregate_facts member_set so principal members do not get reconstructed from prose or nearby context",
+			Origin:    "pre_complete.change_impact_member_set",
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — change-impact principal member_set handoff is missing.\n\n")
+	fmt.Fprintf(&b, "The active change-impact profile requests `%s` as the principal answer surface. Do not close with the affected files/sites only in thinking text, raw grep output, read-file memory, or the closure reason.\n\n", profile.RequestedOutput)
+	if strings.TrimSpace(invalid) != "" {
+		fmt.Fprintf(&b, "A `member_set` was present but is not usable as citable source-location principal data: %s\n\n", invalid)
+	}
+	b.WriteString("Include `aggregate_facts` with kind=`member_set` and `members` containing the complete affected principal set copied from verified search/read/command results. For requested_output=files, members may be file paths only when `support_refs` includes a citable file:line anchor for each file; file:line members are also accepted. For requested_output=sites, each member must be a file:line surface. Then re-call `emit_investigation_complete`.")
+	return b.String()
+}
+
+func changeImpactAggregatePrincipalMemberSetUsable(profile *types.ChangeImpactProfile, facts []types.AnswerAggregateFact) (bool, string) {
+	if profile == nil || !profile.Active() {
+		return true, ""
+	}
+	sawMemberSet := false
+	var invalid []string
+	for factIdx, fact := range facts {
+		if fact.Kind != types.AnswerAggregateMemberSet {
+			continue
+		}
+		sawMemberSet = true
+		if len(fact.Members) == 0 {
+			invalid = append(invalid, fmt.Sprintf("aggregate_facts[%d] has no members", factIdx))
+			continue
+		}
+		allUsable := true
+		for _, member := range fact.Members {
+			if changeImpactAggregatePrincipalMemberUsable(profile, fact, member) {
+				continue
+			}
+			allUsable = false
+			invalid = append(invalid, fmt.Sprintf("aggregate_facts[%d] member %q has no citable source surface for requested_output=%s", factIdx, member, profile.RequestedOutput))
+		}
+		if allUsable {
+			return true, ""
+		}
+	}
+	if !sawMemberSet {
+		return false, ""
+	}
+	return false, strings.Join(invalid, "; ")
+}
+
+func changeImpactAggregatePrincipalMemberUsable(profile *types.ChangeImpactProfile, fact types.AnswerAggregateFact, member string) bool {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return false
+	}
+	if surface, ok := types.ParseAnswerSourceLocationSurface(member); ok && surface.File != "" && surface.LineStart > 0 {
+		return true
+	}
+	if profile.RequestedOutput != types.ImpactOutputFiles {
+		return false
+	}
+	file, ok := types.ParseAnswerFilePathSurface(member)
+	if !ok || file == "" {
+		return false
+	}
+	for _, raw := range fact.SupportRefs {
+		surface, ok := types.ParseAnswerSourceLocationSurface(raw)
+		if !ok || surface.File == "" || surface.LineStart <= 0 {
+			continue
+		}
+		if normalizeAnswerLocationFileForChangeImpact(surface.File) == normalizeAnswerLocationFileForChangeImpact(file) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeAnswerLocationFileForChangeImpact(raw string) string {
+	return strings.Trim(strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`)), "`'\" ")
 }
 
 func changeImpactTargetStructuredHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
