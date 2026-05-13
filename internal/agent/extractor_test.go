@@ -615,6 +615,70 @@ func TestExtractor_BuildPrompt_DeterministicEvidencePrefersTypedSurface(t *testi
 	}
 }
 
+func TestExtractor_BuildPrompt_RendersValueBearingEvidenceLens(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:       types.EvidenceDirect,
+				Scope:      types.ScopeLine,
+				Source:     "internal/analysis/compiler/templates.go",
+				LineStart:  24,
+				AnchorKind: types.AnchorDefinition,
+				Snippet:    "TmplRetryBudgetMedium   = 3  // RetryBudget for mid-complexity",
+				Subject:    "TmplRetryBudgetMedium",
+				Predicate:  "defines",
+				Summary:    "TmplRetryBudgetMedium 常量值为 3",
+			},
+			{
+				Kind:         types.EvidenceDirect,
+				Scope:        types.ScopeLine,
+				Source:       "internal/analysis/compiler/templates.go",
+				LineStart:    244,
+				AnchorKind:   types.AnchorAssignment,
+				AnchorSymbol: "RetryBudget",
+				Snippet:      "RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),",
+				Subject:      "templateArchitectureExplain",
+				Predicate:    "configures",
+				Object:       "RetryBudget",
+			},
+			{
+				Kind:       types.EvidenceDirect,
+				Scope:      types.ScopeLine,
+				Source:     "internal/analysis/compiler/templates.go",
+				LineStart:  182,
+				AnchorKind: types.AnchorDefinition,
+				Snippet:    "func templateArchitectureExplain(rm types.RequestModel) Output {",
+				Subject:    "templateArchitectureExplain",
+				Summary:    "free-form function definition note",
+			},
+		},
+	})
+	ctx := &types.AgentContext{
+		Objective: "compare template retry budgets",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentExplain},
+		},
+	}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Value-bearing evidence facts",
+		"TmplRetryBudgetMedium   = 3",
+		"RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium)",
+		"Preserve exact constants",
+	} {
+		if !contains(prompt, want) {
+			t.Fatalf("prompt missing value-bearing lens content %q:\n%s", want, prompt)
+		}
+	}
+	valueSection := prompt[strings.Index(prompt, "### Value-bearing evidence facts"):]
+	if strings.Contains(valueSection, "func templateArchitectureExplain") {
+		t.Fatalf("plain function definition should not pollute value-bearing lens:\n%s", valueSection)
+	}
+}
+
 func TestExtractor_BuildPrompt_RendersAcceptedClosureAsStructuredHandoff(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

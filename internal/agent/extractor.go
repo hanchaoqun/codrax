@@ -54,6 +54,7 @@ const (
 	extractorMaxNotes           = 6    // max investigation note entries shown in prompt
 	extractorMaxNoteChars       = 1200 // max chars per note before truncation
 	extractorMaxEvidence        = 24   // max ranked evidence items shown
+	extractorMaxValueFacts      = 16   // max value-bearing evidence facts shown
 	extractorMaxEvidenceSummary = 200  // max summary chars per evidence item
 	extractorMaxFlowFindings    = 10   // max dataflow findings shown
 )
@@ -211,6 +212,10 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 				fmt.Fprintf(&b, "- [%s] %s%s%s\n", ev.Kind, summary, cite, tag)
 			}
 			b.WriteString("\n")
+		}
+
+		if lens := renderExtractorValueEvidenceFacts(ta.EvidenceItems); lens != "" {
+			b.WriteString(lens)
 		}
 
 		// Flow findings: top 10 source→sink chains
@@ -426,6 +431,98 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 	}
 	b.WriteString("- Treat this as the investigator's structured handoff, not as a citation. Preserve resolved counts, listed members, excluded candidates, and scope boundaries when they are supported by the evidence/tool outputs below; do not fall back to earlier stale notes that conflict with this accepted closure.\n\n")
 	return b.String()
+}
+
+func renderExtractorValueEvidenceFacts(items []types.EvidenceItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	count := 0
+	for _, item := range items {
+		if !extractorValueEvidenceCandidate(item) {
+			continue
+		}
+		surface := strings.TrimSpace(types.EvidenceDeterministicSurfaceText(item, false))
+		if surface == "" {
+			continue
+		}
+		if count == 0 {
+			b.WriteString("### Value-bearing evidence facts\n\n")
+			b.WriteString("These rows are a typed lens over evidence the investigator already emitted. Preserve exact constants, defaults, assignment targets, return literals, and config values from this section when they answer the user's requested dimensions; do not invent values that are not present here or in the evidence list.\n\n")
+		}
+		label := strings.TrimSpace(extractorFirstNonEmptyString(item.Subject, item.AnchorSymbol, item.OwnerSymbol, item.Object))
+		if label == "" {
+			label = strings.TrimSpace(string(item.AnchorKind))
+		}
+		if label == "" {
+			label = strings.TrimSpace(string(item.Kind))
+		}
+		loc := item.DisplayLocation(true)
+		fmt.Fprintf(&b, "- `%s`", label)
+		if loc != "" {
+			fmt.Fprintf(&b, " @ %s", loc)
+		}
+		fmt.Fprintf(&b, ": %s\n", surface)
+		count++
+		if count >= extractorMaxValueFacts {
+			break
+		}
+	}
+	if count == 0 {
+		return ""
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func extractorValueEvidenceCandidate(item types.EvidenceItem) bool {
+	if item.Source == "" || item.LineStart <= 0 {
+		return false
+	}
+	switch item.Kind {
+	case types.EvidenceConcrete:
+		return true
+	}
+	switch item.AnchorKind {
+	case types.AnchorAssignment, types.AnchorInitializer, types.AnchorReturn:
+		return true
+	case types.AnchorDefinition:
+		return snippetLooksValueBearing(item.Snippet)
+	}
+	if item.LoadBearingSummary {
+		return true
+	}
+	return snippetLooksValueBearing(item.Snippet)
+}
+
+func snippetLooksValueBearing(snippet string) bool {
+	snippet = strings.TrimSpace(snippet)
+	if snippet == "" || len(snippet) > 220 {
+		return false
+	}
+	if !strings.ContainsAny(snippet, "=:") {
+		return false
+	}
+	for _, r := range snippet {
+		if unicode.IsDigit(r) || r == '"' || r == '\'' || r == '`' {
+			return true
+		}
+	}
+	lower := strings.ToLower(snippet)
+	return strings.Contains(lower, "true") ||
+		strings.Contains(lower, "false") ||
+		strings.Contains(lower, "nil") ||
+		strings.Contains(lower, "null")
+}
+
+func extractorFirstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func truncateExtractorPromptText(s string, max int) string {
