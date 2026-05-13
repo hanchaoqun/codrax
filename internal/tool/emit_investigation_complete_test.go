@@ -1448,6 +1448,63 @@ func TestEmitInvestigationComplete_AllowsExhaustiveEnumerationMemberSet(t *testi
 	}
 }
 
+func TestEmitInvestigationComplete_RejectsUnsupportedExhaustiveEnumerationMemberSet(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all public enum types")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "intent",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       642,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Intent",
+		Subject:         "Intent",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all public enum types",
+	}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"member set contains one grounded member and one nearby helper",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"public enum types",
+			"value":"2",
+			"unit":"types",
+			"members":["Intent","NearbyHelper"],
+			"support_refs":["Intent @ internal/types/analysis_ir.go:642"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unsupported member-set downgrade is a soft pre-complete result, got hard failure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "member_set") ||
+		!strings.Contains(res.Summary, "NearbyHelper") ||
+		!strings.Contains(res.Summary, "typed evidence") {
+		t.Fatalf("summary should point at unsupported principal members, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("downgraded completion must not mark investigation complete")
+	}
+}
+
 func TestEmitInvestigationComplete_MemberSetNarrowsAnalyzerEntityCandidates(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

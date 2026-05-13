@@ -128,7 +128,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"support_refs": {
 							"type": "array",
-							"description": "Optional evidence ids, file:line labels, or command labels that back this aggregate.",
+							"description": "Optional evidence ids, file:line labels, command labels, or member-specific refs like \"Member @ file:line\" that back this aggregate. For code/path/location member_set facts, every principal member should either match typed evidence already emitted through emit_evidence / emit_answer_symbol, or have a member-specific support ref that maps it to the grounded evidence line.",
 							"items": {"type": "string"}
 						}
 					},
@@ -1354,11 +1354,14 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 	if view == nil || view.Family != types.QFEnumeration || !view.NeedsEnumerationSlate() {
 		return ""
 	}
-	if aggregateFactsContainMemberSet(aggregateFacts) {
+	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)
+	if ok {
 		return ""
 	}
-	if syms, claim := ctx.Mutable.EmittedAnswerSymbols(); len(syms) > 0 && claim == types.CompletenessComplete {
-		return ""
+	if strings.TrimSpace(invalid) == "" {
+		if syms, claim := ctx.Mutable.EmittedAnswerSymbols(); len(syms) > 0 && claim == types.CompletenessComplete {
+			return ""
+		}
 	}
 	if closure != nil {
 		closure.AddRepair(types.RepairDirective{
@@ -1372,7 +1375,10 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — exhaustive member-set handoff is missing.\n\n")
 	b.WriteString("The current question requires an exhaustive enumeration. Do not close with the complete list only in tool-output memory, thinking text, or the closure reason.\n\n")
-	b.WriteString("Either emit the completed `emit_answer_symbol` slate, or include `aggregate_facts` with kind=`member_set`, value equal to the exact member count, and `members` containing every principal answer member copied from your verified search/read/command results. Include source locations in member strings or support_refs when available. Then re-call `emit_investigation_complete`.")
+	if strings.TrimSpace(invalid) != "" {
+		fmt.Fprintf(&b, "A `member_set` was present but is not usable as citable principal-member data: %s\n\n", invalid)
+	}
+	b.WriteString("Either emit the completed `emit_answer_symbol` slate, or include `aggregate_facts` with kind=`member_set`, value equal to the exact member count, and `members` containing every principal answer member copied from your verified search/read/command results. For code symbols, paths, routes, config keys, macros, spans, and source-location members, each member must be backed by typed evidence already emitted through `emit_evidence`, or by member-specific `support_refs` such as `Member @ path/file.ext:123` that point to the same grounded evidence line. Exclude related-context/helper candidates from the principal member_set. Then re-call `emit_investigation_complete`.")
 	return b.String()
 }
 
@@ -1380,6 +1386,282 @@ func aggregateFactsContainMemberSet(facts []types.AnswerAggregateFact) bool {
 	for _, fact := range facts {
 		if fact.Kind == types.AnswerAggregateMemberSet && len(fact.Members) > 0 {
 			return true
+		}
+	}
+	return false
+}
+
+func exhaustiveEnumerationMemberSetUsable(ctx *types.BusContext, facts []types.AnswerAggregateFact) (bool, string) {
+	if len(facts) == 0 {
+		return false, ""
+	}
+	support := buildAggregateMemberSupportIndex(ctx)
+	sawMemberSet := false
+	var invalid []string
+	for factIdx, fact := range facts {
+		if fact.Kind != types.AnswerAggregateMemberSet {
+			continue
+		}
+		sawMemberSet = true
+		if len(fact.Members) == 0 {
+			invalid = append(invalid, fmt.Sprintf("aggregate_facts[%d] has no members", factIdx))
+			continue
+		}
+		allUsable := true
+		for _, member := range fact.Members {
+			if aggregateMemberSetMemberUsable(fact, member, support) {
+				continue
+			}
+			allUsable = false
+			invalid = append(invalid, fmt.Sprintf("aggregate_facts[%d] member %q has no typed evidence / member-specific support_ref", factIdx, strings.TrimSpace(member)))
+			if len(invalid) >= 12 {
+				break
+			}
+		}
+		if allUsable {
+			return true, ""
+		}
+	}
+	if !sawMemberSet {
+		return false, ""
+	}
+	if len(invalid) == 0 {
+		return false, ""
+	}
+	return false, strings.Join(invalid, "; ")
+}
+
+type aggregateMemberSupportIndex struct {
+	byLabel    map[string][]types.EvidenceItem
+	byLocation map[string][]types.EvidenceItem
+	byID       map[string]types.EvidenceItem
+	answerSyms map[string]types.AnswerSymbol
+}
+
+func buildAggregateMemberSupportIndex(ctx *types.BusContext) aggregateMemberSupportIndex {
+	idx := aggregateMemberSupportIndex{
+		byLabel:    map[string][]types.EvidenceItem{},
+		byLocation: map[string][]types.EvidenceItem{},
+		byID:       map[string]types.EvidenceItem{},
+		answerSyms: map[string]types.AnswerSymbol{},
+	}
+	if ctx == nil || ctx.Mutable == nil {
+		return idx
+	}
+	for _, ev := range ctx.Mutable.EmittedEvidence() {
+		if ev.GroundingStatus == types.GroundingUngrounded {
+			continue
+		}
+		if id := strings.TrimSpace(ev.ID); id != "" {
+			idx.byID[id] = ev
+		}
+		if loc := aggregateSupportLocationKey(ev.Source, ev.LineStart); loc != "" {
+			idx.byLocation[loc] = append(idx.byLocation[loc], ev)
+		}
+		for _, raw := range aggregateEvidenceMemberLabels(ev) {
+			key := aggregateMemberKey(raw)
+			if key == "" {
+				continue
+			}
+			idx.byLabel[key] = append(idx.byLabel[key], ev)
+		}
+	}
+	if syms, claim := ctx.Mutable.EmittedAnswerSymbols(); claim == types.CompletenessComplete {
+		for _, sym := range syms {
+			key := aggregateMemberKey(sym.Name)
+			if key == "" {
+				continue
+			}
+			idx.answerSyms[key] = sym
+		}
+	}
+	return idx
+}
+
+func aggregateMemberSetMemberUsable(fact types.AnswerAggregateFact, member string, support aggregateMemberSupportIndex) bool {
+	labels := aggregateMemberDisplayCandidates(member)
+	if len(labels) == 0 {
+		return false
+	}
+	if !aggregateMemberNeedsTypedSupport(labels) {
+		return true
+	}
+	if aggregateMemberCoveredByAnswerSymbol(labels, support.answerSyms) {
+		return true
+	}
+	if aggregateMemberCoveredByEvidenceLabels(labels, support.byLabel) {
+		return true
+	}
+	if label, loc, ok := aggregateMemberSupportRefParts(member); ok && aggregateLocationEvidenceMatchesLabels(loc, aggregateSupportLabels(label, labels), support.byLocation) {
+		return true
+	}
+	for _, ref := range fact.SupportRefs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		if ev, ok := support.byID[ref]; ok && aggregateEvidenceMatchesAnyLabel(ev, labels) {
+			return true
+		}
+		label, loc, ok := aggregateMemberSupportRefParts(ref)
+		if !ok {
+			continue
+		}
+		if !aggregateSupportLabelMatchesMember(label, labels) {
+			continue
+		}
+		if aggregateLocationEvidenceMatchesLabels(loc, aggregateSupportLabels(label, labels), support.byLocation) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateMemberDisplayCandidates(member string) []string {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return nil
+	}
+	out := []string{member}
+	for _, sep := range []string{" @ ", "\t", " | "} {
+		if idx := strings.Index(member, sep); idx > 0 {
+			prefix := strings.TrimSpace(member[:idx])
+			if prefix != "" {
+				out = append(out, prefix)
+			}
+		}
+	}
+	return dedupStringsPreserveOrder(out)
+}
+
+func aggregateMemberNeedsTypedSupport(labels []string) bool {
+	for _, label := range labels {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			continue
+		}
+		if types.IsCodeIdentitySurface(label) {
+			return true
+		}
+		if _, ok := types.ParseAnswerSourceLocationSurface(label); ok {
+			return true
+		}
+		if _, ok := types.ParseAnswerFilePathSurface(label); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateMemberCoveredByAnswerSymbol(labels []string, syms map[string]types.AnswerSymbol) bool {
+	if len(syms) == 0 {
+		return false
+	}
+	for _, label := range labels {
+		if _, ok := syms[aggregateMemberKey(label)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateMemberCoveredByEvidenceLabels(labels []string, byLabel map[string][]types.EvidenceItem) bool {
+	for _, label := range labels {
+		key := aggregateMemberKey(label)
+		if key == "" {
+			continue
+		}
+		if len(byLabel[key]) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateMemberSupportRefParts(raw string) (label string, location string, ok bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", false
+	}
+	for _, sep := range []string{" @ ", "\t", " | "} {
+		idx := strings.Index(raw, sep)
+		if idx <= 0 {
+			continue
+		}
+		label = strings.TrimSpace(raw[:idx])
+		loc := strings.TrimSpace(raw[idx+len(sep):])
+		if key := aggregateSupportLocationFromSurface(loc); key != "" {
+			return label, key, true
+		}
+	}
+	if key := aggregateSupportLocationFromSurface(raw); key != "" {
+		return "", key, true
+	}
+	return "", "", false
+}
+
+func aggregateSupportLocationFromSurface(raw string) string {
+	if surface, ok := types.ParseAnswerSourceLocationSurface(raw); ok {
+		return aggregateSupportLocationKey(surface.File, surface.LineStart)
+	}
+	return ""
+}
+
+func aggregateSupportLocationKey(file string, line int) string {
+	file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
+	if file == "" || line <= 0 {
+		return ""
+	}
+	return file + ":" + fmt.Sprintf("%d", line)
+}
+
+func aggregateSupportLabelMatchesMember(label string, memberLabels []string) bool {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return true
+	}
+	want := aggregateMemberKey(label)
+	if want == "" {
+		return false
+	}
+	for _, member := range memberLabels {
+		if aggregateMemberKey(member) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateSupportLabels(label string, fallback []string) []string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return fallback
+	}
+	return dedupStringsPreserveOrder(append([]string{label}, fallback...))
+}
+
+func aggregateLocationEvidenceMatchesLabels(location string, labels []string, byLocation map[string][]types.EvidenceItem) bool {
+	if location == "" {
+		return false
+	}
+	for _, ev := range byLocation[location] {
+		if aggregateEvidenceMatchesAnyLabel(ev, labels) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateEvidenceMatchesAnyLabel(ev types.EvidenceItem, labels []string) bool {
+	for _, raw := range aggregateEvidenceMemberLabels(ev) {
+		evKey := aggregateMemberKey(raw)
+		if evKey == "" {
+			continue
+		}
+		for _, label := range labels {
+			if evKey == aggregateMemberKey(label) {
+				return true
+			}
 		}
 	}
 	return false
