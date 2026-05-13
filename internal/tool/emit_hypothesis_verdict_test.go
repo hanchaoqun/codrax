@@ -53,6 +53,54 @@ func TestEmitHypothesisVerdict_AcceptsValidBatch(t *testing.T) {
 	}
 }
 
+func TestEmitHypothesisVerdict_RejectsCitationLineDriftWhenBetterAnchorVisible(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	ctx := newVerdictCtx()
+	lines := make([]string, 55)
+	for i := range lines {
+		lines[i] = "// unrelated"
+	}
+	lines[100-98] = "func AllMainStages() []PipelineStage {"
+	lines[146-98] = "func AllAgentNames() []AgentName {"
+	lines[147-98] = "\treturn []AgentName{AgentAnalyzer, AgentExplorer}"
+	seedReadFileHistory(ctx, "internal/types/enums.go", 98, lines...)
+
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"AllAgentNames() returns AgentAnalyzer and AgentExplorer entries","citation":"internal/types/enums.go:100"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("drifted citation should be rejected when a better visible anchor exists")
+	}
+	if !strings.Contains(res.Summary, "does not corroborate") {
+		t.Fatalf("expected corroboration diagnosis, got: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "internal/types/enums.go:146") {
+		t.Fatalf("expected precise candidate anchor in retry hint, got: %q", res.Summary)
+	}
+}
+
+func TestEmitHypothesisVerdict_AcceptsGroundedCitationWhenIdentifierMatchesReadWindow(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	ctx := newVerdictCtx()
+	lines := []string{
+		"func AllAgentNames() []AgentName {",
+		"\treturn []AgentName{AgentAnalyzer, AgentExplorer}",
+		"}",
+	}
+	seedReadFileHistory(ctx, "internal/types/enums.go", 146, lines...)
+
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"AllAgentNames() returns AgentAnalyzer and AgentExplorer entries","citation":"internal/types/enums.go:146"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("grounded citation should be accepted, got: %s", res.Summary)
+	}
+}
+
 func TestEmitHypothesisVerdict_ConfirmedRequiresCitation(t *testing.T) {
 	tool := &EmitHypothesisVerdict{}
 	ctx := newVerdictCtx()

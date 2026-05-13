@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -22,8 +24,8 @@ import (
 //   - confirmed: evidence in the transcript supports the hypothesis
 //   - rejected:  evidence in the transcript falsifies the hypothesis
 //   - inconclusive: the hypothesis was investigated but evidence is
-//                   insufficient. This is structurally distinct from
-//                   the IR-default "unknown" (= never investigated).
+//     insufficient. This is structurally distinct from
+//     the IR-default "unknown" (= never investigated).
 //
 // HypothesisID is matched against AnalysisIR.HypothesisSet[*].ID at
 // drain time (in MutableState.MarkHypothesis, landing in P6). Unknown
@@ -89,7 +91,7 @@ func (t *EmitHypothesisVerdict) Parameters() json.RawMessage {
         "properties": {
           "hypothesis_id": {"type": "string", "description": "Hypothesis ID listed in the Hypotheses section of the prompt. Required. Unknown IDs are diagnosed."},
           "status":        {"type": "string", "enum": ["confirmed", "rejected", "inconclusive"], "description": "Verdict. confirmed/rejected require a citation; inconclusive may omit it."},
-          "rationale":     {"type": "string", "description": "Rationale for the verdict — explain the mechanism or invariant that produced the status. Reference load-bearing identifiers with inline `+"`"+`code`+"`"+`. Strongly recommended."},
+          "rationale":     {"type": "string", "description": "Rationale for the verdict — explain the mechanism or invariant that produced the status. Reference load-bearing identifiers with inline ` + "`" + `code` + "`" + `. Strongly recommended."},
           "citation":      {"type": "string", "description": "Concrete code anchor in the form 'path:line' or 'path:line-end'. Required when status is confirmed or rejected."}
         },
         "required": ["hypothesis_id", "status"]
@@ -122,10 +124,14 @@ func (t *EmitHypothesisVerdict) Execute(ctx *types.BusContext, params json.RawMe
 		return failEmit(t.Name(), now, "items is empty; emit at least one verdict object per call")
 	}
 
+	groundCtx := ground.BuildContext(ctx)
 	built := make([]types.HypothesisVerdict, 0, len(p.Items))
 	for i, in := range p.Items {
 		v, perr := buildEmitHypothesisVerdictItem(in, i)
 		if perr != nil {
+			return failEmit(t.Name(), now, "%v", perr)
+		}
+		if perr := validateHypothesisVerdictCitationGrounding(ctx, groundCtx, v, i); perr != nil {
 			return failEmit(t.Name(), now, "%v", perr)
 		}
 		built = append(built, v)
@@ -142,10 +148,11 @@ func (t *EmitHypothesisVerdict) Execute(ctx *types.BusContext, params json.RawMe
 }
 
 // buildEmitHypothesisVerdictItem validates one decoded item and
-// converts it into a types.HypothesisVerdict. All validation is
-// structural — no wordlist checks, no IR lookup (the cross-reference
-// against HypothesisSet[*].ID is the drain layer's responsibility,
-// see MutableState.MarkHypothesis in P6).
+// converts it into a types.HypothesisVerdict. This layer validates
+// the wire shape; citation grounding runs immediately after building
+// because it needs BusContext history. The cross-reference against
+// HypothesisSet[*].ID remains the drain layer's responsibility, see
+// MutableState.MarkHypothesis in P6.
 func buildEmitHypothesisVerdictItem(in emitHypothesisVerdictItem, index int) (types.HypothesisVerdict, error) {
 	hypID := strings.TrimSpace(in.HypothesisID)
 	if hypID == "" {
@@ -199,6 +206,75 @@ func buildEmitHypothesisVerdictItem(in emitHypothesisVerdictItem, index int) (ty
 		Rationale:    rationale,
 		Citation:     citation,
 	}, nil
+}
+
+func validateHypothesisVerdictCitationGrounding(ctx *types.BusContext, gc *ground.Context, v types.HypothesisVerdict, index int) error {
+	if strings.TrimSpace(v.Citation) == "" {
+		return nil
+	}
+	if gc == nil || (len(gc.LineIndex) == 0 && gc.Graph == nil) {
+		return nil
+	}
+	cit, err := parseEmitHypothesisCitation(v.Citation)
+	if err != nil {
+		return fmt.Errorf("items[%d]: %v", index, err)
+	}
+	claimText := strings.TrimSpace(v.Rationale)
+	if h := hypothesisStatementForVerdict(ctx, v.HypothesisID); h != "" {
+		claimText += "\n" + h
+	}
+	report := ground.GroundClaimCitation(cit, claimText, gc)
+	if !report.Valid {
+		return fmt.Errorf("items[%d]: citation %q is not grounded: %s", index, v.Citation, report.Reason)
+	}
+	if report.Corroborated {
+		return nil
+	}
+	return fmt.Errorf(
+		"items[%d]: citation %q does not corroborate the hypothesis/rationale identifiers near line %d. Use one of these candidate anchors instead: %s",
+		index, v.Citation, cit.Line, ground.FormatClaimCitationCandidates(report.Candidates))
+}
+
+func parseEmitHypothesisCitation(raw string) (types.Citation, error) {
+	s := strings.TrimSpace(raw)
+	idx := strings.LastIndex(s, ":")
+	if idx <= 0 || idx == len(s)-1 {
+		return types.Citation{}, fmt.Errorf("citation %q does not look like 'path:line' or 'path:line-end'", raw)
+	}
+	file := s[:idx]
+	linePart := s[idx+1:]
+	startText, endText := linePart, ""
+	if dash := strings.Index(linePart, "-"); dash > 0 {
+		startText = linePart[:dash]
+		endText = linePart[dash+1:]
+	}
+	start, err := strconv.Atoi(startText)
+	if err != nil || start <= 0 {
+		return types.Citation{}, fmt.Errorf("citation %q has a non-positive start line", raw)
+	}
+	end := start
+	if endText != "" {
+		end, err = strconv.Atoi(endText)
+		if err != nil || end <= 0 {
+			return types.Citation{}, fmt.Errorf("citation %q has a non-positive end line", raw)
+		}
+		if end < start {
+			return types.Citation{}, fmt.Errorf("citation %q has a reversed line range", raw)
+		}
+	}
+	return types.Citation{File: file, Line: start, LineEnd: end}, nil
+}
+
+func hypothesisStatementForVerdict(ctx *types.BusContext, id string) string {
+	if ctx == nil || ctx.AnalysisIR == nil || strings.TrimSpace(id) == "" {
+		return ""
+	}
+	for _, h := range ctx.AnalysisIR.HypothesisSet {
+		if h.ID == id {
+			return h.Statement
+		}
+	}
+	return ""
 }
 
 // looksLikeCitation reports whether s is shaped like 'path:line' or

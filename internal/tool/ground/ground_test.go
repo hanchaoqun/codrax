@@ -498,6 +498,85 @@ func TestGroundCitation_GutterHitQuoteFabricated(t *testing.T) {
 	}
 }
 
+func TestGroundClaimCitation_RejectsDriftWithSameFileCandidate(t *testing.T) {
+	lines := make([]string, 55)
+	for i := range lines {
+		lines[i] = "// unrelated"
+	}
+	lines[100-98] = "func AllMainStages() []PipelineStage {"
+	lines[146-98] = "func AllAgentNames() []AgentName {"
+	lines[147-98] = "\treturn []AgentName{AgentAnalyzer, AgentExplorer}"
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/types/enums.go", 98, lines, 200),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+
+	report := GroundClaimCitation(
+		types.Citation{File: "internal/types/enums.go", Line: 100},
+		"AllAgentNames() returns AgentAnalyzer and AgentExplorer entries",
+		gc,
+	)
+	if !report.Valid {
+		t.Fatalf("line exists and should be structurally valid: %+v", report)
+	}
+	if report.Corroborated {
+		t.Fatalf("drifted claim citation should not be corroborated: %+v", report)
+	}
+	if got := FormatClaimCitationCandidates(report.Candidates); !strings.Contains(got, "internal/types/enums.go:146") {
+		t.Fatalf("expected precise same-file candidate, got %q", got)
+	}
+}
+
+func TestGroundClaimCitation_AcceptsIdentifierInReadWindow(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/types/enums.go", 146, []string{
+			"func AllAgentNames() []AgentName {",
+			"\treturn []AgentName{AgentAnalyzer, AgentExplorer}",
+			"}",
+		}, 200),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+
+	report := GroundClaimCitation(
+		types.Citation{File: "internal/types/enums.go", Line: 146},
+		"AllAgentNames() returns AgentAnalyzer and AgentExplorer entries",
+		gc,
+	)
+	if !report.Valid || !report.Corroborated {
+		t.Fatalf("grounded claim citation should pass: %+v", report)
+	}
+}
+
+func TestGroundClaimCitation_RejectsUnreadRangeWhenReadHistoryExists(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("a.go", 10, []string{
+			"func AlreadyRead() {}",
+			"",
+			"var Seen = true",
+		}, 120),
+	}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"a.go": {RelPath: "a.go", Symbols: []repomap.Symbol{
+				{Name: "Foo", Kind: "function", Line: 100, EndLine: 110},
+			}},
+		},
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, ""), Graph: graph}
+
+	report := GroundClaimCitation(
+		types.Citation{File: "a.go", Line: 100, LineEnd: 102},
+		"Foo returns the agent list",
+		gc,
+	)
+	if report.Valid {
+		t.Fatalf("claim citation should reject ranges outside read_file history despite graph fallback: %+v", report)
+	}
+	if !strings.Contains(report.Reason, "read_file history") || !strings.Contains(report.Reason, "10-12") {
+		t.Fatalf("expected visible read range hint, got %q", report.Reason)
+	}
+}
+
 // TestGroundCitation_FileAbsentEverywhere is the drop path: file not
 // in gutter and not in graph. Valid=false with a reason the LLM can
 // read and fix on the next turn.
