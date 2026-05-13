@@ -1312,6 +1312,51 @@ func TestValidateCallChainItemCitationRoleAlignment_AcceptsMatchingCallEdge(t *t
 	}
 }
 
+func TestValidateCallChainItemCitationRoleAlignment_IgnoresBoundaryCooccurrence(t *testing.T) {
+	mut := types.NewMutableState("boundary explanation")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "call-canonical",
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/tool/emit_investigation_complete.go",
+			LineStart:       3054,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "callChainPrincipalSpanDemandForEvidence",
+			Object:          "canonicalCallChainSource",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "guard-filter",
+			Kind:            types.EvidenceConditional,
+			Source:          "internal/tool/emit_investigation_complete.go",
+			LineStart:       3051,
+			AnchorKind:      types.AnchorCondition,
+			Subject:         "callChainPrincipalSpanEvidenceEligible",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/tool/emit_investigation_complete.go", Line: 3051}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "hops",
+			Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimCallEdge,
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "h1",
+				Label:       "user-side filter",
+				Text:        "`callChainPrincipalSpanDemandForEvidence` 的用户侧过滤与 `canonicalCallChainSource` 只是边界说明，不是这条 helper 的正向调用关系。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if vs := validateCallChainItemCitationRoleAlignment(doc, nil, mut); len(vs) != 0 {
+		t.Fatalf("boundary/co-occurrence prose must not be treated as a directed edge assertion, got %+v", vs)
+	}
+}
+
 func TestValidateCallChainItemCitationRoleAlignment_GeneralizesToImportEdge(t *testing.T) {
 	mut := types.NewMutableState("imports")
 	mut.AppendEvidence([]types.EvidenceItem{
@@ -1347,7 +1392,7 @@ func TestValidateCallChainItemCitationRoleAlignment_GeneralizesToImportEdge(t *t
 			Items: []types.AnswerBlockItem{{
 				ID:          "i1",
 				Label:       "@kit.ArkUI",
-				Text:        "`Index.ets` imports `@kit.ArkUI`",
+				Text:        "`Index.ets` -> `@kit.ArkUI`",
 				CitationRef: 0,
 			}},
 		}},

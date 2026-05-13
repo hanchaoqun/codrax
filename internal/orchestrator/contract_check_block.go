@@ -1721,12 +1721,13 @@ func answerBlockSharesFacet(b types.AnswerBlock, facets []string) bool {
 }
 
 func answerClaimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []types.ClaimForm, evidence []types.EvidenceItem) (types.EvidenceItem, bool) {
-	surface := strings.TrimSpace(item.Label + "\n" + item.Text)
-	if surface == "" {
+	label := strings.TrimSpace(item.Label)
+	text := strings.TrimSpace(item.Text)
+	if label == "" && text == "" {
 		return types.EvidenceItem{}, false
 	}
 	for _, ev := range evidence {
-		if types.EvidenceClaimRoleMentionedBySurface(ev, forms, surface) {
+		if types.EvidenceClaimRoleAssertedByAnswerSurface(ev, forms, label, text) {
 			return ev, true
 		}
 	}

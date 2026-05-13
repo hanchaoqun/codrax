@@ -85,10 +85,10 @@ func ClaimFormsSupportingCitationRoleAlignment(forms []ClaimForm) []ClaimForm {
 	return out
 }
 
-// EvidenceClaimRoleMentionedBySurface reports whether the visible
-// answer item surface names ev's claim role strongly enough for a hard
+// EvidenceClaimRoleMentionedBySurface reports whether a visible
+// surface asserts ev's claim role strongly enough for a hard
 // citation-role alignment check. It consumes only typed evidence fields
-// plus exact surface occurrence; it never scans user prose for
+// plus exact structural carriers; it never scans user prose for
 // heuristic keywords.
 func EvidenceClaimRoleMentionedBySurface(ev EvidenceItem, allowed []ClaimForm, surface string) bool {
 	surface = strings.TrimSpace(surface)
@@ -104,6 +104,32 @@ func EvidenceClaimRoleMentionedBySurface(ev EvidenceItem, allowed []ClaimForm, s
 		return evidenceDirectedEdgeMentioned(surface, ev)
 	case ClaimCitationRoleDisplaySurface:
 		return evidenceDisplaySurfaceMentioned(surface, ev)
+	default:
+		return false
+	}
+}
+
+// EvidenceClaimRoleAssertedByAnswerSurface is the answer-item specific
+// projection used by emit-time and post-emit citation-role validators.
+// Directed relations may be asserted by label or text only when the
+// endpoints are connected by an explicit edge surface (for example
+// `A -> B` or Mermaid-style arrows). Display-surface roles are limited
+// to the item label, which is the principal row/member surface; body
+// prose may mention comparison, caveat, or boundary context without
+// becoming a hard claim-role assertion.
+func EvidenceClaimRoleAssertedByAnswerSurface(ev EvidenceItem, allowed []ClaimForm, label, text string) bool {
+	if ev.GroundingStatus == GroundingUngrounded {
+		return false
+	}
+	form := ClaimFormOf(ev)
+	if !claimFormAllowed(form, allowed) || !form.SupportsCitationRoleAlignment() {
+		return false
+	}
+	switch form.CitationRoleIdentityKind() {
+	case ClaimCitationRoleDirectedEdge:
+		return evidenceDirectedEdgeMentioned(strings.TrimSpace(label+"\n"+text), ev)
+	case ClaimCitationRoleDisplaySurface:
+		return evidenceDisplaySurfaceMentioned(strings.TrimSpace(label), ev)
 	default:
 		return false
 	}
@@ -197,7 +223,7 @@ func evidenceDirectedEdgeMentioned(surface string, ev EvidenceItem) bool {
 	if subject == "" || object == "" {
 		return false
 	}
-	return CodeSurfaceAppearsAsToken(subject, surface) && CodeSurfaceAppearsAsToken(object, surface)
+	return explicitDirectedEdgeSurfaceConnects(subject, object, surface)
 }
 
 func evidenceDisplaySurfaceMentioned(surface string, ev EvidenceItem) bool {
@@ -333,6 +359,82 @@ func sameEvidenceLocation(a, b EvidenceItem) bool {
 
 func codeSurfaceMatches(a, b string) bool {
 	return strings.TrimSpace(a) != "" && strings.TrimSpace(a) == strings.TrimSpace(b)
+}
+
+type codeSurfaceSpan struct {
+	start int
+	end   int
+}
+
+func explicitDirectedEdgeSurfaceConnects(subject, object, surface string) bool {
+	if strings.TrimSpace(subject) == "" || strings.TrimSpace(object) == "" || strings.TrimSpace(surface) == "" {
+		return false
+	}
+	subjectSpans := codeSurfaceTokenSpans(subject, surface)
+	objectSpans := codeSurfaceTokenSpans(object, surface)
+	if len(subjectSpans) == 0 || len(objectSpans) == 0 {
+		return false
+	}
+	for _, from := range subjectSpans {
+		for _, to := range objectSpans {
+			if from.end > to.start {
+				continue
+			}
+			if isExplicitDirectedEdgeConnector(surface[from.end:to.start]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func codeSurfaceTokenSpans(needle, haystack string) []codeSurfaceSpan {
+	needle = strings.TrimSpace(needle)
+	haystack = strings.TrimSpace(haystack)
+	if needle == "" || haystack == "" {
+		return nil
+	}
+	var out []codeSurfaceSpan
+	start := 0
+	for {
+		idx := strings.Index(haystack[start:], needle)
+		if idx < 0 {
+			return out
+		}
+		pos := start + idx
+		end := pos + len(needle)
+		if codeSurfaceBoundary(haystack, pos-1) && codeSurfaceBoundary(haystack, end) {
+			out = append(out, codeSurfaceSpan{start: pos, end: end})
+		}
+		start = end
+		if start >= len(haystack) {
+			return out
+		}
+	}
+}
+
+func isExplicitDirectedEdgeConnector(raw string) bool {
+	conn := strings.TrimSpace(raw)
+	conn = strings.Trim(conn, "`'\"“”‘’")
+	conn = strings.TrimSpace(conn)
+	conn = strings.Join(strings.Fields(conn), "")
+	switch conn {
+	case "->", "=>", "→", "-->", "==>", "-.->":
+		return true
+	}
+	if strings.HasPrefix(conn, "-->") {
+		return true
+	}
+	if strings.HasPrefix(conn, "--") && strings.HasSuffix(conn, "-->") {
+		return true
+	}
+	if strings.HasPrefix(conn, "==") && strings.HasSuffix(conn, "==>") {
+		return true
+	}
+	if strings.HasPrefix(conn, "-.") && strings.HasSuffix(conn, ".->") {
+		return true
+	}
+	return false
 }
 
 // CodeSurfaceAppearsAsToken is shared by answer validators that need

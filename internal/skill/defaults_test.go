@@ -190,6 +190,27 @@ func TestFinalizerSkill_TeachesTypedDiagramRelationAuthority(t *testing.T) {
 	}
 }
 
+func TestFinalizerSkill_TeachesTextReferenceAndExplicitRelationSurface(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	blob := strings.Join([]string{sk.Goal, sk.OutputFormat, allWorkflowBodies(sk)}, "\n")
+	for _, want := range []string{
+		"`text_reference_fact`",
+		"visible source / config / doc / comment text itself is the evidence",
+		"explicit edge surface",
+		"Boundary / comparison / exclusion prose",
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("answer-document-skill missing typed carrier guidance %q:\n%s", want, blob)
+		}
+	}
+}
+
 func TestFinalizerSkill_ClarifiesFacetIDAndVerticalDiagramPreference(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

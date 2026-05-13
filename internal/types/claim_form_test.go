@@ -66,6 +66,12 @@ func TestEvidenceClaimRoleMentionedBySurface_DirectedEdge(t *testing.T) {
 	if EvidenceClaimRoleMentionedBySurface(ev, []ClaimForm{ClaimCallEdge}, "`ParseOutputX` -> `buildAnalysisIR`") {
 		t.Fatalf("endpoint matching must use code-token boundaries")
 	}
+	if EvidenceClaimRoleMentionedBySurface(ev, []ClaimForm{ClaimCallEdge}, "`ParseOutput` and `buildAnalysisIR` are mentioned as unrelated boundary context") {
+		t.Fatalf("endpoint co-occurrence without an explicit edge surface must not assert a directed role")
+	}
+	if EvidenceClaimRoleMentionedBySurface(ev, []ClaimForm{ClaimCallEdge}, "`ParseOutput` 与 `buildAnalysisIR` 无关") {
+		t.Fatalf("boundary/negative prose must not be upgraded into a directed edge assertion")
+	}
 }
 
 func TestEvidenceClaimRoleMentionedBySurface_DisplaySurface(t *testing.T) {
@@ -77,6 +83,30 @@ func TestEvidenceClaimRoleMentionedBySurface_DisplaySurface(t *testing.T) {
 	}
 	if !EvidenceClaimRoleMentionedBySurface(ev, []ClaimForm{ClaimExternalObservation}, "Caused by java.io.IOException: Connection refused") {
 		t.Fatalf("display surface terms from typed evidence should be recognized")
+	}
+}
+
+func TestEvidenceClaimRoleAssertedByAnswerSurface_DisplayRoleUsesLabelOnly(t *testing.T) {
+	ev := EvidenceItem{
+		Origin:          ClaimOriginLog,
+		SurfaceTerms:    []string{"Connection refused"},
+		GroundingStatus: GroundingGrounded,
+	}
+	if EvidenceClaimRoleAssertedByAnswerSurface(
+		ev,
+		[]ClaimForm{ClaimExternalObservation},
+		"Connection refused",
+		"supporting context",
+	) == false {
+		t.Fatalf("display role should be assertable from the item label")
+	}
+	if EvidenceClaimRoleAssertedByAnswerSurface(
+		ev,
+		[]ClaimForm{ClaimExternalObservation},
+		"network setup",
+		"not Connection refused; this row discusses a boundary condition",
+	) {
+		t.Fatalf("display role mention in body-only boundary prose must not trigger hard alignment")
 	}
 }
 
