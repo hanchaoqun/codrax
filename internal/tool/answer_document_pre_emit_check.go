@@ -141,6 +141,9 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	if h := preCheckPrincipalClaimUse(doc, view); len(h) > 0 {
 		hints = append(hints, h...)
 	}
+	if h := preCheckRequiredCandidateRoles(doc, view); len(h) > 0 {
+		hints = append(hints, h...)
+	}
 
 	// 3. Uncertainty block presence (when contract requires it).
 	if h := preCheckUncertaintyBlock(doc, view); len(h) > 0 {
@@ -2817,6 +2820,26 @@ func preCheckPrincipalClaimUse(doc *types.AnswerDocumentV2, view *types.AnswerSe
 		})
 	}
 	return out
+}
+
+func preCheckRequiredCandidateRoles(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+	if doc == nil || view == nil || len(view.RequiredCandidateRoles) == 0 {
+		return nil
+	}
+	missing := types.MissingRequiredCandidateRoles(doc, view.RequiredCandidateRoles)
+	if len(missing) == 0 {
+		return nil
+	}
+	roles := make([]string, 0, len(missing))
+	for _, role := range missing {
+		roles = append(roles, string(role))
+	}
+	return []emitFixHint{{
+		Field: "blocks[].items[].candidate_role",
+		ExpectedShape: "principal scalar/list/table item(s) must carry `candidate_role` for the requested answer role(s): " +
+			strings.Join(roles, ", "),
+		Reason: "the typed request contract requires these positive answer roles; prose-only wording or adjacent roles cannot satisfy a structural role-binding request.",
+	}}
 }
 
 // preCheckUncertaintyBlock checks the contract's uncertainty rules.

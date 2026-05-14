@@ -1392,6 +1392,42 @@ func TestPreCheckPrincipalClaimUse_Missing(t *testing.T) {
 	}
 }
 
+func TestPreCheckRequiredCandidateRoles_UsesTypedItemRoles(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		RequiredCandidateRoles: []types.AnswerCandidateRole{
+			types.AnswerCandidateRoleBudgetCap,
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "scalar",
+			Kind:        types.BlockScalar,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "`EmitStageRetryAttempt` is nearby but not the requested cap.",
+			Items: []types.AnswerBlockItem{{
+				ID:            "attempt",
+				Label:         "EmitStageRetryAttempt",
+				CandidateRole: types.AnswerCandidateRoleAttemptCounter,
+			}},
+		}},
+	}
+	hints := preCheckRequiredCandidateRoles(doc, view)
+	if len(hints) != 1 {
+		t.Fatalf("missing budget_cap role should be rejected: %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "budget_cap") {
+		t.Fatalf("hint should name missing typed role, got %+v", hints[0])
+	}
+	doc.Blocks[0].Items = append(doc.Blocks[0].Items, types.AnswerBlockItem{
+		ID:            "cap",
+		Label:         "MaxRetriesPerStage",
+		CandidateRole: types.AnswerCandidateRoleBudgetCap,
+	})
+	if hints := preCheckRequiredCandidateRoles(doc, view); len(hints) != 0 {
+		t.Fatalf("typed budget_cap item should satisfy role contract: %+v", hints)
+	}
+}
+
 // TestPreCheckPrincipalClaimUse_SingleFormRelaxation — when contract
 // declares exactly one AcceptableClaimForm AND the block carries
 // structural grounding (facet_ids + cited items), the missing

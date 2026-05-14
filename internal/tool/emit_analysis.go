@@ -75,6 +75,7 @@ type emitAnalysisParams struct {
 	ChangeImpactProfile          *emitChangeImpactProfileParam          `json:"change_impact_profile,omitempty"`
 	FieldValueProfile            *emitFieldValueProfileParam            `json:"field_value_profile,omitempty"`
 	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
+	AnswerRoleProfile            *emitAnswerRoleProfileParam            `json:"answer_role_profile,omitempty"`
 	PredicateAxis                string                                 `json:"predicate_axis,omitempty"`
 	DiagramHint                  *emitDiagramHintParam                  `json:"diagram_hint,omitempty"`
 	EnumerationBoundary          *emitEnumerationBoundaryParam          `json:"enumeration_boundary,omitempty"`
@@ -181,6 +182,14 @@ type emitFieldValueProfileParam struct {
 type emitAnswerExclusionPolicyParam struct {
 	IsExclusionRequested   *bool    `json:"is_exclusion_requested"`
 	ExcludedCandidateRoles []string `json:"excluded_candidate_roles,omitempty"`
+	SourceQuotes           []string `json:"source_quotes,omitempty"`
+	Confidence             *float64 `json:"confidence"`
+	Rationale              string   `json:"rationale,omitempty"`
+}
+
+type emitAnswerRoleProfileParam struct {
+	IsRoleBindingRequested *bool    `json:"is_role_binding_requested"`
+	RequiredCandidateRoles []string `json:"required_candidate_roles,omitempty"`
 	SourceQuotes           []string `json:"source_quotes,omitempty"`
 	Confidence             *float64 `json:"confidence"`
 	Rationale              string   `json:"rationale,omitempty"`
@@ -435,6 +444,18 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"is_exclusion_requested", "confidence"},
 			},
+			"answer_role_profile": map[string]any{
+				"type":        "object",
+				"description": "Required typed profile for positive role-binding constraints on principal answer rows. Set is_role_binding_requested=false when the current request has no positive answer role binding.",
+				"properties": map[string]any{
+					"is_role_binding_requested": map[string]any{"type": "boolean", "description": "True only when the current request explicitly asks for one or more answer roles to be returned as the principal answer."},
+					"required_candidate_roles":  map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": answerCandidateRoleValues()}, "description": "Positive principal answer role(s) required by the current request."},
+					"source_quotes":             map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that state the positive role binding."},
+					"confidence":                map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this positive answer-role profile in [0,1]."},
+					"rationale":                 map[string]any{"type": "string", "description": "Short audit rationale for why these candidate roles are required."},
+				},
+				"required": []string{"is_role_binding_requested", "confidence"},
+			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
@@ -502,7 +523,7 @@ func buildEmitAnalysisSchema() {
 		"required": []string{
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
 			"intent_confidence", "complexity_confidence", "kind_confidence",
-			"predicates", "diagnostic_profile",
+			"predicates", "diagnostic_profile", "answer_role_profile",
 		},
 	}
 
@@ -790,6 +811,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	answerRoleProfile, answerRoleErr := parseAnswerRoleProfile(raw, p.AnswerRoleProfile)
+	if answerRoleErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + answerRoleErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
 		return types.ToolResult{
@@ -910,6 +940,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		ChangeImpactProfile:          changeImpactProfile,
 		FieldValueProfile:            fieldValueProfile,
 		AnswerExclusionPolicy:        answerExclusionPolicy,
+		AnswerRoleProfile:            answerRoleProfile,
 		PredicateAxis:                axis,
 		DiagramHint:                  diagramHint,
 		EnumerationBoundary:          enumerationBoundary,
@@ -1610,6 +1641,66 @@ func parseAnswerExclusionPolicy(raw string, p *emitAnswerExclusionPolicyParam) (
 	}, ""
 }
 
+func parseAnswerRoleProfile(raw string, p *emitAnswerRoleProfileParam) (*types.AnswerRoleProfile, string) {
+	if p == nil {
+		return nil, "answer_role_profile object missing — emit `answer_role_profile` with is_role_binding_requested set to true or false, plus confidence in [0,1]"
+	}
+	var missing []string
+	if p.IsRoleBindingRequested == nil {
+		missing = append(missing, "is_role_binding_requested")
+	}
+	if p.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Sprintf(
+			"answer_role_profile missing required field(s): %s",
+			strings.Join(missing, ", "),
+		)
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("answer_role_profile.confidence %.2f out of [0,1]", *p.Confidence)
+	}
+	if !*p.IsRoleBindingRequested {
+		return nil, ""
+	}
+	roles := make([]types.AnswerCandidateRole, 0, len(p.RequiredCandidateRoles))
+	seen := make(map[types.AnswerCandidateRole]struct{}, len(p.RequiredCandidateRoles))
+	for _, rawRole := range p.RequiredCandidateRoles {
+		role, ok := types.NormalizeAnswerCandidateRole(rawRole)
+		if !ok || role == types.AnswerCandidateRoleUnknown {
+			return nil, fmt.Sprintf(
+				"answer_role_profile.required_candidate_roles contains invalid role %q; use one of %s",
+				rawRole, strings.Join(answerCandidateRoleValues(), ", "),
+			)
+		}
+		if _, dup := seen[role]; dup {
+			continue
+		}
+		seen[role] = struct{}{}
+		roles = append(roles, role)
+	}
+	if len(roles) == 0 {
+		return nil, "answer_role_profile.required_candidate_roles is required when is_role_binding_requested=true"
+	}
+	sourceQuotes := trimStringSlice(p.SourceQuotes)
+	if len(sourceQuotes) == 0 {
+		return nil, "answer_role_profile.source_quotes is required when is_role_binding_requested=true"
+	}
+	for _, quote := range sourceQuotes {
+		if !sourceQuotePresentInCurrentRequest(raw, quote) {
+			return nil, "answer_role_profile.source_quotes entries must be copied verbatim from the current request"
+		}
+	}
+	return &types.AnswerRoleProfile{
+		IsRoleBindingRequested: true,
+		RequiredCandidateRoles: roles,
+		SourceQuotes:           sourceQuotes,
+		Confidence:             *p.Confidence,
+		Rationale:              strings.TrimSpace(p.Rationale),
+	}, ""
+}
+
 func sourceQuotePresentInCurrentRequest(raw, quote string) bool {
 	raw = strings.TrimSpace(raw)
 	quote = strings.TrimSpace(quote)
@@ -2019,6 +2110,13 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 			roles = append(roles, string(role))
 		}
 		fmt.Fprintf(&b, " excluded_roles=%s", strings.Join(roles, ","))
+	}
+	if rm.AnswerRoleProfile != nil && rm.AnswerRoleProfile.Active() {
+		roles := make([]string, 0, len(rm.AnswerRoleProfile.RequiredCandidateRoles))
+		for _, role := range rm.AnswerRoleProfile.RequiredCandidateRoles {
+			roles = append(roles, string(role))
+		}
+		fmt.Fprintf(&b, " required_roles=%s", strings.Join(roles, ","))
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

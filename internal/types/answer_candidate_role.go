@@ -114,3 +114,58 @@ func (p *AnswerExclusionPolicy) ExcludesRole(role AnswerCandidateRole) bool {
 	}
 	return false
 }
+
+// AnswerRoleProfile is the analyzer-emitted typed lane for positive
+// role-binding requests such as "the retry budget parameter", "the attempt
+// counter", "the guard condition", "the tool name", or "the commit hash".
+// Downstream hard gates consume RequiredCandidateRoles plus answer-row
+// candidate_role annotations; they never infer the requested role from
+// RawRequest or rendered answer prose.
+type AnswerRoleProfile struct {
+	IsRoleBindingRequested bool                  `json:"is_role_binding_requested"`
+	RequiredCandidateRoles []AnswerCandidateRole `json:"required_candidate_roles,omitempty"`
+	SourceQuotes           []string              `json:"source_quotes,omitempty"`
+	Confidence             float64               `json:"confidence,omitempty"`
+	Rationale              string                `json:"rationale,omitempty"`
+}
+
+func (p *AnswerRoleProfile) Active() bool {
+	return p != nil && p.IsRoleBindingRequested && len(p.RequiredCandidateRoles) > 0
+}
+
+// MissingRequiredCandidateRoles returns the positive role obligations that are
+// not represented by any principal answer item. It reads only typed
+// AnswerDocumentV2 fields: block.surface_role and items[].candidate_role.
+func MissingRequiredCandidateRoles(doc *AnswerDocumentV2, required []AnswerCandidateRole) []AnswerCandidateRole {
+	if doc == nil || len(required) == 0 {
+		return nil
+	}
+	present := make(map[AnswerCandidateRole]struct{})
+	for _, block := range doc.Blocks {
+		if block.SurfaceRole != SurfacePrincipal {
+			continue
+		}
+		for _, item := range block.Items {
+			if item.CandidateRole == AnswerCandidateRoleUnknown {
+				continue
+			}
+			present[item.CandidateRole] = struct{}{}
+		}
+	}
+	seenRequired := make(map[AnswerCandidateRole]struct{}, len(required))
+	missing := make([]AnswerCandidateRole, 0, len(required))
+	for _, role := range required {
+		if role == AnswerCandidateRoleUnknown {
+			continue
+		}
+		if _, dup := seenRequired[role]; dup {
+			continue
+		}
+		seenRequired[role] = struct{}{}
+		if _, ok := present[role]; ok {
+			continue
+		}
+		missing = append(missing, role)
+	}
+	return missing
+}

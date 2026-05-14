@@ -41,7 +41,7 @@ created.
 
 | ID | Case / Source | Status | Symptom | Systemic Gap | Generalized Fix Direction |
 | --- | --- | --- | --- | --- | --- |
-| E20260514-G1 | `s11b` | Confirmed FAIL | Answer names `EmitStageRetryAttempt` but the user asked for the retry budget parameter, expected `MaxRetriesPerStage`. | Role-disambiguated scalar answers are not enforced. The pipeline collected both the retry cap and attempt counter, but final selection did not bind the requested noun role to the cited identifier. | Add typed answer-candidate roles for scalar/mechanism questions, e.g. `budget_cap`, `attempt_counter`, `guard_condition`, `tool_name`. Final answer hard gates should verify the visible scalar matches the requested role using model-emitted typed role evidence, not term frequency. |
+| E20260514-G1 | `s11b` | Fixed Batch 2e / PASS replay | Answer names `EmitStageRetryAttempt` but the user asked for the retry budget parameter, expected `MaxRetriesPerStage`. | Role-disambiguated scalar answers were not enforced. The pipeline collected both the retry cap and attempt counter, but final selection did not bind the requested noun role to the cited identifier. | Added a required typed `answer_role_profile` carrier for positive scalar/mechanism role bindings, propagated it through `AnswerSemanticView`, and hard-gated final rows by enum-to-enum comparison against `items[].candidate_role`. |
 | E20260514-G2 | `s1b` | Confirmed FAIL | Final answer explains the validation requeue path but omits user anchor `runTaskGraph` and does not preserve an accepted upstream/evidence-node surface term. | Exact request anchors can vanish between evidence and final answer for mechanism questions. Current must-include behavior is too weak outside classic enumeration/scalar cases. | Promote user-mentioned exact endpoints and typed mechanism anchors into a finalizer-visible must-preserve block. Use deterministic rendered-answer checks over typed `MustIncludeTerms` / exact targets, not loose prompt wording. |
 | E20260514-G3 | prior `s5a` random sweep | Confirmed product failure | Explorer found all `LoopController` implementers, but finalizer exhausted retries and emitted raw LLM text because aggregate member labels/citations could not satisfy conflicting checks. | Aggregate member sets are not canonicalized into a single render contract. Equivalent forms such as `Type (file:line)` and `Type@file:line` survive as separate obligations, while citation alignment expects a different principal label surface. | Build deterministic `MemberDisplayRow` records from accepted aggregate facts before finalization: stable member key, visible label, source location, citation handle, claim form, and display candidates. Coverage and citation checks must consume the same rows. |
 | E20260514-G4 | `u11b` | PASS with 50 rejects | The run found the correct 4 production `CitationReq.Required=false` sites, but finalizer looped over source-location labels with qualifiers before passing. | Source-location member rows with qualifiers can be treated simultaneously as labels, source refs, and prose, creating retry loops even when the final answer is correct. | Reuse the G3 canonical member-row layer for source-location sets and qualifiers. Principal source rows should cite stable support handles instead of requiring the model to reproduce exact `file:line (qualifier)` strings. |
@@ -70,6 +70,7 @@ created.
 | E20260514-G48 | audit of commit `e07cafb5` | Red-line remediation / fixed Batch 6c | The attempted user-excluded-category gate detected excluded categories by matching words in the user request and detected leaks by matching words/tokens in final answer prose. | Exclusion is a real answer-scope contract, but request/answer text keyword scans are not acceptable hard-gate inputs. The policy and row category must travel as typed carrier fields. | Added analyzer `answer_exclusion_policy` and answer-row `items[].candidate_role`. The hard check is now enum-to-enum: if a principal answer item carries a candidate role excluded by the analyzer policy, it is rejected. Scope-boundary prose is not scanned or rejected. |
 | E20260514-G49 | Batch 2c red-line audit of G8/G11 pre-emit visibility | Fixed Batch 2c | `preCheckVisibleInternalCarrierTerms` scanned rendered answer prose for carrier-name tokens and scanned `RawRequest` to decide whether those tokens were allowed; adjacent artifact/multi-repo checks also scanned rendered prose for repo/path names. | This reintroduced the same red-line class at the final-answer boundary: a hard control decision depended on keyword-like matching over model output and user text, and it could fight explicit tool-name literal answers. | Removed rendered-answer/RawRequest keyword gates from pre-emit visibility checks. Preserved structural hard gates where the signal is typed (`citations[]`, negative-scope citations, `exact_resolution`). Expanded answer-row `candidate_role` into scalar/literal roles (`tool_name`, `config_key`, `route`, `import_path`, `literal_value`, `commit_hash`, `budget_cap`, `attempt_counter`, `guard_condition`) so future role binding consumes typed row metadata instead of prose. |
 | E20260514-G50 | focused `m1b` after Batch 2c | Fixed Batch 2d / PASS replay | The case passed, but extractor soft-stop forced `emit_answer_symbol` for two exact tool-name sub-topics. The model then tried to cite a string-literal/reference line as a symbol definition and needed repairs before finalization. | Multi-topic anchor skeleton activation treated all architecture sub-topics as symbol anchors, even when the typed request said the principal answer was scalar/literal. This pulled exact literal answers back into symbol-definition machinery and recreated Batch 2's seesaw. | Gate anchor skeletons off when `RequestModel.Predicates.IsScalarAnswer` or scalar-source-literal lookup is active. Multi-topic exact literals now stay in scalar/section/table rows with `candidate_role` metadata instead of `emit_answer_symbol` definition slates. |
+| E20260514-G51 | focused `s11b` Batch 2e carrier audit | Fixed Batch 2e / PASS replay | Early Batch 2e replays passed but the analyzer omitted the optional positive role carrier, so the final answer was still relying on prompt guidance rather than a hard structural lane. | Optional carriers are easy to drop under prescan/retry pressure. Exact scalar role questions need an always-present typed object, active only when the analyzer sets `is_role_binding_requested=true`, so downstream stages can consume a uniform contract without reading request prose or answer prose. | Made `answer_role_profile` a top-level required `emit_analysis` object; when active it requires enum roles plus verbatim source quotes at the analyzer boundary. Finalizer prompts, pre-emit checks, and post-emit contract checks now consume only `RequiredCandidateRoles` and `items[].candidate_role`. |
 
 ## End-to-End Traces
 
@@ -2316,6 +2317,52 @@ Focused `m1b` replay after Batch 2d:
   `missing_emits` repairs. Remaining `emit_answer_symbol` mentions in the log
   are generic tool instructions/source evidence, while the dispatch carries
   `does NOT require emit_answer_symbol`.
+
+Initial Batch 2e progress:
+
+- Closed the G1/G5/G12 positive-role side of the scalar/literal lane. Batch 2c
+  introduced row-level `candidate_role`, but G1 still lacked a required
+  upstream carrier that said which positive role must be present. Two focused
+  `s11b` replays passed while the profile was optional, but their logs showed
+  `answer_role_profile` was omitted; that meant the success was not yet a
+  durable structural contract.
+- Added `AnswerRoleProfile` to `RequestModel` and bumped the AnalysisIR version
+  to `v13`. `emit_analysis` now requires an `answer_role_profile` object on
+  every call. The inactive form carries `is_role_binding_requested=false`; the
+  active form carries `required_candidate_roles[]`, `source_quotes[]`, and
+  confidence. Source quotes are validated only at the analyzer emit boundary as
+  exact current-request provenance, parallel to the existing field-value and
+  exclusion carriers.
+- Propagated active `required_candidate_roles` into `AnswerSemanticView` as
+  `RequiredCandidateRoles`. The finalizer receives a "Typed Answer Role
+  Contract" section that instructs it to put the enum on principal
+  scalar/list/table rows, including one-row `items[]` anchors for scalar
+  answers whose literal is also in `block.text`.
+- Added pre-emit and post-emit checks that compare only typed fields:
+  `RequestModel.AnswerRoleProfile.RequiredCandidateRoles` against principal
+  `emit_answer_document.blocks[].items[].candidate_role`. These checks do not
+  inspect `RawRequest`, model answer prose, rendered text, or term frequency.
+- Seesaw guard: this complements `answer_exclusion_policy` rather than
+  replacing it. Exclusion says which row roles must stay out; role profile says
+  which row roles must be present. Both consume the same candidate-role enum,
+  so a future exact scalar role can be added once in the enum/profile lane
+  instead of adding per-case validators.
+
+Verification:
+
+- `go test ./internal/types ./internal/tool ./internal/orchestrator ./internal/agent ./internal/skill -run 'TestBuildAnswerSemanticView_RequestedCandidateRolesPropagated|TestAnalysisIR_VersionConstant|TestEmitAnalysisSchemaIncludesAnswerRoleProfile|TestEmitAnalysis_Execute_(PersistsAnswerRoleProfile|RejectsUngroundedAnswerRoleProfile|RejectsMissingAnswerRoleProfile)|TestPreCheckRequiredCandidateRoles_UsesTypedItemRoles|TestRunTypedAnswerRoleProfileCheck|TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedCandidateRoles|TestAnalysisSkill_CurrentQuestionPrimacy_NamesEveryIntentField|TestEmitAnalysisSchemaMatchesContract'`
+- `go test ./...`
+- `bash eval/run.sh eval/cases/s11b.case 1`
+  (`eval/results/s11b-20260514-214324`, PASS). The successful analyzer emit
+  logged `required_roles=budget_cap`; semantic-view traces carried
+  `required_candidate_roles=1`; the finalizer prompt rendered the typed role
+  contract; and the final `emit_answer_document` principal item labeled
+  `MaxRetriesPerStage` with `candidate_role="budget_cap"`.
+- Earlier optional-carrier replays are retained for audit:
+  `eval/results/s11b-20260514-213007`, `eval/results/s11b-20260514-213322`,
+  and `eval/results/s11b-20260514-213639`. They passed, but they are not counted
+  as the final structural verification because they started before
+  missing-profile rejection was active in the runtime.
 
 ### Batch 3: Relation / Diagram Generation From Typed Edges
 

@@ -251,9 +251,9 @@ type AnswerBlockItem struct {
 
 	// CandidateRole is an optional typed category or scalar/literal role for
 	// this visible row. It is used when the current request carries an
-	// AnswerExclusionPolicy or when the answer needs to distinguish functions,
-	// tool names, import paths, budget caps, attempt counters, etc. without
-	// validators inferring roles from prose.
+	// AnswerExclusionPolicy / AnswerRoleProfile or when the answer needs to
+	// distinguish functions, tool names, import paths, budget caps, attempt
+	// counters, etc. without validators inferring roles from prose.
 	CandidateRole AnswerCandidateRole `json:"candidate_role,omitempty"`
 
 	// CitationRef is a zero-based index into AnswerDocumentV2.

@@ -82,6 +82,34 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersBlockContract(t 
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedCandidateRoles(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentReturnValue,
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer: true,
+				},
+				AnswerRoleProfile: &types.AnswerRoleProfile{
+					IsRoleBindingRequested: true,
+					RequiredCandidateRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleBudgetCap,
+					},
+				},
+			},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "## Typed Answer Role Contract") {
+		t.Fatalf("prompt missing typed answer-role contract:\n%s", prompt)
+	}
+	for _, want := range []string{"budget_cap", "items[].candidate_role", "prose-only"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q in typed answer-role contract:\n%s", want, prompt)
+		}
+	}
+}
+
 // TestRenderAnswerDocFacetCoverage_NilOrEmptyReturnsEmpty pins
 // byte-identical behaviour for shapes whose AnswerSurfacePlan
 // produces no FacetCoverageContract — Phase 2 must not change pre-P1

@@ -18,7 +18,7 @@ func emitSemanticViewTrace(source string, view *AnswerSemanticView, ir *Analysis
 	if ir != nil {
 		intent = ir.RequestModel.Intent
 	}
-	logging.Debug("[trace/sv] source=%s family=%s intent=%s required_blocks=%d optional_blocks=%d has_diagram=%v uncertainty_rules=%d richness_candidates=%d facet_coverage_present=%v exact_resolution_present=%v summary_mode=%q",
+	logging.Debug("[trace/sv] source=%s family=%s intent=%s required_blocks=%d optional_blocks=%d has_diagram=%v uncertainty_rules=%d richness_candidates=%d required_candidate_roles=%d facet_coverage_present=%v exact_resolution_present=%v summary_mode=%q",
 		source,
 		view.Family,
 		intent,
@@ -27,6 +27,7 @@ func emitSemanticViewTrace(source string, view *AnswerSemanticView, ir *Analysis
 		hasDiagram,
 		len(view.UncertaintyRules),
 		len(view.RichnessCandidates),
+		len(view.RequiredCandidateRoles),
 		view.FacetCoverage != nil,
 		view.ExactResolution != nil,
 		view.SummaryMode,
@@ -84,7 +85,28 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 		view = compileGeneric(ir, plan)
 	}
 	applyExactAbsenceSummaryLead(view, plan)
+	applyRequestedCandidateRoles(view, ir)
 	return view
+}
+
+func applyRequestedCandidateRoles(view *AnswerSemanticView, ir *AnalysisIR) {
+	if view == nil || ir == nil || ir.RequestModel.AnswerRoleProfile == nil || !ir.RequestModel.AnswerRoleProfile.Active() {
+		return
+	}
+	roles := append([]AnswerCandidateRole(nil), view.RequiredCandidateRoles...)
+	roles = append(roles, ir.RequestModel.AnswerRoleProfile.RequiredCandidateRoles...)
+	seen := make(map[AnswerCandidateRole]struct{}, len(roles))
+	view.RequiredCandidateRoles = view.RequiredCandidateRoles[:0]
+	for _, role := range roles {
+		if role == AnswerCandidateRoleUnknown {
+			continue
+		}
+		if _, ok := seen[role]; ok {
+			continue
+		}
+		seen[role] = struct{}{}
+		view.RequiredCandidateRoles = append(view.RequiredCandidateRoles, role)
+	}
 }
 
 // BuildAnswerSemanticViewForAgentContext compiles a view from the

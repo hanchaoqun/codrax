@@ -64,6 +64,14 @@ type AnswerSemanticView struct {
 	// diagnostic follow-up answers emit one bounded verdict token.
 	CurrentStatusDiagnostic *CurrentStatusDiagnosticContract
 
+	// RequiredCandidateRoles carries analyzer-emitted positive role
+	// bindings for principal answer rows. For example, a scalar exact-answer
+	// question can require a `budget_cap` row rather than an adjacent
+	// `attempt_counter` row. Validators compare these enum values against
+	// AnswerDocumentV2 items[].candidate_role only; they do not infer roles
+	// from user text or rendered prose.
+	RequiredCandidateRoles []AnswerCandidateRole
+
 	// MissingRequestedRoles carries the subset of user-requested
 	// precedence roles that the current grounded config-precedence
 	// surface still shows as absent for the exact target. This is a

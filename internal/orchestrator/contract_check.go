@@ -221,6 +221,8 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			if rm := mut.RequestModel(); rm != nil {
 				result.Violations = append(result.Violations,
 					runTypedAnswerExclusionPolicyCheck(docV2, rm)...)
+				result.Violations = append(result.Violations,
+					runTypedAnswerRoleProfileCheck(docV2, rm)...)
 			}
 		}
 	}

@@ -70,9 +70,10 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 		// replacement for the deleted prose-cue tables and must be
 		// fully populated.
 		"intent_confidence": true, "complexity_confidence": true,
-		"kind_confidence":    true,
-		"predicates":         true,
-		"diagnostic_profile": true,
+		"kind_confidence":     true,
+		"predicates":          true,
+		"diagnostic_profile":  true,
+		"answer_role_profile": true,
 	}
 	gotRequired := make(map[string]bool, len(parsed.Required))
 	for _, r := range parsed.Required {
@@ -388,5 +389,51 @@ func TestEmitAnalysisSchemaIncludesAnswerExclusionPolicy(t *testing.T) {
 	if !reflect.DeepEqual(prop.Properties["excluded_candidate_roles"].Items.Enum, wantEnum) {
 		t.Fatalf("answer_exclusion_policy.excluded_candidate_roles enum = %v, want %v",
 			prop.Properties["excluded_candidate_roles"].Items.Enum, wantEnum)
+	}
+}
+
+func TestEmitAnalysisSchemaIncludesAnswerRoleProfile(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	raw := (&EmitAnalysis{}).Parameters()
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v\nraw=%s", err, string(raw))
+	}
+	propRaw, ok := parsed.Properties["answer_role_profile"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing property \"answer_role_profile\"")
+	}
+	var prop struct {
+		Properties map[string]struct {
+			Type  string `json:"type"`
+			Items struct {
+				Enum []string `json:"enum"`
+			} `json:"items"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatalf("answer_role_profile property is not valid JSON schema: %v\nraw=%s", err, string(propRaw))
+	}
+	for _, want := range []string{"is_role_binding_requested", "confidence"} {
+		found := false
+		for _, field := range prop.Required {
+			if field == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("answer_role_profile.required = %v, want %s included", prop.Required, want)
+		}
+	}
+	var wantEnum []string
+	for _, role := range types.AllAnswerCandidateRoles() {
+		wantEnum = append(wantEnum, string(role))
+	}
+	if !reflect.DeepEqual(prop.Properties["required_candidate_roles"].Items.Enum, wantEnum) {
+		t.Fatalf("answer_role_profile.required_candidate_roles enum = %v, want %v",
+			prop.Properties["required_candidate_roles"].Items.Enum, wantEnum)
 	}
 }

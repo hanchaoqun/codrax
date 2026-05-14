@@ -87,11 +87,39 @@ func TestBuildAnswerSemanticView_ExactResolutionPropagated(t *testing.T) {
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{Intent: IntentExplain},
 		AnswerContract: AnswerContract{
-			ExactResolution:     er,
+			ExactResolution: er,
 		},
 	}
 	view := BuildAnswerSemanticView(ir, nil)
 	if view == nil || view.ExactResolution != er {
 		t.Errorf("ExactResolution not aliased; view=%+v", view)
+	}
+}
+
+func TestBuildAnswerSemanticView_RequestedCandidateRolesPropagated(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent: IntentReturnValue,
+			Predicates: SemanticPredicates{
+				IsScalarAnswer: true,
+			},
+			AnswerRoleProfile: &AnswerRoleProfile{
+				IsRoleBindingRequested: true,
+				RequiredCandidateRoles: []AnswerCandidateRole{
+					AnswerCandidateRoleBudgetCap,
+					AnswerCandidateRoleBudgetCap,
+					AnswerCandidateRoleAttemptCounter,
+				},
+			},
+		},
+	}
+	view := BuildAnswerSemanticView(ir, nil)
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	if got := view.RequiredCandidateRoles; len(got) != 2 ||
+		got[0] != AnswerCandidateRoleBudgetCap ||
+		got[1] != AnswerCandidateRoleAttemptCounter {
+		t.Fatalf("required candidate roles not propagated/deduped: %+v", got)
 	}
 }

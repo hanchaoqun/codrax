@@ -39,6 +39,10 @@ const v4DefaultsJSON = `,
 		"historical_regression": false,
 		"current_version_check": false,
 		"confidence": 0.7
+	},
+	"answer_role_profile": {
+		"is_role_binding_requested": false,
+		"confidence": 0.7
 	}
 `
 
@@ -56,6 +60,22 @@ func withV4Required(partial string) string {
 		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
 	})
 	return body + v4DefaultsJSON + "}"
+}
+
+func withRequiredAnswerRoleProfile(payload string) string {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(payload), &obj); err != nil {
+		return payload
+	}
+	if _, ok := obj["answer_role_profile"]; ok {
+		return payload
+	}
+	obj["answer_role_profile"] = json.RawMessage(`{"is_role_binding_requested":false,"confidence":0.7}`)
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return payload
+	}
+	return string(out)
 }
 
 // -----------------------------------------------------------------------------
@@ -171,7 +191,7 @@ func TestEmitAnalysis_SetValuedRoleLocateNormalizesToEnumeration(t *testing.T) {
 		}
 	}`
 
-	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -1056,7 +1076,7 @@ func runEmitAnalysisPayload(t *testing.T, objective, payload string) (types.Tool
 	t.Helper()
 	mu := types.NewMutableState(objective)
 	tool := &EmitAnalysis{}
-	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -1465,7 +1485,7 @@ func TestEmitAnalysis_Execute_RejectsMissingPredicatesObject(t *testing.T) {
 		"complexity_confidence": 0.7,
 		"kind_confidence": 0.7
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if res.Success {
 		t.Fatal("missing predicates object must reject")
 	}
@@ -1514,7 +1534,7 @@ func TestEmitAnalysis_Execute_RejectsMissingPredicateField(t *testing.T) {
 			"confidence": 0.7
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if res.Success {
 		t.Fatal("missing predicate field must reject")
 	}
@@ -1550,12 +1570,55 @@ func TestEmitAnalysis_Execute_RejectsMissingDiagnosticProfile(t *testing.T) {
 			"is_diagnostic_question": false
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if res.Success {
 		t.Fatal("missing diagnostic_profile object must reject")
 	}
 	if !strings.Contains(res.Summary, "diagnostic_profile object missing") {
 		t.Errorf("reject summary should name the missing diagnostic_profile object, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsMissingAnswerRoleProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("explain the analyzer")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["a"],
+		"entities": ["Foo"],
+		"question_kind": "mechanism",
+		"intent_confidence": 0.7,
+		"complexity_confidence": 0.7,
+		"kind_confidence": 0.7,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("missing answer_role_profile object must reject")
+	}
+	if !strings.Contains(res.Summary, "answer_role_profile object missing") {
+		t.Errorf("reject summary should name the missing answer_role_profile object, got %q", res.Summary)
 	}
 }
 
@@ -1575,7 +1638,7 @@ func TestEmitAnalysis_Execute_RejectsConfidenceOutOfRange(t *testing.T) {
 	}`)
 	// Tamper: replace one valid confidence with an out-of-range value.
 	payload = strings.Replace(payload, `"intent_confidence": 0.7`, `"intent_confidence": 1.5`, 1)
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if res.Success {
 		t.Fatal("out-of-range confidence must reject")
 	}
@@ -1599,7 +1662,7 @@ func TestEmitAnalysis_Execute_RejectsInvalidPredicateAxis(t *testing.T) {
 		"question_kind": "mechanism",
 		"predicate_axis": "ponder"
 	}`)
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if res.Success {
 		t.Fatal("invalid axis must reject")
 	}
@@ -1645,7 +1708,7 @@ func TestEmitAnalysis_Execute_RejectsInconsistentCountIntent(t *testing.T) {
 			"confidence": 0.7
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if res.Success {
 		t.Fatal("count question + intent=enumerate must reject")
 	}
@@ -1689,7 +1752,7 @@ func TestEmitAnalysis_Execute_RejectsCountWithoutScalar(t *testing.T) {
 			"confidence": 0.7
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if res.Success {
 		t.Fatal("count without scalar must reject")
 	}
@@ -1732,7 +1795,7 @@ func TestEmitAnalysis_Execute_RejectsCategoryEnumerationWithScalar(t *testing.T)
 			"confidence": 0.7
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if res.Success {
 		t.Fatal("category enumeration + scalar must reject")
 	}
@@ -1778,7 +1841,7 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 			"confidence": 0.7
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if !res.Success {
 		t.Fatalf("Execute should succeed, got %q", res.Summary)
 	}
@@ -1859,7 +1922,7 @@ func TestEmitAnalysis_Execute_PersistsConversationReferenceProfile(t *testing.T)
 			}]
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if !res.Success {
 		t.Fatalf("Execute should succeed, got %q", res.Summary)
 	}
@@ -1923,7 +1986,7 @@ func TestEmitAnalysis_Execute_PersistsSourceScopeProfile(t *testing.T) {
 			"rationale": "current request asks about test files as principal scope"
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if !res.Success {
 		t.Fatalf("Execute should succeed, got %q", res.Summary)
 	}
@@ -1990,7 +2053,7 @@ func TestEmitAnalysis_Execute_PersistsChangeImpactProfile(t *testing.T) {
 			"rationale": "answer asks affected production files for a target type change"
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if !res.Success {
 		t.Fatalf("Execute should succeed, got %q", res.Summary)
 	}
@@ -2061,7 +2124,7 @@ func TestEmitAnalysis_Execute_PersistsFieldValueProfile(t *testing.T) {
 			"rationale": "current request asks for production-site count under this field literal"
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if !res.Success {
 		t.Fatalf("Execute should succeed, got %q", res.Summary)
 	}
@@ -2123,7 +2186,7 @@ func TestEmitAnalysis_Execute_RejectsUngroundedFieldValueProfile(t *testing.T) {
 			"confidence": 0.96
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if res.Success {
 		t.Fatalf("Execute should reject ungrounded field_value_profile, got %q", res.Summary)
 	}
@@ -2173,7 +2236,7 @@ func TestEmitAnalysis_Execute_PersistsAnswerExclusionPolicy(t *testing.T) {
 			"rationale": "current request excludes variable rows from the public API list"
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if !res.Success {
 		t.Fatalf("Execute should succeed, got %q", res.Summary)
 	}
@@ -2229,12 +2292,118 @@ func TestEmitAnalysis_Execute_RejectsUngroundedAnswerExclusionPolicy(t *testing.
 			"confidence": 0.94
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if res.Success {
 		t.Fatalf("Execute should reject ungrounded answer_exclusion_policy, got %q", res.Summary)
 	}
 	if !strings.Contains(res.Summary, "answer_exclusion_policy.source_quotes") {
 		t.Fatalf("rejection should name answer_exclusion_policy.source_quotes, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_PersistsAnswerRoleProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("Is analyze retry wired, and what is the retry budget parameter called?")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["analyze", "retry"],
+		"entities": ["analyze"],
+		"question_kind": "return_value",
+		"intent_confidence": 0.93,
+		"complexity_confidence": 0.76,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": true,
+			"required_candidate_roles": ["budget_cap"],
+			"source_quotes": ["retry budget parameter"],
+			"confidence": 0.94,
+			"rationale": "the current request asks for the budget cap parameter, not the retry attempt counter"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "required_roles=budget_cap") {
+		t.Fatalf("summary should surface typed answer-role lane, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.AnswerRoleProfile == nil || !rm.AnswerRoleProfile.Active() {
+		t.Fatalf("AnswerRoleProfile not persisted: %+v", rm)
+	}
+	if got := rm.AnswerRoleProfile.RequiredCandidateRoles; len(got) != 1 || got[0] != types.AnswerCandidateRoleBudgetCap {
+		t.Fatalf("required roles wrong: %+v", got)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsUngroundedAnswerRoleProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("Is analyze retry wired?")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "architecture_explain",
+		"complexity": "simple",
+		"keywords": ["analyze", "retry"],
+		"entities": ["analyze"],
+		"question_kind": "return_value",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": true,
+			"required_candidate_roles": ["budget_cap"],
+			"source_quotes": ["retry budget parameter"],
+			"confidence": 0.94
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if res.Success {
+		t.Fatalf("Execute should reject ungrounded answer_role_profile, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "answer_role_profile.source_quotes") {
+		t.Fatalf("rejection should name answer_role_profile.source_quotes, got %q", res.Summary)
 	}
 }
 
@@ -2274,7 +2443,7 @@ func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 			"confidence": 0.7
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if res.Success {
 		t.Fatal("invalid exact_targets must reject")
 	}
@@ -2320,7 +2489,7 @@ func TestEmitAnalysis_Execute_DropsInvalidExactContextTermsWithWarning(t *testin
 			"confidence": 0.7
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if !res.Success {
 		t.Fatalf("invalid exact_context_terms should be dropped, not reject: %q", res.Summary)
 	}
@@ -2372,7 +2541,7 @@ func TestEmitAnalysis_Execute_PersistsExactTargetsAndHistoryPredicate(t *testing
 			"confidence": 0.7
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if !res.Success {
 		t.Fatalf("Execute should succeed, got %q", res.Summary)
 	}
@@ -2425,7 +2594,7 @@ func TestEmitAnalysis_Execute_PersistsExactContextTerms(t *testing.T) {
 			"confidence": 0.7
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if !res.Success {
 		t.Fatalf("Execute should succeed, got %q", res.Summary)
 	}
@@ -2479,7 +2648,7 @@ func TestEmitAnalysis_Execute_PersistsExactContextRoles(t *testing.T) {
 			"confidence": 0.7
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if !res.Success {
 		t.Fatalf("Execute should succeed, got %q", res.Summary)
 	}
@@ -2538,7 +2707,7 @@ func TestEmitAnalysis_Execute_PreservesConfigTraceRolesWhenAnswerSubjectDriftsNu
 			"confidence": 0.7
 		}
 	}`
-	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if !res.Success {
 		t.Fatalf("Execute should succeed, got %q", res.Summary)
 	}

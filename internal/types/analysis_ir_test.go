@@ -170,14 +170,14 @@ func TestAnalysisIR_JSONRoundtrip(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v12 expands candidate_role to exact scalar/literal roles so
-	// tool names, import paths, budget caps, attempt counters, etc. can
-	// travel as typed row metadata instead of prose.
-	if AnalysisIRVersion != "v12" {
+	// v13 adds answer_role_profile so positive exact-answer role bindings
+	// travel as typed analyzer metadata and are matched against answer-row
+	// candidate_role enums instead of prose.
+	if AnalysisIRVersion != "v13" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v12" {
+	if ir.Version != "v13" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

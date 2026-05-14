@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -45,4 +46,37 @@ func runTypedAnswerExclusionPolicyCheck(doc *types.AnswerDocumentV2, rm *types.R
 		}
 	}
 	return out
+}
+
+// runTypedAnswerRoleProfileCheck enforces positive answer-role bindings from
+// typed carriers only: RequestModel.AnswerRoleProfile and AnswerDocumentV2
+// item candidate_role annotations. It deliberately does not inspect RawRequest
+// or rendered answer prose.
+func runTypedAnswerRoleProfileCheck(doc *types.AnswerDocumentV2, rm *types.RequestModel) []types.Violation {
+	if doc == nil || rm == nil || rm.AnswerRoleProfile == nil || !rm.AnswerRoleProfile.Active() {
+		return nil
+	}
+	missing := types.MissingRequiredCandidateRoles(doc, rm.AnswerRoleProfile.RequiredCandidateRoles)
+	if len(missing) == 0 {
+		return nil
+	}
+	roles := make([]string, 0, len(missing))
+	for _, role := range missing {
+		roles = append(roles, string(role))
+	}
+	return []types.Violation{{
+		Kind:   types.ViolMustInclude,
+		Detail: fmt.Sprintf("principal answer rows are missing required candidate_role value(s): %s", strings.Join(roles, ", ")),
+		Repair: "Add principal scalar/list/table item(s) with items[].candidate_role set to the required answer role enum(s), or correct the row roles if the principal answer was mislabeled. Prose-only wording does not satisfy this typed role-binding contract.",
+		Stage:  string(types.StageFinalize),
+		ClusterKey: fmt.Sprintf(
+			"typed_answer_role:%s",
+			strings.Join(roles, ","),
+		),
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "answer_document.blocks[].items[].candidate_role",
+			Reason:     "principal answer rows do not satisfy the typed request role profile",
+			Confidence: rm.AnswerRoleProfile.Confidence,
+		},
+	}}
 }

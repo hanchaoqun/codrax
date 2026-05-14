@@ -40,7 +40,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v12"
+const AnalysisIRVersion = "v13"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -128,6 +128,14 @@ type RequestModel struct {
 	// Downstream hard gates consume only this policy plus answer-row
 	// candidate_role annotations, not RawRequest or final-answer prose.
 	AnswerExclusionPolicy *AnswerExclusionPolicy `json:"answer_exclusion_policy,omitempty"`
+
+	// AnswerRoleProfile is the analyzer LLM's typed lane for positive
+	// role-binding constraints on exact answer rows. Examples include a
+	// requested budget cap, attempt counter, guard condition, tool name,
+	// import path, route, config key, commit hash, or literal value. Downstream
+	// gates compare this profile with answer-row candidate_role annotations;
+	// they do not infer the role from RawRequest or rendered prose.
+	AnswerRoleProfile *AnswerRoleProfile `json:"answer_role_profile,omitempty"`
 
 	// SubTopics lists independently-answerable sub-topics detected by
 	// the analyzer. When non-empty, the compiler generates one evidence

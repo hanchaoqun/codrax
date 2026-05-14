@@ -190,6 +190,12 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	// User question is already rendered by builder.go as "User Request"
 	// section — no need to repeat it here.
 
+	// view is the typed runtime semantic contract; downstream prompt
+	// branches gate on view obligations (NeedsPrincipalScalar /
+	// NeedsOrderedPrincipalList / NeedsEnumerationSlate /
+	// AllowsAnchorSkeleton) instead of the legacy AnswerShape enum.
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+
 	// V2 block contract section carries the family-aware block
 	// requirements that drive prompt structure.
 	if blockContract := renderAnswerDocBlockContract(ctx); blockContract != "" {
@@ -198,12 +204,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if exclusionPolicy := renderAnswerDocExclusionPolicy(ctx); exclusionPolicy != "" {
 		b.WriteString(exclusionPolicy)
 	}
-
-	// view is the typed runtime semantic contract; downstream prompt
-	// branches gate on view obligations (NeedsPrincipalScalar /
-	// NeedsOrderedPrincipalList / NeedsEnumerationSlate /
-	// AllowsAnchorSkeleton) instead of the legacy AnswerShape enum.
-	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if roleContract := renderAnswerDocRequestedCandidateRoles(view); roleContract != "" {
+		b.WriteString(roleContract)
+	}
 
 	if dc := answerDocDiagramContract(ctx); dc != nil && dc.Required {
 		e.diagramRequired = true
@@ -2023,6 +2026,31 @@ func renderAnswerDocExclusionPolicy(ctx *types.AgentContext) string {
 	b.WriteString("- Do not put excluded-role candidates in principal list/table items.\n")
 	b.WriteString("- When a principal list/table row represents a candidate member, set `items[].candidate_role` to the closest enum value so the validator can enforce this policy structurally.\n")
 	b.WriteString("- It is OK to mention the excluded category as a scope boundary in summary/caveat prose; do not enumerate concrete excluded candidates as principal rows.\n\n")
+	return b.String()
+}
+
+func renderAnswerDocRequestedCandidateRoles(view *types.AnswerSemanticView) string {
+	if view == nil || len(view.RequiredCandidateRoles) == 0 {
+		return ""
+	}
+	roles := make([]string, 0, len(view.RequiredCandidateRoles))
+	for _, role := range view.RequiredCandidateRoles {
+		if role == types.AnswerCandidateRoleUnknown {
+			continue
+		}
+		roles = append(roles, string(role))
+	}
+	if len(roles) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Typed Answer Role Contract\n\n")
+	fmt.Fprintf(&b, "The current request requires principal answer row role coverage for: %s.\n\n",
+		renderQuotedList(roles))
+	b.WriteString("- Put `items[].candidate_role` on the principal scalar/list/table item(s) that carry these requested answer roles.\n")
+	b.WriteString("- For scalar answers whose literal is in `block.text`, add a one-element `items[]` entry with `candidate_role` and the supporting `citation_ref`; the row can reuse the scalar literal as its label or keep a short role label.\n")
+	b.WriteString("- Do not satisfy this contract with prose-only wording. The validator compares required role enums with `items[].candidate_role` enums.\n")
+	b.WriteString("- Adjacent roles can stay as supporting context, but the principal answer must include the requested role enum(s) above.\n\n")
 	return b.String()
 }
 
