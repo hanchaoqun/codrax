@@ -2039,7 +2039,7 @@ func (r *REPL) renderBordered(response string) {
 	}
 	fmt.Fprintf(r.out, "  %s\n", bar)
 	for _, ln := range lines {
-		wrapped := wrapByWidth(ln, maxContent)
+		wrapped := borderedLineFragments(ln, maxContent)
 		for _, wl := range wrapped {
 			fmt.Fprintf(r.out, "  %s %s\n", bar, wl)
 		}
@@ -4428,8 +4428,8 @@ func (r *REPL) handleLogShow() {
 	}
 }
 
-var reANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-var reTrailing = regexp.MustCompile(`(\s|\x1b\[[0-9;]*m)+$`)
+var reANSI = regexp.MustCompile(`\x1b\[[0-9;:]*m`)
+var reTrailing = regexp.MustCompile(`(\s|\x1b\[[0-9;:]*m)+$`)
 
 // stripTrailing removes all trailing whitespace and ANSI sequences.
 func stripTrailing(s string) string {
@@ -4439,6 +4439,147 @@ func stripTrailing(s string) string {
 // stripANSI removes all ANSI escape sequences to get plain text.
 func stripANSI(s string) string {
 	return strings.TrimSpace(reANSI.ReplaceAllString(s, ""))
+}
+
+func stripANSIOnly(s string) string {
+	return reANSI.ReplaceAllString(s, "")
+}
+
+// borderedLineFragments returns the visual rows that renderBordered
+// should print for one logical response line. Prose may wrap; tabular
+// / diagram-like rows are treated as atomic because terminal wrapping
+// corrupts their columns, box edges, and arrows. Wide atomic rows are
+// clipped with an ellipsis instead, keeping the REPL layout stable
+// while making the truncation explicit.
+func borderedLineFragments(s string, maxCols int) []string {
+	if displayWidth(s) <= maxCols {
+		return []string{s}
+	}
+	if shouldPreserveVisualLine(s) {
+		return []string{clipByWidth(s, maxCols)}
+	}
+	return wrapByWidth(s, maxCols)
+}
+
+func displayWidth(s string) int {
+	return runewidth.StringWidth(stripANSIOnly(s))
+}
+
+func shouldPreserveVisualLine(s string) bool {
+	plain := strings.TrimSpace(stripANSIOnly(s))
+	if plain == "" {
+		return false
+	}
+	return looksLikePipeTableLine(plain) ||
+		looksLikeBoxDrawingLine(plain) ||
+		looksLikeASCIITableRule(plain)
+}
+
+func looksLikePipeTableLine(s string) bool {
+	if strings.Count(s, "|") >= 2 && strings.HasPrefix(s, "|") && strings.HasSuffix(s, "|") {
+		return true
+	}
+	return strings.Count(s, "│") >= 2 && strings.HasPrefix(s, "│") && strings.HasSuffix(s, "│")
+}
+
+func looksLikeBoxDrawingLine(s string) bool {
+	box := 0
+	for _, r := range s {
+		if isBoxDrawingRune(r) {
+			box++
+		}
+	}
+	if box == 0 {
+		return false
+	}
+	first, last := firstLastRune(s)
+	if isBoxDrawingRune(first) || isBoxDrawingRune(last) {
+		return box >= 2 || strings.ContainsAny(s, "─━═")
+	}
+	// Flowchart connectors sometimes sit inside margin / colour
+	// padding after glamour has styled the code block. Require a
+	// strong box-drawing signal here to avoid clipping ordinary prose
+	// that happens to mention a single glyph.
+	return box >= 4
+}
+
+func looksLikeASCIITableRule(s string) bool {
+	if !(strings.HasPrefix(s, "+") && strings.HasSuffix(s, "+")) {
+		return false
+	}
+	if strings.Count(s, "+") < 2 {
+		return false
+	}
+	rule := 0
+	for _, r := range s {
+		switch r {
+		case '+', '-', '=', ':', ' ':
+			rule++
+		default:
+			return false
+		}
+	}
+	return rule == len([]rune(s))
+}
+
+func isBoxDrawingRune(r rune) bool {
+	return r >= 0x2500 && r <= 0x257F
+}
+
+func firstLastRune(s string) (rune, rune) {
+	var first rune
+	var last rune
+	for i, r := range s {
+		if i == 0 {
+			first = r
+		}
+		last = r
+	}
+	return first, last
+}
+
+func clipByWidth(s string, maxCols int) string {
+	if maxCols <= 0 {
+		return ""
+	}
+	if displayWidth(s) <= maxCols {
+		return s
+	}
+	if maxCols == 1 {
+		return "…"
+	}
+
+	budget := maxCols - 1
+	var buf strings.Builder
+	w := 0
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && ((s[j] >= '0' && s[j] <= '9') || s[j] == ';' || s[j] == ':') {
+				j++
+			}
+			if j < len(s) {
+				j++ // final byte
+			}
+			buf.WriteString(s[i:j])
+			i = j
+			continue
+		}
+
+		r, size := utf8.DecodeRuneInString(s[i:])
+		rw := runewidth.RuneWidth(r)
+		if rw < 0 {
+			rw = 0
+		}
+		if w+rw > budget {
+			break
+		}
+		buf.WriteString(s[i : i+size])
+		w += rw
+		i += size
+	}
+	return buf.String() + "…\x1b[0m"
 }
 
 // wrapByWidth breaks a line into multiple lines that each fit within

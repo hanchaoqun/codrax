@@ -85,6 +85,69 @@ func newTestREPL(store *memory.Store, in *strings.Reader, out *bytes.Buffer) *RE
 	})
 }
 
+func TestBorderedLineFragments_WrapsOrdinaryProse(t *testing.T) {
+	line := strings.Repeat("ordinary prose keeps wrapping ", 4)
+	got := borderedLineFragments(line, 32)
+	if len(got) < 2 {
+		t.Fatalf("ordinary prose should wrap; got %d fragment(s): %q", len(got), got)
+	}
+	for _, frag := range got {
+		if w := displayWidth(frag); w > 32 {
+			t.Fatalf("wrapped prose fragment exceeded width: width=%d fragment=%q", w, frag)
+		}
+	}
+}
+
+func TestBorderedLineFragments_ClipsWidePipeTableRow(t *testing.T) {
+	line := "| Agent | " + strings.Repeat("explorer inspects repository evidence ", 3) + "|"
+	got := borderedLineFragments(line, 40)
+	if len(got) != 1 {
+		t.Fatalf("wide table row must remain one visual row; got %d: %q", len(got), got)
+	}
+	if plain := stripANSIOnly(got[0]); !strings.HasSuffix(plain, "…") {
+		t.Fatalf("clipped table row should end with ellipsis; got %q", plain)
+	}
+	if w := displayWidth(got[0]); w > 40 {
+		t.Fatalf("clipped table row exceeded width: width=%d fragment=%q", w, got[0])
+	}
+}
+
+func TestBorderedLineFragments_ClipsWideBoxDrawingRow(t *testing.T) {
+	line := "│ " + strings.Repeat("planner -> explorer -> finalizer ", 3) + "│"
+	got := borderedLineFragments(line, 42)
+	if len(got) != 1 {
+		t.Fatalf("wide box-drawing row must remain one visual row; got %d: %q", len(got), got)
+	}
+	if plain := stripANSIOnly(got[0]); !strings.HasSuffix(plain, "…") {
+		t.Fatalf("clipped box-drawing row should end with ellipsis; got %q", plain)
+	}
+	if w := displayWidth(got[0]); w > 42 {
+		t.Fatalf("clipped box-drawing row exceeded width: width=%d fragment=%q", w, got[0])
+	}
+}
+
+func TestBorderedLineFragments_DoesNotClipIncidentalPipeProse(t *testing.T) {
+	line := strings.Repeat("choose read | write based on context ", 3)
+	got := borderedLineFragments(line, 36)
+	if len(got) < 2 {
+		t.Fatalf("incidental pipe prose should still wrap; got %d fragment(s): %q", len(got), got)
+	}
+}
+
+func TestBorderedLineFragments_ANSIClippedRowsStayBounded(t *testing.T) {
+	line := "\x1b[31m│ " + strings.Repeat("colored evidence cell ", 4) + "│\x1b[0m"
+	got := borderedLineFragments(line, 38)
+	if len(got) != 1 {
+		t.Fatalf("wide ANSI visual row must remain one visual row; got %d: %q", len(got), got)
+	}
+	if w := displayWidth(got[0]); w > 38 {
+		t.Fatalf("clipped ANSI visual row exceeded width: width=%d fragment=%q", w, got[0])
+	}
+	if !strings.HasSuffix(got[0], "\x1b[0m") {
+		t.Fatalf("clipped ANSI row should reset style; got %q", got[0])
+	}
+}
+
 // TestClearPromptDeclined verifies that /clear's confirmation step
 // actually blocks the wipe when the user does not type 'y'. We
 // scripted "/clear\nn\n/exit\n" through stdin and check that the
