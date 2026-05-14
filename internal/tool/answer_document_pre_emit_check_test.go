@@ -884,6 +884,52 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsDecoratedSplitRelation(t *tes
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_AcceptsSourceLineDecoratedSplitRelation(t *testing.T) {
+	mu := types.NewMutableState("entry function aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "sub-packages and their entry-point functions",
+		Value: "2",
+		Members: []string{
+			"aggregator → Aggregate (line 132)",
+			"prescan → ClassifyToken (行 29)",
+		},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all subpackages and entry functions",
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "list",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:    "agg",
+				Label: "aggregator",
+				Text:  "入口函数是 `Aggregate`。",
+			}, {
+				ID:    "prescan",
+				Label: "prescan",
+				Text:  "入口函数是 `ClassifyToken`。",
+			}},
+		}},
+	}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("source-line support decorators should not be required in visible member identity, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_AcceptsDecoratorListSplitRelation(t *testing.T) {
 	mu := types.NewMutableState("entry function aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

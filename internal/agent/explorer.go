@@ -4300,6 +4300,36 @@ func repairTargetsFromToolRepair(repair *types.ToolRepair) ([]evidenceRepairTarg
 	return out, true
 }
 
+func (e *explorerEvaluator) evidenceRepairTargetsForToolResult(result *types.ToolResult) []evidenceRepairTarget {
+	if result == nil {
+		return nil
+	}
+	targets, structured := repairTargetsFromToolRepair(result.Repair)
+	if !structured {
+		targets = parseEmitEvidenceRepairTargets(result.Summary)
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	if anchor, ok := e.uniqueExactAnchorFile(); ok {
+		targets = filterEvidenceRepairTargetsByFiles(targets, []string{anchor})
+	} else if primary := e.primaryEntityFiles(); len(primary) > 0 {
+		targets = filterEvidenceRepairTargetsByFiles(targets, primary)
+	}
+	return targets
+}
+
+func (e *explorerEvaluator) pendingEvidenceRepairTargets(results []types.ToolResult) []evidenceRepairTarget {
+	if e == nil || !e.midLoopEvidenceRepairSent || e.midLoopEvidenceRepairResultsLen <= 0 || e.midLoopEvidenceRepairResultsLen > len(results) {
+		return nil
+	}
+	result := results[e.midLoopEvidenceRepairResultsLen-1]
+	if result.ToolName != "emit_evidence" || !result.Success {
+		return nil
+	}
+	return e.evidenceRepairTargetsForToolResult(&result)
+}
+
 func isEmitEvidenceStatusLine(line string) bool {
 	line = strings.TrimSpace(line)
 	return strings.HasPrefix(line, "→") || strings.HasPrefix(line, "->")
@@ -4365,6 +4395,29 @@ func renderEmitEvidenceRepairHint(targets []evidenceRepairTarget) string {
 		fmt.Fprintf(&b, "  - `%s` near lines %s\n", target.file, lines)
 	}
 	b.WriteString("\nDo the repair in the existing anchor file first; only widen scope after those items ground cleanly.")
+	return b.String()
+}
+
+func renderEmitEvidenceRepairClosureOnlyHint(targets []evidenceRepairTarget) string {
+	if len(targets) == 0 {
+		return ""
+	}
+	maxFiles := 2
+	if len(targets) < maxFiles {
+		maxFiles = len(targets)
+	}
+	var b strings.Builder
+	b.WriteString("MID-LOOP CHECK: the previous recovered/ungrounded `emit_evidence` rows are still not line-text grounded. Auto-recovered line numbers are audit feedback, not a completed repair for strict citations.\n")
+	b.WriteString("Re-emit `emit_evidence` now for these already-read source locations, using the exact gutter line numbers you just saw:\n")
+	for _, target := range targets[:maxFiles] {
+		lines := renderRepairLineList(target.lines, 4)
+		if lines == "" {
+			fmt.Fprintf(&b, "  - `%s`\n", target.file)
+			continue
+		}
+		fmt.Fprintf(&b, "  - `%s` near lines %s\n", target.file, lines)
+	}
+	b.WriteString("\nDo not open more files or complete the investigation until the repaired `emit_evidence(items=[...])` call succeeds.")
 	return b.String()
 }
 
@@ -4456,18 +4509,7 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 	if e.midLoopEvidenceRepairSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_evidence" || !obs.LastToolResult.Success {
 		return LoopSignal{}
 	}
-	targets, structured := repairTargetsFromToolRepair(obs.LastToolResult.Repair)
-	if !structured {
-		targets = parseEmitEvidenceRepairTargets(obs.LastToolResult.Summary)
-	}
-	if len(targets) == 0 {
-		return LoopSignal{}
-	}
-	if anchor, ok := e.uniqueExactAnchorFile(); ok {
-		targets = filterEvidenceRepairTargetsByFiles(targets, []string{anchor})
-	} else if primary := e.primaryEntityFiles(); len(primary) > 0 {
-		targets = filterEvidenceRepairTargetsByFiles(targets, primary)
-	}
+	targets := e.evidenceRepairTargetsForToolResult(obs.LastToolResult)
 	if len(targets) == 0 {
 		return LoopSignal{}
 	}
@@ -4513,10 +4555,15 @@ func (e *explorerEvaluator) postEmitEvidenceRepairClosureOnlySignal(obs LoopObse
 	if successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, completionProgressToolNames) > 0 {
 		return LoopSignal{}
 	}
+	targets := e.pendingEvidenceRepairTargets(obs.AllToolResults)
+	hint := "MID-LOOP CHECK: the current dispatch already has a concrete `emit_evidence` repair to do on previously-read anchors. Finish that repair and re-emit grounded evidence before widening scope or opening more files. Do not keep navigating until the repaired `emit_evidence(items=[...])` batch succeeds."
+	if len(targets) > 0 {
+		hint = renderEmitEvidenceRepairClosureOnlyHint(targets)
+	}
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        fmt.Sprintf("explorer.mid-loop.evidence-repair-closure-only.%d", obs.Iteration),
-		Hint:           "MID-LOOP CHECK: the current dispatch already has a concrete `emit_evidence` repair to do on previously-read anchors. Finish that repair and re-emit grounded evidence before widening scope or opening more files. Do not keep navigating until the repaired `emit_evidence(items=[...])` batch succeeds.",
+		Hint:           hint,
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,

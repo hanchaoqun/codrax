@@ -198,6 +198,26 @@ func TestAnswerAggregateMemberDisplayCandidates_RelationDecoratorVariants(t *tes
 	}
 }
 
+func TestAnswerAggregateMemberDisplayCandidates_SourceLineDecoratorIsSupportSurface(t *testing.T) {
+	candidates := AnswerAggregateMemberDisplayCandidates("aggregator → Aggregate (line 132)")
+	if !stringSliceContains(candidates, "aggregator → Aggregate") ||
+		!stringSliceContains(candidates, "aggregator/Aggregate") {
+		t.Fatalf("source-line decorator should expose relation identity without the line support surface, got %+v", candidates)
+	}
+	if stringSliceContains(AnswerAggregateMemberDisplayCandidates("declarative → New (Classifier)"), "declarative → New") {
+		t.Fatal("non-location relation decorators must remain identity-bearing")
+	}
+	if !stringSliceContains(AnswerAggregateMemberDisplayCandidates("prescan → ClassifyToken (行 29)"), "prescan → ClassifyToken") {
+		t.Fatal("Chinese source-line decorators should also be treated as support surfaces")
+	}
+	if !stringSliceContains(AnswerAggregateMemberDisplayCandidates("compiler → Compile (lines 37-39)"), "compiler → Compile") {
+		t.Fatal("source-line ranges should also be treated as support surfaces")
+	}
+	if !stringSliceContains(AnswerAggregateMemberDisplayCandidates("risk → Evaluate (L22)"), "risk → Evaluate") {
+		t.Fatal("compact line decorators should also be treated as support surfaces")
+	}
+}
+
 func TestAnswerAggregateMemberDisplayCandidates_CompactSourceSupportRef(t *testing.T) {
 	candidates := AnswerAggregateMemberDisplayCandidates("analyzerEvaluator@internal/agent/analyzer.go:887")
 	if !stringSliceContains(candidates, "analyzerEvaluator@internal/agent/analyzer.go:887") {

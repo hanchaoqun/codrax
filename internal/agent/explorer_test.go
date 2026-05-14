@@ -3350,6 +3350,59 @@ func TestObserveMidLoop_EvidenceRepairClosureOnlySuppressesExpansion(t *testing.
 	}
 }
 
+func TestObserveMidLoop_EvidenceRepairClosureOnlyRepeatsStructuredTargets(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+	}
+	initial := []types.ToolResult{{
+		ToolName: "emit_evidence",
+		Success:  true,
+		Summary:  "emit_evidence accepted 2 item(s)",
+		Repair: &types.ToolRepair{
+			Code: "evidence_line_text_repair",
+			Targets: []types.ToolRepairTarget{{
+				File:   "internal/analysis/amplifier/amplifier.go",
+				Lines:  []int{100},
+				Action: string(types.RepairReadFile),
+			}},
+		},
+	}}
+	first := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &initial[0],
+		AllToolResults: initial,
+	})
+	if !first.HintRequested || first.HintKey != "explorer.mid-loop.evidence-repair" {
+		t.Fatalf("first pass should raise the evidence repair hint, got %+v", first)
+	}
+
+	followup := append(append([]types.ToolResult(nil), initial...), types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/analysis/amplifier/amplifier.go: showing lines 89-108 of 131 total]\n   100| func Amplify(...)",
+	})
+	second := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      5,
+		LastToolResult: &followup[len(followup)-1],
+		AllToolResults: followup,
+	})
+	if !second.HintRequested {
+		t.Fatalf("closure-only repair redirect should fire after navigation, got %+v", second)
+	}
+	if !strings.HasPrefix(second.HintKey, "explorer.mid-loop.evidence-repair-closure-only.") {
+		t.Fatalf("HintKey = %q, want evidence-repair-closure-only prefix", second.HintKey)
+	}
+	if !strings.Contains(second.Hint, "internal/analysis/amplifier/amplifier.go") || !strings.Contains(second.Hint, "100") {
+		t.Fatalf("closure-only redirect should repeat the structured repair target, got: %s", second.Hint)
+	}
+	if !strings.Contains(second.Hint, "Auto-recovered line numbers are audit feedback") {
+		t.Fatalf("closure-only redirect should explain recovered evidence is not repaired yet, got: %s", second.Hint)
+	}
+}
+
 func TestObserveMidLoop_EvidenceRepairHintAdvancesBatchBaseline(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:        1,

@@ -1008,6 +1008,16 @@ Observed data flow:
    dispatches, 2 finalizer dispatches, 2 rejects, and 5 self-consistency
    repairs.
 
+Follow-up from the 2026-05-14 full sweep: the explorer can now emit a single
+`aggregate_facts.member_set` whose members contain package/function/line
+surfaces such as `aggregator -> Aggregate (line 132)`. The remaining systemic
+gap is that source-line decoration is treated as visible row identity instead
+of row support. That makes an otherwise correct row like label=`aggregator`,
+text=`Aggregate`, citation=line 132 look incomplete unless the prose repeats
+`line 132` inside the member label. Non-location decorators such as
+`New (Classifier)` are different: they disambiguate the entry surface and must
+remain identity-bearing.
+
 Root cause: "directory + entry function" is a two-column catalog, but the
 pipeline models it as either answer-symbol enumeration or free-form ordered
 list. The exact row identity (package dir, entry function, file, line,
@@ -1585,6 +1595,37 @@ Batch 1b progress:
   breadth remains unsolved (`explorer_iters=13` in that run), so this closes
   only the deterministic block-order sub-gap and leaves broader row/citation
   compilation in Batch 1.
+
+Batch 1c progress:
+
+- Split relation member identity from source-location support for aggregate
+  row display candidates. Relation members such as
+  `package -> Entry (line 123)` now expose `package -> Entry` and
+  `package/Entry` as valid visible row identities, while the line number stays
+  available as support/citation data. Ordinary semantic decorators such as
+  `New (Classifier)` or `Engine (New + Submit/Apply)` remain identity-bearing.
+- The implementation lives in the shared `AnswerAggregateMemberDisplayCandidates`
+  relation parser, not in an eval-specific prompt or finalizer exception. It is
+  language-neutral over row surfaces and handles both English and Chinese
+  source-line markers (`line`, `ln`, `行`, `第...行`), so Go, TS/ArkTS, Python,
+  Java/Kotlin, Rust, C/C++, Cangjie, and other supported repomap languages use
+  the same row/support boundary.
+- Added unit coverage in `internal/types` for source-line decorator candidate
+  expansion and in `internal/tool` for pre-emit member-set coverage when a row
+  renders package/function identity and carries line proof through citation
+  rather than visible prose.
+- While re-running `s5b`, another exploration-to-consumption gap surfaced:
+  `emit_evidence` can auto-recover a wrong line number to the exact same-file
+  definition, but the repaired row remains audit/recovered until the model
+  re-emits it with the exact gutter line. The mid-loop repair latch now repeats
+  the structured file/line target on closure-only redirects and states that
+  auto-recovery is not a completed strict-citation repair. This keeps recovered
+  rows from being mistaken for consumed, line-text-grounded evidence without
+  weakening citation hard gates.
+- Verification so far: `go test ./internal/agent ./internal/types
+  ./internal/tool` and `go test ./...` passed. Focused `s5b` eval is running
+  on the current binary to measure whether the repair loop reduction follows
+  the structural fix.
 
 ### Batch 2: Exact Answer Lane Before Symbol Enumeration
 

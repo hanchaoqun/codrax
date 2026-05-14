@@ -496,6 +496,9 @@ func aggregateRelationPartDisplayForms(part string) []string {
 	if base, qualifier, ok := aggregateRelationPartDecorator(part); ok {
 		out = append(out, base+"("+qualifier+")")
 		out = append(out, base+" ("+qualifier+")")
+		if aggregateRelationDecoratorIsSourceLine(qualifier) {
+			out = append(out, base)
+		}
 	}
 	return dedupAggregateMemberCandidates(out)
 }
@@ -600,6 +603,9 @@ func aggregateRelationPartOK(part string) bool {
 		return false
 	}
 	if base, qualifier, ok := aggregateRelationPartDecorator(part); ok {
+		if aggregateRelationDecoratorIsSourceLine(qualifier) {
+			return aggregateRelationCorePartOK(base)
+		}
 		return aggregateRelationCorePartOK(base) && aggregateRelationQualifierOK(qualifier)
 	}
 	if strings.Contains(part, "/") {
@@ -760,6 +766,48 @@ func aggregateRelationPartDecorator(part string) (base string, qualifier string,
 		return "", "", false
 	}
 	return base, qualifier, true
+}
+
+func aggregateRelationDecoratorIsSourceLine(qualifier string) bool {
+	qualifier = strings.ToLower(trimAggregateMemberSurface(qualifier))
+	if qualifier == "" {
+		return false
+	}
+	qualifier = strings.TrimPrefix(qualifier, "#")
+	qualifier = strings.TrimSpace(qualifier)
+	for _, prefix := range []string{"lines", "line", "ln", "l", "行", "第"} {
+		if !strings.HasPrefix(qualifier, prefix) {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(qualifier, prefix))
+		if prefix == "第" {
+			rest = strings.TrimSuffix(rest, "行")
+			rest = strings.TrimSpace(rest)
+		}
+		rest = strings.TrimPrefix(rest, ":")
+		rest = strings.TrimPrefix(rest, "#")
+		rest = strings.TrimSpace(rest)
+		if rest == "" {
+			return false
+		}
+		return aggregateRelationLineRefOK(rest)
+	}
+	return false
+}
+
+func aggregateRelationLineRefOK(rest string) bool {
+	seenDigit := false
+	for _, r := range rest {
+		switch {
+		case unicode.IsDigit(r):
+			seenDigit = true
+		case unicode.IsSpace(r):
+		case r == ':' || r == '-' || r == ',' || r == '.' || r == '\u2013' || r == '\u2014':
+		default:
+			return false
+		}
+	}
+	return seenDigit
 }
 
 func trimAggregateMemberSurface(s string) string {
