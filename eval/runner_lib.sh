@@ -6,14 +6,11 @@
 eval_run_with_timeout() {
   local seconds="$1"
   shift
-  if command -v timeout >/dev/null 2>&1; then
-    command timeout "$seconds" "$@"
-    return $?
-  fi
-  if command -v gtimeout >/dev/null 2>&1; then
-    command gtimeout "$seconds" "$@"
-    return $?
-  fi
+  # Prefer one cross-platform implementation over platform-specific
+  # timeout(1) variants. The Python path starts the command in a fresh
+  # process group and always tears down the whole group on timeout, so
+  # a timed-out eval cannot leave LLM/tool grandchildren occupying a
+  # parallel slot after the worker shell exits.
   if command -v python3 >/dev/null 2>&1; then
     python3 - "$seconds" "$@" <<'PY'
 import os
@@ -26,6 +23,13 @@ timeout = float(sys.argv[1])
 cmd = sys.argv[2:]
 p = subprocess.Popen(cmd, start_new_session=True)
 deadline = time.time() + timeout
+
+def kill_group(sig):
+    try:
+        os.killpg(p.pid, sig)
+    except ProcessLookupError:
+        pass
+
 try:
     while True:
         rc = p.poll()
@@ -34,7 +38,7 @@ try:
         if time.time() >= deadline:
             break
         time.sleep(min(0.5, max(0.0, deadline - time.time())))
-    os.killpg(p.pid, signal.SIGTERM)
+    kill_group(signal.SIGTERM)
     grace_deadline = time.time() + 10
     while True:
         rc = p.poll()
@@ -43,13 +47,21 @@ try:
         if time.time() >= grace_deadline:
             break
         time.sleep(min(0.25, max(0.0, grace_deadline - time.time())))
-    os.killpg(p.pid, signal.SIGKILL)
+    kill_group(signal.SIGKILL)
     p.wait()
     sys.exit(124)
 except KeyboardInterrupt:
-    os.killpg(p.pid, signal.SIGTERM)
+    kill_group(signal.SIGTERM)
     raise
 PY
+    return $?
+  fi
+  if command -v timeout >/dev/null 2>&1; then
+    command timeout -k 10 "$seconds" "$@"
+    return $?
+  fi
+  if command -v gtimeout >/dev/null 2>&1; then
+    command gtimeout -k 10 "$seconds" "$@"
     return $?
   fi
   "$@"

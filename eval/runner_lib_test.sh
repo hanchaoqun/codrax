@@ -51,6 +51,17 @@ if command -v timeout >/dev/null 2>&1 ||
   fi
 fi
 
+if command -v python3 >/dev/null 2>&1; then
+  leak="$tmp/timeout-grandchild-leak"
+  eval_run_with_timeout 1 bash -c '(sleep 3; echo leaked > "$1") & wait' _ "$leak" >/dev/null 2>&1
+  rc=$?
+  assert_eq "$rc" "124" "process-group timeout return code"
+  sleep 4
+  if [[ -e "$leak" ]]; then
+    fail "timeout left a grandchild running after parent exit"
+  fi
+fi
+
 true_bin="$(command -v true || true)"
 if [[ -n "$true_bin" && -x "$true_bin" ]]; then
   case_file="$tmp/runner_contract.case"
