@@ -170,14 +170,14 @@ func TestAnalysisIR_JSONRoundtrip(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v11 adds analyzer-validated answer_exclusion_policy so
-	// user-excluded candidate categories travel as typed structure instead
-	// of downstream RawRequest/final-answer keyword matching.
-	if AnalysisIRVersion != "v11" {
+	// v12 expands candidate_role to exact scalar/literal roles so
+	// tool names, import paths, budget caps, attempt counters, etc. can
+	// travel as typed row metadata instead of prose.
+	if AnalysisIRVersion != "v12" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v11" {
+	if ir.Version != "v12" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

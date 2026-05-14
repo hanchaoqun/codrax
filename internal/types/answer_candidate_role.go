@@ -2,30 +2,39 @@ package types
 
 import "strings"
 
-// AnswerCandidateRole is a language-neutral category label for a visible
+// AnswerCandidateRole is a language-neutral category/role label for a visible
 // answer row. It lets the final answer carrier preserve whether a row is a
-// function, variable, test, generated file, private helper, etc. without
-// forcing validators to infer that category from prose.
+// function, variable, tool name, import path, budget cap, attempt counter, etc.
+// without forcing validators to infer that category from prose.
 type AnswerCandidateRole string
 
 const (
-	AnswerCandidateRoleUnknown       AnswerCandidateRole = ""
-	AnswerCandidateRoleFunction      AnswerCandidateRole = "function"
-	AnswerCandidateRoleMethod        AnswerCandidateRole = "method"
-	AnswerCandidateRoleType          AnswerCandidateRole = "type"
-	AnswerCandidateRoleConstant      AnswerCandidateRole = "constant"
-	AnswerCandidateRoleVariable      AnswerCandidateRole = "variable"
-	AnswerCandidateRoleField         AnswerCandidateRole = "field"
-	AnswerCandidateRolePackage       AnswerCandidateRole = "package"
-	AnswerCandidateRoleFile          AnswerCandidateRole = "file"
-	AnswerCandidateRoleTest          AnswerCandidateRole = "test"
-	AnswerCandidateRoleGenerated     AnswerCandidateRole = "generated"
-	AnswerCandidateRolePrivate       AnswerCandidateRole = "private"
-	AnswerCandidateRoleDocumentation AnswerCandidateRole = "documentation"
-	AnswerCandidateRoleExample       AnswerCandidateRole = "example"
-	AnswerCandidateRoleFixture       AnswerCandidateRole = "fixture"
-	AnswerCandidateRoleHelper        AnswerCandidateRole = "helper"
-	AnswerCandidateRoleOther         AnswerCandidateRole = "other"
+	AnswerCandidateRoleUnknown        AnswerCandidateRole = ""
+	AnswerCandidateRoleFunction       AnswerCandidateRole = "function"
+	AnswerCandidateRoleMethod         AnswerCandidateRole = "method"
+	AnswerCandidateRoleType           AnswerCandidateRole = "type"
+	AnswerCandidateRoleConstant       AnswerCandidateRole = "constant"
+	AnswerCandidateRoleVariable       AnswerCandidateRole = "variable"
+	AnswerCandidateRoleField          AnswerCandidateRole = "field"
+	AnswerCandidateRolePackage        AnswerCandidateRole = "package"
+	AnswerCandidateRoleFile           AnswerCandidateRole = "file"
+	AnswerCandidateRoleTest           AnswerCandidateRole = "test"
+	AnswerCandidateRoleGenerated      AnswerCandidateRole = "generated"
+	AnswerCandidateRolePrivate        AnswerCandidateRole = "private"
+	AnswerCandidateRoleDocumentation  AnswerCandidateRole = "documentation"
+	AnswerCandidateRoleExample        AnswerCandidateRole = "example"
+	AnswerCandidateRoleFixture        AnswerCandidateRole = "fixture"
+	AnswerCandidateRoleHelper         AnswerCandidateRole = "helper"
+	AnswerCandidateRoleToolName       AnswerCandidateRole = "tool_name"
+	AnswerCandidateRoleConfigKey      AnswerCandidateRole = "config_key"
+	AnswerCandidateRoleRoute          AnswerCandidateRole = "route"
+	AnswerCandidateRoleImportPath     AnswerCandidateRole = "import_path"
+	AnswerCandidateRoleLiteralValue   AnswerCandidateRole = "literal_value"
+	AnswerCandidateRoleCommitHash     AnswerCandidateRole = "commit_hash"
+	AnswerCandidateRoleBudgetCap      AnswerCandidateRole = "budget_cap"
+	AnswerCandidateRoleAttemptCounter AnswerCandidateRole = "attempt_counter"
+	AnswerCandidateRoleGuardCondition AnswerCandidateRole = "guard_condition"
+	AnswerCandidateRoleOther          AnswerCandidateRole = "other"
 )
 
 func AllAnswerCandidateRoles() []AnswerCandidateRole {
@@ -45,6 +54,15 @@ func AllAnswerCandidateRoles() []AnswerCandidateRole {
 		AnswerCandidateRoleExample,
 		AnswerCandidateRoleFixture,
 		AnswerCandidateRoleHelper,
+		AnswerCandidateRoleToolName,
+		AnswerCandidateRoleConfigKey,
+		AnswerCandidateRoleRoute,
+		AnswerCandidateRoleImportPath,
+		AnswerCandidateRoleLiteralValue,
+		AnswerCandidateRoleCommitHash,
+		AnswerCandidateRoleBudgetCap,
+		AnswerCandidateRoleAttemptCounter,
+		AnswerCandidateRoleGuardCondition,
 		AnswerCandidateRoleOther,
 	}
 }

@@ -68,7 +68,7 @@ func TestPreCheckNegativeCitationBoundsRejectsUnboundedAbsenceCitation(t *testin
 	}
 }
 
-func TestPreCheckRuntimeObservationRepoContaminationRejectsRepoPath(t *testing.T) {
+func TestPreCheckRuntimeObservationRepoContaminationRejectsRepoCitationsOnly(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{
 		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{Func: "load_config"}}}},
@@ -85,21 +85,20 @@ func TestPreCheckRuntimeObservationRepoContaminationRejectsRepoPath(t *testing.T
 				},
 			},
 		},
-		EvidenceItems: []types.EvidenceItem{{
-			Source: "internal/env/cache/disk_cache.go",
-			Origin: types.ClaimOriginCurrentRepo,
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/env/cache/disk_cache.go", Line: 179}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "c",
+			Kind: types.BlockCaveat,
+			Text: "外部日志事实使用 artifact observation，不绑定当前仓库引用。",
 		}},
 	}
-	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
-		ID:   "c",
-		Kind: types.BlockCaveat,
-		Text: "当前仓库代码中，`internal/env/cache/disk_cache.go:179` 有一个无关守卫。",
-	}}}
 	hints := preCheckRuntimeObservationRepoContamination(doc, ctx)
 	if len(hints) == 0 {
-		t.Fatal("expected repo contamination hint")
+		t.Fatal("expected repo citation contamination hint")
 	}
-	if !strings.Contains(hints[0].ExpectedShape, "observation-only runtime answer") {
+	if !strings.Contains(hints[0].ExpectedShape, "observation-only external runtime artifact answer") {
 		t.Fatalf("unexpected hint: %+v", hints[0])
 	}
 }
@@ -143,7 +142,7 @@ func TestPreCheckRuntimeObservationRepoContaminationAllowsCurrentStatus(t *testi
 	}
 }
 
-func TestPreCheckVisibleInternalCarrierTermsRejectsUnaskedCitationRefLeak(t *testing.T) {
+func TestRunPreEmitChecksDoesNotKeywordMatchRenderedCarrierTerms(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID:   "c",
 		Kind: types.BlockCaveat,
@@ -152,69 +151,40 @@ func TestPreCheckVisibleInternalCarrierTermsRejectsUnaskedCitationRefLeak(t *tes
 	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		RawRequest: "解释这个 traceback",
 	}}}
-	hints := preCheckVisibleInternalCarrierTerms(doc, ctx)
-	if len(hints) != 1 {
-		t.Fatalf("expected internal carrier leak rejection, got %+v", hints)
-	}
-	if !strings.Contains(hints[0].ExpectedShape, "citation_ref") {
-		t.Fatalf("hint must name leaked carrier term, got %+v", hints[0])
+	if hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx); len(hints) != 0 {
+		t.Fatalf("pre-emit must not reject by scanning rendered text / RawRequest keywords, got %+v", hints)
 	}
 }
 
-func TestPreCheckVisibleInternalCarrierTermsAllowsExplicitUserQuestion(t *testing.T) {
+func TestRunPreEmitChecksAllowsTypedToolNameRowsWithoutRawRequestScan(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
-		ID:   "s",
-		Kind: types.BlockSummary,
-		Text: "citation_ref 是结构化答案里的引用索引。",
-	}}}
-	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-		RawRequest: "citation_ref 是什么意思？",
-	}}}
-	if hints := preCheckVisibleInternalCarrierTerms(doc, ctx); len(hints) != 0 {
-		t.Fatalf("explicit user question about carrier term should pass, got %+v", hints)
-	}
-}
-
-func TestPreCheckVisibleInternalCarrierTermsAllowsExplicitEmitToolGlob(t *testing.T) {
-	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
-		ID:   "s",
-		Kind: types.BlockSummary,
-		Text: "AnalyzerAgent 使用 `emit_analysis`，FinalizerAgent 使用 `emit_answer_document`。",
-	}}}
-	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-		RawRequest: "AnalyzerAgent 和 FinalizerAgent 分别通过哪一个 emit_* 工具写出结构化输出？两个 agent 各列一个工具名。",
-	}}}
-	if hints := preCheckVisibleInternalCarrierTerms(doc, ctx); len(hints) != 0 {
-		t.Fatalf("explicit emit_* tool-name question should pass, got %+v", hints)
-	}
-}
-
-func TestPreCheckVisibleInternalCarrierTermsAllowsTypedToolNameSubject(t *testing.T) {
-	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
-		ID:   "s",
-		Kind: types.BlockSummary,
-		Text: "FinalizerAgent 使用 `emit_answer_document`。",
+		ID:   "tools",
+		Kind: types.BlockTable,
+		Items: []types.AnswerBlockItem{{
+			ID:            "finalizer-tool",
+			Label:         "FinalizerAgent",
+			Text:          "`emit_answer_document`",
+			CandidateRole: types.AnswerCandidateRoleToolName,
+			CitationRef:   -1,
+		}},
 	}}}
 	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		RawRequest: "FinalizerAgent 写结构化输出的工具名是什么？",
-		AnswerSubject: types.AnswerSubject{
-			Kind: types.SubjectStringLiteral,
-		},
-		AnalyzerHints: types.AnalyzerHints{
-			Entities: []string{"FinalizerAgent", "emit_answer_document"},
-		},
-		Predicates: types.SemanticPredicates{
-			IsScalarAnswer: true,
-		},
 	}}}
-	if hints := preCheckVisibleInternalCarrierTerms(doc, ctx); len(hints) != 0 {
-		t.Fatalf("typed tool-name subject should pass, got %+v", hints)
+	if hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx); len(hints) != 0 {
+		t.Fatalf("typed tool-name rows should pass without RawRequest/text keyword gates, got %+v", hints)
 	}
 }
 
-func TestPreCheckMultiRepoAbsentScopeBoundaryRequiresInactiveDisclosure(t *testing.T) {
+func TestRunPreEmitChecksDoesNotKeywordMatchMultiRepoAbsenceDisclosure(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Citations: []types.Citation{{
+			File:            "repo-go/internal/router.go",
+			Line:            42,
+			Scope:           types.ScopeNegative,
+			NegativePattern: "process_request",
+		}},
 		Blocks: []types.AnswerBlock{{
 			ID:   "s",
 			Kind: types.BlockSummary,
@@ -222,17 +192,8 @@ func TestPreCheckMultiRepoAbsentScopeBoundaryRequiresInactiveDisclosure(t *testi
 		}},
 	}
 	ctx := &types.BusContext{PendingSubRepos: []string{"repo-tools-py"}}
-	hints := preCheckMultiRepoAbsentScopeBoundary(doc, ctx)
-	if len(hints) != 1 {
-		t.Fatalf("expected inactive-scope disclosure hint, got %+v", hints)
-	}
-	if !strings.Contains(hints[0].ExpectedShape, "repo-tools-py") {
-		t.Fatalf("hint must name inactive sub-repo, got %+v", hints[0])
-	}
-
-	doc.Blocks[0].Text = "`process_request` is absent in the active scope; `repo-tools-py` is outside the active sub-repo set and was not consulted."
-	if hints := preCheckMultiRepoAbsentScopeBoundary(doc, ctx); len(hints) != 0 {
-		t.Fatalf("explicit inactive-scope disclosure should pass, got %+v", hints)
+	if hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx); len(hints) != 0 {
+		t.Fatalf("pre-emit must not scan rendered text for inactive repo names, got %+v", hints)
 	}
 }
 

@@ -68,6 +68,7 @@ created.
 | E20260514-G46 | audit of commit `af8f5a9c` | Red-line remediation / fixed Batch 6a | Field/value count coverage was triggered by scanning `RawRequest` / analyzer keywords for dotted fields and literal words such as `false`, `true`, `nil`, `null`, or `undefined`. | The feature goal was valid, but the hard pre-complete downgrade inferred its target/literal from user prose and keyword lists instead of a typed analyzer lane. This made the gate language-fragile and risked unrelated-count false positives. | Added analyzer `field_value_profile` (`target`, `owner`, `field`, `literal`, `literal_kind`, `source_quote`, confidence) and moved explorer/pre-complete consumption to that typed carrier. Downstream hard gates no longer infer field/value coverage from RawRequest or Keywords; exact `source_quote` validation is confined to the analyzer emit boundary. |
 | E20260514-G47 | audit of commit `d2289e7a` | Red-line remediation / fixed Batch 6b | The attempted sorted-row self-consistency filter looked for ordering words in reviewer contradiction prose and reasoning, then suppressed a hard rewrite when rows appeared sorted. | This still let model-authored reviewer text drive hard control flow. The valid system need is to stop row-order false positives, but the control signal must be a typed review kind plus deterministic AnswerDocument row metadata. | Added `contradiction_kind` to `emit_self_consistency_review` and a deterministic V2 principal-row order profile. Only `row_order_mismatch` contradictions can be suppressed, and only when every principal list/table row block is deterministically ascending by item label or citation path axis. Unknown/text-only reviewer claims are not suppressed. |
 | E20260514-G48 | audit of commit `e07cafb5` | Red-line remediation / fixed Batch 6c | The attempted user-excluded-category gate detected excluded categories by matching words in the user request and detected leaks by matching words/tokens in final answer prose. | Exclusion is a real answer-scope contract, but request/answer text keyword scans are not acceptable hard-gate inputs. The policy and row category must travel as typed carrier fields. | Added analyzer `answer_exclusion_policy` and answer-row `items[].candidate_role`. The hard check is now enum-to-enum: if a principal answer item carries a candidate role excluded by the analyzer policy, it is rejected. Scope-boundary prose is not scanned or rejected. |
+| E20260514-G49 | Batch 2c red-line audit of G8/G11 pre-emit visibility | Fixed Batch 2c | `preCheckVisibleInternalCarrierTerms` scanned rendered answer prose for carrier-name tokens and scanned `RawRequest` to decide whether those tokens were allowed; adjacent artifact/multi-repo checks also scanned rendered prose for repo/path names. | This reintroduced the same red-line class at the final-answer boundary: a hard control decision depended on keyword-like matching over model output and user text, and it could fight explicit tool-name literal answers. | Removed rendered-answer/RawRequest keyword gates from pre-emit visibility checks. Preserved structural hard gates where the signal is typed (`citations[]`, negative-scope citations, `exact_resolution`). Expanded answer-row `candidate_role` into scalar/literal roles (`tool_name`, `config_key`, `route`, `import_path`, `literal_value`, `commit_hash`, `budget_cap`, `attempt_counter`, `guard_condition`) so future role binding consumes typed row metadata instead of prose. |
 
 ## End-to-End Traces
 
@@ -2251,6 +2252,32 @@ Verification:
 - `bash eval/run.sh eval/cases/s7b.case 1`
   (`eval/results/s7b-20260514-164411`, PASS; finalizer_iters=1, no repair
   lines; answer no longer required a 25-item principal member list)
+
+Initial Batch 2c progress:
+
+- Removed the pre-emit carrier-name visibility gate that scanned rendered
+  answer prose and `RawRequest` to decide whether terms such as
+  `citation_ref`, `emit_answer_document`, or `AnswerDocumentV2` should hard
+  reject. This was a red-line risk and a direct source of the G8/G11
+  tool-literal vs carrier-concealment oscillation.
+- Kept structural gates that do not inspect model prose: observation-only
+  runtime answers still reject current-repo `citations[]`, and exact absence
+  still requires typed negative-scope citations with `negative_pattern`.
+  Artifact helper paths and inactive-sub-repo disclosures need a future typed
+  disclosure field before they can be hard-gated again; until then they stay in
+  prompt guidance rather than keyword control flow.
+- Expanded the answer-row `candidate_role` enum into exact scalar/literal and
+  role-disambiguation lanes: `tool_name`, `config_key`, `route`, `import_path`,
+  `literal_value`, `commit_hash`, `budget_cap`, `attempt_counter`, and
+  `guard_condition`. This gives G1/G5/G8/G12/G25-style exact-answer work a
+  shared row-level carrier instead of forcing role intent into prose.
+- Added pre-emit regression tests proving rendered carrier words, explicit
+  tool-name rows, and multi-repo absence wording are no longer accepted/rejected
+  by answer-text or request-text keyword scans.
+
+Verification:
+
+- `go test ./internal/tool ./internal/types ./internal/agent -run 'TestRunPreEmitChecksDoesNotKeywordMatchRenderedCarrierTerms|TestRunPreEmitChecksAllowsTypedToolNameRowsWithoutRawRequestScan|TestRunPreEmitChecksDoesNotKeywordMatchMultiRepoAbsenceDisclosure|TestPreCheckRuntimeObservationRepoContaminationRejectsRepoCitationsOnly|TestEmitAnswerDocumentSchema_CandidateRoleEnumMatchesTypes|TestEmitAnalysis_Consistency'`
 
 ### Batch 3: Relation / Diagram Generation From Typed Edges
 

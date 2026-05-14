@@ -40,7 +40,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v11"
+const AnalysisIRVersion = "v12"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 

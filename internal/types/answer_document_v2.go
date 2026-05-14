@@ -249,10 +249,10 @@ type AnswerBlockItem struct {
 	// content). Markdown-flavoured.
 	Text string `json:"text,omitempty"`
 
-	// CandidateRole is an optional typed category for this visible row.
-	// It is used only when the current request carries an
-	// AnswerExclusionPolicy or when the answer needs to distinguish
-	// functions/types/variables/tests/generated/private candidates without
+	// CandidateRole is an optional typed category or scalar/literal role for
+	// this visible row. It is used when the current request carries an
+	// AnswerExclusionPolicy or when the answer needs to distinguish functions,
+	// tool names, import paths, budget caps, attempt counters, etc. without
 	// validators inferring roles from prose.
 	CandidateRole AnswerCandidateRole `json:"candidate_role,omitempty"`
 

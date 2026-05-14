@@ -125,9 +125,9 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	if h := preCheckRuntimeObservationRepoContamination(doc, ctxOpt...); len(h) > 0 {
 		hints = append(hints, h...)
 	}
-	if h := preCheckVisibleInternalCarrierTerms(doc, ctxOpt...); len(h) > 0 {
-		hints = append(hints, h...)
-	}
+	// Carrier visibility is governed by LLM-facing schema/prompt wording and
+	// typed row roles, not by post-hoc keyword matching over RawRequest or the
+	// model-rendered answer text.
 
 	// 1. Required block kind + count compliance.
 	if h := preCheckRequiredBlocks(doc, view); len(h) > 0 {
@@ -200,9 +200,9 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	if h := preCheckAbsenceScopeBound(doc); len(h) > 0 {
 		hints = append(hints, h...)
 	}
-	if h := preCheckMultiRepoAbsentScopeBoundary(doc, ctxOpt...); len(h) > 0 {
-		hints = append(hints, h...)
-	}
+	// Multi-repo absence disclosure is prompted from typed PendingSubRepos /
+	// exact_resolution state. This pre-emit chokepoint must not inspect the
+	// model's rendered prose for path-name keywords to decide control flow.
 
 	// 6. Enumeration item label grounding (P1 2026-05-10).
 	// Catches the hallucinated identifier-shape labels that drove
@@ -288,178 +288,7 @@ func preCheckRuntimeObservationRepoContamination(doc *types.AnswerDocumentV2, ct
 			Reason:        "this request asks what the attached log / trace observed; current-repo citations would imply the checkout produced or proves the external artifact.",
 		}}
 	}
-	currentRepoSources := currentRepoEvidenceSources(ctx)
-	if len(currentRepoSources) == 0 {
-		return nil
-	}
-	body := strings.ToLower(answerDocumentVisibleText(doc))
-	for _, source := range currentRepoSources {
-		if strings.Contains(body, strings.ToLower(source)) {
-			return []emitFixHint{{
-				Field:         "blocks[].text/items[].text",
-				ExpectedShape: "remove current-repo file paths and helper-specific caveats from this observation-only runtime answer; explain only the attached artifact facts and the generic no-repo-intersection boundary",
-				Reason:        "the typed runtime-grounding disposition says the artifact has no current-repo intersection, so repo helper paths are unrelated context, not answer evidence.",
-			}}
-		}
-	}
 	return nil
-}
-
-func preCheckMultiRepoAbsentScopeBoundary(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
-	if doc == nil || doc.ExactResolution == nil ||
-		doc.ExactResolution.Status != types.AnswerExactResolutionAbsent ||
-		len(ctxOpt) == 0 || ctxOpt[0] == nil {
-		return nil
-	}
-	pending := ctxOpt[0].PendingSubRepos
-	if len(pending) == 0 {
-		return nil
-	}
-	body := strings.ToLower(answerDocumentVisibleText(doc))
-	for _, root := range pending {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			continue
-		}
-		if strings.Contains(body, strings.ToLower(root)) {
-			return nil
-		}
-	}
-	preview := pending
-	if len(preview) > 3 {
-		preview = preview[:3]
-	}
-	return []emitFixHint{{
-		Field:         "blocks[].text/items[].text/caveats[]",
-		ExpectedShape: "state that the absence is scoped to the active sub-repo set and name the out-of-active sub-repo(s) not consulted: " + strings.Join(preview, ", "),
-		Reason:        "multi-repo absence is a scope verdict, not a workspace-wide fact; inactive sub-repos may contain the requested target and must be disclosed instead of collapsed into plain absence.",
-	}}
-}
-
-var visibleInternalCarrierTerms = []string{
-	"citation_ref",
-	"citations[]",
-	"exact_resolution",
-	"context_mode",
-	"claim_uses",
-	"facet_ids",
-	"surface_role",
-	"emit_answer_document",
-	"emit_answer_document_patch",
-	"Answer" + "Document",
-	"Answer" + "DocumentV2",
-}
-
-func preCheckVisibleInternalCarrierTerms(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
-	body := answerDocumentVisibleText(doc)
-	if strings.TrimSpace(body) == "" {
-		return nil
-	}
-	rawRequest := ""
-	if len(ctxOpt) > 0 && ctxOpt[0] != nil && ctxOpt[0].AnalysisIR != nil {
-		rawRequest = ctxOpt[0].AnalysisIR.RequestModel.RawRequest
-	}
-	var leaked []string
-	for _, term := range visibleInternalCarrierTerms {
-		if !strings.Contains(body, term) {
-			continue
-		}
-		if visibleInternalCarrierTermWasRequested(term, rawRequest, ctxOpt...) {
-			continue
-		}
-		leaked = append(leaked, term)
-	}
-	if len(leaked) == 0 {
-		return nil
-	}
-	return []emitFixHint{{
-		Field:         "blocks[].text/items[].text/caveats[]",
-		ExpectedShape: "remove internal answer-carrier field names from user-visible prose: " + strings.Join(leaked, ", "),
-		Reason:        "schema carrier names are implementation details; unless the user explicitly asked about them, state provenance, uncertainty, and citation boundaries in plain product language.",
-	}}
-}
-
-func visibleInternalCarrierTermWasRequested(term, rawRequest string, ctxOpt ...*types.BusContext) bool {
-	term = strings.TrimSpace(term)
-	if term == "" {
-		return false
-	}
-	if rawRequest != "" && strings.Contains(rawRequest, term) {
-		return true
-	}
-	if types.InferContractTermKind(term) != types.ContractTermToolName {
-		return false
-	}
-	// Exact user-authored tool-glob surfaces such as `emit_*` are a
-	// literal request for concrete emit tool names. This is not semantic
-	// keyword matching: only the exact code-like glob unlocks known
-	// tool-name terms, so ordinary prose cannot disable the carrier leak
-	// guard.
-	if strings.Contains(rawRequest, "emit_*") && strings.HasPrefix(term, "emit_") {
-		return true
-	}
-	if len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].AnalysisIR == nil {
-		return false
-	}
-	rm := ctxOpt[0].AnalysisIR.RequestModel
-	if rm.AnswerSubject.Kind != types.SubjectStringLiteral &&
-		!rm.Predicates.IsRoleLocateLookup {
-		return false
-	}
-	return requestModelNamesExactToolTerm(rm, term)
-}
-
-func requestModelNamesExactToolTerm(rm types.RequestModel, term string) bool {
-	if term == "" {
-		return false
-	}
-	matches := func(values []string) bool {
-		for _, value := range values {
-			if value == term {
-				return true
-			}
-		}
-		return false
-	}
-	if matches(rm.AnalyzerHints.Entities) ||
-		matches(rm.AnalyzerHints.ExactTargets) ||
-		matches(rm.AnswerSubject.EntityAxes) {
-		return true
-	}
-	for _, topic := range rm.SubTopics {
-		if matches(topic.Entities) {
-			return true
-		}
-	}
-	return false
-}
-
-func currentRepoEvidenceSources(ctx *types.BusContext) []string {
-	if ctx == nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	var out []string
-	add := func(item types.EvidenceItem) {
-		if item.Origin != types.ClaimOriginCurrentRepo && item.Origin != types.ClaimOriginUnknown {
-			return
-		}
-		source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
-		if source == "" || !strings.Contains(source, "/") || seen[source] {
-			return
-		}
-		seen[source] = true
-		out = append(out, source)
-	}
-	for _, item := range ctx.EvidenceItems {
-		add(item)
-	}
-	if ctx.Mutable != nil {
-		for _, item := range ctx.Mutable.EmittedEvidence() {
-			add(item)
-		}
-	}
-	return out
 }
 
 func answerDocumentVisibleText(doc *types.AnswerDocumentV2) string {
