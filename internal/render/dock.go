@@ -28,26 +28,26 @@ const dockRowCount = 3
 //
 // Design contract (load-bearing):
 //
-//   1. dock paints in place. Cursor parks at "blank + 3 content rows
-//      + 1, column 0" after every paintDock — this is the only
-//      stable anchor.
-//   2. commitToScrollback is the ONLY way to write durable text
-//      while the dock is alive. It does: cursor up 4 → \x1b[J →
-//      writes the durable body (one or many lines) → re-paints the
-//      blank + 3-row dock → cursor parks back. The dock visually
-//      ends up below the new scrollback content with zero flicker.
-//   3. paintDock + clearDock + commitToScrollback all use \x1b[4A
-//      (ANSI cursor up by dockRowCount+1) followed by \x1b[J
-//      (clear from cursor to end of screen). That sequence wipes
-//      the dock's leading blank line + 3 content rows together so
-//      the blank stays inside the dock region and never escapes
-//      into permanent scrollback. Universal back to VT100.
-//   4. dirty tracks "is the dock currently on screen". paintDock
-//      flips it true; clearDock + the !dirty branch in
-//      commitToScrollback flip it false. The first paint MUST
-//      happen via paintDock (no \x1b[4A) — see firstPaint flag.
-//   5. Concurrency: dock is NOT goroutine-safe; the Renderer's
-//      r.mu serializes all dock methods.
+//  1. dock paints in place. Cursor parks at "blank + 3 content rows
+//     + 1, column 0" after every paintDock — this is the only
+//     stable anchor.
+//  2. commitToScrollback is the ONLY way to write durable text
+//     while the dock is alive. It does: cursor up 4 → \x1b[J →
+//     writes the durable body (one or many lines) → re-paints the
+//     blank + 3-row dock → cursor parks back. The dock visually
+//     ends up below the new scrollback content with zero flicker.
+//  3. paintDock + clearDock + commitToScrollback all use \x1b[4A
+//     (ANSI cursor up by dockRowCount+1) followed by \x1b[J
+//     (clear from cursor to end of screen). That sequence wipes
+//     the dock's leading blank line + 3 content rows together so
+//     the blank stays inside the dock region and never escapes
+//     into permanent scrollback. Universal back to VT100.
+//  4. dirty tracks "is the dock currently on screen". paintDock
+//     flips it true; clearDock + the !dirty branch in
+//     commitToScrollback flip it false. The first paint MUST
+//     happen via paintDock (no \x1b[4A) — see firstPaint flag.
+//  5. Concurrency: dock is NOT goroutine-safe; the Renderer's
+//     r.mu serializes all dock methods.
 type dock struct {
 	w     io.Writer
 	dirty bool // true when the 3 rows are currently visible
@@ -128,11 +128,11 @@ func (d *dock) paintDock(rows [dockRowCount]string) {
 // line after the body. Empty body is a no-op.
 //
 // Mechanism:
-//   1. Rewind 4 + clear-to-end (wipes the current dock visual:
-//      blank line + 3 content rows)
-//   2. Write body + '\n'
-//   3. Repaint blank-line gap + 3 dock rows
-//   4. Cursor parks at "below row 3"
+//  1. Rewind 4 + clear-to-end (wipes the current dock visual:
+//     blank line + 3 content rows)
+//  2. Write body + '\n'
+//  3. Repaint blank-line gap + 3 dock rows
+//  4. Cursor parks at "below row 3"
 //
 // The blank-line gap belongs to the dock region (gets wiped + rewritten
 // every cycle), so the visual separation between permanent scrollback
@@ -240,13 +240,16 @@ type dockRowState struct {
 	frame      string // current spinner glyph (one of spinnerFrames)
 
 	// Row 2 — stage layer.
-	stageKey      string // canonical stage key for stagePhrase / progress
-	stageProgress string // "K/N" or "—"
-	stageLabel    string // localized stage name (running form)
-	topicProgress string // "关注点 K/M" / "focus K/M" or empty
-	iteration     int    // 0 = hide, ≥1 shows "第 N 轮"
-	toolCount     int    // 0 = hide, ≥1 shows "N 工具"
-	streamChars   int    // finalize-only "已收到 N 字" counter; 0 = hide
+	stageKey              string // canonical stage key for stagePhrase / progress
+	stageProgress         string // "K/N" or "—"
+	stageLabel            string // localized stage name (running form)
+	topicProgress         string // "关注点 K/M" / "focus K/M" or empty
+	iteration             int    // 0 = hide, ≥1 shows "第 N 轮"
+	modelID               string // effective model id for the latest request
+	contextTokensEstimate int    // rough request token estimate; 0 = hide
+	contextWindowTokens   int    // adapter-declared context window; 0 = hide denominator
+	toolCount             int    // 0 = hide, ≥1 shows "N 工具"
+	streamChars           int    // finalize-only "已收到 N 字" counter; 0 = hide
 
 	// Row 3 — time layer.
 	stageElapsed string // "5s" or empty
@@ -271,7 +274,7 @@ func composeDockRows(s dockRowState) [dockRowCount]string {
 
 // composeDockRow1 renders the activity row:
 //
-//   "  ⠋ 接收中 ▸ ...with Hi there how can I"
+//	"  ⠋ 接收中 ▸ ...with Hi there how can I"
 //
 // Glyph + status word + (optional) "▸ <tail>". The status word
 // carries the "right now" semantics; the tail carries the live
@@ -319,7 +322,7 @@ func composeDockRow1(s dockRowState) string {
 
 // composeDockRow2 renders the stage row:
 //
-//   "  ▪ 2/4 探索证据 · 关注点 1/3 · 第 1 轮 · 5 工具 · 已收到 312 字"
+//	"  ▪ 2/4 探索证据 · 关注点 1/3 · 第 1 轮 · 5 工具 · 已收到 312 字"
 //
 // glyph ▪ in statusObjective (cyan). K/N + stage label always
 // rendered; counters appended only when > 0. streamChars is finalize-
@@ -350,6 +353,22 @@ func composeDockRow2(s dockRowState) string {
 		b.WriteString(" ")
 		b.WriteString(statusMeta.Sprint(metaRoundPhrase(s.iteration, s.lang)))
 	}
+	if strings.TrimSpace(s.modelID) != "" {
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint("·"))
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint(metaModelPhrase(s.modelID, s.lang)))
+	}
+	if s.contextTokensEstimate > 0 {
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint("·"))
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint(metaContextTokensPhrase(
+			s.contextTokensEstimate,
+			s.contextWindowTokens,
+			s.lang,
+		)))
+	}
 	if s.toolCount > 0 {
 		b.WriteString(" ")
 		b.WriteString(statusMeta.Sprint("·"))
@@ -371,7 +390,7 @@ func composeDockRow2(s dockRowState) string {
 
 // composeDockRow3 renders the time row:
 //
-//   "  · 本 12s · 总 45s · Ctrl+C 取消"
+//	"  · 本 12s · 总 45s · Ctrl+C 取消"
 //
 // glyph · in statusMeta (darkest). stageElapsed prefixed with "本 / stage"
 // when present; totalElapsed always shown; cancelHint suffix when set.

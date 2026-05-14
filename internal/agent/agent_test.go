@@ -303,6 +303,29 @@ func TestEstimateMessagesBytes_EmptySliceIsZero(t *testing.T) {
 	}
 }
 
+// TestEstimateLLMRequestTokens_IncludesToolSchemas locks the UI
+// telemetry boundary: the dock's context estimate is for the request
+// being sent to the model, so it must include both conversation
+// messages and the tool catalog.
+func TestEstimateLLMRequestTokens_IncludesToolSchemas(t *testing.T) {
+	messages := []llm.Message{
+		{Role: "system", Content: "abcd"},
+		{Role: "user", Content: "efghijk"},
+	}
+	tools := []llm.ToolSchema{
+		{
+			Name:        "read_file",
+			Description: "read bytes",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`),
+		},
+	}
+	wantBytes := estimateMessagesBytes(messages) + len("read_file") + len("read bytes") + len(`{"type":"object","properties":{"path":{"type":"string"}}}`)
+	wantTokens := (wantBytes + types.BytesPerToken - 1) / types.BytesPerToken
+	if got := estimateLLMRequestTokens(messages, tools); got != wantTokens {
+		t.Errorf("estimateLLMRequestTokens = %d, want %d", got, wantTokens)
+	}
+}
+
 // TestPruneToolHistoryIdempotent verifies that running the pruner
 // twice doesn't keep shrinking already-stubbed placeholders. The loop
 // calls it every iteration, so a non-idempotent implementation would

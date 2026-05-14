@@ -394,6 +394,9 @@ func (r *Renderer) handleEvent(ev Event) {
 	case EventAgentThinking:
 		if r.current != nil {
 			r.current.iteration = ev.Iteration + 1
+			r.current.modelID = ev.ModelID
+			r.current.contextTokensEstimate = ev.ContextTokensEstimate
+			r.current.contextWindowTokens = ev.ContextWindowTokens
 			r.current.detail = "thinking"
 			r.current.detailDone = false
 			r.current.detailStart = ev.Timestamp
@@ -573,6 +576,9 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.activity = activityState{kind: activityWaitingDispatch}
 
 	case EventAdapterFallback:
+		if r.current != nil && ev.FallbackTo != "" {
+			r.current.modelID = ev.FallbackTo
+		}
 		r.activity = activityState{
 			kind:   activitySwitchingProvider,
 			detail: ev.FallbackTo,
@@ -783,6 +789,9 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 		state.stageLabel = liveBarPrimaryText(focus, r.lang)
 		state.topicProgress = r.topicProgressFor(focus, r.lang)
 		state.iteration = focus.iteration
+		state.modelID = focus.modelID
+		state.contextTokensEstimate = focus.contextTokensEstimate
+		state.contextWindowTokens = focus.contextWindowTokens
 		state.toolCount = focus.toolCount
 		if !focus.startTime.IsZero() {
 			start := focus.startTime
@@ -812,6 +821,10 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 		state.stageProgress = r.stageProgressForFocus(fallback)
 		state.stageLabel = fallbackBarPrimaryText(fallback, r.lang, r.activity.kind)
 		state.topicProgress = r.topicProgressFor(fallback, r.lang)
+		state.iteration = fallback.iteration
+		state.modelID = fallback.modelID
+		state.contextTokensEstimate = fallback.contextTokensEstimate
+		state.contextWindowTokens = fallback.contextWindowTokens
 	} else if r.routeSummary != nil {
 		// Light routes (local / chitchat) have no taskRows — the
 		// pipeline never ran. Without this branch row 2 sits on a

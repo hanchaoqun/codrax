@@ -832,6 +832,30 @@ func estimateMessagesBytes(messages []llm.Message) int {
 	return total
 }
 
+// estimateToolSchemasBytes estimates the request-side footprint of the
+// tool catalog sent with a chat completion. It deliberately uses the
+// same cheap byte-counting model as estimateMessagesBytes: callers only
+// need stable telemetry / pressure math, not tokenizer-exact accounting.
+func estimateToolSchemasBytes(tools []llm.ToolSchema) int {
+	total := 0
+	for _, t := range tools {
+		total += len(t.Name) + len(t.Description) + len(t.Parameters)
+	}
+	return total
+}
+
+func estimateLLMRequestBytes(messages []llm.Message, tools []llm.ToolSchema) int {
+	return estimateMessagesBytes(messages) + estimateToolSchemasBytes(tools)
+}
+
+func estimateLLMRequestTokens(messages []llm.Message, tools []llm.ToolSchema) int {
+	bytes := estimateLLMRequestBytes(messages, tools)
+	if bytes <= 0 {
+		return 0
+	}
+	return (bytes + types.BytesPerToken - 1) / types.BytesPerToken
+}
+
 func pruneToolHistory(messages []llm.Message, budget int) bool {
 	total := 0
 	cutoff := -1
@@ -1000,12 +1024,24 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 
 		// Reason — call LLM
+		contextTokens := estimateLLMRequestTokens(messages, toolSchemas)
+		contextWindowTokens := 0
+		modelID := ""
+		if b.deps.LLM != nil {
+			contextWindowTokens = b.deps.LLM.MaxContextTokens()
+			modelID = b.deps.LLM.ModelID()
+		}
+		logging.Debug("[diag %s] iter=%d phase=llm_request model=%s context_tokens_est=%d context_window=%d messages=%d tools=%d",
+			b.name, i, modelID, contextTokens, contextWindowTokens, len(messages), len(toolSchemas))
 		b.deps.Emit(render.Event{
-			Kind:      render.EventAgentThinking,
-			Timestamp: time.Now(),
-			Agent:     b.name,
-			Stage:     ctx.Stage,
-			Iteration: i,
+			Kind:                  render.EventAgentThinking,
+			Timestamp:             time.Now(),
+			Agent:                 b.name,
+			Stage:                 ctx.Stage,
+			Iteration:             i,
+			ContextTokensEstimate: contextTokens,
+			ContextWindowTokens:   contextWindowTokens,
+			ModelID:               modelID,
 		})
 		// Streaming preview: when the LLM adapter supports streaming,
 		// each content chunk fires onDelta. Buffer the chunks and emit

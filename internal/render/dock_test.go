@@ -233,6 +233,30 @@ func TestComposeDockRow2_HidesZeroCounters(t *testing.T) {
 	}
 }
 
+// TestComposeDockRow2_ShowsModelAndContextTokens pins the REPL dock
+// placement for per-request LLM telemetry. It belongs to row 2 with
+// the other stage/request counters, leaving row 1 for live activity
+// and row 3 for time/cancel affordances.
+func TestComposeDockRow2_ShowsModelAndContextTokens(t *testing.T) {
+	state := dockRowState{
+		stageProgress:         "2/6",
+		stageLabel:            "探索证据",
+		iteration:             2,
+		modelID:               "qwen3.5:9b",
+		contextTokensEstimate: 31234,
+		contextWindowTokens:   260000,
+		toolCount:             3,
+		lang:                  "zh",
+	}
+	row := composeDockRow2(state)
+	plain := stripAnsiEscapes(row)
+	for _, want := range []string{"第 2 轮", "模型 qwen3.5:9b", "约 31k/260k tok", "3 次工具调用"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("row 2 must contain %q; got %q", want, plain)
+		}
+	}
+}
+
 // TestComposeDockRow3_TimeOnly verifies the row-3 minimum content:
 // at least the "总 Xs" segment when total elapsed is non-zero. The
 // time row carries the slowest-changing data and is the user's
@@ -270,9 +294,19 @@ func TestRenderer_StateMutationsWithoutDock(t *testing.T) {
 	if len(r.tasks) != 1 {
 		t.Errorf("EventStageStart must append a row even without dock; got %d", len(r.tasks))
 	}
-	emit(Event{Kind: EventAgentThinking, Timestamp: t0.Add(20 * time.Millisecond), Iteration: 0})
+	emit(Event{
+		Kind:                  EventAgentThinking,
+		Timestamp:             t0.Add(20 * time.Millisecond),
+		Iteration:             0,
+		ModelID:               "qwen3.5:9b",
+		ContextTokensEstimate: 1200,
+		ContextWindowTokens:   260000,
+	})
 	if r.activity.kind != activityRequesting {
 		t.Errorf("EventAgentThinking must flip activity to requesting; got %v", r.activity.kind)
+	}
+	if r.current == nil || r.current.modelID != "qwen3.5:9b" || r.current.contextTokensEstimate != 1200 || r.current.contextWindowTokens != 260000 {
+		t.Errorf("EventAgentThinking must store request telemetry on current row; got %+v", r.current)
 	}
 }
 

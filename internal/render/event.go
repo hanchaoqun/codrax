@@ -228,18 +228,18 @@ type OrchestratorNoticeKind int
 
 const (
 	// retry-class — yellow ⟳ (active recovery)
-	NoticeRetry                          OrchestratorNoticeKind = iota // generic stage retry hint
-	NoticeForcedRead                                                   // CGEC E2 forced-read fill
-	NoticeAnswerCheckRetry                                             // post-finalize answer-contract backtrack
-	NoticeFallbackFinalizerOnly                                        // Block 3 fallback: re-run finalizer only
-	NoticeFallbackBackToExtract                                        // Block 3 fallback: re-run extract layer
-	NoticeFallbackBackToExplore                                        // Block 3 fallback: re-run explore layer
-	NoticeFinalizing                                                   // pre-finalize composition cue
-	NoticeSelfConsistencyStart                                         // self-consistency reviewer dispatch
-	NoticeSelfConsistencyContradictionRewriting                        // contradictions found, rewriting answer
-	NoticeNoToolCall                                                   // must-emit stage got zero tool_calls; re-prompting
-	NoticeProceedingWithoutExtract                                     // pre-finalize extract dispatch failed; proceeding with prior evidence
-	NoticeSemanticQualityReviewStart                                   // P7 (2026-05-10) — G5 semantic-quality reviewer dispatching (retry-class ⟳)
+	NoticeRetry                                 OrchestratorNoticeKind = iota // generic stage retry hint
+	NoticeForcedRead                                                          // CGEC E2 forced-read fill
+	NoticeAnswerCheckRetry                                                    // post-finalize answer-contract backtrack
+	NoticeFallbackFinalizerOnly                                               // Block 3 fallback: re-run finalizer only
+	NoticeFallbackBackToExtract                                               // Block 3 fallback: re-run extract layer
+	NoticeFallbackBackToExplore                                               // Block 3 fallback: re-run explore layer
+	NoticeFinalizing                                                          // pre-finalize composition cue
+	NoticeSelfConsistencyStart                                                // self-consistency reviewer dispatch
+	NoticeSelfConsistencyContradictionRewriting                               // contradictions found, rewriting answer
+	NoticeNoToolCall                                                          // must-emit stage got zero tool_calls; re-prompting
+	NoticeProceedingWithoutExtract                                            // pre-finalize extract dispatch failed; proceeding with prior evidence
+	NoticeSemanticQualityReviewStart                                          // P7 (2026-05-10) — G5 semantic-quality reviewer dispatching (retry-class ⟳)
 
 	// info-class — gray (passive informational)
 	NoticeConvergenceStall                   // CGEC I4 plateau finalizing on current evidence
@@ -294,6 +294,19 @@ type Event struct {
 
 	// ReAct iteration (0-based, carried on EventAgentThinking)
 	Iteration int
+
+	// EventAgentThinking context telemetry. ContextTokensEstimate is a
+	// rough pre-flight token estimate for the request about to be sent to
+	// the model, including messages plus tool schemas. ContextWindowTokens
+	// is the adapter-declared context window. Both are best-effort UI
+	// telemetry; zero means "unknown / hide".
+	ContextTokensEstimate int
+	ContextWindowTokens   int
+
+	// EventAgentThinking model telemetry. ModelID is the adapter's
+	// effective model identifier for the request being dispatched.
+	// Empty means unknown / hide.
+	ModelID string
 
 	// Tool call
 	ToolName   string

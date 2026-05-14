@@ -121,25 +121,25 @@ const (
 // Phrasing follows the actual problem-solving narrative the user
 // experiences:
 //
-//   1. log_triage / perf_triage (conditional pre-stages) parse the
-//      attached runtime log or HiTrace dump.
-//   2. analyze (StageAnalyze) understands the user's request and
-//      classifies it. After this completes the request is
-//      "understood"; deep analysis happens NEXT.
-//   3. explore (StageExplore) is the deep-analysis phase. The task
-//      graph fans out into per-topic NodeEvidence rows, optionally
-//      followed by a NodeValidate that cross-checks the evidence
-//      and a NodeReconcile that merges findings into a coherent
-//      story.
-//   4. extract (StageExtract) pulls the structured facts the
-//      finalizer needs out of the explore transcript.
-//   5. finalize (StageFinalize) renders the final answer prose.
+//  1. log_triage / perf_triage (conditional pre-stages) parse the
+//     attached runtime log or HiTrace dump.
+//  2. analyze (StageAnalyze) understands the user's request and
+//     classifies it. After this completes the request is
+//     "understood"; deep analysis happens NEXT.
+//  3. explore (StageExplore) is the deep-analysis phase. The task
+//     graph fans out into per-topic NodeEvidence rows, optionally
+//     followed by a NodeValidate that cross-checks the evidence
+//     and a NodeReconcile that merges findings into a coherent
+//     story.
+//  4. extract (StageExtract) pulls the structured facts the
+//     finalizer needs out of the explore transcript.
+//  5. finalize (StageFinalize) renders the final answer prose.
 //
 // Write mode (when --mode=plan|apply|verify):
-//   1. analyze still runs as a classifier.
-//   2. plan (StagePlan) drafts a ChangePlan.
-//   3. apply (StageApply) applies patches inside a worktree.
-//   4. verify (StageVerify) runs tests to confirm no regression.
+//  1. analyze still runs as a classifier.
+//  2. plan (StagePlan) drafts a ChangePlan.
+//  3. apply (StageApply) applies patches inside a worktree.
+//  4. verify (StageVerify) runs tests to confirm no regression.
 //
 // Unknown keys fall through to a generic "正在处理任务" /
 // "Processing task" so an unmapped stage never surfaces an internal
@@ -249,15 +249,15 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 	// what is being redone. Apply / verify keep tool-side framing
 	// (git-patch / test-runner layers, not LLM).
 	tableEn := map[string]quint{
-		"log_triage":  {"Parsing attached log", "Log parsed", "Awaiting log", "Could not parse log", "Model response error, re-parsing log"},
-		"perf_triage": {"Parsing performance trace", "Performance trace parsed", "Awaiting trace", "Could not parse trace", "Model response error, re-parsing trace"},
-		"analyze":     {"Understanding the request", "Request understood", "Awaiting analysis", "Could not understand request", "Model response error, re-running request understanding"},
-		"explore":     {"Investigating", "Investigation complete", "Awaiting investigation", "Investigation incomplete", "Model response error, re-running investigation"},
-		"evidence":    {"Exploring code, collecting evidence", "Evidence collected", "Awaiting evidence", "Could not gather evidence", "Model response error, re-gathering evidence"},
-		"validate":    {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation", "Cross-validation incomplete", "Model response error, re-running cross-validation"},
-		"reconcile":   {"Consolidating exploration threads", "Findings consolidated", "Awaiting consolidation", "Could not consolidate findings", "Model response error, re-consolidating findings"},
-		"extract":     {"Distilling key findings", "Key findings distilled", "Awaiting key findings", "Could not distill findings", "Model response error, re-distilling key findings"},
-		"finalize":    {"Composing the final answer", "Final answer composed", "Awaiting final answer", "Could not compose answer", "Model response error, re-composing the final answer"},
+		"log_triage":    {"Parsing attached log", "Log parsed", "Awaiting log", "Could not parse log", "Model response error, re-parsing log"},
+		"perf_triage":   {"Parsing performance trace", "Performance trace parsed", "Awaiting trace", "Could not parse trace", "Model response error, re-parsing trace"},
+		"analyze":       {"Understanding the request", "Request understood", "Awaiting analysis", "Could not understand request", "Model response error, re-running request understanding"},
+		"explore":       {"Investigating", "Investigation complete", "Awaiting investigation", "Investigation incomplete", "Model response error, re-running investigation"},
+		"evidence":      {"Exploring code, collecting evidence", "Evidence collected", "Awaiting evidence", "Could not gather evidence", "Model response error, re-gathering evidence"},
+		"validate":      {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation", "Cross-validation incomplete", "Model response error, re-running cross-validation"},
+		"reconcile":     {"Consolidating exploration threads", "Findings consolidated", "Awaiting consolidation", "Could not consolidate findings", "Model response error, re-consolidating findings"},
+		"extract":       {"Distilling key findings", "Key findings distilled", "Awaiting key findings", "Could not distill findings", "Model response error, re-distilling key findings"},
+		"finalize":      {"Composing the final answer", "Final answer composed", "Awaiting final answer", "Could not compose answer", "Model response error, re-composing the final answer"},
 		"write_analyze": {"Analyzing task context", "Task context analyzed", "Awaiting task analysis", "Could not analyze task", "Model response error, re-analyzing task context"},
 		"plan":          {"Drafting change plan", "Change plan ready", "Awaiting change plan", "No change plan produced", "Model response error, re-drafting change plan"},
 		"apply":         {"Applying changes", "Changes applied", "Awaiting apply", "Apply incomplete", "Apply hit an error, retrying"},
@@ -327,20 +327,20 @@ func tCommonProcessing(zh bool, state stagePhraseState) string {
 // long quiet windows in front of the spinner read as a specific
 // waiting mode rather than an undifferentiated stall:
 //
-//   1. "发送中" / "sending" — bare "thinking" within `sendingThreshold`
-//      of detailStart. EventAgentThinking just fired; the HTTP
-//      request body is still being dispatched OR the server hasn't
-//      even acknowledged yet. Brief by design (typically <1s).
+//  1. "发送中" / "sending" — bare "thinking" within `sendingThreshold`
+//     of detailStart. EventAgentThinking just fired; the HTTP
+//     request body is still being dispatched OR the server hasn't
+//     even acknowledged yet. Brief by design (typically <1s).
 //
-//   2. "等待响应" / "awaiting" — bare "thinking" beyond the threshold.
-//      Request is fully in flight; we are waiting on the server /
-//      model to start producing tokens. This is the slow window
-//      (5-30s on thinking models) where the user previously had no
-//      signal that "the request was sent and we're just waiting".
+//  2. "等待响应" / "awaiting" — bare "thinking" beyond the threshold.
+//     Request is fully in flight; we are waiting on the server /
+//     model to start producing tokens. This is the slow window
+//     (5-30s on thinking models) where the user previously had no
+//     signal that "the request was sent and we're just waiting".
 //
-//   3. "回复中：…" / "replying: …" — "thinking: …" with a preview
-//      tail. EventAgentContent fired with the first response
-//      chunk; the model IS actively streaming back tokens.
+//  3. "回复中：…" / "replying: …" — "thinking: …" with a preview
+//     tail. EventAgentContent fired with the first response
+//     chunk; the model IS actively streaming back tokens.
 //
 // Phrasing is kept short (3-5 chars zh, ≤ 8 chars en) per the user's
 // "尽量简短，不易太长，又能区分" callout. The distinction is the
@@ -541,6 +541,68 @@ func metaRoundPhrase(n int, lang string) string {
 	return fmt.Sprintf("round %d", n)
 }
 
+func metaModelPhrase(modelID string, lang string) string {
+	modelID = compactModelID(modelID, 36)
+	if modelID == "" {
+		return ""
+	}
+	if isZh(lang) {
+		return "模型 " + modelID
+	}
+	return "model " + modelID
+}
+
+func metaContextTokensPhrase(used, window int, lang string) string {
+	if used <= 0 {
+		return ""
+	}
+	usedText := compactTokenCount(used)
+	if window > 0 {
+		usedText += "/" + compactTokenCount(window)
+	}
+	if isZh(lang) {
+		return "约 " + usedText + " tok"
+	}
+	return "~" + usedText + " tok"
+}
+
+func compactModelID(s string, maxRunes int) string {
+	s = strings.TrimSpace(s)
+	if s == "" || maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 6 {
+		return string(runes[:maxRunes])
+	}
+	head := (maxRunes - 3) / 2
+	tail := maxRunes - 3 - head
+	return string(runes[:head]) + "..." + string(runes[len(runes)-tail:])
+}
+
+func compactTokenCount(n int) string {
+	switch {
+	case n < 1000:
+		return fmt.Sprintf("%d", n)
+	case n < 10000:
+		return trimCompactDecimal(fmt.Sprintf("%.1fk", float64(n)/1000))
+	case n < 1000000:
+		return fmt.Sprintf("%dk", (n+500)/1000)
+	case n < 10000000:
+		return trimCompactDecimal(fmt.Sprintf("%.1fM", float64(n)/1000000))
+	default:
+		return fmt.Sprintf("%dM", (n+500000)/1000000)
+	}
+}
+
+func trimCompactDecimal(s string) string {
+	s = strings.TrimSuffix(s, "0")
+	return strings.TrimSuffix(s, ".")
+}
+
 // footerPhrase returns the spinner-area footer ("总耗时 1m18s" /
 // "Total elapsed 1m18s"). The elapsed string is the caller's job
 // (formatted via time.Duration.String).
@@ -564,11 +626,11 @@ func defaultCancelHint(lang string) string {
 // normalizeTopicText cleans up an analyzer-emitted objective string
 // for display under "关注点 N：". Two transforms:
 //
-//   1. Collapse runs of whitespace to single spaces.
-//   2. zh locale: insert a space between adjacent CJK and ASCII
-//      letters/digits so "analyzers包" reads as "analyzers 包" —
-//      the analyzer's prose generation skips the canonical CJK
-//      typography rule and the result reads cramped.
+//  1. Collapse runs of whitespace to single spaces.
+//  2. zh locale: insert a space between adjacent CJK and ASCII
+//     letters/digits so "analyzers包" reads as "analyzers 包" —
+//     the analyzer's prose generation skips the canonical CJK
+//     typography rule and the result reads cramped.
 func normalizeTopicText(s string, lang string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {

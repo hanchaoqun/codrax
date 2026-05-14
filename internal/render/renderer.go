@@ -50,6 +50,13 @@ type taskRow struct {
 	toolCount   int       // cumulative EventToolCallEnd successes for this row
 	iteration   int       // latest ReAct iteration seen on this row
 
+	// Request telemetry from EventAgentThinking. These are best-effort
+	// pre-flight values for the most recent LLM request on this row,
+	// surfaced in the dock's stage/counter line.
+	modelID               string
+	contextTokensEstimate int
+	contextWindowTokens   int
+
 	// activityKind / activityDetail / activityDurMs surface the LLM-
 	// interaction sub-state inside the running stage's live bar so
 	// the user reads "what's happening RIGHT NOW" (request dispatched
