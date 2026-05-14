@@ -924,28 +924,10 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		ctx.Mutable.AppendPrescanSummary(obs.LastToolResult.Summary)
 	}
 
-	// Session 11 C0' — after Round 1's pre-scan completes (and we
-	// have not yet emitted the IR), open the ClassificationGrep
-	// gate for Round 2. The gate itself does not force the LLM to
-	// use line-level grep; it merely admits files_only=false calls
-	// when the LLM decides the classification is worth verifying.
-	// Budget (3 calls × 8 KB) is the natural throttle.
-	//
-	// The gate is explicitly conservative: we only open it when
-	// Round 1 has surfaced declarative candidates — the pre-scan
-	// summary must mention one of the declarative filename patterns
-	// (topology, defaults, registry, routes, wire, init, manifest,
-	// schema, enum). For plain "how does X work" questions with no
-	// declarative files, C0' stays off and the analyzer falls back
-	// to grep(files_only=true) only. This keeps the token cost
-	// amortized to ambiguous-subject questions.
-	if e.prescanRounds >= 1 && ctx != nil && ctx.Mutable != nil {
-		if prescanHasDeclarativeCandidateResults(obs.AllToolResults, ctx.RepoRoot, ctx.Mutable.PrescanSummaryBlob()) {
-			ctx.Mutable.SetClassificationGrepTriggered(true)
-			logging.Debug("[analyzer] C0' classification_grep triggered: Round %d pre-scan surfaced declarative candidates",
-				e.prescanRounds)
-		}
-	}
+	// The old ClassificationGrep Round-2 line peek is intentionally not
+	// opened here anymore. Analyze remains evidence-lite: repo_map,
+	// list_files, and grep(files_only=true) establish existence/location;
+	// source-line evidence belongs to explore.
 
 	max := e.prescanBudgetOverride
 	if max <= 0 {
@@ -969,7 +951,7 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	if e.prescanRounds == max {
 		const hintKey = "analyzer.must-emit"
 		hint := fmt.Sprintf(
-			"Pre-scan budget reached (%d of %d rounds used). Your NEXT response MUST call emit_analysis with the fields you have — any additional prescan tool call (repo_map / grep / list_files) will exhaust the budget and fail the analyze stage. If you still need to verify an entity, batch the grep call in the SAME response as emit_analysis, not before it.",
+			"Pre-scan budget reached (%d of %d rounds used). Your NEXT response MUST call emit_analysis with the fields you have — any additional prescan tool call (repo_map / grep / list_files), even batched with emit_analysis, will exhaust the budget and fail the analyze stage. Put unresolved but relevant targets in the structured fields and let explore gather line-level evidence.",
 			e.prescanRounds, max)
 		logging.Debug("[analyzer] must-emit hint built key=%q rounds=%d/%d len=%d body=%q",
 			hintKey, e.prescanRounds, max, len(hint), logging.Truncate(hint, logging.HintBodyMax))

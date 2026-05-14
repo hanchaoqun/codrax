@@ -59,6 +59,9 @@ created.
 | E20260514-G16 | `u9b` | FAIL, likely semantic PASS / harness miss | Final answer correctly says the whole call does not fail, only the bad entry is rejected, and the rest continue successfully; eval fails because the regex did not accept `条目级` / `条目` as the per-item surface. | Either/or error-granularity answers lack a typed verdict surface consumed by both finalizer and eval. The product can answer semantically while omitting the canonical granularity token, and the harness can miss a valid synonym. | Add a typed `error_granularity_verdict` or equivalent answer-surface contract for batch-vs-item questions. Finalizer should render a short canonical verdict (`per-item / item-level rejection`, `whole-batch failure`, etc.) and eval should consume structured expected verdicts or a tested synonym table. |
 | E20260514-G17 | `qf_relation_subagent_registry` | PASS with 11 rejects, 1450s | The answer set is exactly one member (`explorer`), but the run nearly timed out while adding a third citation, summary/caveat blocks, call-site anchors, and fixing numeric line references being misread as count claims. | Small deterministic member-set / registry questions are over-scaffolded. Citation floors and prose validators are not adapted to cardinality or to a canonical member row with separate registration evidence and Name() evidence. | Build deterministic relation/member rows with fields for member label, registration call, name-return literal, entrypoint, and count. For closed sets with small cardinality, finalizer should render from rows and citation floor should derive from row obligations instead of a generic `citation_count_ge=3`. |
 | E20260514-G18 | `u1a` | PASS with 10 rejects, 1547s | Security call-chain answer gathered source/sink/defenses but finalizer spent many iterations rebuilding 20+ citation refs and still produced at least one suspicious citation drift (`verifyResourceCaps / wrapShellCommandWithCaps` item cites `shellOperatorWrites`). | Mechanism/call-chain answers over long defense paths lack a deterministic chain row / citation-index compiler. The model manually maintains citation arrays, claim forms, and inline code anchors, so valid evidence turns into index bookkeeping. | Build typed `MechanismStepRow` / `SecurityFlowRow` records for taint source, guards, transformations, and sink. Compile citations and block items deterministically from rows; finalizer should write prose on top of stable row ids rather than hand-numbering citation refs. |
+| E20260514-G40 | focused `s5b` after Batch 1h | Confirmed FAIL | Analyzer no longer fabricated a numeric `enumeration_boundary`, but it also omitted `completeness_obligation`; explorer/finalizer then treated a 25-member category enumeration as ordinary lower-bound enumeration and shipped 17 rows plus a caveat. | A typed principal member lane from exploration was available (`intent=enumerate`, `question_kind=enumeration`, `is_category_enumeration=true`, 25 analyzer entities), but only explicit count/completeness signals forced structured `member_set` handoff. This let upstream rich member information become soft search context instead of a downstream contract. | Treat non-relational typed category-enumeration entity lanes as principal member lanes when they contain multiple members and the analyzer intent/kind is enumerate. Require structured `member_set` handoff and allow lowercase package/module/file-stem members through the same typed lane across supported languages. |
+| E20260514-G41 | focused `s5b` analyzer trace | Confirmed red-line drift | StageAnalyze used line-level `grep(files_only=false)` and pulled function signatures plus a noisy "26 packages" count into analyzer thinking, despite the evidence-lite runtime boundary requiring files-only pre-scan. | Prompt/runtime contract drift: old ClassificationGrep Round-2 carve-out let content evidence leak into classification, creating hard/soft signal inversion. The analyzer saw source-line noise before exploration, then downstream gates had to fight that noise. | Restore the evidence-lite boundary in both prompt and runtime: analyze may use `repo_map`, `list_files`, and `grep(files_only=true)` only; source-line proof belongs to explore. Keep legacy config fields inert for compatibility, but never admit line-level grep in StageAnalyze. |
+| E20260514-G42 | focused `s5b` post-Batch 1i replay | PASS with repairs | The strict `member_set` handoff forced complete coverage and ultimately passed, but the first completion downgrade exposed a repair-cost spike: one missing `findings_validator → Validate` support row caused a second explore dispatch; the model then tried to re-emit a giant evidence slate with invalid `surface_terms` before succeeding via member-specific `@ file:line` rows. | The pipeline now has the right hard gate, but repair consumption is still model-heavy. Accepted evidence/support rows are not compiled into a deterministic per-member support table early enough, and stale ungrounded evidence cannot be superseded cleanly, so the model pays extra turns reconstructing support_refs. | Add a deterministic `MemberSupportRow` compiler from accepted typed evidence, read_file gutters, and aggregate support_refs. Completion repair should name only missing members and candidate support locations; finalization should consume stable rows instead of relying on the model to rebuild 25 support refs by hand. |
 
 ## End-to-End Traces
 
@@ -581,6 +584,95 @@ Generalization: security flows, taint analyses, lifecycle sequences, request
 pipelines, scheduler paths, and multi-layer defense explanations should not ask
 the finalizer to hand-maintain citation indexes. A typed row model can preserve
 ordering, claim form, cited source, and rendered text separately.
+
+### E20260514-G40: Typed Principal Enumeration Lane Not Consumed (`s5b`)
+
+User request asks to list every child package under `internal/analysis/` plus
+each package's entry function.
+
+Observed data flow:
+
+1. Analyzer emitted `intent=enumerate`, `question_kind=enumeration`,
+   `predicates.is_category_enumeration=true`, `is_relational_lookup=false`,
+   and 25 entity values corresponding to the child package directory names.
+2. Analyzer omitted `completeness_obligation`, so
+   `RequiresExhaustiveEnumerationMemberSetHandoff` returned false even though
+   the non-relation category enumeration entity lane was already a typed
+   principal-member lane.
+3. Explorer read 26 files, including the 25 package files plus one outside
+   `internal/analysis`, and accepted closure without an authoritative
+   `member_set`.
+4. Extractor downgraded to a lower-bound symbol slate, and finalizer rendered
+   17 cited rows plus a caveat that omitted tail packages such as `subject`,
+   `sourcemix`, `stopcond`, and `normalizer` from the principal list.
+5. The answer was structurally accepted because no hard completeness/member-set
+   contract survived into finalization.
+
+Root cause: "explicit count/completeness" was the only non-relational path into
+structured member-set handoff. A typed category-enumeration member lane was
+treated as search context unless a second obligation field also fired.
+
+Generalization: any package/module/enum/type/category list can lose members
+when analyzer identifies many principal members but omits a separate universal
+obligation. The durable boundary is the typed member lane itself plus
+non-relational enumeration shape, not localized "all/every" wording.
+
+### E20260514-G41: Analyze Stage Line-Level Grep Drift (`s5b`)
+
+Observed data flow:
+
+1. The analysis prompt still allowed a Round-2 `grep(files_only=false)` carve-out.
+2. Runtime `validateAnalyzerPrescanToolCall` admitted that call when the legacy
+   ClassificationGrep trigger/budget allowed it.
+3. Analyzer read function-signature line snippets and inferred a noisy "26
+   packages" count in thinking/sub-topic prose, while the precise directory
+   listing showed 25 child directories.
+4. Batch 1g prevented that noisy count from becoming a hard
+   `enumeration_boundary`, but the content leak still polluted soft guidance
+   and encouraged later stages to reason from analyzer prose instead of
+   structured exploration rows.
+
+Root cause: prompt and runtime had drifted away from the evidence-lite
+boundary. Analyze should classify from existence/location probes, not line
+content.
+
+Generalization: line-level analyzer probes can import any source-text noise
+into request classification: counts, helper names, string literals, function
+signatures, and comments. Those are exploration evidence and must not drive
+hard classification contracts.
+
+### E20260514-G42: Member-Set Repair Support Rows Are Model-Heavy (`s5b`)
+
+Observed data flow:
+
+1. After the Batch 1i typed principal lane change, focused `s5b`
+   (`eval/results/s5b-20260514-190353`) reached explore with all 25 package
+   members, including the tail packages `sourcemix`, `stopcond`, and `subject`.
+2. Explorer emitted a `member_set` but the first completion attempt was
+   downgraded because `findings_validator → Validate` had no accepted typed
+   evidence or member-specific `support_ref`.
+3. The repair dispatch correctly read
+   `internal/analysis/findings_validator/validator.go`, but then attempted to
+   re-emit a full 25-row evidence payload with many invalid `surface_terms`.
+   The tool rejected that payload; the model eventually succeeded by emitting a
+   25-member `member_set` whose members/support refs carried exact `@ file:line`
+   anchors.
+4. Finalizer consumed the structured principal lane and passed after adding the
+   required uncertainty-boundary caveat. The eval passed, but explorer needed
+   29 iterations, two explorer dispatches, and 12 mid-loop injections.
+
+Root cause: strict completion now prevents partial principal sets, but the
+repair lane has not yet been compiled into stable per-member support rows.
+Missing one typed support item asks the model to reconstruct a large aggregate
+payload instead of letting the system identify the exact missing member and
+candidate support location.
+
+Generalization: large enumerations across Go, Python, ArkTS, Cangjie, package
+names, module names, and source-location rows need a deterministic
+member-support table before finalization. Hard gates should keep using precise
+typed evidence/support refs, while repair hints should be narrow and row-based
+so fixing one missing support member does not destabilize already-accepted
+members.
 
 ### E20260514-G19: Explore-to-Extract Fact Handoff Loss (`qf_architecture`, FAIL on stale 2026-05-14 sweep)
 
@@ -1828,6 +1920,41 @@ Batch 1h progress:
 - Added a pre-complete regression for `aggregator: Aggregate` plus unsupported
   `subject: AnalyzeIR`; the tool now keeps investigation open and asks for
   member support instead of shipping a contradictory 25-row closure.
+
+Batch 1i progress:
+
+- The next focused `s5b` replay showed the anti-seesaw issue moving one stage
+  earlier: after the fake numeric boundary was fixed, analyzer emitted a valid
+  typed category-enumeration principal lane (`intent=enumerate`,
+  `question_kind=enumeration`, `is_category_enumeration=true`, 25 member
+  entities) but omitted `completeness_obligation`. Downstream treated the
+  member lane as soft search context, so extractor/finalizer shipped a
+  lower-bound list instead of a complete principal set.
+- Generalized the handoff boundary: non-relational category enumerations with
+  multiple analyzer-emitted principal members now require a structured
+  `member_set` handoff even when the analyzer omitted an explicit all/count
+  obligation. This consumes typed analyzer fields and a precise multi-member
+  count; it does not scan raw request text for localized enumeration words.
+- Updated R3 must-include pinning to let the same typed principal lane carry
+  lowercase package/module/file-stem members across the supported language
+  matrix (`aggregator`, `com.example.api`, `react-dom`, `@scope/pkg`,
+  `foo::bar`, `packages/core`, etc.). Relation-shaped enumerations remain
+  excluded because their entity list mixes relation targets and helper
+  surfaces until exploration proves the qualifying members.
+- Restored the analyze-stage evidence-lite red line in both prompt and runtime:
+  `grep(files_only=false)` is rejected in StageAnalyze regardless of legacy
+  ClassificationGrep trigger/config state. This keeps source-line content,
+  function signatures, and tool-output counts out of hard classification
+  decisions; explore remains the stage that reads line-level evidence.
+- Strengthened `s5b.case` so tail packages (`subject`, `sourcemix`,
+  `stopcond`) and their entry functions are eval-gated, catching partial
+  lower-bound answers that only list common middle packages.
+- Focused `s5b` replay on the current binary passed
+  (`eval/results/s5b-20260514-190353`, PASS). The trace confirms the new
+  positive path: analyze emits in 2 iterations without line-level grep, explore
+  reads the tail packages, `aggregate_facts.member_set` carries 25 members with
+  exact support refs, and finalizer renders all 25 rows. Residual repair cost is
+  tracked as G42 rather than treated as solved by prompt pressure.
 
 ### Batch 2: Exact Answer Lane Before Symbol Enumeration
 

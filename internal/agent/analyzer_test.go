@@ -674,6 +674,12 @@ func TestAnalyzer_PrescanBudget_MustEmitHintOnLastLegalRound(t *testing.T) {
 	if !strings.Contains(sig.Hint, "emit_analysis") {
 		t.Errorf("Hint must mention emit_analysis by name; got %q", sig.Hint)
 	}
+	if strings.Contains(sig.Hint, "SAME response") || strings.Contains(sig.Hint, "batch the grep") {
+		t.Errorf("must-emit hint must not invite batched prescan after budget; got %q", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "even batched with emit_analysis") {
+		t.Errorf("must-emit hint must make batched prescan forbidden; got %q", sig.Hint)
+	}
 
 	// Round 3: LLM ignored the hint and kept prescanning. NOW the
 	// stage must force-stop — fail-loud contract intact.

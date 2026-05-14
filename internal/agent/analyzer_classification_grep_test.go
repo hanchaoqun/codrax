@@ -10,9 +10,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// Session 11 G5 — C0' ClassificationGrep + Declarative Classifier
-// tests. These lock the Round-aware validator, the budget cap, the
-// sidecar isolation, and the reconciler rule table.
+// Session 11 G5 — legacy ClassificationGrep + Declarative Classifier
+// tests. The analyze-stage runtime gate is now strictly evidence-lite:
+// files_only=false grep is rejected before execution, while the legacy
+// sidecar parser remains covered for stale accounting paths.
 
 // saveAnalysisLimits snapshots the current AnalysisLimits so tests
 // that mutate the globals via SetAnalysisLimits can restore cleanly
@@ -34,15 +35,9 @@ func makeGrepCall(params map[string]any) llm.ToolCall {
 	return llm.ToolCall{Name: "grep", Params: raw}
 }
 
-// TestValidator_Round1FilesOnlyFalseAutoTriggers (Fix H, 2026-05-07
-// customer report) supersedes the prior pin that required Round 1
-// to REJECT files_only=false. Fix H changes the contract: when the
-// LLM expresses files_only=false intent in analyze stage, the
-// classification_grep trigger auto-fires instead of forcing a
-// retry round-trip. The LLM's explicit choice IS the typed signal
-// that line content is needed — the system no longer second-guesses
-// it. Budget caps (MaxCalls / MaxTotalBytes) still bound the cost.
-func TestValidator_Round1FilesOnlyFalseAutoTriggers(t *testing.T) {
+// TestValidator_FilesOnlyFalseRejectedWithTriggerOff pins the current
+// evidence-lite red line: line-level grep belongs to explore, not analyze.
+func TestValidator_FilesOnlyFalseRejectedWithTriggerOff(t *testing.T) {
 	saveAnalysisLimits(t)
 	tool.SetAnalysisLimits(tool.DefaultAnalysisLimits())
 
@@ -63,21 +58,21 @@ func TestValidator_Round1FilesOnlyFalseAutoTriggers(t *testing.T) {
 	})
 
 	res := validateAnalyzerPrescanToolCall(ctx, tc)
-	if res != nil {
-		t.Fatalf("Fix H: Round 1 files_only=false must auto-trigger and pass; got rejection: %q", res.Summary)
+	if res == nil {
+		t.Fatal("files_only=false must be rejected in analyze stage")
 	}
-	// The trigger MUST have flipped on as a side effect, so the
-	// per-dispatch budget tracking starts from this call.
-	if !mut.ClassificationGrepTriggered() {
-		t.Errorf("Fix H: classification_grep trigger must be flipped ON after files_only=false intent")
+	if !strings.Contains(res.Summary, "files_only=true") {
+		t.Fatalf("rejection should redirect to files_only=true, got %q", res.Summary)
+	}
+	if mut.ClassificationGrepTriggered() {
+		t.Errorf("files_only=false rejection must not auto-trigger classification_grep")
 	}
 }
 
-// TestValidator_Round2WithTriggerAllowsFilesOnlyFalse flips the
-// ClassificationGrep trigger on MutableState and asserts a
-// files_only=false grep now passes the validator. This is the
-// positive path that lets Round-2 line-level classification work.
-func TestValidator_Round2WithTriggerAllowsFilesOnlyFalse(t *testing.T) {
+// TestValidator_FilesOnlyFalseRejectedEvenWithLegacyTrigger covers stale
+// dispatch state: even if the old trigger bit is set, the runtime gate keeps
+// analyze line-free.
+func TestValidator_FilesOnlyFalseRejectedEvenWithLegacyTrigger(t *testing.T) {
 	saveAnalysisLimits(t)
 	tool.SetAnalysisLimits(tool.DefaultAnalysisLimits())
 
@@ -94,16 +89,18 @@ func TestValidator_Round2WithTriggerAllowsFilesOnlyFalse(t *testing.T) {
 		"max_count":  20,
 	})
 
-	if res := validateAnalyzerPrescanToolCall(ctx, tc); res != nil {
-		t.Errorf("Round 2 with trigger ON must pass, got rejection: %q", res.Summary)
+	res := validateAnalyzerPrescanToolCall(ctx, tc)
+	if res == nil {
+		t.Fatal("files_only=false must be rejected even when legacy trigger is on")
+	}
+	if !strings.Contains(res.Summary, "files_only=true") {
+		t.Fatalf("rejection should redirect to files_only=true, got %q", res.Summary)
 	}
 }
 
-// TestValidator_BudgetExhaustedRejects asserts that once the
-// per-dispatch call budget is spent, the next files_only=false
-// grep is blocked with a message pointing at the emit_analysis
-// escape hatch.
-func TestValidator_BudgetExhaustedRejects(t *testing.T) {
+// TestValidator_FilesOnlyFalseRejectedBeforeLegacyBudget asserts that the
+// files_only boundary wins before stale classification-grep budgets matter.
+func TestValidator_FilesOnlyFalseRejectedBeforeLegacyBudget(t *testing.T) {
 	saveAnalysisLimits(t)
 	limits := tool.DefaultAnalysisLimits()
 	limits.ClassificationGrepMaxCalls = 2
@@ -125,16 +122,15 @@ func TestValidator_BudgetExhaustedRejects(t *testing.T) {
 	if res == nil {
 		t.Fatal("budget-exhausted call must be rejected, got nil (pass)")
 	}
-	if !strings.Contains(res.Summary, "call budget exhausted") {
-		t.Errorf("rejection must mention budget exhaustion, got %q", res.Summary)
+	if !strings.Contains(res.Summary, "files_only=true") {
+		t.Errorf("rejection must mention files_only=true, got %q", res.Summary)
 	}
 }
 
-// TestValidator_DisabledFlagBlocksEvenWithTrigger covers the
-// operator-level disable switch: even when trigger+budget say
-// "allow", setting ClassificationGrepEnabled=false in codrax.yaml
-// must keep the analyzer in evidence-lite mode.
-func TestValidator_DisabledFlagBlocksEvenWithTrigger(t *testing.T) {
+// TestValidator_LegacyDisabledFlagDoesNotWeakenFilesOnlyBoundary covers the
+// config-compat flag: it can no longer create a separate reason because the
+// hard files_only boundary is unconditional.
+func TestValidator_LegacyDisabledFlagDoesNotWeakenFilesOnlyBoundary(t *testing.T) {
 	saveAnalysisLimits(t)
 	limits := tool.DefaultAnalysisLimits()
 	limits.ClassificationGrepEnabled = false
@@ -152,8 +148,8 @@ func TestValidator_DisabledFlagBlocksEvenWithTrigger(t *testing.T) {
 	if res == nil {
 		t.Fatal("disabled flag must keep validator in rejecting mode")
 	}
-	if !strings.Contains(res.Summary, "disabled") {
-		t.Errorf("rejection must surface `disabled` reason, got %q", res.Summary)
+	if !strings.Contains(res.Summary, "files_only=true") {
+		t.Errorf("rejection must surface files_only=true reason, got %q", res.Summary)
 	}
 }
 
@@ -280,9 +276,8 @@ func TestResetClassificationGrep_ClearsAllFields(t *testing.T) {
 	}
 }
 
-// TestPrescanHasDeclarativeCandidate_MatchesAndMisses covers the
-// trigger-helper used in analyzerEvaluator.Observe to decide
-// whether Round-2 line-level grep should be opened.
+// TestPrescanHasDeclarativeCandidate_MatchesAndMisses covers the legacy
+// trigger-helper retained for diagnostics/config compatibility.
 func TestPrescanHasDeclarativeCandidate_MatchesAndMisses(t *testing.T) {
 	hits := []string{
 		"internal/orchestrator/topology.go — 1 match",
@@ -319,7 +314,7 @@ func TestPrescanHasDeclarativeCandidateResults_IgnoresAuxiliaryHits(t *testing.T
 		},
 	}
 	if prescanHasDeclarativeCandidateResults(history, "", "") {
-		t.Fatal("auxiliary/test-only declarative hits must not open ClassificationGrep")
+		t.Fatal("auxiliary/test-only declarative hits must not match the legacy diagnostic trigger")
 	}
 
 	history = append(history, types.ToolResult{
@@ -328,7 +323,7 @@ func TestPrescanHasDeclarativeCandidateResults_IgnoresAuxiliaryHits(t *testing.T
 		Summary:  "[grep: 1 matching files]\ninternal/config/defaults.go\n",
 	})
 	if !prescanHasDeclarativeCandidateResults(history, "", "") {
-		t.Fatal("production declarative hit should open ClassificationGrep")
+		t.Fatal("production declarative hit should match the legacy diagnostic trigger")
 	}
 }
 

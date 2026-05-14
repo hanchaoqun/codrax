@@ -600,6 +600,45 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MemberSetSupportRefsCanUseDe
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_TypedPrincipalLaneRequiresMemberSet(t *testing.T) {
+	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqEnumeration),
+					Entities: []string{"aggregator", "compiler", "subject"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "the package names were listed in prior tool output",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "exhaustive member-set handoff is missing") {
+		t.Fatalf("typed principal enumeration lane should require member_set handoff, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open until the typed principal member lane is handed off structurally")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_RelationMemberWithoutTypedSupportBlocks(t *testing.T) {
 	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
 	mut.AppendEvidence([]types.EvidenceItem{{

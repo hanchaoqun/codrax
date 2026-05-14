@@ -4,29 +4,22 @@
 # the enumerator's ability to resolve a DIRECTORY into its children
 # (structural traversal) rather than symbol-by-symbol keyword search.
 #
-# Ground truth (CLAUDE.md §Analysis sub-packages table): 14 sub-
-# packages live under internal/analysis/ and each has a single
-# entry-point function. Positive anchor picks 4 of the 14 canonical
-# package names that every reasonable enumeration must contain. The
-# gate intentionally is 4-of-14 (not all 14) so an answer phrased as
-# "... and 10 others" can still pass, but any answer missing all four
-# anchors is definitionally incomplete.
+# Ground truth (current repo): 25 child package directories live under
+# internal/analysis/. This case intentionally checks tail packages too so a
+# lower-bound answer that only lists the first/main packages cannot pass.
 ID="s5b"
 NAME="enumerate — internal/analysis sub-packages"
 QUESTION="列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数（entry-point function）。"
-# 2026-05-04 strictness audit: previous EC required 4 sub-package
-# names (good), but the question also asks for the "single entry-
-# point function" of each — EC didn't gate on function names,
-# letting "normalizer / compiler / criterion / gate" PASS without
-# enumerating entry-points. Verified ground truth (`grep -E '^func
-# [A-Z]' internal/analysis/<pkg>/*.go`):
-#   - normalizer: Normalize  - compiler: Compile / InferScenario
-#   - criterion: Eval / EvalAll  - gate: Run / RunWith
-#   - binder: BindByRelevance  - budget: Compute  - hdp: Plan
-# Strict-bar: at least 3 distinct entry-point function names
-# verbatim (cross-package coverage).
-EXPECT_CONTAINS="normalizer compiler criterion gate"
+# 2026-05-14 strictness update: partial lower-bound answers often include the
+# early/common packages but drop tail packages such as subject/sourcemix. Keep
+# representative package anchors from the head, middle, and tail. Function-name
+# regexes below include pair anchors for tail packages so merely mentioning them
+# in a caveat cannot satisfy the case.
+EXPECT_CONTAINS="normalizer compiler criterion gate subject sourcemix stopcond"
 EXPECT_MATCHES_REGEX="\b(Normalize|InferScenario|Compile|Eval|EvalAll|Run|RunWith|BindByRelevance|Plan|Compute)\b
 \b(Normalize|InferScenario|Compile|Eval|EvalAll|Run|RunWith|BindByRelevance|Plan|Compute)\b
-\b(Normalize|InferScenario|Compile|Eval|EvalAll|Run|RunWith|BindByRelevance|Plan|Compute)\b"
+\b(Normalize|InferScenario|Compile|Eval|EvalAll|Run|RunWith|BindByRelevance|Plan|Compute)\b
+(subject.*Score|Score.*subject)
+(sourcemix.*FromTemplateMix|FromTemplateMix.*sourcemix)
+(stopcond.*ShouldStop|ShouldStop.*stopcond)"
 EXPECT_NOT_CONTAINS=".java .py"

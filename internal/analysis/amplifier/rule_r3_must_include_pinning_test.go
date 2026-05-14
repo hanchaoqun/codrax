@@ -166,6 +166,54 @@ func TestR3_PinsLowercaseMembersForExhaustiveEnumeration(t *testing.T) {
 	}
 }
 
+func TestR3_PinsLowercaseMembersFromTypedPrincipalLane(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqEnumeration),
+			Entities: []string{
+				"aggregator",
+				"compiler",
+				"findings_validator",
+				"com.example.api",
+				"react-dom",
+				"@scope/pkg",
+				"foo::bar",
+				"packages/core",
+			},
+		},
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	contract := types.AnswerContract{}
+	obs := AmplifyPostCompile(rm, &contract)
+	r3 := collectR3Observations(obs)
+	if len(r3) != 1 {
+		t.Fatalf("expected 1 R3 observation, got %+v", r3)
+	}
+	if len(contract.MustInclude) != 8 {
+		t.Fatalf("expected 8 typed category members to be pinned, got %d (%+v)",
+			len(contract.MustInclude), contract.MustInclude)
+	}
+	kinds := map[string]types.ContractTermKind{}
+	for _, term := range contract.MustIncludeTerms {
+		kinds[term.Text] = term.Kind
+	}
+	for _, want := range []string{
+		"aggregator",
+		"compiler",
+		"findings_validator",
+		"com.example.api",
+		"react-dom",
+		"@scope/pkg",
+		"foo::bar",
+		"packages/core",
+	} {
+		if kinds[want] != types.ContractTermFileStem {
+			t.Fatalf("member %q kind=%q, want file_stem; terms=%+v", want, kinds[want], contract.MustIncludeTerms)
+		}
+	}
+}
+
 func TestR3_PinsLowercaseMembersWithRequiredFileHints(t *testing.T) {
 	rm := types.RequestModel{
 		AnalyzerHints: types.AnalyzerHints{

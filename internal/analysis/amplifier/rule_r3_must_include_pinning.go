@@ -129,7 +129,8 @@ func r3TypedIdentifierMustInclude(rm types.RequestModel, contract *types.AnswerC
 }
 
 func exhaustiveEnumerationPinsMembers(rm types.RequestModel) bool {
-	return types.HasBoundedCategoryEnumerationMembers(rm)
+	return types.HasBoundedCategoryEnumerationMembers(rm) ||
+		types.HasPrincipalCategoryEnumerationMemberLane(rm)
 }
 
 func isMustIncludePinCandidate(s string, trustEnumerationMember bool) bool {

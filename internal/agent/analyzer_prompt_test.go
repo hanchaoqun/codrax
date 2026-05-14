@@ -398,10 +398,10 @@ func TestAnalysisSkill_HeavyToolsNeverAllowed(t *testing.T) {
 // TestAnalysisSkill_PromptDocumentsFilesOnlyGuard pins the
 // distinctive phrasing that tells the LLM to always pass
 // files_only=true when calling grep. This is a text-level check,
-// not an enforcement check — the tool itself will happily accept
-// files_only=false. The prompt is the contract, and the phrase
-// "files_only=true" must appear in the rendered prompt (either in
-// the workflow, the output format section, or the prohibitions).
+// paired with validateAnalyzerPrescanToolCall's runtime enforcement.
+// The phrase "files_only=true" must appear in the rendered prompt
+// (either in the workflow, the output format section, or the
+// prohibitions).
 func TestAnalysisSkill_PromptDocumentsFilesOnlyGuard(t *testing.T) {
 	sk := skill.BuildAnalysisSkill()
 

@@ -136,6 +136,14 @@ func TestRequiresExhaustiveEnumerationMemberSetHandoff_TypedOnly(t *testing.T) {
 	}
 
 	rm.Predicates.IsRelationalLookup = false
+	rm.EnumerationBoundary = nil
+	rm.CompletenessObligation = nil
+	rm.AnalyzerHints.Entities = []string{"aggregator", "compiler"}
+	if !RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		t.Fatal("typed non-relation category member lane should require structured member_set handoff even without a count quote")
+	}
+
+	rm.Predicates.IsRelationalLookup = false
 	rm.Predicates.IsScalarAnswer = true
 	rm.CompletenessObligation = &CompletenessObligation{Required: true, SourceQuote: "all"}
 	if RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
@@ -265,6 +273,32 @@ func TestCanUseAnalyzerEntitiesAsHardPrincipalMembers_TypedOnly(t *testing.T) {
 	rm.AnalyzerHints.Entities = nil
 	if CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) {
 		t.Fatal("empty entity list must not seed principal-member obligations")
+	}
+}
+
+func TestHasPrincipalCategoryEnumerationMemberLane_TypedOnly(t *testing.T) {
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqEnumeration),
+			Entities: []string{"aggregator", "compiler"},
+		},
+	}
+	if !HasPrincipalCategoryEnumerationMemberLane(rm) {
+		t.Fatal("plain typed category enumeration with multiple emitted members should expose a principal member lane")
+	}
+
+	rm.Predicates.IsRelationalLookup = true
+	if HasPrincipalCategoryEnumerationMemberLane(rm) {
+		t.Fatal("relation lookup entities are mixed targets/helpers, not a principal member lane")
+	}
+
+	rm.Predicates.IsRelationalLookup = false
+	rm.Intent = IntentExplain
+	rm.AnalyzerHints.Kind = string(ReqMechanism)
+	if HasPrincipalCategoryEnumerationMemberLane(rm) {
+		t.Fatal("non-enumerate/non-enumeration-kind category drift must not expose a hard member lane")
 	}
 }
 

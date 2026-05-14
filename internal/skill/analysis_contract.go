@@ -241,13 +241,9 @@ func enumValues(choices []AnalysisEnumChoice) []string {
 // Prohibitions section by BuildAnalysisSkill so the analyzer agent
 // never needs to restate them in its own prompt.
 //
-// The pre-scan workflow (Round 1 / Round 2 / the ClassificationGrep
-// exception) lives in the Workflow slice in BuildAnalysisSkill, not
-// here — duplicating it with absolute prohibitions used to create
-// contradictions (Prohibitions said "ALWAYS files_only=true" while
-// the Round 2 ClassificationGrep explicitly permits files_only=false
-// for declarative-file verification). Only the one genuinely
-// absolute rule survives here: no content-reading tools ever.
+// The pre-scan workflow lives in the Workflow slice in BuildAnalysisSkill.
+// Keep the files_only=true grep boundary explicit here too because the
+// runtime gate enforces it before dispatching the tool.
 var AnalysisHardRules = []string{
 	"every field in emit_analysis is REQUIRED (keywords and entities may be empty arrays); missing required fields rejects the call",
 	"entities come from the user's ORIGINAL text only — \"ContinuationPrompt\" stays as \"ContinuationPrompt\", not \"continuation prompt\" or \"continuation_prompt\"",
@@ -256,6 +252,7 @@ var AnalysisHardRules = []string{
 	"do not defer emit_analysis by writing open-ended analysis prose — the moment you have enough information to classify, call the tool; brief reasoning paired with pre-scan tool calls is fine, a standalone \"let me think about this\" paragraph is not",
 	"do not translate or re-case entities — copy them verbatim from the user's text",
 	"do not make assumptions about code structure — classify only what the user's text plus the pre-scan results support",
+	"when calling grep in analyze, ALWAYS pass files_only=true — line-level matches are exploration evidence and are rejected at runtime in this stage",
 	"do NOT call read_file, exec_command, or any tool that reads file CONTENT — the analyze stage is existence + location verification only; the explore stage owns deep reading",
 }
 
@@ -311,11 +308,10 @@ func BuildAnalysisSkill() *Config {
 	var of strings.Builder
 
 	// OutputFormat is the emit_analysis output contract — what the LLM
-	// produces, not what it does. The workflow (how to pre-scan, when
-	// Round 2 is allowed, which tools are forbidden) lives in the
-	// Workflow slice above so the two surfaces do not drift or
-	// contradict each other, and so the reader can find pre-scan
-	// guidance in one place.
+	// produces, not what it does. The workflow (how to pre-scan and which
+	// tools are forbidden) lives in the Workflow slice above so the two
+	// surfaces do not drift or contradict each other, and so the reader can
+	// find pre-scan guidance in one place.
 	of.WriteString("## emit_analysis contract\n\n")
 	of.WriteString("Call emit_analysis EXACTLY ONCE. The required fields are:\n")
 	of.WriteString("- intent, scenario, complexity, question_kind — one enum value each (tables below).\n")
@@ -461,8 +457,8 @@ func BuildAnalysisSkill() *Config {
 			"Detect the request's language.",
 			"Round 1 pre-scan: in a single response, issue parallel calls to repo_map and grep(files_only=true) for each candidate entity. A 'round' is one LLM response — multiple tool calls per response are normal and expected.",
 			"If Round 1 resolved every entity, call emit_analysis now — skip Round 2.",
-			"Round 2 is allowed at most once, when Round 1 ended ambiguous on either signal: (a) a key entity came back empty → broaden keyword stems / variants (still files_only=true); or (b) classification remains uncertain → a single response MAY include up to 3 grep(files_only=false, max_count=20) calls to peek at literal forms inside specific files (e.g. map / struct / enum bodies, status-line templates, registry entries, declarative configuration). Then call emit_analysis regardless of the Round 2 result.",
-			"For count / size / total / measurement-scalar questions: Round 1 confirms the subject exists (the directory / file / symbol the question is asking about), then immediately call emit_analysis with intent=return_value + predicates.is_count_question=true + predicates.is_scalar_answer=true. Do NOT attempt to compute the answer literal yourself in pre-scan — the explore stage is the one that runs wc / find / grep -c and reads file content. Trying to retrieve full file content via grep(files_only=false) to count lines yourself will exhaust the pre-scan budget and fail-loud the analyze stage.",
+			"Round 2 is allowed at most once, when Round 1 ended ambiguous: broaden keyword stems / variants, but keep every grep(files_only=true). Then call emit_analysis regardless of the Round 2 result. Do not peek at source lines in analyze; line-level grep belongs to explore.",
+			"For count / size / total / measurement-scalar questions: Round 1 confirms the subject exists (the directory / file / symbol the question is asking about), then immediately call emit_analysis with intent=return_value + predicates.is_count_question=true + predicates.is_scalar_answer=true. Do NOT attempt to compute the answer literal yourself in pre-scan — the explore stage is the one that runs wc / find / grep -c and reads file content. Trying to retrieve source lines in analyze will exhaust the pre-scan budget and fail-loud the analyze stage.",
 			"If the request spans multiple independent sub-topics, fill sub_topics (at most 5).",
 			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, the three confidence floats (intent_confidence, complexity_confidence, kind_confidence), the predicates object (eight booleans: is_scalar_answer, is_role_locate_lookup, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration, is_history_lookup, is_diagnostic_question), and diagnostic_profile (is_diagnostic, current_risk, historical_regression, current_version_check, confidence). Optional: sub_topics, answer_subject, predicate_axis, diagram_hint, enumeration_boundary, completeness_obligation, buckets, exact_targets, exact_context_terms, exact_context_roles, source_scope_profile, language, required_files.",
 			"When you can identify specific files structurally needed to answer the question (e.g. you read the user's wording carefully + saw exact symbol matches in the prescan), populate the optional `required_files` array with `{path, confidence ∈ [0,1], rationale}` entries. The system threshold-bands them: confidence ≥ 0.8 makes the file a primary file AND eligible for prompt pre-read; 0.5 ≤ conf < 0.8 makes it a soft pre-read hint; below 0.5 the entry is dropped — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. Empty list is fine: omit when you do not have file-level conviction.",

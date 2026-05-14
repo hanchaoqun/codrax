@@ -1997,85 +1997,8 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 		// Round 1 happy path — evidence-lite boundary honoured.
 		return nil
 	}
-
-	// files_only=false: Session 11 C0' ClassificationGrep gate.
-	// Only admit when the analyzer explicitly flipped the trigger
-	// (Round 2 + ambiguous classification) AND the per-dispatch
-	// budget is not exhausted.
-	limits := tool.CurrentAnalysisLimits()
-	if !limits.ClassificationGrepEnabled {
-		return rejectAnalyzerPrescanTool(ctx, tc,
-			"classification_grep disabled by config; retry with files_only=true")
-	}
-	if ctx.Mutable == nil {
-		return rejectAnalyzerPrescanTool(ctx, tc,
-			"grep in analyze stage requires the per-dispatch budget tracker; "+
-				"retry with files_only=true.")
-	}
-	// Fix H (2026-05-07 customer report): the LLM's explicit choice
-	// of files_only=false IS the typed signal that the
-	// classification needs line content. Instead of rejecting and
-	// forcing the LLM to retry with files_only=true, we treat the
-	// LLM's intent as the trigger and auto-fire it. The existing
-	// budget caps (ClassificationGrepMaxCalls /
-	// ClassificationGrepMaxTotalBytes / per-call MaxMatchesPerCall
-	// auto-clamp) all continue to apply, so the line-level cost
-	// stays bounded regardless of the trigger source.
-	//
-	// Rationale: the original heuristic trigger
-	// (prescanHasDeclarativeCandidateResults — Round 1 surfacing
-	// files matching topology/defaults/registry/routes/wire/init/
-	// manifest/schema/enum patterns) was over-narrow. Many
-	// legitimate questions where line context aids classification
-	// (e.g. "REPL status line — what does row 2 show") have no
-	// declarative-pattern filename, so the trigger never fired and
-	// the LLM's correct files_only=false intent was rejected,
-	// burning a retry round. The LLM's intent is itself a precise
-	// signal; deferring to it removes the heuristic bottleneck.
-	if !ctx.Mutable.ClassificationGrepTriggered() {
-		ctx.Mutable.SetClassificationGrepTriggered(true)
-		logging.Debug("[analyzer] classification_grep auto-triggered by LLM files_only=false intent (Fix H)")
-	}
-	// Call budget.
-	if limits.ClassificationGrepMaxCalls > 0 &&
-		ctx.Mutable.ClassificationGrepCalls() >= limits.ClassificationGrepMaxCalls {
-		return rejectAnalyzerPrescanTool(ctx, tc,
-			fmt.Sprintf("classification_grep call budget exhausted "+
-				"(%d/%d calls used). Call emit_analysis now with your "+
-				"best-effort classification — the reconciler will accept "+
-				"partial observations.",
-				ctx.Mutable.ClassificationGrepCalls(),
-				limits.ClassificationGrepMaxCalls))
-	}
-	// Byte budget — pre-check. We can't know the call's match byte
-	// cost before execution; block only when already exhausted.
-	if limits.ClassificationGrepMaxTotalBytes > 0 &&
-		ctx.Mutable.ClassificationGrepBytes() >= limits.ClassificationGrepMaxTotalBytes {
-		return rejectAnalyzerPrescanTool(ctx, tc,
-			fmt.Sprintf("classification_grep byte budget exhausted "+
-				"(%d/%d bytes used). Call emit_analysis now.",
-				ctx.Mutable.ClassificationGrepBytes(),
-				limits.ClassificationGrepMaxTotalBytes))
-	}
-	// max_count auto-clamp. If the LLM provided no max_count (zero)
-	// or a value above the per-call cap, rewrite the param so the
-	// tool enforces the cap. Use raw JSON rewriting to avoid
-	// importing the grep tool's param type.
-	maxPerCall := limits.ClassificationGrepMaxMatchesPerCall
-	if maxPerCall > 0 && (p.MaxCount == 0 || p.MaxCount > maxPerCall) {
-		if rewritten, err := clampGrepMaxCount(tc.Params, maxPerCall); err == nil {
-			tc.Params = rewritten
-			// NB: the caller holds tc by value; rewriting here only
-			// affects downstream use within validateAnalyzerPrescanToolCall's
-			// return path. The actual grep execution in executeTool
-			// runs against the clamped params because executeTool
-			// receives tc from the same stack frame.
-			_ = tc.Params
-		}
-	}
-	// Allowed. The caller will bump call counters after a
-	// successful Execute (see analyzerPostProcessToolResult).
-	return nil
+	return rejectAnalyzerPrescanTool(ctx, tc,
+		"grep in analyze stage must use files_only=true; line-level matches are exploration evidence, not classification input. Retry with files_only=true or call emit_analysis with the fields you have.")
 }
 
 // rejectAnalyzerPrescanTool synthesises the failed ToolResult

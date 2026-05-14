@@ -62,6 +62,35 @@ func HasBoundedCategoryEnumerationMembers(rm RequestModel) bool {
 	return hasExhaustiveMultiMemberSet(rm)
 }
 
+// HasPrincipalCategoryEnumerationMemberLane reports whether the analyzer has
+// already emitted a typed principal member lane for a non-relation category
+// enumeration.
+//
+// This is narrower than "the request is an enumeration" and broader than
+// "the user stated an explicit all/count boundary": the analyzer contract says
+// that for non-relational category enumerations, entities are the enumerated
+// members themselves, while relational enumerations keep the relation target and
+// helper surfaces in the same entity list and must wait for exploration. The
+// helper therefore consumes only typed analyzer fields and a multi-entity
+// cardinality check; it does not scan RawRequest for localized list/all words.
+func HasPrincipalCategoryEnumerationMemberLane(rm RequestModel) bool {
+	if !CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) {
+		return false
+	}
+	if distinctNonEmptyStrings(rm.AnalyzerHints.Entities) <= 1 {
+		return false
+	}
+	if rm.Intent == IntentEnumerate {
+		return true
+	}
+	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case ReqEnumeration, ReqRegistration:
+		return true
+	default:
+		return false
+	}
+}
+
 // RequiresExhaustiveEnumerationMemberSetHandoff reports whether a
 // set-valued enumeration answer must be carried downstream as a
 // model-authored aggregate_facts.member_set before later stages are
@@ -105,6 +134,9 @@ func RequiresExhaustiveEnumerationMemberSetHandoff(rm RequestModel) bool {
 	}
 	if !rm.Predicates.IsCategoryEnumeration {
 		return false
+	}
+	if HasPrincipalCategoryEnumerationMemberLane(rm) {
+		return true
 	}
 	if !hasExhaustiveMultiMemberSet(rm) {
 		return false
@@ -344,6 +376,18 @@ func hasExhaustiveMultiMemberSet(rm RequestModel) bool {
 		return true
 	}
 	return rm.CompletenessObligation.IsActive()
+}
+
+func distinctNonEmptyStrings(values []string) int {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		key := strings.ToLower(strings.TrimSpace(value))
+		if key == "" {
+			continue
+		}
+		seen[key] = struct{}{}
+	}
+	return len(seen)
 }
 
 // IsCodeIdentitySurface accepts cross-language code identity surfaces

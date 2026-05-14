@@ -118,38 +118,27 @@ type AnalysisLimits struct {
 	// a missing keyword.
 	WarnBelowEntityHitRatio float64
 
-	// Session 11 C0' ClassificationGrep limits — control the analyzer's
-	// Round 2 line-level grep capability. The capability is off by
-	// default unless analyzer triggers it (trigger logic lives in
-	// analyzer.go). When triggered, the validator in agent.go admits
-	// files_only=false grep calls but caps them at these budgets.
-	// Setting ClassificationGrepEnabled=false disables the capability
-	// entirely — the analyzer falls back to Round 1-only behavior.
+	// Legacy ClassificationGrep knobs. The analyze-stage runtime gate
+	// now rejects files_only=false grep unconditionally to preserve the
+	// evidence-lite boundary; these fields remain for config compatibility
+	// and for tests that exercise stale sidecar accounting directly.
 
-	// ClassificationGrepEnabled turns the capability on/off. When
-	// false, validateAnalyzerPrescanToolCall rejects every
-	// files_only=false grep call in analyze stage regardless of
-	// trigger state. Default true.
+	// ClassificationGrepEnabled is retained for backwards-compatible
+	// config parsing. validateAnalyzerPrescanToolCall rejects every
+	// files_only=false grep call in analyze stage regardless of this
+	// value.
 	ClassificationGrepEnabled bool
 
-	// ClassificationGrepMaxCalls is the per-dispatch limit on
-	// line-level calls. Default 3.
+	// ClassificationGrepMaxCalls is retained for legacy accounting.
 	ClassificationGrepMaxCalls int
 
-	// ClassificationGrepMaxMatchesPerCall is the per-call cap on
-	// match count. When the LLM's grep params omit max_count (or
-	// provide a value above this limit), the validator auto-clamps
-	// it before forwarding to the tool. Default 20.
+	// ClassificationGrepMaxMatchesPerCall is retained for legacy accounting.
 	ClassificationGrepMaxMatchesPerCall int
 
-	// ClassificationGrepMaxTotalBytes is the cumulative byte cap
-	// across all line-level calls in one dispatch. Default 8192.
+	// ClassificationGrepMaxTotalBytes is retained for legacy accounting.
 	ClassificationGrepMaxTotalBytes int
 
-	// ClassificationGrepMinLLMSubjectConf is the LLM subject-
-	// confidence threshold below which the analyzer's Round-2
-	// trigger fires (one of several trigger conditions; see
-	// analyzer.shouldTriggerClassificationGrep). Default 0.80.
+	// ClassificationGrepMinLLMSubjectConf is retained for config compatibility.
 	ClassificationGrepMinLLMSubjectConf float64
 
 	// Session 11 C4 — strict shape handling. When true, the
@@ -214,10 +203,10 @@ type AnalysisLimits struct {
 	// Defaults below are the production values. See
 	// internal/tool/multipath/decision.go for the engine; runtime
 	// overrides flow via runtime.RuntimeSettings.CGECMultiPath*.
-	MultiPathMinGroundedPerAnchor   int
-	MultiPathSymbolContextLines     int
-	MultiPathKeywordContextLines    int
-	MultiPathSmallFileThreshold     int
+	MultiPathMinGroundedPerAnchor     int
+	MultiPathSymbolContextLines       int
+	MultiPathKeywordContextLines      int
+	MultiPathSmallFileThreshold       int
 	MultiPathMaxKeywordAnchorsPerFile int
 }
 
@@ -349,8 +338,8 @@ func countTermHitsInBlob(seenBlob string, terms []string) int {
 //     floors in codrax.yaml.
 func DefaultAnalysisLimits() AnalysisLimits {
 	return AnalysisLimits{
-		WarnBelowKeywords:                   8,
-		RejectBelowKeywords:                 0,
+		WarnBelowKeywords:   8,
+		RejectBelowKeywords: 0,
 		// MaxPrescanRounds: 2026-05-10 raised default 2 → 3 after
 		// real-eval forensics showed 65% (13/20) of cases hit
 		// "Pre-scan budget reached (3 of 3 rounds used)" — the prior
@@ -490,16 +479,16 @@ type analysisValidationResult struct {
 //     pre-scan ToolResult.Summary (populated by
 //     `MutableState.PrescanSummaryBlob` / `AppendPrescanSummary`).
 //     When non-empty, it feeds two distinct mechanisms:
-//       1. **Verified-entity whitelist**: a generic-blocklist match
-//          whose lowercase term also appears as a substring in
-//          seenBlob is KEPT (with a `kept_generic_verified_entities`
-//          warning) instead of dropped. Fixes the "Agent / Handler
-//          are in the repo as real symbols but the blocklist
-//          deleted them anyway" regression.
-//       2. **Hit-ratio quality probe**: compute
-//          KeywordHits/Total and EntityHits/Total against seenBlob
-//          and emit `[warn: keyword_hit_ratio=...]` when the
-//          computed ratio is below the configured floor.
+//     1. **Verified-entity whitelist**: a generic-blocklist match
+//     whose lowercase term also appears as a substring in
+//     seenBlob is KEPT (with a `kept_generic_verified_entities`
+//     warning) instead of dropped. Fixes the "Agent / Handler
+//     are in the repo as real symbols but the blocklist
+//     deleted them anyway" regression.
+//     2. **Hit-ratio quality probe**: compute
+//     KeywordHits/Total and EntityHits/Total against seenBlob
+//     and emit `[warn: keyword_hit_ratio=...]` when the
+//     computed ratio is below the configured floor.
 //     When `seenBlob` is empty (analyzer ran with no pre-scans),
 //     neither mechanism fires and the historical behavior is
 //     preserved byte-for-byte.
