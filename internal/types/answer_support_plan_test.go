@@ -2370,6 +2370,56 @@ func TestBuildAnswerSupportPlan_GenericAggregateSupportRefMemberUsesLabelAndCita
 	}
 }
 
+func TestBuildAnswerSupportPlan_CompactAggregateSupportRefMemberUsesLabelAndCitation(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "LoopController implementers",
+			Value: "1",
+			Members: []string{
+				"answerDocumentEvaluator@internal/agent/answer_document_evaluator.go:4544",
+			},
+		}},
+	}
+	support := BuildAnswerSupportPlan(RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{
+			Required:    true,
+			SourceQuote: "all implementers",
+		},
+	}, plan)
+	obligations := PrincipalSupportMemberObligations(support)
+	if len(obligations) != 1 {
+		t.Fatalf("compact support-ref member should produce one principal obligation, got %+v", obligations)
+	}
+	if obligations[0].Label != "answerDocumentEvaluator" {
+		t.Fatalf("compact support-ref member should use the label as principal surface, got %+v", obligations[0])
+	}
+	if obligations[0].Location != "internal/agent/answer_document_evaluator.go:4544" {
+		t.Fatalf("compact support-ref member should carry the citation location, got %+v", obligations[0])
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "internal/agent/answer_document_evaluator.go", Line: 4544}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockTable,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "answerDocumentEvaluator",
+				Text:        "implements LoopController.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if got := MissingPrincipalSupportMembers(doc, support); len(got) != 0 {
+		t.Fatalf("label plus matching citation should satisfy compact support-ref member coverage, got %+v", got)
+	}
+}
+
 func TestMissingPrincipalSupportMembers_AssignmentStillRequiresExactCitationLine(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Family: QFEnumeration,

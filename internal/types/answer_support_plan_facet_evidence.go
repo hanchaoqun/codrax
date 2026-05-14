@@ -633,6 +633,9 @@ func aggregateMemberSurface(member string, location string) AnswerPrincipalMembe
 	if _, ok := ParseAnswerSourceLocationSurface(member); ok {
 		return PrincipalMemberSurfaceSourceLocation
 	}
+	if label, _, ok := ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		return PrincipalMemberSurfaceDisplayLabel
+	}
 	if IsCodeIdentitySurface(member) {
 		return PrincipalMemberSurfaceSymbolLike
 	}

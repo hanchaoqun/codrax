@@ -30,6 +30,12 @@ func TestParseAnswerSourceLocationSurface_DoesNotSwallowSupportRefComposite(t *t
 	if _, ok := ParseAnswerSourceLocationSurface("Component | entry/src/main/ets/pages/Index.ets:20"); ok {
 		t.Fatal("pipe support-ref composite member must not parse as a single source location")
 	}
+	if _, ok := ParseAnswerSourceLocationSurface("explorerEvaluator@internal/agent/explorer.go:30"); ok {
+		t.Fatal("compact support-ref composite member must not parse as a single source location")
+	}
+	if _, ok := ParseAnswerSourceLocationSurface("node_modules/@scope/pkg/index.ts:20"); !ok {
+		t.Fatal("scoped package paths should still parse as source locations")
+	}
 }
 
 func TestParseAnswerSupportRefMemberLocation_CompositeDisplays(t *testing.T) {
@@ -40,8 +46,11 @@ func TestParseAnswerSupportRefMemberLocation_CompositeDisplays(t *testing.T) {
 		line  int
 	}{
 		{"explorerEvaluator @ internal/agent/explorer.go:30", "explorerEvaluator", "internal/agent/explorer.go", 30},
+		{"analyzerEvaluator@internal/agent/analyzer.go:887", "analyzerEvaluator", "internal/agent/analyzer.go", 887},
 		{"Component | entry/src/main/ets/pages/Index.ets:20", "Component", "entry/src/main/ets/pages/Index.ets", 20},
+		{"Ability@entry/src/main/ets/pages/Index.ets:20", "Ability", "entry/src/main/ets/pages/Index.ets", 20},
 		{"RouteHandler (src/routes/user.ts:42)", "RouteHandler", "src/routes/user.ts", 42},
+		{"ParserObserver@src/parser/observer.cpp:73", "ParserObserver", "src/parser/observer.cpp", 73},
 	}
 	for _, tc := range cases {
 		label, loc, ok := ParseAnswerSupportRefMemberLocation(tc.raw)

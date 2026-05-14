@@ -628,6 +628,62 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsSplitRelationInSameItem(t *te
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_AcceptsCompactSourceSupportRefs(t *testing.T) {
+	mu := types.NewMutableState("LoopController implementer aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "LoopController implementers",
+		Value: "3",
+		Members: []string{
+			"analyzerEvaluator@internal/agent/analyzer.go:887",
+			"explorerEvaluator@internal/agent/explorer.go:8496",
+			"Ability@entry/src/main/ets/pages/Index.ets:20",
+		},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all implementers",
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 887},
+			{File: "internal/agent/explorer.go", Line: 8496},
+			{File: "entry/src/main/ets/pages/Index.ets", Line: 20},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "items",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				Label:       "analyzerEvaluator",
+				Text:        "实现了 LoopController。",
+				CitationRef: 0,
+			}, {
+				Label:       "explorerEvaluator",
+				Text:        "实现了 LoopController。",
+				CitationRef: 1,
+			}, {
+				Label:       "Ability",
+				Text:        "ArkTS 侧的同形实现条目。",
+				CitationRef: 2,
+			}},
+		}},
+	}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("label rows with matching citations should satisfy compact support-ref member_set coverage, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_RelationSlateSubsumesLeftAxis(t *testing.T) {
 	mu := types.NewMutableState("entry relation aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{

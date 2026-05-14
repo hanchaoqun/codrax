@@ -441,6 +441,9 @@ func AnswerAggregateMemberDisplayCandidates(member string) []string {
 		return nil
 	}
 	out := []string{member}
+	if label, _, ok := ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		out = append(out, AnswerAggregateMemberDisplayCandidates(label)...)
+	}
 	if left, right, ok := aggregateRelationSurfaceParts(member); ok {
 		for _, rightDisplay := range aggregateRelationPartDisplayForms(right) {
 			out = append(out, aggregateRelationDisplayCandidates(left, rightDisplay)...)

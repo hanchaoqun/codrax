@@ -198,6 +198,16 @@ func TestAnswerAggregateMemberDisplayCandidates_RelationDecoratorVariants(t *tes
 	}
 }
 
+func TestAnswerAggregateMemberDisplayCandidates_CompactSourceSupportRef(t *testing.T) {
+	candidates := AnswerAggregateMemberDisplayCandidates("analyzerEvaluator@internal/agent/analyzer.go:887")
+	if !stringSliceContains(candidates, "analyzerEvaluator@internal/agent/analyzer.go:887") {
+		t.Fatalf("compact support-ref member should preserve the model-authored surface, got %+v", candidates)
+	}
+	if !stringSliceContains(candidates, "analyzerEvaluator") {
+		t.Fatalf("compact support-ref member should expose its principal label for downstream display, got %+v", candidates)
+	}
+}
+
 func TestAnswerAggregateMemberRelationParts_CompactDotAcrossSupportedLanguages(t *testing.T) {
 	samples := map[string]string{
 		repotypes.LangGo:         "compiler.Compile",

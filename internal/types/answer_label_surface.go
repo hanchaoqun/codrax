@@ -33,6 +33,9 @@ func ParseAnswerSourceLocationSurface(label string) (AnswerSourceLocationSurface
 			return AnswerSourceLocationSurface{}, false
 		}
 	}
+	if answerSourceLocationLooksLikeCompactSupportRef(raw) {
+		return AnswerSourceLocationSurface{}, false
+	}
 	raw = strings.ReplaceAll(raw, `\`, `/`)
 	colon := strings.LastIndex(raw, ":")
 	if colon <= 0 || colon == len(raw)-1 {
@@ -55,6 +58,36 @@ func ParseAnswerSourceLocationSurface(label string) (AnswerSourceLocationSurface
 		LineStart: lineStart,
 		LineEnd:   lineEnd,
 	}, true
+}
+
+func answerSourceLocationLooksLikeCompactSupportRef(raw string) bool {
+	idx := strings.LastIndex(raw, "@")
+	if idx <= 0 || idx == len(raw)-1 {
+		return false
+	}
+	label := strings.TrimSpace(raw[:idx])
+	location := strings.TrimSpace(raw[idx+1:])
+	if label == "" || location == "" {
+		return false
+	}
+	if strings.ContainsAny(label, `/\`) || strings.Contains(label, ":") {
+		return false
+	}
+	location = strings.ReplaceAll(location, `\`, `/`)
+	colon := strings.LastIndex(location, ":")
+	if colon <= 0 || colon == len(location)-1 {
+		return false
+	}
+	file := strings.TrimSpace(location[:colon])
+	linePart := strings.TrimSpace(location[colon+1:])
+	if file == "" || linePart == "" {
+		return false
+	}
+	if !IsCodeOrConfigPathExtension(filepath.Ext(file)) {
+		return false
+	}
+	_, _, ok := parseAnswerLineSurface(linePart)
+	return ok
 }
 
 // AnswerSourceLocationSurfaceMatchesCitation reports whether a parsed
@@ -106,6 +139,15 @@ func ParseAnswerSupportRefMemberLocation(raw string) (label string, location Ans
 		if idx := strings.LastIndex(raw, "("); idx > 0 {
 			if surface, parsed := ParseAnswerSourceLocationSurface(strings.TrimSpace(raw[idx+1 : len(raw)-1])); parsed {
 				return strings.TrimSpace(raw[:idx]), surface, true
+			}
+		}
+	}
+	if idx := strings.LastIndex(raw, "@"); idx > 0 && idx < len(raw)-1 {
+		label := strings.TrimSpace(raw[:idx])
+		location := strings.TrimSpace(raw[idx+1:])
+		if label != "" {
+			if surface, parsed := ParseAnswerSourceLocationSurface(location); parsed {
+				return label, surface, true
 			}
 		}
 	}
