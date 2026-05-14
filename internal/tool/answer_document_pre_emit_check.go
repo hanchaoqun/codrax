@@ -562,7 +562,7 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 		}
 		for _, item := range b.Items {
 			label := strings.TrimSpace(item.Label)
-			if label == "" || !types.IsCodeIdentitySurface(label) {
+			if label == "" || !preEmitLabelNeedsCitationAlignment(label) {
 				continue
 			}
 			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
@@ -1849,6 +1849,12 @@ func preEmitCitationSupportsAggregateItem(ctx *types.BusContext, label, text str
 }
 
 func preEmitLabelMatchesEvidenceEndpoint(label string, ev types.EvidenceItem) bool {
+	if preEmitDecoratedLabelMatchesEvidence(label, ev) {
+		return true
+	}
+	if _, _, ok := types.AnswerAggregateDecoratedLabelParts(label); ok {
+		return false
+	}
 	for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
 		if preEmitCodeSurfaceMatches(label, endpoint) {
 			return true
@@ -1863,6 +1869,79 @@ func preEmitLabelMatchesEvidenceEndpoint(label string, ev types.EvidenceItem) bo
 		return true
 	}
 	return false
+}
+
+func preEmitLabelNeedsCitationAlignment(label string) bool {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return false
+	}
+	if types.IsCodeIdentitySurface(label) {
+		return true
+	}
+	base, _, ok := types.AnswerAggregateDecoratedLabelParts(label)
+	return ok && types.IsCodeIdentitySurface(base)
+}
+
+func preEmitDecoratedLabelMatchesEvidence(label string, ev types.EvidenceItem) bool {
+	base, qualifier, ok := types.AnswerAggregateDecoratedLabelParts(label)
+	if !ok {
+		return false
+	}
+	if !preEmitEvidenceEndpointSupportsToken(ev, base) {
+		return false
+	}
+	return preEmitEvidenceSupportsDecoratorQualifier(ev, qualifier)
+}
+
+func preEmitEvidenceSupportsDecoratorQualifier(ev types.EvidenceItem, qualifier string) bool {
+	parts := preEmitDecoratorQualifierParts(qualifier)
+	if len(parts) == 0 {
+		return false
+	}
+	// A single qualifier is usually a package/type/scope disambiguator
+	// ("Score (subject)", "New (Classifier)") and must be grounded by the
+	// cited line or source path. Multi-part qualifiers often describe method
+	// families ("Engine (New + Submit/Apply)") and are enforced by relation
+	// left-scope matching when present, not by requiring all siblings on one
+	// definition line.
+	if len(parts) > 1 {
+		for _, part := range parts {
+			if preEmitEvidenceEndpointSupportsToken(ev, part) ||
+				preEmitPathSegmentsSupportToken(ev.Source, part) ||
+				preEmitCodeSurfaceAppearsVerbatim(part, ev.Snippet) {
+				return true
+			}
+		}
+		return true
+	}
+	part := parts[0]
+	return preEmitEvidenceEndpointSupportsToken(ev, part) ||
+		preEmitPathSegmentsSupportToken(ev.Source, part) ||
+		preEmitCodeSurfaceAppearsVerbatim(part, ev.Snippet)
+}
+
+func preEmitDecoratorQualifierParts(qualifier string) []string {
+	qualifier = strings.TrimSpace(qualifier)
+	if qualifier == "" {
+		return nil
+	}
+	raw := strings.FieldsFunc(qualifier, func(r rune) bool {
+		switch r {
+		case '/', '+', ',', '，', '、', '&', '|':
+			return true
+		default:
+			return false
+		}
+	})
+	var out []string
+	for _, part := range raw {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func preEmitCodeSurfaceAppearsVerbatim(label, text string) bool {
@@ -2324,6 +2403,9 @@ func preEmitEvidenceSupportsAggregateMemberCitation(ev types.EvidenceItem, membe
 		return preEmitEvidenceEndpointSupportsToken(ev, right) &&
 			preEmitEvidenceOrSourceSupportsRelationLeft(ev, left)
 	}
+	if preEmitDecoratedLabelMatchesEvidence(member, ev) {
+		return true
+	}
 	return preEmitEvidenceSupportsAggregateMember(ev, member)
 }
 
@@ -2331,6 +2413,9 @@ func preEmitEvidenceSupportsAggregateMember(ev types.EvidenceItem, member string
 	if left, right, ok := preEmitAggregateMemberLabelRelationParts(member); ok {
 		return preEmitEvidenceEndpointSupportsToken(ev, left) &&
 			preEmitEvidenceEndpointSupportsToken(ev, right)
+	}
+	if preEmitDecoratedLabelMatchesEvidence(member, ev) {
+		return true
 	}
 	for _, candidate := range preEmitAggregateMemberDisplayCandidates(member) {
 		if preEmitLabelMatchesEvidenceEndpoint(candidate, ev) {

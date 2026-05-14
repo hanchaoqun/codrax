@@ -597,6 +597,58 @@ func TestPreCheckItemCitationAlignment_AggregateRelationAcceptsDecoratorListSpli
 	}
 }
 
+func TestPreCheckItemCitationAlignment_DecoratedAggregateLabelRequiresQualifierScope(t *testing.T) {
+	mut := types.NewMutableState("aggregate decorated label citation")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal/analysis subpackage entry functions",
+		Value:   "1",
+		Members: []string{"Score (subject)"},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/analysis/priority/score.go",
+		LineStart:       34,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Score",
+		GroundingStatus: types.GroundingGrounded,
+	}, {
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/analysis/subject/taxonomy.go",
+		LineStart:       40,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Score",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/analysis/priority/score.go", Line: 34}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "subpackages",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "subject",
+				Label:       "Score (subject)",
+				Text:        "subject 子包入口函数。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	hints := preCheckItemCitationAlignment(doc, nil, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("decorated label must reject same-named citation outside qualifier scope, got %v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "internal/analysis/subject/taxonomy.go:40") {
+		t.Fatalf("hint should point at qualifier-scoped citation, got %+v", hints[0])
+	}
+
+	doc.Citations[0] = types.Citation{File: "internal/analysis/subject/taxonomy.go", Line: 40}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("qualifier-scoped citation should satisfy decorated aggregate label, got %v", hints)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

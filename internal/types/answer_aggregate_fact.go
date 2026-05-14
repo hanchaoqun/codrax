@@ -485,6 +485,14 @@ func AnswerAggregateMemberRelationParts(member string) (left string, right strin
 	return aggregateRelationSurfaceParts(member)
 }
 
+// AnswerAggregateDecoratedLabelParts parses display labels such as
+// "Score (subject)" or "New (Classifier)". These labels are not standalone
+// relation members, but the qualifier is still load-bearing when selecting a
+// citation among same-named symbols.
+func AnswerAggregateDecoratedLabelParts(label string) (base string, qualifier string, ok bool) {
+	return aggregateRelationPartDecorator(label)
+}
+
 func aggregateRelationSurfaceKey(member string) (string, bool) {
 	left, right, ok := aggregateRelationSurfaceParts(member)
 	if !ok {

@@ -192,6 +192,10 @@ func TestAnswerAggregateMemberDisplayCandidates_RelationDecoratorVariants(t *tes
 		!stringSliceContains(candidates, "patcher/Engine(New + Submit/Apply)") {
 		t.Fatalf("decorated relation with slash qualifier should expose display variants, got %+v", candidates)
 	}
+	base, qualifier, ok := AnswerAggregateDecoratedLabelParts("Score (subject)")
+	if !ok || base != "Score" || qualifier != "subject" {
+		t.Fatalf("standalone decorated label should expose qualifier, got base=%q qualifier=%q ok=%v", base, qualifier, ok)
+	}
 }
 
 func TestAnswerAggregateMemberRelationParts_CompactDotAcrossSupportedLanguages(t *testing.T) {
