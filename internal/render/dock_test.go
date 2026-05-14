@@ -255,6 +255,18 @@ func TestComposeDockRow2_ShowsModelAndContextTokens(t *testing.T) {
 			t.Errorf("row 2 must contain %q; got %q", want, plain)
 		}
 	}
+	ordered := []string{"2/6", "探索证据", "模型 qwen3.5:9b", "约 31k/260k tok", "第 2 轮", "3 次工具调用"}
+	prev := -1
+	for _, part := range ordered {
+		idx := strings.Index(plain, part)
+		if idx < 0 {
+			t.Fatalf("row 2 missing %q; got %q", part, plain)
+		}
+		if idx <= prev {
+			t.Fatalf("row 2 order drift: %q appeared at %d after previous index %d; row=%q", part, idx, prev, plain)
+		}
+		prev = idx
+	}
 }
 
 // TestComposeDockRow3_TimeOnly verifies the row-3 minimum content:
