@@ -561,6 +561,42 @@ func TestPreCheckItemCitationAlignment_AggregateRelationAcceptsSplitRowCitation(
 	}
 }
 
+func TestPreCheckItemCitationAlignment_AggregateRelationAcceptsDecoratorListSplitRow(t *testing.T) {
+	mut := types.NewMutableState("aggregate decorator relation split row citation")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal/analysis subpackages",
+		Value:   "1",
+		Members: []string{"patcher → Engine (New + Submit/Apply)"},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/analysis/patcher/patcher.go",
+		LineStart:       83,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Engine",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/analysis/patcher/patcher.go", Line: 83}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "subpackages",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "patcher",
+				Label:       "Engine (New + Submit/Apply)",
+				Text:        "patcher 子包入口类型。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("decorator-list aggregate relation row should allow citation to typed right-side proof, got %v", hints)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

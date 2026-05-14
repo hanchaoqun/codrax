@@ -182,6 +182,16 @@ func TestAnswerAggregateMemberDisplayCandidates_RelationDecoratorVariants(t *tes
 	if !ok || left != "priority" || right != "Score(priority)" {
 		t.Fatalf("decorated relation should parse as relation parts, got left=%q right=%q ok=%v", left, right, ok)
 	}
+	left, right, ok = AnswerAggregateMemberRelationParts("patcher → Engine (New + Submit/Apply)")
+	if !ok || left != "patcher" || right != "Engine (New + Submit/Apply)" {
+		t.Fatalf("decorated relation with qualifier list should parse, got left=%q right=%q ok=%v", left, right, ok)
+	}
+	candidates = AnswerAggregateMemberDisplayCandidates("patcher → Engine (New + Submit/Apply)")
+	if !stringSliceContains(candidates, "patcher → Engine (New + Submit/Apply)") ||
+		!stringSliceContains(candidates, "patcher → Engine(New + Submit/Apply)") ||
+		!stringSliceContains(candidates, "patcher/Engine(New + Submit/Apply)") {
+		t.Fatalf("decorated relation with slash qualifier should expose display variants, got %+v", candidates)
+	}
 }
 
 func TestAnswerAggregateMemberRelationParts_CompactDotAcrossSupportedLanguages(t *testing.T) {

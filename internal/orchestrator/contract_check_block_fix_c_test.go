@@ -155,6 +155,34 @@ func TestEnumerationItemLabelHallucination_AggregateMemberDisplayLabelPasses(t *
 	}
 }
 
+func TestEnumerationItemLabelHallucination_AggregateDecoratorListMemberPasses(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "subpackages",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "patcher",
+				Label:       "Engine (New + Submit/Apply)",
+				Text:        "patcher 子包入口类型。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/analysis/patcher/patcher.go", Line: 83}},
+	}
+	mut := types.NewMutableState("typed aggregate decorator member labels")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "subpackages and entry functions",
+		Value:   "1",
+		Members: []string{"patcher → Engine (New + Submit/Apply)"},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("decorator-list aggregate member display label must not be treated as fabricated, got %+v", vs)
+	}
+}
+
 func TestAnswerItemLabelSupportedByCitedEvidenceSubjectRejectsAdjacentCitationDrift(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

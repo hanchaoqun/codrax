@@ -725,6 +725,58 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsDecoratedSplitRelation(t *tes
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_AcceptsDecoratorListSplitRelation(t *testing.T) {
+	mu := types.NewMutableState("entry function aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "sub-packages and their entry-point functions",
+		Value: "2",
+		Members: []string{
+			"hint → Composer (New + Compose)",
+			"patcher → Engine (New + Submit/Apply)",
+		},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsRelationalLookup:    true,
+				},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all subpackages and entry functions",
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "list",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:    "hint",
+				Label: "Composer (New + Compose)",
+				Text:  "hint 子包的入口类型。",
+			}, {
+				ID:    "patcher",
+				Label: "Engine (New + Submit/Apply)",
+				Text:  "patcher 子包的入口类型。",
+			}},
+		}},
+	}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("decorator-list split relation members should satisfy member_set visibility, got %+v", got)
+	}
+	if got := preCheckRelationMemberSetAnswerShape(doc, ctx); len(got) != 0 {
+		t.Fatalf("decorator-list split relation rows should satisfy relation answer shape, got %+v", got)
+	}
+}
+
 func TestPreEmitAggregateMemberSupportRefMember_CitesLabelAtLocation(t *testing.T) {
 	mu := types.NewMutableState("implementer aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

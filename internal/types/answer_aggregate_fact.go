@@ -569,13 +569,43 @@ func aggregateColonLooksLikeDisplayRelation(member string) bool {
 
 func aggregateRelationPartOK(part string) bool {
 	part = trimAggregateMemberSurface(part)
-	if part == "" || strings.ContainsAny(part, `/\`) {
+	if part == "" || strings.Contains(part, `\`) {
 		return false
 	}
 	if base, qualifier, ok := aggregateRelationPartDecorator(part); ok {
-		return aggregateRelationCorePartOK(base) && aggregateRelationCorePartOK(qualifier)
+		return aggregateRelationCorePartOK(base) && aggregateRelationQualifierOK(qualifier)
+	}
+	if strings.Contains(part, "/") {
+		return false
 	}
 	return aggregateRelationCorePartOK(part)
+}
+
+func aggregateRelationQualifierOK(qualifier string) bool {
+	qualifier = trimAggregateMemberSurface(qualifier)
+	if qualifier == "" || strings.Contains(qualifier, `\`) {
+		return false
+	}
+	parts := strings.FieldsFunc(qualifier, func(r rune) bool {
+		switch r {
+		case '/', '+', ',', '，', '、', '&', '|':
+			return true
+		default:
+			return false
+		}
+	})
+	seenPart := false
+	for _, part := range parts {
+		part = trimAggregateMemberSurface(part)
+		if part == "" {
+			continue
+		}
+		seenPart = true
+		if !aggregateRelationCorePartOK(part) {
+			return false
+		}
+	}
+	return seenPart
 }
 
 func aggregateRelationCorePartOK(part string) bool {

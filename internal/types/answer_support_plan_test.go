@@ -2285,6 +2285,41 @@ func TestMissingPrincipalSupportMembers_AcceptsModelRelationWithoutSymbolEndpoin
 	}
 }
 
+func TestMissingPrincipalSupportMembers_AcceptsDecoratorListRelationMember(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{{
+				Text:         "patcher → Engine (New + Submit/Apply) @ internal/analysis/patcher/patcher.go:83",
+				Location:     "internal/analysis/patcher/patcher.go:83",
+				ClaimForm:    ClaimDefinitionFact,
+				SurfaceTerms: []string{"patcher → Engine (New + Submit/Apply) @ internal/analysis/patcher/patcher.go:83"},
+				Source:       "internal/analysis/patcher/patcher.go",
+				LineStart:    83,
+			}},
+		}},
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "internal/analysis/patcher/patcher.go", Line: 83}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockOrderedList,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "Engine (New + Submit/Apply)",
+				Text:        "patcher 子包入口类型。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if got := MissingPrincipalSupportMembers(doc, plan); len(got) != 0 {
+		t.Fatalf("decorator-list relation member should satisfy support-member coverage, got %+v", got)
+	}
+}
+
 func TestBuildAnswerSupportPlan_GenericAggregateSupportRefMemberUsesLabelAndCitation(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		StableAggregateFacts: []AnswerAggregateFact{{
