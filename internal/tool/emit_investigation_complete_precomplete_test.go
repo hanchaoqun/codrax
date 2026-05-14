@@ -140,6 +140,106 @@ func TestEmitInvestigationComplete_PreCompleteCheck_RelationLookupRequiresMember
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_RelationMemberSetAcceptsRoleLabeledSupportRefWhenLocationContainsMember(t *testing.T) {
+	bus := relationMemberSetTestBus(t)
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/types/enums.go",
+		LineStart:       117,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "AgentExplorer",
+		Snippet:         `AgentExplorer AgentName = "explorer"`,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "AgentExplorer is the matching registered sub-agent caller.",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "agent names that can call sub-agents",
+			"value":        "1",
+			"members":      []string{"explorer"},
+			"support_refs": []string{"direct AgentExplorer @ internal/types/enums.go:117"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "relation member-set handoff is missing") {
+		t.Fatalf("role-labeled support_ref should satisfy relation member_set when the grounded location contains the member: %s", res.Summary)
+	}
+	if !bus.Mutable.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete after citable relation member_set handoff")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_RoleLabeledSupportRefStillRequiresMemberAtLocation(t *testing.T) {
+	bus := relationMemberSetTestBus(t)
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/types/enums.go",
+		LineStart:       117,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "AgentExplorer",
+		Snippet:         `AgentExplorer AgentName = "explorer"`,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "wrong member should remain blocked",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "agent names that can call sub-agents",
+			"value":        "1",
+			"members":      []string{"coder"},
+			"support_refs": []string{"direct AgentExplorer @ internal/types/enums.go:117"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "relation member-set handoff is missing") ||
+		!strings.Contains(res.Summary, "coder") {
+		t.Fatalf("role-labeled support_ref must not certify a member absent from the grounded location: %s", res.Summary)
+	}
+	if bus.Mutable.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open when the member is absent from the support location")
+	}
+}
+
+func relationMemberSetTestBus(t *testing.T) *types.BusContext {
+	t.Helper()
+	return &types.BusContext{
+		Mutable:  types.NewMutableState("哪些 agent 可以调用 subagent？"),
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsRelationalLookup:    true,
+					IsCategoryEnumeration: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Entities: []string{"agent", "subagent"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_FieldValueCountRejectsUnreadAggregateLiteral(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeTestFile(t, repoRoot, "internal/agent/analyzer.go", `

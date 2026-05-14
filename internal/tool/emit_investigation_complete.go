@@ -1952,10 +1952,13 @@ func aggregateMemberSetMemberUsable(fact types.AnswerAggregateFact, member strin
 		if !ok {
 			continue
 		}
-		if !aggregateSupportLabelMatchesMember(label, labels) {
+		if !aggregateSupportLocationCompatibleWithMember(member, loc) {
 			continue
 		}
-		if !aggregateSupportLocationCompatibleWithMember(member, loc) {
+		if aggregateSupportLocationMatchesMemberLabels(loc, labels, support) {
+			return true
+		}
+		if !aggregateSupportLabelMatchesMember(label, labels) {
 			continue
 		}
 		refLabels := aggregateSupportLabels(label, aggregateMemberLocationSupportLabels(member, labels))
@@ -1965,6 +1968,15 @@ func aggregateMemberSetMemberUsable(fact types.AnswerAggregateFact, member strin
 		}
 	}
 	return false
+}
+
+func aggregateSupportLocationMatchesMemberLabels(location string, labels []string, support aggregateMemberSupportIndex) bool {
+	if location == "" || len(labels) == 0 {
+		return false
+	}
+	memberLabels := aggregateSupportLabels("", labels)
+	return aggregateLocationEvidenceMatchesLabels(location, memberLabels, support.byLocation) ||
+		aggregateToolLocationMatchesLabels(location, memberLabels, support.toolLinesByLocation)
 }
 
 func aggregateMemberReadFileSupportRef(member string, support aggregateMemberSupportIndex) (string, bool) {
