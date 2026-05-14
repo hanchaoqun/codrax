@@ -102,6 +102,7 @@ func ApplyAndPersistMutation(
 // Invariants:
 //   - every block has a non-empty id (after trim)
 //   - block ids are unique within the doc
+//   - diagram payloads appear only on kind=diagram blocks
 //   - kind=diagram blocks carry a non-nil Diagram payload
 //   - max blocks: documents with > maxBlocksPerDoc are rejected
 func validateMergedV2Doc(doc *types.AnswerDocumentV2) error {
@@ -123,6 +124,9 @@ func validateMergedV2Doc(doc *types.AnswerDocumentV2) error {
 				i, id)
 		}
 		seenIDs[id] = true
+		if b.Diagram != nil && b.Kind != types.BlockDiagram {
+			return fmt.Errorf("merged blocks[%d]: diagram payload is only valid when kind=diagram; replace the block with kind=diagram or remove the sibling diagram object from kind=%q", i, b.Kind)
+		}
 		if b.Kind == types.BlockDiagram && b.Diagram == nil {
 			return fmt.Errorf("merged blocks[%d]: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If you removed it on a patch retry, restore it on `replace_blocks`; do not move the diagram body into the block-level `text` field", i)
 		}

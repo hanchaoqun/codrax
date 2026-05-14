@@ -1,0 +1,1635 @@
+# 2026-05-14 Random Eval System Gap Tracking
+
+Status: active
+
+This document tracks every issue and systemic gap discovered during the
+2026-05-14 randomized full eval sweep and adjacent historical-result audit.
+It is intentionally a running ledger. Final clustering and implementation
+decisions happen only after the sweep completes.
+
+Hard rule for fixes: preserve the repository principle that hard gates consume
+precise typed signals, while noisy signals remain soft guidance. Do not land
+case-specific keyword patches when a typed contract or deterministic
+canonicalization layer is the real boundary.
+
+## Sweep Snapshot
+
+- Workspace: `/Users/han/opt/codrax`
+- Sweep command owner: existing `bash eval/parallel_all.sh` process
+- Sweep start: `2026-05-14T04:18:52Z`
+- Runner snapshot: `./.codrax-sweep-20260514-121852`
+- Cases: 66 top-level `eval/cases/*.case`
+- Parallelism: 4
+- Randomized order: true, seed `1778732332`
+- Timeout: 1800s per case
+- Note: default `CASES_GLOB` excludes `eval/cases/harmony/*.case`
+
+## Local Working Tree At Start
+
+- Branch: `main...origin/main`
+- Pre-existing modified files:
+  - `docs/download/index.html`
+  - `docs/user_guide.html`
+- Pre-existing untracked files:
+  - `AGENTS.md`
+  - `providers.yaml.local`
+
+No code changes from this investigation had been made when this ledger was
+created.
+
+## Active Issue Ledger
+
+| ID | Case / Source | Status | Symptom | Systemic Gap | Generalized Fix Direction |
+| --- | --- | --- | --- | --- | --- |
+| E20260514-G1 | `s11b` | Confirmed FAIL | Answer names `EmitStageRetryAttempt` but the user asked for the retry budget parameter, expected `MaxRetriesPerStage`. | Role-disambiguated scalar answers are not enforced. The pipeline collected both the retry cap and attempt counter, but final selection did not bind the requested noun role to the cited identifier. | Add typed answer-candidate roles for scalar/mechanism questions, e.g. `budget_cap`, `attempt_counter`, `guard_condition`, `tool_name`. Final answer hard gates should verify the visible scalar matches the requested role using model-emitted typed role evidence, not term frequency. |
+| E20260514-G2 | `s1b` | Confirmed FAIL | Final answer explains the validation requeue path but omits user anchor `runTaskGraph` and does not preserve an accepted upstream/evidence-node surface term. | Exact request anchors can vanish between evidence and final answer for mechanism questions. Current must-include behavior is too weak outside classic enumeration/scalar cases. | Promote user-mentioned exact endpoints and typed mechanism anchors into a finalizer-visible must-preserve block. Use deterministic rendered-answer checks over typed `MustIncludeTerms` / exact targets, not loose prompt wording. |
+| E20260514-G3 | prior `s5a` random sweep | Confirmed product failure | Explorer found all `LoopController` implementers, but finalizer exhausted retries and emitted raw LLM text because aggregate member labels/citations could not satisfy conflicting checks. | Aggregate member sets are not canonicalized into a single render contract. Equivalent forms such as `Type (file:line)` and `Type@file:line` survive as separate obligations, while citation alignment expects a different principal label surface. | Build deterministic `MemberDisplayRow` records from accepted aggregate facts before finalization: stable member key, visible label, source location, citation handle, claim form, and display candidates. Coverage and citation checks must consume the same rows. |
+| E20260514-G4 | `u11b` | PASS with 50 rejects | The run found the correct 4 production `CitationReq.Required=false` sites, but finalizer looped over source-location labels with qualifiers before passing. | Source-location member rows with qualifiers can be treated simultaneously as labels, source refs, and prose, creating retry loops even when the final answer is correct. | Reuse the G3 canonical member-row layer for source-location sets and qualifiers. Principal source rows should cite stable support handles instead of requiring the model to reproduce exact `file:line (qualifier)` strings. |
+| E20260514-G5 | `m1a` | PASS with 33 rejects | Explorer struggles to anchor literal tool names such as `emit_answer_document called` and `case "emit_answer_symbol"` as evidence. | Evidence anchoring is symbol-centric for facts whose source truth is a string literal, switch case, or method-return literal. | Add typed literal/text anchor support such as `anchor_kind=string_literal` or `tool_name_literal`. This should validate exact source text precisely while avoiding promotion of arbitrary grep hits. |
+| E20260514-G6 | prior `qf_sequence_analyzer_gate` random sweep | Confirmed harness gap | Output contains the expected mermaid sequence and symbols, but eval verdict reports a regex miss. | Eval harness regex expectations are brittle: shell word-splitting and escaped-dot semantics can mark a correct answer as failed. | Move eval expectations to structured arrays or a small parser with tests for multiline regexes, escaped dots, fences, and alternations. Harness failures should be separable from product failures. |
+| E20260514-G7 | prior `patch_go_typo`; current `logtri_java` / `mr_keyword` | Confirmed infrastructure gap | Prior write-mode plan failed after transient provider/network errors; current read/log cases pass only after EOF/stall retries and degraded continuation. | LLM transport/provider failures can consume semantic budgets, inflate runtime, and sometimes appear as product failures. Stage EOF/stall handling is not separated clearly enough from semantic insufficiency. | Add provider fallback/backoff classification for stage transport errors, classify infra failures distinctly in eval, and preserve deterministic tool/evidence state across transport retries. For micro-scope typo patches, design a deterministic rescue path only when model-emitted analysis has exact file/line/symbol evidence and write mode is explicitly enabled. |
+| E20260514-G8 | `m1a` | PASS with 33 rejects | Finalizer retry tail shows conflict between explicitly listing `emit_answer_document` / `emit_answer_document_patch` and a validator/prompt rule that removes internal `AnswerDocument` carrier names from user-visible prose. | Internal-carrier concealment is too coarse when the user explicitly asks for tool names whose literal names overlap carrier terminology. The finalizer cannot both hide the term family and list the requested `emit_*` tools without trial-and-error. | Split user-requested tool literals from internal schema carrier names. Use typed visibility policy: exact user-requested tool/function names are allowed when grounded; internal carrier types remain hidden unless the user asks for implementation schemas. |
+| E20260514-G9 | `u3a` | PASS with 3 rejects | Explorer could not cleanly ground conditions such as `if e.investigationComplete {` and had to use assignment/absence workarounds. | Condition-anchor validation handles calls and richer expressions better than boolean field guards. This creates avoidable retries for common guard-style mechanisms. | Add precise support for field-access boolean guards in condition evidence, e.g. `condition_subject=field_access` plus exact line text and owner field identity. The hard signal is the parsed/verified field access, not a keyword search. |
+| E20260514-G10 | `u8b` | TIMEOUT | Exhaustive enumeration oscillates between 91 exported `type X string` declarations, 81-82 partially materialized members, and 93 extractor items with duplicates. | Large closed sets lack both a scalable deterministic aggregate handoff and a typed candidate-vs-qualified-member boundary. The LLM is forced to manually filter, count, de-duplicate, and materialize dozens of mechanically discoverable rows. | Add a deterministic typed enumeration carrier for repo-map/AST query results: candidate rows, qualification predicate (`has_const_set`, exported, package scope), per-member file:line support handles, excluded-candidate reasons, duplicate keys, and compact canonical aggregate. Finalizer consumes the qualified set, not raw grep candidates. |
+| E20260514-G11 | `logtri_java`, `logtri_goroutine_dump`, `logtri_node` | PASS with rejects | Finalizer retry feedback says user-visible prose contains internal field name `citation_ref`, and external-runtime cases repeat repair loops around artifact-only citation / path visibility before passing. | Internal carrier-field visibility validation may conflate AnswerDocument JSON fields with rendered user text, or allow hidden carrier notation to leak through model thought into repair prompts, causing confusing loops. | Make carrier-name concealment operate on the rendered answer surface only, while schema/JSON field names remain invisible implementation structure. Error feedback should point to the exact rendered block/item text that contains the forbidden token. |
+| E20260514-G12 | `u7a`, `s7a` | TIMEOUT | Deterministic scalar questions either found the exact value early (`u7a` commit hash/subject) or only needed a local count command (`s7a`), but still timed out in LLM-driven later stages. | Tool-sourced scalar answers lack a deterministic terminal render path. Once the value is known from VCS/shell, the pipeline still depends on LLM extract/finalize loops. | Add a typed `deterministic_scalar_result` handoff for VCS/history/count/measurement facts with direct render support and focused verification, while preserving citation/command provenance. |
+| E20260514-G13 | `logtri_rust`, `logtri_goroutine_dump`, `logtri_node` | TIMEOUT / slow or noisy PASS | External-only runtime logs are self-contained, but the Rust case timed out, the goroutine dump needed 1240s plus evidence repairs, and the Node case passed only after stripping artifact path details under validator pressure. | External runtime artifacts with `resolved_files=0` are not hard-routed strongly enough to artifact-only answer flow. The model can still spend budget looking for nonexistent repo files, trying to ground artifact-only frames against current code, or fighting contradictory path-visibility hints. | For `external_only_log|trace` with sufficient triage facts, short-circuit exploration to an artifact-only structured answer. Current-repo verification should be an explicit caveat, not a required investigation lane, and artifact frame paths should have a clear rendered-surface policy. |
+| E20260514-G14 | `qf_type_relation_loop_controller` | TIMEOUT | LoopController class/type diagram timed out after an analyzer stream stall and partial implementer discovery. | Diagram relation questions combine several existing hard parts: set-valued implementer enumeration, aggregate member canonicalization, and diagram block rendering. Transport stalls can consume the budget before the typed relation set is stable. | Reuse canonical aggregate relation rows for interface->implementer sets, then render Mermaid from those rows deterministically or with a small constrained finalizer surface. |
+| E20260514-G15 | `u8b`, `u7a`, `logtri_rust`, `qf_type_relation_loop_controller`, `s7a` | Confirmed harness/runtime gap | Timeout summary records elapsed times of 1800-2019s and briefly showed process accounting out of line with `parallel=4`. | Timeout enforcement and accounting are not crisp enough for commercial eval operations; long provider stalls can overshoot budgets and make parallel-slot health hard to reason about. | Make timeout kill/process-group cleanup and summary accounting precise: kill the whole child process group, record timed-out stage, preserve tail diagnostics, and keep active slot count exactly at configured parallelism. |
+| E20260514-G16 | `u9b` | FAIL, likely semantic PASS / harness miss | Final answer correctly says the whole call does not fail, only the bad entry is rejected, and the rest continue successfully; eval fails because the regex did not accept `条目级` / `条目` as the per-item surface. | Either/or error-granularity answers lack a typed verdict surface consumed by both finalizer and eval. The product can answer semantically while omitting the canonical granularity token, and the harness can miss a valid synonym. | Add a typed `error_granularity_verdict` or equivalent answer-surface contract for batch-vs-item questions. Finalizer should render a short canonical verdict (`per-item / item-level rejection`, `whole-batch failure`, etc.) and eval should consume structured expected verdicts or a tested synonym table. |
+| E20260514-G17 | `qf_relation_subagent_registry` | PASS with 11 rejects, 1450s | The answer set is exactly one member (`explorer`), but the run nearly timed out while adding a third citation, summary/caveat blocks, call-site anchors, and fixing numeric line references being misread as count claims. | Small deterministic member-set / registry questions are over-scaffolded. Citation floors and prose validators are not adapted to cardinality or to a canonical member row with separate registration evidence and Name() evidence. | Build deterministic relation/member rows with fields for member label, registration call, name-return literal, entrypoint, and count. For closed sets with small cardinality, finalizer should render from rows and citation floor should derive from row obligations instead of a generic `citation_count_ge=3`. |
+| E20260514-G18 | `u1a` | PASS with 10 rejects, 1547s | Security call-chain answer gathered source/sink/defenses but finalizer spent many iterations rebuilding 20+ citation refs and still produced at least one suspicious citation drift (`verifyResourceCaps / wrapShellCommandWithCaps` item cites `shellOperatorWrites`). | Mechanism/call-chain answers over long defense paths lack a deterministic chain row / citation-index compiler. The model manually maintains citation arrays, claim forms, and inline code anchors, so valid evidence turns into index bookkeeping. | Build typed `MechanismStepRow` / `SecurityFlowRow` records for taint source, guards, transformations, and sink. Compile citations and block items deterministically from rows; finalizer should write prose on top of stable row ids rather than hand-numbering citation refs. |
+
+## End-to-End Traces
+
+### E20260514-G1: Retry Budget Role Drift (`s11b`)
+
+User request asks whether analyze retries when `emit_analysis` is absent and
+what the retry budget parameter is called.
+
+Observed data flow:
+
+1. Analyzer/explorer found the retry mechanism and the adjacent attempt counter.
+2. Evidence included `internal/orchestrator/orchestrator.go` where
+   `dynamicAnalyzeRetries(o.settings.MaxRetriesPerStage)` computes the cap.
+3. Evidence also included `EmitStageRetryAttempt`, the per-attempt counter
+   propagated into `AgentContext` and used to alter tool choice on retry.
+4. Final answer chose the counter-like identifier for the requested budget
+   noun.
+5. Eval failed on missing `MaxRetriesPerStage`.
+
+Root cause: the handoff had nearby valid identifiers but no typed role contract
+forcing "budget cap" to win over "attempt counter".
+
+Generalization: any scalar mechanism question asking "what parameter/field
+controls X" can drift to a neighboring implementation variable unless answer
+candidate role is explicit.
+
+### E20260514-G2: Mechanism Anchor Loss (`s1b`)
+
+User request asks about `runTaskGraph`, validation failure handling, and whether
+the whole window is re-expanded.
+
+Observed data flow:
+
+1. Analyzer included `runTaskGraph`, `requeueValidationTargets`,
+   `EdgeValidationFeedback`, and scheduler state in the task entities.
+2. Evidence found `runTaskGraph` dispatching into the read scheduler and
+   validation failures flowing through `EdgeValidationFeedback` into selective
+   upstream evidence-node requeue.
+3. Final answer described the selective requeue mechanism but rendered the
+   entrypoint as `runReadSchedulerLoop` and did not preserve enough of the
+   upstream/evidence-node language expected by the case.
+4. Eval failed on missing `runTaskGraph` and the upstream/evidence-node regex.
+
+Root cause: exact user anchors are used during retrieval but are not always a
+hard visible-answer contract for mechanism explanations.
+
+Generalization: for "explain how X does Y" and "does X re-run Z" questions,
+named endpoints are part of the answer surface, not only search hints.
+
+### E20260514-G3: Aggregate Member Canonicalization Loop (`s5a`, current sweep PASS with 6 rejects)
+
+User request asks for all concrete types implementing `LoopController`.
+
+Observed data flow:
+
+1. Explorer discovered the complete set of implementers.
+2. One aggregate fact used display members like `Type (file:line)`.
+3. A retry emitted compact support refs like `Type@file:line`.
+4. Stable aggregate facts retained both member sets.
+5. Finalizer prompt exposed both display labels and source-location surfaces.
+6. Pre-emit coverage demanded every emitted member form, while citation
+   alignment demanded label/citation pairings that treated the same text under
+   a different surface role.
+7. The finalizer exhausted its iteration budget and fell back to raw LLM output.
+8. In the current 2026-05-14 sweep, the same case passes in 285s but still
+   needs 14 file reads, 6 mid-loop hint injections, 3 finalizer iterations, 6
+   rejects, and a semantic-quality pass. The user-visible failure is gone, but
+   the aggregate-row instability is still present.
+
+Root cause: equivalent member identities were not collapsed into one typed
+principal row before final answer generation.
+
+Generalization: all exhaustive set answers with source refs can hit the same
+loop: implementers, call sites, config sites, enum members, route handlers,
+package entries, and production code locations.
+
+### E20260514-G4: Source-Location Member Rows With Qualifiers (`u11b`)
+
+User request asks for the count and exact file/line locations where production
+code sets `CitationReq.Required` to `false`.
+
+Observed data flow:
+
+1. Analyzer pre-scan found production files containing direct assignment and
+   struct-literal initializer forms.
+2. Explorer confirmed 4 production sites:
+   `internal/agent/analyzer.go:1927`,
+   `internal/orchestrator/contract_check.go:63`,
+   `internal/orchestrator/orchestrator.go:6425`, and
+   `internal/orchestrator/orchestrator.go:6557`.
+3. Explorer correctly excluded `internal/tool/emit_evidence.go:236` because it
+   is a documentation/example string, not an assignment site.
+4. Extractor/finalizer received a member set whose members combined source
+   locations with qualifiers, for example `file:line (赋值语句, conditional)`.
+5. Finalizer repeatedly alternated between using the full qualified member as
+   the item label and using only the bare source location, because coverage
+   wanted the full member string while citation alignment wanted the exact
+   source-location target.
+6. The case eventually passed, but the run recorded 50 rejects.
+
+Root cause: the principal member identity, visible label, qualifier text, and
+citation target are not separated before finalization.
+
+Generalization: source-location inventories with descriptive qualifiers should
+not require the model to discover which substring belongs in the label versus
+the prose. A deterministic row contract should carry these fields separately.
+
+### E20260514-G5: Literal Tool-Name Evidence Anchors (`m1a`)
+
+User request asks how explorer and extractor collaborate and asks to list the
+Turn A / Turn B `emit_*` tools.
+
+Observed data flow so far:
+
+1. Explorer needs to prove tool names that appear as string literals, switch
+   case values, or `Name()` return literals.
+2. `emit_evidence` feedback appears to push the model toward symbol-like
+   anchors such as `case`, `return`, or loop-control symbols rather than the
+   literal string itself.
+3. The run spends extra turns repairing evidence that is conceptually precise
+   but represented in a non-symbol source form.
+
+Root cause: literal identifiers in source text do not have a first-class
+evidence anchor kind distinct from code symbols.
+
+Generalization: CLI flags, tool names, provider IDs, enum string values,
+config keys, route patterns, log markers, and protocol message names all need
+precise literal grounding.
+
+Related recurrence: `m1b` asks only for two `emit_*` tool names:
+analyzer -> `emit_analysis`, finalizer -> `emit_answer_document`. Analyzer
+initially misclassifies this two-row lookup as scalar, then retries. Later
+finalizer repairs cite the `Name()` return literals but still oscillate around
+whether the lowercase tool string is a permitted user-visible literal or an
+internal carrier-name leak. This reinforces that tool-name literals need their
+own typed evidence and visibility lane. The current sweep case ultimately
+passes, but only after 843s, 12 file reads, 29 mid-loop injections, 33
+finalizer iterations, and 88 rejects.
+
+### E20260514-G6: Eval Harness Regex Brittleness (`qf_sequence_analyzer_gate`)
+
+Historical random sweep case expected a mermaid sequence answer containing
+symbols such as `normalizer.Normalize`, `compiler.Compile`, or
+`binder.BindByRelevance`.
+
+Observed data flow:
+
+1. The case output contained a `mermaid` / `sequenceDiagram` block and named
+   the expected analyzer-gate functions.
+2. The eval verdict still reported a regex miss.
+3. The case's `EXPECT_MATCHES_REGEX` used escaped dots and multiline
+   alternation inside shell variables.
+4. `eval/run.sh` splits regex expectations through shell word/newline handling,
+   making the intended pattern sensitive to quoting and escaping.
+
+Root cause: the harness encodes structured expectations as shell strings,
+where multiline regexes and escaped source-code identifiers are brittle.
+
+Generalization: harness false negatives can mask product regressions or waste
+engineering time. Eval expectations need their own structured representation
+and tests, especially for diagrams, code identifiers, paths, and multiline
+answer surfaces.
+
+### E20260514-G7: Transport / Provider Resilience (`patch_go_typo`, `logtri_java`, `mr_keyword`)
+
+Multiple cases show transport failures as a distinct system dimension.
+
+Observed data flow:
+
+1. Historical `patch_go_typo` found the exact typo, but planner failed after
+   provider/network EOF and connection errors, producing no plan file.
+2. Current `patch_go_typo` passed, showing the write logic itself is sound when
+   the provider path is healthy.
+3. Current `logtri_java` and `mr_keyword` both encountered EOF/stall failures
+   during later stages, then recovered or continued from already collected
+   evidence and eventually passed.
+4. The summary still records the cases as PASS, but their wall time and retry
+   paths are much higher than a healthy run.
+
+Root cause: transport failure, semantic insufficiency, and retry repair are not
+cleanly separated in reporting and stage budgeting.
+
+Generalization: commercial-grade behavior needs stable recovery from LLM stream
+stalls, provider EOFs, and transient connection errors without hiding them as
+semantic model failures or treating them as ordinary answer repair loops.
+
+### E20260514-G8: Explicit Tool Names vs Carrier Concealment (`m1a`)
+
+User request explicitly asks to list the Turn A and Turn B `emit_*` tools.
+
+Observed data flow so far:
+
+1. Explorer collects grounded evidence for tool implementations and tool names,
+   including finalizer tools whose names contain `answer_document`.
+2. Finalizer tries to answer with `emit_answer_document` and
+   `emit_answer_document_patch` as requested tool members.
+3. Retry feedback repeatedly asks the model to remove internal
+   `AnswerDocument` carrier terminology from user-visible prose.
+4. The model oscillates between hiding the literal tool names and satisfying
+   the requested member-set coverage for those same tools.
+
+Root cause: the visibility policy appears to match the carrier term family too
+broadly and does not distinguish "grounded user-requested tool literal" from
+"internal schema carrier type".
+
+Generalization: any user question about internal tools, APIs, structs, or
+protocol names can legitimately require exposing names that overlap otherwise
+hidden implementation carriers.
+
+Related recurrence: `m1b` is a smaller version of the same failure mode. The
+user explicitly asks for `emit_answer_document`; validator feedback repeatedly
+requests removal of `AnswerDocument` carrier names, while citation alignment
+alternates between the `EmitAnswerDocument` type definition and the `Name()`
+method line that returns the requested tool string. The correct fix is not more
+prompt wording; it is a typed distinction between `tool_name_literal` and
+`carrier_type_name`. This recurrence passes only after 88 rejects, confirming
+the rule conflict is structural rather than a one-off model stumble.
+
+### E20260514-G9: Boolean Field Condition Anchors (`u3a`)
+
+User request compares `ShouldStop` behavior in `explorer.go` and
+`extractor.go`.
+
+Observed data flow so far:
+
+1. Explorer reads both `ShouldStop` implementations and the shared
+   `iterationCapShouldStop` helper.
+2. It correctly identifies the explorer path's first guard:
+   `if e.investigationComplete {`.
+3. Evidence emission struggles to ground the boolean field condition and later
+   uses related assignment and absence evidence to prove the same mechanism.
+
+Root cause: condition evidence is not ergonomic for field-access boolean guards,
+even though these guards are precise structural facts.
+
+Generalization: guard-heavy Go code frequently uses boolean fields, enum
+fields, and config flags in conditions. These should be first-class condition
+anchors across mechanism, diagnostic, and change-impact questions.
+
+### E20260514-G10: Large Exhaustive Enumeration Materialization (`u8b`)
+
+User request asks for all exported string enum types in `internal/types`.
+
+Observed data flow so far:
+
+1. Analyzer correctly classifies the task as exhaustive enumeration.
+2. Explorer finds 91 `type X string` declarations in the target package.
+3. The task also requires the narrower predicate "has a corresponding const
+   set", so raw declarations are only candidates, not automatically principal
+   members.
+4. The model manually filters and recounts, at one point producing 81 members
+   while the broader grep count remains 91.
+5. The pipeline then requires member-specific evidence/support for every
+   retained member, causing long manual batching and retry pressure.
+6. This is mechanically discoverable from source, but the model becomes the
+   bottleneck for filtering candidates and transferring every row into
+   structured evidence.
+
+Root cause: large closed-set handoff does not have a compact deterministic
+carrier that preserves candidate rows, qualification decisions, exclusions, and
+per-member support handles while avoiding LLM retyping of every evidence row.
+
+Generalization: this applies to enum inventories, route tables, CLI flags,
+config keys, exported symbols, test cases, supported language matrices, and
+any bounded set with tens or hundreds of source-backed members.
+
+### E20260514-G11: Carrier Field Visibility False Positive (`logtri_java`)
+
+User request asks to trace the root cause of an external Java exception stack.
+
+Observed data flow so far:
+
+1. Log triage correctly identifies the nested cause chain:
+   `Connection refused: /10.0.0.5:5432` -> unresolved user -> NPE ->
+   top-level RuntimeException.
+2. Analyzer marks stack frames as external (`resolved_files=0`) and routes the
+   answer through runtime-observation grounding rather than repo citations.
+3. Finalizer uses `citation_ref=-1` structurally for runtime observations.
+4. Retry feedback reports that `citation_ref` appears in user-visible prose,
+   even though the tail suggests the field may only be present in the structured
+   carrier.
+
+Root cause: internal-field concealment likely checks the wrong surface or emits
+too-coarse diagnostics. It should inspect rendered answer text, not hidden
+carrier JSON fields.
+
+Generalization: any answer family that uses negative citation refs,
+block/item schema fields, or internal carrier metadata can receive misleading
+repair instructions unless validation separates structured payload from
+rendered prose.
+
+Additional reproduction: `logtri_goroutine_dump` passed but repeated the same
+pattern. The finalizer explicitly repaired a generated answer because internal
+notation for artifact-only citation handles appeared in a user-visible summary
+draft. This strengthens the conclusion that visibility validation and repair
+feedback must be scoped to the final rendered answer blocks, with hidden carrier
+fields excluded from the check.
+
+Additional reproduction: `logtri_node` passed after 297s, 6 rejects, and 6
+self-consistency reviewer activations. The finalizer alternated between naming
+runtime artifact paths such as `/app/src/user.js` and removing them because
+repair feedback framed them as current-repo path leakage. Artifact paths are
+not repo citations, but they are often useful runtime observations; the policy
+needs to distinguish "artifact frame path rendered as observed data" from
+"current-repo citation or helper-specific implementation detail".
+
+### E20260514-G12: Deterministic Scalar Handoff Missing (`u7a`, `s7a`)
+
+`u7a` asks which commit first introduced `EvidenceClosure`.
+
+Observed data flow:
+
+1. Analyzer correctly classifies the request as a git-history lookup.
+2. Explorer runs the deterministic VCS query and finds the answer:
+   short hash `01e0864` and subject
+   `feat(cgec): Citation-Grounded Evidence Closure — 4-invariant cross-stage contract`.
+3. The output reaches extract, but the case times out instead of rendering the
+   known scalar pair.
+
+`s7a` asks for an exact total line count under `internal/tool`.
+
+Observed data flow:
+
+1. Analyzer recognizes a count / measurement-scalar question.
+2. The answer should be computable by deterministic file listing plus `wc -l`.
+3. The run times out before producing a value.
+
+Root cause: deterministic scalar values found or findable by tools are still
+forced through ordinary LLM-driven extract/finalize stages.
+
+Generalization: commit hashes, authorship dates, line counts, file counts,
+sizes, checksums, command outputs, and other tool-sourced literals need a
+first-class scalar handoff and renderer.
+
+### E20260514-G13: External-Only Runtime Log Fast Path (`logtri_rust`)
+
+User request asks "what is this error?" for a Rust panic log.
+
+Observed data flow:
+
+1. Log triage extracts the complete runtime fact:
+   `called Option::unwrap() on a None value`, with frames in external Rust
+   paths and `resolved_files=0`.
+2. Analyzer fixes the diagnostic intent after an initial shape rejection.
+3. Explorer begins to search the codebase for config loading despite the
+   external-only warning.
+4. The case times out instead of answering directly from the artifact.
+
+Root cause: external-only runtime artifacts are treated as a soft routing hint
+rather than a precise hard boundary once triage has sufficient facts.
+
+Generalization: crash logs, traces, goroutine dumps, mobile stack traces,
+browser console logs, and third-party service logs often have no source files
+in the current checkout. They need artifact-only completion with explicit
+"cannot verify current code" caveats.
+
+Additional reproduction: `logtri_goroutine_dump` eventually passed, but only
+after 1240s and three rejects. The attached log already contained the complete
+answer: goroutines 15, 87, and 120 all crashed with
+`fatal error: concurrent map writes`. The run still attempted to inspect
+`internal/agent/analyzer.go`, discovered frame drift because
+`main.writeSession` no longer exists at that location, searched for related
+current-code symbols, and tried to ground artifact frames against repository
+comments. Correct final behavior was possible, but the route was too expensive
+for a self-contained external artifact.
+
+Additional reproduction: `logtri_node` is a simpler external-only Node stack.
+The log already answers the question: the TypeError originates at
+`processUser`, called by `handleRequest`, after an undefined value is read for
+`name`. The run still tried to read `/app/src/user.js`, emitted ungrounded
+evidence, used an evidence-floor waiver, and then spent finalizer iterations
+removing and rephrasing artifact frame paths. This should be a direct
+artifact-only render.
+
+### E20260514-G14: Diagram Relation Over A Set (`qf_type_relation_loop_controller`)
+
+User request asks for a Mermaid type/class relationship diagram for
+`LoopController` and its main implementation types.
+
+Observed data flow:
+
+1. Analyzer initially stalls for over 16 minutes before retrying.
+2. Retry pre-scan finds the `LoopController` interface and a partial
+   implementer set, including `explorerEvaluator`, `analyzerEvaluator`,
+   `subExplorerEvaluator`, `extractorEvaluator`, and
+   `answerDocumentEvaluator`.
+3. The case times out before stabilizing the full set and rendering a diagram.
+
+Root cause: relation diagrams over implementation sets need both exhaustive
+typed member discovery and a stable diagram rendering contract. Without a
+canonical relation row layer, the run can spend budget on discovery, duplicate
+member reasoning, and diagram formatting.
+
+Generalization: interface->implementer, class hierarchy, route->handler,
+module->export, package->entry, and registry->name diagrams all share this
+relation-set rendering problem.
+
+### E20260514-G15: Timeout Accounting And Slot Health
+
+The sweep is configured with `parallel=4` and `timeout=1800s`.
+
+Observed data flow:
+
+1. Summary records several timeout rows with elapsed values above the configured
+   1800s timeout, e.g. 1981-2019s.
+2. During polling, a timed-out case briefly appeared to remain in `ps` while new
+   cases were already running, making active-slot accounting hard to inspect.
+3. The stale-looking process cleared later, but the operational signal is noisy.
+
+Root cause: timeout handling does not give crisp process-group cleanup and
+stage-level diagnostics to the operator.
+
+Generalization: full eval sweeps need reliable operational semantics: no leaked
+child processes, no ambiguous active-slot count, and timeout rows that explain
+which stage was running and why cleanup lagged.
+
+### E20260514-G16: Error-Granularity Verdict Surface (`u9b`)
+
+User request asks whether `emit_evidence` fails the whole batch when exactly one
+item lacks `anchor_kind`, or whether the rest of the batch succeeds while only
+the bad item is rejected.
+
+Observed data flow:
+
+1. Analyzer initially found the relevant tests and implementation, but several
+   transport / missing-`emit_analysis` retries delayed the run.
+2. Explorer found the decisive code path in `internal/tool/emit_evidence.go`:
+   the batch loop calls `buildEmitEvidenceItemWithSwap` per entry, validation
+   errors add that entry to the rejected list and `continue`, and the whole
+   batch is rejected only when `len(built) == 0`.
+3. Finalizer first emitted a correct summary with inline identifier surfaces
+   such as `rejectedItems`; a validator then requested removing or grounding
+   those inline code identifiers and adding a required facet.
+4. Final answer still states the correct behavior:
+   "整个调用不会失败", "只有缺失该字段的那一个条目被拒绝", and
+   "其余正常条目继续处理并成功返回".
+5. Eval fails on the first regex group because the expected synonym set includes
+   `per.?item`, `单项`, `单条`, `逐项`, `每项`, `partial`, and `部分`, but not
+   the answer's natural `条目` / `条目级` wording.
+
+Root cause: the pipeline does not carry a typed, canonical verdict for
+error-handling granularity questions, and the harness is matching free prose
+with an incomplete synonym regex.
+
+Generalization: batch-vs-item, all-or-nothing-vs-partial, fail-fast-vs-collect,
+strict-vs-best-effort, and transaction-vs-record-level questions need the
+answer to expose a canonical verdict in addition to prose explanation. Eval
+should assert that typed verdict, not depend solely on natural-language regexes.
+
+### E20260514-G17: Small Relation Member Set Over-Scaffolding (`qf_relation_subagent_registry`)
+
+User request asks for the default SubAgent names registered into
+`SubAgentRegistry`, including total count, complete members, registration
+evidence, and `Name()` return evidence.
+
+Observed data flow:
+
+1. Analyzer initially stalls and then finds the decisive facts:
+   `RegisterDefaultSubAgents` registers only `NewSubExplorer(deps)`, and
+   `SubExplorer.Name()` returns `"explorer"`.
+2. Explorer confirms the complete set is a singleton: `members=["explorer"]`
+   with `value=1`.
+3. Extractor first tries to use the registration call as the member anchor, but
+   the answer-symbol layer rejects it because the call site is not the literal
+   member definition. The model then oscillates between literal member evidence
+   and registration call evidence.
+4. Finalizer emits a correct one-member answer, but the generic citation floor
+   and block contract require a third citation, summary block, caveat block,
+   uncertainty facet, and call-site anchoring.
+5. A later repair sees `subagent.go:64` as a visible number and flags a count
+   mismatch against expected count `1`.
+6. The run finally passes after 1450s, 11 rejects, 13 file reads, and 6
+   finalizer iterations. The final answer is acceptable, but it contains
+   awkward boundary prose and line-reference wording caused by validator
+   pressure rather than user need.
+
+Root cause: the pipeline has the right aggregate facts but lacks a canonical
+row model for relation/registry members. A single row should carry:
+member label (`explorer`), registration call (`RegisterDefaultSubAgents` ->
+`NewSubExplorer`), name-return literal (`SubExplorer.Name()` -> `"explorer"`),
+entrypoint call (`initApp`), and rendered count (`1`). Instead, the model
+manually re-balances these surfaces across independent validators.
+
+Generalization: plugin registries, CLI command maps, route tables, provider
+maps, default skill/tool registrations, and enum-value registries all need
+small closed-set rendering from typed rows. Generic citation floors should not
+force unrelated extra citations or let file-line numerals interfere with the
+user-facing count.
+
+### E20260514-G18: Security Call-Chain Citation Indexing (`u1a`)
+
+User request asks whether codrax's `exec_command` tool has command-injection
+risk, and asks for actual taint source, sink, and existing protection points.
+
+Observed data flow:
+
+1. Analyzer and explorer find the key chain: `execCommandParams.Command` is the
+   taint source, `NewShellCommandContext` / `exec.CommandContext` are the sink,
+   and the defenses include read-only gating, shell operator and command
+   substitution rejection, argument checks, resource caps, process-group
+   cleanup, and multi-repo active-set gating.
+2. Extractor initially treats the mechanism question as prose, then emits
+   anchor symbols because it sees two sub-topics (`exec_command`, `ExecCommand`).
+3. Finalizer first emits no citation pool, then rebuilds a long citation list,
+   then repairs missing inline code references, then repairs citation array
+   length, then repairs citation drift for individual call-chain items.
+4. The case passes after 1547s, 10 rejects, 11 file reads, 6 finalizer
+   iterations, and semantic reviewer activity.
+5. The final answer is mostly useful, but one visible row says
+   `verifyResourceCaps / wrapShellCommandWithCaps` while citing
+   `internal/tool/exec_command_readonly.go:250` (`shellOperatorWrites`),
+   showing residual citation drift despite the pass.
+
+Root cause: long mechanism/security explanations are represented as free-form
+blocks plus manually indexed citations. The system has typed evidence, but no
+deterministic row compiler that maps source -> guard -> transformation -> sink
+into stable step ids and citation handles.
+
+Generalization: security flows, taint analyses, lifecycle sequences, request
+pipelines, scheduler paths, and multi-layer defense explanations should not ask
+the finalizer to hand-maintain citation indexes. A typed row model can preserve
+ordering, claim form, cited source, and rendered text separately.
+
+### E20260514-G19: Explore-to-Extract Fact Handoff Loss (`qf_architecture`, PASS with 6 rejects)
+
+User request asks for the read-mode pipeline stages and each stage's
+responsibility.
+
+Observed data flow:
+
+1. Analyzer correctly classifies the request as an architecture/stage
+   enumeration and identifies `StageAnalyze`, `StageExplore`, `StageExtract`,
+   and `StageFinalize`, with conditional pre-stages for logs and perf traces.
+2. Explorer reads the enum, topology, stage binding, and agent files, then
+   records a complete narrative: conditional `log_triage` / `perf_triage`, main
+   `analyze -> explore -> extract -> finalize`, and each agent/evaluator role.
+3. Extractor sees 1116 evidence items and multiple answer chains, but because
+   the complete stage list did not arrive as formal answer symbols, it marks
+   the main hypothesis inconclusive and preserves uncertainty that the evidence
+   itself has already resolved.
+4. Finalizer then reconstructs the answer from prose evidence, enters citation
+   repair loops, and starts correcting enum-line citation drift and hidden
+   carrier-name leakage.
+5. The case ultimately passes in 417s with 11 file reads, 6 mid-loop hint
+   injections, 3 finalizer iterations, and 6 rejects. The pass is real, but
+   the cost profile shows a systemic typed-handoff gap rather than a one-off
+   phrasing issue.
+
+Root cause: architecture/list answers can be fully solved in explorer prose and
+aggregate facts, but the extract/finalize boundary lacks a required canonical
+fact carrier for "closed ordered stage list + responsibilities + optional
+conditional pre-stages." When that carrier is absent, later stages confuse
+"typed extraction missing" with "answer unknown."
+
+Generalization: pipeline stage lists, request lifecycles, middleware chains,
+state machines, hook order, and startup/shutdown flows all need an ordered
+`ProcessStepRow`/`ArchitectureStageRow` surface that is emitted once and then
+rendered deterministically. Missing structured symbols should become a repair
+request to build rows from grounded explorer facts, not a semantic
+inconclusive verdict.
+
+### E20260514-G20: Change-Impact File Set Label Conflict (`u4b`, PASS with 24 rejects)
+
+User request asks which source files would stop compiling if the package
+`internal/tool/ground` were deleted, and asks to list call sites with file
+paths.
+
+Observed data flow:
+
+1. Analyzer correctly classifies the task as package-deletion impact analysis.
+   The initial grep surface contains both real imports and noisy mentions.
+2. Explorer narrows the set to 7 production files that directly import
+   `internal/tool/ground`, then emits the set as an aggregate member set named
+   `affected_production_files`, with members carrying `file:line` import sites.
+3. Extractor recognizes this as a bounded file-path enumeration and emits
+   answer symbols despite a conflicting structured-emission hint that the
+   dispatch "does not require" answer symbols.
+4. Finalizer enters 9 iterations and 24 rejects. The repair loop alternates
+   between two incompatible validators: one says each item label must be the
+   file path, the other says every visible member must include
+   `label="affected_production_files"` plus the `file:line` member string.
+5. The final answer passes only by leaking the aggregate carrier name into
+   user-visible prose (`affected_production_files 成员集...`) and repeating
+   `affected_production_files: path:line` inside every item.
+
+Root cause: principal set metadata (`member_set.label`) is conflated with the
+user-visible item label. For change-impact answers, the canonical item label is
+the affected file path, while the aggregate label is a schema/group role that
+should remain internal. Validators currently assert both as visible labels.
+
+Generalization: package deletion, field type migration, API rename, route
+removal, config-key retirement, and symbol visibility changes all require a
+typed `ImpactFileRow`/`AffectedSiteRow` with separate fields for group role,
+display label, exact site, dependency kind, and citations. Post-emit checks
+should compare the row set semantically instead of requiring internal carrier
+labels to appear in prose.
+
+Related recurrence: `u10b` asks for files affected by changing
+`CitationReq.Required` from a bool to a three-state enum. Explorer narrows the
+answer from an over-broad analyzer pre-scan to 8 production files, and the case
+passes in 409s, but still needs 11 file reads, 2 extractor iterations, 2
+finalizer iterations, 1 repair, and 3 rejects. This is the same
+`ImpactFileRow` problem in a milder form.
+
+### E20260514-G21: Exact Absence Needs First-Class Negative Evidence (`s3a`, PASS with 8 rejects)
+
+User request asks how the effective value of the exact config key
+`explore_mid_loop_hint_budget` is computed across code defaults, `codrax.yaml`,
+and CLI overrides.
+
+Observed data flow:
+
+1. Analyzer initially finds the exact identifier in glossary/test surfaces and
+   nearby config-precedence files, then correctly instructs explorer not to
+   substitute nearby keys.
+2. Explorer proves absence across the three relevant layers:
+   `ExploreHeuristics` and `DefaultExploreHeuristics()` have no field/default,
+   `codrax.yaml.example` has no key, and `cmd/root.go` has no CLI binding.
+3. Explorer tries to emit an absence result; the tool rejects
+   `absence_justification` because evidence has already been emitted, forcing
+   the model to encode "resolved absence" indirectly.
+4. Extract/finalize require hypothesis verdicts and a negative-scope citation,
+   then reject labels and inline identifiers such as a fabricated
+   `ExploreMidLoopHintBudget` surface.
+5. The final answer is semantically correct but passes with 3 residual quality
+   concerns, includes a synthetic `(repo-wide grep)` absence citation, and
+   exposes validator caveats in the delivered answer.
+
+Root cause: exact-absence answers lack a typed proof artifact. The pipeline has
+positive evidence rows and citation refs, but no canonical `AbsenceProof` that
+records query, bounded search scope, layers checked, exact negative pattern,
+nearby non-substitutes, and confidence. As a result, absence is represented by
+ad hoc prose, fake path-like citations, and repair-loop heuristics.
+
+Generalization: missing config keys, absent CLI flags, nonexistent functions,
+zero implementers, no callers, no dependency edges, and "not supported" API
+questions all need first-class negative evidence. The finalizer should render a
+deterministic absence table from that proof and keep repo-wide search metadata
+out of normal source-citation slots.
+
+Related recurrence: `s3d` asks for another absent config key
+`explore_xyz_phantom_unique_budget`. It passes in 341s with 2 extractor
+iterations, 2 finalizer dispatches, 1 repair, and 3 rejects. The run repeats
+the same absence-model issues: `absence_justification` cannot coexist cleanly
+with grounded evidence, config-layer anchors drift between precedence lines and
+key-list lines, and absent literals in backticks are treated as hallucinated
+identifiers.
+
+### E20260514-G22: Diagram Call-Chain Row / Edge Anchor Drift (`qf_sequence_analyzer_gate`, PASS with repairs)
+
+User request asks for a Mermaid sequence diagram showing the call order from
+`buildAnalysisIR` to `gate.Run`, followed by key intermediate functions.
+
+Observed data flow:
+
+1. Analyzer and explorer find the full static call chain in
+   `internal/agent/analyzer.go`: `buildAnalysisIR -> compiler.Compile ->
+   risk.Evaluate -> hdp.Plan -> compiler.RecomputeBudget ->
+   amplifier.AmplifyPostCompile -> binder.BindByRelevance -> ... ->
+   gate.RunWith`, with `gate.Run` in `internal/analysis/gate/gate.go`.
+2. Explorer performs extra reads to fill the span between
+   `binder.BindByRelevance` and `gate.RunWith`, including branch guards,
+   optional counterfactual expansion, contract construction, required-file
+   derivation, and mode extraction.
+3. Extract correctly skips symbol enumeration and expects diagram/list support
+   lanes to carry the answer.
+4. Finalizer then cycles through repairs: missing `branch_guard` facet,
+   diagram block lacking typed `relation_kind=call` edges, branch-guard
+   evidence mismatch, summary/body order contradiction, and repeated
+   extract/finalize re-entry.
+5. The case ultimately passes in 679s with 6 file reads, 3 extractor
+   iterations, 3 finalizer dispatches, 2 repair executions, 3 rejects, 2
+   semantic-quality dispatches, and 7 self-review events.
+
+Root cause: sequence diagrams are rendered from free-form prose plus ad hoc
+diagram text, while validators expect typed relation edges, branch guards, and
+ordered list rows. The evidence is known, but there is no single canonical
+`CallChainStepRow` / `CallEdge` structure that both Mermaid rendering and
+post-emit validation consume.
+
+Generalization: call chains, lifecycle diagrams, scheduler paths, middleware
+flows, and state transitions should use a shared typed edge table with
+`from`, `to`, `relation_kind`, `guard`, `optional`, `source_line`, and
+`display_order`. Mermaid should be generated from that table, and the
+intermediate function list should reuse the same rows.
+
+Related recurrence: `s8a` asks for the deterministic chain from
+`buildAnalysisIR` to `gate.Run` without asking for a diagram. Explorer first
+collects the decisive chain including `compiler.Compile`,
+`compiler.RecomputeBudget`, `hdp.Plan`, and `binder.BindByRelevance`, then the
+pipeline over-expands into 80+ call nodes and a diagram validation problem over
+method-chain endpoints such as `ctx.Mutable.SearchGraph`. The final answer
+fails the eval after 723s because those key compile/planning/binding terms are
+not visible, while the answer includes an unrequested Mermaid diagram and
+accessor-level detours. This is a product failure of call-chain row selection,
+not evidence retrieval.
+
+### E20260514-G23: Low-Information Log Should Short-Circuit (`logtri_degraded`, PASS with semantic drift)
+
+User request attaches only Lorem Ipsum placeholder text and asks to analyze the
+log.
+
+Observed data flow:
+
+1. `log_triage` correctly recognizes the input as placeholder/noise text with
+   no language, errors, stack traces, or runtime events, and emits it as an
+   unknown chunk.
+2. Analyzer sees the internal prior-stage finding
+   `two-step produced zero partial bundles (segments=1) -- degraded` and
+   treats that operational finding as diagnostic content to investigate in the
+   repository.
+3. The task drifts from "tell the user this is not a meaningful runtime log" to
+   repo investigation of log-triage internals and the phrase "two-step
+   produced zero partial bundles."
+4. The case passes in 557s with 2 extractor iterations, 2 finalizer dispatches,
+   1 repair, 3 rejects, 1 semantic-quality dispatch, and 1 self-review event.
+   The final direction is still product-risky: a user who asked to analyze a
+   placeholder log receives an internal codrax two-step mechanism diagnosis
+   instead of a crisp "no diagnostic signal in the provided artifact" answer.
+
+Root cause: low-information runtime artifacts lack an early deterministic
+answer path. Internal pipeline-health annotations are leaking into the
+analyzer's semantic task model as if they were user evidence.
+
+Generalization: empty logs, placeholder text, screenshots with no OCR signal,
+truncated files, binary blobs, and unsupported artifact formats should return a
+typed `NoDiagnosticSignal` result. Internal triage degradation metadata should
+be recorded for telemetry and optional caveat text, but it must not become a
+repo-debugging target unless the user asks to debug codrax itself.
+
+### E20260514-G24: Import-Path Enumeration Is Not Symbol Definition (`qf_imports`, PASS with 3 rejects)
+
+User request asks which `internal/` packages are imported by
+`internal/agent/explorer.go`, listing import paths only.
+
+Observed data flow:
+
+1. Explorer reads the target file's import block and extracts 14 internal
+   package import paths, including aliased imports such as `promptctx` and
+   `repotypes`.
+2. The evidence is anchored to import statements in `internal/agent/explorer.go`
+   rather than to definitions inside the imported packages.
+3. Extractor tries to emit each import path through `emit_answer_symbol` using
+   the package path as the symbol name and the import line as the symbol line.
+4. The validator rejects the slate because import paths are references/string
+   literals, not symbol definitions. The extractor then falls back to
+   `completeness=unknown`, despite the import list itself being fully known.
+5. The final answer passes in 320s with only 2 file reads, but the structured
+   channel remains degraded: 5 extractor attempts, `completeness=unknown`, 3
+   rejects, and a prose-only finalizer that reuses the import list despite the
+   failed typed slate.
+
+Root cause: import/dependency enumerations lack a first-class row type. The
+answer surface is a list of import-reference literals from a specific file,
+but the structured channel currently only knows "symbols with definition
+lines" or free-form prose.
+
+Generalization: imports, module dependencies, route strings, tool names,
+config keys, build tags, SQL table names, and annotation strings need
+`ImportPathRow` / `LiteralReferenceRow` evidence with fields for owner file,
+literal text, alias, line, dependency kind, and display label. They should not
+be forced through definition-symbol grounding.
+
+### E20260514-G25: Git History Scalar Needs Structured Commit Evidence (`u7b`, PASS with 6 rejects)
+
+User request asks: among the most recent 20 commits that modified
+`internal/orchestrator/`, how many directly involve the `runTaskGraph`
+function? Return a number.
+
+Observed data flow:
+
+1. Analyzer correctly classifies the task as history lookup + scalar count,
+   but can only pre-scan current source and says git history is required.
+2. Explorer uses `exec_command` to run git queries. It first obtains the recent
+   20 commits for `internal/orchestrator/`, then tries several ad hoc filters
+   for `runTaskGraph`.
+3. The model initially misinterprets `git log -20 -S "runTaskGraph"` as "last
+   20 commits, then filter by string." It later realizes `-20` limits the first
+   20 matching pickaxe commits across history, so the set is wrong.
+4. It then manually compares recent commit hashes, separates a comment-only
+   mention outside `internal/orchestrator/`, and converges on scalar answer
+   `0`.
+5. The meaning of "directly involves" is reasoned in prose instead of carried
+   as a typed predicate over per-commit evidence: function body changed, call
+   site changed, comment-only mention, or outside-directory mention.
+6. The case passes in 654s with 3 explorer dispatches and 6 rejects, after
+   converging to scalar answer `0`.
+
+Root cause: history scalar questions do not have a structured `CommitRow` /
+`HistoryFilterResult` artifact. The pipeline mixes shell output, model memory
+of commit lists, and prose interpretations of git semantics. That makes the
+answer sensitive to command syntax details and predicate ambiguity.
+
+Generalization: "last N commits touching X", "how many changes affected Y",
+"which commits introduced/removed Z", regression-window narrowing, ownership
+history, and churn metrics need deterministic git evidence rows: commit id,
+path scope, diff match type, matched file, matched line/text, predicate verdict,
+and exclusion reason. The scalar should be computed from rows, not inferred
+from free-form command transcripts.
+
+### E20260514-G26: Comparison Scalar Rows vs Symbol/Member-Set Obligations (`u3b`, PASS with 65 rejects)
+
+User request compares `compiler.templateArchitectureExplain` and
+`compiler.templateRootCause` across TaskGraph node count, citation lower bound,
+and retry budget, asking for specific values.
+
+Observed data flow:
+
+1. Analyzer/explorer find the needed values early:
+   both templates have 5 fixed TaskGraph nodes plus dynamic evidence nodes;
+   architecture explain uses citation floor `3` and retry budget `3`; root
+   cause uses citation floor `2` and retry budget `4`.
+2. Extract initially decides correctly that this is a numeric comparison table,
+   not a symbol enumeration.
+3. A retry then forces `emit_answer_symbol` for 7 anchors
+   (`templateArchitectureExplain`, `templateRootCause`, and related constants)
+   even though those anchors are support, not the answer surface.
+4. Finalizer receives scalar aggregates and a principal member set describing
+   comparison rows, then repeatedly repairs because table prose does not
+   surface every exact scalar/member string in the expected form, and because
+   comparison rows lack inline code identifiers.
+5. The most visible loop is between two incompatible surfaces: when labels are
+   source symbols such as `templateArchitectureExplain`, citation alignment is
+   satisfied but member-set coverage complains that the conceptual comparison
+   rows are not visible; when labels are conceptual rows such as
+   `TaskGraph固定节点数` or `Citation下限(finalize SuccessCriteria)`, member
+   coverage is satisfied but citation alignment treats those display labels as
+   code identities and rejects them. The case eventually passes in 1403s only
+   after 4 finalizer dispatches, 65 rejects, and 3 patch-style repair loops.
+
+Root cause: numeric comparison answers do not have a canonical
+`ComparisonMetricRow` representation. The pipeline alternates between treating
+template names/constants as answer symbols and treating the actual values as
+scalar/member-set aggregates. Validators then require both support anchors and
+rendered comparison members to be visible, creating duplicate obligations. The
+pre-emit label/citation gate also lacks a precise distinction between a
+source-code identity label and a model-authored display-row label.
+
+Generalization: any side-by-side comparison of defaults, budgets, counts,
+thresholds, flags, enum values, stage settings, or config precedence needs rows
+with fields `subject_a`, `subject_b`, `metric`, `value_a`, `value_b`,
+`evidence_a`, `evidence_b`, and `difference`. Support symbols should stay
+citations, not become principal answer items unless the user asks for them.
+
+### E20260514-G27: Role-Locate Scalar Answers Pull Support Facts Into Principal Surface (`u11a`, PASS with 5 rejects)
+
+User request asks for the exact entry function responsible for parsing the user
+request and producing structured `AnalysisIR`, plus the file location.
+
+Observed data flow:
+
+1. Analyzer and explorer locate the answer early: `buildAnalysisIR` in
+   `internal/agent/analyzer.go:1289`.
+2. The extractor initially oscillates over whether a single identifier lookup
+   should be a scalar answer or an `emit_answer_symbol` slate, then emits one
+   symbol.
+3. Finalizer receives enough answer-grade definition evidence for the scalar
+   result, but the role-lookup contract also elevates `current_code_path`.
+4. The first finalizer answer pulls in the nearby call-site helper
+   `runAnalyzeV3`, which is present in reasoning/search context but not in the
+   answer-grade support lane. The inline identifier gate correctly rejects it.
+5. The repaired answer replaces the helper with grounded
+   `analyzerEvaluator.ParseOutput` and adds the required `current_code_path`
+   facet, passing in 249s, but after 5 analyzer iterations, 5 explorer
+   iterations, 4 finalizer iterations, 2 finalizer dispatches, and 5 rejects.
+
+Root cause: minimal role-locate questions lack a crisp boundary between the
+principal scalar ("the function name and file") and explanatory support facts
+("how it is called today"). Once `current_code_path` is elevated, the model
+tries to satisfy it by adding extra code identifiers to prose, even though the
+user did not ask for a call-chain explanation.
+
+Generalization: single-target role lookup needs a `RoleResolutionRow` carrying
+`requested_role`, `resolved_identifier`, `definition_location`, and optional
+`supporting_call_edge`. The renderer should keep the principal answer to the
+resolved identifier/location, and attach supporting call edges only as cited
+same-item detail when explicitly grounded. Support helper identifiers must not
+be promoted into new principal claims.
+
+### E20260514-G28: Retired-Symbol Change Impact Needs Existence State + Scope Partition (`u10a`, PASS with 13 rejects)
+
+User request asks which files need changes if `ShapeValue` in
+`internal/types/analysis_ir.go` is renamed to `ShapeScalar`.
+
+Observed data flow:
+
+1. Analyzer classifies the task as rename/change-impact and finds many
+   `ShapeValue` hits.
+2. Explorer then discovers the premise is stale: `ShapeValue` is not a live
+   Go constant anymore; current hits are comment, test, and migration-doc
+   references to a retired answer-shape system.
+3. The investigation still tries to fit the task into ordinary symbol rename
+   impact analysis, mixing production comments, tests, docs, and historical
+   migration records into one affected-file surface.
+4. Evidence emission struggles on docs because historical references are not
+   live symbol definitions and often do not provide a whole-word code anchor at
+   the cited line. Several doc evidence items need repair or are recovered.
+5. Extract/finalize then have to answer a counterfactual with a false premise:
+   either "rename the live constant" or "update historical text references".
+   Without a typed existence state, scope decisions become prose-level
+   judgement rather than deterministic partitioning.
+6. Finalizer then oscillates over item labels: file paths are the user's
+   requested principal output and are present in aggregate member sets, but
+   label-grounding tries to treat them as code-symbol labels unless they are
+   file/path display rows with citable support. The model alternates between
+   file paths, `ShapeValue`, and descriptive labels, each satisfying one gate
+   while upsetting another.
+
+Root cause: change-impact analysis does not first produce a typed
+`TargetExistence` verdict and scoped occurrence inventory. A retired/deleted
+symbol is structurally different from a live definition with references, but
+the current pipeline only sees search hits and tries to infer impact from them.
+
+Generalization: rename/migration questions need `ChangeImpactTarget` with
+`exists_as_live_symbol`, `definition_site`, `requested_scope`, and occurrence
+rows partitioned by `production_code`, `production_comment`, `test_fixture`,
+`documentation`, and `historical_record`. When the target is absent or retired,
+the principal answer should explicitly pivot to "no live code rename; only
+text/history updates in these scopes" and avoid treating doc/test strings as
+live refactor edges. File-output rows must remain file-path display labels,
+with file:line anchors as support, rather than being converted into repeated
+symbol labels such as `ShapeValue`.
+
+### E20260514-G29: Package Entry Catalog Loses Function Names Across Stage Boundary (`s5b`, PASS with 2 rejects / 5 self-repairs)
+
+User request asks for every sub-package directory under `internal/analysis/`
+and the single entry-point function for each.
+
+Observed data flow:
+
+1. Analyzer identifies 25 child directories and splits them into 9 + 8 + 8
+   subtopics.
+2. Explorer reads the package files and eventually corrects early wrong
+   guesses (`axis.Select`, `binder.Bind`, `budget.NewBudget`) to grounded
+   entry functions such as `Affinity`, `BindByRelevance`, and `Compute`.
+3. The completed investigation knows the 25 package/function/file-line triples,
+   but the structured handoff primarily carries package names and line
+   locations. Function names are visible in prose/reasoning and some evidence
+   items, not in a canonical row that downstream can trust.
+4. Extractor says the evidence buffer only exposes partial function names, then
+   alternates between `lower_bound`, skip-`emit_answer_symbol`, and relying on
+   finalizer prose despite a closed 25-item enumeration request.
+5. Finalizer reconstructs the table, but repair loops appear around ordering,
+   citation-label alignment, fabricated labels for package names, and duplicate
+   function names (`Score` in more than one package).
+6. The case eventually passes in 555s, after 3 analyzer dispatches, 2 extractor
+   dispatches, 2 finalizer dispatches, 2 rejects, and 5 self-consistency
+   repairs.
+
+Root cause: "directory + entry function" is a two-column catalog, but the
+pipeline models it as either answer-symbol enumeration or free-form ordered
+list. The exact row identity (package dir, entry function, file, line,
+selection rationale) is not preserved as a single typed principal item.
+
+Generalization: package/module catalogs, handler registries, command tables,
+route maps, feature flags, and plugin inventories need an `EntryPointRow` /
+`CatalogRow` shape. The row should carry display columns and citations
+together, and validators should compare row identity rather than asking labels
+to be source-code tokens.
+
+### E20260514-G30: Exported API Catalogs Need Parser-Derived Category Rows (`u8a`, PASS with 29 rejects / 5 self reviews; Batch 0 count-binding slice fixed)
+
+User request asks for all exported API in `internal/analysis/criterion`,
+categorized into functions, types, constants, and variables.
+
+Observed data flow:
+
+1. Analyzer uses file-map and grep-style export hints to infer the API surface.
+2. Explorer reads `grammar.go` and `eval.go`, finds exported types
+   (`Kind`, `Env`, `Result`), functions (`Eval`, `EvalAll`,
+   `IsRegistered`, `RegisteredKinds`, `SetExternalArtifactFloor`), exported
+   variable `ErrUnknownKind`, and `Kind*` constants.
+3. The model initially claims 26 `Kind*` constants and 35 total exported
+   symbols, then re-counts the source and `registered` map and corrects to 25
+   constants and 34 total exported symbols.
+4. The correction is done by reasoning over grep counts and map entries, not by
+   a deterministic Go export table. The same data is carried as prose/evidence
+   rather than a typed category row set with per-category counts.
+5. During finalization, the model splits the output into separate category
+   lists, but the aggregate count-claim validator still scans caveat prose
+   globally. A legitimate "25 Kind constants" statement is compared against
+   unrelated member sets such as "exported functions" (expected 4/5), "types"
+   (expected 3), and "variables" (expected 1), creating repeated count repairs
+   even when the visible category lists are structurally separate.
+6. The repair path then tries a partial document patch that replaces citations
+   while preserving citation-bearing blocks, which the mutation runtime
+   rejects. A full re-emit follows, but the same broad count binding continues
+   to compare the caveat's "20/21/25 Kind" statements against unrelated
+   category lists. This confirms the issue is a typed-boundary defect rather
+   than a single bad answer draft.
+7. The case eventually passes only after the finalizer removes numeric claims
+   from the caveat text. The visible answer is correct enough for eval, but
+   the system has forced a weaker uncertainty disclosure because precise
+   category counts were unsafe to say in a shared caveat block.
+
+Root cause: exported API enumeration is treated as ordinary symbol listing
+instead of a language-aware public-surface catalog. Counts and category
+membership are model-derived, so constant blocks, registration maps, aliases,
+methods, package vars, and generated/test-only surfaces can drift. The
+count-claim validator also lacks scoped binding between a numeric claim and the
+specific aggregate/member-set label it modifies.
+
+Generalization: API-surface questions need parser-derived `ExportedAPIRow`
+records: `package`, `category` (function/type/const/var/method),
+`name`, `file`, `line`, `decl_group`, and `scope`. Category counts should be
+computed from rows, not from model prose or grep-line arithmetic. This also
+covers enum cases, public SDK surfaces, CLI commands, plugin hooks, and
+cross-language export tables. Count validation should bind only to the nearest
+typed category row or explicit label, not to every number in nearby caveat
+prose.
+
+Batch 0 progress: the hard gate no longer treats a member-name mention inside
+a shared caveat as sufficient binding when several principal member sets are
+present. Numeric claims in multi-set caveats now bind to explicit aggregate
+labels only. The remaining G30 work is still the larger cross-language
+`ExportedAPIRow` contract, including parser-derived public/private/exported
+classification across all supported languages.
+
+Adjacent progress: while hardening the focused eval, support-row compilation
+was updated so model-facing display members such as `Kind @ grammar.go:26`
+inherit the precise repo-relative `support_ref` location
+(`internal/analysis/criterion/grammar.go:26`) when the file suffix and line
+match uniquely. This keeps short display paths user-friendly while preserving
+full-path citation obligations for all supported languages.
+
+### E20260514-G31: Carrier Visibility Policy Conflicts With Architecture Data-Flow Explanations (`qf_logic_view_read_pipeline`, PASS with 3 rejects / 1 semantic repair)
+
+User request asks for a Mermaid architecture view of the read-mode pipeline,
+including analyzer, explorer, extractor, finalizer, Mutable, and BusContext
+data flow.
+
+Observed data flow:
+
+1. Analyzer/explorer correctly identify the architecture lane: Orchestrator
+   dispatches stages, each agent consumes and writes BusContext/Mutable state,
+   and finalization renders the user-visible answer.
+2. The finalizer attempts to explain the final stage by naming internal carrier
+   surfaces such as `emit_answer_document` and `AnswerDocumentV2`, because those
+   are precise code-level objects in the evidence lane.
+3. The visible-carrier pre-emit gate rejects those names as implementation
+   details because the user did not explicitly ask for answer schema/tool
+   internals.
+4. The answer repairs and passes in 530s, but the model paid extra cycles to
+   translate a valid architecture fact into product-language data-flow prose.
+
+Root cause: the visibility policy has only two coarse modes: hide carrier
+terms unless the user explicitly asks for the literal tool/schema name, or show
+them. Architecture/data-flow requests sit in between: carrier objects can be
+valid supporting facts, but the user-facing surface should describe the state
+transition role ("writes structured final-answer state") unless the literal
+name is requested.
+
+Generalization: tool names, schema names, context field names, transport
+objects, protobuf/JSON payload types, and event topics need a typed visibility
+role: `literal_subject`, `supporting_carrier`, or `internal_only`. Finalizer
+guidance and gates should render `supporting_carrier` as role prose by default,
+while preserving exact literals for scalar/literal questions such as
+`emit_answer_document` or `citation_ref` lookups.
+
+### E20260514-G32: Principal Count Mixes Diagnostic Detector With Panic Sources (`logtri_oversized`, PASS with self-consistency repair)
+
+User request asks where the panic in an attached oversized log originated.
+
+Observed data flow:
+
+1. Log triage and exploration identify several current-repo panic-capable code
+   sites (`NewOpenAIAdapter`, `NewLRU`, `RegisterCaveatFamily`,
+   `RegisterViolKind`) plus the log parser's panic-detection regex
+   `logLinePatterns`.
+2. Finalizer turns both categories into one numeric summary: "5 panic sources",
+   while the principal ordered list contains only 4 actual panic-emitting
+   functions.
+3. Self-consistency correctly flags the mismatch: the detector anchor is not a
+   fifth panic source.
+4. Semantic review then accepts the answer by explaining that `logLinePatterns`
+   is only the detection tool, leaving the user-visible final answer with the
+   wrong count still present in summary and caveat.
+
+Root cause: diagnostic answers lack a typed separation between
+`observed_artifact_detector`, `candidate_panic_source`, and
+`resolved_panic_source`. Once detector code and source code share one evidence
+lane, principal counts can include support machinery rather than only the
+requested origin set. The reviewer stack also treats a count mismatch as
+explainable commentary instead of forcing a rewrite when the visible final
+answer still contains the contradiction.
+
+Generalization: log/perf/root-cause answers need `DiagnosticOriginRow` records
+with explicit roles: detector/parser, observed frame, candidate source,
+resolved source, and excluded candidate. Counts must be computed only from rows
+whose role matches the user-requested answer set. Self-consistency mismatches
+on principal counts should remain hard rewrite triggers unless the final
+document actually removes or corrects the offending count.
+
+### E20260514-G33: Diagram Payload Can Be Hidden Inside a Section and Disappear From Rendered Output (`qf_diagram_pipeline`, fixed in Batch 0)
+
+User request explicitly asks for a Mermaid flowchart of the 4 read-mode stages.
+
+Observed data flow:
+
+1. Analyzer/explorer correctly identify the four stages and their order:
+   StageAnalyze → StageExplore → StageExtract → StageFinalize.
+2. Finalizer constructs a Mermaid `flowchart TD` body, but attaches it as the
+   `diagram` field of a `kind="section"` block rather than emitting a dedicated
+   `kind="diagram"` block.
+3. `emit_answer_document` accepts the payload and reports accepted block kinds
+   as `summary,section,ordered_list`.
+4. The renderer outputs prose/list content but no visible Mermaid fence; eval
+   fails with missing ` ```mermaid` / `flowchart` / `graph TD|LR` regex.
+
+Root cause: AnswerDocument validation allows a diagram payload to exist on a
+non-diagram block, while the renderer/eval only treat `kind="diagram"` as a
+visible diagram surface. The schema accepts a state that cannot satisfy an
+explicit user diagram request.
+
+Generalization: all rich surfaces need kind/payload invariants at the
+pre-emit boundary: `diagram != nil` requires `kind=diagram`; `kind=diagram`
+requires a non-empty diagram body; explicit diagram requests require at least
+one renderable diagram block in the final document. The same principle applies
+to tables, code fences, charts, and any future structured visual payload: a
+payload in the wrong block kind should fail loud before rendering, not become
+silent prose-only output.
+
+Batch 0 progress: normalization and mutation merge validation now reject
+`diagram` payloads on non-diagram blocks, so the model must either emit a
+renderable `kind=diagram` block or remove the payload. Targeted eval
+`qf_diagram_pipeline` passed after this invariant landed.
+
+### E20260514-G34: Mechanism Summaries Need Canonical Visible Code Anchors (`s11a`, PASS with 1 patch repair)
+
+User request asks whether the analyzer stage before Explorer is allowed to
+call `read_file`.
+
+Observed data flow:
+
+1. Exploration correctly traces the capability surface: stage binding flows
+   through `types.AllStageBindings()`, analysis-skill `ToolSuggestions`,
+   `AnalysisToolSuggestions`, `BuildAnalysisSkill`, and
+   `BaseAgent.buildToolSchemas`.
+2. The first final answer has citations and typed `claim_uses`, but the main
+   summary prose abstracts the chain enough that it contains no visible inline
+   code identifiers.
+3. The answer-document validator rejects the block for low code-anchor density
+   despite the underlying evidence being correct.
+4. A patch repair injects the same chain as visible identifiers and the case
+   passes in 286s.
+
+Root cause: mechanism explanations have typed evidence rows and source
+citations, but no canonical `MechanismStepRow` / `CapabilitySurfaceRow` that
+owns both the code identity and the display sentence. The finalizer can
+accidentally render a structurally grounded mechanism as abstract prose, then
+depend on a late prose-density gate to repair it.
+
+Generalization: permission/capability questions, feature gates, route
+dispatch, middleware stacks, plugin registration, and config precedence all
+need deterministic mechanism rows with `subject`, `relation`, `target`,
+`source_line`, and `display_label`. Validators should consume those rows, and
+the renderer should naturally surface at least one grounded identifier per
+load-bearing mechanism block.
+
+### E20260514-G35: Runtime Artifact Frames Are Still Being Treated Like Source Citations (`logtri_go`, PASS with 2 rejects / 1 semantic review)
+
+User request attaches a Go panic log and asks where the panic came from.
+
+Observed data flow:
+
+1. Log triage extracts the runtime error
+   `runtime error: invalid memory address or nil pointer dereference`, the
+   observed frame `buildAnalysisIR` at old-build `internal/agent/analyzer.go:250`,
+   and caller frame `ParseOutput` at old-build line 320.
+2. Exploration maps those observed frames to current code anchors:
+   `ParseOutput` around current line 994/1039 and `buildAnalysisIR` around
+   current line 1289/1290, while explicitly noting line-number drift.
+3. Finalizer first tries to patch the answer and hits citation-pool and
+   label/citation alignment errors.
+4. The full re-emit then puts the runtime artifact frame into the normal
+   source `citations[]` pool as `file=internal/agent/analyzer.go,line=250`
+   with quote text copied from the log, even though that line is not the
+   current source evidence for the crash.
+5. Semantic review reports an uncertainty-boundary gap but the case still
+   passes, leaving a user-visible answer that visually presents an old runtime
+   frame as if it were a normal current source citation.
+
+Root cause: diagnostic artifact observations, current source anchors, and
+drift mappings share the same citation carrier. The renderer needs to cite
+current source lines, but runtime frames are observations with their own
+artifact coordinates. When those roles collapse, old line numbers can masquerade
+as source citations and validators oscillate between label alignment and
+drift caveats.
+
+Generalization: log, crash dump, trace, perf, and telemetry answers need a
+separate `ArtifactObservationRef` / `DriftMappingRow` path. Artifact refs should
+render as "observed frame" evidence, not as repo file citations, and source
+citations should only point to current checkout lines. Root-cause verdicts
+should be computed from explicit rows: observed frame, current mapped anchor,
+nearest mechanism, unresolved boundary.
+
+### E20260514-G36: Scalar Count Questions Should Not Be Forced Into Full Enumeration Tables (`s7b`, PASS with 3 rejects)
+
+User request asks only for the exact count of distinct `Criterion Kind`
+constants in `internal/analysis/criterion/grammar.go`.
+
+Observed data flow:
+
+1. Explorer obtains the precise scalar via command evidence:
+   an unrestricted grep count is noisy (`51`), while an awk-limited const-block
+   count is precise (`25`).
+2. The structured handoff already contains a `total_count` fact and the exact
+   25-member set.
+3. Finalizer nevertheless treats the answer contract as requiring an
+   `ordered_list` of all 25 constants, emits the list before the summary, and
+   is rejected for block order plus missing uncertainty disclosure.
+4. The question's primary deliverable is a scalar value; the full enumeration
+   is support evidence and should be optional unless the user asks for members.
+
+Root cause: exact-count answers are routed through enumeration answer shape
+when a member slate exists, even if the user asks only "how many". That turns a
+low-risk scalar into a large list-rendering task with extra citation,
+uncertainty, and ordering failure surfaces.
+
+Generalization: count/size/version/hash/commit scalar questions need a
+`ScalarMeasurementRow` with `value`, `unit`, `method`, `scope`, and optional
+supporting member set. The renderer should lead with a scalar block and keep
+the member list behind a compact support/caveat lane unless the request asks
+for names. This covers code counts, enum cardinality, git history counts,
+dependency counts, file sizes, and runtime totals.
+
+### E20260514-G37: Section Prose Cannot Carry Native Citation Anchors (`mr_cross_repo_compare`, PASS with semantic review)
+
+User request asks to compare two user-named sub-repos and keep their answers
+separate.
+
+Observed data flow:
+
+1. Multi-repo analyzer/explorer correctly preserves the two buckets
+   `repo-greet-go` and `repo-tools-py`, finds each exported entry symbol, and
+   emits a grounded anchor list.
+2. Finalizer renders the main explanation in two `section` blocks and puts
+   citations in a later "core exported identifier anchors" ordered list.
+3. The section prose itself has no native item-level citation field, so semantic
+   review reports `current_code_path` and `uncertainty_boundary` as declared
+   but unanchored in the prose stream.
+4. The answer passes, but the product surface is split: the user reads the
+   actual explanation first and only later sees the citation-bearing anchor
+   list.
+
+Root cause: section blocks are useful for multi-topic structure but cannot
+carry native source citations per statement. The system compensates with a
+separate anchor list, which keeps structural validators satisfied but leaves
+the main narrative semantically thin.
+
+Generalization: comparison, architecture, package catalog, and multi-topic
+answers need citation-bearing display rows inside each topic: either section
+items with citation refs, or a typed `TopicRow` / `CatalogRow` renderer that
+combines heading, prose, row labels, and citations. Main prose should not depend
+on an appendix-style anchor list for its grounding.
+
+## Exploration Handoff Failure Analysis
+
+The dominant product gap is not raw retrieval. In many cases, exploration found
+the needed facts, but those facts did not survive as typed, row-level carriers
+that extract/finalize/render/validators could consume deterministically.
+
+### H1: Complete Principal Sets Found, But Row Identity Is Lost
+
+Cases: `s5a`, `u11b`, `u8b`, `qf_type_relation_loop_controller`,
+`qf_relation_subagent_registry`, `u4b`, `u3b`, `u10a`, `s5b`, `u8a`,
+`mr_cross_repo_compare`.
+
+Exploration often already has the complete member set, support refs, and
+category split. The downstream break happens when this becomes free-form prose
+or separate anchor lists. Finalization then re-infers labels, counts, and
+citations, which creates label/citation drift, count drift, and appendix-style
+grounding.
+
+Required system change: introduce a canonical `DisplayRow` family that travels
+from exploration closure through extraction and answer rendering. The row must
+carry `id`, `category`, `display_label`, `value/count`, `support_ref`, and
+`surface_role` together so validators consume the same object the renderer
+uses.
+
+### H2: Relation / Call-Chain Facts Found, But Diagram/List Consumers Rebuild Them
+
+Cases: `qf_sequence_analyzer_gate`, `s8a`, `qf_diagram_pipeline`,
+`qf_logic_view_read_pipeline`, `u1a`.
+
+Exploration finds call edges, branch guards, stage order, or flow nodes. Later
+stages rebuild Mermaid and ordered lists from prose, so endpoints, optional
+guards, and block kind can drift.
+
+Required system change: carry `CallEdge` / `MechanismStepRow` / `DiagramRow`
+from exploration into rendering. Mermaid should be generated from these rows,
+not authored independently by the finalizer.
+
+### H3: Exact Scalars And Literals Found, But Routed Through Symbol Enumeration
+
+Cases: `s11b`, `u7a`, `s7a`, `u7b`, `s7b`, `u11a`, `m1a`, `m1b`,
+`qf_imports`, `u9b`.
+
+Exploration gets exact counts, commit filters, role targets, import paths, or
+tool-name literals. Downstream shape selection then asks for answer symbols,
+definition citations, or long enumerations, which adds noise to a scalar/literal
+answer.
+
+Required system change: add exact-answer carriers before symbol enumeration:
+`ScalarMeasurementRow`, `LiteralReferenceRow`, `HistoryFilterResult`, and
+`RoleResolutionRow`. Symbol-definition lanes should be optional support, not
+the default carrier for every exact answer.
+
+### H4: Diagnostic Artifact Roles Found, But Merged Into Source Evidence
+
+Cases: `logtri_degraded`, `logtri_oversized`, `logtri_go`,
+`logtri_rust`, `logtri_goroutine_dump`, `logtri_node`.
+
+Log/perf triage distinguishes observed frames, detectors, current source
+anchors, and drift boundaries. Later answer surfaces can merge them into one
+citation list or one candidate-source count, so detector code becomes a source,
+old log line numbers look like current repo citations, and low-signal logs
+become repo-debug tasks.
+
+Required system change: artifact and source references must remain different
+types: `ArtifactObservationRef`, `DiagnosticOriginRow`, and `DriftMappingRow`.
+Only current source anchors enter `citations[]`; artifact observations render
+as observation evidence.
+
+### H5: Negative / Absence Proofs Are Not A First-Class Handoff
+
+Cases: `s3a`, `s3d`, parts of `u9b`.
+
+Exploration can establish bounded absence, but downstream lacks an
+`AbsenceProof` row with query, searched scope, negative pattern, nearby
+non-substitutes, and confidence. The answer then invents fake repo-wide
+citations or leaks validator caveats.
+
+Required system change: make absence a typed proof artifact, not prose plus a
+negative citation workaround.
+
+### H6: Validator Gates Use Noisy Surfaces Instead Of Precise Handoff Signals
+
+Cases: `u8a`, `u3b`, `qf_diagram_pipeline`, `mr_cross_repo_compare`.
+
+Here the issue is not missing exploration data. The gate itself binds to noisy
+surface clues: member-name presence in caveats, CJK concept labels treated as
+code identities, diagram payload accepted under a section block, or section
+prose judged unanchored because citations live in an appendix block.
+
+Required system change: hard gates should read only precise typed fields:
+explicit aggregate labels, block kind/payload invariants, row-scoped citation
+refs, and declared artifact/source roles. Text similarity and member mentions
+can guide retries, but must not fail structurally valid answers.
+
+## Final Cluster Analysis
+
+### C1: Typed Row / Canonical Display Boundaries
+
+Cases: `s5a`, `u11b`, `u8b`, `qf_type_relation_loop_controller`,
+`qf_relation_subagent_registry`, `u4b`, `u3b`, `u10a`, `s5b`, `u8a`,
+`mr_cross_repo_compare`.
+
+Shared gap: the system knows the principal set, but the final surface is built
+from free-form labels, caveats, and separate anchor lists. Counts, labels, and
+citations drift because row identity is not one typed object.
+
+Generalized fix direction: introduce/strengthen deterministic rows for public
+API entries, catalog entries, comparison metrics, change-impact files,
+mechanism steps, and section/topic rows. Validators should compare row identity
+and row-scoped counts, not scan global prose.
+
+### C2: Rich Surface Kind/Payload Invariants
+
+Cases: `qf_diagram_pipeline`, `qf_sequence_analyzer_gate`, `s8a`,
+`qf_logic_view_read_pipeline`.
+
+Shared gap: diagrams and call chains are valid evidence but can be placed in
+the wrong carrier or over-expanded into unrelated nodes. The renderer and eval
+consume block kind, while validation sometimes accepts payload-only intent.
+
+Generalized fix direction: enforce kind/payload invariants at normalization and
+mutation boundaries, and generate diagrams from typed call-edge rows instead of
+free-form Mermaid text.
+
+### C3: Scalar / Literal / Exact Role Resolution
+
+Cases: `s11b`, `s1b`, `u7a`, `s7a`, `u7b`, `u11a`, `s7b`, `m1a`, `m1b`,
+`qf_imports`.
+
+Shared gap: exact answers are often known early, but the final answer shape
+forces enumeration, symbol-definition, or carrier-visibility pathways that add
+noise. Tool names, import paths, scalar counts, commit history, and role
+locations need their own exact-literal carriers.
+
+Generalized fix direction: route exact scalar/literal answers through typed
+`ScalarMeasurementRow`, `LiteralReferenceRow`, `HistoryFilterResult`, and
+`RoleResolutionRow` before general symbol enumeration.
+
+### C4: Diagnostic Artifact / Source Role Separation
+
+Cases: `logtri_degraded`, `logtri_oversized`, `logtri_go`, `logtri_rust`,
+`logtri_goroutine_dump`, `logtri_node`.
+
+Shared gap: runtime artifacts, detector code, current source anchors, and drift
+mappings can collapse into one evidence/citation lane. That produces misleading
+counts, repo-debug drift on low-signal logs, and old frames rendered as source
+citations.
+
+Generalized fix direction: introduce `DiagnosticOriginRow`,
+`ArtifactObservationRef`, and `DriftMappingRow`; keep observed artifact facts,
+detectors, candidates, resolved sources, and current-code verification in
+separate roles.
+
+### C5: Infra / Eval Harness / Timeout Accounting
+
+Cases: regex false negatives (`u9b`, prior diagram regex), timeouts beyond
+1800s (`u7a`, `s7a`, `logtri_rust`, `qf_type_relation_loop_controller`), and
+provider EOF/stalls.
+
+Shared gap: harness expectations and process cleanup sometimes obscure whether
+the product answer is wrong, slow, or infra-limited.
+
+Generalized fix direction: add precise timeout group cleanup, classify infra vs
+semantic failures separately, and make eval expectations semantic enough to
+avoid regex-only false negatives while preserving hard checks for exact answers.
+
+## Batch Repair Plan
+
+### Batch 0: Hard-Gate Precision And Rich-Surface Invariants
+
+Priority: immediate. This is the smallest safe slice because it removes known
+false hard failures without changing task semantics.
+
+Scope:
+
+- `diagram` payload invariant: `diagram != nil` must imply
+  `kind=diagram`; `kind=diagram` must imply non-empty diagram payload.
+- Multi-principal-set count binding: when several principal `member_set`
+  facts exist, hard cardinality checks bind only to an explicit set label, not
+  to member-name mentions in shared caveats.
+- Preserve existing single-set behavior where member-name count binding is a
+  useful precise enough shortcut.
+
+Eval / tests:
+
+- Unit regression for non-diagram block carrying diagram payload.
+- Unit regression for multi-set caveat containing numbers for another set.
+- Re-run `qf_diagram_pipeline`, `u8a`, and `s7b`.
+- Add eval case `qf_multi_member_set_count_caveat`: exported API answer with
+  function/type/var/Kind sets and a caveat mentioning numeric Kind counts; pass
+  criteria include no cardinality reject against unrelated sets.
+
+Implementation status:
+
+- Added normalization and mutation-runtime invariants that reject a `diagram`
+  payload unless the block itself is `kind=diagram`.
+- Scoped aggregate count hard gates so multi-principal member sets require an
+  explicit set label before a visible number is checked against that set.
+- Upgraded aggregate support-row compilation so short display locations are
+  reconciled with precise `support_ref` paths before final-answer citation
+  coverage checks.
+- Added focused unit regressions for these invariants.
+- Added `qf_multi_member_set_count_caveat` as a focused eval for multi-set
+  count-binding precision. The case intentionally excludes variables so it does
+  not mask the Batch 1 public/exported API row problem.
+- Verified `go test ./internal/tool`, `go test ./...`,
+  `qf_diagram_pipeline`, and `qf_multi_member_set_count_caveat`.
+
+### Batch 1: Canonical Exploration-to-Answer Row Contract
+
+Priority: first major architecture batch. This directly addresses the largest
+class of exploration-rich but downstream-thin failures.
+
+Scope:
+
+- Define a common row interface for exploration closure payloads:
+  `DisplayRow` with stable `row_id`, `category`, `display_label`,
+  `value/count`, `support_ref`, `surface_role`, and optional `attributes`.
+- Materialize specific row flavors: `ExportedAPIRow`, `CatalogRow`,
+  `ComparisonMetricRow`, `ImpactFileRow`, `EntryPointRow`, and `TopicRow`.
+- Store these rows alongside aggregate facts in MutableState, then compile
+  answer-support lanes from rows instead of prompt prose.
+- Make row IDs the unit of validator comparison.
+
+Eval / tests:
+
+- Add `u8a_api_surface_rows`: exported API categorized by function/type/const/var
+  must render category counts and row citations without global count scanning.
+- Add `mr_cross_repo_compare_grounded_sections`: each user bucket must show
+  citation-bearing rows in the bucket body, not only a separate anchor appendix.
+- Re-run `s5a`, `u11b`, `s5b`, `u3b`, `u4b`, `u10a`.
+
+### Batch 2: Exact Answer Lane Before Symbol Enumeration
+
+Priority: second major architecture batch. This reduces latency and long-list
+failure surfaces for scalar/literal tasks.
+
+Scope:
+
+- Add `ScalarMeasurementRow` for counts, versions, hashes, sizes, and command
+  measurements.
+- Add `LiteralReferenceRow` for imports, config keys, tool names, route strings,
+  and string-literal APIs.
+- Add `HistoryFilterResult` and `RoleResolutionRow` for git/history and
+  role-locate questions.
+- Shape selection should choose scalar/literal first when the user asks "how
+  many", "what exact value", "which literal", or "where is the role".
+
+Eval / tests:
+
+- Add `s7b_scalar_only_count`: exact count answer should lead with a scalar and
+  must not require a full 25-item list.
+- Add `qf_import_literal_references`: import-path lists must use literal
+  reference rows, not answer-symbol definition rows.
+- Add `m1_tool_name_literal`: explicit `emit_answer_document` question must
+  keep literal tool names visible without carrier-leak rejection.
+
+### Batch 3: Relation / Diagram Generation From Typed Edges
+
+Priority: third architecture batch. This handles call chains, sequence diagrams,
+and architecture flow.
+
+Scope:
+
+- Introduce `CallEdge` / `MechanismStepRow` with `from`, `to`,
+  `relation_kind`, `guard`, `optional`, `source_line`, and `display_order`.
+- Generate Mermaid and ordered-list call chains from the same rows.
+- Use branch guards as edge attributes, not free-form list addenda.
+
+Eval / tests:
+
+- Re-run `qf_sequence_analyzer_gate`, `s8a`, `qf_logic_view_read_pipeline`,
+  `u1a`.
+- Add an eval asserting an explicit diagram request must render a visible
+  Mermaid block and include expected stage/call nodes.
+
+### Batch 4: Diagnostic Artifact / Source Separation
+
+Priority: fourth architecture batch because it affects log/perf tasks and
+requires renderer contract changes.
+
+Scope:
+
+- Add `ArtifactObservationRef`, `DiagnosticOriginRow`, and `DriftMappingRow`.
+- Keep detector/parser, observed frame, candidate source, resolved source, and
+  excluded candidate roles separate.
+- Render artifact observations outside `citations[]`; current source citations
+  remain current-checkout only.
+- Add a deterministic `NoDiagnosticSignal` short path for empty/placeholder
+  artifacts.
+
+Eval / tests:
+
+- Add `logtri_go_old_frame_drift`: old-build frame must render as observed
+  artifact, not as current source citation.
+- Add `logtri_oversized_detector_not_source`: detector regex cannot count as a
+  panic source.
+- Add `logtri_placeholder_no_signal`: placeholder logs must short-circuit.
+
+### Batch 5: Infra, Timeout, And Eval Harness Reliability
+
+Priority: continuous cleanup in parallel with product batches.
+
+Scope:
+
+- Enforce process-group cleanup so timeout seconds do not exceed configured
+  wall-time by hundreds of seconds.
+- Classify provider EOF/stall as infra retries distinct from semantic retries.
+- Replace brittle regex-only expectations where the answer is semantically
+  correct but phrasing differs.
+
+Eval / tests:
+
+- Add harness tests for timeout process cleanup.
+- Update `u9b` expectation to accept semantically equivalent per-item wording
+  while preserving exact required concepts.
+- Track reject counts and stage iterations as regression metrics, not only
+  PASS/FAIL.

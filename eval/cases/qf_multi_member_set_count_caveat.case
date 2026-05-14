@@ -1,0 +1,19 @@
+# Hard-gate precision — multi member_set counts in shared caveats
+#
+# Regression target: when an answer carries several principal
+# member_set facts (types / functions / Kind constants),
+# count validation must bind visible numbers to an explicit set label,
+# not to any member name that happens to appear in shared scope prose.
+# The prompt intentionally asks for category counts plus a scope note
+# so the answer is allowed to mention multiple numbers near the same
+# package members. It deliberately excludes variables so this case stays
+# focused on hard-gate precision; language-wide exported API row fidelity
+# is tracked separately under the Batch 1 ExportedAPIRow gap.
+ID="qf_multi_member_set_count_caveat"
+NAME="hard-gate precision — multi member-set count caveat"
+QUESTION="internal/analysis/criterion 请只按类型、函数、Kind 常量三类列出公开符号；不要列变量；每一类必须列出完整成员名称并给出数量；在范围说明里说明 Kind const block 的数量依据。"
+EXPECT_CONTAINS="Eval EvalAll RegisteredKinds KindExternalArtifactDecoded"
+EXPECT_MATCHES_REGEX="(类型.*3|3.*类型)
+(函数.*5|5.*函数)
+(Kind|常量).*2[4-6]"
+EXPECT_NOT_CONTAINS="defaultExternalArtifactFloor private approximately roughly"

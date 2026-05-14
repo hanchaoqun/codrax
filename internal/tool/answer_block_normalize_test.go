@@ -145,6 +145,23 @@ func TestNormalizeEmitAnswerBlock_DiagramKindRequiresPayload(t *testing.T) {
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_DiagramPayloadRequiresDiagramKind(t *testing.T) {
+	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "b1",
+		Kind: string(types.BlockSection),
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramFlow),
+			Body: "flowchart TD\n  A --> B",
+		},
+	}, "blocks[0]")
+	if err == nil {
+		t.Fatal("must reject diagram payload on non-diagram block")
+	}
+	if !strings.Contains(err.Error(), "kind=diagram") {
+		t.Fatalf("hint should tell the model to set kind=diagram, got %q", err.Error())
+	}
+}
+
 // TestNormalizeEmitAnswerBlock_AllFieldsPropagate uses reflection to
 // verify every field on emitAnswerBlockV2 surfaces as a non-zero
 // value on the resulting types.AnswerBlock when populated from a

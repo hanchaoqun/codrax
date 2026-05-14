@@ -551,9 +551,15 @@ func appendAggregateMemberEquivalentLocation(in []string, location string) []str
 
 func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, member string) (source string, line int, location string) {
 	if surface, ok := ParseAnswerSourceLocationSurface(member); ok {
+		if precise, ok := aggregateMemberPreciseSupportRefLocation(fact, memberIdx, "", surface); ok {
+			surface = precise
+		}
 		return surface.File, surface.LineStart, aggregateMemberStartLocation(surface)
 	}
 	if refMember, refLocation, ok := aggregateSupportRefMemberLocation(member); ok && strings.TrimSpace(refMember) != "" {
+		if precise, ok := aggregateMemberPreciseSupportRefLocation(fact, memberIdx, refMember, refLocation); ok {
+			refLocation = precise
+		}
 		return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
 	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
@@ -593,6 +599,81 @@ func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, 
 		return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
 	}
 	return "", 0, ""
+}
+
+func aggregateMemberPreciseSupportRefLocation(fact AnswerAggregateFact, memberIdx int, memberLabel string, displayLocation AnswerSourceLocationSurface) (AnswerSourceLocationSurface, bool) {
+	if displayLocation.LineStart <= 0 || strings.TrimSpace(displayLocation.File) == "" {
+		return AnswerSourceLocationSurface{}, false
+	}
+	type candidate struct {
+		location AnswerSourceLocationSurface
+		index    int
+	}
+	var candidates []candidate
+	for refIdx, ref := range fact.SupportRefs {
+		refMember, refLocation, ok := aggregateSupportRefMemberLocation(ref)
+		if !ok || refLocation.LineStart != displayLocation.LineStart {
+			continue
+		}
+		if !aggregateSupportRefPathCorresponds(refLocation.File, displayLocation.File) ||
+			!aggregateSupportRefMoreSpecific(refLocation.File, displayLocation.File) {
+			continue
+		}
+		if !aggregateSupportRefMemberMatchesDisplay(refMember, memberLabel) {
+			continue
+		}
+		candidates = append(candidates, candidate{location: refLocation, index: refIdx})
+	}
+	if len(candidates) == 1 {
+		return candidates[0].location, true
+	}
+	if memberIdx >= 0 {
+		for _, candidate := range candidates {
+			if candidate.index == memberIdx {
+				return candidate.location, true
+			}
+		}
+	}
+	return AnswerSourceLocationSurface{}, false
+}
+
+func aggregateSupportRefPathCorresponds(refFile, displayFile string) bool {
+	refFile = normalizeAnswerSupportPath(refFile)
+	displayFile = normalizeAnswerSupportPath(displayFile)
+	if refFile == "" || displayFile == "" {
+		return false
+	}
+	if refFile == displayFile {
+		return true
+	}
+	return strings.HasSuffix(refFile, "/"+displayFile) ||
+		strings.HasSuffix(displayFile, "/"+refFile)
+}
+
+func aggregateSupportRefMoreSpecific(refFile, displayFile string) bool {
+	refFile = normalizeAnswerSupportPath(refFile)
+	displayFile = normalizeAnswerSupportPath(displayFile)
+	return refFile != "" && displayFile != "" &&
+		refFile != displayFile &&
+		len(refFile) > len(displayFile) &&
+		strings.HasSuffix(refFile, "/"+displayFile)
+}
+
+func aggregateSupportRefMemberMatchesDisplay(refMember, displayLabel string) bool {
+	refMember = strings.TrimSpace(refMember)
+	displayLabel = strings.TrimSpace(displayLabel)
+	if refMember == "" || AnswerSupportRefLabelIsGeneric(refMember) {
+		return true
+	}
+	if displayLabel == "" {
+		return false
+	}
+	for _, candidate := range aggregateMemberDisplayCandidates(displayLabel) {
+		if strings.EqualFold(strings.TrimSpace(candidate), refMember) {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregateSupportRefMemberLocation(ref string) (member string, location AnswerSourceLocationSurface, ok bool) {

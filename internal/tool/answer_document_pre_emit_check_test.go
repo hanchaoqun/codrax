@@ -501,6 +501,59 @@ func TestPreCheckAggregateCardinalityConsistency_RejectsScopedCountMismatch(t *t
 	}
 }
 
+func TestPreCheckAggregateCardinalityConsistency_MultipleSetsRequireExplicitLabelBinding(t *testing.T) {
+	mu := types.NewMutableState("multi member-set cardinality handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "导出类型列表",
+		Value:   "3",
+		Members: []string{"Kind", "Env", "Result"},
+	}, {
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "导出函数列表",
+		Value:   "5",
+		Members: []string{"Eval", "EvalAll", "SetExternalArtifactFloor", "IsRegistered", "RegisteredKinds"},
+	}, {
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "Kind 常量完整列表",
+		Value: "25",
+		Members: []string{
+			"KindSymbolPresent", "KindNoCallSites", "KindAnswerSetBounded",
+			"KindAnswerSetUnbounded", "KindMultipleResolutionChains",
+			"KindUserClauseUnresolved", "KindUntrustedReachesSink",
+			"KindInvariantBroken", "KindNoRelevantEvidence", "KindSignalPresent",
+			"KindHasEnoughFacts", "KindAllHypothesesDecided",
+			"KindContractSatisfied", "KindBudgetExhausted", "KindEvidenceCount",
+			"KindCitationCountGE", "KindContainsSymbol", "KindRegexMatch",
+			"KindCounterfactualBranchesDecided", "KindRelationAbsent",
+			"KindPlanReady", "KindPatchApplies", "KindTestsPass",
+			"KindNoRegression", "KindExternalArtifactDecoded",
+		},
+	}})
+	mu.SetInvestigationComplete("structured member sets accepted")
+	ctx := &types.BusContext{Mutable: mu}
+
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "caveat",
+		Kind: types.BlockCaveat,
+		Text: "搜索范围覆盖 grammar.go 和 eval.go；Eval 的定义在 eval.go，Kind 常量完整列表有 25 个。",
+	}}}
+	if got := preCheckAggregateCardinalityConsistency(doc, ctx); len(got) != 0 {
+		t.Fatalf("multi-set count binding must ignore bare member mentions in shared caveats, got %+v", got)
+	}
+
+	doc.Blocks[0].Text = "导出函数列表 有 25 个。"
+	hints := preCheckAggregateCardinalityConsistency(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("explicit set label with wrong count must still reject, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, `label="导出函数列表"`) ||
+		!strings.Contains(hints[0].ExpectedShape, "expected_count=5") ||
+		!strings.Contains(hints[0].ExpectedShape, "visible_count=25") {
+		t.Fatalf("hint should be scoped to the explicit set label, got %+v", hints[0])
+	}
+}
+
 func TestPreCheckRelationMemberSetAnswerShape_RequiresStructuredRowsForMultiMemberRelations(t *testing.T) {
 	mu := types.NewMutableState("relation aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

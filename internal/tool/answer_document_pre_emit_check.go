@@ -1029,13 +1029,13 @@ func preEmitBlockBindsToAggregateCount(block types.AnswerBlock, surface string, 
 	if preEmitAggregateDisplayPartAppears(strings.TrimSpace(fact.Label), surface) {
 		return true
 	}
+	if !uniquePrincipalSet {
+		return false
+	}
 	for _, member := range fact.Members {
 		if preEmitAggregateMemberAppearsInText(member, surface) {
 			return true
 		}
-	}
-	if !uniquePrincipalSet {
-		return false
 	}
 	switch block.Kind {
 	case types.BlockScalar:

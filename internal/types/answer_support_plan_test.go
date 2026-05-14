@@ -2420,6 +2420,69 @@ func TestBuildAnswerSupportPlan_CompactAggregateSupportRefMemberUsesLabelAndCita
 	}
 }
 
+func TestBuildAnswerSupportPlan_GenericAggregateMemberSetUpgradesShortDisplayLocationFromSupportRef(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "public criterion symbols",
+			Value: "2",
+			Members: []string{
+				"Kind @ grammar.go:26",
+				"Eval @ eval.go:15",
+			},
+			SupportRefs: []string{
+				"Member @ internal/analysis/criterion/grammar.go:26",
+				"Member @ internal/analysis/criterion/eval.go:15",
+			},
+		}},
+	}
+	support := BuildAnswerSupportPlan(RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{
+			Required:    true,
+			SourceQuote: "public criterion symbols",
+		},
+	}, plan)
+	obligations := PrincipalSupportMemberObligations(support)
+	if len(obligations) != 2 {
+		t.Fatalf("expected two principal obligations, got %+v", obligations)
+	}
+	if obligations[0].Label != "Kind" || obligations[0].Location != "internal/analysis/criterion/grammar.go:26" {
+		t.Fatalf("short display path should upgrade to precise grammar.go support_ref, got %+v", obligations[0])
+	}
+	if obligations[1].Label != "Eval" || obligations[1].Location != "internal/analysis/criterion/eval.go:15" {
+		t.Fatalf("short display path should upgrade to precise eval.go support_ref, got %+v", obligations[1])
+	}
+
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{
+			{File: "internal/analysis/criterion/grammar.go", Line: 26},
+			{File: "internal/analysis/criterion/eval.go", Line: 15},
+		},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockOrderedList,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "Kind",
+				Text:        "type Kind string.",
+				CitationRef: 0,
+			}, {
+				Label:       "Eval",
+				Text:        "func Eval.",
+				CitationRef: 1,
+			}},
+		}},
+	}
+	if got := MissingPrincipalSupportMembers(doc, support); len(got) != 0 {
+		t.Fatalf("full-path citations should satisfy obligations compiled from short display locations, got %+v", got)
+	}
+}
+
 func TestMissingPrincipalSupportMembers_AssignmentStillRequiresExactCitationLine(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Family: QFEnumeration,

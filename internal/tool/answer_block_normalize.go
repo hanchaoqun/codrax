@@ -82,6 +82,9 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		}
 	}
 	if raw.Diagram != nil {
+		if blk.Kind != types.BlockDiagram {
+			return types.AnswerBlock{}, fmt.Errorf("%s: diagram payload is only valid when kind=diagram; set kind=\"diagram\" so the renderer emits the Mermaid block, or remove the sibling `diagram` object from this %q block", fieldPath, raw.Kind)
+		}
 		diag := &types.AnswerDiagramBlock{
 			Kind:     types.DiagramKind(raw.Diagram.Kind),
 			Language: raw.Diagram.Language,

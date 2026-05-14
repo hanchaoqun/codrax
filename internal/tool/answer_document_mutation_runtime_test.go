@@ -119,6 +119,29 @@ func TestApplyAndPersistMutation_DiagramWithNilPayloadRejected(t *testing.T) {
 	}
 }
 
+func TestApplyAndPersistMutation_DiagramPayloadOnSectionRejected(t *testing.T) {
+	bus := newBusForMutationTest()
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "s",
+			Kind: types.BlockSection,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramFlow,
+				Body: "flowchart TD\n  A --> B",
+			},
+		}},
+	}
+	mutation := types.NewReplaceAllMutation(doc)
+	res, _ := ApplyAndPersistMutation(bus, "test_emit", mutation, nil, time.Now())
+	if res.Success {
+		t.Fatalf("expected rejection; got Success=true")
+	}
+	if !strings.Contains(res.Summary, "kind=diagram") {
+		t.Errorf("rejection should steer to kind=diagram; got %q", res.Summary)
+	}
+}
+
 // TestApplyAndPersistMutation_FullAndPatchProduceByteIdenticalMerged
 // — same logical doc reached via full vs patch paths produces an
 // identical merged AnswerDocumentV2 in MutableState.
