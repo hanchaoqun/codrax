@@ -151,7 +151,7 @@ func PrincipalAggregateMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAg
 	}
 	var relationFacts []aggregateRelationMemberSetFact
 	for _, fact := range facts {
-		if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+		if !answerAggregateFactCarriesCompleteMemberSet(fact) {
 			continue
 		}
 		left, ok := aggregateRelationLeftAxisSet(fact)
@@ -162,7 +162,7 @@ func PrincipalAggregateMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAg
 	}
 	out := make([]AnswerAggregateFactRef, 0, len(facts))
 	for idx, fact := range facts {
-		if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+		if !answerAggregateFactCarriesCompleteMemberSet(fact) {
 			continue
 		}
 		if aggregateMemberSetIsSubsumedLeftAxis(fact, relationFacts) {
@@ -206,7 +206,7 @@ func PrincipalRelationMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAgg
 // member is an explicit two-part relation display surface. It deliberately does
 // not inspect labels, dimensions, raw prompts, or closure prose.
 func AnswerAggregateFactHasRelationMembers(fact AnswerAggregateFact) bool {
-	if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+	if !answerAggregateFactCarriesCompleteMemberSet(fact) {
 		return false
 	}
 	for _, member := range fact.Members {
@@ -218,7 +218,7 @@ func AnswerAggregateFactHasRelationMembers(fact AnswerAggregateFact) bool {
 }
 
 func aggregateRelationLeftAxisSet(fact AnswerAggregateFact) (map[string]bool, bool) {
-	if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+	if !answerAggregateFactCarriesCompleteMemberSet(fact) {
 		return nil, false
 	}
 	left := make(map[string]bool, len(fact.Members))
@@ -238,8 +238,24 @@ func aggregateRelationLeftAxisSet(fact AnswerAggregateFact) (map[string]bool, bo
 	return left, parsed > 0 && len(left) > 0
 }
 
+func answerAggregateFactCarriesCompleteMemberSet(fact AnswerAggregateFact) bool {
+	if len(fact.Members) == 0 {
+		return false
+	}
+	if fact.Kind == AnswerAggregateMemberSet {
+		return true
+	}
+	switch fact.Kind {
+	case AnswerAggregateTotalCount, AnswerAggregateUniqueCount, AnswerAggregateGroupedCount, AnswerAggregateBucketCount:
+	default:
+		return false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(fact.Value))
+	return err == nil && n == len(fact.Members)
+}
+
 func aggregateMemberSetIsSubsumedLeftAxis(fact AnswerAggregateFact, relationFacts []aggregateRelationMemberSetFact) bool {
-	if len(relationFacts) == 0 || fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+	if len(relationFacts) == 0 || !answerAggregateFactCarriesCompleteMemberSet(fact) {
 		return false
 	}
 	if _, isRelation := aggregateRelationLeftAxisSet(fact); isRelation {

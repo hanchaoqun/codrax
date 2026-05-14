@@ -2483,6 +2483,41 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetUpgradesShortDisplayLoc
 	}
 }
 
+func TestBuildAnswerSupportPlan_CompleteCountFactMembersActAsPrincipalRows(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateTotalCount,
+			Label:   "public functions",
+			Value:   "2",
+			Members: []string{"Eval @ eval.go:15", "EvalAll @ eval.go:36"},
+			SupportRefs: []string{
+				"Member @ internal/analysis/criterion/eval.go:15",
+				"Member @ internal/analysis/criterion/eval.go:36",
+			},
+		}},
+	}
+	support := BuildAnswerSupportPlan(RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{
+			Required:    true,
+			SourceQuote: "all public functions",
+		},
+	}, plan)
+	obligations := PrincipalSupportMemberObligations(support)
+	if len(obligations) != 2 {
+		t.Fatalf("complete count members should compile into principal obligations, got %+v", obligations)
+	}
+	if obligations[0].Label != "Eval" || obligations[0].Location != "internal/analysis/criterion/eval.go:15" {
+		t.Fatalf("first count member should use precise support_ref, got %+v", obligations[0])
+	}
+	if obligations[1].Label != "EvalAll" || obligations[1].Location != "internal/analysis/criterion/eval.go:36" {
+		t.Fatalf("second count member should use precise support_ref, got %+v", obligations[1])
+	}
+}
+
 func TestMissingPrincipalSupportMembers_AssignmentStillRequiresExactCitationLine(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Family: QFEnumeration,

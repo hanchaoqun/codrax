@@ -1547,6 +1547,22 @@ Eval / tests:
   citation-bearing rows in the bucket body, not only a separate anchor appendix.
 - Re-run `s5a`, `u11b`, `s5b`, `u3b`, `u4b`, `u10a`.
 
+Initial Batch 1a progress:
+
+- Principal support planning now treats count aggregate facts with
+  `value == len(members)` as complete member-row slates for downstream
+  consumption. The original aggregate kind is preserved, but final-answer
+  support lanes no longer lose member rows merely because exploration emitted
+  `total_count` / `grouped_count` instead of `member_set`.
+- The rule is deliberately narrow: count facts without members, mismatched
+  counts, or partial/sample members are not promoted.
+- Added a unit regression proving complete count members become principal row
+  obligations with precise support refs.
+- Verified `go test ./...` and re-ran
+  `qf_multi_member_set_count_caveat` successfully after the row-consumption
+  change. The eval still records finalizer repair loops, so citation-array
+  compilation remains in Batch 1 rather than being declared solved.
+
 ### Batch 2: Exact Answer Lane Before Symbol Enumeration
 
 Priority: second major architecture batch. This reduces latency and long-list
