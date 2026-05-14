@@ -84,7 +84,14 @@ func parseTextToolCallJSON(content string, allowed map[string]bool, schemaInfos 
 	if !ok {
 		return nil, false
 	}
-	calls, ok := parseTextToolCallValue(raw, allowed, textToolSchemaInfoByName(schemaInfos))
+	infoByName := textToolSchemaInfoByName(schemaInfos)
+	if m, ok := raw.(map[string]any); ok {
+		if calls, ok := parseTextToolKeyedMap(content, m, schemaInfos); ok {
+			calls = sanitizeRecoveredToolCallParams(calls, schemaInfos)
+			return renumberGeneratedContentToolCallIDs(calls), true
+		}
+	}
+	calls, ok := parseTextToolCallValue(raw, allowed, infoByName)
 	if !ok || len(calls) == 0 {
 		if allowBareArgs {
 			if call, bareOK := parseBareTextToolCallArgs(raw, schemaInfos, forcedName); bareOK {
@@ -900,6 +907,207 @@ func parseSingleTextToolCall(m map[string]any, allowed map[string]bool, infoByNa
 		id = fmt.Sprintf("content_tool_call_%d", idx)
 	}
 	return ToolCall{ID: id, Name: name, Params: params}, true
+}
+
+type textToolKeyAlias struct {
+	name  string
+	info  textToolSchemaInfo
+	exact bool
+	order int
+}
+
+type parsedTextToolKeyCall struct {
+	key   string
+	pos   int
+	order int
+	call  ToolCall
+}
+
+func parseTextToolKeyedMap(source string, m map[string]any, infos []textToolSchemaInfo) ([]ToolCall, bool) {
+	if len(m) == 0 || len(infos) == 0 || hasTextToolCallEnvelopeKey(m) {
+		return nil, false
+	}
+	aliases := textToolKeyAliasMap(infos)
+	if len(aliases) == 0 {
+		return nil, false
+	}
+	parsed := make([]parsedTextToolKeyCall, 0, len(m))
+	seen := make(map[string]bool, len(m))
+	for key, rawArgs := range m {
+		key = strings.TrimSpace(key)
+		alias, ok := aliases[key]
+		if !ok || seen[alias.name] {
+			return nil, false
+		}
+		params, ok := normalizeTextToolKeyedArgs(rawArgs, &alias.info, alias.exact)
+		if !ok {
+			return nil, false
+		}
+		seen[alias.name] = true
+		parsed = append(parsed, parsedTextToolKeyCall{
+			key:   key,
+			pos:   textToolJSONKeyPosition(source, key),
+			order: alias.order,
+			call: ToolCall{
+				Name:   alias.name,
+				Params: params,
+			},
+		})
+	}
+	if len(parsed) == 0 {
+		return nil, false
+	}
+	sort.SliceStable(parsed, func(i, j int) bool {
+		if parsed[i].pos >= 0 && parsed[j].pos >= 0 && parsed[i].pos != parsed[j].pos {
+			return parsed[i].pos < parsed[j].pos
+		}
+		if (parsed[i].pos >= 0) != (parsed[j].pos >= 0) {
+			return parsed[i].pos >= 0
+		}
+		if parsed[i].order != parsed[j].order {
+			return parsed[i].order < parsed[j].order
+		}
+		return parsed[i].key < parsed[j].key
+	})
+	out := make([]ToolCall, len(parsed))
+	for i, item := range parsed {
+		item.call.ID = fmt.Sprintf("content_tool_call_%d", i)
+		out[i] = item.call
+	}
+	return out, true
+}
+
+func textToolKeyAliasMap(infos []textToolSchemaInfo) map[string]textToolKeyAlias {
+	aliases := make(map[string]textToolKeyAlias, len(infos))
+	ambiguous := make(map[string]bool)
+	for i, info := range infos {
+		for _, candidate := range textToolKeyAliases(info.name) {
+			if candidate.key == "" || (ambiguous[candidate.key] && !candidate.exact) {
+				continue
+			}
+			alias := textToolKeyAlias{name: info.name, info: info, exact: candidate.exact, order: i}
+			if prev, ok := aliases[candidate.key]; ok && prev.name != info.name {
+				switch {
+				case prev.exact && !candidate.exact:
+					continue
+				case !prev.exact && candidate.exact:
+					aliases[candidate.key] = alias
+					ambiguous[candidate.key] = false
+				default:
+					delete(aliases, candidate.key)
+					ambiguous[candidate.key] = true
+				}
+				continue
+			}
+			aliases[candidate.key] = alias
+		}
+	}
+	return aliases
+}
+
+type textToolKeyAliasCandidate struct {
+	key   string
+	exact bool
+}
+
+func textToolKeyAliases(name string) []textToolKeyAliasCandidate {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	out := []textToolKeyAliasCandidate{{key: name, exact: true}}
+	if plural := pluralTextToolAlias(name); plural != "" && plural != name {
+		out = append(out, textToolKeyAliasCandidate{key: plural, exact: false})
+	}
+	if base, ok := strings.CutPrefix(name, "emit_"); ok && base != "" {
+		out = append(out, textToolKeyAliasCandidate{key: base, exact: false})
+		if plural := pluralTextToolAlias(base); plural != "" && plural != base {
+			out = append(out,
+				textToolKeyAliasCandidate{key: plural, exact: false},
+				textToolKeyAliasCandidate{key: "emit_" + plural, exact: false},
+			)
+		}
+	}
+	return uniqueTextToolKeyAliases(out)
+}
+
+func uniqueTextToolKeyAliases(in []textToolKeyAliasCandidate) []textToolKeyAliasCandidate {
+	seen := make(map[string]bool, len(in))
+	out := make([]textToolKeyAliasCandidate, 0, len(in))
+	for _, item := range in {
+		if item.key == "" || seen[item.key] {
+			continue
+		}
+		seen[item.key] = true
+		out = append(out, item)
+	}
+	return out
+}
+
+func pluralTextToolAlias(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.HasSuffix(s, "s") {
+		return s
+	}
+	if strings.HasSuffix(s, "y") && len(s) > 1 {
+		prev := s[len(s)-2]
+		if !strings.ContainsRune("aeiou", rune(prev)) {
+			return strings.TrimSuffix(s, "y") + "ies"
+		}
+	}
+	return s + "s"
+}
+
+func normalizeTextToolKeyedArgs(raw any, info *textToolSchemaInfo, exact bool) (json.RawMessage, bool) {
+	args, ok := unwrapTextToolKeyedArgs(raw)
+	if !ok {
+		return nil, false
+	}
+	if info != nil && !exact && len(info.required) == 0 {
+		return nil, false
+	}
+	argMap, mapOK := args.(map[string]any)
+	if !mapOK {
+		if wrapped, wrapOK := wrapSingleRequiredTextToolArg(args, info); wrapOK {
+			argMap = wrapped
+			args = wrapped
+		}
+	}
+	if info != nil && !exact && len(info.required) > 0 && !textToolRequiredFieldsPresent(argMap, info.required) {
+		return nil, false
+	}
+	return normalizeTextToolCallArgs(args, info)
+}
+
+func unwrapTextToolKeyedArgs(raw any) (any, bool) {
+	if s, ok := raw.(string); ok {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return map[string]any{}, true
+		}
+		var decoded any
+		if err := json.Unmarshal([]byte(s), &decoded); err != nil {
+			return nil, false
+		}
+		raw = decoded
+	}
+	if m, ok := raw.(map[string]any); ok {
+		if inner, ok := singleFieldTextToolArgs(m); ok {
+			return unwrapTextToolKeyedArgs(inner)
+		}
+	}
+	return raw, true
+}
+
+func textToolJSONKeyPosition(source, key string) int {
+	if source == "" || key == "" {
+		return -1
+	}
+	quoted, err := json.Marshal(key)
+	if err != nil {
+		return -1
+	}
+	return strings.Index(source, string(quoted))
 }
 
 func renumberGeneratedContentToolCallIDs(calls []ToolCall) []ToolCall {
