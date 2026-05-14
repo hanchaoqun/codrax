@@ -360,6 +360,143 @@ func TestGroundItem_Tier1CallRejectsFunctionDefinitionLine(t *testing.T) {
 	}
 }
 
+func TestGroundItem_CallAnchorRejectsGoMethodDefinitionLine(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/agent/agent.go", 859, []string{
+			"func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {",
+			"\ttoolSchemas := b.buildToolSchemas(sk, ctx)",
+		}, 2284),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceRelationship,
+		Source:       "internal/agent/agent.go",
+		LineStart:    859,
+		AnchorKind:   types.AnchorCall,
+		AnchorSymbol: "Execute",
+		Subject:      "Execute",
+		Snippet:      "func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("Go method definition must not ground as a callsite: status=%q tier=%q line=%d note=%q",
+			it.GroundingStatus, it.GroundingTier, it.LineStart, it.GroundingNote)
+	}
+	if !strings.Contains(it.GroundingNote, "definition-shaped source line") {
+		t.Fatalf("repair note should explain anchor_kind mismatch, got %q", it.GroundingNote)
+	}
+}
+
+func TestGroundItem_CallAnchorRejectsSupportedLanguageDefinitionLines(t *testing.T) {
+	cases := []struct {
+		name   string
+		lang   string
+		path   string
+		line   string
+		symbol string
+	}{
+		{"go_function", repomap.LangGo, "svc.go", "func Execute(ctx context.Context) error {", "Execute"},
+		{"go_method", repomap.LangGo, "svc.go", "func (s *Service) Execute(ctx context.Context) error {", "Execute"},
+		{"python", repomap.LangPython, "svc.py", "async def execute(request):", "execute"},
+		{"python_lambda_assignment", repomap.LangPython, "svc.py", "execute = lambda request: request.ok", "execute"},
+		{"javascript", repomap.LangJavaScript, "svc.js", "export function execute(request) {", "execute"},
+		{"javascript_arrow_assignment", repomap.LangJavaScript, "svc.js", "const execute = async (request) => {", "execute"},
+		{"typescript_method", repomap.LangTypeScript, "svc.ts", "public execute(request: Request): Response {", "execute"},
+		{"typescript_arrow_assignment", repomap.LangTypeScript, "svc.ts", "const execute: Handler = (request: Request): Response => {", "execute"},
+		{"arkts_function", repomap.LangArkTS, "svc.ets", "@Builder function Execute() {", "Execute"},
+		{"arkts_build_method", repomap.LangArkTS, "svc.ets", "build() {", "build"},
+		{"java", repomap.LangJava, "Svc.java", "public Result execute(Request request) {", "execute"},
+		{"kotlin", repomap.LangKotlin, "Svc.kt", "override fun execute(request: Request): Response {", "execute"},
+		{"rust", repomap.LangRust, "svc.rs", "pub fn execute(request: Request) -> Response {", "execute"},
+		{"c", repomap.LangC, "svc.c", "int execute(struct request *request) {", "execute"},
+		{"cpp", repomap.LangCpp, "svc.cpp", "Result Service::execute(const Request& request) {", "execute"},
+		{"cuda_cpp_remap", repomap.LangCpp, "kernel.cu", "__global__ void execute(Request request) {", "execute"},
+		{"objective_c_remap", repomap.LangC, "Svc.m", "- (void)execute:(Request *)request {", "execute"},
+		{"ruby", repomap.LangRuby, "svc.rb", "def execute(request)", "execute"},
+		{"swift", repomap.LangSwift, "Svc.swift", "public func execute(_ request: Request) -> Response {", "execute"},
+		{"lua", repomap.LangLua, "svc.lua", "local function execute(request)", "execute"},
+		{"proto", repomap.LangProto, "svc.proto", "rpc Execute (Request) returns (Response);", "Execute"},
+		{"cangjie", repomap.LangCangjie, "svc.cj", "public func execute(request: Request): Response {", "execute"},
+		{"cangjie_foreign", repomap.LangCangjie, "svc.cj", "foreign func native_add(a: Int64, b: Int64): Int64", "native_add"},
+		{"cangjie_operator", repomap.LangCangjie, "svc.cj", "public operator func +(other: V): V {", "+"},
+	}
+	coveredLanguages := map[string]bool{}
+	for _, tc := range cases {
+		coveredLanguages[tc.lang] = true
+	}
+	for _, lang := range repomap.SupportedReadLanguages() {
+		if !coveredLanguages[lang] {
+			t.Fatalf("definition-shape call-anchor guard lacks coverage for supported language %q", lang)
+		}
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			history := []types.ToolResult{
+				buildGutterReadResult(tc.path, 10, []string{tc.line}, 100),
+			}
+			gc := &Context{LineIndex: buildLineIndex(history, "")}
+			it := &types.EvidenceItem{
+				Kind:         types.EvidenceRelationship,
+				Source:       tc.path,
+				LineStart:    10,
+				AnchorKind:   types.AnchorCall,
+				AnchorSymbol: tc.symbol,
+				Subject:      tc.symbol,
+				Snippet:      tc.line,
+			}
+			GroundItem(it, gc)
+			if it.GroundingStatus != types.GroundingUngrounded {
+				t.Fatalf("%s definition line must not ground as callsite: status=%q tier=%q line=%d note=%q",
+					tc.name, it.GroundingStatus, it.GroundingTier, it.LineStart, it.GroundingNote)
+			}
+			if !strings.Contains(it.GroundingNote, "definition-shaped") {
+				t.Fatalf("%s repair note should explain definition/call mismatch, got %q", tc.name, it.GroundingNote)
+			}
+		})
+	}
+}
+
+func TestGroundItem_CallRecoveryDoesNotJumpFromDefinitionToFarSameNameCall(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/agent/agent.go", 859, []string{
+			"func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {",
+			"\ttoolSchemas := b.buildToolSchemas(sk, ctx)",
+		}, 2284),
+	}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/agent/agent.go": {
+				RelPath: "internal/agent/agent.go",
+				Symbols: []repomap.Symbol{
+					{Name: "BaseAgent.Execute", Kind: "method", Line: 859},
+				},
+				Relations: []repomap.Relation{
+					{Kind: "call", File: "internal/agent/agent.go", Line: 1842,
+						ToEP: repomap.RelationEndpoint{Name: "Execute"}},
+				},
+			},
+		},
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, ""), Graph: graph}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceRelationship,
+		Source:       "internal/agent/agent.go",
+		LineStart:    859,
+		AnchorKind:   types.AnchorCall,
+		AnchorSymbol: "Execute",
+		Subject:      "Execute",
+		Snippet:      "func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {",
+	}
+	GroundItem(it, gc)
+	if it.LineStart != 859 {
+		t.Fatalf("definition-shaped call anchor must not jump to far same-name callsite; got line %d", it.LineStart)
+	}
+	if it.GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("mismatched anchor should be ungrounded, got status=%q tier=%q note=%q",
+			it.GroundingStatus, it.GroundingTier, it.GroundingNote)
+	}
+}
+
 func TestGroundItem_CallAnchorUsesCalleeForRecovery(t *testing.T) {
 	history := []types.ToolResult{
 		buildGutterReadResult("internal/agent/analyzer.go", 10, []string{

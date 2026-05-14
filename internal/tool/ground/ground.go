@@ -54,6 +54,17 @@ var gutterLineRe = regexp.MustCompile(`^\s*(\d{1,6})│ (.*)$`)
 // identifierTokenRe extracts identifier-shaped tokens of length ≥3.
 var identifierTokenRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)
 
+var (
+	callableDefinitionLineRe         = regexp.MustCompile(`^\s*(?:(?:abstract|async|const|default|export|final|foreign|inline|internal|local|mut|native|open|operator|override|private|protected|public|pub|redef|sealed|static|suspend|unsafe|virtual)\s+)*(?:def|func|function|fun|fn|rpc)\s+(?:\([^)]+\)\s*)?[A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*\s*\(`)
+	cFamilyDefinitionLineRe          = regexp.MustCompile(`^\s*(?:(?:template\s*<[^>]+>|__device__|__global__|__host__|abstract|async|constexpr|extern|final|friend|inline|native|open|override|private|protected|public|static|synchronized|virtual)\s+)*(?:[A-Za-z_][A-Za-z0-9_:<>\[\]\*&?,.]*\s+)+(?:[A-Za-z_~][A-Za-z0-9_~]*::)*[A-Za-z_~][A-Za-z0-9_~]*\s*\([^;{}]*\)\s*(?:const\s*)?(?:noexcept\s*)?(?:throws\s+[^{};]+)?(?:->\s*[^{};]+)?(?:\{|$)`)
+	methodDefinitionLineRe           = regexp.MustCompile(`^\s*(?:(?:abstract|async|export|final|internal|open|operator|override|private|protected|public|static|suspend)\s+)*[A-Za-z_][A-Za-z0-9_]*\s*\([^)]*\)\s*(?::|throws\b|where\b|\{|=>)`)
+	assignedCallableDefinitionLineRe = regexp.MustCompile(`^\s*(?:(?:export|default|public|private|protected|static|readonly|final)\s+)*(?:(?:const|let|var|val)\s+)?[A-Za-z_$][A-Za-z0-9_$]*\s*(?::[^=]+)?=\s*(?:async\s+)?(?:function\b[^{(]*\([^)]*\)|\([^)]*\)\s*(?::\s*[^=]+)?=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>|lambda\b)`)
+	cangjieOperatorDefinitionLineRe  = regexp.MustCompile(`^\s*(?:(?:public|private|protected|internal|open|static|operator|sealed|abstract|foreign|override|redef|mut|const|unsafe)\s+)*operator\s+func\s+[^\s()]+\s*\(`)
+	objectiveCMethodDefinitionLineRe = regexp.MustCompile(`^\s*[-+]\s*\([^)]*\)\s*[A-Za-z_][A-Za-z0-9_]*(?::|\s*\{)`)
+	typeDefinitionLineRe             = regexp.MustCompile(`^\s*(?:(?:abstract|case|data|export|final|open|private|protected|public|pub|sealed|static)\s+)*(?:class|enum|extension|interface|message|protocol|record|service|struct|trait|type)\s+[A-Za-z_][A-Za-z0-9_]*\b`)
+	objectiveCTypeDefinitionLineRe   = regexp.MustCompile(`^\s*@(interface|implementation|protocol)\s+[A-Za-z_][A-Za-z0-9_]*\b`)
+)
+
 // Context carries the per-dispatch inputs the grounding tiers read:
 // the reconstructed line index from every read_file in this Run's
 // history, and the repomap Graph explorer.keywordSearch built. Both
@@ -261,15 +272,22 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 	//  R5 nearest_condition    — AnchorKind=condition-specific scan
 	for _, attempt := range recoveryTiers {
 		if newSource, newLine, ok := attempt.fn(it, gc); ok {
+			candidate := *it
 			if newSource != "" {
-				it.Source = newSource
+				candidate.Source = newSource
 			}
 			if newLine > 0 {
-				it.LineStart = newLine
-				if it.LineEnd > 0 && it.LineEnd < newLine {
-					it.LineEnd = newLine
+				candidate.LineStart = newLine
+				if candidate.LineEnd > 0 && candidate.LineEnd < newLine {
+					candidate.LineEnd = newLine
 				}
 			}
+			if !recoveredAnchorConsistent(&candidate, gc) {
+				continue
+			}
+			it.Source = candidate.Source
+			it.LineStart = candidate.LineStart
+			it.LineEnd = candidate.LineEnd
 			attachGroundedLineSnippet(it, gc)
 			it.GroundingStatus = types.GroundingRecovered
 			it.GroundingTier = attempt.tier
@@ -288,7 +306,11 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 	// anchor_symbol, or drop the claim as speculative).
 	it.GroundingStatus = types.GroundingUngrounded
 	it.GroundingTier = ""
-	it.GroundingNote = explainUngrounded(it, gc)
+	if note := explainAnchorKindShapeMismatch(it, gc); note != "" {
+		it.GroundingNote = note
+	} else {
+		it.GroundingNote = explainUngrounded(it, gc)
+	}
 	return Report{
 		ItemID: it.ID, Status: it.GroundingStatus,
 		OriginalLine: originalLine, AdjustedLine: it.LineStart,
@@ -700,36 +722,18 @@ func nearestSymbolsHint(fi *repomap.FileInfo, line int) string {
 // ── Recovery R1: fqname_same_file ────────────────────────────────────
 //
 // The item cites Source but LineStart is off. Look up AnchorSymbol in
-// graph.SymbolsInFile(Source) — for AnchorKind=definition/return/
-// assignment/condition we want the symbol declaration line; for
-// AnchorKind=call we prefer the first matching callsite in
-// FileInfo.Relations. Returns the first structural match.
+// graph.SymbolsInFile(Source). Definition/import anchors have stable
+// symbol identity in a file; call anchors do not. A method name such as
+// Execute/Get/Run can appear many times in a large customer repository,
+// so call-site recovery is intentionally handled by the distance-capped
+// nearest_call tier instead of this whole-file symbol lookup.
 func recoverFQNameSameFile(it *types.EvidenceItem, gc *Context) (string, int, bool) {
 	if gc == nil || gc.Graph == nil {
 		return "", 0, false
 	}
 	switch it.AnchorKind {
 	case types.AnchorCall:
-		candidates := preferredCallTargetNames(it)
-		if len(candidates) == 0 {
-			return "", 0, false
-		}
-		if fi, ok := gc.Graph.FileIndex[it.Source]; ok && fi != nil {
-			for _, rel := range fi.Relations {
-				if rel.Kind != "call" || rel.Line <= 0 {
-					continue
-				}
-				relName := strings.TrimSpace(rel.ToEP.Name)
-				if relName == "" {
-					relName = strings.TrimSpace(rel.To)
-				}
-				for _, candidate := range candidates {
-					if relName == candidate || relName == lastDotSegment(candidate) {
-						return "", rel.Line, true
-					}
-				}
-			}
-		}
+		return "", 0, false
 	case types.AnchorImport:
 		name := preferredSymbolName(it)
 		if name == "" {
@@ -926,20 +930,30 @@ func recoverNearestCall(it *types.EvidenceItem, gc *Context) (string, int, bool)
 	if !ok || fi == nil {
 		return "", 0, false
 	}
-	name := preferredSymbolName(it)
-	if name == "" {
+	candidates := preferredCallTargetNames(it)
+	if len(candidates) == 0 {
 		return "", 0, false
 	}
-	shortName := lastDotSegment(name)
 	bestLine, bestDist := 0, math.MaxInt
 	for _, rel := range fi.Relations {
 		if rel.Kind != "call" {
 			continue
 		}
-		if rel.ToEP.Name != name && rel.ToEP.Name != shortName {
+		if rel.Line <= 0 {
 			continue
 		}
-		if rel.Line <= 0 {
+		relName := strings.TrimSpace(rel.ToEP.Name)
+		if relName == "" {
+			relName = strings.TrimSpace(rel.To)
+		}
+		matched := false
+		for _, candidate := range candidates {
+			if relName == candidate || relName == lastDotSegment(candidate) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
 			continue
 		}
 		d := rel.Line - it.LineStart
@@ -1001,6 +1015,87 @@ func recoverNearestCondition(it *types.EvidenceItem, gc *Context) (string, int, 
 		return "", bestLine, true
 	}
 	return "", 0, false
+}
+
+func recoveredAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
+	if it == nil {
+		return false
+	}
+	if snippetContradictsAnchorKind(it) {
+		return false
+	}
+	switch it.AnchorKind {
+	case types.AnchorCall:
+		return recoveredCallAnchorConsistent(it, gc)
+	default:
+		return true
+	}
+}
+
+func recoveredCallAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
+	if it == nil || it.Source == "" || it.LineStart <= 0 {
+		return false
+	}
+	candidates := preferredCallTargetNames(it)
+	if len(candidates) == 0 {
+		return false
+	}
+	if gc != nil && graphLineHasCallToAnyTarget(gc.Graph, it.Source, it.LineStart, candidates) {
+		return true
+	}
+	if gc == nil {
+		return false
+	}
+	fileLines, ok := gc.LineIndex[it.Source]
+	if !ok {
+		return false
+	}
+	text, ok := fileLines[it.LineStart]
+	if !ok {
+		return false
+	}
+	return lineCorroboratesCallSite(text, it, gc.Graph, it.LineStart)
+}
+
+func snippetContradictsAnchorKind(it *types.EvidenceItem) bool {
+	if it == nil || strings.TrimSpace(it.Snippet) == "" {
+		return false
+	}
+	switch it.AnchorKind {
+	case types.AnchorCall:
+		return snippetContradictsCallAnchor(it)
+	default:
+		return false
+	}
+}
+
+func snippetContradictsCallAnchor(it *types.EvidenceItem) bool {
+	if snippetHasCallSiteForEvidence(it.Snippet, it) {
+		return false
+	}
+	for _, line := range strings.Split(it.Snippet, "\n") {
+		if !sourceLineLooksLikeDefinition(line) {
+			continue
+		}
+		for _, target := range preferredCallTargetNames(it) {
+			if lineContainsAnchor(line, target, lastDotSegment(target), len(tokenSet(target)) == 0) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func snippetHasCallSiteForEvidence(snippet string, it *types.EvidenceItem) bool {
+	if it == nil {
+		return false
+	}
+	for _, line := range strings.Split(snippet, "\n") {
+		if lineCorroboratesCallSite(line, it, nil, 0) {
+			return true
+		}
+	}
+	return false
 }
 
 // ── Tier 1 ────────────────────────────────────────────────────────────
@@ -1839,6 +1934,9 @@ func lineCorroboratesCallSite(lineText string, it *types.EvidenceItem, graph *re
 	if graphLineHasCallToAnyTarget(graph, it.Source, lineNo, candidates) {
 		return true
 	}
+	if graphLineHasDefinitionFeature(graph, it.Source, lineNo) {
+		return false
+	}
 	if looksLikeCallableDefinitionLine(lineText) {
 		return false
 	}
@@ -1889,6 +1987,18 @@ func graphLineHasCallToAnyTarget(graph *repomap.Graph, source string, line int, 
 	return false
 }
 
+func graphLineHasDefinitionFeature(graph *repomap.Graph, source string, line int) bool {
+	if graph == nil || source == "" || line <= 0 {
+		return false
+	}
+	for _, sym := range graph.SymbolsInFile(source) {
+		if sym.Line == line {
+			return true
+		}
+	}
+	return false
+}
+
 func lineContainsCallTarget(lineText, target string) bool {
 	target = strings.TrimSpace(target)
 	if target == "" {
@@ -1906,19 +2016,55 @@ func lineContainsCallTarget(lineText, target string) bool {
 }
 
 func looksLikeCallableDefinitionLine(lineText string) bool {
-	lower := strings.ToLower(strings.TrimSpace(lineText))
-	switch {
-	case strings.HasPrefix(lower, "func "):
-		return true
-	case strings.HasPrefix(lower, "def "):
-		return true
-	case strings.HasPrefix(lower, "function "):
-		return true
-	case strings.HasPrefix(lower, "fn "):
-		return true
-	default:
+	return sourceLineLooksLikeCallableDefinition(lineText)
+}
+
+func sourceLineLooksLikeDefinition(lineText string) bool {
+	text := normalizedSourceLineForShape(lineText)
+	return sourceLineLooksLikeCallableDefinition(lineText) ||
+		typeDefinitionLineRe.MatchString(text) ||
+		objectiveCTypeDefinitionLineRe.MatchString(text)
+}
+
+func sourceLineLooksLikeCallableDefinition(lineText string) bool {
+	text := normalizedSourceLineForShape(lineText)
+	if text == "" || sourceLineStartsWithControlKeyword(text) {
 		return false
 	}
+	return callableDefinitionLineRe.MatchString(text) ||
+		cFamilyDefinitionLineRe.MatchString(text) ||
+		methodDefinitionLineRe.MatchString(text) ||
+		assignedCallableDefinitionLineRe.MatchString(text) ||
+		cangjieOperatorDefinitionLineRe.MatchString(text) ||
+		objectiveCMethodDefinitionLineRe.MatchString(text)
+}
+
+func normalizedSourceLineForShape(lineText string) string {
+	text := strings.TrimSpace(lineText)
+	for strings.HasPrefix(text, "@") {
+		fields := strings.Fields(text)
+		if len(fields) < 2 || !strings.HasPrefix(fields[0], "@") {
+			return text
+		}
+		text = strings.TrimSpace(strings.TrimPrefix(text, fields[0]))
+	}
+	return text
+}
+
+func sourceLineStartsWithControlKeyword(lineText string) bool {
+	lower := strings.ToLower(strings.TrimSpace(lineText))
+	for _, prefix := range []string{
+		"case ", "catch ", "defer ", "do ", "else ", "except ", "finally ",
+		"finally{", "finally:",
+		"for ", "for(", "guard ", "if ", "if(", "match ", "raise ",
+		"rescue ", "return ", "switch ", "switch(", "throw ", "try ", "try{",
+		"unless ", "when ", "while ", "while(", "yield ",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func looksLikeCallSyntax(lineText, target string) bool {
@@ -1952,6 +2098,30 @@ func looksLikeCallSyntax(lineText, target string) bool {
 }
 
 // ── ungrounded explanation ───────────────────────────────────────────
+
+func explainAnchorKindShapeMismatch(it *types.EvidenceItem, gc *Context) string {
+	if it == nil {
+		return ""
+	}
+	switch it.AnchorKind {
+	case types.AnchorCall:
+		if gc != nil && it.Source != "" && it.LineStart > 0 {
+			if fileLines, ok := gc.LineIndex[it.Source]; ok {
+				if line, ok := fileLines[it.LineStart]; ok &&
+					sourceLineLooksLikeDefinition(line) &&
+					!lineCorroboratesCallSite(line, it, gc.Graph, it.LineStart) {
+					return fmt.Sprintf("anchor_kind %q cites a definition-shaped source line at %s:%d, not a call site; re-emit with anchor_kind=%q when citing the declaration, or cite the concrete call-site line with anchor_kind=%q",
+						it.AnchorKind, it.Source, it.LineStart, types.AnchorDefinition, types.AnchorCall)
+				}
+			}
+		}
+		if snippetContradictsCallAnchor(it) {
+			return fmt.Sprintf("anchor_kind %q carries a definition-shaped snippet, not a call-site snippet; re-emit with anchor_kind=%q when citing the declaration, or cite the concrete call-site line with anchor_kind=%q",
+				it.AnchorKind, types.AnchorDefinition, types.AnchorCall)
+		}
+	}
+	return ""
+}
 
 func explainUngrounded(it *types.EvidenceItem, gc *Context) string {
 	var parts []string
