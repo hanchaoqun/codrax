@@ -7,6 +7,8 @@
 #     PARALLEL=4       (default 4) — concurrent case workers
 #     TIMEOUT=1200     per-case wall-time cap (seconds)
 #     CASES_GLOB="eval/cases/*.case"  — restrict the sweep to a subset
+#     RANDOMIZE=1      shuffle case order before launching workers
+#     RANDOMIZE_SEED=N optional deterministic shuffle seed
 #   Output:
 #     eval/parallel_all_summary.md   — PASS/FAIL per case + rollup
 #
@@ -29,6 +31,17 @@ source "$SCRIPT_DIR/runner_lib.sh"
 CASES_GLOB="${CASES_GLOB:-eval/cases/*.case}"
 # shellcheck disable=SC2206
 CASES=($CASES_GLOB)
+RANDOMIZE="${RANDOMIZE:-0}"
+RANDOMIZE_SEED="${RANDOMIZE_SEED:-$(date +%s)}"
+if [[ "$RANDOMIZE" == "1" || "$RANDOMIZE" == "true" ]]; then
+  # shellcheck disable=SC2207
+  CASES=($(
+    printf '%s\n' "${CASES[@]}" |
+      awk -v seed="$RANDOMIZE_SEED" 'BEGIN { srand(seed) } { printf "%.17f\t%s\n", rand(), $0 }' |
+      sort -n |
+      cut -f2-
+  ))
+fi
 TOTAL=${#CASES[@]}
 PARALLEL="${PARALLEL:-4}"
 TIMEOUT="${TIMEOUT:-1200}"
@@ -66,6 +79,11 @@ echo "- total cases: $TOTAL" >>"$SUMMARY"
 echo "- parallel: $PARALLEL" >>"$SUMMARY"
 echo "- timeout: ${TIMEOUT}s per case" >>"$SUMMARY"
 echo "- results_root: $RESULTS_ROOT" >>"$SUMMARY"
+if [[ "$RANDOMIZE" == "1" || "$RANDOMIZE" == "true" ]]; then
+  echo "- randomized_order: true (seed=$RANDOMIZE_SEED)" >>"$SUMMARY"
+else
+  echo "- randomized_order: false" >>"$SUMMARY"
+fi
 echo "" >>"$SUMMARY"
 echo "| # | case | verdict | reason | sec | ana | exp | ext | fin | repair | rejects | patch | sem | self |" >>"$SUMMARY"
 echo "|--:|------|---------|--------|----:|----:|----:|----:|----:|-------:|--------:|------:|----:|-----:|" >>"$SUMMARY"
