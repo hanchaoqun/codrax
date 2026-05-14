@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -69,6 +70,46 @@ func TestNormalizeToolCallParams_AuditDoesNotMutate(t *testing.T) {
 	}
 }
 
+func TestNormalizeToolCallParams_RepairStringWrappedArrayWithBareQuotes(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentExplorer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	calls := []llm.ToolCall{{
+		ID:     "call_1",
+		Name:   "emit_evidence",
+		Params: json.RawMessage(`{"items":"[{\"summary\":\"EvidenceNodeSpec appends \"_tN\" and mentions a \"key\": \"value\" pair\",\"line_start\":\"82\"}]"}`),
+	}}
+	schemas := []llm.ToolSchema{{
+		Name:       "emit_evidence",
+		Parameters: evidenceItemsCompatTestSchema(),
+	}}
+
+	got := base.normalizeToolCallParams(calls, schemas)
+	if string(got[0].Params) == string(calls[0].Params) {
+		t.Fatalf("expected repaired emit_evidence params, got unchanged %s", got[0].Params)
+	}
+	var decoded struct {
+		Items []struct {
+			Summary   string `json:"summary"`
+			LineStart int    `json:"line_start"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(got[0].Params, &decoded); err != nil {
+		t.Fatalf("repaired params are invalid JSON: %v\n%s", err, got[0].Params)
+	}
+	if len(decoded.Items) != 1 || decoded.Items[0].LineStart != 82 {
+		t.Fatalf("unexpected repaired items: %+v", decoded.Items)
+	}
+	if summary := decoded.Items[0].Summary; !strings.Contains(summary, `"_tN"`) || !strings.Contains(summary, `"key": "value"`) {
+		t.Fatalf("summary lost quoted text: %q", summary)
+	}
+}
+
 func TestNormalizeToolCallParams_NoInjectedPolicyIsNoOp(t *testing.T) {
 	base := &BaseAgent{
 		name: types.AgentExplorer,
@@ -96,5 +137,24 @@ func readFileCompatTestSchema() json.RawMessage {
 			"limit": {"type": "integer"}
 		},
 		"required": ["path"]
+	}`)
+}
+
+func evidenceItemsCompatTestSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"items": {
+				"type": "array",
+				"items": {
+					"type": "object",
+					"properties": {
+						"summary": {"type": "string"},
+						"line_start": {"type": "integer"}
+					}
+				}
+			}
+		},
+		"required": ["items"]
 	}`)
 }

@@ -88,8 +88,8 @@ func normalizeValue(value any, schema json.RawMessage, path string, cfg types.To
 
 	if schemaExpectsObject(node) {
 		if s, ok := value.(string); ok && !typeAllows(node.Type, "string") {
-			if decoded, ok := decodeJSONStringAs(s, "object"); ok {
-				repairs := []Repair{repair(path, "json_string_object", valueKind(value), "object")}
+			if decoded, rule, ok := decodeJSONStringAs(s, "object"); ok {
+				repairs := []Repair{repair(path, rule, valueKind(value), "object")}
 				value = decoded
 				if nested, ok := value.(map[string]any); ok {
 					out, nestedRepairs := normalizeObject(nested, node, path, cfg)
@@ -105,8 +105,8 @@ func normalizeValue(value any, schema json.RawMessage, path string, cfg types.To
 
 	if schemaExpectsArray(node) {
 		if s, ok := value.(string); ok && !typeAllows(node.Type, "string") {
-			if decoded, ok := decodeJSONStringAs(s, "array"); ok {
-				repairs := []Repair{repair(path, "json_string_array", valueKind(value), "array")}
+			if decoded, rule, ok := decodeJSONStringAs(s, "array"); ok {
+				repairs := []Repair{repair(path, rule, valueKind(value), "array")}
 				value = decoded
 				if arr, ok := value.([]any); ok {
 					out, nestedRepairs := normalizeArray(arr, node, path, cfg)
@@ -262,24 +262,210 @@ func decodeJSONValue(raw json.RawMessage) (any, bool) {
 	return value, true
 }
 
-func decodeJSONStringAs(s string, want string) (any, bool) {
+func decodeJSONStringAs(s string, want string) (any, string, bool) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
-		return nil, false
+		return nil, "", false
 	}
 	switch want {
 	case "object":
 		if !strings.HasPrefix(trimmed, "{") {
-			return nil, false
+			return nil, "", false
 		}
 	case "array":
 		if !strings.HasPrefix(trimmed, "[") {
-			return nil, false
+			return nil, "", false
 		}
 	default:
-		return nil, false
+		return nil, "", false
 	}
-	return decodeJSONValue(json.RawMessage(trimmed))
+	if decoded, ok := decodeJSONValue(json.RawMessage(trimmed)); ok {
+		return decoded, "json_string_" + want, true
+	}
+	repaired, changed := repairUnescapedQuotesInJSONStringLiterals(trimmed)
+	if !changed {
+		return nil, "", false
+	}
+	decoded, ok := decodeJSONValue(json.RawMessage(repaired))
+	if !ok {
+		return nil, "", false
+	}
+	return decoded, "json_string_" + want + "_quote_escape", true
+}
+
+type jsonStringRole uint8
+
+const (
+	jsonStringValue jsonStringRole = iota
+	jsonStringKey
+)
+
+type jsonContainerExpect uint8
+
+const (
+	expectValueOrEnd jsonContainerExpect = iota
+	expectKeyOrEnd
+	expectColon
+	expectCommaOrEnd
+)
+
+type jsonContainerState struct {
+	kind   byte
+	expect jsonContainerExpect
+}
+
+// repairUnescapedQuotesInJSONStringLiterals handles a common local-model
+// artefact inside string-wrapped JSON payloads:
+//
+//	{"items":"[{\"summary\":\"uses \"foo\" internally\"}]"}
+//
+// After the outer JSON string is decoded, the inner array/object still looks
+// JSON-shaped but its free-text string value contains unescaped quote bytes.
+// The repair is deliberately narrow: it only adds escapes to quote bytes that
+// cannot legally terminate the current JSON string according to nearby JSON
+// syntax and container state. The caller re-parses the repaired payload before
+// accepting it, so malformed or ambiguous input remains unchanged.
+func repairUnescapedQuotesInJSONStringLiterals(s string) (string, bool) {
+	var out strings.Builder
+	out.Grow(len(s))
+
+	stack := make([]jsonContainerState, 0, 8)
+	inString := false
+	escaped := false
+	role := jsonStringValue
+	changed := false
+
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inString {
+			if escaped {
+				escaped = false
+				out.WriteByte(ch)
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+				out.WriteByte(ch)
+			case '"':
+				if jsonQuoteTerminatesString(s, i, role) {
+					inString = false
+					out.WriteByte(ch)
+					if role == jsonStringKey {
+						setTopExpect(stack, expectColon)
+					} else {
+						markJSONStringValueComplete(stack)
+					}
+					continue
+				}
+				out.WriteByte('\\')
+				out.WriteByte(ch)
+				changed = true
+			default:
+				out.WriteByte(ch)
+			}
+			continue
+		}
+
+		switch ch {
+		case '"':
+			inString = true
+			role = nextJSONStringRole(stack)
+			out.WriteByte(ch)
+		case '{':
+			stack = append(stack, jsonContainerState{kind: '{', expect: expectKeyOrEnd})
+			out.WriteByte(ch)
+		case '[':
+			stack = append(stack, jsonContainerState{kind: '[', expect: expectValueOrEnd})
+			out.WriteByte(ch)
+		case ':':
+			if len(stack) > 0 && stack[len(stack)-1].kind == '{' {
+				stack[len(stack)-1].expect = expectValueOrEnd
+			}
+			out.WriteByte(ch)
+		case ',':
+			if len(stack) > 0 {
+				switch stack[len(stack)-1].kind {
+				case '{':
+					stack[len(stack)-1].expect = expectKeyOrEnd
+				case '[':
+					stack[len(stack)-1].expect = expectValueOrEnd
+				}
+			}
+			out.WriteByte(ch)
+		case '}':
+			if len(stack) > 0 && stack[len(stack)-1].kind == '{' {
+				stack = stack[:len(stack)-1]
+				markJSONStringValueComplete(stack)
+			}
+			out.WriteByte(ch)
+		case ']':
+			if len(stack) > 0 && stack[len(stack)-1].kind == '[' {
+				stack = stack[:len(stack)-1]
+				markJSONStringValueComplete(stack)
+			}
+			out.WriteByte(ch)
+		default:
+			out.WriteByte(ch)
+		}
+	}
+	if !changed {
+		return "", false
+	}
+	return out.String(), true
+}
+
+func nextJSONStringRole(stack []jsonContainerState) jsonStringRole {
+	if len(stack) == 0 {
+		return jsonStringValue
+	}
+	top := stack[len(stack)-1]
+	if top.kind == '{' && top.expect == expectKeyOrEnd {
+		return jsonStringKey
+	}
+	return jsonStringValue
+}
+
+func jsonQuoteTerminatesString(s string, quoteIndex int, role jsonStringRole) bool {
+	next, ok := nextNonSpaceByte(s, quoteIndex+1)
+	if !ok {
+		return true
+	}
+	if role == jsonStringKey {
+		return next == ':'
+	}
+	switch next {
+	case ',', '}', ']':
+		return true
+	default:
+		return false
+	}
+}
+
+func nextNonSpaceByte(s string, start int) (byte, bool) {
+	for i := start; i < len(s); i++ {
+		switch s[i] {
+		case ' ', '\n', '\r', '\t':
+			continue
+		default:
+			return s[i], true
+		}
+	}
+	return 0, false
+}
+
+func setTopExpect(stack []jsonContainerState, expect jsonContainerExpect) {
+	if len(stack) == 0 {
+		return
+	}
+	stack[len(stack)-1].expect = expect
+}
+
+func markJSONStringValueComplete(stack []jsonContainerState) {
+	if len(stack) == 0 {
+		return
+	}
+	stack[len(stack)-1].expect = expectCommaOrEnd
 }
 
 func splitStringArray(s string) ([]any, bool) {

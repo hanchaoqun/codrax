@@ -80,6 +80,58 @@ func TestNormalize_StringWrappedArrays(t *testing.T) {
 	}
 }
 
+func TestNormalize_StringWrappedArrayEscapesBareQuotesInTextValue(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "items":{
+	      "type":"array",
+	      "items":{
+	        "type":"object",
+	        "properties":{
+	          "summary":{"type":"string"},
+	          "source":{"type":"string"},
+	          "line_start":{"type":"integer"}
+	        }
+	      }
+	    }
+	  }
+	}`)
+	raw := json.RawMessage(`{
+	  "items":"[{\"summary\":\"EvidenceNodeSpec says IDPrefix appends \"_tN\" and may describe a \"key\": \"value\" pair in prose\",\"source\":\"internal/analysis/compiler/templates.go\",\"line_start\":\"82\"}]"
+	}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$.items", "json_string_array_quote_escape") {
+		t.Fatalf("expected quote-escape array repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.items[0].line_start", "string_integer") {
+		t.Fatalf("expected nested scalar repair after array unwrap, got %+v", report)
+	}
+	var decoded struct {
+		Items []struct {
+			Summary   string `json:"summary"`
+			Source    string `json:"source"`
+			LineStart int    `json:"line_start"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if len(decoded.Items) != 1 {
+		t.Fatalf("items len = %d, want 1", len(decoded.Items))
+	}
+	item := decoded.Items[0]
+	if item.LineStart != 82 || item.Source != "internal/analysis/compiler/templates.go" {
+		t.Fatalf("unexpected item: %+v", item)
+	}
+	for _, want := range []string{`"_tN"`, `"key": "value"`} {
+		if !strings.Contains(item.Summary, want) {
+			t.Fatalf("summary lost quoted text %q: %q", want, item.Summary)
+		}
+	}
+}
+
 func TestNormalize_StringWrappedRootObject(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",
@@ -198,4 +250,13 @@ func TestNormalize_StringArraySplitRequiresExplicitEnable(t *testing.T) {
 	if strings.Join(decoded.Keywords, "|") != "agent|count" {
 		t.Fatalf("keywords not split: %+v", decoded.Keywords)
 	}
+}
+
+func hasRepair(report Report, path, rule string) bool {
+	for _, repair := range report.Repairs {
+		if repair.Path == path && repair.Rule == rule {
+			return true
+		}
+	}
+	return false
 }
