@@ -63,7 +63,7 @@ created.
 | E20260514-G41 | focused `s5b` analyzer trace | Confirmed red-line drift | StageAnalyze used line-level `grep(files_only=false)` and pulled function signatures plus a noisy "26 packages" count into analyzer thinking, despite the evidence-lite runtime boundary requiring files-only pre-scan. | Prompt/runtime contract drift: old ClassificationGrep Round-2 carve-out let content evidence leak into classification, creating hard/soft signal inversion. The analyzer saw source-line noise before exploration, then downstream gates had to fight that noise. | Restore the evidence-lite boundary in both prompt and runtime: analyze may use `repo_map`, `list_files`, and `grep(files_only=true)` only; source-line proof belongs to explore. Keep legacy config fields inert for compatibility, but never admit line-level grep in StageAnalyze. |
 | E20260514-G42 | focused `s5b` post-Batch 1i replay | PASS with repairs | The strict `member_set` handoff forced complete coverage and ultimately passed, but the first completion downgrade exposed a repair-cost spike: one missing `findings_validator → Validate` support row caused a second explore dispatch; the model then tried to re-emit a giant evidence slate with invalid `surface_terms` before succeeding via member-specific `@ file:line` rows. | The pipeline now has the right hard gate, but repair consumption is still model-heavy. Accepted evidence/support rows are not compiled into a deterministic per-member support table early enough, and stale ungrounded evidence cannot be superseded cleanly, so the model pays extra turns reconstructing support_refs. | Add a deterministic `MemberSupportRow` compiler from accepted typed evidence, read_file gutters, and aggregate support_refs. Completion repair should name only missing members and candidate support locations; finalization should consume stable rows instead of relying on the model to rebuild 25 support refs by hand. |
 | E20260514-G43 | focused `s5b` post-Batch 1j replay | Confirmed FAIL / stopped loop | The completion support gap was fixed, but finalizer entered a repeated pre-emit rejection loop because the model-authored member `perftriage → MergePerfBundles + CorroborateStallFiles` was displayed as two cited rows. The validator required the exact composite member string while citation alignment preferred split rows. | Principal member-set coverage and structured relation-shape checks did not share a generalized display-equivalence rule for "same left-axis, multiple explicit right-side symbols." This recreated the G3/G4 row-grain conflict at the final answer boundary. | Treat composite relation members such as `pkg → A + B` / `pkg: A 和 B` as precise multi-target relation rows. A structured list may satisfy them by rendering one row per target only when every row has the same left axis; different left-axis rows must not satisfy the composite member. |
-| E20260514-G44 | focused `s5b` post-Batch 1j pass | Residual PASS cost | Self-consistency reviewer falsely claimed the ordered package list was not alphabetic, triggering an unnecessary rewrite even though the sequence was already `aggregator, amplifier, axis, ...`. | Semantic review can turn a noisy natural-language judgment into an expensive rewrite despite structurally valid typed rows. This is a soft reviewer acting like a hard gate. | Teach the reviewer to consume deterministic ordered-list metadata or downgrade ordering disputes to advisory when the structured row set is already accepted. For sortedness, use a deterministic comparator over visible labels instead of model prose. |
+| E20260514-G44 | focused `s5b` post-Batch 1j pass | Mitigated in Batch 1k; focused replay pending | Self-consistency reviewer falsely claimed the ordered package list was not alphabetic, triggering an unnecessary rewrite even though the sequence was already `aggregator, amplifier, axis, ...`. | Semantic review can turn a noisy natural-language judgment into an expensive rewrite despite structurally valid typed rows. This is a soft reviewer acting like a hard gate. | Added a deterministic row-order gate after the reviewer verdict: sortedness contradictions are suppressed only when typed `AnswerDocumentV2` rows prove an ascending visible-label or citation-path axis. Count, duplicate, and sequence-direction contradictions remain live. |
 
 ## End-to-End Traces
 
@@ -2050,6 +2050,33 @@ Batch 1j progress:
   `semantic_quality_dispatches=2`) because the first exploration closure still
   under-materializes line-grounded evidence and the self-consistency reviewer
   raised the G44 sortedness false positive.
+
+Batch 1k progress:
+
+- Implemented the G44 row-order hardening as a deterministic filter between
+  `SelfConsistencyReviewer.Review` and `ViolSelfContradiction` creation. The
+  reviewer still detects candidate summary/body contradictions, but rewrite
+  eligibility now passes through typed `AnswerDocumentV2` rows for row-table
+  properties that can be checked without prose judgment.
+- The filter is intentionally narrow to avoid a seesaw: it applies only to
+  per-contradiction sortedness language (`alphabetic` / `lexicographic` /
+  `sorted` / `字母` / `排序` / ascending-descending wording). Call-chain
+  direction/order mismatches, count mismatches, and other semantic
+  contradictions are not downgraded by a global reviewer rationale.
+- Deterministic axes are language-neutral. The first axis is the visible row
+  label. The second axis derives the row key from the cited file path relative
+  to the common directory prefix, which covers Go packages, Python packages,
+  scoped TypeScript/ArkTS modules, Java/Kotlin packages, Rust crates, native
+  source directories, Cangjie directories, and script/app library directories
+  without adding language-specific branches.
+- Added anti-seesaw unit coverage for: true sorted visible rows, genuinely
+  unsorted rows, mixed verdicts where only sortedness is suppressed and count
+  remains live, duplicate/ambiguous citation-path axes that must not suppress,
+  call-chain sequence direction that must not be classified as sortedness, and
+  the full `runSelfConsistencyReviewV2` path.
+- Focused verification passed:
+  `go test ./internal/orchestrator -run 'TestSelfConsistency|TestRunSelfConsistencyReviewV2|TestRenderConsistency|TestItemBodyText|TestClampReasoning|TestBuildSelfContradiction'`
+  and `go test ./internal/orchestrator ./internal/types ./internal/agent`.
 
 ### Batch 2: Exact Answer Lane Before Symbol Enumeration
 

@@ -2129,6 +2129,14 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 		}
 		return nil
 	}
+	remainingContradictions, suppressedRowOrder := filterDeterministicRowOrderContradictions(doc, verdict)
+	if suppressedRowOrder > 0 {
+		logging.Info("[self_consistency_reviewer] suppressed %d deterministic row-order contradiction(s) at confidence=%.2f reasoning=%q",
+			suppressedRowOrder, verdict.Confidence, verdict.Reasoning)
+	}
+	if len(remainingContradictions) == 0 {
+		return nil
+	}
 
 	// Surface contradiction count + rewrite-mode to the user. The
 	// NoticeKind tracks the rewrite flag so the dock paints active
@@ -2143,13 +2151,13 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 		Timestamp:  time.Now(),
 		Agent:      "orchestrator",
 		NoticeKind: contradictionKind,
-		Reasoning:  selfConsistencyContradictionMessage(o.busCtx.Language, o.selfConsistencyRewriteOnContradiction, len(verdict.Contradictions)),
+		Reasoning:  selfConsistencyContradictionMessage(o.busCtx.Language, o.selfConsistencyRewriteOnContradiction, len(remainingContradictions)),
 	})
 
-	out := make([]types.Violation, 0, len(verdict.Contradictions))
-	totalN := len(verdict.Contradictions)
+	out := make([]types.Violation, 0, len(remainingContradictions))
+	totalN := len(remainingContradictions)
 	reasoning := clampReasoningForRepair(verdict.Reasoning)
-	for i, c := range verdict.Contradictions {
+	for i, c := range remainingContradictions {
 		out = append(out, types.Violation{
 			Kind: types.ViolSelfContradiction,
 			Detail: fmt.Sprintf("self_contradiction[%s] — SUMMARY: %q ⇄ BODY: %q",
