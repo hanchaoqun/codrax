@@ -68,19 +68,20 @@ llm:
     # compatibility mode; compliant providers should leave it unset.
     # recover_text_tool_calls: false
 
-    # Schema-aware parameter compatibility for local/small models that
-    # do return protocol-level tool_calls but put mechanically wrong
-    # JSON value types in arguments, e.g. {"offset":"146"} when the
-    # tool schema says integer, or "agent,count" when the schema says
-    # array of strings. Runs after recover_text_tool_calls and before
-    # tool execution. It never fills missing fields, drops unknown keys,
-    # repairs prose, or maps enum synonyms.
-    # Default: off. Use audit first to log repairable payloads without
-    # changing execution; switch to repair only for providers/agents
-    # that need this compatibility mode.
+    # Schema-aware parameter compatibility for models that do return
+    # protocol-level tool_calls but put mechanically wrong JSON value
+    # types in arguments, e.g. {"offset":"146"} when the tool schema
+    # says integer. Runs after recover_text_tool_calls and before tool
+    # execution. It never fills missing fields, drops unknown keys,
+    # repairs prose, maps enum synonyms, or recovers missing tool_calls.
+    # Default: repair with split_string_arrays=false, so only
+    # schema-proven equivalence repairs run. Set mode: off to disable,
+    # audit to log repairable payloads without changing execution, or
+    # split_string_arrays: true for local/small models that emit
+    # comma/newline-delimited arrays of strings.
     # tool_param_compat:
-    #   mode: off              # off | audit | repair
-    #   split_string_arrays: true
+    #   mode: repair           # off | audit | repair
+    #   split_string_arrays: false
 
     # --- TLS (HTTPS endpoints only) --------------------------------------
     # These fields have no effect when base_url uses `http://`.

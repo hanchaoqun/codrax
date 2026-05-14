@@ -31,8 +31,8 @@ type LLMProviderConfig struct {
 
 	// ToolParamCompat controls the schema-aware tool parameter compatibility
 	// layer that runs after protocol/text tool-call recovery but before
-	// local tool execution. nil = inherit from default; absent everywhere
-	// means off, preserving compliant provider behavior byte-for-byte.
+	// local tool execution. nil = inherit from default; when absent at every
+	// provider level, the CLI runtime injects DefaultToolParamCompatConfig.
 	ToolParamCompat *ToolParamCompatConfig `yaml:"tool_param_compat"`
 
 	// ContextWindow is the deploy-time-declared max input token window of
@@ -154,14 +154,16 @@ const (
 	ToolParamCompatRepair = "repair"
 )
 
-// ToolParamCompatConfig is a provider-scoped compatibility policy for small /
-// local models that emit protocol-level tool calls with mechanically wrong
-// JSON value types (for example "offset":"140" where the schema says integer).
-// It is intentionally separate from RecoverTextToolCalls: that knob recovers
-// missing protocol tool_calls from assistant text, while this knob normalizes
+// ToolParamCompatConfig is a provider-scoped compatibility policy for models
+// that emit protocol-level tool calls with mechanically wrong JSON value types
+// (for example "offset":"140" where the schema says integer). It is
+// intentionally separate from RecoverTextToolCalls: that knob recovers missing
+// protocol tool_calls from assistant text, while this knob normalizes
 // already-present tool_call arguments against the tool schema.
 type ToolParamCompatConfig struct {
-	// Mode is one of off, audit, repair. Empty means off.
+	// Mode is one of off, audit, repair. Empty means off for an explicitly
+	// supplied policy; the CLI runtime injects DefaultToolParamCompatConfig
+	// when the provider tree omits tool_param_compat entirely.
 	Mode string `yaml:"mode"`
 
 	// SplitStringArrays controls the conservative string -> []string rule for
@@ -169,6 +171,17 @@ type ToolParamCompatConfig struct {
 	// local models often emit "a,b,c" for keywords/entities; set false to keep
 	// only JSON-stringified array repair.
 	SplitStringArrays *bool `yaml:"split_string_arrays"`
+}
+
+// DefaultToolParamCompatConfig is the production runtime default. It enables
+// only schema-proven equivalence repairs; the less lossless delimited-string
+// array split remains opt-in via split_string_arrays: true.
+func DefaultToolParamCompatConfig() ToolParamCompatConfig {
+	splitStringArrays := false
+	return ToolParamCompatConfig{
+		Mode:              ToolParamCompatRepair,
+		SplitStringArrays: &splitStringArrays,
+	}
 }
 
 func (c ToolParamCompatConfig) NormalizedMode() string {

@@ -265,6 +265,6 @@ func TestResolveProvider_ToolParamCompat_Inheritance(t *testing.T) {
 		LLM: types.LLMProvidersConfig{Default: types.LLMProviderConfig{Provider: "openai", APIKey: "k", Model: "x", BaseURL: "u"}},
 	}, "analyzer")
 	if bare.ToolParamCompat != nil {
-		t.Fatalf("absent tool_param_compat should remain nil so runtime defaults off, got %+v", bare.ToolParamCompat)
+		t.Fatalf("provider merge should preserve absent tool_param_compat for runtime default injection, got %+v", bare.ToolParamCompat)
 	}
 }

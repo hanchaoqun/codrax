@@ -69,7 +69,7 @@ func TestNormalizeToolCallParams_AuditDoesNotMutate(t *testing.T) {
 	}
 }
 
-func TestNormalizeToolCallParams_DefaultOff(t *testing.T) {
+func TestNormalizeToolCallParams_NoInjectedPolicyIsNoOp(t *testing.T) {
 	base := &BaseAgent{
 		name: types.AgentExplorer,
 		deps: &Dependencies{},

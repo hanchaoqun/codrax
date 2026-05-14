@@ -1,7 +1,7 @@
-# 本地小模型 Tool 参数兼容层
+# Tool 参数 Schema 归一化兼容层
 
-**Status**: Implemented Design (2026-05-13)
-**Scope**: 兼容 OpenAI-compatible 本地/小模型在 tool-call 参数 JSON 上的机械型错误，同时保持远程大模型默认路径 byte-identical。
+**Status**: Implemented Design (2026-05-13), default policy revised 2026-05-14
+**Scope**: 兼容所有 OpenAI-compatible 模型在 protocol-level tool-call 参数 JSON 上的机械型错误。文本 tool-call envelope 恢复仍保持 opt-in；schema 参数归一化默认启用安全子集。
 
 ---
 
@@ -12,7 +12,7 @@
 - 模型没有返回协议级 `tool_calls`，而是在 assistant 文本里吐出工具调用 JSON。
 - 模型已经返回了协议级 `tool_calls`，但 `arguments` 里的字段类型不符合 schema，例如 `read_file.offset` 是字符串 `"146"`，schema 要求 integer；或 `emit_analysis.keywords` 是 `"agent,count"`，schema 要求 `[]string`。
 
-第一类已有 `recover_text_tool_calls` 处理，位置在 LLM adapter 层；它只负责把 assistant 文本中的完整工具调用 envelope 恢复成协议级 tool call。第二类不能继续塞进 prompt 或 adapter：adapter 看不到本轮完整工具 schema，也不应该理解 tool 的业务含义；prompt 改动又会影响所有远程大模型的稳定性。
+第一类已有 `recover_text_tool_calls` 处理，位置在 LLM adapter 层；它只负责把 assistant 文本中的完整工具调用 envelope 恢复成协议级 tool call，默认关闭。第二类不能继续塞进 prompt 或 adapter：adapter 看不到本轮完整工具 schema，也不应该理解 tool 的业务含义；prompt 改动又会影响所有模型的稳定性。
 
 因此新增一个独立的 **schema-aware tool 参数兼容层**，运行在 BaseAgent 收到 LLM response 之后、真正执行 tool 之前。
 
@@ -20,7 +20,8 @@
 
 ## 2. 设计目标
 
-- **默认零影响**：未配置时完全关闭，远程大模型行为保持 byte-identical。
+- **默认安全收益**：未配置时默认开启 `repair` 的 schema-proven 子集，减少所有模型的机械参数返工。
+- **显式风险边界**：文本 envelope 恢复仍 opt-in；非完全等价的 delimited string array split 也 opt-in。
 - **provider / agent scoped**：通过 `providers.yaml` 随模型路由配置，不靠 prompt 分支。
 - **只修机械错误**：只做 schema 可证明的类型归一化，不猜、不补、不删。
 - **先审计再修复**：支持 `audit` 模式观测 repairable payload，不改变执行。
@@ -63,8 +64,8 @@ llm:
     model: "local-model"
     recover_text_tool_calls: true
     tool_param_compat:
-      mode: audit              # off | audit | repair
-      split_string_arrays: true
+      mode: repair             # off | audit | repair
+      split_string_arrays: false
 
   agents:
     finalizer:
@@ -74,14 +75,16 @@ llm:
 
 字段语义：
 
-- `mode: off`：关闭，默认值。
+- 未配置：runtime 默认注入 `mode: repair` 且 `split_string_arrays: false`。
+- `mode: off`：关闭。
 - `mode: audit`：识别可修复项并打日志，但把原始参数继续交给 tool。
 - `mode: repair`：应用确定性修复，并打 warning 日志。
-- `split_string_arrays`：仅当 schema 是 `array` 且 `items.type == string` 时，允许把 `"a,b,c"` / `"a，b"` / 多行文本切成 `[]string`。默认 true；设 false 后只修 JSON-stringified array。
+- `split_string_arrays`：仅当 schema 是 `array` 且 `items.type == string` 时，允许把 `"a,b,c"` / `"a，b"` / 多行文本切成 `[]string`。显式 policy 中未设置时保持历史默认 true；runtime 的缺省注入显式设为 false，因为拆分普通字符串不如 JSON-stringified array / scalar parse 那样完全等价。
 
 merge 规则：
 
-- `llm.default.tool_param_compat` 可被所有主流水线 agent 继承。
+- 未配置 `tool_param_compat` 时，CLI runtime 给所有主流水线 agent 注入安全默认 policy。
+- `llm.default.tool_param_compat` 可被所有主流水线 agent 继承，并覆盖 runtime 默认 policy。
 - `llm.agents.<name>.tool_param_compat` 可覆盖 default。
 - `mode: off` 的 agent 不进入 runtime policy map。
 - 非法 mode 会在启动时 fail-loud。
@@ -103,7 +106,7 @@ merge 规则：
 |---|---|---|
 | object | JSON string，内容是 `{...}` | decode 为 object，并递归修内部字段 |
 | array | JSON string，内容是 `[...]` | decode 为 array，并递归修 item |
-| array of string | 普通分隔字符串 | split 为 `[]string`（可关闭） |
+| array of string | 普通分隔字符串 | split 为 `[]string`（默认 runtime 不启用；可显式开启） |
 | integer | `"123"` / `"-5"` | parse 为 integer |
 | number | `"0.75"` | parse 为 finite number |
 | boolean | `"true"` / `"false"` | parse 为 boolean |
@@ -140,11 +143,12 @@ merge 规则：
 
 ## 7. 质量边界
 
-对远程大模型质量的保护：
+对模型质量的保护：
 
-- 默认关闭；没有配置时 `BaseAgent` 直接返回原始 tool calls。
+- 只在已有协议级 tool call 上运行，不从 prose/thinking 补工具或答案。
+- 默认 policy 只启用 schema-proven 等价修复，不启用普通字符串拆数组。
 - `audit` 不改变 payload，用于线上观察。
-- 只有 `repair` 改写参数，且只在已配置的 agent 上生效。
+- 只有 `repair` 改写参数，且只在配置 resolver 注入/启用的 agent 上生效。
 - schema 缺失、JSON 非法、规则不确定时全部 no-op。
 - 修复后再次 `json.Marshal` 并 `json.Valid`，失败则 no-op。
 
@@ -172,7 +176,7 @@ merge 规则：
 
 真实端到端验证建议：
 
-1. 本地模型先开：
+1. 需要排查 provider 参数形态时，可临时开 audit：
 
    ```yaml
    tool_param_compat:
@@ -180,11 +184,12 @@ merge 规则：
    ```
 
 2. 用 debug log 观察 `[tool_param_compat] ... audit repairable`。
-3. 确认可修复项都是机械类型错误后，再切：
+3. 默认线上无需配置即可获得安全修复；如需兼容本地小模型的分隔字符串数组，再显式开启：
 
    ```yaml
    tool_param_compat:
      mode: repair
+     split_string_arrays: true
    ```
 
 4. 回归 “系统中有多少个agent？” 等 REPL 问题，重点看 `read_file` slice 参数和 emit 工具数组字段是否进入正常执行链路。

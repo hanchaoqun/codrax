@@ -3427,32 +3427,37 @@ func createDefaultAdapter(cfg *types.ProvidersConfig) llm.Adapter {
 }
 
 func resolveToolParamCompatByAgent(cfg *types.ProvidersConfig) (map[types.AgentName]types.ToolParamCompatConfig, error) {
-	if cfg == nil {
-		return nil, nil
-	}
-	if cfg.LLM.Default.ToolParamCompat != nil {
+	if cfg != nil && cfg.LLM.Default.ToolParamCompat != nil {
 		if mode := cfg.LLM.Default.ToolParamCompat.NormalizedMode(); mode == "" {
 			return nil, fmt.Errorf("providers.yaml: llm.default.tool_param_compat.mode must be one of off, audit, repair; got %q",
 				cfg.LLM.Default.ToolParamCompat.Mode)
 		}
 	}
-	for name, raw := range cfg.LLM.Agents {
-		if raw.ToolParamCompat == nil {
-			continue
-		}
-		if mode := raw.ToolParamCompat.NormalizedMode(); mode == "" {
-			return nil, fmt.Errorf("providers.yaml: llm.agents.%s.tool_param_compat.mode must be one of off, audit, repair; got %q",
-				name, raw.ToolParamCompat.Mode)
+	if cfg != nil {
+		for name, raw := range cfg.LLM.Agents {
+			if raw.ToolParamCompat == nil {
+				continue
+			}
+			if mode := raw.ToolParamCompat.NormalizedMode(); mode == "" {
+				return nil, fmt.Errorf("providers.yaml: llm.agents.%s.tool_param_compat.mode must be one of off, audit, repair; got %q",
+					name, raw.ToolParamCompat.Mode)
+			}
 		}
 	}
 
 	out := make(map[types.AgentName]types.ToolParamCompatConfig)
 	for _, name := range types.AllAgentNames() {
-		resolved := config.ResolveProvider(cfg, string(name))
-		if resolved.ToolParamCompat == nil {
-			continue
+		compat := types.DefaultToolParamCompatConfig()
+		if cfg != nil {
+			if cfg.LLM.Default.ToolParamCompat != nil {
+				compat = *cfg.LLM.Default.ToolParamCompat
+			}
+			if cfg.LLM.Agents != nil {
+				if raw, ok := cfg.LLM.Agents[string(name)]; ok && raw.ToolParamCompat != nil {
+					compat = *raw.ToolParamCompat
+				}
+			}
 		}
-		compat := *resolved.ToolParamCompat
 		mode := compat.NormalizedMode()
 		if mode == types.ToolParamCompatOff {
 			continue

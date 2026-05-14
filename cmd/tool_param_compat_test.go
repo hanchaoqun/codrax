@@ -33,6 +33,53 @@ func TestResolveToolParamCompatByAgent_DefaultInheritance(t *testing.T) {
 	}
 }
 
+func TestResolveToolParamCompatByAgent_AbsentConfigDefaultsToSchemaSafeRepair(t *testing.T) {
+	cfg := &types.ProvidersConfig{}
+
+	got, err := resolveToolParamCompatByAgent(cfg)
+	if err != nil {
+		t.Fatalf("resolveToolParamCompatByAgent: %v", err)
+	}
+	for _, name := range types.AllAgentNames() {
+		compat, ok := got[name]
+		if !ok {
+			t.Fatalf("missing default tool_param_compat policy for %s", name)
+		}
+		if compat.NormalizedMode() != types.ToolParamCompatRepair {
+			t.Fatalf("%s default mode = %q, want repair", name, compat.NormalizedMode())
+		}
+		if compat.SplitStringArraysEnabled() {
+			t.Fatalf("%s default must keep delimited string array split opt-in", name)
+		}
+	}
+}
+
+func TestResolveToolParamCompatByAgent_DefaultOffDisablesUnlessAgentOverrides(t *testing.T) {
+	cfg := &types.ProvidersConfig{
+		LLM: types.LLMProvidersConfig{
+			Default: types.LLMProviderConfig{
+				ToolParamCompat: &types.ToolParamCompatConfig{Mode: types.ToolParamCompatOff},
+			},
+			Agents: map[string]types.LLMProviderConfig{
+				string(types.AgentExplorer): {
+					ToolParamCompat: &types.ToolParamCompatConfig{Mode: types.ToolParamCompatRepair},
+				},
+			},
+		},
+	}
+
+	got, err := resolveToolParamCompatByAgent(cfg)
+	if err != nil {
+		t.Fatalf("resolveToolParamCompatByAgent: %v", err)
+	}
+	if _, exists := got[types.AgentAnalyzer]; exists {
+		t.Fatalf("default off should disable analyzer policy: %+v", got[types.AgentAnalyzer])
+	}
+	if got[types.AgentExplorer].NormalizedMode() != types.ToolParamCompatRepair {
+		t.Fatalf("explorer override should enable repair, got %+v", got[types.AgentExplorer])
+	}
+}
+
 func TestResolveToolParamCompatByAgent_InvalidModeFailsLoud(t *testing.T) {
 	cfg := &types.ProvidersConfig{
 		LLM: types.LLMProvidersConfig{
