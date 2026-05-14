@@ -218,6 +218,14 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				result.Violations = append(result.Violations,
 					runDeniedTokenAnswerCheck(docV2, &o.busCtx.TypedDenials)...)
 			}
+
+			// User-excluded category leakage check. Exploration may
+			// collect negative candidates to prove scope, but the
+			// final answer must not print concrete identifiers from a
+			// category the user explicitly asked not to list (for
+			// example variables in an API-surface enumeration).
+			result.Violations = append(result.Violations,
+				runUserExcludedCategoryAnswerCheck(docV2, mut)...)
 		}
 	}
 
