@@ -142,6 +142,39 @@ func TestApplyAndPersistMutation_DiagramPayloadOnSectionRejected(t *testing.T) {
 	}
 }
 
+func TestApplyAndPersistMutation_CanonicalizesSummaryLeadBlock(t *testing.T) {
+	bus := newBusForMutationTest()
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "items",
+				Kind:  types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{{ID: "i1", Label: "A"}},
+			},
+			{ID: "caveat", Kind: types.BlockCaveat, Text: "scope"},
+			{ID: "summary", Kind: types.BlockSummary, Text: "lead"},
+		},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit",
+		types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected summary-order canonicalization to accept doc; got %+v", res)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 3 {
+		t.Fatalf("merged doc not persisted; got %+v", got)
+	}
+	if got.Blocks[0].ID != "summary" || got.Blocks[1].ID != "items" || got.Blocks[2].ID != "caveat" {
+		t.Fatalf("summary should move to lead while preserving detail order, got block ids: %v",
+			[]string{got.Blocks[0].ID, got.Blocks[1].ID, got.Blocks[2].ID})
+	}
+}
+
 // TestApplyAndPersistMutation_FullAndPatchProduceByteIdenticalMerged
 // — same logical doc reached via full vs patch paths produces an
 // identical merged AnswerDocumentV2 in MutableState.

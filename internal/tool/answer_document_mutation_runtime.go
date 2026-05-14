@@ -77,6 +77,10 @@ func ApplyAndPersistMutation(
 			"mutation apply produced a nil document — internal error")
 	}
 
+	if canonicalizeSummaryLeadBlock(merged) {
+		logging.Info("[%s] canonicalized summary block to lead position before persist", toolName)
+	}
+
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}
@@ -132,6 +136,42 @@ func validateMergedV2Doc(doc *types.AnswerDocumentV2) error {
 		}
 	}
 	return nil
+}
+
+// canonicalizeSummaryLeadBlock moves the first renderable summary block in
+// front of the first renderable non-summary block. This is a deterministic
+// document-structure normalization, not a semantic repair: summary blocks are
+// the answer lead-in everywhere the V2 renderer uses them, while tables,
+// ordered lists, diagrams, and caveats remain in their relative order.
+//
+// Keeping this at the mutation chokepoint means full emits and patch emits get
+// the same behavior. Without this, the finalizer can spend a retry round fixing
+// only block order even when every row, citation, and claim_use is already
+// structurally valid.
+func canonicalizeSummaryLeadBlock(doc *types.AnswerDocumentV2) bool {
+	if doc == nil || len(doc.Blocks) < 2 {
+		return false
+	}
+	firstRenderable := -1
+	summaryAt := -1
+	for i, block := range doc.Blocks {
+		if !answerBlockHasRenderableSurface(block) {
+			continue
+		}
+		if firstRenderable < 0 {
+			firstRenderable = i
+		}
+		if block.Kind == types.BlockSummary && summaryAt < 0 {
+			summaryAt = i
+		}
+	}
+	if firstRenderable < 0 || summaryAt < 0 || summaryAt == firstRenderable {
+		return false
+	}
+	summary := doc.Blocks[summaryAt]
+	copy(doc.Blocks[firstRenderable+1:summaryAt+1], doc.Blocks[firstRenderable:summaryAt])
+	doc.Blocks[firstRenderable] = summary
+	return true
 }
 
 // maxBlocksPerDoc caps the number of blocks per doc. Conservative

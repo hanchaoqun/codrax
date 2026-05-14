@@ -149,6 +149,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		}
 		doc.Blocks = append(doc.Blocks, blk)
 	}
+	canonicalizeSummaryLeadBlock(doc)
 
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint.
 	// Before we persist the doc, run the four STRICT structural

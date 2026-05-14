@@ -1563,6 +1563,29 @@ Initial Batch 1a progress:
   change. The eval still records finalizer repair loops, so citation-array
   compilation remains in Batch 1 rather than being declared solved.
 
+Batch 1b progress:
+
+- Moved the summary-lead block ordering invariant into the shared
+  `emit_answer_document` / `emit_answer_document_patch` mutation chokepoint.
+  When a renderable summary block appears after principal detail blocks, the
+  runtime now deterministically moves the first summary block before the first
+  renderable detail block while preserving all detail-block relative order.
+- This is a structural document normalization, not a prompt repair and not a
+  semantic rewrite: rows, citations, claim forms, facets, caveats, and diagrams
+  remain unchanged. It removes a repair-loop class where an otherwise valid
+  row/citation payload was rejected only because the lead-in summary appeared
+  after a table/list.
+- Added a mutation-runtime regression proving summary-first canonicalization is
+  shared by full and patch-derived merged documents. The older pre-emit summary
+  check remains as a defensive validator, but ordinary runtime writes no longer
+  ask the model to spend a retry round on deterministic block ordering.
+- Verification after the change: `go test ./internal/tool`, `go test ./...`,
+  and a 1-run `qf_multi_member_set_count_caveat` eval all passed. The focused
+  eval recorded `finalizer_iters=2` and no summary-order reject, while explorer
+  breadth remains unsolved (`explorer_iters=13` in that run), so this closes
+  only the deterministic block-order sub-gap and leaves broader row/citation
+  compilation in Batch 1.
+
 ### Batch 2: Exact Answer Lane Before Symbol Enumeration
 
 Priority: second major architecture batch. This reduces latency and long-list
