@@ -10,6 +10,14 @@ import (
 
 var repairPolicy = types.ToolParamCompatConfig{Mode: types.ToolParamCompatRepair}
 
+func splitArrayRepairPolicy() types.ToolParamCompatConfig {
+	enabled := true
+	return types.ToolParamCompatConfig{
+		Mode:              types.ToolParamCompatRepair,
+		SplitStringArrays: &enabled,
+	}
+}
+
 func TestNormalize_StringScalarsAgainstSchema(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",
@@ -53,7 +61,7 @@ func TestNormalize_StringWrappedArrays(t *testing.T) {
 	  "keywords":"agent, count，enum"
 	}`)
 
-	got, report := Normalize(raw, schema, repairPolicy)
+	got, report := Normalize(raw, schema, splitArrayRepairPolicy())
 	if len(report.Repairs) != 2 {
 		t.Fatalf("expected two repairs, got %+v", report)
 	}
@@ -165,19 +173,29 @@ func TestNormalize_DoesNotInventOrGuess(t *testing.T) {
 	}
 }
 
-func TestNormalize_StringArraySplitCanBeDisabled(t *testing.T) {
-	disabled := false
+func TestNormalize_StringArraySplitRequiresExplicitEnable(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"keywords":{"type":"array","items":{"type":"string"}}}}`)
 	raw := json.RawMessage(`{"keywords":"agent,count"}`)
 
-	got, report := Normalize(raw, schema, types.ToolParamCompatConfig{
-		Mode:              types.ToolParamCompatRepair,
-		SplitStringArrays: &disabled,
-	})
+	got, report := Normalize(raw, schema, repairPolicy)
 	if report.Changed() {
-		t.Fatalf("split_string_arrays=false should skip delimited string repair: %+v", report)
+		t.Fatalf("split_string_arrays must be explicit for delimited string repair: %+v", report)
 	}
 	if string(got) != string(raw) {
-		t.Fatalf("payload must remain unchanged when split disabled: got %s want %s", got, raw)
+		t.Fatalf("payload must remain unchanged when split is not enabled: got %s want %s", got, raw)
+	}
+
+	got, report = Normalize(raw, schema, splitArrayRepairPolicy())
+	if !report.Changed() {
+		t.Fatal("split_string_arrays=true should repair delimited string arrays")
+	}
+	var decoded struct {
+		Keywords []string `json:"keywords"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if strings.Join(decoded.Keywords, "|") != "agent|count" {
+		t.Fatalf("keywords not split: %+v", decoded.Keywords)
 	}
 }

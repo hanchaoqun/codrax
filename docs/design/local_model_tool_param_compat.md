@@ -79,7 +79,7 @@ llm:
 - `mode: off`：关闭。
 - `mode: audit`：识别可修复项并打日志，但把原始参数继续交给 tool。
 - `mode: repair`：应用确定性修复，并打 warning 日志。
-- `split_string_arrays`：仅当 schema 是 `array` 且 `items.type == string` 时，允许把 `"a,b,c"` / `"a，b"` / 多行文本切成 `[]string`。显式 policy 中未设置时保持历史默认 true；runtime 的缺省注入显式设为 false，因为拆分普通字符串不如 JSON-stringified array / scalar parse 那样完全等价。
+- `split_string_arrays`：仅当 schema 是 `array` 且 `items.type == string` 时，允许把 `"a,b,c"` / `"a，b"` / 多行文本切成 `[]string`。默认 false，必须显式设为 true；拆分普通字符串不如 JSON-stringified array / scalar parse 那样完全等价。
 
 merge 规则：
 

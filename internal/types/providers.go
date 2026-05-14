@@ -167,9 +167,9 @@ type ToolParamCompatConfig struct {
 	Mode string `yaml:"mode"`
 
 	// SplitStringArrays controls the conservative string -> []string rule for
-	// array-of-string fields. nil defaults to true in audit/repair mode because
-	// local models often emit "a,b,c" for keywords/entities; set false to keep
-	// only JSON-stringified array repair.
+	// array-of-string fields. It is deliberately opt-in because a delimited
+	// prose string is less lossless than scalar type parsing or JSON-string
+	// unwrapping.
 	SplitStringArrays *bool `yaml:"split_string_arrays"`
 }
 
@@ -204,7 +204,7 @@ func (c ToolParamCompatConfig) Enabled() bool {
 
 func (c ToolParamCompatConfig) SplitStringArraysEnabled() bool {
 	if c.SplitStringArrays == nil {
-		return true
+		return false
 	}
 	return *c.SplitStringArrays
 }
