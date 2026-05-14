@@ -484,7 +484,7 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 	}
 	if len(aggregateFacts) > 0 {
 		b.WriteString("- structured aggregate facts:\n")
-		b.WriteString(renderStructuredAggregateFacts(aggregateFacts, 16))
+		b.WriteString(renderStructuredAggregateFactsForContext(ctx, aggregateFacts))
 	}
 	b.WriteString("- Treat this as the investigator's structured handoff, not as a citation. Preserve resolved counts, listed members, excluded candidates, and scope boundaries when they are supported by the evidence/tool outputs below; do not fall back to earlier stale notes that conflict with this accepted closure.\n\n")
 	return b.String()

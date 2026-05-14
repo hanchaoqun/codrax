@@ -2834,7 +2834,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, `Member | file.ext:line`, or `Member (file.ext:line)`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Reserve `citation_ref:-1` only for member labels that have no citable source-location handoff.\n")
 	b.WriteString("- Do not render internal provenance strings such as `source=emit_investigation_complete.aggregate_facts` in the user-visible answer text. Use provenance only to choose the correct member set and citations.\n")
 	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, typed support lanes, citations, or raw tool outputs conflict with these facts, prefer the structured member_set for the principal list and state the evidence boundary instead of inventing a reconciliation.\n\n")
-	b.WriteString(renderStructuredAggregateFacts(plan.StableAggregateFacts, 16))
+	b.WriteString(renderStructuredAggregateFactsForContext(ctx, plan.StableAggregateFacts))
 	b.WriteString("\n")
 	return b.String()
 }
