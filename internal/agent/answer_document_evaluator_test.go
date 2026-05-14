@@ -110,6 +110,35 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedCandida
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequiredMechanismAnchors(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				AnalyzerHints: types.AnalyzerHints{
+					MentionedEntities: []string{"runTaskGraph"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				MustIncludeTerms: []types.ContractTerm{{
+					Text: "runTaskGraph",
+					Kind: types.ContractTermSymbol,
+				}},
+			},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "## Typed Mechanism Anchor Contract") {
+		t.Fatalf("prompt missing typed mechanism-anchor contract:\n%s", prompt)
+	}
+	for _, want := range []string{"runTaskGraph", "blocks[].items[].label", "edge_anchors", "prose-only"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q in typed mechanism-anchor contract:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersErrorGranularityContract(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

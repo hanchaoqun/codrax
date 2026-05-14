@@ -42,7 +42,7 @@ created.
 | ID | Case / Source | Status | Symptom | Systemic Gap | Generalized Fix Direction |
 | --- | --- | --- | --- | --- | --- |
 | E20260514-G1 | `s11b` | Fixed Batch 2e / PASS replay | Answer names `EmitStageRetryAttempt` but the user asked for the retry budget parameter, expected `MaxRetriesPerStage`. | Role-disambiguated scalar answers were not enforced. The pipeline collected both the retry cap and attempt counter, but final selection did not bind the requested noun role to the cited identifier. | Added a required typed `answer_role_profile` carrier for positive scalar/mechanism role bindings, propagated it through `AnswerSemanticView`, and hard-gated final rows by enum-to-enum comparison against `items[].candidate_role`. |
-| E20260514-G2 | `s1b` | Confirmed FAIL | Final answer explains the validation requeue path but omits user anchor `runTaskGraph` and does not preserve an accepted upstream/evidence-node surface term. | Exact request anchors can vanish between evidence and final answer for mechanism questions. Current must-include behavior is too weak outside classic enumeration/scalar cases. | Promote user-mentioned exact endpoints and typed mechanism anchors into a finalizer-visible must-preserve block. Use deterministic rendered-answer checks over typed `MustIncludeTerms` / exact targets, not loose prompt wording. |
+| E20260514-G2 | `s1b` | Fixed Batch 2g / PASS replay | Final answer explains the validation requeue path but omits user anchor `runTaskGraph` and does not preserve an accepted upstream/evidence-node surface term. | Exact mechanism anchors can vanish between evidence and final answer when they remain only retrieval hints or prose instructions. Classic scalar/enumeration lanes do not cover mechanism-entrypoint preservation. | Added a typed `RequiredMechanismAnchors` answer-view carrier compiled from analyzer typed lanes and kind-bearing contract terms. Finalizer and pre-emit checks consume only structured AnswerDocument fields (`items[].label`, block titles, diagram edge endpoints), never `RawRequest` or rendered prose scans. |
 | E20260514-G3 | prior `s5a` random sweep | Confirmed product failure | Explorer found all `LoopController` implementers, but finalizer exhausted retries and emitted raw LLM text because aggregate member labels/citations could not satisfy conflicting checks. | Aggregate member sets are not canonicalized into a single render contract. Equivalent forms such as `Type (file:line)` and `Type@file:line` survive as separate obligations, while citation alignment expects a different principal label surface. | Build deterministic `MemberDisplayRow` records from accepted aggregate facts before finalization: stable member key, visible label, source location, citation handle, claim form, and display candidates. Coverage and citation checks must consume the same rows. |
 | E20260514-G4 | `u11b` | PASS with 50 rejects | The run found the correct 4 production `CitationReq.Required=false` sites, but finalizer looped over source-location labels with qualifiers before passing. | Source-location member rows with qualifiers can be treated simultaneously as labels, source refs, and prose, creating retry loops even when the final answer is correct. | Reuse the G3 canonical member-row layer for source-location sets and qualifiers. Principal source rows should cite stable support handles instead of requiring the model to reproduce exact `file:line (qualifier)` strings. |
 | E20260514-G5 | `m1a` | PASS with 33 rejects | Explorer struggles to anchor literal tool names such as `emit_answer_document called` and `case "emit_answer_symbol"` as evidence. | Evidence anchoring is symbol-centric for facts whose source truth is a string literal, switch case, or method-return literal. | Add typed literal/text anchor support such as `anchor_kind=string_literal` or `tool_name_literal`. This should validate exact source text precisely while avoiding promotion of arbitrary grep hits. |
@@ -124,6 +124,40 @@ hard visible-answer contract for mechanism explanations.
 
 Generalization: for "explain how X does Y" and "does X re-run Z" questions,
 named endpoints are part of the answer surface, not only search hints.
+
+Batch 2g progress:
+
+- Added `AnswerSemanticView.RequiredMechanismAnchors` as a typed final-answer
+  carrier for mechanism-style explanations. It is compiled from analyzer typed
+  lanes (`MentionedEntities`, `ExactTargets`) plus kind-bearing
+  `MustIncludeTerms`, and it only admits code/tool/file-stem anchors rather
+  than free-form user phrases.
+- Finalizer prompts now render a "Typed Mechanism Anchor Contract" telling the
+  model to satisfy required endpoints with structured carrier fields:
+  `blocks[].items[].label`, block titles, or diagram `edge_anchors`
+  endpoints.
+- Pre-emit validation checks only structured `AnswerDocumentV2` fields. Summary
+  text and rendered prose are intentionally ignored, so this does not become a
+  keyword gate over the user request or model answer.
+- Seesaw guard: the carrier is disabled for scalar, count, category
+  enumeration, relational lookup, config query, and return-value paths because
+  those already have stronger typed principal lanes. The anchor list is capped
+  to keep mechanism prompts focused.
+- First `s1b` replay after the initial change passed
+  (`eval/results/s1b-20260515-051031`) but logged
+  `required_mechanism_anchors=0`, proving the result still relied on the old
+  path. The compiler was then broadened to consume the direct
+  `MentionedEntities` typed lane for mechanism families instead of relying only
+  on must-include terms.
+- Second `s1b` replay passed (`eval/results/s1b-20260515-051535`) with
+  `required_mechanism_anchors=1` in semantic-view traces. The finalizer also
+  repaired one fabricated structured label (`pendingValidationTargets`) to a
+  grounded function anchor (`renderWindowHint`), showing the new structured
+  anchor lane composes with the existing grounded-label checks.
+- Residual follow-up: this replay still needed a large exploration window
+  (`explorer_iters=20`, `midloop_inject=9`). That is an exploration-efficiency
+  issue for future mechanism-row work, not a blocker for the G2 answer-surface
+  preservation fix.
 
 ### E20260514-G3: Aggregate Member Canonicalization Loop (`s5a`, current sweep PASS with 6 rejects)
 
@@ -2579,6 +2613,40 @@ Verification:
   and `eval/results/s11b-20260514-213639`. They passed, but they are not counted
   as the final structural verification because they started before
   missing-profile rejection was active in the runtime.
+
+Initial Batch 2g progress:
+
+- Closed the G2 mechanism-anchor side of the exact-answer lane. Mechanism
+  explanation answers now carry required endpoint anchors through
+  `AnswerSemanticView.RequiredMechanismAnchors`, compiled from typed analyzer
+  lanes and kind-bearing contract terms.
+- The finalizer receives these endpoints as a typed contract and must preserve
+  them in structured answer fields. The pre-emit check compares only structured
+  fields (`items[].label`, block titles, diagram `edge_anchors` endpoints), so
+  it does not inspect the raw request, model prose, rendered prose, or keyword
+  frequency.
+- The design is language-neutral: code symbols, tool-name literals, and file
+  stems are represented as contract term kinds rather than Go-specific syntax.
+  Phrases stay soft guidance unless they are represented by an eligible typed
+  anchor kind.
+- Seesaw guard: scalar/literal, count, category-enumeration, relation,
+  config-query, and return-value lanes are excluded because they already use
+  stronger principal carriers (`candidate_role`, aggregate scalar/member rows,
+  relation rows). This prevents mechanism anchors from pulling exact scalar
+  answers back into broad architecture surfaces.
+
+Verification:
+
+- `go test ./internal/types -run 'RequiredMechanismAnchors|AnswerSemanticView'`
+- `go test ./internal/tool -run 'RequiredMechanismAnchors'`
+- `go test ./internal/agent -run 'RequiredMechanismAnchors|RequestedCandidateRoles'`
+- `go test ./internal/types ./internal/tool ./internal/agent`
+- `bash eval/run.sh eval/cases/s1b.case 1`
+  (`eval/results/s1b-20260515-051031`, PASS but
+  `required_mechanism_anchors=0`; treated as insufficient structural proof)
+- `bash eval/run.sh eval/cases/s1b.case 1`
+  (`eval/results/s1b-20260515-051535`, PASS with
+  `required_mechanism_anchors=1`)
 
 ### Batch 3: Relation / Diagram Generation From Typed Edges
 

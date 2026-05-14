@@ -144,6 +144,9 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	if h := preCheckRequiredCandidateRoles(doc, view); len(h) > 0 {
 		hints = append(hints, h...)
 	}
+	if h := preCheckRequiredMechanismAnchors(doc, view); len(h) > 0 {
+		hints = append(hints, h...)
+	}
 	if h := preCheckErrorGranularityVerdict(doc, view); len(h) > 0 {
 		hints = append(hints, h...)
 	}
@@ -2842,6 +2845,25 @@ func preCheckRequiredCandidateRoles(doc *types.AnswerDocumentV2, view *types.Ans
 		ExpectedShape: "principal scalar/list/table item(s) must carry `candidate_role` for the requested answer role(s): " +
 			strings.Join(roles, ", "),
 		Reason: "the typed request contract requires these positive answer roles; prose-only wording or adjacent roles cannot satisfy a structural role-binding request.",
+	}}
+}
+
+func preCheckRequiredMechanismAnchors(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+	if doc == nil || view == nil || len(view.RequiredMechanismAnchors) == 0 {
+		return nil
+	}
+	missing := types.MissingRequiredMechanismAnchors(doc, view.RequiredMechanismAnchors)
+	if len(missing) == 0 {
+		return nil
+	}
+	labels := make([]string, 0, len(missing))
+	for _, anchor := range missing {
+		labels = append(labels, anchor.Text)
+	}
+	return []emitFixHint{{
+		Field:         "blocks[].items[].label",
+		ExpectedShape: "structured answer anchor label(s) must preserve: " + strings.Join(labels, ", "),
+		Reason:        "the typed mechanism-anchor contract requires exact endpoint anchors in structured fields; summary prose alone cannot satisfy this boundary.",
 	}}
 }
 

@@ -208,6 +208,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if roleContract := renderAnswerDocRequestedCandidateRoles(view); roleContract != "" {
 		b.WriteString(roleContract)
 	}
+	if anchorContract := renderAnswerDocRequiredMechanismAnchors(view); anchorContract != "" {
+		b.WriteString(anchorContract)
+	}
 	if granularityContract := renderAnswerDocErrorGranularityContract(view); granularityContract != "" {
 		b.WriteString(granularityContract)
 	}
@@ -2055,6 +2058,26 @@ func renderAnswerDocRequestedCandidateRoles(view *types.AnswerSemanticView) stri
 	b.WriteString("- For scalar answers whose literal is in `block.text`, add a one-element `items[]` entry with `candidate_role` and the supporting `citation_ref`; the row can reuse the scalar literal as its label or keep a short role label.\n")
 	b.WriteString("- Do not satisfy this contract with prose-only wording. The validator compares required role enums with `items[].candidate_role` enums.\n")
 	b.WriteString("- Adjacent roles can stay as supporting context, but the principal answer must include the requested role enum(s) above.\n\n")
+	return b.String()
+}
+
+func renderAnswerDocRequiredMechanismAnchors(view *types.AnswerSemanticView) string {
+	if view == nil || len(view.RequiredMechanismAnchors) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Typed Mechanism Anchor Contract\n\n")
+	b.WriteString("The current mechanism answer must keep these exact endpoint anchors visible in structured carrier fields:\n\n")
+	for _, anchor := range view.RequiredMechanismAnchors {
+		if strings.TrimSpace(anchor.Text) == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "- `%s` (%s)\n", anchor.Text, answerDocContractTermKindLabel(anchor.Kind))
+	}
+	b.WriteString("\n")
+	b.WriteString("- Satisfy this with `blocks[].items[].label`, a section/table block `title`, or typed diagram `edge_anchors` endpoints.\n")
+	b.WriteString("- If the main explanation is prose-only, add a compact ordered_list or table of key anchors; each item label should be the exact anchor and carry the relevant `citation_ref` when available.\n")
+	b.WriteString("- Do not rely on prose-only mentions. The validator compares the typed anchor list above with structured AnswerDocument fields.\n\n")
 	return b.String()
 }
 

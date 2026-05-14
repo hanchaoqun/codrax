@@ -18,7 +18,7 @@ func emitSemanticViewTrace(source string, view *AnswerSemanticView, ir *Analysis
 	if ir != nil {
 		intent = ir.RequestModel.Intent
 	}
-	logging.Debug("[trace/sv] source=%s family=%s intent=%s required_blocks=%d optional_blocks=%d has_diagram=%v uncertainty_rules=%d richness_candidates=%d required_candidate_roles=%d error_granularity=%v facet_coverage_present=%v exact_resolution_present=%v summary_mode=%q",
+	logging.Debug("[trace/sv] source=%s family=%s intent=%s required_blocks=%d optional_blocks=%d has_diagram=%v uncertainty_rules=%d richness_candidates=%d required_candidate_roles=%d required_mechanism_anchors=%d error_granularity=%v facet_coverage_present=%v exact_resolution_present=%v summary_mode=%q",
 		source,
 		view.Family,
 		intent,
@@ -28,6 +28,7 @@ func emitSemanticViewTrace(source string, view *AnswerSemanticView, ir *Analysis
 		len(view.UncertaintyRules),
 		len(view.RichnessCandidates),
 		len(view.RequiredCandidateRoles),
+		len(view.RequiredMechanismAnchors),
 		view.ErrorGranularityProfile != nil && view.ErrorGranularityProfile.Active(),
 		view.FacetCoverage != nil,
 		view.ExactResolution != nil,
@@ -87,8 +88,16 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 	}
 	applyExactAbsenceSummaryLead(view, plan)
 	applyRequestedCandidateRoles(view, ir)
+	applyRequiredMechanismAnchors(view, ir)
 	applyErrorGranularityProfile(view, ir)
 	return view
+}
+
+func applyRequiredMechanismAnchors(view *AnswerSemanticView, ir *AnalysisIR) {
+	if view == nil || ir == nil {
+		return
+	}
+	view.RequiredMechanismAnchors = CompileRequiredMechanismAnchors(ir.RequestModel, ir.AnswerContract, view.Family)
 }
 
 func applyRequestedCandidateRoles(view *AnswerSemanticView, ir *AnalysisIR) {

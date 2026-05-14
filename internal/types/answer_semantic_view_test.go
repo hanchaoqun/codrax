@@ -124,6 +124,95 @@ func TestBuildAnswerSemanticView_RequestedCandidateRolesPropagated(t *testing.T)
 	}
 }
 
+func TestBuildAnswerSemanticView_RequiredMechanismAnchorsFromTypedMentionedLanes(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent:   IntentExplain,
+			Scenario: ScenarioArchitectureExplain,
+			AnalyzerHints: AnalyzerHints{
+				MentionedEntities: []string{"runTaskGraph", "helperCandidate"},
+				ExactTargets:      []string{"emit_evidence"},
+			},
+		},
+		AnswerContract: AnswerContract{
+			MustIncludeTerms: []ContractTerm{
+				{Text: "runTaskGraph", Kind: ContractTermSymbol, Source: ContractTermSourceAnalyzerEntity},
+				{Text: "emit_evidence", Kind: ContractTermToolName, Source: ContractTermSourceAnalyzerEntity},
+				{Text: "derivedOnly", Kind: ContractTermSymbol, Source: ContractTermSourceAnalyzerEntity},
+				{Text: "upstream evidence node", Kind: ContractTermUserPhrase},
+			},
+		},
+	}
+	view := BuildAnswerSemanticView(ir, nil)
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	got := view.RequiredMechanismAnchors
+	if len(got) != 3 {
+		t.Fatalf("required anchors len=%d want 3: %+v", len(got), got)
+	}
+	if got[0].Text != "runTaskGraph" || got[0].Kind != ContractTermSymbol {
+		t.Fatalf("first anchor = %+v, want runTaskGraph symbol", got[0])
+	}
+	if got[1].Text != "emit_evidence" || got[1].Kind != ContractTermToolName {
+		t.Fatalf("second anchor = %+v, want emit_evidence tool_name", got[1])
+	}
+	if got[2].Text != "helperCandidate" || got[2].Kind != ContractTermSymbol {
+		t.Fatalf("third anchor = %+v, want helperCandidate symbol", got[2])
+	}
+}
+
+func TestBuildAnswerSemanticView_RequiredMechanismAnchorsDisabledForScalar(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent: IntentReturnValue,
+			Predicates: SemanticPredicates{
+				IsScalarAnswer: true,
+			},
+			AnalyzerHints: AnalyzerHints{
+				MentionedEntities: []string{"runTaskGraph"},
+			},
+		},
+		AnswerContract: AnswerContract{
+			MustIncludeTerms: []ContractTerm{{Text: "runTaskGraph", Kind: ContractTermSymbol}},
+		},
+	}
+	view := BuildAnswerSemanticView(ir, nil)
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	if len(view.RequiredMechanismAnchors) != 0 {
+		t.Fatalf("scalar lookup should not gain mechanism anchors: %+v", view.RequiredMechanismAnchors)
+	}
+}
+
+func TestMissingRequiredMechanismAnchors_UsesStructuredFieldsOnly(t *testing.T) {
+	required := []AnswerRequiredAnchor{
+		{Text: "runTaskGraph", Kind: ContractTermSymbol},
+		{Text: "EdgeValidationFeedback", Kind: ContractTermSymbol},
+	}
+	doc := &AnswerDocumentV2{Blocks: []AnswerBlock{
+		{
+			ID:   "summary",
+			Kind: BlockSummary,
+			Text: "The prose mentions EdgeValidationFeedback, but prose is not the anchor carrier.",
+		},
+		{
+			ID:    "anchors",
+			Kind:  BlockOrderedList,
+			Items: []AnswerBlockItem{{Label: "`runTaskGraph`"}},
+		},
+	}}
+	missing := MissingRequiredMechanismAnchors(doc, required)
+	if len(missing) != 1 || missing[0].Text != "EdgeValidationFeedback" {
+		t.Fatalf("missing anchors = %+v, want EdgeValidationFeedback only", missing)
+	}
+	doc.Blocks[1].Items = append(doc.Blocks[1].Items, AnswerBlockItem{Label: "EdgeValidationFeedback()"})
+	if missing := MissingRequiredMechanismAnchors(doc, required); len(missing) != 0 {
+		t.Fatalf("structured item labels should satisfy anchors, missing %+v", missing)
+	}
+}
+
 func TestBuildAnswerSemanticView_ErrorGranularityRequiresPrincipalDecision(t *testing.T) {
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{

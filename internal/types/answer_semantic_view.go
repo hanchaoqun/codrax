@@ -72,6 +72,14 @@ type AnswerSemanticView struct {
 	// from user text or rendered prose.
 	RequiredCandidateRoles []AnswerCandidateRole
 
+	// RequiredMechanismAnchors carries exact user-mentioned code/tool/file
+	// anchors that must remain visible for mechanism-style answers. It is
+	// compiled from typed analyzer lanes (`mentioned_entities`,
+	// `exact_targets`, and kind-bearing contract terms), then checked against
+	// structured AnswerDocumentV2 fields such as item labels and diagram edge
+	// anchors. Validators consume only those structured carriers.
+	RequiredMechanismAnchors []AnswerRequiredAnchor
+
 	// ErrorGranularityProfile requires a principal decision block to carry a
 	// canonical failure-scope verdict enum. This is intentionally separate from
 	// decision prose so validators and evals do not depend on language-specific
