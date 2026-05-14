@@ -218,14 +218,6 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				result.Violations = append(result.Violations,
 					runDeniedTokenAnswerCheck(docV2, &o.busCtx.TypedDenials)...)
 			}
-
-			// User-excluded category leakage check. Exploration may
-			// collect negative candidates to prove scope, but the
-			// final answer must not print concrete identifiers from a
-			// category the user explicitly asked not to list (for
-			// example variables in an API-surface enumeration).
-			result.Violations = append(result.Violations,
-				runUserExcludedCategoryAnswerCheck(docV2, mut)...)
 		}
 	}
 
@@ -2137,14 +2129,6 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 		}
 		return nil
 	}
-	remainingContradictions, suppressedRowOrder := filterDeterministicRowOrderContradictions(doc, verdict)
-	if suppressedRowOrder > 0 {
-		logging.Info("[self_consistency_reviewer] suppressed %d deterministic row-order contradiction(s) at confidence=%.2f reasoning=%q",
-			suppressedRowOrder, verdict.Confidence, verdict.Reasoning)
-	}
-	if len(remainingContradictions) == 0 {
-		return nil
-	}
 
 	// Surface contradiction count + rewrite-mode to the user. The
 	// NoticeKind tracks the rewrite flag so the dock paints active
@@ -2159,13 +2143,13 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 		Timestamp:  time.Now(),
 		Agent:      "orchestrator",
 		NoticeKind: contradictionKind,
-		Reasoning:  selfConsistencyContradictionMessage(o.busCtx.Language, o.selfConsistencyRewriteOnContradiction, len(remainingContradictions)),
+		Reasoning:  selfConsistencyContradictionMessage(o.busCtx.Language, o.selfConsistencyRewriteOnContradiction, len(verdict.Contradictions)),
 	})
 
-	out := make([]types.Violation, 0, len(remainingContradictions))
-	totalN := len(remainingContradictions)
+	out := make([]types.Violation, 0, len(verdict.Contradictions))
+	totalN := len(verdict.Contradictions)
 	reasoning := clampReasoningForRepair(verdict.Reasoning)
-	for i, c := range remainingContradictions {
+	for i, c := range verdict.Contradictions {
 		out = append(out, types.Violation{
 			Kind: types.ViolSelfContradiction,
 			Detail: fmt.Sprintf("self_contradiction[%s] — SUMMARY: %q ⇄ BODY: %q",

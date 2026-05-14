@@ -63,8 +63,8 @@ created.
 | E20260514-G41 | focused `s5b` analyzer trace | Confirmed red-line drift | StageAnalyze used line-level `grep(files_only=false)` and pulled function signatures plus a noisy "26 packages" count into analyzer thinking, despite the evidence-lite runtime boundary requiring files-only pre-scan. | Prompt/runtime contract drift: old ClassificationGrep Round-2 carve-out let content evidence leak into classification, creating hard/soft signal inversion. The analyzer saw source-line noise before exploration, then downstream gates had to fight that noise. | Restore the evidence-lite boundary in both prompt and runtime: analyze may use `repo_map`, `list_files`, and `grep(files_only=true)` only; source-line proof belongs to explore. Keep legacy config fields inert for compatibility, but never admit line-level grep in StageAnalyze. |
 | E20260514-G42 | focused `s5b` post-Batch 1i replay | PASS with repairs | The strict `member_set` handoff forced complete coverage and ultimately passed, but the first completion downgrade exposed a repair-cost spike: one missing `findings_validator → Validate` support row caused a second explore dispatch; the model then tried to re-emit a giant evidence slate with invalid `surface_terms` before succeeding via member-specific `@ file:line` rows. | The pipeline now has the right hard gate, but repair consumption is still model-heavy. Accepted evidence/support rows are not compiled into a deterministic per-member support table early enough, and stale ungrounded evidence cannot be superseded cleanly, so the model pays extra turns reconstructing support_refs. | Add a deterministic `MemberSupportRow` compiler from accepted typed evidence, read_file gutters, and aggregate support_refs. Completion repair should name only missing members and candidate support locations; finalization should consume stable rows instead of relying on the model to rebuild 25 support refs by hand. |
 | E20260514-G43 | focused `s5b` post-Batch 1j replay | Confirmed FAIL / stopped loop | The completion support gap was fixed, but finalizer entered a repeated pre-emit rejection loop because the model-authored member `perftriage → MergePerfBundles + CorroborateStallFiles` was displayed as two cited rows. The validator required the exact composite member string while citation alignment preferred split rows. | Principal member-set coverage and structured relation-shape checks did not share a generalized display-equivalence rule for "same left-axis, multiple explicit right-side symbols." This recreated the G3/G4 row-grain conflict at the final answer boundary. | Treat composite relation members such as `pkg → A + B` / `pkg: A 和 B` as precise multi-target relation rows. A structured list may satisfy them by rendering one row per target only when every row has the same left axis; different left-axis rows must not satisfy the composite member. |
-| E20260514-G44 | focused `s5b` post-Batch 1k replay | PASS | Self-consistency reviewer falsely claimed the ordered package list was not alphabetic, triggering an unnecessary rewrite even though the sequence was already `aggregator, amplifier, axis, ...`. | Semantic review can turn a noisy natural-language judgment into an expensive rewrite despite structurally valid typed rows. This is a soft reviewer acting like a hard gate. | Added a deterministic row-order gate after the reviewer verdict: sortedness contradictions are suppressed only when typed `AnswerDocumentV2` rows prove an ascending visible-label or citation-path axis. Count, duplicate, and sequence-direction contradictions remain live. Focused replay `s5b-20260514-200806` passed with semantic-quality concerns at 0. |
-| E20260514-G45 | `qf_multi_member_set_count_caveat` post-Batch 1k audit | Confirmed FAIL | The answer correctly separated public types/functions/Kind constants, but copied excluded variable names such as `defaultExternalArtifactFloor` from investigation-complete reason prose into the user-visible scope note. | Exploration negative evidence and principal answer rows are not cleanly separated at finalization. A user-excluded code category can leak through closure prose even when the structured `member_set` payload is correct. | Add an answer-side excluded-category leakage gate: if the request explicitly says not to list a code category, final prose may state that the category was excluded but must not print concrete candidate identifiers/paths from that category unless the user asks for exclusions. Initial category specs cover variables, tests, generated code/files, and private helpers. |
+| E20260514-G44 | focused `s5b` post-Batch 1j pass | Residual PASS cost | Self-consistency reviewer falsely claimed the ordered package list was not alphabetic, triggering an unnecessary rewrite even though the sequence was already `aggregator, amplifier, axis, ...`. | Semantic review can turn a noisy natural-language judgment into an expensive rewrite despite structurally valid typed rows. This is a soft reviewer acting like a hard gate. | Teach the reviewer to consume deterministic ordered-list metadata or downgrade ordering disputes to advisory when the structured row set is already accepted. For sortedness, use a deterministic comparator over visible labels instead of model prose. |
+| E20260514-G45 | audit of commits `d2289e7a` / `e07cafb5` | Red-line remediation | The attempted G44/G45 fixes introduced hard decisions driven by keyword matching over reviewer prose, user request prose, and final answer prose. | This violated the repository rule that hard gates consume typed, precise signals only. It also violated the stronger operational rule that user/model text must not be keyword-matched to decide logic. | Reverted the attempted gates and deleted their tests. Future fixes must first add typed fields such as `exclusion_policy`, `answer_category`, or structured contradiction kinds; until then these gaps remain tracked but must not be enforced by prose keyword scans. |
 
 ## End-to-End Traces
 
@@ -735,37 +735,30 @@ presence are deterministic row-table properties. They should be checked by the
 same canonical row layer used by pre-emit validation, while the reviewer stays
 advisory for semantic coherence that cannot be reduced to typed rows.
 
-### E20260514-G45: User-Excluded Code Category Leakage (`qf_multi_member_set_count_caveat`)
+### E20260514-G45: Red-Line Remediation For Attempted Text-Matching Gates
 
-Observed data flow:
+Audit scope:
 
-1. The user asked for public symbols in three categories and explicitly said
-   not to list variables.
-2. Exploration correctly used variables as negative evidence while proving the
-   public type/function/Kind member sets. The accepted structured handoff
-   contained only three `member_set` facts for the requested principal rows.
-3. The investigation-complete reason prose still named excluded variables
-   (`ErrUnknownKind`, `defaultExternalArtifactFloor`,
-   `fileExtensionTokenSuffixes`, `registered`) to explain the exclusion.
-4. Finalization copied that reason text into the visible summary / caveat, so
-   the answer failed the eval's `EXPECT_NOT_CONTAINS` even though the principal
-   member sets were otherwise correct.
+1. Commit `d2289e7a` added a deterministic row-order checker, but the decision
+   to apply it was triggered by keywords in the self-consistency reviewer's
+   contradiction text.
+2. Commit `e07cafb5` added a user-excluded-category answer check, but it
+   detected exclusions by matching words in the user request and detected leaks
+   by matching words in the final answer prose.
+3. Both paths produced hard `Viol*` decisions from prose text rather than from
+   typed analyzer/explorer/finalizer fields.
 
-Root cause: excluded candidates live in the same prose channel as positive
-evidence after exploration. The finalizer sees both the typed principal rows
-and the narrative "not listed" explanation, then can reintroduce concrete
-negative candidates into the answer surface.
+Corrective action:
 
-Generalization: any request with an explicit negative code category ("do not
-list variables", "exclude generated files", "ignore tests", "no private
-helpers") needs an answer-side boundary. The user-visible answer may disclose
-that a category was excluded, but concrete excluded identifiers/paths must stay
-out of the principal answer unless the user explicitly asks for an exclusion
-report. This is language-neutral over answer surfaces: the detector works on
-code-shaped identifiers and inline paths rather than Go-specific symbol kinds,
-so Go, Python, JavaScript/TypeScript/ArkTS, Java/Kotlin, Rust, C/C++, Ruby,
-Swift, Lua, Proto, Cangjie, CUDA, and Obj-C-family answers share the same
-guard.
+- Removed the G45 answer-side excluded-category hard gate entirely.
+- Removed the G44 reviewer-text row-order suppression path entirely.
+- Stopped the in-flight `qf_multi_member_set_count_caveat` replay that was
+  running against the invalid gate.
+- Kept the underlying product gaps open. A commercial-grade fix must add typed
+  carriers first: for example, analyzer/explorer should emit explicit
+  `exclusion_policy` / `answer_category` / `candidate_role` fields, and any
+  self-consistency exception must be keyed by a structured contradiction kind
+  or by deterministic row metadata, not by reviewer prose.
 
 ### E20260514-G19: Explore-to-Extract Fact Handoff Loss (`qf_architecture`, FAIL on stale 2026-05-14 sweep)
 
@@ -2083,69 +2076,6 @@ Batch 1j progress:
   `semantic_quality_dispatches=2`) because the first exploration closure still
   under-materializes line-grounded evidence and the self-consistency reviewer
   raised the G44 sortedness false positive.
-
-Batch 1k progress:
-
-- Implemented the G44 row-order hardening as a deterministic filter between
-  `SelfConsistencyReviewer.Review` and `ViolSelfContradiction` creation. The
-  reviewer still detects candidate summary/body contradictions, but rewrite
-  eligibility now passes through typed `AnswerDocumentV2` rows for row-table
-  properties that can be checked without prose judgment.
-- The filter is intentionally narrow to avoid a seesaw: it applies only to
-  per-contradiction sortedness language (`alphabetic` / `lexicographic` /
-  `sorted` / `字母` / `排序` / ascending-descending wording). Call-chain
-  direction/order mismatches, count mismatches, and other semantic
-  contradictions are not downgraded by a global reviewer rationale.
-- Deterministic axes are language-neutral. The first axis is the visible row
-  label. The second axis derives the row key from the cited file path relative
-  to the common directory prefix, which covers Go packages, Python packages,
-  scoped TypeScript/ArkTS modules, Java/Kotlin packages, Rust crates, native
-  source directories, Cangjie directories, and script/app library directories
-  without adding language-specific branches.
-- Added anti-seesaw unit coverage for: true sorted visible rows, genuinely
-  unsorted rows, mixed verdicts where only sortedness is suppressed and count
-  remains live, duplicate/ambiguous citation-path axes that must not suppress,
-  call-chain sequence direction that must not be classified as sortedness, and
-  the full `runSelfConsistencyReviewV2` path.
-- Focused verification passed:
-  `go test ./internal/orchestrator -run 'TestSelfConsistency|TestRunSelfConsistencyReviewV2|TestRenderConsistency|TestItemBodyText|TestClampReasoning|TestBuildSelfContradiction'`
-  and `go test ./internal/orchestrator ./internal/types ./internal/agent`.
-- Focused replay `eval/results/s5b-20260514-200806` passed with
-  semantic-quality concerns at 0, confirming the row-order mitigation did not
-  introduce a count/order seesaw on the previously expensive package-entry
-  enumeration.
-
-Batch 1l progress:
-
-- Added an answer-side user-excluded-category leakage gate after the existing
-  V2 oracles. It reads the original request and the final `AnswerDocumentV2`
-  prose; when the request explicitly excludes a configured code category, the
-  answer may say the category was excluded, but a concrete code-style candidate
-  list in that exclusion sentence triggers `must_exclude` repair.
-- The implementation is category-spec driven rather than tied to one eval
-  token. Initial specs cover variables, tests/test helpers, generated
-  files/code, and private/unexported helpers; candidate extraction accepts
-  cross-language identifier shapes, Ruby-style predicate/bang names, `$`/`@`
-  prefixed names, and inline file paths.
-- The gate is deliberately scoped to avoid a seesaw: it does not fire when the
-  objective asks to list the category, it does not fire on category-only
-  wording such as "variables were excluded", and it does not mistake ordinary
-  function descriptions like "sets a variable threshold" for an
-  excluded-candidate list.
-- Anti-seesaw hardening found during tests: `test helpers` must not also
-  activate the private-helper category just because both contain "helper";
-  `latest` must not activate the `test` category by substring; and a sentence
-  such as "Test helpers are excluded. TestRunner is in scope" must not drag the
-  in-scope symbol into the excluded list. The implementation therefore uses
-  ASCII marker boundaries and extracts candidates from explicit
-  category-list segments (`(...)`, `（...）`, `:`, `：`) or inline-code tokens
-  only.
-- Added bilingual unit coverage for Chinese and English exclusion phrasing,
-  generalized excluded test/generated/private category examples, and
-  false-positive guards for function descriptions / in-scope symbols. Focused
-  `go test ./internal/orchestrator -run 'TestUserExcludedCategoryAnswerCheck|TestSelfConsistency|TestRunSelfConsistencyReviewV2'`
-  passed, followed by `go test ./internal/orchestrator ./internal/types ./internal/agent`
-  and `go test ./...`. Focused eval replay is pending.
 
 ### Batch 2: Exact Answer Lane Before Symbol Enumeration
 
