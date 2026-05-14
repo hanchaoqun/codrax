@@ -300,11 +300,11 @@ func decodeRecoveredAnswerDocumentV2(raw json.RawMessage, mode string) (AnswerDo
 	}
 	doc := &types.AnswerDocumentV2{
 		DocumentModel:         "v2",
-		Citations:             p.Citations,
+		Citations:             convertEmitCitationsToTyped(p.Citations),
 		ExactResolution:       p.ExactResolution,
 		MissingRequestedRoles: p.MissingRequestedRoles,
 		Caveats:               p.Caveats,
-		Snippets:              p.Snippets,
+		Snippets:              convertEmitCodeSnippetsToTyped(p.Snippets),
 	}
 	for i, rawBlock := range p.Blocks {
 		blk, err := NormalizeEmitAnswerBlock(rawBlock, fmt.Sprintf("blocks[%d]", i))

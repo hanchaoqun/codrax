@@ -35,11 +35,31 @@ import (
 type emitAnswerDocumentV2Params struct {
 	DocumentModel         string                             `json:"document_model"`
 	Blocks                []emitAnswerBlockV2                `json:"blocks"`
-	Citations             []types.Citation                   `json:"citations,omitempty"`
+	Citations             []emitAnswerCitationV2             `json:"citations,omitempty"`
 	ExactResolution       *types.AnswerExactResolution       `json:"exact_resolution,omitempty"`
 	MissingRequestedRoles []types.AnswerMissingRequestedRole `json:"missing_requested_roles,omitempty"`
 	Caveats               []string                           `json:"caveats,omitempty"`
-	Snippets              []types.CodeSnippet                `json:"snippets,omitempty"`
+	Snippets              []emitCodeSnippetV2                `json:"snippets,omitempty"`
+}
+
+type emitAnswerCitationV2 struct {
+	File             string              `json:"file"`
+	Line             FlexInt             `json:"line"`
+	Quote            string              `json:"quote,omitempty"`
+	Scope            types.EvidenceScope `json:"scope,omitempty"`
+	LineEnd          FlexInt             `json:"line_end,omitempty"`
+	SectionPath      string              `json:"section_path,omitempty"`
+	FileRoleLabel    types.FileRoleLabel `json:"file_role_label,omitempty"`
+	CrossfileSummary string              `json:"crossfile_summary,omitempty"`
+	NegativePattern  string              `json:"negative_pattern,omitempty"`
+}
+
+type emitCodeSnippetV2 struct {
+	File      string  `json:"file"`
+	StartLine FlexInt `json:"start_line"`
+	EndLine   FlexInt `json:"end_line"`
+	Language  string  `json:"language,omitempty"`
+	Code      string  `json:"code"`
 }
 
 type emitAnswerBlockV2 struct {
@@ -107,8 +127,13 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			strings.Join(fields, ", "))
 		raw = repaired
 	}
-	if repaired, paths, ok := repairNestedArraysAsString(raw); ok {
-		logging.Warning("[emit_answer_document] nested arrays arrived as JSON-encoded strings (paths: %s); re-parsed via flat-mode tolerance path",
+	if repaired, fields, ok := repairStringWrappedObjectFields(raw, "exact_resolution"); ok {
+		logging.Warning("[emit_answer_document] top-level objects arrived as JSON-encoded strings (fields: %s); re-parsed via flat-mode tolerance path",
+			strings.Join(fields, ", "))
+		raw = repaired
+	}
+	if repaired, paths, ok := repairNestedAnswerBlockFields(raw); ok {
+		logging.Warning("[emit_answer_document] nested fields arrived as JSON-encoded strings (paths: %s); re-parsed via flat-mode tolerance path",
 			strings.Join(paths, ", "))
 		raw = repaired
 	}
@@ -142,11 +167,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// both paths share them.
 	doc := &types.AnswerDocumentV2{
 		DocumentModel:         "v2",
-		Citations:             enrichCitationsWithEnclosingFunction(p.Citations, ctx),
+		Citations:             enrichCitationsWithEnclosingFunction(convertEmitCitationsToTyped(p.Citations), ctx),
 		ExactResolution:       p.ExactResolution,
 		MissingRequestedRoles: p.MissingRequestedRoles,
 		Caveats:               p.Caveats,
-		Snippets:              p.Snippets,
+		Snippets:              convertEmitCodeSnippetsToTyped(p.Snippets),
 	}
 	for i, raw := range p.Blocks {
 		blk, err := NormalizeEmitAnswerBlock(raw, fmt.Sprintf("blocks[%d]", i))
@@ -1250,6 +1275,44 @@ func mustMarshal(v interface{}) json.RawMessage {
 	return b
 }
 
+func convertEmitCitationsToTyped(in []emitAnswerCitationV2) []types.Citation {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.Citation, 0, len(in))
+	for _, c := range in {
+		out = append(out, types.Citation{
+			File:             c.File,
+			Line:             c.Line.Int(),
+			Quote:            c.Quote,
+			Scope:            c.Scope,
+			LineEnd:          c.LineEnd.Int(),
+			SectionPath:      c.SectionPath,
+			FileRoleLabel:    c.FileRoleLabel,
+			CrossfileSummary: c.CrossfileSummary,
+			NegativePattern:  c.NegativePattern,
+		})
+	}
+	return out
+}
+
+func convertEmitCodeSnippetsToTyped(in []emitCodeSnippetV2) []types.CodeSnippet {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.CodeSnippet, 0, len(in))
+	for _, s := range in {
+		out = append(out, types.CodeSnippet{
+			File:      s.File,
+			StartLine: s.StartLine.Int(),
+			EndLine:   s.EndLine.Int(),
+			Language:  s.Language,
+			Code:      s.Code,
+		})
+	}
+	return out
+}
+
 // repairStringWrappedArrayFields scans every top-level key of raw
 // and repairs any value that arrived as a JSON-encoded string
 // wrapping a JSON array. Same MiniMax streaming-bug pattern that
@@ -1386,12 +1449,70 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 	return patched, repaired, true
 }
 
+// repairStringWrappedObjectFields repairs selected top-level object fields
+// that arrived as JSON-encoded strings. Unlike the array repair above this is
+// intentionally field-gated: top-level free-text fields may legitimately begin
+// with "{" in future schemas, while exact_resolution-style fields are known
+// object carriers.
+func repairStringWrappedObjectFields(raw json.RawMessage, fields ...string) (json.RawMessage, []string, bool) {
+	if len(raw) == 0 || len(fields) == 0 {
+		return nil, nil, false
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		normalised, changed := normalizeControlCharsInJSONStrings(string(raw))
+		if !changed {
+			return raw, nil, false
+		}
+		if err := json.Unmarshal([]byte(normalised), &probe); err != nil {
+			return raw, nil, false
+		}
+	}
+
+	var repaired []string
+	for _, field := range fields {
+		if r, ok := repairObjectField(probe, field); ok {
+			probe[field] = r
+			repaired = append(repaired, field)
+		}
+	}
+	if len(repaired) == 0 {
+		return raw, nil, false
+	}
+	patched, err := json.Marshal(probe)
+	if err != nil {
+		return raw, nil, false
+	}
+	return patched, repaired, true
+}
+
 func trimRedundantTrailingClosersAfterJSONArray(s string) (string, bool) {
 	trimmed := strings.TrimSpace(s)
 	if !strings.HasPrefix(trimmed, "[") {
 		return "", false
 	}
 	end := findMatchingJSONClose(trimmed, 0, '[', ']')
+	if end < 0 || end == len(trimmed)-1 {
+		return "", false
+	}
+	suffix := strings.TrimSpace(trimmed[end+1:])
+	if suffix == "" {
+		return "", false
+	}
+	for _, r := range suffix {
+		if r != ']' && r != '}' {
+			return "", false
+		}
+	}
+	return strings.TrimSpace(trimmed[:end+1]), true
+}
+
+func trimRedundantTrailingClosersAfterJSONObject(s string) (string, bool) {
+	trimmed := strings.TrimSpace(s)
+	if !strings.HasPrefix(trimmed, "{") {
+		return "", false
+	}
+	end := findMatchingJSONClose(trimmed, 0, '{', '}')
 	if end < 0 || end == len(trimmed)-1 {
 		return "", false
 	}
@@ -1420,13 +1541,12 @@ func mergeWholeDocStringifyVariants(probe map[string]json.RawMessage, key, trimm
 	return nil, false
 }
 
-// repairNestedArraysAsString detects the same "JSON-encoded string
-// where an array is expected" failure mode for the nested arrays
-// inside each block (items, claim_uses) and
-// returns a re-encoded RawMessage with each affected array inlined
-// as a real array. Mirrors repairBlocksAsString conservatively —
-// only the named fields are patched; everything else passes through
-// verbatim so downstream V1-field detection + schema validation
+// repairNestedAnswerBlockFields detects the same "JSON-encoded string where a
+// native JSON array/object is expected" failure mode for structured fields
+// inside each block. It repairs block arrays (items, claim_uses, edge_anchors,
+// facet_ids) and block objects (diagram). Mirrors repairBlocksAsString
+// conservatively — only known structured fields are patched; everything else
+// passes through verbatim so downstream V1-field detection + schema validation
 // still fire on whatever else may be wrong.
 //
 // Returns (raw, [list of repaired paths], true) on at least one
@@ -1434,7 +1554,7 @@ func mergeWholeDocStringifyVariants(probe map[string]json.RawMessage, key, trimm
 //
 // Paths use dotted-bracket notation so the WARN log can name the
 // exact site (e.g. blocks[0].items, blocks[2].claim_uses).
-func repairNestedArraysAsString(raw json.RawMessage) (json.RawMessage, []string, bool) {
+func repairNestedAnswerBlockFields(raw json.RawMessage) (json.RawMessage, []string, bool) {
 	if len(raw) == 0 {
 		return nil, nil, false
 	}
@@ -1457,8 +1577,15 @@ func repairNestedArraysAsString(raw json.RawMessage) (json.RawMessage, []string,
 		if err := json.Unmarshal(blk, &blkObj); err != nil {
 			continue
 		}
-		for _, field := range []string{"items", "claim_uses"} {
+		for _, field := range answerBlockArrayFieldNames {
 			if r, ok := repairBlockArrayField(blkObj, field); ok {
+				blkObj[field] = r
+				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
+				repaired = true
+			}
+		}
+		for _, field := range answerBlockObjectFieldNames {
+			if r, ok := repairObjectField(blkObj, field); ok {
 				blkObj[field] = r
 				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
 				repaired = true
@@ -1479,6 +1606,10 @@ func repairNestedArraysAsString(raw json.RawMessage) (json.RawMessage, []string,
 		return raw, nil, false
 	}
 	return out, paths, true
+}
+
+func repairNestedArraysAsString(raw json.RawMessage) (json.RawMessage, []string, bool) {
+	return repairNestedAnswerBlockFields(raw)
 }
 
 // mergeWholeDocStringify is the Path B helper for
@@ -1520,15 +1651,10 @@ func mergeWholeDocStringify(probe map[string]json.RawMessage, key string, wrappe
 	return merged, true
 }
 
-// repairNestedArraysInPatch applies the same items / claim_uses
-// JSON-string-array repair that repairNestedArraysAsString does for
-// the full emit, but operates on the patch tool's `replace_blocks`
-// AND `add_blocks` arrays (the emit's `blocks` is the singular
-// equivalent). Patch payload normally arrives well-formed, but when
-// the LLM stringifies a nested array inside a block in either
-// replace_blocks or add_blocks the strict decode rejects with the
-// same "must be a native JSON array" error — so we apply identical
-// flat-mode tolerance here.
+// repairNestedArraysInPatch applies the same block nested-field repair that
+// repairNestedAnswerBlockFields does for the full emit, but operates on the
+// patch tool's `replace_blocks` AND `add_blocks` arrays (the emit's `blocks`
+// is the singular equivalent).
 func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, bool) {
 	if len(raw) == 0 {
 		return nil, nil, false
@@ -1555,8 +1681,15 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 				continue
 			}
 			blockChanged := false
-			for _, field := range []string{"items", "claim_uses"} {
+			for _, field := range answerBlockArrayFieldNames {
 				if r, ok := repairBlockArrayField(blkObj, field); ok {
+					blkObj[field] = r
+					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
+					blockChanged = true
+				}
+			}
+			for _, field := range answerBlockObjectFieldNames {
+				if r, ok := repairObjectField(blkObj, field); ok {
 					blkObj[field] = r
 					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
 					blockChanged = true
@@ -1586,6 +1719,9 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 	return out, paths, true
 }
 
+var answerBlockArrayFieldNames = []string{"items", "claim_uses", "edge_anchors", "facet_ids"}
+var answerBlockObjectFieldNames = []string{"diagram"}
+
 // repairBlockArrayField detects a JSON-encoded string at obj[field]
 // where a JSON array is expected, and returns the re-encoded array
 // RawMessage. Returns (raw, false) when the field is absent OR is
@@ -1611,14 +1747,66 @@ func repairBlockArrayField(obj map[string]json.RawMessage, field string) (json.R
 		return nil, false
 	}
 	var inner []json.RawMessage
-	if err := json.Unmarshal([]byte(trimmed), &inner); err != nil {
+	if err := json.Unmarshal([]byte(trimmed), &inner); err == nil {
+		return mustMarshal(inner), true
+	}
+	if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(trimmed); ok {
+		if err := json.Unmarshal([]byte(trimmedArray), &inner); err == nil {
+			return mustMarshal(inner), true
+		}
+	}
+	if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
+		if err := json.Unmarshal([]byte(normalised), &inner); err == nil {
+			return mustMarshal(inner), true
+		}
+		if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(normalised); ok {
+			if err := json.Unmarshal([]byte(trimmedArray), &inner); err == nil {
+				return mustMarshal(inner), true
+			}
+		}
+	}
+	return nil, false
+}
+
+// repairObjectField is the object-shaped sibling of repairBlockArrayField. It
+// is shared by top-level exact_resolution repair and block-level diagram
+// repair. Only a successfully parsed JSON object is accepted.
+func repairObjectField(obj map[string]json.RawMessage, field string) (json.RawMessage, bool) {
+	rawField, ok := obj[field]
+	if !ok || len(rawField) == 0 {
 		return nil, false
 	}
-	out, err := json.Marshal(inner)
-	if err != nil {
+	if rawField[0] != '"' {
 		return nil, false
 	}
-	return out, true
+	var encoded string
+	if err := json.Unmarshal(rawField, &encoded); err != nil {
+		return nil, false
+	}
+	trimmed := strings.TrimSpace(encoded)
+	if !strings.HasPrefix(trimmed, "{") {
+		return nil, false
+	}
+	var inner map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &inner); err == nil {
+		return mustMarshal(inner), true
+	}
+	if trimmedObject, ok := trimRedundantTrailingClosersAfterJSONObject(trimmed); ok {
+		if err := json.Unmarshal([]byte(trimmedObject), &inner); err == nil {
+			return mustMarshal(inner), true
+		}
+	}
+	if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
+		if err := json.Unmarshal([]byte(normalised), &inner); err == nil {
+			return mustMarshal(inner), true
+		}
+		if trimmedObject, ok := trimRedundantTrailingClosersAfterJSONObject(normalised); ok {
+			if err := json.Unmarshal([]byte(trimmedObject), &inner); err == nil {
+				return mustMarshal(inner), true
+			}
+		}
+	}
+	return nil, false
 }
 
 // summarizeV2Blocks builds a short " (kinds=summary,ordered_list,…)"

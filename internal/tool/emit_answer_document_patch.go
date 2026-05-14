@@ -124,12 +124,12 @@ type emitAnswerDocumentPatchParams struct {
 	ReplaceBlocks                []emitAnswerBlockV2                `json:"replace_blocks,omitempty"`
 	AddBlocks                    []emitAnswerBlockV2                `json:"add_blocks,omitempty"`
 	RemoveBlockIDs               []string                           `json:"remove_block_ids,omitempty"`
-	ReplaceCitations             []types.Citation                   `json:"replace_citations,omitempty"`
-	AppendCitations              []types.Citation                   `json:"append_citations,omitempty"`
+	ReplaceCitations             []emitAnswerCitationV2             `json:"replace_citations,omitempty"`
+	AppendCitations              []emitAnswerCitationV2             `json:"append_citations,omitempty"`
 	ReplaceExactResolution       *types.AnswerExactResolution       `json:"replace_exact_resolution,omitempty"`
 	ReplaceMissingRequestedRoles []types.AnswerMissingRequestedRole `json:"replace_missing_requested_roles,omitempty"`
 	ReplaceCaveats               []string                           `json:"replace_caveats,omitempty"`
-	ReplaceSnippets              []types.CodeSnippet                `json:"replace_snippets,omitempty"`
+	ReplaceSnippets              []emitCodeSnippetV2                `json:"replace_snippets,omitempty"`
 }
 
 // Execute applies the patch to the previous V2 emit. Failure paths
@@ -169,8 +169,13 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			strings.Join(fields, ", "))
 		params = repaired
 	}
+	if repaired, fields, ok := repairStringWrappedObjectFields(params, "replace_exact_resolution"); ok {
+		logging.Warning("[emit_answer_document_patch] string-wrapped object field(s) re-parsed via flat-mode tolerance: %s",
+			strings.Join(fields, ", "))
+		params = repaired
+	}
 	if repaired, paths, ok := repairNestedArraysInPatch(params); ok {
-		logging.Warning("[emit_answer_document_patch] nested arrays re-parsed via flat-mode tolerance: %s",
+		logging.Warning("[emit_answer_document_patch] nested fields re-parsed via flat-mode tolerance: %s",
 			strings.Join(paths, ", "))
 		params = repaired
 	}
@@ -190,12 +195,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	patch := &types.AnswerDocumentV2Patch{
 		UnchangedBlockIDs:            append([]string(nil), p.UnchangedBlockIDs...),
 		RemoveBlockIDs:               append([]string(nil), p.RemoveBlockIDs...),
-		ReplaceCitations:             p.ReplaceCitations,
-		AppendCitations:              p.AppendCitations,
+		ReplaceCitations:             convertEmitCitationsToTyped(p.ReplaceCitations),
+		AppendCitations:              convertEmitCitationsToTyped(p.AppendCitations),
 		ReplaceExactResolution:       p.ReplaceExactResolution,
 		ReplaceMissingRequestedRoles: p.ReplaceMissingRequestedRoles,
 		ReplaceCaveats:               p.ReplaceCaveats,
-		ReplaceSnippets:              p.ReplaceSnippets,
+		ReplaceSnippets:              convertEmitCodeSnippetsToTyped(p.ReplaceSnippets),
 	}
 	if len(p.ReplaceBlocks) > 0 {
 		converted, err := convertEmitBlocksToTyped(t.Name(), p.ReplaceBlocks, "replace_blocks")

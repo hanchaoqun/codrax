@@ -336,3 +336,60 @@ func TestEmitAnswerDocumentPatch_StringWrappedReplaceCitationsWithExtraCloser(t 
 		t.Fatalf("repaired replace_citations did not apply; got %+v", doc)
 	}
 }
+
+func TestEmitAnswerDocumentPatch_StringWrappedNestedDiagramAndExactResolution(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+		},
+	})
+	params := json.RawMessage(`{
+		"remove_block_ids": ["s1"],
+		"add_blocks": [{
+			"id": "d1",
+			"kind": "diagram",
+			"diagram": "{\"kind\":\"sequence\",\"language\":\"mermaid\",\"body\":\"sequenceDiagram\\nA->>B: hi\"}",
+			"facet_ids": "[\"current_code_path\"]"
+		}],
+		"replace_exact_resolution": "{\"status\":\"exact_match\",\"anchor\":\"SubExplorer.Name\"}"
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must auto-repair stringified object/nested fields; got Success=false: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || doc.ExactResolution == nil || doc.ExactResolution.Anchor != "SubExplorer.Name" {
+		t.Fatalf("replace_exact_resolution not repaired: %+v", doc)
+	}
+	if len(doc.Blocks) != 1 || doc.Blocks[0].Diagram == nil || len(doc.Blocks[0].FacetIDs) != 1 {
+		t.Fatalf("nested diagram/facet_ids not repaired: %+v", doc)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_StringCitationAndSnippetLineNumbers(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+		},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"append_citations": [{"file":"internal/agent/sub_explorer.go","line":"31","line_end":"33"}],
+		"replace_snippets": [{"file":"internal/agent/sub_explorer.go","start_line":"31","end_line":"33","code":"func (s *SubExplorer) Name() string { return \"explorer\" }"}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must accept string line numbers; got Success=false: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 1 || doc.Citations[0].Line != 31 || doc.Citations[0].LineEnd != 33 {
+		t.Fatalf("append_citations line numbers not parsed: %+v", doc)
+	}
+	if len(doc.Snippets) != 1 || doc.Snippets[0].StartLine != 31 || doc.Snippets[0].EndLine != 33 {
+		t.Fatalf("replace_snippets line numbers not parsed: %+v", doc.Snippets)
+	}
+}

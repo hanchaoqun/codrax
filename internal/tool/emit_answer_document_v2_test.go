@@ -678,6 +678,25 @@ func TestRepairNestedArraysAsString_ItemsAsString(t *testing.T) {
 	}
 }
 
+func TestRepairNestedArraysAsString_ItemsAsStringWithExtraCloser(t *testing.T) {
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"id": "list1", "kind": "ordered_list",
+			 "items": "[{\"id\":\"i1\",\"label\":\"A\"}]]"}
+		]
+	}`)
+	patched, paths, ok := repairNestedArraysAsString(raw)
+	if !ok {
+		t.Fatal("repair must fire")
+	}
+	if len(paths) != 1 || paths[0] != "blocks[0].items" {
+		t.Errorf("paths = %v, want [blocks[0].items]", paths)
+	}
+	if !strings.Contains(string(patched), `"items":[{`) {
+		t.Errorf("items[] not converted to array: %s", patched)
+	}
+}
+
 // TestRepairNestedArraysAsString_ClaimUsesAsString covers the
 // per-block claim_uses[] string-encoded case.
 func TestRepairNestedArraysAsString_ClaimUsesAsString(t *testing.T) {
@@ -693,6 +712,46 @@ func TestRepairNestedArraysAsString_ClaimUsesAsString(t *testing.T) {
 	}
 	if len(paths) != 1 || paths[0] != "blocks[0].claim_uses" {
 		t.Errorf("paths = %v, want [blocks[0].claim_uses]", paths)
+	}
+}
+
+func TestRepairNestedArraysAsString_FacetIDsAndEdgeAnchorsAsString(t *testing.T) {
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"id": "d1", "kind": "diagram",
+			 "facet_ids": "[\"current_code_path\"]",
+			 "edge_anchors": "[{\"from_node\":\"A\",\"to_node\":\"B\",\"relation_kind\":\"call\"}]"}
+		]
+	}`)
+	patched, paths, ok := repairNestedArraysAsString(raw)
+	if !ok {
+		t.Fatal("repair must fire")
+	}
+	if len(paths) != 2 {
+		t.Fatalf("expected 2 repair paths; got %v", paths)
+	}
+	if !strings.Contains(string(patched), `"facet_ids":["current_code_path"]`) ||
+		!strings.Contains(string(patched), `"edge_anchors":[{`) {
+		t.Fatalf("structured block arrays not repaired: %s", patched)
+	}
+}
+
+func TestRepairNestedArraysAsString_DiagramObjectAsString(t *testing.T) {
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"id": "d1", "kind": "diagram",
+			 "diagram": "{\"kind\":\"sequence\",\"language\":\"mermaid\",\"body\":\"sequenceDiagram\\nA->>B: hi\"}"}
+		]
+	}`)
+	patched, paths, ok := repairNestedArraysAsString(raw)
+	if !ok {
+		t.Fatal("repair must fire")
+	}
+	if len(paths) != 1 || paths[0] != "blocks[0].diagram" {
+		t.Errorf("paths = %v, want [blocks[0].diagram]", paths)
+	}
+	if !strings.Contains(string(patched), `"diagram":{`) {
+		t.Fatalf("diagram object not repaired: %s", patched)
 	}
 }
 
@@ -740,6 +799,57 @@ func TestRepairNestedArraysAsString_NoTrigger(t *testing.T) {
 				t.Errorf("repair fired unexpectedly for %s", tc.name)
 			}
 		})
+	}
+}
+
+func TestEmitAnswerDocumentV2_StringWrappedExactResolutionAndDiagram(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"exact_resolution": "{\"status\":\"exact_match\",\"anchor\":\"SubExplorer.Name\"}",
+		"blocks": [{
+			"id": "d1",
+			"kind": "diagram",
+			"diagram": "{\"kind\":\"sequence\",\"language\":\"mermaid\",\"body\":\"sequenceDiagram\\nA->>B: hi\"}"
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("string-wrapped object fields should be repaired and accepted; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || doc.ExactResolution == nil || doc.ExactResolution.Anchor != "SubExplorer.Name" {
+		t.Fatalf("exact_resolution not repaired: %+v", doc)
+	}
+	if len(doc.Blocks) != 1 || doc.Blocks[0].Diagram == nil || doc.Blocks[0].Diagram.Body == "" {
+		t.Fatalf("diagram not repaired: %+v", doc)
+	}
+}
+
+func TestEmitAnswerDocumentV2_StringCitationAndSnippetLineNumbers(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{"id": "s1", "kind": "summary", "text": "Hello"}],
+		"citations": [{"file": "internal/agent/sub_explorer.go", "line": "31", "line_end": "33"}],
+		"snippets": [{"file": "internal/agent/sub_explorer.go", "start_line": "31", "end_line": "33", "code": "func (s *SubExplorer) Name() string { return \"explorer\" }"}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("string line numbers should be repaired and accepted; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 1 || doc.Citations[0].Line != 31 || doc.Citations[0].LineEnd != 33 {
+		t.Fatalf("citation line numbers not parsed: %+v", doc)
+	}
+	if len(doc.Snippets) != 1 || doc.Snippets[0].StartLine != 31 || doc.Snippets[0].EndLine != 33 {
+		t.Fatalf("snippet line numbers not parsed: %+v", doc.Snippets)
 	}
 }
 
