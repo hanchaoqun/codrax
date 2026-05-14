@@ -109,6 +109,11 @@ type keywordSearchOptions struct {
 	// exact target and auxiliary/test/doc mentions must not hijack the
 	// candidate ranking.
 	ExactResolution *types.ExactResolutionContract
+	// SourceScope carries the analyzer's typed answer-scope judgement for
+	// repo paths. Production-scope searches keep tests/docs/fixtures/examples
+	// visible but down-ranked, while explicit test/docs/all scopes can promote
+	// those roles as principal candidates.
+	SourceScope *types.SourceScopeProfile
 	// SuppressExactEntityAnchors disables the unique-symbol fast path.
 	// Used for observation-only runtime artifacts: analyzer entities
 	// such as "load" / "config" / "KeyError" describe an attached
@@ -175,7 +180,7 @@ func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
 // same Run re-dispatches explorer with identical analyzer output.
 // Order-independent: slices are sorted before joining so keyword
 // permutations produce the same key.
-func keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints, exactTargets []string, exactPolicy string, maxFiles int, suppressExactAnchors bool) string {
+func keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints, exactTargets []string, exactPolicy string, maxFiles int, suppressExactAnchors bool, sourceScopeFingerprint string) string {
 	cp := func(s []string) []string {
 		if len(s) == 0 {
 			return nil
@@ -205,6 +210,8 @@ func keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEnti
 	if suppressExactAnchors {
 		b.WriteString("suppress_exact_anchors")
 	}
+	b.WriteByte('|')
+	b.WriteString(strings.TrimSpace(strings.ToLower(sourceScopeFingerprint)))
 	return b.String()
 }
 
@@ -363,6 +370,16 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 			combined *= 0.35
 			hits["auxiliary_exact"] = "1"
 		}
+		if role := types.ClassifySourcePathRole(f); shouldDeprioritizeAuxiliaryBySourceScope(role, opts.SourceScope) {
+			if combined == 0 {
+				continue
+			}
+			combined *= 0.35
+			hits["auxiliary_scope"] = string(role)
+			if exactRank > 0 {
+				exactRank = 0
+			}
+		}
 
 		// Extract symbol summaries from repo_map graph.
 		var syms []string
@@ -406,6 +423,16 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	logging.Debug("[keyword_search] %d keywords, %d entities → %d files scored (cap=%d)",
 		len(keywords), len(opts.Entities), len(results), maxFiles)
 	return &keywordSearchResult{Files: results, Graph: graph, MultiGraph: opts.MultiGraph}
+}
+
+func shouldDeprioritizeAuxiliaryBySourceScope(role types.SourcePathRole, profile *types.SourceScopeProfile) bool {
+	if !types.SourcePathRoleIsAuxiliary(role) {
+		return false
+	}
+	if profile != nil && profile.AllowsAuxiliaryPrincipal() {
+		return false
+	}
+	return true
 }
 
 func exactEntityAnchorsForKeywordSearchOptions(graph *repomap.Graph, opts keywordSearchOptions) map[string]exactEntityAnchor {

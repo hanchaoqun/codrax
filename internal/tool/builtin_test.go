@@ -914,6 +914,48 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("explore grep separates production and auxiliary matches", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(tmpDir, "src"), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Join(tmpDir, "tests", "cangjie"), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "src", "feature.cj"), []byte("let marker = \"NeedleScope\"\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "tests", "cangjie", "feature_test.cj"), []byte("let marker = \"NeedleScope\"\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		ctx := newBusContext()
+		ctx.PipelineStage = types.StageExplore
+		ctx.RepoRoot = tmpDir
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "NeedleScope", Path: ".", FilesOnly: true})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		prodIdx := strings.Index(result.Summary, "[grep production matches]")
+		auxIdx := strings.Index(result.Summary, "[grep auxiliary matches - supporting context, not production proof]")
+		if prodIdx < 0 || auxIdx < 0 || auxIdx <= prodIdx {
+			t.Fatalf("expected generic grep production and auxiliary sections in order, got:\n%s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "[prescan production matches]") {
+			t.Fatalf("explore grep should not use analyzer-prescan labels, got:\n%s", result.Summary)
+		}
+		prodPathIdx := strings.Index(result.Summary, "src/feature.cj")
+		auxPathIdx := strings.Index(result.Summary, "tests/cangjie/feature_test.cj")
+		if prodPathIdx < 0 || auxPathIdx < 0 || !(prodIdx < prodPathIdx && prodPathIdx < auxIdx && auxIdx < auxPathIdx) {
+			t.Fatalf("expected Cangjie production path before auxiliary test path, got:\n%s", result.Summary)
+		}
+	})
+
 	// Noise exclusion tests: grep should skip directories that produce
 	// noise without useful signal (.git, logs, memory, node_modules, etc.)
 

@@ -150,26 +150,27 @@ func TestDomainBoostFactor_BoostSmallerThanEntityBoost(t *testing.T) {
 
 // T1.2 — keywordSearchFingerprint stability + order-independence.
 func TestKeywordSearchFingerprint_StableAndOrderIndependent(t *testing.T) {
-	a := keywordSearchFingerprint([]string{"foo", "bar"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false)
-	b := keywordSearchFingerprint([]string{"bar", "foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false)
+	a := keywordSearchFingerprint([]string{"foo", "bar"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false, "")
+	b := keywordSearchFingerprint([]string{"bar", "foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false, "")
 	if a != b {
 		t.Fatalf("fingerprint is sensitive to keyword order: a=%q b=%q", a, b)
 	}
 }
 
 func TestKeywordSearchFingerprint_DistinguishesInputs(t *testing.T) {
-	base := keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false)
+	base := keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false, "")
 	cases := map[string]string{
-		"different keyword":           keywordSearchFingerprint([]string{"qux"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false),
-		"different entity":            keywordSearchFingerprint([]string{"foo"}, []string{"Other"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false),
-		"different mentioned entity":  keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, []string{"Mentioned"}, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false),
-		"different primary entities":  keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, []string{"Primary"}, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false),
-		"different domain":            keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"other"}, []string{"target"}, "same_family_grounded", 30, false),
-		"different exact target":      keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"other"}, "same_family_grounded", 30, false),
-		"different exact policy":      keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "grounded_only", 30, false),
-		"different maxFiles":          keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 20, false),
-		"different exact-anchor mode": keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, true),
-		"empty all":                   keywordSearchFingerprint(nil, nil, nil, nil, nil, nil, "", 0, false),
+		"different keyword":           keywordSearchFingerprint([]string{"qux"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false, ""),
+		"different entity":            keywordSearchFingerprint([]string{"foo"}, []string{"Other"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false, ""),
+		"different mentioned entity":  keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, []string{"Mentioned"}, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false, ""),
+		"different primary entities":  keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, []string{"Primary"}, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false, ""),
+		"different domain":            keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"other"}, []string{"target"}, "same_family_grounded", 30, false, ""),
+		"different exact target":      keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"other"}, "same_family_grounded", 30, false, ""),
+		"different exact policy":      keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "grounded_only", 30, false, ""),
+		"different maxFiles":          keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 20, false, ""),
+		"different exact-anchor mode": keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, true, ""),
+		"different source scope":      keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30, false, "test:aux-principal"),
+		"empty all":                   keywordSearchFingerprint(nil, nil, nil, nil, nil, nil, "", 0, false, ""),
 	}
 	for name, fp := range cases {
 		if fp == base {
@@ -190,6 +191,19 @@ func TestShouldDeprioritizeAuxiliaryExactHit(t *testing.T) {
 	}
 	if shouldDeprioritizeAuxiliaryExactHit("internal/config/runtime.go", contract) {
 		t.Fatal("production config file should not be deprioritized")
+	}
+}
+
+func TestShouldDeprioritizeAuxiliaryBySourceScope(t *testing.T) {
+	testRole := types.ClassifySourcePathRole("tests/cangjie/feature_test.cj")
+	if !shouldDeprioritizeAuxiliaryBySourceScope(testRole, &types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction}) {
+		t.Fatal("production scope should down-rank auxiliary test paths")
+	}
+	if shouldDeprioritizeAuxiliaryBySourceScope(testRole, &types.SourceScopeProfile{RequestedScope: types.SourceScopeTest, IncludeAuxiliaryAsPrincipal: true}) {
+		t.Fatal("explicit test scope should not down-rank test paths")
+	}
+	if shouldDeprioritizeAuxiliaryBySourceScope(types.SourcePathRoleProduction, nil) {
+		t.Fatal("production path must not be down-ranked as auxiliary")
 	}
 }
 

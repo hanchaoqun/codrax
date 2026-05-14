@@ -683,13 +683,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		domainHints := irDomainHints(ctx)
 		maxFiles := MaxFilesForComplexity(irComplexity(ctx))
 		exactContract := irExactResolutionContract(ctx)
+		sourceScope := irSourceScopeProfile(ctx)
 		var exactTargets []string
 		exactPolicy := ""
 		if exactContract != nil {
 			exactTargets = exactContract.Targets
 			exactPolicy = string(exactContract.RelatedContextPolicy)
 		}
-		fp := keywordSearchFingerprint(analyzerKeywords, analyzerEntities, irMentionedEntities(ctx), irPrimaryEntities(ctx), domainHints, exactTargets, exactPolicy, maxFiles, false)
+		fp := keywordSearchFingerprint(analyzerKeywords, analyzerEntities, irMentionedEntities(ctx), irPrimaryEntities(ctx), domainHints, exactTargets, exactPolicy, maxFiles, false, sourceScope.Fingerprint())
 		var sr *keywordSearchResult
 		if e.searchResult != nil && e.searchFingerprint != "" && e.searchFingerprint == fp {
 			logging.Debug("[keyword_search] cache hit fp=%s (%d files, %d keywords)",
@@ -703,6 +704,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				DomainHints:       domainHints,
 				MaxFiles:          maxFiles,
 				ExactResolution:   exactContract,
+				SourceScope:       sourceScope,
 				MultiGraph:        ctx.MultiGraph,
 			})
 			e.searchResult = sr
@@ -13591,15 +13593,15 @@ func isNoisePath(path string) bool {
 	if tool.IsExcludedRelativePath(path) {
 		return true
 	}
-	// Test files (cross-language naming conventions)
+	// Test files (cross-language naming conventions). Keep this in sync with
+	// the repomap-backed classifier instead of hand-maintaining a Go/JS-only
+	// suffix list here; grep/repo_map discoveries should not create production
+	// closure obligations from ArkTS, Cangjie, C/C++, Swift, Ruby, Lua, etc.
 	base := path
 	if idx := strings.LastIndex(path, "/"); idx >= 0 {
 		base = path[idx+1:]
 	}
-	if strings.HasSuffix(base, "_test.go") || strings.HasPrefix(base, "test_") ||
-		strings.HasSuffix(base, ".test.js") || strings.HasSuffix(base, ".test.ts") ||
-		strings.HasSuffix(base, "_test.py") || strings.HasSuffix(base, ".spec.js") ||
-		strings.HasSuffix(base, ".spec.ts") || strings.HasSuffix(base, "_spec.rb") {
+	if types.LooksLikeTestFilePath(path) {
 		return true
 	}
 	// Log files

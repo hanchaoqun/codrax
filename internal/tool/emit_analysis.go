@@ -71,6 +71,7 @@ type emitAnalysisParams struct {
 	Predicates                   *emitPredicatesParam                   `json:"predicates"`
 	DiagnosticProfile            *emitDiagnosticProfileParam            `json:"diagnostic_profile"`
 	ConversationReferenceProfile *emitConversationReferenceProfileParam `json:"conversation_reference_profile,omitempty"`
+	SourceScopeProfile           *emitSourceScopeProfileParam           `json:"source_scope_profile,omitempty"`
 	ChangeImpactProfile          *emitChangeImpactProfileParam          `json:"change_impact_profile,omitempty"`
 	PredicateAxis                string                                 `json:"predicate_axis,omitempty"`
 	DiagramHint                  *emitDiagramHintParam                  `json:"diagram_hint,omitempty"`
@@ -145,6 +146,13 @@ type emitResolvedConversationSubjectParam struct {
 	Role             string   `json:"role,omitempty"`
 	UseAsExactTarget *bool    `json:"use_as_exact_target"`
 	Confidence       *float64 `json:"confidence"`
+}
+
+type emitSourceScopeProfileParam struct {
+	RequestedScope              string   `json:"requested_scope"`
+	IncludeAuxiliaryAsPrincipal *bool    `json:"include_auxiliary_as_principal,omitempty"`
+	Confidence                  *float64 `json:"confidence"`
+	Rationale                   string   `json:"rationale,omitempty"`
 }
 
 type emitChangeImpactProfileParam struct {
@@ -348,6 +356,17 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"requires_prior_context", "needs_repo_verification", "ambiguity"},
 			},
+			"source_scope_profile": map[string]any{
+				"type":        "object",
+				"description": "Optional typed path-scope intent. Emit when tests, docs, fixtures, examples, or all repo material are principal answer scope; otherwise production is the default for code-behavior questions. This is user intent, not path classification.",
+				"properties": map[string]any{
+					"requested_scope":                map[string]any{"type": "string", "enum": sourceScopeValues(), "description": "production, test, documentation, auxiliary, all, or unknown."},
+					"include_auxiliary_as_principal": map[string]any{"type": "boolean", "description": "True only when test/docs/fixture/example files may be principal answer members rather than supporting context."},
+					"confidence":                     map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this source scope in [0,1]."},
+					"rationale":                      map[string]any{"type": "string", "description": "Short audit rationale for the selected scope."},
+				},
+				"required": []string{"requested_scope", "confidence"},
+			},
 			"change_impact_profile": map[string]any{
 				"type":        "object",
 				"description": "Optional typed profile for migration / affected-site questions. Use only when the CURRENT request asks which code sites, files, symbols, APIs, config locations, or downstream artifacts would need changes if a named target changed. Do not use for ordinary mechanism explanations, current-status diagnostics, or simple value lookups.",
@@ -475,6 +494,15 @@ func conversationReferenceAmbiguityValues() []string {
 
 func impactScopeValues() []string {
 	values := types.AllImpactScopes()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func sourceScopeValues() []string {
+	values := types.AllSourceScopes()
 	out := make([]string, 0, len(values))
 	for _, v := range values {
 		out = append(out, string(v))
@@ -624,6 +652,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			ToolName:  t.Name(),
 			Success:   false,
 			Summary:   "emit_analysis rejected: " + conversationReferenceErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	sourceScopeProfile, sourceScopeErr := parseSourceScopeProfile(p.SourceScopeProfile)
+	if sourceScopeErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + sourceScopeErr,
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -787,6 +824,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Predicates:                   predicates,
 		DiagnosticProfile:            diagnosticProfile,
 		ConversationReferenceProfile: conversationReferenceProfile,
+		SourceScopeProfile:           sourceScopeProfile,
 		ChangeImpactProfile:          changeImpactProfile,
 		PredicateAxis:                axis,
 		DiagramHint:                  diagramHint,
@@ -1242,6 +1280,45 @@ func parseConversationReferenceProfile(p *emitConversationReferenceProfileParam)
 	return out, ""
 }
 
+func parseSourceScopeProfile(p *emitSourceScopeProfileParam) (*types.SourceScopeProfile, string) {
+	if p == nil {
+		return nil, ""
+	}
+	var missing []string
+	if strings.TrimSpace(p.RequestedScope) == "" {
+		missing = append(missing, "requested_scope")
+	}
+	if p.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Sprintf(
+			"source_scope_profile missing required field(s): %s",
+			strings.Join(missing, ", "),
+		)
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("source_scope_profile.confidence %.2f out of [0,1]", *p.Confidence)
+	}
+	scope := types.SourceScope(strings.TrimSpace(p.RequestedScope))
+	if !scope.IsValid() {
+		return nil, fmt.Sprintf(
+			"source_scope_profile.requested_scope %q is invalid; use one of %s",
+			p.RequestedScope, strings.Join(sourceScopeValues(), ", "),
+		)
+	}
+	includeAux := false
+	if p.IncludeAuxiliaryAsPrincipal != nil {
+		includeAux = *p.IncludeAuxiliaryAsPrincipal
+	}
+	return &types.SourceScopeProfile{
+		RequestedScope:              scope,
+		IncludeAuxiliaryAsPrincipal: includeAux,
+		Confidence:                  *p.Confidence,
+		Rationale:                   strings.TrimSpace(p.Rationale),
+	}, ""
+}
+
 func parseChangeImpactProfile(p *emitChangeImpactProfileParam) (*types.ChangeImpactProfile, string) {
 	if p == nil {
 		return nil, ""
@@ -1672,6 +1749,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.ConversationReferenceProfile != nil && rm.ConversationReferenceProfile.RequiresPriorContext {
 		fmt.Fprintf(&b, " conversation_refs=%d", len(rm.ConversationReferenceProfile.ResolvedSubjects))
+	}
+	if rm.SourceScopeProfile != nil {
+		fmt.Fprintf(&b, " source_scope=%s", rm.SourceScopeProfile.RequestedScope)
 	}
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.IsChangeImpact {
 		fmt.Fprintf(&b, " change_impact=%s", rm.ChangeImpactProfile.Target)

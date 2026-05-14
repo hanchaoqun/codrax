@@ -98,6 +98,13 @@ type RequestModel struct {
 	// those subjects were verbatim in the current request.
 	ConversationReferenceProfile *ConversationReferenceProfile `json:"conversation_reference_profile,omitempty"`
 
+	// SourceScopeProfile is the analyzer LLM's typed answer-scope lane for
+	// repo paths: production code by default, tests/docs/fixtures/examples
+	// only when the user asked for them as principal evidence. Path roles
+	// are classified deterministically elsewhere; this profile carries user
+	// intent so rankers do not keyword-match prose like "test".
+	SourceScopeProfile *SourceScopeProfile `json:"source_scope_profile,omitempty"`
+
 	// ChangeImpactProfile is the analyzer LLM's typed lane for
 	// migration / affected-site questions: "which files/sites would
 	// need changes if target X changed shape". Downstream planners use

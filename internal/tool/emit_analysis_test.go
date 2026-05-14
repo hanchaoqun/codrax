@@ -1853,6 +1853,64 @@ func TestEmitAnalysis_Execute_PersistsConversationReferenceProfile(t *testing.T)
 	}
 }
 
+func TestEmitAnalysis_Execute_PersistsSourceScopeProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("测试文件里哪些 handler 会走 SubAgent?")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["handler", "SubAgent", "test"],
+		"entities": ["SubAgent"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": true,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"source_scope_profile": {
+			"requested_scope": "test",
+			"include_auxiliary_as_principal": true,
+			"confidence": 0.91,
+			"rationale": "current request asks about test files as principal scope"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "source_scope=test") {
+		t.Fatalf("summary should surface source scope lane, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceScopeProfile == nil {
+		t.Fatalf("SourceScopeProfile not persisted: %+v", rm)
+	}
+	if rm.SourceScopeProfile.RequestedScope != types.SourceScopeTest ||
+		!rm.SourceScopeProfile.IncludeAuxiliaryAsPrincipal ||
+		!rm.SourceScopeProfile.AllowsAuxiliaryPrincipal() {
+		t.Fatalf("SourceScopeProfile fields wrong: %+v", rm.SourceScopeProfile)
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsChangeImpactProfile(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

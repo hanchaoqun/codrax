@@ -404,7 +404,7 @@ analyzer 阶段分两个 phase：
 
 ### 4.3 RequestModel — 一份完整的"工作单"
 
-LLM 通过 `emit_analysis` 一次性写出的 `RequestModel`（`internal/types/analysis_ir.go`）包含 13 类信息：
+LLM 通过 `emit_analysis` 一次性写出的 `RequestModel`（`internal/types/analysis_ir.go`）包含以下核心 typed lanes：
 
 | 类别 | 字段 | 含义 |
 |---|---|---|
@@ -428,6 +428,11 @@ LLM 通过 `emit_analysis` 一次性写出的 `RequestModel`（`internal/types/a
 | 边界声明 | `EnumerationBoundary` | 用户声明的有界集合大小（"the 7 checks"）+ verbatim quote |
 | | `CompletenessObligation` | 用户要求穷举（"all the X"） |
 | | `Buckets[]` | 用户分组（"X for A, Y for B"） |
+| 诊断 / 上下文 | `DiagnosticProfile` | analyzer 的诊断意图安全 lane：current-risk / historical-regression / current-version-check |
+| | `ArtifactObservationProfile` | log / trace / 无附件观察问题的 typed 症状 lane，承载 retry loop、line mismatch、completion rewrite 等非异常信号 |
+| | `ConversationReferenceProfile` | REPL / follow-up 中由 Prior Conversation 解析出的 subject，不伪装成当前请求字面 mention |
+| | `SourceScopeProfile` | 路径 scope 意图：production 默认；test / documentation / auxiliary / all 只有用户显式要求时成为 principal |
+| | `ChangeImpactProfile` | migration / affected-site 问题的 typed lane：target、requested output、scope、site roles |
 | 附加层 | `LogTriage` / `PerfTrace` | 前置阶段产出的 typed bundle（如适用） |
 | 提示 | `AnalyzerHints` | verbatim 给下游的 LLM 原文字段（entities / keywords / 杂项） |
 
@@ -480,6 +485,8 @@ LLM 通过 `emit_analysis` 一次性写出的 `RequestModel`（`internal/types/a
 | Quality / writeback / observability | 37 | gate.RunWith + Mutable.SetRequestModel + EmitReconcileSummary | 运行质量门、把 reconciled RequestModel 写回 Mutable、输出 `[reconcile-shadow]` 聚合事件 |
 
 **ConversationReferenceProfile** 是 `emit_analysis` 的通用 prior-context lane：普通无附件 follow-up（"刚才那个配置项默认值是什么？"）把上文解析出的 subject 写成 `{surface, kind, source, role, use_as_exact_target, confidence}`。compiler 的搜索 hint 合并它的 `SubjectCandidates()`，`BuildExactResolutionContract` 允许 `source=prior_context|mixed` 且 `use_as_exact_target=true` 的 subject 进入 exact-resolution，但 provenance 保持 prior_context，不伪装成当前请求 verbatim mention。
+
+**SourceScopeProfile + SourcePathRole** 分离"用户意图"和"路径分类"：`types.ClassifySourcePathRole` 只根据 repo-relative path 结构把文件标为 production / test / fixture / example / documentation / prompt_support，复用 repomap 支持语言矩阵识别 Go、Python、JS/TS/ArkTS、Java/Kotlin、Rust、C/C++/CUDA/ObjC、Ruby、Swift、Lua、Proto、Cangjie 等测试文件；`source_scope_profile` 则由 analyzer 表达这些角色是否可作为 principal scope。未明确要求测试/文档/fixture 时，keyword search 和 grep 输出按 production-first 分层，辅助路径保留为 context 但不制造生产闭包义务；当用户显式问测试或 docs，typed scope 允许它们成为主候选。
 
 **ArtifactObservationProfile** 是 log / trace / no-attachment diagnostic 共用的观察 lane：字段包括 `observation_kind`、`symptom_summary`、`evidence_snippets`、`subject_candidates`、`has_retry_loop`、`has_line_mismatch`、`has_completion_rewrite`、`diagnostic_confidence`。构建顺序刻意放在 diagnostic reconcile 与 entity expansion 之后，避免无附件问题只记录代词化 RawRequest 而丢掉后处理补齐的诊断类型和 subject。`current_version_check` 不单独创建这个 profile；只有 `is_diagnostic` / `current_risk` / `historical_regression`（或 reconciled `is_diagnostic_question`）确认用户要的是 still-present / fixed / not-enough-evidence 当前状态诊断时，才走观察 lane 和 current-status contract。
 
@@ -1855,7 +1862,8 @@ type AnalysisIR struct {
                                    // AnalyzerHints / AnswerSubject / EnumerationBoundary /
                                    // CompletenessObligation / Buckets / ExactTargets /
                                    // DiagnosticProfile / ArtifactObservationProfile /
-                                   // ConversationReferenceProfile / ...
+                                   // ConversationReferenceProfile / SourceScopeProfile /
+                                   // ChangeImpactProfile / ...
     TaskGraph      TaskGraph       // Nodes / Edges / ExecutionPolicy
     EvidencePlan   EvidencePlan    // Budget / SourceMix / StopConditions /
                                    // NodeBudgetHints / RequiredFiles

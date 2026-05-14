@@ -671,7 +671,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			unit = "matching files"
 		}
 		countBanner := fmt.Sprintf("[grep: %d %s]\n", nres.Matches, unit)
-		matchOutput := annotateAnalyzerPrescanGrepOutput(ctx, p.FilesOnly, nres.Output)
+		matchOutput := annotateGrepOutputByPathRole(ctx, p.FilesOnly, nres.Output)
 		summary, ref := StoreBlob(ctx, t.Name(), countBanner+paramsBanner+matchOutput)
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -834,7 +834,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		countBanner = fmt.Sprintf("[grep: %d %s]\n", lines, unit)
 	}
-	matchOutput := annotateAnalyzerPrescanGrepOutput(ctx, p.FilesOnly, output)
+	matchOutput := annotateGrepOutputByPathRole(ctx, p.FilesOnly, output)
 	output = countBanner + paramsBanner + matchOutput
 
 	summary, ref := StoreBlob(ctx, t.Name(), output)
@@ -847,8 +847,8 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}, nil
 }
 
-func annotateAnalyzerPrescanGrepOutput(ctx *types.BusContext, filesOnly bool, output string) string {
-	if ctx == nil || ctx.PipelineStage != types.StageAnalyze || strings.TrimSpace(output) == "" {
+func annotateGrepOutputByPathRole(ctx *types.BusContext, filesOnly bool, output string) string {
+	if ctx == nil || strings.TrimSpace(output) == "" {
 		return output
 	}
 	var production []string
@@ -859,8 +859,8 @@ func annotateAnalyzerPrescanGrepOutput(ctx *types.BusContext, filesOnly bool, ou
 		if line == "" {
 			continue
 		}
-		if path, ok := analyzerGrepOutputLinePath(line, filesOnly); ok {
-			if types.LooksLikeAuxiliaryEvidencePath(path) {
+		if path, ok := grepOutputLinePath(line, filesOnly); ok {
+			if types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
 				auxiliary = append(auxiliary, raw)
 			} else {
 				production = append(production, raw)
@@ -872,25 +872,30 @@ func annotateAnalyzerPrescanGrepOutput(ctx *types.BusContext, filesOnly bool, ou
 	if len(auxiliary) == 0 {
 		return output
 	}
+	productionHeader, otherHeader, auxiliaryHeader := grepPathRoleSectionHeaders(ctx)
 	var b strings.Builder
 	if len(production) > 0 {
-		b.WriteString("[prescan production matches]\n")
+		b.WriteString(productionHeader)
+		b.WriteByte('\n')
 		for _, line := range production {
 			b.WriteString(line)
 			b.WriteByte('\n')
 		}
 	} else {
-		b.WriteString("[prescan production matches]\n")
+		b.WriteString(productionHeader)
+		b.WriteByte('\n')
 		b.WriteString("no non-auxiliary matches found\n")
 	}
 	if len(passthrough) > 0 {
-		b.WriteString("[prescan other output]\n")
+		b.WriteString(otherHeader)
+		b.WriteByte('\n')
 		for _, line := range passthrough {
 			b.WriteString(line)
 			b.WriteByte('\n')
 		}
 	}
-	b.WriteString("[prescan auxiliary matches - not production proof]\n")
+	b.WriteString(auxiliaryHeader)
+	b.WriteByte('\n')
 	for _, line := range auxiliary {
 		b.WriteString(line)
 		b.WriteByte('\n')
@@ -898,7 +903,25 @@ func annotateAnalyzerPrescanGrepOutput(ctx *types.BusContext, filesOnly bool, ou
 	return b.String()
 }
 
-func analyzerGrepOutputLinePath(line string, filesOnly bool) (string, bool) {
+func grepPathRoleSectionHeaders(ctx *types.BusContext) (production, other, auxiliary string) {
+	if ctx != nil && ctx.PipelineStage == types.StageAnalyze {
+		return "[prescan production matches]",
+			"[prescan other output]",
+			"[prescan auxiliary matches - not production proof]"
+	}
+	return "[grep production matches]",
+		"[grep other output]",
+		"[grep auxiliary matches - supporting context, not production proof]"
+}
+
+// annotateAnalyzerPrescanGrepOutput is kept as a small compatibility wrapper
+// for older tests and call sites. The implementation now partitions grep
+// results by typed path role for every stage, not only analyzer prescan.
+func annotateAnalyzerPrescanGrepOutput(ctx *types.BusContext, filesOnly bool, output string) string {
+	return annotateGrepOutputByPathRole(ctx, filesOnly, output)
+}
+
+func grepOutputLinePath(line string, filesOnly bool) (string, bool) {
 	line = strings.TrimSpace(line)
 	if line == "" || strings.HasPrefix(line, "[") {
 		return "", false

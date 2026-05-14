@@ -113,6 +113,51 @@ func irExactResolutionContract(ctx *types.AgentContext) *types.ExactResolutionCo
 	return ctx.AnalysisIR.AnswerContract.ExactResolution
 }
 
+func irSourceScopeProfile(ctx *types.AgentContext) *types.SourceScopeProfile {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.SourceScopeProfile != nil {
+		return rm.SourceScopeProfile
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		switch rm.ChangeImpactProfile.Scope {
+		case types.ImpactScopeTest:
+			return &types.SourceScopeProfile{RequestedScope: types.SourceScopeTest, IncludeAuxiliaryAsPrincipal: true, Confidence: 1}
+		case types.ImpactScopeAll:
+			return &types.SourceScopeProfile{RequestedScope: types.SourceScopeAll, IncludeAuxiliaryAsPrincipal: true, Confidence: 1}
+		case types.ImpactScopeProduction:
+			return &types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction, Confidence: 1}
+		}
+	}
+	if requestModelMentionsAuxiliaryPath(rm) {
+		return &types.SourceScopeProfile{RequestedScope: types.SourceScopeAll, IncludeAuxiliaryAsPrincipal: true, Confidence: 1}
+	}
+	return &types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction, Confidence: 0.5}
+}
+
+func requestModelMentionsAuxiliaryPath(rm types.RequestModel) bool {
+	for _, target := range rm.AnalyzerHints.ExactTargets {
+		if types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(target)) {
+			return true
+		}
+	}
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(hint.Path)) {
+			return true
+		}
+	}
+	if rm.ConversationReferenceProfile != nil {
+		for _, subject := range rm.ConversationReferenceProfile.ResolvedSubjects {
+			if types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(subject.Surface)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func observationOnlyRuntimeArtifactForExplorer(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false

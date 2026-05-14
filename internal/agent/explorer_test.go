@@ -32,6 +32,31 @@ func softStopExplorer(eval *explorerEvaluator, content string, iter, continuatio
 	return "", false
 }
 
+func TestIsNoisePathUsesCrossLanguageTestClassifier(t *testing.T) {
+	positive := []string{
+		"entry/src/ohosTest/ets/pages/Index.test.ets",
+		"tests/cangjie/feature_test.cj",
+		"native/foo_unittest.cpp",
+		"Tests/AppTests/FeatureTests.swift",
+	}
+	for _, path := range positive {
+		if !isNoisePath(path) {
+			t.Fatalf("isNoisePath(%q) = false, want true", path)
+		}
+	}
+
+	negative := []string{
+		"src/testimonial/page.tsx",
+		"native/test_support.cpp",
+		"internal/agent/tester.go",
+	}
+	for _, path := range negative {
+		if isNoisePath(path) {
+			t.Fatalf("isNoisePath(%q) = true, want false", path)
+		}
+	}
+}
+
 // midLoopExplorer is the PhaseMidLoop analogue of softStopExplorer.
 func midLoopExplorer(eval *explorerEvaluator, iter int, lastResult *types.ToolResult, allResults []types.ToolResult) (string, bool) {
 	sig := eval.observeMidLoop(LoopObservation{

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestEmitAnalysisSchemaMatchesContract is the single consistency
@@ -255,5 +256,48 @@ func TestEmitAnalysisSchemaIncludesConversationReferenceProfile(t *testing.T) {
 	}
 	if !reflect.DeepEqual(prop.Properties["ambiguity"].Enum, []string{"none", "ambiguous", "missing"}) {
 		t.Fatalf("conversation_reference_profile.ambiguity enum = %v", prop.Properties["ambiguity"].Enum)
+	}
+}
+
+func TestEmitAnalysisSchemaIncludesSourceScopeProfile(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	raw := (&EmitAnalysis{}).Parameters()
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v\nraw=%s", err, string(raw))
+	}
+	propRaw, ok := parsed.Properties["source_scope_profile"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing property \"source_scope_profile\"")
+	}
+	var prop struct {
+		Properties map[string]struct {
+			Type string   `json:"type"`
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatalf("source_scope_profile property is not valid JSON schema: %v\nraw=%s", err, string(propRaw))
+	}
+	for _, want := range []string{"requested_scope", "confidence"} {
+		found := false
+		for _, field := range prop.Required {
+			if field == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("source_scope_profile.required = %v, want %s included", prop.Required, want)
+		}
+	}
+	var wantEnum []string
+	for _, scope := range types.AllSourceScopes() {
+		wantEnum = append(wantEnum, string(scope))
+	}
+	if !reflect.DeepEqual(prop.Properties["requested_scope"].Enum, wantEnum) {
+		t.Fatalf("source_scope_profile.requested_scope enum = %v, want %v", prop.Properties["requested_scope"].Enum, wantEnum)
 	}
 }

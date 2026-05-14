@@ -77,3 +77,41 @@ func TestIRDomainHints_EmptyDomainSkipped(t *testing.T) {
 		t.Fatalf("empty-Domain TermSymbol should not produce hint, got %v", got)
 	}
 }
+
+func TestIRSourceScopeProfile_UsesAnalyzerProfile(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				SourceScopeProfile: &types.SourceScopeProfile{
+					RequestedScope:              types.SourceScopeTest,
+					IncludeAuxiliaryAsPrincipal: true,
+					Confidence:                  0.9,
+				},
+			},
+		},
+	}
+	got := irSourceScopeProfile(ctx)
+	if got == nil || got.RequestedScope != types.SourceScopeTest || !got.IncludeAuxiliaryAsPrincipal {
+		t.Fatalf("expected analyzer test scope profile, got %+v", got)
+	}
+}
+
+func TestIRSourceScopeProfile_DefaultsProductionButPathMentionsOptInAuxiliary(t *testing.T) {
+	prodCtx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}}}
+	if got := irSourceScopeProfile(prodCtx); got == nil || got.RequestedScope != types.SourceScopeProduction || got.AllowsAuxiliaryPrincipal() {
+		t.Fatalf("expected production default, got %+v", got)
+	}
+
+	auxCtx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{{Path: "tests/cangjie/feature_test.cj", Confidence: 0.9}},
+				},
+			},
+		},
+	}
+	if got := irSourceScopeProfile(auxCtx); got == nil || got.RequestedScope != types.SourceScopeAll || !got.AllowsAuxiliaryPrincipal() {
+		t.Fatalf("expected auxiliary path mention to opt into all scope, got %+v", got)
+	}
+}

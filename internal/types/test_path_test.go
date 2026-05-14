@@ -80,6 +80,31 @@ func TestLooksLikeAuxiliaryEvidencePath(t *testing.T) {
 	}
 }
 
+func TestClassifySourcePathRole(t *testing.T) {
+	cases := []struct {
+		path string
+		want SourcePathRole
+	}{
+		{"internal/agent/finalizer_test.go", SourcePathRoleTest},
+		{"entry/src/ohosTest/ets/pages/Index.test.ets", SourcePathRoleTest},
+		{"tests/cangjie/feature_test.cj", SourcePathRoleTest},
+		{"native/foo_unittest.cpp", SourcePathRoleTest},
+		{"fixtures/config.yaml", SourcePathRoleFixture},
+		{"testdata/input.json", SourcePathRoleFixture},
+		{"examples/demo/main.go", SourcePathRoleExample},
+		{"docs/architecture.md", SourcePathRoleDocumentation},
+		{"README.md", SourcePathRoleDocumentation},
+		{"internal/skill/analysis_contract.go", SourcePathRolePromptSupport},
+		{"internal/config/runtime.go", SourcePathRoleProduction},
+		{"codrax.yaml.example", SourcePathRoleProduction},
+	}
+	for _, tc := range cases {
+		if got := ClassifySourcePathRole(tc.path); got != tc.want {
+			t.Fatalf("ClassifySourcePathRole(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestLooksLikePromptSupportPath(t *testing.T) {
 	positive := []string{
 		"internal/skill/glossary.go",

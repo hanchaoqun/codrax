@@ -253,6 +253,7 @@ func (e *plannerEvaluator) buildInvestigationSeed(ctx *types.AgentContext) strin
 	domainHints := irDomainHints(ctx)
 	maxFiles := MaxFilesForComplexity(irComplexity(ctx))
 	exactContract := irExactResolutionContract(ctx)
+	sourceScope := irSourceScopeProfile(ctx)
 	var exactTargets []string
 	exactPolicy := ""
 	if exactContract != nil {
@@ -260,7 +261,7 @@ func (e *plannerEvaluator) buildInvestigationSeed(ctx *types.AgentContext) strin
 		exactPolicy = string(exactContract.RelatedContextPolicy)
 	}
 	suppressExactAnchors := observationOnlyRuntimeArtifactForExplorer(ctx)
-	fp := keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints, exactTargets, exactPolicy, maxFiles, suppressExactAnchors)
+	fp := keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints, exactTargets, exactPolicy, maxFiles, suppressExactAnchors, sourceScope.Fingerprint())
 
 	var sr *keywordSearchResult
 	switch {
@@ -274,6 +275,7 @@ func (e *plannerEvaluator) buildInvestigationSeed(ctx *types.AgentContext) strin
 			DomainHints:                domainHints,
 			MaxFiles:                   maxFiles,
 			ExactResolution:            exactContract,
+			SourceScope:                sourceScope,
 			SuppressExactEntityAnchors: suppressExactAnchors,
 			MultiGraph:                 ctx.MultiGraph,
 		})
