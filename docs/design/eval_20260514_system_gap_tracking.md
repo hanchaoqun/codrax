@@ -69,6 +69,7 @@ created.
 | E20260514-G47 | audit of commit `d2289e7a` | Red-line remediation / fixed Batch 6b | The attempted sorted-row self-consistency filter looked for ordering words in reviewer contradiction prose and reasoning, then suppressed a hard rewrite when rows appeared sorted. | This still let model-authored reviewer text drive hard control flow. The valid system need is to stop row-order false positives, but the control signal must be a typed review kind plus deterministic AnswerDocument row metadata. | Added `contradiction_kind` to `emit_self_consistency_review` and a deterministic V2 principal-row order profile. Only `row_order_mismatch` contradictions can be suppressed, and only when every principal list/table row block is deterministically ascending by item label or citation path axis. Unknown/text-only reviewer claims are not suppressed. |
 | E20260514-G48 | audit of commit `e07cafb5` | Red-line remediation / fixed Batch 6c | The attempted user-excluded-category gate detected excluded categories by matching words in the user request and detected leaks by matching words/tokens in final answer prose. | Exclusion is a real answer-scope contract, but request/answer text keyword scans are not acceptable hard-gate inputs. The policy and row category must travel as typed carrier fields. | Added analyzer `answer_exclusion_policy` and answer-row `items[].candidate_role`. The hard check is now enum-to-enum: if a principal answer item carries a candidate role excluded by the analyzer policy, it is rejected. Scope-boundary prose is not scanned or rejected. |
 | E20260514-G49 | Batch 2c red-line audit of G8/G11 pre-emit visibility | Fixed Batch 2c | `preCheckVisibleInternalCarrierTerms` scanned rendered answer prose for carrier-name tokens and scanned `RawRequest` to decide whether those tokens were allowed; adjacent artifact/multi-repo checks also scanned rendered prose for repo/path names. | This reintroduced the same red-line class at the final-answer boundary: a hard control decision depended on keyword-like matching over model output and user text, and it could fight explicit tool-name literal answers. | Removed rendered-answer/RawRequest keyword gates from pre-emit visibility checks. Preserved structural hard gates where the signal is typed (`citations[]`, negative-scope citations, `exact_resolution`). Expanded answer-row `candidate_role` into scalar/literal roles (`tool_name`, `config_key`, `route`, `import_path`, `literal_value`, `commit_hash`, `budget_cap`, `attempt_counter`, `guard_condition`) so future role binding consumes typed row metadata instead of prose. |
+| E20260514-G50 | focused `m1b` after Batch 2c | Fixed Batch 2d / PASS replay | The case passed, but extractor soft-stop forced `emit_answer_symbol` for two exact tool-name sub-topics. The model then tried to cite a string-literal/reference line as a symbol definition and needed repairs before finalization. | Multi-topic anchor skeleton activation treated all architecture sub-topics as symbol anchors, even when the typed request said the principal answer was scalar/literal. This pulled exact literal answers back into symbol-definition machinery and recreated Batch 2's seesaw. | Gate anchor skeletons off when `RequestModel.Predicates.IsScalarAnswer` or scalar-source-literal lookup is active. Multi-topic exact literals now stay in scalar/section/table rows with `candidate_role` metadata instead of `emit_answer_symbol` definition slates. |
 
 ## End-to-End Traces
 
@@ -2278,6 +2279,43 @@ Initial Batch 2c progress:
 Verification:
 
 - `go test ./internal/tool ./internal/types ./internal/agent -run 'TestRunPreEmitChecksDoesNotKeywordMatchRenderedCarrierTerms|TestRunPreEmitChecksAllowsTypedToolNameRowsWithoutRawRequestScan|TestRunPreEmitChecksDoesNotKeywordMatchMultiRepoAbsenceDisclosure|TestPreCheckRuntimeObservationRepoContaminationRejectsRepoCitationsOnly|TestEmitAnswerDocumentSchema_CandidateRoleEnumMatchesTypes|TestEmitAnalysis_Consistency'`
+
+Focused `m1b` replay after Batch 2c:
+
+- `bash eval/run.sh eval/cases/m1b.case 1`
+  (`eval/results/m1b-20260514-210308`, PASS).
+- Residual G50 found despite PASS: analyzer initially carried a stale
+  `emit_answer` guess, explorer corrected it to `emit_answer_document`, but
+  extractor still treated the two exact tool-name sub-topics as an anchor
+  skeleton and forced `emit_answer_symbol`. The run passed only after
+  symbol-slate repair (`extractor_iters=5`, `midloop_inject=8`).
+
+Initial Batch 2d progress:
+
+- Tightened `AnswerSemanticView.AllowsAnchorSkeleton`: multi-topic architecture
+  explanations still get anchor skeletons, but multi-topic exact scalar/literal
+  lookups do not. The typed signal is `RequestModel.Predicates.IsScalarAnswer`
+  or the existing scalar-source-literal lookup classifier, not any wording in
+  the question or model answer.
+- This keeps `emit_*` tool names, config keys, routes, import paths, commit
+  hashes, and other exact literal answers in the scalar/literal lane rather
+  than forcing them through `emit_answer_symbol` definition-line validation.
+
+Verification:
+
+- `go test ./internal/types ./internal/agent -run 'TestAllowsAnchorSkeleton|TestExtractor_BuildPrompt_MultiTopicScalarLiteralSkipsAnswerSymbols'`
+- `go test ./...`
+
+Focused `m1b` replay after Batch 2d:
+
+- `bash eval/run.sh eval/cases/m1b.case 1`
+  (`eval/results/m1b-20260514-211006`, PASS).
+- Seesaw check: extractor no longer forced a symbol slate for the exact
+  tool-name sub-topics. `extractor_iters=1`, `finalizer_iters=1`,
+  `repair_plan_lines=0`, `repair_exec_lines=0`, and there were no
+  `missing_emits` repairs. Remaining `emit_answer_symbol` mentions in the log
+  are generic tool instructions/source evidence, while the dispatch carries
+  `does NOT require emit_answer_symbol`.
 
 ### Batch 3: Relation / Diagram Generation From Typed Edges
 

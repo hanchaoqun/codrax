@@ -112,6 +112,9 @@ func (v *AnswerSemanticView) AllowsAnchorSkeleton(rm RequestModel) bool {
 	if v.Family == QFEnumeration {
 		return false
 	}
+	if rm.Predicates.IsScalarAnswer || IsScalarSourceLiteralLookup(rm) {
+		return false
+	}
 	return len(rm.SubTopics) > 1
 }
 

@@ -155,6 +155,15 @@ func TestAllowsAnchorSkeleton(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "architecture + multi-topic scalar literals excluded",
+			view: compileArchitecture(&AnalysisIR{}, nil),
+			rm: RequestModel{
+				Predicates: SemanticPredicates{IsScalarAnswer: true},
+				SubTopics:  multiTopic.SubTopics,
+			},
+			want: false,
+		},
+		{
 			name: "enumeration + multi-topic (excluded)",
 			view: compileEnumeration(&AnalysisIR{}, nil),
 			rm:   multiTopic,

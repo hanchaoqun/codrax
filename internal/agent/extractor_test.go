@@ -1055,6 +1055,43 @@ func TestExtractor_BuildPrompt_PlainCallChainSkipsAnswerSymbolFloor(t *testing.T
 	}
 }
 
+func TestExtractor_BuildPrompt_MultiTopicScalarLiteralSkipsAnswerSymbols(t *testing.T) {
+	mu := types.NewMutableState("which emit tools")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{TerminalEvidenceCount: 2})
+	ctx := &types.AgentContext{
+		Objective: "analyzer agent and finalizer agent emit tool names",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentExplain,
+				Scenario:      types.ScenarioArchitectureExplain,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer: true,
+				},
+				SubTopics: []types.SubTopic{
+					{Summary: "analyzer agent emit tool", Entities: []string{"AnalyzerAgent", "emit_analysis"}},
+					{Summary: "finalizer agent emit tool", Entities: []string{"FinalizerAgent", "emit_answer_document"}},
+				},
+			},
+		},
+	}
+
+	if types.IRAllowsAnchorSkeleton(ctx.AnalysisIR) {
+		t.Fatal("multi-topic exact literal lookups must not activate anchor skeleton")
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("multi-topic scalar literal answers must not force emit_answer_symbol")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if contains(prompt, "## Anchor skeleton") || contains(prompt, "emit_answer_symbol batch MUST have") {
+		t.Fatalf("prompt should not push symbol anchors for exact literal sub-topics:\n%s", prompt)
+	}
+	if !contains(prompt, "does NOT require `emit_answer_symbol`") {
+		t.Fatalf("prompt should explicitly disable answer-symbol slate for exact literal sub-topics:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_ImportEnumerationUsesTypedEvidenceLane(t *testing.T) {
 	mu := types.NewMutableState("list imports")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
