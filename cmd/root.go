@@ -1764,13 +1764,15 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		// EstimateSubTopicCount-based dynamic uplift still applies on
 		// top, so multi-topic questions get up to ceiling=5.
 		MaxRetriesPerStage: 3,
-		// TransientRetryBudget=1: a single retry rides through brief
-		// network blips. Structurally stuck cases (empty repo + plan
-		// mode, etc.) are caught by the stall plateau detector before
-		// the budget is consumed. Distinct counter from
-		// WriteRetryBudget so transient blips never starve verify→plan
-		// SC retry. Cap 3 in TransientRetryBudgetCeil — see config.go.
-		TransientRetryBudget: 1,
+		// TransientRetryBudget=3: three scheduler-level retries ride
+		// through bursty EOF / stream-stall / dial failures without
+		// consuming semantic retry or pipeline-step budget. Structural
+		// hard-stop remains guarded by the precise repeated non-empty
+		// stream-stall tool signature; ambiguous no-tool and pure
+		// transport failures stay budget-governed. Distinct counter
+		// from WriteRetryBudget so transient blips never starve
+		// verify→plan SC retry. Cap 3 in TransientRetryBudgetCeil.
+		TransientRetryBudget: 3,
 		// Block 3 (architecture overhaul 2026-05-02) — selective
 		// upstream fallback cap. 2 = give the LLM two
 		// re-investigation passes per Run; further attempts force

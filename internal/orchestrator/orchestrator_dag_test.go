@@ -5,8 +5,10 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -524,6 +526,53 @@ func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
 	}
 	if finalizeCalls != 2 {
 		t.Fatalf("finalize calls = %d, want 2", finalizeCalls)
+	}
+}
+
+func TestRunTaskGraph_ReadFinalizeNoToolStallUsesBudgetNotPlateau(t *testing.T) {
+	var explorerCalls, finalizeCalls int
+
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{{ID: "ev-explore", Source: "src.go", LineStart: 1}},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			if finalizeCalls <= 2 {
+				return nil, &llm.StreamStalledError{IdleFor: 61 * time.Second, Cause: context.Canceled}
+			}
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "Recovered answer after no-tool stalls.",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(4)
+	o.SetTransientRetryBudget(2)
+
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
+	}
+	if explorerCalls != 1 {
+		t.Fatalf("explorer calls = %d, want 1", explorerCalls)
+	}
+	if finalizeCalls != 3 {
+		t.Fatalf("finalize calls = %d, want 3", finalizeCalls)
 	}
 }
 

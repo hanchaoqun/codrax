@@ -378,19 +378,21 @@ func TestWriteScheduler_PlanTransientStreamStall_Retries(t *testing.T) {
 }
 
 // TestWriteScheduler_PlanTransientStreamStall_PlateauSuppression locks
-// the stall plateau detector: if two consecutive transient failures
-// produce identical tool-call signatures (e.g. both stalled before
-// any tool was called — "<no-tools>" twice), the next retry is
-// suppressed even when budget remains. The user-facing LastError
-// names the stall AND suggests a remediation (auto-init for empty
-// repo / mode read / model swap) instead of a generic retry-loop
-// log spam.
+// the stall plateau detector: if two consecutive stream stalls
+// produce the same non-empty tool-call signature, the next retry is
+// suppressed even when budget remains. The non-empty signature is the
+// precise signal: the model reached the same investigation route and
+// then went silent again. "<no-tools>" / pure transport failures are
+// deliberately excluded because they do not prove model-level
+// structural stuckness.
 func TestWriteScheduler_PlanTransientStreamStall_PlateauSuppression(t *testing.T) {
 	planCalls := 0
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(dagIR(types.AnswerContract{Language: "en"})),
 		types.AgentPlanner: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
 			planCalls++
+			ctx.Mutable.ResetDispatchToolResults()
+			ctx.Mutable.AppendDispatchToolResult(types.ToolResult{ToolName: "repo_map"})
 			return nil, &llm.StreamStalledError{
 				IdleFor: 61 * time.Second,
 				Cause:   context.Canceled,
@@ -438,6 +440,51 @@ func TestWriteScheduler_PlanTransientStreamStall_PlateauSuppression(t *testing.T
 		strings.Contains(rem, "空仓库")
 	if !hasHint {
 		t.Errorf("plateau LastError should include actionable hint; got %q", rem)
+	}
+}
+
+func TestWriteScheduler_TransientNoToolAndEOFUseBudgetNotPlateau(t *testing.T) {
+	expectedPlan := &types.ChangePlan{
+		ID:          "plan-transport-budget",
+		TargetPaths: []string{"main.go"},
+		Changes:     []types.FileChange{{Path: "main.go", Kind: "modify"}},
+	}
+	planCalls := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(dagIR(types.AnswerContract{Language: "en"})),
+		types.AgentPlanner: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			planCalls++
+			ctx.Mutable.ResetDispatchToolResults()
+			switch planCalls {
+			case 1:
+				ctx.Mutable.AppendDispatchToolResult(types.ToolResult{ToolName: "read_file"})
+				return nil, io.ErrUnexpectedEOF
+			case 2:
+				return nil, io.ErrUnexpectedEOF
+			default:
+				ctx.Mutable.SetChangePlan(expectedPlan)
+				return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+			}
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetMode(types.ModePlan)
+	o.SetAutoInitRepo(true)
+	o.SetScaffoldEnabled(true)
+	o.SetTransientRetryBudget(3)
+
+	busCtx, _ := o.Run("transport retry budget test", t.TempDir(), "main")
+
+	if planCalls != 3 {
+		t.Fatalf("planner should consume transient budget without no-emit hard plateau and then recover; got %d calls", planCalls)
+	}
+	if busCtx.Mutable.ChangePlan() == nil {
+		t.Fatal("ChangePlan should land after EOF/no-tool transient retries")
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError should be empty after successful transient recovery; got %q", busCtx.TaskState.LastError)
 	}
 }
 
@@ -542,14 +589,15 @@ func writeNodeIDs(ns []*types.TaskNode) []string {
 }
 
 // TestWriteScheduler_PlanTransient_NoEmitPlateau_SignaturesDiffer
-// locks the signature-AGNOSTIC plateau predicate that catches the
+// locks the signature-AGNOSTIC advisory plateau predicate that catches the
 // LLM rotating tool tactics between retry rounds. Production trace
 // /home/chatpp/pytest 2026-04-29 06:03 was the trigger: round 1
 // streamed `repo_map` + `list_files` then stalled, round 2 streamed
 // `list_files` only then stalled. Pre-fix the signature-equality
-// plateau missed it (different sigs); the new no-emit-streak
-// plateau catches it on the second consecutive no-emit stall
-// regardless of which navigation tools the LLM used.
+// plateau missed it (different sigs); the no-emit-streak signal now
+// records that pattern for diagnostics and retry hints, while the
+// hard stop remains limited to precise repeated non-empty stream-stall
+// signatures so bursty transport failures do not get misclassified.
 //
 // We can't easily simulate different tool sequences via the mock
 // without wiring real tool execution, so this test instead drives
@@ -567,7 +615,7 @@ func TestGraphState_TransientNoEmitPlateau(t *testing.T) {
 	}
 	state.recordTransientNoEmitStall("plan")
 	if !state.transientNoEmitPlateau("plan") {
-		t.Fatal("two consecutive no-emit stalls MUST fire plateau")
+		t.Fatal("two consecutive no-emit stalls should fire advisory plateau")
 	}
 	// reset clears the streak (terminal emit observed in between).
 	state.resetTransientNoEmitStreak("plan")

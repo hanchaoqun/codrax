@@ -76,16 +76,15 @@ type graphState struct {
 	// transientNoEmitStreak counts consecutive transient stalls per
 	// node where the agent did NOT reach a terminal emit
 	// (emit_change_plan / emit_test_results / emit_answer_document /
-	// apply_patch). The signature-equality check above is too
-	// narrow on its own — production trace
+	// apply_patch). It is intentionally advisory. The signature-
+	// equality check above is too narrow on its own — production trace
 	// /home/chatpp/pytest 2026-04-29 06:03 showed an LLM that
 	// changed tool tactics between rounds (round 1 ran repo_map +
 	// list_files, round 2 ran list_files only) so signatures
-	// differed and the gate let the second stall through. The
-	// streak counter is signature-agnostic: ≥ 2 consecutive
-	// no-emit stalls means the LLM is structurally stuck regardless
-	// of which navigation it tried each round. Reset to 0 whenever
-	// a terminal emit fires (computeStallSignature returns "").
+	// differed. The streak counter is signature-agnostic, but because
+	// bursty EOF / dial failures can produce the same no-emit shape,
+	// callers must not use it alone as a hard gate. Reset to 0
+	// whenever a terminal emit fires (computeStallSignature returns "").
 	transientNoEmitStreak map[string]int
 
 	// visitCount tracks how many times each node has been dispatched
@@ -312,17 +311,18 @@ func (s *graphState) resetTransientNoEmitStreak(nodeID string) {
 	delete(s.transientNoEmitStreak, nodeID)
 }
 
-// transientNoEmitPlateau is the signature-AGNOSTIC plateau predicate.
+// transientNoEmitPlateau is the signature-AGNOSTIC advisory plateau predicate.
 // Returns true when the node has accumulated >= 2 consecutive
 // transient stalls without ever reaching a terminal emit. This
 // catches the production-trace pattern where the LLM rotated
 // navigation tactics between rounds (different tool sequences) but
-// failed to reach emit_change_plan in either — a real "structurally
-// stuck" signal that signature-equality misses.
+// failed to reach emit_change_plan in either. Because bursty EOF /
+// dial failures can produce the same no-emit shape, callers must not
+// use this predicate alone as a hard gate.
 //
 // The threshold is fixed at 2 (one initial stall + one retry stall
 // that also fails the same way). Configurable would be over-design
-// for a binary "give up vs keep trying" decision.
+// for an advisory signal.
 func (s *graphState) transientNoEmitPlateau(nodeID string) bool {
 	if s == nil || s.transientNoEmitStreak == nil {
 		return false

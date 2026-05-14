@@ -203,10 +203,10 @@
 # blip). HTTP 429 / 5xx are NOT in this set — those are L1's domain
 # (providers.yaml :: retry_max_attempts, default 6 attempts × ~62s
 # coverage). Decoupled from write_retry_budget so brief upstream
-# blips never starve the verify→plan SC retry budget. Default 1
-# rides through a single connection drop without burning more LLM
-# budget.
-# pipeline_transient_retry_budget: 1
+# blips never starve the verify→plan SC retry budget. Default 3
+# rides through bursty EOF / stream-stall / dial failures; hard-stop
+# plateau still requires a repeated non-empty stream-stall tool path.
+# pipeline_transient_retry_budget: 3
 
 # Force-finalize fallback retry. The orchestrator's last-resort
 # composition path (fires after the regular DAG path stalls or

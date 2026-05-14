@@ -43,10 +43,12 @@ type PipelineSettings struct {
 	//   - SC / contract retry has structured feedback to learn from.
 	// Sharing a single counter (the pre-fix shape) caused 3 plan
 	// stalls to drain the verify→plan budget so that a real verify
-	// failure could not retry. Default 1: one transient retry is
-	// enough to ride through a brief network blip; structurally
-	// stuck cases are caught by the stall plateau detector before
-	// burning even that. Hard-capped by TransientRetryBudgetCeil.
+	// failure could not retry. Default 3: bursty EOF / stream-stall /
+	// dial failures get recovery room while structurally stuck cases
+	// are still caught by the hard plateau detector when a repeated
+	// non-empty stream-stall tool signature proves the model is
+	// replaying the same dead path. Hard-capped by
+	// TransientRetryBudgetCeil.
 	TransientRetryBudget int `yaml:"transient_retry_budget"`
 
 	// TransientRetryBudgetCeil is the absolute ceiling enforced by

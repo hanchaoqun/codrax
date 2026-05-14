@@ -143,7 +143,7 @@ type Orchestrator struct {
 	// fresh) while SC retry has structured feedback. Sharing one
 	// counter let 3 plan stalls drain the verify→plan SC budget so
 	// real verify failures could not retry. Set via
-	// SetTransientRetryBudget. Default 1.
+	// SetTransientRetryBudget. Default 3.
 	transientRetryBudget int
 
 	// forceFinalizeAttempts caps the number of dispatch attempts

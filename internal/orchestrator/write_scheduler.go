@@ -189,22 +189,22 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 				} else {
 					state.recordTransientNoEmitStall(n.ID)
 				}
-				// Plateau via two complementary signals:
-				//   1. Identical tool-call signature twice in a row
-				//      (LLM repeated the EXACT same dead path).
-				//   2. Two consecutive no-emit stalls regardless of
-				//      tool sequence (LLM rotated tactics but never
-				//      reached a terminal emit).
-				if state.transientStallPlateau(n.ID, sig) || state.transientNoEmitPlateau(n.ID) {
+				sigPlateau := state.transientStallPlateau(n.ID, sig)
+				noEmitPlateau := state.transientNoEmitPlateau(n.ID)
+				if transientHardPlateauEligible(dispatchErr, sig) && sigPlateau {
 					friendly := stallPlateauMessage(o.busCtx, stage, friendlyDispatchErr(dispatchErr), o.autoInitRepo, o.scaffoldEnabled)
-					logging.Warning("[orchestrator] %s transient stall plateau (sig=%q sigPlateau=%v noEmitPlateau=%v) — suppressing further retry",
+					logging.Warning("[orchestrator] %s transient hard plateau (sig=%q sigPlateau=%v noEmitPlateau=%v) — suppressing further retry",
 						stage, sig,
-						state.transientStallPlateau(n.ID, sig),
-						state.transientNoEmitPlateau(n.ID))
+						sigPlateau,
+						noEmitPlateau)
 					o.busCtx.TaskState.LastError = friendly
 					state.markFailed(n.ID)
 					o.emitNodeEnd(n.ID, false, friendly)
 					break
+				}
+				if noEmitPlateau {
+					logging.Warning("[orchestrator] %s transient no-emit plateau observed (sig=%q); continuing within transient budget because no-emit is advisory without repeated model-stall tool signature",
+						stage, sig)
 				}
 				if state.transientRetryUsed < o.transientRetryBudget {
 					state.recordTransientRetry()
@@ -500,16 +500,40 @@ func computeStallSignature(toolResults []types.ToolResult, out *agent.StageOutpu
 	}
 	if len(toolResults) == 0 {
 		// No tools called at all — e.g. LLM stream stalled before its
-		// first tool_use block. Record an explicit marker so the
-		// plateau detector can compare two consecutive "stalled
-		// before any tool" failures.
-		return "<no-tools>"
+		// first tool_use block, or the connection failed before the
+		// model had a chance to emit one. Record an explicit marker so
+		// diagnostics can distinguish this from a repeated tool path,
+		// but do not let the marker become a hard plateau by itself
+		// (see transientHardPlateauEligible).
+		return noToolStallSignature
 	}
 	names := make([]string, 0, len(toolResults))
 	for _, r := range toolResults {
 		names = append(names, r.ToolName)
 	}
 	return strings.Join(names, "|")
+}
+
+const noToolStallSignature = "<no-tools>"
+
+// transientHardPlateauEligible decides whether a transient dispatch
+// failure is precise enough to suppress further retries when the tool
+// signature repeats. Pure transport errors (EOF, dial failures, first-
+// byte timeouts) are infrastructure signals: retrying them consumes
+// only the transient budget and must not be upgraded into a structural
+// "model stuck" verdict. Likewise, "<no-tools>" is too ambiguous: it
+// can mean the model ignored tool_choice, but it can also mean the
+// connection failed before a tool block arrived.
+//
+// The hard stop is reserved for a repeated non-empty tool path under a
+// typed stream-stall sentinel. That is the precise signal that the
+// model reached the same investigation route and then went silent
+// again, while ordinary EOF/network churn stays budget-governed.
+func transientHardPlateauEligible(err error, sig string) bool {
+	if err == nil || sig == "" || sig == noToolStallSignature {
+		return false
+	}
+	return errors.Is(err, llm.ErrStreamStalled)
 }
 
 // stallPlateauMessage builds the user-facing terminal message when

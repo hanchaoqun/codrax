@@ -976,7 +976,7 @@ agents:
 | `pipeline_max_steps` | 50 | 单次 Run 总步数上限 |
 | `pipeline_max_retries_per_stage` | 2 | 每个阶段最多重试几次 |
 | `pipeline_max_steps_ceil` | 100 | 多 sub-topic 动态扩容的硬上限 |
-| `pipeline_transient_retry_budget` | 1 | 流式截断 / 网络抖 后的瞬时重试 |
+| `pipeline_transient_retry_budget` | 3 | 流式截断 / 网络抖 后的瞬时重试 |
 | `pipeline_force_finalize_attempts` | 3 | 调度卡住后强制 finalize 的重试数 |
 
 ### 写模式

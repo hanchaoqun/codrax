@@ -532,7 +532,7 @@ type RuntimeSettings struct {
 	// will retry a stage that failed with a transient dispatch error
 	// (LLM stream stall / first-byte timeout / 429 / 5xx / network
 	// blip). Distinct counter from PipelineWriteRetryBudget so
-	// transient blips never starve the verify→plan SC retry. Default 1.
+	// transient blips never starve the verify→plan SC retry. Default 3.
 	// Hard-capped by PipelineTransientRetryBudgetCeil (default 3).
 	PipelineTransientRetryBudget *int `yaml:"pipeline_transient_retry_budget"`
 

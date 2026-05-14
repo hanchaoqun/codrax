@@ -23,10 +23,11 @@ import (
 //     (contract violations, validation feedback, etc.).
 //
 // Stall plateau detection: when the previous transient-failed attempt
-// produced an identical tool-call signature with no terminal emit
-// progress, further retry would just re-hit the same wall (e.g. the
-// LLM is structurally confused by the request shape). Surface the
-// terminal failure with the actionable stallPlateauMessage instead.
+// produced an identical non-empty tool-call signature under a typed
+// stream-stall error, further retry would just re-hit the same wall
+// (e.g. the LLM is structurally confused by the request shape).
+// Ambiguous "<no-tools>" and pure transport faults stay governed by
+// the transient budget instead of being promoted to a structural stop.
 func (o *Orchestrator) retryReadStageDispatchError(
 	state *graphState,
 	stage types.PipelineStage,
@@ -77,7 +78,7 @@ func (o *Orchestrator) retryReadStageDispatchError(
 		return false
 	}
 	sig := computeStallSignature(o.busCtx.Mutable.DispatchToolResults(), nil, stage)
-	if state.transientStallPlateau(keyID, sig) {
+	if transientHardPlateauEligible(err, sig) && state.transientStallPlateau(keyID, sig) {
 		friendly := stallPlateauMessage(o.busCtx, stage, friendlyDispatchErr(err), o.autoInitRepo, o.scaffoldEnabled)
 		logging.Warning("[orchestrator] %s read-mode transient stall plateau (sig=%q) — suppressing retry: %s",
 			stage, sig, friendly)
