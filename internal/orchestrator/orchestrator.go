@@ -1814,47 +1814,54 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// "等待派发" forever (customer-reported on a fresh
 	// "用 python 写一个俄罗斯方块" plan-mode request).
 	if used, err := o.runAnalyzePhase(); err != nil {
-		// Commit 59 Batch E.1 (audit HIGH #9): when analyze exhausts
-		// retries, install a minimal degraded-mode IR instead of
-		// hard-killing the Run. Single finalize node + explanation
-		// shape lets the finalizer produce an honest "I cannot
-		// classify this question — please rephrase / break it down /
-		// add more context" answer with the original request quoted,
-		// instead of returning an empty result. The user still sees a
-		// reply; the Error field carries the diagnostic for operators.
-		logging.Error("[orchestrator] analyze phase failed (degrading to recovery IR): %v", err)
-		// Fix-A (2026-05-10): when the analyzer emit_analysis'd at
-		// least once before the gate rejected it, preserve the
-		// partial RequestModel + AnalyzerHints + Predicates so
-		// explorer/extractor still have semantic context to work
-		// with. The richer TaskGraph (probe → evidence → reconcile
-		// → finalize) ensures explore/extract dispatch (legacy
-		// path's single-finalize graph caused them to be skipped,
-		// leading to empty "(no result)" outputs).
-		//
-		// When o.busCtx.AnalysisIR is nil (analyzer NEVER emit_analysis'd),
-		// buildDegradedSemanticIR delegates to the legacy zero-info
-		// builder so behaviour is byte-identical for that branch.
-		o.busCtx.AnalysisIR = buildDegradedSemanticIR(
-			o.busCtx.Mutable.Objective(),
-			o.busCtx.AnalysisIR,
-			err,
-		)
-		// 2026-05-10 P-audit critical fix: do NOT set TaskState.LastError
-		// here. Line ~1921 below guards `if LastError == "" { runTaskPhase }`
-		// — setting it before the degraded scheduler runs causes the
-		// entire Phase 2 (explorer / extractor / finalizer dispatch)
-		// to be SKIPPED, which is exactly the "(no result)" symptom
-		// users hit on a degraded path. The analyzer error is
-		// preserved on the new AnalysisIR.QualityGate.Detail
-		// ("degraded_semantic_recovery" check) for operator visibility,
-		// and the SoftAnalyzerError field carries the original error
-		// for user-panel hint composition without blocking the
-		// scheduler.
-		o.busCtx.TaskState.SoftAnalyzerError = fmt.Sprintf("analyze: %v", err)
-		// Continue execution with the recovery IR. Step budget is
-		// bounded by the per-stage caps already in place.
-		_ = used
+		if llm.IsStreamLevelRetryable(err) {
+			logging.Error("[orchestrator] analyze phase failed on transient model transport after retry budget: %v", err)
+			o.busCtx.TaskState.LastError = forcedFinalizeFailureMessage(err, o.busCtx.Language)
+			o.busCtx.TaskState.SoftAnalyzerError = fmt.Sprintf("analyze transport: %v", err)
+			_ = used
+		} else {
+			// Commit 59 Batch E.1 (audit HIGH #9): when analyze exhausts
+			// retries, install a minimal degraded-mode IR instead of
+			// hard-killing the Run. Single finalize node + explanation
+			// shape lets the finalizer produce an honest "I cannot
+			// classify this question — please rephrase / break it down /
+			// add more context" answer with the original request quoted,
+			// instead of returning an empty result. The user still sees a
+			// reply; the Error field carries the diagnostic for operators.
+			logging.Error("[orchestrator] analyze phase failed (degrading to recovery IR): %v", err)
+			// Fix-A (2026-05-10): when the analyzer emit_analysis'd at
+			// least once before the gate rejected it, preserve the
+			// partial RequestModel + AnalyzerHints + Predicates so
+			// explorer/extractor still have semantic context to work
+			// with. The richer TaskGraph (probe → evidence → reconcile
+			// → finalize) ensures explore/extract dispatch (legacy
+			// path's single-finalize graph caused them to be skipped,
+			// leading to empty "(no result)" outputs).
+			//
+			// When o.busCtx.AnalysisIR is nil (analyzer NEVER emit_analysis'd),
+			// buildDegradedSemanticIR delegates to the legacy zero-info
+			// builder so behaviour is byte-identical for that branch.
+			o.busCtx.AnalysisIR = buildDegradedSemanticIR(
+				o.busCtx.Mutable.Objective(),
+				o.busCtx.AnalysisIR,
+				err,
+			)
+			// 2026-05-10 P-audit critical fix: do NOT set TaskState.LastError
+			// here. Line ~1921 below guards `if LastError == "" { runTaskPhase }`
+			// — setting it before the degraded scheduler runs causes the
+			// entire Phase 2 (explorer / extractor / finalizer dispatch)
+			// to be SKIPPED, which is exactly the "(no result)" symptom
+			// users hit on a degraded path. The analyzer error is
+			// preserved on the new AnalysisIR.QualityGate.Detail
+			// ("degraded_semantic_recovery" check) for operator visibility,
+			// and the SoftAnalyzerError field carries the original error
+			// for user-panel hint composition without blocking the
+			// scheduler.
+			o.busCtx.TaskState.SoftAnalyzerError = fmt.Sprintf("analyze: %v", err)
+			// Continue execution with the recovery IR. Step budget is
+			// bounded by the per-stage caps already in place.
+			_ = used
+		}
 	} else {
 		stepsUsed += used
 		if o.busCtx.Mode == types.ModeRead {
@@ -2089,8 +2096,8 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 	storm := newAnalyzeRetryStormDetector(max)
 	var lastErr string
 	used := 0
-	for attempt := 0; attempt < max; attempt++ {
-		used++
+	transientUsed := 0
+	for attempt := 0; attempt < max; {
 		// Terminal forcing on retry: signal the agent layer that this is
 		// a re-dispatch after a "tool_choice=required produced no tool
 		// call" failure so it can escalate the prompt + tool_choice
@@ -2098,6 +2105,26 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		// attempt=0.
 		o.emitStageRetryAttempt = attempt
 		out, err := o.dispatchStage(types.StageAnalyze)
+		if err != nil && o.busCtx.Mode == types.ModeRead && llm.IsStreamLevelRetryable(err) {
+			if transientUsed < o.transientRetryBudget {
+				transientUsed++
+				lastErr = err.Error()
+				logging.Warning("[orchestrator] retrying analyze after transient dispatch error (%d/%d transient budget; semantic attempt %d/%d unchanged): %v",
+					transientUsed, o.transientRetryBudget, attempt+1, max, err)
+				o.emit(render.Event{
+					Kind:       render.EventOrchestratorNotice,
+					Timestamp:  time.Now(),
+					Agent:      "orchestrator",
+					NoticeKind: render.NoticeRetry,
+					Reasoning:  softRetryHintMessage(o.busCtx.Language),
+				})
+				continue
+			}
+			return used, fmt.Errorf("analyze transient dispatch failed after %d/%d retry attempt(s): %w",
+				transientUsed, o.transientRetryBudget, err)
+		}
+		used++
+		attempt++
 		if err == nil && out != nil && out.Error == "" && out.AnalysisIR != nil {
 			// Analyzer retries are attempt-scoped. applyStageOutput keeps
 			// the first non-nil IR for degraded-recovery context, so a
@@ -2112,7 +2139,7 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		if err != nil {
 			lastErr = err.Error()
 		}
-		logging.Warning("[orchestrator] analyze attempt %d/%d failed: %s", attempt+1, max, lastErr)
+		logging.Warning("[orchestrator] analyze attempt %d/%d failed: %s", attempt, max, lastErr)
 		// Read-mode answer-taxonomy signal: every retry within
 		// runAnalyzePhase records an event so the end-of-Run
 		// answer_reviewer sees how hard the analyze stage worked
@@ -2139,7 +2166,7 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		if o.busCtx != nil && o.busCtx.AnalysisIR != nil {
 			fp := o.busCtx.AnalysisIR.QualityGate.Fingerprint
 			storm.observe(fp)
-			if storm.exhausted() && attempt+1 < max {
+			if storm.exhausted() && attempt < max {
 				logging.Warning("[orchestrator] analyze retry storm: fingerprint %q repeated %d×; breaking early to degraded path", fp, storm.repeatCount())
 				return used, fmt.Errorf("analyze stage early-exit on retry storm (fingerprint=%s, attempts=%d): %s — %s", fp, used, lastErr, retryStormUserCaveat(o.busCtx))
 			}
