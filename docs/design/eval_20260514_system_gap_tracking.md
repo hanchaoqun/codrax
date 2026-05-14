@@ -1368,6 +1368,41 @@ a `CompletenessObligation`, not an `EnumerationBoundary`. Hard declared-count
 boundaries must require a precise typed signal: the source quote carries the
 same explicit numeric count that will later constrain answer cardinality.
 
+### E20260514-G39: Unsupported Relation Members Can Enter Exhaustive Closure (`s5b` focused replay)
+
+User request still asks for all `internal/analysis` sub-package directories and
+their entry functions. After G38, the analyzer no longer creates a false hard
+count, but the focused replay exposed a later closure-boundary issue.
+
+Observed data flow:
+
+1. Explorer emitted answer-grade evidence for 24 package/function rows with
+   citable definition anchors.
+2. `emit_investigation_complete.aggregate_facts.member_set` carried 25 members,
+   adding `subject: AnalyzeIR` even though `internal/analysis/subject` had not
+   been read and no support ref or typed evidence existed for that row.
+3. The pre-complete citable-member check used a local simplified member parser.
+   It did not split relation-style members such as `subject: AnalyzeIR`, so the
+   code-shaped right side was not recognized as needing typed support.
+4. Extractor/finalizer saw two conflicting principal lanes: 24 answer-grade
+   support rows and a 25-member model-authored set containing one unsupported
+   relation row.
+5. Finalizer tried to satisfy both, rendered the unsupported `subject` row
+   without citation, then failed citation alignment. This is the same seesaw
+   pattern in a different place: include the unsupported member and citation
+   gates fail; drop it and aggregate count/completeness appears violated.
+
+Root cause: pre-complete member usability did not consume the shared aggregate
+relation/callable candidate parser, so relation members were not held to the
+same typed-support standard as later support-plan/finalizer lanes.
+
+Generalization: any two-axis exhaustive enumeration (`package: entry`,
+`route -> handler`, `module/import`, `type: method`, `config key -> default`)
+must validate both axes before closure. If a member surface contains a code-like
+attribute, path, source location, or callable signature, it is not principal
+answer-grade until typed evidence or a member-specific support ref backs that
+same member.
+
 ## Exploration Handoff Failure Analysis
 
 The dominant product gap is not raw retrieval. In many cases, exploration found
@@ -1457,13 +1492,16 @@ surface clues: member-name presence in caveats, CJK concept labels treated as
 code identities, diagram payload accepted under a section block, or section
 prose judged unanchored because citations live in an appendix block. The same
 class appears when a universal-quantifier quote is accepted as a hard numeric
-enumeration boundary even though the quote does not contain the number.
+enumeration boundary even though the quote does not contain the number, or when
+a relation member bypasses typed-support checks because a local parser does not
+recognize its code-like right axis.
 
 Required system change: hard gates should read only precise typed fields:
 explicit aggregate labels, block kind/payload invariants, row-scoped citation
 refs, declared artifact/source roles, and source quotes that carry the exact
-declared count. Text similarity, candidate counts, and member mentions can
-guide retries, but must not fail structurally valid answers.
+declared count. Pre-complete, support-plan, and pre-emit gates must share the
+same member candidate parser. Text similarity, candidate counts, and member
+mentions can guide retries, but must not fail structurally valid answers.
 
 ## Final Cluster Analysis
 
@@ -1769,6 +1807,27 @@ Batch 1g progress:
   guidance plus evidence-derived rows over a fabricated hard boundary.
 - Added type-level and tool-level regressions proving countless universal
   quotes are rejected while explicit numeric quotes still persist.
+
+Batch 1h progress:
+
+- The rerun after Batch 1g confirmed a later anti-seesaw gap: the accepted
+  closure carried 24 answer-grade package/function support rows plus a
+  25-member aggregate set where `subject: AnalyzeIR` had no typed evidence,
+  no support ref, and no read source file. Finalizer then tried to satisfy the
+  unsupported row and failed citation alignment.
+- Reused the shared `AnswerAggregateMemberDisplayCandidates` parser inside the
+  `emit_investigation_complete` pre-complete member usability check. Relation
+  members such as `package: Entry`, `type -> method`, and callable-signature
+  rows now expose their code-like axis before closure, so unsupported right
+  sides require typed evidence or member-specific support refs just like they
+  do in support-plan and pre-emit validation.
+- This removes another seesaw source by making closure, support planning, and
+  final-answer gates consume the same member-candidate interpretation. A
+  model-authored aggregate member can no longer be accepted as principal in
+  pre-complete and then become uncitable in finalizer.
+- Added a pre-complete regression for `aggregator: Aggregate` plus unsupported
+  `subject: AnalyzeIR`; the tool now keeps investigation open and asks for
+  member support instead of shipping a contradictory 25-row closure.
 
 ### Batch 2: Exact Answer Lane Before Symbol Enumeration
 

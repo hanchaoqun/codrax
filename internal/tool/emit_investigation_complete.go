@@ -1885,6 +1885,7 @@ func aggregateMemberDisplayCandidates(member string) []string {
 		return nil
 	}
 	out := []string{member}
+	out = append(out, types.AnswerAggregateMemberDisplayCandidates(member)...)
 	for _, sep := range []string{" @ ", "\t", " | "} {
 		if idx := strings.Index(member, sep); idx > 0 {
 			prefix := strings.TrimSpace(member[:idx])

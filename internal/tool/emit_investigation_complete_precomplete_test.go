@@ -600,6 +600,62 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MemberSetSupportRefsCanUseDe
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_RelationMemberWithoutTypedSupportBlocks(t *testing.T) {
+	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/analysis/aggregator/aggregator.go",
+		LineStart:       132,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Aggregate",
+		Subject:         "Aggregate",
+		Snippet:         "func (a *Aggregator) Aggregate(closure *types.EvidenceClosure) []FieldHeat {",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "所有子包",
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "one unsupported relation member should not close a principal set",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "internal/analysis 子包及其入口函数",
+			"value":        "2",
+			"members":      []string{"aggregator: Aggregate", "subject: AnalyzeIR"},
+			"support_refs": []string{"aggregator: Aggregate @ internal/analysis/aggregator/aggregator.go:132"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "exhaustive member-set handoff is missing") ||
+		!strings.Contains(res.Summary, "subject: AnalyzeIR") {
+		t.Fatalf("unsupported relation member should block exhaustive completion, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open when a relation member lacks typed support")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_GenericMemberSupportRefUsesGroundedSnippet(t *testing.T) {
 	mut := types.NewMutableState("默认注册的 SubAgent 名称是什么？")
 	mut.AppendEvidence([]types.EvidenceItem{{
