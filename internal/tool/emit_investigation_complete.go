@@ -30,6 +30,8 @@ import (
 // gets to re-invest.
 const EmitInvestigationCompleteDowngradePrefix = "emit_investigation_complete DOWNGRADED"
 
+var callChainQualifiedCallRe = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)+\s*\(`)
+
 // EmitInvestigationComplete is the explorer's explicit completion
 // signal. When the LLM has collected enough evidence to answer the
 // user's question, it calls this tool to tell the system "move on
@@ -1155,6 +1157,9 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		return b.String()
 	}
 	if downgrade := callChainPrincipalSpanDowngrade(ctx, closure); downgrade != "" {
+		return downgrade
+	}
+	if downgrade := callChainQualifiedIntermediateDowngrade(ctx, closure); downgrade != "" {
 		return downgrade
 	}
 	if justification == "" {
@@ -3573,6 +3578,233 @@ func callChainPrincipalSpanDowngrade(ctx *types.BusContext, closure *types.Evide
 		b.WriteString("Read that source span, then emit grounded `emit_evidence` items for the intermediate call / handoff / boundary facts before retrying `emit_investigation_complete`.")
 	}
 	return b.String()
+}
+
+type callChainPrincipalSpanContext struct {
+	source    string
+	startHint string
+	endHint   string
+	startLine int
+	endLine   int
+	items     []types.EvidenceItem
+}
+
+type callChainMissingQualifiedCall struct {
+	Name string
+	Line int
+	Text string
+}
+
+// callChainQualifiedIntermediateDowngrade closes the gap that the coarse
+// tail-span gate intentionally leaves open: when the model has already read a
+// same-file source→sink span and emitted adjacent call-chain anchors, a small
+// gap between those anchors may still contain load-bearing qualified calls
+// that never made it into typed evidence. The detector is structural and
+// language-neutral: it reads only read_file gutter text plus typed evidence
+// file/line fields, extracts explicit qualified call forms (`pkg.Fn(`,
+// `ns::Fn(`), and asks the model to re-emit them as evidence. It never turns
+// those candidates into answer facts by itself.
+func callChainQualifiedIntermediateDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	if waiver := ctx.Mutable.PrincipalSpanWaiver(); waiver.IsActive() {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent != types.IntentTrace && types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain {
+		return ""
+	}
+	if types.IsProjectOrientationQuestion(rm) {
+		return ""
+	}
+	startHint, endHint, ok := callChainPrincipalEndpointHints(rm)
+	if !ok {
+		return ""
+	}
+	span, ok := callChainPrincipalSpanContextForEvidence(ctx.Mutable.EmittedEvidence(), startHint, endHint)
+	if !ok {
+		return ""
+	}
+	gc := ground.BuildContext(ctx)
+	if gc == nil || len(gc.LineIndex) == 0 {
+		return ""
+	}
+	lines := gc.LineIndex[span.source]
+	if len(lines) == 0 {
+		return ""
+	}
+	missing := callChainMissingQualifiedIntermediateCalls(span, lines)
+	if len(missing) == 0 {
+		return ""
+	}
+	if closure != nil {
+		keywords := make([]string, 0, len(missing)+2)
+		keywords = append(keywords, span.startHint, span.endHint)
+		for _, call := range missing {
+			keywords = append(keywords, call.Name)
+		}
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairEmitEvidence,
+			Files:     []string{span.source},
+			Keywords:  dedupStringsPreserveOrder(keywords),
+			Rationale: "already-read source-to-sink call-chain span contains qualified call candidates that were not carried through typed evidence",
+			Origin:    "pre_complete.call_chain_qualified_intermediate",
+			Stage:     string(types.StageExplore),
+		})
+	}
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — call-chain qualified intermediates lack typed handoff.\n\n")
+	fmt.Fprintf(&b, "The `%s` → `%s` span in %s is already represented by typed endpoint evidence, but the already-read gutter contains qualified intermediate call candidates that are not present in `emit_evidence` yet. Do not close from read_file memory or thinking prose: re-emit grounded `emit_evidence` items for the load-bearing calls below, preserving their exact source lines in `snippet`, then retry `emit_investigation_complete`.\n\n",
+		span.startHint, span.endHint, span.source)
+	for _, call := range missing {
+		fmt.Fprintf(&b, "  - %s:%d `%s` — %s\n", span.source, call.Line, call.Name, strings.TrimSpace(call.Text))
+	}
+	return b.String()
+}
+
+func callChainPrincipalSpanContextForEvidence(evidence []types.EvidenceItem, startHint, endHint string) (callChainPrincipalSpanContext, bool) {
+	if len(evidence) == 0 {
+		return callChainPrincipalSpanContext{}, false
+	}
+	bySource := make(map[string][]types.EvidenceItem)
+	for _, item := range evidence {
+		if !callChainPrincipalSpanEvidenceEligible(item) {
+			continue
+		}
+		source := canonicalCallChainSource(item.Source)
+		if source == "" {
+			continue
+		}
+		item.Source = source
+		bySource[source] = append(bySource[source], item)
+	}
+	for source, items := range bySource {
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].LineStart == items[j].LineStart {
+				return strings.TrimSpace(items[i].AnchorSymbol) < strings.TrimSpace(items[j].AnchorSymbol)
+			}
+			return items[i].LineStart < items[j].LineStart
+		})
+		startIdx := -1
+		for i, item := range items {
+			if callChainEvidenceMatchesEndpoint(item, startHint) {
+				startIdx = i
+				break
+			}
+		}
+		if startIdx < 0 {
+			continue
+		}
+		endIdx := -1
+		for i := len(items) - 1; i > startIdx; i-- {
+			if callChainEvidenceMatchesEndpoint(items[i], endHint) {
+				endIdx = i
+				break
+			}
+		}
+		if endIdx <= startIdx {
+			continue
+		}
+		spanItems := append([]types.EvidenceItem(nil), items[startIdx:endIdx+1]...)
+		return callChainPrincipalSpanContext{
+			source:    source,
+			startHint: startHint,
+			endHint:   endHint,
+			startLine: spanItems[0].LineStart,
+			endLine:   spanItems[len(spanItems)-1].LineStart,
+			items:     spanItems,
+		}, true
+	}
+	return callChainPrincipalSpanContext{}, false
+}
+
+func callChainMissingQualifiedIntermediateCalls(span callChainPrincipalSpanContext, lines map[int]string) []callChainMissingQualifiedCall {
+	if len(span.items) < 2 || len(lines) == 0 {
+		return nil
+	}
+	const maxGapLines = 100
+	const maxMissingCalls = 8
+	covered := map[string]bool{}
+	for _, item := range span.items {
+		for _, term := range callChainEvidenceStructuredTerms(item) {
+			if term == "" {
+				continue
+			}
+			covered[strings.ToLower(term)] = true
+			if tail := callChainEndpointTail(term); tail != "" {
+				covered[strings.ToLower(tail)] = true
+			}
+		}
+	}
+	seen := map[string]bool{}
+	var out []callChainMissingQualifiedCall
+	for i := 0; i < len(span.items)-1; i++ {
+		prevLine := span.items[i].LineStart
+		nextLine := span.items[i+1].LineStart
+		if prevLine <= 0 || nextLine <= prevLine+1 || nextLine-prevLine-1 > maxGapLines {
+			continue
+		}
+		for line := prevLine + 1; line < nextLine; line++ {
+			text := lines[line]
+			for _, name := range callChainQualifiedCallCandidatesFromLine(text) {
+				key := strings.ToLower(name)
+				if covered[key] || covered[strings.ToLower(callChainEndpointTail(name))] || seen[key] {
+					continue
+				}
+				seen[key] = true
+				out = append(out, callChainMissingQualifiedCall{Name: name, Line: line, Text: text})
+				if len(out) >= maxMissingCalls {
+					return out
+				}
+			}
+		}
+	}
+	return out
+}
+
+func callChainEvidenceStructuredTerms(item types.EvidenceItem) []string {
+	out := []string{
+		item.Subject,
+		item.Object,
+		item.AnchorSymbol,
+		item.OwnerSymbol,
+	}
+	out = append(out, item.SurfaceTerms...)
+	return out
+}
+
+func callChainQualifiedCallCandidatesFromLine(line string) []string {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "//") || strings.HasPrefix(line, "#") ||
+		strings.HasPrefix(line, "/*") || strings.HasPrefix(line, "*") {
+		return nil
+	}
+	if strings.HasPrefix(line, "return ") || strings.HasPrefix(line, "throw ") || strings.HasPrefix(line, "raise ") {
+		return nil
+	}
+	if idx := strings.Index(line, "//"); idx >= 0 {
+		line = strings.TrimSpace(line[:idx])
+	}
+	matches := callChainQualifiedCallRe.FindAllString(line, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, match := range matches {
+		name := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(match), "("))
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, name)
+	}
+	return out
 }
 
 func callChainPrincipalEndpointHints(rm types.RequestModel) (string, string, bool) {

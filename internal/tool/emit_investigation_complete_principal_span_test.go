@@ -238,3 +238,138 @@ func TestPrincipalSpanWaiver_BypassesGate(t *testing.T) {
 		}
 	})
 }
+
+func TestCallChainQualifiedIntermediateDowngrade_RequiresTypedHandoffForReadQualifiedCalls(t *testing.T) {
+	mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:           "start",
+			Kind:         types.EvidenceDirect,
+			AnchorKind:   types.AnchorDefinition,
+			AnchorSymbol: "buildAnalysisIR",
+			Subject:      "buildAnalysisIR",
+			Source:       "internal/agent/analyzer.go",
+			LineStart:    1289,
+		},
+		{
+			ID:           "compile",
+			Kind:         types.EvidenceDirect,
+			AnchorKind:   types.AnchorCall,
+			AnchorSymbol: "compiler.Compile",
+			Subject:      "buildAnalysisIR",
+			Object:       "compiler.Compile",
+			Source:       "internal/agent/analyzer.go",
+			LineStart:    1842,
+		},
+		{
+			ID:           "bind",
+			Kind:         types.EvidenceDirect,
+			AnchorKind:   types.AnchorCall,
+			AnchorSymbol: "binder.BindByRelevance",
+			Subject:      "buildAnalysisIR",
+			Object:       "binder.BindByRelevance",
+			Source:       "internal/agent/analyzer.go",
+			LineStart:    1868,
+		},
+		{
+			ID:           "gate",
+			Kind:         types.EvidenceDirect,
+			AnchorKind:   types.AnchorCall,
+			AnchorSymbol: "gate.RunWith",
+			Subject:      "buildAnalysisIR",
+			Object:       "gate.RunWith",
+			Source:       "internal/agent/analyzer.go",
+			LineStart:    1994,
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "trace buildAnalysisIR to gate.Run",
+				Intent:     types.IntentTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					MentionedEntities: []string{"buildAnalysisIR", "gate.RunWith"},
+				},
+			},
+		},
+	}
+	seedReadFileHistory(ctx, "internal/agent/analyzer.go", 1842,
+		"out := compiler.Compile(rm, sig)",
+		"if out.AnswerContract.Language == \"\" {",
+		"out.AnswerContract.Language = rm.Language",
+		"}",
+		"",
+		"// Risk matrix and hypothesis planning.",
+		"rm.RiskMatrix = risk.Evaluate(rm, rm.RiskMatrix)",
+		"hypotheses := hdp.Plan(rm)",
+		"",
+		"// Recompute budget with the real hypothesis count.",
+		"sig.HypothesisCount = len(hypotheses)",
+		"compiler.RecomputeBudget(&out, rm, sig)",
+		"",
+		"// Amplifier post-compile pass.",
+		"for _, obs := range amplifier.AmplifyPostCompile(rm, &out.AnswerContract) {",
+		"recordReconcileObservation(ctxMutable(ctx), reconcileEvent(",
+		"obs.Field, obs.Before, obs.After, 0, obs.Reason, rm.Predicates,",
+		"))",
+		"}",
+		"",
+		"// Relevance-based hypothesis binding.",
+		"if err := binder.BindByRelevance(&out.TaskGraph, hypotheses, binder.Options{}); err != nil {",
+		"return nil, fmt.Errorf(\"binder: %w\", err)",
+		"}",
+	)
+
+	got := callChainQualifiedIntermediateDowngrade(ctx, &types.EvidenceClosure{})
+	if got == "" {
+		t.Fatalf("qualified intermediate gate should require typed handoff for already-read calls")
+	}
+	for _, want := range []string{"risk.Evaluate", "hdp.Plan", "compiler.RecomputeBudget", "amplifier.AmplifyPostCompile"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("downgrade missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "fmt.Errorf") {
+		t.Fatalf("error-return helper should not be promoted as a principal intermediate:\n%s", got)
+	}
+}
+
+func TestCallChainQualifiedIntermediateDowngrade_PassesWhenCandidatesAreTyped(t *testing.T) {
+	mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
+	base := []types.EvidenceItem{
+		{ID: "start", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildAnalysisIR", Subject: "buildAnalysisIR", Source: "internal/agent/analyzer.go", LineStart: 1289},
+		{ID: "compile", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "compiler.Compile", Subject: "buildAnalysisIR", Object: "compiler.Compile", Source: "internal/agent/analyzer.go", LineStart: 1842},
+		{ID: "risk", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "risk.Evaluate", Subject: "buildAnalysisIR", Object: "risk.Evaluate", Source: "internal/agent/analyzer.go", LineStart: 1848},
+		{ID: "hdp", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "hdp.Plan", Subject: "buildAnalysisIR", Object: "hdp.Plan", Source: "internal/agent/analyzer.go", LineStart: 1849},
+		{ID: "budget", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "compiler.RecomputeBudget", Subject: "buildAnalysisIR", Object: "compiler.RecomputeBudget", Source: "internal/agent/analyzer.go", LineStart: 1853},
+		{ID: "post", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "amplifier.AmplifyPostCompile", Subject: "buildAnalysisIR", Object: "amplifier.AmplifyPostCompile", Source: "internal/agent/analyzer.go", LineStart: 1861},
+		{ID: "bind", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "binder.BindByRelevance", Subject: "buildAnalysisIR", Object: "binder.BindByRelevance", Source: "internal/agent/analyzer.go", LineStart: 1868},
+		{ID: "gate", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith", Subject: "buildAnalysisIR", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 1994},
+	}
+	mut.AppendEvidence(base)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "trace buildAnalysisIR to gate.Run",
+				Intent:     types.IntentTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					MentionedEntities: []string{"buildAnalysisIR", "gate.RunWith"},
+				},
+			},
+		},
+	}
+	seedReadFileHistory(ctx, "internal/agent/analyzer.go", 1848,
+		"rm.RiskMatrix = risk.Evaluate(rm, rm.RiskMatrix)",
+		"hypotheses := hdp.Plan(rm)",
+		"sig.HypothesisCount = len(hypotheses)",
+		"compiler.RecomputeBudget(&out, rm, sig)",
+		"for _, obs := range amplifier.AmplifyPostCompile(rm, &out.AnswerContract) {",
+		"}",
+	)
+
+	if got := callChainQualifiedIntermediateDowngrade(ctx, &types.EvidenceClosure{}); got != "" {
+		t.Fatalf("typed qualified candidates should satisfy the gate, got:\n%s", got)
+	}
+}
