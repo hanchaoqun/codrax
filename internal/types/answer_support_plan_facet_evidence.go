@@ -155,11 +155,23 @@ func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, membe
 	source, line, location := aggregateMemberStructuredLocation(fact, memberIdx, member)
 	ev, hasEvidence := aggregateMemberEvidenceByLabel(member, supportEvidence)
 	if location == "" {
+		if genericEv, genericLocation, ok := aggregateMemberEvidenceByGenericSupportRefs(fact, member, supportEvidence); ok {
+			ev = genericEv
+			hasEvidence = true
+			source = genericLocation.File
+			line = genericLocation.LineStart
+			location = aggregateMemberStartLocation(genericLocation)
+		}
+	}
+	if location == "" {
 		if hasEvidence {
 			source = strings.TrimSpace(strings.ReplaceAll(ev.Source, `\`, `/`))
 			line = ev.LineStart
 			location = aggregateMemberStartLocation(AnswerSourceLocationSurface{File: source, LineStart: line})
 		}
+	}
+	if !hasEvidence && location != "" {
+		ev, hasEvidence = aggregateMemberEvidenceByLocationAndText(member, source, line, supportEvidence)
 	}
 	displayMember := member
 	if label, _, ok := aggregateSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
@@ -261,6 +273,59 @@ func aggregateMemberEvidenceByLabel(member string, support *aggregateMemberEvide
 		}
 	}
 	return EvidenceItem{}, false
+}
+
+func aggregateMemberEvidenceByGenericSupportRefs(fact AnswerAggregateFact, member string, support *aggregateMemberEvidenceIndex) (EvidenceItem, AnswerSourceLocationSurface, bool) {
+	if support == nil || len(support.items) == 0 {
+		return EvidenceItem{}, AnswerSourceLocationSurface{}, false
+	}
+	for _, ref := range fact.SupportRefs {
+		refMember, refLocation, ok := aggregateSupportRefMemberLocation(ref)
+		if !ok || !AnswerSupportRefLabelIsGeneric(refMember) {
+			continue
+		}
+		ev, found := aggregateMemberEvidenceByLocationAndText(member, refLocation.File, refLocation.LineStart, support)
+		if !found {
+			continue
+		}
+		return ev, refLocation, true
+	}
+	return EvidenceItem{}, AnswerSourceLocationSurface{}, false
+}
+
+func aggregateMemberEvidenceByLocationAndText(member string, source string, line int, support *aggregateMemberEvidenceIndex) (EvidenceItem, bool) {
+	if support == nil || len(support.items) == 0 || strings.TrimSpace(source) == "" || line <= 0 {
+		return EvidenceItem{}, false
+	}
+	source = normalizeAnswerSupportPath(source)
+	for _, item := range support.items {
+		if normalizeAnswerSupportPath(item.Source) != source || item.LineStart != line {
+			continue
+		}
+		if aggregateEvidenceTextSupportsMember(item, member) {
+			return item, true
+		}
+	}
+	return EvidenceItem{}, false
+}
+
+func aggregateEvidenceTextSupportsMember(item EvidenceItem, member string) bool {
+	text := strings.TrimSpace(item.Snippet)
+	if item.LoadBearingSummary {
+		text = strings.TrimSpace(text + "\n" + item.Summary)
+	}
+	if text == "" {
+		return false
+	}
+	for _, candidate := range aggregateMemberDisplayCandidates(member) {
+		if AnswerSupportRefLabelIsGeneric(candidate) {
+			continue
+		}
+		if AnswerCodeSurfaceAppearsInText(text, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregateRelationMemberEvidence(left, right string, items []EvidenceItem) (EvidenceItem, bool) {
@@ -493,6 +558,7 @@ func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, 
 	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
 	var bareRefs []AnswerSourceLocationSurface
+	var genericRefs []AnswerSourceLocationSurface
 	for _, ref := range fact.SupportRefs {
 		refMember, refLocation, ok := aggregateSupportRefMemberLocation(ref)
 		if !ok {
@@ -502,9 +568,21 @@ func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, 
 			bareRefs = append(bareRefs, refLocation)
 			continue
 		}
+		if AnswerSupportRefLabelIsGeneric(refMember) {
+			genericRefs = append(genericRefs, refLocation)
+			continue
+		}
 		if strings.ToLower(refMember) == memberKey {
 			return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
 		}
+	}
+	if len(genericRefs) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(genericRefs) {
+		refLocation := genericRefs[memberIdx]
+		return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
+	}
+	if len(genericRefs) == 1 && len(fact.Members) == 1 {
+		refLocation := genericRefs[0]
+		return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
 	}
 	if len(bareRefs) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(bareRefs) {
 		refLocation := bareRefs[memberIdx]

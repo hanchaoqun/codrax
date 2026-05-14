@@ -768,6 +768,46 @@ func TestPreEmitAggregateMemberSupportRefMember_CitesLabelAtLocation(t *testing.
 	}
 }
 
+func TestPreEmitAggregateMemberGenericSupportRef_CitesMemberLocation(t *testing.T) {
+	mu := types.NewMutableState("default subagent aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "default SubAgent names",
+		Value:       "1",
+		Members:     []string{"explorer"},
+		SupportRefs: []string{"Member @ internal/agent/sub_explorer.go:31"},
+	}})
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:              "subexplorer-name",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/sub_explorer.go",
+		LineStart:       31,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Name",
+		Snippet:         "func (s *SubExplorer) Name() string {\n\treturn \"explorer\"\n}",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	item := types.AnswerBlockItem{
+		ID:          "explorer",
+		Label:       "explorer",
+		Text:        "is the default registered SubAgent name.",
+		CitationRef: 0,
+	}
+
+	if !preEmitCitationSupportsAggregateItem(ctx, item.Label, item.Text, types.Citation{File: "internal/agent/sub_explorer.go", Line: 31}) {
+		t.Fatal("generic Member support_ref should let the final answer cite the member's support location")
+	}
+	got := preEmitCandidateCitationLocationsForAggregateItem(ctx, item.Label, item.Text, 4)
+	if len(got) == 0 || got[0] != "internal/agent/sub_explorer.go:31" {
+		t.Fatalf("generic support-ref aggregate member should suggest the citable support anchor, got %v", got)
+	}
+}
+
 func TestPreCheckCitationPoolIntegrity_CatchesMissingAndOutOfRangeRefs(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

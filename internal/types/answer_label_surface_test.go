@@ -55,6 +55,31 @@ func TestParseAnswerSupportRefMemberLocation_CompositeDisplays(t *testing.T) {
 	}
 }
 
+func TestAnswerSupportRefLabelIsGeneric(t *testing.T) {
+	for _, label := range []string{"Member", "members", "`item`", "principal_member"} {
+		if !AnswerSupportRefLabelIsGeneric(label) {
+			t.Fatalf("AnswerSupportRefLabelIsGeneric(%q) = false, want true", label)
+		}
+	}
+	for _, label := range []string{"Intent", "explorer", "RouteHandler"} {
+		if AnswerSupportRefLabelIsGeneric(label) {
+			t.Fatalf("AnswerSupportRefLabelIsGeneric(%q) = true, want false", label)
+		}
+	}
+}
+
+func TestAnswerCodeSurfaceAppearsInTextUsesIdentityBoundaries(t *testing.T) {
+	if !AnswerCodeSurfaceAppearsInText(`return "explorer"`, "explorer") {
+		t.Fatal("quoted return literal should support the exact code surface")
+	}
+	if AnswerCodeSurfaceAppearsInText("goroutine scheduler", "go") {
+		t.Fatal("short surface must not match as a substring inside a larger identity token")
+	}
+	if !AnswerCodeSurfaceAppearsInText("type Foo::Bar struct {}", "Foo::Bar") {
+		t.Fatal("C++/Cangjie-style qualified surface should match exactly")
+	}
+}
+
 func TestAnswerSourceLocationLabelMatchesCitation(t *testing.T) {
 	if !AnswerSourceLocationLabelMatchesCitation("internal/agent/analyzer.go:1903", Citation{
 		File: "internal/agent/analyzer.go",

@@ -1854,6 +1854,9 @@ func aggregateSupportLabelMatchesMember(label string, memberLabels []string) boo
 	if label == "" {
 		return true
 	}
+	if types.AnswerSupportRefLabelIsGeneric(label) {
+		return true
+	}
 	want := aggregateMemberKey(label)
 	if want == "" {
 		return false
@@ -1882,6 +1885,9 @@ func aggregateLocationEvidenceMatchesLabels(location string, labels []string, by
 		if aggregateEvidenceMatchesAnyLabel(ev, labels) {
 			return true
 		}
+		if aggregateEvidenceTextContainsAnyLabel(ev, labels) {
+			return true
+		}
 	}
 	return false
 }
@@ -1895,15 +1901,37 @@ func aggregateToolLocationMatchesLabels(location string, labels []string, byLoca
 		return false
 	}
 	for _, line := range lines {
-		foldedLine := strings.ToLower(line)
 		for _, label := range labels {
 			label = strings.TrimSpace(label)
 			if label == "" {
 				continue
 			}
-			if strings.Contains(foldedLine, strings.ToLower(label)) {
+			if types.AnswerSupportRefLabelIsGeneric(label) {
+				continue
+			}
+			if types.AnswerCodeSurfaceAppearsInText(line, label) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func aggregateEvidenceTextContainsAnyLabel(ev types.EvidenceItem, labels []string) bool {
+	text := strings.TrimSpace(ev.Snippet)
+	if ev.LoadBearingSummary {
+		text = strings.TrimSpace(text + "\n" + ev.Summary)
+	}
+	if text == "" {
+		return false
+	}
+	for _, label := range labels {
+		label = strings.TrimSpace(label)
+		if label == "" || types.AnswerSupportRefLabelIsGeneric(label) || !types.IsCodeIdentitySurface(label) {
+			continue
+		}
+		if types.AnswerCodeSurfaceAppearsInText(text, label) {
+			return true
 		}
 	}
 	return false

@@ -2224,6 +2224,7 @@ func preEmitAggregateMemberCitationMatches(fact types.AnswerAggregateFact, membe
 	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
 	var bareRefs []types.AnswerSourceLocationSurface
+	var genericRefs []types.AnswerSourceLocationSurface
 	for _, ref := range fact.SupportRefs {
 		refMember, loc, ok := preEmitAggregateSupportRefMemberLocation(ref)
 		if !ok {
@@ -2233,9 +2234,22 @@ func preEmitAggregateMemberCitationMatches(fact types.AnswerAggregateFact, membe
 			bareRefs = append(bareRefs, loc)
 			continue
 		}
+		if types.AnswerSupportRefLabelIsGeneric(refMember) {
+			genericRefs = append(genericRefs, loc)
+			if preEmitCitationMatchesSourceLocation(cit, loc) {
+				return true
+			}
+			continue
+		}
 		if strings.ToLower(refMember) == memberKey && preEmitCitationMatchesSourceLocation(cit, loc) {
 			return true
 		}
+	}
+	if len(genericRefs) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(genericRefs) {
+		return preEmitCitationMatchesSourceLocation(cit, genericRefs[memberIdx])
+	}
+	if len(genericRefs) == 1 && len(fact.Members) == 1 {
+		return preEmitCitationMatchesSourceLocation(cit, genericRefs[0])
 	}
 	if len(bareRefs) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(bareRefs) {
 		return preEmitCitationMatchesSourceLocation(cit, bareRefs[memberIdx])
@@ -2255,6 +2269,7 @@ func preEmitAggregateMemberSupportLocation(fact types.AnswerAggregateFact, membe
 	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
 	var bareRefs []types.AnswerSourceLocationSurface
+	var genericRefs []types.AnswerSourceLocationSurface
 	for _, ref := range fact.SupportRefs {
 		refMember, loc, parsed := preEmitAggregateSupportRefMemberLocation(ref)
 		if !parsed {
@@ -2264,9 +2279,21 @@ func preEmitAggregateMemberSupportLocation(fact types.AnswerAggregateFact, membe
 			bareRefs = append(bareRefs, loc)
 			continue
 		}
+		if types.AnswerSupportRefLabelIsGeneric(refMember) {
+			genericRefs = append(genericRefs, loc)
+			continue
+		}
 		if strings.ToLower(strings.TrimSpace(refMember)) == memberKey {
 			return loc.File, loc.LineStart, true
 		}
+	}
+	if len(genericRefs) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(genericRefs) {
+		loc := genericRefs[memberIdx]
+		return loc.File, loc.LineStart, true
+	}
+	if len(genericRefs) == 1 && len(fact.Members) == 1 {
+		loc := genericRefs[0]
+		return loc.File, loc.LineStart, true
 	}
 	if len(bareRefs) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(bareRefs) {
 		loc := bareRefs[memberIdx]

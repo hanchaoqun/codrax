@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // AnswerSourceLocationSurface is the structured form of an answer-visible
@@ -111,6 +113,71 @@ func ParseAnswerSupportRefMemberLocation(raw string) (label string, location Ans
 		return "", surface, true
 	}
 	return "", AnswerSourceLocationSurface{}, false
+}
+
+// AnswerSupportRefLabelIsGeneric reports whether the label part of
+// "label @ file:line" is the schema placeholder rather than the answer member
+// itself. The support ref still has to be validated against the member and the
+// grounded location by callers; this only normalizes the carrier grammar.
+func AnswerSupportRefLabelIsGeneric(label string) bool {
+	label = strings.ToLower(strings.Trim(strings.TrimSpace(label), "`'\" "))
+	switch label {
+	case "member", "members", "item", "principal_member":
+		return true
+	default:
+		return false
+	}
+}
+
+// AnswerCodeSurfaceAppearsInText checks whether a code/config surface appears
+// as a complete identity token in text. It is intentionally structural and
+// language-neutral: callers provide the already model-authored surface and
+// already-grounded text, and this helper only prevents substring accidents such
+// as "go" matching "goroutine".
+func AnswerCodeSurfaceAppearsInText(text string, surface string) bool {
+	text = strings.TrimSpace(text)
+	surface = strings.TrimSpace(surface)
+	if text == "" || surface == "" || !IsCodeIdentitySurface(surface) {
+		return false
+	}
+	searchFrom := 0
+	for searchFrom <= len(text) {
+		idx := strings.Index(text[searchFrom:], surface)
+		if idx < 0 {
+			return false
+		}
+		start := searchFrom + idx
+		end := start + len(surface)
+		if answerCodeSurfaceBoundaryOK(text, start, end) {
+			return true
+		}
+		if end <= searchFrom {
+			return false
+		}
+		searchFrom = end
+	}
+	return false
+}
+
+func answerCodeSurfaceBoundaryOK(text string, start int, end int) bool {
+	if start > 0 {
+		r, _ := utf8.DecodeLastRuneInString(text[:start])
+		if answerCodeSurfaceRune(r) {
+			return false
+		}
+	}
+	if end < len(text) {
+		r, _ := utf8.DecodeRuneInString(text[end:])
+		if answerCodeSurfaceRune(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func answerCodeSurfaceRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) ||
+		r == '_' || r == '.' || r == '-' || r == '/' || r == ':' || r == '@'
 }
 
 // ParseAnswerFilePathSurface parses a whole item label when the label itself

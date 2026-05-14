@@ -2935,6 +2935,68 @@ func TestBuildAnswerSupportPlan_GenericEnumerationUsesAggregateMemberSetAsPrinci
 	}
 }
 
+func TestBuildAnswerSupportPlan_GenericAggregateMemberSetGenericSupportRefCarriesTypedSnippetEvidence(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "default SubAgent names",
+			Value:   "1",
+			Members: []string{"explorer"},
+			SupportRefs: []string{
+				"Member @ internal/agent/subagent.go:63",
+				"Member @ internal/agent/sub_explorer.go:31",
+			},
+		}},
+		SurfaceEvidence: []EvidenceItem{{
+			ID:              "register-default",
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/subagent.go",
+			LineStart:       63,
+			AnchorKind:      AnchorCall,
+			AnchorSymbol:    "RegisterDefaultSubAgents",
+			Snippet:         "func RegisterDefaultSubAgents(r *SubAgentRegistry, deps *Dependencies) {\n\tr.Register(NewSubExplorer(deps))\n}",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: GroundingGrounded,
+			GroundingTier:   TierLineText,
+		}, {
+			ID:              "subexplorer-name",
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/sub_explorer.go",
+			LineStart:       31,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "Name",
+			Snippet:         "func (s *SubExplorer) Name() string {\n\treturn \"explorer\"\n}",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: GroundingGrounded,
+			GroundingTier:   TierLineText,
+		}},
+	}
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqEnumeration),
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "default SubAgent names"},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 1 {
+		t.Fatalf("generic support_ref aggregate member should compile into one principal entry, got %+v", got)
+	}
+	entry := lane.Entries[0]
+	if entry.Text != "explorer" || entry.Location != "internal/agent/sub_explorer.go:31" {
+		t.Fatalf("member label and support_ref location should be preserved, got %+v", entry)
+	}
+	if entry.ClaimForm != ClaimDefinitionFact || entry.AnchorSymbol != "Name" {
+		t.Fatalf("support_ref location should inherit same-line typed evidence metadata, got %+v", entry)
+	}
+	if entry.MemberSurface != PrincipalMemberSurfaceSymbolLike {
+		t.Fatalf("member surface should stay on the answer label, not the helper function name: %+v", entry)
+	}
+}
+
 func TestBuildAnswerSupportPlan_GenericAggregateMemberSetParallelSupportRefs(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		StableAggregateFacts: []AnswerAggregateFact{{
