@@ -474,6 +474,86 @@ func RepairUnescapedQuotesInJSONStringLiterals(s string) (string, bool) {
 	return repairUnescapedQuotesInJSONStringLiterals(s)
 }
 
+// NormalizeControlCharsInJSONStrings repairs a deterministic local-model
+// artifact where otherwise JSON-shaped content contains raw control bytes
+// inside string literals. Strict JSON rejects those bytes, but models often
+// produce them in multi-line fields such as Mermaid bodies or markdown prose.
+//
+// The pass is structural: it walks bytes with a JSON-string state machine and
+// rewrites raw controls ONLY while inside a string literal. Braces, brackets,
+// commas, and all bytes outside strings pass through unchanged. Callers must
+// still parse the returned candidate before accepting it.
+func NormalizeControlCharsInJSONStrings(s string) (string, bool) {
+	// Fast path: scan for any byte < 0x20 (the entire control-char range JSON
+	// forbids inside string literals).
+	hasControl := false
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 {
+			hasControl = true
+			break
+		}
+	}
+	if !hasControl {
+		return s, false
+	}
+	var out strings.Builder
+	out.Grow(len(s) + 16)
+	inString := false
+	escapeCount := 0
+	changed := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !inString {
+			out.WriteByte(c)
+			if c == '"' {
+				inString = true
+				escapeCount = 0
+			}
+			continue
+		}
+		if c == '\\' {
+			out.WriteByte(c)
+			escapeCount++
+			continue
+		}
+		if c == '"' && escapeCount%2 == 0 {
+			out.WriteByte(c)
+			inString = false
+			escapeCount = 0
+			continue
+		}
+		switch c {
+		case '\n':
+			out.WriteString(`\n`)
+			changed = true
+		case '\r':
+			out.WriteString(`\r`)
+			changed = true
+		case '\t':
+			out.WriteString(`\t`)
+			changed = true
+		case '\f':
+			out.WriteString(`\f`)
+			changed = true
+		case '\b':
+			out.WriteString(`\b`)
+			changed = true
+		default:
+			if c < 0x20 {
+				fmt.Fprintf(&out, `\u%04x`, c)
+				changed = true
+			} else {
+				out.WriteByte(c)
+			}
+		}
+		escapeCount = 0
+	}
+	if !changed {
+		return s, false
+	}
+	return out.String(), true
+}
+
 // repairUnescapedQuotesInJSONStringLiterals handles a common local-model
 // artefact inside string-wrapped JSON payloads:
 //

@@ -1047,6 +1047,38 @@ func TestEmitAnswerDocumentV2_FromNodeInsideClaimUseRemapped(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_DiagramEdgeAnchorsPromotedToBlock(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	params := json.RawMessage(`{
+		"blocks": [{
+			"id": "d1",
+			"kind": "diagram",
+			"diagram": {
+				"kind": "sequence",
+				"language": "mermaid",
+				"body": "sequenceDiagram\nA->>B: call",
+				"edge_anchors": [{"from_node": "A", "to_node": "B", "relation_kind": "call"}]
+			}
+		}],
+		"citations": []
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("diagram.edge_anchors should be structurally promoted, got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].EdgeAnchors) != 1 {
+		t.Fatalf("promoted edge anchors not persisted: %+v", doc)
+	}
+	if got := doc.Blocks[0].EdgeAnchors[0]; got.FromNode != "A" || got.ToNode != "B" || got.RelationKind != "call" {
+		t.Fatalf("edge anchor changed during promotion: %+v", got)
+	}
+}
+
 // TestRepairBlocksAsString_Path_C_ControlCharRecovery confirms
 // Path C's structured fallback: when the LLM's stringified blocks
 // array contains UNESCAPED control characters inside string values

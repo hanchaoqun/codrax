@@ -11,6 +11,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -1173,101 +1174,8 @@ func findMatchingJSONClose(s string, openAt int, open, close byte) int {
 	return -1
 }
 
-// normalizeControlCharsInJSONStrings is a deterministic recovery
-// pass for the "raw control char inside JSON string literal" streaming
-// artefact. Walks `s` byte-by-byte while tracking string-state via a
-// quote / escape state machine. Inside string literals, raw \n / \r /
-// \t / form-feed / backspace are rewritten to their two-char escape
-// sequences (\\n / \\r / \\t / \\f / \\b); other control bytes
-// (0x00–0x1F minus the named ones) are rewritten to \\u00XX. Outside
-// strings the input bytes pass through verbatim so structural braces
-// / brackets / commas are unaffected.
-//
-// Returns (rewritten, changed). When the input is already valid JSON
-// (no raw control chars in strings) the rewritten value is byte-
-// identical to s and changed=false; the caller can skip a redundant
-// re-parse in that case.
-//
-// The state machine is intentionally minimal:
-//   - mode == "outside" or "inside-string"
-//   - inside-string: a `"` exits unless preceded by an odd-count of
-//     `\` (escape char). The escape-count is tracked by counting the
-//     trailing `\` of the recently-emitted bytes.
 func normalizeControlCharsInJSONStrings(s string) (string, bool) {
-	// Fast path: scan for any byte < 0x20 (the entire control-char
-	// range JSON forbids inside string literals). When the string is
-	// already control-char-free, return early — Paths A/B failed for
-	// a non-control-char reason and we have nothing to add.
-	hasControl := false
-	for i := 0; i < len(s); i++ {
-		if s[i] < 0x20 {
-			hasControl = true
-			break
-		}
-	}
-	if !hasControl {
-		return s, false
-	}
-	var out strings.Builder
-	out.Grow(len(s) + 16)
-	inString := false
-	escapeCount := 0
-	changed := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !inString {
-			out.WriteByte(c)
-			if c == '"' {
-				inString = true
-				escapeCount = 0
-			}
-			continue
-		}
-		// inside string
-		if c == '\\' {
-			out.WriteByte(c)
-			escapeCount++
-			continue
-		}
-		if c == '"' && escapeCount%2 == 0 {
-			out.WriteByte(c)
-			inString = false
-			escapeCount = 0
-			continue
-		}
-		// Reset escape counter on any non-backslash byte (the next
-		// `"` after `\\` IS terminal because the second `\` already
-		// consumed the first as an escape pair).
-		switch c {
-		case '\n':
-			out.WriteString(`\n`)
-			changed = true
-		case '\r':
-			out.WriteString(`\r`)
-			changed = true
-		case '\t':
-			out.WriteString(`\t`)
-			changed = true
-		case '\f':
-			out.WriteString(`\f`)
-			changed = true
-		case '\b':
-			out.WriteString(`\b`)
-			changed = true
-		default:
-			if c < 0x20 {
-				fmt.Fprintf(&out, `\u%04x`, c)
-				changed = true
-			} else {
-				out.WriteByte(c)
-			}
-		}
-		escapeCount = 0
-	}
-	if !changed {
-		return s, false
-	}
-	return out.String(), true
+	return toolparam.NormalizeControlCharsInJSONStrings(s)
 }
 
 func mustMarshal(v interface{}) json.RawMessage {
@@ -1577,6 +1485,12 @@ func repairNestedAnswerBlockFields(raw json.RawMessage) (json.RawMessage, []stri
 		if err := json.Unmarshal(blk, &blkObj); err != nil {
 			continue
 		}
+		if fields, ok := repairMisplacedDiagramBlockFields(blkObj); ok {
+			for _, field := range fields {
+				paths = append(paths, fmt.Sprintf("blocks[%d].diagram.%s->blocks[%d].%s", i, field, i, field))
+			}
+			repaired = true
+		}
 		for _, field := range answerBlockArrayFieldNames {
 			if r, ok := repairBlockArrayField(blkObj, field); ok {
 				blkObj[field] = r
@@ -1681,6 +1595,12 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 				continue
 			}
 			blockChanged := false
+			if fields, ok := repairMisplacedDiagramBlockFields(blkObj); ok {
+				for _, field := range fields {
+					paths = append(paths, fmt.Sprintf("%s[%d].diagram.%s->%s[%d].%s", topField, i, field, topField, i, field))
+				}
+				blockChanged = true
+			}
 			for _, field := range answerBlockArrayFieldNames {
 				if r, ok := repairBlockArrayField(blkObj, field); ok {
 					blkObj[field] = r
@@ -1721,6 +1641,67 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 
 var answerBlockArrayFieldNames = []string{"items", "claim_uses", "edge_anchors", "facet_ids"}
 var answerBlockObjectFieldNames = []string{"diagram"}
+var answerBlockFieldsAllowedFromDiagram = []string{"claim_uses", "edge_anchors", "facet_ids", "surface_role"}
+
+// repairMisplacedDiagramBlockFields moves known block-level annotation fields
+// that a local model placed inside the sibling diagram object back onto the
+// block. This is a structural relocation only: the exact JSON value is
+// preserved, conflicts are left untouched for the strict decoder, and shape
+// validation still runs after the move.
+func repairMisplacedDiagramBlockFields(blkObj map[string]json.RawMessage) ([]string, bool) {
+	if len(blkObj) == 0 {
+		return nil, false
+	}
+	rawDiagram, ok := blkObj["diagram"]
+	rawDiagram = bytes.TrimSpace(rawDiagram)
+	if !ok || len(rawDiagram) == 0 || rawDiagram[0] != '{' {
+		return nil, false
+	}
+	var diagram map[string]json.RawMessage
+	if err := json.Unmarshal(rawDiagram, &diagram); err != nil || len(diagram) == 0 {
+		return nil, false
+	}
+	var moved []string
+	for _, field := range answerBlockFieldsAllowedFromDiagram {
+		rawField, ok := diagram[field]
+		if !ok || len(rawField) == 0 {
+			continue
+		}
+		if existing, exists := blkObj[field]; exists {
+			if bytes.Equal(bytes.TrimSpace(existing), bytes.TrimSpace(rawField)) {
+				delete(diagram, field)
+				moved = append(moved, field)
+			}
+			continue
+		}
+		if !misplacedDiagramFieldShapeOK(field, rawField) {
+			continue
+		}
+		blkObj[field] = rawField
+		delete(diagram, field)
+		moved = append(moved, field)
+	}
+	if len(moved) == 0 {
+		return nil, false
+	}
+	blkObj["diagram"] = mustMarshal(diagram)
+	return moved, true
+}
+
+func misplacedDiagramFieldShapeOK(field string, raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return false
+	}
+	switch field {
+	case "claim_uses", "edge_anchors", "facet_ids":
+		return raw[0] == '[' || raw[0] == '"'
+	case "surface_role":
+		return raw[0] == '"'
+	default:
+		return false
+	}
+}
 
 // repairBlockArrayField detects a JSON-encoded string at obj[field]
 // where a JSON array is expected, and returns the re-encoded array

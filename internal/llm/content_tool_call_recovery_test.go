@@ -446,6 +446,79 @@ func TestRecoverTextToolCalls_BareAnswerDocumentRepairsUnescapedQuotesInText(t *
 	}
 }
 
+func TestRecoverTextToolCalls_BareAnswerDocumentWithPatchToolRepairsRawDiagramNewline(t *testing.T) {
+	content := `{
+		"blocks":[{
+			"id":"d1",
+			"kind":"diagram",
+			"diagram":{
+				"kind":"sequence",
+				"language":"mermaid",
+				"body":"sequenceDiagram
+    A->>B: call",
+				"edge_anchors":[{"from_node":"A","to_node":"B","relation_kind":"call"}]
+			}
+		}],
+		"citations":[{"file":"internal/agent/agent.go","line":1116}]
+	}`
+	tools := []ToolSchema{
+		{
+			Name: "emit_answer_document",
+			Parameters: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"blocks":{
+						"type":"array",
+						"items":{
+							"type":"object",
+							"properties":{
+								"id":{"type":"string"},
+								"kind":{"type":"string"},
+								"diagram":{
+									"type":"object",
+									"properties":{
+										"kind":{"type":"string"},
+										"language":{"type":"string"},
+										"body":{"type":"string"}
+									}
+								},
+								"edge_anchors":{"type":"array","items":{"type":"object"}}
+							},
+							"required":["id","kind"]
+						}
+					},
+					"citations":{"type":"array","items":{"type":"object"}}
+				},
+				"required":["blocks"]
+			}`),
+		},
+		{
+			Name:       "emit_answer_document_patch",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"replace_blocks":{"type":"array","items":{"type":"object"}}}}`),
+		},
+	}
+
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_answer_document" {
+		t.Fatalf("expected bare answer_document args to recover despite patch tool, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+	var params struct {
+		Blocks []struct {
+			Diagram map[string]any   `json:"diagram"`
+			Edges   []map[string]any `json:"edge_anchors"`
+		} `json:"blocks"`
+	}
+	if err := json.Unmarshal(got.ToolCalls[0].Params, &params); err != nil {
+		t.Fatalf("params json: %v\n%s", err, got.ToolCalls[0].Params)
+	}
+	if len(params.Blocks) != 1 || len(params.Blocks[0].Edges) != 1 {
+		t.Fatalf("misnested diagram edge_anchors should be promoted before pruning, got %s", got.ToolCalls[0].Params)
+	}
+	if _, leaked := params.Blocks[0].Diagram["edge_anchors"]; leaked {
+		t.Fatalf("diagram edge_anchors should not remain nested after schema-guided promotion: %s", got.ToolCalls[0].Params)
+	}
+}
+
 func TestRecoverTextToolCalls_RepairsMissingTrailingObjectCloser(t *testing.T) {
 	content := `{"name":"emit_analysis","arguments":{"entities":["recoverTextToolCalls"],"question_kind":"unknown"}`
 	got := recoverTextToolCalls(Response{Content: content}, []ToolSchema{{Name: "emit_analysis"}}, ChatOptions{})

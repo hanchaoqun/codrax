@@ -115,6 +115,17 @@ func decodeTextToolCallJSON(content string) (any, bool) {
 			return raw, true
 		}
 	}
+	repaired, ok = toolparam.NormalizeControlCharsInJSONStrings(content)
+	if ok {
+		if err := json.Unmarshal([]byte(repaired), &raw); err == nil {
+			return raw, true
+		}
+		if quoteRepaired, quoteOK := toolparam.RepairUnescapedQuotesInJSONStringLiterals(repaired); quoteOK {
+			if err := json.Unmarshal([]byte(quoteRepaired), &raw); err == nil {
+				return raw, true
+			}
+		}
+	}
 	repaired, ok = toolparam.RepairUnescapedQuotesInJSONStringLiterals(content)
 	if ok {
 		if err := json.Unmarshal([]byte(repaired), &raw); err == nil {
@@ -455,8 +466,13 @@ func pruneJSONValueBySchema(val any, schema any) (any, bool) {
 	if !ok || len(props) == 0 || schemaAllowsAdditionalProperties(schemaMap) {
 		return val, false
 	}
+	promotedChanged := false
+	if promoted, ok := promoteNestedJSONFieldsToCurrentObject(m, props); ok {
+		m = promoted
+		promotedChanged = true
+	}
 	out := make(map[string]any, len(m))
-	changed := false
+	changed := promotedChanged
 	for key, item := range m {
 		propSchema, ok := props[key]
 		if !ok {
@@ -471,6 +487,91 @@ func pruneJSONValueBySchema(val any, schema any) (any, bool) {
 		return out, true
 	}
 	return val, false
+}
+
+func promoteNestedJSONFieldsToCurrentObject(m map[string]any, props map[string]any) (map[string]any, bool) {
+	if len(m) == 0 || len(props) == 0 {
+		return m, false
+	}
+	var out map[string]any
+	changed := false
+	for childKey, childVal := range m {
+		childSchema, ok := props[childKey].(map[string]any)
+		if !ok || schemaAllowsAdditionalProperties(childSchema) {
+			continue
+		}
+		childProps, ok := childSchema["properties"].(map[string]any)
+		if !ok || len(childProps) == 0 {
+			continue
+		}
+		childMap, ok := childVal.(map[string]any)
+		if !ok || len(childMap) == 0 {
+			continue
+		}
+		var childOut map[string]any
+		for nestedKey, nestedVal := range childMap {
+			if _, childOwns := childProps[nestedKey]; childOwns {
+				continue
+			}
+			parent := m
+			if changed {
+				parent = out
+			}
+			if _, parentAlreadyHas := parent[nestedKey]; parentAlreadyHas {
+				continue
+			}
+			parentSchema, parentAccepts := props[nestedKey]
+			if !parentAccepts || !jsonSchemaAcceptsValue(parentSchema, nestedVal) {
+				continue
+			}
+			if !changed {
+				out = copyAnyMap(m)
+				changed = true
+			}
+			if childOut == nil {
+				childOut = copyAnyMap(childMap)
+			}
+			out[nestedKey] = nestedVal
+			delete(childOut, nestedKey)
+			out[childKey] = childOut
+		}
+	}
+	if !changed {
+		return m, false
+	}
+	return out, true
+}
+
+func jsonSchemaAcceptsValue(schema any, raw any) bool {
+	schemaMap, ok := schema.(map[string]any)
+	if !ok {
+		return false
+	}
+	valueType := jsonSchemaTypeForValue(raw)
+	if valueType == "" {
+		return false
+	}
+	if jsonSchemaTypeAllows(schemaMap["type"], valueType) {
+		return true
+	}
+	switch valueType {
+	case "object":
+		_, ok := schemaMap["properties"]
+		return ok
+	case "array":
+		_, ok := schemaMap["items"]
+		return ok
+	default:
+		return false
+	}
+}
+
+func copyAnyMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func schemaAllowsAdditionalProperties(schema map[string]any) bool {

@@ -368,6 +368,37 @@ func TestEmitAnswerDocumentPatch_StringWrappedNestedDiagramAndExactResolution(t 
 	}
 }
 
+func TestEmitAnswerDocumentPatch_DiagramEdgeAnchorsPromotedToBlock(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+		},
+	})
+	params := json.RawMessage(`{
+		"remove_block_ids": ["s1"],
+		"add_blocks": [{
+			"id": "d1",
+			"kind": "diagram",
+			"diagram": {
+				"kind": "sequence",
+				"language": "mermaid",
+				"body": "sequenceDiagram\nA->>B: hi",
+				"edge_anchors": [{"from_node":"A","to_node":"B","relation_kind":"call"}]
+			}
+		}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must promote diagram.edge_anchors to block edge_anchors; got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].EdgeAnchors) != 1 {
+		t.Fatalf("promoted edge anchors not persisted: %+v", doc)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_StringCitationAndSnippetLineNumbers(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
