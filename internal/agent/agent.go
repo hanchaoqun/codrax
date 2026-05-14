@@ -807,55 +807,6 @@ func contextPressureForbiddenPatterns(name types.AgentName) []string {
 // callers use.
 const AllowedTerminalTool hint.AllowedKind = "terminal_tool"
 
-// estimateMessagesBytes sums the serialised size of every message in
-// the slice so the BaseAgent context-pressure watchdog can compare
-// cumulative prompt bytes against (context_window × BytesPerToken).
-// Includes Content verbatim plus a JSON-serialised size for each
-// ToolCall (the adapter turns them into wire JSON, and the tool-call
-// arguments can dwarf the content body on a dense investigate turn).
-// Includes Role + ToolCallID surface because even one-character
-// overheads add up across a 50+ message conversation.
-//
-// The estimate is intentionally cheap — O(n) over message slice,
-// O(len(content)) per message, no reflection — because it runs every
-// iteration. It is an UPPER bound on the wire-level prompt size, not
-// an exact token count; the BytesPerToken constant converts to
-// tokens on the consuming side.
-func estimateMessagesBytes(messages []llm.Message) int {
-	total := 0
-	for _, m := range messages {
-		total += len(m.Role) + len(m.Content) + len(m.ToolCallID)
-		for _, tc := range m.ToolCalls {
-			total += len(tc.ID) + len(tc.Name) + len(tc.Params)
-		}
-	}
-	return total
-}
-
-// estimateToolSchemasBytes estimates the request-side footprint of the
-// tool catalog sent with a chat completion. It deliberately uses the
-// same cheap byte-counting model as estimateMessagesBytes: callers only
-// need stable telemetry / pressure math, not tokenizer-exact accounting.
-func estimateToolSchemasBytes(tools []llm.ToolSchema) int {
-	total := 0
-	for _, t := range tools {
-		total += len(t.Name) + len(t.Description) + len(t.Parameters)
-	}
-	return total
-}
-
-func estimateLLMRequestBytes(messages []llm.Message, tools []llm.ToolSchema) int {
-	return estimateMessagesBytes(messages) + estimateToolSchemasBytes(tools)
-}
-
-func estimateLLMRequestTokens(messages []llm.Message, tools []llm.ToolSchema) int {
-	bytes := estimateLLMRequestBytes(messages, tools)
-	if bytes <= 0 {
-		return 0
-	}
-	return (bytes + types.BytesPerToken - 1) / types.BytesPerToken
-}
-
 func pruneToolHistory(messages []llm.Message, budget int) bool {
 	total := 0
 	cutoff := -1
@@ -1002,7 +953,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// below, which keys off the agent's name.
 		if ctxWindow := b.deps.LLM.MaxContextTokens(); ctxWindow > 0 {
 			byteBudget := ctxWindow * types.BytesPerToken
-			promptBytes := estimateMessagesBytes(messages)
+			promptBytes := llm.EstimateMessagesBytes(messages)
 			soft := b.deps.AgentSettings.ContextPressureSoftRatio
 			hard := b.deps.AgentSettings.ContextPressureHardRatio
 			if byteBudget > 0 && (soft > 0 || hard > 0) {
@@ -1024,24 +975,18 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 
 		// Reason — call LLM
-		contextTokens := estimateLLMRequestTokens(messages, toolSchemas)
-		contextWindowTokens := 0
-		modelID := ""
-		if b.deps.LLM != nil {
-			contextWindowTokens = b.deps.LLM.MaxContextTokens()
-			modelID = b.deps.LLM.ModelID()
-		}
+		telemetry := llm.BuildRequestTelemetry(b.deps.LLM, messages, toolSchemas)
 		logging.Debug("[diag %s] iter=%d phase=llm_request model=%s context_tokens_est=%d context_window=%d messages=%d tools=%d",
-			b.name, i, modelID, contextTokens, contextWindowTokens, len(messages), len(toolSchemas))
+			b.name, i, telemetry.ModelID, telemetry.ContextTokensEstimate, telemetry.ContextWindowTokens, telemetry.MessageCount, telemetry.ToolCount)
 		b.deps.Emit(render.Event{
 			Kind:                  render.EventAgentThinking,
 			Timestamp:             time.Now(),
 			Agent:                 b.name,
 			Stage:                 ctx.Stage,
 			Iteration:             i,
-			ContextTokensEstimate: contextTokens,
-			ContextWindowTokens:   contextWindowTokens,
-			ModelID:               modelID,
+			ContextTokensEstimate: telemetry.ContextTokensEstimate,
+			ContextWindowTokens:   telemetry.ContextWindowTokens,
+			ModelID:               telemetry.ModelID,
 		})
 		// Streaming preview: when the LLM adapter supports streaming,
 		// each content chunk fires onDelta. Buffer the chunks and emit

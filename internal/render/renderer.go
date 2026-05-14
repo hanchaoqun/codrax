@@ -50,13 +50,6 @@ type taskRow struct {
 	toolCount   int       // cumulative EventToolCallEnd successes for this row
 	iteration   int       // latest ReAct iteration seen on this row
 
-	// Request telemetry from EventAgentThinking. These are best-effort
-	// pre-flight values for the most recent LLM request on this row,
-	// surfaced in the dock's stage/counter line.
-	modelID               string
-	contextTokensEstimate int
-	contextWindowTokens   int
-
 	// activityKind / activityDetail / activityDurMs surface the LLM-
 	// interaction sub-state inside the running stage's live bar so
 	// the user reads "what's happening RIGHT NOW" (request dispatched
@@ -167,6 +160,15 @@ type Renderer struct {
 	// read by composeCurrentDockRows. The state machine is "most
 	// recent meaningful event wins".
 	activity activityState
+
+	// Request telemetry for the latest LLM request observed by the
+	// renderer. This is renderer-level rather than task-row-level so
+	// row 2 can keep showing the effective model / rough token count
+	// across fallback rows, stage notices, direct reviewers, and other
+	// control-flow surfaces that are not owned by a BaseAgent row.
+	requestModelID               string
+	requestContextTokensEstimate int
+	requestContextWindowTokens   int
 
 	// streamTail / streamChars carry the live stream preview state.
 	// streamTail is the rolling 25-col tail; streamChars is the

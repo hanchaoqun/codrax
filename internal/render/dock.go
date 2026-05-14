@@ -337,22 +337,6 @@ func composeDockRow2(s dockRowState) string {
 		progress = "—"
 	}
 	b.WriteString(statusMeta.Sprint(progress))
-	if s.stageLabel != "" {
-		b.WriteString(" ")
-		b.WriteString(statusPrimary.Sprint(s.stageLabel))
-	}
-	if s.topicProgress != "" {
-		b.WriteString(" ")
-		b.WriteString(statusMeta.Sprint("·"))
-		b.WriteString(" ")
-		b.WriteString(statusObjective.Sprint(s.topicProgress))
-	}
-	if s.iteration > 0 {
-		b.WriteString(" ")
-		b.WriteString(statusMeta.Sprint("·"))
-		b.WriteString(" ")
-		b.WriteString(statusMeta.Sprint(metaRoundPhrase(s.iteration, s.lang)))
-	}
 	if strings.TrimSpace(s.modelID) != "" {
 		b.WriteString(" ")
 		b.WriteString(statusMeta.Sprint("·"))
@@ -368,6 +352,24 @@ func composeDockRow2(s dockRowState) string {
 			s.contextWindowTokens,
 			s.lang,
 		)))
+	}
+	if s.stageLabel != "" {
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint("·"))
+		b.WriteString(" ")
+		b.WriteString(statusPrimary.Sprint(s.stageLabel))
+	}
+	if s.topicProgress != "" {
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint("·"))
+		b.WriteString(" ")
+		b.WriteString(statusObjective.Sprint(s.topicProgress))
+	}
+	if s.iteration > 0 {
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint("·"))
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint(metaRoundPhrase(s.iteration, s.lang)))
 	}
 	if s.toolCount > 0 {
 		b.WriteString(" ")

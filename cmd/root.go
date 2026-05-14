@@ -2925,7 +2925,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// when adapter is missing). Tied to the same retry-budget knob —
 	// reflector only fires when the budget allows another iteration.
 	if app.reflectorLLM != nil {
-		orch.SetReflector(orchestrator.NewReflector(app.reflectorLLM))
+		orch.SetReflector(orchestrator.NewReflector(
+			withRenderLLMTelemetry(app.reflectorLLM, renderer, types.AgentName("reflector"), types.StagePlan),
+		))
 	}
 	// Commit 4 P1-F: plan_critic. Only install when the operator
 	// explicitly turned the gate on — default off because each
@@ -2935,7 +2937,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// inside multi-phase runs (stage II runPhaseGroup); single-
 	// phase Runs pay nothing.
 	if app.acceptanceCheckerLLM != nil {
-		orch.SetAcceptanceChecker(orchestrator.NewAcceptanceChecker(app.acceptanceCheckerLLM))
+		orch.SetAcceptanceChecker(orchestrator.NewAcceptanceChecker(
+			withRenderLLMTelemetry(app.acceptanceCheckerLLM, renderer, types.AgentName("acceptance_checker"), types.StageVerify),
+		))
 	}
 
 	// Continuation classifier (commit 48 read-mode Gap 1).
@@ -2949,14 +2953,18 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	{
 		resolved := config.ResolveProvider(providersCfg, "continuation_classifier")
 		if adapter, err := llm.NewFromConfig(resolved); err == nil {
-			orch.SetContinuationClassifier(orchestrator.NewContinuationClassifier(adapter))
+			orch.SetContinuationClassifier(orchestrator.NewContinuationClassifier(
+				withRenderLLMTelemetry(adapter, renderer, types.AgentName("continuation_classifier"), types.StageAnalyze),
+			))
 		} else {
 			logging.Debug("[continuation_classifier] adapter init failed; staying on keyword heuristic: %v", err)
 		}
 	}
 
 	if planCriticEnabled && app.planCriticLLM != nil {
-		orch.SetPlanCritic(orchestrator.NewPlanCritic(app.planCriticLLM))
+		orch.SetPlanCritic(orchestrator.NewPlanCritic(
+			withRenderLLMTelemetry(app.planCriticLLM, renderer, types.AgentName("plan_critic"), types.StagePlan),
+		))
 		// Surface the model so operators see "extra Opus call per
 		// plan" upfront rather than discovering it on the bill.
 		// Recommend routing to a cheap model (Haiku-class) via
@@ -3065,7 +3073,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		app.orch.SetAnswerTaxonomyStore(store)
 		resolved := config.ResolveProvider(providersCfg, "answer_reviewer")
 		if adapter, err := llm.NewFromConfig(resolved); err == nil {
-			app.orch.SetAnswerReviewer(orchestrator.NewAnswerReviewer(adapter))
+			app.orch.SetAnswerReviewer(orchestrator.NewAnswerReviewer(
+				withRenderLLMTelemetry(adapter, app.renderer, types.AgentName("answer_reviewer"), types.StageFinalize),
+			))
 		}
 	}
 
@@ -3078,7 +3088,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	if selfConsistencyEnabled {
 		resolved := config.ResolveProvider(providersCfg, "self_consistency_reviewer")
 		if adapter, err := llm.NewFromConfig(resolved); err == nil {
-			app.orch.SetSelfConsistencyReviewer(orchestrator.NewSelfConsistencyReviewer(adapter))
+			app.orch.SetSelfConsistencyReviewer(orchestrator.NewSelfConsistencyReviewer(
+				withRenderLLMTelemetry(adapter, app.renderer, types.AgentName("self_consistency_reviewer"), types.StageFinalize),
+			))
 			app.orch.SetSelfConsistencyRewriteOnContradiction(selfConsistencyRewrite)
 			app.orch.SetSelfConsistencyMinConfidence(selfConsistencyMinConfidence)
 			logging.Info("[self_consistency] reviewer enabled: model=%s rewrite_on_contradiction=%v min_confidence=%.2f",
@@ -3096,7 +3108,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	if semanticQualityEnabled {
 		resolved := config.ResolveProvider(providersCfg, "semantic_quality_reviewer")
 		if adapter, err := llm.NewFromConfig(resolved); err == nil {
-			app.orch.SetSemanticQualityReviewer(orchestrator.NewSemanticQualityReviewer(adapter))
+			app.orch.SetSemanticQualityReviewer(orchestrator.NewSemanticQualityReviewer(
+				withRenderLLMTelemetry(adapter, app.renderer, types.AgentName("semantic_quality_reviewer"), types.StageFinalize),
+			))
 			// P4 (2026-05-10): apply yaml-resolved floor (default 0.92).
 			app.orch.SetSemanticQualityMinConfidence(semanticQualityMinConfidence)
 			logging.Info("[semantic_quality] reviewer enabled: model=%s min_confidence=%.2f",
@@ -3234,7 +3248,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if adapter, err := llm.NewFromConfig(resolved); err != nil {
 			logging.Warning("[chitchat] responder adapter init failed; /chat will print a warning: %v", err)
 		} else {
-			responder := repl.NewChitchatResponder(adapter)
+			responder := repl.NewChitchatResponder(
+				withRenderLLMTelemetry(adapter, renderer, types.AgentName("chitchat_responder"), ""),
+			)
 			// Apply the chitchat tool-use limits from yaml. The
 			// responder's exported SetChitchatSettings setter is the
 			// single seam that keeps the constructor signature
@@ -3309,12 +3325,32 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if adapter, err := llm.NewFromConfig(resolved); err != nil {
 			logging.Warning("[chitchat] classifier adapter init failed; auto-routing disabled: %v", err)
 		} else {
-			app.chitchatClassifier = repl.NewChitchatClassifier(adapter)
+			app.chitchatClassifier = repl.NewChitchatClassifier(
+				withRenderLLMTelemetry(adapter, renderer, types.AgentName("chitchat_classifier"), ""),
+			)
 			logging.Info("[chitchat] auto-classifier: ON (model=%s). Disable with codrax.yaml chitchat_classifier_enabled: false or --chitchat-classifier=false. Route to a cheap model via providers.yaml agents.chitchat_classifier", adapter.ModelID())
 		}
 	}
 
 	return nil
+}
+
+func withRenderLLMTelemetry(adapter llm.Adapter, renderer *render.Renderer, agentName types.AgentName, stage types.PipelineStage) llm.Adapter {
+	if adapter == nil || renderer == nil {
+		return adapter
+	}
+	emit := renderer.Emitter()
+	return llm.NewTelemetryAdapter(adapter, func(t llm.RequestTelemetry) {
+		emit(render.Event{
+			Kind:                  render.EventLLMRequestStart,
+			Timestamp:             time.Now(),
+			Agent:                 agentName,
+			Stage:                 stage,
+			ModelID:               t.ModelID,
+			ContextTokensEstimate: t.ContextTokensEstimate,
+			ContextWindowTokens:   t.ContextWindowTokens,
+		})
+	})
 }
 
 // --- Helper functions (moved from main.go) ---

@@ -29,6 +29,12 @@ const (
 	EventAgentThinking // LLM call started
 	EventAgentResponse // LLM call returned
 
+	// Generic LLM request telemetry. Direct reviewer / classifier
+	// calls that bypass BaseAgent emit this before adapter.Chat so the
+	// dock can display the effective model and rough request size with
+	// the same surface as ReAct agent calls.
+	EventLLMRequestStart
+
 	// Tool calls
 	EventToolCallStart
 	EventToolCallEnd
@@ -295,17 +301,18 @@ type Event struct {
 	// ReAct iteration (0-based, carried on EventAgentThinking)
 	Iteration int
 
-	// EventAgentThinking context telemetry. ContextTokensEstimate is a
-	// rough pre-flight token estimate for the request about to be sent to
-	// the model, including messages plus tool schemas. ContextWindowTokens
-	// is the adapter-declared context window. Both are best-effort UI
-	// telemetry; zero means "unknown / hide".
+	// LLM request context telemetry. Carried on EventAgentThinking and
+	// EventLLMRequestStart. ContextTokensEstimate is a rough pre-flight
+	// token estimate for the request about to be sent to the model,
+	// including messages plus tool schemas. ContextWindowTokens is the
+	// adapter-declared context window. Both are best-effort UI telemetry;
+	// zero means "unknown / hide".
 	ContextTokensEstimate int
 	ContextWindowTokens   int
 
-	// EventAgentThinking model telemetry. ModelID is the adapter's
-	// effective model identifier for the request being dispatched.
-	// Empty means unknown / hide.
+	// LLM request model telemetry. ModelID is the adapter's effective
+	// model identifier for the request being dispatched. Empty means
+	// unknown / hide.
 	ModelID string
 
 	// Tool call

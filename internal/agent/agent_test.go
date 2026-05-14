@@ -285,8 +285,8 @@ func TestEstimateMessagesBytes_CountsRoleContentToolCallsAndParams(t *testing.T)
 	want += len("call-2") + len("read_file") + len(`{"path":"a.go"}`)
 	want += len("tool") + len("tool-body") + len("call-1")
 
-	if got := estimateMessagesBytes(msgs); got != want {
-		t.Errorf("estimateMessagesBytes = %d, want %d", got, want)
+	if got := llm.EstimateMessagesBytes(msgs); got != want {
+		t.Errorf("EstimateMessagesBytes = %d, want %d", got, want)
 	}
 }
 
@@ -295,34 +295,11 @@ func TestEstimateMessagesBytes_CountsRoleContentToolCallsAndParams(t *testing.T)
 // watchdog must see zero (not a nil-pointer panic or a negative
 // value that would trip the ratio check).
 func TestEstimateMessagesBytes_EmptySliceIsZero(t *testing.T) {
-	if got := estimateMessagesBytes(nil); got != 0 {
+	if got := llm.EstimateMessagesBytes(nil); got != 0 {
 		t.Errorf("nil slice: got %d, want 0", got)
 	}
-	if got := estimateMessagesBytes([]llm.Message{}); got != 0 {
+	if got := llm.EstimateMessagesBytes([]llm.Message{}); got != 0 {
 		t.Errorf("empty slice: got %d, want 0", got)
-	}
-}
-
-// TestEstimateLLMRequestTokens_IncludesToolSchemas locks the UI
-// telemetry boundary: the dock's context estimate is for the request
-// being sent to the model, so it must include both conversation
-// messages and the tool catalog.
-func TestEstimateLLMRequestTokens_IncludesToolSchemas(t *testing.T) {
-	messages := []llm.Message{
-		{Role: "system", Content: "abcd"},
-		{Role: "user", Content: "efghijk"},
-	}
-	tools := []llm.ToolSchema{
-		{
-			Name:        "read_file",
-			Description: "read bytes",
-			Parameters:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`),
-		},
-	}
-	wantBytes := estimateMessagesBytes(messages) + len("read_file") + len("read bytes") + len(`{"type":"object","properties":{"path":{"type":"string"}}}`)
-	wantTokens := (wantBytes + types.BytesPerToken - 1) / types.BytesPerToken
-	if got := estimateLLMRequestTokens(messages, tools); got != wantTokens {
-		t.Errorf("estimateLLMRequestTokens = %d, want %d", got, wantTokens)
 	}
 }
 

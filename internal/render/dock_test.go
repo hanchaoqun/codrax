@@ -305,8 +305,58 @@ func TestRenderer_StateMutationsWithoutDock(t *testing.T) {
 	if r.activity.kind != activityRequesting {
 		t.Errorf("EventAgentThinking must flip activity to requesting; got %v", r.activity.kind)
 	}
-	if r.current == nil || r.current.modelID != "qwen3.5:9b" || r.current.contextTokensEstimate != 1200 || r.current.contextWindowTokens != 260000 {
-		t.Errorf("EventAgentThinking must store request telemetry on current row; got %+v", r.current)
+	if r.requestModelID != "qwen3.5:9b" || r.requestContextTokensEstimate != 1200 || r.requestContextWindowTokens != 260000 {
+		t.Errorf("EventAgentThinking must store renderer-level request telemetry; got model=%q tokens=%d window=%d",
+			r.requestModelID, r.requestContextTokensEstimate, r.requestContextWindowTokens)
+	}
+}
+
+// TestRenderer_DockUsesRendererLevelTelemetryForFallbackRows verifies
+// that model/context telemetry survives row focus churn. The user sees
+// pending / fallback rows during stage gaps and review windows; those
+// rows must not drop the latest LLM request metadata merely because
+// they did not own the EventAgentThinking event.
+func TestRenderer_DockUsesRendererLevelTelemetryForFallbackRows(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.totalStages = 4
+	t0 := time.Now()
+	emit := r.Emitter()
+	emit(Event{Kind: EventStageStart, Timestamp: t0, Stage: "analyze", Agent: "analyzer"})
+	emit(Event{
+		Kind:                  EventAgentThinking,
+		Timestamp:             t0.Add(10 * time.Millisecond),
+		Iteration:             0,
+		ModelID:               "qwen3.5:9b",
+		ContextTokensEstimate: 39502,
+		ContextWindowTokens:   260000,
+	})
+	emit(Event{Kind: EventStageEnd, Timestamp: t0.Add(20 * time.Millisecond), Stage: "analyze", Agent: "analyzer"})
+
+	rows := r.composeCurrentDockRows()
+	plain := stripAnsiEscapes(rows[1])
+	for _, want := range []string{"模型 qwen3.5:9b", "约 40k/260k tok"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("fallback row must keep request telemetry %q; got %q", want, plain)
+		}
+	}
+}
+
+func TestRenderer_EventLLMRequestStartFeedsDockTelemetry(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	emit(Event{
+		Kind:                  EventLLMRequestStart,
+		Timestamp:             time.Now(),
+		ModelID:               "reviewer-model",
+		ContextTokensEstimate: 7283,
+		ContextWindowTokens:   260000,
+	})
+	rows := r.composeCurrentDockRows()
+	plain := stripAnsiEscapes(rows[1])
+	for _, want := range []string{"模型 reviewer-model", "约 7.3k/260k tok"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("direct LLM request telemetry must render %q; got %q", want, plain)
+		}
 	}
 }
 

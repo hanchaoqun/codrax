@@ -392,11 +392,9 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 
 	case EventAgentThinking:
+		r.recordLLMRequestTelemetry(ev)
 		if r.current != nil {
 			r.current.iteration = ev.Iteration + 1
-			r.current.modelID = ev.ModelID
-			r.current.contextTokensEstimate = ev.ContextTokensEstimate
-			r.current.contextWindowTokens = ev.ContextWindowTokens
 			r.current.detail = "thinking"
 			r.current.detailDone = false
 			r.current.detailStart = ev.Timestamp
@@ -414,6 +412,9 @@ func (r *Renderer) handleEvent(ev Event) {
 				}
 			}
 		}
+
+	case EventLLMRequestStart:
+		r.recordLLMRequestTelemetry(ev)
 
 	case EventAgentContent:
 		if r.current != nil && ev.Reasoning != "" {
@@ -576,8 +577,8 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.activity = activityState{kind: activityWaitingDispatch}
 
 	case EventAdapterFallback:
-		if r.current != nil && ev.FallbackTo != "" {
-			r.current.modelID = ev.FallbackTo
+		if ev.FallbackTo != "" {
+			r.requestModelID = ev.FallbackTo
 		}
 		r.activity = activityState{
 			kind:   activitySwitchingProvider,
@@ -766,6 +767,26 @@ func (r *Renderer) paintDockLocked() {
 	r.dock.paintDock(rows)
 }
 
+// recordLLMRequestTelemetry stores the latest request-level model /
+// context signal independently of any task row. Some LLM calls are
+// direct reviewer dispatches (no BaseAgent row), and some dock frames
+// render fallback rows or soft-notice windows; the telemetry should
+// remain visible whenever it describes the current or most-recent LLM
+// request instead of disappearing with row focus churn.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) recordLLMRequestTelemetry(ev Event) {
+	if strings.TrimSpace(ev.ModelID) != "" {
+		r.requestModelID = ev.ModelID
+	}
+	if ev.ContextTokensEstimate > 0 {
+		r.requestContextTokensEstimate = ev.ContextTokensEstimate
+	}
+	if ev.ContextWindowTokens > 0 {
+		r.requestContextWindowTokens = ev.ContextWindowTokens
+	}
+}
+
 // composeCurrentDockRows builds the three styled row strings from
 // the renderer's current state. Pure function over r.* fields.
 //
@@ -789,9 +810,6 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 		state.stageLabel = liveBarPrimaryText(focus, r.lang)
 		state.topicProgress = r.topicProgressFor(focus, r.lang)
 		state.iteration = focus.iteration
-		state.modelID = focus.modelID
-		state.contextTokensEstimate = focus.contextTokensEstimate
-		state.contextWindowTokens = focus.contextWindowTokens
 		state.toolCount = focus.toolCount
 		if !focus.startTime.IsZero() {
 			start := focus.startTime
@@ -822,9 +840,6 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 		state.stageLabel = fallbackBarPrimaryText(fallback, r.lang, r.activity.kind)
 		state.topicProgress = r.topicProgressFor(fallback, r.lang)
 		state.iteration = fallback.iteration
-		state.modelID = fallback.modelID
-		state.contextTokensEstimate = fallback.contextTokensEstimate
-		state.contextWindowTokens = fallback.contextWindowTokens
 	} else if r.routeSummary != nil {
 		// Light routes (local / chitchat) have no taskRows — the
 		// pipeline never ran. Without this branch row 2 sits on a
@@ -835,6 +850,9 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 		// stageLabel field — no new vocabulary or palette.
 		state.stageLabel = r.routeSummary.label
 	}
+	state.modelID = r.requestModelID
+	state.contextTokensEstimate = r.requestContextTokensEstimate
+	state.contextWindowTokens = r.requestContextWindowTokens
 	if r.activity.kind == activityFinalizing {
 		state.streamChars = r.streamChars
 	}
