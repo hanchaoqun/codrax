@@ -1,0 +1,19 @@
+# Relation cardinality — default SubAgent registry membership
+#
+# Covers the contract added after the relation/member-set audit:
+# relation-shaped set/count questions must answer with the qualifying
+# member_set first, not with a mechanism-only architecture paragraph.
+#
+# Ground truth:
+#   - internal/agent/subagent.go:RegisterDefaultSubAgents registers
+#     NewSubExplorer(deps) as the default SubAgent implementation.
+#   - internal/agent/sub_explorer.go:SubExplorer.Name returns
+#     "explorer".
+# Therefore the default registry's qualifying subagent-name set is
+# exactly {explorer}; the mechanism explanation must support that
+# member instead of replacing the direct answer.
+ID="qf_relation_subagent_registry"
+NAME="relation cardinality — default SubAgentRegistry member set"
+QUESTION="codrax 默认注册到 SubAgentRegistry 的 subagent 名称有哪些？请给出总数、完整成员名，以及注册和 Name() 返回值的证据。"
+EXPECT_CONTAINS="explorer RegisterDefaultSubAgents NewSubExplorer Name"
+EXPECT_MATCHES_REGEX="(1|一个|一[[:space:]]*个)"

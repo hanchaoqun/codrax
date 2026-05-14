@@ -1,0 +1,12 @@
+# Diagram — logic/component view for read-mode pipeline
+#
+# Covers explicit logical / component view requests. The answer should
+# use an architecture-style Mermaid graph of components and handoff
+# boundaries, not only an ordered procedure list.
+ID="qf_logic_view_read_pipeline"
+NAME="diagram — logic view read pipeline components"
+QUESTION="请给出 codrax read-mode pipeline 的逻辑视图：用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流，然后简要说明各组件责任。"
+EXPECT_CONTAINS="analyzer explorer extractor finalizer Mutable BusContext"
+EXPECT_MATCHES_REGEX='(```mermaid|flowchart|graph[[:space:]]+(TD|LR))
+(AnalysisIR|EvidenceItems|AnswerDocument|Mutable|BusContext)'
+EXPECT_NOT_CONTAINS="Spring Django"

@@ -1,0 +1,17 @@
+# Diagram — explicit Mermaid read-mode pipeline flow
+#
+# Existing eval cases exercise table/list/section answers heavily, but
+# most do not force the diagram contract. This case asks for a visual
+# Mermaid flow so analyzer must emit a diagram_hint / DiagramContract,
+# finalizer must produce a grounded diagram block, and the renderer must
+# preserve the fenced diagram in the answer.
+#
+# Ground truth: the core read-mode pipeline stages are analyze →
+# explore → extract → finalize. Conditional log/perf pre-stages may be
+# mentioned, but they must not replace the four core stage nodes.
+ID="qf_diagram_pipeline"
+NAME="diagram — Mermaid read-mode pipeline flow"
+QUESTION="请用 Mermaid 流程图画出 codrax read-mode pipeline 的 4 个主 stage，并在图后简要说明每个 stage 负责什么。"
+EXPECT_CONTAINS="analyze explore extract finalize"
+EXPECT_MATCHES_REGEX='(```mermaid|flowchart|graph[[:space:]]+(TD|LR))'
+EXPECT_NOT_CONTAINS="Spring Django"
