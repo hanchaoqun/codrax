@@ -102,6 +102,7 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
                 "id":           {"type": "string"},
                 "label":        {"type": "string", "description": "Primary visible text / row header. For enumeration items, use a verbatim identifier copied from evidence anchor_symbol / subject / object values, OR a verbatim user-named bucket label, OR a typed runtime-artifact label from log/trace triage. Fabricated code labels that are not grounded by those typed channels are rejected at validation time."},
                 "text":         {"type": "string", "description": "Item body / row content."},
+                "candidate_role": {"type": "string", "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "test", "generated", "private", "documentation", "example", "fixture", "helper", "other"], "description": "Optional typed category for this row. Use when the user excluded a candidate category or when the row category matters; do not encode this only in prose."},
                 "citation_ref": {"type": "integer", "description": "Top-level field on the item; zero-based index into citations[], or -1 when no cite backs the item. For scalar / decision blocks (where the literal / verdict sits in block.text), anchor the citation by attaching a one-element items=[{id:\"x\", citation_ref: N}] — there is no top-level value/boolean field on the block."}
               }
             }

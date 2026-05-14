@@ -170,14 +170,14 @@ func TestAnalysisIR_JSONRoundtrip(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v10 adds analyzer-validated field_value_profile so field/member
-	// literal count coverage can consume typed request structure instead of
-	// downstream RawRequest/keyword matching.
-	if AnalysisIRVersion != "v10" {
+	// v11 adds analyzer-validated answer_exclusion_policy so
+	// user-excluded candidate categories travel as typed structure instead
+	// of downstream RawRequest/final-answer keyword matching.
+	if AnalysisIRVersion != "v11" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v10" {
+	if ir.Version != "v11" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

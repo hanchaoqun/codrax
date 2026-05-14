@@ -1801,10 +1801,11 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 				cloned.Items = make([]AnswerBlockItem, len(b.Items))
 				for j, it := range b.Items {
 					cloned.Items[j] = AnswerBlockItem{
-						ID:          it.ID,
-						Label:       it.Label,
-						Text:        it.Text,
-						CitationRef: it.CitationRef,
+						ID:            it.ID,
+						Label:         it.Label,
+						Text:          it.Text,
+						CandidateRole: it.CandidateRole,
+						CitationRef:   it.CitationRef,
 					}
 				}
 			}

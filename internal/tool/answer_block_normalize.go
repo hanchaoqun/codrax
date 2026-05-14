@@ -72,12 +72,18 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 	}
 	if len(raw.Items) > 0 {
 		blk.Items = make([]types.AnswerBlockItem, 0, len(raw.Items))
-		for _, it := range raw.Items {
+		for idx, it := range raw.Items {
+			candidateRole, ok := types.NormalizeAnswerCandidateRole(it.CandidateRole)
+			if !ok {
+				return types.AnswerBlock{}, fmt.Errorf("%s.items[%d]: candidate_role=%q is not a valid candidate role",
+					fieldPath, idx, it.CandidateRole)
+			}
 			blk.Items = append(blk.Items, types.AnswerBlockItem{
-				ID:          it.ID,
-				Label:       it.Label,
-				Text:        it.Text,
-				CitationRef: int(it.CitationRef),
+				ID:            it.ID,
+				Label:         it.Label,
+				Text:          it.Text,
+				CandidateRole: candidateRole,
+				CitationRef:   int(it.CitationRef),
 			})
 		}
 	}

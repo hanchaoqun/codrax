@@ -207,3 +207,67 @@ func TestBuildSelfContradictionRepair_OrdinalAndContent(t *testing.T) {
 		}
 	}
 }
+
+func TestFilterDeterministicRowOrderContradictions_UsesTypedKindOnly(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "packages",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{Label: "aggregator"},
+				{Label: "amplifier"},
+				{Label: "axis"},
+			},
+		}},
+	}
+	contradictions := []SelfConsistencyContradiction{
+		{
+			Kind:         SelfConsistencyContradictionRowOrder,
+			Topic:        "package order",
+			SummaryClaim: "sorted by package name",
+			BodyClaim:    "aggregator, amplifier, axis",
+		},
+		{
+			Kind:         SelfConsistencyContradictionUnknown,
+			Topic:        "alphabetic package order",
+			SummaryClaim: "sorted by package name",
+			BodyClaim:    "aggregator, amplifier, axis",
+		},
+	}
+	got, suppressed := filterDeterministicRowOrderContradictions(doc, contradictions)
+	if suppressed != 1 {
+		t.Fatalf("suppressed = %d, want 1", suppressed)
+	}
+	if len(got) != 1 || got[0].Kind != SelfConsistencyContradictionUnknown {
+		t.Fatalf("expected only unknown-kind contradiction to remain, got %+v", got)
+	}
+}
+
+func TestFilterDeterministicRowOrderContradictions_DoesNotSuppressUnsortedRows(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "packages",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{Label: "axis"},
+				{Label: "aggregator"},
+				{Label: "amplifier"},
+			},
+		}},
+	}
+	contradictions := []SelfConsistencyContradiction{{
+		Kind:         SelfConsistencyContradictionRowOrder,
+		Topic:        "package order",
+		SummaryClaim: "sorted by package name",
+		BodyClaim:    "axis, aggregator, amplifier",
+	}}
+	got, suppressed := filterDeterministicRowOrderContradictions(doc, contradictions)
+	if suppressed != 0 {
+		t.Fatalf("suppressed = %d, want 0", suppressed)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected contradiction to remain, got %+v", got)
+	}
+}

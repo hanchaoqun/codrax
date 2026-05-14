@@ -100,12 +100,65 @@ type SelfConsistencyResult struct {
 	Reasoning string
 }
 
+// SelfConsistencyContradictionKind is the reviewer-emitted typed lane for
+// contradiction shape. The hard-gate layer may consume the enum, but must not
+// infer shape from reviewer prose.
+type SelfConsistencyContradictionKind string
+
+const (
+	SelfConsistencyContradictionUnknown      SelfConsistencyContradictionKind = ""
+	SelfConsistencyContradictionNumeric      SelfConsistencyContradictionKind = "numeric_mismatch"
+	SelfConsistencyContradictionIdentity     SelfConsistencyContradictionKind = "identity_mismatch"
+	SelfConsistencyContradictionBehavior     SelfConsistencyContradictionKind = "behavior_mismatch"
+	SelfConsistencyContradictionQuantifier   SelfConsistencyContradictionKind = "quantifier_mismatch"
+	SelfConsistencyContradictionDirection    SelfConsistencyContradictionKind = "direction_mismatch"
+	SelfConsistencyContradictionRowOrder     SelfConsistencyContradictionKind = "row_order_mismatch"
+	SelfConsistencyContradictionAssignment   SelfConsistencyContradictionKind = "assignment_inversion"
+	SelfConsistencyContradictionFabricatedID SelfConsistencyContradictionKind = "fabricated_identifier"
+	SelfConsistencyContradictionOther        SelfConsistencyContradictionKind = "other"
+)
+
+func allSelfConsistencyContradictionKinds() []SelfConsistencyContradictionKind {
+	return []SelfConsistencyContradictionKind{
+		SelfConsistencyContradictionNumeric,
+		SelfConsistencyContradictionIdentity,
+		SelfConsistencyContradictionBehavior,
+		SelfConsistencyContradictionQuantifier,
+		SelfConsistencyContradictionDirection,
+		SelfConsistencyContradictionRowOrder,
+		SelfConsistencyContradictionAssignment,
+		SelfConsistencyContradictionFabricatedID,
+		SelfConsistencyContradictionOther,
+	}
+}
+
+func (k SelfConsistencyContradictionKind) IsValid() bool {
+	if k == SelfConsistencyContradictionUnknown {
+		return true
+	}
+	for _, declared := range allSelfConsistencyContradictionKinds() {
+		if k == declared {
+			return true
+		}
+	}
+	return false
+}
+
+func selfConsistencyContradictionKindValues() []string {
+	out := make([]string, 0, len(allSelfConsistencyContradictionKinds()))
+	for _, k := range allSelfConsistencyContradictionKinds() {
+		out = append(out, string(k))
+	}
+	return out
+}
+
 // SelfConsistencyContradiction is one specific inconsistency
 // pair. SummaryClaim and BodyClaim are verbatim quotes; the
 // caller renders them into the Violation.Detail / Repair so the
 // finalizer's rewrite (when triggered) sees concrete text to
 // reconcile.
 type SelfConsistencyContradiction struct {
+	Kind         SelfConsistencyContradictionKind
 	Topic        string // ≤ 60 chars; concise framing
 	SummaryClaim string // ≤ 200 chars; verbatim from summary
 	BodyClaim    string // ≤ 200 chars; verbatim from body
@@ -136,6 +189,11 @@ var selfConsistencyTool = llm.ToolSchema{
             "description": "≤ 60 chars; concise framing of the contradiction (e.g. 'read vs write mode check count').",
             "maxLength": 60
           },
+          "contradiction_kind": {
+            "type": "string",
+            "enum": ["numeric_mismatch", "identity_mismatch", "behavior_mismatch", "quantifier_mismatch", "direction_mismatch", "row_order_mismatch", "assignment_inversion", "fabricated_identifier", "other"],
+            "description": "Typed contradiction shape. Use row_order_mismatch only when the contradiction is solely about the visible order of list/table rows, not about reversed dataflow/call direction."
+          },
           "summary_claim": {
             "type": "string",
             "description": "Verbatim quote from the SUMMARY section asserting one value. ≤ 200 chars.",
@@ -147,7 +205,7 @@ var selfConsistencyTool = llm.ToolSchema{
             "maxLength": 200
           }
         },
-        "required": ["topic", "summary_claim", "body_claim"]
+        "required": ["topic", "contradiction_kind", "summary_claim", "body_claim"]
       }
     },
     "confidence": {
@@ -199,9 +257,10 @@ Common CONTRADICTION SHAPES (apply the principle, not the surface form — these
   2. Identity mismatch — summary names entity A as the X, body names entity B as the same X
   3. Behaviour mismatch — summary describes outcome A, body describes outcome B (return-vs-panic, success-vs-failure, sync-vs-async, returns-vs-writes)
   4. Quantifier mismatch — summary says "always / all / every / never", body says "sometimes / some / only when X / under condition Y"
-  5. Direction or order mismatch — summary says A→B flow, body says B→A; summary says first/before, body says last/after
-  6. Assignment inversion — same set of values is mapped to different categories across the two parts (e.g. summary says "X has property P, Y has property Q"; body shows X gets Q, Y gets P)
-  7. Fabricated identifier (ONLY when an EVIDENCE ANCHORS section is supplied) — BODY names a structural identifier (function / type / file path / config key / check / handler / etc.) presented as "the actual code/structure" that has NO member in the supplied EVIDENCE ANCHORS set. Look at: list-item labels, code-fenced identifiers in body items, and identifiers BODY claims are ground-truth. Stylistic terms ("the validator", "the helper") and prose generic phrasing are NOT identifiers — only flag named code-shape tokens. When flagged, set summary_claim to the corresponding SUMMARY mention of the same identifier (or empty when summary doesn't mention it) and body_claim to the verbatim BODY occurrence. This shape is independent of SUMMARY content — fabrication can fire even when SUMMARY agrees with BODY.
+  5. Direction mismatch — summary says A→B flow, body says B→A; summary says source/sink one way, body says the opposite
+  6. Row order mismatch — summary claims a list/table row order and body shows an incompatible row order. Use this only for ordering of displayed rows, not flow direction.
+  7. Assignment inversion — same set of values is mapped to different categories across the two parts (e.g. summary says "X has property P, Y has property Q"; body shows X gets Q, Y gets P)
+  8. Fabricated identifier (ONLY when an EVIDENCE ANCHORS section is supplied) — BODY names a structural identifier (function / type / file path / config key / check / handler / etc.) presented as "the actual code/structure" that has NO member in the supplied EVIDENCE ANCHORS set. Look at: list-item labels, code-fenced identifiers in body items, and identifiers BODY claims are ground-truth. Stylistic terms ("the validator", "the helper") and prose generic phrasing are NOT identifiers — only flag named code-shape tokens. When flagged, set summary_claim to the corresponding SUMMARY mention of the same identifier (or empty when summary doesn't mention it) and body_claim to the verbatim BODY occurrence. This shape is independent of SUMMARY content — fabrication can fire even when SUMMARY agrees with BODY.
 
 REWRITE DISCIPLINE (applies whenever consistent=false fires, especially when an EVIDENCE ANCHORS section is supplied):
 The verbatim node identifiers / function names / type names / file paths surfaced in the EVIDENCE ANCHORS list are the GROUND TRUTH the answer is built from. When you flag a contradiction, the downstream rewrite pass MUST preserve those verbatim identifiers in the rewritten BODY — do NOT abstract them to placeholders ("check 1", "step N", "the function") to "avoid" the contradiction. Frame contradictions are about HOW the same identifier is described (its property / count / direction / order), not about WHETHER the identifier appears at all. If a contradiction surfaces around a specific identifier, the fix is to correct the description while keeping the identifier; collapsing the identifier to an abstract placeholder loses the user-actionable name and is itself a worse failure than the contradiction.
@@ -223,6 +282,7 @@ You DO NOT have access to repo source. Do NOT verify factual claims against grou
 
 Output via emit_self_consistency_review:
   - consistent=true is the COMMON case; mark it true unless you can quote VERBATIM the contradiction from BOTH parts
+  - for every contradiction, set contradiction_kind to exactly one enum: numeric_mismatch, identity_mismatch, behavior_mismatch, quantifier_mismatch, direction_mismatch, row_order_mismatch, assignment_inversion, fabricated_identifier, or other
   - confidence >= 0.8 to report a contradiction; below 0.8 mark consistent=true (rather miss a subtle contradiction than cry wolf)
   - When reporting, quote VERBATIM from the answer (no paraphrasing, no translation, no summarising); use the same language as the answer text`
 
@@ -284,9 +344,10 @@ func (r *llmSelfConsistencyReviewer) Review(ctx context.Context, in SelfConsiste
 // non-fatal reviewer failure (records LearningFailure).
 func unmarshalSelfConsistencyResult(raw json.RawMessage) (*SelfConsistencyResult, error) {
 	var parsed struct {
-		Consistent     bool    `json:"consistent"`
+		Consistent     bool `json:"consistent"`
 		Contradictions []struct {
 			Topic        string `json:"topic"`
+			Kind         string `json:"contradiction_kind"`
 			SummaryClaim string `json:"summary_claim"`
 			BodyClaim    string `json:"body_claim"`
 		} `json:"contradictions"`
@@ -306,6 +367,11 @@ func unmarshalSelfConsistencyResult(raw json.RawMessage) (*SelfConsistencyResult
 	}
 	for _, c := range parsed.Contradictions {
 		topic := strings.TrimSpace(c.Topic)
+		kind := SelfConsistencyContradictionKind(strings.TrimSpace(c.Kind))
+		if !kind.IsValid() {
+			return nil, fmt.Errorf("self_consistency_reviewer: contradiction_kind %q is invalid; use one of %s",
+				c.Kind, strings.Join(selfConsistencyContradictionKindValues(), ", "))
+		}
 		summaryClaim := strings.TrimSpace(c.SummaryClaim)
 		bodyClaim := strings.TrimSpace(c.BodyClaim)
 		// Drop empties — emit-time validation; the LLM may have
@@ -314,6 +380,7 @@ func unmarshalSelfConsistencyResult(raw json.RawMessage) (*SelfConsistencyResult
 			continue
 		}
 		out.Contradictions = append(out.Contradictions, SelfConsistencyContradiction{
+			Kind:         kind,
 			Topic:        topic,
 			SummaryClaim: summaryClaim,
 			BodyClaim:    bodyClaim,

@@ -28,7 +28,7 @@ func TestNormalizeEmitAnswerBlock_HappyPathFullProjection(t *testing.T) {
 		Title: "Title",
 		Text:  "body text",
 		Items: []emitAnswerBlockItemV2{
-			{ID: "i1", Label: "L", Text: "T", CitationRef: 3},
+			{ID: "i1", Label: "L", Text: "T", CandidateRole: string(types.AnswerCandidateRoleVariable), CitationRef: 3},
 		},
 		ClaimUses: []types.RenderedClaimUse{
 			{ClaimForm: types.ClaimDefinitionFact, FacetID: "f1"},
@@ -46,8 +46,8 @@ func TestNormalizeEmitAnswerBlock_HappyPathFullProjection(t *testing.T) {
 	if got.ID != "b1" || got.Kind != types.BlockSummary || got.Title != "Title" || got.Text != "body text" {
 		t.Errorf("scalar fields lost: %+v", got)
 	}
-	if len(got.Items) != 1 || got.Items[0].CitationRef != 3 {
-		t.Errorf("items[0].CitationRef lost: %+v", got.Items)
+	if len(got.Items) != 1 || got.Items[0].CitationRef != 3 || got.Items[0].CandidateRole != types.AnswerCandidateRoleVariable {
+		t.Errorf("items[0] fields lost: %+v", got.Items)
 	}
 	if len(got.ClaimUses) != 1 || got.ClaimUses[0].FacetID != "f1" {
 		t.Errorf("claim_uses lost: %+v", got.ClaimUses)
@@ -125,6 +125,19 @@ func TestNormalizeEmitAnswerBlock_RejectsInvalidSurfaceRole(t *testing.T) {
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_RejectsInvalidCandidateRole(t *testing.T) {
+	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID: "b1", Kind: string(types.BlockOrderedList),
+		Items: []emitAnswerBlockItemV2{{ID: "i1", CandidateRole: "garbage"}},
+	}, "blocks[0]")
+	if err == nil {
+		t.Fatal("must reject bogus candidate_role")
+	}
+	if !strings.Contains(err.Error(), "candidate_role") {
+		t.Errorf("err must name candidate_role, got %q", err.Error())
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_DiagramBodyRequired(t *testing.T) {
 	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID: "b1", Kind: string(types.BlockDiagram),
@@ -175,7 +188,7 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		Title: "Title",
 		Text:  "body text",
 		Items: []emitAnswerBlockItemV2{
-			{ID: "i1", Label: "L", Text: "T", CitationRef: 3},
+			{ID: "i1", Label: "L", Text: "T", CandidateRole: string(types.AnswerCandidateRoleFunction), CitationRef: 3},
 		},
 		Diagram: &emitAnswerDiagramV2{
 			Kind: string(types.DiagramFlow), Body: "flowchart LR\n  A --> B",

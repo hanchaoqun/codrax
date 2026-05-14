@@ -218,6 +218,10 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				result.Violations = append(result.Violations,
 					runDeniedTokenAnswerCheck(docV2, &o.busCtx.TypedDenials)...)
 			}
+			if rm := mut.RequestModel(); rm != nil {
+				result.Violations = append(result.Violations,
+					runTypedAnswerExclusionPolicyCheck(docV2, rm)...)
+			}
 		}
 	}
 
@@ -2128,6 +2132,13 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 				verdict.Consistent, verdict.Confidence, floor, verdict.Reasoning)
 		}
 		return nil
+	}
+	if filtered, suppressed := filterDeterministicRowOrderContradictions(doc, verdict.Contradictions); suppressed > 0 {
+		verdict.Contradictions = filtered
+		logging.Info("[self_consistency_reviewer] suppressed %d typed row-order contradiction(s) after deterministic AnswerDocument row-order check", suppressed)
+		if len(verdict.Contradictions) == 0 {
+			return nil
+		}
 	}
 
 	// Surface contradiction count + rewrite-mode to the user. The

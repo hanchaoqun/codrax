@@ -27,6 +27,7 @@ package types
 //   - external callers emit blocks[] only
 //   - persisted/internal V2 documents still carry DocumentModel="v2"
 //     as a carrier marker
+//
 // V1 carrier is retired at B8-T3 (2026-05-03).
 //
 // Per the feedback_no_system_backfill_to_user_panel red line, ALL
@@ -247,6 +248,13 @@ type AnswerBlockItem struct {
 	// Text is the item's body text (description / rationale / row
 	// content). Markdown-flavoured.
 	Text string `json:"text,omitempty"`
+
+	// CandidateRole is an optional typed category for this visible row.
+	// It is used only when the current request carries an
+	// AnswerExclusionPolicy or when the answer needs to distinguish
+	// functions/types/variables/tests/generated/private candidates without
+	// validators inferring roles from prose.
+	CandidateRole AnswerCandidateRole `json:"candidate_role,omitempty"`
 
 	// CitationRef is a zero-based index into AnswerDocumentV2.
 	// Citations, or -1 when no citation backs this item. Renderer

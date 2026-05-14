@@ -2132,6 +2132,112 @@ func TestEmitAnalysis_Execute_RejectsUngroundedFieldValueProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_PersistsAnswerExclusionPolicy(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("列出公开 API，但不要列变量。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["api", "public"],
+		"entities": ["API"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.93,
+		"complexity_confidence": 0.76,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"answer_exclusion_policy": {
+			"is_exclusion_requested": true,
+			"excluded_candidate_roles": ["variable"],
+			"source_quotes": ["不要列变量"],
+			"confidence": 0.94,
+			"rationale": "current request excludes variable rows from the public API list"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "excluded_roles=variable") {
+		t.Fatalf("summary should surface typed exclusion lane, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.AnswerExclusionPolicy == nil || !rm.AnswerExclusionPolicy.Active() {
+		t.Fatalf("AnswerExclusionPolicy not persisted: %+v", rm)
+	}
+	if got := rm.AnswerExclusionPolicy.ExcludedCandidateRoles; len(got) != 1 || got[0] != types.AnswerCandidateRoleVariable {
+		t.Fatalf("excluded roles wrong: %+v", got)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsUngroundedAnswerExclusionPolicy(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("列出公开 API。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["api"],
+		"entities": ["API"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"answer_exclusion_policy": {
+			"is_exclusion_requested": true,
+			"excluded_candidate_roles": ["variable"],
+			"source_quotes": ["不要列变量"],
+			"confidence": 0.94
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatalf("Execute should reject ungrounded answer_exclusion_policy, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "answer_exclusion_policy.source_quotes") {
+		t.Fatalf("rejection should name answer_exclusion_policy.source_quotes, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

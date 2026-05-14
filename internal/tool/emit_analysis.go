@@ -74,6 +74,7 @@ type emitAnalysisParams struct {
 	SourceScopeProfile           *emitSourceScopeProfileParam           `json:"source_scope_profile,omitempty"`
 	ChangeImpactProfile          *emitChangeImpactProfileParam          `json:"change_impact_profile,omitempty"`
 	FieldValueProfile            *emitFieldValueProfileParam            `json:"field_value_profile,omitempty"`
+	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
 	PredicateAxis                string                                 `json:"predicate_axis,omitempty"`
 	DiagramHint                  *emitDiagramHintParam                  `json:"diagram_hint,omitempty"`
 	EnumerationBoundary          *emitEnumerationBoundaryParam          `json:"enumeration_boundary,omitempty"`
@@ -175,6 +176,14 @@ type emitFieldValueProfileParam struct {
 	SourceQuote        string   `json:"source_quote,omitempty"`
 	Confidence         *float64 `json:"confidence"`
 	Rationale          string   `json:"rationale,omitempty"`
+}
+
+type emitAnswerExclusionPolicyParam struct {
+	IsExclusionRequested   *bool    `json:"is_exclusion_requested"`
+	ExcludedCandidateRoles []string `json:"excluded_candidate_roles,omitempty"`
+	SourceQuotes           []string `json:"source_quotes,omitempty"`
+	Confidence             *float64 `json:"confidence"`
+	Rationale              string   `json:"rationale,omitempty"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -414,6 +423,18 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"is_field_value_lookup", "confidence"},
 			},
+			"answer_exclusion_policy": map[string]any{
+				"type":        "object",
+				"description": "Optional typed profile for current-request candidate categories the user explicitly excludes from the principal answer, such as variables, tests, generated files, or private helpers. Do not infer categories from keywords; emit only when the request states the exclusion.",
+				"properties": map[string]any{
+					"is_exclusion_requested":   map[string]any{"type": "boolean", "description": "True only when the current request explicitly excludes one or more candidate roles from the answer."},
+					"excluded_candidate_roles": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": answerCandidateRoleValues()}, "description": "Candidate roles excluded from principal answer rows."},
+					"source_quotes":            map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that state the exclusion."},
+					"confidence":               map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this exclusion profile in [0,1]."},
+					"rationale":                map[string]any{"type": "string", "description": "Short audit rationale for why these candidate roles are excluded."},
+				},
+				"required": []string{"is_exclusion_requested", "confidence"},
+			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
@@ -555,6 +576,15 @@ func impactAffectedSiteKindValues() []string {
 
 func fieldValueLiteralKindValues() []string {
 	values := types.AllFieldValueLiteralKinds()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func answerCandidateRoleValues() []string {
+	values := types.AllAnswerCandidateRoles()
 	out := make([]string, 0, len(values))
 	for _, v := range values {
 		out = append(out, string(v))
@@ -751,6 +781,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	answerExclusionPolicy, answerExclusionErr := parseAnswerExclusionPolicy(raw, p.AnswerExclusionPolicy)
+	if answerExclusionErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + answerExclusionErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
 		return types.ToolResult{
@@ -870,6 +909,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		SourceScopeProfile:           sourceScopeProfile,
 		ChangeImpactProfile:          changeImpactProfile,
 		FieldValueProfile:            fieldValueProfile,
+		AnswerExclusionPolicy:        answerExclusionPolicy,
 		PredicateAxis:                axis,
 		DiagramHint:                  diagramHint,
 		EnumerationBoundary:          enumerationBoundary,
@@ -1510,6 +1550,66 @@ func parseFieldValueProfile(raw string, p *emitFieldValueProfileParam) (*types.F
 	}, ""
 }
 
+func parseAnswerExclusionPolicy(raw string, p *emitAnswerExclusionPolicyParam) (*types.AnswerExclusionPolicy, string) {
+	if p == nil {
+		return nil, ""
+	}
+	var missing []string
+	if p.IsExclusionRequested == nil {
+		missing = append(missing, "is_exclusion_requested")
+	}
+	if p.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Sprintf(
+			"answer_exclusion_policy missing required field(s): %s",
+			strings.Join(missing, ", "),
+		)
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("answer_exclusion_policy.confidence %.2f out of [0,1]", *p.Confidence)
+	}
+	if !*p.IsExclusionRequested {
+		return nil, ""
+	}
+	roles := make([]types.AnswerCandidateRole, 0, len(p.ExcludedCandidateRoles))
+	seen := make(map[types.AnswerCandidateRole]struct{}, len(p.ExcludedCandidateRoles))
+	for _, rawRole := range p.ExcludedCandidateRoles {
+		role, ok := types.NormalizeAnswerCandidateRole(rawRole)
+		if !ok || role == types.AnswerCandidateRoleUnknown {
+			return nil, fmt.Sprintf(
+				"answer_exclusion_policy.excluded_candidate_roles contains invalid role %q; use one of %s",
+				rawRole, strings.Join(answerCandidateRoleValues(), ", "),
+			)
+		}
+		if _, dup := seen[role]; dup {
+			continue
+		}
+		seen[role] = struct{}{}
+		roles = append(roles, role)
+	}
+	if len(roles) == 0 {
+		return nil, "answer_exclusion_policy.excluded_candidate_roles is required when is_exclusion_requested=true"
+	}
+	sourceQuotes := trimStringSlice(p.SourceQuotes)
+	if len(sourceQuotes) == 0 {
+		return nil, "answer_exclusion_policy.source_quotes is required when is_exclusion_requested=true"
+	}
+	for _, quote := range sourceQuotes {
+		if !sourceQuotePresentInCurrentRequest(raw, quote) {
+			return nil, "answer_exclusion_policy.source_quotes entries must be copied verbatim from the current request"
+		}
+	}
+	return &types.AnswerExclusionPolicy{
+		IsExclusionRequested:   true,
+		ExcludedCandidateRoles: roles,
+		SourceQuotes:           sourceQuotes,
+		Confidence:             *p.Confidence,
+		Rationale:              strings.TrimSpace(p.Rationale),
+	}, ""
+}
+
 func sourceQuotePresentInCurrentRequest(raw, quote string) bool {
 	raw = strings.TrimSpace(raw)
 	quote = strings.TrimSpace(quote)
@@ -1912,6 +2012,13 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
 		fmt.Fprintf(&b, " field_value=%s=%s", rm.FieldValueProfile.Target, rm.FieldValueProfile.Literal)
+	}
+	if rm.AnswerExclusionPolicy != nil && rm.AnswerExclusionPolicy.Active() {
+		roles := make([]string, 0, len(rm.AnswerExclusionPolicy.ExcludedCandidateRoles))
+		for _, role := range rm.AnswerExclusionPolicy.ExcludedCandidateRoles {
+			roles = append(roles, string(role))
+		}
+		fmt.Fprintf(&b, " excluded_roles=%s", strings.Join(roles, ","))
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

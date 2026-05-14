@@ -19,6 +19,32 @@ func TestBuildAnswerDocumentParametersFor_NilViewReturnsCanonical(t *testing.T) 
 	}
 }
 
+func TestEmitAnswerDocumentSchema_CandidateRoleEnumMatchesTypes(t *testing.T) {
+	raw := (&EmitAnswerDocument{}).Parameters()
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	blocks := props["blocks"].(map[string]any)
+	blockItems := blocks["items"].(map[string]any)
+	blockProps := blockItems["properties"].(map[string]any)
+	itemsField := blockProps["items"].(map[string]any)
+	itemNode := itemsField["items"].(map[string]any)
+	itemProps := itemNode["properties"].(map[string]any)
+	roleNode := itemProps["candidate_role"].(map[string]any)
+	enum := roleNode["enum"].([]any)
+	want := types.AllAnswerCandidateRoles()
+	if len(enum) != len(want) {
+		t.Fatalf("candidate_role enum len=%d want=%d (%v)", len(enum), len(want), enum)
+	}
+	for i, role := range want {
+		if enum[i] != string(role) {
+			t.Fatalf("candidate_role enum[%d]=%v want %q (full=%v)", i, enum[i], role, enum)
+		}
+	}
+}
+
 // TestBuildAnswerDocumentParametersFor_EnumerationDropsDiagramAndAbsence
 // — an enumeration family with no diagram and no missing requested
 // roles must drop edge_anchors, diagram, exact_resolution, and

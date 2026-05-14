@@ -344,3 +344,49 @@ func TestEmitAnalysisSchemaIncludesFieldValueProfile(t *testing.T) {
 		t.Fatalf("field_value_profile.literal_kind enum = %v, want %v", prop.Properties["literal_kind"].Enum, wantEnum)
 	}
 }
+
+func TestEmitAnalysisSchemaIncludesAnswerExclusionPolicy(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	raw := (&EmitAnalysis{}).Parameters()
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v\nraw=%s", err, string(raw))
+	}
+	propRaw, ok := parsed.Properties["answer_exclusion_policy"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing property \"answer_exclusion_policy\"")
+	}
+	var prop struct {
+		Properties map[string]struct {
+			Type  string `json:"type"`
+			Items struct {
+				Enum []string `json:"enum"`
+			} `json:"items"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatalf("answer_exclusion_policy property is not valid JSON schema: %v\nraw=%s", err, string(propRaw))
+	}
+	for _, want := range []string{"is_exclusion_requested", "confidence"} {
+		found := false
+		for _, field := range prop.Required {
+			if field == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("answer_exclusion_policy.required = %v, want %s included", prop.Required, want)
+		}
+	}
+	var wantEnum []string
+	for _, role := range types.AllAnswerCandidateRoles() {
+		wantEnum = append(wantEnum, string(role))
+	}
+	if !reflect.DeepEqual(prop.Properties["excluded_candidate_roles"].Items.Enum, wantEnum) {
+		t.Fatalf("answer_exclusion_policy.excluded_candidate_roles enum = %v, want %v",
+			prop.Properties["excluded_candidate_roles"].Items.Enum, wantEnum)
+	}
+}

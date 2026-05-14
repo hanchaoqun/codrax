@@ -195,6 +195,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if blockContract := renderAnswerDocBlockContract(ctx); blockContract != "" {
 		b.WriteString(blockContract)
 	}
+	if exclusionPolicy := renderAnswerDocExclusionPolicy(ctx); exclusionPolicy != "" {
+		b.WriteString(exclusionPolicy)
+	}
 
 	// view is the typed runtime semantic contract; downstream prompt
 	// branches gate on view obligations (NeedsPrincipalScalar /
@@ -2001,6 +2004,26 @@ func renderAnswerDocBlockRequirement(b *strings.Builder, req types.BlockRequirem
 		fmt.Fprintf(b, "  - `block.surface_role` SHOULD be %q (copy verbatim).\n",
 			string(req.SurfaceRoleHint))
 	}
+}
+
+func renderAnswerDocExclusionPolicy(ctx *types.AgentContext) string {
+	rm := answerDocRequestModel(ctx)
+	policy := rm.AnswerExclusionPolicy
+	if policy == nil || !policy.Active() {
+		return ""
+	}
+	roles := make([]string, 0, len(policy.ExcludedCandidateRoles))
+	for _, role := range policy.ExcludedCandidateRoles {
+		roles = append(roles, string(role))
+	}
+	var b strings.Builder
+	b.WriteString("## Typed Exclusion Policy\n\n")
+	fmt.Fprintf(&b, "The current request excludes principal answer rows whose `candidate_role` is one of: %s.\n\n",
+		renderQuotedList(roles))
+	b.WriteString("- Do not put excluded-role candidates in principal list/table items.\n")
+	b.WriteString("- When a principal list/table row represents a candidate member, set `items[].candidate_role` to the closest enum value so the validator can enforce this policy structurally.\n")
+	b.WriteString("- It is OK to mention the excluded category as a scope boundary in summary/caveat prose; do not enumerate concrete excluded candidates as principal rows.\n\n")
+	return b.String()
 }
 
 // renderQuotedList formats a slice of typed string values as a

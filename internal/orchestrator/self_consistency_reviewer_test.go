@@ -55,14 +55,15 @@ func TestSelfConsistencyReviewerPrompt_NotOverFittedToS1aCase(t *testing.T) {
 		t.Error("prompt over-fitted: still contains the s1a-mirroring '9 steps / 5 steps' example")
 	}
 
-	// Required shape signals: 6 abstract contradiction patterns +
+	// Required shape signals: abstract contradiction patterns +
 	// 5 NOT-contradiction patterns + decision discipline.
 	for _, want := range []string{
 		"Numeric mismatch",
 		"Identity mismatch",
 		"Behaviour mismatch",
 		"Quantifier mismatch",
-		"Direction or order mismatch",
+		"Direction mismatch",
+		"Row order mismatch",
 		"Assignment inversion",
 	} {
 		if !strings.Contains(p, want) {
@@ -171,6 +172,7 @@ func TestSelfConsistencyReviewer_ContradictionEmitted(t *testing.T) {
                 "confidence": 0.9,
                 "contradictions": [{
                     "topic": "read vs write mode check count",
+                    "contradiction_kind": "assignment_inversion",
                     "summary_claim": "write mode runs 9 checks, read mode runs 5",
                     "body_claim": "if !isWrite (read mode) adds checks 4-7, write skips them"
                 }],
@@ -196,6 +198,9 @@ func TestSelfConsistencyReviewer_ContradictionEmitted(t *testing.T) {
 	c := got.Contradictions[0]
 	if !strings.Contains(c.Topic, "read") || !strings.Contains(c.Topic, "write") {
 		t.Errorf("topic missing read/write framing: %q", c.Topic)
+	}
+	if c.Kind != SelfConsistencyContradictionAssignment {
+		t.Errorf("kind = %q, want %q", c.Kind, SelfConsistencyContradictionAssignment)
 	}
 }
 

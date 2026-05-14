@@ -56,10 +56,11 @@ type emitAnswerBlockV2 struct {
 }
 
 type emitAnswerBlockItemV2 struct {
-	ID          string  `json:"id,omitempty"`
-	Label       string  `json:"label,omitempty"`
-	Text        string  `json:"text,omitempty"`
-	CitationRef FlexInt `json:"citation_ref,omitempty"`
+	ID            string  `json:"id,omitempty"`
+	Label         string  `json:"label,omitempty"`
+	Text          string  `json:"text,omitempty"`
+	CandidateRole string  `json:"candidate_role,omitempty"`
+	CitationRef   FlexInt `json:"citation_ref,omitempty"`
 }
 
 type emitAnswerDiagramV2 struct {

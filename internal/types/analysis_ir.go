@@ -40,7 +40,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v10"
+const AnalysisIRVersion = "v11"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -122,6 +122,12 @@ type RequestModel struct {
 	// sites set Foo.Bar=false". Downstream hard gates consume only this typed
 	// carrier, not RawRequest/keyword scans.
 	FieldValueProfile *FieldValueLookupProfile `json:"field_value_profile,omitempty"`
+
+	// AnswerExclusionPolicy is the analyzer LLM's typed lane for user-stated
+	// candidate categories that must stay out of the principal answer rows.
+	// Downstream hard gates consume only this policy plus answer-row
+	// candidate_role annotations, not RawRequest or final-answer prose.
+	AnswerExclusionPolicy *AnswerExclusionPolicy `json:"answer_exclusion_policy,omitempty"`
 
 	// SubTopics lists independently-answerable sub-topics detected by
 	// the analyzer. When non-empty, the compiler generates one evidence
