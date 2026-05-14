@@ -200,6 +200,14 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	if !claimOK {
 		return failEmit(t.Name(), now, "unknown completeness value %q (allowed: complete, lower_bound, unknown)", p.Completeness)
 	}
+	if !emitAnswerSymbolSlateExpected(ctx) {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   true,
+			Summary:   "emit_answer_symbol ignored: this dispatch's typed principal support lanes render the answer without an answer-symbol slate",
+			Timestamp: now,
+		}, nil
+	}
 
 	// Empty-set handling. "How many Python files?" legitimately
 	// returns 0; "List all deprecated methods" legitimately returns
@@ -346,6 +354,47 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 		Summary:   renderEmitAnswerSymbolSummary(built, claim, dropped),
 		Timestamp: now,
 	}, nil
+}
+
+func emitAnswerSymbolSlateExpected(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return true
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if view != nil && view.AllowsAnchorSkeleton(rm) {
+		return true
+	}
+	if emitAnswerSymbolNeedsBoundedPrincipalList(rm, view) {
+		return true
+	}
+	if view != nil && view.NeedsEnumerationSlate() {
+		support := types.BuildAnswerSupportPlanForBusContext(ctx)
+		nonSymbol, symbolLike := types.AnswerSupportPlanPrincipalSurfaceCounts(support)
+		if nonSymbol > 0 || symbolLike > 0 {
+			return !(nonSymbol > 0 && symbolLike == 0)
+		}
+		return true
+	}
+	return false
+}
+
+func emitAnswerSymbolNeedsBoundedPrincipalList(rm types.RequestModel, view *types.AnswerSemanticView) bool {
+	if rm.EnumerationBoundary == nil || rm.EnumerationBoundary.DeclaredCount <= 0 {
+		return false
+	}
+	if types.RequestedEnumerationBoundaryOwner(rm) == "" {
+		return false
+	}
+	if view != nil {
+		return view.NeedsEnumerationSlate() || view.NeedsBoundedMechanismList()
+	}
+	switch types.ResolveQuestionFamily(rm) {
+	case types.QFCallChain, types.QFRootCauseTrace, types.QFEnumeration:
+		return true
+	default:
+		return false
+	}
 }
 
 // buildEmitAnswerSymbolItem validates a single decoded item and

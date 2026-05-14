@@ -152,6 +152,74 @@ func TestEmitAnswerSymbol_CountFieldMismatch(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerSymbol_IgnoresUnexpectedSlateWhenSupportLaneIsNonSymbol(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all internal imports",
+			},
+		},
+	}
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal import packages",
+		Value:   "2",
+		Members: []string{"@acme/internal/foo", "@acme/internal/bar"},
+	}})
+	ctx.Mutable.SetInvestigationComplete("import member set complete")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "import-foo",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "src/main.ts",
+			LineStart:       3,
+			AnchorKind:      types.AnchorImport,
+			AnchorSymbol:    "@acme/internal/foo",
+			SurfaceTerms:    []string{"@acme/internal/foo"},
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "import-bar",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "src/main.ts",
+			LineStart:       4,
+			AnchorKind:      types.AnchorImport,
+			AnchorSymbol:    "@acme/internal/bar",
+			SurfaceTerms:    []string{"@acme/internal/bar"},
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+
+	params := json.RawMessage(`{
+		"items": [],
+		"completeness": "unknown",
+		"count": 2
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unexpected non-symbol support-lane slate should no-op, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "ignored") {
+		t.Fatalf("summary should make the no-op explicit, got: %s", res.Summary)
+	}
+	got, claim := ctx.Mutable.EmittedAnswerSymbols()
+	if len(got) != 0 || claim != types.CompletenessUnknown {
+		t.Fatalf("unexpected answer-symbol call must not populate the slate, got symbols=%+v claim=%q", got, claim)
+	}
+}
+
 // TestEmitAnswerSymbol_NoCountIsBackcompat pins back-compat:
 // pre-commit-49 calls without count field still work.
 func TestEmitAnswerSymbol_NoCountIsBackcompat(t *testing.T) {

@@ -1103,6 +1103,76 @@ func TestExtractor_BuildPrompt_ImportEnumerationUsesTypedEvidenceLane(t *testing
 	}
 }
 
+func TestExtractor_BuildPrompt_AggregateImportEnumerationUsesSupportLane(t *testing.T) {
+	mu := types.NewMutableState("list aggregate imports")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles:             []string{"src/main.ts"},
+		TerminalEvidenceCount: 2,
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal import packages",
+		Value:   "2",
+		Members: []string{"@acme/internal/foo", "@acme/internal/bar"},
+	}})
+	mu.SetInvestigationComplete("aggregate import member set emitted")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "import-foo",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "src/main.ts",
+			LineStart:       3,
+			AnchorKind:      types.AnchorImport,
+			AnchorSymbol:    "@acme/internal/foo",
+			Producer:        "explorer.emit_evidence",
+			SurfaceTerms:    []string{"@acme/internal/foo"},
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "import-bar",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "src/main.ts",
+			LineStart:       4,
+			AnchorKind:      types.AnchorImport,
+			AnchorSymbol:    "@acme/internal/bar",
+			Producer:        "explorer.emit_evidence",
+			SurfaceTerms:    []string{"@acme/internal/bar"},
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.AgentContext{
+		Objective: "src/main.ts import 了哪些 @acme/internal package？",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
+				AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "all @acme/internal imports"},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	if !viewNeedsEnumerationSlate(ctx) {
+		t.Fatal("fixture must still be an enumeration-shaped answer")
+	}
+	if !enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx) {
+		t.Fatal("aggregate-backed import literals should render through the support lane")
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("aggregate-backed import enumeration must not force a symbol-definition answer slate")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "does NOT require `emit_answer_symbol`") {
+		t.Fatalf("prompt should disable answer-symbol slate when aggregate member_set carries import literals:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_ChangeImpactFileEnumerationUsesSupportLane(t *testing.T) {
 	mu := types.NewMutableState("list affected files")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

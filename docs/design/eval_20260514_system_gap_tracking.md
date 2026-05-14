@@ -1611,6 +1611,43 @@ Eval / tests:
 - Add `m1_tool_name_literal`: explicit `emit_answer_document` question must
   keep literal tool names visible without carrier-leak rejection.
 
+Initial Batch 2a progress:
+
+- Added typed surface inheritance for aggregate-backed literal/reference rows.
+  When a `member_set` entry is matched to same-line typed evidence whose
+  `ClaimForm` uses display labels (`import_edge`, `text_reference_fact`,
+  precedence/external observation), the support lane now keeps the aggregate
+  member as a display-label principal row instead of treating code-shaped
+  strings such as import paths as symbol definitions.
+- This consumes exploration-stage information directly: explorer
+  `anchor_kind=import` evidence plus `aggregate_facts.member_set` now reaches
+  extractor shape selection as non-symbol principal evidence, so extractor no
+  longer needs to call `emit_answer_symbol` for import-reference literal
+  enumerations.
+- Added a tool-layer guard for the same typed decision: if the extractor still
+  calls `emit_answer_symbol` in a dispatch whose principal answer is already
+  covered by non-symbol typed support lanes, the tool now no-ops without
+  mutating the answer-symbol slate. That prevents a stale static tool affordance
+  from turning display-label rows back into rejected symbol-definition attempts.
+- The implementation is language-neutral over `AnchorImport` / `ClaimForm`
+  rather than Go import syntax. It covers import/use/require-style references
+  across the supported language matrix whenever the grounder has produced typed
+  import evidence.
+- Added regression coverage in support-plan and extractor prompt tests, plus
+  `qf_import_literal_references` eval to require the full literal import-path
+  set and guard against symbol-definition routing regressions.
+
+Verification:
+
+- `go test ./internal/types ./internal/agent ./internal/tool`
+- `go test ./...`
+- `bash eval/run.sh eval/cases/qf_import_literal_references.case 1`
+  (`eval/results/qf_import_literal_references-20260514-163355`,
+  PASS; extractor_iters=1, finalizer_iters=1, no repair lines)
+- `bash eval/run.sh eval/cases/qf_imports.case 1`
+  (`eval/results/qf_imports-20260514-163822`, PASS; typed support lane shows
+  import rows as `claim_form=import_edge`, `member_surface=display_label`)
+
 ### Batch 3: Relation / Diagram Generation From Typed Edges
 
 Priority: third architecture batch. This handles call chains, sequence diagrams,

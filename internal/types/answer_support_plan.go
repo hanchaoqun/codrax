@@ -141,6 +141,55 @@ func BuildAnswerSupportPlan(rm RequestModel, plan *AnswerSurfacePlan) *AnswerSup
 	return buildAnswerSupportPlanForFamily(ResolveQuestionFamily(rm), rm, plan)
 }
 
+// AnswerSupportPlanPrincipalSurfaceCounts counts model-authored
+// principal entries by answer-visible member surface. It gives
+// extractor/tool validators one shared typed signal for whether an
+// enumeration can be rendered from support lanes without synthesising an
+// AnswerSymbol slate. The inputs are already structured support-lane
+// entries; no request-text keywords or search scores participate.
+func AnswerSupportPlanPrincipalSurfaceCounts(plan *AnswerSupportPlan) (nonSymbol int, symbolLike int) {
+	if plan == nil {
+		return 0, 0
+	}
+	for _, lane := range plan.Lanes {
+		if lane.Kind != SupportLanePrincipalEvidence {
+			continue
+		}
+		for _, entry := range lane.Entries {
+			if !answerSupportEntryIsModelAuthoredPrincipal(entry) {
+				continue
+			}
+			surface := entry.MemberSurface
+			if surface == PrincipalMemberSurfaceUnknown {
+				if entry.ClaimForm.UsesNonSymbolLabelSurface() {
+					surface = PrincipalMemberSurfaceDisplayLabel
+				} else if entry.ClaimForm.LabelSurfaceKind() == ClaimLabelSurfaceSymbolLike {
+					surface = PrincipalMemberSurfaceSymbolLike
+				}
+			}
+			if surface.IsNonSymbol() {
+				nonSymbol++
+				continue
+			}
+			if surface.IsSymbolLike() {
+				symbolLike++
+			}
+		}
+	}
+	return nonSymbol, symbolLike
+}
+
+func answerSupportEntryIsModelAuthoredPrincipal(entry AnswerSupportEntry) bool {
+	producer := strings.TrimSpace(entry.Producer)
+	if producer == "explorer.emit_investigation_complete.aggregate_facts" {
+		return true
+	}
+	if producer == "explorer.emit_evidence" {
+		return true
+	}
+	return producer != "" && strings.Contains(producer, "emit_")
+}
+
 // BuildAnswerSupportPlanForBusContext mirrors
 // BuildAnswerSupportPlanForAgentContext for the orchestrator's
 // BusContext — the same compile rules but reachable from the

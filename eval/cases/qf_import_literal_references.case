@@ -1,0 +1,33 @@
+# Batch 2 / C3 — import-reference literals are not symbol definitions.
+#
+# The explorer can prove the answer by reading the target file's import
+# block and emitting `anchor_kind=import` evidence plus an
+# aggregate_facts.member_set. The extractor/finalizer must consume those
+# typed literal-reference rows directly instead of trying to materialize
+# imported package paths through emit_answer_symbol as source definitions.
+#
+# Cross-language note: AnchorImport represents import/use/require-style
+# dependency references. This case uses a Go source file because it is stable
+# inside this repo, but the contract being tested is language-neutral:
+# display import/reference literals with citations, do not force them through
+# declaration-symbol gates.
+
+ID="qf_import_literal_references"
+NAME="import literal references — aggregate member_set stays non-symbol"
+QUESTION="internal/agent/explorer.go 这个文件 import 了哪些 internal/ 开头的 package？逐个列出完整 import 路径，只列这些 import 引用字面量，不要把它们当作被导入包里的 symbol 定义来解释。"
+EXPECT_CONTAINS="internal/agent/explorer.go github.com/hanchaoqun/codrax/internal/types"
+EXPECT_MATCHES_REGEX="github\\.com/hanchaoqun/codrax/internal/analysis/dataflow
+github\\.com/hanchaoqun/codrax/internal/analysis/declarative
+github\\.com/hanchaoqun/codrax/internal/analysis/normalizer
+github\\.com/hanchaoqun/codrax/internal/analysis/subject
+github\\.com/hanchaoqun/codrax/internal/context
+github\\.com/hanchaoqun/codrax/internal/llm
+github\\.com/hanchaoqun/codrax/internal/logging
+github\\.com/hanchaoqun/codrax/internal/skill
+github\\.com/hanchaoqun/codrax/internal/tool
+github\\.com/hanchaoqun/codrax/internal/tool/ground
+github\\.com/hanchaoqun/codrax/internal/tool/repomap
+github\\.com/hanchaoqun/codrax/internal/tool/repomap/multigraph
+github\\.com/hanchaoqun/codrax/internal/tool/repomap/types
+github\\.com/hanchaoqun/codrax/internal/types"
+EXPECT_NOT_CONTAINS="standard.library stdlib gopkg.in/yaml.v3"

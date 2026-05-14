@@ -2235,31 +2235,7 @@ func enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx *types.AgentCon
 	nonSymbolPrincipal := 0
 	symbolPrincipal := 0
 	if support := types.BuildAnswerSupportPlanForAgentContext(ctx); support != nil {
-		for _, lane := range support.Lanes {
-			if lane.Kind != types.SupportLanePrincipalEvidence {
-				continue
-			}
-			for _, entry := range lane.Entries {
-				if !extractorSupportEntryIsModelAuthoredPrincipal(entry) {
-					continue
-				}
-				surface := entry.MemberSurface
-				if surface == types.PrincipalMemberSurfaceUnknown {
-					if entry.ClaimForm.UsesNonSymbolLabelSurface() {
-						surface = types.PrincipalMemberSurfaceDisplayLabel
-					} else if entry.ClaimForm.LabelSurfaceKind() == types.ClaimLabelSurfaceSymbolLike {
-						surface = types.PrincipalMemberSurfaceSymbolLike
-					}
-				}
-				if surface.IsNonSymbol() {
-					nonSymbolPrincipal++
-					continue
-				}
-				if surface.IsSymbolLike() {
-					symbolPrincipal++
-				}
-			}
-		}
+		nonSymbolPrincipal, symbolPrincipal = types.AnswerSupportPlanPrincipalSurfaceCounts(support)
 		if nonSymbolPrincipal > 0 || symbolPrincipal > 0 {
 			return nonSymbolPrincipal > 0 && symbolPrincipal == 0
 		}
@@ -2287,17 +2263,6 @@ func enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx *types.AgentCon
 		}
 	}
 	return nonSymbolPrincipal > 0 && symbolPrincipal == 0
-}
-
-func extractorSupportEntryIsModelAuthoredPrincipal(entry types.AnswerSupportEntry) bool {
-	producer := strings.TrimSpace(entry.Producer)
-	if producer == "explorer.emit_investigation_complete.aggregate_facts" {
-		return true
-	}
-	if producer == "explorer.emit_evidence" {
-		return true
-	}
-	return producer != "" && strings.Contains(producer, "emit_")
 }
 
 func extractorEvidenceIsModelAuthoredPrincipal(item types.EvidenceItem) bool {

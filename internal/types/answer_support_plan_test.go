@@ -3295,6 +3295,72 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetParallelSupportRefs(t *
 	}
 }
 
+func TestBuildAnswerSupportPlan_AggregateImportMembersInheritDisplaySurface(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "internal import packages",
+			Value:   "2",
+			Members: []string{"github.com/acme/project/internal/foo", "github.com/acme/project/internal/bar"},
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "import-foo",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "src/main.ts",
+				LineStart:       3,
+				AnchorKind:      AnchorImport,
+				AnchorSymbol:    "github.com/acme/project/internal/foo",
+				SurfaceTerms:    []string{"github.com/acme/project/internal/foo"},
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+			{
+				ID:              "import-bar",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "src/main.ts",
+				LineStart:       4,
+				AnchorKind:      AnchorImport,
+				AnchorSymbol:    "github.com/acme/project/internal/bar",
+				SurfaceTerms:    []string{"github.com/acme/project/internal/bar"},
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+		},
+	}
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind:     string(ReqEnumeration),
+			Entities: []string{"src/main.ts"},
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all internal imports"},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 2 {
+		t.Fatalf("aggregate import member_set should compile into two principal entries, got %+v", got)
+	}
+	for _, entry := range lane.Entries {
+		if entry.ClaimForm != ClaimImportEdge || entry.LabelSurface != ClaimLabelSurfaceDisplayLabel {
+			t.Fatalf("aggregate import member should inherit typed import claim metadata, got %+v", entry)
+		}
+		if entry.MemberSurface != PrincipalMemberSurfaceDisplayLabel {
+			t.Fatalf("aggregate import path is a reference literal, not a symbol-definition member: %+v", entry)
+		}
+	}
+	nonSymbol, symbolLike := AnswerSupportPlanPrincipalSurfaceCounts(got)
+	if nonSymbol != 2 || symbolLike != 0 {
+		t.Fatalf("principal surface counts should route import literals away from answer symbols, got nonSymbol=%d symbolLike=%d", nonSymbol, symbolLike)
+	}
+}
+
 func TestBuildAnswerSupportPlan_GenericAggregateMemberSetReusesTypedEvidenceLocations(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		StableAggregateFacts: []AnswerAggregateFact{{

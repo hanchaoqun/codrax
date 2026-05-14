@@ -196,6 +196,7 @@ func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, membe
 	}
 	if hasEvidence && sameAggregateMemberEvidenceLocation(ev, source, line) {
 		applyAggregateMemberEvidenceToSupportEntry(&entry, ev)
+		alignAggregateMemberSurfaceWithClaimForm(&entry)
 	} else if hasEvidence && aggregateMemberEvidenceCanCoAnchor(member, ev, supportEvidence, source, line) {
 		evLocation := aggregateMemberStartLocation(AnswerSourceLocationSurface{File: strings.TrimSpace(strings.ReplaceAll(ev.Source, `\`, `/`)), LineStart: ev.LineStart})
 		entry.EquivalentLocations = appendAggregateMemberEquivalentLocation(entry.EquivalentLocations, evLocation)
@@ -211,6 +212,18 @@ func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, membe
 		}
 	}
 	return entry, true
+}
+
+func alignAggregateMemberSurfaceWithClaimForm(entry *AnswerSupportEntry) {
+	if entry == nil {
+		return
+	}
+	if entry.MemberSurface == PrincipalMemberSurfaceSourceLocation {
+		return
+	}
+	if entry.ClaimForm.UsesNonSymbolLabelSurface() {
+		entry.MemberSurface = PrincipalMemberSurfaceDisplayLabel
+	}
 }
 
 type aggregateMemberEvidenceIndex struct {
