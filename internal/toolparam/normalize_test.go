@@ -158,6 +158,127 @@ func TestNormalize_StringWrappedRootObject(t *testing.T) {
 	}
 }
 
+func TestNormalize_UnwrapsToolArgumentEnvelope(t *testing.T) {
+	schema := envelopeCompatTestSchema()
+	raw := json.RawMessage(`{
+	  "name":"emit_analysis",
+	  "arguments":"{\"intent\":\"explain\",\"keywords\":[\"agent\"],\"limit\":\"25\"}"
+	}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$", "tool_argument_envelope_arguments_json_string_object") {
+		t.Fatalf("expected argument-envelope repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.limit", "string_integer") {
+		t.Fatalf("expected nested scalar repair after envelope unwrap, got %+v", report)
+	}
+	var decoded struct {
+		Intent   string   `json:"intent"`
+		Keywords []string `json:"keywords"`
+		Limit    int      `json:"limit"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if decoded.Intent != "explain" || strings.Join(decoded.Keywords, "|") != "agent" || decoded.Limit != 25 {
+		t.Fatalf("unexpected normalized payload: %+v", decoded)
+	}
+}
+
+func TestNormalize_UnwrapsNestedFunctionArgumentEnvelope(t *testing.T) {
+	schema := envelopeCompatTestSchema()
+	raw := json.RawMessage(`{
+	  "id":"call_1",
+	  "type":"function",
+	  "function":{
+	    "name":"emit_analysis",
+	    "arguments":{"intent":"explain","keywords":["agent"],"limit":"25"}
+	  }
+	}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$", "tool_function_envelope_arguments_object") {
+		t.Fatalf("expected nested function-envelope repair, got %+v", report)
+	}
+	var decoded struct {
+		Intent string `json:"intent"`
+		Limit  int    `json:"limit"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if decoded.Intent != "explain" || decoded.Limit != 25 {
+		t.Fatalf("unexpected normalized payload: %+v", decoded)
+	}
+}
+
+func TestNormalize_UnwrapsDoubleEncodedToolArgumentEnvelope(t *testing.T) {
+	schema := envelopeCompatTestSchema()
+	raw := json.RawMessage(`{
+	  "arguments":"\"{\\\"intent\\\":\\\"explain\\\",\\\"keywords\\\":[\\\"agent\\\"],\\\"limit\\\":\\\"25\\\"}\""
+	}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$", "tool_argument_envelope_arguments_json_string_object_nested") {
+		t.Fatalf("expected nested string argument-envelope repair, got %+v", report)
+	}
+	var decoded struct {
+		Intent string `json:"intent"`
+		Limit  int    `json:"limit"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if decoded.Intent != "explain" || decoded.Limit != 25 {
+		t.Fatalf("unexpected normalized payload: %+v", decoded)
+	}
+}
+
+func TestNormalize_DoesNotUnwrapSchemaArgumentsProperty(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "arguments":{"type":"string"},
+	    "intent":{"type":"string"}
+	  }
+	}`)
+	raw := json.RawMessage(`{"arguments":"{\"intent\":\"explain\"}"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if report.Changed() {
+		t.Fatalf("schema-owned arguments field must not be unwrapped: %+v", report)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("payload must remain unchanged: got %s want %s", got, raw)
+	}
+}
+
+func TestNormalize_DoesNotDropUnknownEnvelopeFields(t *testing.T) {
+	schema := envelopeCompatTestSchema()
+	raw := json.RawMessage(`{"arguments":"{\"intent\":\"explain\"}","unexpected":"keep me"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if report.Changed() {
+		t.Fatalf("ambiguous envelope with unknown outer fields must not be repaired: %+v", report)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("payload must remain unchanged: got %s want %s", got, raw)
+	}
+}
+
+func TestNormalize_DoesNotUnwrapEnvelopeWithoutSchemaOverlap(t *testing.T) {
+	schema := envelopeCompatTestSchema()
+	raw := json.RawMessage(`{"arguments":"{\"path\":\"internal/types/enums.go\"}"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if report.Changed() {
+		t.Fatalf("payload with no schema-property overlap must not be repaired: %+v", report)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("payload must remain unchanged: got %s want %s", got, raw)
+	}
+}
+
 func TestNormalize_AuditReportsButDoesNotMutate(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"offset":{"type":"integer"}}}`)
 	raw := json.RawMessage(`{"offset":"140"}`)
@@ -259,4 +380,15 @@ func hasRepair(report Report, path, rule string) bool {
 		}
 	}
 	return false
+}
+
+func envelopeCompatTestSchema() json.RawMessage {
+	return json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "intent":{"type":"string"},
+	    "keywords":{"type":"array","items":{"type":"string"}},
+	    "limit":{"type":"integer"}
+	  }
+	}`)
 }

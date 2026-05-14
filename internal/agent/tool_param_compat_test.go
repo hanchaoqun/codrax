@@ -110,6 +110,42 @@ func TestNormalizeToolCallParams_RepairStringWrappedArrayWithBareQuotes(t *testi
 	}
 }
 
+func TestNormalizeToolCallParams_RepairFunctionArgumentEnvelope(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentAnalyzer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentAnalyzer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	calls := []llm.ToolCall{{
+		ID:     "call_1",
+		Name:   "emit_analysis",
+		Params: json.RawMessage(`{"arguments":"{\"intent\":\"explain\",\"keywords\":[\"agent\"],\"limit\":\"25\"}"}`),
+	}}
+	schemas := []llm.ToolSchema{{
+		Name:       "emit_analysis",
+		Parameters: analysisEnvelopeCompatTestSchema(),
+	}}
+
+	got := base.normalizeToolCallParams(calls, schemas)
+	if string(got[0].Params) == string(calls[0].Params) {
+		t.Fatalf("expected repaired function argument envelope, got unchanged %s", got[0].Params)
+	}
+	var decoded struct {
+		Intent   string   `json:"intent"`
+		Keywords []string `json:"keywords"`
+		Limit    int      `json:"limit"`
+	}
+	if err := json.Unmarshal(got[0].Params, &decoded); err != nil {
+		t.Fatalf("repaired params are invalid JSON: %v\n%s", err, got[0].Params)
+	}
+	if decoded.Intent != "explain" || strings.Join(decoded.Keywords, "|") != "agent" || decoded.Limit != 25 {
+		t.Fatalf("unexpected repaired params: %+v", decoded)
+	}
+}
+
 func TestNormalizeToolCallParams_NoInjectedPolicyIsNoOp(t *testing.T) {
 	base := &BaseAgent{
 		name: types.AgentExplorer,
@@ -156,5 +192,16 @@ func evidenceItemsCompatTestSchema() json.RawMessage {
 			}
 		},
 		"required": ["items"]
+	}`)
+}
+
+func analysisEnvelopeCompatTestSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"intent": {"type": "string"},
+			"keywords": {"type": "array", "items": {"type": "string"}},
+			"limit": {"type": "integer"}
+		}
 	}`)
 }

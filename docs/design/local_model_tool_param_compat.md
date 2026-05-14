@@ -155,6 +155,7 @@ merge 规则：
 对本地模型兼容性的提升：
 
 - 解决 double-encoded arguments（根对象是 JSON string）。
+- 解决本地模型把完整 function-call envelope 当作参数对象发送的情况，例如 `{"name":"emit_analysis","arguments":"{...}"}` 或 `{"function":{"name":"...","arguments":{...}}}`；仅当外层没有 schema 字段、只包含标准 envelope 元数据、且解包后的对象与当前工具 schema 有字段交集时才修复。
 - 解决最常见的 `"offset":"146"` / `"limit":"25"`。
 - 解决 emit 类工具里的 `[]string` 字段被本地模型写成字符串的问题。
 - 与 `recover_text_tool_calls` 组合后，覆盖“文本 envelope 恢复 + 参数类型归一化”的完整链路。

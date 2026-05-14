@@ -53,9 +53,22 @@ type schemaNode struct {
 	Items      json.RawMessage            `json:"items"`
 }
 
+var envelopeCarrierKeyOrder = []string{
+	"arguments",
+	"parameters",
+	"params",
+	"input",
+	"args",
+	"tool_input",
+	"toolInput",
+	"action_input",
+	"actionInput",
+}
+
 // Normalize applies bounded, schema-aware compatibility rewrites to a tool
 // parameter object. It never fills missing required fields, invents values,
-// reads prose, or drops unknown keys. Empty/off policy returns raw unchanged.
+// reads prose, or drops unknown tool-parameter keys. Empty/off policy returns
+// raw unchanged.
 func Normalize(raw json.RawMessage, schema json.RawMessage, cfg types.ToolParamCompatConfig) (json.RawMessage, Report) {
 	mode := cfg.NormalizedMode()
 	if mode != types.ToolParamCompatAudit && mode != types.ToolParamCompatRepair {
@@ -99,6 +112,11 @@ func normalizeValue(value any, schema json.RawMessage, path string, cfg types.To
 			}
 		}
 		if m, ok := value.(map[string]any); ok {
+			if unwrapped, rule, ok := unwrapToolArgumentEnvelope(m, node); ok {
+				repairs := []Repair{repair(path, rule, valueKind(value), "object")}
+				out, nestedRepairs := normalizeObject(unwrapped, node, path, cfg)
+				return out, append(repairs, nestedRepairs...)
+			}
 			return normalizeObject(m, node, path, cfg)
 		}
 	}
@@ -174,6 +192,121 @@ func normalizeObject(in map[string]any, node schemaNode, path string, cfg types.
 		return in, nil
 	}
 	return out, repairs
+}
+
+func unwrapToolArgumentEnvelope(in map[string]any, node schemaNode) (map[string]any, string, bool) {
+	if len(in) == 0 || len(node.Properties) == 0 {
+		return nil, "", false
+	}
+	if hasSchemaPropertyAtEnvelope(in, node) {
+		return nil, "", false
+	}
+	if carrierKey, carrierValue, ok := singleEnvelopeCarrier(in); ok && envelopeHasOnlyKnownKeys(in) {
+		return decodeEnvelopeArgumentObject(carrierValue, node, "tool_argument_envelope_"+carrierKey)
+	}
+
+	fnRaw, ok := in["function"]
+	if !ok || !envelopeHasOnlyKnownKeys(in) {
+		return nil, "", false
+	}
+	fn, ok := fnRaw.(map[string]any)
+	if !ok || hasSchemaPropertyAtEnvelope(fn, node) || !envelopeHasOnlyKnownKeys(fn) {
+		return nil, "", false
+	}
+	carrierKey, carrierValue, ok := singleEnvelopeCarrier(fn)
+	if !ok {
+		return nil, "", false
+	}
+	return decodeEnvelopeArgumentObject(carrierValue, node, "tool_function_envelope_"+carrierKey)
+}
+
+func decodeEnvelopeArgumentObject(value any, node schemaNode, rulePrefix string) (map[string]any, string, bool) {
+	switch v := value.(type) {
+	case map[string]any:
+		if schemaPropertyHitCount(v, node) == 0 {
+			return nil, "", false
+		}
+		return v, rulePrefix + "_object", true
+	case string:
+		decoded, rule, ok := decodeJSONStringAs(v, "object")
+		if !ok {
+			return nil, "", false
+		}
+		m, ok := decoded.(map[string]any)
+		if !ok || schemaPropertyHitCount(m, node) == 0 {
+			return nil, "", false
+		}
+		return m, rulePrefix + "_" + rule, true
+	default:
+		return nil, "", false
+	}
+}
+
+func hasSchemaPropertyAtEnvelope(in map[string]any, node schemaNode) bool {
+	for key := range in {
+		if _, ok := node.Properties[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func schemaPropertyHitCount(in map[string]any, node schemaNode) int {
+	hits := 0
+	for key := range in {
+		if _, ok := node.Properties[key]; ok {
+			hits++
+		}
+	}
+	return hits
+}
+
+func singleEnvelopeCarrier(in map[string]any) (string, any, bool) {
+	var foundKey string
+	var foundValue any
+	for _, key := range envelopeCarrierKeyOrder {
+		value, ok := in[key]
+		if !ok {
+			continue
+		}
+		if foundKey != "" {
+			return "", nil, false
+		}
+		foundKey = key
+		foundValue = value
+	}
+	if foundKey == "" {
+		return "", nil, false
+	}
+	return foundKey, foundValue, true
+}
+
+func envelopeHasOnlyKnownKeys(in map[string]any) bool {
+	for key := range in {
+		if isEnvelopeCarrierKey(key) || isEnvelopeMetadataKey(key) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func isEnvelopeCarrierKey(key string) bool {
+	switch key {
+	case "arguments", "parameters", "params", "input", "args", "tool_input", "toolInput", "action_input", "actionInput":
+		return true
+	default:
+		return false
+	}
+}
+
+func isEnvelopeMetadataKey(key string) bool {
+	switch key {
+	case "id", "call_id", "name", "type", "tool", "tool_name", "function":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeArray(in []any, node schemaNode, path string, cfg types.ToolParamCompatConfig) ([]any, []Repair) {
@@ -263,9 +396,28 @@ func decodeJSONValue(raw json.RawMessage) (any, bool) {
 }
 
 func decodeJSONStringAs(s string, want string) (any, string, bool) {
+	return decodeJSONStringAsDepth(s, want, 0)
+}
+
+func decodeJSONStringAsDepth(s string, want string, depth int) (any, string, bool) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
 		return nil, "", false
+	}
+	if strings.HasPrefix(trimmed, `"`) && depth < 3 {
+		decoded, ok := decodeJSONValue(json.RawMessage(trimmed))
+		if !ok {
+			return nil, "", false
+		}
+		inner, ok := decoded.(string)
+		if !ok {
+			return nil, "", false
+		}
+		value, rule, ok := decodeJSONStringAsDepth(inner, want, depth+1)
+		if !ok {
+			return nil, "", false
+		}
+		return value, rule + "_nested", true
 	}
 	switch want {
 	case "object":
