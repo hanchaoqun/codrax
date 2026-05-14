@@ -171,6 +171,61 @@ func TestNormalizeAnswerAggregateFacts_DedupesQualifiedRelationMemberSetVariants
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefs_PrefersSupportedRelationAlternateSameLeftAxis(t *testing.T) {
+	refs := PrincipalAggregateMemberSetFactRefs([]AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "subpackage entry functions",
+			Value:   "2",
+			Members: []string{"aggregator → Aggregator.Aggregate", "compiler → Compile"},
+			SupportRefs: []string{
+				"internal/analysis/aggregator/aggregator.go:132",
+				"internal/analysis/compiler/compile.go:37",
+			},
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "internal/analysis package entries",
+			Value:   "2",
+			Members: []string{"aggregator.Aggregate", "compiler.Compile"},
+		},
+	})
+	if len(refs) != 1 {
+		t.Fatalf("unsupported alternate relation set with same left axis should be support-only, got %+v", refs)
+	}
+	if refs[0].Index != 0 || refs[0].Fact.Label != "subpackage entry functions" {
+		t.Fatalf("complete support-ref relation set should remain principal, got %+v", refs[0])
+	}
+}
+
+func TestPrincipalAggregateMemberSetFactRefs_KeepsFullySupportedSameLeftAxisSets(t *testing.T) {
+	refs := PrincipalAggregateMemberSetFactRefs([]AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "subpackage entry functions",
+			Value:   "2",
+			Members: []string{"aggregator → Aggregator.Aggregate", "compiler → Compile"},
+			SupportRefs: []string{
+				"internal/analysis/aggregator/aggregator.go:132",
+				"internal/analysis/compiler/compile.go:37",
+			},
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "subpackage constructors",
+			Value:   "2",
+			Members: []string{"aggregator → New", "compiler → New"},
+			SupportRefs: []string{
+				"internal/analysis/aggregator/aggregator.go:112",
+				"internal/analysis/compiler/compiler.go:20",
+			},
+		},
+	})
+	if len(refs) != 2 {
+		t.Fatalf("two fully supported relation attributes over the same left axis should both stay principal, got %+v", refs)
+	}
+}
+
 func TestAnswerAggregateMemberDisplayCandidates_RelationDecoratorVariants(t *testing.T) {
 	candidates := AnswerAggregateMemberDisplayCandidates("declarative → New (Classifier)")
 	if !stringSliceContains(candidates, "declarative → New (Classifier)") ||
@@ -309,6 +364,46 @@ func TestAnswerAggregateMemberDisplayCandidates_AllSupportedLanguageQualifiers(t
 			if !stringSliceContainsFold(candidates, left+" → "+tail) {
 				t.Fatalf("%s sample should expose tail relation candidate %q, got %+v", lang, left+" → "+tail, candidates)
 			}
+		}
+	}
+}
+
+func TestAnswerAggregateMemberRelationParts_AllSupportedLanguageSignatures(t *testing.T) {
+	samples := map[string]struct {
+		member string
+		base   string
+	}{
+		repotypes.LangGo:         {"analysis → New(cfg Config) *Aggregator", "New"},
+		repotypes.LangPython:     {"module -> run(config: Config) -> Result", "run"},
+		repotypes.LangJavaScript: {"service → resolve(input): Promise<Result>", "resolve"},
+		repotypes.LangTypeScript: {"service → resolve<T>(input: T): Promise<T>", "resolve"},
+		repotypes.LangJava:       {"service → handle(Request req): Response", "handle"},
+		repotypes.LangKotlin:     {"service → handle(request: Request): Response", "handle"},
+		repotypes.LangRust:       {"crate -> run<T>(input: T) -> Result<()>", "run"},
+		repotypes.LangC:          {"module → init_module(int argc, char **argv)", "init_module"},
+		repotypes.LangCpp:        {"parser → Parser::Parse(std::string_view input) -> Result", "Parser::Parse"},
+		repotypes.LangRuby:       {"service → call(payload)", "call"},
+		repotypes.LangSwift:      {"service → start(request: Request) async throws -> Response", "start"},
+		repotypes.LangLua:        {"module → render(ctx)", "render"},
+		repotypes.LangProto:      {"service → ListUsers(ListUsersRequest) returns (ListUsersResponse)", "ListUsers"},
+		repotypes.LangArkTS:      {"component → build(): void", "build"},
+		repotypes.LangCangjie:    {"service → run(input: String): Result<Unit>", "run"},
+	}
+	for _, lang := range repotypes.SupportedReadLanguages() {
+		sample, ok := samples[lang]
+		if !ok {
+			t.Fatalf("missing signature relation sample for supported language %q", lang)
+		}
+		left, right, parsed := AnswerAggregateMemberRelationParts(sample.member)
+		if !parsed {
+			t.Fatalf("%s signature sample did not parse as relation member: %q", lang, sample.member)
+		}
+		if left == "" || right == "" {
+			t.Fatalf("%s signature sample parsed empty relation part: left=%q right=%q", lang, left, right)
+		}
+		candidates := AnswerAggregateMemberDisplayCandidates(sample.member)
+		if !stringSliceContainsFold(candidates, left+" → "+sample.base) {
+			t.Fatalf("%s signature sample should expose callable base candidate %q, got %+v", lang, left+" → "+sample.base, candidates)
 		}
 	}
 }

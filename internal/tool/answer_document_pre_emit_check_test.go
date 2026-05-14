@@ -787,6 +787,116 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsCompactSourceSupportRefs(t *t
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_AcceptsSignatureSupportRefSplitRows(t *testing.T) {
+	mu := types.NewMutableState("signature relation aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "internal/analysis subpackages and entry functions",
+		Value: "2",
+		Members: []string{
+			"aggregator → New(cfg Config) *Aggregator @ internal/analysis/aggregator/aggregator.go:112",
+			"amplifier → Amplify(rm types.RequestModel) (types.RequestModel, []Observation) @ internal/analysis/amplifier/amplifier.go:100",
+		},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsRelationalLookup:    true,
+				},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all subpackages and entry functions",
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/analysis/aggregator/aggregator.go", Line: 112},
+			{File: "internal/analysis/amplifier/amplifier.go", Line: 100},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "entries",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "aggregator",
+				Label:       "aggregator",
+				Text:        "New(cfg Config) *Aggregator",
+				CitationRef: 0,
+			}, {
+				ID:          "amplify",
+				Label:       "Amplify",
+				Text:        "amplifier: Amplify(rm types.RequestModel) (types.RequestModel, []Observation)",
+				CitationRef: 1,
+			}},
+		}},
+	}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("signature support-ref split rows should satisfy member_set visibility, got %+v", got)
+	}
+	if got := preCheckRelationMemberSetAnswerShape(doc, ctx); len(got) != 0 {
+		t.Fatalf("signature relation rows should satisfy relation answer shape, got %+v", got)
+	}
+	if !preEmitCitationSupportsAggregateItem(ctx, "Amplify", doc.Blocks[0].Items[1].Text, doc.Citations[1]) {
+		t.Fatal("right-label plus left text should align to the signature support-ref citation")
+	}
+}
+
+func TestPreCheckAggregateMemberSetCoverage_IgnoresUnsupportedSameLeftAxisAlternate(t *testing.T) {
+	mu := types.NewMutableState("same left-axis alternate aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "supported package entry functions",
+		Value:   "2",
+		Members: []string{"perftriage → Corroborate", "stopcond → Evaluate"},
+		SupportRefs: []string{
+			"internal/analysis/perftriage/corroborate.go:29",
+			"internal/analysis/stopcond/stopcond.go:8",
+		},
+	}, {
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "stale typed graph package entries",
+		Value:   "2",
+		Members: []string{"perftriage.CorroborateStallFiles", "stopcond.ShouldStop"},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/analysis/perftriage/corroborate.go", Line: 29},
+			{File: "internal/analysis/stopcond/stopcond.go", Line: 8},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "entries",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "perftriage",
+				Label:       "perftriage",
+				Text:        "入口函数 Corroborate。",
+				CitationRef: 0,
+			}, {
+				ID:          "stopcond",
+				Label:       "stopcond",
+				Text:        "入口函数 Evaluate。",
+				CitationRef: 1,
+			}},
+		}},
+	}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("unsupported same-left-axis alternate should not be a second principal member_set, got %+v", got)
+	}
+	if got := preCheckPrincipalSupportMemberCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("support plan should use the supported relation set as the principal slate, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_RelationSlateSubsumesLeftAxis(t *testing.T) {
 	mu := types.NewMutableState("entry relation aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{

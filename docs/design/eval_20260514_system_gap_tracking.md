@@ -582,7 +582,7 @@ pipelines, scheduler paths, and multi-layer defense explanations should not ask
 the finalizer to hand-maintain citation indexes. A typed row model can preserve
 ordering, claim form, cited source, and rendered text separately.
 
-### E20260514-G19: Explore-to-Extract Fact Handoff Loss (`qf_architecture`, PASS with 6 rejects)
+### E20260514-G19: Explore-to-Extract Fact Handoff Loss (`qf_architecture`, FAIL on stale 2026-05-14 sweep)
 
 User request asks for the read-mode pipeline stages and each stage's
 responsibility.
@@ -607,6 +607,15 @@ Observed data flow:
    the cost profile shows a systemic typed-handoff gap rather than a one-off
    phrasing issue.
 
+Follow-up from the 2026-05-14 full sweep: the stale snapshot regressed from
+high-cost PASS to FAIL because the final answer listed the stages, topology,
+agent bindings, and scheduler layers, but never stated the `finalize` stage's
+role with a render/generate/compose surface. That is a real product miss for
+the user request ("each stage roughly does what"), not merely a regex synonym
+gap. The data-flow failure is row-column loss: stage name/order/agent survived,
+but the required responsibility column was optional prose and could disappear
+for one stage.
+
 Root cause: architecture/list answers can be fully solved in explorer prose and
 aggregate facts, but the extract/finalize boundary lacks a required canonical
 fact carrier for "closed ordered stage list + responsibilities + optional
@@ -615,10 +624,12 @@ conditional pre-stages." When that carrier is absent, later stages confuse
 
 Generalization: pipeline stage lists, request lifecycles, middleware chains,
 state machines, hook order, and startup/shutdown flows all need an ordered
-`ProcessStepRow`/`ArchitectureStageRow` surface that is emitted once and then
-rendered deterministically. Missing structured symbols should become a repair
-request to build rows from grounded explorer facts, not a semantic
-inconclusive verdict.
+`ProcessStepRow`/`ArchitectureStageRow` surface with `name`, `order`,
+`trigger/condition`, `agent/owner`, `responsibility`, `input`, `output`, and
+`support_ref`. Missing structured symbols should become a repair request to
+build rows from grounded explorer facts, not a semantic inconclusive verdict;
+missing responsibility on any visible stage row should be caught as a row-shape
+gap before final text ships.
 
 ### E20260514-G20: Change-Impact File Set Label Conflict (`u4b`, PASS with 24 rejects)
 
@@ -1325,6 +1336,38 @@ items with citation refs, or a typed `TopicRow` / `CatalogRow` renderer that
 combines heading, prose, row labels, and citations. Main prose should not depend
 on an appendix-style anchor list for its grounding.
 
+### E20260514-G38: Universal Enumeration Without A Number Was Promoted To Hard Count (`s5b` focused replay)
+
+User request asks for all sub-package directories under `internal/analysis/`
+and their entry functions. The request uses a universal quantifier ("所有子包")
+but does not declare a numeric count.
+
+Observed data flow:
+
+1. Analyzer/tool context can see a noisy pre-scan count for candidate
+   directories.
+2. The analyzer emitted `enumeration_boundary.declared_count=26` with
+   `source_quote="所有子包"`.
+3. `NormalizeRequestedEnumerationBoundary` accepted the boundary because the
+   quote appeared in the raw request, even though the quote did not contain the
+   number 26.
+4. The explorer prompt then rendered "The user explicitly declared a bounded
+   principal set: 所有子包 (26 item(s))", turning a noisy inferred count into a
+   hard downstream requirement.
+5. Precise file listing later showed the actual closed set is 25, creating a
+   classic seesaw: honoring the hard boundary breaks grounded evidence, while
+   honoring evidence appears to violate the hard boundary.
+
+Root cause: `enumeration_boundary` is a hard gate but only verified quote
+presence, not that the declared count was itself user-declared. A model- or
+pre-scan-derived count could therefore cross from noisy guidance into
+structural obligation.
+
+Generalization: "all/every/complete" without an explicit number should produce
+a `CompletenessObligation`, not an `EnumerationBoundary`. Hard declared-count
+boundaries must require a precise typed signal: the source quote carries the
+same explicit numeric count that will later constrain answer cardinality.
+
 ## Exploration Handoff Failure Analysis
 
 The dominant product gap is not raw retrieval. In many cases, exploration found
@@ -1407,17 +1450,20 @@ negative citation workaround.
 
 ### H6: Validator Gates Use Noisy Surfaces Instead Of Precise Handoff Signals
 
-Cases: `u8a`, `u3b`, `qf_diagram_pipeline`, `mr_cross_repo_compare`.
+Cases: `u8a`, `u3b`, `qf_diagram_pipeline`, `mr_cross_repo_compare`, `s5b`.
 
 Here the issue is not missing exploration data. The gate itself binds to noisy
 surface clues: member-name presence in caveats, CJK concept labels treated as
 code identities, diagram payload accepted under a section block, or section
-prose judged unanchored because citations live in an appendix block.
+prose judged unanchored because citations live in an appendix block. The same
+class appears when a universal-quantifier quote is accepted as a hard numeric
+enumeration boundary even though the quote does not contain the number.
 
 Required system change: hard gates should read only precise typed fields:
 explicit aggregate labels, block kind/payload invariants, row-scoped citation
-refs, and declared artifact/source roles. Text similarity and member mentions
-can guide retries, but must not fail structurally valid answers.
+refs, declared artifact/source roles, and source quotes that carry the exact
+declared count. Text similarity, candidate counts, and member mentions can
+guide retries, but must not fail structurally valid answers.
 
 ## Final Cluster Analysis
 
@@ -1626,6 +1672,103 @@ Batch 1c progress:
   ./internal/tool` and `go test ./...` passed. Focused `s5b` eval is running
   on the current binary to measure whether the repair loop reduction follows
   the structural fix.
+
+Batch 1d progress:
+
+- Upgraded generic aggregate support-row compilation so a member like
+  `aggregator: Aggregate (aggregator.go:132)` first strips the source-location
+  support ref, matches the package/function relation against typed definition
+  evidence, and then upgrades the support obligation to the full repo-relative
+  path (`internal/analysis/aggregator/aggregator.go:132`). This keeps short
+  display paths readable while making hard citation coverage use precise typed
+  evidence.
+- Added a stable-member-set merge guard at `emit_investigation_complete`:
+  when two completions carry the same labeled principal `member_set`, the
+  merger compares typed member-set inclusion. A later narrowed retry cannot
+  overwrite an earlier accepted superset, while a later true superset still
+  wins. Disjoint same-label sets remain separate instead of being collapsed.
+- This is the anti-seesaw guard for G29: exploration/reconcile/finalize can add
+  evidence or improve display metadata, but they cannot trade away already
+  accepted complete principal rows. The rule is structural (`kind`, label,
+  unit, dimensions, and member display candidates), not prompt prose.
+- Added regression tests for all three directions: stable superset retained,
+  current superset wins, and disjoint same-label sets stay distinct. Also added
+  support-plan coverage proving short display locations upgrade from typed
+  definition evidence and still satisfy full-path citations.
+- Verification: `go test ./internal/tool -run TestMergeCompletionAggregateFacts`,
+  `go test ./internal/types -run
+  TestBuildAnswerSupportPlan_RelationMemberShortDisplayLocationUsesTypedEvidencePath`,
+  and `go test ./internal/tool ./internal/types ./internal/agent` passed.
+  Focused `s5b` is running on the rebuilt binary; the in-flight trace has
+  already hit the previous narrowing-prone reconcile path after a complete
+  25-member first closure, so this is the right validation target.
+
+Batch 1e progress:
+
+- The rebuilt `s5b` trace confirmed the next downstream-consumption gap: the
+  25-entry `member_set` survived exploration and reconcile, but finalizer
+  pre-emit still treated rows such as
+  `aggregator -> New(cfg Config) *Aggregator @ internal/analysis/...:112` as
+  absent when the answer rendered the same data as split fields:
+  `label=aggregator`, `text=New(cfg Config) *Aggregator`, and a matching
+  `citation_ref`. The problem was not missing exploration; it was a hard gate
+  comparing only literal full-member strings.
+- Generalized the aggregate relation parser so the right side of a typed
+  member relation may be a language-neutral callable signature. It now accepts
+  function/method signature surfaces across the supported read-language matrix
+  (Go, Python, JavaScript/TypeScript/ArkTS, Java/Kotlin, Rust, C/C++, Ruby,
+  Swift, Lua, Proto, Cangjie), including return arrows inside the signature.
+  Source locations remain support refs stripped by typed parsing, not visible
+  identity requirements.
+- Updated pre-emit member coverage and citation alignment to consume the same
+  relation candidates when the relation is split across item label/text in
+  either direction (`pkg` label + signature text, or callable label + package
+  text). This avoids the seesaw where forcing exact literal member strings
+  would make the answer less usable while still leaving citations as the hard
+  support check.
+- Added regressions for signature relation parsing across all supported
+  languages and for `member_set` coverage / relation-answer shape on
+  signature+support-ref split rows.
+
+Batch 1f progress:
+
+- The next `s5b` replay exposed a true seesaw: the same left-axis principal
+  set (the 25 `internal/analysis` subpackages) could arrive as two relation
+  `member_set` facts with different labels and different right-side entry
+  candidates. One set carried a complete support-ref array; the older alternate
+  had the same left axis but no complete support refs. Treating both as
+  principal forced finalizer to satisfy conflicting "single entry function"
+  values for the same subpackage.
+- Generalized principal relation-set selection: when alternate relation
+  `member_set` facts have the same exact left-axis set, a relation set with
+  complete per-member support refs remains principal and unsupported alternates
+  over that identical left axis become support-only. Fully supported relation
+  sets over the same left axis are kept, so legitimate multi-attribute answers
+  are not collapsed.
+- This keeps the hard gate on precise signals: identical typed left-axis set
+  plus complete parsed support-ref coverage. It does not compare vague label
+  wording or ranker scores, so it avoids replacing one prompt-shaped failure
+  with another.
+
+Batch 1g progress:
+
+- The next focused `s5b` replay exposed a hard-boundary precision gap before
+  exploration row consumption: analyzer emitted
+  `enumeration_boundary.declared_count=26` with source quote `所有子包`, even
+  though the user did not declare a number. That noisy count then became a hard
+  prompt obligation and conflicted with precise file listing evidence showing
+  25 child package directories.
+- Tightened `NormalizeRequestedEnumerationBoundary` so a boundary must be
+  grounded in a quote that both appears in the current request and carries the
+  same explicit decimal count. Universal/no-number phrasing such as "all",
+  "every", or `所有` stays in `CompletenessObligation` and cannot become a
+  cardinality hard gate through an analyzer pre-scan guess.
+- This is intentionally conservative and language-neutral: it does not add a
+  keyword table or localized counter parser. If a count is not present as an
+  explicit numeric token in the user quote, the system prefers full-coverage
+  guidance plus evidence-derived rows over a fabricated hard boundary.
+- Added type-level and tool-level regressions proving countless universal
+  quotes are rejected while explicit numeric quotes still persist.
 
 ### Batch 2: Exact Answer Lane Before Symbol Enumeration
 

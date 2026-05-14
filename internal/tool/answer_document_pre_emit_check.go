@@ -2268,9 +2268,19 @@ func preEmitAggregateMemberLabelTextMatches(label, text, member string) bool {
 		if !ok {
 			continue
 		}
-		if preEmitTypedLabelTokenSupportsLabel(left, label) &&
-			preEmitAggregateDisplayPartAppears(right, text) {
-			return true
+		if !preEmitTypedLabelTokenSupportsLabel(left, label) {
+			for _, rightDisplay := range preEmitAggregateMemberDisplayCandidates(right) {
+				if preEmitTypedLabelTokenSupportsLabel(rightDisplay, label) &&
+					preEmitAggregateDisplayPartAppears(left, text) {
+					return true
+				}
+			}
+			continue
+		}
+		for _, rightDisplay := range preEmitAggregateMemberDisplayCandidates(right) {
+			if preEmitAggregateDisplayPartAppears(rightDisplay, text) {
+				return true
+			}
 		}
 	}
 	return false
@@ -2421,7 +2431,7 @@ func preEmitCitationMatchesAggregateEvidence(ctx *types.BusContext, member strin
 
 func preEmitEvidenceSupportsAggregateMemberCitation(ev types.EvidenceItem, member string) bool {
 	if left, right, ok := preEmitAggregateMemberLabelRelationParts(member); ok {
-		return preEmitEvidenceEndpointSupportsToken(ev, right) &&
+		return preEmitEvidenceEndpointSupportsAnyAggregateCandidate(ev, right) &&
 			preEmitEvidenceOrSourceSupportsRelationLeft(ev, left)
 	}
 	if preEmitDecoratedLabelMatchesEvidence(member, ev) {
@@ -2432,14 +2442,23 @@ func preEmitEvidenceSupportsAggregateMemberCitation(ev types.EvidenceItem, membe
 
 func preEmitEvidenceSupportsAggregateMember(ev types.EvidenceItem, member string) bool {
 	if left, right, ok := preEmitAggregateMemberLabelRelationParts(member); ok {
-		return preEmitEvidenceEndpointSupportsToken(ev, left) &&
-			preEmitEvidenceEndpointSupportsToken(ev, right)
+		return preEmitEvidenceEndpointSupportsAnyAggregateCandidate(ev, left) &&
+			preEmitEvidenceEndpointSupportsAnyAggregateCandidate(ev, right)
 	}
 	if preEmitDecoratedLabelMatchesEvidence(member, ev) {
 		return true
 	}
 	for _, candidate := range preEmitAggregateMemberDisplayCandidates(member) {
 		if preEmitLabelMatchesEvidenceEndpoint(candidate, ev) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitEvidenceEndpointSupportsAnyAggregateCandidate(ev types.EvidenceItem, member string) bool {
+	for _, candidate := range preEmitAggregateMemberDisplayCandidates(member) {
+		if preEmitEvidenceEndpointSupportsToken(ev, candidate) {
 			return true
 		}
 	}

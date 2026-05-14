@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // ── B2-T3 7 family compile tests (≥3 case per family = 21+) ───────────
 
@@ -683,6 +686,23 @@ func TestCompileArchitecture_AllowsOrderedPipelineEnrichment(t *testing.T) {
 		}
 	}
 	t.Fatal("architecture answers should allow an optional ordered list for grounded pipelines / handoffs")
+}
+
+func TestCompileArchitecture_OrderedPipelineRequiresStageResponsibilities(t *testing.T) {
+	view := BuildAnswerSemanticView(irForArchitecture(), nil)
+	for _, b := range view.OptionalBlocks {
+		if b.Kind != BlockOrderedList {
+			continue
+		}
+		rationale := b.Rationale
+		for _, want := range []string{"stage/step row", "responsibility", "input/output", "terminal/output stage"} {
+			if !strings.Contains(rationale, want) {
+				t.Fatalf("ordered pipeline rationale missing %q:\n%s", want, rationale)
+			}
+		}
+		return
+	}
+	t.Fatal("architecture answers should allow an optional ordered pipeline list")
 }
 
 // ── QFGeneric 3 cases ──────────────────────────────────────────────

@@ -2483,6 +2483,63 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetUpgradesShortDisplayLoc
 	}
 }
 
+func TestBuildAnswerSupportPlan_RelationMemberShortDisplayLocationUsesTypedEvidencePath(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "internal/analysis 子包清单及入口函数",
+			Value: "1",
+			Members: []string{
+				"aggregator: Aggregate (aggregator.go:132)",
+			},
+		}},
+		SurfaceEvidence: []EvidenceItem{{
+			Kind:            EvidenceDirect,
+			Source:          "internal/analysis/aggregator/aggregator.go",
+			LineStart:       132,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "Aggregate",
+			Summary:         "aggregator package entry point",
+			GroundingStatus: GroundingGrounded,
+		}},
+	}
+	support := BuildAnswerSupportPlan(RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{
+			Required:    true,
+			SourceQuote: "all analysis subpackages",
+		},
+	}, plan)
+	obligations := PrincipalSupportMemberObligations(support)
+	if len(obligations) != 1 {
+		t.Fatalf("expected one principal obligation, got %+v", obligations)
+	}
+	if obligations[0].Location != "internal/analysis/aggregator/aggregator.go:132" {
+		t.Fatalf("short display location should upgrade from typed definition evidence, got %+v", obligations[0])
+	}
+
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "internal/analysis/aggregator/aggregator.go", Line: 132}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockOrderedList,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "aggregator: Aggregate (aggregator.go:132)",
+				Text:        "entry function.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if got := MissingPrincipalSupportMembers(doc, support); len(got) != 0 {
+		t.Fatalf("full-path citation plus relation label should satisfy member coverage, got %+v", got)
+	}
+}
+
 func TestBuildAnswerSupportPlan_CompleteCountFactMembersActAsPrincipalRows(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		StableAggregateFacts: []AnswerAggregateFact{{

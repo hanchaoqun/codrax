@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // AnswerAggregateKind names a model-emitted aggregate fact that the
@@ -84,8 +85,11 @@ type AnswerAggregateFactRef struct {
 }
 
 type aggregateRelationMemberSetFact struct {
-	fact AnswerAggregateFact
-	left map[string]bool
+	index           int
+	fact            AnswerAggregateFact
+	left            map[string]bool
+	leftKey         string
+	supportCoverage int
 }
 
 const (
@@ -150,7 +154,7 @@ func PrincipalAggregateMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAg
 		return nil
 	}
 	var relationFacts []aggregateRelationMemberSetFact
-	for _, fact := range facts {
+	for idx, fact := range facts {
 		if !answerAggregateFactCarriesCompleteMemberSet(fact) {
 			continue
 		}
@@ -158,8 +162,15 @@ func PrincipalAggregateMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAg
 		if !ok {
 			continue
 		}
-		relationFacts = append(relationFacts, aggregateRelationMemberSetFact{fact: fact, left: left})
+		relationFacts = append(relationFacts, aggregateRelationMemberSetFact{
+			index:           idx,
+			fact:            fact,
+			left:            left,
+			leftKey:         aggregateAxisSetKey(left),
+			supportCoverage: aggregateMemberSetSupportCoverage(fact),
+		})
 	}
+	skipRelationAlternate := aggregateRelationAlternateMemberSetSkips(relationFacts)
 	out := make([]AnswerAggregateFactRef, 0, len(facts))
 	for idx, fact := range facts {
 		if !answerAggregateFactCarriesCompleteMemberSet(fact) {
@@ -168,12 +179,66 @@ func PrincipalAggregateMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAg
 		if aggregateMemberSetIsSubsumedLeftAxis(fact, relationFacts) {
 			continue
 		}
+		if skipRelationAlternate[idx] {
+			continue
+		}
 		out = append(out, AnswerAggregateFactRef{Index: idx, Fact: fact})
 	}
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+func aggregateRelationAlternateMemberSetSkips(relationFacts []aggregateRelationMemberSetFact) map[int]bool {
+	if len(relationFacts) < 2 {
+		return nil
+	}
+	groups := make(map[string][]aggregateRelationMemberSetFact)
+	for _, fact := range relationFacts {
+		if fact.leftKey == "" {
+			continue
+		}
+		groups[fact.leftKey] = append(groups[fact.leftKey], fact)
+	}
+	skip := make(map[int]bool)
+	for _, group := range groups {
+		if len(group) < 2 {
+			continue
+		}
+		best := group[0]
+		for _, candidate := range group[1:] {
+			if aggregateRelationMemberSetPreferred(candidate, best) {
+				best = candidate
+			}
+		}
+		if best.supportCoverage < len(best.fact.Members) {
+			continue
+		}
+		for _, candidate := range group {
+			if candidate.index == best.index {
+				continue
+			}
+			if candidate.supportCoverage >= len(candidate.fact.Members) {
+				continue
+			}
+			skip[candidate.index] = true
+		}
+	}
+	if len(skip) == 0 {
+		return nil
+	}
+	return skip
+}
+
+func aggregateRelationMemberSetPreferred(a, b aggregateRelationMemberSetFact) bool {
+	if a.supportCoverage != b.supportCoverage {
+		return a.supportCoverage > b.supportCoverage
+	}
+	if len(a.fact.SupportRefs) != len(b.fact.SupportRefs) {
+		return len(a.fact.SupportRefs) > len(b.fact.SupportRefs)
+	}
+	return a.index < b.index
 }
 
 // PrincipalRelationMemberSetFactRefs returns principal member_set facts whose
@@ -318,6 +383,49 @@ func aggregateAxisSetSubsetOf(axis, relationLeft map[string]bool) bool {
 		}
 	}
 	return true
+}
+
+func aggregateAxisSetKey(axis map[string]bool) string {
+	if len(axis) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(axis))
+	for key := range axis {
+		key = strings.TrimSpace(strings.ToLower(key))
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "\x1f")
+}
+
+func aggregateMemberSetSupportCoverage(fact AnswerAggregateFact) int {
+	if len(fact.Members) == 0 {
+		return 0
+	}
+	selfLocated := 0
+	for _, member := range fact.Members {
+		if _, _, ok := ParseAnswerSupportRefMemberLocation(member); ok {
+			selfLocated++
+		}
+	}
+	parsedRefs := 0
+	for _, ref := range fact.SupportRefs {
+		if _, _, ok := ParseAnswerSupportRefMemberLocation(ref); ok {
+			parsedRefs++
+		}
+	}
+	coverage := selfLocated
+	if parsedRefs == len(fact.Members) {
+		coverage = len(fact.Members)
+	} else if parsedRefs > coverage {
+		coverage = parsedRefs
+	}
+	if coverage > len(fact.Members) {
+		return len(fact.Members)
+	}
+	return coverage
 }
 
 func aggregateAxisMemberKey(member string) string {
@@ -498,6 +606,13 @@ func aggregateRelationPartDisplayForms(part string) []string {
 		out = append(out, base+" ("+qualifier+")")
 		if aggregateRelationDecoratorIsSourceLine(qualifier) {
 			out = append(out, base)
+		} else if aggregateRelationDecoratorLooksCallable(part, base) {
+			out = append(out, base)
+		}
+	} else if base, ok := aggregateRelationCallableSignatureBase(part); ok {
+		out = append(out, base)
+		if tail := aggregateRelationPartDisplayTail(base); tail != "" && !strings.EqualFold(tail, base) {
+			out = append(out, tail)
 		}
 	}
 	return dedupAggregateMemberCandidates(out)
@@ -544,10 +659,15 @@ func aggregateRelationSurfaceParts(member string) (string, string, bool) {
 	}
 	for _, sep := range []string{"→", "->", "=>", "::"} {
 		if strings.Count(member, sep) != 1 {
+			if (sep == "->" || sep == "=>") && strings.Count(member, sep) > 1 {
+				left, right := aggregateRelationSurfaceSplit(member, sep)
+				if aggregateRelationPartOK(left) && aggregateRelationPartOK(right) {
+					return left, right, true
+				}
+			}
 			continue
 		}
-		parts := strings.Split(member, sep)
-		left, right := trimAggregateMemberSurface(parts[0]), trimAggregateMemberSurface(parts[1])
+		left, right := aggregateRelationSurfaceSplit(member, sep)
 		if aggregateRelationPartOK(left) && aggregateRelationPartOK(right) {
 			return left, right, true
 		}
@@ -570,6 +690,14 @@ func aggregateRelationSurfaceParts(member string) (string, string, bool) {
 		return left, right, true
 	}
 	return "", "", false
+}
+
+func aggregateRelationSurfaceSplit(member, sep string) (left string, right string) {
+	idx := strings.Index(member, sep)
+	if idx < 0 {
+		return "", ""
+	}
+	return trimAggregateMemberSurface(member[:idx]), trimAggregateMemberSurface(member[idx+len(sep):])
 }
 
 func aggregateCompactDotRelationParts(member string) (string, string, bool) {
@@ -606,12 +734,119 @@ func aggregateRelationPartOK(part string) bool {
 		if aggregateRelationDecoratorIsSourceLine(qualifier) {
 			return aggregateRelationCorePartOK(base)
 		}
-		return aggregateRelationCorePartOK(base) && aggregateRelationQualifierOK(qualifier)
+		if aggregateRelationCorePartOK(base) && aggregateRelationQualifierOK(qualifier) {
+			return true
+		}
+		return aggregateRelationDecoratorLooksCallable(part, base) && aggregateRelationCorePartOK(base)
+	}
+	if _, ok := aggregateRelationCallableSignatureBase(part); ok {
+		return true
 	}
 	if strings.Contains(part, "/") {
 		return false
 	}
 	return aggregateRelationCorePartOK(part)
+}
+
+func aggregateRelationCallableSignatureBase(part string) (string, bool) {
+	part = trimAggregateMemberSurface(part)
+	if part == "" || strings.ContainsAny(part, "\n\r\\") || HasCodeOrConfigPathSuffix(part) {
+		return "", false
+	}
+	open := strings.Index(part, "(")
+	if open <= 0 {
+		return "", false
+	}
+	if !aggregateRelationSignatureParensBalanced(part[open:]) {
+		return "", false
+	}
+	base := aggregateRelationCallableNameFromPrefix(part[:open])
+	if base == "" || !aggregateRelationCorePartOK(base) {
+		return "", false
+	}
+	return base, true
+}
+
+func aggregateRelationSignatureParensBalanced(s string) bool {
+	depth := 0
+	seenClose := false
+	for _, r := range s {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth < 0 {
+				return false
+			}
+			seenClose = true
+		}
+	}
+	return seenClose && depth == 0
+}
+
+func aggregateRelationCallableNameFromPrefix(prefix string) string {
+	prefix = aggregateRelationTrimTrailingGenericSuffix(trimAggregateMemberSurface(prefix))
+	if prefix == "" {
+		return ""
+	}
+	end := len(prefix)
+	for end > 0 {
+		r, size := utf8LastRune(prefix[:end])
+		if !unicode.IsSpace(r) {
+			break
+		}
+		end -= size
+	}
+	start := end
+	for start > 0 {
+		r, size := utf8LastRune(prefix[:start])
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '$' || r == '.' || r == ':' {
+			start -= size
+			continue
+		}
+		break
+	}
+	return trimAggregateMemberSurface(prefix[start:end])
+}
+
+func aggregateRelationTrimTrailingGenericSuffix(prefix string) string {
+	for {
+		prefix = trimAggregateMemberSurface(prefix)
+		if len(prefix) < 3 {
+			return prefix
+		}
+		close := prefix[len(prefix)-1]
+		var open byte
+		switch close {
+		case ']':
+			open = '['
+		case '>':
+			open = '<'
+		default:
+			return prefix
+		}
+		idx := strings.LastIndexByte(prefix, open)
+		if idx <= 0 {
+			return prefix
+		}
+		before := trimAggregateMemberSurface(prefix[:idx])
+		if before == "" || strings.ContainsAny(prefix[idx+1:len(prefix)-1], "\n\r") {
+			return prefix
+		}
+		prefix = before
+	}
+}
+
+func utf8LastRune(s string) (rune, int) {
+	for i := len(s); i > 0; {
+		r, size := rune(s[i-1]), 1
+		if r >= utf8.RuneSelf {
+			r, size = utf8.DecodeLastRuneInString(s[:i])
+		}
+		return r, size
+	}
+	return 0, 0
 }
 
 func aggregateRelationQualifierOK(qualifier string) bool {
@@ -766,6 +1001,16 @@ func aggregateRelationPartDecorator(part string) (base string, qualifier string,
 		return "", "", false
 	}
 	return base, qualifier, true
+}
+
+func aggregateRelationDecoratorLooksCallable(part, base string) bool {
+	part = trimAggregateMemberSurface(part)
+	base = trimAggregateMemberSurface(base)
+	if part == "" || base == "" {
+		return false
+	}
+	idx := strings.Index(part, "(")
+	return idx == len(base)
 }
 
 func aggregateRelationDecoratorIsSourceLine(qualifier string) bool {

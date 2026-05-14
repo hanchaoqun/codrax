@@ -1168,7 +1168,37 @@ func TestEmitAnalysis_Execute_RejectsEnumerationBoundaryQuoteOutsideRequest(t *t
 	if res.Success {
 		t.Fatalf("Execute should reject mismatched enumeration boundary, got summary=%q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "enumeration_boundary.source_quote must appear in the current request text") {
+	if !strings.Contains(res.Summary, "enumeration_boundary.source_quote must appear in the current request text and contain the declared count") {
+		t.Fatalf("unexpected reject summary: %q", res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Fatal("RequestModel should not persist on rejected enumeration boundary")
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsEnumerationBoundaryCountNotInQuote(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "explain",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["analysis", "packages", "entrypoints"],
+		"entities": ["internal/analysis"],
+		"question_kind": "enumeration",
+		"enumeration_boundary": {
+			"declared_count": 26,
+			"source_quote": "所有子包"
+		}
+	}`
+
+	res, mu := runEmitAnalysisWithObjective(t, "列出 internal/analysis 下所有子包及各自入口点", payload)
+	if res.Success {
+		t.Fatalf("Execute should reject enumeration boundary whose quote lacks the count, got summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "enumeration_boundary.source_quote must appear in the current request text and contain the declared count") {
 		t.Fatalf("unexpected reject summary: %q", res.Summary)
 	}
 	if mu.RequestModel() != nil {

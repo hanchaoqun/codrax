@@ -1507,6 +1507,93 @@ func TestMergeCompletionAggregateFacts_DedupesEquivalentMemberSetRetries(t *test
 	}
 }
 
+func TestMergeCompletionAggregateFacts_RetainsStableSupersetMemberSet(t *testing.T) {
+	current := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "internal/analysis subpackages and entry functions",
+		Value: "2",
+		Unit:  "rows",
+		Members: []string{
+			"aggregator: Aggregate (aggregator.go:132)",
+			"compiler: Compile (compile.go:37)",
+		},
+	}}
+	stable := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "internal/analysis subpackages and entry functions",
+		Value: "3",
+		Unit:  "rows",
+		Members: []string{
+			"aggregator -> Aggregate (line 132)",
+			"compiler -> Compile (line 37)",
+			"subject -> Score (line 40)",
+		},
+	}}
+
+	got := mergeCompletionAggregateFacts(current, stable)
+	if len(got) != 1 {
+		t.Fatalf("same labeled member_set facts should collapse to the fullest typed set, got %+v", got)
+	}
+	if got[0].Value != "3" || len(got[0].Members) != 3 {
+		t.Fatalf("stable superset should survive a later narrowed retry, got %+v", got[0])
+	}
+	if !strings.Contains(strings.Join(got[0].Members, "\n"), "subject") {
+		t.Fatalf("stable-only member should be retained, got %+v", got[0].Members)
+	}
+}
+
+func TestMergeCompletionAggregateFacts_CurrentSupersetWinsStableSubset(t *testing.T) {
+	current := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "internal/analysis subpackages and entry functions",
+		Value: "3",
+		Unit:  "rows",
+		Members: []string{
+			"aggregator: Aggregate (aggregator.go:132)",
+			"compiler: Compile (compile.go:37)",
+			"subject: Score (taxonomy.go:40)",
+		},
+	}}
+	stable := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "internal/analysis subpackages and entry functions",
+		Value: "2",
+		Unit:  "rows",
+		Members: []string{
+			"aggregator -> Aggregate (line 132)",
+			"compiler -> Compile (line 37)",
+		},
+	}}
+
+	got := mergeCompletionAggregateFacts(current, stable)
+	if len(got) != 1 {
+		t.Fatalf("same labeled member_set facts should collapse when current is the typed superset, got %+v", got)
+	}
+	if got[0].Value != "3" || len(got[0].Members) != 3 {
+		t.Fatalf("current superset should win over retained narrower set, got %+v", got[0])
+	}
+}
+
+func TestMergeCompletionAggregateFacts_KeepsDisjointSameLabelMemberSetsSeparate(t *testing.T) {
+	current := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "public API",
+		Value:   "1",
+		Members: []string{"functions: Eval"},
+	}}
+	stable := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "public API",
+		Value:   "1",
+		Members: []string{"types: Kind"},
+	}}
+
+	got := mergeCompletionAggregateFacts(current, stable)
+	if len(got) != 2 {
+		t.Fatalf("disjoint same-label member sets should not be collapsed as a false superset, got %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_RejectsUnsupportedExhaustiveEnumerationMemberSet(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

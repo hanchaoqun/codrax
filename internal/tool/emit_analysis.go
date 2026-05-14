@@ -404,7 +404,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"enumeration_boundary": map[string]any{
 				"type":        "object",
-				"description": "Optional. Use only when the user explicitly declares a bounded principal set such as 'the 7 checks', 'the first 3 handlers', or 'top 5 stages'. Copy the evidence-bearing phrase verbatim from the current request into source_quote and set declared_count to that same user-declared number.",
+				"description": "Optional. Use only when the user explicitly declares a bounded principal set with a numeric count such as 'the 7 checks', 'the first 3 handlers', or 'top 5 stages'. Copy the evidence-bearing phrase verbatim from the current request into source_quote and set declared_count to that same user-declared number. Do not infer a count for all/every/complete questions that do not name a number; use completeness_obligation instead.",
 				"properties": map[string]any{
 					"declared_count": map[string]any{"type": "integer", "minimum": 1},
 					"source_quote":   map[string]string{"type": "string"},
@@ -1600,7 +1600,7 @@ func parseEnumerationBoundary(raw string, p *emitEnumerationBoundaryParam) (*typ
 		SourceQuote:   p.SourceQuote,
 	})
 	if boundary == nil {
-		return nil, "enumeration_boundary.source_quote must appear in the current request text (whitespace-insensitive match allowed)"
+		return nil, "enumeration_boundary.source_quote must appear in the current request text and contain the declared count"
 	}
 	return boundary, ""
 }

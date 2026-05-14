@@ -1398,6 +1398,9 @@ func mergeCompletionAggregateFacts(current, stable []types.AnswerAggregateFact) 
 		}
 	}
 	for _, fact := range stable {
+		if completionAggregateMemberSetSupersetMerged(&out, fact) {
+			continue
+		}
 		key := completionAggregateFactIdentity(fact)
 		if key != "" && seen[key] {
 			continue
@@ -1416,6 +1419,112 @@ func mergeCompletionAggregateFacts(current, stable []types.AnswerAggregateFact) 
 
 func completionAggregateFactIdentity(fact types.AnswerAggregateFact) string {
 	return types.AnswerAggregateFactIdentity(fact)
+}
+
+func completionAggregateMemberSetSupersetMerged(out *[]types.AnswerAggregateFact, stable types.AnswerAggregateFact) bool {
+	if out == nil || !completionAggregateFactCarriesMemberSet(stable) {
+		return false
+	}
+	stableKey := completionAggregateMemberSetMergeKey(stable)
+	if stableKey == "" {
+		return false
+	}
+	for i := range *out {
+		current := (*out)[i]
+		if !completionAggregateFactCarriesMemberSet(current) ||
+			completionAggregateMemberSetMergeKey(current) != stableKey {
+			continue
+		}
+		switch {
+		case completionAggregateMembersCover(current.Members, stable.Members):
+			return true
+		case completionAggregateMembersCover(stable.Members, current.Members):
+			cloned := cloneCompletionAggregateFacts([]types.AnswerAggregateFact{stable})
+			if len(cloned) > 0 {
+				(*out)[i] = cloned[0]
+			}
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func completionAggregateFactCarriesMemberSet(fact types.AnswerAggregateFact) bool {
+	return fact.Kind == types.AnswerAggregateMemberSet && len(fact.Members) > 0
+}
+
+func completionAggregateMemberSetMergeKey(fact types.AnswerAggregateFact) string {
+	label := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(fact.Label)), " "))
+	if label == "" {
+		return ""
+	}
+	var dims []string
+	for _, dim := range fact.Dimensions {
+		name := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(dim.Name)), " "))
+		value := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(dim.Value)), " "))
+		if name == "" && value == "" {
+			continue
+		}
+		dims = append(dims, name+"="+value)
+	}
+	sort.Strings(dims)
+	unit := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(fact.Unit)), " "))
+	return string(fact.Kind) + "\x00" + label + "\x00" + unit + "\x00" + strings.Join(dims, "\x00")
+}
+
+func completionAggregateMembersCover(have []string, want []string) bool {
+	if len(have) == 0 || len(want) == 0 || len(have) < len(want) {
+		return false
+	}
+	haveSet := make(map[string]bool, len(have)*2)
+	for _, member := range have {
+		for _, key := range completionAggregateMemberKeys(member) {
+			haveSet[key] = true
+		}
+	}
+	for _, member := range want {
+		matched := false
+		for _, key := range completionAggregateMemberKeys(member) {
+			if haveSet[key] {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+func completionAggregateMemberKeys(member string) []string {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(candidate string) {
+		candidate = strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(candidate)), " "))
+		if candidate == "" || seen[candidate] {
+			return
+		}
+		seen[candidate] = true
+		out = append(out, candidate)
+	}
+	add(member)
+	for _, candidate := range types.AnswerAggregateMemberDisplayCandidates(member) {
+		add(candidate)
+	}
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		add(label)
+		for _, candidate := range types.AnswerAggregateMemberDisplayCandidates(label) {
+			add(candidate)
+		}
+	}
+	return out
 }
 
 func repoGroundingBypassLabel(ctx *types.BusContext) (string, bool) {

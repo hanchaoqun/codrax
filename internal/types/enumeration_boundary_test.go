@@ -27,6 +27,34 @@ func TestNormalizeRequestedEnumerationBoundary_AcceptsLLMEmitWithVerbatimQuote(t
 	}
 }
 
+func TestNormalizeRequestedEnumerationBoundary_RejectsQuoteWithoutDeclaredCount(t *testing.T) {
+	raw := "列出 internal/analysis 下所有子包及各自入口点"
+	in := &RequestedEnumerationBoundary{DeclaredCount: 26, SourceQuote: "所有子包"}
+	if got := NormalizeRequestedEnumerationBoundary(raw, in); got != nil {
+		t.Errorf("quote without explicit numeric count must be rejected; got %+v", got)
+	}
+}
+
+func TestNormalizeRequestedEnumerationBoundary_RejectsEmbeddedDifferentCount(t *testing.T) {
+	raw := "list all 13 checks performed by gate.Run"
+	in := &RequestedEnumerationBoundary{DeclaredCount: 3, SourceQuote: "13 checks"}
+	if got := NormalizeRequestedEnumerationBoundary(raw, in); got != nil {
+		t.Errorf("embedded different count must be rejected; got %+v", got)
+	}
+}
+
+func TestNormalizeRequestedEnumerationBoundary_AcceptsLeadingZeroCountToken(t *testing.T) {
+	raw := "list all 07 checks performed by gate.Run"
+	in := &RequestedEnumerationBoundary{DeclaredCount: 7, SourceQuote: "07 checks"}
+	got := NormalizeRequestedEnumerationBoundary(raw, in)
+	if got == nil {
+		t.Fatal("expected normalized boundary for leading-zero count token; got nil")
+	}
+	if got.DeclaredCount != 7 || got.SourceQuote != "07 checks" {
+		t.Errorf("unexpected normalized boundary: %+v", got)
+	}
+}
+
 func TestNormalizeRequestedEnumerationBoundary_RejectsFabricatedQuote(t *testing.T) {
 	raw := "describe the architecture of the system"
 	in := &RequestedEnumerationBoundary{DeclaredCount: 9, SourceQuote: "9 layers"}

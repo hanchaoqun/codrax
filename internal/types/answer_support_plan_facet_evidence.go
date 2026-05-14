@@ -173,6 +173,14 @@ func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, membe
 	if !hasEvidence && location != "" {
 		ev, hasEvidence = aggregateMemberEvidenceByLocationAndText(member, source, line, supportEvidence)
 	}
+	if hasEvidence && location != "" && line > 0 &&
+		ev.LineStart == line &&
+		aggregateSupportRefPathCorresponds(ev.Source, source) &&
+		aggregateSupportRefMoreSpecific(ev.Source, source) {
+		source = strings.TrimSpace(strings.ReplaceAll(ev.Source, `\`, `/`))
+		line = ev.LineStart
+		location = aggregateMemberStartLocation(AnswerSourceLocationSurface{File: source, LineStart: line})
+	}
 	displayMember := member
 	if label, _, ok := aggregateSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
 		displayMember = strings.TrimSpace(label)
@@ -272,6 +280,11 @@ func genericAggregateSupportEvidenceByMemberLabel(items []EvidenceItem) *aggrega
 func aggregateMemberEvidenceByLabel(member string, support *aggregateMemberEvidenceIndex) (EvidenceItem, bool) {
 	if support == nil || len(support.items) == 0 {
 		return EvidenceItem{}, false
+	}
+	if label, _, ok := aggregateSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		if ev, found := aggregateMemberEvidenceByLabel(label, support); found {
+			return ev, true
+		}
 	}
 	if left, right, ok := AnswerAggregateMemberRelationParts(member); ok {
 		return aggregateRelationMemberEvidence(left, right, support.items)

@@ -31,8 +31,8 @@ import (
 // What survived the cleanup:
 //   - RequestedEnumerationBoundary struct (typed payload)
 //   - NormalizeRequestedEnumerationBoundary (typed validation:
-//     verifies LLM-emitted SourceQuote is verbatim in RawRequest;
-//     no regex, no keywords)
+//     verifies LLM-emitted SourceQuote is verbatim in RawRequest and
+//     carries the declared decimal count; no regex, no keywords)
 //   - RequestedEnumerationBoundaryOwner (entity-based check via
 //     MentionedEntitiesFromRawRequest; used by step backbone
 //     enrichment in answer_surface_plan.go and the boundary-scope
@@ -44,7 +44,9 @@ import (
 // questions like "the 7 checks", "the first 3 handlers", or "top 5
 // stages". The LLM emits the boundary at analyze time; the system
 // validates SourceQuote against the current RawRequest before any
-// downstream stage consumes it.
+// downstream stage consumes it. The same quote must carry the explicit
+// decimal count; "all/every" style requests without a number are
+// modeled by CompletenessObligation instead.
 //
 // The boundary is intentionally narrow:
 //   - it is request-grounded (SourceQuote must come from RawRequest)
@@ -68,6 +70,9 @@ func NormalizeRequestedEnumerationBoundary(raw string, in *RequestedEnumerationB
 		return nil
 	}
 	if !requestedEnumerationQuotePresent(raw, quote) {
+		return nil
+	}
+	if !requestedEnumerationQuoteCarriesDeclaredCount(quote, in.DeclaredCount) {
 		return nil
 	}
 	return &RequestedEnumerationBoundary{
@@ -99,6 +104,35 @@ func foldEnumerationBoundarySurface(s string) string {
 		return ""
 	}
 	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+}
+
+func requestedEnumerationQuoteCarriesDeclaredCount(quote string, declared int) bool {
+	if declared <= 0 {
+		return false
+	}
+	want := strconv.Itoa(declared)
+	for i := 0; i < len(quote); {
+		if quote[i] < '0' || quote[i] > '9' {
+			i++
+			continue
+		}
+		start := i
+		for i < len(quote) && quote[i] >= '0' && quote[i] <= '9' {
+			i++
+		}
+		digits := quote[start:i]
+		if digits == want {
+			return true
+		}
+		trimmed := strings.TrimLeft(digits, "0")
+		if trimmed == "" {
+			trimmed = "0"
+		}
+		if trimmed == want {
+			return true
+		}
+	}
+	return false
 }
 
 // EnumerationBoundaryCountString returns the decimal count string used

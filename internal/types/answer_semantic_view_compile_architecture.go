@@ -86,7 +86,11 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 			FacetIDs: []string{string(FacetComponentRelation), string(FacetCurrentCodePath)},
 			Rationale: "When the architecture question is really about an ordered pipeline, " +
 				"dispatch path, or handoff between components, preserve the grounded sequence " +
-				"as an ordered list instead of compressing it into prose.",
+				"as an ordered list instead of compressing it into prose. Each item is a " +
+				"stage/step row: the label names the stage, and the text states the " +
+				"responsibility plus input/output or handoff. Do not list only names, files, " +
+				"agents, or enum bindings; the terminal/output stage must say what it renders, " +
+				"emits, returns, persists, or hands to the user.",
 		},
 		optionalCaveatBlock(
 			"When some components are mentioned by convention only (no on-disk file), or when "+
