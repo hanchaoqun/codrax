@@ -3,6 +3,9 @@ package cmd
 import (
 	"reflect"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func TestNormalizeCompatArgs_RewritesLegacySingleDashLongFlags(t *testing.T) {
@@ -39,5 +42,28 @@ func TestNormalizeCompatArgs_StopsRewritingAfterDoubleDash(t *testing.T) {
 	want := []string{"--repo", ".", "--", "-request", "literal"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("double-dash stop mismatch:\n  got:  %#v\n  want: %#v", got, want)
+	}
+}
+
+func TestLoopPolicyFromAgentSettingsPreservesQuotaBurnGuards(t *testing.T) {
+	settings := types.DefaultAgentSettings()
+	settings.LoopMinInjectInterval = 1
+	settings.LoopMaxContinuations = 2
+	settings.LoopMaxMidLoopInjects = 3
+	settings.LoopIdleStopThreshold = 4
+
+	got := loopPolicyFromAgentSettings(settings)
+	defaults := agent.DefaultLoopPolicy()
+	if got.MinInjectInterval != 1 ||
+		got.MaxContinuations != 2 ||
+		got.MaxMidLoopInjects != 3 ||
+		got.IdleStopThreshold != 4 {
+		t.Fatalf("settings-backed loop fields not applied: %+v", got)
+	}
+	if got.IdenticalToolCallAfterSuccessStreak != defaults.IdenticalToolCallAfterSuccessStreak ||
+		got.IdenticalToolCallAfterFailureStreak != defaults.IdenticalToolCallAfterFailureStreak ||
+		got.IdenticalErrorStreak != defaults.IdenticalErrorStreak ||
+		got.MaxPerKeyInjects != defaults.MaxPerKeyInjects {
+		t.Fatalf("quota-burn guards should inherit DefaultLoopPolicy values, got %+v defaults %+v", got, defaults)
 	}
 }

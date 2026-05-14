@@ -2781,12 +2781,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		ExploreHeuristics:      pipelineSettings.Explore.Heuristics,
 		AgentSettings:          agentCfg,
 		ToolParamCompatByAgent: toolParamCompatByAgent,
-		LoopPolicy: agent.LoopPolicy{
-			MinInjectInterval: agentCfg.LoopMinInjectInterval,
-			MaxContinuations:  agentCfg.LoopMaxContinuations,
-			MaxMidLoopInjects: agentCfg.LoopMaxMidLoopInjects,
-			IdleStopThreshold: agentCfg.LoopIdleStopThreshold,
-		},
+		LoopPolicy:             loopPolicyFromAgentSettings(agentCfg),
 	}
 
 	agent.RegisterDefaultSubAgents(subAgentRegistry, deps)
@@ -3472,6 +3467,15 @@ func resolveToolParamCompatByAgent(cfg *types.ProvidersConfig) (map[types.AgentN
 		return nil, nil
 	}
 	return out, nil
+}
+
+func loopPolicyFromAgentSettings(settings types.AgentSettings) agent.LoopPolicy {
+	policy := agent.DefaultLoopPolicy()
+	policy.MinInjectInterval = settings.LoopMinInjectInterval
+	policy.MaxContinuations = settings.LoopMaxContinuations
+	policy.MaxMidLoopInjects = settings.LoopMaxMidLoopInjects
+	policy.IdleStopThreshold = settings.LoopIdleStopThreshold
+	return policy
 }
 
 // placeholderAdapter is a minimal LLM adapter for testing the pipeline structure.
