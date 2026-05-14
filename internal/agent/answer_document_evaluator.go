@@ -33,6 +33,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -5786,6 +5787,13 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 			break
 		}
 	}
+	if rec, ok := tool.RecoverAnswerDocumentV2FromText(lastContent); ok && rec.Document != nil {
+		if out, rendered := e.parseRecoveredContentAnswerDocument(ctx, rec, out); rendered {
+			logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; recovered %s from assistant content (lossless=%v blocks=%d attachments=%d)",
+				rec.Mode, rec.Lossless, len(rec.Document.Blocks), len(rec.Attachments))
+			return out, nil
+		}
+	}
 	warning := "· answer_document emission missing — the answer-rendering pass could not " +
 		"produce a structured answer. The text below is the raw LLM response; no " +
 		"schema-level validation ran on it."
@@ -5814,6 +5822,45 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: combined})
 	out.FinalAnswer = combined
 	return out, nil
+}
+
+func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
+	ctx *types.AgentContext,
+	rec tool.AnswerDocumentTextRecovery,
+	out *StageOutput,
+) (*StageOutput, bool) {
+	doc := rec.Document
+	if doc == nil {
+		return out, false
+	}
+	if ctx != nil {
+		render.ApplyAuthorityHedging(doc, answerDocumentAuthorityEvidencePool(ctx), e.language)
+	}
+	doc.Caveats = append(doc.Caveats, recoveredAnswerDocumentCaveat(e.language, rec))
+	attachments := append([]types.AnswerDisplayAttachment(nil), rec.Attachments...)
+	if ctx != nil && ctx.Mutable != nil {
+		attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
+	}
+	prose := render.RenderAnswerDocumentWithAttachments(doc, attachments, e.language)
+	if strings.TrimSpace(prose) == "" {
+		return out, false
+	}
+	out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: prose})
+	out.FinalAnswer = prose
+	return out, true
+}
+
+func recoveredAnswerDocumentCaveat(lang string, rec tool.AnswerDocumentTextRecovery) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
+		if rec.Lossless {
+			return "Recovered this answer from answer_document JSON that the model wrote as text instead of executing as a tool call; full emit-time validation did not run."
+		}
+		return "Recovered the visible answer blocks from answer_document JSON that the model wrote as text instead of executing as a tool call; some non-visible schema annotations may have been ignored."
+	}
+	if rec.Lossless {
+		return "已从模型写在文本中的 answer_document JSON 恢复本答案；模型未执行工具调用，因此未运行完整的 emit 阶段校验。"
+	}
+	return "已从模型写在文本中的 answer_document JSON 提取可见答案块；模型未执行工具调用，部分非可见结构化标注可能已被忽略。"
 }
 
 func marshalStageData(payload answerDocumentStageData) json.RawMessage {

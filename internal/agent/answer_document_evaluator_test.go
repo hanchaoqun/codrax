@@ -4079,6 +4079,60 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_FailLoud(t *testing.T) {
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RecoversAnswerDocumentJSONContent(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(""),
+	}
+	messages := []llm.Message{{
+		Role: "assistant",
+		Content: `{
+  "blocks": [
+    {
+      "id": "summary",
+      "kind": "summary",
+      "surface_role": "principal",
+      "text": "## 系统架构概述\n\n可见答案应从 block text 渲染，而不是展示原始 JSON。"
+    },
+    {
+      "id": "diagram",
+      "kind": "diagram",
+      "diagram": {
+        "kind": "sequence",
+        "language": "mermaid",
+        "body": "sequenceDiagram\nUser->>System: ask"
+      }
+    }
+  ],
+  "citations": [
+    {"file": "internal/agent/agent.go", "line": 859}
+  ]
+}`,
+	}}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "answer_document emission missing") {
+		t.Fatalf("recovered answer should not use raw-content missing-doc banner: %q", out.FinalAnswer)
+	}
+	if strings.Contains(out.FinalAnswer, `"blocks"`) || strings.Contains(out.FinalAnswer, `"citations"`) {
+		t.Fatalf("recovered answer leaked raw JSON: %q", out.FinalAnswer)
+	}
+	for _, want := range []string{
+		"系统架构概述",
+		"可见答案应从 block text 渲染",
+		"```mermaid",
+		"sequenceDiagram",
+		"internal/agent/agent.go:859",
+		"已从模型写在文本中的 answer_document JSON 恢复本答案",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("recovered answer missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_SanitizesFallback(t *testing.T) {
 	ctx := &types.AgentContext{
 		Mutable: types.NewMutableState(""),
