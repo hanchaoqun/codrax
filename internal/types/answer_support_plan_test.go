@@ -215,7 +215,7 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactFiltersPrincipalFram
 	}
 	for _, want := range []string{
 		`runtime cause chain: upstream panic("index out of bounds: index=5, size=3") is wrapped / re-raised as top-level Error("Cangjie native call failed: index out of bounds")`,
-		`structured runtime error message "Cangjie native call failed: index out of bounds"`,
+		`structured runtime error message: Cangjie native call failed: index out of bounds`,
 		`runtime artifact identifies error head stack frame "NativeBridge.invokeOhSum"`,
 		`runtime artifact identifies error head stack frame "demo.bridge.ohSum"`,
 	} {
@@ -230,6 +230,41 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactFiltersPrincipalFram
 	}
 	if !strings.Contains(observed.Guidance, "only frame entries listed in this lane are principal-safe") {
 		t.Fatalf("focused observed lane should warn about support-only frames, got: %q", observed.Guidance)
+	}
+}
+
+func TestBuildAnswerSupportPlan_ObservedArtifactRuntimeMessageKeepsVisibleQuotes(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		RuntimeGroundingDisposition: &RuntimeGroundingDisposition{
+			Source:         RuntimeGroundingSystemDetected,
+			Reason:         EvidenceFloorWaiverExternalLog,
+			CitationPolicy: RuntimeGroundingCitationRuntimeObservation,
+		},
+		ExternalObservationSeeds: []ExternalObservationSeed{
+			{Kind: "error_message", Raw: `Cannot invoke "User.getId()" because "user" is null`},
+		},
+	}
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent:    IntentRootCause,
+		LogTriage: &LogBundle{Errors: []LogError{{Type: "java.lang.NullPointerException"}}},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	var joined string
+	for _, lane := range got.Lanes {
+		if lane.Kind != SupportLaneObservedArtifact {
+			continue
+		}
+		for _, entry := range lane.Entries {
+			joined += entry.Text + "\n"
+		}
+	}
+	if !strings.Contains(joined, `structured runtime error message: Cannot invoke "User.getId()" because "user" is null`) {
+		t.Fatalf("runtime message should render as visible user text, got:\n%s", joined)
+	}
+	if strings.Contains(joined, `\"User.getId()\"`) {
+		t.Fatalf("support lane must not teach serialized quote syntax, got:\n%s", joined)
 	}
 }
 
@@ -278,7 +313,7 @@ func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactKeepsRepresentativeF
 	}
 	for _, want := range []string{
 		`runtime cause chain: upstream KeyError("KeyError: 'database'") is wrapped / re-raised as top-level RuntimeError("config unavailable")`,
-		`structured runtime error message "config unavailable"`,
+		`structured runtime error message: config unavailable`,
 		`traceback frame "load"`,
 		`traceback frame "load_config"`,
 	} {

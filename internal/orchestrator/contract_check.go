@@ -536,6 +536,14 @@ func runtimeTypeBoundary(s string, idx int) bool {
 }
 
 func normalizeRuntimeMessageLiteral(s string) string {
+	s = strings.NewReplacer(
+		`\\"`, `"`,
+		`\"`, `"`,
+		`\\'`, `'`,
+		`\'`, `'`,
+		"&quot;", `"`,
+		"&#34;", `"`,
+	).Replace(s)
 	return strings.Join(strings.Fields(s), " ")
 }
 

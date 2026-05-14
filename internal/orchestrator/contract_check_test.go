@@ -191,6 +191,32 @@ func TestRunLogErrorMessageLiteralCheck_DiagnosticRequiresExactRuntimeMessage(t 
 	}
 }
 
+func TestRunLogErrorMessageLiteralCheck_AcceptsSerializedQuoteSurface(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "java.lang.NullPointerException",
+			Message: `Cannot invoke "User.getId()" because "user" is null`,
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentRootCause,
+				Predicates: types.SemanticPredicates{
+					IsDiagnosticQuestion: true,
+				},
+			},
+		},
+	}
+
+	got := runLogErrorMessageLiteralCheck(ctx, `错误消息为 "Cannot invoke \"User.getId()\" because \"user\" is null"`)
+	if len(got) != 0 {
+		t.Fatalf("JSON-escaped quote surface should satisfy the same typed runtime message, got %+v", got)
+	}
+}
+
 func TestRunLogErrorMessageLiteralCheck_NonDiagnosticTreatsMessageAsSoftContext(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetLogTriage(&types.LogBundle{
