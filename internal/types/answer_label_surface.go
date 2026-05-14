@@ -137,7 +137,14 @@ func ParseAnswerSupportRefMemberLocation(raw string) (label string, location Ans
 	}
 	if strings.HasSuffix(raw, ")") {
 		if idx := strings.LastIndex(raw, "("); idx > 0 {
-			if surface, parsed := ParseAnswerSourceLocationSurface(strings.TrimSpace(raw[idx+1 : len(raw)-1])); parsed {
+			label := strings.TrimSpace(raw[:idx])
+			inner := strings.TrimSpace(raw[idx+1 : len(raw)-1])
+			if strings.HasPrefix(strings.ToLower(inner), "via ") {
+				if _, surface, parsed := ParseAnswerSupportRefMemberLocation(strings.TrimSpace(inner[4:])); parsed {
+					return label, surface, true
+				}
+			}
+			if surface, parsed := ParseAnswerSourceLocationSurface(inner); parsed {
 				return strings.TrimSpace(raw[:idx]), surface, true
 			}
 		}

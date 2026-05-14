@@ -261,6 +261,47 @@ func TestRecoverTextToolCalls_PrunesUnknownFieldsFromRecoveredParams(t *testing.
 	}
 }
 
+func TestRecoverTextToolCalls_BareAnswerDocumentRepairsUnescapedQuotesInText(t *testing.T) {
+	content := "{\n" +
+		"\t\t\"blocks\":[{\n" +
+		"\t\t\t\"id\":\"s\",\n" +
+		"\t\t\t\"kind\":\"summary\",\n" +
+		"\t\t\t\"text\":\"SubExplorer.Name returns \"explorer\" for the registered agent\"\n" +
+		"\t\t}],\n" +
+		"\t\t\"citations\":[{\"file\":\"internal/agent/sub_explorer.go\",\"line\":31}]\n" +
+		"\t}"
+	tools := []ToolSchema{{
+		Name: "emit_answer_document",
+		Parameters: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"blocks":{"type":"array","items":{"type":"object"}},
+				"citations":{"type":"array","items":{"type":"object"}}
+			},
+			"required":["blocks"]
+		}`),
+	}}
+
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_answer_document" {
+		t.Fatalf("expected recovered emit_answer_document, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+	if got.Content != "" || got.StopReason != "tool_use" {
+		t.Fatalf("recovered response should clear content and mark tool_use, got content=%q stop=%q", got.Content, got.StopReason)
+	}
+	var params struct {
+		Blocks []struct {
+			Text string `json:"text"`
+		} `json:"blocks"`
+	}
+	if err := json.Unmarshal(got.ToolCalls[0].Params, &params); err != nil {
+		t.Fatalf("params json: %v\n%s", err, got.ToolCalls[0].Params)
+	}
+	if len(params.Blocks) != 1 || !strings.Contains(params.Blocks[0].Text, `"explorer"`) {
+		t.Fatalf("recovered text lost quoted literal: %+v", params.Blocks)
+	}
+}
+
 func TestRecoverTextToolCalls_RepairsMissingTrailingObjectCloser(t *testing.T) {
 	content := `{"name":"emit_analysis","arguments":{"entities":["recoverTextToolCalls"],"question_kind":"unknown"}`
 	got := recoverTextToolCalls(Response{Content: content}, []ToolSchema{{Name: "emit_analysis"}}, ChatOptions{})

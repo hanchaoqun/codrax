@@ -313,3 +313,26 @@ func TestEmitAnswerDocumentPatch_StringWrappedReplaceBlocks(t *testing.T) {
 		t.Errorf("repaired replace_blocks did not apply; got %+v", doc)
 	}
 }
+
+func TestEmitAnswerDocumentPatch_StringWrappedReplaceCitationsWithExtraCloser(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+		},
+		Citations: []types.Citation{{File: "old.go", Line: 1}},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"replace_citations": "[{\"file\":\"internal/agent/sub_explorer.go\",\"line\":31}]]"
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must auto-repair overclosed stringified replace_citations; got Success=false: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 1 || doc.Citations[0].File != "internal/agent/sub_explorer.go" || doc.Citations[0].Line != 31 {
+		t.Fatalf("repaired replace_citations did not apply; got %+v", doc)
+	}
+}

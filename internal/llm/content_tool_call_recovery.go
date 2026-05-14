@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/toolparam"
 )
 
 // recoverTextToolCalls is an opt-in provider-compatibility shim for small
@@ -101,6 +103,12 @@ func decodeTextToolCallJSON(content string) (any, bool) {
 		return raw, true
 	}
 	repaired, ok := repairMissingTrailingJSONClosers(content)
+	if ok {
+		if err := json.Unmarshal([]byte(repaired), &raw); err == nil {
+			return raw, true
+		}
+	}
+	repaired, ok = toolparam.RepairUnescapedQuotesInJSONStringLiterals(content)
 	if ok {
 		if err := json.Unmarshal([]byte(repaired), &raw); err == nil {
 			return raw, true

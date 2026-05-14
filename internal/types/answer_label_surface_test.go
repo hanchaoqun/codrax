@@ -51,6 +51,7 @@ func TestParseAnswerSupportRefMemberLocation_CompositeDisplays(t *testing.T) {
 		{"Ability@entry/src/main/ets/pages/Index.ets:20", "Ability", "entry/src/main/ets/pages/Index.ets", 20},
 		{"RouteHandler (src/routes/user.ts:42)", "RouteHandler", "src/routes/user.ts", 42},
 		{"ParserObserver@src/parser/observer.cpp:73", "ParserObserver", "src/parser/observer.cpp", 73},
+		{"explorer (via SubExplorer.Name @ internal/agent/sub_explorer.go:31)", "explorer", "internal/agent/sub_explorer.go", 31},
 	}
 	for _, tc := range cases {
 		label, loc, ok := ParseAnswerSupportRefMemberLocation(tc.raw)

@@ -283,6 +283,16 @@ func TestAnswerAggregateMemberDisplayCandidates_CompactSourceSupportRef(t *testi
 	}
 }
 
+func TestAnswerAggregateMemberDisplayCandidates_ViaSourceSupportRef(t *testing.T) {
+	candidates := AnswerAggregateMemberDisplayCandidates("explorer (via SubExplorer.Name @ internal/agent/sub_explorer.go:31)")
+	if !stringSliceContains(candidates, "explorer") {
+		t.Fatalf("via support-ref member should expose its principal label for downstream display, got %+v", candidates)
+	}
+	if !stringSliceContains(candidates, "explorer (via SubExplorer.Name @ internal/agent/sub_explorer.go:31)") {
+		t.Fatalf("via support-ref member should preserve the model-authored surface, got %+v", candidates)
+	}
+}
+
 func TestAnswerAggregateMemberRelationParts_CompactDotAcrossSupportedLanguages(t *testing.T) {
 	samples := map[string]string{
 		repotypes.LangGo:         "compiler.Compile",

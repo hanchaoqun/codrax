@@ -102,6 +102,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		raw = repaired
 		recovery = report
 	}
+	if repaired, fields, ok := repairStringWrappedArrayFields(raw); ok {
+		logging.Warning("[emit_answer_document] top-level arrays arrived as JSON-encoded strings (fields: %s); re-parsed via flat-mode tolerance path",
+			strings.Join(fields, ", "))
+		raw = repaired
+	}
 	if repaired, paths, ok := repairNestedArraysAsString(raw); ok {
 		logging.Warning("[emit_answer_document] nested arrays arrived as JSON-encoded strings (paths: %s); re-parsed via flat-mode tolerance path",
 			strings.Join(paths, ", "))
@@ -1314,6 +1319,21 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 			repaired = append(repaired, key)
 			continue
 		}
+		// Path A2: direct array decode after trimming redundant
+		// trailing JSON closers. Some local models produce a valid
+		// stringified array followed by an extra ']' or '}' while the
+		// outer tool-call JSON remains valid, e.g.
+		// `"replace_citations":"[{...}]]"`. Only accept this when
+		// the suffix after the first balanced array contains closers
+		// and whitespace exclusively; comma-led whole-document
+		// stringify remains Path B below.
+		if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(trimmed); ok {
+			if err := json.Unmarshal([]byte(trimmedArray), &inner); err == nil {
+				probe[key] = mustMarshal(inner)
+				repaired = append(repaired, key)
+				continue
+			}
+		}
 		// Path B: whole-document stringify — the LLM put MULTIPLE
 		// top-level fields inside this string value (typical when
 		// the blocks array is followed by replace_citations / etc
@@ -1334,6 +1354,13 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 				probe[key] = mustMarshal(inner)
 				repaired = append(repaired, key)
 				continue
+			}
+			if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(normalised); ok {
+				if err := json.Unmarshal([]byte(trimmedArray), &inner); err == nil {
+					probe[key] = mustMarshal(inner)
+					repaired = append(repaired, key)
+					continue
+				}
 			}
 			if patched, ok := mergeWholeDocStringifyVariants(probe, key, normalised); ok {
 				probe = patched
@@ -1357,6 +1384,27 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 		return patched, []string{"<outer-normalisation>"}, true
 	}
 	return patched, repaired, true
+}
+
+func trimRedundantTrailingClosersAfterJSONArray(s string) (string, bool) {
+	trimmed := strings.TrimSpace(s)
+	if !strings.HasPrefix(trimmed, "[") {
+		return "", false
+	}
+	end := findMatchingJSONClose(trimmed, 0, '[', ']')
+	if end < 0 || end == len(trimmed)-1 {
+		return "", false
+	}
+	suffix := strings.TrimSpace(trimmed[end+1:])
+	if suffix == "" {
+		return "", false
+	}
+	for _, r := range suffix {
+		if r != ']' && r != '}' {
+			return "", false
+		}
+	}
+	return strings.TrimSpace(trimmed[:end+1]), true
 }
 
 func mergeWholeDocStringifyVariants(probe map[string]json.RawMessage, key, trimmed string) (map[string]json.RawMessage, bool) {

@@ -466,6 +466,14 @@ type jsonContainerState struct {
 	expect jsonContainerExpect
 }
 
+// RepairUnescapedQuotesInJSONStringLiterals repairs a narrow local-model
+// artifact where JSON-shaped content contains unescaped quote bytes inside
+// string values. The returned string is only a candidate; callers must parse it
+// before accepting it.
+func RepairUnescapedQuotesInJSONStringLiterals(s string) (string, bool) {
+	return repairUnescapedQuotesInJSONStringLiterals(s)
+}
+
 // repairUnescapedQuotesInJSONStringLiterals handles a common local-model
 // artefact inside string-wrapped JSON payloads:
 //

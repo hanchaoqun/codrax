@@ -398,6 +398,49 @@ func TestEmitAnswerDocumentV2_FlatModeBlocksAsString(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_FlatModeTopLevelCitationsAsString(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	flat := json.RawMessage(`{
+		"blocks": [{"id":"b1","kind":"summary","text":"Hello"}],
+		"citations": "[{\"file\":\"internal/agent/sub_explorer.go\",\"line\":31}]"
+	}`)
+	res, err := tool.Execute(bus, flat)
+	if err != nil {
+		t.Fatalf("flat-mode emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("top-level citations string should succeed via repair; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		t.Fatal("flat-mode repair did not write V2 carrier")
+	}
+	if len(doc.Citations) != 1 || doc.Citations[0].File != "internal/agent/sub_explorer.go" || doc.Citations[0].Line != 31 {
+		t.Fatalf("citations did not deserialise from JSON string: %+v", doc.Citations)
+	}
+}
+
+func TestEmitAnswerDocumentV2_FlatModeTopLevelCitationsStringWithExtraCloser(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	flat := json.RawMessage(`{
+		"blocks": [{"id":"b1","kind":"summary","text":"Hello"}],
+		"citations": "[{\"file\":\"internal/agent/sub_explorer.go\",\"line\":31}]]"
+	}`)
+	res, err := tool.Execute(bus, flat)
+	if err != nil {
+		t.Fatalf("flat-mode emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("overclosed top-level citations string should succeed via repair; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 1 || doc.Citations[0].Line != 31 {
+		t.Fatalf("citations did not deserialise from overclosed JSON string: %+v", doc)
+	}
+}
+
 // TestRepairBlocksAsString_NoTrigger pins the negative cases — the
 // repair must NOT fire when blocks is already an array, when the
 // embedded string is not a JSON array, or when blocks is absent.
