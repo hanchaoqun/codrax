@@ -2013,6 +2013,125 @@ func TestEmitAnalysis_Execute_PersistsChangeImpactProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_PersistsFieldValueProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("本仓库里，把 CitationReq.Required 设置为 false 的生产代码位点一共有几处？")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["CitationReq", "Required"],
+		"entities": ["CitationReq.Required"],
+		"question_kind": "return_value",
+		"answer_subject": {
+			"kind": "numeric",
+			"entity_axes": ["field literal count"],
+			"confidence": 0.91
+		},
+		"intent_confidence": 0.93,
+		"complexity_confidence": 0.76,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": true,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"field_value_profile": {
+			"is_field_value_lookup": true,
+			"target": "CitationReq.Required",
+			"literal": "false",
+			"literal_kind": "bool",
+			"source_quote": "CitationReq.Required 设置为 false",
+			"confidence": 0.96,
+			"rationale": "current request asks for production-site count under this field literal"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "field_value=CitationReq.Required=false") {
+		t.Fatalf("summary should surface typed field/value lane, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.FieldValueProfile == nil || !rm.FieldValueProfile.Active() {
+		t.Fatalf("FieldValueProfile not persisted: %+v", rm)
+	}
+	profile := rm.FieldValueProfile
+	if profile.Owner != "CitationReq" ||
+		profile.Field != "Required" ||
+		profile.Literal != "false" ||
+		profile.LiteralKind != types.FieldValueLiteralBool {
+		t.Fatalf("FieldValueProfile fields wrong: %+v", profile)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsUngroundedFieldValueProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("Foo.timeout = 30 的生产代码位点有几处？")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["Foo", "timeout"],
+		"entities": ["Foo.timeout"],
+		"question_kind": "return_value",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": true,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"field_value_profile": {
+			"is_field_value_lookup": true,
+			"target": "Foo.timeout",
+			"literal": "30",
+			"literal_kind": "number",
+			"source_quote": "Foo.timeout = 60",
+			"confidence": 0.96
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatalf("Execute should reject ungrounded field_value_profile, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "field_value_profile.source_quote") {
+		t.Fatalf("rejection should name field_value_profile.source_quote, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

@@ -587,9 +587,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("- any typed output artifact, plan, IR, report, verdict, state transition, or handoff product it produces/consumes when the source line or doc comment names one.\n")
 			b.WriteString("Use `surface_terms` for exact artifact labels visible in the read lines, and set `load_bearing_summary=true` only when the role/output wording cannot be reconstructed from subject/object/anchor/snippet alone. These role/output facts enrich sections; they do not create extra architectural layers unless the boundary evidence also makes them principal.\n\n")
 		}
-		if (rm.Predicates.IsCountQuestion || rm.Predicates.IsScalarAnswer) && requestModelHasFieldValueLookupSurface(rm) {
+		if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
 			b.WriteString("### Field/Value Count Discipline\n\n")
-			b.WriteString("This request asks for a scalar/count about a specific field being set to a literal value. Search every syntax family that can express the same assignment before closing:\n")
+			fmt.Fprintf(&b, "This request asks for a scalar/count about `%s = %s`. Search every syntax family that can express the same assignment before closing:\n",
+				rm.FieldValueProfile.Target, rm.FieldValueProfile.Literal)
 			b.WriteString("- Full selector/member writes, such as `Owner.Field = value` or `object.Owner.Field = value`.\n")
 			b.WriteString("- Aggregate/object/named-argument literals, such as `Owner{Field: value}`, `Owner: { Field: value }`, `Field = value`, and C/C++ designated initializers like `.field = value` when the nearby initializer owner is the requested type/member.\n")
 			b.WriteString("- Keep the owner context and the leaf field/value surface together when filtering matches. A bare leaf field in an unrelated owner is context, not a principal hit.\n")
@@ -13951,41 +13952,6 @@ func requestModelFromContext(ctx *types.AgentContext) *types.RequestModel {
 		return ctx.Mutable.RequestModel()
 	}
 	return nil
-}
-
-func requestModelHasFieldValueLookupSurface(rm types.RequestModel) bool {
-	hasDottedEntity := false
-	for _, group := range [][]string{
-		rm.AnalyzerHints.ExactTargets,
-		rm.AnalyzerHints.MentionedEntities,
-		rm.AnalyzerHints.PrimaryEntities,
-		rm.AnalyzerHints.Entities,
-		{rm.RawRequest},
-	} {
-		for _, value := range group {
-			value = strings.TrimSpace(value)
-			if value == "" || strings.ContainsAny(value, `/\`) {
-				continue
-			}
-			if strings.Count(value, ".") >= 1 {
-				hasDottedEntity = true
-				break
-			}
-		}
-		if hasDottedEntity {
-			break
-		}
-	}
-	if !hasDottedEntity {
-		return false
-	}
-	lower := strings.ToLower(" " + rm.RawRequest + " " + strings.Join(rm.AnalyzerHints.Keywords, " ") + " " + strings.Join(rm.AnalyzerHints.Entities, " ") + " ")
-	for _, lit := range []string{" false ", " true ", " nil ", " null ", " undefined "} {
-		if strings.Contains(lower, lit) {
-			return true
-		}
-	}
-	return false
 }
 
 func hasStructuredRequestModel(ctx *types.AgentContext, rm *types.RequestModel) bool {

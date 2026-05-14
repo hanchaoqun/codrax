@@ -301,3 +301,46 @@ func TestEmitAnalysisSchemaIncludesSourceScopeProfile(t *testing.T) {
 		t.Fatalf("source_scope_profile.requested_scope enum = %v, want %v", prop.Properties["requested_scope"].Enum, wantEnum)
 	}
 }
+
+func TestEmitAnalysisSchemaIncludesFieldValueProfile(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	raw := (&EmitAnalysis{}).Parameters()
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v\nraw=%s", err, string(raw))
+	}
+	propRaw, ok := parsed.Properties["field_value_profile"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing property \"field_value_profile\"")
+	}
+	var prop struct {
+		Properties map[string]struct {
+			Type string   `json:"type"`
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatalf("field_value_profile property is not valid JSON schema: %v\nraw=%s", err, string(propRaw))
+	}
+	for _, want := range []string{"is_field_value_lookup", "confidence"} {
+		found := false
+		for _, field := range prop.Required {
+			if field == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("field_value_profile.required = %v, want %s included", prop.Required, want)
+		}
+	}
+	var wantEnum []string
+	for _, kind := range types.AllFieldValueLiteralKinds() {
+		wantEnum = append(wantEnum, string(kind))
+	}
+	if !reflect.DeepEqual(prop.Properties["literal_kind"].Enum, wantEnum) {
+		t.Fatalf("field_value_profile.literal_kind enum = %v, want %v", prop.Properties["literal_kind"].Enum, wantEnum)
+	}
+}

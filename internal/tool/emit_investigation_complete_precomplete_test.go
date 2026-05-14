@@ -196,6 +196,16 @@ CitationReq.Required = false
 					Entities: []string{"CitationReq.Required"},
 					Keywords: []string{"false"},
 				},
+				FieldValueProfile: &types.FieldValueLookupProfile{
+					IsFieldValueLookup: true,
+					Target:             "CitationReq.Required",
+					Owner:              "CitationReq",
+					Field:              "Required",
+					Literal:            "false",
+					LiteralKind:        types.FieldValueLiteralBool,
+					SourceQuote:        "CitationReq.Required 设置为 false",
+					Confidence:         0.96,
+				},
 			},
 			AnswerContract: types.AnswerContract{
 				CitationReq: types.CitationReq{Required: false},
@@ -1059,8 +1069,16 @@ func TestFieldValueCountTargetFromContext_DoesNotTreatUnrelatedCountAsValueLiter
 		t.Fatalf("unrelated count should not become a field/value target: %+v", target)
 	}
 
-	ctx.AnalysisIR.RequestModel.RawRequest = "Foo.timeout = 30 的生产代码位点有几处？"
-	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Foo.timeout"}
+	ctx.AnalysisIR.RequestModel.FieldValueProfile = &types.FieldValueLookupProfile{
+		IsFieldValueLookup: true,
+		Target:             "Foo.timeout",
+		Owner:              "Foo",
+		Field:              "timeout",
+		Literal:            "30",
+		LiteralKind:        types.FieldValueLiteralNumber,
+		SourceQuote:        "Foo.timeout = 30",
+		Confidence:         0.95,
+	}
 	target, ok := fieldValueCountTargetFromContext(ctx)
 	if !ok {
 		t.Fatal("code-adjacent numeric literal should become a field/value target")

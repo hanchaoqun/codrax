@@ -73,6 +73,7 @@ type emitAnalysisParams struct {
 	ConversationReferenceProfile *emitConversationReferenceProfileParam `json:"conversation_reference_profile,omitempty"`
 	SourceScopeProfile           *emitSourceScopeProfileParam           `json:"source_scope_profile,omitempty"`
 	ChangeImpactProfile          *emitChangeImpactProfileParam          `json:"change_impact_profile,omitempty"`
+	FieldValueProfile            *emitFieldValueProfileParam            `json:"field_value_profile,omitempty"`
 	PredicateAxis                string                                 `json:"predicate_axis,omitempty"`
 	DiagramHint                  *emitDiagramHintParam                  `json:"diagram_hint,omitempty"`
 	EnumerationBoundary          *emitEnumerationBoundaryParam          `json:"enumeration_boundary,omitempty"`
@@ -164,6 +165,16 @@ type emitChangeImpactProfileParam struct {
 	AffectedSiteKinds []string `json:"affected_site_kinds,omitempty"`
 	Confidence        *float64 `json:"confidence"`
 	Rationale         string   `json:"rationale,omitempty"`
+}
+
+type emitFieldValueProfileParam struct {
+	IsFieldValueLookup *bool    `json:"is_field_value_lookup"`
+	Target             string   `json:"target,omitempty"`
+	Literal            string   `json:"literal,omitempty"`
+	LiteralKind        string   `json:"literal_kind,omitempty"`
+	SourceQuote        string   `json:"source_quote,omitempty"`
+	Confidence         *float64 `json:"confidence"`
+	Rationale          string   `json:"rationale,omitempty"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -389,6 +400,20 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"is_change_impact", "confidence"},
 			},
+			"field_value_profile": map[string]any{
+				"type":        "object",
+				"description": "Optional typed profile for exact field/member/config literal lookups. Use when the CURRENT request asks how many sites, which sites, or what scalar answer depends on a named target being set/equal to a specific literal value. Do not emit for unrelated counts or ordinary mechanism explanations.",
+				"properties": map[string]any{
+					"is_field_value_lookup": map[string]any{"type": "boolean", "description": "True only when the current request explicitly binds a named target to an exact literal value."},
+					"target":                map[string]any{"type": "string", "description": "The exact field/member/config surface, such as CitationReq.Required, server.port, Namespace::Option, or Owner.member."},
+					"literal":               map[string]any{"type": "string", "description": "The exact requested literal value, copied without paraphrase, such as false, nil, 30, or \"debug\"."},
+					"literal_kind":          map[string]any{"type": "string", "enum": fieldValueLiteralKindValues(), "description": "Kind of literal value."},
+					"source_quote":          map[string]any{"type": "string", "description": "Verbatim phrase from the current request that contains both target and literal, for provenance validation."},
+					"confidence":            map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this exact target/literal binding in [0,1]."},
+					"rationale":             map[string]any{"type": "string", "description": "Short audit rationale for why this is a field/member literal lookup."},
+				},
+				"required": []string{"is_field_value_lookup", "confidence"},
+			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
@@ -521,6 +546,15 @@ func impactRequestedOutputValues() []string {
 
 func impactAffectedSiteKindValues() []string {
 	values := types.AllImpactAffectedSiteKinds()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func fieldValueLiteralKindValues() []string {
+	values := types.AllFieldValueLiteralKinds()
 	out := make([]string, 0, len(values))
 	for _, v := range values {
 		out = append(out, string(v))
@@ -717,6 +751,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
+	if fieldValueErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + fieldValueErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	enumerationBoundary, enumerationBoundaryErr := parseEnumerationBoundary(raw, p.EnumerationBoundary)
 	if enumerationBoundaryErr != "" {
 		return types.ToolResult{
@@ -826,6 +869,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		ConversationReferenceProfile: conversationReferenceProfile,
 		SourceScopeProfile:           sourceScopeProfile,
 		ChangeImpactProfile:          changeImpactProfile,
+		FieldValueProfile:            fieldValueProfile,
 		PredicateAxis:                axis,
 		DiagramHint:                  diagramHint,
 		EnumerationBoundary:          enumerationBoundary,
@@ -1401,6 +1445,116 @@ func parseChangeImpactProfile(p *emitChangeImpactProfileParam) (*types.ChangeImp
 	}, ""
 }
 
+func parseFieldValueProfile(raw string, p *emitFieldValueProfileParam) (*types.FieldValueLookupProfile, string) {
+	if p == nil {
+		return nil, ""
+	}
+	var missing []string
+	if p.IsFieldValueLookup == nil {
+		missing = append(missing, "is_field_value_lookup")
+	}
+	if p.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Sprintf(
+			"field_value_profile missing required field(s): %s",
+			strings.Join(missing, ", "),
+		)
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("field_value_profile.confidence %.2f out of [0,1]", *p.Confidence)
+	}
+	if !*p.IsFieldValueLookup {
+		return nil, ""
+	}
+	target := strings.TrimSpace(p.Target)
+	literal := strings.TrimSpace(p.Literal)
+	sourceQuote := strings.TrimSpace(p.SourceQuote)
+	if target == "" {
+		return nil, "field_value_profile.target is required when is_field_value_lookup=true"
+	}
+	if literal == "" {
+		return nil, "field_value_profile.literal is required when is_field_value_lookup=true"
+	}
+	if sourceQuote == "" {
+		return nil, "field_value_profile.source_quote is required when is_field_value_lookup=true"
+	}
+	if !sourceQuotePresentInCurrentRequest(raw, sourceQuote) {
+		return nil, "field_value_profile.source_quote must be copied verbatim from the current request"
+	}
+	if !sourceQuoteContainsTargetAndLiteral(sourceQuote, target, literal) {
+		return nil, "field_value_profile.source_quote must include both target and literal"
+	}
+	full, owner, field, ok := types.ParseFieldValueTarget(target)
+	if !ok {
+		return nil, "field_value_profile.target must be an owner-qualified field/member/config surface"
+	}
+	literalKind := types.FieldValueLiteralKind(strings.TrimSpace(p.LiteralKind))
+	if !literalKind.IsValid() {
+		return nil, fmt.Sprintf(
+			"field_value_profile.literal_kind %q is invalid; use one of %s",
+			p.LiteralKind, strings.Join(fieldValueLiteralKindValues(), ", "),
+		)
+	}
+	return &types.FieldValueLookupProfile{
+		IsFieldValueLookup: true,
+		Target:             full,
+		Owner:              owner,
+		Field:              field,
+		Literal:            literal,
+		LiteralKind:        literalKind,
+		SourceQuote:        sourceQuote,
+		Confidence:         *p.Confidence,
+		Rationale:          strings.TrimSpace(p.Rationale),
+	}, ""
+}
+
+func sourceQuotePresentInCurrentRequest(raw, quote string) bool {
+	raw = strings.TrimSpace(raw)
+	quote = strings.TrimSpace(quote)
+	return raw != "" && quote != "" && strings.Contains(raw, quote)
+}
+
+func sourceQuoteContainsTargetAndLiteral(sourceQuote, target, literal string) bool {
+	if len(types.MentionedEntitiesFromRawRequest(sourceQuote, []string{target})) == 0 {
+		return false
+	}
+	return fieldValueLiteralAppearsInQuote(sourceQuote, literal)
+}
+
+func fieldValueLiteralAppearsInQuote(sourceQuote, literal string) bool {
+	sourceQuote = strings.TrimSpace(sourceQuote)
+	literal = strings.Trim(strings.TrimSpace(literal), "`")
+	if sourceQuote == "" || literal == "" {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(sourceQuote[start:], literal)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		if fieldValueQuoteBoundary(sourceQuote, pos-1) &&
+			fieldValueQuoteBoundary(sourceQuote, pos+len(literal)) {
+			return true
+		}
+		start = pos + len(literal)
+		if start >= len(sourceQuote) {
+			return false
+		}
+	}
+}
+
+func fieldValueQuoteBoundary(s string, idx int) bool {
+	if idx < 0 || idx >= len(s) {
+		return true
+	}
+	r := rune(s[idx])
+	return !(r == '_' || r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z')
+}
+
 func validateExactTargets(raw string, in []string) ([]string, string) {
 	if len(in) == 0 {
 		return nil, ""
@@ -1755,6 +1909,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.IsChangeImpact {
 		fmt.Fprintf(&b, " change_impact=%s", rm.ChangeImpactProfile.Target)
+	}
+	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
+		fmt.Fprintf(&b, " field_value=%s=%s", rm.FieldValueProfile.Target, rm.FieldValueProfile.Literal)
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

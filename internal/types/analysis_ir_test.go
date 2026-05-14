@@ -170,15 +170,14 @@ func TestAnalysisIR_JSONRoundtrip(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v9 adds analyzer-validated exact_context_roles so exact-target
-	// precedence questions can carry user-requested abstract layers
-	// (default/config/runtime/override) through closure and final-answer
-	// synthesis without relying on repo-specific strings downstream.
-	if AnalysisIRVersion != "v9" {
+	// v10 adds analyzer-validated field_value_profile so field/member
+	// literal count coverage can consume typed request structure instead of
+	// downstream RawRequest/keyword matching.
+	if AnalysisIRVersion != "v10" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v9" {
+	if ir.Version != "v10" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

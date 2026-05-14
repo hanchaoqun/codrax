@@ -2930,128 +2930,28 @@ func fieldValueCountTargetFromContext(ctx *types.BusContext) (fieldValueCountTar
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return fieldValueCountTarget{}, false
 	}
-	rm := ctx.AnalysisIR.RequestModel
-	if !rm.Predicates.IsCountQuestion && !rm.Predicates.IsScalarAnswer {
+	profile := ctx.AnalysisIR.RequestModel.FieldValueProfile
+	if profile == nil || !profile.Active() {
 		return fieldValueCountTarget{}, false
 	}
-	for _, candidate := range fieldValueCountTargetCandidates(rm) {
-		full, owner, field, ok := splitFieldValueTarget(candidate)
+	full, owner, field := profile.Target, profile.Owner, profile.Field
+	if full == "" || owner == "" || field == "" {
+		var ok bool
+		full, owner, field, ok = types.ParseFieldValueTarget(profile.Target)
 		if !ok {
-			continue
-		}
-		literal, ok := fieldValueCountLiteralFromRequestModel(rm, full, field)
-		if !ok {
-			continue
-		}
-		return fieldValueCountTarget{
-			Full:    full,
-			Owner:   owner,
-			Field:   field,
-			Literal: literal,
-		}, true
-	}
-	return fieldValueCountTarget{}, false
-}
-
-func fieldValueCountTargetCandidates(rm types.RequestModel) []string {
-	var out []string
-	appendAll := func(values []string) {
-		for _, v := range values {
-			v = strings.TrimSpace(v)
-			if v != "" {
-				out = append(out, v)
-			}
+			return fieldValueCountTarget{}, false
 		}
 	}
-	appendAll(rm.AnalyzerHints.ExactTargets)
-	appendAll(rm.AnalyzerHints.MentionedEntities)
-	appendAll(rm.AnalyzerHints.PrimaryEntities)
-	appendAll(rm.AnalyzerHints.Entities)
-	rawPattern := regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b`)
-	appendAll(rawPattern.FindAllString(rm.RawRequest, -1))
-	return dedupStringsPreserveOrder(out)
-}
-
-func splitFieldValueTarget(candidate string) (full, owner, field string, ok bool) {
-	full = strings.Trim(strings.TrimSpace(candidate), "`'\"")
-	if full == "" || strings.ContainsAny(full, `/\`) {
-		return "", "", "", false
+	literal := strings.TrimSpace(profile.Literal)
+	if literal == "" {
+		return fieldValueCountTarget{}, false
 	}
-	if strings.Contains(full, "..") || strings.HasPrefix(full, ".") || strings.HasSuffix(full, ".") {
-		return "", "", "", false
-	}
-	parts := strings.Split(full, ".")
-	if len(parts) < 2 {
-		return "", "", "", false
-	}
-	for _, p := range parts {
-		if !isCodeIdentifier(p) {
-			return "", "", "", false
-		}
-	}
-	field = parts[len(parts)-1]
-	owner = parts[len(parts)-2]
-	if len(owner) < 2 || len(field) < 2 {
-		return "", "", "", false
-	}
-	return full, owner, field, true
-}
-
-func isCodeIdentifier(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i, r := range s {
-		if r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (i > 0 && r >= '0' && r <= '9') {
-			continue
-		}
-		return false
-	}
-	first := s[0]
-	return first == '_' || (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')
-}
-
-func fieldValueCountLiteralFromRequestModel(rm types.RequestModel, fullTarget, field string) (string, bool) {
-	surfaces := make([]string, 0, 1+len(rm.AnalyzerHints.Keywords)+len(rm.AnalyzerHints.Entities))
-	surfaces = append(surfaces, rm.RawRequest)
-	surfaces = append(surfaces, rm.AnalyzerHints.Keywords...)
-	surfaces = append(surfaces, rm.AnalyzerHints.Entities...)
-	text := " " + strings.Join(surfaces, " ") + " "
-	lower := strings.ToLower(text)
-	for _, lit := range []string{"false", "true", "nil", "null", "undefined"} {
-		if regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_])`+regexp.QuoteMeta(lit)+`([^A-Za-z0-9_]|$)`).FindStringIndex(lower) != nil {
-			return lit, true
-		}
-	}
-	return fieldValueAdjacentLiteral(text, fullTarget, field)
-}
-
-func fieldValueAdjacentLiteral(text, fullTarget, field string) (string, bool) {
-	if strings.TrimSpace(text) == "" {
-		return "", false
-	}
-	targets := []string{fullTarget, field}
-	value := `("[^"\n]{1,80}"|'[^'\n]{1,80}'|-?[0-9]+(?:\.[0-9]+)?)`
-	for _, target := range targets {
-		target = strings.TrimSpace(target)
-		if target == "" {
-			continue
-		}
-		patterns := []*regexp.Regexp{
-			regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(target) + `\s*(?:=|:|=>)\s*` + value),
-			regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta(target) + `[^=\n:]{0,80}(?:=|:|=>)\s*` + value),
-		}
-		for _, pattern := range patterns {
-			match := pattern.FindStringSubmatch(text)
-			if len(match) >= 3 {
-				lit := strings.TrimSpace(match[len(match)-1])
-				if lit != "" {
-					return strings.Trim(lit, "`"), true
-				}
-			}
-		}
-	}
-	return "", false
+	return fieldValueCountTarget{
+		Full:    full,
+		Owner:   owner,
+		Field:   field,
+		Literal: literal,
+	}, true
 }
 
 func scanRepoForFieldValueCountCandidates(repoRoot string, target fieldValueCountTarget) []fieldValueCountCandidate {

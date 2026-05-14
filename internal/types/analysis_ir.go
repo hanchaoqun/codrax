@@ -1,6 +1,9 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // AnalysisIR is the sole structured output of the analyze stage under the
 // Analyzer v3 design. It is a single source of truth for everything the
@@ -37,7 +40,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v9"
+const AnalysisIRVersion = "v10"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -112,6 +115,13 @@ type RequestModel struct {
 	// assignment, read, guard, call, validation, serialization, etc.)
 	// instead of narrowing the answer to one dominant claim form.
 	ChangeImpactProfile *ChangeImpactProfile `json:"change_impact_profile,omitempty"`
+
+	// FieldValueProfile is the analyzer LLM's typed lane for requests that
+	// ask about a field/member/config surface being set to an exact literal
+	// value, especially scalar/count questions such as "how many production
+	// sites set Foo.Bar=false". Downstream hard gates consume only this typed
+	// carrier, not RawRequest/keyword scans.
+	FieldValueProfile *FieldValueLookupProfile `json:"field_value_profile,omitempty"`
 
 	// SubTopics lists independently-answerable sub-topics detected by
 	// the analyzer. When non-empty, the compiler generates one evidence
@@ -303,6 +313,105 @@ type AnswerSubject struct {
 	Kind       AnswerSubjectKind `json:"kind"`
 	EntityAxes []string          `json:"entity_axes,omitempty"`
 	Confidence float64           `json:"confidence,omitempty"`
+}
+
+// FieldValueLiteralKind classifies the exact literal in a
+// FieldValueLookupProfile. It is intentionally small and language-neutral:
+// downstream search syntax expands by repository language, while the hard
+// signal remains the analyzer-emitted literal value.
+type FieldValueLiteralKind string
+
+const (
+	FieldValueLiteralUnknown FieldValueLiteralKind = ""
+	FieldValueLiteralBool    FieldValueLiteralKind = "bool"
+	FieldValueLiteralNil     FieldValueLiteralKind = "nil"
+	FieldValueLiteralNumber  FieldValueLiteralKind = "number"
+	FieldValueLiteralString  FieldValueLiteralKind = "string"
+	FieldValueLiteralEnum    FieldValueLiteralKind = "enum"
+)
+
+func AllFieldValueLiteralKinds() []FieldValueLiteralKind {
+	return []FieldValueLiteralKind{
+		FieldValueLiteralUnknown,
+		FieldValueLiteralBool,
+		FieldValueLiteralNil,
+		FieldValueLiteralNumber,
+		FieldValueLiteralString,
+		FieldValueLiteralEnum,
+	}
+}
+
+func (k FieldValueLiteralKind) IsValid() bool {
+	for _, declared := range AllFieldValueLiteralKinds() {
+		if k == declared {
+			return true
+		}
+	}
+	return false
+}
+
+// FieldValueLookupProfile is the typed analyzer contract for exact
+// field/member literal lookups. SourceQuote is validated by emit_analysis
+// against the current request before this reaches downstream consumers.
+type FieldValueLookupProfile struct {
+	IsFieldValueLookup bool                  `json:"is_field_value_lookup"`
+	Target             string                `json:"target,omitempty"`
+	Owner              string                `json:"owner,omitempty"`
+	Field              string                `json:"field,omitempty"`
+	Literal            string                `json:"literal,omitempty"`
+	LiteralKind        FieldValueLiteralKind `json:"literal_kind,omitempty"`
+	SourceQuote        string                `json:"source_quote,omitempty"`
+	Confidence         float64               `json:"confidence,omitempty"`
+	Rationale          string                `json:"rationale,omitempty"`
+}
+
+func (p *FieldValueLookupProfile) Active() bool {
+	if p == nil || !p.IsFieldValueLookup {
+		return false
+	}
+	return strings.TrimSpace(p.Target) != "" &&
+		strings.TrimSpace(p.Field) != "" &&
+		strings.TrimSpace(p.Literal) != ""
+}
+
+func ParseFieldValueTarget(target string) (full, owner, field string, ok bool) {
+	full = strings.Trim(strings.TrimSpace(target), "`'\"")
+	if full == "" || strings.ContainsAny(full, `/\`) {
+		return "", "", "", false
+	}
+	if strings.Contains(full, "..") || strings.HasPrefix(full, ".") || strings.HasSuffix(full, ".") {
+		return "", "", "", false
+	}
+	normalized := strings.NewReplacer("::", ".", "->", ".", "#", ".").Replace(full)
+	parts := strings.Split(normalized, ".")
+	if len(parts) < 2 {
+		return "", "", "", false
+	}
+	for _, p := range parts {
+		if !isFieldValueIdentifier(p) {
+			return "", "", "", false
+		}
+	}
+	field = parts[len(parts)-1]
+	owner = parts[len(parts)-2]
+	if len(owner) < 2 || len(field) < 2 {
+		return "", "", "", false
+	}
+	return full, owner, field, true
+}
+
+func isFieldValueIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	first := s[0]
+	return first == '_' || (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')
 }
 
 // PredicateAxis enumerates the action-direction axis of the user's

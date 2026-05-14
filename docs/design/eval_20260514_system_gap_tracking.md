@@ -65,6 +65,7 @@ created.
 | E20260514-G43 | focused `s5b` post-Batch 1j replay | Confirmed FAIL / stopped loop | The completion support gap was fixed, but finalizer entered a repeated pre-emit rejection loop because the model-authored member `perftriage → MergePerfBundles + CorroborateStallFiles` was displayed as two cited rows. The validator required the exact composite member string while citation alignment preferred split rows. | Principal member-set coverage and structured relation-shape checks did not share a generalized display-equivalence rule for "same left-axis, multiple explicit right-side symbols." This recreated the G3/G4 row-grain conflict at the final answer boundary. | Treat composite relation members such as `pkg → A + B` / `pkg: A 和 B` as precise multi-target relation rows. A structured list may satisfy them by rendering one row per target only when every row has the same left axis; different left-axis rows must not satisfy the composite member. |
 | E20260514-G44 | focused `s5b` post-Batch 1j pass | Residual PASS cost | Self-consistency reviewer falsely claimed the ordered package list was not alphabetic, triggering an unnecessary rewrite even though the sequence was already `aggregator, amplifier, axis, ...`. | Semantic review can turn a noisy natural-language judgment into an expensive rewrite despite structurally valid typed rows. This is a soft reviewer acting like a hard gate. | Teach the reviewer to consume deterministic ordered-list metadata or downgrade ordering disputes to advisory when the structured row set is already accepted. For sortedness, use a deterministic comparator over visible labels instead of model prose. |
 | E20260514-G45 | audit of commits `d2289e7a` / `e07cafb5` | Red-line remediation | The attempted G44/G45 fixes introduced hard decisions driven by keyword matching over reviewer prose, user request prose, and final answer prose. | This violated the repository rule that hard gates consume typed, precise signals only. It also violated the stronger operational rule that user/model text must not be keyword-matched to decide logic. | Reverted the attempted gates and deleted their tests. Future fixes must first add typed fields such as `exclusion_policy`, `answer_category`, or structured contradiction kinds; until then these gaps remain tracked but must not be enforced by prose keyword scans. |
+| E20260514-G46 | audit of commit `af8f5a9c` | Red-line remediation / fixed Batch 6a | Field/value count coverage was triggered by scanning `RawRequest` / analyzer keywords for dotted fields and literal words such as `false`, `true`, `nil`, `null`, or `undefined`. | The feature goal was valid, but the hard pre-complete downgrade inferred its target/literal from user prose and keyword lists instead of a typed analyzer lane. This made the gate language-fragile and risked unrelated-count false positives. | Added analyzer `field_value_profile` (`target`, `owner`, `field`, `literal`, `literal_kind`, `source_quote`, confidence) and moved explorer/pre-complete consumption to that typed carrier. Downstream hard gates no longer infer field/value coverage from RawRequest or Keywords; exact `source_quote` validation is confined to the analyzer emit boundary. |
 
 ## End-to-End Traces
 
@@ -759,6 +760,41 @@ Corrective action:
   `exclusion_policy` / `answer_category` / `candidate_role` fields, and any
   self-consistency exception must be keyed by a structured contradiction kind
   or by deterministic row metadata, not by reviewer prose.
+
+### E20260514-G46: Field/Value Count Gate RawRequest Inference
+
+Audit scope:
+
+1. Commit `af8f5a9c` introduced a useful cross-language field/value coverage
+   gate for cases like `CitationReq.Required=false`.
+2. The pre-complete target extraction read `RawRequest`, analyzer keywords, and
+   entities to infer both the field surface and the literal value. The literal
+   path included a hardcoded boolean/null token set plus adjacent regexes.
+3. That meant a hard downgrade could be triggered by user prose / keyword
+   surfaces rather than a typed request carrier, violating the red-line class
+   identified in G45.
+
+Corrective action:
+
+- Added `RequestModel.FieldValueProfile` as the typed analyzer carrier:
+  `target`, `owner`, `field`, `literal`, `literal_kind`, `source_quote`,
+  `confidence`, and `rationale`.
+- Added `emit_analysis.field_value_profile` schema and validation. The only
+  RawRequest check is analyzer-boundary provenance validation that
+  `source_quote` was copied from the current request and contains both the
+  target and literal; downstream stages do not inspect the user question.
+- Updated explorer field/value guidance and the pre-complete coverage downgrade
+  to consume only `FieldValueProfile`.
+- Removed the downstream RawRequest/keyword inference helpers
+  (`fieldValueCountTargetCandidates`, `fieldValueCountLiteralFromRequestModel`,
+  `fieldValueAdjacentLiteral`, and the explorer's
+  `requestModelHasFieldValueLookupSurface`).
+
+Commercial-grade invariant:
+
+- If the analyzer cannot emit a validated `field_value_profile`, field/value
+  coverage remains soft guidance from ordinary search terms. Hard coverage
+  downgrades require the typed carrier.
 
 ### E20260514-G19: Explore-to-Extract Fact Handoff Loss (`qf_architecture`, FAIL on stale 2026-05-14 sweep)
 
