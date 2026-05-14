@@ -48,6 +48,12 @@ func sampleAnalysisIR() AnalysisIR {
 			AnswerSubject: AnswerSubject{Kind: SubjectFunctionName, Confidence: 0.8},
 			PredicateAxis: AxisCall,
 			DiagramHint:   &DiagramHint{Kind: DiagramCallDAG},
+			ErrorGranularityProfile: &ErrorGranularityProfile{
+				IsGranularityQuestion: true,
+				SourceQuotes:          []string{"停止"},
+				Confidence:            0.7,
+				Rationale:             "roundtrip fixture exercises typed verdict lane",
+			},
 		},
 		TaskGraph: TaskGraph{
 			Nodes: []TaskNode{
@@ -170,14 +176,14 @@ func TestAnalysisIR_JSONRoundtrip(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v13 adds answer_role_profile so positive exact-answer role bindings
-	// travel as typed analyzer metadata and are matched against answer-row
-	// candidate_role enums instead of prose.
-	if AnalysisIRVersion != "v13" {
+	// v14 adds error_granularity_profile so batch-vs-item / fail-fast /
+	// partial-success requests require a typed decision verdict instead of
+	// relying on answer prose synonyms.
+	if AnalysisIRVersion != "v14" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v13" {
+	if ir.Version != "v14" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

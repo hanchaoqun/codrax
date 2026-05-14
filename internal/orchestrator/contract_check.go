@@ -223,6 +223,8 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 					runTypedAnswerExclusionPolicyCheck(docV2, rm)...)
 				result.Violations = append(result.Violations,
 					runTypedAnswerRoleProfileCheck(docV2, rm)...)
+				result.Violations = append(result.Violations,
+					runTypedErrorGranularityProfileCheck(docV2, rm)...)
 			}
 		}
 	}

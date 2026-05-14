@@ -87,6 +87,21 @@ func TestNormalizeEmitAnswerBlock_EdgeAnchorsRegressionLock(t *testing.T) {
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_ErrorGranularityVerdictDecisionOnly(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:                      "d1",
+		Kind:                    string(types.BlockDecision),
+		Text:                    "The bad record is rejected while siblings continue.",
+		ErrorGranularityVerdict: string(types.ErrorGranularityPerItemRejection),
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got.ErrorGranularityVerdict != types.ErrorGranularityPerItemRejection {
+		t.Fatalf("error_granularity_verdict lost: %+v", got)
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_RejectsEmptyID(t *testing.T) {
 	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{Kind: string(types.BlockSummary)}, "blocks[2]")
 	if err == nil {
@@ -122,6 +137,34 @@ func TestNormalizeEmitAnswerBlock_RejectsInvalidSurfaceRole(t *testing.T) {
 	// R4 cleanup: surface role error uses lowercase contract phrasing.
 	if strings.Contains(err.Error(), "SurfaceRole") {
 		t.Errorf("R4 violation: err leaks Go type name: %q", err.Error())
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_RejectsInvalidErrorGranularityVerdict(t *testing.T) {
+	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:                      "d1",
+		Kind:                    string(types.BlockDecision),
+		ErrorGranularityVerdict: "maybe_itemish",
+	}, "blocks[0]")
+	if err == nil {
+		t.Fatal("must reject invalid error_granularity_verdict")
+	}
+	if !strings.Contains(err.Error(), "error_granularity_verdict") {
+		t.Errorf("err should name error_granularity_verdict, got %q", err.Error())
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_RejectsErrorGranularityVerdictOnNonDecision(t *testing.T) {
+	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:                      "s1",
+		Kind:                    string(types.BlockSummary),
+		ErrorGranularityVerdict: string(types.ErrorGranularityPerItemRejection),
+	}, "blocks[0]")
+	if err == nil {
+		t.Fatal("must reject error_granularity_verdict on non-decision block")
+	}
+	if !strings.Contains(err.Error(), "only valid on kind=decision") {
+		t.Errorf("err should explain decision-only field, got %q", err.Error())
 	}
 }
 
@@ -206,6 +249,15 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalize failed: %v", err)
 	}
+	decisionGot, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:                      "d1",
+		Kind:                    string(types.BlockDecision),
+		Text:                    "verdict",
+		ErrorGranularityVerdict: string(types.ErrorGranularityWholeBatch),
+	}, "blocks[1]")
+	if err != nil {
+		t.Fatalf("decision normalize failed: %v", err)
+	}
 	// Per-field lock: every emitAnswerBlockV2 input field must surface
 	// a corresponding non-zero typed field. When a new field is added
 	// to emitAnswerBlockV2, fixturise it above AND extend this map.
@@ -220,6 +272,9 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		"EdgeAnchors": func() bool { return len(got.EdgeAnchors) > 0 },
 		"FacetIDs":    func() bool { return len(got.FacetIDs) > 0 },
 		"SurfaceRole": func() bool { return got.SurfaceRole != "" },
+		"ErrorGranularityVerdict": func() bool {
+			return decisionGot.ErrorGranularityVerdict == types.ErrorGranularityWholeBatch
+		},
 	}
 	for name, check := range checks {
 		if !check() {

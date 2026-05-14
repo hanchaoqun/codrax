@@ -110,6 +110,39 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedCandida
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersErrorGranularityContract(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentReturnValue,
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer: true,
+				},
+				ErrorGranularityProfile: &types.ErrorGranularityProfile{
+					IsGranularityQuestion: true,
+					RequestedVerdictOptions: []types.ErrorGranularityVerdict{
+						types.ErrorGranularityPerItemRejection,
+						types.ErrorGranularityWholeBatch,
+					},
+					Confidence: 0.9,
+				},
+			},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "## Typed Error Granularity Contract") {
+		t.Fatalf("prompt missing typed error-granularity contract:\n%s", prompt)
+	}
+	for _, want := range []string{"error_granularity_verdict", "per_item_rejection", "whole_batch_failure", "not_enough_evidence", "requested verdict options", "prose-only"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q in typed error-granularity contract:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, `"partial_success", "fail_fast"`) {
+		t.Fatalf("prompt should narrow allowed verdicts to requested options plus fallback:\n%s", prompt)
+	}
+}
+
 // TestRenderAnswerDocFacetCoverage_NilOrEmptyReturnsEmpty pins
 // byte-identical behaviour for shapes whose AnswerSurfacePlan
 // produces no FacetCoverageContract — Phase 2 must not change pre-P1

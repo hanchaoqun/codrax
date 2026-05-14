@@ -21,7 +21,11 @@ QUESTION="When emit_evidence receives a batch where exactly one item is missing 
 # 单项 / 单条 / partial AND (b) explicit "rest succeed" / "其他
 # 通过" / "valid items proceed" semantic — proving the answer
 # distinguishes from "whole batch fails".
-EXPECT_CONTAINS="emit_evidence anchor_kind"
+# 2026-05-14 typed verdict lane: the answer renderer now surfaces the
+# canonical `error_granularity_verdict` on principal decision blocks.
+# Require the structured verdict token so the eval no longer depends
+# only on natural-language synonyms for "per item".
+EXPECT_CONTAINS="emit_evidence anchor_kind per_item_rejection"
 # 2026-05-08 broaden: model answer correctly stated "仅跳过该 item,
 # 其余 item 继续处理" + "部分成功时仍返回 Success: true" — semantic
 # match for per-item reject + rest proceed. The original alternation

@@ -40,7 +40,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v13"
+const AnalysisIRVersion = "v14"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -136,6 +136,13 @@ type RequestModel struct {
 	// gates compare this profile with answer-row candidate_role annotations;
 	// they do not infer the role from RawRequest or rendered prose.
 	AnswerRoleProfile *AnswerRoleProfile `json:"answer_role_profile,omitempty"`
+
+	// ErrorGranularityProfile is the analyzer LLM's typed lane for
+	// questions that ask how failures are scoped: per item/record, whole
+	// batch/call, partial success, fail-fast, or error collection. Downstream
+	// stages use it to require a canonical decision-block verdict enum instead
+	// of relying on natural-language synonyms in the answer.
+	ErrorGranularityProfile *ErrorGranularityProfile `json:"error_granularity_profile,omitempty"`
 
 	// SubTopics lists independently-answerable sub-topics detected by
 	// the analyzer. When non-empty, the compiler generates one evidence

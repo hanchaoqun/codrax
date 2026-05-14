@@ -76,6 +76,7 @@ type emitAnalysisParams struct {
 	FieldValueProfile            *emitFieldValueProfileParam            `json:"field_value_profile,omitempty"`
 	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
 	AnswerRoleProfile            *emitAnswerRoleProfileParam            `json:"answer_role_profile,omitempty"`
+	ErrorGranularityProfile      *emitErrorGranularityProfileParam      `json:"error_granularity_profile,omitempty"`
 	PredicateAxis                string                                 `json:"predicate_axis,omitempty"`
 	DiagramHint                  *emitDiagramHintParam                  `json:"diagram_hint,omitempty"`
 	EnumerationBoundary          *emitEnumerationBoundaryParam          `json:"enumeration_boundary,omitempty"`
@@ -193,6 +194,14 @@ type emitAnswerRoleProfileParam struct {
 	SourceQuotes           []string `json:"source_quotes,omitempty"`
 	Confidence             *float64 `json:"confidence"`
 	Rationale              string   `json:"rationale,omitempty"`
+}
+
+type emitErrorGranularityProfileParam struct {
+	IsGranularityQuestion   *bool    `json:"is_granularity_question"`
+	RequestedVerdictOptions []string `json:"requested_verdict_options,omitempty"`
+	SourceQuotes            []string `json:"source_quotes,omitempty"`
+	Confidence              *float64 `json:"confidence"`
+	Rationale               string   `json:"rationale,omitempty"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -456,6 +465,18 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"is_role_binding_requested", "confidence"},
 			},
+			"error_granularity_profile": map[string]any{
+				"type":        "object",
+				"description": "Required typed profile for requests about failure scope across an item, record, call, batch, or transaction. Set is_granularity_question=false when no canonical failure-scope verdict is needed.",
+				"properties": map[string]any{
+					"is_granularity_question":   map[string]any{"type": "boolean", "description": "True only when the current request asks how failures are scoped, such as per-item rejection, whole-batch failure, partial success, fail-fast stop, or collected errors."},
+					"requested_verdict_options": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": errorGranularityRequestedOptionValues()}, "description": "Optional enum options explicitly contrasted by the current request. This is not the answer verdict; it constrains the final decision to one of the request's alternatives when evidence supports one."},
+					"source_quotes":             map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that state the failure-scope question."},
+					"confidence":                map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this failure-scope profile in [0,1]."},
+					"rationale":                 map[string]any{"type": "string", "description": "Short audit rationale for why a canonical failure-scope verdict is or is not required."},
+				},
+				"required": []string{"is_granularity_question", "confidence"},
+			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
@@ -523,7 +544,7 @@ func buildEmitAnalysisSchema() {
 		"required": []string{
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind",
 			"intent_confidence", "complexity_confidence", "kind_confidence",
-			"predicates", "diagnostic_profile", "answer_role_profile",
+			"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
 		},
 	}
 
@@ -608,6 +629,27 @@ func answerCandidateRoleValues() []string {
 	values := types.AllAnswerCandidateRoles()
 	out := make([]string, 0, len(values))
 	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func errorGranularityVerdictValues() []string {
+	values := types.AllErrorGranularityVerdicts()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func errorGranularityRequestedOptionValues() []string {
+	values := types.AllErrorGranularityVerdicts()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v == types.ErrorGranularityNotEnoughEvidence {
+			continue
+		}
 		out = append(out, string(v))
 	}
 	return out
@@ -820,6 +862,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	errorGranularityProfile, errorGranularityErr := parseErrorGranularityProfile(raw, p.ErrorGranularityProfile)
+	if errorGranularityErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + errorGranularityErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
 		return types.ToolResult{
@@ -941,6 +992,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		FieldValueProfile:            fieldValueProfile,
 		AnswerExclusionPolicy:        answerExclusionPolicy,
 		AnswerRoleProfile:            answerRoleProfile,
+		ErrorGranularityProfile:      errorGranularityProfile,
 		PredicateAxis:                axis,
 		DiagramHint:                  diagramHint,
 		EnumerationBoundary:          enumerationBoundary,
@@ -1701,6 +1753,66 @@ func parseAnswerRoleProfile(raw string, p *emitAnswerRoleProfileParam) (*types.A
 	}, ""
 }
 
+func parseErrorGranularityProfile(raw string, p *emitErrorGranularityProfileParam) (*types.ErrorGranularityProfile, string) {
+	if p == nil {
+		return nil, "error_granularity_profile object missing — emit `error_granularity_profile` with is_granularity_question set to true or false, plus confidence in [0,1]"
+	}
+	var missing []string
+	if p.IsGranularityQuestion == nil {
+		missing = append(missing, "is_granularity_question")
+	}
+	if p.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Sprintf(
+			"error_granularity_profile missing required field(s): %s",
+			strings.Join(missing, ", "),
+		)
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("error_granularity_profile.confidence %.2f out of [0,1]", *p.Confidence)
+	}
+	if !*p.IsGranularityQuestion {
+		return nil, ""
+	}
+	sourceQuotes := trimStringSlice(p.SourceQuotes)
+	if len(sourceQuotes) == 0 {
+		return nil, "error_granularity_profile.source_quotes is required when is_granularity_question=true"
+	}
+	for _, quote := range sourceQuotes {
+		if !sourceQuotePresentInCurrentRequest(raw, quote) {
+			return nil, "error_granularity_profile.source_quotes entries must be copied verbatim from the current request"
+		}
+	}
+	options := make([]types.ErrorGranularityVerdict, 0, len(p.RequestedVerdictOptions))
+	seenOptions := make(map[types.ErrorGranularityVerdict]struct{}, len(p.RequestedVerdictOptions))
+	for _, rawOption := range p.RequestedVerdictOptions {
+		option, ok := types.NormalizeErrorGranularityVerdict(rawOption)
+		if !ok || option == types.ErrorGranularityUnknown {
+			return nil, fmt.Sprintf(
+				"error_granularity_profile.requested_verdict_options contains invalid verdict %q; use one of %s",
+				rawOption, strings.Join(errorGranularityRequestedOptionValues(), ", "),
+			)
+		}
+		if option == types.ErrorGranularityNotEnoughEvidence {
+			return nil, "error_granularity_profile.requested_verdict_options must list user-stated alternatives, not not_enough_evidence"
+		}
+		if _, dup := seenOptions[option]; dup {
+			continue
+		}
+		seenOptions[option] = struct{}{}
+		options = append(options, option)
+	}
+	return &types.ErrorGranularityProfile{
+		IsGranularityQuestion:   true,
+		RequestedVerdictOptions: options,
+		SourceQuotes:            sourceQuotes,
+		Confidence:              *p.Confidence,
+		Rationale:               strings.TrimSpace(p.Rationale),
+	}, ""
+}
+
 func sourceQuotePresentInCurrentRequest(raw, quote string) bool {
 	raw = strings.TrimSpace(raw)
 	quote = strings.TrimSpace(quote)
@@ -2117,6 +2229,16 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 			roles = append(roles, string(role))
 		}
 		fmt.Fprintf(&b, " required_roles=%s", strings.Join(roles, ","))
+	}
+	if rm.ErrorGranularityProfile != nil && rm.ErrorGranularityProfile.Active() {
+		b.WriteString(" error_granularity=true")
+		if len(rm.ErrorGranularityProfile.RequestedVerdictOptions) > 0 {
+			options := make([]string, 0, len(rm.ErrorGranularityProfile.RequestedVerdictOptions))
+			for _, option := range rm.ErrorGranularityProfile.RequestedVerdictOptions {
+				options = append(options, string(option))
+			}
+			fmt.Fprintf(&b, " error_options=%s", strings.Join(options, ","))
+		}
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

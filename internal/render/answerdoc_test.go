@@ -158,6 +158,24 @@ func TestRenderV2_BlockDecision(t *testing.T) {
 	}
 }
 
+func TestRenderV2_BlockDecisionRendersErrorGranularityVerdict(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:                      "d1",
+				Kind:                    types.BlockDecision,
+				Text:                    "The cited path rejects the bad record while continuing siblings.",
+				ErrorGranularityVerdict: types.ErrorGranularityPerItemRejection,
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "`per_item_rejection`") ||
+		!strings.Contains(out, "The cited path rejects") {
+		t.Errorf("decision verdict rendering wrong; got %q", out)
+	}
+}
+
 func TestRenderV2_BlockTable(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

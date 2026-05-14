@@ -18,7 +18,7 @@ func emitSemanticViewTrace(source string, view *AnswerSemanticView, ir *Analysis
 	if ir != nil {
 		intent = ir.RequestModel.Intent
 	}
-	logging.Debug("[trace/sv] source=%s family=%s intent=%s required_blocks=%d optional_blocks=%d has_diagram=%v uncertainty_rules=%d richness_candidates=%d required_candidate_roles=%d facet_coverage_present=%v exact_resolution_present=%v summary_mode=%q",
+	logging.Debug("[trace/sv] source=%s family=%s intent=%s required_blocks=%d optional_blocks=%d has_diagram=%v uncertainty_rules=%d richness_candidates=%d required_candidate_roles=%d error_granularity=%v facet_coverage_present=%v exact_resolution_present=%v summary_mode=%q",
 		source,
 		view.Family,
 		intent,
@@ -28,6 +28,7 @@ func emitSemanticViewTrace(source string, view *AnswerSemanticView, ir *Analysis
 		len(view.UncertaintyRules),
 		len(view.RichnessCandidates),
 		len(view.RequiredCandidateRoles),
+		view.ErrorGranularityProfile != nil && view.ErrorGranularityProfile.Active(),
 		view.FacetCoverage != nil,
 		view.ExactResolution != nil,
 		view.SummaryMode,
@@ -86,6 +87,7 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 	}
 	applyExactAbsenceSummaryLead(view, plan)
 	applyRequestedCandidateRoles(view, ir)
+	applyErrorGranularityProfile(view, ir)
 	return view
 }
 
@@ -107,6 +109,47 @@ func applyRequestedCandidateRoles(view *AnswerSemanticView, ir *AnalysisIR) {
 		seen[role] = struct{}{}
 		view.RequiredCandidateRoles = append(view.RequiredCandidateRoles, role)
 	}
+}
+
+func applyErrorGranularityProfile(view *AnswerSemanticView, ir *AnalysisIR) {
+	if view == nil || ir == nil || ir.RequestModel.ErrorGranularityProfile == nil ||
+		!ir.RequestModel.ErrorGranularityProfile.Active() {
+		return
+	}
+	profile := *ir.RequestModel.ErrorGranularityProfile
+	view.ErrorGranularityProfile = &profile
+	ensureErrorGranularityDecisionBlock(view)
+}
+
+func ensureErrorGranularityDecisionBlock(view *AnswerSemanticView) {
+	if view == nil {
+		return
+	}
+	for i := range view.RequiredBlocks {
+		if view.RequiredBlocks[i].Kind != BlockDecision {
+			continue
+		}
+		view.RequiredBlocks[i].Required = true
+		if view.RequiredBlocks[i].MinCount <= 0 {
+			view.RequiredBlocks[i].MinCount = 1
+		}
+		if view.RequiredBlocks[i].MaxCount == 0 || view.RequiredBlocks[i].MaxCount > 1 {
+			view.RequiredBlocks[i].MaxCount = 1
+		}
+		view.RequiredBlocks[i].SurfaceRoleHint = SurfacePrincipal
+		if view.RequiredBlocks[i].Rationale == "" {
+			view.RequiredBlocks[i].Rationale = "A canonical decision verdict is required for the failure-scope question."
+		}
+		return
+	}
+	view.RequiredBlocks = append(view.RequiredBlocks, BlockRequirement{
+		Kind:            BlockDecision,
+		MinCount:        1,
+		MaxCount:        1,
+		Required:        true,
+		SurfaceRoleHint: SurfacePrincipal,
+		Rationale:       "A canonical decision verdict is required for the failure-scope question.",
+	})
 }
 
 // BuildAnswerSemanticViewForAgentContext compiles a view from the

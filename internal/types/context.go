@@ -1791,11 +1791,12 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 		out.Blocks = make([]AnswerBlock, len(in.Blocks))
 		for i, b := range in.Blocks {
 			cloned := AnswerBlock{
-				ID:          b.ID,
-				Kind:        b.Kind,
-				Title:       b.Title,
-				Text:        b.Text,
-				SurfaceRole: b.SurfaceRole,
+				ID:                      b.ID,
+				Kind:                    b.Kind,
+				Title:                   b.Title,
+				Text:                    b.Text,
+				ErrorGranularityVerdict: b.ErrorGranularityVerdict,
+				SurfaceRole:             b.SurfaceRole,
 			}
 			if len(b.Items) > 0 {
 				cloned.Items = make([]AnswerBlockItem, len(b.Items))

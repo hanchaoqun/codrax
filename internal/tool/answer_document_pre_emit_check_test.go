@@ -1428,6 +1428,44 @@ func TestPreCheckRequiredCandidateRoles_UsesTypedItemRoles(t *testing.T) {
 	}
 }
 
+func TestPreCheckErrorGranularityVerdict_UsesTypedDecisionField(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		ErrorGranularityProfile: &types.ErrorGranularityProfile{
+			IsGranularityQuestion: true,
+			RequestedVerdictOptions: []types.ErrorGranularityVerdict{
+				types.ErrorGranularityPerItemRejection,
+				types.ErrorGranularityWholeBatch,
+			},
+			Confidence: 0.9,
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "d",
+			Kind:        types.BlockDecision,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "The prose says item-level rejection, but the typed verdict is missing.",
+		}},
+	}
+	hints := preCheckErrorGranularityVerdict(doc, view)
+	if len(hints) != 1 {
+		t.Fatalf("missing error_granularity_verdict should be rejected: %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "per_item_rejection") ||
+		!strings.Contains(hints[0].Field, "error_granularity_verdict") {
+		t.Fatalf("hint should name typed verdict field and enum values, got %+v", hints[0])
+	}
+	doc.Blocks[0].ErrorGranularityVerdict = types.ErrorGranularityPerItemRejection
+	if hints := preCheckErrorGranularityVerdict(doc, view); len(hints) != 0 {
+		t.Fatalf("typed verdict should satisfy error granularity contract: %+v", hints)
+	}
+	doc.Blocks[0].ErrorGranularityVerdict = types.ErrorGranularityPartialSuccess
+	hints = preCheckErrorGranularityVerdict(doc, view)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "per_item_rejection") {
+		t.Fatalf("option mismatch should be rejected with requested options: %+v", hints)
+	}
+}
+
 // TestPreCheckPrincipalClaimUse_SingleFormRelaxation — when contract
 // declares exactly one AcceptableClaimForm AND the block carries
 // structural grounding (facet_ids + cited items), the missing

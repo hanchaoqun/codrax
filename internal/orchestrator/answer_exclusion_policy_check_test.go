@@ -126,3 +126,63 @@ func TestRunTypedAnswerRoleProfileCheck_DoesNotReadProse(t *testing.T) {
 		t.Fatalf("prose-only role wording must not satisfy typed role contract: %+v", got)
 	}
 }
+
+func TestRunTypedErrorGranularityProfileCheck_RequiresTypedDecisionVerdict(t *testing.T) {
+	rm := &types.RequestModel{
+		ErrorGranularityProfile: &types.ErrorGranularityProfile{
+			IsGranularityQuestion: true,
+			RequestedVerdictOptions: []types.ErrorGranularityVerdict{
+				types.ErrorGranularityPerItemRejection,
+				types.ErrorGranularityWholeBatch,
+			},
+			Confidence: 0.9,
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "decision",
+			Kind:        types.BlockDecision,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "The bad record is rejected and siblings continue.",
+		}},
+	}
+	got := runTypedErrorGranularityProfileCheck(doc, rm)
+	if len(got) != 1 {
+		t.Fatalf("violations = %d, want 1: %+v", len(got), got)
+	}
+	if got[0].Kind != types.ViolMustInclude ||
+		!strings.Contains(got[0].Detail, "error_granularity_verdict") {
+		t.Fatalf("unexpected violation: %+v", got[0])
+	}
+	doc.Blocks[0].ErrorGranularityVerdict = types.ErrorGranularityPerItemRejection
+	if got := runTypedErrorGranularityProfileCheck(doc, rm); len(got) != 0 {
+		t.Fatalf("typed verdict should pass: %+v", got)
+	}
+	doc.Blocks[0].ErrorGranularityVerdict = types.ErrorGranularityPartialSuccess
+	got = runTypedErrorGranularityProfileCheck(doc, rm)
+	if len(got) != 1 || !strings.Contains(got[0].Detail, "partial_success") {
+		t.Fatalf("umbrella verdict outside requested options should fail: %+v", got)
+	}
+}
+
+func TestRunTypedErrorGranularityProfileCheck_DoesNotReadProse(t *testing.T) {
+	rm := &types.RequestModel{
+		RawRequest: "does one bad record fail the whole batch",
+		ErrorGranularityProfile: &types.ErrorGranularityProfile{
+			IsGranularityQuestion: true,
+			Confidence:            0.9,
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "decision",
+			Kind:        types.BlockDecision,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "This is per_item_rejection.",
+		}},
+	}
+	got := runTypedErrorGranularityProfileCheck(doc, rm)
+	if len(got) != 1 {
+		t.Fatalf("prose-only verdict wording must not satisfy typed verdict contract: %+v", got)
+	}
+}

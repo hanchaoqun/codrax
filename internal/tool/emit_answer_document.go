@@ -93,6 +93,7 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
           },
           "title": {"type": "string", "description": "Optional sub-heading for section / table / diagram / caveat blocks."},
           "text": {"type": "string", "description": "Block body prose. Used by summary / section / scalar / decision / caveat. Markdown-flavoured. NEVER use this field on diagram blocks — diagram body lives in diagram.body."},
+          "error_granularity_verdict": {"type": "string", "enum": ["per_item_rejection", "whole_batch_failure", "partial_success", "fail_fast", "collect_errors", "not_enough_evidence"], "description": "Optional canonical verdict for principal decision blocks that answer failure-scope / batch-vs-item / fail-fast-vs-collect questions. Use only on kind=decision blocks when the user-section's typed error-granularity contract requires it; do not encode this only in prose."},
           "items": {
             "type": "array",
             "description": "Block items for ordered_list / bullet_list / table. For tables each item is one visible row with label/text; if the table is already a markdown table in block.text, leave items empty rather than adding citation-only placeholder rows.",

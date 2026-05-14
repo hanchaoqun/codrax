@@ -64,6 +64,18 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		FacetIDs:    raw.FacetIDs,
 		SurfaceRole: types.SurfaceRole(raw.SurfaceRole),
 	}
+	if raw.ErrorGranularityVerdict != "" {
+		verdict, ok := types.NormalizeErrorGranularityVerdict(raw.ErrorGranularityVerdict)
+		if !ok || verdict == types.ErrorGranularityUnknown {
+			return types.AnswerBlock{}, fmt.Errorf("%s: error_granularity_verdict=%q is not a valid error granularity verdict",
+				fieldPath, raw.ErrorGranularityVerdict)
+		}
+		if kind != types.BlockDecision {
+			return types.AnswerBlock{}, fmt.Errorf("%s: error_granularity_verdict is only valid on kind=decision blocks",
+				fieldPath)
+		}
+		blk.ErrorGranularityVerdict = verdict
+	}
 	if blk.SurfaceRole != "" {
 		if _, ok := types.NormalizeSurfaceRole(string(blk.SurfaceRole)); !ok {
 			return types.AnswerBlock{}, fmt.Errorf("%s: surface_role=%q is not a valid surface role",

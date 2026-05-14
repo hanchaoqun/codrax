@@ -207,6 +207,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if roleContract := renderAnswerDocRequestedCandidateRoles(view); roleContract != "" {
 		b.WriteString(roleContract)
 	}
+	if granularityContract := renderAnswerDocErrorGranularityContract(view); granularityContract != "" {
+		b.WriteString(granularityContract)
+	}
 
 	if dc := answerDocDiagramContract(ctx); dc != nil && dc.Required {
 		e.diagramRequired = true
@@ -2051,6 +2054,35 @@ func renderAnswerDocRequestedCandidateRoles(view *types.AnswerSemanticView) stri
 	b.WriteString("- For scalar answers whose literal is in `block.text`, add a one-element `items[]` entry with `candidate_role` and the supporting `citation_ref`; the row can reuse the scalar literal as its label or keep a short role label.\n")
 	b.WriteString("- Do not satisfy this contract with prose-only wording. The validator compares required role enums with `items[].candidate_role` enums.\n")
 	b.WriteString("- Adjacent roles can stay as supporting context, but the principal answer must include the requested role enum(s) above.\n\n")
+	return b.String()
+}
+
+func renderAnswerDocErrorGranularityContract(view *types.AnswerSemanticView) string {
+	if view == nil || view.ErrorGranularityProfile == nil || !view.ErrorGranularityProfile.Active() {
+		return ""
+	}
+	values := make([]string, 0, len(types.AllErrorGranularityVerdicts()))
+	for _, verdict := range types.AllErrorGranularityVerdicts() {
+		values = append(values, string(verdict))
+	}
+	var b strings.Builder
+	b.WriteString("## Typed Error Granularity Contract\n\n")
+	b.WriteString("The current request requires a canonical failure-scope verdict.\n\n")
+	allowedValues := values
+	if len(view.ErrorGranularityProfile.RequestedVerdictOptions) > 0 {
+		allowedValues = make([]string, 0, len(view.ErrorGranularityProfile.RequestedVerdictOptions)+1)
+		for _, verdict := range view.ErrorGranularityProfile.RequestedVerdictOptions {
+			allowedValues = append(allowedValues, string(verdict))
+		}
+		allowedValues = append(allowedValues, string(types.ErrorGranularityNotEnoughEvidence))
+	}
+	fmt.Fprintf(&b, "- Emit a principal `decision` block with `error_granularity_verdict` set to one of: %s.\n",
+		renderQuotedList(allowedValues))
+	if len(view.ErrorGranularityProfile.RequestedVerdictOptions) > 0 {
+		b.WriteString("- The analyzer captured explicit requested verdict options for this question. Choose the most specific evidence-supported enum from those options; use `not_enough_evidence` only when the evidence cannot decide between them. Do not substitute a broader umbrella verdict that was not one of the requested options.\n")
+	}
+	b.WriteString("- Choose the enum from grounded evidence: `per_item_rejection` means the bad item or record is rejected while valid siblings continue; `whole_batch_failure` means one failure rejects the whole call or batch; `partial_success` means a mixed result is returned; `fail_fast` means processing stops at the first failure; `collect_errors` means errors are accumulated for reporting; `not_enough_evidence` means the evidence cannot decide.\n")
+	b.WriteString("- Put the rationale and citations in the same decision block; do not satisfy this contract with prose-only wording.\n\n")
 	return b.String()
 }
 

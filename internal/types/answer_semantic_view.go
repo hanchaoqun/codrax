@@ -72,6 +72,12 @@ type AnswerSemanticView struct {
 	// from user text or rendered prose.
 	RequiredCandidateRoles []AnswerCandidateRole
 
+	// ErrorGranularityProfile requires a principal decision block to carry a
+	// canonical failure-scope verdict enum. This is intentionally separate from
+	// decision prose so validators and evals do not depend on language-specific
+	// synonyms such as "per item" vs "item-level".
+	ErrorGranularityProfile *ErrorGranularityProfile
+
 	// MissingRequestedRoles carries the subset of user-requested
 	// precedence roles that the current grounded config-precedence
 	// surface still shows as absent for the exact target. This is a

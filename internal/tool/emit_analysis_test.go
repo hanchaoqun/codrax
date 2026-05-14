@@ -43,6 +43,10 @@ const v4DefaultsJSON = `,
 	"answer_role_profile": {
 		"is_role_binding_requested": false,
 		"confidence": 0.7
+	},
+	"error_granularity_profile": {
+		"is_granularity_question": false,
+		"confidence": 0.7
 	}
 `
 
@@ -68,9 +72,16 @@ func withRequiredAnswerRoleProfile(payload string) string {
 		return payload
 	}
 	if _, ok := obj["answer_role_profile"]; ok {
-		return payload
+		if _, ok := obj["error_granularity_profile"]; ok {
+			return payload
+		}
 	}
-	obj["answer_role_profile"] = json.RawMessage(`{"is_role_binding_requested":false,"confidence":0.7}`)
+	if _, ok := obj["answer_role_profile"]; !ok {
+		obj["answer_role_profile"] = json.RawMessage(`{"is_role_binding_requested":false,"confidence":0.7}`)
+	}
+	if _, ok := obj["error_granularity_profile"]; !ok {
+		obj["error_granularity_profile"] = json.RawMessage(`{"is_granularity_question":false,"confidence":0.7}`)
+	}
 	out, err := json.Marshal(obj)
 	if err != nil {
 		return payload
@@ -1622,6 +1633,53 @@ func TestEmitAnalysis_Execute_RejectsMissingAnswerRoleProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_RejectsMissingErrorGranularityProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("explain the analyzer")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["a"],
+		"entities": ["Foo"],
+		"question_kind": "mechanism",
+		"intent_confidence": 0.7,
+		"complexity_confidence": 0.7,
+		"kind_confidence": 0.7,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": false,
+			"confidence": 0.7
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("missing error_granularity_profile object must reject")
+	}
+	if !strings.Contains(res.Summary, "error_granularity_profile object missing") {
+		t.Errorf("reject summary should name the missing error_granularity_profile object, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_Execute_RejectsConfidenceOutOfRange(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -2404,6 +2462,166 @@ func TestEmitAnalysis_Execute_RejectsUngroundedAnswerRoleProfile(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "answer_role_profile.source_quotes") {
 		t.Fatalf("rejection should name answer_role_profile.source_quotes, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_PersistsErrorGranularityProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("If one record fails validation in the batch, does the system reject just that record or fail the whole batch?")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["record", "validation", "batch"],
+		"entities": ["batch"],
+		"question_kind": "return_value",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"error_granularity_profile": {
+			"is_granularity_question": true,
+			"requested_verdict_options": ["per_item_rejection", "whole_batch_failure"],
+			"source_quotes": ["reject just that record or fail the whole batch"],
+			"confidence": 0.95,
+			"rationale": "current request asks for failure scope across record and batch"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "error_granularity=true") {
+		t.Fatalf("summary should surface typed error granularity lane, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ErrorGranularityProfile == nil || !rm.ErrorGranularityProfile.Active() {
+		t.Fatalf("ErrorGranularityProfile not persisted: %+v", rm)
+	}
+	if rm.ErrorGranularityProfile.Confidence != 0.95 ||
+		len(rm.ErrorGranularityProfile.SourceQuotes) != 1 {
+		t.Fatalf("ErrorGranularityProfile fields wrong: %+v", rm.ErrorGranularityProfile)
+	}
+	if got := rm.ErrorGranularityProfile.RequestedVerdictOptions; len(got) != 2 ||
+		got[0] != types.ErrorGranularityPerItemRejection ||
+		got[1] != types.ErrorGranularityWholeBatch {
+		t.Fatalf("ErrorGranularityProfile requested options wrong: %+v", got)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsUngroundedErrorGranularityProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("If one record fails validation in the batch, what happens?")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "architecture_explain",
+		"complexity": "simple",
+		"keywords": ["record", "validation", "batch"],
+		"entities": ["batch"],
+		"question_kind": "return_value",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"error_granularity_profile": {
+			"is_granularity_question": true,
+			"source_quotes": ["reject just that record or fail the whole batch"],
+			"confidence": 0.95
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if res.Success {
+		t.Fatalf("Execute should reject ungrounded error_granularity_profile, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "error_granularity_profile.source_quotes") {
+		t.Fatalf("rejection should name error_granularity_profile.source_quotes, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsInvalidErrorGranularityOption(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("Does the bad record get rejected or does the whole batch fail?")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "architecture_explain",
+		"complexity": "simple",
+		"keywords": ["record", "batch"],
+		"entities": ["batch"],
+		"question_kind": "return_value",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"error_granularity_profile": {
+			"is_granularity_question": true,
+			"requested_verdict_options": ["mostly_ok"],
+			"source_quotes": ["bad record get rejected or does the whole batch fail"],
+			"confidence": 0.95
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if res.Success {
+		t.Fatalf("Execute should reject invalid error granularity option, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "requested_verdict_options") {
+		t.Fatalf("rejection should name requested_verdict_options, got %q", res.Summary)
 	}
 }
 

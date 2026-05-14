@@ -56,7 +56,7 @@ created.
 | E20260514-G13 | `logtri_rust`, `logtri_goroutine_dump`, `logtri_node` | TIMEOUT / slow or noisy PASS | External-only runtime logs are self-contained, but the Rust case timed out, the goroutine dump needed 1240s plus evidence repairs, and the Node case passed only after stripping artifact path details under validator pressure. | External runtime artifacts with `resolved_files=0` are not hard-routed strongly enough to artifact-only answer flow. The model can still spend budget looking for nonexistent repo files, trying to ground artifact-only frames against current code, or fighting contradictory path-visibility hints. | For `external_only_log|trace` with sufficient triage facts, short-circuit exploration to an artifact-only structured answer. Current-repo verification should be an explicit caveat, not a required investigation lane, and artifact frame paths should have a clear rendered-surface policy. |
 | E20260514-G14 | `qf_type_relation_loop_controller` | TIMEOUT | LoopController class/type diagram timed out after an analyzer stream stall and partial implementer discovery. | Diagram relation questions combine several existing hard parts: set-valued implementer enumeration, aggregate member canonicalization, and diagram block rendering. Transport stalls can consume the budget before the typed relation set is stable. | Reuse canonical aggregate relation rows for interface->implementer sets, then render Mermaid from those rows deterministically or with a small constrained finalizer surface. |
 | E20260514-G15 | `u8b`, `u7a`, `logtri_rust`, `qf_type_relation_loop_controller`, `s7a` | Fixed Batch 5a / runner test | Timeout summary records elapsed times of 1800-2019s and briefly showed process accounting out of line with `parallel=4`. | Timeout enforcement and accounting were not crisp enough for commercial eval operations; long provider stalls could overshoot budgets and make parallel-slot health hard to reason about. | Made eval timeout execution use a single process-group runner: start command in a fresh session, TERM the whole group at wall-time, KILL after grace, and test that background grandchildren cannot survive timeout. |
-| E20260514-G16 | `u9b` | FAIL, likely semantic PASS / harness miss | Final answer correctly says the whole call does not fail, only the bad entry is rejected, and the rest continue successfully; eval fails because the regex did not accept `条目级` / `条目` as the per-item surface. | Either/or error-granularity answers lack a typed verdict surface consumed by both finalizer and eval. The product can answer semantically while omitting the canonical granularity token, and the harness can miss a valid synonym. | Add a typed `error_granularity_verdict` or equivalent answer-surface contract for batch-vs-item questions. Finalizer should render a short canonical verdict (`per-item / item-level rejection`, `whole-batch failure`, etc.) and eval should consume structured expected verdicts or a tested synonym table. |
+| E20260514-G16 | `u9b` | Fixed Batch 5b / PASS replay | Final answer correctly said the whole call does not fail, only the bad entry is rejected, and the rest continue successfully, but the eval initially failed because the answer had no canonical per-item verdict token. | Either/or error-granularity answers lacked a typed verdict surface consumed by both finalizer and eval. The product could answer semantically while omitting the canonical granularity token, and the harness could miss a valid synonym. | Added a typed `error_granularity_profile` analyzer lane and typed `error_granularity_verdict` decision-block surface. Downstream prompts, pre-emit checks, contract checks, renderer, and eval now consume the typed enum instead of prose synonyms. |
 | E20260514-G17 | `qf_relation_subagent_registry` | PASS with 11 rejects, 1450s | The answer set is exactly one member (`explorer`), but the run nearly timed out while adding a third citation, summary/caveat blocks, call-site anchors, and fixing numeric line references being misread as count claims. | Small deterministic member-set / registry questions are over-scaffolded. Citation floors and prose validators are not adapted to cardinality or to a canonical member row with separate registration evidence and Name() evidence. | Build deterministic relation/member rows with fields for member label, registration call, name-return literal, entrypoint, and count. For closed sets with small cardinality, finalizer should render from rows and citation floor should derive from row obligations instead of a generic `citation_count_ge=3`. |
 | E20260514-G18 | `u1a` | PASS with 10 rejects, 1547s | Security call-chain answer gathered source/sink/defenses but finalizer spent many iterations rebuilding 20+ citation refs and still produced at least one suspicious citation drift (`verifyResourceCaps / wrapShellCommandWithCaps` item cites `shellOperatorWrites`). | Mechanism/call-chain answers over long defense paths lack a deterministic chain row / citation-index compiler. The model manually maintains citation arrays, claim forms, and inline code anchors, so valid evidence turns into index bookkeeping. | Build typed `MechanismStepRow` / `SecurityFlowRow` records for taint source, guards, transformations, and sink. Compile citations and block items deterministically from rows; finalizer should write prose on top of stable row ids rather than hand-numbering citation refs. |
 | E20260514-G40 | focused `s5b` after Batch 1h | Confirmed FAIL | Analyzer no longer fabricated a numeric `enumeration_boundary`, but it also omitted `completeness_obligation`; explorer/finalizer then treated a 25-member category enumeration as ordinary lower-bound enumeration and shipped 17 rows plus a caveat. | A typed principal member lane from exploration was available (`intent=enumerate`, `question_kind=enumeration`, `is_category_enumeration=true`, 25 analyzer entities), but only explicit count/completeness signals forced structured `member_set` handoff. This let upstream rich member information become soft search context instead of a downstream contract. | Treat non-relational typed category-enumeration entity lanes as principal member lanes when they contain multiple members and the analyzer intent/kind is enumerate. Require structured `member_set` handoff and allow lowercase package/module/file-stem members through the same typed lane across supported languages. |
@@ -72,6 +72,7 @@ created.
 | E20260514-G50 | focused `m1b` after Batch 2c | Fixed Batch 2d / PASS replay | The case passed, but extractor soft-stop forced `emit_answer_symbol` for two exact tool-name sub-topics. The model then tried to cite a string-literal/reference line as a symbol definition and needed repairs before finalization. | Multi-topic anchor skeleton activation treated all architecture sub-topics as symbol anchors, even when the typed request said the principal answer was scalar/literal. This pulled exact literal answers back into symbol-definition machinery and recreated Batch 2's seesaw. | Gate anchor skeletons off when `RequestModel.Predicates.IsScalarAnswer` or scalar-source-literal lookup is active. Multi-topic exact literals now stay in scalar/section/table rows with `candidate_role` metadata instead of `emit_answer_symbol` definition slates. |
 | E20260514-G51 | focused `s11b` Batch 2e carrier audit | Fixed Batch 2e / PASS replay | Early Batch 2e replays passed but the analyzer omitted the optional positive role carrier, so the final answer was still relying on prompt guidance rather than a hard structural lane. | Optional carriers are easy to drop under prescan/retry pressure. Exact scalar role questions need an always-present typed object, active only when the analyzer sets `is_role_binding_requested=true`, so downstream stages can consume a uniform contract without reading request prose or answer prose. | Made `answer_role_profile` a top-level required `emit_analysis` object; when active it requires enum roles plus verbatim source quotes at the analyzer boundary. Finalizer prompts, pre-emit checks, and post-emit contract checks now consume only `RequiredCandidateRoles` and `items[].candidate_role`. |
 | E20260514-G52 | Batch 5a eval runner timeout audit | Fixed Batch 5a / runner test | The parallel eval launcher delegated timeout behavior to whichever `timeout` binary happened to exist on the host, and stale grandchildren could keep consuming resources after the worker shell returned. | Timeout/process cleanup is an eval infrastructure lane, not a product prompt issue. It needs one deterministic process-tree contract across macOS/Linux so PASS/FAIL/timeout summaries reflect the actual active workload. | `eval_run_with_timeout` now prefers the Python process-group runner on every host with Python 3, falls back to `timeout -k 10` only when Python is unavailable, and has a regression test proving a background grandchild is killed before it can write a marker file. |
+| E20260514-G53 | `u9b` post-Batch 5b replay | Confirmed residual anti-seesaw gap | The typed verdict replay passed, but the same request still triggered two rejected `enumeration_boundary` emits on the phrase "exactly one item", then ran with `family=enumeration`, `enumeration_push=1`, and `explorer_iters=40`. | Scenario counts that describe a failure condition can leak into answer-set cardinality and enumeration-family planning. The typed error-granularity lane solved the answer verdict, but a neighboring count/enumeration lane still treats contextual quantities as principal answer-set obligations. | Add a typed lane conflict resolver: when `error_granularity_profile` is active and the analyzer does not also emit a count/category answer predicate, scenario counts remain contextual parameters, not `enumeration_boundary` contracts or enumeration facet families. If a count lane is emitted, validate that it binds to the answer axis, not merely to an example failure condition. |
 
 ## End-to-End Traces
 
@@ -520,6 +521,46 @@ Generalization: batch-vs-item, all-or-nothing-vs-partial, fail-fast-vs-collect,
 strict-vs-best-effort, and transaction-vs-record-level questions need the
 answer to expose a canonical verdict in addition to prose explanation. Eval
 should assert that typed verdict, not depend solely on natural-language regexes.
+
+Batch 5b implementation:
+
+- Added required analyzer carrier `error_granularity_profile`. It is inactive
+  when no failure-scope verdict is requested; when active it carries grounded
+  `source_quotes`, confidence, and optional typed `requested_verdict_options`
+  for alternatives explicitly contrasted by the current request.
+- Added `AnswerDocumentV2` decision-block field
+  `error_granularity_verdict` with canonical enums:
+  `per_item_rejection`, `whole_batch_failure`, `partial_success`, `fail_fast`,
+  `collect_errors`, and `not_enough_evidence`.
+- Propagated the lane through `RequestModel`, `AnswerSemanticView`, finalizer
+  instructions, dynamic answer schema, block normalization, pre-emit checks,
+  post-emit contract checks, rendering, and eval expectations.
+- Added a specificity guard for either/or questions: if analyze captured
+  explicit requested alternatives, the final typed verdict must be one of those
+  alternatives or `not_enough_evidence`. This prevents a broader umbrella value
+  such as `partial_success` from satisfying a question that explicitly asks
+  "per item or whole batch?".
+- Red-line guard: hard decisions compare typed analyzer profile fields against
+  typed answer-document fields only. They do not inspect the user's prose or
+  rendered answer prose to decide whether the verdict obligation is satisfied.
+
+Verification:
+
+- `go test ./internal/types ./internal/tool ./internal/agent ./internal/orchestrator ./internal/skill -run 'ErrorGranularity|TestEmitAnalysisSchemaIncludesErrorGranularityProfile|TestEmitAnalysisSchemaMatchesContract|TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersErrorGranularityContract|TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere|TestAnalysisSkill_CurrentQuestionPrimacy_NamesEveryIntentField'`
+- `go test ./...`
+- `make`
+- `bash eval/run.sh eval/cases/u9b.case 1`
+  - `eval/results/u9b-20260514-222125`
+  - PASS, with rendered principal verdict token `per_item_rejection`.
+
+Residual anti-seesaw follow-up:
+
+- The PASS replay still exposed G53: the phrase "exactly one item" caused two
+  rejected `enumeration_boundary` attempts and left the semantic view in
+  `family=enumeration` despite the request being a failure-scope verdict
+  question. The typed verdict lane is stable, but a separate count/enumeration
+  lane needs an answer-axis binding rule so contextual scenario counts do not
+  inflate explore/finalize work.
 
 ### E20260514-G17: Small Relation Member Set Over-Scaffolding (`qf_relation_subagent_registry`)
 
@@ -2446,3 +2487,29 @@ Initial Batch 5a progress:
 Verification:
 
 - `bash eval/runner_lib_test.sh`
+
+Batch 5b progress:
+
+- Implemented the G16 typed error-granularity lane end to end. Analyze now
+  emits the always-present `error_granularity_profile` object, active only for
+  failure-scope questions. Final answer decision blocks can carry the typed
+  `error_granularity_verdict` enum, and renderer surfaces the canonical token
+  before the natural-language decision text.
+- Added specificity protection for contrasted alternatives. If the current
+  request asks between explicit options such as per-item rejection and whole
+  batch failure, downstream checks accept only those typed options or
+  `not_enough_evidence`, not a broader umbrella verdict.
+- Updated `u9b` to assert the canonical typed token while preserving the
+  original evidence concepts.
+- Recorded G53 as the next anti-seesaw follow-up: error-granularity questions
+  with contextual quantities still need a typed conflict resolver so scenario
+  counts do not activate enumeration-family obligations.
+
+Verification:
+
+- `go test ./internal/types ./internal/tool ./internal/agent ./internal/orchestrator ./internal/skill -run 'ErrorGranularity|TestEmitAnalysisSchemaIncludesErrorGranularityProfile|TestEmitAnalysisSchemaMatchesContract|TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersErrorGranularityContract|TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere|TestAnalysisSkill_CurrentQuestionPrimacy_NamesEveryIntentField'`
+- `go test ./...`
+- `make`
+- `bash eval/run.sh eval/cases/u9b.case 1`
+  - `eval/results/u9b-20260514-222125`
+  - PASS

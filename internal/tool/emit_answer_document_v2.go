@@ -43,16 +43,17 @@ type emitAnswerDocumentV2Params struct {
 }
 
 type emitAnswerBlockV2 struct {
-	ID          string                    `json:"id"`
-	Kind        string                    `json:"kind"`
-	Title       string                    `json:"title,omitempty"`
-	Text        string                    `json:"text,omitempty"`
-	Items       []emitAnswerBlockItemV2   `json:"items,omitempty"`
-	Diagram     *emitAnswerDiagramV2      `json:"diagram,omitempty"`
-	ClaimUses   []types.RenderedClaimUse  `json:"claim_uses,omitempty"`
-	EdgeAnchors []types.DiagramEdgeAnchor `json:"edge_anchors,omitempty"`
-	FacetIDs    []string                  `json:"facet_ids,omitempty"`
-	SurfaceRole string                    `json:"surface_role,omitempty"`
+	ID                      string                    `json:"id"`
+	Kind                    string                    `json:"kind"`
+	Title                   string                    `json:"title,omitempty"`
+	Text                    string                    `json:"text,omitempty"`
+	ErrorGranularityVerdict string                    `json:"error_granularity_verdict,omitempty"`
+	Items                   []emitAnswerBlockItemV2   `json:"items,omitempty"`
+	Diagram                 *emitAnswerDiagramV2      `json:"diagram,omitempty"`
+	ClaimUses               []types.RenderedClaimUse  `json:"claim_uses,omitempty"`
+	EdgeAnchors             []types.DiagramEdgeAnchor `json:"edge_anchors,omitempty"`
+	FacetIDs                []string                  `json:"facet_ids,omitempty"`
+	SurfaceRole             string                    `json:"surface_role,omitempty"`
 }
 
 type emitAnswerBlockItemV2 struct {

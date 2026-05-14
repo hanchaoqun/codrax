@@ -130,6 +130,13 @@ type AnswerBlock struct {
 	// Markdown-flavoured per the renderer.
 	Text string `json:"text,omitempty"`
 
+	// ErrorGranularityVerdict is the canonical verdict enum for
+	// decision blocks answering failure-scope questions: per-item
+	// rejection, whole-batch failure, partial success, fail-fast, or
+	// collect-errors. Validators consume this typed field instead of
+	// inferring the verdict from decision prose.
+	ErrorGranularityVerdict ErrorGranularityVerdict `json:"error_granularity_verdict,omitempty"`
+
 	// Items is the collection for OrderedList / BulletList / Table.
 	// For Table, each AnswerBlockItem is one ROW; the Label field
 	// becomes the row header and the Text field carries the row's

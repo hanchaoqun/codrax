@@ -123,3 +123,35 @@ func TestBuildAnswerSemanticView_RequestedCandidateRolesPropagated(t *testing.T)
 		t.Fatalf("required candidate roles not propagated/deduped: %+v", got)
 	}
 }
+
+func TestBuildAnswerSemanticView_ErrorGranularityRequiresPrincipalDecision(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent: IntentReturnValue,
+			Predicates: SemanticPredicates{
+				IsScalarAnswer: true,
+			},
+			ErrorGranularityProfile: &ErrorGranularityProfile{
+				IsGranularityQuestion: true,
+				Confidence:            0.9,
+			},
+		},
+	}
+	view := BuildAnswerSemanticView(ir, nil)
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	if view.ErrorGranularityProfile == nil || !view.ErrorGranularityProfile.Active() {
+		t.Fatalf("error granularity profile not propagated: %+v", view.ErrorGranularityProfile)
+	}
+	for _, req := range view.RequiredBlocks {
+		if req.Kind != BlockDecision {
+			continue
+		}
+		if !req.Required || req.MinCount != 1 || req.MaxCount != 1 || req.SurfaceRoleHint != SurfacePrincipal {
+			t.Fatalf("decision block requirement wrong: %+v", req)
+		}
+		return
+	}
+	t.Fatalf("missing required decision block: %+v", view.RequiredBlocks)
+}

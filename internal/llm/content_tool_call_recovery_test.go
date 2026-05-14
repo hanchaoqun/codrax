@@ -125,7 +125,9 @@ func TestRecoverTextToolCalls_RequiredModeBareArgsUniqueSchema(t *testing.T) {
 		"complexity_confidence":0.5,
 		"kind_confidence":0.7,
 		"predicates":{"is_scalar_answer":true},
-		"diagnostic_profile":{"is_diagnostic":false}
+		"diagnostic_profile":{"is_diagnostic":false},
+		"answer_role_profile":{"is_role_binding_requested":false},
+		"error_granularity_profile":{"is_granularity_question":false}
 	}`
 	tools := []ToolSchema{
 		{
@@ -136,7 +138,7 @@ func TestRecoverTextToolCalls_RequiredModeBareArgsUniqueSchema(t *testing.T) {
 			Name: "emit_analysis",
 			Parameters: json.RawMessage(`{
 				"type":"object",
-				"required":["intent","scenario","complexity","keywords","entities","question_kind","intent_confidence","complexity_confidence","kind_confidence","predicates","diagnostic_profile"]
+				"required":["intent","scenario","complexity","keywords","entities","question_kind","intent_confidence","complexity_confidence","kind_confidence","predicates","diagnostic_profile","answer_role_profile","error_granularity_profile"]
 			}`),
 		},
 	}

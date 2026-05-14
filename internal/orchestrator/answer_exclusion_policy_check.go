@@ -80,3 +80,47 @@ func runTypedAnswerRoleProfileCheck(doc *types.AnswerDocumentV2, rm *types.Reque
 		},
 	}}
 }
+
+// runTypedErrorGranularityProfileCheck enforces failure-scope verdict
+// obligations from typed carriers only: RequestModel.ErrorGranularityProfile
+// and AnswerDocumentV2 decision-block error_granularity_verdict annotations.
+// It deliberately does not inspect RawRequest or rendered answer prose.
+func runTypedErrorGranularityProfileCheck(doc *types.AnswerDocumentV2, rm *types.RequestModel) []types.Violation {
+	if doc == nil || rm == nil || rm.ErrorGranularityProfile == nil || !rm.ErrorGranularityProfile.Active() {
+		return nil
+	}
+	if !types.MissingErrorGranularityVerdict(doc, rm.ErrorGranularityProfile) {
+		if verdict, mismatch := types.ErrorGranularityVerdictOptionMismatch(doc, rm.ErrorGranularityProfile); mismatch {
+			options := make([]string, 0, len(rm.ErrorGranularityProfile.RequestedVerdictOptions))
+			for _, option := range rm.ErrorGranularityProfile.RequestedVerdictOptions {
+				options = append(options, string(option))
+			}
+			options = append(options, string(types.ErrorGranularityNotEnoughEvidence))
+			return []types.Violation{{
+				Kind:       types.ViolMustInclude,
+				Detail:     fmt.Sprintf("principal decision block has error_granularity_verdict=%q outside requested verdict option(s): %s", verdict, strings.Join(options, ", ")),
+				Repair:     "Replace error_granularity_verdict with the most specific requested verdict enum supported by the cited evidence, or use not_enough_evidence when the evidence cannot decide between the requested alternatives.",
+				Stage:      string(types.StageFinalize),
+				ClusterKey: fmt.Sprintf("typed_error_granularity:option_mismatch:%s", verdict),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "answer_document.blocks[].error_granularity_verdict",
+					Reason:     "principal decision block verdict does not match the typed request verdict options",
+					Confidence: rm.ErrorGranularityProfile.Confidence,
+				},
+			}}
+		}
+		return nil
+	}
+	return []types.Violation{{
+		Kind:       types.ViolMustInclude,
+		Detail:     "principal decision block is missing error_granularity_verdict",
+		Repair:     "Add a principal decision block with error_granularity_verdict set to the canonical failure-scope enum supported by the cited evidence. Prose-only wording does not satisfy this typed verdict contract.",
+		Stage:      string(types.StageFinalize),
+		ClusterKey: "typed_error_granularity:missing_verdict",
+		SuspectedRoot: types.SuspectedRoot{
+			IRField:    "answer_document.blocks[].error_granularity_verdict",
+			Reason:     "principal decision block does not satisfy the typed failure-scope profile",
+			Confidence: rm.ErrorGranularityProfile.Confidence,
+		},
+	}}
+}

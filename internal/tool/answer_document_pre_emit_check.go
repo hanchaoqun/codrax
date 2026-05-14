@@ -144,6 +144,9 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	if h := preCheckRequiredCandidateRoles(doc, view); len(h) > 0 {
 		hints = append(hints, h...)
 	}
+	if h := preCheckErrorGranularityVerdict(doc, view); len(h) > 0 {
+		hints = append(hints, h...)
+	}
 
 	// 3. Uncertainty block presence (when contract requires it).
 	if h := preCheckUncertaintyBlock(doc, view); len(h) > 0 {
@@ -2839,6 +2842,35 @@ func preCheckRequiredCandidateRoles(doc *types.AnswerDocumentV2, view *types.Ans
 		ExpectedShape: "principal scalar/list/table item(s) must carry `candidate_role` for the requested answer role(s): " +
 			strings.Join(roles, ", "),
 		Reason: "the typed request contract requires these positive answer roles; prose-only wording or adjacent roles cannot satisfy a structural role-binding request.",
+	}}
+}
+
+func preCheckErrorGranularityVerdict(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+	if doc == nil || view == nil || view.ErrorGranularityProfile == nil || !view.ErrorGranularityProfile.Active() {
+		return nil
+	}
+	if !types.MissingErrorGranularityVerdict(doc, view.ErrorGranularityProfile) {
+		if verdict, mismatch := types.ErrorGranularityVerdictOptionMismatch(doc, view.ErrorGranularityProfile); mismatch {
+			options := make([]string, 0, len(view.ErrorGranularityProfile.RequestedVerdictOptions))
+			for _, option := range view.ErrorGranularityProfile.RequestedVerdictOptions {
+				options = append(options, string(option))
+			}
+			options = append(options, string(types.ErrorGranularityNotEnoughEvidence))
+			return []emitFixHint{{
+				Field: "blocks[].error_granularity_verdict",
+				ExpectedShape: fmt.Sprintf(
+					"replace `error_granularity_verdict=%s` with one of the request's typed verdict options: %s",
+					verdict, strings.Join(options, ", ")),
+				Reason: "the typed failure-scope request contract listed explicit verdict alternatives; use the most specific supported option instead of a broader umbrella verdict.",
+			}}
+		}
+		return nil
+	}
+	return []emitFixHint{{
+		Field: "blocks[].error_granularity_verdict",
+		ExpectedShape: "principal `decision` block must set `error_granularity_verdict` to one of: " +
+			strings.Join(errorGranularityVerdictValues(), ", "),
+		Reason: "the typed failure-scope request contract requires a canonical decision verdict enum; prose-only wording does not satisfy it.",
 	}}
 }
 
