@@ -51,7 +51,8 @@ func (c ClaimForm) CitationRoleIdentityKind() ClaimCitationRoleIdentityKind {
 	switch c {
 	case ClaimCallEdge, ClaimImportEdge:
 		return ClaimCitationRoleDirectedEdge
-	case ClaimPrecedenceRole, ClaimExternalObservation, ClaimTextReferenceFact:
+	case ClaimPrecedenceRole, ClaimExternalObservation, ClaimLiteralValueFact,
+		ClaimTextReferenceFact:
 		return ClaimCitationRoleDisplaySurface
 	case ClaimDefinitionFact, ClaimGuardCondition, ClaimAssignmentFact,
 		ClaimReturnFact, ClaimAbsenceFact:

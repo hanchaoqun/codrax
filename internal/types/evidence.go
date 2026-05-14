@@ -146,6 +146,12 @@ const (
 // AnchorImport covers `import`/`use`/`require` statements whose AnchorSymbol is
 // typically a package path or alias.
 //
+// AnchorStringLiteral covers a source-code string/char/template literal whose
+// literal value is the evidence: tool names, route paths, config keys, enum
+// string values, protocol names, log markers, and similar values. It is not a
+// declaration, call, assignment, or broad text reference; grounding must find
+// the AnchorSymbol inside a parsed literal span on the cited source line.
+//
 // AnchorTextReference covers a source/config/doc/comment line where the
 // visible text itself is the evidence. It is intentionally NOT code syntax:
 // downstream may use it for documentation references, examples, generated
@@ -162,13 +168,14 @@ const (
 	AnchorAssignment    AnchorKind = "assignment"
 	AnchorInitializer   AnchorKind = "initializer"
 	AnchorImport        AnchorKind = "import"
+	AnchorStringLiteral AnchorKind = "string_literal"
 	AnchorTextReference AnchorKind = "text_reference"
 )
 
 var allAnchorKinds = []AnchorKind{
 	AnchorDefinition, AnchorCall, AnchorCondition,
 	AnchorReturn, AnchorAssignment, AnchorInitializer, AnchorImport,
-	AnchorTextReference,
+	AnchorStringLiteral, AnchorTextReference,
 }
 
 // AllAnchorKinds returns the canonical list of every AnchorKind value

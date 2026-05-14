@@ -670,13 +670,13 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				switch view.Family {
 				case types.QFConfigPrecedence:
 					items = append(items,
-						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `assignment_fact` when the cited line is a config / variable assignment.",
+						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `assignment_fact` when the cited line is a config / variable assignment, and `literal_value_fact` when the cited line proves a source-code literal value.",
 						"Fill the block's `text` (or the lead summary block) with prose that names the config key / subject and states how the literal was obtained (lookup / file:line / chain).",
 						"Keep the complete scalar answer inside the answer document blocks: the literal belongs in the principal `scalar` block, and any framing prose belongs in the `summary` block or the scalar block's `title`.",
 					)
 				default:
 					items = append(items,
-						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `external_observation` when the literal is from an attached log / external trace.",
+						"Emit the principal `scalar` block with the literal in block `text`, and attach a one-element `items=[{id:\"v\", citation_ref:N}]` when you need a citation anchor. Attach block-level `claim_uses=[{claim_form=definition_fact}]` (plural array). Use `literal_value_fact` when the cited line proves a source-code literal value, or `external_observation` when the literal is from an attached log / external trace.",
 						"Fill the block's `text` (or the lead summary block) with prose that names the subject being measured and states how the literal was obtained (lookup / file:line / command / chain).",
 						"Keep the complete scalar answer inside the answer document blocks: the literal belongs in the principal `scalar` block, and any framing prose belongs in the `summary` block or the scalar block's `title`.",
 					)
@@ -980,6 +980,7 @@ var answerDocClaimFormLabels = map[types.ClaimForm]string{
 	types.ClaimReturnFact:          "return-value citation",
 	types.ClaimCallEdge:            "call-edge citation",
 	types.ClaimImportEdge:          "import / dependency-edge citation",
+	types.ClaimLiteralValueFact:    "source literal-value citation",
 	types.ClaimGuardCondition:      "guard / branch-condition citation",
 	types.ClaimPrecedenceRole:      "precedence-role citation",
 	types.ClaimExternalObservation: "log / perf observation",

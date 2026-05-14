@@ -156,6 +156,49 @@ func TestEmitEvidence_AcceptsTextReferenceAnchorKind(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_AcceptsStringLiteralAnchorKind(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/tool/emit_answer_document.go", 35,
+		`func (t *EmitAnswerDocument) Name() string { return "emit_answer_document" }`,
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {
+            "scope": "line",
+            "evidence_kind": "direct",
+            "subject": "EmitAnswerDocument.Name",
+            "object": "emit_answer_document",
+            "source": "internal/tool/emit_answer_document.go",
+            "line_start": 35,
+            "summary": "Name returns the literal tool name",
+            "anchor_kind": "string_literal",
+            "anchor_symbol": "emit_answer_document"
+          }
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item, got %d", len(got))
+	}
+	if got[0].AnchorKind != types.AnchorStringLiteral {
+		t.Fatalf("anchor kind = %s, want string_literal", got[0].AnchorKind)
+	}
+	if got[0].GroundingStatus != types.GroundingGrounded {
+		t.Fatalf("string literal should ground, got status=%s note=%q", got[0].GroundingStatus, got[0].GroundingNote)
+	}
+	if form := types.ClaimFormOf(got[0]); form != types.ClaimLiteralValueFact {
+		t.Fatalf("string_literal claim form = %s, want literal_value_fact", form)
+	}
+}
+
 // LoadBearingSummary opt-in surface (2026-05-08 add — u7a deep-dive).
 // The flag tells the four EvidenceXxxSurfaceText helpers to append
 // the trimmed summary to the typed surface line so finalize-stage

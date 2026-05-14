@@ -42,6 +42,7 @@ func compileRoleLookup(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 			FacetIDs: []string{string(FacetResolvedLiteralOrSymbol)},
 			AcceptableClaimForms: []ClaimForm{
 				ClaimDefinitionFact,
+				ClaimLiteralValueFact,
 			},
 			Rationale: "The single literal that plays the asked-for role (entry function name / " +
 				"handler symbol / config key / owner type) with its authoritative file:line.",

@@ -126,6 +126,12 @@ const (
 	// "package P calls Q at runtime" — that's ClaimCallEdge.
 	ClaimImportEdge ClaimForm = "import_edge"
 
+	// ClaimLiteralValueFact: evidence cites a source-code literal value.
+	// Supports "this exact tool name / route / config key / protocol value
+	// appears at this source line" without pretending the literal is a
+	// declaration symbol or a function call.
+	ClaimLiteralValueFact ClaimForm = "literal_value_fact"
+
 	// ClaimTextReferenceFact: evidence cites source/config/doc/comment text
 	// whose visible surface is itself the fact. Supports "this file/site
 	// mentions label L" or "this documentation line would need updating";
@@ -145,6 +151,7 @@ var allClaimForms = []ClaimForm{
 	ClaimPrecedenceRole,
 	ClaimExternalObservation,
 	ClaimImportEdge,
+	ClaimLiteralValueFact,
 	ClaimTextReferenceFact,
 }
 
@@ -202,8 +209,8 @@ func (c ClaimForm) LabelSurfaceKind() ClaimLabelSurfaceKind {
 	case ClaimDefinitionFact, ClaimCallEdge, ClaimGuardCondition,
 		ClaimAssignmentFact, ClaimReturnFact, ClaimAbsenceFact:
 		return ClaimLabelSurfaceSymbolLike
-	case ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation,
-		ClaimTextReferenceFact:
+	case ClaimImportEdge, ClaimLiteralValueFact, ClaimPrecedenceRole,
+		ClaimExternalObservation, ClaimTextReferenceFact:
 		return ClaimLabelSurfaceDisplayLabel
 	default:
 		return ClaimLabelSurfaceUnknown
@@ -251,6 +258,7 @@ func (c ClaimForm) UsesNonSymbolLabelSurface() bool {
 //     AnchorAssignment → ClaimAssignmentFact
 //     AnchorInitializer → ClaimAssignmentFact
 //     AnchorImport        → ClaimImportEdge
+//     AnchorStringLiteral → ClaimLiteralValueFact
 //     AnchorTextReference → ClaimTextReferenceFact
 //     AnchorDefinition    → ClaimDefinitionFact
 //
@@ -292,6 +300,8 @@ func ClaimFormOf(item EvidenceItem) ClaimForm {
 		return ClaimAssignmentFact
 	case AnchorImport:
 		return ClaimImportEdge
+	case AnchorStringLiteral:
+		return ClaimLiteralValueFact
 	case AnchorTextReference:
 		return ClaimTextReferenceFact
 	case AnchorDefinition:

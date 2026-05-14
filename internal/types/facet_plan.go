@@ -951,7 +951,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 				AcceptableForms: []ClaimForm{ClaimPrecedenceRole}},
 			{Kind: FacetResolvedLiteralOrSymbol, Required: FacetHardRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimAssignmentFact,
-					ClaimAbsenceFact}},
+					ClaimLiteralValueFact, ClaimAbsenceFact}},
 			{Kind: FacetUncertaintyBoundary, Required: FacetSoftRequired},
 			{Kind: FacetDiagramSpine, Required: FacetOptional,
 				AcceptableForms: []ClaimForm{ClaimPrecedenceRole}},
@@ -960,7 +960,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		return append([]FacetRequirement{
 			{Kind: FacetResolvedLiteralOrSymbol, Required: FacetHardRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimAssignmentFact,
-					ClaimReturnFact}},
+					ClaimReturnFact, ClaimLiteralValueFact}},
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
 			{Kind: FacetUncertaintyBoundary, Required: FacetOptional},
@@ -982,6 +982,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			ClaimAssignmentFact,
 			ClaimReturnFact,
 			ClaimImportEdge,
+			ClaimLiteralValueFact,
 		}
 		if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
 			forms = append(forms,

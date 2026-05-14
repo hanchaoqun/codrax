@@ -34,6 +34,7 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 		ClaimAssignmentFact,
 		ClaimReturnFact,
 		ClaimImportEdge,
+		ClaimLiteralValueFact,
 		ClaimCallEdge,
 	}
 	if ir != nil && ir.RequestModel.ChangeImpactProfile != nil && ir.RequestModel.ChangeImpactProfile.Active() {

@@ -1,0 +1,13 @@
+# Batch 2 / C3 / G5 — source string literals are exact answers, not symbols.
+#
+# This case pins the typed `string_literal` evidence lane. The correct answer
+# is the literal value returned by EmitAnswerDocument.Name(), grounded at the
+# source line where the value appears. The final answer should not route the
+# tool name through symbol-definition enumeration or drift to neighbouring
+# emit_answer_* tools.
+
+ID="m1_tool_name_literal"
+NAME="exact tool-name literal — Name return value"
+QUESTION="internal/tool/emit_answer_document.go 里 EmitAnswerDocument.Name() 返回的精确工具名字面量是什么？只回答这个源码字符串 literal，并给出位置。"
+EXPECT_CONTAINS="emit_answer_document internal/tool/emit_answer_document.go"
+EXPECT_NOT_CONTAINS="emit_answer_document_patch emit_answer_symbol emit_evidence"

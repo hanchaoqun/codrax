@@ -1070,6 +1070,87 @@ func TestGroundItem_TextReferenceAcceptsCommentLine(t *testing.T) {
 	}
 }
 
+func TestGroundItem_StringLiteralAcceptsCrossLanguageLiteralLines(t *testing.T) {
+	cases := []struct {
+		name   string
+		path   string
+		line   string
+		anchor string
+	}{
+		{"go", "tool.go", `func (t *Tool) Name() string { return "emit_answer_document" }`, "emit_answer_document"},
+		{"python", "tool.py", `return "emit_answer_document"`, "emit_answer_document"},
+		{"javascript", "tool.js", `return 'emit_answer_document';`, "emit_answer_document"},
+		{"typescript", "tool.ts", `const tool = "emit_answer_document";`, "emit_answer_document"},
+		{"arkts", "tool.ets", `let tool: string = "emit_answer_document"`, "emit_answer_document"},
+		{"java", "Tool.java", `return "emit_answer_document";`, "emit_answer_document"},
+		{"kotlin", "Tool.kt", `return "emit_answer_document"`, "emit_answer_document"},
+		{"rust raw string", "tool.rs", `const TOOL: &str = r#"emit_answer_document"#;`, "emit_answer_document"},
+		{"cpp", "tool.cpp", `const char* tool = "emit_answer_document";`, "emit_answer_document"},
+		{"swift", "Tool.swift", `return "emit_answer_document"`, "emit_answer_document"},
+		{"ruby", "tool.rb", `return 'emit_answer_document'`, "emit_answer_document"},
+		{"lua", "tool.lua", `return "emit_answer_document"`, "emit_answer_document"},
+		{"proto", "tool.proto", `option (tool_name) = "emit_answer_document";`, "emit_answer_document"},
+		{"cangjie", "tool.cj", `return "emit_answer_document"`, "emit_answer_document"},
+		{"route punctuation", "routes.ts", `router.get("/v1/health-check", handler)`, "/v1/health-check"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			history := []types.ToolResult{
+				buildGutterReadResult(tc.path, 20, []string{tc.line}, 40),
+			}
+			gc := &Context{LineIndex: buildLineIndex(history, "")}
+			it := &types.EvidenceItem{
+				Kind:         types.EvidenceDirect,
+				Source:       tc.path,
+				LineStart:    20,
+				Scope:        types.ScopeLine,
+				AnchorKind:   types.AnchorStringLiteral,
+				AnchorSymbol: tc.anchor,
+			}
+			GroundItem(it, gc)
+			if it.GroundingStatus != types.GroundingGrounded || it.GroundingTier != types.TierLineText {
+				t.Fatalf("string literal status=%s tier=%s note=%q, want grounded line_text",
+					it.GroundingStatus, it.GroundingTier, it.GroundingNote)
+			}
+			if it.Snippet != tc.line {
+				t.Fatalf("snippet=%q want %q", it.Snippet, tc.line)
+			}
+		})
+	}
+}
+
+func TestGroundItem_StringLiteralRejectsIdentifierOrCommentOnlyMentions(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+	}{
+		{"identifier only", `emit_answer_document := true`},
+		{"comment literal", `// tool name is "emit_answer_document"`},
+		{"inline comment literal", `ok := true // "emit_answer_document"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			const path = "tool.go"
+			history := []types.ToolResult{
+				buildGutterReadResult(path, 30, []string{tc.line}, 50),
+			}
+			gc := &Context{LineIndex: buildLineIndex(history, "")}
+			it := &types.EvidenceItem{
+				Kind:         types.EvidenceDirect,
+				Source:       path,
+				LineStart:    30,
+				Scope:        types.ScopeLine,
+				AnchorKind:   types.AnchorStringLiteral,
+				AnchorSymbol: "emit_answer_document",
+			}
+			GroundItem(it, gc)
+			if it.GroundingStatus == types.GroundingGrounded {
+				t.Fatalf("non-literal/comment line grounded unexpectedly: tier=%s note=%q", it.GroundingTier, it.GroundingNote)
+			}
+		})
+	}
+}
+
 func TestGroundItem_SnippetFuzzyRejectsCommentOnlyCodeAnchor(t *testing.T) {
 	history := []types.ToolResult{
 		buildGutterReadResult("internal/types/analysis_ir.go", 1235, []string{

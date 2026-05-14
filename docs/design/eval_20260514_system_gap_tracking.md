@@ -45,7 +45,7 @@ created.
 | E20260514-G2 | `s1b` | Fixed Batch 2g / PASS replay | Final answer explains the validation requeue path but omits user anchor `runTaskGraph` and does not preserve an accepted upstream/evidence-node surface term. | Exact mechanism anchors can vanish between evidence and final answer when they remain only retrieval hints or prose instructions. Classic scalar/enumeration lanes do not cover mechanism-entrypoint preservation. | Added a typed `RequiredMechanismAnchors` answer-view carrier compiled from analyzer typed lanes and kind-bearing contract terms. Finalizer and pre-emit checks consume only structured AnswerDocument fields (`items[].label`, block titles, diagram edge endpoints), never `RawRequest` or rendered prose scans. |
 | E20260514-G3 | prior `s5a` random sweep | Confirmed product failure | Explorer found all `LoopController` implementers, but finalizer exhausted retries and emitted raw LLM text because aggregate member labels/citations could not satisfy conflicting checks. | Aggregate member sets are not canonicalized into a single render contract. Equivalent forms such as `Type (file:line)` and `Type@file:line` survive as separate obligations, while citation alignment expects a different principal label surface. | Build deterministic `MemberDisplayRow` records from accepted aggregate facts before finalization: stable member key, visible label, source location, citation handle, claim form, and display candidates. Coverage and citation checks must consume the same rows. |
 | E20260514-G4 | `u11b` | PASS with 50 rejects | The run found the correct 4 production `CitationReq.Required=false` sites, but finalizer looped over source-location labels with qualifiers before passing. | Source-location member rows with qualifiers can be treated simultaneously as labels, source refs, and prose, creating retry loops even when the final answer is correct. | Reuse the G3 canonical member-row layer for source-location sets and qualifiers. Principal source rows should cite stable support handles instead of requiring the model to reproduce exact `file:line (qualifier)` strings. |
-| E20260514-G5 | `m1a` | PASS with 33 rejects | Explorer struggles to anchor literal tool names such as `emit_answer_document called` and `case "emit_answer_symbol"` as evidence. | Evidence anchoring is symbol-centric for facts whose source truth is a string literal, switch case, or method-return literal. | Add typed literal/text anchor support such as `anchor_kind=string_literal` or `tool_name_literal`. This should validate exact source text precisely while avoiding promotion of arbitrary grep hits. |
+| E20260514-G5 | `m1a` | Fixed Batch 2h / focused PASS | Explorer struggles to anchor literal tool names such as `emit_answer_document called` and `case "emit_answer_symbol"` as evidence. | Evidence anchoring was symbol-centric for facts whose source truth is a string literal, switch case, or method-return literal. Exact literals could be forced through symbol-definition machinery and then collide with carrier-visibility rules. | Added typed source-literal evidence: `anchor_kind=string_literal` compiles to `claim_form=literal_value_fact`, grounds only against parsed source-code literal spans on cited lines, and is consumable by exact scalar/literal answer lanes. Comments, identifiers, prose, and rendered/user text are not hard-gate inputs. |
 | E20260514-G6 | prior `qf_sequence_analyzer_gate` random sweep | Confirmed harness gap | Output contains the expected mermaid sequence and symbols, but eval verdict reports a regex miss. | Eval harness regex expectations are brittle: shell word-splitting and escaped-dot semantics can mark a correct answer as failed. | Move eval expectations to structured arrays or a small parser with tests for multiline regexes, escaped dots, fences, and alternations. Harness failures should be separable from product failures. |
 | E20260514-G7 | prior `patch_go_typo`; current `logtri_java` / `mr_keyword` | Confirmed infrastructure gap | Prior write-mode plan failed after transient provider/network errors; current read/log cases pass only after EOF/stall retries and degraded continuation. | LLM transport/provider failures can consume semantic budgets, inflate runtime, and sometimes appear as product failures. Stage EOF/stall handling is not separated clearly enough from semantic insufficiency. | Add provider fallback/backoff classification for stage transport errors, classify infra failures distinctly in eval, and preserve deterministic tool/evidence state across transport retries. For micro-scope typo patches, design a deterministic rescue path only when model-emitted analysis has exact file/line/symbol evidence and write mode is explicitly enabled. |
 | E20260514-G8 | `m1a` | PASS with 33 rejects | Finalizer retry tail shows conflict between explicitly listing `emit_answer_document` / `emit_answer_document_patch` and a validator/prompt rule that removes internal `AnswerDocument` carrier names from user-visible prose. | Internal-carrier concealment is too coarse when the user explicitly asks for tool names whose literal names overlap carrier terminology. The finalizer cannot both hide the term family and list the requested `emit_*` tools without trial-and-error. | Split user-requested tool literals from internal schema carrier names. Use typed visibility policy: exact user-requested tool/function names are allowed when grounded; internal carrier types remain hidden unless the user asks for implementation schemas. |
@@ -248,6 +248,32 @@ internal carrier-name leak. This reinforces that tool-name literals need their
 own typed evidence and visibility lane. The current sweep case ultimately
 passes, but only after 843s, 12 file reads, 29 mid-loop injections, 33
 finalizer iterations, and 88 rejects.
+
+Batch 2h progress:
+
+- Added a first-class source literal evidence lane:
+  `AnchorStringLiteral` -> `ClaimLiteralValueFact`. The analyzer/explorer can
+  now represent a source-code literal value as the principal fact instead of
+  coercing it into a definition, call, assignment, or free-text reference.
+- The grounder validates `string_literal` anchors by parsing literal spans from
+  the cited source line and comparing the evidence anchor against those spans.
+  It accepts quoted/raw/template/char-style literals used by Go, Python,
+  JavaScript, TypeScript/ArkTS, Java, Kotlin, Rust, C/C++, Swift, Ruby, Lua,
+  Proto, Cangjie, and similar line-oriented syntaxes, including route/config
+  punctuation. It accepts only exact literal content or exact quoted literal
+  surface; it rejects ordinary identifiers, partial-literal substrings,
+  comment-only mentions, and inline-comment-only mentions.
+- Exact scalar/list/table lanes can now consume `literal_value_fact` as a
+  display-label claim form for enumeration, role lookup, and config precedence
+  facets. This keeps tool names, route strings, config keys, enum string
+  values, provider IDs, and protocol literal names out of symbol-definition
+  repair loops.
+- Anti-seesaw boundary: `text_reference_fact` remains for docs/prose-style
+  references; `literal_value_fact` is source-code literal evidence only; symbol
+  definitions/calls/assignments keep their existing typed lanes. Hard decisions
+  consume structured evidence fields and source-code line spans only. They do
+  not scan `RawRequest`, rendered answer prose, model reviewer text, or
+  keyword frequency.
 
 ### E20260514-G6: Eval Harness Regex Brittleness (`qf_sequence_analyzer_gate`)
 
@@ -2647,6 +2673,40 @@ Verification:
 - `bash eval/run.sh eval/cases/s1b.case 1`
   (`eval/results/s1b-20260515-051535`, PASS with
   `required_mechanism_anchors=1`)
+
+Initial Batch 2h progress:
+
+- Closed the G5 source-literal evidence side of the exact-answer lane. Added
+  `anchor_kind=string_literal` and `claim_form=literal_value_fact` as typed
+  carriers for facts whose ground truth is a source-code literal value rather
+  than a symbol definition.
+- The grounder now validates these anchors with a source-line literal parser.
+  It recognizes common single-line string/char/raw/template literal forms used
+  across the repository's supported language matrix, while rejecting ordinary
+  identifier matches and comment-only matches. This makes the hard signal the
+  cited source literal span, not a grep hit or answer/request keyword.
+- Final-answer shape compilation and evaluator guidance now allow
+  `literal_value_fact` anywhere exact literal rows are structurally valid:
+  enumeration rows, role/scalar lookup rows, and config precedence rows. That
+  unifies tool names, route strings, config keys, enum values, provider IDs,
+  protocol names, and similar source literals under one lane.
+- Seesaw guard: this change does not relax carrier concealment by scanning
+  visible text. User-visible exact literals must be backed by typed evidence
+  rows, while internal carrier names remain ordinary implementation details
+  unless a typed row makes them the requested source literal.
+
+Verification:
+
+- `go test ./internal/types ./internal/tool/ground ./internal/tool ./internal/agent -run 'ClaimForm|StringLiteral|EmitEvidence_AcceptsStringLiteral|AnswerDocument|GroundItem_StringLiteral|Schema'`
+- `go test ./internal/types ./internal/tool ./internal/agent`
+- `make`
+- `bash eval/run.sh eval/cases/m1_tool_name_literal.case 1`
+  (`eval/results/m1_tool_name_literal-20260515-054222`, PASS;
+  `extractor_iters=1`, `finalizer_iters=1`, no repair lines, no
+  semantic-quality concerns)
+- `bash eval/run.sh eval/cases/m1b.case 1`
+  (`eval/results/m1b-20260515-054352`, PASS; `extractor_iters=1`,
+  `finalizer_iters=1`, no repair lines, no semantic-quality concerns)
 
 ### Batch 3: Relation / Diagram Generation From Typed Edges
 

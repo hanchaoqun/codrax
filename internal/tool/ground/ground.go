@@ -215,6 +215,8 @@ type Report struct {
 //     LineFeatureMemberInitializer when available, otherwise a
 //     structural line-syntax fallback for `=`, `:=`, and
 //     field/object/designated initializers
+//     - string_literal → parsed source literal span on the cited line
+//     contains AnchorSymbol
 //
 //  3. Recovery R1-R5 — implemented in Step 11 of the redesign.
 //     Placeholder here so GroundItem can be wired end-to-end first.
@@ -345,6 +347,10 @@ func attachGroundedLineSnippet(it *types.EvidenceItem, gc *Context) {
 			}
 		case types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer:
 			if matched, matchedOK := findCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph); matchedOK {
+				lineNo = matched
+			}
+		case types.AnchorStringLiteral:
+			if matched, matchedOK := findStringLiteralAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol, it.Source); matchedOK {
 				lineNo = matched
 			}
 		default:
@@ -1027,9 +1033,23 @@ func recoveredAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
 	switch it.AnchorKind {
 	case types.AnchorCall:
 		return recoveredCallAnchorConsistent(it, gc)
+	case types.AnchorStringLiteral:
+		return recoveredStringLiteralAnchorConsistent(it, gc)
 	default:
 		return true
 	}
+}
+
+func recoveredStringLiteralAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
+	if it == nil || gc == nil || it.Source == "" || it.LineStart <= 0 || strings.TrimSpace(it.AnchorSymbol) == "" {
+		return false
+	}
+	fileLines, ok := gc.LineIndex[it.Source]
+	if !ok {
+		return false
+	}
+	_, ok = findStringLiteralAnchorLine(fileLines, it.LineStart, 0, it.AnchorSymbol, it.Source)
+	return ok
 }
 
 func recoveredCallAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
@@ -1128,6 +1148,10 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 		}
 		text, exists := lookupLineWithNeighbours(fileLines, it.LineStart, 2)
 		return exists && lineCorroborates(text, it.Subject, it.Object, it.Condition, gc.Graph)
+	}
+	if it.AnchorKind == types.AnchorStringLiteral {
+		_, ok := findStringLiteralAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol, it.Source)
+		return ok
 	}
 	if it.AnchorKind == types.AnchorCall {
 		matchedLine, ok := findCallCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph)
@@ -1411,6 +1435,213 @@ func lineContainsAnchor(text, anchor, seg string, useSubstring bool) bool {
 	return have[anchor] || (seg != anchor && have[seg])
 }
 
+func findStringLiteralAnchorLine(fileLines map[int]string, center, radius int, anchor, source string) (int, bool) {
+	anchor = strings.TrimSpace(anchor)
+	if anchor == "" {
+		return 0, false
+	}
+	if text, ok := fileLines[center]; ok &&
+		lineContainsStringLiteralAnchor(text, anchor) &&
+		!isLineComment(fileLines, center, source) {
+		return center, true
+	}
+	bestLine, bestDist := 0, radius+1
+	for i := center - radius; i <= center+radius; i++ {
+		if i == center || i <= 0 || isLineComment(fileLines, i, source) {
+			continue
+		}
+		text, ok := fileLines[i]
+		if !ok || !lineContainsStringLiteralAnchor(text, anchor) {
+			continue
+		}
+		d := i - center
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			bestLine = i
+		}
+	}
+	if bestLine > 0 {
+		return bestLine, true
+	}
+	return 0, false
+}
+
+type sourceStringLiteral struct {
+	content string
+	quoted  string
+}
+
+func lineContainsStringLiteralAnchor(line, anchor string) bool {
+	candidates := stringLiteralAnchorCandidates(anchor)
+	if len(candidates) == 0 {
+		return false
+	}
+	for _, lit := range sourceStringLiterals(line) {
+		for _, candidate := range candidates {
+			if stringLiteralSurfaceMatches(lit, candidate) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func stringLiteralAnchorCandidates(anchor string) []string {
+	anchor = strings.TrimSpace(anchor)
+	if anchor == "" {
+		return nil
+	}
+	out := []string{anchor}
+	if unquoted, err := strconv.Unquote(anchor); err == nil && strings.TrimSpace(unquoted) != "" && unquoted != anchor {
+		out = append(out, unquoted)
+	}
+	return out
+}
+
+func stringLiteralSurfaceMatches(lit sourceStringLiteral, candidate string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return false
+	}
+	return lit.content == candidate || lit.quoted == candidate
+}
+
+func sourceStringLiterals(line string) []sourceStringLiteral {
+	var out []sourceStringLiteral
+	firstNonSpace := firstNonSpaceByte(line)
+	for i := 0; i < len(line); {
+		if startsLineComment(line, i, firstNonSpace) {
+			break
+		}
+		if lit, next, ok := scanRustRawStringLiteral(line, i); ok {
+			out = append(out, lit)
+			i = next
+			continue
+		}
+		if lit, next, ok := scanAtQuotedStringLiteral(line, i); ok {
+			out = append(out, lit)
+			i = next
+			continue
+		}
+		ch := line[i]
+		if ch == '"' || ch == '\'' || ch == '`' {
+			lit, next, ok := scanDelimitedStringLiteral(line, i)
+			if ok {
+				out = append(out, lit)
+				i = next
+				continue
+			}
+		}
+		i++
+	}
+	return out
+}
+
+func firstNonSpaceByte(s string) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] != ' ' && s[i] != '\t' {
+			return i
+		}
+	}
+	return -1
+}
+
+func startsLineComment(line string, i, firstNonSpace int) bool {
+	if i+1 < len(line) {
+		switch line[i : i+2] {
+		case "//", "--", "/*":
+			return true
+		}
+	}
+	return line[i] == '#' && firstNonSpace >= 0 && i != firstNonSpace
+}
+
+func scanRustRawStringLiteral(line string, i int) (sourceStringLiteral, int, bool) {
+	if line[i] != 'r' {
+		return sourceStringLiteral{}, i, false
+	}
+	j := i + 1
+	for j < len(line) && line[j] == '#' {
+		j++
+	}
+	if j >= len(line) || line[j] != '"' {
+		return sourceStringLiteral{}, i, false
+	}
+	contentStart := j + 1
+	closePrefix := `"` + strings.Repeat("#", j-i-1)
+	closeRel := strings.Index(line[contentStart:], closePrefix)
+	if closeRel < 0 {
+		return sourceStringLiteral{}, i, false
+	}
+	closeStart := contentStart + closeRel
+	next := closeStart + len(closePrefix)
+	return sourceStringLiteral{
+		content: line[contentStart:closeStart],
+		quoted:  line[i:next],
+	}, next, true
+}
+
+func scanAtQuotedStringLiteral(line string, i int) (sourceStringLiteral, int, bool) {
+	if line[i] != '@' || i+1 >= len(line) || line[i+1] != '"' {
+		return sourceStringLiteral{}, i, false
+	}
+	var b strings.Builder
+	for j := i + 2; j < len(line); j++ {
+		if line[j] == '"' {
+			if j+1 < len(line) && line[j+1] == '"' {
+				b.WriteByte('"')
+				j++
+				continue
+			}
+			return sourceStringLiteral{
+				content: b.String(),
+				quoted:  line[i : j+1],
+			}, j + 1, true
+		}
+		b.WriteByte(line[j])
+	}
+	return sourceStringLiteral{}, i, false
+}
+
+func scanDelimitedStringLiteral(line string, i int) (sourceStringLiteral, int, bool) {
+	quote := line[i]
+	delimLen := 1
+	if quote != '`' && i+2 < len(line) && line[i+1] == quote && line[i+2] == quote {
+		delimLen = 3
+	}
+	contentStart := i + delimLen
+	var b strings.Builder
+	for j := contentStart; j < len(line); j++ {
+		if delimLen == 3 {
+			if j+2 < len(line) && line[j] == quote && line[j+1] == quote && line[j+2] == quote {
+				return sourceStringLiteral{
+					content: b.String(),
+					quoted:  line[i : j+3],
+				}, j + 3, true
+			}
+			b.WriteByte(line[j])
+			continue
+		}
+		if quote != '`' && line[j] == '\\' && j+1 < len(line) {
+			b.WriteByte(line[j])
+			b.WriteByte(line[j+1])
+			j++
+			continue
+		}
+		if line[j] == quote {
+			return sourceStringLiteral{
+				content: b.String(),
+				quoted:  line[i : j+1],
+			}, j + 1, true
+		}
+		b.WriteByte(line[j])
+	}
+	return sourceStringLiteral{}, i, false
+}
+
 // findCorroboratingLine is the legacy-fallback counterpart of
 // findAnchorLine: locates the specific line within the ±radius window
 // whose tokenSet satisfies lineCorroborates. Used for evidence items
@@ -1520,7 +1751,7 @@ func tier2SymbolTable(it *types.EvidenceItem, gc *Context) bool {
 		}
 	}
 	switch it.AnchorKind {
-	case types.AnchorTextReference:
+	case types.AnchorTextReference, types.AnchorStringLiteral:
 		return false
 	case types.AnchorImport:
 		return graphMatchImport(it, gc)

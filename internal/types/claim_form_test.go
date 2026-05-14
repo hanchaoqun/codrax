@@ -18,15 +18,15 @@ func TestClaimForm_AllValuesValidExceptUnknown(t *testing.T) {
 	// declared constant. Adding a new ClaimForm constant requires
 	// updating the allClaimForms slice; this guard catches that
 	// drift via length comparison against the known constant count
-	// (10 as of 2026-05-13 text-reference surface; bump this assertion if you add
+	// (11 as of 2026-05-15 literal/text-reference surfaces; bump this assertion if you add
 	// a new ClaimForm).
-	if len(AllClaimForms()) != 10 {
-		t.Errorf("AllClaimForms length %d != 10 — update allClaimForms slice when adding a new ClaimForm constant", len(AllClaimForms()))
+	if len(AllClaimForms()) != 11 {
+		t.Errorf("AllClaimForms length %d != 11 — update allClaimForms slice when adding a new ClaimForm constant", len(AllClaimForms()))
 	}
 }
 
 func TestClaimForm_UsesNonSymbolLabelSurface(t *testing.T) {
-	for _, c := range []ClaimForm{ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation, ClaimTextReferenceFact} {
+	for _, c := range []ClaimForm{ClaimImportEdge, ClaimLiteralValueFact, ClaimPrecedenceRole, ClaimExternalObservation, ClaimTextReferenceFact} {
 		if !c.UsesNonSymbolLabelSurface() {
 			t.Fatalf("%s should use typed display labels instead of declaration-symbol labels", c)
 		}
@@ -46,7 +46,7 @@ func TestClaimForm_CitationRoleIdentityKindExhaustive(t *testing.T) {
 			t.Fatalf("claim form %q returned unknown citation role identity kind %q", c, c.CitationRoleIdentityKind())
 		}
 	}
-	for _, c := range []ClaimForm{ClaimCallEdge, ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation, ClaimTextReferenceFact} {
+	for _, c := range []ClaimForm{ClaimCallEdge, ClaimImportEdge, ClaimPrecedenceRole, ClaimExternalObservation, ClaimLiteralValueFact, ClaimTextReferenceFact} {
 		if !c.SupportsCitationRoleAlignment() {
 			t.Fatalf("claim form %q should support typed citation-role alignment", c)
 		}
@@ -83,6 +83,21 @@ func TestEvidenceClaimRoleMentionedBySurface_DisplaySurface(t *testing.T) {
 	}
 	if !EvidenceClaimRoleMentionedBySurface(ev, []ClaimForm{ClaimExternalObservation}, "Caused by java.io.IOException: Connection refused") {
 		t.Fatalf("display surface terms from typed evidence should be recognized")
+	}
+}
+
+func TestEvidenceClaimRoleMentionedBySurface_LiteralValueFact(t *testing.T) {
+	ev := EvidenceItem{
+		AnchorKind:      AnchorStringLiteral,
+		AnchorSymbol:    "emit_answer_document",
+		Object:          "emit_answer_document",
+		GroundingStatus: GroundingGrounded,
+	}
+	if !EvidenceClaimRoleMentionedBySurface(ev, []ClaimForm{ClaimLiteralValueFact}, "emit_answer_document") {
+		t.Fatalf("typed literal value should be recognized as a display-surface claim role")
+	}
+	if EvidenceClaimRoleMentionedBySurface(ev, []ClaimForm{ClaimDefinitionFact}, "emit_answer_document") {
+		t.Fatalf("literal value evidence must not satisfy definition_fact role")
 	}
 }
 
@@ -293,6 +308,7 @@ func TestClaimFormOf_AnchorKindDispatch(t *testing.T) {
 		{AnchorAssignment, ClaimAssignmentFact},
 		{AnchorInitializer, ClaimAssignmentFact},
 		{AnchorImport, ClaimImportEdge},
+		{AnchorStringLiteral, ClaimLiteralValueFact},
 		{AnchorTextReference, ClaimTextReferenceFact},
 		{AnchorDefinition, ClaimDefinitionFact},
 	}

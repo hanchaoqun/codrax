@@ -265,6 +265,8 @@ func anchorKindDisplayTag(k types.AnchorKind) string {
 		return "(initializer)"
 	case types.AnchorImport:
 		return "(import)"
+	case types.AnchorStringLiteral:
+		return "(string literal)"
 	}
 	return ""
 }
