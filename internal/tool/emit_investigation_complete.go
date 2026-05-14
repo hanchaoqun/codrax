@@ -366,6 +366,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	effectiveAggregateFacts := effectiveCompletionAggregateFacts(ctx, aggregateFacts)
 	effectiveAggregateFacts = enrichCompletionAggregateFactsWithMemberSupport(ctx, effectiveAggregateFacts)
+	effectiveAggregateFacts = enrichCompletionAggregateFactsWithDeterministicCount(ctx, effectiveAggregateFacts)
 
 	// Strict-decode + store evidence_floor_waiver (typed escape).
 	// The full pre-check chain below (forced-read, citation floor)
@@ -2857,16 +2858,72 @@ func completionMaterializationReadFiles(closure *types.EvidenceClosure) []string
 	return files
 }
 
+func enrichCompletionAggregateFactsWithDeterministicCount(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return facts
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !rm.Predicates.IsCountQuestion || rm.Predicates.IsHistoryLookup {
+		return facts
+	}
+	if aggregateFactsContainCountAnswer(facts) || aggregateFactsContainDeterministicCountScalar(facts) {
+		return facts
+	}
+	value, ok := deterministicCountToolResultValue(ctx)
+	if !ok {
+		return facts
+	}
+	out := cloneCompletionAggregateFacts(facts)
+	out = append(out, types.AnswerAggregateFact{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "deterministic count result",
+		Value: strconv.Itoa(value),
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "proof_source", Value: "exec_command"},
+			{Name: "answer_axis", Value: "count"},
+		},
+	})
+	return out
+}
+
+func aggregateFactsContainDeterministicCountScalar(facts []types.AnswerAggregateFact) bool {
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateScalar {
+			continue
+		}
+		for _, dim := range fact.Dimensions {
+			if strings.EqualFold(strings.TrimSpace(dim.Name), "answer_axis") &&
+				strings.EqualFold(strings.TrimSpace(dim.Value), "count") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func hasDeterministicCountToolResult(ctx *types.BusContext) bool {
+	_, ok := deterministicCountToolResultValue(ctx)
+	return ok
+}
+
+func deterministicCountToolResultValue(ctx *types.BusContext) (int, bool) {
+	var value int
+	found := false
 	for _, tr := range deterministicCountToolResults(ctx) {
 		if tr.ToolName != "exec_command" || !tr.Success {
 			continue
 		}
-		if _, ok := types.DeterministicCountProofInteger(tr.Summary); ok {
-			return true
+		n, ok := types.DeterministicCountProofInteger(tr.Summary)
+		if !ok {
+			continue
 		}
+		if found && n != value {
+			return 0, false
+		}
+		value = n
+		found = true
 	}
-	return false
+	return value, found
 }
 
 func deterministicCountToolResults(ctx *types.BusContext) []types.ToolResult {

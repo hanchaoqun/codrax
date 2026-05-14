@@ -1280,6 +1280,78 @@ func build() {
 	if !mut.IsInvestigationComplete() {
 		t.Fatalf("investigation should close after command-backed count")
 	}
+	facts := mut.StableInvestigationAggregateFacts()
+	var foundScalar bool
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateScalar {
+			continue
+		}
+		if fact.Value != "1" {
+			continue
+		}
+		var hasCountAxis, hasExecProof bool
+		for _, dim := range fact.Dimensions {
+			switch {
+			case strings.EqualFold(dim.Name, "answer_axis") && strings.EqualFold(dim.Value, "count"):
+				hasCountAxis = true
+			case strings.EqualFold(dim.Name, "proof_source") && strings.EqualFold(dim.Value, "exec_command"):
+				hasExecProof = true
+			}
+		}
+		if !hasCountAxis || !hasExecProof {
+			t.Fatalf("deterministic exec count scalar should carry typed dimensions, got %+v", fact)
+		}
+		foundScalar = true
+		break
+	}
+	if !foundScalar {
+		t.Fatalf("deterministic exec count should be carried as scalar_value aggregate, got %+v", facts)
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_ConflictingDeterministicCountsNeedStructuredHandoff(t *testing.T) {
+	mut := types.NewMutableState("internal/tool 下非测试 Go 文件总行数是多少？")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Summary:  "count=120\n",
+		Success:  true,
+	})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Summary:  "count=121\n",
+		Success:  true,
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "internal/tool 下非测试 Go 文件总行数是多少？",
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "two counting commands were run",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "deterministic count proof is missing") {
+		t.Fatalf("conflicting deterministic count outputs should require structured handoff, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open when deterministic count outputs conflict")
+	}
 }
 
 func TestEmitInvestigationComplete_PreCompleteCheck_RelationalCountAlsoNeedsStructuredProof(t *testing.T) {

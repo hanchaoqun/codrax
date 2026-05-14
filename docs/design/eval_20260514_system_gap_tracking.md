@@ -75,6 +75,7 @@ created.
 | E20260514-G53 | `u9b` post-Batch 5b replay | Fixed Batch 5c / PASS replay | The typed verdict replay passed, but the same request still triggered two rejected `enumeration_boundary` emits on the phrase "exactly one item", then ran with `family=enumeration`, `enumeration_push=1`, and `explorer_iters=40`. | Scenario counts that describe a failure condition can leak into answer-set cardinality and enumeration-family planning. The typed error-granularity lane solved the answer verdict, but a neighboring count/enumeration lane still treats contextual quantities as principal answer-set obligations. | Added a typed lane conflict resolver: when `error_granularity_profile` is active and the analyzer does not also emit a count/category/relation answer predicate, scenario counts remain contextual parameters, not `enumeration_boundary` contracts or enumeration facet families. |
 | E20260514-G54 | `u9b` Batch 5c replay | Fixed Batch 5c / support-lane test | After G53 was fixed, the finalizer emitted the required principal `decision` block with `error_granularity_verdict`, but principal evidence support rejected `decision` because the lane allowed only summary/section/list/diagram blocks. | Typed answer-block requirements and support-lane allowed-block policies were compiled independently. Adding a typed decision verdict changed the required answer surface, but citation-routing policy still assumed generic principal evidence never needs a decision block. | Made principal evidence support policy consume the typed error-granularity profile: active failure-scope verdict questions allow principal `decision` blocks to cite principal evidence, while the default block policy remains unchanged for other generic answers. |
 | E20260514-G55 | `u9b` post-rebase replay | Fixed Batch 5c / classifier-variant guard | After rebasing onto the remote finalizer recovery work, the same request sometimes classified as `intent=root_cause`; root-cause family priority then preempted the failure-scope decision guard and rebuilt a three-surface diagnostic answer. | The typed lane conflict resolver was present but ordered below a broader diagnostic family. A classifier wording variant could reopen the over-scaffolding seesaw even though the same typed `error_granularity_profile` was active. | Promoted no-attachment failure-scope decision answers ahead of root-cause scenario/family routing. Attached log/perf traces still use the diagnostic family because artifact/current-code drift remains part of their answer surface. |
+| E20260514-G56 | G12 / `s7a` deterministic count audit | Fixed Batch 2f / PASS replay | Count questions could close once a deterministic `exec_command` produced a parseable `count=N`, but that value was only a completion permission. The finalizer still had to recover the scalar from prompt/tool history, and two conflicting deterministic count outputs were not treated as an ambiguous structured handoff. | Tool-sourced scalar proof and final-answer scalar obligation were split. The same raw tool output acted as a soft memory source for rendering and a hard gate for completion, without a typed aggregate carrier or an ambiguity rule. | Compile unambiguous deterministic count tool output into an `AnswerAggregateScalar` with `answer_axis=count` and `proof_source=exec_command`; if multiple deterministic count values conflict, fail closed and require a structured handoff. History lookups remain excluded so commit/history scalars still need typed history rows rather than a raw command shortcut. |
 
 ## End-to-End Traces
 
@@ -408,6 +409,37 @@ forced through ordinary LLM-driven extract/finalize stages.
 Generalization: commit hashes, authorship dates, line counts, file counts,
 sizes, checksums, command outputs, and other tool-sourced literals need a
 first-class scalar handoff and renderer.
+
+Batch 2f progress:
+
+- Started the deterministic count branch of the scalar handoff. When the
+  analyzer typed lane says `is_count_question=true` and the task is not a git
+  history lookup, an unambiguous deterministic `exec_command` count result is
+  now compiled into an `AnswerAggregateScalar` with `answer_axis=count` and
+  `proof_source=exec_command`.
+- Completion no longer treats raw command output only as permission to stop.
+  The scalar value travels through the existing aggregate-fact carrier that the
+  finalizer and pre-emit checks already consume, so the exact number becomes a
+  structured answer obligation rather than prompt memory.
+- Seesaw guard: if multiple successful deterministic count command outputs
+  disagree, completion fails closed and asks for structured handoff instead of
+  letting one broad/noisy command silently satisfy another count. History-count
+  questions remain outside this shortcut because they need commit/filter rows
+  and exclusion reasons from the G25 history carrier.
+- Red-line guard: the hard decisions consume typed predicates
+  (`is_count_question`, `is_history_lookup`) plus the deterministic count proof
+  parser over tool output. They do not inspect user request prose or model
+  answer prose for keywords.
+
+Verification:
+
+- `go test ./internal/tool -run 'DeterministicCommandOutput|ConflictingDeterministicCounts|HistoryCountRequiresAggregateHandoff|RelationalCountAlsoNeedsStructuredProof|DeterministicCount'`
+- `go test ./internal/types -run 'DeterministicCountProof'`
+- `go test ./...`
+- `make`
+- `bash eval/run.sh eval/cases/s7a.case 1`
+  (`eval/results/s7a-20260515-045731`, PASS; `extractor_iters=1`,
+  `finalizer_iters=1`, no repair lines)
 
 ### E20260514-G13: External-Only Runtime Log Fast Path (`logtri_rust`)
 
