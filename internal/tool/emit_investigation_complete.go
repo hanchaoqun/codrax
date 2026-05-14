@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -364,6 +365,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 	effectiveAggregateFacts := effectiveCompletionAggregateFacts(ctx, aggregateFacts)
+	effectiveAggregateFacts = enrichCompletionAggregateFactsWithMemberSupport(ctx, effectiveAggregateFacts)
 
 	// Strict-decode + store evidence_floor_waiver (typed escape).
 	// The full pre-check chain below (forced-read, citation floor)
@@ -1736,6 +1738,7 @@ type aggregateMemberSupportIndex struct {
 	byID                map[string]types.EvidenceItem
 	answerSyms          map[string]types.AnswerSymbol
 	toolLinesByLocation map[string][]string
+	readFileLines       []aggregateToolLine
 }
 
 func buildAggregateMemberSupportIndex(ctx *types.BusContext) aggregateMemberSupportIndex {
@@ -1745,6 +1748,7 @@ func buildAggregateMemberSupportIndex(ctx *types.BusContext) aggregateMemberSupp
 		byID:                map[string]types.EvidenceItem{},
 		answerSyms:          map[string]types.AnswerSymbol{},
 		toolLinesByLocation: map[string][]string{},
+		readFileLines:       nil,
 	}
 	if ctx == nil || ctx.Mutable == nil {
 		return idx
@@ -1780,11 +1784,50 @@ func buildAggregateMemberSupportIndex(ctx *types.BusContext) aggregateMemberSupp
 		if !result.Success || !aggregateSupportToolResultEligible(result.ToolName) {
 			continue
 		}
+		if strings.TrimSpace(result.ToolName) == "read_file" {
+			for _, line := range aggregateReadFileToolLines(result.Summary) {
+				loc := aggregateSupportLocationKey(line.File, line.Line)
+				if loc == "" {
+					continue
+				}
+				idx.toolLinesByLocation[loc] = append(idx.toolLinesByLocation[loc], line.Text)
+				idx.readFileLines = append(idx.readFileLines, line)
+			}
+			continue
+		}
 		for loc, lines := range aggregateToolResultLinesByLocation(result.Summary) {
 			idx.toolLinesByLocation[loc] = append(idx.toolLinesByLocation[loc], lines...)
 		}
 	}
 	return idx
+}
+
+func enrichCompletionAggregateFactsWithMemberSupport(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {
+	if len(facts) == 0 || ctx == nil || ctx.Mutable == nil {
+		return facts
+	}
+	support := buildAggregateMemberSupportIndex(ctx)
+	if len(support.readFileLines) == 0 {
+		return facts
+	}
+	out := cloneCompletionAggregateFacts(facts)
+	for factIdx := range out {
+		if out[factIdx].Kind != types.AnswerAggregateMemberSet || len(out[factIdx].Members) == 0 {
+			continue
+		}
+		for _, member := range out[factIdx].Members {
+			if aggregateMemberSetMemberUsable(out[factIdx], member, support) {
+				continue
+			}
+			ref, ok := aggregateMemberReadFileSupportRef(member, support)
+			if !ok {
+				continue
+			}
+			out[factIdx].SupportRefs = append(out[factIdx].SupportRefs, ref)
+		}
+		out[factIdx].SupportRefs = dedupStringsPreserveOrder(out[factIdx].SupportRefs)
+	}
+	return out
 }
 
 func aggregateSupportToolResults(ctx *types.BusContext) []types.ToolResult {
@@ -1809,6 +1852,45 @@ func aggregateSupportToolResultEligible(name string) bool {
 }
 
 var aggregateToolLocationPattern = regexp.MustCompile(`\b[^\s"'` + "`" + `]+:\d+\b`)
+var aggregateReadFileHeaderPattern = regexp.MustCompile(`^\[([^:\]\n]+): showing `)
+var aggregateReadFileGutterPattern = regexp.MustCompile(`^\s*(\d+)\s*[│|]\s?(.*)$`)
+
+type aggregateToolLine struct {
+	File string
+	Line int
+	Text string
+}
+
+func aggregateReadFileToolLines(summary string) []aggregateToolLine {
+	if strings.TrimSpace(summary) == "" {
+		return nil
+	}
+	var out []aggregateToolLine
+	var currentFile string
+	for _, line := range strings.Split(summary, "\n") {
+		if m := aggregateReadFileHeaderPattern.FindStringSubmatch(strings.TrimSpace(line)); len(m) == 2 {
+			currentFile = strings.TrimSpace(strings.ReplaceAll(m[1], `\`, `/`))
+			continue
+		}
+		if currentFile == "" {
+			continue
+		}
+		m := aggregateReadFileGutterPattern.FindStringSubmatch(line)
+		if len(m) != 3 {
+			continue
+		}
+		lineNo, err := strconv.Atoi(m[1])
+		if err != nil || lineNo <= 0 {
+			continue
+		}
+		out = append(out, aggregateToolLine{
+			File: currentFile,
+			Line: lineNo,
+			Text: strings.TrimSpace(m[2]),
+		})
+	}
+	return out
+}
 
 func aggregateToolResultLinesByLocation(summary string) map[string][]string {
 	if strings.TrimSpace(summary) == "" {
@@ -1849,7 +1931,10 @@ func aggregateMemberSetMemberUsable(fact types.AnswerAggregateFact, member strin
 		return true
 	}
 	if label, loc, ok := aggregateMemberSupportRefParts(member); ok {
-		refLabels := aggregateSupportLabels(label, labels)
+		if !aggregateSupportLocationCompatibleWithMember(member, loc) {
+			return false
+		}
+		refLabels := aggregateSupportLabels(label, aggregateMemberLocationSupportLabels(member, labels))
 		if aggregateLocationEvidenceMatchesLabels(loc, refLabels, support.byLocation) ||
 			aggregateToolLocationMatchesLabels(loc, refLabels, support.toolLinesByLocation) {
 			return true
@@ -1870,13 +1955,182 @@ func aggregateMemberSetMemberUsable(fact types.AnswerAggregateFact, member strin
 		if !aggregateSupportLabelMatchesMember(label, labels) {
 			continue
 		}
-		refLabels := aggregateSupportLabels(label, labels)
+		if !aggregateSupportLocationCompatibleWithMember(member, loc) {
+			continue
+		}
+		refLabels := aggregateSupportLabels(label, aggregateMemberLocationSupportLabels(member, labels))
 		if aggregateLocationEvidenceMatchesLabels(loc, refLabels, support.byLocation) ||
 			aggregateToolLocationMatchesLabels(loc, refLabels, support.toolLinesByLocation) {
 			return true
 		}
 	}
 	return false
+}
+
+func aggregateMemberReadFileSupportRef(member string, support aggregateMemberSupportIndex) (string, bool) {
+	left, _, ok := types.AnswerAggregateMemberRelationParts(member)
+	if !ok || strings.TrimSpace(left) == "" {
+		return "", false
+	}
+	labels := aggregateRelationRightSupportLabels(member)
+	if len(labels) == 0 {
+		return "", false
+	}
+	for _, line := range support.readFileLines {
+		if !aggregateReadFilePathMatchesRelationLeft(line.File, left) {
+			continue
+		}
+		if !aggregateReadFileLineSupportsLabels(line.Text, labels) {
+			continue
+		}
+		loc := aggregateSupportLocationKey(line.File, line.Line)
+		if loc == "" {
+			continue
+		}
+		return "Member @ " + loc, true
+	}
+	return "", false
+}
+
+func aggregateRelationRightSupportLabels(member string) []string {
+	labels := aggregateMemberDisplayCandidates(member)
+	var out []string
+	for _, label := range labels {
+		_, right, ok := types.AnswerAggregateMemberRelationParts(label)
+		if !ok {
+			continue
+		}
+		right = strings.TrimSpace(right)
+		if right == "" {
+			continue
+		}
+		out = append(out, right)
+		if tail := types.NormalizedSurfaceSymbolTail(right); tail != "" {
+			out = append(out, tail)
+		}
+	}
+	return dedupStringsPreserveOrder(out)
+}
+
+func aggregateMemberLocationSupportLabels(member string, labels []string) []string {
+	out := append([]string(nil), labels...)
+	out = append(out, aggregateRelationRightSupportLabels(member)...)
+	return dedupStringsPreserveOrder(out)
+}
+
+func aggregateSupportLocationCompatibleWithMember(member string, location string) bool {
+	left, _, ok := types.AnswerAggregateMemberRelationParts(member)
+	if !ok || !types.IsCodeIdentitySurface(left) {
+		return true
+	}
+	file := strings.TrimSpace(location)
+	if idx := strings.LastIndex(file, ":"); idx >= 0 {
+		file = file[:idx]
+	}
+	if file == "" {
+		return true
+	}
+	return aggregateReadFilePathMatchesRelationLeft(file, left)
+}
+
+func aggregateReadFilePathMatchesRelationLeft(file, left string) bool {
+	file = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)))
+	if file == "" {
+		return false
+	}
+	for _, candidate := range aggregateRelationLeftPathCandidates(left) {
+		if candidate == "" {
+			continue
+		}
+		if aggregatePathContainsSegmentSequence(file, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateRelationLeftPathCandidates(left string) []string {
+	left = strings.ToLower(strings.Trim(strings.TrimSpace(left), "`'\" "))
+	if left == "" {
+		return nil
+	}
+	var out []string
+	add := func(v string) {
+		v = strings.Trim(strings.TrimSpace(strings.ReplaceAll(v, `\`, `/`)), "/")
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	add(left)
+	add(strings.ReplaceAll(left, "::", "/"))
+	add(strings.ReplaceAll(left, ".", "/"))
+	add(strings.TrimPrefix(strings.ReplaceAll(left, "@", ""), "/"))
+	if tail := types.NormalizedSurfaceSymbolTail(left); tail != "" && tail != left {
+		add(tail)
+	}
+	return dedupStringsPreserveOrder(out)
+}
+
+func aggregatePathContainsSegmentSequence(file, candidate string) bool {
+	candidate = strings.Trim(strings.TrimSpace(candidate), "/")
+	if candidate == "" {
+		return false
+	}
+	if strings.Contains(candidate, "/") {
+		return strings.Contains("/"+file+"/", "/"+candidate+"/")
+	}
+	for _, segment := range strings.Split(file, "/") {
+		base := strings.TrimSuffix(segment, path.Ext(segment))
+		if segment == candidate || base == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateReadFileLineSupportsLabels(line string, labels []string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || aggregateReadFileLineIsComment(trimmed) {
+		return false
+	}
+	if !aggregateReadFileLineLooksDefining(trimmed) {
+		return false
+	}
+	for _, label := range labels {
+		label = strings.TrimSpace(label)
+		if label == "" || types.AnswerSupportRefLabelIsGeneric(label) {
+			continue
+		}
+		if types.AnswerCodeSurfaceAppearsInText(trimmed, label) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateReadFileLineIsComment(line string) bool {
+	line = strings.TrimSpace(line)
+	return strings.HasPrefix(line, "//") ||
+		strings.HasPrefix(line, "#") ||
+		strings.HasPrefix(line, "/*") ||
+		strings.HasPrefix(line, "*") ||
+		strings.HasPrefix(line, "--")
+}
+
+func aggregateReadFileLineLooksDefining(line string) bool {
+	lower := strings.ToLower(line)
+	for _, marker := range []string{
+		"func ", "def ", "fn ", "function ", "fun ",
+		"class ", "interface ", "enum ", "struct ", "trait ",
+		"type ", "const ", "var ", "let ",
+		"public ", "private ", "protected ", "export ",
+		"impl ", "module ", "service ", "message ",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return strings.Contains(line, "(") && strings.Contains(line, "{")
 }
 
 func aggregateMemberDisplayCandidates(member string) []string {

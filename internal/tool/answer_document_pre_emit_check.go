@@ -52,6 +52,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -1164,18 +1165,9 @@ func preEmitStructuredMemberBlockCoversFact(doc *types.AnswerDocumentV2, fact ty
 			continue
 		}
 		matched := make(map[int]bool, len(fact.Members))
-		for _, item := range block.Items {
-			itemSurface := strings.TrimSpace(item.Label + "\n" + item.Text)
-			if itemSurface == "" {
-				continue
-			}
-			for idx, member := range fact.Members {
-				if matched[idx] {
-					continue
-				}
-				if preEmitAggregateMemberAppearsInText(member, itemSurface) {
-					matched[idx] = true
-				}
+		for idx, member := range fact.Members {
+			if preEmitStructuredBlockCoversAggregateMember(block, member) {
+				matched[idx] = true
 			}
 		}
 		if len(matched) == len(fact.Members) {
@@ -1183,6 +1175,19 @@ func preEmitStructuredMemberBlockCoversFact(doc *types.AnswerDocumentV2, fact ty
 		}
 	}
 	return false
+}
+
+func preEmitStructuredBlockCoversAggregateMember(block types.AnswerBlock, member string) bool {
+	for _, item := range block.Items {
+		itemSurface := strings.TrimSpace(item.Label + "\n" + item.Text)
+		if itemSurface == "" {
+			continue
+		}
+		if preEmitAggregateMemberAppearsInText(member, itemSurface) {
+			return true
+		}
+	}
+	return preEmitMultiTargetRelationCoveredByStructuredBlock(member, block)
 }
 
 func preEmitAggregateMemberAppearsInText(member string, surface string) bool {
@@ -1201,6 +1206,9 @@ func preEmitAggregateMemberAppearsInText(member string, surface string) bool {
 		if preEmitTextContainsAllAggregateParts(surface, left, right) {
 			return true
 		}
+	}
+	if preEmitMultiTargetRelationAppearsInText(member, surface) {
+		return true
 	}
 	return false
 }
@@ -1222,7 +1230,165 @@ func preEmitAggregateMemberAppearsInDocument(member string, doc *types.AnswerDoc
 			return true
 		}
 	}
+	if preEmitMultiTargetRelationAppearsInStructuredDocument(member, doc) {
+		return true
+	}
 	return false
+}
+
+func preEmitMultiTargetRelationAppearsInStructuredDocument(member string, doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			continue
+		}
+		if preEmitMultiTargetRelationCoveredByStructuredBlock(member, block) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitMultiTargetRelationCoveredByStructuredBlock(member string, block types.AnswerBlock) bool {
+	left, targets, ok := preEmitAggregateMemberMultiTargetRelationParts(member)
+	if !ok {
+		return false
+	}
+	for _, target := range targets {
+		covered := false
+		for _, item := range block.Items {
+			itemSurface := strings.TrimSpace(item.Label + "\n" + item.Text)
+			if preEmitTextContainsAllAggregateParts(itemSurface, left, target) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return false
+		}
+	}
+	return true
+}
+
+func preEmitMultiTargetRelationAppearsInText(member string, surface string) bool {
+	left, targets, ok := preEmitAggregateMemberMultiTargetRelationParts(member)
+	if !ok {
+		return false
+	}
+	if !preEmitAggregateDisplayPartAppears(left, surface) {
+		return false
+	}
+	for _, target := range targets {
+		if !preEmitAggregateDisplayPartAppears(target, surface) {
+			return false
+		}
+	}
+	return true
+}
+
+func preEmitAggregateMemberMultiTargetRelationParts(member string) (left string, targets []string, ok bool) {
+	for _, surface := range preEmitAggregateMemberRelationSurfaces(member) {
+		left, targets, ok = preEmitMultiTargetRelationPartsFromSurface(surface)
+		if ok {
+			return left, targets, true
+		}
+	}
+	return "", nil, false
+}
+
+func preEmitMultiTargetRelationPartsFromSurface(surface string) (left string, targets []string, ok bool) {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return "", nil, false
+	}
+	if _, _, parsed := types.AnswerAggregateMemberRelationParts(surface); parsed {
+		return "", nil, false
+	}
+	left, right, ok := preEmitRawRelationSurfaceSplit(surface)
+	if !ok {
+		return "", nil, false
+	}
+	rawTargets := preEmitSplitMultiRelationTargets(right)
+	if len(rawTargets) < 2 {
+		return "", nil, false
+	}
+	for _, target := range rawTargets {
+		target = strings.Trim(target, "` ")
+		if target == "" {
+			continue
+		}
+		_, _, parsed := types.AnswerAggregateMemberRelationParts(left + " → " + target)
+		if !parsed {
+			return "", nil, false
+		}
+		targets = append(targets, target)
+	}
+	if len(targets) < 2 {
+		return "", nil, false
+	}
+	return left, dedupPreEmitStringCandidates(targets), true
+}
+
+func preEmitRawRelationSurfaceSplit(surface string) (left, right string, ok bool) {
+	for _, sep := range []string{"→", "->", "=>"} {
+		if strings.Count(surface, sep) != 1 {
+			continue
+		}
+		idx := strings.Index(surface, sep)
+		left = strings.TrimSpace(surface[:idx])
+		right = strings.TrimSpace(surface[idx+len(sep):])
+		if left != "" && right != "" {
+			return left, right, true
+		}
+	}
+	if strings.Count(surface, ":") == 1 {
+		idx := strings.Index(surface, ":")
+		if idx > 0 && idx < len(surface)-1 {
+			before := rune(surface[idx-1])
+			after := rune(surface[idx+1])
+			if unicode.IsSpace(before) || unicode.IsSpace(after) {
+				left = strings.TrimSpace(surface[:idx])
+				right = strings.TrimSpace(surface[idx+1:])
+				if left != "" && right != "" {
+					return left, right, true
+				}
+			}
+		}
+	}
+	return "", "", false
+}
+
+func preEmitSplitMultiRelationTargets(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	replacer := strings.NewReplacer(
+		"+", "\x00",
+		"&", "\x00",
+		",", "\x00",
+		"，", "\x00",
+		"、", "\x00",
+		"/", "\x00",
+		" 和 ", "\x00",
+		" 与 ", "\x00",
+		" and ", "\x00",
+		" AND ", "\x00",
+	)
+	parts := strings.Split(replacer.Replace(raw), "\x00")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		out = append(out, part)
+	}
+	return out
 }
 
 func preEmitAggregateMemberRelationSurfaces(member string) []string {

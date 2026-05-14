@@ -848,6 +848,100 @@ func TestPreCheckAggregateMemberSetCoverage_AcceptsSignatureSupportRefSplitRows(
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_AcceptsCompositeRelationSplitRows(t *testing.T) {
+	mu := types.NewMutableState("composite relation aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "internal/analysis subpackages and entry functions",
+		Value: "2",
+		Members: []string{
+			"perftriage → MergePerfBundles + CorroborateStallFiles",
+			"logtriage → ResolveJavaFile 和 ResolveFrameFile",
+		},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsRelationalLookup:    true,
+				},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all subpackages and entry functions",
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "entries",
+		Kind: types.BlockOrderedList,
+		Items: []types.AnswerBlockItem{{
+			ID:    "perf-merge",
+			Label: "perftriage",
+			Text:  "入口函数：MergePerfBundles",
+		}, {
+			ID:    "perf-corroborate",
+			Label: "perftriage",
+			Text:  "入口函数：CorroborateStallFiles",
+		}, {
+			ID:    "log-java",
+			Label: "logtriage",
+			Text:  "入口函数：ResolveJavaFile",
+		}, {
+			ID:    "log-frame",
+			Label: "logtriage",
+			Text:  "入口函数：ResolveFrameFile",
+		}},
+	}}}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("same-left split rows should satisfy composite relation member visibility, got %+v", got)
+	}
+	if got := preCheckRelationMemberSetAnswerShape(doc, ctx); len(got) != 0 {
+		t.Fatalf("same-left split rows should satisfy relation answer shape, got %+v", got)
+	}
+}
+
+func TestPreCheckAggregateMemberSetCoverage_CompositeRelationRequiresSameLeftAxis(t *testing.T) {
+	mu := types.NewMutableState("composite relation aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal/analysis subpackages and entry functions",
+		Value:   "2",
+		Members: []string{"perftriage → MergePerfBundles + CorroborateStallFiles", "stopcond → ShouldStop"},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "entries",
+		Kind: types.BlockOrderedList,
+		Items: []types.AnswerBlockItem{{
+			ID:    "perf-merge",
+			Label: "perftriage",
+			Text:  "入口函数：MergePerfBundles",
+		}, {
+			ID:    "wrong-left",
+			Label: "logtriage",
+			Text:  "入口函数：CorroborateStallFiles",
+		}, {
+			ID:    "stop",
+			Label: "stopcond",
+			Text:  "入口函数：ShouldStop",
+		}},
+	}}}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) == 0 {
+		t.Fatal("composite relation target under a different left axis must not satisfy member visibility")
+	}
+	if got := preCheckRelationMemberSetAnswerShape(doc, ctx); len(got) == 0 {
+		t.Fatal("composite relation target under a different left axis must not satisfy relation answer shape")
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_IgnoresUnsupportedSameLeftAxisAlternate(t *testing.T) {
 	mu := types.NewMutableState("same left-axis alternate aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

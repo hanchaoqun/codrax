@@ -62,6 +62,8 @@ created.
 | E20260514-G40 | focused `s5b` after Batch 1h | Confirmed FAIL | Analyzer no longer fabricated a numeric `enumeration_boundary`, but it also omitted `completeness_obligation`; explorer/finalizer then treated a 25-member category enumeration as ordinary lower-bound enumeration and shipped 17 rows plus a caveat. | A typed principal member lane from exploration was available (`intent=enumerate`, `question_kind=enumeration`, `is_category_enumeration=true`, 25 analyzer entities), but only explicit count/completeness signals forced structured `member_set` handoff. This let upstream rich member information become soft search context instead of a downstream contract. | Treat non-relational typed category-enumeration entity lanes as principal member lanes when they contain multiple members and the analyzer intent/kind is enumerate. Require structured `member_set` handoff and allow lowercase package/module/file-stem members through the same typed lane across supported languages. |
 | E20260514-G41 | focused `s5b` analyzer trace | Confirmed red-line drift | StageAnalyze used line-level `grep(files_only=false)` and pulled function signatures plus a noisy "26 packages" count into analyzer thinking, despite the evidence-lite runtime boundary requiring files-only pre-scan. | Prompt/runtime contract drift: old ClassificationGrep Round-2 carve-out let content evidence leak into classification, creating hard/soft signal inversion. The analyzer saw source-line noise before exploration, then downstream gates had to fight that noise. | Restore the evidence-lite boundary in both prompt and runtime: analyze may use `repo_map`, `list_files`, and `grep(files_only=true)` only; source-line proof belongs to explore. Keep legacy config fields inert for compatibility, but never admit line-level grep in StageAnalyze. |
 | E20260514-G42 | focused `s5b` post-Batch 1i replay | PASS with repairs | The strict `member_set` handoff forced complete coverage and ultimately passed, but the first completion downgrade exposed a repair-cost spike: one missing `findings_validator → Validate` support row caused a second explore dispatch; the model then tried to re-emit a giant evidence slate with invalid `surface_terms` before succeeding via member-specific `@ file:line` rows. | The pipeline now has the right hard gate, but repair consumption is still model-heavy. Accepted evidence/support rows are not compiled into a deterministic per-member support table early enough, and stale ungrounded evidence cannot be superseded cleanly, so the model pays extra turns reconstructing support_refs. | Add a deterministic `MemberSupportRow` compiler from accepted typed evidence, read_file gutters, and aggregate support_refs. Completion repair should name only missing members and candidate support locations; finalization should consume stable rows instead of relying on the model to rebuild 25 support refs by hand. |
+| E20260514-G43 | focused `s5b` post-Batch 1j replay | Confirmed FAIL / stopped loop | The completion support gap was fixed, but finalizer entered a repeated pre-emit rejection loop because the model-authored member `perftriage → MergePerfBundles + CorroborateStallFiles` was displayed as two cited rows. The validator required the exact composite member string while citation alignment preferred split rows. | Principal member-set coverage and structured relation-shape checks did not share a generalized display-equivalence rule for "same left-axis, multiple explicit right-side symbols." This recreated the G3/G4 row-grain conflict at the final answer boundary. | Treat composite relation members such as `pkg → A + B` / `pkg: A 和 B` as precise multi-target relation rows. A structured list may satisfy them by rendering one row per target only when every row has the same left axis; different left-axis rows must not satisfy the composite member. |
+| E20260514-G44 | focused `s5b` post-Batch 1j pass | Residual PASS cost | Self-consistency reviewer falsely claimed the ordered package list was not alphabetic, triggering an unnecessary rewrite even though the sequence was already `aggregator, amplifier, axis, ...`. | Semantic review can turn a noisy natural-language judgment into an expensive rewrite despite structurally valid typed rows. This is a soft reviewer acting like a hard gate. | Teach the reviewer to consume deterministic ordered-list metadata or downgrade ordering disputes to advisory when the structured row set is already accepted. For sortedness, use a deterministic comparator over visible labels instead of model prose. |
 
 ## End-to-End Traces
 
@@ -673,6 +675,64 @@ member-support table before finalization. Hard gates should keep using precise
 typed evidence/support refs, while repair hints should be narrow and row-based
 so fixing one missing support member does not destabilize already-accepted
 members.
+
+### E20260514-G43: Composite Relation Member Grain Conflict (`s5b`)
+
+Observed data flow:
+
+1. After the Batch 1j support-row change, focused `s5b`
+   (`eval/results/s5b-20260514-192600`) no longer repeated the earlier
+   `findings_validator → Validate` completion downgrade. The accepted
+   `read_file` gutter line was available as a member-specific support row.
+2. The same run exposed a downstream seesaw: the aggregate member set contained
+   a composite principal member,
+   `perftriage → MergePerfBundles + CorroborateStallFiles`.
+3. The finalizer repeatedly tried two reasonable renderings:
+   one combined row to preserve the model-authored member string, and two
+   cited rows so each function could point at its own file:line.
+4. Pre-emit validation rejected both shapes in alternation. Member coverage
+   wanted the exact composite string visible, while citation alignment wanted
+   each visible symbol row to cite its own line. I stopped the run rather than
+   spending more provider budget on a contract conflict.
+
+Root cause: relation-member coverage had a single-target display equivalence
+rule but no precise multi-target relation equivalence. A hard gate was
+comparing the raw authored display string, while another hard gate compared
+the split source-citation rows.
+
+Generalization: many language and package ecosystems expose the same shape:
+`package -> A + B`, `namespace: Foo, Bar`, `service → Start 和 Stop`, or
+`module → init/cleanup`. The generalized row rule is: split display rows may
+satisfy a composite member only when every target row carries the same
+left-axis label and all explicit right-side symbols are present. This preserves
+the hard-gate principle because the left axis and target symbols are precise
+typed surfaces, not search scores or prose guesses.
+
+### E20260514-G44: Self-Consistency Sortedness False Positive (`s5b`)
+
+Observed data flow:
+
+1. After the G43 pre-emit fix, focused `s5b`
+   (`eval/results/s5b-20260514-194231`) reached finalization and
+   `emit_answer_document` accepted a 25-row answer with no repeat of the
+   composite `perftriage` member rejection loop.
+2. The semantic self-consistency reviewer then marked the answer inconsistent
+   because the summary said the list was sorted by subpackage directory, while
+   the reviewer claimed `aggregator -> amplifier -> axis -> ...` was not
+   alphabetical.
+3. The reviewer judgment was incorrect for the visible list order, but it still
+   triggered a rewrite dispatch. The final eval passed, but recorded extra
+   finalizer/semantic-quality cost.
+
+Root cause: a free-form reviewer assertion about ordering was treated as
+rewrite-worthy despite the accepted answer document already carrying a
+deterministic ordered list. The reviewer used noisy prose reasoning where a
+simple comparator over visible row labels would have been precise.
+
+Generalization: sortedness, count agreement, duplicate detection, and row
+presence are deterministic row-table properties. They should be checked by the
+same canonical row layer used by pre-emit validation, while the reviewer stays
+advisory for semantic coherence that cannot be reduced to typed rows.
 
 ### E20260514-G19: Explore-to-Extract Fact Handoff Loss (`qf_architecture`, FAIL on stale 2026-05-14 sweep)
 
@@ -1955,6 +2015,41 @@ Batch 1i progress:
   reads the tail packages, `aggregate_facts.member_set` carries 25 members with
   exact support refs, and finalizer renders all 25 rows. Residual repair cost is
   tracked as G42 rather than treated as solved by prompt pressure.
+
+Batch 1j progress:
+
+- Implemented the G42 deterministic support-row bridge inside
+  `emit_investigation_complete`: accepted `read_file` gutter output is parsed
+  into file/line/text rows, then relation members such as
+  `findings_validator → Validate` can receive a generated
+  `Member @ path:line` support ref when the line is definition-like and the
+  file path matches the relation's left axis.
+- The guard is intentionally precise and cross-language: relation-left path
+  matching covers Go package/file stems, Java dotted packages, scoped npm
+  package paths, C++ namespace separators, monorepo package paths, and hyphen
+  modules. Same-name functions in a different left-axis path do not satisfy
+  the member.
+- The in-flight `s5b` replay (`eval/results/s5b-20260514-192600`) confirmed the
+  completion-stage support gap moved forward, then exposed G43 at finalization:
+  a composite relation member (`perftriage → MergePerfBundles +
+  CorroborateStallFiles`) conflicted with split per-function citation rows.
+- Implemented the G43 anti-seesaw rule in pre-emit validation: composite
+  same-left relation members can be satisfied by structured split rows only
+  when each explicit right-side target appears under that same left axis.
+  Rows under another package/module left axis remain rejected.
+- Added focused positive/negative unit coverage for composite relation split
+  rows, plus the read-file support-row compiler and cross-language path
+  matching tests. `go test ./internal/tool ./internal/types ./internal/agent`
+  passed.
+- Full `go test ./...` passed.
+- Fresh focused `s5b` replay passed on the rebuilt binary
+  (`eval/results/s5b-20260514-194231`, PASS). Compared with the stopped
+  `192600` run, the G43 finalizer loop did not recur: `emit_answer_document`
+  accepted the 25-row answer. Residual cost remains high
+  (`explorer_dispatches=2`, `explorer_iters=23`, `midloop_inject=13`,
+  `semantic_quality_dispatches=2`) because the first exploration closure still
+  under-materializes line-grounded evidence and the self-consistency reviewer
+  raised the G44 sortedness false positive.
 
 ### Batch 2: Exact Answer Lane Before Symbol Enumeration
 

@@ -600,6 +600,197 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MemberSetSupportRefsCanUseDe
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_AutoSupportRefsFromReadFileGutter(t *testing.T) {
+	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[internal/analysis/findings_validator/validator.go: showing lines 60-75 of 183 total]",
+			"    70│ func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
+		}, "\n"),
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqEnumeration),
+					Entities: []string{"findings_validator", "gate"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "the package entry function was read from source",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "member_set",
+			"label":   "internal/analysis package entries",
+			"value":   "1",
+			"members": []string{"findings_validator → Validate"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "exhaustive member-set handoff is missing") {
+		t.Fatalf("read_file gutter should compile a member-specific support_ref: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("read_file-supported member_set should complete")
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 {
+		t.Fatalf("expected one aggregate fact, got %+v", got)
+	}
+	wantRef := "Member @ internal/analysis/findings_validator/validator.go:70"
+	if len(got[0].SupportRefs) != 1 || got[0].SupportRefs[0] != wantRef {
+		t.Fatalf("auto support_ref = %+v, want %q", got[0].SupportRefs, wantRef)
+	}
+}
+
+func TestAggregateMemberReadFileSupportRef_RelationPathMatch(t *testing.T) {
+	support := aggregateMemberSupportIndex{
+		readFileLines: []aggregateToolLine{{
+			File: "internal/analysis/findings_validator/validator.go",
+			Line: 70,
+			Text: "func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
+		}},
+	}
+	ref, ok := aggregateMemberReadFileSupportRef("findings_validator → Validate", support)
+	if !ok {
+		t.Fatal("expected read_file gutter line to support relation member")
+	}
+	if ref != "Member @ internal/analysis/findings_validator/validator.go:70" {
+		t.Fatalf("support ref = %q", ref)
+	}
+}
+
+func TestAggregateReadFilePathMatchesRelationLeft_CrossLanguageSurfaces(t *testing.T) {
+	cases := []struct {
+		name string
+		file string
+		left string
+	}{
+		{name: "go package", file: "internal/analysis/findings_validator/validator.go", left: "findings_validator"},
+		{name: "java dotted package", file: "src/main/java/com/example/api/Handler.java", left: "com.example.api"},
+		{name: "scoped npm package", file: "packages/scope/pkg/src/index.ts", left: "@scope/pkg"},
+		{name: "cpp namespace", file: "src/foo/bar/widget.cc", left: "foo::bar"},
+		{name: "monorepo path", file: "packages/core/src/index.ts", left: "packages/core"},
+		{name: "hyphen module", file: "node_modules/react-dom/index.js", left: "react-dom"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if !aggregateReadFilePathMatchesRelationLeft(tc.file, tc.left) {
+				t.Fatalf("expected %q to match relation left %q", tc.file, tc.left)
+			}
+		})
+	}
+	if aggregateReadFilePathMatchesRelationLeft("internal/analysis/findings_validator/validator.go", "logtriage") {
+		t.Fatal("different package segment must not match")
+	}
+}
+
+func TestAggregateReadFileToolLines_ParsesGutter(t *testing.T) {
+	lines := aggregateReadFileToolLines(strings.Join([]string{
+		"[internal/analysis/findings_validator/validator.go: showing lines 60-75 of 183 total]",
+		"    70│ func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
+	}, "\n"))
+	if len(lines) != 1 {
+		t.Fatalf("lines = %+v", lines)
+	}
+	if lines[0].File != "internal/analysis/findings_validator/validator.go" || lines[0].Line != 70 ||
+		!strings.Contains(lines[0].Text, "Validate") {
+		t.Fatalf("parsed line = %+v", lines[0])
+	}
+}
+
+func TestEnrichCompletionAggregateFactsWithMemberSupport_ReadFileGutter(t *testing.T) {
+	mut := types.NewMutableState("x")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[internal/analysis/findings_validator/validator.go: showing lines 60-75 of 183 total]",
+			"    70│ func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
+		}, "\n"),
+	})
+	got := enrichCompletionAggregateFactsWithMemberSupport(&types.BusContext{Mutable: mut}, []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "entries",
+		Value:   "1",
+		Members: []string{"findings_validator → Validate"},
+	}})
+	if len(got) != 1 || len(got[0].SupportRefs) != 1 {
+		t.Fatalf("enriched facts = %+v", got)
+	}
+	if got[0].SupportRefs[0] != "Member @ internal/analysis/findings_validator/validator.go:70" {
+		t.Fatalf("support refs = %+v", got[0].SupportRefs)
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_ReadFileGutterRequiresRelationPathMatch(t *testing.T) {
+	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[internal/analysis/findings_validator/validator.go: showing lines 60-75 of 183 total]",
+			"    70│ func Validate(text, repoRoot string, graph *repomap.Graph) Result {",
+		}, "\n"),
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqEnumeration),
+					Entities: []string{"logtriage", "findings_validator"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "wrong package/function pair should not be certified by a matching function name in another package",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "member_set",
+			"label":   "internal/analysis package entries",
+			"value":   "1",
+			"members": []string{"logtriage → Validate"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "exhaustive member-set handoff is missing") ||
+		!strings.Contains(res.Summary, "logtriage") {
+		t.Fatalf("read_file support must match the relation left-axis path, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open when read_file line belongs to a different relation member")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_TypedPrincipalLaneRequiresMemberSet(t *testing.T) {
 	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
 	bus := &types.BusContext{
