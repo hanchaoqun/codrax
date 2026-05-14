@@ -66,6 +66,39 @@ func (p *ErrorGranularityProfile) Active() bool {
 	return p != nil && p.IsGranularityQuestion
 }
 
+// ErrorGranularityCountsAreContextual reports whether numeric/count-like
+// phrases in the request describe the failure scenario rather than the answer
+// set. It consumes only typed analyzer lanes: the active error-granularity
+// profile plus the absence of explicit count / category / relation answer
+// predicates.
+func ErrorGranularityCountsAreContextual(intent Intent, preds SemanticPredicates, profile *ErrorGranularityProfile) bool {
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	if intent == IntentEnumerate {
+		return false
+	}
+	if preds.IsCountQuestion || preds.IsCategoryEnumeration || preds.IsRelationalLookup {
+		return false
+	}
+	return true
+}
+
+// IsFailureScopeDecisionAnswer is the shared family/scenario guard for
+// "per item vs whole batch", "fail fast vs collect", and similar
+// failure-scope verdict questions. These are decision/mechanism answers, not
+// principal-member enumerations, unless the analyzer also emits a typed
+// count/category/relation answer lane or a bucketed comparison structure.
+func IsFailureScopeDecisionAnswer(rm RequestModel) bool {
+	if !ErrorGranularityCountsAreContextual(rm.Intent, rm.Predicates, rm.ErrorGranularityProfile) {
+		return false
+	}
+	if len(rm.QuestionStructure().Buckets) >= 2 {
+		return false
+	}
+	return true
+}
+
 // MissingErrorGranularityVerdict reports whether a required error-granularity
 // answer lacks a typed decision verdict. It reads only typed block fields.
 func MissingErrorGranularityVerdict(doc *AnswerDocumentV2, profile *ErrorGranularityProfile) bool {

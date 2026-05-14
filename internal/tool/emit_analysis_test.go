@@ -1237,6 +1237,74 @@ func TestEmitAnalysis_Execute_RejectsEnumerationBoundaryCountNotInQuote(t *testi
 	}
 }
 
+func TestEmitAnalysis_Execute_ErrorGranularitySuppressesContextualEnumerationBoundary(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "When emit_evidence receives a batch where exactly one item is missing the anchor_kind field, does the whole call fail, or does the rest of the batch succeed and only the bad item get rejected?"
+	payload := `{
+		"intent": "explain",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["emit_evidence", "anchor_kind", "batch"],
+		"entities": ["emit_evidence", "anchor_kind"],
+		"question_kind": "unknown",
+		"intent_confidence": 0.85,
+		"complexity_confidence": 0.85,
+		"kind_confidence": 0.85,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": false,
+			"confidence": 0.8
+		},
+		"error_granularity_profile": {
+			"is_granularity_question": true,
+			"confidence": 0.9,
+			"requested_verdict_options": ["per_item_rejection", "whole_batch_failure"],
+			"source_quotes": ["does the whole call fail, or does the rest of the batch succeed and only the bad item get rejected"]
+		},
+		"enumeration_boundary": {
+			"declared_count": 1,
+			"source_quote": "exactly one item is missing the anchor_kind field"
+		}
+	}`
+
+	res, mu := runEmitAnalysisPayload(t, objective, payload)
+	if !res.Success {
+		t.Fatalf("Execute should suppress contextual enumeration boundary, got summary=%q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.EnumerationBoundary != nil {
+		t.Fatalf("contextual enumeration boundary should be suppressed, got %+v", rm.EnumerationBoundary)
+	}
+	if rm.ErrorGranularityProfile == nil || !rm.ErrorGranularityProfile.Active() {
+		t.Fatal("error granularity profile should remain active")
+	}
+	if !strings.Contains(res.Summary, "ignored enumeration_boundary") {
+		t.Fatalf("summary should report suppression warning, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_Summary_ReportsNormalizedDelta(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

@@ -714,6 +714,34 @@ func TestCompileGeneric_ResolvesFamily(t *testing.T) {
 	}
 }
 
+func TestCompileGeneric_ErrorGranularityDecisionLane(t *testing.T) {
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"emit_evidence", "anchor_kind"},
+		},
+		ErrorGranularityProfile: &ErrorGranularityProfile{
+			IsGranularityQuestion: true,
+			Confidence:            0.9,
+		},
+	}}
+	view := BuildAnswerSemanticView(ir, nil)
+	if view == nil || view.Family != QFGeneric {
+		t.Fatalf("failure-scope decision lane should compile as generic, got %v", view)
+	}
+	hasDecision := false
+	for _, block := range view.RequiredBlocks {
+		if block.Kind == BlockDecision {
+			hasDecision = true
+			break
+		}
+	}
+	if !hasDecision {
+		t.Fatal("active error granularity profile should still require a decision block")
+	}
+}
+
 func TestCompileGeneric_OnlySummaryRequired(t *testing.T) {
 	view := BuildAnswerSemanticView(irForGeneric(), nil)
 	if len(view.RequiredBlocks) != 1 {

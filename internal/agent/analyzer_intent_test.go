@@ -1051,6 +1051,36 @@ func TestReconcileScenario(t *testing.T) {
 		}
 	})
 
+	t.Run("failure scope decision downgrades to generic", func(t *testing.T) {
+		rm := types.RequestModel{
+			Scenario: types.ScenarioArchitectureExplain,
+			Intent:   types.IntentExplain,
+			ErrorGranularityProfile: &types.ErrorGranularityProfile{
+				IsGranularityQuestion: true,
+				Confidence:            0.9,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				Entities: []string{"emit_evidence", "anchor_kind"},
+			},
+		}
+		got, reason := reconcileScenario(rm)
+		if got != types.ScenarioGeneric {
+			t.Fatalf("scenario = %q, want %q", got, types.ScenarioGeneric)
+		}
+		if reason == "" {
+			t.Fatal("reason = empty, want non-empty reconcile reason")
+		}
+		rm.Intent = types.IntentRootCause
+		rm.Scenario = types.ScenarioRootCause
+		got, reason = reconcileScenario(rm)
+		if got != types.ScenarioGeneric {
+			t.Fatalf("root-cause-labeled failure-scope scenario = %q, want %q", got, types.ScenarioGeneric)
+		}
+		if reason == "" {
+			t.Fatal("root-cause-labeled reconcile reason = empty, want non-empty")
+		}
+	})
+
 	t.Run("multi-topic cross-component trace keeps architecture scenario", func(t *testing.T) {
 		rm := types.RequestModel{
 			Scenario:      types.ScenarioArchitectureExplain,

@@ -71,3 +71,38 @@ func TestErrorGranularityVerdictOptionMismatch_UsesRequestedOptions(t *testing.T
 		t.Fatalf("not_enough_evidence fallback should pass, got %q,%v", got, mismatch)
 	}
 }
+
+func TestErrorGranularityCountsAreContextual(t *testing.T) {
+	profile := &ErrorGranularityProfile{IsGranularityQuestion: true}
+	if !ErrorGranularityCountsAreContextual(IntentExplain, SemanticPredicates{}, profile) {
+		t.Fatal("active failure-scope profile with no count/category/relation lane should make counts contextual")
+	}
+	for name, preds := range map[string]SemanticPredicates{
+		"count":    {IsCountQuestion: true},
+		"category": {IsCategoryEnumeration: true},
+		"relation": {IsRelationalLookup: true},
+	} {
+		if ErrorGranularityCountsAreContextual(IntentExplain, preds, profile) {
+			t.Fatalf("%s answer lane should keep counts structural", name)
+		}
+	}
+	if ErrorGranularityCountsAreContextual(IntentEnumerate, SemanticPredicates{}, profile) {
+		t.Fatal("explicit enumerate intent should keep count/category handling available")
+	}
+}
+
+func TestIsFailureScopeDecisionAnswer(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentExplain,
+		ErrorGranularityProfile: &ErrorGranularityProfile{
+			IsGranularityQuestion: true,
+		},
+	}
+	if !IsFailureScopeDecisionAnswer(rm) {
+		t.Fatal("plain active failure-scope profile should resolve as a decision answer")
+	}
+	rm.Predicates.IsCategoryEnumeration = true
+	if IsFailureScopeDecisionAnswer(rm) {
+		t.Fatal("explicit category answer predicate should win over the decision helper")
+	}
+}

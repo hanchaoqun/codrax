@@ -10,15 +10,19 @@ import "github.com/hanchaoqun/codrax/internal/types"
 //
 // Priority (highest wins):
 //
-//  1. Intent is explicitly security-oriented  → security_audit
-//  2. Intent is refactor/bugfix               → refactor_design
-//  3. Intent is config_query                  → config_trace
-//  4. Intent is return_value/enumerate/trace  → architecture_explain
+//  1. Active failure-scope decision answer    → generic
+//  2. Intent is explicitly security-oriented  → security_audit
+//  3. Intent is refactor/bugfix               → refactor_design
+//  4. Intent is config_query                  → config_trace
+//  5. Intent is return_value/enumerate/trace  → architecture_explain
 //     (unless root_cause signals are present — see step 6)
-//  5. Intent is root_cause                    → root_cause
-//  6. Term graph contains perf-related terms  → performance_bottleneck
-//  7. otherwise                                → architecture_explain
+//  6. Intent is root_cause                    → root_cause
+//  7. Term graph contains perf-related terms  → performance_bottleneck
+//  8. otherwise                               → architecture_explain
 func InferScenario(rm types.RequestModel) types.Scenario {
+	if types.IsFailureScopeDecisionAnswer(rm) {
+		return types.ScenarioGeneric
+	}
 	switch rm.Intent {
 	case types.IntentConfigQuery:
 		return types.ScenarioConfigTrace

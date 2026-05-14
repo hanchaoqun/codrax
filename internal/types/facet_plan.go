@@ -545,36 +545,39 @@ type FacetCoverageContract struct {
 //
 // Priority order (first match wins):
 //
-//  1. Intent == RootCause OR LogTriage / PerfTrace attached + Intent == Trace
+//  1. Active failure-scope decision answer with no attached log/perf artifact
+//     → QFGeneric (narrow verdict lane wins over broad diagnostic wording)
+//
+//  2. Intent == RootCause OR LogTriage / PerfTrace attached + Intent == Trace
 //     → QFRootCauseTrace (logtri_go and no-attachment diagnostics fall here)
 //
-//  2. Intent == ConfigQuery OR Scenario == ConfigTrace
+//  3. Intent == ConfigQuery OR Scenario == ConfigTrace
 //     → QFConfigPrecedence (s3a falls here)
 //
-//  3. Intent == Trace AND no obligation
+//  4. Intent == Trace AND no obligation
 //     → QFCallChain (s1a/s8a style "how does X reach Y" questions)
 //
-//  4. IsArchitectureNarrativeExplanation(rm)=true
+//  5. IsArchitectureNarrativeExplanation(rm)=true
 //     → QFArchitecture (logical view / architecture / diagram
 //     narrative; component names are context, not a member slate)
 //
-//  5. IsSingleTopicMechanismExplanation(rm)=true
+//  6. IsSingleTopicMechanismExplanation(rm)=true
 //     → QFGeneric (mechanism/condition explanation, not architecture)
 //
-//  6. AnswerSubject.Kind ∈ {SubjectFunctionName, SubjectHandlerRoute,
+//  7. AnswerSubject.Kind ∈ {SubjectFunctionName, SubjectHandlerRoute,
 //     SubjectConfigKey, SubjectStructField, SubjectInterface}
 //     AND QuestionStructure.HasAnyObligation()=false
 //     AND IsCategoryEnumerationAnswerShape(rm)=false
 //     → QFRoleLookup (typical "what's the X for Y" questions)
 //
-//  7. QuestionStructure.HasAnyObligation()=true OR
+//  8. QuestionStructure.HasAnyObligation()=true OR
 //     IsCategoryEnumerationAnswerShape(rm)=true
 //     → QFEnumeration (s5a / m1a fall here)
 //
-//  8. Intent == Explain AND Scenario == ArchitectureExplain
+//  9. Intent == Explain AND Scenario == ArchitectureExplain
 //     → QFArchitecture
 //
-//  9. fallthrough → QFGeneric
+//  10. fallthrough → QFGeneric
 //
 // Phase 0 trace data on s1a / s5a / m1a / s3a / logtri_go
 // confirms each branch hits at least one case.
@@ -582,14 +585,24 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 	hasLog := rm.LogTriage != nil
 	hasPerf := rm.PerfTrace != nil
 
-	// Rule 1: root-cause diagnostics always need the diagnostic answer
+	// Rule 0: a no-attachment failure-scope verdict question may be
+	// labeled diagnostic/root_cause by the analyzer, but its answer
+	// surface is still one typed decision plus supporting mechanism
+	// evidence. Keep attached log/perf traces in the diagnostic
+	// family below because artifact/current-code drift is part of
+	// their answer surface.
+	if !hasLog && !hasPerf && IsFailureScopeDecisionAnswer(rm) {
+		return QFGeneric
+	}
+
+	// Rule 2: root-cause diagnostics always need the diagnostic answer
 	// family. Attached log/perf traces also route trace-shaped requests
 	// here because artifact/current-code drift is part of the answer.
 	if rm.Intent == IntentRootCause || ((hasLog || hasPerf) && rm.Intent == IntentTrace) {
 		return QFRootCauseTrace
 	}
 
-	// Rule 2: config-shaped intent or scenario.
+	// Rule 3: config-shaped intent or scenario.
 	if rm.Intent == IntentConfigQuery || rm.Scenario == ScenarioConfigTrace {
 		return QFConfigPrecedence
 	}
@@ -599,7 +612,7 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 	isEnumerationAnswer := IsCategoryEnumerationAnswerShape(rm)
 	bucketCount := len(view.Buckets)
 
-	// Rule 3 (R4.4): comparison family. When the question carries
+	// Rule 4 (R4.4): comparison family. When the question carries
 	// 2+ user-named buckets (verbatim labels in QuestionStructure
 	// .Buckets), a flat family (QFCallChain / QFEnumeration /
 	// QFGeneric) would lose the partition. QFComparison scaffolds
@@ -610,7 +623,17 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		return QFComparison
 	}
 
-	// Rule 4: trace intent without obligation.
+	// Error-granularity questions ask for a canonical decision verdict
+	// about failure scope. Multiple entities and scenario counts are
+	// contextual unless the analyzer also emitted an explicit
+	// count/category/relation answer lane. This second guard catches
+	// non-diagnostic cases after bucket comparisons are resolved; the
+	// no-attachment root-cause variant is handled before Rule 1.
+	if IsFailureScopeDecisionAnswer(rm) {
+		return QFGeneric
+	}
+
+	// Rule 5: trace intent without obligation.
 	if !hasObligation {
 		if rm.Intent == IntentTrace {
 			// Explicit trace intent is semantically stronger than a
@@ -622,7 +645,7 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		}
 	}
 
-	// Rule 5: architecture narratives. These are prose/diagram shaped
+	// Rule 6: architecture narratives. These are prose/diagram shaped
 	// and can carry many component names without being an answer-member
 	// enumeration. Keep this before enumeration so an analyzer-side
 	// category drift without an explicit structural obligation does not
@@ -631,7 +654,7 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		return QFArchitecture
 	}
 
-	// Rule 6: single-topic mechanism explanations. These are lighter
+	// Rule 7: single-topic mechanism explanations. These are lighter
 	// than architecture decompositions and must not be stolen by the
 	// function-like role-lookup gate below: multiple identifiers are
 	// participants in one mechanism, not a principal member slate.
@@ -639,7 +662,7 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		return QFGeneric
 	}
 
-	// Rule 7: role-lookup detection (named-entity subject + no
+	// Rule 8: role-lookup detection (named-entity subject + no
 	// enumeration obligation). A typed category-enumeration answer
 	// shape wins over a function-like AnswerSubject.Kind; otherwise a
 	// relational enumeration can be stolen by QFRoleLookup and forced
@@ -652,14 +675,14 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		}
 	}
 
-	// Rule 8: enumeration / obligation-bearing.
+	// Rule 9: enumeration / obligation-bearing.
 	if hasObligation || isEnumerationAnswer {
 		// bucketCount < 2 by construction (QFComparison absorbed
 		// the multi-bucket case above).
 		return QFEnumeration
 	}
 
-	// Rule 9: architecture explain.
+	// Rule 10: architecture explain.
 	if rm.Intent == IntentExplain && rm.Scenario == ScenarioArchitectureExplain {
 		return QFArchitecture
 	}

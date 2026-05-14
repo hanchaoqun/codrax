@@ -373,6 +373,30 @@ func TestInferScenario(t *testing.T) {
 		},
 		{"explain default", types.RequestModel{Intent: types.IntentExplain}, types.ScenarioArchitectureExplain},
 		{
+			"failure-scope decision uses generic scenario",
+			types.RequestModel{
+				Intent: types.IntentExplain,
+				ErrorGranularityProfile: &types.ErrorGranularityProfile{
+					IsGranularityQuestion: true,
+					Confidence:            0.9,
+				},
+				AnalyzerHints: types.AnalyzerHints{Entities: []string{"emit_evidence", "anchor_kind"}},
+			},
+			types.ScenarioGeneric,
+		},
+		{
+			"root-cause-labeled failure-scope decision uses generic scenario",
+			types.RequestModel{
+				Intent: types.IntentRootCause,
+				ErrorGranularityProfile: &types.ErrorGranularityProfile{
+					IsGranularityQuestion: true,
+					Confidence:            0.9,
+				},
+				AnalyzerHints: types.AnalyzerHints{Entities: []string{"emit_evidence", "anchor_kind"}},
+			},
+			types.ScenarioGeneric,
+		},
+		{
 			"perf terms trigger perf scenario",
 			types.RequestModel{Intent: types.IntentExplain, TermGraph: types.TermGraph{
 				Canonical: []types.CanonicalTerm{{ID: "en:bottleneck"}},

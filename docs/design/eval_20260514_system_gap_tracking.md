@@ -72,7 +72,9 @@ created.
 | E20260514-G50 | focused `m1b` after Batch 2c | Fixed Batch 2d / PASS replay | The case passed, but extractor soft-stop forced `emit_answer_symbol` for two exact tool-name sub-topics. The model then tried to cite a string-literal/reference line as a symbol definition and needed repairs before finalization. | Multi-topic anchor skeleton activation treated all architecture sub-topics as symbol anchors, even when the typed request said the principal answer was scalar/literal. This pulled exact literal answers back into symbol-definition machinery and recreated Batch 2's seesaw. | Gate anchor skeletons off when `RequestModel.Predicates.IsScalarAnswer` or scalar-source-literal lookup is active. Multi-topic exact literals now stay in scalar/section/table rows with `candidate_role` metadata instead of `emit_answer_symbol` definition slates. |
 | E20260514-G51 | focused `s11b` Batch 2e carrier audit | Fixed Batch 2e / PASS replay | Early Batch 2e replays passed but the analyzer omitted the optional positive role carrier, so the final answer was still relying on prompt guidance rather than a hard structural lane. | Optional carriers are easy to drop under prescan/retry pressure. Exact scalar role questions need an always-present typed object, active only when the analyzer sets `is_role_binding_requested=true`, so downstream stages can consume a uniform contract without reading request prose or answer prose. | Made `answer_role_profile` a top-level required `emit_analysis` object; when active it requires enum roles plus verbatim source quotes at the analyzer boundary. Finalizer prompts, pre-emit checks, and post-emit contract checks now consume only `RequiredCandidateRoles` and `items[].candidate_role`. |
 | E20260514-G52 | Batch 5a eval runner timeout audit | Fixed Batch 5a / runner test | The parallel eval launcher delegated timeout behavior to whichever `timeout` binary happened to exist on the host, and stale grandchildren could keep consuming resources after the worker shell returned. | Timeout/process cleanup is an eval infrastructure lane, not a product prompt issue. It needs one deterministic process-tree contract across macOS/Linux so PASS/FAIL/timeout summaries reflect the actual active workload. | `eval_run_with_timeout` now prefers the Python process-group runner on every host with Python 3, falls back to `timeout -k 10` only when Python is unavailable, and has a regression test proving a background grandchild is killed before it can write a marker file. |
-| E20260514-G53 | `u9b` post-Batch 5b replay | Confirmed residual anti-seesaw gap | The typed verdict replay passed, but the same request still triggered two rejected `enumeration_boundary` emits on the phrase "exactly one item", then ran with `family=enumeration`, `enumeration_push=1`, and `explorer_iters=40`. | Scenario counts that describe a failure condition can leak into answer-set cardinality and enumeration-family planning. The typed error-granularity lane solved the answer verdict, but a neighboring count/enumeration lane still treats contextual quantities as principal answer-set obligations. | Add a typed lane conflict resolver: when `error_granularity_profile` is active and the analyzer does not also emit a count/category answer predicate, scenario counts remain contextual parameters, not `enumeration_boundary` contracts or enumeration facet families. If a count lane is emitted, validate that it binds to the answer axis, not merely to an example failure condition. |
+| E20260514-G53 | `u9b` post-Batch 5b replay | Fixed Batch 5c / PASS replay | The typed verdict replay passed, but the same request still triggered two rejected `enumeration_boundary` emits on the phrase "exactly one item", then ran with `family=enumeration`, `enumeration_push=1`, and `explorer_iters=40`. | Scenario counts that describe a failure condition can leak into answer-set cardinality and enumeration-family planning. The typed error-granularity lane solved the answer verdict, but a neighboring count/enumeration lane still treats contextual quantities as principal answer-set obligations. | Added a typed lane conflict resolver: when `error_granularity_profile` is active and the analyzer does not also emit a count/category/relation answer predicate, scenario counts remain contextual parameters, not `enumeration_boundary` contracts or enumeration facet families. |
+| E20260514-G54 | `u9b` Batch 5c replay | Fixed Batch 5c / support-lane test | After G53 was fixed, the finalizer emitted the required principal `decision` block with `error_granularity_verdict`, but principal evidence support rejected `decision` because the lane allowed only summary/section/list/diagram blocks. | Typed answer-block requirements and support-lane allowed-block policies were compiled independently. Adding a typed decision verdict changed the required answer surface, but citation-routing policy still assumed generic principal evidence never needs a decision block. | Made principal evidence support policy consume the typed error-granularity profile: active failure-scope verdict questions allow principal `decision` blocks to cite principal evidence, while the default block policy remains unchanged for other generic answers. |
+| E20260514-G55 | `u9b` post-rebase replay | Fixed Batch 5c / classifier-variant guard | After rebasing onto the remote finalizer recovery work, the same request sometimes classified as `intent=root_cause`; root-cause family priority then preempted the failure-scope decision guard and rebuilt a three-surface diagnostic answer. | The typed lane conflict resolver was present but ordered below a broader diagnostic family. A classifier wording variant could reopen the over-scaffolding seesaw even though the same typed `error_granularity_profile` was active. | Promoted no-attachment failure-scope decision answers ahead of root-cause scenario/family routing. Attached log/perf traces still use the diagnostic family because artifact/current-code drift remains part of their answer surface. |
 
 ## End-to-End Traces
 
@@ -553,14 +555,154 @@ Verification:
   - `eval/results/u9b-20260514-222125`
   - PASS, with rendered principal verdict token `per_item_rejection`.
 
-Residual anti-seesaw follow-up:
+Batch 5c follow-up:
 
-- The PASS replay still exposed G53: the phrase "exactly one item" caused two
-  rejected `enumeration_boundary` attempts and left the semantic view in
-  `family=enumeration` despite the request being a failure-scope verdict
-  question. The typed verdict lane is stable, but a separate count/enumeration
-  lane needs an answer-axis binding rule so contextual scenario counts do not
-  inflate explore/finalize work.
+- Closed G53 with a typed lane conflict resolver. When the analyzer emits an
+  active `error_granularity_profile` and does not also emit a count/category/
+  relation answer predicate, numeric phrases are treated as failure-scenario
+  context instead of `enumeration_boundary` or enumeration-family obligations.
+- The same replay exposed G54 before the final PASS: the required typed
+  decision block could not cite principal evidence because the support lane
+  still allowed only generic prose/list/diagram block kinds. The support policy
+  now consumes the typed error-granularity profile and admits decision blocks
+  only for this active verdict lane.
+- A post-rebase replay exposed G55: the same typed profile can arrive with
+  `intent=root_cause`, and root-cause family priority was broad enough to
+  preempt the failure-scope decision guard. The resolver now handles this
+  classifier variant before no-attachment diagnostic routing, while preserving
+  attached log/perf root-cause behavior.
+- Red-line guard: these fixes consume typed carriers
+  (`error_granularity_profile`, `SemanticPredicates`, `Intent`,
+  `QuestionFamily`, and support-lane metadata). No hard decision reads user
+  prose, rendered answer prose, or model explanation text.
+
+Verification:
+
+- `go test ./internal/types ./internal/analysis/amplifier ./internal/analysis/compiler ./internal/agent ./internal/tool ./internal/skill -run 'ErrorGranularity|FailureScope|R1_NoFire_ErrorGranularity|ResolveQuestionFamily_ErrorGranularity|CompileGeneric_ErrorGranularity|ReconcileScenario|InferScenario|SuppressesContextualEnumeration|AnalysisSkill'`
+- `go test ./internal/types ./internal/orchestrator -run 'ErrorGranularity|PrincipalEvidenceSupportLane|SupportPlan|PrincipalSupportBlockKind|FacetCoverage'`
+- `bash eval/run.sh eval/cases/u9b.case 1`
+  - `eval/results/u9b-20260514-232523`
+  - PASS, with `tool_read_file=2`, `explorer_iters=5`,
+    `finalizer_iters=2`, no repair execution, and typed verdict
+    `per_item_rejection`.
+
+### E20260514-G53: Contextual Failure-Scenario Counts vs Enumeration Lanes
+
+User request asks whether a batch call fails completely when exactly one item
+is missing `anchor_kind`, or whether only the bad item is rejected and the rest
+continues.
+
+Observed data flow:
+
+1. Batch 5b correctly added and rendered the typed
+   `error_granularity_verdict=per_item_rejection`.
+2. The analyzer still tried to emit `enumeration_boundary` for the contextual
+   phrase "exactly one item"; those emits were rejected, but planning later
+   still resolved the semantic family as `enumeration`.
+3. The request then paid enumeration-family cost (`explorer_iters=40` in the
+   residual replay) even though the answer surface was a single verdict plus
+   explanation.
+4. This created a seesaw: tightening the verdict lane fixed answer semantics
+   but activated an adjacent count/enumeration lane from a scenario parameter.
+
+Root cause: count-like phrases had no typed answer-axis binding. A quantity
+that describes the failing member in a scenario could be interpreted as a
+principal answer-set cardinality unless another layer corrected it.
+
+Corrective action:
+
+- Added `ErrorGranularityCountsAreContextual` as the shared typed resolver:
+  active `error_granularity_profile`, non-enumerate intent, and no typed
+  count/category/relation predicate means numeric phrases are contextual.
+- Suppressed contextual `enumeration_boundary` at `emit_analysis`, guarded R1
+  multi-subject amplification, resolved scenario/family to generic for
+  failure-scope decision answers, and updated analyzer reconciliation plus
+  skill guidance to match the same contract.
+- Added tests across the typed helper, amplifier, compiler scenario, analyzer
+  reconcile, facet family, generic semantic-view compile, and emit-analysis
+  boundary.
+
+Commercial-grade invariant:
+
+- The pipeline may still use counts structurally when the analyzer emits an
+  explicit count/category/relation answer lane. Without that typed lane,
+  scenario quantities stay soft context and cannot hard-route the answer into
+  enumeration machinery.
+
+### E20260514-G54: Typed Verdict Block vs Principal Evidence Support Lane
+
+The first G53 replay found a second-layer support-plan conflict before the
+final PASS.
+
+Observed data flow:
+
+1. The finalizer emitted the required principal `decision` block with
+   `error_granularity_verdict=per_item_rejection`.
+2. That decision cited current-code evidence from the principal evidence lane.
+3. `validatePrincipalSupportBlockKind` rejected the citation because generic
+   principal evidence allowed `summary`, `section`, ordered/bullet lists, and
+   diagrams, but not `decision`.
+4. Repair feedback then pulled the model toward a summary block, while the
+   typed verdict contract still required a principal decision block.
+
+Root cause: typed answer-block requirements and support-lane allowed-block
+policies were compiled independently. Adding a typed decision verdict changed
+the required principal surface but did not widen the corresponding evidence
+support lane.
+
+Corrective action:
+
+- Added request-aware principal evidence block policy. The default generic
+  support-lane policy remains unchanged, but when
+  `ErrorGranularityProfile.Active()` is true, principal evidence can support
+  `decision` blocks.
+- Added a support-plan regression test so future typed verdict lanes cannot
+  introduce a required principal block that has no legal citation route.
+
+Commercial-grade invariant:
+
+- New typed answer surfaces must be wired through both sides of the contract:
+  required answer block shape and legal evidence-support block kinds. A
+  carrier that changes one side must be visible to the other side through typed
+  metadata, not by asking the finalizer to work around validator feedback.
+
+### E20260514-G55: Failure-Scope Verdict Lane vs Root-Cause Family Priority
+
+A post-rebase replay of `u9b` surfaced a classifier variant after remote
+finalizer recovery changes landed.
+
+Observed data flow:
+
+1. The analyzer emitted the correct active `error_granularity_profile` and no
+   count/category/relation answer predicate.
+2. It labeled the task `intent=root_cause` because the wording asks about
+   failure behavior.
+3. `ResolveQuestionFamily` returned `root_cause_trace` before consulting the
+   failure-scope decision guard.
+4. The finalizer was then asked to render historical observation, current code
+   verification, and a bounded current-status verdict, instead of the narrower
+   failure-granularity decision answer. That reopened a scaffold loop unrelated
+   to answer correctness.
+
+Root cause: the typed resolver existed, but its priority was lower than the
+broad diagnostic family. A harmless classifier variant could therefore bypass
+the same typed lane.
+
+Corrective action:
+
+- Promoted no-attachment failure-scope decision answers ahead of root-cause
+  scenario/family routing in the compiler and facet-family resolver.
+- Kept attached log/perf artifact diagnostics on the root-cause family because
+  artifact/current-code drift is a real part of those answer surfaces.
+- Added tests for root-cause-labeled failure-scope requests in scenario
+  inference, analyzer scenario reconciliation, and question-family resolution.
+
+Commercial-grade invariant:
+
+- Narrow typed answer lanes should outrank broad diagnostic labels when they
+  describe the principal answer surface. Broad families can still win when a
+  separate typed artifact lane makes their additional surfaces structurally
+  necessary.
 
 ### E20260514-G17: Small Relation Member Set Over-Scaffolding (`qf_relation_subagent_registry`)
 
@@ -2513,3 +2655,32 @@ Verification:
 - `bash eval/run.sh eval/cases/u9b.case 1`
   - `eval/results/u9b-20260514-222125`
   - PASS
+
+Batch 5c progress:
+
+- Fixed G53 by making failure-scope verdict questions an explicit typed-lane
+  conflict case. Active `error_granularity_profile` plus absence of typed
+  count/category/relation answer predicates keeps scenario counts contextual:
+  they no longer become `enumeration_boundary`, R1 multi-subject obligations,
+  enumeration scenario/family routing, or enumeration semantic-view compile
+  pressure.
+- Fixed the follow-on G54 support-lane conflict. A required principal
+  `decision` block with `error_granularity_verdict` now has a legal principal
+  evidence route when the typed error-granularity profile is active. Other
+  generic answers keep the original principal evidence block policy.
+- Fixed the post-rebase G55 classifier variant. Failure-scope verdict questions
+  classified as no-attachment `root_cause` now route through the same generic
+  typed decision lane; attached log/perf diagnostics keep the root-cause family.
+- Anti-seesaw check: the resolver is shared by emit-analysis, amplifier,
+  compiler scenario, analyzer reconciliation, facet family, and support-plan
+  compile. The fix is not u9b-specific and does not infer anything from user
+  wording or answer prose.
+
+Verification:
+
+- `go test ./internal/types ./internal/analysis/amplifier ./internal/analysis/compiler ./internal/agent ./internal/tool ./internal/skill -run 'ErrorGranularity|FailureScope|R1_NoFire_ErrorGranularity|ResolveQuestionFamily_ErrorGranularity|CompileGeneric_ErrorGranularity|ReconcileScenario|InferScenario|SuppressesContextualEnumeration|AnalysisSkill'`
+- `go test ./internal/types ./internal/orchestrator -run 'ErrorGranularity|PrincipalEvidenceSupportLane|SupportPlan|PrincipalSupportBlockKind|FacetCoverage'`
+- `bash eval/run.sh eval/cases/u9b.case 1`
+  - `eval/results/u9b-20260514-232523`
+  - PASS (`tool_read_file=2`, `explorer_iters=5`, `finalizer_iters=2`,
+    `repair_exec_lines=0`)

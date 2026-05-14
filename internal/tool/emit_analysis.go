@@ -880,14 +880,21 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	enumerationBoundary, enumerationBoundaryErr := parseEnumerationBoundary(raw, p.EnumerationBoundary)
-	if enumerationBoundaryErr != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_analysis rejected: " + enumerationBoundaryErr,
-			Timestamp: time.Now(),
-		}, nil
+	var enumerationBoundary *types.RequestedEnumerationBoundary
+	if p.EnumerationBoundary != nil &&
+		types.ErrorGranularityCountsAreContextual(intent, predicates, errorGranularityProfile) {
+		val.Warnings = append(val.Warnings, "ignored enumeration_boundary because error_granularity_profile makes count-like phrases contextual")
+	} else {
+		var enumerationBoundaryErr string
+		enumerationBoundary, enumerationBoundaryErr = parseEnumerationBoundary(raw, p.EnumerationBoundary)
+		if enumerationBoundaryErr != "" {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   "emit_analysis rejected: " + enumerationBoundaryErr,
+				Timestamp: time.Now(),
+			}, nil
+		}
 	}
 	// Plan E (2026-05-02) — completeness + buckets parsing. Both
 	// follow the EnumerationBoundary's verbatim-quote contract: a

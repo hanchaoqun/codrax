@@ -159,6 +159,34 @@ func TestResolveQuestionFamily_EnumerationFromCompleteness(t *testing.T) {
 	}
 }
 
+func TestResolveQuestionFamily_ErrorGranularityDecisionUsesGeneric(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"emit_evidence", "anchor_kind"},
+		},
+		ErrorGranularityProfile: &ErrorGranularityProfile{
+			IsGranularityQuestion: true,
+			Confidence:            0.9,
+		},
+	}
+	if got := ResolveQuestionFamily(rm); got != QFGeneric {
+		t.Errorf("got %q, want QFGeneric", got)
+	}
+	rm.Intent = IntentRootCause
+	rm.Scenario = ScenarioRootCause
+	if got := ResolveQuestionFamily(rm); got != QFGeneric {
+		t.Errorf("root-cause-labeled failure-scope decision should still route to generic, got %q", got)
+	}
+	rm.Intent = IntentExplain
+	rm.Scenario = ScenarioArchitectureExplain
+	rm.Predicates.IsCategoryEnumeration = true
+	if got := ResolveQuestionFamily(rm); got != QFEnumeration {
+		t.Errorf("explicit category predicate should still route to enumeration, got %q", got)
+	}
+}
+
 func TestResolveQuestionFamily_Architecture(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentExplain,

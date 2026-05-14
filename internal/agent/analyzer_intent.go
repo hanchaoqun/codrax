@@ -103,6 +103,10 @@ func reconcileScenario(rm types.RequestModel) (types.Scenario, string) {
 		return types.ScenarioGeneric,
 			"single-topic structural trace uses generic scenario (avoid architecture reconcile window for linear call/flow walkthroughs)"
 	}
+	if types.IsFailureScopeDecisionAnswer(rm) && rm.Scenario != types.ScenarioGeneric {
+		return types.ScenarioGeneric,
+			"failure-scope verdict question uses generic scenario (avoid architecture/enumeration scaffold for contextual counts)"
+	}
 	return rm.Scenario, ""
 }
 

@@ -926,7 +926,7 @@ func compilePrincipalEvidenceSupportLane(family QuestionFamily, rm RequestModel,
 	lane := AnswerSupportLane{
 		Kind:          SupportLanePrincipalEvidence,
 		Title:         principalEvidenceLaneTitle(family),
-		AllowedBlocks: principalEvidenceAllowedBlocks(family),
+		AllowedBlocks: principalEvidenceAllowedBlocksForRequest(family, rm),
 		Guidance:      principalEvidenceLaneGuidance(family, rm),
 	}
 	items := PrincipalSupportEvidenceItemsForFamily(family, plan)
@@ -1139,6 +1139,21 @@ func principalEvidenceAllowedBlocks(family QuestionFamily) []string {
 	default:
 		return blockKindStrings(BlockSummary)
 	}
+}
+
+func principalEvidenceAllowedBlocksForRequest(family QuestionFamily, rm RequestModel) []string {
+	allowed := principalEvidenceAllowedBlocks(family)
+	if rm.ErrorGranularityProfile == nil || !rm.ErrorGranularityProfile.Active() {
+		return allowed
+	}
+	for _, kind := range allowed {
+		if kind == string(BlockDecision) {
+			return allowed
+		}
+	}
+	out := append([]string(nil), allowed...)
+	out = append(out, string(BlockDecision))
+	return out
 }
 
 func principalSupportFacetKinds(family QuestionFamily) []AnswerFacetKind {

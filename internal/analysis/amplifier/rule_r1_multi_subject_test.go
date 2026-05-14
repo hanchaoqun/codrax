@@ -186,6 +186,29 @@ func TestR1_NoFire_SingleTopicMechanismExplanation(t *testing.T) {
 	}
 }
 
+func TestR1_NoFire_ErrorGranularityDecisionLane(t *testing.T) {
+	rm := makeRMWithEntities("emit_evidence", "anchor_kind", "rejectedItems")
+	rm.Intent = types.IntentExplain
+	rm.ErrorGranularityProfile = &types.ErrorGranularityProfile{
+		IsGranularityQuestion: true,
+		RequestedVerdictOptions: []types.ErrorGranularityVerdict{
+			types.ErrorGranularityPerItemRejection,
+			types.ErrorGranularityWholeBatch,
+		},
+		Confidence: 0.9,
+	}
+
+	got, obs := Amplify(rm)
+	if got.Predicates.IsCategoryEnumeration {
+		t.Errorf("R1 must NOT turn a typed failure-scope decision question into a category enumeration")
+	}
+	for _, ob := range obs {
+		if ob.Rule == "R1_multi_subject_predicate" {
+			t.Errorf("expected no R1 observation for error granularity decision lane, got %+v", obs)
+		}
+	}
+}
+
 func TestR1_NoFire_ArchitectureNarrativeExplanation(t *testing.T) {
 	rm := makeRMWithEntities(
 		"Orchestrator",

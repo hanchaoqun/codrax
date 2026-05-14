@@ -829,6 +829,49 @@ func TestBuildAnswerSupportPlan_FacetFamiliesCompilePrincipalEvidenceLane(t *tes
 	}
 }
 
+func TestPrincipalEvidenceSupportLane_AllowsDecisionForErrorGranularity(t *testing.T) {
+	item := EvidenceItem{
+		ID:              "decision-anchor",
+		Kind:            EvidenceConditional,
+		Scope:           ScopeLine,
+		Source:          "internal/tool/emit_evidence.go",
+		LineStart:       531,
+		AnchorKind:      AnchorCondition,
+		AnchorSymbol:    "Execute",
+		Summary:         "per-item validation failure is recorded and the loop continues",
+		GroundingStatus: GroundingGrounded,
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{item},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFGeneric,
+			Required: []FacetRequirement{{
+				Kind:            FacetCurrentCodePath,
+				SourceCandidate: []string{item.ID},
+			}},
+		},
+	}
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioGeneric,
+		ErrorGranularityProfile: &ErrorGranularityProfile{
+			IsGranularityQuestion: true,
+			Confidence:            0.9,
+		},
+	}
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil {
+		t.Fatalf("missing principal evidence lane: %+v", got)
+	}
+	for _, kind := range lane.AllowedBlocks {
+		if kind == string(BlockDecision) {
+			return
+		}
+	}
+	t.Fatalf("error-granularity decision blocks should be allowed to cite principal evidence, got %v", lane.AllowedBlocks)
+}
+
 func TestBuildAnswerSupportPlan_EnumerationMechanismFallbackUsesEnrichmentPolicy(t *testing.T) {
 	item := EvidenceItem{
 		ID:              "template-budget",
