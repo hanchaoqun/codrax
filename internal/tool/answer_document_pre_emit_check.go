@@ -832,6 +832,9 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	seen := make(map[string]bool)
 	for _, ref := range principalRefs {
 		fact := ref.Fact
+		if preEmitAggregateMemberSetIsScalarCountSupport(ctx, fact) {
+			continue
+		}
 		for _, member := range fact.Members {
 			if preEmitAggregateMemberAppearsInDocument(member, doc, surface) {
 				continue
@@ -874,6 +877,24 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 			strings.Join(parts, "; "),
 		Reason: "the investigation handed off this complete principal member set as structured data; finalization must preserve those model-authored members even when the request family was routed as architecture, scalar, relation, or generic prose.",
 	}}
+}
+
+func preEmitAggregateMemberSetIsScalarCountSupport(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !rm.Predicates.IsCountQuestion || !rm.Predicates.IsScalarAnswer {
+		return false
+	}
+	if rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCrossComponent ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	return rm.Intent == types.IntentReturnValue || rm.AnswerSubject.Kind == types.SubjectNumeric
 }
 
 func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {

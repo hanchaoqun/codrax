@@ -1648,6 +1648,26 @@ Verification:
   (`eval/results/qf_imports-20260514-163822`, PASS; typed support lane shows
   import rows as `claim_form=import_edge`, `member_surface=display_label`)
 
+Initial Batch 2b progress:
+
+- Started the scalar-count side of the same exact-answer lane. For count-only
+  scalar requests (`is_count_question=true`, `is_scalar_answer=true`,
+  `intent=return_value` / numeric subject, and no category/relation/history/
+  diagnostic/cross-component predicate), a `member_set` attached to the
+  aggregate count is now treated as support evidence for the scalar rather than
+  as a required user-visible principal list.
+- The cardinality gate remains active: visible count claims still have to match
+  the support `member_set` cardinality. The change only removes the accidental
+  requirement to list every member when the user asked for "how many", not for
+  names/locations.
+
+Verification:
+
+- `go test ./internal/tool`
+- `bash eval/run.sh eval/cases/s7b.case 1`
+  (`eval/results/s7b-20260514-164411`, PASS; finalizer_iters=1, no repair
+  lines; answer no longer required a 25-item principal member list)
+
 ### Batch 3: Relation / Diagram Generation From Typed Edges
 
 Priority: third architecture batch. This handles call chains, sequence diagrams,

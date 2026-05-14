@@ -415,6 +415,56 @@ func TestPreCheckAggregateMemberSetCoverage_RequiresVisibleModelAuthoredMembers(
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_ScalarCountTreatsMembersAsSupportOnly(t *testing.T) {
+	mu := types.NewMutableState("scalar count aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "Kind constants",
+		Value:   "3",
+		Unit:    "constants",
+		Members: []string{"KindSymbolPresent", "KindNoCallSites", "KindAnswerSetBounded"},
+	}})
+	mu.SetInvestigationComplete("structured count basis accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentReturnValue,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectNumeric, Confidence: 0.95},
+				Predicates: types.SemanticPredicates{
+					IsCountQuestion: true,
+					IsScalarAnswer:  true,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "count",
+			Kind: types.BlockScalar,
+			Text: "3 distinct Criterion Kind constants are declared.",
+			Items: []types.AnswerBlockItem{{
+				ID:          "v",
+				Label:       "3",
+				CitationRef: -1,
+			}},
+		}},
+	}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("count-only scalar answer should not be forced to render support members, got %+v", got)
+	}
+	if got := preCheckAggregateCardinalityConsistency(doc, ctx); len(got) != 0 {
+		t.Fatalf("matching visible count should satisfy cardinality consistency, got %+v", got)
+	}
+
+	doc.Blocks[0].Text = "4 distinct Criterion Kind constants are declared."
+	doc.Blocks[0].Items[0].Label = "4"
+	if got := preCheckAggregateCardinalityConsistency(doc, ctx); len(got) == 0 {
+		t.Fatal("wrong scalar count must still be checked against the support member_set cardinality")
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_PrincipalFactsDoNotDependOnRequestFamily(t *testing.T) {
 	mu := types.NewMutableState("relation aggregate handoff routed as architecture")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
