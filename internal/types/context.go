@@ -176,6 +176,12 @@ type MutableState struct {
 	// leak between tasks in a multi-task run.
 	answerDocumentV2 *AnswerDocumentV2
 
+	// answerDisplayAttachments are user-visible fallback fragments
+	// recovered from malformed final-answer emits. They are rendered
+	// after AnswerDocumentV2 but are not part of the structured answer
+	// contract, citation pool, or validator surface.
+	answerDisplayAttachments []AnswerDisplayAttachment
+
 	// lastEmitFromPatch flags whether the most recent answerDocumentV2
 	// write came from emit_answer_document_patch (true) or full
 	// emit_answer_document (false). Phase 2-B4 (V2 runtime
@@ -1697,6 +1703,40 @@ func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *A
 	m.lastEmitFromPatch = (kind == MutationPartial)
 }
 
+// SetAnswerDisplayAttachments replaces the current final-answer
+// fallback attachment list. Attachments are deliberately separate
+// from AnswerDocumentV2 so they can preserve model-authored visible
+// content without weakening structured answer validation.
+func (m *MutableState) SetAnswerDisplayAttachments(in []AnswerDisplayAttachment) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.answerDisplayAttachments = cloneAnswerDisplayAttachments(in)
+}
+
+// AnswerDisplayAttachments returns a defensive copy of recovered
+// user-visible fallback fragments associated with the current answer.
+func (m *MutableState) AnswerDisplayAttachments() []AnswerDisplayAttachment {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneAnswerDisplayAttachments(m.answerDisplayAttachments)
+}
+
+// ResetAnswerDisplayAttachments clears recovered fallback fragments.
+func (m *MutableState) ResetAnswerDisplayAttachments() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.answerDisplayAttachments = nil
+}
+
 // LastEmitFromPatch reports whether the most recent V2 doc on this
 // MutableState was sourced via emit_answer_document_patch (true) or
 // fresh full emit (false). Returns false on nil receiver or when no
@@ -1733,6 +1773,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
+	m.answerDisplayAttachments = nil
 }
 
 // cloneAnswerDocumentV2 makes a defensive deep copy of an
@@ -1804,6 +1845,15 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 	if len(in.Snippets) > 0 {
 		out.Snippets = append([]CodeSnippet(nil), in.Snippets...)
 	}
+	return out
+}
+
+func cloneAnswerDisplayAttachments(in []AnswerDisplayAttachment) []AnswerDisplayAttachment {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]AnswerDisplayAttachment, len(in))
+	copy(out, in)
 	return out
 }
 

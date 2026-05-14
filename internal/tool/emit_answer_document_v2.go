@@ -2,8 +2,10 @@ package tool
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,6 +75,7 @@ type emitAnswerDiagramV2 struct {
 // so finalize_preview / orchestrator hooks render consistent
 // per-call text.
 func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.RawMessage, now time.Time) (types.ToolResult, error) {
+	var recovery answerDocumentRecoveryReport
 	// First pass: detect retired top-level fields (shape / steps /
 	// symbols / value / boolean / summary / symbols_completeness).
 	// The answer payload lives entirely inside blocks[]; these
@@ -92,9 +95,10 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// block (items / claim_uses) so the
 	// LLM gets accepted instead of forced to retry, while a WARN
 	// log surfaces the recovery for operator visibility.
-	if repaired, ok := repairBlocksAsString(raw); ok {
+	if repaired, report, ok := repairBlocksAsStringDetailed(raw); ok {
 		logging.Warning("[emit_answer_document] blocks[] arrived as JSON-encoded string; re-parsed via flat-mode tolerance path")
 		raw = repaired
+		recovery = report
 	}
 	if repaired, paths, ok := repairNestedArraysAsString(raw); ok {
 		logging.Warning("[emit_answer_document] nested arrays arrived as JSON-encoded strings (paths: %s); re-parsed via flat-mode tolerance path",
@@ -107,6 +111,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	var p emitAnswerDocumentV2Params
 	if err := dec.Decode(&p); err != nil {
 		err = RemapStrictDecodeError(err, answerDocumentV2MisplacedHints)
+		persistRecoveredAnswerDisplayAttachments(ctx, recovery)
 		return failEmit(toolName, now, "invalid params: %v", err)
 	}
 
@@ -117,6 +122,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// downstream. Future migration to a second carrier would
 	// re-introduce validation here.
 	if len(p.Blocks) == 0 {
+		persistRecoveredAnswerDisplayAttachments(ctx, recovery)
 		return failEmit(toolName, now,
 			"blocks[] is required and must be non-empty")
 	}
@@ -138,6 +144,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	for i, raw := range p.Blocks {
 		blk, err := NormalizeEmitAnswerBlock(raw, fmt.Sprintf("blocks[%d]", i))
 		if err != nil {
+			persistRecoveredAnswerDisplayAttachments(ctx, recovery)
 			return failEmit(toolName, now, "%s", err.Error())
 		}
 		doc.Blocks = append(doc.Blocks, blk)
@@ -157,10 +164,12 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// post-emit chain in internal/orchestrator runs unchanged.
 	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
 		if hints := runPreEmitChecks(doc, view, preEmitOracleFromCtx(ctx), ctx); len(hints) > 0 {
+			persistRecoveredAnswerDisplayAttachments(ctx, recovery)
 			return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
 		}
 	}
 	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) > 0 {
+		persistRecoveredAnswerDisplayAttachments(ctx, recovery)
 		return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
 	}
 
@@ -168,7 +177,15 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// unified mutation runtime — same chokepoint as the patch path,
 	// merged-doc validation + persist + telemetry shared.
 	mutation := types.NewReplaceAllMutation(doc)
-	return ApplyAndPersistMutation(ctx, toolName, mutation, nil, now)
+	res, err := ApplyAndPersistMutation(ctx, toolName, mutation, nil, now)
+	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.SetAnswerDisplayAttachments(recovery.Attachments)
+		if len(recovery.Attachments) > 0 {
+			logging.Warning("[emit_answer_document] preserved %d recovered display attachment(s) after %s recovery (candidate_blocks=%d recovered_blocks=%d)",
+				len(recovery.Attachments), recovery.Mode, recovery.CandidateBlocks, recovery.RecoveredBlocks)
+		}
+	}
+	return res, err
 }
 
 // detectV1FieldsInV2Emit scans the raw JSON for any top-level field
@@ -199,6 +216,27 @@ func detectV1FieldsInV2Emit(raw json.RawMessage) string {
 		}
 	}
 	return ""
+}
+
+type answerDocumentRecoveryReport struct {
+	Mode                  string
+	Lossless              bool
+	CandidateBlocks       int
+	RecoveredBlocks       int
+	CandidateKinds        []types.AnswerBlockKind
+	RecoveredKinds        []types.AnswerBlockKind
+	DroppedVisiblePayload bool
+	Attachments           []types.AnswerDisplayAttachment
+	Diagnostics           []string
+}
+
+func persistRecoveredAnswerDisplayAttachments(ctx *types.BusContext, report answerDocumentRecoveryReport) {
+	if ctx == nil || ctx.Mutable == nil || len(report.Attachments) == 0 {
+		return
+	}
+	ctx.Mutable.SetAnswerDisplayAttachments(report.Attachments)
+	logging.Warning("[emit_answer_document] preserved %d recovered display attachment(s) from rejected %s recovery",
+		len(report.Attachments), report.Mode)
 }
 
 // repairBlocksAsString detects the "blocks[] arrived as JSON
@@ -245,13 +283,18 @@ func detectV1FieldsInV2Emit(raw json.RawMessage) string {
 // `(repaired, true)` on the first successful layer; `(nil, false)`
 // when even Path D could not extract a single valid block.
 func repairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
+	patched, _, ok := repairBlocksAsStringDetailed(raw)
+	return patched, ok
+}
+
+func repairBlocksAsStringDetailed(raw json.RawMessage) (json.RawMessage, answerDocumentRecoveryReport, bool) {
 	if len(raw) == 0 {
-		return nil, false
+		return nil, answerDocumentRecoveryReport{}, false
 	}
 	// Pass 1: try as-is (handles the well-formed string-wrapped
 	// case where Paths A or B succeed without normalisation).
 	if patched, ok := tryRepairBlocksAsString(raw); ok {
-		return patched, true
+		return patched, losslessRecoveryReport("string_wrapped_blocks", patched), true
 	}
 	// Pass 2 (Path C): normalise control characters inside string
 	// scope, then retry the structural Paths A/B. Fixes the streaming
@@ -259,7 +302,7 @@ func repairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 	// bodies / multi-line text fields.
 	if normalised, changed := normalizeControlCharsInJSONStrings(string(raw)); changed {
 		if patched, ok := tryRepairBlocksAsString(json.RawMessage(normalised)); ok {
-			return patched, true
+			return patched, losslessRecoveryReport("control_char_normalized_blocks", patched), true
 		}
 	}
 	// Pass 3 (Path D, heuristic): brace-balanced extraction. When
@@ -269,10 +312,10 @@ func repairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 	// brace pair. Bad blocks drop silently; validator oracles
 	// downstream catch insufficient recovery and trigger LLM retry
 	// through the existing reject→retry path.
-	if patched, ok := extractBlocksByBraceBalance(raw); ok {
-		return patched, true
+	if patched, report, ok := extractBlocksByBraceBalanceDetailed(raw); ok {
+		return patched, report, true
 	}
-	return nil, false
+	return nil, answerDocumentRecoveryReport{}, false
 }
 
 // tryRepairBlocksAsString runs Path A + Path B against the supplied
@@ -348,6 +391,40 @@ func tryRepairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 	return nil, false
 }
 
+func losslessRecoveryReport(mode string, patched json.RawMessage) answerDocumentRecoveryReport {
+	kinds := recoveredBlockKinds(patched)
+	return answerDocumentRecoveryReport{
+		Mode:            mode,
+		Lossless:        true,
+		CandidateBlocks: len(kinds),
+		RecoveredBlocks: len(kinds),
+		CandidateKinds:  append([]types.AnswerBlockKind(nil), kinds...),
+		RecoveredKinds:  kinds,
+	}
+}
+
+func recoveredBlockKinds(raw json.RawMessage) []types.AnswerBlockKind {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil
+	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(probe["blocks"], &blocks); err != nil {
+		return nil
+	}
+	out := make([]types.AnswerBlockKind, 0, len(blocks))
+	for _, blk := range blocks {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(blk, &obj); err != nil {
+			continue
+		}
+		if kind, ok := blockKindFromObject(obj); ok {
+			out = append(out, kind)
+		}
+	}
+	return out
+}
+
 // extractBlocksByBraceBalance is Path D's heuristic recovery.
 //
 // The input is the original raw payload (post-normalisation if Path
@@ -375,16 +452,21 @@ func tryRepairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 // reject→LLM-retry path, so a "partial-but-incomplete" recovery does
 // NOT silently ship.
 func extractBlocksByBraceBalance(raw json.RawMessage) (json.RawMessage, bool) {
+	patched, _, ok := extractBlocksByBraceBalanceDetailed(raw)
+	return patched, ok
+}
+
+func extractBlocksByBraceBalanceDetailed(raw json.RawMessage) (json.RawMessage, answerDocumentRecoveryReport, bool) {
 	if len(raw) == 0 {
-		return nil, false
+		return nil, answerDocumentRecoveryReport{}, false
 	}
 	body, leadKeys, trailKeys, ok := isolateBlocksStringBody(raw)
 	if !ok {
-		return nil, false
+		return nil, answerDocumentRecoveryReport{}, false
 	}
 	body = strings.TrimSpace(body)
 	if len(body) < 2 {
-		return nil, false
+		return nil, answerDocumentRecoveryReport{}, false
 	}
 	// Strip leading `[` if present; final `]` is balanced via
 	// state-machine below.
@@ -395,6 +477,9 @@ func extractBlocksByBraceBalance(raw json.RawMessage) (json.RawMessage, bool) {
 	scan := body[start:]
 
 	var elements []json.RawMessage
+	var candidateKinds []types.AnswerBlockKind
+	var recoveredKinds []types.AnswerBlockKind
+	var attachments []types.AnswerDisplayAttachment
 	depth := 0
 	inStr := false
 	esc := false
@@ -430,9 +515,17 @@ func extractBlocksByBraceBalance(raw json.RawMessage) (json.RawMessage, bool) {
 				if candidate == "" {
 					continue
 				}
+				if kind, likely := answerBlockKindFromCandidate(candidate); likely {
+					candidateKinds = append(candidateKinds, kind)
+				}
 				var probe map[string]json.RawMessage
 				if err := json.Unmarshal([]byte(candidate), &probe); err == nil && isAnswerBlockCandidate(probe) {
 					elements = append(elements, json.RawMessage(candidate))
+					if kind, ok := blockKindFromObject(probe); ok {
+						recoveredKinds = append(recoveredKinds, kind)
+					}
+				} else if att, ok := displayAttachmentFromMalformedCandidate(candidate); ok {
+					attachments = appendRecoveredAttachment(attachments, att)
 				}
 				// Else drop silently — downstream validators catch
 				// insufficient recovery and trigger LLM retry.
@@ -451,7 +544,12 @@ func extractBlocksByBraceBalance(raw json.RawMessage) (json.RawMessage, bool) {
 		}
 	}
 	if len(elements) == 0 {
-		return nil, false
+		return nil, answerDocumentRecoveryReport{}, false
+	}
+	if !containsAnswerBlockKind(recoveredKinds, types.BlockDiagram) {
+		if att, ok := displayAttachmentFromText(body); ok {
+			attachments = appendRecoveredAttachment(attachments, att)
+		}
 	}
 	// Reconstruct merged payload: leadKeys ∪ {"blocks": elements} ∪
 	// trailKeys. Keys collide only on `blocks`; the recovered array
@@ -466,9 +564,25 @@ func extractBlocksByBraceBalance(raw json.RawMessage) (json.RawMessage, bool) {
 	merged["blocks"] = mustMarshal(elements)
 	patched, err := json.Marshal(merged)
 	if err != nil {
-		return nil, false
+		return nil, answerDocumentRecoveryReport{}, false
 	}
-	return patched, true
+	report := answerDocumentRecoveryReport{
+		Mode:            "brace_balanced_blocks",
+		Lossless:        len(candidateKinds) == len(recoveredKinds) && len(attachments) == 0,
+		CandidateBlocks: len(candidateKinds),
+		RecoveredBlocks: len(recoveredKinds),
+		CandidateKinds:  candidateKinds,
+		RecoveredKinds:  recoveredKinds,
+		Attachments:     attachments,
+	}
+	report.DroppedVisiblePayload = !report.Lossless || len(attachments) > 0
+	if len(candidateKinds) == 0 {
+		report.CandidateBlocks = len(recoveredKinds)
+		report.CandidateKinds = append([]types.AnswerBlockKind(nil), recoveredKinds...)
+		report.Lossless = len(attachments) == 0
+		report.DroppedVisiblePayload = len(attachments) > 0
+	}
+	return patched, report, true
 }
 
 // isAnswerBlockCandidate is Path D's structural filter. The brace
@@ -488,6 +602,288 @@ func isAnswerBlockCandidate(probe map[string]json.RawMessage) bool {
 		return false
 	}
 	return true
+}
+
+func blockKindFromObject(probe map[string]json.RawMessage) (types.AnswerBlockKind, bool) {
+	raw, ok := probe["kind"]
+	if !ok {
+		return "", false
+	}
+	var kind string
+	if err := json.Unmarshal(raw, &kind); err != nil {
+		return "", false
+	}
+	k := types.AnswerBlockKind(strings.TrimSpace(kind))
+	if !types.IsValidAnswerBlockKind(k) {
+		return "", false
+	}
+	return k, true
+}
+
+func answerBlockKindFromCandidate(candidate string) (types.AnswerBlockKind, bool) {
+	if !strings.Contains(candidate, `"id"`) || !strings.Contains(candidate, `"kind"`) {
+		return "", false
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(candidate), &probe); err == nil {
+		return blockKindFromObject(probe)
+	}
+	kind, ok := extractJSONStringFieldLoose(candidate, "kind")
+	if !ok {
+		return "", true
+	}
+	k := types.AnswerBlockKind(strings.TrimSpace(kind))
+	if !types.IsValidAnswerBlockKind(k) {
+		return "", true
+	}
+	return k, true
+}
+
+func containsAnswerBlockKind(kinds []types.AnswerBlockKind, want types.AnswerBlockKind) bool {
+	for _, kind := range kinds {
+		if kind == want {
+			return true
+		}
+	}
+	return false
+}
+
+func appendRecoveredAttachment(in []types.AnswerDisplayAttachment, att types.AnswerDisplayAttachment) []types.AnswerDisplayAttachment {
+	if strings.TrimSpace(att.Body) == "" {
+		return in
+	}
+	if att.Hash == "" {
+		att.Hash = answerDisplayAttachmentHash(att.Kind, att.Language, att.Body)
+	}
+	for _, existing := range in {
+		if existing.Hash != "" && existing.Hash == att.Hash {
+			return in
+		}
+		if strings.TrimSpace(existing.Body) == strings.TrimSpace(att.Body) &&
+			strings.TrimSpace(existing.Kind) == strings.TrimSpace(att.Kind) {
+			return in
+		}
+	}
+	return append(in, att)
+}
+
+func displayAttachmentFromMalformedCandidate(candidate string) (types.AnswerDisplayAttachment, bool) {
+	kind, likely := answerBlockKindFromCandidate(candidate)
+	if !likely && !textLooksLikeMermaid(candidate) {
+		return types.AnswerDisplayAttachment{}, false
+	}
+	if kind != "" && kind != types.BlockDiagram && !textLooksLikeMermaid(candidate) {
+		return types.AnswerDisplayAttachment{}, false
+	}
+	body := extractDiagramBodyLoose(candidate)
+	if body == "" {
+		body = extractMermaidBody(candidate)
+	}
+	return newRecoveredDiagramAttachment(body)
+}
+
+func displayAttachmentFromText(s string) (types.AnswerDisplayAttachment, bool) {
+	if !textLooksLikeMermaid(s) {
+		return types.AnswerDisplayAttachment{}, false
+	}
+	return newRecoveredDiagramAttachment(extractMermaidBody(s))
+}
+
+func newRecoveredDiagramAttachment(body string) (types.AnswerDisplayAttachment, bool) {
+	body = cleanRecoveredDiagramBody(body)
+	if body == "" || !textLooksLikeMermaid(body) {
+		return types.AnswerDisplayAttachment{}, false
+	}
+	att := types.AnswerDisplayAttachment{
+		Kind:     types.AnswerDisplayAttachmentDiagram,
+		Language: "mermaid",
+		Body:     body,
+		Source:   "emit_answer_document.recovery",
+		Reason:   "structured recovery could not preserve every visible block",
+	}
+	att.Hash = answerDisplayAttachmentHash(att.Kind, att.Language, att.Body)
+	return att, true
+}
+
+func answerDisplayAttachmentHash(kind, lang, body string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(kind) + "\x00" + strings.TrimSpace(lang) + "\x00" + strings.TrimSpace(body)))
+	return fmt.Sprintf("%x", sum[:])
+}
+
+func extractDiagramBodyLoose(candidate string) string {
+	var typed struct {
+		Diagram *struct {
+			Body string `json:"body"`
+		} `json:"diagram"`
+	}
+	if err := json.Unmarshal([]byte(candidate), &typed); err == nil && typed.Diagram != nil {
+		if body := strings.TrimSpace(typed.Diagram.Body); body != "" {
+			return body
+		}
+	}
+	body, ok := extractJSONStringFieldLoose(candidate, "body")
+	if !ok {
+		return ""
+	}
+	return body
+}
+
+func extractJSONStringFieldLoose(s, field string) (string, bool) {
+	needle := `"` + field + `"`
+	searchFrom := 0
+	for {
+		idx := strings.Index(s[searchFrom:], needle)
+		if idx < 0 {
+			return "", false
+		}
+		idx += searchFrom
+		cur := idx + len(needle)
+		for cur < len(s) && isAnswerDocJSONSpace(s[cur]) {
+			cur++
+		}
+		if cur >= len(s) || s[cur] != ':' {
+			searchFrom = idx + len(needle)
+			continue
+		}
+		cur++
+		for cur < len(s) && isAnswerDocJSONSpace(s[cur]) {
+			cur++
+		}
+		if cur >= len(s) || s[cur] != '"' {
+			searchFrom = idx + len(needle)
+			continue
+		}
+		if value, ok := readJSONStringLiteralLoose(s, cur); ok {
+			return value, true
+		}
+		searchFrom = idx + len(needle)
+	}
+}
+
+func readJSONStringLiteralLoose(s string, quoteAt int) (string, bool) {
+	if quoteAt < 0 || quoteAt >= len(s) || s[quoteAt] != '"' {
+		return "", false
+	}
+	esc := false
+	for i := quoteAt + 1; i < len(s); i++ {
+		c := s[i]
+		if esc {
+			esc = false
+			continue
+		}
+		if c == '\\' {
+			esc = true
+			continue
+		}
+		if c != '"' {
+			continue
+		}
+		j := i + 1
+		for j < len(s) && isAnswerDocJSONSpace(s[j]) {
+			j++
+		}
+		if j < len(s) && s[j] != ',' && s[j] != '}' {
+			continue
+		}
+		raw := s[quoteAt : i+1]
+		if value, err := strconv.Unquote(raw); err == nil {
+			return value, true
+		}
+		if normalised, changed := normalizeControlCharsInJSONStrings(raw); changed {
+			if value, err := strconv.Unquote(normalised); err == nil {
+				return value, true
+			}
+		}
+		return decodeEscapedTextLoose(strings.Trim(raw, `"`)), true
+	}
+	return "", false
+}
+
+func isAnswerDocJSONSpace(c byte) bool {
+	switch c {
+	case ' ', '\t', '\n', '\r':
+		return true
+	default:
+		return false
+	}
+}
+
+func textLooksLikeMermaid(s string) bool {
+	lower := strings.ToLower(s)
+	for _, marker := range []string{
+		"sequencediagram",
+		"flowchart ",
+		"graph td",
+		"graph lr",
+		"graph tb",
+		"graph bt",
+		"statediagram",
+		"classdiagram",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func extractMermaidBody(s string) string {
+	lower := strings.ToLower(s)
+	best := -1
+	for _, marker := range []string{
+		"sequencediagram",
+		"flowchart ",
+		"graph td",
+		"graph lr",
+		"graph tb",
+		"graph bt",
+		"statediagram",
+		"classdiagram",
+	} {
+		if idx := strings.Index(lower, marker); idx >= 0 && (best < 0 || idx < best) {
+			best = idx
+		}
+	}
+	if best < 0 {
+		return ""
+	}
+	return cleanRecoveredDiagramBody(s[best:])
+}
+
+func cleanRecoveredDiagramBody(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.TrimPrefix(s, "```mermaid")
+	s = strings.TrimPrefix(s, "```")
+	if end := strings.Index(s, "```"); end >= 0 {
+		s = s[:end]
+	}
+	for _, field := range []string{`"edge_anchors"`, `"claim_uses"`, `"facet_ids"`, `"surface_role"`, `"citations"`, `"caveats"`, `"snippets"`} {
+		if idx := strings.Index(s, field); idx > 0 {
+			s = s[:idx]
+		}
+	}
+	s = decodeEscapedTextLoose(s)
+	s = strings.TrimSpace(s)
+	s = strings.TrimRight(s, `"' ,}]`)
+	s = strings.TrimSpace(s)
+	return s
+}
+
+func decodeEscapedTextLoose(s string) string {
+	replacer := strings.NewReplacer(
+		`\\n`, "\n",
+		`\n`, "\n",
+		`\\r`, "\n",
+		`\r`, "\n",
+		`\\t`, "\t",
+		`\t`, "\t",
+		`\"`, `"`,
+		`\\`, `\`,
+	)
+	return replacer.Replace(s)
 }
 
 // isolateBlocksStringBody finds the `blocks` string value within a

@@ -295,6 +295,51 @@ func TestRenderV2_BlockDiagram_StripsNestedMermaidFence(t *testing.T) {
 	}
 }
 
+func TestRenderV2_WithRecoveredDiagramAttachment(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "主体答案。",
+		}},
+	}
+	out := RenderAnswerDocumentWithAttachments(doc, []types.AnswerDisplayAttachment{{
+		Kind:     types.AnswerDisplayAttachmentDiagram,
+		Language: "mermaid",
+		Body:     "sequenceDiagram\n    User->>Agent: ask",
+	}}, "zh")
+	if !strings.Contains(out, "主体答案。") {
+		t.Fatalf("summary lost:\n%s", out)
+	}
+	if !strings.Contains(out, "未能完整进入结构化答案") {
+		t.Fatalf("fallback lead missing:\n%s", out)
+	}
+	if !strings.Contains(out, "```mermaid\nsequenceDiagram\n    User->>Agent: ask\n```") {
+		t.Fatalf("recovered diagram not rendered:\n%s", out)
+	}
+}
+
+func TestRenderV2_WithRecoveredDiagramAttachmentDedupesStructuredDiagram(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "answer"},
+			{ID: "d1", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+				Kind:     types.DiagramSequence,
+				Language: "mermaid",
+				Body:     "sequenceDiagram\n    A->>B: ok",
+			}},
+		},
+	}
+	out := RenderAnswerDocumentWithAttachments(doc, []types.AnswerDisplayAttachment{{
+		Kind:     types.AnswerDisplayAttachmentDiagram,
+		Language: "mermaid",
+		Body:     "sequenceDiagram\n    A->>B: ok",
+	}}, "en")
+	if strings.Count(out, "sequenceDiagram") != 1 {
+		t.Fatalf("duplicate recovered diagram rendered:\n%s", out)
+	}
+}
+
 func TestRenderV2_BlockCaveat(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

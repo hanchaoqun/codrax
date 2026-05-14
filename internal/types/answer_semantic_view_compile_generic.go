@@ -87,6 +87,33 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 			string(FacetUncertaintyBoundary),
 		),
 	}
+	if diagramRequiredByUserIntent(plan) {
+		view.RequiredBlocks = append(view.RequiredBlocks, BlockRequirement{
+			Kind:     BlockDiagram,
+			MinCount: 1,
+			MaxCount: 1,
+			Required: true,
+			Rationale: "The user explicitly asked for a diagram. Include one diagram block when you can ground the labels; " +
+				"if strict grounding is incomplete, keep the prose answer honest and let the renderer preserve any recovered raw diagram.",
+		})
+	}
+	if plan != nil && plan.Diagram != nil {
+		view.DiagramPlan = diagramPlanFor(plan, genericDiagramKind(plan), nil, nil,
+			DefaultEdgeRelationsForKind(genericDiagramKind(plan)))
+	}
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
 	return view
+}
+
+func genericDiagramKind(plan *AnswerSurfacePlan) DiagramKind {
+	if plan == nil {
+		return DiagramNone
+	}
+	if plan.CompiledDiagramKind != DiagramNone {
+		return plan.CompiledDiagramKind
+	}
+	if plan.Diagram != nil && len(plan.Diagram.PreferredKinds) > 0 {
+		return plan.Diagram.PreferredKinds[0]
+	}
+	return DiagramNone
 }

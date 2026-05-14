@@ -5721,6 +5721,11 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	if safeFallback != "" {
 		combined = combined + "\n\n" + safeFallback
 	}
+	if ctx != nil && ctx.Mutable != nil {
+		if recovered := render.RenderAnswerDocumentWithAttachments(nil, ctx.Mutable.AnswerDisplayAttachments(), e.language); strings.TrimSpace(recovered) != "" {
+			combined = combined + "\n\n" + strings.TrimSpace(recovered)
+		}
+	}
 	logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; falling back to raw content (len=%d)",
 		len(lastContent))
 	out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: combined})
@@ -5890,7 +5895,11 @@ func (e *answerDocumentEvaluator) parseOutputV2(ctx *types.AgentContext, docV2 *
 	if ctx != nil {
 		render.ApplyAuthorityHedging(docV2, answerDocumentAuthorityEvidencePool(ctx), e.language)
 	}
-	prose := render.RenderAnswerDocument(docV2, e.language)
+	var attachments []types.AnswerDisplayAttachment
+	if ctx != nil && ctx.Mutable != nil {
+		attachments = ctx.Mutable.AnswerDisplayAttachments()
+	}
+	prose := render.RenderAnswerDocumentWithAttachments(docV2, attachments, e.language)
 	out.Data = marshalStageData(answerDocumentStageData{
 		FinalAnswer: prose,
 	})

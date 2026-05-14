@@ -517,6 +517,57 @@ func TestRepairBlocksAsString_BraceFallbackSkipsCitationObjects(t *testing.T) {
 	}
 }
 
+func TestRepairBlocksAsString_BraceFallbackReportsDroppedDiagram(t *testing.T) {
+	raw := json.RawMessage(`{"blocks": "[{\"id\":\"sum1\",\"kind\":\"summary\",\"text\":\"hi\"},{\"id\":\"diag1\",\"kind\":\"diagram\",\"diagram\":{\"kind\":\"sequence\",\"language\":\"mermaid\",\"body\":\"sequenceDiagram\\n    User->>Agent: \"ask\"}}], \"citations\": [{\"file\":\"x.go\",\"line\":1}], trailing"}`)
+	patched, report, ok := repairBlocksAsStringDetailed(raw)
+	if !ok {
+		t.Fatal("brace fallback did not recover the valid answer block")
+	}
+	var p emitAnswerDocumentV2Params
+	if err := json.Unmarshal(patched, &p); err != nil {
+		t.Fatalf("brace fallback produced invalid payload: %v\npayload=%s", err, patched)
+	}
+	if len(p.Blocks) != 1 || p.Blocks[0].ID != "sum1" {
+		t.Fatalf("expected only valid summary block to survive structured recovery, got %+v", p.Blocks)
+	}
+	if report.Lossless {
+		t.Fatalf("malformed diagram recovery must be marked lossy: %+v", report)
+	}
+	if !report.DroppedVisiblePayload {
+		t.Fatalf("dropped visible payload not reported: %+v", report)
+	}
+	if len(report.Attachments) != 1 {
+		t.Fatalf("expected recovered diagram attachment, got %+v", report.Attachments)
+	}
+	if got := report.Attachments[0].Body; !strings.Contains(got, "sequenceDiagram") || !strings.Contains(got, "User->>Agent") {
+		t.Fatalf("diagram body not preserved in attachment: %q", got)
+	}
+}
+
+func TestEmitAnswerDocumentV2_BraceFallbackPreservesDroppedDiagramAttachment(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{"blocks": "[{\"id\":\"sum1\",\"kind\":\"summary\",\"text\":\"hi\"},{\"id\":\"diag1\",\"kind\":\"diagram\",\"diagram\":{\"kind\":\"sequence\",\"language\":\"mermaid\",\"body\":\"sequenceDiagram\\n    User->>Agent: \"ask\"}}], \"citations\": [{\"file\":\"x.go\",\"line\":1}], trailing"}`)
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("lossy brace fallback should still accept the valid structured doc with attachment preserved; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || doc.Blocks[0].Kind != types.BlockSummary {
+		t.Fatalf("structured summary doc not written: %+v", doc)
+	}
+	attachments := bus.Mutable.AnswerDisplayAttachments()
+	if len(attachments) != 1 {
+		t.Fatalf("recovered display attachment not stored: %+v", attachments)
+	}
+	if !strings.Contains(attachments[0].Body, "sequenceDiagram") {
+		t.Fatalf("stored attachment lost diagram body: %+v", attachments[0])
+	}
+}
+
 // TestEmitAnswerDocumentV2_WholeDocumentStringifyAccepted is the
 // end-to-end version: a finalizer-shaped LLM emit where the whole
 // answer body was JSON.stringify'd into the blocks key MUST now be

@@ -636,6 +636,36 @@ func TestCompileArchitecture_UserDiagramContractRequiresDiagram(t *testing.T) {
 	}
 }
 
+func TestCompileGeneric_UserDiagramContractKeepsDiagramSurface(t *testing.T) {
+	view := BuildAnswerSemanticView(irForGeneric(), &AnswerSurfacePlan{
+		Diagram: &DiagramContract{
+			Required:       true,
+			PreferredKinds: []DiagramKind{DiagramSequence},
+		},
+	})
+	if view == nil {
+		t.Fatal("view nil")
+	}
+	if view.DiagramPlan == nil {
+		t.Fatal("generic explicit diagram request must keep DiagramPlan so schema exposes diagram payload")
+	}
+	if !view.DiagramPlan.Required {
+		t.Fatalf("DiagramPlan.Required=false, want true")
+	}
+	if view.DiagramPlan.Kind != DiagramSequence {
+		t.Fatalf("DiagramPlan.Kind=%q, want %q", view.DiagramPlan.Kind, DiagramSequence)
+	}
+	hasRequiredDiagram := false
+	for _, b := range view.RequiredBlocks {
+		if b.Kind == BlockDiagram && b.Required {
+			hasRequiredDiagram = true
+		}
+	}
+	if !hasRequiredDiagram {
+		t.Fatal("generic explicit diagram request should require a diagram block")
+	}
+}
+
 func TestCompileArchitecture_NoMaxLayerAssumption(t *testing.T) {
 	view := BuildAnswerSemanticView(irForArchitecture(), nil)
 	for _, b := range view.RequiredBlocks {
@@ -904,7 +934,7 @@ func TestCompileRootCauseTrace_DiagramEdgeRelationsContract(t *testing.T) {
 	}
 }
 
-// 5 no-diagram families MUST yield nil DiagramPlan even when the
+// 4 no-diagram families MUST yield nil DiagramPlan even when the
 // upstream AnswerSurfacePlan offers a diagram contract — these
 // families' compile_*.go simply does not call diagramPlanFor. So
 // EdgeRelations is moot; the validator never reads it.
@@ -916,7 +946,6 @@ func TestCompileNoDiagramFamilies_NilDiagramPlan(t *testing.T) {
 		{"config_precedence", irForConfigPrecedence},
 		{"role_lookup", irForRoleLookup},
 		{"enumeration", irForEnumeration},
-		{"generic", irForGeneric},
 		{"comparison", irForComparison},
 	}
 	for _, c := range cases {
