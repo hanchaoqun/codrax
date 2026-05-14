@@ -1651,6 +1651,9 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 			if observationOnlyRuntimeBlocksTool(ctx, toolName) {
 				continue
 			}
+			if toolName == "emit_answer_document_patch" && !answerDocumentPatchBaseAvailable(ctx, nil) {
+				continue
+			}
 			t, err := b.deps.Tools.Get(toolName)
 			if err != nil {
 				continue

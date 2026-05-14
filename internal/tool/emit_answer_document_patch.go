@@ -249,6 +249,9 @@ func recoverPrevFromRetryState(mut *types.MutableState) *types.AnswerDocumentV2 
 		logging.Warning("[emit_answer_document_patch] RetryState.PrevEmitJSON decode failed: %v", err)
 		return nil
 	}
+	if len(doc.Blocks) == 0 {
+		return nil
+	}
 	return &doc
 }
 

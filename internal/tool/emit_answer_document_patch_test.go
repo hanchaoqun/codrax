@@ -58,6 +58,23 @@ func TestEmitAnswerDocumentPatch_NoPrevRejects(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_EmptyRetryStatePrevRejects(t *testing.T) {
+	mut := types.NewMutableState("retry")
+	mut.SetRetryState(&types.RetryState{
+		Attempt:      1,
+		PrevEmitJSON: []byte(`{"blocks":[]}`),
+	})
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, json.RawMessage(`{"unchanged_block_ids":["x"]}`))
+	if res.Success {
+		t.Error("empty retry-state previous emit must reject")
+	}
+	if !strings.Contains(res.Summary, "no previous emit") {
+		t.Errorf("error must name the missing usable prev: %q", res.Summary)
+	}
+}
+
 // TestEmitAnswerDocumentPatch_EmptyPatchRejects pins the "every
 // retry must declare some change" invariant at the tool layer.
 func TestEmitAnswerDocumentPatch_EmptyPatchRejects(t *testing.T) {

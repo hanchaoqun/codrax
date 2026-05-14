@@ -4770,7 +4770,10 @@ func answerDocumentPatchBaseAvailableInMutable(mut *types.MutableState) bool {
 		return true
 	}
 	if rs := mut.RetryState(); rs != nil && len(rs.PrevEmitJSON) > 0 {
-		return true
+		var doc types.AnswerDocumentV2
+		if err := json.Unmarshal(rs.PrevEmitJSON, &doc); err == nil && len(doc.Blocks) > 0 {
+			return true
+		}
 	}
 	return false
 }
