@@ -2984,6 +2984,17 @@ type answerDocEnrichmentFact struct {
 	index   int
 }
 
+type supportLaneScope struct {
+	constrain       bool
+	evidenceIDs     map[string]bool
+	locations       map[string]bool
+	files           map[string]bool
+	fileLines       map[string][]int
+	anchors         map[string]bool
+	lanes           map[types.AnswerSupportLaneKind]bool
+	diagnosticLanes bool
+}
+
 func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportRendered bool) string {
 	if ctx == nil {
 		return ""
@@ -2993,8 +3004,9 @@ func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportR
 	if plan != nil {
 		evidence = mergeEvidenceItems(evidence, plan.SurfaceEvidence)
 	}
-	facts := selectAnswerDocTypedEnrichmentFacts(ctx, evidence, answerDocSupportEvidenceIDs(ctx), supportRendered)
-	flowLines := selectAnswerDocFlowEnrichmentLines(ctx.FlowFindings, answerDocFlowEnrichmentLimit(ctx))
+	supportScope := supportLaneScopeForContext(ctx, supportRendered)
+	facts := selectAnswerDocTypedEnrichmentFacts(ctx, evidence, supportRendered, supportScope)
+	flowLines := selectAnswerDocFlowEnrichmentLines(ctx.FlowFindings, answerDocFlowEnrichmentLimit(ctx), supportScope)
 	if len(facts) == 0 && len(flowLines) == 0 {
 		return ""
 	}
@@ -3041,8 +3053,8 @@ func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportR
 func selectAnswerDocTypedEnrichmentFacts(
 	ctx *types.AgentContext,
 	evidence []types.EvidenceItem,
-	supportIDs map[string]bool,
 	supportRendered bool,
+	supportScope *supportLaneScope,
 ) []answerDocEnrichmentFact {
 	if len(evidence) == 0 {
 		return nil
@@ -3056,7 +3068,10 @@ func selectAnswerDocTypedEnrichmentFacts(
 		if runtimeObservationOnlyForAnswerDoc(ctx) && answerDocEvidenceIsCurrentRepoOnly(item) {
 			continue
 		}
-		if supportRendered && supportIDs[answerDocEvidenceIdentity(item)] {
+		if supportRendered && supportScope != nil && supportScope.hasEvidenceID(answerDocEvidenceIdentity(item)) {
+			continue
+		}
+		if supportScope != nil && !supportScope.allowsEvidence(item) {
 			continue
 		}
 		lane := answerDocEnrichmentLaneForEvidence(item)
@@ -3256,13 +3271,31 @@ func answerDocEvidenceRoleTag(item types.EvidenceItem) string {
 	return strings.Join(parts, ", ")
 }
 
-func answerDocSupportEvidenceIDs(ctx *types.AgentContext) map[string]bool {
+func supportLaneScopeForContext(ctx *types.AgentContext, supportRendered bool) *supportLaneScope {
+	if !supportRendered {
+		return nil
+	}
 	plan := answerSupportPlan(ctx)
 	if plan == nil {
 		return nil
 	}
-	ids := map[string]bool{}
+	return supportLaneScopeFromPlan(plan, supportRendered, extractorValueEvidenceRankProfileFor(ctx))
+}
+
+func supportLaneScopeFromPlan(plan *types.AnswerSupportPlan, supportRendered bool, profile extractorValueRankProfile) *supportLaneScope {
+	if plan == nil {
+		return nil
+	}
+	scope := &supportLaneScope{
+		evidenceIDs: map[string]bool{},
+		locations:   map[string]bool{},
+		files:       map[string]bool{},
+		fileLines:   map[string][]int{},
+		anchors:     map[string]bool{},
+		lanes:       map[types.AnswerSupportLaneKind]bool{},
+	}
 	for _, lane := range plan.Lanes {
+		scope.lanes[lane.Kind] = true
 		for _, entry := range lane.Entries {
 			for _, raw := range []string{
 				entry.EvidenceID,
@@ -3277,14 +3310,235 @@ func answerDocSupportEvidenceIDs(ctx *types.AgentContext) map[string]bool {
 					OwnerSymbol:  entry.OwnerSymbol,
 				}),
 			} {
-				key := strings.TrimSpace(raw)
-				if key != "" {
-					ids[key] = true
-				}
+				scope.addEvidenceID(raw)
+			}
+			scope.addLocation(entry.Source, entry.LineStart)
+			scope.addLocationText(entry.Location)
+			for _, loc := range entry.EquivalentLocations {
+				scope.addLocationText(loc)
+			}
+			for _, raw := range []string{
+				entry.Subject,
+				entry.Object,
+				entry.AnchorSymbol,
+				entry.OwnerSymbol,
+				string(entry.MemberSurface),
+			} {
+				scope.addAnchor(raw)
+			}
+			for _, term := range entry.SurfaceTerms {
+				scope.addAnchor(term)
 			}
 		}
 	}
-	return ids
+	scope.diagnosticLanes =
+		scope.lanes[types.SupportLaneObservedArtifact] ||
+			scope.lanes[types.SupportLaneCurrentCodePath] ||
+			scope.lanes[types.SupportLaneNearestMechanism] ||
+			scope.lanes[types.SupportLaneUncertaintyBound] ||
+			scope.lanes[types.SupportLaneCurrentVerdict]
+	scope.constrain = supportRendered &&
+		profile == extractorValueRankDiagnostic &&
+		scope.diagnosticLanes
+	return scope
+}
+
+func (s *supportLaneScope) addEvidenceID(raw string) {
+	if s == nil {
+		return
+	}
+	key := strings.TrimSpace(raw)
+	if key != "" {
+		s.evidenceIDs[key] = true
+	}
+}
+
+func (s *supportLaneScope) addLocation(source string, line int) {
+	if s == nil {
+		return
+	}
+	file := supportLaneScopeFileKey(source)
+	if file == "" {
+		return
+	}
+	s.files[file] = true
+	if line <= 0 {
+		return
+	}
+	loc := supportLaneScopeLocationKey(file, line)
+	s.locations[loc] = true
+	s.fileLines[file] = append(s.fileLines[file], line)
+}
+
+func (s *supportLaneScope) addLocationText(raw string) {
+	if s == nil {
+		return
+	}
+	file, line := supportLaneScopeParseLocation(raw)
+	s.addLocation(file, line)
+}
+
+func (s *supportLaneScope) addAnchor(raw string) {
+	if s == nil {
+		return
+	}
+	key := supportLaneScopeAnchorKey(raw)
+	if key == "" {
+		return
+	}
+	s.anchors[key] = true
+	if tail := types.NormalizedSurfaceSymbolTail(raw); tail != "" {
+		s.anchors[tail] = true
+	}
+}
+
+func (s *supportLaneScope) hasEvidenceID(raw string) bool {
+	if s == nil {
+		return false
+	}
+	return s.evidenceIDs[strings.TrimSpace(raw)]
+}
+
+func (s *supportLaneScope) allowsEvidence(item types.EvidenceItem) bool {
+	if s == nil || !s.constrain {
+		return true
+	}
+	if s.hasEvidenceID(answerDocEvidenceIdentity(item)) {
+		return true
+	}
+	switch item.Origin {
+	case types.ClaimOriginLog, types.ClaimOriginPerf:
+		return s.lanes[types.SupportLaneObservedArtifact]
+	}
+	if s.hasLocation(item.Source, item.LineStart) {
+		return true
+	}
+	for _, raw := range []string{
+		item.Subject,
+		item.Object,
+		item.AnchorSymbol,
+		item.OwnerSymbol,
+		item.Predicate,
+		item.Condition,
+	} {
+		if s.hasAnchor(raw) {
+			return true
+		}
+	}
+	for _, term := range item.SurfaceTerms {
+		if s.hasAnchor(term) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *supportLaneScope) allowsFlowFinding(ff types.FlowFindingDigest) bool {
+	if s == nil || !s.constrain {
+		return true
+	}
+	for _, id := range ff.EvidenceIDs {
+		if s.hasEvidenceID(id) {
+			return true
+		}
+	}
+	for _, group := range [][]string{ff.Path, ff.Hops, ff.Sources, ff.Sinks} {
+		for _, raw := range group {
+			if s.hasAnchor(raw) || s.hasFile(raw) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *supportLaneScope) hasLocation(source string, line int) bool {
+	if s == nil {
+		return false
+	}
+	file := supportLaneScopeFileKey(source)
+	if file == "" {
+		return false
+	}
+	if line > 0 && s.locations[supportLaneScopeLocationKey(file, line)] {
+		return true
+	}
+	if line <= 0 {
+		return false
+	}
+	for _, supportLine := range s.fileLines[file] {
+		if supportLaneAbsInt(supportLine-line) <= 24 {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *supportLaneScope) hasFile(raw string) bool {
+	if s == nil {
+		return false
+	}
+	file := supportLaneScopeFileKey(raw)
+	return file != "" && s.files[file]
+}
+
+func (s *supportLaneScope) hasAnchor(raw string) bool {
+	if s == nil {
+		return false
+	}
+	key := supportLaneScopeAnchorKey(raw)
+	if key != "" && s.anchors[key] {
+		return true
+	}
+	if tail := types.NormalizedSurfaceSymbolTail(raw); tail != "" && s.anchors[tail] {
+		return true
+	}
+	return false
+}
+
+func supportLaneScopeFileKey(raw string) string {
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	if raw == "" {
+		return ""
+	}
+	if file, _, ok := strings.Cut(raw, ":"); ok && strings.IndexByte(file, '/') >= 0 {
+		raw = file
+	}
+	return strings.ToLower(raw)
+}
+
+func supportLaneScopeLocationKey(file string, line int) string {
+	if line <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", supportLaneScopeFileKey(file), line)
+}
+
+func supportLaneScopeParseLocation(raw string) (string, int) {
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	if raw == "" {
+		return "", 0
+	}
+	idx := strings.LastIndex(raw, ":")
+	if idx < 0 || idx == len(raw)-1 {
+		return raw, 0
+	}
+	line, err := strconv.Atoi(strings.TrimSpace(raw[idx+1:]))
+	if err != nil || line <= 0 {
+		return raw, 0
+	}
+	return raw[:idx], line
+}
+
+func supportLaneScopeAnchorKey(raw string) string {
+	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+func supportLaneAbsInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func answerDocEvidenceIdentity(item types.EvidenceItem) string {
@@ -3294,12 +3548,15 @@ func answerDocEvidenceIdentity(item types.EvidenceItem) string {
 	return types.StableEvidenceID(item)
 }
 
-func selectAnswerDocFlowEnrichmentLines(findings []types.FlowFindingDigest, limit int) []string {
+func selectAnswerDocFlowEnrichmentLines(findings []types.FlowFindingDigest, limit int, supportScope *supportLaneScope) []string {
 	if len(findings) == 0 || limit <= 0 {
 		return nil
 	}
 	out := make([]string, 0, extractorMinInt(len(findings), limit))
 	for _, ff := range findings {
+		if supportScope != nil && !supportScope.allowsFlowFinding(ff) {
+			continue
+		}
 		parts := make([]string, 0, 5)
 		if ff.ID != "" {
 			parts = append(parts, "id="+ff.ID)

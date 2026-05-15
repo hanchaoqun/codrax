@@ -151,6 +151,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		b.WriteString("alone, and set `completeness` to `unknown` for any answer-symbol emission.\n\n")
 	} else {
 		b.WriteString("## Investigation transcript digest\n\n")
+		supportScope := extractorTranscriptSupportScope(ctx)
 
 		if closure := renderExtractorAcceptedClosure(ctx, ta); closure != "" {
 			b.WriteString(closure)
@@ -188,15 +189,16 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		}
 
 		// Deterministic evidence: top 24 ranked items
-		if len(ta.EvidenceItems) > 0 {
+		evidenceItems := extractorTranscriptEvidenceItems(ta.EvidenceItems, supportScope)
+		if len(evidenceItems) > 0 {
 			b.WriteString("### Deterministic evidence the investigation extracted\n\n")
-			evMax := len(ta.EvidenceItems)
+			evMax := len(evidenceItems)
 			if evMax > extractorMaxEvidence {
 				fmt.Fprintf(&b, "*(showing top %d of %d ranked items)*\n\n", extractorMaxEvidence, evMax)
 				evMax = extractorMaxEvidence
 			}
 			for i := 0; i < evMax; i++ {
-				ev := ta.EvidenceItems[i]
+				ev := evidenceItems[i]
 				// Turn B strict: DisplayLocation(true) strips
 				// LineStart for Recovered/Ungrounded items so the
 				// extractor LLM cannot pick a line the finalizer's
@@ -222,20 +224,27 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			b.WriteString("\n")
 		}
 
-		if lens := renderExtractorValueEvidenceFacts(ctx, ta); lens != "" {
+		taForValueLens := ta
+		if supportScope != nil {
+			copy := *ta
+			copy.EvidenceItems = evidenceItems
+			taForValueLens = &copy
+		}
+		if lens := renderExtractorValueEvidenceFacts(ctx, taForValueLens); lens != "" {
 			b.WriteString(lens)
 		}
 
 		// Flow findings: top 10 source→sink chains
-		if len(ta.FlowFindings) > 0 {
+		flowFindings := extractorTranscriptFlowFindings(ta.FlowFindings, supportScope)
+		if len(flowFindings) > 0 {
 			b.WriteString("### Dataflow findings (source → sink chains)\n\n")
-			ffMax := len(ta.FlowFindings)
+			ffMax := len(flowFindings)
 			if ffMax > extractorMaxFlowFindings {
 				fmt.Fprintf(&b, "*(showing top %d of %d)*\n\n", extractorMaxFlowFindings, ffMax)
 				ffMax = extractorMaxFlowFindings
 			}
 			for i := 0; i < ffMax; i++ {
-				ff := ta.FlowFindings[i]
+				ff := flowFindings[i]
 				fmt.Fprintf(&b, "- `%s` (confidence=%.2f)\n", strings.Join(ff.Path, " → "), ff.Confidence)
 			}
 			b.WriteString("\n")
@@ -406,6 +415,40 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 	}
 
 	return b.String()
+}
+
+func extractorTranscriptSupportScope(ctx *types.AgentContext) *supportLaneScope {
+	scope := supportLaneScopeForContext(ctx, true)
+	if scope == nil || !scope.constrain {
+		return nil
+	}
+	return scope
+}
+
+func extractorTranscriptEvidenceItems(items []types.EvidenceItem, supportScope *supportLaneScope) []types.EvidenceItem {
+	if len(items) == 0 || supportScope == nil {
+		return items
+	}
+	filtered := make([]types.EvidenceItem, 0, len(items))
+	for _, item := range items {
+		if supportScope.allowsEvidence(item) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func extractorTranscriptFlowFindings(findings []types.FlowFindingDigest, supportScope *supportLaneScope) []types.FlowFindingDigest {
+	if len(findings) == 0 || supportScope == nil {
+		return findings
+	}
+	filtered := make([]types.FlowFindingDigest, 0, len(findings))
+	for _, ff := range findings {
+		if supportScope.allowsFlowFinding(ff) {
+			filtered = append(filtered, ff)
+		}
+	}
+	return filtered
 }
 
 func extractorSoftGuidanceNames(names []string) []string {

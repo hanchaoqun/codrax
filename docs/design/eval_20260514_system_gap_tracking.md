@@ -78,10 +78,11 @@ created.
 | E20260514-G56 | G12 / `s7a` deterministic count audit | Fixed Batch 2f / PASS replay | Count questions could close once a deterministic `exec_command` produced a parseable `count=N`, but that value was only a completion permission. The finalizer still had to recover the scalar from prompt/tool history, and two conflicting deterministic count outputs were not treated as an ambiguous structured handoff. | Tool-sourced scalar proof and final-answer scalar obligation were split. The same raw tool output acted as a soft memory source for rendering and a hard gate for completion, without a typed aggregate carrier or an ambiguity rule. | Compile unambiguous deterministic count tool output into an `AnswerAggregateScalar` with `answer_axis=count` and `proof_source=exec_command`; if multiple deterministic count values conflict, fail closed and require a structured handoff. History lookups remain excluded so commit/history scalars still need typed history rows rather than a raw command shortcut. |
 | E20260514-G57 | `logtri_go` Batch 4 replay | Fixed Batch 4a / PASS replay | A Go panic diagnostic could put the observed old-build frame `internal/agent/analyzer.go:250` into `citations[]` even though exploration had mapped the current checkout anchor to a different line. | Runtime artifact frame coordinates and current-source citation coordinates were still sharing one answer citation carrier. A drifted observed frame could therefore masquerade as current source proof. | Added a pre-emit typed drift gate over `AnswerSurfacePlan.ExternalObservationSeeds`, `LogObservedAnchors`, and `LogSourceDriftAnchors`. Drifted observed-frame coordinates must remain artifact observations with `citation_ref=-1`; only current anchored source lines may enter `citations[]`. |
 | E20260514-G58 | `logtri_go` Batch 4 replay | Fixed Batch 4b / focused tests | The same replay exposed `current_status_verdict_missing` even when the decision prose began with a natural-language equivalent and punctuation varied. | The current-status hard contract was reading model-authored decision text prefixes to infer `still_present` / `fixed` / `not_enough_evidence`, which violates the typed-carrier boundary and is fragile across languages. | Added typed `AnswerBlock.current_status_verdict`, schema support, normalizer validation, renderer surfacing, pre-emit check, post-emit contract check, and retry targeting. The hard gate now reads only the enum field, never decision prose. |
-| E20260514-G59 | `logtri_go` Batch 4 replay | Open / follow-up | Diagnostic prompt context still carried unrelated dataflow enrichment rows such as `New()` map-return facts and `MultiGraph.*` details while answering a panic-origin question. | Exploration enrichment rows are rich, but the later diagnostic surface does not always scope them by the active artifact/current-source lanes. Irrelevant typed facts can crowd prompt budget and distract finalization even when they are not wrong. | Filter or rank enrichment rows through the same typed support lanes consumed by the answer surface. Runtime diagnostic prompts should prioritize observed artifact facts, current mapped anchors, boundary evidence, and directly connected mechanism rows before generic dataflow facts. |
+| E20260514-G59 | `logtri_go` Batch 4 replay | Fixed Batch 4e / focused tests | Diagnostic prompt context still carried unrelated dataflow enrichment rows such as `New()` map-return facts and `MultiGraph.*` details while answering a panic-origin question. | Exploration enrichment rows are rich, but the later diagnostic surfaces did not scope every consumption path by the active artifact/current-source support lanes. Irrelevant typed facts could enter both extractor transcript digests and finalizer enrichment, crowd prompt budget, and distract finalization even when they were not wrong. | Added a shared typed support-scope selector for diagnostic transcript/enrichment rows. When diagnostic support lanes are present, extractor deterministic evidence/dataflow rows and finalizer enrichment rows must connect by evidence id, source location/proximity, typed anchor/symbol, observed-artifact origin, or flow evidence id. Non-diagnostic enrichment remains broad, and no logic reads user request prose or model answer text. |
 | E20260514-G60 | `logtri_go` Batch 4b replay | Open / follow-up | The case passed, but semantic quality still reported low-confidence evidence-density concerns: current-code path and uncertainty-boundary facets were substantively present but not structurally anchored densely enough. | Diagnostic answer facets, decision blocks, caveats, and typed support lanes do not yet share a deterministic facet-anchor compiler. Soft reviewers can see the content while structural richness metrics still count missing anchors. | Compile diagnostic facet anchors from typed lanes (`observed_artifact_fact`, current mapped anchors, uncertainty boundary, current-status decision) into block/item/facet metadata before finalization. Keep reviewer feedback advisory unless a typed required facet truly lacks support. |
 | E20260514-G61 | `logtri_go` Batch 4b replay | Fixed Batch 4c / prompt-contract replay target | Typed `current_status_verdict` rendered correctly, but the decision prose could still include a second, conflicting status token because the enum semantics did not distinguish "current comparable risk still visible" from "exact old-build branch not fully provable." | The typed lane existed, but its value semantics were underspecified, and the generic decision checklist still taught "verdict at the start of text" even when a typed verdict field was required. The model could choose `not_enough_evidence` for historical branch uncertainty while prose argued the current risk was still present. | Clarified the typed verdict contract in finalizer instructions, required-block rationale, and schema text; current-status checklist wording now makes `current_status_verdict` the only canonical status channel and keeps `text` as rationale only. |
 | E20260514-G62 | `logtri_go` Batch 4c replay | Fixed Batch 4d / pre-emit typed-lane test | A current-status decision block also carried inactive `error_granularity_verdict=not_enough_evidence`, so the renderer displayed two typed verdicts even though the request was not a failure-scope granularity question. | Typed decision verdict fields were independently valid on `kind=decision`, but there was no lane-activation gate preventing an inactive verdict carrier from sharing an unrelated decision surface. | Added a pre-emit typed-lane isolation gate: `error_granularity_verdict` is allowed only when the typed error-granularity contract is active, and `current_status_verdict` is allowed only when the typed current-status diagnostic contract is active. This uses only typed view/profile fields and block enums, never prose. |
+| E20260514-G63 | `logtri_go` Batch 4e replay | Open / red-line follow-up | G59 replay passed, but the repair loop was triggered by "answer references only 2/8 triaged artifact tokens" and "required runtime error type missing" checks over rendered answer text. The model then explicitly optimized for tokens in the summary text. | Runtime artifact completeness is still partly enforced by keyword-style matching over model-authored answer prose (`DraftAnswer`) against triage tokens/error type strings. This violates the typed-carrier boundary and creates prompt pressure to stuff artifact tokens instead of proving structured observations. | Replace artifact-token text-density checks with typed artifact coverage carriers: stable log/perf observation ids, observation roles, error-type/message ids, frame ids, and answer-document `claim_uses`/item refs that cite those ids. Until that carrier exists, keep prose-token density advisory only; hard gates must consume typed ids/enums, not rendered answer text. |
 
 ## End-to-End Traces
 
@@ -1863,8 +1864,18 @@ Batch 4b replay follow-up:
   cases where current evidence cannot decide between still-present and fixed.
   The current-status submission checklist now also treats block `text` as
   rationale only so it does not reintroduce a second prose verdict channel.
-- Residual follow-up recorded as G59: unrelated enrichment rows can still enter
-  diagnostic prompt context and should be scoped by support-lane relevance.
+- Batch 4e fixed G59 by adding a typed support-scope selector in both
+  downstream exploration-consumption paths: extractor transcript digest
+  rendering and answer-document prompt enrichment. Diagnostic deterministic
+  evidence, dataflow findings, and finalizer enrichment rows now render only
+  when they connect to active diagnostic support lanes through typed evidence
+  ids, source locations/proximity, anchors/symbols, observed-artifact origin,
+  or flow evidence ids. This keeps exploration richness available without
+  letting unrelated context become downstream prompt budget noise.
+- Anti-seesaw guard: the selector constrains only diagnostic profiles with
+  diagnostic support lanes. Architecture/comparison/enumeration enrichment
+  still receives broader context rows, and the filter does not inspect
+  `RawRequest`, rendered answer prose, reviewer text, or keyword frequency.
 
 ### E20260514-G36: Scalar Count Questions Should Not Be Forced Into Full Enumeration Tables (`s7b`, PASS with 3 rejects)
 
@@ -2790,7 +2801,7 @@ Eval / tests:
   panic source.
 - Add `logtri_placeholder_no_signal`: placeholder logs must short-circuit.
 
-Batch 4a/4b progress:
+Batch 4a/4b/4e progress:
 
 - Implemented the first source/artifact separation gate without scanning user
   text or model prose. `citations[]` are checked against typed runtime artifact
@@ -2817,16 +2828,29 @@ Batch 4a/4b progress:
 - Anti-seesaw replay: `logtri_node` passed with zero file reads, zero repair
   lines, and no semantic-quality concern, so the drift citation gate did not
   collapse external-only Node frames into current-repo citation obligations.
-- Follow-ups: G59 remains open for prompt-budget scoping of unrelated
-  enrichment rows in diagnostic answers. G60 remains open for deterministic
-  diagnostic facet-anchor compilation so semantic richness metrics consume the
-  same typed lanes as the final answer surface.
+- Fixed G59 by routing diagnostic typed exploration consumption through a
+  shared support-scope selector before extractor transcript rendering and
+  before finalizer enrichment rendering. The selector is compiled from
+  `AnswerSupportPlan` lanes and indexes evidence ids, stable synthetic ids,
+  source file/line anchors, nearby same-file lines, typed anchor/symbol/member
+  surfaces, surface terms, observed-artifact lanes, and flow evidence ids.
+- Anti-seesaw guard: the selector constrains only diagnostic rank profiles with
+  diagnostic support lanes. Non-diagnostic answer families continue receiving
+  broad typed context enrichment, so architecture/comparison/enumeration
+  answers do not lose useful exploratory context.
+- Follow-up: G60 remains open for deterministic diagnostic facet-anchor
+  compilation so semantic richness metrics consume the same typed lanes as the
+  final answer surface.
 
 Verification:
 
 - `go test ./internal/types ./internal/tool ./internal/orchestrator ./internal/agent ./internal/render -run 'CurrentStatus|InactiveTypedDecisionVerdicts|ArtifactObservedFrameCitations|RuntimeObservationRepoContamination|ExternalObservationLabelsAreNotSymbols|ErrorGranularity|AnswerDocumentEvaluator_BuildInitialInstruction_CurrentStatusDecisionLane|RenderRetryStructuredFixList_CurrentStatusVerdict|NormalizeEmitAnswerBlock|EmitAnswerDocumentSchema'`
 - `go test ./...`
 - `make`
+- `go test ./internal/agent -run 'TypedExplorationEnrichment|DiagnosticSupportScope|FlowEnrichment|Extractor_BuildPrompt_DiagnosticSupportScopeFiltersTranscriptDigest'`
+- Red-line diff scan for newly added production logic against
+  `RawRequest`, rendered-answer text, reviewer text, `strings.Contains`, and
+  keyword-style controls: no matches.
 - `bash eval/run.sh eval/cases/logtri_go.case 1`
   - `eval/results/logtri_go-20260515-123859`
   - PASS; final answer renders a single current-status typed verdict
@@ -2834,9 +2858,29 @@ Verification:
   - Metrics: `tool_read_file=6`, `explorer_iters=6`,
     `finalizer_iters=3`, `repair_plan_lines=1`,
     `semantic_quality_concerns=0`.
+- `bash eval/run.sh eval/cases/logtri_go.case 1`
+  - `eval/results/logtri_go-20260515-235200`
+  - PASS after Batch 4e. The extractor transcript digest's
+    `Deterministic evidence` section now contains only support-linked
+    diagnostic rows (`buildAnalysisIR`, `ParseOutput`, `runAnalyzePhase`);
+    the prior `MultiGraph.*` / `New()` dataflow rows remain only in
+    explorer debug telemetry and are not rendered into the Turn B prompt.
+    Finalizer typed enrichment likewise rendered only the support-linked
+    `runAnalyzePhase` context row.
+  - Metrics: `tool_read_file=6`, `explorer_iters=5`,
+    `extractor_iters=2`, `finalizer_iters=3`, `repair_plan_lines=1`,
+    `semantic_quality_concerns=0`.
+  - New follow-up recorded as G63: a separate existing artifact-token coverage
+    repair still scans rendered answer text for triage tokens and must move to
+    typed artifact observation refs.
 - `bash eval/run.sh eval/cases/logtri_node.case 1`
   - `eval/results/logtri_node-20260515-124522`
   - PASS; external-only Node stack remains artifact-only with
+    `tool_read_file=0`, `repair_plan_lines=0`, and
+    `semantic_quality_concerns=0`.
+- `bash eval/run.sh eval/cases/logtri_node.case 1`
+  - `eval/results/logtri_node-20260515-235200`
+  - PASS after Batch 4e; artifact-only path stayed current-repo-free with
     `tool_read_file=0`, `repair_plan_lines=0`, and
     `semantic_quality_concerns=0`.
 

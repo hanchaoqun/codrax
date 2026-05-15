@@ -332,6 +332,143 @@ func TestRenderAnswerDocTypedExplorationEnrichment_ContextDoesNotBecomePrincipal
 	}
 }
 
+func TestSelectAnswerDocTypedEnrichmentFacts_DiagnosticSupportScopeFiltersUnrelatedRows(t *testing.T) {
+	supportScope := supportLaneScopeFromPlan(&types.AnswerSupportPlan{
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLaneCurrentCodePath,
+			Entries: []types.AnswerSupportEntry{{
+				EvidenceID:    "support-build",
+				Source:        "internal/agent/analyzer.go",
+				LineStart:     1271,
+				AnchorKind:    types.AnchorCall,
+				AnchorSymbol:  "buildAnalysisIR",
+				Subject:       "buildAnalysisIR",
+				SurfaceTerms:  []string{"analysis IR builder"},
+				GroundingTier: types.TierLineText,
+			}},
+		}},
+	}, true, extractorValueRankDiagnostic)
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioRootCause,
+			},
+		},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			ID:              "relevant-build",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       1280,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "buildAnalysisIR",
+			Subject:         "buildAnalysisIR",
+			Object:          "request model",
+			Snippet:         "raw := ctx.Mutable.RequestModel()",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "unrelated-multigraph",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/tool/repomap/multigraph/build.go",
+			LineStart:       42,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "New",
+			Subject:         "MultiGraph.New",
+			Object:          "graph construction",
+			Snippet:         "return MultiGraph.New(nodes)",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	got := selectAnswerDocTypedEnrichmentFacts(ctx, evidence, true, supportScope)
+	if len(got) != 1 {
+		t.Fatalf("diagnostic support scope should keep only linked rows, got %d: %+v", len(got), got)
+	}
+	if got[0].item.ID != "relevant-build" {
+		t.Fatalf("diagnostic support scope kept wrong row: %+v", got[0].item)
+	}
+}
+
+func TestSelectAnswerDocTypedEnrichmentFacts_NonDiagnosticScopeKeepsContextRows(t *testing.T) {
+	supportScope := supportLaneScopeFromPlan(&types.AnswerSupportPlan{
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLaneCurrentCodePath,
+			Entries: []types.AnswerSupportEntry{{
+				EvidenceID:   "support-build",
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    1271,
+				AnchorSymbol: "buildAnalysisIR",
+				Subject:      "buildAnalysisIR",
+			}},
+		}},
+	}, true, extractorValueRankComparison)
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+			},
+		},
+	}
+	evidence := []types.EvidenceItem{{
+		ID:              "architecture-context",
+		Kind:            types.EvidenceRelationship,
+		Scope:           types.ScopeLine,
+		Source:          "internal/tool/repomap/multigraph/build.go",
+		LineStart:       42,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "New",
+		Subject:         "MultiGraph.New",
+		Object:          "graph construction",
+		Snippet:         "return MultiGraph.New(nodes)",
+		GroundingStatus: types.GroundingGrounded,
+	}}
+
+	got := selectAnswerDocTypedEnrichmentFacts(ctx, evidence, true, supportScope)
+	if len(got) != 1 || got[0].item.ID != "architecture-context" {
+		t.Fatalf("non-diagnostic prompt enrichment should keep context rows, got %+v", got)
+	}
+}
+
+func TestSelectAnswerDocFlowEnrichmentLines_DiagnosticSupportScopeFiltersUnrelatedFlow(t *testing.T) {
+	supportScope := supportLaneScopeFromPlan(&types.AnswerSupportPlan{
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLaneCurrentCodePath,
+			Entries: []types.AnswerSupportEntry{{
+				EvidenceID:   "support-build",
+				Source:       "internal/agent/analyzer.go",
+				LineStart:    1271,
+				AnchorSymbol: "buildAnalysisIR",
+				Subject:      "buildAnalysisIR",
+			}},
+		}},
+	}, true, extractorValueRankDiagnostic)
+	findings := []types.FlowFindingDigest{
+		{
+			ID:          "flow-relevant",
+			Path:        []string{"parseAnalyzerPayload", "buildAnalysisIR"},
+			EvidenceIDs: []string{"support-build"},
+		},
+		{
+			ID:   "flow-unrelated",
+			Path: []string{"MultiGraph.New", "Builder"},
+		},
+	}
+
+	got := selectAnswerDocFlowEnrichmentLines(findings, 10, supportScope)
+	if len(got) != 1 {
+		t.Fatalf("diagnostic support scope should keep only linked flow rows, got %d: %+v", len(got), got)
+	}
+	if !strings.Contains(got[0], "flow-relevant") {
+		t.Fatalf("diagnostic support scope kept wrong flow row: %+v", got)
+	}
+}
+
 func TestRenderAnswerDocTypedExplorationEnrichment_CoversQuestionFamilies(t *testing.T) {
 	cases := []struct {
 		name string

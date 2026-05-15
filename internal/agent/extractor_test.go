@@ -698,6 +698,82 @@ func TestExtractor_BuildPrompt_DeterministicEvidencePrefersTypedSurface(t *testi
 	}
 }
 
+func TestExtractor_BuildPrompt_DiagnosticSupportScopeFiltersTranscriptDigest(t *testing.T) {
+	relevantCall := types.EvidenceItem{
+		ID:              "path-call",
+		Kind:            types.EvidenceRelationship,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1021,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "buildAnalysisIR",
+		Subject:         "ParseOutput",
+		Object:          "buildAnalysisIR",
+		Snippet:         "ir, err := buildAnalysisIR(ctx)",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	relevantDef := types.EvidenceItem{
+		ID:              "build-def",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/analyzer.go",
+		LineStart:       1271,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "buildAnalysisIR",
+		Subject:         "buildAnalysisIR",
+		Snippet:         "func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	unrelated := types.EvidenceItem{
+		ID:              "unrelated-multigraph",
+		Kind:            types.EvidenceDataflowPath,
+		Scope:           types.ScopeLine,
+		Source:          "internal/tool/repomap/multigraph/build.go",
+		LineStart:       42,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "New",
+		Subject:         "MultiGraph.New",
+		Object:          "MultiGraph.Topology",
+		Snippet:         "return MultiGraph.New(nodes)",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	mu := types.NewMutableState("where did this panic come from?")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles:          []string{"internal/agent/analyzer.go"},
+		EvidenceItems:      []types.EvidenceItem{relevantCall, unrelated, relevantDef},
+		FlowFindings:       []types.FlowFindingDigest{{ID: "flow-relevant", Path: []string{"ParseOutput", "buildAnalysisIR"}, EvidenceIDs: []string{"path-call"}}, {ID: "flow-unrelated", Path: []string{"MultiGraph.New", "Topology"}}},
+		AcceptedResultKind: "resolved",
+	})
+	ctx := &types.AgentContext{
+		Mutable:       mu,
+		EvidenceItems: []types.EvidenceItem{relevantCall, unrelated, relevantDef},
+		FlowFindings:  []types.FlowFindingDigest{{ID: "flow-relevant", Path: []string{"ParseOutput", "buildAnalysisIR"}, EvidenceIDs: []string{"path-call"}}, {ID: "flow-unrelated", Path: []string{"MultiGraph.New", "Topology"}}},
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{
+				Type: "runtime error: invalid memory address or nil pointer dereference",
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 250, Func: "github.com/hanchaoqun/codrax/internal/agent.buildAnalysisIR"},
+					{File: "internal/agent/analyzer.go", Line: 320, Func: "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput"},
+				},
+			}},
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentRootCause,
+				Scenario: types.ScenarioRootCause,
+			},
+		},
+	}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "ParseOutput") || !contains(prompt, "buildAnalysisIR") {
+		t.Fatalf("diagnostic transcript digest should keep support-linked evidence:\n%s", prompt)
+	}
+	if contains(prompt, "MultiGraph") {
+		t.Fatalf("diagnostic transcript digest should filter unrelated typed evidence and flow rows:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_RendersValueBearingEvidenceLens(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
