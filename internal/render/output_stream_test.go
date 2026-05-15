@@ -287,6 +287,12 @@ func TestFormatAnswerDocumentToolResultSummaryRejectedZh(t *testing.T) {
 			t.Fatalf("answer document reject summary missing %q; got:\n%s", want, got)
 		}
 	}
+	if !strings.Contains(got, "\n    1. blocks[].items[].label:") {
+		t.Fatalf("reject summary should preserve numbered action indentation, got:\n%s", got)
+	}
+	if !strings.Contains(got, "\n    2. citations[]:") {
+		t.Fatalf("reject summary should preserve later action indentation, got:\n%s", got)
+	}
 }
 
 func TestFormatAnswerDocumentToolResultSummaryRejectedZhWrapsWithoutDroppingAction(t *testing.T) {
@@ -300,6 +306,12 @@ func TestFormatAnswerDocumentToolResultSummaryRejectedZhWrapsWithoutDroppingActi
 	}
 	if strings.Contains(got, "…") {
 		t.Fatalf("reject summary should wrap, not truncate: %q", got)
+	}
+	if !strings.Contains(got, "\n    1. blocks[].items[].citation_ref:") {
+		t.Fatalf("wrapped reject summary should preserve first-line indentation, got:\n%s", got)
+	}
+	if !strings.Contains(got, "\n       candidate_citations=") {
+		t.Fatalf("wrapped reject summary should use hanging indentation, got:\n%s", got)
 	}
 }
 

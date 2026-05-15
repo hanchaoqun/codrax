@@ -274,7 +274,7 @@ func aggregateMemberSetIsSourcePathCoverageOnly(fact AnswerAggregateFact, rm Req
 }
 
 func answerAggregateMemberSetAllSourcePathSurfaces(fact AnswerAggregateFact) bool {
-	if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+	if !answerAggregateFactCarriesCompleteMemberSet(fact) || len(fact.Members) == 0 {
 		return false
 	}
 	for _, member := range fact.Members {

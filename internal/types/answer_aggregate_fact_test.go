@@ -93,12 +93,21 @@ func TestNormalizeAnswerAggregateFacts_AcceptsMemberSet(t *testing.T) {
 }
 
 func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesPathCoverageForArchitecture(t *testing.T) {
-	facts := []AnswerAggregateFact{{
-		Kind:    AnswerAggregateMemberSet,
-		Label:   "files inspected",
-		Value:   "2",
-		Members: []string{"internal/agent/explorer.go", "internal/agent/agent.go"},
-	}}
+	facts := []AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "files inspected",
+			Value:   "2",
+			Members: []string{"internal/agent/explorer.go", "internal/agent/agent.go"},
+		},
+		{
+			Kind:    AnswerAggregateTotalCount,
+			Label:   "core files",
+			Value:   "2",
+			Unit:    "files",
+			Members: []string{"internal/agent/explorer.go", "internal/agent/agent.go"},
+		},
+	}
 	arch := RequestModel{
 		Intent:      IntentExplain,
 		Scenario:    ScenarioArchitectureExplain,
@@ -117,7 +126,7 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesPathCoverageForArc
 		},
 		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all files"},
 	}
-	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &enum); len(got) != 1 {
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &enum); len(got) != 2 {
 		t.Fatalf("enumeration path set should remain principal, got %+v", got)
 	}
 }

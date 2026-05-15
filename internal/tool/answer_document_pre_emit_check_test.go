@@ -504,6 +504,43 @@ func TestPreCheckAggregateMemberSetCoverage_PathSetsAreCoverageForArchitecture(t
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_TotalCountPathMembersAreCoverageForArchitecture(t *testing.T) {
+	mu := types.NewMutableState("architecture count coverage aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateTotalCount,
+		Label:   "core files",
+		Value:   "3",
+		Unit:    "files",
+		Members: []string{"internal/agent/explorer.go", "internal/agent/sub_explorer.go", "internal/agent/agent.go"},
+	}})
+	mu.SetInvestigationComplete("structured count coverage accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:      types.IntentExplain,
+				Scenario:    types.ScenarioArchitectureExplain,
+				Complexity:  types.ComplexityComplex,
+				Predicates:  types.SemanticPredicates{IsCrossComponent: true},
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "explorer 的工作流由基础 ReAct 循环、探索评估器和子代理运行时协同完成。",
+	}}}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("path-only total_count support members must not force visible principal rows for architecture answers, got %+v", got)
+	}
+	doc.Blocks[0].Text = "explorer 的工作流可以概括为 4 个协作层次。"
+	if got := preCheckAggregateCardinalityConsistency(doc, ctx); len(got) != 0 {
+		t.Fatalf("path-only total_count support members must not bind unrelated explanation counts, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateCardinalityConsistency_RejectsScopedCountMismatch(t *testing.T) {
 	members := []string{
 		"AnalyzerAgent", "ExplorerAgent", "ExtractorAgent", "FinalizerAgent",

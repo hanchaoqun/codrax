@@ -109,12 +109,14 @@ func wrapWithHangingIndent(s, hangingIndent string, maxCols int) string {
 	if maxCols <= 0 {
 		return s
 	}
-	words := strings.Fields(s)
+	leadingLen := len(s) - len(strings.TrimLeft(s, " \t"))
+	leadingIndent := s[:leadingLen]
+	words := strings.Fields(strings.TrimSpace(s))
 	if len(words) == 0 {
 		return s
 	}
 	lines := make([]string, 0, 2)
-	current := words[0]
+	current := leadingIndent + words[0]
 	for _, word := range words[1:] {
 		candidate := current + " " + word
 		if runewidth.StringWidth(stripAnsiEscapes(candidate)) <= maxCols {
