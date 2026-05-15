@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/memory"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -147,6 +148,134 @@ func TestBorderedLineFragments_PreservesWideMermaidSourceRows(t *testing.T) {
 	}
 	if got[0] != line {
 		t.Fatalf("wide mermaid source row must not be clipped or rewritten; got %q", got[0])
+	}
+}
+
+func TestBorderedLineFragments_PreservesForcedVisualRows(t *testing.T) {
+	line := "    " + strings.Repeat("long raw diagram label without arrows ", 4)
+	got := borderedLineFragmentsPreserve(line, 40, true)
+	if len(got) != 1 {
+		t.Fatalf("forced visual row must remain one physical row; got %d: %q", len(got), got)
+	}
+	if got[0] != line {
+		t.Fatalf("forced visual row must not be clipped or rewritten; got %q", got[0])
+	}
+}
+
+func TestBorderedResponseLines_PreservesRawFencedVisualBlock(t *testing.T) {
+	long := "    " + strings.Repeat("raw diagram node label with no syntactic arrows ", 3)
+	resp := strings.Join([]string{
+		"before",
+		"```text",
+		"─── flowchart ───",
+		long,
+		"```",
+		"after",
+	}, "\n")
+	lines := borderedResponseLines(resp)
+	var found bool
+	for _, line := range lines {
+		if line.text != long {
+			continue
+		}
+		found = true
+		if !line.visual {
+			t.Fatalf("line inside fenced visual block must be marked visual: %+v", line)
+		}
+		got := borderedLineFragmentsPreserve(line.text, 40, line.visual)
+		if len(got) != 1 || got[0] != long {
+			t.Fatalf("fenced visual row must stay byte-identical; got %q", got)
+		}
+	}
+	if !found {
+		t.Fatalf("expected long fenced line in response lines: %+v", lines)
+	}
+}
+
+func TestBorderedResponseLines_PreservesRenderedMermaidRows(t *testing.T) {
+	md := render.RenderMermaidBlocks(strings.Join([]string{
+		"```mermaid",
+		"flowchart LR",
+		"    A[very long source collector component] --> B[very long validated answer document renderer]",
+		"```",
+	}, "\n"))
+	renderer := render.New(&bytes.Buffer{}, true)
+	rendered := renderer.RenderMarkdown(md)
+	lines := borderedResponseLines(rendered)
+
+	seenHeader := false
+	seenRenderedRow := false
+	for _, line := range lines {
+		plain := strings.TrimSpace(stripANSIOnly(line.text))
+		if isRenderedCodeBlockHeaderLine(plain) {
+			seenHeader = true
+			if !line.visual {
+				t.Fatalf("rendered diagram header must be visual: %+v", line)
+			}
+			continue
+		}
+		if !seenHeader || !strings.ContainsAny(plain, "│┌┐└┘─") {
+			continue
+		}
+		seenRenderedRow = true
+		if !line.visual {
+			t.Fatalf("rendered diagram row must be visual: %+v", line)
+		}
+		fragments := borderedLineFragmentsPreserve(line.text, 30, line.visual)
+		if len(fragments) != 1 || fragments[0] != line.text {
+			t.Fatalf("rendered diagram row must not wrap or rewrite; got %q", fragments)
+		}
+	}
+	if !seenHeader || !seenRenderedRow {
+		t.Fatalf("expected rendered mermaid header and rows; markdown=%q rendered=%q lines=%+v", md, rendered, lines)
+	}
+}
+
+func TestBorderedResponseLines_PreservesMarkdownTableWithoutEdgePipes(t *testing.T) {
+	long := "agent | " + strings.Repeat("explorer collects source evidence ", 3)
+	resp := strings.Join([]string{
+		"name | role",
+		"--- | ---",
+		long,
+	}, "\n")
+	lines := borderedResponseLines(resp)
+	var found bool
+	for _, line := range lines {
+		if line.text != long {
+			continue
+		}
+		found = true
+		if !line.visual {
+			t.Fatalf("markdown table row must be marked visual: %+v", line)
+		}
+		got := borderedLineFragmentsPreserve(line.text, 40, line.visual)
+		if len(got) != 1 || got[0] != long {
+			t.Fatalf("markdown table row must stay byte-identical; got %q", got)
+		}
+	}
+	if !found {
+		t.Fatalf("expected table row in response lines: %+v", lines)
+	}
+}
+
+func TestBorderedContentLine_DisablesAutoWrapForWideVisualRows(t *testing.T) {
+	line := "│ " + strings.Repeat("wide visual cell ", 5) + "│"
+	got := borderedContentLine("│", line, true)
+	if !strings.HasPrefix(got, "\x1b[?7l") || !strings.Contains(got, "\x1b[?7h\r\n") {
+		t.Fatalf("wide visual terminal row must bracket content with DECAWM off/on: %q", got)
+	}
+	if !strings.Contains(got, line) {
+		t.Fatalf("wide visual terminal row must keep content verbatim: %q", got)
+	}
+}
+
+func TestWriteBorderedContentLine_DoesNotEmitTerminalControlsToBuffers(t *testing.T) {
+	var out strings.Builder
+	r := &REPL{out: &out}
+	line := "│ " + strings.Repeat("wide visual cell ", 5) + "│"
+	r.writeBorderedContentLine("│", line, true, 20)
+	if strings.Contains(out.String(), "\x1b[?7l") {
+		t.Fatalf("non-terminal test writer must not receive terminal auto-wrap controls: %q", out.String())
 	}
 }
 

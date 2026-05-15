@@ -351,13 +351,13 @@ type Config struct {
 
 // REPL drives the interactive prompt.
 type REPL struct {
-	runner            Runner
-	store             *memory.Store
-	render            ResultRenderer
-	renderer          *render.Renderer
-	repoRoot          string
-	runtimeAnchor     string
-	worktreeKeepTTL   time.Duration
+	runner               Runner
+	store                *memory.Store
+	render               ResultRenderer
+	renderer             *render.Renderer
+	repoRoot             string
+	runtimeAnchor        string
+	worktreeKeepTTL      time.Duration
 	worktreeKeepMaxCount int
 
 	// Multi-repo state. topology is a pointer because /repos refresh
@@ -368,8 +368,8 @@ type REPL struct {
 	// reads it through ActiveSubRepoFocus(). multiRepoMaxActiveOverride
 	// is 0 when no /repos cap <N> has been issued (use Config value),
 	// else the session-local override.
-	topology                  *topology.RepoTopology
-	multiRepoEnabled          bool
+	topology         *topology.RepoTopology
+	multiRepoEnabled bool
 
 	// multigraphForListing is the cmd/root-supplied handle the REPL
 	// uses to read the LRU-resident slug set when rendering /repos.
@@ -379,14 +379,14 @@ type REPL struct {
 	// multiRepoLRUSnapshot probes for the ActiveSlugSnapshot method;
 	// nil here disables the auto-active marker (the listing falls
 	// back to a 2-state pinned/inactive view).
-	multigraphForListing any
-	multiRepoMaxActive        int // canonical value (Config.MultiRepoMaxActive)
-	multiRepoFocus            map[string]bool
+	multigraphForListing       any
+	multiRepoMaxActive         int // canonical value (Config.MultiRepoMaxActive)
+	multiRepoFocus             map[string]bool
 	multiRepoMaxActiveOverride int
-	multiRepoMu               sync.Mutex // guards focus + override + topology pointer
-	onMultiRepoFocusChange    func(slugs []string)
-	onMultiRepoCapChange      func(n int)
-	onMultiRepoRefresh        func(newTopology *topology.RepoTopology)
+	multiRepoMu                sync.Mutex // guards focus + override + topology pointer
+	onMultiRepoFocusChange     func(slugs []string)
+	onMultiRepoCapChange       func(n int)
+	onMultiRepoRefresh         func(newTopology *topology.RepoTopology)
 
 	// approveSuccessCount is the per-session tally of clean
 	// /approve completions (apply + verify both green). Used
@@ -394,17 +394,17 @@ type REPL struct {
 	// hint every Nth success when preserved worktrees might
 	// be accumulating on disk. Reset each REPL boot.
 	approveSuccessCount int
-	branch            string
-	in                io.Reader
-	out               io.Writer
-	prompt            string
-	promptCont        string
-	bannerText        string
-	scanner           *bufio.Scanner // lazy-init for line-oriented mode
-	pasteFoldMinChars int            // per-session paste-fold threshold (runes)
-	version           string
-	buildTime         string
-	language          string
+	branch              string
+	in                  io.Reader
+	out                 io.Writer
+	prompt              string
+	promptCont          string
+	bannerText          string
+	scanner             *bufio.Scanner // lazy-init for line-oriented mode
+	pasteFoldMinChars   int            // per-session paste-fold threshold (runes)
+	version             string
+	buildTime           string
+	language            string
 
 	// attachedLog holds the runtime log excerpt the user attached.
 	// Lifetime depends on how it got here:
@@ -575,9 +575,9 @@ type REPL struct {
 	// the Run; in-flight + second signal within doubleSigCancelWindow
 	// → re-raise so worktree cleanup + os.Exit can run; idle → ignore
 	// (bubbletea / readline owns the input line's Ctrl+C semantics).
-	runInFlight     atomic.Bool
-	cancelSigOnce   sync.Once // installs the signal handler exactly once per REPL lifetime
-	lastCancelSig   atomic.Int64 // unix nano of the previous Ctrl+C while in-flight; backs the double-tap escalation
+	runInFlight   atomic.Bool
+	cancelSigOnce sync.Once    // installs the signal handler exactly once per REPL lifetime
+	lastCancelSig atomic.Int64 // unix nano of the previous Ctrl+C while in-flight; backs the double-tap escalation
 
 	// turnCancelMu + turnCancel form the per-turn HTTP-level
 	// cancellation surface for non-pipeline paths (chitchat
@@ -601,42 +601,42 @@ const doubleSigCancelWindow = 2 * time.Second
 // New constructs a REPL from a Config.
 func New(cfg Config) *REPL {
 	r := &REPL{
-		runner:             cfg.Runner,
-		store:              cfg.Store,
-		render:             cfg.Render,
-		renderer:           cfg.Renderer,
-		repoRoot:             cfg.RepoRoot,
-		runtimeAnchor:        cfg.RuntimeAnchor,
-		worktreeKeepTTL:      cfg.WorktreeKeepTTL,
-		worktreeKeepMaxCount: cfg.WorktreeKeepMaxCount,
-		topology:                 cfg.Topology,
-		multiRepoEnabled:         cfg.MultiRepoEnabled,
-		multiRepoMaxActive:       cfg.MultiRepoMaxActive,
-		multigraphForListing:     cfg.Multigraph,
-		multiRepoFocus:           focusMapFromSlugs(cfg.InitialFocusSlugs),
-		onMultiRepoFocusChange:   cfg.OnMultiRepoFocusChange,
-		onMultiRepoCapChange:     cfg.OnMultiRepoCapChange,
-		onMultiRepoRefresh:       cfg.OnMultiRepoRefresh,
-		branch:             cfg.Branch,
-		in:                 cfg.In,
-		out:                cfg.Out,
-		prompt:             cfg.Prompt,
-		promptCont:         cfg.PromptCont,
-		bannerText:         cfg.Banner,
-		pasteFoldMinChars:  cfg.PasteFoldMinChars,
-		version:            cfg.Version,
-		buildTime:          cfg.BuildTime,
-		language:           cfg.Language,
-		chitchatResponder:  cfg.ChitchatResponder,
-		memory:             cfg.Memory,
-		envSettings:        types.ResolvedEnvRecommendSettings(cfg.EnvSettings),
-		colorMode:          cfg.ColorMode,
-		chitchatClassifier: cfg.ChitchatClassifier,
+		runner:                 cfg.Runner,
+		store:                  cfg.Store,
+		render:                 cfg.Render,
+		renderer:               cfg.Renderer,
+		repoRoot:               cfg.RepoRoot,
+		runtimeAnchor:          cfg.RuntimeAnchor,
+		worktreeKeepTTL:        cfg.WorktreeKeepTTL,
+		worktreeKeepMaxCount:   cfg.WorktreeKeepMaxCount,
+		topology:               cfg.Topology,
+		multiRepoEnabled:       cfg.MultiRepoEnabled,
+		multiRepoMaxActive:     cfg.MultiRepoMaxActive,
+		multigraphForListing:   cfg.Multigraph,
+		multiRepoFocus:         focusMapFromSlugs(cfg.InitialFocusSlugs),
+		onMultiRepoFocusChange: cfg.OnMultiRepoFocusChange,
+		onMultiRepoCapChange:   cfg.OnMultiRepoCapChange,
+		onMultiRepoRefresh:     cfg.OnMultiRepoRefresh,
+		branch:                 cfg.Branch,
+		in:                     cfg.In,
+		out:                    cfg.Out,
+		prompt:                 cfg.Prompt,
+		promptCont:             cfg.PromptCont,
+		bannerText:             cfg.Banner,
+		pasteFoldMinChars:      cfg.PasteFoldMinChars,
+		version:                cfg.Version,
+		buildTime:              cfg.BuildTime,
+		language:               cfg.Language,
+		chitchatResponder:      cfg.ChitchatResponder,
+		memory:                 cfg.Memory,
+		envSettings:            types.ResolvedEnvRecommendSettings(cfg.EnvSettings),
+		colorMode:              cfg.ColorMode,
+		chitchatClassifier:     cfg.ChitchatClassifier,
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
-		sessionID:           fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid()),
-		currentMode:         types.ModeRead, // B0 sticky mode; /mode rewrites
+		sessionID:             fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid()),
+		currentMode:           types.ModeRead, // B0 sticky mode; /mode rewrites
 		planStore:             cfg.PlanStore,
 		planGroupStore:        cfg.PlanGroupStore,
 		failureTaxonomy:       cfg.FailureTaxonomy,
@@ -694,6 +694,7 @@ func (r *REPL) interactive() bool { return r.in == nil }
 //     (less visual noise, same intent legibility)
 //   - leave the message body in the terminal's default text style
 //     so the user's chrome / theme stays in control
+//
 // All four printers carry a coloured glyph (so the user can scan
 // for the meaning at a glance) and a FgDarkGray message body —
 // the body is informational chrome, not the answer, and should
@@ -1083,11 +1084,13 @@ func (r *REPL) currentFocusSlice() []string {
 // Behaviour by state:
 //
 //   - First signal anywhere within doubleSigCancelWindow:
-//     - runInFlight: call runner.Cancel("Ctrl+C") + cancelTurn() so
-//       the pipeline / chitchat unwinds at the next checkpoint;
-//       operator sees "✗ canceled" rendering when Run returns.
-//     - idle prompt: print "再按一次 Ctrl+C 退出 codrax" warning;
-//       operator can press once more to confirm OR keep using REPL.
+//
+//   - runInFlight: call runner.Cancel("Ctrl+C") + cancelTurn() so
+//     the pipeline / chitchat unwinds at the next checkpoint;
+//     operator sees "✗ canceled" rendering when Run returns.
+//
+//   - idle prompt: print "再按一次 Ctrl+C 退出 codrax" warning;
+//     operator can press once more to confirm OR keep using REPL.
 //
 //   - Second signal within the window: escalate to clean exit
 //     regardless of state. Drive worktree cleanup ourselves since
@@ -2009,27 +2012,12 @@ func (r *REPL) renderRichResponse(text string) string {
 
 // renderBordered prints model output with a continuous left border.
 // Shared by the pipeline dispatch path and the /chat chitchat path so
-// both answer surfaces get identical visual treatment. Trailing ANSI
-// escapes and whitespace are stripped so the bar aligns cleanly.
+// both answer surfaces get identical visual treatment. Prose trailing
+// ANSI escapes and whitespace are stripped so the bar aligns cleanly;
+// visual blocks keep their physical rows byte-for-byte because
+// trimming/wrapping diagrams and tables corrupts the user's content.
 func (r *REPL) renderBordered(response string) {
-	raw := strings.Split(response, "\n")
-	var lines []string
-	prevBlank := false
-	for _, ln := range raw {
-		clean := stripTrailing(ln)
-		blank := stripANSI(clean) == ""
-		if blank && prevBlank {
-			continue
-		}
-		prevBlank = blank
-		lines = append(lines, clean)
-	}
-	for len(lines) > 0 && stripANSI(lines[0]) == "" {
-		lines = lines[1:]
-	}
-	for len(lines) > 0 && stripANSI(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
+	lines := borderedResponseLines(response)
 	bar := pterm.FgWhite.Sprint("│")
 	// Wrap each line to fit the terminal, accounting for the
 	// "  │ " prefix (4 display cols + 2 margin).
@@ -2039,12 +2027,35 @@ func (r *REPL) renderBordered(response string) {
 	}
 	fmt.Fprintf(r.out, "  %s\n", bar)
 	for _, ln := range lines {
-		wrapped := borderedLineFragments(ln, maxContent)
+		wrapped := borderedLineFragmentsPreserve(ln.text, maxContent, ln.visual)
 		for _, wl := range wrapped {
-			fmt.Fprintf(r.out, "  %s %s\n", bar, wl)
+			r.writeBorderedContentLine(bar, wl, ln.visual || shouldPreserveVisualLine(wl), maxContent)
 		}
 	}
 	fmt.Fprintf(r.out, "  %s\n\n", bar)
+}
+
+func (r *REPL) writeBorderedContentLine(bar, line string, visual bool, maxContent int) {
+	fmt.Fprint(r.out, borderedContentLine(bar, line, visual && displayWidth(line) > maxContent && terminalAutoWrapControlSupported(r.out)))
+}
+
+func borderedContentLine(bar, line string, disableAutoWrap bool) string {
+	if disableAutoWrap {
+		// Visual rows are atomic. Letting the terminal auto-wrap a
+		// diagram/table row corrupts its columns and edge routing, so
+		// temporarily disable DECAWM for this one physical write. The
+		// row content is still emitted verbatim; no clipping or width
+		// rewriting happens in Codrax.
+		return fmt.Sprintf("\x1b[?7l  %s %s\x1b[?7h\r\n", bar, line)
+	}
+	return fmt.Sprintf("  %s %s\n", bar, line)
+}
+
+func terminalAutoWrapControlSupported(w io.Writer) bool {
+	if f, ok := w.(*os.File); ok && f != nil {
+		return term.IsTerminal(int(f.Fd()))
+	}
+	return term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 // recordTurn persists the user-visible form of a request plus the
@@ -2840,7 +2851,6 @@ func (r *REPL) recoverPendingPlanFromStore() (PlanInfo, bool) {
 	return PlanInfo{}, false
 }
 
-
 // countOtherPendingPlans enumerates PlanStore for re-approvable
 // plans (Status=pending_approval OR verify_failed) and returns
 // how many exist BESIDES `excludeID`. Used by /approve to surface
@@ -2902,12 +2912,15 @@ func (r *REPL) collectPlanHistory() []string {
 	// reader sees the natural lifecycle order. Singleton plans
 	// (PhaseGroupID == "") render as flat rows alongside groups
 	// in the order their newest member appeared.
-	type childInfo struct{ info PlanInfo; row string }
+	type childInfo struct {
+		info PlanInfo
+		row  string
+	}
 	type bucket struct {
-		groupID  string             // empty for singletons
-		children []childInfo        // group members sorted by PhaseIndex ascending
-		single   *childInfo         // populated when groupID == ""; children empty
-		firstSeenIdx int            // index in original infos for stable ordering
+		groupID      string      // empty for singletons
+		children     []childInfo // group members sorted by PhaseIndex ascending
+		single       *childInfo  // populated when groupID == ""; children empty
+		firstSeenIdx int         // index in original infos for stable ordering
 	}
 	bucketByGroup := map[string]*bucket{}
 	var ordered []*bucket
@@ -3773,11 +3786,11 @@ func (r *REPL) handleMergeCmd(line string) {
 	//      commit lives in main_repo/.git/objects, kept reachable
 	//      by this ref. /merge falls back to it via MergeFromRef.
 	var (
-		wt           string
-		planID       string
-		planStatus   string
-		recoverySHA  string // populated when surface 1 misses but surface 2 hits
-		recoveryRef  string
+		wt          string
+		planID      string
+		planStatus  string
+		recoverySHA string // populated when surface 1 misses but surface 2 hits
+		recoveryRef string
 	)
 	for _, inf := range infos {
 		// unverified plans (apply succeeded; runner discovered no
@@ -4445,6 +4458,133 @@ func stripANSIOnly(s string) string {
 	return reANSI.ReplaceAllString(s, "")
 }
 
+type borderedResponseLine struct {
+	text   string
+	visual bool
+}
+
+func borderedResponseLines(response string) []borderedResponseLine {
+	raw := strings.Split(response, "\n")
+	tableLines := markdownTableLineMask(raw)
+	lines := make([]borderedResponseLine, 0, len(raw))
+	inFence := false
+	inRenderedVisualBlock := false
+	prevBlank := false
+	for i, ln := range raw {
+		plain := strings.TrimSpace(stripANSIOnly(ln))
+		fenceLine := isMarkdownFenceLine(plain)
+		lineLooksVisual := shouldPreserveVisualLine(ln)
+		if inRenderedVisualBlock && !fenceLine && !lineLooksVisual && stripANSI(ln) != "" && !isRenderedCodeBlockContinuation(ln) {
+			inRenderedVisualBlock = false
+		}
+		visual := inFence || inRenderedVisualBlock || tableLines[i] || lineLooksVisual
+		if fenceLine {
+			visual = true
+		}
+
+		clean := stripTrailing(ln)
+		if visual {
+			clean = strings.TrimRight(ln, "\r")
+		}
+		blank := stripANSI(clean) == ""
+		if blank && prevBlank && !visual {
+			if !inFence && !inRenderedVisualBlock {
+				continue
+			}
+		}
+		prevBlank = blank && !visual
+		lines = append(lines, borderedResponseLine{text: clean, visual: visual})
+
+		if fenceLine {
+			inFence = !inFence
+			inRenderedVisualBlock = false
+			continue
+		}
+		if inFence {
+			continue
+		}
+		if isRenderedCodeBlockHeaderLine(plain) || lineLooksVisual {
+			inRenderedVisualBlock = true
+			continue
+		}
+	}
+	for len(lines) > 0 && stripANSI(lines[0].text) == "" && !lines[0].visual {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && stripANSI(lines[len(lines)-1].text) == "" && !lines[len(lines)-1].visual {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+func markdownTableLineMask(raw []string) []bool {
+	mask := make([]bool, len(raw))
+	for i := 0; i+1 < len(raw); i++ {
+		if !looksLikeMarkdownTableDataLine(raw[i]) || !looksLikeMarkdownTableSeparatorLine(raw[i+1]) {
+			continue
+		}
+		mask[i] = true
+		mask[i+1] = true
+		for j := i + 2; j < len(raw); j++ {
+			if !looksLikeMarkdownTableDataLine(raw[j]) {
+				break
+			}
+			mask[j] = true
+		}
+	}
+	return mask
+}
+
+func looksLikeMarkdownTableDataLine(s string) bool {
+	plain := strings.TrimSpace(stripANSIOnly(s))
+	if plain == "" || strings.Count(plain, "|") < 1 {
+		return false
+	}
+	return !looksLikeMarkdownTableSeparatorLine(plain)
+}
+
+func looksLikeMarkdownTableSeparatorLine(s string) bool {
+	plain := strings.TrimSpace(stripANSIOnly(s))
+	if plain == "" || !strings.Contains(plain, "|") {
+		return false
+	}
+	plain = strings.Trim(plain, "| ")
+	if plain == "" {
+		return false
+	}
+	hasDash := false
+	for _, r := range plain {
+		switch r {
+		case '-', ':', '|', ' ':
+			if r == '-' {
+				hasDash = true
+			}
+		default:
+			return false
+		}
+	}
+	return hasDash
+}
+
+func isMarkdownFenceLine(plain string) bool {
+	return strings.HasPrefix(plain, "```") || strings.HasPrefix(plain, "~~~")
+}
+
+func isRenderedCodeBlockHeaderLine(plain string) bool {
+	if plain == "" {
+		return false
+	}
+	return strings.HasPrefix(plain, "─── ") && strings.HasSuffix(plain, " ───")
+}
+
+func isRenderedCodeBlockContinuation(s string) bool {
+	if stripANSI(s) == "" {
+		return true
+	}
+	plain := stripANSIOnly(s)
+	return strings.HasPrefix(plain, "    ") || strings.HasPrefix(plain, "\t")
+}
+
 // borderedLineFragments returns the visual rows that renderBordered
 // should print for one logical response line. Prose may wrap; tabular
 // / diagram-like rows are treated as atomic because terminal wrapping
@@ -4453,10 +4593,14 @@ func stripANSIOnly(s string) string {
 // the renderer must not rewrite or truncate it just to fit the current
 // terminal width.
 func borderedLineFragments(s string, maxCols int) []string {
+	return borderedLineFragmentsPreserve(s, maxCols, false)
+}
+
+func borderedLineFragmentsPreserve(s string, maxCols int, preserve bool) []string {
 	if displayWidth(s) <= maxCols {
 		return []string{s}
 	}
-	if shouldPreserveVisualLine(s) {
+	if preserve || shouldPreserveVisualLine(s) {
 		return []string{s}
 	}
 	return wrapByWidth(s, maxCols)
