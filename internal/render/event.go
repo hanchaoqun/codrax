@@ -51,13 +51,14 @@ const (
 	EventAgentReasoning
 
 	// Durable marker for an assistant response that contains tool
-	// calls but no text content. Some local / small models routinely
-	// return pure function-call messages; the tool start/end events
-	// update the live dock, but fast tools can complete between
-	// animation frames and leave no scrollback trace. This event is
-	// emitted once per tool-call batch before execution so operators
-	// can see that the model did respond and which tools are being
-	// used, without pretending the model wrote prose.
+	// calls. Some local / small models write a short prose preface
+	// before the call, while others return a pure function-call
+	// message. The tool start/end events update the live dock, but
+	// fast tools can complete between animation frames and leave no
+	// scrollback trace. This event is emitted once per tool-call batch
+	// before execution so operators can see that the model did respond
+	// and which tools are being used, without relying on the prose
+	// channel to describe side effects.
 	EventAgentToolCallBatch
 
 	// Stage transition

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -726,6 +727,92 @@ func TestSalvagePartialDispatch_RecoversPanic(t *testing.T) {
 type errFake string
 
 func (e errFake) Error() string { return string(e) }
+
+type mixedContentToolLLM struct{}
+
+func (mixedContentToolLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	return llm.Response{
+		Content: "Let me record the evidence now.",
+		ToolCalls: []llm.ToolCall{{
+			ID:     "call-trace",
+			Name:   "trace_tool",
+			Params: json.RawMessage(`{"path":"internal/example.go"}`),
+		}},
+	}, nil
+}
+
+func (mixedContentToolLLM) ModelID() string               { return "mixed-content-tool" }
+func (mixedContentToolLLM) MaxContextTokens() int         { return 128000 }
+func (mixedContentToolLLM) MaxOutputTokens() int          { return 4096 }
+func (mixedContentToolLLM) RequestTimeout() time.Duration { return 0 }
+func (mixedContentToolLLM) RetryMaxAttempts() int         { return 0 }
+
+type traceTool struct {
+	tool.ReadOnly
+	tool.NonEvidenceTool
+}
+
+func (traceTool) Name() string        { return "trace_tool" }
+func (traceTool) Description() string { return "records that it was called" }
+func (traceTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`)
+}
+func (traceTool) Execute(_ *types.BusContext, _ json.RawMessage) (types.ToolResult, error) {
+	return types.ToolResult{
+		ToolName:  "trace_tool",
+		Summary:   "trace tool executed",
+		Success:   true,
+		Timestamp: time.Now(),
+	}, nil
+}
+
+func TestBaseAgent_EmitsToolBatchBeforeExecutingMixedContentToolResponse(t *testing.T) {
+	registry := tool.NewRegistry()
+	registry.Register(traceTool{})
+
+	var events []render.Event
+	b := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		LLM:           mixedContentToolLLM{},
+		Tools:         registry,
+		MaxIterations: 1,
+		Emit: func(ev render.Event) {
+			events = append(events, ev)
+		},
+	}, &stubEvaluator{})
+
+	out, err := b.Execute(&types.AgentContext{
+		Stage:   types.StageExplore,
+		Mutable: types.NewMutableState(""),
+	}, &skill.Config{ToolSuggestions: []string{"trace_tool"}})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if out == nil || len(out.ToolResults) != 1 || out.ToolResults[0].ToolName != "trace_tool" {
+		t.Fatalf("tool did not execute cleanly, output=%+v", out)
+	}
+
+	reasoningIdx, batchIdx, startIdx := -1, -1, -1
+	for i, ev := range events {
+		switch ev.Kind {
+		case render.EventAgentReasoning:
+			reasoningIdx = i
+		case render.EventAgentToolCallBatch:
+			batchIdx = i
+			if ev.ToolName != "trace_tool" || ev.ToolCallCount != 1 {
+				t.Fatalf("tool batch event lost call metadata: %+v", ev)
+			}
+		case render.EventToolCallStart:
+			startIdx = i
+		}
+	}
+	if reasoningIdx < 0 || batchIdx < 0 || startIdx < 0 {
+		t.Fatalf("expected reasoning, tool batch, and tool start events, got %+v", events)
+	}
+	if !(reasoningIdx < batchIdx && batchIdx < startIdx) {
+		t.Fatalf("tool batch must be visible after prose and before execution start; reasoning=%d batch=%d start=%d events=%+v",
+			reasoningIdx, batchIdx, startIdx, events)
+	}
+}
 
 type transientPartialLLM struct{}
 

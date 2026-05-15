@@ -1224,7 +1224,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Iteration: i,
 				Reasoning: resp.Content,
 			})
-		} else if len(resp.ToolCalls) > 0 {
+		}
+		if len(resp.ToolCalls) > 0 {
 			firstTool := resp.ToolCalls[0]
 			b.deps.Emit(render.Event{
 				Kind:          render.EventAgentToolCallBatch,
