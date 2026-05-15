@@ -43,6 +43,145 @@ func recoverTextToolCalls(resp Response, tools []ToolSchema, opts ChatOptions) R
 	return resp
 }
 
+// recoverStructuredTextToolCalls is the provider-agnostic safety layer for
+// fully explicit tool-call JSON that arrived in assistant content instead of
+// protocol tool_calls. Unlike recoverTextToolCalls, this path is intentionally
+// strict enough to run for every model:
+//   - the whole assistant content must be a valid JSON value;
+//   - the JSON must carry an explicit protocol-like envelope (`name` /
+//     `arguments`, `function_call`, or `tool_calls`);
+//   - no wrapper prose, fenced extraction, bare-args inference, tool-name keyed
+//     maps, missing-closer repair, or unknown-field pruning is attempted here.
+//
+// This gives compliant remote models a harmless transport safety net while
+// keeping local-model-only guessier recovery behind recover_text_tool_calls.
+func recoverStructuredTextToolCalls(resp Response, tools []ToolSchema, opts ChatOptions) Response {
+	if len(resp.ToolCalls) > 0 || len(tools) == 0 || opts.ToolChoice == "none" {
+		return resp
+	}
+	calls, ok := parseStrictTextToolCallEnvelope(resp.Content, tools)
+	if !ok || len(calls) == 0 {
+		return resp
+	}
+	resp.Content = ""
+	resp.ToolCalls = calls
+	resp.StopReason = "tool_use"
+	return resp
+}
+
+func parseStrictTextToolCallEnvelope(content string, tools []ToolSchema) ([]ToolCall, bool) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil, false
+	}
+	var raw any
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		return nil, false
+	}
+	allowed, infos := textToolSchemaInfos(tools)
+	if len(allowed) == 0 {
+		return nil, false
+	}
+	calls, ok := parseStrictTextToolCallValue(raw, allowed, textToolSchemaInfoByName(infos))
+	if !ok || len(calls) == 0 {
+		return nil, false
+	}
+	return renumberGeneratedContentToolCallIDs(calls), true
+}
+
+func parseStrictTextToolCallValue(v any, allowed map[string]bool, infoByName map[string]textToolSchemaInfo) ([]ToolCall, bool) {
+	switch x := v.(type) {
+	case []any:
+		var out []ToolCall
+		for _, item := range x {
+			calls, ok := parseStrictTextToolCallValue(item, allowed, infoByName)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, calls...)
+		}
+		return out, len(out) > 0
+	case map[string]any:
+		if rawCalls, ok := firstPresent(x, "tool_calls"); ok {
+			items, ok := rawCalls.([]any)
+			if !ok || len(items) == 0 {
+				return nil, false
+			}
+			out := make([]ToolCall, 0, len(items))
+			for i, item := range items {
+				m, ok := item.(map[string]any)
+				if !ok {
+					return nil, false
+				}
+				call, ok := parseSingleStrictTextToolCall(m, allowed, infoByName, i)
+				if !ok {
+					return nil, false
+				}
+				out = append(out, call)
+			}
+			return out, true
+		}
+		if rawCall, ok := firstPresent(x, "function_call"); ok {
+			return parseStrictTextToolCallValue(rawCall, allowed, infoByName)
+		}
+		call, ok := parseSingleStrictTextToolCall(x, allowed, infoByName, 0)
+		if !ok {
+			return nil, false
+		}
+		return []ToolCall{call}, true
+	default:
+		return nil, false
+	}
+}
+
+func parseSingleStrictTextToolCall(m map[string]any, allowed map[string]bool, infoByName map[string]textToolSchemaInfo, idx int) (ToolCall, bool) {
+	name, args, ok := strictTextToolCallNameAndArgs(m)
+	if !ok || !allowed[name] {
+		return ToolCall{}, false
+	}
+	info, hasInfo := infoByName[name]
+	var infoPtr *textToolSchemaInfo
+	if hasInfo {
+		infoPtr = &info
+	}
+	params, ok := normalizeTextToolCallArgs(args, infoPtr)
+	if !ok {
+		return ToolCall{}, false
+	}
+	id := textToolCallStringField(m, "id")
+	if id == "" {
+		id = fmt.Sprintf("content_tool_call_%d", idx)
+	}
+	return ToolCall{ID: id, Name: name, Params: params}, true
+}
+
+func strictTextToolCallNameAndArgs(m map[string]any) (string, any, bool) {
+	if fnRaw, ok := firstPresent(m, "function"); ok {
+		fn, ok := fnRaw.(map[string]any)
+		if !ok {
+			return "", nil, false
+		}
+		name := textToolCallStringField(fn, "name")
+		if name == "" {
+			return "", nil, false
+		}
+		args, hasArgs := firstPresent(fn, "arguments", "parameters")
+		if !hasArgs {
+			args = map[string]any{}
+		}
+		return normalizeRecoveredToolCallName(name), args, true
+	}
+	name := textToolCallStringField(m, "name")
+	if name == "" {
+		return "", nil, false
+	}
+	args, ok := firstPresent(m, "arguments", "parameters")
+	if !ok {
+		args = map[string]any{}
+	}
+	return normalizeRecoveredToolCallName(name), args, true
+}
+
 func parseTextToolCallEnvelope(content string, tools []ToolSchema, allowEmbedded bool, forcedName string) ([]ToolCall, bool) {
 	content = strings.TrimSpace(content)
 	if content == "" {

@@ -56,16 +56,13 @@ llm:
     # think_aloud: false
 
     # --- Tool-call compatibility -----------------------------------------
-    # Opt-in shim for small / local OpenAI-compatible models that receive
-    # the tool catalog but serialize tool-call JSON into assistant text
-    # instead of returning protocol-level `tool_calls`. When enabled,
-    # codrax recovers only complete tool-call envelopes for known tools;
-    # it does not parse ordinary prose, repair malformed JSON, or
-    # synthesize answer content. Supports a single envelope, a
-    # `tool_calls` array, or multiple fenced / <tool_call> blocks
-    # during stages where tool_choice is required.
-    # Default: false. Enable only for providers that need this
-    # compatibility mode; compliant providers should leave it unset.
+    # Codrax always performs one strict transport-safety recovery for all
+    # models: if assistant content is exactly a valid JSON tool-call envelope
+    # (`name`/`arguments`, `function_call`, or `tool_calls`) for a known tool,
+    # it is lifted into protocol-level tool_calls. The switch below enables
+    # the wider local-model compatibility mode: fenced / embedded tool-call
+    # JSON, bare-args recovery in required-tool turns, and small JSON repairs.
+    # Default: false. Enable only for providers that need the wider mode.
     # recover_text_tool_calls: false
 
     # Schema-aware parameter compatibility for models that do return

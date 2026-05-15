@@ -363,6 +363,7 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 			resp, err = o.doRequest(ctx, bodyBytes)
 		}
 		if err == nil {
+			resp = recoverStructuredTextToolCalls(resp, tools, opts)
 			if o.recoverTextToolCalls {
 				resp = recoverTextToolCalls(resp, tools, opts)
 			}

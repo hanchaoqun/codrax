@@ -30,6 +30,72 @@ func TestRecoverTextToolCalls_NameParametersEnvelope(t *testing.T) {
 	}
 }
 
+func TestRecoverStructuredTextToolCalls_ExplicitEnvelopeAlwaysSafe(t *testing.T) {
+	tools := []ToolSchema{{
+		Name:       "grep",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"files_only":{"type":"boolean"}},"required":["pattern"]}`),
+	}}
+	resp := Response{Content: `{"name":"grep","arguments":{"pattern":"Agent","files_only":true}}`}
+	got := recoverStructuredTextToolCalls(resp, tools, ChatOptions{ToolChoice: "auto"})
+	if got.StopReason != "tool_use" || got.Content != "" || len(got.ToolCalls) != 1 {
+		t.Fatalf("expected strict explicit envelope recovery, got stop=%q content=%q calls=%+v", got.StopReason, got.Content, got.ToolCalls)
+	}
+	if got.ToolCalls[0].Name != "grep" || string(got.ToolCalls[0].Params) != `{"files_only":true,"pattern":"Agent"}` {
+		t.Fatalf("unexpected recovered call: %+v", got.ToolCalls[0])
+	}
+}
+
+func TestRecoverStructuredTextToolCalls_RejectsCompatOnlyShapes(t *testing.T) {
+	tools := []ToolSchema{{
+		Name:       "grep",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"}},"required":["pattern"]}`),
+	}}
+	cases := []struct {
+		name    string
+		content string
+		opts    ChatOptions
+	}{
+		{
+			name:    "embedded fenced envelope",
+			content: "Here is the function call:\n```json\n{\"name\":\"grep\",\"arguments\":{\"pattern\":\"Agent\"}}\n```",
+			opts:    ChatOptions{ToolChoice: "required"},
+		},
+		{
+			name:    "whole fenced envelope",
+			content: "```json\n{\"name\":\"grep\",\"arguments\":{\"pattern\":\"Agent\"}}\n```",
+			opts:    ChatOptions{ToolChoice: "required"},
+		},
+		{
+			name:    "bare args",
+			content: `{"pattern":"Agent"}`,
+			opts:    ChatOptions{ToolChoice: "required"},
+		},
+		{
+			name:    "tool name keyed map",
+			content: `{"grep":{"pattern":"Agent"}}`,
+			opts:    ChatOptions{ToolChoice: "required"},
+		},
+		{
+			name:    "action alias",
+			content: `{"action":"grep","arguments":{"pattern":"Agent"}}`,
+			opts:    ChatOptions{ToolChoice: "required"},
+		},
+		{
+			name:    "missing trailing closer",
+			content: `{"name":"grep","arguments":{"pattern":"Agent"}`,
+			opts:    ChatOptions{ToolChoice: "required"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := recoverStructuredTextToolCalls(Response{Content: tc.content}, tools, tc.opts)
+			if len(got.ToolCalls) != 0 || got.Content != tc.content {
+				t.Fatalf("strict recovery should not recover %s, got content=%q calls=%+v", tc.name, got.Content, got.ToolCalls)
+			}
+		})
+	}
+}
+
 func TestRecoverTextToolCalls_EnvelopeKeyVariantsIgnoreFieldOrder(t *testing.T) {
 	resp := Response{
 		Content: `{"Parameters":{"entities":["Agent"],"question_kind":"registration"},"ToolName":"emit_analysis"}`,

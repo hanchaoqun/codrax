@@ -213,6 +213,40 @@ func TestOpenAIAdapter_TextToolCallRecoveryOptIn(t *testing.T) {
 	}
 }
 
+func TestOpenAIAdapter_StrictTextToolCallRecoveryAlwaysOn(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		body, err := json.Marshal(map[string]any{
+			"choices": []any{map[string]any{
+				"finish_reason": "stop",
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": `{"name":"grep","arguments":{"pattern":"Agent","files_only":true}}`,
+				},
+			}},
+		})
+		if err != nil {
+			t.Fatalf("marshal test response: %v", err)
+		}
+		_, _ = w.Write(body)
+	})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter("k", "m", server.URL, testAdapterOpts(AdapterOptions{}))
+	resp, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, []ToolSchema{{
+		Name:       "grep",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"files_only":{"type":"boolean"}},"required":["pattern"]}`),
+	}}, ChatOptions{ToolChoice: "auto"})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.StopReason != "tool_use" || resp.Content != "" || len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Name != "grep" {
+		t.Fatalf("strict recovery should be always on for explicit envelopes, got stop=%q content=%q calls=%+v",
+			resp.StopReason, resp.Content, resp.ToolCalls)
+	}
+}
+
 // TestBuildHTTPClient_TLSOptions pins the http.Client construction
 // path for per-provider TLS config:
 //   - zero options → stock client, no custom Transport

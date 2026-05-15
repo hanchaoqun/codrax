@@ -365,7 +365,7 @@ type Adapter interface {
 
 Per-agent 模型路由在 `providers.yaml` 配，不同 agent 可指向不同模型 / 不同 provider。Provider 级降级链（主模型 → fast 模型）也在 provider config 声明，由 `FallbackAdapter` 串起。
 
-**工具兼容边界**：兼容层分成两段，避免把本地小模型的问题污染 prompt，同时让所有模型受益于安全的结构归一化。`recover_text_tool_calls` 在 adapter 层把 assistant 文本里的工具调用 envelope 恢复成协议级 `tool_calls`，默认关闭；兼容模式下也可恢复没有工具名的裸参数 JSON，但必须由本轮真实 `ToolSchema` 在 required / properties / nested items.required 上唯一匹配，不能唯一匹配就保留为文本。`tool_param_compat` 在 `BaseAgent` 的 agent/tool 边界运行，用本轮真实 `ToolSchema` 对协议级 tool-call 参数做确定性类型归一化（如 string integer → integer、JSON-stringified array → array），默认 `repair` 但关闭 delimited string array split。`tool_param_compat` 还支持 `audit` 只打日志不改 payload，或显式 `off`。代码落点见 `docs/design/local_model_tool_param_compat.md`。
+**工具兼容边界**：兼容层分成两段，避免把本地小模型的问题污染 prompt，同时让所有模型受益于安全的结构归一化。Adapter 层默认启用一个严格安全档：当 assistant content 本身就是完整 JSON，且 JSON 是显式工具调用 envelope（`name`/`arguments`、`function_call`、`tool_calls`）时，恢复成协议级 `tool_calls`；它不解析散文/代码块、不做裸参数推断、不修缺失大括号，也不按工具名 keyed map 猜调用。`recover_text_tool_calls` 是更宽的兼容档，默认关闭；打开后还可恢复 fenced / embedded envelope、没有工具名的裸参数 JSON 等本地模型常见形态，但必须由本轮真实 `ToolSchema` 在 required / properties / nested items.required 上唯一匹配，不能唯一匹配就保留为文本。`tool_param_compat` 在 `BaseAgent` 的 agent/tool 边界运行，用本轮真实 `ToolSchema` 对协议级 tool-call 参数做确定性类型归一化（如 string integer → integer、JSON-stringified array → array），默认 `repair` 但关闭 delimited string array split。`tool_param_compat` 还支持 `audit` 只打日志不改 payload，或显式 `off`。代码落点见 `docs/design/local_model_tool_param_compat.md`。
 
 **ChatOptions 的回调家族**：
 - `OnContentDelta(delta)` — 流式 content chunk
@@ -2527,7 +2527,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 
 `llm.default` 字段：`provider` / `api_key` / `model` / `base_url` / `think_aloud` / `recover_text_tool_calls` / `tool_param_compat` / `stream` / `context_window` / `max_output_tokens` / `max_output_fraction` / `tls_ca_file` / `tls_insecure_skip_verify` / `request_timeout_seconds` / `retry_max_attempts` / `stream_stall_timeout_seconds` / `stream_first_byte_timeout_seconds`。
 
-**Per-agent override**：任一字段都能 per-agent 覆盖。Boolean 字段用 nil-sentinel：nil = 继承，true/false = override。`tool_param_compat.mode` 接受 `off` / `audit` / `repair`：未配置时 runtime 默认注入 `repair` 且 `split_string_arrays=false`；`off` 不进入 runtime policy map；`audit` 只记录可修复项；`repair` 才会在 tool 执行前改写 schema 可证明的机械类型错误。逗号/换行字符串拆 `[]string` 不是完全等价修复，必须显式 `split_string_arrays: true`。
+**Per-agent override**：任一字段都能 per-agent 覆盖。Boolean 字段用 nil-sentinel：nil = 继承，true/false = override。严格显式 envelope 恢复不受 `recover_text_tool_calls` 控制，始终作为 adapter 安全档运行；`recover_text_tool_calls` 只控制更宽的本地模型文本恢复。`tool_param_compat.mode` 接受 `off` / `audit` / `repair`：未配置时 runtime 默认注入 `repair` 且 `split_string_arrays=false`；`off` 不进入 runtime policy map；`audit` 只记录可修复项；`repair` 才会在 tool 执行前改写 schema 可证明的机械类型错误。逗号/换行字符串拆 `[]string` 不是完全等价修复，必须显式 `split_string_arrays: true`。
 
 **Fallback slot**：可选 `<name>_fallback` 给任一 agent。
 
