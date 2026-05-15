@@ -4998,24 +4998,37 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 	// window does NOT swallow the second retry. The finalizer's
 	// retry budget is an evaluator-owned contract; dedup by a
 	// shared key would silently truncate it to the first attempt.
+	hasVisibleDraft := strings.TrimSpace(obs.Response.Content) != ""
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       fmt.Sprintf("answer_doc.missing_document.%d", e.retriesUsed),
-		// Instruct the model to REUSE its prior prose rather than rewrite it.
-		// Without this directive, the second pass tends to produce a
-		// compressed paraphrase instead of carrying the richer draft into
-		// the structured answer — a measurable shrinkage of answer quality.
-		Hint: "The answer must be delivered through the `emit_answer_document` tool call — text " +
-			"written outside it does not ship. You already drafted the answer in your previous " +
-			"message; treat that draft as your final text. Call `emit_answer_document` now and move " +
-			"the draft's user-visible content into the appropriate blocks while preserving its wording. " +
-			"Do not trim for length unless a prior tool rejection named an active summary cap. If the " +
-			"draft contains a fenced diagram and you also emit a `diagram` block with the same diagram " +
-			"body, put that body in `diagram.body` and do not duplicate the same fence inside `summary`. " +
-			"Derive the remaining required structured fields (citations[] and any other block payloads " +
-			"the user-section's Required Answer Blocks list calls for) from the same draft. Do NOT " +
-			"rewrite, compress, or paraphrase the content — the richness of the original draft is the answer.",
+		Hint:          missingAnswerDocumentHint(hasVisibleDraft),
 	}
+}
+
+func missingAnswerDocumentHint(hasVisibleDraft bool) string {
+	base := "The answer must be delivered through the `emit_answer_document` tool call — text " +
+		"written outside it does not ship. "
+	if !hasVisibleDraft {
+		return base +
+			"Your previous message did not contain a usable visible draft or the required tool call. " +
+			"Call `emit_answer_document` now with the FULL answer document. Build the required blocks, " +
+			"citations[], and any diagram/caveat payloads from the evidence and Required Answer Blocks " +
+			"sections already in this prompt. Do not write free-form prose outside the tool call."
+	}
+	// Instruct the model to REUSE its prior prose rather than rewrite it.
+	// Without this directive, the second pass tends to produce a
+	// compressed paraphrase instead of carrying the richer draft into
+	// the structured answer — a measurable shrinkage of answer quality.
+	return base +
+		"You already drafted the answer in your previous message; treat that draft as your final text. " +
+		"Call `emit_answer_document` now and move the draft's user-visible content into the appropriate " +
+		"blocks while preserving its wording. Do not trim for length unless a prior tool rejection named " +
+		"an active summary cap. If the draft contains a fenced diagram and you also emit a `diagram` block " +
+		"with the same diagram body, put that body in `diagram.body` and do not duplicate the same fence " +
+		"inside `summary`. Derive the remaining required structured fields (citations[] and any other " +
+		"block payloads the user-section's Required Answer Blocks list calls for) from the same draft. " +
+		"Do NOT rewrite, compress, or paraphrase the content — the richness of the original draft is the answer."
 }
 
 func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservation) LoopSignal {

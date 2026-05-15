@@ -3291,6 +3291,40 @@ func TestAnswerDocumentEvaluator_Observe_RetriesWhenDocMissing(t *testing.T) {
 	}
 }
 
+func TestAnswerDocumentEvaluator_MissingDocumentHintDoesNotInventBlankDraft(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: types.DefaultAgentSettings().FinalizerMaxCorrectionRetries}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:    PhaseSoftStop,
+		Response: llm.Response{Content: "\n\n"},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("blank no-tool finalizer response should request correction")
+	}
+	if strings.Contains(sig.Hint, "You already drafted the answer") {
+		t.Fatalf("blank response must not be described as an existing draft: %q", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "did not contain a usable visible draft") {
+		t.Fatalf("blank response hint should name the actual condition: %q", sig.Hint)
+	}
+}
+
+func TestAnswerDocumentEvaluator_MissingDocumentHintPreservesVisibleDraft(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: types.DefaultAgentSettings().FinalizerMaxCorrectionRetries}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:    PhaseSoftStop,
+		Response: llm.Response{Content: "Here is a rich draft answer."},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("visible no-tool finalizer draft should request structured emit")
+	}
+	if !strings.Contains(sig.Hint, "You already drafted the answer") {
+		t.Fatalf("visible draft should still get preservation guidance: %q", sig.Hint)
+	}
+	if strings.Contains(sig.Hint, "did not contain a usable visible draft") {
+		t.Fatalf("visible draft should not use blank-response guidance: %q", sig.Hint)
+	}
+}
+
 func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryCapRejectRequestsTargetedHint(t *testing.T) {
 	e := &answerDocumentEvaluator{maxRetries: 2}
 	sig := e.Observe(nil, LoopObservation{
