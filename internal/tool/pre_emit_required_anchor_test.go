@@ -63,3 +63,44 @@ func TestRunPreEmitChecks_RequiredMechanismAnchorsIntegrated(t *testing.T) {
 		t.Fatalf("required mechanism anchor hint missing from runPreEmitChecks: %+v", hints)
 	}
 }
+
+func TestNormalizeRequiredMechanismAnchorCarriers_AppendsCitedAnchorBlock(t *testing.T) {
+	mu := types.NewMutableState("required anchor repair")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:              "explorer-name",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/sub_explorer.go",
+		LineStart:       32,
+		Subject:         "SubExplorer.Name",
+		Object:          "explorer",
+		AnchorSymbol:    "explorer",
+		Snippet:         `return "explorer"`,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.BusContext{Mutable: mu}
+	view := &types.AnswerSemanticView{
+		RequiredMechanismAnchors: []types.AnswerRequiredAnchor{{
+			Text: "explorer",
+			Kind: types.ContractTermSymbol,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "The prose mentions explorer, but prose is not a structured anchor carrier.",
+	}}}
+
+	if fixed := normalizeRequiredMechanismAnchorCarriers(doc, view, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d want 1", fixed)
+	}
+	if missing := types.MissingRequiredMechanismAnchors(doc, view.RequiredMechanismAnchors); len(missing) != 0 {
+		t.Fatalf("anchor repair should satisfy required anchors, still missing %+v", missing)
+	}
+	if len(doc.Citations) != 1 || doc.Citations[0].File != "internal/agent/sub_explorer.go" || doc.Citations[0].Line != 32 {
+		t.Fatalf("anchor repair should append matching citation, got %+v", doc.Citations)
+	}
+	if hints := preCheckItemCitationAlignment(doc, view, ctx); len(hints) != 0 {
+		t.Fatalf("repaired anchor citation should align, got %+v", hints)
+	}
+}

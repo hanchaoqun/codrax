@@ -3248,12 +3248,13 @@ func TestCompactToolRejectSummaryPrefersStructuredFieldActions(t *testing.T) {
 		"  2. Field: `blocks[].items[].label/text OR blocks[].text`\n" +
 		"     Action: include every model-emitted principal member_set member in the visible answer\n" +
 		"  3. Field: `blocks[].text/count claims`\n" +
-		"     Action: make every visible count claim match the member_set cardinality\n"
+		"     Action: make every visible count claim match the member_set cardinality; current_citation is INVALID, not a target. Use a candidate_citations entry when present, or change the label to an endpoint actually present at current_citation: block=\"main\" item=\"i6\" label=\"subExplorerEvaluator\" current_citation=internal/agent/explorer.go:30 candidate_citations=[internal/agent/sub_explorer.go:135, internal/agent/sub_explorer.go:139]\n"
 	got := compactToolRejectSummary(summary)
 	for _, want := range []string{
 		"`citations[]`: preserve / emit",
 		"`blocks[].items[].label/text OR blocks[].text`: include every model-emitted",
 		"`blocks[].text/count claims`: make every visible count claim",
+		"candidate_citations=[internal/agent/sub_explorer.go:135, internal/agent/sub_explorer.go:139]",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("compact structured summary missing %q:\n%s", want, got)

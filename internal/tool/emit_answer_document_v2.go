@@ -200,6 +200,9 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// pre-AnalysisIR paths) the pre-check returns nil and the
 	// post-emit chain in internal/orchestrator runs unchanged.
 	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
+		if fixed := normalizeRequiredMechanismAnchorCarriers(doc, view, ctx); fixed > 0 {
+			logging.Warning("[emit_answer_document] repaired %d required mechanism anchor carrier(s)", fixed)
+		}
 		if fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, view, ctx); fixed > 0 {
 			logging.Warning("[emit_answer_document] repaired %d item citation_ref value(s) by unique label/citation corroboration", fixed)
 		}

@@ -5291,7 +5291,7 @@ func compactStructuredToolFixSummary(summary string, limit int) string {
 		if i >= limit {
 			break
 		}
-		parts = append(parts, fmt.Sprintf("`%s`: %s", f.field, truncateRejectAction(f.action, 260)))
+		parts = append(parts, fmt.Sprintf("`%s`: %s", f.field, truncateRejectAction(f.action, 900)))
 	}
 	if len(fixes) > limit {
 		parts = append(parts, fmt.Sprintf("... %d more field fix(es)", len(fixes)-limit))

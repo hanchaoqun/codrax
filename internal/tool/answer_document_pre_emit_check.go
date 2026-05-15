@@ -3021,9 +3021,171 @@ func preCheckRequiredMechanismAnchors(doc *types.AnswerDocumentV2, view *types.A
 	}
 	return []emitFixHint{{
 		Field:         "blocks[].items[].label",
-		ExpectedShape: "structured answer anchor label(s) must preserve: " + strings.Join(labels, ", "),
+		ExpectedShape: "structured answer anchor label(s) must preserve: " + strings.Join(labels, ", ") + ". Add or keep an ordered_list/table item whose label is exactly each missing anchor; use a matching citation_ref when available, otherwise citation_ref=-1.",
 		Reason:        "the typed mechanism-anchor contract requires exact endpoint anchors in structured fields; summary prose alone cannot satisfy this boundary.",
 	}}
+}
+
+func normalizeRequiredMechanismAnchorCarriers(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {
+	if doc == nil || view == nil || len(view.RequiredMechanismAnchors) == 0 {
+		return 0
+	}
+	missing := types.MissingRequiredMechanismAnchors(doc, view.RequiredMechanismAnchors)
+	if len(missing) == 0 {
+		return 0
+	}
+	blockIdx := ensureRequiredMechanismAnchorBlock(doc)
+	if blockIdx < 0 || blockIdx >= len(doc.Blocks) {
+		return 0
+	}
+	added := 0
+	for _, anchor := range missing {
+		label := strings.TrimSpace(anchor.Text)
+		if label == "" {
+			continue
+		}
+		item := types.AnswerBlockItem{
+			ID:          nextRequiredMechanismAnchorItemID(doc.Blocks[blockIdx], label),
+			Label:       label,
+			CitationRef: citationRefForRequiredMechanismAnchor(doc, ctx, label),
+		}
+		doc.Blocks[blockIdx].Items = append(doc.Blocks[blockIdx].Items, item)
+		added++
+	}
+	return added
+}
+
+func ensureRequiredMechanismAnchorBlock(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return -1
+	}
+	for i, block := range doc.Blocks {
+		if block.ID == "required_mechanism_anchors" {
+			return i
+		}
+	}
+	block := types.AnswerBlock{
+		ID:    uniqueRequiredMechanismAnchorBlockID(doc),
+		Kind:  types.BlockOrderedList,
+		Title: "Key anchors",
+		FacetIDs: []string{
+			string(types.FacetCurrentCodePath),
+		},
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimDefinitionFact,
+			FacetID:   string(types.FacetCurrentCodePath),
+		}},
+	}
+	doc.Blocks = append(doc.Blocks, block)
+	return len(doc.Blocks) - 1
+}
+
+func uniqueRequiredMechanismAnchorBlockID(doc *types.AnswerDocumentV2) string {
+	const base = "required_mechanism_anchors"
+	if doc == nil {
+		return base
+	}
+	used := make(map[string]bool, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id != "" {
+			used[id] = true
+		}
+	}
+	if !used[base] {
+		return base
+	}
+	for i := 2; ; i++ {
+		id := fmt.Sprintf("%s_%d", base, i)
+		if !used[id] {
+			return id
+		}
+	}
+}
+
+func nextRequiredMechanismAnchorItemID(block types.AnswerBlock, label string) string {
+	base := "anchor_" + sanitizeRequiredMechanismAnchorID(label)
+	if base == "anchor_" {
+		base = "anchor"
+	}
+	used := make(map[string]bool, len(block.Items))
+	for _, item := range block.Items {
+		id := strings.TrimSpace(item.ID)
+		if id != "" {
+			used[id] = true
+		}
+	}
+	if !used[base] {
+		return base
+	}
+	for i := 2; ; i++ {
+		id := fmt.Sprintf("%s_%d", base, i)
+		if !used[id] {
+			return id
+		}
+	}
+}
+
+func sanitizeRequiredMechanismAnchorID(label string) string {
+	label = strings.ToLower(strings.TrimSpace(label))
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range label {
+		ok := r >= 'a' && r <= 'z' || r >= '0' && r <= '9'
+		if ok {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func citationRefForRequiredMechanismAnchor(doc *types.AnswerDocumentV2, ctx *types.BusContext, label string) int {
+	if doc == nil {
+		return -1
+	}
+	for i, cit := range doc.Citations {
+		if preEmitItemCitationAligned(ctx, label, "", cit) {
+			return i
+		}
+	}
+	for _, loc := range preEmitCandidateCitationLocationsForLabel(ctx, label, 4) {
+		file, line, ok := parsePreEmitLocation(loc)
+		if !ok {
+			continue
+		}
+		for i, cit := range doc.Citations {
+			if preEmitNormalizePath(cit.File) == preEmitNormalizePath(file) && cit.Line == line {
+				return i
+			}
+		}
+		doc.Citations = append(doc.Citations, types.Citation{File: file, Line: line})
+		return len(doc.Citations) - 1
+	}
+	return -1
+}
+
+func parsePreEmitLocation(loc string) (string, int, bool) {
+	loc = strings.TrimSpace(loc)
+	if loc == "" {
+		return "", 0, false
+	}
+	idx := strings.LastIndex(loc, ":")
+	if idx <= 0 || idx == len(loc)-1 {
+		return "", 0, false
+	}
+	file := strings.TrimSpace(loc[:idx])
+	lineRaw := strings.TrimSpace(loc[idx+1:])
+	line, err := strconv.Atoi(lineRaw)
+	if err != nil || line <= 0 || file == "" {
+		return "", 0, false
+	}
+	return file, line, true
 }
 
 func preCheckInactiveTypedDecisionVerdicts(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
