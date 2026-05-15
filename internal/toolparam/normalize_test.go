@@ -252,6 +252,81 @@ func TestNormalize_RepairsSchemaPropertyKeyArtifactsBeforeValueNormalization(t *
 	}
 }
 
+func TestNormalize_RepairsGeneralSchemaPropertyKeyVariants(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "replace_blocks":{
+	      "type":"array",
+	      "items":{
+	        "type":"object",
+	        "properties":{
+	          "claim_uses":{
+	            "type":"array",
+	            "items":{
+	              "type":"object",
+	              "properties":{
+	                "citation_ref":{"type":"integer"}
+	              }
+	            }
+	          },
+	          "facet_ids":{"type":"array","items":{"type":"string"}},
+	          "edge_anchors":{"type":"array","items":{"type":"object"}}
+	        }
+	      }
+	    },
+	    "unchanged_block_ids":{"type":"array","items":{"type":"string"}}
+	  }
+	}`)
+	raw := json.RawMessage(`{
+	  "replaceBlocks":[{
+	    "claimUses":[{"citationRef":"7"}],
+	    "facet ids":["diagram_spine"],
+	    "edgeAnchors":[{"from_node":"A","to_node":"B"}]
+	  }],
+	  "unchangedBlockID":["summary"]
+	}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	for _, want := range []struct {
+		path string
+		rule string
+	}{
+		{`$.replaceBlocks`, "property_key_case_style"},
+		{`$.replace_blocks[0].claimUses`, "property_key_case_style"},
+		{`$.replace_blocks[0].facet ids`, "property_key_case_style"},
+		{`$.replace_blocks[0].edgeAnchors`, "property_key_case_style"},
+		{`$.unchangedBlockID`, "property_key_id_plural"},
+		{`$.replace_blocks[0].claim_uses[0].citationRef`, "property_key_case_style"},
+		{`$.replace_blocks[0].claim_uses[0].citation_ref`, "string_integer"},
+	} {
+		if !hasRepair(report, want.path, want.rule) {
+			t.Fatalf("expected repair %s via %s, got %+v", want.path, want.rule, report)
+		}
+	}
+	var decoded struct {
+		ReplaceBlocks []struct {
+			ClaimUses []struct {
+				CitationRef int `json:"citation_ref"`
+			} `json:"claim_uses"`
+			FacetIDs    []string         `json:"facet_ids"`
+			EdgeAnchors []map[string]any `json:"edge_anchors"`
+		} `json:"replace_blocks"`
+		UnchangedBlockIDs []string `json:"unchanged_block_ids"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if len(decoded.ReplaceBlocks) != 1 ||
+		len(decoded.ReplaceBlocks[0].ClaimUses) != 1 ||
+		decoded.ReplaceBlocks[0].ClaimUses[0].CitationRef != 7 ||
+		len(decoded.ReplaceBlocks[0].FacetIDs) != 1 ||
+		len(decoded.ReplaceBlocks[0].EdgeAnchors) != 1 ||
+		len(decoded.UnchangedBlockIDs) != 1 {
+		t.Fatalf("unexpected normalized payload: %+v\n%s", decoded, got)
+	}
+}
+
 func TestNormalize_DoesNotRepairAmbiguousSchemaPropertyKeyCollision(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",
@@ -264,6 +339,25 @@ func TestNormalize_DoesNotRepairAmbiguousSchemaPropertyKeyCollision(t *testing.T
 	got, report := Normalize(raw, schema, repairPolicy)
 	if report.Changed() {
 		t.Fatalf("colliding canonical and malformed keys must not be repaired: %+v", report)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("ambiguous payload must pass through unchanged: got %s want %s", got, raw)
+	}
+}
+
+func TestNormalize_DoesNotRepairAmbiguousFuzzyPropertyKey(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "line_id":{"type":"string"},
+	    "lineid":{"type":"string"}
+	  }
+	}`)
+	raw := json.RawMessage(`{"line.id":"42"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if report.Changed() {
+		t.Fatalf("fuzzy key that matches multiple schema fields must not be repaired: %+v", report)
 	}
 	if string(got) != string(raw) {
 		t.Fatalf("ambiguous payload must pass through unchanged: got %s want %s", got, raw)

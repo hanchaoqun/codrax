@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/toolparam"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // recoverTextToolCalls is an opt-in provider-compatibility shim for small
@@ -418,7 +419,7 @@ func parseBareTextToolCallArgs(raw any, infos []textToolSchemaInfo, forcedName s
 				args = wrappedArgs
 			}
 			argsMap, ok := args.(map[string]any)
-			if !ok || !textToolRequiredFieldsPresent(argsMap, info.required) {
+			if !ok || !textToolRequiredFieldsPresentForInfo(argsMap, info) {
 				return ToolCall{}, false
 			}
 			params, ok := normalizeTextToolCallArgs(args, &info)
@@ -540,27 +541,76 @@ func pruneJSONValueBySchema(val any, schema any) (any, bool) {
 	if !ok || len(props) == 0 || schemaAllowsAdditionalProperties(schemaMap) {
 		return val, false
 	}
+	keyChanged := false
+	if canonicalized, ok := canonicalizeJSONMapKeysBySchema(m, props); ok {
+		m = canonicalized
+		keyChanged = true
+	}
 	promotedChanged := false
 	if promoted, ok := promoteNestedJSONFieldsToCurrentObject(m, props); ok {
 		m = promoted
 		promotedChanged = true
 	}
 	out := make(map[string]any, len(m))
-	changed := promotedChanged
+	changed := keyChanged || promotedChanged
 	for key, item := range m {
-		propSchema, ok := props[key]
+		canonicalKey, propSchema, ok := schemaPropertyForInputKey(props, key)
 		if !ok {
 			changed = true
 			continue
 		}
 		pruned, itemChanged := pruneJSONValueBySchema(item, propSchema)
-		out[key] = pruned
-		changed = changed || itemChanged
+		out[canonicalKey] = pruned
+		changed = changed || itemChanged || canonicalKey != key
 	}
 	if changed {
 		return out, true
 	}
 	return val, false
+}
+
+func canonicalizeJSONMapKeysBySchema(m map[string]any, props map[string]any) (map[string]any, bool) {
+	if len(m) == 0 || len(props) == 0 {
+		return m, false
+	}
+	propNames := schemaPropertyNames(props)
+	byTarget := make(map[string][]string)
+	for key := range m {
+		if _, exact := props[key]; exact {
+			continue
+		}
+		if canonical, _, ok := toolparam.SchemaPropertyKeyAlias(key, propNames); ok {
+			byTarget[canonical] = append(byTarget[canonical], key)
+		}
+	}
+	if len(byTarget) == 0 {
+		return m, false
+	}
+	targets := make([]string, 0, len(byTarget))
+	for target := range byTarget {
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+	var out map[string]any
+	for _, target := range targets {
+		if _, exists := m[target]; exists {
+			continue
+		}
+		sources := byTarget[target]
+		if len(sources) != 1 {
+			continue
+		}
+		if out == nil {
+			out = copyAnyMap(m)
+		}
+		source := sources[0]
+		out[target] = out[source]
+		delete(out, source)
+	}
+	if out == nil {
+		return m, false
+	}
+	return out, true
 }
 
 func promoteNestedJSONFieldsToCurrentObject(m map[string]any, props map[string]any) (map[string]any, bool) {
@@ -584,18 +634,21 @@ func promoteNestedJSONFieldsToCurrentObject(m map[string]any, props map[string]a
 		}
 		var childOut map[string]any
 		for nestedKey, nestedVal := range childMap {
-			if _, childOwns := childProps[nestedKey]; childOwns {
+			if _, _, childOwns := schemaPropertyForInputKey(childProps, nestedKey); childOwns {
 				continue
 			}
 			parent := m
 			if changed {
 				parent = out
 			}
-			if _, parentAlreadyHas := parent[nestedKey]; parentAlreadyHas {
+			parentKey, parentSchema, parentAccepts := schemaPropertyForInputKey(props, nestedKey)
+			if !parentAccepts {
 				continue
 			}
-			parentSchema, parentAccepts := props[nestedKey]
-			if !parentAccepts || !jsonSchemaAcceptsValue(parentSchema, nestedVal) {
+			if _, parentAlreadyHas := parent[parentKey]; parentAlreadyHas {
+				continue
+			}
+			if !jsonSchemaAcceptsValue(parentSchema, nestedVal) {
 				continue
 			}
 			if !changed {
@@ -605,7 +658,7 @@ func promoteNestedJSONFieldsToCurrentObject(m map[string]any, props map[string]a
 			if childOut == nil {
 				childOut = copyAnyMap(childMap)
 			}
-			out[nestedKey] = nestedVal
+			out[parentKey] = nestedVal
 			delete(childOut, nestedKey)
 			out[childKey] = childOut
 		}
@@ -614,6 +667,49 @@ func promoteNestedJSONFieldsToCurrentObject(m map[string]any, props map[string]a
 		return m, false
 	}
 	return out, true
+}
+
+func schemaPropertyForInputKey(props map[string]any, key string) (string, any, bool) {
+	if propSchema, ok := props[key]; ok {
+		return key, propSchema, true
+	}
+	canonical, _, ok := toolparam.SchemaPropertyKeyAlias(key, schemaPropertyNames(props))
+	if !ok {
+		return "", nil, false
+	}
+	propSchema, ok := props[canonical]
+	if !ok {
+		return "", nil, false
+	}
+	return canonical, propSchema, true
+}
+
+func schemaPropertyNames(props map[string]any) []string {
+	if len(props) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(props))
+	for name := range props {
+		if name = strings.TrimSpace(name); name != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func rawJSONPropertyNames(props map[string]json.RawMessage) []string {
+	if len(props) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(props))
+	for name := range props {
+		if name = strings.TrimSpace(name); name != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func jsonSchemaAcceptsValue(schema any, raw any) bool {
@@ -664,41 +760,72 @@ func singleFieldTextToolArgs(m map[string]any) (any, bool) {
 	if len(m) != 1 {
 		return nil, false
 	}
-	for _, key := range []string{"arguments", "parameters", "input", "params", "args", "tool_input", "toolInput", "action_input", "actionInput"} {
-		if v, ok := m[key]; ok {
-			return v, true
-		}
-	}
-	return nil, false
+	return firstPresent(m, textToolArgKeys()...)
 }
 
 func hasTextToolCallEnvelopeKey(m map[string]any) bool {
-	for _, key := range []string{"name", "tool", "tool_name", "function", "function_call", "tool_calls"} {
-		if _, ok := m[key]; ok {
-			return true
-		}
-	}
-	return false
+	return hasAnySchemaLikeKey(m, []string{"name", "tool", "tool_name", "function", "function_call", "tool_calls"})
 }
 
-func textToolRequiredFieldsPresent(m map[string]any, required []string) bool {
+func textToolRequiredFieldsPresentForInfo(m map[string]any, info textToolSchemaInfo) bool {
+	if len(info.required) == 0 {
+		return false
+	}
+	schemaMap := textToolSchemaMap(info.parameters)
+	props, _ := schemaMap["properties"].(map[string]any)
+	names := schemaPropertyNames(props)
+	if len(names) == 0 {
+		names = info.required
+	}
+	return textToolRequiredFieldsPresentWithNames(m, info.required, names)
+}
+
+func textToolRequiredFieldsPresentWithNames(m map[string]any, required []string, propertyNames []string) bool {
 	if len(required) == 0 {
 		return false
 	}
 	for _, field := range required {
-		if _, ok := m[field]; !ok {
+		if !mapHasCanonicalSchemaField(m, field, propertyNames) {
 			return false
 		}
 	}
 	return true
 }
 
-func scoreBareTextToolCallArgs(m map[string]any, info textToolSchemaInfo) (int, bool) {
-	if len(info.required) > 0 && !textToolRequiredFieldsPresent(m, info.required) {
-		return 0, false
+func mapHasCanonicalSchemaField(m map[string]any, field string, propertyNames []string) bool {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return false
 	}
+	if _, ok := m[field]; ok {
+		return true
+	}
+	matches := 0
+	for key := range m {
+		canonical, _, ok := toolparam.SchemaPropertyKeyAlias(key, propertyNames)
+		if !ok || canonical != field {
+			continue
+		}
+		matches++
+		if matches > 1 {
+			return false
+		}
+	}
+	return matches == 1
+}
+
+func scoreBareTextToolCallArgs(m map[string]any, info textToolSchemaInfo) (int, bool) {
 	schemaMap := textToolSchemaMap(info.parameters)
 	props, _ := schemaMap["properties"].(map[string]any)
+	if len(info.required) > 0 {
+		names := schemaPropertyNames(props)
+		if len(names) == 0 {
+			names = info.required
+		}
+		if !textToolRequiredFieldsPresentWithNames(m, info.required, names) {
+			return 0, false
+		}
+	}
 	if len(props) == 0 && len(info.required) == 0 {
 		return 0, false
 	}
@@ -717,7 +844,7 @@ func scoreBareTextToolCallArgs(m map[string]any, info textToolSchemaInfo) (int, 
 		if len(props) == 0 {
 			continue
 		}
-		propSchema, propKnown := props[key]
+		_, propSchema, propKnown := schemaPropertyForInputKey(props, key)
 		if !propKnown {
 			unknown++
 			continue
@@ -790,13 +917,19 @@ func scoreBareSchemaValue(val any, schema any) (int, bool) {
 			}
 			continue
 		}
-		if len(itemRequired) > 0 && !textToolRequiredFieldsPresent(itemObj, itemRequired) {
-			return 0, false
+		if len(itemRequired) > 0 {
+			itemNames := schemaPropertyNames(itemProps)
+			if len(itemNames) == 0 {
+				itemNames = itemRequired
+			}
+			if !textToolRequiredFieldsPresentWithNames(itemObj, itemRequired, itemNames) {
+				return 0, false
+			}
 		}
 		score += len(itemRequired) * 4
 		unknown := 0
 		for key, itemVal := range itemObj {
-			propSchema, known := itemProps[key]
+			_, propSchema, known := schemaPropertyForInputKey(itemProps, key)
 			if !known {
 				unknown++
 				continue
@@ -832,15 +965,15 @@ func normalizeRecoveredToolCallName(s string) string {
 }
 
 func textToolArgKeys() []string {
-	return []string{"arguments", "parameters", "input", "params", "args", "tool_input", "toolInput", "action_input", "actionInput"}
+	return []string{"arguments", "parameters", "input", "params", "args", "tool_input", "action_input"}
 }
 
 func textToolNameKeys() []string {
-	return []string{"name", "tool", "tool_name", "toolName", "action", "action_name", "actionName", "function_name", "functionName", "fn"}
+	return []string{"name", "tool", "tool_name", "action", "action_name", "function_name", "fn"}
 }
 
 func textToolCallNameAndArgs(m map[string]any) (string, any, bool) {
-	if fnRaw, ok := m["function"]; ok {
+	if fnRaw, ok := firstPresent(m, "function"); ok {
 		if fn, ok := fnRaw.(map[string]any); ok {
 			name := textToolCallStringField(fn, "name")
 			args, hasArgs := firstPresent(fn, textToolArgKeys()...)
@@ -883,11 +1016,14 @@ func normalizeTextToolCallArgs(raw any, info *textToolSchemaInfo) (json.RawMessa
 		if s == "" {
 			return json.RawMessage(`{}`), true
 		}
-		var decoded any
-		if err := json.Unmarshal([]byte(s), &decoded); err != nil {
-			return nil, false
+		if decoded, ok := decodeTextToolCallJSON(s); ok {
+			raw = decoded
+		} else {
+			if looksLikeJSONContainer(s) {
+				return nil, false
+			}
+			raw = s
 		}
-		raw = decoded
 	}
 	if _, ok := raw.(map[string]any); !ok {
 		wrapped, wrapOK := wrapSingleRequiredTextToolArg(raw, info)
@@ -900,7 +1036,16 @@ func normalizeTextToolCallArgs(raw any, info *textToolSchemaInfo) (json.RawMessa
 	if err != nil {
 		return nil, false
 	}
-	return json.RawMessage(b), true
+	params := json.RawMessage(b)
+	if info != nil && len(info.parameters) > 0 {
+		params, _ = toolparam.Normalize(params, info.parameters, types.ToolParamCompatConfig{Mode: types.ToolParamCompatRepair})
+	}
+	return params, true
+}
+
+func looksLikeJSONContainer(s string) bool {
+	s = strings.TrimSpace(s)
+	return strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[")
 }
 
 func wrapSingleRequiredTextToolArg(raw any, info *textToolSchemaInfo) (map[string]any, bool) {
@@ -915,27 +1060,42 @@ func wrapSingleRequiredTextToolArg(raw any, info *textToolSchemaInfo) (map[strin
 }
 
 func textToolSchemaPropertyAcceptsValue(schema json.RawMessage, field string, raw any) bool {
+	_, ok := textToolSchemaPropertyAcceptsFieldValue(schema, field, raw)
+	return ok
+}
+
+func textToolSchemaPropertyAcceptsFieldValue(schema json.RawMessage, field string, raw any) (string, bool) {
 	valueType := jsonSchemaTypeForValue(raw)
 	if valueType == "" || len(schema) == 0 {
-		return false
+		return "", false
 	}
 	var objectSchema struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 	}
 	if err := json.Unmarshal(schema, &objectSchema); err != nil {
-		return false
+		return "", false
 	}
+	canonicalField := field
 	prop, ok := objectSchema.Properties[field]
+	if !ok {
+		if canonical, _, aliasOK := toolparam.SchemaPropertyKeyAlias(field, rawJSONPropertyNames(objectSchema.Properties)); aliasOK {
+			canonicalField = canonical
+			prop, ok = objectSchema.Properties[canonical]
+		}
+	}
 	if !ok || len(prop) == 0 {
-		return false
+		return "", false
 	}
 	var propSchema struct {
 		Type any `json:"type"`
 	}
 	if err := json.Unmarshal(prop, &propSchema); err != nil {
-		return false
+		return "", false
 	}
-	return jsonSchemaTypeAllows(propSchema.Type, valueType)
+	if !jsonSchemaTypeAllows(propSchema.Type, valueType) {
+		return "", false
+	}
+	return canonicalField, true
 }
 
 func jsonSchemaTypeForValue(raw any) string {
@@ -970,7 +1130,7 @@ func jsonSchemaTypeAllows(raw any, valueType string) bool {
 }
 
 func textToolCallStringField(m map[string]any, key string) string {
-	v, ok := m[key]
+	v, ok := firstPresent(m, key)
 	if !ok {
 		return ""
 	}
@@ -987,7 +1147,39 @@ func firstPresent(m map[string]any, keys ...string) (any, bool) {
 			return v, true
 		}
 	}
+	for _, key := range keys {
+		var matched any
+		matches := 0
+		for rawKey, value := range m {
+			canonical, _, ok := toolparam.SchemaPropertyKeyAlias(rawKey, keys)
+			if !ok || canonical != key {
+				continue
+			}
+			matched = value
+			matches++
+			if matches > 1 {
+				return nil, false
+			}
+		}
+		if matches == 1 {
+			return matched, true
+		}
+	}
 	return nil, false
+}
+
+func hasAnySchemaLikeKey(m map[string]any, keys []string) bool {
+	for _, key := range keys {
+		if _, ok := m[key]; ok {
+			return true
+		}
+	}
+	for rawKey := range m {
+		if _, _, ok := toolparam.SchemaPropertyKeyAlias(rawKey, keys); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func firstNonEmptyString(vals ...string) string {
@@ -1161,10 +1353,10 @@ func parseTextToolCallValue(v any, allowed map[string]bool, infoByName map[strin
 		}
 		return out, len(out) > 0
 	case map[string]any:
-		if rawCalls, ok := x["tool_calls"]; ok {
+		if rawCalls, ok := firstPresent(x, "tool_calls"); ok {
 			return parseTextToolCallsArray(rawCalls, allowed, infoByName)
 		}
-		if rawCall, ok := x["function_call"]; ok {
+		if rawCall, ok := firstPresent(x, "function_call"); ok {
 			return parseTextToolCallValue(rawCall, allowed, infoByName)
 		}
 		call, ok := parseSingleTextToolCall(x, allowed, infoByName, 0)
@@ -1251,7 +1443,7 @@ func parseTextToolKeyedMap(source string, m map[string]any, infos []textToolSche
 	seen := make(map[string]bool, len(m))
 	for key, rawArgs := range m {
 		key = strings.TrimSpace(key)
-		alias, ok := aliases[key]
+		alias, ok := textToolKeyAliasForInputKey(aliases, key)
 		if !ok {
 			shared[key] = rawArgs
 			continue
@@ -1322,12 +1514,14 @@ func partitionSharedTextToolKeyedArgs(shared map[string]any, pending []pendingTe
 			return nil, false
 		}
 		matched := -1
+		var matchedField string
 		for i, item := range pending {
-			if textToolSchemaPropertyAcceptsValue(item.alias.info.parameters, key, val) {
+			if field, ok := textToolSchemaPropertyAcceptsFieldValue(item.alias.info.parameters, key, val); ok {
 				if matched >= 0 {
 					return nil, false
 				}
 				matched = i
+				matchedField = field
 			}
 		}
 		if matched < 0 {
@@ -1336,9 +1530,26 @@ func partitionSharedTextToolKeyedArgs(shared map[string]any, pending []pendingTe
 		if out[matched] == nil {
 			out[matched] = make(map[string]any)
 		}
-		out[matched][key] = val
+		out[matched][matchedField] = val
 	}
 	return out, true
+}
+
+func textToolKeyAliasForInputKey(aliases map[string]textToolKeyAlias, key string) (textToolKeyAlias, bool) {
+	if alias, ok := aliases[key]; ok {
+		return alias, true
+	}
+	keys := make([]string, 0, len(aliases))
+	for candidate := range aliases {
+		keys = append(keys, candidate)
+	}
+	sort.Strings(keys)
+	canonical, _, ok := toolparam.SchemaPropertyKeyAlias(key, keys)
+	if !ok {
+		return textToolKeyAlias{}, false
+	}
+	alias, ok := aliases[canonical]
+	return alias, ok
 }
 
 func textToolKeyAliasMap(infos []textToolSchemaInfo) map[string]textToolKeyAlias {
@@ -1458,7 +1669,7 @@ func normalizeTextToolKeyedArgsWithShared(raw any, info *textToolSchemaInfo, exa
 		argMap = merged
 		args = merged
 	}
-	if info != nil && !exact && len(info.required) > 0 && !textToolRequiredFieldsPresent(argMap, info.required) {
+	if info != nil && !exact && len(info.required) > 0 && !textToolRequiredFieldsPresentForInfo(argMap, *info) {
 		return nil, false
 	}
 	return normalizeTextToolCallArgs(args, info)
@@ -1470,11 +1681,14 @@ func unwrapTextToolKeyedArgs(raw any) (any, bool) {
 		if s == "" {
 			return map[string]any{}, true
 		}
-		var decoded any
-		if err := json.Unmarshal([]byte(s), &decoded); err != nil {
-			return nil, false
+		if decoded, ok := decodeTextToolCallJSON(s); ok {
+			raw = decoded
+		} else {
+			if looksLikeJSONContainer(s) {
+				return nil, false
+			}
+			raw = s
 		}
-		raw = decoded
 	}
 	if m, ok := raw.(map[string]any); ok {
 		if inner, ok := singleFieldTextToolArgs(m); ok {

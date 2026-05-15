@@ -275,27 +275,72 @@ func normalizeObjectPropertyKeys(in map[string]any, node schemaNode, path string
 	return out, repairs
 }
 
+// SchemaPropertyKeyAlias returns a canonical schema property name for a
+// malformed-but-unambiguous model-emitted key. The match is deliberately
+// structural: whitespace/quote artifacts, casing/separator style drift, and a
+// final id/ids singular/plural drift are accepted only when exactly one schema
+// property can own the key. The exact key is not considered an alias.
+func SchemaPropertyKeyAlias(key string, propertyNames []string) (string, string, bool) {
+	return schemaPropertyKeyAliasFromNames(key, schemaPropertyNameSet(propertyNames))
+}
+
 func schemaPropertyKeyAlias(key string, node schemaNode) (string, string, bool) {
+	return schemaPropertyKeyAliasFromNames(key, schemaNodePropertyNameSet(node))
+}
+
+func schemaNodePropertyNameSet(node schemaNode) map[string]struct{} {
 	if len(node.Properties) == 0 {
+		return nil
+	}
+	names := make(map[string]struct{}, len(node.Properties))
+	for name := range node.Properties {
+		if name = strings.TrimSpace(name); name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	return names
+}
+
+func schemaPropertyNameSet(propertyNames []string) map[string]struct{} {
+	if len(propertyNames) == 0 {
+		return nil
+	}
+	names := make(map[string]struct{}, len(propertyNames))
+	for _, name := range propertyNames {
+		if name = strings.TrimSpace(name); name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	return names
+}
+
+func schemaPropertyKeyAliasFromNames(key string, names map[string]struct{}) (string, string, bool) {
+	if len(names) == 0 {
 		return "", "", false
 	}
 	trimmedSpace := strings.TrimSpace(key)
 	if trimmedSpace != key {
-		if _, ok := node.Properties[trimmedSpace]; ok {
+		if _, ok := names[trimmedSpace]; ok {
 			return trimmedSpace, "property_key_whitespace", true
 		}
 	}
 	quoteTrimmed := trimJSONKeyQuoteArtifacts(trimmedSpace)
 	if quoteTrimmed != trimmedSpace {
-		if _, ok := node.Properties[quoteTrimmed]; ok {
+		if _, ok := names[quoteTrimmed]; ok {
 			return quoteTrimmed, "property_key_quote_artifact", true
 		}
 	}
 	snake := schemaStyleKeyAlias(quoteTrimmed)
 	if snake != quoteTrimmed {
-		if _, ok := node.Properties[snake]; ok {
+		if _, ok := names[snake]; ok {
 			return snake, "property_key_case_style", true
 		}
+	}
+	if canonical, ok := uniqueSchemaPropertyFingerprintAlias(quoteTrimmed, names, false); ok {
+		return canonical, "property_key_fingerprint", true
+	}
+	if canonical, ok := uniqueSchemaPropertyFingerprintAlias(quoteTrimmed, names, true); ok {
+		return canonical, "property_key_id_plural", true
 	}
 	return "", "", false
 }
@@ -347,6 +392,63 @@ func schemaStyleKeyAlias(s string) string {
 		prev = r
 	}
 	return strings.Trim(b.String(), "_")
+}
+
+func uniqueSchemaPropertyFingerprintAlias(key string, names map[string]struct{}, allowIDPlural bool) (string, bool) {
+	keyFingerprint := schemaPropertyFingerprint(key)
+	if keyFingerprint == "" {
+		return "", false
+	}
+	keyFingerprints := map[string]struct{}{keyFingerprint: {}}
+	if allowIDPlural {
+		for _, variant := range schemaIDPluralFingerprintVariants(keyFingerprint) {
+			keyFingerprints[variant] = struct{}{}
+		}
+	}
+	var matched string
+	for name := range names {
+		nameFingerprint := schemaPropertyFingerprint(name)
+		if nameFingerprint == "" {
+			continue
+		}
+		if _, ok := keyFingerprints[nameFingerprint]; !ok {
+			continue
+		}
+		if matched != "" && matched != name {
+			return "", false
+		}
+		matched = name
+	}
+	if matched == "" || matched == key {
+		return "", false
+	}
+	return matched, true
+}
+
+func schemaPropertyFingerprint(s string) string {
+	s = trimJSONKeyQuoteArtifacts(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	return b.String()
+}
+
+func schemaIDPluralFingerprintVariants(fingerprint string) []string {
+	switch {
+	case strings.HasSuffix(fingerprint, "ids") && len(fingerprint) > 3:
+		return []string{strings.TrimSuffix(fingerprint, "s")}
+	case strings.HasSuffix(fingerprint, "id") && len(fingerprint) > 2:
+		return []string{fingerprint + "s"}
+	default:
+		return nil
+	}
 }
 
 func propertyPath(parent, key string) string {

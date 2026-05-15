@@ -30,12 +30,52 @@ func TestRecoverTextToolCalls_NameParametersEnvelope(t *testing.T) {
 	}
 }
 
+func TestRecoverTextToolCalls_EnvelopeKeyVariantsIgnoreFieldOrder(t *testing.T) {
+	resp := Response{
+		Content: `{"Parameters":{"entities":["Agent"],"question_kind":"registration"},"ToolName":"emit_analysis"}`,
+	}
+	got := recoverTextToolCalls(resp, []ToolSchema{{Name: "emit_analysis"}}, ChatOptions{ToolChoice: "required"})
+	if got.StopReason != "tool_use" || len(got.ToolCalls) != 1 {
+		t.Fatalf("expected recovered tool call, got stop=%q calls=%+v", got.StopReason, got.ToolCalls)
+	}
+	if got.ToolCalls[0].Name != "emit_analysis" {
+		t.Fatalf("tool name = %q", got.ToolCalls[0].Name)
+	}
+	var params map[string]any
+	if err := json.Unmarshal(got.ToolCalls[0].Params, &params); err != nil {
+		t.Fatalf("params json: %v", err)
+	}
+	if _, ok := params["entities"].([]any); !ok {
+		t.Fatalf("entities should remain a JSON array, got %#v", params["entities"])
+	}
+}
+
 func TestRecoverTextToolCalls_OpenAIToolCallsEnvelope(t *testing.T) {
 	resp := Response{Content: `{
 		"tool_calls":[{
 			"id":"call_1",
 			"type":"function",
 			"function":{"name":"grep","arguments":"{\"pattern\":\"Agent\",\"files_only\":true}"}
+		}]
+	}`}
+	got := recoverTextToolCalls(resp, []ToolSchema{{Name: "grep"}}, ChatOptions{})
+	if len(got.ToolCalls) != 1 {
+		t.Fatalf("expected one recovered call, got %+v", got.ToolCalls)
+	}
+	if got.ToolCalls[0].ID != "call_1" || got.ToolCalls[0].Name != "grep" {
+		t.Fatalf("unexpected call: %+v", got.ToolCalls[0])
+	}
+	if string(got.ToolCalls[0].Params) != `{"files_only":true,"pattern":"Agent"}` {
+		t.Fatalf("params = %s", got.ToolCalls[0].Params)
+	}
+}
+
+func TestRecoverTextToolCalls_OpenAIToolCallsEnvelopeKeyVariants(t *testing.T) {
+	resp := Response{Content: `{
+		"ToolCalls":[{
+			"id":"call_1",
+			"type":"function",
+			"Function":{"Arguments":"{\"pattern\":\"Agent\",\"files_only\":true}","Name":"grep"}
 		}]
 	}`}
 	got := recoverTextToolCalls(resp, []ToolSchema{{Name: "grep"}}, ChatOptions{})
@@ -862,6 +902,101 @@ func TestRecoverTextToolCalls_BareAnswerDocumentPatchArgsOptionalSchema(t *testi
 	}
 }
 
+func TestRecoverTextToolCalls_BarePatchArgsCanonicalizesSchemaFieldVariants(t *testing.T) {
+	content := `{
+		"replaceBlocks":[{
+			"id":"diagram_flow",
+			"kind":"diagram",
+			"claimUses":[{"claimForm":"definition_fact","citationRef":0}],
+			"facetIds":["diagram_spine"],
+			"diagram":{
+				"kind":"architecture",
+				"language":"mermaid",
+				"body":"flowchart TD\n  A --> B",
+				"edgeAnchors":[{"fromNode":"A","toNode":"B"}]
+			}
+		}],
+		"unchangedBlockID":["summary"]
+	}`
+	tools := []ToolSchema{{
+		Name: "emit_answer_document_patch",
+		Parameters: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"unchanged_block_ids":{"type":"array","items":{"type":"string"}},
+				"replace_blocks":{
+					"type":"array",
+					"items":{
+						"type":"object",
+						"properties":{
+							"id":{"type":"string"},
+							"kind":{"type":"string"},
+							"claim_uses":{
+								"type":"array",
+								"items":{
+									"type":"object",
+									"properties":{
+										"claim_form":{"type":"string"},
+										"citation_ref":{"type":"integer"}
+									}
+								}
+							},
+							"facet_ids":{"type":"array","items":{"type":"string"}},
+							"edge_anchors":{"type":"array","items":{"type":"object"}},
+							"diagram":{
+								"type":"object",
+								"properties":{
+									"kind":{"type":"string"},
+									"language":{"type":"string"},
+									"body":{"type":"string"}
+								}
+							}
+						}
+					}
+				}
+			}
+		}`),
+	}}
+
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_answer_document_patch" {
+		t.Fatalf("expected variant patch args to recover, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+	params := string(got.ToolCalls[0].Params)
+	for _, bad := range []string{"replaceBlocks", "claimUses", "claimForm", "citationRef", "facetIds", "edgeAnchors", "unchangedBlockID"} {
+		if strings.Contains(params, bad) {
+			t.Fatalf("variant field %q should be canonicalized or pruned, got %s", bad, params)
+		}
+	}
+	var decoded struct {
+		ReplaceBlocks []struct {
+			ClaimUses []struct {
+				ClaimForm   string `json:"claim_form"`
+				CitationRef int    `json:"citation_ref"`
+			} `json:"claim_uses"`
+			FacetIDs    []string         `json:"facet_ids"`
+			EdgeAnchors []map[string]any `json:"edge_anchors"`
+			Diagram     map[string]any   `json:"diagram"`
+		} `json:"replace_blocks"`
+		UnchangedBlockIDs []string `json:"unchanged_block_ids"`
+	}
+	if err := json.Unmarshal(got.ToolCalls[0].Params, &decoded); err != nil {
+		t.Fatalf("params json: %v\n%s", err, got.ToolCalls[0].Params)
+	}
+	if len(decoded.ReplaceBlocks) != 1 ||
+		len(decoded.ReplaceBlocks[0].ClaimUses) != 1 ||
+		decoded.ReplaceBlocks[0].ClaimUses[0].ClaimForm != "definition_fact" ||
+		decoded.ReplaceBlocks[0].ClaimUses[0].CitationRef != 0 ||
+		len(decoded.ReplaceBlocks[0].FacetIDs) != 1 ||
+		len(decoded.ReplaceBlocks[0].EdgeAnchors) != 1 ||
+		len(decoded.UnchangedBlockIDs) != 1 {
+		t.Fatalf("unexpected canonicalized params: %+v\n%s", decoded, got.ToolCalls[0].Params)
+	}
+	if _, leaked := decoded.ReplaceBlocks[0].Diagram["edge_anchors"]; leaked {
+		t.Fatalf("promoted edge_anchors should not remain inside diagram: %s", got.ToolCalls[0].Params)
+	}
+}
+
 func TestRecoverTextToolCalls_BareArgsOptionalSchemaRejectsUnknownOnly(t *testing.T) {
 	content := `{"notes":"I should call emit_answer_document_patch next"}`
 	tools := []ToolSchema{{
@@ -1004,6 +1139,46 @@ func TestRecoverTextToolCalls_RepairsSingleQuotedJSONArguments(t *testing.T) {
 	}
 	if string(got.ToolCalls[0].Params) != `{"entities":["recoverTextToolCalls"],"question_kind":"unknown"}` {
 		t.Fatalf("params = %s", got.ToolCalls[0].Params)
+	}
+}
+
+func TestRecoverTextToolCalls_ArgumentStringUsesSharedParamRepairs(t *testing.T) {
+	content := `{"name":"emit_evidence","arguments":"{\"items\":[{\"lineStart\":\"31\",\"anchorSymbol\":\"Run\"}]"}` // arguments object is missing its final }
+	tools := []ToolSchema{{
+		Name: "emit_evidence",
+		Parameters: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"items":{
+					"type":"array",
+					"items":{
+						"type":"object",
+						"properties":{
+							"line_start":{"type":"integer"},
+							"anchor_symbol":{"type":"string"}
+						}
+					}
+				}
+			},
+			"required":["items"]
+		}`),
+	}}
+
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{})
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_evidence" {
+		t.Fatalf("expected repaired argument string to recover, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+	var params struct {
+		Items []struct {
+			LineStart    int    `json:"line_start"`
+			AnchorSymbol string `json:"anchor_symbol"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(got.ToolCalls[0].Params, &params); err != nil {
+		t.Fatalf("params json: %v\n%s", err, got.ToolCalls[0].Params)
+	}
+	if len(params.Items) != 1 || params.Items[0].LineStart != 31 || params.Items[0].AnchorSymbol != "Run" {
+		t.Fatalf("argument string repairs were not inherited: %+v\n%s", params, got.ToolCalls[0].Params)
 	}
 }
 
