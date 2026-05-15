@@ -475,6 +475,11 @@ func (r *Renderer) handleEvent(ev Event) {
 			// and the next thinking event.
 			r.activity = activityState{kind: activityRequesting}
 		}
+		if (r.dockEnabled || r.dock != nil) && ev.ToolOK {
+			if block := formatStructuredToolResultSummary(ev.ToolName, ev.ToolParamsJSON, ev.ToolResultSummary, r.lang); block != "" {
+				r.commitMultilineLocked(block)
+			}
+		}
 
 	case EventTransition:
 		if r.current != nil {
@@ -1677,6 +1682,13 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		if line := formatToolCallBatch(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
 			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang); line != "" {
 			r.emitNonTTYLine(line)
+		}
+	case EventToolCallEnd:
+		if ev.ToolOK {
+			if block := formatStructuredToolResultSummary(ev.ToolName, ev.ToolParamsJSON, ev.ToolResultSummary, r.lang); block != "" {
+				fmt.Fprint(r.outputWriter(), stripAnsiEscapes(block))
+				mirrorDockBlockToLog(block)
+			}
 		}
 	case EventOrchestratorNotice:
 		// Mirror of the TTY branch above: render WITHOUT the

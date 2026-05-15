@@ -192,3 +192,102 @@ func TestRenderer_ToolCallBatchUsesConfiguredOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatEvidenceToolResultSummaryZh(t *testing.T) {
+	summary := `emit_evidence accepted 4 item(s)
+
+  [1] mechanism NewSubExplorer @ internal/agent/sub_explorer.go:26 — 构造 explorer 子代理
+      → grounded (tier=line_text)
+  [2] mechanism toolConfidence @ internal/agent/sub_explorer.go:301 — 返回固定置信度 0.8
+      → recovered (tier=line_text, you claimed line 312, adjusted to 301)
+  [3] direct buildScopedSearchGraph @ internal/agent/sub_explorer.go:361
+      → ungrounded: not in read window
+  [4] direct extra @ internal/agent/sub_explorer.go:374 — 额外证据
+      → grounded (tier=line_text)
+`
+	got := stripAnsiEscapes(formatEvidenceToolResultSummary("emit_evidence", summary, "zh"))
+	for _, want := range []string{
+		"• 证据 4 条",
+		"1. 已落地 NewSubExplorer @ internal/agent/sub_explorer.go:26 — 构造 explorer 子代理",
+		"2. 已校正 toolConfidence @ internal/agent/sub_explorer.go:301 — 返回固定置信度 0.8",
+		"3. 未落地 buildScopedSearchGraph @ internal/agent/sub_explorer.go:361",
+		"… 还有 1 条",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("evidence summary missing %q; got:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderer_EmitsEvidenceSummaryOnToolEnd(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:              EventToolCallEnd,
+		ToolName:          "emit_evidence",
+		ToolOK:            true,
+		ToolResultSummary: "emit_evidence accepted 1 item(s)\n\n  [1] mechanism NewSubExplorer @ internal/agent/sub_explorer.go:26 — 构造 explorer 子代理\n      → grounded (tier=line_text)\n",
+		Timestamp:         time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{"证据 1 条", "NewSubExplorer @ internal/agent/sub_explorer.go:26", "构造 explorer 子代理"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("tool end should surface evidence summary %q; got %q", want, out)
+		}
+	}
+}
+
+func TestFormatAnalysisToolResultSummaryZh(t *testing.T) {
+	params := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"question_kind": "mechanism",
+		"predicate_axis": "call",
+		"entities": ["SubExplorer", "NewSubExplorer", "RegisterDefaultSubAgents", "buildToolSchemas", "propose_sub_agents", "SubAgents"],
+		"keywords": ["explorer", "SubExplorer", "sub_agent", "sequence", "流程图", "机制", "调用流程"],
+		"answer_subject": {"kind": "function_name", "entity_axes": ["SubAgent -> mechanism"]},
+		"diagram_hint": {"kind": "sequence"},
+		"required_files": [{"path": "internal/agent/sub_explorer.go"}]
+	}`
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_analysis", params, "", "zh"))
+	for _, want := range []string{
+		"• 分析结果",
+		"意图 explain · 类型 mechanism · 场景 architecture_explain · 复杂度 moderate · 谓词轴 call",
+		"答案主体 function_name",
+		"实体 6 个：SubExplorer, NewSubExplorer, RegisterDefaultSubAgents, buildToolSchemas, propose_sub_agents, +1",
+		"关键词 7 个：explorer, SubExplorer, sub_agent, sequence, 流程图, 机制, +1",
+		"图 sequence",
+		"建议文件 1 个：internal/agent/sub_explorer.go",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("analysis summary missing %q; got:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderer_EmitsAnalysisSummaryOnToolEnd(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:           EventToolCallEnd,
+		ToolName:       "emit_analysis",
+		ToolOK:         true,
+		ToolParamsJSON: `{"intent":"explain","scenario":"architecture_explain","complexity":"moderate","question_kind":"mechanism","entities":["SubExplorer"],"keywords":["explorer"],"diagram_hint":{"kind":"sequence"}}`,
+		Timestamp:      time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{"分析结果", "意图 explain", "实体 1 个：SubExplorer", "图 sequence"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("tool end should surface analysis summary %q; got %q", want, out)
+		}
+	}
+}

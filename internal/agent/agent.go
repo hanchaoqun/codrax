@@ -1447,15 +1447,17 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					})
 				}
 				b.deps.Emit(render.Event{
-					Kind:       render.EventToolCallEnd,
-					Timestamp:  time.Now(),
-					Agent:      b.name,
-					Stage:      ctx.Stage,
-					ToolName:   tc.Name,
-					ToolCallID: tc.ID,
-					ToolDetail: toolDetail(tc.Params),
-					ToolOK:     toolOK,
-					ToolTime:   time.Since(toolStarts[idx]),
+					Kind:              render.EventToolCallEnd,
+					Timestamp:         time.Now(),
+					Agent:             b.name,
+					Stage:             ctx.Stage,
+					ToolName:          tc.Name,
+					ToolCallID:        tc.ID,
+					ToolDetail:        toolDetail(tc.Params),
+					ToolParamsJSON:    string(tc.Params),
+					ToolOK:            toolOK,
+					ToolTime:          time.Since(toolStarts[idx]),
+					ToolResultSummary: toolResultSummary(er.result),
 				})
 			}
 		} else {
@@ -1502,15 +1504,17 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				}
 
 				b.deps.Emit(render.Event{
-					Kind:       render.EventToolCallEnd,
-					Timestamp:  time.Now(),
-					Agent:      b.name,
-					Stage:      ctx.Stage,
-					ToolName:   tc.Name,
-					ToolCallID: tc.ID,
-					ToolDetail: toolDetail(tc.Params),
-					ToolOK:     toolOK,
-					ToolTime:   time.Since(toolStart),
+					Kind:              render.EventToolCallEnd,
+					Timestamp:         time.Now(),
+					Agent:             b.name,
+					Stage:             ctx.Stage,
+					ToolName:          tc.Name,
+					ToolCallID:        tc.ID,
+					ToolDetail:        toolDetail(tc.Params),
+					ToolParamsJSON:    string(tc.Params),
+					ToolOK:            toolOK,
+					ToolTime:          time.Since(toolStart),
+					ToolResultSummary: toolResultSummary(result),
 				})
 			}
 		}
@@ -2416,6 +2420,13 @@ func toolDetail(params json.RawMessage) string {
 		return s
 	}
 	return ""
+}
+
+func toolResultSummary(result *types.ToolResult) string {
+	if result == nil || !result.Success {
+		return ""
+	}
+	return result.Summary
 }
 
 func toolCallNames(calls []llm.ToolCall) []string {

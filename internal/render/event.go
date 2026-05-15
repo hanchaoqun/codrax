@@ -331,8 +331,17 @@ type Event struct {
 	ToolCallID string
 	ToolNames  []string
 	ToolDetail string // short arg summary, e.g. file path or command
-	ToolOK     bool
-	ToolTime   time.Duration
+	// ToolParamsJSON carries raw tool-call parameters for render-only
+	// summaries of selected structured tools. It must never drive
+	// orchestration logic.
+	ToolParamsJSON string
+	ToolOK         bool
+	ToolTime       time.Duration
+	// ToolResultSummary carries the completed tool result's concise
+	// textual payload for renderers that surface selected tool-specific
+	// user-facing summaries. Empty for tools whose result should remain
+	// model-only.
+	ToolResultSummary string
 
 	// Sub-agent
 	SubAgentName string
