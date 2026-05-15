@@ -1646,6 +1646,53 @@ func TestNormalizeViewCompatibleAnswerDocument_TypedDecisionCarrier(t *testing.T
 	}
 }
 
+func TestNormalizeViewCompatibleAnswerDocument_CoalescesExtraSummaryBlocks(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind:     types.BlockSummary,
+			MinCount: 1,
+			MaxCount: 1,
+			Required: true,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "a.go", Line: 1}, {File: "b.go", Line: 2}},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "s1",
+				Kind:        types.BlockSummary,
+				Text:        "first lead",
+				FacetIDs:    []string{"current_code_path"},
+				SurfaceRole: types.SurfacePrincipal,
+				Items:       []types.AnswerBlockItem{{ID: "a", CitationRef: 0}},
+			},
+			{
+				ID:       "s2",
+				Kind:     types.BlockSummary,
+				Text:     "second lead",
+				FacetIDs: []string{"uncertainty_boundary"},
+				Items:    []types.AnswerBlockItem{{ID: "b", CitationRef: 1}},
+			},
+		},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
+		t.Fatalf("expected one excess summary block to be coalesced, got %d", fixed)
+	}
+	if len(doc.Blocks) != 1 || doc.Blocks[0].ID != "s1" {
+		t.Fatalf("summary coalescing should keep first summary identity, got %+v", doc.Blocks)
+	}
+	if !strings.Contains(doc.Blocks[0].Text, "first lead") ||
+		!strings.Contains(doc.Blocks[0].Text, "second lead") {
+		t.Fatalf("summary text should preserve both blocks, got %q", doc.Blocks[0].Text)
+	}
+	if len(doc.Blocks[0].Items) != 2 || doc.Blocks[0].Items[1].CitationRef != 1 {
+		t.Fatalf("summary items/citations should be preserved, got %+v", doc.Blocks[0].Items)
+	}
+	if hints := preCheckRequiredBlocks(doc, view); len(hints) != 0 {
+		t.Fatalf("coalesced summary should satisfy max-count gate, got %+v", hints)
+	}
+}
+
 // TestPreCheckPrincipalClaimUse_SingleFormRelaxation — when contract
 // declares exactly one AcceptableClaimForm AND the block carries
 // structural grounding (facet_ids + cited items), the missing

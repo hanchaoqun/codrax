@@ -251,6 +251,46 @@ func TestBuildAnswerDocumentParametersFor_PerKindPayloadConditionals(t *testing.
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_RequiredBlockCardinalityAndTypedDecision(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFRootCauseTrace,
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, MinCount: 1, MaxCount: 1, Required: true},
+			{Kind: types.BlockDecision, MinCount: 1, MaxCount: 1, Required: true},
+		},
+		CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{
+			Required:        true,
+			AllowedVerdicts: []types.CurrentStatusVerdict{types.CurrentStatusStillPresent, types.CurrentStatusFixed},
+		},
+	}
+	got := BuildAnswerDocumentParametersFor(view)
+	var root map[string]any
+	if err := json.Unmarshal(got, &root); err != nil {
+		t.Fatalf("projected schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	blocks := props["blocks"].(map[string]any)
+	if !schemaArrayHasKindCardinality(blocks, "summary", 1, 1) {
+		t.Fatalf("blocks[] schema must require exactly one summary; got %+v", blocks["allOf"])
+	}
+	if !schemaArrayHasKindCardinality(blocks, "decision", 1, 1) {
+		t.Fatalf("blocks[] schema must require exactly one decision; got %+v", blocks["allOf"])
+	}
+	blockItems := blocks["items"].(map[string]any)
+	blockProps := blockItems["properties"].(map[string]any)
+	if _, ok := blockProps["error_granularity_verdict"]; ok {
+		t.Fatalf("inactive error_granularity_verdict should be projected out")
+	}
+	current := blockProps["current_status_verdict"].(map[string]any)
+	enum := current["enum"].([]any)
+	if len(enum) != 2 || enum[0] != "still_present" || enum[1] != "fixed" {
+		t.Fatalf("current_status_verdict enum should be narrowed to allowed verdicts, got %v", enum)
+	}
+	if !schemaBlockKindRequiresField(blockItems, "decision", "current_status_verdict") {
+		t.Fatalf("decision block conditional must require current_status_verdict; got %+v", blockItems["allOf"])
+	}
+}
+
 // TestBuildAnswerDocumentParametersFor_BlockKindEnumRestricted
 // confirms block.kind is narrowed to the kinds the view declares.
 func TestBuildAnswerDocumentParametersFor_BlockKindEnumRestricted(t *testing.T) {
@@ -285,5 +325,53 @@ func TestBuildAnswerDocumentParametersFor_BlockKindEnumRestricted(t *testing.T) 
 				t.Errorf("kind %q must be projected away; full enum: %v", banned, enum)
 			}
 		}
+	}
+}
+
+func schemaArrayHasKindCardinality(blocks map[string]any, kind string, min, max int) bool {
+	allOf, _ := blocks["allOf"].([]any)
+	for _, raw := range allOf {
+		entry, _ := raw.(map[string]any)
+		contains, _ := entry["contains"].(map[string]any)
+		props, _ := contains["properties"].(map[string]any)
+		kindNode, _ := props["kind"].(map[string]any)
+		if kindNode["const"] != kind {
+			continue
+		}
+		return intFromSchemaNumber(entry["minContains"]) == min &&
+			intFromSchemaNumber(entry["maxContains"]) == max
+	}
+	return false
+}
+
+func schemaBlockKindRequiresField(blockItems map[string]any, kind, field string) bool {
+	allOf, _ := blockItems["allOf"].([]any)
+	for _, raw := range allOf {
+		entry, _ := raw.(map[string]any)
+		ifNode, _ := entry["if"].(map[string]any)
+		ifProps, _ := ifNode["properties"].(map[string]any)
+		kindNode, _ := ifProps["kind"].(map[string]any)
+		if kindNode["const"] != kind {
+			continue
+		}
+		thenNode, _ := entry["then"].(map[string]any)
+		required, _ := thenNode["required"].([]any)
+		for _, req := range required {
+			if req == field {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func intFromSchemaNumber(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	default:
+		return 0
 	}
 }

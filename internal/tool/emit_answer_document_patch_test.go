@@ -387,6 +387,41 @@ func TestEmitAnswerDocumentPatch_StringWrappedReplaceCitationsWithExtraCloser(t 
 	}
 }
 
+func TestEmitAnswerDocumentPatch_NormalizesReplaceCitationsForPreservedBlocks(t *testing.T) {
+	bus := newPatchTestBusContext()
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["list1"],
+		"replace_blocks": [{
+			"id": "s1",
+			"kind": "summary",
+			"text": "fixed lead",
+			"items": [{"id":"lead_cite", "citation_ref": 1}]
+		}],
+		"replace_citations": [
+			{"file":"x.go", "line":10},
+			{"file":"z.go", "line":99}
+		]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("replace_citations with preserved citation-bearing blocks should normalize, got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 2 {
+		t.Fatalf("normalized citation pool = %+v, want inherited old + appended new", doc)
+	}
+	if doc.Citations[0].File != "x.go" || doc.Citations[1].File != "z.go" {
+		t.Fatalf("unexpected citation pool after normalization: %+v", doc.Citations)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("replacement block citation_ref should be remapped to appended citation index 1, got %d", got)
+	}
+	if got := doc.Blocks[1].Items[0].CitationRef; got != 0 {
+		t.Fatalf("preserved block citation_ref should still point at inherited pool index 0, got %d", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_StringWrappedNestedDiagramAndExactResolution(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

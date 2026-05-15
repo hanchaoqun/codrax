@@ -3234,7 +3234,10 @@ func normalizeViewCompatibleAnswerDocument(doc *types.AnswerDocumentV2, view *ty
 	if doc == nil || view == nil {
 		return 0
 	}
-	return normalizeInactiveTypedDecisionVerdictFields(doc, view)
+	fixed := 0
+	fixed += normalizeInactiveTypedDecisionVerdictFields(doc, view)
+	fixed += normalizeExcessRequiredSummaryBlocks(doc, view)
+	return fixed
 }
 
 func normalizeInactiveTypedDecisionVerdictFields(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
@@ -3258,6 +3261,112 @@ func normalizeInactiveTypedDecisionVerdictFields(doc *types.AnswerDocumentV2, vi
 		}
 	}
 	return fixed
+}
+
+func normalizeExcessRequiredSummaryBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
+	if doc == nil || view == nil || !viewRequiresSingleSummaryBlock(view) {
+		return 0
+	}
+	lead := -1
+	fixed := 0
+	for i := 0; i < len(doc.Blocks); i++ {
+		if doc.Blocks[i].Kind != types.BlockSummary {
+			continue
+		}
+		if lead < 0 {
+			lead = i
+			continue
+		}
+		mergeSummaryBlock(&doc.Blocks[lead], doc.Blocks[i])
+		doc.Blocks = append(doc.Blocks[:i], doc.Blocks[i+1:]...)
+		i--
+		fixed++
+	}
+	return fixed
+}
+
+func viewRequiresSingleSummaryBlock(view *types.AnswerSemanticView) bool {
+	if view == nil {
+		return false
+	}
+	for _, req := range view.RequiredBlocks {
+		if req.Required && req.Kind == types.BlockSummary && req.MaxCount == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeSummaryBlock(dst *types.AnswerBlock, src types.AnswerBlock) {
+	if dst == nil {
+		return
+	}
+	if strings.TrimSpace(dst.Title) == "" {
+		dst.Title = src.Title
+	}
+	dst.Text = mergeSummaryText(dst.Text, src.Text)
+	dst.Items = append(dst.Items, src.Items...)
+	dst.FacetIDs = mergeStringSet(dst.FacetIDs, src.FacetIDs)
+	dst.ClaimUses = mergeRenderedClaimUses(dst.ClaimUses, src.ClaimUses)
+	dst.EdgeAnchors = mergeDiagramEdgeAnchors(dst.EdgeAnchors, src.EdgeAnchors)
+	if dst.SurfaceRole == "" {
+		dst.SurfaceRole = src.SurfaceRole
+	}
+}
+
+func mergeSummaryText(a, b string) string {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	case a == b:
+		return a
+	default:
+		return a + "\n\n" + b
+	}
+}
+
+func mergeStringSet(dst, src []string) []string {
+	seen := make(map[string]bool, len(dst)+len(src))
+	out := make([]string, 0, len(dst)+len(src))
+	for _, value := range append(append([]string(nil), dst...), src...) {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func mergeRenderedClaimUses(dst, src []types.RenderedClaimUse) []types.RenderedClaimUse {
+	seen := make(map[types.RenderedClaimUse]bool, len(dst)+len(src))
+	out := make([]types.RenderedClaimUse, 0, len(dst)+len(src))
+	for _, value := range append(append([]types.RenderedClaimUse(nil), dst...), src...) {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func mergeDiagramEdgeAnchors(dst, src []types.DiagramEdgeAnchor) []types.DiagramEdgeAnchor {
+	seen := make(map[types.DiagramEdgeAnchor]bool, len(dst)+len(src))
+	out := make([]types.DiagramEdgeAnchor, 0, len(dst)+len(src))
+	for _, value := range append(append([]types.DiagramEdgeAnchor(nil), dst...), src...) {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func preCheckRequiredCandidateRoles(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {

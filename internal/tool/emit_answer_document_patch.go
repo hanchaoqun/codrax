@@ -52,7 +52,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `replace_blocks`: full block payloads that replace the previous emit's block with the same id. Each entry must carry a non-empty id that exists in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids of previous-emit blocks to drop.\n" +
-		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. If you replace the citation pool, also replace/remove every previous block that contains non-negative `items[].citation_ref`; unchanged blocks keep old integer indexes and cannot be safely carried across a new pool.\n" +
+		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats` / `replace_snippets`: when present, replace the corresponding document-level field.\n\n" +
 		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` / `remove_block_ids` MUST exist in the previous emit; every `add_blocks` id MUST NOT. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. Block kind is validated against the canonical block-kind enum. The merged document is stored as if you had called `emit_answer_document` with the full payload.\n\n" +
@@ -220,6 +220,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] block op(s) normalized via prev-id tolerance: %s",
 			strings.Join(fields, ", "))
 	}
+	if changed, fields := normalizeAnswerDocumentPatchCitationOps(prev, patch); changed {
+		logging.Warning("[emit_answer_document_patch] citation op(s) normalized via preserved-pool tolerance: %s",
+			strings.Join(fields, ", "))
+	}
 
 	// v3 B4 (2026-05-04): route the patch-emit write through the
 	// unified mutation runtime — same chokepoint as the full path.
@@ -302,6 +306,111 @@ func normalizeAnswerDocumentPatchBlockOps(prev *types.AnswerDocumentV2, patch *t
 	patch.AddBlocks = keptAdd
 
 	return len(fields) > 0, fields
+}
+
+func normalizeAnswerDocumentPatchCitationOps(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) (bool, []string) {
+	if prev == nil || patch == nil || patch.ReplaceCitations == nil || len(patch.AppendCitations) > 0 {
+		return false, nil
+	}
+	if !patchPreservesCitationBearingBlock(prev, patch) {
+		return false, nil
+	}
+	mergedPool := append([]types.Citation(nil), prev.Citations...)
+	remap := make(map[int]int, len(patch.ReplaceCitations))
+	var appendCitations []types.Citation
+	for i, cit := range patch.ReplaceCitations {
+		idx := findEquivalentCitation(mergedPool, cit)
+		if idx < 0 {
+			mergedPool = append(mergedPool, cit)
+			appendCitations = append(appendCitations, cit)
+			idx = len(mergedPool) - 1
+		}
+		remap[i] = idx
+	}
+	remapped := remapPatchBlockCitationRefs(patch.ReplaceBlocks, remap) +
+		remapPatchBlockCitationRefs(patch.AddBlocks, remap)
+	patch.ReplaceCitations = nil
+	patch.AppendCitations = appendCitations
+	fields := []string{"replace_citations→append_citations"}
+	if remapped > 0 {
+		fields = append(fields, fmt.Sprintf("items[].citation_ref remapped=%d", remapped))
+	}
+	return true, fields
+}
+
+func patchPreservesCitationBearingBlock(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) bool {
+	removed := make(map[string]bool, len(patch.RemoveBlockIDs))
+	for _, id := range patch.RemoveBlockIDs {
+		removed[strings.TrimSpace(id)] = true
+	}
+	replaced := make(map[string]bool, len(patch.ReplaceBlocks))
+	for _, block := range patch.ReplaceBlocks {
+		replaced[strings.TrimSpace(block.ID)] = true
+	}
+	for _, block := range prev.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if removed[id] || replaced[id] {
+			continue
+		}
+		if answerBlockHasCitationRefsForPatchTool(block) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerBlockHasCitationRefsForPatchTool(block types.AnswerBlock) bool {
+	for _, item := range block.Items {
+		if item.CitationRef >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func findEquivalentCitation(pool []types.Citation, cit types.Citation) int {
+	for i, existing := range pool {
+		if equivalentAnswerCitation(existing, cit) {
+			return i
+		}
+	}
+	return -1
+}
+
+func equivalentAnswerCitation(a, b types.Citation) bool {
+	return normalizePatchCitationFile(a.File) == normalizePatchCitationFile(b.File) &&
+		a.Line == b.Line &&
+		a.LineEnd == b.LineEnd &&
+		strings.TrimSpace(a.Quote) == strings.TrimSpace(b.Quote) &&
+		a.Scope == b.Scope &&
+		strings.TrimSpace(a.SectionPath) == strings.TrimSpace(b.SectionPath) &&
+		a.FileRoleLabel == b.FileRoleLabel &&
+		strings.TrimSpace(a.CrossfileSummary) == strings.TrimSpace(b.CrossfileSummary) &&
+		strings.TrimSpace(a.NegativePattern) == strings.TrimSpace(b.NegativePattern) &&
+		strings.TrimSpace(a.EnclosingFunction) == strings.TrimSpace(b.EnclosingFunction)
+}
+
+func normalizePatchCitationFile(file string) string {
+	return strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
+}
+
+func remapPatchBlockCitationRefs(blocks []types.AnswerBlock, remap map[int]int) int {
+	changed := 0
+	for bi := range blocks {
+		for ii := range blocks[bi].Items {
+			ref := blocks[bi].Items[ii].CitationRef
+			if ref < 0 {
+				continue
+			}
+			mapped, ok := remap[ref]
+			if !ok || mapped == ref {
+				continue
+			}
+			blocks[bi].Items[ii].CitationRef = mapped
+			changed++
+		}
+	}
+	return changed
 }
 
 // recoverPrevFromRetryState attempts to decode the prev emit JSON

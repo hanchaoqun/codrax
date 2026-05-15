@@ -54,9 +54,11 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectClaimUsesEnum(blockProps, view)
 			projectDiagramField(blockProps, view)
 			projectEdgeAnchorsField(blockProps, view)
+			projectTypedDecisionVerdictFields(blockProps, blockItems, view)
 		}
 		projectKindPayloadConditionals(blockItems, view)
 	}
+	projectRequiredBlockArrayCardinality(blocksField, view)
 
 	// Document-level conditional fields.
 	if view.ExactResolution == nil {
@@ -237,7 +239,7 @@ func projectKindPayloadConditionals(blockItems map[string]any, view *types.Answe
 	if len(allowed) == 0 {
 		return
 	}
-	conditionals := make([]map[string]any, 0, len(allowed))
+	conditionals := schemaAllOfEntries(blockItems)
 	for _, k := range allowedKindOrder() {
 		if !allowed[k] {
 			continue
@@ -259,6 +261,124 @@ func projectKindPayloadConditionals(blockItems map[string]any, view *types.Answe
 	}
 	if len(conditionals) > 0 {
 		blockItems["allOf"] = conditionals
+	}
+}
+
+func projectTypedDecisionVerdictFields(blockProps map[string]any, blockItems map[string]any, view *types.AnswerSemanticView) {
+	currentActive := view.CurrentStatusDiagnostic != nil && view.CurrentStatusDiagnostic.Required
+	errorActive := view.ErrorGranularityProfile != nil && view.ErrorGranularityProfile.Active()
+	if !currentActive {
+		delete(blockProps, "current_status_verdict")
+	} else {
+		projectCurrentStatusVerdictEnum(blockProps, view.CurrentStatusDiagnostic)
+		appendKindRequiredFieldsConditional(blockItems, string(types.BlockDecision), "current_status_verdict")
+	}
+	if !errorActive {
+		delete(blockProps, "error_granularity_verdict")
+	} else {
+		appendKindRequiredFieldsConditional(blockItems, string(types.BlockDecision), "error_granularity_verdict")
+	}
+}
+
+func projectCurrentStatusVerdictEnum(blockProps map[string]any, contract *types.CurrentStatusDiagnosticContract) {
+	node, _ := blockProps["current_status_verdict"].(map[string]any)
+	if node == nil {
+		return
+	}
+	allowed := types.CurrentStatusAllowedVerdicts(contract)
+	enum := make([]string, 0, len(allowed))
+	for _, verdict := range allowed {
+		enum = append(enum, string(verdict))
+	}
+	if len(enum) > 0 {
+		node["enum"] = enum
+	}
+}
+
+func appendKindRequiredFieldsConditional(blockItems map[string]any, kind string, fields ...string) {
+	if len(fields) == 0 {
+		return
+	}
+	required := append([]string{"id", "kind"}, fields...)
+	conditionals := schemaAllOfEntries(blockItems)
+	conditionals = append(conditionals, map[string]any{
+		"if": map[string]any{
+			"properties": map[string]any{
+				"kind": map[string]any{"const": kind},
+			},
+		},
+		"then": map[string]any{
+			"required": required,
+		},
+	})
+	blockItems["allOf"] = conditionals
+}
+
+func schemaAllOfEntries(node map[string]any) []map[string]any {
+	switch raw := node["allOf"].(type) {
+	case []map[string]any:
+		return append([]map[string]any(nil), raw...)
+	case []any:
+		out := make([]map[string]any, 0, len(raw))
+		for _, entry := range raw {
+			if m, ok := entry.(map[string]any); ok {
+				out = append(out, m)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func projectRequiredBlockArrayCardinality(blocksField map[string]any, view *types.AnswerSemanticView) {
+	if blocksField == nil || view == nil {
+		return
+	}
+	type bounds struct {
+		min int
+		max int
+	}
+	byKind := make(map[types.AnswerBlockKind]bounds)
+	for _, req := range view.RequiredBlocks {
+		if !req.Required || req.Kind == "" {
+			continue
+		}
+		b := byKind[req.Kind]
+		b.min += req.MinCount
+		if req.MaxCount > 0 && (b.max == 0 || req.MaxCount < b.max) {
+			b.max = req.MaxCount
+		}
+		byKind[req.Kind] = b
+	}
+	if len(byKind) == 0 {
+		return
+	}
+	conditionals := schemaAllOfEntries(blocksField)
+	for _, kind := range types.AllAnswerBlockKinds() {
+		b, ok := byKind[kind]
+		if !ok || (b.min <= 0 && b.max <= 0) {
+			continue
+		}
+		entry := map[string]any{
+			"contains": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"kind": map[string]any{"const": string(kind)},
+				},
+				"required": []string{"kind"},
+			},
+		}
+		if b.min > 0 {
+			entry["minContains"] = b.min
+		}
+		if b.max > 0 {
+			entry["maxContains"] = b.max
+		}
+		conditionals = append(conditionals, entry)
+	}
+	if len(conditionals) > 0 {
+		blocksField["allOf"] = conditionals
 	}
 }
 
