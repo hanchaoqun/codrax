@@ -21,11 +21,12 @@ import (
 //
 // Design contract:
 //
-//   - Soft symbols (⟳, ·, ⊘) only — aligned with the project-wide
-//     palette (status_tokens.go: glyphRecoverable / glyphPending /
-//     glyphCancelled). Bright glyphs (📊, ✅, 🔥) are avoided because
-//     they would dominate the TUI at the cadence the orchestrator
-//     emits these events.
+//   - Soft symbols (⟳, ›, ·, ⊘) only — aligned with the project-wide
+//     palette (status_tokens.go: glyphRecoverable / glyphProgress /
+//     glyphPending / glyphCancelled). ⟳ is reserved for actual retry /
+//     re-run / rewrite. › means forward progress or active non-retry
+//     work. Bright glyphs (📊, ✅, 🔥) are avoided because they would
+//     dominate the TUI at the cadence the orchestrator emits these events.
 //   - The bucket color (yellow / gray / cyan, picked by the
 //     OrchestratorNoticeKind passed to formatOrchestratorNotice) is
 //     the primary semantic discriminator; the inline dot/⟳ glyph is
@@ -58,9 +59,9 @@ func preferZhMessage(lang string) bool {
 // only care that we are filling in a gap, not the exact arity.
 func softForcedReadMessage(lang string, _ int) string {
 	if preferZhMessage(lang) {
-		return "⟳ 正在补充关键信息"
+		return "› 正在补充关键信息"
 	}
-	return "⟳ Filling in missing context"
+	return "› Filling in missing context"
 }
 
 // softConvergenceStallMessage renders the user-visible line for the
@@ -103,16 +104,16 @@ func abandonForcedReadMessage(lang, file, cause string) string {
 // not silent background work. Bilingual.
 func selfConsistencyReviewStartMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 检查答案是否前后一致"
+		return "› 检查答案是否前后一致"
 	}
-	return "⟳ Checking the answer for inconsistencies"
+	return "› Checking the answer for inconsistencies"
 }
 
 // semanticQualityReviewStartMessage (P7, 2026-05-10): renders the
 // user-visible status line shown when the G5 semantic-quality
 // reviewer LLM dispatches. Symmetric counterpart of
 // selfConsistencyReviewStartMessage — the user sees a parallel
-// "⟳ 正在审阅答案完整性 / Reviewing answer coverage" cue so the
+// "› 正在审阅答案完整性 / Reviewing answer coverage" cue so the
 // ~3-5s second-reviewer pause is visible (rather than silent dock
 // time the operator can't account for).
 //
@@ -128,9 +129,9 @@ func selfConsistencyReviewStartMessage(lang string) string {
 //   - CN+EN-only per 2026-05-10 user direction
 func semanticQualityReviewStartMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 正在审阅答案完整性"
+		return "› 正在审阅答案完整性"
 	}
-	return "⟳ Reviewing answer coverage"
+	return "› Reviewing answer coverage"
 }
 
 // selfConsistencyContradictionMessage (commit 62): rendered when
@@ -253,9 +254,9 @@ func softRetryHintForStage(lang string, stage types.PipelineStage) string {
 // to move to the answer stage.
 func softInvestigationReadyMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "· 调查完成，准备作答"
+		return "› 调查完成，准备作答"
 	}
-	return "· Investigation done — preparing the answer"
+	return "› Investigation done — preparing the answer"
 }
 
 // softAnswerCheckRetryMessage renders the user-visible line for
@@ -466,9 +467,9 @@ func softPlanCriticReviewMessage(lang string, riskCount int) string {
 // into the finalize stage.
 func softFinalizingMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 正在生成最终答案"
+		return "› 正在生成最终答案"
 	}
-	return "⟳ Composing the final answer"
+	return "› Composing the final answer"
 }
 
 // softCompletenessGapMessage renders the user-visible advisory
@@ -540,13 +541,13 @@ func dimensionUserLabel(lang string, dim agent.CompletionDimension) string {
 // silently swallowing a failure.
 //
 // Surface text spells out (a) which step failed, (b) what the system
-// is doing about it. Keeps the same ⟳ + retry palette as other
-// retry-class notices so the visual language is consistent.
+// is doing about it. Uses the progress glyph because the system is
+// proceeding to finalize with available evidence, not retrying extract.
 func softProceedingWithoutExtractMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 提炼关键发现失败，将基于已有证据继续撰写最终答案"
+		return "› 提炼关键发现失败，将基于已有证据继续撰写最终答案"
 	}
-	return "⟳ Key-finding distillation failed; finalizing with the evidence already collected"
+	return "› Key-finding distillation failed; finalizing with the evidence already collected"
 }
 
 // multiRepoScanStartMessage / multiRepoScanEndMessage render the

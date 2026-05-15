@@ -76,8 +76,8 @@ func TestAppendSystemCaveatString_ReusesExistingSystemHeading(t *testing.T) {
 func TestSemanticQualityReviewStartMessage_RedlineAudit(t *testing.T) {
 	zh := semanticQualityReviewStartMessage("zh")
 	en := semanticQualityReviewStartMessage("en")
-	if !strings.Contains(zh, "⟳") || !strings.Contains(en, "⟳") {
-		t.Errorf("retry-class glyph ⟳ should appear in both branches; got zh=%q en=%q", zh, en)
+	if !strings.Contains(zh, "›") || !strings.Contains(en, "›") {
+		t.Errorf("progress glyph › should appear in both branches; got zh=%q en=%q", zh, en)
 	}
 	for _, msg := range []string{zh, en} {
 		for _, banned := range []string{

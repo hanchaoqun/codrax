@@ -234,7 +234,7 @@ const (
 //	    decision logged for transparency, no further action expected;
 //	    quiet so it does not dominate the dock at orchestrator cadence.
 //	progress-class (statusObjective / cyan):
-//	    forward milestone (e.g. investigation ready); reads as a peer
+//	    forward milestone or active non-retry work; reads as a peer
 //	    of the EventPhaseProgress structural progression line.
 //
 // The kind is enumerated rather than free-form so the formatter is a
@@ -244,19 +244,19 @@ const (
 type OrchestratorNoticeKind int
 
 const (
-	// retry-class — yellow ⟳ (active recovery)
+	// retry-class — yellow ⟳ (actual retry / re-run / rewrite)
 	NoticeRetry                                 OrchestratorNoticeKind = iota // generic stage retry hint
-	NoticeForcedRead                                                          // CGEC E2 forced-read fill
+	NoticeForcedRead                                                          // CGEC E2 forced-read fill (progress-class ›)
 	NoticeAnswerCheckRetry                                                    // post-finalize answer-contract backtrack
 	NoticeFallbackFinalizerOnly                                               // Block 3 fallback: re-run finalizer only
 	NoticeFallbackBackToExtract                                               // Block 3 fallback: re-run extract layer
 	NoticeFallbackBackToExplore                                               // Block 3 fallback: re-run explore layer
-	NoticeFinalizing                                                          // pre-finalize composition cue
-	NoticeSelfConsistencyStart                                                // self-consistency reviewer dispatch
+	NoticeFinalizing                                                          // pre-finalize composition cue (progress-class ›)
+	NoticeSelfConsistencyStart                                                // self-consistency reviewer dispatch (progress-class ›)
 	NoticeSelfConsistencyContradictionRewriting                               // contradictions found, rewriting answer
 	NoticeNoToolCall                                                          // must-emit stage got zero tool_calls; re-prompting
-	NoticeProceedingWithoutExtract                                            // pre-finalize extract dispatch failed; proceeding with prior evidence
-	NoticeSemanticQualityReviewStart                                          // P7 (2026-05-10) — G5 semantic-quality reviewer dispatching (retry-class ⟳)
+	NoticeProceedingWithoutExtract                                            // pre-finalize extract dispatch failed; proceeding with prior evidence (progress-class ›)
+	NoticeSemanticQualityReviewStart                                          // P7 (2026-05-10) — semantic-quality reviewer dispatching (progress-class ›)
 
 	// info-class — gray (passive informational)
 	NoticeConvergenceStall                   // CGEC I4 plateau finalizing on current evidence
@@ -269,7 +269,7 @@ const (
 	NoticeFinalizeRepairCap                  // P6/P7 (2026-05-10) — finalize repair-loop hard cap reached; ship doc + residual-concerns caveat (info-class ·)
 	NoticeLowGrounding                       // evidence groundedness below advisory profile floor; run continues
 
-	// progress-class — cyan (forward milestone)
+	// progress-class — cyan › (forward milestone / current work, not retry)
 	NoticeInvestigationReady // explorer signaled investigation_complete
 
 	// 2026-05-08 — multi-repo scan progress (Phase 4 + UX audit).

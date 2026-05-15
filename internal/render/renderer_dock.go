@@ -1297,8 +1297,8 @@ func retryCountSuffix(retries, fallbacks int, zh bool) string {
 //
 // Buckets:
 //
-//	retry-class            → statusRecoverable (yellow) — actively
-//	                         recovering; "still working, one more pass"
+//	retry-class            → statusRecoverable (yellow) — actual
+//	                         retry / re-run / rewrite
 //	fallback-terminal-class → statusWarningMuted (yellow) — retry budget
 //	                         exhausted; the answer ships with what we
 //	                         have. Distinct GLYPH (·) from retry-class
@@ -1306,23 +1306,19 @@ func retryCountSuffix(retries, fallbacks int, zh bool) string {
 //	                         "trying again" vs "giving up gracefully".
 //	info-class             → statusMeta (dark gray) — quiet informational
 //	progress-class         → statusObjective (cyan) — forward milestone
+//	                         or active non-retry work
 //
 // Default falls through to statusMeta so a future kind added without
 // a switch update is visible (gray) but not loud (no false retry hue).
 func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 	switch kind {
 	case NoticeRetry,
-		NoticeForcedRead,
 		NoticeAnswerCheckRetry,
 		NoticeFallbackFinalizerOnly,
 		NoticeFallbackBackToExtract,
 		NoticeFallbackBackToExplore,
-		NoticeFinalizing,
-		NoticeSelfConsistencyStart,
-		NoticeSemanticQualityReviewStart,
 		NoticeSelfConsistencyContradictionRewriting,
-		NoticeNoToolCall,
-		NoticeProceedingWithoutExtract:
+		NoticeNoToolCall:
 		return statusRecoverable
 	case NoticeFinalizeRepairCap:
 		// P6/P7: hard-cap reached but the answer DID ship — pure
@@ -1335,7 +1331,12 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		// signals "pay attention" without screaming red — the body and
 		// surrounding answer/logs carry the actual content.
 		return statusWarningMuted
-	case NoticeInvestigationReady:
+	case NoticeForcedRead,
+		NoticeFinalizing,
+		NoticeSelfConsistencyStart,
+		NoticeSemanticQualityReviewStart,
+		NoticeProceedingWithoutExtract,
+		NoticeInvestigationReady:
 		return statusObjective
 	case NoticeMultiRepoScanOK:
 		// Match the canonical glyphSuccess (✓) / statusSuccessMuted
@@ -1377,7 +1378,7 @@ func formatOrchestratorNotice(kind OrchestratorNoticeKind, text string) string {
 //
 //   - 2-space leading indent (mirrors formatReasoning's "  " indent
 //     so the column-1 alignment with surrounding rows is preserved)
-//   - The message body carries its own kind glyph (⟳ / · / ⊘) chosen
+//   - The message body carries its own kind glyph (⟳ / › / · / ⊘) chosen
 //     by internal/orchestrator/user_messages.go. The glyph keeps the
 //     bucket colour (yellow / gray / cyan); for retry-class notices
 //     we ALSO splice the current K/N stage progress between glyph
@@ -1393,7 +1394,7 @@ func formatOrchestratorNoticeWithProgress(kind OrchestratorNoticeKind, text, pro
 	style := orchestratorNoticeStyle(kind)
 	// Split the leading kind glyph (single rune followed by a space)
 	// from the prose body. user_messages.go produces "⟳ <text>" /
-	// "· <text>" / "⊘ <text>" for soft notices. When the head is a
+	// "› <text>" / "· <text>" / "⊘ <text>" for soft notices. When the head is a
 	// single rune + space, peel it so we can colour the glyph + the
 	// optional K/N progress in the bucket palette but dim the prose.
 	glyph, body := peelGlyphPrefix(text)
@@ -1421,7 +1422,7 @@ func formatOrchestratorNoticeWithProgress(kind OrchestratorNoticeKind, text, pro
 }
 
 // peelGlyphPrefix splits a soft-notice text into its leading glyph
-// (one rune, one of ⟳ / · / ⊘ / ◆ / ◇) and the rest of the body. The
+// (one rune, one of ⟳ / › / · / ⊘ / ✓ / ✗) and the rest of the body. The
 // glyph and trailing space are stripped from the body. Returns
 // ("", text) when the head is not a recognised glyph + space.
 func peelGlyphPrefix(text string) (glyph, body string) {
@@ -1431,7 +1432,7 @@ func peelGlyphPrefix(text string) (glyph, body string) {
 	// Walk one rune.
 	for _, r := range text {
 		switch r {
-		case glyphRecoverable, glyphCancelled, glyphWarning,
+		case glyphRecoverable, glyphProgress, glyphCancelled, glyphWarning,
 			glyphSuccess, glyphFatal:
 			rest := strings.TrimPrefix(text, string(r))
 			rest = strings.TrimPrefix(rest, " ")
@@ -1453,17 +1454,12 @@ func peelGlyphPrefix(text string) (glyph, body string) {
 func softNoticeBodyStyle(kind OrchestratorNoticeKind) *pterm.Style {
 	switch kind {
 	case NoticeRetry,
-		NoticeForcedRead,
 		NoticeAnswerCheckRetry,
 		NoticeFallbackFinalizerOnly,
 		NoticeFallbackBackToExtract,
 		NoticeFallbackBackToExplore,
-		NoticeFinalizing,
-		NoticeSelfConsistencyStart,
-		NoticeSemanticQualityReviewStart,
 		NoticeSelfConsistencyContradictionRewriting,
-		NoticeNoToolCall,
-		NoticeProceedingWithoutExtract:
+		NoticeNoToolCall:
 		return statusPrimaryDone
 	case NoticeYieldKill, NoticeFallbackFailLoud, NoticeLowGrounding:
 		// Warning-muted: glyph picks up the yellow tint; the prose body

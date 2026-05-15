@@ -27,8 +27,8 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := softForcedReadMessage(c.lang, 3)
-			if strings.HasPrefix(got, "⟳") == false {
-				t.Errorf("forced-read must start with the ⟳ soft symbol, got %q", got)
+			if strings.HasPrefix(got, "›") == false {
+				t.Errorf("forced-read must start with the › progress symbol, got %q", got)
 			}
 			if c.zh && !strings.Contains(got, "补充") {
 				t.Errorf("zh: forced-read must be Chinese, got %q", got)
@@ -62,8 +62,8 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			}
 
 			got = softInvestigationReadyMessage(c.lang)
-			if strings.HasPrefix(got, "·") == false {
-				t.Errorf("investigation-ready must start with the · symbol, got %q", got)
+			if strings.HasPrefix(got, "›") == false {
+				t.Errorf("investigation-ready must start with the › progress symbol, got %q", got)
 			}
 			if c.zh && !strings.Contains(got, "调查") {
 				t.Errorf("zh: investigation-ready must be Chinese, got %q", got)
@@ -86,8 +86,8 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			}
 
 			got = softFinalizingMessage(c.lang)
-			if strings.HasPrefix(got, "⟳") == false {
-				t.Errorf("finalizing must start with the ⟳ soft symbol, got %q", got)
+			if strings.HasPrefix(got, "›") == false {
+				t.Errorf("finalizing must start with the › progress symbol, got %q", got)
 			}
 			if c.zh && !strings.Contains(got, "生成") {
 				t.Errorf("zh: finalizing must be Chinese, got %q", got)
@@ -257,7 +257,6 @@ func TestSoftMessages_NoVisualShockSymbols(t *testing.T) {
 	}
 }
 
-
 // =====================================================================
 // Phase 4 / 6 (2026-05-08) multi-repo scan progress messages
 // =====================================================================
@@ -349,4 +348,3 @@ func TestMultiRepoScanMessages_ElapsedFormat(t *testing.T) {
 		}
 	}
 }
-

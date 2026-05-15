@@ -106,6 +106,7 @@ const (
 	glyphCancelled   = '⊘' // user-initiated stop; distinct from ✗ (system failure)
 	glyphReasoning   = '⋯'
 	glyphToolCall    = '⇢'
+	glyphProgress    = '›'
 	glyphWarning     = '·'
 	glyphPending     = '·'
 	glyphTopicBullet = '·'

@@ -39,12 +39,12 @@ func TestFormatOrchestratorNotice_BodyPreserved(t *testing.T) {
 		body string
 	}{
 		{NoticeRetry, "⟳ 正在补齐调查证据"},
-		{NoticeForcedRead, "⟳ 正在补充关键信息"},
+		{NoticeForcedRead, "› 正在补充关键信息"},
 		{NoticeConvergenceStall, "– 根据已有线索作答"},
 		{NoticeInvestigationReady, "› 调查就绪，准备作答"},
 		{NoticeAbandonRead, "⊘ 跳过 `foo.go` (does not exist), 继续推进"},
 		{NoticePlanReview, "· 方案已审阅, 未发现风险点"},
-		{NoticeFinalizing, "⟳ 正在组织最终答案"},
+		{NoticeFinalizing, "› 正在组织最终答案"},
 	}
 	for _, c := range cases {
 		out := formatOrchestratorNotice(c.kind, c.body)
@@ -70,13 +70,10 @@ func TestFormatOrchestratorNotice_ColorByBucket(t *testing.T) {
 	}{
 		// retry-class
 		{"retry", NoticeRetry, statusRecoverable.Sprint(body)},
-		{"forced-read", NoticeForcedRead, statusRecoverable.Sprint(body)},
 		{"answer-check-retry", NoticeAnswerCheckRetry, statusRecoverable.Sprint(body)},
 		{"fallback-finalizer", NoticeFallbackFinalizerOnly, statusRecoverable.Sprint(body)},
 		{"fallback-extract", NoticeFallbackBackToExtract, statusRecoverable.Sprint(body)},
 		{"fallback-explore", NoticeFallbackBackToExplore, statusRecoverable.Sprint(body)},
-		{"finalizing", NoticeFinalizing, statusRecoverable.Sprint(body)},
-		{"sc-start", NoticeSelfConsistencyStart, statusRecoverable.Sprint(body)},
 		{"sc-rewriting", NoticeSelfConsistencyContradictionRewriting, statusRecoverable.Sprint(body)},
 		{"no-tool-call", NoticeNoToolCall, statusRecoverable.Sprint(body)},
 
@@ -95,6 +92,11 @@ func TestFormatOrchestratorNotice_ColorByBucket(t *testing.T) {
 		{"low-grounding", NoticeLowGrounding, statusWarningMuted.Sprint(body)},
 
 		// progress-class
+		{"forced-read", NoticeForcedRead, statusObjective.Sprint(body)},
+		{"finalizing", NoticeFinalizing, statusObjective.Sprint(body)},
+		{"sc-start", NoticeSelfConsistencyStart, statusObjective.Sprint(body)},
+		{"semantic-quality-start", NoticeSemanticQualityReviewStart, statusObjective.Sprint(body)},
+		{"proceeding-without-extract", NoticeProceedingWithoutExtract, statusObjective.Sprint(body)},
 		{"investigation-ready", NoticeInvestigationReady, statusObjective.Sprint(body)},
 	}
 	for _, c := range cases {
@@ -102,6 +104,30 @@ func TestFormatOrchestratorNotice_ColorByBucket(t *testing.T) {
 			out := formatOrchestratorNotice(c.kind, body)
 			if !strings.Contains(out, c.wantSegment) {
 				t.Errorf("kind=%v expected styled segment %q in %q", c.kind, c.wantSegment, out)
+			}
+		})
+	}
+}
+
+func TestFormatOrchestratorNotice_ProgressNoticesDoNotUseRetryGlyph(t *testing.T) {
+	cases := []struct {
+		name string
+		kind OrchestratorNoticeKind
+		body string
+		want string
+	}{
+		{"finalizing", NoticeFinalizing, "› 正在生成最终答案", "› 4/4 正在生成最终答案"},
+		{"self-consistency", NoticeSelfConsistencyStart, "› 检查答案是否前后一致", "› 4/4 检查答案是否前后一致"},
+		{"quality-review", NoticeSemanticQualityReviewStart, "› 正在审阅答案完整性", "› 4/4 正在审阅答案完整性"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out := stripAnsiEscapes(formatOrchestratorNoticeWithProgress(c.kind, c.body, "4/4"))
+			if out != "  "+c.want {
+				t.Fatalf("progress notice changed\nwant %q\ngot  %q", "  "+c.want, out)
+			}
+			if strings.Contains(out, "⟳") {
+				t.Fatalf("progress notice must not use retry glyph: %q", out)
 			}
 		})
 	}
