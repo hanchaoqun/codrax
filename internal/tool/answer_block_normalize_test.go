@@ -117,6 +117,35 @@ func TestNormalizeEmitAnswerBlock_CurrentStatusVerdictDecisionOnly(t *testing.T)
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_CaveatAliasFillsTextOnCaveatBlock(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:     "c1",
+		Kind:   string(types.BlockCaveat),
+		Caveat: "Evidence is limited to the inspected files.",
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got.Text != "Evidence is limited to the inspected files." {
+		t.Fatalf("caveat alias did not populate text: %+v", got)
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_CaveatAliasRejectedOnNonCaveatBlock(t *testing.T) {
+	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:     "s1",
+		Kind:   string(types.BlockSummary),
+		Text:   "summary",
+		Caveat: "not a caveat block",
+	}, "blocks[0]")
+	if err == nil {
+		t.Fatal("must reject caveat alias on non-caveat blocks")
+	}
+	if !strings.Contains(err.Error(), "kind=caveat") {
+		t.Fatalf("err should explain caveat-only alias, got %q", err.Error())
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_RejectsEmptyID(t *testing.T) {
 	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{Kind: string(types.BlockSummary)}, "blocks[2]")
 	if err == nil {

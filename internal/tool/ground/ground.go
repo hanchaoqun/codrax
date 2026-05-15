@@ -1147,7 +1147,7 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 	}
 	if it.AnchorKind == types.AnchorTextReference {
 		if it.AnchorSymbol != "" {
-			_, ok := findAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol)
+			_, ok := findTextReferenceAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol)
 			return ok
 		}
 		text, exists := lookupLineWithNeighbours(fileLines, it.LineStart, 2)
@@ -1486,6 +1486,37 @@ func findAnchorLine(fileLines map[int]string, center, radius int, anchor string)
 	return 0, false
 }
 
+func findTextReferenceAnchorLine(fileLines map[int]string, center, radius int, anchor string) (int, bool) {
+	if strings.TrimSpace(anchor) == "" {
+		return 0, false
+	}
+	if text, ok := fileLines[center]; ok && lineContainsTextReferenceAnchor(text, anchor) {
+		return center, true
+	}
+	bestLine, bestDist := 0, radius+1
+	for i := center - radius; i <= center+radius; i++ {
+		if i == center || i <= 0 {
+			continue
+		}
+		text, ok := fileLines[i]
+		if !ok || !lineContainsTextReferenceAnchor(text, anchor) {
+			continue
+		}
+		d := i - center
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			bestLine = i
+		}
+	}
+	if bestLine > 0 {
+		return bestLine, true
+	}
+	return 0, false
+}
+
 func findNonCommentAnchorLine(fileLines map[int]string, center, radius int, anchor, source string) (int, bool) {
 	seg := lastDotSegment(anchor)
 	anchorTokens := tokenSet(anchor)
@@ -1548,6 +1579,58 @@ func lineContainsAnchor(text, anchor, seg string, useSubstring bool) bool {
 	}
 	have := tokenSet(text)
 	return have[anchor] || (seg != anchor && have[seg])
+}
+
+func lineContainsTextReferenceAnchor(line, anchor string) bool {
+	for _, candidate := range textReferenceAnchorCandidates(anchor) {
+		if textReferenceExactTokenMatch(line, candidate) {
+			return true
+		}
+		if textReferenceVisibleFragmentMatches(line, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func textReferenceExactTokenMatch(line, candidate string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return false
+	}
+	tokens := identifierTokenRe.FindAllString(candidate, -1)
+	if len(tokens) == 0 {
+		return nonASCIISubstringMatch(candidate, line)
+	}
+	if len(tokens) != 1 || tokens[0] != candidate {
+		return false
+	}
+	return tokenSet(line)[candidate]
+}
+
+func textReferenceAnchorCandidates(anchor string) []string {
+	anchor = strings.TrimSpace(anchor)
+	if anchor == "" {
+		return nil
+	}
+	out := []string{anchor}
+	if unquoted, err := strconv.Unquote(anchor); err == nil && strings.TrimSpace(unquoted) != "" && unquoted != anchor {
+		out = append(out, unquoted)
+	}
+	trimmed := strings.Trim(anchor, "`\"'“”‘’")
+	if trimmed != "" && trimmed != anchor {
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func textReferenceVisibleFragmentMatches(content, candidate string) bool {
+	content = normalizeStringLiteralSurface(content)
+	candidate = normalizeStringLiteralSurface(candidate)
+	if content == "" || candidate == "" || !allowsStringLiteralFragmentMatch(candidate) {
+		return false
+	}
+	return stringLiteralFragmentBoundedContains(content, candidate)
 }
 
 func findStringLiteralAnchorLine(fileLines map[int]string, center, radius int, anchor, source string) (int, bool) {

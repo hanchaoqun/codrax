@@ -54,6 +54,15 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=%q is not a valid block kind; allowed values: %v",
 			fieldPath, raw.Kind, types.AllAnswerBlockKinds())
 	}
+	if caveat := strings.TrimSpace(raw.Caveat); caveat != "" {
+		if kind != types.BlockCaveat {
+			return types.AnswerBlock{}, fmt.Errorf("%s: caveat is only accepted as a local-model compatibility alias on kind=caveat blocks; use block.text for the visible prose",
+				fieldPath)
+		}
+		if strings.TrimSpace(raw.Text) == "" {
+			raw.Text = raw.Caveat
+		}
+	}
 	blk := types.AnswerBlock{
 		ID:          raw.ID,
 		Kind:        kind,

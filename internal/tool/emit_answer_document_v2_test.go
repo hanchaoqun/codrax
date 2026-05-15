@@ -82,6 +82,31 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_CaveatAliasAcceptedForCaveatBlock(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "Hello"},
+			{"id": "c1", "kind": "caveat", "caveat": "Only files read in this run were considered."}
+		]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("V2 doc not written correctly: %+v", doc)
+	}
+	if doc.Blocks[1].Kind != types.BlockCaveat || doc.Blocks[1].Text != "Only files read in this run were considered." {
+		t.Fatalf("caveat alias not normalized: %+v", doc.Blocks[1])
+	}
+}
+
 func TestEmitAnswerDocumentV2_RejectsMissingModelSurfaceTerm(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.Mutable.AppendEvidence([]types.EvidenceItem{{

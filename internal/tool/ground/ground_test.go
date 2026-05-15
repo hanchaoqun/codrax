@@ -1126,6 +1126,38 @@ func TestGroundItem_TextReferenceAcceptsCommentLine(t *testing.T) {
 	}
 }
 
+func TestGroundItem_TextReferenceAcceptsVisibleCommentPhrase(t *testing.T) {
+	cases := []struct {
+		name   string
+		anchor string
+	}{
+		{name: "phrase with punctuation", anchor: "Turn B (extractor) evaluator"},
+		{name: "filename with dot", anchor: "extractor.go"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			history := []types.ToolResult{
+				buildGutterReadResult("internal/agent/extractor.go", 3, []string{
+					"// extractor.go — Turn B (extractor) evaluator.",
+				}, 40),
+			}
+			gc := &Context{LineIndex: buildLineIndex(history, "")}
+			it := &types.EvidenceItem{
+				Kind:         types.EvidenceDirect,
+				Source:       "internal/agent/extractor.go",
+				LineStart:    3,
+				AnchorKind:   types.AnchorTextReference,
+				AnchorSymbol: tc.anchor,
+			}
+			GroundItem(it, gc)
+			if it.GroundingStatus != types.GroundingGrounded || it.GroundingTier != types.TierLineText {
+				t.Fatalf("text_reference phrase status=%s tier=%s note=%q, want grounded line_text",
+					it.GroundingStatus, it.GroundingTier, it.GroundingNote)
+			}
+		})
+	}
+}
+
 func TestGroundItem_StringLiteralAcceptsCrossLanguageLiteralLines(t *testing.T) {
 	cases := []struct {
 		name   string
