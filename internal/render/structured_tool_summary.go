@@ -28,9 +28,113 @@ func formatStructuredToolResultSummary(toolName, paramsJSON, resultSummary, lang
 		return formatEvidenceToolResultSummary(toolName, resultSummary, lang)
 	case "emit_analysis":
 		return formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang)
+	case "emit_answer_document", "emit_answer_document_patch":
+		return formatAnswerDocumentToolResultSummary(toolName, resultSummary, lang)
 	default:
 		return ""
 	}
+}
+
+func formatAnswerDocumentToolResultSummary(toolName, summary, lang string) string {
+	toolName = strings.TrimSpace(toolName)
+	if toolName != "emit_answer_document" && toolName != "emit_answer_document_patch" {
+		return ""
+	}
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	zh := isZh(lang)
+	if strings.Contains(summary, " accepted: ") {
+		return formatAnswerDocumentAcceptedSummary(summary, zh)
+	}
+	return formatAnswerDocumentRejectedSummary(summary, zh)
+}
+
+var answerDocAcceptedCountsRe = regexp.MustCompile(`blocks=([0-9]+).*citations=([0-9]+)`)
+var answerDocSummaryListPrefixRe = regexp.MustCompile(`^[0-9]+[.)]\s+`)
+
+func formatAnswerDocumentAcceptedSummary(summary string, zh bool) string {
+	counts := answerDocAcceptedCountsRe.FindStringSubmatch(summary)
+	detail := ""
+	if len(counts) == 3 {
+		if zh {
+			detail = fmt.Sprintf("答案草稿已写入：%s 个区块 · %s 条引用", counts[1], counts[2])
+		} else {
+			detail = fmt.Sprintf("Answer draft written: %s block(s) · %s citation(s)", counts[1], counts[2])
+		}
+	} else if zh {
+		detail = "答案草稿已写入"
+	} else {
+		detail = "Answer draft written"
+	}
+	return "  " + statusMeta.Sprint("•") + " " + statusMeta.Sprint(detail) + "\n"
+}
+
+func formatAnswerDocumentRejectedSummary(summary string, zh bool) string {
+	items := answerDocumentRejectActions(summary, 3)
+	if len(items) == 0 {
+		first := firstNonEmptyLine(summary)
+		if first == "" {
+			return ""
+		}
+		items = append(items, first)
+	}
+	header := "Answer document check failed"
+	if zh {
+		header = "成文校验未通过"
+	}
+	lines := []string{"  " + statusMeta.Sprint("•") + " " + statusMeta.Sprint(header)}
+	for i, item := range items {
+		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint(fmt.Sprintf("    %d. %s", i+1, item)), evidenceSummaryMaxCols))
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func answerDocumentRejectActions(summary string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	var out []string
+	var currentField string
+	for _, raw := range strings.Split(summary, "\n") {
+		line := strings.TrimSpace(raw)
+		line = answerDocSummaryListPrefixRe.ReplaceAllString(line, "")
+		switch {
+		case strings.HasPrefix(line, "Field:"):
+			currentField = trimSummaryCodeMarkers(strings.TrimSpace(strings.TrimPrefix(line, "Field:")))
+		case strings.HasPrefix(line, "Action:"):
+			action := strings.TrimSpace(strings.TrimPrefix(line, "Action:"))
+			if action == "" {
+				continue
+			}
+			if currentField != "" {
+				action = currentField + ": " + action
+			}
+			out = append(out, action)
+			currentField = ""
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func trimSummaryCodeMarkers(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.Trim(s, "`")
+	return strings.TrimSpace(s)
+}
+
+func firstNonEmptyLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 func formatEvidenceToolResultSummary(toolName, summary, lang string) string {

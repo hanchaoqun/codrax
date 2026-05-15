@@ -270,6 +270,37 @@ func TestFormatAnalysisToolResultSummaryZh(t *testing.T) {
 	}
 }
 
+func TestFormatAnswerDocumentToolResultSummaryRejectedZh(t *testing.T) {
+	summary := "The answer document does not yet meet the structural contract for this question.\n\n" +
+		"  1. Field: `blocks[].items[].label`\n" +
+		"     Action: structured answer anchor label(s) must preserve: explorer\n" +
+		"     Why: typed mechanism-anchor contract requires exact endpoint anchors.\n" +
+		"  2. Field: `citations[]`\n" +
+		"     Action: need at least 14 entries because citation_ref indexes up to 13\n"
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_answer_document", "", summary, "zh"))
+	for _, want := range []string{
+		"• 成文校验未通过",
+		"1. blocks[].items[].label: structured answer anchor label(s) must preserve: explorer",
+		"2. citations[]: need at least 14 entries because citation_ref indexes up to 13",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("answer document reject summary missing %q; got:\n%s", want, got)
+		}
+	}
+}
+
+func TestFormatAnswerDocumentToolResultSummaryAcceptedZh(t *testing.T) {
+	summary := "emit_answer_document accepted: replace_all blocks=4 citations=7"
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_answer_document", "", summary, "zh"))
+	for _, want := range []string{
+		"• 答案草稿已写入：4 个区块 · 7 条引用",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("answer document accepted summary missing %q; got:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderer_EmitsAnalysisSummaryOnToolEnd(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(&buf, false)
@@ -288,6 +319,30 @@ func TestRenderer_EmitsAnalysisSummaryOnToolEnd(t *testing.T) {
 	for _, want := range []string{"分析结果", "意图 explain", "实体 1 个：SubExplorer", "图 sequence"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("tool end should surface analysis summary %q; got %q", want, out)
+		}
+	}
+}
+
+func TestRenderer_EmitsAnswerDocumentFailureSummaryOnToolEnd(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:     EventToolCallEnd,
+		ToolName: "emit_answer_document",
+		ToolOK:   false,
+		ToolResultSummary: "The answer document does not yet meet the structural contract for this question.\n\n" +
+			"  1. Field: `blocks[].items[].label`\n" +
+			"     Action: structured answer anchor label(s) must preserve: explorer\n",
+		Timestamp: time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{"成文校验未通过", "blocks[].items[].label", "must preserve: explorer"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("tool end should surface answer document failure %q; got %q", want, out)
 		}
 	}
 }

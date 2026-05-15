@@ -475,7 +475,7 @@ func (r *Renderer) handleEvent(ev Event) {
 			// and the next thinking event.
 			r.activity = activityState{kind: activityRequesting}
 		}
-		if (r.dockEnabled || r.dock != nil) && ev.ToolOK {
+		if (r.dockEnabled || r.dock != nil) && shouldRenderStructuredToolSummary(ev) {
 			if block := formatStructuredToolResultSummary(ev.ToolName, ev.ToolParamsJSON, ev.ToolResultSummary, r.lang); block != "" {
 				r.commitMultilineLocked(block)
 			}
@@ -1684,7 +1684,7 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 			r.emitNonTTYLine(line)
 		}
 	case EventToolCallEnd:
-		if ev.ToolOK {
+		if shouldRenderStructuredToolSummary(ev) {
 			if block := formatStructuredToolResultSummary(ev.ToolName, ev.ToolParamsJSON, ev.ToolResultSummary, r.lang); block != "" {
 				fmt.Fprint(r.outputWriter(), stripAnsiEscapes(block))
 				mirrorDockBlockToLog(block)
@@ -1736,6 +1736,18 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		// (start) or rejection reasoning (rejected).
 		r.emitNonTTYLine(formatPhaseProgressLine(r.lang, ev.PhaseIndex, ev.PhaseTotal,
 			ev.PhaseProgressKind, ev.PhaseDetail))
+	}
+}
+
+func shouldRenderStructuredToolSummary(ev Event) bool {
+	if ev.ToolOK {
+		return true
+	}
+	switch strings.TrimSpace(ev.ToolName) {
+	case "emit_answer_document", "emit_answer_document_patch":
+		return true
+	default:
+		return false
 	}
 }
 

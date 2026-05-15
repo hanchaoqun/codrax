@@ -652,6 +652,42 @@ func TestEmitAnswerDocumentV2_RejectedAttemptsAccumulateVisibleDiagrams(t *testi
 	}
 }
 
+func TestEmitAnswerDocumentV2_RejectedAttemptPreservesVisibleDraftText(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"id":"s1","kind":"summary","text":"Visible answer body"},
+			{"id":"s2","kind":"not_a_real_kind","text":"Malformed but visible"}
+		],
+		"citations": [{"file":"internal/agent/sub_explorer.go","line":24}]
+	}`)
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("invalid block kind should reject the structured emit")
+	}
+	attachments := bus.Mutable.AnswerDisplayAttachments()
+	if len(attachments) == 0 {
+		t.Fatal("rejected visible draft should be preserved as a display attachment")
+	}
+	joined := ""
+	for _, att := range attachments {
+		joined += "\n" + att.Body
+	}
+	for _, want := range []string{
+		"Visible answer body",
+		"Malformed but visible",
+		"internal/agent/sub_explorer.go:24",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("recovered draft lost %q; attachments=%+v", want, attachments)
+		}
+	}
+}
+
 // TestEmitAnswerDocumentV2_WholeDocumentStringifyAccepted is the
 // end-to-end version: a finalizer-shaped LLM emit where the whole
 // answer body was JSON.stringify'd into the blocks key MUST now be

@@ -1245,14 +1245,21 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 		historyToolCalls := sanitizeToolCallsForHistory(resp.ToolCalls)
 
-		// Must-emit stage visibility: when the stage's tool_choice is
-		// "required" but the provider still returned zero tool_calls
-		// (some self-hosted gateways and fine-tuned chat models
-		// quietly ignore tool_choice), the UI would otherwise go
-		// silent for the entire continuation retry budget. Emit a
-		// localized soft message each time it happens so the user
-		// sees exactly why the stage is looping.
-		if toolChoiceForStage(ctx.Stage) == "required" && len(resp.ToolCalls) == 0 {
+		emitRequiredNoToolNotice := func() {
+			// Must-emit stage visibility: when the stage's tool_choice
+			// is "required" but the provider still returned zero
+			// tool_calls, emit the notice only on branches that
+			// actually continue. Protocol-aware stages may accept a
+			// no-tool soft stop (for example, an extractor dispatch
+			// whose controller already consumed the prose), and showing
+			// "retrying" before that decision misleads the REPL.
+			stage := types.PipelineStage("")
+			if ctx != nil {
+				stage = ctx.Stage
+			}
+			if toolChoiceForStage(stage) != "required" || len(resp.ToolCalls) != 0 {
+				return
+			}
 			lang := ""
 			if ctx != nil {
 				lang = ctx.Language
@@ -1261,7 +1268,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Kind:       render.EventOrchestratorNotice,
 				Timestamp:  time.Now(),
 				Agent:      "orchestrator",
-				Stage:      ctx.Stage,
+				Stage:      stage,
 				Iteration:  i,
 				NoticeKind: render.NoticeNoToolCall,
 				Reasoning:  softNoToolCallMessage(lang),
@@ -1306,6 +1313,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			// so the LLM retries with real tool_use blocks.
 			if looksLikeEmbeddedToolCall(resp.Content) {
 				logging.Debug("[diag %s] iter=%d phase=embedded_correction detected embedded tool-call JSON in content — injecting correction", b.name, i)
+				emitRequiredNoToolNotice()
 				messages = append(messages, llm.Message{
 					Role:    "assistant",
 					Content: historyContentForNoTool(resp),
@@ -1342,6 +1350,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					b.name, i, sig.HintRequested, sig.Progress, sig.StopRequested,
 					sig.HintKey, result.Outcome, result.Reason)
 				if result.Outcome == OutcomeInjectHint {
+					emitRequiredNoToolNotice()
 					messages = append(messages, llm.Message{
 						Role:      "assistant",
 						Content:   historyContentForNoTool(resp),

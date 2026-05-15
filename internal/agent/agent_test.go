@@ -910,6 +910,59 @@ func TestProtocolStagesRouteNoToolProseThroughLoopControllerBeforeShouldStop(t *
 	}
 }
 
+type protocolSoftStopAcceptEvaluator struct {
+	protocolSoftStopEvaluator
+}
+
+func (e *protocolSoftStopAcceptEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
+	if obs.Phase == PhaseSoftStop {
+		e.observeCalls++
+	}
+	return LoopSignal{}
+}
+
+func TestProtocolStagesAcceptedNoToolSoftStopDoesNotShowRetryNotice(t *testing.T) {
+	llmStub := &protocolSoftStopLLM{}
+	eval := &protocolSoftStopAcceptEvaluator{}
+	var events []render.Event
+	b := NewBaseAgent(types.AgentExtractor, &Dependencies{
+		LLM:           llmStub,
+		MaxIterations: 2,
+		Emit: func(ev render.Event) {
+			events = append(events, ev)
+		},
+	}, eval)
+	out, err := b.Execute(&types.AgentContext{
+		Stage:   types.StageExtract,
+		Mutable: types.NewMutableState(""),
+	}, &skill.Config{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if out == nil {
+		t.Fatal("Execute returned nil output")
+	}
+	if llmStub.calls != 1 {
+		t.Fatalf("accepted soft-stop should not request continuation, calls=%d", llmStub.calls)
+	}
+	if eval.observeCalls != 1 {
+		t.Fatalf("soft-stop controller should observe once, got %d", eval.observeCalls)
+	}
+	if countNoticeKind(events, render.NoticeNoToolCall) != 0 {
+		t.Fatalf("accepted soft-stop must not claim retry, events=%+v", events)
+	}
+}
+
+func countNoticeKind(events []render.Event, kind render.OrchestratorNoticeKind) int {
+	count := 0
+	for _, ev := range events {
+		if ev.Kind == render.EventOrchestratorNotice && ev.NoticeKind == kind {
+			count++
+		}
+	}
+	return count
+}
+
 func TestBaseAgent_FinalizeTransientErrorDoesNotSynthesizePartialSummary(t *testing.T) {
 	eval := &stubEvaluator{}
 	b := NewBaseAgent(types.AgentFinalizer, &Dependencies{

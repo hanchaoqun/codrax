@@ -106,6 +106,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// top-level fields would silently shadow the block contract and
 	// must be moved into the appropriate block kind.
 	if violation := detectV1FieldsInV2Emit(raw); violation != "" {
+		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
 		return failEmit(toolName, now,
 			"top-level field %q is not accepted; the answer is expressed through blocks[] only — move any answer payload into the appropriate block kind",
 			violation)
@@ -145,7 +146,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	var p emitAnswerDocumentV2Params
 	if err := dec.Decode(&p); err != nil {
 		err = RemapStrictDecodeError(err, answerDocumentV2MisplacedHints)
-		persistRecoveredAnswerDisplayAttachments(ctx, recovery)
+		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
 		return failEmit(toolName, now, "invalid params: %v", err)
 	}
 
@@ -156,7 +157,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// downstream. Future migration to a second carrier would
 	// re-introduce validation here.
 	if len(p.Blocks) == 0 {
-		persistRecoveredAnswerDisplayAttachments(ctx, recovery)
+		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
 		return failEmit(toolName, now,
 			"blocks[] is required and must be non-empty")
 	}
@@ -175,10 +176,10 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		Caveats:               p.Caveats,
 		Snippets:              convertEmitCodeSnippetsToTyped(p.Snippets),
 	}
-	for i, raw := range p.Blocks {
-		blk, err := NormalizeEmitAnswerBlock(raw, fmt.Sprintf("blocks[%d]", i))
+	for i, rawBlock := range p.Blocks {
+		blk, err := NormalizeEmitAnswerBlock(rawBlock, fmt.Sprintf("blocks[%d]", i))
 		if err != nil {
-			persistRecoveredAnswerDisplayAttachments(ctx, mergeAnswerDocumentRecoveryAttachments(recovery, doc))
+			persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)
 			return failEmit(toolName, now, "%s", err.Error())
 		}
 		doc.Blocks = append(doc.Blocks, blk)
@@ -203,12 +204,12 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			logging.Warning("[emit_answer_document] repaired %d item citation_ref value(s) by unique label/citation corroboration", fixed)
 		}
 		if hints := runPreEmitChecks(doc, view, preEmitOracleFromCtx(ctx), ctx); len(hints) > 0 {
-			persistRecoveredAnswerDisplayAttachments(ctx, visibleRecovery)
+			persistRecoveredAnswerDraft(ctx, raw, visibleRecovery, doc)
 			return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
 		}
 	}
 	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) > 0 {
-		persistRecoveredAnswerDisplayAttachments(ctx, visibleRecovery)
+		persistRecoveredAnswerDraft(ctx, raw, visibleRecovery, doc)
 		return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
 	}
 
@@ -269,17 +270,51 @@ type answerDocumentRecoveryReport struct {
 	Diagnostics           []string
 }
 
-func persistRecoveredAnswerDisplayAttachments(ctx *types.BusContext, report answerDocumentRecoveryReport) {
-	if ctx == nil || ctx.Mutable == nil || len(report.Attachments) == 0 {
+func persistRecoveredAnswerDraft(ctx *types.BusContext, raw json.RawMessage, report answerDocumentRecoveryReport, doc *types.AnswerDocumentV2) {
+	if ctx == nil || ctx.Mutable == nil {
 		return
 	}
 	attachments := ctx.Mutable.AnswerDisplayAttachments()
-	for _, att := range report.Attachments {
-		attachments = appendRecoveredAttachment(attachments, att)
+	initialLen := len(attachments)
+	appendReport := func(r answerDocumentRecoveryReport) {
+		for _, att := range r.Attachments {
+			attachments = appendRecoveredAttachment(attachments, att)
+		}
+	}
+	appendDoc := func(candidate *types.AnswerDocumentV2, source string) bool {
+		if candidate == nil || len(candidate.Blocks) == 0 {
+			return false
+		}
+		appendReport(mergeAnswerDocumentRecoveryAttachments(answerDocumentRecoveryReport{
+			Mode: source,
+		}, candidate))
+		if att, ok := answerDocumentDraftTextAttachment(candidate, source); ok {
+			attachments = appendRecoveredAttachment(attachments, att)
+			return true
+		}
+		return false
+	}
+	appendReport(report)
+	addedDoc := false
+	if len(bytes.TrimSpace(raw)) > 0 {
+		if rec, ok := recoverAnswerDocumentV2FromRawCandidate(raw); ok {
+			appendReport(answerDocumentRecoveryReport{Mode: rec.Mode, Attachments: rec.Attachments})
+			addedDoc = appendDoc(rec.Document, rec.Mode)
+		}
+	}
+	if !addedDoc {
+		source := strings.TrimSpace(report.Mode)
+		if source == "" {
+			source = "rejected_answer_document"
+		}
+		addedDoc = appendDoc(doc, source)
+	}
+	if len(attachments) == initialLen {
+		return
 	}
 	ctx.Mutable.SetAnswerDisplayAttachments(attachments)
-	logging.Warning("[emit_answer_document] preserved %d recovered display attachment(s) from rejected %s recovery",
-		len(report.Attachments), report.Mode)
+	logging.Warning("[emit_answer_document] preserved %d recovered display attachment(s) from rejected answer draft",
+		len(attachments)-initialLen)
 }
 
 func mergeAnswerDocumentRecoveryAttachments(report answerDocumentRecoveryReport, doc *types.AnswerDocumentV2) answerDocumentRecoveryReport {
@@ -297,6 +332,113 @@ func mergeAnswerDocumentRecoveryAttachments(report answerDocumentRecoveryReport,
 		report.Mode = "rejected_answer_document"
 	}
 	return report
+}
+
+func answerDocumentDraftTextAttachment(doc *types.AnswerDocumentV2, source string) (types.AnswerDisplayAttachment, bool) {
+	body := renderRecoveredAnswerDocumentDraft(doc)
+	if body == "" {
+		return types.AnswerDisplayAttachment{}, false
+	}
+	att := types.AnswerDisplayAttachment{
+		Kind:   types.AnswerDisplayAttachmentMarkdown,
+		Body:   body,
+		Source: "emit_answer_document.rejected_payload",
+		Reason: "rejected structured answer draft contained user-visible text",
+	}
+	if strings.TrimSpace(source) != "" {
+		att.Source = "emit_answer_document." + strings.TrimSpace(source)
+	}
+	att.Hash = answerDisplayAttachmentHash(att.Kind, att.Language, att.Body)
+	return att, true
+}
+
+func renderRecoveredAnswerDocumentDraft(doc *types.AnswerDocumentV2) string {
+	if doc == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, blk := range doc.Blocks {
+		if blk.Kind == types.BlockDiagram {
+			continue
+		}
+		if title := strings.TrimSpace(blk.Title); title != "" {
+			if blk.Kind == types.BlockSummary {
+				fmt.Fprintf(&b, "## %s\n\n", title)
+			} else {
+				fmt.Fprintf(&b, "### %s\n\n", title)
+			}
+		}
+		if text := strings.TrimSpace(blk.Text); text != "" {
+			b.WriteString(text)
+			b.WriteString("\n\n")
+		}
+		for i, item := range blk.Items {
+			line := recoveredAnswerItemLine(doc, blk.Kind, item, i)
+			if line == "" {
+				continue
+			}
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+		if len(blk.Items) > 0 {
+			b.WriteByte('\n')
+		}
+	}
+	if len(doc.Caveats) > 0 {
+		b.WriteString("Caveats:\n")
+		for _, caveat := range doc.Caveats {
+			if caveat = strings.TrimSpace(caveat); caveat != "" {
+				fmt.Fprintf(&b, "- %s\n", caveat)
+			}
+		}
+		b.WriteByte('\n')
+	}
+	if len(doc.Citations) > 0 {
+		b.WriteString("References:\n")
+		for _, cite := range doc.Citations {
+			if ref := recoveredCitationRef(cite); ref != "" {
+				fmt.Fprintf(&b, "- %s\n", ref)
+			}
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func recoveredAnswerItemLine(doc *types.AnswerDocumentV2, kind types.AnswerBlockKind, item types.AnswerBlockItem, idx int) string {
+	label := strings.TrimSpace(item.Label)
+	text := strings.TrimSpace(item.Text)
+	if label == "" && text == "" {
+		return ""
+	}
+	body := text
+	if label != "" && text != "" {
+		body = label + ": " + text
+	} else if label != "" {
+		body = label
+	}
+	if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
+		if ref := recoveredCitationRef(doc.Citations[item.CitationRef]); ref != "" {
+			body += " (" + ref + ")"
+		}
+	}
+	if kind == types.BlockOrderedList {
+		return fmt.Sprintf("%d. %s", idx+1, body)
+	}
+	return "- " + body
+}
+
+func recoveredCitationRef(c types.Citation) string {
+	file := strings.TrimSpace(c.File)
+	if file == "" {
+		return ""
+	}
+	if c.Line <= 0 {
+		return file
+	}
+	if c.LineEnd > c.Line {
+		return fmt.Sprintf("%s:%d-%d", file, c.Line, c.LineEnd)
+	}
+	return fmt.Sprintf("%s:%d", file, c.Line)
 }
 
 func displayAttachmentFromAnswerDiagramBlock(blk types.AnswerBlock) (types.AnswerDisplayAttachment, bool) {
