@@ -449,6 +449,45 @@ func TestEmitAnswerDocumentPatch_DiagramEdgeAnchorsPromotedToBlock(t *testing.T)
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RepairsAnnotationCamelCaseShape(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+		},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"add_blocks": [{
+			"id": "d1",
+			"kind": "diagram",
+			"diagram": {"kind": "sequence", "language": "mermaid", "body": "sequenceDiagram\nA->>B: hi"},
+			"claim_uses": [{"claimForm": "returnFact", "facetId": "current_code_path"}],
+			"edge_anchors": [{"fromNode": "A", "toNode": "B", "relationKind": "Call", "claimForm": "callEdge"}]
+		}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must auto-repair camelCase annotation shape; got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("repaired patch did not persist added block: %+v", doc)
+	}
+	added := doc.Blocks[1]
+	if got := added.ClaimUses; len(got) != 1 ||
+		got[0].ClaimForm != types.ClaimReturnFact ||
+		got[0].FacetID != "current_code_path" {
+		t.Fatalf("claim_uses not normalized: %+v", got)
+	}
+	if got := added.EdgeAnchors; len(got) != 1 ||
+		got[0].RelationKind != types.DiagramRelCall ||
+		got[0].ClaimForm != types.ClaimCallEdge {
+		t.Fatalf("edge_anchors not normalized: %+v", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_StringCitationAndSnippetLineNumbers(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

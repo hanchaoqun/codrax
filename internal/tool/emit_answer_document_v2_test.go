@@ -776,6 +776,71 @@ func TestRepairNestedArraysAsString_MultipleAtOnce(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_RepairsAnnotationCamelCaseShape(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "s1",
+			"kind": "summary",
+			"text": "lead",
+			"claim_uses": [{"claimForm": "assignmentFact", "facetId": "current_code_path", "evidenceId": "ev1"}]
+		}, {
+			"id": "d1",
+			"kind": "diagram",
+			"diagram": {"kind": "sequence", "language": "mermaid", "body": "sequenceDiagram\nA->>B: hi"},
+			"edge_anchors": [{"fromNode": "A", "toNode": "B", "relationKind": "Call", "claimForm": "callEdge"}]
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("camelCase annotation shape should be repaired; got %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("expected repaired doc with two blocks; got %+v", doc)
+	}
+	if got := doc.Blocks[0].ClaimUses; len(got) != 1 ||
+		got[0].ClaimForm != types.ClaimAssignmentFact ||
+		got[0].FacetID != "current_code_path" ||
+		got[0].EvidenceID != "ev1" {
+		t.Fatalf("claim_uses not normalized: %+v", got)
+	}
+	if got := doc.Blocks[1].EdgeAnchors; len(got) != 1 ||
+		got[0].FromNode != "A" ||
+		got[0].ToNode != "B" ||
+		got[0].RelationKind != types.DiagramRelCall ||
+		got[0].ClaimForm != types.ClaimCallEdge {
+		t.Fatalf("edge_anchors not normalized: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentV2_RejectsConflictingAnnotationAlias(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "s1",
+			"kind": "summary",
+			"text": "lead",
+			"claim_uses": [{"claim_form": "call_edge", "claimForm": "returnFact"}]
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("conflicting alias/canonical fields must stay rejected")
+	}
+	if !strings.Contains(res.Summary, `claimForm`) {
+		t.Fatalf("rejection should name unrepaired alias; got %s", res.Summary)
+	}
+}
+
 // TestRepairNestedArraysAsString_NoTrigger confirms the negative
 // cases (already arrays, absent fields, non-array strings, etc.)
 // don't trigger the repair.

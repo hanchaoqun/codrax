@@ -135,7 +135,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		raw = repaired
 	}
 	if repaired, paths, ok := repairNestedAnswerBlockFields(raw); ok {
-		logging.Warning("[emit_answer_document] nested fields arrived as JSON-encoded strings (paths: %s); re-parsed via flat-mode tolerance path",
+		logging.Warning("[emit_answer_document] nested block fields normalized via local-model JSON tolerance (paths: %s)",
 			strings.Join(paths, ", "))
 		raw = repaired
 	}
@@ -1509,6 +1509,12 @@ func repairNestedAnswerBlockFields(raw json.RawMessage) (json.RawMessage, []stri
 				repaired = true
 			}
 		}
+		if fields, ok := repairAnswerBlockAnnotationShape(blkObj); ok {
+			for _, field := range fields {
+				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
+			}
+			repaired = true
+		}
 		if patched, err := json.Marshal(blkObj); err == nil {
 			blocks[i] = patched
 		}
@@ -1618,6 +1624,12 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
 					blockChanged = true
 				}
+			}
+			if fields, ok := repairAnswerBlockAnnotationShape(blkObj); ok {
+				for _, field := range fields {
+					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
+				}
+				blockChanged = true
 			}
 			if blockChanged {
 				if patched, err := json.Marshal(blkObj); err == nil {

@@ -175,7 +175,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		params = repaired
 	}
 	if repaired, paths, ok := repairNestedArraysInPatch(params); ok {
-		logging.Warning("[emit_answer_document_patch] nested fields re-parsed via flat-mode tolerance: %s",
+		logging.Warning("[emit_answer_document_patch] nested block fields normalized via local-model JSON tolerance: %s",
 			strings.Join(paths, ", "))
 		params = repaired
 	}
