@@ -694,21 +694,38 @@ func textToolRequiredFieldsPresent(m map[string]any, required []string) bool {
 }
 
 func scoreBareTextToolCallArgs(m map[string]any, info textToolSchemaInfo) (int, bool) {
-	if !textToolRequiredFieldsPresent(m, info.required) {
+	if len(info.required) > 0 && !textToolRequiredFieldsPresent(m, info.required) {
 		return 0, false
 	}
 	schemaMap := textToolSchemaMap(info.parameters)
 	props, _ := schemaMap["properties"].(map[string]any)
+	if len(props) == 0 && len(info.required) == 0 {
+		return 0, false
+	}
+	// Two schema shapes are common in the tool catalog:
+	//   1. required-only legacy schemas: recover when every required
+	//      field is present, even if the schema omitted properties.
+	//   2. optional-only patch/update schemas: recover only when the
+	//      bare object contains schema-declared fields with compatible
+	//      JSON shapes. This handles tools such as answer-document
+	//      patches without naming those tools here.
 	score := len(info.required) * 8
 	unknown := 0
+	known := 0
+	compatible := 0
 	for key, val := range m {
-		propSchema, known := props[key]
-		if !known {
+		if len(props) == 0 {
+			continue
+		}
+		propSchema, propKnown := props[key]
+		if !propKnown {
 			unknown++
 			continue
 		}
+		known++
 		score += 4
 		if jsonSchemaAcceptsValue(propSchema, val) {
+			compatible++
 			score += 2
 		}
 		nestedScore, nestedOK := scoreBareSchemaValue(val, propSchema)
@@ -721,6 +738,15 @@ func scoreBareTextToolCallArgs(m map[string]any, info textToolSchemaInfo) (int, 
 		if len(props) > 0 {
 			score -= unknown * 3
 		}
+	}
+	if len(info.required) == 0 {
+		if compatible == 0 {
+			return 0, false
+		}
+		if unknown > known {
+			return 0, false
+		}
+		score += compatible * 6
 	}
 	return score, true
 }

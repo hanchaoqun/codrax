@@ -794,6 +794,189 @@ func TestRecoverTextToolCalls_BareAnswerDocumentRepairsTrailingCommas(t *testing
 	}
 }
 
+func TestRecoverTextToolCalls_BareAnswerDocumentPatchArgsOptionalSchema(t *testing.T) {
+	content := `{
+		"replace_blocks":[{
+			"id":"diagram_flow",
+			"kind":"diagram",
+			"claim_uses":[{"claim_form":"definition_fact"}],
+			"facet_ids":["diagram_spine","component_relation"],
+			"diagram":{
+				"kind":"architecture",
+				"language":"mermaid",
+				"body":"flowchart TD\n  BaseAgent --> explorerEvaluator"
+			}
+		}],
+		"unchanged_block_ids":["summary","sec_base"]
+	}`
+	tools := []ToolSchema{
+		{
+			Name: "emit_answer_document",
+			Parameters: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"blocks":{"type":"array","items":{"type":"object"}},
+					"citations":{"type":"array","items":{"type":"object"}}
+				},
+				"required":["blocks"]
+			}`),
+		},
+		{
+			Name: "emit_answer_document_patch",
+			Parameters: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"unchanged_block_ids":{"type":"array","items":{"type":"string"}},
+					"replace_blocks":{"type":"array","items":{"type":"object"}},
+					"add_blocks":{"type":"array","items":{"type":"object"}},
+					"remove_block_ids":{"type":"array","items":{"type":"string"}}
+				}
+			}`),
+		},
+	}
+
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_answer_document_patch" {
+		t.Fatalf("expected optional-only patch args to recover as emit_answer_document_patch, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+	var params struct {
+		ReplaceBlocks []struct {
+			ID      string `json:"id"`
+			Diagram struct {
+				Body string `json:"body"`
+			} `json:"diagram"`
+		} `json:"replace_blocks"`
+		UnchangedBlockIDs []string `json:"unchanged_block_ids"`
+	}
+	if err := json.Unmarshal(got.ToolCalls[0].Params, &params); err != nil {
+		t.Fatalf("params json: %v\n%s", err, got.ToolCalls[0].Params)
+	}
+	if len(params.ReplaceBlocks) != 1 || params.ReplaceBlocks[0].ID != "diagram_flow" {
+		t.Fatalf("replace_blocks not preserved: %+v", params.ReplaceBlocks)
+	}
+	if !strings.Contains(params.ReplaceBlocks[0].Diagram.Body, "BaseAgent") {
+		t.Fatalf("diagram body not preserved: %+v", params.ReplaceBlocks[0].Diagram)
+	}
+	if got.Content != "" || got.StopReason != "tool_use" {
+		t.Fatalf("recovered patch call should clear content and use tool stop, got stop=%q content=%q", got.StopReason, got.Content)
+	}
+}
+
+func TestRecoverTextToolCalls_BareArgsOptionalSchemaRejectsUnknownOnly(t *testing.T) {
+	content := `{"notes":"I should call emit_answer_document_patch next"}`
+	tools := []ToolSchema{{
+		Name: "emit_answer_document_patch",
+		Parameters: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"unchanged_block_ids":{"type":"array","items":{"type":"string"}},
+				"replace_blocks":{"type":"array","items":{"type":"object"}}
+			}
+		}`),
+	}}
+
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if len(got.ToolCalls) != 0 || got.Content != content {
+		t.Fatalf("unknown-only optional args must stay as content, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+}
+
+func TestRecoverTextToolCalls_BareOptionalPatchArgsCoversEveryPatchField(t *testing.T) {
+	schema := json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"unchanged_block_ids":{"type":"array","items":{"type":"string"}},
+			"replace_blocks":{"type":"array","items":{"type":"object"}},
+			"add_blocks":{"type":"array","items":{"type":"object"}},
+			"remove_block_ids":{"type":"array","items":{"type":"string"}},
+			"replace_citations":{"type":"array","items":{"type":"object"}},
+			"append_citations":{"type":"array","items":{"type":"object"}},
+			"replace_exact_resolution":{"type":"object"},
+			"replace_missing_requested_roles":{"type":"array","items":{"type":"object"}},
+			"replace_caveats":{"type":"array","items":{"type":"string"}},
+			"replace_snippets":{"type":"array","items":{"type":"object"}}
+		}
+	}`)
+	tools := []ToolSchema{{Name: "emit_answer_document_patch", Parameters: schema}}
+	cases := []struct {
+		name    string
+		content string
+		field   string
+	}{
+		{name: "unchanged", content: `{"unchanged_block_ids":["summary"]}`, field: "unchanged_block_ids"},
+		{name: "replace blocks", content: `{"replace_blocks":[{"id":"summary","kind":"summary","text":"x"}]}`, field: "replace_blocks"},
+		{name: "add blocks", content: `{"add_blocks":[{"id":"new","kind":"section","text":"x"}]}`, field: "add_blocks"},
+		{name: "remove blocks", content: `{"remove_block_ids":["old"]}`, field: "remove_block_ids"},
+		{name: "replace citations", content: `{"replace_citations":[{"file":"a.go","line":1}]}`, field: "replace_citations"},
+		{name: "append citations", content: `{"append_citations":[{"file":"a.go","line":1}]}`, field: "append_citations"},
+		{name: "exact resolution", content: `{"replace_exact_resolution":{"status":"resolved"}}`, field: "replace_exact_resolution"},
+		{name: "missing roles", content: `{"replace_missing_requested_roles":[{"role":"default","label":"x"}]}`, field: "replace_missing_requested_roles"},
+		{name: "caveats", content: `{"replace_caveats":["x"]}`, field: "replace_caveats"},
+		{name: "snippets", content: `{"replace_snippets":[{"file":"a.go","start_line":1,"end_line":2}]}`, field: "replace_snippets"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := recoverTextToolCalls(Response{Content: tc.content}, tools, ChatOptions{ToolChoice: "required"})
+			if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_answer_document_patch" {
+				t.Fatalf("expected bare optional field %s to recover, got content=%q calls=%+v", tc.field, got.Content, got.ToolCalls)
+			}
+			var params map[string]any
+			if err := json.Unmarshal(got.ToolCalls[0].Params, &params); err != nil {
+				t.Fatalf("params json: %v\n%s", err, got.ToolCalls[0].Params)
+			}
+			if _, ok := params[tc.field]; !ok {
+				t.Fatalf("recovered params dropped %s: %s", tc.field, got.ToolCalls[0].Params)
+			}
+		})
+	}
+}
+
+func TestRecoverTextToolCalls_BareOptionalArgsRejectAmbiguousSchemas(t *testing.T) {
+	content := `{"items":[{"id":"x"}]}`
+	tools := []ToolSchema{
+		{
+			Name:       "emit_alpha",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object"}}}}`),
+		},
+		{
+			Name:       "emit_beta",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object"}}}}`),
+		},
+	}
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if len(got.ToolCalls) != 0 || got.Content != content {
+		t.Fatalf("ambiguous optional-only schemas must stay as content, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+}
+
+func TestRecoverTextToolCalls_BareOptionalArgsPrunesSmallUnknownSidecar(t *testing.T) {
+	content := `{"replace_blocks":[{"id":"summary","kind":"summary","text":"x"}],"notes":"repairing only one block"}`
+	tools := []ToolSchema{{
+		Name: "emit_answer_document_patch",
+		Parameters: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"replace_blocks":{"type":"array","items":{"type":"object"}},
+				"unchanged_block_ids":{"type":"array","items":{"type":"string"}}
+			}
+		}`),
+	}}
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_answer_document_patch" {
+		t.Fatalf("expected known optional field plus small sidecar to recover, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+	var params map[string]any
+	if err := json.Unmarshal(got.ToolCalls[0].Params, &params); err != nil {
+		t.Fatalf("params json: %v\n%s", err, got.ToolCalls[0].Params)
+	}
+	if _, ok := params["notes"]; ok {
+		t.Fatalf("unknown sidecar should be pruned from recovered params: %s", got.ToolCalls[0].Params)
+	}
+	if _, ok := params["replace_blocks"]; !ok {
+		t.Fatalf("known patch field missing after recovery: %s", got.ToolCalls[0].Params)
+	}
+}
+
 func TestRecoverTextToolCalls_RepairsMissingTrailingObjectCloser(t *testing.T) {
 	content := `{"name":"emit_analysis","arguments":{"entities":["recoverTextToolCalls"],"question_kind":"unknown"}`
 	got := recoverTextToolCalls(Response{Content: content}, []ToolSchema{{Name: "emit_analysis"}}, ChatOptions{})
