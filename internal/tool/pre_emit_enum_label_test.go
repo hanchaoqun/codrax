@@ -758,6 +758,56 @@ func TestPreCheckItemCitationAlignment_DoesNotPresentCurrentCitationAsTarget(t *
 	}
 }
 
+func TestPreCheckItemCitationAlignment_AcceptsProseLabelWithExplicitCodeQualifier(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "subagent-list",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "sub-reg",
+				Label:       "子智能体注册 (RegisterDefaultSubAgents)",
+				CitationRef: 0,
+			}, {
+				ID:          "sub-env",
+				Label:       "受限执行环境 (SubExplorer.Run)",
+				CitationRef: 1,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/agent/subagent.go", Line: 63},
+			{File: "internal/agent/sub_explorer.go", Line: 35},
+		},
+	}
+	mut := types.NewMutableState("explain explorer architecture")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/subagent.go",
+			LineStart:       63,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "RegisterDefaultSubAgents",
+			AnchorSymbol:    "RegisterDefaultSubAgents",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/sub_explorer.go",
+			LineStart:       35,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "SubExplorer.Run",
+			AnchorSymbol:    "Run",
+			OwnerSymbol:     "SubExplorer",
+			Snippet:         "func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, error) {",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("explicit code qualifiers in prose labels should satisfy citation alignment, got %v", hints)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsUniqueCandidate(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
@@ -806,6 +856,112 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsUniqueCandidate(t
 	}
 	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
 		t.Fatalf("rebound citation should satisfy alignment, got %v", hints)
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsQualifiedOwnerMethod(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "statemachine-list",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "st-parse",
+				Label:       "explorerEvaluator.ParseOutput",
+				CitationRef: 1,
+			}, {
+				ID:          "st-terminate",
+				Label:       "explorerEvaluator.ShouldStop",
+				CitationRef: 2,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/agent/explorer.go", Line: 30},
+			{File: "internal/agent/explorer.go", Line: 7064},
+			{File: "internal/agent/explorer.go", Line: 8646},
+			{File: "internal/agent/explorer.go", Line: 6955},
+			{File: "internal/agent/sub_explorer.go", Line: 244},
+			{File: "internal/agent/sub_explorer.go", Line: 153},
+		},
+	}
+	mut := types.NewMutableState("explain explorer architecture")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/explorer.go",
+			LineStart:       30,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "explorerEvaluator",
+			AnchorSymbol:    "explorerEvaluator",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/agent/explorer.go",
+			LineStart:       7064,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "observeMidLoop",
+			AnchorSymbol:    "observeMidLoop",
+			OwnerSymbol:     "explorerEvaluator",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/agent/explorer.go",
+			LineStart:       8646,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "ParseOutput",
+			AnchorSymbol:    "ParseOutput",
+			OwnerSymbol:     "explorerEvaluator",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/agent/explorer.go",
+			LineStart:       6955,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "ShouldStop",
+			AnchorSymbol:    "ShouldStop",
+			OwnerSymbol:     "explorerEvaluator",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/agent/sub_explorer.go",
+			LineStart:       244,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "ParseOutput",
+			AnchorSymbol:    "ParseOutput",
+			OwnerSymbol:     "subExplorerEvaluator",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/agent/sub_explorer.go",
+			LineStart:       153,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "ShouldStop",
+			AnchorSymbol:    "ShouldStop",
+			OwnerSymbol:     "subExplorerEvaluator",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if got := preEmitCandidateCitationLocationsForLabel(ctx, "explorerEvaluator.ParseOutput", 4); len(got) != 1 || got[0] != "internal/agent/explorer.go:8646" {
+		t.Fatalf("qualified label should only target the matching owner+method evidence, got %+v", got)
+	}
+	fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx)
+	if fixed != 2 {
+		t.Fatalf("expected two qualified citation_ref repairs, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 2 {
+		t.Fatalf("ParseOutput citation_ref = %d, want 2", got)
+	}
+	if got := doc.Blocks[0].Items[1].CitationRef; got != 3 {
+		t.Fatalf("ShouldStop citation_ref = %d, want 3", got)
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("rebound qualified citations should satisfy alignment, got %v", hints)
 	}
 }
 

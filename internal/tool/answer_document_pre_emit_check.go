@@ -2036,6 +2036,12 @@ func preEmitLabelMatchesEvidenceEndpoint(label string, ev types.EvidenceItem) bo
 	if preEmitDecoratedLabelMatchesEvidence(label, ev) {
 		return true
 	}
+	if matched, handled := preEmitDisplayLabelCodeSurfacesMatchEvidence(label, ev); handled {
+		return matched
+	}
+	if matched, handled := preEmitQualifiedCodeSurfaceMatchesEvidence(label, ev); handled {
+		return matched
+	}
 	if _, _, ok := types.AnswerAggregateDecoratedLabelParts(label); ok {
 		return false
 	}
@@ -2064,7 +2070,10 @@ func preEmitLabelNeedsCitationAlignment(label string) bool {
 		return true
 	}
 	base, _, ok := types.AnswerAggregateDecoratedLabelParts(label)
-	return ok && types.IsCodeIdentitySurface(base)
+	if ok && types.IsCodeIdentitySurface(base) {
+		return true
+	}
+	return len(preEmitExplicitDisplayCodeSurfaces(label)) > 0
 }
 
 func preEmitDecoratedLabelMatchesEvidence(label string, ev types.EvidenceItem) bool {
@@ -2126,6 +2135,166 @@ func preEmitDecoratorQualifierParts(qualifier string) []string {
 		}
 	}
 	return out
+}
+
+func preEmitDisplayLabelCodeSurfacesMatchEvidence(label string, ev types.EvidenceItem) (bool, bool) {
+	if types.IsCodeIdentitySurface(strings.TrimSpace(label)) {
+		return false, false
+	}
+	surfaces := preEmitExplicitDisplayCodeSurfaces(label)
+	if len(surfaces) == 0 {
+		return false, false
+	}
+	for _, surface := range surfaces {
+		if preEmitCodeSurfaceMatchesEvidence(surface, ev) {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+func preEmitExplicitDisplayCodeSurfaces(label string) []string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return nil
+	}
+	var out []string
+	if base, qualifier, ok := types.AnswerAggregateDecoratedLabelParts(label); ok &&
+		(!types.IsCodeIdentitySurface(base) || preEmitDecoratedBaseLooksDisplayProse(base)) {
+		out = appendCodeIdentitySurface(out, qualifier)
+		for _, part := range preEmitDecoratorQualifierParts(qualifier) {
+			out = appendCodeIdentitySurface(out, part)
+		}
+	}
+	for _, surface := range preEmitBacktickCodeSurfaces(label) {
+		out = appendCodeIdentitySurface(out, surface)
+	}
+	return out
+}
+
+func preEmitBacktickCodeSurfaces(label string) []string {
+	var out []string
+	for {
+		start := strings.Index(label, "`")
+		if start < 0 {
+			return out
+		}
+		rest := label[start+1:]
+		end := strings.Index(rest, "`")
+		if end < 0 {
+			return out
+		}
+		out = append(out, rest[:end])
+		label = rest[end+1:]
+	}
+}
+
+func appendCodeIdentitySurface(out []string, surface string) []string {
+	surface = strings.Trim(strings.TrimSpace(surface), "`'\" ")
+	if surface == "" || !types.IsCodeIdentitySurface(surface) {
+		return out
+	}
+	key := strings.ToLower(surface)
+	for _, existing := range out {
+		if strings.ToLower(existing) == key {
+			return out
+		}
+	}
+	return append(out, surface)
+}
+
+func preEmitDecoratedBaseLooksDisplayProse(base string) bool {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return false
+	}
+	for _, r := range base {
+		if unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r) {
+			return true
+		}
+		if unicode.IsSpace(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitCodeSurfaceMatchesEvidence(surface string, ev types.EvidenceItem) bool {
+	if matched, handled := preEmitQualifiedCodeSurfaceMatchesEvidence(surface, ev); handled {
+		return matched
+	}
+	for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+		if preEmitCodeSurfaceMatches(surface, endpoint) {
+			return true
+		}
+	}
+	for _, term := range ev.SurfaceTerms {
+		if preEmitCodeSurfaceAppearsVerbatim(surface, term) {
+			return true
+		}
+	}
+	return preEmitCodeSurfaceAppearsVerbatim(surface, ev.Snippet)
+}
+
+func preEmitQualifiedCodeSurfaceMatchesEvidence(surface string, ev types.EvidenceItem) (bool, bool) {
+	owner, member, ok := preEmitQualifiedCodeSurfaceParts(surface)
+	if !ok {
+		return false, false
+	}
+	if preEmitEvidenceEndpointSupportsExactSurface(ev, surface) {
+		return true, true
+	}
+	ownerOK := preEmitEvidenceEndpointSupportsToken(ev, owner) ||
+		preEmitCodeSurfaceAppearsVerbatim(owner, ev.Snippet)
+	memberOK := preEmitEvidenceEndpointSupportsToken(ev, member) ||
+		preEmitCodeSurfaceAppearsVerbatim(member, ev.Snippet)
+	return ownerOK && memberOK, true
+}
+
+func preEmitEvidenceEndpointSupportsExactSurface(ev types.EvidenceItem, surface string) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return false
+	}
+	for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+		if strings.EqualFold(strings.TrimSpace(endpoint), surface) {
+			return true
+		}
+	}
+	for _, term := range ev.SurfaceTerms {
+		if preEmitCodeSurfaceAppearsVerbatim(surface, term) {
+			return true
+		}
+	}
+	return preEmitCodeSurfaceAppearsVerbatim(surface, ev.Snippet)
+}
+
+func preEmitQualifiedCodeSurfaceParts(surface string) (owner string, member string, ok bool) {
+	surface = strings.Trim(strings.TrimSpace(surface), "`'\" ")
+	if surface == "" || !types.IsCodeIdentitySurface(surface) {
+		return "", "", false
+	}
+	if _, ok := types.ParseAnswerSourceLocationSurface(surface); ok {
+		return "", "", false
+	}
+	if _, ok := types.ParseAnswerFilePathSurface(surface); ok {
+		return "", "", false
+	}
+	if strings.Count(surface, "::") == 1 && !strings.Contains(surface, "/") {
+		parts := strings.Split(surface, "::")
+		owner = strings.TrimSpace(parts[0])
+		member = strings.TrimSpace(parts[1])
+	} else if strings.Count(surface, ".") == 1 && !strings.Contains(surface, "/") {
+		parts := strings.Split(surface, ".")
+		owner = strings.TrimSpace(parts[0])
+		member = strings.TrimSpace(parts[1])
+	} else {
+		return "", "", false
+	}
+	if owner == "" || member == "" || !types.IsCodeIdentitySurface(owner) || !types.IsCodeIdentitySurface(member) {
+		return "", "", false
+	}
+	return owner, member, true
 }
 
 func preEmitCodeSurfaceAppearsVerbatim(label, text string) bool {
