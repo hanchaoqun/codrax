@@ -126,7 +126,7 @@ func TestFormatToolCallBatchSummarizesPureToolResponse(t *testing.T) {
 		"zh",
 	)
 	plain := stripAnsiEscapes(got)
-	want := "  · [explorer-20] 调用工具 read_file internal/tool/apply_patch.go"
+	want := "  💭 [explorer-20] 调用工具 read_file internal/tool/apply_patch.go"
 	if plain != want {
 		t.Fatalf("tool-only response line changed\nwant %q\ngot  %q", want, plain)
 	}
@@ -141,7 +141,7 @@ func TestFormatToolCallBatchCompactsRepeatedTools(t *testing.T) {
 		"en",
 	)
 	plain := stripAnsiEscapes(got)
-	for _, want := range []string{"· [explorer-3]", "calling 6 tools", "read_file x2", "grep", "emit_evidence", "repo_map", "+1"} {
+	for _, want := range []string{"💭 [explorer-3]", "calling 6 tools", "read_file x2", "grep", "emit_evidence", "repo_map", "+1"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("tool batch line missing %q; got %q", want, plain)
 		}
@@ -165,7 +165,7 @@ func TestRenderer_ToolCallBatchUsesConfiguredOutput(t *testing.T) {
 	})
 
 	out := stripAnsiEscapes(buf.String())
-	for _, want := range []string{"· [explorer-4]", "调用工具 emit_evidence"} {
+	for _, want := range []string{"💭 [explorer-4]", "调用工具 emit_evidence"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("tool batch event must leave visible output %q; got %q", want, out)
 		}

@@ -1329,10 +1329,11 @@ func formatToolCallBatch(agent string, iteration int, names []string, count int,
 		return ""
 	}
 	tag := fmt.Sprintf("[%s-%d]", agent, iteration+1)
-	// Tool-only responses are useful progress, not model prose and
-	// not a warning. Reuse the dock's quiet info/pending bullet so the
-	// line is visibly distinct from 💭 thinking without pulling focus.
-	return "  " + statusMeta.Sprint(string(glyphPending)+" "+tag) + " " + statusDetail.Sprint(body)
+	// Tool-only responses are still part of the model's visible
+	// turn-by-turn trace. Reuse the thinking prefix so scrollback has
+	// one quiet visual lane for model activity, while the body text
+	// makes the tool-call semantics explicit.
+	return "  " + statusMeta.Sprint("💭 "+tag) + " " + statusReasoningBody.Sprint(body)
 }
 
 func toolCallBatchBody(names []string, count int, firstName, firstDetail, lang string) string {
