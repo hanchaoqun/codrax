@@ -20,6 +20,8 @@ package ground
 import (
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -77,9 +79,10 @@ var (
 // a citation to `/mnt/d/repo/README.md:7` could not match a
 // LineIndex built from a `read_file path=README.md` banner.
 type Context struct {
-	LineIndex map[string]map[int]string // source path → (1-based line → text)
-	Graph     *repomap.Graph            // nil when explorer has not populated MutableState yet
-	RepoRoot  string                    // for path canonicalisation; empty is tolerated (no normalisation)
+	LineIndex         map[string]map[int]string // source path → (1-based line → text) from read_file only
+	ObservedLineIndex map[string]map[int]string // read_file plus source lines visibly returned by grep; never used for citation grounding
+	Graph             *repomap.Graph            // nil when explorer has not populated MutableState yet
+	RepoRoot          string                    // for path canonicalisation; empty is tolerated (no normalisation)
 
 	// MultiGraphOracle is the cross-sub-repo SymbolOracle wired
 	// from BusContext.MultiGraph (P4-cross-sub-repo, 2026-05-08).
@@ -149,6 +152,7 @@ func BuildContext(ctx *types.BusContext) *Context {
 	}
 	gc.RepoRoot = ctx.RepoRoot
 	gc.LineIndex = buildLineIndex(history, ctx.RepoRoot)
+	gc.ObservedLineIndex = buildObservedLineIndex(history, ctx.RepoRoot, gc.LineIndex)
 	if ctx.Mutable != nil {
 		if g, ok := ctx.Mutable.SearchGraph().(*repomap.Graph); ok {
 			gc.Graph = g
@@ -2421,6 +2425,149 @@ func buildLineIndex(history []types.ToolResult, repoRoot string) map[string]map[
 		}
 	}
 	return out
+}
+
+// buildObservedLineIndex augments the strict read_file gutter index with
+// source lines that grep already showed to the model. It intentionally stays
+// separate from LineIndex so citation grounding and Tier 1 evidence grounding
+// keep their "read_file only" semantics, while lexical surface checks can
+// still accept terms that were visibly present in grep -C output.
+func buildObservedLineIndex(history []types.ToolResult, repoRoot string, readIndex map[string]map[int]string) map[string]map[int]string {
+	out := cloneLineIndex(readIndex)
+	for _, r := range history {
+		if !r.Success || r.ToolName != "grep" {
+			continue
+		}
+		mergeGrepObservedLines(out, r.Summary, repoRoot)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func cloneLineIndex(in map[string]map[int]string) map[string]map[int]string {
+	if len(in) == 0 {
+		return make(map[string]map[int]string)
+	}
+	out := make(map[string]map[int]string, len(in))
+	for path, lines := range in {
+		if len(lines) == 0 {
+			continue
+		}
+		copied := make(map[int]string, len(lines))
+		for n, text := range lines {
+			copied[n] = text
+		}
+		out[path] = copied
+	}
+	return out
+}
+
+func mergeGrepObservedLines(out map[string]map[int]string, summary, repoRoot string) {
+	if out == nil || strings.TrimSpace(summary) == "" {
+		return
+	}
+	for _, raw := range strings.Split(summary, "\n") {
+		line := strings.TrimRight(raw, "\r")
+		if strings.TrimSpace(line) == "" || strings.TrimSpace(line) == "--" {
+			continue
+		}
+		path, lineNo, text, ok := parseGrepObservedLine(line, repoRoot)
+		if !ok {
+			continue
+		}
+		path = CanonicalRepoRelative(path, repoRoot)
+		if path == "" {
+			continue
+		}
+		fileMap, ok := out[path]
+		if !ok {
+			fileMap = make(map[int]string)
+			out[path] = fileMap
+		}
+		// read_file content is stronger and may include post-recovery
+		// forced reads; keep it when both sources describe the same line.
+		if _, exists := fileMap[lineNo]; !exists {
+			fileMap[lineNo] = text
+		}
+	}
+}
+
+func parseGrepObservedLine(line, repoRoot string) (path string, lineNo int, text string, ok bool) {
+	if path, lineNo, text, ok = parseDelimitedGrepObservedLine(line, ':', repoRoot); ok {
+		return path, lineNo, text, true
+	}
+	return parseDelimitedGrepObservedLine(line, '-', repoRoot)
+}
+
+type grepObservedLineCandidate struct {
+	path   string
+	lineNo int
+	text   string
+}
+
+func parseDelimitedGrepObservedLine(line string, sep byte, repoRoot string) (path string, lineNo int, text string, ok bool) {
+	candidates := make([]grepObservedLineCandidate, 0, 1)
+	for i := 0; i < len(line); i++ {
+		if line[i] != sep {
+			continue
+		}
+		j := i + 1
+		for j < len(line) && line[j] >= '0' && line[j] <= '9' {
+			j++
+		}
+		if j == i+1 || j >= len(line) || line[j] != sep {
+			continue
+		}
+		n := 0
+		for k := i + 1; k < j; k++ {
+			n = n*10 + int(line[k]-'0')
+		}
+		if n <= 0 || strings.TrimSpace(line[:i]) == "" {
+			continue
+		}
+		candidates = append(candidates, grepObservedLineCandidate{
+			path:   line[:i],
+			lineNo: n,
+			text:   line[j+1:],
+		})
+	}
+	if len(candidates) == 0 {
+		return "", 0, "", false
+	}
+	if len(candidates) == 1 {
+		c := candidates[0]
+		return c.path, c.lineNo, c.text, true
+	}
+	if repoRoot != "" {
+		for _, c := range candidates {
+			if grepObservedPathExists(c.path, repoRoot) {
+				return c.path, c.lineNo, c.text, true
+			}
+		}
+	}
+	c := candidates[0]
+	return c.path, c.lineNo, c.text, true
+}
+
+func grepObservedPathExists(pathArg, repoRoot string) bool {
+	pathArg = strings.TrimSpace(pathArg)
+	if pathArg == "" || repoRoot == "" {
+		return false
+	}
+	canon := CanonicalRepoRelative(pathArg, repoRoot)
+	if canon == "" {
+		return false
+	}
+	candidate := canon
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(repoRoot, filepath.FromSlash(candidate))
+	}
+	if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
+		return true
+	}
+	return false
 }
 
 func parseBannerPath(banner string) string {

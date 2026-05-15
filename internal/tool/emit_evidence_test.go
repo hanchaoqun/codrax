@@ -74,6 +74,28 @@ func TestEmitEvidence_AcceptsValidBatch(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_RepairsStringWrappedItemsArray(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": "[{\"kind\":\"direct\",\"subject\":\"isOK\",\"source\":\"internal/agent/foo.go\",\"line_start\":30,\"summary\":\"isOK returns true\",\"anchor_kind\":\"definition\",\"anchor_symbol\":\"isOK\"}]"
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].Subject != "isOK" {
+		t.Fatalf("subject = %q, want isOK", got[0].Subject)
+	}
+}
+
 func TestEmitEvidence_AcceptsInitializerAnchorKind(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
@@ -265,6 +287,39 @@ func TestEmitEvidence_AcceptsGroundedSurfaceTerms(t *testing.T) {
 		t.Fatalf("first item should be model-authored evidence; got producer %q", got[0].Producer)
 	}
 	if strings.Join(got[0].SurfaceTerms, ",") != "Index.ets,@Entry" {
+		t.Fatalf("surface terms not preserved: %#v", got[0].SurfaceTerms)
+	}
+}
+
+func TestEmitEvidence_SurfaceTermsAcceptGrepObservedLines(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[grep: 1 matching lines]",
+			"[grep params: pattern=extractSubAgentProposal path=internal/orchestrator/orchestrator.go context_lines=1]",
+			"internal/orchestrator/orchestrator.go:6065:\tif proposal := extractSubAgentProposal(output, agentName); proposal != nil {",
+		}, "\n"),
+	})
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "dispatchStage", "predicate": "calls", "object": "extractSubAgentProposal", "source": "internal/orchestrator/orchestrator.go", "line_start": 6065, "summary": "dispatchStage checks the agent output for sub-agent proposals", "anchor_kind": "call", "anchor_symbol": "extractSubAgentProposal", "surface_terms": ["extractSubAgentProposal"]}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item, got %d", len(got))
+	}
+	if strings.Join(got[0].SurfaceTerms, ",") != "extractSubAgentProposal" {
 		t.Fatalf("surface terms not preserved: %#v", got[0].SurfaceTerms)
 	}
 }

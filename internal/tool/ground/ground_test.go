@@ -1,6 +1,8 @@
 package ground
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -915,6 +917,60 @@ func TestBuildContext_ForcedReadPrefixedSummaryStillGrounds(t *testing.T) {
 	if it.GroundingStatus != types.GroundingGrounded {
 		t.Errorf("forced-read content must ground at the cited line; status=%q note=%q",
 			it.GroundingStatus, it.GroundingNote)
+	}
+}
+
+func TestBuildContext_ObservedLineIndexIncludesGrepSourceLines(t *testing.T) {
+	grepResult := types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[grep: 2 matching lines]",
+			"[grep params: pattern=extractSubAgentProposal path=internal/orchestrator/orchestrator.go context_lines=1]",
+			"internal/orchestrator/orchestrator.go-6064-\t// dispatch sub-agent proposals after the main agent response",
+			"internal/orchestrator/orchestrator.go:6065:\tif proposal := extractSubAgentProposal(output, agentName); proposal != nil {",
+			"--",
+		}, "\n"),
+	}
+
+	mut := types.NewMutableState("irrelevant")
+	mut.AppendDispatchToolResult(grepResult)
+	gc := BuildContext(&types.BusContext{Mutable: mut})
+
+	if _, ok := gc.LineIndex["internal/orchestrator/orchestrator.go"]; ok {
+		t.Fatalf("grep output must not be promoted into strict read_file LineIndex: %+v", gc.LineIndex)
+	}
+	observed := gc.ObservedLineIndex["internal/orchestrator/orchestrator.go"]
+	if got := observed[6065]; !strings.Contains(got, "extractSubAgentProposal") {
+		t.Fatalf("grep match line missing from ObservedLineIndex: %q", got)
+	}
+	if got := observed[6064]; !strings.Contains(got, "dispatch sub-agent proposals") {
+		t.Fatalf("grep context line missing from ObservedLineIndex: %q", got)
+	}
+}
+
+func TestBuildContext_ObservedGrepParserPrefersExistingHyphenatedPath(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "internal", "fixtures"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "internal", "fixtures", "foo-2024-bar.go"), []byte("package fixtures\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	grepResult := types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "internal/fixtures/foo-2024-bar.go-7-content includes -99- in text\n",
+	}
+
+	mut := types.NewMutableState("irrelevant")
+	mut.AppendDispatchToolResult(grepResult)
+	gc := BuildContext(&types.BusContext{Mutable: mut, RepoRoot: tmp})
+
+	observed := gc.ObservedLineIndex["internal/fixtures/foo-2024-bar.go"]
+	if got := observed[7]; !strings.Contains(got, "content includes -99- in text") {
+		t.Fatalf("hyphenated grep context line parsed incorrectly: observed=%+v", observed)
 	}
 }
 

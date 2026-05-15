@@ -486,6 +486,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// 'evidence' instead of 'items', or 'note' instead of 'summary')
 	// fails loudly at parse time rather than silently producing a
 	// well-formed-looking item the parser quietly drops fields from.
+	if repaired, fields, ok := repairStringWrappedArrayFields(params); ok {
+		logging.Warning("[emit_evidence] string-wrapped array field(s) re-parsed via flat-mode tolerance: %s", strings.Join(fields, ", "))
+		params = repaired
+	}
 	dec := json.NewDecoder(bytes.NewReader(params))
 	dec.DisallowUnknownFields()
 	var p emitEvidenceParams
@@ -2749,12 +2753,20 @@ func validateEvidenceSurfaceTerms(index int, item types.EvidenceItem, gc *ground
 	if len(item.SurfaceTerms) == 0 {
 		return nil
 	}
-	if gc == nil || len(gc.LineIndex) == 0 || strings.TrimSpace(item.Source) == "" {
-		return fmt.Errorf("items[%d]: surface_terms require already-read source lines for source=%q", index, item.Source)
+	if gc == nil || strings.TrimSpace(item.Source) == "" {
+		return fmt.Errorf("items[%d]: surface_terms require already-observed source lines for source=%q", index, item.Source)
 	}
-	fileLines := gc.LineIndex[item.Source]
+	lineIndex := gc.ObservedLineIndex
+	if len(lineIndex) == 0 {
+		lineIndex = gc.LineIndex
+	}
+	if len(lineIndex) == 0 {
+		return fmt.Errorf("items[%d]: surface_terms require already-observed source lines for source=%q", index, item.Source)
+	}
+	source := ground.CanonicalRepoRelative(item.Source, gc.RepoRoot)
+	fileLines := lineIndex[source]
 	if len(fileLines) == 0 {
-		return fmt.Errorf("items[%d]: surface_terms require source %q to have been read with read_file", index, item.Source)
+		return fmt.Errorf("items[%d]: surface_terms require source %q to have appeared in read_file or grep output", index, item.Source)
 	}
 	window := evidenceSurfaceTermWindow(item, fileLines)
 	for _, term := range item.SurfaceTerms {
