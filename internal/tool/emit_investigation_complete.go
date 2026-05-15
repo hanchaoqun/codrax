@@ -17,6 +17,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/tool/multipath"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -280,6 +281,9 @@ func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFa
 		if encoded == "" {
 			return nil, nil, nil
 		}
+		if repaired, changed := toolparam.RemoveTrailingCommasBeforeJSONClosers(encoded); changed {
+			encoded = repaired
+		}
 		arrayPayload, tail, ok := splitLeadingJSONArrayWithMisplacedObjectTail(encoded)
 		if !ok {
 			return nil, nil, fmt.Errorf("aggregate_facts string must contain a JSON array")
@@ -317,10 +321,82 @@ func splitLeadingJSONArrayWithMisplacedObjectTail(s string) ([]byte, map[string]
 		return nil, nil, false
 	}
 	var misplaced map[string]json.RawMessage
-	if err := json.Unmarshal([]byte("{"+strings.TrimSpace(strings.TrimPrefix(rest, ","))+"}"), &misplaced); err != nil {
-		return nil, nil, false
+	for _, tail := range misplacedObjectTailCandidates(strings.TrimSpace(strings.TrimPrefix(rest, ","))) {
+		if err := json.Unmarshal([]byte("{"+tail+"}"), &misplaced); err == nil {
+			return raw, misplaced, true
+		}
 	}
-	return raw, misplaced, true
+	return nil, nil, false
+}
+
+func misplacedObjectTailCandidates(tail string) []string {
+	tail = strings.TrimSpace(tail)
+	if tail == "" {
+		return nil
+	}
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		for _, existing := range out {
+			if existing == s {
+				return
+			}
+		}
+		out = append(out, s)
+	}
+	add(tail)
+	if repaired, changed := toolparam.RemoveTrailingCommasBeforeJSONClosers(tail); changed {
+		add(repaired)
+	}
+	for _, candidate := range append([]string(nil), out...) {
+		if trimmed, ok := trimOneDanglingObjectTailCloser(candidate); ok {
+			add(trimmed)
+			if repaired, changed := toolparam.RemoveTrailingCommasBeforeJSONClosers(trimmed); changed {
+				add(repaired)
+			}
+		}
+	}
+	return out
+}
+
+func trimOneDanglingObjectTailCloser(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false
+	}
+	inString := false
+	escaped := false
+	lastNonSpace := -1
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case ' ', '\n', '\r', '\t':
+		default:
+			lastNonSpace = i
+		}
+	}
+	if inString || lastNonSpace < 0 || s[lastNonSpace] != '}' {
+		return "", false
+	}
+	return strings.TrimSpace(s[:lastNonSpace]), true
 }
 
 func decodeMisplacedStringField(fields map[string]json.RawMessage, name string) string {

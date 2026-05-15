@@ -204,6 +204,39 @@ func TestEmitInvestigationComplete_PromotesMisplacedAbsenceTailForAbsenceResult(
 	}
 }
 
+func TestEmitInvestigationComplete_RepairsStringEncodedAggregateFactsWithDanglingTailCloser(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	paramsBytes, err := json.Marshal(map[string]any{
+		"reason":      "model emitted aggregate_facts as a JSON string copied from an object member",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": `[
+			{"kind":"member_set","label":"core types","value":"2","members":["SubAgentValidator","SubAgentReducer"],}
+		], "absence_justification": "not an absence answer"}`,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	res, err := tool.Execute(bus, paramsBytes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("dangling object-tail closer and trailing commas should be repaired: %s", res.Summary)
+	}
+	if got := mut.AbsenceJustification(); got != "" {
+		t.Fatalf("resolved completion must not promote misplaced absence_justification, got %q", got)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || got[0].Kind != types.AnswerAggregateMemberSet || len(got[0].Members) != 2 {
+		t.Fatalf("aggregate facts not recovered: %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_RejectsInvalidAggregateFacts(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}

@@ -54,6 +54,46 @@ func TestRecoverAnswerDocumentV2FromText_ContentJSONDocument(t *testing.T) {
 	}
 }
 
+func TestRecoverAnswerDocumentV2FromText_TrailingCommas(t *testing.T) {
+	content := `{
+  "blocks": [
+    {
+      "id": "diagram",
+      "kind": "diagram",
+      "diagram": {
+        "kind": "architecture",
+        "language": "mermaid",
+        "body": "flowchart TD\nA --> B",
+      },
+    },
+  ],
+  "citations": [
+    {"file": "internal/agent/agent.go", "line": 969},
+  ],
+}`
+
+	rec, ok := RecoverAnswerDocumentV2FromText(content)
+	if !ok {
+		t.Fatal("expected recovery from answer_document JSON with trailing commas")
+	}
+	if !rec.Lossless {
+		t.Fatalf("trailing-comma syntax repair should preserve typed document: %+v", rec)
+	}
+	if !strings.Contains(rec.Mode, "trailing_comma") {
+		t.Fatalf("recovery mode should record trailing-comma repair, got %q", rec.Mode)
+	}
+	if rec.Document == nil || len(rec.Document.Blocks) != 1 {
+		t.Fatalf("recovered doc blocks = %+v", rec.Document)
+	}
+	blk := rec.Document.Blocks[0]
+	if blk.Kind != types.BlockDiagram || blk.Diagram == nil || !strings.Contains(blk.Diagram.Body, "A --> B") {
+		t.Fatalf("diagram block not preserved: %+v", blk)
+	}
+	if len(rec.Document.Citations) != 1 || rec.Document.Citations[0].Line != 969 {
+		t.Fatalf("citations not preserved: %+v", rec.Document.Citations)
+	}
+}
+
 func TestRecoverAnswerDocumentV2FromText_VisibleFallbackForInvalidBlockShape(t *testing.T) {
 	content := `{
   "blocks": [

@@ -737,6 +737,63 @@ func TestRecoverTextToolCalls_BareAnswerDocumentWithPatchToolRepairsRawDiagramNe
 	}
 }
 
+func TestRecoverTextToolCalls_BareAnswerDocumentRepairsTrailingCommas(t *testing.T) {
+	content := `{
+		"blocks":[{
+			"id":"d1",
+			"kind":"diagram",
+			"diagram":{
+				"kind":"architecture",
+				"language":"mermaid",
+				"body":"flowchart TD\n  BaseAgent --> SubExplorer",
+			},
+		},],
+		"citations":[{"file":"internal/agent/agent.go","line":969},],
+	}`
+	tools := []ToolSchema{
+		{
+			Name: "emit_answer_document",
+			Parameters: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"blocks":{"type":"array","items":{"type":"object"}},
+					"citations":{"type":"array","items":{"type":"object"}}
+				},
+				"required":["blocks"]
+			}`),
+		},
+		{
+			Name:       "emit_answer_document_patch",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"replace_blocks":{"type":"array","items":{"type":"object"}}}}`),
+		},
+	}
+
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_answer_document" {
+		t.Fatalf("expected trailing-comma answer_document to recover, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+	var params struct {
+		Blocks []struct {
+			Diagram struct {
+				Body string `json:"body"`
+			} `json:"diagram"`
+		} `json:"blocks"`
+		Citations []struct {
+			File string `json:"file"`
+			Line int    `json:"line"`
+		} `json:"citations"`
+	}
+	if err := json.Unmarshal(got.ToolCalls[0].Params, &params); err != nil {
+		t.Fatalf("params json: %v\n%s", err, got.ToolCalls[0].Params)
+	}
+	if len(params.Blocks) != 1 || !strings.Contains(params.Blocks[0].Diagram.Body, "BaseAgent") {
+		t.Fatalf("diagram body not preserved: %+v", params.Blocks)
+	}
+	if len(params.Citations) != 1 || params.Citations[0].Line != 969 {
+		t.Fatalf("citation not preserved: %+v", params.Citations)
+	}
+}
+
 func TestRecoverTextToolCalls_RepairsMissingTrailingObjectCloser(t *testing.T) {
 	content := `{"name":"emit_analysis","arguments":{"entities":["recoverTextToolCalls"],"question_kind":"unknown"}`
 	got := recoverTextToolCalls(Response{Content: content}, []ToolSchema{{Name: "emit_analysis"}}, ChatOptions{})

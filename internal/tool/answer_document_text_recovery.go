@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -201,6 +202,18 @@ func recoverAnswerDocumentV2FromRawCandidate(raw json.RawMessage) (AnswerDocumen
 			raw  json.RawMessage
 			mode string
 		}{raw: json.RawMessage(normalised), mode: "content_json_control_char_normalized"})
+	}
+	if repaired, changed := toolparam.RemoveTrailingCommasBeforeJSONClosers(string(raw)); changed {
+		attempts = append([]struct {
+			raw  json.RawMessage
+			mode string
+		}{{raw: json.RawMessage(repaired), mode: "content_json_trailing_comma"}}, attempts...)
+		if normalised, normalisedChanged := normalizeControlCharsInJSONStrings(repaired); normalisedChanged {
+			attempts = append([]struct {
+				raw  json.RawMessage
+				mode string
+			}{{raw: json.RawMessage(normalised), mode: "content_json_trailing_comma_control_char_normalized"}}, attempts...)
+		}
 	}
 	if repaired, report, ok := repairBlocksAsStringDetailed(raw); ok {
 		mode := "content_json_" + report.Mode

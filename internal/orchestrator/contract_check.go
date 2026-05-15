@@ -2015,14 +2015,30 @@ func shouldReviewConsistencyV2(doc *types.AnswerDocumentV2) bool {
 // Citations strip to file:line form via Quote=""; reviewer should
 // not introspect repo content.
 func renderConsistencyReviewBodyV2(doc *types.AnswerDocumentV2) string {
+	return renderReviewBodyV2(doc, false)
+}
+
+// renderSemanticQualityReviewBodyV2 is the semantic-completeness reviewer
+// surface. Unlike self-consistency review, it MUST include diagram blocks:
+// semantic review decides whether requested visual structure is present, so
+// hiding BlockDiagram from BODY makes a valid typed diagram look absent.
+func renderSemanticQualityReviewBodyV2(doc *types.AnswerDocumentV2) string {
+	return renderReviewBodyV2(doc, true)
+}
+
+func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) string {
 	if doc == nil {
 		return ""
 	}
 	var b strings.Builder
 	for _, blk := range doc.Blocks {
 		switch blk.Kind {
-		case types.BlockSummary, types.BlockDiagram:
+		case types.BlockSummary:
 			continue
+		case types.BlockDiagram:
+			if includeDiagrams {
+				renderReviewDiagramBlock(&b, blk)
+			}
 		case types.BlockSection:
 			title := strings.TrimSpace(blk.Title)
 			if title != "" {
@@ -2062,6 +2078,28 @@ func renderConsistencyReviewBodyV2(doc *types.AnswerDocumentV2) string {
 		}
 	}
 	return b.String()
+}
+
+func renderReviewDiagramBlock(b *strings.Builder, blk types.AnswerBlock) {
+	if b == nil || blk.Diagram == nil {
+		return
+	}
+	body := strings.TrimSpace(blk.Diagram.Body)
+	if body == "" {
+		return
+	}
+	if title := strings.TrimSpace(blk.Title); title != "" {
+		fmt.Fprintf(b, "## %s\n", title)
+	}
+	if strings.HasPrefix(body, "```") {
+		fmt.Fprintf(b, "%s\n\n", body)
+		return
+	}
+	lang := strings.TrimSpace(blk.Diagram.Language)
+	if lang == "" {
+		lang = "mermaid"
+	}
+	fmt.Fprintf(b, "```%s\n%s\n```\n\n", lang, body)
 }
 
 // itemBodyText returns the most informative single-line rendering
@@ -2474,7 +2512,7 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 	in := BuildSemanticQualityInput(
 		mut.Objective(),
 		render.StripAuthorityArtifacts(summaryText),
-		render.StripAuthorityArtifacts(renderConsistencyReviewBodyV2(doc)),
+		render.StripAuthorityArtifacts(renderSemanticQualityReviewBodyV2(doc)),
 		doc, view,
 		BuildEvidenceAnchorSet(mut.EmittedEvidence()),
 	)

@@ -77,10 +77,22 @@ func Normalize(raw json.RawMessage, schema json.RawMessage, cfg types.ToolParamC
 		return raw, Report{}
 	}
 	value, ok := decodeJSONValue(raw)
+	var syntaxRepairs []Repair
+	if !ok {
+		if repaired, changed := RemoveTrailingCommasBeforeJSONClosers(string(raw)); changed {
+			if decoded, decodedOK := decodeJSONValue(json.RawMessage(repaired)); decodedOK {
+				value = decoded
+				ok = true
+				raw = json.RawMessage(repaired)
+				syntaxRepairs = append(syntaxRepairs, repair("$", "json_trailing_comma", "invalid_json", "json"))
+			}
+		}
+	}
 	if !ok {
 		return raw, Report{}
 	}
 	normalized, repairs := normalizeValue(value, schema, "$", cfg)
+	repairs = append(syntaxRepairs, repairs...)
 	if len(repairs) == 0 {
 		return raw, Report{}
 	}
@@ -592,6 +604,11 @@ func decodeJSONStringAsDepth(s string, want string, depth int) (any, string, boo
 	if decoded, ok := decodeJSONValue(json.RawMessage(trimmed)); ok {
 		return decoded, "json_string_" + want, true
 	}
+	if repaired, changed := RemoveTrailingCommasBeforeJSONClosers(trimmed); changed {
+		if decoded, ok := decodeJSONValue(json.RawMessage(repaired)); ok {
+			return decoded, "json_string_" + want + "_trailing_comma", true
+		}
+	}
 	repaired, changed := repairUnescapedQuotesInJSONStringLiterals(trimmed)
 	if !changed {
 		return nil, "", false
@@ -601,6 +618,74 @@ func decodeJSONStringAsDepth(s string, want string, depth int) (any, string, boo
 		return nil, "", false
 	}
 	return decoded, "json_string_" + want + "_quote_escape", true
+}
+
+// RemoveTrailingCommasBeforeJSONClosers repairs a deterministic local-model
+// JSON syntax artifact:
+//
+//	{"blocks":[{"kind":"diagram","diagram":{"body":"flowchart TD",},},]}
+//
+// Strict JSON rejects commas immediately before `}` / `]`. The pass is purely
+// structural: it walks the payload with a JSON-string state machine and removes
+// only commas whose next non-space byte is a closing object/array delimiter.
+// Commas inside string literals are untouched. Callers must parse the returned
+// candidate before accepting it.
+func RemoveTrailingCommasBeforeJSONClosers(s string) (string, bool) {
+	if !strings.Contains(s, ",") {
+		return s, false
+	}
+	var out strings.Builder
+	out.Grow(len(s))
+	inString := false
+	escaped := false
+	changed := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inString {
+			out.WriteByte(ch)
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+			out.WriteByte(ch)
+		case ',':
+			j := i + 1
+			for j < len(s) && isJSONWhitespaceByte(s[j]) {
+				j++
+			}
+			if j < len(s) && (s[j] == '}' || s[j] == ']') {
+				changed = true
+				continue
+			}
+			out.WriteByte(ch)
+		default:
+			out.WriteByte(ch)
+		}
+	}
+	if !changed {
+		return s, false
+	}
+	return out.String(), true
+}
+
+func isJSONWhitespaceByte(ch byte) bool {
+	switch ch {
+	case ' ', '\n', '\r', '\t':
+		return true
+	default:
+		return false
+	}
 }
 
 type jsonStringRole uint8

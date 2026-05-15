@@ -80,6 +80,77 @@ func TestNormalize_StringWrappedArrays(t *testing.T) {
 	}
 }
 
+func TestNormalize_RepairsTrailingCommasBeforeJSONClosers(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "items":{
+	      "type":"array",
+	      "items":{
+	        "type":"object",
+	        "properties":{
+	          "name":{"type":"string"},
+	          "line":{"type":"integer"}
+	        }
+	      }
+	    }
+	  }
+	}`)
+	raw := json.RawMessage(`{"items":[{"name":"SubExplorer","line":"32",},],}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$", "json_trailing_comma") {
+		t.Fatalf("expected trailing-comma repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.items[0].line", "string_integer") {
+		t.Fatalf("expected nested scalar repair after syntax repair, got %+v", report)
+	}
+	var decoded struct {
+		Items []struct {
+			Name string `json:"name"`
+			Line int    `json:"line"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if len(decoded.Items) != 1 || decoded.Items[0].Name != "SubExplorer" || decoded.Items[0].Line != 32 {
+		t.Fatalf("unexpected normalized payload: %+v", decoded)
+	}
+}
+
+func TestNormalize_StringWrappedArrayWithTrailingCommas(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "items":{
+	      "type":"array",
+	      "items":{
+	        "type":"object",
+	        "properties":{"name":{"type":"string"}}
+	      }
+	    }
+	  }
+	}`)
+	raw := json.RawMessage(`{"items":"[{\"name\":\"SubExplorer\",},]"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$.items", "json_string_array_trailing_comma") {
+		t.Fatalf("expected trailing-comma string array repair, got %+v", report)
+	}
+	var decoded struct {
+		Items []struct {
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if len(decoded.Items) != 1 || decoded.Items[0].Name != "SubExplorer" {
+		t.Fatalf("unexpected normalized payload: %+v", decoded)
+	}
+}
+
 func TestNormalize_StringWrappedArrayEscapesBareQuotesInTextValue(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",

@@ -129,10 +129,56 @@ func decodeTextToolCallJSON(content string) (any, bool) {
 			return raw, true
 		}
 	}
+	repaired, ok = toolparam.RemoveTrailingCommasBeforeJSONClosers(content)
+	if ok {
+		if err := json.Unmarshal([]byte(repaired), &raw); err == nil {
+			return raw, true
+		}
+		if closed, closedOK := repairMissingTrailingJSONClosers(repaired); closedOK {
+			if err := json.Unmarshal([]byte(closed), &raw); err == nil {
+				return raw, true
+			}
+		}
+		if normalised, normalisedOK := toolparam.NormalizeControlCharsInJSONStrings(repaired); normalisedOK {
+			if err := json.Unmarshal([]byte(normalised), &raw); err == nil {
+				return raw, true
+			}
+			if closed, closedOK := repairMissingTrailingJSONClosers(normalised); closedOK {
+				if err := json.Unmarshal([]byte(closed), &raw); err == nil {
+					return raw, true
+				}
+			}
+			if quoteRepaired, quoteOK := toolparam.RepairUnescapedQuotesInJSONStringLiterals(normalised); quoteOK {
+				if err := json.Unmarshal([]byte(quoteRepaired), &raw); err == nil {
+					return raw, true
+				}
+			}
+		}
+		if quoteRepaired, quoteOK := toolparam.RepairUnescapedQuotesInJSONStringLiterals(repaired); quoteOK {
+			if err := json.Unmarshal([]byte(quoteRepaired), &raw); err == nil {
+				return raw, true
+			}
+		}
+	}
 	repaired, ok = toolparam.NormalizeControlCharsInJSONStrings(content)
 	if ok {
 		if err := json.Unmarshal([]byte(repaired), &raw); err == nil {
 			return raw, true
+		}
+		if commaRepaired, commaOK := toolparam.RemoveTrailingCommasBeforeJSONClosers(repaired); commaOK {
+			if err := json.Unmarshal([]byte(commaRepaired), &raw); err == nil {
+				return raw, true
+			}
+			if closed, closedOK := repairMissingTrailingJSONClosers(commaRepaired); closedOK {
+				if err := json.Unmarshal([]byte(closed), &raw); err == nil {
+					return raw, true
+				}
+			}
+			if quoteRepaired, quoteOK := toolparam.RepairUnescapedQuotesInJSONStringLiterals(commaRepaired); quoteOK {
+				if err := json.Unmarshal([]byte(quoteRepaired), &raw); err == nil {
+					return raw, true
+				}
+			}
 		}
 		if quoteRepaired, quoteOK := toolparam.RepairUnescapedQuotesInJSONStringLiterals(repaired); quoteOK {
 			if err := json.Unmarshal([]byte(quoteRepaired), &raw); err == nil {

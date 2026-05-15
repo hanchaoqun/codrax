@@ -255,6 +255,58 @@ func TestBuildSemanticQualityInput_DiagramContractProjection(t *testing.T) {
 	}
 }
 
+func TestSemanticQualityReviewBodyIncludesDiagramBlocks(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
+			{ID: "d1", Kind: types.BlockDiagram, Title: "Flow",
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramArchitecture,
+					Language: "mermaid",
+					Body:     "flowchart TD\n  BaseAgent --> SubExplorer",
+				}},
+		},
+	}
+	selfConsistencyBody := renderConsistencyReviewBodyV2(doc)
+	if strings.Contains(selfConsistencyBody, "flowchart TD") {
+		t.Fatalf("self-consistency body should continue to skip diagrams:\n%s", selfConsistencyBody)
+	}
+	semanticBody := renderSemanticQualityReviewBodyV2(doc)
+	if !strings.Contains(semanticBody, "```mermaid") || !strings.Contains(semanticBody, "BaseAgent --> SubExplorer") {
+		t.Fatalf("semantic quality body must include diagram source:\n%s", semanticBody)
+	}
+}
+
+func TestBuildSemanticQualityInput_DiagramFacetDepthAnchoredByDiagramSurface(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "d1", Kind: types.BlockDiagram, FacetIDs: []string{"diagram_spine"},
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramArchitecture,
+					Language: "mermaid",
+					Body:     "flowchart TD\n  A --> B",
+				}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{
+				{Kind: "diagram_spine", Required: types.FacetSoftRequired,
+					PromotionPolicy: types.PromotionWhenEvidenceSufficient,
+					SourceCandidate: []string{"ev-a"}},
+			},
+		},
+	}
+	in := BuildSemanticQualityInput("o", "s", renderSemanticQualityReviewBodyV2(doc), doc, view, nil)
+	if len(in.PromotedFacetCoverage) != 1 {
+		t.Fatalf("PromotedFacetCoverage len = %d, want 1: %+v", len(in.PromotedFacetCoverage), in.PromotedFacetCoverage)
+	}
+	got := in.PromotedFacetCoverage[0]
+	if got.DeclaredCount != 1 || got.AnchoredCount != 1 {
+		t.Fatalf("diagram facet should be declared and anchored by typed diagram body, got %+v", got)
+	}
+}
+
 func TestBuildSemanticQualityInput_NilGuards(t *testing.T) {
 	in := BuildSemanticQualityInput("o", "s", "b", nil, nil, nil)
 	if len(in.RequiredFacets) != 0 || in.DiagramContract != nil || len(in.RichnessCandidates) != 0 {

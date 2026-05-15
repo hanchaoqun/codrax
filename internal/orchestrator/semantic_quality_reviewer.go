@@ -572,10 +572,12 @@ func countFacetCoverageDepth(doc *types.AnswerDocumentV2, kind string) (declared
 			// EvidenceID — proving the claim is grounded in evidence,
 			// not just labelled. For list-shaped principal blocks,
 			// citation-backed identifier rows (or rows with inline-code
-			// anchors in item text) also count as anchored surface: the
-			// user already sees a concrete grounded member, even when the
-			// block-level claim_use stays intentionally coarse.
-			if blockHasAnchoredClaim(b, kind) || blockHasAnchoredListSurface(b) {
+			// anchors in item text) also count as anchored surface. For
+			// diagram blocks, a non-empty typed diagram/edge anchor is the
+			// visible surface for diagram_spine/component_relation facets;
+			// otherwise the reviewer sees "declared but unanchored" even
+			// though the user sees a diagram.
+			if blockHasAnchoredClaim(b, kind) || blockHasAnchoredListSurface(b) || blockHasAnchoredDiagramSurface(b) {
 				anchored++
 			}
 		}
@@ -607,6 +609,16 @@ func blockHasAnchoredListSurface(b types.AnswerBlock) bool {
 		}
 	}
 	return false
+}
+
+func blockHasAnchoredDiagramSurface(b types.AnswerBlock) bool {
+	if b.Kind != types.BlockDiagram {
+		return false
+	}
+	if b.Diagram != nil && strings.TrimSpace(b.Diagram.Body) != "" {
+		return true
+	}
+	return len(b.EdgeAnchors) > 0
 }
 
 // blockHasAnchoredClaim reports whether the block has any block-level
