@@ -1140,6 +1140,34 @@ func TestEmitAnalysis_Execute_PersistsNormalizedRequestModel(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_StringWrappedSubTopics(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["explorer", "diagram"],
+		"entities": ["explorerEvaluator"],
+		"question_kind": "mechanism",
+		"sub_topics": "[{\"summary\":\"核心流程\",\"entities\":[\"explorerEvaluator\"]}]"
+	}`)
+
+	res, mu := runEmitAnalysisPayload(t, "explorer具体是怎么工作的？请用图表的方式展示", payload)
+	if !res.Success {
+		t.Fatalf("string-wrapped sub_topics should be repaired, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || len(rm.SubTopics) != 1 {
+		t.Fatalf("sub_topics not persisted after repair: %+v", rm)
+	}
+	if rm.SubTopics[0].Summary != "核心流程" || len(rm.SubTopics[0].Entities) != 1 || rm.SubTopics[0].Entities[0] != "explorerEvaluator" {
+		t.Fatalf("sub_topic decoded incorrectly: %+v", rm.SubTopics[0])
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsEnumerationBoundary(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

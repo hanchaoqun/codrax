@@ -758,6 +758,115 @@ func TestPreCheckItemCitationAlignment_DoesNotPresentCurrentCitationAsTarget(t *
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsUniqueCandidate(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "agents",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "a1",
+				Label:       "RegisterDefaultSubAgents",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/agent/sub_explorer.go", Line: 20},
+			{File: "internal/agent/subagent.go", Line: 63},
+		},
+	}
+	mut := types.NewMutableState("explain explorer architecture")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/sub_explorer.go",
+			LineStart:       20,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "SubExplorer",
+			AnchorSymbol:    "SubExplorer",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/subagent.go",
+			LineStart:       63,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "RegisterDefaultSubAgents",
+			AnchorSymbol:    "RegisterDefaultSubAgents",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx)
+	if fixed != 1 {
+		t.Fatalf("expected one unique citation_ref repair, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref = %d, want 1", got)
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("rebound citation should satisfy alignment, got %v", hints)
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_LeavesAmbiguousCandidate(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "agents",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "a1",
+				Label:       "RegisterDefaultSubAgents",
+				CitationRef: 2,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/agent/subagent.go", Line: 62},
+			{File: "internal/agent/subagent.go", Line: 63},
+			{File: "internal/agent/sub_explorer.go", Line: 20},
+		},
+	}
+	mut := types.NewMutableState("explain explorer architecture")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/subagent.go",
+			LineStart:       62,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "RegisterDefaultSubAgents",
+			AnchorSymbol:    "RegisterDefaultSubAgents",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/subagent.go",
+			LineStart:       63,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "RegisterDefaultSubAgents",
+			AnchorSymbol:    "RegisterDefaultSubAgents",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/sub_explorer.go",
+			LineStart:       20,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "SubExplorer",
+			AnchorSymbol:    "SubExplorer",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx)
+	if fixed != 0 {
+		t.Fatalf("ambiguous candidates must not auto-repair, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 2 {
+		t.Fatalf("ambiguous repair changed citation_ref to %d", got)
+	}
+}
+
 func TestPreCheckCallChainItemCitationRoleAlignment_RejectsDefinitionForNamedCallEdge(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

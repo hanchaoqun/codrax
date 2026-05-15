@@ -562,6 +562,70 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 	}}
 }
 
+func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil || len(doc.Citations) == 0 {
+		return 0
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			continue
+		}
+		if preEmitBlockUsesNonSymbolLabelSurface(*block, view) {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			label := strings.TrimSpace(item.Label)
+			if label == "" || !preEmitLabelNeedsCitationAlignment(label) {
+				continue
+			}
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			if preEmitItemCitationAligned(ctx, label, item.Text, doc.Citations[item.CitationRef]) {
+				continue
+			}
+			match := -1
+			for ci, cit := range doc.Citations {
+				if ci == item.CitationRef {
+					continue
+				}
+				if !preEmitItemCitationAligned(ctx, label, item.Text, cit) {
+					continue
+				}
+				if match >= 0 {
+					match = -1
+					break
+				}
+				match = ci
+			}
+			if match >= 0 {
+				item.CitationRef = match
+				fixed++
+			}
+		}
+	}
+	return fixed
+}
+
+func preEmitItemCitationAligned(ctx *types.BusContext, label, text string, cit types.Citation) bool {
+	if types.AnswerLocationLabelMatchesCitation(label, cit) {
+		return true
+	}
+	if preEmitCitationSupportsAggregateItem(ctx, label, text, cit) {
+		return true
+	}
+	if surface, ok := types.ParseAnswerSourceLocationSurface(label); ok {
+		return types.AnswerSourceLocationSurfaceMatchesCitation(surface, cit)
+	}
+	evidence, found := preEmitCitedEvidenceItems(ctx, cit)
+	return found && preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence)
+}
+
 func preCheckCallChainItemCitationRoleAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctxOpt ...*types.BusContext) []emitFixHint {
 	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
 		return nil

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/prescan"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -684,6 +685,31 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Summary:   "emit_analysis requires a writable context; the caller did not provide one (sub-agents are not supported)",
 			Timestamp: time.Now(),
 		}, nil
+	}
+
+	if repaired, fields, ok := repairStringWrappedArrayFields(params); ok {
+		logging.Warning("[emit_analysis] top-level arrays arrived as JSON-encoded strings (fields: %s); re-parsed via flat-mode tolerance path",
+			strings.Join(fields, ", "))
+		params = repaired
+	}
+	if repaired, fields, ok := repairStringWrappedObjectFields(params,
+		"answer_subject",
+		"predicates",
+		"diagnostic_profile",
+		"conversation_reference_profile",
+		"source_scope_profile",
+		"change_impact_profile",
+		"field_value_profile",
+		"answer_exclusion_policy",
+		"answer_role_profile",
+		"error_granularity_profile",
+		"diagram_hint",
+		"enumeration_boundary",
+		"completeness_obligation",
+	); ok {
+		logging.Warning("[emit_analysis] top-level objects arrived as JSON-encoded strings (fields: %s); re-parsed via flat-mode tolerance path",
+			strings.Join(fields, ", "))
+		params = repaired
 	}
 
 	var p emitAnalysisParams
