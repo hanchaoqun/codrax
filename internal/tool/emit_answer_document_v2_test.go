@@ -598,6 +598,9 @@ func TestRepairBlocksAsString_BraceFallbackReportsDroppedDiagram(t *testing.T) {
 	if len(p.Blocks) != 1 || p.Blocks[0].ID != "sum1" {
 		t.Fatalf("expected only valid summary block to survive structured recovery, got %+v", p.Blocks)
 	}
+	if len(p.Citations) != 1 || p.Citations[0].File != "x.go" {
+		t.Fatalf("brace fallback should lift sibling citations from the stringified document, got %+v", p.Citations)
+	}
 	if report.Lossless {
 		t.Fatalf("malformed diagram recovery must be marked lossy: %+v", report)
 	}
@@ -633,6 +636,86 @@ func TestEmitAnswerDocumentV2_BraceFallbackPreservesDroppedDiagramAttachment(t *
 	}
 	if !strings.Contains(attachments[0].Body, "sequenceDiagram") {
 		t.Fatalf("stored attachment lost diagram body: %+v", attachments[0])
+	}
+}
+
+func TestEmitAnswerDocumentV2_PromotesRecoveredDiagramWhenRequired(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks:        []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "answer"}},
+	}
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind:     types.BlockDiagram,
+			Required: true,
+			MinCount: 1,
+			FacetIDs: []string{"diagram_spine"},
+		}},
+	}
+	report := answerDocumentRecoveryReport{
+		Attachments: []types.AnswerDisplayAttachment{{
+			Kind:     types.AnswerDisplayAttachmentDiagram,
+			Language: "mermaid",
+			Body:     "flowchart TD\n  A --> B",
+		}},
+	}
+	if fixed := promoteRecoveredDiagramBlocks(doc, view, report); fixed != 1 {
+		t.Fatalf("expected recovered diagram promoted, got %d doc=%+v", fixed, doc)
+	}
+	if len(doc.Blocks) != 2 || doc.Blocks[1].Kind != types.BlockDiagram || doc.Blocks[1].Diagram == nil {
+		t.Fatalf("diagram block not added: %+v", doc.Blocks)
+	}
+	if got := doc.Blocks[1].FacetIDs; len(got) != 1 || got[0] != "diagram_spine" {
+		t.Fatalf("required diagram facets not carried onto promoted block: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentV2_CarryForwardCitationsFromRejectedDraft(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "a.go", Line: 10},
+			{File: "b.go", Line: 20},
+		},
+		Blocks: []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "old"}},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:    "list",
+			Kind:  types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{ID: "i", Label: "B", CitationRef: 1}},
+		}},
+	}
+	if fixed := carryForwardCitationsFromRejectedDraft(doc, bus); fixed != 2 {
+		t.Fatalf("expected two citations restored, got %d doc=%+v", fixed, doc)
+	}
+	if len(doc.Citations) != 2 || doc.Citations[1].File != "b.go" {
+		t.Fatalf("citations not restored from previous rejected draft: %+v", doc.Citations)
+	}
+}
+
+func TestEmitAnswerDocumentV2_MaterializesRequiredCaveatWhenOnlyMissing(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		UncertaintyRules: []types.UncertaintyRule{{
+			ExpectedBlockKind: types.BlockCaveat,
+			MissingMessage:    "emit a caveat",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks:        []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "answer"}},
+	}
+	hints := runPreEmitChecks(doc, view, nil)
+	if len(hints) != 1 || hints[0].Field != "blocks[].kind=caveat" {
+		t.Fatalf("expected single caveat hint before materialization, got %+v", hints)
+	}
+	if fixed := materializeRequiredCaveatWhenOnlyMissing(doc, view, hints); fixed != 1 {
+		t.Fatalf("expected caveat materialized, got %d doc=%+v", fixed, doc)
+	}
+	if hints = runPreEmitChecks(doc, view, nil); len(hints) != 0 {
+		t.Fatalf("materialized caveat should satisfy uncertainty precheck, got %+v", hints)
 	}
 }
 

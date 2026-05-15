@@ -201,6 +201,14 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// pre-AnalysisIR paths) the pre-check returns nil and the
 	// post-emit chain in internal/orchestrator runs unchanged.
 	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
+		if fixed := carryForwardCitationsFromRejectedDraft(doc, ctx); fixed > 0 {
+			logging.Warning("[emit_answer_document] restored %d citation(s) from previous rejected answer draft", fixed)
+		}
+		if fixed := promoteRecoveredDiagramBlocks(doc, view, visibleRecovery); fixed > 0 {
+			logging.Warning("[emit_answer_document] promoted %d recovered diagram attachment(s) into diagram block(s)", fixed)
+			recovery.Attachments = filterAttachmentsAlreadyRepresentedInDocument(recovery.Attachments, doc)
+			visibleRecovery.Attachments = filterAttachmentsAlreadyRepresentedInDocument(visibleRecovery.Attachments, doc)
+		}
 		if fixed := normalizeRequiredMechanismAnchorCarriers(doc, view, ctx); fixed > 0 {
 			logging.Warning("[emit_answer_document] repaired %d required mechanism anchor carrier(s)", fixed)
 		}
@@ -211,11 +219,19 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			logging.Warning("[emit_answer_document] repaired %d view-compatible typed lane field(s)", fixed)
 		}
 		if hints := runPreEmitChecks(doc, view, preEmitOracleFromCtx(ctx), ctx); len(hints) > 0 {
-			persistRecoveredAnswerDraft(ctx, raw, visibleRecovery, doc)
-			return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
+			if fixed := materializeRequiredCaveatWhenOnlyMissing(doc, view, hints); fixed > 0 {
+				logging.Warning("[emit_answer_document] materialized %d required caveat block(s) from uncertainty contract", fixed)
+				hints = runPreEmitChecks(doc, view, preEmitOracleFromCtx(ctx), ctx)
+			}
+			if len(hints) > 0 {
+				rememberRejectedAnswerDocumentDraft(ctx, doc)
+				persistRecoveredAnswerDraft(ctx, raw, visibleRecovery, doc)
+				return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
+			}
 		}
 	}
 	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) > 0 {
+		rememberRejectedAnswerDocumentDraft(ctx, doc)
 		persistRecoveredAnswerDraft(ctx, raw, visibleRecovery, doc)
 		return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
 	}
@@ -472,6 +488,202 @@ func displayAttachmentFromAnswerDiagramBlock(blk types.AnswerBlock) (types.Answe
 	return att, true
 }
 
+func rememberRejectedAnswerDocumentDraft(ctx *types.BusContext, doc *types.AnswerDocumentV2) {
+	if ctx == nil || ctx.Mutable == nil || doc == nil || len(doc.Blocks) == 0 {
+		return
+	}
+	ctx.Mutable.SetLastRejectedAnswerDocumentV2(doc)
+}
+
+func carryForwardCitationsFromRejectedDraft(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return 0
+	}
+	maxRef := -1
+	for _, block := range doc.Blocks {
+		for _, item := range block.Items {
+			if item.CitationRef > maxRef {
+				maxRef = item.CitationRef
+			}
+		}
+	}
+	if maxRef < 0 || len(doc.Citations) > maxRef {
+		return 0
+	}
+	prev := ctx.Mutable.LastRejectedAnswerDocumentV2()
+	if prev == nil || len(prev.Citations) <= maxRef {
+		return 0
+	}
+	if len(doc.Citations) > 0 {
+		if len(doc.Citations) > len(prev.Citations) {
+			return 0
+		}
+		for i := range doc.Citations {
+			if !equivalentAnswerCitation(doc.Citations[i], prev.Citations[i]) {
+				return 0
+			}
+		}
+	}
+	needed := maxRef + 1
+	doc.Citations = append(doc.Citations[:len(doc.Citations):len(doc.Citations)], prev.Citations[len(doc.Citations):needed]...)
+	return needed
+}
+
+func promoteRecoveredDiagramBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, report answerDocumentRecoveryReport) int {
+	if doc == nil || view == nil || !viewRequiresDiagramBlock(view) || answerDocumentHasBlockKind(doc, types.BlockDiagram) {
+		return 0
+	}
+	req := firstRequiredBlockRequirement(view, types.BlockDiagram)
+	fixed := 0
+	for _, att := range report.Attachments {
+		if att.Kind != types.AnswerDisplayAttachmentDiagram {
+			continue
+		}
+		body := strings.TrimSpace(att.Body)
+		if body == "" {
+			continue
+		}
+		lang := strings.TrimSpace(att.Language)
+		if lang == "" {
+			lang = "mermaid"
+		}
+		block := types.AnswerBlock{
+			ID:      uniqueAnswerBlockID(doc, "recovered_diagram"),
+			Kind:    types.BlockDiagram,
+			Title:   strings.TrimSpace(att.Title),
+			Diagram: &types.AnswerDiagramBlock{Kind: inferRecoveredDiagramKind(body), Language: lang, Body: body},
+		}
+		if len(req.FacetIDs) > 0 {
+			block.FacetIDs = append([]string(nil), req.FacetIDs...)
+		}
+		if req.SurfaceRoleHint != "" {
+			block.SurfaceRole = req.SurfaceRoleHint
+		}
+		doc.Blocks = append(doc.Blocks, block)
+		fixed++
+		break
+	}
+	return fixed
+}
+
+func filterAttachmentsAlreadyRepresentedInDocument(in []types.AnswerDisplayAttachment, doc *types.AnswerDocumentV2) []types.AnswerDisplayAttachment {
+	if len(in) == 0 || doc == nil {
+		return in
+	}
+	diagramBodies := make(map[string]bool)
+	for _, block := range doc.Blocks {
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		body := strings.TrimSpace(block.Diagram.Body)
+		if body != "" {
+			diagramBodies[body] = true
+		}
+	}
+	if len(diagramBodies) == 0 {
+		return in
+	}
+	out := make([]types.AnswerDisplayAttachment, 0, len(in))
+	for _, att := range in {
+		if att.Kind == types.AnswerDisplayAttachmentDiagram && diagramBodies[strings.TrimSpace(att.Body)] {
+			continue
+		}
+		out = append(out, att)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func viewRequiresDiagramBlock(view *types.AnswerSemanticView) bool {
+	if view == nil {
+		return false
+	}
+	for _, req := range view.RequiredBlocks {
+		if req.Required && req.Kind == types.BlockDiagram && req.MinCount > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocumentHasBlockKind(doc *types.AnswerDocumentV2, kind types.AnswerBlockKind) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func firstRequiredBlockRequirement(view *types.AnswerSemanticView, kind types.AnswerBlockKind) types.BlockRequirement {
+	if view == nil {
+		return types.BlockRequirement{}
+	}
+	for _, req := range view.RequiredBlocks {
+		if req.Required && req.Kind == kind {
+			return req
+		}
+	}
+	return types.BlockRequirement{}
+}
+
+func inferRecoveredDiagramKind(body string) types.DiagramKind {
+	lower := strings.ToLower(strings.TrimSpace(body))
+	switch {
+	case strings.Contains(lower, "sequencediagram"):
+		return types.DiagramSequence
+	case strings.Contains(lower, "flowchart") || strings.Contains(lower, "graph td") ||
+		strings.Contains(lower, "graph lr") || strings.Contains(lower, "graph tb") ||
+		strings.Contains(lower, "graph bt"):
+		return types.DiagramFlow
+	default:
+		return types.DiagramArchitecture
+	}
+}
+
+func uniqueAnswerBlockID(doc *types.AnswerDocumentV2, base string) string {
+	if doc == nil {
+		return base
+	}
+	used := make(map[string]bool, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		used[strings.TrimSpace(block.ID)] = true
+	}
+	if !used[base] {
+		return base
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s_%d", base, i)
+		if !used[candidate] {
+			return candidate
+		}
+	}
+}
+
+func materializeRequiredCaveatWhenOnlyMissing(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, hints []emitFixHint) int {
+	if doc == nil || view == nil || len(hints) != 1 || len(view.UncertaintyRules) == 0 {
+		return 0
+	}
+	if hints[0].Field != "blocks[].kind=caveat" {
+		return 0
+	}
+	if answerDocumentHasBlockKind(doc, types.BlockCaveat) {
+		return 0
+	}
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:    uniqueAnswerBlockID(doc, "scope_caveat"),
+		Kind:  types.BlockCaveat,
+		Title: "Scope note",
+		Text:  "This answer is limited to the evidence that was read and validated in this run; unresolved or unsearched areas are not treated as proven.",
+	})
+	return 1
+}
+
 // repairBlocksAsString detects the "blocks[] arrived as JSON
 // string" failure mode and returns a re-encoded RawMessage with
 // blocks[] inlined as a real array.
@@ -713,6 +925,7 @@ func extractBlocksByBraceBalanceDetailed(raw json.RawMessage) (json.RawMessage, 
 	var candidateKinds []types.AnswerBlockKind
 	var recoveredKinds []types.AnswerBlockKind
 	var attachments []types.AnswerDisplayAttachment
+	repairedMalformedCandidate := false
 	depth := 0
 	inStr := false
 	esc := false
@@ -757,6 +970,10 @@ func extractBlocksByBraceBalanceDetailed(raw json.RawMessage) (json.RawMessage, 
 					if kind, ok := blockKindFromObject(probe); ok {
 						recoveredKinds = append(recoveredKinds, kind)
 					}
+				} else if repaired, ok := recoverMalformedDiagramCandidateBlock(candidate); ok {
+					elements = append(elements, repaired)
+					recoveredKinds = append(recoveredKinds, types.BlockDiagram)
+					repairedMalformedCandidate = true
 				} else if att, ok := displayAttachmentFromMalformedCandidate(candidate); ok {
 					attachments = appendRecoveredAttachment(attachments, att)
 				}
@@ -784,6 +1001,20 @@ func extractBlocksByBraceBalanceDetailed(raw json.RawMessage) (json.RawMessage, 
 			attachments = appendRecoveredAttachment(attachments, att)
 		}
 	}
+	if recovered := extractLooseAnswerDocumentSiblingFields(body); len(recovered) > 0 {
+		if trailKeys == nil {
+			trailKeys = make(map[string]json.RawMessage, len(recovered))
+		}
+		for k, v := range recovered {
+			if _, ok := leadKeys[k]; ok {
+				continue
+			}
+			if _, ok := trailKeys[k]; ok {
+				continue
+			}
+			trailKeys[k] = v
+		}
+	}
 	// Reconstruct merged payload: leadKeys ∪ {"blocks": elements} ∪
 	// trailKeys. Keys collide only on `blocks`; the recovered array
 	// wins. Other key data is preserved byte-for-byte.
@@ -801,14 +1032,14 @@ func extractBlocksByBraceBalanceDetailed(raw json.RawMessage) (json.RawMessage, 
 	}
 	report := answerDocumentRecoveryReport{
 		Mode:            "brace_balanced_blocks",
-		Lossless:        len(candidateKinds) == len(recoveredKinds) && len(attachments) == 0,
+		Lossless:        !repairedMalformedCandidate && len(candidateKinds) == len(recoveredKinds) && len(attachments) == 0,
 		CandidateBlocks: len(candidateKinds),
 		RecoveredBlocks: len(recoveredKinds),
 		CandidateKinds:  candidateKinds,
 		RecoveredKinds:  recoveredKinds,
 		Attachments:     attachments,
 	}
-	report.DroppedVisiblePayload = !report.Lossless || len(attachments) > 0
+	report.DroppedVisiblePayload = len(attachments) > 0 || len(candidateKinds) > len(recoveredKinds)
 	if len(candidateKinds) == 0 {
 		report.CandidateBlocks = len(recoveredKinds)
 		report.CandidateKinds = append([]types.AnswerBlockKind(nil), recoveredKinds...)
@@ -835,6 +1066,139 @@ func isAnswerBlockCandidate(probe map[string]json.RawMessage) bool {
 		return false
 	}
 	return true
+}
+
+func recoverMalformedDiagramCandidateBlock(candidate string) (json.RawMessage, bool) {
+	kind, likely := answerBlockKindFromCandidate(candidate)
+	if !likely || kind != types.BlockDiagram {
+		return nil, false
+	}
+	body := extractDiagramBodyLoose(candidate)
+	if body == "" {
+		body = extractMermaidBody(candidate)
+	}
+	body = cleanRecoveredDiagramBody(body)
+	if body == "" || !textLooksLikeMermaid(body) {
+		return nil, false
+	}
+	id, _ := extractJSONStringFieldLoose(candidate, "id")
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = "recovered_diagram"
+	}
+	title, _ := extractJSONStringFieldLoose(candidate, "title")
+	block := map[string]interface{}{
+		"id":    id,
+		"kind":  string(types.BlockDiagram),
+		"title": strings.TrimSpace(title),
+		"diagram": map[string]interface{}{
+			"kind":     string(inferRecoveredDiagramKind(body)),
+			"language": "mermaid",
+			"body":     body,
+		},
+	}
+	if strings.TrimSpace(title) == "" {
+		delete(block, "title")
+	}
+	raw, err := json.Marshal(block)
+	if err != nil {
+		return nil, false
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil || !isAnswerBlockCandidate(probe) {
+		return nil, false
+	}
+	return raw, true
+}
+
+func extractLooseAnswerDocumentSiblingFields(body string) map[string]json.RawMessage {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return nil
+	}
+	out := make(map[string]json.RawMessage)
+	for _, field := range []struct {
+		name  string
+		open  byte
+		close byte
+	}{
+		{"citations", '[', ']'},
+		{"caveats", '[', ']'},
+		{"snippets", '[', ']'},
+		{"missing_requested_roles", '[', ']'},
+		{"exact_resolution", '{', '}'},
+	} {
+		if raw, ok := extractLooseJSONFieldValue(body, field.name, field.open, field.close); ok {
+			if !looseAnswerDocumentSiblingFieldValid(field.name, raw) {
+				continue
+			}
+			out[field.name] = raw
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func extractLooseJSONFieldValue(s, field string, open, close byte) (json.RawMessage, bool) {
+	needle := `"` + field + `"`
+	searchFrom := 0
+	for {
+		idx := strings.Index(s[searchFrom:], needle)
+		if idx < 0 {
+			return nil, false
+		}
+		idx += searchFrom
+		cur := idx + len(needle)
+		for cur < len(s) && isAnswerDocJSONSpace(s[cur]) {
+			cur++
+		}
+		if cur >= len(s) || s[cur] != ':' {
+			searchFrom = idx + len(needle)
+			continue
+		}
+		cur++
+		for cur < len(s) && isAnswerDocJSONSpace(s[cur]) {
+			cur++
+		}
+		if cur >= len(s) || s[cur] != open {
+			searchFrom = idx + len(needle)
+			continue
+		}
+		end := findMatchingJSONClose(s, cur, open, close)
+		if end < 0 {
+			searchFrom = idx + len(needle)
+			continue
+		}
+		raw := strings.TrimSpace(s[cur : end+1])
+		if json.Valid([]byte(raw)) {
+			return json.RawMessage(raw), true
+		}
+		searchFrom = end + 1
+	}
+}
+
+func looseAnswerDocumentSiblingFieldValid(field string, raw json.RawMessage) bool {
+	switch field {
+	case "citations":
+		var v []emitAnswerCitationV2
+		return json.Unmarshal(raw, &v) == nil
+	case "caveats":
+		var v []string
+		return json.Unmarshal(raw, &v) == nil
+	case "snippets":
+		var v []emitCodeSnippetV2
+		return json.Unmarshal(raw, &v) == nil
+	case "missing_requested_roles":
+		var v []types.AnswerMissingRequestedRole
+		return json.Unmarshal(raw, &v) == nil
+	case "exact_resolution":
+		var v types.AnswerExactResolution
+		return json.Unmarshal(raw, &v) == nil
+	default:
+		return false
+	}
 }
 
 func blockKindFromObject(probe map[string]json.RawMessage) (types.AnswerBlockKind, bool) {

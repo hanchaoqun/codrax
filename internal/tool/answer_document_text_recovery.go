@@ -217,10 +217,10 @@ func recoverAnswerDocumentV2FromRawCandidate(raw json.RawMessage) (AnswerDocumen
 	}
 	if repaired, report, ok := repairBlocksAsStringDetailed(raw); ok {
 		mode := "content_json_" + report.Mode
-		attempts = append([]struct {
+		attempts = append(attempts, struct {
 			raw  json.RawMessage
 			mode string
-		}{{raw: repaired, mode: mode}}, attempts...)
+		}{raw: repaired, mode: mode})
 	}
 	for _, attempt := range attempts {
 		if repaired, _, ok := repairNestedArraysAsString(attempt.raw); ok {

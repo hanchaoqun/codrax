@@ -5179,6 +5179,9 @@ func answerDocumentPatchBaseAvailableInMutable(mut *types.MutableState) bool {
 			return true
 		}
 	}
+	if doc := mut.LastRejectedAnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
+		return true
+	}
 	return false
 }
 

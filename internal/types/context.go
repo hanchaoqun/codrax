@@ -182,6 +182,15 @@ type MutableState struct {
 	// contract, citation pool, or validator surface.
 	answerDisplayAttachments []AnswerDisplayAttachment
 
+	// lastRejectedAnswerDocumentV2 caches the most recent structurally
+	// decoded answer_document draft that failed a validator gate before it
+	// could be persisted as the accepted AnswerDocumentV2. Local models often
+	// answer the next retry with a patch against that draft even though no
+	// accepted base exists yet; tool-level compatibility may use this clone as
+	// a patch base, but the merged document must still pass the normal
+	// validation pipeline before it can be accepted.
+	lastRejectedAnswerDocumentV2 *AnswerDocumentV2
+
 	// lastEmitFromPatch flags whether the most recent answerDocumentV2
 	// write came from emit_answer_document_patch (true) or full
 	// emit_answer_document (false). Phase 2-B4 (V2 runtime
@@ -1701,6 +1710,7 @@ func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *A
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
 	m.lastEmitFromPatch = (kind == MutationPartial)
+	m.lastRejectedAnswerDocumentV2 = nil
 }
 
 // SetAnswerDisplayAttachments replaces the current final-answer
@@ -1725,6 +1735,30 @@ func (m *MutableState) AnswerDisplayAttachments() []AnswerDisplayAttachment {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return cloneAnswerDisplayAttachments(m.answerDisplayAttachments)
+}
+
+// SetLastRejectedAnswerDocumentV2 stores a defensive copy of a decoded but
+// rejected V2 answer draft. The draft is not user-visible contract state; it is
+// a local-model retry aid consumed only by compatibility paths that re-run the
+// full validator before accepting anything.
+func (m *MutableState) SetLastRejectedAnswerDocumentV2(doc *AnswerDocumentV2) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastRejectedAnswerDocumentV2 = cloneAnswerDocumentV2(doc)
+}
+
+// LastRejectedAnswerDocumentV2 returns the most recent decoded-but-rejected
+// V2 answer draft, or nil when no such draft exists.
+func (m *MutableState) LastRejectedAnswerDocumentV2() *AnswerDocumentV2 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneAnswerDocumentV2(m.lastRejectedAnswerDocumentV2)
 }
 
 // ResetAnswerDisplayAttachments clears recovered fallback fragments.
@@ -1774,6 +1808,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
 	m.answerDisplayAttachments = nil
+	m.lastRejectedAnswerDocumentV2 = nil
 }
 
 // cloneAnswerDocumentV2 makes a defensive deep copy of an

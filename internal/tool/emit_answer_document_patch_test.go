@@ -260,6 +260,38 @@ func TestEmitAnswerDocumentPatch_RecoverFromRetryState(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_UsesRejectedDraftAsBase(t *testing.T) {
+	bus := &types.BusContext{Mutable: &types.MutableState{}}
+	bus.Mutable.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "x.go", Line: 10}},
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "previous rejected summary"},
+			{
+				ID:    "list1",
+				Kind:  types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{{ID: "i1", Label: "A", CitationRef: 0}},
+			},
+		},
+	})
+	tool := &EmitAnswerDocumentPatch{}
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1", "list1"],
+		"add_blocks": [{"id":"scope_caveat","kind":"caveat","text":"Scope note"}]
+	}`)
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch should apply against structurally valid rejected draft; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("merged document not persisted from rejected-draft patch base: %+v", doc)
+	}
+	if doc.Blocks[2].Kind != types.BlockCaveat || doc.Blocks[0].Text != "previous rejected summary" {
+		t.Fatalf("patch did not preserve base blocks and append caveat: %+v", doc.Blocks)
+	}
+}
+
 // TestEmitAnswerDocumentPatch_RejectsInvalidKind covers tool-layer
 // kind validation (mirrors the V2 emit gate).
 func TestEmitAnswerDocumentPatch_RejectsInvalidKind(t *testing.T) {

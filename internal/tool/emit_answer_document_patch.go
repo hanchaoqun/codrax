@@ -152,6 +152,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		prev = recoverPrevFromRetryState(ctx.Mutable)
 	}
 	if prev == nil {
+		prev = recoverPrevFromRejectedDraft(ctx.Mutable)
+		if prev != nil {
+			logging.Warning("[emit_answer_document_patch] using previous rejected answer draft as patch base; merged document will be fully revalidated")
+		}
+	}
+	if prev == nil {
 		return failEmit(t.Name(), now,
 			"emit_answer_document_patch: no previous emit found. The patch tool is only valid on retry paths after a successful emit_answer_document call. First dispatches must use emit_answer_document.")
 	}
@@ -430,6 +436,17 @@ func recoverPrevFromRetryState(mut *types.MutableState) *types.AnswerDocumentV2 
 		return nil
 	}
 	return &doc
+}
+
+func recoverPrevFromRejectedDraft(mut *types.MutableState) *types.AnswerDocumentV2 {
+	if mut == nil {
+		return nil
+	}
+	doc := mut.LastRejectedAnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) == 0 {
+		return nil
+	}
+	return doc
 }
 
 // convertEmitBlocksToTyped converts the JSON emitAnswerBlockV2
