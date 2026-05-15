@@ -3220,6 +3220,78 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectSurfacesActi
 	}
 }
 
+func TestAnswerDocumentEvaluator_Observe_UnexpectedFinalizerToolBypassesThrottle(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 2,
+		Response: llm.Response{ToolCalls: []llm.ToolCall{{
+			Name: "read_file",
+		}}},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("unexpected finalizer tool should request a protocol correction, got %+v", sig)
+	}
+	if !sig.BypassThrottle {
+		t.Fatalf("unexpected finalizer tool correction must bypass throttle, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "read_file") || !strings.Contains(sig.Hint, "emit_answer_document") {
+		t.Fatalf("unexpected tool hint missing tool/protocol detail: %q", sig.Hint)
+	}
+}
+
+func TestCompactToolRejectSummaryPrefersStructuredFieldActions(t *testing.T) {
+	summary := "The answer document does not yet meet the structural contract for this question.\n\n" +
+		"  1. Field: `citations[]`\n" +
+		"     Action: preserve / emit a top-level citations[] pool with at least 9 entries so every non-negative citation_ref resolves\n" +
+		"     Why: citation refs are zero-based\n" +
+		"  2. Field: `blocks[].items[].label/text OR blocks[].text`\n" +
+		"     Action: include every model-emitted principal member_set member in the visible answer\n" +
+		"  3. Field: `blocks[].text/count claims`\n" +
+		"     Action: make every visible count claim match the member_set cardinality\n"
+	got := compactToolRejectSummary(summary)
+	for _, want := range []string{
+		"`citations[]`: preserve / emit",
+		"`blocks[].items[].label/text OR blocks[].text`: include every model-emitted",
+		"`blocks[].text/count claims`: make every visible count claim",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("compact structured summary missing %q:\n%s", want, got)
+		}
+	}
+	if strings.HasPrefix(got, "The answer document does not yet meet") {
+		t.Fatalf("compact summary should not stop at the generic heading: %q", got)
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopRejectHintIncludesFieldActions(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary: "The answer document does not yet meet the structural contract for this question.\n\n" +
+				"  1. Field: `citations[]`\n" +
+				"     Action: preserve / emit a top-level citations[] pool with at least 9 entries\n" +
+				"  2. Field: `blocks[].items[].label`\n" +
+				"     Action: structured answer anchor label(s) must preserve: explorer\n",
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("tool reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"`citations[]`: preserve / emit",
+		"`blocks[].items[].label`: structured answer anchor",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("reject hint missing compact action %q:\n%s", want, sig.Hint)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectIncludesConfigTraceSeed(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

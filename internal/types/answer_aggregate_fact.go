@@ -190,6 +190,109 @@ func PrincipalAggregateMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAg
 	return out
 }
 
+// PrincipalAggregateMemberSetFactRefsForRequest returns the principal
+// member_set rows for a concrete request shape. The base helper treats every
+// complete member_set as principal unless another relation member_set clearly
+// subsumes it. That is correct for enumeration/relation answer shapes, but a
+// model can also use member_set as a coverage ledger in explanation questions
+// (for example, "files I inspected"). For prose/mechanism answer shapes, a pure
+// source-path set is context evidence rather than the answer slate, so this
+// request-aware projection keeps it out of hard finalizer gates.
+//
+// The filter is structural: typed RequestModel traits plus source/config path
+// surfaces. It does not inspect the raw user prompt, model prose, labels such
+// as "core files", or repository-language-specific keywords.
+func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, rm *RequestModel) []AnswerAggregateFactRef {
+	refs := PrincipalAggregateMemberSetFactRefs(facts)
+	if len(refs) == 0 || rm == nil {
+		return refs
+	}
+	if aggregateRequestRequiresPathMemberSetAsPrincipal(*rm) {
+		return refs
+	}
+	out := make([]AnswerAggregateFactRef, 0, len(refs))
+	for _, ref := range refs {
+		if aggregateMemberSetIsSourcePathCoverageOnly(ref.Fact, *rm) {
+			continue
+		}
+		out = append(out, ref)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func PrincipalRelationMemberSetFactRefsForRequest(facts []AnswerAggregateFact, rm *RequestModel) []AnswerAggregateFactRef {
+	refs := PrincipalAggregateMemberSetFactRefsForRequest(facts, rm)
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]AnswerAggregateFactRef, 0, len(refs))
+	for _, ref := range refs {
+		if AnswerAggregateFactHasRelationMembers(ref.Fact) {
+			out = append(out, ref)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func aggregateRequestRequiresPathMemberSetAsPrincipal(rm RequestModel) bool {
+	if RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		RequiresRelationMemberSetHandoff(rm) {
+		return true
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return true
+	}
+	return false
+}
+
+func aggregateMemberSetIsSourcePathCoverageOnly(fact AnswerAggregateFact, rm RequestModel) bool {
+	if !answerAggregateMemberSetAllSourcePathSurfaces(fact) {
+		return false
+	}
+	if IsArchitectureNarrativeExplanation(rm) || IsSingleTopicMechanismExplanation(rm) {
+		return true
+	}
+	if rm.Intent != IntentExplain {
+		return false
+	}
+	if IsCategoryEnumerationAnswerShape(rm) ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup {
+		return false
+	}
+	return true
+}
+
+func answerAggregateMemberSetAllSourcePathSurfaces(fact AnswerAggregateFact) bool {
+	if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+		return false
+	}
+	for _, member := range fact.Members {
+		member = strings.TrimSpace(member)
+		if member == "" {
+			return false
+		}
+		if _, ok := ParseAnswerFilePathSurface(member); ok {
+			continue
+		}
+		if _, ok := ParseAnswerSourceLocationSurface(member); ok {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func aggregateRelationAlternateMemberSetSkips(relationFacts []aggregateRelationMemberSetFact) map[int]bool {
 	if len(relationFacts) < 2 {
 		return nil
@@ -251,20 +354,7 @@ func aggregateRelationMemberSetPreferred(a, b aggregateRelationMemberSetFact) bo
 // relation-answer shape rules without coupling those rules to Go symbols,
 // English/Chinese keywords, or a specific question family.
 func PrincipalRelationMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAggregateFactRef {
-	refs := PrincipalAggregateMemberSetFactRefs(facts)
-	if len(refs) == 0 {
-		return nil
-	}
-	out := make([]AnswerAggregateFactRef, 0, len(refs))
-	for _, ref := range refs {
-		if AnswerAggregateFactHasRelationMembers(ref.Fact) {
-			out = append(out, ref)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return PrincipalRelationMemberSetFactRefsForRequest(facts, nil)
 }
 
 // AnswerAggregateFactHasRelationMembers reports whether at least one principal

@@ -35,6 +35,32 @@ func TestRenderStructuredAggregateFactsPrioritizesPrincipalMemberSet(t *testing.
 	}
 }
 
+func TestRenderStructuredAggregateFactsMarksPathSetsAsCoverageForArchitecture(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "files inspected",
+		Value:   "2",
+		Members: []string{"internal/agent/explorer.go", "internal/agent/agent.go"},
+	}}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityComplex,
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture},
+	}}}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	if !strings.Contains(got, "coverage_axis_only=true") {
+		t.Fatalf("path-only member_set should render as coverage context for architecture answers:\n%s", got)
+	}
+	if strings.Contains(got, "principal_member_set=true") {
+		t.Fatalf("path-only coverage set must not be labeled principal for architecture answers:\n%s", got)
+	}
+}
+
 func TestStructuredAggregatePromptFactLimitExpandsForComplexTypedQuestions(t *testing.T) {
 	var facts []types.AnswerAggregateFact
 	for i := 0; i < 24; i++ {

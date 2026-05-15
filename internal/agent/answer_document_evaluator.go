@@ -2939,7 +2939,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("- These aggregate facts were emitted by the investigator through `emit_investigation_complete.aggregate_facts` after exploration. They are model-authored structured handoff values, not system-synthesised answer text.\n")
 	b.WriteString("- Preserve each `value` exactly when the corresponding fact answers the user's requested scalar, unique-set, group, bucket, exclusion, or exhaustive-member question. Use `members` for requested concrete lists such as enum/type names, file paths, or file:line locations.\n")
 	b.WriteString("- For `member_set` rows, `principal_member_set=true` marks the concrete principal slate. `coverage_axis_only=true` rows are audit/coverage context for a richer relation slate and must not create duplicate principal rows.\n")
-	if relationRefs := types.PrincipalRelationMemberSetFactRefs(plan.StableAggregateFacts); len(relationRefs) > 0 {
+	if relationRefs := answerDocPrincipalRelationMemberSetRefs(ctx, plan.StableAggregateFacts); len(relationRefs) > 0 {
 		b.WriteString("- Relation contract: principal relation `member_set` rows answer a qualifying-member lookup. Start from the qualifying member(s) in that typed set, then explain the relation evidence; do not substitute a mechanism-only architecture explanation for the direct member answer.\n")
 		if answerDocHasMultiMemberAggregateRef(relationRefs) {
 			b.WriteString("- For multi-member relation sets, render the qualifying members as list/table rows before any broader mechanism narrative.\n")
@@ -2947,10 +2947,17 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, `Member | file.ext:line`, or `Member (file.ext:line)`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Reserve `citation_ref:-1` only for member labels that have no citable source-location handoff.\n")
 	b.WriteString("- Do not render internal provenance strings such as `source=emit_investigation_complete.aggregate_facts` in the user-visible answer text. Use provenance only to choose the correct member set and citations.\n")
-	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, typed support lanes, citations, or raw tool outputs conflict with these facts, prefer the structured member_set for the principal list and state the evidence boundary instead of inventing a reconciliation.\n\n")
+	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, typed support lanes, citations, or raw tool outputs conflict with these facts, prefer rows marked `principal_member_set=true` for the principal list and treat `coverage_axis_only=true` rows as support context.\n\n")
 	b.WriteString(renderStructuredAggregateFactsForContext(ctx, plan.StableAggregateFacts))
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocPrincipalRelationMemberSetRefs(ctx *types.AgentContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return types.PrincipalRelationMemberSetFactRefs(facts)
+	}
+	return types.PrincipalRelationMemberSetFactRefsForRequest(facts, &ctx.AnalysisIR.RequestModel)
 }
 
 func answerDocHasMultiMemberAggregateRef(refs []types.AnswerAggregateFactRef) bool {
@@ -4768,9 +4775,10 @@ func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservat
 	e.rejectHintsUsed++
 	toolList := strings.Join(unexpected, ", ")
 	return LoopSignal{
-		HintRequested: true,
-		HintKey:       fmt.Sprintf("answer_doc.unexpected_tool.%d.%s", obs.Iteration, toolList),
-		Hint:          fmt.Sprintf("This stage is a pure answer synthesizer. Do NOT call `%s` or any other read/search tool. Re-emit `emit_answer_document` using only the already-provided grounded evidence: `citations[]`, Diagram Seeds, Exact Resolution Seeds, and the prompt's Diagram Node Allowlist. If a step cannot honestly cite one grounded line, keep that fact in `summary` or set that step's `citation_ref=-1` instead of reopening files. Do not write free-form prose outside the tool call.", toolList),
+		HintRequested:  true,
+		BypassThrottle: true,
+		HintKey:        fmt.Sprintf("answer_doc.unexpected_tool.%d.%s", obs.Iteration, toolList),
+		Hint:           fmt.Sprintf("This stage is a pure answer synthesizer. Do NOT call `%s` or any other read/search tool. Re-emit `emit_answer_document` using only the already-provided grounded evidence: `citations[]`, Diagram Seeds, Exact Resolution Seeds, and the prompt's Diagram Node Allowlist. If a step cannot honestly cite one grounded line, keep that fact in `summary` or set that step's `citation_ref=-1` instead of reopening files. Do not write free-form prose outside the tool call.", toolList),
 	}
 }
 
@@ -5217,6 +5225,9 @@ func answerDocRepairIsRegression(repair *types.ToolRepair) bool {
 }
 
 func compactToolRejectSummary(summary string) string {
+	if detail := compactStructuredToolFixSummary(summary, 3); detail != "" {
+		return detail
+	}
 	for _, line := range strings.Split(summary, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
@@ -5224,6 +5235,97 @@ func compactToolRejectSummary(summary string) string {
 		}
 	}
 	return ""
+}
+
+func compactStructuredToolFixSummary(summary string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	type fix struct {
+		field  string
+		action string
+	}
+	var fixes []fix
+	var current *fix
+	flush := func() {
+		if current == nil {
+			return
+		}
+		current.field = strings.TrimSpace(current.field)
+		current.action = strings.TrimSpace(current.action)
+		if current.field != "" && current.action != "" {
+			fixes = append(fixes, *current)
+		}
+		current = nil
+	}
+	for _, rawLine := range strings.Split(summary, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		line = trimToolRejectListPrefix(line)
+		switch {
+		case strings.HasPrefix(line, "Field:"):
+			flush()
+			field := strings.TrimSpace(strings.TrimPrefix(line, "Field:"))
+			field = strings.Trim(field, "` ")
+			current = &fix{field: field}
+		case strings.HasPrefix(line, "Action:"):
+			if current == nil {
+				continue
+			}
+			action := strings.TrimSpace(strings.TrimPrefix(line, "Action:"))
+			current.action = action
+		}
+	}
+	flush()
+	if len(fixes) == 0 {
+		return ""
+	}
+	partCap := len(fixes)
+	if partCap > limit {
+		partCap = limit
+	}
+	parts := make([]string, 0, partCap+1)
+	for i, f := range fixes {
+		if i >= limit {
+			break
+		}
+		parts = append(parts, fmt.Sprintf("`%s`: %s", f.field, truncateRejectAction(f.action, 260)))
+	}
+	if len(fixes) > limit {
+		parts = append(parts, fmt.Sprintf("... %d more field fix(es)", len(fixes)-limit))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func trimToolRejectListPrefix(line string) string {
+	line = strings.TrimSpace(line)
+	i := 0
+	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+		i++
+	}
+	if i == 0 || i >= len(line) {
+		return line
+	}
+	switch line[i] {
+	case '.', ')':
+		return strings.TrimSpace(line[i+1:])
+	default:
+		return line
+	}
+}
+
+func truncateRejectAction(s string, maxRunes int) string {
+	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+	if maxRunes <= 0 || utf8.RuneCountInString(s) <= maxRunes {
+		return s
+	}
+	runes := []rune(s)
+	if maxRunes <= 1 {
+		return string(runes[:maxRunes])
+	}
+	return string(runes[:maxRunes-1]) + "…"
 }
 
 func repairHintMentionsFields(hint string, fields []string) bool {

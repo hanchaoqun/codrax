@@ -2432,10 +2432,17 @@ func toolDetail(params json.RawMessage) string {
 }
 
 func toolResultSummary(result *types.ToolResult) string {
-	if result == nil || !result.Success {
+	if result == nil {
 		return ""
 	}
-	return result.Summary
+	if result.Success {
+		return result.Summary
+	}
+	switch strings.TrimSpace(result.ToolName) {
+	case "emit_answer_document", "emit_answer_document_patch":
+		return result.Summary
+	}
+	return ""
 }
 
 func toolCallNames(calls []llm.ToolCall) []string {

@@ -129,7 +129,7 @@ func compileGenericAggregateMemberSupportLane(rm RequestModel, plan *AnswerSurfa
 	}
 	supportEvidence := genericAggregateSupportEvidenceByMemberLabel(plan.SurfaceEvidence)
 	seen := map[string]bool{}
-	for _, ref := range PrincipalAggregateMemberSetFactRefs(plan.StableAggregateFacts) {
+	for _, ref := range PrincipalAggregateMemberSetFactRefsForRequest(plan.StableAggregateFacts, &rm) {
 		factIdx, fact := ref.Index, ref.Fact
 		for memberIdx, member := range fact.Members {
 			entry, ok := genericAggregateMemberSupportEntry(fact, factIdx, memberIdx, member, supportEvidence)

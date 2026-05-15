@@ -798,7 +798,7 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	if len(facts) == 0 {
 		return nil
 	}
-	principalRefs := types.PrincipalAggregateMemberSetFactRefs(facts)
+	principalRefs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts)
 	if len(principalRefs) == 0 {
 		return nil
 	}
@@ -879,11 +879,26 @@ func preEmitAggregateMemberSetIsScalarCountSupport(ctx *types.BusContext, fact t
 	return rm.Intent == types.IntentReturnValue || rm.AnswerSubject.Kind == types.SubjectNumeric
 }
 
+func preEmitPrincipalAggregateMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return types.PrincipalAggregateMemberSetFactRefs(facts)
+	}
+	return types.PrincipalAggregateMemberSetFactRefsForRequest(facts, &ctx.AnalysisIR.RequestModel)
+}
+
+func preEmitPrincipalRelationMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return types.PrincipalRelationMemberSetFactRefs(facts)
+	}
+	return types.PrincipalRelationMemberSetFactRefsForRequest(facts, &ctx.AnalysisIR.RequestModel)
+}
+
 func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
 	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
 		return nil
 	}
-	refs := types.PrincipalAggregateMemberSetFactRefs(ctxOpt[0].Mutable.StableInvestigationAggregateFacts())
+	ctx := ctxOpt[0]
+	refs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
 	if len(refs) == 0 {
 		return nil
 	}
@@ -954,7 +969,8 @@ func preCheckRelationMemberSetAnswerShape(doc *types.AnswerDocumentV2, ctxOpt ..
 	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
 		return nil
 	}
-	refs := types.PrincipalRelationMemberSetFactRefs(ctxOpt[0].Mutable.StableInvestigationAggregateFacts())
+	ctx := ctxOpt[0]
+	refs := preEmitPrincipalRelationMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
 	if len(refs) == 0 {
 		return nil
 	}
@@ -1962,7 +1978,7 @@ func preEmitCandidateCitationLocationsForAggregateItem(ctx *types.BusContext, la
 		seen[key] = true
 		out = append(out, loc)
 	}
-	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(ctx.Mutable.StableInvestigationAggregateFacts()) {
+	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts()) {
 		fact := ref.Fact
 		for idx, member := range fact.Members {
 			if !preEmitAggregateMemberLabelTextMatches(label, text, member) {
@@ -1993,7 +2009,7 @@ func preEmitCitationSupportsAggregateItem(ctx *types.BusContext, label, text str
 	if label == "" || text == "" {
 		return false
 	}
-	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(ctx.Mutable.StableInvestigationAggregateFacts()) {
+	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts()) {
 		fact := ref.Fact
 		for idx, member := range fact.Members {
 			if !preEmitAggregateMemberLabelTextMatches(label, text, member) {
@@ -2387,7 +2403,7 @@ func preEmitLabelSupportedByAggregateMemberSet(label string, item types.AnswerBl
 	if len(facts) == 0 {
 		return false
 	}
-	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(facts) {
+	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts) {
 		fact := ref.Fact
 		for _, member := range fact.Members {
 			if !preEmitAggregateMemberLabelTextMatches(label, item.Text, member) {

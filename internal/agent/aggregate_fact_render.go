@@ -14,7 +14,7 @@ const (
 )
 
 func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []types.AnswerAggregateFact) string {
-	return renderStructuredAggregateFacts(facts, structuredAggregatePromptFactLimit(ctx, facts))
+	return renderStructuredAggregateFactsWithPrincipalRefs(facts, structuredAggregatePromptFactLimit(ctx, facts), structuredAggregatePrincipalMemberSetRefs(ctx, facts))
 }
 
 func structuredAggregatePromptFactLimit(ctx *types.AgentContext, facts []types.AnswerAggregateFact) int {
@@ -22,7 +22,7 @@ func structuredAggregatePromptFactLimit(ctx *types.AgentContext, facts []types.A
 		return 0
 	}
 	limit := structuredAggregateDefaultPromptFacts
-	principalCount := len(types.PrincipalAggregateMemberSetFactRefs(facts))
+	principalCount := len(structuredAggregatePrincipalMemberSetRefs(ctx, facts))
 	if principalCount > 0 {
 		limit += aggregateFactMinInt(principalCount*2, 16)
 	}
@@ -57,14 +57,16 @@ func structuredAggregatePromptFactLimit(ctx *types.AgentContext, facts []types.A
 }
 
 func renderStructuredAggregateFacts(facts []types.AnswerAggregateFact, maxFacts int) string {
+	return renderStructuredAggregateFactsWithPrincipalRefs(facts, maxFacts, types.PrincipalAggregateMemberSetFactRefs(facts))
+}
+
+func renderStructuredAggregateFactsWithPrincipalRefs(facts []types.AnswerAggregateFact, maxFacts int, refs []types.AnswerAggregateFactRef) string {
 	if len(facts) == 0 {
 		return ""
 	}
 	principalMemberSets := map[int]bool{}
-	if refs := types.PrincipalAggregateMemberSetFactRefs(facts); len(refs) > 0 {
-		for _, ref := range refs {
-			principalMemberSets[ref.Index] = true
-		}
+	for _, ref := range refs {
+		principalMemberSets[ref.Index] = true
 	}
 	order := orderedAggregateFactIndexes(facts, principalMemberSets)
 	if maxFacts <= 0 || maxFacts > len(order) {
@@ -112,6 +114,13 @@ func renderStructuredAggregateFacts(facts []types.AnswerAggregateFact, maxFacts 
 		fmt.Fprintf(&b, "- ... %d more aggregate fact(s) omitted from prompt\n", len(facts)-maxFacts)
 	}
 	return b.String()
+}
+
+func structuredAggregatePrincipalMemberSetRefs(ctx *types.AgentContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return types.PrincipalAggregateMemberSetFactRefs(facts)
+	}
+	return types.PrincipalAggregateMemberSetFactRefsForRequest(facts, &ctx.AnalysisIR.RequestModel)
 }
 
 func orderedAggregateFactIndexes(facts []types.AnswerAggregateFact, principalMemberSets map[int]bool) []int {

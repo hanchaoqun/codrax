@@ -910,6 +910,35 @@ func TestProtocolStagesRouteNoToolProseThroughLoopControllerBeforeShouldStop(t *
 	}
 }
 
+func TestToolResultSummarySurfacesAnswerDocumentRejectsOnly(t *testing.T) {
+	answerReject := &types.ToolResult{
+		ToolName: "emit_answer_document",
+		Success:  false,
+		Summary:  "Field: `citations[]`\nAction: preserve citations",
+	}
+	if got := toolResultSummary(answerReject); !strings.Contains(got, "citations[]") {
+		t.Fatalf("answer-document rejection should remain visible to the renderer, got %q", got)
+	}
+
+	readReject := &types.ToolResult{
+		ToolName: "read_file",
+		Success:  false,
+		Summary:  "path not found",
+	}
+	if got := toolResultSummary(readReject); got != "" {
+		t.Fatalf("generic failed tools should stay quiet in the dock, got %q", got)
+	}
+
+	success := &types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "3 matches",
+	}
+	if got := toolResultSummary(success); got != "3 matches" {
+		t.Fatalf("successful tool summary = %q, want %q", got, "3 matches")
+	}
+}
+
 type protocolSoftStopAcceptEvaluator struct {
 	protocolSoftStopEvaluator
 }

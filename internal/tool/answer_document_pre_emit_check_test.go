@@ -468,6 +468,42 @@ func TestPreCheckAggregateMemberSetCoverage_PrincipalFactsDoNotDependOnRequestFa
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_PathSetsAreCoverageForArchitecture(t *testing.T) {
+	mu := types.NewMutableState("architecture coverage aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "files inspected",
+		Value:   "3",
+		Members: []string{"internal/agent/explorer.go", "internal/agent/agent.go", "internal/tool/propose_sub_agents.go"},
+	}})
+	mu.SetInvestigationComplete("structured coverage set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:      types.IntentExplain,
+				Scenario:    types.ScenarioArchitectureExplain,
+				Complexity:  types.ComplexityComplex,
+				Predicates:  types.SemanticPredicates{IsCrossComponent: true},
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "explorer 的工作流分成预扫描、深读、证据归纳和最终交付四步。",
+	}}}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("path-only coverage member_set must not force visible principal rows for architecture answers, got %+v", got)
+	}
+	doc.Blocks[0].Text = "explorer 的工作流有 4 个阶段。"
+	if got := preCheckAggregateCardinalityConsistency(doc, ctx); len(got) != 0 {
+		t.Fatalf("path-only coverage member_set must not bind unrelated explanation counts, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateCardinalityConsistency_RejectsScopedCountMismatch(t *testing.T) {
 	members := []string{
 		"AnalyzerAgent", "ExplorerAgent", "ExtractorAgent", "FinalizerAgent",

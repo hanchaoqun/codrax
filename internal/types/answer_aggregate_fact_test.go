@@ -92,6 +92,36 @@ func TestNormalizeAnswerAggregateFacts_AcceptsMemberSet(t *testing.T) {
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesPathCoverageForArchitecture(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "files inspected",
+		Value:   "2",
+		Members: []string{"internal/agent/explorer.go", "internal/agent/agent.go"},
+	}}
+	arch := RequestModel{
+		Intent:      IntentExplain,
+		Scenario:    ScenarioArchitectureExplain,
+		Complexity:  ComplexityComplex,
+		Predicates:  SemanticPredicates{IsCrossComponent: true},
+		DiagramHint: &DiagramHint{Kind: DiagramArchitecture},
+	}
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &arch); len(got) != 0 {
+		t.Fatalf("architecture path coverage set should not be principal, got %+v", got)
+	}
+
+	enum := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all files"},
+	}
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &enum); len(got) != 1 {
+		t.Fatalf("enumeration path set should remain principal, got %+v", got)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_CanonicalizesMemberSetValueFromMembers(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:    AnswerAggregateMemberSet,
