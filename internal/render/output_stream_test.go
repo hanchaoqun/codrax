@@ -116,3 +116,58 @@ func TestFormatReasoningStylesTagAndBodySeparately(t *testing.T) {
 		t.Fatalf("styled reasoning changed visible text: %q", plain)
 	}
 }
+
+func TestFormatToolCallBatchSummarizesPureToolResponse(t *testing.T) {
+	got := formatToolCallBatch("explorer", 19,
+		[]string{"read_file"},
+		1,
+		"read_file",
+		"internal/tool/apply_patch.go",
+		"zh",
+	)
+	plain := stripAnsiEscapes(got)
+	want := "  · [explorer-20] 调用工具 read_file internal/tool/apply_patch.go"
+	if plain != want {
+		t.Fatalf("tool-only response line changed\nwant %q\ngot  %q", want, plain)
+	}
+}
+
+func TestFormatToolCallBatchCompactsRepeatedTools(t *testing.T) {
+	got := formatToolCallBatch("explorer", 2,
+		[]string{"read_file", "read_file", "grep", "emit_evidence", "repo_map", "list_files"},
+		6,
+		"read_file",
+		"",
+		"en",
+	)
+	plain := stripAnsiEscapes(got)
+	for _, want := range []string{"· [explorer-3]", "calling 6 tools", "read_file x2", "grep", "emit_evidence", "repo_map", "+1"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("tool batch line missing %q; got %q", want, plain)
+		}
+	}
+}
+
+func TestRenderer_ToolCallBatchUsesConfiguredOutput(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:          EventAgentToolCallBatch,
+		Agent:         types.AgentExplorer,
+		Iteration:     3,
+		ToolName:      "emit_evidence",
+		ToolNames:     []string{"emit_evidence"},
+		ToolCallCount: 1,
+		Timestamp:     time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{"· [explorer-4]", "调用工具 emit_evidence"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("tool batch event must leave visible output %q; got %q", want, out)
+		}
+	}
+}

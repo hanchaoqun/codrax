@@ -1224,6 +1224,19 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Iteration: i,
 				Reasoning: resp.Content,
 			})
+		} else if len(resp.ToolCalls) > 0 {
+			firstTool := resp.ToolCalls[0]
+			b.deps.Emit(render.Event{
+				Kind:          render.EventAgentToolCallBatch,
+				Timestamp:     time.Now(),
+				Agent:         b.name,
+				Stage:         ctx.Stage,
+				Iteration:     i,
+				ToolName:      firstTool.Name,
+				ToolDetail:    toolDetail(firstTool.Params),
+				ToolCallCount: len(resp.ToolCalls),
+				ToolNames:     toolCallNames(resp.ToolCalls),
+			})
 		}
 		for j, tc := range resp.ToolCalls {
 			logging.Debug("[diag %s] iter=%d phase=toolcall call[%d] tool=%s params=%s",
@@ -2402,4 +2415,19 @@ func toolDetail(params json.RawMessage) string {
 		return s
 	}
 	return ""
+}
+
+func toolCallNames(calls []llm.ToolCall) []string {
+	if len(calls) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(calls))
+	for _, call := range calls {
+		name := strings.TrimSpace(call.Name)
+		if name == "" {
+			name = "tool"
+		}
+		names = append(names, name)
+	}
+	return names
 }

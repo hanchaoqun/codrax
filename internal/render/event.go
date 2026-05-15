@@ -50,6 +50,16 @@ const (
 	// Agent reasoning text (LLM's thinking before tool calls)
 	EventAgentReasoning
 
+	// Durable marker for an assistant response that contains tool
+	// calls but no text content. Some local / small models routinely
+	// return pure function-call messages; the tool start/end events
+	// update the live dock, but fast tools can complete between
+	// animation frames and leave no scrollback trace. This event is
+	// emitted once per tool-call batch before execution so operators
+	// can see that the model did respond and which tools are being
+	// used, without pretending the model wrote prose.
+	EventAgentToolCallBatch
+
 	// Stage transition
 	EventTransition
 
@@ -318,6 +328,7 @@ type Event struct {
 	// Tool call
 	ToolName   string
 	ToolCallID string
+	ToolNames  []string
 	ToolDetail string // short arg summary, e.g. file path or command
 	ToolOK     bool
 	ToolTime   time.Duration

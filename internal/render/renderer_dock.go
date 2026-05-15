@@ -83,6 +83,18 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 		r.commitLineLocked(line)
 		return
+	case EventAgentToolCallBatch:
+		line := formatToolCallBatch(string(ev.Agent), ev.Iteration, ev.ToolNames,
+			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang)
+		if line == "" {
+			return
+		}
+		if !r.dockEnabled && r.dock == nil {
+			r.handleEventNonTTY(ev)
+			return
+		}
+		r.commitLineLocked(line)
+		return
 	case EventOrchestratorNotice:
 		// Distinct from EventAgentReasoning: no 💭 thought bubble,
 		// no [agent-N] tag — the user must be able to tell at a
@@ -1665,6 +1677,11 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		}
 	case EventAgentReasoning:
 		r.emitNonTTYLine(formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning, r.thinkingTruncate))
+	case EventAgentToolCallBatch:
+		if line := formatToolCallBatch(string(ev.Agent), ev.Iteration, ev.ToolNames,
+			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang); line != "" {
+			r.emitNonTTYLine(line)
+		}
 	case EventOrchestratorNotice:
 		// Mirror of the TTY branch above: render WITHOUT the 💭
 		// LLM-thinking prefix or [agent-N] tag so log scrapers and

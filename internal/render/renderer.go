@@ -1323,6 +1323,110 @@ func formatReasoning(agent string, iteration int, text string, truncate bool) st
 	return "  " + statusMeta.Sprint("💭 "+tag) + " " + statusReasoningBody.Sprint(summary)
 }
 
+func formatToolCallBatch(agent string, iteration int, names []string, count int, firstName, firstDetail, lang string) string {
+	body := toolCallBatchBody(names, count, firstName, firstDetail, lang)
+	if body == "" {
+		return ""
+	}
+	tag := fmt.Sprintf("[%s-%d]", agent, iteration+1)
+	// Tool-only responses are useful progress, not model prose and
+	// not a warning. Reuse the dock's quiet info/pending bullet so the
+	// line is visibly distinct from 💭 thinking without pulling focus.
+	return "  " + statusMeta.Sprint(string(glyphPending)+" "+tag) + " " + statusDetail.Sprint(body)
+}
+
+func toolCallBatchBody(names []string, count int, firstName, firstDetail, lang string) string {
+	if count <= 0 {
+		count = len(names)
+	}
+	firstName = strings.TrimSpace(firstName)
+	if firstName == "" && len(names) > 0 {
+		firstName = strings.TrimSpace(names[0])
+	}
+	if count <= 0 && firstName != "" {
+		count = 1
+	}
+	if count <= 0 {
+		return ""
+	}
+	zh := isZh(lang)
+	if count == 1 {
+		if firstName == "" {
+			if zh {
+				return "调用工具"
+			}
+			return "calling tool"
+		}
+		if firstDetail = strings.TrimSpace(firstDetail); firstDetail != "" {
+			if zh {
+				return fmt.Sprintf("调用工具 %s %s", firstName, firstDetail)
+			}
+			return fmt.Sprintf("calling tool %s %s", firstName, firstDetail)
+		}
+		if zh {
+			return "调用工具 " + firstName
+		}
+		return "calling tool " + firstName
+	}
+	list := compactToolNameList(names, 4)
+	if list == "" && firstName != "" {
+		list = firstName
+	}
+	if zh {
+		if list == "" {
+			return fmt.Sprintf("调用 %d 个工具", count)
+		}
+		return fmt.Sprintf("调用 %d 个工具 %s", count, list)
+	}
+	if list == "" {
+		return fmt.Sprintf("calling %d tools", count)
+	}
+	return fmt.Sprintf("calling %d tools %s", count, list)
+}
+
+func compactToolNameList(names []string, maxKinds int) string {
+	if maxKinds <= 0 {
+		maxKinds = 4
+	}
+	type entry struct {
+		name  string
+		count int
+	}
+	index := make(map[string]int)
+	var ordered []entry
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if pos, ok := index[name]; ok {
+			ordered[pos].count++
+			continue
+		}
+		index[name] = len(ordered)
+		ordered = append(ordered, entry{name: name, count: 1})
+	}
+	if len(ordered) == 0 {
+		return ""
+	}
+	limit := len(ordered)
+	if limit > maxKinds {
+		limit = maxKinds
+	}
+	parts := make([]string, 0, limit+1)
+	for _, ent := range ordered[:limit] {
+		if ent.count > 1 {
+			parts = append(parts, fmt.Sprintf("%s x%d", ent.name, ent.count))
+		} else {
+			parts = append(parts, ent.name)
+		}
+	}
+	if omitted := len(ordered) - limit; omitted > 0 {
+		parts = append(parts, fmt.Sprintf("+%d", omitted))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // truncByDisplayWidth clamps a styled (ANSI-CSI-bearing) line to at
 // most maxCols display columns. ANSI escapes are passed through
 // without consuming columns, runes count via runewidth (so CJK takes
