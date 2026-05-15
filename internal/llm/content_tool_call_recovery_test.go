@@ -356,6 +356,80 @@ func TestRecoverTextToolCalls_ToolNameKeyedMapAliases(t *testing.T) {
 	}
 }
 
+func TestRecoverTextToolCalls_ToolNameKeyedMapAliasArraysWithSharedMetadata(t *testing.T) {
+	content := `{
+		"answer_symbols": [{
+			"name": "NewExplorerAgent",
+			"file": "internal/agent/explorer.go",
+			"line": 15194,
+			"kind": "function"
+		}],
+		"completeness": "complete",
+		"count": 1,
+		"hypothesis_verdicts": [{
+			"hypothesis_id": "h1",
+			"status": "confirmed",
+			"citation": "internal/agent/explorer.go:30"
+		}]
+	}`
+	tools := []ToolSchema{
+		{
+			Name:       "emit_answer_symbol",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"items":{"type":"array"},"completeness":{"type":"string"},"count":{"type":"integer"}},"required":["items","completeness"]}`),
+		},
+		{
+			Name:       "emit_hypothesis_verdict",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"items":{"type":"array"}},"required":["items"]}`),
+		},
+	}
+
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if got.StopReason != "tool_use" || got.Content != "" {
+		t.Fatalf("expected recovered tool_use response, got stop=%q content=%q", got.StopReason, got.Content)
+	}
+	if len(got.ToolCalls) != 2 {
+		t.Fatalf("expected two recovered calls, got %+v", got.ToolCalls)
+	}
+	if got.ToolCalls[0].Name != "emit_answer_symbol" || got.ToolCalls[1].Name != "emit_hypothesis_verdict" {
+		t.Fatalf("tool order/name mismatch: %+v", got.ToolCalls)
+	}
+	var symbols struct {
+		Items        []map[string]any `json:"items"`
+		Completeness string           `json:"completeness"`
+		Count        int              `json:"count"`
+	}
+	if err := json.Unmarshal(got.ToolCalls[0].Params, &symbols); err != nil {
+		t.Fatalf("answer symbol params json: %v", err)
+	}
+	if len(symbols.Items) != 1 || symbols.Items[0]["name"] != "NewExplorerAgent" || symbols.Completeness != "complete" || symbols.Count != 1 {
+		t.Fatalf("answer symbol params = %+v", symbols)
+	}
+	var verdicts struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(got.ToolCalls[1].Params, &verdicts); err != nil {
+		t.Fatalf("hypothesis verdict params json: %v", err)
+	}
+	if len(verdicts.Items) != 1 || verdicts.Items[0]["hypothesis_id"] != "h1" {
+		t.Fatalf("hypothesis verdict params = %+v", verdicts)
+	}
+	if strings.Contains(string(got.ToolCalls[1].Params), "completeness") || strings.Contains(string(got.ToolCalls[1].Params), "count") {
+		t.Fatalf("shared metadata should only attach to the schema-owning tool, got %s", got.ToolCalls[1].Params)
+	}
+}
+
+func TestRecoverTextToolCalls_ToolNameKeyedMapAliasArraysRejectUnknownSharedMetadata(t *testing.T) {
+	content := `{"answer_symbols":[{"name":"A","file":"a.go","line":1,"kind":"function"}],"completeness":"complete","unexpected":true}`
+	tools := []ToolSchema{{
+		Name:       "emit_answer_symbol",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"items":{"type":"array"},"completeness":{"type":"string"}},"required":["items","completeness"]}`),
+	}}
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if len(got.ToolCalls) != 0 || got.Content != content {
+		t.Fatalf("unknown shared metadata should keep the response as content, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+}
+
 func TestRecoverTextToolCalls_ToolNameKeyedMapConservativeBoundaries(t *testing.T) {
 	content := `{"emit_answer_symbol":{"items":[],"completeness":"complete"},"extra":{"items":[]}}`
 	tools := []ToolSchema{{

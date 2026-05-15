@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -4175,6 +4176,55 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RecoversAnswerDocumentJS
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("recovered answer missing %q:\n%s", want, out.FinalAnswer)
 		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersRetryStateDraftAndRawContent(t *testing.T) {
+	prevDoc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "上一版结构化答案正文",
+		}},
+		Citations: []types.Citation{{File: "internal/agent/agent.go", Line: 969}},
+	}
+	prevJSON, err := json.Marshal(prevDoc)
+	if err != nil {
+		t.Fatalf("marshal prev doc: %v", err)
+	}
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(""),
+	}
+	ctx.Mutable.SetRetryState(&types.RetryState{
+		Attempt:      2,
+		PrevEmitJSON: prevJSON,
+	})
+	messages := []llm.Message{
+		{Role: "assistant", Content: "【审计员注】patch 仍未通过。"},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "answer_document emission missing") {
+		t.Fatalf("retry-state draft recovery should avoid raw-only missing-doc banner: %q", out.FinalAnswer)
+	}
+	for _, want := range []string{
+		"上一版结构化答案正文",
+		"internal/agent/agent.go:969",
+		"最终重试未能产出有效的 answer_document",
+		"模型最后一轮原文",
+		"【审计员注】patch 仍未通过。",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	if doc := ctx.Mutable.AnswerDocumentV2(); doc != nil {
+		t.Fatalf("retry-state recovery should not mark rejected draft as accepted mutable document: %+v", doc)
 	}
 }
 

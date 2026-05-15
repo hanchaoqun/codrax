@@ -181,6 +181,56 @@ func TestEmitAnswerDocumentPatch_AddNewBlock(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_NormalizesReplaceNewBlockToAdd(t *testing.T) {
+	bus := newPatchTestBusContext()
+	tool := &EmitAnswerDocumentPatch{}
+	params := json.RawMessage(`{
+		"replace_blocks": [{
+			"id": "diag1",
+			"kind": "diagram",
+			"facet_ids": ["diagram_spine"],
+			"diagram": {"kind": "flow", "language": "mermaid", "body": "flowchart TD\nA-->B"}
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute err: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("new block misfiled under replace_blocks should be normalized to add_blocks; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if len(doc.Blocks) != 3 || doc.Blocks[2].ID != "diag1" {
+		t.Fatalf("normalized block should append at tail, got %+v", doc.Blocks)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_NormalizesAddExistingBlockToReplace(t *testing.T) {
+	bus := newPatchTestBusContext()
+	tool := &EmitAnswerDocumentPatch{}
+	params := json.RawMessage(`{
+		"add_blocks": [{
+			"id": "s1",
+			"kind": "summary",
+			"surface_role": "principal",
+			"text": "fixed summary",
+			"facet_ids": ["current_code_path"],
+			"claim_uses": [{"claim_form": "definition_fact", "evidence_id": "ev1"}]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute err: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("existing block misfiled under add_blocks should be normalized to replace_blocks; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if len(doc.Blocks) != 2 || doc.Blocks[0].ID != "s1" || doc.Blocks[0].Text != "fixed summary" {
+		t.Fatalf("normalized existing block should replace in place, got %+v", doc.Blocks)
+	}
+}
+
 // TestEmitAnswerDocumentPatch_RecoverFromRetryState confirms the
 // fallback path: when AnswerDocumentV2 was cleared (e.g. by
 // ResetForFallback), the tool falls back to RetryState.PrevEmitJSON.

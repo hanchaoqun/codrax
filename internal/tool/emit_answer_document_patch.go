@@ -216,6 +216,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		}
 		patch.AddBlocks = converted
 	}
+	if changed, fields := normalizeAnswerDocumentPatchBlockOps(prev, patch); changed {
+		logging.Warning("[emit_answer_document_patch] block op(s) normalized via prev-id tolerance: %s",
+			strings.Join(fields, ", "))
+	}
 
 	// v3 B4 (2026-05-04): route the patch-emit write through the
 	// unified mutation runtime — same chokepoint as the full path.
@@ -240,6 +244,63 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+}
+
+func normalizeAnswerDocumentPatchBlockOps(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) (bool, []string) {
+	if prev == nil || patch == nil {
+		return false, nil
+	}
+	prevIDs := make(map[string]bool, len(prev.Blocks))
+	for _, block := range prev.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id != "" {
+			prevIDs[id] = true
+		}
+	}
+	if len(prevIDs) == 0 {
+		return false, nil
+	}
+	removeIDs := make(map[string]bool, len(patch.RemoveBlockIDs))
+	for _, id := range patch.RemoveBlockIDs {
+		removeIDs[strings.TrimSpace(id)] = true
+	}
+	addIDs := make(map[string]bool, len(patch.AddBlocks))
+	for _, block := range patch.AddBlocks {
+		addIDs[strings.TrimSpace(block.ID)] = true
+	}
+	replaceIDs := make(map[string]bool, len(patch.ReplaceBlocks))
+	for _, block := range patch.ReplaceBlocks {
+		replaceIDs[strings.TrimSpace(block.ID)] = true
+	}
+
+	var fields []string
+	var keptReplace []types.AnswerBlock
+	for _, block := range patch.ReplaceBlocks {
+		id := strings.TrimSpace(block.ID)
+		if id != "" && !prevIDs[id] && !addIDs[id] && !removeIDs[id] {
+			patch.AddBlocks = append(patch.AddBlocks, block)
+			addIDs[id] = true
+			fields = append(fields, fmt.Sprintf("replace_blocks[%q]→add_blocks", id))
+			continue
+		}
+		keptReplace = append(keptReplace, block)
+	}
+	patch.ReplaceBlocks = keptReplace
+
+	var keptAdd []types.AnswerBlock
+	for _, block := range patch.AddBlocks {
+		id := strings.TrimSpace(block.ID)
+		if id != "" && prevIDs[id] && !replaceIDs[id] && !removeIDs[id] {
+			patch.ReplaceBlocks = append(patch.ReplaceBlocks, block)
+			replaceIDs[id] = true
+			fields = append(fields, fmt.Sprintf("add_blocks[%q]→replace_blocks", id))
+			continue
+		}
+		keptAdd = append(keptAdd, block)
+	}
+	patch.AddBlocks = keptAdd
+
+	return len(fields) > 0, fields
 }
 
 // recoverPrevFromRetryState attempts to decode the prev emit JSON

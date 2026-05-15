@@ -1316,6 +1316,42 @@ func VerifyLineAnchor(gc *Context, source string, line int, anchor string, radiu
 	return 0, false
 }
 
+// ResolveSymbolLineAnchor verifies or canonicalises a symbol definition
+// anchor without treating an unread line window as contrary evidence.
+//
+// The return values are:
+//   - matchedLine, true, false: the anchor was verified or safely
+//     canonicalised;
+//   - 0, false, true: the cited line was actually present in the
+//     read_file gutter and did not corroborate the anchor, so callers
+//     may reject it as a real mismatch;
+//   - 0, false, false: there was not enough line text or symbol-index
+//     evidence to decide. Callers should avoid a hard negative.
+//
+// This distinction matters for large files: a stage may have read
+// source:100-140 and later cite source:900 from repo_map or an evidence
+// summary. "Same file was read" is not the same as "the cited line was
+// read", and collapsing those states sends small models into line-guess
+// repair loops.
+func ResolveSymbolLineAnchor(gc *Context, source string, line int, anchor string, radius int) (int, bool, bool) {
+	if gc == nil || source == "" || line <= 0 || strings.TrimSpace(anchor) == "" {
+		return 0, false, false
+	}
+	if matched, ok := VerifyLineAnchor(gc, source, line, anchor, radius); ok {
+		return matched, true, false
+	}
+	if matched, ok := graphSymbolLineAnchor(gc, source, line, anchor); ok {
+		return matched, true, false
+	}
+	if HasLineInIndex(gc, source, line) {
+		return 0, false, true
+	}
+	if matched, ok := uniqueGraphSymbolDefinitionLine(gc, source, anchor); ok {
+		return matched, true, false
+	}
+	return 0, false, false
+}
+
 // HasFileInIndex reports whether source has been read_file'd (or
 // otherwise materialised into the line index) in this context. Used
 // by callers that need to distinguish "line text disagreed with the
@@ -1327,6 +1363,81 @@ func HasFileInIndex(gc *Context, source string) bool {
 	}
 	_, ok := gc.LineIndex[source]
 	return ok
+}
+
+// HasLineInIndex reports whether the exact cited line was materialised
+// into the read_file line index. It intentionally does not consider a
+// different window in the same file sufficient for negative grounding.
+func HasLineInIndex(gc *Context, source string, line int) bool {
+	if gc == nil || source == "" || line <= 0 {
+		return false
+	}
+	fileLines, ok := gc.LineIndex[source]
+	if !ok {
+		return false
+	}
+	_, ok = fileLines[line]
+	return ok
+}
+
+func graphSymbolLineAnchor(gc *Context, source string, line int, anchor string) (int, bool) {
+	if gc == nil || gc.Graph == nil || source == "" || line <= 0 || strings.TrimSpace(anchor) == "" {
+		return 0, false
+	}
+	for _, sym := range graphSymbolsInFile(gc, source) {
+		if sym.Line != line {
+			continue
+		}
+		if symbolNameMatchesAnchor(sym.Name, anchor) {
+			return sym.Line, true
+		}
+	}
+	return 0, false
+}
+
+func uniqueGraphSymbolDefinitionLine(gc *Context, source string, anchor string) (int, bool) {
+	if gc == nil || gc.Graph == nil || source == "" || strings.TrimSpace(anchor) == "" {
+		return 0, false
+	}
+	matchedLine := 0
+	for _, sym := range graphSymbolsInFile(gc, source) {
+		if !symbolNameMatchesAnchor(sym.Name, anchor) {
+			continue
+		}
+		if matchedLine > 0 && matchedLine != sym.Line {
+			return 0, false
+		}
+		matchedLine = sym.Line
+	}
+	if matchedLine <= 0 {
+		return 0, false
+	}
+	return matchedLine, true
+}
+
+func graphSymbolsInFile(gc *Context, source string) []repomap.Symbol {
+	if gc == nil || gc.Graph == nil || source == "" {
+		return nil
+	}
+	canon := CanonicalRepoRelative(source, gc.RepoRoot)
+	if canon != "" {
+		if syms := gc.Graph.SymbolsInFile(canon); len(syms) > 0 {
+			return syms
+		}
+	}
+	return gc.Graph.SymbolsInFile(source)
+}
+
+func symbolNameMatchesAnchor(symbolName string, anchor string) bool {
+	symbolName = strings.TrimSpace(symbolName)
+	anchor = strings.TrimSpace(anchor)
+	if symbolName == "" || anchor == "" {
+		return false
+	}
+	if symbolName == anchor {
+		return true
+	}
+	return symbolName == lastDotSegment(anchor)
 }
 
 func findAnchorLine(fileLines map[int]string, center, radius int, anchor string) (int, bool) {

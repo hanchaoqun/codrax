@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -863,6 +864,75 @@ func TestEmitAnswerSymbol_FloorGroundingAcceptsRealDefinition(t *testing.T) {
 	}
 	if !res.Success {
 		t.Fatalf("real-definition item should be accepted; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+func TestEmitAnswerSymbol_FloorGroundingDoesNotRejectUnreadLineWindow(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	seedReadFileHistory(ctx, "internal/agent/explorer.go", 30,
+		"type explorerEvaluator struct {",
+		"\theuristics types.ExploreHeuristics",
+		"}",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "NewExplorerAgent", "file": "internal/agent/explorer.go", "line": 15194, "kind": "function"}
+        ],
+        "completeness": "lower_bound"
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unread line window should not be treated as a contradiction; got Summary=%q", res.Summary)
+	}
+	got, _ := ctx.Mutable.EmittedAnswerSymbols()
+	if len(got) != 1 || got[0].Line != 15194 {
+		t.Fatalf("symbol should be preserved for downstream grounding, got %+v", got)
+	}
+}
+
+func TestEmitAnswerSymbol_FloorGroundingCanonicalizesUnreadLineFromGraph(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	seedReadFileHistory(ctx, "internal/agent/explorer.go", 30,
+		"type explorerEvaluator struct {",
+		"\theuristics types.ExploreHeuristics",
+		"}",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/agent/explorer.go": {
+				RelPath: "internal/agent/explorer.go",
+				Symbols: []repomap.Symbol{{
+					Name:    "NewExplorerAgent",
+					Kind:    "function",
+					File:    "internal/agent/explorer.go",
+					Line:    15194,
+					EndLine: 15199,
+				}},
+			},
+		},
+		SymbolDefs: map[string][]*repomap.Symbol{},
+	})
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "NewExplorerAgent", "file": "internal/agent/explorer.go", "line": 15195, "kind": "function"}
+        ],
+        "completeness": "lower_bound"
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("graph-backed unread line canonicalization should pass; got Summary=%q", res.Summary)
+	}
+	got, _ := ctx.Mutable.EmittedAnswerSymbols()
+	if len(got) != 1 || got[0].Line != 15194 {
+		t.Fatalf("line should canonicalize to graph definition line 15194, got %+v", got)
 	}
 }
 

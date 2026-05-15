@@ -5831,6 +5831,28 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 			return out, nil
 		}
 	}
+	if doc, ok := recoverRetryStateAnswerDocumentV2(ctx); ok {
+		if ctx != nil {
+			render.ApplyAuthorityHedging(doc, answerDocumentAuthorityEvidencePool(ctx), e.language)
+		}
+		doc.Caveats = append(doc.Caveats, retryStateRecoveredAnswerDocumentCaveat(e.language))
+		attachments := []types.AnswerDisplayAttachment(nil)
+		if ctx != nil && ctx.Mutable != nil {
+			attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
+		}
+		prose := strings.TrimSpace(render.RenderAnswerDocumentWithAttachments(doc, attachments, e.language))
+		if prose != "" {
+			raw := strings.TrimSpace(lastContent)
+			if raw != "" {
+				prose = prose + "\n\n" + retryStateRecoveredRawContentLabel(e.language) + "\n\n" + raw
+			}
+			logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; rendered previous retry-state document with raw finalizer content (len=%d)",
+				len(lastContent))
+			out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: prose})
+			out.FinalAnswer = prose
+			return out, nil
+		}
+	}
 	warning := "· answer_document emission missing — the answer-rendering pass could not " +
 		"produce a structured answer. The text below is the raw LLM response; no " +
 		"schema-level validation ran on it."
@@ -5859,6 +5881,35 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: combined})
 	out.FinalAnswer = combined
 	return out, nil
+}
+
+func recoverRetryStateAnswerDocumentV2(ctx *types.AgentContext) (*types.AnswerDocumentV2, bool) {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil, false
+	}
+	rs := ctx.Mutable.RetryState()
+	if rs == nil || len(rs.PrevEmitJSON) == 0 {
+		return nil, false
+	}
+	var doc types.AnswerDocumentV2
+	if err := json.Unmarshal(rs.PrevEmitJSON, &doc); err != nil || len(doc.Blocks) == 0 {
+		return nil, false
+	}
+	return &doc, true
+}
+
+func retryStateRecoveredAnswerDocumentCaveat(lang string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
+		return "Rendered from the previous structured answer draft after the final retry failed to emit a valid answer_document; treat this as a best-effort recovery with the raw final model text shown below."
+	}
+	return "最终重试未能产出有效的 answer_document；这里渲染上一版结构化答案草稿作为尽力恢复，下面同时保留模型最后一轮原文。"
+}
+
+func retryStateRecoveredRawContentLabel(lang string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
+		return "**Raw final model text:**"
+	}
+	return "**模型最后一轮原文：**"
 }
 
 func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(

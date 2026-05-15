@@ -1038,6 +1038,12 @@ type parsedTextToolKeyCall struct {
 	call  ToolCall
 }
 
+type pendingTextToolKeyCall struct {
+	key     string
+	rawArgs any
+	alias   textToolKeyAlias
+}
+
 func parseTextToolKeyedMap(source string, m map[string]any, infos []textToolSchemaInfo) ([]ToolCall, bool) {
 	if len(m) == 0 || len(infos) == 0 || hasTextToolCallEnvelopeKey(m) {
 		return nil, false
@@ -1046,25 +1052,45 @@ func parseTextToolKeyedMap(source string, m map[string]any, infos []textToolSche
 	if len(aliases) == 0 {
 		return nil, false
 	}
-	parsed := make([]parsedTextToolKeyCall, 0, len(m))
+	pending := make([]pendingTextToolKeyCall, 0, len(m))
+	shared := make(map[string]any)
 	seen := make(map[string]bool, len(m))
 	for key, rawArgs := range m {
 		key = strings.TrimSpace(key)
 		alias, ok := aliases[key]
-		if !ok || seen[alias.name] {
+		if !ok {
+			shared[key] = rawArgs
+			continue
+		}
+		if seen[alias.name] {
 			return nil, false
 		}
-		params, ok := normalizeTextToolKeyedArgs(rawArgs, &alias.info, alias.exact)
+		pending = append(pending, pendingTextToolKeyCall{
+			key:     key,
+			rawArgs: rawArgs,
+			alias:   alias,
+		})
+		seen[alias.name] = true
+	}
+	if len(pending) == 0 {
+		return nil, false
+	}
+	sharedByCall, ok := partitionSharedTextToolKeyedArgs(shared, pending)
+	if !ok {
+		return nil, false
+	}
+	parsed := make([]parsedTextToolKeyCall, 0, len(pending))
+	for i, item := range pending {
+		params, ok := normalizeTextToolKeyedArgsWithShared(item.rawArgs, &item.alias.info, item.alias.exact, sharedByCall[i])
 		if !ok {
 			return nil, false
 		}
-		seen[alias.name] = true
 		parsed = append(parsed, parsedTextToolKeyCall{
-			key:   key,
-			pos:   textToolJSONKeyPosition(source, key),
-			order: alias.order,
+			key:   item.key,
+			pos:   textToolJSONKeyPosition(source, item.key),
+			order: item.alias.order,
 			call: ToolCall{
-				Name:   alias.name,
+				Name:   item.alias.name,
 				Params: params,
 			},
 		})
@@ -1088,6 +1114,35 @@ func parseTextToolKeyedMap(source string, m map[string]any, infos []textToolSche
 	for i, item := range parsed {
 		item.call.ID = fmt.Sprintf("content_tool_call_%d", i)
 		out[i] = item.call
+	}
+	return out, true
+}
+
+func partitionSharedTextToolKeyedArgs(shared map[string]any, pending []pendingTextToolKeyCall) ([]map[string]any, bool) {
+	out := make([]map[string]any, len(pending))
+	if len(shared) == 0 {
+		return out, true
+	}
+	for key, val := range shared {
+		if strings.TrimSpace(key) == "" {
+			return nil, false
+		}
+		matched := -1
+		for i, item := range pending {
+			if textToolSchemaPropertyAcceptsValue(item.alias.info.parameters, key, val) {
+				if matched >= 0 {
+					return nil, false
+				}
+				matched = i
+			}
+		}
+		if matched < 0 {
+			return nil, false
+		}
+		if out[matched] == nil {
+			out[matched] = make(map[string]any)
+		}
+		out[matched][key] = val
 	}
 	return out, true
 }
@@ -1174,6 +1229,10 @@ func pluralTextToolAlias(s string) string {
 }
 
 func normalizeTextToolKeyedArgs(raw any, info *textToolSchemaInfo, exact bool) (json.RawMessage, bool) {
+	return normalizeTextToolKeyedArgsWithShared(raw, info, exact, nil)
+}
+
+func normalizeTextToolKeyedArgsWithShared(raw any, info *textToolSchemaInfo, exact bool, shared map[string]any) (json.RawMessage, bool) {
 	args, ok := unwrapTextToolKeyedArgs(raw)
 	if !ok {
 		return nil, false
@@ -1186,7 +1245,24 @@ func normalizeTextToolKeyedArgs(raw any, info *textToolSchemaInfo, exact bool) (
 		if wrapped, wrapOK := wrapSingleRequiredTextToolArg(args, info); wrapOK {
 			argMap = wrapped
 			args = wrapped
+		} else if wrapped, wrapOK := wrapNamedTextToolArg(args, info, "items"); wrapOK {
+			argMap = wrapped
+			args = wrapped
 		}
+	}
+	if len(shared) > 0 {
+		if argMap == nil {
+			return nil, false
+		}
+		merged := copyAnyMap(argMap)
+		for key, val := range shared {
+			if _, exists := merged[key]; exists {
+				continue
+			}
+			merged[key] = val
+		}
+		argMap = merged
+		args = merged
 	}
 	if info != nil && !exact && len(info.required) > 0 && !textToolRequiredFieldsPresent(argMap, info.required) {
 		return nil, false
@@ -1212,6 +1288,16 @@ func unwrapTextToolKeyedArgs(raw any) (any, bool) {
 		}
 	}
 	return raw, true
+}
+
+func wrapNamedTextToolArg(raw any, info *textToolSchemaInfo, field string) (map[string]any, bool) {
+	if info == nil || strings.TrimSpace(field) == "" {
+		return nil, false
+	}
+	if !textToolSchemaPropertyAcceptsValue(info.parameters, field, raw) {
+		return nil, false
+	}
+	return map[string]any{field: raw}, true
 }
 
 func textToolJSONKeyPosition(source, key string) int {

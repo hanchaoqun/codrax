@@ -483,27 +483,30 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 		return types.AnswerSymbol{}, fmt.Errorf("items[%d]: unknown kind %q; see types.AllAnswerSymbolKinds for the closed taxonomy (function, method, type, struct, class, interface, trait, enum, protocol, const, var, field, property, module, package, crate, namespace, macro, decorator, annotation, literal)", index, in.Kind)
 	}
 
-	// Fix D: floor grounding. When the cited file was read_file'd
+	// Fix D: floor grounding. When the exact cited line was read_file'd
 	// earlier in the pipeline AND the claimed line (±2) does not bear
 	// the symbol name as a code identifier, drop the item. If the file
-	// was never read (HasFileInIndex=false), we cannot verify — let
-	// the item through and rely on downstream finalizer grounding.
+	// was read only in some other window, that is not negative evidence:
+	// repo_map and evidence summaries can legitimately surface symbol
+	// lines from elsewhere in a large file. In that case we use the
+	// structural repomap symbol index when it can canonicalise the line;
+	// otherwise we let the item through and rely on downstream grounding.
 	//
 	// Leaf-name fallback: a name like "Type.Method" is accepted when
 	// the line bears either the full form or the "Method" segment
 	// alone (typical for method definitions where the receiver is
 	// already visible in the surrounding def line).
-	if groundCtx != nil && ground.HasFileInIndex(groundCtx, file) {
+	if groundCtx != nil {
 		if candidate := stepCandidates[compiledStepCandidateKey(file, lineN)]; candidate != "" &&
 			answerSymbolNameGrounds(groundCtx, file, lineN, candidate) &&
 			!answerSymbolNameGrounds(groundCtx, file, lineN, name) {
 			name = candidate
 		}
 	}
-	if groundCtx != nil && ground.HasFileInIndex(groundCtx, file) {
-		if matchedLine, ok := ground.VerifyLineAnchor(groundCtx, file, lineN, name, 2); ok {
+	if groundCtx != nil {
+		if matchedLine, ok, negative := ground.ResolveSymbolLineAnchor(groundCtx, file, lineN, name, 2); ok {
 			lineN = matchedLine
-		} else {
+		} else if negative {
 			leaf := name
 			if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
 				leaf = name[idx+1:]
@@ -511,7 +514,7 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 			if leaf == name {
 				return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain no identifier token matching it). Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN)
 			}
-			if matchedLine, ok := ground.VerifyLineAnchor(groundCtx, file, lineN, leaf, 2); ok {
+			if matchedLine, ok, _ := ground.ResolveSymbolLineAnchor(groundCtx, file, lineN, leaf, 2); ok {
 				lineN = matchedLine
 			} else {
 				return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain neither %q nor its leaf %q). Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN, name, leaf)
@@ -534,11 +537,11 @@ func answerSymbolNameGrounds(groundCtx *ground.Context, file string, line int, n
 	if groundCtx == nil || strings.TrimSpace(file) == "" || line <= 0 || strings.TrimSpace(name) == "" {
 		return false
 	}
-	if _, ok := ground.VerifyLineAnchor(groundCtx, file, line, name, 2); ok {
+	if _, ok, _ := ground.ResolveSymbolLineAnchor(groundCtx, file, line, name, 2); ok {
 		return true
 	}
 	if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
-		if _, ok := ground.VerifyLineAnchor(groundCtx, file, line, name[idx+1:], 2); ok {
+		if _, ok, _ := ground.ResolveSymbolLineAnchor(groundCtx, file, line, name[idx+1:], 2); ok {
 			return true
 		}
 	}
