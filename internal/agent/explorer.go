@@ -4585,7 +4585,9 @@ func (e *explorerEvaluator) postEmitEvidenceRepairClosureOnlySignal(obs LoopObse
 // that state (zero cite-eligible items < MinCitations floor), but
 // that fires AFTER the LLM has already tried to complete; this hint
 // fires BEFORE, letting the LLM emit first and complete cleanly. A
-// one-shot guard prevents repeated firing within a single dispatch.
+// one-shot guard prevents repeated firing within a single evidence
+// backlog window; the key includes the post-emit window boundary so
+// LoopPolicy dedup does not suppress a later, independent backlog.
 //
 // Thresholds are intentionally "early but not first-hop": 2+
 // iterations and 2+ successful read_file calls, with the CURRENT
@@ -4619,7 +4621,7 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 	}
 	return LoopSignal{
 		HintRequested: true,
-		HintKey:       "explorer.mid-loop.read-without-emit",
+		HintKey:       e.readWithoutEmitHintKey(),
 		Hint: fmt.Sprintf(
 			"MID-LOOP CHECK: you have read %d file(s) %s but %s. "+
 				"Facts left only in your prose notes are NOT recorded — anything that is not passed through `emit_evidence(items=[...])` is invisible to the rest of the pipeline (concrete value, definition, call-site, or condition). "+
@@ -4630,6 +4632,17 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func (e *explorerEvaluator) readWithoutEmitHintKey() string {
+	return e.emitBacklogWindowHintKey("explorer.mid-loop.read-without-emit")
+}
+
+func (e *explorerEvaluator) emitBacklogWindowHintKey(base string) string {
+	if e == nil || e.midLoopEmitBacklogBaseLen <= 0 {
+		return base
+	}
+	return fmt.Sprintf("%s.%d", base, e.midLoopEmitBacklogBaseLen)
 }
 
 func (e *explorerEvaluator) postExecRedirectBeforeEmitSignal(obs LoopObservation) LoopSignal {
@@ -4651,7 +4664,7 @@ func (e *explorerEvaluator) postExecRedirectBeforeEmitSignal(obs LoopObservation
 	e.midLoopExecRedirectSent = true
 	return LoopSignal{
 		HintRequested: true,
-		HintKey:       "explorer.mid-loop.exec-redirect-before-emit",
+		HintKey:       e.emitBacklogWindowHintKey("explorer.mid-loop.exec-redirect-before-emit"),
 		Hint: "MID-LOOP CHECK: you are still browsing with `exec_command` before recording the current structured-evidence backlog. " +
 			"For repository investigation, switch back to the built-in `grep` / `read_file` tools so paths stay stable across OSes and line gutters remain machine-readable. " +
 			"Use the lines you already read to call `emit_evidence(items=[...])` now; reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.",
@@ -4685,7 +4698,7 @@ func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservat
 	}
 	return LoopSignal{
 		HintRequested: true,
-		HintKey:       "explorer.mid-loop.read-without-emit-escalated",
+		HintKey:       e.emitBacklogWindowHintKey("explorer.mid-loop.read-without-emit-escalated"),
 		Hint: "MID-LOOP CHECK: the earlier `emit_evidence` nudge was ignored and you still have an unrecorded evidence backlog " + backlogScope + ". " +
 			"Stop expanding with more navigation for the moment. Use the grounded lines you have already read to emit ONE batch of `emit_evidence(items=[...])` now. " +
 			"After that batch succeeds, either continue on any truly unresolved branch or call `emit_investigation_complete(reason, confidence, result_kind)` if the evidence already answers the question." +

@@ -4628,8 +4628,8 @@ func TestObserveMidLoop_ReadWithoutEmitRefiresForNewBacklogAfterSuccessfulEmit(t
 	if !sig.HintRequested {
 		t.Fatalf("read-without-emit should re-fire for a new backlog window after a successful emit, got %+v", sig)
 	}
-	if sig.HintKey != "explorer.mid-loop.read-without-emit" {
-		t.Fatalf("HintKey = %q, want explorer.mid-loop.read-without-emit", sig.HintKey)
+	if sig.HintKey != "explorer.mid-loop.read-without-emit.3" {
+		t.Fatalf("HintKey = %q, want read-without-emit backlog-window key for post-emit base 3", sig.HintKey)
 	}
 	if !strings.Contains(sig.Hint, "since your last successful `emit_evidence`") {
 		t.Fatalf("hint should explain the new backlog window, got: %s", sig.Hint)
