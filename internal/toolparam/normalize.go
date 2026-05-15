@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -168,10 +170,19 @@ func normalizeObject(in map[string]any, node schemaNode, path string, cfg types.
 	if len(node.Properties) == 0 {
 		return in, nil
 	}
-	var out map[string]any
-	var repairs []Repair
-	for key, propSchema := range node.Properties {
-		current, exists := in[key]
+	valueMap := in
+	out, repairs := normalizeObjectPropertyKeys(in, node, path)
+	if out != nil {
+		valueMap = out
+	}
+	keys := make([]string, 0, len(node.Properties))
+	for key := range node.Properties {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		propSchema := node.Properties[key]
+		current, exists := valueMap[key]
 		if !exists {
 			continue
 		}
@@ -180,10 +191,7 @@ func normalizeObject(in map[string]any, node schemaNode, path string, cfg types.
 			continue
 		}
 		if out == nil {
-			out = make(map[string]any, len(in))
-			for k, v := range in {
-				out[k] = v
-			}
+			out = cloneStringAnyMap(valueMap)
 		}
 		out[key] = normalized
 		repairs = append(repairs, fieldRepairs...)
@@ -192,6 +200,156 @@ func normalizeObject(in map[string]any, node schemaNode, path string, cfg types.
 		return in, nil
 	}
 	return out, repairs
+}
+
+type keyRepairCandidate struct {
+	from string
+	to   string
+	rule string
+}
+
+func normalizeObjectPropertyKeys(in map[string]any, node schemaNode, path string) (map[string]any, []Repair) {
+	if len(in) == 0 || len(node.Properties) == 0 {
+		return nil, nil
+	}
+	byTarget := make(map[string][]keyRepairCandidate)
+	for key := range in {
+		if _, ok := node.Properties[key]; ok {
+			continue
+		}
+		if canonical, rule, ok := schemaPropertyKeyAlias(key, node); ok {
+			byTarget[canonical] = append(byTarget[canonical], keyRepairCandidate{
+				from: key,
+				to:   canonical,
+				rule: rule,
+			})
+		}
+	}
+	if len(byTarget) == 0 {
+		return nil, nil
+	}
+	targets := make([]string, 0, len(byTarget))
+	for target := range byTarget {
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+
+	var out map[string]any
+	var repairs []Repair
+	for _, target := range targets {
+		if _, exists := in[target]; exists {
+			continue
+		}
+		candidates := byTarget[target]
+		if len(candidates) != 1 {
+			continue
+		}
+		candidate := candidates[0]
+		if out == nil {
+			out = cloneStringAnyMap(in)
+		}
+		out[target] = out[candidate.from]
+		delete(out, candidate.from)
+		repairs = append(repairs, Repair{
+			Path: propertyPath(path, candidate.from),
+			Rule: candidate.rule,
+			From: "key:" + candidate.from,
+			To:   "key:" + candidate.to,
+		})
+	}
+	if out == nil {
+		return nil, nil
+	}
+	return out, repairs
+}
+
+func schemaPropertyKeyAlias(key string, node schemaNode) (string, string, bool) {
+	if len(node.Properties) == 0 {
+		return "", "", false
+	}
+	trimmedSpace := strings.TrimSpace(key)
+	if trimmedSpace != key {
+		if _, ok := node.Properties[trimmedSpace]; ok {
+			return trimmedSpace, "property_key_whitespace", true
+		}
+	}
+	quoteTrimmed := trimJSONKeyQuoteArtifacts(trimmedSpace)
+	if quoteTrimmed != trimmedSpace {
+		if _, ok := node.Properties[quoteTrimmed]; ok {
+			return quoteTrimmed, "property_key_quote_artifact", true
+		}
+	}
+	snake := schemaStyleKeyAlias(quoteTrimmed)
+	if snake != quoteTrimmed {
+		if _, ok := node.Properties[snake]; ok {
+			return snake, "property_key_case_style", true
+		}
+	}
+	return "", "", false
+}
+
+func trimJSONKeyQuoteArtifacts(s string) string {
+	for {
+		next := strings.Trim(s, "\"'`\\")
+		if next == s {
+			return s
+		}
+		s = strings.TrimSpace(next)
+	}
+}
+
+func schemaStyleKeyAlias(s string) string {
+	if s == "" {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 4)
+	prevUnderscore := false
+	var prev rune
+	for i, r := range s {
+		switch {
+		case r == '-' || unicode.IsSpace(r):
+			if b.Len() > 0 && !prevUnderscore {
+				b.WriteByte('_')
+				prevUnderscore = true
+			}
+			prev = r
+			continue
+		case r == '_':
+			if b.Len() > 0 && !prevUnderscore {
+				b.WriteByte('_')
+				prevUnderscore = true
+			}
+			prev = r
+			continue
+		case unicode.IsUpper(r):
+			if i > 0 && !prevUnderscore && (unicode.IsLower(prev) || unicode.IsDigit(prev)) {
+				b.WriteByte('_')
+			}
+			b.WriteRune(unicode.ToLower(r))
+			prevUnderscore = false
+		default:
+			b.WriteRune(unicode.ToLower(r))
+			prevUnderscore = false
+		}
+		prev = r
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func propertyPath(parent, key string) string {
+	if parent == "" {
+		parent = "$"
+	}
+	return parent + "." + key
+}
+
+func cloneStringAnyMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func unwrapToolArgumentEnvelope(in map[string]any, node schemaNode) (map[string]any, string, bool) {

@@ -132,6 +132,73 @@ func TestNormalize_StringWrappedArrayEscapesBareQuotesInTextValue(t *testing.T) 
 	}
 }
 
+func TestNormalize_RepairsSchemaPropertyKeyArtifactsBeforeValueNormalization(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "items":{
+	      "type":"array",
+	      "items":{
+	        "type":"object",
+	        "properties":{
+	          "line_start":{"type":"integer"},
+	          "anchor_symbol":{"type":"string"},
+	          "summary":{"type":"string"}
+	        }
+	      }
+	    }
+	  }
+	}`)
+	raw := json.RawMessage(`{
+	  "items\"":"[{\"lineStart\":\"969\",\"anchorSymbol\":\"Execute\",\"summary\":\"BaseAgent.Execute\"}]"
+	}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, `$.items"`, "property_key_quote_artifact") {
+		t.Fatalf("expected top-level key quote repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.items", "json_string_array") {
+		t.Fatalf("expected repaired key to unlock array-value repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.items[0].anchorSymbol", "property_key_case_style") {
+		t.Fatalf("expected nested camelCase key repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.items[0].line_start", "string_integer") {
+		t.Fatalf("expected nested scalar repair after key repair, got %+v", report)
+	}
+	var decoded struct {
+		Items []struct {
+			LineStart    int    `json:"line_start"`
+			AnchorSymbol string `json:"anchor_symbol"`
+			Summary      string `json:"summary"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if len(decoded.Items) != 1 || decoded.Items[0].LineStart != 969 || decoded.Items[0].AnchorSymbol != "Execute" {
+		t.Fatalf("unexpected normalized payload: %+v\n%s", decoded, got)
+	}
+}
+
+func TestNormalize_DoesNotRepairAmbiguousSchemaPropertyKeyCollision(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "items":{"type":"array","items":{"type":"object"}}
+	  }
+	}`)
+	raw := json.RawMessage(`{"items":[{"ok":true}],"items\"":"[{\"ok\":false}]"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if report.Changed() {
+		t.Fatalf("colliding canonical and malformed keys must not be repaired: %+v", report)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("ambiguous payload must pass through unchanged: got %s want %s", got, raw)
+	}
+}
+
 func TestNormalize_StringWrappedRootObject(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",
