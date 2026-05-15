@@ -113,6 +113,55 @@ func TestRecoverTextToolCalls_RequiredModeEmbeddedFencedBlock(t *testing.T) {
 	}
 }
 
+func TestRecoverTextToolCalls_RequiredModeFencedJSONWithNestedMarkdownFence(t *testing.T) {
+	content := "I will re-emit the answer document:\n\n```json\n" +
+		"{\n" +
+		`  "blocks": [{` + "\n" +
+		`    "id": "d1",` + "\n" +
+		`    "kind": "diagram",` + "\n" +
+		`    "diagram": {` + "\n" +
+		`      "kind": "sequence",` + "\n" +
+		`      "language": "mermaid",` + "\n" +
+		"      \"body\": \"```mermaid\\nsequenceDiagram\\n  User->>System: request\\n```\"\n" +
+		`    }` + "\n" +
+		`  }],` + "\n" +
+		`  "citations": [{"file": "internal/types/enums.go", "line": 38}]` + "\n" +
+		"}" +
+		"\n```"
+	tools := []ToolSchema{{
+		Name: "emit_answer_document",
+		Parameters: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"blocks":{"type":"array","items":{"type":"object"}},
+				"citations":{"type":"array","items":{"type":"object"}}
+			},
+			"required":["blocks","citations"]
+		}`),
+	}}
+
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if got.StopReason != "tool_use" || got.Content != "" {
+		t.Fatalf("expected recovered tool_use response, got stop=%q content=%q", got.StopReason, got.Content)
+	}
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_answer_document" {
+		t.Fatalf("expected emit_answer_document recovery, got %+v", got.ToolCalls)
+	}
+	var params struct {
+		Blocks []struct {
+			Diagram struct {
+				Body string `json:"body"`
+			} `json:"diagram"`
+		} `json:"blocks"`
+	}
+	if err := json.Unmarshal(got.ToolCalls[0].Params, &params); err != nil {
+		t.Fatalf("params json: %v\n%s", err, got.ToolCalls[0].Params)
+	}
+	if len(params.Blocks) != 1 || !strings.Contains(params.Blocks[0].Diagram.Body, "sequenceDiagram") {
+		t.Fatalf("nested mermaid body was not preserved: %+v", params.Blocks)
+	}
+}
+
 func TestRecoverTextToolCalls_RequiredModeBareArgsUniqueSchema(t *testing.T) {
 	content := `{
 		"intent":"return_value",

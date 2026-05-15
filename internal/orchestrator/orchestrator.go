@@ -3938,6 +3938,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		fin := state.firstFinalizeReadyMerged()
 
 		if len(window) > 0 {
+			window = o.autoCompleteReadyReconcileNodes(state, window, env)
+			if len(window) == 0 {
+				o.applyWindowHint("")
+				continue
+			}
 			// CGEC D2: drain pending RepairDirectives from the
 			// closure so each fires exactly once. ConsumeRepairs is
 			// atomic — it returns the queue and clears the field in
@@ -5380,6 +5385,98 @@ func (o *Orchestrator) applyWindowHint(hint string) {
 	}
 	logging.Debug("[orchestrator] window hint applied key=%q len=%d body=%q",
 		hintKey, len(hint), logging.Truncate(hint, logging.HintBodyMax))
+}
+
+func (o *Orchestrator) autoCompleteReadyReconcileNodes(state *graphState, window []*types.TaskNode, env criterion.Env) []*types.TaskNode {
+	if len(window) == 0 {
+		return window
+	}
+	remaining := make([]*types.TaskNode, 0, len(window))
+	skipped := 0
+	for _, n := range window {
+		if !o.shouldAutoCompleteReadyReconcileNode(n, env) {
+			remaining = append(remaining, n)
+			continue
+		}
+		state.markRunning(n.ID)
+		o.emitNodeStart(n.ID)
+		state.markDone(n.ID)
+		o.emitNodeEnd(n.ID, true, "skipped: reconciled from existing evidence")
+		skipped++
+		logging.Info("[orchestrator] auto-completed reconcile node %s from existing evidence", n.ID)
+	}
+	if skipped > 0 && len(remaining) == 0 {
+		o.drainIgnorableReconcileRepairs()
+	}
+	return remaining
+}
+
+func (o *Orchestrator) shouldAutoCompleteReadyReconcileNode(n *types.TaskNode, env criterion.Env) bool {
+	if n == nil || n.Type != types.NodeReconcile {
+		return false
+	}
+	if !env.Signals.HasEnoughFacts && (o.busCtx == nil || !o.busCtx.Signals.HasEnoughFacts) {
+		return false
+	}
+	if len(n.SuccessCriteria) > 0 {
+		ok, _ := criterion.EvalAll(n.SuccessCriteria, env)
+		if !ok {
+			return false
+		}
+	}
+	if !o.hasReconcileEvidenceContext() {
+		return false
+	}
+	return !o.hasBlockingReconcileRepair()
+}
+
+func (o *Orchestrator) hasReconcileEvidenceContext() bool {
+	if o == nil || o.busCtx == nil {
+		return false
+	}
+	if len(o.busCtx.EvidenceItems) > 0 || len(o.busCtx.FlowFindings) > 0 || len(o.busCtx.AnswerChains) > 0 || len(o.busCtx.AnswerSymbols) > 0 {
+		return true
+	}
+	if o.busCtx.Mutable == nil {
+		return false
+	}
+	if len(o.busCtx.Mutable.EmittedEvidence()) > 0 {
+		return true
+	}
+	if turnA := o.busCtx.Mutable.TurnAArtifacts(); turnA != nil {
+		if len(turnA.EvidenceItems) > 0 || len(turnA.FlowFindings) > 0 || len(turnA.AcceptedAggregateFacts) > 0 {
+			return true
+		}
+		if strings.TrimSpace(turnA.AcceptedClosureReason) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (o *Orchestrator) hasBlockingReconcileRepair() bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return false
+	}
+	for _, r := range o.busCtx.Mutable.EvidenceClosure().ActiveRepairs() {
+		switch r.Kind {
+		case types.RepairExpandSearch, types.RepairForceCompleteDowngrade:
+			continue
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func (o *Orchestrator) drainIgnorableReconcileRepairs() {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || o.hasBlockingReconcileRepair() {
+		return
+	}
+	drained := o.busCtx.Mutable.EvidenceClosure().ConsumeRepairs()
+	if len(drained) > 0 {
+		logging.Info("[orchestrator] drained %d non-blocking reconcile repair(s) after auto-complete", len(drained))
+	}
 }
 
 // emitAnalysisReady projects AnalysisIR.TaskGraph into the renderer-

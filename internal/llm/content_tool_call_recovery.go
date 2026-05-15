@@ -58,13 +58,27 @@ func parseTextToolCallEnvelope(content string, tools []ToolSchema, allowEmbedded
 		return nil, false
 	}
 	blocks := embeddedTextToolCallBlocks(content)
-	if len(blocks) == 0 {
-		blocks = embeddedJSONObjectBlocks(content)
+	var out []ToolCall
+	for _, block := range blocks {
+		calls, ok := parseTextToolCallJSON(block, allowed, schemaInfos, forcedName, true)
+		if !ok {
+			continue
+		}
+		out = append(out, calls...)
 	}
+	if len(out) > 0 {
+		return renumberGeneratedContentToolCallIDs(out), true
+	}
+	// A fenced JSON block may itself contain markdown fences inside JSON
+	// strings (for example diagram.body with a ```mermaid payload). The
+	// lightweight fence scanner intentionally stops at the next fence and
+	// will hand parseTextToolCallJSON an incomplete object in that shape.
+	// Fall back to balanced-object extraction over the original content so
+	// nested markdown fences inside strings do not make the tool call vanish.
+	blocks = embeddedJSONObjectBlocks(content)
 	if len(blocks) == 0 {
 		return nil, false
 	}
-	var out []ToolCall
 	for _, block := range blocks {
 		calls, ok := parseTextToolCallJSON(block, allowed, schemaInfos, forcedName, true)
 		if !ok {

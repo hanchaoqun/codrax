@@ -123,6 +123,72 @@ func TestRunTaskGraph_HappyPath(t *testing.T) {
 	}
 }
 
+func TestRunTaskGraph_AutoCompletesReconcileFromExistingEvidence(t *testing.T) {
+	var explorerCalls, extractorCalls, finalizeCalls int
+
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	reconcile := types.TaskNode{
+		ID:              "n_reconcile",
+		Type:            types.NodeReconcile,
+		Objective:       "reconcile already collected evidence",
+		EntryConditions: []types.Criterion{{Kind: types.CritHasEnoughFacts}},
+	}
+	finalize := ir.TaskGraph.Nodes[len(ir.TaskGraph.Nodes)-1]
+	ir.TaskGraph.Nodes = append(append([]types.TaskNode(nil), ir.TaskGraph.Nodes[:3]...), reconcile, finalize)
+	ir.TaskGraph.Edges = []types.TaskEdge{
+		{From: "n0", To: "n1", EdgeType: types.EdgeHardDependency},
+		{From: "n1", To: "n2", EdgeType: types.EdgeHardDependency},
+		{From: "n2", To: "n_reconcile", EdgeType: types.EdgeHardDependency},
+		{From: "n_reconcile", To: "n3", EdgeType: types.EdgeHardDependency},
+		{From: "n2", To: "n1", EdgeType: types.EdgeValidationFeedback},
+	}
+	ir.TaskGraph.ExecutionPolicy.CriticalPath = []string{"n0", "n1", "n2", "n_reconcile", "n3"}
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			if strings.Contains(ctx.RetryHint, "reconcile already collected evidence") {
+				t.Fatalf("reconcile-only window should be auto-completed, not dispatched to explorer; hint=%s", ctx.RetryHint)
+			}
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				EvidenceItems: []types.EvidenceItem{{ID: "ev", Source: "src.go", LineStart: 1}},
+			}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			extractorCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "ok"}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !busCtx.TaskState.IsTerminal {
+		t.Fatal("want terminal")
+	}
+	if explorerCalls != 1 {
+		t.Fatalf("explorer calls = %d, want 1; reconcile should not trigger a second explore dispatch", explorerCalls)
+	}
+	if extractorCalls != 1 {
+		t.Fatalf("extractor calls = %d, want 1", extractorCalls)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalizer calls = %d, want 1", finalizeCalls)
+	}
+}
+
 func TestRunTaskGraph_ExplorerRetryHintRequeuesBeforeExtract(t *testing.T) {
 	var explorerCalls, extractorCalls, finalizeCalls int
 	var observedExplorerHints []string

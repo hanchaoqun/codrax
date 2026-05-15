@@ -4634,6 +4634,43 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 	}
 }
 
+func (e *explorerEvaluator) postReadWithoutEmitSoftStopSignal(obs LoopObservation) LoopSignal {
+	if e.closureReadyLatched() || e.investigationComplete {
+		return LoopSignal{}
+	}
+	reads := successfulToolCountSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen, map[string]bool{"read_file": true})
+	if reads < 2 {
+		return LoopSignal{}
+	}
+	if successfulToolCountSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen, map[string]bool{"emit_evidence": true}) > 0 {
+		return LoopSignal{}
+	}
+	if !e.midLoopNoEmitPushSent {
+		e.midLoopNoEmitPushSent = true
+		e.midLoopNoEmitPushIter = obs.Iteration
+		e.midLoopNoEmitPushResultsLen = len(obs.AllToolResults)
+	}
+	scope := "this dispatch"
+	recording := "no successful `emit_evidence` call"
+	if e.midLoopEmitBacklogBaseLen > 0 {
+		scope = "since the last successful `emit_evidence`"
+		recording = "no new successful `emit_evidence` call"
+	}
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       fmt.Sprintf("%s.%d", e.emitBacklogWindowHintKey("explorer.soft-stop.read-without-emit"), obs.Iteration),
+		Hint: fmt.Sprintf(
+			"You have read %d file(s) %s but there is still %s. "+
+				"Do not answer in prose and do not broaden the search yet. "+
+				"Convert the strongest facts from the lines already read into ONE `emit_evidence(items=[...])` tool call now, using exact line numbers from the `read_file` gutter. "+
+				"After that call succeeds, either continue with a genuinely unresolved branch or call `emit_investigation_complete(reason, confidence, result_kind)`.",
+			reads, scope, recording),
+		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
 func (e *explorerEvaluator) readWithoutEmitHintKey() string {
 	return e.emitBacklogWindowHintKey("explorer.mid-loop.read-without-emit")
 }
@@ -7673,6 +7710,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 // itself and resets the idle streak on growth.
 func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	e.ensureHeuristics()
+	e.syncEmitBacklogWindow(obs.AllToolResults)
 	resp := obs.Response
 	iteration := obs.Iteration
 	history := obs.AllToolResults
@@ -7763,6 +7801,10 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// emit_investigation_complete (handled by the e.investigationComplete
 		// guard above) to signal completion in Phase 0. Otherwise fall
 		// through to the breadth-scan quality gate / Phase 1 transition.
+
+		if sig := e.postReadWithoutEmitSoftStopSignal(obs); sig.HintRequested {
+			return sig
+		}
 
 		// Before transitioning to Phase 2, check if Phase 1 actually
 		// discovered any files. If all greps returned zero results,

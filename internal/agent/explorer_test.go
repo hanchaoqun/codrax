@@ -4345,6 +4345,44 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 	})
 }
 
+func TestObserveSoftStop_ReadWithoutEmitBeatsPhase0Broaden(t *testing.T) {
+	readResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-20 of 20]\npackage fixture\n",
+		}
+	}
+	eval := &explorerEvaluator{phase: 0}
+	results := []types.ToolResult{
+		readResult("a.go"),
+		readResult("b.go"),
+	}
+
+	sig := eval.observeSoftStop(LoopObservation{
+		Phase:             PhaseSoftStop,
+		Iteration:         4,
+		Response:          llm.Response{Content: "I have enough context; let me summarize."},
+		AllToolResults:    results,
+		ContinuationsUsed: 0,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("soft-stop read-without-emit nudge should fire, got %+v", sig)
+	}
+	if !strings.HasPrefix(sig.HintKey, "explorer.soft-stop.read-without-emit") {
+		t.Fatalf("HintKey = %q, want explorer.soft-stop.read-without-emit prefix", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "emit_evidence") {
+		t.Fatalf("hint should tell the model to materialize evidence, got: %s", sig.Hint)
+	}
+	if strings.Contains(sig.Hint, "grep searches returned no file matches") {
+		t.Fatalf("read-without-emit must beat generic phase0 broaden hint, got: %s", sig.Hint)
+	}
+	if !sig.BypassThrottle || !sig.BypassBudget {
+		t.Fatalf("structural evidence materialization hint should bypass throttle and budget, got %+v", sig)
+	}
+}
+
 func TestObserveMidLoop_ReadWithoutEmitEscalation(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
 		return types.ToolResult{

@@ -4157,6 +4157,13 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RecoversAnswerDocumentJS
 	if strings.Contains(out.FinalAnswer, `"blocks"`) || strings.Contains(out.FinalAnswer, `"citations"`) {
 		t.Fatalf("recovered answer leaked raw JSON: %q", out.FinalAnswer)
 	}
+	doc := ctx.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		t.Fatal("lossless recovered answer document should be restored to Mutable for contract validation")
+	}
+	if len(doc.Blocks) != 2 || len(doc.Citations) != 1 {
+		t.Fatalf("recovered Mutable document shape = blocks:%d citations:%d, want 2/1", len(doc.Blocks), len(doc.Citations))
+	}
 	for _, want := range []string{
 		"系统架构概述",
 		"可见答案应从 block text 渲染",

@@ -5874,6 +5874,9 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 		render.ApplyAuthorityHedging(doc, answerDocumentAuthorityEvidencePool(ctx), e.language)
 	}
 	doc.Caveats = append(doc.Caveats, recoveredAnswerDocumentCaveat(e.language, rec))
+	if rec.Lossless && ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	}
 	attachments := append([]types.AnswerDisplayAttachment(nil), rec.Attachments...)
 	if ctx != nil && ctx.Mutable != nil {
 		attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
