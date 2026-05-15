@@ -68,6 +68,29 @@ func TestEmitAnswerDocumentSchema_ErrorGranularityVerdictEnumMatchesTypes(t *tes
 	}
 }
 
+func TestEmitAnswerDocumentSchema_CurrentStatusVerdictEnumMatchesTypes(t *testing.T) {
+	raw := (&EmitAnswerDocument{}).Parameters()
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	blocks := props["blocks"].(map[string]any)
+	blockItems := blocks["items"].(map[string]any)
+	blockProps := blockItems["properties"].(map[string]any)
+	node := blockProps["current_status_verdict"].(map[string]any)
+	enum := node["enum"].([]any)
+	want := types.AllCurrentStatusVerdicts()
+	if len(enum) != len(want) {
+		t.Fatalf("current_status_verdict enum len=%d want=%d (%v)", len(enum), len(want), enum)
+	}
+	for i, verdict := range want {
+		if enum[i] != string(verdict) {
+			t.Fatalf("current_status_verdict enum[%d]=%v want %q (full=%v)", i, enum[i], verdict, enum)
+		}
+	}
+}
+
 // TestBuildAnswerDocumentParametersFor_EnumerationDropsDiagramAndAbsence
 // — an enumeration family with no diagram and no missing requested
 // roles must drop edge_anchors, diagram, exact_resolution, and

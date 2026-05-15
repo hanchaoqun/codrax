@@ -429,10 +429,10 @@ const (
 
 	// ViolCurrentStatusVerdictMissing fires when a current-status
 	// diagnostic answer omits the required principal decision verdict
-	// or starts it with a value outside still_present / fixed /
+	// or sets a typed value outside still_present / fixed /
 	// not_enough_evidence. This is a finalizer-local hard contract:
-	// the evidence can be reused, but the rendered answer must expose
-	// the bounded status explicitly.
+	// the evidence can be reused, but the structured answer block must
+	// expose the bounded status explicitly.
 	// Stage="finalize". Layer="v2_oracle".
 	ViolCurrentStatusVerdictMissing ViolationKind = "current_status_verdict_missing"
 

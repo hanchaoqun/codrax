@@ -719,10 +719,17 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 					"Emit the `diagram` block with `diagram.kind` set to the SEMANTIC family the contract names (`flow` / `sequence` / `architecture` / `call_dag` — NOT a Mermaid keyword) and Mermaid syntax inside `diagram.body` with `diagram.language=\"mermaid\"`.",
 				)
 			case types.BlockDecision:
-				items = append(items,
-					"Emit the principal `decision` block with the verdict at the START of block `text`, followed by the rationale prose. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor, and attach block-level `claim_uses=[{claim_form=guard_condition|definition_fact}]` (plural array).",
-					"Keep the complete decision answer inside the answer document blocks: the verdict and rationale belong in the principal `decision` block, with any extra framing prose in a `summary` or `caveat` block as needed.",
-				)
+				if view != nil && view.CurrentStatusDiagnostic != nil && view.CurrentStatusDiagnostic.Required {
+					items = append(items,
+						"Emit the principal `decision` block with `current_status_verdict` set to the canonical status enum. Put only the rationale and evidence boundary in block `text`; do not repeat a second canonical status token there. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor, and attach block-level `claim_uses=[{claim_form=guard_condition|definition_fact}]` (plural array).",
+						"Keep the complete decision answer inside the answer document blocks: the typed verdict belongs in `current_status_verdict`, while the explanatory rationale belongs in `text`, with any extra framing prose in a `summary` or `caveat` block as needed.",
+					)
+				} else {
+					items = append(items,
+						"Emit the principal `decision` block with the verdict at the START of block `text`, followed by the rationale prose. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor, and attach block-level `claim_uses=[{claim_form=guard_condition|definition_fact}]` (plural array).",
+						"Keep the complete decision answer inside the answer document blocks: the verdict and rationale belong in the principal `decision` block, with any extra framing prose in a `summary` or `caveat` block as needed.",
+					)
+				}
 			case types.BlockCaveat:
 				items = append(items,
 					"Emit a `caveat` block with honesty marker prose inside `text`. When the caveat names a search confirmed absent, set block-level `claim_uses=[{claim_form=absence_fact}]`; when the caveat reports an external runtime/log observation that diverges from repo, set `claim_uses=[{claim_form=external_observation}]`; otherwise leave claim_uses off (caveat blocks rarely require a typed claim_form).",
@@ -1228,8 +1235,7 @@ func classifyViolationToStructuredFix(sv types.ScoredViolation) (structuredFixRo
 			Action: "set_field",
 			Target: currentStatusVerdictTarget(sv),
 			Args: []structuredFixArg{
-				{Name: "prefix", Value: "still_present | fixed | not_enough_evidence"},
-				{Name: "text", Value: "(start with one prefix above, then explain the current-code evidence boundary)"},
+				{Name: "value", Value: "still_present | fixed | not_enough_evidence"},
 			},
 			Hint: strings.TrimSpace(sv.Repair),
 		}
@@ -1295,9 +1301,9 @@ func currentStatusVerdictTarget(sv types.ScoredViolation) string {
 		return sv.FieldPath
 	}
 	if sv.BlockID != "" {
-		return fmt.Sprintf("blocks[id=%q].text", sv.BlockID)
+		return fmt.Sprintf("blocks[id=%q].current_status_verdict", sv.BlockID)
 	}
-	return "blocks[kind=decision].text OR add a decision block"
+	return "blocks[kind=decision].current_status_verdict OR add a decision block"
 }
 
 func laneBlockKindTarget(sv types.ScoredViolation) string {
@@ -3385,7 +3391,12 @@ func renderAnswerDocCurrentStatusDiagnostic(ctx *types.AgentContext) string {
 	b.WriteString("This answer must stay on two lanes and end with one bounded verdict.\n\n")
 	b.WriteString("- Historical observation: state what the attached artifact, trace, or user-described prior symptom actually observed. Do not treat that historical fact as proof that the current checkout still behaves the same way.\n")
 	b.WriteString("- Current code verification: cite the current code that was read and explain whether the same risk path is still present, blocked, removed, or not provable from the available evidence.\n")
-	b.WriteString("- Verdict: emit a principal `decision` block whose text starts with exactly one of `still_present`, `fixed`, or `not_enough_evidence`, then explain the evidence boundary.\n\n")
+	b.WriteString("- Verdict: emit a principal `decision` block with `current_status_verdict` set to exactly one of `still_present`, `fixed`, or `not_enough_evidence`, then explain the evidence boundary in the decision prose.\n\n")
+	b.WriteString("Verdict semantics:\n")
+	b.WriteString("- `still_present`: current cited code still contains the comparable risk path or missing guard, even if the historical artifact's exact old-build line or exact runtime branch remains uncertain.\n")
+	b.WriteString("- `fixed`: current cited code removes, guards, or otherwise blocks the comparable risk path.\n")
+	b.WriteString("- `not_enough_evidence`: current cited code cannot decide between `still_present` and `fixed`; do not use it merely because the artifact line number drifted or the precise historical branch is uncertain.\n")
+	b.WriteString("- Use `current_status_verdict` as the only canonical status token; the decision text is rationale and boundary explanation, not a second verdict channel.\n\n")
 	if profile := ctx.AnalysisIR.RequestModel.ArtifactObservationProfile; profile != nil {
 		b.WriteString("Typed artifact observations available for the historical lane:\n")
 		if profile.SymptomSummary != "" {
@@ -3423,7 +3434,7 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Typed Answer Support Lanes\n\n")
 	if supportPlanAllowsBlockKind(plan, string(types.BlockDecision)) {
-		b.WriteString("- Build the principal `summary` block, principal `ordered_list` items, and bounded `decision` verdict only from the lanes below.\n")
+		b.WriteString("- Build the principal `summary` block, principal `ordered_list` items, and any typed `decision` verdict only from the lanes below.\n")
 	} else {
 		b.WriteString("- Build the principal `summary` block and principal `ordered_list` items only from the lanes below.\n")
 	}

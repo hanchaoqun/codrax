@@ -102,6 +102,21 @@ func TestNormalizeEmitAnswerBlock_ErrorGranularityVerdictDecisionOnly(t *testing
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_CurrentStatusVerdictDecisionOnly(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:                   "d1",
+		Kind:                 string(types.BlockDecision),
+		Text:                 "The current checkout no longer has the observed path.",
+		CurrentStatusVerdict: string(types.CurrentStatusFixed),
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got.CurrentStatusVerdict != types.CurrentStatusFixed {
+		t.Fatalf("current_status_verdict lost: %+v", got)
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_RejectsEmptyID(t *testing.T) {
 	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{Kind: string(types.BlockSummary)}, "blocks[2]")
 	if err == nil {
@@ -162,6 +177,34 @@ func TestNormalizeEmitAnswerBlock_RejectsErrorGranularityVerdictOnNonDecision(t 
 	}, "blocks[0]")
 	if err == nil {
 		t.Fatal("must reject error_granularity_verdict on non-decision block")
+	}
+	if !strings.Contains(err.Error(), "only valid on kind=decision") {
+		t.Errorf("err should explain decision-only field, got %q", err.Error())
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_RejectsInvalidCurrentStatusVerdict(t *testing.T) {
+	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:                   "d1",
+		Kind:                 string(types.BlockDecision),
+		CurrentStatusVerdict: "maybe_fixed",
+	}, "blocks[0]")
+	if err == nil {
+		t.Fatal("must reject invalid current_status_verdict")
+	}
+	if !strings.Contains(err.Error(), "current_status_verdict") {
+		t.Errorf("err should name current_status_verdict, got %q", err.Error())
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_RejectsCurrentStatusVerdictOnNonDecision(t *testing.T) {
+	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:                   "s1",
+		Kind:                 string(types.BlockSummary),
+		CurrentStatusVerdict: string(types.CurrentStatusFixed),
+	}, "blocks[0]")
+	if err == nil {
+		t.Fatal("must reject current_status_verdict on non-decision block")
 	}
 	if !strings.Contains(err.Error(), "only valid on kind=decision") {
 		t.Errorf("err should explain decision-only field, got %q", err.Error())
@@ -254,6 +297,7 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		Kind:                    string(types.BlockDecision),
 		Text:                    "verdict",
 		ErrorGranularityVerdict: string(types.ErrorGranularityWholeBatch),
+		CurrentStatusVerdict:    string(types.CurrentStatusFixed),
 	}, "blocks[1]")
 	if err != nil {
 		t.Fatalf("decision normalize failed: %v", err)
@@ -274,6 +318,9 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		"SurfaceRole": func() bool { return got.SurfaceRole != "" },
 		"ErrorGranularityVerdict": func() bool {
 			return decisionGot.ErrorGranularityVerdict == types.ErrorGranularityWholeBatch
+		},
+		"CurrentStatusVerdict": func() bool {
+			return decisionGot.CurrentStatusVerdict == types.CurrentStatusFixed
 		},
 	}
 	for name, check := range checks {

@@ -1332,8 +1332,17 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_CurrentStatusDecisionLa
 		},
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(prompt, "bounded `decision` verdict only from the lanes below") {
+	if !strings.Contains(prompt, "typed `decision` verdict only from the lanes below") {
 		t.Fatalf("current-status support instructions should name the decision verdict lane:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "current_status_verdict") {
+		t.Fatalf("current-status prompt should require typed verdict field:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "`not_enough_evidence`: current cited code cannot decide") {
+		t.Fatalf("current-status prompt should define not_enough_evidence narrowly:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "verdict at the START of block `text`") {
+		t.Fatalf("current-status prompt must not require a second prose verdict token:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "### Current status verdict synthesis") {
 		t.Fatalf("current-status verdict lane missing from support plan:\n%s", prompt)

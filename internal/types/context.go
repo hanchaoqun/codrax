@@ -1796,6 +1796,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 				Title:                   b.Title,
 				Text:                    b.Text,
 				ErrorGranularityVerdict: b.ErrorGranularityVerdict,
+				CurrentStatusVerdict:    b.CurrentStatusVerdict,
 				SurfaceRole:             b.SurfaceRole,
 			}
 			if len(b.Items) > 0 {

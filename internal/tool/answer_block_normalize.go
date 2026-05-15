@@ -76,6 +76,18 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		}
 		blk.ErrorGranularityVerdict = verdict
 	}
+	if raw.CurrentStatusVerdict != "" {
+		verdict, ok := types.NormalizeCurrentStatusVerdict(raw.CurrentStatusVerdict)
+		if !ok || verdict == types.CurrentStatusUnknown {
+			return types.AnswerBlock{}, fmt.Errorf("%s: current_status_verdict=%q is not a valid current status verdict",
+				fieldPath, raw.CurrentStatusVerdict)
+		}
+		if kind != types.BlockDecision {
+			return types.AnswerBlock{}, fmt.Errorf("%s: current_status_verdict is only valid on kind=decision blocks",
+				fieldPath)
+		}
+		blk.CurrentStatusVerdict = verdict
+	}
 	if blk.SurfaceRole != "" {
 		if _, ok := types.NormalizeSurfaceRole(string(blk.SurfaceRole)); !ok {
 			return types.AnswerBlock{}, fmt.Errorf("%s: surface_role=%q is not a valid surface role",

@@ -112,7 +112,7 @@ func TestRenderRetryStructuredFixList_CurrentStatusVerdict(t *testing.T) {
 				Kind:     types.ViolCurrentStatusVerdictMissing,
 				Severity: types.SeverityMedium,
 				BlockID:  "decision_current",
-				Repair:   "emit a principal decision block whose text starts with exactly one of still_present, fixed, or not_enough_evidence",
+				Repair:   "emit a principal decision block with current_status_verdict set to still_present, fixed, or not_enough_evidence",
 			},
 		},
 	}
@@ -120,11 +120,11 @@ func TestRenderRetryStructuredFixList_CurrentStatusVerdict(t *testing.T) {
 	if !strings.Contains(got, "Action: `set_field`") {
 		t.Errorf("missing set_field action; got %q", got)
 	}
-	if !strings.Contains(got, `Target: `+"`blocks[id=\"decision_current\"].text`") {
-		t.Errorf("missing decision text target; got %q", got)
+	if !strings.Contains(got, `Target: `+"`blocks[id=\"decision_current\"].current_status_verdict`") {
+		t.Errorf("missing decision verdict target; got %q", got)
 	}
 	if !strings.Contains(got, "still_present | fixed | not_enough_evidence") {
-		t.Errorf("missing bounded verdict prefixes; got %q", got)
+		t.Errorf("missing bounded verdict values; got %q", got)
 	}
 }
 

@@ -60,8 +60,8 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 				ClaimGuardCondition,
 				ClaimAbsenceFact,
 			},
-			Rationale: "State the current-status verdict first: still_present, fixed, or not_enough_evidence. " +
-				"Then explain the boundary using current-code citations and the historical observation lane.",
+			Rationale: "Set current_status_verdict to still_present when current cited code still exposes the comparable risk, fixed when current cited code blocks it, or not_enough_evidence only when current evidence cannot decide. " +
+				"Then explain the boundary in prose using current-code citations and the historical observation lane.",
 			SurfaceRoleHint: SurfacePrincipal,
 		})
 	}

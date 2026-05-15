@@ -2513,6 +2513,10 @@ func externalObservationSeedIsFrame(seed ExternalObservationSeed) bool {
 	}
 }
 
+func ExternalObservationSeedIsFrame(seed ExternalObservationSeed) bool {
+	return externalObservationSeedIsFrame(seed)
+}
+
 func externalObservationSeedIsErrorHeadFrame(seed ExternalObservationSeed) bool {
 	return externalObservationSeedIsFrame(seed) && strings.TrimSpace(seed.Role) == "error_head_frame"
 }

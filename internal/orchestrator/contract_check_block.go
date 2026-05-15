@@ -1999,25 +1999,18 @@ func validateCurrentStatusVerdict(doc *types.AnswerDocumentV2, view *types.Answe
 	if doc == nil || view == nil || !requiresCurrentStatusDecision(view) {
 		return nil
 	}
-	allowed := currentStatusAllowedVerdicts(view.CurrentStatusDiagnostic)
-	var decision *types.AnswerBlock
-	for i := range doc.Blocks {
-		if doc.Blocks[i].Kind == types.BlockDecision {
-			decision = &doc.Blocks[i]
-			break
-		}
-	}
+	decision := types.CurrentStatusDecisionBlock(doc)
 	if decision == nil {
 		return []types.Violation{currentStatusVerdictViolation(
 			"",
-			"current-status diagnostic requires a principal decision block starting with still_present, fixed, or not_enough_evidence",
+			"current-status diagnostic requires a principal decision block with current_status_verdict set",
 		)}
 	}
-	text := strings.TrimSpace(decision.Text)
-	if currentStatusVerdictPrefix(text, allowed) == "" {
+	if !types.CurrentStatusVerdictAllowed(decision.CurrentStatusVerdict, view.CurrentStatusDiagnostic) {
 		return []types.Violation{currentStatusVerdictViolation(
 			decision.ID,
-			fmt.Sprintf("decision block %q must start with still_present, fixed, or not_enough_evidence", decision.ID),
+			fmt.Sprintf("decision block %q must set current_status_verdict to one of: %s",
+				decision.ID, strings.Join(currentStatusVerdictNames(view.CurrentStatusDiagnostic), ", ")),
 		)}
 	}
 	return nil
@@ -2029,44 +2022,13 @@ func requiresCurrentStatusDecision(view *types.AnswerSemanticView) bool {
 		view.CurrentStatusDiagnostic.Required
 }
 
-func currentStatusAllowedVerdicts(contract *types.CurrentStatusDiagnosticContract) []types.CurrentStatusVerdict {
-	if contract != nil && len(contract.AllowedVerdicts) > 0 {
-		out := make([]types.CurrentStatusVerdict, 0, len(contract.AllowedVerdicts))
-		seen := map[types.CurrentStatusVerdict]bool{}
-		for _, verdict := range contract.AllowedVerdicts {
-			if verdict == "" || seen[verdict] {
-				continue
-			}
-			seen[verdict] = true
-			out = append(out, verdict)
-		}
-		if len(out) > 0 {
-			return out
-		}
-	}
-	return []types.CurrentStatusVerdict{
-		types.CurrentStatusStillPresent,
-		types.CurrentStatusFixed,
-		types.CurrentStatusNotEnoughEvidence,
-	}
-}
-
-func currentStatusVerdictPrefix(text string, allowed []types.CurrentStatusVerdict) types.CurrentStatusVerdict {
-	head := strings.TrimSpace(strings.ToLower(text))
+func currentStatusVerdictNames(contract *types.CurrentStatusDiagnosticContract) []string {
+	allowed := types.CurrentStatusAllowedVerdicts(contract)
+	out := make([]string, 0, len(allowed))
 	for _, verdict := range allowed {
-		s := string(verdict)
-		if s == "" {
-			continue
-		}
-		if head == s || strings.HasPrefix(head, s+" ") ||
-			strings.HasPrefix(head, s+":") ||
-			strings.HasPrefix(head, s+".") ||
-			strings.HasPrefix(head, s+"\n") ||
-			strings.HasPrefix(head, s+"\t") {
-			return verdict
-		}
+		out = append(out, string(verdict))
 	}
-	return ""
+	return out
 }
 
 func currentStatusVerdictViolation(blockID, detail string) types.Violation {
@@ -2080,10 +2042,10 @@ func currentStatusVerdictViolation(blockID, detail string) types.Violation {
 	return types.Violation{
 		Kind:       types.ViolCurrentStatusVerdictMissing,
 		Detail:     detail,
-		Repair:     "emit a principal decision block whose text starts with exactly one of still_present, fixed, or not_enough_evidence, then explain the current-code evidence boundary",
+		Repair:     "emit a principal decision block with current_status_verdict set to still_present when current cited code still exposes the comparable risk, fixed when current cited code blocks it, or not_enough_evidence only when current evidence cannot decide; then explain the current-code evidence boundary in prose",
 		ClusterKey: key,
 		SuspectedRoot: types.SuspectedRoot{
-			IRField:    "answer_contract.current_status_diagnostic",
+			IRField:    "answer_document.blocks[].current_status_verdict",
 			Reason:     "current-status diagnostic verdict missing or outside allowed enum",
 			Confidence: 1.0,
 		},

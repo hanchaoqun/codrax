@@ -137,6 +137,12 @@ type AnswerBlock struct {
 	// inferring the verdict from decision prose.
 	ErrorGranularityVerdict ErrorGranularityVerdict `json:"error_granularity_verdict,omitempty"`
 
+	// CurrentStatusVerdict is the canonical verdict enum for decision
+	// blocks answering diagnostic current-status questions: still
+	// present, fixed, or not enough evidence. Validators consume this
+	// typed field instead of inferring the verdict from decision prose.
+	CurrentStatusVerdict CurrentStatusVerdict `json:"current_status_verdict,omitempty"`
+
 	// Items is the collection for OrderedList / BulletList / Table.
 	// For Table, each AnswerBlockItem is one ROW; the Label field
 	// becomes the row header and the Text field carries the row's

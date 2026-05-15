@@ -214,6 +214,14 @@ func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types
 		prefix = "结论："
 	}
 	body := renderUserSurfaceText(blk.Text)
+	if blk.CurrentStatusVerdict != "" {
+		verdict := "`" + string(blk.CurrentStatusVerdict) + "`"
+		if body != "" {
+			body = verdict + " — " + body
+		} else {
+			body = verdict
+		}
+	}
 	if blk.ErrorGranularityVerdict != "" {
 		verdict := "`" + string(blk.ErrorGranularityVerdict) + "`"
 		if body != "" {

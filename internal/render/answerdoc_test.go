@@ -176,6 +176,24 @@ func TestRenderV2_BlockDecisionRendersErrorGranularityVerdict(t *testing.T) {
 	}
 }
 
+func TestRenderV2_BlockDecisionRendersCurrentStatusVerdict(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:                   "d1",
+				Kind:                 types.BlockDecision,
+				Text:                 "The current checkout no longer has the observed nil path.",
+				CurrentStatusVerdict: types.CurrentStatusFixed,
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "`fixed`") ||
+		!strings.Contains(out, "The current checkout") {
+		t.Errorf("current-status verdict rendering wrong; got %q", out)
+	}
+}
+
 func TestRenderV2_BlockTable(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

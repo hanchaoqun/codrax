@@ -427,8 +427,8 @@ func legacyDefaultFallbackPolicy() FallbackPolicy {
 		// reused, but the answer must be rewritten around the current
 		// user's subject.
 		types.ViolAnswerTopicMismatch: FallbackFinalizerOnly,
-		// Current-status verdict is a rendered-answer contract: the
-		// finalizer must emit one bounded decision token, no upstream
+		// Current-status verdict is a typed answer-block contract: the
+		// finalizer must emit one bounded decision enum, no upstream
 		// investigation needed.
 		types.ViolCurrentStatusVerdictMissing: FallbackFinalizerOnly,
 		// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —

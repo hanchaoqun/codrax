@@ -1466,6 +1466,70 @@ func TestPreCheckErrorGranularityVerdict_UsesTypedDecisionField(t *testing.T) {
 	}
 }
 
+func TestPreCheckCurrentStatusVerdict_UsesTypedDecisionField(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{
+			Required: true,
+			AllowedVerdicts: []types.CurrentStatusVerdict{
+				types.CurrentStatusStillPresent,
+				types.CurrentStatusFixed,
+				types.CurrentStatusNotEnoughEvidence,
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "d",
+			Kind:        types.BlockDecision,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "fixed: prose alone should not satisfy the typed verdict contract.",
+		}},
+	}
+	hints := preCheckCurrentStatusVerdict(doc, view)
+	if len(hints) != 1 {
+		t.Fatalf("missing current_status_verdict should be rejected: %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "not_enough_evidence") ||
+		!strings.Contains(hints[0].Field, "current_status_verdict") {
+		t.Fatalf("hint should name typed verdict field and enum values, got %+v", hints[0])
+	}
+	doc.Blocks[0].Text = "看起来已经修复，但这里的自然语言不参与硬判断。"
+	doc.Blocks[0].CurrentStatusVerdict = types.CurrentStatusFixed
+	if hints := preCheckCurrentStatusVerdict(doc, view); len(hints) != 0 {
+		t.Fatalf("typed verdict should satisfy current-status contract: %+v", hints)
+	}
+}
+
+func TestPreCheckInactiveTypedDecisionVerdicts_RejectsWrongLaneVerdict(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{
+			Required: true,
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:                      "d",
+			Kind:                    types.BlockDecision,
+			SurfaceRole:             types.SurfacePrincipal,
+			Text:                    "Current-status rationale.",
+			CurrentStatusVerdict:    types.CurrentStatusStillPresent,
+			ErrorGranularityVerdict: types.ErrorGranularityNotEnoughEvidence,
+		}},
+	}
+	hints := preCheckInactiveTypedDecisionVerdicts(doc, view)
+	if len(hints) != 1 {
+		t.Fatalf("inactive error_granularity_verdict should be rejected: %+v", hints)
+	}
+	if !strings.Contains(hints[0].Field, "error_granularity_verdict") ||
+		!strings.Contains(hints[0].ExpectedShape, "omit") {
+		t.Fatalf("hint should remove inactive typed verdict field, got %+v", hints[0])
+	}
+	doc.Blocks[0].ErrorGranularityVerdict = ""
+	if hints := preCheckInactiveTypedDecisionVerdicts(doc, view); len(hints) != 0 {
+		t.Fatalf("current-status verdict should be allowed when its contract is active: %+v", hints)
+	}
+}
+
 // TestPreCheckPrincipalClaimUse_SingleFormRelaxation — when contract
 // declares exactly one AcceptableClaimForm AND the block carries
 // structural grounding (facet_ids + cited items), the missing

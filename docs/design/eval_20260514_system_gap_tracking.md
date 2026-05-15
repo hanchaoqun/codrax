@@ -76,6 +76,12 @@ created.
 | E20260514-G54 | `u9b` Batch 5c replay | Fixed Batch 5c / support-lane test | After G53 was fixed, the finalizer emitted the required principal `decision` block with `error_granularity_verdict`, but principal evidence support rejected `decision` because the lane allowed only summary/section/list/diagram blocks. | Typed answer-block requirements and support-lane allowed-block policies were compiled independently. Adding a typed decision verdict changed the required answer surface, but citation-routing policy still assumed generic principal evidence never needs a decision block. | Made principal evidence support policy consume the typed error-granularity profile: active failure-scope verdict questions allow principal `decision` blocks to cite principal evidence, while the default block policy remains unchanged for other generic answers. |
 | E20260514-G55 | `u9b` post-rebase replay | Fixed Batch 5c / classifier-variant guard | After rebasing onto the remote finalizer recovery work, the same request sometimes classified as `intent=root_cause`; root-cause family priority then preempted the failure-scope decision guard and rebuilt a three-surface diagnostic answer. | The typed lane conflict resolver was present but ordered below a broader diagnostic family. A classifier wording variant could reopen the over-scaffolding seesaw even though the same typed `error_granularity_profile` was active. | Promoted no-attachment failure-scope decision answers ahead of root-cause scenario/family routing. Attached log/perf traces still use the diagnostic family because artifact/current-code drift remains part of their answer surface. |
 | E20260514-G56 | G12 / `s7a` deterministic count audit | Fixed Batch 2f / PASS replay | Count questions could close once a deterministic `exec_command` produced a parseable `count=N`, but that value was only a completion permission. The finalizer still had to recover the scalar from prompt/tool history, and two conflicting deterministic count outputs were not treated as an ambiguous structured handoff. | Tool-sourced scalar proof and final-answer scalar obligation were split. The same raw tool output acted as a soft memory source for rendering and a hard gate for completion, without a typed aggregate carrier or an ambiguity rule. | Compile unambiguous deterministic count tool output into an `AnswerAggregateScalar` with `answer_axis=count` and `proof_source=exec_command`; if multiple deterministic count values conflict, fail closed and require a structured handoff. History lookups remain excluded so commit/history scalars still need typed history rows rather than a raw command shortcut. |
+| E20260514-G57 | `logtri_go` Batch 4 replay | Fixed Batch 4a / PASS replay | A Go panic diagnostic could put the observed old-build frame `internal/agent/analyzer.go:250` into `citations[]` even though exploration had mapped the current checkout anchor to a different line. | Runtime artifact frame coordinates and current-source citation coordinates were still sharing one answer citation carrier. A drifted observed frame could therefore masquerade as current source proof. | Added a pre-emit typed drift gate over `AnswerSurfacePlan.ExternalObservationSeeds`, `LogObservedAnchors`, and `LogSourceDriftAnchors`. Drifted observed-frame coordinates must remain artifact observations with `citation_ref=-1`; only current anchored source lines may enter `citations[]`. |
+| E20260514-G58 | `logtri_go` Batch 4 replay | Fixed Batch 4b / focused tests | The same replay exposed `current_status_verdict_missing` even when the decision prose began with a natural-language equivalent and punctuation varied. | The current-status hard contract was reading model-authored decision text prefixes to infer `still_present` / `fixed` / `not_enough_evidence`, which violates the typed-carrier boundary and is fragile across languages. | Added typed `AnswerBlock.current_status_verdict`, schema support, normalizer validation, renderer surfacing, pre-emit check, post-emit contract check, and retry targeting. The hard gate now reads only the enum field, never decision prose. |
+| E20260514-G59 | `logtri_go` Batch 4 replay | Open / follow-up | Diagnostic prompt context still carried unrelated dataflow enrichment rows such as `New()` map-return facts and `MultiGraph.*` details while answering a panic-origin question. | Exploration enrichment rows are rich, but the later diagnostic surface does not always scope them by the active artifact/current-source lanes. Irrelevant typed facts can crowd prompt budget and distract finalization even when they are not wrong. | Filter or rank enrichment rows through the same typed support lanes consumed by the answer surface. Runtime diagnostic prompts should prioritize observed artifact facts, current mapped anchors, boundary evidence, and directly connected mechanism rows before generic dataflow facts. |
+| E20260514-G60 | `logtri_go` Batch 4b replay | Open / follow-up | The case passed, but semantic quality still reported low-confidence evidence-density concerns: current-code path and uncertainty-boundary facets were substantively present but not structurally anchored densely enough. | Diagnostic answer facets, decision blocks, caveats, and typed support lanes do not yet share a deterministic facet-anchor compiler. Soft reviewers can see the content while structural richness metrics still count missing anchors. | Compile diagnostic facet anchors from typed lanes (`observed_artifact_fact`, current mapped anchors, uncertainty boundary, current-status decision) into block/item/facet metadata before finalization. Keep reviewer feedback advisory unless a typed required facet truly lacks support. |
+| E20260514-G61 | `logtri_go` Batch 4b replay | Fixed Batch 4c / prompt-contract replay target | Typed `current_status_verdict` rendered correctly, but the decision prose could still include a second, conflicting status token because the enum semantics did not distinguish "current comparable risk still visible" from "exact old-build branch not fully provable." | The typed lane existed, but its value semantics were underspecified, and the generic decision checklist still taught "verdict at the start of text" even when a typed verdict field was required. The model could choose `not_enough_evidence` for historical branch uncertainty while prose argued the current risk was still present. | Clarified the typed verdict contract in finalizer instructions, required-block rationale, and schema text; current-status checklist wording now makes `current_status_verdict` the only canonical status channel and keeps `text` as rationale only. |
+| E20260514-G62 | `logtri_go` Batch 4c replay | Fixed Batch 4d / pre-emit typed-lane test | A current-status decision block also carried inactive `error_granularity_verdict=not_enough_evidence`, so the renderer displayed two typed verdicts even though the request was not a failure-scope granularity question. | Typed decision verdict fields were independently valid on `kind=decision`, but there was no lane-activation gate preventing an inactive verdict carrier from sharing an unrelated decision surface. | Added a pre-emit typed-lane isolation gate: `error_granularity_verdict` is allowed only when the typed error-granularity contract is active, and `current_status_verdict` is allowed only when the typed current-status diagnostic contract is active. This uses only typed view/profile fields and block enums, never prose. |
 
 ## End-to-End Traces
 
@@ -1826,6 +1832,40 @@ citations should only point to current checkout lines. Root-cause verdicts
 should be computed from explicit rows: observed frame, current mapped anchor,
 nearest mechanism, unresolved boundary.
 
+Batch 4a corrective action:
+
+- Added an emit-time typed drift guard before citation persistence. It compares
+  only structured `citations[]` entries with typed runtime artifact carriers:
+  `ExternalObservationSeeds`, `LogObservedAnchors`, and
+  `LogSourceDriftAnchors`.
+- If a citation points to an observed artifact frame whose current mapped
+  anchor is different, the emit is rejected with a repair hint that keeps the
+  observed frame in artifact rows and cites the current anchored source line
+  instead.
+- Anti-seesaw guard: seeds without a typed current anchor are not rejected by
+  this gate. External-only artifact policy remains responsible for those; the
+  drift gate only fires when both observed and current coordinates are typed.
+
+Batch 4b replay follow-up:
+
+- The same replay exposed a separate current-status verdict gap. The old hard
+  gate inferred `still_present` / `fixed` / `not_enough_evidence` from the
+  decision block's prose prefix. That made punctuation, language, and wording
+  part of a hard contract.
+- Corrective action moved the bounded status into
+  `AnswerBlock.current_status_verdict` and updated schema, normalization,
+  renderer, pre-emit checks, post-emit checks, and retry targeting to consume
+  only the typed enum.
+- Batch 4c clarified the enum semantics after replay showed a visible
+  mixed-status answer: `still_present` is the verdict when current cited code
+  still exposes the comparable risk, even if old-build line drift or the exact
+  historical branch remains uncertain; `not_enough_evidence` is reserved for
+  cases where current evidence cannot decide between still-present and fixed.
+  The current-status submission checklist now also treats block `text` as
+  rationale only so it does not reintroduce a second prose verdict channel.
+- Residual follow-up recorded as G59: unrelated enrichment rows can still enter
+  diagnostic prompt context and should be scoped by support-lane relevance.
+
 ### E20260514-G36: Scalar Count Questions Should Not Be Forced Into Full Enumeration Tables (`s7b`, PASS with 3 rejects)
 
 User request asks only for the exact count of distinct `Criterion Kind`
@@ -2749,6 +2789,56 @@ Eval / tests:
 - Add `logtri_oversized_detector_not_source`: detector regex cannot count as a
   panic source.
 - Add `logtri_placeholder_no_signal`: placeholder logs must short-circuit.
+
+Batch 4a/4b progress:
+
+- Implemented the first source/artifact separation gate without scanning user
+  text or model prose. `citations[]` are checked against typed runtime artifact
+  drift carriers; observed artifact frame coordinates are rejected as current
+  source citations only when a different typed current anchor exists.
+- Added focused tests for rejected observed old-frame citations, accepted
+  current anchored citations, and the anti-seesaw case where an observation has
+  no current anchor.
+- Converted current-status verdict exposure to a typed answer-block lane:
+  `current_status_verdict` is now in the emit schema, normalizer, renderer,
+  pre-emit check, post-emit check, retry structured fix target, and tests.
+  Decision prose is no longer parsed for the verdict.
+- Clarified `current_status_verdict` semantics in the schema and finalizer
+  contract so the field distinguishes current-code status from historical
+  artifact uncertainty. `not_enough_evidence` is not a catch-all for line drift;
+  it is used only when current evidence cannot decide still-present vs fixed.
+  Added lane isolation so inactive typed decision verdict fields cannot share
+  the same decision block: current-status questions may not carry inactive
+  `error_granularity_verdict`, and failure-scope questions may not carry
+  inactive `current_status_verdict`.
+- Replay status: `logtri_go` passed after the artifact citation gate produced a
+  same-dispatch fix hint. The current-status typed verdict migration was added
+  from the replay's repair-loop finding before broader regression.
+- Anti-seesaw replay: `logtri_node` passed with zero file reads, zero repair
+  lines, and no semantic-quality concern, so the drift citation gate did not
+  collapse external-only Node frames into current-repo citation obligations.
+- Follow-ups: G59 remains open for prompt-budget scoping of unrelated
+  enrichment rows in diagnostic answers. G60 remains open for deterministic
+  diagnostic facet-anchor compilation so semantic richness metrics consume the
+  same typed lanes as the final answer surface.
+
+Verification:
+
+- `go test ./internal/types ./internal/tool ./internal/orchestrator ./internal/agent ./internal/render -run 'CurrentStatus|InactiveTypedDecisionVerdicts|ArtifactObservedFrameCitations|RuntimeObservationRepoContamination|ExternalObservationLabelsAreNotSymbols|ErrorGranularity|AnswerDocumentEvaluator_BuildInitialInstruction_CurrentStatusDecisionLane|RenderRetryStructuredFixList_CurrentStatusVerdict|NormalizeEmitAnswerBlock|EmitAnswerDocumentSchema'`
+- `go test ./...`
+- `make`
+- `bash eval/run.sh eval/cases/logtri_go.case 1`
+  - `eval/results/logtri_go-20260515-123859`
+  - PASS; final answer renders a single current-status typed verdict
+    (`still_present`), with no inactive `error_granularity_verdict` surface.
+  - Metrics: `tool_read_file=6`, `explorer_iters=6`,
+    `finalizer_iters=3`, `repair_plan_lines=1`,
+    `semantic_quality_concerns=0`.
+- `bash eval/run.sh eval/cases/logtri_node.case 1`
+  - `eval/results/logtri_node-20260515-124522`
+  - PASS; external-only Node stack remains artifact-only with
+    `tool_read_file=0`, `repair_plan_lines=0`, and
+    `semantic_quality_concerns=0`.
 
 ### Batch 5: Infra, Timeout, And Eval Harness Reliability
 

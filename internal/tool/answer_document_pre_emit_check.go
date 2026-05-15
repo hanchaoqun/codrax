@@ -125,6 +125,9 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	if h := preCheckRuntimeObservationRepoContamination(doc, ctxOpt...); len(h) > 0 {
 		hints = append(hints, h...)
 	}
+	if h := preCheckArtifactObservedFrameCitations(doc, ctxOpt...); len(h) > 0 {
+		hints = append(hints, h...)
+	}
 	// Carrier visibility is governed by LLM-facing schema/prompt wording and
 	// typed row roles, not by post-hoc keyword matching over RawRequest or the
 	// model-rendered answer text.
@@ -147,7 +150,13 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	if h := preCheckRequiredMechanismAnchors(doc, view); len(h) > 0 {
 		hints = append(hints, h...)
 	}
+	if h := preCheckInactiveTypedDecisionVerdicts(doc, view); len(h) > 0 {
+		hints = append(hints, h...)
+	}
 	if h := preCheckErrorGranularityVerdict(doc, view); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+	if h := preCheckCurrentStatusVerdict(doc, view); len(h) > 0 {
 		hints = append(hints, h...)
 	}
 
@@ -298,6 +307,76 @@ func preCheckRuntimeObservationRepoContamination(doc *types.AnswerDocumentV2, ct
 		}}
 	}
 	return nil
+}
+
+func preCheckArtifactObservedFrameCitations(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(doc.Citations) == 0 || len(ctxOpt) == 0 || ctxOpt[0] == nil {
+		return nil
+	}
+	plan := types.BuildAnswerSurfacePlanForBusContext(ctxOpt[0])
+	if plan == nil || !plan.IsCrashSourcedRootCause() {
+		return nil
+	}
+	for i, cit := range doc.Citations {
+		observed, current, ok := citationMatchesDriftedArtifactFrame(plan, cit)
+		if !ok {
+			continue
+		}
+		expected := "runtime artifact frame coordinates should stay in observed-artifact rows with `citation_ref=-1`"
+		if current != "" {
+			expected += "; cite the current grounded source anchor instead: " + current
+		}
+		return []emitFixHint{{
+			Field:         fmt.Sprintf("citations[%d]", i),
+			ExpectedShape: expected,
+			Reason:        fmt.Sprintf("the citation points at observed artifact coordinate %s, which is not the current source proof for this checkout.", observed),
+		}}
+	}
+	return nil
+}
+
+func citationMatchesDriftedArtifactFrame(plan *types.AnswerSurfacePlan, cit types.Citation) (observed string, current string, ok bool) {
+	file := normalizeArtifactCitationPath(cit.File)
+	if plan == nil || file == "" || cit.Line <= 0 {
+		return "", "", false
+	}
+	for _, seed := range plan.ExternalObservationSeeds {
+		if !types.ExternalObservationSeedIsFrame(seed) {
+			continue
+		}
+		seedFile := normalizeArtifactCitationPath(seed.File)
+		if seedFile == "" || seed.Line <= 0 || seedFile != file || seed.Line != cit.Line {
+			continue
+		}
+		observed = fmt.Sprintf("%s:%d", seedFile, seed.Line)
+		anchoredFile := normalizeArtifactCitationPath(seed.AnchoredFile)
+		if anchoredFile == "" || seed.AnchoredLine <= 0 {
+			continue
+		}
+		current = fmt.Sprintf("%s:%d", anchoredFile, seed.AnchoredLine)
+		if anchoredFile == file && seed.AnchoredLine == cit.Line {
+			return "", "", false
+		}
+		return observed, current, true
+	}
+	for _, anchor := range append(append([]types.LogSourceDriftAnchor(nil), plan.LogObservedAnchors...), plan.LogSourceDriftAnchors...) {
+		anchorFile := normalizeArtifactCitationPath(anchor.File)
+		if anchorFile == "" || anchor.ObservedLine <= 0 || anchorFile != file || anchor.ObservedLine != cit.Line {
+			continue
+		}
+		if anchor.AnchoredLine > 0 {
+			current = fmt.Sprintf("%s:%d", anchorFile, anchor.AnchoredLine)
+			if anchor.AnchoredLine == cit.Line {
+				return "", "", false
+			}
+		}
+		return fmt.Sprintf("%s:%d", anchorFile, anchor.ObservedLine), current, true
+	}
+	return "", "", false
+}
+
+func normalizeArtifactCitationPath(path string) string {
+	return strings.TrimSpace(strings.ReplaceAll(path, `\`, `/`))
 }
 
 func answerDocumentVisibleText(doc *types.AnswerDocumentV2) string {
@@ -2867,6 +2946,43 @@ func preCheckRequiredMechanismAnchors(doc *types.AnswerDocumentV2, view *types.A
 	}}
 }
 
+func preCheckInactiveTypedDecisionVerdicts(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+	if doc == nil || view == nil {
+		return nil
+	}
+	errorGranularityActive := view.ErrorGranularityProfile != nil && view.ErrorGranularityProfile.Active()
+	currentStatusActive := view.CurrentStatusDiagnostic != nil && view.CurrentStatusDiagnostic.Required
+	for _, block := range doc.Blocks {
+		if block.Kind != types.BlockDecision {
+			continue
+		}
+		id := strings.TrimSpace(block.ID)
+		if !errorGranularityActive && block.ErrorGranularityVerdict != "" {
+			field := "blocks[kind=decision].error_granularity_verdict"
+			if id != "" {
+				field = fmt.Sprintf("blocks[id=%q].error_granularity_verdict", id)
+			}
+			return []emitFixHint{{
+				Field:         field,
+				ExpectedShape: "omit `error_granularity_verdict` unless the typed error-granularity contract is active for this request",
+				Reason:        "typed decision verdict fields are lane-specific; an inactive failure-scope verdict must not share the current-status decision surface.",
+			}}
+		}
+		if !currentStatusActive && block.CurrentStatusVerdict != "" {
+			field := "blocks[kind=decision].current_status_verdict"
+			if id != "" {
+				field = fmt.Sprintf("blocks[id=%q].current_status_verdict", id)
+			}
+			return []emitFixHint{{
+				Field:         field,
+				ExpectedShape: "omit `current_status_verdict` unless the typed current-status diagnostic contract is active for this request",
+				Reason:        "typed decision verdict fields are lane-specific; an inactive current-status verdict must not share unrelated decision surfaces.",
+			}}
+		}
+	}
+	return nil
+}
+
 func preCheckErrorGranularityVerdict(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
 	if doc == nil || view == nil || view.ErrorGranularityProfile == nil || !view.ErrorGranularityProfile.Active() {
 		return nil
@@ -2894,6 +3010,30 @@ func preCheckErrorGranularityVerdict(doc *types.AnswerDocumentV2, view *types.An
 			strings.Join(errorGranularityVerdictValues(), ", "),
 		Reason: "the typed failure-scope request contract requires a canonical decision verdict enum; prose-only wording does not satisfy it.",
 	}}
+}
+
+func preCheckCurrentStatusVerdict(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+	if doc == nil || view == nil || view.CurrentStatusDiagnostic == nil || !view.CurrentStatusDiagnostic.Required {
+		return nil
+	}
+	if !types.MissingCurrentStatusVerdict(doc, view.CurrentStatusDiagnostic) {
+		return nil
+	}
+	return []emitFixHint{{
+		Field: "blocks[].current_status_verdict",
+		ExpectedShape: "principal `decision` block must set `current_status_verdict` to one of: " +
+			strings.Join(currentStatusVerdictValues(view.CurrentStatusDiagnostic), ", "),
+		Reason: "the typed current-status diagnostic contract requires a canonical decision verdict enum; prose-only wording does not satisfy it.",
+	}}
+}
+
+func currentStatusVerdictValues(contract *types.CurrentStatusDiagnosticContract) []string {
+	allowed := types.CurrentStatusAllowedVerdicts(contract)
+	out := make([]string, 0, len(allowed))
+	for _, verdict := range allowed {
+		out = append(out, string(verdict))
+	}
+	return out
 }
 
 // preCheckUncertaintyBlock checks the contract's uncertainty rules.

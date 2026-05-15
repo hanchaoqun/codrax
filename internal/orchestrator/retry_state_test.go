@@ -174,7 +174,7 @@ func TestInferFieldPathFromKind(t *testing.T) {
 		t.Errorf("FacetUncovered field path = %q, want contains facet_ids", got)
 	}
 	if got := inferFieldPathFromKind(types.ViolCurrentStatusVerdictMissing,
-		`principal block id="decision_current" kind=decision has invalid verdict`); got != `blocks[id="decision_current"].text` {
+		`principal block id="decision_current" kind=decision has invalid verdict`); got != `blocks[id="decision_current"].current_status_verdict` {
 		t.Errorf("CurrentStatusVerdictMissing field path = %q", got)
 	}
 	if got := inferFieldPathFromKind(types.ViolLaneBlockKindMismatch,

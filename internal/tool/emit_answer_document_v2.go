@@ -69,6 +69,7 @@ type emitAnswerBlockV2 struct {
 	Title                   string                    `json:"title,omitempty"`
 	Text                    string                    `json:"text,omitempty"`
 	ErrorGranularityVerdict string                    `json:"error_granularity_verdict,omitempty"`
+	CurrentStatusVerdict    string                    `json:"current_status_verdict,omitempty"`
 	Items                   []emitAnswerBlockItemV2   `json:"items,omitempty"`
 	Diagram                 *emitAnswerDiagramV2      `json:"diagram,omitempty"`
 	ClaimUses               []types.RenderedClaimUse  `json:"claim_uses,omitempty"`

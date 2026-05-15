@@ -599,7 +599,7 @@ func TestRunV2BlockOracles_NilGuards(t *testing.T) {
 	}
 }
 
-func TestRunV2BlockOracles_CurrentStatusVerdictRequiresEnumPrefix(t *testing.T) {
+func TestRunV2BlockOracles_CurrentStatusVerdictRequiresTypedField(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{
 			Required: true,
@@ -615,7 +615,7 @@ func TestRunV2BlockOracles_CurrentStatusVerdictRequiresEnumPrefix(t *testing.T) 
 				MinCount:  1,
 				MaxCount:  1,
 				Required:  true,
-				Rationale: "State the current-status verdict first: still_present, fixed, or not_enough_evidence.",
+				Rationale: "Set current_status_verdict to still_present, fixed, or not_enough_evidence.",
 			},
 		},
 	}
@@ -627,10 +627,11 @@ func TestRunV2BlockOracles_CurrentStatusVerdictRequiresEnumPrefix(t *testing.T) 
 		t.Fatalf("expected current-status verdict violation, got %+v", vs)
 	}
 
-	doc.Blocks[0].Text = "fixed: current code removed the previously observed path."
+	doc.Blocks[0].Text = "看起来可能已经修复，但自然语言格式不参与硬判断。"
+	doc.Blocks[0].CurrentStatusVerdict = types.CurrentStatusFixed
 	vs = runV2BlockOracles(doc, view)
 	if hasBlockViolation(vs, types.ViolCurrentStatusVerdictMissing) {
-		t.Fatalf("fixed verdict prefix should pass current-status validator, got %+v", vs)
+		t.Fatalf("typed verdict should pass current-status validator, got %+v", vs)
 	}
 }
 
@@ -650,7 +651,7 @@ func TestRunV2BlockOracles_CurrentStatusMissingDecisionFires(t *testing.T) {
 				MinCount:  1,
 				MaxCount:  1,
 				Required:  true,
-				Rationale: "State the current-status verdict first: still_present, fixed, or not_enough_evidence.",
+				Rationale: "Set current_status_verdict to still_present, fixed, or not_enough_evidence.",
 			},
 		},
 	}

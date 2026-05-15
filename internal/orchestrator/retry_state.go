@@ -279,9 +279,9 @@ func inferFieldPathFromKind(kind types.ViolationKind, detail string) string {
 		return "blocks (add new block kind=caveat)"
 	case types.ViolCurrentStatusVerdictMissing:
 		if blockID != "" {
-			return fmt.Sprintf("blocks[id=%q].text", blockID)
+			return fmt.Sprintf("blocks[id=%q].current_status_verdict", blockID)
 		}
-		return "blocks[kind=decision].text"
+		return "blocks[kind=decision].current_status_verdict"
 	case types.ViolLaneBlockKindMismatch:
 		if blockID != "" {
 			return fmt.Sprintf("blocks[id=%q].kind", blockID)

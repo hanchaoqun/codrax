@@ -392,6 +392,9 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 	if verdict, ok := types.NormalizeErrorGranularityVerdict(block.ErrorGranularityVerdict); ok && kind == types.BlockDecision {
 		blk.ErrorGranularityVerdict = verdict
 	}
+	if verdict, ok := types.NormalizeCurrentStatusVerdict(block.CurrentStatusVerdict); ok && kind == types.BlockDecision {
+		blk.CurrentStatusVerdict = verdict
+	}
 	for _, item := range block.Items {
 		candidateRole, _ := types.NormalizeAnswerCandidateRole(item.CandidateRole)
 		if strings.TrimSpace(item.Label) == "" && strings.TrimSpace(item.Text) == "" {
