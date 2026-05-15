@@ -204,6 +204,101 @@ func TestRecoverTextToolCalls_RequiredModeBareArgsUniqueSchema(t *testing.T) {
 	}
 }
 
+func TestRecoverTextToolCalls_BareArgsUsesNestedItemSchemaToDisambiguate(t *testing.T) {
+	content := `{
+		"items": [{
+			"name": "SubExplorer",
+			"file": "internal/agent/sub_explorer.go",
+			"line": 24,
+			"kind": "struct",
+			"rationale": "principal answer anchor"
+		}],
+		"completeness": "complete",
+		"count": 1
+	}`
+	tools := []ToolSchema{
+		{
+			Name: "emit_answer_symbol",
+			Parameters: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"items":{
+						"type":"array",
+						"items":{
+							"type":"object",
+							"properties":{
+								"name":{"type":"string"},
+								"file":{"type":"string"},
+								"line":{"type":"integer"},
+								"kind":{"type":"string"},
+								"rationale":{"type":"string"}
+							},
+							"required":["name","file","line","kind"]
+						}
+					},
+					"completeness":{"type":"string"},
+					"count":{"type":"integer"}
+				},
+				"required":["items","completeness"]
+			}`),
+		},
+		{
+			Name: "emit_hypothesis_verdict",
+			Parameters: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"items":{
+						"type":"array",
+						"items":{
+							"type":"object",
+							"properties":{
+								"hypothesis_id":{"type":"string"},
+								"status":{"type":"string"},
+								"rationale":{"type":"string"},
+								"citation":{"type":"string"}
+							},
+							"required":["hypothesis_id","status"]
+						}
+					}
+				},
+				"required":["items"]
+			}`),
+		},
+	}
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_answer_symbol" {
+		t.Fatalf("expected nested schema match to recover emit_answer_symbol, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+}
+
+func TestRecoverTextToolCalls_BareArgsRejectsWrongNestedItemShape(t *testing.T) {
+	content := `{"items":[{"name":"SubExplorer","file":"internal/agent/sub_explorer.go","line":24,"kind":"struct"}]}`
+	tools := []ToolSchema{{
+		Name: "emit_hypothesis_verdict",
+		Parameters: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"items":{
+					"type":"array",
+					"items":{
+						"type":"object",
+						"properties":{
+							"hypothesis_id":{"type":"string"},
+							"status":{"type":"string"}
+						},
+						"required":["hypothesis_id","status"]
+					}
+				}
+			},
+			"required":["items"]
+		}`),
+	}}
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if len(got.ToolCalls) != 0 || got.Content != content {
+		t.Fatalf("bare args with wrong item shape must stay as content, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+}
+
 func TestRecoverTextToolCalls_BareArgsConservativeBoundaries(t *testing.T) {
 	content := `{"pattern":"Agent"}`
 	tools := []ToolSchema{

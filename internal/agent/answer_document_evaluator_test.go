@@ -4228,6 +4228,61 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersRetryStateDraftAn
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_TextRecoveryKeepsRetryStateDiagram(t *testing.T) {
+	prevDoc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "summary",
+				Kind: types.BlockSummary,
+				Text: "上一版结构化答案正文",
+			},
+			{
+				ID:    "diagram",
+				Kind:  types.BlockDiagram,
+				Title: "执行图",
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramFlow,
+					Language: "mermaid",
+					Body:     "flowchart TD\n  A[Agent] --> B[Tool]",
+				},
+			},
+		},
+	}
+	prevJSON, err := json.Marshal(prevDoc)
+	if err != nil {
+		t.Fatalf("marshal prev doc: %v", err)
+	}
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	ctx.Mutable.SetRetryState(&types.RetryState{
+		Attempt:      2,
+		PrevEmitJSON: prevJSON,
+	})
+	messages := []llm.Message{{
+		Role: "assistant",
+		Content: `{
+			"blocks": [
+				{"id": "summary", "kind": "summary", "text": "文本恢复正文"}
+			]
+		}`,
+	}}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"文本恢复正文",
+		"执行图",
+		"```mermaid",
+		"flowchart TD",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_SanitizesFallback(t *testing.T) {
 	ctx := &types.AgentContext{
 		Mutable: types.NewMutableState(""),

@@ -387,23 +387,37 @@ func parseBareTextToolCallArgs(raw any, infos []textToolSchemaInfo, forcedName s
 		return ToolCall{}, false
 	}
 
-	var matched []textToolSchemaInfo
+	var matched []bareTextToolArgMatch
 	for _, info := range infos {
-		if textToolRequiredFieldsPresent(m, info.required) {
-			matched = append(matched, info)
+		if score, ok := scoreBareTextToolCallArgs(m, info); ok {
+			matched = append(matched, bareTextToolArgMatch{info: info, score: score})
 		}
 	}
-	if len(matched) != 1 {
+	if len(matched) == 0 {
 		return ToolCall{}, false
 	}
-	params, ok := normalizeTextToolCallArgs(m, &matched[0])
+	sort.SliceStable(matched, func(i, j int) bool {
+		if matched[i].score == matched[j].score {
+			return matched[i].info.name < matched[j].info.name
+		}
+		return matched[i].score > matched[j].score
+	})
+	if len(matched) > 1 && matched[0].score <= matched[1].score+2 {
+		return ToolCall{}, false
+	}
+	params, ok := normalizeTextToolCallArgs(m, &matched[0].info)
 	if !ok {
 		return ToolCall{}, false
 	}
-	if pruned, ok := pruneTextToolCallArgs(params, matched[0].parameters); ok {
+	if pruned, ok := pruneTextToolCallArgs(params, matched[0].info.parameters); ok {
 		params = pruned
 	}
-	return ToolCall{ID: "content_tool_call_0", Name: matched[0].name, Params: params}, true
+	return ToolCall{ID: "content_tool_call_0", Name: matched[0].info.name, Params: params}, true
+}
+
+type bareTextToolArgMatch struct {
+	info  textToolSchemaInfo
+	score int
 }
 
 func sanitizeRecoveredToolCallParams(calls []ToolCall, infos []textToolSchemaInfo) []ToolCall {
@@ -631,6 +645,114 @@ func textToolRequiredFieldsPresent(m map[string]any, required []string) bool {
 		}
 	}
 	return true
+}
+
+func scoreBareTextToolCallArgs(m map[string]any, info textToolSchemaInfo) (int, bool) {
+	if !textToolRequiredFieldsPresent(m, info.required) {
+		return 0, false
+	}
+	schemaMap := textToolSchemaMap(info.parameters)
+	props, _ := schemaMap["properties"].(map[string]any)
+	score := len(info.required) * 8
+	unknown := 0
+	for key, val := range m {
+		propSchema, known := props[key]
+		if !known {
+			unknown++
+			continue
+		}
+		score += 4
+		if jsonSchemaAcceptsValue(propSchema, val) {
+			score += 2
+		}
+		nestedScore, nestedOK := scoreBareSchemaValue(val, propSchema)
+		if !nestedOK {
+			return 0, false
+		}
+		score += nestedScore
+	}
+	if unknown > 0 {
+		if len(props) > 0 {
+			score -= unknown * 3
+		}
+	}
+	return score, true
+}
+
+func textToolSchemaMap(schema json.RawMessage) map[string]any {
+	if len(schema) == 0 {
+		return nil
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(schema, &raw); err != nil {
+		return nil
+	}
+	return raw
+}
+
+func scoreBareSchemaValue(val any, schema any) (int, bool) {
+	schemaMap, ok := schema.(map[string]any)
+	if !ok {
+		return 0, true
+	}
+	itemSchema, hasItems := schemaMap["items"]
+	arr, isArray := val.([]any)
+	if !hasItems || !isArray {
+		return 0, true
+	}
+	itemMap, ok := itemSchema.(map[string]any)
+	if !ok {
+		return 0, true
+	}
+	itemProps, _ := itemMap["properties"].(map[string]any)
+	itemRequired := textRequiredFromSchemaMap(itemMap)
+	if len(itemProps) == 0 && len(itemRequired) == 0 {
+		return 0, true
+	}
+	score := 0
+	for _, item := range arr {
+		itemObj, ok := item.(map[string]any)
+		if !ok {
+			if len(itemRequired) > 0 {
+				return 0, false
+			}
+			continue
+		}
+		if len(itemRequired) > 0 && !textToolRequiredFieldsPresent(itemObj, itemRequired) {
+			return 0, false
+		}
+		score += len(itemRequired) * 4
+		unknown := 0
+		for key, itemVal := range itemObj {
+			propSchema, known := itemProps[key]
+			if !known {
+				unknown++
+				continue
+			}
+			score += 2
+			if jsonSchemaAcceptsValue(propSchema, itemVal) {
+				score++
+			}
+		}
+		score -= unknown
+	}
+	return score, true
+}
+
+func textRequiredFromSchemaMap(schema map[string]any) []string {
+	raw, ok := schema["required"].([]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			if s = strings.TrimSpace(s); s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
 }
 
 func normalizeRecoveredToolCallName(s string) string {

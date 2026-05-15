@@ -5930,6 +5930,7 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 	}
 	attachments := append([]types.AnswerDisplayAttachment(nil), rec.Attachments...)
 	if ctx != nil && ctx.Mutable != nil {
+		attachments = appendAnswerDisplayAttachmentsUnique(attachments, retryStateDiagramDisplayAttachments(ctx)...)
 		attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
 	}
 	prose := render.RenderAnswerDocumentWithAttachments(doc, attachments, e.language)
@@ -5939,6 +5940,66 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 	out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: prose})
 	out.FinalAnswer = prose
 	return out, true
+}
+
+func retryStateDiagramDisplayAttachments(ctx *types.AgentContext) []types.AnswerDisplayAttachment {
+	doc, ok := recoverRetryStateAnswerDocumentV2(ctx)
+	if !ok || doc == nil {
+		return nil
+	}
+	out := make([]types.AnswerDisplayAttachment, 0)
+	for _, blk := range doc.Blocks {
+		if blk.Kind != types.BlockDiagram || blk.Diagram == nil {
+			continue
+		}
+		body := strings.TrimSpace(blk.Diagram.Body)
+		if body == "" {
+			continue
+		}
+		lang := strings.TrimSpace(blk.Diagram.Language)
+		if lang == "" {
+			lang = "mermaid"
+		}
+		out = append(out, types.AnswerDisplayAttachment{
+			Kind:     types.AnswerDisplayAttachmentDiagram,
+			Title:    blk.Title,
+			Language: lang,
+			Body:     body,
+			Source:   "emit_answer_document.retry_state",
+			Reason:   "latest rejected structured answer draft contained a visible diagram",
+		})
+	}
+	return out
+}
+
+func appendAnswerDisplayAttachmentsUnique(in []types.AnswerDisplayAttachment, extra ...types.AnswerDisplayAttachment) []types.AnswerDisplayAttachment {
+	if len(extra) == 0 {
+		return in
+	}
+	seen := make(map[string]bool, len(in)+len(extra))
+	for _, att := range in {
+		if key := answerDisplayAttachmentDedupeKey(att); key != "" {
+			seen[key] = true
+		}
+	}
+	out := append([]types.AnswerDisplayAttachment(nil), in...)
+	for _, att := range extra {
+		key := answerDisplayAttachmentDedupeKey(att)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, att)
+	}
+	return out
+}
+
+func answerDisplayAttachmentDedupeKey(att types.AnswerDisplayAttachment) string {
+	body := strings.TrimSpace(att.Body)
+	if body == "" {
+		return ""
+	}
+	return strings.TrimSpace(att.Kind) + "\x00" + strings.TrimSpace(att.Language) + "\x00" + body
 }
 
 func recoveredAnswerDocumentCaveat(lang string, rec tool.AnswerDocumentTextRecovery) string {

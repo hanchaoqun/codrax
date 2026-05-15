@@ -12,7 +12,7 @@
 - 模型没有返回协议级 `tool_calls`，而是在 assistant 文本里吐出工具调用 JSON。
 - 模型已经返回了协议级 `tool_calls`，但 `arguments` 里的字段类型不符合 schema，例如 `read_file.offset` 是字符串 `"146"`，schema 要求 integer；或 `emit_analysis.keywords` 是 `"agent,count"`，schema 要求 `[]string`。
 
-第一类已有 `recover_text_tool_calls` 处理，位置在 LLM adapter 层；它只负责把 assistant 文本中的完整工具调用 envelope 恢复成协议级 tool call，默认关闭。第二类不能继续塞进 prompt 或 adapter：adapter 看不到本轮完整工具 schema，也不应该理解 tool 的业务含义；prompt 改动又会影响所有模型的稳定性。
+第一类已有 `recover_text_tool_calls` 处理，位置在 LLM adapter 层；它负责把 assistant 文本中的工具调用 envelope 恢复成协议级 tool call，默认关闭。兼容模式还允许一种保守裸参数恢复：当 assistant 文本是完整 JSON 参数对象、没有工具名 envelope、且本轮工具 schema 只有一个唯一匹配项时，恢复成该工具调用；匹配只看 JSON Schema 的 required / properties / nested items.required，不读取用户问题或模型散文语义。第二类不能继续塞进 prompt 或 adapter：adapter 看不到本轮完整工具 schema，也不应该理解 tool 的业务含义；prompt 改动又会影响所有模型的稳定性。
 
 因此新增一个独立的 **schema-aware tool 参数兼容层**，运行在 BaseAgent 收到 LLM response 之后、真正执行 tool 之前。
 
@@ -52,6 +52,12 @@ flowchart LR
 |---|---|---|---|
 | Text tool-call recovery | `recover_text_tool_calls` | `internal/llm` adapter response parse 后 | assistant 文本中完整工具调用 envelope 没进协议字段 |
 | Tool param compatibility | `tool_param_compat` | `internal/agent.BaseAgent` 执行 tool 前 | 协议级 tool call 存在，但参数字段类型机械错误 |
+
+`recover_text_tool_calls` 的裸参数模式有三个硬边界：
+
+- 只在 tool_choice 要求工具、或 named tool_choice 指定具体工具时运行；auto 模式不会把普通 JSON 聊天误判成工具调用。
+- 多工具场景必须由 JSON Schema 唯一胜出；例如多个工具都有 `items[]` 时，会继续比较 `items[].required` 和已知字段命中率，不能唯一归属就保留为文本。
+- 只恢复完整 JSON 参数对象；不补 required 字段，不按用户问题关键词选择工具，不按模型解释性文字推断工具名。
 
 ---
 

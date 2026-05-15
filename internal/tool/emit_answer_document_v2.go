@@ -178,12 +178,13 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	for i, raw := range p.Blocks {
 		blk, err := NormalizeEmitAnswerBlock(raw, fmt.Sprintf("blocks[%d]", i))
 		if err != nil {
-			persistRecoveredAnswerDisplayAttachments(ctx, recovery)
+			persistRecoveredAnswerDisplayAttachments(ctx, mergeAnswerDocumentRecoveryAttachments(recovery, doc))
 			return failEmit(toolName, now, "%s", err.Error())
 		}
 		doc.Blocks = append(doc.Blocks, blk)
 	}
 	canonicalizeSummaryLeadBlock(doc)
+	visibleRecovery := mergeAnswerDocumentRecoveryAttachments(recovery, doc)
 
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint.
 	// Before we persist the doc, run the four STRICT structural
@@ -202,12 +203,12 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			logging.Warning("[emit_answer_document] repaired %d item citation_ref value(s) by unique label/citation corroboration", fixed)
 		}
 		if hints := runPreEmitChecks(doc, view, preEmitOracleFromCtx(ctx), ctx); len(hints) > 0 {
-			persistRecoveredAnswerDisplayAttachments(ctx, recovery)
+			persistRecoveredAnswerDisplayAttachments(ctx, visibleRecovery)
 			return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
 		}
 	}
 	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) > 0 {
-		persistRecoveredAnswerDisplayAttachments(ctx, recovery)
+		persistRecoveredAnswerDisplayAttachments(ctx, visibleRecovery)
 		return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
 	}
 
@@ -272,9 +273,54 @@ func persistRecoveredAnswerDisplayAttachments(ctx *types.BusContext, report answ
 	if ctx == nil || ctx.Mutable == nil || len(report.Attachments) == 0 {
 		return
 	}
-	ctx.Mutable.SetAnswerDisplayAttachments(report.Attachments)
+	attachments := ctx.Mutable.AnswerDisplayAttachments()
+	for _, att := range report.Attachments {
+		attachments = appendRecoveredAttachment(attachments, att)
+	}
+	ctx.Mutable.SetAnswerDisplayAttachments(attachments)
 	logging.Warning("[emit_answer_document] preserved %d recovered display attachment(s) from rejected %s recovery",
 		len(report.Attachments), report.Mode)
+}
+
+func mergeAnswerDocumentRecoveryAttachments(report answerDocumentRecoveryReport, doc *types.AnswerDocumentV2) answerDocumentRecoveryReport {
+	if doc == nil || len(doc.Blocks) == 0 {
+		return report
+	}
+	for _, blk := range doc.Blocks {
+		att, ok := displayAttachmentFromAnswerDiagramBlock(blk)
+		if !ok {
+			continue
+		}
+		report.Attachments = appendRecoveredAttachment(report.Attachments, att)
+	}
+	if len(report.Attachments) > 0 && strings.TrimSpace(report.Mode) == "" {
+		report.Mode = "rejected_answer_document"
+	}
+	return report
+}
+
+func displayAttachmentFromAnswerDiagramBlock(blk types.AnswerBlock) (types.AnswerDisplayAttachment, bool) {
+	if blk.Kind != types.BlockDiagram || blk.Diagram == nil {
+		return types.AnswerDisplayAttachment{}, false
+	}
+	body := strings.TrimSpace(blk.Diagram.Body)
+	if body == "" {
+		return types.AnswerDisplayAttachment{}, false
+	}
+	lang := strings.TrimSpace(blk.Diagram.Language)
+	if lang == "" {
+		lang = "mermaid"
+	}
+	att := types.AnswerDisplayAttachment{
+		Kind:     types.AnswerDisplayAttachmentDiagram,
+		Title:    blk.Title,
+		Language: lang,
+		Body:     body,
+		Source:   "emit_answer_document.rejected_payload",
+		Reason:   "rejected structured answer draft contained a visible diagram",
+	}
+	att.Hash = answerDisplayAttachmentHash(att.Kind, att.Language, att.Body)
+	return att, true
 }
 
 // repairBlocksAsString detects the "blocks[] arrived as JSON

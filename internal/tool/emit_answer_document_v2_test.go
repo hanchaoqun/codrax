@@ -611,6 +611,47 @@ func TestEmitAnswerDocumentV2_BraceFallbackPreservesDroppedDiagramAttachment(t *
 	}
 }
 
+func TestEmitAnswerDocumentV2_RejectedAttemptsAccumulateVisibleDiagrams(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+
+	first := json.RawMessage(`{
+		"blocks": [
+			{"id":"d1","kind":"diagram","diagram":{"kind":"flow","language":"mermaid","body":"flowchart TD\n  A --> B"}},
+			{"id":"bad1","kind":"diagram"}
+		]
+	}`)
+	res, err := tool.Execute(bus, first)
+	if err != nil {
+		t.Fatalf("first emit error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("first malformed emit should fail")
+	}
+
+	second := json.RawMessage(`{
+		"blocks": [
+			{"id":"d2","kind":"diagram","diagram":{"kind":"sequence","language":"mermaid","body":"sequenceDiagram\n  User->>Agent: ask"}},
+			{"id":"bad2","kind":"diagram"}
+		]
+	}`)
+	res, err = tool.Execute(bus, second)
+	if err != nil {
+		t.Fatalf("second emit error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("second malformed emit should fail")
+	}
+
+	attachments := bus.Mutable.AnswerDisplayAttachments()
+	if len(attachments) != 2 {
+		t.Fatalf("rejected attempts should accumulate unique diagrams, got %+v", attachments)
+	}
+	if !strings.Contains(attachments[0].Body, "flowchart TD") || !strings.Contains(attachments[1].Body, "sequenceDiagram") {
+		t.Fatalf("visible diagram bodies not preserved in order: %+v", attachments)
+	}
+}
+
 // TestEmitAnswerDocumentV2_WholeDocumentStringifyAccepted is the
 // end-to-end version: a finalizer-shaped LLM emit where the whole
 // answer body was JSON.stringify'd into the blocks key MUST now be

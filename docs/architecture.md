@@ -365,7 +365,7 @@ type Adapter interface {
 
 Per-agent 模型路由在 `providers.yaml` 配，不同 agent 可指向不同模型 / 不同 provider。Provider 级降级链（主模型 → fast 模型）也在 provider config 声明，由 `FallbackAdapter` 串起。
 
-**工具兼容边界**：兼容层分成两段，避免把本地小模型的问题污染 prompt，同时让所有模型受益于安全的结构归一化。`recover_text_tool_calls` 在 adapter 层把 assistant 文本里的完整工具调用 envelope 恢复成协议级 `tool_calls`，默认关闭；`tool_param_compat` 在 `BaseAgent` 的 agent/tool 边界运行，用本轮真实 `ToolSchema` 对协议级 tool-call 参数做确定性类型归一化（如 string integer → integer、JSON-stringified array → array），默认 `repair` 但关闭 delimited string array split。`tool_param_compat` 还支持 `audit` 只打日志不改 payload，或显式 `off`。代码落点见 `docs/design/local_model_tool_param_compat.md`。
+**工具兼容边界**：兼容层分成两段，避免把本地小模型的问题污染 prompt，同时让所有模型受益于安全的结构归一化。`recover_text_tool_calls` 在 adapter 层把 assistant 文本里的工具调用 envelope 恢复成协议级 `tool_calls`，默认关闭；兼容模式下也可恢复没有工具名的裸参数 JSON，但必须由本轮真实 `ToolSchema` 在 required / properties / nested items.required 上唯一匹配，不能唯一匹配就保留为文本。`tool_param_compat` 在 `BaseAgent` 的 agent/tool 边界运行，用本轮真实 `ToolSchema` 对协议级 tool-call 参数做确定性类型归一化（如 string integer → integer、JSON-stringified array → array），默认 `repair` 但关闭 delimited string array split。`tool_param_compat` 还支持 `audit` 只打日志不改 payload，或显式 `off`。代码落点见 `docs/design/local_model_tool_param_compat.md`。
 
 **ChatOptions 的回调家族**：
 - `OnContentDelta(delta)` — 流式 content chunk
