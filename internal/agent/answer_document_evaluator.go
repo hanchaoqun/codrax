@@ -4932,8 +4932,8 @@ func (e *answerDocumentEvaluator) ShouldStop(resp llm.Response, iteration int) b
 // Soft-stop policy: a populated AnswerDocument in Mutable means the
 // emit_answer_document tool call has already landed and ParseOutput
 // will render the prose — accept the soft-stop. A missing document
-// within the retry budget triggers a correction hint; beyond the
-// budget the evaluator stays silent and the stage's ParseOutput
+// within the retry budget triggers an urgent correction hint; beyond
+// the budget the evaluator stays silent and the stage's ParseOutput
 // writes a fail-loud warning from the raw last LLM content.
 //
 // Evaluator-specific retry budget (retriesUsed vs
@@ -5000,9 +5000,11 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 	// shared key would silently truncate it to the first attempt.
 	hasVisibleDraft := strings.TrimSpace(obs.Response.Content) != ""
 	return LoopSignal{
-		HintRequested: true,
-		HintKey:       fmt.Sprintf("answer_doc.missing_document.%d", e.retriesUsed),
-		Hint:          missingAnswerDocumentHint(hasVisibleDraft),
+		HintRequested:  true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+		HintKey:        fmt.Sprintf("answer_doc.missing_document.%d", e.retriesUsed),
+		Hint:           missingAnswerDocumentHint(hasVisibleDraft),
 	}
 }
 
@@ -5802,11 +5804,16 @@ func retryDiagramKinds(ctx *types.AgentContext) []types.DiagramKind {
 }
 
 // renderRetryDiagramSeedFenceForKind walks every applicable seed
-// source for the given diagram kind, MERGES the grounded nodes
-// across sources, and emits one unified Mermaid fence. Pre-fix this
-// function returned the FIRST allowed seed and discarded the rest —
-// a 3-node FlowFinding seed could shadow a 6-node AnswerChain seed,
-// so the model saw fewer grounded nodes than the investigation
+// source for the given diagram kind. Ordinary flow/call/architecture
+// seeds MERGE grounded nodes across sources and emit one Mermaid fence.
+// Sequence seeds preserve the answer-chain sequenceDiagram when present,
+// because handing an explicit sequence request a flowchart seed makes
+// small models waste retries reshaping the diagram instead of repairing
+// the answer document.
+//
+// Pre-fix this function returned the FIRST allowed seed and discarded
+// the rest — a 3-node FlowFinding seed could shadow a 6-node AnswerChain
+// seed, so the model saw fewer grounded nodes than the investigation
 // actually surfaced. Merging plus the bumped retryDiagramSeedNodeCap
 // (12 nodes) lets the seed reflect the full grounded mechanism the
 // model can extend from.
@@ -5825,10 +5832,19 @@ func renderRetryDiagramSeedFenceForKind(ctx *types.AgentContext, kind types.Diag
 		// Architecture chains often add useful upstream context to
 		// a flow seed (entry-point components → handlers).
 		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(ctx.AnswerChains))
-	case types.DiagramSequence, types.DiagramCallDAG:
+	case types.DiagramSequence:
+		// For explicit sequence diagrams, the typed answer-chain lane
+		// is the principal ordered surface. Prefer it over generic
+		// flow findings so the seed does not start with unrelated
+		// branch/condition artifacts and force the model to untangle
+		// the diagram shape during finalization.
+		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSequenceSeed(ctx.AnswerChains))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryLogDiagramSeed(ctx.LogTriage))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
+	case types.DiagramCallDAG:
+		seeds = appendRetryDiagramSeed(seeds, buildRetryLogDiagramSeed(ctx.LogTriage))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(ctx.AnswerChains))
+		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	case types.DiagramArchitecture:
 		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(ctx.AnswerChains))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
@@ -6007,13 +6023,49 @@ func buildRetryAnswerChainSeed(chains []types.AnswerChain) retryDiagramSeed {
 		nodes = append(nodes, label)
 		keys = append(keys, retryDiagramSeedMatchKeys(label)...)
 	}
-	nodes = dedupeRetryDiagramNodes(nodes, 5)
+	nodes = dedupeRetryDiagramNodes(nodes, retryDiagramSeedNodeCap)
 	if len(nodes) < 2 {
 		return retryDiagramSeed{}
 	}
 	return retryDiagramSeed{
 		Fence:     buildRetryDiagramFence(nodes),
 		MatchKeys: dedupeRetryDiagramNodes(keys, 0),
+	}
+}
+
+func buildRetryAnswerChainSequenceSeed(chains []types.AnswerChain) retryDiagramSeed {
+	labels := make([]string, 0, len(chains))
+	keys := make([]string, 0, len(chains)*3)
+	for _, chain := range chains {
+		item := chain.Item
+		label := firstNonEmptyString(
+			strings.TrimSpace(item.Subject),
+			strings.TrimSpace(item.AnchorSymbol),
+			strings.TrimSpace(item.Object),
+			item.DisplayLocation(true),
+			strings.TrimSpace(item.Source),
+		)
+		if label == "" {
+			continue
+		}
+		labels = append(labels, label)
+		keys = append(keys, retryDiagramSeedMatchKeys(label)...)
+		if location := item.DisplayLocation(true); location != "" {
+			keys = append(keys, retryDiagramSeedMatchKeys(location)...)
+		}
+	}
+	labels = dedupeRetryDiagramNodes(labels, retryDiagramSeedNodeCap)
+	if len(labels) < 2 {
+		return retryDiagramSeed{}
+	}
+	fence := types.RenderSequenceDiagramFence(labels, retryDiagramSeedNodeCap)
+	if strings.TrimSpace(fence) == "" {
+		return retryDiagramSeed{}
+	}
+	return retryDiagramSeed{
+		Fence:         strings.TrimSpace(fence),
+		MatchKeys:     dedupeRetryDiagramNodes(keys, 0),
+		PreserveFence: true,
 	}
 }
 

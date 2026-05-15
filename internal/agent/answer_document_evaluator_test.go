@@ -3286,6 +3286,12 @@ func TestAnswerDocumentEvaluator_Observe_RetriesWhenDocMissing(t *testing.T) {
 	if !sig.HintRequested {
 		t.Error("doc missing: HintRequested = false, want true")
 	}
+	if !sig.BypassThrottle {
+		t.Fatalf("missing-document correction must bypass throttle so finalizer retries cannot be swallowed, got %+v", sig)
+	}
+	if !sig.BypassBudget {
+		t.Fatalf("missing-document correction must bypass ordinary hint budget so finalizer delivery remains bounded by maxRetries, got %+v", sig)
+	}
 	if e.retriesUsed != 1 {
 		t.Errorf("retriesUsed = %d, want 1", e.retriesUsed)
 	}
@@ -3586,6 +3592,48 @@ func TestRenderRetryDiagramSeedFence_UsesFlowFindingSeedForFlow(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("flow retry seed missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestRenderRetryDiagramSeedFenceForRepair_SequencePrefersAnswerChainsOverFlowNoise(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+				},
+			},
+		},
+		FlowFindings: []types.FlowFindingDigest{{
+			Path: []string{
+				`finding.Conditions, " AND ", "## Cross-References"`,
+				`"Evidence Gaps" prompt scaffold`,
+			},
+		}},
+		AnswerChains: []types.AnswerChain{
+			{Item: types.EvidenceItem{Subject: "ClientRequest.Start", Source: "internal/a.go", LineStart: 10, GroundingStatus: types.GroundingGrounded}},
+			{Item: types.EvidenceItem{Subject: "Coordinator.Dispatch", Source: "internal/b.go", LineStart: 20, GroundingStatus: types.GroundingGrounded}},
+			{Item: types.EvidenceItem{Subject: "WorkerRuntime.Run", Source: "internal/c.go", LineStart: 30, GroundingStatus: types.GroundingGrounded}},
+			{Item: types.EvidenceItem{Subject: "LeafWorker.Execute", Source: "internal/d.go", LineStart: 40, GroundingStatus: types.GroundingGrounded}},
+		},
+	}
+
+	got := renderRetryDiagramSeedFenceForRepair(ctx, &types.ToolRepair{})
+	for _, want := range []string{
+		"```mermaid",
+		"sequenceDiagram",
+		"ClientRequest.Start",
+		"Coordinator.Dispatch",
+		"WorkerRuntime.Run",
+		"LeafWorker.Execute",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("sequence retry seed missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Evidence Gaps") || strings.Contains(got, "Cross-References") {
+		t.Fatalf("sequence retry seed should not let generic flow-finding prose shadow answer-chain nodes:\n%s", got)
 	}
 }
 

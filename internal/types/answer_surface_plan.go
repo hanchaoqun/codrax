@@ -1086,9 +1086,10 @@ func RenderAnswerChainDiagramFence(chains []AnswerChain) string {
 	return RenderLinearDiagramFence(nodes, 5)
 }
 
+const answerChainSequenceDiagramNodeLimit = 8
+
 func RenderAnswerChainSequenceDiagramFence(chains []AnswerChain) string {
 	nodes := make([]string, 0, len(chains))
-	seen := make(map[string]bool)
 	for _, chain := range chains {
 		label := firstNonEmptySurfaceString(
 			chain.Item.DisplayLocation(true),
@@ -1096,16 +1097,34 @@ func RenderAnswerChainSequenceDiagramFence(chains []AnswerChain) string {
 			strings.TrimSpace(chain.Item.Subject),
 			strings.TrimSpace(chain.Item.AnchorSymbol),
 		)
-		label = strings.TrimSpace(label)
-		if label == "" || seen[label] {
+		nodes = append(nodes, label)
+	}
+	return RenderSequenceDiagramFence(nodes, answerChainSequenceDiagramNodeLimit)
+}
+
+// RenderSequenceDiagramFence emits a Mermaid sequenceDiagram from a
+// grounded ordered node list. It mirrors RenderLinearDiagramFence's
+// de-duplication and limit semantics, but keeps the requested
+// actor-to-actor carrier when the answer contract asks for a sequence
+// diagram instead of handing the model a flowchart to reinterpret.
+func RenderSequenceDiagramFence(nodes []string, limit int) string {
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		node = strings.TrimSpace(node)
+		if node == "" || seen[node] {
 			continue
 		}
-		seen[label] = true
-		nodes = append(nodes, label)
-		if len(nodes) >= 5 {
+		seen[node] = true
+		out = append(out, node)
+		if limit > 0 && len(out) >= limit {
 			break
 		}
 	}
+	return renderMermaidSequenceFence(out)
+}
+
+func renderMermaidSequenceFence(nodes []string) string {
 	if len(nodes) < 2 {
 		return ""
 	}
