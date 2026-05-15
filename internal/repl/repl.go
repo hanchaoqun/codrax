@@ -4448,15 +4448,16 @@ func stripANSIOnly(s string) string {
 // borderedLineFragments returns the visual rows that renderBordered
 // should print for one logical response line. Prose may wrap; tabular
 // / diagram-like rows are treated as atomic because terminal wrapping
-// corrupts their columns, box edges, and arrows. Wide atomic rows are
-// clipped with an ellipsis instead, keeping the REPL layout stable
-// while making the truncation explicit.
+// corrupts their columns, box edges, and arrows. Wide atomic rows pass
+// through unchanged: final-answer visual content is user content, and
+// the renderer must not rewrite or truncate it just to fit the current
+// terminal width.
 func borderedLineFragments(s string, maxCols int) []string {
 	if displayWidth(s) <= maxCols {
 		return []string{s}
 	}
 	if shouldPreserveVisualLine(s) {
-		return []string{clipByWidth(s, maxCols)}
+		return []string{s}
 	}
 	return wrapByWidth(s, maxCols)
 }
@@ -4472,7 +4473,8 @@ func shouldPreserveVisualLine(s string) bool {
 	}
 	return looksLikePipeTableLine(plain) ||
 		looksLikeBoxDrawingLine(plain) ||
-		looksLikeASCIITableRule(plain)
+		looksLikeASCIITableRule(plain) ||
+		looksLikeDiagramSyntaxLine(plain)
 }
 
 func looksLikePipeTableLine(s string) bool {
@@ -4522,6 +4524,29 @@ func looksLikeASCIITableRule(s string) bool {
 	return rule == len([]rune(s))
 }
 
+func looksLikeDiagramSyntaxLine(s string) bool {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	if lower == "" {
+		return false
+	}
+	for _, prefix := range []string{
+		"flowchart ", "graph ", "sequencediagram", "participant ", "actor ",
+		"subgraph ", "classdiagram", "statediagram", "erdiagram",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	for _, token := range []string{
+		"-->", "-.->", "==>", "->>", "-->>", "<--", "<->", "<|--", "--|>",
+	} {
+		if strings.Contains(s, token) {
+			return true
+		}
+	}
+	return false
+}
+
 func isBoxDrawingRune(r rune) bool {
 	return r >= 0x2500 && r <= 0x257F
 }
@@ -4536,50 +4561,6 @@ func firstLastRune(s string) (rune, rune) {
 		last = r
 	}
 	return first, last
-}
-
-func clipByWidth(s string, maxCols int) string {
-	if maxCols <= 0 {
-		return ""
-	}
-	if displayWidth(s) <= maxCols {
-		return s
-	}
-	if maxCols == 1 {
-		return "…"
-	}
-
-	budget := maxCols - 1
-	var buf strings.Builder
-	w := 0
-	i := 0
-	for i < len(s) {
-		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
-			j := i + 2
-			for j < len(s) && ((s[j] >= '0' && s[j] <= '9') || s[j] == ';' || s[j] == ':') {
-				j++
-			}
-			if j < len(s) {
-				j++ // final byte
-			}
-			buf.WriteString(s[i:j])
-			i = j
-			continue
-		}
-
-		r, size := utf8.DecodeRuneInString(s[i:])
-		rw := runewidth.RuneWidth(r)
-		if rw < 0 {
-			rw = 0
-		}
-		if w+rw > budget {
-			break
-		}
-		buf.WriteString(s[i : i+size])
-		w += rw
-		i += size
-	}
-	return buf.String() + "…\x1b[0m"
 }
 
 // wrapByWidth breaks a line into multiple lines that each fit within

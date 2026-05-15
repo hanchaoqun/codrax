@@ -289,6 +289,20 @@ func TestFormatAnswerDocumentToolResultSummaryRejectedZh(t *testing.T) {
 	}
 }
 
+func TestFormatAnswerDocumentToolResultSummaryRejectedZhWrapsWithoutDroppingAction(t *testing.T) {
+	longAction := "each symbol-like item label must cite the evidence line whose subject/object/anchor names that same label; candidate_citations=[internal/agent/sub_explorer.go:135, internal/agent/sub_explorer.go:139]"
+	summary := "The answer document does not yet meet the structural contract for this question.\n\n" +
+		"  1. Field: `blocks[].items[].citation_ref`\n" +
+		"     Action: " + longAction + "\n"
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_answer_document", "", summary, "zh"))
+	if !strings.Contains(got, "candidate_citations=[internal/agent/sub_explorer.go:135, internal/agent/sub_explorer.go:139]") {
+		t.Fatalf("wrapped reject summary must preserve full action; got:\n%s", got)
+	}
+	if strings.Contains(got, "…") {
+		t.Fatalf("reject summary should wrap, not truncate: %q", got)
+	}
+}
+
 func TestFormatAnswerDocumentToolResultSummaryAcceptedZh(t *testing.T) {
 	summary := "emit_answer_document accepted: replace_all blocks=4 citations=7"
 	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_answer_document", "", summary, "zh"))

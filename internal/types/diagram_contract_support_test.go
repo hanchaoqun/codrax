@@ -50,12 +50,57 @@ func TestSupportedDiagramKindsForAnswer_AnswerChainsSupportSequencePreference(t 
 	if dc == nil || len(dc.PreferredKinds) == 0 || dc.PreferredKinds[0] != DiagramSequence {
 		t.Fatalf("effective diagram contract=%+v, want sequence preference preserved", dc)
 	}
-	kind, fence := CompileDiagramSurfaceFence(dc, ScenarioArchitectureExplain, nil, nil, nil, nil, chains, nil)
+	kind, fence := CompileDiagramSurfaceFence(dc, ScenarioArchitectureExplain, nil, nil, nil, nil, chains, nil, nil)
 	if kind != DiagramSequence {
 		t.Fatalf("compiled diagram kind=%s, want sequence", kind)
 	}
 	if !strings.Contains(fence, "sequenceDiagram") {
 		t.Fatalf("compiled fence=%q, want sequenceDiagram", fence)
+	}
+}
+
+func TestSupportedDiagramKindsForAnswer_EvidenceSupportsExplicitArchitectureDiagram(t *testing.T) {
+	items := []EvidenceItem{
+		{
+			ID:              "ev1",
+			Source:          "internal/agent/agent.go",
+			LineStart:       188,
+			Scope:           ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "BaseAgent",
+		},
+		{
+			ID:              "ev2",
+			Source:          "internal/agent/explorer.go",
+			LineStart:       8599,
+			Scope:           ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			AnchorKind:      AnchorCall,
+			Subject:         "explorerEvaluator.Observe",
+			Object:          "observeMidLoop",
+		},
+	}
+	supported := SupportedDiagramKindsForAnswer(ScenarioArchitectureExplain, false, nil, nil, nil, nil, nil, items)
+	if !diagramKindSliceContains(supported, DiagramArchitecture) {
+		t.Fatalf("validated architecture evidence should support architecture diagrams, got %v", supported)
+	}
+	dc := EffectiveDiagramContract(&DiagramContract{
+		Required:       true,
+		Minimum:        1,
+		PreferredKinds: []DiagramKind{DiagramArchitecture},
+	}, supported)
+	if dc == nil || !dc.Required {
+		t.Fatalf("explicit diagram contract should remain required with evidence support, got %+v", dc)
+	}
+	kind, fence := CompileDiagramSurfaceFence(dc, ScenarioArchitectureExplain, nil, nil, nil, nil, nil, items, nil)
+	if kind != DiagramArchitecture {
+		t.Fatalf("compiled diagram kind=%s, want %s", kind, DiagramArchitecture)
+	}
+	if !strings.Contains(fence, "flowchart TD") ||
+		!strings.Contains(fence, "explorerEvaluator.Observe") ||
+		!strings.Contains(fence, "observeMidLoop") {
+		t.Fatalf("compiled evidence fence missing grounded nodes: %q", fence)
 	}
 }
 

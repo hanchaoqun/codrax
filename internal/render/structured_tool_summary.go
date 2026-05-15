@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/mattn/go-runewidth"
 )
 
 const (
@@ -86,9 +88,44 @@ func formatAnswerDocumentRejectedSummary(summary string, zh bool) string {
 	}
 	lines := []string{"  " + statusMeta.Sprint("•") + " " + statusMeta.Sprint(header)}
 	for i, item := range items {
-		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint(fmt.Sprintf("    %d. %s", i+1, item)), evidenceSummaryMaxCols))
+		lines = appendWrappedStructuredToolSummaryLine(lines, fmt.Sprintf("    %d. ", i+1), item)
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func appendWrappedStructuredToolSummaryLine(lines []string, prefix, body string) []string {
+	raw := prefix + strings.TrimSpace(body)
+	wrapped := wrapWithHangingIndent(raw, strings.Repeat(" ", len(prefix)), evidenceSummaryMaxCols)
+	for _, line := range strings.Split(wrapped, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		lines = append(lines, statusReasoningBody.Sprint(line))
+	}
+	return lines
+}
+
+func wrapWithHangingIndent(s, hangingIndent string, maxCols int) string {
+	if maxCols <= 0 {
+		return s
+	}
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return s
+	}
+	lines := make([]string, 0, 2)
+	current := words[0]
+	for _, word := range words[1:] {
+		candidate := current + " " + word
+		if runewidth.StringWidth(stripAnsiEscapes(candidate)) <= maxCols {
+			current = candidate
+			continue
+		}
+		lines = append(lines, current)
+		current = hangingIndent + word
+	}
+	lines = append(lines, current)
+	return strings.Join(lines, "\n")
 }
 
 func answerDocumentRejectActions(summary string, limit int) []string {

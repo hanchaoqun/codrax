@@ -98,31 +98,25 @@ func TestBorderedLineFragments_WrapsOrdinaryProse(t *testing.T) {
 	}
 }
 
-func TestBorderedLineFragments_ClipsWidePipeTableRow(t *testing.T) {
+func TestBorderedLineFragments_PreservesWidePipeTableRow(t *testing.T) {
 	line := "| Agent | " + strings.Repeat("explorer inspects repository evidence ", 3) + "|"
 	got := borderedLineFragments(line, 40)
 	if len(got) != 1 {
 		t.Fatalf("wide table row must remain one visual row; got %d: %q", len(got), got)
 	}
-	if plain := stripANSIOnly(got[0]); !strings.HasSuffix(plain, "…") {
-		t.Fatalf("clipped table row should end with ellipsis; got %q", plain)
-	}
-	if w := displayWidth(got[0]); w > 40 {
-		t.Fatalf("clipped table row exceeded width: width=%d fragment=%q", w, got[0])
+	if got[0] != line {
+		t.Fatalf("wide table row must not be clipped or rewritten; got %q", got[0])
 	}
 }
 
-func TestBorderedLineFragments_ClipsWideBoxDrawingRow(t *testing.T) {
+func TestBorderedLineFragments_PreservesWideBoxDrawingRow(t *testing.T) {
 	line := "│ " + strings.Repeat("planner -> explorer -> finalizer ", 3) + "│"
 	got := borderedLineFragments(line, 42)
 	if len(got) != 1 {
 		t.Fatalf("wide box-drawing row must remain one visual row; got %d: %q", len(got), got)
 	}
-	if plain := stripANSIOnly(got[0]); !strings.HasSuffix(plain, "…") {
-		t.Fatalf("clipped box-drawing row should end with ellipsis; got %q", plain)
-	}
-	if w := displayWidth(got[0]); w > 42 {
-		t.Fatalf("clipped box-drawing row exceeded width: width=%d fragment=%q", w, got[0])
+	if got[0] != line {
+		t.Fatalf("wide box-drawing row must not be clipped or rewritten; got %q", got[0])
 	}
 }
 
@@ -134,17 +128,25 @@ func TestBorderedLineFragments_DoesNotClipIncidentalPipeProse(t *testing.T) {
 	}
 }
 
-func TestBorderedLineFragments_ANSIClippedRowsStayBounded(t *testing.T) {
+func TestBorderedLineFragments_PreservesWideANSIVisualRows(t *testing.T) {
 	line := "\x1b[31m│ " + strings.Repeat("colored evidence cell ", 4) + "│\x1b[0m"
 	got := borderedLineFragments(line, 38)
 	if len(got) != 1 {
 		t.Fatalf("wide ANSI visual row must remain one visual row; got %d: %q", len(got), got)
 	}
-	if w := displayWidth(got[0]); w > 38 {
-		t.Fatalf("clipped ANSI visual row exceeded width: width=%d fragment=%q", w, got[0])
+	if got[0] != line {
+		t.Fatalf("wide ANSI visual row must not be clipped or rewritten; got %q", got[0])
 	}
-	if !strings.HasSuffix(got[0], "\x1b[0m") {
-		t.Fatalf("clipped ANSI row should reset style; got %q", got[0])
+}
+
+func TestBorderedLineFragments_PreservesWideMermaidSourceRows(t *testing.T) {
+	line := "    explorerEvaluator -->|dispatches a long grounded mechanism through validated evidence| SubAgentRuntime"
+	got := borderedLineFragments(line, 44)
+	if len(got) != 1 {
+		t.Fatalf("wide mermaid source row must remain one visual row; got %d: %q", len(got), got)
+	}
+	if got[0] != line {
+		t.Fatalf("wide mermaid source row must not be clipped or rewritten; got %q", got[0])
 	}
 }
 

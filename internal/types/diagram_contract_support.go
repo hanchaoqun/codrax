@@ -81,8 +81,12 @@ func SupportedDiagramKindsForAnswer(
 	if flowDiagramSupported(flowFindings) {
 		add(DiagramFlow)
 	}
-	if architectureDiagramSupported(answerChains) {
+	if architectureDiagramSupported(answerChains, evidence) {
 		add(DiagramArchitecture)
+		add(DiagramSequence)
+	}
+	if evidenceCallDiagramSupported(evidence) {
+		add(DiagramCallDAG)
 		add(DiagramSequence)
 	}
 	if configTraceDiagramSupported(scenario, stableAbsent, contract, requiredFiles, evidence) {
@@ -150,13 +154,17 @@ func flowDiagramSupported(findings []FlowFindingDigest) bool {
 	return false
 }
 
-func architectureDiagramSupported(chains []AnswerChain) bool {
+func architectureDiagramSupported(chains []AnswerChain, evidence []EvidenceItem) bool {
 	for _, chain := range chains {
 		if DiagramEvidenceEligible(chain.Item) {
 			return true
 		}
 	}
-	return false
+	return len(EvidenceDiagramNodes(evidence, 2)) >= 2 || len(evidenceDiagramEdges(evidence, 1, ClaimCallEdge, ClaimImportEdge)) > 0
+}
+
+func evidenceCallDiagramSupported(evidence []EvidenceItem) bool {
+	return len(evidenceDiagramEdges(evidence, 1, ClaimCallEdge)) > 0
 }
 
 func DiagramEvidenceEligible(ev EvidenceItem) bool {

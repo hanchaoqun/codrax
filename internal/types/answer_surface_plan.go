@@ -1122,6 +1122,181 @@ func RenderAnswerChainSequenceDiagramFence(chains []AnswerChain) string {
 	return b.String()
 }
 
+type evidenceDiagramEdge struct {
+	From  string
+	To    string
+	Label string
+}
+
+// RenderEvidenceArchitectureDiagramFence emits a conservative diagram seed
+// from already-grounded EvidenceItems. It is intentionally typed:
+// support comes from ClaimForm / AnchorKind projection, not from matching
+// model prose or user text. Relation-shaped anchors become graph edges;
+// otherwise definition anchors become a simple component spine.
+func RenderEvidenceArchitectureDiagramFence(items []EvidenceItem) string {
+	if fence := renderEvidenceRelationDiagramFence(items, ClaimCallEdge, ClaimImportEdge); fence != "" {
+		return fence
+	}
+	return RenderLinearDiagramFence(EvidenceDiagramNodes(items, 8), 8)
+}
+
+// RenderEvidenceCallDiagramFence emits a Mermaid flowchart for grounded call
+// edges. The call_dag diagram kind is rendered as a flowchart because Mermaid's
+// flowchart subset is the renderer-supported, terminal-stable carrier.
+func RenderEvidenceCallDiagramFence(items []EvidenceItem) string {
+	return renderEvidenceRelationDiagramFence(items, ClaimCallEdge)
+}
+
+func renderEvidenceRelationDiagramFence(items []EvidenceItem, forms ...ClaimForm) string {
+	edges := evidenceDiagramEdges(items, 6, forms...)
+	if len(edges) == 0 {
+		return ""
+	}
+	type rendered struct {
+		id   string
+		decl string
+	}
+	nodeByLabel := make(map[string]rendered)
+	nodeOrder := make([]string, 0, len(edges)*2)
+	ensureNode := func(label string) string {
+		label = strings.TrimSpace(label)
+		if existing, ok := nodeByLabel[label]; ok {
+			return existing.id
+		}
+		id, decl := mermaidNodeIdentity(label, len(nodeByLabel))
+		nodeByLabel[label] = rendered{id: id, decl: decl}
+		nodeOrder = append(nodeOrder, label)
+		return id
+	}
+
+	var b strings.Builder
+	b.WriteString("```mermaid\n")
+	b.WriteString("flowchart TD\n")
+	for _, edge := range edges {
+		ensureNode(edge.From)
+		ensureNode(edge.To)
+	}
+	for _, label := range nodeOrder {
+		if node := nodeByLabel[label]; node.decl != "" {
+			b.WriteString("    ")
+			b.WriteString(node.decl)
+			b.WriteByte('\n')
+		}
+	}
+	for _, edge := range edges {
+		fromID := ensureNode(edge.From)
+		toID := ensureNode(edge.To)
+		if edge.Label != "" {
+			fmt.Fprintf(&b, "    %s -->|%s| %s\n", fromID, mermaidEdgeLabel(edge.Label), toID)
+		} else {
+			fmt.Fprintf(&b, "    %s --> %s\n", fromID, toID)
+		}
+	}
+	b.WriteString("```")
+	return b.String()
+}
+
+func evidenceDiagramEdges(items []EvidenceItem, limit int, forms ...ClaimForm) []evidenceDiagramEdge {
+	allowed := make(map[ClaimForm]bool, len(forms))
+	for _, form := range forms {
+		if form != ClaimUnknown {
+			allowed[form] = true
+		}
+	}
+	var out []evidenceDiagramEdge
+	seen := map[string]bool{}
+	for _, item := range items {
+		if !DiagramEvidenceEligible(item) {
+			continue
+		}
+		form := ClaimFormOf(item)
+		if !allowed[form] {
+			continue
+		}
+		from := strings.TrimSpace(firstNonEmptySurfaceString(item.Subject, item.OwnerSymbol))
+		to := strings.TrimSpace(firstNonEmptySurfaceString(item.Object, item.AnchorSymbol))
+		if from == "" || to == "" || from == to {
+			continue
+		}
+		label := evidenceDiagramRelationLabel(form, item)
+		key := from + "\x00" + to + "\x00" + label
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, evidenceDiagramEdge{From: from, To: to, Label: label})
+		if limit > 0 && len(out) >= limit {
+			return out
+		}
+	}
+	return out
+}
+
+func evidenceDiagramRelationLabel(form ClaimForm, item EvidenceItem) string {
+	var rel string
+	switch form {
+	case ClaimCallEdge:
+		rel = "calls"
+	case ClaimImportEdge:
+		rel = "imports"
+	default:
+		rel = "relates"
+	}
+	if loc := strings.TrimSpace(item.DisplayLocation(true)); loc != "" {
+		return rel + " @ " + loc
+	}
+	return rel
+}
+
+func mermaidEdgeLabel(s string) string {
+	s = strings.TrimSpace(strings.Join(strings.Fields(s), " "))
+	s = strings.NewReplacer("|", "/", "\n", " ", "\r", " ").Replace(s)
+	return s
+}
+
+// EvidenceDiagramNodes returns grounded node labels that can seed a diagram
+// without assuming language-specific syntax. Labels prefer file:line anchors
+// when citable, then typed symbols from the validated evidence item.
+func EvidenceDiagramNodes(items []EvidenceItem, limit int) []string {
+	seen := make(map[string]bool)
+	nodes := make([]string, 0, len(items))
+	for _, item := range items {
+		if !DiagramEvidenceEligible(item) {
+			continue
+		}
+		label := evidenceDiagramNodeLabel(item)
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		nodes = append(nodes, label)
+		if limit > 0 && len(nodes) >= limit {
+			break
+		}
+	}
+	return nodes
+}
+
+func evidenceDiagramNodeLabel(item EvidenceItem) string {
+	loc := strings.TrimSpace(item.DisplayLocation(true))
+	name := strings.TrimSpace(firstNonEmptySurfaceString(
+		item.AnchorSymbol,
+		item.Subject,
+		item.Object,
+		item.OwnerSymbol,
+	))
+	switch {
+	case loc != "" && name != "":
+		return name + " @ " + loc
+	case loc != "":
+		return loc
+	case name != "":
+		return name
+	default:
+		return strings.TrimSpace(item.Source)
+	}
+}
+
 func RenderDriftBoundedSurfaceDiagramFence(items []EvidenceItem) string {
 	items = DriftBoundedRenderableSurfaceItems(items)
 	if len(items) == 0 {
@@ -1268,6 +1443,7 @@ func CompileDiagramSurfaceFence(
 	logDrift []LogSourceDriftAnchor,
 	flowFindings []FlowFindingDigest,
 	answerChains []AnswerChain,
+	evidence []EvidenceItem,
 	configAnchors []ConfigTraceDiagramAnchor,
 ) (DiagramKind, string) {
 	for _, kind := range diagramSurfaceKinds(dc) {
@@ -1296,6 +1472,9 @@ func CompileDiagramSurfaceFence(
 			if fence := RenderLogDiagramFence(logBundle); fence != "" {
 				return kind, fence
 			}
+			if fence := RenderEvidenceCallDiagramFence(evidence); fence != "" {
+				return kind, fence
+			}
 			if kind == DiagramCallDAG {
 				if fence := RenderFlowFindingDiagramFence(flowFindings); fence != "" {
 					return kind, fence
@@ -1303,6 +1482,9 @@ func CompileDiagramSurfaceFence(
 			}
 		case DiagramArchitecture:
 			if fence := RenderAnswerChainDiagramFence(answerChains); fence != "" {
+				return kind, fence
+			}
+			if fence := RenderEvidenceArchitectureDiagramFence(evidence); fence != "" {
 				return kind, fence
 			}
 		}
@@ -1432,6 +1614,7 @@ func BuildAnswerSurfacePlan(
 		plan.LogSourceDriftAnchors,
 		flowFindings,
 		answerChains,
+		plan.SurfaceEvidence,
 		plan.ConfigTraceDiagramAnchors,
 	)
 	plan.PreferredExactResolution = preferredExactResolutionSurface(plan)
