@@ -124,6 +124,7 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		if blk.Kind != types.BlockDiagram {
 			return types.AnswerBlock{}, fmt.Errorf("%s: diagram payload is only valid when kind=diagram; set kind=\"diagram\" so the renderer emits the Mermaid block, or remove the sibling `diagram` object from this %q block", fieldPath, raw.Kind)
 		}
+		normalizeEmitAnswerDiagram(raw.Diagram)
 		diag := &types.AnswerDiagramBlock{
 			Kind:     types.DiagramKind(raw.Diagram.Kind),
 			Language: raw.Diagram.Language,
@@ -137,4 +138,52 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If the diagram body is currently in the block-level `text` field, move it into `diagram.body` and set diagram.kind to the SEMANTIC family the contract names (NOT the Mermaid keyword)", fieldPath)
 	}
 	return blk, nil
+}
+
+func normalizeEmitAnswerDiagram(diag *emitAnswerDiagramV2) {
+	if diag == nil {
+		return
+	}
+	diag.Body = stripOuterDiagramFence(diag.Body)
+	family := types.MermaidBodySyntaxFamily(diag.Body)
+	if family == types.MermaidSyntaxUnknown || family == types.MermaidSyntaxUnsupported {
+		return
+	}
+	if strings.TrimSpace(diag.Language) == "" {
+		diag.Language = "mermaid"
+	}
+	if !strings.EqualFold(strings.TrimSpace(diag.Language), "mermaid") {
+		return
+	}
+	kind := types.DiagramKind(strings.TrimSpace(diag.Kind))
+	if types.DiagramKindAllowsMermaidSyntax(kind, family) {
+		return
+	}
+	switch family {
+	case types.MermaidSyntaxSequence:
+		diag.Kind = string(types.DiagramSequence)
+	case types.MermaidSyntaxFlow:
+		diag.Kind = string(types.DiagramFlow)
+	}
+}
+
+func stripOuterDiagramFence(body string) string {
+	trimmed := strings.TrimSpace(body)
+	if !strings.HasPrefix(trimmed, "```") {
+		return body
+	}
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) < 3 {
+		return body
+	}
+	if strings.TrimSpace(lines[len(lines)-1]) != "```" {
+		return body
+	}
+	info := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lines[0]), "```")))
+	switch info {
+	case "", "mermaid", "text":
+	default:
+		return body
+	}
+	return strings.Join(lines[1:len(lines)-1], "\n")
 }

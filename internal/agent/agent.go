@@ -1234,7 +1234,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Stage:         ctx.Stage,
 				Iteration:     i,
 				ToolName:      firstTool.Name,
-				ToolDetail:    toolDetail(firstTool.Params),
+				ToolDetail:    toolDetailForCall(firstTool),
 				ToolCallCount: len(resp.ToolCalls),
 				ToolNames:     toolCallNames(resp.ToolCalls),
 			})
@@ -1410,7 +1410,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					Stage:      ctx.Stage,
 					ToolName:   tc.Name,
 					ToolCallID: tc.ID,
-					ToolDetail: toolDetail(tc.Params),
+					ToolDetail: toolDetailForCall(tc),
 				})
 			}
 
@@ -1462,7 +1462,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					Stage:             ctx.Stage,
 					ToolName:          tc.Name,
 					ToolCallID:        tc.ID,
-					ToolDetail:        toolDetail(tc.Params),
+					ToolDetail:        toolDetailForCall(tc),
 					ToolParamsJSON:    string(tc.Params),
 					ToolOK:            toolOK,
 					ToolTime:          time.Since(toolStarts[idx]),
@@ -1480,7 +1480,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					Stage:      ctx.Stage,
 					ToolName:   tc.Name,
 					ToolCallID: tc.ID,
-					ToolDetail: toolDetail(tc.Params),
+					ToolDetail: toolDetailForCall(tc),
 				})
 
 				result, mcpResp := b.executeTool(ctx, tc)
@@ -1519,7 +1519,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					Stage:             ctx.Stage,
 					ToolName:          tc.Name,
 					ToolCallID:        tc.ID,
-					ToolDetail:        toolDetail(tc.Params),
+					ToolDetail:        toolDetailForCall(tc),
 					ToolParamsJSON:    string(tc.Params),
 					ToolOK:            toolOK,
 					ToolTime:          time.Since(toolStart),
@@ -1838,30 +1838,105 @@ func (b *BaseAgent) normalizeToolCallParams(calls []llm.ToolCall, schemas []llm.
 
 	var out []llm.ToolCall
 	for i, call := range calls {
+		current := call.Params
+		var changed bool
+		var summaries []string
 		schema, ok := byName[call.Name]
-		if !ok {
-			continue
+		if ok {
+			normalized, report := toolparam.Normalize(call.Params, schema, cfg)
+			if report.Changed() {
+				if mode == types.ToolParamCompatAudit {
+					logging.Info("[tool_param_compat] agent=%s tool=%s audit repairable: %s",
+						b.name, call.Name, report.Summary(6))
+					continue
+				}
+				current = normalized
+				changed = true
+				summaries = append(summaries, report.Summary(6))
+			}
 		}
-		normalized, report := toolparam.Normalize(call.Params, schema, cfg)
-		if !report.Changed() {
-			continue
+		if mode == types.ToolParamCompatRepair {
+			if patched, notes, ok := normalizeKnownLocalModelToolParams(call.Name, current); ok {
+				current = patched
+				changed = true
+				summaries = append(summaries, strings.Join(notes, "; "))
+			}
 		}
-		if mode == types.ToolParamCompatAudit {
-			logging.Info("[tool_param_compat] agent=%s tool=%s audit repairable: %s",
-				b.name, call.Name, report.Summary(6))
+		if !changed {
 			continue
 		}
 		if out == nil {
 			out = append([]llm.ToolCall(nil), calls...)
 		}
-		out[i].Params = normalized
+		out[i].Params = current
 		logging.Warning("[tool_param_compat] agent=%s tool=%s params normalized: %s",
-			b.name, call.Name, report.Summary(6))
+			b.name, call.Name, strings.Join(summaries, "; "))
 	}
 	if out == nil {
 		return calls
 	}
 	return out
+}
+
+func normalizeKnownLocalModelToolParams(toolName string, raw json.RawMessage) (json.RawMessage, []string, bool) {
+	switch toolName {
+	case "emit_analysis":
+		return normalizeEmitAnalysisLocalModelParams(raw)
+	default:
+		return raw, nil, false
+	}
+}
+
+func normalizeEmitAnalysisLocalModelParams(raw json.RawMessage) (json.RawMessage, []string, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil || len(obj) == 0 {
+		return raw, nil, false
+	}
+	defaults := map[string]json.RawMessage{
+		"answer_role_profile":       json.RawMessage(`{"is_role_binding_requested":false,"confidence":0.5}`),
+		"error_granularity_profile": json.RawMessage(`{"is_granularity_question":false,"confidence":0.5}`),
+	}
+	var repaired []string
+	for field, value := range defaults {
+		current, exists := obj[field]
+		if exists && string(bytesTrimSpace(current)) != "null" {
+			continue
+		}
+		obj[field] = value
+		repaired = append(repaired, "$."+field+" missing->default_false_profile via emit_analysis_required_profile_default")
+	}
+	if len(repaired) == 0 {
+		return raw, nil, false
+	}
+	patched, err := json.Marshal(obj)
+	if err != nil {
+		return raw, nil, false
+	}
+	return patched, repaired, true
+}
+
+func bytesTrimSpace(raw json.RawMessage) []byte {
+	start := 0
+	for start < len(raw) {
+		switch raw[start] {
+		case ' ', '\t', '\n', '\r':
+			start++
+		default:
+			goto endStart
+		}
+	}
+endStart:
+	end := len(raw)
+	for end > start {
+		switch raw[end-1] {
+		case ' ', '\t', '\n', '\r':
+			end--
+		default:
+			goto done
+		}
+	}
+done:
+	return raw[start:end]
 }
 
 func (b *BaseAgent) toolParamCompatConfig() types.ToolParamCompatConfig {
@@ -1872,6 +1947,32 @@ func (b *BaseAgent) toolParamCompatConfig() types.ToolParamCompatConfig {
 		return cfg
 	}
 	return types.ToolParamCompatConfig{}
+}
+
+func (b *BaseAgent) normalizeAnalyzerPrescanGrepCompat(ctx *types.AgentContext, tc llm.ToolCall) (llm.ToolCall, bool) {
+	if ctx == nil || ctx.Stage != types.StageAnalyze || tc.Name != "grep" {
+		return tc, false
+	}
+	if b == nil || b.toolParamCompatConfig().NormalizedMode() != types.ToolParamCompatRepair {
+		return tc, false
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(tc.Params, &obj); err != nil || len(obj) == 0 {
+		return tc, false
+	}
+	if raw, ok := obj["files_only"]; ok && string(bytesTrimSpace(raw)) == "true" {
+		return tc, false
+	}
+	obj["files_only"] = json.RawMessage(`true`)
+	patched, err := json.Marshal(obj)
+	if err != nil || !json.Valid(patched) {
+		return tc, false
+	}
+	out := tc
+	out.Params = patched
+	logging.Warning("[tool_param_compat] agent=%s tool=grep analyze-stage params normalized: $.files_only missing/false->true via analyzer_prescan_files_only",
+		b.name)
+	return out, true
 }
 
 // buildInitialMessages is the sole entry point for producing the
@@ -1926,6 +2027,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	if repaired, ok := repairToolParamsJSON(tc.Params); ok {
 		logging.Warning("[agent] tool %q params auto-repaired (LLM-corrupted JSON: trailing garbage / comma stripped)", tc.Name)
 		tc.Params = repaired
+	}
+	if normalized, ok := b.normalizeAnalyzerPrescanGrepCompat(ctx, tc); ok {
+		tc = normalized
 	}
 
 	// Stage-specific pre-execution parameter validation. The
@@ -2429,6 +2533,124 @@ func toolDetail(params json.RawMessage) string {
 		return s
 	}
 	return ""
+}
+
+func toolDetailForCall(call llm.ToolCall) string {
+	if detail := structuredToolDetail(call.Name, call.Params); detail != "" {
+		return detail
+	}
+	return toolDetail(call.Params)
+}
+
+func structuredToolDetail(toolName string, params json.RawMessage) string {
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" || len(params) == 0 {
+		return ""
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(params, &m) != nil {
+		return ""
+	}
+	switch toolName {
+	case "emit_evidence", "emit_answer_symbol", "emit_hypothesis_verdict":
+		return toolItemsDetail(m)
+	case "emit_answer_document", "emit_answer_document_patch":
+		return toolAnswerDocumentDetail(m)
+	case "emit_analysis":
+		return toolAnalysisDetail(m)
+	default:
+		return ""
+	}
+}
+
+func toolItemsDetail(m map[string]json.RawMessage) string {
+	n := jsonArrayLen(m["items"])
+	if n <= 0 {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("items=%d", n)}
+	if first := firstObjectStringFromArray(m["items"], "name", "subject", "anchor_symbol", "hypothesis_id"); first != "" {
+		parts = append(parts, truncateToolDetailValue(first, 40))
+	}
+	return strings.Join(parts, " ")
+}
+
+func toolAnswerDocumentDetail(m map[string]json.RawMessage) string {
+	var parts []string
+	for _, field := range []string{"blocks", "replace_blocks", "add_blocks", "unchanged_block_ids", "citations"} {
+		if n := jsonArrayLen(m[field]); n > 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d", field, n))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func toolAnalysisDetail(m map[string]json.RawMessage) string {
+	var parts []string
+	for _, field := range []string{"intent", "question_kind", "scenario", "complexity"} {
+		if v := jsonStringField(m, field); v != "" {
+			parts = append(parts, fmt.Sprintf("%s=%s", field, truncateToolDetailValue(v, 24)))
+		}
+	}
+	for _, field := range []string{"entities", "keywords", "sub_topics", "required_files"} {
+		if n := jsonArrayLen(m[field]); n > 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d", field, n))
+		}
+	}
+	if len(parts) > 4 {
+		parts = parts[:4]
+	}
+	return strings.Join(parts, " ")
+}
+
+func jsonArrayLen(raw json.RawMessage) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	var arr []json.RawMessage
+	if json.Unmarshal(raw, &arr) != nil {
+		return 0
+	}
+	return len(arr)
+}
+
+func jsonStringField(m map[string]json.RawMessage, key string) string {
+	raw, ok := m[key]
+	if !ok {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return ""
+	}
+	return strings.TrimSpace(s)
+}
+
+func firstObjectStringFromArray(raw json.RawMessage, keys ...string) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var arr []map[string]json.RawMessage
+	if json.Unmarshal(raw, &arr) != nil || len(arr) == 0 {
+		return ""
+	}
+	for _, key := range keys {
+		if s := jsonStringField(arr[0], key); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func truncateToolDetailValue(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	if max <= 3 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
 }
 
 func toolResultSummary(result *types.ToolResult) string {

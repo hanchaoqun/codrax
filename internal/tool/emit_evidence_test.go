@@ -523,7 +523,7 @@ func TestEmitEvidence_SurfaceTermReviewSatisfiedWhenHeaderLabelAuthored(t *testi
 	}
 }
 
-func TestEmitEvidence_RejectsUngroundedSurfaceTerms(t *testing.T) {
+func TestEmitEvidence_DropsUngroundedSurfaceTermsButKeepsEvidence(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
 	seedReadFileHistory(ctx, "internal/example/file.go", 10,
@@ -539,14 +539,45 @@ func TestEmitEvidence_RejectsUngroundedSurfaceTerms(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Success {
-		t.Fatalf("expected surface_terms rejection")
+	if !res.Success {
+		t.Fatalf("expected optional surface_terms drop to keep evidence, got: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "surface_terms") || !strings.Contains(res.Summary, "MissingAlias.ts") {
-		t.Fatalf("rejection should name surface_terms and the bad term, got %q", res.Summary)
+	if !strings.Contains(res.Summary, "dropped ungrounded optional term") || !strings.Contains(res.Summary, "MissingAlias.ts") {
+		t.Fatalf("summary should name dropped surface_terms and the bad term, got %q", res.Summary)
 	}
-	if len(ctx.Mutable.EmittedEvidence()) != 0 {
-		t.Fatalf("rejected surface_terms must not persist evidence")
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("evidence item should persist after optional term drop, got %d", len(got))
+	}
+	if len(got[0].SurfaceTerms) != 0 {
+		t.Fatalf("ungrounded surface_terms should be dropped, got %#v", got[0].SurfaceTerms)
+	}
+}
+
+func TestEmitEvidence_IgnoresLegacyFieldCompatButRejectsOtherUnknowns(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/example/file.go", 10,
+		"package example",
+		"type Target struct{}",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "field":"call", "subject": "Target", "source": "internal/example/file.go", "line_start": 11, "summary": "Target is defined here", "anchor_kind": "definition", "anchor_symbol": "Target"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("legacy items[].field should be ignored before strict decode, got: %s", res.Summary)
+	}
+
+	params = json.RawMessage(`{"items":[{"kind":"direct","source":"x.go","note":"hi"}]}`)
+	res, _ = tool.Execute(newEmitCtx(), params)
+	if res.Success || !strings.Contains(res.Summary, "unknown field") {
+		t.Fatalf("other unknown fields should remain fail-loud, got success=%v summary=%q", res.Success, res.Summary)
 	}
 }
 

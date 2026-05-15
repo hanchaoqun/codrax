@@ -104,6 +104,46 @@ func TestPruneToolHistoryKeepsRecentAndStubsOlder(t *testing.T) {
 	}
 }
 
+func TestToolDetailForCallStructuredEmitSummaries(t *testing.T) {
+	cases := []struct {
+		name string
+		call llm.ToolCall
+		want string
+	}{
+		{
+			name: "evidence item count and first subject",
+			call: llm.ToolCall{
+				Name:   "emit_evidence",
+				Params: json.RawMessage(`{"items":[{"subject":"SubExplorer"},{"subject":"BaseAgent"}]}`),
+			},
+			want: "items=2 SubExplorer",
+		},
+		{
+			name: "analysis compact classification",
+			call: llm.ToolCall{
+				Name:   "emit_analysis",
+				Params: json.RawMessage(`{"intent":"mechanism","question_kind":"code_architecture","entities":["Explorer"],"keywords":["agent"]}`),
+			},
+			want: "intent=mechanism question_kind=code_architecture entities=1 keywords=1",
+		},
+		{
+			name: "answer document block counts",
+			call: llm.ToolCall{
+				Name:   "emit_answer_document",
+				Params: json.RawMessage(`{"blocks":[{"id":"s"}],"citations":[{"file":"a.go","line":1}]}`),
+			},
+			want: "blocks=1 citations=1",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := toolDetailForCall(tc.call); got != tc.want {
+				t.Fatalf("toolDetailForCall() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestContextPressureDirective_AgentSpecific locks the per-agent
 // terminal-tool mapping. Each agent's AllowedSet MUST name ONLY
 // tools it actually has access to — suggesting "emit_change_plan"

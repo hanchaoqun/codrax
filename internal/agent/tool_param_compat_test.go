@@ -146,6 +146,82 @@ func TestNormalizeToolCallParams_RepairFunctionArgumentEnvelope(t *testing.T) {
 	}
 }
 
+func TestNormalizeToolCallParams_AddsConservativeEmitAnalysisProfiles(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentAnalyzer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentAnalyzer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	calls := []llm.ToolCall{{
+		ID:   "call_1",
+		Name: "emit_analysis",
+		Params: json.RawMessage(`{
+		  "intent":"explain",
+		  "scenario":"architecture_explain",
+		  "complexity":"moderate",
+		  "keywords":["agent"],
+		  "entities":["Agent"],
+		  "question_kind":"mechanism",
+		  "intent_confidence":0.7,
+		  "complexity_confidence":0.7,
+		  "kind_confidence":0.7,
+		  "predicates":{"is_scalar_answer":false},
+		  "diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.7}
+		}`),
+	}}
+	schemas := []llm.ToolSchema{{
+		Name:       "emit_analysis",
+		Parameters: analysisEnvelopeCompatTestSchema(),
+	}}
+
+	got := base.normalizeToolCallParams(calls, schemas)
+	if string(got[0].Params) == string(calls[0].Params) {
+		t.Fatalf("expected emit_analysis profile default repair, got unchanged")
+	}
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(got[0].Params, &decoded); err != nil {
+		t.Fatalf("repaired params are invalid JSON: %v\n%s", err, got[0].Params)
+	}
+	for _, field := range []string{"answer_role_profile", "error_granularity_profile"} {
+		if _, ok := decoded[field]; !ok {
+			t.Fatalf("expected %s to be filled in repaired params: %s", field, got[0].Params)
+		}
+	}
+	if _, ok := decoded["diagnostic_profile"]; !ok {
+		t.Fatalf("existing diagnostic_profile should be preserved: %s", got[0].Params)
+	}
+}
+
+func TestNormalizeAnalyzerPrescanGrepCompat_RepairModeSetsFilesOnly(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentAnalyzer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentAnalyzer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	ctx := &types.AgentContext{Stage: types.StageAnalyze}
+	tc := llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"StageAnalyze","files_only":false}`)}
+
+	got, ok := base.normalizeAnalyzerPrescanGrepCompat(ctx, tc)
+	if !ok {
+		t.Fatal("expected analyze grep compatibility repair")
+	}
+	var decoded struct {
+		FilesOnly bool `json:"files_only"`
+	}
+	if err := json.Unmarshal(got.Params, &decoded); err != nil {
+		t.Fatalf("repaired grep params are invalid JSON: %v\n%s", err, got.Params)
+	}
+	if !decoded.FilesOnly {
+		t.Fatalf("files_only should be normalized true: %s", got.Params)
+	}
+}
+
 func TestNormalizeToolCallParams_NoInjectedPolicyIsNoOp(t *testing.T) {
 	base := &BaseAgent{
 		name: types.AgentExplorer,

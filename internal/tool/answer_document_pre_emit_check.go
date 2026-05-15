@@ -563,7 +563,7 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 }
 
 func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {
-	if doc == nil || ctx == nil || ctx.Mutable == nil || len(doc.Citations) == 0 {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
 		return 0
 	}
 	fixed := 0
@@ -583,33 +583,100 @@ func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2,
 			if label == "" || !preEmitLabelNeedsCitationAlignment(label) {
 				continue
 			}
-			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
-				continue
-			}
-			if preEmitItemCitationAligned(ctx, label, item.Text, doc.Citations[item.CitationRef]) {
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitItemCitationAligned(ctx, label, item.Text, doc.Citations[item.CitationRef]) {
 				continue
 			}
 			match := -1
-			for ci, cit := range doc.Citations {
-				if ci == item.CitationRef {
-					continue
+			if len(doc.Citations) > 0 {
+				for ci, cit := range doc.Citations {
+					if ci == item.CitationRef {
+						continue
+					}
+					if !preEmitItemCitationAligned(ctx, label, item.Text, cit) {
+						continue
+					}
+					if match >= 0 {
+						match = -1
+						break
+					}
+					match = ci
 				}
-				if !preEmitItemCitationAligned(ctx, label, item.Text, cit) {
-					continue
-				}
-				if match >= 0 {
-					match = -1
-					break
-				}
-				match = ci
 			}
 			if match >= 0 {
 				item.CitationRef = match
+				fixed++
+				continue
+			}
+			if cit, ok := preEmitUniqueCandidateCitationForItem(ctx, label, item.Text); ok {
+				item.CitationRef = appendOrReusePreEmitCitation(doc, cit)
 				fixed++
 			}
 		}
 	}
 	return fixed
+}
+
+func preEmitUniqueCandidateCitationForItem(ctx *types.BusContext, label, text string) (types.Citation, bool) {
+	var out []types.Citation
+	seen := make(map[string]bool)
+	add := func(cit types.Citation) {
+		cit.File = strings.TrimSpace(cit.File)
+		if cit.File == "" || cit.Line <= 0 {
+			return
+		}
+		key := preEmitCitationLocationKey(cit)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, cit)
+	}
+	for _, loc := range preEmitCandidateCitationLocationsForAggregateItem(ctx, label, text, 8) {
+		if cit, ok := parsePreEmitCitationLocation(loc); ok {
+			add(cit)
+		}
+	}
+	for _, loc := range preEmitCandidateCitationLocationsForLabel(ctx, label, 8) {
+		if cit, ok := parsePreEmitCitationLocation(loc); ok {
+			add(cit)
+		}
+	}
+	if len(out) != 1 {
+		return types.Citation{}, false
+	}
+	return out[0], true
+}
+
+func appendOrReusePreEmitCitation(doc *types.AnswerDocumentV2, cit types.Citation) int {
+	if doc == nil {
+		return -1
+	}
+	want := preEmitCitationLocationKey(cit)
+	for i, existing := range doc.Citations {
+		if preEmitCitationLocationKey(existing) == want {
+			return i
+		}
+	}
+	doc.Citations = append(doc.Citations, cit)
+	return len(doc.Citations) - 1
+}
+
+func parsePreEmitCitationLocation(loc string) (types.Citation, bool) {
+	loc = strings.TrimSpace(loc)
+	idx := strings.LastIndex(loc, ":")
+	if idx <= 0 || idx >= len(loc)-1 {
+		return types.Citation{}, false
+	}
+	line, err := strconv.Atoi(strings.TrimSpace(loc[idx+1:]))
+	if err != nil || line <= 0 {
+		return types.Citation{}, false
+	}
+	file := strings.TrimSpace(loc[:idx])
+	if file == "" {
+		return types.Citation{}, false
+	}
+	return types.Citation{File: file, Line: line}, true
 }
 
 func preEmitItemCitationAligned(ctx *types.BusContext, label, text string, cit types.Citation) bool {

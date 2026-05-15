@@ -290,6 +290,32 @@ func TestNormalizeEmitAnswerBlock_DiagramPayloadRequiresDiagramKind(t *testing.T
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_NormalizesDiagramKindFromMermaidSyntax(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "b1",
+		Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramArchitecture),
+			Body: "```mermaid\nsequenceDiagram\n  User->>Agent: ask\n```",
+		},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if got.Diagram == nil {
+		t.Fatal("diagram missing")
+	}
+	if got.Diagram.Kind != types.DiagramSequence {
+		t.Fatalf("diagram kind = %q, want sequence", got.Diagram.Kind)
+	}
+	if strings.Contains(got.Diagram.Body, "```") || !strings.Contains(got.Diagram.Body, "sequenceDiagram") {
+		t.Fatalf("diagram body should be raw fenced content, got %q", got.Diagram.Body)
+	}
+	if got.Diagram.Language != "mermaid" {
+		t.Fatalf("diagram language = %q, want mermaid", got.Diagram.Language)
+	}
+}
+
 // TestNormalizeEmitAnswerBlock_AllFieldsPropagate uses reflection to
 // verify every field on emitAnswerBlockV2 surfaces as a non-zero
 // value on the resulting types.AnswerBlock when populated from a

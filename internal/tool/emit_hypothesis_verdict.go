@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -61,6 +62,7 @@ type emitHypothesisVerdictItem struct {
 	Status       string `json:"status"`
 	Rationale    string `json:"rationale,omitempty"`
 	Citation     string `json:"citation,omitempty"`
+	EvidenceID   string `json:"evidence_id,omitempty"`
 }
 
 const EmitHypothesisVerdictProducer = "explorer.emit_hypothesis_verdict"
@@ -92,7 +94,8 @@ func (t *EmitHypothesisVerdict) Parameters() json.RawMessage {
           "hypothesis_id": {"type": "string", "description": "Hypothesis ID listed in the Hypotheses section of the prompt. Required. Unknown IDs are diagnosed."},
           "status":        {"type": "string", "enum": ["confirmed", "rejected", "inconclusive"], "description": "Verdict. confirmed/rejected require a citation; inconclusive may omit it."},
           "rationale":     {"type": "string", "description": "Rationale for the verdict — explain the mechanism or invariant that produced the status. Reference load-bearing identifiers with inline ` + "`" + `code` + "`" + `. Strongly recommended."},
-          "citation":      {"type": "string", "description": "Concrete code anchor in the form 'path:line' or 'path:line-end'. Required when status is confirmed or rejected."}
+          "citation":      {"type": "string", "description": "Concrete code anchor in the form 'path:line' or 'path:line-end'. Required when status is confirmed or rejected unless evidence_id names an already accepted grounded evidence item."},
+          "evidence_id":   {"type": "string", "description": "Optional local-model compatibility shortcut: id of an already accepted grounded evidence item. The tool resolves it to citation automatically; do not invent ids."}
         },
         "required": ["hypothesis_id", "status"]
       }
@@ -123,6 +126,9 @@ func (t *EmitHypothesisVerdict) Execute(ctx *types.BusContext, params json.RawMe
 	if len(p.Items) == 0 {
 		return failEmit(t.Name(), now, "items is empty; emit at least one verdict object per call")
 	}
+	if repaired := resolveHypothesisVerdictEvidenceRefs(ctx, p.Items); repaired > 0 {
+		logging.Warning("[emit_hypothesis_verdict] resolved %d evidence_id reference(s) to citation(s)", repaired)
+	}
 
 	groundCtx := ground.BuildContext(ctx)
 	built := make([]types.HypothesisVerdict, 0, len(p.Items))
@@ -145,6 +151,70 @@ func (t *EmitHypothesisVerdict) Execute(ctx *types.BusContext, params json.RawMe
 		Summary:   renderEmitHypothesisVerdictSummary(built),
 		Timestamp: now,
 	}, nil
+}
+
+func resolveHypothesisVerdictEvidenceRefs(ctx *types.BusContext, items []emitHypothesisVerdictItem) int {
+	if ctx == nil || ctx.Mutable == nil || len(items) == 0 {
+		return 0
+	}
+	fixed := 0
+	for i := range items {
+		evidenceID := strings.TrimSpace(items[i].EvidenceID)
+		if evidenceID == "" {
+			continue
+		}
+		ev, ok := uniqueGroundedEvidenceForID(ctx, evidenceID)
+		if !ok || strings.TrimSpace(ev.Source) == "" || ev.LineStart <= 0 {
+			continue
+		}
+		citation := fmt.Sprintf("%s:%d", ev.Source, ev.LineStart)
+		if ev.LineEnd > ev.LineStart {
+			citation = fmt.Sprintf("%s-%d", citation, ev.LineEnd)
+		}
+		if strings.TrimSpace(items[i].Citation) == citation {
+			continue
+		}
+		items[i].Citation = citation
+		fixed++
+	}
+	return fixed
+}
+
+func uniqueGroundedEvidenceForID(ctx *types.BusContext, evidenceID string) (types.EvidenceItem, bool) {
+	evidenceID = strings.TrimSpace(evidenceID)
+	if evidenceID == "" {
+		return types.EvidenceItem{}, false
+	}
+	var matched *types.EvidenceItem
+	for _, ev := range preEmitAnswerEvidenceItems(ctx) {
+		if ev.GroundingStatus == types.GroundingUngrounded {
+			continue
+		}
+		if !evidenceIDMatchesEvidence(evidenceID, ev) {
+			continue
+		}
+		candidate := ev
+		if matched != nil && (matched.Source != candidate.Source ||
+			matched.LineStart != candidate.LineStart ||
+			matched.LineEnd != candidate.LineEnd) {
+			return types.EvidenceItem{}, false
+		}
+		matched = &candidate
+	}
+	if matched == nil {
+		return types.EvidenceItem{}, false
+	}
+	return *matched, true
+}
+
+func evidenceIDMatchesEvidence(id string, ev types.EvidenceItem) bool {
+	if strings.TrimSpace(ev.ID) == id {
+		return true
+	}
+	if stable := types.StableEvidenceID(ev); stable != "" && stable == id {
+		return true
+	}
+	return false
 }
 
 // buildEmitHypothesisVerdictItem validates one decoded item and

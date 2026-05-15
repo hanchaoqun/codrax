@@ -6840,6 +6840,10 @@ func (o *Orchestrator) runAnswerReviewerOnSuccess() {
 	}
 	pattern, err := o.answerReviewer.ReviewAnswer(ctx, in)
 	if err != nil {
+		if isReviewerNoToolCallError(err) {
+			logging.Info("[answer_reviewer] skipped: reviewer returned prose without the required tool_call")
+			return
+		}
 		// Commit 59 Batch E.1 (audit HIGH #12): record + log; the
 		// Run-end summary surfaces these counts so operators see
 		// learning chain health.

@@ -490,6 +490,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_evidence] string-wrapped array field(s) re-parsed via flat-mode tolerance: %s", strings.Join(fields, ", "))
 		params = repaired
 	}
+	if repaired, paths, ok := repairEmitEvidenceKnownCompatFields(params); ok {
+		logging.Warning("[emit_evidence] local-model compatibility fields ignored before strict decode: %s", strings.Join(paths, ", "))
+		params = repaired
+	}
 	dec := json.NewDecoder(bytes.NewReader(params))
 	dec.DisallowUnknownFields()
 	var p emitEvidenceParams
@@ -597,7 +601,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	gc := ground.BuildContext(ctx)
 	diagramRequiredFiles := exactResolutionDiagramRequiredFiles(ctx, exactResolutionContract)
 	reports := make([]ground.Report, len(built))
-	surfaceTermRejects := make([]string, 0)
+	surfaceTermDrops := make([]string, 0)
 	surfaceAlignmentRejects := make([]string, 0)
 	for i := range built {
 		// Per-scope dispatch: ScopeLine routes to the existing tier
@@ -643,17 +647,12 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		built[i].ID = types.StableEvidenceID(built[i])
 		r.ItemID = built[i].ID
 		reports[i] = r
-		if err := validateEvidenceSurfaceTerms(i, built[i], gc); err != nil {
-			surfaceTermRejects = append(surfaceTermRejects, err.Error())
+		if drops := dropInvalidEvidenceSurfaceTerms(i, &built[i], gc); len(drops) > 0 {
+			surfaceTermDrops = append(surfaceTermDrops, drops...)
 		}
 		if err := validateRequestedDecoratorRegistrationAlignment(i, built[i], gc, ctx); err != nil {
 			surfaceAlignmentRejects = append(surfaceAlignmentRejects, err.Error())
 		}
-	}
-	if len(surfaceTermRejects) > 0 {
-		return failEmit(t.Name(), now,
-			"surface_terms must be exact strings from already-read source lines:\n%s",
-			strings.Join(surfaceTermRejects, "\n"))
 	}
 	if len(surfaceAlignmentRejects) > 0 {
 		return failEmit(t.Name(), now,
@@ -714,6 +713,11 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if surfaceReview != nil && strings.TrimSpace(surfaceReview.Hint) != "" {
 		summary = strings.TrimRight(summary, "\n") + "\n\n" + surfaceReview.Hint + "\n"
 	}
+	if len(surfaceTermDrops) > 0 {
+		summary = strings.TrimRight(summary, "\n") +
+			"\n\nsurface_terms compatibility: dropped ungrounded optional term(s); evidence items were kept:\n  - " +
+			strings.Join(surfaceTermDrops, "\n  - ") + "\n"
+	}
 	if len(rejectedItems) > 0 || len(autoSwapped) > 0 {
 		var b strings.Builder
 		b.WriteString(summary)
@@ -749,6 +753,46 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Summary:   summary,
 		Timestamp: now,
 	}, nil
+}
+
+func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, []string, bool) {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return raw, nil, false
+	}
+	itemsRaw, ok := probe["items"]
+	if !ok {
+		return raw, nil, false
+	}
+	itemsTrimmed := bytes.TrimSpace(itemsRaw)
+	if len(itemsTrimmed) == 0 || itemsTrimmed[0] != '[' {
+		return raw, nil, false
+	}
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(itemsRaw, &items); err != nil {
+		return raw, nil, false
+	}
+	var paths []string
+	for i := range items {
+		if _, ok := items[i]["field"]; !ok {
+			continue
+		}
+		delete(items[i], "field")
+		paths = append(paths, fmt.Sprintf("items[%d].field", i))
+	}
+	if len(paths) == 0 {
+		return raw, nil, false
+	}
+	patchedItems, err := json.Marshal(items)
+	if err != nil {
+		return raw, nil, false
+	}
+	probe["items"] = patchedItems
+	patched, err := json.Marshal(probe)
+	if err != nil {
+		return raw, nil, false
+	}
+	return patched, paths, true
 }
 
 // buildEmitEvidenceItemWithSwap wraps buildEmitEvidenceItem with the
@@ -2813,6 +2857,55 @@ func validateEvidenceSurfaceTerms(index int, item types.EvidenceItem, gc *ground
 		}
 	}
 	return nil
+}
+
+func dropInvalidEvidenceSurfaceTerms(index int, item *types.EvidenceItem, gc *ground.Context) []string {
+	if item == nil || len(item.SurfaceTerms) == 0 {
+		return nil
+	}
+	dropAll := func(reason string) []string {
+		dropped := append([]string(nil), item.SurfaceTerms...)
+		item.SurfaceTerms = nil
+		out := make([]string, 0, len(dropped))
+		for _, term := range dropped {
+			out = append(out, fmt.Sprintf("items[%d]: %q (%s)", index, term, reason))
+		}
+		return out
+	}
+	if gc == nil || strings.TrimSpace(item.Source) == "" {
+		return dropAll(fmt.Sprintf("source %q has no observed source window", item.Source))
+	}
+	lineIndex := gc.ObservedLineIndex
+	if len(lineIndex) == 0 {
+		lineIndex = gc.LineIndex
+	}
+	if len(lineIndex) == 0 {
+		return dropAll(fmt.Sprintf("source %q has no observed source window", item.Source))
+	}
+	source := ground.CanonicalRepoRelative(item.Source, gc.RepoRoot)
+	fileLines := lineIndex[source]
+	if len(fileLines) == 0 {
+		return dropAll(fmt.Sprintf("source %q did not appear in read_file or grep output", item.Source))
+	}
+	window := evidenceSurfaceTermWindow(*item, fileLines)
+	if window == "" {
+		return dropAll(fmt.Sprintf("source %q has no observed lines near %d", item.Source, item.LineStart))
+	}
+	kept := make([]string, 0, len(item.SurfaceTerms))
+	var dropped []string
+	for _, term := range item.SurfaceTerms {
+		if strings.Contains(window, term) {
+			kept = append(kept, term)
+			continue
+		}
+		dropped = append(dropped, fmt.Sprintf("items[%d]: %q not found in already-read window for %s:%d",
+			index, term, item.Source, item.LineStart))
+	}
+	if len(dropped) == 0 {
+		return nil
+	}
+	item.SurfaceTerms = kept
+	return dropped
 }
 
 func validateRequestedDecoratorRegistrationAlignment(index int, item types.EvidenceItem, gc *ground.Context, ctx *types.BusContext) error {

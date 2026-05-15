@@ -2164,6 +2164,10 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 	}
 	verdict, err := o.selfConsistencyReviewer.Review(ctx, in)
 	if err != nil {
+		if isReviewerNoToolCallError(err) {
+			logging.Info("[self_consistency_reviewer] skipped: reviewer returned prose without the required tool_call")
+			return nil
+		}
 		mut.AppendLearningFailure("self_consistency_reviewer", err.Error())
 		logging.Warning("[self_consistency_reviewer] dispatch failed (non-fatal): %v", err)
 		return nil
@@ -2523,6 +2527,10 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 	}
 	verdict, err := o.semanticQualityReviewer.Review(ctx, in)
 	if err != nil {
+		if isReviewerNoToolCallError(err) {
+			logging.Info("[semantic_quality_reviewer] skipped: reviewer returned prose without the required tool_call")
+			return nil
+		}
 		mut.AppendLearningFailure("semantic_quality_reviewer", err.Error())
 		logging.Warning("[semantic_quality_reviewer] dispatch failed (non-fatal): %v", err)
 		return nil

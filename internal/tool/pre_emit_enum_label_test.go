@@ -859,6 +859,51 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsUniqueCandidate(t
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_AppendsUniqueEvidenceCandidate(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "scheduler",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "run-loop",
+				Label:       "runReadSchedulerLoop",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/orchestrator/scheduler.go", Line: 5811}},
+	}
+	mut := types.NewMutableState("explain read scheduler")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/orchestrator/scheduler.go",
+			LineStart:       3922,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "runReadSchedulerLoop",
+			AnchorSymbol:    "runReadSchedulerLoop",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx)
+	if fixed != 1 {
+		t.Fatalf("expected one citation append repair, got %d", fixed)
+	}
+	if len(doc.Citations) != 2 {
+		t.Fatalf("expected citation pool append, got %+v", doc.Citations)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref = %d, want appended index 1", got)
+	}
+	if got := doc.Citations[1]; got.File != "internal/orchestrator/scheduler.go" || got.Line != 3922 {
+		t.Fatalf("appended citation = %+v, want scheduler.go:3922", got)
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("appended candidate citation should satisfy alignment, got %v", hints)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsQualifiedOwnerMethod(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
