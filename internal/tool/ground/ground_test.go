@@ -1175,6 +1175,76 @@ func TestGroundItem_StringLiteralAcceptsCrossLanguageLiteralLines(t *testing.T) 
 	}
 }
 
+func TestGroundItem_StringLiteralAcceptsVisibleFragmentInLongerLiteral(t *testing.T) {
+	cases := []struct {
+		name   string
+		line   string
+		anchor string
+	}{
+		{
+			name:   "markdown heading prefix before escaped newlines",
+			line:   `b.WriteString("## Breadth Scan\n\n")`,
+			anchor: "## Breadth Scan",
+		},
+		{
+			name:   "multi-token label inside longer literal",
+			line:   `b.WriteString("## Breadth Scan\n\n")`,
+			anchor: "Breadth Scan",
+		},
+		{
+			name:   "collapsed escaped whitespace",
+			line:   `const label = "Phase 0:\nBreadth Scan"`,
+			anchor: "Phase 0: Breadth Scan",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			const path = "internal/agent/explorer.go"
+			history := []types.ToolResult{
+				buildGutterReadResult(path, 508, []string{tc.line}, 520),
+			}
+			gc := &Context{LineIndex: buildLineIndex(history, "")}
+			it := &types.EvidenceItem{
+				Kind:         types.EvidenceDirect,
+				Source:       path,
+				LineStart:    508,
+				Scope:        types.ScopeLine,
+				AnchorKind:   types.AnchorStringLiteral,
+				AnchorSymbol: tc.anchor,
+			}
+			GroundItem(it, gc)
+			if it.GroundingStatus != types.GroundingGrounded || it.GroundingTier != types.TierLineText {
+				t.Fatalf("string literal fragment status=%s tier=%s note=%q, want grounded line_text",
+					it.GroundingStatus, it.GroundingTier, it.GroundingNote)
+			}
+			if it.Snippet != tc.line {
+				t.Fatalf("snippet=%q want %q", it.Snippet, tc.line)
+			}
+		})
+	}
+}
+
+func TestGroundItem_StringLiteralFragmentRejectsIdentifierPrefix(t *testing.T) {
+	const path = "tool.go"
+	history := []types.ToolResult{
+		buildGutterReadResult(path, 20, []string{`return "emit_answer_document_patch"`}, 40),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Source:       path,
+		LineStart:    20,
+		Scope:        types.ScopeLine,
+		AnchorKind:   types.AnchorStringLiteral,
+		AnchorSymbol: "emit_answer_document",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus == types.GroundingGrounded {
+		t.Fatalf("identifier prefix inside longer string literal grounded unexpectedly: tier=%s note=%q",
+			it.GroundingTier, it.GroundingNote)
+	}
+}
+
 func TestGroundItem_StringLiteralRejectsIdentifierOrCommentOnlyMentions(t *testing.T) {
 	cases := []struct {
 		name string

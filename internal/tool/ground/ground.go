@@ -1621,7 +1621,139 @@ func stringLiteralSurfaceMatches(lit sourceStringLiteral, candidate string) bool
 	if candidate == "" {
 		return false
 	}
-	return lit.content == candidate || lit.quoted == candidate
+	if lit.content == candidate || lit.quoted == candidate {
+		return true
+	}
+	return stringLiteralVisibleFragmentMatches(lit.content, candidate)
+}
+
+func stringLiteralVisibleFragmentMatches(content, candidate string) bool {
+	content = strings.TrimSpace(content)
+	candidate = strings.TrimSpace(candidate)
+	if content == "" || candidate == "" {
+		return false
+	}
+	if !allowsStringLiteralFragmentMatch(candidate) {
+		return false
+	}
+	if stringLiteralFragmentBoundedContains(content, candidate) {
+		return true
+	}
+	normalizedContent := normalizeStringLiteralSurface(content)
+	normalizedCandidate := normalizeStringLiteralSurface(candidate)
+	if normalizedContent == "" || normalizedCandidate == "" || normalizedContent == content && normalizedCandidate == candidate {
+		return false
+	}
+	return stringLiteralFragmentBoundedContains(normalizedContent, normalizedCandidate)
+}
+
+func allowsStringLiteralFragmentMatch(candidate string) bool {
+	tokens := identifierTokenRe.FindAllString(candidate, -1)
+	if len(tokens) >= 2 {
+		return true
+	}
+	for _, r := range candidate {
+		if r == '_' || isASCIIAlphaNum(r) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func stringLiteralFragmentBoundedContains(content, candidate string) bool {
+	for start := 0; ; {
+		idx := strings.Index(content[start:], candidate)
+		if idx < 0 {
+			return false
+		}
+		idx += start
+		end := idx + len(candidate)
+		if stringLiteralFragmentBoundaryOK(content, idx, end, candidate) {
+			return true
+		}
+		start = idx + 1
+		if start >= len(content) {
+			return false
+		}
+	}
+}
+
+func stringLiteralFragmentBoundaryOK(content string, start, end int, candidate string) bool {
+	if candidate == "" {
+		return false
+	}
+	if first, ok := firstRune(candidate); ok && isIdentifierLikeRune(first) {
+		if prev, ok := previousRune(content, start); ok && isIdentifierLikeRune(prev) {
+			return false
+		}
+	}
+	if last, ok := lastRune(candidate); ok && isIdentifierLikeRune(last) {
+		if next, ok := nextRune(content, end); ok && isIdentifierLikeRune(next) {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeStringLiteralSurface(s string) string {
+	replacer := strings.NewReplacer(
+		`\\`, `\`,
+		`\n`, " ",
+		`\r`, " ",
+		`\t`, " ",
+		`\v`, " ",
+		`\f`, " ",
+	)
+	return strings.Join(strings.Fields(replacer.Replace(s)), " ")
+}
+
+func firstRune(s string) (rune, bool) {
+	for _, r := range s {
+		return r, true
+	}
+	return 0, false
+}
+
+func lastRune(s string) (rune, bool) {
+	var last rune
+	ok := false
+	for _, r := range s {
+		last = r
+		ok = true
+	}
+	return last, ok
+}
+
+func previousRune(s string, byteIndex int) (rune, bool) {
+	if byteIndex <= 0 || byteIndex > len(s) {
+		return 0, false
+	}
+	var prev rune
+	ok := false
+	for _, r := range s[:byteIndex] {
+		prev = r
+		ok = true
+	}
+	return prev, ok
+}
+
+func nextRune(s string, byteIndex int) (rune, bool) {
+	if byteIndex < 0 || byteIndex >= len(s) {
+		return 0, false
+	}
+	for _, r := range s[byteIndex:] {
+		return r, true
+	}
+	return 0, false
+}
+
+func isIdentifierLikeRune(r rune) bool {
+	return r == '_' || isASCIIAlphaNum(r)
+}
+
+func isASCIIAlphaNum(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
 }
 
 func sourceStringLiterals(line string) []sourceStringLiteral {
