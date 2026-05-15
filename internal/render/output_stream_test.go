@@ -131,6 +131,179 @@ func TestFormatReasoningFallsBackWithoutExposingUnknownAgent(t *testing.T) {
 	}
 }
 
+func TestFormatReasoningKeepsPlainMultilineAsCompactTrace(t *testing.T) {
+	got := formatReasoning("analyzer", types.StageAnalyze, 0, "first line\nsecond line", false, "zh")
+	plain := stripAnsiEscapes(got)
+	if want := "  ⋯ 分析 · 第 1 轮 first line second line"; plain != want {
+		t.Fatalf("plain multiline reasoning should retain legacy compact shape\nwant %q\ngot  %q", want, plain)
+	}
+}
+
+func TestFormatReasoningPreservesBoxDiagramRows(t *testing.T) {
+	got := formatReasoning("explorer", types.StageExplore, 20, strings.Join([]string{
+		"我已经完成强制读取任务。",
+		"调用流程",
+		"┌───────┐",
+		"│ Explorer │",
+		"└───────┘",
+	}, "\n"), false, "zh")
+	plain := stripAnsiEscapes(got)
+	for _, want := range []string{
+		"⋯ 探索 · 第 21 轮 我已经完成强制读取任务。",
+		"\n    调用流程",
+		"\n    ┌───────┐",
+		"\n    │ Explorer │",
+		"\n    └───────┘",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("diagram reasoning should preserve row %q; got:\n%s", want, plain)
+		}
+	}
+	if strings.Contains(plain, "调用流程 ┌") {
+		t.Fatalf("diagram rows must not be collapsed into prose: %q", plain)
+	}
+}
+
+func TestFormatReasoningSplitsCollapsedInlineBoxRows(t *testing.T) {
+	got := formatReasoning("explorer", types.StageExplore, 1,
+		"调用流程 ┌──┐ │ A │ └──┘", false, "zh")
+	plain := stripAnsiEscapes(got)
+	for _, want := range []string{
+		"调用流程",
+		"\n    ┌──┐",
+		"\n    │ A │",
+		"\n    └──┘",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("collapsed box row should be split around %q; got:\n%s", want, plain)
+		}
+	}
+}
+
+func TestFormatScrollbackBodyDisablesAutoWrapForVisualRows(t *testing.T) {
+	body := formatScrollbackBody([]scrollbackLine{
+		{text: "plain"},
+		{text: "│ " + strings.Repeat("wide visual cell ", 3) + "│", visual: true},
+	}, true)
+	if !strings.Contains(body, "\x1b[?7l│ ") || !strings.Contains(body, "│\x1b[?7h") {
+		t.Fatalf("visual scrollback rows should be bracketed with DECAWM controls: %q", body)
+	}
+	if strings.Contains(body, "\x1b[?7lplain") {
+		t.Fatalf("plain rows must not receive visual auto-wrap controls: %q", body)
+	}
+}
+
+func TestFormatAnswerDocumentDraftPreviewLinesExtractsReadableDraft(t *testing.T) {
+	params := `{
+		"blocks": [
+			{"id":"summary","kind":"summary","text":"Explorer 调用 SubAgent 的流程如下："},
+			{"id":"steps","kind":"ordered_list","items":[
+				{"label":"Explorer","text":"提出子任务"},
+				{"label":"SubAgentRuntime","text":"并行执行并归约"}
+			]},
+			{"id":"diagram","kind":"diagram","title":"流程图","diagram":{
+				"language":"mermaid",
+				"body":"flowchart TD\n    A --> B"
+			}}
+		]
+	}`
+	lines := formatAnswerDocumentDraftPreviewLines(params, "zh")
+	plain := stripAnsiEscapes(formatScrollbackBody(lines, false))
+	for _, want := range []string{
+		"• 第一稿答案",
+		"Explorer 调用 SubAgent 的流程如下：",
+		"1. Explorer — 提出子任务",
+		"2. SubAgentRuntime — 并行执行并归约",
+		"流程图",
+		"```mermaid",
+		"flowchart TD",
+		"    A --> B",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("draft preview missing %q; got:\n%s", want, plain)
+		}
+	}
+	var sawDiagramBody bool
+	for _, line := range lines {
+		if strings.Contains(stripAnsiEscapes(line.text), "A --> B") {
+			sawDiagramBody = true
+			if !line.visual {
+				t.Fatalf("diagram source row must be marked visual: %+v", line)
+			}
+		}
+	}
+	if !sawDiagramBody {
+		t.Fatalf("expected diagram body row in preview: %+v", lines)
+	}
+}
+
+func TestFormatAnswerDocumentDraftPreviewLinesParsesStringWrappedBlocks(t *testing.T) {
+	params := `{"blocks":"[{\"id\":\"summary\",\"kind\":\"summary\",\"text\":\"wrapped draft\"}]"}`
+	lines := formatAnswerDocumentDraftPreviewLines(params, "zh")
+	plain := stripAnsiEscapes(formatScrollbackBody(lines, false))
+	if !strings.Contains(plain, "wrapped draft") {
+		t.Fatalf("string-wrapped blocks should still preview draft; got:\n%s", plain)
+	}
+}
+
+func TestFormatAnswerDocumentDraftPreviewPreservesVisualRows(t *testing.T) {
+	params := `{"blocks":[{"id":"summary","kind":"summary","text":"调用流程 ┌──┐ │ A │ └──┘\nname | role\n--- | ---\nexplorer | ` + strings.Repeat("collects evidence ", 5) + `"}]}`
+	lines := formatAnswerDocumentDraftPreviewLines(params, "zh")
+	plain := stripAnsiEscapes(formatScrollbackBody(lines, false))
+	for _, want := range []string{
+		"\n    ┌──┐",
+		"\n    │ A │",
+		"\n    └──┘",
+		"name | role",
+		"--- | ---",
+		"explorer | collects evidence",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("draft preview should preserve visual row %q; got:\n%s", want, plain)
+		}
+	}
+	body := formatScrollbackBody(lines, true)
+	for _, want := range []string{
+		"\x1b[?7l    " + statusReasoningBody.Sprint("│ A │") + "\x1b[?7h",
+		"\x1b[?7l    " + statusReasoningBody.Sprint("name | role") + "\x1b[?7h",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("visual draft rows should disable terminal auto-wrap around %q; got:\n%q", want, body)
+		}
+	}
+}
+
+func TestRenderer_EmitsFirstAnswerDraftPreviewOnce(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:           EventToolCallEnd,
+		ToolName:       "emit_answer_document",
+		ToolParamsJSON: `{"blocks":[{"id":"summary","kind":"summary","text":"first draft"}]}`,
+		Timestamp:      time.Now(),
+	})
+	emit(Event{
+		Kind:           EventToolCallEnd,
+		ToolName:       "emit_answer_document",
+		ToolParamsJSON: `{"blocks":[{"id":"summary","kind":"summary","text":"second draft"}]}`,
+		Timestamp:      time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	if strings.Count(out, "第一稿答案") != 1 {
+		t.Fatalf("first draft preview should emit once; got:\n%s", out)
+	}
+	if !strings.Contains(out, "first draft") {
+		t.Fatalf("first draft body missing; got:\n%s", out)
+	}
+	if strings.Contains(out, "second draft") {
+		t.Fatalf("later drafts should not flood scrollback preview; got:\n%s", out)
+	}
+}
+
 func TestFormatToolCallBatchSummarizesPureToolResponse(t *testing.T) {
 	pterm.EnableColor()
 	defer pterm.DisableColor()

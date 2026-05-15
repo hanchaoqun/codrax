@@ -37,6 +37,176 @@ func formatStructuredToolResultSummary(toolName, paramsJSON, resultSummary, lang
 	}
 }
 
+type answerDraftPreviewDoc struct {
+	Blocks []answerDraftPreviewBlock `json:"blocks"`
+}
+
+type answerDraftPreviewBlock struct {
+	ID      string                     `json:"id"`
+	Kind    string                     `json:"kind"`
+	Title   string                     `json:"title"`
+	Text    string                     `json:"text"`
+	Items   []answerDraftPreviewItem   `json:"items"`
+	Diagram *answerDraftPreviewDiagram `json:"diagram"`
+}
+
+type answerDraftPreviewItem struct {
+	Label string `json:"label"`
+	Text  string `json:"text"`
+}
+
+type answerDraftPreviewDiagram struct {
+	Kind     string `json:"kind"`
+	Language string `json:"language"`
+	Body     string `json:"body"`
+}
+
+func formatAnswerDocumentDraftPreviewLines(paramsJSON, lang string) []scrollbackLine {
+	doc, ok := decodeAnswerDraftPreviewDoc(paramsJSON)
+	if !ok || len(doc.Blocks) == 0 {
+		return nil
+	}
+	zh := isZh(lang)
+	header := "First draft answer"
+	if zh {
+		header = "第一稿答案"
+	}
+	lines := []scrollbackLine{{
+		text: "  " + statusMeta.Sprint("•") + " " + statusMeta.Sprint(header),
+	}}
+	for _, block := range doc.Blocks {
+		lines = appendAnswerDraftBlockLines(lines, block)
+	}
+	return trimScrollbackPreviewBlankLines(lines)
+}
+
+func decodeAnswerDraftPreviewDoc(paramsJSON string) (answerDraftPreviewDoc, bool) {
+	paramsJSON = strings.TrimSpace(paramsJSON)
+	if paramsJSON == "" {
+		return answerDraftPreviewDoc{}, false
+	}
+	var doc answerDraftPreviewDoc
+	if json.Unmarshal([]byte(paramsJSON), &doc) == nil && len(doc.Blocks) > 0 {
+		return doc, true
+	}
+	var raw map[string]json.RawMessage
+	if json.Unmarshal([]byte(paramsJSON), &raw) != nil {
+		return answerDraftPreviewDoc{}, false
+	}
+	if blocks, ok := decodeAnswerDraftPreviewBlocks(raw["blocks"]); ok {
+		doc.Blocks = blocks
+		return doc, true
+	}
+	return answerDraftPreviewDoc{}, false
+}
+
+func decodeAnswerDraftPreviewBlocks(raw json.RawMessage) ([]answerDraftPreviewBlock, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+	var blocks []answerDraftPreviewBlock
+	if json.Unmarshal(raw, &blocks) == nil && len(blocks) > 0 {
+		return blocks, true
+	}
+	var wrapped string
+	if json.Unmarshal(raw, &wrapped) != nil {
+		return nil, false
+	}
+	wrapped = strings.TrimSpace(wrapped)
+	if wrapped == "" {
+		return nil, false
+	}
+	if json.Unmarshal([]byte(wrapped), &blocks) == nil && len(blocks) > 0 {
+		return blocks, true
+	}
+	var doc answerDraftPreviewDoc
+	if json.Unmarshal([]byte(wrapped), &doc) == nil && len(doc.Blocks) > 0 {
+		return doc.Blocks, true
+	}
+	return nil, false
+}
+
+func appendAnswerDraftBlockLines(lines []scrollbackLine, block answerDraftPreviewBlock) []scrollbackLine {
+	title := strings.TrimSpace(block.Title)
+	if title != "" {
+		lines = appendPlainAnswerDraftLines(lines, title)
+	}
+	if strings.TrimSpace(block.Text) != "" {
+		lines = appendPlainAnswerDraftLines(lines, block.Text)
+	}
+	if len(block.Items) > 0 {
+		for i, item := range block.Items {
+			text := formatAnswerDraftItem(i+1, item)
+			if text == "" {
+				continue
+			}
+			lines = appendPlainAnswerDraftLines(lines, text)
+		}
+	}
+	if block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != "" {
+		lines = appendAnswerDraftDiagramLines(lines, *block.Diagram)
+	}
+	return lines
+}
+
+func appendPlainAnswerDraftLines(lines []scrollbackLine, text string) []scrollbackLine {
+	text = expandInlineReasoningVisualRows(text)
+	raw := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	tableMask := MarkdownTableLineMask(raw)
+	for i, rawLine := range raw {
+		line := strings.TrimRight(rawLine, " \r")
+		if strings.TrimSpace(stripAnsiEscapes(line)) == "" {
+			lines = append(lines, scrollbackLine{text: "    "})
+			continue
+		}
+		visual := tableMask[i] || ShouldPreserveVisualLine(line)
+		lines = append(lines, scrollbackLine{
+			text:   "    " + statusReasoningBody.Sprint(line),
+			visual: visual,
+		})
+	}
+	return lines
+}
+
+func appendAnswerDraftDiagramLines(lines []scrollbackLine, diagram answerDraftPreviewDiagram) []scrollbackLine {
+	language := strings.TrimSpace(diagram.Language)
+	if language == "" {
+		language = "mermaid"
+	}
+	lines = append(lines, scrollbackLine{text: "    " + statusReasoningBody.Sprint("```"+language), visual: true})
+	for _, rawLine := range strings.Split(strings.ReplaceAll(diagram.Body, "\r\n", "\n"), "\n") {
+		line := strings.TrimRight(rawLine, " \r")
+		lines = append(lines, scrollbackLine{
+			text:   "    " + statusReasoningBody.Sprint(line),
+			visual: true,
+		})
+	}
+	lines = append(lines, scrollbackLine{text: "    " + statusReasoningBody.Sprint("```"), visual: true})
+	return lines
+}
+
+func formatAnswerDraftItem(index int, item answerDraftPreviewItem) string {
+	label := strings.TrimSpace(item.Label)
+	text := strings.TrimSpace(item.Text)
+	switch {
+	case label != "" && text != "":
+		return fmt.Sprintf("%d. %s — %s", index, label, text)
+	case label != "":
+		return fmt.Sprintf("%d. %s", index, label)
+	case text != "":
+		return fmt.Sprintf("%d. %s", index, text)
+	default:
+		return ""
+	}
+}
+
+func trimScrollbackPreviewBlankLines(lines []scrollbackLine) []scrollbackLine {
+	for len(lines) > 1 && strings.TrimSpace(stripAnsiEscapes(lines[len(lines)-1].text)) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
 func formatAnswerDocumentToolResultSummary(toolName, summary, lang string) string {
 	toolName = strings.TrimSpace(toolName)
 	if toolName != "emit_answer_document" && toolName != "emit_answer_document_patch" {

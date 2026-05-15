@@ -23,7 +23,7 @@ import (
 // reAnsi matches ANSI CSI sequences (`ESC [ … final-byte`). Used by
 // truncByDisplayWidth to step over style escapes without counting
 // them as visible columns.
-var reAnsi = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
+var reAnsi = regexp.MustCompile(`\x1b\[[0-9;:?]*[A-Za-z]`)
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
@@ -251,6 +251,14 @@ type Renderer struct {
 	// back into the legacy 1-2 sentence / 200-char summary via
 	// codrax.yaml when terminal noise matters more than traceability.
 	thinkingTruncate bool
+
+	// answerDraftPreviewEmitted gates the scrollback copy of the
+	// first full emit_answer_document payload. The finalizer may
+	// retry several times; showing every rejected draft would bury the
+	// actual progress log, while showing the first one gives operators
+	// an immediate transparent view of what the model tried to answer
+	// before validators start editing the trajectory.
+	answerDraftPreviewEmitted bool
 
 	// cancelHint is rendered as a dim trailer line under the task
 	// list while the spinner is live. Used by the REPL to surface a
@@ -965,6 +973,7 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 	r.activity = activityState{kind: activityWaitingPipeline}
 	r.streamTail = ""
 	r.streamChars = 0
+	r.answerDraftPreviewEmitted = false
 	if r.totalStages == 0 {
 		// Default matches read mode: 4 dispatch boundaries
 		// (analyze + explore + extract + finalize). See the
@@ -1256,27 +1265,19 @@ func pluralS(n int) string {
 // reasoningMaxChars caps the legacy opt-in reasoning summary shown to the user.
 const reasoningMaxChars = 200
 
+type scrollbackLine struct {
+	text   string
+	visual bool
+}
+
 // stripMarkdown removes markdown syntax that clutters a single-line
 // thinking trace: headers (###), bold (**), bullets (- / *), code
 // fences (```), and leading/trailing whitespace around them.
 func stripMarkdown(s string) string {
 	var out []string
 	for _, line := range strings.Split(s, "\n") {
-		// Strip header prefixes: "### Title" → "Title"
-		for strings.HasPrefix(line, "#") {
-			line = strings.TrimLeft(line, "#")
-		}
-		line = strings.TrimSpace(line)
-		// Strip bold markers
-		line = strings.ReplaceAll(line, "**", "")
-		// Strip leading bullet
-		if strings.HasPrefix(line, "- ") {
-			line = line[2:]
-		} else if strings.HasPrefix(line, "* ") {
-			line = line[2:]
-		}
-		// Strip code fences
-		if strings.HasPrefix(line, "```") {
+		line = stripMarkdownLine(line)
+		if IsMarkdownFenceLine(line) {
 			continue
 		}
 		if line != "" {
@@ -1286,42 +1287,377 @@ func stripMarkdown(s string) string {
 	return strings.Join(out, " ")
 }
 
-// formatReasoning formats LLM reasoning as a quiet line with a
-// user-facing stage/round label. Internal agent ids stay in debug logs;
-// scrollback uses labels such as "探索 · 第 3 轮" / "Explore · Round 3".
-// The body uses statusReasoningBody, which keeps thinking below
-// final-answer prose but readable on dark terminal backgrounds. Markdown
-// is stripped and leading blank lines are skipped so the display is clean
-// plain text. When truncate is true the legacy 1-2 sentence / 200-char
-// summary is used; the default caller path passes false so CLI and REPL
-// expose the full model thinking trace.
-func formatReasoning(agent string, stage types.PipelineStage, iteration int, text string, truncate bool, lang string) string {
+func stripMarkdownLine(line string) string {
+	// Strip header prefixes: "### Title" → "Title".
+	for strings.HasPrefix(line, "#") {
+		line = strings.TrimLeft(line, "#")
+	}
+	line = strings.TrimSpace(line)
+	// Strip bold markers.
+	line = strings.ReplaceAll(line, "**", "")
+	// Strip leading bullet.
+	if strings.HasPrefix(line, "- ") {
+		line = line[2:]
+	} else if strings.HasPrefix(line, "* ") {
+		line = line[2:]
+	}
+	return line
+}
+
+func IsMarkdownFenceLine(line string) bool {
+	line = strings.TrimSpace(line)
+	return strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~")
+}
+
+func IsRenderedCodeBlockHeaderLine(plain string) bool {
+	if plain == "" {
+		return false
+	}
+	return strings.HasPrefix(plain, "─── ") && strings.HasSuffix(plain, " ───")
+}
+
+func IsRenderedCodeBlockContinuation(s string) bool {
+	if strings.TrimSpace(stripAnsiEscapes(s)) == "" {
+		return true
+	}
+	plain := stripAnsiEscapes(s)
+	return strings.HasPrefix(plain, "    ") || strings.HasPrefix(plain, "\t")
+}
+
+func StripANSIOnly(s string) string {
+	return stripAnsiEscapes(s)
+}
+
+func DisplayWidth(s string) int {
+	return runewidth.StringWidth(StripANSIOnly(s))
+}
+
+func legacyReasoningSummary(text string, truncate bool) string {
 	text = stripMarkdown(text)
 	if text == "" {
 		return ""
 	}
 	summary := text
-	if truncate {
-		// Take roughly 1-2 sentences worth.
-		if idx := strings.Index(summary, ". "); idx > 0 && idx < reasoningMaxChars-20 {
-			// Try to find a second sentence boundary.
-			if idx2 := strings.Index(summary[idx+2:], ". "); idx2 > 0 && idx+2+idx2 < reasoningMaxChars {
-				summary = summary[:idx+2+idx2+1]
-			}
-		}
-		if len(summary) > reasoningMaxChars {
-			cut := reasoningMaxChars - 3
-			for cut > 0 && summary[cut] != ' ' {
-				cut--
-			}
-			if cut == 0 {
-				cut = reasoningMaxChars - 3
-			}
-			summary = summary[:cut] + "..."
+	if !truncate {
+		return summary
+	}
+	// Take roughly 1-2 sentences worth.
+	if idx := strings.Index(summary, ". "); idx > 0 && idx < reasoningMaxChars-20 {
+		// Try to find a second sentence boundary.
+		if idx2 := strings.Index(summary[idx+2:], ". "); idx2 > 0 && idx+2+idx2 < reasoningMaxChars {
+			summary = summary[:idx+2+idx2+1]
 		}
 	}
+	if len(summary) > reasoningMaxChars {
+		cut := reasoningMaxChars - 3
+		for cut > 0 && summary[cut] != ' ' {
+			cut--
+		}
+		if cut == 0 {
+			cut = reasoningMaxChars - 3
+		}
+		summary = summary[:cut] + "..."
+	}
+	return summary
+}
+
+// formatReasoning formats LLM reasoning as a quiet line with a
+// user-facing stage/round label. Internal agent ids stay in debug logs;
+// scrollback uses labels such as "探索 · 第 3 轮" / "Explore · Round 3".
+// The body uses statusReasoningBody, which keeps thinking below
+// final-answer prose but readable on dark terminal backgrounds. Markdown
+// is stripped from prose lines and leading blank lines are skipped so the
+// display is clean plain text. Visual rows (tables, box drawings, Mermaid
+// source, fenced blocks) stay line-shaped so the REPL does not turn useful
+// model-produced diagrams into a single wrapped paragraph. When truncate is
+// true the legacy 1-2 sentence / 200-char summary is used; the default caller
+// path passes false so CLI and REPL expose the full model thinking trace.
+func formatReasoning(agent string, stage types.PipelineStage, iteration int, text string, truncate bool, lang string) string {
+	lines := formatReasoningLines(agent, stage, iteration, text, truncate, lang)
+	if len(lines) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, line.text)
+	}
+	return strings.Join(out, "\n")
+}
+
+func formatReasoningLines(agent string, stage types.PipelineStage, iteration int, text string, truncate bool, lang string) []scrollbackLine {
 	trace := activityTraceLabel(agent, stage, iteration, lang)
-	return "  " + statusReasoningGlyph.Sprint(string(glyphReasoning)) + " " + statusMeta.Sprint(trace) + " " + statusReasoningBody.Sprint(summary)
+	prefix := "  " + statusReasoningGlyph.Sprint(string(glyphReasoning)) + " " + statusMeta.Sprint(trace) + " "
+	if truncate {
+		summary := legacyReasoningSummary(text, true)
+		if summary == "" {
+			return nil
+		}
+		return []scrollbackLine{{text: prefix + statusReasoningBody.Sprint(summary)}}
+	}
+	bodyLines := reasoningDisplayLines(text)
+	if len(bodyLines) == 0 {
+		return nil
+	}
+	if len(bodyLines) == 1 && !bodyLines[0].visual {
+		return []scrollbackLine{{text: prefix + statusReasoningBody.Sprint(bodyLines[0].text)}}
+	}
+	out := make([]scrollbackLine, 0, len(bodyLines))
+	for i, line := range bodyLines {
+		linePrefix := "    "
+		if i == 0 {
+			linePrefix = prefix
+		}
+		out = append(out, scrollbackLine{
+			text:   linePrefix + statusReasoningBody.Sprint(line.text),
+			visual: line.visual,
+		})
+	}
+	return out
+}
+
+func reasoningDisplayLines(text string) []scrollbackLine {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = expandInlineReasoningVisualRows(text)
+	raw := strings.Split(text, "\n")
+	tableLines := MarkdownTableLineMask(raw)
+	lines := make([]scrollbackLine, 0, len(raw))
+	inFence := false
+	hasVisual := false
+	prevBlank := false
+	for i, rawLine := range raw {
+		plain := strings.TrimSpace(stripAnsiEscapes(rawLine))
+		fenceLine := IsMarkdownFenceLine(plain)
+		visual := inFence || fenceLine || tableLines[i] || ShouldPreserveVisualLine(rawLine)
+		clean := rawLine
+		if visual {
+			clean = strings.TrimRight(clean, " \r")
+			hasVisual = true
+		} else {
+			clean = stripMarkdownLine(clean)
+		}
+		blank := strings.TrimSpace(stripAnsiEscapes(clean)) == ""
+		if blank && !visual {
+			if prevBlank {
+				continue
+			}
+			prevBlank = true
+			continue
+		}
+		prevBlank = blank && !visual
+		if clean != "" || visual {
+			lines = append(lines, scrollbackLine{text: clean, visual: visual})
+		}
+		if fenceLine {
+			inFence = !inFence
+			continue
+		}
+	}
+	if !hasVisual {
+		summary := legacyReasoningSummary(text, false)
+		if summary == "" {
+			return nil
+		}
+		return []scrollbackLine{{text: summary}}
+	}
+	for len(lines) > 0 && strings.TrimSpace(stripAnsiEscapes(lines[0].text)) == "" && !lines[0].visual {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && strings.TrimSpace(stripAnsiEscapes(lines[len(lines)-1].text)) == "" && !lines[len(lines)-1].visual {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+func expandInlineReasoningVisualRows(text string) string {
+	if !strings.ContainsAny(text, "┌├└│") {
+		return text
+	}
+	var out []rune
+	out = make([]rune, 0, len(text))
+	var prevNonSpace rune
+	lineHasNonSpace := false
+	for _, r := range text {
+		if r == '\n' {
+			out = append(out, r)
+			prevNonSpace = 0
+			lineHasNonSpace = false
+			continue
+		}
+		split := false
+		switch r {
+		case '┌', '├', '└':
+			split = lineHasNonSpace
+		case '│':
+			split = lineHasNonSpace && isReasoningBoxRowBoundary(prevNonSpace)
+		}
+		if split {
+			out = append(out, '\n')
+			prevNonSpace = 0
+			lineHasNonSpace = false
+		}
+		out = append(out, r)
+		if !isUnicodeSpace(r) {
+			prevNonSpace = r
+			lineHasNonSpace = true
+		}
+	}
+	return string(out)
+}
+
+func isReasoningBoxRowBoundary(r rune) bool {
+	switch r {
+	case '┐', '┤', '┘', '│':
+		return true
+	default:
+		return false
+	}
+}
+
+func isUnicodeSpace(r rune) bool {
+	switch r {
+	case ' ', '\t', '\r', '\v', '\f':
+		return true
+	default:
+		return false
+	}
+}
+
+func MarkdownTableLineMask(raw []string) []bool {
+	mask := make([]bool, len(raw))
+	for i := 0; i+1 < len(raw); i++ {
+		if !looksLikeMarkdownTableDataLine(raw[i]) || !looksLikeMarkdownTableSeparatorLine(raw[i+1]) {
+			continue
+		}
+		mask[i] = true
+		mask[i+1] = true
+		for j := i + 2; j < len(raw); j++ {
+			if !looksLikeMarkdownTableDataLine(raw[j]) {
+				break
+			}
+			mask[j] = true
+		}
+	}
+	return mask
+}
+
+func looksLikeMarkdownTableDataLine(s string) bool {
+	plain := strings.TrimSpace(stripAnsiEscapes(s))
+	if plain == "" || strings.Count(plain, "|") < 1 {
+		return false
+	}
+	return !looksLikeMarkdownTableSeparatorLine(plain)
+}
+
+func looksLikeMarkdownTableSeparatorLine(s string) bool {
+	plain := strings.TrimSpace(stripAnsiEscapes(s))
+	if plain == "" || !strings.Contains(plain, "|") {
+		return false
+	}
+	plain = strings.Trim(plain, "| ")
+	if plain == "" {
+		return false
+	}
+	hasDash := false
+	for _, r := range plain {
+		switch r {
+		case '-', ':', '|', ' ':
+			if r == '-' {
+				hasDash = true
+			}
+		default:
+			return false
+		}
+	}
+	return hasDash
+}
+
+func ShouldPreserveVisualLine(s string) bool {
+	plain := strings.TrimSpace(stripAnsiEscapes(s))
+	if plain == "" {
+		return false
+	}
+	return looksLikePipeTableLine(plain) ||
+		looksLikeBoxDrawingLine(plain) ||
+		looksLikeASCIITableRule(plain) ||
+		looksLikeDiagramSyntaxLine(plain)
+}
+
+func looksLikePipeTableLine(s string) bool {
+	if strings.Count(s, "|") >= 2 && strings.HasPrefix(s, "|") && strings.HasSuffix(s, "|") {
+		return true
+	}
+	return strings.Count(s, "│") >= 2 && strings.HasPrefix(s, "│") && strings.HasSuffix(s, "│")
+}
+
+func looksLikeBoxDrawingLine(s string) bool {
+	box := 0
+	for _, r := range s {
+		if r >= 0x2500 && r <= 0x257F {
+			box++
+		}
+	}
+	if box == 0 {
+		return false
+	}
+	first, last := firstLastVisualRune(s)
+	if first >= 0x2500 && first <= 0x257F || last >= 0x2500 && last <= 0x257F {
+		return box >= 2 || strings.ContainsAny(s, "─━═")
+	}
+	return box >= 4
+}
+
+func firstLastVisualRune(s string) (rune, rune) {
+	var first rune
+	var last rune
+	for i, r := range s {
+		if i == 0 {
+			first = r
+		}
+		last = r
+	}
+	return first, last
+}
+
+func looksLikeASCIITableRule(s string) bool {
+	if !(strings.HasPrefix(s, "+") && strings.HasSuffix(s, "+")) {
+		return false
+	}
+	if strings.Count(s, "+") < 2 {
+		return false
+	}
+	rule := 0
+	for _, r := range s {
+		switch r {
+		case '+', '-', '=', ':', ' ':
+			rule++
+		default:
+			return false
+		}
+	}
+	return rule == len([]rune(s))
+}
+
+func looksLikeDiagramSyntaxLine(s string) bool {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	if lower == "" {
+		return false
+	}
+	for _, prefix := range []string{
+		"flowchart ", "graph ", "sequencediagram", "participant ", "actor ",
+		"subgraph ", "classdiagram", "statediagram", "erdiagram",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	for _, token := range []string{
+		"-->", "-.->", "==>", "->>", "-->>", "<--", "<->", "<|--", "--|>",
+	} {
+		if strings.Contains(s, token) {
+			return true
+		}
+	}
+	return false
 }
 
 func formatToolCallBatch(agent string, stage types.PipelineStage, iteration int, names []string, count int, firstName, firstDetail, lang string) string {

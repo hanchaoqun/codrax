@@ -4451,11 +4451,11 @@ func stripTrailing(s string) string {
 
 // stripANSI removes all ANSI escape sequences to get plain text.
 func stripANSI(s string) string {
-	return strings.TrimSpace(reANSI.ReplaceAllString(s, ""))
+	return strings.TrimSpace(render.StripANSIOnly(s))
 }
 
 func stripANSIOnly(s string) string {
-	return reANSI.ReplaceAllString(s, "")
+	return render.StripANSIOnly(s)
 }
 
 type borderedResponseLine struct {
@@ -4518,71 +4518,19 @@ func borderedResponseLines(response string) []borderedResponseLine {
 }
 
 func markdownTableLineMask(raw []string) []bool {
-	mask := make([]bool, len(raw))
-	for i := 0; i+1 < len(raw); i++ {
-		if !looksLikeMarkdownTableDataLine(raw[i]) || !looksLikeMarkdownTableSeparatorLine(raw[i+1]) {
-			continue
-		}
-		mask[i] = true
-		mask[i+1] = true
-		for j := i + 2; j < len(raw); j++ {
-			if !looksLikeMarkdownTableDataLine(raw[j]) {
-				break
-			}
-			mask[j] = true
-		}
-	}
-	return mask
-}
-
-func looksLikeMarkdownTableDataLine(s string) bool {
-	plain := strings.TrimSpace(stripANSIOnly(s))
-	if plain == "" || strings.Count(plain, "|") < 1 {
-		return false
-	}
-	return !looksLikeMarkdownTableSeparatorLine(plain)
-}
-
-func looksLikeMarkdownTableSeparatorLine(s string) bool {
-	plain := strings.TrimSpace(stripANSIOnly(s))
-	if plain == "" || !strings.Contains(plain, "|") {
-		return false
-	}
-	plain = strings.Trim(plain, "| ")
-	if plain == "" {
-		return false
-	}
-	hasDash := false
-	for _, r := range plain {
-		switch r {
-		case '-', ':', '|', ' ':
-			if r == '-' {
-				hasDash = true
-			}
-		default:
-			return false
-		}
-	}
-	return hasDash
+	return render.MarkdownTableLineMask(raw)
 }
 
 func isMarkdownFenceLine(plain string) bool {
-	return strings.HasPrefix(plain, "```") || strings.HasPrefix(plain, "~~~")
+	return render.IsMarkdownFenceLine(plain)
 }
 
 func isRenderedCodeBlockHeaderLine(plain string) bool {
-	if plain == "" {
-		return false
-	}
-	return strings.HasPrefix(plain, "─── ") && strings.HasSuffix(plain, " ───")
+	return render.IsRenderedCodeBlockHeaderLine(plain)
 }
 
 func isRenderedCodeBlockContinuation(s string) bool {
-	if stripANSI(s) == "" {
-		return true
-	}
-	plain := stripANSIOnly(s)
-	return strings.HasPrefix(plain, "    ") || strings.HasPrefix(plain, "\t")
+	return render.IsRenderedCodeBlockContinuation(s)
 }
 
 // borderedLineFragments returns the visual rows that renderBordered
@@ -4607,104 +4555,11 @@ func borderedLineFragmentsPreserve(s string, maxCols int, preserve bool) []strin
 }
 
 func displayWidth(s string) int {
-	return runewidth.StringWidth(stripANSIOnly(s))
+	return render.DisplayWidth(s)
 }
 
 func shouldPreserveVisualLine(s string) bool {
-	plain := strings.TrimSpace(stripANSIOnly(s))
-	if plain == "" {
-		return false
-	}
-	return looksLikePipeTableLine(plain) ||
-		looksLikeBoxDrawingLine(plain) ||
-		looksLikeASCIITableRule(plain) ||
-		looksLikeDiagramSyntaxLine(plain)
-}
-
-func looksLikePipeTableLine(s string) bool {
-	if strings.Count(s, "|") >= 2 && strings.HasPrefix(s, "|") && strings.HasSuffix(s, "|") {
-		return true
-	}
-	return strings.Count(s, "│") >= 2 && strings.HasPrefix(s, "│") && strings.HasSuffix(s, "│")
-}
-
-func looksLikeBoxDrawingLine(s string) bool {
-	box := 0
-	for _, r := range s {
-		if isBoxDrawingRune(r) {
-			box++
-		}
-	}
-	if box == 0 {
-		return false
-	}
-	first, last := firstLastRune(s)
-	if isBoxDrawingRune(first) || isBoxDrawingRune(last) {
-		return box >= 2 || strings.ContainsAny(s, "─━═")
-	}
-	// Flowchart connectors sometimes sit inside margin / colour
-	// padding after glamour has styled the code block. Require a
-	// strong box-drawing signal here to avoid clipping ordinary prose
-	// that happens to mention a single glyph.
-	return box >= 4
-}
-
-func looksLikeASCIITableRule(s string) bool {
-	if !(strings.HasPrefix(s, "+") && strings.HasSuffix(s, "+")) {
-		return false
-	}
-	if strings.Count(s, "+") < 2 {
-		return false
-	}
-	rule := 0
-	for _, r := range s {
-		switch r {
-		case '+', '-', '=', ':', ' ':
-			rule++
-		default:
-			return false
-		}
-	}
-	return rule == len([]rune(s))
-}
-
-func looksLikeDiagramSyntaxLine(s string) bool {
-	lower := strings.ToLower(strings.TrimSpace(s))
-	if lower == "" {
-		return false
-	}
-	for _, prefix := range []string{
-		"flowchart ", "graph ", "sequencediagram", "participant ", "actor ",
-		"subgraph ", "classdiagram", "statediagram", "erdiagram",
-	} {
-		if strings.HasPrefix(lower, prefix) {
-			return true
-		}
-	}
-	for _, token := range []string{
-		"-->", "-.->", "==>", "->>", "-->>", "<--", "<->", "<|--", "--|>",
-	} {
-		if strings.Contains(s, token) {
-			return true
-		}
-	}
-	return false
-}
-
-func isBoxDrawingRune(r rune) bool {
-	return r >= 0x2500 && r <= 0x257F
-}
-
-func firstLastRune(s string) (rune, rune) {
-	var first rune
-	var last rune
-	for i, r := range s {
-		if i == 0 {
-			first = r
-		}
-		last = r
-	}
-	return first, last
+	return render.ShouldPreserveVisualLine(s)
 }
 
 // wrapByWidth breaks a line into multiple lines that each fit within

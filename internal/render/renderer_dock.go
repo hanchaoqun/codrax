@@ -76,12 +76,15 @@ func (r *Renderer) handleEvent(ev Event) {
 		if ev.Reasoning == "" {
 			return
 		}
-		line := formatReasoning(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang)
+		lines := formatReasoningLines(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang)
+		if len(lines) == 0 {
+			return
+		}
 		if !r.dockEnabled && r.dock == nil {
 			r.handleEventNonTTY(ev)
 			return
 		}
-		r.commitLineLocked(line)
+		r.commitScrollbackLinesLocked(lines)
 		return
 	case EventAgentToolCallBatch:
 		line := formatToolCallBatch(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
@@ -475,9 +478,14 @@ func (r *Renderer) handleEvent(ev Event) {
 			// and the next thinking event.
 			r.activity = activityState{kind: activityRequesting}
 		}
-		if (r.dockEnabled || r.dock != nil) && shouldRenderStructuredToolSummary(ev) {
-			if block := formatStructuredToolResultSummary(ev.ToolName, ev.ToolParamsJSON, ev.ToolResultSummary, r.lang); block != "" {
-				r.commitMultilineLocked(block)
+		if r.dockEnabled || r.dock != nil {
+			if lines := r.answerDraftPreviewLines(ev); len(lines) > 0 {
+				r.commitScrollbackLinesLocked(lines)
+			}
+			if shouldRenderStructuredToolSummary(ev) {
+				if block := formatStructuredToolResultSummary(ev.ToolName, ev.ToolParamsJSON, ev.ToolResultSummary, r.lang); block != "" {
+					r.commitMultilineLocked(block)
+				}
 			}
 		}
 
@@ -702,6 +710,27 @@ func (r *Renderer) commitLineLocked(line string) {
 	r.dock.commitToScrollback(line+"\n", rows)
 }
 
+func (r *Renderer) commitScrollbackLinesLocked(lines []scrollbackLine) {
+	if len(lines) == 0 {
+		return
+	}
+	if len(lines) == 1 && !lines[0].visual {
+		r.commitLineLocked(lines[0].text)
+		return
+	}
+	if r.dock == nil {
+		return
+	}
+	body := formatScrollbackBody(lines, isTTY(r.outputWriter()))
+	if body == r.lastCommittedLine {
+		return
+	}
+	r.lastCommittedLine = body
+	mirrorDockBlockToLog(body)
+	rows := r.composeCurrentDockRows()
+	r.dock.commitToScrollback(body, rows)
+}
+
 // commitMultilineLocked commits a multi-line scrollback batch in
 // one paintDock cycle. body MAY contain its own '\n' separators.
 // Nil-safe (see commitLineLocked). Each line is independently
@@ -744,11 +773,26 @@ func mirrorDockBlockToLog(body string) {
 	}
 }
 
+func formatScrollbackBody(lines []scrollbackLine, disableVisualAutoWrap bool) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		text := line.text
+		if line.visual && disableVisualAutoWrap {
+			text = "\x1b[?7l" + text + "\x1b[?7h"
+		}
+		out = append(out, text)
+	}
+	return strings.Join(out, "\n")
+}
+
 // dockAnsiPattern matches ANSI CSI sequences for the strip-to-log
 // helper. Distinct from reAnsi because we want a tighter regex
 // scoped to the dock log path; reAnsi is shared with the truncator
 // and might evolve independently.
-var dockAnsiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
+var dockAnsiPattern = regexp.MustCompile(`\x1b\[[0-9;:?]*[A-Za-z]`)
 
 // stripDockAnsi removes ANSI CSI sequences so the mirrored log
 // line reads as plain text. Operates on the rune-level so multi-
@@ -1677,13 +1721,16 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 			mirrorDockBlockToLog(block)
 		}
 	case EventAgentReasoning:
-		r.emitNonTTYLine(formatReasoning(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang))
+		r.emitNonTTYLines(formatReasoningLines(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang))
 	case EventAgentToolCallBatch:
 		if line := formatToolCallBatch(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
 			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang); line != "" {
 			r.emitNonTTYLine(line)
 		}
 	case EventToolCallEnd:
+		if lines := r.answerDraftPreviewLines(ev); len(lines) > 0 {
+			r.emitNonTTYLines(lines)
+		}
 		if shouldRenderStructuredToolSummary(ev) {
 			if block := formatStructuredToolResultSummary(ev.ToolName, ev.ToolParamsJSON, ev.ToolResultSummary, r.lang); block != "" {
 				fmt.Fprint(r.outputWriter(), stripAnsiEscapes(block))
@@ -1776,6 +1823,27 @@ func (r *Renderer) emitNonTTYLine(line string) {
 	}
 	fmt.Fprintln(r.outputWriter(), line)
 	mirrorDockLineToLog(line)
+}
+
+func (r *Renderer) emitNonTTYLines(lines []scrollbackLine) {
+	for _, line := range lines {
+		r.emitNonTTYLine(stripAnsiEscapes(line.text))
+	}
+}
+
+func (r *Renderer) answerDraftPreviewLines(ev Event) []scrollbackLine {
+	if r.answerDraftPreviewEmitted {
+		return nil
+	}
+	if strings.TrimSpace(ev.ToolName) != "emit_answer_document" {
+		return nil
+	}
+	lines := formatAnswerDocumentDraftPreviewLines(ev.ToolParamsJSON, r.lang)
+	if len(lines) == 0 {
+		return nil
+	}
+	r.answerDraftPreviewEmitted = true
+	return lines
 }
 
 // commitDockShutdownLocked prints the closing run-summary line and
@@ -1961,4 +2029,4 @@ var _silence io.Writer = io.Discard
 
 // reAnsiCheck guards the ANSI-aware truncation in dock rows.
 // Provided so the row composer can be tested without circular import.
-var reAnsiCheck = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
+var reAnsiCheck = regexp.MustCompile(`\x1b\[[0-9;:?]*[A-Za-z]`)
