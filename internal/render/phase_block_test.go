@@ -53,8 +53,8 @@ func TestFormatPhaseGroupBlock_EmptyReturnsEmpty(t *testing.T) {
 
 // TestFormatPhaseProgressLine_IconByKind pins the icon
 // selection: start gets ▶, accepted gets ✓, rejected gets ✗.
-// Pre-commit-43 these went through formatReasoning's 💭
-// thought-bubble path, which was semantically wrong (the
+// Pre-commit-43 these went through formatReasoning's thinking-glyph
+// path, which was semantically wrong (the
 // events represent structural progression, not LLM thinking).
 func TestFormatPhaseProgressLine_IconByKind(t *testing.T) {
 	cases := []struct {
@@ -70,10 +70,10 @@ func TestFormatPhaseProgressLine_IconByKind(t *testing.T) {
 		if !strings.Contains(got, c.wantIcon) {
 			t.Errorf("kind=%v: expected icon %q in line; got %q", c.kind, c.wantIcon, got)
 		}
-		// Must NOT contain the 💭 thought-bubble icon used by
-		// the legacy EventAgentReasoning path.
-		if strings.Contains(got, "💭") {
-			t.Errorf("kind=%v: line should not carry the 💭 LLM-thinking icon; got %q", c.kind, got)
+		// Must NOT contain the thinking glyph used by the
+		// EventAgentReasoning path.
+		if strings.Contains(got, string(glyphReasoning)) {
+			t.Errorf("kind=%v: line should not carry the LLM-thinking glyph; got %q", c.kind, got)
 		}
 		// Must include "Phase 2/3" position label (1-based).
 		if !strings.Contains(got, "Phase 2/3") {

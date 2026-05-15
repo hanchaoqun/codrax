@@ -121,8 +121,8 @@ const (
 	// Multi-phase plan-group lifecycle (commit 43, stage II UX
 	// fix). Pre-commit-43 the orchestrator surfaced phase
 	// progression via generic EventAgentReasoning entries
-	// rendered as "💭 [orchestrator-1] ▶ Phase 1 of 3 ..." —
-	// the 💭 thought-bubble icon was wrong (it implies LLM
+	// rendered as "⋯ [orchestrator-1] ▶ Phase 1 of 3 ..." —
+	// the thinking marker was wrong (it implies LLM
 	// reasoning, not a structural progression marker) and the
 	// inline-line shape didn't reuse the read-mode sub-topic
 	// block style operators were already trained on.
@@ -135,7 +135,7 @@ const (
 	//
 	// EventPhaseProgress fires per-phase at start / accept /
 	// reject — the dock renders a short status row using
-	// "▶ / ✓ / ✗" icons (NOT 💭) and the same statusObjective
+	// "▶ / ✓ / ✗" icons (NOT the thinking marker) and the same statusObjective
 	// / statusDetail color scheme.
 	EventPhaseGroupStart
 	EventPhaseProgress
@@ -187,11 +187,11 @@ const (
 	// (retry hints, forced-read, convergence stall, fallback
 	// targets, plan-critic review summary, etc.). Pre-this-event
 	// these messages flowed through EventAgentReasoning and were
-	// rendered with the same `💭 [orchestrator-N] …` LLM-thinking
+	// rendered with the same `⋯ [orchestrator-N] …` LLM-thinking
 	// style the renderer uses for genuine LLM reasoning text —
 	// users could not distinguish "the LLM is thinking" from "the
 	// orchestrator just decided to retry". The new event renders
-	// without the 💭 thought-bubble or [agent-N] tag so the two
+	// without the thinking marker or [agent-N] tag so the two
 	// surfaces are visually distinct.
 	//
 	// NoticeKind classifies the message into one of three buckets

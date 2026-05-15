@@ -1320,7 +1320,7 @@ func formatReasoning(agent string, iteration int, text string, truncate bool) st
 		}
 	}
 	tag := fmt.Sprintf("[%s-%d]", agent, iteration+1)
-	return "  " + statusMeta.Sprint("💭 "+tag) + " " + statusReasoningBody.Sprint(summary)
+	return "  " + statusReasoningGlyph.Sprint(string(glyphReasoning)) + " " + statusMeta.Sprint(tag) + " " + statusReasoningBody.Sprint(summary)
 }
 
 func formatToolCallBatch(agent string, iteration int, names []string, count int, firstName, firstDetail, lang string) string {
@@ -1330,10 +1330,10 @@ func formatToolCallBatch(agent string, iteration int, names []string, count int,
 	}
 	tag := fmt.Sprintf("[%s-%d]", agent, iteration+1)
 	// Tool-call batches are model activity, but they are actions
-	// rather than reasoning prose. Use a muted non-emoji dispatch
-	// marker so scrollback distinguishes them from 💭 thinking without
-	// adding another bright visual lane.
-	return "  " + statusMeta.Sprint("⇢ "+tag) + " " + statusReasoningBody.Sprint(body)
+	// rather than reasoning prose. Brighten only the dispatch marker
+	// so scrollback distinguishes it from thinking without making the
+	// tag or body compete with answer prose.
+	return "  " + statusToolGlyph.Sprint(string(glyphToolCall)) + " " + statusMeta.Sprint(tag) + " " + statusReasoningBody.Sprint(body)
 }
 
 func toolCallBatchBody(names []string, count int, firstName, firstDetail, lang string) string {

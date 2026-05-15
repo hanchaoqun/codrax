@@ -19,22 +19,22 @@ import (
 type activityKind int
 
 const (
-	activityNone               activityKind = iota
-	activityWaitingPipeline                 // StartSpinner ~ EventObjectiveStarted
-	activityWaitingDispatch                 // EventObjectiveStarted ~ first stage; stage gaps
-	activityWaitingNode                     // EventTaskNodeStart ~ first EventAgentThinking
-	activityRequesting                      // EventAgentThinking
-	activityReceiving                       // EventAgentContent (with streamTail)
-	activityCallingTool                     // EventToolCallStart ~ EventToolCallEnd (with toolName)
-	activityFinalizing                      // EventLivePreviewChunk (with streamTail)
-	activityRetrying                        // EventAdapterRetry (attempt+delay)
-	activitySwitchingProvider               // EventAdapterFallback
-	activityPreparingWorktree               // applyPreHook (write mode)
-	activityCapturingBaseline               // captureBaseline (write mode)
-	activityAcceptanceReview                // multi-phase acceptance check (commit 44)
-	activityErrorRecoverable                // EventTaskNodeEnd with recoverable error, before requeue
-	activityErrorFatal                      // terminal error before StopSpinner
-	activityCancelled                       // Ctrl+C path before StopSpinner
+	activityNone              activityKind = iota
+	activityWaitingPipeline                // StartSpinner ~ EventObjectiveStarted
+	activityWaitingDispatch                // EventObjectiveStarted ~ first stage; stage gaps
+	activityWaitingNode                    // EventTaskNodeStart ~ first EventAgentThinking
+	activityRequesting                     // EventAgentThinking
+	activityReceiving                      // EventAgentContent (with streamTail)
+	activityCallingTool                    // EventToolCallStart ~ EventToolCallEnd (with toolName)
+	activityFinalizing                     // EventLivePreviewChunk (with streamTail)
+	activityRetrying                       // EventAdapterRetry (attempt+delay)
+	activitySwitchingProvider              // EventAdapterFallback
+	activityPreparingWorktree              // applyPreHook (write mode)
+	activityCapturingBaseline              // captureBaseline (write mode)
+	activityAcceptanceReview               // multi-phase acceptance check (commit 44)
+	activityErrorRecoverable               // EventTaskNodeEnd with recoverable error, before requeue
+	activityErrorFatal                     // terminal error before StopSpinner
+	activityCancelled                      // Ctrl+C path before StopSpinner
 )
 
 // activityState carries everything row 1 needs to render. Kept narrow
@@ -220,16 +220,16 @@ func stagePhraseSkippedFor(stageKey, lang string) string {
 type commitRowKind int
 
 const (
-	commitRowSuccess commitRowKind = iota // ✓ green
-	commitRowFailure                      // ✗ red (system failure)
-	commitRowCancelled                    // ⊘ gray (user-initiated stop, NOT a failure)
-	commitRowRetry                        // ⟳ yellow
-	commitRowReasoning                    // 💭 dark gray
-	commitRowQuestion                     // ❯ cyan
-	commitRowFinal                        // ◆ green muted (run summary)
-	commitRowFinalLight                   // ◇ green muted (light-route summary — local / chat / clarify)
-	commitRowNotice                       // ⟳ yellow (soft notice, e.g. "草稿被丢弃, 正在重写" — recoverable, not failure)
-	commitRowSubTopicHeader               // (no glyph; the sub-topic enumeration block is multiline)
+	commitRowSuccess        commitRowKind = iota // ✓ green
+	commitRowFailure                             // ✗ red (system failure)
+	commitRowCancelled                           // ⊘ gray (user-initiated stop, NOT a failure)
+	commitRowRetry                               // ⟳ yellow
+	commitRowReasoning                           // ⋯ light cyan glyph, muted body
+	commitRowQuestion                            // ❯ cyan
+	commitRowFinal                               // ◆ green muted (run summary)
+	commitRowFinalLight                          // ◇ green muted (light-route summary — local / chat / clarify)
+	commitRowNotice                              // ⟳ yellow (soft notice, e.g. "草稿被丢弃, 正在重写" — recoverable, not failure)
+	commitRowSubTopicHeader                      // (no glyph; the sub-topic enumeration block is multiline)
 )
 
 // commitRow is the raw input to the row formatter. The formatter
@@ -246,13 +246,14 @@ type commitRow struct {
 // decides where to put '\n' so multiline payloads stay batched.
 //
 // Style policy (dark mode reference):
-//   ✓ — statusSuccessMuted (green)
-//   ✗ — statusFatal (red) for system failure
-//   ⊘ — statusMeta (dark gray) for user-initiated cancellation (not failure)
-//   ⟳ — statusRecoverable (yellow) for retry AND soft notice (recoverable)
-//   💭 — statusMeta (dark gray)
-//   ❯ — statusObjective (light cyan)
-//   ◆ — statusSuccessMuted (green)
+//
+//	✓ — statusSuccessMuted (green)
+//	✗ — statusFatal (red) for system failure
+//	⊘ — statusMeta (dark gray) for user-initiated cancellation (not failure)
+//	⟳ — statusRecoverable (yellow) for retry AND soft notice (recoverable)
+//	⋯ — statusReasoningGlyph (light cyan marker only)
+//	❯ — statusObjective (light cyan)
+//	◆ — statusSuccessMuted (green)
 //
 // Body styling is up to the caller — formatCommitRow does NOT
 // re-style the body so the caller can mix segment styles freely.
@@ -276,7 +277,7 @@ func formatCommitRow(row commitRow) string {
 		// shared visual reads as "we are still working on it".
 		b.WriteString(statusRecoverable.Sprint(string(glyphRecoverable)))
 	case commitRowReasoning:
-		b.WriteString(statusMeta.Sprint("💭"))
+		b.WriteString(statusReasoningGlyph.Sprint(string(glyphReasoning)))
 	case commitRowQuestion:
 		b.WriteString(statusObjective.Sprint("❯"))
 	case commitRowFinal:

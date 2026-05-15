@@ -96,7 +96,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.commitLineLocked(line)
 		return
 	case EventOrchestratorNotice:
-		// Distinct from EventAgentReasoning: no 💭 thought bubble,
+		// Distinct from EventAgentReasoning: no thinking glyph,
 		// no [agent-N] tag — the user must be able to tell at a
 		// glance whether a line is the LLM thinking aloud or the
 		// orchestrator announcing a control-flow decision.
@@ -1186,7 +1186,7 @@ func formatPhaseGroupBlock(lang string, phases []PhaseInfo) string {
 // formatPhaseProgressLine returns the single-line dock entry for
 // an EventPhaseProgress. Pre-commit-43 these entries went through
 // the generic EventAgentReasoning path and rendered with the
-// "💭 [orchestrator-1] ..." LLM-thinking icon — semantically wrong
+// "⋯ [orchestrator-1] ..." LLM-thinking marker — semantically wrong
 // for what is structural progression, not LLM reasoning. Now they
 // render with status-typed icons (▶ start / ✓ accepted / ✗ rejected)
 // + same color palette as the sub-topic block.
@@ -1683,7 +1683,7 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 			r.emitNonTTYLine(line)
 		}
 	case EventOrchestratorNotice:
-		// Mirror of the TTY branch above: render WITHOUT the 💭
+		// Mirror of the TTY branch above: render WITHOUT the
 		// LLM-thinking prefix or [agent-N] tag so log scrapers and
 		// CI operators read the same "this is the orchestrator
 		// talking, not the LLM" cue.
@@ -1723,7 +1723,7 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		}
 	case EventPhaseProgress:
 		// Commit 43: per-phase status row with structured
-		// icon ▶/✓/✗ instead of the 💭 thought-bubble used
+		// icon ▶/✓/✗ instead of the thinking glyph used
 		// by EventAgentReasoning. Detail surfaces phase goal
 		// (start) or rejection reasoning (rejected).
 		r.emitNonTTYLine(formatPhaseProgressLine(r.lang, ev.PhaseIndex, ev.PhaseTotal,

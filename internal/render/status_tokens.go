@@ -11,6 +11,8 @@ import "github.com/pterm/pterm"
 //
 //	final answer prose (rendered by glamour, NOT a token here)
 //	  ▶ statusPrimary           — current stage label
+//	  ▶ statusReasoningGlyph    — model thinking marker only
+//	  ▶ statusToolGlyph         — tool-dispatch marker only
 //	  ▶ statusReasoningBody     — model thinking body
 //	  ▶ statusTopicLabel        — "关注点 1：" / "Focus 1:"
 //	  ▶ statusDetail            — tool-call / live status detail
@@ -31,6 +33,10 @@ import "github.com/pterm/pterm"
 //   - statusPrimary uses xterm slot 75 (#5fafff mid blue) on dark
 //     and slot 25 on light — clear without competing with the
 //     bordered final answer's H1 white.
+//   - statusReasoningGlyph / statusToolGlyph are deliberately brighter
+//     than statusMeta, but apply only to the single leading marker.
+//     Light cyan suggests "model stream"; light green suggests
+//     "dispatch/action". The adjacent tag stays muted.
 //   - statusReasoningBody uses dim ANSI white, without bold or a
 //     background. pterm's FgGray is an alias of FgDarkGray in the
 //     pinned version and is too low-contrast for long model thinking
@@ -65,10 +71,12 @@ var (
 	statusObjective     = pterm.NewStyle(pterm.FgLightCyan)
 	statusObjectiveDone = pterm.NewStyle(pterm.FgCyan)
 
-	statusReasoningBody = pterm.NewStyle(pterm.FgWhite, pterm.Fuzzy)
-	statusDetail        = pterm.NewStyle(pterm.FgGray)
-	statusSecondary     = pterm.NewStyle(pterm.FgGray)
-	statusTopicLabel    = pterm.NewStyle(pterm.FgLightBlue)
+	statusReasoningGlyph = pterm.NewStyle(pterm.FgLightCyan)
+	statusToolGlyph      = pterm.NewStyle(pterm.FgLightGreen)
+	statusReasoningBody  = pterm.NewStyle(pterm.FgWhite, pterm.Fuzzy)
+	statusDetail         = pterm.NewStyle(pterm.FgGray)
+	statusSecondary      = pterm.NewStyle(pterm.FgGray)
+	statusTopicLabel     = pterm.NewStyle(pterm.FgLightBlue)
 	// Topic body lives below the spotlighted parent line; dim it
 	// to a regular grey so the topic_label "关注点 N：" carries
 	// the eye and the body is supporting context rather than
@@ -96,6 +104,8 @@ const (
 	glyphFatal       = '✗'
 	glyphRecoverable = '⟳'
 	glyphCancelled   = '⊘' // user-initiated stop; distinct from ✗ (system failure)
+	glyphReasoning   = '⋯'
+	glyphToolCall    = '⇢'
 	glyphWarning     = '·'
 	glyphPending     = '·'
 	glyphTopicBullet = '·'

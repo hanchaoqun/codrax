@@ -9,18 +9,18 @@ import (
 // regression test for the renderer/orchestrator UX-style separation.
 // The whole reason EventOrchestratorNotice was carved out of
 // EventAgentReasoning is that the legacy `formatReasoning` path
-// prepends `  💭 [<agent>-N] ` — a visual signature reserved for
+// prepends `  ⋯ [<agent>-N] ` — a visual signature reserved for
 // genuine LLM reasoning text. When the orchestrator reused that path
 // for its own scheduler decisions ("retry hint", "convergence stall",
 // etc.) users could not distinguish "the LLM is thinking aloud" from
 // "the orchestrator just decided to retry". This test pins the fix
-// at the byte level: the formatter MUST NOT emit the 💭 character
+// at the byte level: the formatter MUST NOT emit the reasoning glyph
 // or the bracketed agent-iteration tag for any NoticeKind.
 func TestFormatOrchestratorNotice_NoLLMThinkingPrefix(t *testing.T) {
 	for kind := NoticeRetry; kind <= NoticeInvestigationReady; kind++ {
 		out := formatOrchestratorNotice(kind, "⟳ test message")
-		if strings.Contains(out, "💭") {
-			t.Errorf("kind=%d: orchestrator notice MUST NOT carry the 💭 LLM-thinking icon; got %q", kind, out)
+		if strings.Contains(out, string(glyphReasoning)) {
+			t.Errorf("kind=%d: orchestrator notice MUST NOT carry the LLM-thinking glyph; got %q", kind, out)
 		}
 		if strings.Contains(out, "[orchestrator-") || strings.Contains(out, "[orchestrator]") {
 			t.Errorf("kind=%d: orchestrator notice MUST NOT carry an [agent-N] tag; got %q", kind, out)
@@ -121,7 +121,7 @@ func TestFormatOrchestratorNotice_EmptyDegrades(t *testing.T) {
 
 // TestRenderer_OrchestratorNoticeDispatchNonTTY locks that the non-TTY
 // renderer branch picks up EventOrchestratorNotice (CI / piped stdout
-// path) and emits it WITHOUT the 💭 LLM-thinking signature. Without
+// path) and emits it WITHOUT the LLM-thinking signature. Without
 // this branch the event would silently drop on non-TTY runs.
 func TestRenderer_OrchestratorNoticeDispatchNonTTY(t *testing.T) {
 	var buf strings.Builder
@@ -137,7 +137,7 @@ func TestRenderer_OrchestratorNoticeDispatchNonTTY(t *testing.T) {
 	if !strings.Contains(out, "正在补齐调查证据") {
 		t.Errorf("non-TTY orchestrator notice lost the body; got %q", out)
 	}
-	if strings.Contains(out, "💭") {
-		t.Errorf("non-TTY orchestrator notice MUST NOT carry 💭; got %q", out)
+	if strings.Contains(out, string(glyphReasoning)) {
+		t.Errorf("non-TTY orchestrator notice MUST NOT carry the LLM-thinking glyph; got %q", out)
 	}
 }

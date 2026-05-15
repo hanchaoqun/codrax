@@ -105,19 +105,25 @@ func TestFormatReasoningStylesTagAndBodySeparately(t *testing.T) {
 	defer pterm.DisableColor()
 
 	got := formatReasoning("analyzer", 0, "Readable detail.", false)
-	expected := "  " + statusMeta.Sprint("💭 [analyzer-1]") + " " + statusReasoningBody.Sprint("Readable detail.")
+	expected := "  " + statusReasoningGlyph.Sprint("⋯") + " " + statusMeta.Sprint("[analyzer-1]") + " " + statusReasoningBody.Sprint("Readable detail.")
 	if got != expected {
 		t.Fatalf("reasoning style should keep tag muted and body readable\nwant %q\ngot  %q", expected, got)
+	}
+	if wantGlyph := pterm.NewStyle(pterm.FgLightCyan).Sprint("⋯"); !strings.Contains(got, wantGlyph) {
+		t.Fatalf("reasoning glyph should be bright but isolated\nwant glyph %q\ngot        %q", wantGlyph, got)
 	}
 	if wantBody := pterm.NewStyle(pterm.FgWhite, pterm.Fuzzy).Sprint("Readable detail."); !strings.Contains(got, wantBody) {
 		t.Fatalf("reasoning body should use dim white to stay below answer prose while remaining readable\nwant body %q\ngot       %q", wantBody, got)
 	}
-	if plain := stripAnsiEscapes(got); plain != "  💭 [analyzer-1] Readable detail." {
+	if plain := stripAnsiEscapes(got); plain != "  ⋯ [analyzer-1] Readable detail." {
 		t.Fatalf("styled reasoning changed visible text: %q", plain)
 	}
 }
 
 func TestFormatToolCallBatchSummarizesPureToolResponse(t *testing.T) {
+	pterm.EnableColor()
+	defer pterm.DisableColor()
+
 	got := formatToolCallBatch("explorer", 19,
 		[]string{"read_file"},
 		1,
@@ -129,6 +135,9 @@ func TestFormatToolCallBatchSummarizesPureToolResponse(t *testing.T) {
 	want := "  ⇢ [explorer-20] 调用工具 read_file internal/tool/apply_patch.go"
 	if plain != want {
 		t.Fatalf("tool-only response line changed\nwant %q\ngot  %q", want, plain)
+	}
+	if wantGlyph := pterm.NewStyle(pterm.FgLightGreen).Sprint("⇢"); !strings.Contains(got, wantGlyph) {
+		t.Fatalf("tool-call glyph should be bright but isolated\nwant glyph %q\ngot        %q", wantGlyph, got)
 	}
 }
 

@@ -74,7 +74,7 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 	// entry so the dock renders the full phase enumeration
 	// — visually parallel to the analyzer's sub-topic block.
 	// Pre-commit-43 the operator only saw per-phase Reasoning
-	// events with the 💭 thought-bubble icon; now they see
+	// events with the LLM-thinking marker; now they see
 	// the workflow shape upfront.
 	if o.emit != nil {
 		phaseList := make([]render.PhaseInfo, 0, len(group.Phases))
@@ -127,7 +127,7 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 
 		// Per-phase progress event (commit 43). Replaces the
 		// pre-commit-43 EventAgentReasoning shape (which used
-		// the 💭 thought-bubble icon — semantically wrong for
+		// the LLM-thinking marker — semantically wrong for
 		// structural progression). Dock now renders this with
 		// ▶ icon + statusObjective color, parallel to the
 		// sub-topic block style.
@@ -355,7 +355,7 @@ func (o *Orchestrator) applyAcceptanceVerdict(phase *types.PhaseRecord, group *t
 		o.persistGroup(group)
 		// UX (commit 43): emit a typed PhaseProgress event so
 		// the dock renders ✗ + statusObjective color (not the
-		// 💭 thought-bubble used by the legacy Reasoning path).
+		// thinking marker used by the legacy Reasoning path).
 		// Detail carries the reviewer's reasoning verbatim.
 		if o.emit != nil {
 			o.emit(render.Event{
@@ -547,9 +547,9 @@ func (o *Orchestrator) buildPlanGroupFromProposal(ir *types.WriteAnalysisIR) *ty
 // isMultiPhaseRun decides whether the current Run should drive
 // runPhaseGroup or fall through to the existing single-phase
 // path. Three preconditions:
-//   1. WriteAnalysisIR is on Mutable (write_analyzer ran)
-//   2. PhaseProposal.Split == "sequential" with ≥2 phases
-//   3. PlanGroupStore wired (cmd/root.go's stage II flag)
+//  1. WriteAnalysisIR is on Mutable (write_analyzer ran)
+//  2. PhaseProposal.Split == "sequential" with ≥2 phases
+//  3. PlanGroupStore wired (cmd/root.go's stage II flag)
 //
 // All three must hold. If any is false, falls through to single-
 // phase byte-identical path.

@@ -808,7 +808,7 @@ func TestApplyAcceptanceVerdict_RejectedEmitsReasoningEvent(t *testing.T) {
 	}
 	// Commit 43: rejection now uses typed EventPhaseProgress
 	// (not EventAgentReasoning) so the dock renders ✗ icon
-	// instead of the 💭 thought bubble.
+	// instead of the LLM-thinking marker.
 	found := false
 	for _, ev := range captured {
 		if ev.Kind == render.EventPhaseProgress &&
