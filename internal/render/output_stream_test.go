@@ -104,8 +104,8 @@ func TestFormatReasoningStylesTagAndBodySeparately(t *testing.T) {
 	pterm.EnableColor()
 	defer pterm.DisableColor()
 
-	got := formatReasoning("analyzer", 0, "Readable detail.", false)
-	expected := "  " + statusReasoningGlyph.Sprint("⋯") + " " + statusMeta.Sprint("[analyzer-1]") + " " + statusReasoningBody.Sprint("Readable detail.")
+	got := formatReasoning("analyzer", types.StageAnalyze, 0, "Readable detail.", false, "zh")
+	expected := "  " + statusReasoningGlyph.Sprint("⋯") + " " + statusMeta.Sprint("分析 · 第 1 轮") + " " + statusReasoningBody.Sprint("Readable detail.")
 	if got != expected {
 		t.Fatalf("reasoning style should keep tag muted and body readable\nwant %q\ngot  %q", expected, got)
 	}
@@ -115,8 +115,19 @@ func TestFormatReasoningStylesTagAndBodySeparately(t *testing.T) {
 	if wantBody := pterm.NewStyle(pterm.FgWhite, pterm.Fuzzy).Sprint("Readable detail."); !strings.Contains(got, wantBody) {
 		t.Fatalf("reasoning body should use dim white to stay below answer prose while remaining readable\nwant body %q\ngot       %q", wantBody, got)
 	}
-	if plain := stripAnsiEscapes(got); plain != "  ⋯ [analyzer-1] Readable detail." {
+	if plain := stripAnsiEscapes(got); plain != "  ⋯ 分析 · 第 1 轮 Readable detail." {
 		t.Fatalf("styled reasoning changed visible text: %q", plain)
+	}
+}
+
+func TestFormatReasoningFallsBackWithoutExposingUnknownAgent(t *testing.T) {
+	got := formatReasoning("experimental_agent", "", 1, "Readable detail.", false, "zh")
+	plain := stripAnsiEscapes(got)
+	if want := "  ⋯ 模型 · 第 2 轮 Readable detail."; plain != want {
+		t.Fatalf("unknown agent fallback changed\nwant %q\ngot  %q", want, plain)
+	}
+	if strings.Contains(plain, "experimental_agent") {
+		t.Fatalf("unknown internal agent id leaked into user-facing scrollback: %q", plain)
 	}
 }
 
@@ -124,7 +135,7 @@ func TestFormatToolCallBatchSummarizesPureToolResponse(t *testing.T) {
 	pterm.EnableColor()
 	defer pterm.DisableColor()
 
-	got := formatToolCallBatch("explorer", 19,
+	got := formatToolCallBatch("explorer", types.StageExplore, 19,
 		[]string{"read_file"},
 		1,
 		"read_file",
@@ -132,7 +143,7 @@ func TestFormatToolCallBatchSummarizesPureToolResponse(t *testing.T) {
 		"zh",
 	)
 	plain := stripAnsiEscapes(got)
-	want := "  ⇢ [explorer-20] 调用工具 read_file internal/tool/apply_patch.go"
+	want := "  ⇢ 探索 · 第 20 轮 调用工具 read_file internal/tool/apply_patch.go"
 	if plain != want {
 		t.Fatalf("tool-only response line changed\nwant %q\ngot  %q", want, plain)
 	}
@@ -142,7 +153,7 @@ func TestFormatToolCallBatchSummarizesPureToolResponse(t *testing.T) {
 }
 
 func TestFormatToolCallBatchCompactsRepeatedTools(t *testing.T) {
-	got := formatToolCallBatch("explorer", 2,
+	got := formatToolCallBatch("explorer", types.StageExplore, 2,
 		[]string{"read_file", "read_file", "grep", "emit_evidence", "repo_map", "list_files"},
 		6,
 		"read_file",
@@ -150,7 +161,7 @@ func TestFormatToolCallBatchCompactsRepeatedTools(t *testing.T) {
 		"en",
 	)
 	plain := stripAnsiEscapes(got)
-	for _, want := range []string{"⇢ [explorer-3]", "calling 6 tools", "read_file x2", "grep", "emit_evidence", "repo_map", "+1"} {
+	for _, want := range []string{"⇢ Explore · Round 3", "calling 6 tools", "read_file x2", "grep", "emit_evidence", "repo_map", "+1"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("tool batch line missing %q; got %q", want, plain)
 		}
@@ -166,6 +177,7 @@ func TestRenderer_ToolCallBatchUsesConfiguredOutput(t *testing.T) {
 	emit(Event{
 		Kind:          EventAgentToolCallBatch,
 		Agent:         types.AgentExplorer,
+		Stage:         types.StageExplore,
 		Iteration:     3,
 		ToolName:      "emit_evidence",
 		ToolNames:     []string{"emit_evidence"},
@@ -174,7 +186,7 @@ func TestRenderer_ToolCallBatchUsesConfiguredOutput(t *testing.T) {
 	})
 
 	out := stripAnsiEscapes(buf.String())
-	for _, want := range []string{"⇢ [explorer-4]", "调用工具 emit_evidence"} {
+	for _, want := range []string{"⇢ 探索 · 第 4 轮", "调用工具 emit_evidence"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("tool batch event must leave visible output %q; got %q", want, out)
 		}

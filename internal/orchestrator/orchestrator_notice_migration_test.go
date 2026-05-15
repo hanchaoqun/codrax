@@ -15,7 +15,7 @@ import (
 // Genuine LLM reasoning (agent.go) keeps EventAgentReasoning, but
 // orchestrator-class soft messages MUST go through the new
 // EventOrchestratorNotice event so the dock can render them without
-// the `⋯ [orchestrator-N] …` LLM-thinking signature.
+// the `⋯ <stage> · Round N …` LLM-thinking signature.
 //
 // The check scans every .go file in the orchestrator package and
 // fails if any line containing `EventAgentReasoning` is followed

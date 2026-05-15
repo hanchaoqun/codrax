@@ -76,7 +76,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		if ev.Reasoning == "" {
 			return
 		}
-		line := formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning, r.thinkingTruncate)
+		line := formatReasoning(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang)
 		if !r.dockEnabled && r.dock == nil {
 			r.handleEventNonTTY(ev)
 			return
@@ -84,7 +84,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.commitLineLocked(line)
 		return
 	case EventAgentToolCallBatch:
-		line := formatToolCallBatch(string(ev.Agent), ev.Iteration, ev.ToolNames,
+		line := formatToolCallBatch(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
 			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang)
 		if line == "" {
 			return
@@ -97,7 +97,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		return
 	case EventOrchestratorNotice:
 		// Distinct from EventAgentReasoning: no thinking glyph,
-		// no [agent-N] tag — the user must be able to tell at a
+		// no stage-round trace label — the user must be able to tell at a
 		// glance whether a line is the LLM thinking aloud or the
 		// orchestrator announcing a control-flow decision.
 		line := r.formatOrchestratorNoticeLocked(ev.NoticeKind, ev.Reasoning)
@@ -1676,15 +1676,15 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 			mirrorDockBlockToLog(block)
 		}
 	case EventAgentReasoning:
-		r.emitNonTTYLine(formatReasoning(string(ev.Agent), ev.Iteration, ev.Reasoning, r.thinkingTruncate))
+		r.emitNonTTYLine(formatReasoning(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang))
 	case EventAgentToolCallBatch:
-		if line := formatToolCallBatch(string(ev.Agent), ev.Iteration, ev.ToolNames,
+		if line := formatToolCallBatch(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
 			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang); line != "" {
 			r.emitNonTTYLine(line)
 		}
 	case EventOrchestratorNotice:
 		// Mirror of the TTY branch above: render WITHOUT the
-		// LLM-thinking prefix or [agent-N] tag so log scrapers and
+		// LLM-thinking prefix or stage-round trace label so log scrapers and
 		// CI operators read the same "this is the orchestrator
 		// talking, not the LLM" cue.
 		if line := r.formatOrchestratorNoticeLocked(ev.NoticeKind, ev.Reasoning); line != "" {

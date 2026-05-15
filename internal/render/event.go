@@ -187,11 +187,11 @@ const (
 	// (retry hints, forced-read, convergence stall, fallback
 	// targets, plan-critic review summary, etc.). Pre-this-event
 	// these messages flowed through EventAgentReasoning and were
-	// rendered with the same `⋯ [orchestrator-N] …` LLM-thinking
+	// rendered with the same `⋯ <stage> · Round N …` LLM-thinking
 	// style the renderer uses for genuine LLM reasoning text —
 	// users could not distinguish "the LLM is thinking" from "the
 	// orchestrator just decided to retry". The new event renders
-	// without the thinking marker or [agent-N] tag so the two
+	// without the thinking marker or stage-round trace label so the two
 	// surfaces are visually distinct.
 	//
 	// NoticeKind classifies the message into one of three buckets

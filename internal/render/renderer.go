@@ -1286,15 +1286,16 @@ func stripMarkdown(s string) string {
 	return strings.Join(out, " ")
 }
 
-// formatReasoning formats LLM reasoning as a quiet line with an
-// [agent-iteration] tag. The glyph/tag stay in the meta palette while
-// the body uses statusReasoningBody, which keeps thinking below
+// formatReasoning formats LLM reasoning as a quiet line with a
+// user-facing stage/round label. Internal agent ids stay in debug logs;
+// scrollback uses labels such as "探索 · 第 3 轮" / "Explore · Round 3".
+// The body uses statusReasoningBody, which keeps thinking below
 // final-answer prose but readable on dark terminal backgrounds. Markdown
 // is stripped and leading blank lines are skipped so the display is clean
 // plain text. When truncate is true the legacy 1-2 sentence / 200-char
 // summary is used; the default caller path passes false so CLI and REPL
 // expose the full model thinking trace.
-func formatReasoning(agent string, iteration int, text string, truncate bool) string {
+func formatReasoning(agent string, stage types.PipelineStage, iteration int, text string, truncate bool, lang string) string {
 	text = stripMarkdown(text)
 	if text == "" {
 		return ""
@@ -1319,21 +1320,156 @@ func formatReasoning(agent string, iteration int, text string, truncate bool) st
 			summary = summary[:cut] + "..."
 		}
 	}
-	tag := fmt.Sprintf("[%s-%d]", agent, iteration+1)
-	return "  " + statusReasoningGlyph.Sprint(string(glyphReasoning)) + " " + statusMeta.Sprint(tag) + " " + statusReasoningBody.Sprint(summary)
+	trace := activityTraceLabel(agent, stage, iteration, lang)
+	return "  " + statusReasoningGlyph.Sprint(string(glyphReasoning)) + " " + statusMeta.Sprint(trace) + " " + statusReasoningBody.Sprint(summary)
 }
 
-func formatToolCallBatch(agent string, iteration int, names []string, count int, firstName, firstDetail, lang string) string {
+func formatToolCallBatch(agent string, stage types.PipelineStage, iteration int, names []string, count int, firstName, firstDetail, lang string) string {
 	body := toolCallBatchBody(names, count, firstName, firstDetail, lang)
 	if body == "" {
 		return ""
 	}
-	tag := fmt.Sprintf("[%s-%d]", agent, iteration+1)
+	trace := activityTraceLabel(agent, stage, iteration, lang)
 	// Tool-call batches are model activity, but they are actions
 	// rather than reasoning prose. Brighten only the dispatch marker
 	// so scrollback distinguishes it from thinking without making the
 	// tag or body compete with answer prose.
-	return "  " + statusToolGlyph.Sprint(string(glyphToolCall)) + " " + statusMeta.Sprint(tag) + " " + statusReasoningBody.Sprint(body)
+	return "  " + statusToolGlyph.Sprint(string(glyphToolCall)) + " " + statusMeta.Sprint(trace) + " " + statusReasoningBody.Sprint(body)
+}
+
+func activityTraceLabel(agent string, stage types.PipelineStage, iteration int, lang string) string {
+	label := activityDisplayLabel(agent, stage, lang)
+	round := iteration + 1
+	if isZh(lang) {
+		return fmt.Sprintf("%s · 第 %d 轮", label, round)
+	}
+	return fmt.Sprintf("%s · Round %d", label, round)
+}
+
+func activityDisplayLabel(agent string, stage types.PipelineStage, lang string) string {
+	zh := isZh(lang)
+	if label := activityStageLabel(stage, zh); label != "" {
+		return label
+	}
+	if label := activityAgentLabel(agent, zh); label != "" {
+		return label
+	}
+	if zh {
+		return "模型"
+	}
+	return "Model"
+}
+
+func activityStageLabel(stage types.PipelineStage, zh bool) string {
+	switch stage {
+	case types.StageLogTriage:
+		if zh {
+			return "日志诊断"
+		}
+		return "Log Triage"
+	case types.StagePerfTriage:
+		if zh {
+			return "性能诊断"
+		}
+		return "Perf Triage"
+	case types.StageAnalyze:
+		if zh {
+			return "分析"
+		}
+		return "Analyze"
+	case types.StageExplore:
+		if zh {
+			return "探索"
+		}
+		return "Explore"
+	case types.StageExtract:
+		if zh {
+			return "提炼"
+		}
+		return "Extract"
+	case types.StageFinalize:
+		if zh {
+			return "成文"
+		}
+		return "Compose"
+	case types.StageWriteAnalyze:
+		if zh {
+			return "写前分析"
+		}
+		return "Write Analysis"
+	case types.StagePlan:
+		if zh {
+			return "规划"
+		}
+		return "Plan"
+	case types.StageApply:
+		if zh {
+			return "修改"
+		}
+		return "Edit"
+	case types.StageVerify:
+		if zh {
+			return "验证"
+		}
+		return "Verify"
+	}
+	return ""
+}
+
+func activityAgentLabel(agent string, zh bool) string {
+	switch types.AgentName(strings.TrimSpace(agent)) {
+	case types.AgentAnalyzer:
+		if zh {
+			return "分析"
+		}
+		return "Analyze"
+	case types.AgentExplorer:
+		if zh {
+			return "探索"
+		}
+		return "Explore"
+	case types.AgentExtractor:
+		if zh {
+			return "提炼"
+		}
+		return "Extract"
+	case types.AgentFinalizer:
+		if zh {
+			return "成文"
+		}
+		return "Compose"
+	case types.AgentLogTriager:
+		if zh {
+			return "日志诊断"
+		}
+		return "Log Triage"
+	case types.AgentPerfTriager:
+		if zh {
+			return "性能诊断"
+		}
+		return "Perf Triage"
+	case types.AgentWriteAnalyzer:
+		if zh {
+			return "写前分析"
+		}
+		return "Write Analysis"
+	case types.AgentPlanner:
+		if zh {
+			return "规划"
+		}
+		return "Plan"
+	case types.AgentCoder:
+		if zh {
+			return "修改"
+		}
+		return "Edit"
+	case types.AgentVerifier:
+		if zh {
+			return "验证"
+		}
+		return "Verify"
+	}
+	return ""
 }
 
 func toolCallBatchBody(names []string, count int, firstName, firstDetail, lang string) string {

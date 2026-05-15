@@ -9,21 +9,21 @@ import (
 // regression test for the renderer/orchestrator UX-style separation.
 // The whole reason EventOrchestratorNotice was carved out of
 // EventAgentReasoning is that the legacy `formatReasoning` path
-// prepends `  ⋯ [<agent>-N] ` — a visual signature reserved for
+// prepends `  ⋯ <stage> · Round N ` — a visual signature reserved for
 // genuine LLM reasoning text. When the orchestrator reused that path
 // for its own scheduler decisions ("retry hint", "convergence stall",
 // etc.) users could not distinguish "the LLM is thinking aloud" from
 // "the orchestrator just decided to retry". This test pins the fix
 // at the byte level: the formatter MUST NOT emit the reasoning glyph
-// or the bracketed agent-iteration tag for any NoticeKind.
+// or a stage-round trace label for any NoticeKind.
 func TestFormatOrchestratorNotice_NoLLMThinkingPrefix(t *testing.T) {
 	for kind := NoticeRetry; kind <= NoticeInvestigationReady; kind++ {
 		out := formatOrchestratorNotice(kind, "⟳ test message")
 		if strings.Contains(out, string(glyphReasoning)) {
 			t.Errorf("kind=%d: orchestrator notice MUST NOT carry the LLM-thinking glyph; got %q", kind, out)
 		}
-		if strings.Contains(out, "[orchestrator-") || strings.Contains(out, "[orchestrator]") {
-			t.Errorf("kind=%d: orchestrator notice MUST NOT carry an [agent-N] tag; got %q", kind, out)
+		if strings.Contains(out, "Round ") || strings.Contains(out, "第 ") {
+			t.Errorf("kind=%d: orchestrator notice MUST NOT carry a stage-round trace label; got %q", kind, out)
 		}
 	}
 }

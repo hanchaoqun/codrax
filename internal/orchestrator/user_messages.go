@@ -14,9 +14,9 @@ import (
 // user about internal scheduler decisions (forced reads, convergence
 // stalls, etc.). Pre-this-event the strings flowed through
 // EventAgentReasoning and the dock rendered them with the same
-// `⋯ [orchestrator-N] …` style as genuine LLM thinking — users
+// `⋯ <stage> · Round N …` style as genuine LLM thinking — users
 // could not tell which lines were the LLM and which were the
-// orchestrator. The new event drops the thinking marker + agent tag so
+// orchestrator. The new event drops the thinking marker + trace label so
 // the two surfaces are visually distinct.
 //
 // Design contract:
