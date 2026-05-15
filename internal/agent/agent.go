@@ -472,6 +472,116 @@ func looksLikeEmbeddedToolCall(content string) bool {
 	return false
 }
 
+func shouldCompactNoToolAnswerDraftHistory(ctx *types.AgentContext, resp llm.Response) bool {
+	return noToolTextShouldStayProtocolOnly(ctx, resp) && looksLikeStructuredAnswerDraft(resp.Content)
+}
+
+func contentForNoToolHistory(ctx *types.AgentContext, resp llm.Response) string {
+	if !noToolTextShouldStayProtocolOnly(ctx, resp) || !looksLikeStructuredAnswerDraft(resp.Content) {
+		return resp.Content
+	}
+	return compactNoToolAnswerDraftHistory(ctx, resp)
+}
+
+func contentForNoToolHistoryWithFinalizerDraftBudget(ctx *types.AgentContext, resp llm.Response, finalizerDraftsPreserved int) (string, int) {
+	if ctx != nil &&
+		ctx.Stage == types.StageFinalize &&
+		len(resp.ToolCalls) == 0 &&
+		strings.TrimSpace(resp.Content) != "" &&
+		looksLikeStructuredAnswerDraft(resp.Content) {
+		if finalizerDraftsPreserved == 0 {
+			return resp.Content, 1
+		}
+		return compactNoToolAnswerDraftHistory(ctx, resp), finalizerDraftsPreserved
+	}
+	return contentForNoToolHistory(ctx, resp), finalizerDraftsPreserved
+}
+
+func compactNoToolAnswerDraftHistory(ctx *types.AgentContext, resp llm.Response) string {
+	stage := "unknown"
+	if ctx != nil && ctx.Stage != "" {
+		stage = string(ctx.Stage)
+	}
+	return fmt.Sprintf("[protocol-only text omitted: the model returned %d bytes of answer-like prose during stage %s without a tool call. The next user message carries the required tool-call correction.]", len(resp.Content), stage)
+}
+
+func noToolTextShouldStayProtocolOnly(ctx *types.AgentContext, resp llm.Response) bool {
+	if ctx == nil || len(resp.ToolCalls) != 0 || strings.TrimSpace(resp.Content) == "" {
+		return false
+	}
+	// Finalization deliberately preserves rich drafts on missing
+	// emit_answer_document retries so the model can copy its prior
+	// answer into the structured tool call. Earlier stages produce
+	// protocol handoffs, not user-visible answer bodies; feeding a
+	// premature draft back into those loops reinforces stale or
+	// unvalidated prose.
+	if ctx.Stage == types.StageFinalize {
+		return false
+	}
+	return ctx.Stage == types.StageExplore || toolChoiceForStage(ctx.Stage) == "required"
+}
+
+func shouldRouteNoToolThroughStageProtocolController(ctx *types.AgentContext, resp llm.Response, loopCtrl LoopController) bool {
+	if loopCtrl == nil || ctx == nil || len(resp.ToolCalls) != 0 || strings.TrimSpace(resp.Content) == "" {
+		return false
+	}
+	// Explore and Extract are intermediate protocol stages: free
+	// prose is useful to show in the REPL, but it is never the
+	// stage's completion channel. Route no-tool prose through the
+	// stage LoopController before any evaluator fallback can accept
+	// it, so the existing structured completion contracts decide
+	// whether to inject a tool-call correction or stop.
+	switch ctx.Stage {
+	case types.StageExplore, types.StageExtract:
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeStructuredAnswerDraft(content string) bool {
+	s := strings.TrimSpace(content)
+	if s == "" {
+		return false
+	}
+	if len(s) >= 1200 {
+		return true
+	}
+	if strings.Contains(s, "```") {
+		return true
+	}
+	lines := strings.Split(s, "\n")
+	structural := 0
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		if strings.HasPrefix(t, "#") ||
+			strings.HasPrefix(t, "- ") ||
+			strings.HasPrefix(t, "* ") ||
+			strings.HasPrefix(t, "|") ||
+			looksLikeOrderedMarkdownLine(t) {
+			structural++
+		}
+		if structural >= 3 {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeOrderedMarkdownLine(s string) bool {
+	if s == "" {
+		return false
+	}
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	return i > 0 && i+1 < len(s) && s[i] == '.' && s[i+1] == ' '
+}
+
 // sanitizeToolCallsForHistory preserves OpenAI-style tool-call pairing
 // while preventing a malformed assistant arguments blob from poisoning
 // the next LLM request. Streaming gateways can occasionally return a
@@ -899,6 +1009,12 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	// pre-refactor control-flow shape without requiring a labeled
 	// break inside the tool-batch loop.
 	forceStop := false
+	finalizerNoToolDraftsPreserved := 0
+	historyContentForNoTool := func(resp llm.Response) string {
+		content, preserved := contentForNoToolHistoryWithFinalizerDraftBudget(ctx, resp, finalizerNoToolDraftsPreserved)
+		finalizerNoToolDraftsPreserved = preserved
+		return content
+	}
 
 	// ReAct loop
 	maxIter := b.deps.MaxIterations
@@ -1138,8 +1254,14 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			})
 		}
 
+		routeNoToolThroughController := shouldRouteNoToolThroughStageProtocolController(ctx, resp, loopCtrl)
+		if routeNoToolThroughController {
+			logging.Debug("[diag %s] iter=%d phase=protocol_softstop route no-tool content through %s controller before evaluator stop",
+				b.name, i, ctx.Stage)
+		}
+
 		// Hard stop from the evaluator (e.g., finalizer always stops at iter=0).
-		if b.eval.ShouldStop(resp, i) {
+		if !routeNoToolThroughController && b.eval.ShouldStop(resp, i) {
 			messages = append(messages, llm.Message{
 				Role:      "assistant",
 				Content:   resp.Content,
@@ -1172,7 +1294,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				logging.Debug("[diag %s] iter=%d phase=embedded_correction detected embedded tool-call JSON in content — injecting correction", b.name, i)
 				messages = append(messages, llm.Message{
 					Role:    "assistant",
-					Content: resp.Content,
+					Content: historyContentForNoTool(resp),
 				})
 				messages = append(messages, llm.Message{
 					Role: "user",
@@ -1208,7 +1330,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				if result.Outcome == OutcomeInjectHint {
 					messages = append(messages, llm.Message{
 						Role:      "assistant",
-						Content:   resp.Content,
+						Content:   historyContentForNoTool(resp),
 						ToolCalls: historyToolCalls,
 					})
 					messages = append(messages, llm.Message{
@@ -1225,7 +1347,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}
 			messages = append(messages, llm.Message{
 				Role:      "assistant",
-				Content:   resp.Content,
+				Content:   historyContentForNoTool(resp),
 				ToolCalls: historyToolCalls,
 			})
 			logging.Debug("[diag %s] STOP at iter=%d (soft)", b.name, i)

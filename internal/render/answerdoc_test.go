@@ -331,6 +331,61 @@ func TestRenderV2_BlockDiagram_StripsNestedMermaidFence(t *testing.T) {
 	}
 }
 
+func TestRenderV2_DedupesExactStructuredDiagramFenceInProse(t *testing.T) {
+	body := "sequenceDiagram\n    User->>Agent: ask\n    Agent-->>User: answer"
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "s1",
+				Kind: types.BlockSummary,
+				Text: "这里是解释。\n\n```mermaid\n" + body + "\n```\n\n这里是补充说明。",
+			},
+			{
+				ID:    "d1",
+				Kind:  types.BlockDiagram,
+				Title: "调用时序",
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramSequence,
+					Language: "mermaid",
+					Body:     body,
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	if strings.Count(out, "sequenceDiagram") != 1 {
+		t.Fatalf("exact duplicate diagram fence should render once:\n%s", out)
+	}
+	if !strings.Contains(out, "这里是解释。") || !strings.Contains(out, "这里是补充说明。") {
+		t.Fatalf("surrounding prose must be preserved:\n%s", out)
+	}
+}
+
+func TestRenderV2_KeepsNonIdenticalDiagramFenceInProse(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "s1",
+				Kind: types.BlockSummary,
+				Text: "```mermaid\nsequenceDiagram\n    A->>B: draft\n```",
+			},
+			{
+				ID:   "d1",
+				Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramSequence,
+					Language: "mermaid",
+					Body:     "sequenceDiagram\n    A->>B: final",
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if strings.Count(out, "sequenceDiagram") != 2 {
+		t.Fatalf("non-identical diagram fences must both render to avoid data loss:\n%s", out)
+	}
+}
+
 func TestRenderV2_WithRecoveredDiagramAttachment(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

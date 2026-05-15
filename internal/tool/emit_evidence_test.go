@@ -899,17 +899,61 @@ func TestRenderEmitSummary_SplitsCurrentBatchFromCumulativeAudit(t *testing.T) {
 	for _, want := range []string{
 		"Current batch: 1 grounded / 0 recovered / 0 ungrounded.",
 		"Evidence buffer (audit, cumulative): 1 grounded / 0 recovered / 1 ungrounded across 1 file(s).",
-		"Active repair targets in buffer: none (1 old covered/non-actionable audit row(s) omitted from active repair).",
+		"Current actionable repair targets: none.",
 		"Do not re-emit a full consolidated evidence set just to change the cumulative audit tally.",
+		"Cumulative repair audit: 0 recovered / 0 ungrounded still visible in the buffer; 1 covered/non-actionable cumulative row(s) omitted from repair guidance.",
+		"This is audit context; next-step repair guidance comes from current item rows above and structured ToolRepair targets only.",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("summary missing %q:\n%s", want, summary)
 		}
 	}
+	if strings.Contains(summary, "Active repair targets in buffer") {
+		t.Fatalf("summary should not present cumulative audit rows as active repair targets:\n%s", summary)
+	}
 }
 
-func TestActiveEmitEvidenceRepairTally_CountsOnlyActionableCurrentBufferRows(t *testing.T) {
-	active, auditOnly := activeEmitEvidenceRepairTally([]types.EvidenceItem{
+func TestRenderEmitSummary_ListsOnlyCurrentActionableRepairTargets(t *testing.T) {
+	current := []types.EvidenceItem{
+		{
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       100,
+			GroundingStatus: types.GroundingUngrounded,
+			Kind:            types.EvidenceDirect,
+			AnchorSymbol:    "Missing",
+			Subject:         "Missing",
+		},
+	}
+	all := []types.EvidenceItem{
+		{
+			Source:          "internal/agent/old.go",
+			LineStart:       22,
+			GroundingStatus: types.GroundingUngrounded,
+			Kind:            types.EvidenceDirect,
+			AnchorSymbol:    "OldMissing",
+			Subject:         "OldMissing",
+		},
+		current[0],
+	}
+	reports := []ground.Report{{AdjustedLine: 100}}
+
+	summary := renderEmitSummary(nil, current, reports, all)
+	for _, want := range []string{
+		"Current actionable repair targets: internal/agent/analyzer.go near line 100.",
+		"Repair these current rows or structured ToolRepair targets before widening scope.",
+		"Cumulative repair audit: 0 recovered / 2 ungrounded still visible in the buffer.",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, summary)
+		}
+	}
+	if strings.Contains(summary, "internal/agent/old.go near line 22") {
+		t.Fatalf("summary should not list old cumulative rows as current repair targets:\n%s", summary)
+	}
+}
+
+func TestCumulativeEmitEvidenceRepairAuditTally_CountsOnlyActionableBufferRows(t *testing.T) {
+	audit, auditOnly := cumulativeEmitEvidenceRepairAuditTally([]types.EvidenceItem{
 		{
 			Source:          "internal/agent/analyzer.go",
 			LineStart:       100,
@@ -932,11 +976,11 @@ func TestActiveEmitEvidenceRepairTally_CountsOnlyActionableCurrentBufferRows(t *
 			Subject:         "Recovered",
 		},
 	})
-	if active.ungrounded != 1 || active.recovered != 0 {
-		t.Fatalf("active tally = %+v, want 1 actionable ungrounded and 0 recovered", active)
+	if audit.ungrounded != 1 || audit.recovered != 0 {
+		t.Fatalf("audit tally = %+v, want 1 cumulative ungrounded and 0 recovered", audit)
 	}
 	if auditOnly != 1 {
-		t.Fatalf("auditOnly = %d, want covered recovered row omitted from active tally", auditOnly)
+		t.Fatalf("auditOnly = %d, want covered recovered row omitted from repair guidance", auditOnly)
 	}
 }
 

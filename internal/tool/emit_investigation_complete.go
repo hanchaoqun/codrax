@@ -243,9 +243,12 @@ func (p *emitInvestigationCompleteParams) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	facts, err := decodeAggregateFactsPayload(raw.AggregateFacts)
+	facts, misplaced, err := decodeAggregateFactsPayload(raw.AggregateFacts)
 	if err != nil {
 		return err
+	}
+	if raw.AbsenceJustification == "" && strings.EqualFold(strings.TrimSpace(raw.ResultKind), "absence") {
+		raw.AbsenceJustification = decodeMisplacedStringField(misplaced, "absence_justification")
 	}
 	*p = emitInvestigationCompleteParams{
 		Reason:                   raw.Reason,
@@ -261,33 +264,78 @@ func (p *emitInvestigationCompleteParams) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFact, error) {
+func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFact, map[string]json.RawMessage, error) {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var payload []byte
+	var misplaced map[string]json.RawMessage
 	if strings.HasPrefix(trimmed, `"`) {
 		var encoded string
 		if err := json.Unmarshal(raw, &encoded); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		encoded = strings.TrimSpace(encoded)
 		if encoded == "" {
-			return nil, nil
+			return nil, nil, nil
 		}
-		if !strings.HasPrefix(encoded, "[") {
-			return nil, fmt.Errorf("aggregate_facts string must contain a JSON array")
+		arrayPayload, tail, ok := splitLeadingJSONArrayWithMisplacedObjectTail(encoded)
+		if !ok {
+			return nil, nil, fmt.Errorf("aggregate_facts string must contain a JSON array")
 		}
-		payload = []byte(encoded)
+		payload = arrayPayload
+		misplaced = tail
 	} else {
 		payload = raw
 	}
 	var facts []types.AnswerAggregateFact
 	if err := json.Unmarshal(payload, &facts); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return facts, nil
+	return facts, misplaced, nil
+}
+
+func splitLeadingJSONArrayWithMisplacedObjectTail(s string) ([]byte, map[string]json.RawMessage, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" || !strings.HasPrefix(s, "[") {
+		return nil, nil, false
+	}
+	dec := json.NewDecoder(strings.NewReader(s))
+	var raw json.RawMessage
+	if err := dec.Decode(&raw); err != nil {
+		return nil, nil, false
+	}
+	if len(raw) == 0 || raw[0] != '[' {
+		return nil, nil, false
+	}
+	rest := strings.TrimSpace(s[int(dec.InputOffset()):])
+	if rest == "" {
+		return raw, nil, true
+	}
+	if !strings.HasPrefix(rest, ",") {
+		return nil, nil, false
+	}
+	var misplaced map[string]json.RawMessage
+	if err := json.Unmarshal([]byte("{"+strings.TrimSpace(strings.TrimPrefix(rest, ","))+"}"), &misplaced); err != nil {
+		return nil, nil, false
+	}
+	return raw, misplaced, true
+}
+
+func decodeMisplacedStringField(fields map[string]json.RawMessage, name string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	raw, ok := fields[name]
+	if !ok || len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(s)
 }
 
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {

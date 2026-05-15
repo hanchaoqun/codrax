@@ -144,6 +144,66 @@ func TestEmitInvestigationComplete_AcceptsStringEncodedAggregateFacts(t *testing
 	}
 }
 
+func TestEmitInvestigationComplete_RepairsStringEncodedAggregateFactsWithMisplacedResolvedTail(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	paramsBytes, err := json.Marshal(map[string]any{
+		"reason":      "model emitted aggregate_facts as a JSON string with a misplaced sibling field tail",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": `[
+			{"kind":"member_set","label":"read mode stages","value":"2","members":["StageAnalyze","StageExplore"]}
+		], "absence_justification": "No write-mode stages execute in read mode."`,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	res, err := tool.Execute(bus, paramsBytes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("misplaced aggregate_facts tail should not reject a resolved completion: %s", res.Summary)
+	}
+	if got := mut.AbsenceJustification(); got != "" {
+		t.Fatalf("resolved completion must not promote misplaced absence_justification, got %q", got)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || got[0].Kind != types.AnswerAggregateMemberSet || got[0].Value != "2" {
+		t.Fatalf("aggregate facts not recovered from leading array: %+v", got)
+	}
+}
+
+func TestEmitInvestigationComplete_PromotesMisplacedAbsenceTailForAbsenceResult(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	paramsBytes, err := json.Marshal(map[string]any{
+		"reason":          "searched and found none",
+		"confidence":      "high",
+		"result_kind":     "absence",
+		"aggregate_facts": `[], "absence_justification": "no .py files exist"`,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	res, err := tool.Execute(bus, paramsBytes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("absence completion should promote misplaced absence_justification: %s", res.Summary)
+	}
+	if got := mut.AbsenceJustification(); got != "no .py files exist" {
+		t.Fatalf("absence justification = %q, want promoted misplaced string", got)
+	}
+}
+
 func TestEmitInvestigationComplete_RejectsInvalidAggregateFacts(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}

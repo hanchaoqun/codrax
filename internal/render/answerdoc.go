@@ -27,9 +27,11 @@ func RenderAnswerDocument(doc *types.AnswerDocumentV2, lang string) string {
 		return ""
 	}
 	docLang := normalizeAnswerDocLang(lang)
+	structuredDiagramBodies := answerDocumentStructuredDiagramBodyKeys(doc)
 	var b strings.Builder
 
 	for _, blk := range doc.Blocks {
+		blk = stripDuplicateStructuredDiagramFencesFromBlock(blk, structuredDiagramBodies)
 		renderAnswerDocV2Block(&b, blk, doc, docLang)
 	}
 
@@ -411,6 +413,84 @@ func answerDocumentVisibleAttachmentKeys(doc *types.AnswerDocumentV2) map[string
 	return seen
 }
 
+func answerDocumentStructuredDiagramBodyKeys(doc *types.AnswerDocumentV2) map[string]bool {
+	seen := map[string]bool{}
+	if doc == nil {
+		return seen
+	}
+	for _, blk := range doc.Blocks {
+		if blk.Kind != types.BlockDiagram || blk.Diagram == nil {
+			continue
+		}
+		if key := diagramBodyDedupKey(blk.Diagram.Body); key != "" {
+			seen[key] = true
+		}
+	}
+	return seen
+}
+
+func stripDuplicateStructuredDiagramFencesFromBlock(blk types.AnswerBlock, diagramBodies map[string]bool) types.AnswerBlock {
+	if len(diagramBodies) == 0 {
+		return blk
+	}
+	blk.Text = stripDuplicateStructuredDiagramFences(blk.Text, diagramBodies)
+	for i := range blk.Items {
+		blk.Items[i].Label = stripDuplicateStructuredDiagramFences(blk.Items[i].Label, diagramBodies)
+		blk.Items[i].Text = stripDuplicateStructuredDiagramFences(blk.Items[i].Text, diagramBodies)
+	}
+	return blk
+}
+
+func stripDuplicateStructuredDiagramFences(text string, diagramBodies map[string]bool) string {
+	if strings.TrimSpace(text) == "" || len(diagramBodies) == 0 || !strings.Contains(text, "```") {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	for i := 0; i < len(lines); {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "```") {
+			out = append(out, line)
+			i++
+			continue
+		}
+		info := strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
+		end := -1
+		for j := i + 1; j < len(lines); j++ {
+			if strings.TrimSpace(lines[j]) == "```" {
+				end = j
+				break
+			}
+		}
+		if end < 0 {
+			out = append(out, line)
+			i++
+			continue
+		}
+		body := strings.Join(lines[i+1:end], "\n")
+		if answerDocFenceCanDedupStructuredDiagram(info) && diagramBodies[diagramBodyDedupKey(body)] {
+			i = end + 1
+			continue
+		}
+		out = append(out, lines[i:end+1]...)
+		i = end + 1
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+func answerDocFenceCanDedupStructuredDiagram(info string) bool {
+	info = strings.TrimSpace(info)
+	if info == "" {
+		return true
+	}
+	fields := strings.Fields(info)
+	if len(fields) == 0 {
+		return true
+	}
+	return strings.EqualFold(fields[0], "mermaid")
+}
+
 func renderDisplayAttachment(b *strings.Builder, att types.AnswerDisplayAttachment, body string, lang answerDocLang) {
 	title := strings.TrimSpace(att.Title)
 	switch att.Kind {
@@ -486,6 +566,13 @@ func normalizeDiagramBodyForRender(body string) string {
 	}
 	inner := strings.Join(lines[1:len(lines)-1], "\n")
 	return strings.TrimSpace(inner)
+}
+
+func diagramBodyDedupKey(body string) string {
+	body = normalizeDiagramBodyForRender(body)
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	body = strings.ReplaceAll(body, "\r", "\n")
+	return strings.TrimSpace(body)
 }
 
 func renderV2BlockCaveat(b *strings.Builder, blk types.AnswerBlock, _ answerDocLang) {

@@ -1932,7 +1932,8 @@ func evidenceSemantic(it types.EvidenceItem) string {
 //
 //	Current batch: G grounded / R recovered / U ungrounded.
 //	Evidence buffer (audit, cumulative): G grounded / R recovered / U ungrounded across N files.
-//	Active repair targets in buffer: R recovered / U ungrounded (repair current rows or ToolRepair targets only).
+//	Current actionable repair targets: <current ToolRepair target list or none>.
+//	Cumulative repair audit: R recovered / U ungrounded still visible in the buffer.
 //
 // allEvidence is the mutable buffer after Append, used for the global
 // audit tally so the LLM sees cumulative state across multiple
@@ -1990,22 +1991,29 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 	}
 	batch := evidenceGroundingTally(items)
 	cumulative := evidenceGroundingTally(allEvidence)
-	active, auditOnly := activeEmitEvidenceRepairTally(allEvidence)
+	currentTargets := emitEvidenceRepairTargets(items, reports)
+	audit, auditOnly := cumulativeEmitEvidenceRepairAuditTally(allEvidence)
 	fmt.Fprintf(&b, "\nCurrent batch: %d grounded / %d recovered / %d ungrounded.\n",
 		batch.grounded, batch.recovered, batch.ungrounded)
 	fmt.Fprintf(&b, "Evidence buffer (audit, cumulative): %d grounded / %d recovered / %d ungrounded across %d file(s).\n",
 		cumulative.grounded, cumulative.recovered, cumulative.ungrounded, emitEvidenceSourceCount(allEvidence))
-	if active.recovered == 0 && active.ungrounded == 0 {
-		fmt.Fprintf(&b, "Active repair targets in buffer: none")
-		if auditOnly > 0 {
-			fmt.Fprintf(&b, " (%d old covered/non-actionable audit row(s) omitted from active repair).", auditOnly)
-		} else {
-			fmt.Fprintf(&b, ".")
+	if len(currentTargets) == 0 {
+		fmt.Fprintf(&b, "Current actionable repair targets: none. ")
+		if batch.recovered > 0 || batch.ungrounded > 0 {
+			b.WriteString("Current non-grounded rows were recovered, covered by grounded siblings, or marked non-actionable. ")
 		}
-		b.WriteString(" Do not re-emit a full consolidated evidence set just to change the cumulative audit tally.\n")
 	} else {
-		fmt.Fprintf(&b, "Active repair targets in buffer: %d recovered / %d ungrounded. Repair only current item rows above or structured ToolRepair targets; do not re-emit a full consolidated evidence set just to change the cumulative audit tally.\n",
-			active.recovered, active.ungrounded)
+		fmt.Fprintf(&b, "Current actionable repair targets: %s. Repair these current rows or structured ToolRepair targets before widening scope. ",
+			renderToolRepairTargetsInline(currentTargets, 3, 4))
+	}
+	b.WriteString("Do not re-emit a full consolidated evidence set just to change the cumulative audit tally.\n")
+	if audit.recovered != 0 || audit.ungrounded != 0 || auditOnly != 0 {
+		fmt.Fprintf(&b, "Cumulative repair audit: %d recovered / %d ungrounded still visible in the buffer",
+			audit.recovered, audit.ungrounded)
+		if auditOnly > 0 {
+			fmt.Fprintf(&b, "; %d covered/non-actionable cumulative row(s) omitted from repair guidance", auditOnly)
+		}
+		b.WriteString(". This is audit context; next-step repair guidance comes from current item rows above and structured ToolRepair targets only.\n")
 	}
 	if shouldNudgeDiagramRoleHints(ctx, items) {
 		b.WriteString("Config-precedence task detected: when an evidence item represents code defaults, a config-file layer (YAML/JSON/TOML/INI/etc.), a runtime binding layer, or a high-precedence override layer, set `diagram_role_hint` on that item so downstream diagram rendering can reuse validated structure instead of inferring roles from prose.\n")
@@ -2049,9 +2057,9 @@ func emitEvidenceSourceCount(items []types.EvidenceItem) int {
 	return len(sources)
 }
 
-func activeEmitEvidenceRepairTally(items []types.EvidenceItem) (active emitEvidenceGroundingTally, auditOnly int) {
+func cumulativeEmitEvidenceRepairAuditTally(items []types.EvidenceItem) (audit emitEvidenceGroundingTally, coveredOrNonActionable int) {
 	if len(items) == 0 {
-		return active, 0
+		return audit, 0
 	}
 	groundedByFile := make(map[string][]groundedRepairCarrier)
 	for _, item := range items {
@@ -2084,17 +2092,17 @@ func activeEmitEvidenceRepairTally(items []types.EvidenceItem) (active emitEvide
 		if item.Source == "" || item.LineStart <= 0 ||
 			evidenceRepairShouldDrop(item) ||
 			evidenceRepairCoveredByGroundedSibling(item, file, item.LineStart, groundedByFile[file]) {
-			auditOnly++
+			coveredOrNonActionable++
 			continue
 		}
 		switch item.GroundingStatus {
 		case types.GroundingRecovered:
-			active.recovered++
+			audit.recovered++
 		case types.GroundingUngrounded:
-			active.ungrounded++
+			audit.ungrounded++
 		}
 	}
-	return active, auditOnly
+	return audit, coveredOrNonActionable
 }
 
 func shouldNudgeDiagramRoleHints(ctx *types.BusContext, items []types.EvidenceItem) bool {
@@ -2286,6 +2294,36 @@ func renderEmitEvidenceRepairToolHint(targets []types.ToolRepairTarget) string {
 	}
 	b.WriteString("Do not spend read_file budget on non-repairable illustrative/context-only mentions.")
 	return b.String()
+}
+
+func renderToolRepairTargetsInline(targets []types.ToolRepairTarget, maxFiles, maxLines int) string {
+	if len(targets) == 0 {
+		return "none"
+	}
+	if maxFiles <= 0 || maxFiles > len(targets) {
+		maxFiles = len(targets)
+	}
+	parts := make([]string, 0, maxFiles+1)
+	for _, target := range targets[:maxFiles] {
+		file := strings.TrimSpace(target.File)
+		if file == "" {
+			file = "<unknown>"
+		}
+		lines := renderToolRepairLineList(target.Lines, maxLines)
+		if lines == "" {
+			parts = append(parts, file)
+			continue
+		}
+		lineWord := "lines"
+		if len(target.Lines) == 1 {
+			lineWord = "line"
+		}
+		parts = append(parts, fmt.Sprintf("%s near %s %s", file, lineWord, lines))
+	}
+	if len(targets) > maxFiles {
+		parts = append(parts, fmt.Sprintf("%d more file(s)", len(targets)-maxFiles))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func renderToolRepairLineList(lines []int, max int) string {

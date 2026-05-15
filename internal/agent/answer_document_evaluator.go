@@ -4721,16 +4721,18 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		HintKey:       fmt.Sprintf("answer_doc.missing_document.%d", e.retriesUsed),
 		// Instruct the model to REUSE its prior prose rather than rewrite it.
 		// Without this directive, the second pass tends to produce a
-		// compressed paraphrase instead of copying the richer draft into
-		// the `summary` field — a measurable shrinkage of answer quality.
+		// compressed paraphrase instead of carrying the richer draft into
+		// the structured answer — a measurable shrinkage of answer quality.
 		Hint: "The answer must be delivered through the `emit_answer_document` tool call — text " +
 			"written outside it does not ship. You already drafted the answer in your previous " +
-			"message; treat that draft as your final text. Call `emit_answer_document` now and copy " +
-			"your previous answer VERBATIM into the `summary` field. Do not trim for length unless " +
-			"a prior tool rejection named an active summary cap. Derive the remaining required structured fields (citations[] " +
-			"and any other block payloads the user-section's Required Answer Blocks list calls for) " +
-			"from the same draft. Do NOT rewrite, compress, or paraphrase the content — the richness " +
-			"of the original draft is the answer.",
+			"message; treat that draft as your final text. Call `emit_answer_document` now and move " +
+			"the draft's user-visible content into the appropriate blocks while preserving its wording. " +
+			"Do not trim for length unless a prior tool rejection named an active summary cap. If the " +
+			"draft contains a fenced diagram and you also emit a `diagram` block with the same diagram " +
+			"body, put that body in `diagram.body` and do not duplicate the same fence inside `summary`. " +
+			"Derive the remaining required structured fields (citations[] and any other block payloads " +
+			"the user-section's Required Answer Blocks list calls for) from the same draft. Do NOT " +
+			"rewrite, compress, or paraphrase the content — the richness of the original draft is the answer.",
 	}
 }
 

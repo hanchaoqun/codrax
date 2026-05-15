@@ -217,6 +217,60 @@ func TestContextPressureDirective_UnknownAgentFallback(t *testing.T) {
 	}
 }
 
+func TestRequiredNoToolAnswerDraftCompactedInHistoryOutsideFinalizer(t *testing.T) {
+	content := strings.Join([]string{
+		"## Draft Answer",
+		"",
+		strings.Repeat("This is an answer paragraph. ", 80),
+		"",
+		"```mermaid",
+		"sequenceDiagram",
+		"    A->>B: call",
+		"```",
+	}, "\n")
+	resp := llm.Response{Content: content}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+
+	if !shouldCompactNoToolAnswerDraftHistory(ctx, resp) {
+		t.Fatal("explore-stage answer-like prose without tool calls should be compacted before history replay")
+	}
+	history := contentForNoToolHistory(ctx, resp)
+	if history == content || strings.Contains(history, "sequenceDiagram") {
+		t.Fatalf("history should keep a compact protocol placeholder, got:\n%s", history)
+	}
+	if !strings.Contains(history, "protocol-only text omitted") {
+		t.Fatalf("history placeholder should explain protocol omission, got:\n%s", history)
+	}
+}
+
+func TestRequiredNoToolAnswerDraftPreservedForFinalizer(t *testing.T) {
+	content := "## Draft Answer\n\n" + strings.Repeat("finalizer prose ", 100)
+	resp := llm.Response{Content: content}
+	ctx := &types.AgentContext{Stage: types.StageFinalize}
+
+	if shouldCompactNoToolAnswerDraftHistory(ctx, resp) {
+		t.Fatal("finalizer retries need the prior prose draft for emit_answer_document correction")
+	}
+	if got := contentForNoToolHistory(ctx, resp); got != content {
+		t.Fatalf("finalizer draft should be preserved, got:\n%s", got)
+	}
+}
+
+func TestFinalizerNoToolHistoryPreservesOnlyFirstRichDraft(t *testing.T) {
+	content := "## Draft Answer\n\n" + strings.Repeat("finalizer prose ", 100)
+	resp := llm.Response{Content: content}
+	ctx := &types.AgentContext{Stage: types.StageFinalize}
+
+	first, preserved := contentForNoToolHistoryWithFinalizerDraftBudget(ctx, resp, 0)
+	if first != content || preserved != 1 {
+		t.Fatalf("first finalizer draft should be preserved, preserved=%d content=%q", preserved, first)
+	}
+	second, preserved := contentForNoToolHistoryWithFinalizerDraftBudget(ctx, resp, preserved)
+	if second == content || !strings.Contains(second, "protocol-only text omitted") || preserved != 1 {
+		t.Fatalf("repeated finalizer draft should be compacted without increment, preserved=%d content=%q", preserved, second)
+	}
+}
+
 // TestContextPressureForbiddenPatterns_PerAgentExtension pins the
 // shared-core + per-agent-extension shape of the Do-NOT list. The
 // shared core applies to every agent; the extensions call out
@@ -687,6 +741,87 @@ func (transientPartialLLM) MaxContextTokens() int         { return 128000 }
 func (transientPartialLLM) MaxOutputTokens() int          { return 4096 }
 func (transientPartialLLM) RequestTimeout() time.Duration { return 0 }
 func (transientPartialLLM) RetryMaxAttempts() int         { return 0 }
+
+type protocolSoftStopLLM struct {
+	calls int
+}
+
+func (l *protocolSoftStopLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	l.calls++
+	if l.calls == 1 {
+		return llm.Response{Content: "## Premature answer\n\n" + strings.Repeat("This stage is trying to answer in prose. ", 40)}, nil
+	}
+	return llm.Response{}, nil
+}
+
+func (*protocolSoftStopLLM) ModelID() string               { return "protocol-softstop" }
+func (*protocolSoftStopLLM) MaxContextTokens() int         { return 128000 }
+func (*protocolSoftStopLLM) MaxOutputTokens() int          { return 4096 }
+func (*protocolSoftStopLLM) RequestTimeout() time.Duration { return 0 }
+func (*protocolSoftStopLLM) RetryMaxAttempts() int         { return 0 }
+
+type protocolSoftStopEvaluator struct {
+	observeCalls   int
+	shouldStopSeen int
+}
+
+func (e *protocolSoftStopEvaluator) BuildInitialInstruction(_ *types.AgentContext, _ *skill.Config) string {
+	return ""
+}
+
+func (e *protocolSoftStopEvaluator) ShouldStop(_ llm.Response, _ int) bool {
+	e.shouldStopSeen++
+	return true
+}
+
+func (e *protocolSoftStopEvaluator) ParseOutput(_ *types.AgentContext, _ []llm.Message, _ []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {
+	return &StageOutput{}, nil
+}
+
+func (e *protocolSoftStopEvaluator) DetermineMissingPiece(_ *types.AgentContext, _ *StageOutput) types.MissingPiece {
+	return types.MissingNone
+}
+
+func (e *protocolSoftStopEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
+	if obs.Phase != PhaseSoftStop {
+		return LoopSignal{}
+	}
+	e.observeCalls++
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       "test.protocol_softstop",
+		Hint:          "Use the stage's structured tool call instead of prose.",
+	}
+}
+
+func TestProtocolStagesRouteNoToolProseThroughLoopControllerBeforeShouldStop(t *testing.T) {
+	for _, stage := range []types.PipelineStage{types.StageExplore, types.StageExtract} {
+		t.Run(string(stage), func(t *testing.T) {
+			llmStub := &protocolSoftStopLLM{}
+			eval := &protocolSoftStopEvaluator{}
+			b := NewBaseAgent(types.AgentExplorer, &Dependencies{
+				LLM:           llmStub,
+				MaxIterations: 2,
+			}, eval)
+			out, err := b.Execute(&types.AgentContext{
+				Stage:   stage,
+				Mutable: types.NewMutableState(""),
+			}, &skill.Config{})
+			if err != nil {
+				t.Fatalf("Execute returned error: %v", err)
+			}
+			if out == nil {
+				t.Fatal("Execute returned nil output")
+			}
+			if eval.observeCalls != 1 {
+				t.Fatalf("no-tool prose in %s must reach soft-stop controller before ShouldStop, observeCalls=%d", stage, eval.observeCalls)
+			}
+			if llmStub.calls != 2 {
+				t.Fatalf("controller hint should trigger one continuation, calls=%d", llmStub.calls)
+			}
+		})
+	}
+}
 
 func TestBaseAgent_FinalizeTransientErrorDoesNotSynthesizePartialSummary(t *testing.T) {
 	eval := &stubEvaluator{}
