@@ -106,29 +106,18 @@ const (
 	// answer_summary_body_consistency.
 	ViolSelfContradiction ViolationKind = "self_contradiction"
 
-	// ViolExternalArtifactUnderdecoded fires when the user attached
-	// an external artifact (runtime log via --log / --log-text /
-	// REPL /log; perf trace via --htrace / --atrace; future
-	// attached config dumps), the system successfully triaged it
-	// into a structured bundle (LogBundle / PerfBundle on
-	// MutableState), but the final answer references too few of
-	// the bundle-extracted fields. The triage layer's job is to
-	// turn opaque text into a typed payload (Errors[].Type, Frame
-	// .Symbol, Signal name, Stall.symbol, Jank.trigger_span,
-	// Startup.mode, etc.); the answer's job is to DECODE / EXPLAIN
-	// these fields for the operator. Without this gate, the
-	// finalizer can ship an answer that names a file:line from
-	// repo code while completely ignoring the panic signal address,
-	// the goroutine context, or the parameter values literally
-	// printed in the trace — i.e. all the per-incident
-	// diagnostic content the user pasted in.
+	// ViolExternalArtifactUnderdecoded fires when a required runtime
+	// artifact answer lacks the typed answer carrier for the observed
+	// artifact lane. The gate reads AnswerDocumentV2/support-lane
+	// structure only: FacetObservedArtifactFact plus
+	// ClaimExternalObservation. It deliberately does not scan rendered
+	// answer prose for log/perf tokens, runtime messages, or exception
+	// type strings.
 	//
-	// Trigger: structural (Mutable.LogTriage() != nil OR
-	// Mutable.PerfTrace() != nil), NOT keyword/intent. Generalises
-	// to any future "extract structured payload from user-attached
-	// artifact" surface; new triage kinds plug in by appending to
-	// the bundle-token-collection helper, not by editing skill
-	// prompts. SuspectedRoot: external_artifact_decoded.
+	// Trigger: structural support/facet plan says the observed
+	// artifact lane is answer-bearing, but the emitted document has no
+	// matching typed carrier. SuspectedRoot:
+	// answer_document.observed_artifact_fact.
 	ViolExternalArtifactUnderdecoded ViolationKind = "external_artifact_underdecoded"
 
 	// ViolAuthorityOverreach fires when the rendered answer cites

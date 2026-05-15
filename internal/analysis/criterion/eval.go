@@ -969,195 +969,33 @@ func compareInt(n int, op string, threshold int) bool {
 	return false
 }
 
-// defaultExternalArtifactFloor is the per-process default ratio
-// CritExternalArtifactDecoded enforces when no explicit threshold is
-// supplied via Criterion.Expr. Mutated by SetExternalArtifactFloor
-// at startup from the codrax.yaml override.
+// defaultExternalArtifactFloor is retained only for runtime-config
+// compatibility with older codrax.yaml files. G63 moved external
+// artifact completeness out of DraftAnswer token-density checks and
+// into the AnswerDocumentV2 typed carrier contract
+// (`observed_artifact_fact` + `external_observation`).
 var defaultExternalArtifactFloor = 0.4
 
-// SetExternalArtifactFloor lets cmd/root.go thread the
-// codrax.yaml :: cgec_external_artifact_decoded_floor knob into the
-// criterion package without making the evaluator import the runtime
-// settings type. Negative / zero values are ignored so a malformed
-// override falls back to the production default.
+// SetExternalArtifactFloor keeps the legacy configuration knob
+// harmlessly accepted. The evaluator no longer reads the value because
+// answer-text token floors are not an allowed hard/soft control signal.
 func SetExternalArtifactFloor(f float64) {
 	if f > 0 {
 		defaultExternalArtifactFloor = f
 	}
 }
 
-// evalExternalArtifactDecoded fires when an external artifact
-// (LogBundle / PerfBundle on Env) was successfully triaged AND the
-// DraftAnswer text references at least `floor` fraction of the
-// bundle-extracted non-path tokens. Trigger discipline is structural
-// (env.LogTriage != nil OR env.PerfTrace != nil); no keyword
-// matching, no Intent classification.
-//
-// Vacuously satisfied when no bundle is attached or both bundles
-// produced zero decodable tokens — read-mode runs without --log /
-// --htrace see this criterion as a no-op so the gate stays
-// byte-identical for every existing eval case.
-//
-// Threshold precedence: Expr (criterion-level override; lets tests
-// pin a value without touching package state) > defaultExternalArtifactFloor
-// (yaml-driven, default 0.4).
+// evalExternalArtifactDecoded is a compatibility no-op. The criterion
+// kind remains registered so old TaskNode.SuccessCriteria and
+// codrax.yaml deployments do not fail as "unknown kind", but it must
+// not inspect model-authored answer text. Runtime artifact coverage is
+// enforced in orchestrator contract checks via typed AnswerDocumentV2
+// fields and support lanes.
 func evalExternalArtifactDecoded(expr string, env Env) Result {
-	floor := defaultExternalArtifactFloor
-	if s := strings.TrimSpace(expr); s != "" {
-		if f, err := strconv.ParseFloat(s, 64); err == nil && f > 0 {
-			floor = f
-		}
-	}
-	bundleTokens := collectExternalArtifactTokens(env.LogTriage, env.PerfTrace)
-	if len(bundleTokens) == 0 {
+	if env.LogTriage == nil && env.PerfTrace == nil {
 		return Result{Satisfied: true,
-			Detail: "no external artifact attached / no decodable tokens — vacuously satisfied"}
+			Detail: "no external artifact attached — compatibility criterion satisfied"}
 	}
-	lcAnswer := strings.ToLower(env.DraftAnswer)
-	matched := 0
-	var missing []string
-	for _, tok := range bundleTokens {
-		lc := strings.ToLower(tok)
-		if lc == "" {
-			continue
-		}
-		if strings.Contains(lcAnswer, lc) {
-			matched++
-			continue
-		}
-		if len(missing) < 8 {
-			missing = append(missing, tok)
-		}
-	}
-	ratio := float64(matched) / float64(len(bundleTokens))
-	if ratio >= floor {
-		return Result{Satisfied: true,
-			Detail: fmt.Sprintf("answer references %d/%d (%.0f%%) of triaged artifact tokens (≥ floor %.0f%%)",
-				matched, len(bundleTokens), ratio*100, floor*100)}
-	}
-	rationale := fmt.Sprintf(
-		"answer references only %d/%d (%.0f%%) of triaged artifact tokens — need ≥ %.0f%%. Decode at least these into the answer summary or body (citation_ref=-1 for external sources): %s",
-		matched, len(bundleTokens), ratio*100, floor*100,
-		strings.Join(missing, ", "),
-	)
-	return Result{Satisfied: false, Detail: rationale}
-}
-
-// collectExternalArtifactTokens enumerates the non-file-path
-// "answer-bearing" tokens from any attached triage bundle. Returns a
-// deduplicated slice (lower-cased keys, original-case display)
-// suitable for substring matching against the DraftAnswer.
-//
-// Token sources:
-//   - LogBundle: Meta.Signals (panic / crash / oom / timeout / ...),
-//     Errors[].Type (exception class names), Errors[].Frames[].Func
-//     (stack symbols), Errors[].Frames[].Pkg (package prefixes),
-//     Errors[].Cause-chain recursion (depth-capped at 5).
-//   - PerfBundle: Meta.Signals (jank / cold-start-slow / main-thread-stall /
-//     ...), Janks[].TriggerSpan + Reason, Stalls[].Symbol + Kind,
-//     Startup.Mode (cold / warm / hot).
-//
-// Filtering:
-//   - File-path tokens are excluded (file paths participate in
-//     citation grounding via a separate channel; the ResolvedFiles
-//     list already flows into Phase1Ranking). Detection: looksLikeFilePath
-//     uses a trailing-extension probe (`.go` / `.py` / `.java` / ...),
-//     NOT a naive "contains /" check — Go package paths
-//     (`github.com/hanchaoqun/...`) and Java FQCNs
-//     (`java.lang.NullPointerException`) ARE legitimate answer-bearing
-//     tokens that earlier path-only filters incorrectly dropped.
-//   - Tokens shorter than 2 characters are dropped (avoid noise like
-//     "go" / "rb" matching every Go function name).
-//   - Cause depth is capped at 5 (mirrors LogBundle.MaxCauseDepth).
-func collectExternalArtifactTokens(log *types.LogBundle, perf *types.PerfBundle) []string {
-	seen := make(map[string]bool)
-	out := make([]string, 0, 16)
-	add := func(tok string) {
-		t := strings.TrimSpace(tok)
-		if len(t) < 2 {
-			return
-		}
-		if looksLikeFilePath(t) {
-			return
-		}
-		key := strings.ToLower(t)
-		if seen[key] {
-			return
-		}
-		seen[key] = true
-		out = append(out, t)
-	}
-	if log != nil {
-		for _, sig := range log.Meta.Signals {
-			add(string(sig))
-		}
-		var walk func(*types.LogError, int)
-		walk = func(e *types.LogError, depth int) {
-			if e == nil || depth > 5 {
-				return
-			}
-			add(e.Type)
-			for _, f := range e.Frames {
-				add(f.Func)
-				add(f.Pkg)
-			}
-			walk(e.Cause, depth+1)
-		}
-		for i := range log.Errors {
-			walk(&log.Errors[i], 0)
-		}
-	}
-	if perf != nil {
-		for _, sig := range perf.Meta.Signals {
-			add(sig)
-		}
-		for _, j := range perf.Janks {
-			add(j.TriggerSpan)
-			add(j.Reason)
-		}
-		for _, s := range perf.Stalls {
-			add(s.Symbol)
-			add(s.Kind)
-		}
-		if perf.Startup != nil {
-			add(perf.Startup.Mode)
-		}
-	}
-	return out
-}
-
-// fileExtensionTokenSuffixes is the closed list of file-extension
-// suffixes collectExternalArtifactTokens uses to distinguish a file
-// path from a code-namespace token. The set covers the languages
-// codrax's repomap supports plus the canonical config / docs
-// extensions an attached log might mention.
-//
-// Pattern: token ends with `.<ext>` AND the part after the last `.`
-// is in this set → treat as file path → drop. Anything else
-// (Go package paths like `github.com/foo/bar`, Java FQCNs like
-// `java.lang.NullPointerException`, plain symbol names) falls
-// through and stays in the answer-bearing token set.
-var fileExtensionTokenSuffixes = map[string]bool{
-	"go": true, "py": true, "pyi": true, "java": true, "kt": true, "kts": true,
-	"js": true, "jsx": true, "mjs": true, "ts": true, "tsx": true, "ets": true,
-	"rs": true, "c": true, "h": true, "cc": true, "cpp": true, "cxx": true,
-	"hpp": true, "hh": true, "rb": true, "swift": true, "cj": true,
-	"json": true, "json5": true, "yaml": true, "yml": true, "toml": true,
-	"md": true, "txt": true, "ini": true, "xml": true, "html": true, "css": true,
-	"sh": true, "bash": true, "zsh": true, "make": true, "mk": true,
-	"sql": true, "proto": true, "lua": true, "log": true,
-}
-
-// looksLikeFilePath reports whether tok ends with a known
-// file-extension suffix (case-insensitive). Used by
-// collectExternalArtifactTokens to drop file paths without
-// false-dropping Go package paths / Java FQCNs that contain `/`
-// or `.` but are NOT files.
-func looksLikeFilePath(tok string) bool {
-	dot := strings.LastIndex(tok, ".")
-	if dot < 0 || dot == len(tok)-1 {
-		return false
-	}
-	ext := strings.ToLower(tok[dot+1:])
-	return fileExtensionTokenSuffixes[ext]
+	return Result{Satisfied: true,
+		Detail: "external artifact coverage is enforced by typed AnswerDocumentV2 observed_artifact_fact/external_observation carriers"}
 }

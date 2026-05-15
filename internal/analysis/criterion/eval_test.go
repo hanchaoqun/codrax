@@ -1,7 +1,6 @@
 package criterion
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -219,11 +218,12 @@ func TestEval_ExternalArtifactDecoded_VacuousWithoutBundle(t *testing.T) {
 	}
 }
 
-// TestEval_ExternalArtifactDecoded_LogBundleHit verifies the
-// positive path: a LogBundle with extracted Errors[].Type +
-// Frames[].Func tokens, and a draft answer that mentions enough of
-// them, satisfies the criterion.
-func TestEval_ExternalArtifactDecoded_LogBundleHit(t *testing.T) {
+// TestEval_ExternalArtifactDecoded_LogBundleCompatibility verifies
+// the post-G63 compatibility behavior: this criterion kind stays
+// registered for old success-criteria payloads, but it must not
+// inspect the model-authored DraftAnswer text. Typed artifact coverage
+// is enforced by the orchestrator's AnswerDocumentV2 carrier check.
+func TestEval_ExternalArtifactDecoded_LogBundleCompatibility(t *testing.T) {
 	bundle := &types.LogBundle{
 		Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic, types.SignalCrash}},
 		Errors: []types.LogError{{
@@ -234,45 +234,16 @@ func TestEval_ExternalArtifactDecoded_LogBundleHit(t *testing.T) {
 			},
 		}},
 	}
-	draft := "Stack shows panic + crash + SIGSEGV in buildAnalysisIR called from ParseOutput in package agent."
-	env := Env{DraftAnswer: draft, LogTriage: bundle}
+	env := Env{DraftAnswer: "intentionally unrelated prose", LogTriage: bundle}
 	r := Eval(types.Criterion{Kind: string(KindExternalArtifactDecoded)}, env)
 	if !r.Satisfied {
-		t.Fatalf("majority of bundle tokens referenced should satisfy; got %q", r.Detail)
+		t.Fatalf("compatibility criterion must not fail on DraftAnswer text; got %q", r.Detail)
 	}
 }
 
-// TestEval_ExternalArtifactDecoded_LogBundleMiss verifies the
-// failure path: a draft that ignores almost every bundle token
-// fails the criterion AND the rationale lists the missing tokens
-// so the finalizer's retry hint can name them verbatim.
-func TestEval_ExternalArtifactDecoded_LogBundleMiss(t *testing.T) {
-	bundle := &types.LogBundle{
-		Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
-		Errors: []types.LogError{{
-			Type: "SIGSEGV",
-			Frames: []types.LogFrame{
-				{Func: "buildAnalysisIR", Pkg: "agent"},
-				{Func: "ParseOutput", Pkg: "agent"},
-				{Func: "OtherSym", Pkg: "different"},
-			},
-		}},
-	}
-	draft := "the file analyzer.go has a problem"
-	env := Env{DraftAnswer: draft, LogTriage: bundle}
-	r := Eval(types.Criterion{Kind: string(KindExternalArtifactDecoded)}, env)
-	if r.Satisfied {
-		t.Fatalf("draft missing every bundle token must fail; got %q", r.Detail)
-	}
-	if !strings.Contains(r.Detail, "SIGSEGV") {
-		t.Errorf("rationale must enumerate at least one missing token (SIGSEGV); got %q", r.Detail)
-	}
-}
-
-// TestEval_ExternalArtifactDecoded_PerfBundleHit covers the
-// PerfBundle branch — same logic, different bundle shape (jank
-// trigger spans + stall symbols + startup mode).
-func TestEval_ExternalArtifactDecoded_PerfBundleHit(t *testing.T) {
+// TestEval_ExternalArtifactDecoded_PerfBundleCompatibility covers the
+// perf branch of the same compatibility no-op.
+func TestEval_ExternalArtifactDecoded_PerfBundleCompatibility(t *testing.T) {
 	bundle := &types.PerfBundle{
 		Meta:  types.PerfMeta{Signals: []string{"jank", "main-thread-stall"}},
 		Janks: []types.PerfJank{{TriggerSpan: "RecyclerView.Bind", Reason: "io"}},
@@ -281,94 +252,22 @@ func TestEval_ExternalArtifactDecoded_PerfBundleHit(t *testing.T) {
 		},
 		Startup: &types.PerfStartup{Mode: "cold"},
 	}
-	draft := "Cold-start jank: main-thread-stall in RecyclerView.Bind triggered by io waiting for DiskCache.read."
-	env := Env{DraftAnswer: draft, PerfTrace: bundle}
+	env := Env{DraftAnswer: "intentionally unrelated prose", PerfTrace: bundle}
 	r := Eval(types.Criterion{Kind: string(KindExternalArtifactDecoded)}, env)
 	if !r.Satisfied {
-		t.Fatalf("majority of perf-bundle tokens referenced should satisfy; got %q", r.Detail)
+		t.Fatalf("compatibility criterion must not fail on DraftAnswer text; got %q", r.Detail)
 	}
 }
 
-// TestLooksLikeFilePath_TokenClassification pins the
-// answer-bearing-vs-file distinction collectExternalArtifactTokens
-// uses. Pre-2026-05-02 the filter was "contains /\\" which dropped
-// legitimate Go package paths and Java FQCNs alongside file paths,
-// silently shrinking the answer-bearing token set on every panic
-// trace whose Frame.Pkg looked like "github.com/...".
-func TestLooksLikeFilePath_TokenClassification(t *testing.T) {
-	cases := []struct {
-		name string
-		tok  string
-		want bool
-	}{
-		// File paths — drop.
-		{name: "go file", tok: "internal/agent/analyzer.go", want: true},
-		{name: "py file", tok: "src/foo.py", want: true},
-		{name: "java file with package dir", tok: "com/example/Foo.java", want: true},
-		{name: "ets file", tok: "Index.ets", want: true},
-		{name: "json5 file", tok: "oh-package.json5", want: true},
-		// Code-namespace tokens — keep.
-		{name: "Go package path", tok: "github.com/hanchaoqun/codrax/internal/agent", want: false},
-		{name: "Java FQCN", tok: "java.lang.NullPointerException", want: false},
-		{name: "Python FQN", tok: "django.db.models.Model", want: false},
-		{name: "plain symbol", tok: "buildAnalysisIR", want: false},
-		{name: "dotted simple ident", tok: "foo.bar", want: false},
-		{name: "trailing dot", tok: "foo.", want: false},
-		{name: "no dot", tok: "panic", want: false},
-		{name: "extension uppercase", tok: "Index.ETS", want: true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := looksLikeFilePath(tc.tok)
-			if got != tc.want {
-				t.Errorf("looksLikeFilePath(%q) = %v, want %v", tc.tok, got, tc.want)
-			}
-		})
-	}
-}
-
-// TestCollectExternalArtifactTokens_KeepsGoPackagePath: regression
-// guard that the Pkg field of a Go LogFrame survives token
-// collection — pre-fix the path-only filter dropped it because it
-// contained `/`.
-func TestCollectExternalArtifactTokens_KeepsGoPackagePath(t *testing.T) {
-	bundle := &types.LogBundle{
-		Errors: []types.LogError{{
-			Type: "SIGSEGV",
-			Frames: []types.LogFrame{
-				{Func: "buildAnalysisIR", Pkg: "github.com/hanchaoqun/codrax/internal/agent"},
-			},
-		}},
-	}
-	toks := collectExternalArtifactTokens(bundle, nil)
-	hasPkg := false
-	for _, tok := range toks {
-		if tok == "github.com/hanchaoqun/codrax/internal/agent" {
-			hasPkg = true
-			break
-		}
-	}
-	if !hasPkg {
-		t.Errorf("Go package path Pkg must survive token collection (was dropped pre-2026-05-02); got %+v", toks)
-	}
-}
-
-// TestEval_ExternalArtifactDecoded_ExprOverridesFloor pins the
-// per-criterion threshold override path: callers can pass
-// Expr="0.5" to enforce a custom floor for a specific test
-// without mutating package state.
-func TestEval_ExternalArtifactDecoded_ExprOverridesFloor(t *testing.T) {
+// TestEval_ExternalArtifactDecoded_ExprIgnoredCompatibly ensures the
+// legacy threshold expression cannot revive token-density control.
+func TestEval_ExternalArtifactDecoded_ExprIgnoredCompatibly(t *testing.T) {
 	bundle := &types.LogBundle{
 		Errors: []types.LogError{{Type: "SIGSEGV"}},
 	}
-	rPass := Eval(types.Criterion{Kind: string(KindExternalArtifactDecoded), Expr: "0.5"},
-		Env{DraftAnswer: "SIGSEGV crash happened", LogTriage: bundle})
-	if !rPass.Satisfied {
-		t.Errorf("0.5 floor with 1/1 token referenced must satisfy; got %q", rPass.Detail)
-	}
-	rFail := Eval(types.Criterion{Kind: string(KindExternalArtifactDecoded), Expr: "0.5"},
+	r := Eval(types.Criterion{Kind: string(KindExternalArtifactDecoded), Expr: "1.0"},
 		Env{DraftAnswer: "no signal mentioned at all", LogTriage: bundle})
-	if rFail.Satisfied {
-		t.Errorf("draft missing the only token must fail at 0.5 floor; got %q", rFail.Detail)
+	if !r.Satisfied {
+		t.Errorf("legacy Expr floor must be ignored by compatibility evaluator; got %q", r.Detail)
 	}
 }

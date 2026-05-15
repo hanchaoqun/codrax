@@ -1995,21 +1995,14 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// threading) rather than ambiguous silence.
 	EmitReconcileSummary(ctxMutable(ctx))
 
-	// CritExternalArtifactDecoded (2026-05-02) is a STRUCTURAL gate
-	// that fires post-finalize from orchestrator/contract_check.go's
-	// runExternalArtifactDecodedCheck — it reads bus.Mutable.LogTriage()
-	// / PerfTrace() directly, so there is no need (and no benefit) to
-	// register it as an AcceptanceTest. Pre-2026-05-02 the analyzer
-	// did append it to AcceptanceTests, but contract.checkAcceptance
-	// has a closed switch over Criterion Kinds and treated the new
-	// kind as "unknown acceptance test kind" — emitting ViolAcceptance
-	// (strict by default) on every emit_answer_document call. The
-	// LLM cannot resolve a configuration error like that, so the
-	// finalizer entered a multi-minute retry storm (logtri_go eval
-	// went from 3-min to 12-min wall-clock with 9× more reads, all
-	// chasing the unsolvable "unknown kind" error). Keep the
-	// structural trigger in the orchestrator only; AnswerContract
-	// stays untouched.
+	// CritExternalArtifactDecoded stays out of AcceptanceTests. The
+	// current runtime-artifact gate lives in the orchestrator contract
+	// layer and consumes typed AnswerDocumentV2 carriers
+	// (`observed_artifact_fact` + `external_observation`), not answer
+	// prose. Pre-2026-05-02 the analyzer appended this criterion to
+	// AcceptanceTests and contract.checkAcceptance treated the kind as
+	// unknown, causing unsolvable finalizer retries. Keep the
+	// structural trigger outside the analyzer-authored contract.
 
 	return ir, nil
 }

@@ -128,7 +128,7 @@ type ScoredViolation struct {
 	//   - "contract_check" — analysis/contract.Check (citation,
 	//     must_include / must_exclude, acceptance, family shape)
 	//   - "self_consistency" — self_consistency_reviewer V2 dispatch
-	//   - "external_artifact" — runExternalArtifactDecodedCheck
+	//   - "external_artifact" — observed-artifact typed carrier check
 	//   - "authority" — runAuthorityOverreachCheck
 	//
 	// Cross-layer rendering groups by Layer so the LLM sees all

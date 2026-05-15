@@ -207,8 +207,8 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolDeclaredCountDrift: true, // orchestrator/contract_check.go finalize-stage view oracle
 		// Commit 62 — answer-prose self-contradiction.
 		ViolSelfContradiction: true, // orchestrator/contract_check.go runSelfConsistencyReview
-		// 2026-05-02 — external-artifact decode shortfall.
-		ViolExternalArtifactUnderdecoded: true, // orchestrator/contract_check.go runExternalArtifactDecodedCheck
+		// 2026-05-02 / G63 — observed-artifact typed carrier shortfall.
+		ViolExternalArtifactUnderdecoded: true, // orchestrator/contract_check.go runExternalArtifactTypedCoverageCheck
 		// 2026-05-02 — AuthorityCeiling axis overreach detector.
 		ViolAuthorityOverreach: true, // orchestrator/contract_check.go runAuthorityOverreachCheck
 		// Block 1 architecture overhaul (2026-05-02) — reviewer-side

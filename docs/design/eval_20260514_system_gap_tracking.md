@@ -82,7 +82,7 @@ created.
 | E20260514-G60 | `logtri_go` Batch 4b replay | Open / follow-up | The case passed, but semantic quality still reported low-confidence evidence-density concerns: current-code path and uncertainty-boundary facets were substantively present but not structurally anchored densely enough. | Diagnostic answer facets, decision blocks, caveats, and typed support lanes do not yet share a deterministic facet-anchor compiler. Soft reviewers can see the content while structural richness metrics still count missing anchors. | Compile diagnostic facet anchors from typed lanes (`observed_artifact_fact`, current mapped anchors, uncertainty boundary, current-status decision) into block/item/facet metadata before finalization. Keep reviewer feedback advisory unless a typed required facet truly lacks support. |
 | E20260514-G61 | `logtri_go` Batch 4b replay | Fixed Batch 4c / prompt-contract replay target | Typed `current_status_verdict` rendered correctly, but the decision prose could still include a second, conflicting status token because the enum semantics did not distinguish "current comparable risk still visible" from "exact old-build branch not fully provable." | The typed lane existed, but its value semantics were underspecified, and the generic decision checklist still taught "verdict at the start of text" even when a typed verdict field was required. The model could choose `not_enough_evidence` for historical branch uncertainty while prose argued the current risk was still present. | Clarified the typed verdict contract in finalizer instructions, required-block rationale, and schema text; current-status checklist wording now makes `current_status_verdict` the only canonical status channel and keeps `text` as rationale only. |
 | E20260514-G62 | `logtri_go` Batch 4c replay | Fixed Batch 4d / pre-emit typed-lane test | A current-status decision block also carried inactive `error_granularity_verdict=not_enough_evidence`, so the renderer displayed two typed verdicts even though the request was not a failure-scope granularity question. | Typed decision verdict fields were independently valid on `kind=decision`, but there was no lane-activation gate preventing an inactive verdict carrier from sharing an unrelated decision surface. | Added a pre-emit typed-lane isolation gate: `error_granularity_verdict` is allowed only when the typed error-granularity contract is active, and `current_status_verdict` is allowed only when the typed current-status diagnostic contract is active. This uses only typed view/profile fields and block enums, never prose. |
-| E20260514-G63 | `logtri_go` Batch 4e replay | Open / red-line follow-up | G59 replay passed, but the repair loop was triggered by "answer references only 2/8 triaged artifact tokens" and "required runtime error type missing" checks over rendered answer text. The model then explicitly optimized for tokens in the summary text. | Runtime artifact completeness is still partly enforced by keyword-style matching over model-authored answer prose (`DraftAnswer`) against triage tokens/error type strings. This violates the typed-carrier boundary and creates prompt pressure to stuff artifact tokens instead of proving structured observations. | Replace artifact-token text-density checks with typed artifact coverage carriers: stable log/perf observation ids, observation roles, error-type/message ids, frame ids, and answer-document `claim_uses`/item refs that cite those ids. Until that carrier exists, keep prose-token density advisory only; hard gates must consume typed ids/enums, not rendered answer text. |
+| E20260514-G63 | `logtri_go` Batch 4e replay | Fixed Batch 4f / focused tests | G59 replay passed, but the repair loop was triggered by "answer references only 2/8 triaged artifact tokens" and "required runtime error type missing" checks over rendered answer text. The model then explicitly optimized for tokens in the summary text. | Runtime artifact completeness was partly enforced by keyword-style matching over model-authored answer prose (`DraftAnswer`) against triage tokens/error type strings. This violated the typed-carrier boundary and created prompt pressure to stuff artifact tokens instead of proving structured observations. | Removed rendered-answer token/type/message matching from product gates. Runtime artifact coverage now uses typed support/facet lanes and requires an `AnswerDocumentV2` carrier that combines `observed_artifact_fact` with `claim_form=external_observation`. The legacy criterion kind remains registered as a compatibility no-op so old success criteria cannot revive token-density control. |
 
 ## End-to-End Traces
 
@@ -1876,6 +1876,19 @@ Batch 4b replay follow-up:
   diagnostic support lanes. Architecture/comparison/enumeration enrichment
   still receives broader context rows, and the filter does not inspect
   `RawRequest`, rendered answer prose, reviewer text, or keyword frequency.
+- Batch 4f fixed G63 by removing the remaining artifact-completeness gates that
+  scanned rendered final-answer text for triage tokens, runtime error messages,
+  or runtime error type strings. The replacement gate is a typed carrier check:
+  when the support/facet plan says the observed artifact lane is answer-bearing,
+  the emitted `AnswerDocumentV2` must declare `observed_artifact_fact` together
+  with `claim_form=external_observation`. This applies uniformly to log and
+  perf artifacts and keeps exact runtime wording in support-lane guidance, not
+  in hard answer-prose logic.
+- Compatibility guard: `CritExternalArtifactDecoded` remains a registered
+  criterion so historical success-criteria payloads do not become unknown-kind
+  failures, but its evaluator is now a no-op and cannot fail on `DraftAnswer`
+  token density. Operators cannot re-enable the old behavior through the legacy
+  `cgec_external_artifact_decoded_floor` knob.
 
 ### E20260514-G36: Scalar Count Questions Should Not Be Forced Into Full Enumeration Tables (`s7b`, PASS with 3 rejects)
 
@@ -2838,6 +2851,13 @@ Batch 4a/4b/4e progress:
   diagnostic support lanes. Non-diagnostic answer families continue receiving
   broad typed context enrichment, so architecture/comparison/enumeration
   answers do not lose useful exploratory context.
+- Fixed G63 by deleting the rendered-answer artifact token-density and
+  runtime type/message literal checks from the contract path. The historical
+  violation kind now fires only when typed support/facet plans require an
+  observed-artifact lane and the final `AnswerDocumentV2` lacks a
+  `FacetObservedArtifactFact` + `ClaimExternalObservation` carrier. The old
+  criterion evaluator is compatibility-only and cannot read `DraftAnswer` to
+  force token stuffing.
 - Follow-up: G60 remains open for deterministic diagnostic facet-anchor
   compilation so semantic richness metrics consume the same typed lanes as the
   final answer surface.
@@ -2848,9 +2868,15 @@ Verification:
 - `go test ./...`
 - `make`
 - `go test ./internal/agent -run 'TypedExplorationEnrichment|DiagnosticSupportScope|FlowEnrichment|Extractor_BuildPrompt_DiagnosticSupportScopeFiltersTranscriptDigest'`
-- Red-line diff scan for newly added production logic against
-  `RawRequest`, rendered-answer text, reviewer text, `strings.Contains`, and
-  keyword-style controls: no matches.
+- `go test ./internal/orchestrator -run 'TestRunExternalArtifactTypedCoverageCheck|TestRenderViolations|TestIntentionalSingletonKinds|TestSoftViolation'`
+- `go test ./internal/analysis/criterion -run 'TestEval_ExternalArtifactDecoded|TestRegisteredKindsAllDispatchable'`
+- `go test ./internal/types -run 'TestAllLogSignals|TestCGEC|TestViolation|TestRetryState|TestBuildAnswerSupportPlan_ObservedArtifactRuntimeMessageKeepsVisibleQuotes'`
+- `go test ./internal/orchestrator ./internal/analysis/criterion ./internal/types ./internal/agent`
+- G63-focused red-line scan: no remaining product references to
+  `runExternalArtifactDecodedCheck`, `runLogErrorMessageLiteralCheck`,
+  `runLogErrorTypeLiteralCheck`, `runtimeErrorTypeSurfacePresent`,
+  `collectExternalArtifactTokens`, `looksLikeFilePath`, or the old artifact
+  token/type repair strings.
 - `bash eval/run.sh eval/cases/logtri_go.case 1`
   - `eval/results/logtri_go-20260515-123859`
   - PASS; final answer renders a single current-status typed verdict
@@ -2873,6 +2899,17 @@ Verification:
   - New follow-up recorded as G63: a separate existing artifact-token coverage
     repair still scans rendered answer text for triage tokens and must move to
     typed artifact observation refs.
+- `bash eval/run.sh eval/cases/logtri_go.case 1`
+  - `eval/results/logtri_go-20260516-001231`
+  - PASS after Batch 4f. No old artifact-token/type/message repair text
+    appeared; `repair_plan_lines=0`, `semantic_quality_concerns=0`.
+    Finalizer emitted the observed artifact lane structurally with
+    `facet_ids=["observed_artifact_fact"]`,
+    `claim_form=external_observation`, and artifact-only items using
+    `citation_ref=-1`.
+  - Metrics: `tool_read_file=6`, `explorer_iters=7`,
+    `extractor_iters=1`, `finalizer_iters=2`, `repair_plan_lines=0`,
+    `semantic_quality_concerns=0`.
 - `bash eval/run.sh eval/cases/logtri_node.case 1`
   - `eval/results/logtri_node-20260515-124522`
   - PASS; external-only Node stack remains artifact-only with

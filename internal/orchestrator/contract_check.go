@@ -11,7 +11,6 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
-	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/hint"
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -229,24 +228,25 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		}
 	}
 
-	// 2026-05-02 — CritExternalArtifactDecoded oracle. Triggers
-	// structurally on (Mutable.LogTriage() != nil OR PerfTrace() !=
-	// nil); fails when draft.Text references fewer than the
-	// configured floor of bundle-extracted non-path tokens. The
-	// rationale lists the missing tokens verbatim so the finalizer
-	// retry can directly pick them up and decode them in summary /
-	// body. Soft by default (see softViolationKinds in cmd/root.go);
-	// operators flip to strict via
-	// pipeline_contract_strict_kinds: [external_artifact_underdecoded].
+	// G63 (2026-05-16) — observed artifact coverage gate. Earlier
+	// builds checked DraftAnswer text for bundle-token density and
+	// exact runtime type/message surfaces. That created a red-line
+	// dependency on model-authored prose and pressured retries to
+	// stuff words into summaries. The gate below consumes only the
+	// typed AnswerDocumentV2 carrier: a required runtime-artifact
+	// answer must declare `observed_artifact_fact` via a
+	// `claim_form=external_observation` annotation. Existing
+	// facet/claim-form validators remain the finer-grained source of
+	// truth; this check preserves the historical violation kind for
+	// operator policy while removing answer-text matching.
 	if mut != nil {
+		docV2 := mut.AnswerDocumentV2()
+		var bus *types.BusContext
+		if o != nil {
+			bus = o.busCtx
+		}
 		result.Violations = append(result.Violations,
-			runExternalArtifactDecodedCheck(mut, draft.Text)...)
-	}
-	if o != nil && o.busCtx != nil {
-		result.Violations = append(result.Violations,
-			runLogErrorMessageLiteralCheck(o.busCtx, draft.Text)...)
-		result.Violations = append(result.Violations,
-			runLogErrorTypeLiteralCheck(o.busCtx, draft.Text)...)
+			runExternalArtifactTypedCoverageCheck(bus, docV2)...)
 	}
 
 	// AuthorityCeiling axis: walk the rendered prose looking for
@@ -351,208 +351,82 @@ func dropCitationCountGEContract(crits []types.Criterion) []types.Criterion {
 	return out
 }
 
-func runExternalArtifactDecodedCheck(mut *types.MutableState, draftText string) []types.Violation {
-	if mut == nil {
+func runExternalArtifactTypedCoverageCheck(ctx *types.BusContext, doc *types.AnswerDocumentV2) []types.Violation {
+	if !requiresObservedArtifactCarrier(ctx) {
 		return nil
 	}
-	logBundle := mut.LogTriage()
-	perfBundle := mut.PerfTrace()
-	if logBundle == nil && perfBundle == nil {
-		return nil
-	}
-	// Strip system-injected authority artifacts before the token-match
-	// scan so the hedge body's literal "log" / "perf" / "drift" tokens
-	// don't get counted as proof the LLM decoded the bundle. Without
-	// this, a drift-bounded answer would auto-pass the gate even when
-	// the LLM ignored every Errors[].Type / Frame.Func / Signal in the
-	// bundle.
-	env := criterion.Env{
-		DraftAnswer: render.StripAuthorityArtifacts(draftText),
-		LogTriage:   logBundle,
-		PerfTrace:   perfBundle,
-	}
-	res := criterion.Eval(types.Criterion{Kind: types.CritExternalArtifactDecoded}, env)
-	if res.Satisfied {
+	if answerDocumentHasObservedArtifactCarrier(doc) {
 		return nil
 	}
 	return []types.Violation{{
-		Kind:       types.ViolExternalArtifactUnderdecoded,
-		Detail:     res.Detail,
-		Repair:     res.Detail,
-		ClusterKey: "root:external_artifact_decoded",
+		Kind: types.ViolExternalArtifactUnderdecoded,
+		Detail: "required runtime artifact lane is not structurally covered: no answer block declares " +
+			"facet_id=observed_artifact_fact together with claim_form=external_observation",
+		Repair: "emit an AnswerDocumentV2 block for the runtime observation lane. Declare " +
+			"facet_ids=[\"observed_artifact_fact\"] on the block or claim_use.facet_id, and add " +
+			"claim_uses=[{claim_form:\"external_observation\", facet_id:\"observed_artifact_fact\"}]. " +
+			"Use citation_ref=-1 for artifact-only observations unless a current-repo citation proves the same fact.",
+		ClusterKey: facetClusterKey(string(types.FacetObservedArtifactFact), "external_artifact_coverage"),
 		SuspectedRoot: types.SuspectedRoot{
-			IRField:    "external_artifact_decoded",
-			Reason:     "answer underdecodes triaged log / perf trace",
-			Confidence: 0.7,
+			IRField:    "answer_document.observed_artifact_fact",
+			Reason:     "required runtime-artifact observation lane lacks a typed answer carrier",
+			Confidence: 0.82,
 		},
 		Stage: string(types.StageFinalize),
 	}}
 }
 
-func runLogErrorMessageLiteralCheck(ctx *types.BusContext, draftText string) []types.Violation {
-	if ctx == nil || ctx.Mutable == nil {
-		return nil
-	}
-	bundle := ctx.Mutable.LogTriage()
-	if bundle == nil || !shouldRequireLogErrorMessageLiterals(ctx) {
-		return nil
-	}
-	answer := normalizeRuntimeMessageLiteral(draftText)
-	var out []types.Violation
-	for _, msg := range requiredLogErrorMessagesForContract(bundle) {
-		if msg == "" {
-			continue
-		}
-		if strings.Contains(answer, normalizeRuntimeMessageLiteral(msg)) {
-			continue
-		}
-		out = append(out, types.Violation{
-			Kind:       types.ViolMustInclude,
-			Detail:     fmt.Sprintf("required runtime error message %q missing from answer", msg),
-			Repair:     fmt.Sprintf("preserve the runtime error message %q verbatim in the summary or body; do not translate it away", msg),
-			ClusterKey: types.IdentityClusterKey("runtime_error_message:"+msg, "must_include"),
-			SuspectedRoot: types.SuspectedRoot{
-				IRField:    "log_error_message",
-				Reason:     "diagnostic artifact answer omitted original runtime error wording",
-				Confidence: 0.85,
-			},
-			Stage: string(types.StageFinalize),
-		})
-	}
-	return out
-}
-
-func runLogErrorTypeLiteralCheck(ctx *types.BusContext, draftText string) []types.Violation {
-	if ctx == nil || ctx.Mutable == nil {
-		return nil
-	}
-	bundle := ctx.Mutable.LogTriage()
-	if bundle == nil || !shouldRequireLogErrorMessageLiterals(ctx) {
-		return nil
-	}
-	answer := normalizeRuntimeMessageLiteral(draftText)
-	var out []types.Violation
-	for _, typ := range requiredLogErrorTypesForContract(bundle) {
-		if typ == "" {
-			continue
-		}
-		if runtimeErrorTypeSurfacePresent(answer, typ) {
-			continue
-		}
-		out = append(out, types.Violation{
-			Kind:       types.ViolMustInclude,
-			Detail:     fmt.Sprintf("required runtime error type %q missing from answer", typ),
-			Repair:     fmt.Sprintf("name the runtime error type %q (or its stable short name) in the summary or body; do not collapse it into the message text only", typ),
-			ClusterKey: types.IdentityClusterKey("runtime_error_type:"+typ, "must_include"),
-			SuspectedRoot: types.SuspectedRoot{
-				IRField:    "log_error_type",
-				Reason:     "diagnostic artifact answer omitted structured runtime error type",
-				Confidence: 0.85,
-			},
-			Stage: string(types.StageFinalize),
-		})
-	}
-	return out
-}
-
-func shouldRequireLogErrorMessageLiterals(ctx *types.BusContext) bool {
+func requiresObservedArtifactCarrier(ctx *types.BusContext) bool {
 	if ctx == nil {
 		return false
 	}
-	if ctx.AnalysisIR != nil {
-		return ctx.AnalysisIR.RequestModel.RequiresDiagnosticArtifactMessageSurface()
+	if plan := types.BuildAnswerSupportPlanForBusContext(ctx); plan != nil {
+		for _, lane := range plan.Lanes {
+			if lane.Kind == types.SupportLaneObservedArtifact && len(lane.Entries) > 0 {
+				return true
+			}
+		}
 	}
-	if ctx.Mutable != nil {
-		if rm := ctx.Mutable.RequestModel(); rm != nil {
-			return rm.RequiresDiagnosticArtifactMessageSurface()
+	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil && view.FacetCoverage != nil {
+		for _, req := range view.FacetCoverage.Required {
+			if req.Kind == types.FacetObservedArtifactFact && req.IsPromoted() {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-func requiredLogErrorMessagesForContract(bundle *types.LogBundle) []string {
-	messages := types.LogBundleErrorMessages(bundle)
-	if len(messages) > 4 {
-		messages = messages[:4]
-	}
-	return messages
-}
-
-func requiredLogErrorTypesForContract(bundle *types.LogBundle) []string {
-	errorTypes := types.LogBundleErrorTypes(bundle)
-	if len(errorTypes) > 6 {
-		errorTypes = errorTypes[:6]
-	}
-	return errorTypes
-}
-
-func runtimeErrorTypeSurfacePresent(answer, typ string) bool {
-	answer = normalizeRuntimeMessageLiteral(answer)
-	typ = strings.TrimSpace(typ)
-	if answer == "" || typ == "" {
+func answerDocumentHasObservedArtifactCarrier(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
 		return false
 	}
-	if strings.Contains(answer, typ) {
-		return true
-	}
-	short := runtimeErrorTypeShortName(typ)
-	return short != "" && runtimeTypeTokenAppears(short, answer)
-}
-
-func runtimeErrorTypeShortName(typ string) string {
-	typ = strings.TrimSpace(typ)
-	if typ == "" {
-		return ""
-	}
-	for _, sep := range []string{".", "::", "/", "\\"} {
-		if idx := strings.LastIndex(typ, sep); idx >= 0 && idx+len(sep) < len(typ) {
-			typ = typ[idx+len(sep):]
+	const facet = string(types.FacetObservedArtifactFact)
+	for _, b := range doc.Blocks {
+		blockDeclaresFacet := stringSliceContainsTrimmed(b.FacetIDs, facet)
+		for _, cu := range b.ClaimUses {
+			if cu.ClaimForm != types.ClaimExternalObservation {
+				continue
+			}
+			if strings.TrimSpace(cu.FacetID) == facet || blockDeclaresFacet {
+				return true
+			}
 		}
 	}
-	return strings.TrimSpace(typ)
+	return false
 }
 
-func runtimeTypeTokenAppears(needle, haystack string) bool {
-	needle = strings.TrimSpace(needle)
-	haystack = strings.TrimSpace(haystack)
-	if needle == "" || haystack == "" {
+func stringSliceContainsTrimmed(items []string, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
 		return false
 	}
-	start := 0
-	for {
-		idx := strings.Index(haystack[start:], needle)
-		if idx < 0 {
-			return false
-		}
-		pos := start + idx
-		if runtimeTypeBoundary(haystack, pos-1) && runtimeTypeBoundary(haystack, pos+len(needle)) {
+	for _, item := range items {
+		if strings.TrimSpace(item) == want {
 			return true
 		}
-		start = pos + len(needle)
-		if start >= len(haystack) {
-			return false
-		}
 	}
-}
-
-func runtimeTypeBoundary(s string, idx int) bool {
-	if idx < 0 || idx >= len(s) {
-		return true
-	}
-	r := rune(s[idx])
-	return !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '.')
-}
-
-func normalizeRuntimeMessageLiteral(s string) string {
-	s = strings.NewReplacer(
-		`\\"`, `"`,
-		`\"`, `"`,
-		`\\'`, `'`,
-		`\'`, `'`,
-		"&quot;", `"`,
-		"&#34;", `"`,
-	).Replace(s)
-	return strings.Join(strings.Fields(s), " ")
+	return false
 }
 
 // runAuthorityOverreachCheck guards against rendered drafts that

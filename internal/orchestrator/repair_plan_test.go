@@ -338,7 +338,7 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		types.ViolPreCompleteDowngrade:            "pre-complete soft downgrade marker; fires alone when downgrade applied",
 		types.ViolViewSwap:                        "view-swap retry hint marker; fires alone when subject/view mismatch detected at pre-complete",
 		types.ViolFamilyMismatch:                  "family-mismatch baseline; fires alone when QFamily does not match family contract",
-		types.ViolExternalArtifactUnderdecoded:    "external-artifact decode floor; fires alone on under-decode of attached log/perf trace",
+		types.ViolExternalArtifactUnderdecoded:    "observed-artifact typed carrier shortfall; fires alone when the runtime-artifact lane lacks observed_artifact_fact/external_observation",
 		types.ViolValueSecondaryCitationOffFocus:  "scalar-value secondary citation gate; standalone",
 		types.ViolCrossCitationConflict:           "cross-citation single-locus oracle; standalone",
 		types.ViolStructuralEnumerationDivergence: "code-vs-comment enumeration divergence; standalone caveat marker",

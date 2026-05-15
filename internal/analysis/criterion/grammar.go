@@ -51,21 +51,18 @@ const (
 	// check doesn't reject templateWriteProposal IRs, and so
 	// downstream code using them against a read-mode Env won't
 	// panic with ErrUnknownKind.
-	KindPlanReady                     Kind = Kind(types.CritPlanReady)
-	KindPatchApplies                  Kind = Kind(types.CritPatchApplies)
-	KindTestsPass                     Kind = Kind(types.CritTestsPass)
-	KindNoRegression                  Kind = Kind(types.CritNoRegression)
+	KindPlanReady    Kind = Kind(types.CritPlanReady)
+	KindPatchApplies Kind = Kind(types.CritPatchApplies)
+	KindTestsPass    Kind = Kind(types.CritTestsPass)
+	KindNoRegression Kind = Kind(types.CritNoRegression)
 
-	// KindExternalArtifactDecoded is the read-mode contract gate
-	// added 2026-05-02 — fires when a triaged external artifact
-	// (LogBundle / PerfBundle on MutableState) is non-nil and the
-	// answer's summary + body must reference at least
-	// cgec_external_artifact_decoded_floor (default 0.4) of the
-	// bundle-extracted non-path tokens. Evaluator body lives in
-	// eval.go::evalExternalArtifactDecoded; analyzer adds it to
-	// AnswerContract.AcceptanceTests when the structural trigger
-	// fires (analyzer.go::buildAnalysisIR).
-	KindExternalArtifactDecoded       Kind = Kind(types.CritExternalArtifactDecoded)
+	// KindExternalArtifactDecoded is retained for compatibility with
+	// historical success criteria. G63 retired its DraftAnswer
+	// token-density semantics; runtime-artifact coverage is now
+	// enforced by typed AnswerDocumentV2 carriers in the orchestrator
+	// contract layer (`observed_artifact_fact` +
+	// `external_observation`).
+	KindExternalArtifactDecoded Kind = Kind(types.CritExternalArtifactDecoded)
 )
 
 // registered is the source of truth for legal Kind values. Gate's
@@ -169,10 +166,10 @@ type Env struct {
 
 	// LogTriage is the structured LogBundle the log_triager pre-stage
 	// produced when an attached runtime log was present at Run entry.
-	// Nil when no log was attached or triage failed (advisory). Read
-	// by evalExternalArtifactDecoded to enumerate the bundle-extracted
-	// non-path tokens (Errors[].Type, Frame.Symbol, Signal name,
-	// Residue tokens) that the answer body must reference.
+	// Nil when no log was attached or triage failed (advisory). The
+	// external-artifact criterion keeps this slot for compatibility
+	// but no longer scans DraftAnswer text; typed coverage lives in
+	// AnswerDocumentV2 contract checks.
 	LogTriage *types.LogBundle
 
 	// PerfTrace is the structured PerfBundle the perf_triager

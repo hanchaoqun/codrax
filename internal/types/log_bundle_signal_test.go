@@ -6,9 +6,8 @@ import "testing"
 // expansion: SignalPerformance must be present in AllLogSignals so
 // (a) the emit_log_triage tool's auto-derived JSON schema offers it
 // to the LLM and (b) per-signal-aware downstream consumers (the
-// analyzer's reconcileIntent, ExtractKeywordAnchors, the criterion
-// package's collectExternalArtifactTokens) include it without
-// per-call enumeration drift.
+// analyzer's reconcileIntent and artifact observation support lanes)
+// include it without per-call enumeration drift.
 //
 // Pre-fix the enum had 10 values; "the system was operational but
 // noticeably slow / blocked / lost frames" had no fitting category
