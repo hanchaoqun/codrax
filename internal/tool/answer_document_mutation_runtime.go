@@ -80,6 +80,11 @@ func ApplyAndPersistMutation(
 	if canonicalizeSummaryLeadBlock(merged) {
 		logging.Info("[%s] canonicalized summary block to lead position before persist", toolName)
 	}
+	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
+		if fixed := normalizeViewCompatibleAnswerDocument(merged, view); fixed > 0 {
+			logging.Warning("[%s] repaired %d view-compatible typed lane field(s) before persist", toolName, fixed)
+		}
+	}
 
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())

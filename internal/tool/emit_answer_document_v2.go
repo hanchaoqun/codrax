@@ -207,6 +207,9 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		if fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, view, ctx); fixed > 0 {
 			logging.Warning("[emit_answer_document] repaired %d item citation_ref value(s) by unique label/citation corroboration", fixed)
 		}
+		if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
+			logging.Warning("[emit_answer_document] repaired %d view-compatible typed lane field(s)", fixed)
+		}
 		if hints := runPreEmitChecks(doc, view, preEmitOracleFromCtx(ctx), ctx); len(hints) > 0 {
 			persistRecoveredAnswerDraft(ctx, raw, visibleRecovery, doc)
 			return failEmit(toolName, now, "%s", formatEmitFixHints(hints))

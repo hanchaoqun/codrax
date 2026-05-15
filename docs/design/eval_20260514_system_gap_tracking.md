@@ -83,6 +83,8 @@ created.
 | E20260514-G61 | `logtri_go` Batch 4b replay | Fixed Batch 4c / prompt-contract replay target | Typed `current_status_verdict` rendered correctly, but the decision prose could still include a second, conflicting status token because the enum semantics did not distinguish "current comparable risk still visible" from "exact old-build branch not fully provable." | The typed lane existed, but its value semantics were underspecified, and the generic decision checklist still taught "verdict at the start of text" even when a typed verdict field was required. The model could choose `not_enough_evidence` for historical branch uncertainty while prose argued the current risk was still present. | Clarified the typed verdict contract in finalizer instructions, required-block rationale, and schema text; current-status checklist wording now makes `current_status_verdict` the only canonical status channel and keeps `text` as rationale only. |
 | E20260514-G62 | `logtri_go` Batch 4c replay | Fixed Batch 4d / pre-emit typed-lane test | A current-status decision block also carried inactive `error_granularity_verdict=not_enough_evidence`, so the renderer displayed two typed verdicts even though the request was not a failure-scope granularity question. | Typed decision verdict fields were independently valid on `kind=decision`, but there was no lane-activation gate preventing an inactive verdict carrier from sharing an unrelated decision surface. | Added a pre-emit typed-lane isolation gate: `error_granularity_verdict` is allowed only when the typed error-granularity contract is active, and `current_status_verdict` is allowed only when the typed current-status diagnostic contract is active. This uses only typed view/profile fields and block enums, never prose. |
 | E20260514-G63 | `logtri_go` Batch 4e replay | Fixed Batch 4f / focused tests | G59 replay passed, but the repair loop was triggered by "answer references only 2/8 triaged artifact tokens" and "required runtime error type missing" checks over rendered answer text. The model then explicitly optimized for tokens in the summary text. | Runtime artifact completeness was partly enforced by keyword-style matching over model-authored answer prose (`DraftAnswer`) against triage tokens/error type strings. This violated the typed-carrier boundary and created prompt pressure to stuff artifact tokens instead of proving structured observations. | Removed rendered-answer token/type/message matching from product gates. Runtime artifact coverage now uses typed support/facet lanes and requires an `AnswerDocumentV2` carrier that combines `observed_artifact_fact` with `claim_form=external_observation`. The legacy criterion kind remains registered as a compatibility no-op so old success criteria cannot revive token-density control. |
+| E20260514-G64 | `logtri_go` finalizer diag log | Fixed Batch 4g / focused tests | First finalizer emit was rejected only for deterministic JSON carrier repairs: missing `claim_uses[]` on a current-status decision block and inactive `error_granularity_verdict` sharing that block. The retry was payload-preserving schema surgery, not new reasoning. | The pre-emit tool asked the model to repair fields that the typed semantic view already decides. It also treated active typed decision verdict fields as insufficient principal carriers, pressuring the model to guess a `claim_form` for a decision lane. | Added a typed decision-carrier predicate consumed by pre-emit and post-emit principal gates: an active `current_status_verdict` or `error_granularity_verdict` satisfies the decision block's carrier obligation. Added a view-compatible normalizer on full emit, patch emit, and persist that clears inactive sibling verdict fields. No logic reads user text or answer prose, and no system code guesses a multi-form `claim_form`. |
+| E20260514-G65 | `logtri_go` Batch 4g replay | Open / Batch follow-up | After G64, the case still passed, but remaining repair cost came from generic answer-document mechanics: first emit over-produced summary blocks and missed the required decision/current-status block; a later patch tried `replace_citations` while preserving citation-bearing blocks and had to fall back to a full emit. | Required-block skeleton, top-level citation pool preservation, and patch/full routing are still model-managed. The system can detect the structural issue, but it asks the finalizer to perform deterministic document-shape surgery instead of carrying typed obligations through a reusable mutation lane. | Follow-up direction: compile a typed answer-document skeleton from `AnswerSemanticView`, preserve/renumber citation pools as a deterministic carrier operation, and either add a citation-only mutation lane or route citation-pool rewrites to full emit before tool rejection. This must stay typed-structure based and must not inspect user/model prose. |
 
 ## End-to-End Traces
 
@@ -3015,3 +3017,91 @@ Verification:
   - `eval/results/u9b-20260514-232523`
   - PASS (`tool_read_file=2`, `explorer_iters=5`, `finalizer_iters=2`,
     `repair_exec_lines=0`)
+
+### E20260514-G64: Typed Decision Emit Compatibility (`logtri_go` finalizer log)
+
+Observed data flow:
+
+1. The analyzer/view had current-status diagnostic active and error-granularity
+   inactive.
+2. The finalizer emitted one principal `decision` block with
+   `current_status_verdict`, so the active verdict lane was already carried in
+   a typed field.
+3. The same block also included inactive `error_granularity_verdict`; that is a
+   deterministic lane-isolation violation.
+4. Pre-emit then rejected the payload for both the inactive sibling field and a
+   missing `claim_uses[]` annotation, forcing the model to re-emit an otherwise
+   byte-identical answer.
+
+Root cause: pre-emit was making the model repair fields whose truth is already
+available from the typed semantic view. The missing-claim-use branch also
+treated a typed decision verdict as weaker than a generic claim annotation,
+which pressured the model to pick one of several possible claim forms.
+
+Batch 4g progress:
+
+- Added `AnswerBlockHasActiveTypedDecisionCarrier` as the shared typed-carrier
+  predicate for current-status and error-granularity decision lanes.
+- Pre-emit and post-emit principal claim-use gates now accept an active typed
+  decision verdict as the decision block's carrier. They still require
+  claim-use annotations for non-decision principal blocks and decision blocks
+  without an active typed verdict.
+- Added `normalizeViewCompatibleAnswerDocument` before full-emit prechecks,
+  patch-emit dry-run prechecks, and final mutation persist. It currently clears
+  inactive typed decision verdict fields and is explicitly limited to
+  deterministic repairs implied by `AnswerSemanticView`.
+- Updated the finalizer/tool instruction surface so typed decision blocks no
+  longer tell the model to invent a `claim_uses[]` form when
+  `current_status_verdict` or `error_granularity_verdict` already carries the
+  active lane.
+- Anti-seesaw guard: the system does not synthesize a multi-form `claim_form`,
+  and no branch reads user request text, rendered answer prose, or model
+  thoughts.
+
+Verification:
+
+- `go test ./internal/types -run 'TestAnswerBlockHasActiveTypedDecisionCarrier|TestCurrentStatus'`
+- `go test ./internal/tool -run 'TestNormalizeViewCompatibleAnswerDocument|TestPreCheckInactiveTypedDecisionVerdicts|TestPreCheckPrincipalClaimUse'`
+- `go test ./internal/orchestrator -run 'TestPrincipalClaimUse'`
+- `go test ./internal/agent ./internal/skill -run 'TypedDecisionCarrier|CurrentStatusDecisionLane|VerbatimTypedSets|V2BlockOnlyContract'`
+- `bash eval/run.sh eval/cases/logtri_go.case 1`
+  - `eval/results/logtri_go-20260516-002607`
+  - PASS; the only same-turn tool rejection was the pre-existing
+    observed-artifact/current-source citation drift, not `claim_uses[]` or
+    inactive decision verdict fields.
+- `go test ./...`
+- `bash eval/run.sh eval/cases/logtri_go.case 1`
+  - `eval/results/logtri_go-20260516-003700`
+  - PASS; no `claim_uses[]` or inactive typed-verdict rejection. Remaining
+    repair turns were the independent document-skeleton/citation-patch issue
+    tracked as E20260514-G65.
+
+### E20260514-G65: Answer-Document Skeleton And Citation Mutation Follow-Up
+
+Observed data flow:
+
+1. The first post-G64 `logtri_go` replay still passed, but the first finalizer
+   emit had two `summary` blocks, no `decision` block, and no
+   `current_status_verdict`.
+2. The model repaired that shape, then a citation-pool omission caused another
+   emit rejection.
+3. A later quality repair correctly targeted one underfilled ordered-list block,
+   but used `replace_citations` while preserving citation-bearing blocks. The
+   patch tool rejected the inconsistent pool and instructed a full re-emit.
+
+Root cause: these remaining loops are deterministic document-shape and
+citation-pool carrier problems, not fresh reasoning problems. The required
+answer skeleton is known from `AnswerSemanticView`, and citation-pool rewrites
+are mechanical once block references are known, but today both operations are
+still delegated to the model through reject-and-retry text.
+
+Batch follow-up design:
+
+- Compile required block skeletons from typed semantic-view obligations before
+  finalizer emission, especially active decision lanes such as current-status
+  and error-granularity verdicts.
+- Treat citation-pool changes as a typed mutation lane: either append-only
+  patches for preserved blocks, or a deterministic route to full emit before
+  the model spends a failed patch attempt.
+- Preserve the red line: no branch should inspect user text, rendered answer
+  prose, or model thoughts to decide these structural operations.

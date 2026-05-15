@@ -1603,6 +1603,49 @@ func TestPreCheckInactiveTypedDecisionVerdicts_RejectsWrongLaneVerdict(t *testin
 	}
 }
 
+func TestNormalizeViewCompatibleAnswerDocument_TypedDecisionCarrier(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{
+			Required: true,
+		},
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind:     types.BlockDecision,
+			MinCount: 1,
+			MaxCount: 1,
+			Required: true,
+			AcceptableClaimForms: []types.ClaimForm{
+				types.ClaimDefinitionFact,
+				types.ClaimCallEdge,
+				types.ClaimGuardCondition,
+				types.ClaimAbsenceFact,
+			},
+			SurfaceRoleHint: types.SurfacePrincipal,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:                      "verdict1",
+			Kind:                    types.BlockDecision,
+			SurfaceRole:             types.SurfacePrincipal,
+			Text:                    "typed verdict carries the decision; prose is only rationale",
+			CurrentStatusVerdict:    types.CurrentStatusStillPresent,
+			ErrorGranularityVerdict: types.ErrorGranularityNotEnoughEvidence,
+		}},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
+		t.Fatalf("expected one inactive typed-lane field to be normalized, got %d", fixed)
+	}
+	if got := doc.Blocks[0].ErrorGranularityVerdict; got != "" {
+		t.Fatalf("inactive error_granularity_verdict should be cleared, got %q", got)
+	}
+	if len(doc.Blocks[0].ClaimUses) != 0 {
+		t.Fatalf("normalizer should not guess decision claim_uses, got %+v", doc.Blocks[0].ClaimUses)
+	}
+	if hints := runPreEmitChecks(doc, view, nil); len(hints) != 0 {
+		t.Fatalf("active typed decision carrier should avoid JSON repair hints, got %+v", hints)
+	}
+}
+
 // TestPreCheckPrincipalClaimUse_SingleFormRelaxation — when contract
 // declares exactly one AcceptableClaimForm AND the block carries
 // structural grounding (facet_ids + cited items), the missing

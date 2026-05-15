@@ -237,6 +237,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
 		if merged, applyErr := mutation.Apply(prev); applyErr == nil && merged != nil {
 			canonicalizeSummaryLeadBlock(merged)
+			normalizeViewCompatibleAnswerDocument(merged, view)
 			if hints := runPreEmitChecks(merged, view, preEmitOracleFromCtx(ctx), ctx); len(hints) > 0 {
 				return failEmit(t.Name(), now, "%s", formatEmitFixHints(hints))
 			}

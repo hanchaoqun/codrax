@@ -154,7 +154,7 @@ func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
 		// scalar / decision V2 guidance — per-kind rules 129/130 carry
 		// the active phrasing; rule 121 keeps the V1-rejection note.
 		"put the literal directly in the block's `text` field as the rendered value",
-		"Put the verdict at the START of the block's `text` field",
+		"Otherwise put the verdict at the START of the block's `text` field",
 		"Put the verdict and the core reasoning together in the decision block's `text` field",
 		"top-level `value` / `boolean` payloads are not part of this tool's schema",
 	} {
@@ -228,6 +228,26 @@ func TestFinalizerSkill_ClarifiesFacetIDAndVerticalDiagramPreference(t *testing.
 	} {
 		if !strings.Contains(blob, want) {
 			t.Fatalf("answer-document-skill missing clarified V2 contract guidance %q:\n%s", want, blob)
+		}
+	}
+}
+
+func TestFinalizerSkill_TypedDecisionVerdictIsCarrier(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	blob := strings.Join([]string{sk.Goal, sk.OutputFormat, allWorkflowBodies(sk), strings.Join(sk.Prohibitions, "\n")}, "\n")
+	for _, want := range []string{
+		"For a principal `decision` block that carries an active typed verdict field",
+		"that verdict field is the carrier",
+		"do not guess a `claim_uses[]` form",
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("answer-document-skill missing typed decision carrier guidance %q:\n%s", want, blob)
 		}
 	}
 }

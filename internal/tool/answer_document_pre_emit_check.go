@@ -3200,6 +3200,9 @@ func preCheckPrincipalClaimUse(doc *types.AnswerDocumentV2, view *types.AnswerSe
 		if hasAnyClaimUse(b) {
 			continue
 		}
+		if types.AnswerBlockHasActiveTypedDecisionCarrier(b, view) {
+			continue
+		}
 		// Single-form relaxation: when the contract declares exactly
 		// one AcceptableClaimForm AND the block already carries
 		// structural grounding, the LLM's emit is unambiguously
@@ -3221,6 +3224,40 @@ func preCheckPrincipalClaimUse(doc *types.AnswerDocumentV2, view *types.AnswerSe
 		})
 	}
 	return out
+}
+
+// normalizeViewCompatibleAnswerDocument applies deterministic compatibility
+// repairs that are fully implied by the typed AnswerSemanticView. The normalizer
+// is deliberately narrow: it may remove fields from inactive typed lanes, but it
+// must not infer semantic answer content from user prose or model prose.
+func normalizeViewCompatibleAnswerDocument(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
+	if doc == nil || view == nil {
+		return 0
+	}
+	return normalizeInactiveTypedDecisionVerdictFields(doc, view)
+}
+
+func normalizeInactiveTypedDecisionVerdictFields(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
+	if doc == nil || view == nil {
+		return 0
+	}
+	errorGranularityActive := view.ErrorGranularityProfile != nil && view.ErrorGranularityProfile.Active()
+	currentStatusActive := view.CurrentStatusDiagnostic != nil && view.CurrentStatusDiagnostic.Required
+	fixed := 0
+	for i := range doc.Blocks {
+		if doc.Blocks[i].Kind != types.BlockDecision {
+			continue
+		}
+		if !errorGranularityActive && doc.Blocks[i].ErrorGranularityVerdict != "" {
+			doc.Blocks[i].ErrorGranularityVerdict = ""
+			fixed++
+		}
+		if !currentStatusActive && doc.Blocks[i].CurrentStatusVerdict != "" {
+			doc.Blocks[i].CurrentStatusVerdict = ""
+			fixed++
+		}
+	}
+	return fixed
 }
 
 func preCheckRequiredCandidateRoles(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {

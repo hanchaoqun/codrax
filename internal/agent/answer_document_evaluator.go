@@ -721,8 +721,13 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 			case types.BlockDecision:
 				if view != nil && view.CurrentStatusDiagnostic != nil && view.CurrentStatusDiagnostic.Required {
 					items = append(items,
-						"Emit the principal `decision` block with `current_status_verdict` set to the canonical status enum. Put only the rationale and evidence boundary in block `text`; do not repeat a second canonical status token there. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor, and attach block-level `claim_uses=[{claim_form=guard_condition|definition_fact}]` (plural array).",
+						"Emit the principal `decision` block with `current_status_verdict` set to the canonical status enum. Put only the rationale and evidence boundary in block `text`; do not repeat a second canonical status token there. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor. The typed verdict field is the decision carrier; add `claim_uses[]` only when you have a clear extra evidence-shape annotation.",
 						"Keep the complete decision answer inside the answer document blocks: the typed verdict belongs in `current_status_verdict`, while the explanatory rationale belongs in `text`, with any extra framing prose in a `summary` or `caveat` block as needed.",
+					)
+				} else if view != nil && view.ErrorGranularityProfile != nil && view.ErrorGranularityProfile.Active() {
+					items = append(items,
+						"Emit the principal `decision` block with `error_granularity_verdict` set to the canonical failure-scope enum. Put only the rationale and evidence boundary in block `text`; do not encode the canonical verdict only in prose. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor. The typed verdict field is the decision carrier; add `claim_uses[]` only when you have a clear extra evidence-shape annotation.",
+						"Keep the complete decision answer inside the answer document blocks: the typed verdict belongs in `error_granularity_verdict`, while the explanatory rationale belongs in `text`, with any extra framing prose in a `summary` or `caveat` block as needed.",
 					)
 				} else {
 					items = append(items,
@@ -1957,14 +1962,14 @@ func renderAnswerDocBlockContract(ctx *types.AgentContext) string {
 	if len(view.RequiredBlocks) > 0 {
 		b.WriteString("**Required (must emit):**\n\n")
 		for _, req := range view.RequiredBlocks {
-			renderAnswerDocBlockRequirement(&b, req, true)
+			renderAnswerDocBlockRequirement(&b, req, view, true)
 		}
 		b.WriteString("\n")
 	}
 	if len(view.OptionalBlocks) > 0 {
 		b.WriteString("**Optional (recommended when evidence supports):**\n\n")
 		for _, req := range view.OptionalBlocks {
-			renderAnswerDocBlockRequirement(&b, req, false)
+			renderAnswerDocBlockRequirement(&b, req, view, false)
 		}
 		b.WriteString("\n")
 	}
@@ -1978,7 +1983,7 @@ func renderAnswerDocBlockContract(ctx *types.AgentContext) string {
 	return b.String()
 }
 
-func renderAnswerDocBlockRequirement(b *strings.Builder, req types.BlockRequirement, _ bool) {
+func renderAnswerDocBlockRequirement(b *strings.Builder, req types.BlockRequirement, view *types.AnswerSemanticView, _ bool) {
 	countTag := ""
 	switch {
 	case req.MinCount == 0 && req.MaxCount == 1:
@@ -2014,13 +2019,26 @@ func renderAnswerDocBlockRequirement(b *strings.Builder, req types.BlockRequirem
 		for _, f := range req.AcceptableClaimForms {
 			forms = append(forms, string(f))
 		}
-		fmt.Fprintf(b, "  - At least one `block.claim_uses[]` entry's `claim_form` MUST be one of: %s (copy verbatim).\n",
-			renderQuotedList(forms))
+		if answerBlockRequirementHasTypedDecisionCarrier(req, view) {
+			fmt.Fprintf(b, "  - The active typed decision verdict field is the carrier for this `decision` block; `block.claim_uses[]` is optional. If you add it, `claim_form` must be one of: %s (copy verbatim; do not guess).\n",
+				renderQuotedList(forms))
+		} else {
+			fmt.Fprintf(b, "  - At least one `block.claim_uses[]` entry's `claim_form` MUST be one of: %s (copy verbatim).\n",
+				renderQuotedList(forms))
+		}
 	}
 	if req.SurfaceRoleHint != "" {
 		fmt.Fprintf(b, "  - `block.surface_role` SHOULD be %q (copy verbatim).\n",
 			string(req.SurfaceRoleHint))
 	}
+}
+
+func answerBlockRequirementHasTypedDecisionCarrier(req types.BlockRequirement, view *types.AnswerSemanticView) bool {
+	if req.Kind != types.BlockDecision || view == nil {
+		return false
+	}
+	return (view.CurrentStatusDiagnostic != nil && view.CurrentStatusDiagnostic.Required) ||
+		(view.ErrorGranularityProfile != nil && view.ErrorGranularityProfile.Active())
 }
 
 func renderAnswerDocExclusionPolicy(ctx *types.AgentContext) string {

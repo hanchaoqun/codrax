@@ -52,3 +52,33 @@ func TestCurrentStatusAllowedVerdicts_DedupesAndDefaults(t *testing.T) {
 		t.Fatal("nil contract should allow default verdict set")
 	}
 }
+
+func TestAnswerBlockHasActiveTypedDecisionCarrier(t *testing.T) {
+	block := AnswerBlock{
+		Kind:                 BlockDecision,
+		CurrentStatusVerdict: CurrentStatusStillPresent,
+	}
+	currentView := &AnswerSemanticView{
+		CurrentStatusDiagnostic: &CurrentStatusDiagnosticContract{Required: true},
+	}
+	if !AnswerBlockHasActiveTypedDecisionCarrier(block, currentView) {
+		t.Fatal("active current-status verdict should satisfy typed decision carrier")
+	}
+	if AnswerBlockHasActiveTypedDecisionCarrier(block, &AnswerSemanticView{}) {
+		t.Fatal("inactive current-status lane must not satisfy typed decision carrier")
+	}
+
+	block.CurrentStatusVerdict = CurrentStatusVerdict("maybe")
+	if AnswerBlockHasActiveTypedDecisionCarrier(block, currentView) {
+		t.Fatal("invalid current-status verdict must not satisfy typed decision carrier")
+	}
+
+	block.CurrentStatusVerdict = CurrentStatusUnknown
+	block.ErrorGranularityVerdict = ErrorGranularityPartialSuccess
+	errorView := &AnswerSemanticView{
+		ErrorGranularityProfile: &ErrorGranularityProfile{IsGranularityQuestion: true},
+	}
+	if !AnswerBlockHasActiveTypedDecisionCarrier(block, errorView) {
+		t.Fatal("active error-granularity verdict should satisfy typed decision carrier")
+	}
+}

@@ -1476,6 +1476,12 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_CurrentStatusDecisionLa
 	if !strings.Contains(prompt, "current_status_verdict") {
 		t.Fatalf("current-status prompt should require typed verdict field:\n%s", prompt)
 	}
+	if !strings.Contains(prompt, "The typed verdict field is the decision carrier") {
+		t.Fatalf("current-status prompt should make the typed verdict the decision carrier:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "current_status_verdict` set to the canonical status enum. Put only the rationale and evidence boundary in block `text`; do not repeat a second canonical status token there. Attach a one-element `items=[{id:\"d\", citation_ref:N}]` when you need a citation anchor, and attach block-level `claim_uses=") {
+		t.Fatalf("current-status checklist should not force decision claim_uses:\n%s", prompt)
+	}
 	if !strings.Contains(prompt, "`not_enough_evidence`: current cited code cannot decide") {
 		t.Fatalf("current-status prompt should define not_enough_evidence narrowly:\n%s", prompt)
 	}
@@ -4788,7 +4794,7 @@ func TestRenderAnswerDocBlockRequirement_VerbatimTypedSets(t *testing.T) {
 		SurfaceRoleHint:      types.SurfacePrincipal,
 	}
 	var b strings.Builder
-	renderAnswerDocBlockRequirement(&b, req, true)
+	renderAnswerDocBlockRequirement(&b, req, nil, true)
 	got := b.String()
 
 	// Verbatim FacetID strings (LLM copies into block.facet_ids[]).
@@ -4820,6 +4826,36 @@ func TestRenderAnswerDocBlockRequirement_VerbatimTypedSets(t *testing.T) {
 	}
 }
 
+func TestRenderAnswerDocBlockRequirement_TypedDecisionCarrierDoesNotRequireClaimUse(t *testing.T) {
+	req := types.BlockRequirement{
+		Kind:                 types.BlockDecision,
+		MinCount:             1,
+		MaxCount:             1,
+		Required:             true,
+		AcceptableClaimForms: []types.ClaimForm{types.ClaimGuardCondition, types.ClaimDefinitionFact},
+		SurfaceRoleHint:      types.SurfacePrincipal,
+	}
+	view := &types.AnswerSemanticView{
+		CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{Required: true},
+	}
+	var b strings.Builder
+	renderAnswerDocBlockRequirement(&b, req, view, true)
+	got := b.String()
+	if strings.Contains(got, "`block.claim_uses[]` entry's `claim_form` MUST be one of") {
+		t.Fatalf("typed decision carrier should not force claim_uses:\n%s", got)
+	}
+	for _, want := range []string{
+		"The active typed decision verdict field is the carrier",
+		"`block.claim_uses[]` is optional",
+		`"guard_condition"`,
+		`"definition_fact"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed decision requirement missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // TestRenderAnswerDocBlockRequirement_OmitsTypedSetsWhenEmpty
 // confirms zero-value fields are NOT rendered (no empty
 // "MUST include []" lines).
@@ -4830,7 +4866,7 @@ func TestRenderAnswerDocBlockRequirement_OmitsTypedSetsWhenEmpty(t *testing.T) {
 		Rationale: "lead-in",
 	}
 	var b strings.Builder
-	renderAnswerDocBlockRequirement(&b, req, true)
+	renderAnswerDocBlockRequirement(&b, req, nil, true)
 	got := b.String()
 	for _, banned := range []string{
 		"`block.facet_ids` MUST include",

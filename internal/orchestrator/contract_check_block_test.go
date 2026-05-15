@@ -175,6 +175,37 @@ func TestPrincipalClaimUse_MissingFires(t *testing.T) {
 	}
 }
 
+func TestPrincipalClaimUse_TypedDecisionCarrierPasses(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{
+			Required: true,
+		},
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind:     types.BlockDecision,
+			MinCount: 1,
+			MaxCount: 1,
+			Required: true,
+			AcceptableClaimForms: []types.ClaimForm{
+				types.ClaimDefinitionFact,
+				types.ClaimCallEdge,
+				types.ClaimGuardCondition,
+				types.ClaimAbsenceFact,
+			},
+			SurfaceRoleHint: types.SurfacePrincipal,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:                   "verdict1",
+		Kind:                 types.BlockDecision,
+		SurfaceRole:          types.SurfacePrincipal,
+		CurrentStatusVerdict: types.CurrentStatusStillPresent,
+		Text:                 "rationale only",
+	}}}
+	if vs := validatePrincipalClaimUse(doc, view); len(vs) != 0 {
+		t.Fatalf("active typed decision verdict should satisfy principal carrier obligation: %+v", vs)
+	}
+}
+
 // ── validateDiagramEdgeSupport ─────────────────────────────
 
 func diagramRequiredView(kind types.DiagramKind) *types.AnswerSemanticView {

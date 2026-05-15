@@ -169,6 +169,9 @@ func validatePrincipalClaimUse(doc *types.AnswerDocumentV2, view *types.AnswerSe
 		if blockHasClaimUse(b) {
 			continue
 		}
+		if types.AnswerBlockHasActiveTypedDecisionCarrier(b, view) {
+			continue
+		}
 		// Single-choice contract relaxation: when the contract
 		// declares exactly one AcceptableClaimForm AND the block
 		// already carries the structural grounding the contract is
