@@ -1230,14 +1230,25 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			overrode = true
 		} else {
 			sliceStart = p.Offset
-			if sliceStart > totalLines {
-				sliceStart = totalLines
-			}
 			sliceEnd = totalLines
 			if p.Limit > 0 && sliceStart+p.Limit < sliceEnd {
 				sliceEnd = sliceStart + p.Limit
 			}
 		}
+	}
+	if !overrode && sliceStart >= totalLines {
+		lastOffset := totalLines - 1
+		if lastOffset < 0 {
+			lastOffset = 0
+		}
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Success:  false,
+			Summary: fmt.Sprintf(
+				"read_file empty range: offset=%d starts after the last readable line of %s (%d total line(s)); offsets are zero-based, so the last valid offset is %d. Retry with offset<=%d, or omit offset to read from the beginning.",
+				p.Offset, p.Path, totalLines, lastOffset, lastOffset),
+			Timestamp: time.Now(),
+		}, nil
 	}
 
 	// Render the selected slice with a per-line gutter carrying the

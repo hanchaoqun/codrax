@@ -112,6 +112,32 @@ func TestReadFile(t *testing.T) {
 		}
 	})
 
+	t.Run("offset at eof returns explicit empty range error", func(t *testing.T) {
+		tmpFile := filepath.Join(t.TempDir(), "testoffset_eof.txt")
+		content := "line0\nline1"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &ReadFile{}
+		params, _ := json.Marshal(readFileParams{Path: tmpFile, Offset: 2, Limit: 100})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Success {
+			t.Fatalf("expected empty range to fail clearly, got success: %s", result.Summary)
+		}
+		for _, want := range []string{"read_file empty range", "offset=2", "2 total line(s)", "last valid offset is 1"} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("summary missing %q: %s", want, result.Summary)
+			}
+		}
+		if strings.Contains(result.Summary, "showing lines 3-2") {
+			t.Fatalf("must not render an inverted line window: %s", result.Summary)
+		}
+	})
+
 	t.Run("small file with limit above threshold honors slice", func(t *testing.T) {
 		// A Limit above ReadFileSmallLimitThreshold is a deliberate size
 		// choice (LLMs rarely pick 150/200 lazily) — override must not
