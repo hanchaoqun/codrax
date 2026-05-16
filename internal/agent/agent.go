@@ -1016,9 +1016,15 @@ func pruneToolHistory(messages []llm.Message, budget int) bool {
 // debug-gated logging so the same trace can be reproduced on demand by
 // running with `-log-level debug` without polluting normal runs.
 func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {
-	// Build tool schemas for LLM
+	// Pre-flight watchdog around the first schema build — kept here
+	// so the diag trace's tool_schemas phase remains observable from
+	// outside the loop. The actual schemas used in each iter are
+	// re-derived per iter (see iterToolSchemas below) so dynamic
+	// gates inside buildToolSchemas (notably
+	// answerDocumentPatchBaseAvailable) flip ON as ctx.Mutable
+	// accumulates state.
 	stopPreflight := b.startPreflightWatchdog(ctx, "tool_schemas")
-	toolSchemas := b.buildToolSchemas(sk, ctx)
+	_ = b.buildToolSchemas(sk, ctx)
 	stopPreflight()
 
 	// Initialize message history
@@ -1143,20 +1149,27 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}
 		}
 
-		// Per-iter tool schema filter (2026-05-17 T2). Evaluators that
-		// implement ToolSchemaFilter can shrink the surface in response
-		// to state observed in the prior iter — the answer-document
-		// evaluator uses this to drop emit_answer_document from the
-		// schema list once full-emit has failed twice, leaving only
-		// emit_answer_document_patch so the model cannot rewrite the
-		// whole document for a small structural fix.
+		// Per-iter tool schema refresh (2026-05-17 T2 hotfix).
+		// buildToolSchemas is now invoked PER ITER instead of once at
+		// Execute() entry. The auto-gates inside buildToolSchemas
+		// (notably the answerDocumentPatchBaseAvailable check at the
+		// emit_answer_document_patch line) flip ON only AFTER the
+		// first emit lands a rejected draft on
+		// ctx.Mutable.AnswerDocumentV2() or rs.PrevEmitJSON — so a
+		// once-at-Execute-entry build cannot include the patch tool
+		// in iter 0's tool list, and any downstream filter that
+		// drops emit_answer_document loses ALL tools.
 		//
-		// The filter MUST NOT mutate the base toolSchemas slice; we
-		// reassign a local effectiveTools per iter so the next iter
-		// starts from the unmodified base if filter conditions changed.
-		effectiveTools := toolSchemas
+		// Refreshing per iter keeps the tool surface in sync with the
+		// evaluator's state: iter 0 sees [emit_answer_document], iter
+		// 1+ sees [emit_answer_document, emit_answer_document_patch]
+		// once a rejected draft exists, and a ToolSchemaFilter (T2)
+		// can then narrow the surface confident the alternative tool
+		// is actually present.
+		iterToolSchemas := b.buildToolSchemas(sk, ctx)
+		effectiveTools := iterToolSchemas
 		if filter, ok := b.eval.(ToolSchemaFilter); ok {
-			effectiveTools = filter.FilterToolSchemas(ctx, toolSchemas)
+			effectiveTools = filter.FilterToolSchemas(ctx, iterToolSchemas)
 		}
 
 		// Reason — call LLM
@@ -1281,7 +1294,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}, err
 		}
 
-		resp.ToolCalls = b.normalizeToolCallParams(resp.ToolCalls, toolSchemas)
+		resp.ToolCalls = b.normalizeToolCallParams(resp.ToolCalls, effectiveTools)
 
 		// DIAGNOSTIC — dump assistant response (debug only).
 		logging.Debug("[diag %s] iter=%d ASSISTANT content_len=%d tool_calls=%d",

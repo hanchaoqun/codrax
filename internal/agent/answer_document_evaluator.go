@@ -5389,6 +5389,28 @@ func (e *answerDocumentEvaluator) FilterToolSchemas(ctx *types.AgentContext, sch
 	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
 		return schemas
 	}
+	// SAFETY (2026-05-17 regression hotfix): only enforce patch-first
+	// when emit_answer_document_patch is actually present in the
+	// incoming schema list. Without this check the filter strips
+	// emit_answer_document and leaves zero callable tools — the LLM
+	// has no actionable path and falls into a content-only soft-stop
+	// loop (forensic: a run with tools=0 burned 13+ iters producing
+	// 12k-token prose responses with tool_calls=0). The base schema
+	// list comes from buildToolSchemas which auto-adds the patch tool
+	// only when answerDocumentPatchBaseAvailable returns true at
+	// schema-build time; if buildToolSchemas ran before any rejected
+	// emit existed, the patch tool will be missing from the list and
+	// we MUST NOT strip the only available emit path.
+	hasPatch := false
+	for _, s := range schemas {
+		if s.Name == "emit_answer_document_patch" {
+			hasPatch = true
+			break
+		}
+	}
+	if !hasPatch {
+		return schemas
+	}
 	out := make([]llm.ToolSchema, 0, len(schemas))
 	dropped := false
 	for _, s := range schemas {

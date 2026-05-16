@@ -385,4 +385,28 @@ func TestFilterToolSchemas_T2_PatchFirstEnforcement(t *testing.T) {
 			t.Errorf("filter mutated input slice: got %+v, want %+v", baseSchemas, original)
 		}
 	})
+
+	// REGRESSION (2026-05-17 hotfix): if the incoming schema list does
+	// NOT contain emit_answer_document_patch (because buildToolSchemas
+	// auto-add gate did not flip ON yet at the moment this iter's
+	// schemas were derived), the filter MUST be a no-op. Without this
+	// safety the filter strips emit_answer_document and leaves zero
+	// callable tools, which sends the LLM into a content-only soft-
+	// stop loop (forensic: a 13-iter run with tools=0 producing 12k-
+	// token prose responses, tool_calls=0 every iter). The hotfix
+	// added a hasPatch precondition that returns the input unchanged
+	// when the patch tool is absent from the candidate schema set.
+	t.Run("safety_no_op_when_patch_absent_even_if_base_available", func(t *testing.T) {
+		schemasWithoutPatch := []llmToolSchemaT2{
+			{Name: "emit_answer_document"},
+			{Name: "propose_sub_agents"},
+		}
+		e := &answerDocumentEvaluator{emitFullDocFailStreak: 5}
+		ctx := ctxWithAnswerPatchBase() // patch base exists in mutable
+		got := callFilterToolSchemasT2(e, ctx, schemasWithoutPatch)
+		if !sameSchemaNamesT2(got, schemasWithoutPatch) {
+			t.Errorf("safety check failed — filter stripped emit_answer_document despite patch tool absent; got %+v want %+v",
+				got, schemasWithoutPatch)
+		}
+	})
 }
