@@ -186,9 +186,25 @@ func (d *RuntimeGroundingDisposition) IsActive() bool {
 
 // RuntimeGroundingDispositionFromWaiver projects a model-declared
 // EvidenceFloorWaiver into the answer-surface citation policy consumed
-// by finalization.
-func RuntimeGroundingDispositionFromWaiver(w *EvidenceFloorWaiver) *RuntimeGroundingDisposition {
+// by finalization. All four waiver reasons (`external_only_log`,
+// `external_only_trace`, `informational_runtime_only`,
+// `no_repo_intersection`) describe a property of an attached runtime
+// artifact, so the projection requires that at least one of logBundle /
+// perfBundle is actually attached. Without an artifact, the waiver may
+// still relax other floors (e.g. forced-read / citation-floor in
+// emit_investigation_complete) but it MUST NOT activate the
+// observation-only citation policy — that lane assumes downstream
+// readers can refer to "the attached log / trace", which would be a
+// false premise.
+func RuntimeGroundingDispositionFromWaiver(
+	w *EvidenceFloorWaiver,
+	logBundle *LogBundle,
+	perfBundle *PerfBundle,
+) *RuntimeGroundingDisposition {
 	if !w.IsActive() {
+		return nil
+	}
+	if logBundle == nil && perfBundle == nil {
 		return nil
 	}
 	return &RuntimeGroundingDisposition{

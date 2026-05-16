@@ -206,7 +206,10 @@ func TestRuntimeGroundingDispositionFromWaiver(t *testing.T) {
 		Reason:    EvidenceFloorWaiverExternalTrace,
 		Rationale: "trace spans are from another service",
 	}
-	d := RuntimeGroundingDispositionFromWaiver(w)
+	perfBundle := &PerfBundle{
+		Stalls: []PerfStall{{Symbol: "main"}},
+	}
+	d := RuntimeGroundingDispositionFromWaiver(w, nil, perfBundle)
 	if !d.IsActive() {
 		t.Fatalf("runtime grounding disposition inactive: %+v", d)
 	}
@@ -215,6 +218,44 @@ func TestRuntimeGroundingDispositionFromWaiver(t *testing.T) {
 	}
 	if d.CitationPolicy != RuntimeGroundingCitationRuntimeObservation {
 		t.Errorf("CitationPolicy = %q", d.CitationPolicy)
+	}
+}
+
+func TestRuntimeGroundingDispositionFromWaiver_NoArtifactReturnsNil(t *testing.T) {
+	// Regression: a model-declared waiver MUST NOT engage the
+	// observation-only citation policy when no runtime artifact is
+	// actually attached. Downstream prompt sections and the pre-emit
+	// hard reject both speak about "the attached log / trace" and
+	// would be false-premise in this case. Reproduces the 2026-05-16
+	// finalize loop where an explorer used the waiver to escape
+	// phantom forced-reads on inactive sub-repos, with no artifact in
+	// scope.
+	reasons := []EvidenceFloorWaiverReason{
+		EvidenceFloorWaiverExternalLog,
+		EvidenceFloorWaiverExternalTrace,
+		EvidenceFloorWaiverInformationalRuntime,
+		EvidenceFloorWaiverNoRepoIntersection,
+	}
+	for _, r := range reasons {
+		w := &EvidenceFloorWaiver{
+			Reason:    r,
+			Rationale: "no artifact attached in this test",
+		}
+		if got := RuntimeGroundingDispositionFromWaiver(w, nil, nil); got != nil {
+			t.Errorf("reason=%s: expected nil disposition without artifact, got %+v", r, got)
+		}
+	}
+}
+
+func TestRuntimeGroundingDispositionFromWaiver_LogArtifactActivates(t *testing.T) {
+	w := &EvidenceFloorWaiver{
+		Reason:    EvidenceFloorWaiverExternalLog,
+		Rationale: "log frames reference another service",
+	}
+	logBundle := &LogBundle{Errors: []LogError{{Type: "panic"}}}
+	d := RuntimeGroundingDispositionFromWaiver(w, logBundle, nil)
+	if !d.IsActive() {
+		t.Fatalf("disposition inactive with log artifact: %+v", d)
 	}
 }
 

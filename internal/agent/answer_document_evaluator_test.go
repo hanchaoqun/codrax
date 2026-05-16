@@ -3167,6 +3167,17 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGroundingDisposition(t *testing.T) {
 	mut := types.NewMutableState("q")
+	// A runtime artifact MUST be attached for the disposition to
+	// activate — the disposition's whole vocabulary ("the attached
+	// log / trace") presumes an artifact in scope. The 2026-05-16
+	// finalize-loop bug fix gates the waiver→disposition projection
+	// on this. Without the LogTriage below, the prompt section would
+	// (correctly) stay empty.
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{
+			Func: "synthetic_frame",
+		}}}},
+	})
 	mut.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
 		Reason:    types.EvidenceFloorWaiverNoRepoIntersection,
 		Rationale: "synthetic frames represent a different deployed build",
@@ -3175,7 +3186,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 	ctx := &types.AgentContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{
-			RequestModel:   types.RequestModel{Scenario: types.ScenarioRootCause, Intent: types.IntentRootCause},
+			RequestModel: types.RequestModel{
+				Scenario:  types.ScenarioRootCause,
+				Intent:    types.IntentRootCause,
+				LogTriage: mut.LogTriage(),
+			},
 			AnswerContract: types.AnswerContract{},
 		},
 	}

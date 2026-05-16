@@ -5,8 +5,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
+	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -229,5 +233,76 @@ func TestGrepFiles_RootOnlyNoiseDoesNotHideNestedProjectDirs(t *testing.T) {
 	}
 	if !strings.Contains(joined, "nested_logger.go") {
 		t.Fatalf("nested internal/logs/ should remain searchable, got %q", joined)
+	}
+}
+
+// rmTestGraphWithScore mints a tiny Graph with one keyword-scored
+// file so multi-repo aggregation has something to surface.
+func rmTestGraphWithScore(slug, file string, score float64) *rmtypes.Graph {
+	g := &rmtypes.Graph{
+		Root:           "/test/" + slug,
+		FileIndex:      map[string]*rmtypes.FileInfo{},
+		SymbolDefs:     map[string][]*rmtypes.Symbol{},
+		ImportGraph:    map[string][]string{},
+		ReverseImports: map[string][]string{},
+		Scores:         map[string]float64{file: score},
+		QueryScores:    map[string]float64{file: score},
+		Metadata:       rmtypes.Metadata{ScanTime: time.Now()},
+	}
+	fi := &rmtypes.FileInfo{RelPath: file, Language: "go", ParseTier: 1}
+	g.Files = []*rmtypes.FileInfo{fi}
+	g.FileIndex[file] = fi
+	return g
+}
+
+// TestRepoMapRank_SkipsPendingSubRepos is the regression test for the
+// 2026-05-16 finalize loop where keyword_search's multi-repo aggregator
+// surfaced files from LRU-resident-but-pending sub-repos. The phantom
+// files entered Phase1Ranking → CGEC forced-read pending list, the
+// explorer could not satisfy them (file-system tools refused on the
+// same active set), and the only escape was an
+// evidence_floor_waiver(no_repo_intersection) that then incorrectly
+// engaged finalizer's observation-only citation policy.
+func TestRepoMapRank_SkipsPendingSubRepos(t *testing.T) {
+	repos := []topology.SubRepo{
+		{Slug: "active-repo", RootAbs: "/parent/active-repo", RootRel: "active-repo", FileCount: 1},
+		{Slug: "pending-repo", RootAbs: "/parent/pending-repo", RootRel: "pending-repo", FileCount: 1},
+	}
+	topo := &topology.RepoTopology{
+		ParentRoot:   "/parent",
+		ParentSlug:   "parent-test",
+		Repos:        repos,
+		DiscoveredAt: time.Now(),
+	}
+	build := func(repoRoot, _ string) (*rmtypes.Graph, error) {
+		switch repoRoot {
+		case "/parent/active-repo":
+			return rmTestGraphWithScore("active-repo", "internal/foo.go", 1.0), nil
+		case "/parent/pending-repo":
+			return rmTestGraphWithScore("pending-repo", "internal/bar.go", 1.0), nil
+		}
+		return rmTestGraphWithScore("unknown", "x.go", 0), nil
+	}
+	mg, err := multigraph.New(multigraph.Config{
+		Topology: topo,
+		Build:    build,
+		Cap:      4,
+	})
+	if err != nil {
+		t.Fatalf("multigraph.New: %v", err)
+	}
+	if err := mg.EnsureMany([]string{"active-repo", "pending-repo"}); err != nil {
+		t.Fatalf("EnsureMany: %v", err)
+	}
+
+	scores, _ := repoMapRank(
+		[]string{"foo", "bar"}, nil, "/parent", mg,
+		[]string{"pending-repo"},
+	)
+	if _, ok := scores["active-repo/internal/foo.go"]; !ok {
+		t.Errorf("active-repo file missing from scores: %+v", scores)
+	}
+	if _, ok := scores["pending-repo/internal/bar.go"]; ok {
+		t.Errorf("pending-repo file MUST be filtered out, but appears in scores: %+v", scores)
 	}
 }

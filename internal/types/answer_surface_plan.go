@@ -1560,6 +1560,8 @@ func BuildAnswerSurfacePlan(
 		perfBundle = mutable.PerfTrace()
 		plan.RuntimeGroundingDisposition = RuntimeGroundingDispositionFromWaiver(
 			mutable.StableEvidenceFloorWaiver(),
+			logBundle,
+			perfBundle,
 		)
 	}
 	if plan.RuntimeGroundingDisposition == nil {

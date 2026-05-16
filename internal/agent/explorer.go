@@ -717,6 +717,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				ExactResolution:   exactContract,
 				SourceScope:       sourceScope,
 				MultiGraph:        ctx.MultiGraph,
+				PendingSubRepos:   ctx.PendingSubRepos,
 			})
 			e.searchResult = sr
 			e.searchFingerprint = fp

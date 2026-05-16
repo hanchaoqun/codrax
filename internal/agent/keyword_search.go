@@ -129,6 +129,17 @@ type keywordSearchOptions struct {
 	// half-step until the raw consumer migration in design §11
 	// completes).
 	MultiGraph any
+	// PendingSubRepos mirrors BusContext.PendingSubRepos: the RootRel
+	// list of sub-repos the routing fold left inactive for this
+	// question. The multi-repo aggregator in repoMapRank skips these
+	// so pre-scan ranking stays consistent with the file-system tools'
+	// MultiRepoActiveSetGater (which refuses reads on the same set).
+	// Without this, LRU-resident-but-inactive sub-repos leak files
+	// into Phase1Ranking and the CGEC pre-complete forced-read gate
+	// queues paths the explorer cannot satisfy, pushing the model into
+	// an evidence_floor_waiver(no_repo_intersection) escape that has
+	// nothing to do with attached runtime artifacts.
+	PendingSubRepos []string
 }
 
 // defaultKeywordSearchMaxFiles is the historical cap preserved for
@@ -246,7 +257,7 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	keywords = expandKeywords(keywords)
 
 	// --- Phase 1: repo_map structural ranking ---
-	repoMapScores, graph := repoMapRank(keywords, opts.Entities, repoRoot, opts.MultiGraph)
+	repoMapScores, graph := repoMapRank(keywords, opts.Entities, repoRoot, opts.MultiGraph, opts.PendingSubRepos)
 	// exactEntityAnchors wants user-named entities only. When the
 	// exactEntityAnchors wants the strongest provenance lane available.
 	// Prefer deterministic MentionedEntities (verbatim RawRequest
@@ -724,7 +735,7 @@ func exactPathFiles(graph *repomap.Graph, entity string) []string {
 // through ctx.MultiGraph.Oracle() / .LookupSymbol — the carrier is
 // also preserved on keywordSearchResult.MultiGraph for consumers
 // that want it.
-func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle any) (scores map[string]float64, graph *repomap.Graph) {
+func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle any, pendingSubRepos []string) (scores map[string]float64, graph *repomap.Graph) {
 	terms := make([]string, 0, len(keywords)+len(entities))
 	seen := make(map[string]bool, len(keywords)+len(entities))
 	for _, term := range append(append([]string(nil), keywords...), entities...) {
@@ -751,6 +762,18 @@ func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle
 		// resident.
 		active := mg.AllGraphs()
 		if len(active) > 0 {
+			// pendingSet mirrors MultiRepoActiveSetGater's
+			// "topology - PendingSubRepos" rule (active_set_gate.go).
+			// Sub-repos in the pending set are LRU-resident (so they
+			// show up in mg.AllGraphs()) but the routing fold left
+			// them inactive for this question, and the file-system
+			// tools refuse reads on their paths. Including their
+			// QueryScores here would surface phantom forced-read
+			// targets the explorer cannot satisfy.
+			pendingSet := make(map[string]bool, len(pendingSubRepos))
+			for _, p := range pendingSubRepos {
+				pendingSet[p] = true
+			}
 			scores = make(map[string]float64)
 			subMap := make(map[string]bool, len(active))
 			topo := mg.Topology()
@@ -765,6 +788,10 @@ func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle
 					continue
 				}
 				rootRel := subRepoMap[slug]
+				if pendingSet[rootRel] {
+					logging.Debug("[keyword_search] repo_map (multi-repo): skipping pending sub-repo slug=%s rootRel=%s", slug, rootRel)
+					continue
+				}
 				for path, qScore := range g.QueryScores {
 					if qScore > 0 {
 						prefixed := path
