@@ -14,7 +14,7 @@ func TestRenderMermaidBlocks_NoMermaid_PassThrough(t *testing.T) {
 		"plain text",
 		"prose with `inline code`",
 		"```go\nfunc main() {}\n```",
-		"```\n+----+\n| ok |\n+----+\n```", // bare ASCII art fence
+		"```\n+----+\n| ok |\n+----+\n```",      // bare ASCII art fence
 		"text with ```mermaid``` but malformed", // no body, no rewrite
 	}
 	for _, in := range cases {
@@ -244,6 +244,30 @@ func TestRenderMermaidBlocks_HtmlEntitiesInLabel(t *testing.T) {
 	}
 }
 
+func TestRenderMermaidBlocks_SequenceBareStopNormalizes(t *testing.T) {
+	in := strings.Join([]string{
+		"```mermaid",
+		"sequenceDiagram",
+		"    participant Explorer as Explorer",
+		"    participant Runtime as Runtime",
+		"    alt failed",
+		"        Runtime-->>Explorer: Original Output",
+		"        stop",
+		"    end",
+		"```",
+	}, "\n")
+	out := RenderMermaidBlocks(in)
+	if out == in {
+		t.Fatalf("bare stop sequence diagram should render after normalization; got unchanged:\n%s", out)
+	}
+	if !strings.Contains(out, "```text\n") {
+		t.Fatalf("normalized sequence diagram must render as text fence:\n%s", out)
+	}
+	if strings.Contains(out, "invalid syntax") || strings.Contains(out, "```mermaid") {
+		t.Fatalf("normalized sequence diagram fell into failure path:\n%s", out)
+	}
+}
+
 // TestRenderMermaidBlocks_UnsupportedKindShortCircuits verifies the
 // L2 routing split: classDiagram / stateDiagram / etc are valid
 // Mermaid the LLM is right to emit, but pgavlin's subset cannot
@@ -254,9 +278,9 @@ func TestRenderMermaidBlocks_HtmlEntitiesInLabel(t *testing.T) {
 // Mermaid renderer.
 func TestRenderMermaidBlocks_UnsupportedKindShortCircuits(t *testing.T) {
 	cases := []struct {
-		name    string
-		kind    string
-		body    string
+		name string
+		kind string
+		body string
 	}{
 		{"classDiagram", "classDiagram", "classDiagram\n    Animal <|-- Duck\n    Animal <|-- Fish"},
 		{"stateDiagram", "stateDiagram", "stateDiagram\n    [*] --> Idle\n    Idle --> Running"},
@@ -422,10 +446,10 @@ func TestRenderMermaidBlocks_FlattensSubgraphs(t *testing.T) {
 // (raw arrows, shell, JSON) still passes through untouched.
 func TestRenderMermaidBlocks_DoesNotTouchOtherFences(t *testing.T) {
 	cases := []string{
-		"```\nA --> B\n```",         // bare fence; body NOT a known diagram keyword
-		"```text\nA --> B\n```",     // text fence; same
-		"```bash\nls -la\n```",      // shell
-		"```json\n{\"a\": 1}\n```",  // JSON
+		"```\nA --> B\n```",        // bare fence; body NOT a known diagram keyword
+		"```text\nA --> B\n```",    // text fence; same
+		"```bash\nls -la\n```",     // shell
+		"```json\n{\"a\": 1}\n```", // JSON
 	}
 	for _, in := range cases {
 		out := RenderMermaidBlocks(in)

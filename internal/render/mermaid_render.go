@@ -8,6 +8,7 @@ import (
 	"github.com/pgavlin/mermaid-ascii/pkg/render"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 )
 
 // mermaidRenderingEnabled is the master switch for the
@@ -290,9 +291,10 @@ func mayContainMermaid(text string) bool {
 // we cope by detecting mermaid-shaped bodies regardless of tag.
 //
 // Pattern shape:
-//   ``` <info-string-zero-or-more-chars>
-//   <BODY>
-//   ```
+//
+//	``` <info-string-zero-or-more-chars>
+//	<BODY>
+//	```
 var fencedBlockRe = regexp.MustCompile("(?s)```([^\\n]*)\\n(.*?)\\n```")
 
 // mermaidFenceRe is retained for the original ```mermaid``` shape.
@@ -420,6 +422,7 @@ func infoLineStartsWithMermaidKeyword(info string) bool {
 // Mermaid, the library still does the rendering, the system fills
 // the capability gap in between.
 func preprocessMermaidBody(body string) string {
+	body = mermaidcompat.NormalizeSequenceStops(body)
 	body = flattenMermaidSubgraphs(body)
 	body = normalizeMermaidLabels(body)
 	return body
@@ -643,7 +646,6 @@ func mermaidFallbackFence(body, reason string) string {
 	b.WriteString("\n```")
 	return b.String()
 }
-
 
 // replaceMermaidFence is the per-match closure handed to
 // ReplaceAllStringFunc. `match` is the full fence (including the

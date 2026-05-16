@@ -14,6 +14,8 @@ import (
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/util"
+
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 )
 
 // RenderMarkdownHTML converts markdown into safe HTML for the local
@@ -83,6 +85,7 @@ func fencedCodeBody(block *ast.FencedCodeBlock, source []byte) string {
 
 func normalizeBrowserMermaid(body string) string {
 	body = strings.TrimRight(body, "\n")
+	body = mermaidcompat.NormalizeSequenceStops(body)
 	return normalizeBrowserMermaidSubgraphs(body)
 }
 

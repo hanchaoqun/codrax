@@ -73,6 +73,20 @@ func TestRenderMarkdownHTMLNormalizesBareSubgraphTitles(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownHTMLNormalizesSequenceStop(t *testing.T) {
+	body := []byte("```mermaid\nsequenceDiagram\n    participant Explorer as Explorer\n    participant Runtime as Runtime\n    Runtime-->>Explorer: Original Output\n    stop\n```\n")
+	got, err := RenderMarkdownHTML(body)
+	if err != nil {
+		t.Fatalf("RenderMarkdownHTML: %v", err)
+	}
+	if strings.Contains(got, "\n    stop\n") {
+		t.Fatalf("bare sequence stop survived:\n%s", got)
+	}
+	if !strings.Contains(got, "Note over Explorer,Runtime: stop") {
+		t.Fatalf("sequence stop note missing:\n%s", got)
+	}
+}
+
 func TestServerRequiresToken(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "answer.md")
