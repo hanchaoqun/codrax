@@ -364,6 +364,8 @@ type appContext struct {
 	memorySettings        types.MemorySettings
 	envRecommendSettings  types.EnvRecommendSettings
 	markdownPreviewConfig preview.Config
+	outputDumpDir         string
+	outputDumpMax         int
 	replPasteFoldMinChars int // 0 → repl.DefaultPasteFoldMinChars
 	chitchatResponder     repl.ChitchatResponder
 	chitchatClassifier    repl.ChitchatClassifier
@@ -1179,6 +1181,8 @@ func runREPL(_ *cobra.Command) error {
 		BuildTime:          buildTime,
 		Language:           flagLang,
 		MarkdownPreview:    markdownPreview,
+		OutputDumpDir:      app.outputDumpDir,
+		OutputDumpMax:      app.outputDumpMax,
 		ChitchatResponder:  app.chitchatResponder,
 		ChitchatClassifier: app.chitchatClassifier,
 		// Hand the memory adapter to REPL so the chitchat tool-use
@@ -1595,6 +1599,8 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		markdownPreviewCfg.Mode = preview.ModeOff
 	}
 	app.markdownPreviewConfig = markdownPreviewCfg
+	app.outputDumpDir = outputDumpDir
+	app.outputDumpMax = outputMaxFiles
 
 	// Resolve --repo to an absolute path before any tool / orchestrator
 	// reads it. Tools key file-system access off BusContext.RepoRoot, so

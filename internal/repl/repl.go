@@ -39,6 +39,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/memory"
+	"github.com/hanchaoqun/codrax/internal/outputdump"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
@@ -190,6 +191,14 @@ type Config struct {
 	// preview URL below the existing "Markdown saved" line. Nil disables
 	// preview hints without affecting output dumping.
 	MarkdownPreview MarkdownPreviewer
+
+	// OutputDumpDir and OutputDumpMax mirror the orchestrator's final
+	// answer transcript dump settings for REPL-local answer paths
+	// (local transform / summarize / translate and /chat). Pipeline
+	// runs still write via the orchestrator so BusContext can carry the
+	// path; local paths write here because they bypass Runner.Run.
+	OutputDumpDir string
+	OutputDumpMax int
 
 	// ChitchatResponder handles the /chat slash command. When nil,
 	// /chat prints a "not configured" warning and takes no LLM action
@@ -420,6 +429,8 @@ type REPL struct {
 	buildTime           string
 	language            string
 	markdownPreview     MarkdownPreviewer
+	outputDumpDir       string
+	outputDumpMax       int
 
 	// attachedLog holds the runtime log excerpt the user attached.
 	// Lifetime depends on how it got here:
@@ -643,6 +654,8 @@ func New(cfg Config) *REPL {
 		buildTime:              cfg.BuildTime,
 		language:               cfg.Language,
 		markdownPreview:        cfg.MarkdownPreview,
+		outputDumpDir:          cfg.OutputDumpDir,
+		outputDumpMax:          cfg.OutputDumpMax,
 		chitchatResponder:      cfg.ChitchatResponder,
 		memory:                 cfg.Memory,
 		envSettings:            types.ResolvedEnvRecommendSettings(cfg.EnvSettings),
@@ -995,6 +1008,9 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 	// REPL output. renderRichResponse is the single source of
 	// rendering for both off-pipeline answer surfaces.
 	r.renderBordered(r.renderRichResponse(reply))
+	if path := r.writeLocalMarkdownTranscript(line, reply); path != "" {
+		r.emitMarkdownTranscriptHints(path)
+	}
 	// Persist as KindPipeline. A local-route turn is structurally a
 	// derivative of a previous pipeline answer (transform /
 	// summarize / translate / elaborate of last_answer), so its
@@ -2008,7 +2024,41 @@ func finalAnswerMarkdownNotice(busCtx *types.BusContext, lang string) string {
 	if busCtx == nil || busCtx.Mutable == nil {
 		return ""
 	}
-	path := displayFinalAnswerMarkdownPath(busCtx.Mutable.FinalAnswerMarkdownPath())
+	return markdownTranscriptNotice(busCtx.Mutable.FinalAnswerMarkdownPath(), lang)
+}
+
+func (r *REPL) finalAnswerMarkdownPreviewNotice(busCtx *types.BusContext) string {
+	if r == nil || r.markdownPreview == nil || busCtx == nil || busCtx.Mutable == nil {
+		return ""
+	}
+	return r.markdownPreviewNotice(busCtx.Mutable.FinalAnswerMarkdownPath())
+}
+
+func (r *REPL) writeLocalMarkdownTranscript(request, answer string) string {
+	if r == nil || strings.TrimSpace(answer) == "" || strings.TrimSpace(r.outputDumpDir) == "" {
+		return ""
+	}
+	return outputdump.Write(outputdump.Args{
+		Dir:     r.outputDumpDir,
+		Max:     r.outputDumpMax,
+		Request: strings.TrimSpace(request),
+		Answer:  answer,
+		Now:     time.Now(),
+		PID:     os.Getpid(),
+	})
+}
+
+func (r *REPL) emitMarkdownTranscriptHints(path string) {
+	if hint := markdownTranscriptNotice(path, r.language); hint != "" {
+		r.info(hint)
+	}
+	if hint := r.markdownPreviewNotice(path); hint != "" {
+		r.info(hint)
+	}
+}
+
+func markdownTranscriptNotice(path, lang string) string {
+	path = displayFinalAnswerMarkdownPath(path)
 	if path == "" {
 		return ""
 	}
@@ -2018,11 +2068,11 @@ func finalAnswerMarkdownNotice(busCtx *types.BusContext, lang string) string {
 	return "Raw Markdown saved: " + path
 }
 
-func (r *REPL) finalAnswerMarkdownPreviewNotice(busCtx *types.BusContext) string {
-	if r == nil || r.markdownPreview == nil || busCtx == nil || busCtx.Mutable == nil {
+func (r *REPL) markdownPreviewNotice(path string) string {
+	if r == nil || r.markdownPreview == nil {
 		return ""
 	}
-	path := strings.TrimSpace(busCtx.Mutable.FinalAnswerMarkdownPath())
+	path = strings.TrimSpace(path)
 	if path == "" {
 		return ""
 	}

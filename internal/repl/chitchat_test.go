@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,9 +17,9 @@ import (
 // Lets chit-chat tests assert on what the REPL forwarded to the
 // responder without needing an actual LLM adapter.
 type stubResponder struct {
-	calls   []stubResponderCall
-	reply   string
-	err     error
+	calls []stubResponderCall
+	reply string
+	err   error
 }
 
 type stubResponderCall struct {
@@ -54,6 +56,43 @@ func newChitchatTestREPL(t *testing.T, responder ChitchatResponder, input string
 		ChitchatResponder: responder,
 	})
 	return r, store, out
+}
+
+func TestChitchat_WritesMarkdownAndPreview(t *testing.T) {
+	responder := &stubResponder{reply: "```mermaid\nflowchart LR\n  A --> B\n```"}
+	r, store, out := newChitchatTestREPL(t, responder, "/chat draw it\n/exit\n")
+	preview := &stubMarkdownPreviewer{url: "http://127.0.0.1:49152/preview/chat?token=t"}
+	r.outputDumpDir = filepath.Join(t.TempDir(), "output")
+	r.outputDumpMax = 10
+	r.markdownPreview = preview
+	r.language = "en"
+
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if !strings.Contains(out.String(), "Raw Markdown saved: ") ||
+		!strings.Contains(out.String(), "Browser preview: http://127.0.0.1:49152/preview/chat?token=t") {
+		t.Fatalf("chitchat markdown/preview hints missing:\n%s", out.String())
+	}
+	if preview.path == "" {
+		t.Fatalf("preview was not registered")
+	}
+	data, err := os.ReadFile(preview.path)
+	if err != nil {
+		t.Fatalf("read chitchat dump %q: %v", preview.path, err)
+	}
+	if body := string(data); !strings.Contains(body, "# 问题\n\ndraw it\n") ||
+		!strings.Contains(body, "# 回答\n\n```mermaid\nflowchart LR") {
+		t.Fatalf("chitchat dump body missing request/answer:\n%s", body)
+	}
+	recent := store.Recent()
+	if len(recent) != 1 {
+		t.Fatalf("expected one memory turn, got %d", len(recent))
+	}
+	if strings.Contains(recent[0].Response, "Raw Markdown saved") ||
+		strings.Contains(recent[0].Response, "Browser preview") {
+		t.Fatalf("markdown hints leaked into chitchat memory: %q", recent[0].Response)
+	}
 }
 
 // TestChitchat_DispatchesResponderAndPersistsMemory verifies that
@@ -389,8 +428,10 @@ func TestChitchatClassifier_ErrorFallsThroughToRunner(t *testing.T) {
 // token so the LLM judges by content — a log-related code question
 // gets routed to repo_question, a memory-meta drift turn to
 // chitchat. This test pins both:
-//   (a) classifier IS invoked
-//   (b) the hint embeds `attachment=true`
+//
+//	(a) classifier IS invoked
+//	(b) the hint embeds `attachment=true`
+//
 // Routing direction itself is exercised by the prompt and verified
 // in the prompt-content guard test.
 func TestChitchatClassifier_AttachedLogPassesAttachmentSignal(t *testing.T) {

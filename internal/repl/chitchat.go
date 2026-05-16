@@ -774,6 +774,9 @@ func (r *REPL) chitchatDispatch(line, display string) {
 	// text. recordTurn persists the raw `response` (NOT the
 	// styled output) so memory transcripts stay plain.
 	r.renderBordered(r.renderRichResponse(response))
+	if path := r.writeLocalMarkdownTranscript(line, response); path != "" {
+		r.emitMarkdownTranscriptHints(path)
+	}
 	r.recordTurn(display, line, response, memory.KindChitchat)
 }
 
@@ -878,7 +881,9 @@ func (r *REPL) runStreamingChitchat(ctx context.Context, streamer streamingChitc
 // prior turn / first turn / hint unavailable" — classifier MUST
 // behave byte-identically to the no-hint case in that scenario.
 // Format (REPL constructs, classifier consumes as opaque text):
-//   kind=<chitchat|pipeline|plan|shell> topic=<oneLine, ≤100 chars>
+//
+//	kind=<chitchat|pipeline|plan|shell> topic=<oneLine, ≤100 chars>
+//
 // The hint exists to disambiguate continuation references (e.g. user
 // types "expand 10" after a list_memory listing) that the classifier
 // cannot route correctly from the current line alone.

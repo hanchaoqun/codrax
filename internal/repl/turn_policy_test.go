@@ -23,6 +23,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -539,6 +541,63 @@ func TestTurnPolicyDispatch_LocalTransformReusesAnswer(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "mermaid") {
 		t.Errorf("local reply body missing; got %q", out.String())
+	}
+}
+
+func TestTurnPolicyDispatch_LocalTransformWritesMarkdownAndPreview(t *testing.T) {
+	store := newPolicyStore(t)
+	seedPriorAnswer(t, store,
+		"Explorer 调用 SubAgent 的流程",
+		"Explorer 先提出子任务，再由运行时验证、执行、归并。")
+
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:                 RouteLocal,
+			Operation:             "transform",
+			Source:                "last_answer",
+			Confidence:            0.92,
+			PresentationDirective: "mermaid sequence diagram",
+		},
+	}
+	responder := &stubLocalResponder{
+		localReply: "```mermaid\nsequenceDiagram\n  Explorer->>Runtime: propose\n```",
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, responder, "换成时序图\n/exit\n")
+	preview := &stubMarkdownPreviewer{url: "http://127.0.0.1:49152/preview/local?token=t"}
+	r.outputDumpDir = filepath.Join(t.TempDir(), "output")
+	r.outputDumpMax = 10
+	r.markdownPreview = preview
+
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("local transform must not enter pipeline; runner requests=%v", runner.requests)
+	}
+	printed := out.String()
+	if !strings.Contains(printed, "Raw Markdown saved: ") ||
+		!strings.Contains(printed, "Browser preview: http://127.0.0.1:49152/preview/local?token=t") {
+		t.Fatalf("local markdown/preview hints missing:\n%s", printed)
+	}
+	if preview.path == "" {
+		t.Fatalf("preview was not registered")
+	}
+	data, err := os.ReadFile(preview.path)
+	if err != nil {
+		t.Fatalf("read local dump %q: %v", preview.path, err)
+	}
+	body := string(data)
+	if !strings.Contains(body, "# 问题\n\n换成时序图\n") ||
+		!strings.Contains(body, "# 回答\n\n```mermaid\nsequenceDiagram") {
+		t.Fatalf("local dump body missing request/answer:\n%s", body)
+	}
+	recent := store.Recent()
+	if len(recent) == 0 {
+		t.Fatalf("expected local turn in memory")
+	}
+	if strings.Contains(recent[len(recent)-1].Response, "Raw Markdown saved") ||
+		strings.Contains(recent[len(recent)-1].Response, "Browser preview") {
+		t.Fatalf("markdown hints leaked into memory: %q", recent[len(recent)-1].Response)
 	}
 }
 
