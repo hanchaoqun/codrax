@@ -57,6 +57,51 @@ func TestIsNoisePathUsesCrossLanguageTestClassifier(t *testing.T) {
 	}
 }
 
+func TestExplorerMergeEmittedEvidenceDeltaOnlyAddsNewRows(t *testing.T) {
+	mut := types.NewMutableState("q")
+	first := types.EvidenceItem{
+		ID:           "first",
+		Kind:         types.EvidenceDirect,
+		Producer:     "explorer.emit_evidence",
+		Source:       "a.go",
+		LineStart:    1,
+		AnchorSymbol: "A",
+	}
+	second := types.EvidenceItem{
+		ID:           "second",
+		Kind:         types.EvidenceDirect,
+		Producer:     "explorer.emit_evidence",
+		Source:       "b.go",
+		LineStart:    2,
+		AnchorSymbol: "B",
+	}
+	mut.AppendEvidence([]types.EvidenceItem{first})
+	ctx := &types.AgentContext{Mutable: mut}
+	eval := &explorerEvaluator{}
+
+	eval.mergeEmittedEvidenceDelta(ctx)
+	if got := len(eval.structuredEvidence); got != 1 {
+		t.Fatalf("first delta merge len = %d, want 1", got)
+	}
+	if eval.mergedEmittedEvidenceLen != 1 {
+		t.Fatalf("merged emitted cursor = %d, want 1", eval.mergedEmittedEvidenceLen)
+	}
+
+	eval.mergeEmittedEvidenceDelta(ctx)
+	if got := len(eval.structuredEvidence); got != 1 {
+		t.Fatalf("repeat delta merge should not duplicate evidence, len = %d", got)
+	}
+
+	mut.AppendEvidence([]types.EvidenceItem{second})
+	eval.mergeEmittedEvidenceDelta(ctx)
+	if got := len(eval.structuredEvidence); got != 2 {
+		t.Fatalf("second delta merge len = %d, want 2", got)
+	}
+	if eval.mergedEmittedEvidenceLen != 2 {
+		t.Fatalf("merged emitted cursor = %d, want 2", eval.mergedEmittedEvidenceLen)
+	}
+}
+
 // midLoopExplorer is the PhaseMidLoop analogue of softStopExplorer.
 func midLoopExplorer(eval *explorerEvaluator, iter int, lastResult *types.ToolResult, allResults []types.ToolResult) (string, bool) {
 	sig := eval.observeMidLoop(LoopObservation{

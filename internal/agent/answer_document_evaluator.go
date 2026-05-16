@@ -3246,10 +3246,11 @@ func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportR
 		return ""
 	}
 	plan := answerSurfacePlan(ctx)
-	evidence := answerDocumentAuthorityEvidencePool(ctx)
+	var surfaceEvidence []types.EvidenceItem
 	if plan != nil {
-		evidence = mergeEvidenceItems(evidence, plan.SurfaceEvidence)
+		surfaceEvidence = plan.SurfaceEvidence
 	}
+	evidence := answerDocumentAuthorityEvidencePoolWithExtra(ctx, surfaceEvidence)
 	supportScope := supportLaneScopeForContext(ctx, supportRendered)
 	facts := selectAnswerDocTypedEnrichmentFacts(ctx, evidence, supportRendered, supportScope)
 	flowLines := selectAnswerDocFlowEnrichmentLines(ctx.FlowFindings, answerDocFlowEnrichmentLimit(ctx), supportScope)
@@ -4242,6 +4243,10 @@ func exactResolutionSurfaceEvidencePool(ctx *types.AgentContext) []types.Evidenc
 }
 
 func answerDocumentAuthorityEvidencePool(ctx *types.AgentContext) []types.EvidenceItem {
+	return answerDocumentAuthorityEvidencePoolWithExtra(ctx)
+}
+
+func answerDocumentAuthorityEvidencePoolWithExtra(ctx *types.AgentContext, extra ...[]types.EvidenceItem) []types.EvidenceItem {
 	if ctx == nil {
 		return nil
 	}
@@ -4249,7 +4254,10 @@ func answerDocumentAuthorityEvidencePool(ctx *types.AgentContext) []types.Eviden
 	if ctx.Mutable != nil {
 		emitted = ctx.Mutable.EmittedEvidence()
 	}
-	return mergeEvidenceItems(emitted, ctx.EvidenceItems)
+	groups := make([][]types.EvidenceItem, 0, 2+len(extra))
+	groups = append(groups, emitted, ctx.EvidenceItems)
+	groups = append(groups, extra...)
+	return mergeEvidenceItems(groups...)
 }
 
 func renderAnswerDocAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract, citationGradeRendered bool) string {

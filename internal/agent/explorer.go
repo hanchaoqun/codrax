@@ -132,6 +132,7 @@ type explorerEvaluator struct {
 	primaryReadIter                 int  // df3-drift: iter at which a primary-entity file first entered readSet
 	notesLenAtPrimaryRead           int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
 	investigationComplete           bool // set when emit_investigation_complete tool was observed in MidLoop
+	mergedEmittedEvidenceLen        int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
 
 	// answerSubject is the AnswerSubject classification copied from
 	// the analyzer's IR at BuildInitialInstruction time. The chain
@@ -429,6 +430,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.primaryReadSeen = false
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
+	e.mergedEmittedEvidenceLen = 0
 	e.declarativeAnchorFiles = nil
 	e.declarativeCandidateFiles = nil
 	// Per-dispatch reset of the completion flag. Without this, a
@@ -3751,12 +3753,12 @@ func (e *explorerEvaluator) buildExactResolutionScopeBanner(ctx *types.AgentCont
 		if e.searchResult != nil {
 			graph = e.searchResult.Graph
 		}
-		evidence := mergeEvidenceItems(e.structuredEvidence, ctx.Mutable.EmittedEvidence())
+		e.mergeEmittedEvidenceDelta(ctx)
 		e.exactContextFiles = refreshedExactResolutionContextFiles(
 			contract,
 			ctx.AnalysisIR.RequestModel.Scenario,
 			graph,
-			evidence,
+			e.structuredEvidence,
 			cands,
 			e.requiredFiles,
 			e.exactContextFiles,
@@ -8608,14 +8610,27 @@ func (e *explorerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 }
 
 func (e *explorerEvaluator) refreshMidLoopStructuredEvidence(ctx *types.AgentContext) {
-	if ctx == nil || ctx.Mutable == nil {
+	e.mergeEmittedEvidenceDelta(ctx)
+	e.refreshExactContextFiles(ctx)
+}
+
+func (e *explorerEvaluator) mergeEmittedEvidenceDelta(ctx *types.AgentContext) {
+	if e == nil || ctx == nil || ctx.Mutable == nil {
 		return
 	}
 	emitted := ctx.Mutable.EmittedEvidence()
-	if len(emitted) > 0 {
-		e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, emitted)
+	if len(emitted) == 0 {
+		e.mergedEmittedEvidenceLen = 0
+		return
 	}
-	e.refreshExactContextFiles(ctx)
+	if len(emitted) < e.mergedEmittedEvidenceLen {
+		e.mergedEmittedEvidenceLen = 0
+	}
+	if len(emitted) <= e.mergedEmittedEvidenceLen {
+		return
+	}
+	e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, emitted[e.mergedEmittedEvidenceLen:])
+	e.mergedEmittedEvidenceLen = len(emitted)
 }
 
 func (e *explorerEvaluator) refreshExactContextFiles(ctx *types.AgentContext) {
@@ -9074,6 +9089,7 @@ func (e *explorerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, outpu
 
 func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, toolResults []types.ToolResult) {
 	if len(e.structuredEvidence) > 0 || len(e.flowFindings) > 0 {
+		e.mergeEmittedEvidenceDelta(ctx)
 		return
 	}
 
@@ -9090,6 +9106,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		if emitted := ctx.Mutable.EmittedEvidence(); len(emitted) > 0 {
 			logging.Debug("[explorer] ensureStructuredEvidence: merging %d emit_evidence item(s) with %d parsed", len(emitted), len(parsed))
 			parsed = mergeEvidenceItems(parsed, emitted)
+			e.mergedEmittedEvidenceLen = len(emitted)
 		}
 	}
 	// Grounding moved upstream. emit_evidence.Execute now grounds every
@@ -9131,10 +9148,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		// T2.2: produce structured EvidenceMechanism items for ERM
 		// mechanism requirements. No-op for non-mechanism questions.
 		mechEvidence = scanMechanismEvidence(e.ermRequirements, e.searchResult.Graph, ctx.RepoRoot)
-		trial := mergeEvidenceItems(parsed, cv.evidence)
-		if len(mechEvidence) > 0 {
-			trial = mergeEvidenceItems(trial, mechEvidence)
-		}
+		trial := mergeEvidenceItems(parsed, cv.evidence, mechEvidence)
 		reqsCopy := make([]EvidenceRequirement, len(e.ermRequirements))
 		copy(reqsCopy, e.ermRequirements)
 		reqsCopy = checkRequirementSatisfaction(reqsCopy, e.investigationNotes, trial, e.complexity)
@@ -9196,10 +9210,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	})
 	logging.Debug("[explorer] dataflow.Analyze(intent=%s): %d evidence, %d findings from %d candidates",
 		intent, len(result.Evidence), len(result.Findings), len(candidates))
-	e.structuredEvidence = mergeEvidenceItems(parsed, result.Evidence)
-	if len(mechEvidence) > 0 {
-		e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, mechEvidence)
-	}
+	e.structuredEvidence = mergeEvidenceItems(parsed, result.Evidence, mechEvidence)
 	e.flowFindings = mergeFlowFindings(result.Findings)
 }
 
