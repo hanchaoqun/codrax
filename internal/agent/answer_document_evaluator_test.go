@@ -333,6 +333,55 @@ func TestRenderAnswerDocTypedExplorationEnrichment_ContextDoesNotBecomePrincipal
 	}
 }
 
+func TestAnswerDocTypedEnrichmentEvidencePoolBoundsLargeContext(t *testing.T) {
+	evidence := make([]types.EvidenceItem, answerDocMaxEnrichmentCandidateFacts+50)
+	for i := range evidence {
+		evidence[i] = types.EvidenceItem{
+			ID:         fmt.Sprintf("ev-%04d", i),
+			Kind:       types.EvidenceDirect,
+			Source:     "internal/example.go",
+			LineStart:  i + 1,
+			AnchorKind: types.AnchorAssignment,
+			Subject:    fmt.Sprintf("Subject%d", i),
+			Snippet:    fmt.Sprintf("Subject%d := value", i),
+		}
+	}
+	ctx := &types.AgentContext{EvidenceItems: evidence}
+
+	got := answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts)
+	if len(got) != answerDocMaxEnrichmentCandidateFacts {
+		t.Fatalf("bounded enrichment pool len=%d, want %d", len(got), answerDocMaxEnrichmentCandidateFacts)
+	}
+	if got[len(got)-1].ID != fmt.Sprintf("ev-%04d", answerDocMaxEnrichmentCandidateFacts-1) {
+		t.Fatalf("bounded enrichment pool should preserve ranked prefix, last=%q", got[len(got)-1].ID)
+	}
+}
+
+func TestSelectAnswerDocTypedEnrichmentFactsTruncatesLargeSurface(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}}}
+	longSnippet := strings.Repeat("x", answerDocMaxEnrichmentSurfaceBytes+200)
+	got := selectAnswerDocTypedEnrichmentFacts(ctx, []types.EvidenceItem{{
+		ID:              "large-surface",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/example.go",
+		LineStart:       12,
+		AnchorKind:      types.AnchorAssignment,
+		Subject:         "LargeSurface",
+		Snippet:         longSnippet,
+		GroundingStatus: types.GroundingGrounded,
+	}}, false, nil)
+	if len(got) != 1 {
+		t.Fatalf("expected one enrichment fact, got %+v", got)
+	}
+	if len(got[0].surface) > answerDocMaxEnrichmentSurfaceBytes+len("…[truncated]") {
+		t.Fatalf("surface was not bounded: len=%d", len(got[0].surface))
+	}
+	if !strings.Contains(got[0].surface, "…[truncated]") {
+		t.Fatalf("surface should carry truncation marker, got %q", got[0].surface)
+	}
+}
+
 func TestSelectAnswerDocTypedEnrichmentFacts_DiagnosticSupportScopeFiltersUnrelatedRows(t *testing.T) {
 	supportScope := supportLaneScopeFromPlan(&types.AnswerSupportPlan{
 		Lanes: []types.AnswerSupportLane{{

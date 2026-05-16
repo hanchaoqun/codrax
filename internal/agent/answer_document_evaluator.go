@@ -3219,6 +3219,13 @@ const (
 	answerDocDefaultEnrichmentFacts = 14
 	answerDocMaxEnrichmentFacts     = 28
 	answerDocMaxFlowEnrichmentFacts = 6
+	// Typed enrichment is prompt guidance, not an answer contract. Keep
+	// its candidate scan bounded so large repositories cannot spend
+	// minutes re-ranking optional context before the finalizer's first
+	// LLM request.
+	answerDocMaxEnrichmentCandidateFacts = 1024
+	answerDocMaxFlowEnrichmentScan       = 2048
+	answerDocMaxEnrichmentSurfaceBytes   = 640
 )
 
 type answerDocEnrichmentFact struct {
@@ -3245,12 +3252,7 @@ func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportR
 	if ctx == nil {
 		return ""
 	}
-	plan := answerSurfacePlan(ctx)
-	var surfaceEvidence []types.EvidenceItem
-	if plan != nil {
-		surfaceEvidence = plan.SurfaceEvidence
-	}
-	evidence := answerDocumentAuthorityEvidencePoolWithExtra(ctx, surfaceEvidence)
+	evidence := answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts)
 	supportScope := supportLaneScopeForContext(ctx, supportRendered)
 	facts := selectAnswerDocTypedEnrichmentFacts(ctx, evidence, supportRendered, supportScope)
 	flowLines := selectAnswerDocFlowEnrichmentLines(ctx.FlowFindings, answerDocFlowEnrichmentLimit(ctx), supportScope)
@@ -3297,6 +3299,39 @@ func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportR
 	return b.String()
 }
 
+func answerDocTypedEnrichmentEvidencePool(ctx *types.AgentContext, limit int) []types.EvidenceItem {
+	if ctx == nil || limit <= 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, limit)
+	out := make([]types.EvidenceItem, 0, extractorMinInt(len(ctx.EvidenceItems), limit))
+	addGroup := func(items []types.EvidenceItem) {
+		for _, item := range items {
+			if len(out) >= limit {
+				return
+			}
+			id := strings.TrimSpace(item.ID)
+			if id == "" {
+				id = types.StableEvidenceID(item)
+				item.ID = id
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, item)
+		}
+	}
+	// ctx.EvidenceItems is already the orchestrator's ranked,
+	// deduplicated truth set. Prefer it over raw Mutable emissions; the
+	// latter is only a backstop for unusual tests or partial contexts.
+	addGroup(ctx.EvidenceItems)
+	if ctx.Mutable != nil && len(out) < limit {
+		addGroup(ctx.Mutable.EmittedEvidence())
+	}
+	return out
+}
+
 func selectAnswerDocTypedEnrichmentFacts(
 	ctx *types.AgentContext,
 	evidence []types.EvidenceItem,
@@ -3329,6 +3364,7 @@ func selectAnswerDocTypedEnrichmentFacts(
 		if surface == "" {
 			continue
 		}
+		surface = truncateAnswerDocPromptText(surface, answerDocMaxEnrichmentSurfaceBytes)
 		label := answerDocEnrichmentEvidenceLabel(item)
 		score := answerDocEnrichmentEvidenceScore(item, label, surface, lane, needles, profile)
 		if score > 0 {
@@ -3800,7 +3836,12 @@ func selectAnswerDocFlowEnrichmentLines(findings []types.FlowFindingDigest, limi
 		return nil
 	}
 	out := make([]string, 0, extractorMinInt(len(findings), limit))
+	scanned := 0
 	for _, ff := range findings {
+		scanned++
+		if scanned > answerDocMaxFlowEnrichmentScan {
+			break
+		}
 		if supportScope != nil && !supportScope.allowsFlowFinding(ff) {
 			continue
 		}
@@ -4254,10 +4295,11 @@ func answerDocumentAuthorityEvidencePoolWithExtra(ctx *types.AgentContext, extra
 	if ctx.Mutable != nil {
 		emitted = ctx.Mutable.EmittedEvidence()
 	}
-	groups := make([][]types.EvidenceItem, 0, 2+len(extra))
-	groups = append(groups, emitted, ctx.EvidenceItems)
-	groups = append(groups, extra...)
-	return mergeEvidenceItems(groups...)
+	merged, _ := MergeEvidenceItemsIfChanged(ctx.EvidenceItems, emitted)
+	for _, group := range extra {
+		merged, _ = MergeEvidenceItemsIfChanged(merged, group)
+	}
+	return append([]types.EvidenceItem(nil), merged...)
 }
 
 func renderAnswerDocAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract, citationGradeRendered bool) string {
