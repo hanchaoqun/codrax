@@ -911,6 +911,156 @@ func preCheckPrincipalSupportMemberCoverage(doc *types.AnswerDocumentV2, ctxOpt 
 	}}
 }
 
+func normalizePrincipalSupportMemberCarriers(doc *types.AnswerDocumentV2, supportPlan *types.AnswerSupportPlan) int {
+	if doc == nil || supportPlan == nil {
+		return 0
+	}
+	missing := types.MissingPrincipalSupportMembers(doc, supportPlan)
+	if len(missing) == 0 {
+		return 0
+	}
+	blockIdx := principalSupportMemberCarrierBlockIndex(doc)
+	if blockIdx < 0 {
+		blockIdx = appendPrincipalSupportMemberCarrierBlock(doc)
+	}
+	if blockIdx < 0 || blockIdx >= len(doc.Blocks) {
+		return 0
+	}
+	added := 0
+	for _, ob := range missing {
+		cit, ok := citationForPrincipalSupportMember(ob)
+		if !ok {
+			continue
+		}
+		item := types.AnswerBlockItem{
+			ID:          nextPrincipalSupportMemberItemID(doc.Blocks[blockIdx], ob),
+			Label:       principalSupportMemberItemLabel(ob),
+			Text:        principalSupportMemberItemText(ob),
+			CitationRef: appendOrReusePreEmitCitation(doc, cit),
+		}
+		if strings.TrimSpace(item.Label) == "" && strings.TrimSpace(item.Text) == "" {
+			continue
+		}
+		doc.Blocks[blockIdx].Items = append(doc.Blocks[blockIdx].Items, item)
+		added++
+	}
+	return added
+}
+
+func principalSupportMemberCarrierBlockIndex(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return -1
+	}
+	for i, block := range doc.Blocks {
+		if !preEmitBlockCanCarryPrincipalSupportMember(block) {
+			continue
+		}
+		if block.SurfaceRole == types.SurfacePrincipal || len(block.Items) > 0 {
+			return i
+		}
+	}
+	for i, block := range doc.Blocks {
+		if preEmitBlockCanCarryPrincipalSupportMember(block) {
+			return i
+		}
+	}
+	return -1
+}
+
+func appendPrincipalSupportMemberCarrierBlock(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return -1
+	}
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:       nextPrincipalSupportMemberBlockID(doc),
+		Kind:     types.BlockBulletList,
+		FacetIDs: []string{string(types.FacetEnumerationItem)},
+	})
+	return len(doc.Blocks) - 1
+}
+
+func preEmitBlockCanCarryPrincipalSupportMember(block types.AnswerBlock) bool {
+	switch block.Kind {
+	case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		return true
+	default:
+		return false
+	}
+}
+
+func citationForPrincipalSupportMember(ob types.AnswerSupportMemberObligation) (types.Citation, bool) {
+	if source := strings.TrimSpace(ob.Source); source != "" && ob.LineStart > 0 {
+		return types.Citation{File: source, Line: ob.LineStart}, true
+	}
+	for _, location := range append([]string{ob.Location}, ob.EquivalentLocations...) {
+		if cit, ok := parsePreEmitCitationLocation(location); ok {
+			return cit, true
+		}
+	}
+	return types.Citation{}, false
+}
+
+func principalSupportMemberItemLabel(ob types.AnswerSupportMemberObligation) string {
+	if label := strings.TrimSpace(ob.Label); label != "" {
+		return label
+	}
+	if len(ob.SurfaceTerms) > 0 {
+		if term := strings.TrimSpace(ob.SurfaceTerms[0]); term != "" {
+			return term
+		}
+	}
+	return strings.TrimSpace(ob.Location)
+}
+
+func principalSupportMemberItemText(ob types.AnswerSupportMemberObligation) string {
+	return strings.TrimSpace(ob.LocationHint())
+}
+
+func nextPrincipalSupportMemberBlockID(doc *types.AnswerDocumentV2) string {
+	base := "principal-support-members"
+	used := make(map[string]bool, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		if id := strings.TrimSpace(block.ID); id != "" {
+			used[id] = true
+		}
+	}
+	if !used[base] {
+		return base
+	}
+	for i := 2; ; i++ {
+		id := fmt.Sprintf("%s-%d", base, i)
+		if !used[id] {
+			return id
+		}
+	}
+}
+
+func nextPrincipalSupportMemberItemID(block types.AnswerBlock, ob types.AnswerSupportMemberObligation) string {
+	label := principalSupportMemberItemLabel(ob)
+	if label == "" {
+		label = ob.Location
+	}
+	base := "support-" + sanitizeRequiredMechanismAnchorID(label)
+	if base == "support-" {
+		base = "support-member"
+	}
+	used := make(map[string]bool, len(block.Items))
+	for _, item := range block.Items {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			used[id] = true
+		}
+	}
+	if !used[base] {
+		return base
+	}
+	for i := 2; ; i++ {
+		id := fmt.Sprintf("%s-%d", base, i)
+		if !used[id] {
+			return id
+		}
+	}
+}
+
 func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
 	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
 		return nil

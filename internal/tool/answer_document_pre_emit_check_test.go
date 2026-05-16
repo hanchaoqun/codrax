@@ -1837,3 +1837,61 @@ func TestRunPreEmitChecks_AggregatesAcrossAllAxes(t *testing.T) {
 		t.Errorf("want ≥2 fix hints (block coverage + uncertainty); got %d (%v)", len(hints), hints)
 	}
 }
+
+func TestNormalizePrincipalSupportMemberCarriers_MaterializesMissingTypedMembers(t *testing.T) {
+	plan := &types.AnswerSupportPlan{
+		Family:                  types.QFEnumeration,
+		PrincipalMemberCoverage: types.PrincipalMemberCoveragePolicyRequired,
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{{
+				Text:         "ActivityManagerService exposes isAppForeground",
+				Location:     "java/com/android/server/am/ActivityManagerService.java:19031",
+				Source:       "java/com/android/server/am/ActivityManagerService.java",
+				LineStart:    19031,
+				ClaimForm:    types.ClaimDefinitionFact,
+				AnchorSymbol: "isAppForeground",
+				SurfaceTerms: []string{"isAppForeground", "isAppForeground(uid)"},
+			}, {
+				Text:         "ActivityTaskManagerInternal declares IAncoActivityManager",
+				Location:     "java/com/android/server/wm/ActivityTaskManagerInternal.java:47",
+				Source:       "java/com/android/server/wm/ActivityTaskManagerInternal.java",
+				LineStart:    47,
+				ClaimForm:    types.ClaimDefinitionFact,
+				AnchorSymbol: "IAncoActivityManager",
+				SurfaceTerms: []string{"IAncoActivityManager"},
+			}},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "java/com/android/server/am/ActivityManagerService.java", Line: 19031}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "principal",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "fg",
+				Label:       "isAppForeground",
+				Text:        "Definition evidence.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if missing := types.MissingPrincipalSupportMembers(doc, plan); len(missing) != 1 {
+		t.Fatalf("test setup missing=%d, want 1: %+v", len(missing), missing)
+	}
+	if fixed := normalizePrincipalSupportMemberCarriers(doc, plan); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1", fixed)
+	}
+	if missing := types.MissingPrincipalSupportMembers(doc, plan); len(missing) != 0 {
+		t.Fatalf("materialized support members should satisfy coverage, got %+v", missing)
+	}
+	if len(doc.Citations) != 2 {
+		t.Fatalf("citations=%d, want 2", len(doc.Citations))
+	}
+	last := doc.Blocks[0].Items[len(doc.Blocks[0].Items)-1]
+	if last.Label != "IAncoActivityManager" || last.CitationRef != 1 {
+		t.Fatalf("unexpected materialized item: %+v", last)
+	}
+}
