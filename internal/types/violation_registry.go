@@ -848,9 +848,19 @@ func init() {
 		// items the typed relation reports" — a transparency gap, not
 		// a wrong answer. Strict-promote target is BackToExtract for
 		// operators who require full structural coverage.
+		//
+		// 2026-05-17 T1 pre-flight: the SchemaDescriptionFragment was
+		// previously empty, so the LLM did not see this constraint at
+		// emit time. Filling it surfaces the "if you enumerate
+		// implementers, you must list ALL of them — either include
+		// each one OR name omissions verbatim as exception cases" rule
+		// in the PRE-EMIT CONSTRAINTS section auto-rendered from
+		// AllViolKindSpecs(). Pre-flight visibility lets the model
+		// satisfy the contract before the post-emit oracle fires.
 		Kind: ViolStructuralEnumerationDivergence, DefaultSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyEnumerationDepth,
+		SchemaDescriptionFragment: "When the request enumerates implementers / members of a typed relation (e.g. \"list every implementer of <Interface>\", \"what are the members of <set>\"), the answer's principal list MUST cover every member the typed code-graph relation reports. Two valid forms: (a) include each member as a principal item with its grounded citation; (b) include only the subset you want to highlight, AND name every omitted member verbatim in summary prose as an exception case (\"X and Y also satisfy the relation but are excluded because Z\"). Silently dropping members the typed graph proves exist is a transparency failure — the user receives a partial set without knowing items were filtered.",
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolCrossCitationConflict, DefaultSeverity: SeverityMedium,

@@ -351,6 +351,19 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	// 2026-05-17 T1 architectural fix: render the per-dispatch
+	// visible-anchor whitelist immediately after the required
+	// mechanism anchors so the model sees "must surface" + "may
+	// cite" + tier breakdown contiguously. Same data sources as the
+	// downstream Typed Answer Support Lanes section but organized as
+	// a single pre-flight slate against which the model can write,
+	// instead of inferring valid surfaces from scattered lane
+	// entries and discovering misses post-emit.
+	if !trace.appendSection(&b, "visible_anchor_whitelist", func() string {
+		return renderAnswerDocVisibleAnchorWhitelist(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "error_granularity", func() string {
 		return renderAnswerDocErrorGranularityContract(view)
 	}) {
@@ -2317,6 +2330,130 @@ func renderAnswerDocRequestedCandidateRoles(view *types.AnswerSemanticView) stri
 	b.WriteString("- Do not satisfy this contract with prose-only wording. The validator compares required role enums with `items[].candidate_role` enums.\n")
 	b.WriteString("- Adjacent roles can stay as supporting context, but the principal answer must include the requested role enum(s) above.\n\n")
 	return b.String()
+}
+
+// renderAnswerDocVisibleAnchorWhitelist (2026-05-17 T1 architectural
+// fix) surfaces the per-dispatch authoritative slate of symbols the
+// finalizer may cite as item labels, inline backtick references, or
+// diagram edge endpoints. The slate is the pre-emit reflection of
+// the post-emit hallucination oracles' decision surface — letting the
+// model write against an explicit constraint space instead of
+// inferring valid surfaces from scattered evidence-pool fragments
+// (which routinely leads to the antagonistic-constraint retry
+// pattern where fixing one oracle silently trips another).
+//
+// Empty-slate suppression: nil ctx, nil plan, nil view, or an empty
+// VisibleAnchorWhitelist all yield "" so prompts without a populated
+// support plan (single-shot tests, pre-AnalysisIR paths) keep their
+// existing shape. Section header is the first content line so the
+// section tracer reliably detects the section even when the slate is
+// truncated past MaxVisibleAnchorWhitelistEntries.
+//
+// Rendering discipline:
+//
+//   - Required entries lead the section verbatim — the model sees
+//     the must-surface set before any other anchor data.
+//   - Groundable entries split into "high-confidence" and
+//     "cite-with-caveat" sub-buckets by tier rank; the model can
+//     pick the higher-confidence anchor when alternatives exist.
+//   - SurfaceForms render as a parenthetical aside on entries that
+//     carry alternative spellings, so the model knows the symbol
+//     oracle accepts the equivalent forms.
+//   - Truncation past MaxVisibleAnchorWhitelistEntries emits a
+//     "+N more groundable entries omitted for brevity" tail so the
+//     model knows the slate is bounded.
+func renderAnswerDocVisibleAnchorWhitelist(ctx *types.AgentContext) string {
+	if ctx == nil {
+		return ""
+	}
+	plan := answerSupportPlan(ctx)
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	whitelist := types.BuildVisibleAnchorWhitelist(plan, view)
+	if whitelist.IsEmpty() {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Visible-Anchor Whitelist (Authoritative)\n\n")
+	b.WriteString("The symbols below are the COMPLETE pre-flight set the answer document may cite as `blocks[].items[].label`, inline backtick references in prose `text`, or diagram edge endpoints. Surfaces outside this slate will fail the post-emit hallucination oracles — pre-emit visibility lets you place every anchor on the first attempt.\n\n")
+	if len(whitelist.Required) > 0 {
+		b.WriteString("### Required anchors (must surface in structured fields)\n\n")
+		for _, e := range whitelist.Required {
+			writeVisibleAnchorBullet(&b, e)
+		}
+		b.WriteString("\n")
+	}
+	if len(whitelist.Groundable) > 0 {
+		highConfidence := whitelist.Groundable[:0:0]
+		caveatTier := whitelist.Groundable[:0:0]
+		for _, e := range whitelist.Groundable {
+			if e.IsHighConfidenceTier() {
+				highConfidence = append(highConfidence, e)
+			} else {
+				caveatTier = append(caveatTier, e)
+			}
+		}
+		if len(highConfidence) > 0 {
+			b.WriteString("### Groundable anchors — safe to cite\n\n")
+			b.WriteString("These symbols resolved directly against the codebase — exact file:line evidence or typed symbol-graph match. Use them freely as item labels, inline references, or diagram endpoints.\n\n")
+			for _, e := range highConfidence {
+				writeVisibleAnchorBullet(&b, e)
+			}
+			b.WriteString("\n")
+		}
+		if len(caveatTier) > 0 {
+			b.WriteString("### Groundable anchors — cite with caveat\n\n")
+			b.WriteString("These symbols resolved via approximate / recovery paths — snippet-fuzzy match, package-symbol fallback, or nearest-call/condition heuristic. The post-emit oracle accepts the surfaces, but prose using them should acknowledge the approximation (mark uncertain phrases, or add a `caveat` block) so readers know the citation is best-effort.\n\n")
+			for _, e := range caveatTier {
+				writeVisibleAnchorBullet(&b, e)
+			}
+			b.WriteString("\n")
+		}
+	}
+	totalRendered := len(whitelist.Required) + len(whitelist.Groundable)
+	if totalRendered >= types.MaxVisibleAnchorWhitelistEntries {
+		fmt.Fprintf(&b, "_Note: the slate is capped at %d entries; additional groundable surfaces from longer support lanes are omitted for brevity. The post-emit oracle still accepts any verbatim AnchorSymbol / Subject / Object surface from the Typed Answer Support Lanes section below._\n\n",
+			types.MaxVisibleAnchorWhitelistEntries)
+	}
+	b.WriteString("- Surfaces NOT in this slate will trigger `enumeration_label_hallucinated`, `inline_identifier_hallucinated`, or `diagram_edge_endpoint_hallucinated` at emit time. Do NOT promote names from retry diagnostics, Evidence notes, raw tool output, or generic prose into authoritative code references.\n\n")
+	return b.String()
+}
+
+// writeVisibleAnchorBullet emits one whitelist entry as a markdown
+// bullet. Kept on the per-entry layer so the four call sites (Required,
+// high-confidence Groundable, caveat-tier Groundable, future buckets)
+// share a single rendering style without duplicating the format string.
+func writeVisibleAnchorBullet(b *strings.Builder, e types.VisibleAnchorEntry) {
+	b.WriteString("- `")
+	b.WriteString(e.Symbol)
+	b.WriteString("`")
+	if e.QualifiedSymbol != "" && e.QualifiedSymbol != e.Symbol {
+		fmt.Fprintf(b, " (qualified: `%s`)", e.QualifiedSymbol)
+	}
+	if e.SourceFile != "" {
+		if e.SourceLine > 0 {
+			fmt.Fprintf(b, " — `%s:%d`", e.SourceFile, e.SourceLine)
+		} else {
+			fmt.Fprintf(b, " — `%s`", e.SourceFile)
+		}
+	}
+	if e.Kind != "" && e.Kind != types.VisibleAnchorKindOther {
+		fmt.Fprintf(b, " · %s", e.Kind)
+	}
+	if len(e.SurfaceForms) > 1 {
+		// SurfaceForms always contains the primary symbol when non-
+		// empty; print only when at least one alternate form exists.
+		alts := make([]string, 0, len(e.SurfaceForms))
+		for _, sf := range e.SurfaceForms {
+			if sf == e.Symbol {
+				continue
+			}
+			alts = append(alts, "`"+sf+"`")
+		}
+		if len(alts) > 0 {
+			fmt.Fprintf(b, " · equivalent surface forms: %s", strings.Join(alts, ", "))
+		}
+	}
+	b.WriteString("\n")
 }
 
 func renderAnswerDocRequiredMechanismAnchors(view *types.AnswerSemanticView) string {
