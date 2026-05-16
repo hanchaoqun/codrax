@@ -306,3 +306,64 @@ func TestRepoMapRank_SkipsPendingSubRepos(t *testing.T) {
 		t.Errorf("pending-repo file MUST be filtered out, but appears in scores: %+v", scores)
 	}
 }
+
+// TestKeywordSearchWithOptions_GrepPhaseFiltersPendingSubRepos is the
+// follow-up regression for the 2026-05-16 fix: the initial L1 patch
+// only filtered the repo_map (structural) phase. The grep phase
+// shells out to ripgrep from the workspace root (which spans every
+// sub-repo in a multi-repo posture) and reintroduced inactive paths
+// into the candidate pool. The CGEC phase1_unread gate then queued
+// forced-reads on `claude/codrax/...` and `small/codrax-small/...`
+// even though those paths were in the pending set. The FS-tool
+// active-set gate refused the reads, the explorer stalled, and the
+// run wound up calling emit_investigation_complete repeatedly until
+// it ran out of budget. The keyword_search aggregator must apply the
+// pending filter to BOTH phases.
+func TestKeywordSearchWithOptions_GrepPhaseFiltersPendingSubRepos(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, "active-repo", "internal"), 0o755); err != nil {
+		t.Fatalf("mkdir active: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "pending-repo", "internal"), 0o755); err != nil {
+		t.Fatalf("mkdir pending: %v", err)
+	}
+	const token = "GREPFILTERKEYWORD"
+	if err := os.WriteFile(
+		filepath.Join(workspace, "active-repo", "internal", "foo.go"),
+		[]byte("package x\n// "+token+"\n"), 0o644,
+	); err != nil {
+		t.Fatalf("write active: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(workspace, "pending-repo", "internal", "bar.go"),
+		[]byte("package y\n// "+token+"\n"), 0o644,
+	); err != nil {
+		t.Fatalf("write pending: %v", err)
+	}
+
+	// Skip the structural phase entirely (no MultiGraph) — this test
+	// targets the grep-phase filter specifically. Without the fix,
+	// the pending-repo file would land in the result. With the fix,
+	// it is dropped before merge.
+	got := keywordSearchWithOptions([]string{token}, workspace, keywordSearchOptions{
+		PendingSubRepos: []string{"pending-repo"},
+	})
+	if got == nil {
+		t.Fatal("keywordSearchWithOptions returned nil")
+	}
+	for _, f := range got.Files {
+		if strings.HasPrefix(f.Path, "pending-repo/") {
+			t.Errorf("pending sub-repo file MUST be filtered, got %q in results: %+v", f.Path, got.Files)
+		}
+	}
+	foundActive := false
+	for _, f := range got.Files {
+		if strings.HasPrefix(f.Path, "active-repo/") {
+			foundActive = true
+			break
+		}
+	}
+	if !foundActive {
+		t.Errorf("active-repo file should survive: %+v", got.Files)
+	}
+}

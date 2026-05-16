@@ -267,6 +267,25 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 
 	// --- Phase 2: grep IDF-weighted scoring ---
 	grepScores, grepHits := grepIDFSearch(keywords, repoRoot)
+	// grepIDFSearch shells out to ripgrep from repoRoot, which in
+	// multi-repo workspaces is the parent root spanning every
+	// sub-repo (active AND pending). The structural phase already
+	// dropped pending sub-repos via repoMapRank's filter, but grep
+	// has no such filter built in. Strip pending-sub-repo paths
+	// from both scores and hits before merge so the candidate pool
+	// matches MultiRepoActiveSetGater's "topology - PendingSubRepos"
+	// view — otherwise inactive paths leak into Phase1Ranking and
+	// the CGEC phase1_unread gate queues forced-reads the FS tools
+	// will refuse, reproducing the 2026-05-16 loop pattern through
+	// a different door than the repo_map leak.
+	if len(opts.PendingSubRepos) > 0 {
+		for f := range grepScores {
+			if types.PathInsidePendingSubRepo(f, opts.PendingSubRepos) {
+				delete(grepScores, f)
+				delete(grepHits, f)
+			}
+		}
+	}
 
 	// --- Phase 3: merge ---
 	// Only score files that grep found (keyword-relevant). Repo_map
