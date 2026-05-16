@@ -904,6 +904,259 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_AppendsUniqueEvidenceCan
 	}
 }
 
+func TestPreCheckItemCitationAlignment_AcceptsQualifiedLabelViaEnclosingFunction(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{
+			File:              "internal/orchestrator/orchestrator.go",
+			Line:              1348,
+			EnclosingFunction: "Orchestrator.Run",
+		}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "call_chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "hop1",
+				Label:       "Orchestrator.Run",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	mut := types.NewMutableState("trace explorer subagent")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceMechanism,
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       1348,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Run",
+		Summary:         "Orchestrator.Run is the pipeline entry point.",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("graph-derived enclosing function should satisfy qualified citation alignment, got %+v", hints)
+	}
+}
+
+func TestPreEmitEnclosingFunctionSurfaceMatches_GoPointerReceiver(t *testing.T) {
+	if !preEmitEnclosingFunctionSurfaceMatches("analyzerEvaluator.ParseOutput", "(*analyzerEvaluator).ParseOutput") {
+		t.Fatalf("Go pointer receiver enclosing function should match selector label")
+	}
+	if preEmitEnclosingFunctionSurfaceMatches("otherEvaluator.ParseOutput", "(*analyzerEvaluator).ParseOutput") {
+		t.Fatalf("different selector owners must not match through a shared method name")
+	}
+}
+
+func TestPreCheckItemCitationAlignment_RejectsQualifiedOwnerDriftDespiteFilePath(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{
+			File:              "internal/agent/subagent_runtime.go",
+			Line:              32,
+			EnclosingFunction: "SubAgentValidator.Validate",
+		}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "call_chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "hop2",
+				Label:       "SubAgentRuntime.Validate",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	mut := types.NewMutableState("trace explorer subagent")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceMechanism,
+		Source:          "internal/agent/subagent_runtime.go",
+		LineStart:       32,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Validate",
+		Snippet:         "func (v *SubAgentValidator) Validate(bus *types.BusContext, proposal *types.SubAgentProposal) ([]*types.SubAgentRequest, error)",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	hints := preCheckItemCitationAlignment(doc, nil, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("mismatched qualified owner should still be rejected, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "SubAgentRuntime.Validate") {
+		t.Fatalf("hint should name the mismatched label, got %+v", hints[0])
+	}
+}
+
+func TestPreEmitCandidateCitationLocationsForLabel_QualifiedSurfaceFromGroundedSummary(t *testing.T) {
+	mut := types.NewMutableState("trace explorer subagent")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceMechanism,
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       1348,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Run",
+		Summary:         "Orchestrator.Run is the main entry point for the pipeline state machine.",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	got := preEmitCandidateCitationLocationsForLabel(ctx, "Orchestrator.Run", 4)
+	if len(got) != 1 || got[0] != "internal/orchestrator/orchestrator.go:1348" {
+		t.Fatalf("qualified surface in grounded summary should produce a citation candidate, got %+v", got)
+	}
+}
+
+func TestPreEmitCandidateCitationLocationsForLabel_RejectsSummaryOwnerWithoutStructuralSupport(t *testing.T) {
+	mut := types.NewMutableState("trace explorer subagent")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceMechanism,
+		Source:          "internal/agent/subagent_runtime.go",
+		LineStart:       32,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Validate",
+		Summary:         "SubAgentRuntime.Validate validates the proposal.",
+		Snippet:         "func (v *SubAgentValidator) Validate(bus *types.BusContext, proposal *types.SubAgentProposal) ([]*types.SubAgentRequest, error)",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if got := preEmitCandidateCitationLocationsForLabel(ctx, "SubAgentRuntime.Validate", 4); len(got) != 0 {
+		t.Fatalf("summary-only owner drift must not become a citation candidate, got %+v", got)
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsViaEnclosingFunction(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{
+				File:              "internal/agent/subagent_runtime.go",
+				Line:              120,
+				EnclosingFunction: "SubAgentRuntime.execute",
+			},
+			{
+				File:              "internal/agent/sub_explorer.go",
+				Line:              35,
+				EnclosingFunction: "SubExplorer.Run",
+			},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "call_chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "hop5",
+				Label:       "SubExplorer.Run",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	mut := types.NewMutableState("trace explorer subagent")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceMechanism,
+		Source:          "internal/agent/sub_explorer.go",
+		LineStart:       35,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Run",
+		Snippet:         "func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, error)",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx)
+	if fixed != 1 {
+		t.Fatalf("expected one enclosing-function citation repair, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref = %d, want 1", got)
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("enclosing-function repair should satisfy alignment, got %+v", hints)
+	}
+}
+
+func TestNormalizeQualifiedItemLabelsByUniqueEnclosingFunction_RepairsOwnerDrift(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{
+				File:              "internal/agent/subagent_runtime.go",
+				Line:              114,
+				EnclosingFunction: "SubAgentRuntime.Run",
+			},
+			{
+				File:              "internal/agent/subagent_runtime.go",
+				Line:              32,
+				EnclosingFunction: "SubAgentValidator.Validate",
+			},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "call_chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "hop2",
+				Label:       "SubAgentRuntime.Validate",
+				Text:        "SubAgentRuntime.Run first calls SubAgentValidator.Validate to validate the proposal.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	mut := types.NewMutableState("trace explorer subagent")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceMechanism,
+		Source:          "internal/agent/subagent_runtime.go",
+		LineStart:       32,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Validate",
+		Snippet:         "func (v *SubAgentValidator) Validate(bus *types.BusContext, proposal *types.SubAgentProposal) ([]*types.SubAgentRequest, error)",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc, nil)
+	if fixed != 1 {
+		t.Fatalf("expected one label repair, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].Label; got != "SubAgentValidator.Validate" {
+		t.Fatalf("label = %q, want SubAgentValidator.Validate", got)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref = %d, want 1", got)
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("label repair should satisfy alignment, got %+v", hints)
+	}
+}
+
+func TestNormalizeQualifiedItemLabelsByUniqueEnclosingFunction_DoesNotGuessWhenTextDoesNotMentionCandidate(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{
+				File:              "internal/agent/subagent_runtime.go",
+				Line:              114,
+				EnclosingFunction: "SubAgentRuntime.Run",
+			},
+			{
+				File:              "internal/agent/subagent_runtime.go",
+				Line:              32,
+				EnclosingFunction: "SubAgentValidator.Validate",
+			},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "call_chain",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "hop2",
+				Label:       "SubAgentRuntime.Validate",
+				Text:        "The runtime validates the proposal before execution.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc, nil); fixed != 0 {
+		t.Fatalf("text without the candidate selector should not be rewritten, fixed=%d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].Label; got != "SubAgentRuntime.Validate" {
+		t.Fatalf("label = %q, want unchanged", got)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsQualifiedOwnerMethod(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

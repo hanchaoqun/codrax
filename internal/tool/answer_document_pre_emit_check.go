@@ -584,6 +584,9 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 			if types.AnswerLocationLabelMatchesCitation(label, cit) {
 				continue
 			}
+			if preEmitCitationEnclosingFunctionSupportsLabel(label, cit) {
+				continue
+			}
 			if preEmitCitationSupportsAggregateItemWithContext(pctx, label, item.Text, cit) {
 				continue
 			}
@@ -712,6 +715,82 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 	return fixed
 }
 
+func normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
+	if doc == nil || len(doc.Citations) == 0 {
+		return 0
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			continue
+		}
+		if preEmitBlockUsesNonSymbolLabelSurface(*block, view) {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			label := strings.TrimSpace(item.Label)
+			if label == "" || !preEmitLabelNeedsCitationAlignment(label) {
+				continue
+			}
+			_, member, ok := preEmitQualifiedCodeSurfaceParts(label)
+			if !ok {
+				continue
+			}
+			candidateIndex, candidateLabel, ok := preEmitUniqueEnclosingFunctionForMemberMention(doc.Citations, member, item.Text)
+			if !ok || candidateLabel == "" {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(candidateLabel), label) && item.CitationRef == candidateIndex {
+				continue
+			}
+			item.Label = candidateLabel
+			item.CitationRef = candidateIndex
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func preEmitUniqueEnclosingFunctionForMemberMention(citations []types.Citation, member, text string) (int, string, bool) {
+	memberKey := preEmitCodeIdentityKey(member)
+	if memberKey == "" || strings.TrimSpace(text) == "" {
+		return -1, "", false
+	}
+	type candidate struct {
+		index int
+		label string
+	}
+	var candidates []candidate
+	seen := make(map[string]bool)
+	for i, cit := range citations {
+		fn := preEmitNormalizeCallableSurface(cit.EnclosingFunction)
+		if fn == "" {
+			continue
+		}
+		_, fnMember, ok := preEmitQualifiedCodeSurfaceParts(fn)
+		if !ok || preEmitCodeIdentityKey(fnMember) != memberKey {
+			continue
+		}
+		if !preEmitCodeSurfaceAppearsVerbatim(fn, text) {
+			continue
+		}
+		key := strings.ToLower(fn)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		candidates = append(candidates, candidate{index: i, label: fn})
+	}
+	if len(candidates) != 1 {
+		return -1, "", false
+	}
+	return candidates[0].index, candidates[0].label, true
+}
+
 func preEmitUniqueCandidateCitationForItem(ctx *types.BusContext, label, text string) (types.Citation, bool) {
 	return preEmitUniqueCandidateCitationForItemWithContext(newPreEmitCheckContext(ctx), label, text)
 }
@@ -801,6 +880,9 @@ func preEmitItemCitationAligned(ctx *types.BusContext, label, text string, cit t
 
 func preEmitItemCitationAlignedWithContext(pctx *preEmitCheckContext, label, text string, cit types.Citation) bool {
 	if types.AnswerLocationLabelMatchesCitation(label, cit) {
+		return true
+	}
+	if preEmitCitationEnclosingFunctionSupportsLabel(label, cit) {
 		return true
 	}
 	if preEmitCitationSupportsAggregateItemWithContext(pctx, label, text, cit) {
@@ -2575,11 +2657,80 @@ func preEmitQualifiedCodeSurfaceMatchesEvidence(surface string, ev types.Evidenc
 	if preEmitEvidenceEndpointSupportsExactSurface(ev, surface) {
 		return true, true
 	}
+	if preEmitCodeSurfaceAppearsVerbatim(surface, ev.Summary) &&
+		preEmitEvidenceEndpointSupportsToken(ev, member) &&
+		(preEmitEvidenceEndpointSupportsToken(ev, owner) ||
+			preEmitCodeSurfaceAppearsVerbatim(owner, ev.Snippet) ||
+			(strings.TrimSpace(ev.Snippet) == "" && preEmitPathSegmentsSupportToken(ev.Source, owner))) {
+		return true, true
+	}
 	ownerOK := preEmitEvidenceEndpointSupportsToken(ev, owner) ||
 		preEmitCodeSurfaceAppearsVerbatim(owner, ev.Snippet)
 	memberOK := preEmitEvidenceEndpointSupportsToken(ev, member) ||
 		preEmitCodeSurfaceAppearsVerbatim(member, ev.Snippet)
 	return ownerOK && memberOK, true
+}
+
+func preEmitCitationEnclosingFunctionSupportsLabel(label string, cit types.Citation) bool {
+	fn := strings.TrimSpace(cit.EnclosingFunction)
+	if fn == "" {
+		return false
+	}
+	if preEmitEnclosingFunctionSurfaceMatches(label, fn) {
+		return true
+	}
+	for _, surface := range preEmitExplicitDisplayCodeSurfaces(label) {
+		if preEmitEnclosingFunctionSurfaceMatches(surface, fn) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitEnclosingFunctionSurfaceMatches(surface, fn string) bool {
+	surface = preEmitNormalizeCallableSurface(surface)
+	fn = preEmitNormalizeCallableSurface(fn)
+	if surface == "" || fn == "" || !types.IsCodeIdentitySurface(surface) || !types.IsCodeIdentitySurface(fn) {
+		return false
+	}
+	if strings.EqualFold(surface, fn) {
+		return true
+	}
+	owner, member, qualified := preEmitQualifiedCodeSurfaceParts(surface)
+	fnOwner, fnMember, fnQualified := preEmitQualifiedCodeSurfaceParts(fn)
+	if qualified {
+		return fnQualified &&
+			preEmitCodeIdentityKey(owner) == preEmitCodeIdentityKey(fnOwner) &&
+			preEmitCodeIdentityKey(member) == preEmitCodeIdentityKey(fnMember)
+	}
+	if fnQualified {
+		return preEmitCodeIdentityKey(surface) == preEmitCodeIdentityKey(fnMember)
+	}
+	return preEmitCodeIdentityKey(surface) == preEmitCodeIdentityKey(fn)
+}
+
+func preEmitNormalizeCallableSurface(surface string) string {
+	surface = strings.Trim(strings.TrimSpace(surface), "`'\" ")
+	if surface == "" {
+		return ""
+	}
+	if strings.HasPrefix(surface, "(*") {
+		if idx := strings.Index(surface, ")."); idx > 0 {
+			recv := strings.Trim(strings.TrimSpace(surface[1:idx]), "* ")
+			if recv != "" {
+				return recv + surface[idx+1:]
+			}
+		}
+	}
+	if strings.HasPrefix(surface, "(") {
+		if idx := strings.Index(surface, ")."); idx > 0 {
+			recv := strings.TrimSpace(surface[1:idx])
+			if recv != "" {
+				return recv + surface[idx+1:]
+			}
+		}
+	}
+	return strings.TrimPrefix(surface, "*")
 }
 
 func preEmitEvidenceEndpointSupportsExactSurface(ev types.EvidenceItem, surface string) bool {
@@ -3154,6 +3305,7 @@ func preEmitPathSegmentsSupportToken(path string, token string) bool {
 		return false
 	}
 	want := strings.ToLower(strings.Trim(token, "`\"' "))
+	wantKey := preEmitCodeIdentityKey(token)
 	for _, segment := range strings.Split(path, "/") {
 		segment = strings.TrimSpace(segment)
 		if segment == "" {
@@ -3167,9 +3319,32 @@ func preEmitPathSegmentsSupportToken(path string, token string) bool {
 			if strings.ToLower(candidate) == want {
 				return true
 			}
+			if wantKey != "" && preEmitCodeIdentityKey(candidate) == wantKey {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func preEmitCodeIdentityKey(surface string) string {
+	surface = strings.Trim(strings.TrimSpace(surface), "`\"' ")
+	if surface == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(surface))
+	for _, r := range surface {
+		switch {
+		case r == '_' || r == '-':
+			continue
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r + ('a' - 'A'))
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func preEmitEvidenceEndpointSupportsToken(ev types.EvidenceItem, token string) bool {

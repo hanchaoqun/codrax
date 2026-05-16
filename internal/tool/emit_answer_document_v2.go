@@ -213,6 +213,9 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		if fixed := normalizeRequiredMechanismAnchorCarriersWithContext(doc, view, ctx, preEmitCtx); fixed > 0 {
 			logging.Warning("[emit_answer_document] repaired %d required mechanism anchor carrier(s)", fixed)
 		}
+		if fixed := normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc, view); fixed > 0 {
+			logging.Warning("[emit_answer_document] repaired %d qualified item label(s) by graph-derived enclosing function", fixed)
+		}
 		if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, preEmitCtx); fixed > 0 {
 			logging.Warning("[emit_answer_document] repaired %d item citation_ref value(s) by typed label/citation corroboration", fixed)
 		}
