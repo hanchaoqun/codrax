@@ -53,6 +53,14 @@ type Runner interface {
 	Run(request, repoRoot, branch string) (*types.BusContext, error)
 }
 
+// MarkdownPreviewer registers the markdown transcript written by the
+// orchestrator and returns a browser URL for the current REPL process.
+// Kept as a small interface so tests can stub it and the REPL does not
+// depend on the concrete HTTP server package.
+type MarkdownPreviewer interface {
+	RegisterMarkdown(path string) (string, error)
+}
+
 // runnerCanceller is the optional capability the REPL probes on its
 // Runner to drive Ctrl+C / `/cancel`. Real orchestrators implement
 // Cancel(reason); test stubs that omit it gracefully degrade —
@@ -176,6 +184,12 @@ type Config struct {
 	// flips to English; every other value — including empty, "zh",
 	// "off", "fr" — renders zh (the codrax.yaml default).
 	Language string
+
+	// MarkdownPreview is optional REPL UX: when the final answer markdown
+	// transcript is written, this registers the file and prints a browser
+	// preview URL below the existing "Markdown saved" line. Nil disables
+	// preview hints without affecting output dumping.
+	MarkdownPreview MarkdownPreviewer
 
 	// ChitchatResponder handles the /chat slash command. When nil,
 	// /chat prints a "not configured" warning and takes no LLM action
@@ -405,6 +419,7 @@ type REPL struct {
 	version             string
 	buildTime           string
 	language            string
+	markdownPreview     MarkdownPreviewer
 
 	// attachedLog holds the runtime log excerpt the user attached.
 	// Lifetime depends on how it got here:
@@ -627,6 +642,7 @@ func New(cfg Config) *REPL {
 		version:                cfg.Version,
 		buildTime:              cfg.BuildTime,
 		language:               cfg.Language,
+		markdownPreview:        cfg.MarkdownPreview,
 		chitchatResponder:      cfg.ChitchatResponder,
 		memory:                 cfg.Memory,
 		envSettings:            types.ResolvedEnvRecommendSettings(cfg.EnvSettings),
@@ -1982,6 +1998,9 @@ func (r *REPL) dispatch(line, display string) {
 	if hint := finalAnswerMarkdownNotice(busCtx, r.language); hint != "" {
 		r.info(hint)
 	}
+	if hint := r.finalAnswerMarkdownPreviewNotice(busCtx); hint != "" {
+		r.info(hint)
+	}
 	r.recordTurn(display, line, memResponse, memory.KindPipeline)
 }
 
@@ -1997,6 +2016,29 @@ func finalAnswerMarkdownNotice(busCtx *types.BusContext, lang string) string {
 		return "Markdown 原文已保存：" + path
 	}
 	return "Raw Markdown saved: " + path
+}
+
+func (r *REPL) finalAnswerMarkdownPreviewNotice(busCtx *types.BusContext) string {
+	if r == nil || r.markdownPreview == nil || busCtx == nil || busCtx.Mutable == nil {
+		return ""
+	}
+	path := strings.TrimSpace(busCtx.Mutable.FinalAnswerMarkdownPath())
+	if path == "" {
+		return ""
+	}
+	previewURL, err := r.markdownPreview.RegisterMarkdown(path)
+	if err != nil {
+		logging.Warning("[markdown_preview] register %s failed: %v", path, err)
+		return ""
+	}
+	previewURL = strings.TrimSpace(previewURL)
+	if previewURL == "" {
+		return ""
+	}
+	if isZh(r.language) {
+		return "浏览器预览：" + previewURL
+	}
+	return "Browser preview: " + previewURL
 }
 
 func displayFinalAnswerMarkdownPath(path string) string {

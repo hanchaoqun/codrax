@@ -15,6 +15,7 @@ require (
 	github.com/pterm/pterm v0.12.83
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/cobra v1.10.2
+	github.com/yuin/goldmark v1.7.13
 	golang.org/x/term v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -56,7 +57,6 @@ require (
 	github.com/sirupsen/logrus v1.9.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	github.com/yuin/goldmark v1.7.13 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect

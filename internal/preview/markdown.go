@@ -1,0 +1,107 @@
+package preview
+
+import (
+	"bytes"
+	"fmt"
+	stdhtml "html"
+	"strings"
+	"unicode"
+
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer"
+	"github.com/yuin/goldmark/util"
+)
+
+// RenderMarkdownHTML converts markdown into safe HTML for the local
+// preview page. Raw HTML from the markdown stays disabled by goldmark's
+// default renderer; the only custom HTML emitted here is for fenced code
+// blocks, where mermaid fences become <div class="mermaid"> nodes and
+// ordinary fences become escaped <pre><code>.
+func RenderMarkdownHTML(markdown []byte) (string, error) {
+	var out bytes.Buffer
+	md := goldmark.New(
+		goldmark.WithExtensions(extension.GFM),
+		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
+		goldmark.WithRendererOptions(
+			renderer.WithNodeRenderers(
+				util.Prioritized(fencedCodeRenderer{}, 500),
+			),
+		),
+	)
+	if err := md.Convert(markdown, &out); err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
+type fencedCodeRenderer struct{}
+
+func (f fencedCodeRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(ast.KindFencedCodeBlock, f.renderFencedCodeBlock)
+}
+
+func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	block, ok := node.(*ast.FencedCodeBlock)
+	if !ok {
+		return ast.WalkContinue, nil
+	}
+	info := string(block.Info.Segment.Value(source))
+	lang := firstInfoToken(info)
+	body := fencedCodeBody(block, source)
+	if strings.EqualFold(lang, "mermaid") {
+		_, _ = fmt.Fprint(w, `<div class="mermaid">`+"\n")
+		_, _ = fmt.Fprint(w, stdhtml.EscapeString(strings.TrimRight(body, "\n")))
+		_, _ = fmt.Fprint(w, "\n</div>\n")
+		return ast.WalkSkipChildren, nil
+	}
+	_, _ = fmt.Fprint(w, "<pre><code")
+	if cls := safeCodeClass(lang); cls != "" {
+		_, _ = fmt.Fprintf(w, ` class="language-%s"`, cls)
+	}
+	_, _ = fmt.Fprint(w, ">")
+	_, _ = fmt.Fprint(w, stdhtml.EscapeString(body))
+	_, _ = fmt.Fprint(w, "</code></pre>\n")
+	return ast.WalkSkipChildren, nil
+}
+
+func fencedCodeBody(block *ast.FencedCodeBlock, source []byte) string {
+	lines := block.Lines()
+	var b strings.Builder
+	for i := 0; i < lines.Len(); i++ {
+		segment := lines.At(i)
+		b.Write(segment.Value(source))
+	}
+	return b.String()
+}
+
+func firstInfoToken(info string) string {
+	info = strings.TrimSpace(info)
+	if info == "" {
+		return ""
+	}
+	fields := strings.FieldsFunc(info, unicode.IsSpace)
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(fields[0])
+}
+
+func safeCodeClass(lang string) string {
+	if lang == "" {
+		return ""
+	}
+	for _, r := range lang {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+			r == '_' || r == '-' || r == '+' || r == '.' {
+			continue
+		}
+		return ""
+	}
+	return stdhtml.EscapeString(lang)
+}

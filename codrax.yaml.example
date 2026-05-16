@@ -130,6 +130,21 @@
 # grows past this cap. Default 10. Non-positive resets to default.
 # output_max_files: 10
 
+# Optional REPL browser preview for the markdown dump. The server starts
+# lazily after a final answer is written, serves only registered output
+# files, and every URL carries a per-process random token.
+# Values: auto (default), on, off.
+# markdown_preview_server: auto
+
+# Listen IP/host for the preview server. Empty/unset means all
+# interfaces (0.0.0.0), which is useful from remote terminals when the
+# port is reachable or forwarded. Set 127.0.0.1 for loopback-only.
+# markdown_preview_host: ""
+
+# Listen port. 0/unset asks the OS for a free high port; set a positive
+# value when firewall rules or SSH forwarding need a stable port.
+# markdown_preview_port: 0
+
 # ---------------------------------------------------------------------------
 # Response language
 # ---------------------------------------------------------------------------

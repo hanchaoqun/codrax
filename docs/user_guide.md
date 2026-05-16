@@ -967,6 +967,9 @@ agents:
 | `cache_dir` | 平台默认 cache 目录 | repomap 索引缓存 |
 | `output_dump_enabled` | `true` | 每次 read 模式答案落盘到 `<CWD>/.codrax/output/<时间戳>-<pid>.md`;两段 `# 问题` / `# 回答`,模型原文轻度排版 |
 | `output_max_files` | 10 | output 目录保留最近 N 份,旧的按 mtime 自动删 |
+| `markdown_preview_server` | `auto` | REPL 在答案落盘后懒启动本地 Markdown 预览服务并显示浏览器 URL;`off` 关闭 |
+| `markdown_preview_host` | `0.0.0.0` | 预览服务监听地址;远程终端可保持默认全监听,本机私有可设 `127.0.0.1` |
+| `markdown_preview_port` | `0` | 预览服务端口;`0` 表示系统随机分配可用高位端口 |
 | `lang` | `zh` | 答案默认语言;`off` 关闭 |
 
 ### 流水线预算
@@ -1201,6 +1204,7 @@ CLI 单次模式输出:
 - **stderr**: 进度 / spinner / 调试信息
 - **stdout**: 最终答案纯文本(mermaid / markdown 都按源码输出,方便重定向到文件 / 转给其他工具)
 - **`.codrax/output/<时间戳>-<pid>.md`**: 每次 read 模式问答的最终答案落盘留底,文件分两段 `# 问题` / `# 回答`,内容是模型原文的轻度排版版本(图表保持源码,不二次渲染)。REPL 多轮对话每轮一份。默认保留最近 10 份,旧的按 mtime 自动删。失败的中间重试不会写盘 — 只留用户实际看到的最后一版。写模式 plan / apply / verify **不生成**这种文件。开关 `output_dump_enabled`、份数 `output_max_files` 见 5.2 节。
+- **REPL 浏览器预览**: 当 `markdown_preview_server: auto|on` 且 output dump 成功时,REPL 会在答案下方显示一个带随机 token 的本地 URL。预览服务只服务当前进程登记过的 `.md` 文件,默认监听 `0.0.0.0:0`(系统随机端口),可通过 `markdown_preview_host` / `markdown_preview_port` 固定。页面内嵌固定版本 Mermaid JS,适合查看终端里容易变形的 Mermaid、表格和长代码块。
 
 ---
 

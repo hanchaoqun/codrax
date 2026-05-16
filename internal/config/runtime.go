@@ -87,6 +87,23 @@ type RuntimeSettings struct {
 	OutputDumpEnabled *bool `yaml:"output_dump_enabled"`
 	OutputMaxFiles    *int  `yaml:"output_max_files"`
 
+	// Local browser preview for the markdown transcript. The preview
+	// server is REPL-only and starts lazily after an output dump has been
+	// written, so it has no effect when output_dump_enabled is false or
+	// no final answer was produced.
+	//
+	//   - markdown_preview_server: auto/on/off. auto (default) starts on
+	//     first use; off disables URL hints.
+	//   - markdown_preview_host: listen IP/host. Empty means all
+	//     interfaces (0.0.0.0), which works for remote terminal use when
+	//     firewall/SSH forwarding allows the chosen port. Set 127.0.0.1
+	//     for loopback-only previews.
+	//   - markdown_preview_port: 0/absent asks the OS for a free high
+	//     port. Positive values pin the port.
+	MarkdownPreviewServer *string `yaml:"markdown_preview_server"`
+	MarkdownPreviewHost   *string `yaml:"markdown_preview_host"`
+	MarkdownPreviewPort   *int    `yaml:"markdown_preview_port"`
+
 	// Fraction-form version of blob_max_inline_bytes. When set AND the
 	// adapter reports a positive context_window, the effective byte
 	// threshold is `context_window * fraction * BytesPerToken` (conservative

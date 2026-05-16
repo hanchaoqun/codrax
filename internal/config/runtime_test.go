@@ -35,6 +35,9 @@ analysis_max_prescan_rounds: 3
 analysis_warn_below_keyword_hit_ratio: 0.5
 analysis_warn_below_entity_hit_ratio: 0.75
 analysis_evidence_profile: balanced
+markdown_preview_server: on
+markdown_preview_host: 127.0.0.1
+markdown_preview_port: 49152
 providers_config: /etc/codrax/providers.yaml
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -121,6 +124,15 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.AnalysisEvidenceProfile == nil || *s.AnalysisEvidenceProfile != "balanced" {
 		t.Errorf("AnalysisEvidenceProfile = %v", s.AnalysisEvidenceProfile)
+	}
+	if s.MarkdownPreviewServer == nil || *s.MarkdownPreviewServer != "on" {
+		t.Errorf("MarkdownPreviewServer = %v", s.MarkdownPreviewServer)
+	}
+	if s.MarkdownPreviewHost == nil || *s.MarkdownPreviewHost != "127.0.0.1" {
+		t.Errorf("MarkdownPreviewHost = %v", s.MarkdownPreviewHost)
+	}
+	if s.MarkdownPreviewPort == nil || *s.MarkdownPreviewPort != 49152 {
+		t.Errorf("MarkdownPreviewPort = %v", s.MarkdownPreviewPort)
 	}
 }
 
@@ -267,7 +279,8 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 		s.AnalysisGenericEntityBlocklist != nil ||
 		s.AnalysisRejectMultipleEmit != nil ||
 		s.AnalysisMaxPrescanRounds != nil ||
-		s.AnalysisWarnBelowKeywordHitRatio != nil || s.AnalysisWarnBelowEntityHitRatio != nil {
+		s.AnalysisWarnBelowKeywordHitRatio != nil || s.AnalysisWarnBelowEntityHitRatio != nil ||
+		s.MarkdownPreviewServer != nil || s.MarkdownPreviewHost != nil || s.MarkdownPreviewPort != nil {
 		t.Errorf("empty file should leave all fields nil, got %+v", s)
 	}
 }

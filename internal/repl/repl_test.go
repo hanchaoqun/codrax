@@ -60,6 +60,16 @@ func (r markdownPathRunner) Run(_, _, _ string) (*types.BusContext, error) {
 	return &types.BusContext{Mutable: mut}, nil
 }
 
+type stubMarkdownPreviewer struct {
+	url  string
+	path string
+}
+
+func (s *stubMarkdownPreviewer) RegisterMarkdown(path string) (string, error) {
+	s.path = path
+	return s.url, nil
+}
+
 // stubSummarizer mirrors the one in internal/memory's tests but is
 // duplicated here so the repl package's tests do not have to import
 // internal test helpers from a sibling package (Go forbids that).
@@ -461,18 +471,20 @@ func TestPipelineResponseShowsMarkdownOutputPathWithoutPersistingIt(t *testing.T
 
 	in := strings.NewReader("answer me\n/exit\n")
 	out := &bytes.Buffer{}
+	preview := &stubMarkdownPreviewer{url: "http://127.0.0.1:49152/preview/abc?token=t"}
 	r := New(Config{
-		Runner:     markdownPathRunner{path: ".codrax/output/20260516-120000.000-42.md"},
-		Store:      store,
-		Render:     renderResultFromBus,
-		RepoRoot:   ".",
-		Branch:     "main",
-		In:         in,
-		Out:        out,
-		Prompt:     ">",
-		PromptCont: ".",
-		Banner:     "test-banner",
-		Language:   "en",
+		Runner:          markdownPathRunner{path: ".codrax/output/20260516-120000.000-42.md"},
+		Store:           store,
+		Render:          renderResultFromBus,
+		RepoRoot:        ".",
+		Branch:          "main",
+		In:              in,
+		Out:             out,
+		Prompt:          ">",
+		PromptCont:      ".",
+		Banner:          "test-banner",
+		Language:        "en",
+		MarkdownPreview: preview,
 	})
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
@@ -482,11 +494,18 @@ func TestPipelineResponseShowsMarkdownOutputPathWithoutPersistingIt(t *testing.T
 	if !strings.Contains(printed, "Raw Markdown saved: .codrax/output/20260516-120000.000-42.md") {
 		t.Fatalf("markdown path hint missing from REPL output:\n%s", printed)
 	}
+	if !strings.Contains(printed, "Browser preview: http://127.0.0.1:49152/preview/abc?token=t") {
+		t.Fatalf("markdown preview hint missing from REPL output:\n%s", printed)
+	}
+	if preview.path != ".codrax/output/20260516-120000.000-42.md" {
+		t.Fatalf("preview registered path = %q", preview.path)
+	}
 	recent := store.Recent()
 	if len(recent) != 1 {
 		t.Fatalf("expected one persisted turn, got %d", len(recent))
 	}
 	if strings.Contains(recent[0].Response, "Raw Markdown saved") ||
+		strings.Contains(recent[0].Response, "Browser preview") ||
 		strings.Contains(recent[0].Response, ".codrax/output") {
 		t.Fatalf("markdown path hint should not be persisted to memory: %q", recent[0].Response)
 	}

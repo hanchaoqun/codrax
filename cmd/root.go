@@ -27,6 +27,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/mcp"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/orchestrator"
+	"github.com/hanchaoqun/codrax/internal/preview"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/repl"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -362,6 +363,7 @@ type appContext struct {
 	logger                *logging.Logger
 	memorySettings        types.MemorySettings
 	envRecommendSettings  types.EnvRecommendSettings
+	markdownPreviewConfig preview.Config
 	replPasteFoldMinChars int // 0 → repl.DefaultPasteFoldMinChars
 	chitchatResponder     repl.ChitchatResponder
 	chitchatClassifier    repl.ChitchatClassifier
@@ -1148,6 +1150,22 @@ func runREPL(_ *cobra.Command) error {
 	app.orch.SetPlanSaver(planStore)
 	// FailureTaxonomyStore is now wired in initApp (commit 40)
 	// so single-shot CLI flows also get cross-Run learning.
+	var markdownPreview repl.MarkdownPreviewer
+	if app.markdownPreviewConfig.Enabled() {
+		srv, err := preview.NewServer(app.markdownPreviewConfig)
+		if err != nil {
+			logging.Warning("[markdown_preview] init failed; preview URLs disabled: %v", err)
+		} else {
+			markdownPreview = srv
+			defer func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				if err := srv.Close(ctx); err != nil {
+					logging.Warning("[markdown_preview] shutdown failed: %v", err)
+				}
+			}()
+		}
+	}
 	r := repl.New(repl.Config{
 		Runner:             app.orch,
 		Store:              store,
@@ -1160,6 +1178,7 @@ func runREPL(_ *cobra.Command) error {
 		Version:            version,
 		BuildTime:          buildTime,
 		Language:           flagLang,
+		MarkdownPreview:    markdownPreview,
 		ChitchatResponder:  app.chitchatResponder,
 		ChitchatClassifier: app.chitchatClassifier,
 		// Hand the memory adapter to REPL so the chitchat tool-use
@@ -1554,6 +1573,28 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	if outputDumpEnabled {
 		outputDumpDir = filepath.Join(runtimeAnchor, outputSubdir)
 	}
+	markdownPreviewCfg := preview.Config{Mode: preview.ModeAuto}
+	if rs != nil {
+		if rs.MarkdownPreviewServer != nil {
+			markdownPreviewCfg.Mode = *rs.MarkdownPreviewServer
+		}
+		if rs.MarkdownPreviewHost != nil {
+			markdownPreviewCfg.Host = *rs.MarkdownPreviewHost
+		}
+		if rs.MarkdownPreviewPort != nil {
+			markdownPreviewCfg.Port = *rs.MarkdownPreviewPort
+		}
+	}
+	if err := preview.ValidateConfig(markdownPreviewCfg); err != nil {
+		logging.Warning("[markdown_preview] invalid config; preview URLs disabled: %v", err)
+		markdownPreviewCfg.Mode = preview.ModeOff
+	}
+	markdownPreviewCfg = preview.NormalizeConfig(markdownPreviewCfg)
+	if !outputDumpEnabled && markdownPreviewCfg.Enabled() {
+		logging.Warning("[markdown_preview] disabled because output_dump_enabled=false")
+		markdownPreviewCfg.Mode = preview.ModeOff
+	}
+	app.markdownPreviewConfig = markdownPreviewCfg
 
 	// Resolve --repo to an absolute path before any tool / orchestrator
 	// reads it. Tools key file-system access off BusContext.RepoRoot, so
