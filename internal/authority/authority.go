@@ -173,22 +173,29 @@ func LocatorFromBusContext(bus *types.BusContext) types.SymbolLocator {
 	mgProv := multiGraphLocatorProvider
 	graphProv := locatorProvider
 	locatorMu.RUnlock()
+	var loc types.SymbolLocator
 	if mgProv != nil && bus.MultiGraph != nil {
-		if loc := mgProv(bus.MultiGraph); loc != nil {
-			return loc
+		loc = mgProv(bus.MultiGraph)
+	}
+	if loc == nil && graphProv != nil && bus.Mutable != nil {
+		if g := bus.Mutable.SearchGraph(); g != nil {
+			loc = graphProv(g)
 		}
 	}
-	if graphProv == nil {
+	if loc == nil {
 		return nil
 	}
-	if bus.Mutable == nil {
-		return nil
+	// Wrap with a pending-sub-repo filter so SymbolLocator results
+	// match the file-system tools' MultiRepoActiveSetGater contract.
+	// Without this, ground recovery / drift detection can anchor a
+	// citation to a pending sub-repo file the FS tools refuse to
+	// read, repeating the 2026-05-16 finalize-loop pattern through a
+	// different door (chain_promotion → forced-read on inaccessible
+	// paths → evidence_floor_waiver(no_repo_intersection) escape).
+	if len(bus.PendingSubRepos) == 0 {
+		return loc
 	}
-	g := bus.Mutable.SearchGraph()
-	if g == nil {
-		return nil
-	}
-	return graphProv(g)
+	return newPendingFilteredLocator(loc, bus.PendingSubRepos)
 }
 
 // Projection is the atomic projection result from ComputeForEvidence.

@@ -66,7 +66,7 @@ func TestApplyChainPromotion_DropsChainsAnchoredOutsideReadSet(t *testing.T) {
 	}
 	closure := types.NewEvidenceClosure("")
 
-	out := applyChainPromotion(in, readSet, closure, "", 0)
+	out := applyChainPromotion(in, readSet, closure, "", 0, nil)
 
 	// Markdown: chainKept retained, chainDropped removed.
 	if !strings.Contains(out.markdown, chainKept) {
@@ -131,7 +131,7 @@ func TestApplyChainPromotion_AllAnchorsRead_NoOp(t *testing.T) {
 	readSet := map[string]bool{"internal/foo/bar.go": true}
 	closure := types.NewEvidenceClosure("")
 
-	out := applyChainPromotion(in, readSet, closure, "", 0)
+	out := applyChainPromotion(in, readSet, closure, "", 0, nil)
 
 	if !strings.Contains(out.markdown, chain) {
 		t.Errorf("expected chain retained, got markdown:\n%s", out.markdown)
@@ -161,7 +161,7 @@ func TestApplyChainPromotion_PartialAnchorMissing_Demoted(t *testing.T) {
 	readSet := map[string]bool{"internal/a.go": true} // b.go missing
 	closure := types.NewEvidenceClosure("")
 
-	out := applyChainPromotion(in, readSet, closure, "", 0)
+	out := applyChainPromotion(in, readSet, closure, "", 0, nil)
 
 	if strings.Contains(out.markdown, chain) {
 		t.Errorf("partial-miss chain should be demoted from markdown")
@@ -175,6 +175,50 @@ func TestApplyChainPromotion_PartialAnchorMissing_Demoted(t *testing.T) {
 	}
 }
 
+// TestApplyChainPromotion_SkipsPendingSubRepoAnchor is the C
+// regression for the 2026-05-16 finalize-loop fix. Even when L1
+// stops pre-scan from emitting pending sub-repo paths, a SymbolLocator
+// fan-out (residual A) or some future ranker bug could still resolve
+// a chain anchor inside a pending sub-repo. chain_promotion must
+// refuse to queue forced-reads on those paths, otherwise the
+// explorer hits the same MultiRepoActiveSetGater refusal → waiver
+// escape → finalize lockup chain through a different door.
+func TestApplyChainPromotion_SkipsPendingSubRepoAnchor(t *testing.T) {
+	chain := "`Active.foo()` binds NewPending → `Pending.bar()` returns \"x\""
+	in := concreteValuesResult{
+		markdown: "### Resolution Chains\n\n- " + chain + "\n\n",
+		evidence: []types.EvidenceItem{
+			{Kind: types.EvidenceDataflowPath, Predicate: "resolution_chain", Subject: chain, Summary: chain},
+		},
+		chainAnchors: []chainAnchorInfo{
+			{
+				Summary: chain,
+				Files:   []string{"active-repo/internal/a.go", "pending-repo/internal/b.go"},
+				Origin:  "concrete_values_tracer",
+			},
+		},
+	}
+	readSet := map[string]bool{"active-repo/internal/a.go": true}
+	closure := types.NewEvidenceClosure("")
+
+	out := applyChainPromotion(in, readSet, closure, "", 0, []string{"pending-repo"})
+
+	// Even though pending/b.go was missing from readSet (would normally
+	// trigger a PendingRead in the partial-anchor case), the pending-
+	// sub-repo guard must drop it.
+	pendings := closure.PendingReads()
+	for _, p := range pendings {
+		if p.File == "pending-repo/internal/b.go" {
+			t.Errorf("pending-sub-repo anchor MUST NOT be queued as PendingRead, got %+v", p)
+		}
+	}
+	// Sanity: the markdown chain was still demoted (its other anchor
+	// was missing from readSet too at the chain level; demotion is
+	// independent of the pending-sub-repo guard). This is informational
+	// — what matters is no forced-read on the pending path.
+	_ = out
+}
+
 // Closure==nil path returns input unchanged (caching contract).
 func TestApplyChainPromotion_NilClosure_Identity(t *testing.T) {
 	in := concreteValuesResult{
@@ -182,7 +226,7 @@ func TestApplyChainPromotion_NilClosure_Identity(t *testing.T) {
 		evidence:     []types.EvidenceItem{{Kind: types.EvidenceDataflowPath, Subject: "x"}},
 		chainAnchors: []chainAnchorInfo{{Summary: "x", Files: []string{"a.go"}}},
 	}
-	out := applyChainPromotion(in, nil, nil, "", 0)
+	out := applyChainPromotion(in, nil, nil, "", 0, nil)
 	if out.markdown != in.markdown {
 		t.Errorf("nil closure must not mutate markdown")
 	}

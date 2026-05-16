@@ -17,6 +17,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/declarative"
 	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/analysis/subject"
+	"github.com/hanchaoqun/codrax/internal/authority"
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -46,6 +47,7 @@ type explorerEvaluator struct {
 	searchResult              *keywordSearchResult // full search result for cross-reference lookups
 	searchFingerprint         string               // T1.2: fingerprint of keyword_search inputs; reuses searchResult across explorer redispatches within one Run when inputs are unchanged
 	multiGraphHandle          any                  // P4-cross-sub-repo (Sc 1, 2026-05-08): cached *multigraph.MultiGraph for fan-out at midLoop hooks where ctx is unavailable
+	pendingSubRepos           []string             // BusContext.PendingSubRepos cached at dispatch entry so chain_promotion (free function, no ctx) can refuse PendingRead injection on inactive sub-repo paths — matches MultiRepoActiveSetGater rule
 	analyzerKeywords          []string             // analyzer-provided keywords cached from BuildInitialInstruction for exact-resolution scope hints
 	exactAnchorFiles          []string             // exact-entity anchor files from keyword search, in rank order
 	declarativeAnchorFiles    []string             // declarative registry/defaults/routes anchors for enumeration questions
@@ -357,6 +359,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	}
 	e.analysisIR = ctx.AnalysisIR
 	e.mutable = ctx.Mutable
+	e.pendingSubRepos = append(e.pendingSubRepos[:0], ctx.PendingSubRepos...)
 	e.requiredFiles = analyzerRequiredFilesFromIR(ctx)
 	// Session-22 fix F2.1: cache the log-triage bundle so Check 6's
 	// mid-loop gate can consult bundle.Meta.Signals + ResolvedFiles
@@ -9676,7 +9679,7 @@ func (e *explorerEvaluator) getConcreteValuesCached(ctx context.Context, repoRoo
 	if closure == nil {
 		return *e.cachedConcreteValues
 	}
-	return applyChainPromotion(*e.cachedConcreteValues, readSet, closure, repoRoot, e.answerSubject.Confidence)
+	return applyChainPromotion(*e.cachedConcreteValues, readSet, closure, repoRoot, e.answerSubject.Confidence, e.pendingSubRepos)
 }
 
 // applyChainPromotion is the CGEC chain-promotion enforcer. Given an
@@ -9697,7 +9700,7 @@ func (e *explorerEvaluator) getConcreteValuesCached(ctx context.Context, repoRoo
 // EvidenceItems land in TurnAArtifacts and the extractor / finalizer
 // prompt, so an unread-anchor item can mislead Turn B. Both render
 // paths must be cleaned for the invariant to hold.
-func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closure *types.EvidenceClosure, repoRoot string, subjectConfidence float64) concreteValuesResult {
+func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closure *types.EvidenceClosure, repoRoot string, subjectConfidence float64, pendingSubRepos []string) concreteValuesResult {
 	if closure == nil || len(in.chainAnchors) == 0 {
 		return in
 	}
@@ -9876,6 +9879,17 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 					})
 					logging.Info("[CGEC] R5 expand_search: promoted %s to ScannedSet after %d ghost anchor hits", f, r5Threshold)
 				}
+				continue
+			}
+			// C belt-and-suspenders for the 2026-05-16 finalize loop:
+			// chain anchors resolved via SymbolLocator can still point
+			// at a pending sub-repo file even after the locator-side
+			// filter (residual A). Refuse to queue forced-reads on
+			// paths the FS tools would refuse to read, otherwise we
+			// re-create the lockup pattern via a different door.
+			if authority.PathInsidePendingSubRepo(f, pendingSubRepos) {
+				logging.Debug("[CGEC] chain_promotion: skipping pending-sub-repo anchor file=%s origin=%s (active-set refused)",
+					f, anchor.Origin)
 				continue
 			}
 			closure.AddPendingRead(types.PendingRead{

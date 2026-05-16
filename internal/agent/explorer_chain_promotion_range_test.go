@@ -37,7 +37,7 @@ func TestApplyChainPromotion_RangeAware_DemoteOutsideSlice(t *testing.T) {
 		file: {{Start: 1, End: 50}, {Start: 100, End: 200}}, // excludes 350
 	})
 
-	out := applyChainPromotion(in, readSet, closure, "", 0)
+	out := applyChainPromotion(in, readSet, closure, "", 0, nil)
 
 	// The chain must disappear from markdown.
 	if contains(out.markdown, summary) {
@@ -84,7 +84,7 @@ func TestApplyChainPromotion_RangeAware_PromoteInsideSlice(t *testing.T) {
 		file: {{Start: 1, End: 50}, {Start: 100, End: 200}},
 	})
 
-	out := applyChainPromotion(in, readSet, closure, "", 0)
+	out := applyChainPromotion(in, readSet, closure, "", 0, nil)
 
 	if !contains(out.markdown, summary) {
 		t.Error("chain with anchor inside a fetched slice must be kept")
@@ -126,7 +126,7 @@ func TestApplyChainPromotion_RangeAware_ZeroLineFallsBackToFileLevel(t *testing.
 		file: {{Start: 1, End: 50}},
 	})
 
-	out := applyChainPromotion(in, readSet, closure, "", 0)
+	out := applyChainPromotion(in, readSet, closure, "", 0, nil)
 	if !contains(out.markdown, summary) {
 		t.Error("zero-line anchor must fall back to file-level grant")
 	}
@@ -153,7 +153,7 @@ func TestApplyChainPromotion_RangeAware_OldTestsStillPass(t *testing.T) {
 	closure.SetReadSet(readSet)
 	// No SetReadRanges call: closure.HasReadLine grants file-level.
 
-	out := applyChainPromotion(in, readSet, closure, "", 0)
+	out := applyChainPromotion(in, readSet, closure, "", 0, nil)
 	if !contains(out.markdown, summary) {
 		t.Error("closure without ranges must grant file-level coverage")
 	}
