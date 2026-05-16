@@ -119,6 +119,59 @@ func TestNormalize_RepairsTrailingCommasBeforeJSONClosers(t *testing.T) {
 	}
 }
 
+func TestJSONRepairCandidatesRepairsMissingTrailingClosers(t *testing.T) {
+	input := `{"blocks":[{"id":"summary","text":"draft"}`
+
+	var decoded struct {
+		Blocks []struct {
+			ID string `json:"id"`
+		} `json:"blocks"`
+	}
+	var parsed bool
+	for _, candidate := range JSONRepairCandidates(input) {
+		if err := json.Unmarshal([]byte(candidate), &decoded); err == nil {
+			parsed = true
+			break
+		}
+	}
+	if !parsed {
+		t.Fatalf("expected a parseable repaired candidate for %q", input)
+	}
+	if len(decoded.Blocks) != 1 || decoded.Blocks[0].ID != "summary" {
+		t.Fatalf("unexpected decoded value after repair: %+v", decoded)
+	}
+}
+
+func TestJSONRepairCandidatesRepairsParentCloseBeforeChild(t *testing.T) {
+	input := `[{"id":"diagram","diagram":{"body":"flowchart TD\n    A --> B"}]`
+
+	var decoded []struct {
+		ID      string `json:"id"`
+		Diagram struct {
+			Body string `json:"body"`
+		} `json:"diagram"`
+	}
+	var parsed bool
+	for _, candidate := range JSONRepairCandidates(input) {
+		if err := json.Unmarshal([]byte(candidate), &decoded); err == nil {
+			parsed = true
+			break
+		}
+	}
+	if !parsed {
+		t.Fatalf("expected a parseable repaired candidate for %q", input)
+	}
+	if len(decoded) != 1 || decoded[0].ID != "diagram" || decoded[0].Diagram.Body == "" {
+		t.Fatalf("unexpected decoded value after repair: %+v", decoded)
+	}
+}
+
+func TestRepairMissingTrailingJSONClosersRejectsUnterminatedStrings(t *testing.T) {
+	if repaired, ok := RepairMissingTrailingJSONClosers(`{"text":"unterminated}`); ok {
+		t.Fatalf("unterminated string must not be repaired, got %q", repaired)
+	}
+}
+
 func TestNormalize_StringWrappedArrayWithTrailingCommas(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",

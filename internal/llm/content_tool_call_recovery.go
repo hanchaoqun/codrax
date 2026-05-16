@@ -260,79 +260,12 @@ func parseTextToolCallJSON(content string, allowed map[string]bool, schemaInfos 
 
 func decodeTextToolCallJSON(content string) (any, bool) {
 	var raw any
-	if err := json.Unmarshal([]byte(content), &raw); err == nil {
-		return raw, true
-	}
-	repaired, ok := repairMissingTrailingJSONClosers(content)
-	if ok {
-		if err := json.Unmarshal([]byte(repaired), &raw); err == nil {
+	for _, candidate := range toolparam.JSONRepairCandidates(content) {
+		if err := json.Unmarshal([]byte(candidate), &raw); err == nil {
 			return raw, true
 		}
 	}
-	repaired, ok = toolparam.RemoveTrailingCommasBeforeJSONClosers(content)
-	if ok {
-		if err := json.Unmarshal([]byte(repaired), &raw); err == nil {
-			return raw, true
-		}
-		if closed, closedOK := repairMissingTrailingJSONClosers(repaired); closedOK {
-			if err := json.Unmarshal([]byte(closed), &raw); err == nil {
-				return raw, true
-			}
-		}
-		if normalised, normalisedOK := toolparam.NormalizeControlCharsInJSONStrings(repaired); normalisedOK {
-			if err := json.Unmarshal([]byte(normalised), &raw); err == nil {
-				return raw, true
-			}
-			if closed, closedOK := repairMissingTrailingJSONClosers(normalised); closedOK {
-				if err := json.Unmarshal([]byte(closed), &raw); err == nil {
-					return raw, true
-				}
-			}
-			if quoteRepaired, quoteOK := toolparam.RepairUnescapedQuotesInJSONStringLiterals(normalised); quoteOK {
-				if err := json.Unmarshal([]byte(quoteRepaired), &raw); err == nil {
-					return raw, true
-				}
-			}
-		}
-		if quoteRepaired, quoteOK := toolparam.RepairUnescapedQuotesInJSONStringLiterals(repaired); quoteOK {
-			if err := json.Unmarshal([]byte(quoteRepaired), &raw); err == nil {
-				return raw, true
-			}
-		}
-	}
-	repaired, ok = toolparam.NormalizeControlCharsInJSONStrings(content)
-	if ok {
-		if err := json.Unmarshal([]byte(repaired), &raw); err == nil {
-			return raw, true
-		}
-		if commaRepaired, commaOK := toolparam.RemoveTrailingCommasBeforeJSONClosers(repaired); commaOK {
-			if err := json.Unmarshal([]byte(commaRepaired), &raw); err == nil {
-				return raw, true
-			}
-			if closed, closedOK := repairMissingTrailingJSONClosers(commaRepaired); closedOK {
-				if err := json.Unmarshal([]byte(closed), &raw); err == nil {
-					return raw, true
-				}
-			}
-			if quoteRepaired, quoteOK := toolparam.RepairUnescapedQuotesInJSONStringLiterals(commaRepaired); quoteOK {
-				if err := json.Unmarshal([]byte(quoteRepaired), &raw); err == nil {
-					return raw, true
-				}
-			}
-		}
-		if quoteRepaired, quoteOK := toolparam.RepairUnescapedQuotesInJSONStringLiterals(repaired); quoteOK {
-			if err := json.Unmarshal([]byte(quoteRepaired), &raw); err == nil {
-				return raw, true
-			}
-		}
-	}
-	repaired, ok = toolparam.RepairUnescapedQuotesInJSONStringLiterals(content)
-	if ok {
-		if err := json.Unmarshal([]byte(repaired), &raw); err == nil {
-			return raw, true
-		}
-	}
-	repaired, ok = repairSingleQuotedJSONArgument(content)
+	repaired, ok := repairSingleQuotedJSONArgument(content)
 	if !ok {
 		return nil, false
 	}
@@ -340,59 +273,6 @@ func decodeTextToolCallJSON(content string) (any, bool) {
 		return nil, false
 	}
 	return raw, true
-}
-
-func repairMissingTrailingJSONClosers(content string) (string, bool) {
-	s := strings.TrimSpace(content)
-	if s == "" || (s[0] != '{' && s[0] != '[') {
-		return "", false
-	}
-	last := s[len(s)-1]
-	if last == ',' || last == ':' || last == '{' || last == '[' {
-		return "", false
-	}
-	stack := make([]byte, 0, 4)
-	inString := false
-	escaped := false
-	for i := 0; i < len(s); i++ {
-		ch := s[i]
-		if inString {
-			if escaped {
-				escaped = false
-				continue
-			}
-			switch ch {
-			case '\\':
-				escaped = true
-			case '"':
-				inString = false
-			}
-			continue
-		}
-		switch ch {
-		case '"':
-			inString = true
-		case '{':
-			stack = append(stack, '}')
-		case '[':
-			stack = append(stack, ']')
-		case '}', ']':
-			if len(stack) == 0 || stack[len(stack)-1] != ch {
-				return "", false
-			}
-			stack = stack[:len(stack)-1]
-		}
-	}
-	if inString || len(stack) == 0 || len(stack) > 4 {
-		return "", false
-	}
-	var b strings.Builder
-	b.Grow(len(s) + len(stack))
-	b.WriteString(s)
-	for i := len(stack) - 1; i >= 0; i-- {
-		b.WriteByte(stack[i])
-	}
-	return b.String(), true
 }
 
 func repairSingleQuotedJSONArgument(content string) (string, bool) {
@@ -423,7 +303,7 @@ func repairSingleQuotedJSONArgument(content string) (string, bool) {
 		if err := json.Unmarshal([]byte(candidate), &raw); err == nil {
 			return candidate, true
 		}
-		repaired, ok := repairMissingTrailingJSONClosers(candidate)
+		repaired, ok := toolparam.RepairMissingTrailingJSONClosers(candidate)
 		if !ok {
 			return "", false
 		}

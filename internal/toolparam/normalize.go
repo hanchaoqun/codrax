@@ -667,6 +667,45 @@ func decodeJSONValue(raw json.RawMessage) (any, bool) {
 	return value, true
 }
 
+// JSONRepairCandidates returns deterministic syntax-repair candidates for
+// JSON-shaped local-model output. The original string is always first. Every
+// later candidate is only a candidate: callers must parse it successfully
+// before accepting it.
+func JSONRepairCandidates(s string) []string {
+	type jsonRepairPass struct {
+		fn func(string) (string, bool)
+	}
+	passes := []jsonRepairPass{
+		{fn: RemoveTrailingCommasBeforeJSONClosers},
+		{fn: NormalizeControlCharsInJSONStrings},
+		{fn: RepairMissingTrailingJSONClosers},
+		{fn: RepairUnescapedQuotesInJSONStringLiterals},
+	}
+	const maxCandidates = 32
+	candidates := make([]string, 0, 8)
+	seen := map[string]bool{}
+	add := func(candidate string) bool {
+		if candidate == "" || seen[candidate] || len(candidates) >= maxCandidates {
+			return false
+		}
+		seen[candidate] = true
+		candidates = append(candidates, candidate)
+		return true
+	}
+	add(s)
+	for i := 0; i < len(candidates) && len(candidates) < maxCandidates; i++ {
+		base := candidates[i]
+		for _, pass := range passes {
+			repaired, changed := pass.fn(base)
+			if !changed {
+				continue
+			}
+			add(repaired)
+		}
+	}
+	return candidates
+}
+
 func decodeJSONStringAs(s string, want string) (any, string, bool) {
 	return decodeJSONStringAsDepth(s, want, 0)
 }
@@ -711,15 +750,32 @@ func decodeJSONStringAsDepth(s string, want string, depth int) (any, string, boo
 			return decoded, "json_string_" + want + "_trailing_comma", true
 		}
 	}
-	repaired, changed := repairUnescapedQuotesInJSONStringLiterals(trimmed)
-	if !changed {
-		return nil, "", false
+	if repaired, changed := NormalizeControlCharsInJSONStrings(trimmed); changed {
+		if decoded, ok := decodeJSONValue(json.RawMessage(repaired)); ok {
+			return decoded, "json_string_" + want + "_control_chars", true
+		}
 	}
-	decoded, ok := decodeJSONValue(json.RawMessage(repaired))
-	if !ok {
-		return nil, "", false
+	if repaired, changed := RepairMissingTrailingJSONClosers(trimmed); changed {
+		if decoded, ok := decodeJSONValue(json.RawMessage(repaired)); ok {
+			return decoded, "json_string_" + want + "_missing_closer", true
+		}
 	}
-	return decoded, "json_string_" + want + "_quote_escape", true
+	if repaired, changed := RepairUnescapedQuotesInJSONStringLiterals(trimmed); changed {
+		if decoded, ok := decodeJSONValue(json.RawMessage(repaired)); ok {
+			return decoded, "json_string_" + want + "_quote_escape", true
+		}
+	}
+	for _, candidate := range JSONRepairCandidates(trimmed) {
+		if candidate == trimmed {
+			continue
+		}
+		decoded, ok := decodeJSONValue(json.RawMessage(candidate))
+		if !ok {
+			continue
+		}
+		return decoded, "json_string_" + want + "_syntax", true
+	}
+	return nil, "", false
 }
 
 // RemoveTrailingCommasBeforeJSONClosers repairs a deterministic local-model
@@ -779,6 +835,105 @@ func RemoveTrailingCommasBeforeJSONClosers(s string) (string, bool) {
 		return s, false
 	}
 	return out.String(), true
+}
+
+// RepairMissingTrailingJSONClosers repairs a deterministic local-model JSON
+// syntax artifact where the model emits a JSON-shaped value but omits one or
+// more closing delimiters, or closes a parent container before closing a child:
+//
+//	[{"kind":"diagram","diagram":{"body":"flowchart TD"}]
+//
+// The pass is structural. It walks the payload with a JSON-string state
+// machine, inserts only missing `}` / `]` delimiters needed to restore nesting,
+// and refuses unterminated strings or obviously incomplete tails such as `,`,
+// `:`, `{`, or `[`. Callers must parse the returned candidate before accepting
+// it.
+func RepairMissingTrailingJSONClosers(content string) (string, bool) {
+	s := strings.TrimSpace(content)
+	if s == "" || (s[0] != '{' && s[0] != '[') {
+		return "", false
+	}
+	last := s[len(s)-1]
+	if last == ',' || last == ':' || last == '{' || last == '[' {
+		return "", false
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	stack := make([]byte, 0, 8)
+	inString := false
+	escaped := false
+	changed := false
+	insertedClosers := 0
+	const maxInsertedClosers = 16
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inString {
+			b.WriteByte(ch)
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+			b.WriteByte(ch)
+		case '{':
+			stack = append(stack, '}')
+			b.WriteByte(ch)
+		case '[':
+			stack = append(stack, ']')
+			b.WriteByte(ch)
+		case '}', ']':
+			next, inserted, ok := closeJSONDelimiterRepairStack(stack, ch, &b)
+			if !ok {
+				return "", false
+			}
+			if inserted > 0 {
+				changed = true
+				insertedClosers += inserted
+				if insertedClosers > maxInsertedClosers {
+					return "", false
+				}
+			}
+			stack = next
+			b.WriteByte(ch)
+		default:
+			b.WriteByte(ch)
+		}
+	}
+	if inString || len(stack) == 0 && !changed {
+		return "", false
+	}
+	if len(stack) > maxInsertedClosers-insertedClosers {
+		return "", false
+	}
+	for i := len(stack) - 1; i >= 0; i-- {
+		b.WriteByte(stack[i])
+	}
+	return b.String(), true
+}
+
+func closeJSONDelimiterRepairStack(stack []byte, close byte, b *strings.Builder) ([]byte, int, bool) {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if stack[i] != close {
+			continue
+		}
+		inserted := 0
+		for j := len(stack) - 1; j > i; j-- {
+			b.WriteByte(stack[j])
+			inserted++
+		}
+		return stack[:i], inserted, true
+	}
+	return stack, 0, false
 }
 
 func isJSONWhitespaceByte(ch byte) bool {
