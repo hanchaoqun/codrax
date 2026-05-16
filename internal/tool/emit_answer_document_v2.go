@@ -201,6 +201,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// pre-AnalysisIR paths) the pre-check returns nil and the
 	// post-emit chain in internal/orchestrator runs unchanged.
 	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
+		preEmitCtx := newPreEmitCheckContext(ctx)
 		if fixed := carryForwardCitationsFromRejectedDraft(doc, ctx); fixed > 0 {
 			logging.Warning("[emit_answer_document] restored %d citation(s) from previous rejected answer draft", fixed)
 		}
@@ -209,19 +210,19 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			recovery.Attachments = filterAttachmentsAlreadyRepresentedInDocument(recovery.Attachments, doc)
 			visibleRecovery.Attachments = filterAttachmentsAlreadyRepresentedInDocument(visibleRecovery.Attachments, doc)
 		}
-		if fixed := normalizeRequiredMechanismAnchorCarriers(doc, view, ctx); fixed > 0 {
+		if fixed := normalizeRequiredMechanismAnchorCarriersWithContext(doc, view, ctx, preEmitCtx); fixed > 0 {
 			logging.Warning("[emit_answer_document] repaired %d required mechanism anchor carrier(s)", fixed)
 		}
-		if fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, view, ctx); fixed > 0 {
+		if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, preEmitCtx); fixed > 0 {
 			logging.Warning("[emit_answer_document] repaired %d item citation_ref value(s) by unique label/citation corroboration", fixed)
 		}
 		if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
 			logging.Warning("[emit_answer_document] repaired %d view-compatible typed lane field(s)", fixed)
 		}
-		if hints := runPreEmitChecks(doc, view, preEmitOracleFromCtx(ctx), ctx); len(hints) > 0 {
+		if hints := runPreEmitChecksWithContext(doc, view, preEmitOracleFromCtx(ctx), preEmitCtx); len(hints) > 0 {
 			if fixed := materializeRequiredCaveatWhenOnlyMissing(doc, view, hints); fixed > 0 {
 				logging.Warning("[emit_answer_document] materialized %d required caveat block(s) from uncertainty contract", fixed)
-				hints = runPreEmitChecks(doc, view, preEmitOracleFromCtx(ctx), ctx)
+				hints = runPreEmitChecksWithContext(doc, view, preEmitOracleFromCtx(ctx), preEmitCtx)
 			}
 			if len(hints) > 0 {
 				rememberRejectedAnswerDocumentDraft(ctx, doc)

@@ -1501,9 +1501,7 @@ func loadEvidenceProjector() EvidenceProjector {
 	return evidenceProjector
 }
 
-// EmittedEvidence returns a snapshot of the LLM-emitted evidence buffer.
-// The returned slice shares its backing array with the internal state —
-// callers must not mutate it in place.
+// EmittedEvidence returns a copy of the LLM-emitted evidence buffer.
 func (m *MutableState) EmittedEvidence() []EvidenceItem {
 	if m == nil {
 		return nil
@@ -1516,6 +1514,30 @@ func (m *MutableState) EmittedEvidence() []EvidenceItem {
 	out := make([]EvidenceItem, len(m.emittedEvidence))
 	copy(out, m.emittedEvidence)
 	return out
+}
+
+// EmittedEvidenceSince returns a snapshot of evidence appended at or after
+// start plus the current total length. It lets loop observers merge only the
+// new tail without copying the full evidence pool on every pass.
+func (m *MutableState) EmittedEvidenceSince(start int) ([]EvidenceItem, int) {
+	if m == nil {
+		return nil, 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	total := len(m.emittedEvidence)
+	if total == 0 {
+		return nil, 0
+	}
+	if start < 0 || start > total {
+		start = 0
+	}
+	if start == total {
+		return nil, total
+	}
+	out := make([]EvidenceItem, total-start)
+	copy(out, m.emittedEvidence[start:])
+	return out, total
 }
 
 // ResetEmittedEvidence clears the buffer. Called by the explorer's

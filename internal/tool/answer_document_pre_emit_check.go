@@ -78,6 +78,92 @@ func preEmitOracleFromCtx(ctx *types.BusContext) types.SymbolOracle {
 	return ctx.Mutable.SymbolOracle()
 }
 
+type preEmitCheckContext struct {
+	ctx      *types.BusContext
+	evidence *preEmitEvidenceIndex
+}
+
+type preEmitEvidenceIndex struct {
+	items  []types.EvidenceItem
+	byFile map[string][]types.EvidenceItem
+}
+
+func newPreEmitCheckContext(ctxOpt ...*types.BusContext) *preEmitCheckContext {
+	var ctx *types.BusContext
+	if len(ctxOpt) > 0 {
+		ctx = ctxOpt[0]
+	}
+	return &preEmitCheckContext{ctx: ctx}
+}
+
+func (c *preEmitCheckContext) ctxArgs() []*types.BusContext {
+	if c == nil || c.ctx == nil {
+		return nil
+	}
+	return []*types.BusContext{c.ctx}
+}
+
+func (c *preEmitCheckContext) evidenceItems() []types.EvidenceItem {
+	if c == nil || c.ctx == nil || c.ctx.Mutable == nil {
+		return nil
+	}
+	if c.evidence == nil {
+		c.evidence = newPreEmitEvidenceIndex(c.ctx)
+	}
+	return c.evidence.items
+}
+
+func (c *preEmitCheckContext) citedEvidenceItems(cit types.Citation) ([]types.EvidenceItem, bool) {
+	if c == nil || c.ctx == nil || c.ctx.Mutable == nil {
+		return nil, false
+	}
+	if c.evidence == nil {
+		c.evidence = newPreEmitEvidenceIndex(c.ctx)
+	}
+	return c.evidence.citedEvidenceItems(cit)
+}
+
+func newPreEmitEvidenceIndex(ctx *types.BusContext) *preEmitEvidenceIndex {
+	idx := &preEmitEvidenceIndex{}
+	if ctx == nil || ctx.Mutable == nil {
+		return idx
+	}
+	if artifacts := ctx.Mutable.TurnAArtifacts(); artifacts != nil && len(artifacts.EvidenceItems) > 0 {
+		idx.items = append(idx.items, artifacts.EvidenceItems...)
+	}
+	if emitted := ctx.Mutable.EmittedEvidence(); len(emitted) > 0 {
+		idx.items = append(idx.items, emitted...)
+	}
+	if len(idx.items) == 0 {
+		return idx
+	}
+	idx.byFile = make(map[string][]types.EvidenceItem)
+	for _, ev := range idx.items {
+		file := strings.TrimSpace(ev.Source)
+		if file == "" {
+			continue
+		}
+		idx.byFile[file] = append(idx.byFile[file], ev)
+	}
+	return idx
+}
+
+func (idx *preEmitEvidenceIndex) citedEvidenceItems(cit types.Citation) ([]types.EvidenceItem, bool) {
+	if idx == nil {
+		return nil, false
+	}
+	file := strings.TrimSpace(cit.File)
+	if file == "" || cit.Line <= 0 {
+		return nil, false
+	}
+	candidates := idx.byFile[file]
+	if len(candidates) == 0 {
+		return nil, false
+	}
+	out := preEmitCitedEvidenceFromPool(candidates, file, cit.Line)
+	return out, len(out) > 0
+}
+
 // emitFixHint is the user-facing fix instruction surfaced when a
 // pre-emit check fails. Formatted by formatEmitFixHints into a
 // rejection prose string that the LLM reads and acts on within the
@@ -107,10 +193,15 @@ type emitFixHint struct {
 // Non-nil oracle activates the same gate at the chokepoint to avoid
 // burning a full repair-loop round on a fixable label hallucination.
 func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, oracle types.SymbolOracle, ctxOpt ...*types.BusContext) []emitFixHint {
+	return runPreEmitChecksWithContext(doc, view, oracle, newPreEmitCheckContext(ctxOpt...))
+}
+
+func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, oracle types.SymbolOracle, pctx *preEmitCheckContext) []emitFixHint {
 	if doc == nil || view == nil {
 		return nil
 	}
 	var hints []emitFixHint
+	ctxOpt := pctx.ctxArgs()
 
 	// 0. Citation-pool carrier integrity. Run this before semantic
 	// member checks so a retry that dropped citations[] or references
@@ -173,7 +264,7 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	// 5. Per-item label/citation alignment. A symbol-like list label with
 	// a citation must name the same cited evidence endpoint; otherwise the
 	// rendered answer silently shifts file:line proof across adjacent hops.
-	if h := preCheckItemCitationAlignment(doc, view, ctxOpt...); len(h) > 0 {
+	if h := preCheckItemCitationAlignmentWithContext(doc, view, pctx); len(h) > 0 {
 		hints = append(hints, h...)
 	}
 
@@ -183,7 +274,7 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	// one endpoint. The projection lives in types so new role shapes
 	// (import/path/span/route/etc.) extend the central contract instead
 	// of adding validator-specific patches.
-	if h := preCheckCallChainItemCitationRoleAlignment(doc, view, ctxOpt...); len(h) > 0 {
+	if h := preCheckCallChainItemCitationRoleAlignmentWithContext(doc, view, pctx); len(h) > 0 {
 		hints = append(hints, h...)
 	}
 
@@ -228,7 +319,7 @@ func runPreEmitChecks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticVie
 	// sweep digest. Mirrors validateEnumerationItemLabelHallucination
 	// at the chokepoint so the LLM gets the fix hint inside the
 	// SAME dispatch instead of paying a full retry round.
-	if h := preCheckEnumerationLabelGrounding(doc, oracle, ctxOpt...); len(h) > 0 {
+	if h := preCheckEnumerationLabelGroundingWithContext(doc, oracle, pctx); len(h) > 0 {
 		hints = append(hints, h...)
 	}
 
@@ -457,10 +548,13 @@ func answerBlockHasRenderableSurface(block types.AnswerBlock) bool {
 }
 
 func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctxOpt ...*types.BusContext) []emitFixHint {
-	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
+	return preCheckItemCitationAlignmentWithContext(doc, view, newPreEmitCheckContext(ctxOpt...))
+}
+
+func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
+	if doc == nil || pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
 		return nil
 	}
-	ctx := ctxOpt[0]
 	type mismatch struct {
 		blockID    string
 		itemID     string
@@ -490,7 +584,7 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 			if types.AnswerLocationLabelMatchesCitation(label, cit) {
 				continue
 			}
-			if preEmitCitationSupportsAggregateItem(ctx, label, item.Text, cit) {
+			if preEmitCitationSupportsAggregateItemWithContext(pctx, label, item.Text, cit) {
 				continue
 			}
 			if surface, ok := types.ParseAnswerSourceLocationSurface(label); ok {
@@ -502,13 +596,13 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 					itemID:     item.ID,
 					label:      label,
 					cite:       fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
-					candidates: preEmitCandidateCitationLocationsForLabel(ctx, label, 4),
+					candidates: preEmitCandidateCitationLocationsForLabelWithContext(pctx, label, 4),
 				})
 				continue
 			}
-			evidence, found := preEmitCitedEvidenceItems(ctx, cit)
+			evidence, found := pctx.citedEvidenceItems(cit)
 			if !found {
-				if candidates := preEmitCandidateCitationLocationsForAggregateItem(ctx, label, item.Text, 4); len(candidates) > 0 {
+				if candidates := preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, item.Text, 4); len(candidates) > 0 {
 					mismatches = append(mismatches, mismatch{
 						blockID:    b.ID,
 						itemID:     item.ID,
@@ -522,7 +616,7 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 			if preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence) {
 				continue
 			}
-			if candidates := preEmitCandidateCitationLocationsForAggregateItem(ctx, label, item.Text, 4); len(candidates) > 0 {
+			if candidates := preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, item.Text, 4); len(candidates) > 0 {
 				mismatches = append(mismatches, mismatch{
 					blockID:    b.ID,
 					itemID:     item.ID,
@@ -537,7 +631,7 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 				itemID:     item.ID,
 				label:      label,
 				cite:       fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
-				candidates: preEmitCandidateCitationLocationsForLabel(ctx, label, 4),
+				candidates: preEmitCandidateCitationLocationsForLabelWithContext(pctx, label, 4),
 			})
 		}
 	}
@@ -563,6 +657,10 @@ func preCheckItemCitationAlignment(doc *types.AnswerDocumentV2, view *types.Answ
 }
 
 func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {
+	return normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, newPreEmitCheckContext(ctx))
+}
+
+func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) int {
 	if doc == nil || ctx == nil || ctx.Mutable == nil {
 		return 0
 	}
@@ -584,7 +682,7 @@ func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2,
 				continue
 			}
 			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
-				preEmitItemCitationAligned(ctx, label, item.Text, doc.Citations[item.CitationRef]) {
+				preEmitItemCitationAlignedWithContext(pctx, label, item.Text, doc.Citations[item.CitationRef]) {
 				continue
 			}
 			match := -1
@@ -593,7 +691,7 @@ func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2,
 					if ci == item.CitationRef {
 						continue
 					}
-					if !preEmitItemCitationAligned(ctx, label, item.Text, cit) {
+					if !preEmitItemCitationAlignedWithContext(pctx, label, item.Text, cit) {
 						continue
 					}
 					if match >= 0 {
@@ -608,7 +706,7 @@ func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2,
 				fixed++
 				continue
 			}
-			if cit, ok := preEmitUniqueCandidateCitationForItem(ctx, label, item.Text); ok {
+			if cit, ok := preEmitUniqueCandidateCitationForItemWithContext(pctx, label, item.Text); ok {
 				item.CitationRef = appendOrReusePreEmitCitation(doc, cit)
 				fixed++
 			}
@@ -618,6 +716,10 @@ func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2,
 }
 
 func preEmitUniqueCandidateCitationForItem(ctx *types.BusContext, label, text string) (types.Citation, bool) {
+	return preEmitUniqueCandidateCitationForItemWithContext(newPreEmitCheckContext(ctx), label, text)
+}
+
+func preEmitUniqueCandidateCitationForItemWithContext(pctx *preEmitCheckContext, label, text string) (types.Citation, bool) {
 	var out []types.Citation
 	seen := make(map[string]bool)
 	add := func(cit types.Citation) {
@@ -632,12 +734,12 @@ func preEmitUniqueCandidateCitationForItem(ctx *types.BusContext, label, text st
 		seen[key] = true
 		out = append(out, cit)
 	}
-	for _, loc := range preEmitCandidateCitationLocationsForAggregateItem(ctx, label, text, 8) {
+	for _, loc := range preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, text, 8) {
 		if cit, ok := parsePreEmitCitationLocation(loc); ok {
 			add(cit)
 		}
 	}
-	for _, loc := range preEmitCandidateCitationLocationsForLabel(ctx, label, 8) {
+	for _, loc := range preEmitCandidateCitationLocationsForLabelWithContext(pctx, label, 8) {
 		if cit, ok := parsePreEmitCitationLocation(loc); ok {
 			add(cit)
 		}
@@ -680,25 +782,33 @@ func parsePreEmitCitationLocation(loc string) (types.Citation, bool) {
 }
 
 func preEmitItemCitationAligned(ctx *types.BusContext, label, text string, cit types.Citation) bool {
+	return preEmitItemCitationAlignedWithContext(newPreEmitCheckContext(ctx), label, text, cit)
+}
+
+func preEmitItemCitationAlignedWithContext(pctx *preEmitCheckContext, label, text string, cit types.Citation) bool {
 	if types.AnswerLocationLabelMatchesCitation(label, cit) {
 		return true
 	}
-	if preEmitCitationSupportsAggregateItem(ctx, label, text, cit) {
+	if preEmitCitationSupportsAggregateItemWithContext(pctx, label, text, cit) {
 		return true
 	}
 	if surface, ok := types.ParseAnswerSourceLocationSurface(label); ok {
 		return types.AnswerSourceLocationSurfaceMatchesCitation(surface, cit)
 	}
-	evidence, found := preEmitCitedEvidenceItems(ctx, cit)
+	evidence, found := pctx.citedEvidenceItems(cit)
 	return found && preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence)
 }
 
 func preCheckCallChainItemCitationRoleAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctxOpt ...*types.BusContext) []emitFixHint {
-	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
+	return preCheckCallChainItemCitationRoleAlignmentWithContext(doc, view, newPreEmitCheckContext(ctxOpt...))
+}
+
+func preCheckCallChainItemCitationRoleAlignmentWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
+	if doc == nil || pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
 		return nil
 	}
-	ctx := ctxOpt[0]
-	allEvidence := preEmitAnswerEvidenceItems(ctx)
+	ctx := pctx.ctx
+	allEvidence := pctx.evidenceItems()
 	if len(allEvidence) == 0 {
 		return nil
 	}
@@ -727,7 +837,7 @@ func preCheckCallChainItemCitationRoleAlignment(doc *types.AnswerDocumentV2, vie
 			if !ok {
 				continue
 			}
-			cited, found := preEmitCitedEvidenceItems(ctx, cit)
+			cited, found := pctx.citedEvidenceItems(cit)
 			if found && types.EvidenceSetContainsSameClaimRole(cited, expected) {
 				continue
 			}
@@ -1867,17 +1977,7 @@ func preEmitNormalizePath(path string) string {
 }
 
 func preEmitAnswerEvidenceItems(ctx *types.BusContext) []types.EvidenceItem {
-	if ctx == nil || ctx.Mutable == nil {
-		return nil
-	}
-	var out []types.EvidenceItem
-	if artifacts := ctx.Mutable.TurnAArtifacts(); artifacts != nil && len(artifacts.EvidenceItems) > 0 {
-		out = append(out, artifacts.EvidenceItems...)
-	}
-	if emitted := ctx.Mutable.EmittedEvidence(); len(emitted) > 0 {
-		out = append(out, emitted...)
-	}
-	return out
+	return newPreEmitCheckContext(ctx).evidenceItems()
 }
 
 func preEmitBlockSharesFacet(b types.AnswerBlock, facets []string) bool {
@@ -1943,21 +2043,7 @@ func containsBlockFacet(b types.AnswerBlock, facet types.AnswerFacetKind) bool {
 }
 
 func preEmitCitedEvidenceItems(ctx *types.BusContext, cit types.Citation) ([]types.EvidenceItem, bool) {
-	if ctx == nil || ctx.Mutable == nil {
-		return nil, false
-	}
-	file := strings.TrimSpace(cit.File)
-	if file == "" || cit.Line <= 0 {
-		return nil, false
-	}
-	var out []types.EvidenceItem
-	if artifacts := ctx.Mutable.TurnAArtifacts(); artifacts != nil {
-		out = append(out, preEmitCitedEvidenceFromPool(artifacts.EvidenceItems, file, cit.Line)...)
-	}
-	if emitted := ctx.Mutable.EmittedEvidence(); len(emitted) > 0 {
-		out = append(out, preEmitCitedEvidenceFromPool(emitted, file, cit.Line)...)
-	}
-	return out, len(out) > 0
+	return newPreEmitCheckContext(ctx).citedEvidenceItems(cit)
 }
 
 func preEmitCitedEvidenceFromPool(items []types.EvidenceItem, file string, line int) []types.EvidenceItem {
@@ -1994,12 +2080,16 @@ func preEmitLabelMatchesAnyEvidenceEndpoint(label string, evidence []types.Evide
 }
 
 func preEmitCandidateCitationLocationsForLabel(ctx *types.BusContext, label string, limit int) []string {
+	return preEmitCandidateCitationLocationsForLabelWithContext(newPreEmitCheckContext(ctx), label, limit)
+}
+
+func preEmitCandidateCitationLocationsForLabelWithContext(pctx *preEmitCheckContext, label string, limit int) []string {
 	if limit <= 0 {
 		limit = 4
 	}
 	var out []string
 	seen := make(map[string]bool)
-	for _, ev := range preEmitAnswerEvidenceItems(ctx) {
+	for _, ev := range pctx.evidenceItems() {
 		if ev.GroundingStatus == types.GroundingUngrounded {
 			continue
 		}
@@ -2024,9 +2114,14 @@ func preEmitCandidateCitationLocationsForLabel(ctx *types.BusContext, label stri
 }
 
 func preEmitCandidateCitationLocationsForAggregateItem(ctx *types.BusContext, label, text string, limit int) []string {
-	if ctx == nil || ctx.Mutable == nil {
+	return preEmitCandidateCitationLocationsForAggregateItemWithContext(newPreEmitCheckContext(ctx), label, text, limit)
+}
+
+func preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx *preEmitCheckContext, label, text string, limit int) []string {
+	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
 		return nil
 	}
+	ctx := pctx.ctx
 	if limit <= 0 {
 		limit = 4
 	}
@@ -2054,7 +2149,7 @@ func preEmitCandidateCitationLocationsForAggregateItem(ctx *types.BusContext, la
 			if source, line, ok := preEmitAggregateMemberSupportLocation(fact, idx, member); ok {
 				add(source, line)
 			}
-			for _, ev := range preEmitAnswerEvidenceItems(ctx) {
+			for _, ev := range pctx.evidenceItems() {
 				if ev.GroundingStatus == types.GroundingUngrounded || ev.Source == "" || ev.LineStart <= 0 {
 					continue
 				}
@@ -2068,9 +2163,14 @@ func preEmitCandidateCitationLocationsForAggregateItem(ctx *types.BusContext, la
 }
 
 func preEmitCitationSupportsAggregateItem(ctx *types.BusContext, label, text string, cit types.Citation) bool {
-	if ctx == nil || ctx.Mutable == nil {
+	return preEmitCitationSupportsAggregateItemWithContext(newPreEmitCheckContext(ctx), label, text, cit)
+}
+
+func preEmitCitationSupportsAggregateItemWithContext(pctx *preEmitCheckContext, label, text string, cit types.Citation) bool {
+	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
 		return false
 	}
+	ctx := pctx.ctx
 	label = strings.TrimSpace(label)
 	text = strings.TrimSpace(text)
 	if label == "" || text == "" {
@@ -2085,7 +2185,7 @@ func preEmitCitationSupportsAggregateItem(ctx *types.BusContext, label, text str
 			if preEmitAggregateMemberCitationMatches(fact, idx, member, cit) {
 				return true
 			}
-			evidence, found := preEmitCitedEvidenceItems(ctx, cit)
+			evidence, found := pctx.citedEvidenceItems(cit)
 			if !found {
 				continue
 			}
@@ -2551,12 +2651,16 @@ func surfaceTermEvidenceAppliesToItem(ev types.EvidenceItem, item types.AnswerBl
 //
 // 2026-05-10 P1.
 func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, ctxOpt ...*types.BusContext) []emitFixHint {
+	return preCheckEnumerationLabelGroundingWithContext(doc, oracle, newPreEmitCheckContext(ctxOpt...))
+}
+
+func preCheckEnumerationLabelGroundingWithContext(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, pctx *preEmitCheckContext) []emitFixHint {
 	if doc == nil || oracle == nil {
 		return nil
 	}
 	var ctx *types.BusContext
-	if len(ctxOpt) > 0 {
-		ctx = ctxOpt[0]
+	if pctx != nil {
+		ctx = pctx.ctx
 	}
 	var hints []emitFixHint
 	for _, b := range doc.Blocks {
@@ -2588,7 +2692,7 @@ func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types
 				continue
 			}
 			if ctx != nil && it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) {
-				if evidence, found := preEmitCitedEvidenceItems(ctx, doc.Citations[it.CitationRef]); found &&
+				if evidence, found := pctx.citedEvidenceItems(doc.Citations[it.CitationRef]); found &&
 					preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence) {
 					continue
 				}
@@ -2816,7 +2920,11 @@ func preEmitAggregateMemberSupportLocation(fact types.AnswerAggregateFact, membe
 }
 
 func preEmitCitationMatchesAggregateEvidence(ctx *types.BusContext, member string, cit types.Citation) bool {
-	evidence, found := preEmitCitedEvidenceItems(ctx, cit)
+	return preEmitCitationMatchesAggregateEvidenceWithContext(newPreEmitCheckContext(ctx), member, cit)
+}
+
+func preEmitCitationMatchesAggregateEvidenceWithContext(pctx *preEmitCheckContext, member string, cit types.Citation) bool {
+	evidence, found := pctx.citedEvidenceItems(cit)
 	if !found {
 		return false
 	}
@@ -3409,6 +3517,10 @@ func preCheckRequiredMechanismAnchors(doc *types.AnswerDocumentV2, view *types.A
 }
 
 func normalizeRequiredMechanismAnchorCarriers(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {
+	return normalizeRequiredMechanismAnchorCarriersWithContext(doc, view, ctx, newPreEmitCheckContext(ctx))
+}
+
+func normalizeRequiredMechanismAnchorCarriersWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) int {
 	if doc == nil || view == nil || len(view.RequiredMechanismAnchors) == 0 {
 		return 0
 	}
@@ -3429,7 +3541,7 @@ func normalizeRequiredMechanismAnchorCarriers(doc *types.AnswerDocumentV2, view 
 		item := types.AnswerBlockItem{
 			ID:          nextRequiredMechanismAnchorItemID(doc.Blocks[blockIdx], label),
 			Label:       label,
-			CitationRef: citationRefForRequiredMechanismAnchor(doc, ctx, label),
+			CitationRef: citationRefForRequiredMechanismAnchorWithContext(doc, pctx, label),
 		}
 		doc.Blocks[blockIdx].Items = append(doc.Blocks[blockIdx].Items, item)
 		added++
@@ -3528,15 +3640,19 @@ func sanitizeRequiredMechanismAnchorID(label string) string {
 }
 
 func citationRefForRequiredMechanismAnchor(doc *types.AnswerDocumentV2, ctx *types.BusContext, label string) int {
+	return citationRefForRequiredMechanismAnchorWithContext(doc, newPreEmitCheckContext(ctx), label)
+}
+
+func citationRefForRequiredMechanismAnchorWithContext(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext, label string) int {
 	if doc == nil {
 		return -1
 	}
 	for i, cit := range doc.Citations {
-		if preEmitItemCitationAligned(ctx, label, "", cit) {
+		if preEmitItemCitationAlignedWithContext(pctx, label, "", cit) {
 			return i
 		}
 	}
-	for _, loc := range preEmitCandidateCitationLocationsForLabel(ctx, label, 4) {
+	for _, loc := range preEmitCandidateCitationLocationsForLabelWithContext(pctx, label, 4) {
 		file, line, ok := parsePreEmitLocation(loc)
 		if !ok {
 			continue

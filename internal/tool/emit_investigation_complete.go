@@ -469,8 +469,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	evidenceSnapshot := ctx.Mutable.EmittedEvidence()
 	justification := strings.TrimSpace(p.AbsenceJustification)
-	resultKind, justification = normalizeExactAbsenceCompletion(ctx, resultKind, reason, justification)
+	resultKind, justification = normalizeExactAbsenceCompletionWithEvidence(ctx, resultKind, reason, justification, evidenceSnapshot)
 	aggregateFacts, err := types.NormalizeAnswerAggregateFacts(p.AggregateFacts)
 	if err != nil {
 		return types.ToolResult{
@@ -480,7 +481,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
-	if err := validateAggregateRequestedDecoratorAlignment(ctx, aggregateFacts); err != nil {
+	if err := validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx, aggregateFacts, evidenceSnapshot); err != nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Summary:   fmt.Sprintf("emit_investigation_complete rejected: %v", err),
@@ -489,7 +490,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 	effectiveAggregateFacts := effectiveCompletionAggregateFacts(ctx, aggregateFacts)
-	effectiveAggregateFacts = enrichCompletionAggregateFactsWithMemberSupport(ctx, effectiveAggregateFacts)
+	effectiveAggregateFacts = enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx, effectiveAggregateFacts, evidenceSnapshot)
 	effectiveAggregateFacts = enrichCompletionAggregateFactsWithDeterministicCount(ctx, effectiveAggregateFacts)
 
 	// Strict-decode + store evidence_floor_waiver (typed escape).
@@ -673,7 +674,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// positive evidence to cite.
 	if justification == "" {
 		contract := answerExactResolutionContract(ctx)
-		evidence := ctx.Mutable.EmittedEvidence()
+		evidence := evidenceSnapshot
 		if targets := completionPendingExactTargets(ctx, contract, evidence); len(targets) > 0 {
 			if !evidenceHasAnyDefiningExactTargetProof(contract, evidence, targets) {
 				label := "target"
@@ -692,7 +693,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			}
 		}
 		policy := CurrentGroundingPolicy()
-		if msg, ok := groundingGateReject(ctx, policy.GroundingFloor); !ok {
+		if msg, ok := groundingGateRejectWithEvidence(ctx, policy.GroundingFloor, evidenceSnapshot); !ok {
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Summary:   msg,
@@ -700,7 +701,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
-		if msg, ok := tier1GateReject(ctx, policy.Tier1Floor, resultKind, justification); !ok {
+		if msg, ok := tier1GateRejectWithEvidence(ctx, policy.Tier1Floor, resultKind, justification, evidenceSnapshot); !ok {
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Summary:   msg,
@@ -735,7 +736,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
-		if evidence := ctx.Mutable.EmittedEvidence(); hasGroundedOrRecovered(evidence) && !allowsContextualEvidenceForAbsence(ctx, reason, justification, evidence) {
+		if evidence := evidenceSnapshot; hasGroundedOrRecovered(evidence) && !allowsContextualEvidenceForAbsence(ctx, reason, justification, evidence) {
 			return types.ToolResult{
 				ToolName: t.Name(),
 				Summary: "emit_investigation_complete rejected: absence_justification is reserved for honest-zero answers " +
@@ -765,7 +766,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				refreshClosureReadSnapshot(ctx, closure)
 				closure.DrainSatisfiedPendingReads()
 			}
-			evidence := ctx.Mutable.EmittedEvidence()
+			evidence := evidenceSnapshot
 			scenario := types.ScenarioGeneric
 			if ctx.AnalysisIR != nil {
 				scenario = ctx.AnalysisIR.RequestModel.Scenario
@@ -923,7 +924,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// (Success=true so the LLM sees the explanation but does NOT
 	// flip investigationComplete). The explorer's ShouldStop sees
 	// the flag still false and continues the loop.
-	if downgrade := preCompleteContractCheck(ctx, justification, effectiveAggregateFacts); downgrade != "" {
+	if downgrade := preCompleteContractCheckWithEvidence(ctx, justification, evidenceSnapshot, effectiveAggregateFacts); downgrade != "" {
 		if ctx != nil && ctx.Mutable != nil {
 			closure := ctx.Mutable.EvidenceClosure()
 			closure.BumpPreCompleteDowngrades(1)
@@ -982,6 +983,14 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 }
 
 func validateAggregateRequestedDecoratorAlignment(ctx *types.BusContext, facts []types.AnswerAggregateFact) error {
+	var evidence []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx, facts, evidence)
+}
+
+func validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) error {
 	if ctx == nil || ctx.Mutable == nil || len(facts) == 0 {
 		return nil
 	}
@@ -990,7 +999,6 @@ func validateAggregateRequestedDecoratorAlignment(ctx *types.BusContext, facts [
 		return nil
 	}
 	gc := ground.BuildContext(ctx)
-	evidence := ctx.Mutable.EmittedEvidence()
 	if len(evidence) == 0 {
 		return nil
 	}
@@ -1119,6 +1127,14 @@ func CurrentInvestigationCompletePolicy() string {
 // MinCitations, and the LLM has explicitly told the system it cannot
 // cite anything.
 func preCompleteContractCheck(ctx *types.BusContext, justification string, aggregateFactsOpt ...[]types.AnswerAggregateFact) string {
+	var evidence []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return preCompleteContractCheckWithEvidence(ctx, justification, evidence, aggregateFactsOpt...)
+}
+
+func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification string, evidence []types.EvidenceItem, aggregateFactsOpt ...[]types.AnswerAggregateFact) string {
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
 	}
@@ -1164,7 +1180,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 	if justification == "" {
 		raisePrimaryAnchorPendingRead(ctx, closure)
 		raisePhase1UnreadPendingReads(ctx, closure)
-		applyMultiPathAnchorChecks(ctx, closure)
+		applyMultiPathAnchorChecksWithEvidence(ctx, closure, evidence)
 	}
 	if label, ok := repoGroundingBypassLabel(ctx); ok {
 		logging.Info("[emit_investigation_complete] multi-topic anchor backbone bypassed by %s", label)
@@ -1192,7 +1208,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		}
 		if len(unverifiedPaths) > 0 {
 			var hits []string
-			for _, ev := range ctx.Mutable.EmittedEvidence() {
+			for _, ev := range evidence {
 				if reason, bad := unverifiedPaths[ev.Source]; bad {
 					hits = append(hits, fmt.Sprintf("%s (%s)", ev.Source, reason))
 				}
@@ -1283,14 +1299,14 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		b.WriteString("Read the scanned files (if any) and/or verify the suspicious anchors, then re-call emit_investigation_complete. Marking complete now will drop every chain anchored in them.")
 		return b.String()
 	}
-	if downgrade := callChainPrincipalSpanDowngrade(ctx, closure); downgrade != "" {
+	if downgrade := callChainPrincipalSpanDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
 		return downgrade
 	}
-	if downgrade := callChainQualifiedIntermediateDowngrade(ctx, closure); downgrade != "" {
+	if downgrade := callChainQualifiedIntermediateDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
 		return downgrade
 	}
 	if justification == "" {
-		if downgrade := fieldValueCountCoverageDowngrade(ctx, closure); downgrade != "" {
+		if downgrade := fieldValueCountCoverageDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
 			return downgrade
 		}
 		if downgrade := historyCountAggregateHandoffDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
@@ -1308,7 +1324,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		if downgrade := exhaustiveEnumerationMemberSetDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
 			return downgrade
 		}
-		if downgrade := changeImpactTargetStructuredHandoffDowngrade(ctx, closure); downgrade != "" {
+		if downgrade := changeImpactTargetStructuredHandoffDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
 			return downgrade
 		}
 		if downgrade := changeImpactPrincipalMemberSetDowngrade(ctx, closure, aggregateFacts); downgrade != "" {
@@ -1348,7 +1364,6 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string, aggre
 		min = 1
 	}
 	readSet := closure.ReadSet()
-	evidence := ctx.Mutable.EmittedEvidence()
 	eligible := 0
 	for _, e := range evidence {
 		if e.Source == "" || e.LineStart <= 0 {
@@ -1867,6 +1882,14 @@ type aggregateMemberSupportIndex struct {
 }
 
 func buildAggregateMemberSupportIndex(ctx *types.BusContext) aggregateMemberSupportIndex {
+	var evidence []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return buildAggregateMemberSupportIndexWithEvidence(ctx, evidence)
+}
+
+func buildAggregateMemberSupportIndexWithEvidence(ctx *types.BusContext, evidence []types.EvidenceItem) aggregateMemberSupportIndex {
 	idx := aggregateMemberSupportIndex{
 		byLabel:             map[string][]types.EvidenceItem{},
 		byLocation:          map[string][]types.EvidenceItem{},
@@ -1878,7 +1901,7 @@ func buildAggregateMemberSupportIndex(ctx *types.BusContext) aggregateMemberSupp
 	if ctx == nil || ctx.Mutable == nil {
 		return idx
 	}
-	for _, ev := range ctx.Mutable.EmittedEvidence() {
+	for _, ev := range evidence {
 		if ev.GroundingStatus == types.GroundingUngrounded {
 			continue
 		}
@@ -1928,10 +1951,18 @@ func buildAggregateMemberSupportIndex(ctx *types.BusContext) aggregateMemberSupp
 }
 
 func enrichCompletionAggregateFactsWithMemberSupport(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {
+	var evidence []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx, facts, evidence)
+}
+
+func enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) []types.AnswerAggregateFact {
 	if len(facts) == 0 || ctx == nil || ctx.Mutable == nil {
 		return facts
 	}
-	support := buildAggregateMemberSupportIndex(ctx)
+	support := buildAggregateMemberSupportIndexWithEvidence(ctx, evidence)
 	if len(support.readFileLines) == 0 {
 		return facts
 	}
@@ -2564,6 +2595,14 @@ func normalizeAnswerLocationFileForChangeImpact(raw string) string {
 }
 
 func changeImpactTargetStructuredHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
+	var evidence []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return changeImpactTargetStructuredHandoffDowngradeWithEvidence(ctx, closure, evidence)
+}
+
+func changeImpactTargetStructuredHandoffDowngradeWithEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) string {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return ""
 	}
@@ -2575,7 +2614,7 @@ func changeImpactTargetStructuredHandoffDowngrade(ctx *types.BusContext, closure
 	sourceText := func(item types.EvidenceItem) string {
 		return changeImpactReadTextForEvidence(gc, item)
 	}
-	gaps := types.ChangeImpactPrincipalTargetSurfaceGaps(profile, ctx.Mutable.EmittedEvidence(), sourceText)
+	gaps := types.ChangeImpactPrincipalTargetSurfaceGaps(profile, evidence, sourceText)
 	if len(gaps) == 0 {
 		return ""
 	}
@@ -3076,6 +3115,14 @@ type fieldValueCountCandidate struct {
 }
 
 func fieldValueCountCoverageDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
+	var evidence []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return fieldValueCountCoverageDowngradeWithEvidence(ctx, closure, evidence)
+}
+
+func fieldValueCountCoverageDowngradeWithEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) string {
 	target, ok := fieldValueCountTargetFromContext(ctx)
 	if !ok {
 		return ""
@@ -3086,7 +3133,7 @@ func fieldValueCountCoverageDowngrade(ctx *types.BusContext, closure *types.Evid
 	}
 	var missing []fieldValueCountCandidate
 	for _, c := range candidates {
-		if fieldValueCountCandidateCovered(c, closure, ctx.Mutable.EmittedEvidence()) {
+		if fieldValueCountCandidateCovered(c, closure, evidence) {
 			continue
 		}
 		missing = append(missing, c)
@@ -3510,6 +3557,14 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 //   - Fewer than 2 primary anchors → skip (single-subject questions
 //     have no parity target).
 func applyMultiPathAnchorChecks(ctx *types.BusContext, closure *types.EvidenceClosure) {
+	var evidence []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	applyMultiPathAnchorChecksWithEvidence(ctx, closure, evidence)
+}
+
+func applyMultiPathAnchorChecksWithEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) {
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
 		return
 	}
@@ -3565,7 +3620,6 @@ func applyMultiPathAnchorChecks(ctx *types.BusContext, closure *types.EvidenceCl
 	}
 	oracle := repomapSymbolOracle(ctx)
 	entities := unionPrimaryAndDerivedEntities(rm.AnalyzerHints)
-	evidence := ctx.Mutable.EmittedEvidence()
 	keywordAnchorMap := multipath.ExtractKeywordAnchorsCapped(
 		multiPathToolHistory(ctx), entities, repoRoot,
 		limits.MultiPathMaxKeywordAnchorsPerFile,
@@ -3967,6 +4021,14 @@ type callChainPrincipalSpanDemand struct {
 // AnchorSymbol/OwnerSymbol), never Go-specific AST knowledge or raw
 // prose keyword scans.
 func callChainPrincipalSpanDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
+	var evidence []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return callChainPrincipalSpanDowngradeWithEvidence(ctx, closure, evidence)
+}
+
+func callChainPrincipalSpanDowngradeWithEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) string {
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
@@ -3993,7 +4055,7 @@ func callChainPrincipalSpanDowngrade(ctx *types.BusContext, closure *types.Evide
 	if !ok {
 		return ""
 	}
-	demand, ok := callChainPrincipalSpanDemandForEvidence(ctx.Mutable.EmittedEvidence(), startHint, endHint)
+	demand, ok := callChainPrincipalSpanDemandForEvidence(evidence, startHint, endHint)
 	if !ok {
 		return ""
 	}
@@ -4062,6 +4124,14 @@ type callChainMissingQualifiedCall struct {
 // `ns::Fn(`), and asks the model to re-emit them as evidence. It never turns
 // those candidates into answer facts by itself.
 func callChainQualifiedIntermediateDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure) string {
+	var evidence []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return callChainQualifiedIntermediateDowngradeWithEvidence(ctx, closure, evidence)
+}
+
+func callChainQualifiedIntermediateDowngradeWithEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) string {
 	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
@@ -4079,7 +4149,7 @@ func callChainQualifiedIntermediateDowngrade(ctx *types.BusContext, closure *typ
 	if !ok {
 		return ""
 	}
-	span, ok := callChainPrincipalSpanContextForEvidence(ctx.Mutable.EmittedEvidence(), startHint, endHint)
+	span, ok := callChainPrincipalSpanContextForEvidence(evidence, startHint, endHint)
 	if !ok {
 		return ""
 	}
@@ -4909,10 +4979,17 @@ func queueTier1ReadRepairs(ctx *types.BusContext, targets []Tier1RepairTarget) {
 // items with concrete repair options. When ok=true, the gate passed
 // or was disabled (floor == 0).
 func groundingGateReject(ctx *types.BusContext, floor float64) (string, bool) {
+	var evidence []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return groundingGateRejectWithEvidence(ctx, floor, evidence)
+}
+
+func groundingGateRejectWithEvidence(ctx *types.BusContext, floor float64, evidence []types.EvidenceItem) (string, bool) {
 	if floor <= 0 {
 		return "", true
 	}
-	evidence := ctx.Mutable.EmittedEvidence()
 	if len(evidence) == 0 {
 		// No emit_evidence calls at all — tool-only investigation is
 		// still legitimate (exec_command one-shot, grep-only answer
@@ -4969,10 +5046,17 @@ func groundingGateReject(ctx *types.BusContext, floor float64) (string, bool) {
 // grounder's stricter Tier 2 would drop every citation anyway and
 // stall the pipeline.
 func tier1GateReject(ctx *types.BusContext, floor float64, resultKind, justification string) (string, bool) {
+	var evidence []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return tier1GateRejectWithEvidence(ctx, floor, resultKind, justification, evidence)
+}
+
+func tier1GateRejectWithEvidence(ctx *types.BusContext, floor float64, resultKind, justification string, evidence []types.EvidenceItem) (string, bool) {
 	if floor <= 0 {
 		return "", true
 	}
-	evidence := ctx.Mutable.EmittedEvidence()
 	if len(evidence) == 0 {
 		return "", true
 	}
@@ -5235,6 +5319,14 @@ func exactResolutionContractForCompletion(ctx *types.BusContext) *types.ExactRes
 }
 
 func normalizeExactAbsenceCompletion(ctx *types.BusContext, resultKind, reason, justification string) (string, string) {
+	var evidence []types.EvidenceItem
+	if ctx != nil && ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return normalizeExactAbsenceCompletionWithEvidence(ctx, resultKind, reason, justification, evidence)
+}
+
+func normalizeExactAbsenceCompletionWithEvidence(ctx *types.BusContext, resultKind, reason, justification string, evidence []types.EvidenceItem) (string, string) {
 	if ctx == nil || ctx.Mutable == nil {
 		return resultKind, justification
 	}
@@ -5250,7 +5342,6 @@ func normalizeExactAbsenceCompletion(ctx *types.BusContext, resultKind, reason, 
 		scenario = ctx.AnalysisIR.RequestModel.Scenario
 	}
 	requiredFiles := types.ExactResolutionRequiredContextFiles(contract, ctx.Mutable)
-	evidence := ctx.Mutable.EmittedEvidence()
 	if resultKind == "resolved" &&
 		justification == "" &&
 		strings.EqualFold(ctx.Mutable.StableInvestigationResultKind(), "absence") &&

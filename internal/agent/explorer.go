@@ -8633,19 +8633,17 @@ func (e *explorerEvaluator) mergeEmittedEvidenceDelta(ctx *types.AgentContext) {
 	if e == nil || ctx == nil || ctx.Mutable == nil {
 		return
 	}
-	emitted := ctx.Mutable.EmittedEvidence()
-	if len(emitted) == 0 {
+	delta, total := ctx.Mutable.EmittedEvidenceSince(e.mergedEmittedEvidenceLen)
+	if total == 0 {
 		e.mergedEmittedEvidenceLen = 0
 		return
 	}
-	if len(emitted) < e.mergedEmittedEvidenceLen {
-		e.mergedEmittedEvidenceLen = 0
-	}
-	if len(emitted) <= e.mergedEmittedEvidenceLen {
+	if len(delta) == 0 {
+		e.mergedEmittedEvidenceLen = total
 		return
 	}
-	e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, emitted[e.mergedEmittedEvidenceLen:])
-	e.mergedEmittedEvidenceLen = len(emitted)
+	e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, delta)
+	e.mergedEmittedEvidenceLen = total
 }
 
 func (e *explorerEvaluator) refreshExactContextFiles(ctx *types.AgentContext) {
