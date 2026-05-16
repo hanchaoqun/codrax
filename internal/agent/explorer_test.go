@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -3854,6 +3855,52 @@ func TestIsProseLikeConcreteValue(t *testing.T) {
 					c.val, got, c.want)
 			}
 		})
+	}
+}
+
+func TestConcreteValueReceiverIndexReferences(t *testing.T) {
+	factory := &repotypes.Symbol{
+		Name:            "NewWorker",
+		File:            "internal/runtime/wire.go",
+		ReturnTypeNames: []string{"Worker"},
+	}
+	run := &repotypes.Symbol{Name: "Run", Receiver: "Runtime", File: "internal/runtime/runtime.go"}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repotypes.FileInfo{
+			"internal/runtime/wire.go": {RelPath: "internal/runtime/wire.go", Symbols: []repotypes.Symbol{*factory}},
+		},
+		SymbolDefs: map[string][]*repotypes.Symbol{
+			"Run": {run},
+		},
+	}
+	values := []concreteValue{
+		{file: "internal/runtime/wire.go", method: "Register", kind: concreteValueKindBinds, value: "NewWorker()"},
+		{file: "internal/runtime/worker.go", receiver: "Worker", method: "Worker.Name", kind: concreteValueKindReturns, value: "\"worker\""},
+		{file: "internal/runtime/dispatch.go", method: "Dispatch", kind: concreteValueKindCalls, value: "sub_runtime.Run"},
+		{file: "internal/runtime/runtime.go", receiver: "Runtime", method: "Runtime.Run", kind: concreteValueKindCalls, value: "worker.Name"},
+	}
+	idx := newConcreteValueReceiverIndex(values, graph)
+	if got := strings.Join(idx.referencedReceivers(values[0]), ","); !strings.Contains(got, "Worker") {
+		t.Fatalf("factory return type should reference Worker, got %q", got)
+	}
+	if got := strings.Join(idx.referencedReceivers(values[2]), ","); !strings.Contains(got, "Runtime") {
+		t.Fatalf("graph-assisted/snake-case call receiver should reference Runtime, got %q", got)
+	}
+}
+
+func TestConcreteValuesCanceledBuildDoesNotPopulateCache(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{
+			FileIndex: map[string]*repotypes.FileInfo{
+				"a.go": {RelPath: "a.go"},
+			},
+		}},
+	}
+	_ = eval.getConcreteValuesCached(ctx, t.TempDir(), map[string]bool{"a.go": true}, nil)
+	if eval.cachedConcreteValues != nil {
+		t.Fatal("canceled concrete-values build must not cache a partial result")
 	}
 }
 

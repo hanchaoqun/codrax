@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8401,7 +8402,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// scanner already knows; it is NOT a citation source. The
 		// canonical evidence channels at the ParseOutput call sites
 		// below pass closure so promotion fires there.
-		cvPreview = e.getConcreteValuesCached(e.repoRoot, readSet, nil).markdown
+		cvPreview = e.getConcreteValuesCached(context.TODO(), e.repoRoot, readSet, nil).markdown
 	}
 
 	// Show remaining coverage for grep-discovered files.
@@ -8821,7 +8822,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		logging.Info("[CGEC] B1a expand_search: origin=phase0.broaden_exhausted attempts=%d keywords=%d", e.broadenAttempts, len(kws))
 	}
 	stopParseSection = startExplorerParseSectionWatchdog(ctx, "concrete_values")
-	cvResult := e.getConcreteValuesCached(ctx.RepoRoot, cvReadSet, cvClosure)
+	cvResult := e.getConcreteValuesCached(ctx.Context(), ctx.RepoRoot, cvReadSet, cvClosure)
 	if len(cvResult.evidence) > 0 {
 		e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, cvResult.evidence)
 	}
@@ -9256,7 +9257,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		if ctx.Mutable != nil {
 			ermClosure = ctx.Mutable.EvidenceClosure()
 		}
-		cv := e.getConcreteValuesCached(ctx.RepoRoot, readSet, ermClosure)
+		cv := e.getConcreteValuesCached(ctx.Context(), ctx.RepoRoot, readSet, ermClosure)
 		// T2.2: produce structured EvidenceMechanism items for ERM
 		// mechanism requirements. No-op for non-mechanism questions.
 		mechEvidence = scanMechanismEvidence(e.ermRequirements, e.searchResult.Graph, ctx.RepoRoot)
@@ -9662,9 +9663,15 @@ type chainAnchorInfo struct {
 // (SubjectUnknown) preserves the historical insertion-order ranking.
 // Subject is constant for the Run, so caching on (repoRoot, readSet)
 // alone is sound.
-func (e *explorerEvaluator) getConcreteValuesCached(repoRoot string, readSet map[string]bool, closure *types.EvidenceClosure) concreteValuesResult {
+func (e *explorerEvaluator) getConcreteValuesCached(ctx context.Context, repoRoot string, readSet map[string]bool, closure *types.EvidenceClosure) concreteValuesResult {
+	if ctx == nil {
+		ctx = context.TODO()
+	}
 	if e.cachedConcreteValues == nil {
-		r := e.buildConcreteValuesSection(repoRoot, readSet, closure)
+		r := e.buildConcreteValuesSection(ctx, repoRoot, readSet, closure)
+		if ctx.Err() != nil {
+			return r
+		}
 		e.cachedConcreteValues = &r
 	}
 	if closure == nil {
@@ -9988,7 +9995,10 @@ func (e *explorerEvaluator) filterConcreteValueScanFiles(files map[string]bool) 
 	return filtered
 }
 
-func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet map[string]bool, closure *types.EvidenceClosure) concreteValuesResult {
+func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repoRoot string, readSet map[string]bool, closure *types.EvidenceClosure) concreteValuesResult {
+	if ctx == nil {
+		ctx = context.TODO()
+	}
 	if e.searchResult == nil || e.searchResult.Graph == nil {
 		return concreteValuesResult{}
 	}
@@ -10083,6 +10093,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	}
 	fileStats := make(map[string]*scanStats)
 	for file := range filesToScan {
+		if ctx.Err() != nil {
+			return concreteValuesResult{}
+		}
 		st := &scanStats{}
 		fileStats[file] = st
 		fi, ok := graph.FileIndex[file]
@@ -10092,6 +10105,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 		st.symTotal = len(fi.Symbols)
 		for _, sym := range fi.Symbols {
+			if ctx.Err() != nil {
+				return concreteValuesResult{}
+			}
 			if focus := focusSymbols[strings.TrimPrefix(file, "./")]; len(focus) > 0 && !concreteValueMatchesFocus(&sym, focus) {
 				continue
 			}
@@ -10227,12 +10243,18 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// declaration-shaped concrete values so we don't duplicate return /
 	// call rows from method bodies.
 	for file := range filesToScan {
+		if ctx.Err() != nil {
+			return concreteValuesResult{}
+		}
 		fi, ok := graph.FileIndex[file]
 		if !ok {
 			continue
 		}
 		absPath := filepath.Join(repoRoot, fi.RelPath)
 		for _, sym := range fi.Symbols {
+			if ctx.Err() != nil {
+				return concreteValuesResult{}
+			}
 			if focus := focusSymbols[strings.TrimPrefix(file, "./")]; len(focus) > 0 && !concreteValueMatchesFocus(&sym, focus) {
 				continue
 			}
@@ -10262,6 +10284,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// Only scan config files that are in the filesToScan set (relevant
 	// to the investigation).
 	for file := range filesToScan {
+		if ctx.Err() != nil {
+			return concreteValuesResult{}
+		}
 		fi, ok := graph.FileIndex[file]
 		if !ok {
 			continue
@@ -10342,7 +10367,10 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// polluting the entire downstream pipeline with phantom matches.
 	{
 		clean := allValues[:0]
-		for _, v := range allValues {
+		for i, v := range allValues {
+			if i%1024 == 0 && ctx.Err() != nil {
+				return concreteValuesResult{}
+			}
 			if !isProseLikeConcreteValue(v.value) {
 				clean = append(clean, v)
 			}
@@ -10372,7 +10400,10 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// Per-rule counters for observability: split B1 by which file-set
 	// triggered retention so the active-frontier path stays visible.
 	var cntA, cntB1Read, cntB1PreScan, cntB1Scored, cntB2, cntC, cntLongSkip int
-	for _, v := range allValues {
+	for i, v := range allValues {
+		if i%1024 == 0 && ctx.Err() != nil {
+			return concreteValuesResult{}
+		}
 		if isBindingShapeKind(v.kind) {
 			relevant = append(relevant, v)
 			cntA++
@@ -10429,6 +10460,8 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	logging.Debug("[explorer] concrete values filter: total=%d relevant=%d (A/reg=%d, B1/read=%d, B1/preScan=%d, B1/frontier=%d, B2/notes-recv=%d, C/notes-word=%d, longSkip=%d)",
 		len(allValues), len(relevant), cntA, cntB1Read, cntB1PreScan, cntB1Scored, cntB2, cntC, cntLongSkip)
 
+	valueIndex := newConcreteValueReceiverIndex(allValues, graph)
+
 	// Multi-pass reference tracing: follow type references in values
 	// to discover more concrete values. Repeats until no new values
 	// are found, supporting chains of arbitrary depth:
@@ -10440,37 +10473,34 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	}
 	for pass := 0; pass < 5; pass++ {
 		added := 0
-		for _, v := range relevant {
-			for _, av := range allValues {
+		passLen := len(relevant)
+		for i := 0; i < passLen; i++ {
+			if i%512 == 0 && ctx.Err() != nil {
+				return concreteValuesResult{}
+			}
+			v := relevant[i]
+			candidates := valueIndex.valuesForReceivers(valueIndex.referencedReceivers(v))
+			for _, av := range candidates {
 				if seen[av.method] {
 					continue
 				}
-				if av.receiver != "" && len(av.receiver) >= 4 &&
-					(containsIdentifier(v.value, av.receiver) ||
-						containsFactoryReference(v.value, av.receiver, graph.FileIndex[v.file])) {
+				linked := false
+				if av.receiver != "" {
+					if len(av.receiver) >= 4 {
+						linked = concreteValuesLinked(v, av, graph)
+					} else if v.kind == concreteValueKindCalls {
+						// Preserve the historical call-resolution
+						// exception: graph-assisted call links can match
+						// short receiver names safely because the match is
+						// equality over typed SymbolDefs receivers.
+						linked = callValueMatchesReceiver(v.value, av.receiver, graph)
+					}
+				}
+				if linked {
 					relevant = append(relevant, av)
 					seen[av.method] = true
 					added++
 					continue
-				}
-				// Graph-assisted call resolution: when v is a "calls"
-				// entry, its value contains a variable name (e.g.
-				// "subRuntime.Run") but av.receiver is a type name
-				// ("SubAgentRuntime"). containsIdentifier fails because
-				// they're different strings. Resolve through the graph:
-				// extract the method name from the call target, look it
-				// up in SymbolDefs, check if any defining type matches
-				// av.receiver. callValueMatchesReceiver uses exact
-				// equality, so unlike the standard containsIdentifier
-				// path above no length floor on av.receiver is needed —
-				// a 3-char type like Cmd or Job links cleanly without
-				// false-positive risk, and matches site 2 (chain
-				// builder) which also has no length gate on either path.
-				if v.kind == "calls" && av.receiver != "" &&
-					callValueMatchesReceiver(v.value, av.receiver, graph) {
-					relevant = append(relevant, av)
-					seen[av.method] = true
-					added++
 				}
 			}
 		}
@@ -10682,7 +10712,22 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// pair so the promotion pass can drop chains anchored outside
 	// Turn A's ReadSet without re-deriving the source attribution.
 	var chainAnchors []chainAnchorInfo
-	for _, v := range allRelevantForEvidence {
+	chainIndex := newConcreteValueReceiverIndex(allRelevantForEvidence, graph)
+	reverseLinkedValues := make(map[string][]concreteValue)
+	for _, rv := range allRelevantForEvidence {
+		if rv.kind != concreteValueKindCalls &&
+			rv.kind != concreteValueKindEmbeds &&
+			rv.kind != concreteValueKindImplements {
+			continue
+		}
+		for _, receiver := range chainIndex.referencedReceivers(rv) {
+			reverseLinkedValues[receiver] = append(reverseLinkedValues[receiver], rv)
+		}
+	}
+	for rootIdx, v := range allRelevantForEvidence {
+		if rootIdx%512 == 0 && ctx.Err() != nil {
+			return concreteValuesResult{}
+		}
 		// Skip values that don't reference other types.
 		// T2b: "calls" joins the allowlist so cross-package dispatch
 		// chains like `dispatchStage calls SubAgentRuntime.Run →
@@ -10711,61 +10756,24 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		if isProseLikeConcreteValue(v.value) {
 			continue
 		}
-		for _, rv := range allRelevantForEvidence {
+		candidates := chainIndex.valuesForReceivers(chainIndex.referencedReceivers(v))
+		if v.receiver != "" {
+			candidates = append(candidates, reverseLinkedValues[v.receiver]...)
+		}
+		seenCandidates := make(map[string]bool, len(candidates))
+		for _, rv := range candidates {
+			candidateKey := concreteValueKey(rv)
+			if seenCandidates[candidateKey] {
+				continue
+			}
+			seenCandidates[candidateKey] = true
 			if rv.receiver == "" || rv.receiver == v.receiver {
 				continue
 			}
 			if isProseLikeConcreteValue(rv.value) {
 				continue
 			}
-			// Standard identifier match: v.value mentions rv.receiver
-			// as a word-boundary substring. Phase 6 stage 20 (2026-05-03)
-			// adds the typed factory-reference check: if v.value
-			// invokes a function whose declared return type includes
-			// rv.receiver (read from Symbol.ReturnTypeNames populated
-			// by the AST extractor), that's a structurally correct
-			// factory reference — naming-style-agnostic.
-			linked := containsIdentifier(v.value, rv.receiver) ||
-				containsFactoryReference(v.value, rv.receiver, graph.FileIndex[v.file])
-
-			// Graph-assisted call resolution: for "calls" entries the
-			// value contains a VARIABLE name ("subRuntime.Run") but
-			// rv.receiver is a TYPE name ("SubAgentRuntime"). The
-			// identifier match fails because they're different strings.
-			// Fix: extract the method name from the call target, look
-			// it up in graph.SymbolDefs, and check if ANY definition's
-			// receiver type equals rv.receiver. This closes the 3-hop
-			// gap: dispatchStage calls subRuntime.Run → linked to
-			// SubAgentRuntime.Run → linked to SubExplorer.Run.
-			if !linked && v.kind == "calls" {
-				linked = callValueMatchesReceiver(v.value, rv.receiver, graph)
-			}
-			if !linked && rv.kind == "calls" {
-				linked = callValueMatchesReceiver(rv.value, v.receiver, graph)
-			}
-
-			// #6: embeds/implements semantic chain inference. When v
-			// is an "embeds" or "implements" entry, it declares that
-			// v's type inherits rv.receiver's methods. So if v says
-			// "embeds ReadOnly" and rv.receiver is "ReadOnly" with
-			// rv.kind=="returns" (ReadOnly.IsWrite() returns false),
-			// the chain means "v's type.IsWrite() delegates to
-			// ReadOnly.IsWrite() → returns false". This is the same
-			// containsIdentifier test already performed above but
-			// applied to the VALUE of the embeds/implements entry
-			// rather than just the receiver name.
-			if !linked && (v.kind == "embeds" || v.kind == "implements") {
-				// v.value is "embeds ReadOnly" or "implements SubAgent"
-				// — check if rv.receiver appears in the value string
-				linked = containsIdentifier(v.value, rv.receiver) ||
-					containsFactoryReference(v.value, rv.receiver, graph.FileIndex[v.file])
-			}
-			if !linked && (rv.kind == "embeds" || rv.kind == "implements") {
-				linked = containsIdentifier(rv.value, v.receiver) ||
-					containsFactoryReference(rv.value, v.receiver, graph.FileIndex[rv.file])
-			}
-
-			if linked {
+			if concreteValuesLinked(v, rv, graph) {
 				summary := fmt.Sprintf(
 					"`%s()` %s %s → `%s()` %s %s",
 					v.method, v.kind, v.value,
@@ -10998,7 +11006,10 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// of whether synthesis succeeds. The downstream rankEvidenceByRelevance
 	// + formatEvidenceItems(limit=18) handles its own selection.
 	var cvEvidence []types.EvidenceItem
-	for _, v := range allRelevantForEvidence {
+	for i, v := range allRelevantForEvidence {
+		if i%1024 == 0 && ctx.Err() != nil {
+			return concreteValuesResult{}
+		}
 		// Skip prose-like values from becoming evidence items. The
 		// chain builder already filters these (lines 3731/3738) but
 		// the evidence pipeline didn't — so 500+ char prompt-text
@@ -11055,7 +11066,10 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		cvItem.ID = types.StableEvidenceID(cvItem)
 		cvEvidence = append(cvEvidence, cvItem)
 	}
-	for _, c := range allChainsForEvidence {
+	for i, c := range allChainsForEvidence {
+		if i%1024 == 0 && ctx.Err() != nil {
+			return concreteValuesResult{}
+		}
 		// Dataflow chains have no source/line — they describe a
 		// resolution chain across the repo. Treat as ScopeLine with
 		// empty source so the line-shaped invariant still holds for
@@ -11834,6 +11848,215 @@ type concreteValue struct {
 	kind     string // "returns", "binds ONLY", "assigns", etc.
 	value    string
 	line     int
+}
+
+type concreteValueReceiverIndex struct {
+	byReceiver         map[string][]concreteValue
+	receiverOrder      []string
+	receiverByLower    map[string][]string
+	receiverByFolded   map[string][]string
+	factoryReturnsByFn map[string]map[string][]string
+	refCache           map[string][]string
+	graph              *repomap.Graph
+}
+
+func newConcreteValueReceiverIndex(values []concreteValue, graph *repomap.Graph) *concreteValueReceiverIndex {
+	idx := &concreteValueReceiverIndex{
+		byReceiver:         make(map[string][]concreteValue),
+		receiverByLower:    make(map[string][]string),
+		receiverByFolded:   make(map[string][]string),
+		factoryReturnsByFn: make(map[string]map[string][]string),
+		refCache:           make(map[string][]string),
+		graph:              graph,
+	}
+	files := make(map[string]bool)
+	for _, v := range values {
+		files[v.file] = true
+		if v.receiver == "" {
+			continue
+		}
+		if _, seen := idx.byReceiver[v.receiver]; !seen {
+			idx.receiverByLower[strings.ToLower(v.receiver)] = append(idx.receiverByLower[strings.ToLower(v.receiver)], v.receiver)
+			idx.receiverByFolded[concreteValueFoldName(v.receiver)] = append(idx.receiverByFolded[concreteValueFoldName(v.receiver)], v.receiver)
+		}
+		idx.byReceiver[v.receiver] = append(idx.byReceiver[v.receiver], v)
+	}
+	for receiver := range idx.byReceiver {
+		idx.receiverOrder = append(idx.receiverOrder, receiver)
+	}
+	sort.Strings(idx.receiverOrder)
+	if graph != nil {
+		for file := range files {
+			fi := graph.FileIndex[file]
+			if fi == nil {
+				continue
+			}
+			fnReturns := make(map[string][]string)
+			for _, sym := range fi.Symbols {
+				if sym.Name == "" || len(sym.ReturnTypeNames) == 0 {
+					continue
+				}
+				for _, rt := range sym.ReturnTypeNames {
+					if _, ok := idx.byReceiver[rt]; ok {
+						fnReturns[sym.Name] = appendUniqueConcreteString(fnReturns[sym.Name], rt)
+					}
+				}
+			}
+			if len(fnReturns) > 0 {
+				idx.factoryReturnsByFn[file] = fnReturns
+			}
+		}
+	}
+	return idx
+}
+
+func appendUniqueConcreteString(in []string, v string) []string {
+	if v == "" {
+		return in
+	}
+	for _, existing := range in {
+		if existing == v {
+			return in
+		}
+	}
+	return append(in, v)
+}
+
+func concreteValueFoldName(s string) string {
+	return strings.ReplaceAll(strings.ToLower(s), "_", "")
+}
+
+func concreteValueKey(v concreteValue) string {
+	return v.file + "\x00" + v.receiver + "\x00" + v.method + "\x00" + v.kind + "\x00" + v.value + "\x00" + strconv.Itoa(v.line)
+}
+
+func (idx *concreteValueReceiverIndex) addReceiver(out map[string]bool, receiver string) {
+	if idx == nil || receiver == "" {
+		return
+	}
+	if _, ok := idx.byReceiver[receiver]; ok {
+		out[receiver] = true
+	}
+}
+
+func (idx *concreteValueReceiverIndex) addReceiverAliases(out map[string]bool, surface string) {
+	if idx == nil || surface == "" {
+		return
+	}
+	idx.addReceiver(out, surface)
+	for _, receiver := range idx.receiverByLower[strings.ToLower(surface)] {
+		out[receiver] = true
+	}
+	for _, receiver := range idx.receiverByFolded[concreteValueFoldName(surface)] {
+		out[receiver] = true
+	}
+}
+
+func (idx *concreteValueReceiverIndex) referencedReceivers(v concreteValue) []string {
+	if idx == nil || v.value == "" {
+		return nil
+	}
+	key := concreteValueKey(v)
+	if cached, ok := idx.refCache[key]; ok {
+		return cached
+	}
+	seen := make(map[string]bool)
+	for _, tok := range concreteValueIdentifierTokens(v.value) {
+		idx.addReceiverAliases(seen, tok)
+		if byFn := idx.factoryReturnsByFn[v.file]; len(byFn) > 0 {
+			for _, receiver := range byFn[tok] {
+				idx.addReceiver(seen, receiver)
+			}
+		}
+	}
+	if v.kind == concreteValueKindCalls {
+		for _, receiver := range resolveCallTargetReceivers(v.value, idx.graph) {
+			idx.addReceiver(seen, receiver)
+		}
+		if recvVar := callValueReceiverSurface(v.value); recvVar != "" {
+			idx.addReceiverAliases(seen, recvVar)
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for _, receiver := range idx.receiverOrder {
+		if seen[receiver] {
+			out = append(out, receiver)
+		}
+	}
+	idx.refCache[key] = out
+	return out
+}
+
+func (idx *concreteValueReceiverIndex) valuesForReceivers(receivers []string) []concreteValue {
+	if idx == nil || len(receivers) == 0 {
+		return nil
+	}
+	var out []concreteValue
+	for _, receiver := range receivers {
+		out = append(out, idx.byReceiver[receiver]...)
+	}
+	return out
+}
+
+func concreteValueIdentifierTokens(s string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for i := 0; i < len(s); {
+		if !isIdentChar(s[i]) {
+			i++
+			continue
+		}
+		start := i
+		for i < len(s) && isIdentChar(s[i]) {
+			i++
+		}
+		tok := s[start:i]
+		if tok == "" || seen[tok] {
+			continue
+		}
+		seen[tok] = true
+		out = append(out, tok)
+	}
+	return out
+}
+
+func callValueReceiverSurface(callValue string) string {
+	dot := strings.LastIndex(callValue, ".")
+	if dot <= 0 {
+		return ""
+	}
+	varName := callValue[:dot]
+	if ldot := strings.LastIndex(varName, "."); ldot >= 0 {
+		varName = varName[ldot+1:]
+	}
+	return strings.TrimSpace(varName)
+}
+
+func concreteValuesLinked(v, rv concreteValue, graph *repomap.Graph) bool {
+	linked := containsIdentifier(v.value, rv.receiver) ||
+		containsFactoryReference(v.value, rv.receiver, graphFileInfo(graph, v.file))
+	if !linked && v.kind == concreteValueKindCalls {
+		linked = callValueMatchesReceiver(v.value, rv.receiver, graph)
+	}
+	if !linked && rv.kind == concreteValueKindCalls {
+		linked = callValueMatchesReceiver(rv.value, v.receiver, graph)
+	}
+	if !linked && (v.kind == concreteValueKindEmbeds || v.kind == concreteValueKindImplements) {
+		linked = containsIdentifier(v.value, rv.receiver) ||
+			containsFactoryReference(v.value, rv.receiver, graphFileInfo(graph, v.file))
+	}
+	if !linked && (rv.kind == concreteValueKindEmbeds || rv.kind == concreteValueKindImplements) {
+		linked = containsIdentifier(rv.value, v.receiver) ||
+			containsFactoryReference(rv.value, v.receiver, graphFileInfo(graph, rv.file))
+	}
+	return linked
+}
+
+func graphFileInfo(graph *repomap.Graph, file string) *repotypes.FileInfo {
+	if graph == nil {
+		return nil
+	}
+	return graph.FileIndex[file]
 }
 
 type concreteValueEntry struct {
