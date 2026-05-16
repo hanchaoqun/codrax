@@ -443,6 +443,14 @@ func (r *Renderer) handleEvent(ev Event) {
 			r.current.detailStart = ev.Timestamp
 		}
 
+	case EventAgentResponse:
+		// The LLM call has returned; any remaining work before the
+		// next visible tool/stage event is local parsing, validation, or
+		// context assembly. Do not leave row 1 claiming "请求模型中"
+		// during CPU-bound post-processing.
+		r.activity = activityState{kind: activityWaitingNode}
+		r.streamTail = ""
+
 	case EventAgentContent:
 		if r.current != nil && ev.Reasoning != "" {
 			preview := stripMarkdown(ev.Reasoning)

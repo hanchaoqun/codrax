@@ -21,12 +21,12 @@ const lowererVersion = "v1"
 // existing repo_map graph plus direct file/config scans.
 func Analyze(graph *repomap.Graph, opts Options) Result {
 	opts = defaultOptions(opts)
-	if graph == nil {
+	if graph == nil || dataflowCanceled(opts) {
 		return Result{}
 	}
 
 	candidateFiles, truncated := selectCandidateFiles(graph, opts)
-	if len(candidateFiles) == 0 {
+	if len(candidateFiles) == 0 || dataflowCanceled(opts) {
 		return Result{}
 	}
 
@@ -35,6 +35,9 @@ func Analyze(graph *repomap.Graph, opts Options) Result {
 	var evidence []types.EvidenceItem
 	biasTokens := prepareBiasTokens(opts.EntityBias)
 	for _, filePath := range candidateFiles {
+		if dataflowCanceled(opts) {
+			return Result{Evidence: mergeEvidenceItems(evidence)}
+		}
 		fi := graph.FileIndex[filePath]
 		if fi == nil {
 			continue
@@ -97,6 +100,9 @@ func Analyze(graph *repomap.Graph, opts Options) Result {
 			Findings: nil,
 		}
 	}
+	if dataflowCanceled(opts) {
+		return Result{Evidence: evidence}
+	}
 	findings := buildFindings(graph, lowered, evidence, opts)
 	evidence = append(evidence, evidenceFromFindings(findings)...)
 	evidence = mergeEvidenceItems(evidence)
@@ -104,6 +110,10 @@ func Analyze(graph *repomap.Graph, opts Options) Result {
 		Evidence: evidence,
 		Findings: findings,
 	}
+}
+
+func dataflowCanceled(opts Options) bool {
+	return opts.Context != nil && opts.Context.Err() != nil
 }
 
 func selectCandidateFiles(graph *repomap.Graph, opts Options) ([]string, bool) {
@@ -131,11 +141,17 @@ func selectCandidateFiles(graph *repomap.Graph, opts Options) ([]string, bool) {
 	}
 
 	for _, path := range opts.CandidateFiles {
+		if dataflowCanceled(opts) {
+			break
+		}
 		add(path)
 	}
 
 	seed := append([]string(nil), ordered...)
 	for _, path := range seed {
+		if dataflowCanceled(opts) {
+			break
+		}
 		for _, dep := range graph.FilesImportedBy(path) {
 			add(dep)
 		}
@@ -290,6 +306,9 @@ func saveSummaryCache(opts Options, fi *repomap.FileInfo, summaries []FunctionSu
 	}
 	_ = os.MkdirAll(baseDir, 0o755)
 	for _, summary := range summaries {
+		if dataflowCanceled(opts) {
+			return
+		}
 		entry := summaryCacheEntry{
 			Key:     summary.SymbolKey + ":" + fi.Hash,
 			Summary: summary,
@@ -336,6 +355,9 @@ func buildFindings(graph *repomap.Graph, lowered []LoweredFile, evidence []types
 	var findings []FlowFinding
 
 	for _, summary := range summariesByKey {
+		if dataflowCanceled(opts) {
+			return digestFindings(findings)
+		}
 		for _, cfg := range summary.ReadConfigKeys {
 			for _, value := range configValues[cfg] {
 				findings = append(findings, FlowFinding{

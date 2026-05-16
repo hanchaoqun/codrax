@@ -274,6 +274,65 @@ func MergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 	return mergeEvidenceItems(groups...)
 }
 
+// MergeEvidenceItemsIfChanged avoids re-sorting large cumulative
+// evidence pools when a stage self-loop re-emits a snapshot that is
+// already fully represented in the bus context. It preserves the
+// exact MergeEvidenceItems semantics: if any incoming item is new or
+// would enrich an existing item, we fall back to the canonical merger.
+func MergeEvidenceItemsIfChanged(existing, incoming []types.EvidenceItem) ([]types.EvidenceItem, bool) {
+	if len(incoming) == 0 {
+		return existing, false
+	}
+	if evidenceMergeNoop(existing, incoming) {
+		return existing, false
+	}
+	return mergeEvidenceItems(existing, incoming), true
+}
+
+func evidenceMergeNoop(existing, incoming []types.EvidenceItem) bool {
+	if len(existing) == 0 {
+		return false
+	}
+	byID := make(map[string]types.EvidenceItem, len(existing))
+	for _, item := range existing {
+		if item.ID == "" {
+			return false
+		}
+		byID[item.ID] = item
+	}
+	for _, item := range incoming {
+		id := item.ID
+		if id == "" {
+			id = types.StableEvidenceID(item)
+		}
+		existingItem, ok := byID[id]
+		if !ok || evidenceMergeWouldChange(existingItem, item) {
+			return false
+		}
+	}
+	return true
+}
+
+func evidenceMergeWouldChange(existing, incoming types.EvidenceItem) bool {
+	if existing.Summary == "" && incoming.Summary != "" {
+		return true
+	}
+	if existing.Source == "" && incoming.Source != "" {
+		return true
+	}
+	if existing.EvidenceRef == "" && incoming.EvidenceRef != "" {
+		return true
+	}
+	if incoming.Confidence > existing.Confidence {
+		return true
+	}
+	if evidenceSortRank(existing) > evidenceSortRank(incoming) {
+		return true
+	}
+	return !stringSliceContainsAll(existing.SurfaceTerms, incoming.SurfaceTerms) ||
+		!stringSliceContainsAll(existing.DerivedFrom, incoming.DerivedFrom)
+}
+
 func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 	merged := make(map[string]types.EvidenceItem)
 	for _, group := range groups {
@@ -381,6 +440,49 @@ func MergeFlowFindings(groups ...[]types.FlowFindingDigest) []types.FlowFindingD
 	return mergeFlowFindings(groups...)
 }
 
+func MergeFlowFindingsIfChanged(existing, incoming []types.FlowFindingDigest) ([]types.FlowFindingDigest, bool) {
+	if len(incoming) == 0 {
+		return existing, false
+	}
+	if flowFindingMergeNoop(existing, incoming) {
+		return existing, false
+	}
+	return mergeFlowFindings(existing, incoming), true
+}
+
+func flowFindingMergeNoop(existing, incoming []types.FlowFindingDigest) bool {
+	if len(existing) == 0 {
+		return false
+	}
+	byID := make(map[string]types.FlowFindingDigest, len(existing))
+	for _, item := range existing {
+		if item.ID == "" {
+			return false
+		}
+		byID[item.ID] = item
+	}
+	for _, item := range incoming {
+		id := item.ID
+		if id == "" {
+			id = types.StableFlowFindingID(item.Path, item.Conditions, item.Sources, item.Sinks)
+		}
+		existingItem, ok := byID[id]
+		if !ok {
+			return false
+		}
+		if item.Confidence > existingItem.Confidence {
+			return false
+		}
+		if existingItem.UnsupportedReason == "" && item.UnsupportedReason != "" {
+			return false
+		}
+		if !stringSliceContainsAll(existingItem.EvidenceIDs, item.EvidenceIDs) {
+			return false
+		}
+	}
+	return true
+}
+
 func mergeFlowFindings(groups ...[]types.FlowFindingDigest) []types.FlowFindingDigest {
 	merged := make(map[string]types.FlowFindingDigest)
 	for _, group := range groups {
@@ -429,6 +531,29 @@ func mergeStrings(a, b []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func stringSliceContainsAll(haystack, needles []string) bool {
+	if len(needles) == 0 {
+		return true
+	}
+	set := make(map[string]struct{}, len(haystack))
+	for _, item := range haystack {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			set[item] = struct{}{}
+		}
+	}
+	for _, item := range needles {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := set[item]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func buildCrossReferenceMapFromEvidence(items []types.EvidenceItem, findings []types.FlowFindingDigest) string {

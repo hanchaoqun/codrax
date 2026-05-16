@@ -6269,8 +6269,14 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// items — each entry corresponds to a distinct tool invocation
 	// and the downstream consumers (e.g. ReAct history pruning,
 	// debug logs) rely on that per-call granularity.
-	o.busCtx.EvidenceItems = agent.MergeEvidenceItems(o.busCtx.EvidenceItems, output.EvidenceItems)
-	o.busCtx.FlowFindings = agent.MergeFlowFindings(o.busCtx.FlowFindings, output.FlowFindings)
+	var evidenceChanged, findingsChanged bool
+	o.busCtx.EvidenceItems, evidenceChanged = agent.MergeEvidenceItemsIfChanged(o.busCtx.EvidenceItems, output.EvidenceItems)
+	o.busCtx.FlowFindings, findingsChanged = agent.MergeFlowFindingsIfChanged(o.busCtx.FlowFindings, output.FlowFindings)
+	if len(output.EvidenceItems) > 0 || len(output.FlowFindings) > 0 {
+		logging.Debug("[orchestrator] applyStageOutput truth merge: evidence_in=%d evidence_total=%d changed=%t flow_in=%d flow_total=%d changed=%t",
+			len(output.EvidenceItems), len(o.busCtx.EvidenceItems), evidenceChanged,
+			len(output.FlowFindings), len(o.busCtx.FlowFindings), findingsChanged)
+	}
 	o.busCtx.AnswerChains = types.MergeAnswerChains(o.busCtx.AnswerChains, output.AnswerChains)
 	o.busCtx.AnswerSymbols = types.MergeAnswerSymbols(o.busCtx.AnswerSymbols, output.AnswerSymbols)
 

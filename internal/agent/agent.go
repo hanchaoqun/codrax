@@ -1202,6 +1202,13 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// orchestrator emits its EventLivePreviewClear. Nil-safe so
 		// non-finalize stages don't pay any cost.
 		summaryPreview.flush()
+		b.deps.Emit(render.Event{
+			Kind:      render.EventAgentResponse,
+			Timestamp: time.Now(),
+			Agent:     b.name,
+			Stage:     ctx.Stage,
+			Iteration: i,
+		})
 		if err != nil {
 			// Salvage accumulated side-effects before bubbling the LLM
 			// error. Without this, an upstream 429 / 5xx / context-length
@@ -1611,8 +1618,13 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 	}
 
-	// Parse final output
+	// Parse final output. This phase is local CPU work, not an LLM
+	// request, but it can be non-trivial on large evidence pools. Keep
+	// the same watchdog shape as prompt preflight so stalls are
+	// diagnosable and Ctrl+C/cancel checkpoints have a visible owner.
+	stopPreflight = b.startPreflightWatchdog(ctx, "parse_output")
 	output, err := b.eval.ParseOutput(ctx, messages, allToolResults, allMCPResponses)
+	stopPreflight()
 	if err != nil {
 		return &StageOutput{
 			Error:        fmt.Sprintf("output parsing failed: %v", err),
@@ -1624,7 +1636,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 	output.ToolResults = allToolResults
 	output.MCPResponses = allMCPResponses
+	stopPreflight = b.startPreflightWatchdog(ctx, "determine_missing_piece")
 	output.MissingPiece = b.eval.DetermineMissingPiece(ctx, output)
+	stopPreflight()
 
 	// Auto-capture the LLM's synthesized narrative for downstream
 	// stages. We walk the message history once for the last non-empty

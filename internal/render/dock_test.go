@@ -378,6 +378,33 @@ func TestRenderer_EventLLMRequestStartFeedsDockTelemetry(t *testing.T) {
 	}
 }
 
+func TestRenderer_EventAgentResponseClearsRequestingActivity(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	emit(Event{
+		Kind:                  EventAgentThinking,
+		Timestamp:             time.Now(),
+		ModelID:               "glm5-fp8",
+		ContextTokensEstimate: 63000,
+		ContextWindowTokens:   200000,
+	})
+	emit(Event{Kind: EventAgentResponse, Timestamp: time.Now()})
+
+	if r.activity.kind != activityWaitingNode {
+		t.Fatalf("EventAgentResponse must switch from model request to local context work; got %v", r.activity.kind)
+	}
+	rows := r.composeCurrentDockRows()
+	if row1 := stripAnsiEscapes(rows[0]); !strings.Contains(row1, "整理上下文中") {
+		t.Errorf("post-response local processing must not keep saying 请求模型中; got %q", row1)
+	}
+	plain := stripAnsiEscapes(rows[1])
+	for _, want := range []string{"模型 glm5-fp8", "约 63k/200k tok"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("post-response row must keep model telemetry %q; got %q", want, plain)
+		}
+	}
+}
+
 func TestRenderer_EventAgentThinkingWithoutCurrentRowShowsRequesting(t *testing.T) {
 	r := newTestRenderer("zh")
 	emit := r.Emitter()

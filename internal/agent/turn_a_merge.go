@@ -66,8 +66,8 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 		merged.AcceptedAggregateFacts = prior.AcceptedAggregateFacts
 	}
 	merged.RuntimeObservationOnlyCompletion = prior.RuntimeObservationOnlyCompletion || current.RuntimeObservationOnlyCompletion
-	merged.EvidenceItems = mergeEvidenceItems(prior.EvidenceItems, current.EvidenceItems)
-	merged.FlowFindings = mergeFlowFindings(prior.FlowFindings, current.FlowFindings)
+	merged.EvidenceItems, _ = MergeEvidenceItemsIfChanged(prior.EvidenceItems, current.EvidenceItems)
+	merged.FlowFindings, _ = MergeFlowFindingsIfChanged(prior.FlowFindings, current.FlowFindings)
 	if prior.TerminalEvidenceCount > merged.TerminalEvidenceCount {
 		merged.TerminalEvidenceCount = prior.TerminalEvidenceCount
 	}

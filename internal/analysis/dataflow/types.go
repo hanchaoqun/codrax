@@ -1,6 +1,7 @@
 package dataflow
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
@@ -119,6 +120,7 @@ type LoweredFile struct {
 
 // Options controls the bounded scope of the analysis.
 type Options struct {
+	Context         context.Context
 	RepoRoot        string
 	Question        string
 	Scope           []string

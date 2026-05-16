@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/dataflow"
 	"github.com/hanchaoqun/codrax/internal/analysis/declarative"
@@ -25,6 +27,11 @@ import (
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"gopkg.in/yaml.v3"
+)
+
+const (
+	explorerParseSlowAfter = 5 * time.Second
+	explorerParseSlowEvery = 10 * time.Second
 )
 
 type explorerEvaluator struct {
@@ -5480,6 +5487,13 @@ func cloneEvidenceRequirements(reqs []EvidenceRequirement) []EvidenceRequirement
 
 func (e *explorerEvaluator) completionReadiness(toolResults []types.ToolResult, sourceCount int, exactAbsenceSalvaged, mutateERM bool) explorerCompletionReadiness {
 	discovered, readSet, _ := extractFileCoverage(toolResults, e.repoRoot)
+	return e.completionReadinessWithCoverage(toolResults, sourceCount, exactAbsenceSalvaged, mutateERM, discovered, readSet)
+}
+
+func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.ToolResult, sourceCount int, exactAbsenceSalvaged, mutateERM bool, discovered []string, readSet map[string]bool) explorerCompletionReadiness {
+	if readSet == nil {
+		readSet = map[string]bool{}
+	}
 	scope := e.coverageScopeFiles(discovered, readSet, strings.Join(e.investigationNotes, "\n"))
 	scopeReadCount, scopeCoverage, _ := coverageSnapshot(scope, readSet)
 	coverage := 0.0
@@ -8658,6 +8672,51 @@ func (e *explorerEvaluator) refreshExactContextFiles(ctx *types.AgentContext) {
 	ctx.Mutable.SetExactContextRequiredFiles(e.exactContextFiles)
 }
 
+func startExplorerParseSectionWatchdog(ctx *types.AgentContext, section string) func() {
+	stage := ""
+	if ctx != nil {
+		stage = string(ctx.Stage)
+	}
+	start := time.Now()
+	logging.Debug("[diag explorer] phase=parse_output section=%s stage=%s start", section, stage)
+
+	done := make(chan struct{})
+	var once sync.Once
+	go func() {
+		timer := time.NewTimer(explorerParseSlowAfter)
+		defer timer.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-timer.C:
+				logging.Warning("[diag explorer] phase=parse_output section=%s stage=%s still running elapsed=%s",
+					section, stage, time.Since(start).Round(time.Second))
+				timer.Reset(explorerParseSlowEvery)
+			}
+		}
+	}()
+
+	return func() {
+		once.Do(func() {
+			close(done)
+			logging.Debug("[diag explorer] phase=parse_output section=%s stage=%s done elapsed=%s",
+				section, stage, time.Since(start).Round(time.Millisecond))
+		})
+	}
+}
+
+func explorerParseContextErr(ctx *types.AgentContext, section string) error {
+	if ctx == nil {
+		return nil
+	}
+	if err := ctx.Context().Err(); err != nil {
+		logging.Warning("[diag explorer] phase=parse_output section=%s canceled: %v", section, err)
+		return err
+	}
+	return nil
+}
+
 func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
 	// P1.2 → 2026-04-16: the explorer no longer implements
 	// SynthesizingEvaluator. The synthesis LLM call was deleted
@@ -8673,6 +8732,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// 0.3, and orchestration/emit tools (propose_sub_agents, emit_*)
 	// return 0.0. Only tools with Confidence > 0.5 count toward the
 	// evidence-source floor below.
+	stopParseSection := startExplorerParseSectionWatchdog(ctx, "repo_facts")
 	var facts []types.RepoFact
 	sources := make(map[string]struct{})
 	for _, r := range toolResults {
@@ -8695,8 +8755,17 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			}
 		}
 	}
+	stopParseSection()
+	if err := explorerParseContextErr(ctx, "repo_facts"); err != nil {
+		return nil, err
+	}
 
+	stopParseSection = startExplorerParseSectionWatchdog(ctx, "structured_evidence")
 	e.ensureStructuredEvidence(ctx, toolResults)
+	stopParseSection()
+	if err := explorerParseContextErr(ctx, "structured_evidence"); err != nil {
+		return nil, err
+	}
 
 	// Merge concrete values into structured evidence. Before the
 	// synthesis-LLM removal (2026-04-16) this merge lived inside
@@ -8707,7 +8776,12 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// EvidenceClosure.HasReadLine so a paginated read that covered
 	// only lines 1-200 cannot grant coverage to a chain anchored at
 	// line 500.
-	cvReadSet, cvReadRanges, cvTotals, _ := extractFileCoverageWithTotals(toolResults, e.repoRoot)
+	stopParseSection = startExplorerParseSectionWatchdog(ctx, "file_coverage")
+	cvReadSet, cvReadRanges, cvTotals, discoveredFiles := extractFileCoverageWithTotals(toolResults, e.repoRoot)
+	stopParseSection()
+	if err := explorerParseContextErr(ctx, "file_coverage"); err != nil {
+		return nil, err
+	}
 	// CGEC: pass the per-Run EvidenceClosure so the chain promotion
 	// enforcer can demote chains anchored outside ReadSet and queue
 	// the missing files as PendingReads on the closure. Update the
@@ -8730,7 +8804,6 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// already been trying (so the retry hint can surface them as
 	// "these didn't work — try different forms"). De-dup by
 	// AddRepair chokepoint.
-	discoveredFiles, _, _ := extractFileCoverage(toolResults, e.repoRoot)
 	if cvClosure != nil &&
 		e.phase == 0 &&
 		e.broadenAttempts >= e.heuristics.Phase0MaxBroadenAttempts &&
@@ -8747,12 +8820,23 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		})
 		logging.Info("[CGEC] B1a expand_search: origin=phase0.broaden_exhausted attempts=%d keywords=%d", e.broadenAttempts, len(kws))
 	}
+	stopParseSection = startExplorerParseSectionWatchdog(ctx, "concrete_values")
 	cvResult := e.getConcreteValuesCached(ctx.RepoRoot, cvReadSet, cvClosure)
 	if len(cvResult.evidence) > 0 {
 		e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, cvResult.evidence)
 	}
+	stopParseSection()
+	if err := explorerParseContextErr(ctx, "concrete_values"); err != nil {
+		return nil, err
+	}
+
+	stopParseSection = startExplorerParseSectionWatchdog(ctx, "exact_context")
 	e.refreshExactContextFiles(ctx)
 	exactAbsenceSalvaged := e.salvageExactAbsenceCompletion(ctx)
+	stopParseSection()
+	if err := explorerParseContextErr(ctx, "exact_context"); err != nil {
+		return nil, err
+	}
 
 	// HasEnoughFacts: multi-dimensional quality check.
 	// 1. Tool diversity: at least 2 distinct evidence tools (grep + read_file).
@@ -8760,7 +8844,12 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// 3. Evidence quality: count structured evidence tags in notes.
 	//    Require at least 2 [DIRECT]/[REGISTRATION] entries (ground-truth facts).
 	// 4. File relevance: weight read files by their keyword search rank.
-	readiness := e.completionReadiness(toolResults, len(sources), exactAbsenceSalvaged, true)
+	stopParseSection = startExplorerParseSectionWatchdog(ctx, "completion_readiness")
+	readiness := e.completionReadinessWithCoverage(toolResults, len(sources), exactAbsenceSalvaged, true, discoveredFiles, cvReadSet)
+	stopParseSection()
+	if err := explorerParseContextErr(ctx, "completion_readiness"); err != nil {
+		return nil, err
+	}
 
 	// Primary signal: the LLM explicitly called emit_investigation_complete.
 	// When set, it overrides ALL heuristic calculations — the LLM
@@ -8775,7 +8864,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		readiness.HasEnough = true
 	}
 	signals := &types.ExecutionSignals{HasEnoughFacts: readiness.HasEnough}
-	_, readSet, _ := extractFileCoverage(toolResults, e.repoRoot)
+	readSet := cvReadSet
 
 	// Rank evidence and findings by relevance to the user's question
 	// so downstream consumers (finalizer) get the most useful items first.
@@ -8787,8 +8876,13 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if e.searchResult != nil {
 		rankGraph = e.searchResult.Graph
 	}
+	stopParseSection = startExplorerParseSectionWatchdog(ctx, "rank_evidence")
 	rankedEvidence := rankEvidenceByRelevanceWithSubject(e.userQuestion, e.structuredEvidence, readSet, e.answerSubject, rankGraph, e.predicateAxis)
 	rankedFindings := rankFindingsByRelevance(e.userQuestion, e.flowFindings)
+	stopParseSection()
+	if err := explorerParseContextErr(ctx, "rank_evidence"); err != nil {
+		return nil, err
+	}
 
 	// df3 drift fix: for mechanism questions anchored on a primary
 	// entity file (e.g. "explorerEvaluator 的 ContinuationPrompt 怎
@@ -8816,6 +8910,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// (cross-package enumeration like "list all agents") the filter
 	// would incorrectly narrow scope — registration/call_chain/
 	// multi-primary enumeration stay unaffected.
+	stopParseSection = startExplorerParseSectionWatchdog(ctx, "shape_filter")
 	questionKind := strings.ToLower(strings.TrimSpace(irQuestionKind(ctx)))
 	var primaryFiles []string
 	if questionKind == "mechanism" || questionKind == "enumeration" {
@@ -8855,6 +8950,10 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			rankedEvidence = balanced
 		}
 	}
+	stopParseSection()
+	if err := explorerParseContextErr(ctx, "shape_filter"); err != nil {
+		return nil, err
+	}
 
 	// Identify answer chains: deterministic resolution chains that
 	// directly answer the user's question. These get a dedicated
@@ -8864,18 +8963,6 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if e.searchResult != nil {
 		ermGraph = e.searchResult.Graph
 	}
-	// Session 11 G7 — install the R3 axis-aware ledger hook so
-	// identifyAnswerChains can record ViolChainDemoted entries via
-	// the ambient callback instead of carrying a closure pointer
-	// through the ranking helpers. Clear the hook immediately
-	// after to keep package state clean between dispatches.
-	if ctx != nil && ctx.Mutable != nil {
-		closure := ctx.Mutable.EvidenceClosure()
-		SetLedgerHook(func(v types.Violation) { closure.AppendViolation(v) })
-		defer SetLedgerHook(nil)
-	}
-	answerChains := identifyAnswerChains(e.userQuestion, e.structuredEvidence, 5,
-		buildAnswerWhitelist(e.ermRequirements), e.ermRequirements, ermGraph)
 	// df3 drift fix: mechanism questions do not benefit from the
 	// chain-ranked Ground Truth section. identifyAnswerChains tends
 	// to surface whatever bind/return chains rank high, which for
@@ -8885,12 +8972,27 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// final answer. Evidence Items (filtered above) carry the
 	// [MECHANISM]/[CONDITIONAL] tags with file:line citations which
 	// is the right anchoring for a mechanism step_list answer.
-	if strings.EqualFold(strings.TrimSpace(irQuestionKind(ctx)), "mechanism") {
-		if len(answerChains) > 0 {
-			logging.Debug("[explorer] mechanism-kind: dropping %d answer chains (step_list shape uses Evidence Items)",
-				len(answerChains))
+	var answerChains []types.AnswerChain
+	if strings.EqualFold(questionKind, "mechanism") {
+		logging.Debug("[explorer] mechanism-kind: skipping answer-chain identification (step_list shape uses Evidence Items)")
+	} else {
+		stopParseSection = startExplorerParseSectionWatchdog(ctx, "answer_chains")
+		// Session 11 G7 — install the R3 axis-aware ledger hook so
+		// identifyAnswerChains can record ViolChainDemoted entries via
+		// the ambient callback instead of carrying a closure pointer
+		// through the ranking helpers. Clear the hook immediately
+		// after to keep package state clean between dispatches.
+		if ctx != nil && ctx.Mutable != nil {
+			closure := ctx.Mutable.EvidenceClosure()
+			SetLedgerHook(func(v types.Violation) { closure.AppendViolation(v) })
+			defer SetLedgerHook(nil)
 		}
-		answerChains = nil
+		answerChains = identifyAnswerChains(e.userQuestion, e.structuredEvidence, 5,
+			buildAnswerWhitelist(e.ermRequirements), e.ermRequirements, ermGraph)
+		stopParseSection()
+		if err := explorerParseContextErr(ctx, "answer_chains"); err != nil {
+			return nil, err
+		}
 	}
 	if len(answerChains) > 0 {
 		strictCount := 0
@@ -8956,6 +9058,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	for f := range readSet {
 		readFilesList = append(readFilesList, f)
 	}
+	stopParseSection = startExplorerParseSectionWatchdog(ctx, "stage_report")
 	canonicalReport := renderExplorerStageReport(
 		irQuestionKind(ctx),
 		irQuestionFamily(ctx),
@@ -8967,6 +9070,10 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		readFilesList,
 		e.isEnumerationQuery,
 	)
+	stopParseSection()
+	if err := explorerParseContextErr(ctx, "stage_report"); err != nil {
+		return nil, err
+	}
 
 	out := &StageOutput{
 		Data:          json.RawMessage(`{}`),
@@ -8986,6 +9093,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// are final and BEFORE return so the extractor's
 	// BuildInitialInstruction sees the complete payload.
 	if ctx != nil && ctx.Mutable != nil {
+		stopParseSection = startExplorerParseSectionWatchdog(ctx, "turn_a_handoff")
 		// Turn B gets the strict subset of answer-relevant evidence —
 		// the items that passed the L0-1 terminal/origin predicates.
 		// Demoted items are dropped here because Turn B's cardinality
@@ -9040,6 +9148,10 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		ctx.Mutable.SetTurnAArtifacts(snapshot)
 		logging.Debug("[explorer] turn A → turn B handoff: wrote TurnAArtifacts (%d notes, %d readFiles, %d toolResults, %d evidence, %d flow, termCount=%d)",
 			len(snapshot.InvestigationNotes), len(snapshot.ReadFiles), len(snapshot.ToolResults), len(snapshot.EvidenceItems), len(snapshot.FlowFindings), snapshot.TerminalEvidenceCount)
+		stopParseSection()
+		if err := explorerParseContextErr(ctx, "turn_a_handoff"); err != nil {
+			return nil, err
+		}
 	}
 
 	if !signals.HasEnoughFacts {
@@ -9197,6 +9309,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		entityBias = append(entityBias, r.Entities...)
 	}
 	result := dataflow.Analyze(e.searchResult.Graph, dataflow.Options{
+		Context:         ctx.Context(),
 		RepoRoot:        ctx.RepoRoot,
 		Question:        e.userQuestion,
 		CandidateFiles:  candidates,

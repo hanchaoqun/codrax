@@ -30,6 +30,9 @@ func (l genericLowerer) LowerFile(repoRoot string, file *repomap.FileInfo, sourc
 	}
 
 	for idx := range file.Symbols {
+		if idx%32 == 0 && dataflowCanceled(opts) {
+			return lowered
+		}
 		sym := file.Symbols[idx]
 		if sym.Kind != "function" && sym.Kind != "method" {
 			continue
@@ -578,8 +581,8 @@ func detectAliases(line string) []string {
 // the pointer-aliasing scan, etc.).
 //
 // New typed path:
-//   1. Read fi.LineFeatures[lineNo] for LineFeatureUnknownEffect
-//   2. Return per-language descriptor when set; "" otherwise
+//  1. Read fi.LineFeatures[lineNo] for LineFeatureUnknownEffect
+//  2. Return per-language descriptor when set; "" otherwise
 //
 // The descriptor map is closed (one entry per supported language)
 // and operator-readable; downstream renderers consume these
