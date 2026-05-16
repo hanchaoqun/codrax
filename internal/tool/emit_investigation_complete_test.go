@@ -2992,3 +2992,122 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsPositiveSubstituteFromPri
 		t.Fatalf("completion flag must not fire on positive substitute rejection")
 	}
 }
+
+// TestEmitInvestigationComplete_RejectsDecoratedMemberSetWithoutSupportRefs
+// is the B regression for the 2026-05-16 architectural-comparison
+// loop. A member_set whose members are shaped
+// "<code identifier> (<CJK qualifier>)" cannot auto-resolve against
+// evidence anchors (the decorator changes the surface), so the
+// finalizer's row-item alignment oracle rejects every row that
+// quotes such a member with candidate_citations=[]. The schema marks
+// support_refs `omitempty` but the downstream answer-document
+// rendering REQUIRES per-member grounding; close the asymmetry at
+// emit time so the model fixes it in the next emit, not after
+// burning four finalize iterations.
+func TestEmitInvestigationComplete_RejectsDecoratedMemberSetWithoutSupportRefs(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"comparison investigation complete",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"codrax 防幻觉组件",
+				"value":"3",
+				"members":[
+					"Gate.Run (8个独立检查)",
+					"Ground (3层验证)",
+					"Orchestrator (4阶段管道整合)"
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("decorated member_set without support_refs must be rejected; got success: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"member_set",
+		"support_refs is empty",
+		"Gate.Run",
+		"<file>:<line>",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Errorf("reject summary missing %q in:\n%s", want, res.Summary)
+		}
+	}
+}
+
+// TestEmitInvestigationComplete_AcceptsBareCodeMemberSetWithoutSupportRefs
+// is the negative-control: bare code-identity members (no decorator)
+// can still be auto-grounded by the enrichment pass against verbatim
+// evidence anchors. The narrowed B check fires only on decorated
+// members so callers and tests with bare-symbol member_sets keep
+// working without source-level changes.
+func TestEmitInvestigationComplete_AcceptsBareCodeMemberSetWithoutSupportRefs(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"plain symbol enum collected",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"read mode stages",
+				"value":"2",
+				"members":["StageAnalyze","StageExplore"]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("bare-symbol member_set without support_refs should pass through B: %s", res.Summary)
+	}
+}
+
+// TestEmitInvestigationComplete_AcceptsDecoratedMemberSetWithSupportRefs
+// is the happy path: when the model attaches support_refs alongside
+// decorated members, the B gate is satisfied and the emit proceeds.
+func TestEmitInvestigationComplete_AcceptsDecoratedMemberSetWithSupportRefs(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"comparison with explicit per-member grounding",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"codrax 防幻觉组件",
+				"value":"2",
+				"members":[
+					"Gate.Run (8个独立检查)",
+					"Orchestrator (4阶段管道整合)"
+				],
+				"support_refs":[
+					"Gate.Run: internal/analysis/gate/gate.go:128",
+					"Orchestrator: internal/orchestrator/orchestrator.go:42"
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("decorated member_set WITH support_refs should pass: %s", res.Summary)
+	}
+}

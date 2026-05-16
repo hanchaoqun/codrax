@@ -132,7 +132,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"support_refs": {
 							"type": "array",
-							"description": "Optional evidence ids, file:line labels, command labels, or member-specific refs like \"Member @ file:line\" that back this aggregate. For code/path/location member_set facts, every principal member should either match typed evidence already emitted through emit_evidence / emit_answer_symbol, or have a member-specific support ref that maps it to the grounded evidence line.",
+							"description": "Optional evidence ids, file:line labels, command labels, or member-specific refs like \"Member: file:line\" or \"Member @ file:line\" that back this aggregate. REQUIRED for kind=member_set when ANY member is shaped \"<code identifier> (<qualifier>)\" — for example \"Orchestrator (4阶段管道整合)\" or \"Gate.Run (8 checks)\" — because the decorator changes the surface text so the member never auto-resolves against an evidence anchor named just \"Orchestrator\" / \"Gate.Run\". Without support_refs the answer-document oracle rejects every row that quotes such a decorated member. Use either labeled refs [\"<leading-symbol>: <file>:<line>\", …] where the label is the member's bare leading identifier (no decorator), or positional refs [\"<file>:<line>\", …] with one entry per members[] in the same order. For bare code-identity members (no decorator) and pure display-prose members, support_refs is still optional — the framework auto-resolves bare symbols against verbatim evidence anchors and treats prose members as display-only.",
 							"items": {"type": "string"}
 						}
 					},
@@ -492,6 +492,27 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	effectiveAggregateFacts := effectiveCompletionAggregateFacts(ctx, aggregateFacts)
 	effectiveAggregateFacts = enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx, effectiveAggregateFacts, evidenceSnapshot)
 	effectiveAggregateFacts = enrichCompletionAggregateFactsWithDeterministicCount(ctx, effectiveAggregateFacts)
+
+	// Reject the emit when a member_set carries members led by a code
+	// identifier but never publishes per-member grounding. Without
+	// support_refs the finalizer cannot align row item citations to
+	// members and the downstream pre-emit oracle rejects every row that
+	// quotes a code-shaped member (the 2026-05-16 architectural-
+	// comparison loop: "Orchestrator (4阶段管道整合)" cited but no
+	// support_refs → candidate_citations=[] → 4-iter retry → raw-
+	// content fallback with cited=0). The enrichment pass above already
+	// auto-fills support_refs from grounded evidence when member names
+	// match anchor endpoints, so reaching this branch means the model
+	// emitted code-shape members whose evidence does not name them
+	// verbatim — repair belongs at the explorer turn, not in finalize.
+	if err := validateAggregateMemberSetSupportRefs(effectiveAggregateFacts); err != nil {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Summary:   fmt.Sprintf("emit_investigation_complete rejected: %v", err),
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// Strict-decode + store evidence_floor_waiver (typed escape).
 	// The full pre-check chain below (forced-read, citation floor)
@@ -1960,6 +1981,101 @@ func buildAggregateMemberSupportIndexWithEvidence(ctx *types.BusContext, evidenc
 		}
 	}
 	return idx
+}
+
+// memberHasDecoratedCodeIdentityBase reports whether an aggregate-
+// fact member has the shape "<code identifier> (<qualifier>)" — a
+// decorated code-identity surface like "Orchestrator (4阶段管道整合)".
+// These members trip the finalizer's per-item citation_ref alignment
+// oracle because (a) the surface text the model uses as a table /
+// list row label is the FULL decorated string, and (b) the
+// downstream evidence-anchor matching cannot resolve the decorated
+// surface verbatim against any grounded subject / object / anchor
+// symbol. Bare code-identity members (no decorator) can still get
+// auto-grounded via the existing enrichment pass when an evidence
+// anchor names them verbatim, so they intentionally do not trigger
+// this gate.
+func memberHasDecoratedCodeIdentityBase(member string) bool {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return false
+	}
+	base, _, ok := types.AnswerAggregateDecoratedLabelParts(member)
+	if !ok {
+		return false
+	}
+	return types.IsCodeIdentitySurface(strings.TrimSpace(base))
+}
+
+// validateAggregateMemberSetSupportRefs is the emit-time gate that
+// closes the schema asymmetry behind the 2026-05-16 architectural-
+// comparison finalize loop. AnswerAggregateFact.SupportRefs is
+// declared `omitempty` so any model emit goes through normalize even
+// when SupportRefs is absent — but the finalizer's downstream
+// alignment oracle DEMANDS per-member grounding to verify table /
+// list row citation_refs. When the two halves disagree, every row
+// quoting a decorated code-shape member gets rejected with
+// candidate_citations=[]; the model has no path to fix it because
+// the missing data is upstream.
+//
+// Run AFTER enrichCompletionAggregateFactsWithMemberSupportWithEvidence
+// so auto-fillable members get their support_refs first. The check
+// is narrowed to DECORATED code-identity members because the
+// enrichment pass can usually back bare members like "Intent" /
+// "StageAnalyze" against verbatim evidence anchors; the decorator
+// (parens + qualifier) makes verbatim matching fail and the
+// finalizer has no way to recover. Reaching this validator with
+// empty SupportRefs + decorated code-shape members means the
+// explorer must either attach support_refs explicitly or drop the
+// decorator so the bare symbol can auto-resolve.
+func validateAggregateMemberSetSupportRefs(facts []types.AnswerAggregateFact) error {
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateMemberSet {
+			continue
+		}
+		if len(fact.SupportRefs) > 0 {
+			continue
+		}
+		var decorated []string
+		for _, member := range fact.Members {
+			if memberHasDecoratedCodeIdentityBase(member) {
+				decorated = append(decorated, member)
+			}
+		}
+		if len(decorated) == 0 {
+			continue
+		}
+		sample := decorated
+		if len(sample) > 3 {
+			sample = sample[:3]
+		}
+		quoted := make([]string, 0, len(sample))
+		for _, m := range sample {
+			quoted = append(quoted, fmt.Sprintf("%q", m))
+		}
+		omitted := ""
+		if len(decorated) > len(sample) {
+			omitted = fmt.Sprintf(" (+%d more)", len(decorated)-len(sample))
+		}
+		label := strings.TrimSpace(fact.Label)
+		if label == "" {
+			label = "(unlabeled)"
+		}
+		return fmt.Errorf(
+			"aggregate_facts: member_set %q has %d member(s) shaped as "+
+				"\"<code identifier> (<qualifier>)\" (%s%s) but support_refs is empty. "+
+				"Decorated code-shape members never auto-resolve against evidence anchors, "+
+				"so downstream answer rendering cannot align row item citation_ref values "+
+				"without explicit per-member grounding. Re-emit with support_refs in either "+
+				"of these forms: labeled [\"<member-leading-symbol>: <file>:<line>\", …] "+
+				"where the label is the member's bare leading identifier (no decorator), "+
+				"or positional [\"<file>:<line>\", …] with one entry per members[] in the "+
+				"same order. If you cannot ground a member, drop the decorator so the "+
+				"bare symbol can auto-resolve, or remove the member entirely.",
+			label, len(decorated), strings.Join(quoted, ", "), omitted,
+		)
+	}
+	return nil
 }
 
 func enrichCompletionAggregateFactsWithMemberSupport(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {
