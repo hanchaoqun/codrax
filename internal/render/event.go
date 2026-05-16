@@ -26,8 +26,9 @@ const (
 	EventStageEnd
 
 	// Agent activity
-	EventAgentThinking // LLM call started
-	EventAgentResponse // LLM call returned
+	EventAgentThinking  // LLM call started
+	EventAgentResponse  // LLM call returned
+	EventLocalWorkStart // local CPU work started outside an LLM request
 
 	// Generic LLM request telemetry. Direct reviewer / classifier
 	// calls that bypass BaseAgent emit this before adapter.Chat so the

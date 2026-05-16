@@ -451,6 +451,13 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.activity = activityState{kind: activityWaitingNode}
 		r.streamTail = ""
 
+	case EventLocalWorkStart:
+		// Scheduler / validator local work is not an LLM request. Keep
+		// the dock honest without committing a noisy scrollback line for
+		// every fast local phase.
+		r.activity = activityState{kind: activityWaitingNode}
+		r.streamTail = ""
+
 	case EventAgentContent:
 		if r.current != nil && ev.Reasoning != "" {
 			preview := stripMarkdown(ev.Reasoning)

@@ -405,6 +405,27 @@ func TestRenderer_EventAgentResponseClearsRequestingActivity(t *testing.T) {
 	}
 }
 
+func TestRenderer_EventLocalWorkStartClearsRequestingActivity(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	emit(Event{
+		Kind:                  EventLLMRequestStart,
+		Timestamp:             time.Now(),
+		ModelID:               "glm5-fp8",
+		ContextTokensEstimate: 63000,
+		ContextWindowTokens:   200000,
+	})
+	emit(Event{Kind: EventLocalWorkStart, Timestamp: time.Now()})
+
+	if r.activity.kind != activityWaitingNode {
+		t.Fatalf("EventLocalWorkStart must switch from model request to local context work; got %v", r.activity.kind)
+	}
+	rows := r.composeCurrentDockRows()
+	if row1 := stripAnsiEscapes(rows[0]); !strings.Contains(row1, "整理上下文中") {
+		t.Errorf("local scheduler work must not keep saying 请求模型中; got %q", row1)
+	}
+}
+
 func TestRenderer_EventAgentThinkingWithoutCurrentRowShowsRequesting(t *testing.T) {
 	r := newTestRenderer("zh")
 	emit := r.Emitter()

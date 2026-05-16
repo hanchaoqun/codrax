@@ -3902,7 +3902,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			o.busCtx.TaskState.LastError = cerr.Error()
 			return stepsUsed
 		}
+		stopLocal := o.startSchedulerLocalWork(types.StageExplore, "build_env")
 		env := buildEnv("", 0)
+		if o.finishSchedulerLocalWork(stopLocal, "build_env", stepsUsed) {
+			return stepsUsed
+		}
 
 		if !forceFinalizeTriggered {
 			// Shape-gate: stopcond.ShouldStop is a pure function over
@@ -3919,6 +3923,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// requiring a per-predicate latch.
 			currentStopShape := computeEnvShape(o.busCtx, env)
 			if lastStopShape == nil || !lastStopShape.equals(currentStopShape) {
+				stopLocal = o.startSchedulerLocalWork(types.StageExplore, "stop_condition")
 				if stop, reason := stopcond.ShouldStop(ir.EvidencePlan, env); stop {
 					logging.Info("[orchestrator] stop condition fired: %s", reason)
 					state.forceCloseExploreWindow()
@@ -3930,15 +3935,33 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					// matches the "jump directly to finalize" wording in
 					// runTaskGraph's doc comment.
 				}
+				if o.finishSchedulerLocalWork(stopLocal, "stop_condition", stepsUsed) {
+					return stepsUsed
+				}
 				lastStopShape = &currentStopShape
 			}
 		}
 
-		window, blocked := state.readyExplorerWindow(env)
+		stopLocal = o.startSchedulerLocalWork(types.StageExplore, "ready_window")
+		window, blocked, err := state.readyExplorerWindowContext(o.CancelContext(), env)
+		if o.finishSchedulerLocalWork(stopLocal, "ready_window", stepsUsed) || err != nil {
+			if err != nil {
+				if cerr := o.checkCanceled("scheduler.ready_window", stepsUsed); cerr != nil {
+					o.busCtx.TaskState.LastError = cerr.Error()
+				} else {
+					o.busCtx.TaskState.LastError = err.Error()
+				}
+			}
+			return stepsUsed
+		}
 		fin := state.firstFinalizeReadyMerged()
 
 		if len(window) > 0 {
+			stopLocal = o.startSchedulerLocalWork(types.StageExplore, "reconcile_autocomplete")
 			window = o.autoCompleteReadyReconcileNodes(state, window, env)
+			if o.finishSchedulerLocalWork(stopLocal, "reconcile_autocomplete", stepsUsed) {
+				return stepsUsed
+			}
 			if len(window) == 0 {
 				o.applyWindowHint("")
 				continue
@@ -3951,7 +3974,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if o.busCtx.Mutable != nil {
 				pendingRepairs = o.busCtx.Mutable.EvidenceClosure().ConsumeRepairs()
 			}
-			hint := renderWindowHint(window, blocked, pendingValidationTargets, resolveSurface, pendingViolation, pendingStageRetry, pendingRepairs)
+			stopLocal = o.startSchedulerLocalWork(types.StageExplore, "window_hint")
+			hint, err := renderWindowHintContext(o.CancelContext(), window, blocked, pendingValidationTargets, resolveSurface, pendingViolation, pendingStageRetry, pendingRepairs)
+			if o.finishSchedulerLocalWork(stopLocal, "window_hint", stepsUsed) || err != nil {
+				if err != nil {
+					o.busCtx.TaskState.LastError = err.Error()
+				}
+				return stepsUsed
+			}
 			pendingViolation = ""
 			pendingStageRetry = ""
 			pendingValidationTargets = nil
@@ -3982,7 +4012,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// over them in the SAME dispatch, rather than waiting
 			// for the next retry round. Harmless no-op when
 			// PendingReads is empty.
-			if read := o.runForcedReads(); read > 0 {
+			stopLocal = o.startSchedulerLocalWork(types.StageExplore, "forced_reads_pre_dispatch")
+			read := o.runForcedReads()
+			if o.finishSchedulerLocalWork(stopLocal, "forced_reads_pre_dispatch", stepsUsed) {
+				return stepsUsed
+			}
+			if read > 0 {
 				logging.Info("[CGEC] E2 pre-dispatch forced-read %d file(s) before explore retry", read)
 			}
 			if out, err := o.dispatchStage(types.StageExplore); err != nil {
@@ -4026,20 +4061,38 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 						NoticeKind: render.NoticeInvestigationReady,
 						Reasoning:  softInvestigationReadyMessage(o.busCtx.Language),
 					})
+					stopLocal = o.startSchedulerLocalWork(types.StageExplore, "auto_verdicts")
 					o.runAutoVerdicts()
+					if o.finishSchedulerLocalWork(stopLocal, "auto_verdicts", stepsUsed) {
+						return stepsUsed
+					}
+					stopLocal = o.startSchedulerLocalWork(types.StageExplore, "drain_hypothesis_verdicts")
 					o.drainHypothesisVerdicts()
+					if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
+						return stepsUsed
+					}
 					continue
 				}
 
+				stopLocal = o.startSchedulerLocalWork(types.StageExplore, "build_env_after_explore")
 				envAfter := buildEnv("", 0)
+				if o.finishSchedulerLocalWork(stopLocal, "build_env_after_explore", stepsUsed) {
+					return stepsUsed
+				}
 				// "soft" policy: inject the completion signal into the
 				// criterion env so evidence_count lowers to >=1.
 				if icComplete && icPolicy == types.ICPolicySoft {
 					envAfter.InvestigationComplete = true
 				}
 				var valFailed *types.TaskNode
+				stopLocal = o.startSchedulerLocalWork(types.StageExplore, "success_criteria")
+				var successCriteriaErr error
 				for _, n := range window {
-					ok, failed := state.markSuccessCriteriaFailed(n, envAfter)
+					ok, failed, err := state.markSuccessCriteriaFailedContext(o.CancelContext(), n, envAfter)
+					if err != nil {
+						successCriteriaErr = err
+						break
+					}
 					if ok {
 						state.markDone(n.ID)
 						o.emitNodeEnd(n.ID, true, "")
@@ -4065,6 +4118,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					} else {
 						state.requeue(n.ID)
 					}
+				}
+				if o.finishSchedulerLocalWork(stopLocal, "success_criteria", stepsUsed) || successCriteriaErr != nil {
+					if successCriteriaErr != nil {
+						o.busCtx.TaskState.LastError = successCriteriaErr.Error()
+					}
+					return stepsUsed
 				}
 				if valFailed != nil {
 					// Shape-stuck detection — OR semantics across two
@@ -4095,8 +4154,15 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					// the validate loop requeues explore, the explorer
 					// re-reads or fishes for more evidence, and the
 					// loop runs until step budget drains.
+					stopLocal = o.startSchedulerLocalWork(types.StageExplore, "validate_stall_fingerprint")
 					currentShape := computeEnvShape(o.busCtx, envAfter)
-					currentHyp := computeHypProgress(envAfter)
+					currentHyp, err := computeHypProgressContext(o.CancelContext(), envAfter)
+					if o.finishSchedulerLocalWork(stopLocal, "validate_stall_fingerprint", stepsUsed) || err != nil {
+						if err != nil {
+							o.busCtx.TaskState.LastError = err.Error()
+						}
+						return stepsUsed
+					}
 					prevShape, seenShape := lastSCFailShape[valFailed.ID]
 					prevHyp, seenHyp := lastSCFailHypProgress[valFailed.ID]
 					shapeStuck := seenShape && prevShape.equals(currentShape)
@@ -4159,7 +4225,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				// evaluate criterion-based hypothesis verdicts without
 				// an LLM call. The full extract dispatch (with LLM)
 				// runs once just before finalize.
+				stopLocal = o.startSchedulerLocalWork(types.StageExplore, "auto_verdicts")
 				o.runAutoVerdicts()
+				if o.finishSchedulerLocalWork(stopLocal, "auto_verdicts", stepsUsed) {
+					return stepsUsed
+				}
 
 				// CGEC E2 + I4: after each explore round, check for
 				// pending forced reads (LLM skipped framework-queued
@@ -4168,15 +4238,28 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				// when state is fresh; runForcedReads may inject
 				// synthesized read_file results into the dispatch
 				// buffer so the next round sees them in extractFileCoverage.
+				stopLocal = o.startSchedulerLocalWork(types.StageExplore, "forced_reads_post_dispatch")
 				_ = o.runForcedReads()
-				if o.detectStallAndAct() {
+				if o.finishSchedulerLocalWork(stopLocal, "forced_reads_post_dispatch", stepsUsed) {
+					return stepsUsed
+				}
+				stopLocal = o.startSchedulerLocalWork(types.StageExplore, "stall_detection")
+				stalled := o.detectStallAndAct()
+				if o.finishSchedulerLocalWork(stopLocal, "stall_detection", stepsUsed) {
+					return stepsUsed
+				}
+				if stalled {
 					// Hard stall — break out of the explore loop and
 					// let the finalize path run with whatever evidence
 					// was gathered.
 					state.forceCloseExploreWindow()
 					continue
 				}
+				stopLocal = o.startSchedulerLocalWork(types.StageExplore, "drain_hypothesis_verdicts")
 				o.drainHypothesisVerdicts()
+				if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
+					return stepsUsed
+				}
 			}
 			continue
 		}
@@ -4214,7 +4297,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// On fail-budget-exhausted: log a warning and fall through;
 		// downstream contract check will still catch the problem and
 		// fail-loud.
-		if msg, proceed, exhausted := o.checkTier1Floor(ir, state); !proceed {
+		stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "tier1_floor")
+		msg, proceed, exhausted := o.checkTier1Floor(ir, state)
+		if o.finishSchedulerLocalWork(stopLocal, "tier1_floor", stepsUsed) {
+			return stepsUsed
+		}
+		if !proceed {
 			if exhausted {
 				logging.Warning("[orchestrator] pre-finalize Tier-1 floor failed but retry budget exhausted: %s", msg)
 			} else {
@@ -4247,7 +4335,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 		o.warnLowGroundingIfNeeded(ir, &lowGroundingWarned)
 
-		if out, retryMsg, handled := o.handleStructurallyEmptyInvestigation(state, fin.ID); handled {
+		stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "structural_empty_check")
+		out, retryMsg, handled := o.handleStructurallyEmptyInvestigation(state, fin.ID)
+		if o.finishSchedulerLocalWork(stopLocal, "structural_empty_check", stepsUsed) {
+			return stepsUsed
+		}
+		if handled {
 			if out == nil {
 				pendingViolation = retryMsg
 				continue
@@ -4302,7 +4395,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					break
 				}
 				stepsUsed++
+				stopLocal = o.startSchedulerLocalWork(types.StageExtract, "drain_hypothesis_verdicts")
 				o.drainHypothesisVerdicts()
+				if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
+					return stepsUsed
+				}
 				break
 			}
 			lastFallbackFinalizerOnly = false
@@ -4343,7 +4440,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			NoticeKind: render.NoticeFinalizing,
 			Reasoning:  softFinalizingMessage(o.busCtx.Language),
 		})
-		out, err := o.dispatchStage(types.StageFinalize)
+		out, err = o.dispatchStage(types.StageFinalize)
 		if err != nil {
 			logging.Error("[orchestrator] DAG finalize failed: %v", err)
 			// Live preview cleanup: dispatch error path treats the
@@ -4387,14 +4484,29 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// citation_count_ge criterion would under-count by 50-80%.
 		// Pool size is what the grounder actually validated and what
 		// the answer is underwritten by.
+		stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "build_env_after_finalize")
 		citationCount := finalizerCitationPoolSize(o.busCtx.Mutable, out)
 		envFin := buildEnv(out.FinalAnswer, citationCount)
-		scOK, scFailed := state.markSuccessCriteriaFailed(fin, envFin)
+		if o.finishSchedulerLocalWork(stopLocal, "build_env_after_finalize", stepsUsed) {
+			return stepsUsed
+		}
+		stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "finalize_success_criteria")
+		scOK, scFailed, err := state.markSuccessCriteriaFailedContext(o.CancelContext(), fin, envFin)
+		if o.finishSchedulerLocalWork(stopLocal, "finalize_success_criteria", stepsUsed) || err != nil {
+			if err != nil {
+				o.busCtx.TaskState.LastError = err.Error()
+			}
+			return stepsUsed
+		}
 
 		// Contract check. runContractCheck consults
 		// Mutable.AnswerDocument to decide IsAbsence and skips
 		// MinCitations when the doc is a justified zero.
+		stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "answer_contract_check")
 		res := runContractCheck(out, ir.AnswerContract, o.busCtx.Mutable, o)
+		if o.finishSchedulerLocalWork(stopLocal, "answer_contract_check", stepsUsed) {
+			return stepsUsed
+		}
 
 		if !scOK {
 			// Absence answers legitimately have no file:line to cite;
@@ -4438,7 +4550,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// continues to receive every violation; only the LLM-facing
 		// surfaces honour the IsDerived flag.
 		if len(res.Violations) > 0 {
+			stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "violation_root_cause")
 			res.Violations = ComputeRootCauseClosure(res.Violations)
+			if o.finishSchedulerLocalWork(stopLocal, "violation_root_cause", stepsUsed) {
+				return stepsUsed
+			}
 		}
 
 		// Phase 2.B Tier 2 ERM completeness hard gate (post-finalize,
@@ -4466,6 +4582,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// docs/design/commercial_grade_3_pattern_remediation.md
 		// Phase 2.B for the full design rationale.
 		if o.busCtx.AnalysisIR != nil && o.busCtx.Mutable != nil {
+			stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "tier2_completeness")
 			view := types.BuildAnswerSemanticView(o.busCtx.AnalysisIR, nil)
 			if view != nil {
 				input := agent.ValidatorInput{
@@ -4552,6 +4669,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 						Reasoning:  softCompletenessGapMessage(o.busCtx.Language, fail),
 					})
 				}
+			}
+			if o.finishSchedulerLocalWork(stopLocal, "tier2_completeness", stepsUsed) {
+				return stepsUsed
 			}
 		}
 
@@ -4707,8 +4827,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// ledger drift). Zero-yield retries indicate the LLM is
 		// looping — failing loud with the original answer beneath
 		// a warning is better than infinitely spinning.
+		stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "retry_yield_snapshot")
 		currentSnapshot := captureYieldSnapshot(o.busCtx.Mutable.EvidenceClosure())
 		delta := yieldDelta(state.lastYieldSnapshot, currentSnapshot)
+		if o.finishSchedulerLocalWork(stopLocal, "retry_yield_snapshot", stepsUsed) {
+			return stepsUsed
+		}
 		minYield := o.settings.ViolationBudget.MinRetryYield
 		yieldFallback := FallbackTargetForViolationsWithBudget(res.Violations, finalizerLocalRetriesUsed)
 		finalizerOnlyTextRepair := yieldFallback == FallbackFinalizerOnly
@@ -4791,7 +4915,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// are a strict subset of the previous set. The legacy
 		// pickers (FallbackTargetForViolations / WithBudget) remain
 		// for back-compat callers + tests.
+		stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "repair_plan")
 		execPlan, fallback, preDowngrade := AdvanceRepairExecutionPlan(o.busCtx.Mutable, res.Violations, finalizerLocalRetriesUsed)
+		if o.finishSchedulerLocalWork(stopLocal, "repair_plan", stepsUsed) {
+			return stepsUsed
+		}
 		// A4 + G1 telemetry: surface BOTH the underlying cluster
 		// structure (RepairPlan) AND the dispatch-ready queue
 		// (RepairExecutionPlan). Operators can grep `repair_plan=`
@@ -4989,7 +5117,11 @@ contractFailureBreak:
 				break
 			}
 			stepsUsed++
+			stopLocal := o.startSchedulerLocalWork(types.StageExtract, "drain_hypothesis_verdicts")
 			o.drainHypothesisVerdicts()
+			if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
+				return stepsUsed
+			}
 			break
 		}
 

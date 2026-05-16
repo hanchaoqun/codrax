@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -75,8 +76,19 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 			o.busCtx.TaskState.LastError = cerr.Error()
 			return stepsUsed
 		}
+		stopLocal := o.startSchedulerLocalWork(types.StagePlan, "write_build_env")
 		env := buildEnv()
-		ready, blocked := state.readyWriteWindow(env)
+		if o.finishSchedulerLocalWork(stopLocal, "write_build_env", stepsUsed) {
+			return stepsUsed
+		}
+		stopLocal = o.startSchedulerLocalWork(types.StagePlan, "write_ready_window")
+		ready, blocked, err := state.readyWriteWindowContext(o.CancelContext(), env)
+		if o.finishSchedulerLocalWork(stopLocal, "write_ready_window", stepsUsed) || err != nil {
+			if err != nil {
+				o.busCtx.TaskState.LastError = err.Error()
+			}
+			return stepsUsed
+		}
 		if len(ready) == 0 {
 			if len(blocked) > 0 {
 				// Every remaining node is blocked on EntryConditions
@@ -296,8 +308,19 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 		// (e.g. coder's "missing path X", verifier's "verify failed:
 		// 3 of 5 tests failed"). Treat it like a SuccessCriteria
 		// failure for routing purposes.
+		stopLocal = o.startSchedulerLocalWork(stage, "write_build_env_after_dispatch")
 		envAfter := buildEnv()
-		ok, failed := state.markSuccessCriteriaFailed(n, envAfter)
+		if o.finishSchedulerLocalWork(stopLocal, "write_build_env_after_dispatch", stepsUsed) {
+			return stepsUsed
+		}
+		stopLocal = o.startSchedulerLocalWork(stage, "write_success_criteria")
+		ok, failed, err := state.markSuccessCriteriaFailedContext(o.CancelContext(), n, envAfter)
+		if o.finishSchedulerLocalWork(stopLocal, "write_success_criteria", stepsUsed) || err != nil {
+			if err != nil {
+				o.busCtx.TaskState.LastError = err.Error()
+			}
+			return stepsUsed
+		}
 		stageErrText := ""
 		if out != nil {
 			stageErrText = out.Error
@@ -431,10 +454,18 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 // honored: a node is only ready if every From in its incoming
 // EdgeHardDependency edges is nodeDone.
 func (s *graphState) readyWriteWindow(env criterion.Env) (ready []*types.TaskNode, blocked []nodeBlock) {
+	ready, blocked, _ = s.readyWriteWindowContext(context.Background(), env)
+	return ready, blocked
+}
+
+func (s *graphState) readyWriteWindowContext(ctx context.Context, env criterion.Env) (ready []*types.TaskNode, blocked []nodeBlock, err error) {
 	if s == nil || len(s.graph.Nodes) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	for i := range s.graph.Nodes {
+		if err := ctx.Err(); err != nil {
+			return ready, blocked, err
+		}
 		n := &s.graph.Nodes[i]
 		if n.IsCounterfactual {
 			continue
@@ -473,7 +504,7 @@ func (s *graphState) readyWriteWindow(env criterion.Env) (ready []*types.TaskNod
 		}
 		ready = append(ready, n)
 	}
-	return ready, blocked
+	return ready, blocked, ctx.Err()
 }
 
 // computeStallSignature derives a stable summary of what the just-

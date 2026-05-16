@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -175,10 +176,18 @@ func newGraphState(g types.TaskGraph) *graphState {
 // yet met so renderWindowHint can surface which criterion is
 // stalling them.
 func (s *graphState) readyExplorerWindow(env criterion.Env) (ready []*types.TaskNode, blocked []nodeBlock) {
+	ready, blocked, _ = s.readyExplorerWindowContext(context.Background(), env)
+	return ready, blocked
+}
+
+func (s *graphState) readyExplorerWindowContext(ctx context.Context, env criterion.Env) (ready []*types.TaskNode, blocked []nodeBlock, err error) {
 	if s == nil || len(s.graph.Nodes) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	for i := range s.graph.Nodes {
+		if err := ctx.Err(); err != nil {
+			return ready, blocked, err
+		}
 		n := &s.graph.Nodes[i]
 		if n.Type == types.NodeFinalize || n.IsCounterfactual {
 			continue
@@ -199,7 +208,7 @@ func (s *graphState) readyExplorerWindow(env criterion.Env) (ready []*types.Task
 	sort.SliceStable(ready, func(i, j int) bool {
 		return declOrder(s.graph, ready[i].ID) < declOrder(s.graph, ready[j].ID)
 	})
-	return ready, blocked
+	return ready, blocked, ctx.Err()
 }
 
 func declOrder(g types.TaskGraph, id string) int {
@@ -553,11 +562,22 @@ func (s *graphState) requeueToStage(target types.PipelineStage, writing bool) []
 // against env. Returns (ok=true, nil) when every criterion is
 // satisfied; (ok=false, failed list) otherwise.
 func (s *graphState) markSuccessCriteriaFailed(n *types.TaskNode, env criterion.Env) (ok bool, failed []criterion.Result) {
+	ok, failed, _ = s.markSuccessCriteriaFailedContext(context.Background(), n, env)
+	return ok, failed
+}
+
+func (s *graphState) markSuccessCriteriaFailedContext(ctx context.Context, n *types.TaskNode, env criterion.Env) (ok bool, failed []criterion.Result, err error) {
 	if len(n.SuccessCriteria) == 0 {
-		return true, nil
+		return true, nil, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return false, nil, err
 	}
 	allOK, failedList := criterion.EvalAll(n.SuccessCriteria, env)
-	return allOK, failedList
+	if err := ctx.Err(); err != nil {
+		return false, failedList, err
+	}
+	return allOK, failedList, nil
 }
 
 // stageMapping returns the pipeline stage for a given TaskNode type.
@@ -601,8 +621,22 @@ func renderWindowHint(
 	prevStageRetry string,
 	repairs []types.RepairDirective,
 ) string {
+	hint, _ := renderWindowHintContext(context.Background(), window, blocks, validationTargets, termSurface, prevViolation, prevStageRetry, repairs)
+	return hint
+}
+
+func renderWindowHintContext(
+	ctx context.Context,
+	window []*types.TaskNode,
+	blocks []nodeBlock,
+	validationTargets []string,
+	termSurface func(string) string,
+	prevViolation string,
+	prevStageRetry string,
+	repairs []types.RepairDirective,
+) (string, error) {
 	if len(window) == 0 && len(blocks) == 0 && len(validationTargets) == 0 && prevViolation == "" && prevStageRetry == "" && len(repairs) == 0 {
-		return ""
+		return "", nil
 	}
 	var b strings.Builder
 
@@ -624,6 +658,9 @@ func renderWindowHint(
 	// enforcers raising the same directive surface only once.
 	if mergedRepairs := types.MergeRepairs(repairs); len(mergedRepairs) > 0 {
 		for _, r := range mergedRepairs {
+			if err := ctx.Err(); err != nil {
+				return strings.TrimRight(b.String(), "\n"), err
+			}
 			rendered := r.Render()
 			if rendered == "" {
 				continue
@@ -640,6 +677,9 @@ func renderWindowHint(
 	if len(window) > 0 {
 		b.WriteString("DAG-scheduled investigation window. Cover every node objective below in this dispatch:\n\n")
 		for i, n := range window {
+			if err := ctx.Err(); err != nil {
+				return strings.TrimRight(b.String(), "\n"), err
+			}
 			fmt.Fprintf(&b, "%d. [%s] %s\n", i+1, n.Type, n.Objective)
 			if len(n.SearchHints.KeywordIDs)+len(n.SearchHints.EntityIDs) > 0 {
 				surfaces := make([]string, 0, len(n.SearchHints.KeywordIDs)+len(n.SearchHints.EntityIDs))
@@ -665,12 +705,15 @@ func renderWindowHint(
 	if len(blocks) > 0 {
 		b.WriteString("\nEntry-condition gate: the following nodes are waiting on unmet criteria:\n")
 		for _, bk := range blocks {
+			if err := ctx.Err(); err != nil {
+				return strings.TrimRight(b.String(), "\n"), err
+			}
 			for _, fc := range bk.FailedCriteria {
 				fmt.Fprintf(&b, "  - %s: %s (%s) — %s\n", bk.NodeID, fc.Kind, fc.Expr, fc.Detail)
 			}
 		}
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return strings.TrimRight(b.String(), "\n"), ctx.Err()
 }
 
 // termSurfaceLookup returns a closure that resolves a canonical term
@@ -815,11 +858,19 @@ type hypProgress struct {
 // scheduler already hands to criterion.EvalAll; safe to call from
 // any call site holding a buildEnv result.
 func computeHypProgress(env criterion.Env) hypProgress {
+	p, _ := computeHypProgressContext(context.Background(), env)
+	return p
+}
+
+func computeHypProgressContext(ctx context.Context, env criterion.Env) (hypProgress, error) {
 	if env.IR == nil {
-		return hypProgress{}
+		return hypProgress{}, nil
 	}
 	p := hypProgress{}
 	for _, h := range env.IR.HypothesisSet {
+		if err := ctx.Err(); err != nil {
+			return p, err
+		}
 		if h.Status != types.HypUnknown && h.Status != "" {
 			continue
 		}
@@ -828,12 +879,15 @@ func computeHypProgress(env criterion.Env) hypProgress {
 			continue
 		}
 		for _, c := range h.RequiredEvidence {
+			if err := ctx.Err(); err != nil {
+				return p, err
+			}
 			if criterion.Eval(c, env).Satisfied {
 				p.SatisfiedReqSum++
 			}
 		}
 	}
-	return p
+	return p, ctx.Err()
 }
 
 // equals reports whether two hypProgress fingerprints describe the

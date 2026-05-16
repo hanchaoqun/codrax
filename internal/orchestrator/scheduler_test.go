@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -50,6 +51,15 @@ func TestGraphState_ReadyWindow_MergedInitial(t *testing.T) {
 	window, _ = s.readyExplorerWindow(emptyEnv())
 	if len(window) != 0 {
 		t.Errorf("after marking all done: want empty, got %v", idsOf(window))
+	}
+}
+
+func TestGraphState_ReadyWindowContextCancelled(t *testing.T) {
+	s := newGraphState(smallChainGraph())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := s.readyExplorerWindowContext(ctx, emptyEnv()); err == nil {
+		t.Fatal("readyExplorerWindowContext must report cancellation")
 	}
 }
 
@@ -464,6 +474,15 @@ func TestRenderWindowHint_ValidationTargets(t *testing.T) {
 func TestRenderWindowHint_EmptyAllReturnsEmpty(t *testing.T) {
 	if got := renderWindowHint(nil, nil, nil, func(string) string { return "" }, "", "", nil); got != "" {
 		t.Errorf("empty inputs should yield empty hint; got %q", got)
+	}
+}
+
+func TestRenderWindowHintContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	window := []*types.TaskNode{{ID: "n0", Type: types.NodeProbe, Objective: "scan"}}
+	if _, err := renderWindowHintContext(ctx, window, nil, nil, func(string) string { return "" }, "", "", nil); err == nil {
+		t.Fatal("renderWindowHintContext must report cancellation")
 	}
 }
 
