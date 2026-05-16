@@ -1472,17 +1472,49 @@ func expandInlineReasoningVisualRows(text string) string {
 	if !strings.ContainsAny(text, "┌├└│") {
 		return text
 	}
-	var out []rune
-	out = make([]rune, 0, len(text))
-	var prevNonSpace rune
-	lineHasNonSpace := false
-	for _, r := range text {
-		if r == '\n' {
-			out = append(out, r)
-			prevNonSpace = 0
-			lineHasNonSpace = false
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	inFence := false
+	for _, line := range lines {
+		plain := strings.TrimSpace(stripAnsiEscapes(line))
+		fenceLine := IsMarkdownFenceLine(plain)
+		if inFence || fenceLine || shouldPreserveReasoningVisualRow(line) {
+			out = append(out, line)
+			if fenceLine {
+				inFence = !inFence
+			}
 			continue
 		}
+		out = append(out, expandInlineReasoningVisualLine(line))
+	}
+	return strings.Join(out, "\n")
+}
+
+func shouldPreserveReasoningVisualRow(line string) bool {
+	if !ShouldPreserveVisualLine(line) {
+		return false
+	}
+	plain := strings.TrimLeftFunc(stripAnsiEscapes(line), isUnicodeSpace)
+	if plain == "" {
+		return false
+	}
+	r, _ := utf8.DecodeRuneInString(plain)
+	switch {
+	case r >= 0x2500 && r <= 0x257F:
+		return true
+	case r == '|' || r == '+':
+		return true
+	default:
+		return false
+	}
+}
+
+func expandInlineReasoningVisualLine(line string) string {
+	var out []rune
+	out = make([]rune, 0, len(line))
+	var prevNonSpace rune
+	lineHasNonSpace := false
+	for _, r := range line {
 		split := false
 		switch r {
 		case '┌', '├', '└':

@@ -164,6 +164,51 @@ func TestFormatReasoningPreservesBoxDiagramRows(t *testing.T) {
 	}
 }
 
+func TestReasoningDisplayLinesPreservesFencedWideBoxRows(t *testing.T) {
+	wideRow := "┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌──────────────────┐"
+	lines := reasoningDisplayLines(strings.Join([]string{
+		"before",
+		"```",
+		wideRow,
+		"│ Orchestrator│     │   Explorer Agent│     │  SubAgentRuntime│     │  SubExplorer(SubAgent) │",
+		"```",
+		"after",
+	}, "\n"))
+
+	var found bool
+	for _, line := range lines {
+		if stripAnsiEscapes(line.text) != wideRow {
+			continue
+		}
+		found = true
+		if !line.visual {
+			t.Fatalf("fenced box-drawing row must be visual: %+v", line)
+		}
+	}
+	if !found {
+		t.Fatalf("fenced box-drawing row was split or dropped; got %+v", lines)
+	}
+}
+
+func TestReasoningDisplayLinesPreservesUnfencedWideBoxRows(t *testing.T) {
+	wideRow := "┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐"
+	lines := reasoningDisplayLines("diagram:\n" + wideRow + "\nend")
+
+	var found bool
+	for _, line := range lines {
+		if stripAnsiEscapes(line.text) != wideRow {
+			continue
+		}
+		found = true
+		if !line.visual {
+			t.Fatalf("box-drawing row must be visual: %+v", line)
+		}
+	}
+	if !found {
+		t.Fatalf("box-drawing row was split or dropped; got %+v", lines)
+	}
+}
+
 func TestFormatReasoningSplitsCollapsedInlineBoxRows(t *testing.T) {
 	got := formatReasoning("explorer", types.StageExplore, 1,
 		"调用流程 ┌──┐ │ A │ └──┘", false, "zh")
