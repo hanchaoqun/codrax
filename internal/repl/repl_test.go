@@ -51,6 +51,15 @@ func (r errorRunner) Run(_, _, _ string) (*types.BusContext, error) {
 	return bc, nil
 }
 
+type markdownPathRunner struct{ path string }
+
+func (r markdownPathRunner) Run(_, _, _ string) (*types.BusContext, error) {
+	mut := types.NewMutableState("probe")
+	mut.SetResult("final answer body")
+	mut.SetFinalAnswerMarkdownPath(r.path)
+	return &types.BusContext{Mutable: mut}, nil
+}
+
 // stubSummarizer mirrors the one in internal/memory's tests but is
 // duplicated here so the repl package's tests do not have to import
 // internal test helpers from a sibling package (Go forbids that).
@@ -433,6 +442,67 @@ func renderErrorFromBus(bc *types.BusContext) string {
 		return "\n  error: " + bc.TaskState.LastError + "\n"
 	}
 	return ""
+}
+
+func renderResultFromBus(bc *types.BusContext) string {
+	if bc == nil || bc.Mutable == nil {
+		return ""
+	}
+	return bc.Mutable.Result()
+}
+
+func TestPipelineResponseShowsMarkdownOutputPathWithoutPersistingIt(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	in := strings.NewReader("answer me\n/exit\n")
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:     markdownPathRunner{path: ".codrax/output/20260516-120000.000-42.md"},
+		Store:      store,
+		Render:     renderResultFromBus,
+		RepoRoot:   ".",
+		Branch:     "main",
+		In:         in,
+		Out:        out,
+		Prompt:     ">",
+		PromptCont: ".",
+		Banner:     "test-banner",
+		Language:   "en",
+	})
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	printed := out.String()
+	if !strings.Contains(printed, "Raw Markdown saved: .codrax/output/20260516-120000.000-42.md") {
+		t.Fatalf("markdown path hint missing from REPL output:\n%s", printed)
+	}
+	recent := store.Recent()
+	if len(recent) != 1 {
+		t.Fatalf("expected one persisted turn, got %d", len(recent))
+	}
+	if strings.Contains(recent[0].Response, "Raw Markdown saved") ||
+		strings.Contains(recent[0].Response, ".codrax/output") {
+		t.Fatalf("markdown path hint should not be persisted to memory: %q", recent[0].Response)
+	}
+}
+
+func TestFinalAnswerMarkdownNoticeLocalizes(t *testing.T) {
+	mut := types.NewMutableState("probe")
+	mut.SetFinalAnswerMarkdownPath(".codrax/output/a.md")
+	bus := &types.BusContext{Mutable: mut}
+
+	if got := finalAnswerMarkdownNotice(bus, "zh"); got != "Markdown 原文已保存：.codrax/output/a.md" {
+		t.Fatalf("zh notice = %q", got)
+	}
+	if got := finalAnswerMarkdownNotice(bus, "en"); got != "Raw Markdown saved: .codrax/output/a.md" {
+		t.Fatalf("en notice = %q", got)
+	}
 }
 
 // TestPasteSlashCapturesToPending verifies the /paste command

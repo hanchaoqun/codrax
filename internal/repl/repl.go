@@ -1979,7 +1979,43 @@ func (r *REPL) dispatch(line, display string) {
 	}
 
 	r.renderBordered(response)
+	if hint := finalAnswerMarkdownNotice(busCtx, r.language); hint != "" {
+		r.info(hint)
+	}
 	r.recordTurn(display, line, memResponse, memory.KindPipeline)
+}
+
+func finalAnswerMarkdownNotice(busCtx *types.BusContext, lang string) string {
+	if busCtx == nil || busCtx.Mutable == nil {
+		return ""
+	}
+	path := displayFinalAnswerMarkdownPath(busCtx.Mutable.FinalAnswerMarkdownPath())
+	if path == "" {
+		return ""
+	}
+	if isZh(lang) {
+		return "Markdown 原文已保存：" + path
+	}
+	return "Raw Markdown saved: " + path
+}
+
+func displayFinalAnswerMarkdownPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if !filepath.IsAbs(path) {
+		return path
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return path
+	}
+	rel, err := filepath.Rel(wd, path)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return path
+	}
+	return rel
 }
 
 // renderRichResponse runs `text` through the full presentation

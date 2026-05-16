@@ -91,9 +91,14 @@ type MutableState struct {
 	// diagnostics that contain identifier-like tokens chroma would
 	// otherwise split with ANSI codes. See SetResultPlain doc for
 	// the production-trace context.
-	resultIsPlain   bool
-	requestModel    *RequestModel
-	emittedEvidence []EvidenceItem
+	resultIsPlain bool
+	// finalAnswerMarkdownPath is presentation metadata for the current
+	// Result(): the path to the raw markdown transcript written under
+	// .codrax/output. It is deliberately separate from result so prompt
+	// builders and memory do not treat the file hint as answer content.
+	finalAnswerMarkdownPath string
+	requestModel            *RequestModel
+	emittedEvidence         []EvidenceItem
 	// emittedAnswerSymbols + emittedAnswerSymbolCompleteness are
 	// written as a set via SetEmittedAnswerSymbols and read via
 	// EmittedAnswerSymbolSet (P2.1 Phase 9). The two fields are always
@@ -1314,6 +1319,7 @@ func (m *MutableState) SetResult(s string) {
 	defer m.mu.Unlock()
 	m.result = s
 	m.resultIsPlain = false
+	m.finalAnswerMarkdownPath = ""
 }
 
 // SetResultPlain stores a result string AND marks it as plain text
@@ -1339,6 +1345,7 @@ func (m *MutableState) SetResultPlain(s string) {
 	defer m.mu.Unlock()
 	m.result = s
 	m.resultIsPlain = true
+	m.finalAnswerMarkdownPath = ""
 }
 
 // ResultIsPlain reports whether the current result was stored via
@@ -1352,6 +1359,30 @@ func (m *MutableState) ResultIsPlain() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.resultIsPlain
+}
+
+// SetFinalAnswerMarkdownPath stores the markdown transcript path for the
+// current final answer. The path is presentation metadata, not answer content;
+// renderers may surface it to users, but prompt builders should keep using
+// Result() for the answer body.
+func (m *MutableState) SetFinalAnswerMarkdownPath(path string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.finalAnswerMarkdownPath = strings.TrimSpace(path)
+}
+
+// FinalAnswerMarkdownPath returns the markdown transcript path for the current
+// final answer, or empty when output dumping was disabled or failed.
+func (m *MutableState) FinalAnswerMarkdownPath() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.finalAnswerMarkdownPath
 }
 
 // RequestModel returns a pointer to the analyzer-emitted RequestModel,

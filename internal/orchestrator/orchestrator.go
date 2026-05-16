@@ -5780,7 +5780,7 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 	// the helper logs and swallows every IO error so the dump never
 	// affects the rest of the pipeline.
 	if o.outputDumpDir != "" && o.busCtx.Mutable.AnswerDocumentV2() != nil {
-		writeFinalOutputDump(dumpFinalOutputArgs{
+		if path := writeFinalOutputDump(dumpFinalOutputArgs{
 			dir:      o.outputDumpDir,
 			max:      o.outputDumpMax,
 			request:  types.StripConversationPrefix(o.busCtx.Mutable.Objective()),
@@ -5791,7 +5791,9 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 			traceB:   len(o.attachedHitrace),
 			now:      time.Now(),
 			pid:      os.Getpid(),
-		})
+		}); path != "" {
+			o.busCtx.Mutable.SetFinalAnswerMarkdownPath(path)
+		}
 	}
 
 	o.emit(render.Event{

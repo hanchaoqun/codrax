@@ -34,16 +34,16 @@ type dumpFinalOutputArgs struct {
 
 // writeFinalOutputDump persists the rendered final answer + the user
 // question to <dir>/<timestamp>-<pid>.md and prunes oldest files past
-// the retention cap. Best-effort: every IO error is logged at WARN
-// and swallowed — the dump must never block or alter the user-facing
-// answer path.
-func writeFinalOutputDump(a dumpFinalOutputArgs) {
+// the retention cap. It returns the written path on success. Best-
+// effort: every IO error is logged at WARN and swallowed — the dump
+// must never block or alter the user-facing answer path.
+func writeFinalOutputDump(a dumpFinalOutputArgs) string {
 	if a.dir == "" {
-		return
+		return ""
 	}
 	if err := os.MkdirAll(a.dir, 0o755); err != nil {
 		logging.Warning("[output_dump] mkdir %s failed: %v", a.dir, err)
-		return
+		return ""
 	}
 	pruneOutputDumpDir(a.dir, a.max)
 	name := outputDumpFileName(a.now, a.pid)
@@ -51,9 +51,10 @@ func writeFinalOutputDump(a dumpFinalOutputArgs) {
 	body := buildOutputDumpBody(a)
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		logging.Warning("[output_dump] write %s failed: %v", path, err)
-		return
+		return ""
 	}
 	logging.Info("[output_dump] wrote %s (%d bytes)", path, len(body))
+	return path
 }
 
 // outputDumpFileName returns the canonical filename for a dump,

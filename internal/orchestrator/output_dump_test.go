@@ -139,7 +139,7 @@ func TestPruneOutputDumpDir_ZeroMaxDisabled(t *testing.T) {
 func TestWriteFinalOutputDump_EndToEnd(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "output")
 	now := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
-	writeFinalOutputDump(dumpFinalOutputArgs{
+	gotPath := writeFinalOutputDump(dumpFinalOutputArgs{
 		dir:     dir,
 		max:     10,
 		request: "what does X do",
@@ -148,6 +148,9 @@ func TestWriteFinalOutputDump_EndToEnd(t *testing.T) {
 		pid:     999,
 	})
 	want := filepath.Join(dir, "20260508-120000.000-999.md")
+	if gotPath != want {
+		t.Fatalf("written path = %q, want %q", gotPath, want)
+	}
 	got, err := os.ReadFile(want)
 	if err != nil {
 		t.Fatalf("expected file %s: %v", want, err)
