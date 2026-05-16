@@ -253,6 +253,19 @@ func TestNormalizeEmitAnswerBlock_RejectsInvalidCandidateRole(t *testing.T) {
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_NormalizesCandidateRoleAlias(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID: "b1", Kind: string(types.BlockOrderedList),
+		Items: []emitAnswerBlockItemV2{{ID: "i1", CandidateRole: "interface"}},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("interface alias should normalize instead of reject: %v", err)
+	}
+	if got.Items[0].CandidateRole != types.AnswerCandidateRoleType {
+		t.Fatalf("candidate_role = %q, want type", got.Items[0].CandidateRole)
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_DiagramBodyRequired(t *testing.T) {
 	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID: "b1", Kind: string(types.BlockDiagram),

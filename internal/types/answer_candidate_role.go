@@ -80,11 +80,42 @@ func (r AnswerCandidateRole) IsValid() bool {
 }
 
 func NormalizeAnswerCandidateRole(raw string) (AnswerCandidateRole, bool) {
-	role := AnswerCandidateRole(strings.TrimSpace(raw))
+	role := AnswerCandidateRole(normalizeAnswerCandidateRoleAlias(raw))
 	if !role.IsValid() {
 		return AnswerCandidateRoleUnknown, false
 	}
 	return role, true
+}
+
+func normalizeAnswerCandidateRoleAlias(raw string) string {
+	role := strings.ToLower(strings.TrimSpace(raw))
+	role = strings.ReplaceAll(role, "-", "_")
+	role = strings.Join(strings.Fields(role), "_")
+	switch role {
+	case "interface", "class", "struct", "enum":
+		return string(AnswerCandidateRoleType)
+	case "func", "procedure":
+		return string(AnswerCandidateRoleFunction)
+	case "member_function":
+		return string(AnswerCandidateRoleMethod)
+	case "const":
+		return string(AnswerCandidateRoleConstant)
+	case "var", "local", "parameter", "param":
+		return string(AnswerCandidateRoleVariable)
+	case "property", "prop", "member":
+		return string(AnswerCandidateRoleField)
+	case "module", "namespace":
+		return string(AnswerCandidateRolePackage)
+	case "filepath", "file_path", "path":
+		return string(AnswerCandidateRoleFile)
+	case "import", "import_spec":
+		return string(AnswerCandidateRoleImportPath)
+	case "literal", "value":
+		return string(AnswerCandidateRoleLiteralValue)
+	case "guard":
+		return string(AnswerCandidateRoleGuardCondition)
+	}
+	return role
 }
 
 // AnswerExclusionPolicy is the analyzer-emitted typed lane for current-request

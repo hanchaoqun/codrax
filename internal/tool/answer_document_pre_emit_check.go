@@ -694,11 +694,8 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 					if !preEmitItemCitationAlignedWithContext(pctx, label, item.Text, cit) {
 						continue
 					}
-					if match >= 0 {
-						match = -1
-						break
-					}
 					match = ci
+					break
 				}
 			}
 			if match >= 0 {
@@ -706,7 +703,7 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				fixed++
 				continue
 			}
-			if cit, ok := preEmitUniqueCandidateCitationForItemWithContext(pctx, label, item.Text); ok {
+			if cit, ok := preEmitPreferredCandidateCitationForItemWithContext(pctx, label, item.Text); ok {
 				item.CitationRef = appendOrReusePreEmitCitation(doc, cit)
 				fixed++
 			}
@@ -748,6 +745,23 @@ func preEmitUniqueCandidateCitationForItemWithContext(pctx *preEmitCheckContext,
 		return types.Citation{}, false
 	}
 	return out[0], true
+}
+
+func preEmitPreferredCandidateCitationForItemWithContext(pctx *preEmitCheckContext, label, text string) (types.Citation, bool) {
+	if cit, ok := preEmitUniqueCandidateCitationForItemWithContext(pctx, label, text); ok {
+		return cit, true
+	}
+	for _, loc := range preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, text, 1) {
+		if cit, ok := parsePreEmitCitationLocation(loc); ok {
+			return cit, true
+		}
+	}
+	for _, loc := range preEmitCandidateCitationLocationsForLabelWithContext(pctx, label, 1) {
+		if cit, ok := parsePreEmitCitationLocation(loc); ok {
+			return cit, true
+		}
+	}
+	return types.Citation{}, false
 }
 
 func appendOrReusePreEmitCitation(doc *types.AnswerDocumentV2, cit types.Citation) int {

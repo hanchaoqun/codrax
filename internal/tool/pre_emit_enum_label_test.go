@@ -1010,7 +1010,7 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsQualifiedOwnerMet
 	}
 }
 
-func TestNormalizeItemCitationRefsByUniqueLabelCitation_LeavesAmbiguousCandidate(t *testing.T) {
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsFirstTypedCandidate(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
 			ID:   "agents",
@@ -1060,11 +1060,14 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_LeavesAmbiguousCandidate
 	ctx := &types.BusContext{Mutable: mut}
 
 	fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx)
-	if fixed != 0 {
-		t.Fatalf("ambiguous candidates must not auto-repair, got %d", fixed)
+	if fixed != 1 {
+		t.Fatalf("expected one deterministic typed-candidate repair, got %d", fixed)
 	}
-	if got := doc.Blocks[0].Items[0].CitationRef; got != 2 {
-		t.Fatalf("ambiguous repair changed citation_ref to %d", got)
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref = %d, want first matching typed candidate", got)
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("rebound candidate citation should satisfy alignment, got %v", hints)
 	}
 }
 
