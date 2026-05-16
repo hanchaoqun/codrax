@@ -148,6 +148,13 @@ func GraphFromBusContextOrLoad(ctx *types.BusContext, repoRoot, query string) (*
 	if repoRoot == "" {
 		return nil, fmt.Errorf("repomap: no MultiGraph and empty repoRoot")
 	}
+	if ctx != nil && ctx.RepoRoot != "" {
+		var err error
+		repoRoot, err = resolveRepoMapRootScoped(repoRoot, ctx.RepoRoot, ctx.RepoRoot)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return BuildOrLoadGraph(repoRoot, query)
 }
 
@@ -164,6 +171,13 @@ func GraphFromAgentContextOrLoad(ctx *types.AgentContext, repoRoot, query string
 	}
 	if repoRoot == "" {
 		return nil, fmt.Errorf("repomap: no MultiGraph and empty repoRoot")
+	}
+	if ctx != nil && ctx.RepoRoot != "" {
+		var err error
+		repoRoot, err = resolveRepoMapRootScoped(repoRoot, ctx.RepoRoot, ctx.RepoRoot)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return BuildOrLoadGraph(repoRoot, query)
 }

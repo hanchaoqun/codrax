@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -142,6 +143,10 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 	// multiple active sub-repos. Reached via the
 	// types.MultiRepoActiveSetGater interface so the gate's
 	// implementation in multigraph stays single-source.
+	allowedRoot := ""
+	if ctx != nil && ctx.RepoRoot != "" {
+		allowedRoot = ctx.RepoRoot
+	}
 	if ctx != nil {
 		if gater, ok := ctx.MultiGraph.(ctypes.MultiRepoActiveSetGater); ok && gater != nil {
 			// repo_map points at directories, not single files —
@@ -157,6 +162,9 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 				}, nil
 			}
 			p.Path = gate.ResolvedPath
+			if ctx.RepoRoot != "" && gate.SubRepoRootRel != "" && gate.SubRepoRootRel != "." {
+				allowedRoot = filepath.Join(ctx.RepoRoot, gate.SubRepoRootRel)
+			}
 		}
 	}
 
@@ -166,19 +174,23 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 	// binary. Without resolution, `repo_map(path=".")` scans the codrax
 	// process CWD instead of the user's --repo target — the LLM then
 	// faithfully cites content from the wrong tree (Q2 glamour-vs-codrax
-	// regression). Absolute paths from the LLM are honored as-is; an
-	// empty / "." / relative path is rooted at ctx.RepoRoot.
-	repoRoot := p.Path
+	// regression). Empty / "." / relative paths are rooted at
+	// ctx.RepoRoot; absolute paths are accepted only when they remain
+	// inside the current repository scope. This is a hard safety guard:
+	// a model must not be able to make repo_map scan a parent directory
+	// or an unrelated absolute path, because repo_map can recurse through
+	// very large repositories.
+	repoRoot, err := resolveRepoMapRootScoped(p.Path, "", allowedRoot)
 	if ctx != nil && ctx.RepoRoot != "" {
-		switch {
-		case repoRoot == "" || repoRoot == ".":
-			repoRoot = ctx.RepoRoot
-		case !filepath.IsAbs(repoRoot):
-			repoRoot = filepath.Join(ctx.RepoRoot, repoRoot)
-		}
+		repoRoot, err = resolveRepoMapRootScoped(p.Path, ctx.RepoRoot, allowedRoot)
 	}
-	if repoRoot == "" {
-		repoRoot = "."
+	if err != nil {
+		return ctypes.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   repoMapScopeRefusal(p.Path),
+			Timestamp: time.Now(),
+		}, nil
 	}
 
 	// Build or load the graph
@@ -209,6 +221,111 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func resolveRepoMapRootScoped(requestedPath, sessionRoot, allowedRoot string) (string, error) {
+	repoRoot := requestedPath
+	if sessionRoot != "" {
+		switch {
+		case repoRoot == "" || repoRoot == ".":
+			repoRoot = sessionRoot
+		case !filepath.IsAbs(repoRoot):
+			repoRoot = filepath.Join(sessionRoot, repoRoot)
+		}
+	}
+	if repoRoot == "" {
+		repoRoot = "."
+	}
+	if allowedRoot != "" {
+		if err := ensureRepoMapRootWithin(repoRoot, allowedRoot); err != nil {
+			return "", err
+		}
+	}
+	return repoRoot, nil
+}
+
+func ensureRepoMapRootWithin(targetRoot, allowedRoot string) error {
+	target, err := canonicalRepoMapPath(targetRoot)
+	if err != nil {
+		return err
+	}
+	allowed, err := canonicalRepoMapPath(allowedRoot)
+	if err != nil {
+		return err
+	}
+	if !repoMapPathWithinRoot(allowed, target) {
+		return fmt.Errorf("repo_map path %q resolves outside allowed root %q", targetRoot, allowedRoot)
+	}
+	return nil
+}
+
+func canonicalRepoMapPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("empty path")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	abs = filepath.Clean(abs)
+	if evaluated, evalErr := filepath.EvalSymlinks(abs); evalErr == nil {
+		evalAbs, absErr := filepath.Abs(evaluated)
+		if absErr == nil {
+			abs = filepath.Clean(evalAbs)
+		}
+		return abs, nil
+	}
+	return canonicalRepoMapExistingPrefix(abs), nil
+}
+
+func canonicalRepoMapExistingPrefix(abs string) string {
+	cur := abs
+	var suffix []string
+	for {
+		if evaluated, err := filepath.EvalSymlinks(cur); err == nil {
+			for i := len(suffix) - 1; i >= 0; i-- {
+				evaluated = filepath.Join(evaluated, suffix[i])
+			}
+			evalAbs, err := filepath.Abs(evaluated)
+			if err != nil {
+				return filepath.Clean(evaluated)
+			}
+			return filepath.Clean(evalAbs)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return abs
+		}
+		suffix = append(suffix, filepath.Base(cur))
+		cur = parent
+	}
+}
+
+func repoMapPathWithinRoot(root, target string) bool {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	if filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return true
+}
+
+func repoMapScopeRefusal(requestedPath string) string {
+	display := strings.TrimSpace(requestedPath)
+	if display == "" {
+		display = "."
+	}
+	return fmt.Sprintf(
+		"repo_map refused: path %q resolves outside the current repository scope. "+
+			"repo_map can only scan the configured workspace or active sub-repo; pass `.` "+
+			"or a path under the repository root.",
+		display,
+	)
 }
 
 // BuildOrLoadGraph builds or loads a cached repo graph, ranks files
