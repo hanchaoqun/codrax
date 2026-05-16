@@ -437,6 +437,18 @@ func TestIsCodeIdentitySurface_CrossLanguage(t *testing.T) {
 		"entry point",
 		"foo,bar",
 		"needs?answer",
+		// 2026-05-16 fix: CJK display labels were silently accepted
+		// because Go's unicode.IsLetter is true for CJK ideographs. The
+		// citation-alignment oracle then demanded these labels name a
+		// symbol at the cited file:line, which no Chinese-only label
+		// can satisfy. Pure-CJK and CJK-mixed labels are display prose
+		// in this codebase.
+		"引用锚定",     // citation grounding
+		"自审查机制",   // self-review mechanism
+		"质量门",        // quality gate
+		"Foo 函数",     // mixed: code symbol + CJK prose
+		"Привет",       // Cyrillic
+		"αβγ",          // Greek
 	}
 	for _, surface := range rejected {
 		if IsCodeIdentitySurface(surface) {

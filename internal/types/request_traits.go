@@ -404,6 +404,19 @@ func IsCodeIdentitySurface(s string) bool {
 	}
 	hasAlphaNum := false
 	for _, r := range t {
+		// Non-ASCII characters (CJK / Cyrillic / Greek / emoji …) are
+		// display prose in this codebase's identifier conventions —
+		// Go / TS / Rust / Java / Cangjie / ArkTS code uses ASCII
+		// identifiers in practice, so a token containing any non-ASCII
+		// rune is a user-facing label, not a code identity. Without
+		// this guard, Go's unicode.IsLetter mis-classifies CJK display
+		// labels ("引用锚定", "自审查机制") as code-identity-shaped,
+		// which then triggers the citation-alignment oracle to demand
+		// the label name a symbol at the cited file:line — a
+		// requirement no Chinese-only label can satisfy.
+		if r > unicode.MaxASCII {
+			return false
+		}
 		switch {
 		case unicode.IsLetter(r) || unicode.IsDigit(r):
 			hasAlphaNum = true
