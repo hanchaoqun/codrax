@@ -532,6 +532,13 @@ func subTopicEntityResolvedForCoherence(surface string, rm types.RequestModel, r
 				return true
 			}
 		}
+		if repor, ok := resolver.(interface {
+			LookupRepoSurface(string) []normalizer.SymbolHit
+		}); ok {
+			if hits := repor.LookupRepoSurface(trimmed); len(hits) > 0 {
+				return true
+			}
+		}
 	}
 	if subTopicEntityMentionedByCurrentRequest(trimmed, rm) {
 		return true

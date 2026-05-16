@@ -134,6 +134,18 @@ func (r *repomapSymbolResolver) LookupFileSurface(surface string) []normalizer.S
 	return lookupFileSurfaceInGraph(surface, r.graph)
 }
 
+// LookupRepoSurface resolves non-symbol repo surfaces such as package names,
+// directory names, and unique file stems. These surfaces are valid analyzer
+// anchors for cross-language architecture questions, but they deliberately stay
+// outside LookupSymbol so downstream code does not mistake them for declared
+// identifiers.
+func (r *repomapSymbolResolver) LookupRepoSurface(surface string) []normalizer.SymbolHit {
+	if r == nil || r.graph == nil || len(r.graph.FileIndex) == 0 {
+		return nil
+	}
+	return lookupRepoSurfaceInGraph(surface, r.graph)
+}
+
 // roleSuffixCanonicalLowers is the canonical list of role-naming
 // suffixes that the LookupSymbolStem fallback strips before
 // stem-substring matching. The list captures common conceptual
@@ -400,6 +412,43 @@ func lookupFileSurfaceInGraph(surface string, g *repomap.Graph) []normalizer.Sym
 	return []normalizer.SymbolHit{{Canonical: matchPath, Domain: fileInfoDomain(matchPath, matchInfo)}}
 }
 
+func lookupRepoSurfaceInGraph(surface string, g *repomap.Graph) []normalizer.SymbolHit {
+	if g == nil || len(g.FileIndex) == 0 {
+		return nil
+	}
+	query := normalizeFileSurfaceForResolver(strings.Trim(surface, "`'\" "))
+	if query == "" || query == "." || strings.Contains(query, "..") {
+		return nil
+	}
+	if coretypes.HasCodeOrConfigPathSuffix(query) {
+		return lookupFileSurfaceInGraph(query, g)
+	}
+	target := normalizer.NormalizeCodeKey(repoSurfaceLeaf(query))
+	if len(target) < stemSuffixFloor {
+		return nil
+	}
+	hits := make(map[string]normalizer.SymbolHit)
+	for rel, fi := range g.FileIndex {
+		for _, cand := range repoSurfaceCandidatesForFile(query, target, rel, fi) {
+			canon := cand.Canonical
+			if canon == "" {
+				continue
+			}
+			hits[canon] = normalizer.SymbolHit{
+				Canonical: canon,
+				Domain:    fileInfoDomain(cand.DomainRel, fi),
+			}
+			if len(hits) > 1 {
+				return nil
+			}
+		}
+	}
+	for _, hit := range hits {
+		return []normalizer.SymbolHit{hit}
+	}
+	return nil
+}
+
 func normalizeFileSurfaceForResolver(surface string) string {
 	s := strings.TrimSpace(strings.ReplaceAll(surface, "\\", "/"))
 	for strings.HasPrefix(s, "./") {
@@ -407,6 +456,118 @@ func normalizeFileSurfaceForResolver(surface string) string {
 	}
 	s = strings.TrimPrefix(s, "/")
 	return path.Clean(s)
+}
+
+type repoSurfaceCandidate struct {
+	Canonical string
+	DomainRel string
+}
+
+func repoSurfaceCandidatesForFile(query, target, rel string, fi *rmtypes.FileInfo) []repoSurfaceCandidate {
+	rel = normalizeFileSurfaceForResolver(rel)
+	if rel == "" || rel == "." {
+		return nil
+	}
+	if fi != nil {
+		if canon, ok := repoSurfacePackageCanonical(query, target, fi.Package); ok {
+			return []repoSurfaceCandidate{{Canonical: canon, DomainRel: rel}}
+		}
+	}
+	var out []repoSurfaceCandidate
+	add := func(canon string) {
+		canon = strings.TrimSpace(canon)
+		if canon == "" || canon == "." {
+			return
+		}
+		out = append(out, repoSurfaceCandidate{Canonical: canon, DomainRel: rel})
+	}
+	if canon, ok := repoSurfaceDirCanonical(query, rel); ok {
+		add(canon)
+	}
+	if !strings.Contains(query, "/") && !strings.Contains(query, ".") {
+		stem := strings.TrimSuffix(path.Base(rel), path.Ext(rel))
+		if normalizer.NormalizeCodeKey(stem) == target {
+			add(rel)
+		}
+	}
+	return dedupeRepoSurfaceCandidates(out)
+}
+
+func repoSurfaceLeaf(query string) string {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return ""
+	}
+	if strings.Contains(query, "/") {
+		return path.Base(query)
+	}
+	if idx := strings.LastIndex(query, "."); idx >= 0 && idx+1 < len(query) {
+		return query[idx+1:]
+	}
+	return query
+}
+
+func repoSurfaceDirCanonical(query, rel string) (string, bool) {
+	dir := path.Dir(rel)
+	if dir == "" || dir == "." {
+		return "", false
+	}
+	if strings.Contains(query, "/") {
+		if dir == query || strings.HasSuffix(dir, "/"+query) {
+			return dir, true
+		}
+		return "", false
+	}
+	if strings.Contains(query, ".") {
+		return "", false
+	}
+	target := normalizer.NormalizeCodeKey(query)
+	parts := strings.Split(dir, "/")
+	for i, part := range parts {
+		if normalizer.NormalizeCodeKey(part) != target {
+			continue
+		}
+		return strings.Join(parts[:i+1], "/"), true
+	}
+	return "", false
+}
+
+func repoSurfacePackageCanonical(query, target, pkg string) (string, bool) {
+	pkg = strings.TrimSpace(pkg)
+	if pkg == "" {
+		return "", false
+	}
+	pkgNorm := normalizer.NormalizeCodeKey(pkg)
+	queryNorm := normalizer.NormalizeCodeKey(query)
+	if strings.Contains(query, ".") {
+		if pkgNorm == queryNorm || strings.HasSuffix(pkgNorm, queryNorm) {
+			return pkg, true
+		}
+		return "", false
+	}
+	for _, part := range strings.Split(pkg, ".") {
+		if normalizer.NormalizeCodeKey(part) == target {
+			return pkg, true
+		}
+	}
+	return "", false
+}
+
+func dedupeRepoSurfaceCandidates(in []repoSurfaceCandidate) []repoSurfaceCandidate {
+	if len(in) <= 1 {
+		return in
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]repoSurfaceCandidate, 0, len(in))
+	for _, c := range in {
+		key := c.Canonical
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, c)
+	}
+	return out
 }
 
 func fileSurfaceMatches(query, rel string) bool {
@@ -563,6 +724,53 @@ func (r *multiRepoSymbolResolver) LookupFileSurface(surface string) []normalizer
 		return nil
 	}
 	return []normalizer.SymbolHit{{Canonical: matchCanon, Domain: fileSurfaceDomain(matchCanon, matchInfo, matchSub)}}
+}
+
+// LookupRepoSurface is the multi-repo counterpart to
+// repomapSymbolResolver.LookupRepoSurface. It accepts only unique repo
+// package/directory/file-stem surfaces across the active set; ambiguous
+// surfaces return nil so analyzer hard gates stay precise.
+func (r *multiRepoSymbolResolver) LookupRepoSurface(surface string) []normalizer.SymbolHit {
+	if r == nil || r.mg == nil {
+		return nil
+	}
+	query := normalizeFileSurfaceForResolver(strings.Trim(surface, "`'\" "))
+	if query == "" || query == "." || strings.Contains(query, "..") {
+		return nil
+	}
+	if coretypes.HasCodeOrConfigPathSuffix(query) {
+		return r.LookupFileSurface(query)
+	}
+	target := normalizer.NormalizeCodeKey(repoSurfaceLeaf(query))
+	if len(target) < stemSuffixFloor {
+		return nil
+	}
+	hits := make(map[string]normalizer.SymbolHit)
+	r.mg.IterateFileIndex(func(internalRel string, fi *rmtypes.FileInfo, sub *topology.SubRepo) bool {
+		for _, cand := range repoSurfaceCandidatesForFile(query, target, internalRel, fi) {
+			canon := cand.Canonical
+			if canon == "" {
+				continue
+			}
+			if !strings.Contains(canon, ".") || strings.Contains(canon, "/") {
+				canon = multigraph.SubRepoRelPath(sub, canon)
+			} else if sub != nil && strings.TrimSpace(sub.RootRel) != "" && sub.RootRel != "." {
+				canon = strings.TrimSpace(sub.RootRel) + ":" + canon
+			}
+			hits[canon] = normalizer.SymbolHit{
+				Canonical: canon,
+				Domain:    fileSurfaceDomain(multigraph.SubRepoRelPath(sub, cand.DomainRel), fi, sub),
+			}
+			if len(hits) > 1 {
+				return false
+			}
+		}
+		return true
+	})
+	for _, hit := range hits {
+		return []normalizer.SymbolHit{hit}
+	}
+	return nil
 }
 
 func fileSurfaceDomain(rel string, fi *rmtypes.FileInfo, sub *topology.SubRepo) string {

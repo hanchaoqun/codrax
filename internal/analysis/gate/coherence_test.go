@@ -14,9 +14,10 @@ import (
 // the keys in the `byEntity` map (callers should pre-sort if order
 // matters; no test today depends on iteration order beyond presence).
 type fakeSymbolResolver struct {
-	byEntity map[string][]normalizer.SymbolHit
-	byFile   map[string][]normalizer.SymbolHit
-	byAlias  map[string][]normalizer.SymbolHit
+	byEntity      map[string][]normalizer.SymbolHit
+	byFile        map[string][]normalizer.SymbolHit
+	byAlias       map[string][]normalizer.SymbolHit
+	byRepoSurface map[string][]normalizer.SymbolHit
 }
 
 func (f *fakeSymbolResolver) LookupSymbol(surface string) []normalizer.SymbolHit {
@@ -44,6 +45,16 @@ func (f *fakeSymbolResolver) LookupSymbolActionAlias(surface string) []normalize
 		return nil
 	}
 	if hits, ok := f.byAlias[strings.TrimSpace(surface)]; ok {
+		return hits
+	}
+	return nil
+}
+
+func (f *fakeSymbolResolver) LookupRepoSurface(surface string) []normalizer.SymbolHit {
+	if f == nil {
+		return nil
+	}
+	if hits, ok := f.byRepoSurface[strings.TrimSpace(surface)]; ok {
 		return hits
 	}
 	return nil
@@ -473,6 +484,46 @@ func TestSubtopicCoherence_R1_5_FileSurfaceEntitiesResolve(t *testing.T) {
 	check := checkSubtopicCoherence(ir, resolver)
 	if !check.Passed {
 		t.Fatalf("R1.5 must accept file-surface entities resolved by FileIndex; got %+v", check)
+	}
+	if strings.Contains(check.Detail, "R1.5") {
+		t.Fatalf("detail must not include an R1.5 hard-fail; got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_5_RepoDirectorySurfaceEntitiesResolve(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"notifyProcessStateChanged": {{Canonical: "notifyProcessStateChanged", Domain: "am"}},
+			"HwServiceExFactory":        {{Canonical: "HwServiceExFactory", Domain: "server"}},
+		},
+		byRepoSurface: map[string][]normalizer.SymbolHit{
+			"ancoproxy": {{Canonical: "frameworks/base/services/core/java/com/android/server/am/ancoproxy", Domain: "ancoproxy"}},
+		},
+	}
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCrossComponent: true},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"IAncoActivityManager", "AncoProcessData", "ancoproxy", "HwServiceExFactory"},
+		},
+		SubTopics: []types.SubTopic{
+			{
+				Summary:  "东湖感知机制的核心接口和数据载体分析",
+				Entities: []string{"IAncoActivityManager", "ancoproxy", "AncoProcessData"},
+			},
+			{
+				Summary:  "callback dispatch",
+				Entities: []string{"notifyProcessStateChanged"},
+			},
+			{
+				Summary:  "service factory integration",
+				Entities: []string{"HwServiceExFactory"},
+			},
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	check := checkSubtopicCoherence(ir, resolver)
+	if !check.Passed {
+		t.Fatalf("R1.5 must accept repo directory/package surfaces as typed grounding, got %+v", check)
 	}
 	if strings.Contains(check.Detail, "R1.5") {
 		t.Fatalf("detail must not include an R1.5 hard-fail; got %q", check.Detail)

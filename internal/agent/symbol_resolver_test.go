@@ -191,6 +191,44 @@ func TestSymbolResolver_LookupFileSurface_AmbiguousBasenameReturnsNil(t *testing
 	}
 }
 
+func TestSymbolResolver_LookupRepoSurface_DirectoryAndPackage(t *testing.T) {
+	g := makeGraph(nil, map[string]*repomap.FileInfo{
+		"frameworks/base/services/core/java/com/android/server/am/ancoproxy/AncoActivityManagerService.java": {
+			RelPath: "frameworks/base/services/core/java/com/android/server/am/ancoproxy/AncoActivityManagerService.java",
+			Package: "com.android.server.am.ancoproxy",
+		},
+		"frameworks/base/services/core/java/com/android/server/am/ancoproxy/AncoProcessData.java": {
+			RelPath: "frameworks/base/services/core/java/com/android/server/am/ancoproxy/AncoProcessData.java",
+			Package: "com.android.server.am.ancoproxy",
+		},
+	})
+	r := newRepomapSymbolResolver(g).(interface {
+		LookupRepoSurface(string) []normalizer.SymbolHit
+	})
+	for _, query := range []string{"ancoproxy", "com.android.server.am.ancoproxy", "AncoProcessData"} {
+		hits := r.LookupRepoSurface(query)
+		if len(hits) != 1 {
+			t.Fatalf("LookupRepoSurface(%q) hits=%d, want 1", query, len(hits))
+		}
+		if hits[0].Domain != "com.android.server.am.ancoproxy" {
+			t.Fatalf("LookupRepoSurface(%q) domain=%q, want package domain", query, hits[0].Domain)
+		}
+	}
+}
+
+func TestSymbolResolver_LookupRepoSurface_AmbiguousDirectoryReturnsNil(t *testing.T) {
+	g := makeGraph(nil, map[string]*repomap.FileInfo{
+		"services/a/common/Foo.java": {RelPath: "services/a/common/Foo.java"},
+		"services/b/common/Bar.java": {RelPath: "services/b/common/Bar.java"},
+	})
+	r := newRepomapSymbolResolver(g).(interface {
+		LookupRepoSurface(string) []normalizer.SymbolHit
+	})
+	if hits := r.LookupRepoSurface("common"); len(hits) != 0 {
+		t.Fatalf("ambiguous repo surface must not become a hard gate signal; got %+v", hits)
+	}
+}
+
 func TestSymbolResolver_EmptySurface(t *testing.T) {
 	g := makeGraph(map[string][]*repomap.Symbol{
 		"Blob": {{Name: "Blob", File: "internal/types/context.go"}},
