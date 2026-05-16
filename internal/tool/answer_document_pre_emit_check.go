@@ -286,6 +286,17 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 		hints = append(hints, h...)
 	}
 
+	// 2026-05-16 (Fix 1) — multi-repo inactive-scope disclosure.
+	// When typed BusContext.PendingSubRepos is non-empty AND the
+	// answer is bounded (absent exact target, empty role-locate
+	// slate, or scope-limited enumeration), the answer MUST
+	// disclose the inactive scope. Pre-emit catches this same
+	// dispatch so the model rewrites with disclosure instead of
+	// burning a retry round.
+	if h := preCheckInactiveScopeDisclosure(doc, ctxOpt...); len(h) > 0 {
+		hints = append(hints, h...)
+	}
+
 	// 5d. Model-authored scalar aggregate preservation. A scalar_value
 	// aggregate fact is an explicit typed handoff from exploration, not
 	// scratchpad prose; the finalizer must carry the value into visible
@@ -1155,6 +1166,44 @@ func nextPrincipalSupportMemberItemID(block types.AnswerBlock, ob types.AnswerSu
 			return id
 		}
 	}
+}
+
+// preCheckInactiveScopeDisclosure is the pre-emit (same-dispatch)
+// twin of the orchestrator's validateInactiveScopeDisclosure. It
+// fires the disclosure obligation before the rejection round so the
+// finalizer can revise the doc and re-emit, saving a retry round.
+//
+// Activation is identical (typed BusContext + RequestModel + doc
+// state). Returns an emitFixHint when disclosure is required and
+// missing; nil otherwise.
+func preCheckInactiveScopeDisclosure(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil {
+		return nil
+	}
+	obligation := types.BuildInactiveScopeDisclosureObligationFromBus(ctxOpt[0], doc)
+	if !obligation.Active() {
+		return nil
+	}
+	if types.AnswerDocumentDisclosesInactiveScope(doc, obligation) {
+		return nil
+	}
+	subject := obligation.RequestedSubject
+	if subject == "" {
+		subject = "the requested target"
+	}
+	pendingList := strings.Join(obligation.PendingRootRels, ", ")
+	expected := fmt.Sprintf(
+		"the multi-repo workspace has inactive sub-repos (%s) and this answer is bounded by the active set. Disclose the inactive scope: either set `scope_disclosure` on a caveat/decision block to inactive_scope_named / out_of_active_scope / requires_workspace_adjust, or name at least one inactive sub-repo RootRel (one of: %s) verbatim in a principal block / caveat.",
+		pendingList, pendingList,
+	)
+	return []emitFixHint{{
+		Field:         "blocks[].scope_disclosure OR blocks[].text/items[].label",
+		ExpectedShape: expected,
+		Reason: fmt.Sprintf(
+			"the user-mentioned subject %q has no resolution in the active scope; it may live in an inactive sub-repo. Silently treating this as global absence misleads the operator who can fix it by adjusting the active set.",
+			subject,
+		),
+	}}
 }
 
 func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {

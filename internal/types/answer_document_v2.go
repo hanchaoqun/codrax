@@ -143,6 +143,18 @@ type AnswerBlock struct {
 	// typed field instead of inferring the verdict from decision prose.
 	CurrentStatusVerdict CurrentStatusVerdict `json:"current_status_verdict,omitempty"`
 
+	// ScopeDisclosure is the canonical typed channel that declares why
+	// a principal answer is bounded by the active sub-repo set in a
+	// multi-repo workspace. When the typed
+	// InactiveScopeDisclosureObligation is required (see
+	// internal/types/inactive_scope_disclosure.go), at least one block
+	// in the rendered AnswerDocumentV2 must carry a non-Unknown value
+	// here, OR the visible answer surface must name an inactive
+	// RootRel token directly. Validators consume this typed field
+	// instead of scanning decision/caveat prose for active/inactive
+	// scope keywords.
+	ScopeDisclosure ScopeDisclosureKind `json:"scope_disclosure,omitempty"`
+
 	// Items is the collection for OrderedList / BulletList / Table.
 	// For Table, each AnswerBlockItem is one ROW; the Label field
 	// becomes the row header and the Text field carries the row's

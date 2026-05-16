@@ -336,6 +336,18 @@ var (
 	// so the PipelineFinalizeRepairHardCap yaml override has a
 	// distinct cmd-side seam.
 	finalizeRepairHardCap = 2
+
+	// 2026-05-16: deterministic exhaustive member-set review
+	// threshold. -1 → orchestrator falls back to
+	// types.ExhaustiveMemberSetDefaultThreshold (30). 0 disables.
+	// yaml override: pipeline_exhaustive_deterministic_review_threshold.
+	exhaustiveDeterministicReviewThreshold = -1
+
+	// 2026-05-16: per-reviewer wall-budget fraction. 0 keeps legacy
+	// unguarded behaviour; default 0.4 from yaml gives each
+	// reviewer at most 40% of remaining wall before the deadline
+	// guard downgrades it to advisory.
+	reviewerWallBudgetFraction = 0.4
 )
 
 // maxAttachedTraceBytes is the live cap for the perf-channel
@@ -2129,6 +2141,17 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineFinalizeRepairHardCap != nil {
 			finalizeRepairHardCap = *rs.PipelineFinalizeRepairHardCap
 		}
+		// 2026-05-16 — deterministic exhaustive member-set review.
+		// nil → types.ExhaustiveMemberSetDefaultThreshold (30).
+		// 0  → deterministic path disabled.
+		if rs.PipelineExhaustiveDeterministicReviewThreshold != nil {
+			exhaustiveDeterministicReviewThreshold = *rs.PipelineExhaustiveDeterministicReviewThreshold
+		}
+		// 2026-05-16 — per-reviewer wall budget fraction.
+		// nil → 0.4 default kept; 0 disables the deadline guard.
+		if rs.PipelineReviewerWallBudgetFraction != nil {
+			reviewerWallBudgetFraction = *rs.PipelineReviewerWallBudgetFraction
+		}
 		extraSoft := append([]string{}, rs.PipelineContractSoftKinds...)
 		extraStrict := append([]string{}, rs.PipelineContractStrictKinds...)
 		if selfConsistencyEnabled && selfConsistencyRewrite {
@@ -2964,6 +2987,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// PipelineFinalizeRepairHardCap above). Pass 0 → orchestrator
 	// falls back to FinalizeRepairHardCapDefault (2).
 	orch.SetFinalizeRepairHardCap(finalizeRepairHardCap)
+	// 2026-05-16 — deterministic exhaustive member-set review
+	// threshold. Negative → orchestrator uses types default (30).
+	orch.SetExhaustiveDeterministicReviewThreshold(exhaustiveDeterministicReviewThreshold)
+	// 2026-05-16 — per-reviewer wall budget fraction.
+	orch.SetReviewerWallBudgetFraction(reviewerWallBudgetFraction)
 	// Reflexion-pattern critic. Resolved above; nil-safe inside
 	// orchestrator (clearForReplan falls back to heuristic-only hint
 	// when adapter is missing). Tied to the same retry-budget knob —

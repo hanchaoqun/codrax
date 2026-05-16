@@ -734,6 +734,20 @@ func init() {
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 	RegisterViolKind(ViolKindSpec{
+		Kind: ViolExhaustiveMemberSetCoverageDrift, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyEnumerationDepth,
+		FixableByAgents: []AgentName{AgentFinalizer},
+		SchemaDescriptionFragment: "For exhaustive principal member sets above the large-set threshold, the rendered list/table items MUST match the model-authored member_set: every member appears as exactly one item label, no extra items, citation_ref values are unique and in range.",
+	})
+	RegisterViolKind(ViolKindSpec{
+		Kind: ViolInactiveScopeDisclosureMissing, DefaultSeverity: SeverityMedium,
+		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		Layer: "contract_check", CaveatFamilyID: CaveatFamilyAnswerCoverage,
+		FixableByAgents: []AgentName{AgentFinalizer},
+		SchemaDescriptionFragment: "When a multi-repo workspace has inactive sub-repos AND the answer is bounded (absent exact target, empty role-locate slate, or scope-limited enumeration), the answer MUST disclose the inactive scope: either set a block's scope_disclosure to inactive_scope_named / out_of_active_scope / requires_workspace_adjust, or name at least one inactive RootRel (path or basename) verbatim in the visible answer.",
+	})
+	RegisterViolKind(ViolKindSpec{
 		Kind: ViolEnumerationEvidenceUnderspecified, DefaultSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "evidence_pool", CaveatFamilyID: CaveatFamilyEnumerationDepth,

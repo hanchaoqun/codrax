@@ -71,6 +71,7 @@ type emitAnswerBlockV2 struct {
 	Caveat                  string                    `json:"caveat,omitempty"`
 	ErrorGranularityVerdict string                    `json:"error_granularity_verdict,omitempty"`
 	CurrentStatusVerdict    string                    `json:"current_status_verdict,omitempty"`
+	ScopeDisclosure         string                    `json:"scope_disclosure,omitempty"`
 	Items                   []emitAnswerBlockItemV2   `json:"items,omitempty"`
 	Diagram                 *emitAnswerDiagramV2      `json:"diagram,omitempty"`
 	ClaimUses               []types.RenderedClaimUse  `json:"claim_uses,omitempty"`

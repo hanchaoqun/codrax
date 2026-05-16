@@ -264,6 +264,8 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	types.ViolStructuralEnumerationDivergence:    "uses violation.Repair for fix prose",
 	types.ViolLaneBlockKindMismatch:              "uses violation.Repair for fix prose (validator emits per-block lane attribution + AllowedBlocks set)",
 	types.ViolPrincipalSupportMemberOmitted:      "uses violation.Repair for fix prose (validator emits omitted support member label + exact citation location)",
+	types.ViolExhaustiveMemberSetCoverageDrift:   "uses violation.Repair for fix prose (deterministic reviewer stamps per-failure-mode repair: missing members list, unexpected items list, duplicate/invalid citation_ref values)",
+	types.ViolInactiveScopeDisclosureMissing:     "uses violation.Repair for fix prose (validator stamps pending RootRel list + the typed scope_disclosure / inline-mention options to satisfy the obligation)",
 	types.ViolRichnessRegression:                 "uses violation.Repair for fix prose",
 	types.ViolValueSecondaryCitationOffFocus:     "uses violation.Repair for fix prose",
 

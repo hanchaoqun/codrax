@@ -370,6 +370,15 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decision normalize failed: %v", err)
 	}
+	scopeGot, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:              "c1",
+		Kind:            string(types.BlockCaveat),
+		Text:            "active set excludes repo-tools-py",
+		ScopeDisclosure: string(types.ScopeDisclosureInactiveScopeNamed),
+	}, "blocks[2]")
+	if err != nil {
+		t.Fatalf("scope disclosure normalize failed: %v", err)
+	}
 	// Per-field lock: every emitAnswerBlockV2 input field must surface
 	// a corresponding non-zero typed field. When a new field is added
 	// to emitAnswerBlockV2, fixturise it above AND extend this map.
@@ -389,6 +398,9 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		},
 		"CurrentStatusVerdict": func() bool {
 			return decisionGot.CurrentStatusVerdict == types.CurrentStatusFixed
+		},
+		"ScopeDisclosure": func() bool {
+			return scopeGot.ScopeDisclosure == types.ScopeDisclosureInactiveScopeNamed
 		},
 	}
 	for name, check := range checks {

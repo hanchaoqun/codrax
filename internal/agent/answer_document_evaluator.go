@@ -430,6 +430,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "inactive_scope_disclosure", func() string {
+		return renderAnswerDocInactiveScopeDisclosure(ctx)
+	}) {
+		return b.String()
+	}
 	renderedTypedSupport := false
 	var support string
 	if !trace.runSection("support_plan", func() {

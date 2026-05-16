@@ -242,6 +242,17 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 						return validatePrincipalSupportMemberCoverage(docV2, supportPlan)
 					})...)
 			}
+			// 2026-05-16 — inactive scope disclosure (Fix 1).
+			// Multi-repo workspaces with at least one inactive sub-repo
+			// MUST disclose the boundary when the answer is bounded
+			// (absent exact target, empty role-locate slate, etc.).
+			// The obligation reads only typed BusContext.PendingSubRepos
+			// + RequestModel + AnswerDocumentV2; single-repo posture
+			// and full-coverage answers short-circuit cleanly.
+			result.Violations = append(result.Violations,
+				trace.run("inactive_scope_disclosure", func() []types.Violation {
+					return validateInactiveScopeDisclosure(docV2, o.busCtx)
+				})...)
 			// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 			// enumeration evidence pool structural gate. Fires when
 			// the user's question states an explicit count N AND the
@@ -337,10 +348,36 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	// (BlockOrderedList / BlockBulletList / BlockSection / etc.);
 	// gated by reviewer presence, dispatch-eligibility (sufficient
 	// summary text + body items), and self-rated confidence floor.
-	if o != nil && o.selfConsistencyReviewer != nil && mut != nil {
+	// 2026-05-16 — deterministic exhaustive member-set short-circuit.
+	// When the model has emitted a typed `aggregate_facts.member_set`
+	// with value==len(members) and len(members) >= threshold (default
+	// 30), self-consistency + semantic-quality LLM reviewers are
+	// replaced by a deterministic O(N) structural check. The check
+	// reads only typed item labels + citation indices vs the
+	// model-authored member set; no prose scan, no LLM call.
+	//
+	// Forensic anchor: u8b (94 enum types) timed out at 1201s in
+	// the post-emit reviewer pair while the answer was substantively
+	// correct. Deterministic path replaces them when applicable.
+	deterministicReviewerHandled := false
+	if mut != nil {
+		if docV2 := mut.AnswerDocumentV2(); docV2 != nil {
+			if violations, handled := o.runDeterministicExhaustiveMemberSetReview(docV2, mut); handled {
+				result.Violations = append(result.Violations, violations...)
+				deterministicReviewerHandled = true
+			}
+		}
+	}
+
+	if !deterministicReviewerHandled && o != nil && o.selfConsistencyReviewer != nil && mut != nil {
 		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && shouldReviewConsistencyV2(docV2) {
+			fraction := o.reviewerWallBudgetFractionValue()
+			parent := o.reviewerDispatchContext()
 			result.Violations = append(result.Violations,
-				o.runSelfConsistencyReviewV2(docV2, mut)...)
+				runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, fraction,
+					func(context.Context) []types.Violation {
+						return o.runSelfConsistencyReviewV2(docV2, mut)
+					})...)
 		}
 	}
 
@@ -349,11 +386,16 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	// only sees answers that already passed prose-coherence; gated on
 	// hard-facet-violation absence so we don't double-noise on
 	// already-failing answers.
-	if o != nil && o.semanticQualityReviewer != nil && mut != nil {
+	if !deterministicReviewerHandled && o != nil && o.semanticQualityReviewer != nil && mut != nil {
 		if docV2 := mut.AnswerDocumentV2(); docV2 != nil &&
 			shouldReviewSemanticQuality(docV2, result.Violations) {
+			fraction := o.reviewerWallBudgetFractionValue()
+			parent := o.reviewerDispatchContext()
 			result.Violations = append(result.Violations,
-				o.runSemanticQualityReview(docV2, mut)...)
+				runReviewerWithDeadline(parent, reviewerSlotSemanticQuality, fraction,
+					func(context.Context) []types.Violation {
+						return o.runSemanticQualityReview(docV2, mut)
+					})...)
 		}
 	}
 

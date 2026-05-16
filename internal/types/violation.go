@@ -425,6 +425,40 @@ const (
 	// Stage="finalize". Layer="v2_oracle".
 	ViolCurrentStatusVerdictMissing ViolationKind = "current_status_verdict_missing"
 
+	// ViolExhaustiveMemberSetCoverageDrift fires when a typed
+	// exhaustive aggregate fact (kind=member_set, value==len(members))
+	// is the principal answer slate, but the rendered AnswerDocumentV2
+	// principal list/table is structurally inconsistent with the
+	// model-authored member set: some declared members do not appear
+	// as item.labels, additional unexpected items appear, citation_ref
+	// values are duplicated, or citation_ref points outside the
+	// emitted citations[] pool.
+	//
+	// This is a deterministic structural failure detected without an
+	// LLM dispatcher. It activates only above the large-set threshold
+	// (pipeline_exhaustive_deterministic_review_threshold, default 30)
+	// where the cost of self-consistency + semantic-quality LLM
+	// reviewers exceeds wall-time budget. Below the threshold, the
+	// existing LLM reviewers stay in charge.
+	// Stage="finalize". Layer="contract_check".
+	ViolExhaustiveMemberSetCoverageDrift ViolationKind = "exhaustive_member_set_coverage_drift"
+
+	// ViolInactiveScopeDisclosureMissing fires when a multi-repo
+	// answer is bounded by the active sub-repo set (absent exact
+	// resolution, empty role-locate slate, or scope-limited
+	// enumeration) AND the rendered AnswerDocumentV2 does not
+	// disclose the inactive sub-repos to the user. The typed
+	// contract requires EITHER a block with scope_disclosure set
+	// to a non-empty value, OR a visible RootRel token (full path
+	// or basename) in any block surface.
+	//
+	// Activation is purely typed: BusContext.PendingSubRepos +
+	// RequestModel.Intent / Predicates + AnswerDocumentV2.
+	// ExactResolution.Status + principal-slate emptiness. Single-
+	// repo posture and full-coverage answers short-circuit cleanly.
+	// Stage="finalize". Layer="contract_check".
+	ViolInactiveScopeDisclosureMissing ViolationKind = "inactive_scope_disclosure_missing"
+
 	// ViolRichnessGlaringGap fires when an Optional facet is
 	// flagged as EnrichmentGlaring AND has typed-evidence support
 	// (len(SourceCandidate) >= family threshold) AND the rendered V2
@@ -963,6 +997,8 @@ func AllViolationKinds() []ViolationKind {
 		ViolAnswerSemanticUnderfilled,
 		ViolAnswerTopicMismatch,
 		ViolCurrentStatusVerdictMissing,
+		ViolExhaustiveMemberSetCoverageDrift,
+		ViolInactiveScopeDisclosureMissing,
 		// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 		// enumeration evidence underspecification structural gate.
 		ViolEnumerationEvidenceUnderspecified,

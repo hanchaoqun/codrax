@@ -97,6 +97,14 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		}
 		blk.CurrentStatusVerdict = verdict
 	}
+	if raw.ScopeDisclosure != "" {
+		disclosure, ok := types.NormalizeScopeDisclosureKind(raw.ScopeDisclosure)
+		if !ok || disclosure == types.ScopeDisclosureUnknown {
+			return types.AnswerBlock{}, fmt.Errorf("%s: scope_disclosure=%q is not a valid scope disclosure kind",
+				fieldPath, raw.ScopeDisclosure)
+		}
+		blk.ScopeDisclosure = disclosure
+	}
 	if blk.SurfaceRole != "" {
 		if _, ok := types.NormalizeSurfaceRole(string(blk.SurfaceRole)); !ok {
 			return types.AnswerBlock{}, fmt.Errorf("%s: surface_role=%q is not a valid surface role",

@@ -289,6 +289,20 @@ type Orchestrator struct {
 	// without changing the typical-case behaviour.
 	finalizeRepairHardCap int
 
+	// exhaustiveDeterministicReviewThreshold (2026-05-16) is the
+	// principal-member-count above which the deterministic
+	// exhaustive member-set reviewer replaces self-consistency +
+	// semantic-quality LLM dispatchers. Resolved from
+	// codrax.yaml :: pipeline_exhaustive_deterministic_review_threshold;
+	// 0 disables; <0 falls through to types default.
+	exhaustiveDeterministicReviewThreshold int
+
+	// reviewerWallBudgetFraction (2026-05-16) sets the fraction
+	// of remaining wall budget each LLM reviewer may consume
+	// before deadline guard fires. 0 keeps legacy unguarded
+	// behaviour; default 0.4 from yaml.
+	reviewerWallBudgetFraction float64
+
 	// continuationClassifier is the LLM-driven decision for
 	// "is the current REPL turn a continuation of the prior
 	// conversation?" (commit 48 read-mode Gap 1). Pre-commit-48
@@ -1082,6 +1096,67 @@ func (o *Orchestrator) finalizeRepairHardCapValue() int {
 		return FinalizeRepairHardCapDefault
 	}
 	return o.finalizeRepairHardCap
+}
+
+// SetExhaustiveDeterministicReviewThreshold installs the operator-
+// tunable principal-member count above which the deterministic
+// exhaustive member-set reviewer replaces LLM reviewers. -1 (or
+// any negative) falls through to the types default; 0 disables
+// entirely; positive values override the default.
+func (o *Orchestrator) SetExhaustiveDeterministicReviewThreshold(n int) {
+	if o == nil {
+		return
+	}
+	if n < 0 {
+		n = types.ExhaustiveMemberSetDefaultThreshold
+	}
+	o.exhaustiveDeterministicReviewThreshold = n
+}
+
+// exhaustiveDeterministicReviewThresholdValue returns the effective
+// threshold. Returning 0 means "disabled" (deterministic reviewer
+// never replaces LLM reviewers). Positive values are used as-is.
+func (o *Orchestrator) exhaustiveDeterministicReviewThresholdValue() int {
+	if o == nil {
+		return types.ExhaustiveMemberSetDefaultThreshold
+	}
+	return o.exhaustiveDeterministicReviewThreshold
+}
+
+// SetReviewerWallBudgetFraction installs the per-reviewer wall
+// budget fraction. <=0 keeps the legacy unguarded path; values
+// outside (0, 1] are clamped to the (0, 1] range.
+func (o *Orchestrator) SetReviewerWallBudgetFraction(f float64) {
+	if o == nil {
+		return
+	}
+	if f <= 0 {
+		o.reviewerWallBudgetFraction = 0
+		return
+	}
+	if f > 1 {
+		f = 1
+	}
+	o.reviewerWallBudgetFraction = f
+}
+
+func (o *Orchestrator) reviewerWallBudgetFractionValue() float64 {
+	if o == nil {
+		return 0
+	}
+	return o.reviewerWallBudgetFraction
+}
+
+// reviewerDispatchContext returns the context.Context used to bound
+// LLM reviewer dispatches. It mirrors CancelContext but is exposed
+// as a distinct accessor so the deadline guard's call site is clear
+// in contract_check.go: reviewers respect cancellation AND the per-
+// reviewer wall budget fraction.
+func (o *Orchestrator) reviewerDispatchContext() context.Context {
+	if o == nil {
+		return context.Background()
+	}
+	return o.CancelContext()
 }
 
 // injectResidualConcernsCaveat is the P6 chokepoint helper that

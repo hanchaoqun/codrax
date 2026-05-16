@@ -286,6 +286,21 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		// validatePrincipalSupportMemberCoverage, dispatched from
 		// contract_check.go next to support-lane block-kind checks.
 		ViolPrincipalSupportMemberOmitted: true,
+		// Deterministic exhaustive member-set reviewer (2026-05-16).
+		// Producer wired in
+		// orchestrator/exhaustive_member_set_review.go
+		// runDeterministicExhaustiveMemberSetReview, dispatched
+		// from contract_check.go ahead of LLM reviewers when the
+		// model emits a typed aggregate_facts.member_set with
+		// value==len(members) and len(members) >= threshold.
+		ViolExhaustiveMemberSetCoverageDrift: true,
+		// Inactive scope disclosure (2026-05-16, Fix 1). Producer
+		// wired in orchestrator/inactive_scope_disclosure.go
+		// validateInactiveScopeDisclosure, dispatched from
+		// contract_check.go after support-lane checks; pre-emit
+		// twin in tool/answer_document_pre_emit_check.go
+		// preCheckInactiveScopeDisclosure.
+		ViolInactiveScopeDisclosureMissing: true,
 		// Multi-repo write fail-loud (design §4.5.5 / Phase 4.G,
 		// 2026-05-08). Producer wired in
 		// orchestrator/multirepo_write_gate.go ValidateChangePlanScope,
@@ -373,7 +388,9 @@ func TestAllViolationKindsHaveProducer(t *testing.T) {
 		ViolCrossCitationConflict: "ViolCrossCitationConflict",
 		// 2026-05-07 lane-discipline audit.
 		ViolLaneBlockKindMismatch:         "ViolLaneBlockKindMismatch",
-		ViolPrincipalSupportMemberOmitted: "ViolPrincipalSupportMemberOmitted",
+		ViolPrincipalSupportMemberOmitted:    "ViolPrincipalSupportMemberOmitted",
+		ViolExhaustiveMemberSetCoverageDrift: "ViolExhaustiveMemberSetCoverageDrift",
+		ViolInactiveScopeDisclosureMissing:   "ViolInactiveScopeDisclosureMissing",
 		// Multi-repo write fail-loud (design §4.5.5 / Phase 4.G).
 		ViolWriteCrossSubRepoForbidden: "ViolWriteCrossSubRepoForbidden",
 		// L3 negative-knowledge answer validator (Phase F).

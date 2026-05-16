@@ -525,6 +525,31 @@ type RuntimeSettings struct {
 	// genuine facet-coverage gaps.
 	PipelineSemanticQualityMinConfidence *float64 `yaml:"pipeline_semantic_quality_min_confidence"`
 
+	// PipelineExhaustiveDeterministicReviewThreshold (2026-05-16)
+	// above which the deterministic exhaustive member-set reviewer
+	// replaces self-consistency + semantic-quality LLM dispatchers.
+	// Activation is gated on a model-authored aggregate_facts entry
+	// with kind=member_set AND value==len(members) (the typed
+	// closed-set signature). nil falls through to the type-layer
+	// default (30); 0 disables the deterministic path entirely.
+	// Forensic anchor: u8b (94 enum types) timed out at 1201s
+	// during self-consistency + semantic-quality review while the
+	// answer was substantively correct. The deterministic reviewer
+	// runs in O(N) over typed item labels + citation indices and
+	// has no LLM-call cost.
+	PipelineExhaustiveDeterministicReviewThreshold *int `yaml:"pipeline_exhaustive_deterministic_review_threshold"`
+
+	// PipelineReviewerWallBudgetFraction (2026-05-16) bounds each
+	// LLM reviewer (self-consistency, semantic-quality) by a
+	// fraction of the remaining wall-clock budget so a single slow
+	// reviewer cannot consume the entire dispatch window. The
+	// reviewer is launched with context.WithDeadline; on deadline
+	// timeout the reviewer's output is downgraded to advisory and
+	// the dispatch continues. nil = use 0.4 (40 percent of
+	// remaining budget per reviewer); 0 disables the deadline
+	// guard (legacy behaviour).
+	PipelineReviewerWallBudgetFraction *float64 `yaml:"pipeline_reviewer_wall_budget_fraction"`
+
 	// PipelineFinalizeRepairHardCap (P6, 2026-05-10, default 2)
 	// caps the number of finalize-stage repair-loop iterations
 	// before the system degrades to "ship doc + residual-concerns

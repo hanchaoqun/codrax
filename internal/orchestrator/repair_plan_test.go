@@ -371,6 +371,23 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		// Current-status verdict validation is a finalizer-local
 		// answer-format contract over existing evidence.
 		types.ViolCurrentStatusVerdictMissing: "current-status diagnostic decision enum missing or invalid; finalizer-only rewrite",
+		// Deterministic exhaustive member-set reviewer (2026-05-16):
+		// the deterministic O(N) checker replaces self-consistency +
+		// semantic-quality LLM reviewers for typed member_set
+		// aggregates with value==len(members). Failure modes
+		// (missing/unexpected members, duplicate/invalid
+		// citation_ref) are independent of upstream stages — the
+		// repair is a finalizer-local re-render against the
+		// model-authored member slate. Standalone by design.
+		types.ViolExhaustiveMemberSetCoverageDrift: "deterministic exhaustive member-set coverage drift; finalizer-only rewrite against the model-authored member set",
+		// Multi-repo inactive scope disclosure (2026-05-16, Fix 1):
+		// the rendered answer is bounded by the active sub-repo set
+		// but does not disclose the inactive sub-repo to the user.
+		// Repair is finalizer-local: set a typed scope_disclosure
+		// field on a caveat/decision block OR name the inactive
+		// RootRel inline. No upstream stage participates; activation
+		// is purely typed BusContext + RequestModel + doc state.
+		types.ViolInactiveScopeDisclosureMissing: "multi-repo inactive-scope disclosure missing; finalizer-only rewrite to surface inactive RootRel or set scope_disclosure",
 		// Phase 2.B Tier 2 ERM completeness violations (2026-05-09).
 		// Each dimension is a structurally-independent answer-coverage
 		// gap: a ScalarCount problem (visual count vs deterministic
