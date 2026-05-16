@@ -585,9 +585,9 @@ func looksLikeOrderedMarkdownLine(s string) bool {
 // sanitizeToolCallsForHistory preserves OpenAI-style tool-call pairing
 // while preventing a malformed assistant arguments blob from poisoning
 // the next LLM request. Streaming gateways can occasionally return a
-// truncated function.arguments string (for example `{"items":`). We
-// still execute the original call so the tool returns its canonical
-// "invalid params" repair message, but the conversation history must
+// truncated function.arguments string (for example `{"items":`). The
+// execution path separately repairs or converts malformed params into
+// a model-facing failed ToolResult; the conversation history must still
 // contain syntactically valid JSON or the provider rejects the next turn
 // before the model has a chance to self-correct.
 func sanitizeToolCallsForHistory(calls []llm.ToolCall) []llm.ToolCall {
@@ -620,6 +620,32 @@ func toolCallParamsValidForHistory(params json.RawMessage) bool {
 		return false
 	}
 	return json.Valid(params)
+}
+
+func malformedToolParamsResult(tc llm.ToolCall) *types.ToolResult {
+	errText := "malformed JSON"
+	if len(tc.Params) == 0 {
+		errText = "empty JSON"
+	} else {
+		var probe interface{}
+		if err := json.Unmarshal(tc.Params, &probe); err != nil {
+			errText = err.Error()
+		}
+	}
+	summary := fmt.Sprintf(
+		"invalid params: malformed JSON tool arguments for %s (%s). "+
+			"Re-emit this tool call with a single native JSON object in arguments; do not wrap it as a string and do not emit partial JSON. "+
+			"Original argument bytes were not executed.",
+		tc.Name, errText,
+	)
+	logging.Warning("[agent] tool %q params rejected before execution: %s len=%d id=%s",
+		tc.Name, errText, len(tc.Params), tc.ID)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   false,
+		Summary:   summary,
+		Timestamp: time.Now(),
+	}
 }
 
 func truncForLog(s string, max int) string {
@@ -2075,8 +2101,11 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	// JSON syntax — and the repaired payload is re-validated
 	// before being substituted.
 	if repaired, ok := repairToolParamsJSON(tc.Params); ok {
-		logging.Warning("[agent] tool %q params auto-repaired (LLM-corrupted JSON: trailing garbage / comma stripped)", tc.Name)
+		logging.Warning("[agent] tool %q params auto-repaired (LLM-corrupted JSON: structural repair)", tc.Name)
 		tc.Params = repaired
+	}
+	if !toolCallParamsValidForHistory(tc.Params) {
+		return malformedToolParamsResult(tc), nil
 	}
 	if normalized, ok := b.normalizeAnalyzerPrescanGrepCompat(ctx, tc); ok {
 		tc = normalized

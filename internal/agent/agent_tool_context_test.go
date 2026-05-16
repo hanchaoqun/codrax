@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -62,5 +63,30 @@ func TestExecuteTool_PropagatesStageAndAttachmentsToBusContext(t *testing.T) {
 	}
 	if capture.got.AttachedHitrace != ctx.AttachedHitrace {
 		t.Fatalf("AttachedHitrace = %q, want %q", capture.got.AttachedHitrace, ctx.AttachedHitrace)
+	}
+}
+
+func TestExecuteTool_MalformedParamsRejectedBeforeToolExecution(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	capture := &captureBusContextTool{}
+	reg.Register(capture)
+
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{Tools: reg}, nil)
+	res, _ := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:     "bad-json",
+		Name:   capture.Name(),
+		Params: json.RawMessage(`}`),
+	})
+	if res == nil {
+		t.Fatal("expected failed ToolResult")
+	}
+	if res.Success {
+		t.Fatalf("malformed params should fail before execution: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "malformed JSON tool arguments") {
+		t.Fatalf("summary should explain malformed JSON, got %q", res.Summary)
+	}
+	if capture.got != nil {
+		t.Fatalf("tool executed despite malformed params: %+v", capture.got)
 	}
 }

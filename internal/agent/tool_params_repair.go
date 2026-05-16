@@ -10,8 +10,9 @@ import (
 // when a repair was applied or (original, false) when the input
 // is already valid or no recognised pattern matched.
 //
-// Two repair patterns covered (s5a-style customer report, REPL
-// status-line case 2026-05-07):
+// Repair patterns covered (s5a-style customer report, REPL
+// status-line case 2026-05-07, plus local-model streaming truncation
+// reports):
 //
 //  1. Trailing JSON garbage — a complete top-level value followed
 //     by extra whitespace + `}` / `]` / `,`. Common LLM artefact:
@@ -27,12 +28,17 @@ import (
 //     The repair walks the bytes (string-aware) and removes any
 //     `,` whose next non-whitespace neighbour is `}` or `]`.
 //
-// The repair is bounded: it never adds JSON syntax, only removes
-// trailing or pre-terminator garbage. A successful repair is
-// always either a prefix of the original or a strictly shorter
-// version with selected commas dropped. The function re-parses
-// the repaired bytes via json.Unmarshal before returning, so a
-// repaired payload is guaranteed valid; if validation fails the
+//  3. Missing closing object/array delimiters — a provider may stop
+//     the function.arguments stream after a complete field value but
+//     before the final `}` / `]`. The repair appends only structural
+//     closers already implied by the open delimiters. It refuses to
+//     close unterminated strings or incomplete key/value positions
+//     such as `{"path":`.
+//
+// The repair is bounded: it only removes trailing/pre-terminator
+// garbage or appends deterministic JSON delimiters. The function
+// re-parses the repaired bytes via json.Unmarshal before returning,
+// so a repaired payload is guaranteed valid; if validation fails the
 // original is returned unchanged.
 //
 // Generic across all tools — no per-tool schema knowledge. Wired
@@ -55,6 +61,10 @@ func repairToolParamsJSON(raw json.RawMessage) (json.RawMessage, bool) {
 	}
 	// Pattern 2: trailing comma removal.
 	if repaired, ok := tryRemoveTrailingComma(raw); ok {
+		return repaired, true
+	}
+	// Pattern 3: missing structural closers.
+	if repaired, ok := tryCompleteTruncatedJSON(raw); ok {
 		return repaired, true
 	}
 	return raw, false
@@ -151,4 +161,86 @@ func tryRemoveTrailingComma(raw json.RawMessage) (json.RawMessage, bool) {
 		return raw, false
 	}
 	return out, true
+}
+
+// tryCompleteTruncatedJSON repairs inputs that are syntactically
+// complete up to the final object/array delimiter, for example
+// `{"pattern":"foo","files_only":true`. It does NOT invent values:
+// unterminated strings, dangling colons, and mismatched leading
+// closers are left for the model-facing invalid-params path.
+func tryCompleteTruncatedJSON(raw json.RawMessage) (json.RawMessage, bool) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
+		return raw, false
+	}
+
+	out := append([]byte(nil), trimmed...)
+	stack := make([]byte, 0, 4)
+	inString := false
+	escape := false
+	for _, b := range out {
+		if escape {
+			escape = false
+			continue
+		}
+		if inString {
+			switch b {
+			case '\\':
+				escape = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch b {
+		case '"':
+			inString = true
+		case '{':
+			stack = append(stack, '}')
+		case '[':
+			stack = append(stack, ']')
+		case '}', ']':
+			if len(stack) == 0 || stack[len(stack)-1] != b {
+				return raw, false
+			}
+			stack = stack[:len(stack)-1]
+		}
+	}
+	if escape || inString || len(stack) == 0 {
+		return raw, false
+	}
+
+	out = trimJSONWhitespaceRight(out)
+	if len(out) == 0 {
+		return raw, false
+	}
+	switch out[len(out)-1] {
+	case ':':
+		return raw, false
+	case ',':
+		out = trimJSONWhitespaceRight(out[:len(out)-1])
+		if len(out) == 0 {
+			return raw, false
+		}
+	}
+	for i := len(stack) - 1; i >= 0; i-- {
+		out = append(out, stack[i])
+	}
+	var verify interface{}
+	if err := json.Unmarshal(out, &verify); err != nil {
+		return raw, false
+	}
+	return out, true
+}
+
+func trimJSONWhitespaceRight(in []byte) []byte {
+	for len(in) > 0 {
+		switch in[len(in)-1] {
+		case ' ', '\t', '\n', '\r', '\v', '\f':
+			in = in[:len(in)-1]
+		default:
+			return in
+		}
+	}
+	return in
 }

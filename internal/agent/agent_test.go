@@ -461,7 +461,7 @@ func TestSanitizeToolCallsForHistory_ReplacesInvalidParamsOnlyInHistory(t *testi
 		t.Fatalf("empty params should be replaced with {}, got %q", got)
 	}
 	if got := string(calls[1].Params); got != `{"items":` {
-		t.Fatalf("original tool call params must stay unchanged for tool execution, got %q", got)
+		t.Fatalf("original tool call params must stay unchanged for execution-side repair/reporting, got %q", got)
 	}
 	if sanitized[1].ID != "call-bad" || sanitized[1].Name != "emit_evidence" {
 		t.Fatalf("tool-call identity must be preserved for pairing, got %+v", sanitized[1])

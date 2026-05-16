@@ -132,6 +132,57 @@ func TestRepairToolParamsJSON_TruncatedInvalid(t *testing.T) {
 	}
 }
 
+func TestRepairToolParamsJSON_MissingClosingObject(t *testing.T) {
+	raw := json.RawMessage(`{"pattern":"StageAnalyze","files_only":true`)
+	repaired, ok := repairToolParamsJSON(raw)
+	if !ok {
+		t.Fatalf("missing closing object delimiter should be repaired")
+	}
+	var probe struct {
+		Pattern   string `json:"pattern"`
+		FilesOnly bool   `json:"files_only"`
+	}
+	if err := json.Unmarshal(repaired, &probe); err != nil {
+		t.Fatalf("repaired payload must parse: %v\n%s", err, repaired)
+	}
+	if probe.Pattern != "StageAnalyze" || !probe.FilesOnly {
+		t.Fatalf("repaired payload changed fields: %+v", probe)
+	}
+}
+
+func TestRepairToolParamsJSON_MissingClosingNestedArrayAndObject(t *testing.T) {
+	raw := json.RawMessage(`{"patterns":["A","B"]`)
+	repaired, ok := repairToolParamsJSON(raw)
+	if !ok {
+		t.Fatalf("missing nested closing delimiters should be repaired")
+	}
+	var probe struct {
+		Patterns []string `json:"patterns"`
+	}
+	if err := json.Unmarshal(repaired, &probe); err != nil {
+		t.Fatalf("repaired payload must parse: %v\n%s", err, repaired)
+	}
+	if len(probe.Patterns) != 2 {
+		t.Fatalf("patterns len = %d, want 2", len(probe.Patterns))
+	}
+}
+
+func TestRepairToolParamsJSON_DanglingColonStillInvalid(t *testing.T) {
+	raw := json.RawMessage(`{"pattern":`)
+	repaired, ok := repairToolParamsJSON(raw)
+	if ok {
+		t.Fatalf("dangling colon should not be repaired; got %s", repaired)
+	}
+}
+
+func TestRepairToolParamsJSON_LeadingCloserStillInvalid(t *testing.T) {
+	raw := json.RawMessage(`}`)
+	repaired, ok := repairToolParamsJSON(raw)
+	if ok {
+		t.Fatalf("leading closer should not be repaired; got %s", repaired)
+	}
+}
+
 // TestRepairToolParamsJSON_DoubleObjectBails refuses to repair when
 // the trailing portion contains a SECOND top-level value (would be
 // silently discarding LLM intent).
