@@ -2,6 +2,7 @@ package render
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -288,6 +289,33 @@ func TestFormatAnswerDocumentDraftPreviewLinesParsesStringWrappedBlocks(t *testi
 	plain := stripAnsiEscapes(formatScrollbackBody(lines, false))
 	if !strings.Contains(plain, "wrapped draft") {
 		t.Fatalf("string-wrapped blocks should still preview draft; got:\n%s", plain)
+	}
+}
+
+func TestFormatAnswerDocumentDraftPreviewLinesRepairsStringWrappedBlocks(t *testing.T) {
+	wrapped := `[
+		{"id":"summary","kind":"summary","text":"探索器调用子智能体。"},
+		{"id":"diagram","kind":"diagram","diagram":{
+			"language":"mermaid",
+			"body":"flowchart TD\n    A --> B"
+		}]
+	`
+	encoded, err := json.Marshal(map[string]string{"blocks": wrapped})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := formatAnswerDocumentDraftPreviewLines(string(encoded), "zh")
+	plain := stripAnsiEscapes(formatScrollbackBody(lines, false))
+	for _, want := range []string{
+		"• 第一稿答案",
+		"探索器调用子智能体。",
+		"```mermaid",
+		"flowchart TD",
+		"    A --> B",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("draft preview missing %q; got:\n%s", want, plain)
+		}
 	}
 }
 

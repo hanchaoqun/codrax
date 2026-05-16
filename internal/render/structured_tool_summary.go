@@ -123,7 +123,92 @@ func decodeAnswerDraftPreviewBlocks(raw json.RawMessage) ([]answerDraftPreviewBl
 	if json.Unmarshal([]byte(wrapped), &doc) == nil && len(doc.Blocks) > 0 {
 		return doc.Blocks, true
 	}
+	repaired, repairedOK := completeDraftPreviewJSONDelimiters(wrapped)
+	if repairedOK && repaired != wrapped {
+		if json.Unmarshal([]byte(repaired), &blocks) == nil && len(blocks) > 0 {
+			return blocks, true
+		}
+		if json.Unmarshal([]byte(repaired), &doc) == nil && len(doc.Blocks) > 0 {
+			return doc.Blocks, true
+		}
+	}
 	return nil, false
+}
+
+func completeDraftPreviewJSONDelimiters(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s, false
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	stack := make([]byte, 0, 8)
+	inString := false
+	escaped := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inString {
+			b.WriteByte(ch)
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			b.WriteByte(ch)
+			inString = true
+		case '{':
+			b.WriteByte(ch)
+			stack = append(stack, '}')
+		case '[':
+			b.WriteByte(ch)
+			stack = append(stack, ']')
+		case '}', ']':
+			next, ok := completeDraftPreviewJSONClose(stack, ch, &b)
+			if !ok {
+				return s, false
+			}
+			stack = next
+			b.WriteByte(ch)
+		default:
+			b.WriteByte(ch)
+		}
+	}
+	if inString {
+		return s, false
+	}
+	for i := len(stack) - 1; i >= 0; i-- {
+		b.WriteByte(stack[i])
+	}
+	return b.String(), true
+}
+
+func completeDraftPreviewJSONClose(stack []byte, close byte, b *strings.Builder) ([]byte, bool) {
+	for len(stack) > 0 {
+		top := stack[len(stack)-1]
+		if top == close {
+			return stack[:len(stack)-1], true
+		}
+		// The common local-model failure is `[{..., "diagram": {...}]`:
+		// the array closes while the containing object is still open.
+		// Inserting that missing object delimiter is structural and
+		// preserves every model-authored field byte-for-byte.
+		if close == ']' && top == '}' {
+			b.WriteByte('}')
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		return stack, false
+	}
+	return stack, false
 }
 
 func appendAnswerDraftBlockLines(lines []scrollbackLine, block answerDraftPreviewBlock) []scrollbackLine {
