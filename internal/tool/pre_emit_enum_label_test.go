@@ -1071,6 +1071,116 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsFirstTypedCandida
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_RepairsMultiCandidateCustomerDrift(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{
+			File: "java/com/android/server/am/ProcessStateRecord.java",
+			Line: 641,
+		}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "l_ancokey",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{
+					ID:          "ak0",
+					Label:       "IAncoActivityManager",
+					Text:        "interface carrier for foreground state callbacks.",
+					CitationRef: 0,
+				},
+				{
+					ID:          "ak3",
+					Label:       "notifyAddProcess",
+					Text:        "add-process notification path.",
+					CitationRef: 0,
+				},
+				{
+					ID:          "ak5",
+					Label:       "notifyMoveTaskToBack",
+					Text:        "move-task-to-back notification path.",
+					CitationRef: 0,
+				},
+			},
+		}},
+	}
+	mut := types.NewMutableState("customer finalizer drift")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "wrong-current",
+			Kind:            types.EvidenceDirect,
+			Source:          "java/com/android/server/am/ProcessStateRecord.java",
+			LineStart:       641,
+			Subject:         "setCurProcState",
+			AnchorSymbol:    "setCurProcState",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "ianco-47",
+			Kind:            types.EvidenceDirect,
+			Source:          "java/com/android/server/wm/ActivityTaskManagerInternal.java",
+			LineStart:       47,
+			Subject:         "IAncoActivityManager",
+			AnchorSymbol:    "IAncoActivityManager",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "ianco-1011",
+			Kind:            types.EvidenceDirect,
+			Source:          "java/com/android/server/wm/ActivityTaskManagerInternal.java",
+			LineStart:       1011,
+			Subject:         "IAncoActivityManager",
+			AnchorSymbol:    "IAncoActivityManager",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "add-process-list",
+			Kind:            types.EvidenceDirect,
+			Source:          "java/com/android/server/am/ProcessList.java",
+			LineStart:       3122,
+			Subject:         "notifyAddProcess",
+			AnchorSymbol:    "notifyAddProcess",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "add-process-record",
+			Kind:            types.EvidenceDirect,
+			Source:          "java/com/android/server/am/ProcessRecord.java",
+			LineStart:       1265,
+			Subject:         "notifyAddProcess",
+			AnchorSymbol:    "notifyAddProcess",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "move-client",
+			Kind:            types.EvidenceDirect,
+			Source:          "java/com/android/server/wm/ActivityClientController.java",
+			LineStart:       463,
+			Subject:         "notifyMoveTaskToBack",
+			AnchorSymbol:    "notifyMoveTaskToBack",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "move-starter",
+			Kind:            types.EvidenceDirect,
+			Source:          "java/com/android/server/wm/ActivityStarter.java",
+			LineStart:       1737,
+			Subject:         "notifyMoveTaskToBack",
+			AnchorSymbol:    "notifyMoveTaskToBack",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx); fixed != 3 {
+		t.Fatalf("expected three deterministic typed-candidate citation repairs, got %d", fixed)
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("repaired citations should satisfy label/citation alignment, got %+v", hints)
+	}
+	if hints := preCheckEnumerationLabelGrounding(doc, &stubOracle{known: map[string]int{}}, ctx); len(hints) != 0 {
+		t.Fatalf("repaired citations should also satisfy enum-label grounding via cited evidence, got %+v", hints)
+	}
+}
+
 func TestPreCheckCallChainItemCitationRoleAlignment_RejectsDefinitionForNamedCallEdge(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
