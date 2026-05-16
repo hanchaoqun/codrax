@@ -184,6 +184,95 @@ func TestEffectiveQuestionBuckets_NoInferWithoutTypedParallelShape(t *testing.T)
 	}
 }
 
+// TestEffectiveQuestionBuckets_InferFromMentionedEntities is the F3
+// regression for the 2026-05-16 architectural-comparison finalize
+// loop. The analyzer correctly identifies "codrax" and "opencode"
+// as MentionedEntities but emits required_files=[], so the
+// inferRequiredFileComparisonBuckets fallback is silent. Without
+// inferEntityComparisonBuckets, QuestionStructure.Buckets stays
+// empty, the enumeration-label oracle has no vouch for entity
+// labels in the auto-injected required_mechanism_anchors block, and
+// the run loops on the same error class until the budget is burned.
+func TestEffectiveQuestionBuckets_InferFromMentionedEntities(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "对比一下 codrax 和 opencode 在防止模型幻觉方面各有什么优缺点？",
+		Predicates: SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		SubTopics: []SubTopic{
+			{Summary: "codrax side", Entities: []string{"codrax"}},
+			{Summary: "opencode side", Entities: []string{"opencode"}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			// Mirroring the production trace: analyzer emits entities
+			// but NO required_file_hints — the file-based fallback
+			// is dormant here.
+			MentionedEntities: []string{"codrax", "opencode"},
+		},
+	}
+	buckets := rm.QuestionStructure().Buckets
+	if len(buckets) != 2 {
+		t.Fatalf("buckets len=%d, want 2: %+v", len(buckets), buckets)
+	}
+	// Order follows RawRequest order, not slice order.
+	if buckets[0].Label != "codrax" || buckets[1].Label != "opencode" {
+		t.Fatalf("bucket labels = %+v, want codrax then opencode", buckets)
+	}
+}
+
+func TestEffectiveQuestionBuckets_EntityFallback_RequiresCrossComponent(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "codrax 和 opencode 各是什么？",
+		AnalyzerHints: AnalyzerHints{
+			MentionedEntities: []string{"codrax", "opencode"},
+		},
+	}
+	if buckets := rm.QuestionStructure().Buckets; len(buckets) != 0 {
+		t.Fatalf("non-cross-component must not infer entity buckets: %+v", buckets)
+	}
+}
+
+func TestEffectiveQuestionBuckets_EntityFallback_RequiresVerbatim(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "对比 A 和 B 在防幻方面差异",
+		Predicates: SemanticPredicates{IsCrossComponent: true},
+		SubTopics: []SubTopic{
+			{Summary: "x"}, {Summary: "y"},
+		},
+		AnalyzerHints: AnalyzerHints{
+			// Entities NOT verbatim in RawRequest — must be filtered.
+			MentionedEntities: []string{"codrax", "opencode"},
+		},
+	}
+	if buckets := rm.QuestionStructure().Buckets; len(buckets) != 0 {
+		t.Fatalf("non-verbatim entities must not become buckets: %+v", buckets)
+	}
+}
+
+func TestEffectiveQuestionBuckets_RequiredFilePathTakesPriorityOverEntity(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "对比 codrax 的 explorer.go 和 extractor.go",
+		Predicates: SemanticPredicates{IsCrossComponent: true},
+		SubTopics: []SubTopic{
+			{Summary: "x"}, {Summary: "y"},
+		},
+		AnalyzerHints: AnalyzerHints{
+			RequiredFileHints: []RequiredFileHint{
+				{Path: "internal/agent/explorer.go", Confidence: 0.95},
+				{Path: "internal/agent/extractor.go", Confidence: 0.95},
+			},
+			MentionedEntities: []string{"codrax"},
+		},
+	}
+	buckets := rm.QuestionStructure().Buckets
+	if len(buckets) != 2 {
+		t.Fatalf("file fallback should win when both available: %+v", buckets)
+	}
+	if buckets[0].Label != "explorer.go" {
+		t.Fatalf("expected file-derived buckets, got %+v", buckets)
+	}
+}
+
 // TestRequestModel_BackCompat_ZeroValueQuestionStructure pins that
 // pre-Plan-E callers (no QuestionStructure fields set) get a
 // safe-zero view that all gates should short-circuit on.

@@ -257,7 +257,77 @@ func EffectiveQuestionBuckets(rm RequestModel) []QuestionBucket {
 	if len(rm.Buckets) > 0 {
 		return rm.Buckets
 	}
-	return inferRequiredFileComparisonBuckets(rm)
+	if buckets := inferRequiredFileComparisonBuckets(rm); len(buckets) > 0 {
+		return buckets
+	}
+	return inferEntityComparisonBuckets(rm)
+}
+
+// inferEntityComparisonBuckets is the entity-fallback companion to
+// inferRequiredFileComparisonBuckets, covering the 2026-05-16 case
+// where the analyzer correctly emits MentionedEntities for a cross-
+// component comparison ("对比 codrax 和 opencode ...") but does NOT
+// emit required_file_hints (the first fallback's gate). Without this
+// path, the downstream `enumeration_label_ungrounded` validator has
+// no QuestionBucket to vouch for entity-as-label items, and the
+// finalizer auto-repair (which injects entity names as
+// required_mechanism_anchor item labels) creates a violation it then
+// cannot satisfy — pushing the run into a same-error-class retry
+// loop that exhausts the budget and falls back to raw content with
+// cited=0.
+//
+// Same precision discipline as inferRequiredFileComparisonBuckets:
+// every entity must appear verbatim in RawRequest (foldedSurfaceIndex
+// match) so user provenance is preserved; pure-analyzer expansions
+// (DerivedEntities) are intentionally NOT a source.
+func inferEntityComparisonBuckets(rm RequestModel) []QuestionBucket {
+	if !rm.Predicates.IsCrossComponent || len(rm.SubTopics) < 2 {
+		return nil
+	}
+	raw := strings.TrimSpace(rm.RawRequest)
+	if raw == "" {
+		return nil
+	}
+	entities := rm.AnalyzerHints.MentionedEntities
+	if len(entities) < 2 {
+		return nil
+	}
+	type cand struct {
+		label string
+		order int
+	}
+	var cands []cand
+	seen := map[string]bool{}
+	for _, e := range entities {
+		label := strings.TrimSpace(e)
+		if label == "" {
+			continue
+		}
+		key := strings.ToLower(label)
+		if seen[key] {
+			continue
+		}
+		order := foldedSurfaceIndex(raw, label)
+		if order < 0 {
+			continue
+		}
+		seen[key] = true
+		cands = append(cands, cand{label: label, order: order})
+	}
+	if len(cands) < 2 {
+		return nil
+	}
+	sort.SliceStable(cands, func(i, j int) bool {
+		return cands[i].order < cands[j].order
+	})
+	out := make([]QuestionBucket, 0, len(cands))
+	for i, c := range cands {
+		out = append(out, QuestionBucket{
+			Label: c.label,
+			Index: i + 1,
+		})
+	}
+	return out
 }
 
 func inferRequiredFileComparisonBuckets(rm RequestModel) []QuestionBucket {

@@ -24,11 +24,20 @@ type AnswerRequiredAnchor struct {
 // The result is restricted to explanation/mechanism families. Scalar,
 // enumeration, config, and relation lookups already have stronger principal
 // lanes and should not gain a second anchor-list obligation.
-func CompileRequiredMechanismAnchors(rm RequestModel, contract AnswerContract, family QuestionFamily) []AnswerRequiredAnchor {
+//
+// subRepoNames is the snapshot of multi-repo identifiers (Slug + RootRel +
+// RootRel basename) stamped on the AnswerSurfacePlan. Entities matching this
+// set are repository / project names, not code symbols, so they are filtered
+// out of the candidate pool before InferContractTermKind's identifier-shape
+// heuristic mistakes them for ContractTermSymbol. Without this filter, the
+// 2026-05-16 architectural-comparison loop (subject names "codrax" / "opencode"
+// auto-injected as item labels then rejected as ungrounded enumeration labels)
+// reproduces.
+func CompileRequiredMechanismAnchors(rm RequestModel, contract AnswerContract, family QuestionFamily, subRepoNames []string) []AnswerRequiredAnchor {
 	if !requiredMechanismAnchorsEnabled(rm, family) {
 		return nil
 	}
-	ordered, mentioned := mechanismAnchorMentionedSet(rm)
+	ordered, mentioned := mechanismAnchorMentionedSet(rm, subRepoNames)
 	if len(ordered) == 0 {
 		return nil
 	}
@@ -92,13 +101,30 @@ func requiredMechanismAnchorsEnabled(rm RequestModel, family QuestionFamily) boo
 	}
 }
 
-func mechanismAnchorMentionedSet(rm RequestModel) ([]string, map[string]struct{}) {
+func mechanismAnchorMentionedSet(rm RequestModel, subRepoNames []string) ([]string, map[string]struct{}) {
+	// Repository / project identifiers are not eligible mechanism anchors.
+	// They look identifier-shaped to InferContractTermKind (which yields
+	// ContractTermSymbol) but they have no code definition site; promoting
+	// them into RequiredMechanismAnchor causes the pre-emit normaliser to
+	// auto-inject them as item labels, which the post-emit
+	// enumeration-label oracle then rejects as ungrounded.
+	subRepoFilter := make(map[string]struct{}, len(subRepoNames))
+	for _, name := range subRepoNames {
+		key := requiredAnchorKey(name)
+		if key == "" {
+			continue
+		}
+		subRepoFilter[key] = struct{}{}
+	}
 	seen := map[string]struct{}{}
 	var ordered []string
 	add := func(text string) {
 		text = strings.TrimSpace(text)
 		key := requiredAnchorKey(text)
 		if key == "" {
+			return
+		}
+		if _, isSubRepo := subRepoFilter[key]; isSubRepo {
 			return
 		}
 		if _, dup := seen[key]; dup {

@@ -217,6 +217,7 @@ func cloneAnswerSurfacePlan(in *AnswerSurfacePlan) *AnswerSurfacePlan {
 	out.RelatedContextCitationCandidates = append([]ConfigTraceRelatedContextCitationCandidate(nil), in.RelatedContextCitationCandidates...)
 	out.ConfigTraceDiagramAnchors = append([]ConfigTraceDiagramAnchor(nil), in.ConfigTraceDiagramAnchors...)
 	out.FacetCoverage = cloneFacetCoverageContract(in.FacetCoverage)
+	out.SubRepoNames = append([]string(nil), in.SubRepoNames...)
 	if in.Diagram != nil {
 		diagram := *in.Diagram
 		diagram.PreferredKinds = append([]DiagramKind(nil), in.Diagram.PreferredKinds...)

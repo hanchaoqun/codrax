@@ -88,16 +88,20 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 	}
 	applyExactAbsenceSummaryLead(view, plan)
 	applyRequestedCandidateRoles(view, ir)
-	applyRequiredMechanismAnchors(view, ir)
+	applyRequiredMechanismAnchors(view, ir, plan)
 	applyErrorGranularityProfile(view, ir)
 	return view
 }
 
-func applyRequiredMechanismAnchors(view *AnswerSemanticView, ir *AnalysisIR) {
+func applyRequiredMechanismAnchors(view *AnswerSemanticView, ir *AnalysisIR, plan *AnswerSurfacePlan) {
 	if view == nil || ir == nil {
 		return
 	}
-	view.RequiredMechanismAnchors = CompileRequiredMechanismAnchors(ir.RequestModel, ir.AnswerContract, view.Family)
+	var subRepoNames []string
+	if plan != nil {
+		subRepoNames = plan.SubRepoNames
+	}
+	view.RequiredMechanismAnchors = CompileRequiredMechanismAnchors(ir.RequestModel, ir.AnswerContract, view.Family, subRepoNames)
 }
 
 func applyRequestedCandidateRoles(view *AnswerSemanticView, ir *AnalysisIR) {

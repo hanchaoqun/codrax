@@ -172,6 +172,44 @@ func (m *MultiGraph) SubRepos() []topology.SubRepo {
 	return out
 }
 
+// SubRepoNames returns every sub-repo identifier callers may see —
+// Slug, RootRel, and the last path segment of RootRel — flattened
+// into one slice with duplicates suppressed. Used by consumers in
+// internal/types (which cannot import topology directly without a
+// cycle) to discriminate project-name tokens from code symbols when
+// the difference drives hard gate behaviour (e.g.
+// CompileRequiredMechanismAnchors must not promote a repository
+// name into a required item label).
+//
+// Returns nil on nil receivers / missing topology.
+func (m *MultiGraph) SubRepoNames() []string {
+	if m == nil || m.topo == nil {
+		return nil
+	}
+	out := make([]string, 0, len(m.topo.Repos)*3)
+	seen := make(map[string]bool, len(m.topo.Repos)*3)
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || s == "." {
+			return
+		}
+		key := strings.ToLower(s)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, s)
+	}
+	for _, sr := range m.topo.Repos {
+		add(sr.Slug)
+		add(sr.RootRel)
+		if i := strings.LastIndex(sr.RootRel, "/"); i >= 0 && i+1 < len(sr.RootRel) {
+			add(sr.RootRel[i+1:])
+		}
+	}
+	return out
+}
+
 // Cap returns the LRU active-set ceiling.
 func (m *MultiGraph) Cap() int {
 	if m == nil || m.active == nil {

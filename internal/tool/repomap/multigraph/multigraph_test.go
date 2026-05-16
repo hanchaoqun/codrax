@@ -722,3 +722,48 @@ func TestMultiGraph_ImportEdgesPrefixed(t *testing.T) {
 		t.Errorf("ImportEdges = %v, want repo-a/main.go → [repo-a/util.go]", edges)
 	}
 }
+
+// TestMultiGraph_SubRepoNames is the F1 companion regression: the
+// internal/types package needs a way to discriminate project-name
+// tokens from code symbols when building RequiredMechanismAnchor.
+// SubRepoNames flattens topology identifiers (Slug + RootRel +
+// RootRel basename) into one set so the consumer can membership-test
+// without importing the topology package.
+func TestMultiGraph_SubRepoNames(t *testing.T) {
+	build := func(_, _ string) (*rmtypes.Graph, error) {
+		return makeGraph("g", []string{"x.go"}, nil), nil
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "codrax-aabb", RootAbs: "/parent/codrax", RootRel: "codrax"},
+		{Slug: "opencode-ccdd", RootAbs: "/parent/opencode", RootRel: "opencode"},
+		{Slug: "claude-codrax-eeff", RootAbs: "/parent/claude/codrax", RootRel: "claude/codrax"},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 3})
+	names := mg.SubRepoNames()
+
+	got := make(map[string]bool, len(names))
+	for _, n := range names {
+		got[n] = true
+	}
+
+	for _, want := range []string{
+		"codrax-aabb", "codrax", // Slug + RootRel
+		"opencode-ccdd", "opencode",
+		"claude-codrax-eeff", "claude/codrax", // multi-segment RootRel kept
+		// And basename of multi-segment RootRel is also surfaced so a
+		// bare "codrax" entity matches the "claude/codrax" sub-repo.
+	} {
+		if !got[want] {
+			t.Errorf("SubRepoNames missing %q, got %v", want, names)
+		}
+	}
+	// Basename of "claude/codrax" === "codrax" already surfaced via
+	// the active sub-repo's own RootRel, so dedup leaves a single
+	// entry — no assertion needed beyond uniqueness.
+
+	// Nil receiver returns nil.
+	var nilmg *MultiGraph
+	if got := nilmg.SubRepoNames(); got != nil {
+		t.Errorf("nil receiver should return nil, got %v", got)
+	}
+}

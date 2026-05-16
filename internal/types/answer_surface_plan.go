@@ -76,6 +76,20 @@ type AnswerSurfacePlan struct {
 	// Nil when ResolveQuestionFamily returned no matching template
 	// or when the analyzer produced no usable RequestModel.
 	FacetCoverage *FacetCoverageContract
+
+	// SubRepoNames is the snapshot of multi-repo topology
+	// identifiers stamped at plan-build time: every sub-repo's
+	// Slug, RootRel, and RootRel basename. Consumers that need to
+	// distinguish "this string is a code symbol" from "this string
+	// is a project / repository name" use this set as a hard typed
+	// signal (matches the 2026-05-16 finalize-loop fix family — a
+	// noisy identifier-shape heuristic must not drive hard gate
+	// behaviour when a precise typed alternative exists).
+	//
+	// Empty in single-repo / unwired-MultiGraph postures, in which
+	// case consumers should fall through to the legacy "treat
+	// identifier-shaped tokens as symbols" path.
+	SubRepoNames []string
 }
 
 // IsCrashSourcedRootCause reports whether the surface plan was
@@ -1756,6 +1770,9 @@ func BuildAnswerSurfacePlanForAgentContext(ctx *AgentContext) *AnswerSurfacePlan
 		ctx.AnswerChains,
 		ctx.EvidenceItems,
 	)
+	if plan != nil {
+		plan.SubRepoNames = subRepoNamesFrom(ctx.MultiGraph)
+	}
 	ctx.storeAnswerSurfacePlan(plan)
 	return cloneAnswerSurfacePlan(plan)
 }
@@ -1783,8 +1800,39 @@ func BuildAnswerSurfacePlanForBusContext(ctx *BusContext) *AnswerSurfacePlan {
 		ctx.AnswerChains,
 		ctx.EvidenceItems,
 	)
+	if plan != nil {
+		plan.SubRepoNames = subRepoNamesFrom(ctx.MultiGraph)
+	}
 	ctx.storeAnswerSurfacePlan(plan)
 	return cloneAnswerSurfacePlan(plan)
+}
+
+// subRepoNameSource is the narrow contract that internal/types relies
+// on to read multi-repo identifiers without taking a direct dependency
+// on the multigraph package (which transitively depends back on
+// internal/types). The multigraph.MultiGraph type satisfies this
+// interface via its SubRepoNames method.
+type subRepoNameSource interface {
+	SubRepoNames() []string
+}
+
+// subRepoNamesFrom extracts the flattened sub-repo identifier set
+// from ctx.MultiGraph (Slug + RootRel + RootRel basename). Returns
+// nil when no multigraph is wired or the topology is empty so the
+// downstream consumers can treat absence as "single-repo posture".
+func subRepoNamesFrom(mg any) []string {
+	if mg == nil {
+		return nil
+	}
+	provider, ok := mg.(subRepoNameSource)
+	if !ok {
+		return nil
+	}
+	names := provider.SubRepoNames()
+	if len(names) == 0 {
+		return nil
+	}
+	return append([]string(nil), names...)
 }
 
 func preferredExactResolutionSurface(plan *AnswerSurfacePlan) *AnswerExactResolution {
