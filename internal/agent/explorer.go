@@ -17,7 +17,6 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/declarative"
 	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/analysis/subject"
-	"github.com/hanchaoqun/codrax/internal/authority"
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -9887,7 +9886,7 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 			// filter (residual A). Refuse to queue forced-reads on
 			// paths the FS tools would refuse to read, otherwise we
 			// re-create the lockup pattern via a different door.
-			if authority.PathInsidePendingSubRepo(f, pendingSubRepos) {
+			if types.PathInsidePendingSubRepo(f, pendingSubRepos) {
 				logging.Debug("[CGEC] chain_promotion: skipping pending-sub-repo anchor file=%s origin=%s (active-set refused)",
 					f, anchor.Origin)
 				continue

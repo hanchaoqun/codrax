@@ -762,18 +762,10 @@ func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle
 		// resident.
 		active := mg.AllGraphs()
 		if len(active) > 0 {
-			// pendingSet mirrors MultiRepoActiveSetGater's
-			// "topology - PendingSubRepos" rule (active_set_gate.go).
-			// Sub-repos in the pending set are LRU-resident (so they
-			// show up in mg.AllGraphs()) but the routing fold left
-			// them inactive for this question, and the file-system
-			// tools refuse reads on their paths. Including their
-			// QueryScores here would surface phantom forced-read
-			// targets the explorer cannot satisfy.
-			pendingSet := make(map[string]bool, len(pendingSubRepos))
-			for _, p := range pendingSubRepos {
-				pendingSet[p] = true
-			}
+			// Active-set filter: skip sub-repos the routing fold left
+			// inactive. Shares the predicate with the FS-tool gate,
+			// chain_promotion, and the symbol resolver via
+			// types.PathInsidePendingSubRepo (single source of truth).
 			scores = make(map[string]float64)
 			subMap := make(map[string]bool, len(active))
 			topo := mg.Topology()
@@ -788,7 +780,7 @@ func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle
 					continue
 				}
 				rootRel := subRepoMap[slug]
-				if pendingSet[rootRel] {
+				if types.PathInsidePendingSubRepo(rootRel, pendingSubRepos) {
 					logging.Debug("[keyword_search] repo_map (multi-repo): skipping pending sub-repo slug=%s rootRel=%s", slug, rootRel)
 					continue
 				}

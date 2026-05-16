@@ -2071,7 +2071,11 @@ func shouldMergeLogTriageEntities(bundle *types.LogBundle) bool {
 // Design doc: docs/design/multirepo_entity_scope_separation.md §4.2.
 func analyzerSymbolResolver(ctx *types.AgentContext, rm types.RequestModel) normalizer.SymbolResolver {
 	if mg := repomap.MultiGraphFromAgentContext(ctx); mg != nil && !mg.IsSingle() {
-		return newMultiRepoSymbolResolver(mg)
+		var pending []string
+		if ctx != nil {
+			pending = ctx.PendingSubRepos
+		}
+		return newMultiRepoSymbolResolver(mg, pending)
 	}
 	return newRepomapSymbolResolver(analyzerGraphForNormalize(ctx, rm))
 }

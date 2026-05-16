@@ -766,6 +766,14 @@ func fileInfoDomain(rel string, fi *rmtypes.FileInfo) string {
 // graph is loaded.
 type multiRepoSymbolResolver struct {
 	mg *multigraph.MultiGraph
+	// pendingSubRepos mirrors BusContext.PendingSubRepos so adaptHits
+	// drops symbol hits whose sub-repo the routing fold left inactive
+	// for this question. Without this, hits from LRU-resident-but-
+	// pending sub-repos leak into normalizer.TermGraph and downstream
+	// stages can mistake them for current-repo-grounded targets — the
+	// same family of leak that L1 plugged at the pre-scan ranker
+	// level, here at the analyzer's symbol normalization surface.
+	pendingSubRepos []string
 }
 
 // newMultiRepoSymbolResolver returns a multi-graph-backed resolver
@@ -773,11 +781,19 @@ type multiRepoSymbolResolver struct {
 // receivers so the caller (analyzerSymbolResolver) can fall back to
 // the legacy single-graph adapter without nil-check dance — same
 // contract as newRepomapSymbolResolver.
-func newMultiRepoSymbolResolver(mg *multigraph.MultiGraph) normalizer.SymbolResolver {
+//
+// pendingRootRels is the BusContext.PendingSubRepos snapshot for the
+// current question; hits from those sub-repos are filtered before
+// reaching normalizer consumers.
+func newMultiRepoSymbolResolver(mg *multigraph.MultiGraph, pendingRootRels []string) normalizer.SymbolResolver {
 	if mg == nil || mg.IsSingle() {
 		return nil
 	}
-	return &multiRepoSymbolResolver{mg: mg}
+	r := &multiRepoSymbolResolver{mg: mg}
+	if len(pendingRootRels) > 0 {
+		r.pendingSubRepos = append([]string(nil), pendingRootRels...)
+	}
+	return r
 }
 
 // LookupSymbol delegates to mg.LookupSymbol then adapts each
@@ -1020,6 +1036,14 @@ func (r *multiRepoSymbolResolver) adaptHits(hits []multigraph.SymbolHit) []norma
 	all := r.mg.AllGraphs()
 	for _, h := range hits {
 		if h.Symbol == nil {
+			continue
+		}
+		// B: drop hits whose sub-repo is pending for this question.
+		// Sub.RootRel is checked against r.pendingSubRepos via the
+		// shared types.PathInsidePendingSubRepo predicate so this
+		// matches the rule the FS-tool gate, the pre-scan ranker,
+		// and chain_promotion all enforce.
+		if h.Sub != nil && coretypes.PathInsidePendingSubRepo(h.Sub.RootRel, r.pendingSubRepos) {
 			continue
 		}
 		domain := ""

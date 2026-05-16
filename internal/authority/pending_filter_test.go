@@ -72,23 +72,3 @@ func TestPendingFilteredLocator_NoPending_PassesThrough(t *testing.T) {
 	}
 }
 
-func TestPathInsidePendingSubRepoExported(t *testing.T) {
-	pending := []string{"claude/codrax", "small/codrax-small"}
-	cases := []struct {
-		file string
-		want bool
-	}{
-		{"claude/codrax/internal/x.go", true},
-		{"claude/codrax", true},
-		{"small/codrax-small/foo", true},
-		{"codrax/internal/x.go", false},
-		{"opencode/src/x.ts", false},
-		{"claude/codrax-extra/x.go", false}, // prefix bleed guard
-		{"", false},
-	}
-	for _, c := range cases {
-		if got := PathInsidePendingSubRepo(c.file, pending); got != c.want {
-			t.Errorf("PathInsidePendingSubRepo(%q) = %v, want %v", c.file, got, c.want)
-		}
-	}
-}

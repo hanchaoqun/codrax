@@ -92,14 +92,14 @@ func TestNewMultiRepoSymbolResolver_SingleRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if r := newMultiRepoSymbolResolver(mg); r != nil {
+	if r := newMultiRepoSymbolResolver(mg, nil); r != nil {
 		t.Errorf("single-repo: want nil resolver, got %T", r)
 	}
 }
 
 // TestNewMultiRepoSymbolResolver_NilMG returns nil safely.
 func TestNewMultiRepoSymbolResolver_NilMG(t *testing.T) {
-	if r := newMultiRepoSymbolResolver(nil); r != nil {
+	if r := newMultiRepoSymbolResolver(nil, nil); r != nil {
 		t.Errorf("nil mg: want nil, got %T", r)
 	}
 }
@@ -116,7 +116,7 @@ func TestMultiRepoSymbolResolver_LookupSymbol_FanOut(t *testing.T) {
 		"opencode-2": {"OpencodeClient": "packages/sdk/js/src/v2/gen/sdk.gen.ts"},
 	}
 	mg := mrFixtureMG(t, repos, syms)
-	r := newMultiRepoSymbolResolver(mg)
+	r := newMultiRepoSymbolResolver(mg, nil)
 	if r == nil {
 		t.Fatal("multi-repo resolver should not be nil")
 	}
@@ -145,7 +145,7 @@ func TestMultiRepoSymbolResolver_LookupSymbol_NoMatch(t *testing.T) {
 		"a-1": {"AlphaSymbol": "alpha.go"},
 		"b-2": {"BetaSymbol": "beta.go"},
 	})
-	r := newMultiRepoSymbolResolver(mg)
+	r := newMultiRepoSymbolResolver(mg, nil)
 	if hits := r.LookupSymbol("Nonexistent"); hits != nil {
 		t.Errorf("no-match: want nil, got %v", hits)
 	}
@@ -165,7 +165,7 @@ func TestMultiRepoSymbolResolver_NormalizeCodeKeyFallback(t *testing.T) {
 		"a-1": {"BuildAgentContext": "ctx.go"},
 		"b-2": {"OtherSym": "x.go"},
 	})
-	r := newMultiRepoSymbolResolver(mg)
+	r := newMultiRepoSymbolResolver(mg, nil)
 	hits := r.LookupSymbol("build_agent_context")
 	if len(hits) != 1 {
 		t.Fatalf("snake_case → CamelCase: want 1 hit, got %d", len(hits))
@@ -187,7 +187,7 @@ func TestMultiRepoSymbolResolver_DomainFromRootRelFallback(t *testing.T) {
 		"a-1": {"SymA": "main.go"},
 		"b-2": {"SymB": "main.go"},
 	})
-	r := newMultiRepoSymbolResolver(mg)
+	r := newMultiRepoSymbolResolver(mg, nil)
 	hits := r.LookupSymbol("SymA")
 	if len(hits) != 1 || hits[0].Domain != "a" {
 		t.Errorf("SymA Domain = %q want \"a\"", hitsDomain(hits))
@@ -216,7 +216,7 @@ func TestMultiRepoSymbolResolver_StemFallback(t *testing.T) {
 		"a-1": {"analyzerEvaluator": "analyzer.go"},
 		"b-2": {"requestProcessor": "request.go"},
 	})
-	r := newMultiRepoSymbolResolver(mg).(interface {
+	r := newMultiRepoSymbolResolver(mg, nil).(interface {
 		LookupSymbolStem(string) []normalizer.SymbolHit
 	})
 	// User says "AnalyzerAgent" — strip "Agent" → stem "Analyzer" →
@@ -224,6 +224,35 @@ func TestMultiRepoSymbolResolver_StemFallback(t *testing.T) {
 	hits := r.LookupSymbolStem("AnalyzerAgent")
 	if len(hits) == 0 {
 		t.Errorf("LookupSymbolStem(AnalyzerAgent): expected hits across sub-repos")
+	}
+}
+
+// TestMultiRepoSymbolResolver_LookupSymbol_FiltersPendingSubRepo is
+// the B regression for the 2026-05-16 finalize-loop fix. Analyzer's
+// symbol normalization MUST NOT surface symbol hits from sub-repos
+// the routing fold left inactive: otherwise the TermGraph carries
+// those symbols, downstream stages can mistake them for current-repo
+// targets, citations land on inaccessible files, and the
+// chain_promotion / FS-tool refusal sequence loops back into the
+// evidence_floor_waiver(no_repo_intersection) escape we already
+// disarmed at L1 / L2 / A / C.
+func TestMultiRepoSymbolResolver_LookupSymbol_FiltersPendingSubRepo(t *testing.T) {
+	repos := []topology.SubRepo{
+		{Slug: "active-1", RootAbs: "/parent/active", RootRel: "active", FileCount: 1},
+		{Slug: "pending-2", RootAbs: "/parent/pending", RootRel: "pending", FileCount: 1},
+	}
+	mg := mrFixtureMG(t, repos, map[string]map[string]string{
+		"active-1":  {"Orchestrator": "internal/orch.go"},
+		"pending-2": {"Orchestrator": "internal/orch.go"},
+	})
+	// Pending list contains the inactive sub-repo's RootRel.
+	r := newMultiRepoSymbolResolver(mg, []string{"pending"})
+	hits := r.LookupSymbol("Orchestrator")
+	if len(hits) != 1 {
+		t.Fatalf("Orchestrator: want 1 active-side hit, got %d (%v)", len(hits), hits)
+	}
+	if hits[0].Domain == "pending" {
+		t.Errorf("hit must come from active sub-repo, got domain=%q", hits[0].Domain)
 	}
 }
 
