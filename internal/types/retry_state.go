@@ -404,9 +404,17 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 
 	// High: strict-by-default V2 oracle violations + structural
 	// answer-shape mismatches. Eligible for finalize retry.
+	//
+	// 2026-05-17 T3 soft-demote moved ViolUncertaintyBlockMissing,
+	// ViolStructuralEnumerationDivergence, ViolSymbolAnchorMismatch
+	// out of this group into the SOFT-by-default block below — their
+	// violation.go comments explicitly named them as SOFT, and the
+	// failure modes (missing caveat / partial transparency / telemetry
+	// signal first) do not warrant a retry round. Strict-promote via
+	// pipeline_contract_strict_kinds still returns SeverityHigh via
+	// the soft block's isStrict branch.
 	case ViolFacetUncovered,
 		ViolDiagramEdgeUnsupported,
-		ViolUncertaintyBlockMissing,
 		ViolCurrentStatusVerdictMissing,
 		ViolClaimFormUnsupported,
 		ViolFamilyMismatch,
@@ -419,11 +427,9 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		ViolIntentConfigNoTrail,
 		ViolSubjectAnchorMissing,
 		ViolPredicateAxisMissing,
-		ViolStructuralEnumerationDivergence,
 		ViolAbsenceScopeExceeded,
 		ViolStepIdentifierUnverified,
 		ViolValueSecondaryCitationOffFocus,
-		ViolSymbolAnchorMismatch,
 		ViolEnumerationLabelUngrounded,
 		ViolEnumerationLabelHallucinated,
 		ViolInlineIdentifierHallucinated,
@@ -498,14 +504,29 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		}
 		return SeveritySoft
 	}
-	// B2 v3 (2026-05-04) — three-layer quality contract: glaring gap
-	// + principal prose underfilled. Medium-by-default;
-	// isStrict promotes to High.
-	if kind == ViolRichnessGlaringGap || kind == ViolPrincipalProseUnderfilled {
+	// 2026-05-17 T3 soft-demote: 5 oracle kinds whose violation.go
+	// comments document SOFT-by-default intent. Failure mode is
+	// style / transparency / telemetry, not answer correctness —
+	// the answer ships with a residual-concerns caveat (via
+	// MaterializeUnresolvedViolationsAsCaveats) instead of burning a
+	// finalize retry round. Operators who want strict enforcement
+	// promote via pipeline_contract_strict_kinds; the isStrict branch
+	// below returns SeverityHigh to land the kind in the retry group.
+	//
+	//   - ViolRichnessGlaringGap            : enrichment advisory
+	//   - ViolPrincipalProseUnderfilled     : prose density hint
+	//   - ViolUncertaintyBlockMissing       : caveat transparency hint
+	//   - ViolStructuralEnumerationDivergence : partial enumeration disclosure
+	//   - ViolSymbolAnchorMismatch          : explorer-coverage telemetry
+	if kind == ViolRichnessGlaringGap ||
+		kind == ViolPrincipalProseUnderfilled ||
+		kind == ViolUncertaintyBlockMissing ||
+		kind == ViolStructuralEnumerationDivergence ||
+		kind == ViolSymbolAnchorMismatch {
 		if isStrict {
 			return SeverityHigh
 		}
-		return SeverityMedium
+		return SeveritySoft
 	}
 	// Multi-repo write fail-loud (design §4.5.5, 2026-05-08).
 	// SeveritySoft regardless of isStrict — there is no retry

@@ -11,6 +11,38 @@ import (
 // same CaveatFamily collapse to one user-visible caveat. Mirrors the
 // qfa-mr3 forensic case: 3 violations, 2 share answer_coverage, 1 is
 // diagram_fidelity → 2 caveats output.
+// TestSoftDemotedKinds_T3_MaterializeToCaveats pins the 2026-05-17 T3
+// soft-demote contract: each of the five oracle kinds whose default
+// severity was flipped to SeveritySoft materialises as a user-visible
+// caveat through the standard caveat family pipeline (no retry, no
+// raw fallback). Catches CaveatFamilyID drift on these specific
+// kinds — if a future PR clears their CaveatFamilyID, the answer
+// would silently lose the disclosure channel after the demotion.
+func TestSoftDemotedKinds_T3_MaterializeToCaveats(t *testing.T) {
+	for _, kind := range []types.ViolationKind{
+		types.ViolRichnessGlaringGap,
+		types.ViolPrincipalProseUnderfilled,
+		types.ViolUncertaintyBlockMissing,
+		types.ViolStructuralEnumerationDivergence,
+		types.ViolSymbolAnchorMismatch,
+	} {
+		spec, ok := types.ViolKindSpecFor(kind)
+		if !ok {
+			t.Errorf("kind=%q: missing registry spec", kind)
+			continue
+		}
+		if spec.CaveatFamilyID == "" {
+			t.Errorf("kind=%q: empty CaveatFamilyID; T3 demoted kinds need a user-visible disclosure channel", kind)
+			continue
+		}
+		violations := []types.Violation{{Kind: kind}}
+		caveats := MaterializeUnresolvedViolationsAsCaveats(violations, "zh")
+		if len(caveats) == 0 {
+			t.Errorf("kind=%q: produced zero caveats; expected one via family %q", kind, spec.CaveatFamilyID)
+		}
+	}
+}
+
 func TestMaterializeCaveats_GroupsByFamily(t *testing.T) {
 	violations := []types.Violation{
 		{Kind: types.ViolRichnessRegression},

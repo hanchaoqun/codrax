@@ -705,8 +705,18 @@ func init() {
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolUncertaintyBlockMissing, DefaultSeverity: SeverityMedium,
-		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		// 2026-05-17 T3 soft-demote: the violation.go comment for
+		// ViolUncertaintyBlockMissing explicitly says "SOFT-by-default"
+		// — the missing caveat is a transparency hint, not an answer-
+		// rendering blocker. Per the CLAUDE.md red-line, hard gates
+		// must consume PRECISE signals; this oracle reads "did the
+		// uncertainty contract surface a rule AND did the document
+		// fail to render a caveat block" — both precise — but the
+		// failure mode (missing disclosure) is style, not correctness.
+		// Promotable stays true so operators who want strict
+		// transparency via pipeline_contract_strict_kinds can promote.
+		Kind: ViolUncertaintyBlockMissing, DefaultSeverity: SeveritySoft,
+		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 
@@ -768,8 +778,13 @@ func init() {
 	// the gate flips Passed=false. Operators may demote via
 	// pipeline_contract_soft_kinds when noise rate is too high.
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolRichnessGlaringGap, DefaultSeverity: SeverityMedium,
-		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		// 2026-05-17 T3 soft-demote: comment intent is "SOFT-by-default;
+		// promotable". A glaring richness gap is enrichment guidance,
+		// not a correctness gate — the answer ships with reduced
+		// richness; promoting to retry rewrites the same body for a
+		// stylistic enrichment delta, burning a finalize round.
+		Kind: ViolRichnessGlaringGap, DefaultSeverity: SeveritySoft,
+		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 		// A "glaring" gap on a facet is the more severe form of
 		// generic richness regression — when both fire on the same
@@ -777,8 +792,16 @@ func init() {
 		Implies: []ViolationKind{ViolRichnessRegression},
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolPrincipalProseUnderfilled, DefaultSeverity: SeverityMedium,
-		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
+		// 2026-05-17 T3 soft-demote: comment intent is "SOFT-by-default;
+		// promotable". The oracle fires on prose density (≥3 claim_uses
+		// but zero inline-code references in the rendered text) — a
+		// stylistic constraint about prose anchoring, not a correctness
+		// signal. With B/B2 label-citation alignment + the symbol-oracle
+		// hallucination gates already hard-strict, prose density is
+		// secondary. Promoting causes whole-doc rewrites for the same
+		// underlying evidence pool.
+		Kind: ViolPrincipalProseUnderfilled, DefaultSeverity: SeveritySoft,
+		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
 	})
 
@@ -817,8 +840,16 @@ func init() {
 	// the kind's SOFT semantic comes from its DefaultSeverity flowing
 	// through ViolationProfileFor. Preserved verbatim for migration parity.
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolStructuralEnumerationDivergence, DefaultSeverity: SeverityMedium,
-		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExtract,
+		// 2026-05-17 T3 soft-demote: violation.go comment is explicit
+		// — "defaults soft so the user keeps an answer even when
+		// transparency is partial". The oracle reads precise typed
+		// signals (Graph.ImplementersOf vs doc.Symbols vs verbatim
+		// summary substring), but the failure mode is "answer omits
+		// items the typed relation reports" — a transparency gap, not
+		// a wrong answer. Strict-promote target is BackToExtract for
+		// operators who require full structural coverage.
+		Kind: ViolStructuralEnumerationDivergence, DefaultSeverity: SeveritySoft,
+		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExtract,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyEnumerationDepth,
 	})
 	RegisterViolKind(ViolKindSpec{
@@ -846,8 +877,17 @@ func init() {
 	// explicitly; the kind is treated as Medium retry-eligible. Layer
 	// is v2_oracle in the legacy switch.
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolSymbolAnchorMismatch, DefaultSeverity: SeverityMedium,
-		SoftByDefault: false, Promotable: true, FallbackLocus: LocusExplore,
+		// 2026-05-17 T3 soft-demote: comment intent is "SOFT-by-default
+		// (telemetry signal first; the orchestrator's existing iteration-
+		// cap escape and pre-existing soft fail-safe paths must observe
+		// the gap before retrying or shipping)". Rejected emit_answer_
+		// symbol lines + count divergence are observability signals —
+		// a forensic to investigate the explorer's keyword_search
+		// coverage, not a hard rendering blocker. Operators promote to
+		// BackToExplore via pipeline_contract_strict_kinds when they
+		// want re-investigation on miss.
+		Kind: ViolSymbolAnchorMismatch, DefaultSeverity: SeveritySoft,
+		SoftByDefault: true, Promotable: true, FallbackLocus: LocusExplore,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyCitationGrounded,
 	})
 	RegisterViolKind(ViolKindSpec{

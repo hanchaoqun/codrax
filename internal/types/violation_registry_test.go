@@ -5,6 +5,57 @@ import (
 	"testing"
 )
 
+// TestSoftDemotedKinds_T3_RouteToCaveat asserts the 2026-05-17 T3
+// soft-demote: five oracle kinds whose comment intent is "SOFT-by-
+// default" are registry-classified SoftByDefault=true,
+// DefaultSeverity=SeveritySoft, default RetryEligible=false (caveat
+// path, no retry), and strict-promote returns RetryEligible=true at
+// SeverityHigh (operator-yaml override re-engages the retry loop).
+//
+// Locks the comment-vs-registry agreement so future drift is caught
+// at test time, not at production finalize-loop time.
+func TestSoftDemotedKinds_T3_RouteToCaveat(t *testing.T) {
+	softDemoted := []ViolationKind{
+		ViolRichnessGlaringGap,
+		ViolPrincipalProseUnderfilled,
+		ViolUncertaintyBlockMissing,
+		ViolStructuralEnumerationDivergence,
+		ViolSymbolAnchorMismatch,
+	}
+	for _, kind := range softDemoted {
+		spec, ok := ViolKindSpecFor(kind)
+		if !ok {
+			t.Errorf("kind=%q: no registry spec — T3 demotion requires registry entry", kind)
+			continue
+		}
+		if !spec.SoftByDefault {
+			t.Errorf("kind=%q: SoftByDefault=false; T3 requires true (caveat, not retry)", kind)
+		}
+		if spec.DefaultSeverity != SeveritySoft {
+			t.Errorf("kind=%q: DefaultSeverity=%q; T3 requires SeveritySoft", kind, spec.DefaultSeverity)
+		}
+		if !spec.Promotable {
+			t.Errorf("kind=%q: Promotable=false; T3 keeps operator strict-promote path open", kind)
+		}
+		// Default profile: telemetry-only.
+		def := ViolationProfileFor(kind, false)
+		if def.Severity != SeveritySoft {
+			t.Errorf("kind=%q non-strict: Severity=%q want SeveritySoft", kind, def.Severity)
+		}
+		if def.RetryEligible {
+			t.Errorf("kind=%q non-strict: RetryEligible=true want false (caveat path)", kind)
+		}
+		// Strict-promote profile: retry re-enabled at High.
+		strict := ViolationProfileFor(kind, true)
+		if strict.Severity != SeverityHigh {
+			t.Errorf("kind=%q strict-promote: Severity=%q want SeverityHigh", kind, strict.Severity)
+		}
+		if !strict.RetryEligible {
+			t.Errorf("kind=%q strict-promote: RetryEligible=false want true", kind)
+		}
+	}
+}
+
 // TestLegacyDeriveSeverityMatchesRegistry — every kind in
 // AllViolationKinds must have legacyDeriveSeverity agree with the
 // registry-declared DefaultSeverity. Migration window invariant.

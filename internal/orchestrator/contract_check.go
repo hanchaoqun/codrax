@@ -1591,11 +1591,18 @@ func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 		// advisory. SOFT-by-default; promotable when operator wants
 		// typed declarations enforced.
 		types.ViolDiagramRelationLabelOnly: true,
-		// B2 v3 (2026-05-04) — three-layer quality contract violations
-		// are NOT in the soft map; they trigger retry by default
-		// (Severity=Medium → RetryEligible=true). Operators may demote
-		// via pipeline_contract_soft_kinds when noise rate is too high.
-		// Listed here as documentation (the comment, not the entry).
+		// 2026-05-17 T3 soft-demote: five oracle kinds whose
+		// violation.go comments name them SOFT-by-default and whose
+		// failure modes are style / transparency / telemetry. Default
+		// SoftByDefault=true so the answer ships with a residual-
+		// concerns caveat instead of burning a finalize retry round.
+		// Operators promote via pipeline_contract_strict_kinds; the
+		// strict path lands them back in the retry loop at High.
+		types.ViolRichnessGlaringGap:            true,
+		types.ViolPrincipalProseUnderfilled:     true,
+		types.ViolUncertaintyBlockMissing:       true,
+		types.ViolStructuralEnumerationDivergence: true,
+		types.ViolSymbolAnchorMismatch:          true,
 
 		// Multi-repo write fail-loud (design §4.5.5, 2026-05-08).
 		// SOFT here means "no auto-retry pathway" — the actual
