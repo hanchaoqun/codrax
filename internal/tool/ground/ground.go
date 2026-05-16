@@ -2488,6 +2488,26 @@ func typeAnnotationSurface(s string) bool {
 }
 
 func lineCorroboratesCallSite(lineText string, it *types.EvidenceItem, graph *repomap.Graph, lineNo int) bool {
+	// 2026-05-17 architectural fix — tree-sitter typed signal first.
+	// FileInfo.LineFeatures is the per-line typed AST node-shape index
+	// populated by the indexer (call_expression / method_invocation /
+	// new_expression nodes register LineFeatureCallExpression /
+	// LineFeatureNewExpression at their start line). When the line
+	// carries either feature, the line IS a call site by AST
+	// construction — no regex heuristic should override that. This
+	// closes the false-rejection class where source-shape regex
+	// matched a call expression as a type-prefixed definition (the
+	// 2026-05-17 TS Effect.gen `yield* funcName(args)` forensic).
+	//
+	// Falls through to the existing Relations / regex paths when:
+	//   - graph is nil (no scan, single-shot CLI)
+	//   - FileInfo absent (file not indexed)
+	//   - LineFeatures empty (Tier 3+ regex-only parse: no AST)
+	// — those paths preserve byte-identical behaviour for callers
+	// that operated without a graph before the LineFeatures-tier fix.
+	if graphLineHasCallExpressionFeature(graph, it.Source, lineNo) {
+		return true
+	}
 	candidates := preferredCallTargetNames(it)
 	if len(candidates) == 0 {
 		return false
@@ -2506,6 +2526,38 @@ func lineCorroboratesCallSite(lineText string, it *types.EvidenceItem, graph *re
 			continue
 		}
 		if looksLikeCallSyntax(lineText, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// graphLineHasCallExpressionFeature consults the tree-sitter
+// LineFeatures index for a call_expression / new_expression node at
+// the given source:line. Distinct from graphLineHasCallToAnyTarget
+// (which walks fi.Relations for a Kind="call" edge to a SPECIFIC
+// callee name) — this is the looser "is this line a call site at
+// all" check. Useful when the call's callee identifier is hard to
+// resolve statically (generator delegation via `yield*`, dynamic
+// dispatch via Effect.fn factory wrappers, etc.) but the AST
+// unambiguously shaped the line as a call.
+//
+// Tier discipline: empty LineFeatures (regex-only parse, Tier 3+
+// files) yields false so the caller's regex-shape path remains
+// authoritative. Per the precise-signals-for-hard-gates principle,
+// absence of the typed signal is "no signal", not "negation".
+func graphLineHasCallExpressionFeature(graph *repomap.Graph, source string, line int) bool {
+	if graph == nil || source == "" || line <= 0 {
+		return false
+	}
+	fi, ok := graph.FileIndex[source]
+	if !ok || fi == nil {
+		return false
+	}
+	features := fi.LineFeatures[line]
+	for _, f := range features {
+		if f == repomap.LineFeatureCallExpression ||
+			f == repomap.LineFeatureNewExpression {
 			return true
 		}
 	}
@@ -2620,6 +2672,26 @@ func sourceLineStartsWithControlKeyword(lineText string) bool {
 		"for ", "for(", "guard ", "if ", "if(", "match ", "raise ",
 		"rescue ", "return ", "switch ", "switch(", "throw ", "try ", "try{",
 		"unless ", "when ", "while ", "while(", "yield ",
+		// 2026-05-17 grounder fix: JS / TS expression operators that
+		// can precede a call expression. Without these prefixes the
+		// downstream cFamilyDefinitionLineRe matches lines like
+		// `yield* assertExternalDirectoryEffect(ctx, filePath)` as a
+		// type-prefixed C-style function definition — `yield*` slots
+		// into the regex's "<type-token>+space" head (asterisk is in
+		// the type-token char class for pointer return types like
+		// `Foo*`), and the rest of the line matches `name(args)`.
+		// Effect.gen / TS-async / similar generator-delegation
+		// patterns then fail anchor_kind="call" grounding with
+		// "definition-shaped source line" — the model has no path
+		// to ground the obvious call site.
+		"yield*",         // JS / TS generator delegation: `yield* funcName(args)`
+		"yield*\t",       // tab-separated form
+		"await ",         // JS / TS async expression: `await funcName(args)`
+		"await\t",
+		"await(",         // `await(promise)` — parenthesized await
+		// Python `yield from` — same delegation shape as JS `yield*`.
+		"yield from ",
+		"yield from\t",
 	} {
 		if strings.HasPrefix(lower, prefix) {
 			return true

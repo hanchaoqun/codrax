@@ -338,6 +338,136 @@ func TestGroundItem_Tier1CallAcceptsRealCallsiteWithoutGraph(t *testing.T) {
 	}
 }
 
+// TestGroundItem_CallAnchorAcceptsCallExpressionFromLineFeatures
+// pins the architectural fix layer: when tree-sitter has populated
+// FileInfo.LineFeatures with LineFeatureCallExpression at the cited
+// line, lineCorroboratesCallSite returns true and the regex-shape
+// classifier's "definition-shaped" verdict is overridden.
+//
+// This is the precise typed-signal path — AST evidence beats regex
+// heuristic for hard-gate decisions. The fallback regex prefix list
+// in sourceLineStartsWithControlKeyword catches the same patterns
+// (yield* / await / yield from) when the graph is unavailable, but
+// the AST signal is the authoritative source when present.
+func TestGroundItem_CallAnchorAcceptsCallExpressionFromLineFeatures(t *testing.T) {
+	// Simulated: TS Effect.gen call `yield* assertExternalDirectoryEffect(ctx, filePath)`.
+	// The regex shape classifier would mis-tag this as a C-family
+	// type-prefixed definition (`yield*` head + `assert...(args)`
+	// body); LineFeatures from tree-sitter tags it as a call.
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"opencode/packages/opencode/src/tool/apply_patch.ts": {
+				RelPath:  "opencode/packages/opencode/src/tool/apply_patch.ts",
+				Language: "typescript",
+				LineFeatures: map[int][]repomap.LineFeature{
+					74: {repomap.LineFeatureCallExpression},
+				},
+			},
+		},
+	}
+	history := []types.ToolResult{
+		buildGutterReadResult(
+			"opencode/packages/opencode/src/tool/apply_patch.ts",
+			70,
+			[]string{
+				"      const ctx = yield* PatchCtx.context",
+				"      for (const filePath of files) {",
+				"        const before = readFile(filePath)",
+				"        // line 74 is the call below",
+				"        yield* assertExternalDirectoryEffect(ctx, filePath)",
+				"        applyHunk(filePath, hunk)",
+			},
+			80,
+		),
+	}
+	gc := &Context{
+		LineIndex: buildLineIndex(history, ""),
+		Graph:     graph,
+	}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceRelationship,
+		Source:       "opencode/packages/opencode/src/tool/apply_patch.ts",
+		LineStart:    74,
+		AnchorKind:   types.AnchorCall,
+		AnchorSymbol: "assertExternalDirectoryEffect",
+		Subject:      "ApplyPatchTool.run",
+		Object:       "assertExternalDirectoryEffect",
+		Snippet:      "yield* assertExternalDirectoryEffect(ctx, filePath)",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus == types.GroundingUngrounded &&
+		strings.Contains(it.GroundingNote, "definition-shaped") {
+		t.Fatalf("LineFeatureCallExpression at line 74 must override regex shape: status=%q note=%q",
+			it.GroundingStatus, it.GroundingNote)
+	}
+}
+
+// TestGroundItem_CallAnchorAcceptsJSExpressionPrefixedCallSites pins
+// the 2026-05-17 grounder fix: TypeScript Effect.gen / async patterns
+// like `yield* funcName(args)` and `await funcName(args)` are CALL
+// SITES, not definitions. Before the fix, cFamilyDefinitionLineRe
+// matched these as type-prefixed C-style function declarations
+// (`yield*` slotted into the "type-token + space" regex head because
+// asterisk is in the type-token char class for pointer return types).
+// sourceLineStartsWithControlKeyword now short-circuits these
+// expression operators before the definition regex runs.
+func TestGroundItem_CallAnchorAcceptsJSExpressionPrefixedCallSites(t *testing.T) {
+	cases := []struct {
+		name   string
+		path   string
+		line   string
+		symbol string
+	}{
+		{
+			name:   "ts_yield_star_generator_delegation",
+			path:   "opencode/packages/opencode/src/tool/apply_patch.ts",
+			line:   "        yield* assertExternalDirectoryEffect(ctx, filePath)",
+			symbol: "assertExternalDirectoryEffect",
+		},
+		{
+			name:   "ts_yield_star_short_call",
+			path:   "opencode/packages/opencode/src/tool/shell.ts",
+			line:   "      yield* ask(ctx, scan)",
+			symbol: "ask",
+		},
+		{
+			name:   "ts_await_async_call",
+			path:   "opencode/packages/opencode/src/session/session.ts",
+			line:   "      await fetchUserData(userId)",
+			symbol: "fetchUserData",
+		},
+		{
+			name:   "python_yield_from_delegation",
+			path:   "service.py",
+			line:   "      yield from compute_results(seed)",
+			symbol: "compute_results",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			history := []types.ToolResult{
+				buildGutterReadResult(tc.path, 70, []string{tc.line, "      return value", "    }"}, 80),
+			}
+			gc := &Context{LineIndex: buildLineIndex(history, "")}
+			it := &types.EvidenceItem{
+				Kind:         types.EvidenceRelationship,
+				Source:       tc.path,
+				LineStart:    70,
+				AnchorKind:   types.AnchorCall,
+				AnchorSymbol: tc.symbol,
+				Subject:      tc.symbol,
+				Snippet:      tc.line,
+			}
+			GroundItem(it, gc)
+			if it.GroundingStatus == types.GroundingUngrounded &&
+				strings.Contains(it.GroundingNote, "definition-shaped") {
+				t.Fatalf("%s: call-site falsely rejected as definition-shaped — note=%q",
+					tc.name, it.GroundingNote)
+			}
+		})
+	}
+}
+
 func TestGroundItem_Tier1CallRejectsFunctionDefinitionLine(t *testing.T) {
 	history := []types.ToolResult{
 		buildGutterReadResult("a.go", 10, []string{
