@@ -1389,7 +1389,7 @@ func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts 
 	if limit <= 0 || limit > len(items) {
 		limit = len(items)
 	}
-	// Defensive re-sort by producer-rank before taking the top-N slice.
+	// Defensive re-rank by producer-rank before taking the top-N slice.
 	// The upstream pool is already merge-sorted by rank, but several
 	// explorer paths (rankEvidenceByRelevanceWithSubject, diversity
 	// cap) re-order the slice between the merge and this render step.
@@ -1398,16 +1398,11 @@ func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts 
 	// before any LLM-emitted item gets a slot, even though the LLM's
 	// emissions are the most on-topic facts available.
 	//
-	// Copy the slice rather than sorting in place so we don't mutate
-	// ac.EvidenceItems for the leads / findings sections that iterate
-	// the same backing array further down in BuildAgentContext.
-	sorted := make([]types.EvidenceItem, len(items))
-	copy(sorted, items)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		ri, rj := producerRank(sorted[i]), producerRank(sorted[j])
-		return ri < rj
-	})
-	items = sorted
+	// Keep this O(N), not O(N log N): large-repo runs can carry tens
+	// of thousands of evidence rows while this renderer usually needs
+	// only the top ~18. Producer ranks are three fixed bands, so stable
+	// buckets preserve the old sort order without full-slice sorting.
+	renderItems := selectEvidenceItemsForRender(items, limit)
 	// Diagnostic: top-25 producer histogram. Retained because operators
 	// investigating "why didn't my emit show up in Structured Evidence"
 	// benefit from the real producer distribution at the rendering site.
@@ -1432,7 +1427,7 @@ func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts 
 	}
 	var b strings.Builder
 	written := 0
-	for _, item := range items {
+	for _, item := range renderItems {
 		if !isStructuredEvidenceItem(item) {
 			continue
 		}
@@ -1480,6 +1475,36 @@ func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts 
 		b.WriteString(appendix)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func selectEvidenceItemsForRender(items []types.EvidenceItem, limit int) []types.EvidenceItem {
+	if len(items) == 0 {
+		return nil
+	}
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	buckets := [3][]types.EvidenceItem{}
+	for _, item := range items {
+		rank := producerRank(item)
+		if rank < 0 {
+			rank = 0
+		}
+		if rank >= len(buckets) {
+			rank = len(buckets) - 1
+		}
+		buckets[rank] = append(buckets[rank], item)
+	}
+	out := make([]types.EvidenceItem, 0, limit)
+	for _, bucket := range buckets {
+		for _, item := range bucket {
+			if len(out) >= limit {
+				return out
+			}
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // renderTypedRelationAppendix produces the typed_graph-tagged rows

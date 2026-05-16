@@ -793,6 +793,28 @@ func TestFormatEvidenceItemsExcludesUngrounded(t *testing.T) {
 	}
 }
 
+func TestSelectEvidenceItemsForRenderPreservesProducerRankOrder(t *testing.T) {
+	items := []types.EvidenceItem{
+		{ID: "data-1", Producer: "dataflow.trace", Subject: "data-1"},
+		{ID: "generic-1", Producer: "concrete_values", Subject: "generic-1"},
+		{ID: "emit-1", Producer: "explorer.emit_evidence", Subject: "emit-1"},
+		{ID: "generic-2", Producer: "bridge_literal", Subject: "generic-2"},
+		{ID: "emit-2", Producer: "explorer.emit_evidence", Subject: "emit-2"},
+	}
+	got := selectEvidenceItemsForRender(items, 4)
+	var ids []string
+	for _, item := range got {
+		ids = append(ids, item.ID)
+	}
+	want := []string{"emit-1", "emit-2", "generic-1", "generic-2"}
+	if strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Fatalf("render selection order = %v, want %v", ids, want)
+	}
+	if items[0].ID != "data-1" || items[2].ID != "emit-1" {
+		t.Fatalf("selection mutated input order: %+v", items)
+	}
+}
+
 func TestBuildPromptContext_FinalizerStructuredEvidenceNeutralizesExactResolutionNotes(t *testing.T) {
 	target := "explore_mid_loop_hint_budget"
 	ac := &types.AgentContext{
