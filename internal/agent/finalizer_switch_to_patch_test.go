@@ -20,8 +20,32 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// llmToolSchemaT2 mirrors llm.ToolSchema for the T2 test helpers.
+// Kept local so the file's other tests do not need to import the llm
+// package, and to give the assertion helpers a stable comparison
+// surface (Name + Description; the JSON Parameters field is not part
+// of the schema-filter contract).
+type llmToolSchemaT2 = llm.ToolSchema
+
+func callFilterToolSchemasT2(e *answerDocumentEvaluator, ctx *types.AgentContext, in []llmToolSchemaT2) []llmToolSchemaT2 {
+	return e.FilterToolSchemas(ctx, in)
+}
+
+func sameSchemaNamesT2(a, b []llmToolSchemaT2) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name {
+			return false
+		}
+	}
+	return true
+}
 
 func ctxWithAnswerPatchBase() *types.AgentContext {
 	mut := types.NewMutableState("retry")
@@ -283,4 +307,82 @@ func TestEmitSwitchToPatchSignal_HintIsLanguageNeutral(t *testing.T) {
 			t.Errorf("internal term %q leaked into LLM-facing hint: %q", internal, got.Hint)
 		}
 	}
+}
+
+// TestFilterToolSchemas_T2_PatchFirstEnforcement pins the T2 contract:
+// once full-emit has failed twice AND a patch base exists, the
+// evaluator's ToolSchemaFilter implementation drops
+// emit_answer_document from the schema list so the next LLM turn can
+// only call emit_answer_document_patch. The mid-loop nudge that
+// already advises the switch is now backed by schema-level
+// enforcement — the model cannot choose the wasteful full-emit path.
+func TestFilterToolSchemas_T2_PatchFirstEnforcement(t *testing.T) {
+	baseSchemas := []llmToolSchemaT2{
+		{Name: "emit_answer_document"},
+		{Name: "emit_answer_document_patch"},
+		{Name: "propose_sub_agents"},
+	}
+
+	t.Run("no_filter_when_streak_below_threshold", func(t *testing.T) {
+		e := &answerDocumentEvaluator{emitFullDocFailStreak: 1}
+		ctx := ctxWithAnswerPatchBase()
+		got := callFilterToolSchemasT2(e, ctx, baseSchemas)
+		if !sameSchemaNamesT2(got, baseSchemas) {
+			t.Errorf("streak=1: filter must be no-op; got %+v", got)
+		}
+	})
+
+	t.Run("no_filter_when_no_patch_base", func(t *testing.T) {
+		e := &answerDocumentEvaluator{emitFullDocFailStreak: 3}
+		ctx := &types.AgentContext{Mutable: types.NewMutableState("q")}
+		got := callFilterToolSchemasT2(e, ctx, baseSchemas)
+		if !sameSchemaNamesT2(got, baseSchemas) {
+			t.Errorf("no patch base: filter must be no-op; got %+v", got)
+		}
+	})
+
+	t.Run("drops_full_emit_when_streak_meets_threshold_and_base_present", func(t *testing.T) {
+		e := &answerDocumentEvaluator{emitFullDocFailStreak: 2}
+		ctx := ctxWithAnswerPatchBase()
+		got := callFilterToolSchemasT2(e, ctx, baseSchemas)
+		for _, s := range got {
+			if s.Name == "emit_answer_document" {
+				t.Errorf("emit_answer_document must be filtered out; got remaining schemas %+v", got)
+			}
+		}
+		foundPatch := false
+		foundUnrelated := false
+		for _, s := range got {
+			if s.Name == "emit_answer_document_patch" {
+				foundPatch = true
+			}
+			if s.Name == "propose_sub_agents" {
+				foundUnrelated = true
+			}
+		}
+		if !foundPatch {
+			t.Errorf("patch tool must remain in schema list; got %+v", got)
+		}
+		if !foundUnrelated {
+			t.Errorf("unrelated tools must be preserved; got %+v", got)
+		}
+	})
+
+	t.Run("nil_evaluator_safe", func(t *testing.T) {
+		var e *answerDocumentEvaluator
+		got := callFilterToolSchemasT2(e, ctxWithAnswerPatchBase(), baseSchemas)
+		if !sameSchemaNamesT2(got, baseSchemas) {
+			t.Errorf("nil evaluator: pass-through; got %+v", got)
+		}
+	})
+
+	t.Run("does_not_mutate_input_slice", func(t *testing.T) {
+		e := &answerDocumentEvaluator{emitFullDocFailStreak: 3}
+		ctx := ctxWithAnswerPatchBase()
+		original := append([]llmToolSchemaT2(nil), baseSchemas...)
+		_ = callFilterToolSchemasT2(e, ctx, baseSchemas)
+		if !sameSchemaNamesT2(baseSchemas, original) {
+			t.Errorf("filter mutated input slice: got %+v, want %+v", baseSchemas, original)
+		}
+	})
 }

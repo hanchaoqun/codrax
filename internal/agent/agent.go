@@ -218,6 +218,29 @@ type Evaluator interface {
 	DetermineMissingPiece(ctx *types.AgentContext, output *StageOutput) types.MissingPiece
 }
 
+// ToolSchemaFilter is an OPTIONAL interface evaluators may implement
+// to dynamically restrict the agent's tool surface per-iter inside a
+// single Execute() dispatch. Without this hook the tool schema set is
+// fixed at Execute() entry from the skill's ToolSuggestions; the
+// 2026-05-17 T2 patch-first work needs per-iter responsiveness so the
+// answer-document evaluator can drop emit_answer_document from the
+// schema list after two consecutive full-emit failures, leaving only
+// emit_answer_document_patch as the actionable retry path.
+//
+// BaseAgent.Execute calls FilterToolSchemas BEFORE every LLM.Chat
+// turn so a state change in the prior iter's Observe pass takes
+// effect immediately. Implementations MUST be idempotent — repeated
+// calls with the same context yield the same schema slice — and MUST
+// NOT mutate the input slice (return a fresh slice or a re-sliced
+// view).
+//
+// Returning the input unchanged is the correct implementation when
+// no filter applies, and is the implicit behaviour for evaluators
+// that do not implement this interface.
+type ToolSchemaFilter interface {
+	FilterToolSchemas(ctx *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema
+}
+
 // LoopPhase names the point in the ReAct iteration where
 // LoopController.Observe is being consulted. The phase lets a single
 // Observe hook handle both the "LLM is still calling tools — should
@@ -1120,8 +1143,24 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}
 		}
 
+		// Per-iter tool schema filter (2026-05-17 T2). Evaluators that
+		// implement ToolSchemaFilter can shrink the surface in response
+		// to state observed in the prior iter — the answer-document
+		// evaluator uses this to drop emit_answer_document from the
+		// schema list once full-emit has failed twice, leaving only
+		// emit_answer_document_patch so the model cannot rewrite the
+		// whole document for a small structural fix.
+		//
+		// The filter MUST NOT mutate the base toolSchemas slice; we
+		// reassign a local effectiveTools per iter so the next iter
+		// starts from the unmodified base if filter conditions changed.
+		effectiveTools := toolSchemas
+		if filter, ok := b.eval.(ToolSchemaFilter); ok {
+			effectiveTools = filter.FilterToolSchemas(ctx, toolSchemas)
+		}
+
 		// Reason — call LLM
-		telemetry := llm.BuildRequestTelemetry(b.deps.LLM, messages, toolSchemas)
+		telemetry := llm.BuildRequestTelemetry(b.deps.LLM, messages, effectiveTools)
 		logging.Debug("[diag %s] iter=%d phase=llm_request model=%s context_tokens_est=%d context_window=%d messages=%d tools=%d",
 			b.name, i, telemetry.ModelID, telemetry.ContextTokensEstimate, telemetry.ContextWindowTokens, telemetry.MessageCount, telemetry.ToolCount)
 		b.deps.Emit(render.Event{
@@ -1190,7 +1229,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				RetryReason:  reason,
 			})
 		}
-		resp, err := b.deps.LLM.Chat(ctx.Context(), messages, toolSchemas, llm.ChatOptions{
+		resp, err := b.deps.LLM.Chat(ctx.Context(), messages, effectiveTools, llm.ChatOptions{
 			ToolChoice:      resolveToolChoice(ctx),
 			OnContentDelta:  streamBuf.onDelta,
 			OnToolCallDelta: onToolCallDelta,

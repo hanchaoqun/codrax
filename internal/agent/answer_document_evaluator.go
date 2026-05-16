@@ -5208,6 +5208,66 @@ func (e *answerDocumentEvaluator) ShouldStop(resp llm.Response, iteration int) b
 	return false
 }
 
+// FilterToolSchemas implements ToolSchemaFilter. Once the LLM has
+// failed an emit_answer_document call twice within this dispatch AND
+// the answer-document carrier already holds a previous payload that
+// emit_answer_document_patch can operate against, drop the full-emit
+// tool from the schema list. This forces the LLM to use the patch
+// path on the next attempt — the same recommendation
+// emitSwitchToPatchSignal already injects as a hint, here promoted
+// to schema-level enforcement so the model cannot ignore it.
+//
+// 2026-05-17 T2 architectural fix for the finalize-loop pattern: a
+// per-iter full doc re-emit costs ~40k context tokens, accumulates
+// new errors in unchanged blocks roughly half the time, and is the
+// primary driver of the multi-session retry chain. The patch path
+// preserves every unchanged block byte-identical via
+// unchanged_block_ids, so the next iter's reject surface shrinks to
+// the actual repair instead of the entire document.
+//
+// Pre-conditions for filtering — short-circuit early when ANY fails:
+//
+//   - patch base is available (a previous emit_answer_document or
+//     emit_answer_document_patch already populated
+//     ctx.Mutable.AnswerDocumentV2() or rs.PrevEmitJSON);
+//   - this dispatch already saw ≥2 consecutive full-emit failures
+//     (emitFullDocFailStreak ≥ 2, the same threshold the
+//     emitSwitchToPatchSignal nudge uses).
+//
+// Filter behaviour: walk the schema list, drop entries named
+// "emit_answer_document", keep all others (emit_answer_document_patch
+// stays + any orthogonal tools the skill exposes). The base slice
+// is NOT mutated — a fresh slice is returned so subsequent iters
+// re-derive from the unmodified base.
+//
+// Telemetry: a debug log line names the dropped tool + the streak
+// value so operators can grep traces for adoption.
+func (e *answerDocumentEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema {
+	if e == nil {
+		return schemas
+	}
+	if e.emitFullDocFailStreak < 2 {
+		return schemas
+	}
+	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
+		return schemas
+	}
+	out := make([]llm.ToolSchema, 0, len(schemas))
+	dropped := false
+	for _, s := range schemas {
+		if s.Name == "emit_answer_document" {
+			dropped = true
+			continue
+		}
+		out = append(out, s)
+	}
+	if dropped {
+		logging.Debug("[finalizer/answer_document] T2 patch-first: dropped emit_answer_document from schema list (full-emit fail streak=%d, patch base available)",
+			e.emitFullDocFailStreak)
+	}
+	return out
+}
+
 // Observe implements LoopController. The finalizer only has a
 // soft-stop branch — the answer-document stage runs a handful of
 // one-shot LLM turns, so there is nothing to detect mid-loop.
