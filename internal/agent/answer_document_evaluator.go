@@ -27,6 +27,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -118,6 +119,120 @@ type answerDocumentEvaluator struct {
 	configTraceDiagram bool
 }
 
+const (
+	answerDocDynamicSlowAfter = 5 * time.Second
+	answerDocDynamicSlowEvery = 10 * time.Second
+	// The finalizer dynamic supplement is advisory. It should improve
+	// grounding, but it must never trap the REPL before the LLM request
+	// starts. Once this budget is exceeded, later optional sections are
+	// omitted; the tool schema and already-rendered prompt remain the
+	// authority.
+	answerDocDynamicSoftBudget = 20 * time.Second
+)
+
+type answerDocDynamicTrace struct {
+	ctx          *types.AgentContext
+	stage        string
+	started      time.Time
+	budgetLogged bool
+}
+
+func newAnswerDocDynamicTrace(ctx *types.AgentContext) *answerDocDynamicTrace {
+	stage := ""
+	if ctx != nil {
+		stage = string(ctx.Stage)
+	}
+	return &answerDocDynamicTrace{
+		ctx:     ctx,
+		stage:   stage,
+		started: time.Now(),
+	}
+}
+
+func (t *answerDocDynamicTrace) appendSection(b *strings.Builder, section string, fn func() string) bool {
+	if t == nil {
+		if out := fn(); out != "" {
+			b.WriteString(out)
+		}
+		return true
+	}
+	if t.shouldStop(b, section) {
+		return false
+	}
+	stop := t.startSection(section)
+	out := fn()
+	stop()
+	if out != "" {
+		b.WriteString(out)
+	}
+	return !t.shouldStop(b, section)
+}
+
+func (t *answerDocDynamicTrace) runSection(section string, fn func()) bool {
+	if t == nil {
+		fn()
+		return true
+	}
+	if t.shouldStop(nil, section) {
+		return false
+	}
+	stop := t.startSection(section)
+	fn()
+	stop()
+	return !t.shouldStop(nil, section)
+}
+
+func (t *answerDocDynamicTrace) startSection(section string) func() {
+	start := time.Now()
+	logging.Debug("[diag finalizer] phase=prompt_dynamic_instruction section=%s stage=%s start", section, t.stage)
+	done := make(chan struct{})
+	go func() {
+		timer := time.NewTimer(answerDocDynamicSlowAfter)
+		defer timer.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-timer.C:
+				logging.Warning("[diag finalizer] phase=prompt_dynamic_instruction section=%s stage=%s still running elapsed=%s",
+					section, t.stage, time.Since(start).Round(time.Second))
+				timer.Reset(answerDocDynamicSlowEvery)
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		logging.Debug("[diag finalizer] phase=prompt_dynamic_instruction section=%s stage=%s done elapsed=%s",
+			section, t.stage, time.Since(start).Round(time.Millisecond))
+	}
+}
+
+func (t *answerDocDynamicTrace) shouldStop(b *strings.Builder, section string) bool {
+	if t == nil {
+		return false
+	}
+	if t.ctx != nil {
+		if err := t.ctx.Context().Err(); err != nil {
+			logging.Warning("[diag finalizer] phase=prompt_dynamic_instruction section=%s stage=%s canceled err=%v",
+				section, t.stage, err)
+			return true
+		}
+	}
+	if answerDocDynamicSoftBudget <= 0 || time.Since(t.started) <= answerDocDynamicSoftBudget {
+		return false
+	}
+	if !t.budgetLogged {
+		t.budgetLogged = true
+		logging.Warning("[diag finalizer] phase=prompt_dynamic_instruction stage=%s budget exceeded elapsed=%s; omitting remaining optional finalizer guidance",
+			t.stage, time.Since(t.started).Round(time.Second))
+		if b != nil {
+			b.WriteString("## Dynamic Prompt Budget\n\n")
+			b.WriteString("- Optional answer-writing guidance was omitted because prompt construction exceeded its runtime budget. Follow the answer-document tool schema, the required blocks already rendered above, and the Evidence Items / Findings sections in the main prompt.\n\n")
+		}
+	}
+	return true
+}
+
 func (e *answerDocumentEvaluator) rejectHintBudget() int {
 	if e == nil {
 		return 0
@@ -167,6 +282,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}
 
 	var b strings.Builder
+	trace := newAnswerDocDynamicTrace(ctx)
 
 	// W3.3 (2026-05-05): one-line pointer to the schema's
 	// authoritative PRE-EMIT CONSTRAINTS section. The prompt below
@@ -184,8 +300,10 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	// + Active Violations + Required Changes + Hard Rule at the
 	// top, anchoring the retry around prev typed-state instead
 	// of regenerating from scratch.
-	if retryState := renderAnswerDocRetryState(ctx); retryState != "" {
-		b.WriteString(retryState)
+	if !trace.appendSection(&b, "retry_state", func() string {
+		return renderAnswerDocRetryState(ctx)
+	}) {
+		return b.String()
 	}
 
 	// User question is already rendered by builder.go as "User Request"
@@ -195,216 +313,304 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	// branches gate on view obligations (NeedsPrincipalScalar /
 	// NeedsOrderedPrincipalList / NeedsEnumerationSlate /
 	// AllowsAnchorSkeleton) instead of the legacy AnswerShape enum.
-	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	var view *types.AnswerSemanticView
+	if !trace.runSection("semantic_view", func() {
+		view = types.BuildAnswerSemanticViewForAgentContext(ctx)
+	}) {
+		return b.String()
+	}
+	var headerEvidence []types.EvidenceItem
+	headerEvidenceLoaded := false
+	loadHeaderEvidence := func() []types.EvidenceItem {
+		if !headerEvidenceLoaded {
+			headerEvidence = answerDocHeaderEvidencePool(ctx)
+			headerEvidenceLoaded = true
+		}
+		return headerEvidence
+	}
 
 	// V2 block contract section carries the family-aware block
 	// requirements that drive prompt structure.
-	if blockContract := renderAnswerDocBlockContract(ctx); blockContract != "" {
-		b.WriteString(blockContract)
+	if !trace.appendSection(&b, "block_contract", func() string {
+		return renderAnswerDocBlockContract(ctx)
+	}) {
+		return b.String()
 	}
-	if exclusionPolicy := renderAnswerDocExclusionPolicy(ctx); exclusionPolicy != "" {
-		b.WriteString(exclusionPolicy)
+	if !trace.appendSection(&b, "exclusion_policy", func() string {
+		return renderAnswerDocExclusionPolicy(ctx)
+	}) {
+		return b.String()
 	}
-	if roleContract := renderAnswerDocRequestedCandidateRoles(view); roleContract != "" {
-		b.WriteString(roleContract)
+	if !trace.appendSection(&b, "candidate_roles", func() string {
+		return renderAnswerDocRequestedCandidateRoles(view)
+	}) {
+		return b.String()
 	}
-	if anchorContract := renderAnswerDocRequiredMechanismAnchors(view); anchorContract != "" {
-		b.WriteString(anchorContract)
+	if !trace.appendSection(&b, "mechanism_anchors", func() string {
+		return renderAnswerDocRequiredMechanismAnchors(view)
+	}) {
+		return b.String()
 	}
-	if granularityContract := renderAnswerDocErrorGranularityContract(view); granularityContract != "" {
-		b.WriteString(granularityContract)
+	if !trace.appendSection(&b, "error_granularity", func() string {
+		return renderAnswerDocErrorGranularityContract(view)
+	}) {
+		return b.String()
 	}
 
-	if dc := answerDocDiagramContract(ctx); dc != nil && dc.Required {
+	var dc *types.DiagramContract
+	if !trace.runSection("diagram_contract_resolve", func() {
+		dc = answerDocDiagramContract(ctx)
+	}) {
+		return b.String()
+	}
+	if dc != nil && dc.Required {
 		e.diagramRequired = true
 		e.diagramMinimum = dc.Minimum
 		if e.diagramMinimum <= 0 {
 			e.diagramMinimum = 1
 		}
 		e.diagramKinds = append([]types.DiagramKind(nil), dc.PreferredKinds...)
-		b.WriteString(renderAnswerDocDiagramContract(dc))
-		if seeds := renderAnswerDocDiagramSeeds(ctx, dc); seeds != "" {
-			b.WriteString(seeds)
+		if !trace.appendSection(&b, "diagram_contract_prompt", func() string {
+			return renderAnswerDocDiagramContract(dc)
+		}) {
+			return b.String()
 		}
-		if skeleton := renderAnswerDocFirstPassDiagramSkeleton(ctx); skeleton != "" {
-			b.WriteString(skeleton)
+		if !trace.appendSection(&b, "diagram_seeds", func() string {
+			return renderAnswerDocDiagramSeeds(ctx, dc)
+		}) {
+			return b.String()
+		}
+		if !trace.appendSection(&b, "diagram_first_pass_skeleton", func() string {
+			return renderAnswerDocFirstPassDiagramSkeleton(ctx)
+		}) {
+			return b.String()
 		}
 	} else if answerDocDiagramHardRequirementDowngraded(ctx) {
 		b.WriteString("## Diagram Preference\n\n")
 		b.WriteString("- A diagram would normally help for this question type, but the currently grounded evidence does not yet provide a complete structural seed for a hard-required diagram.\n")
 		b.WriteString("- Prefer a grounded prose answer over an invented fence. Only draw a fenced diagram if every node / label can be copied from the existing citations, validated seeds, or Log Triage frames.\n\n")
 	}
-	if coverage := renderAnswerDocConfigTraceRoleCoverage(ctx, nil); coverage != "" {
-		b.WriteString(coverage)
+	if !trace.appendSection(&b, "config_trace_role_coverage", func() string {
+		return renderAnswerDocConfigTraceRoleCoverage(ctx, nil)
+	}) {
+		return b.String()
 	}
-	if capability := renderAnswerDocCapabilitySurface(ctx); capability != "" {
-		b.WriteString(capability)
+	if !trace.appendSection(&b, "capability_surface", func() string {
+		return renderAnswerDocCapabilitySurface(ctx)
+	}) {
+		return b.String()
 	}
-	if facets := renderAnswerDocFacetCoverage(ctx); facets != "" {
-		b.WriteString(facets)
+	if !trace.appendSection(&b, "facet_coverage", func() string {
+		return renderAnswerDocFacetCoverage(ctx)
+	}) {
+		return b.String()
 	}
-	if exact := renderAnswerDocExactResolutionContract(ctx); exact != "" {
-		b.WriteString(exact)
+	if !trace.appendSection(&b, "exact_resolution", func() string {
+		return renderAnswerDocExactResolutionContract(ctx)
+	}) {
+		return b.String()
 	}
-	if closure := renderAnswerDocAcceptedClosure(ctx); closure != "" {
-		b.WriteString(closure)
+	if !trace.appendSection(&b, "accepted_closure", func() string {
+		return renderAnswerDocAcceptedClosure(ctx)
+	}) {
+		return b.String()
 	}
-	if aggregates := renderAnswerDocAggregateFacts(ctx); aggregates != "" {
-		b.WriteString(aggregates)
+	if !trace.appendSection(&b, "aggregate_facts", func() string {
+		return renderAnswerDocAggregateFacts(ctx)
+	}) {
+		return b.String()
 	}
-	if disposition := renderAnswerDocRuntimeGroundingDisposition(ctx); disposition != "" {
-		b.WriteString(disposition)
+	if !trace.appendSection(&b, "runtime_grounding_disposition", func() string {
+		return renderAnswerDocRuntimeGroundingDisposition(ctx)
+	}) {
+		return b.String()
 	}
-	if currentStatus := renderAnswerDocCurrentStatusDiagnostic(ctx); currentStatus != "" {
-		b.WriteString(currentStatus)
+	if !trace.appendSection(&b, "current_status_diagnostic", func() string {
+		return renderAnswerDocCurrentStatusDiagnostic(ctx)
+	}) {
+		return b.String()
 	}
 	renderedTypedSupport := false
-	if support := renderAnswerDocSupportPlan(ctx); support != "" {
+	var support string
+	if !trace.runSection("support_plan", func() {
+		support = renderAnswerDocSupportPlan(ctx)
+	}) {
+		return b.String()
+	}
+	if support != "" {
 		renderedTypedSupport = true
 		b.WriteString(support)
 	}
-	if drift := renderAnswerDocLogSourceDrift(ctx); drift != "" {
-		b.WriteString(drift)
+	if !trace.appendSection(&b, "log_source_drift", func() string {
+		return renderAnswerDocLogSourceDrift(ctx)
+	}) {
+		return b.String()
 	}
 	if !renderedTypedSupport {
-		if observations := renderAnswerDocExternalObservationSeeds(ctx); observations != "" {
-			b.WriteString(observations)
+		if !trace.appendSection(&b, "external_observation_seeds", func() string {
+			return renderAnswerDocExternalObservationSeeds(ctx)
+		}) {
+			return b.String()
 		}
 	}
-	if enrichment := renderAnswerDocTypedExplorationEnrichment(ctx, renderedTypedSupport); enrichment != "" {
-		b.WriteString(enrichment)
+	if !trace.appendSection(&b, "typed_exploration_enrichment", func() string {
+		return renderAnswerDocTypedExplorationEnrichment(ctx, renderedTypedSupport)
+	}) {
+		return b.String()
 	}
-	if boundary := renderAnswerDocPrincipalAnswerBoundary(ctx, view, renderedTypedSupport); boundary != "" {
-		b.WriteString(boundary)
+	if !trace.appendSection(&b, "principal_answer_boundary", func() string {
+		return renderAnswerDocPrincipalAnswerBoundary(ctx, view, renderedTypedSupport)
+	}) {
+		return b.String()
 	}
-	if checklist := renderAnswerDocSubmissionChecklist(ctx, view, e.diagramRequired); checklist != "" {
-		b.WriteString(checklist)
+	if !trace.appendSection(&b, "submission_checklist", func() string {
+		return renderAnswerDocSubmissionChecklist(ctx, view, e.diagramRequired)
+	}) {
+		return b.String()
 	}
-	if backbone := renderAnswerDocStepBackbone(ctx, view); backbone != "" {
-		b.WriteString(backbone)
+	if !trace.appendSection(&b, "step_backbone", func() string {
+		return renderAnswerDocStepBackbone(ctx, view)
+	}) {
+		return b.String()
 	}
-	if boundary := renderAnswerDocEnumerationBoundary(ctx, view); boundary != "" {
-		b.WriteString(boundary)
+	if !trace.appendSection(&b, "enumeration_boundary", func() string {
+		return renderAnswerDocEnumerationBoundary(ctx, view)
+	}) {
+		return b.String()
 	}
 	if ctx != nil && ctx.AnalysisIR != nil && types.IsScalarSourceLiteralLookup(ctx.AnalysisIR.RequestModel) {
-		b.WriteString("## Scalar Lookup Discipline\n\n")
-		b.WriteString("- This dispatch asks for one named source-code literal, not for a walkthrough of the surrounding pipeline.\n")
-		b.WriteString("- Keep the `summary` block's text narrow: identify the literal, give its grounded file:line location, and add only the minimal role sentence needed to justify why it is the answer.\n")
-		b.WriteString("- The principal `scalar` block still requires a real `summary` block alongside it. The literal or decision alone is not a complete answer.\n")
-		b.WriteString("- Do not expand into adjacent helpers, orchestrated stages, or nearby components unless the user explicitly asked how the mechanism works.\n")
-		b.WriteString("- Every non-negative `citation_ref` on a scalar payload must point at a real entry in `citations[]`. Do not emit `citation_ref: 0` with an empty citations pool.\n")
-		b.WriteString("- If you include a secondary citation beyond the defining one, it must still directly name or call/reference the SAME emitted literal. Drop type comments, nearby docstrings, or broad background citations even when they are grounded.\n")
-		b.WriteString("- If a related-context evidence item mentions surrounding pipeline pieces, treat that as background noise rather than answer content.\n\n")
-		if types.IsScalarRoleLocateLookup(ctx.AnalysisIR.RequestModel) {
-			b.WriteString("- This is a role-locate lookup: the question names a clue or output, but the answer is the function / file / symbol that plays that role. Do not promote the clue itself into the exact target lane or the lead sentence.\n")
-			b.WriteString("- For this kind of lookup, answer with the located literal and its file:line first. Mention surrounding pipeline stages only if they are strictly necessary to disambiguate the role.\n\n")
+		if !trace.runSection("scalar_lookup_discipline", func() {
+			b.WriteString("## Scalar Lookup Discipline\n\n")
+			b.WriteString("- This dispatch asks for one named source-code literal, not for a walkthrough of the surrounding pipeline.\n")
+			b.WriteString("- Keep the `summary` block's text narrow: identify the literal, give its grounded file:line location, and add only the minimal role sentence needed to justify why it is the answer.\n")
+			b.WriteString("- The principal `scalar` block still requires a real `summary` block alongside it. The literal or decision alone is not a complete answer.\n")
+			b.WriteString("- Do not expand into adjacent helpers, orchestrated stages, or nearby components unless the user explicitly asked how the mechanism works.\n")
+			b.WriteString("- Every non-negative `citation_ref` on a scalar payload must point at a real entry in `citations[]`. Do not emit `citation_ref: 0` with an empty citations pool.\n")
+			b.WriteString("- If you include a secondary citation beyond the defining one, it must still directly name or call/reference the SAME emitted literal. Drop type comments, nearby docstrings, or broad background citations even when they are grounded.\n")
+			b.WriteString("- If a related-context evidence item mentions surrounding pipeline pieces, treat that as background noise rather than answer content.\n\n")
+			if types.IsScalarRoleLocateLookup(ctx.AnalysisIR.RequestModel) {
+				b.WriteString("- This is a role-locate lookup: the question names a clue or output, but the answer is the function / file / symbol that plays that role. Do not promote the clue itself into the exact target lane or the lead sentence.\n")
+				b.WriteString("- For this kind of lookup, answer with the located literal and its file:line first. Mention surrounding pipeline stages only if they are strictly necessary to disambiguate the role.\n\n")
+			}
+		}) {
+			return b.String()
 		}
 	}
 
 	if view.NeedsEnumerationSlate() {
-		mustTerms := []types.ContractTerm(nil)
-		principalTerms := []types.ContractTerm(nil)
-		attributeBearingEnumeration := false
-		if ctx != nil && ctx.AnalysisIR != nil {
-			mustTerms = answerDocMustIncludeTerms(ctx, ctx.AnalysisIR.AnswerContract)
-			principalTerms = answerDocPrincipalItemFloorTerms(ctx, mustTerms)
-			attributeBearingEnumeration = types.HasAttributeBearingEnumeration(ctx.AnalysisIR.RequestModel)
-		}
-		b.WriteString("## Expected principal-item floor\n\n")
-		if len(principalTerms) > 0 {
-			fmt.Fprintf(&b, "Required-term floor: **%d term(s)** — %s\n\n",
-				len(principalTerms), renderAnswerDocContractTermList(principalTerms))
-			fmt.Fprintf(&b,
-				"Your principal enumeration block must preserve all %d grounded term(s) according to their labels. "+
-					"If the investigation only established a lower bound or could not prove "+
-					"the full set, disclose that bound in prose or a `caveat` block instead "+
-					"of inventing a retired completeness field.\n\n", len(principalTerms))
-		} else if len(mustTerms) > 0 {
-			fmt.Fprintf(&b, "Required answer-term coverage: %s\n\n", renderAnswerDocContractTermList(mustTerms))
-			b.WriteString("These terms are coverage anchors for the answer text, not a principal-item floor. ")
-			b.WriteString("Mention them in the summary, rationale, caveat, or row text only when they are relevant to the user's requested set; ")
-			b.WriteString("do not turn a helper, tool, file stem, attribute, or mechanism component into a principal list member merely because it appears here.\n\n")
-		} else {
-			b.WriteString("Required-member floor is empty. No explicit minimum member set is enforced for this dispatch — ")
-			b.WriteString("keep the rendered list/table aligned with the prior extraction slate and surfaced evidence.\n\n")
-		}
-		if attributeBearingEnumeration {
-			b.WriteString("Two-axis enumeration label rule: the principal `ordered_list.items[].label` is the enumerated member itself (package / module / directory / namespace / type / route), not the per-member attribute discovered for it. Prefer the evidence `subject` or a required-term floor member as the label, and place the related attribute (for example the entry function / owner / default / handler) in `items[].text`, the citation, and any companion table row. Do not use the extracted AnswerSymbol name as the item label when that symbol is the attribute of a member.\n\n")
-		}
-		b.WriteString("Model-emitted `surface_terms` in Evidence Items are exact source/log/trace labels or aliases that the investigation structured explicitly. Preserve each relevant term in the cited item text or label; do not invent terms that are not present in the structured evidence.\n\n")
-
-		if ctx != nil && len(ctx.AnswerSymbols) > 0 {
-			b.WriteString("## Prior slate from the extraction pipeline\n\n")
-			if attributeBearingEnumeration {
-				b.WriteString("The prior analysis phase produced this attribute slate for the enumerated members. ")
-				b.WriteString("Treat each symbol name below as the member's grounded attribute unless it is also the member label in the required-term floor. ")
-			} else {
-				b.WriteString("The prior analysis phase produced this symbol list. ")
+		if !trace.runSection("enumeration_slate", func() {
+			mustTerms := []types.ContractTerm(nil)
+			principalTerms := []types.ContractTerm(nil)
+			attributeBearingEnumeration := false
+			if ctx != nil && ctx.AnalysisIR != nil {
+				mustTerms = answerDocMustIncludeTerms(ctx, ctx.AnalysisIR.AnswerContract)
+				principalTerms = answerDocPrincipalItemFloorTerms(ctx, mustTerms)
+				attributeBearingEnumeration = types.HasAttributeBearingEnumeration(ctx.AnalysisIR.RequestModel)
 			}
-			b.WriteString("Use it as the starting point; adding items requires evidence from the ")
-			b.WriteString("Evidence Items section, removing items requires a rationale in the ")
-			b.WriteString("symbol's `rationale` field. When a slate line includes model-emitted `surface_terms`, ")
-			b.WriteString("preserve those exact structured terms in the row text or label; keep the repo-relative path as the citation.\n\n")
-			for _, s := range ctx.AnswerSymbols {
-				if s.File != "" && s.Line > 0 {
-					fmt.Fprintf(&b, "- %s (%s:%d)", s.Name, s.File, s.Line)
+			b.WriteString("## Expected principal-item floor\n\n")
+			if len(principalTerms) > 0 {
+				fmt.Fprintf(&b, "Required-term floor: **%d term(s)** — %s\n\n",
+					len(principalTerms), renderAnswerDocContractTermList(principalTerms))
+				fmt.Fprintf(&b,
+					"Your principal enumeration block must preserve all %d grounded term(s) according to their labels. "+
+						"If the investigation only established a lower bound or could not prove "+
+						"the full set, disclose that bound in prose or a `caveat` block instead "+
+						"of inventing a retired completeness field.\n\n", len(principalTerms))
+			} else if len(mustTerms) > 0 {
+				fmt.Fprintf(&b, "Required answer-term coverage: %s\n\n", renderAnswerDocContractTermList(mustTerms))
+				b.WriteString("These terms are coverage anchors for the answer text, not a principal-item floor. ")
+				b.WriteString("Mention them in the summary, rationale, caveat, or row text only when they are relevant to the user's requested set; ")
+				b.WriteString("do not turn a helper, tool, file stem, attribute, or mechanism component into a principal list member merely because it appears here.\n\n")
+			} else {
+				b.WriteString("Required-member floor is empty. No explicit minimum member set is enforced for this dispatch — ")
+				b.WriteString("keep the rendered list/table aligned with the prior extraction slate and surfaced evidence.\n\n")
+			}
+			if attributeBearingEnumeration {
+				b.WriteString("Two-axis enumeration label rule: the principal `ordered_list.items[].label` is the enumerated member itself (package / module / directory / namespace / type / route), not the per-member attribute discovered for it. Prefer the evidence `subject` or a required-term floor member as the label, and place the related attribute (for example the entry function / owner / default / handler) in `items[].text`, the citation, and any companion table row. Do not use the extracted AnswerSymbol name as the item label when that symbol is the attribute of a member.\n\n")
+			}
+			b.WriteString("Model-emitted `surface_terms` in Evidence Items are exact source/log/trace labels or aliases that the investigation structured explicitly. Preserve each relevant term in the cited item text or label; do not invent terms that are not present in the structured evidence.\n\n")
+
+			if ctx != nil && len(ctx.AnswerSymbols) > 0 {
+				b.WriteString("## Prior slate from the extraction pipeline\n\n")
+				if attributeBearingEnumeration {
+					b.WriteString("The prior analysis phase produced this attribute slate for the enumerated members. ")
+					b.WriteString("Treat each symbol name below as the member's grounded attribute unless it is also the member label in the required-term floor. ")
 				} else {
-					fmt.Fprintf(&b, "- %s", s.Name)
+					b.WriteString("The prior analysis phase produced this symbol list. ")
 				}
-				if r := strings.TrimSpace(s.Rationale); r != "" {
-					fmt.Fprintf(&b, " — %s", r)
-				}
-				if doc := renderAnswerDocSymbolHeaderContext(ctx, s); doc != "" {
-					fmt.Fprintf(&b, " — surface_terms: %s", doc)
+				b.WriteString("Use it as the starting point; adding items requires evidence from the ")
+				b.WriteString("Evidence Items section, removing items requires a rationale in the ")
+				b.WriteString("symbol's `rationale` field. When a slate line includes model-emitted `surface_terms`, ")
+				b.WriteString("preserve those exact structured terms in the row text or label; keep the repo-relative path as the citation.\n\n")
+				for _, s := range ctx.AnswerSymbols {
+					if s.File != "" && s.Line > 0 {
+						fmt.Fprintf(&b, "- %s (%s:%d)", s.Name, s.File, s.Line)
+					} else {
+						fmt.Fprintf(&b, "- %s", s.Name)
+					}
+					if r := strings.TrimSpace(s.Rationale); r != "" {
+						fmt.Fprintf(&b, " — %s", r)
+					}
+					if doc := renderAnswerDocSymbolHeaderContextFromEvidence(loadHeaderEvidence(), s); doc != "" {
+						fmt.Fprintf(&b, " — surface_terms: %s", doc)
+					}
+					b.WriteString("\n")
 				}
 				b.WriteString("\n")
 			}
-			b.WriteString("\n")
+		}) {
+			return b.String()
 		}
 	}
 
-	if headerContext := renderAnswerDocSourceHeaderContexts(ctx); headerContext != "" {
-		b.WriteString(headerContext)
+	if !trace.appendSection(&b, "source_header_contexts", func() string {
+		return renderAnswerDocSourceHeaderContextsFromEvidence(ctx, loadHeaderEvidence())
+	}) {
+		return b.String()
 	}
 
 	// Multi-topic: guide the finalizer to address each sub-topic.
 	if answerDocAllowSubTopicStructure(ctx, view) {
-		b.WriteString("## Answer Structure (multi-topic)\n\n")
-		b.WriteString("The user asked about multiple topics. " +
-			"Your principal blocks MUST address each one with a clearly labeled section (use `section` blocks per topic OR a single `summary` block whose text carries one labeled section per topic):\n\n")
-		for i, st := range ctx.AnalysisIR.RequestModel.SubTopics {
-			fmt.Fprintf(&b, "%d. %s\n", i+1, st.Summary)
-		}
-		b.WriteString("\nProvide citations for each section.\n\n")
+		if !trace.runSection("multi_topic_structure", func() {
+			b.WriteString("## Answer Structure (multi-topic)\n\n")
+			b.WriteString("The user asked about multiple topics. " +
+				"Your principal blocks MUST address each one with a clearly labeled section (use `section` blocks per topic OR a single `summary` block whose text carries one labeled section per topic):\n\n")
+			for i, st := range ctx.AnalysisIR.RequestModel.SubTopics {
+				fmt.Fprintf(&b, "%d. %s\n", i+1, st.Summary)
+			}
+			b.WriteString("\nProvide citations for each section.\n\n")
 
-		// Anchor skeleton: when the extractor produced a per-topic
-		// anchor slate (answer-symbols emitted during Turn B for
-		// multi-topic explanation questions, sub_topics ≥ 1), echo
-		// those anchors in the finalizer prompt so the LLM re-emits
-		// them as items inside an optional `ordered_list` Key Anchors
-		// block alongside the principal blocks. The renderer draws
-		// the Key Anchors block beneath the summary block when the
-		// LLM emits one. This pins the load-bearing identifiers in
-		// the rendered output and stops the finalizer from
-		// synthesizing prose that drifts from Turn A's evidence.
-		if view.AllowsAnchorSkeleton(ctx.AnalysisIR.RequestModel) && len(ctx.AnswerSymbols) > 0 {
-			b.WriteString("### Anchor skeleton (emit as one optional ordered_list block)\n\n")
-			b.WriteString("The extractor produced these per-sub-topic anchors. " +
-				"Re-emit them verbatim as an additional `ordered_list` block (one item per anchor; each item carries `id`, `label=<symbol-name>`, `text=<rationale>`, top-level `citation_ref=N` (zero-based index into doc.citations[])), and declare the block-level `claim_uses=[{claim_form=definition_fact}]` (or whichever claim_form matches the cited lines). " +
-				"so the renderer can show them as a Key Anchors block beneath your prose. " +
-				"Each anchor's file:line is authoritative — do not modify.\n\n")
-			for _, s := range ctx.AnswerSymbols {
-				if s.File != "" && s.Line > 0 {
-					fmt.Fprintf(&b, "- %s (%s:%d)", s.Name, s.File, s.Line)
-				} else {
-					fmt.Fprintf(&b, "- %s", s.Name)
-				}
-				if r := strings.TrimSpace(s.Rationale); r != "" {
-					fmt.Fprintf(&b, " — %s", r)
+			// Anchor skeleton: when the extractor produced a per-topic
+			// anchor slate (answer-symbols emitted during Turn B for
+			// multi-topic explanation questions, sub_topics ≥ 1), echo
+			// those anchors in the finalizer prompt so the LLM re-emits
+			// them as items inside an optional `ordered_list` Key Anchors
+			// block alongside the principal blocks. The renderer draws
+			// the Key Anchors block beneath the summary block when the
+			// LLM emits one. This pins the load-bearing identifiers in
+			// the rendered output and stops the finalizer from
+			// synthesizing prose that drifts from Turn A's evidence.
+			if view.AllowsAnchorSkeleton(ctx.AnalysisIR.RequestModel) && len(ctx.AnswerSymbols) > 0 {
+				b.WriteString("### Anchor skeleton (emit as one optional ordered_list block)\n\n")
+				b.WriteString("The extractor produced these per-sub-topic anchors. " +
+					"Re-emit them verbatim as an additional `ordered_list` block (one item per anchor; each item carries `id`, `label=<symbol-name>`, `text=<rationale>`, top-level `citation_ref=N` (zero-based index into doc.citations[])), and declare the block-level `claim_uses=[{claim_form=definition_fact}]` (or whichever claim_form matches the cited lines). " +
+					"so the renderer can show them as a Key Anchors block beneath your prose. " +
+					"Each anchor's file:line is authoritative — do not modify.\n\n")
+				for _, s := range ctx.AnswerSymbols {
+					if s.File != "" && s.Line > 0 {
+						fmt.Fprintf(&b, "- %s (%s:%d)", s.Name, s.File, s.Line)
+					} else {
+						fmt.Fprintf(&b, "- %s", s.Name)
+					}
+					if r := strings.TrimSpace(s.Rationale); r != "" {
+						fmt.Fprintf(&b, " — %s", r)
+					}
+					b.WriteString("\n")
 				}
 				b.WriteString("\n")
 			}
-			b.WriteString("\n")
+		}) {
+			return b.String()
 		}
 	}
 
@@ -465,7 +671,13 @@ func renderAnswerDocSymbolHeaderContext(ctx *types.AgentContext, sym types.Answe
 	if ctx == nil || strings.TrimSpace(sym.Name) == "" || strings.TrimSpace(sym.File) == "" {
 		return ""
 	}
-	evidence := answerDocHeaderEvidencePool(ctx)
+	return renderAnswerDocSymbolHeaderContextFromEvidence(answerDocHeaderEvidencePool(ctx), sym)
+}
+
+func renderAnswerDocSymbolHeaderContextFromEvidence(evidence []types.EvidenceItem, sym types.AnswerSymbol) string {
+	if strings.TrimSpace(sym.Name) == "" || strings.TrimSpace(sym.File) == "" {
+		return ""
+	}
 	for _, ev := range evidence {
 		if !answerDocModelAuthoredSurfaceTerms(ev) {
 			continue
@@ -491,7 +703,10 @@ func renderAnswerDocSymbolHeaderContext(ctx *types.AgentContext, sym types.Answe
 }
 
 func renderAnswerDocSourceHeaderContexts(ctx *types.AgentContext) string {
-	evidence := answerDocHeaderEvidencePool(ctx)
+	return renderAnswerDocSourceHeaderContextsFromEvidence(ctx, answerDocHeaderEvidencePool(ctx))
+}
+
+func renderAnswerDocSourceHeaderContextsFromEvidence(ctx *types.AgentContext, evidence []types.EvidenceItem) string {
 	if len(evidence) == 0 {
 		return ""
 	}
@@ -594,9 +809,22 @@ func answerDocHeaderEvidencePool(ctx *types.AgentContext) []types.EvidenceItem {
 	if ctx == nil {
 		return nil
 	}
-	evidence := ctx.EvidenceItems
+	filterSurfaceTermEvidence := func(in []types.EvidenceItem) []types.EvidenceItem {
+		if len(in) == 0 {
+			return nil
+		}
+		out := make([]types.EvidenceItem, 0, 16)
+		for _, ev := range in {
+			if !answerDocModelAuthoredSurfaceTerms(ev) {
+				continue
+			}
+			out = append(out, ev)
+		}
+		return out
+	}
+	evidence := filterSurfaceTermEvidence(ctx.EvidenceItems)
 	if ctx.Mutable != nil {
-		evidence = mergeEvidenceItems(ctx.Mutable.EmittedEvidence(), evidence)
+		evidence = mergeEvidenceItems(filterSurfaceTermEvidence(ctx.Mutable.EmittedEvidence()), evidence)
 	}
 	return evidence
 }

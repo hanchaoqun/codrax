@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -1639,6 +1640,25 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclu
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if !strings.Contains(prompt, "Required-member floor is empty") {
 		t.Errorf("no-floor branch missing: %q", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_StopsOnCanceledContext(t *testing.T) {
+	base, cancel := context.WithCancel(context.Background())
+	cancel()
+	ctx := &types.AgentContext{
+		Ctx: base,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentEnumerate},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "structural emit-time constraints") {
+		t.Fatalf("canceled prompt should keep the schema pointer, got:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Required Answer Blocks") || strings.Contains(prompt, "Expected principal-item floor") {
+		t.Fatalf("canceled prompt should stop before expensive dynamic sections, got:\n%s", prompt)
 	}
 }
 
