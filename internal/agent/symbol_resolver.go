@@ -424,7 +424,7 @@ func lookupRepoSurfaceInGraph(surface string, g *repomap.Graph) []normalizer.Sym
 		return lookupFileSurfaceInGraph(query, g)
 	}
 	target := normalizer.NormalizeCodeKey(repoSurfaceLeaf(query))
-	if len(target) < stemSuffixFloor {
+	if len(target) < stemSuffixFloor && !repoSurfaceSpecificEnough(query) {
 		return nil
 	}
 	hits := make(map[string]normalizer.SymbolHit)
@@ -472,6 +472,9 @@ func repoSurfaceCandidatesForFile(query, target, rel string, fi *rmtypes.FileInf
 		if canon, ok := repoSurfacePackageCanonical(query, target, fi.Package); ok {
 			return []repoSurfaceCandidate{{Canonical: canon, DomainRel: rel}}
 		}
+		if canon, ok := repoSurfaceSpecialCanonical(query, target, rel, fi); ok {
+			return []repoSurfaceCandidate{{Canonical: canon, DomainRel: rel}}
+		}
 	}
 	var out []repoSurfaceCandidate
 	add := func(canon string) {
@@ -488,6 +491,20 @@ func repoSurfaceCandidatesForFile(query, target, rel string, fi *rmtypes.FileInf
 		stem := strings.TrimSuffix(path.Base(rel), path.Ext(rel))
 		if normalizer.NormalizeCodeKey(stem) == target {
 			add(rel)
+		}
+	}
+	if fi != nil {
+		for _, imp := range fi.Imports {
+			if canon, ok := repoSurfaceImportCanonical(query, target, imp); ok {
+				add(canon)
+			}
+		}
+		for _, relation := range fi.Relations {
+			for _, surface := range repoSurfaceRelationSurfaces(relation) {
+				if canon, ok := repoSurfaceRelationCanonical(query, target, surface); ok {
+					add(canon)
+				}
+			}
 		}
 	}
 	return dedupeRepoSurfaceCandidates(out)
@@ -551,6 +568,133 @@ func repoSurfacePackageCanonical(query, target, pkg string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func repoSurfaceSpecialCanonical(query, target, rel string, fi *rmtypes.FileInfo) (string, bool) {
+	if fi == nil || !fi.IsSpecial {
+		return "", false
+	}
+	specialType := strings.TrimSpace(fi.SpecialType)
+	for _, surface := range []string{specialType, path.Base(rel), strings.TrimSuffix(path.Base(rel), path.Ext(rel))} {
+		if repoSurfaceNormalizedEqual(query, target, surface) {
+			if specialType != "" {
+				return specialType, true
+			}
+			return rel, true
+		}
+	}
+	return "", false
+}
+
+func repoSurfaceImportCanonical(query, target string, imp rmtypes.Import) (string, bool) {
+	canonical := strings.TrimSpace(imp.Path)
+	if canonical == "" {
+		canonical = strings.Trim(strings.TrimSpace(imp.Raw), "`'\" ")
+	}
+	if canonical == "" {
+		canonical = strings.TrimSpace(imp.Alias)
+	}
+	if canonical == "" {
+		return "", false
+	}
+	for _, surface := range []string{imp.Path, imp.Raw, imp.Alias} {
+		surface = strings.Trim(strings.TrimSpace(surface), "`'\" ")
+		if surface == "" {
+			continue
+		}
+		if repoSurfaceNormalizedEqual(query, target, surface) {
+			return canonical, true
+		}
+		if repoSurfaceSpecificEnough(surface) &&
+			!strings.Contains(query, "/") && !strings.Contains(query, ".") &&
+			target == normalizer.NormalizeCodeKey(repoSurfaceLeaf(surface)) {
+			return canonical, true
+		}
+	}
+	return "", false
+}
+
+func repoSurfaceRelationSurfaces(relation rmtypes.Relation) []string {
+	var out []string
+	add := func(surface string) {
+		surface = strings.TrimSpace(surface)
+		if surface != "" {
+			out = append(out, surface)
+		}
+	}
+	add(relation.ToEP.Name)
+	add(relation.ToEP.Receiver)
+	add(relation.ToEP.File)
+	add(relation.To)
+	if idx := strings.LastIndex(relation.To, ":"); idx >= 0 && idx+1 < len(relation.To) {
+		add(relation.To[idx+1:])
+	}
+	return out
+}
+
+func repoSurfaceRelationCanonical(query, target, surface string) (string, bool) {
+	surface = strings.Trim(strings.TrimSpace(surface), "`'\" ")
+	if surface == "" || !repoSurfaceSpecificEnough(surface) {
+		return "", false
+	}
+	if repoSurfaceNormalizedEqual(query, target, surface) {
+		return surface, true
+	}
+	if strings.Contains(query, "/") || strings.Contains(query, ".") {
+		return "", false
+	}
+	for _, candidate := range []string{repoSurfaceLeaf(surface), repoSurfaceRelationTail(surface)} {
+		if candidate == "" || !repoSurfaceSpecificEnough(candidate) {
+			continue
+		}
+		if normalizer.NormalizeCodeKey(candidate) == target {
+			return surface, true
+		}
+	}
+	return "", false
+}
+
+func repoSurfaceRelationTail(surface string) string {
+	surface = strings.TrimSpace(surface)
+	if idx := strings.LastIndex(surface, ":"); idx >= 0 && idx+1 < len(surface) {
+		return surface[idx+1:]
+	}
+	return surface
+}
+
+func repoSurfaceNormalizedEqual(query, target, surface string) bool {
+	surface = strings.Trim(strings.TrimSpace(surface), "`'\" ")
+	if surface == "" {
+		return false
+	}
+	if strings.EqualFold(query, surface) {
+		return true
+	}
+	return target != "" && normalizer.NormalizeCodeKey(surface) == target
+}
+
+func repoSurfaceSpecificEnough(surface string) bool {
+	surface = strings.TrimSpace(surface)
+	key := normalizer.NormalizeCodeKey(surface)
+	if len(key) < stemSuffixFloor {
+		return false
+	}
+	if len(key) >= 8 {
+		return true
+	}
+	for _, r := range surface {
+		if r >= 'A' && r <= 'Z' {
+			return true
+		}
+		if r >= '0' && r <= '9' {
+			return true
+		}
+		switch r {
+		case '_', '.', '/', '\\', ':', '@', '#', '$', '-':
+			return true
+		}
+	}
+	return false
 }
 
 func dedupeRepoSurfaceCandidates(in []repoSurfaceCandidate) []repoSurfaceCandidate {
@@ -742,7 +886,7 @@ func (r *multiRepoSymbolResolver) LookupRepoSurface(surface string) []normalizer
 		return r.LookupFileSurface(query)
 	}
 	target := normalizer.NormalizeCodeKey(repoSurfaceLeaf(query))
-	if len(target) < stemSuffixFloor {
+	if len(target) < stemSuffixFloor && !repoSurfaceSpecificEnough(query) {
 		return nil
 	}
 	hits := make(map[string]normalizer.SymbolHit)

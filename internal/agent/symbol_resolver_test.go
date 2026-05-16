@@ -229,6 +229,85 @@ func TestSymbolResolver_LookupRepoSurface_AmbiguousDirectoryReturnsNil(t *testin
 	}
 }
 
+func TestSymbolResolver_LookupRepoSurface_ImportSurfacesAcrossLanguages(t *testing.T) {
+	g := makeGraph(nil, map[string]*repomap.FileInfo{
+		"entry/src/main/ets/pages/Index.ets": {
+			RelPath:  "entry/src/main/ets/pages/Index.ets",
+			Language: "arkts",
+			Imports: []repomap.Import{{
+				Path: "@kit.ArkUI",
+				Raw:  `import { Button } from '@kit.ArkUI'`,
+			}},
+		},
+		"internal/server/handler.go": {
+			RelPath:  "internal/server/handler.go",
+			Language: "go",
+			Imports: []repomap.Import{{
+				Path: "github.com/acme/client/pkg",
+			}},
+		},
+		"app/main.py": {
+			RelPath:  "app/main.py",
+			Language: "python",
+			Imports: []repomap.Import{{
+				Path:  "requests",
+				Alias: "http",
+			}},
+		},
+	})
+	r := newRepomapSymbolResolver(g).(interface {
+		LookupRepoSurface(string) []normalizer.SymbolHit
+	})
+	cases := map[string]string{
+		"@kit.ArkUI":                 "@kit.ArkUI",
+		"ArkUI":                      "@kit.ArkUI",
+		"github.com/acme/client/pkg": "github.com/acme/client/pkg",
+		"requests":                   "requests",
+		"http":                       "requests",
+	}
+	for query, want := range cases {
+		hits := r.LookupRepoSurface(query)
+		if len(hits) != 1 {
+			t.Fatalf("LookupRepoSurface(%q) hits=%d, want 1", query, len(hits))
+		}
+		if hits[0].Canonical != want {
+			t.Fatalf("LookupRepoSurface(%q) canonical=%q, want %q", query, hits[0].Canonical, want)
+		}
+	}
+}
+
+func TestSymbolResolver_LookupRepoSurface_RelationAndSpecialSurfaces(t *testing.T) {
+	g := makeGraph(nil, map[string]*repomap.FileInfo{
+		"java/com/android/server/am/UidObserverController.java": {
+			RelPath:  "java/com/android/server/am/UidObserverController.java",
+			Language: "java",
+			Relations: []repomap.Relation{{
+				Kind: "call",
+				ToEP: repomap.RelationEndpoint{
+					Name:     "dispatchUidsChanged",
+					Receiver: "mUidObserverController",
+				},
+			}},
+		},
+		"build.gradle": {
+			RelPath:     "build.gradle",
+			IsSpecial:   true,
+			SpecialType: "build_config",
+		},
+	})
+	r := newRepomapSymbolResolver(g).(interface {
+		LookupRepoSurface(string) []normalizer.SymbolHit
+	})
+	for _, query := range []string{"dispatchUidsChanged", "mUidObserverController", "build_config"} {
+		if hits := r.LookupRepoSurface(query); len(hits) != 1 {
+			t.Fatalf("LookupRepoSurface(%q) hits=%d, want 1", query, len(hits))
+		}
+	}
+	if hits := r.LookupRepoSurface("call"); len(hits) != 0 {
+		t.Fatalf("generic relation words must not become repo surfaces; got %+v", hits)
+	}
+}
+
 func TestSymbolResolver_EmptySurface(t *testing.T) {
 	g := makeGraph(map[string][]*repomap.Symbol{
 		"Blob": {{Name: "Blob", File: "internal/types/context.go"}},
