@@ -107,6 +107,11 @@ func (r *Renderer) handleEvent(ev Event) {
 		if line == "" {
 			return
 		}
+		if ev.NoticeKind == NoticeFinalizing {
+			r.activity = activityState{kind: activityFinalizing}
+			r.streamTail = ""
+			r.streamChars = 0
+		}
 		if !r.dockEnabled && r.dock == nil {
 			r.handleEventNonTTY(ev)
 			return

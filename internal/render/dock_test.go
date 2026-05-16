@@ -403,6 +403,43 @@ func TestRenderer_EventAgentThinkingWithoutCurrentRowShowsRequesting(t *testing.
 	}
 }
 
+func TestRenderer_TaskNodeStartShowsPreparingContext(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	emit(Event{Kind: EventAnalysisReady, Timestamp: time.Now(), TaskNodes: []TaskNodeInfo{
+		{ID: "fin", Type: "finalize", Objective: "render answer"},
+	}})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: time.Now(), NodeID: "fin"})
+
+	rows := r.composeCurrentDockRows()
+	if row1 := stripAnsiEscapes(rows[0]); !strings.Contains(row1, "整理上下文中") {
+		t.Errorf("node pre-dispatch must not say waiting; got %q", row1)
+	}
+}
+
+func TestRenderer_FinalizingNoticeUpdatesActivity(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	emit(Event{Kind: EventAnalysisReady, Timestamp: time.Now(), TaskNodes: []TaskNodeInfo{
+		{ID: "fin", Type: "finalize", Objective: "render answer"},
+	}})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: time.Now(), NodeID: "fin"})
+	emit(Event{
+		Kind:       EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		NoticeKind: NoticeFinalizing,
+		Reasoning:  "正在生成最终答案",
+	})
+
+	if r.activity.kind != activityFinalizing {
+		t.Fatalf("NoticeFinalizing must switch dock activity to finalizing; got %v", r.activity.kind)
+	}
+	rows := r.composeCurrentDockRows()
+	if row1 := stripAnsiEscapes(rows[0]); !strings.Contains(row1, "撰写最终答案") {
+		t.Errorf("finalizing notice should update row 1; got %q", row1)
+	}
+}
+
 // TestFinalDockSummary_StageCountFiltersSubRows is the regression
 // guard for the 2026-05-08 "N 阶段" bug. A bare read-mode question
 // (no log / trace attached) walks 4 stages — analyze, explore,

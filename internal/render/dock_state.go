@@ -69,9 +69,9 @@ func activityPhrase(s activityState, lang string) string {
 		return "Queued"
 	case activityWaitingNode:
 		if zh {
-			return "等待开始"
+			return "整理上下文中"
 		}
-		return "Starting"
+		return "Preparing context"
 	case activityRequesting:
 		if zh {
 			return "请求模型中"
