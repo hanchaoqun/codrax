@@ -186,8 +186,12 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 	if bus == nil || bus.AnalysisIR == nil {
 		return nil
 	}
+	if cached := bus.cachedAnswerSemanticView(); cached != nil {
+		return cached
+	}
 	plan := BuildAnswerSurfacePlanForBusContext(bus)
 	view := BuildAnswerSemanticView(bus.AnalysisIR, plan)
+	bus.storeAnswerSemanticView(view)
 	emitSemanticViewTrace("bus", view, bus.AnalysisIR, plan)
-	return view
+	return cloneAnswerSemanticView(view)
 }

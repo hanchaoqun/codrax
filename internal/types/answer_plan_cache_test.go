@@ -92,3 +92,103 @@ func TestAgentContextAnswerSemanticAndSupportPlanCachesReturnCopies(t *testing.T
 		t.Fatalf("support plan cache leaked caller mutation: %+v", again)
 	}
 }
+
+func TestBusContextAnswerPlanCacheInvalidatesOnMutableRevision(t *testing.T) {
+	mut := &MutableState{}
+	bus := &BusContext{
+		Mutable: mut,
+		AnalysisIR: &AnalysisIR{
+			RequestModel: RequestModel{
+				Intent: IntentTrace,
+			},
+		},
+		EvidenceItems: []EvidenceItem{{
+			ID:           "ev-1",
+			Kind:         EvidenceMechanism,
+			Subject:      "Caller",
+			Object:       "Callee",
+			AnchorSymbol: "Callee",
+			Source:       "internal/demo.go",
+			LineStart:    12,
+		}},
+	}
+
+	first := BuildAnswerSurfacePlanForBusContext(bus)
+	if first == nil {
+		t.Fatal("first surface plan is nil")
+	}
+	first.SurfaceEvidence = nil
+	if again := BuildAnswerSurfacePlanForBusContext(bus); again == nil || len(again.SurfaceEvidence) != 1 {
+		t.Fatalf("bus surface cache leaked caller mutation: %+v", again)
+	}
+
+	mut.AppendEvidence([]EvidenceItem{{
+		ID:           "ev-2",
+		Kind:         EvidenceMechanism,
+		Subject:      "Other",
+		Object:       "Target",
+		AnchorSymbol: "Target",
+		Source:       "internal/other.go",
+		LineStart:    21,
+	}})
+	afterRevision := BuildAnswerSurfacePlanForBusContext(bus)
+	if afterRevision == nil {
+		t.Fatal("surface plan after mutable revision is nil")
+	}
+	if len(afterRevision.SurfaceEvidence) < 2 {
+		t.Fatalf("bus surface cache did not invalidate on mutable revision: SurfaceEvidence len=%d", len(afterRevision.SurfaceEvidence))
+	}
+}
+
+func TestBusContextAnswerSupportPlanCacheReturnsDefensiveCopies(t *testing.T) {
+	logBundle := &LogBundle{
+		Errors: []LogError{{
+			Type: "runtime error",
+			Frames: []LogFrame{{
+				File:       "internal/demo.go",
+				Line:       12,
+				Func:       "Callee",
+				Raw:        "internal/demo.go:12 Callee",
+				Confidence: 0.9,
+			}},
+		}},
+		ResolvedFiles: []string{"internal/demo.go"},
+	}
+	bus := &BusContext{
+		Mutable: &MutableState{},
+		AnalysisIR: &AnalysisIR{
+			RequestModel: RequestModel{
+				Intent:    IntentRootCause,
+				LogTriage: logBundle,
+			},
+		},
+		EvidenceItems: []EvidenceItem{{
+			ID:           "ev-1",
+			Kind:         EvidenceMechanism,
+			Subject:      "Caller",
+			Object:       "Callee",
+			AnchorSymbol: "Callee",
+			Source:       "internal/demo.go",
+			LineStart:    12,
+		}},
+	}
+	bus.Mutable.SetLogTriage(logBundle)
+
+	view := BuildAnswerSemanticViewForBusContext(bus)
+	if view == nil {
+		t.Fatal("bus semantic view is nil")
+	}
+	view.RequiredBlocks = nil
+	if again := BuildAnswerSemanticViewForBusContext(bus); again == nil || len(again.RequiredBlocks) == 0 {
+		t.Fatalf("bus semantic view cache leaked caller mutation: %+v", again)
+	}
+
+	support := BuildAnswerSupportPlanForBusContext(bus)
+	if support == nil {
+		t.Fatal("bus support plan is nil")
+	}
+	support.Lanes = nil
+	if again := BuildAnswerSupportPlanForBusContext(bus); again == nil || len(again.Lanes) == 0 {
+		t.Fatalf("bus support plan cache leaked caller mutation: %+v", again)
+	}
+}

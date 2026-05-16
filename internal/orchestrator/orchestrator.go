@@ -6411,6 +6411,9 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	}
 	o.busCtx.AnswerChains = types.MergeAnswerChains(o.busCtx.AnswerChains, output.AnswerChains)
 	o.busCtx.AnswerSymbols = types.MergeAnswerSymbols(o.busCtx.AnswerSymbols, output.AnswerSymbols)
+	if evidenceChanged || findingsChanged || len(output.AnswerChains) > 0 || len(output.AnswerSymbols) > 0 {
+		o.busCtx.InvalidateAnswerPlanCache()
+	}
 
 	// P2.1 AnswerSymbolCompleteness — last non-empty writer wins. The
 	// zero value (CompletenessUnknown) means "no claim attached" and
@@ -6424,6 +6427,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// BusContext field.
 	if output.AnswerSymbolCompleteness != types.CompletenessUnknown && output.AnswerSymbolCompleteness.IsValid() {
 		o.busCtx.AnswerSymbolCompleteness = output.AnswerSymbolCompleteness
+		o.busCtx.InvalidateAnswerPlanCache()
 	}
 
 	// Append the stage's synthesized narrative so downstream stages
@@ -6468,6 +6472,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// the IR in place.
 	if output.AnalysisIR != nil && o.busCtx.AnalysisIR == nil {
 		o.busCtx.AnalysisIR = output.AnalysisIR
+		o.busCtx.InvalidateAnswerPlanCache()
 	}
 
 	// Update signals — only HasEnoughFacts survives after the

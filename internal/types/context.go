@@ -99,6 +99,11 @@ type MutableState struct {
 	finalAnswerMarkdownPath string
 	requestModel            *RequestModel
 	emittedEvidence         []EvidenceItem
+	// answerSurfaceRevision is bumped by mutators that can affect
+	// BuildAnswerSurfacePlan. BusContext-level answer-plan caches use
+	// it as a cheap freshness boundary so finalizer validators can
+	// reuse compiled projections without observing stale Mutable data.
+	answerSurfaceRevision uint64
 	// emittedAnswerSymbols + emittedAnswerSymbolCompleteness are
 	// written as a set via SetEmittedAnswerSymbols and read via
 	// EmittedAnswerSymbolSet (P2.1 Phase 9). The two fields are always
@@ -1003,6 +1008,7 @@ func (m *MutableState) SetLogTriage(b *LogBundle) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.logTriage = b
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // PerfTrace returns the validated PerfBundle produced by the
@@ -1030,6 +1036,7 @@ func (m *MutableState) SetPerfTrace(b *PerfBundle) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.perfTrace = b
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // WriteAnalysisIR returns the validated WriteAnalysisIR produced by
@@ -1448,6 +1455,23 @@ func (m *MutableState) AppendEvidence(items []EvidenceItem) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emittedEvidence = append(m.emittedEvidence, items...)
+	m.bumpAnswerSurfaceRevisionLocked()
+}
+
+func (m *MutableState) answerSurfaceRevisionValue() uint64 {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.answerSurfaceRevision
+}
+
+func (m *MutableState) bumpAnswerSurfaceRevisionLocked() {
+	if m == nil {
+		return
+	}
+	m.answerSurfaceRevision++
 }
 
 // EvidenceProjector adapts an opaque (item-list, mutable-state) pair
@@ -1504,6 +1528,7 @@ func (m *MutableState) ResetEmittedEvidence() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emittedEvidence = nil
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // SetEmittedAnswerSymbols atomically replaces the answer-symbol
@@ -1534,6 +1559,7 @@ func (m *MutableState) SetEmittedAnswerSymbols(items []AnswerSymbol, claim Compl
 		claim = CompletenessUnknown
 	}
 	m.emittedAnswerSymbolCompleteness = claim
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // SetEmittedAnswerSymbolDeclaredCount stores the LLM's self-
@@ -1595,6 +1621,7 @@ func (m *MutableState) ResetEmittedAnswerSymbols() {
 	defer m.mu.Unlock()
 	m.emittedAnswerSymbols = nil
 	m.emittedAnswerSymbolCompleteness = CompletenessUnknown
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // AppendEmittedHypothesisVerdicts merges LLM-emitted hypothesis
@@ -3102,6 +3129,7 @@ func (m *MutableState) SetInvestigationComplete(reason string) {
 	if reason != "" {
 		m.retainedInvestigationCompleteReason = reason
 	}
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // IsInvestigationComplete reports whether the LLM has called
@@ -3140,11 +3168,13 @@ func (m *MutableState) SetEvidenceFloorWaiver(w *EvidenceFloorWaiver) {
 	if w == nil {
 		m.evidenceFloorWaiver = nil
 		m.retainedEvidenceFloorWaiver = nil
+		m.bumpAnswerSurfaceRevisionLocked()
 		return
 	}
 	// Defensive copy so the caller's pointer cannot mutate stored state.
 	clone := *w
 	m.evidenceFloorWaiver = &clone
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // EvidenceFloorWaiver returns the model-declared waiver, or nil
@@ -3174,6 +3204,7 @@ func (m *MutableState) ClearEvidenceFloorWaiver() {
 	defer m.mu.Unlock()
 	m.evidenceFloorWaiver = nil
 	m.retainedEvidenceFloorWaiver = nil
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // RetainEvidenceFloorWaiver promotes the current waiver into the stable
@@ -3188,10 +3219,12 @@ func (m *MutableState) RetainEvidenceFloorWaiver() {
 	defer m.mu.Unlock()
 	if !m.evidenceFloorWaiver.IsActive() {
 		m.retainedEvidenceFloorWaiver = nil
+		m.bumpAnswerSurfaceRevisionLocked()
 		return
 	}
 	clone := *m.evidenceFloorWaiver
 	m.retainedEvidenceFloorWaiver = &clone
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // StableEvidenceFloorWaiver returns the waiver from the most recently
@@ -3285,6 +3318,7 @@ func (m *MutableState) ResetInvestigationComplete() {
 	m.investigationResultKind = ""
 	m.investigationAggregateFacts = nil
 	m.exactContextRequiredFiles = nil
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // SetExactContextRequiredFiles stores the repo-relative file set that
@@ -3312,6 +3346,7 @@ func (m *MutableState) SetExactContextRequiredFiles(files []string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.exactContextRequiredFiles = norm
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // ExactContextRequiredFiles returns the structurally-ranked
@@ -3346,6 +3381,7 @@ func (m *MutableState) SetAbsenceJustification(just string) {
 	if just != "" {
 		m.retainedAbsenceJustification = just
 	}
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // AbsenceJustification returns the LLM-declared zero rationale.
@@ -3373,6 +3409,7 @@ func (m *MutableState) SetInvestigationResultKind(kind string) {
 	if !strings.EqualFold(kind, "absence") {
 		m.retainedAbsenceJustification = ""
 	}
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // SetInvestigationAggregateFacts stores the current model-emitted
@@ -3386,6 +3423,7 @@ func (m *MutableState) SetInvestigationAggregateFacts(facts []AnswerAggregateFac
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.investigationAggregateFacts = cloneAnswerAggregateFacts(facts)
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // RetainInvestigationAggregateFacts promotes the current aggregate
@@ -3401,6 +3439,7 @@ func (m *MutableState) RetainInvestigationAggregateFacts() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.retainedInvestigationAggregateFacts = cloneAnswerAggregateFacts(m.investigationAggregateFacts)
+	m.bumpAnswerSurfaceRevisionLocked()
 }
 
 // StableInvestigationAggregateFacts returns the accepted aggregate
@@ -3930,6 +3969,23 @@ type BusContext struct {
 	// REPL /plan state. Empty in plan mode (the plan stage
 	// produces a plan; it does not consume one) and in read mode.
 	PlanPath string `json:"plan_path,omitempty"`
+
+	// answerSurfaceCache stores expensive, deterministic answer-surface
+	// projections at the orchestrator/BusContext layer. Finalizer
+	// post-emit validators repeatedly need the same surface/view/support
+	// contracts after the answer document is written; rebuilding them
+	// against large evidence pools can keep the REPL in local CPU work.
+	// The cache key includes slice sizes plus MutableState's answer-
+	// surface revision, and orchestrator.applyStageOutput explicitly
+	// invalidates it when truth-set slices change.
+	answerSurfaceCacheMu     sync.Mutex
+	answerSurfaceCacheKey    answerPlanCacheKey
+	answerSurfacePlanCached  bool
+	answerSemanticViewCached bool
+	answerSupportPlanCached  bool
+	answerSurfacePlan        *AnswerSurfacePlan
+	answerSemanticView       *AnswerSemanticView
+	answerSupportPlan        *AnswerSupportPlan
 }
 
 // AgentContext provides the narrowed view of BusContext for a single agent.

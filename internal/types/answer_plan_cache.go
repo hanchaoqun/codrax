@@ -1,5 +1,33 @@
 package types
 
+type answerPlanCacheKey struct {
+	analysisIR               *AnalysisIR
+	mutableRevision          uint64
+	evidenceLen              int
+	flowFindingsLen          int
+	answerChainsLen          int
+	answerSymbolsLen         int
+	answerSymbolCompleteness CompletenessClaim
+}
+
+func answerPlanCacheKeyForBus(ctx *BusContext) answerPlanCacheKey {
+	if ctx == nil {
+		return answerPlanCacheKey{}
+	}
+	key := answerPlanCacheKey{
+		analysisIR:               ctx.AnalysisIR,
+		evidenceLen:              len(ctx.EvidenceItems),
+		flowFindingsLen:          len(ctx.FlowFindings),
+		answerChainsLen:          len(ctx.AnswerChains),
+		answerSymbolsLen:         len(ctx.AnswerSymbols),
+		answerSymbolCompleteness: ctx.AnswerSymbolCompleteness,
+	}
+	if ctx.Mutable != nil {
+		key.mutableRevision = ctx.Mutable.answerSurfaceRevisionValue()
+	}
+	return key
+}
+
 func (ctx *AgentContext) cachedAnswerSurfacePlan() *AnswerSurfacePlan {
 	if ctx == nil {
 		return nil
@@ -52,6 +80,114 @@ func (ctx *AgentContext) storeAnswerSupportPlan(plan *AnswerSupportPlan) {
 	ctx.answerSurfaceCacheMu.Lock()
 	defer ctx.answerSurfaceCacheMu.Unlock()
 	ctx.answerSupportPlan = cloneAnswerSupportPlan(plan)
+}
+
+func (ctx *BusContext) cachedAnswerSurfacePlan() *AnswerSurfacePlan {
+	if ctx == nil {
+		return nil
+	}
+	key := answerPlanCacheKeyForBus(ctx)
+	ctx.answerSurfaceCacheMu.Lock()
+	defer ctx.answerSurfaceCacheMu.Unlock()
+	if !ctx.answerSurfacePlanCached || ctx.answerSurfaceCacheKey != key {
+		return nil
+	}
+	return cloneAnswerSurfacePlan(ctx.answerSurfacePlan)
+}
+
+func (ctx *BusContext) storeAnswerSurfacePlan(plan *AnswerSurfacePlan) {
+	if ctx == nil {
+		return
+	}
+	key := answerPlanCacheKeyForBus(ctx)
+	ctx.answerSurfaceCacheMu.Lock()
+	defer ctx.answerSurfaceCacheMu.Unlock()
+	ctx.resetAnswerPlanCacheForKeyLocked(key)
+	ctx.answerSurfaceCacheKey = key
+	ctx.answerSurfacePlan = cloneAnswerSurfacePlan(plan)
+	ctx.answerSurfacePlanCached = plan != nil
+}
+
+func (ctx *BusContext) cachedAnswerSemanticView() *AnswerSemanticView {
+	if ctx == nil {
+		return nil
+	}
+	key := answerPlanCacheKeyForBus(ctx)
+	ctx.answerSurfaceCacheMu.Lock()
+	defer ctx.answerSurfaceCacheMu.Unlock()
+	if !ctx.answerSemanticViewCached || ctx.answerSurfaceCacheKey != key {
+		return nil
+	}
+	return cloneAnswerSemanticView(ctx.answerSemanticView)
+}
+
+func (ctx *BusContext) storeAnswerSemanticView(view *AnswerSemanticView) {
+	if ctx == nil {
+		return
+	}
+	key := answerPlanCacheKeyForBus(ctx)
+	ctx.answerSurfaceCacheMu.Lock()
+	defer ctx.answerSurfaceCacheMu.Unlock()
+	ctx.resetAnswerPlanCacheForKeyLocked(key)
+	ctx.answerSurfaceCacheKey = key
+	ctx.answerSemanticView = cloneAnswerSemanticView(view)
+	ctx.answerSemanticViewCached = view != nil
+}
+
+func (ctx *BusContext) cachedAnswerSupportPlan() *AnswerSupportPlan {
+	if ctx == nil {
+		return nil
+	}
+	key := answerPlanCacheKeyForBus(ctx)
+	ctx.answerSurfaceCacheMu.Lock()
+	defer ctx.answerSurfaceCacheMu.Unlock()
+	if !ctx.answerSupportPlanCached || ctx.answerSurfaceCacheKey != key {
+		return nil
+	}
+	return cloneAnswerSupportPlan(ctx.answerSupportPlan)
+}
+
+func (ctx *BusContext) storeAnswerSupportPlan(plan *AnswerSupportPlan) {
+	if ctx == nil {
+		return
+	}
+	key := answerPlanCacheKeyForBus(ctx)
+	ctx.answerSurfaceCacheMu.Lock()
+	defer ctx.answerSurfaceCacheMu.Unlock()
+	ctx.resetAnswerPlanCacheForKeyLocked(key)
+	ctx.answerSurfaceCacheKey = key
+	ctx.answerSupportPlan = cloneAnswerSupportPlan(plan)
+	ctx.answerSupportPlanCached = plan != nil
+}
+
+// InvalidateAnswerPlanCache drops BusContext-level compiled answer
+// projections. The orchestrator calls this when truth-set slices are
+// replaced or enlarged; MutableState's answer-surface revision handles
+// tool-time mutations that do not pass through applyStageOutput.
+func (ctx *BusContext) InvalidateAnswerPlanCache() {
+	if ctx == nil {
+		return
+	}
+	ctx.answerSurfaceCacheMu.Lock()
+	defer ctx.answerSurfaceCacheMu.Unlock()
+	ctx.answerSurfacePlanCached = false
+	ctx.answerSemanticViewCached = false
+	ctx.answerSupportPlanCached = false
+	ctx.answerSurfacePlan = nil
+	ctx.answerSemanticView = nil
+	ctx.answerSupportPlan = nil
+}
+
+func (ctx *BusContext) resetAnswerPlanCacheForKeyLocked(key answerPlanCacheKey) {
+	if ctx.answerSurfaceCacheKey == key {
+		return
+	}
+	ctx.answerSurfacePlanCached = false
+	ctx.answerSemanticViewCached = false
+	ctx.answerSupportPlanCached = false
+	ctx.answerSurfacePlan = nil
+	ctx.answerSemanticView = nil
+	ctx.answerSupportPlan = nil
 }
 
 func cloneAnswerSurfacePlan(in *AnswerSurfacePlan) *AnswerSurfacePlan {

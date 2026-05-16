@@ -209,6 +209,9 @@ func BuildAnswerSupportPlanForBusContext(bus *BusContext) *AnswerSupportPlan {
 	if bus == nil || bus.AnalysisIR == nil {
 		return nil
 	}
+	if cached := bus.cachedAnswerSupportPlan(); cached != nil {
+		return cached
+	}
 	plan := BuildAnswerSurfacePlanForBusContext(bus)
 	if plan == nil {
 		return nil
@@ -216,21 +219,27 @@ func BuildAnswerSupportPlanForBusContext(bus *BusContext) *AnswerSupportPlan {
 	view := BuildAnswerSemanticViewForBusContext(bus)
 	if view != nil {
 		if out := buildAnswerSupportPlanForFamily(view.Family, bus.AnalysisIR.RequestModel, plan); out != nil {
-			return augmentCurrentStatusVerdictLane(out, view.CurrentStatusDiagnostic)
+			out = augmentCurrentStatusVerdictLane(out, view.CurrentStatusDiagnostic)
+			bus.storeAnswerSupportPlan(out)
+			return cloneAnswerSupportPlan(out)
 		}
 	}
 	if plan.SummarySurfaceMode == AnswerSummarySurfaceDriftBoundedRootCause ||
 		len(plan.LogObservedAnchors) > 0 ||
 		len(plan.LogSourceDriftAnchors) > 0 {
-		return augmentCurrentStatusVerdictLane(
+		out := augmentCurrentStatusVerdictLane(
 			buildAnswerSupportPlanForFamily(QFRootCauseTrace, bus.AnalysisIR.RequestModel, plan),
 			currentStatusDiagnosticContractFromIR(bus.AnalysisIR),
 		)
+		bus.storeAnswerSupportPlan(out)
+		return cloneAnswerSupportPlan(out)
 	}
-	return augmentCurrentStatusVerdictLane(
+	out := augmentCurrentStatusVerdictLane(
 		BuildAnswerSupportPlan(bus.AnalysisIR.RequestModel, plan),
 		currentStatusDiagnosticContractFromIR(bus.AnalysisIR),
 	)
+	bus.storeAnswerSupportPlan(out)
+	return cloneAnswerSupportPlan(out)
 }
 
 func currentStatusDiagnosticContractFromIR(ir *AnalysisIR) *CurrentStatusDiagnosticContract {

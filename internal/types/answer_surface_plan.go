@@ -1766,11 +1766,14 @@ func BuildAnswerSurfacePlanForBusContext(ctx *BusContext) *AnswerSurfacePlan {
 	if ctx == nil {
 		return nil
 	}
+	if cached := ctx.cachedAnswerSurfacePlan(); cached != nil {
+		return cached
+	}
 	var logBundle *LogBundle
 	if ctx.Mutable != nil {
 		logBundle = ctx.Mutable.LogTriage()
 	}
-	return BuildAnswerSurfacePlan(
+	plan := BuildAnswerSurfacePlan(
 		ctx.AnalysisIR,
 		ctx.Mutable,
 		logBundle,
@@ -1778,6 +1781,8 @@ func BuildAnswerSurfacePlanForBusContext(ctx *BusContext) *AnswerSurfacePlan {
 		ctx.AnswerChains,
 		ctx.EvidenceItems,
 	)
+	ctx.storeAnswerSurfacePlan(plan)
+	return cloneAnswerSurfacePlan(plan)
 }
 
 func preferredExactResolutionSurface(plan *AnswerSurfacePlan) *AnswerExactResolution {

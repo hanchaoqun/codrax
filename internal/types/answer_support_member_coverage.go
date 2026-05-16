@@ -376,9 +376,14 @@ func MissingPrincipalSupportMembers(doc *AnswerDocumentV2, plan *AnswerSupportPl
 	if len(obligations) == 0 {
 		return nil
 	}
+	index := newAnswerSupportDocumentIndex(doc)
+	return missingPrincipalSupportMembersIndexed(index, obligations)
+}
+
+func missingPrincipalSupportMembersIndexed(index *answerSupportDocumentIndex, obligations []AnswerSupportMemberObligation) []AnswerSupportMemberObligation {
 	var out []AnswerSupportMemberObligation
 	for _, ob := range obligations {
-		if answerDocumentCoversSupportMember(doc, ob) {
+		if index.coversSupportMember(ob) {
 			continue
 		}
 		out = append(out, ob)
@@ -395,6 +400,7 @@ func ChangeImpactPrincipalNarrowing(doc *AnswerDocumentV2, plan *AnswerSupportPl
 	if len(obligations) == 0 {
 		return nil
 	}
+	index := newAnswerSupportDocumentIndex(doc)
 	var supportHasNonAssignment bool
 	var coveredForms []ClaimForm
 	var missingForms []ClaimForm
@@ -403,7 +409,7 @@ func ChangeImpactPrincipalNarrowing(doc *AnswerDocumentV2, plan *AnswerSupportPl
 		if ob.ClaimForm != ClaimAssignmentFact {
 			supportHasNonAssignment = true
 		}
-		if answerDocumentCoversSupportMember(doc, ob) {
+		if index.coversSupportMember(ob) {
 			coveredForms = appendUniqueClaimForm(coveredForms, ob.ClaimForm)
 			continue
 		}
@@ -441,11 +447,12 @@ func ChangeImpactFileOutputLabelDrift(doc *AnswerDocumentV2, plan *AnswerSupport
 	if len(obligations) == 0 {
 		return nil
 	}
+	index := newAnswerSupportDocumentIndex(doc)
 	// Label-surface drift is a finalizer-local rewrite only when the
 	// typed file members are otherwise present. If members are missing,
 	// the broader coverage/narrowing gates should explain the upstream
 	// principal-set failure first.
-	if len(MissingPrincipalSupportMembers(doc, plan)) > 0 {
+	if len(missingPrincipalSupportMembersIndexed(index, obligations)) > 0 {
 		return nil
 	}
 	var missing []AnswerSupportMemberObligation
@@ -453,10 +460,10 @@ func ChangeImpactFileOutputLabelDrift(doc *AnswerDocumentV2, plan *AnswerSupport
 		if strings.TrimSpace(ob.Source) == "" {
 			continue
 		}
-		if answerDocumentLabelsFileOutputMember(doc, ob) {
+		if index.labelsFileOutputMember(ob) {
 			continue
 		}
-		if answerDocumentCoversSupportMember(doc, ob) {
+		if index.coversSupportMember(ob) {
 			missing = append(missing, ob)
 		}
 	}
@@ -470,31 +477,101 @@ func ChangeImpactFileOutputLabelDrift(doc *AnswerDocumentV2, plan *AnswerSupport
 }
 
 func answerDocumentLabelsFileOutputMember(doc *AnswerDocumentV2, ob AnswerSupportMemberObligation) bool {
-	if doc == nil {
-		return false
+	return newAnswerSupportDocumentIndex(doc).labelsFileOutputMember(ob)
+}
+
+type answerSupportDocumentIndex struct {
+	principalByLocation map[string][]answerSupportIndexedItem
+	principalByFile     map[string][]answerSupportIndexedItem
+	caveatsByLocation   map[string][]answerSupportIndexedItem
+	caveatsByFile       map[string][]answerSupportIndexedItem
+}
+
+type answerSupportIndexedItem struct {
+	item      AnswerBlockItem
+	blockText string
+	citation  Citation
+}
+
+func newAnswerSupportDocumentIndex(doc *AnswerDocumentV2) *answerSupportDocumentIndex {
+	index := &answerSupportDocumentIndex{
+		principalByLocation: make(map[string][]answerSupportIndexedItem),
+		principalByFile:     make(map[string][]answerSupportIndexedItem),
+		caveatsByLocation:   make(map[string][]answerSupportIndexedItem),
+		caveatsByFile:       make(map[string][]answerSupportIndexedItem),
 	}
-	want := normalizeAnswerSupportPath(ob.Source)
-	if want == "" {
-		return false
+	if doc == nil {
+		return index
 	}
 	for _, block := range doc.Blocks {
-		if !answerBlockCanCarryPrincipalMember(block) {
+		principal := answerBlockCanCarryPrincipalMember(block)
+		caveat := block.Kind == BlockCaveat
+		if !principal && !caveat {
 			continue
 		}
 		for _, item := range block.Items {
 			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
 				continue
 			}
-			if !citationCoversSupportMember(doc.Citations[item.CitationRef], ob) {
-				continue
+			entry := answerSupportIndexedItem{
+				item:      item,
+				blockText: block.Text,
+				citation:  doc.Citations[item.CitationRef],
 			}
-			labelFile, ok := ParseAnswerFilePathSurface(item.Label)
-			if !ok {
-				continue
+			if principal {
+				index.addPrincipal(entry)
 			}
-			if answerLocationFileMatches(labelFile, want) {
-				return true
+			if caveat {
+				index.addCaveat(entry)
 			}
+		}
+	}
+	return index
+}
+
+func (index *answerSupportDocumentIndex) addPrincipal(entry answerSupportIndexedItem) {
+	if index == nil {
+		return
+	}
+	index.addEntry(index.principalByLocation, index.principalByFile, entry)
+}
+
+func (index *answerSupportDocumentIndex) addCaveat(entry answerSupportIndexedItem) {
+	if index == nil {
+		return
+	}
+	index.addEntry(index.caveatsByLocation, index.caveatsByFile, entry)
+}
+
+func (index *answerSupportDocumentIndex) addEntry(byLocation, byFile map[string][]answerSupportIndexedItem, entry answerSupportIndexedItem) {
+	location := citationLocationKeyForSupportMember(entry.citation)
+	if location != "" {
+		byLocation[location] = append(byLocation[location], entry)
+	}
+	file := normalizeAnswerSupportPath(entry.citation.File)
+	if file != "" {
+		byFile[file] = append(byFile[file], entry)
+	}
+}
+
+func (index *answerSupportDocumentIndex) labelsFileOutputMember(ob AnswerSupportMemberObligation) bool {
+	if index == nil {
+		return false
+	}
+	want := normalizeAnswerSupportPath(ob.Source)
+	if want == "" {
+		return false
+	}
+	for _, entry := range index.principalCandidates(ob) {
+		if !citationCoversSupportMember(entry.citation, ob) {
+			continue
+		}
+		labelFile, ok := ParseAnswerFilePathSurface(entry.item.Label)
+		if !ok {
+			continue
+		}
+		if answerLocationFileMatches(labelFile, want) {
+			return true
 		}
 	}
 	return false
@@ -513,51 +590,97 @@ func appendUniqueClaimForm(in []ClaimForm, form ClaimForm) []ClaimForm {
 }
 
 func answerDocumentCoversSupportMember(doc *AnswerDocumentV2, ob AnswerSupportMemberObligation) bool {
+	return newAnswerSupportDocumentIndex(doc).coversSupportMember(ob)
+}
+
+func (index *answerSupportDocumentIndex) coversSupportMember(ob AnswerSupportMemberObligation) bool {
 	if strings.TrimSpace(ob.Location) == "" {
 		return false
 	}
-	for _, block := range doc.Blocks {
-		if !answerBlockCanCarryPrincipalMember(block) {
+	if index == nil {
+		return false
+	}
+	for _, entry := range index.principalCandidates(ob) {
+		if !citationCoversSupportMember(entry.citation, ob) {
 			continue
 		}
-		for _, item := range block.Items {
-			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
-				continue
-			}
-			if !citationCoversSupportMember(doc.Citations[item.CitationRef], ob) {
-				continue
-			}
-			if len(ob.SurfaceTerms) == 0 || answerItemSurfaceMentionsSupportMember(item, ob) {
-				return true
-			}
+		if len(ob.SurfaceTerms) == 0 || answerItemSurfaceMentionsSupportMember(entry.item, ob) {
+			return true
 		}
 	}
-	if answerDocumentCaveatsSupportMember(doc, ob) {
+	if index.caveatsSupportMember(ob) {
 		return true
 	}
 	return false
 }
 
 func answerDocumentCaveatsSupportMember(doc *AnswerDocumentV2, ob AnswerSupportMemberObligation) bool {
-	for _, block := range doc.Blocks {
-		if block.Kind != BlockCaveat {
+	return newAnswerSupportDocumentIndex(doc).caveatsSupportMember(ob)
+}
+
+func (index *answerSupportDocumentIndex) caveatsSupportMember(ob AnswerSupportMemberObligation) bool {
+	if index == nil {
+		return false
+	}
+	for _, entry := range index.caveatCandidates(ob) {
+		if !citationCoversSupportMember(entry.citation, ob) {
 			continue
 		}
-		for _, item := range block.Items {
-			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
-				continue
-			}
-			if !citationCoversSupportMember(doc.Citations[item.CitationRef], ob) {
-				continue
-			}
-			if len(ob.SurfaceTerms) == 0 ||
-				answerItemSurfaceMentionsSupportMember(item, ob) ||
-				answerTextMentionsSupportMember(block.Text, ob) {
-				return true
-			}
+		if len(ob.SurfaceTerms) == 0 ||
+			answerItemSurfaceMentionsSupportMember(entry.item, ob) ||
+			answerTextMentionsSupportMember(entry.blockText, ob) {
+			return true
 		}
 	}
 	return false
+}
+
+func (index *answerSupportDocumentIndex) principalCandidates(ob AnswerSupportMemberObligation) []answerSupportIndexedItem {
+	if index == nil {
+		return nil
+	}
+	return index.candidates(ob, index.principalByLocation, index.principalByFile)
+}
+
+func (index *answerSupportDocumentIndex) caveatCandidates(ob AnswerSupportMemberObligation) []answerSupportIndexedItem {
+	if index == nil {
+		return nil
+	}
+	return index.candidates(ob, index.caveatsByLocation, index.caveatsByFile)
+}
+
+func (index *answerSupportDocumentIndex) candidates(
+	ob AnswerSupportMemberObligation,
+	byLocation map[string][]answerSupportIndexedItem,
+	byFile map[string][]answerSupportIndexedItem,
+) []answerSupportIndexedItem {
+	seen := make(map[string]struct{})
+	var out []answerSupportIndexedItem
+	add := func(items []answerSupportIndexedItem) {
+		for _, entry := range items {
+			key := supportIndexedItemKey(entry)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, entry)
+		}
+	}
+	for _, location := range supportMemberCoverageLocations(ob) {
+		add(byLocation[location])
+	}
+	if source := normalizeAnswerSupportPath(ob.Source); source != "" {
+		add(byFile[source])
+	}
+	return out
+}
+
+func supportIndexedItemKey(entry answerSupportIndexedItem) string {
+	key := citationLocationKeyForSupportMember(entry.citation)
+	if key == "" {
+		key = normalizeAnswerSupportPath(entry.citation.File)
+	}
+	return key + "\x00" + strings.TrimSpace(entry.item.ID) + "\x00" + strings.TrimSpace(entry.item.Label)
 }
 
 func answerBlockCanCarryPrincipalMember(block AnswerBlock) bool {

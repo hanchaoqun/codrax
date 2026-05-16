@@ -46,6 +46,64 @@ import (
 //     short-circuits to Passed=true. So a nil-IR or unwired-shape
 //     run never sees a spurious violation.
 
+const (
+	contractCheckSlowAfter = 5 * time.Second
+	contractCheckSlowEvery = 10 * time.Second
+)
+
+type contractCheckTrace struct {
+	ctx context.Context
+}
+
+func newContractCheckTrace(o *Orchestrator) contractCheckTrace {
+	if o != nil && o.busCtx != nil {
+		return contractCheckTrace{ctx: o.busCtx.Context()}
+	}
+	return contractCheckTrace{ctx: context.TODO()}
+}
+
+func (t contractCheckTrace) canceled() bool {
+	return t.ctx != nil && t.ctx.Err() != nil
+}
+
+func (t contractCheckTrace) run(name string, fn func() []types.Violation) []types.Violation {
+	if t.canceled() {
+		logging.Warning("[diag finalizer] phase=answer_contract_check section=%s canceled before start err=%v", name, t.ctx.Err())
+		return nil
+	}
+	stop := t.start(name)
+	out := fn()
+	stop(len(out))
+	return out
+}
+
+func (t contractCheckTrace) start(name string) func(int) {
+	start := time.Now()
+	done := make(chan struct{})
+	go func() {
+		timer := time.NewTimer(contractCheckSlowAfter)
+		defer timer.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-timer.C:
+				logging.Warning("[diag finalizer] phase=answer_contract_check section=%s still running elapsed=%s",
+					name, time.Since(start).Round(time.Second))
+				timer.Reset(contractCheckSlowEvery)
+			}
+		}
+	}()
+	return func(violations int) {
+		close(done)
+		logging.Debug("[diag finalizer] phase=answer_contract_check section=%s done elapsed=%s violations=%d",
+			name, time.Since(start).Round(time.Millisecond), violations)
+		if t.canceled() {
+			logging.Warning("[diag finalizer] phase=answer_contract_check section=%s canceled after run err=%v", name, t.ctx.Err())
+		}
+	}
+}
+
 // runContractCheck runs the AnswerContract validator over a finalizer
 // StageOutput and returns the violations slice. nil means no
 // violations OR no contract was declared. The caller is expected to
@@ -58,6 +116,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	if out == nil {
 		return contract.Result{Passed: true}
 	}
+	trace := newContractCheckTrace(o)
 	if runtimeArtifactCitationFloorWaived(mut, o) {
 		c.CitationReq.Required = false
 		c.CitationReq.MinCitations = 0
@@ -112,7 +171,9 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			oracle = repomap.NewSymbolOracle(g)
 		}
 	}
+	stopCore := trace.start("contract_core")
 	result := contract.CheckWithOracle(draft, c, oracle)
+	stopCore(len(result.Violations))
 
 	// Commit 53 P2 — Answer Shape Oracle. After the contract.Check
 	// suite, run additional read-mode-only coherence checks that need
@@ -157,7 +218,9 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				// single truth source for all symbol-existence
 				// checks across the contract layer.
 				result.Violations = append(result.Violations,
-					runV2BlockOraclesWithOracle(docV2, view, mut, oracle)...)
+					trace.run("v2_block_oracles", func() []types.Violation {
+						return runV2BlockOraclesWithOracleContext(trace.ctx, docV2, view, mut, oracle)
+					})...)
 			}
 			// validateLaneBlockKindCompliance — typed-signal hard
 			// gate on AnswerSupportLane.AllowedBlocks. Compiled here
@@ -166,11 +229,18 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			// AnswerSurfacePlan), not just the Mutable handle.
 			// Returns no violations when the active family has no
 			// support-lane plan or no lane declares AllowedBlocks.
-			if supportPlan := types.BuildAnswerSupportPlanForBusContext(o.busCtx); supportPlan != nil {
+			stopSupportPlan := trace.start("support_plan")
+			supportPlan := types.BuildAnswerSupportPlanForBusContext(o.busCtx)
+			stopSupportPlan(0)
+			if supportPlan != nil {
 				result.Violations = append(result.Violations,
-					validateLaneBlockKindCompliance(docV2, supportPlan)...)
+					trace.run("lane_block_kind", func() []types.Violation {
+						return validateLaneBlockKindCompliance(docV2, supportPlan)
+					})...)
 				result.Violations = append(result.Violations,
-					validatePrincipalSupportMemberCoverage(docV2, supportPlan)...)
+					trace.run("principal_support_member_coverage", func() []types.Violation {
+						return validatePrincipalSupportMemberCoverage(docV2, supportPlan)
+					})...)
 			}
 			// 修 B (post_v2_runtime_gap_remediation, 2026-05-04) —
 			// enumeration evidence pool structural gate. Fires when

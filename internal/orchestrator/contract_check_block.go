@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"sort"
@@ -1607,29 +1608,39 @@ func validateClaimFormSupport(doc *types.AnswerDocumentV2, mut *types.MutableSta
 }
 
 func validateCallChainItemCitationRoleAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState) []types.Violation {
+	return validateCallChainItemCitationRoleAlignmentContext(context.TODO(), doc, view, mut)
+}
+
+func validateCallChainItemCitationRoleAlignmentContext(ctx context.Context, doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState) []types.Violation {
 	if doc == nil || mut == nil {
 		return nil
 	}
-	allEvidence := answerItemLabelSupportEvidenceItems(mut)
-	if len(allEvidence) == 0 {
+	idx := newAnswerEvidenceIndex(mut)
+	if idx == nil || len(idx.items) == 0 {
 		return nil
 	}
 	var out []types.Violation
 	for _, b := range doc.Blocks {
+		if ctx != nil && ctx.Err() != nil {
+			return out
+		}
 		forms := answerBlockCitationRoleForms(b, view)
 		if len(forms) == 0 {
 			continue
 		}
 		for _, item := range b.Items {
+			if ctx != nil && ctx.Err() != nil {
+				return out
+			}
 			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
 				continue
 			}
-			expected, ok := answerClaimRoleMentionedByItemSurface(item, forms, allEvidence)
+			expected, ok := idx.claimRoleMentionedByItemSurface(item, forms)
 			if !ok {
 				continue
 			}
 			cit := doc.Citations[item.CitationRef]
-			cited := answerCitedEvidenceItems(mut, cit)
+			cited := idx.citedEvidenceItems(cit)
 			if types.EvidenceSetContainsSameClaimRole(cited, expected) {
 				continue
 			}
@@ -1738,16 +1749,51 @@ func answerClaimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []t
 }
 
 func answerCitedEvidenceItems(mut *types.MutableState, cit types.Citation) []types.EvidenceItem {
-	file := strings.TrimSpace(cit.File)
-	if mut == nil || file == "" {
+	return newAnswerEvidenceIndex(mut).citedEvidenceItems(cit)
+}
+
+type answerEvidenceIndex struct {
+	items  []types.EvidenceItem
+	byFile map[string][]types.EvidenceItem
+}
+
+func newAnswerEvidenceIndex(mut *types.MutableState) *answerEvidenceIndex {
+	items := answerItemLabelSupportEvidenceItems(mut)
+	if len(items) == 0 {
 		return nil
 	}
-	var out []types.EvidenceItem
-	for _, ev := range answerItemLabelSupportEvidenceItems(mut) {
+	idx := &answerEvidenceIndex{
+		items:  items,
+		byFile: make(map[string][]types.EvidenceItem),
+	}
+	for _, ev := range items {
 		if ev.GroundingStatus == types.GroundingUngrounded {
 			continue
 		}
-		if !answerCitationSourceMatches(file, ev.Source) {
+		file := answerEvidenceSourceKey(ev.Source)
+		if file == "" {
+			continue
+		}
+		idx.byFile[file] = append(idx.byFile[file], ev)
+	}
+	return idx
+}
+
+func (idx *answerEvidenceIndex) claimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []types.ClaimForm) (types.EvidenceItem, bool) {
+	if idx == nil {
+		return types.EvidenceItem{}, false
+	}
+	return answerClaimRoleMentionedByItemSurface(item, forms, idx.items)
+}
+
+func (idx *answerEvidenceIndex) citedEvidenceItems(cit types.Citation) []types.EvidenceItem {
+	file := answerEvidenceSourceKey(cit.File)
+	if idx == nil || file == "" {
+		return nil
+	}
+	var out []types.EvidenceItem
+	for _, ev := range idx.byFile[file] {
+		if ev.GroundingStatus == types.GroundingUngrounded {
 			continue
 		}
 		if !citationLineMatchesEvidence(cit.Line, ev) {
@@ -1756,6 +1802,10 @@ func answerCitedEvidenceItems(mut *types.MutableState, cit types.Citation) []typ
 		out = append(out, ev)
 	}
 	return out
+}
+
+func answerEvidenceSourceKey(source string) string {
+	return strings.TrimSpace(strings.ReplaceAll(source, `\`, `/`))
 }
 
 func answerCitationSourceMatches(citationFile, evidenceSource string) bool {
@@ -1967,34 +2017,81 @@ func runV2BlockOraclesWithMut(doc *types.AnswerDocumentV2, view *types.AnswerSem
 // path uses, so V2 block validators see the same Tier 1-2 truth
 // table as the contract.must_include / must_exclude oracles.
 func runV2BlockOraclesWithOracle(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, oracle types.SymbolOracle) []types.Violation {
+	return runV2BlockOraclesWithOracleContext(context.TODO(), doc, view, mut, oracle)
+}
+
+func runV2BlockOraclesWithOracleContext(ctx context.Context, doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, mut *types.MutableState, oracle types.SymbolOracle) []types.Violation {
 	if doc == nil || view == nil {
 		return nil
 	}
 	var out []types.Violation
-	out = append(out, validateRequiredBlockCoverage(doc, view)...)
-	out = append(out, validateCurrentStatusVerdict(doc, view)...)
-	out = append(out, validatePrincipalClaimUse(doc, view)...)
-	out = append(out, validateDiagramEdgeSupport(doc, view)...)
-	out = append(out, validateUncertaintyBlockPresence(doc, view)...)
-	out = append(out, validateFacetCoverage(doc, view)...)
+	appendIfLive := func(fn func() []types.Violation) bool {
+		if ctx != nil && ctx.Err() != nil {
+			return false
+		}
+		out = append(out, fn()...)
+		return ctx == nil || ctx.Err() == nil
+	}
+	if !appendIfLive(func() []types.Violation { return validateRequiredBlockCoverage(doc, view) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateCurrentStatusVerdict(doc, view) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validatePrincipalClaimUse(doc, view) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateDiagramEdgeSupport(doc, view) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateUncertaintyBlockPresence(doc, view) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateFacetCoverage(doc, view) }) {
+		return out
+	}
 	// v3 B2 (2026-05-04) — three-layer quality contract:
 	//   layer 3a: ViolRichnessGlaringGap (Medium, retry-eligible)
 	//   layer 3b: ViolPrincipalProseUnderfilled (Medium, retry-eligible)
 	// Both wired BEFORE validateRichnessRegression so the suppression
 	// rule inside validateRichnessRegression sees the glaring fire and
 	// drops duplicate telemetry on the same facet.
-	out = append(out, validateRichnessGlaringGap(doc, view)...)
-	out = append(out, validatePrincipalProseUnderfilled(doc)...)
-	out = append(out, validateRichnessRegression(doc, view)...)
-	out = append(out, validateClaimFormSupport(doc, mut)...)
-	out = append(out, validateCallChainItemCitationRoleAlignment(doc, view, mut)...)
-	out = append(out, validateMissingRequestedRoleDisclosure(doc, view)...)
-	out = append(out, validateAbsenceScopeBound(doc)...)
-	out = append(out, validateEnumerationItemLabelGrounding(doc, mut)...)
-	out = append(out, validateEnumerationItemLabelExtractorMatch(doc, view, mut, oracle)...)
-	out = append(out, validateEnumerationItemLabelHallucination(doc, oracle, mut)...)
-	out = append(out, validateDiagramEdgeEndpointHallucination(doc, oracle)...)
-	out = append(out, validateInlineIdentifierHallucination(doc, oracle, mut)...)
+	if !appendIfLive(func() []types.Violation { return validateRichnessGlaringGap(doc, view) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validatePrincipalProseUnderfilled(doc) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateRichnessRegression(doc, view) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateClaimFormSupport(doc, mut) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation {
+		return validateCallChainItemCitationRoleAlignmentContext(ctx, doc, view, mut)
+	}) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateMissingRequestedRoleDisclosure(doc, view) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateAbsenceScopeBound(doc) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateEnumerationItemLabelGrounding(doc, mut) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateEnumerationItemLabelExtractorMatch(doc, view, mut, oracle) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateEnumerationItemLabelHallucination(doc, oracle, mut) }) {
+		return out
+	}
+	if !appendIfLive(func() []types.Violation { return validateDiagramEdgeEndpointHallucination(doc, oracle) }) {
+		return out
+	}
+	appendIfLive(func() []types.Violation { return validateInlineIdentifierHallucination(doc, oracle, mut) })
 	return out
 }
 
