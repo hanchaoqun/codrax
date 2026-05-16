@@ -168,10 +168,14 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 	if ac == nil || ac.AnalysisIR == nil {
 		return nil
 	}
+	if cached := ac.cachedAnswerSemanticView(); cached != nil {
+		return cached
+	}
 	plan := BuildAnswerSurfacePlanForAgentContext(ac)
 	view := BuildAnswerSemanticView(ac.AnalysisIR, plan)
+	ac.storeAnswerSemanticView(view)
 	emitSemanticViewTrace("agent", view, ac.AnalysisIR, plan)
-	return view
+	return cloneAnswerSemanticView(view)
 }
 
 // BuildAnswerSemanticViewForBusContext compiles a view from the

@@ -4091,6 +4091,19 @@ type AgentContext struct {
 	// pointer field by design — see MutableState's doc.
 	Mutable *MutableState `json:"-"`
 
+	// answerSurfaceCache stores expensive, deterministic answer-surface
+	// projections for this single dispatch. The finalizer prompt path asks
+	// for the same surface/view/support contracts from many helper sections
+	// before the first LLM request; without a per-dispatch cache, large
+	// evidence pools can burn CPU while the UI is still in the "preparing
+	// context" state. Callers receive defensive clones from the public
+	// builders, so local prompt helpers can still adjust their copy without
+	// corrupting later readers.
+	answerSurfaceCacheMu sync.Mutex
+	answerSurfacePlan    *AnswerSurfacePlan
+	answerSemanticView   *AnswerSemanticView
+	answerSupportPlan    *AnswerSupportPlan
+
 	// SearchGraph is the opaque read-only handle to the repomap graph
 	// the main explorer seeded on Mutable.SearchGraph(). Duplicated
 	// onto AgentContext so SubAgents (which deliberately run with

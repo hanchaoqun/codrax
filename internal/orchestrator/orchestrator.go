@@ -5845,7 +5845,16 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	if o.busCtx != nil {
 		o.busCtx.TaskState.LastError = ""
 	}
+	preflightStart := time.Now()
+	ctxBuildStart := time.Now()
+	logging.Debug("[orchestrator] preflight: stage=%s agent=%s phase=build_agent_context start", stage, agentName)
 	agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, agentName, stage)
+	logging.Debug("[orchestrator] preflight: stage=%s agent=%s phase=build_agent_context done elapsed=%s evidence=%d reports=%d symbols=%d",
+		stage, agentName, time.Since(ctxBuildStart).Round(time.Millisecond),
+		len(agentCtx.EvidenceItems), len(agentCtx.PriorReports), len(agentCtx.AnswerSymbols))
+	if err := o.checkCanceled(string(stage), 0); err != nil {
+		return nil, err
+	}
 	if ta, ok := o.thinkAloudMap[agentName]; ok {
 		agentCtx.ThinkAloud = ta
 	}
@@ -6120,6 +6129,10 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	}
 
 	logging.Info("[orchestrator] dispatching agent=%s skill=%s", agentName, skillName)
+	logging.Debug("[orchestrator] preflight: stage=%s agent=%s ready elapsed=%s", stage, agentName, time.Since(preflightStart).Round(time.Millisecond))
+	if err := o.checkCanceled(string(stage), 0); err != nil {
+		return nil, err
+	}
 
 	stageStart := time.Now()
 	o.emit(render.Event{

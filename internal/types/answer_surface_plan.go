@@ -1739,11 +1739,14 @@ func BuildAnswerSurfacePlanForAgentContext(ctx *AgentContext) *AnswerSurfacePlan
 	if ctx == nil {
 		return nil
 	}
+	if cached := ctx.cachedAnswerSurfacePlan(); cached != nil {
+		return cached
+	}
 	logBundle := ctx.LogTriage
 	if logBundle == nil && ctx.Mutable != nil {
 		logBundle = ctx.Mutable.LogTriage()
 	}
-	return BuildAnswerSurfacePlan(
+	plan := BuildAnswerSurfacePlan(
 		ctx.AnalysisIR,
 		ctx.Mutable,
 		logBundle,
@@ -1751,6 +1754,8 @@ func BuildAnswerSurfacePlanForAgentContext(ctx *AgentContext) *AnswerSurfacePlan
 		ctx.AnswerChains,
 		ctx.EvidenceItems,
 	)
+	ctx.storeAnswerSurfacePlan(plan)
+	return cloneAnswerSurfacePlan(plan)
 }
 
 // BuildAnswerSurfacePlanForBusContext is the BusContext equivalent of

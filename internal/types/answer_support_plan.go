@@ -101,6 +101,9 @@ func BuildAnswerSupportPlanForAgentContext(ctx *AgentContext) *AnswerSupportPlan
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil
 	}
+	if cached := ctx.cachedAnswerSupportPlan(); cached != nil {
+		return cached
+	}
 	plan := BuildAnswerSurfacePlanForAgentContext(ctx)
 	if plan == nil {
 		return nil
@@ -111,21 +114,27 @@ func BuildAnswerSupportPlanForAgentContext(ctx *AgentContext) *AnswerSupportPlan
 	view := BuildAnswerSemanticViewForAgentContext(ctx)
 	if view != nil {
 		if out := buildAnswerSupportPlanForFamily(view.Family, ctx.AnalysisIR.RequestModel, plan); out != nil {
-			return augmentCurrentStatusVerdictLane(out, view.CurrentStatusDiagnostic)
+			out = augmentCurrentStatusVerdictLane(out, view.CurrentStatusDiagnostic)
+			ctx.storeAnswerSupportPlan(out)
+			return cloneAnswerSupportPlan(out)
 		}
 	}
 	if plan.SummarySurfaceMode == AnswerSummarySurfaceDriftBoundedRootCause ||
 		len(plan.LogObservedAnchors) > 0 ||
 		len(plan.LogSourceDriftAnchors) > 0 {
-		return augmentCurrentStatusVerdictLane(
+		out := augmentCurrentStatusVerdictLane(
 			buildAnswerSupportPlanForFamily(QFRootCauseTrace, ctx.AnalysisIR.RequestModel, plan),
 			currentStatusDiagnosticContractFromIR(ctx.AnalysisIR),
 		)
+		ctx.storeAnswerSupportPlan(out)
+		return cloneAnswerSupportPlan(out)
 	}
-	return augmentCurrentStatusVerdictLane(
+	out := augmentCurrentStatusVerdictLane(
 		BuildAnswerSupportPlan(ctx.AnalysisIR.RequestModel, plan),
 		currentStatusDiagnosticContractFromIR(ctx.AnalysisIR),
 	)
+	ctx.storeAnswerSupportPlan(out)
+	return cloneAnswerSupportPlan(out)
 }
 
 // BuildAnswerSupportPlan compiles a family-aware support-lane view from

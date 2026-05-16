@@ -968,10 +968,14 @@ func pruneToolHistory(messages []llm.Message, budget int) bool {
 // running with `-log-level debug` without polluting normal runs.
 func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {
 	// Build tool schemas for LLM
+	stopPreflight := b.startPreflightWatchdog(ctx, "tool_schemas")
 	toolSchemas := b.buildToolSchemas(sk, ctx)
+	stopPreflight()
 
 	// Initialize message history
+	stopPreflight = b.startPreflightWatchdog(ctx, "initial_messages")
 	messages := b.buildInitialMessages(ctx, sk)
+	stopPreflight()
 
 	// DIAGNOSTIC — dump initial prompt (debug only).
 	// Full content goes to the log file (unlimited); stdout mirror gets truncated.
@@ -2002,13 +2006,59 @@ func (b *BaseAgent) normalizeAnalyzerPrescanGrepCompat(ctx *types.AgentContext, 
 // rules on its own.
 func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Config) []llm.Message {
 	// 1. Assemble the structured PromptContext from ctx + skill.
+	stopPreflight := b.startPreflightWatchdog(ctx, "prompt_assemble")
 	pc := b.deps.PromptAssembler.AssembleContext(ctx, sk)
+	stopPreflight()
 	// 2. Render the PromptContext as the llm.Message slice.
+	stopPreflight = b.startPreflightWatchdog(ctx, "prompt_render")
 	messages := b.deps.PromptAssembler.RenderMessages(pc)
+	stopPreflight()
 	// 3. Append evaluator instruction (evaluator's dynamic supplement,
 	//    when non-empty; never restates the skill static contract).
+	stopPreflight = b.startPreflightWatchdog(ctx, "prompt_dynamic_instruction")
 	messages = AppendDynamicInstruction(messages, b.eval, ctx, sk)
+	stopPreflight()
 	return messages
+}
+
+const (
+	agentPreflightSlowAfter = 5 * time.Second
+	agentPreflightSlowEvery = 10 * time.Second
+)
+
+func (b *BaseAgent) startPreflightWatchdog(ctx *types.AgentContext, phase string) func() {
+	agentName := b.name
+	stage := ""
+	if ctx != nil {
+		stage = string(ctx.Stage)
+	}
+	start := time.Now()
+	logging.Debug("[diag %s] phase=%s stage=%s start", agentName, phase, stage)
+
+	done := make(chan struct{})
+	var once sync.Once
+	go func() {
+		timer := time.NewTimer(agentPreflightSlowAfter)
+		defer timer.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-timer.C:
+				logging.Warning("[diag %s] phase=%s stage=%s still running elapsed=%s",
+					agentName, phase, stage, time.Since(start).Round(time.Second))
+				timer.Reset(agentPreflightSlowEvery)
+			}
+		}
+	}()
+
+	return func() {
+		once.Do(func() {
+			close(done)
+			logging.Debug("[diag %s] phase=%s stage=%s done elapsed=%s",
+				agentName, phase, stage, time.Since(start).Round(time.Millisecond))
+		})
+	}
 }
 
 func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*types.ToolResult, *types.MCPResponse) {
