@@ -64,8 +64,9 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 				string(FacetDiagramSpine),
 				string(FacetComponentRelation),
 			},
-			Rationale: "A flowchart showing the components and their relations. Top-down direction " +
-				"for layered architectures; left-right for pipelines.",
+			Rationale: diagramRequirementRationale(plan, DiagramArchitecture,
+				"A component architecture diagram showing the components and their relations. Top-down direction "+
+					"for layered architectures; left-right for pipelines."),
 		})
 	}
 	view.OptionalBlocks = []BlockRequirement{
@@ -110,7 +111,7 @@ func compileArchitecture(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanti
 	view.DiagramPlan = diagramPlanFor(plan, DiagramArchitecture,
 		[]string{string(FacetComponentRelation)},
 		[]string{string(FacetPrincipalPathEdge)},
-		DefaultEdgeRelationsForKind(DiagramArchitecture),
+		defaultEdgeRelationsForPlan(plan, DiagramArchitecture),
 	)
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
 	// v3 B2 (2026-05-04) — architecture answers gain materially from

@@ -941,6 +941,104 @@ func planRequiringDiagram() *AnswerSurfacePlan {
 	}
 }
 
+func planRequiringDiagramKind(kind DiagramKind) *AnswerSurfacePlan {
+	return &AnswerSurfacePlan{
+		Diagram: &DiagramContract{
+			Required:       true,
+			PreferredKinds: []DiagramKind{kind},
+		},
+	}
+}
+
+func TestCompileDiagramPlan_HonorsRequiredDiagramKindAcrossFamilies(t *testing.T) {
+	cases := []struct {
+		name          string
+		ir            *AnalysisIR
+		kind          DiagramKind
+		wantRelation  DiagramRelationKind
+		wantClaim     ClaimForm
+		wantRationale string
+	}{
+		{
+			name:          "architecture keeps explicit sequence",
+			ir:            irForArchitecture(),
+			kind:          DiagramSequence,
+			wantRelation:  DiagramRelCall,
+			wantClaim:     ClaimCallEdge,
+			wantRationale: "sequenceDiagram",
+		},
+		{
+			name:          "call-chain keeps explicit flow",
+			ir:            irForCallChain(),
+			kind:          DiagramFlow,
+			wantRelation:  DiagramRelGuard,
+			wantClaim:     ClaimGuardCondition,
+			wantRationale: "flowchart",
+		},
+		{
+			name:          "root-cause keeps explicit flow",
+			ir:            irForRootCauseTrace(),
+			kind:          DiagramFlow,
+			wantRelation:  DiagramRelGuard,
+			wantClaim:     ClaimGuardCondition,
+			wantRationale: "flowchart",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			view := BuildAnswerSemanticView(c.ir, planRequiringDiagramKind(c.kind))
+			if view == nil || view.DiagramPlan == nil {
+				t.Fatalf("missing view/DiagramPlan: %+v", view)
+			}
+			if view.DiagramPlan.Kind != c.kind {
+				t.Fatalf("DiagramPlan.Kind=%q, want %q", view.DiagramPlan.Kind, c.kind)
+			}
+			if len(view.DiagramPlan.EdgeRelations) == 0 {
+				t.Fatalf("DiagramPlan.EdgeRelations empty")
+			}
+			got := view.DiagramPlan.EdgeRelations[0]
+			if got.Kind != c.wantRelation || got.ClaimForm != c.wantClaim {
+				t.Fatalf("first edge relation=%+v, want kind=%q claim=%q", got, c.wantRelation, c.wantClaim)
+			}
+			req := requiredDiagramRequirement(view)
+			if req == nil {
+				t.Fatalf("required diagram block missing")
+			}
+			if !strings.Contains(req.Rationale, c.wantRationale) {
+				t.Fatalf("required diagram rationale=%q, want to contain %q", req.Rationale, c.wantRationale)
+			}
+		})
+	}
+}
+
+func TestCompileDiagramPlan_SoftPreferenceKeepsFamilyDefault(t *testing.T) {
+	view := BuildAnswerSemanticView(irForArchitecture(), &AnswerSurfacePlan{
+		Diagram: &DiagramContract{
+			Required:       false,
+			PreferredKinds: []DiagramKind{DiagramSequence},
+		},
+	})
+	if view == nil || view.DiagramPlan == nil {
+		t.Fatalf("missing view/DiagramPlan: %+v", view)
+	}
+	if view.DiagramPlan.Kind != DiagramArchitecture {
+		t.Fatalf("soft diagram preference should not override family default; got %q", view.DiagramPlan.Kind)
+	}
+}
+
+func requiredDiagramRequirement(view *AnswerSemanticView) *BlockRequirement {
+	if view == nil {
+		return nil
+	}
+	for i := range view.RequiredBlocks {
+		req := &view.RequiredBlocks[i]
+		if req.Kind == BlockDiagram && req.Required {
+			return req
+		}
+	}
+	return nil
+}
+
 func TestCompileCallChain_DiagramEdgeRelationsContract(t *testing.T) {
 	view := BuildAnswerSemanticView(irForCallChain(), planRequiringDiagram())
 	if view.DiagramPlan == nil {

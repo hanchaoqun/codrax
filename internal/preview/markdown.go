@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	stdhtml "html"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -56,7 +57,7 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 	body := fencedCodeBody(block, source)
 	if strings.EqualFold(lang, "mermaid") {
 		_, _ = fmt.Fprint(w, `<div class="mermaid">`+"\n")
-		_, _ = fmt.Fprint(w, stdhtml.EscapeString(strings.TrimRight(body, "\n")))
+		_, _ = fmt.Fprint(w, stdhtml.EscapeString(normalizeBrowserMermaid(body)))
 		_, _ = fmt.Fprint(w, "\n</div>\n")
 		return ast.WalkSkipChildren, nil
 	}
@@ -78,6 +79,86 @@ func fencedCodeBody(block *ast.FencedCodeBlock, source []byte) string {
 		b.Write(segment.Value(source))
 	}
 	return b.String()
+}
+
+func normalizeBrowserMermaid(body string) string {
+	body = strings.TrimRight(body, "\n")
+	return normalizeBrowserMermaidSubgraphs(body)
+}
+
+// normalizeBrowserMermaidSubgraphs repairs the common LLM shape
+// `subgraph Explorer System` into Mermaid's explicit
+// `subgraph Explorer_System [Explorer System]` form. It only touches
+// flowchart/graph bodies and only when the subgraph title has multiple
+// bare tokens; already explicit Mermaid forms are preserved.
+func normalizeBrowserMermaidSubgraphs(body string) string {
+	if !strings.Contains(body, "subgraph") || !browserMermaidIsFlowchart(body) {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	changed := false
+	for i, line := range lines {
+		leading := len(line) - len(strings.TrimLeftFunc(line, unicode.IsSpace))
+		indent := line[:leading]
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "subgraph ") {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "subgraph "))
+		if !browserMermaidNeedsSubgraphTitleRepair(rest) {
+			continue
+		}
+		lines[i] = indent + "subgraph " + browserMermaidSubgraphID(rest, i) + " [" + rest + "]"
+		changed = true
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(lines, "\n")
+}
+
+func browserMermaidIsFlowchart(body string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		return line == "graph" || strings.HasPrefix(line, "graph ") ||
+			line == "flowchart" || strings.HasPrefix(line, "flowchart ")
+	}
+	return false
+}
+
+func browserMermaidNeedsSubgraphTitleRepair(rest string) bool {
+	if rest == "" || strings.ContainsAny(rest, "[]\"") {
+		return false
+	}
+	return len(strings.Fields(rest)) > 1
+}
+
+func browserMermaidSubgraphID(title string, lineIndex int) string {
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range title {
+		ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	id := strings.Trim(b.String(), "_")
+	if id == "" {
+		id = "subgraph"
+	}
+	if id[0] >= '0' && id[0] <= '9' {
+		id = "sg_" + id
+	}
+	return id + "_" + strconv.Itoa(lineIndex+1)
 }
 
 func firstInfoToken(info string) string {

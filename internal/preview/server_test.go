@@ -2,6 +2,7 @@ package preview
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -52,6 +53,24 @@ func TestServerRegisterMarkdownRendersMermaidAndEscapesHTML(t *testing.T) {
 	if !strings.Contains(html, "/assets/mermaid.min.js?token=") {
 		t.Fatalf("embedded mermaid asset URL missing:\n%s", html)
 	}
+	if !strings.Contains(html, "startOnLoad: false") ||
+		!strings.Contains(html, "Mermaid render failed; raw source is preserved below.") {
+		t.Fatalf("preview page must manually render mermaid with clean fallback:\n%s", html)
+	}
+}
+
+func TestRenderMarkdownHTMLNormalizesBareSubgraphTitles(t *testing.T) {
+	body := []byte("```mermaid\nflowchart TD\n  subgraph Explorer System\n    A --> B\n  end\n  subgraph AlreadyValid[Already Valid]\n    C --> D\n  end\n```\n")
+	got, err := RenderMarkdownHTML(body)
+	if err != nil {
+		t.Fatalf("RenderMarkdownHTML: %v", err)
+	}
+	if !strings.Contains(got, `subgraph Explorer_System_2 [Explorer System]`) {
+		t.Fatalf("bare subgraph title was not normalized:\n%s", got)
+	}
+	if !strings.Contains(got, `subgraph AlreadyValid[Already Valid]`) {
+		t.Fatalf("already valid subgraph title should be preserved:\n%s", got)
+	}
 }
 
 func TestServerRequiresToken(t *testing.T) {
@@ -93,5 +112,43 @@ func TestValidateConfig(t *testing.T) {
 	cfg := NormalizeConfig(Config{})
 	if cfg.Mode != ModeAuto || cfg.Host != defaultHost || cfg.Port != defaultPort {
 		t.Fatalf("NormalizeConfig = %+v", cfg)
+	}
+}
+
+func TestDisplayHostPortUsesConfiguredSpecificHost(t *testing.T) {
+	host, port := displayHostPort("203.0.113.10", "0.0.0.0:49152")
+	if host != "203.0.113.10" || port != "49152" {
+		t.Fatalf("displayHostPort explicit host = %s:%s", host, port)
+	}
+}
+
+func TestDisplayHostPortWildcardUsesReachableHost(t *testing.T) {
+	old := reachableDisplayHost
+	reachableDisplayHost = func() string { return "198.51.100.25" }
+	defer func() { reachableDisplayHost = old }()
+
+	host, port := displayHostPort("0.0.0.0", "0.0.0.0:49152")
+	if host != "198.51.100.25" || port != "49152" {
+		t.Fatalf("displayHostPort wildcard = %s:%s", host, port)
+	}
+}
+
+func TestDisplayIPScorePrefersPublicIPv4(t *testing.T) {
+	cases := []struct {
+		name string
+		ip   net.IP
+		want int
+	}{
+		{"loopback", net.ParseIP("127.0.0.1"), 0},
+		{"private ipv4", net.ParseIP("192.168.1.8"), 80},
+		{"public ipv4", net.ParseIP("8.8.8.8"), 100},
+		{"private ipv6", net.ParseIP("fd00::1"), 60},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := displayIPScore(c.ip); got != c.want {
+				t.Fatalf("displayIPScore(%s)=%d, want %d", c.ip, got, c.want)
+			}
+		})
 	}
 }

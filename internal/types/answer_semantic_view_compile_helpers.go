@@ -29,6 +29,52 @@ func diagramPreferredByEvidence(plan *AnswerSurfacePlan) bool {
 	return plan != nil && plan.Diagram != nil && len(plan.Diagram.PreferredKinds) > 0
 }
 
+func firstConcreteDiagramKind(kinds []DiagramKind) DiagramKind {
+	for _, kind := range kinds {
+		if kind == DiagramNone || !kind.IsValid() {
+			continue
+		}
+		return kind
+	}
+	return DiagramNone
+}
+
+// resolvedDiagramKindForPlan is the single authority for choosing the
+// finalizer-facing semantic diagram kind inside a family compiler.
+//
+// The family default describes the answer shape (architecture,
+// call-chain, root-cause, generic). A hard diagram contract describes
+// the user's requested visual modality after the evidence surface has
+// filtered it to supported kinds. When both are present, the hard
+// contract wins: otherwise an architecture explanation that explicitly
+// asked for a sequence diagram can be accidentally rewritten as a
+// component flowchart downstream.
+func resolvedDiagramKindForPlan(plan *AnswerSurfacePlan, familyDefault DiagramKind) DiagramKind {
+	if plan != nil && plan.Diagram != nil && plan.Diagram.Required {
+		if kind := firstConcreteDiagramKind(plan.Diagram.PreferredKinds); kind != DiagramNone {
+			return kind
+		}
+	}
+	if familyDefault != DiagramNone && familyDefault.IsValid() {
+		return familyDefault
+	}
+	if plan != nil {
+		if plan.CompiledDiagramKind != DiagramNone && plan.CompiledDiagramKind.IsValid() {
+			return plan.CompiledDiagramKind
+		}
+		if plan.Diagram != nil {
+			if kind := firstConcreteDiagramKind(plan.Diagram.PreferredKinds); kind != DiagramNone {
+				return kind
+			}
+		}
+	}
+	return DiagramNone
+}
+
+func defaultEdgeRelationsForPlan(plan *AnswerSurfacePlan, familyDefault DiagramKind) []DiagramEdgeRelationContract {
+	return DefaultEdgeRelationsForKind(resolvedDiagramKindForPlan(plan, familyDefault))
+}
+
 func runtimeObservationOnly(plan *AnswerSurfacePlan) bool {
 	return plan != nil &&
 		plan.RuntimeGroundingDisposition.IsActive() &&
@@ -43,6 +89,24 @@ func optionalDiagramBlock(rationale string, facetIDs ...string) BlockRequirement
 		Required:  false,
 		Rationale: strings.TrimSpace(rationale),
 		FacetIDs:  appendUniqueStr(nil, facetIDs...),
+	}
+}
+
+func diagramRequirementRationale(plan *AnswerSurfacePlan, familyDefault DiagramKind, fallback string) string {
+	switch resolvedDiagramKindForPlan(plan, familyDefault) {
+	case DiagramSequence:
+		return "A sequence diagram showing the grounded interaction order visually — actor-to-actor edges matching the cited sequence. Use Mermaid sequenceDiagram form."
+	case DiagramFlow:
+		return "A flowchart showing the grounded processing or decision flow. Use Mermaid flowchart form and keep guards / branches tied to cited evidence."
+	case DiagramCallDAG:
+		return "A call graph diagram showing grounded call relationships. Use Mermaid flowchart form and keep edges tied to cited call evidence."
+	case DiagramArchitecture:
+		if strings.TrimSpace(fallback) != "" {
+			return strings.TrimSpace(fallback)
+		}
+		return "A component architecture diagram showing grounded components and relations. Use Mermaid flowchart form."
+	default:
+		return strings.TrimSpace(fallback)
 	}
 }
 
@@ -149,17 +213,49 @@ func diagramPlanFor(plan *AnswerSurfacePlan, kind DiagramKind, nodeFacets []stri
 	if !contract.Required && len(contract.PreferredKinds) == 0 {
 		return nil
 	}
-	resolvedKind := kind
-	if resolvedKind == DiagramNone && len(contract.PreferredKinds) > 0 {
-		resolvedKind = contract.PreferredKinds[0]
-	}
+	resolvedKind := resolvedDiagramKindForPlan(plan, kind)
+	resolvedEdgeRelations := edgeRelationsForResolvedDiagramKind(kind, resolvedKind, edgeRelations)
 	return &DiagramFacetGraph{
 		Required:      contract.Required,
 		Kind:          resolvedKind,
 		NodeFacets:    nodeFacets,
 		EdgeFacets:    edgeFacets,
-		EdgeRelations: append([]DiagramEdgeRelationContract(nil), edgeRelations...),
+		EdgeRelations: resolvedEdgeRelations,
 	}
+}
+
+func edgeRelationsForResolvedDiagramKind(familyDefault DiagramKind, resolvedKind DiagramKind, edgeRelations []DiagramEdgeRelationContract) []DiagramEdgeRelationContract {
+	if resolvedKind == DiagramNone {
+		return append([]DiagramEdgeRelationContract(nil), edgeRelations...)
+	}
+	if len(edgeRelations) == 0 {
+		return DefaultEdgeRelationsForKind(resolvedKind)
+	}
+	if familyDefault == resolvedKind {
+		return append([]DiagramEdgeRelationContract(nil), edgeRelations...)
+	}
+	familyDefaultRelations := DefaultEdgeRelationsForKind(familyDefault)
+	if len(familyDefaultRelations) == 0 {
+		return append([]DiagramEdgeRelationContract(nil), edgeRelations...)
+	}
+	if !diagramEdgeRelationPrefixEqual(edgeRelations, familyDefaultRelations) {
+		return append([]DiagramEdgeRelationContract(nil), edgeRelations...)
+	}
+	out := DefaultEdgeRelationsForKind(resolvedKind)
+	out = append(out, edgeRelations[len(familyDefaultRelations):]...)
+	return out
+}
+
+func diagramEdgeRelationPrefixEqual(got []DiagramEdgeRelationContract, want []DiagramEdgeRelationContract) bool {
+	if len(got) < len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // DefaultEdgeRelationsForKind returns the canonical typed relation

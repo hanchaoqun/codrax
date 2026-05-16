@@ -96,6 +96,8 @@ type Server struct {
 	listener net.Listener
 	server   *http.Server
 	addr     string
+	urlHost  string
+	urlPort  string
 	pathToID map[string]string
 	idToPath map[string]string
 }
@@ -171,6 +173,8 @@ func (s *Server) Close(ctx context.Context) error {
 	server := s.server
 	s.server = nil
 	s.listener = nil
+	s.urlHost = ""
+	s.urlPort = ""
 	s.mu.Unlock()
 	if server == nil {
 		return nil
@@ -194,6 +198,7 @@ func (s *Server) ensureStartedLocked() error {
 	}
 	s.listener = ln
 	s.addr = ln.Addr().String()
+	s.urlHost, s.urlPort = displayHostPort(s.cfg.Host, s.addr)
 	s.server = &http.Server{
 		Handler:           s,
 		ReadHeaderTimeout: readHeaderTimeout,
@@ -203,7 +208,7 @@ func (s *Server) ensureStartedLocked() error {
 			logging.Warning("[markdown_preview] server stopped: %v", err)
 		}
 	}()
-	logging.Info("[markdown_preview] listening on %s", s.addr)
+	logging.Info("[markdown_preview] listening on %s display_host=%s", s.addr, s.urlHost)
 	return nil
 }
 
@@ -315,7 +320,10 @@ func (s *Server) previewURLLocked(id string) string {
 }
 
 func (s *Server) routeURL(path, token string) string {
-	host, port := displayHostPort(s.cfg.Host, s.addr)
+	host, port := s.urlHost, s.urlPort
+	if host == "" || port == "" {
+		host, port = displayHostPort(s.cfg.Host, s.addr)
+	}
 	u := url.URL{
 		Scheme: "http",
 		Host:   net.JoinHostPort(host, port),
@@ -327,19 +335,118 @@ func (s *Server) routeURL(path, token string) string {
 	return u.String()
 }
 
+var reachableDisplayHost = defaultReachableDisplayHost
+
 func displayHostPort(configuredHost, listenerAddr string) (string, string) {
 	host, port, err := net.SplitHostPort(listenerAddr)
 	if err != nil {
 		return "127.0.0.1", "0"
 	}
 	displayHost := strings.TrimSpace(configuredHost)
-	if displayHost == "" || displayHost == "0.0.0.0" || displayHost == "::" || displayHost == "[::]" {
-		displayHost = "127.0.0.1"
+	if !isWildcardHost(displayHost) {
+		return strings.Trim(displayHost, "[]"), port
 	}
-	if host != "" && configuredHost == "" {
-		displayHost = "127.0.0.1"
+	if candidate := strings.TrimSpace(reachableDisplayHost()); candidate != "" {
+		return strings.Trim(candidate, "[]"), port
 	}
+	if !isWildcardHost(host) {
+		return strings.Trim(host, "[]"), port
+	}
+	displayHost = "127.0.0.1"
 	return displayHost, port
+}
+
+func isWildcardHost(host string) bool {
+	host = strings.TrimSpace(strings.Trim(host, "[]"))
+	return host == "" || host == "0.0.0.0" || host == "::"
+}
+
+func defaultReachableDisplayHost() string {
+	if ip := outboundDisplayIP(); ip != "" {
+		return ip
+	}
+	if ip := interfaceDisplayIP(); ip != "" {
+		return ip
+	}
+	return "127.0.0.1"
+}
+
+func outboundDisplayIP() string {
+	conn, err := net.DialTimeout("udp4", "8.8.8.8:80", 150*time.Millisecond)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return ""
+	}
+	return displayableIPString(addr.IP)
+}
+
+func interfaceDisplayIP() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	best := ""
+	bestScore := 0
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ip := ipFromAddr(addr)
+			score := displayIPScore(ip)
+			if score > bestScore {
+				bestScore = score
+				best = ip.String()
+			}
+		}
+	}
+	return best
+}
+
+func ipFromAddr(addr net.Addr) net.IP {
+	switch v := addr.(type) {
+	case *net.IPNet:
+		return v.IP
+	case *net.IPAddr:
+		return v.IP
+	default:
+		return nil
+	}
+}
+
+func displayableIPString(ip net.IP) string {
+	if displayIPScore(ip) == 0 {
+		return ""
+	}
+	return ip.String()
+}
+
+func displayIPScore(ip net.IP) int {
+	if ip == nil || ip.IsUnspecified() || ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+		return 0
+	}
+	if v4 := ip.To4(); v4 != nil {
+		if ip.IsPrivate() {
+			return 80
+		}
+		return 100
+	}
+	if ip.IsPrivate() {
+		return 60
+	}
+	if ip.IsGlobalUnicast() {
+		return 70
+	}
+	return 0
 }
 
 type pageArgs struct {
@@ -360,9 +467,9 @@ func renderHTMLPage(a pageArgs) string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>` + title + `</title>
 <style>
-:root { color-scheme: light dark; --fg: #202124; --muted: #667085; --line: #d0d7de; --code: #f6f8fa; --bg: #ffffff; }
+:root { color-scheme: light dark; --fg: #202124; --muted: #667085; --line: #d0d7de; --code: #f6f8fa; --bg: #ffffff; --error-bg: #fff5f5; --error-fg: #b42318; }
 @media (prefers-color-scheme: dark) {
-  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; }
+  :root { --fg: #e6edf3; --muted: #9aa4b2; --line: #30363d; --code: #161b22; --bg: #0d1117; --error-bg: #2a1212; --error-fg: #ffb4a8; }
 }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.62 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 main { max-width: 980px; margin: 0 auto; padding: 32px 20px 64px; }
@@ -379,6 +486,9 @@ table { border-collapse: collapse; width: max-content; max-width: 100%; overflow
 th, td { border: 1px solid var(--line); padding: 6px 10px; }
 blockquote { border-left: 4px solid var(--line); margin-left: 0; padding-left: 16px; color: var(--muted); }
 .mermaid { margin: 18px 0; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.mermaid[data-render-error="true"] { border-color: #d92d20; background: var(--error-bg); }
+.mermaid-error-title { margin: 0 0 10px; color: var(--error-fg); font-weight: 600; }
+.mermaid[data-render-error="true"] pre { margin: 0; background: var(--code); }
 </style>
 </head>
 <body>
@@ -388,8 +498,23 @@ blockquote { border-left: 4px solid var(--line); margin-left: 0; padding-left: 1
 </main>
 <script src="` + mermaidURL + `"></script>
 <script>
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g, function (ch) {
+    return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch];
+  });
+}
 if (window.mermaid) {
-  window.mermaid.initialize({ startOnLoad: true, securityLevel: "strict", theme: "default" });
+  window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "default" });
+  document.querySelectorAll(".mermaid").forEach(function (node, index) {
+    var source = node.textContent || "";
+    window.mermaid.render("codrax-mermaid-" + index, source).then(function (result) {
+      node.innerHTML = result.svg;
+      node.removeAttribute("data-render-error");
+    }).catch(function () {
+      node.setAttribute("data-render-error", "true");
+      node.innerHTML = '<p class="mermaid-error-title">Mermaid render failed; raw source is preserved below.</p><pre><code>' + escapeHTML(source) + '</code></pre>';
+    });
+  });
 }
 </script>
 </body>

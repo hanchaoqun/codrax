@@ -73,21 +73,31 @@ func compileRootCauseTrace(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSeman
 			string(FacetUncertaintyBoundary),
 		),
 	}
-	if diagramPreferredByEvidence(plan) {
+	if diagramPreferredByEvidence(plan) || diagramRequiredByUserIntent(plan) {
 		facetIDs := []string{string(FacetDiagramSpine), string(FacetCurrentCodePath)}
 		if runtimeObservationOnly(plan) {
 			facetIDs = []string{string(FacetDiagramSpine), string(FacetObservedArtifactFact)}
 		}
-		view.OptionalBlocks = append(view.OptionalBlocks, optionalDiagramBlock(
+		diagramBlock := optionalDiagramBlock(
 			"When the user's requested diagnostic answer is easier to inspect visually and every node "+
 				"can be copied from runtime frames or current citations, a small diagram may show the "+
 				"observed order. Do not add a diagram just to satisfy a template preference.",
 			facetIDs...,
-		))
+		)
+		if diagramRequiredByUserIntent(plan) {
+			diagramBlock.Required = true
+			diagramBlock.MinCount = 1
+			diagramBlock.MaxCount = 1
+			diagramBlock.Rationale = diagramRequirementRationale(plan, DiagramSequence,
+				"A sequence diagram showing the grounded diagnostic sequence visually — actor-to-actor edges matching the ordered list. Use Mermaid sequenceDiagram form.")
+			view.RequiredBlocks = append(view.RequiredBlocks, diagramBlock)
+		} else {
+			view.OptionalBlocks = append(view.OptionalBlocks, diagramBlock)
+		}
 	}
 	diagramNodeFacets := []string{string(FacetCurrentCodePath)}
 	diagramEdgeFacets := []string{string(FacetPrincipalPathEdge)}
-	diagramRelations := append(DefaultEdgeRelationsForKind(DiagramSequence),
+	diagramRelations := append(defaultEdgeRelationsForPlan(plan, DiagramSequence),
 		DiagramEdgeRelationContract{
 			Kind: DiagramRelObserve, Min: 0, ClaimForm: ClaimExternalObservation,
 		},

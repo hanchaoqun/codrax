@@ -60,8 +60,9 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 				string(FacetDiagramSpine),
 				string(FacetCurrentCodePath),
 			},
-			Rationale: "A sequence diagram showing the chain visually — actor-to-actor edges " +
-				"matching the ordered list. Use Mermaid sequenceDiagram form.",
+			Rationale: diagramRequirementRationale(plan, DiagramSequence,
+				"A sequence diagram showing the chain visually — actor-to-actor edges "+
+					"matching the ordered list. Use Mermaid sequenceDiagram form."),
 		})
 	}
 	view.OptionalBlocks = []BlockRequirement{
@@ -82,7 +83,7 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 	view.DiagramPlan = diagramPlanFor(plan, DiagramSequence,
 		[]string{string(FacetCurrentCodePath)},
 		[]string{string(FacetPrincipalPathEdge)},
-		DefaultEdgeRelationsForKind(DiagramSequence),
+		defaultEdgeRelationsForPlan(plan, DiagramSequence),
 	)
 	view.UncertaintyRules = []UncertaintyRule{uncertaintyRuleForObservedArtifact()}
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)

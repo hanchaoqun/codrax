@@ -187,6 +187,42 @@ func TestBuildAnswerDocumentParametersFor_ArchitectureKeepsDiagramAndPinsKind(t 
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_ExplicitDiagramKindOverridesFamilyDefault(t *testing.T) {
+	view := types.BuildAnswerSemanticView(&types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+		},
+	}, &types.AnswerSurfacePlan{
+		Diagram: &types.DiagramContract{
+			Required:       true,
+			PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+		},
+	})
+	if view == nil || view.DiagramPlan == nil {
+		t.Fatalf("semantic view must keep required diagram plan: %+v", view)
+	}
+	if view.DiagramPlan.Kind != types.DiagramSequence {
+		t.Fatalf("semantic view diagram kind=%q, want %q", view.DiagramPlan.Kind, types.DiagramSequence)
+	}
+	got := BuildAnswerDocumentParametersFor(view)
+	var root map[string]any
+	if err := json.Unmarshal(got, &root); err != nil {
+		t.Fatalf("projected schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	blocks := props["blocks"].(map[string]any)
+	bItems := blocks["items"].(map[string]any)
+	bProps := bItems["properties"].(map[string]any)
+	diagram := bProps["diagram"].(map[string]any)
+	dProps := diagram["properties"].(map[string]any)
+	kind := dProps["kind"].(map[string]any)
+	enum := kind["enum"].([]any)
+	if len(enum) != 1 || enum[0] != "sequence" {
+		t.Errorf("diagram.kind enum must preserve explicit sequence request; got %v", enum)
+	}
+}
+
 // TestBuildAnswerDocumentParametersFor_PerKindPayloadConditionals
 // pins the if/then conditionals that teach the LLM each kind's
 // required payload field. Pre-fix only kind=diagram had a hard
