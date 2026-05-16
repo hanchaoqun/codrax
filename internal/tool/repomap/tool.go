@@ -193,7 +193,9 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		}, nil
 	}
 
-	// Build or load the graph
+	// Build or load the graph. The scope check above runs before cache
+	// selection and file discovery, so refused paths never reach
+	// index.CacheDir / index.ScanFiles.
 	graph, err := buildOrLoadGraph(repoRoot, p.Query)
 	if err != nil {
 		return ctypes.ToolResult{
@@ -329,10 +331,26 @@ func repoMapScopeRefusal(requestedPath string) string {
 }
 
 // BuildOrLoadGraph builds or loads a cached repo graph, ranks files
-// by the given query, and returns the result. Exported for use by
-// the keyword search system in the agent package.
+// by the given query, and returns the result. This is the trusted
+// low-level API for already-authorized roots (CLI/eval harnesses,
+// topology discovery, tests). Model-influenced paths must use
+// BuildOrLoadGraphWithin or a context-aware facade so workspace scope
+// is checked before cache selection and file discovery.
 func BuildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 	return buildOrLoadGraph(repoRoot, query)
+}
+
+// BuildOrLoadGraphWithin is the scoped graph loader for any caller
+// whose repoRoot may come from an agent/tool parameter. It rejects
+// parent traversal, absolute paths outside allowedRoot, and symlink
+// escapes before index.CacheDir or index.ScanFiles can touch the
+// filesystem.
+func BuildOrLoadGraphWithin(repoRoot, allowedRoot, query string) (*Graph, error) {
+	resolved, err := resolveRepoMapRootScoped(repoRoot, "", allowedRoot)
+	if err != nil {
+		return nil, err
+	}
+	return buildOrLoadGraph(resolved, query)
 }
 
 func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {

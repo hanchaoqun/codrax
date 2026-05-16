@@ -106,3 +106,22 @@ func TestRepoMapExecuteRejectsParentEscapeBeforeScan(t *testing.T) {
 		t.Fatalf("unexpected refusal summary: %q", res.Summary)
 	}
 }
+
+func TestBuildOrLoadGraphWithinRejectsBeforeScanner(t *testing.T) {
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "repo")
+	outside := filepath.Join(parent, "outside")
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := BuildOrLoadGraphWithin(outside, repo, ""); err == nil {
+		t.Fatal("expected scoped graph loader to reject before scanning outside root")
+	}
+}
