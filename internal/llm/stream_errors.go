@@ -78,9 +78,11 @@ func (e *StreamStalledError) Is(target error) bool {
 var ErrStreamFirstByteTimeout = errors.New("llm: upstream first-byte timeout")
 
 // StreamFirstByteTimeoutError wraps the timeout error when the
-// streaming watchdog detects no SSE chunk after the configured
-// firstByteTimeout window — distinct from the longer stallTimeout
-// that catches mid-stream pauses.
+// streaming watchdog detects no usable SSE data chunk after the
+// configured firstByteTimeout window — distinct from the longer
+// stallTimeout that catches mid-stream pauses. SSE comments, blank
+// separators, malformed frames, and empty JSON keep-alives do not
+// count as usable chunks because they do not carry assistant progress.
 //
 // Why two timeouts: thinking models routinely pause 30-60s between
 // thinking blocks, so stallTimeout sits at 60s. But "request
@@ -90,8 +92,8 @@ var ErrStreamFirstByteTimeout = errors.New("llm: upstream first-byte timeout")
 // timeout for both cases burns 60s on a dead-on-arrival request
 // instead of failing fast and letting the agent retry.
 //
-// IdleFor records how long the request was open with no SSE chunks
-// before the watchdog fired. Unwrap returns the underlying ctx
+// IdleFor records how long the request was open with no usable SSE
+// chunks before the watchdog fired. Unwrap returns the underlying ctx
 // cancellation so existing matchers keep working.
 type StreamFirstByteTimeoutError struct {
 	IdleFor time.Duration
@@ -103,9 +105,9 @@ func (e *StreamFirstByteTimeoutError) Error() string {
 		return ErrStreamFirstByteTimeout.Error()
 	}
 	if e.Cause != nil {
-		return fmt.Sprintf("upstream LLM produced no SSE bytes within %s of the request being accepted: %v", e.IdleFor, e.Cause)
+		return fmt.Sprintf("upstream LLM produced no usable SSE data within %s of the request being accepted: %v", e.IdleFor, e.Cause)
 	}
-	return fmt.Sprintf("upstream LLM produced no SSE bytes within %s of the request being accepted", e.IdleFor)
+	return fmt.Sprintf("upstream LLM produced no usable SSE data within %s of the request being accepted", e.IdleFor)
 }
 
 func (e *StreamFirstByteTimeoutError) Unwrap() error {

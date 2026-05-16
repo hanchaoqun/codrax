@@ -102,3 +102,44 @@ func TestOpenAIAdapter_ChatMidFlightCancelInterrupts(t *testing.T) {
 		t.Errorf("mid-flight cancel took %v; should be < 2s", elapsed)
 	}
 }
+
+func TestOpenAIAdapter_StreamMidFlightCancelInterruptsBodyRead(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter("k", "m", server.URL, AdapterOptions{
+		Stream:                 true,
+		RequestTimeout:         10 * time.Second,
+		RetryMaxAttempts:       1,
+		StreamFirstByteTimeout: 30 * time.Second,
+		StreamStallTimeout:     30 * time.Second,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, err := adapter.Chat(ctx, []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	elapsed := time.Since(start)
+
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled from stream cancel; got %v", err)
+	}
+	if elapsed >= 2*time.Second {
+		t.Fatalf("stream mid-flight cancel took %v; should be < 2s", elapsed)
+	}
+}

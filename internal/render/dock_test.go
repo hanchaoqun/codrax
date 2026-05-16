@@ -363,11 +363,42 @@ func TestRenderer_EventLLMRequestStartFeedsDockTelemetry(t *testing.T) {
 		ContextTokensEstimate: 7283,
 		ContextWindowTokens:   260000,
 	})
+	if r.activity.kind != activityRequesting {
+		t.Errorf("EventLLMRequestStart must flip activity to requesting; got %v", r.activity.kind)
+	}
 	rows := r.composeCurrentDockRows()
+	if row1 := stripAnsiEscapes(rows[0]); !strings.Contains(row1, "请求模型中") {
+		t.Errorf("direct LLM request must show requesting activity; got %q", row1)
+	}
 	plain := stripAnsiEscapes(rows[1])
 	for _, want := range []string{"模型 reviewer-model", "约 7.3k/260k tok"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("direct LLM request telemetry must render %q; got %q", want, plain)
+		}
+	}
+}
+
+func TestRenderer_EventAgentThinkingWithoutCurrentRowShowsRequesting(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	emit(Event{
+		Kind:                  EventAgentThinking,
+		Timestamp:             time.Now(),
+		ModelID:               "glm5-fp8",
+		ContextTokensEstimate: 7800,
+		ContextWindowTokens:   200000,
+	})
+	if r.activity.kind != activityRequesting {
+		t.Errorf("EventAgentThinking without current row must still show requesting; got %v", r.activity.kind)
+	}
+	rows := r.composeCurrentDockRows()
+	if row1 := stripAnsiEscapes(rows[0]); !strings.Contains(row1, "请求模型中") {
+		t.Errorf("requesting row missing; got %q", row1)
+	}
+	plain := stripAnsiEscapes(rows[1])
+	for _, want := range []string{"模型 glm5-fp8", "约 7.8k/200k tok"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("orphan LLM request telemetry must render %q; got %q", want, plain)
 		}
 	}
 }

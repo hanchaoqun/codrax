@@ -408,13 +408,13 @@ func (r *Renderer) handleEvent(ev Event) {
 
 	case EventAgentThinking:
 		r.recordLLMRequestTelemetry(ev)
+		r.activity = activityState{kind: activityRequesting}
+		r.streamTail = ""
 		if r.current != nil {
 			r.current.iteration = ev.Iteration + 1
 			r.current.detail = "thinking"
 			r.current.detailDone = false
 			r.current.detailStart = ev.Timestamp
-			r.activity = activityState{kind: activityRequesting}
-			r.streamTail = ""
 			if r.current.isNodeRow {
 				for _, other := range r.tasks {
 					if other == r.current || !other.isNodeRow {
@@ -430,6 +430,13 @@ func (r *Renderer) handleEvent(ev Event) {
 
 	case EventLLMRequestStart:
 		r.recordLLMRequestTelemetry(ev)
+		r.activity = activityState{kind: activityRequesting}
+		r.streamTail = ""
+		if r.current != nil && r.current.endTime.IsZero() && r.current.detail == "" {
+			r.current.detail = "thinking"
+			r.current.detailDone = false
+			r.current.detailStart = ev.Timestamp
+		}
 
 	case EventAgentContent:
 		if r.current != nil && ev.Reasoning != "" {

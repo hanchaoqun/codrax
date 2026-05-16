@@ -74,12 +74,12 @@ type OpenAIAdapter struct {
 	// through to defaultStreamStallTimeout (60s).
 	streamStallTimeout time.Duration
 
-	// streamFirstByteTimeout is the no-SSE-bytes ceiling the
-	// watchdog uses BEFORE the first chunk arrives. Distinct
-	// from streamStallTimeout because "request accepted but
-	// server never speaks" must fail fast (typical first-byte
-	// is 100-500ms even on slow providers), while mid-stream
-	// pauses on thinking models legitimately reach 30-60s.
+	// streamFirstByteTimeout is the no-usable-SSE-data ceiling the
+	// watchdog uses BEFORE the first assistant progress chunk arrives.
+	// Distinct from streamStallTimeout because "request accepted but
+	// server never speaks" must fail fast (typical first-byte is
+	// 100-500ms even on slow providers), while mid-stream pauses on
+	// thinking models legitimately reach 30-60s.
 	// Resolved from providers.yaml :: stream_first_byte_timeout_seconds;
 	// zero falls through to defaultStreamFirstByteTimeout (20s).
 	streamFirstByteTimeout time.Duration
@@ -143,10 +143,10 @@ type AdapterOptions struct {
 	// resolved value here.
 	StreamStallTimeout time.Duration
 
-	// StreamFirstByteTimeout is the no-SSE-bytes ceiling that
-	// applies BEFORE the first chunk arrives. Zero falls through
-	// to defaultStreamFirstByteTimeout (20s). Distinct from
-	// StreamStallTimeout — see field doc on OpenAIAdapter.
+	// StreamFirstByteTimeout is the no-usable-SSE-data ceiling that
+	// applies BEFORE the first assistant progress chunk arrives. Zero
+	// falls through to defaultStreamFirstByteTimeout (20s). Distinct
+	// from StreamStallTimeout — see field doc on OpenAIAdapter.
 	StreamFirstByteTimeout time.Duration
 }
 
@@ -357,6 +357,9 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 		if cerr := ctx.Err(); cerr != nil {
 			return Response{}, cerr
 		}
+		logging.Debug("[llm] request: model=%s attempt=%d/%d stream=%t messages=%d tools=%d body_bytes=%d timeout=%s first_byte_timeout=%s stall_timeout=%s",
+			o.model, attempt+1, maxAttempts, o.stream, len(messages), len(tools), len(bodyBytes),
+			o.requestTimeout, o.streamFirstByteTimeout, o.streamStallTimeout)
 		if o.stream {
 			resp, err = o.doStreamRequest(ctx, bodyBytes, opts.OnContentDelta, opts.OnToolCallDelta)
 		} else {
@@ -530,13 +533,22 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 		body, _ := io.ReadAll(httpResp.Body)
 		return Response{}, newAPIError(httpResp, body)
 	}
+	bodyClosed := make(chan struct{})
+	go func() {
+		select {
+		case <-reqCtx.Done():
+			_ = httpResp.Body.Close()
+		case <-bodyClosed:
+		}
+	}()
+	defer close(bodyClosed)
 
 	// Start the stall watchdog. Tracker stores the Unix-nano time of
-	// the last byte read by the SSE scanner; watchdog ticks every 5 s
-	// and cancels the request context when the gap exceeds
-	// streamStallTimeout. Cancellation closes the response body, so
-	// the scanner's next Read call returns an error and parseSSEStream
-	// exits with a stalled-stream error.
+	// the last usable assistant progress chunk read by the SSE scanner;
+	// watchdog ticks every 5 s and cancels the request context when
+	// the gap exceeds streamStallTimeout. Cancellation closes the
+	// response body, so the scanner's next Read call returns an error
+	// and parseSSEStream exits with a stalled-stream error.
 	//
 	// watchdogFired distinguishes "we cancelled the stream because
 	// upstream stalled" from "the surrounding ReAct loop / user
@@ -590,7 +602,7 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 				// model mid-stream pauses.
 				if !firstByteReceived.Load() {
 					if idle > firstByteTimeout {
-						logging.Warning("[llm/stream] no first byte for %v (firstByteTimeout=%v); aborting", idle, firstByteTimeout)
+						logging.Warning("[llm/stream] no usable first SSE data for %v (firstByteTimeout=%v); aborting", idle, firstByteTimeout)
 						watchdogIdle.Store(int64(idle))
 						firstByteFired.Store(true)
 						cancel()
@@ -616,8 +628,8 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 		// Disambiguate the cancel cause, in priority order:
 		//   1. outer ctx cancel (user Ctrl+C / orch timeout) → return
 		//      ctx.Err() so existing context.Canceled matchers fire.
-		//   2. firstByteFired → no SSE chunk after handshake within
-		//      firstByteTimeout. Distinct typed error so the REPL's
+		//   2. firstByteFired → no usable SSE data after handshake
+		//      within firstByteTimeout. Distinct typed error so the REPL's
 		//      friendlyRunError surfaces "provider never started
 		//      streaming" rather than "stalled mid-stream".
 		//   3. watchdogFired → mid-stream stall after first byte.
@@ -702,12 +714,6 @@ func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int,
 	gotAnyChunk := false
 
 	for br.Scan() {
-		// Update the stall watchdog's progress tracker on every
-		// scanned line. Nil-safe so test-only callers can pass
-		// nil when they don't need stall detection.
-		if progress != nil {
-			progress.Store(time.Now().UnixNano())
-		}
 		line := br.Text()
 		// SSE lines before the data payload are event names / comments
 		// / blank separators. Only "data: <payload>" lines matter for
@@ -719,19 +725,12 @@ func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int,
 		if payload == "" || payload == "[DONE]" {
 			continue
 		}
-		// Signal first-byte arrival to the watchdog so it switches
-		// from firstByteTimeout to stallTimeout. Only fire on the
-		// first real data chunk (not SSE keep-alives / blank lines).
-		// Nil-safe for test callers that don't need the signal.
-		if !gotAnyChunk && firstByte != nil {
-			firstByte.Store(true)
-		}
-		gotAnyChunk = true
 
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
 					Content   string                `json:"content"`
+					Role      string                `json:"role"`
 					ToolCalls []openaiToolCallDelta `json:"tool_calls"`
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
@@ -746,6 +745,36 @@ func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int,
 			logging.Debug("[llm/stream] skip malformed chunk: %v payload=%q", err, payload)
 			continue
 		}
+		chunkProgress := chunk.Usage != nil
+		for _, ch := range chunk.Choices {
+			if strings.TrimSpace(ch.FinishReason) != "" ||
+				ch.Delta.Content != "" ||
+				strings.TrimSpace(ch.Delta.Role) != "" ||
+				len(ch.Delta.ToolCalls) > 0 {
+				chunkProgress = true
+				break
+			}
+		}
+		if !chunkProgress {
+			// Some OpenAI-compatible servers send valid-but-empty data
+			// frames as keep-alives. They prove the TCP connection is
+			// alive, but not that the model has begun answering. Do not
+			// reset the watchdog on these frames, otherwise a provider
+			// can keep the request open forever while producing no
+			// usable assistant delta.
+			continue
+		}
+		// Signal usable model progress to the watchdog. SSE comments,
+		// blank separators, malformed chunks, and empty JSON keep-alives
+		// are intentionally ignored so first-byte / stall timeouts
+		// measure what the user can actually observe.
+		if progress != nil {
+			progress.Store(time.Now().UnixNano())
+		}
+		if !gotAnyChunk && firstByte != nil {
+			firstByte.Store(true)
+		}
+		gotAnyChunk = true
 
 		if chunk.Usage != nil {
 			usage = *chunk.Usage

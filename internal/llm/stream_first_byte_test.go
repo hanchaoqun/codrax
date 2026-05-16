@@ -86,8 +86,53 @@ func TestDoStreamRequest_FirstByteTimeoutFires(t *testing.T) {
 	if elapsed > 2*time.Second {
 		t.Errorf("first-byte timeout took %v; expected <2s", elapsed)
 	}
-	if !strings.Contains(err.Error(), "no SSE bytes") {
-		t.Errorf("error message should name 'no SSE bytes'; got %q", err.Error())
+	if !strings.Contains(err.Error(), "no usable SSE data") {
+		t.Errorf("error message should name 'no usable SSE data'; got %q", err.Error())
+	}
+}
+
+func TestDoStreamRequest_FirstByteTimeoutIgnoresKeepAliveFrames(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		f, _ := w.(http.Flusher)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-ticker.C:
+				_, _ = w.Write([]byte(": keep-alive\n\n"))
+				_, _ = w.Write([]byte("data: {}\n\n"))
+				if f != nil {
+					f.Flush()
+				}
+			}
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter("k", "m", server.URL, AdapterOptions{
+		Stream:                 true,
+		RequestTimeout:         10 * time.Second,
+		RetryMaxAttempts:       1,
+		StreamFirstByteTimeout: 500 * time.Millisecond,
+		StreamStallTimeout:     5 * time.Second,
+	})
+
+	start := time.Now()
+	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatalf("expected first-byte timeout despite keep-alives")
+	}
+	if !errors.Is(err, ErrStreamFirstByteTimeout) {
+		t.Fatalf("expected ErrStreamFirstByteTimeout; got %v", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("keep-alives must not keep first-byte watchdog alive; elapsed=%v", elapsed)
 	}
 }
 
@@ -146,6 +191,58 @@ func TestDoStreamRequest_StallAfterFirstByteUsesStallTimeout(t *testing.T) {
 	}
 }
 
+func TestDoStreamRequest_StallTimeoutIgnoresKeepAliveFrames(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		f, _ := w.(http.Flusher)
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n"))
+		if f != nil {
+			f.Flush()
+		}
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-ticker.C:
+				_, _ = w.Write([]byte(": keep-alive\n\n"))
+				_, _ = w.Write([]byte("data: {}\n\n"))
+				if f != nil {
+					f.Flush()
+				}
+			}
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter("k", "m", server.URL, AdapterOptions{
+		Stream:                 true,
+		RequestTimeout:         10 * time.Second,
+		RetryMaxAttempts:       1,
+		StreamFirstByteTimeout: 500 * time.Millisecond,
+		StreamStallTimeout:     800 * time.Millisecond,
+	})
+
+	start := time.Now()
+	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatalf("expected stalled-stream error despite keep-alives")
+	}
+	if errors.Is(err, ErrStreamFirstByteTimeout) {
+		t.Fatalf("first-byte should not fire after a real chunk; got %v", err)
+	}
+	if !errors.Is(err, ErrStreamStalled) {
+		t.Fatalf("expected ErrStreamStalled; got %v", err)
+	}
+	if elapsed > 3*time.Second {
+		t.Errorf("keep-alives must not keep stall watchdog alive; elapsed=%v", elapsed)
+	}
+}
+
 // TestStreamFirstByteTimeoutError_ErrorIncludesIdle pins the
 // developer-facing error message. Idle duration must be visible
 // for log-only debugging.
@@ -155,7 +252,7 @@ func TestStreamFirstByteTimeoutError_ErrorIncludesIdle(t *testing.T) {
 	if !strings.Contains(got, "21s") {
 		t.Errorf("Error() should include idle duration 21s; got %q", got)
 	}
-	if !strings.Contains(got, "no SSE bytes") {
-		t.Errorf("Error() should mention 'no SSE bytes'; got %q", got)
+	if !strings.Contains(got, "no usable SSE data") {
+		t.Errorf("Error() should mention 'no usable SSE data'; got %q", got)
 	}
 }

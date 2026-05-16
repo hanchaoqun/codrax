@@ -1499,9 +1499,9 @@ func spinnerCancelHint(lang string) string {
 // "spinner stuck for ~30s" surprise is preempted.
 func cancelInProgressMsg(lang string) string {
 	if isZh(lang) {
-		return "✗ 取消已请求，等当前 LLM 调用返回后生效（最多约 30s）。再按一次 Ctrl+C 可强制退出。"
+		return "✗ 取消已请求，正在中断当前 LLM 请求。若仍无响应，再按一次 Ctrl+C 可强制退出。"
 	}
-	return "✗ Cancel requested; takes effect when the current LLM call returns (up to ~30s). Press Ctrl+C again to force exit."
+	return "✗ Cancel requested; interrupting the current LLM request. Press Ctrl+C again to force exit if it still does not respond."
 }
 
 // idleConfirmExitMsg — first Ctrl+C at the idle prompt (no Run in
