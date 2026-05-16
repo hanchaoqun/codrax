@@ -5773,13 +5773,13 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 	// per Run, ≤ 30 KB typical, no rotation impact).
 	logging.Info("[orchestrator] final answer (len=%d):\n%s\n---", len(answer), answer)
 
-	// Final-answer transcript dump. Read mode only — write modes
-	// emit no AnswerDocumentV2 carrier and intermediate retry attempts
-	// that never landed a V2 doc are skipped here, so the file
-	// captures exactly what the user saw on terminal. Best-effort:
-	// the helper logs and swallows every IO error so the dump never
-	// affects the rest of the pipeline.
-	if o.outputDumpDir != "" && o.busCtx.Mutable.AnswerDocumentV2() != nil {
+	// Final-answer transcript dump. Persist every non-empty final
+	// answer, including best-effort fallback answers that never landed
+	// an AnswerDocumentV2. The dump is the raw markdown answer body
+	// that feeds REPL rendering, not ANSI/border terminal chrome.
+	// Best-effort: the helper logs and swallows every IO error so the
+	// dump never affects the rest of the pipeline.
+	if o.outputDumpDir != "" && strings.TrimSpace(answer) != "" {
 		if path := writeFinalOutputDump(dumpFinalOutputArgs{
 			dir:      o.outputDumpDir,
 			max:      o.outputDumpMax,

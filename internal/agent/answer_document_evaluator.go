@@ -6298,9 +6298,7 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 			return out, nil
 		}
 	}
-	warning := "· answer_document emission missing — the answer-rendering pass could not " +
-		"produce a structured answer. The text below is the raw LLM response; no " +
-		"schema-level validation ran on it."
+	warning := answerDocumentEmissionMissingWarning(e.language)
 	safeFallback := sanitizePriorDraftForSummary(lastContent)
 	if safeFallback == "" {
 		safeFallback = strings.TrimSpace(lastContent)
@@ -6326,6 +6324,15 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: combined})
 	out.FinalAnswer = combined
 	return out, nil
+}
+
+func answerDocumentEmissionMissingWarning(lang string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
+		return "· answer_document emission missing — the answer-rendering pass could not " +
+			"produce a structured answer. The text below is the raw LLM response; no " +
+			"schema-level validation ran on it."
+	}
+	return "· 未能生成结构化答案 — 成文阶段没有产出有效的 `answer_document`。下面保留模型原始输出；这部分没有经过结构化答案校验。"
 }
 
 func recoverRetryStateAnswerDocumentV2(ctx *types.AgentContext) (*types.AnswerDocumentV2, bool) {

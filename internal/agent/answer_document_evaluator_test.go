@@ -4416,6 +4416,29 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_FailLoud(t *testing.T) {
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_FailLoudZh(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(""),
+	}
+	messages := []llm.Message{
+		{Role: "assistant", Content: "原始兜底内容"},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "answer_document emission missing") {
+		t.Errorf("zh fail-loud warning should be localized: %q", out.FinalAnswer)
+	}
+	if !strings.Contains(out.FinalAnswer, "未能生成结构化答案") {
+		t.Errorf("zh fail-loud warning missing: %q", out.FinalAnswer)
+	}
+	if !strings.Contains(out.FinalAnswer, "原始兜底内容") {
+		t.Errorf("raw content lost: %q", out.FinalAnswer)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RecoversAnswerDocumentJSONContent(t *testing.T) {
 	ctx := &types.AgentContext{
 		Mutable: types.NewMutableState(""),

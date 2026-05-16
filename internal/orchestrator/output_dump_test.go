@@ -6,6 +6,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func TestBuildOutputDumpBody_TwoSections(t *testing.T) {
@@ -175,6 +179,34 @@ func TestWriteFinalOutputDump_EmptyDirNoop(t *testing.T) {
 		now:     time.Now(),
 		pid:     1,
 	})
+}
+
+func TestRecordTaskFinalizeWritesOutputDumpForFallbackAnswer(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "output")
+	mut := types.NewMutableState("why did the answer fallback?")
+	o := &Orchestrator{
+		busCtx:        &types.BusContext{Mutable: mut},
+		outputDumpDir: dir,
+		outputDumpMax: 10,
+		emit:          func(render.Event) {},
+	}
+
+	o.recordTaskFinalize(&agent.StageOutput{FinalAnswer: "· 未能生成结构化答案\n\nraw fallback"})
+
+	path := mut.FinalAnswerMarkdownPath()
+	if path == "" {
+		t.Fatal("expected fallback answer dump path to be recorded")
+	}
+	if filepath.Dir(path) != dir {
+		t.Fatalf("dump path dir = %q, want %q", filepath.Dir(path), dir)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read dump %s: %v", path, err)
+	}
+	if !strings.Contains(string(body), "# 回答\n\n· 未能生成结构化答案\n\nraw fallback\n") {
+		t.Fatalf("fallback answer body not dumped:\n%s", body)
+	}
 }
 
 func mdNamesIn(t *testing.T, dir string) []string {
