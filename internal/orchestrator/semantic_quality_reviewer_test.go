@@ -314,12 +314,12 @@ func TestBuildSemanticQualityInput_NilGuards(t *testing.T) {
 	}
 }
 
-// G5-2: shouldReviewSemanticQuality gate.
+// G5-2: semanticQualityReviewerEligible gate.
 //
 // P4 (2026-05-10) prefilter additions: tests now seed FacetIDs so
 // the new "no-facet-declared → skip" branch doesn't make every
 // fixture vacuously skip.
-func TestShouldReviewSemanticQuality_GateSemantics(t *testing.T) {
+func TestSemanticQualityReviewerEligible_GateSemantics(t *testing.T) {
 	body := []types.AnswerBlock{
 		{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
 		{ID: "b1", Kind: types.BlockOrderedList, FacetIDs: []string{"enumeration_item"}, Items: []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
@@ -328,12 +328,12 @@ func TestShouldReviewSemanticQuality_GateSemantics(t *testing.T) {
 
 	// Single-block summary-only — skip.
 	docSummaryOnly := &types.AnswerDocumentV2{Blocks: body[:1]}
-	if shouldReviewSemanticQuality(docSummaryOnly, nil) {
+	if semanticQualityReviewerEligible(docSummaryOnly, nil) {
 		t.Error("single-block doc should skip reviewer")
 	}
 
 	// Body present + no hard violations + facet declared → review.
-	if !shouldReviewSemanticQuality(docFull, nil) {
+	if !semanticQualityReviewerEligible(docFull, nil) {
 		t.Error("body present + facet declared + no hard violations → reviewer should fire")
 	}
 
@@ -341,7 +341,7 @@ func TestShouldReviewSemanticQuality_GateSemantics(t *testing.T) {
 	hardViolations := []types.Violation{
 		{Kind: types.ViolFacetUncovered, Detail: "x"},
 	}
-	if shouldReviewSemanticQuality(docFull, hardViolations) {
+	if semanticQualityReviewerEligible(docFull, hardViolations) {
 		t.Error("hard violation present → reviewer should skip")
 	}
 
@@ -349,7 +349,7 @@ func TestShouldReviewSemanticQuality_GateSemantics(t *testing.T) {
 	softViolations := []types.Violation{
 		{Kind: types.ViolRichnessRegression, Detail: "x"},
 	}
-	if !shouldReviewSemanticQuality(docFull, softViolations) {
+	if !semanticQualityReviewerEligible(docFull, softViolations) {
 		t.Error("only SOFT violations → reviewer should fire")
 	}
 }
@@ -358,14 +358,14 @@ func TestShouldReviewSemanticQuality_GateSemantics(t *testing.T) {
 // blocks but ZERO declared facets (no block.facet_ids[] and no
 // claim_uses[].facet_id) cannot have the AnchoredCount/DeclaredCount
 // gap the reviewer is looking for; skip the dispatch.
-func TestShouldReviewSemanticQuality_P4_NoFacetDeclared_Skip(t *testing.T) {
+func TestSemanticQualityReviewerEligible_P4_NoFacetDeclared_Skip(t *testing.T) {
 	docNoFacets := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
 			{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
 			{ID: "b1", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
 		},
 	}
-	if shouldReviewSemanticQuality(docNoFacets, nil) {
+	if semanticQualityReviewerEligible(docNoFacets, nil) {
 		t.Error("doc with zero declared facets should skip reviewer (P4 prefilter)")
 	}
 
@@ -376,7 +376,7 @@ func TestShouldReviewSemanticQuality_P4_NoFacetDeclared_Skip(t *testing.T) {
 			{ID: "b1", Kind: types.BlockOrderedList, FacetIDs: []string{"enumeration_item"}, Items: []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
 		},
 	}
-	if !shouldReviewSemanticQuality(docWithFacet, nil) {
+	if !semanticQualityReviewerEligible(docWithFacet, nil) {
 		t.Error("doc with declared facet should fire reviewer")
 	}
 
@@ -389,8 +389,55 @@ func TestShouldReviewSemanticQuality_P4_NoFacetDeclared_Skip(t *testing.T) {
 				Items:     []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
 		},
 	}
-	if !shouldReviewSemanticQuality(docWithClaimUseFacet, nil) {
+	if !semanticQualityReviewerEligible(docWithClaimUseFacet, nil) {
 		t.Error("doc with claim_uses[].facet_id should fire reviewer")
+	}
+}
+
+// TestSemanticQualityReviewerEligible_DecisionStableAcrossSelfConsistencyOutput
+// pins the P2C parallel-dispatch invariant: the gate decision MUST be
+// identical whether evaluated BEFORE self_consistency runs (using only
+// the block-oracle violations on result.Violations) or AFTER (with
+// self_consistency's ViolSelfContradiction kinds appended). This is the
+// load-bearing property that lets the two reviewers run concurrently —
+// the gate is determined by the time the deterministic-reviewer block
+// exits, and self_consistency cannot change the outcome.
+//
+// If a future commit makes self_consistency emit one of the 7 hard
+// kinds in the gate list, this test fails and the parallelism must be
+// re-evaluated (or this test updated to reflect the new gate semantics).
+func TestSemanticQualityReviewerEligible_DecisionStableAcrossSelfConsistencyOutput(t *testing.T) {
+	body := []types.AnswerBlock{
+		{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
+		{ID: "b1", Kind: types.BlockOrderedList, FacetIDs: []string{"enumeration_item"}, Items: []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: body}
+
+	// Pre-flight: block oracles produced zero hard kinds → gate runs.
+	preFlight := []types.Violation{
+		{Kind: types.ViolRichnessRegression},
+	}
+	wantEligible := semanticQualityReviewerEligible(doc, preFlight)
+
+	// Post-self-consistency: SC adds N contradictions. The kind it
+	// emits is ViolSelfContradiction, NOT in the hard-kind list. Gate
+	// MUST stay identical.
+	postSC := append([]types.Violation(nil), preFlight...)
+	for i := 0; i < 3; i++ {
+		postSC = append(postSC, types.Violation{Kind: types.ViolSelfContradiction})
+	}
+	gotEligible := semanticQualityReviewerEligible(doc, postSC)
+
+	if wantEligible != gotEligible {
+		t.Fatalf("gate decision changed by self_consistency output (pre=%v post=%v); P2C parallel dispatch is unsafe", wantEligible, gotEligible)
+	}
+
+	// Sanity: if a pre-existing hard kind blocks the gate, BOTH
+	// pre-flight and post-SC evaluations must skip — also stable.
+	preFlightHard := []types.Violation{{Kind: types.ViolFacetUncovered}}
+	postSCHard := append(append([]types.Violation(nil), preFlightHard...), types.Violation{Kind: types.ViolSelfContradiction})
+	if semanticQualityReviewerEligible(doc, preFlightHard) || semanticQualityReviewerEligible(doc, postSCHard) {
+		t.Fatal("hard violation in pre-flight must block reviewer regardless of self_consistency output")
 	}
 }
 

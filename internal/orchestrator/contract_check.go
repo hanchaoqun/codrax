@@ -369,33 +369,90 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		}
 	}
 
-	if !deterministicReviewerHandled && o != nil && o.selfConsistencyReviewer != nil && mut != nil {
-		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && shouldReviewConsistencyV2(docV2) {
-			fraction := o.reviewerWallBudgetFractionValue()
-			parent := o.reviewerDispatchContext()
-			result.Violations = append(result.Violations,
-				runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, fraction,
-					func(context.Context) []types.Violation {
-						return o.runSelfConsistencyReviewV2(docV2, mut)
-					})...)
+	// P2C (2026-05-17, finalize wall-budget audit) — run the two
+	// post-emit LLM reviewers concurrently. Both reviewers historically
+	// ran serially with semantic_quality gated on the self_consistency
+	// result via shouldReviewSemanticQuality(doc, existing). The gate
+	// list (ViolBlockCoverageMissing / ViolPrincipalClaimUseMissing /
+	// ViolFacetUncovered / ViolDiagramEdgeUnsupported / ViolFamilyMismatch
+	// / ViolViewIntentMismatch / ViolViewSwap) is produced ONLY by the
+	// block oracles + facet_coverage check that run BEFORE either
+	// reviewer; the self_consistency reviewer produces only
+	// ViolSelfContradiction. Therefore the gate decision is fully
+	// determined by the time the deterministic-reviewer block exits,
+	// which means we can evaluate it up-front and dispatch both
+	// reviewers concurrently without changing the gate semantics.
+	//
+	// Append order remains deterministic (self_consistency first, then
+	// semantic_quality) so downstream tests and EvidenceClosure cluster
+	// keys stay stable.
+	//
+	// Thread-safety of shared mutables under parallel dispatch:
+	//   - render.EventEmitter is documented "safe for concurrent use"
+	//     (render/event.go:441).
+	//   - MutableState.AppendLearningFailure already serialises via
+	//     m.mu.Lock (types/context.go:2511).
+	//   - runReviewerWithDeadline is synchronous and operates on its
+	//     own derived context (reviewer_deadline.go:39) so the two
+	//     deadlines do not interfere.
+	if !deterministicReviewerHandled {
+		// Evaluate both reviewer-eligibility gates up-front so the
+		// dispatch decision does not depend on the order of LLM
+		// completion.
+		var (
+			scDocV2 *types.AnswerDocumentV2
+			sqDocV2 *types.AnswerDocumentV2
+		)
+		runSC := o != nil && o.selfConsistencyReviewer != nil && mut != nil
+		if runSC {
+			scDocV2 = mut.AnswerDocumentV2()
+			runSC = scDocV2 != nil && shouldReviewConsistencyV2(scDocV2)
 		}
-	}
+		runSQ := o != nil && o.semanticQualityReviewer != nil && mut != nil
+		if runSQ {
+			sqDocV2 = mut.AnswerDocumentV2()
+			runSQ = sqDocV2 != nil && semanticQualityReviewerEligible(sqDocV2, result.Violations)
+		}
 
-	// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic
-	// quality reviewer. Wired AFTER self-consistency so the reviewer
-	// only sees answers that already passed prose-coherence; gated on
-	// hard-facet-violation absence so we don't double-noise on
-	// already-failing answers.
-	if !deterministicReviewerHandled && o != nil && o.semanticQualityReviewer != nil && mut != nil {
-		if docV2 := mut.AnswerDocumentV2(); docV2 != nil &&
-			shouldReviewSemanticQuality(docV2, result.Violations) {
+		if runSC || runSQ {
 			fraction := o.reviewerWallBudgetFractionValue()
 			parent := o.reviewerDispatchContext()
-			result.Violations = append(result.Violations,
-				runReviewerWithDeadline(parent, reviewerSlotSemanticQuality, fraction,
-					func(context.Context) []types.Violation {
-						return o.runSemanticQualityReview(docV2, mut)
-					})...)
+
+			var (
+				scViolations []types.Violation
+				sqViolations []types.Violation
+				wg           sync.WaitGroup
+			)
+			if runSC {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					scViolations = runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, fraction,
+						func(context.Context) []types.Violation {
+							return o.runSelfConsistencyReviewV2(scDocV2, mut)
+						})
+				}()
+			}
+			if runSQ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					sqViolations = runReviewerWithDeadline(parent, reviewerSlotSemanticQuality, fraction,
+						func(context.Context) []types.Violation {
+							return o.runSemanticQualityReview(sqDocV2, mut)
+						})
+				}()
+			}
+			wg.Wait()
+
+			// Preserve historical append order: self_consistency first,
+			// then semantic_quality, regardless of completion order.
+			if len(scViolations) > 0 {
+				result.Violations = append(result.Violations, scViolations...)
+			}
+			if len(sqViolations) > 0 {
+				result.Violations = append(result.Violations, sqViolations...)
+			}
 		}
 	}
 
@@ -2412,9 +2469,10 @@ func aggregateEnumerationPathLineKey(file string, line int) string {
 	return strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)) + ":" + strconv.Itoa(line)
 }
 
-// shouldReviewSemanticQuality gates the G5 reviewer dispatch
-// (post_v2_runtime_gap_remediation, 2026-05-04; P4 prefilter
-// 2026-05-10). Skips when:
+// semanticQualityReviewerEligible decides whether the G5 semantic-quality
+// reviewer (post_v2_runtime_gap_remediation, 2026-05-04; P4 prefilter
+// 2026-05-10; pre-flight rename 2026-05-17) should be dispatched. Skips
+// when:
 //   - any HARD violation already present (we'd double-noise the
 //     answer that's already failing other gates)
 //   - the doc has no body to evaluate (single-block summary-only)
@@ -2423,6 +2481,19 @@ func aggregateEnumerationPathLineKey(file string, line int) string {
 //
 // Returns true to invoke the reviewer.
 //
+// Pre-flight rename (P2C, 2026-05-17): historically this gate was
+// evaluated AFTER the self_consistency reviewer completed, on the
+// assumption that self_consistency's verdict could contribute to the
+// gate. In practice, self_consistency emits ONLY ViolSelfContradiction
+// (see runSelfConsistencyReviewV2 at line ~2204), and that kind is NOT
+// in the gate's hard-violation list. Every kind in the gate
+// (ViolBlockCoverageMissing / ViolPrincipalClaimUseMissing /
+// ViolFacetUncovered / ViolDiagramEdgeUnsupported / ViolFamilyMismatch
+// / ViolViewIntentMismatch / ViolViewSwap) is produced by the block
+// oracles + facet_coverage check that run BEFORE either reviewer. The
+// gate decision is therefore fully determined ahead of the reviewer
+// dispatches, which is what lets the two reviewers run concurrently.
+//
 // P4 prefilter rationale: the reviewer's load-bearing axis is
 // per-facet AnchoredCount vs DeclaredCount mismatch. A doc that
 // declared zero facets cannot have an anchored-vs-declared gap by
@@ -2430,7 +2501,7 @@ func aggregateEnumerationPathLineKey(file string, line int) string {
 // round. Forensic data (May-9 sweep): docs with declared count = 0
 // account for ~7% of reviewer dispatches, ~all of which produced
 // either nil verdicts or sub-floor confidence.
-func shouldReviewSemanticQuality(doc *types.AnswerDocumentV2, existing []types.Violation) bool {
+func semanticQualityReviewerEligible(doc *types.AnswerDocumentV2, existing []types.Violation) bool {
 	if doc == nil || len(doc.Blocks) < 2 {
 		// No body — reviewer has nothing to judge.
 		return false
