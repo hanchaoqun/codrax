@@ -659,9 +659,11 @@ func buildTypedRelationIndex(doc *types.AnswerDocumentV2) map[edgeKey]types.Diag
 // resolves to DiagramRelUnknown — a legitimate state the validator
 // treats as "label-free edge" rather than a violation.
 type mermaidEdge struct {
-	from  string
-	to    string
-	label string
+	from      string
+	to        string
+	label     string
+	fromLabel string
+	toLabel   string
 }
 
 // parseMermaidEdges scans a Mermaid body and returns every edge
@@ -698,12 +700,19 @@ func parseMermaidEdges(body string) []mermaidEdge {
 		if label == "" {
 			label = seqLabel
 		}
-		from = stripMermaidNodeShape(from)
-		to = stripMermaidNodeShape(to)
+		var fromLabel, toLabel string
+		from, fromLabel = parseMermaidNodeToken(from)
+		to, toLabel = parseMermaidNodeToken(to)
 		if from == "" || to == "" {
 			continue
 		}
-		edges = append(edges, mermaidEdge{from: from, to: to, label: label})
+		edges = append(edges, mermaidEdge{
+			from:      from,
+			to:        to,
+			label:     label,
+			fromLabel: fromLabel,
+			toLabel:   toLabel,
+		})
 	}
 	return edges
 }
@@ -790,14 +799,18 @@ func splitMermaidEdgeLine(line string) (string, string, string, bool) {
 //	A{rhombus}  -> A
 //	A&fa:fa-x   -> A (cosmetic prefix, drop the stuff after)
 //
-// When no shape wrapper is present, the input is returned trimmed.
-// The label itself is intentionally discarded — the supported-token
-// set carries label substrings from the body separately so matching
-// remains label-aware.
+// When no shape wrapper is present, the input is returned trimmed. Use
+// parseMermaidNodeToken when a caller also needs the user-visible label
+// inside the wrapper.
 func stripMermaidNodeShape(tok string) string {
+	id, _ := parseMermaidNodeToken(tok)
+	return id
+}
+
+func parseMermaidNodeToken(tok string) (id, label string) {
 	t := strings.TrimSpace(tok)
 	if t == "" {
-		return ""
+		return "", ""
 	}
 	// Strip optional class binding suffix `:::clsName`
 	if i := strings.Index(t, ":::"); i > 0 {
@@ -812,11 +825,40 @@ func stripMermaidNodeShape(tok string) string {
 		}
 	}
 	if cutAt > 0 {
+		label = strings.TrimSpace(extractMermaidNodeLabel(t, cutAt))
 		t = strings.TrimSpace(t[:cutAt])
 	}
 	// Drop leading `&` cosmetic prefix
 	t = strings.TrimPrefix(t, "&")
-	return t
+	return t, label
+}
+
+func extractMermaidNodeLabel(tok string, openerAt int) string {
+	if openerAt < 0 || openerAt >= len(tok) {
+		return ""
+	}
+	open := tok[openerAt]
+	close := byte(0)
+	switch open {
+	case '[':
+		close = ']'
+	case '(':
+		close = ')'
+	case '{':
+		close = '}'
+	case '>':
+		close = ']'
+	default:
+		return ""
+	}
+	rest := tok[openerAt+1:]
+	end := strings.LastIndexByte(rest, close)
+	if end < 0 {
+		return ""
+	}
+	label := strings.TrimSpace(rest[:end])
+	label = strings.Trim(label, `"'`)
+	return strings.TrimSpace(label)
 }
 
 // buildDiagramSupportTokens collects every textual anchor in the
@@ -3322,6 +3364,15 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 		if len(edges) == 0 {
 			continue
 		}
+		nodeLabels := make(map[string]string, len(edges)*2)
+		for _, e := range edges {
+			if label := strings.TrimSpace(e.fromLabel); label != "" {
+				nodeLabels[strings.ToLower(strings.TrimSpace(e.from))] = label
+			}
+			if label := strings.TrimSpace(e.toLabel); label != "" {
+				nodeLabels[strings.ToLower(strings.TrimSpace(e.to))] = label
+			}
+		}
 		// Fix F: a CallDAG-kind diagram puts every edge in a code
 		// context regardless of edge-level relation declarations.
 		kindIsCodeContext := isCodeContextDiagramKind(b.Diagram.Kind)
@@ -3330,11 +3381,23 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 		// once per block.
 		seen := make(map[string]struct{})
 		var blockHits []hallucinated
-		check := func(endpoint string) {
+		check := func(endpoint, visibleLabel string) {
 			if endpoint == "" {
 				return
 			}
-			ident := labelLeadingSymbolIdentifier(endpoint)
+			surface := endpoint
+			if label := strings.TrimSpace(visibleLabel); label != "" {
+				// Mermaid flowcharts commonly use short internal node ids
+				// plus a user-visible bracket label:
+				//   check_size["行数检查 DEFAULT_READ_LIMIT"]
+				// The id is syntax, not the answer's factual surface. In
+				// code-context diagrams validate the visible label when one
+				// exists; only bare nodes use the endpoint id itself.
+				surface = label
+			} else if label := nodeLabels[strings.ToLower(strings.TrimSpace(endpoint))]; label != "" {
+				surface = label
+			}
+			ident := labelLeadingSymbolIdentifier(surface)
 			if len(ident) < labelHallucinationGateLengthFloor {
 				return
 			}
@@ -3351,7 +3414,7 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 			}
 			seen[ident] = struct{}{}
 			blockHits = append(blockHits, hallucinated{
-				endpoint: endpoint,
+				endpoint: surface,
 				ident:    ident,
 			})
 		}
@@ -3372,8 +3435,8 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 			if !edgeIsCodeContext {
 				continue
 			}
-			check(e.from)
-			check(e.to)
+			check(e.from, e.fromLabel)
+			check(e.to, e.toLabel)
 		}
 		if len(blockHits) > 0 {
 			perBlock[b.ID] = blockHits

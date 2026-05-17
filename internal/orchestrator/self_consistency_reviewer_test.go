@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -313,6 +314,62 @@ func TestBuildEvidenceAnchorSet_CapTruncates(t *testing.T) {
 	// First entry MUST be sym000 (first-seen preservation under cap).
 	if len(got) > 0 && got[0] != "sym000" {
 		t.Errorf("first-seen broken: got[0] = %q, want sym000", got[0])
+	}
+}
+
+func TestBuildSelfConsistencyAnchorSet_CitationLineIdentifiersWinCap(t *testing.T) {
+	mut := types.NewMutableState("q")
+	evidence := make([]types.EvidenceItem, SelfConsistencyAnchorCap+10)
+	for i := range evidence {
+		evidence[i].AnchorSymbol = fmt.Sprintf("sym%03d", i)
+	}
+	mut.AppendEvidence(evidence)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		ToolResults: []types.ToolResult{{
+			ToolName: "read_file",
+			Success:  true,
+			Summary: "[packages/opencode/src/tool/read.ts: showing lines 14-14 of 338 total]\n" +
+				"    14│ const DEFAULT_READ_LIMIT = 2000\n",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "packages/opencode/src/tool/read.ts", Line: 14}},
+	}
+
+	got := buildSelfConsistencyAnchorSet(mut, doc, ctx)
+	if len(got) > SelfConsistencyAnchorCap {
+		t.Fatalf("anchor set len = %d, want <= %d", len(got), SelfConsistencyAnchorCap)
+	}
+	if !containsString(got, "DEFAULT_READ_LIMIT") {
+		t.Fatalf("citation-backed code identifier must survive broad evidence cap; got %v", got)
+	}
+}
+
+func TestBuildSelfConsistencyAnchorSet_GraphSymbolBackfillsUnreadCitationLine(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetSearchGraph(&repotypes.Graph{
+		FileIndex: map[string]*repotypes.FileInfo{
+			"packages/opencode/src/tool/read.ts": &repotypes.FileInfo{
+				RelPath: "packages/opencode/src/tool/read.ts",
+				Symbols: []repotypes.Symbol{{
+					Name:    "DEFAULT_READ_LIMIT",
+					Kind:    "const",
+					File:    "packages/opencode/src/tool/read.ts",
+					Line:    14,
+					EndLine: 14,
+				}},
+			},
+		},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "packages/opencode/src/tool/read.ts", Line: 14}},
+	}
+
+	got := buildSelfConsistencyAnchorSet(mut, doc, ctx)
+	if !containsString(got, "DEFAULT_READ_LIMIT") {
+		t.Fatalf("graph-backed citation symbol should enter self-consistency anchors; got %v", got)
 	}
 }
 

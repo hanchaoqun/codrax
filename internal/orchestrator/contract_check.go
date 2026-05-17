@@ -15,6 +15,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -2459,7 +2460,7 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 		OriginalRequest:   mut.Objective(),
 		AnswerSummary:     render.StripAuthorityArtifacts(summaryText),
 		AnswerBody:        render.StripAuthorityArtifacts(renderConsistencyReviewBodyV2(doc)),
-		EvidenceAnchorSet: BuildEvidenceAnchorSet(mut.EmittedEvidence()),
+		EvidenceAnchorSet: buildSelfConsistencyAnchorSet(mut, doc, o.busCtx),
 	}
 
 	ctx := o.busCtx.Ctx
@@ -2528,6 +2529,179 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 	logging.Info("[self_consistency_reviewer] V2 emitted %d contradiction(s) at confidence=%.2f rewrite_on=%v reasoning=%q",
 		len(verdict.Contradictions), verdict.Confidence, o.selfConsistencyRewriteOnContradiction, verdict.Reasoning)
 	return out
+}
+
+// buildSelfConsistencyAnchorSet projects the hard-gate anchor set the
+// self-consistency reviewer receives. Order is intentional: identifiers
+// already visible through the final AnswerDocument's line citations are
+// most relevant to BODY-fabrication review and must not be pushed out by
+// a broad explorer evidence pool cap. Explorer evidence is still merged
+// after that for the historical "fabricated check name" blind spot.
+func buildSelfConsistencyAnchorSet(mut *types.MutableState, doc *types.AnswerDocumentV2, busCtx *types.BusContext) []string {
+	seen := make(map[string]struct{}, SelfConsistencyAnchorCap)
+	out := make([]string, 0, SelfConsistencyAnchorCap)
+	add := func(raw string) {
+		s := strings.TrimSpace(raw)
+		if s == "" || len(out) >= SelfConsistencyAnchorCap {
+			return
+		}
+		if _, ok := seen[s]; ok {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+
+	addSelfConsistencyCitationAnchors(add, mut, doc, busCtx)
+	if mut != nil {
+		if ta := mut.TurnAArtifacts(); ta != nil {
+			addSelfConsistencyEvidenceAnchors(add, ta.EvidenceItems)
+		}
+		addSelfConsistencyEvidenceAnchors(add, mut.EmittedEvidence())
+	}
+	return out
+}
+
+func addSelfConsistencyEvidenceAnchors(add func(string), evidence []types.EvidenceItem) {
+	for _, ev := range evidence {
+		add(ev.AnchorSymbol)
+		add(ev.Subject)
+		add(ev.Object)
+		add(ev.OwnerSymbol)
+		for _, term := range ev.SurfaceTerms {
+			if types.IsCodeIdentitySurface(term) {
+				add(term)
+			}
+		}
+	}
+}
+
+func addSelfConsistencyCitationAnchors(add func(string), mut *types.MutableState, doc *types.AnswerDocumentV2, busCtx *types.BusContext) {
+	if doc == nil || len(doc.Citations) == 0 {
+		return
+	}
+	var gc *ground.Context
+	if busCtx != nil {
+		gc = ground.BuildContext(busCtx)
+	}
+	for _, cit := range doc.Citations {
+		if cit.Line <= 0 {
+			continue
+		}
+		add(cit.EnclosingFunction)
+		file := strings.TrimSpace(cit.File)
+		if file == "" {
+			continue
+		}
+		canon := file
+		if gc != nil {
+			canon = ground.CanonicalContextPath(gc, file)
+			if line := selfConsistencyLineText(gc, canon, cit.Line); line != "" {
+				addSelfConsistencyLineIdentifiers(add, line)
+			}
+		} else if busCtx != nil {
+			canon = ground.CanonicalBusPath(busCtx, file)
+		}
+		addSelfConsistencyGraphSymbols(add, mut, busCtx, canon, cit.Line)
+		if canon != file {
+			addSelfConsistencyGraphSymbols(add, mut, busCtx, file, cit.Line)
+		}
+	}
+}
+
+func selfConsistencyLineText(gc *ground.Context, file string, line int) string {
+	if gc == nil || line <= 0 {
+		return ""
+	}
+	if lines := gc.LineIndex[file]; len(lines) > 0 {
+		return lines[line]
+	}
+	return ""
+}
+
+var selfConsistencyCodeIdentRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*`)
+
+var selfConsistencyCodeKeywords = map[string]struct{}{
+	"as": {}, "break": {}, "case": {}, "catch": {}, "class": {}, "const": {},
+	"continue": {}, "def": {}, "defer": {}, "do": {}, "else": {}, "enum": {},
+	"export": {}, "extends": {}, "false": {}, "for": {}, "func": {}, "function": {},
+	"if": {}, "import": {}, "in": {}, "interface": {}, "let": {}, "nil": {},
+	"null": {}, "package": {}, "private": {}, "protected": {}, "public": {},
+	"return": {}, "static": {}, "struct": {}, "switch": {}, "throw": {},
+	"throws": {}, "trait": {}, "true": {}, "try": {}, "type": {}, "val": {},
+	"var": {}, "while": {}, "yield": {},
+}
+
+func addSelfConsistencyLineIdentifiers(add func(string), line string) {
+	for _, raw := range selfConsistencyCodeIdentRE.FindAllString(line, -1) {
+		addSelfConsistencyCodeIdent(add, raw)
+		for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+			return r == '.' || r == ':' || r == '/'
+		}) {
+			if part != raw {
+				addSelfConsistencyCodeIdent(add, part)
+			}
+		}
+	}
+}
+
+func addSelfConsistencyCodeIdent(add func(string), raw string) {
+	s := strings.TrimSpace(raw)
+	if s == "" || !types.IsCodeIdentitySurface(s) {
+		return
+	}
+	if _, keyword := selfConsistencyCodeKeywords[strings.ToLower(s)]; keyword {
+		return
+	}
+	add(s)
+}
+
+func addSelfConsistencyGraphSymbols(add func(string), mut *types.MutableState, busCtx *types.BusContext, file string, line int) {
+	file = strings.TrimSpace(file)
+	if file == "" || line <= 0 {
+		return
+	}
+	if mg := repomap.MultiGraphFromContext(busCtx); mg != nil {
+		if fi, _, ok := mg.FileInfoFor(file); ok {
+			addSelfConsistencySymbolsAtLine(add, fi.Symbols, line)
+			return
+		}
+	}
+	if mut == nil {
+		return
+	}
+	graph, ok := mut.SearchGraph().(*repotypes.Graph)
+	if !ok || graph == nil {
+		return
+	}
+	if fi, ok := graph.FileIndex[file]; ok && fi != nil {
+		addSelfConsistencySymbolsAtLine(add, fi.Symbols, line)
+	}
+}
+
+func addSelfConsistencySymbolsAtLine(add func(string), symbols []repotypes.Symbol, line int) {
+	for _, sym := range symbols {
+		if !symbolCoversLine(sym, line) {
+			continue
+		}
+		add(sym.Name)
+		if sym.Receiver != "" && sym.Name != "" {
+			add(sym.Receiver + "." + sym.Name)
+		}
+		if sym.Parent != "" && sym.Name != "" {
+			add(sym.Parent + "." + sym.Name)
+		}
+	}
+}
+
+func symbolCoversLine(sym repotypes.Symbol, line int) bool {
+	if line <= 0 || sym.Line <= 0 {
+		return false
+	}
+	if line == sym.Line {
+		return true
+	}
+	return sym.EndLine >= sym.Line && line >= sym.Line && line <= sym.EndLine
 }
 
 // clampReasoningForRepair returns a single-line, ≤ 200-rune

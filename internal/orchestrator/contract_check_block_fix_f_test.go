@@ -95,6 +95,33 @@ func TestFixF_CallDAGKind_FiresOnHallucinations(t *testing.T) {
 	}
 }
 
+func TestFixF_CallDAGKind_ExplicitDisplayLabelSkipsInternalAlias(t *testing.T) {
+	body := "graph TD\n" +
+		"    readNode[\"读取文件\"] --> check_size[\"行数检查\\nDEFAULT_READ_LIMIT=2000\"]\n" +
+		"    check_size --> check_bytes[\"字节检查\\nMAX_BYTES=50KB\"]\n"
+	doc := docWithDiagramKind("call_dag", body, types.DiagramCallDAG)
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+		t.Errorf("Mermaid internal node ids with explicit non-code display labels must not force finalizer rewrite; got %+v", vs)
+	}
+}
+
+func TestFixF_CallDAGKind_ExplicitCodeLabelStillFires(t *testing.T) {
+	body := "graph TD\n" +
+		"    n1[\"realCheckCoverage\"] --> n2[\"validateFakeCoherenceCheck\"]\n"
+	doc := docWithDiagramKind("call_dag", body, types.DiagramCallDAG)
+	oracle := &stubOracleFixB{tiers: map[string]int{
+		"realCheckCoverage": 1,
+	}}
+	vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
+	if len(vs) != 1 {
+		t.Fatalf("explicit code-shaped display-label hallucination must still fire; got %d:\n  %+v", len(vs), vs)
+	}
+	if !strings.Contains(vs[0].Detail, "validateFakeCoherenceCheck") {
+		t.Errorf("violation must list visible fake label; got: %s", vs[0].Detail)
+	}
+}
+
 // TestFixF_FlowKindWithTypedCallRelation_Fires confirms the
 // edge-level branch of Fix F: even when the diagram kind is
 // non-call (here Flow), an individual edge that the LLM typed as
