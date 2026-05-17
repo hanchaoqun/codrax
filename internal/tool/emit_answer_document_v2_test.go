@@ -273,6 +273,53 @@ func TestEmitAnswerDocumentV2_RepairsMissingPathSurfaceTermWhenItNamesItem(t *te
 	}
 }
 
+func TestEmitAnswerDocumentV2_DoesNotPatchHiddenTableItemsForSurfaceTerms(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:           "ev-index",
+		Kind:         types.EvidenceDirect,
+		Producer:     EmitEvidenceProducer,
+		Subject:      "Index",
+		AnchorSymbol: "Index",
+		Source:       "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+		LineStart:    7,
+		Scope:        types.ScopeLine,
+		SurfaceTerms: []string{"Index.ets"},
+	}})
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "comparison_table",
+			"kind": "table",
+			"text": "| Item | Detail |\\n|---|---|\\n| Index | struct with @Entry + @Component |",
+			"items": [{
+				"id": "e1",
+				"label": "Index",
+				"text": "hidden row support",
+				"citation_ref": 0
+			}]
+		}],
+		"citations": [{
+			"file": "internal/thirdparty/tree-sitter-arkts/corpus/sources/01_entry_component_minimal.ets",
+			"line": 7
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("table markdown text should not hard-retry on hidden row surface terms; got %q", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 1 {
+		t.Fatalf("V2 doc not written correctly: %+v", doc)
+	}
+	if strings.Contains(doc.Blocks[0].Items[0].Text, "Index.ets") {
+		t.Fatalf("surface term was patched into a hidden table item instead of respecting table text: %+v", doc.Blocks[0].Items[0])
+	}
+}
+
 func TestEmitAnswerDocumentV2_RejectsV1FieldsAtTopLevel(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

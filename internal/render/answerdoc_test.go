@@ -37,6 +37,26 @@ func TestRenderV2_BlockSection(t *testing.T) {
 	}
 }
 
+func TestRenderV2_BlockSectionItemsKeepCitations(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "s1",
+				Kind:  types.BlockSection,
+				Title: "Layer A",
+				Items: []types.AnswerBlockItem{
+					{Label: "Fact", Text: "grounded detail", CitationRef: 0},
+				},
+			},
+		},
+		Citations: []types.Citation{{File: "internal/foo.go", Line: 42}},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "- **Fact** — grounded detail (`internal/foo.go:42`)") {
+		t.Fatalf("section item citation was hidden:\n%s", out)
+	}
+}
+
 func TestRenderV2_BlockOrderedList(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
@@ -347,6 +367,30 @@ func TestRenderV2_BlockDiagram(t *testing.T) {
 	out := RenderAnswerDocument(doc, "en")
 	if !strings.Contains(out, "```mermaid") || !strings.Contains(out, "flowchart LR") {
 		t.Errorf("diagram rendering wrong; got %q", out)
+	}
+}
+
+func TestRenderV2_BlockDiagramKeepsAuthoredText(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "d1",
+				Kind:  types.BlockDiagram,
+				Title: "Flow",
+				Text:  "The diagram shows the accepted control path.",
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramFlow,
+					Language: "mermaid",
+					Body:     "flowchart LR\n  A --> B",
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	for _, want := range []string{"**Flow**", "The diagram shows the accepted control path.", "```mermaid"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("diagram block lost authored text %q:\n%s", want, out)
+		}
 	}
 }
 

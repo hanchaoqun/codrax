@@ -3591,6 +3591,9 @@ func preCheckModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusContex
 		if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList && b.Kind != types.BlockTable {
 			continue
 		}
+		if b.Kind == types.BlockTable && strings.TrimSpace(b.Text) != "" {
+			continue
+		}
 		for _, it := range b.Items {
 			if it.CitationRef < 0 || it.CitationRef >= len(doc.Citations) {
 				continue
@@ -3608,7 +3611,7 @@ func preCheckModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusContex
 				Field: field,
 				ExpectedShape: "include these model-emitted surface_terms in the cited item text or label: " +
 					strings.Join(missing, ", "),
-				Reason: "the investigation explicitly structured these source-visible labels; final answer validation requires preserving them instead of letting the system invent or append them later.",
+				Reason: "the investigation explicitly structured these source-visible labels; preserve them when they are relevant to the visible answer instead of relying on downstream synthesis to infer them.",
 			})
 		}
 	}
@@ -3627,6 +3630,9 @@ func normalizeModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusConte
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
 		if block.Kind != types.BlockOrderedList && block.Kind != types.BlockBulletList && block.Kind != types.BlockTable {
+			continue
+		}
+		if block.Kind == types.BlockTable && strings.TrimSpace(block.Text) != "" {
 			continue
 		}
 		for ii := range block.Items {

@@ -245,9 +245,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		logging.Warning("[emit_answer_document] preserved %d model-emitted surface_terms before retry gate", fixed)
 	}
 	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) > 0 {
-		rememberRejectedAnswerDocumentDraft(ctx, doc)
-		persistRecoveredAnswerDraft(ctx, raw, visibleRecovery, doc)
-		return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
+		logging.Warning("[emit_answer_document] model-emitted surface_terms advisory not hard-rejected: %s", formatEmitFixHints(hints))
 	}
 
 	// v3 B4 (2026-05-04): route the full-emit write through the

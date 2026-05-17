@@ -82,7 +82,7 @@ func renderAnswerDocV2Block(b *strings.Builder, blk types.AnswerBlock, doc *type
 	case types.BlockSummary:
 		renderV2BlockSummary(b, blk, lang)
 	case types.BlockSection:
-		renderV2BlockSection(b, blk, lang)
+		renderV2BlockSection(b, blk, doc, lang)
 	case types.BlockOrderedList:
 		renderV2BlockOrderedList(b, blk, doc, lang)
 	case types.BlockBulletList:
@@ -110,7 +110,7 @@ func renderV2BlockSummary(b *strings.Builder, blk types.AnswerBlock, _ answerDoc
 	}
 }
 
-func renderV2BlockSection(b *strings.Builder, blk types.AnswerBlock, lang answerDocLang) {
+func renderV2BlockSection(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
 	heading := strings.TrimSpace(blk.Title)
 	if heading == "" {
 		// A Section without an explicit Title is rendered without a
@@ -129,7 +129,7 @@ func renderV2BlockSection(b *strings.Builder, blk types.AnswerBlock, lang answer
 		// without Label/Text — those are contract-layer signals, not
 		// answer prose. Without this guard the renderer prints "- "
 		// per signal-only item.
-		s := renderV2BlockItem(it, nil, lang)
+		s := renderV2BlockItem(it, doc, lang)
 		if strings.TrimSpace(s) == "" {
 			continue
 		}
@@ -293,6 +293,10 @@ func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, _ answerDoc
 	}
 	if strings.TrimSpace(blk.Title) != "" {
 		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
+	}
+	if text := renderUserSurfaceText(blk.Text); text != "" {
+		b.WriteString(text)
+		b.WriteString("\n\n")
 	}
 	lang := strings.TrimSpace(d.Language)
 	if lang == "" {

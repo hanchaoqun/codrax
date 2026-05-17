@@ -156,10 +156,10 @@ type AnswerBlock struct {
 	ScopeDisclosure ScopeDisclosureKind `json:"scope_disclosure,omitempty"`
 
 	// Items is the collection for OrderedList / BulletList / Table.
-	// For Table, each AnswerBlockItem is one ROW; the Label field
-	// becomes the row header and the Text field carries the row's
-	// content (or, for multi-column tables, a delimited form the
-	// renderer parses).
+	// For Table, block.Text is the canonical visible carrier when it
+	// contains a markdown multi-column table. Items remain the
+	// visible two-column fallback only when Text is empty; otherwise
+	// they are row-support / citation carriers for validators.
 	Items []AnswerBlockItem `json:"items,omitempty"`
 
 	// Diagram is the block's diagram payload when Kind=BlockDiagram.

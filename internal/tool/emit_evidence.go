@@ -245,7 +245,7 @@ func (t *EmitEvidence) Description() string {
 		"to recommend how the item should be used for exact-target answers. `diagram_role_hint` may be `default`, " +
 		"`config`, `runtime`, or `override` for config-precedence traces (`config` = grounded repo/user config-file layer such as YAML/JSON/TOML/INI/etc.). These are recommendations only: the tool " +
 		"validates them structurally and may downgrade or ignore inconsistent hints.\n\n" +
-		"surface_terms is optional model-authored structured data for exact user-visible labels / aliases copied verbatim from already-read source, log, or trace lines (for example route names, package/module labels, config keys, macro names, trace span names, original file labels, and labels in leading documentation/header comments attached to the cited anchor). The tool rejects any surface term that is not grounded in the read window; final answer validation may require preserving accepted terms.\n\n" +
+		"surface_terms is optional model-authored structured data for exact user-visible labels / aliases copied verbatim from already-read source, log, or trace lines (for example route names, package/module labels, config keys, macro names, trace span names, original file labels, and labels in leading documentation/header comments attached to the cited anchor). The tool rejects any surface term that is not grounded in the read window; downstream synthesis treats accepted terms as preservation guidance when they are relevant to the visible answer.\n\n" +
 		"snippet is optional but recommended for conditional / mechanism / registration items: paste " +
 		"1-2 lines of the actual code so the snippet_fuzzy recovery tier can re-anchor if your " +
 		"line_start is off by one.\n\n" +
