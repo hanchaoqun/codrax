@@ -1411,6 +1411,7 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		NoticeFinalizing,
 		NoticeSelfConsistencyStart,
 		NoticeSemanticQualityReviewStart,
+		NoticeSystemSubAgentFanoutStart,
 		NoticeProceedingWithoutExtract,
 		NoticeInvestigationReady:
 		return statusObjective

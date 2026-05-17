@@ -96,6 +96,7 @@ func TestFormatOrchestratorNotice_ColorByBucket(t *testing.T) {
 		{"finalizing", NoticeFinalizing, statusObjective.Sprint(body)},
 		{"sc-start", NoticeSelfConsistencyStart, statusObjective.Sprint(body)},
 		{"semantic-quality-start", NoticeSemanticQualityReviewStart, statusObjective.Sprint(body)},
+		{"system-fanout-start", NoticeSystemSubAgentFanoutStart, statusObjective.Sprint(body)},
 		{"proceeding-without-extract", NoticeProceedingWithoutExtract, statusObjective.Sprint(body)},
 		{"investigation-ready", NoticeInvestigationReady, statusObjective.Sprint(body)},
 	}
