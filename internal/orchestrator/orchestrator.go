@@ -4041,6 +4041,26 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				o.applyWindowHint("")
 				continue
 			}
+			// E' (2026-05-17 architecture §1.5/§1.6) — DAG node-level
+			// dispatch. When the analyzer's expandEvidenceNodes
+			// produced N independent evidence sibling nodes
+			// (`{prefix}_t{i}` per SubTopic), give each sibling its
+			// own focused explorer dispatch instead of coalescing them
+			// into one merged explorer LLM call. The outer scheduler
+			// loop re-fetches the remaining siblings via
+			// readyExplorerWindowContext on the next iteration; each
+			// sibling completes through the existing per-node
+			// markRunning → markDone state machine and emits its own
+			// EventTaskNodeStart/End so the /dag UI shows N rows
+			// transitioning independently. See
+			// dag_node_dispatch.go for the typed-signal predicate +
+			// design rationale (no parallelism here — that's Phase 2;
+			// serial-per-node alone is the architecturally-correct
+			// foundation that respects the DAG's independence
+			// relations).
+			if shouldDispatchExploreNodesIndividually(window) {
+				window = trimExploreWindowToFirstEvidence(window)
+			}
 			// CGEC D2: drain pending RepairDirectives from the
 			// closure so each fires exactly once. ConsumeRepairs is
 			// atomic — it returns the queue and clears the field in
