@@ -2866,3 +2866,221 @@ func TestApplyMultiPathAnchorChecks_AdvisoryHintNonBlocking(t *testing.T) {
 		t.Fatalf("opaque-advisory case must emit at least one RepairExpandSearch advisory; got %+v", closure.ActiveRepairs())
 	}
 }
+
+// === Multi-repo forced-read phantom-path fix ===
+//
+// docs/design/post_phase2a_forensic_followups.md §2.1.B — the 09:09
+// production run had a 2-sub_repo workspace (codrax + opencode, with
+// opencode containing a nested packages/opencode/...) where the
+// pre-scanner queued forced-read entries with bare paths like
+// "packages/opencode/src/tool/apply_patch.ts". The queue's
+// canonicalisation key differed from the LLM's actual read of the
+// FS-real "opencode/packages/opencode/src/tool/apply_patch.ts" —
+// queue never drained → 10× DOWNGRADED + 5 min wasted before the
+// LLM gave up. The LLM noted "the queue's block seems to be a bug"
+// in its <think> block. The fix qualifies the path against the
+// active-set gate at seed time so the queued canonical key matches
+// what the LLM's read will produce.
+
+// phantomPathTestGater is a focused stand-in for the real multigraph
+// gater. It only models the auto-prefix bare-path branch of
+// ResolveActiveSetPath that the seed actually exercises — single-repo
+// bypass / inactive-prefix / absolute-path branches are out of scope
+// for these tests and exercised separately in the multigraph package's
+// own active_set_gate_test.go.
+type phantomPathTestGater struct {
+	uniqueMatchPrefix map[string]string // bare-path → sub_repo prefix; "" means no match
+	ambiguousPaths    map[string]bool   // bare-path → multi-match (refused)
+}
+
+func (g *phantomPathTestGater) ResolveActiveSetPath(_ *types.BusContext, _, llmPath string, _ func(string) bool) types.ActiveSetGateResult {
+	if g.ambiguousPaths[llmPath] {
+		return types.ActiveSetGateResult{Allowed: false, RefusalProse: "ambiguous"}
+	}
+	prefix, ok := g.uniqueMatchPrefix[llmPath]
+	if !ok || prefix == "" {
+		return types.ActiveSetGateResult{Allowed: false, RefusalProse: "no match"}
+	}
+	return types.ActiveSetGateResult{
+		Allowed:        true,
+		ResolvedPath:   prefix + "/" + llmPath,
+		SubRepoRootRel: prefix,
+		AutoPrefixed:   true,
+	}
+}
+
+func (g *phantomPathTestGater) ResolveActiveSetCommand(_ *types.BusContext, _, _ string) types.ActiveSetGateResult {
+	return types.ActiveSetGateResult{Allowed: true}
+}
+
+func TestQualifyForcedReadPathForMultiRepo_SingleRepoBypass(t *testing.T) {
+	// nil MultiGraph → single-repo posture — helper passes the path
+	// through byte-identical so the existing single-repo behaviour
+	// is preserved.
+	ctx := &types.BusContext{RepoRoot: "/tmp/single"}
+	got, ok := qualifyForcedReadPathForMultiRepo(ctx, "internal/tool/foo.go")
+	if !ok {
+		t.Fatal("single-repo bypass must return ok=true")
+	}
+	if got != "internal/tool/foo.go" {
+		t.Fatalf("single-repo bypass must not modify path, got %q", got)
+	}
+}
+
+func TestQualifyForcedReadPathForMultiRepo_QualifiesUniqueMatch(t *testing.T) {
+	// Verbatim 09:09 case shape: bare path resolves to a unique
+	// active sub_repo on disk, helper returns the prefixed form.
+	gater := &phantomPathTestGater{
+		uniqueMatchPrefix: map[string]string{
+			"packages/opencode/src/tool/apply_patch.ts": "opencode",
+		},
+	}
+	ctx := &types.BusContext{MultiGraph: gater}
+	got, ok := qualifyForcedReadPathForMultiRepo(ctx, "packages/opencode/src/tool/apply_patch.ts")
+	if !ok {
+		t.Fatal("unique-match bare path must qualify, ok was false")
+	}
+	want := "opencode/packages/opencode/src/tool/apply_patch.ts"
+	if got != want {
+		t.Fatalf("qualified path mismatch: got %q want %q", got, want)
+	}
+}
+
+func TestQualifyForcedReadPathForMultiRepo_DropsPhantomPath(t *testing.T) {
+	// Bare path that does not exist in any active sub_repo on disk:
+	// helper returns ok=false so the caller drops the seed (queueing
+	// a phantom entry would cause repeated DOWNGRADED rejects with
+	// no recourse — the entire 09:09 forensic symptom).
+	gater := &phantomPathTestGater{
+		uniqueMatchPrefix: map[string]string{},
+	}
+	ctx := &types.BusContext{MultiGraph: gater}
+	_, ok := qualifyForcedReadPathForMultiRepo(ctx, "packages/ghost/file.go")
+	if ok {
+		t.Fatal("phantom path must be dropped (ok=false), got ok=true")
+	}
+}
+
+func TestRaisePhase1UnreadPendingReads_MultiRepoQualifiesBarePathAndDrains(t *testing.T) {
+	// End-to-end: 09:09 forensic case replay. 2 active sub_repos
+	// (codrax + opencode); explorer pre-scanner produced bare paths
+	// from a graph keyed under the opencode sub_repo. Without the
+	// fix the queued PendingRead would carry the bare path and the
+	// subsequent LLM read of the FS-real opencode-prefixed path
+	// would NOT drain it. With the fix the path is qualified at
+	// seed time and the LLM's read drains the queue.
+
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 2
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	gater := &phantomPathTestGater{
+		uniqueMatchPrefix: map[string]string{
+			"packages/opencode/src/tool/apply_patch.ts": "opencode",
+			"packages/opencode/src/tool/shell.ts":       "opencode",
+		},
+	}
+
+	mut := types.NewMutableState("multi-repo forced-read seed replay")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		// Bare paths as the ranker emits them in multi-repo posture —
+		// the opencode/ prefix is missing because the graph itself is
+		// keyed under the sub_repo.
+		{Path: "packages/opencode/src/tool/apply_patch.ts", Score: 60, ExactEntityRank: 2},
+		{Path: "packages/opencode/src/tool/shell.ts", Score: 58, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	bus := &types.BusContext{
+		Mutable:    mut,
+		RepoRoot:   t.TempDir(),
+		MultiGraph: gater,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+
+	raisePhase1UnreadPendingReads(bus, closure)
+
+	pending := closure.PendingReads()
+	if len(pending) != 2 {
+		t.Fatalf("expected 2 PendingReads after multi-repo qualify, got %d: %+v", len(pending), pending)
+	}
+	for _, p := range pending {
+		if p.Origin != "phase1_unread" {
+			t.Errorf("PendingRead origin = %q, want phase1_unread", p.Origin)
+		}
+		// Assertion #1 from the prompt: forced-read seed produces the
+		// FS-real prefixed path, NOT a phantom codrax/packages/... or
+		// a bare packages/... that would dead-end the queue.
+		if !strings.HasPrefix(p.File, "opencode/") {
+			t.Errorf("PendingRead.File %q must carry opencode/ sub_repo prefix after seed qualification; bare path leak would replay the 09:09 phantom-path bug", p.File)
+		}
+		if strings.HasPrefix(p.File, "codrax/") {
+			t.Errorf("PendingRead.File %q phantom-prefixed with codrax/ — the bug is reproduced", p.File)
+		}
+	}
+
+	// Assertion #2 from the prompt: the LLM reading the FS-real
+	// opencode-prefixed path drains the queue. With the bug, the
+	// queue would linger forever because the read path's canonical
+	// key did not match the bare-path entry's canonical key.
+	closure.SetReadSet(map[string]bool{
+		"opencode/packages/opencode/src/tool/apply_patch.ts": true,
+		"opencode/packages/opencode/src/tool/shell.ts":       true,
+	})
+	drained := closure.DrainSatisfiedPendingReads()
+	if drained != 2 {
+		t.Fatalf("expected both PendingReads to drain after the LLM read the FS-real opencode-prefixed paths, drained=%d; remaining=%+v",
+			drained, closure.PendingReads())
+	}
+	if remaining := closure.PendingReads(); len(remaining) != 0 {
+		t.Fatalf("queue must be empty after drain, got %+v", remaining)
+	}
+}
+
+func TestRaisePhase1UnreadPendingReads_MultiRepoPhantomPathSkipped(t *testing.T) {
+	// When the bare path does not exist in any active sub_repo on
+	// disk, the seed must drop it rather than queue an entry the
+	// LLM cannot satisfy. (Without the fix the queued entry would
+	// linger and the LLM would face repeated DOWNGRADED rejects on
+	// emit_investigation_complete.) MinUnread=1 + only-one-phantom-
+	// candidate means the gate produces ZERO queued reads.
+
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 1
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	gater := &phantomPathTestGater{
+		uniqueMatchPrefix: map[string]string{}, // no matches — phantom
+	}
+
+	mut := types.NewMutableState("multi-repo phantom seed drop")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "packages/ghost/never_existed.go", Score: 50, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	bus := &types.BusContext{
+		Mutable:    mut,
+		RepoRoot:   t.TempDir(),
+		MultiGraph: gater,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+
+	raisePhase1UnreadPendingReads(bus, closure)
+
+	if got := closure.PendingReads(); len(got) != 0 {
+		t.Fatalf("phantom-path seed must be dropped, got %d PendingRead(s): %+v", len(got), got)
+	}
+}

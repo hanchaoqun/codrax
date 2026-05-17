@@ -4033,6 +4033,23 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 		if canon == "" {
 			continue
 		}
+		// Multi-repo qualification: in multi-repo posture the ranker
+		// returns sub-repo-relative bare paths (e.g.
+		// "packages/opencode/src/tool/apply_patch.ts") whose canonical
+		// key differs from the LLM's actual read of the FS-real
+		// "opencode/packages/opencode/src/tool/apply_patch.ts". Resolve
+		// against the active set so HasRead / DrainSatisfiedPendingReads
+		// key on the same canonical form the read_file gate produces.
+		// docs/design/post_phase2a_forensic_followups.md §2.1.B.
+		qualified, qok := qualifyForcedReadPathForMultiRepo(ctx, canon)
+		if !qok {
+			logging.Warning("[CGEC] phase1_unread: skipping phantom path file=%s (no match in any active sub-repo)", canon)
+			continue
+		}
+		if qualified != canon {
+			logging.Info("[CGEC] phase1_unread: auto-qualified bare path %s → %s", canon, qualified)
+			canon = qualified
+		}
 		if closure.HasRead(canon) {
 			continue
 		}
@@ -4127,6 +4144,53 @@ func phase1UnreadCanonPath(path, repoRoot string) string {
 		return ""
 	}
 	return path
+}
+
+// qualifyForcedReadPathForMultiRepo resolves a forced-read seed path
+// against the multi-repo active set so the queued entry matches the
+// canonical form the LLM's later read_file produces. Returns (qualified,
+// true) when the path resolves to a unique active sub-repo on disk;
+// returns (canon, false) when the path is a phantom (no match in any
+// active sub-repo) so the caller drops the seed rather than queue an
+// entry that can never drain.
+//
+// Single-repo / no-MultiGraph callers pass through byte-identical (the
+// gate short-circuits at IsSingle). Already-prefixed and absolute paths
+// pass through ResolveActiveSetPath untouched via its sub-repo-prefix
+// branch + absolute-path branch.
+//
+// Ambiguous bare paths (matching ≥ 2 active sub-repos on disk) are
+// returned as (canon, false) — i.e. dropped — because the seed cannot
+// pick the right sub-repo without LLM intent. The phase1_unread gate
+// has a once-per-pipeline latch (T2.1) so a dropped entry does not
+// re-fire; the LLM continues its investigation and the path will be
+// surfaced by ordinary keyword_search ranking with the prefix attached.
+//
+// docs/design/post_phase2a_forensic_followups.md §2.1.B — the
+// pre-scanner produced bare "packages/opencode/src/tool/apply_patch.ts"
+// in a codrax + opencode multi-repo; the queue's canonicalisation
+// keyed it differently from the LLM's FS-real
+// "opencode/packages/opencode/src/tool/apply_patch.ts", queue never
+// drained → 10× DOWNGRADED + 5 min wasted before the LLM gave up.
+func qualifyForcedReadPathForMultiRepo(ctx *types.BusContext, p string) (string, bool) {
+	if ctx == nil || ctx.MultiGraph == nil {
+		return p, true
+	}
+	gater, isGater := ctx.MultiGraph.(types.MultiRepoActiveSetGater)
+	if !isGater || gater == nil {
+		return p, true
+	}
+	gate := gater.ResolveActiveSetPath(ctx, "phase1_unread_seed", p, func(abs string) bool {
+		info, err := os.Stat(abs)
+		return err == nil && !info.IsDir()
+	})
+	if !gate.Allowed {
+		return p, false
+	}
+	if gate.ResolvedPath == "" {
+		return p, true
+	}
+	return gate.ResolvedPath, true
 }
 
 type callChainPrincipalSpanDemand struct {
