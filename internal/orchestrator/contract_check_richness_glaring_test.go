@@ -280,6 +280,27 @@ func TestValidatePrincipalProseUnderfilled_LabelAnchoredOrderedListSkips(t *test
 	}
 }
 
+func TestValidatePrincipalProseUnderfilled_DisplayLabelAnchoredOrderedListSkips(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "key_anchors",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "Authority系统", Text: "权威性投影", CitationRef: 0},
+					{ID: "i2", Label: "PreEmitCheck", Text: "发出前检查", CitationRef: 1},
+					{ID: "i3", Label: "ViolationKindSpec", Text: "违规类型规范", CitationRef: 2},
+				},
+			},
+		},
+	}
+	if vs := validatePrincipalProseUnderfilled(doc); len(vs) != 0 {
+		t.Errorf("citation-backed display labels are visible row anchors and should skip prose-density retry; got %+v", vs)
+	}
+}
+
 func TestValidatePrincipalProseUnderfilled_SourceLocationLabelsSkip(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",

@@ -1676,6 +1676,49 @@ func TestEnumerationLabelGrounding_AnswerSymbolsSupportCrossLanguageLabels(t *te
 	}
 }
 
+func TestEnumerationLabelGrounding_AggregateMemberLabelsPass(t *testing.T) {
+	mut := types.NewMutableState("accepted model-authored aggregate members")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		ID:           "support",
+		AnchorSymbol: "ContractCheck",
+		Source:       "internal/orchestrator/contract_check.go",
+		LineStart:    34,
+	}}})
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "codrax hallucination defenses",
+		Value:   "2",
+		Members: []string{"PreEmitCheck", "ContractCheck"},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "internal/tool/answer_document_pre_emit_check.go", Line: 1},
+			{File: "internal/orchestrator/contract_check.go", Line: 34},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "guards",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "pre",
+				Label:       "PreEmitCheck",
+				Text:        "final answer preflight guard",
+				CitationRef: 0,
+			}, {
+				ID:          "contract",
+				Label:       "ContractCheck",
+				Text:        "post-emit contract guard",
+				CitationRef: 1,
+			}},
+		}},
+	}
+
+	if vs := validateEnumerationItemLabelGrounding(doc, mut); len(vs) != 0 {
+		t.Fatalf("accepted aggregate member labels should satisfy grounding, got %+v", vs)
+	}
+}
+
 // TestEnumerationLabelGrounding_HallucinatedLabelFires — the s1a
 // failure mode reproduced as a unit test: 3 grounded labels +
 // 2 fabricated labels (no evidence anchor); oracle reports the 2.

@@ -555,6 +555,41 @@ func TestEmitAnswerDocumentPatch_RepairsAnnotationCamelCaseShape(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_HoistsItemLevelClaimUses(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+		},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"add_blocks": [{
+			"id": "list",
+			"kind": "ordered_list",
+			"items": [{
+				"id": "i1",
+				"label": "ContractCheck",
+				"text": "checks the final answer contract",
+				"claim_use": {"claimForm": "definitionFact", "facetId": "current_code_path"}
+			}]
+		}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must hoist item-level claim_use; got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("repaired patch did not persist added block: %+v", doc)
+	}
+	got := doc.Blocks[1].ClaimUses
+	if len(got) != 1 || got[0].ClaimForm != types.ClaimDefinitionFact || got[0].FacetID != "current_code_path" {
+		t.Fatalf("item-level claim_use was not hoisted and normalized: %+v", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_StringCitationAndSnippetLineNumbers(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

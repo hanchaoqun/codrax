@@ -204,7 +204,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
 		preEmitCtx := newPreEmitCheckContext(ctx)
 		if fixed := carryForwardCitationsFromRejectedDraft(doc, ctx); fixed > 0 {
-			logging.Warning("[emit_answer_document] restored %d citation(s) from previous rejected answer draft", fixed)
+			logging.Warning("[emit_answer_document] restored %d citation(s) from previous answer draft", fixed)
 		}
 		if fixed := promoteRecoveredDiagramBlocks(doc, view, visibleRecovery); fixed > 0 {
 			logging.Warning("[emit_answer_document] promoted %d recovered diagram attachment(s) into diagram block(s)", fixed)
@@ -237,6 +237,9 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 				return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
 			}
 		}
+	}
+	if fixed := normalizeModelSurfaceTerms(doc, ctx); fixed > 0 {
+		logging.Warning("[emit_answer_document] preserved %d model-emitted surface_terms before retry gate", fixed)
 	}
 	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) > 0 {
 		rememberRejectedAnswerDocumentDraft(ctx, doc)
@@ -520,6 +523,9 @@ func carryForwardCitationsFromRejectedDraft(doc *types.AnswerDocumentV2, ctx *ty
 		return 0
 	}
 	prev := ctx.Mutable.LastRejectedAnswerDocumentV2()
+	if prev == nil || len(prev.Citations) <= maxRef {
+		prev = ctx.Mutable.AnswerDocumentV2()
+	}
 	if prev == nil || len(prev.Citations) <= maxRef {
 		return 0
 	}
@@ -2077,6 +2083,12 @@ func repairNestedAnswerBlockFields(raw json.RawMessage) (json.RawMessage, []stri
 				repaired = true
 			}
 		}
+		if fields, ok := repairMisplacedItemClaimUses(blkObj); ok {
+			for _, field := range fields {
+				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
+			}
+			repaired = true
+		}
 		if fields, ok := repairAnswerBlockAnnotationShape(blkObj); ok {
 			for _, field := range fields {
 				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
@@ -2193,6 +2205,12 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 					blockChanged = true
 				}
 			}
+			if fields, ok := repairMisplacedItemClaimUses(blkObj); ok {
+				for _, field := range fields {
+					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
+				}
+				blockChanged = true
+			}
 			if fields, ok := repairAnswerBlockAnnotationShape(blkObj); ok {
 				for _, field := range fields {
 					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
@@ -2226,6 +2244,123 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 var answerBlockArrayFieldNames = []string{"items", "claim_uses", "edge_anchors", "facet_ids"}
 var answerBlockObjectFieldNames = []string{"diagram"}
 var answerBlockFieldsAllowedFromDiagram = []string{"claim_uses", "edge_anchors", "facet_ids", "surface_role"}
+
+// repairMisplacedItemClaimUses hoists item-level claim_use(s) that local
+// models sometimes emit despite the schema's block-level-only contract. This
+// is a structural relocation: claim annotations are not interpreted here, only
+// moved to the block's claim_uses[] pool before the normal annotation-shape
+// repair canonicalizes aliases such as claimForm/facetId.
+func repairMisplacedItemClaimUses(blkObj map[string]json.RawMessage) ([]string, bool) {
+	if len(blkObj) == 0 {
+		return nil, false
+	}
+	rawItems, ok := blkObj["items"]
+	rawItems = bytes.TrimSpace(rawItems)
+	if !ok || len(rawItems) == 0 || rawItems[0] != '[' {
+		return nil, false
+	}
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(rawItems, &items); err != nil || len(items) == 0 {
+		return nil, false
+	}
+	existing, ok := decodeClaimUseArrayRaw(blkObj["claim_uses"])
+	if !ok {
+		return nil, false
+	}
+	seen := make(map[string]bool, len(existing))
+	for _, raw := range existing {
+		seen[canonicalRawObjectKey(raw)] = true
+	}
+	changed := false
+	for i := range items {
+		for _, field := range []string{"claim_uses", "claim_use"} {
+			raw, exists := items[i][field]
+			if !exists {
+				continue
+			}
+			claims, parsed := decodeItemClaimUseRaw(raw)
+			if !parsed {
+				continue
+			}
+			for _, claim := range claims {
+				key := canonicalRawObjectKey(claim)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				existing = append(existing, claim)
+			}
+			delete(items[i], field)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil, false
+	}
+	blkObj["items"] = mustMarshal(items)
+	blkObj["claim_uses"] = mustMarshal(existing)
+	return []string{"items[].claim_use(s)->claim_uses"}, true
+}
+
+func decodeClaimUseArrayRaw(raw json.RawMessage) ([]json.RawMessage, bool) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return nil, true
+	}
+	if raw[0] == '"' {
+		if repaired, ok := repairBlockArrayField(map[string]json.RawMessage{"claim_uses": raw}, "claim_uses"); ok {
+			raw = repaired
+		}
+	}
+	if len(raw) == 0 || raw[0] != '[' {
+		return nil, false
+	}
+	var out []json.RawMessage
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, false
+	}
+	return out, true
+}
+
+func decodeItemClaimUseRaw(raw json.RawMessage) ([]json.RawMessage, bool) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return nil, false
+	}
+	if raw[0] == '"' {
+		var encoded string
+		if err := json.Unmarshal(raw, &encoded); err != nil {
+			return nil, false
+		}
+		raw = json.RawMessage(strings.TrimSpace(encoded))
+	}
+	switch raw[0] {
+	case '[':
+		var out []json.RawMessage
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return nil, false
+		}
+		return out, true
+	case '{':
+		var probe map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			return nil, false
+		}
+		return []json.RawMessage{mustMarshal(probe)}, true
+	default:
+		return nil, false
+	}
+}
+
+func canonicalRawObjectKey(raw json.RawMessage) string {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		if b, marshalErr := json.Marshal(obj); marshalErr == nil {
+			return string(b)
+		}
+	}
+	return string(bytes.TrimSpace(raw))
+}
 
 // repairMisplacedDiagramBlockFields moves known block-level annotation fields
 // that a local model placed inside the sibling diagram object back onto the

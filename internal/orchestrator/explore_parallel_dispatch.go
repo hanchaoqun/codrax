@@ -1,7 +1,10 @@
 package orchestrator
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +17,7 @@ import (
 )
 
 type exploreParallelResult struct {
+	index  int
 	window []*types.TaskNode
 	output *agent.StageOutput
 	fork   *types.MutableState
@@ -55,14 +59,28 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 		ParallelTotal:   len(windows),
 		Parallelism:     parallelism,
 	})
-	results := make([]exploreParallelResult, len(windows))
+
+	runCtx, cancel := context.WithCancel(o.CancelContext())
+	defer cancel()
+
 	jobs := make(chan int)
+	resultCh := make(chan exploreParallelResult, len(windows))
 	var wg sync.WaitGroup
 	for w := 0; w < parallelism; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := range jobs {
+			for {
+				var i int
+				select {
+				case <-runCtx.Done():
+					return
+				case next, ok := <-jobs:
+					if !ok {
+						return
+					}
+					i = next
+				}
 				hint := ""
 				if i < len(hints) {
 					hint = hints[i]
@@ -79,7 +97,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 					ParallelTotal:   len(windows),
 					Parallelism:     parallelism,
 				})
-				out, err := o.runExploreAgentOnFork(fork, hint, unitID, groupID)
+				out, err := o.runExploreAgentOnFork(runCtx, fork, hint, unitID, groupID)
 				unitErr := ""
 				if err != nil {
 					unitErr = err.Error()
@@ -97,7 +115,8 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 					Parallelism:     parallelism,
 					Error:           unitErr,
 				})
-				results[i] = exploreParallelResult{
+				resultCh <- exploreParallelResult{
+					index:  i,
 					window: windows[i],
 					output: out,
 					fork:   fork,
@@ -106,11 +125,31 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 			}
 		}()
 	}
-	for i := range windows {
-		jobs <- i
+	go func() {
+		defer close(jobs)
+		for i := range windows {
+			select {
+			case <-runCtx.Done():
+				return
+			case jobs <- i:
+			}
+		}
+	}()
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	results := make([]exploreParallelResult, 0, len(windows))
+	earlyConverged := false
+	for res := range resultCh {
+		if exploreParallelResultConverged(res) {
+			earlyConverged = true
+			cancel()
+		}
+		results = append(results, res)
 	}
-	close(jobs)
-	wg.Wait()
+	sort.SliceStable(results, func(i, j int) bool { return results[i].index < results[j].index })
 
 	merged := &agent.StageOutput{
 		MissingPiece:  types.MissingNone,
@@ -119,6 +158,13 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 	for i := range results {
 		res := results[i]
 		if res.err != nil {
+			if earlyConverged && errors.Is(res.err, context.Canceled) {
+				continue
+			}
+			if earlyConverged {
+				logging.Warning("[orchestrator] parallel explore sibling ended after convergence: %v", res.err)
+				continue
+			}
 			return merged, res.err
 		}
 		if res.fork != nil {
@@ -130,10 +176,15 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 		o.applyStageOutput(res.output)
 		mergeExploreParallelOutput(merged, res.output)
 	}
+	if earlyConverged && merged.SignalUpdates != nil {
+		merged.SignalUpdates.HasEnoughFacts = true
+		merged.MissingPiece = types.MissingNone
+	}
 	return merged, nil
 }
 
 func (o *Orchestrator) runExploreAgentOnFork(
+	runCtx context.Context,
 	mut *types.MutableState,
 	hint string,
 	dispatchKey string,
@@ -160,6 +211,7 @@ func (o *Orchestrator) runExploreAgentOnFork(
 
 	workerBus := *o.busCtx
 	workerBus.Mutable = mut
+	workerBus.Ctx = runCtx
 	workerBus.ActiveAgent = agentName
 	workerBus.PipelineStage = stage
 	workerBus.ExploreDispatchKey = dispatchKey
@@ -190,6 +242,13 @@ func (o *Orchestrator) runExploreAgentOnFork(
 		output = merged
 	}
 	return output, nil
+}
+
+func exploreParallelResultConverged(res exploreParallelResult) bool {
+	if res.fork != nil && res.fork.IsInvestigationComplete() {
+		return true
+	}
+	return false
 }
 
 func (o *Orchestrator) applyExploreIterationScaling(agentCtx *types.AgentContext) {

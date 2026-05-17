@@ -107,7 +107,7 @@ func TestEmitAnswerDocumentV2_CaveatAliasAcceptedForCaveatBlock(t *testing.T) {
 	}
 }
 
-func TestEmitAnswerDocumentV2_RejectsMissingModelSurfaceTerm(t *testing.T) {
+func TestEmitAnswerDocumentV2_RepairsMissingModelSurfaceTerm(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
 		ID:           "ev-index",
@@ -141,11 +141,13 @@ func TestEmitAnswerDocumentV2_RejectsMissingModelSurfaceTerm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected exec error: %v", err)
 	}
-	if res.Success {
-		t.Fatal("expected missing surface term to reject")
+	if !res.Success {
+		t.Fatalf("expected missing surface term to be repaired before retry, got %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "surface_terms") || !strings.Contains(res.Summary, "Index.ets") {
-		t.Fatalf("rejection should name missing model surface term, got %q", res.Summary)
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 1 ||
+		!strings.Contains(doc.Blocks[0].Items[0].Text, "Index.ets") {
+		t.Fatalf("model surface term was not preserved in the visible item text: %+v", doc)
 	}
 }
 
@@ -227,7 +229,7 @@ func TestEmitAnswerDocumentV2_DoesNotRequireUnrelatedPathSurfaceTerm(t *testing.
 	}
 }
 
-func TestEmitAnswerDocumentV2_RejectsMissingPathSurfaceTermWhenItNamesItem(t *testing.T) {
+func TestEmitAnswerDocumentV2_RepairsMissingPathSurfaceTermWhenItNamesItem(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
 		ID:           "ev-widget",
@@ -261,11 +263,13 @@ func TestEmitAnswerDocumentV2_RejectsMissingPathSurfaceTermWhenItNamesItem(t *te
 	if err != nil {
 		t.Fatalf("unexpected exec error: %v", err)
 	}
-	if res.Success {
-		t.Fatal("expected missing item-identifying path surface term to reject")
+	if !res.Success {
+		t.Fatalf("expected item-identifying path surface term to be repaired before retry, got %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "src/components/Widget.ets") {
-		t.Fatalf("rejection should name missing path-like surface term, got %q", res.Summary)
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 1 ||
+		!strings.Contains(doc.Blocks[0].Items[0].Text, "src/components/Widget.ets") {
+		t.Fatalf("path-like model surface term was not preserved in the visible item text: %+v", doc)
 	}
 }
 
@@ -696,6 +700,34 @@ func TestEmitAnswerDocumentV2_CarryForwardCitationsFromRejectedDraft(t *testing.
 	}
 }
 
+func TestEmitAnswerDocumentV2_CarryForwardCitationsFromLiveDraft(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "a.go", Line: 10},
+			{File: "b.go", Line: 20},
+			{File: "c.go", Line: 30},
+		},
+		Blocks: []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "old"}},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "a.go", Line: 10}},
+		Blocks: []types.AnswerBlock{{
+			ID:    "list",
+			Kind:  types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{ID: "i", Label: "C", CitationRef: 2}},
+		}},
+	}
+	if fixed := carryForwardCitationsFromRejectedDraft(doc, bus); fixed != 3 {
+		t.Fatalf("expected live citation pool restored to ref max, got %d doc=%+v", fixed, doc)
+	}
+	if len(doc.Citations) != 3 || doc.Citations[2].File != "c.go" {
+		t.Fatalf("citations not restored from live answer draft: %+v", doc.Citations)
+	}
+}
+
 func TestEmitAnswerDocumentV2_MaterializesRequiredCaveatWhenOnlyMissing(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		UncertaintyRules: []types.UncertaintyRule{{
@@ -1000,6 +1032,39 @@ func TestEmitAnswerDocumentV2_RepairsAnnotationCamelCaseShape(t *testing.T) {
 		got[0].RelationKind != types.DiagramRelCall ||
 		got[0].ClaimForm != types.ClaimCallEdge {
 		t.Fatalf("edge_anchors not normalized: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentV2_HoistsItemLevelClaimUses(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "list",
+			"kind": "ordered_list",
+			"items": [{
+				"id": "i1",
+				"label": "ContractCheck",
+				"text": "checks the final answer contract",
+				"claim_uses": [{"claimForm": "definitionFact", "facetId": "current_code_path"}]
+			}]
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("item-level claim_uses should be hoisted, got %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 {
+		t.Fatalf("expected persisted doc, got %+v", doc)
+	}
+	if got := doc.Blocks[0].ClaimUses; len(got) != 1 ||
+		got[0].ClaimForm != types.ClaimDefinitionFact ||
+		got[0].FacetID != "current_code_path" {
+		t.Fatalf("item-level claim_uses were not hoisted and normalized: %+v", got)
 	}
 }
 

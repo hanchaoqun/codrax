@@ -1421,9 +1421,10 @@ func validatePrincipalProseUnderfilled(doc *types.AnswerDocumentV2) []types.Viol
 			// final answer — the user sees the identifier even though
 			// item.text doesn't quote it back with backticks. Treat a
 			// list as label-anchored when EVERY item has a non-empty
-			// identifier-shaped label; the prose-density signal still
-			// fires on lists whose items have free-prose labels (which
-			// genuinely need backtick anchors in text).
+			// identifier-shaped label, or every item has a visible
+			// label paired with a citation_ref. The prose-density signal
+			// still fires on lists whose items have no row labels and no
+			// inline anchors in text.
 			allItemsLabelAnchored = len(b.Items) > 0
 			for _, item := range b.Items {
 				inlineCode += countInlineCodeSegments(item.Text)
@@ -1447,6 +1448,9 @@ func validatePrincipalProseUnderfilled(doc *types.AnswerDocumentV2) []types.Viol
 		if allItemsLabelAnchored {
 			continue
 		}
+		if principalListItemsHaveVisibleCitedLabels(b) {
+			continue
+		}
 		if principalListLabelsAnchoredByClaimSurface(b) {
 			continue
 		}
@@ -1468,6 +1472,21 @@ func validatePrincipalProseUnderfilled(doc *types.AnswerDocumentV2) []types.Viol
 		})
 	}
 	return out
+}
+
+func principalListItemsHaveVisibleCitedLabels(b types.AnswerBlock) bool {
+	if b.Kind != types.BlockOrderedList && b.Kind != types.BlockBulletList {
+		return false
+	}
+	if len(b.Items) == 0 {
+		return false
+	}
+	for _, item := range b.Items {
+		if strings.TrimSpace(item.Label) == "" || item.CitationRef < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func principalListLabelsAnchoredByClaimSurface(b types.AnswerBlock) bool {
@@ -2377,6 +2396,9 @@ func validateEnumerationItemLabelGrounding(doc *types.AnswerDocumentV2, mut *typ
 			if diagramTokenSupported(label, support) {
 				continue
 			}
+			if answerItemLabelSupportedByAggregateMemberSet(label, it, mut) {
+				continue
+			}
 			if answerItemLabelSupportedByAnswerSymbol(label, mut) {
 				continue
 			}
@@ -2645,7 +2667,7 @@ func answerItemLabelSupportedByRuntimeArtifact(label string, mut *types.MutableS
 
 func answerItemLabelSupportedByAggregateMemberSet(label string, item types.AnswerBlockItem, mut *types.MutableState) bool {
 	label = strings.TrimSpace(label)
-	if mut == nil || label == "" || strings.TrimSpace(item.Text) == "" {
+	if mut == nil || label == "" {
 		return false
 	}
 	for _, fact := range mut.StableInvestigationAggregateFacts() {
@@ -2653,9 +2675,32 @@ func answerItemLabelSupportedByAggregateMemberSet(label string, item types.Answe
 			continue
 		}
 		for _, member := range fact.Members {
+			if answerAggregateMemberLabelMatches(label, member) {
+				return true
+			}
 			if answerAggregateMemberLabelTextMatches(label, item.Text, member) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func answerAggregateMemberLabelMatches(label, member string) bool {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return false
+	}
+	for _, surface := range types.AnswerAggregateMemberDisplayCandidates(member) {
+		if typedLabelTokenSupportsLabel(surface, label) || typedLabelTokenSupportsLabel(label, surface) {
+			return true
+		}
+		left, right, ok := types.AnswerAggregateMemberRelationParts(surface)
+		if !ok {
+			continue
+		}
+		if typedLabelTokenSupportsLabel(left, label) || typedLabelTokenSupportsLabel(right, label) {
+			return true
 		}
 	}
 	return false
