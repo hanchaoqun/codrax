@@ -76,7 +76,25 @@ func ApplyAndPersistMutation(
 		return failEmit(toolName, now,
 			"mutation apply produced a nil document — internal error")
 	}
+	return persistMergedAnswerDocument(ctx, toolName, mutation.Kind, mutation.Summary(), merged, now)
+}
 
+func persistMergedAnswerDocument(
+	ctx *types.BusContext,
+	toolName string,
+	kind types.MutationKind,
+	mutationSummary string,
+	merged *types.AnswerDocumentV2,
+	now time.Time,
+) (types.ToolResult, error) {
+	if ctx == nil || ctx.Mutable == nil {
+		return failEmit(toolName, now,
+			"%s requires a writable context", toolName)
+	}
+	if merged == nil {
+		return failEmit(toolName, now,
+			"mutation apply produced a nil document — internal error")
+	}
 	if canonicalizeSummaryLeadBlock(merged) {
 		logging.Info("[%s] canonicalized summary block to lead position before persist", toolName)
 	}
@@ -99,16 +117,16 @@ func ApplyAndPersistMutation(
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}
 
-	ctx.Mutable.SetAnswerDocumentV2WithMutation(mutation.Kind, merged)
+	ctx.Mutable.SetAnswerDocumentV2WithMutation(kind, merged)
 	ctx.Mutable.SetAnswerDisplayAttachments(filterAcceptedAnswerDisplayAttachments(merged, ctx.Mutable.AnswerDisplayAttachments()))
-	logging.Info("[%s] mutation: %s", toolName, mutation.Summary())
+	logging.Info("[%s] mutation: %s", toolName, mutationSummary)
 
 	return types.ToolResult{
 		ToolName: toolName,
 		Success:  true,
 		Summary: fmt.Sprintf(
 			"%s accepted: %s%s",
-			toolName, mutation.Summary(),
+			toolName, mutationSummary,
 			summarizeV2Blocks(merged.Blocks)),
 		Timestamp: now,
 	}, nil

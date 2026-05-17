@@ -213,24 +213,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			recovery.Attachments = filterAttachmentsAlreadyRepresentedInDocument(recovery.Attachments, doc)
 			visibleRecovery.Attachments = filterAttachmentsAlreadyRepresentedInDocument(visibleRecovery.Attachments, doc)
 		}
-		if fixed := normalizeRequiredMechanismAnchorCarriersWithContext(doc, view, ctx, preEmitCtx); fixed > 0 {
-			logging.Warning("[emit_answer_document] repaired %d required mechanism anchor carrier(s)", fixed)
-		}
-		if fixed := normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc, view); fixed > 0 {
-			logging.Warning("[emit_answer_document] repaired %d qualified item label(s) by graph-derived enclosing function", fixed)
-		}
-		if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, preEmitCtx); fixed > 0 {
-			logging.Warning("[emit_answer_document] repaired %d item citation_ref value(s) by typed label/citation corroboration", fixed)
-		}
-		if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed > 0 {
-			logging.Warning("[emit_answer_document] materialized %d aggregate member_set carrier(s)", fixed)
-		}
-		if fixed := normalizePrincipalSupportMemberCarriers(doc, types.BuildAnswerSupportPlanForBusContext(ctx)); fixed > 0 {
-			logging.Warning("[emit_answer_document] materialized %d principal support member carrier(s)", fixed)
-		}
-		if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
-			logging.Warning("[emit_answer_document] repaired %d view-compatible typed lane field(s)", fixed)
-		}
+		normalizeAnswerDocumentForPreEmit(toolName, doc, view, ctx, preEmitCtx)
 		if hints := runPreEmitChecksWithContext(doc, view, preEmitOracleFromCtx(ctx), preEmitCtx); len(hints) > 0 {
 			if fixed := materializeRequiredCaveatWhenOnlyMissing(doc, view, hints); fixed > 0 {
 				logging.Warning("[emit_answer_document] materialized %d required caveat block(s) from uncertainty contract", fixed)
@@ -508,6 +491,33 @@ func rememberRejectedAnswerDocumentDraft(ctx *types.BusContext, doc *types.Answe
 		return
 	}
 	ctx.Mutable.SetLastRejectedAnswerDocumentV2(doc)
+}
+
+func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) {
+	if doc == nil || view == nil {
+		return
+	}
+	if pctx == nil {
+		pctx = newPreEmitCheckContext(ctx)
+	}
+	if fixed := normalizeRequiredMechanismAnchorCarriersWithContext(doc, view, ctx, pctx); fixed > 0 {
+		logging.Warning("[%s] repaired %d required mechanism anchor carrier(s)", toolName, fixed)
+	}
+	if fixed := normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc, view); fixed > 0 {
+		logging.Warning("[%s] repaired %d qualified item label(s) by graph-derived enclosing function", toolName, fixed)
+	}
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, pctx); fixed > 0 {
+		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed label/citation corroboration", toolName, fixed)
+	}
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] materialized %d aggregate member_set carrier(s)", toolName, fixed)
+	}
+	if fixed := normalizePrincipalSupportMemberCarriers(doc, types.BuildAnswerSupportPlanForBusContext(ctx)); fixed > 0 {
+		logging.Warning("[%s] materialized %d principal support member carrier(s)", toolName, fixed)
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
+		logging.Warning("[%s] repaired %d view-compatible typed lane field(s)", toolName, fixed)
+	}
 }
 
 func carryForwardCitationsFromRejectedDraft(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {

@@ -885,6 +885,38 @@ func TestPreCheckItemCitationAlignment_AcceptsDecoratedCodeLabelSupportedBySumma
 	}
 }
 
+func TestPreCheckItemCitationAlignment_AcceptsDecoratedCodeLabelQualifierExplainedByItemText(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "hops",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "retry",
+				Label:       "get_page_from_freelist (慢速路径重试)",
+				Text:        "慢速路径重新尝试 `get_page_from_freelist`，使用调整后的 alloc_flags。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "mm/page_alloc.c", Line: 4782}},
+	}
+	mut := types.NewMutableState("页面分配时序图")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "mm/page_alloc.c",
+		LineStart:       4782,
+		AnchorKind:      types.AnchorCall,
+		Subject:         "__alloc_pages_slowpath",
+		Object:          "get_page_from_freelist",
+		Summary:         "__alloc_pages_slowpath calls get_page_from_freelist.",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("decorated item labels should allow row-text display qualifiers once the code endpoint is cited, got %v", hints)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_QualifiedLabelMayUsePathOwnerAndEndpointMember(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

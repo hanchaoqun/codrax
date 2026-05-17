@@ -247,12 +247,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
 		if merged, applyErr := mutation.Apply(prev); applyErr == nil && merged != nil {
 			canonicalizeSummaryLeadBlock(merged)
-			normalizeAggregateMemberSetCarriers(merged, ctx)
-			normalizePrincipalSupportMemberCarriers(merged, types.BuildAnswerSupportPlanForBusContext(ctx))
-			normalizeViewCompatibleAnswerDocument(merged, view)
-			if hints := runPreEmitChecks(merged, view, preEmitOracleFromCtx(ctx), ctx); len(hints) > 0 {
+			preEmitCtx := newPreEmitCheckContext(ctx)
+			normalizeAnswerDocumentForPreEmit(t.Name(), merged, view, ctx, preEmitCtx)
+			if hints := runPreEmitChecksWithContext(merged, view, preEmitOracleFromCtx(ctx), preEmitCtx); len(hints) > 0 {
 				return failEmit(t.Name(), now, "%s", formatEmitFixHints(hints))
 			}
+			return persistMergedAnswerDocument(ctx, t.Name(), types.MutationPartial, mutation.Summary(), merged, now)
 		}
 	}
 

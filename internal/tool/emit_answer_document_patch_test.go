@@ -482,6 +482,120 @@ func TestEmitAnswerDocumentPatch_NormalizesReplaceCitationsForPreservedBlocks(t 
 	}
 }
 
+func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("页面分配时序图"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentTrace},
+		},
+	}
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "mm/page_alloc.c",
+			LineStart:       4687,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "__alloc_pages_slowpath",
+			AnchorSymbol:    "__alloc_pages_slowpath",
+			Summary:         "慢速路径主入口。",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "mm/page_alloc.c",
+			LineStart:       4782,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "__alloc_pages_slowpath",
+			Object:          "get_page_from_freelist",
+			Summary:         "__alloc_pages_slowpath calls get_page_from_freelist.",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "mm/page_alloc.c",
+			LineStart:       5226,
+			AnchorKind:      types.AnchorCall,
+			Object:          "get_page_from_freelist",
+			Summary:         "首次分配尝试调用快速路径。",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations: []types.Citation{
+			{File: "mm/page_alloc.c", Line: 4687},
+			{File: "mm/page_alloc.c", Line: 4782},
+			{File: "mm/page_alloc.c", Line: 5226},
+		},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "s1",
+				Kind:        types.BlockSummary,
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "页面分配先走快速路径，失败后进入慢速路径。",
+				FacetIDs:    []string{"current_code_path"},
+				ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge, FacetID: "current_code_path"}},
+			},
+			{
+				ID:          "hops",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{"current_code_path", "principal_path_edge"},
+				ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge, FacetID: "principal_path_edge"}},
+				Items: []types.AnswerBlockItem{
+					{ID: "fast", Label: "get_page_from_freelist (快速路径)", Text: "快速路径核心函数。", CitationRef: 2},
+					{ID: "slow", Label: "__alloc_pages_slowpath (慢速路径)", Text: "慢速路径主入口。", CitationRef: 0},
+				},
+			},
+			{
+				ID:   "caveat1",
+				Kind: types.BlockCaveat,
+				Text: "仅基于当前已收集的 mm/page_alloc.c 证据说明快慢路径。",
+			},
+		},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1", "caveat1"],
+		"replace_blocks": [{
+			"id": "hops",
+			"kind": "ordered_list",
+			"surface_role": "principal",
+			"facet_ids": ["current_code_path", "principal_path_edge"],
+			"claim_uses": [{"claim_form": "call_edge", "facet_id": "principal_path_edge"}],
+			"items": [
+				{"id":"fast", "label":"get_page_from_freelist (快速路径)", "text":"快速路径核心函数。", "citation_ref":3},
+				{"id":"slow", "label":"__alloc_pages_slowpath (慢速路径)", "text":"慢速路径主入口。", "citation_ref":0},
+				{"id":"retry", "label":"get_page_from_freelist (慢速路径重试)", "text":"慢速路径重新尝试 get_page_from_freelist。", "citation_ref":1}
+			]
+		}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch path should normalize item citation_ref before citation-pool range reject, got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		t.Fatal("patch path produced nil doc")
+	}
+	var hops *types.AnswerBlock
+	for i := range doc.Blocks {
+		if doc.Blocks[i].ID == "hops" {
+			hops = &doc.Blocks[i]
+			break
+		}
+	}
+	if hops == nil || len(hops.Items) != 3 {
+		t.Fatalf("missing normalized hops block: %+v", doc)
+	}
+	if got := hops.Items[0].CitationRef; got != 2 {
+		t.Fatalf("out-of-range fast-path citation_ref should be remapped to existing matching citation index 2, got %d", got)
+	}
+	if got := hops.Items[2].CitationRef; got != 1 {
+		t.Fatalf("row-text decorated retry label should keep the cited slowpath call site, got %d", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_StringWrappedNestedDiagramAndExactResolution(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

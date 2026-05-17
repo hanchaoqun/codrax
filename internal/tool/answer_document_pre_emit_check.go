@@ -628,7 +628,8 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 				}
 				continue
 			}
-			if preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence) {
+			if preEmitDecoratedItemLabelMatchesAnyEvidenceEndpoint(label, text, evidence) ||
+				preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence) {
 				continue
 			}
 			if candidates := preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, text, 4); len(candidates) > 0 {
@@ -701,18 +702,13 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				preEmitItemCitationAlignedWithContext(pctx, label, text, doc.Citations[item.CitationRef]) {
 				continue
 			}
-			match := -1
-			if len(doc.Citations) > 0 {
-				for ci, cit := range doc.Citations {
-					if ci == item.CitationRef {
-						continue
-					}
-					if !preEmitItemCitationAlignedWithContext(pctx, label, text, cit) {
-						continue
-					}
-					match = ci
-					break
-				}
+			match := preEmitUniqueCitationIndex(doc.Citations, item.CitationRef, func(cit types.Citation) bool {
+				return preEmitItemCitationStrictlyAlignedWithContext(pctx, label, text, cit)
+			})
+			if match < 0 {
+				match = preEmitUniqueCitationIndex(doc.Citations, item.CitationRef, func(cit types.Citation) bool {
+					return preEmitItemCitationAlignedWithContext(pctx, label, text, cit)
+				})
 			}
 			if match >= 0 {
 				item.CitationRef = match
@@ -726,6 +722,26 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 		}
 	}
 	return fixed
+}
+
+func preEmitUniqueCitationIndex(citations []types.Citation, exclude int, matches func(types.Citation) bool) int {
+	if len(citations) == 0 || matches == nil {
+		return -1
+	}
+	match := -1
+	for i, cit := range citations {
+		if i == exclude {
+			continue
+		}
+		if !matches(cit) {
+			continue
+		}
+		if match >= 0 {
+			return -1
+		}
+		match = i
+	}
+	return match
 }
 
 func normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
@@ -892,6 +908,14 @@ func preEmitItemCitationAligned(ctx *types.BusContext, label, text string, cit t
 }
 
 func preEmitItemCitationAlignedWithContext(pctx *preEmitCheckContext, label, text string, cit types.Citation) bool {
+	if preEmitItemCitationStrictlyAlignedWithContext(pctx, label, text, cit) {
+		return true
+	}
+	evidence, found := pctx.citedEvidenceItems(cit)
+	return found && preEmitDecoratedItemLabelMatchesAnyEvidenceEndpoint(label, text, evidence)
+}
+
+func preEmitItemCitationStrictlyAlignedWithContext(pctx *preEmitCheckContext, label, text string, cit types.Citation) bool {
 	if types.AnswerLocationLabelMatchesCitation(label, cit) {
 		return true
 	}
@@ -3044,6 +3068,15 @@ func preEmitLabelMatchesAnyEvidenceEndpoint(label string, evidence []types.Evide
 	return false
 }
 
+func preEmitDecoratedItemLabelMatchesAnyEvidenceEndpoint(label, text string, evidence []types.EvidenceItem) bool {
+	for _, ev := range evidence {
+		if preEmitDecoratedItemLabelMatchesEvidence(label, text, ev) {
+			return true
+		}
+	}
+	return false
+}
+
 func preEmitCandidateCitationLocationsForLabel(ctx *types.BusContext, label string, limit int) []string {
 	return preEmitCandidateCitationLocationsForLabelWithContext(newPreEmitCheckContext(ctx), label, limit)
 }
@@ -3217,6 +3250,31 @@ func preEmitDecoratedLabelMatchesEvidence(label string, ev types.EvidenceItem) b
 		return false
 	}
 	return preEmitEvidenceSupportsDecoratorQualifier(ev, qualifier)
+}
+
+func preEmitDecoratedItemLabelMatchesEvidence(label, text string, ev types.EvidenceItem) bool {
+	base, qualifier, ok := types.AnswerAggregateDecoratedLabelParts(label)
+	if !ok {
+		return false
+	}
+	if !preEmitEvidenceEndpointSupportsToken(ev, base) {
+		return false
+	}
+	if preEmitEvidenceSupportsDecoratorQualifier(ev, qualifier) {
+		return true
+	}
+	// Parenthetical qualifiers on ordered-list/table item labels are
+	// often reader-facing disambiguators ("fast path", "retry", "slow
+	// path"), not source-code identifiers. Once the code identity before
+	// the parenthesis is grounded by the cited evidence, treat non-code
+	// qualifiers as display context instead of forcing an LLM retry just
+	// because the exact prose is not present on the source line. Code-like
+	// qualifiers ("subject", "SubExplorer", "Foo.Bar") still need evidence
+	// support so scoped same-name symbols do not drift.
+	if types.IsCodeIdentitySurface(qualifier) || len(preEmitExplicitDisplayCodeSurfaces(qualifier)) > 0 {
+		return false
+	}
+	return true
 }
 
 func preEmitEvidenceSupportsDecoratorQualifier(ev types.EvidenceItem, qualifier string) bool {
