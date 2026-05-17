@@ -195,6 +195,61 @@ func TestNormalizeToolCallParams_AddsConservativeEmitAnalysisProfiles(t *testing
 	}
 }
 
+func TestNormalizeToolCallParams_UnwrapsEmitAnalysisStringEnumArtifacts(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentAnalyzer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentAnalyzer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	calls := []llm.ToolCall{{
+		ID:   "call_1",
+		Name: "emit_analysis",
+		Params: json.RawMessage(`{
+		  "intent":"\"explain\"",
+		  "scenario":"\"architecture_explain\"",
+		  "complexity":"\"complex\"",
+		  "keywords":["codrax","opencode"],
+		  "entities":["codrax","opencode"],
+		  "question_kind":"\"mechanism\"",
+		  "language":"\"zh\"",
+		  "predicate_axis":"\"\"",
+		  "intent_confidence":0.9,
+		  "complexity_confidence":0.9,
+		  "kind_confidence":0.9,
+		  "predicates":{"is_scalar_answer":false},
+		  "diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.7}
+		}`),
+	}}
+	schemas := []llm.ToolSchema{{
+		Name:       "emit_analysis",
+		Parameters: analysisEnumCompatTestSchema(),
+	}}
+
+	got := base.normalizeToolCallParams(calls, schemas)
+	if string(got[0].Params) == string(calls[0].Params) {
+		t.Fatalf("expected emit_analysis enum artifact repair, got unchanged")
+	}
+	var decoded struct {
+		Intent        string `json:"intent"`
+		Scenario      string `json:"scenario"`
+		Complexity    string `json:"complexity"`
+		QuestionKind  string `json:"question_kind"`
+		Language      string `json:"language"`
+		PredicateAxis string `json:"predicate_axis"`
+	}
+	if err := json.Unmarshal(got[0].Params, &decoded); err != nil {
+		t.Fatalf("repaired params are invalid JSON: %v\n%s", err, got[0].Params)
+	}
+	if decoded.Intent != "explain" || decoded.Scenario != "architecture_explain" ||
+		decoded.Complexity != "complex" || decoded.QuestionKind != "mechanism" ||
+		decoded.Language != "zh" || decoded.PredicateAxis != "" {
+		t.Fatalf("unexpected repaired analysis enums: %+v\nraw=%s", decoded, got[0].Params)
+	}
+}
+
 func TestNormalizeAnalyzerPrescanGrepCompat_RepairModeSetsFilesOnly(t *testing.T) {
 	base := &BaseAgent{
 		name: types.AgentAnalyzer,
@@ -278,6 +333,29 @@ func analysisEnvelopeCompatTestSchema() json.RawMessage {
 			"intent": {"type": "string"},
 			"keywords": {"type": "array", "items": {"type": "string"}},
 			"limit": {"type": "integer"}
+		}
+	}`)
+}
+
+func analysisEnumCompatTestSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"intent": {"type": "string", "enum": ["explain", "root_cause", "trace"]},
+			"scenario": {"type": "string", "enum": ["generic", "architecture_explain", "root_cause"]},
+			"complexity": {"type": "string", "enum": ["simple", "moderate", "complex"]},
+			"question_kind": {"type": "string", "enum": ["mechanism", "enumeration", "comparison"]},
+			"language": {"type": "string", "enum": ["zh", "en"]},
+			"predicate_axis": {"type": "string", "enum": ["call", "register", ""]},
+			"keywords": {"type": "array", "items": {"type": "string"}},
+			"entities": {"type": "array", "items": {"type": "string"}},
+			"intent_confidence": {"type": "number"},
+			"complexity_confidence": {"type": "number"},
+			"kind_confidence": {"type": "number"},
+			"predicates": {"type": "object"},
+			"diagnostic_profile": {"type": "object"},
+			"answer_role_profile": {"type": "object"},
+			"error_granularity_profile": {"type": "object"}
 		}
 	}`)
 }

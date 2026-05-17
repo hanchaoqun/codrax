@@ -53,6 +53,7 @@ type schemaNode struct {
 	Type       any                        `json:"type"`
 	Properties map[string]json.RawMessage `json:"properties"`
 	Items      json.RawMessage            `json:"items"`
+	Enum       []json.RawMessage          `json:"enum"`
 }
 
 var envelopeCarrierKeyOrder = []string{
@@ -172,6 +173,12 @@ func normalizeValue(value any, schema json.RawMessage, path string, cfg types.To
 			if v, ok := parseJSONStringBool(s); ok {
 				return v, []Repair{repair(path, "string_boolean", valueKind(value), "boolean")}
 			}
+		}
+	}
+
+	if s, ok := value.(string); ok && schemaAllowsStringEnumRepair(node) {
+		if v, rule, ok := decodeJSONStringEnumString(s, node); ok {
+			return v, []Repair{repair(path, rule, valueKind(value), "string_enum")}
 		}
 	}
 
@@ -648,6 +655,61 @@ func arrayItemsAllowOnlyString(node schemaNode) bool {
 		!typeAllows(child.Type, "integer") &&
 		!typeAllows(child.Type, "number") &&
 		!typeAllows(child.Type, "boolean")
+}
+
+func schemaAllowsStringEnumRepair(node schemaNode) bool {
+	if len(node.Enum) == 0 {
+		return false
+	}
+	return typeAllows(node.Type, "string") || node.Type == nil
+}
+
+func decodeJSONStringEnumString(s string, node schemaNode) (string, string, bool) {
+	enumValues := schemaStringEnumValues(node)
+	if len(enumValues) == 0 {
+		return "", "", false
+	}
+	if _, ok := enumValues[s]; ok {
+		return "", "", false
+	}
+	current := strings.TrimSpace(s)
+	for depth := 0; depth < 3; depth++ {
+		if !strings.HasPrefix(current, `"`) {
+			return "", "", false
+		}
+		decoded, ok := decodeJSONValue(json.RawMessage(current))
+		if !ok {
+			return "", "", false
+		}
+		inner, ok := decoded.(string)
+		if !ok {
+			return "", "", false
+		}
+		if _, ok := enumValues[inner]; ok {
+			rule := "json_string_enum"
+			if depth > 0 {
+				rule = "json_string_enum_nested"
+			}
+			return inner, rule, true
+		}
+		current = strings.TrimSpace(inner)
+	}
+	return "", "", false
+}
+
+func schemaStringEnumValues(node schemaNode) map[string]struct{} {
+	if len(node.Enum) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(node.Enum))
+	for _, raw := range node.Enum {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			continue
+		}
+		out[s] = struct{}{}
+	}
+	return out
 }
 
 func decodeJSONValue(raw json.RawMessage) (any, bool) {

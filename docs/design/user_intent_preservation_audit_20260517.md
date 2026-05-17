@@ -45,6 +45,7 @@
 12. **Batch B/E 边界澄清**：REPL Mermaid→ASCII 属于终端呈现层友好降级，不再作为“系统替代模型意图”整改项；边界是 raw markdown 必须仍作为 truth source 写入日志、output dump、memory，且该渲染结果不得进入 gate / reviewer / 后续模型上下文。已补测试锁住 pipeline REPL 记忆保存 raw Mermaid，而不是终端渲染后的 text fence。
 13. **Batch G 第二段落地**：annotation JSON 兼容层新增唯一可恢复的 `claim_uses[].facet_ids` → `claim_uses[].facet_id` 归一化。full emit 与 patch 共用同一 repair；单值自动修复，避免小 schema 错误触发 finalizer 重试；多值保持拒绝，防止系统替模型选择 facet。新增 full/patch 回归测试。
 14. **Batch B 第二段落地**：新增 family-independent `AnswerPresentationContract`。schema 现在可在不增加 finalizer prompt 负担的前提下允许 table/scalar/decision 展示载体；用户显式 diagram contract 跨所有 QuestionFamily 生效，config/role/enumeration/comparison 等旧“无图 family”不再吞掉时序图/流程图需求。软 diagram preference 仍不升级为硬要求，避免证据偏好替代用户意图。
+15. **Batch G 第三段落地**：schema-aware tool-param 兼容层新增 string enum JSON-literal 修复。若 schema 声明字段是 `string enum`，模型却发出 `"\"explain\""` / `"\"\""` 这类双重 JSON 字符串，系统会在本地无损解包；解包后仍不属于 enum 的值继续交给工具 gate 拒绝。该修复覆盖 `emit_analysis.intent/scenario/complexity/question_kind/language/predicate_axis` 等字段，避免 analyze 阶段因机械参数形态返工，也避免静默降级为 `unknown/generic`。
 
 ## 问题清单
 
@@ -547,6 +548,29 @@
 - 已加测试：`TestFixF_CallDAGKind_ExplicitDisplayLabelSkipsInternalAlias` 保证内部 alias 不触发重写；`TestFixF_CallDAGKind_ExplicitCodeLabelStillFires` 保证真实可见伪造标识符仍会被拦截。
 - 后续 diagram validator 新增能力时必须先回答“校验对象是否用户可见”。若答案是否定，默认 advisory 或 renderer-local 容错，不得触发 finalizer rewrite。
 
+### UIP-024（P1）emit_analysis 双重编码枚举会触发 analyze 重试或静默降级
+
+代码位置：`internal/toolparam/normalize.go`、`internal/agent/agent.go::normalizeToolCallParams`、`internal/tool/emit_analysis.go`
+
+状态：**已修复（Batch G 第三段）**。通用 schema-aware tool-param normalizer 现在读取 schema enum；只有当字段是 `string enum`，当前字符串不是枚举值，且按 JSON string literal 解包后恰好命中枚举值时才修复。普通自由文本字段不解包，非法 enum 不修复，仍由工具自身 gate 给出 canonical 错误。
+
+触发证据：
+
+- 最新日志中 analyzer 第一次 `emit_analysis` 发出 `intent="\"explain\""`、`scenario="\"architecture_explain\""`、`complexity="\"complex\""`、`question_kind="\"mechanism\""`、`language="\"zh\""`、`predicate_axis="\"\""`.
+- `predicate_axis` 因 `"\"\""` 不是合法 axis 被拒，状态行显示 `⟳ 1/4 模型响应出错,正在重新理解问题`。
+- 第二次模型省略 `predicate_axis` 后通过，但其它双重编码字段被 normalizer 静默降级：`intent "\"explain\""→unknown`、`scenario "\"architecture_explain\""→generic`、`complexity "\"complex\""→moderate`、`question_kind "\"mechanism\""→unknown`。
+
+风险：
+
+- 这不是模型理解失败，而是工具参数编码兼容层没兜住，导致 analyze 阶段不必要重试。
+- 更隐蔽的是第二次通过后分类质量被降级，后续 explorer/finalizer 可能在错误 RequestModel 上工作，形成跨阶段返工。
+
+防回归措施：
+
+- 兼容规则放在通用 `toolparam.Normalize`，不写死用户问题、模型散文或某个 case。
+- 回归测试覆盖：合法双重编码 enum 自动解包；自由文本保留外层引号；非法 enum 不修复并留给工具 gate。
+- 新增 analyzer 侧测试保证 `emit_analysis` 的双重编码 enum 在执行工具前被归一化，并与既有 required profile default 修复共存。
+
 ## 分批修复建议
 
 ### Batch A：先消除明确红线
@@ -590,9 +614,9 @@
 
 ### Batch G：JSON/schema 兼容层泛化
 
-1. [~] 建立 schema-aware relocation/quarantine registry，替代无限扩张的错位字段提示表。（已覆盖 schema-unknown metadata quarantine；单值 `claim_uses[].facet_ids` 已本地修复；可见 payload 错位仍走 strict remap）
+1. [~] 建立 schema-aware relocation/quarantine registry，替代无限扩张的错位字段提示表。（已覆盖 schema-unknown metadata quarantine；单值 `claim_uses[].facet_ids` 已本地修复；string enum JSON-literal 已在通用 tool-param normalizer 修复；可见 payload 错位仍走 strict remap）
 2. [~] core doc 已有效时，未知无害 metadata 进入 diagnostics，不触发 LLM 重试。（当前进入 operator WARN/quarantine，后续补 typed diagnostics 展示）
-3. [~] 回归覆盖 top-level/misplaced `claim_uses`、`facet_ids`、`edge_anchors`、table 字段和旧 schema 残留字段。（已覆盖 top-level claim_uses / block/item/citation metadata、full/patch 单值 `claim_uses[].facet_ids` 修复、多值歧义拒绝；保留旧错位字段 reject 测试）
+3. [~] 回归覆盖 top-level/misplaced `claim_uses`、`facet_ids`、`edge_anchors`、table 字段和旧 schema 残留字段。（已覆盖 top-level claim_uses / block/item/citation metadata、full/patch 单值 `claim_uses[].facet_ids` 修复、多值歧义拒绝、tool-param string enum JSON-literal 修复；保留旧错位字段 reject 测试）
 
 ### Batch H：gate taxonomy + upstream routing
 

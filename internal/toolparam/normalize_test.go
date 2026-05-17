@@ -48,6 +48,65 @@ func TestNormalize_StringScalarsAgainstSchema(t *testing.T) {
 	}
 }
 
+func TestNormalize_StringEnumJSONLiteralArtifacts(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "intent":{"type":"string","enum":["explain","root_cause"]},
+	    "predicate_axis":{"type":"string","enum":["call","register",""]},
+	    "free_text":{"type":"string"}
+	  }
+	}`)
+	raw := json.RawMessage(`{
+	  "intent":"\"explain\"",
+	  "predicate_axis":"\"\"",
+	  "free_text":"\"keep the user's literal quotes\""
+	}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$.intent", "json_string_enum") {
+		t.Fatalf("expected intent enum-string repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.predicate_axis", "json_string_enum") {
+		t.Fatalf("expected predicate_axis enum-string repair, got %+v", report)
+	}
+	var decoded struct {
+		Intent        string `json:"intent"`
+		PredicateAxis string `json:"predicate_axis"`
+		FreeText      string `json:"free_text"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if decoded.Intent != "explain" {
+		t.Fatalf("intent = %q, want explain; raw=%s", decoded.Intent, got)
+	}
+	if decoded.PredicateAxis != "" {
+		t.Fatalf("predicate_axis = %q, want empty enum sentinel; raw=%s", decoded.PredicateAxis, got)
+	}
+	if decoded.FreeText != `"keep the user's literal quotes"` {
+		t.Fatalf("free_text should not be unwrapped without enum schema, got %q", decoded.FreeText)
+	}
+}
+
+func TestNormalize_StringEnumJSONLiteralKeepsInvalidEnumForToolGate(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "predicate_axis":{"type":"string","enum":["call","register",""]}
+	  }
+	}`)
+	raw := json.RawMessage(`{"predicate_axis":"\"ponder\""}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if report.Changed() {
+		t.Fatalf("invalid enum must remain for the tool's canonical gate, got report %+v", report)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("invalid enum payload changed: got %s want %s", got, raw)
+	}
+}
+
 func TestNormalize_StringWrappedArrays(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",
