@@ -275,13 +275,17 @@ func checkMustIncludeOracle(draft Answer, c types.AnswerContract, oracle types.S
 		if strings.TrimSpace(term.Text) == "" {
 			continue
 		}
-		hit := contractTermHit(draft.Text, term, oracle)
+		hit := contractTermHit(draft, term, oracle)
 		if !hit {
+			repair := "include " + term.Text + " in the final answer"
+			if term.Kind == types.ContractTermFileStem {
+				repair = "mention " + term.Text + " in the final answer or cite the matching source file"
+			}
 			out = append(out, Violation{
 				Kind:       ViolMustInclude,
 				ClusterKey: types.IdentityClusterKey("term:"+term.Text, "must_include"),
 				Detail:     fmt.Sprintf("required %s %q missing from answer", contractTermKindLabel(term.Kind), term.Text),
-				Repair:     "include " + term.Text + " in the final answer",
+				Repair:     repair,
 			})
 		}
 	}
@@ -292,14 +296,17 @@ func normalizedMustIncludeTerms(c types.AnswerContract) []types.ContractTerm {
 	return types.NormalizedMustIncludeTerms(c)
 }
 
-func contractTermHit(text string, term types.ContractTerm, oracle types.SymbolOracle) bool {
+func contractTermHit(draft Answer, term types.ContractTerm, oracle types.SymbolOracle) bool {
 	switch term.Kind {
 	case types.ContractTermUserPhrase:
-		return strings.Contains(strings.ToLower(text), strings.ToLower(term.Text))
-	case types.ContractTermToolName, types.ContractTermFileStem:
-		return containsSymbol(text, term.Text)
+		return strings.Contains(strings.ToLower(draft.Text), strings.ToLower(term.Text))
+	case types.ContractTermToolName:
+		return containsSymbol(draft.Text, term.Text)
+	case types.ContractTermFileStem:
+		return containsSymbol(draft.Text, term.Text) ||
+			contractFileStemCoveredByCitation(draft.Citations, term.Text)
 	default:
-		hit := containsSymbol(text, term.Text)
+		hit := containsSymbol(draft.Text, term.Text)
 		if hit && oracle != nil && shouldOracleGateInclude(term.Text) {
 			if !oracleHasReliableSymbol(oracle, term.Text) {
 				// Substring matches but the term isn't a real symbol —
@@ -309,6 +316,44 @@ func contractTermHit(text string, term types.ContractTerm, oracle types.SymbolOr
 		}
 		return hit
 	}
+}
+
+func contractFileStemCoveredByCitation(citations []Citation, term string) bool {
+	termKeys := contractFileTermKeys(term)
+	if len(termKeys) == 0 {
+		return false
+	}
+	want := make(map[string]bool, len(termKeys))
+	for _, key := range termKeys {
+		want[key] = true
+	}
+	for _, cit := range citations {
+		for _, key := range contractFileTermKeys(cit.File) {
+			if want[key] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func contractFileTermKeys(path string) []string {
+	clean := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(path, `\`, `/`)))
+	if clean == "" {
+		return nil
+	}
+	out := []string{clean}
+	base := clean
+	if i := strings.LastIndex(base, "/"); i >= 0 && i+1 < len(base) {
+		base = base[i+1:]
+	}
+	if base != "" && base != clean {
+		out = append(out, base)
+	}
+	if dot := strings.LastIndex(base, "."); dot > 0 {
+		out = append(out, base[:dot])
+	}
+	return out
 }
 
 func contractTermKindLabel(kind types.ContractTermKind) string {
@@ -381,7 +426,7 @@ func checkMustExcludeOracle(draft Answer, c types.AnswerContract, oracle types.S
 		if strings.TrimSpace(term.Text) == "" {
 			continue
 		}
-		hit := contractTermHit(draft.Text, term, oracle)
+		hit := contractTermHit(draft, term, oracle)
 		if hit {
 			out = append(out, Violation{
 				Kind:       ViolMustExclude,

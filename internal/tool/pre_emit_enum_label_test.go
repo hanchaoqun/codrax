@@ -1159,6 +1159,52 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_AppendsUniqueEvidenceCan
 	}
 }
 
+func TestNormalizeOutOfRangeItemCitationRefsByEvidenceSurface(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "opencode/packages/opencode/src/util/bom.ts", Line: 18}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "anchors",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "auth",
+				Label:       "llm/route/auth.ts",
+				Text:        "LLM 认证层通过 fromModelApiKey 从请求的 model.apiKey 字段提取凭证。",
+				CitationRef: 11,
+			}},
+		}},
+	}
+	mut := types.NewMutableState("compare read-mode hallucination prevention")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceMechanism,
+		Source:          "opencode/packages/llm/src/route/auth.ts",
+		LineStart:       112,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "fromModelApiKey",
+		Subject:         "fromModelApiKey",
+		Snippet:         "const fromModelApiKey = (from: (apiKey: string) => Headers.Input) => auth(...)",
+		GroundingStatus: types.GroundingGrounded,
+		Scope:           types.ScopeLine,
+	}}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext(doc, nil, ctx, nil)
+	if fixed != 1 {
+		t.Fatalf("expected one out-of-range citation_ref repair, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref = %d, want appended index 1", got)
+	}
+	if len(doc.Citations) != 2 {
+		t.Fatalf("expected citation append, got %+v", doc.Citations)
+	}
+	if got := doc.Citations[1]; got.File != "opencode/packages/llm/src/route/auth.ts" || got.Line != 112 {
+		t.Fatalf("appended citation = %+v, want auth.ts:112", got)
+	}
+	if hints := preCheckCitationPoolIntegrity(doc); len(hints) != 0 {
+		t.Fatalf("locally repaired citation pool should pass, got %+v", hints)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_AcceptsQualifiedLabelViaEnclosingFunction(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Citations: []types.Citation{{

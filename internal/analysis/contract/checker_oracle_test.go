@@ -144,6 +144,28 @@ func TestCheckWithOracle_FileStemMustIncludeBypassesSymbolOracle(t *testing.T) {
 	}
 }
 
+func TestCheckWithOracle_FileStemMustIncludeCanBeCoveredByCitation(t *testing.T) {
+	oracle := &stubOracle{tiers: map[string]int{}}
+	draft := Answer{
+		Text: "The auth layer derives credentials from the request model.",
+		Citations: []Citation{{
+			File: "opencode/packages/llm/src/route/auth.ts",
+			Line: 112,
+		}},
+	}
+	c := types.AnswerContract{
+		MustIncludeTerms: []types.ContractTerm{{
+			Text:   "llm/route/auth.ts",
+			Kind:   types.ContractTermFileStem,
+			Source: types.ContractTermSourceAnalyzerEntity,
+		}},
+	}
+	res := CheckWithOracle(draft, c, oracle)
+	if !res.Passed {
+		t.Fatalf("file-stem must_include should be satisfied by a matching rendered citation; got %+v", res.Violations)
+	}
+}
+
 func TestCheckWithOracle_UserPhraseMustIncludeUsesPhraseContainment(t *testing.T) {
 	oracle := &stubOracle{tiers: map[string]int{}}
 	draft := Answer{Text: "The final answer explicitly distinguishes the raw prompt from the triage bundle."}

@@ -5913,6 +5913,19 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
 		return LoopSignal{}
 	}
+	if answerDocumentPatchRejectIsBlockCardinality(obs.LastToolResult.Summary) {
+		e.rejectHintsUsed++
+		hint := "Your last `emit_answer_document_patch` call was rejected because the document already has the allowed number of that block kind. Keep using `emit_answer_document_patch`; do not add another `kind=section` block. Fold the missing content into the existing related section with `replace_blocks`, or update an existing table/list/caveat block when that better preserves the user's requested shape. Keep unrelated blocks in `unchanged_block_ids`. Preserve the existing `citations[]` pool and use `append_citations` only for genuinely new evidence. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call."
+		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+		return LoopSignal{
+			HintRequested:  true,
+			HintKey:        "answer_doc.patch_cardinality",
+			Hint:           hint,
+			Progress:       true,
+			BypassThrottle: true,
+			BypassBudget:   true,
+		}
+	}
 	e.forceFullEmitNext = true
 	e.rejectHintsUsed++
 	hint := "Your last `emit_answer_document_patch` call was rejected. Stop patching for this repair and re-emit a complete `emit_answer_document` payload instead. Start from the previous complete document: carry forward its existing `citations[]` pool unless the repair truly changes the cited evidence; if you add or replace citations, emit one complete zero-based pool and ensure every non-negative `blocks[].items[].citation_ref` resolves to it. Preserve the same user-facing facts from the previous answer and the typed support lanes, but do not reuse stale patch-only block ids or citation indexes from rejected patch attempts. If the repair needs many list/table member or citation changes, a full emit is safer than piecemeal patching. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call."
@@ -5925,6 +5938,15 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func answerDocumentPatchRejectIsBlockCardinality(summary string) bool {
+	summary = strings.ToLower(strings.TrimSpace(summary))
+	if summary == "" {
+		return false
+	}
+	return strings.Contains(summary, "blocks[].kind=section") &&
+		strings.Contains(summary, "reduce kind=section blocks")
 }
 
 func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {

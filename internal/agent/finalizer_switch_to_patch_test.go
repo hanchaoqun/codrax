@@ -290,6 +290,42 @@ func TestEmitPatchRejectFullRewriteSignal_FailedPatchRequestsCarryForwardFullEmi
 	}
 }
 
+func TestEmitPatchRejectFullRewriteSignal_SectionCountKeepsPatchPath(t *testing.T) {
+	e := &answerDocumentEvaluator{}
+	ctx := ctxWithAnswerPatchBase()
+	obs := LoopObservation{
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document_patch",
+			Success:  false,
+			Summary:  "Field: blocks[].kind=section\nAction: reduce kind=section blocks to at most 2 (currently emitted: 3)",
+		},
+	}
+
+	got := e.emitPatchRejectFullRewriteSignal(ctx, obs)
+	if !got.HintRequested {
+		t.Fatalf("section-cardinality patch reject should request a targeted patch hint; got %+v", got)
+	}
+	if got.HintKey != "answer_doc.patch_cardinality" {
+		t.Fatalf("HintKey=%q, want answer_doc.patch_cardinality", got.HintKey)
+	}
+	for _, want := range []string{
+		"Keep using `emit_answer_document_patch`",
+		"do not add another `kind=section` block",
+		"replace_blocks",
+		"append_citations",
+	} {
+		if !strings.Contains(got.Hint, want) {
+			t.Errorf("section-cardinality hint missing %q:\n%s", want, got.Hint)
+		}
+	}
+	if strings.Contains(got.Hint, "Stop patching") {
+		t.Fatalf("section-cardinality reject must not force full rewrite:\n%s", got.Hint)
+	}
+	if e.forceFullEmitNext {
+		t.Fatal("section-cardinality reject should keep the patch path available")
+	}
+}
+
 func TestEmitSwitchToPatchSignal_HintIsLanguageNeutral(t *testing.T) {
 	// R6 audit: no internal stage names ("explorer" / "extractor"
 	// / "downstream stage"), no internal field names.

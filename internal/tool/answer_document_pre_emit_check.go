@@ -764,6 +764,129 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 	return fixed
 }
 
+func normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return 0
+	}
+	if pctx == nil {
+		pctx = newPreEmitCheckContext(ctx)
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			continue
+		}
+		if preEmitBlockUsesNonSymbolLabelSurface(*block, view) {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			if item.CitationRef < len(doc.Citations) {
+				continue
+			}
+			label := strings.TrimSpace(item.Label)
+			text := preEmitItemNonLabelSurface(*item)
+			if label == "" && strings.TrimSpace(text) == "" {
+				continue
+			}
+			if cit, ok := preEmitPreferredCandidateCitationForItemWithContext(pctx, label, text); ok {
+				item.CitationRef = appendOrReusePreEmitCitation(doc, cit)
+				fixed++
+				continue
+			}
+			if cit, ok := preEmitUniqueEvidenceCitationForItemSurfaceWithContext(pctx, label, text); ok {
+				item.CitationRef = appendOrReusePreEmitCitation(doc, cit)
+				fixed++
+			}
+		}
+	}
+	return fixed
+}
+
+func preEmitUniqueEvidenceCitationForItemSurfaceWithContext(pctx *preEmitCheckContext, label, text string) (types.Citation, bool) {
+	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
+		return types.Citation{}, false
+	}
+	label = strings.TrimSpace(label)
+	text = strings.TrimSpace(text)
+	if label == "" && text == "" {
+		return types.Citation{}, false
+	}
+	var out []types.Citation
+	seen := make(map[string]bool)
+	for _, ev := range pctx.evidenceItems() {
+		if ev.GroundingStatus == types.GroundingUngrounded ||
+			strings.TrimSpace(ev.Source) == "" ||
+			ev.LineStart <= 0 {
+			continue
+		}
+		if !preEmitItemSurfaceMentionsEvidence(label, text, ev) {
+			continue
+		}
+		cit := pctx.canonicalCitation(types.Citation{
+			File:          ev.Source,
+			Line:          ev.LineStart,
+			LineEnd:       ev.LineEnd,
+			Scope:         ev.Scope,
+			SectionPath:   ev.SectionPath,
+			FileRoleLabel: ev.FileRoleLabel,
+		})
+		if cit.File == "" || cit.Line <= 0 {
+			continue
+		}
+		key := preEmitCitationLocationKey(cit)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, cit)
+	}
+	if len(out) != 1 {
+		return types.Citation{}, false
+	}
+	return out[0], true
+}
+
+func preEmitItemSurfaceMentionsEvidence(label, text string, ev types.EvidenceItem) bool {
+	surface := strings.TrimSpace(strings.Join([]string{label, text}, "\n"))
+	if surface == "" {
+		return false
+	}
+	for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+		if preEmitCodeSurfaceAppearsVerbatim(endpoint, surface) {
+			return true
+		}
+	}
+	for _, term := range ev.SurfaceTerms {
+		if preEmitCodeSurfaceAppearsVerbatim(term, surface) {
+			return true
+		}
+	}
+	if preEmitSourceSurfaceMatchesLabel(label, ev.Source) {
+		return true
+	}
+	return false
+}
+
+func preEmitSourceSurfaceMatchesLabel(label, source string) bool {
+	label = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(label, `\`, `/`)))
+	source = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(source, `\`, `/`)))
+	if label == "" || source == "" {
+		return false
+	}
+	if source == label || strings.HasSuffix(source, "/"+label) {
+		return true
+	}
+	base := filepath.Base(label)
+	if base == "." || base == "/" || base == "" {
+		return false
+	}
+	return strings.Contains(base, ".") && filepath.Base(source) == base
+}
+
 func preEmitUniqueCitationIndex(citations []types.Citation, exclude int, matches func(types.Citation) bool) int {
 	if len(citations) == 0 || matches == nil {
 		return -1
