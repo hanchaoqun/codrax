@@ -2014,6 +2014,23 @@ func preEmitAggregateDisplayPartAppears(value, surface string) bool {
 }
 
 func preEmitDisplaySurfaceAppears(value, surface string) bool {
+	if preEmitDisplaySurfaceAppearsStrict(value, surface) {
+		return true
+	}
+	// Fallback for typographic style variance only — full-width
+	// punctuation ↔ half-width and ASCII-letter|digit ↔ CJK boundary
+	// whitespace. Member identity tokens still must appear in the
+	// surface (no substring-search relaxation). Per
+	// docs/design/post_phase2a_forensic_followups.md §2.3.
+	nv := preEmitNormalizeForMixedCJK(value)
+	ns := preEmitNormalizeForMixedCJK(surface)
+	if nv == value && ns == surface {
+		return false
+	}
+	return preEmitDisplaySurfaceAppearsStrict(nv, ns)
+}
+
+func preEmitDisplaySurfaceAppearsStrict(value, surface string) bool {
 	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
 	surface = strings.Join(strings.Fields(strings.TrimSpace(surface)), " ")
 	if value == "" || surface == "" {
@@ -2067,6 +2084,110 @@ func preEmitDisplaySurfaceBoundary(s string, idx int) bool {
 	}
 	r := rune(s[idx])
 	return !(r == '_' || r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z')
+}
+
+// preEmitNormalizeForMixedCJK relaxes the strict member-surface
+// oracle for typographic variance that arises when an investigator
+// emits a member with EN punctuation + ASCII-style spacing while the
+// finalizer renders the same identity in zh prose. The rewrite is
+// closed-set — no token is dropped, no substring relaxation, only
+// display-style folding. Pure-ASCII identifiers (e.g. gate.RunWith)
+// pass through byte-identical so the strict comparator semantics
+// remain unchanged on that surface.
+//
+// Mappings:
+//   - full-width punctuation → half-width: （）：！，。
+//   - optional whitespace between an ASCII letter|digit and a CJK
+//     letter → removed (so "vs 正文" ≡ "vs正文")
+//   - optional whitespace between an identifier-char (ASCII alnum or
+//     CJK letter) and an opening '(' → removed; required for
+//     "Foo (qualifier)" ≡ "Foo（qualifier）" after zh-paren strip,
+//     since EN typography puts a space before '(' while zh does not.
+//     '(' is the only opening paren in the closed punctuation set
+//     above; ')' is NOT included on either side to avoid eroding
+//     external word boundaries.
+//   - multi-space collapsed; leading/trailing trimmed
+//
+// docs/design/post_phase2a_forensic_followups.md §2.3 (2026-05-17).
+func preEmitNormalizeForMixedCJK(s string) string {
+	if s == "" {
+		return s
+	}
+	var pb strings.Builder
+	pb.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case '（':
+			pb.WriteByte('(')
+		case '）':
+			pb.WriteByte(')')
+		case '：':
+			pb.WriteByte(':')
+		case '！':
+			pb.WriteByte('!')
+		case '，':
+			pb.WriteByte(',')
+		case '。':
+			pb.WriteByte('.')
+		default:
+			pb.WriteRune(r)
+		}
+	}
+	runes := []rune(pb.String())
+	out := make([]rune, 0, len(runes))
+	i := 0
+	for i < len(runes) {
+		r := runes[i]
+		if !unicode.IsSpace(r) {
+			out = append(out, r)
+			i++
+			continue
+		}
+		j := i
+		for j < len(runes) && unicode.IsSpace(runes[j]) {
+			j++
+		}
+		hasPrev := len(out) > 0
+		hasNext := j < len(runes)
+		if hasPrev && hasNext {
+			prev := out[len(out)-1]
+			next := runes[j]
+			if !preEmitIsTypographicFoldBoundary(prev, next) {
+				out = append(out, ' ')
+			}
+		}
+		i = j
+	}
+	return string(out)
+}
+
+func preEmitIsTypographicFoldBoundary(a, b rune) bool {
+	// ASCII letter|digit ↔ CJK letter (per spec).
+	if (preEmitIsASCIIAlnum(a) && preEmitIsCJKLetter(b)) ||
+		(preEmitIsCJKLetter(a) && preEmitIsASCIIAlnum(b)) {
+		return true
+	}
+	// identifier-char ↔ '(' — EN-vs-zh paren-spacing asymmetry.
+	// Asymmetric on close-paren side to preserve external word
+	// boundary "(foo) bar" so a substring search for "(foo)" still
+	// has ' ' as the right-side boundary char.
+	if a == '(' && (preEmitIsASCIIAlnum(b) || preEmitIsCJKLetter(b)) {
+		return true
+	}
+	if b == '(' && (preEmitIsASCIIAlnum(a) || preEmitIsCJKLetter(a)) {
+		return true
+	}
+	return false
+}
+
+func preEmitIsASCIIAlnum(r rune) bool {
+	return (r >= '0' && r <= '9') ||
+		(r >= 'A' && r <= 'Z') ||
+		(r >= 'a' && r <= 'z')
+}
+
+func preEmitIsCJKLetter(r rune) bool {
+	return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
 }
 
 func changeImpactFileLabelsForHint(diag *types.ChangeImpactFileOutputLabelDiagnostic) string {

@@ -1895,3 +1895,80 @@ func TestNormalizePrincipalSupportMemberCarriers_MaterializesMissingTypedMembers
 		t.Fatalf("unexpected materialized item: %+v", last)
 	}
 }
+
+// === preEmitDisplaySurfaceAppears typographic normalisation ===
+//
+// docs/design/post_phase2a_forensic_followups.md §2.3 — finalizer
+// retries hit raw fallback when the investigator's member surface
+// used EN paren + no inner spaces and the finalizer rendered the
+// same identity with zh paren + ASCII-CJK boundary spaces. The
+// strict comparator rejected the typographic variant; these tests
+// pin the normalised fallback behaviour without relaxing the
+// strict path on pure-ASCII identifiers.
+
+func TestPreEmitDisplaySurfaceAppears_ZhParenEquivalentToEnParen(t *testing.T) {
+	value := "Foo (bar)"
+	surface := "下面三个组件: Foo（bar） 是关键。"
+	if !preEmitDisplaySurfaceAppears(value, surface) {
+		t.Fatalf("zh-paren surface should accept EN-paren member (typographic fold)\nvalue=%q\nsurface=%q", value, surface)
+	}
+	// Symmetric: EN-paren surface should also accept zh-paren member.
+	if !preEmitDisplaySurfaceAppears("Foo（bar）", "Use Foo (bar) here.") {
+		t.Fatal("EN-paren surface should accept zh-paren member")
+	}
+}
+
+func TestPreEmitDisplaySurfaceAppears_AsciiCjkBoundarySpaceFolds(t *testing.T) {
+	// Member written by investigator (no spaces around vs) vs prose
+	// (spaces around vs) — typographic difference only.
+	if !preEmitDisplaySurfaceAppears("vs正文", "比较 vs 正文 是关键") {
+		t.Fatal("ASCII-CJK boundary spaces in surface should be folded so member 'vs正文' matches 'vs 正文'")
+	}
+	if !preEmitDisplaySurfaceAppears("vs 正文", "summary比较vs正文是关键") {
+		t.Fatal("symmetric: member with ASCII-CJK space should match folded surface")
+	}
+}
+
+func TestPreEmitDisplaySurfaceAppears_PureAsciiIdentifierUnchanged(t *testing.T) {
+	// Helper itself must be a no-op on pure-ASCII content so the
+	// strict identifier-boundary semantics stay intact.
+	if got := preEmitNormalizeForMixedCJK("gate.RunWith"); got != "gate.RunWith" {
+		t.Fatalf("pure-ASCII identifier must pass through byte-identical, got %q", got)
+	}
+	// Strict comparator behaviour preserved: 'gate.RunWith' must
+	// NOT match 'gate.RunWithTimeout' (identifier-suffix boundary
+	// check still fires; normalised fallback does not relax it).
+	if preEmitDisplaySurfaceAppears("gate.RunWith", "Call gate.RunWithTimeout(ctx) now") {
+		t.Fatal("normalisation must not relax identifier-suffix boundary; gate.RunWith should not match gate.RunWithTimeout")
+	}
+	// Positive control: identical pure-ASCII still matches strictly.
+	if !preEmitDisplaySurfaceAppears("gate.RunWith", "Use gate.RunWith for this") {
+		t.Fatal("pure-ASCII identifier should still match identical token in surface")
+	}
+}
+
+func TestPreEmitDisplaySurfaceAppears_AbsentMemberStillRejected(t *testing.T) {
+	// A genuinely absent member must NOT pass — neither typographic
+	// nor whitespace folding makes the token appear.
+	if preEmitDisplaySurfaceAppears("NotInDoc", "finalizer 写了 SelfConsistencyReviewer（摘要 vs 正文独立 LLM） 等组件") {
+		t.Fatal("absent member must be rejected by the normalised fallback (no substring-search relaxation)")
+	}
+	if preEmitDisplaySurfaceAppears("AlphaOnly (xxx)", "BetaOnly（xxx）出现在文中") {
+		t.Fatal("typographic fold must not match a member whose name token is absent from surface")
+	}
+}
+
+func TestPreEmitDisplaySurfaceAppears_NineNineOhNineForensicReplay(t *testing.T) {
+	// Verbatim 09:09 production case shape: investigator emitted EN
+	// paren + no spaces around "vs"; finalizer wrote zh paren +
+	// spaces. Strict comparator failed 3× → quota burn → raw
+	// fallback. The normalised fallback must accept.
+	member := "SelfConsistencyReviewer (摘要vs正文独立LLM)"
+	surface := "本节列举四个组件:SelfConsistencyReviewer（摘要 vs 正文独立 LLM）是其中一个。"
+	if !preEmitDisplaySurfaceAppears(member, surface) {
+		t.Fatalf("09:09 forensic case must match after typographic fold\nmember=%q\nsurface=%q\nmember normalised=%q\nsurface normalised=%q",
+			member, surface,
+			preEmitNormalizeForMixedCJK(member),
+			preEmitNormalizeForMixedCJK(surface))
+	}
+}
