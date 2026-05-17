@@ -52,6 +52,62 @@ func (k AnswerAggregateKind) IsValid() bool {
 	return false
 }
 
+// AnswerAggregateRole classifies how a model-emitted aggregate fact should be
+// consumed downstream. It is structured metadata on the aggregate payload, not
+// a natural-language guess over labels or answer prose.
+type AnswerAggregateRole string
+
+const (
+	AnswerAggregateRoleUnknown            AnswerAggregateRole = ""
+	AnswerAggregateRolePrincipalAnswer    AnswerAggregateRole = "principal_answer"
+	AnswerAggregateRoleSupportingCoverage AnswerAggregateRole = "supporting_coverage"
+	AnswerAggregateRoleAuditLedger        AnswerAggregateRole = "audit_ledger"
+)
+
+func (r AnswerAggregateRole) IsValid() bool {
+	switch r {
+	case AnswerAggregateRoleUnknown,
+		AnswerAggregateRolePrincipalAnswer,
+		AnswerAggregateRoleSupportingCoverage,
+		AnswerAggregateRoleAuditLedger:
+		return true
+	}
+	return false
+}
+
+func NormalizeAnswerAggregateRole(raw AnswerAggregateRole) AnswerAggregateRole {
+	s := strings.ToLower(strings.TrimSpace(string(raw)))
+	switch s {
+	case "", "unknown":
+		return AnswerAggregateRoleUnknown
+	case "principal_answer", "principal", "primary_answer", "primary":
+		return AnswerAggregateRolePrincipalAnswer
+	case "supporting_coverage", "supporting", "support", "coverage", "context":
+		return AnswerAggregateRoleSupportingCoverage
+	case "audit_ledger", "audit", "ledger", "telemetry":
+		return AnswerAggregateRoleAuditLedger
+	default:
+		return AnswerAggregateRoleUnknown
+	}
+}
+
+func (r AnswerAggregateRole) IsPrincipal() bool {
+	return r == AnswerAggregateRolePrincipalAnswer
+}
+
+func AnswerAggregateRolePriority(role AnswerAggregateRole) int {
+	switch NormalizeAnswerAggregateRole(role) {
+	case AnswerAggregateRolePrincipalAnswer:
+		return 3
+	case AnswerAggregateRoleSupportingCoverage:
+		return 2
+	case AnswerAggregateRoleAuditLedger:
+		return 1
+	default:
+		return 0
+	}
+}
+
 // AnswerAggregateDimension is one typed axis for an aggregate fact:
 // scope=production, syntax=struct_literal, bucket=runtime, language=cpp,
 // or any other model-authored dimension that was explicitly verified.
@@ -68,6 +124,8 @@ type AnswerAggregateFact struct {
 	Kind        AnswerAggregateKind        `json:"kind"`
 	Label       string                     `json:"label"`
 	Value       string                     `json:"value"`
+	Role        AnswerAggregateRole        `json:"role,omitempty"`
+	Provenance  string                     `json:"provenance,omitempty"`
 	Unit        string                     `json:"unit,omitempty"`
 	Dimensions  []AnswerAggregateDimension `json:"dimensions,omitempty"`
 	Members     []string                   `json:"members,omitempty"`
@@ -80,8 +138,10 @@ type AnswerAggregateFact struct {
 // repair hints must continue to point at the model-emitted structured payload,
 // not at a re-numbered system projection.
 type AnswerAggregateFactRef struct {
-	Index int
-	Fact  AnswerAggregateFact
+	Index      int
+	Fact       AnswerAggregateFact
+	Role       AnswerAggregateRole
+	Provenance string
 }
 
 type aggregateRelationMemberSetFact struct {
@@ -158,6 +218,9 @@ func PrincipalAggregateMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAg
 		if !answerAggregateFactCarriesCompleteMemberSet(fact) {
 			continue
 		}
+		if AnswerAggregateFactRoleForRequest(fact, nil) != AnswerAggregateRolePrincipalAnswer {
+			continue
+		}
 		left, ok := aggregateRelationLeftAxisSet(fact)
 		if !ok {
 			continue
@@ -176,13 +239,16 @@ func PrincipalAggregateMemberSetFactRefs(facts []AnswerAggregateFact) []AnswerAg
 		if !answerAggregateFactCarriesCompleteMemberSet(fact) {
 			continue
 		}
+		if role := AnswerAggregateFactRoleForRequest(fact, nil); role != AnswerAggregateRolePrincipalAnswer {
+			continue
+		}
 		if aggregateMemberSetIsSubsumedLeftAxis(fact, relationFacts) {
 			continue
 		}
 		if skipRelationAlternate[idx] {
 			continue
 		}
-		out = append(out, AnswerAggregateFactRef{Index: idx, Fact: fact})
+		out = append(out, answerAggregateFactRef(idx, fact, AnswerAggregateRolePrincipalAnswer))
 	}
 	if len(out) == 0 {
 		return nil
@@ -212,11 +278,19 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 	}
 	out := make([]AnswerAggregateFactRef, 0, len(refs))
 	for _, ref := range refs {
-		if aggregateCountMemberSetIsNarrativeCoverageOnly(ref.Fact, *rm) {
+		explicitRole := NormalizeAnswerAggregateRole(ref.Fact.Role)
+		role := AnswerAggregateFactRoleForRequest(ref.Fact, rm)
+		if role != AnswerAggregateRolePrincipalAnswer {
 			continue
 		}
-		if aggregateMemberSetIsSourcePathCoverageOnly(ref.Fact, *rm) {
-			continue
+		ref.Role = role
+		if explicitRole == AnswerAggregateRoleUnknown {
+			if aggregateCountMemberSetIsNarrativeCoverageOnly(ref.Fact, *rm) {
+				continue
+			}
+			if aggregateMemberSetIsSourcePathCoverageOnly(ref.Fact, *rm) {
+				continue
+			}
 		}
 		out = append(out, ref)
 	}
@@ -224,6 +298,42 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 		return nil
 	}
 	return out
+}
+
+func answerAggregateFactRef(index int, fact AnswerAggregateFact, role AnswerAggregateRole) AnswerAggregateFactRef {
+	provenance := strings.TrimSpace(fact.Provenance)
+	if provenance == "" {
+		provenance = "model_emitted"
+	}
+	return AnswerAggregateFactRef{
+		Index:      index,
+		Fact:       fact,
+		Role:       role,
+		Provenance: provenance,
+	}
+}
+
+func AnswerAggregateFactRoleForRequest(fact AnswerAggregateFact, rm *RequestModel) AnswerAggregateRole {
+	if role := NormalizeAnswerAggregateRole(fact.Role); role != AnswerAggregateRoleUnknown {
+		return role
+	}
+	if fact.Kind == AnswerAggregateMemberSet {
+		if AggregateMemberSetIsScalarCountSupport(rm, fact) {
+			return AnswerAggregateRoleSupportingCoverage
+		}
+		if rm != nil && !aggregateRequestRequiresPathMemberSetAsPrincipal(*rm) &&
+			aggregateMemberSetIsSourcePathCoverageOnly(fact, *rm) {
+			return AnswerAggregateRoleSupportingCoverage
+		}
+		return AnswerAggregateRolePrincipalAnswer
+	}
+	if answerAggregateFactCarriesCompleteMemberSet(fact) {
+		if rm != nil && aggregateCountMemberSetIsNarrativeCoverageOnly(fact, *rm) {
+			return AnswerAggregateRoleSupportingCoverage
+		}
+		return AnswerAggregateRolePrincipalAnswer
+	}
+	return AnswerAggregateRolePrincipalAnswer
 }
 
 // AggregateMemberSetIsScalarCountSupport reports whether a model-emitted
@@ -594,10 +704,12 @@ func aggregateAxisMemberKey(member string) string {
 
 func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact, error) {
 	fact := AnswerAggregateFact{
-		Kind:  raw.Kind,
-		Label: trimAggregateText(raw.Label),
-		Value: trimAggregateText(raw.Value),
-		Unit:  trimAggregateText(raw.Unit),
+		Kind:       raw.Kind,
+		Label:      trimAggregateText(raw.Label),
+		Value:      trimAggregateText(raw.Value),
+		Role:       NormalizeAnswerAggregateRole(raw.Role),
+		Provenance: trimAggregateText(raw.Provenance),
+		Unit:       trimAggregateText(raw.Unit),
 	}
 	if !fact.Kind.IsValid() {
 		return AnswerAggregateFact{}, fmt.Errorf("kind %q is not accepted", raw.Kind)

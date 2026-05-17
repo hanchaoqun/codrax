@@ -104,6 +104,15 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 							"type": "string",
 							"description": "Exact value to preserve. For count kinds use a non-negative integer string such as \"0\", \"3\", or \"12\"; put words like files/locations in unit. For kind=member_set only, this may be omitted when members is the complete exact set."
 						},
+						"role": {
+							"type": "string",
+							"enum": ["principal_answer", "supporting_coverage", "audit_ledger"],
+							"description": "Optional typed role. principal_answer means this aggregate is the answer slate/value the answer-writing step must preserve visibly. supporting_coverage means it backs another principal answer such as a scalar count or mechanism explanation and must not force duplicate visible rows. audit_ledger means it is investigation bookkeeping only. Omit when unsure; the framework infers the legacy role from the typed request shape."
+						},
+						"provenance": {
+							"type": "string",
+							"description": "Optional short structured source note for operators, e.g. emit_investigation_complete.aggregate_facts, rg_count, deterministic_count_enrichment, or command:rg. Do not include this string in the user-visible final answer."
+						},
 						"unit": {
 							"type": "string",
 							"description": "Optional unit such as locations, files, functions, packages, buckets, candidates."
@@ -1566,10 +1575,10 @@ func cloneCompletionAggregateFacts(in []types.AnswerAggregateFact) []types.Answe
 
 func mergeCompletionAggregateFacts(current, stable []types.AnswerAggregateFact) []types.AnswerAggregateFact {
 	out := cloneCompletionAggregateFacts(current)
-	seen := make(map[string]bool, len(out))
-	for _, fact := range out {
+	seen := make(map[string]int, len(out))
+	for idx, fact := range out {
 		if key := completionAggregateFactIdentity(fact); key != "" {
-			seen[key] = true
+			seen[key] = idx
 		}
 	}
 	for _, fact := range stable {
@@ -1577,8 +1586,16 @@ func mergeCompletionAggregateFacts(current, stable []types.AnswerAggregateFact) 
 			continue
 		}
 		key := completionAggregateFactIdentity(fact)
-		if key != "" && seen[key] {
-			continue
+		if key != "" {
+			if idx, ok := seen[key]; ok {
+				if idx >= 0 && idx < len(out) && completionAggregateFactPreferred(fact, out[idx]) {
+					cloned := cloneCompletionAggregateFacts([]types.AnswerAggregateFact{fact})
+					if len(cloned) > 0 {
+						out[idx] = cloned[0]
+					}
+				}
+				continue
+			}
 		}
 		cloned := cloneCompletionAggregateFacts([]types.AnswerAggregateFact{fact})
 		if len(cloned) == 0 {
@@ -1586,7 +1603,7 @@ func mergeCompletionAggregateFacts(current, stable []types.AnswerAggregateFact) 
 		}
 		out = append(out, cloned[0])
 		if key != "" {
-			seen[key] = true
+			seen[key] = len(out) - 1
 		}
 	}
 	return out
@@ -1612,6 +1629,12 @@ func completionAggregateMemberSetSupersetMerged(out *[]types.AnswerAggregateFact
 		}
 		switch {
 		case completionAggregateMembersCover(current.Members, stable.Members):
+			if completionAggregateFactPreferred(stable, current) {
+				cloned := cloneCompletionAggregateFacts([]types.AnswerAggregateFact{stable})
+				if len(cloned) > 0 {
+					(*out)[i] = cloned[0]
+				}
+			}
 			return true
 		case completionAggregateMembersCover(stable.Members, current.Members):
 			cloned := cloneCompletionAggregateFacts([]types.AnswerAggregateFact{stable})
@@ -1624,6 +1647,22 @@ func completionAggregateMemberSetSupersetMerged(out *[]types.AnswerAggregateFact
 		}
 	}
 	return false
+}
+
+func completionAggregateFactPreferred(a, b types.AnswerAggregateFact) bool {
+	ar := completionAggregateFactRolePriority(a)
+	br := completionAggregateFactRolePriority(b)
+	if ar != br {
+		return ar > br
+	}
+	if len(a.SupportRefs) != len(b.SupportRefs) {
+		return len(a.SupportRefs) > len(b.SupportRefs)
+	}
+	return len(a.Members) > len(b.Members)
+}
+
+func completionAggregateFactRolePriority(fact types.AnswerAggregateFact) int {
+	return types.AnswerAggregateRolePriority(types.AnswerAggregateFactRoleForRequest(fact, nil))
 }
 
 func completionAggregateFactCarriesMemberSet(fact types.AnswerAggregateFact) bool {
@@ -1858,7 +1897,9 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 
 func aggregateFactsContainMemberSet(facts []types.AnswerAggregateFact) bool {
 	for _, fact := range facts {
-		if fact.Kind == types.AnswerAggregateMemberSet && len(fact.Members) > 0 {
+		if fact.Kind == types.AnswerAggregateMemberSet &&
+			types.AnswerAggregateFactRoleForRequest(fact, nil).IsPrincipal() &&
+			len(fact.Members) > 0 {
 			return true
 		}
 	}
@@ -1872,11 +1913,19 @@ func exhaustiveEnumerationMemberSetUsable(ctx *types.BusContext, facts []types.A
 	support := buildAggregateMemberSupportIndex(ctx)
 	sawMemberSet := false
 	var invalid []string
+	var rm *types.RequestModel
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
 	for factIdx, fact := range facts {
 		if fact.Kind != types.AnswerAggregateMemberSet {
 			continue
 		}
 		sawMemberSet = true
+		if !types.AnswerAggregateFactRoleForRequest(fact, rm).IsPrincipal() {
+			invalid = append(invalid, fmt.Sprintf("aggregate_facts[%d] role=%q is not principal_answer", factIdx, fact.Role))
+			continue
+		}
 		if len(fact.Members) == 0 {
 			invalid = append(invalid, fmt.Sprintf("aggregate_facts[%d] has no members", factIdx))
 			continue
@@ -2669,6 +2718,10 @@ func changeImpactAggregatePrincipalMemberSetUsable(profile *types.ChangeImpactPr
 			continue
 		}
 		sawMemberSet = true
+		if !types.AnswerAggregateFactRoleForRequest(fact, nil).IsPrincipal() {
+			invalid = append(invalid, fmt.Sprintf("aggregate_facts[%d] role=%q is not principal_answer", factIdx, fact.Role))
+			continue
+		}
 		if len(fact.Members) == 0 {
 			invalid = append(invalid, fmt.Sprintf("aggregate_facts[%d] has no members", factIdx))
 			continue
@@ -2969,6 +3022,9 @@ func completionTermCoveredByAggregateFacts(term types.ContractTerm, facts []type
 		if fact.Kind != types.AnswerAggregateMemberSet {
 			continue
 		}
+		if !types.AnswerAggregateFactRoleForRequest(fact, nil).IsPrincipal() {
+			continue
+		}
 		for _, member := range fact.Members {
 			if completionAggregateMemberContainsTerm(member, needle) {
 				return true
@@ -3109,16 +3165,25 @@ func aggregateFactsCanCarryPrincipalAnswer(rm types.RequestModel, family types.Q
 	for _, fact := range facts {
 		switch fact.Kind {
 		case types.AnswerAggregateScalar:
+			if !types.AnswerAggregateFactRoleForRequest(fact, &rm).IsPrincipal() {
+				continue
+			}
 			if family == types.QFConfigPrecedence || family == types.QFRoleLookup {
 				return true
 			}
 		case types.AnswerAggregateMemberSet:
+			if !types.AnswerAggregateFactRoleForRequest(fact, &rm).IsPrincipal() {
+				continue
+			}
 			if family == types.QFEnumeration {
 				return true
 			}
 		case types.AnswerAggregateTotalCount, types.AnswerAggregateUniqueCount,
 			types.AnswerAggregateGroupedCount, types.AnswerAggregateBucketCount,
 			types.AnswerAggregateExcluded:
+			if !types.AnswerAggregateFactRoleForRequest(fact, &rm).IsPrincipal() {
+				continue
+			}
 			if rm.Predicates.IsCountQuestion {
 				return true
 			}
@@ -3166,9 +3231,11 @@ func enrichCompletionAggregateFactsWithDeterministicCount(ctx *types.BusContext,
 	}
 	out := cloneCompletionAggregateFacts(facts)
 	out = append(out, types.AnswerAggregateFact{
-		Kind:  types.AnswerAggregateScalar,
-		Label: "deterministic count result",
-		Value: strconv.Itoa(value),
+		Kind:       types.AnswerAggregateScalar,
+		Label:      "deterministic count result",
+		Value:      strconv.Itoa(value),
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: "system_deterministic_count_enrichment",
 		Dimensions: []types.AnswerAggregateDimension{
 			{Name: "proof_source", Value: "exec_command"},
 			{Name: "answer_axis", Value: "count"},

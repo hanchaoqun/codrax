@@ -1577,6 +1577,66 @@ func TestEmitInvestigationComplete_AllowsExhaustiveEnumerationMemberSet(t *testi
 	}
 }
 
+func TestEmitInvestigationComplete_SupportingCoverageMemberSetDoesNotSatisfyExhaustiveEnumeration(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all public enum types")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "intent",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       642,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Intent",
+		Subject:         "Intent",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all public enum types",
+	}
+	bus := &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: ir,
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"member set is only an investigation coverage ledger",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"files inspected for enum evidence",
+			"value":"1",
+			"role":"supporting_coverage",
+			"provenance":"command:rg",
+			"members":["Intent"],
+			"support_refs":["internal/types/analysis_ir.go:642"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("role mismatch should downgrade softly, got hard failure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "exhaustive member-set handoff is missing") ||
+		!strings.Contains(res.Summary, "supporting_coverage") {
+		t.Fatalf("supporting coverage member_set must not satisfy principal handoff, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("downgraded completion must not mark investigation complete")
+	}
+}
+
 func TestMergeCompletionAggregateFacts_DedupesEquivalentMemberSetRetries(t *testing.T) {
 	current := []types.AnswerAggregateFact{{
 		Kind:    types.AnswerAggregateMemberSet,
@@ -1664,6 +1724,35 @@ func TestMergeCompletionAggregateFacts_CurrentSupersetWinsStableSubset(t *testin
 	}
 	if got[0].Value != "3" || len(got[0].Members) != 3 {
 		t.Fatalf("current superset should win over retained narrower set, got %+v", got[0])
+	}
+}
+
+func TestMergeCompletionAggregateFacts_RetainsPrincipalRoleOverSupportingCoverageRetry(t *testing.T) {
+	current := []types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "files inspected",
+		Value:      "2",
+		Role:       types.AnswerAggregateRoleSupportingCoverage,
+		Provenance: "command:rg",
+		Members:    []string{"internal/agent/explorer.go", "internal/agent/finalizer.go"},
+	}}
+	stable := []types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "principal implementation files",
+		Value:      "2",
+		Provenance: "previous_verified_completion",
+		Members:    []string{"internal/agent/explorer.go", "internal/agent/finalizer.go"},
+	}}
+
+	got := mergeCompletionAggregateFacts(current, stable)
+	if len(got) != 1 {
+		t.Fatalf("equivalent member_set role variants should merge to one fact, got %+v", got)
+	}
+	if got[0].Label != "principal implementation files" || got[0].Role != "" {
+		t.Fatalf("legacy principal stable fact should survive supporting coverage retry, got %+v", got[0])
+	}
+	if got[0].Provenance != "previous_verified_completion" {
+		t.Fatalf("principal provenance should be retained, got %+v", got[0])
 	}
 }
 

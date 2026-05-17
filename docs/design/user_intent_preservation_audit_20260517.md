@@ -40,6 +40,7 @@
 7. **Batch C/H 第三段已落地**：facet metadata gate 分层完成第一刀。`FacetRequirement` 新增 `RequiresHardDeclaration()`，pre-emit 只对 template-hard facet 做同轮拒绝；evidence-sufficient SOFT facet 只在 prompt 中标记为 `(evidence available)`，不再写成 “MUST declare / emit-time rejection”。semantic-quality depth audit 同步只看 emit-hard facet，避免 reviewer 把 soft metadata 变成 finalizer rewrite。另修 analyzer-derived `must_include`：`analyzer_entity` 符号不能只因全仓 `SymbolOracle` 命中就成为 hard requirement，必须在本轮 typed evidence / answer symbol 中有支撑，否则降级。
 8. **Batch E/F 第一段补齐**：inactive subrepo disclosure 不再作为 pre-emit hard retry 或默认 finalizer rewrite。缺失时保留 typed telemetry，并由 orchestrator 在系统“补充说明”通道追加范围说明；模型正文不再被迫写 `scope_disclosure` / inactive RootRel，避免系统工作区拓扑污染用户答案。
 9. **Batch H 第三段落地**：新增 same-error-class retry governor。除既有 per-kind / per-root / hard-cap 外，调度层按 typed `FallbackTarget + CaveatFamilyID` 记录更高层的错误类预算；同类机械问题已重试后即使换成 sibling kind，也停止继续 finalizer rewrite，交付当前答案并转入补充说明。该判断只读结构化 violation registry，不扫描用户问题或模型散文。
+10. **Batch C 第二段落地**：`aggregate_facts` 增加 typed `role/provenance`，支持 `principal_answer`、`supporting_coverage`、`audit_ledger`。explorer 可以明确区分“最终答案主集合”和“探索覆盖账本”；finalizer hard gate 只消费有效角色为 principal 的 aggregate fact，prompt 与 retry 合并也保留该结构化角色，不再用伪标记或标签猜测。
 
 ## 问题清单
 
@@ -111,6 +112,8 @@
 ### UIP-004（P1）aggregate member_set 被当成最终答案主列表，导致 finalizer 反复返工
 
 代码位置：`internal/tool/answer_document_pre_emit_check.go::preCheckAggregateMemberSetCoverage`、`normalizeAggregateMemberSetCarriers`、`internal/types/answer_aggregate_fact.go`
+
+状态：**已修复（Batch C 第二段）**。`AnswerAggregateFact` 新增 `role/provenance`，`emit_investigation_complete` schema 暴露 typed role；legacy payload 由 `RequestModel` 结构信号推断有效角色。`PrincipalAggregateMemberSetFactRefs*`、pre-complete exhaustive/relation/change-impact gate、completion principal-term coverage、finalizer aggregate prompt 均只把有效 `principal_answer` 当作主答案集合。`supporting_coverage` / `audit_ledger` 可作为上下文与运维账本保留，但不会强迫最终答案逐项渲染。
 
 当前行为：
 
@@ -502,7 +505,7 @@
 ### Batch C：finalizer gate 分层治理
 
 1. [~] 将 pre-emit checks 分为 hard / soft / advisory。（facet metadata 已分层：template-hard 才同轮拒绝，soft+证据只 advisory；inactive scope / 部分 scope disclosure 仍待分层）
-2. [ ] aggregate member_set 增加 role/provenance，只对 principal answer hard gate。
+2. [x] aggregate member_set 增加 role/provenance，只对 principal answer hard gate。
 3. [x] surface_terms 不再自动追加正文。
 4. [x] 同类错误连续失败时降级为隔离补充展示，不再反复重写。
 

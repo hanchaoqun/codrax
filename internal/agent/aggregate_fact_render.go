@@ -65,8 +65,16 @@ func renderStructuredAggregateFactsWithPrincipalRefs(facts []types.AnswerAggrega
 		return ""
 	}
 	principalMemberSets := map[int]bool{}
+	roleByIndex := map[int]types.AnswerAggregateRole{}
+	provenanceByIndex := map[int]string{}
 	for _, ref := range refs {
 		principalMemberSets[ref.Index] = true
+		if ref.Role != "" {
+			roleByIndex[ref.Index] = ref.Role
+		}
+		if ref.Provenance != "" {
+			provenanceByIndex[ref.Index] = ref.Provenance
+		}
 	}
 	order := orderedAggregateFactIndexes(facts, principalMemberSets)
 	if maxFacts <= 0 || maxFacts > len(order) {
@@ -78,12 +86,11 @@ func renderStructuredAggregateFactsWithPrincipalRefs(facts []types.AnswerAggrega
 		fact := facts[i]
 		fmt.Fprintf(&b, "- kind=`%s`, label=%s, value=`%s`",
 			fact.Kind, fact.Label, fact.Value)
-		if fact.Kind == types.AnswerAggregateMemberSet {
-			if principalMemberSets[i] {
-				b.WriteString(", principal_member_set=true")
-			} else {
-				b.WriteString(", coverage_axis_only=true")
-			}
+		if role := aggregatePromptRoleForFact(i, fact, principalMemberSets, roleByIndex); role != "" {
+			fmt.Fprintf(&b, ", role=`%s`", role)
+		}
+		if provenance := aggregatePromptProvenanceForFact(i, fact, provenanceByIndex); provenance != "" {
+			fmt.Fprintf(&b, ", provenance=%s", provenance)
 		}
 		if fact.Unit != "" {
 			fmt.Fprintf(&b, ", unit=%s", fact.Unit)
@@ -114,6 +121,29 @@ func renderStructuredAggregateFactsWithPrincipalRefs(facts []types.AnswerAggrega
 		fmt.Fprintf(&b, "- ... %d more aggregate fact(s) omitted from prompt\n", len(facts)-maxFacts)
 	}
 	return b.String()
+}
+
+func aggregatePromptRoleForFact(index int, fact types.AnswerAggregateFact, principal map[int]bool, roleByIndex map[int]types.AnswerAggregateRole) types.AnswerAggregateRole {
+	if role := roleByIndex[index]; role != "" {
+		return role
+	}
+	if role := types.NormalizeAnswerAggregateRole(fact.Role); role != "" {
+		return role
+	}
+	if fact.Kind == types.AnswerAggregateMemberSet {
+		if principal[index] {
+			return types.AnswerAggregateRolePrincipalAnswer
+		}
+		return types.AnswerAggregateRoleSupportingCoverage
+	}
+	return ""
+}
+
+func aggregatePromptProvenanceForFact(index int, fact types.AnswerAggregateFact, provenanceByIndex map[int]string) string {
+	if provenance := strings.TrimSpace(provenanceByIndex[index]); provenance != "" {
+		return provenance
+	}
+	return strings.TrimSpace(fact.Provenance)
 }
 
 func structuredAggregatePrincipalMemberSetRefs(ctx *types.AgentContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {

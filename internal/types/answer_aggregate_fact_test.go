@@ -92,6 +92,29 @@ func TestNormalizeAnswerAggregateFacts_AcceptsMemberSet(t *testing.T) {
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_PreservesRoleAndProvenance(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "files inspected",
+		Value:      "1",
+		Role:       "coverage",
+		Provenance: " command:rg ",
+		Members:    []string{"internal/agent/explorer.go"},
+	}})
+	if err != nil {
+		t.Fatalf("member_set aggregate should validate: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d facts, want 1", len(got))
+	}
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("role = %q, want supporting_coverage", got[0].Role)
+	}
+	if got[0].Provenance != "command:rg" {
+		t.Fatalf("provenance = %q, want trimmed command:rg", got[0].Provenance)
+	}
+}
+
 func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesPathCoverageForArchitecture(t *testing.T) {
 	facts := []AnswerAggregateFact{
 		{
@@ -128,6 +151,44 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesPathCoverageForArc
 	}
 	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &enum); len(got) != 2 {
 		t.Fatalf("enumeration path set should remain principal, got %+v", got)
+	}
+}
+
+func TestPrincipalAggregateMemberSetFactRefsForRequest_ExplicitRoleOverridesHeuristic(t *testing.T) {
+	arch := RequestModel{
+		Intent:      IntentExplain,
+		Scenario:    ScenarioArchitectureExplain,
+		Complexity:  ComplexityComplex,
+		Predicates:  SemanticPredicates{IsCrossComponent: true},
+		DiagramHint: &DiagramHint{Kind: DiagramArchitecture},
+	}
+	principal := []AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "files requested by the answer",
+		Value:   "1",
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"internal/agent/explorer.go"},
+	}}
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(principal, &arch); len(got) != 1 || got[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("explicit principal role should override path-coverage heuristic, got %+v", got)
+	}
+
+	support := []AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "supporting files",
+		Value:   "1",
+		Role:    AnswerAggregateRoleSupportingCoverage,
+		Members: []string{"internal/agent/explorer.go"},
+	}}
+	enum := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all files"},
+	}
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(support, &enum); len(got) != 0 {
+		t.Fatalf("explicit supporting_coverage role must not satisfy principal enumeration, got %+v", got)
 	}
 }
 

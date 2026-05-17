@@ -1752,6 +1752,17 @@ func preEmitAggregateCardinalityFactRefs(ctx *types.BusContext, facts []types.An
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return out
 	}
+	rm := ctx.AnalysisIR.RequestModel
+	for idx, fact := range facts {
+		if principalByIndex[idx] || !types.AggregateMemberSetIsScalarCountSupport(&rm, fact) {
+			continue
+		}
+		out = append(out, preEmitAggregateCardinalityRef{
+			Index:            idx,
+			Fact:             fact,
+			MemberBindingMin: 0,
+		})
+	}
 	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(facts) {
 		if principalByIndex[ref.Index] || !preEmitNarrativeAggregateCountCanBindByMembers(ref.Fact) {
 			continue

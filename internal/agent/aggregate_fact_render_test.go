@@ -26,7 +26,7 @@ func TestRenderStructuredAggregateFactsPrioritizesPrincipalMemberSet(t *testing.
 
 	got := renderStructuredAggregateFacts(facts, 16)
 	if !strings.Contains(got, "label=verified qualifying members") ||
-		!strings.Contains(got, "principal_member_set=true") ||
+		!strings.Contains(got, "role=`principal_answer`") ||
 		!strings.Contains(got, "members=[`explorer`]") {
 		t.Fatalf("principal member_set should survive prompt projection:\n%s", got)
 	}
@@ -53,11 +53,29 @@ func TestRenderStructuredAggregateFactsMarksPathSetsAsCoverageForArchitecture(t 
 	}}}
 
 	got := renderStructuredAggregateFactsForContext(ctx, facts)
-	if !strings.Contains(got, "coverage_axis_only=true") {
+	if !strings.Contains(got, "role=`supporting_coverage`") {
 		t.Fatalf("path-only member_set should render as coverage context for architecture answers:\n%s", got)
 	}
-	if strings.Contains(got, "principal_member_set=true") {
+	if strings.Contains(got, "role=`principal_answer`") {
 		t.Fatalf("path-only coverage set must not be labeled principal for architecture answers:\n%s", got)
+	}
+}
+
+func TestRenderStructuredAggregateFactsUsesExplicitRoleAndProvenance(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "files inspected",
+		Value:      "1",
+		Role:       types.AnswerAggregateRoleAuditLedger,
+		Provenance: "command:rg",
+		Members:    []string{"internal/agent/explorer.go"},
+	}}
+	got := renderStructuredAggregateFacts(facts, 16)
+	if !strings.Contains(got, "role=`audit_ledger`") || !strings.Contains(got, "provenance=command:rg") {
+		t.Fatalf("explicit role/provenance should render as structured metadata:\n%s", got)
+	}
+	if strings.Contains(got, "role=`principal_answer`") {
+		t.Fatalf("explicit audit role must not be re-labeled principal:\n%s", got)
 	}
 }
 

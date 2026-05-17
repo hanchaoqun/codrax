@@ -3501,7 +3501,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("## Structured Aggregate Facts\n\n")
 	b.WriteString("- These aggregate facts were emitted by the investigator through `emit_investigation_complete.aggregate_facts` after exploration. They are model-authored structured handoff values, not system-synthesised answer text.\n")
 	b.WriteString("- Preserve each `value` exactly when the corresponding fact answers the user's requested scalar, unique-set, group, bucket, exclusion, or exhaustive-member question. Use `members` for requested concrete lists such as enum/type names, file paths, or file:line locations.\n")
-	b.WriteString("- For `member_set` rows, `principal_member_set=true` marks the concrete principal slate. `coverage_axis_only=true` rows are audit/coverage context for a richer relation slate and must not create duplicate principal rows.\n")
+	b.WriteString("- For `member_set` rows, `role=principal_answer` marks the concrete principal slate. `role=supporting_coverage` / `role=audit_ledger` rows are context or investigation bookkeeping and must not create duplicate principal rows.\n")
 	if relationRefs := answerDocPrincipalRelationMemberSetRefs(ctx, plan.StableAggregateFacts); len(relationRefs) > 0 {
 		b.WriteString("- Relation contract: principal relation `member_set` rows answer a qualifying-member lookup. Start from the qualifying member(s) in that typed set, then explain the relation evidence; do not substitute a mechanism-only architecture explanation for the direct member answer.\n")
 		if answerDocHasMultiMemberAggregateRef(relationRefs) {
@@ -3510,7 +3510,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, `Member | file.ext:line`, or `Member (file.ext:line)`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Reserve `citation_ref:-1` only for member labels that have no citable source-location handoff.\n")
 	b.WriteString("- Do not render internal provenance strings such as `source=emit_investigation_complete.aggregate_facts` in the user-visible answer text. Use provenance only to choose the correct member set and citations.\n")
-	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, typed support lanes, citations, or raw tool outputs conflict with these facts, prefer rows marked `principal_member_set=true` for the principal list and treat `coverage_axis_only=true` rows as support context.\n\n")
+	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, typed support lanes, citations, or raw tool outputs conflict with these facts, prefer rows marked `role=principal_answer` for the principal list and treat `role=supporting_coverage` / `role=audit_ledger` rows as support context.\n\n")
 	b.WriteString(renderStructuredAggregateFactsForContext(ctx, plan.StableAggregateFacts))
 	b.WriteString("\n")
 	return b.String()
