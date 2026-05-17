@@ -418,32 +418,75 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			fraction := o.reviewerWallBudgetFractionValue()
 			parent := o.reviewerDispatchContext()
 
+			// Phase 2 (2026-05-17) — global parallelism gate. When the
+			// operator-configured cap is 1 the reviewer pair must
+			// degrade from errgroup-parallel to a sequential for-loop
+			// so debug runs are linear and rate-limited LLM endpoints
+			// don't double up. Counting the runnable reviewers (1 or
+			// 2 depending on the eligibility gates above) gives the
+			// helper the actual candidate count for cap calculation.
+			candidateCount := 0
+			if runSC {
+				candidateCount++
+			}
+			if runSQ {
+				candidateCount++
+			}
+			parallelism := effectiveParallelism(o.orchestratorMaxParallelism(), candidateCount)
+
 			var (
 				scViolations []types.Violation
 				sqViolations []types.Violation
-				wg           sync.WaitGroup
 			)
-			if runSC {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					scViolations = runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, fraction,
-						func(context.Context) []types.Violation {
-							return o.runSelfConsistencyReviewV2(scDocV2, mut)
-						})
-				}()
+			runSCFn := func() {
+				scViolations = runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, fraction,
+					func(context.Context) []types.Violation {
+						return o.runSelfConsistencyReviewV2(scDocV2, mut)
+					})
 			}
-			if runSQ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					sqViolations = runReviewerWithDeadline(parent, reviewerSlotSemanticQuality, fraction,
-						func(context.Context) []types.Violation {
-							return o.runSemanticQualityReview(sqDocV2, mut)
-						})
-				}()
+			runSQFn := func() {
+				sqViolations = runReviewerWithDeadline(parent, reviewerSlotSemanticQuality, fraction,
+					func(context.Context) []types.Violation {
+						return o.runSemanticQualityReview(sqDocV2, mut)
+					})
 			}
-			wg.Wait()
+
+			if parallelism <= 1 {
+				// Strict-serial branch. Preserves append order naturally
+				// by running self_consistency first. Useful for debug
+				// reproducibility (linear logs) and for rate-limited
+				// LLM endpoints (no double-dispatch).
+				if runSC {
+					runSCFn()
+				}
+				if runSQ {
+					runSQFn()
+				}
+			} else {
+				// Parallel branch (parallelism >= 2; candidateCount is
+				// at most 2 here so the cap covers every runnable
+				// reviewer concurrently). sync.WaitGroup over the two
+				// goroutines; append order below is the canonical
+				// (self_consistency, semantic_quality) sequence so
+				// EvidenceClosure cluster keys stay stable regardless
+				// of LLM completion order.
+				var wg sync.WaitGroup
+				if runSC {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						runSCFn()
+					}()
+				}
+				if runSQ {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						runSQFn()
+					}()
+				}
+				wg.Wait()
+			}
 
 			// Preserve historical append order: self_consistency first,
 			// then semantic_quality, regardless of completion order.

@@ -64,6 +64,33 @@ type PipelineSettings struct {
 	// uplift. Default 100. Zero falls back to default.
 	MaxStepsCeil int `yaml:"max_steps_ceil"`
 
+	// MaxParallelism (Phase 2 — 2026-05-17) is the global cap on
+	// concurrent goroutines for orchestrator-owned parallel fan-out
+	// points (post-emit reviewer pair, multi-sub_topic explorer
+	// fan-out, future parallel surfaces). The value follows three-state
+	// semantics:
+	//
+	//   -  0 → unlimited; every parallelisable surface runs all of its
+	//          candidates concurrently
+	//   -  1 → strict serial; every parallelisable surface degrades to
+	//          a sequential for-loop (useful for debug reproducibility
+	//          and for environments with strict LLM rate limits)
+	//   - >1 → cap at this many concurrent goroutines; surfaces with
+	//          fewer candidates than the cap run all candidates in
+	//          parallel
+	//
+	// Negative or unset values fall back to DefaultPipelineMaxParallelism.
+	// Hard-capped by MaxPipelineParallelismCeil inside
+	// SetMaxParallelism so a misconfigured "100" cannot spawn an
+	// orchestrator-killing goroutine flood.
+	//
+	// Default 2 balances the historical "two parallel reviewers"
+	// pattern with the multi-sub_topic explorer fan-out introduced in
+	// E' (Phase 2B): the most common case is 2-3 sub-topics, and 2
+	// concurrent dispatches already halve the worst-case wall clock
+	// without overloading the LLM endpoint.
+	MaxParallelism int `yaml:"max_parallelism"`
+
 	// ForceFinalizeAttempts caps the number of dispatch attempts the
 	// force-finalize escape path makes when the previous attempt
 	// errored with a transient LLM stream failure (unexpected EOF,
@@ -1047,6 +1074,21 @@ const DefaultForceFinalizeAttempts = 3
 // that would burn LLM tokens on a genuinely-down upstream rather
 // than recovering from transient blips.
 const MaxForceFinalizeAttempts = 5
+
+// DefaultPipelineMaxParallelism is the fallback for
+// PipelineSettings.MaxParallelism when negative or unset. Two
+// concurrent goroutines covers the historical reviewer pair and the
+// common 2-sub_topic explorer fan-out without risking LLM-endpoint
+// overload.
+const DefaultPipelineMaxParallelism = 2
+
+// MaxPipelineParallelismCeil is the absolute ceiling enforced by the
+// orchestrator's SetMaxParallelism setter on operator-supplied
+// values. Higher values almost always mean misconfiguration — typical
+// LLM endpoints rate-limit around 4-8 concurrent requests per key, so
+// 16 gives operators headroom for unusual fan-outs while preventing
+// runaway goroutine spawn.
+const MaxPipelineParallelismCeil = 16
 
 // MemorySettings carries tunable limits for the multi-turn REPL memory
 // store. Zero values mean "use code default" — see DefaultMemorySettings().

@@ -587,6 +587,23 @@ type RuntimeSettings struct {
 	// scaled pipeline step budget. Default 100. Zero falls back.
 	PipelineMaxStepsCeil *int `yaml:"pipeline_max_steps_ceil"`
 
+	// PipelineMaxParallelism (Phase 2 — 2026-05-17) caps the
+	// orchestrator's concurrent goroutine count for post-emit reviewer
+	// fan-out and multi-sub_topic explorer dispatch. Three-state
+	// semantics:
+	//
+	//   -  0 → unlimited (every parallelisable surface uses all of its
+	//          candidates concurrently)
+	//   -  1 → strict serial (every parallelisable surface degrades to
+	//          a sequential loop — useful for debug reproducibility or
+	//          rate-limited LLM endpoints)
+	//   - >1 → cap at this many concurrent goroutines
+	//
+	// Default DefaultPipelineMaxParallelism (= 2). Clamped to
+	// [0, MaxPipelineParallelismCeil] (= 16) by
+	// orchestrator.SetMaxParallelism.
+	PipelineMaxParallelism *int `yaml:"pipeline_max_parallelism"`
+
 	// PipelineForceFinalizeAttempts caps how many times the
 	// force-finalize escape path retries when the dispatch fails
 	// with a transient LLM stream error (unexpected EOF, stream

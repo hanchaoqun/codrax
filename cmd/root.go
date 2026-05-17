@@ -2038,6 +2038,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineMaxStepsCeil != nil {
 			pipelineSettings.MaxStepsCeil = *rs.PipelineMaxStepsCeil
 		}
+		if rs.PipelineMaxParallelism != nil {
+			pipelineSettings.MaxParallelism = *rs.PipelineMaxParallelism
+		}
 		// T4: verify→plan retry cap. Stored alongside the rest of the
 		// pipelineSettings snapshot; orchestrator.SetWriteRetryBudget
 		// applies it below where other orch getters are wired.
