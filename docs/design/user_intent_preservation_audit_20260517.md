@@ -38,6 +38,7 @@
 5. **Batch F/G/H 第一段已落地**：`emit_answer_document` 与 patch 持久化路径不再 materialize aggregate/principal support 成员到用户可见正文；新增 answer-document 字段隔离层，schema-unknown 的无害 metadata 在严格 decode 前本地 quarantine，保留核心 blocks/citations，避免小错触发 finalizer 重试。`aggregate member_set` emit-time coverage 只在 typed exhaustive/relation enumeration 下 hard gate，叙事/解释类 member_set 降为 advisory。
 6. **Batch H 第二段已落地**：semantic-quality reviewer 的 concern schema 增加 `repair_locus`，并由 violation 的 typed `RepairLocusOverride` 进入 repair routing。`evidence_gap` 回流 explore，`analysis_gap` / `presentation_advisory` 不再触发 finalizer-only 硬重写，`local_doc_defect` / `safety` 才留在本地修正文档路径。
 7. **Batch C/H 第三段已落地**：facet metadata gate 分层完成第一刀。`FacetRequirement` 新增 `RequiresHardDeclaration()`，pre-emit 只对 template-hard facet 做同轮拒绝；evidence-sufficient SOFT facet 只在 prompt 中标记为 `(evidence available)`，不再写成 “MUST declare / emit-time rejection”。semantic-quality depth audit 同步只看 emit-hard facet，避免 reviewer 把 soft metadata 变成 finalizer rewrite。另修 analyzer-derived `must_include`：`analyzer_entity` 符号不能只因全仓 `SymbolOracle` 命中就成为 hard requirement，必须在本轮 typed evidence / answer symbol 中有支撑，否则降级。
+8. **Batch E/F 第一段补齐**：inactive subrepo disclosure 不再作为 pre-emit hard retry 或默认 finalizer rewrite。缺失时保留 typed telemetry，并由 orchestrator 在系统“补充说明”通道追加范围说明；模型正文不再被迫写 `scope_disclosure` / inactive RootRel，避免系统工作区拓扑污染用户答案。
 
 ## 问题清单
 
@@ -250,6 +251,8 @@
 
 代码位置：`internal/tool/answer_document_pre_emit_check.go::preCheckInactiveScopeDisclosure`
 
+状态：**第一段已修复（Batch E/F）**。pre-emit 不再拒绝缺失 inactive-scope disclosure；`ViolInactiveScopeDisclosureMissing` 默认 soft，并由 orchestrator append 系统补充说明。用户仍能看到边界，但模型正文不再被系统拓扑强行改写。
+
 当前行为：
 
 - 如果 `PendingSubRepos` 非空且答案 bounded，要求 final answer 披露 inactive scope。
@@ -261,8 +264,9 @@
 
 修复方向：
 
-- disclosure 分级：直接命中用户目标时 hard，弱相关时 caveat advisory。
-- 输出文案由系统渲染层生成，不让 finalizer 在正文里硬塞英文 gate 文案。
+- [x] disclosure 分级：默认作为系统 caveat advisory，不触发 finalizer rewrite。
+- [x] 输出文案由系统通道生成，不让 finalizer 在正文里硬塞英文 gate 文案。
+- [ ] 后续继续细分：若未来需要严格模式，只对用户明确要求“全工作区不存在/全仓覆盖”的安全场景才允许提升为 hard。
 
 ### UIP-012（P2）表格结构仍可能压缩信息
 
@@ -510,13 +514,13 @@
 ### Batch E：render 与 scope 统一收口
 
 1. [~] 表格 fallback 不截断，多列稳定展示。（已支持多列补 header 和 markdown table 优先，仍需 contract 贯穿）
-2. inactive subrepo disclosure 改成系统生成的隔离 caveat。
+2. [x] inactive subrepo disclosure 改成系统生成的隔离 caveat。
 3. [x] SourceScope 控制 production/test/docs 过滤。（keyword search、package export、child package expansion 已接入同一 source-role classifier）
 
 ### Batch F：停止系统替模型补正文
 
 1. [x] 禁止 normalizer 默认新增 principal 可见 block/item。
-2. `principal support`、`aggregate member_set`、inactive scope 等系统补充信息统一进入隔离补充区或保留原文区。
+2. [~] `principal support`、`aggregate member_set`、inactive scope 等系统补充信息统一进入隔离补充区或保留原文区。（inactive scope 已进入系统补充说明；support/member_set materializer 已停止补正文）
 3. [~] 审计所有 normalizer：允许本地修引用、顺序、无损 schema 搬运；不允许新增 answer claims。（已覆盖 aggregate/principal support materializer，仍需继续审 inactive scope 与其它 caveat materializer）
 
 ### Batch G：JSON/schema 兼容层泛化

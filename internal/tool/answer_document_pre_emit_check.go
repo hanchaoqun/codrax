@@ -1474,14 +1474,10 @@ func nextPrincipalSupportMemberItemID(block types.AnswerBlock, ob types.AnswerSu
 	}
 }
 
-// preCheckInactiveScopeDisclosure is the pre-emit (same-dispatch)
-// twin of the orchestrator's validateInactiveScopeDisclosure. It
-// fires the disclosure obligation before the rejection round so the
-// finalizer can revise the doc and re-emit, saving a retry round.
-//
-// Activation is identical (typed BusContext + RequestModel + doc
-// state). Returns an emitFixHint when disclosure is required and
-// missing; nil otherwise.
+// preCheckInactiveScopeDisclosure observes the same typed inactive-scope
+// obligation as the orchestrator but does not reject. The boundary is a
+// system/runtime fact, not a model-authored answer claim; when missing, the
+// orchestrator appends a system-channel supplemental note after the answer.
 func preCheckInactiveScopeDisclosure(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
 	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil {
 		return nil
@@ -1493,23 +1489,9 @@ func preCheckInactiveScopeDisclosure(doc *types.AnswerDocumentV2, ctxOpt ...*typ
 	if types.AnswerDocumentDisclosesInactiveScope(doc, obligation) {
 		return nil
 	}
-	subject := obligation.RequestedSubject
-	if subject == "" {
-		subject = "the requested target"
-	}
-	pendingList := strings.Join(obligation.PendingRootRels, ", ")
-	expected := fmt.Sprintf(
-		"the multi-repo workspace has inactive sub-repos (%s) and this answer is bounded by the active set. Disclose the inactive scope: either set `scope_disclosure` on a caveat/decision block to inactive_scope_named / out_of_active_scope / requires_workspace_adjust, or name at least one inactive sub-repo RootRel (one of: %s) verbatim in a principal block / caveat.",
-		pendingList, pendingList,
-	)
-	return []emitFixHint{{
-		Field:         "blocks[].scope_disclosure OR blocks[].text/items[].label",
-		ExpectedShape: expected,
-		Reason: fmt.Sprintf(
-			"the user-mentioned subject %q has no resolution in the active scope; it may live in an inactive sub-repo. Silently treating this as global absence misleads the operator who can fix it by adjusting the active set.",
-			subject,
-		),
-	}}
+	logging.Info("[emit_answer_document] inactive-scope disclosure deferred to system caveat: pending=%q reason=%s",
+		strings.Join(obligation.PendingRootRels, ","), obligation.Reason)
+	return nil
 }
 
 func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {

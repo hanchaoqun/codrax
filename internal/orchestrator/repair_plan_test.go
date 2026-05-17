@@ -380,14 +380,13 @@ func TestEveryHardDefaultViolKindHasCooccurrenceCoverage(t *testing.T) {
 		// repair is a finalizer-local re-render against the
 		// model-authored member slate. Standalone by design.
 		types.ViolExhaustiveMemberSetCoverageDrift: "deterministic exhaustive member-set coverage drift; finalizer-only rewrite against the model-authored member set",
-		// Multi-repo inactive scope disclosure (2026-05-16, Fix 1):
-		// the rendered answer is bounded by the active sub-repo set
-		// but does not disclose the inactive sub-repo to the user.
-		// Repair is finalizer-local: set a typed scope_disclosure
-		// field on a caveat/decision block OR name the inactive
-		// RootRel inline. No upstream stage participates; activation
-		// is purely typed BusContext + RequestModel + doc state.
-		types.ViolInactiveScopeDisclosureMissing: "multi-repo inactive-scope disclosure missing; finalizer-only rewrite to surface inactive RootRel or set scope_disclosure",
+		// Multi-repo inactive scope disclosure (2026-05-16, Fix 1;
+		// softened 2026-05-17): the rendered answer is bounded by
+		// the active sub-repo set but does not disclose the inactive
+		// sub-repo to the user. The runtime now appends this as a
+		// system caveat instead of forcing a finalizer rewrite, so
+		// it remains standalone telemetry.
+		types.ViolInactiveScopeDisclosureMissing: "multi-repo inactive-scope disclosure missing; system caveat materializes inactive RootRel without finalizer rewrite",
 		// Phase 2.B Tier 2 ERM completeness violations (2026-05-09).
 		// Each dimension is a structurally-independent answer-coverage
 		// gap: a ScalarCount problem (visual count vs deterministic

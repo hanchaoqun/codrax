@@ -2077,6 +2077,28 @@ func TestPreCheckFacetCoverage_HardStillRejects(t *testing.T) {
 	}
 }
 
+func TestPreCheckInactiveScopeDisclosure_DeferredToSystemCaveat(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{
+			Status: types.AnswerExactResolutionAbsent,
+		},
+	}
+	busCtx := &types.BusContext{
+		PendingSubRepos: []string{"repo-tools-py"},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				AnalyzerHints: types.AnalyzerHints{
+					ExactTargets: []string{"process_request"},
+				},
+			},
+		},
+	}
+	if hints := preCheckInactiveScopeDisclosure(doc, busCtx); len(hints) != 0 {
+		t.Fatalf("inactive scope is a system boundary note, not an emit-time rewrite hint: %v", hints)
+	}
+}
+
 // TestFormatEmitFixHints_RedlineAudit — pin the rejection envelope
 // prose for R6 (no internal vocab leak) + R4 (generic) + LLM-facing
 // purity (no third natural language).

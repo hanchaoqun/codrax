@@ -528,6 +528,12 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		}
 		return SeveritySoft
 	}
+	// Multi-repo inactive-scope disclosure is a runtime/workspace
+	// boundary note. The orchestrator appends a system caveat when
+	// needed, so it must not force a model rewrite by default.
+	if kind == ViolInactiveScopeDisclosureMissing {
+		return SeveritySoft
+	}
 	// Multi-repo write fail-loud (design §4.5.5, 2026-05-08).
 	// SeveritySoft regardless of isStrict — there is no retry
 	// pathway (the user MUST split the work into separate runs).

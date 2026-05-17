@@ -1884,6 +1884,12 @@ func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 		types.ViolStructuralEnumerationDivergence: true,
 		types.ViolSymbolAnchorMismatch:            true,
 
+		// Multi-repo inactive-scope disclosure is materialized by
+		// the runtime as a system caveat. The model-authored answer
+		// should not be forced through a finalizer retry to restate
+		// workspace topology.
+		types.ViolInactiveScopeDisclosureMissing: true,
+
 		// Multi-repo write fail-loud (design §4.5.5, 2026-05-08).
 		// SOFT here means "no auto-retry pathway" — the actual
 		// fail-loud comes from planPostHook returning an error which

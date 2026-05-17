@@ -7,11 +7,11 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// validateInactiveScopeDisclosure is the post-emit hard gate for
-// multi-repo answers bounded by an active sub-repo subset. It
-// consumes typed BusContext fields (PendingSubRepos, AnalysisIR.
-// RequestModel) and the rendered AnswerDocumentV2; no prose scan,
-// no LLM dispatch.
+// validateInactiveScopeDisclosure records the post-emit disclosure signal for
+// multi-repo answers bounded by an active sub-repo subset. The violation is
+// soft by default; the user-facing disclosure is materialized by
+// appendInactiveScopeSystemCaveat so the finalizer is not forced to rewrite
+// model-authored content for a system/runtime boundary.
 //
 // Activation conditions and the disclosure obligation itself live
 // in internal/types/inactive_scope_disclosure.go so the same predicate
@@ -54,4 +54,48 @@ func validateInactiveScopeDisclosure(doc *types.AnswerDocumentV2, busCtx *types.
 			"missing",
 		),
 	}}
+}
+
+func appendInactiveScopeSystemCaveat(answer string, doc *types.AnswerDocumentV2, busCtx *types.BusContext) string {
+	note := inactiveScopeSystemCaveat(doc, busCtx)
+	if note == "" {
+		return answer
+	}
+	lang := ""
+	if busCtx != nil {
+		lang = busCtx.Language
+	}
+	return AppendSystemCaveatString(answer, note, lang)
+}
+
+func inactiveScopeSystemCaveat(doc *types.AnswerDocumentV2, busCtx *types.BusContext) string {
+	obligation := types.BuildInactiveScopeDisclosureObligationFromBus(busCtx, doc)
+	if !obligation.Active() {
+		return ""
+	}
+	if types.AnswerDocumentDisclosesInactiveScope(doc, obligation) {
+		return ""
+	}
+	pending := formatInactiveScopeRootList(obligation.PendingRootRels)
+	if pending == "" {
+		return ""
+	}
+	if busCtx != nil && isChineseLang(busCtx.Language) {
+		return fmt.Sprintf("本回答仅覆盖当前已启用的子仓范围；还有未启用的子仓：%s。若目标可能在这些子仓中，请调整仓库关注范围后再查询。", pending)
+	}
+	return fmt.Sprintf("This answer only covers the currently active sub-repositories; inactive sub-repositories also exist: %s. If the target may live there, adjust the repository focus and rerun the request.", pending)
+}
+
+func formatInactiveScopeRootList(roots []string) string {
+	out := make([]string, 0, len(roots))
+	seen := map[string]bool{}
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" || seen[root] {
+			continue
+		}
+		seen[root] = true
+		out = append(out, inlineCode(root))
+	}
+	return strings.Join(out, ", ")
 }

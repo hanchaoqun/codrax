@@ -4908,6 +4908,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if len(res.Violations) > 0 {
 				o.attachDraftReviewNote(out, strictReviewDisabledTitle(o.busCtx.Language), res.Violations)
 			}
+			if o.busCtx.Mutable != nil {
+				out.FinalAnswer = appendInactiveScopeSystemCaveat(out.FinalAnswer, o.busCtx.Mutable.AnswerDocumentV2(), o.busCtx)
+			}
 			o.emit(render.Event{
 				Kind:            render.EventLivePreviewClear,
 				Timestamp:       time.Now(),
@@ -4921,6 +4924,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 
 		if res.Passed {
+			if o.busCtx.Mutable != nil {
+				out.FinalAnswer = appendInactiveScopeSystemCaveat(out.FinalAnswer, o.busCtx.Mutable.AnswerDocumentV2(), o.busCtx)
+			}
 			// Live preview cleanup: contract pass means the draft
 			// just streamed IS the final answer (modulo the
 			// deterministic re-render). Erase the preview area
