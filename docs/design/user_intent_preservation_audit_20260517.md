@@ -34,6 +34,7 @@
 1. **Batch A 已落地**：`detectStageToolCapabilityQuery` 只读取 analyzer 结构化 `CapabilitySurfaceHint`；RawRequest stage/tool 扫描已拆成 advisory 函数，不再进入 reconcile、required-files、explorer、finalizer 能力面硬链路。新增结构测试覆盖“原文含 stage/tool token 但无 hint 时不得改写 RequestModel”。
 2. **Batch B 第一段已落地**：Generic 语义视图仍只强制 Summary，但已允许可选 `BlockTable` / `BlockScalar` / `BlockDecision`，避免 schema 把模型合理的表格、数值、结论表达挤回 prose。渲染层新增对 item 文本内 markdown table 的保留能力，避免模型表格被压成两列 fallback。
 3. **Batch C 第一段已落地**：`surface_terms` 不再自动追加到用户可见正文；缺失 surface term 只保留为 advisory 日志，不触发 hard retry，也不污染最终答案 item text。
+4. **第二轮审计完成（文档刷新）**：继续沿 read-mode 主链排查仍会替代用户/LLM 表达的机制，新增 UIP-015 到 UIP-021。结论是后续不能继续补 validator 文案，而要优先治理“系统补正文、schema 兼容、gate 分层、upstream repair routing”四条主线。
 
 ## 问题清单
 
@@ -286,19 +287,23 @@
 
 代码位置：`internal/agent/analyzer.go::expandPackageExports`、`expandChildPackages`、`isTestSourcePath`
 
+状态：**部分修复**。`SourceScopeProfile` 已存在，`keyword_search` 已按 source scope 降权 auxiliary results；但包导出和子包展开路径仍会无条件跳过测试源。
+
 当前行为：
 
 - 包导出/子包扩展时默认跳过 test/spec/__tests__ 等路径。
+- `keyword_search` 已能尊重 `SourceScopeProfile`，但 `expandPackageExports` / `expandChildPackages` 尚未贯穿该 profile。
 
 风险：
 
 - 这是合理的 production-bias，但如果用户明确问测试、fixtures、用例覆盖，系统不应跳过。
-- 当前过滤没有显式读取 SourceScope contract。
+- 过滤链路不一致会制造“搜索能看到，包展开看不到”的上下游分裂，后续 finalizer 可能被迫用不完整 evidence 回答。
 
 修复方向：
 
 - 引入 typed `SourceScope`：production_only、tests_only、include_tests、docs_only、all。
 - test-source 过滤只在 `production_only` 下生效。
+- 把同一个 `SourceScopeProfile` 贯穿 exact target、keyword search、package export、child package expansion，避免某一层替用户缩窄范围。
 
 ### UIP-014（P3）AnalyzerReconcileStrictMode 配置与注释已过期
 
@@ -318,6 +323,148 @@
 - 删除无效配置，或改名为仍然真实生效的 reconcile 策略开关。
 - 补 migration note，避免灰度排障误判。
 
+## 2026-05-17 第二轮新增审计
+
+### UIP-015（P1）principal support / aggregate materializer 仍会替模型补可见正文
+
+代码位置：`internal/tool/answer_document_pre_emit_check.go::normalizePrincipalSupportMemberCarriers`、`normalizeAggregateMemberSetCarriers`、`internal/tool/answer_document_mutation_runtime.go::persistMergedAnswerDocument`
+
+当前行为：
+
+- principal support 或 aggregate `member_set` 的可见 carrier 缺失时，normalizer 会追加 block/item，把 support 成员补进最终答案正文。
+- 这些内容可能来自探索账本、支撑事实或校验辅助结构，不一定是模型想呈现给用户的主答案。
+
+风险：
+
+- 这是系统在模型 emit 之后继续“写正文”，违反“系统不能改变模型建议”的边界。
+- 自动补出的列表会让最终答案变长、变硬、变噪，也会与 schema/table/render 产生新的冲突，诱发 finalizer 重写。
+
+修复方向：
+
+- 默认禁止 normalizer 新增 principal 可见正文；normalizer 只能做无争议的结构修复、引用修复、无损搬运。
+- 若确需保留缺失的 support/aggregate 信息，进入隔离的“系统补充/保留内容”区域，并明确 provenance。
+- hard gate 只针对 role=`principal_answer` 的事实；`supporting_coverage`、`audit_ledger` 只能 advisory。
+
+### UIP-016（P1）emit_answer_document strict unknown-field decode 仍缺少泛化兼容层
+
+代码位置：`internal/tool/emit_answer_document_v2.go::executeAnswerDocumentV2`、`answerDocumentV2MisplacedHints`
+
+当前行为：
+
+- 参数 JSON 经过有限 repair 后仍使用 `DisallowUnknownFields` 严格 decode。
+- 对已知错位字段依赖手写表修复，例如 citation、facet、table、edge anchor 等字段。
+
+风险：
+
+- 模型一个轻微错位字段就会触发 hard retry，例如字段放到相邻容器、旧 schema 字段残留、metadata 层级错位。
+- 继续扩手写 repair map 会变成 case-by-case 追 bug，且把 LLM 心智消耗在 schema 机械细节上。
+
+修复方向：
+
+- 增加 schema-aware tolerant quarantine：能唯一归位的字段自动搬运，不能归位但无害的 metadata 放入 diagnostics 并丢弃，不破坏核心文档。
+- 只有语义载体冲突、版本 carrier 冲突、安全/引用不可恢复时才 hard reject。
+- 为 top-level/misplaced `claim_uses`、`facet_ids`、`edge_anchors`、table 字段建立泛化回归测试，而不是逐案补提示。
+
+### UIP-017（P1）enumeration label grounding 对展示标签过硬
+
+代码位置：`internal/tool/answer_document_pre_emit_check.go::preCheckEnumerationLabelGrounding`
+
+当前行为：
+
+- 对 ordered/bullet/table block 的 item label 抽取 leading identifier，走 symbol oracle 校验。
+- 不可解析时会要求 finalizer 改 label 或补 grounding。
+
+风险：
+
+- 用户可见 label 不总是代码符号；它可能是表格维度、章节名、中文概念、比较对象或模型为了 UX 写的短标题。
+- 把展示 label 当作代码锚点 hard gate，会迫使模型把清晰标题改成源码路径/符号串，最终用户体验变差。
+
+修复方向：
+
+- 只有 typed view 明确声明“principal code-identity enumeration”时才 hard 校验 label grounding。
+- 对 citation 已满足、但 label 非代码锚点的情况降为 advisory。
+- 若要暴露未解析符号，放入补充说明或证据诊断，不要求整个答案重写。
+
+### UIP-018（P1）semantic reviewer 可把 reviewer 关注点直接升级成 finalizer rewrite
+
+代码位置：`internal/orchestrator/contract_check.go::runSemanticQualityReview`、`internal/agent/answer_document_evaluator.go::retryRepairPhaseForViolation`
+
+当前行为：
+
+- reviewer 产出的 structured concerns 会被转换为 contract violations。
+- `answer_topic_mismatch` 等 repair hint 会直接要求 finalizer 围绕主题重写答案。
+
+风险：
+
+- reviewer 发现的问题可能是上游 evidence/analysis/explore 缺口，不一定是 finalizer 文档局部缺陷。
+- 如果缺口来自上游，继续让 finalizer rewrite 会制造“答案待完善，正在重写”的循环，而不是补齐输入。
+
+修复方向：
+
+- reviewer concern 必须带 `repair_locus`：`analysis_gap`、`evidence_gap`、`local_doc_defect`、`presentation_advisory`、`safety`。
+- 只有 `local_doc_defect` / `safety` 进入 finalizer rewrite；`evidence_gap` 回流 explore/extract；presentation 问题优先本地容错或补充说明。
+- 增加 same-error-class governor：同一 fingerprint 连续失败后，接受核心答案并隔离展示缺陷说明，停止硬重写。
+
+### UIP-019（P2）SourceScopeProfile 未贯穿包展开路径
+
+代码位置：`internal/agent/analyzer.go::expandPackageExports`、`expandChildPackages`、`internal/agent/keyword_search.go::shouldDeprioritizeAuxiliaryBySourceScope`
+
+当前行为：
+
+- keyword search 已可按 source scope 降权 auxiliary source。
+- package export 和 child package expansion 仍由 `isTestSourcePath` 无条件过滤测试相关路径。
+
+风险：
+
+- 同一个用户请求在不同探索入口得到不同范围，导致 evidence plan 和最终答案范围不一致。
+- 用户明确要测试、fixtures、bench、docs 时，系统仍可能在包展开阶段替用户缩小范围。
+
+修复方向：
+
+- 把 `SourceScopeProfile` 作为 package expansion 的显式输入。
+- production-only 才跳过测试；tests-only/include-tests/all/docs-only 按各语言后缀和目录规则保留对应文件。
+- 所有语言路径统一通过 source role classifier，不在单个 expansion 函数里散落判断。
+
+### UIP-020（P2）Raw scope pre-injection 仍由用户原文 token 驱动
+
+代码位置：`internal/agent/scope_projection.go::detectScopesFromQuestion`、`internal/agent/analyzer.go::buildAnalyzerRepoOverview`
+
+当前行为：
+
+- analyzer 前置 repo overview 会用用户原文匹配 active sub-repo `RootRel`，提前注入 multi-scope task map。
+- 该结果目前主要用于上下文和提示，不直接决定 finalizer 主答案。
+
+风险：
+
+- 这是 advisory 层，但仍属于 RawRequest token 对 scope 上下文的预选择。
+- 若后续有调用方把这个结果提升为 hard routing/status，就会再次触碰“关键词匹配用户问题做逻辑判断”的红线。
+
+修复方向：
+
+- 明确标记为 L0 advisory，不参与 hard routing、status truth、finalizer gate。
+- analyzer emit 后用 typed `PrimaryScopes` / `SubTopic.Scopes` 重算 scope projection。
+- 为“raw detector 只能影响 pre-prompt、不能写入 RequestModel hard fields”加结构测试。
+
+### UIP-021（P2）REPL Mermaid 渲染仍缺少 raw-source PresentationContract
+
+代码位置：`internal/repl/repl.go::renderRichResponse`、`internal/render/mermaid_render.go::RenderMermaidBlocks`、`cmd/root.go` 的 `--mermaid-render`
+
+当前行为：
+
+- CLI 默认保留 Mermaid source，显式 `--mermaid-render` 才转换。
+- REPL rich response 仍会默认调用 `RenderMermaidBlocks`，把 Mermaid fence 转成 ASCII text fence 或渲染警告。
+
+风险：
+
+- 当用户明确要求“给我 Mermaid 时序图源码”时，REPL 展示层仍可能替换输出形态。
+- 这不是模型错误，而是 renderer 没有读取用户/LLM 的 presentation preference。
+
+修复方向：
+
+- `PresentationContract` 增加 `raw_mermaid_source` / `render_mermaid_preview`。
+- REPL 根据 contract 决定是否转换；不支持的 Mermaid 子集保留源码并隔离警告。
+- 渲染失败必须遵守 L7/L8：改写为 text fence 并加警告，但不能把失败传播成 LLM-facing hard retry。
+
 ## 分批修复建议
 
 ### Batch A：先消除明确红线
@@ -334,10 +481,10 @@
 
 ### Batch C：finalizer gate 分层治理
 
-1. 将 pre-emit checks 分为 hard / soft / advisory。
-2. aggregate member_set 增加 role/provenance，只对 principal answer hard gate。
+1. [ ] 将 pre-emit checks 分为 hard / soft / advisory。
+2. [ ] aggregate member_set 增加 role/provenance，只对 principal answer hard gate。
 3. [x] surface_terms 不再自动追加正文。
-4. 同类错误连续失败时降级为隔离补充展示，不再反复重写。
+4. [ ] 同类错误连续失败时降级为隔离补充展示，不再反复重写。
 
 ### Batch D：reconcile 只做一致性，不做意图重写
 
@@ -347,12 +494,36 @@
 
 ### Batch E：render 与 scope 统一收口
 
-1. 表格 fallback 不截断，多列稳定展示。
+1. [~] 表格 fallback 不截断，多列稳定展示。（已支持多列补 header 和 markdown table 优先，仍需 contract 贯穿）
 2. inactive subrepo disclosure 改成系统生成的隔离 caveat。
-3. SourceScope 控制 production/test/docs 过滤。
+3. [~] SourceScope 控制 production/test/docs 过滤。（keyword search 已接入，package expansion 未接入）
+
+### Batch F：停止系统替模型补正文
+
+1. 禁止 normalizer 默认新增 principal 可见 block/item。
+2. `principal support`、`aggregate member_set`、inactive scope 等系统补充信息统一进入隔离补充区或保留原文区。
+3. 审计所有 normalizer：允许本地修引用、顺序、无损 schema 搬运；不允许新增 answer claims。
+
+### Batch G：JSON/schema 兼容层泛化
+
+1. 建立 schema-aware relocation/quarantine registry，替代无限扩张的错位字段提示表。
+2. core doc 已有效时，未知无害 metadata 进入 diagnostics，不触发 LLM 重试。
+3. 回归覆盖 top-level/misplaced `claim_uses`、`facet_ids`、`edge_anchors`、table 字段和旧 schema 残留字段。
+
+### Batch H：gate taxonomy + upstream routing
+
+1. 每个 finalizer violation 必须分类为 `local_doc_defect`、`evidence_gap`、`analysis_gap`、`presentation_advisory`、`safety`。
+2. finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。
+3. 同类错误 fingerprint 连续失败后，停止硬重写，接受核心答案并用“补充说明/保留原文”交代缺陷。
+
+### Batch I：scope / presentation contract 贯穿
+
+1. `SourceScopeProfile` 贯穿 exact target、keyword search、package export、child package expansion。
+2. `raw_mermaid`、`markdown_table`、`structured_table`、`scalar`、`decision` 等展示偏好从 analyzer typed 输出进入 schema、renderer、REPL。
+3. raw scope detector 保持 advisory，analyzer 之后统一用 typed scope 更新状态、上下文和最终 caveat。
 
 ## 结论
 
 当前系统已经修掉了若干历史上最明显的“系统替用户决定答案形态”的点，但仍有一批更隐蔽的问题：schema 过早收窄、pre-emit gate 过密、normalizer 自动补正文、render 层替换输出形态。这些问题共同解释了 finalizer 阶段反复“校验未通过 / 答案待完善，正在重写”的根因：模型不是单纯不听话，而是在多个系统层的硬约束之间被迫折返。
 
-下一步应优先做 Batch A + Batch B，再做 Batch C。否则继续单点修 validator 文案或补 prompt，只会压住一头、另一头再冒出来。
+下一步应优先做 Batch F + Batch G + Batch H，同时把 Batch B/E/I 的 PresentationContract 与 SourceScope 贯穿补齐。Batch A 已完成，Batch B/C/E 已有第一段进展；后续不要继续靠 validator 文案追模型，而要修数据流、兼容层和 gate 路由，让系统在不改变用户意图和模型建议的前提下稳定收敛。
