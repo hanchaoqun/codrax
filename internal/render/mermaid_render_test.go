@@ -316,6 +316,107 @@ func TestRenderMermaidBlocks_SequenceUnsafeParticipantAlias(t *testing.T) {
 	}
 }
 
+func TestRenderMermaidBlocks_MermaidInfoStringDirectivesForAllSupportedKinds(t *testing.T) {
+	cases := map[string]struct {
+		directive string
+		body      []string
+		want      []string
+	}{
+		"flowchart": {
+			directive: "flowchart LR",
+			body: []string{
+				"    A --> B",
+				"    B --> C",
+			},
+			want: []string{"A", "B", "C"},
+		},
+		"graph": {
+			directive: "graph TD",
+			body: []string{
+				"    Root --> Child",
+			},
+			want: []string{"Root", "Child"},
+		},
+		"sequenceDiagram": {
+			directive: "sequenceDiagram",
+			body: []string{
+				"    participant Orchestrator as Orchestrator",
+				"    participant Runtime as SubAgentRuntime",
+				"    Orchestrator->>Runtime: Run",
+				"    Runtime-->>Orchestrator: StageOutput",
+			},
+			want: []string{"Orchestrator", "SubAgentRuntime", "Run", "StageOutput"},
+		},
+	}
+	for _, kind := range mermaidSupportedKeywords {
+		tc, ok := cases[kind]
+		if !ok {
+			t.Fatalf("missing info-string directive fixture for supported mermaid kind %q", kind)
+		}
+		t.Run(kind, func(t *testing.T) {
+			lines := append([]string{"```mermaid " + tc.directive}, tc.body...)
+			lines = append(lines, "```")
+			in := strings.Join(lines, "\n")
+			out := RenderMermaidBlocks(in)
+			if out == in {
+				t.Fatalf("mermaid info-string directive should render, got unchanged:\n%s", out)
+			}
+			if strings.Contains(out, "```mermaid") {
+				t.Fatalf("rendered output must not leave mermaid fence in REPL surface:\n%s", out)
+			}
+			if strings.Contains(out, "终端 Mermaid 渲染器解析失败") ||
+				strings.Contains(out, "Mermaid 子集") {
+				t.Fatalf("supported info-string directive should not fall back:\n%s", out)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Fatalf("rendered %s lost %q:\n%s", kind, want, out)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderMermaidBlocks_MermaidInfoStringUnsupportedDirectiveFallsBack(t *testing.T) {
+	for _, kind := range mermaidUnsupportedKeywords {
+		t.Run(kind, func(t *testing.T) {
+			in := strings.Join([]string{
+				"```mermaid " + kind,
+				"    A --> B",
+				"```",
+			}, "\n")
+			out := RenderMermaidBlocks(in)
+			if out == in {
+				t.Fatalf("unsupported info-string directive should rewrite to fallback fence, got unchanged:\n%s", out)
+			}
+			if strings.Contains(out, "```mermaid") {
+				t.Fatalf("fallback output must not leave mermaid fence in REPL surface:\n%s", out)
+			}
+			if !strings.Contains(out, "Mermaid 子集 ["+kind+"]") ||
+				!strings.Contains(out, kind) ||
+				!strings.Contains(out, "A --> B") {
+				t.Fatalf("unsupported info-string directive should explain fallback and preserve source:\n%s", out)
+			}
+			if strings.Contains(out, "终端 Mermaid 渲染器解析失败") {
+				t.Fatalf("unsupported kind should short-circuit before library parse, got:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestRenderMermaidBlocks_InfoStringCoverageTracksKeywordRegistry(t *testing.T) {
+	coveredSupported := map[string]bool{
+		"flowchart":       true,
+		"graph":           true,
+		"sequenceDiagram": true,
+	}
+	for _, kind := range mermaidSupportedKeywords {
+		if !coveredSupported[kind] {
+			t.Fatalf("supported mermaid kind %q must be covered by info-string render fallback tests", kind)
+		}
+	}
+}
+
 // TestRenderMermaidBlocks_UnsupportedKindShortCircuits verifies the
 // L2 routing split: classDiagram / stateDiagram / etc are valid
 // Mermaid the LLM is right to emit, but pgavlin's subset cannot

@@ -59,7 +59,7 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 	body := fencedCodeBody(block, source)
 	if strings.EqualFold(lang, "mermaid") {
 		_, _ = fmt.Fprint(w, `<div class="mermaid">`+"\n")
-		_, _ = fmt.Fprint(w, stdhtml.EscapeString(normalizeBrowserMermaid(body)))
+		_, _ = fmt.Fprint(w, stdhtml.EscapeString(normalizeBrowserMermaid(info, body)))
 		_, _ = fmt.Fprint(w, "\n</div>\n")
 		return ast.WalkSkipChildren, nil
 	}
@@ -83,10 +83,48 @@ func fencedCodeBody(block *ast.FencedCodeBlock, source []byte) string {
 	return b.String()
 }
 
-func normalizeBrowserMermaid(body string) string {
+func normalizeBrowserMermaid(info, body string) string {
 	body = strings.TrimRight(body, "\n")
+	body = prependBrowserMermaidInfoDirective(info, body)
 	body = mermaidcompat.NormalizeSequenceStops(body)
 	return normalizeBrowserMermaidSubgraphs(body)
+}
+
+func prependBrowserMermaidInfoDirective(info, body string) string {
+	directive := browserMermaidInfoDirective(info)
+	if directive == "" {
+		return body
+	}
+	directiveToken := firstInfoToken(directive)
+	bodyToken := firstInfoToken(firstNonEmptyLine(body))
+	if directiveToken == "" || strings.EqualFold(directiveToken, bodyToken) {
+		return body
+	}
+	if strings.TrimSpace(body) == "" {
+		return directive
+	}
+	return directive + "\n" + body
+}
+
+func browserMermaidInfoDirective(info string) string {
+	info = strings.TrimSpace(info)
+	if !strings.EqualFold(firstInfoToken(info), "mermaid") {
+		return ""
+	}
+	if len(info) <= len("mermaid") {
+		return ""
+	}
+	return strings.TrimSpace(info[len("mermaid"):])
+}
+
+func firstNonEmptyLine(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 // normalizeBrowserMermaidSubgraphs repairs the common LLM shape

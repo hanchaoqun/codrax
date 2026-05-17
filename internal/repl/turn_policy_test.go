@@ -569,7 +569,7 @@ func TestTurnPolicyDispatch_LocalTransformWritesMarkdownAndPreview(t *testing.T)
 		},
 	}
 	responder := &stubLocalResponder{
-		localReply: "```mermaid\nsequenceDiagram\n  Explorer->>Runtime: propose\n```",
+		localReply: "```mermaid sequenceDiagram\n  Explorer->>Runtime: propose\n```",
 	}
 	r, runner, out := newTurnPolicyREPL(t, store, classifier, responder, "换成时序图\n/exit\n")
 	preview := &stubMarkdownPreviewer{url: "http://127.0.0.1:49152/preview/local?token=t"}
@@ -588,6 +588,10 @@ func TestTurnPolicyDispatch_LocalTransformWritesMarkdownAndPreview(t *testing.T)
 		!strings.Contains(printed, "Browser preview: http://127.0.0.1:49152/preview/local?token=t") {
 		t.Fatalf("local markdown/preview hints missing:\n%s", printed)
 	}
+	if strings.Contains(printed, "```mermaid sequenceDiagram") ||
+		strings.Contains(printed, "终端 Mermaid 渲染器解析失败") {
+		t.Fatalf("local REPL surface should render info-string sequence diagrams while keeping raw dump separate:\n%s", printed)
+	}
 	if preview.path == "" {
 		t.Fatalf("preview was not registered")
 	}
@@ -597,7 +601,7 @@ func TestTurnPolicyDispatch_LocalTransformWritesMarkdownAndPreview(t *testing.T)
 	}
 	body := string(data)
 	if !strings.Contains(body, "# 问题\n\n换成时序图\n") ||
-		!strings.Contains(body, "# 回答\n\n```mermaid\nsequenceDiagram") {
+		!strings.Contains(body, "# 回答\n\n```mermaid sequenceDiagram") {
 		t.Fatalf("local dump body missing request/answer:\n%s", body)
 	}
 	recent := store.Recent()
@@ -607,6 +611,9 @@ func TestTurnPolicyDispatch_LocalTransformWritesMarkdownAndPreview(t *testing.T)
 	if strings.Contains(recent[len(recent)-1].Response, "Raw Markdown saved") ||
 		strings.Contains(recent[len(recent)-1].Response, "Browser preview") {
 		t.Fatalf("markdown hints leaked into memory: %q", recent[len(recent)-1].Response)
+	}
+	if !strings.Contains(recent[len(recent)-1].Response, "```mermaid sequenceDiagram") {
+		t.Fatalf("memory must retain raw local reply, got: %q", recent[len(recent)-1].Response)
 	}
 }
 

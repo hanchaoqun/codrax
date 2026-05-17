@@ -207,6 +207,9 @@ func keywordFromFenceMatch(match string) string {
 		return ""
 	}
 	infoLine := strings.TrimSpace(match[3:nl])
+	if _, kw := mermaidInfoLineDirective(infoLine); kw != "" {
+		return kw
+	}
 	if kw := firstMermaidKeywordIn(infoLine); kw != "" {
 		return kw
 	}
@@ -413,6 +416,22 @@ func infoLineStartsWithMermaidKeyword(info string) bool {
 		}
 	}
 	return false
+}
+
+func mermaidInfoLineDirective(info string) (directive string, keyword string) {
+	info = strings.TrimSpace(info)
+	if info != "mermaid" && !strings.HasPrefix(info, "mermaid ") && !strings.HasPrefix(info, "mermaid\t") {
+		return "", ""
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(info, "mermaid"))
+	if rest == "" {
+		return "", ""
+	}
+	kw := firstMermaidKeywordIn(rest)
+	if kw == "" {
+		return "", ""
+	}
+	return rest, kw
 }
 
 // preprocessMermaidBody is the single entry point that runs every
@@ -789,6 +808,18 @@ func maybeReplaceMermaidFence(match string) string {
 	if strings.HasPrefix(infoLine, "mermaid") {
 		// Inspect first non-empty body line for keyword.
 		first := firstNonEmptyTrimmed(body)
+		if directive, kw := mermaidInfoLineDirective(infoLine); kw != "" && firstMermaidKeywordIn(first) == "" {
+			full := directive + "\n" + body
+			if !isMermaidSupportedKind(kw) {
+				recordMermaidUnsupportedKind(kw)
+				return mermaidFallbackFence(full, "Mermaid 子集 ["+kw+"] 不在终端渲染器支持范围（仅支持 flowchart/graph/sequenceDiagram），原始源码已保留供复制到完整 Mermaid 渲染器")
+			}
+			synth := "```mermaid\n" + full + "\n```"
+			if rendered, ok := renderMermaidFenceBody(synth); ok {
+				return rendered
+			}
+			return mermaidFallbackFence(full, "终端 Mermaid 渲染器解析失败，原始源码已保留")
+		}
 		if kw := firstMermaidKeywordIn(first); kw != "" && !isMermaidSupportedKind(kw) {
 			recordMermaidUnsupportedKind(kw)
 			return mermaidFallbackFence(body, "Mermaid 子集 ["+kw+"] 不在终端渲染器支持范围（仅支持 flowchart/graph/sequenceDiagram），原始源码已保留供复制到完整 Mermaid 渲染器")

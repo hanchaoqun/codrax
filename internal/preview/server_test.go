@@ -59,6 +59,50 @@ func TestServerRegisterMarkdownRendersMermaidAndEscapesHTML(t *testing.T) {
 	}
 }
 
+func TestServerRegisterMarkdownAllowsClassDiagramInBrowserMermaid(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "class.md")
+	body := "# Classes\n\n```mermaid classDiagram\n  class Animal\n  Animal <|-- Duck\n```\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write markdown: %v", err)
+	}
+	srv, err := NewServer(Config{Mode: ModeOn, Host: "127.0.0.1", Port: 0})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer srv.Close(nil)
+
+	u, err := srv.RegisterMarkdown(path)
+	if err != nil {
+		t.Fatalf("RegisterMarkdown: %v", err)
+	}
+	resp, err := http.Get(u)
+	if err != nil {
+		t.Fatalf("GET preview: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	html := string(data)
+	if !strings.Contains(html, `<div class="mermaid">`) ||
+		!strings.Contains(html, "classDiagram") ||
+		!strings.Contains(html, "Animal &lt;|-- Duck") {
+		t.Fatalf("classDiagram was not handed to browser Mermaid:\n%s", html)
+	}
+	if !strings.Contains(html, "/assets/mermaid.min.js?token=") ||
+		!strings.Contains(html, "window.mermaid.render") {
+		t.Fatalf("browser Mermaid render path missing:\n%s", html)
+	}
+	if strings.Contains(html, "Mermaid 子集 [classDiagram]") {
+		t.Fatalf("preview server must not use terminal subset fallback:\n%s", html)
+	}
+}
+
 func TestRenderMarkdownHTMLNormalizesBareSubgraphTitles(t *testing.T) {
 	body := []byte("```mermaid\nflowchart TD\n  subgraph Explorer System\n    A --> B\n  end\n  subgraph AlreadyValid[Already Valid]\n    C --> D\n  end\n```\n")
 	got, err := RenderMarkdownHTML(body)

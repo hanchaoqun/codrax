@@ -42,7 +42,7 @@
 9. **Batch H 第三段落地**：新增 same-error-class retry governor。除既有 per-kind / per-root / hard-cap 外，调度层按 typed `FallbackTarget + CaveatFamilyID` 记录更高层的错误类预算；同类机械问题已重试后即使换成 sibling kind，也停止继续 finalizer rewrite，交付当前答案并转入补充说明。该判断只读结构化 violation registry，不扫描用户问题或模型散文。
 10. **Batch C 第二段落地**：`aggregate_facts` 增加 typed `role/provenance`，支持 `principal_answer`、`supporting_coverage`、`audit_ledger`。explorer 可以明确区分“最终答案主集合”和“探索覆盖账本”；finalizer hard gate 只消费有效角色为 principal 的 aggregate fact，prompt 与 retry 合并也保留该结构化角色，不再用伪标记或标签猜测。
 11. **Batch H 第四段落地**：reviewer anchor set 统一改为 `buildReviewerEvidenceAnchorSet`，优先读取最终 AnswerDocument 的行级 citation、read_file gutter 与 repomap 符号，再合并 explorer evidence；self-consistency 与 semantic-quality reviewer 不再只看 explorer evidence。Mermaid endpoint gate 同步区分内部 node id 与用户可见 label，避免把图表语法 alias 当代码事实打回 finalizer。新增回归测试锁住 citation-backed identifier、graph fallback、semantic/self reviewer 输入和 Mermaid label 行为。
-12. **Batch B/E 边界澄清**：REPL Mermaid→ASCII 属于终端呈现层友好降级，不再作为“系统替代模型意图”整改项；边界是 raw markdown 必须仍作为 truth source 写入日志、output dump、memory，且该渲染结果不得进入 gate / reviewer / 后续模型上下文。已补测试锁住 pipeline REPL 记忆保存 raw Mermaid，而不是终端渲染后的 text fence。
+12. **Batch B/E 边界澄清**：REPL Mermaid→ASCII 属于终端呈现层友好降级，不再作为“系统替代模型意图”整改项；边界是 raw markdown 必须仍作为 truth source 写入日志、output dump、memory，且该渲染结果不得进入 gate / reviewer / 后续模型上下文。已补测试锁住 pipeline/local REPL 记忆保存 raw Mermaid，而不是终端渲染后的 text fence；终端渲染层兼容 ` ```mermaid <diagram-kind>` 模型常见 info-string 变体，并覆盖当前支持渲染的 `flowchart` / `graph` / `sequenceDiagram`。HTTP preview server 走内嵌浏览器 Mermaid.js，已补 `classDiagram` preview 回归测试，避免把浏览器能力误降级到终端 ASCII 子集。
 13. **Batch G 第二段落地**：annotation JSON 兼容层新增唯一可恢复的 `claim_uses[].facet_ids` → `claim_uses[].facet_id` 归一化。full emit 与 patch 共用同一 repair；单值自动修复，避免小 schema 错误触发 finalizer 重试；多值保持拒绝，防止系统替模型选择 facet。新增 full/patch 回归测试。
 14. **Batch B 第二段落地**：新增 family-independent `AnswerPresentationContract`。schema 现在可在不增加 finalizer prompt 负担的前提下允许 table/scalar/decision 展示载体；用户显式 diagram contract 跨所有 QuestionFamily 生效，config/role/enumeration/comparison 等旧“无图 family”不再吞掉时序图/流程图需求。软 diagram preference 仍不升级为硬要求，避免证据偏好替代用户意图。
 15. **Batch G 第三段落地**：schema-aware tool-param 兼容层新增 string enum JSON-literal 修复。若 schema 声明字段是 `string enum`，模型却发出 `"\"explain\""` / `"\"\""` 这类双重 JSON 字符串，系统会在本地无损解包；解包后仍不属于 enum 的值继续交给工具 gate 拒绝。该修复覆盖 `emit_analysis.intent/scenario/complexity/question_kind/language/predicate_axis` 等字段，避免 analyze 阶段因机械参数形态返工，也避免静默降级为 `unknown/generic`。
@@ -506,7 +506,8 @@
 当前行为：
 
 - CLI 默认保留 Mermaid source，显式 `--mermaid-render` 才转换。
-- REPL rich response 仍会默认调用 `RenderMermaidBlocks`，把 Mermaid fence 转成 ASCII text fence 或渲染警告。
+- REPL rich response 仍会默认调用 `RenderMermaidBlocks`，把 Mermaid fence 转成 ASCII text fence 或渲染警告；终端渲染层会把 ` ```mermaid <diagram-kind>` 这类 info-string diagram directive 规范化为 body directive 后再渲染，当前覆盖 `flowchart` / `graph` / `sequenceDiagram`，但 raw dump / memory 仍保留模型原文。
+- HTTP preview server 不走终端 ASCII 子集；它把 Mermaid fence 交给内嵌 `mermaid@11.12.0` 浏览器渲染，并对 ` ```mermaid classDiagram` 这类 info-string diagram directive 做展示层补齐，raw markdown 仍可从 Raw Markdown 链接查看。
 
 风险边界：
 
@@ -516,7 +517,7 @@
 
 后续方向：
 
-- 保持现有 terminal-only ASCII 预览。
+- 保持现有 terminal-only ASCII 预览，并继续吸收 Mermaid fence 形态差异这类展示层小错；完整 Mermaid 图优先通过 HTTP preview server 渲染。
 - 优先完善 raw transcript / preview 能力，让用户能拿到原始 Mermaid。
 - 若未来引入 `PresentationContract`，它应描述“用户希望答案包含 Mermaid/表格/决策块”等模型输出偏好，而不是禁止 REPL 做终端友好展示。
 
@@ -694,7 +695,7 @@
 
 1. [~] 从 analyzer typed 输出承接用户明确要求：table、markdown table、diagram kind、raw Mermaid、sequenceDiagram、decision/scalar 等。（diagram contract 已跨 family；显式 diagram 在 typed relational evidence 可承载时不再被 comparison 等默认无图 family 吞掉；table/scalar/decision 已作为 schema-only display affordance；后续补 analyzer 显式 presentation lane）
 2. [~] SemanticView/schema 使用 family default + presentation union。（已先放宽 Generic 可选 table/scalar/decision；新增 AnswerPresentationContract 投影到 schema；显式 required diagram 会生成 `BlockDiagram`）
-3. [~] renderer 读取 contract，避免两列表格压缩；Mermaid→ASCII 在 REPL 中是 terminal-only 友好展示例外，raw markdown 仍进入 memory/output dump。（已先兼容 item markdown table，并补 pipeline memory raw 保存）
+3. [~] renderer 读取 contract，避免两列表格压缩；Mermaid→ASCII 在 REPL 中是 terminal-only 友好展示例外，raw markdown 仍进入 memory/output dump。（已先兼容 item markdown table，并补 pipeline/local memory raw 保存；终端渲染兼容所有 supported kind 的 `mermaid <diagram-kind>` info-string 变体；HTTP preview server 使用浏览器 Mermaid 并覆盖 `classDiagram`）
 
 ### Batch C：finalizer gate 分层治理
 
