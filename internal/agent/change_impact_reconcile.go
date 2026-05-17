@@ -7,14 +7,21 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+const changeImpactHardReconcileConfidenceFloor = 0.75
+
 // reconcileChangeImpactProfile aligns the analyzer's broad intent fields with
 // an active typed change-impact lane. The profile is authored by the analyzer
 // LLM; this helper only resolves contradictions between that typed lane and the
-// coarser intent/question_kind/predicate fields so downstream family routing
-// sees one coherent request shape.
+// coarser intent/question_kind/predicate fields when the analyzer marked that
+// lane with enough confidence for a hard routing repair. Low-confidence
+// profiles remain available to downstream prompt/support planners, but do not
+// rewrite the user's answer shape.
 func reconcileChangeImpactProfile(rm types.RequestModel) (types.RequestModel, string) {
 	profile := rm.ChangeImpactProfile
 	if profile == nil || !profile.Active() {
+		return rm, ""
+	}
+	if profile.Confidence < changeImpactHardReconcileConfidenceFloor {
 		return rm, ""
 	}
 	if !changeImpactOutputIsPrincipalSet(profile.RequestedOutput) {

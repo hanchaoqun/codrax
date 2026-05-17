@@ -1469,12 +1469,11 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// CGEC: AnswerSubject inference. Classifies what kind of
 		// source-code literal the answer should be (skill_name,
 		// agent_name, config_key, ...). Honours an LLM-supplied
-		// AnswerSubject when present; otherwise applies the cue table
-		// in analyzer_intent.go::inferAnswerSubject. The chain ranker
-		// uses the resolved subject to demote chains whose terminal
-		// is the wrong kind, and reconcileShape (post-compile)
-		// consults it to swap config_value→value for source-code
-		// literals that have no YAML key surface.
+		// AnswerSubject when present; otherwise applies the typed
+		// question_kind fallback in analyzer_intent.go::inferAnswerSubject.
+		// The chain ranker uses the resolved subject to demote chains
+		// whose terminal is the wrong kind; answer presentation no
+		// longer runs a legacy shape override off this field.
 		subject, subjReason := inferAnswerSubject(rm)
 		if subject.Kind != types.SubjectUnknown {
 			logSubjectInferred(subject, subjReason)
@@ -1576,12 +1575,12 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// case (LLM picked enumerate, reconcileIntent downgraded to
 		// return_value via IsCountQuestion), the LLM-direct case
 		// (IntentReturnValue + IsCountQuestion true on first emit), AND
-		// the structural-coherence fallback (shape=value + intent=
+		// the structural-coherence fallback (scalar-answer + intent=
 		// return_value + answer_subject.kind=numeric co-occur even
 		// when IsCountQuestion slipped through as false). Computed
 		// after inferAnswerSubject so the fallback sees the inferred
-		// subject kind. Every consequence (shape override, 3 citation-
-		// gate strips) is applied in one post-compile block below,
+		// subject kind. Every consequence (citation-gate strips and
+		// scalar handling) is applied in one post-compile block below,
 		// keyed off this single flag. Keeps "one signal, one response"
 		// grep-able.
 		isMeasurementScalar = isMeasurementScalarRequest(rm)

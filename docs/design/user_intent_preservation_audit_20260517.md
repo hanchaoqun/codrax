@@ -46,6 +46,8 @@
 13. **Batch G 第二段落地**：annotation JSON 兼容层新增唯一可恢复的 `claim_uses[].facet_ids` → `claim_uses[].facet_id` 归一化。full emit 与 patch 共用同一 repair；单值自动修复，避免小 schema 错误触发 finalizer 重试；多值保持拒绝，防止系统替模型选择 facet。新增 full/patch 回归测试。
 14. **Batch B 第二段落地**：新增 family-independent `AnswerPresentationContract`。schema 现在可在不增加 finalizer prompt 负担的前提下允许 table/scalar/decision 展示载体；用户显式 diagram contract 跨所有 QuestionFamily 生效，config/role/enumeration/comparison 等旧“无图 family”不再吞掉时序图/流程图需求。软 diagram preference 仍不升级为硬要求，避免证据偏好替代用户意图。
 15. **Batch G 第三段落地**：schema-aware tool-param 兼容层新增 string enum JSON-literal 修复。若 schema 声明字段是 `string enum`，模型却发出 `"\"explain\""` / `"\"\""` 这类双重 JSON 字符串，系统会在本地无损解包；解包后仍不属于 enum 的值继续交给工具 gate 拒绝。该修复覆盖 `emit_analysis.intent/scenario/complexity/question_kind/language/predicate_axis` 等字段，避免 analyze 阶段因机械参数形态返工，也避免静默降级为 `unknown/generic`。
+16. **Batch D 第一段落地**：`reconcileQualifiedCodeSymbolConfigDrift` 不再在 typed `MentionedEntities` 缺失时回退扫描 `RawRequest` / generic entity lanes 来强改 config→architecture/comparison。该 reconcile 现在要求 analyzer 先给出结构化对比信号（显式 buckets，或 `is_cross_component=true` + 多个 sub_topics），再用 mentioned surfaces + repomap qualified-name resolver 证明至少两个对象是代码符号；只有符号表面而没有 typed comparison signal 时保持 config 主链。同步清理 `AnalyzerReconcileStrictMode` / `SetReconcileStrictMode` 注释中退役的 `reconcileShape` 描述，避免后续开发者误以为还能恢复旧 shape override。
+17. **Batch D 第二段落地**：`reconcileChangeImpactProfile` 的硬路由修正加上 confidence floor。active change-impact typed lane 仍可进入下游提示/支撑计划，但只有 `confidence>=0.75` 且 `requested_output` 明确是 files/sites/symbols 时，才允许把粗分类修成 set-valued enumeration；低置信 profile 不再改写 intent/question_kind/predicates。新增回归测试覆盖低置信 profile 只做 advisory。
 
 ## 问题清单
 
@@ -208,37 +210,43 @@
 
 代码位置：`internal/agent/analyzer_code_symbol_reconcile.go::reconcileQualifiedCodeSymbolConfigDrift`
 
+状态：**第一段已修复（Batch D）**。该 reconcile 不再把“出现 qualified symbol 表面”本身当成用户意图。硬修正必须同时满足两类 typed 信号：一是 analyzer 给出显式对比结构（`Buckets>=2`，或 `Predicates.IsCrossComponent=true` 且 `SubTopics>=2`）；二是 `AnalyzerHints.MentionedEntities` 中至少两个 qualified surfaces 通过 repomap qualified-name resolver 解析为代码符号。`RawRequest`、`PrimaryEntities`、`Entities` 不再作为该硬改的 fallback 输入；`MentionedEntities` 只作为符号解析的表面来源，不能单独触发 intent/scenario/family 改写。
+
 当前行为：
 
-- 若 config-shaped 请求中至少两个 qualified entity 可解析为代码符号，系统会改 Intent/Scenario/Kind/Axis，并生成 buckets/sub_topics。
+- 若 config-shaped 请求同时具备 typed comparison signal，且至少两个 typed mentioned qualified entity 可解析为代码符号，系统会改 Intent/Scenario/Kind/Axis，并生成 buckets/sub_topics。
 
 风险：
 
-- 对“真的是配置 key，但名字刚好像 qualified symbol”的场景，系统可能把用户想查配置的问题改成机制/架构比较。
-- 当前有 repo-grounded 保护，但仍是强改粗分类。
+- 对“真的是配置 key，但名字刚好像 qualified symbol”的场景，系统曾可能把用户想查配置的问题改成机制/架构比较。
+- repo-grounded 保护只能证明“代码里存在符号”，不能证明“用户意图不是配置”。缺少 typed mentioned lane 或 typed comparison signal 时不能做硬改。
 
 修复方向：
 
-- 当用户/LLM 有明确 config exact target 或 exact context role 时，保留 config 主链，把 code-symbol 解析作为 supporting evidence。
+- [x] 当 typed mentioned lane 缺失时，保留 config 主链，把 code-symbol 解析留给探索/支撑证据，而不是 hard reconcile。
+- [x] 当只有 mentioned qualified surfaces + repo symbol proof、但 analyzer 未给出 typed comparison signal 时，保留 config 主链，避免系统根据用户散文表面替换意图。
 - 若需要改链路，必须记录 shadow decision，并允许 analyzer typed hint 覆盖。
+- 防回归：新增结构测试覆盖 RawRequest 与 generic entity lanes 都含 qualified code symbols、且 repomap 可解析时，只要 `MentionedEntities` 为空，就不得改变 intent/scenario/kind/axis；另覆盖只有 mentioned surfaces + symbol proof 但无 typed comparison signal 时也不得改变主链。
 
 ### UIP-009（P2）ChangeImpactProfile 会强制 set-valued enumeration surface
 
 代码位置：`internal/agent/change_impact_reconcile.go::reconcileChangeImpactProfile`
 
+状态：**第一段已修复（Batch D）**。该 reconcile 现在要求 active profile 的 `confidence>=0.75` 才能硬改粗分类；低置信 change-impact profile 保留给下游 prompt/support planner 使用，但不得把 trace/explain/scalar 主链强制改成 enumeration。
+
 当前行为：
 
-- active `ChangeImpactProfile` 且 requested_output 是 files/sites/symbols 时，系统强制 `IntentEnumerate`、`ReqEnumeration`、relation/category predicates。
+- active `ChangeImpactProfile` 且 high-confidence requested_output 是 files/sites/symbols 时，系统会修正 `IntentEnumerate`、`ReqEnumeration`、relation/category predicates。
 
 风险：
 
 - 对“用户要步骤/解释，但 profile 误判成 affected files”的问题，会把答案变成列表。
-- 该 profile 来自 LLM typed 输出，不是原文关键字，风险低于 UIP-001，但仍可能替代用户表达。
+- 该 profile 来自 LLM typed 输出，不是原文关键字，风险低于 UIP-001；但低置信 profile 若也能硬改，仍可能替代用户表达。
 
 修复方向：
 
 - 将 `requested_output` 与 `requested_presentation` 分离。
-- 只在 profile confidence / user-requested output 明确时强制 principal set，否则作为 prompt guidance。
+- [x] 只在 profile confidence / user-requested output 明确时强制 principal set，否则作为 prompt guidance。
 
 ### UIP-010（P2）pre-emit gate 数量过多，部分 gate 承担了作者决策
 
@@ -332,19 +340,20 @@
 
 代码位置：`internal/config/runtime.go::AnalyzerReconcileStrictMode`、`internal/agent/analyzer_intent.go::reconcileStrictMode`
 
+状态：**已修复（Batch D）**。配置与代码注释已改成 legacy reconcile strict-mode compatibility switch，不再提已删除的 `reconcileShape` 或旧 shape override 行为。
+
 当前行为：
 
-- 注释仍说该开关控制 `reconcileShape` strict override。
-- 但 `reconcileShape` 已删除。
+- 该开关仅保留给仍有 advisory/strict split 的 legacy reconcile 逻辑；新 reconcile 规则应做 typed consistency repair，不应新增 strict-mode 硬改分支。
 
 风险：
 
-- 这是观测性/运维风险。操作员以为可以关闭/恢复某类 override，实际语义已经变了。
+- 这是观测性/运维风险。操作员曾可能以为可以关闭/恢复某类退役 override，实际语义已经变了。
 
 修复方向：
 
-- 删除无效配置，或改名为仍然真实生效的 reconcile 策略开关。
-- 补 migration note，避免灰度排障误判。
+- [x] 更新配置注释和 startup 注释，明确其 legacy compatibility 边界。
+- 后续若确认没有调用方仍需要 strict split，可再删除该配置并做 migration note。
 
 ## 2026-05-17 第二轮新增审计
 
@@ -595,7 +604,7 @@
 
 ### Batch D：reconcile 只做一致性，不做意图重写
 
-1. scenario/predicate/code-symbol/change-impact reconcile 加“显式用户表达保护”。
+1. [~] scenario/predicate/code-symbol/change-impact reconcile 加“显式用户表达保护”。（code-symbol config drift 已要求 typed comparison signal + typed `MentionedEntities` + repomap 符号证明；change-impact 硬路由已要求 high-confidence typed profile；不再从 RawRequest/generic entity lanes、单独符号表面或低置信 profile 触发硬改）
 2. 成本优化移到 budget planner，不改变 answer contract。
 3. 所有强改记录 shadow decision，并在最终日志摘要可见。
 

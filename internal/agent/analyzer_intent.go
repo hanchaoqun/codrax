@@ -228,12 +228,12 @@ func inferSecondaryKinds(preds types.SemanticPredicates) []types.RequirementKind
 	return out
 }
 
-// reconcileStrictMode controls whether reconcileShape (and any
-// future reconcile* override) applies its chosen value or merely
-// records it as advisory (commit 61 Batch F.3). Default false:
-// log + record but do not override the LLM. Operators flip true
-// via codrax.yaml :: analyzer_reconcile_strict_mode for the
-// pre-commit-61 strict behaviour.
+// reconcileStrictMode is a legacy compatibility switch for reconcile
+// rules that still have an advisory/strict split. The retired
+// reconcileShape path no longer exists; new reconcile logic should use
+// typed consistency repair and preserve the LLM's emit_analysis
+// judgment instead of adding new hard overrides. Default false keeps
+// legacy advisory-only behaviour.
 var reconcileStrictMode bool
 
 // SetReconcileStrictMode flips the global mode. Called from
@@ -256,29 +256,15 @@ func logIntentReconcile(before, after types.Intent, reason string) {
 	logging.Warning("[analyzer] intent reconciled: %s → %s (%s)", before, after, reason)
 }
 
-// ── AnswerSubject inference + Shape reconciliation ───────────────────
+// ── AnswerSubject inference ───────────────────────────────────────────
 //
-// inferAnswerSubject and reconcileShape are the CGEC additions to the
-// analyzer's deterministic post-processing chain. They mirror the
-// reconcileIntent / reconcileComplexity pattern: fire only on strong
-// signals, log every override under "[analyzer] * reconciled:" so
-// operators can grep one trace for every automatic decision, and
-// leave the LLM's choice untouched in every borderline case.
-//
-// Why both rules:
-//
-//   inferAnswerSubject classifies WHAT KIND of code-literal the
-//   answer is supposed to be (skill_name, agent_name, config_key,
-//   ...). The chain ranker uses this to demote chains whose terminal
-//   token is the wrong kind ("SubExplorer.Name() returns 'explorer'"
-//   should not rank highest when the question asks for a SKILL).
-//
-//   reconcileShape handles the corner where the LLM picked
-//   ShapeConfigValue (key=value pair) but the actual answer is a Go
-//   struct-field literal — e.g. the topology.go map literal that
-//   binds "explore-skill" to the explorer agent. Forcing config_value
-//   shape on a Go literal manufactures a fake "key" the LLM has to
-//   invent, which downstream contract checks then reject.
+// inferAnswerSubject is the remaining CGEC analyzer post-processor
+// for subject kind. It classifies WHAT KIND of code literal the answer
+// is supposed to be (skill_name, agent_name, config_key, ...), while
+// leaving the LLM's supplied AnswerSubject untouched when present. The
+// retired shape reconciler is intentionally not part of this path:
+// answer presentation now flows through AnswerDocumentV2 +
+// AnswerPresentationContract rather than legacy shape overrides.
 
 // inferAnswerSubject derives AnswerSubject when the LLM left it zero
 // (SubjectUnknown). Returns the resolved subject + a short reason

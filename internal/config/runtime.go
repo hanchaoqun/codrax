@@ -371,14 +371,12 @@ type RuntimeSettings struct {
 	// rather than tying to a specific repo symbol. Empty default.
 	DiagramIdentifierWhitelist []string `yaml:"diagram_identifier_whitelist"`
 
-	// AnalyzerReconcileStrictMode (commit 61 Batch F.3, audit
-	// red line "no system hard-cap") gates whether reconcileShape's
-	// rule-based shape override is APPLIED to the IR or merely
-	// LOGGED as advisory. Default false (advisory only) preserves
-	// the LLM's emit_analysis shape decision unchanged. Operators
-	// flip true to restore the pre-commit-61 hard-override behaviour
-	// (5 hard-coded predicate-combination rules force a specific
-	// shape regardless of LLM judgment).
+	// AnalyzerReconcileStrictMode is a legacy compatibility switch for
+	// reconcile rules that still have an advisory/strict split. The
+	// retired reconcileShape path no longer exists; new reconcile logic
+	// should prefer typed consistency repair, preserve the LLM's
+	// emit_analysis judgment, and avoid adding new strict-mode branches.
+	// Default false keeps legacy advisory-only behaviour.
 	AnalyzerReconcileStrictMode *bool `yaml:"analyzer_reconcile_strict_mode"`
 
 	// AnalysisGroundingFloor / AnalysisEvidenceTier1Floor (commit 61

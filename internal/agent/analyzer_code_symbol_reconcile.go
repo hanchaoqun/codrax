@@ -24,13 +24,20 @@ type qualifiedCodeSymbolResolution struct {
 // multi-segment code surfaces (`pkg.symbol`, `Namespace::method`,
 // `Module.Type.member`) as config keys because they contain separators.
 //
-// The hard signal is repo-grounded, not lexical: at least two
-// user-mentioned qualified entities must resolve through the existing
-// multi-language qualified-name resolver to code symbols. Only then do
-// we move the request out of config_trace/config_mapping and into a
-// bucketed mechanism comparison. Real config-key lookups stay untouched
-// when the qualified surfaces do not resolve as code symbols, or when
-// the user asked for a scalar / role-locate value.
+// The hard signal is repo-grounded and typed: the analyzer must first
+// emit an explicit comparison partition (buckets, or cross-component
+// sub-topics), and at least two mentioned surfaces must resolve through
+// the existing multi-language qualified-name resolver to code symbols.
+// MentionedEntities is used only as exact surface provenance for symbol
+// lookup; it is not enough by itself to change intent. Only then do we
+// move the request out of config_trace/config_mapping and into a bucketed
+// mechanism comparison. Real config-key lookups stay untouched when the
+// analyzer did not emit a typed comparison signal, the qualified surfaces
+// do not resolve as code symbols, the mentioned lane is absent, or the
+// user asked for a scalar / role-locate value. This reconcile path
+// deliberately does not re-scan rm.RawRequest; raw-text scope/entity
+// detection may guide prompts, but it must not drive a hard intent/family
+// rewrite.
 func reconcileQualifiedCodeSymbolConfigDrift(rm types.RequestModel, graph *repomap.Graph) (types.RequestModel, string) {
 	if !qualifiedCodeSymbolConfigDriftCandidate(rm) {
 		return rm, ""
@@ -66,7 +73,7 @@ func reconcileQualifiedCodeSymbolConfigDrift(rm types.RequestModel, graph *repom
 		changes = append(changes, "predicates.is_cross_component→true")
 	}
 
-	if len(types.EffectiveQuestionBuckets(rm)) < 2 {
+	if len(rm.Buckets) < 2 {
 		rm.Buckets = bucketsFromQualifiedCodeSymbols(resolved)
 		changes = append(changes, fmt.Sprintf("buckets→%d qualified code symbols", len(rm.Buckets)))
 	}
@@ -92,6 +99,9 @@ func qualifiedCodeSymbolConfigDriftCandidate(rm types.RequestModel) bool {
 	if rm.DiagnosticProfile.RequiresDiagnosticRootCause() || rm.Predicates.IsDiagnosticQuestion {
 		return false
 	}
+	if !qualifiedCodeSymbolTypedComparisonSignal(rm) {
+		return false
+	}
 	return rm.Intent == types.IntentConfigQuery ||
 		rm.Scenario == types.ScenarioConfigTrace ||
 		types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqConfigMapping ||
@@ -99,17 +109,18 @@ func qualifiedCodeSymbolConfigDriftCandidate(rm types.RequestModel) bool {
 		rm.PredicateAxis == types.AxisConfigure
 }
 
+func qualifiedCodeSymbolTypedComparisonSignal(rm types.RequestModel) bool {
+	if len(rm.Buckets) >= 2 {
+		return true
+	}
+	return rm.Predicates.IsCrossComponent && len(rm.SubTopics) >= 2
+}
+
 func qualifiedCodeSymbolResolutions(rm types.RequestModel, graph *repomap.Graph) []qualifiedCodeSymbolResolution {
 	if graph == nil || len(graph.SymbolDefs) == 0 {
 		return nil
 	}
 	candidates := rm.AnalyzerHints.MentionedEntities
-	if len(candidates) == 0 {
-		candidates = types.MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.PrimaryEntities)
-	}
-	if len(candidates) == 0 {
-		candidates = types.MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.Entities)
-	}
 	if len(candidates) == 0 {
 		return nil
 	}

@@ -54,6 +54,7 @@ func TestReconcileChangeImpactProfile_ForcesAffectedFileSetRouting(t *testing.T)
 			Target:          "CitationReq.Required",
 			TargetKind:      types.SubjectStructField,
 			RequestedOutput: types.ImpactOutputFiles,
+			Confidence:      0.9,
 		},
 	}
 	got, reason := reconcileChangeImpactProfile(rm)
@@ -80,6 +81,37 @@ func TestReconcileChangeImpactProfile_ForcesAffectedFileSetRouting(t *testing.T)
 	}
 }
 
+func TestReconcileChangeImpactProfile_LowConfidenceDoesNotForceRouting(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentTrace,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:         string(types.ReqCallChain),
+			Entities:     []string{"CitationReq.Required"},
+			ExactTargets: []string{"CitationReq.Required"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsScalarAnswer:     true,
+			IsRoleLocateLookup: true,
+			IsCrossComponent:   true,
+		},
+		ChangeImpactProfile: &types.ChangeImpactProfile{
+			IsChangeImpact:  true,
+			Target:          "CitationReq.Required",
+			TargetKind:      types.SubjectStructField,
+			RequestedOutput: types.ImpactOutputFiles,
+			Confidence:      0.6,
+		},
+	}
+	got, reason := reconcileChangeImpactProfile(rm)
+	if reason != "" {
+		t.Fatalf("low-confidence change-impact profile should stay advisory, got reason %q", reason)
+	}
+	if got.Intent != rm.Intent || got.AnalyzerHints.Kind != rm.AnalyzerHints.Kind ||
+		got.Predicates != rm.Predicates {
+		t.Fatalf("low-confidence profile forced routing: %+v", got)
+	}
+}
+
 func TestReconcileChangeImpactProfile_LeavesStepOutputAlone(t *testing.T) {
 	rm := types.RequestModel{
 		Intent:        types.IntentExplain,
@@ -88,6 +120,7 @@ func TestReconcileChangeImpactProfile_LeavesStepOutputAlone(t *testing.T) {
 			IsChangeImpact:  true,
 			Target:          "CitationReq.Required",
 			RequestedOutput: types.ImpactOutputSteps,
+			Confidence:      0.9,
 		},
 	}
 	got, reason := reconcileChangeImpactProfile(rm)
@@ -127,12 +160,17 @@ func TestReconcileQualifiedCodeSymbolConfigDrift_RoutesQualifiedSymbolsToCompari
 			PrimaryEntities:   []string{"compiler.templateArchitectureExplain", "compiler.templateRootCause", "TaskGraph"},
 			MentionedEntities: []string{"compiler.templateArchitectureExplain", "compiler.templateRootCause", "TaskGraph"},
 		},
+		SubTopics: []types.SubTopic{
+			{Summary: "compiler.templateArchitectureExplain", Entities: []string{"compiler.templateArchitectureExplain"}},
+			{Summary: "compiler.templateRootCause", Entities: []string{"compiler.templateRootCause"}},
+		},
 		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey, Confidence: 0.8},
 		PredicateAxis: types.AxisConfigure,
 		Predicates: types.SemanticPredicates{
 			IsScalarAnswer:     false,
 			IsRoleLocateLookup: false,
 			IsCountQuestion:    false,
+			IsCrossComponent:   true,
 		},
 	}
 
@@ -152,9 +190,6 @@ func TestReconcileQualifiedCodeSymbolConfigDrift_RoutesQualifiedSymbolsToCompari
 	if got.PredicateAxis != types.AxisUnknown {
 		t.Fatalf("predicate axis = %q, want unknown", got.PredicateAxis)
 	}
-	if !got.Predicates.IsCrossComponent {
-		t.Fatal("qualified comparison should mark cross-component for comparison routing")
-	}
 	if len(got.Buckets) != 2 {
 		t.Fatalf("buckets len = %d, want 2: %+v", len(got.Buckets), got.Buckets)
 	}
@@ -171,6 +206,91 @@ func TestReconcileQualifiedCodeSymbolConfigDrift_RoutesQualifiedSymbolsToCompari
 	}
 	if gotFamily := types.ResolveQuestionFamily(got); gotFamily != types.QFComparison {
 		t.Fatalf("question family = %q, want comparison", gotFamily)
+	}
+}
+
+func TestReconcileQualifiedCodeSymbolConfigDrift_RequiresTypedMentionedEntities(t *testing.T) {
+	graph := &repomap.Graph{SymbolDefs: map[string][]*repomap.Symbol{
+		"templateArchitectureExplain": {{
+			Name: "templateArchitectureExplain",
+			Kind: "function",
+			File: "internal/analysis/compiler/templates.go",
+		}},
+		"templateRootCause": {{
+			Name: "templateRootCause",
+			Kind: "function",
+			File: "internal/analysis/compiler/templates.go",
+		}},
+	}}
+	rm := types.RequestModel{
+		RawRequest: "compiler.templateArchitectureExplain 和 compiler.templateRootCause 的配置项有什么区别？",
+		Intent:     types.IntentConfigQuery,
+		Scenario:   types.ScenarioConfigTrace,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:            string(types.ReqConfigMapping),
+			Entities:        []string{"compiler.templateArchitectureExplain", "compiler.templateRootCause"},
+			PrimaryEntities: []string{"compiler.templateArchitectureExplain", "compiler.templateRootCause"},
+			// MentionedEntities intentionally empty: raw text and
+			// generic entity lanes are not precise enough to justify a
+			// hard config→architecture rewrite.
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "compiler.templateArchitectureExplain", Entities: []string{"compiler.templateArchitectureExplain"}},
+			{Summary: "compiler.templateRootCause", Entities: []string{"compiler.templateRootCause"}},
+		},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey, Confidence: 0.8},
+		PredicateAxis: types.AxisConfigure,
+		Predicates:    types.SemanticPredicates{IsCrossComponent: true},
+	}
+
+	got, reason := reconcileQualifiedCodeSymbolConfigDrift(rm, graph)
+	if reason != "" {
+		t.Fatalf("raw/entity fallback must not drive hard reconcile, got reason %q", reason)
+	}
+	if got.Intent != types.IntentConfigQuery || got.Scenario != types.ScenarioConfigTrace ||
+		got.AnalyzerHints.Kind != string(types.ReqConfigMapping) ||
+		got.AnswerSubject.Kind != types.SubjectConfigKey ||
+		got.PredicateAxis != types.AxisConfigure {
+		t.Fatalf("config classification changed without typed mentioned lane: %+v", got)
+	}
+}
+
+func TestReconcileQualifiedCodeSymbolConfigDrift_RequiresTypedComparisonSignal(t *testing.T) {
+	graph := &repomap.Graph{SymbolDefs: map[string][]*repomap.Symbol{
+		"templateArchitectureExplain": {{
+			Name: "templateArchitectureExplain",
+			Kind: "function",
+			File: "internal/analysis/compiler/templates.go",
+		}},
+		"templateRootCause": {{
+			Name: "templateRootCause",
+			Kind: "function",
+			File: "internal/analysis/compiler/templates.go",
+		}},
+	}}
+	rm := types.RequestModel{
+		RawRequest: "compiler.templateArchitectureExplain 和 compiler.templateRootCause 的配置项有什么区别？",
+		Intent:     types.IntentConfigQuery,
+		Scenario:   types.ScenarioConfigTrace,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:              string(types.ReqConfigMapping),
+			Entities:          []string{"compiler.templateArchitectureExplain", "compiler.templateRootCause"},
+			PrimaryEntities:   []string{"compiler.templateArchitectureExplain", "compiler.templateRootCause"},
+			MentionedEntities: []string{"compiler.templateArchitectureExplain", "compiler.templateRootCause"},
+		},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey, Confidence: 0.8},
+		PredicateAxis: types.AxisConfigure,
+	}
+
+	got, reason := reconcileQualifiedCodeSymbolConfigDrift(rm, graph)
+	if reason != "" {
+		t.Fatalf("symbol surfaces alone must not drive hard reconcile, got reason %q", reason)
+	}
+	if got.Intent != types.IntentConfigQuery || got.Scenario != types.ScenarioConfigTrace ||
+		got.AnalyzerHints.Kind != string(types.ReqConfigMapping) ||
+		got.AnswerSubject.Kind != types.SubjectConfigKey ||
+		got.PredicateAxis != types.AxisConfigure {
+		t.Fatalf("config classification changed without typed comparison signal: %+v", got)
 	}
 }
 
@@ -228,6 +348,7 @@ func TestBuildAnalysisIR_ChangeImpactFileOutputRoutesEnumeration(t *testing.T) {
 			Target:          "CitationReq.Required",
 			TargetKind:      types.SubjectStructField,
 			RequestedOutput: types.ImpactOutputFiles,
+			Confidence:      0.9,
 		},
 	})
 	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}

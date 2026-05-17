@@ -45,9 +45,9 @@ func TestInferAnswerSubject_QuestionKindFallback(t *testing.T) {
 // regression: after all cue and question_kind paths miss, the
 // function MUST return SubjectGeneric with low confidence instead
 // of the old SubjectUnknown zero value. This ensures every
-// downstream subject-aware consumer (reconcileShape, rankChainsBySubject,
-// preCompleteContractCheck E3) gets a usable non-zero kind rather
-// than silently deactivating.
+// downstream subject-aware consumer (rankChainsBySubject,
+// preCompleteContractCheck E3) gets a usable non-zero kind rather than
+// silently deactivating.
 func TestInferAnswerSubject_HardFallback_NeverUnknown(t *testing.T) {
 	rm := types.RequestModel{}
 	rm.AnalyzerHints.Kind = "unknown"

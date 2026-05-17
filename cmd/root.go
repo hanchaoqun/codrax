@@ -2210,7 +2210,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		types.RegisterEvidenceProjector(authority.BackfillEvidenceProjector())
 		// Commit 53 P4: diagram bare-identifier whitelist.
 		tool.SetDiagramIdentifierWhitelist(rs.DiagramIdentifierWhitelist)
-		// Commit 61 Batch F.3: yaml gate for reconcileShape strict mode.
+		// Legacy analyzer reconcile strict-mode compatibility gate.
 		if rs.AnalyzerReconcileStrictMode != nil {
 			agent.SetReconcileStrictMode(*rs.AnalyzerReconcileStrictMode)
 		}
