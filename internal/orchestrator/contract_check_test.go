@@ -29,6 +29,50 @@ returns through internal/agent/finalizer.go:567.`
 	}
 }
 
+func TestFinalizerCitationSupportCount_UsesGroundedVisibleAnchors(t *testing.T) {
+	mut := &types.MutableState{}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{ID: "summary", Kind: types.BlockSummary, Text: "summary"}},
+		Citations: []types.Citation{
+			{File: "internal/agent/explorer.go", Line: 10},
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "internal/agent/explorer.go", LineStart: 10},
+			{Source: "internal/agent/subagent_runtime.go", LineStart: 32},
+			{Source: "internal/types/subagent.go", LineStart: 7},
+		},
+	}
+	out := &agent.StageOutput{FinalAnswer: strings.Join([]string{
+		"Explorer is grounded at internal/agent/explorer.go:10.",
+		"Runtime validation is grounded at ./internal/agent/subagent_runtime.go:32.",
+		"Proposal is grounded at internal/types/subagent.go:7.",
+	}, "\n")}
+
+	if got := finalizerCitationSupportCount(bus, out); got != 3 {
+		t.Fatalf("citation support count = %d, want 3", got)
+	}
+}
+
+func TestFinalizerCitationSupportCount_IgnoresUngroundedVisibleAnchors(t *testing.T) {
+	mut := &types.MutableState{}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks:    []types.AnswerBlock{{ID: "summary", Kind: types.BlockSummary, Text: "summary"}},
+		Citations: []types.Citation{{File: "internal/agent/explorer.go", Line: 10}},
+	})
+	bus := &types.BusContext{
+		Mutable:       mut,
+		EvidenceItems: []types.EvidenceItem{{Source: "internal/agent/explorer.go", LineStart: 10}},
+	}
+	out := &agent.StageOutput{FinalAnswer: "This stray anchor was not collected: internal/agent/missing.go:99."}
+
+	if got := finalizerCitationSupportCount(bus, out); got != 1 {
+		t.Fatalf("citation support count = %d, want only the citation pool entry", got)
+	}
+}
+
 func TestExtractCitations_RangeForm(t *testing.T) {
 	text := "see file.go:100-150 for the full block."
 	cits := extractCitationsFromAnswer(text)

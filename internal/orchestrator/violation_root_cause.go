@@ -124,6 +124,34 @@ func FilterDerivedViolations(violations []types.Violation) []types.Violation {
 	return out
 }
 
+// FilterActionableRootViolations returns the subset that may drive
+// retry / repair control flow: root-cause entries that are not
+// permanently telemetry-only.
+//
+// Soft telemetry still belongs in the contract ledger and operator
+// logs, but it must not be sent back to the LLM as a repair task.
+// This is the central guard for permanently-soft kinds such as
+// richness_regression and diagram_relation_label_only when they
+// co-occur with one real hard failure.
+func FilterActionableRootViolations(violations []types.Violation) []types.Violation {
+	roots := FilterDerivedViolations(violations)
+	if len(roots) == 0 {
+		return nil
+	}
+	out := make([]types.Violation, 0, len(roots))
+	for _, v := range roots {
+		if isPermanentlyTelemetryOnlyViolationKind(v.Kind) {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+func isPermanentlyTelemetryOnlyViolationKind(k types.ViolationKind) bool {
+	return !types.ViolationProfileFor(k, true).RetryEligible
+}
+
 // IncrementAttemptsAndCheckExhausted bumps the per-(kind, fp)
 // counter on history for every ROOT violation in violations, then
 // reports whether every root has reached MaxRepairAttemptsPerRoot.
@@ -140,7 +168,7 @@ func IncrementAttemptsAndCheckExhausted(violations []types.Violation, history *t
 	if history == nil || len(violations) == 0 {
 		return false
 	}
-	roots := FilterDerivedViolations(violations)
+	roots := FilterActionableRootViolations(violations)
 	if len(roots) == 0 {
 		return false
 	}

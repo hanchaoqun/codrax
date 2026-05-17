@@ -64,10 +64,11 @@ func populateRetryState(mut *types.MutableState, res contract.Result, prevAttemp
 			rs.PrevEmitJSON = raw
 		}
 	}
-	rs.ActiveViolations = scoreViolations(res.Violations)
+	actionable := FilterActionableRootViolations(res.Violations)
+	rs.ActiveViolations = scoreViolations(actionable)
 
 	// A2: compute RepairPlan + populate stability fields.
-	plan := BuildRepairPlan(res.Violations)
+	plan := BuildRepairPlan(actionable)
 	rs.LastPrimaryOwner = string(plan.PrimaryOwner)
 	rs.LastPrimaryViolation = deepestPrimaryKind(plan)
 	if prevState != nil && prevState.LastPrimaryOwner == rs.LastPrimaryOwner && rs.LastPrimaryOwner != "" {

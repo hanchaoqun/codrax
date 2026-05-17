@@ -2094,7 +2094,7 @@ func isDriftBoundedCitationAnswer(bus *types.BusContext, out *agent.StageOutput)
 	if len(plan.LogSourceDriftAnchors) == 0 || len(plan.DriftBoundedSurfaceItems) == 0 {
 		return false
 	}
-	return finalizerCitationPoolSize(bus.Mutable, out) >= 1
+	return finalizerCitationSupportCount(bus, out) >= 1
 }
 
 // citationRegex matches `path/to/file.ext:NNN` style references. The
@@ -2211,7 +2211,7 @@ func renderViolations(res contract.Result) string {
 	// flagged as derivations of a higher-level root carry no
 	// independent fix instruction; suppressing them stops the
 	// "fix one, three new ones rotate in" loop seen pre-W2.
-	roots := FilterDerivedViolations([]types.Violation(res.Violations))
+	roots := FilterActionableRootViolations([]types.Violation(res.Violations))
 	if len(roots) == 0 {
 		return ""
 	}
@@ -2226,31 +2226,119 @@ func renderViolations(res contract.Result) string {
 // populates the 6-field contract.
 var hintComposerSingleton = hint.New(hint.DefaultConfig())
 
-// finalizerCitationPoolSize returns the authoritative citation count
-// to feed into criterion.Env.DraftCitations. The count is sourced in
-// this priority order:
-//
-//  1. Mutable.AnswerDocumentV2().Citations — populated by V2
-//     emit_answer_document.Execute after grounding + remap. This is
-//     the exact pool the renderer consults.
-//  2. extractCitationsFromAnswer(out.FinalAnswer) — legacy text-regex
-//     fallback when AnswerDocumentV2 was never set (test harnesses
-//     that route directly through StageOutput.FinalAnswer).
-//
-// The regex fallback under-counts on enumeration / step_list shapes
-// because those shapes inline citations into per-row renders and do
-// not emit the pool as a bulleted list. Using the pool count fixes
-// the "4 citations but orchestrator says 1" class of bugs.
+// finalizerCitationPoolSize returns the citation support count when
+// only MutableState is available. Production callers that have a
+// BusContext should prefer finalizerCitationSupportCount so visible
+// file:line anchors can be checked against already-collected evidence
+// before they count.
 func finalizerCitationPoolSize(mut *types.MutableState, out *agent.StageOutput) int {
+	return finalizerCitationSupportCountFrom(nil, mut, out)
+}
+
+// finalizerCitationSupportCount returns the grounded citation support
+// count to feed into criterion.Env.DraftCitations. The count is the
+// union of:
+//
+//  1. Mutable.AnswerDocumentV2().Citations — populated by the V2 emit
+//     tool after grounding + remap.
+//  2. Visible `file:line` anchors in the rendered answer, but only
+//     when they are also present in the current evidence / answer
+//     symbol anchor set. When BusContext is unavailable, visible
+//     anchors remain a legacy fallback for tests.
+//
+// This does not mutate AnswerDocumentV2. It only prevents an
+// unnecessary finalizer rewrite when the model already rendered
+// grounded source anchors but under-filled the citation pool.
+func finalizerCitationSupportCount(bus *types.BusContext, out *agent.StageOutput) int {
+	var mut *types.MutableState
+	if bus != nil {
+		mut = bus.Mutable
+	}
+	return finalizerCitationSupportCountFrom(bus, mut, out)
+}
+
+func finalizerCitationSupportCountFrom(bus *types.BusContext, mut *types.MutableState, out *agent.StageOutput) int {
+	seen := map[string]struct{}{}
 	if mut != nil {
-		if doc := mut.AnswerDocumentV2(); doc != nil && len(doc.Citations) > 0 {
-			return len(doc.Citations)
+		if doc := mut.AnswerDocumentV2(); doc != nil {
+			for _, c := range doc.Citations {
+				addCitationSupportKey(seen, c.File, c.Line, bus)
+			}
 		}
 	}
 	if out != nil {
-		return len(extractCitationsFromAnswer(out.FinalAnswer))
+		allow := citationGradeAnchorKeys(bus)
+		for _, c := range extractCitationsFromAnswer(out.FinalAnswer) {
+			key := citationSupportKey(c.File, c.Line, bus)
+			if key == "" {
+				continue
+			}
+			if len(allow) > 0 {
+				if _, ok := allow[key]; !ok {
+					continue
+				}
+			}
+			seen[key] = struct{}{}
+		}
 	}
-	return 0
+	return len(seen)
+}
+
+func addCitationSupportKey(seen map[string]struct{}, file string, line int, bus *types.BusContext) {
+	if seen == nil {
+		return
+	}
+	key := citationSupportKey(file, line, bus)
+	if key == "" {
+		return
+	}
+	seen[key] = struct{}{}
+}
+
+func citationSupportKey(file string, line int, bus *types.BusContext) string {
+	file = strings.TrimSpace(file)
+	if file == "" || line <= 0 {
+		return ""
+	}
+	repoRoot := ""
+	if bus != nil {
+		repoRoot = bus.RepoRoot
+	}
+	file = ground.CanonicalRepoRelative(file, repoRoot)
+	file = strings.TrimPrefix(strings.TrimSpace(file), "./")
+	if file == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", file, line)
+}
+
+func citationGradeAnchorKeys(bus *types.BusContext) map[string]struct{} {
+	if bus == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	for _, ev := range bus.EvidenceItems {
+		addCitationSupportKey(seen, ev.Source, ev.LineStart, bus)
+	}
+	for _, sym := range bus.AnswerSymbols {
+		addCitationSupportKey(seen, sym.File, sym.Line, bus)
+	}
+	if bus.Mutable != nil {
+		if artifacts := bus.Mutable.TurnAArtifacts(); artifacts != nil {
+			for _, ev := range artifacts.EvidenceItems {
+				addCitationSupportKey(seen, ev.Source, ev.LineStart, bus)
+			}
+		}
+		if symbols, _ := bus.Mutable.EmittedAnswerSymbols(); len(symbols) > 0 {
+			for _, sym := range symbols {
+				addCitationSupportKey(seen, sym.File, sym.Line, bus)
+			}
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	return seen
 }
 
 // formatViolationsForLogger renders the contract checker's

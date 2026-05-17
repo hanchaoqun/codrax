@@ -631,6 +631,7 @@ func FallbackTargetForViolations(vs []types.Violation) FallbackTarget {
 // each time this picker downgrades; when used >= budget, downgrade
 // stops firing.
 func FallbackTargetForViolationsWithBudget(vs []types.Violation, finalizerLocalUsed int) FallbackTarget {
+	vs = FilterActionableRootViolations(vs)
 	if len(vs) == 0 {
 		return FallbackFinalizerOnly
 	}

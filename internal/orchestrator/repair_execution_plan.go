@@ -136,6 +136,7 @@ func (p RepairExecutionPlan) IsEmpty() bool {
 // downgrade has fired so far; the caller increments it after each
 // downgrade-eligible dispatch. When used >= budget, no downgrade.
 func BuildRepairExecutionPlan(vs []types.Violation, finalizerLocalUsed int) RepairExecutionPlan {
+	vs = FilterActionableRootViolations(vs)
 	if len(vs) == 0 {
 		// Empty input: no clusters, nothing to dispatch. Caller
 		// (orchestrator) treats CurrentOwner == "" as "no plan".
@@ -482,6 +483,7 @@ func shouldRebuildExecutionPlanLegacy(prev *RepairExecutionPlan, fresh []types.V
 // nil MutableState is tolerated for tests / direct callers — the
 // plan is built fresh every call (no persistence).
 func AdvanceRepairExecutionPlan(mut *types.MutableState, fresh []types.Violation, finalizerLocalUsed int) (RepairExecutionPlan, FallbackTarget, FallbackTarget) {
+	fresh = FilterActionableRootViolations(fresh)
 	if len(fresh) == 0 {
 		return RepairExecutionPlan{EscalationAllowed: true},
 			FallbackFinalizerOnly, FallbackFinalizerOnly

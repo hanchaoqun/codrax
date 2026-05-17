@@ -101,11 +101,14 @@ func TestPopulateRetryState_RoundTrip(t *testing.T) {
 	}
 
 	// Active violations
-	if got := len(rs.ActiveViolations); got != 3 {
-		t.Fatalf("ActiveViolations len = %d, want 3", got)
+	if got := len(rs.ActiveViolations); got != 2 {
+		t.Fatalf("ActiveViolations len = %d, want 2 actionable violations", got)
 	}
 	// Severities and layers populated correctly
 	for _, sv := range rs.ActiveViolations {
+		if sv.Kind == types.ViolRichnessRegression {
+			t.Fatalf("telemetry-only violation leaked into RetryState: %+v", sv)
+		}
 		if !sv.Severity.IsValid() {
 			t.Errorf("violation %q severity invalid: %q", sv.Kind, sv.Severity)
 		}
@@ -118,11 +121,6 @@ func TestPopulateRetryState_RoundTrip(t *testing.T) {
 	if rs.ActiveViolations[0].Severity != types.SeverityCritical {
 		t.Errorf("PrincipalClaimUseMissing severity = %q, want critical",
 			rs.ActiveViolations[0].Severity)
-	}
-	// ViolRichnessRegression must be soft regardless of strict
-	if rs.ActiveViolations[2].Severity != types.SeveritySoft {
-		t.Errorf("RichnessRegression severity = %q, want soft",
-			rs.ActiveViolations[2].Severity)
 	}
 }
 

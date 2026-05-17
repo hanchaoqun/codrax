@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
@@ -174,6 +175,39 @@ func TestRenderViolations_KeepsRoot(t *testing.T) {
 	got := renderViolations(res)
 	if got == "" {
 		t.Fatal("renderViolations should surface the root violation")
+	}
+}
+
+func TestFilterActionableRootViolations_DropsSoftTelemetry(t *testing.T) {
+	in := []types.Violation{
+		{Kind: types.ViolRichnessRegression, Detail: "optional richness telemetry"},
+		{Kind: types.ViolDiagramRelationLabelOnly, Detail: "label-only diagram telemetry"},
+		{Kind: types.ViolSuccessCriterion, Detail: "citation count failed"},
+	}
+	out := FilterActionableRootViolations(in)
+	if len(out) != 1 {
+		t.Fatalf("expected only the hard retry root, got %d: %+v", len(out), out)
+	}
+	if out[0].Kind != types.ViolSuccessCriterion {
+		t.Fatalf("kind = %q, want %q", out[0].Kind, types.ViolSuccessCriterion)
+	}
+}
+
+func TestRenderViolations_SuppressesSoftTelemetryBesideHardFailure(t *testing.T) {
+	res := stubResultWithViolations(
+		types.Violation{Kind: types.ViolRichnessRegression, Detail: "optional richness telemetry"},
+		types.Violation{Kind: types.ViolDiagramRelationLabelOnly, Detail: "label-only diagram telemetry"},
+		types.Violation{Kind: types.ViolSuccessCriterion, Detail: "citation count failed"},
+	)
+	got := renderViolations(res)
+	if got == "" {
+		t.Fatal("hard success criterion should still render")
+	}
+	if strings.Contains(got, "richness") || strings.Contains(got, "label-only") {
+		t.Fatalf("soft telemetry leaked into retry hint: %q", got)
+	}
+	if !strings.Contains(got, "citation count failed") {
+		t.Fatalf("hard violation missing from retry hint: %q", got)
 	}
 }
 

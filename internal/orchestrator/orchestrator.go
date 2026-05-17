@@ -4712,17 +4712,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// into res.Violations so the retry-budget / requeue /
 		// pendingViolation branch below treats them uniformly with
 		// contract.Check failures.
-		// DraftCitations counts the authoritative citation pool from
-		// the AnswerDocument, not from the rendered text. The text-
-		// regex path is a legacy fallback — list_of_symbols and
-		// step_list renderers inline cites against specific rows and
-		// never emit the whole pool as a bulleted list, so the regex
-		// only sees the subset visible in prose and the
-		// citation_count_ge criterion would under-count by 50-80%.
-		// Pool size is what the grounder actually validated and what
-		// the answer is underwritten by.
+		// DraftCitations counts grounded citation support, not just
+		// the raw citation pool. The V2 pool is still authoritative
+		// when present, but rendered file:line anchors that match the
+		// collected evidence / answer-symbol set also count so a
+		// harmless under-filled pool does not force a full finalizer
+		// rewrite.
 		stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "build_env_after_finalize")
-		citationCount := finalizerCitationPoolSize(o.busCtx.Mutable, out)
+		citationCount := finalizerCitationSupportCount(o.busCtx, out)
 		envFin := buildEnv(out.FinalAnswer, citationCount)
 		if o.finishSchedulerLocalWork(stopLocal, "build_env_after_finalize", stepsUsed) {
 			return stepsUsed
@@ -4921,8 +4918,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			firstFinalizeConcerns = append([]types.Violation(nil), res.Violations...)
 		}
 		if !o.strictAnswerReviewEnabledValue() {
-			if len(res.Violations) > 0 {
-				o.attachDraftReviewNote(out, strictReviewDisabledTitle(o.busCtx.Language), res.Violations)
+			if actionable := FilterActionableRootViolations(res.Violations); len(actionable) > 0 {
+				o.attachDraftReviewNote(out, strictReviewDisabledTitle(o.busCtx.Language), actionable)
 			}
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			o.emit(render.Event{
@@ -4960,6 +4957,23 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			o.emitNodeEnd(fin.ID, true, "")
 			break
 		}
+		retryViolations := FilterActionableRootViolations(res.Violations)
+		if len(retryViolations) == 0 {
+			logging.Info("[orchestrator] contract check produced only soft/non-actionable violation(s); accepting answer without LLM retry")
+			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+			o.emit(render.Event{
+				Kind:            render.EventLivePreviewClear,
+				Timestamp:       time.Now(),
+				Stage:           types.StageFinalize,
+				PreviewRejected: false,
+			})
+			logEvidenceUtilization(o, lastFinalize)
+			state.markDone(fin.ID)
+			o.emitNodeEnd(fin.ID, true, "")
+			break
+		}
+		retryRes := res
+		retryRes.Violations = retryViolations
 		// Contract failed (or SC failed). The just-streamed draft
 		// is rejected — emit Clear with rejected=true so the
 		// renderer flashes "已重写" briefly before erasing. Whether
@@ -4973,16 +4987,16 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			PreviewRejected: true,
 		})
 
-		logging.Info("[orchestrator] contract check failed (%d violation(s)); retryUsed=%d/%d",
-			len(res.Violations), state.retryUsed, ir.TaskGraph.ExecutionPolicy.RetryBudget)
+		logging.Info("[orchestrator] contract check failed (%d actionable/%d total violation(s)); retryUsed=%d/%d",
+			len(retryRes.Violations), len(res.Violations), state.retryUsed, ir.TaskGraph.ExecutionPolicy.RetryBudget)
 		// Per-violation debug so operators can tell, from a single log
 		// line per violation, exactly which gate fired and whether the
 		// retry is well-founded. Includes the is-absence flag and the
-		// authoritative citation-pool count so the usual "why didn't
-		// the absence waiver apply?" question has the data at hand.
+		// grounded citation-support count so the usual "why didn't the
+		// absence waiver apply?" question has the data at hand.
 		if logging.IsDebug() {
 			absence := isJustifiedAbsenceAnswer(o.busCtx.Mutable)
-			poolCount := finalizerCitationPoolSize(o.busCtx.Mutable, out)
+			poolCount := finalizerCitationSupportCount(o.busCtx, out)
 			carrier := "none"
 			blockCount := 0
 			if doc := o.busCtx.Mutable.AnswerDocumentV2(); doc != nil {
@@ -5021,7 +5035,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// typed unresolved concerns. Do not append the dock
 			// status line into the answer body, and do not collapse
 			// concrete violations back into one generic family caveat.
-			o.injectResidualConcernsCaveat(out, res.Violations)
+			o.injectResidualConcernsCaveat(out, retryRes.Violations)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] P6 finalize repair hard cap reached (%d/%d); accepting doc with residual-concerns caveat",
 				state.retryUsed, hardCap)
@@ -5039,12 +5053,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// any combination of mid-loop / fallback / contract retry
 		// scopes. Ship with caveats instead of dispatching another
 		// wasted round.
-		if IncrementAttemptsAndCheckExhausted(res.Violations, o.busCtx.Mutable.RepairAttempts()) {
-			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
-			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+		if IncrementAttemptsAndCheckExhausted(retryRes.Violations, o.busCtx.Mutable.RepairAttempts()) {
+			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
+			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, retryRes.Violations, o.busCtx.Language)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] cross-scope repair attempts exhausted on every root; %d violation(s) materialised as user caveat",
-				len(res.Violations))
+				len(retryRes.Violations))
 			lastFinalize = out
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")
@@ -5057,10 +5071,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// caveats appended to the answer. Operator telemetry
 			// stays on logging.Warning + closure stats; the user
 			// sees natural-language caveats only.
-			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
-			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
+			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, retryRes.Violations, o.busCtx.Language)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
-			logging.Warning("[orchestrator] retry budget exhausted; %d violation(s) materialized as user caveat", len(res.Violations))
+			logging.Warning("[orchestrator] retry budget exhausted; %d violation(s) materialized as user caveat", len(retryRes.Violations))
 			lastFinalize = out
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")
@@ -5073,13 +5087,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// boundary without re-requeueing the explore window — the
 		// LLM already had N chances to address this specific
 		// violation family.
-		if kind := dominantViolationKind(res); kind != "" {
+		if kind := dominantViolationKind(retryRes); kind != "" {
 			cap := o.settings.RetryBudgetByKind.For(kind, ir.TaskGraph.ExecutionPolicy.RetryBudget)
 			if state.retryUsedForKind(kind) >= cap {
 				logging.Warning("[orchestrator] retry budget for kind=%s exhausted (%d/%d) — accepting answer with caveat",
 					kind, state.retryUsedForKind(kind), cap)
-				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
-				out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
+				out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, retryRes.Violations, o.busCtx.Language)
 				out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 				lastFinalize = out
 				state.markDone(fin.ID)
@@ -5096,13 +5110,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// dominant typed class, ship the current core answer with
 		// caveats instead of spending another LLM round on mechanical
 		// schema churn.
-		if class := dominantViolationClass(res); class != "" {
+		if class := dominantViolationClass(retryRes); class != "" {
 			cap := sameErrorClassRetryCap()
 			if cap > 0 && state.retryUsedForClass(class) >= cap {
 				logging.Warning("[orchestrator] retry budget for class=%s exhausted (%d/%d) — accepting answer with caveat",
 					class, state.retryUsedForClass(class), cap)
-				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
-				out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
+				out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, retryRes.Violations, o.busCtx.Language)
 				out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 				lastFinalize = out
 				state.markDone(fin.ID)
@@ -5124,7 +5138,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			return stepsUsed
 		}
 		minYield := o.settings.ViolationBudget.MinRetryYield
-		yieldFallback := FallbackTargetForViolationsWithBudget(res.Violations, finalizerLocalRetriesUsed)
+		yieldFallback := FallbackTargetForViolationsWithBudget(retryRes.Violations, finalizerLocalRetriesUsed)
 		finalizerOnlyTextRepair := yieldFallback == FallbackFinalizerOnly
 		if shouldStopForLowRetryYield(minYield, state.retryUsed, delta, yieldFallback) {
 			state.yieldKillCount++
@@ -5141,8 +5155,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				NoticeKind: render.NoticeYieldKill,
 				Reasoning:  softYieldKillMessage(o.busCtx.Language),
 			})
-			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
-			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
+			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, retryRes.Violations, o.busCtx.Language)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			lastFinalize = out
 			state.markDone(fin.ID)
@@ -5207,7 +5221,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// pickers (FallbackTargetForViolations / WithBudget) remain
 		// for back-compat callers + tests.
 		stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "repair_plan")
-		execPlan, fallback, preDowngrade := AdvanceRepairExecutionPlan(o.busCtx.Mutable, res.Violations, finalizerLocalRetriesUsed)
+		execPlan, fallback, preDowngrade := AdvanceRepairExecutionPlan(o.busCtx.Mutable, retryRes.Violations, finalizerLocalRetriesUsed)
 		if o.finishSchedulerLocalWork(stopLocal, "repair_plan", stepsUsed) {
 			return stepsUsed
 		}
@@ -5217,7 +5231,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// for cluster composition and `repair_exec=` for queue
 		// state. Both lines are purely observational.
 		logging.Info("[orchestrator] repair_plan: %s target=%s",
-			SummarizeRepairPlan(BuildRepairPlan(res.Violations)), fallback)
+			SummarizeRepairPlan(BuildRepairPlan(retryRes.Violations)), fallback)
 		logging.Info("[orchestrator] repair_exec: %s",
 			SummarizeRepairExecutionPlan(execPlan))
 		if fallback == FallbackFinalizerOnly && preDowngrade != FallbackFinalizerOnly {
@@ -5251,8 +5265,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		_ = capReached
 		switch fallback {
 		case FallbackFailLoud:
-			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
-			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, retryRes)
+			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, retryRes.Violations, o.busCtx.Language)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			lastFinalize = out
 			state.markDone(fin.ID)
@@ -5268,7 +5282,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				if rs := o.busCtx.Mutable.RetryState(); rs != nil {
 					prevAttempt = rs.Attempt
 				}
-				populateRetryState(o.busCtx.Mutable, res, prevAttempt)
+				populateRetryState(o.busCtx.Mutable, retryRes, prevAttempt)
 			}
 			state.requeue(fin.ID)
 			if o.busCtx != nil && o.busCtx.Mutable != nil {
@@ -5285,7 +5299,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				if rs := o.busCtx.Mutable.RetryState(); rs != nil {
 					prevAttempt = rs.Attempt
 				}
-				populateRetryState(o.busCtx.Mutable, res, prevAttempt)
+				populateRetryState(o.busCtx.Mutable, retryRes, prevAttempt)
 			}
 			// Read-mode TaskGraph has no NodeExtract today (extract
 			// is implicit in the explore pass); selective requeue
@@ -5305,7 +5319,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				if rs := o.busCtx.Mutable.RetryState(); rs != nil {
 					prevAttempt = rs.Attempt
 				}
-				populateRetryState(o.busCtx.Mutable, res, prevAttempt)
+				populateRetryState(o.busCtx.Mutable, retryRes, prevAttempt)
 			}
 			requeued := state.requeueToStage(types.StageExplore, false)
 			state.requeue(fin.ID)
@@ -5340,13 +5354,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 		// C6: bump the per-kind counter for the dominant violation
 		// so subsequent iterations see the cap getting tighter.
-		if kind := dominantViolationKind(res); kind != "" {
+		if kind := dominantViolationKind(retryRes); kind != "" {
 			state.recordRetryByKind(kind)
 		}
-		if class := dominantViolationClass(res); class != "" {
+		if class := dominantViolationClass(retryRes); class != "" {
 			state.recordRetryByClass(class)
 		}
-		pendingViolation = renderViolations(res)
+		pendingViolation = renderViolations(retryRes)
 
 		// Surface the backtrack to the user so they know the pipeline
 		// is re-investigating, not stalled. The full violation
@@ -6968,15 +6982,19 @@ func dominantViolationKind(res contract.Result) types.ViolationKind {
 	if res.Passed || len(res.Violations) == 0 {
 		return ""
 	}
+	violations := FilterActionableRootViolations(res.Violations)
+	if len(violations) == 0 {
+		return ""
+	}
 	counts := make(map[types.ViolationKind]int)
-	for _, v := range res.Violations {
+	for _, v := range violations {
 		counts[v.Kind]++
 	}
 	var (
 		bestKind  types.ViolationKind
 		bestCount int
 	)
-	for _, v := range res.Violations {
+	for _, v := range violations {
 		if counts[v.Kind] > bestCount {
 			bestCount = counts[v.Kind]
 			bestKind = v.Kind
@@ -6991,7 +7009,7 @@ func dominantViolationClass(res contract.Result) string {
 	if res.Passed || len(res.Violations) == 0 {
 		return ""
 	}
-	roots := FilterDerivedViolations(res.Violations)
+	roots := FilterActionableRootViolations(res.Violations)
 	if len(roots) == 0 {
 		return ""
 	}
@@ -7345,36 +7363,7 @@ func successCriterionRepairLocusOverride(bus *types.BusContext, kind criterion.K
 }
 
 func citationGradeAnchorCapacity(bus *types.BusContext) int {
-	if bus == nil {
-		return 0
-	}
-	seen := make(map[string]struct{})
-	add := func(file string, line int) {
-		file = strings.TrimSpace(file)
-		if file == "" || line <= 0 {
-			return
-		}
-		seen[fmt.Sprintf("%s:%d", file, line)] = struct{}{}
-	}
-	for _, ev := range bus.EvidenceItems {
-		add(ev.Source, ev.LineStart)
-	}
-	for _, sym := range bus.AnswerSymbols {
-		add(sym.File, sym.Line)
-	}
-	if bus.Mutable != nil {
-		if artifacts := bus.Mutable.TurnAArtifacts(); artifacts != nil {
-			for _, ev := range artifacts.EvidenceItems {
-				add(ev.Source, ev.LineStart)
-			}
-		}
-		if symbols, _ := bus.Mutable.EmittedAnswerSymbols(); len(symbols) > 0 {
-			for _, sym := range symbols {
-				add(sym.File, sym.Line)
-			}
-		}
-	}
-	return len(seen)
+	return len(citationGradeAnchorKeys(bus))
 }
 
 // runAnswerReviewerOnSuccess dispatches the end-of-Run
