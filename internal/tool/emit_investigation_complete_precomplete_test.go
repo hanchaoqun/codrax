@@ -2897,6 +2897,15 @@ func (g *phantomPathTestGater) ResolveActiveSetPath(_ *types.BusContext, _, llmP
 	if g.ambiguousPaths[llmPath] {
 		return types.ActiveSetGateResult{Allowed: false, RefusalProse: "ambiguous"}
 	}
+	for _, prefix := range g.uniqueMatchPrefix {
+		if prefix != "" && strings.HasPrefix(llmPath, prefix+"/") {
+			return types.ActiveSetGateResult{
+				Allowed:        true,
+				ResolvedPath:   llmPath,
+				SubRepoRootRel: prefix,
+			}
+		}
+	}
 	prefix, ok := g.uniqueMatchPrefix[llmPath]
 	if !ok || prefix == "" {
 		return types.ActiveSetGateResult{Allowed: false, RefusalProse: "no match"}
@@ -3082,5 +3091,124 @@ func TestRaisePhase1UnreadPendingReads_MultiRepoPhantomPathSkipped(t *testing.T)
 
 	if got := closure.PendingReads(); len(got) != 0 {
 		t.Fatalf("phantom-path seed must be dropped, got %d PendingRead(s): %+v", len(got), got)
+	}
+}
+
+func TestPrimaryAnchorPendingRead_MultiRepoBarePathHonorsPrefixedReadHistory(t *testing.T) {
+	gater := &phantomPathTestGater{
+		uniqueMatchPrefix: map[string]string{
+			"packages/opencode/src/tool/read.ts": "opencode",
+		},
+	}
+	mut := types.NewMutableState("multi-repo primary anchor read history")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "packages/opencode/src/tool/read.ts", Score: 60, ExactEntityRank: 2},
+	})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[opencode/packages/opencode/src/tool/read.ts: showing lines 1-338 of 338 total]\n",
+	})
+	bus := &types.BusContext{
+		Mutable:    mut,
+		RepoRoot:   t.TempDir(),
+		MultiGraph: gater,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "prefixed read history covers the bare primary anchor",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") || strings.Contains(res.Summary, "packages/opencode/src/tool/read.ts") {
+		t.Fatalf("bare multi-repo primary anchor should be satisfied by prefixed read history, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete once prefixed read history covers the primary anchor")
+	}
+}
+
+func TestApplyMultiPathAnchorChecks_MultiRepoQualifiesBareAnchors(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.MultiPathSymbolContextLines = 15
+	SetAnalysisLimits(limits)
+
+	gater := &phantomPathTestGater{
+		uniqueMatchPrefix: map[string]string{
+			"packages/opencode/src/tool/read.ts":    "opencode",
+			"packages/opencode/src/plugin/codex.ts": "opencode",
+		},
+	}
+	mut := types.NewMutableState("multi-repo multipath anchor qualification")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "packages/opencode/src/tool/read.ts", Score: 60, ExactEntityRank: 2},
+		{Path: "packages/opencode/src/plugin/codex.ts", Score: 58, ExactEntityRank: 2},
+	})
+	mut.SetSearchGraph(&repotypes.Graph{
+		FileIndex: map[string]*repotypes.FileInfo{
+			"opencode/packages/opencode/src/tool/read.ts": {
+				RelPath: "opencode/packages/opencode/src/tool/read.ts",
+				Symbols: []repotypes.Symbol{{
+					Name:    "ReadTool",
+					File:    "opencode/packages/opencode/src/tool/read.ts",
+					Line:    37,
+					EndLine: 337,
+				}},
+			},
+			"opencode/packages/opencode/src/plugin/codex.ts": {
+				RelPath: "opencode/packages/opencode/src/plugin/codex.ts",
+				Symbols: []repotypes.Symbol{{
+					Name:    "verifier",
+					File:    "opencode/packages/opencode/src/plugin/codex.ts",
+					Line:    27,
+					EndLine: 27,
+				}},
+			},
+		},
+	})
+	closure := mut.EvidenceClosure()
+	bus := &types.BusContext{
+		Mutable:    mut,
+		RepoRoot:   t.TempDir(),
+		MultiGraph: gater,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:            "mechanism",
+					PrimaryEntities: []string{"ReadTool", "verifier"},
+				},
+			},
+		},
+	}
+
+	applyMultiPathAnchorChecks(bus, closure)
+
+	var found int
+	for _, p := range closure.PendingReads() {
+		if p.Origin != "pre_complete.multi_path_anchor" {
+			continue
+		}
+		found++
+		if !strings.HasPrefix(p.File, "opencode/") {
+			t.Fatalf("multi_path_anchor PendingRead must use active-set qualified path, got %+v", p)
+		}
+		if strings.HasPrefix(p.File, "packages/") {
+			t.Fatalf("multi_path_anchor leaked bare path that cannot drain against read_file history: %+v", p)
+		}
+	}
+	if found != 2 {
+		t.Fatalf("expected two qualified multi_path_anchor pending reads, got %d: %+v", found, closure.PendingReads())
 	}
 }

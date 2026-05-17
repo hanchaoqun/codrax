@@ -2845,7 +2845,7 @@ func validateEvidenceSurfaceTerms(index int, item types.EvidenceItem, gc *ground
 	if len(lineIndex) == 0 {
 		return fmt.Errorf("items[%d]: surface_terms require already-observed source lines for source=%q", index, item.Source)
 	}
-	source := ground.CanonicalRepoRelative(item.Source, gc.RepoRoot)
+	source := ground.CanonicalContextPath(gc, item.Source)
 	fileLines := lineIndex[source]
 	if len(fileLines) == 0 {
 		return fmt.Errorf("items[%d]: surface_terms require source %q to have appeared in read_file or grep output", index, item.Source)
@@ -2882,7 +2882,7 @@ func dropInvalidEvidenceSurfaceTerms(index int, item *types.EvidenceItem, gc *gr
 	if len(lineIndex) == 0 {
 		return dropAll(fmt.Sprintf("source %q has no observed source window", item.Source))
 	}
-	source := ground.CanonicalRepoRelative(item.Source, gc.RepoRoot)
+	source := ground.CanonicalContextPath(gc, item.Source)
 	fileLines := lineIndex[source]
 	if len(fileLines) == 0 {
 		return dropAll(fmt.Sprintf("source %q did not appear in read_file or grep output", item.Source))

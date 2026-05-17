@@ -66,8 +66,10 @@ func GroundItemScoped(it *types.EvidenceItem, gc *Context) Report {
 //
 // Scope-shape mismatch nudge (2026-05+): after the underlying tier
 // cascade finishes, if the item is grounded BUT
-//   (a) source is a config-file path (yaml/json/toml/ini), AND
-//   (b) the cited line is comment-only,
+//
+//	(a) source is a config-file path (yaml/json/toml/ini), AND
+//	(b) the cited line is comment-only,
+//
 // the grounder appends an advisory suffix to GroundingNote suggesting
 // scope=`file` for layer identity or scope=`negative` for absence
 // proofs. The note is informational; it does NOT downgrade the
@@ -117,7 +119,7 @@ func groundScopeLineRange(it *types.EvidenceItem, gc *Context) Report {
 		return rep
 	}
 	if gc != nil && it.Source != "" {
-		it.Source = CanonicalRepoRelative(it.Source, gc.RepoRoot)
+		it.Source = canonicalContextPath(gc, it.Source)
 	}
 	// File-existence + total-line check when known.
 	if gc != nil && gc.RepoRoot != "" {
@@ -159,7 +161,7 @@ func groundScopeSection(it *types.EvidenceItem, gc *Context) Report {
 		return rep
 	}
 	if gc != nil && it.Source != "" {
-		it.Source = CanonicalRepoRelative(it.Source, gc.RepoRoot)
+		it.Source = canonicalContextPath(gc, it.Source)
 	}
 	if gc != nil && gc.RepoRoot != "" {
 		if _, err := os.Stat(filepath.Join(gc.RepoRoot, it.Source)); err != nil {
@@ -194,7 +196,7 @@ func groundScopeFile(it *types.EvidenceItem, gc *Context) Report {
 		return rep
 	}
 	if gc != nil && it.Source != "" {
-		it.Source = CanonicalRepoRelative(it.Source, gc.RepoRoot)
+		it.Source = canonicalContextPath(gc, it.Source)
 	}
 	if gc != nil && gc.RepoRoot != "" {
 		if _, err := os.Stat(filepath.Join(gc.RepoRoot, it.Source)); err != nil {
@@ -310,7 +312,7 @@ func groundScopeCrossfile(it *types.EvidenceItem, gc *Context) Report {
 	}
 	count := 0
 	for _, f := range q.Files {
-		f = CanonicalRepoRelative(f, repoRootOrEmpty(gc))
+		f = canonicalContextPath(gc, f)
 		body, readErr := readRepoFile(gc, f)
 		if readErr != nil {
 			it.GroundingStatus = types.GroundingUngrounded
@@ -389,7 +391,7 @@ func groundScopeNegative(it *types.EvidenceItem, gc *Context) Report {
 		rep.Note = it.GroundingNote
 		return rep
 	}
-	file := CanonicalRepoRelative(q.File, repoRootOrEmpty(gc))
+	file := canonicalContextPath(gc, q.File)
 	body, readErr := readRepoFile(gc, file)
 	if readErr != nil {
 		it.GroundingStatus = types.GroundingUngrounded

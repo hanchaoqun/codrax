@@ -83,6 +83,7 @@ type Context struct {
 	ObservedLineIndex map[string]map[int]string // read_file plus source lines visibly returned by grep; never used for citation grounding
 	Graph             *repomap.Graph            // nil when explorer has not populated MutableState yet
 	RepoRoot          string                    // for path canonicalisation; empty is tolerated (no normalisation)
+	ActiveSetPath     func(string) string       // optional multi-repo active-set canonicalizer for bare sub-repo paths
 
 	// MultiGraphOracle is the cross-sub-repo SymbolOracle wired
 	// from BusContext.MultiGraph (P4-cross-sub-repo, 2026-05-08).
@@ -151,6 +152,7 @@ func BuildContext(ctx *types.BusContext) *Context {
 		}
 	}
 	gc.RepoRoot = ctx.RepoRoot
+	gc.ActiveSetPath = buildActiveSetPathResolver(ctx)
 	gc.LineIndex = buildLineIndex(history, ctx.RepoRoot)
 	gc.ObservedLineIndex = buildObservedLineIndex(history, ctx.RepoRoot, gc.LineIndex)
 	if ctx.Mutable != nil {
@@ -165,6 +167,57 @@ func BuildContext(ctx *types.BusContext) *Context {
 	// cycle. The oracle is consulted as a fallback inside
 	// looksLikeCodeIdentifier; nil disables the fan-out path.
 	return gc
+}
+
+func buildActiveSetPathResolver(ctx *types.BusContext) func(string) string {
+	if ctx == nil || ctx.MultiGraph == nil {
+		return nil
+	}
+	gater, ok := ctx.MultiGraph.(types.MultiRepoActiveSetGater)
+	if !ok || gater == nil {
+		return nil
+	}
+	return func(raw string) string {
+		canon := CanonicalRepoRelative(raw, ctx.RepoRoot)
+		if canon == "" {
+			return ""
+		}
+		gate := gater.ResolveActiveSetPath(ctx, "ground", canon, func(abs string) bool {
+			info, err := os.Stat(abs)
+			return err == nil && !info.IsDir()
+		})
+		if !gate.Allowed || gate.ResolvedPath == "" {
+			return canon
+		}
+		return CanonicalRepoRelative(gate.ResolvedPath, ctx.RepoRoot)
+	}
+}
+
+func canonicalContextPath(gc *Context, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	repoRoot := ""
+	if gc != nil {
+		repoRoot = gc.RepoRoot
+	}
+	canon := CanonicalRepoRelative(raw, repoRoot)
+	if gc != nil && gc.ActiveSetPath != nil {
+		if resolved := gc.ActiveSetPath(canon); resolved != "" {
+			return CanonicalRepoRelative(resolved, repoRoot)
+		}
+	}
+	return canon
+}
+
+// CanonicalContextPath canonicalises a model-supplied path through the
+// current grounding context. In single-repo mode this is just
+// CanonicalRepoRelative; in multi-repo mode it also applies the active-set
+// alias resolver so a bare sub-repo path and the read_file banner path share
+// one key.
+func CanonicalContextPath(gc *Context, raw string) string {
+	return canonicalContextPath(gc, raw)
 }
 
 // SetCrossRepoOracle installs the package-level cross-sub-repo
@@ -241,7 +294,7 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 	// evidence item with an absolute Source silently falls through
 	// Tier 1 and Tier 2 even when the explorer did read the file.
 	if gc != nil && it.Source != "" {
-		it.Source = CanonicalRepoRelative(it.Source, gc.RepoRoot)
+		it.Source = canonicalContextPath(gc, it.Source)
 	}
 
 	// Tier 1: line_text via read_file gutter.
@@ -513,7 +566,7 @@ func GroundCitation(c types.Citation, gc *Context) CitationReport {
 	// repo-relative) already use as keys. Handles the "LLM read with
 	// relative path but cited with absolute" failure mode that caused
 	// kept=0 dropped=12 on explanation-shape answers.
-	file = CanonicalRepoRelative(file, gc.RepoRoot)
+	file = canonicalContextPath(gc, file)
 	// Tier 1: gutter index hit — the LLM actually read this line.
 	if gc != nil {
 		if fileLines, ok := gc.LineIndex[file]; ok {
@@ -1303,6 +1356,7 @@ func VerifyLineAnchor(gc *Context, source string, line int, anchor string, radiu
 	if gc == nil || source == "" || line <= 0 || anchor == "" {
 		return 0, false
 	}
+	source = canonicalContextPath(gc, source)
 	fileLines, ok := gc.LineIndex[source]
 	if !ok {
 		return 0, false
@@ -1365,6 +1419,7 @@ func HasFileInIndex(gc *Context, source string) bool {
 	if gc == nil || source == "" {
 		return false
 	}
+	source = canonicalContextPath(gc, source)
 	_, ok := gc.LineIndex[source]
 	return ok
 }
@@ -1376,6 +1431,7 @@ func HasLineInIndex(gc *Context, source string, line int) bool {
 	if gc == nil || source == "" || line <= 0 {
 		return false
 	}
+	source = canonicalContextPath(gc, source)
 	fileLines, ok := gc.LineIndex[source]
 	if !ok {
 		return false
@@ -1423,7 +1479,7 @@ func graphSymbolsInFile(gc *Context, source string) []repomap.Symbol {
 	if gc == nil || gc.Graph == nil || source == "" {
 		return nil
 	}
-	canon := CanonicalRepoRelative(source, gc.RepoRoot)
+	canon := canonicalContextPath(gc, source)
 	if canon != "" {
 		if syms := gc.Graph.SymbolsInFile(canon); len(syms) > 0 {
 			return syms

@@ -3704,8 +3704,10 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 		if ranked.ExactEntityRank <= 0 {
 			continue
 		}
-		canon := strings.TrimPrefix(strings.TrimSpace(ranked.Path), "./")
-		if canon == "" {
+		canon, ok := qualifyForcedReadSeedPath(ctx, ranked.Path)
+		if !ok {
+			logging.Warning("[CGEC] primary_anchor_unread: skipping phantom path file=%s (no match in any active sub-repo)",
+				canonicaliseAnchorPath(ranked.Path, ctx.RepoRoot))
 			continue
 		}
 		if closure.HasRead(canon) {
@@ -3777,12 +3779,9 @@ func applyMultiPathAnchorChecksWithEvidence(ctx *types.BusContext, closure *type
 	}
 
 	// Collect canonical anchor file list (dedup by canonical path).
-	// Use ground.CanonicalRepoRelative for multi-platform safety
-	// (POSIX absolute → repo-relative, Windows backslash → POSIX
-	// slash, macOS HFS+/APFS case tolerance) so the anchor key
-	// matches the keywordAnchorMap key downstream — which is also
-	// canonicalised against the same repoRoot. Path mismatch here
-	// would silently cause every keyword anchor lookup to miss.
+	// Forced-read seeds may arrive as bare sub-repo-relative paths
+	// while read_file history is keyed by active sub-repo prefix.
+	// Qualify at seed time so every downstream gate sees the same key.
 	repoRoot := ctx.RepoRoot
 	anchors := make([]string, 0, len(ranked))
 	seen := make(map[string]bool, len(ranked))
@@ -3790,7 +3789,12 @@ func applyMultiPathAnchorChecksWithEvidence(ctx *types.BusContext, closure *type
 		if rf.ExactEntityRank <= 0 {
 			continue
 		}
-		canon := canonicaliseAnchorPath(rf.Path, repoRoot)
+		canon, ok := qualifyForcedReadSeedPath(ctx, rf.Path)
+		if !ok {
+			logging.Warning("[CGEC] multi_path_anchor: skipping phantom path file=%s (no match in any active sub-repo)",
+				canonicaliseAnchorPath(rf.Path, repoRoot))
+			continue
+		}
 		if canon == "" || seen[canon] {
 			continue
 		}
@@ -3871,6 +3875,26 @@ func canonicaliseAnchorPath(p, repoRoot string) string {
 	}
 	cleaned := strings.ReplaceAll(p, "\\", "/")
 	return strings.TrimPrefix(cleaned, "./")
+}
+
+func qualifyForcedReadSeedPath(ctx *types.BusContext, raw string) (string, bool) {
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = ctx.RepoRoot
+	}
+	canon := canonicaliseAnchorPath(raw, repoRoot)
+	if canon == "" {
+		return "", false
+	}
+	qualified, ok := qualifyForcedReadPathForMultiRepo(ctx, canon)
+	if !ok {
+		return "", false
+	}
+	qualified = canonicaliseAnchorPath(qualified, repoRoot)
+	if qualified == "" {
+		return "", false
+	}
+	return qualified, true
 }
 
 // repomapSymbolOracle wraps the per-Run repomap Graph (when one is
@@ -4108,7 +4132,7 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 		// against the active set so HasRead / DrainSatisfiedPendingReads
 		// key on the same canonical form the read_file gate produces.
 		// docs/design/post_phase2a_forensic_followups.md §2.1.B.
-		qualified, qok := qualifyForcedReadPathForMultiRepo(ctx, canon)
+		qualified, qok := qualifyForcedReadSeedPath(ctx, canon)
 		if !qok {
 			logging.Warning("[CGEC] phase1_unread: skipping phantom path file=%s (no match in any active sub-repo)", canon)
 			continue

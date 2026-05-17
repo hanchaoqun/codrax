@@ -59,7 +59,7 @@ type ClaimCitationReport struct {
 func GroundClaimCitation(c types.Citation, claim string, gc *Context) ClaimCitationReport {
 	file := strings.TrimSpace(c.File)
 	if gc != nil {
-		file = CanonicalRepoRelative(file, gc.RepoRoot)
+		file = canonicalContextPath(gc, file)
 	}
 	start, end := c.Line, c.LineEnd
 	if end < start {
