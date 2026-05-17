@@ -525,6 +525,15 @@ func (r FacetRequirement) IsPromoted() bool {
 	return false
 }
 
+// RequiresHardDeclaration reports whether missing facet metadata is an
+// emit-time structural error. This is intentionally narrower than
+// IsPromoted(): evidence-sufficient SOFT facets are useful review and
+// telemetry signals, but they must not force the finalizer to rewrite an
+// otherwise grounded answer just to add redundant metadata.
+func (r FacetRequirement) RequiresHardDeclaration() bool {
+	return r.EffectivePromotionPolicy() == PromotionAlwaysHard
+}
+
 // FacetCoverageContract is the compiled per-question facet plan.
 // Lives on AnswerSurfacePlan.FacetCoverage. Phase 1: observation
 // only; Phase 2 surfaces in finalizer prompt; Phase 4 drives gate

@@ -73,13 +73,15 @@ type SemanticQualityInput struct {
 	// Concerns — concerns are ADDITIONS the typed validators missed.
 	SystemDetectedGaps []SystemDetectedGap
 
-	// PromotedFacetCoverage is the depth audit for promoted facets:
+	// PromotedFacetCoverage is the depth audit for emit-hard facets:
 	// DeclaredCount counts how many times a block.FacetIDs / item
 	// .ClaimUse.FacetID names this facet kind; AnchoredCount is the
 	// subset of those declarations that ALSO carry an evidence_id /
 	// claim_form on the same site. A facet with DeclaredCount > 0
 	// but AnchoredCount == 0 is a "shallow declaration" — covered by
-	// label, not anchored to evidence. v3 B2 (2026-05-04).
+	// label, not anchored to evidence. Evidence-sufficient SOFT facets
+	// stay out of this hard-depth audit so reviewer repair pressure does
+	// not turn metadata enrichment into answer rewrites.
 	PromotedFacetCoverage []FacetCoverageDepth
 }
 
@@ -764,11 +766,11 @@ func BuildSemanticQualityInput(
 	}
 
 	// PromotedFacetCoverage depth audit — declared vs anchored per
-	// promoted facet. AnchoredCount = sites that declare BOTH
+	// emit-hard facet. AnchoredCount = sites that declare BOTH
 	// FacetID AND non-empty EvidenceID/ClaimForm on the same surface.
 	if view.FacetCoverage != nil {
 		for _, req := range view.FacetCoverage.Required {
-			if !req.IsPromoted() {
+			if !req.RequiresHardDeclaration() {
 				continue
 			}
 			kind := strings.TrimSpace(string(req.Kind))

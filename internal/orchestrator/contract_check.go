@@ -591,20 +591,44 @@ func relaxUnsupportedAnalyzerMustIncludeTerms(c types.AnswerContract, mut *types
 }
 
 type analyzerMustIncludeSupportIndex struct {
-	fileKeys       map[string]bool
-	hasFileSignals bool
+	fileKeys         map[string]bool
+	symbolKeys       map[string]bool
+	hasFileSignals   bool
+	hasSymbolSignals bool
 }
 
 func buildAnalyzerMustIncludeSupportIndex(mut *types.MutableState) analyzerMustIncludeSupportIndex {
-	idx := analyzerMustIncludeSupportIndex{fileKeys: map[string]bool{}}
+	idx := analyzerMustIncludeSupportIndex{
+		fileKeys:   map[string]bool{},
+		symbolKeys: map[string]bool{},
+	}
 	addFile := func(path string) {
 		for _, key := range fileTermKeys(path) {
 			idx.fileKeys[key] = true
 			idx.hasFileSignals = true
 		}
 	}
+	addSymbol := func(text string) {
+		for _, key := range symbolTermKeys(text) {
+			idx.symbolKeys[key] = true
+			idx.hasSymbolSignals = true
+		}
+	}
 	for _, ev := range mut.EmittedEvidence() {
 		addFile(ev.Source)
+		addSymbol(ev.Subject)
+		addSymbol(ev.Object)
+		addSymbol(ev.AnchorSymbol)
+		addSymbol(ev.OwnerSymbol)
+		for _, term := range ev.SurfaceTerms {
+			addSymbol(term)
+		}
+	}
+	if syms, _ := mut.EmittedAnswerSymbols(); len(syms) > 0 {
+		for _, sym := range syms {
+			addSymbol(sym.Name)
+			addFile(sym.File)
+		}
 	}
 	if doc := mut.AnswerDocumentV2(); doc != nil {
 		for _, cit := range doc.Citations {
@@ -646,6 +670,19 @@ func analyzerMustIncludeTermSupported(term types.ContractTerm, idx analyzerMustI
 			}
 		}
 		return false
+	case types.ContractTermSymbol:
+		if idx.hasSymbolSignals {
+			for _, key := range symbolTermKeys(text) {
+				if idx.symbolKeys[key] {
+					return true
+				}
+			}
+			return false
+		}
+		if oracle == nil {
+			return true
+		}
+		return contractOracleHasReliableSymbol(oracle, text)
 	default:
 		if oracle == nil {
 			return true
@@ -665,6 +702,14 @@ func contractOracleHasReliableSymbol(oracle types.SymbolOracle, name string) boo
 		return true
 	}
 	return false
+}
+
+func symbolTermKeys(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	return []string{strings.ToLower(text)}
 }
 
 func fileTermKeys(path string) []string {

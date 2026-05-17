@@ -333,8 +333,8 @@ func TestBuildSemanticQualityInput_DiagramFacetDepthAnchoredByDiagramSurface(t *
 	view := &types.AnswerSemanticView{
 		FacetCoverage: &types.FacetCoverageContract{
 			Required: []types.FacetRequirement{
-				{Kind: "diagram_spine", Required: types.FacetSoftRequired,
-					PromotionPolicy: types.PromotionWhenEvidenceSufficient,
+				{Kind: "diagram_spine", Required: types.FacetHardRequired,
+					PromotionPolicy: types.PromotionAlwaysHard,
 					SourceCandidate: []string{"ev-a"}},
 			},
 		},

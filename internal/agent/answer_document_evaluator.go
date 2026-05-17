@@ -1746,10 +1746,7 @@ func liveAspectCoverage(prev *types.AnswerDocumentV2, view *types.AnswerSemantic
 	b.WriteString("**Aspect coverage:**\n\n")
 	any := false
 	for _, req := range view.FacetCoverage.Required {
-		if req.EffectivePromotionPolicy() == types.PromotionAdvisoryOnly {
-			continue
-		}
-		if !req.IsPromoted() {
+		if !req.RequiresHardDeclaration() {
 			continue
 		}
 		kind := strings.TrimSpace(string(req.Kind))
@@ -2600,29 +2597,21 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 	b.WriteString("## Required Answer Facets\n\n")
 	b.WriteString("The user's question imposes the following coverage requirements on the rendered answer. " +
 		"Each facet names a semantic surface the answer must touch; the parenthesised hint names the evidence shape that supports it. " +
-		"Cover every HARD facet that has grounded evidence; SOFT facets are recommended but not strictly required; OPTIONAL facets add richness when they fit.\n\n")
+		"Cover every HARD facet; SOFT facets are recommended when the answer already discusses their evidence; OPTIONAL facets add richness when they fit.\n\n")
 	b.WriteString("To declare a facet on a block, set `block.facet_ids` (or `block.claim_uses[j].facet_id`) to the verbatim string shown after `facet_id:` on each line below — that exact string MUST appear in the emit. The rightmost hint (when present) names the block kind(s) that typically cover the facet so you know where to place it.\n\n")
 	b.WriteString("Each line ends with `(evidence: N)` — N is the curated answer-grade evidence count when a typed support lane exists, otherwise the count of typed evidence items already bound to the facet. " +
-		"For SOFT facets this count gates the coverage demand: when N=0 the facet is skipped (no typed evidence to surface), so do NOT invent claims for it. " +
-		"For HARD facets, coverage is demanded regardless of N (the question pinned the facet as essential). " +
-		"A SOFT facet with N≥1 is **elevated** — its line carries an `(elevated)` marker AFTER the evidence count, and you must cover it as if it were HARD; the typed evidence is available, so the answer must surface it. " +
-		"If an elevated facet is not already listed on a Required Answer Blocks row, attach that facet_id to the closest existing block whose payload actually covers it; do not wait for a tool rejection and do not create an unrelated block just to carry the id.\n\n")
+		"For SOFT facets, N=0 means there is no typed evidence to surface, so do NOT invent claims for it. " +
+		"For SOFT facets with N≥1, the line carries `(evidence available)`: cover it when the answer already discusses that evidence, but missing facet metadata alone is not an emit-time rejection. " +
+		"For HARD facets, coverage is demanded regardless of N because the question pinned the facet as essential.\n\n")
 
-	// P1B (2026-05-17, finalize-retry budget audit): enumerate the
-	// facet_ids that the pre-emit oracle will hard-reject if absent
-	// from any block. The downstream check
-	// (preCheckFacetCoverage at answer_document_pre_emit_check.go:4203)
-	// rejects iff req.IsPromoted() == true AND the kind is not in any
-	// block.FacetIDs[] or claim_uses[].FacetID. Surface that exact set
-	// here, ahead of the per-facet detail, so the LLM does not have to
-	// scan elevated markers to recover the must-declare list.
+	// Enumerate the facet_ids that the pre-emit oracle will hard-reject
+	// if absent from any block. This is intentionally limited to
+	// template-hard facets; evidence-sufficient SOFT facets are guidance,
+	// not rewrite triggers.
 	mustDeclare := make([]string, 0, len(fc.Required))
 	mustDeclareSeen := map[types.AnswerFacetKind]bool{}
 	for _, req := range fc.Required {
-		if !req.IsPromoted() {
-			continue
-		}
-		if req.EffectivePromotionPolicy() == types.PromotionAdvisoryOnly {
+		if !req.RequiresHardDeclaration() {
 			continue
 		}
 		if mustDeclareSeen[req.Kind] {
@@ -2654,12 +2643,12 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, " `facet_id: %q`.", string(req.Kind))
 		// Phase 5-E2: typed evidence count surfaces the gate input.
 		fmt.Fprintf(&b, " (evidence: %d)", answerDocFacetPromptEvidenceCount(plan, req))
-		// G6-3 (post_v2_runtime_gap_remediation, 2026-05-04): SOFT
-		// facets with typed evidence available are elevated to HARD
-		// gating. Surface the typed signal so the LLM knows this
-		// SOFT facet currently behaves as HARD.
+		// SOFT facets with typed evidence available get an explicit
+		// availability marker, but they do not become emit-time hard
+		// gates. This keeps metadata enrichment from overriding the
+		// model's substantive answer.
 		if req.Required == types.FacetSoftRequired && req.IsPromoted() {
-			b.WriteString(" (elevated)")
+			b.WriteString(" (evidence available)")
 		}
 		if len(req.AcceptableForms) > 0 {
 			forms := make([]string, 0, len(req.AcceptableForms))
@@ -2682,14 +2671,7 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 		} else if fallback := types.BlockKindForFacetForPrompt(req.Kind); fallback != "" {
 			fmt.Fprintf(&b, " Place on block kind: `%s`.", string(fallback))
 		}
-		// P1B (2026-05-17): for every promoted facet, append the exact
-		// MUST-declare contract so the LLM cannot mistake the
-		// (elevated) marker for advisory styling. Mirrors the wording
-		// of the pre-emit oracle's reject message
-		// (answer_document_pre_emit_check.go:4225) so the LLM sees
-		// the same surface string in success-path prompt and
-		// failure-path tool result.
-		if req.IsPromoted() && req.EffectivePromotionPolicy() != types.PromotionAdvisoryOnly {
+		if req.RequiresHardDeclaration() {
 			b.WriteString(" → **MUST declare** via `block.facet_ids[]` or `claim_uses[].facet_id` (NOT prose); emit-time rejection if missing.")
 		}
 		b.WriteString("\n")

@@ -5007,10 +5007,11 @@ func preCheckUncertaintyBlock(doc *types.AnswerDocumentV2, view *types.AnswerSem
 	}}
 }
 
-// preCheckFacetCoverage mirrors the post-emit validateFacetCoverage
-// "required facet has no block declaring its facet_id" branch. We
-// gate on req.IsPromoted() the same way the post-emit validator
-// does, so SOFT/Optional facets do NOT trigger pre-emit retries.
+// preCheckFacetCoverage mirrors the emit-time hard subset of the
+// post-emit facet coverage check. Only facets that are hard by template
+// are rejected here. Evidence-sufficient SOFT facets remain advisory:
+// their absence may be recorded later, but it must not burn a finalizer
+// retry when the answer already cites the underlying code.
 func preCheckFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
 	if view.FacetCoverage == nil || len(view.FacetCoverage.Required) == 0 {
 		return nil
@@ -5028,10 +5029,7 @@ func preCheckFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemant
 	}
 	var out []emitFixHint
 	for _, req := range view.FacetCoverage.Required {
-		if req.EffectivePromotionPolicy() == types.PromotionAdvisoryOnly {
-			continue
-		}
-		if !req.IsPromoted() {
+		if !req.RequiresHardDeclaration() {
 			continue
 		}
 		kind := strings.TrimSpace(string(req.Kind))

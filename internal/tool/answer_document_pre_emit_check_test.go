@@ -2028,6 +2028,55 @@ func TestPreCheckUncertaintyBlock_NoRules(t *testing.T) {
 	}
 }
 
+func TestPreCheckFacetCoverage_SoftEvidenceAvailableDoesNotReject(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "answer cites current code through normal citations",
+		}},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{{
+				Kind:            types.FacetCurrentCodePath,
+				Required:        types.FacetSoftRequired,
+				PromotionPolicy: types.PromotionWhenEvidenceSufficient,
+				SourceCandidate: []string{"ev-current-code"},
+			}},
+		},
+	}
+	if hints := preCheckFacetCoverage(doc, view); len(hints) != 0 {
+		t.Fatalf("evidence-supported soft facet must stay advisory at emit time, got %v", hints)
+	}
+}
+
+func TestPreCheckFacetCoverage_HardStillRejects(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "answer without the required bucket label facet",
+		}},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{{
+				Kind:            types.FacetBucketLabel,
+				Required:        types.FacetHardRequired,
+				PromotionPolicy: types.PromotionAlwaysHard,
+			}},
+		},
+	}
+	hints := preCheckFacetCoverage(doc, view)
+	if len(hints) != 1 {
+		t.Fatalf("hard facet should still reject when undeclared, got %v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, string(types.FacetBucketLabel)) {
+		t.Fatalf("hard facet hint should name the missing facet, got %+v", hints[0])
+	}
+}
+
 // TestFormatEmitFixHints_RedlineAudit — pin the rejection envelope
 // prose for R6 (no internal vocab leak) + R4 (generic) + LLM-facing
 // purity (no third natural language).

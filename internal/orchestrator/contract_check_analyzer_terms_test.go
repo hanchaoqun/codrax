@@ -72,6 +72,54 @@ func TestRelaxUnsupportedAnalyzerMustIncludeTerms_KeepsReliableSymbol(t *testing
 	}
 }
 
+func TestRelaxUnsupportedAnalyzerMustIncludeTerms_DemotesSymbolAbsentFromEvidence(t *testing.T) {
+	mut := types.NewMutableState("x")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:         types.EvidenceDirect,
+		Subject:      "EvidenceClosure",
+		AnchorSymbol: "EvidenceClosure",
+		Source:       "internal/types/evidence_closure.go",
+	}})
+	contract := types.AnswerContract{
+		MustInclude: []string{"SymbolOracle"},
+		MustIncludeTerms: []types.ContractTerm{{
+			Text:   "SymbolOracle",
+			Kind:   types.ContractTermSymbol,
+			Source: types.ContractTermSourceAnalyzerEntity,
+		}},
+	}
+	got := relaxUnsupportedAnalyzerMustIncludeTerms(contract, mut, analyzerTermStubOracle{
+		found: map[string]int{"SymbolOracle": 1},
+	})
+	if containsString(got.MustInclude, "SymbolOracle") || len(got.MustIncludeTerms) != 0 {
+		t.Fatalf("analyzer symbol absent from answer-grade evidence should be demoted despite graph presence: %+v", got)
+	}
+}
+
+func TestRelaxUnsupportedAnalyzerMustIncludeTerms_KeepsEvidenceSupportedSymbol(t *testing.T) {
+	mut := types.NewMutableState("x")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:         types.EvidenceMechanism,
+		Subject:      "SymbolOracle",
+		AnchorSymbol: "SymbolOracle",
+		Source:       "internal/types/symbol_oracle.go",
+	}})
+	contract := types.AnswerContract{
+		MustInclude: []string{"SymbolOracle"},
+		MustIncludeTerms: []types.ContractTerm{{
+			Text:   "SymbolOracle",
+			Kind:   types.ContractTermSymbol,
+			Source: types.ContractTermSourceAnalyzerEntity,
+		}},
+	}
+	got := relaxUnsupportedAnalyzerMustIncludeTerms(contract, mut, analyzerTermStubOracle{
+		found: map[string]int{"SymbolOracle": 1},
+	})
+	if !containsString(got.MustInclude, "SymbolOracle") || len(got.MustIncludeTerms) != 1 {
+		t.Fatalf("evidence-supported analyzer symbol should remain: %+v", got)
+	}
+}
+
 func containsString(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {

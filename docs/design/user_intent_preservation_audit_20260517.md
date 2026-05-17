@@ -37,6 +37,7 @@
 4. **第二轮审计完成（文档刷新）**：继续沿 read-mode 主链排查仍会替代用户/LLM 表达的机制，新增 UIP-015 到 UIP-021。结论是后续不能继续补 validator 文案，而要优先治理“系统补正文、schema 兼容、gate 分层、upstream repair routing”四条主线。
 5. **Batch F/G/H 第一段已落地**：`emit_answer_document` 与 patch 持久化路径不再 materialize aggregate/principal support 成员到用户可见正文；新增 answer-document 字段隔离层，schema-unknown 的无害 metadata 在严格 decode 前本地 quarantine，保留核心 blocks/citations，避免小错触发 finalizer 重试。`aggregate member_set` emit-time coverage 只在 typed exhaustive/relation enumeration 下 hard gate，叙事/解释类 member_set 降为 advisory。
 6. **Batch H 第二段已落地**：semantic-quality reviewer 的 concern schema 增加 `repair_locus`，并由 violation 的 typed `RepairLocusOverride` 进入 repair routing。`evidence_gap` 回流 explore，`analysis_gap` / `presentation_advisory` 不再触发 finalizer-only 硬重写，`local_doc_defect` / `safety` 才留在本地修正文档路径。
+7. **Batch C/H 第三段已落地**：facet metadata gate 分层完成第一刀。`FacetRequirement` 新增 `RequiresHardDeclaration()`，pre-emit 只对 template-hard facet 做同轮拒绝；evidence-sufficient SOFT facet 只在 prompt 中标记为 `(evidence available)`，不再写成 “MUST declare / emit-time rejection”。semantic-quality depth audit 同步只看 emit-hard facet，避免 reviewer 把 soft metadata 变成 finalizer rewrite。另修 analyzer-derived `must_include`：`analyzer_entity` 符号不能只因全仓 `SymbolOracle` 命中就成为 hard requirement，必须在本轮 typed evidence / answer symbol 中有支撑，否则降级。
 
 ## 问题清单
 
@@ -227,6 +228,8 @@
 ### UIP-010（P2）pre-emit gate 数量过多，部分 gate 承担了作者决策
 
 代码位置：`internal/tool/answer_document_pre_emit_check.go::runPreEmitChecksWithContext`
+
+状态：**部分修复（Batch C/H 第三段）**。facet metadata gate 已分出 emit-hard 与 advisory：soft facet 即使有证据，也不再触发 pre-emit hard retry；后续仍需完成 same-error-class retry governor 与 inactive-scope/system-caveat 分层。
 
 当前行为：
 
@@ -493,7 +496,7 @@
 
 ### Batch C：finalizer gate 分层治理
 
-1. [ ] 将 pre-emit checks 分为 hard / soft / advisory。
+1. [~] 将 pre-emit checks 分为 hard / soft / advisory。（facet metadata 已分层：template-hard 才同轮拒绝，soft+证据只 advisory；inactive scope / 部分 scope disclosure 仍待分层）
 2. [ ] aggregate member_set 增加 role/provenance，只对 principal answer hard gate。
 3. [x] surface_terms 不再自动追加正文。
 4. [ ] 同类错误连续失败时降级为隔离补充展示，不再反复重写。
@@ -524,8 +527,8 @@
 
 ### Batch H：gate taxonomy + upstream routing
 
-1. [~] 每个 finalizer violation 必须分类为 `local_doc_defect`、`evidence_gap`、`analysis_gap`、`presentation_advisory`、`safety`。（aggregate member_set 与 enum-label emit-time gate 已先分出 hard/advisory）
-2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景、非主枚举标签场景已停止同轮硬重试；semantic-quality reviewer 已接入 `repair_locus` typed routing）
+1. [~] 每个 finalizer violation 必须分类为 `local_doc_defect`、`evidence_gap`、`analysis_gap`、`presentation_advisory`、`safety`。（aggregate member_set、enum-label、facet metadata emit-time gate 已先分出 hard/advisory）
+2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景、非主枚举标签场景、soft facet metadata 场景已停止同轮硬重试；semantic-quality reviewer 已接入 `repair_locus` typed routing）
 3. 同类错误 fingerprint 连续失败后，停止硬重写，接受核心答案并用“补充说明/保留原文”交代缺陷。
 
 ### Batch I：scope / presentation contract 贯穿

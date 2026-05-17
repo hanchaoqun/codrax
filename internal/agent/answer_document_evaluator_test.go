@@ -237,8 +237,8 @@ func TestRenderAnswerDocFacetCoverage_EmitsHardSoftOptionalLabels(t *testing.T) 
 
 // TestRenderAnswerDocFacetCoverage_EvidenceCountAnnotation pins
 // Phase 5-E2: every facet line ends with `(evidence: N)` where N is
-// len(SourceCandidate). The annotation surfaces the gate input so
-// the LLM understands when SOFT facets are skipped (N=0).
+// len(SourceCandidate). The annotation surfaces the typed evidence input so
+// the LLM understands when SOFT facets have no evidence to surface (N=0).
 func TestRenderAnswerDocFacetCoverage_EvidenceCountAnnotation(t *testing.T) {
 	// IntentRootCause + LogBundle drives QFRootCauseTrace, which has
 	// FacetObservedArtifactFact as HARD. Provide one matching surface
@@ -258,7 +258,7 @@ func TestRenderAnswerDocFacetCoverage_EvidenceCountAnnotation(t *testing.T) {
 	}
 	// Header prose MUST explain the gate semantic.
 	if !strings.Contains(got, "(evidence: N)") ||
-		!strings.Contains(got, "SOFT facets this count gates") {
+		!strings.Contains(got, "SOFT facets, N=0") {
 		t.Errorf("header prose missing E1 gate explanation; got\n%s", got)
 	}
 }
@@ -666,11 +666,11 @@ func TestRenderAnswerDocFacetCoverage_UsesCuratedPrincipalEvidenceCount(t *testi
 	}
 }
 
-// G6-3 (post_v2_runtime_gap_remediation, 2026-05-04): SOFT facets
-// with typed evidence available (IsPromoted=true) carry an
-// `(elevated)` marker after the evidence count, signalling to the
-// LLM that the SOFT gate is currently behaving as HARD.
-func TestRenderAnswerDocFacetCoverage_ElevatedMarkerOnPromotedSoft(t *testing.T) {
+// SOFT facets with typed evidence available carry an
+// `(evidence available)` marker after the evidence count, signalling to the
+// LLM that the answer may naturally cover the facet without making the
+// metadata an emit-time hard gate.
+func TestRenderAnswerDocFacetCoverage_EvidenceAvailableMarkerOnPromotedSoft(t *testing.T) {
 	// IntentTrace → QFCallChain template has FacetCurrentCodePath
 	// as SOFT requirement, AcceptableForms=[ClaimDefinitionFact].
 	// FacetBranchGuard is SOFT with AcceptableForms=[ClaimGuardCondition]
@@ -685,20 +685,29 @@ func TestRenderAnswerDocFacetCoverage_ElevatedMarkerOnPromotedSoft(t *testing.T)
 		LineEnd:    10,
 		AnchorKind: types.AnchorDefinition,
 	}
+	callEvidence := types.EvidenceItem{
+		Kind:       types.EvidenceDirect,
+		Subject:    "Caller",
+		Object:     "Callee",
+		Source:     "x.go",
+		LineStart:  20,
+		LineEnd:    20,
+		AnchorKind: types.AnchorCall,
+	}
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				Intent: types.IntentTrace,
 			},
 		},
-		EvidenceItems: []types.EvidenceItem{defEvidence},
+		EvidenceItems: []types.EvidenceItem{defEvidence, callEvidence},
 	}
 	got := renderAnswerDocFacetCoverage(ctx)
-	// Header prose MUST explain elevation.
-	if !strings.Contains(got, "elevated") {
-		t.Errorf("header prose missing elevated explanation; got\n%s", got)
+	// Header prose MUST explain the evidence-available marker.
+	if !strings.Contains(got, "evidence available") {
+		t.Errorf("header prose missing evidence-available explanation; got\n%s", got)
 	}
-	// At least one promoted SOFT line should carry `(elevated)` — the
+	// At least one promoted SOFT line should carry `(evidence available)` — the
 	// header occurrence is wrapped in backticks; the bare marker on
 	// a facet line is the typed signal.
 	lines := strings.Split(got, "\n")
@@ -708,25 +717,23 @@ func TestRenderAnswerDocFacetCoverage_ElevatedMarkerOnPromotedSoft(t *testing.T)
 		if !strings.HasPrefix(strings.TrimSpace(line), "-") {
 			continue
 		}
-		if strings.Contains(line, " (elevated)") {
+		if strings.Contains(line, " (evidence available)") {
 			bareMarkerCount++
 		}
 	}
 	if bareMarkerCount < 1 {
-		t.Errorf("expected ≥1 facet line with bare `(elevated)`; got %d\n%s", bareMarkerCount, got)
+		t.Errorf("expected ≥1 facet line with bare `(evidence available)`; got %d\n%s", bareMarkerCount, got)
 	}
 }
 
-// TestRenderAnswerDocFacetCoverage_MustDeclareContractSurfacesPromotedFacets
-// pins P1B (2026-05-17): the rendered prompt MUST surface the must-declare
-// set of promoted facet_ids in a single header line + tag each promoted
-// facet line with the "MUST declare" contract clause that mirrors the
-// pre-emit oracle reject message at answer_document_pre_emit_check.go:4225.
-// This eliminates the iter=0 facet rejection where the LLM mis-reads the
-// `(elevated)` marker as decorative styling instead of a contractual demand.
-func TestRenderAnswerDocFacetCoverage_MustDeclareContractSurfacesPromotedFacets(t *testing.T) {
-	// IntentTrace + AnchorDefinition evidence → at least FacetCurrentCodePath
-	// promotes to elevated SOFT; FacetCallChainSpine fires HARD.
+// TestRenderAnswerDocFacetCoverage_MustDeclareContractSurfacesHardFacets
+// pins the rendered prompt's must-declare set to emit-hard facets only.
+// Evidence-supported SOFT facets may be useful, but they must not be
+// described as emit-time rejection requirements.
+func TestRenderAnswerDocFacetCoverage_MustDeclareContractSurfacesHardFacets(t *testing.T) {
+	// IntentTrace + AnchorDefinition evidence → FacetCurrentCodePath is
+	// evidence-available SOFT, while the principal path edge facet is
+	// template-hard.
 	defEvidence := types.EvidenceItem{
 		Kind:       types.EvidenceDirect,
 		Subject:    "DefSym",
@@ -735,13 +742,22 @@ func TestRenderAnswerDocFacetCoverage_MustDeclareContractSurfacesPromotedFacets(
 		LineEnd:    10,
 		AnchorKind: types.AnchorDefinition,
 	}
+	callEvidence := types.EvidenceItem{
+		Kind:       types.EvidenceDirect,
+		Subject:    "Caller",
+		Object:     "Callee",
+		Source:     "x.go",
+		LineStart:  20,
+		LineEnd:    20,
+		AnchorKind: types.AnchorCall,
+	}
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				Intent: types.IntentTrace,
 			},
 		},
-		EvidenceItems: []types.EvidenceItem{defEvidence},
+		EvidenceItems: []types.EvidenceItem{defEvidence, callEvidence},
 	}
 	got := renderAnswerDocFacetCoverage(ctx)
 
@@ -750,7 +766,7 @@ func TestRenderAnswerDocFacetCoverage_MustDeclareContractSurfacesPromotedFacets(
 		t.Errorf("header missing 'Must declare' summary line; got\n%s", got)
 	}
 
-	// (2) At least one promoted facet line MUST carry the
+	// (2) At least one hard facet line MUST carry the
 	// "→ **MUST declare**" contract suffix.
 	lines := strings.Split(got, "\n")
 	mustDeclareLineCount := 0
@@ -767,16 +783,17 @@ func TestRenderAnswerDocFacetCoverage_MustDeclareContractSurfacesPromotedFacets(
 			mustDeclareLineCount, got)
 	}
 
-	// (3) MUST-declare suffix MUST NOT leak onto unpromoted/OPTIONAL
+	// (3) MUST-declare suffix MUST NOT leak onto SOFT/OPTIONAL
 	// facet lines (those would mislead the LLM into declaring
 	// non-enforced facets and bloating the doc).
 	for _, line := range lines {
 		trim := strings.TrimSpace(line)
-		if !strings.HasPrefix(trim, "- **OPTIONAL**") {
+		if !strings.HasPrefix(trim, "- **OPTIONAL**") &&
+			!strings.HasPrefix(trim, "- **SOFT**") {
 			continue
 		}
 		if strings.Contains(line, "MUST declare") {
-			t.Errorf("OPTIONAL facet line carries MUST declare suffix (should be promoted-only): %q", line)
+			t.Errorf("SOFT/OPTIONAL facet line carries MUST declare suffix (should be hard-only): %q", line)
 		}
 	}
 }
@@ -797,7 +814,7 @@ func TestRenderAnswerDocFacetCoverage_NoMustDeclareWhenNoPromoted(t *testing.T) 
 		},
 	}
 	got := renderAnswerDocFacetCoverage(ctx)
-	// When there are no promoted facets, the must-declare header MUST
+	// When there are no emit-hard facets, the must-declare header MUST
 	// be absent (we cannot list zero entries cleanly).
 	if got == "" {
 		return // section omitted entirely is fine
@@ -808,13 +825,11 @@ func TestRenderAnswerDocFacetCoverage_NoMustDeclareWhenNoPromoted(t *testing.T) 
 	}
 }
 
-// G6-3: facet line WITHOUT typed evidence (SOFT, SourceCandidate=0)
-// MUST NOT carry the (elevated) bare marker — IsPromoted=false
-// keeps the gate skipped per Phase 5-E1 evidence-sufficient
-// invariant.
-func TestRenderAnswerDocFacetCoverage_NoElevatedWhenNoEvidence(t *testing.T) {
+// SOFT facet line WITHOUT typed evidence (SourceCandidate=0)
+// MUST NOT carry the evidence-available bare marker.
+func TestRenderAnswerDocFacetCoverage_NoEvidenceAvailableWhenNoEvidence(t *testing.T) {
 	// IntentTrace → QFCallChain. Provide NO evidence at all so every
-	// SOFT facet has SourceCandidate=0; expect no bare (elevated).
+	// SOFT facet has SourceCandidate=0; expect no bare evidence-available marker.
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
@@ -825,14 +840,11 @@ func TestRenderAnswerDocFacetCoverage_NoElevatedWhenNoEvidence(t *testing.T) {
 	got := renderAnswerDocFacetCoverage(ctx)
 	lines := strings.Split(got, "\n")
 	for _, line := range lines {
-		// Header lines (no `-` prefix) include the marker in backticks
-		// — fine. Facet lines start with `-` and must NOT carry the
-		// bare marker when evidence is absent.
 		if !strings.HasPrefix(strings.TrimSpace(line), "-") {
 			continue
 		}
-		if strings.Contains(line, " (elevated)") {
-			t.Errorf("no-evidence SOFT facet must NOT carry bare (elevated); got line %q", line)
+		if strings.Contains(line, " (evidence available)") {
+			t.Errorf("no-evidence SOFT facet must NOT carry bare evidence-available marker; got line %q", line)
 		}
 	}
 }
