@@ -1108,12 +1108,37 @@ func (r *Renderer) formatStageDoneLine(row *taskRow, topicTotal int) string {
 	if !row.endTime.IsZero() {
 		stageElapsed = row.endTime.Sub(row.startTime).Truncate(time.Second).String()
 	}
+	// Sub-topic progress (关注点 N/M) is rendered IMMEDIATELY AFTER the
+	// stage progress (e.g. "2/4") so the two related "this is the K-th
+	// out of N" indicators sit together at the front of the row, where
+	// the eye lands first. Pre-2026-05-17 it was tacked onto the very
+	// end of the row after stage/total elapsed, which made it (a)
+	// visually disconnected from the related "2/4" stage counter, (b)
+	// rendered in a different (cyan) colour that broke the row's
+	// monochrome-meta convention, and (c) confusing because the
+	// trailing "关注点 2/2" looked like a 7th unrelated metadata field.
+	// Colour is now statusMeta (gray) to match every other meta
+	// segment on the row.
+	topicTag := ""
+	if topicTotal > 1 && row.isNodeRow && row.nodeKind == "evidence" {
+		if idx, ok := topicIndexFromNodeID(row.nodeID); ok {
+			if zh {
+				topicTag = fmt.Sprintf("关注点 %d/%d", idx+1, topicTotal)
+			} else {
+				topicTag = fmt.Sprintf("focus %d/%d", idx+1, topicTotal)
+			}
+		}
+	}
 	var b strings.Builder
 	b.WriteString("  ")
 	b.WriteString(glyphStyle.Sprint(glyph))
 	if progress != "" {
 		b.WriteString(" ")
 		b.WriteString(statusMeta.Sprint(progress))
+	}
+	if topicTag != "" {
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint(topicTag))
 	}
 	b.WriteString(" ")
 	b.WriteString(labelStyle.Sprint(label))
@@ -1140,18 +1165,6 @@ func (r *Renderer) formatStageDoneLine(row *taskRow, topicTotal int) string {
 		b.WriteString(statusMeta.Sprint("·"))
 		b.WriteString(" ")
 		b.WriteString(statusMeta.Sprint(totalElapsedPhrase(totalElapsed, r.lang)))
-	}
-	if topicTotal > 1 && row.isNodeRow && row.nodeKind == "evidence" {
-		if idx, ok := topicIndexFromNodeID(row.nodeID); ok {
-			tag := fmt.Sprintf("关注点 %d/%d", idx+1, topicTotal)
-			if !zh {
-				tag = fmt.Sprintf("focus %d/%d", idx+1, topicTotal)
-			}
-			b.WriteString(" ")
-			b.WriteString(statusMeta.Sprint("·"))
-			b.WriteString(" ")
-			b.WriteString(statusObjective.Sprint(tag))
-		}
 	}
 	return b.String()
 }
