@@ -709,7 +709,7 @@
 
 代码位置：`internal/tool/emit_answer_document_patch.go`、`internal/orchestrator/contract_check_block.go`、`internal/orchestrator/self_consistency_reviewer.go`
 
-状态：**已修复（Batch G/H 延伸段）**。`emit_answer_document_patch` 在本地把 `append_citations` 无损合入 `replace_citations`，再根据是否保留 citation-bearing block 继续走已有 preserved-pool normalization。`sequenceDiagram` 的实线消息箭头 `->` / `->>` 结构性计为 `call`，虚线返回 `-->>` 不计为 call。`self_consistency_reviewer` 兼容 `contradictions` 的空字符串、说明字符串和 stringified array；`consistent=false` 但没有结构化 contradiction 仍然拒绝。
+状态：**已修复（Batch G/H 延伸段）**。`emit_answer_document_patch` 在本地把 `append_citations` 无损合入 `replace_citations`，再根据是否保留 citation-bearing block 继续走已有 preserved-pool normalization。`sequenceDiagram` 只把实线闭合箭头 `->>` 结构性计为 `call`；实线无箭头 `->`、虚线返回 `-->>`、异步开箭头 `-)`、cross `-x`、双向/half-arrow 等都不默认计为 call。`self_consistency_reviewer` 兼容 `contradictions` 的空字符串、说明字符串和 stringified array；`consistent=false` 但没有结构化 contradiction 仍然拒绝。
 
 触发证据：
 
@@ -726,8 +726,8 @@
 修复方向：
 
 - [x] citation op 合并只读取 typed citation 池，不读取用户问题或模型散文。
-- [x] sequence arrow default 只读取 Mermaid 结构操作符，不读取关系词，也不改变模型原始图源码。
-- [x] semantic quality reviewer 的 diagram contract 投影复用同一套可见边解析：typed edge anchor、label inference、sequence solid-arrow implicit call 都统一计数；deterministic contract 已满足时，reviewer 的 `diagram_gap` 不再转成返工 violation。
+- [x] sequence arrow default 只读取 Mermaid 结构操作符，不读取关系词，也不改变模型原始图源码；默认范围锁定为 `->>`，其它 sequence arrow 需要显式 `edge_anchors.relation_kind=call` 或关系 label 才进入 call。
+- [x] semantic quality reviewer 的 diagram contract 投影复用同一套可见边解析：typed edge anchor、label inference、sequence `->>` implicit call 都统一计数；deterministic contract 已满足时，reviewer 的 `diagram_gap` 不再转成返工 violation。
 - [x] reviewer schema tolerance 只修结构形状；真实 `consistent=false` 且无 contradiction 仍按 malformed verdict 处理。
 - [x] 回归测试覆盖 citation op 合并、preserved citation-pool remap、sequence solid/dashed 区分、reviewer string/stringified-array 兼容，防止后续开发重新把协议小错升级成 finalizer 重写。
 

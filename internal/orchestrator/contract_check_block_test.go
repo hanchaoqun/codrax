@@ -2556,6 +2556,21 @@ func TestValidateDiagramEdgeSupport_LabelledSolidSequenceDefaultsToCall(t *testi
 	}
 }
 
+func TestValidateDiagramEdgeSupport_PlainSolidSequenceDoesNotDefaultToCall(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := docWithDiagramBody("sequenceDiagram\n  Auth->Worker: notify\n")
+	vs := validateDiagramEdgeSupport(doc, view)
+	var found bool
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("plain solid sequence line without arrowhead must not imply call by default; got %+v", vs)
+	}
+}
+
 func TestValidateDiagramEdgeSupport_DashedSequenceReplyDoesNotDefaultToCall(t *testing.T) {
 	view := callChainViewWithDiagram()
 	doc := docWithDiagramBody("sequenceDiagram\n  Auth-->>Worker: result\n")
@@ -2568,6 +2583,28 @@ func TestValidateDiagramEdgeSupport_DashedSequenceReplyDoesNotDefaultToCall(t *t
 	}
 	if !found {
 		t.Fatalf("dashed sequence reply must not satisfy the call-edge minimum by default; got %+v", vs)
+	}
+}
+
+func TestSequenceArrowImpliesCall_NarrowClosedArrowOnly(t *testing.T) {
+	cases := []struct {
+		op   string
+		want bool
+	}{
+		{op: "->>", want: true},
+		{op: "->", want: false},
+		{op: "-->>", want: false},
+		{op: "-)", want: false},
+		{op: "--)", want: false},
+		{op: "-x", want: false},
+		{op: "--x", want: false},
+		{op: "<<->>", want: false},
+		{op: "<<-->>", want: false},
+	}
+	for _, tc := range cases {
+		if got := sequenceArrowImpliesCall(tc.op); got != tc.want {
+			t.Fatalf("sequenceArrowImpliesCall(%q)=%t, want %t", tc.op, got, tc.want)
+		}
 	}
 }
 

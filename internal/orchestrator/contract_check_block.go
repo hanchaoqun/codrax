@@ -589,11 +589,12 @@ func implicitDiagramRelationKind(diagramBlock *types.AnswerBlock, edge mermaidEd
 		return types.DiagramRelUnknown
 	}
 	if diagramBlock.Diagram.Kind == types.DiagramSequence && sequenceArrowImpliesCall(edge.operator) {
-		// In Mermaid sequence diagrams a solid directed message arrow is
-		// already structural call evidence, whether or not the model labels
-		// it with a vocabulary word. Treat it as the default `call` relation
-		// so method-name labels like "BuildAnalysisSkill" do not burn retries
-		// merely because they are not relation words.
+		// In Mermaid sequence diagrams a solid closed-arrow message (`->>`)
+		// is the narrow structural default for call-like execution. Do not
+		// broaden this to every solid sequence message: `->` has no arrowhead,
+		// `-)` is explicitly async, `-x` is a cross/lost marker, and newer
+		// bidirectional/half-arrow forms are presentation-specific unless the
+		// model also supplies a typed edge anchor or a relation label.
 		return types.DiagramRelCall
 	}
 	return types.DiagramRelUnknown
@@ -601,7 +602,7 @@ func implicitDiagramRelationKind(diagramBlock *types.AnswerBlock, edge mermaidEd
 
 func sequenceArrowImpliesCall(operator string) bool {
 	switch strings.TrimSpace(operator) {
-	case "->", "->>":
+	case "->>":
 		return true
 	default:
 		return false

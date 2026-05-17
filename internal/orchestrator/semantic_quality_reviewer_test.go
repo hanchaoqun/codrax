@@ -387,6 +387,45 @@ func TestBuildSemanticQualityInput_DiagramContractDoesNotCountDashedReplyAsCall(
 	}
 }
 
+func TestBuildSemanticQualityInput_DiagramContractDoesNotCountPlainSolidLineAsCall(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			EdgeRelations: []types.DiagramEdgeRelationContract{
+				{Kind: types.DiagramRelCall, Min: 1, ClaimForm: types.ClaimCallEdge},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "anchors",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "auth", Label: "Auth"},
+					{ID: "worker", Label: "Worker"},
+				},
+			},
+			{
+				ID:   "d1",
+				Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramSequence,
+					Language: "mermaid",
+					Body:     "sequenceDiagram\n  Auth->Worker: notify\n",
+				},
+			},
+		},
+	}
+	in := BuildSemanticQualityInput("o", "s", "b", doc, view, nil)
+	if in.DiagramContract == nil || len(in.DiagramContract.Edges) != 1 {
+		t.Fatalf("missing diagram contract projection: %+v", in.DiagramContract)
+	}
+	if got := in.DiagramContract.Edges[0].MinSatisfied; got != 0 {
+		t.Fatalf("plain solid line without arrowhead must not satisfy call minimum, got %d", got)
+	}
+}
+
 func TestSemanticQualityReviewBodyIncludesDiagramBlocks(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
