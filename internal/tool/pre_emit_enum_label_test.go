@@ -834,6 +834,57 @@ func TestPreCheckItemCitationAlignment_AcceptsProseLabelWithExplicitCodeQualifie
 	}
 }
 
+func TestPreCheckItemCitationAlignment_AcceptsDecoratedCodeLabelSupportedBySummary(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "hops",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "fast",
+				Label:       "get_page_from_freelist (快速路径)",
+				Text:        "快速路径核心函数，遍历 zonelist 检查水位线。",
+				CitationRef: 0,
+			}, {
+				ID:          "slow",
+				Label:       "__alloc_pages_slowpath (慢速路径)",
+				Text:        "快速路径失败后进入慢速路径主入口。",
+				CitationRef: 1,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "mm/page_alloc.c", Line: 5226},
+			{File: "mm/page_alloc.c", Line: 4687},
+		},
+	}
+	mut := types.NewMutableState("页面分配时序图")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "mm/page_alloc.c",
+			LineStart:       5226,
+			AnchorKind:      types.AnchorCall,
+			Object:          "get_page_from_freelist",
+			Summary:         "首次分配尝试调用快速路径，likely(page) 为 true 时直接返回。",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "mm/page_alloc.c",
+			LineStart:       4687,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "__alloc_pages_slowpath",
+			AnchorSymbol:    "__alloc_pages_slowpath",
+			Summary:         "慢速路径主入口，整合直接回收、压缩和 OOM 逻辑。",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("decorated code labels with summary-grounded qualifiers should satisfy citation alignment, got %v", hints)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_QualifiedLabelMayUsePathOwnerAndEndpointMember(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

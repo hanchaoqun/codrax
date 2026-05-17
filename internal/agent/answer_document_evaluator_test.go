@@ -2152,6 +2152,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 			Conditions: []string{"kind == call"},
 		}},
 		AnswerChains: []types.AnswerChain{{
+			StrictOK: true,
 			Item: types.EvidenceItem{
 				Summary:   "Dispatch routes to Handler",
 				Source:    "internal/a.go",
@@ -2654,6 +2655,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_NeutralizesExactResolut
 			},
 		},
 		AnswerChains: []types.AnswerChain{{
+			StrictOK: true,
 			Item: types.EvidenceItem{
 				Kind:            types.EvidenceMechanism,
 				Subject:         "DefaultExploreHeuristics",
@@ -4005,10 +4007,10 @@ func TestRenderRetryDiagramSeedFenceForRepair_SequencePrefersAnswerChainsOverFlo
 			},
 		}},
 		AnswerChains: []types.AnswerChain{
-			{Item: types.EvidenceItem{Subject: "ClientRequest.Start", Source: "internal/a.go", LineStart: 10, GroundingStatus: types.GroundingGrounded}},
-			{Item: types.EvidenceItem{Subject: "Coordinator.Dispatch", Source: "internal/b.go", LineStart: 20, GroundingStatus: types.GroundingGrounded}},
-			{Item: types.EvidenceItem{Subject: "WorkerRuntime.Run", Source: "internal/c.go", LineStart: 30, GroundingStatus: types.GroundingGrounded}},
-			{Item: types.EvidenceItem{Subject: "LeafWorker.Execute", Source: "internal/d.go", LineStart: 40, GroundingStatus: types.GroundingGrounded}},
+			{StrictOK: true, Item: types.EvidenceItem{Subject: "ClientRequest.Start", Source: "internal/a.go", LineStart: 10, GroundingStatus: types.GroundingGrounded}},
+			{StrictOK: true, Item: types.EvidenceItem{Subject: "Coordinator.Dispatch", Source: "internal/b.go", LineStart: 20, GroundingStatus: types.GroundingGrounded}},
+			{StrictOK: true, Item: types.EvidenceItem{Subject: "WorkerRuntime.Run", Source: "internal/c.go", LineStart: 30, GroundingStatus: types.GroundingGrounded}},
+			{StrictOK: true, Item: types.EvidenceItem{Subject: "LeafWorker.Execute", Source: "internal/d.go", LineStart: 40, GroundingStatus: types.GroundingGrounded}},
 		},
 	}
 
@@ -4072,8 +4074,8 @@ func TestRenderRetryDiagramSeedFence_UsesAnswerChainSeedForArchitecture(t *testi
 			},
 		},
 		AnswerChains: []types.AnswerChain{
-			{Item: types.EvidenceItem{Source: "internal/a.go", LineStart: 10, GroundingStatus: types.GroundingGrounded}},
-			{Item: types.EvidenceItem{Source: "internal/b.go", LineStart: 20, GroundingStatus: types.GroundingGrounded}},
+			{StrictOK: true, Item: types.EvidenceItem{Source: "internal/a.go", LineStart: 10, GroundingStatus: types.GroundingGrounded}},
+			{StrictOK: true, Item: types.EvidenceItem{Source: "internal/b.go", LineStart: 20, GroundingStatus: types.GroundingGrounded}},
 		},
 	}
 	got := renderRetryDiagramSeedFence(ctx)
@@ -4970,6 +4972,47 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersRetryStateDraftAn
 	}
 	if doc := ctx.Mutable.AnswerDocumentV2(); doc != nil {
 		t.Fatalf("retry-state recovery should not mark rejected draft as accepted mutable document: %+v", doc)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersLastRejectedDraft(t *testing.T) {
+	rejected := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "最近一版结构化草稿正文",
+		}},
+		Citations: []types.Citation{{File: "internal/agent/agent.go", Line: 970}},
+	}
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(""),
+	}
+	ctx.Mutable.SetLastRejectedAnswerDocumentV2(rejected)
+	messages := []llm.Message{
+		{Role: "assistant", Content: "<think>仍在修 citation_ref</think>"},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "未能生成结构化答案") {
+		t.Fatalf("last rejected draft recovery should avoid raw-only missing-doc banner:\n%s", out.FinalAnswer)
+	}
+	for _, want := range []string{
+		"最近一版结构化草稿正文",
+		"internal/agent/agent.go:970",
+		"最终重试未能产出有效的 answer_document",
+		"模型最后一轮原文",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	if doc := ctx.Mutable.AnswerDocumentV2(); doc != nil {
+		t.Fatalf("last rejected draft recovery should not mark rejected draft as accepted mutable document: %+v", doc)
 	}
 }
 

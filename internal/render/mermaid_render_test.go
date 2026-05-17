@@ -268,6 +268,54 @@ func TestRenderMermaidBlocks_SequenceBareStopNormalizes(t *testing.T) {
 	}
 }
 
+func TestRenderMermaidBlocks_SequenceFileLineEndpointsAlias(t *testing.T) {
+	in := strings.Join([]string{
+		"```mermaid",
+		"sequenceDiagram",
+		"    participant Caller",
+		"    Caller->>mm/page_alloc.c:5190: __alloc_frozen_pages_noprof",
+		"    mm/page_alloc.c:5190->>mm/page_alloc.c:4973: prepare_alloc_pages",
+		"```",
+	}, "\n")
+	out := RenderMermaidBlocks(in)
+	if out == in {
+		t.Fatalf("sequence file:line endpoints should render after alias normalization; got unchanged:\n%s", out)
+	}
+	if !strings.Contains(out, "```text\n") {
+		t.Fatalf("normalized sequence diagram must render as text fence:\n%s", out)
+	}
+	if strings.Contains(out, "终端 Mermaid 渲染器解析失败") || strings.Contains(out, "```mermaid") {
+		t.Fatalf("file:line endpoint normalization fell into failure path:\n%s", out)
+	}
+	for _, want := range []string{"mm/page_alloc.c:5190", "mm/page_alloc.c:4973", "__alloc_frozen_pages_noprof"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered sequence lost %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderMermaidBlocks_SequenceUnsafeParticipantAlias(t *testing.T) {
+	in := strings.Join([]string{
+		"```mermaid",
+		"sequenceDiagram",
+		"    participant mm/page_alloc.c:5190",
+		"    Caller->>mm/page_alloc.c:5190: __alloc_frozen_pages_noprof",
+		"```",
+	}, "\n")
+	out := RenderMermaidBlocks(in)
+	if out == in {
+		t.Fatalf("unsafe sequence participant should render after alias normalization; got unchanged:\n%s", out)
+	}
+	if strings.Contains(out, "终端 Mermaid 渲染器解析失败") || strings.Contains(out, "```mermaid") {
+		t.Fatalf("unsafe participant normalization fell into failure path:\n%s", out)
+	}
+	for _, want := range []string{"mm/page_alloc.c:5190", "__alloc_frozen_pages_noprof"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered sequence lost %q:\n%s", want, out)
+		}
+	}
+}
+
 // TestRenderMermaidBlocks_UnsupportedKindShortCircuits verifies the
 // L2 routing split: classDiagram / stateDiagram / etc are valid
 // Mermaid the LLM is right to emit, but pgavlin's subset cannot

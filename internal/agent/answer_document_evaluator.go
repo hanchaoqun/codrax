@@ -2899,7 +2899,7 @@ func collectAnswerDocDiagramFileLabels(ctx *types.AgentContext) []string {
 	for _, anchor := range collectConfigTraceDiagramAnchors(ctx) {
 		appendLabel(anchor.Source)
 	}
-	for _, chain := range ctx.AnswerChains {
+	for _, chain := range strictDiagramAnswerChains(ctx.AnswerChains) {
 		if types.DiagramEvidenceEligible(chain.Item) {
 			appendLabel(chain.Item.Source)
 		}
@@ -3027,7 +3027,7 @@ func renderAnswerDocDiagramChainSeed(ctx *types.AgentContext) string {
 	if ctx == nil {
 		return ""
 	}
-	chains := ctx.AnswerChains
+	chains := strictDiagramAnswerChains(ctx.AnswerChains)
 	if len(chains) == 0 {
 		return ""
 	}
@@ -3050,6 +3050,20 @@ func renderAnswerDocDiagramChainSeed(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- %s\n", display)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func strictDiagramAnswerChains(chains []types.AnswerChain) []types.AnswerChain {
+	if len(chains) == 0 {
+		return nil
+	}
+	out := make([]types.AnswerChain, 0, len(chains))
+	for _, chain := range chains {
+		if !chain.StrictOK {
+			continue
+		}
+		out = append(out, chain)
+	}
+	return out
 }
 
 func renderAnswerDocDiagramExactResolutionSeed(ctx *types.AgentContext) string {
@@ -6549,22 +6563,22 @@ func renderRetryDiagramSeedFenceForKind(ctx *types.AgentContext, kind types.Diag
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 		// Architecture chains often add useful upstream context to
 		// a flow seed (entry-point components → handlers).
-		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(ctx.AnswerChains))
+		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(strictDiagramAnswerChains(ctx.AnswerChains)))
 	case types.DiagramSequence:
 		// For explicit sequence diagrams, the typed answer-chain lane
 		// is the principal ordered surface. Prefer it over generic
 		// flow findings so the seed does not start with unrelated
 		// branch/condition artifacts and force the model to untangle
 		// the diagram shape during finalization.
-		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSequenceSeed(ctx.AnswerChains))
+		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSequenceSeed(strictDiagramAnswerChains(ctx.AnswerChains)))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryLogDiagramSeed(ctx.LogTriage))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	case types.DiagramCallDAG:
 		seeds = appendRetryDiagramSeed(seeds, buildRetryLogDiagramSeed(ctx.LogTriage))
-		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(ctx.AnswerChains))
+		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(strictDiagramAnswerChains(ctx.AnswerChains)))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	case types.DiagramArchitecture:
-		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(ctx.AnswerChains))
+		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(strictDiagramAnswerChains(ctx.AnswerChains)))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	}
 	// Filter then merge. mergeRetrySeedNodes preserves the order of
@@ -7061,14 +7075,16 @@ func recoverRetryStateAnswerDocumentV2(ctx *types.AgentContext) (*types.AnswerDo
 		return nil, false
 	}
 	rs := ctx.Mutable.RetryState()
-	if rs == nil || len(rs.PrevEmitJSON) == 0 {
-		return nil, false
+	if rs != nil && len(rs.PrevEmitJSON) > 0 {
+		var doc types.AnswerDocumentV2
+		if err := json.Unmarshal(rs.PrevEmitJSON, &doc); err == nil && len(doc.Blocks) > 0 {
+			return &doc, true
+		}
 	}
-	var doc types.AnswerDocumentV2
-	if err := json.Unmarshal(rs.PrevEmitJSON, &doc); err != nil || len(doc.Blocks) == 0 {
-		return nil, false
+	if doc := ctx.Mutable.LastRejectedAnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
+		return doc, true
 	}
-	return &doc, true
+	return nil, false
 }
 
 func retryStateRecoveredAnswerDocumentCaveat(lang string) string {

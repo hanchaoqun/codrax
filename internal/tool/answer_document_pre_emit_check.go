@@ -3234,7 +3234,7 @@ func preEmitEvidenceSupportsDecoratorQualifier(ev types.EvidenceItem, qualifier 
 		for _, part := range parts {
 			if preEmitEvidenceEndpointSupportsToken(ev, part) ||
 				preEmitPathSegmentsSupportToken(ev.Source, part) ||
-				preEmitCodeSurfaceAppearsVerbatim(part, ev.Snippet) {
+				preEmitEvidenceTextContainsQualifier(ev, part) {
 				return true
 			}
 		}
@@ -3243,7 +3243,47 @@ func preEmitEvidenceSupportsDecoratorQualifier(ev types.EvidenceItem, qualifier 
 	part := parts[0]
 	return preEmitEvidenceEndpointSupportsToken(ev, part) ||
 		preEmitPathSegmentsSupportToken(ev.Source, part) ||
-		preEmitCodeSurfaceAppearsVerbatim(part, ev.Snippet)
+		preEmitEvidenceTextContainsQualifier(ev, part)
+}
+
+func preEmitEvidenceTextContainsQualifier(ev types.EvidenceItem, qualifier string) bool {
+	qualifier = strings.TrimSpace(qualifier)
+	if qualifier == "" {
+		return false
+	}
+	if preEmitCodeSurfaceAppearsVerbatim(qualifier, ev.Snippet) ||
+		preEmitCodeSurfaceAppearsVerbatim(qualifier, ev.Summary) {
+		return true
+	}
+	if preEmitTextContainsLoose(ev.Snippet, qualifier) || preEmitTextContainsLoose(ev.Summary, qualifier) {
+		return true
+	}
+	return preEmitSurfaceTermsSupportToken(ev.SurfaceTerms, qualifier)
+}
+
+func preEmitSurfaceTermsSupportToken(terms []string, token string) bool {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return false
+	}
+	for _, term := range terms {
+		if preEmitCodeSurfaceAppearsVerbatim(token, term) || preEmitTextContainsLoose(term, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitTextContainsLoose(text, needle string) bool {
+	text = strings.TrimSpace(text)
+	needle = strings.TrimSpace(needle)
+	if text == "" || needle == "" {
+		return false
+	}
+	if strings.Contains(text, needle) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(text), strings.ToLower(needle))
 }
 
 func preEmitDecoratorQualifierParts(qualifier string) []string {

@@ -1,7 +1,9 @@
 package render
 
 import (
+	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/pgavlin/mermaid-ascii/pkg/diagram"
@@ -423,9 +425,230 @@ func infoLineStartsWithMermaidKeyword(info string) bool {
 // the capability gap in between.
 func preprocessMermaidBody(body string) string {
 	body = mermaidcompat.NormalizeSequenceStops(body)
+	body = normalizeSequenceDiagramEndpointAliases(body)
 	body = flattenMermaidSubgraphs(body)
 	body = normalizeMermaidLabels(body)
 	return body
+}
+
+var mermaidSequenceSafeIDRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// normalizeSequenceDiagramEndpointAliases rewrites sequenceDiagram
+// edges whose actor endpoint is a Mermaid label rather than a valid
+// actor identifier, for example:
+//
+//	Caller->>mm/page_alloc.c:5190: __alloc_frozen_pages_noprof
+//
+// Mermaid itself allows labels through `participant id as "label"`,
+// but pgavlin/mermaid-ascii parses edge endpoints as identifiers. The
+// source-layer shim below preserves the diagram meaning by introducing
+// deterministic actor aliases and moving the original file:line text
+// into participant labels before the renderer sees the body.
+func normalizeSequenceDiagramEndpointAliases(body string) string {
+	lines := strings.Split(body, "\n")
+	first := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if strings.TrimSpace(line) != "sequenceDiagram" {
+			return body
+		}
+		first = i
+		break
+	}
+	if first < 0 {
+		return body
+	}
+	type edgeLine struct {
+		index int
+		from  string
+		arrow string
+		to    string
+		msg   string
+	}
+	var edges []edgeLine
+	aliasByLabel := make(map[string]string)
+	declaredAlias := make(map[string]bool)
+	declaredLabel := make(map[string]bool)
+	generatedAliasFor := func(label string) string {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			return ""
+		}
+		if alias := aliasByLabel[label]; alias != "" {
+			return alias
+		}
+		alias := fmt.Sprintf("codraxSeq%d", len(aliasByLabel)+1)
+		aliasByLabel[label] = alias
+		return alias
+	}
+	aliasFor := func(label string) string {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			return ""
+		}
+		if mermaidSequenceSafeIDRe.MatchString(label) {
+			return label
+		}
+		return generatedAliasFor(label)
+	}
+	for i := first + 1; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" {
+			continue
+		}
+		if alias, label, ok := parseSequenceParticipantLine(trimmed); ok {
+			if alias == "" {
+				continue
+			}
+			if mermaidSequenceSafeIDRe.MatchString(alias) {
+				declaredAlias[alias] = true
+				if label != "" {
+					declaredLabel[label] = true
+					aliasByLabel[label] = alias
+				}
+				continue
+			}
+			generated := generatedAliasFor(alias)
+			display := strings.TrimSpace(label)
+			if display == "" {
+				display = alias
+			}
+			if display != alias {
+				aliasByLabel[display] = generated
+			}
+			declaredAlias[generated] = true
+			if display != "" {
+				declaredLabel[display] = true
+			}
+			indent := leadingWhitespace(lines[i])
+			lines[i] = fmt.Sprintf(`%sparticipant %s as "%s"`, indent, generated, escapeMermaidParticipantLabel(display))
+			continue
+		}
+		from, arrow, to, msg, ok := parseSequenceEdgeLine(trimmed)
+		if !ok {
+			continue
+		}
+		fromAlias := aliasFor(from)
+		toAlias := aliasFor(to)
+		if fromAlias == from && toAlias == to {
+			continue
+		}
+		edges = append(edges, edgeLine{index: i, from: fromAlias, arrow: arrow, to: toAlias, msg: msg})
+	}
+	if len(aliasByLabel) == 0 {
+		return body
+	}
+	for _, edge := range edges {
+		indent := leadingWhitespace(lines[edge.index])
+		lines[edge.index] = fmt.Sprintf("%s%s%s%s: %s", indent, edge.from, edge.arrow, edge.to, edge.msg)
+	}
+	var declarations []string
+	for label, alias := range aliasByLabel {
+		if declaredAlias[alias] || declaredLabel[label] {
+			continue
+		}
+		declarations = append(declarations, fmt.Sprintf(`    participant %s as "%s"`, alias, escapeMermaidParticipantLabel(label)))
+	}
+	sort.Slice(declarations, func(i, j int) bool { return declarations[i] < declarations[j] })
+	if len(declarations) == 0 {
+		return strings.Join(lines, "\n")
+	}
+	out := make([]string, 0, len(lines)+len(declarations))
+	out = append(out, lines[:first+1]...)
+	out = append(out, declarations...)
+	out = append(out, lines[first+1:]...)
+	return strings.Join(out, "\n")
+}
+
+func parseSequenceParticipantLine(line string) (alias, label string, ok bool) {
+	const prefix = "participant "
+	if !strings.HasPrefix(line, prefix) {
+		return "", "", false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if rest == "" {
+		return "", "", true
+	}
+	parts := strings.SplitN(rest, " as ", 2)
+	alias = strings.TrimSpace(parts[0])
+	label = alias
+	if len(parts) == 2 {
+		label = strings.Trim(strings.TrimSpace(parts[1]), `"`)
+	}
+	return alias, label, true
+}
+
+func parseSequenceEdgeLine(line string) (from, arrow, to, msg string, ok bool) {
+	arrowStart, arrow := findSequenceArrow(line)
+	if arrowStart < 0 {
+		return "", "", "", "", false
+	}
+	from = strings.TrimSpace(line[:arrowStart])
+	rest := strings.TrimSpace(line[arrowStart+len(arrow):])
+	to, msg, ok = splitSequenceTargetAndMessage(rest)
+	if !ok || from == "" || to == "" {
+		return "", "", "", "", false
+	}
+	return from, arrow, to, msg, true
+}
+
+func findSequenceArrow(line string) (int, string) {
+	arrows := []string{
+		"-->>+", "-->>-", "->>+", "->>-",
+		"--)+", "--)-", "-)+", "-)-",
+		"--x+", "--x-", "-x+", "-x-",
+		"-->+", "-->-", "->+", "->-",
+		"-->>", "->>", "-->", "->", "--x", "-x", "--)", "-)",
+	}
+	best := -1
+	bestArrow := ""
+	for _, arrow := range arrows {
+		idx := strings.Index(line, arrow)
+		if idx < 0 {
+			continue
+		}
+		if best < 0 || idx < best || (idx == best && len(arrow) > len(bestArrow)) {
+			best = idx
+			bestArrow = arrow
+		}
+	}
+	return best, bestArrow
+}
+
+func splitSequenceTargetAndMessage(rest string) (target, msg string, ok bool) {
+	first := strings.Index(rest, ":")
+	if first < 0 {
+		return "", "", false
+	}
+	if next := sourceLocationMessageColon(rest, first); next > first {
+		return strings.TrimSpace(rest[:next]), strings.TrimSpace(rest[next+1:]), true
+	}
+	return strings.TrimSpace(rest[:first]), strings.TrimSpace(rest[first+1:]), true
+}
+
+func sourceLocationMessageColon(rest string, firstColon int) int {
+	prefix := strings.TrimSpace(rest[:firstColon])
+	if prefix == "" || (!strings.Contains(prefix, "/") && !strings.Contains(prefix, ".")) {
+		return -1
+	}
+	i := firstColon + 1
+	for i < len(rest) && rest[i] >= '0' && rest[i] <= '9' {
+		i++
+	}
+	if i == firstColon+1 || i >= len(rest) || rest[i] != ':' {
+		return -1
+	}
+	return i
+}
+
+func leadingWhitespace(s string) string {
+	return s[:len(s)-len(strings.TrimLeft(s, " \t"))]
+}
+
+func escapeMermaidParticipantLabel(label string) string {
+	return strings.ReplaceAll(label, `"`, `\"`)
 }
 
 // htmlEntityToText maps the HTML named entities Mermaid spec
