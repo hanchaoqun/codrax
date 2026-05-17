@@ -1752,15 +1752,18 @@ func (r *REPL) dispatch(line, display string) {
 	// pure memory-meta question that happens to follow a sticky
 	// attached log correctly routes to chitchat (chitchat doesn't
 	// consume the attachment).
-	// presentationDirective carries the route=hybrid directive into
-	// the runner-bound effective request below. Critical invariant:
+	// presentationDirective carries a typed current-turn display
+	// request into the runner-bound effective request below. It can
+	// come from route=hybrid (fresh repo + previous-answer transform)
+	// or route=repo (fresh repo question whose own wording asks for a
+	// specific view such as a diagram/table). Critical invariant:
 	// `line` is the USER's authoritative phrasing — it must NOT be
 	// overwritten with system-generated headers, because recordTurn
 	// at the end of dispatch persists `line` into memory verbatim.
-	// Mutating line for hybrid would inject "## Presentation
-	// directive ..." headers into BuildContext on every subsequent
-	// turn (#6). The directive instead rides on the separate
-	// effective-request channel.
+	// Mutating line would inject "## Presentation directive ..."
+	// headers into BuildContext on every subsequent turn (#6). The
+	// directive instead rides on the separate effective-request
+	// channel.
 	presentationDirective := ""
 	hasAttach := r.attachedLog != "" || r.attachedHitrace != "" ||
 		r.attachedLogAutoRouted
@@ -1817,7 +1820,13 @@ func (r *REPL) dispatch(line, display string) {
 					logging.Info("[repl/turn_policy] hybrid → pipeline with directive=%q",
 						oneLineClamp(presentationDirective, 80))
 				case RouteRepo:
-					logging.Info("[repl/turn_policy] repo → pipeline (confidence=%.2f)", policy.Confidence)
+					presentationDirective = policy.PresentationDirective
+					if strings.TrimSpace(presentationDirective) != "" {
+						logging.Info("[repl/turn_policy] repo → pipeline with directive=%q (confidence=%.2f)",
+							oneLineClamp(presentationDirective, 80), policy.Confidence)
+					} else {
+						logging.Info("[repl/turn_policy] repo → pipeline (confidence=%.2f)", policy.Confidence)
+					}
 				}
 			}
 		} else {

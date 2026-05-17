@@ -5587,6 +5587,59 @@ type explorerCompletionReadiness struct {
 	MissingFaces             []string
 }
 
+func (e *explorerEvaluator) strictEnumerationReadinessFloor() bool {
+	if e == nil || !e.isEnumerationQuery {
+		return false
+	}
+	if e.analysisIR == nil {
+		// Preserve the legacy unit-test harness behavior when no
+		// structured analyzer result is available.
+		return true
+	}
+	rm := e.analysisIR.RequestModel
+	if types.IsArchitectureNarrativeExplanation(rm) {
+		return false
+	}
+	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqEnumeration {
+		return true
+	}
+	if rm.Intent == types.IntentEnumerate || rm.Predicates.IsCategoryEnumeration {
+		return true
+	}
+	return types.ResolveQuestionFamily(rm) == types.QFEnumeration
+}
+
+func (e *explorerEvaluator) groundedRequirementCarrierCount() int {
+	if e == nil || len(e.structuredEvidence) == 0 {
+		return 0
+	}
+	reqs := e.ermRequirements
+	if len(reqs) == 0 && e.analysisIR != nil {
+		if kind := types.NormalizeRequirementKind(e.analysisIR.RequestModel.AnalyzerHints.Kind); kind != types.ReqUnknown {
+			reqs = []EvidenceRequirement{{Kind: kind}}
+		}
+	}
+	if len(reqs) == 0 {
+		return 0
+	}
+	count := 0
+	for _, ev := range e.structuredEvidence {
+		switch ev.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered, "":
+		default:
+			continue
+		}
+		for _, req := range reqs {
+			if types.EvidenceStructurallyMatchesRequirement(ev, req.Kind) &&
+				evidenceMatchesRequirementEntities(ev, req.Entities) {
+				count++
+				break
+			}
+		}
+	}
+	return count
+}
+
 func cloneEvidenceRequirements(reqs []EvidenceRequirement) []EvidenceRequirement {
 	if len(reqs) == 0 {
 		return nil
@@ -5657,7 +5710,10 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 	}
 	minDirect := 2
 	evidenceQuality := directCount >= minDirect
-	if !e.isEnumerationQuery && (hasGroundedTerminalEvidence(e.structuredEvidence) || len(e.flowFindings) > 0) {
+	if !e.strictEnumerationReadinessFloor() &&
+		(hasGroundedTerminalEvidence(e.structuredEvidence) ||
+			e.groundedRequirementCarrierCount() >= minDirect ||
+			len(e.flowFindings) > 0) {
 		evidenceQuality = true
 	}
 	authoritativeClosure := false
@@ -5667,7 +5723,7 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 			evidenceQuality = true
 		}
 	}
-	if e.isEnumerationQuery {
+	if e.strictEnumerationReadinessFloor() {
 		fileCoverage = coverage >= 0.8 || (len(scope) > 0 && scopeReadCount >= len(scope))
 		minDirect = len(scope) / 3
 		if minDirect == 0 {

@@ -282,6 +282,53 @@ func TestParseOutput_EnumerationEvidenceQualityHintUsesDynamicFloor(t *testing.T
 	}
 }
 
+func TestParseOutput_MechanismEvidenceDoesNotUseDirectRegistrationFloor(t *testing.T) {
+	ctx := parseOutputCtx(string(types.ReqMechanism), "")
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentExplain
+	ctx.AnalysisIR.RequestModel.Scenario = types.ScenarioArchitectureExplain
+	ctx.AnalysisIR.RequestModel.Predicates.IsCrossComponent = true
+	eval := &explorerEvaluator{
+		userQuestion:       "compare mechanisms and output logical views",
+		isEnumerationQuery: true, // stale/over-broad flag must not impose enumeration floors.
+		analysisIR:         ctx.AnalysisIR,
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceMechanism,
+				Subject:         "GroundItem",
+				Predicate:       "validates",
+				Source:          "a.go",
+				LineStart:       10,
+				GroundingStatus: types.GroundingGrounded,
+				Summary:         "GroundItem validates evidence",
+			},
+			{
+				Kind:            types.EvidenceMechanism,
+				Subject:         "OpenAIResponsesLanguageModel",
+				Predicate:       "routes",
+				Source:          "b.go",
+				LineStart:       20,
+				GroundingStatus: types.GroundingGrounded,
+				Summary:         "OpenAIResponsesLanguageModel routes requests",
+			},
+		},
+	}
+	out, err := eval.ParseOutput(ctx, nil, []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "a.go:10:match\nb.go:20:match\nc.go:30:match"},
+		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-50 of 50 total]"},
+		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 1-50 of 50 total]"},
+		{ToolName: "read_file", Success: true, Summary: "[c.go: showing lines 1-50 of 50 total]"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	if out.SignalUpdates == nil || !out.SignalUpdates.HasEnoughFacts {
+		t.Fatalf("grounded mechanism evidence should satisfy mechanism/comparison readiness, retry=%q", out.RetryHint)
+	}
+	if strings.Contains(out.RetryHint, "[DIRECT]/[REGISTRATION]") {
+		t.Fatalf("mechanism/comparison readiness must not ask for direct/registration evidence, got %q", out.RetryHint)
+	}
+}
+
 func TestParseOutput_ERMUnsatisfiedDemotes(t *testing.T) {
 	// All quantitative floors pass (2 tool types, 3 reads, 2 DIRECT
 	// tags) but ERM has an unsatisfied requirement. Expect demote.

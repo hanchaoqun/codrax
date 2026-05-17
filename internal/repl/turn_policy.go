@@ -57,10 +57,11 @@ const (
 
 	// RouteHybrid — the answer requires both: re-read the
 	// repository AND apply a transformation/presentation that
-	// came from the previous answer or the user's framing. The
-	// dispatcher carries presentation_directive into the pipeline
-	// request body; the finalizer's user-preference channel
-	// renders it.
+	// came from the previous answer or the user's framing. RouteRepo
+	// may also carry presentation_directive when the current fresh
+	// investigation itself asks for a specific view. In both cases
+	// the dispatcher carries presentation_directive into the pipeline
+	// request body; the finalizer's user-preference channel renders it.
 	RouteHybrid TurnRoute = "hybrid"
 
 	// RouteClarify — the user's message references state that
@@ -158,7 +159,7 @@ var turnPolicyTool = llm.ToolSchema{
     },
     "presentation_directive": {
       "type": "string",
-      "description": "Optional. When route is local or hybrid, free-form directive describing the desired final-answer form ('mermaid', 'markdown table', 'brief 3-bullet summary'). Echoed verbatim into the local responder's system prompt OR prepended to the pipeline request body when hybrid. Omit when not applicable."
+      "description": "Optional. Free-form directive describing the desired final-answer form ('mermaid', 'markdown table', 'brief 3-bullet summary', 'logic flow diagram'). Echoed verbatim into the local responder's system prompt when local, or prepended to the pipeline request body when repo/hybrid. Omit when not applicable."
     }
   },
   "required": ["route", "needs_repo_access", "operation", "source", "confidence", "reason"]
@@ -230,7 +231,9 @@ repo because the cost of being wrong is higher for local / hybrid
 
 presentation_directive: free-form text echoed verbatim into the
 local responder's system prompt (when route=local) OR prepended to
-the pipeline request (when route=hybrid). Examples:
+the pipeline request (when route=repo/hybrid). Use it for any
+current-turn display request, including fresh investigations that ask
+for a logic view / table / diagram. Examples:
   "mermaid sequence diagram"
   "markdown table with columns: file, function, behaviour"
   "brief 3-bullet summary"
@@ -514,15 +517,14 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 }
 
 // composeEffectiveRequest assembles the runner-bound request from
-// (a) the optional presentation directive (route=hybrid), (b) the
-// optional prior-conversation block from BuildContext, and (c) the
-// user's original request line. Sections render in fixed order so
-// the finalizer's user-preference channel finds the directive at
-// the top, the analyzer reads conversation continuity in the
-// middle, and the user's actual request is the last section the
-// pipeline sees — matches the legacy "## Prior conversation /
-// ## Current request" shape so existing pipeline parsing keeps
-// working byte-identically when no directive is present.
+// (a) the optional prior-conversation block from BuildContext, (b)
+// the user's current-turn presentation directive (route=repo/hybrid),
+// and (c) the user's original request line. Sections render in fixed
+// order so SplitConversation keeps all current-turn requirements under
+// "## Current request"; otherwise the directive is misclassified as
+// prior conversation before the analyzer sees it. With no directive,
+// the legacy "## Prior conversation / ## Current request" shape is
+// preserved.
 //
 // This helper is the SINGLE site that synthesises the effective
 // request; callers no longer mutate `line` directly. The sole
@@ -534,17 +536,17 @@ func composeEffectiveRequest(directive, prior, line string) string {
 		return line
 	}
 	var b strings.Builder
-	if d != "" {
-		b.WriteString("## Presentation directive (apply to final answer)\n")
-		b.WriteString(d)
-		b.WriteString("\n\n")
-	}
 	if p != "" {
 		b.WriteString("## Prior conversation\n")
 		b.WriteString(p)
 		b.WriteString("\n\n")
 	}
 	b.WriteString("## Current request\n")
+	if d != "" {
+		b.WriteString("## Presentation directive (apply to final answer)\n")
+		b.WriteString(d)
+		b.WriteString("\n\n")
+	}
 	b.WriteString(line)
 	return b.String()
 }

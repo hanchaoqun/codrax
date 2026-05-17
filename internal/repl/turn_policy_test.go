@@ -635,8 +635,8 @@ func TestTurnPolicyDispatch_LocalTableTransform(t *testing.T) {
 }
 
 // TestTurnPolicyDispatch_RepoRouteEntersPipeline pins the legacy
-// pipeline path under the new dispatcher. A "重新读" intent must
-// reach runner.Run unchanged (no presentation_directive prefix).
+// pipeline path under the new dispatcher. A "重新读" intent without a
+// presentation request must reach runner.Run unchanged.
 func TestTurnPolicyDispatch_RepoRouteEntersPipeline(t *testing.T) {
 	store := newPolicyStore(t)
 	seedPriorAnswer(t, store, "概览", "答案省略")
@@ -663,7 +663,45 @@ func TestTurnPolicyDispatch_RepoRouteEntersPipeline(t *testing.T) {
 		t.Errorf("local responder must not fire on route=repo; calls=%d", len(responder.localCalls))
 	}
 	if strings.Contains(runner.requests[0], "Presentation directive") {
-		t.Errorf("repo route must not carry a presentation directive prefix; got %q", runner.requests[0])
+		t.Errorf("repo route without directive must not carry a presentation directive prefix; got %q", runner.requests[0])
+	}
+}
+
+func TestTurnPolicyDispatch_RepoRouteCarriesCurrentPresentationDirective(t *testing.T) {
+	store := newPolicyStore(t)
+
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:                 RouteRepo,
+			NeedsRepoAccess:       true,
+			Operation:             "investigate",
+			Source:                "repo",
+			Confidence:            0.9,
+			PresentationDirective: "logic flow diagram showing anti-hallucination mechanisms",
+		},
+	}
+	responder := &stubLocalResponder{localReply: "should-not-appear"}
+	r, runner, _ := newTurnPolicyREPL(t, store, classifier, responder,
+		"读取代码，对比 codrax 和 opencode，并输出各自的逻辑视图\n/exit\n")
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 1 {
+		t.Fatalf("runner.Run: got %d, want 1", len(runner.requests))
+	}
+	req := runner.requests[0]
+	if !strings.Contains(req, "## Presentation directive (apply to final answer)") {
+		t.Fatalf("repo request with typed presentation directive must carry directive header; got %q", req)
+	}
+	if !strings.Contains(req, "logic flow diagram showing anti-hallucination mechanisms") {
+		t.Fatalf("repo request lost presentation directive; got %q", req)
+	}
+	if !strings.Contains(req, "输出各自的逻辑视图") {
+		t.Fatalf("repo request must preserve original user wording; got %q", req)
+	}
+	if len(responder.localCalls) != 0 {
+		t.Errorf("local responder must not fire on repo; calls=%d", len(responder.localCalls))
 	}
 }
 
@@ -1011,20 +1049,21 @@ func TestTurnPolicyDispatch_LegacyClassifierUsesBinaryPath(t *testing.T) {
 // ─── Layer 5: helpers ─────────────────────────────────────────
 
 // TestComposeEffectiveRequest locks the wire format for the
-// directive prefix + prior-conversation block + user request
-// assembly. The finalizer's user-preference channel parses sections
-// by header name, so any change here must be deliberate.
+// prior-conversation block + current-turn directive + user request
+// assembly. The pipeline splits conversation by header name, so the
+// directive must remain inside the Current request section instead of
+// being misfiled as prior conversation.
 func TestComposeEffectiveRequest(t *testing.T) {
 	// Directive only.
 	got := composeEffectiveRequest("mermaid 流程图", "", "重新读仓库确认有没有 IO 分析")
-	if !strings.HasPrefix(got, "## Presentation directive (apply to final answer)\n") {
+	if !strings.HasPrefix(got, "## Current request\n## Presentation directive (apply to final answer)\n") {
 		t.Errorf("missing directive header: %q", got)
-	}
-	if !strings.Contains(got, "## Current request\n") {
-		t.Errorf("missing current-request header: %q", got)
 	}
 	if !strings.Contains(got, "重新读仓库确认有没有 IO 分析") {
 		t.Errorf("missing user request body: %q", got)
+	}
+	if prior, current := types.SplitConversation(got); strings.Contains(prior, "Presentation directive") || !strings.Contains(current, "Presentation directive") {
+		t.Errorf("directive must be parsed as current request; prior=%q current=%q", prior, current)
 	}
 
 	// Directive + prior conversation interleave.
@@ -1035,14 +1074,17 @@ func TestComposeEffectiveRequest(t *testing.T) {
 	if !strings.Contains(combo, "## Prior conversation\n(recent: turn-1)") {
 		t.Errorf("combo missing prior block: %q", combo)
 	}
-	if !strings.Contains(combo, "## Current request\nsecond turn") {
+	if !strings.Contains(combo, "## Current request\n## Presentation directive (apply to final answer)\nmermaid\n\nsecond turn") {
 		t.Errorf("combo missing current request: %q", combo)
 	}
-	// Section ordering: directive must precede prior, prior must precede current.
+	if prior, current := types.SplitConversation(combo); strings.Contains(prior, "Presentation directive") || !strings.Contains(current, "Presentation directive") {
+		t.Errorf("combo directive must be parsed as current request; prior=%q current=%q", prior, current)
+	}
+	// Section ordering: prior must precede current; directive lives inside current.
 	dpos := strings.Index(combo, "## Presentation directive")
 	ppos := strings.Index(combo, "## Prior conversation")
 	cpos := strings.Index(combo, "## Current request")
-	if !(dpos < ppos && ppos < cpos) {
+	if !(ppos < cpos && cpos < dpos) {
 		t.Errorf("section ordering wrong: directive=%d prior=%d current=%d", dpos, ppos, cpos)
 	}
 
