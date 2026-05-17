@@ -690,6 +690,51 @@ func TestEmitEvidence_RejectsEvidenceKindValueInsideAnchorKind(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_RepairsAnchorKindInEvidenceKindAndFileScopeLineAnchor(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/subagent_runtime.go", 14,
+		"type SubAgentValidator struct {",
+		"\tregistry *SubAgentRegistry",
+		"}",
+	)
+	params := json.RawMessage(`{
+		"items": [{
+			"scope": "file",
+			"evidence_kind": "definition",
+			"subject": "SubAgentValidator",
+			"source": "internal/agent/subagent_runtime.go",
+			"line_start": 14,
+			"summary": "SubAgentValidator is defined here.",
+			"anchor_kind": "definition",
+			"anchor_symbol": "SubAgentValidator"
+		}]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected compatibility repair to succeed, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted evidence item, got %d", len(got))
+	}
+	if got[0].Kind != types.EvidenceDirect {
+		t.Fatalf("kind=%q, want %q", got[0].Kind, types.EvidenceDirect)
+	}
+	if got[0].Scope != types.ScopeLine {
+		t.Fatalf("scope=%q, want %q", got[0].Scope, types.ScopeLine)
+	}
+	if got[0].LineStart != 14 || got[0].AnchorKind != types.AnchorDefinition || got[0].AnchorSymbol != "SubAgentValidator" {
+		t.Fatalf("line anchor not preserved after repair: %+v", got[0])
+	}
+	if !strings.Contains(res.Summary, "schema-shape compatibility repair") {
+		t.Fatalf("summary should mention compatibility repair, got: %s", res.Summary)
+	}
+}
+
 func TestEmitEvidence_SelfRefLiteralEmitsTypedClusterKey(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

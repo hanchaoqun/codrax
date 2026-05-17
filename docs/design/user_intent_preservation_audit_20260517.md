@@ -683,6 +683,28 @@
 - [x] 回归测试锁住 `ViolationProfileFor(strict=true)` 仍为 `SeveritySoft` 且 `RetryEligible=false`。
 - [x] 横向检查 sibling signal：`diagram_edge_label_mismatch` 已不可 promote；因它代表用户可见 label 与 typed relation 冲突，仍保留 soft caveat 以提示读者可能的图语义歧义。
 
+### UIP-029（P1）extractor 因可修复 schema/锚点形状反复重试
+
+代码位置：`internal/tool/emit_evidence.go`、`internal/tool/emit_answer_symbol.go`
+
+状态：**已修复（Batch G/H 延伸段）**。`emit_evidence` 对两个高频、结构明确、语义无损的兼容形状做本地修复：`evidence_kind`/legacy `kind` 误填 `anchor_kind` 值时按 typed anchor 映射为 emittable evidence kind；`scope=file` 同时携带 `line_start` + line anchor 字段时降为 `scope=line` 或 `line_range`。`emit_answer_symbol` 在 cited line 已被 read_file 证明为错行时，不再立即丢弃，而是先查同文件同符号的 grounded definition evidence / surface backbone，唯一命中时本地归一到定义行，并在 tool summary 里披露。
+
+触发证据：
+
+- `../small/codrax-small/.codrax/logs` 最新运行中，explorer 一批 evidence 有 9 条被 `scope=file must have line_start=0`、`evidence_kind "definition" is invalid` 丢掉；这些项实际上携带了 `anchor_kind=definition`、`anchor_symbol`、`source:line_start`。
+- 随后 extractor 多轮 `emit_answer_symbol` 反复猜 `SubAgentValidator` / `propose_sub_agents` 的定义行，部分项因 cited line 是调用点或方法体行被丢弃，导致 finalizer 再次要求补符号。
+
+风险：
+
+- 这是系统 schema 过窄和锚点消费层缺少 typed fallback 的组合问题，不是用户意图问题，也不是模型答案本身必须重写。
+- 下游 finalizer 被迫承担“补上游锚点”的工作，会产生“答案待完善，正在重写”的长尾循环。
+
+修复方向：
+
+- [x] `emit_evidence` 只基于 typed enum / scope / anchor 字段做无损兼容修复，不读取用户问题或模型散文。
+- [x] `emit_answer_symbol` 只用已 grounded 的结构化证据或 surface backbone 修复同文件同符号错行；多候选或跨文件不自动改。
+- [x] 回归测试覆盖 schema-shape repair 与 wrong-line-to-grounded-definition canonicalization，防止后续开发重新引入“让模型重猜”的硬 gate。
+
 ## 分批修复建议
 
 ### Batch A：先消除明确红线

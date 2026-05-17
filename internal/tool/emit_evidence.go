@@ -522,6 +522,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	built := make([]types.EvidenceItem, 0, len(p.Items))
 	rejectedItems := make([]string, 0)
 	autoSwapped := make([]int, 0)
+	compatRepairs := make([]string, 0)
 	// Session 11 R4 self-reference filter — pre-compute the
 	// question's primary entity (first canonical entity on
 	// AnalysisIR.RequestModel.AnalyzerHints.Entities). When an
@@ -536,7 +537,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	exactResolutionContract := answerExactResolutionContract(ctx)
 	pendingExactTargets := pendingExactResolutionTargets(ctx, exactResolutionContract)
 	for i, in := range p.Items {
-		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, &autoSwapped)
+		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, &autoSwapped, &compatRepairs)
 		if perr != nil {
 			rejectedItems = append(rejectedItems, fmt.Sprintf("items[%d]: %v", i, perr))
 			continue
@@ -718,7 +719,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			"\n\nsurface_terms compatibility: dropped ungrounded optional term(s); evidence items were kept:\n  - " +
 			strings.Join(surfaceTermDrops, "\n  - ") + "\n"
 	}
-	if len(rejectedItems) > 0 || len(autoSwapped) > 0 {
+	if len(rejectedItems) > 0 || len(autoSwapped) > 0 || len(compatRepairs) > 0 {
 		var b strings.Builder
 		b.WriteString(summary)
 		if len(rejectedItems) > 0 {
@@ -737,6 +738,13 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 				parts = append(parts, fmt.Sprintf("items[%d]", idx))
 			}
 			b.WriteString(strings.Join(parts, ", ") + "\n")
+		}
+		if len(compatRepairs) > 0 {
+			fmt.Fprintf(&b, "\n%d schema-shape compatibility repair(s) applied before validation:\n",
+				len(compatRepairs))
+			for _, r := range compatRepairs {
+				fmt.Fprintf(&b, "  - %s\n", r)
+			}
 		}
 		summary = b.String()
 	}
@@ -801,14 +809,78 @@ func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, 
 // delegating. Records the item index into autoSwapped so the caller
 // can surface a "double-check the range" warning. All other
 // validation errors flow through buildEmitEvidenceItem unchanged.
-func buildEmitEvidenceItemWithSwap(in *emitEvidenceItem, index int, workDir string, autoSwapped *[]int) (types.EvidenceItem, error) {
+func buildEmitEvidenceItemWithSwap(in *emitEvidenceItem, index int, workDir string, autoSwapped *[]int, compatRepairs *[]string) (types.EvidenceItem, error) {
 	if in.LineStart.Int() > 0 && in.LineEnd.Int() > 0 && in.LineEnd.Int() < in.LineStart.Int() {
 		// Obvious transposition typo — repair rather than reject.
 		swappedStart, swappedEnd := in.LineEnd, in.LineStart
 		in.LineStart, in.LineEnd = swappedStart, swappedEnd
 		*autoSwapped = append(*autoSwapped, index)
 	}
+	repairEmitEvidenceItemShape(in, index, compatRepairs)
 	return buildEmitEvidenceItem(*in, index, workDir)
+}
+
+func repairEmitEvidenceItemShape(in *emitEvidenceItem, index int, compatRepairs *[]string) {
+	if in == nil {
+		return
+	}
+	kindText := strings.TrimSpace(in.EvidenceKind)
+	kindField := "evidence_kind"
+	if kindText == "" {
+		kindText = strings.TrimSpace(in.LegacyKind)
+		kindField = "kind"
+	}
+	if anchorKind, ok := emitAnchorKinds[strings.ToLower(kindText)]; ok {
+		if strings.TrimSpace(in.AnchorKind) == "" {
+			in.AnchorKind = string(anchorKind)
+		}
+		mapped := evidenceKindForAnchorShape(anchorKind, *in)
+		if strings.TrimSpace(in.EvidenceKind) != "" {
+			in.EvidenceKind = string(mapped)
+		} else {
+			in.LegacyKind = string(mapped)
+		}
+		if compatRepairs != nil {
+			*compatRepairs = append(*compatRepairs,
+				fmt.Sprintf("items[%d].%s=%q was an anchor_kind; moved semantic kind to %q and kept anchor_kind=%q",
+					index, kindField, kindText, mapped, in.AnchorKind))
+		}
+	}
+
+	scope := types.EvidenceScope(strings.ToLower(strings.TrimSpace(in.Scope)))
+	if scope == types.ScopeFile && in.LineStart.Int() > 0 && emitEvidenceItemHasLineAnchorShape(*in) {
+		oldScope := in.Scope
+		if in.LineEnd.Int() > in.LineStart.Int() {
+			in.Scope = string(types.ScopeLineRange)
+		} else {
+			in.Scope = string(types.ScopeLine)
+		}
+		if compatRepairs != nil {
+			*compatRepairs = append(*compatRepairs,
+				fmt.Sprintf("items[%d].scope=%q carried line anchor fields at line_start=%d; treated as scope=%q",
+					index, oldScope, in.LineStart.Int(), in.Scope))
+		}
+	}
+}
+
+func evidenceKindForAnchorShape(anchorKind types.AnchorKind, in emitEvidenceItem) types.EvidenceKind {
+	switch anchorKind {
+	case types.AnchorCondition:
+		return types.EvidenceConditional
+	case types.AnchorCall:
+		if strings.TrimSpace(in.Object) != "" {
+			return types.EvidenceRelationship
+		}
+		return types.EvidenceMechanism
+	default:
+		return types.EvidenceDirect
+	}
+}
+
+func emitEvidenceItemHasLineAnchorShape(in emitEvidenceItem) bool {
+	return strings.TrimSpace(in.AnchorKind) != "" ||
+		strings.TrimSpace(in.AnchorSymbol) != "" ||
+		strings.TrimSpace(in.Snippet) != ""
 }
 
 // buildEmitEvidenceItem validates a single decoded item and converts

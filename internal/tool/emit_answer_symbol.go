@@ -296,11 +296,14 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 		ground.SetCrossRepoOracle(nil)
 	}
 	groundCtx := ground.BuildContext(ctx)
-	stepCandidates := compiledStepCandidateNames(types.BuildAnswerSurfacePlanForBusContext(ctx))
+	surfacePlan := types.BuildAnswerSurfacePlanForBusContext(ctx)
+	stepCandidates := compiledStepCandidateNames(surfacePlan)
+	groundedCandidates := buildAnswerSymbolGroundedCandidates(ctx, surfacePlan)
 	built := make([]types.AnswerSymbol, 0, len(p.Items))
 	var dropped []string
+	var repaired []string
 	for i, in := range p.Items {
-		sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle, groundCtx, stepCandidates)
+		sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle, groundCtx, stepCandidates, groundedCandidates, &repaired)
 		if perr != nil {
 			dropped = append(dropped, perr.Error())
 			// P1 #3 (2026-05-03) — feed the per-Run rejection
@@ -351,7 +354,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   renderEmitAnswerSymbolSummary(built, claim, dropped),
+		Summary:   renderEmitAnswerSymbolSummary(built, claim, dropped, repaired),
 		Timestamp: now,
 	}, nil
 }
@@ -452,7 +455,7 @@ func boundaryTypedDiagnosticForEmitAnswerSymbol(ctx *types.BusContext) string {
 // message names. This is the symmetric sibling of the kind=absent
 // retirement on emit_evidence: both channels reject an unsatisfiable
 // item and point at the proper whole-shape escape.
-func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir string, bundle *types.LogBundle, groundCtx *ground.Context, stepCandidates map[string]string) (types.AnswerSymbol, error) {
+func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir string, bundle *types.LogBundle, groundCtx *ground.Context, stepCandidates map[string]string, groundedCandidates map[string][]answerSymbolGroundedCandidate, repaired *[]string) (types.AnswerSymbol, error) {
 	externalSource := bundle.IsExternalSource()
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
@@ -507,17 +510,37 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 		if matchedLine, ok, negative := ground.ResolveSymbolLineAnchor(groundCtx, file, lineN, name, 2); ok {
 			lineN = matchedLine
 		} else if negative {
-			leaf := name
-			if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
-				leaf = name[idx+1:]
-			}
-			if leaf == name {
-				return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain no identifier token matching it). Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN)
-			}
-			if matchedLine, ok, _ := ground.ResolveSymbolLineAnchor(groundCtx, file, lineN, leaf, 2); ok {
-				lineN = matchedLine
+			if candidate, ok := lookupAnswerSymbolGroundedCandidate(groundedCandidates, file, name); ok {
+				if repaired != nil {
+					*repaired = append(*repaired,
+						fmt.Sprintf("items[%d] %s: cited line %s:%d was canonicalized to grounded definition %s:%d",
+							index, name, file, lineN, candidate.File, candidate.Line))
+				}
+				name = candidate.Name
+				file = candidate.File
+				lineN = candidate.Line
 			} else {
-				return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain neither %q nor its leaf %q). Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN, name, leaf)
+				leaf := name
+				if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
+					leaf = name[idx+1:]
+				}
+				if leaf == name {
+					return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain no identifier token matching it). Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN)
+				}
+				if matchedLine, ok, _ := ground.ResolveSymbolLineAnchor(groundCtx, file, lineN, leaf, 2); ok {
+					lineN = matchedLine
+				} else if candidate, ok := lookupAnswerSymbolGroundedCandidate(groundedCandidates, file, leaf); ok {
+					if repaired != nil {
+						*repaired = append(*repaired,
+							fmt.Sprintf("items[%d] %s: cited line %s:%d was canonicalized to grounded definition %s:%d",
+								index, name, file, lineN, candidate.File, candidate.Line))
+					}
+					name = candidate.Name
+					file = candidate.File
+					lineN = candidate.Line
+				} else {
+					return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain neither %q nor its leaf %q). Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN, name, leaf)
+				}
 			}
 		}
 	}
@@ -531,6 +554,99 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 		Rationale: strings.TrimSpace(in.Rationale),
 		ClaimUse:  in.ClaimUse,
 	}, nil
+}
+
+type answerSymbolGroundedCandidate struct {
+	Name string
+	File string
+	Line int
+}
+
+func buildAnswerSymbolGroundedCandidates(ctx *types.BusContext, plan *types.AnswerSurfacePlan) map[string][]answerSymbolGroundedCandidate {
+	out := make(map[string][]answerSymbolGroundedCandidate)
+	add := func(name, file string, line int) {
+		name = strings.TrimSpace(name)
+		file = canonicalAnswerSymbolCandidateFile(file)
+		if name == "" || file == "" || line <= 0 {
+			return
+		}
+		candidate := answerSymbolGroundedCandidate{Name: name, File: file, Line: line}
+		for _, key := range answerSymbolCandidateKeys(name) {
+			dupe := false
+			for _, existing := range out[key] {
+				if existing.Name == candidate.Name && existing.File == candidate.File && existing.Line == candidate.Line {
+					dupe = true
+					break
+				}
+			}
+			if !dupe {
+				out[key] = append(out[key], candidate)
+			}
+		}
+	}
+	if plan != nil {
+		for _, anchor := range plan.StepBackbone {
+			add(anchor.Name, anchor.File, anchor.Line)
+		}
+		for _, anchor := range plan.ExplanationAnchorBackbone {
+			add(anchor.Name, anchor.File, anchor.Line)
+		}
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		for _, item := range ctx.Mutable.EmittedEvidence() {
+			if item.GroundingStatus == types.GroundingUngrounded || item.AnchorKind != types.AnchorDefinition {
+				continue
+			}
+			add(item.AnchorSymbol, item.Source, item.LineStart)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func lookupAnswerSymbolGroundedCandidate(candidates map[string][]answerSymbolGroundedCandidate, file, name string) (answerSymbolGroundedCandidate, bool) {
+	if len(candidates) == 0 {
+		return answerSymbolGroundedCandidate{}, false
+	}
+	file = canonicalAnswerSymbolCandidateFile(file)
+	for _, key := range answerSymbolCandidateKeys(name) {
+		var matched []answerSymbolGroundedCandidate
+		for _, candidate := range candidates[key] {
+			if canonicalAnswerSymbolCandidateFile(candidate.File) != file {
+				continue
+			}
+			matched = append(matched, candidate)
+		}
+		if len(matched) == 1 {
+			return matched[0], true
+		}
+	}
+	return answerSymbolGroundedCandidate{}, false
+}
+
+func answerSymbolCandidateKeys(name string) []string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	keys := []string{name}
+	if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
+		leaf := name[idx+1:]
+		if leaf != "" && leaf != name {
+			keys = append(keys, leaf)
+		}
+	}
+	return keys
+}
+
+func canonicalAnswerSymbolCandidateFile(file string) string {
+	file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
+	for strings.HasPrefix(file, "./") {
+		file = strings.TrimPrefix(file, "./")
+	}
+	return file
 }
 
 func answerSymbolNameGrounds(groundCtx *ground.Context, file string, line int, name string) bool {
@@ -594,7 +710,7 @@ func isInsideWorkDir(filePath, workDir string) bool {
 	return strings.HasPrefix(filePath, clean+"/")
 }
 
-func renderEmitAnswerSymbolSummary(items []types.AnswerSymbol, claim types.CompletenessClaim, dropped []string) string {
+func renderEmitAnswerSymbolSummary(items []types.AnswerSymbol, claim types.CompletenessClaim, dropped []string, repaired []string) string {
 	var b strings.Builder
 	claimText := string(claim)
 	if claimText == "" {
@@ -608,6 +724,12 @@ func renderEmitAnswerSymbolSummary(items []types.AnswerSymbol, claim types.Compl
 		fmt.Fprintf(&b, "dropped %d invalid item(s):\n", len(dropped))
 		for _, d := range dropped {
 			fmt.Fprintf(&b, "  - %s\n", d)
+		}
+	}
+	if len(repaired) > 0 {
+		fmt.Fprintf(&b, "auto-canonicalized %d item(s) from grounded evidence:\n", len(repaired))
+		for _, r := range repaired {
+			fmt.Fprintf(&b, "  - %s\n", r)
 		}
 	}
 	return b.String()

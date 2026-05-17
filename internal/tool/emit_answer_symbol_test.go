@@ -841,6 +841,50 @@ func TestEmitAnswerSymbol_FloorGroundingDropsCallSiteLine(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerSymbol_FloorGroundingRepairsWrongLineFromGroundedEvidence(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/subagent_runtime.go: showing lines 60-64 of 300 total]\n    60│ func validateRequest(req Request) error {\n    61│ \tif req.Name == \"\" {\n    62│ \t\treturn fmt.Errorf(\"missing name\")\n    63│ \t}\n    64│ \treturn nil\n",
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:              "subagent-validator-def",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/agent/subagent_runtime.go",
+		LineStart:       14,
+		LineEnd:         14,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "SubAgentValidator",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	params := json.RawMessage(`{
+		"items": [
+			{"name": "SubAgentValidator", "file": "internal/agent/subagent_runtime.go", "line": 62, "kind": "type"}
+		],
+		"completeness": "lower_bound"
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("grounded evidence should repair wrong cited line, got Summary=%q", res.Summary)
+	}
+	got, _ := ctx.Mutable.EmittedAnswerSymbols()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item, got %+v", got)
+	}
+	if got[0].Line != 14 {
+		t.Fatalf("line=%d, want grounded definition line 14", got[0].Line)
+	}
+	if !strings.Contains(res.Summary, "auto-canonicalized") {
+		t.Fatalf("summary should disclose local canonicalization, got: %s", res.Summary)
+	}
+}
+
 // TestEmitAnswerSymbol_FloorGroundingAcceptsRealDefinition is the
 // positive companion: when the cited line genuinely contains the
 // symbol's identifier, Fix D lets the item through.
