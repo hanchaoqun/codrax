@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
@@ -116,6 +117,32 @@ func TestRetryBudgetByKind_UsesKindSpecificCap(t *testing.T) {
 	}
 }
 
+func TestViolationRetryClass_GroupsTypedSiblingKinds(t *testing.T) {
+	a := violationRetryClass(types.Violation{Kind: types.ViolCurrentStatusVerdictMissing})
+	b := violationRetryClass(types.Violation{Kind: types.ViolMissingRequestedRoleUndisclosed})
+	if a == "" || b == "" {
+		t.Fatalf("retry classes must not be empty: a=%q b=%q", a, b)
+	}
+	if a != b {
+		t.Fatalf("same repair locus + caveat family should share a retry class: %q != %q", a, b)
+	}
+	if !strings.Contains(a, string(FallbackFinalizerOnly)) || !strings.Contains(a, types.CaveatFamilyAnswerCoverage) {
+		t.Fatalf("retry class should be typed by target + family, got %q", a)
+	}
+}
+
+func TestDominantViolationClass_IgnoresDerivedSymptoms(t *testing.T) {
+	res := contract.Result{
+		Violations: []types.Violation{
+			{Kind: types.ViolDiagramEdgeLabelMismatch, IsDerived: true, RootKind: types.ViolDiagramEdgeUnsupported},
+			{Kind: types.ViolCurrentStatusVerdictMissing},
+		},
+	}
+	if got := dominantViolationClass(res); got != violationRetryClass(types.Violation{Kind: types.ViolCurrentStatusVerdictMissing}) {
+		t.Fatalf("dominantViolationClass = %q, want current-status root class", got)
+	}
+}
+
 func TestRetryBudgetByKind_ZeroFallsBackToFallback(t *testing.T) {
 	r := types.RetryBudgetByKindSettings{} // all zero
 	if got := r.For(types.ViolFamilyMismatch, 5); got != 5 {
@@ -136,6 +163,22 @@ func TestGraphState_PerKindCounterIsolated(t *testing.T) {
 	}
 	if got := s.retryUsedForKind(types.ViolGhostAnchor); got != 0 {
 		t.Errorf("untouched kind should return 0, got %d", got)
+	}
+}
+
+func TestGraphState_PerClassCounterIsolated(t *testing.T) {
+	s := &graphState{}
+	s.recordRetryByClass("finalizer:answer_coverage")
+	s.recordRetryByClass("finalizer:answer_coverage")
+	s.recordRetryByClass("explore:answer_coverage")
+	if got := s.retryUsedForClass("finalizer:answer_coverage"); got != 2 {
+		t.Errorf("finalizer class retries = %d, want 2", got)
+	}
+	if got := s.retryUsedForClass("explore:answer_coverage"); got != 1 {
+		t.Errorf("explore class retries = %d, want 1", got)
+	}
+	if got := s.retryUsedForClass("finalizer:citation_grounded"); got != 0 {
+		t.Errorf("untouched class should return 0, got %d", got)
 	}
 }
 

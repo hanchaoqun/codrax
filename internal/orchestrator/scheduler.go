@@ -101,11 +101,15 @@ type graphState struct {
 	// Session 11 F5 per-kind retry bookkeeping + yield check
 	// state. retryUsedByKind tracks how many retries each
 	// ViolationKind has consumed (drives the C6 per-kind budget);
+	// retryUsedByClass tracks broader typed repair classes so a
+	// finalizer loop cannot rotate across sibling kinds in the same
+	// repair family and avoid the per-kind cap;
 	// lastYieldSnapshot holds the "before this retry window"
 	// counters so the next retry decision can compute a delta;
 	// yieldKillCount records how many times the yield gate
 	// forced an early terminate for the fail-loud warning.
 	retryUsedByKind   map[types.ViolationKind]int
+	retryUsedByClass  map[string]int
 	lastYieldSnapshot yieldSnapshot
 	yieldKillCount    int
 
@@ -359,6 +363,23 @@ func (s *graphState) retryUsedForKind(kind types.ViolationKind) int {
 		return 0
 	}
 	return s.retryUsedByKind[kind]
+}
+
+func (s *graphState) recordRetryByClass(class string) {
+	if s == nil || strings.TrimSpace(class) == "" {
+		return
+	}
+	if s.retryUsedByClass == nil {
+		s.retryUsedByClass = make(map[string]int)
+	}
+	s.retryUsedByClass[class]++
+}
+
+func (s *graphState) retryUsedForClass(class string) int {
+	if s == nil || s.retryUsedByClass == nil {
+		return 0
+	}
+	return s.retryUsedByClass[class]
 }
 
 // captureYieldSnapshot takes a "before this window" reading of

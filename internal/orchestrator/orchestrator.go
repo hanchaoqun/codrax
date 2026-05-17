@@ -4908,9 +4908,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if len(res.Violations) > 0 {
 				o.attachDraftReviewNote(out, strictReviewDisabledTitle(o.busCtx.Language), res.Violations)
 			}
-			if o.busCtx.Mutable != nil {
-				out.FinalAnswer = appendInactiveScopeSystemCaveat(out.FinalAnswer, o.busCtx.Mutable.AnswerDocumentV2(), o.busCtx)
-			}
+			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			o.emit(render.Event{
 				Kind:            render.EventLivePreviewClear,
 				Timestamp:       time.Now(),
@@ -4924,9 +4922,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 
 		if res.Passed {
-			if o.busCtx.Mutable != nil {
-				out.FinalAnswer = appendInactiveScopeSystemCaveat(out.FinalAnswer, o.busCtx.Mutable.AnswerDocumentV2(), o.busCtx)
-			}
+			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			// Live preview cleanup: contract pass means the draft
 			// just streamed IS the final answer (modulo the
 			// deterministic re-render). Erase the preview area
@@ -5010,6 +5006,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// status line into the answer body, and do not collapse
 			// concrete violations back into one generic family caveat.
 			o.injectResidualConcernsCaveat(out, res.Violations)
+			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] P6 finalize repair hard cap reached (%d/%d); accepting doc with residual-concerns caveat",
 				state.retryUsed, hardCap)
 			lastFinalize = out
@@ -5029,6 +5026,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		if IncrementAttemptsAndCheckExhausted(res.Violations, o.busCtx.Mutable.RepairAttempts()) {
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
 			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] cross-scope repair attempts exhausted on every root; %d violation(s) materialised as user caveat",
 				len(res.Violations))
 			lastFinalize = out
@@ -5045,6 +5043,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// sees natural-language caveats only.
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
 			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			logging.Warning("[orchestrator] retry budget exhausted; %d violation(s) materialized as user caveat", len(res.Violations))
 			lastFinalize = out
 			state.markDone(fin.ID)
@@ -5065,6 +5064,30 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					kind, state.retryUsedForKind(kind), cap)
 				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
 				out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+				out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+				lastFinalize = out
+				state.markDone(fin.ID)
+				o.emitNodeEnd(fin.ID, true, "")
+				break
+			}
+		}
+
+		// Same-error-class retry governor. Per-kind caps prevent one
+		// violation from looping forever, but finalizer loops can
+		// rotate across sibling kinds in the same typed repair family
+		// (for example one answer-coverage field fixed, another
+		// answer-coverage field appears). After one retry for the
+		// dominant typed class, ship the current core answer with
+		// caveats instead of spending another LLM round on mechanical
+		// schema churn.
+		if class := dominantViolationClass(res); class != "" {
+			cap := sameErrorClassRetryCap()
+			if cap > 0 && state.retryUsedForClass(class) >= cap {
+				logging.Warning("[orchestrator] retry budget for class=%s exhausted (%d/%d) — accepting answer with caveat",
+					class, state.retryUsedForClass(class), cap)
+				out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
+				out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+				out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 				lastFinalize = out
 				state.markDone(fin.ID)
 				o.emitNodeEnd(fin.ID, true, "")
@@ -5104,6 +5127,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			})
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
 			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			lastFinalize = out
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")
@@ -5213,6 +5237,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		case FallbackFailLoud:
 			out.FinalAnswer = o.applyContractViolations(out.FinalAnswer, res)
 			out.FinalAnswer = AppendUserCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			lastFinalize = out
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")
@@ -5301,6 +5326,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// so subsequent iterations see the cap getting tighter.
 		if kind := dominantViolationKind(res); kind != "" {
 			state.recordRetryByKind(kind)
+		}
+		if class := dominantViolationClass(res); class != "" {
+			state.recordRetryByClass(class)
 		}
 		pendingViolation = renderViolations(res)
 
@@ -6939,6 +6967,55 @@ func dominantViolationKind(res contract.Result) types.ViolationKind {
 		}
 	}
 	return bestKind
+}
+
+func sameErrorClassRetryCap() int { return 1 }
+
+func dominantViolationClass(res contract.Result) string {
+	if res.Passed || len(res.Violations) == 0 {
+		return ""
+	}
+	roots := FilterDerivedViolations(res.Violations)
+	if len(roots) == 0 {
+		return ""
+	}
+	counts := make(map[string]int, len(roots))
+	for _, v := range roots {
+		class := violationRetryClass(v)
+		if class == "" {
+			continue
+		}
+		counts[class]++
+	}
+	var (
+		bestClass string
+		bestCount int
+	)
+	for _, v := range roots {
+		class := violationRetryClass(v)
+		if class == "" {
+			continue
+		}
+		if counts[class] > bestCount {
+			bestCount = counts[class]
+			bestClass = class
+		}
+	}
+	return bestClass
+}
+
+func violationRetryClass(v types.Violation) string {
+	target := FallbackTargetForViolation(v)
+	if spec, ok := types.ViolKindSpecFor(v.Kind); ok {
+		family := strings.TrimSpace(string(spec.CaveatFamilyID))
+		if family != "" {
+			return string(target) + ":" + family
+		}
+	}
+	if v.Kind == "" {
+		return ""
+	}
+	return string(target) + ":kind:" + string(v.Kind)
 }
 
 // applyContractViolations is the **single decision point** for

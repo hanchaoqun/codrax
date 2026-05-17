@@ -39,6 +39,7 @@
 6. **Batch H 第二段已落地**：semantic-quality reviewer 的 concern schema 增加 `repair_locus`，并由 violation 的 typed `RepairLocusOverride` 进入 repair routing。`evidence_gap` 回流 explore，`analysis_gap` / `presentation_advisory` 不再触发 finalizer-only 硬重写，`local_doc_defect` / `safety` 才留在本地修正文档路径。
 7. **Batch C/H 第三段已落地**：facet metadata gate 分层完成第一刀。`FacetRequirement` 新增 `RequiresHardDeclaration()`，pre-emit 只对 template-hard facet 做同轮拒绝；evidence-sufficient SOFT facet 只在 prompt 中标记为 `(evidence available)`，不再写成 “MUST declare / emit-time rejection”。semantic-quality depth audit 同步只看 emit-hard facet，避免 reviewer 把 soft metadata 变成 finalizer rewrite。另修 analyzer-derived `must_include`：`analyzer_entity` 符号不能只因全仓 `SymbolOracle` 命中就成为 hard requirement，必须在本轮 typed evidence / answer symbol 中有支撑，否则降级。
 8. **Batch E/F 第一段补齐**：inactive subrepo disclosure 不再作为 pre-emit hard retry 或默认 finalizer rewrite。缺失时保留 typed telemetry，并由 orchestrator 在系统“补充说明”通道追加范围说明；模型正文不再被迫写 `scope_disclosure` / inactive RootRel，避免系统工作区拓扑污染用户答案。
+9. **Batch H 第三段落地**：新增 same-error-class retry governor。除既有 per-kind / per-root / hard-cap 外，调度层按 typed `FallbackTarget + CaveatFamilyID` 记录更高层的错误类预算；同类机械问题已重试后即使换成 sibling kind，也停止继续 finalizer rewrite，交付当前答案并转入补充说明。该判断只读结构化 violation registry，不扫描用户问题或模型散文。
 
 ## 问题清单
 
@@ -230,7 +231,7 @@
 
 代码位置：`internal/tool/answer_document_pre_emit_check.go::runPreEmitChecksWithContext`
 
-状态：**部分修复（Batch C/H 第三段）**。facet metadata gate 已分出 emit-hard 与 advisory：soft facet 即使有证据，也不再触发 pre-emit hard retry；后续仍需完成 same-error-class retry governor 与 inactive-scope/system-caveat 分层。
+状态：**部分修复（Batch C/H 第三段 + Batch E/F 第一段 + Batch H 第三段）**。facet metadata gate 已分出 emit-hard 与 advisory：soft facet 即使有证据，也不再触发 pre-emit hard retry；inactive-scope 缺失改由系统补充说明；same-error-class retry governor 已阻断同一 typed repair family 的 sibling-kind 轮转重试。后续仍需继续把其它 pre-emit gate 纳入统一 taxonomy。
 
 当前行为：
 
@@ -245,7 +246,7 @@
 
 - 建立 gate taxonomy：Safety/Grounding hard，Presentation soft，Richness advisory。
 - hard gate 必须只读 precise signal，且证明与用户意图直接相关。
-- 增加 same-error-class retry governor：同类 gate 连续失败时降级为隔离展示/补充说明，而不是无限重写。
+- [x] 增加 same-error-class retry governor：同类 gate 连续失败时降级为隔离展示/补充说明，而不是无限重写。
 
 ### UIP-011（P2）inactive subrepo disclosure 会把 workspace 拓扑塞进最终答案
 
@@ -503,7 +504,7 @@
 1. [~] 将 pre-emit checks 分为 hard / soft / advisory。（facet metadata 已分层：template-hard 才同轮拒绝，soft+证据只 advisory；inactive scope / 部分 scope disclosure 仍待分层）
 2. [ ] aggregate member_set 增加 role/provenance，只对 principal answer hard gate。
 3. [x] surface_terms 不再自动追加正文。
-4. [ ] 同类错误连续失败时降级为隔离补充展示，不再反复重写。
+4. [x] 同类错误连续失败时降级为隔离补充展示，不再反复重写。
 
 ### Batch D：reconcile 只做一致性，不做意图重写
 
@@ -533,7 +534,7 @@
 
 1. [~] 每个 finalizer violation 必须分类为 `local_doc_defect`、`evidence_gap`、`analysis_gap`、`presentation_advisory`、`safety`。（aggregate member_set、enum-label、facet metadata emit-time gate 已先分出 hard/advisory）
 2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景、非主枚举标签场景、soft facet metadata 场景已停止同轮硬重试；semantic-quality reviewer 已接入 `repair_locus` typed routing）
-3. 同类错误 fingerprint 连续失败后，停止硬重写，接受核心答案并用“补充说明/保留原文”交代缺陷。
+3. [x] 同类错误 fingerprint / typed repair family 连续失败后，停止硬重写，接受核心答案并用“补充说明/保留原文”交代缺陷。
 
 ### Batch I：scope / presentation contract 贯穿
 

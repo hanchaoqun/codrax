@@ -68,6 +68,13 @@ func appendInactiveScopeSystemCaveat(answer string, doc *types.AnswerDocumentV2,
 	return AppendSystemCaveatString(answer, note, lang)
 }
 
+func (o *Orchestrator) appendInactiveScopeSystemCaveatToAnswer(answer string) string {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return answer
+	}
+	return appendInactiveScopeSystemCaveat(answer, o.busCtx.Mutable.AnswerDocumentV2(), o.busCtx)
+}
+
 func inactiveScopeSystemCaveat(doc *types.AnswerDocumentV2, busCtx *types.BusContext) string {
 	obligation := types.BuildInactiveScopeDisclosureObligationFromBus(busCtx, doc)
 	if !obligation.Active() {
