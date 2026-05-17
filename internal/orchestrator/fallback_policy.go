@@ -537,22 +537,22 @@ func FallbackTargetForKind(kind types.ViolationKind) FallbackTarget {
 func FallbackTargetForViolation(v types.Violation) FallbackTarget {
 	def := FallbackTargetForKind(v.Kind)
 	if v.Kind == types.ViolBlockCoverageMissing {
-		// Detail format example:
-		//   "required block kind=diagram appears 0 time(s) in answer; the family contract requires at least 1"
-		// or:
-		//   "required block kind=scalar appears 2 time(s); the family contract caps it at 1"
-		//
 		// kind=diagram / kind=table missing blocks are pure
 		// finalizer-emit failures (the visualisation / tabulation
 		// is constructed from already-present evidence; the
 		// extractor has no diagram/table channel to re-pick from).
 		// Overflow / count-cap variants stay BackToExtract because
 		// the extractor's slate may need to drop items.
-		detail := strings.ToLower(v.Detail)
-		if strings.Contains(detail, "appears 0 time(s)") {
-			if strings.Contains(detail, "kind=diagram") || strings.Contains(detail, "kind=table") {
-				return FallbackFinalizerOnly
-			}
+		//
+		// Typed gate (2026-05-17, keyword-gate audit HIGH-1):
+		// v.MissingBlockKind is populated ONLY by the
+		// validateRequiredBlockCoverage under-emit path (got <
+		// MinCount). The over-cap path leaves the field zero, so a
+		// non-empty value already isolates the "block is missing"
+		// branch — no Detail-prose substring grep needed.
+		switch v.MissingBlockKind {
+		case types.BlockDiagram, types.BlockTable:
+			return FallbackFinalizerOnly
 		}
 	}
 	return def

@@ -1092,4 +1092,16 @@ type Violation struct {
 	// pre-W2.1 behaviour.
 	IsDerived bool
 	RootKind  ViolationKind
+
+	// MissingBlockKind (2026-05-17, keyword-gate audit HIGH-1) names
+	// the AnswerBlockKind that the under-emit path of
+	// validateRequiredBlockCoverage detected as below MinCount. Set
+	// verbatim only by that producer; left zero by the over-cap path
+	// (got > MaxCount) and by every other ViolationKind producer.
+	//
+	// Consumers (notably FallbackTargetForViolation) route on the
+	// typed value instead of grepping Detail prose for substrings
+	// like "appears 0 time(s)" + "kind=diagram" — a CLAUDE.md
+	// "precise signals for hard gates" red-line requirement.
+	MissingBlockKind AnswerBlockKind
 }

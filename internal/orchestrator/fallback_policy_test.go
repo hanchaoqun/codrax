@@ -247,38 +247,54 @@ func TestFallbackTargetForViolations_RootCauseClustering(t *testing.T) {
 // blocks the finalizer can re-emit from existing evidence), the
 // fallback target overrides the kind's default BackToExtract to
 // FinalizerOnly. Other missing block kinds retain the default.
+//
+// Keyword-gate audit HIGH-1 (2026-05-17): the gate routes on the
+// typed Violation.MissingBlockKind field that the under-emit
+// validateRequiredBlockCoverage path populates verbatim with the
+// AnswerBlockKind. The over-cap path leaves MissingBlockKind zero,
+// so over-cap violations never trigger the override regardless of
+// kind. Detail prose is kept for human / log readability but is no
+// longer load-bearing.
 func TestFallbackTargetForViolation_BlockCoverageSubClassification(t *testing.T) {
 	cases := []struct {
-		name   string
-		v      types.Violation
-		want   FallbackTarget
+		name string
+		v    types.Violation
+		want FallbackTarget
 	}{
 		{
 			name: "missing diagram → finalizer_only (override)",
 			v: types.Violation{
-				Kind:   types.ViolBlockCoverageMissing,
-				Detail: `required block kind=diagram appears 0 time(s) in answer; the family contract requires at least 1`,
+				Kind:             types.ViolBlockCoverageMissing,
+				Detail:           `required block kind=diagram appears 0 time(s) in answer; the family contract requires at least 1`,
+				MissingBlockKind: types.BlockDiagram,
 			},
 			want: FallbackFinalizerOnly,
 		},
 		{
 			name: "missing table → finalizer_only (override)",
 			v: types.Violation{
-				Kind:   types.ViolBlockCoverageMissing,
-				Detail: `required block kind=table appears 0 time(s); the family requires at least 1`,
+				Kind:             types.ViolBlockCoverageMissing,
+				Detail:           `required block kind=table appears 0 time(s); the family requires at least 1`,
+				MissingBlockKind: types.BlockTable,
 			},
 			want: FallbackFinalizerOnly,
 		},
 		{
 			name: "missing scalar → back_to_extract (default)",
 			v: types.Violation{
-				Kind:   types.ViolBlockCoverageMissing,
-				Detail: `required block kind=scalar appears 0 time(s); the family requires at least 1`,
+				Kind:             types.ViolBlockCoverageMissing,
+				Detail:           `required block kind=scalar appears 0 time(s); the family requires at least 1`,
+				MissingBlockKind: types.BlockScalar,
 			},
 			want: FallbackBackToExtract,
 		},
 		{
-			name: "scalar over-cap → back_to_extract (default; not 'appears 0')",
+			// Over-cap path emits without MissingBlockKind set
+			// (the block isn't "missing", it's over-emitted).
+			// The typed gate ignores it and falls through to the
+			// kind's default — matching the pre-audit prose-grep
+			// behaviour that only matched "appears 0 time(s)".
+			name: "scalar over-cap → back_to_extract (typed field empty)",
 			v: types.Violation{
 				Kind:   types.ViolBlockCoverageMissing,
 				Detail: `required block kind=scalar appears 2 time(s); the family contract caps it at 1`,
@@ -286,10 +302,52 @@ func TestFallbackTargetForViolation_BlockCoverageSubClassification(t *testing.T)
 			want: FallbackBackToExtract,
 		},
 		{
+			// Defensive: even if a future caller (mis)populates
+			// MissingBlockKind on an over-cap-shaped Violation
+			// (Detail wording with "caps it at"), a non-visual
+			// kind must still route to BackToExtract.
+			name: "ordered_list over-cap with typed kind → back_to_extract",
+			v: types.Violation{
+				Kind:             types.ViolBlockCoverageMissing,
+				Detail:           `required block kind=ordered_list appears 5 time(s); the family contract caps it at 3`,
+				MissingBlockKind: types.BlockOrderedList,
+			},
+			want: FallbackBackToExtract,
+		},
+		{
 			name: "missing ordered_list → back_to_extract (default; not visual)",
 			v: types.Violation{
+				Kind:             types.ViolBlockCoverageMissing,
+				Detail:           `required block kind=ordered_list appears 0 time(s)`,
+				MissingBlockKind: types.BlockOrderedList,
+			},
+			want: FallbackBackToExtract,
+		},
+		{
+			// Visual-kind override still applies when the LLM
+			// surfaced fewer-than-MinCount (got>0 but under) — the
+			// rationale (visualisation rebuilds finalizer-locally)
+			// holds regardless of whether got==0 or got==1.
+			name: "diagram under-min got>0 → finalizer_only (typed gate generalises)",
+			v: types.Violation{
+				Kind:             types.ViolBlockCoverageMissing,
+				Detail:           `required block kind=diagram appears 1 time(s) in answer; the family contract requires at least 3`,
+				MissingBlockKind: types.BlockDiagram,
+			},
+			want: FallbackFinalizerOnly,
+		},
+		{
+			// HIGH-1 red-line guard: the gate MUST NOT fire on
+			// Detail substring alone. A violation whose Detail
+			// names "kind=diagram" but whose typed
+			// MissingBlockKind is empty (e.g. a hand-rolled test
+			// double or a malformed producer) routes to the
+			// kind's default — proves the typed field is the
+			// authority.
+			name: "diagram prose without typed field → back_to_extract (typed gate is authoritative)",
+			v: types.Violation{
 				Kind:   types.ViolBlockCoverageMissing,
-				Detail: `required block kind=ordered_list appears 0 time(s)`,
+				Detail: `required block kind=diagram appears 0 time(s); the family contract requires at least 1`,
 			},
 			want: FallbackBackToExtract,
 		},

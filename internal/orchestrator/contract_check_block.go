@@ -104,7 +104,8 @@ func validateRequiredBlockCoverage(doc *types.AnswerDocumentV2, view *types.Answ
 					Reason:     "required block kind under-emitted",
 					Confidence: 0.85,
 				},
-				Stage: string(types.StageFinalize),
+				Stage:            string(types.StageFinalize),
+				MissingBlockKind: req.Kind,
 			})
 			continue
 		}

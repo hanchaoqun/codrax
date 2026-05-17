@@ -48,6 +48,13 @@ func TestRequiredBlockCoverage_MissingBlockFires(t *testing.T) {
 	if got := vs[0].ClusterKey; got != "block_kind:summary|root:answer_block_coverage" {
 		t.Fatalf("missing-block violation cluster_key = %q, want block_kind:summary|root:answer_block_coverage", got)
 	}
+	// Keyword-gate audit HIGH-1 (2026-05-17): the under-emit path
+	// MUST populate the typed MissingBlockKind field verbatim so
+	// FallbackTargetForViolation routes on the AnswerBlockKind enum
+	// instead of grepping Detail prose.
+	if got := vs[0].MissingBlockKind; got != types.BlockSummary {
+		t.Errorf("missing-block violation MissingBlockKind = %q, want %q", got, types.BlockSummary)
+	}
 }
 
 func TestRequiredBlockCoverage_OverEmittedFires(t *testing.T) {
@@ -59,6 +66,14 @@ func TestRequiredBlockCoverage_OverEmittedFires(t *testing.T) {
 	vs := validateRequiredBlockCoverage(doc, view)
 	if len(vs) != 1 || vs[0].Kind != types.ViolBlockCoverageMissing {
 		t.Fatalf("expected violation on over-emit; got %+v", vs)
+	}
+	// Keyword-gate audit HIGH-1 (2026-05-17): the over-cap path is
+	// "over-emitted", NOT "missing", so the typed MissingBlockKind
+	// field MUST stay empty. The fallback policy's visual-kind
+	// override is gated on this field being set; an over-cap
+	// violation must never accidentally trigger the override.
+	if got := vs[0].MissingBlockKind; got != "" {
+		t.Errorf("over-cap violation MissingBlockKind = %q, want empty", got)
 	}
 }
 
