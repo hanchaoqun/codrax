@@ -767,6 +767,34 @@ func TestCompileGeneric_NoStructuralAssumptions(t *testing.T) {
 	}
 }
 
+func TestCompileGeneric_AllowsOptionalPresentationBlocks(t *testing.T) {
+	view := BuildAnswerSemanticView(irForGeneric(), nil)
+	if view == nil {
+		t.Fatal("expected generic semantic view")
+	}
+	for _, kind := range []AnswerBlockKind{BlockTable, BlockScalar, BlockDecision} {
+		found := false
+		for _, b := range view.OptionalBlocks {
+			if b.Kind != kind {
+				continue
+			}
+			found = true
+			if b.Required {
+				t.Fatalf("generic optional presentation block %s must not be required", kind)
+			}
+			break
+		}
+		if !found {
+			t.Fatalf("generic view should allow optional %s so model-authored presentation is preserved", kind)
+		}
+	}
+	for _, b := range view.RequiredBlocks {
+		if b.Kind == BlockTable || b.Kind == BlockScalar || b.Kind == BlockDecision {
+			t.Fatalf("generic view must not require presentation block %s: %+v", b.Kind, view.RequiredBlocks)
+		}
+	}
+}
+
 // ── R4.4 QFComparison family compile tests ─────────────────────
 
 // TestCompileComparison_ResolvesFamily covers the basic family

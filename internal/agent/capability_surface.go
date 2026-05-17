@@ -83,9 +83,17 @@ func capabilityQueryFromHint(hint *types.CapabilitySurfaceHint) *stageToolCapabi
 }
 
 func detectStageToolCapabilityQuery(rm types.RequestModel) *stageToolCapabilityQuery {
-	if q := capabilityQueryFromHint(rm.AnalyzerHints.CapabilitySurface); q != nil {
-		return q
-	}
+	// User wording is intentionally not inspected here. Capability-surface
+	// rewrites are hard pipeline decisions, so they may only consume the
+	// analyzer's typed hint.
+	return capabilityQueryFromHint(rm.AnalyzerHints.CapabilitySurface)
+}
+
+// detectStageToolCapabilityQueryAdvisory is a diagnostic-only raw-text helper.
+// Do not wire it into RequestModel reconciliation, evidence planning, explorer
+// routing, or finalizer prompting; those paths must consume the typed analyzer
+// hint through detectStageToolCapabilityQuery.
+func detectStageToolCapabilityQueryAdvisory(rm types.RequestModel) *stageToolCapabilityQuery {
 	raw := strings.TrimSpace(rm.RawRequest)
 	if raw == "" {
 		return nil

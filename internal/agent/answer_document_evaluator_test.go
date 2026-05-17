@@ -2619,6 +2619,16 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCapabilitySurfac
 			RequestModel: types.RequestModel{
 				RawRequest: question,
 				Scenario:   types.ScenarioGeneric,
+				AnalyzerHints: types.AnalyzerHints{
+					CapabilitySurface: &types.CapabilitySurfaceHint{
+						Binding: types.StageBinding{
+							Stage: types.StageAnalyze,
+							Agent: types.AgentAnalyzer,
+							Skill: "analysis-skill",
+						},
+						Tool: "read_file",
+					},
+				},
 			},
 		},
 	}

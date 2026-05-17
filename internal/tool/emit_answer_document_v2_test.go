@@ -138,7 +138,7 @@ func TestEmitAnswerDocumentV2_CaveatAliasAcceptedForCaveatBlock(t *testing.T) {
 	}
 }
 
-func TestEmitAnswerDocumentV2_RepairsMissingModelSurfaceTerm(t *testing.T) {
+func TestEmitAnswerDocumentV2_LeavesMissingModelSurfaceTermAsAdvisory(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
 		ID:           "ev-index",
@@ -173,12 +173,16 @@ func TestEmitAnswerDocumentV2_RepairsMissingModelSurfaceTerm(t *testing.T) {
 		t.Fatalf("unexpected exec error: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("expected missing surface term to be repaired before retry, got %q", res.Summary)
+		t.Fatalf("expected missing surface term to stay advisory, got %q", res.Summary)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
 	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 1 ||
-		!strings.Contains(doc.Blocks[0].Items[0].Text, "Index.ets") {
-		t.Fatalf("model surface term was not preserved in the visible item text: %+v", doc)
+		strings.Contains(doc.Blocks[0].Items[0].Text, "Index.ets") {
+		t.Fatalf("model surface term should not be patched into visible item text: %+v", doc)
+	}
+	hints := preCheckModelSurfaceTerms(doc, bus)
+	if len(hints) == 0 || !strings.Contains(formatEmitFixHints(hints), "Index.ets") {
+		t.Fatalf("missing surface term should remain advisory, got %+v", hints)
 	}
 }
 
@@ -260,7 +264,7 @@ func TestEmitAnswerDocumentV2_DoesNotRequireUnrelatedPathSurfaceTerm(t *testing.
 	}
 }
 
-func TestEmitAnswerDocumentV2_RepairsMissingPathSurfaceTermWhenItNamesItem(t *testing.T) {
+func TestEmitAnswerDocumentV2_LeavesMissingPathSurfaceTermAsAdvisory(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
 		ID:           "ev-widget",
@@ -295,12 +299,16 @@ func TestEmitAnswerDocumentV2_RepairsMissingPathSurfaceTermWhenItNamesItem(t *te
 		t.Fatalf("unexpected exec error: %v", err)
 	}
 	if !res.Success {
-		t.Fatalf("expected item-identifying path surface term to be repaired before retry, got %q", res.Summary)
+		t.Fatalf("expected item-identifying path surface term to stay advisory, got %q", res.Summary)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
 	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 1 ||
-		!strings.Contains(doc.Blocks[0].Items[0].Text, "src/components/Widget.ets") {
-		t.Fatalf("path-like model surface term was not preserved in the visible item text: %+v", doc)
+		strings.Contains(doc.Blocks[0].Items[0].Text, "src/components/Widget.ets") {
+		t.Fatalf("path-like model surface term should not be patched into visible item text: %+v", doc)
+	}
+	hints := preCheckModelSurfaceTerms(doc, bus)
+	if len(hints) == 0 || !strings.Contains(formatEmitFixHints(hints), "src/components/Widget.ets") {
+		t.Fatalf("missing path surface term should remain advisory, got %+v", hints)
 	}
 }
 

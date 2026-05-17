@@ -109,10 +109,6 @@ func persistMergedAnswerDocument(
 			logging.Warning("[%s] repaired %d view-compatible typed lane field(s) before persist", toolName, fixed)
 		}
 	}
-	if fixed := normalizeModelSurfaceTerms(merged, ctx); fixed > 0 {
-		logging.Warning("[%s] preserved %d model-emitted surface_terms before persist", toolName, fixed)
-	}
-
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}

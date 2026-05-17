@@ -252,6 +252,16 @@ func TestAnalyzerRequiredFiles_CapabilityQueryUsesAuthorityFiles(t *testing.T) {
 	}
 	rm := types.RequestModel{
 		RawRequest: "Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？",
+		AnalyzerHints: types.AnalyzerHints{
+			CapabilitySurface: &types.CapabilitySurfaceHint{
+				Binding: types.StageBinding{
+					Stage: types.StageAnalyze,
+					Agent: types.AgentAnalyzer,
+					Skill: "analysis-skill",
+				},
+				Tool: "read_file",
+			},
+		},
 	}
 	got := analyzerRequiredFiles(ctx, rm)
 	want := []string{

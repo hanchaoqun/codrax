@@ -280,7 +280,71 @@ func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.Answ
 
 func renderV2TableText(blk types.AnswerBlock) string {
 	text := renderUserSurfaceText(blk.Text)
-	return text
+	if text != "" {
+		return text
+	}
+	var parts []string
+	seen := make(map[string]bool)
+	for _, it := range blk.Items {
+		for _, raw := range []string{it.Label, it.Text} {
+			candidate := renderUserSurfaceText(raw)
+			if candidate == "" || !looksLikeMarkdownTable(candidate) {
+				continue
+			}
+			key := strings.TrimSpace(candidate)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			parts = append(parts, candidate)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func looksLikeMarkdownTable(text string) bool {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	if len(lines) < 2 {
+		return false
+	}
+	for i := 0; i+1 < len(lines); i++ {
+		header := strings.TrimSpace(lines[i])
+		separator := strings.TrimSpace(lines[i+1])
+		if header == "" || separator == "" || !strings.Contains(header, "|") {
+			continue
+		}
+		if isMarkdownTableSeparator(separator) {
+			return true
+		}
+	}
+	return false
+}
+
+func isMarkdownTableSeparator(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" || !strings.Contains(line, "-") {
+		return false
+	}
+	line = strings.Trim(line, "|")
+	cells := strings.Split(line, "|")
+	valid := 0
+	for _, cell := range cells {
+		cell = strings.TrimSpace(cell)
+		cell = strings.Trim(cell, ":")
+		if len(cell) < 3 {
+			return false
+		}
+		for _, r := range cell {
+			if r != '-' {
+				return false
+			}
+		}
+		valid++
+	}
+	return valid >= 2
 }
 
 func renderV2StructuredTable(b *strings.Builder, blk types.AnswerBlock, lang answerDocLang) bool {

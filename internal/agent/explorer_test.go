@@ -1544,6 +1544,14 @@ func TestBuildInitialInstruction_CapabilityQueryStartsFocusedAuthorityDepth(t *t
 				AnalyzerHints: types.AnalyzerHints{
 					Keywords: []string{"read_file", "analyzer", "ToolSuggestions"},
 					Kind:     "mechanism",
+					CapabilitySurface: &types.CapabilitySurfaceHint{
+						Binding: types.StageBinding{
+							Stage: types.StageAnalyze,
+							Agent: types.AgentAnalyzer,
+							Skill: "analysis-skill",
+						},
+						Tool: "read_file",
+					},
 				},
 			},
 			EvidencePlan: types.EvidencePlan{

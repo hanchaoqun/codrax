@@ -394,6 +394,42 @@ func TestRenderV2_BlockTableMarkdownTextWinsOverRowItems(t *testing.T) {
 	}
 }
 
+func TestRenderV2_BlockTableMarkdownItemTextWinsOverFallback(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "t1",
+				Kind:  types.BlockTable,
+				Title: "对比结果",
+				Items: []types.AnswerBlockItem{
+					{
+						ID: "r1",
+						Text: strings.Join([]string{
+							"| 维度 | codrax | opencode |",
+							"|---|---|---|",
+							"| 引用校验 | citations[] + citation_ref | 无等价结构 |",
+						}, "\n"),
+					},
+					{ID: "carrier", Label: "引用校验", Text: "citation-only row carrier"},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	for _, want := range []string{
+		"**对比结果**",
+		"| 维度 | codrax | opencode |",
+		"| 引用校验 | citations[] + citation_ref | 无等价结构 |",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("markdown table inside item text should be preserved; missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "| 项目 | 说明 |") || strings.Contains(out, "citation-only row carrier") {
+		t.Fatalf("markdown table item text must not collapse to fallback rows:\n%s", out)
+	}
+}
+
 func TestRenderV2_BlockTablePreservesComparisonColumnsWithRowCitationItems(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

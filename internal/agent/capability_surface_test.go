@@ -1,19 +1,30 @@
 package agent
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestDetectStageToolCapabilityQuery_AnalyzerReadFile(t *testing.T) {
+func TestDetectStageToolCapabilityQuery_UsesAnalyzerHint(t *testing.T) {
 	rm := types.RequestModel{
 		RawRequest: "Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？",
+		AnalyzerHints: types.AnalyzerHints{
+			CapabilitySurface: &types.CapabilitySurfaceHint{
+				Binding: types.StageBinding{
+					Stage: types.StageAnalyze,
+					Agent: types.AgentAnalyzer,
+					Skill: "analysis-skill",
+				},
+				Tool: "read_file",
+			},
+		},
 	}
 	got := detectStageToolCapabilityQuery(rm)
 	if got == nil {
-		t.Fatal("expected capability query to be detected")
+		t.Fatal("expected capability query from analyzer hint")
 	}
 	if got.Binding.Stage != types.StageAnalyze {
 		t.Fatalf("stage = %s, want %s", got.Binding.Stage, types.StageAnalyze)
@@ -29,7 +40,7 @@ func TestDetectStageToolCapabilityQuery_AnalyzerReadFile(t *testing.T) {
 	}
 }
 
-func TestDetectStageToolCapabilityQuery_PrefersExplicitStageToolAuthorityOverScalarLiteralLane(t *testing.T) {
+func TestDetectStageToolCapabilityQuery_IgnoresRawMentionsWithoutAnalyzerHint(t *testing.T) {
 	rm := types.RequestModel{
 		RawRequest: "Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？",
 		Complexity: types.ComplexitySimple,
@@ -46,18 +57,16 @@ func TestDetectStageToolCapabilityQuery_PrefersExplicitStageToolAuthorityOverSca
 		},
 	}
 	got := detectStageToolCapabilityQuery(rm)
-	if got == nil {
-		t.Fatal("expected explicit stage/tool authority question to stay in capability lane")
+	if got != nil {
+		t.Fatalf("raw stage/tool wording must not authorize a hard capability lane, got %+v", got)
 	}
-	if got.Binding.Stage != types.StageAnalyze {
-		t.Fatalf("stage = %s, want %s", got.Binding.Stage, types.StageAnalyze)
-	}
-	if got.Tool != "read_file" {
-		t.Fatalf("tool = %q, want read_file", got.Tool)
+	advisory := detectStageToolCapabilityQueryAdvisory(rm)
+	if advisory == nil {
+		t.Fatal("expected advisory detector to still recognize raw mentions for debugging")
 	}
 }
 
-func TestDetectStageToolCapabilityQuery_SkipsScalarRoleLocate(t *testing.T) {
+func TestDetectStageToolCapabilityQueryAdvisory_SkipsScalarRoleLocate(t *testing.T) {
 	rm := types.RequestModel{
 		RawRequest: "负责校验 analyzer stage 不能调用 read_file 的那个函数叫什么？",
 		Complexity: types.ComplexitySimple,
@@ -70,12 +79,12 @@ func TestDetectStageToolCapabilityQuery_SkipsScalarRoleLocate(t *testing.T) {
 		},
 		PredicateAxis: types.AxisReturn,
 	}
-	if got := detectStageToolCapabilityQuery(rm); got != nil {
+	if got := detectStageToolCapabilityQueryAdvisory(rm); got != nil {
 		t.Fatalf("scalar role-locate query should not be forced into capability lane, got %+v", got)
 	}
 }
 
-func TestReconcileStageToolCapabilitySurface_ForcesGenericSubjectAndClearsExactTargets(t *testing.T) {
+func TestReconcileStageToolCapabilitySurface_IgnoresRawMentionsWithoutAnalyzerHint(t *testing.T) {
 	rm := types.RequestModel{
 		RawRequest:    "Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？",
 		Intent:        types.IntentConfigQuery,
@@ -90,6 +99,43 @@ func TestReconcileStageToolCapabilitySurface_ForcesGenericSubjectAndClearsExactT
 			ExactTargets:      []string{"read_file"},
 			ExactContextTerms: []string{"helper"},
 			Keywords:          []string{"read_file"},
+		},
+	}
+	resolved, q, reason := reconcileStageToolCapabilitySurface(rm)
+	if q != nil {
+		t.Fatalf("raw stage/tool wording must not reconcile without analyzer hint, got %+v", q)
+	}
+	if reason != "" {
+		t.Fatalf("unexpected reconcile reason: %q", reason)
+	}
+	if !reflect.DeepEqual(resolved, rm) {
+		t.Fatalf("request model changed without analyzer hint:\nresolved=%+v\nwant=%+v", resolved, rm)
+	}
+}
+
+func TestReconcileStageToolCapabilitySurface_UsesAnalyzerHintAndClearsExactTargets(t *testing.T) {
+	rm := types.RequestModel{
+		RawRequest:    "Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？",
+		Intent:        types.IntentConfigQuery,
+		Scenario:      types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisConfigure,
+		AnswerSubject: types.AnswerSubject{
+			Kind: types.SubjectConfigKey,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:              "config_mapping",
+			Entities:          []string{"read_file", "Explorer stage", "analyzer stage"},
+			ExactTargets:      []string{"read_file"},
+			ExactContextTerms: []string{"helper"},
+			Keywords:          []string{"read_file"},
+			CapabilitySurface: &types.CapabilitySurfaceHint{
+				Binding: types.StageBinding{
+					Stage: types.StageAnalyze,
+					Agent: types.AgentAnalyzer,
+					Skill: "analysis-skill",
+				},
+				Tool: "read_file",
+			},
 		},
 	}
 	resolved, q, reason := reconcileStageToolCapabilitySurface(rm)
@@ -130,7 +176,7 @@ func TestReconcileStageToolCapabilitySurface_ForcesGenericSubjectAndClearsExactT
 	}
 }
 
-func TestBuildAnalysisIR_CapabilitySurfacePreservesGenericScenario(t *testing.T) {
+func TestBuildAnalysisIR_RawCapabilityWordsDoNotCompileCapabilitySurface(t *testing.T) {
 	raw := "analyzer stage 能调用 read_file 吗？"
 	mut := types.NewMutableState(raw)
 	mut.SetRequestModel(types.RequestModel{
@@ -157,6 +203,46 @@ func TestBuildAnalysisIR_CapabilitySurfacePreservesGenericScenario(t *testing.T)
 	if ir == nil {
 		t.Fatal("expected non-nil AnalysisIR")
 	}
+	if ir.RequestModel.AnalyzerHints.CapabilitySurface != nil {
+		t.Fatalf("raw request should not compile capability surface without analyzer hint: %+v", ir.RequestModel.AnalyzerHints.CapabilitySurface)
+	}
+}
+
+func TestBuildAnalysisIR_CapabilitySurfaceHintPreservesGenericScenario(t *testing.T) {
+	raw := "analyzer stage 能调用 read_file 吗？"
+	mut := types.NewMutableState(raw)
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest:    raw,
+		Intent:        types.IntentConfigQuery,
+		Scenario:      types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisConfigure,
+		Complexity:    types.ComplexityModerate,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     "config_mapping",
+			Entities: []string{"read_file", "analyzer stage"},
+			Keywords: []string{"read_file"},
+			CapabilitySurface: &types.CapabilitySurfaceHint{
+				Binding: types.StageBinding{
+					Stage: types.StageAnalyze,
+					Agent: types.AgentAnalyzer,
+					Skill: "analysis-skill",
+				},
+				Tool: "read_file",
+			},
+		},
+		Predicates: types.SemanticPredicates{IsScalarAnswer: true},
+	})
+	ir, err := buildAnalysisIR(&types.AgentContext{
+		Stage:     types.StageAnalyze,
+		Objective: raw,
+		Mutable:   mut,
+	})
+	if err != nil {
+		t.Fatalf("buildAnalysisIR returned error: %v", err)
+	}
+	if ir == nil {
+		t.Fatal("expected non-nil AnalysisIR")
+	}
 	if ir.RequestModel.Scenario != types.ScenarioGeneric {
 		t.Fatalf("scenario = %s, want generic", ir.RequestModel.Scenario)
 	}
@@ -169,8 +255,6 @@ func TestBuildAnalysisIR_CapabilitySurfacePreservesGenericScenario(t *testing.T)
 	if ir.RequestModel.AnalyzerHints.Kind != string(types.ReqMechanism) {
 		t.Fatalf("question kind = %q, want %q", ir.RequestModel.AnalyzerHints.Kind, types.ReqMechanism)
 	}
-	// Commit 61 Batch F.3 (red line "no system hard-cap"): pre-fix
-	// reconcileShape's capability-surface rule (0c) forced
 	if ir.RequestModel.AnalyzerHints.CapabilitySurface == nil {
 		t.Fatal("expected compiled capability surface hint")
 	}

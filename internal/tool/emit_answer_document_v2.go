@@ -226,9 +226,6 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			}
 		}
 	}
-	if fixed := normalizeModelSurfaceTerms(doc, ctx); fixed > 0 {
-		logging.Warning("[emit_answer_document] preserved %d model-emitted surface_terms before retry gate", fixed)
-	}
 	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) > 0 {
 		logging.Warning("[emit_answer_document] model-emitted surface_terms advisory not hard-rejected: %s", formatEmitFixHints(hints))
 	}

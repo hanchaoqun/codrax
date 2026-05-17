@@ -19,16 +19,20 @@ package types
 //	                            multiple topics).
 //	0..N× BlockOrderedList    — when the explanation walks a sequence.
 //	0..N× BlockBulletList     — when listing parallel items.
+//	0..N× BlockTable          — when a matrix / comparison / compact
+//	                            evidence view is clearer than prose.
+//	0..N× BlockScalar         — when a generic explanation still needs
+//	                            to preserve a single resolved value.
+//	0..N× BlockDecision       — when a concise verdict helps, without
+//	                            replacing the explanatory body.
 //	0..N× BlockDiagram        — only when control flow / dispatch /
 //	                            architecture is part of the answer.
 //	0..N× BlockCaveat         — out-of-scope / convention-only caveats.
 //
-// QFGeneric intentionally has no BlockScalar / BlockDecision / BlockTable
-// in the optional set — those are reserved for the family-specific
-// templates. If a Generic answer surfaces a scalar, the LLM should
-// embed it in summary prose rather than pretending it's a scalar
-// answer (otherwise the question would not have been classified as
-// Generic).
+// QFGeneric keeps only Summary required. Presentation blocks stay
+// optional so the finalizer can preserve a model-authored table,
+// literal, or concise verdict without having to misclassify the
+// user's broader question as a specialized family.
 func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView {
 	view := &AnswerSemanticView{
 		Family: QFGeneric,
@@ -71,6 +75,30 @@ func compileGeneric(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticView
 			Required: false,
 			Rationale: "When listing parallel items (features, options, alternatives), a bullet list " +
 				"is clearer than a comma-separated paragraph.",
+		},
+		{
+			Kind:     BlockTable,
+			MinCount: 0,
+			MaxCount: 0,
+			Required: false,
+			Rationale: "When the model has a comparison matrix, option grid, evidence ledger, or other " +
+				"multi-column surface, preserve it as a table. Raw markdown table text and structured rows are both acceptable.",
+		},
+		{
+			Kind:     BlockScalar,
+			MinCount: 0,
+			MaxCount: 0,
+			Required: false,
+			Rationale: "When the broad answer includes one resolved literal, path, count, or symbol, it may be surfaced " +
+				"as a scalar block instead of burying the value in prose.",
+		},
+		{
+			Kind:     BlockDecision,
+			MinCount: 0,
+			MaxCount: 0,
+			Required: false,
+			Rationale: "When a concise verdict improves readability, include a decision block as a presentation aid; " +
+				"do not replace the required explanatory summary.",
 		},
 		{
 			Kind:     BlockDiagram,

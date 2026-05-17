@@ -12,7 +12,7 @@
 4. answer document 渲染：`internal/render/answerdoc.go`、`mermaid_render.go`
 5. repo/entity 展开与 scope 辅助策略：exact resolution、bucket inference、test-source 过滤等
 
-本文件只记录统一审计结果，不做代码修复。后续按批次修，避免 case-by-case 打补丁。
+本文件记录统一审计结果与持续修复进展。后续按批次修，避免 case-by-case 打补丁。
 
 ## 判定口径
 
@@ -29,13 +29,21 @@
 4. `ExactResolutionTargets` 只从 RawRequest 对齐的 mention lane 取 exact target，不把上下文实体偷偷提升成用户主目标。
 5. table renderer 已支持“模型自己生成的 markdown 表格文本优先展示”，这是兼容 LLM 表达的正确方向。
 
+## 2026-05-17 批次进展
+
+1. **Batch A 已落地**：`detectStageToolCapabilityQuery` 只读取 analyzer 结构化 `CapabilitySurfaceHint`；RawRequest stage/tool 扫描已拆成 advisory 函数，不再进入 reconcile、required-files、explorer、finalizer 能力面硬链路。新增结构测试覆盖“原文含 stage/tool token 但无 hint 时不得改写 RequestModel”。
+2. **Batch B 第一段已落地**：Generic 语义视图仍只强制 Summary，但已允许可选 `BlockTable` / `BlockScalar` / `BlockDecision`，避免 schema 把模型合理的表格、数值、结论表达挤回 prose。渲染层新增对 item 文本内 markdown table 的保留能力，避免模型表格被压成两列 fallback。
+3. **Batch C 第一段已落地**：`surface_terms` 不再自动追加到用户可见正文；缺失 surface term 只保留为 advisory 日志，不触发 hard retry，也不污染最终答案 item text。
+
 ## 问题清单
 
 ### UIP-001（P0）RawRequest capability-surface 关键字匹配会硬改意图
 
 代码位置：`internal/agent/capability_surface.go::detectStageToolCapabilityQuery`、`reconcileStageToolCapabilitySurface`
 
-当前行为：
+状态：**已修复（Batch A）**。硬链路只信任 analyzer 产出的 `CapabilitySurfaceHint`；RawRequest matcher 仅保留为 advisory/debug，不修改 RequestModel。
+
+历史行为：
 
 - 当 analyzer 没有 `CapabilitySurfaceHint` 时，系统直接扫描 `rm.RawRequest` 中的 stage/tool mention。
 - 命中后把 `Intent` 改为 `explain`，`PredicateAxis` 改为 `define`，`AnswerSubject` 改为 generic，`Scenario` 改为 generic，并注入 authority keywords。
@@ -55,7 +63,9 @@
 
 代码位置：`internal/types/facet_plan.go::ResolveQuestionFamily`、`answer_semantic_view_compile_generic.go`
 
-当前行为：
+状态：**部分修复（Batch B 第一段）**。Generic 已允许可选 table/scalar/decision，后续仍需把 analyzer typed presentation 扩展成独立 `PresentationContract` 并投影到所有 family/schema。
+
+历史行为：
 
 - `ResolveQuestionFamily` first-match wins，决定后续 block surface。
 - `compileGeneric` 明确不允许 `BlockScalar / BlockDecision / BlockTable`，要求 scalar/table 类内容嵌进 summary prose。
@@ -115,9 +125,11 @@
 
 ### UIP-005（P1）surface_terms 自动追加会污染用户可见答案
 
-代码位置：`internal/tool/answer_document_pre_emit_check.go::normalizeModelSurfaceTerms`、`appendSurfaceTermsToItem`
+历史代码位置：`internal/tool/answer_document_pre_emit_check.go::normalizeModelSurfaceTerms`、`appendSurfaceTermsToItem`
 
-当前行为：
+状态：**已修复（Batch C 第一段）**。自动追加正文的 normalizer 已移除调用与实现；`preCheckModelSurfaceTerms` 只保留 advisory 日志。
+
+历史行为：
 
 - 当 cited item 缺少 evidence `surface_terms` 时，系统会把“原文术语：...”追加到 item text。
 - 随后 `preCheckModelSurfaceTerms` 只是 warning，不 hard reject。
@@ -250,11 +262,14 @@
 
 代码位置：`internal/render/answerdoc.go::renderV2BlockTable`、`renderV2StructuredTable`
 
+状态：**部分修复（Batch B 第一段）**。表格优先级已经覆盖 block text markdown table、item text markdown table、columns/cells 结构化行；headers 不足时按最大 cells 补稳定列名。后续仍需由 `PresentationContract` 把“允许 raw markdown table / table block”从所有 relevant family 统一下发。
+
 当前行为：
 
 - block text 中的 markdown 表格会原样优先渲染，这是正确方向。
+- item text 中的 markdown 表格也会原样优先渲染，避免 citation carrier 把表格压回两列。
 - 结构化 table fallback 会使用“项目/说明”或 `Item/Details`。
-- 当 cells 多于 headers 时会截断到 header 数量。
+- 当 cells 多于 headers 时会按最大 cells 数补稳定列名，不再截断。
 
 风险：
 
@@ -307,21 +322,21 @@
 
 ### Batch A：先消除明确红线
 
-1. 移除 RawRequest capability-surface hard matcher。
-2. 只允许 `CapabilitySurfaceHint` 触发 capability reconcile。
-3. 给 raw matcher 留 telemetry，不改变 RequestModel。
+1. [x] 移除 RawRequest capability-surface hard matcher。
+2. [x] 只允许 `CapabilitySurfaceHint` 触发 capability reconcile。
+3. [x] 给 raw matcher 留 advisory/debug，不改变 RequestModel。
 
 ### Batch B：建立 PresentationContract
 
-1. 从 analyzer typed 输出承接用户明确要求：table、markdown table、diagram kind、raw Mermaid、sequenceDiagram、decision/scalar 等。
-2. SemanticView/schema 使用 family default + presentation union。
-3. renderer 读取 contract，避免把 raw source 转成 ASCII、避免两列表格压缩。
+1. [ ] 从 analyzer typed 输出承接用户明确要求：table、markdown table、diagram kind、raw Mermaid、sequenceDiagram、decision/scalar 等。
+2. [~] SemanticView/schema 使用 family default + presentation union。（已先放宽 Generic 可选 table/scalar/decision）
+3. [~] renderer 读取 contract，避免把 raw source 转成 ASCII、避免两列表格压缩。（已先兼容 item markdown table）
 
 ### Batch C：finalizer gate 分层治理
 
 1. 将 pre-emit checks 分为 hard / soft / advisory。
 2. aggregate member_set 增加 role/provenance，只对 principal answer hard gate。
-3. surface_terms 不再自动追加正文。
+3. [x] surface_terms 不再自动追加正文。
 4. 同类错误连续失败时降级为隔离补充展示，不再反复重写。
 
 ### Batch D：reconcile 只做一致性，不做意图重写
