@@ -28,6 +28,19 @@ func (s *stubSelfConsistencyAdapter) MaxOutputTokens() int          { return 0 }
 func (s *stubSelfConsistencyAdapter) RequestTimeout() time.Duration { return 0 }
 func (s *stubSelfConsistencyAdapter) RetryMaxAttempts() int         { return 1 }
 
+type fakeSelfConsistencyReviewer struct {
+	seen   *SelfConsistencyInput
+	result *SelfConsistencyResult
+	err    error
+}
+
+func (f fakeSelfConsistencyReviewer) Review(_ context.Context, in SelfConsistencyInput) (*SelfConsistencyResult, error) {
+	if f.seen != nil {
+		*f.seen = in
+	}
+	return f.result, f.err
+}
+
 // TestSelfConsistencyReviewerPrompt_NotOverFittedToS1aCase pins
 // the commit-62-followup contract: the system prompt MUST NOT
 // carry repo-specific or s1a-test-specific examples that would
@@ -317,7 +330,7 @@ func TestBuildEvidenceAnchorSet_CapTruncates(t *testing.T) {
 	}
 }
 
-func TestBuildSelfConsistencyAnchorSet_CitationLineIdentifiersWinCap(t *testing.T) {
+func TestBuildReviewerEvidenceAnchorSet_CitationLineIdentifiersWinCap(t *testing.T) {
 	mut := types.NewMutableState("q")
 	evidence := make([]types.EvidenceItem, SelfConsistencyAnchorCap+10)
 	for i := range evidence {
@@ -337,7 +350,7 @@ func TestBuildSelfConsistencyAnchorSet_CitationLineIdentifiersWinCap(t *testing.
 		Citations: []types.Citation{{File: "packages/opencode/src/tool/read.ts", Line: 14}},
 	}
 
-	got := buildSelfConsistencyAnchorSet(mut, doc, ctx)
+	got := buildReviewerEvidenceAnchorSet(mut, doc, ctx)
 	if len(got) > SelfConsistencyAnchorCap {
 		t.Fatalf("anchor set len = %d, want <= %d", len(got), SelfConsistencyAnchorCap)
 	}
@@ -346,7 +359,7 @@ func TestBuildSelfConsistencyAnchorSet_CitationLineIdentifiersWinCap(t *testing.
 	}
 }
 
-func TestBuildSelfConsistencyAnchorSet_GraphSymbolBackfillsUnreadCitationLine(t *testing.T) {
+func TestBuildReviewerEvidenceAnchorSet_GraphSymbolBackfillsUnreadCitationLine(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetSearchGraph(&repotypes.Graph{
 		FileIndex: map[string]*repotypes.FileInfo{
@@ -367,9 +380,44 @@ func TestBuildSelfConsistencyAnchorSet_GraphSymbolBackfillsUnreadCitationLine(t 
 		Citations: []types.Citation{{File: "packages/opencode/src/tool/read.ts", Line: 14}},
 	}
 
-	got := buildSelfConsistencyAnchorSet(mut, doc, ctx)
+	got := buildReviewerEvidenceAnchorSet(mut, doc, ctx)
 	if !containsString(got, "DEFAULT_READ_LIMIT") {
 		t.Fatalf("graph-backed citation symbol should enter self-consistency anchors; got %v", got)
+	}
+}
+
+func TestRunSelfConsistencyReviewV2_InputIncludesCitationLineIdentifier(t *testing.T) {
+	mut := types.NewMutableState("explain opencode read limits")
+	var seen SelfConsistencyInput
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		Ctx:     context.Background(),
+		Mutable: mut,
+		ToolResults: []types.ToolResult{{
+			ToolName: "read_file",
+			Success:  true,
+			Summary: "[packages/opencode/src/tool/read.ts: showing lines 14-14 of 338 total]\n" +
+				"    14│ const DEFAULT_READ_LIMIT = 2000\n",
+		}},
+	}
+	o.SetSelfConsistencyReviewer(fakeSelfConsistencyReviewer{
+		seen: &seen,
+		result: &SelfConsistencyResult{
+			Consistent: true,
+			Confidence: 0.99,
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: strings.Repeat("summary ", 20) + "DEFAULT_READ_LIMIT controls reads."},
+			{ID: "b1", Kind: types.BlockSection, Title: "Detail", Text: "DEFAULT_READ_LIMIT is cited from read.ts."},
+		},
+		Citations: []types.Citation{{File: "packages/opencode/src/tool/read.ts", Line: 14}},
+	}
+
+	_ = o.runSelfConsistencyReviewV2(doc, mut)
+	if !containsString(seen.EvidenceAnchorSet, "DEFAULT_READ_LIMIT") {
+		t.Fatalf("self-consistency reviewer anchor set should include final document citation identifiers; got %v", seen.EvidenceAnchorSet)
 	}
 }
 

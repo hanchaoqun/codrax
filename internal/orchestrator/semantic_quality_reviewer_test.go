@@ -40,9 +40,13 @@ func (f *fakeSemanticQualityAdapter) RetryMaxAttempts() int         { return 1 }
 type fakeSemanticQualityReviewer struct {
 	verdict *SemanticQualityResult
 	err     error
+	seen    *SemanticQualityInput
 }
 
-func (f fakeSemanticQualityReviewer) Review(context.Context, SemanticQualityInput) (*SemanticQualityResult, error) {
+func (f fakeSemanticQualityReviewer) Review(_ context.Context, in SemanticQualityInput) (*SemanticQualityResult, error) {
+	if f.seen != nil {
+		*f.seen = in
+	}
 	return f.verdict, f.err
 }
 
@@ -570,6 +574,41 @@ func TestRunSemanticQualityReview_PresentationAdvisoryDoesNotHardTopicRetry(t *t
 	}
 	if got[0].RepairLocusOverride != types.LocusTerminal {
 		t.Fatalf("presentation advisory override=%q, want terminal", got[0].RepairLocusOverride)
+	}
+}
+
+func TestRunSemanticQualityReview_InputIncludesCitationLineIdentifier(t *testing.T) {
+	mut := types.NewMutableState("explain opencode read limits")
+	var seen SemanticQualityInput
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		Ctx:     context.Background(),
+		Mutable: mut,
+		ToolResults: []types.ToolResult{{
+			ToolName: "read_file",
+			Success:  true,
+			Summary: "[packages/opencode/src/tool/read.ts: showing lines 14-14 of 338 total]\n" +
+				"    14│ const DEFAULT_READ_LIMIT = 2000\n",
+		}},
+	}
+	o.SetSemanticQualityReviewer(fakeSemanticQualityReviewer{
+		seen: &seen,
+		verdict: &SemanticQualityResult{
+			Sufficient: true,
+			Confidence: 0.99,
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "opencode uses DEFAULT_READ_LIMIT for read limits.", FacetIDs: []string{"principal_mechanism"}},
+			{ID: "b1", Kind: types.BlockSection, Text: "DEFAULT_READ_LIMIT is cited from read.ts.", FacetIDs: []string{"principal_mechanism"}},
+		},
+		Citations: []types.Citation{{File: "packages/opencode/src/tool/read.ts", Line: 14}},
+	}
+
+	_ = o.runSemanticQualityReview(doc, mut)
+	if !containsString(seen.EvidenceAnchorSet, "DEFAULT_READ_LIMIT") {
+		t.Fatalf("semantic-quality reviewer anchor set should include final document citation identifiers; got %v", seen.EvidenceAnchorSet)
 	}
 }
 

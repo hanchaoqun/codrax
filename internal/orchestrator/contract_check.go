@@ -2460,7 +2460,7 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 		OriginalRequest:   mut.Objective(),
 		AnswerSummary:     render.StripAuthorityArtifacts(summaryText),
 		AnswerBody:        render.StripAuthorityArtifacts(renderConsistencyReviewBodyV2(doc)),
-		EvidenceAnchorSet: buildSelfConsistencyAnchorSet(mut, doc, o.busCtx),
+		EvidenceAnchorSet: buildReviewerEvidenceAnchorSet(mut, doc, o.busCtx),
 	}
 
 	ctx := o.busCtx.Ctx
@@ -2531,13 +2531,13 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 	return out
 }
 
-// buildSelfConsistencyAnchorSet projects the hard-gate anchor set the
-// self-consistency reviewer receives. Order is intentional: identifiers
-// already visible through the final AnswerDocument's line citations are
-// most relevant to BODY-fabrication review and must not be pushed out by
-// a broad explorer evidence pool cap. Explorer evidence is still merged
-// after that for the historical "fabricated check name" blind spot.
-func buildSelfConsistencyAnchorSet(mut *types.MutableState, doc *types.AnswerDocumentV2, busCtx *types.BusContext) []string {
+// buildReviewerEvidenceAnchorSet projects the hard-gate anchor set shared by
+// reviewer LLMs. Order is intentional: identifiers already visible through
+// the final AnswerDocument's line citations are most relevant to answer-side
+// review and must not be pushed out by a broad explorer evidence pool cap.
+// Explorer evidence is still merged after that for the historical "fabricated
+// check name" blind spot.
+func buildReviewerEvidenceAnchorSet(mut *types.MutableState, doc *types.AnswerDocumentV2, busCtx *types.BusContext) []string {
 	seen := make(map[string]struct{}, SelfConsistencyAnchorCap)
 	out := make([]string, 0, SelfConsistencyAnchorCap)
 	add := func(raw string) {
@@ -2552,17 +2552,17 @@ func buildSelfConsistencyAnchorSet(mut *types.MutableState, doc *types.AnswerDoc
 		out = append(out, s)
 	}
 
-	addSelfConsistencyCitationAnchors(add, mut, doc, busCtx)
+	addReviewerCitationAnchors(add, mut, doc, busCtx)
 	if mut != nil {
 		if ta := mut.TurnAArtifacts(); ta != nil {
-			addSelfConsistencyEvidenceAnchors(add, ta.EvidenceItems)
+			addReviewerEvidenceAnchors(add, ta.EvidenceItems)
 		}
-		addSelfConsistencyEvidenceAnchors(add, mut.EmittedEvidence())
+		addReviewerEvidenceAnchors(add, mut.EmittedEvidence())
 	}
 	return out
 }
 
-func addSelfConsistencyEvidenceAnchors(add func(string), evidence []types.EvidenceItem) {
+func addReviewerEvidenceAnchors(add func(string), evidence []types.EvidenceItem) {
 	for _, ev := range evidence {
 		add(ev.AnchorSymbol)
 		add(ev.Subject)
@@ -2576,7 +2576,7 @@ func addSelfConsistencyEvidenceAnchors(add func(string), evidence []types.Eviden
 	}
 }
 
-func addSelfConsistencyCitationAnchors(add func(string), mut *types.MutableState, doc *types.AnswerDocumentV2, busCtx *types.BusContext) {
+func addReviewerCitationAnchors(add func(string), mut *types.MutableState, doc *types.AnswerDocumentV2, busCtx *types.BusContext) {
 	if doc == nil || len(doc.Citations) == 0 {
 		return
 	}
@@ -2596,20 +2596,20 @@ func addSelfConsistencyCitationAnchors(add func(string), mut *types.MutableState
 		canon := file
 		if gc != nil {
 			canon = ground.CanonicalContextPath(gc, file)
-			if line := selfConsistencyLineText(gc, canon, cit.Line); line != "" {
-				addSelfConsistencyLineIdentifiers(add, line)
+			if line := reviewerLineText(gc, canon, cit.Line); line != "" {
+				addReviewerLineIdentifiers(add, line)
 			}
 		} else if busCtx != nil {
 			canon = ground.CanonicalBusPath(busCtx, file)
 		}
-		addSelfConsistencyGraphSymbols(add, mut, busCtx, canon, cit.Line)
+		addReviewerGraphSymbols(add, mut, busCtx, canon, cit.Line)
 		if canon != file {
-			addSelfConsistencyGraphSymbols(add, mut, busCtx, file, cit.Line)
+			addReviewerGraphSymbols(add, mut, busCtx, file, cit.Line)
 		}
 	}
 }
 
-func selfConsistencyLineText(gc *ground.Context, file string, line int) string {
+func reviewerLineText(gc *ground.Context, file string, line int) string {
 	if gc == nil || line <= 0 {
 		return ""
 	}
@@ -2619,9 +2619,9 @@ func selfConsistencyLineText(gc *ground.Context, file string, line int) string {
 	return ""
 }
 
-var selfConsistencyCodeIdentRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*`)
+var reviewerCodeIdentRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*`)
 
-var selfConsistencyCodeKeywords = map[string]struct{}{
+var reviewerCodeKeywords = map[string]struct{}{
 	"as": {}, "break": {}, "case": {}, "catch": {}, "class": {}, "const": {},
 	"continue": {}, "def": {}, "defer": {}, "do": {}, "else": {}, "enum": {},
 	"export": {}, "extends": {}, "false": {}, "for": {}, "func": {}, "function": {},
@@ -2632,38 +2632,38 @@ var selfConsistencyCodeKeywords = map[string]struct{}{
 	"var": {}, "while": {}, "yield": {},
 }
 
-func addSelfConsistencyLineIdentifiers(add func(string), line string) {
-	for _, raw := range selfConsistencyCodeIdentRE.FindAllString(line, -1) {
-		addSelfConsistencyCodeIdent(add, raw)
+func addReviewerLineIdentifiers(add func(string), line string) {
+	for _, raw := range reviewerCodeIdentRE.FindAllString(line, -1) {
+		addReviewerCodeIdent(add, raw)
 		for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
 			return r == '.' || r == ':' || r == '/'
 		}) {
 			if part != raw {
-				addSelfConsistencyCodeIdent(add, part)
+				addReviewerCodeIdent(add, part)
 			}
 		}
 	}
 }
 
-func addSelfConsistencyCodeIdent(add func(string), raw string) {
+func addReviewerCodeIdent(add func(string), raw string) {
 	s := strings.TrimSpace(raw)
 	if s == "" || !types.IsCodeIdentitySurface(s) {
 		return
 	}
-	if _, keyword := selfConsistencyCodeKeywords[strings.ToLower(s)]; keyword {
+	if _, keyword := reviewerCodeKeywords[strings.ToLower(s)]; keyword {
 		return
 	}
 	add(s)
 }
 
-func addSelfConsistencyGraphSymbols(add func(string), mut *types.MutableState, busCtx *types.BusContext, file string, line int) {
+func addReviewerGraphSymbols(add func(string), mut *types.MutableState, busCtx *types.BusContext, file string, line int) {
 	file = strings.TrimSpace(file)
 	if file == "" || line <= 0 {
 		return
 	}
 	if mg := repomap.MultiGraphFromContext(busCtx); mg != nil {
 		if fi, _, ok := mg.FileInfoFor(file); ok {
-			addSelfConsistencySymbolsAtLine(add, fi.Symbols, line)
+			addReviewerSymbolsAtLine(add, fi.Symbols, line)
 			return
 		}
 	}
@@ -2675,11 +2675,11 @@ func addSelfConsistencyGraphSymbols(add func(string), mut *types.MutableState, b
 		return
 	}
 	if fi, ok := graph.FileIndex[file]; ok && fi != nil {
-		addSelfConsistencySymbolsAtLine(add, fi.Symbols, line)
+		addReviewerSymbolsAtLine(add, fi.Symbols, line)
 	}
 }
 
-func addSelfConsistencySymbolsAtLine(add func(string), symbols []repotypes.Symbol, line int) {
+func addReviewerSymbolsAtLine(add func(string), symbols []repotypes.Symbol, line int) {
 	for _, sym := range symbols {
 		if !symbolCoversLine(sym, line) {
 			continue
@@ -3010,7 +3010,7 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 		render.StripAuthorityArtifacts(summaryText),
 		render.StripAuthorityArtifacts(renderSemanticQualityReviewBodyV2(doc)),
 		doc, view,
-		BuildEvidenceAnchorSet(mut.EmittedEvidence()),
+		buildReviewerEvidenceAnchorSet(mut, doc, o.busCtx),
 	)
 
 	ctx := o.busCtx.Ctx

@@ -41,6 +41,7 @@
 8. **Batch E/F 第一段补齐**：inactive subrepo disclosure 不再作为 pre-emit hard retry 或默认 finalizer rewrite。缺失时保留 typed telemetry，并由 orchestrator 在系统“补充说明”通道追加范围说明；模型正文不再被迫写 `scope_disclosure` / inactive RootRel，避免系统工作区拓扑污染用户答案。
 9. **Batch H 第三段落地**：新增 same-error-class retry governor。除既有 per-kind / per-root / hard-cap 外，调度层按 typed `FallbackTarget + CaveatFamilyID` 记录更高层的错误类预算；同类机械问题已重试后即使换成 sibling kind，也停止继续 finalizer rewrite，交付当前答案并转入补充说明。该判断只读结构化 violation registry，不扫描用户问题或模型散文。
 10. **Batch C 第二段落地**：`aggregate_facts` 增加 typed `role/provenance`，支持 `principal_answer`、`supporting_coverage`、`audit_ledger`。explorer 可以明确区分“最终答案主集合”和“探索覆盖账本”；finalizer hard gate 只消费有效角色为 principal 的 aggregate fact，prompt 与 retry 合并也保留该结构化角色，不再用伪标记或标签猜测。
+11. **Batch H 第四段落地**：reviewer anchor set 统一改为 `buildReviewerEvidenceAnchorSet`，优先读取最终 AnswerDocument 的行级 citation、read_file gutter 与 repomap 符号，再合并 explorer evidence；self-consistency 与 semantic-quality reviewer 不再只看 explorer evidence。Mermaid endpoint gate 同步区分内部 node id 与用户可见 label，避免把图表语法 alias 当代码事实打回 finalizer。新增回归测试锁住 citation-backed identifier、graph fallback、semantic/self reviewer 输入和 Mermaid label 行为。
 
 ## 问题清单
 
@@ -488,6 +489,52 @@
 - REPL 根据 contract 决定是否转换；不支持的 Mermaid 子集保留源码并隔离警告。
 - 渲染失败必须遵守 L7/L8：改写为 text fence 并加警告，但不能把失败传播成 LLM-facing hard retry。
 
+### UIP-022（P1）reviewer anchor set 滞后于最终 AnswerDocument citations
+
+代码位置：`internal/orchestrator/contract_check.go::runSelfConsistencyReviewV2`、`runSemanticQualityReview`、`buildReviewerEvidenceAnchorSet`
+
+状态：**已修复（Batch H 第四段）**。self-consistency 与 semantic-quality reviewer 共用 `buildReviewerEvidenceAnchorSet`，anchor set 构建顺序为：最终 AnswerDocument 行级 citations → read_file gutter 行文本中的代码标识符 → repomap graph 中覆盖该行的符号 → TurnA / emitted evidence。这样 reviewer 看到的“可见锚点白名单”与最终答案真正引用的行保持一致。
+
+历史行为：
+
+- reviewer 只通过 `BuildEvidenceAnchorSet(mut.EmittedEvidence())` 获取 explorer evidence 的 `anchor_symbol/subject/object`。
+- finalizer 后续补入或修正的 `citations[]` 不进入 reviewer anchor set。
+- 当答案正文引用的常量/函数已经有行号 citation，但 explorer evidence 没把它放进 anchor_symbol 时，reviewer 会把真实标识符误判为 `fabricated_identifier`，触发“检测到前后不一致，正在重写答案”。
+
+风险：
+
+- 这是软 reviewer 读了不完整系统视图后升级成 finalizer rewrite，属于系统侧输入短板，不应让模型返工。
+- 同类风险不只在 self-consistency；semantic-quality reviewer 也会根据 anchor set 做覆盖判断，必须使用同一真源。
+
+防回归措施：
+
+- runtime 禁止直接在 reviewer 路径调用 `BuildEvidenceAnchorSet(mut.EmittedEvidence())` 作为唯一 anchor 真源；必须走 `buildReviewerEvidenceAnchorSet`。
+- 已加测试：`TestRunSelfConsistencyReviewV2_InputIncludesCitationLineIdentifier`、`TestRunSemanticQualityReview_InputIncludesCitationLineIdentifier`、`TestBuildReviewerEvidenceAnchorSet_CitationLineIdentifiersWinCap`、`TestBuildReviewerEvidenceAnchorSet_GraphSymbolBackfillsUnreadCitationLine`、`TestReviewerRuntimeUsesCitationAwareAnchorSet`。
+- 后续新增 reviewer 时必须声明输入 truth source：若 reviewer 会影响 rewrite/routing，必须消费 AnswerDocument citations + typed evidence 的并集；若只消费 typed evidence，只能 advisory。
+
+### UIP-023（P1）Mermaid endpoint gate 混淆内部 node id 与用户可见 label
+
+代码位置：`internal/orchestrator/contract_check_block.go::parseMermaidEdges`、`validateDiagramEdgeEndpointHallucination`
+
+状态：**已修复（Batch H 第四段）**。Mermaid parser 现在保留每个 endpoint 的内部 id 与显示 label；code-context endpoint hard gate 优先校验用户可见 label，只有没有显式 label 的裸节点才校验 endpoint id。
+
+历史行为：
+
+- Mermaid `check_size["行数检查\nDEFAULT_READ_LIMIT=2000"]` 这类节点会被解析成 endpoint=`check_size`。
+- `validateDiagramEdgeEndpointHallucination` 在 call_dag / typed call edge 下把 `check_size` 当成代码符号查 SymbolOracle。
+- 这会把图表内部 alias 判为 fabricated identifier，迫使模型重写图，甚至把清晰的中文/常量标签改差。
+
+风险：
+
+- Mermaid node id 是渲染语法，不等于用户答案的事实表述。
+- gate 把 syntax carrier 当 answer claim，会替模型改变展示方式，属于“系统意图替代用户/模型输出”的表现层问题。
+
+防回归措施：
+
+- hard gate 只能校验用户可见事实面：显式 label、typed `edge_anchors`、citation-backed code identities。内部 node id 只在裸节点时才作为可见事实处理。
+- 已加测试：`TestFixF_CallDAGKind_ExplicitDisplayLabelSkipsInternalAlias` 保证内部 alias 不触发重写；`TestFixF_CallDAGKind_ExplicitCodeLabelStillFires` 保证真实可见伪造标识符仍会被拦截。
+- 后续 diagram validator 新增能力时必须先回答“校验对象是否用户可见”。若答案是否定，默认 advisory 或 renderer-local 容错，不得触发 finalizer rewrite。
+
 ## 分批修复建议
 
 ### Batch A：先消除明确红线
@@ -508,6 +555,7 @@
 2. [x] aggregate member_set 增加 role/provenance，只对 principal answer hard gate。
 3. [x] surface_terms 不再自动追加正文。
 4. [x] 同类错误连续失败时降级为隔离补充展示，不再反复重写。
+5. [x] reviewer anchor set 改为最终文档 citation 优先，避免 reviewer 用滞后 evidence 误判真实标识符。
 
 ### Batch D：reconcile 只做一致性，不做意图重写
 
@@ -520,6 +568,7 @@
 1. [~] 表格 fallback 不截断，多列稳定展示。（已支持多列补 header 和 markdown table 优先，仍需 contract 贯穿）
 2. [x] inactive subrepo disclosure 改成系统生成的隔离 caveat。
 3. [x] SourceScope 控制 production/test/docs 过滤。（keyword search、package export、child package expansion 已接入同一 source-role classifier）
+4. [x] Mermaid endpoint gate 区分内部 node id 与用户可见 label；图表语法 alias 不再触发 finalizer rewrite。
 
 ### Batch F：停止系统替模型补正文
 
@@ -538,6 +587,7 @@
 1. [~] 每个 finalizer violation 必须分类为 `local_doc_defect`、`evidence_gap`、`analysis_gap`、`presentation_advisory`、`safety`。（aggregate member_set、enum-label、facet metadata emit-time gate 已先分出 hard/advisory）
 2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景、非主枚举标签场景、soft facet metadata 场景已停止同轮硬重试；semantic-quality reviewer 已接入 `repair_locus` typed routing）
 3. [x] 同类错误 fingerprint / typed repair family 连续失败后，停止硬重写，接受核心答案并用“补充说明/保留原文”交代缺陷。
+4. [x] reviewer hard/soft 判断的 anchor truth source 统一：AnswerDocument citations 优先，explorer evidence 补充，禁止 reviewer 只读滞后 explorer slate 后要求 finalizer 重写。
 
 ### Batch I：scope / presentation contract 贯穿
 
