@@ -231,6 +231,34 @@ func TestEmitAnswerDocumentPatch_NormalizesAddExistingBlockToReplace(t *testing.
 	}
 }
 
+func TestEmitAnswerDocumentPatch_NormalizesRemoveThenAddSameExistingBlockToReplace(t *testing.T) {
+	bus := newPatchTestBusContext()
+	tool := &EmitAnswerDocumentPatch{}
+	params := json.RawMessage(`{
+		"remove_block_ids": ["list1"],
+		"add_blocks": [{
+			"id": "list1",
+			"kind": "ordered_list",
+			"claim_uses": [{"claim_form": "call_edge"}],
+			"items": [{"id": "i1", "label": "A", "text": "rewritten", "citation_ref": 0}]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute err: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("remove+add same existing block should normalize to replace_blocks; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if len(doc.Blocks) != 2 || doc.Blocks[1].ID != "list1" {
+		t.Fatalf("normalized same-id remove+add should replace in place, got %+v", doc.Blocks)
+	}
+	if got := doc.Blocks[1].Items[0].Text; got != "rewritten" {
+		t.Fatalf("replacement payload not applied: %q", got)
+	}
+}
+
 // TestEmitAnswerDocumentPatch_RecoverFromRetryState confirms the
 // fallback path: when AnswerDocumentV2 was cleared (e.g. by
 // ResetForFallback), the tool falls back to RetryState.PrevEmitJSON.

@@ -301,17 +301,33 @@ func normalizeAnswerDocumentPatchBlockOps(prev *types.AnswerDocumentV2, patch *t
 	patch.ReplaceBlocks = keptReplace
 
 	var keptAdd []types.AnswerBlock
+	dropRemoveIDs := make(map[string]bool)
 	for _, block := range patch.AddBlocks {
 		id := strings.TrimSpace(block.ID)
-		if id != "" && prevIDs[id] && !replaceIDs[id] && !removeIDs[id] {
+		if id != "" && prevIDs[id] && !replaceIDs[id] {
 			patch.ReplaceBlocks = append(patch.ReplaceBlocks, block)
 			replaceIDs[id] = true
-			fields = append(fields, fmt.Sprintf("add_blocks[%q]→replace_blocks", id))
+			if removeIDs[id] {
+				dropRemoveIDs[id] = true
+				fields = append(fields, fmt.Sprintf("remove_block_ids[%q]+add_blocks[%q]→replace_blocks", id, id))
+			} else {
+				fields = append(fields, fmt.Sprintf("add_blocks[%q]→replace_blocks", id))
+			}
 			continue
 		}
 		keptAdd = append(keptAdd, block)
 	}
 	patch.AddBlocks = keptAdd
+	if len(dropRemoveIDs) > 0 {
+		var keptRemove []string
+		for _, id := range patch.RemoveBlockIDs {
+			if dropRemoveIDs[strings.TrimSpace(id)] {
+				continue
+			}
+			keptRemove = append(keptRemove, id)
+		}
+		patch.RemoveBlockIDs = keptRemove
+	}
 
 	return len(fields) > 0, fields
 }

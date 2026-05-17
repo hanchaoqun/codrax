@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -30,22 +31,22 @@ func TestDefaultFallbackPolicy_KnownPairs(t *testing.T) {
 		// is finalizer-prose-internal; let finalizer rewrite, do NOT
 		// re-explore. Pre-fix BackToExplore amplified abstraction drift
 		// in the second pass.
-		types.ViolSelfContradiction:     FallbackFinalizerOnly,
-		types.ViolViewIntentMismatch:   FallbackFinalizerOnly,
-		types.ViolDeclaredCountDrift:    FallbackBackToExtract,
-		types.ViolDiagramIdentifier:     FallbackFinalizerOnly,
-		types.ViolMustInclude:           FallbackFinalizerOnly,
-		types.ViolMustExclude:           FallbackFinalizerOnly,
-		types.ViolCitation:              FallbackBackToExplore,
-		types.ViolGhostAnchor:           FallbackBackToExplore,
-		types.ViolAcceptance:            FallbackBackToExplore,
-		types.ViolSuccessCriterion:      FallbackBackToExplore,
-		types.ViolPlanCritic:            FallbackFailLoud,
-		types.ViolReflectorObservation:  FallbackFailLoud,
-		types.ViolIntentTraceShallow:    FallbackBackToExplore,
+		types.ViolSelfContradiction:      FallbackFinalizerOnly,
+		types.ViolViewIntentMismatch:     FallbackFinalizerOnly,
+		types.ViolDeclaredCountDrift:     FallbackBackToExtract,
+		types.ViolDiagramIdentifier:      FallbackFinalizerOnly,
+		types.ViolMustInclude:            FallbackFinalizerOnly,
+		types.ViolMustExclude:            FallbackFinalizerOnly,
+		types.ViolCitation:               FallbackBackToExplore,
+		types.ViolGhostAnchor:            FallbackBackToExplore,
+		types.ViolAcceptance:             FallbackBackToExplore,
+		types.ViolSuccessCriterion:       FallbackBackToExplore,
+		types.ViolPlanCritic:             FallbackFailLoud,
+		types.ViolReflectorObservation:   FallbackFailLoud,
+		types.ViolIntentTraceShallow:     FallbackBackToExplore,
 		types.ViolIntentEnumerateNotList: FallbackFinalizerOnly,
-		types.ViolSubjectAnchorMissing:  FallbackBackToExtract,
-		types.ViolPredicateAxisMissing:  FallbackBackToExplore,
+		types.ViolSubjectAnchorMissing:   FallbackBackToExtract,
+		types.ViolPredicateAxisMissing:   FallbackBackToExplore,
 	}
 	for kind, want := range cases {
 		got := FallbackTargetForKind(kind)
@@ -130,19 +131,19 @@ func TestFallbackTargetForViolations_PicksDeepest(t *testing.T) {
 //
 // Behaviour change vs pre-A3 (intentional, per design doc §3.1):
 //
-//   The pre-A3 picker chose by majority count: 2 finalizer + 1 explore
-//   went to FinalizerOnly because finalizer-locus had more violations.
-//   This is wrong when the lone explore violation is INDEPENDENT
-//   (different root cause) — finalizer-only retries can never fix
-//   the explore-local issue, so majority just delays the inevitable
-//   escalation while burning retry budget.
+//	The pre-A3 picker chose by majority count: 2 finalizer + 1 explore
+//	went to FinalizerOnly because finalizer-locus had more violations.
+//	This is wrong when the lone explore violation is INDEPENDENT
+//	(different root cause) — finalizer-only retries can never fix
+//	the explore-local issue, so majority just delays the inevitable
+//	escalation while burning retry budget.
 //
-//   The post-A3 picker uses BuildRepairPlan: typed cooccurrence rules
-//   detect cause→consequence relationships and cluster only those
-//   together (Derived do NOT inflate Primary's owner count).
-//   Independent violations are singleton clusters; the deepest
-//   cluster owner wins. R2.2 budget downgrade still applies as a
-//   cost-optimization but is no longer the primary semantic.
+//	The post-A3 picker uses BuildRepairPlan: typed cooccurrence rules
+//	detect cause→consequence relationships and cluster only those
+//	together (Derived do NOT inflate Primary's owner count).
+//	Independent violations are singleton clusters; the deepest
+//	cluster owner wins. R2.2 budget downgrade still applies as a
+//	cost-optimization but is no longer the primary semantic.
 func TestFallbackTargetForViolations_RootCauseClustering(t *testing.T) {
 	cases := []struct {
 		name string
@@ -361,6 +362,40 @@ func TestFallbackTargetForViolation_BlockCoverageSubClassification(t *testing.T)
 	}
 }
 
+func TestFallbackTargetForViolation_HonorsTypedRepairLocusOverride(t *testing.T) {
+	v := types.Violation{
+		Kind:                types.ViolSuccessCriterion,
+		RepairLocusOverride: types.LocusFinalizer,
+	}
+	if got := FallbackTargetForViolation(v); got != FallbackFinalizerOnly {
+		t.Fatalf("typed finalizer repair-locus override = %s, want %s", got, FallbackFinalizerOnly)
+	}
+
+	v = types.Violation{Kind: types.ViolSuccessCriterion}
+	if got := FallbackTargetForViolation(v); got != FallbackBackToExplore {
+		t.Fatalf("success criterion without typed override should keep default = %s, want %s", got, FallbackBackToExplore)
+	}
+}
+
+func TestSuccessCriterionRepairLocusOverride_CitationCountUsesExistingEvidence(t *testing.T) {
+	bus := &types.BusContext{
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "a.go", LineStart: 1},
+			{Source: "b.go", LineStart: 2},
+			{Source: "c.go", LineStart: 3},
+		},
+	}
+	if got := successCriterionRepairLocusOverride(bus, criterion.Kind(types.CritCitationCountGE), "3"); got != types.LocusFinalizer {
+		t.Fatalf("citation_count_ge with enough evidence should be finalizer-local, got %q", got)
+	}
+	if got := successCriterionRepairLocusOverride(bus, criterion.Kind(types.CritCitationCountGE), "4"); got != "" {
+		t.Fatalf("citation_count_ge without enough evidence should not override, got %q", got)
+	}
+	if got := successCriterionRepairLocusOverride(bus, criterion.Kind(types.CritHasEnoughFacts), "3"); got != "" {
+		t.Fatalf("non-citation success criterion should not override, got %q", got)
+	}
+}
+
 // TestLocusOfTarget_AllTargetsMapped pins the FallbackTarget →
 // RepairLocus mapping completeness invariant.
 func TestLocusOfTarget_AllTargetsMapped(t *testing.T) {
@@ -445,8 +480,8 @@ func TestSetFallbackPolicyOverrides_BackToAnalyzeEnumStillValid(t *testing.T) {
 func TestSetFallbackPolicyOverrides_DropsUnknownTargets(t *testing.T) {
 	t.Cleanup(func() { SetFallbackPolicyOverrides(nil) })
 	SetFallbackPolicyOverrides(map[string]string{
-		string(types.ViolFamilyMismatch): "garbage_target", // invalid
-		string(types.ViolCitation): string(FallbackFinalizerOnly), // valid
+		string(types.ViolFamilyMismatch): "garbage_target",              // invalid
+		string(types.ViolCitation):       string(FallbackFinalizerOnly), // valid
 	})
 	// Invalid → kept as default (FinalizerOnly per the default map).
 	if got := FallbackTargetForKind(types.ViolFamilyMismatch); got != FallbackFinalizerOnly {

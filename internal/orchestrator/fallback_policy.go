@@ -535,6 +535,10 @@ func FallbackTargetForKind(kind types.ViolationKind) FallbackTarget {
 // uncertain Detail falls back to the kind's default policy entry,
 // preserving pre-B3 behaviour for those cases.
 func FallbackTargetForViolation(v types.Violation) FallbackTarget {
+	switch v.RepairLocusOverride {
+	case LocusFinalizer, LocusExtract, LocusExplore, LocusTerminal:
+		return targetForLocus(v.RepairLocusOverride)
+	}
 	def := FallbackTargetForKind(v.Kind)
 	if v.Kind == types.ViolBlockCoverageMissing {
 		// kind=diagram / kind=table missing blocks are pure

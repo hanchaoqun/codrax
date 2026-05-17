@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -4714,10 +4715,15 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					continue
 				}
 				logging.Info("[orchestrator] finalize success criteria failed: %s %s — %s", f.Kind, f.Expr, f.Detail)
-				res.Violations = append(res.Violations, contract.Violation{
+				v := contract.Violation{
 					Kind:   contract.ViolSuccessCriterion,
 					Detail: fmt.Sprintf("finalize success_criterion %s %s failed: %s", f.Kind, f.Expr, f.Detail),
-				})
+				}
+				if locus := successCriterionRepairLocusOverride(o.busCtx, f.Kind, f.Expr); locus != "" {
+					v.RepairLocusOverride = locus
+					v.Repair = "repair the final answer using already-collected citation-grade evidence"
+				}
+				res.Violations = append(res.Violations, v)
 			}
 			// res.Passed stays true when every SC failure was waived.
 			if len(res.Violations) > 0 {
@@ -7193,6 +7199,53 @@ func fallbackComplexity(in types.Complexity) types.Complexity {
 		return types.ComplexitySimple
 	}
 	return in
+}
+
+func successCriterionRepairLocusOverride(bus *types.BusContext, kind criterion.Kind, expr string) types.RepairLocus {
+	if string(kind) != types.CritCitationCountGE {
+		return ""
+	}
+	required, err := strconv.Atoi(strings.TrimSpace(expr))
+	if err != nil || required <= 0 {
+		return ""
+	}
+	if citationGradeAnchorCapacity(bus) >= required {
+		return types.LocusFinalizer
+	}
+	return ""
+}
+
+func citationGradeAnchorCapacity(bus *types.BusContext) int {
+	if bus == nil {
+		return 0
+	}
+	seen := make(map[string]struct{})
+	add := func(file string, line int) {
+		file = strings.TrimSpace(file)
+		if file == "" || line <= 0 {
+			return
+		}
+		seen[fmt.Sprintf("%s:%d", file, line)] = struct{}{}
+	}
+	for _, ev := range bus.EvidenceItems {
+		add(ev.Source, ev.LineStart)
+	}
+	for _, sym := range bus.AnswerSymbols {
+		add(sym.File, sym.Line)
+	}
+	if bus.Mutable != nil {
+		if artifacts := bus.Mutable.TurnAArtifacts(); artifacts != nil {
+			for _, ev := range artifacts.EvidenceItems {
+				add(ev.Source, ev.LineStart)
+			}
+		}
+		if symbols, _ := bus.Mutable.EmittedAnswerSymbols(); len(symbols) > 0 {
+			for _, sym := range symbols {
+				add(sym.File, sym.Line)
+			}
+		}
+	}
+	return len(seen)
 }
 
 // runAnswerReviewerOnSuccess dispatches the end-of-Run

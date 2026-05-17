@@ -1104,4 +1104,17 @@ type Violation struct {
 	// like "appears 0 time(s)" + "kind=diagram" — a CLAUDE.md
 	// "precise signals for hard gates" red-line requirement.
 	MissingBlockKind AnswerBlockKind
+
+	// RepairLocusOverride lets a typed producer narrow the fallback
+	// owner for this specific violation instance when the generic
+	// ViolationKind mapping is intentionally broad. Example:
+	// ViolSuccessCriterion normally maps to Explore because many
+	// success criteria mean missing evidence, but citation_count_ge
+	// can be repaired by the finalizer alone when the existing typed
+	// evidence pool already contains enough citation-grade anchors.
+	//
+	// Consumers must honor only known RepairLocus constants and ignore
+	// the zero value. This is a precise typed override, not a prose
+	// Detail parser.
+	RepairLocusOverride RepairLocus
 }
