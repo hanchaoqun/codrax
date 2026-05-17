@@ -818,8 +818,11 @@ func BuildSemanticQualityInput(
 		summary := &SemanticDiagramSummary{Required: true}
 		// Find a diagram block in the doc.
 		var diagBody string
-		for _, b := range doc.Blocks {
+		var diagramBlock *types.AnswerBlock
+		for i := range doc.Blocks {
+			b := &doc.Blocks[i]
 			if b.Kind == types.BlockDiagram && b.Diagram != nil {
+				diagramBlock = b
 				summary.BlockPresent = true
 				diagBody = b.Diagram.Body
 				summary.BodyTrimmedLen = len(strings.TrimSpace(diagBody))
@@ -835,19 +838,7 @@ func BuildSemanticQualityInput(
 			}
 			summary.BodyExcerpt = body
 		}
-		// Edge contract rows. Counting min_satisfied is approximate
-		// here (the validator's typed-relation index is not
-		// re-instantiated). We surface MinExpected verbatim and a
-		// MinSatisfied derived from doc.Blocks[].EdgeAnchors that
-		// declare a typed RelationKind matching the contract row.
-		typedKindCounts := make(map[types.DiagramRelationKind]int)
-		for _, b := range doc.Blocks {
-			for _, a := range b.EdgeAnchors {
-				if a.RelationKind.IsValid() {
-					typedKindCounts[a.RelationKind]++
-				}
-			}
-		}
+		relationCounts := semanticQualityDiagramRelationCounts(doc, diagramBlock)
 		for _, contract := range view.DiagramPlan.EdgeRelations {
 			if contract.Min <= 0 {
 				continue
@@ -855,11 +846,43 @@ func BuildSemanticQualityInput(
 			summary.Edges = append(summary.Edges, SemanticDiagramEdgeContract{
 				RelationKind: string(contract.Kind),
 				MinExpected:  contract.Min,
-				MinSatisfied: typedKindCounts[contract.Kind],
+				MinSatisfied: relationCounts[contract.Kind],
 			})
 		}
 		in.DiagramContract = summary
 	}
 
 	return in
+}
+
+func semanticQualityDiagramRelationCounts(doc *types.AnswerDocumentV2, diagramBlock *types.AnswerBlock) map[types.DiagramRelationKind]int {
+	counts := make(map[types.DiagramRelationKind]int)
+	if doc == nil || diagramBlock == nil || diagramBlock.Diagram == nil {
+		return counts
+	}
+	edges := parseMermaidEdges(diagramBlock.Diagram.Body)
+	if len(edges) == 0 {
+		return counts
+	}
+	support := buildDiagramSupportTokens(doc, diagramBlock)
+	typedRelIndex := buildTypedRelationIndex(doc)
+	for _, edge := range edges {
+		if !diagramTokenSupported(edge.from, support) || !diagramTokenSupported(edge.to, support) {
+			continue
+		}
+		rel, hasTyped := typedRelIndex[edgeKey{
+			from: strings.ToLower(strings.TrimSpace(edge.from)),
+			to:   strings.ToLower(strings.TrimSpace(edge.to)),
+		}]
+		if !hasTyped {
+			rel = types.InferRelationFromLabel(edge.label)
+			if rel == types.DiagramRelUnknown {
+				rel = implicitDiagramRelationKind(diagramBlock, edge)
+			}
+		}
+		if rel != types.DiagramRelUnknown {
+			counts[rel]++
+		}
+	}
+	return counts
 }

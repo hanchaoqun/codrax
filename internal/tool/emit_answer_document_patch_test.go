@@ -505,6 +505,69 @@ func TestEmitAnswerDocumentPatch_NormalizesReplaceCitationsForPreservedBlocks(t 
 	}
 }
 
+func TestEmitAnswerDocumentPatch_MergesAppendCitationsIntoReplaceCitations(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks:    []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "lead"}},
+		Citations: []types.Citation{{File: "old.go", Line: 1}},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"replace_citations": [{"file":"a.go", "line":1}],
+		"append_citations": [{"file":"b.go", "line":2}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("replace_citations + append_citations should merge instead of hard-retrying, got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 2 {
+		t.Fatalf("merged citation pool = %+v, want 2 citations", doc)
+	}
+	if doc.Citations[0].File != "a.go" || doc.Citations[1].File != "b.go" {
+		t.Fatalf("unexpected merged citation pool: %+v", doc.Citations)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_MergesAppendCitationsBeforePreservedPoolNormalization(t *testing.T) {
+	bus := newPatchTestBusContext()
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["list1"],
+		"replace_blocks": [{
+			"id": "s1",
+			"kind": "summary",
+			"text": "fixed lead",
+			"items": [{"id":"lead_cite", "citation_ref": 2}]
+		}],
+		"replace_citations": [
+			{"file":"x.go", "line":10},
+			{"file":"z.go", "line":99}
+		],
+		"append_citations": [
+			{"file":"w.go", "line":5}
+		]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("merged citation ops should still normalize preserved citation-bearing blocks, got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 3 {
+		t.Fatalf("normalized merged citation pool = %+v, want inherited old + two appended citations", doc)
+	}
+	if doc.Citations[0].File != "x.go" || doc.Citations[1].File != "z.go" || doc.Citations[2].File != "w.go" {
+		t.Fatalf("unexpected citation pool after merged normalization: %+v", doc.Citations)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 2 {
+		t.Fatalf("replacement block citation_ref should be remapped through merged pool to index 2, got %d", got)
+	}
+	if got := doc.Blocks[1].Items[0].CitationRef; got != 0 {
+		t.Fatalf("preserved block citation_ref should still point at inherited pool index 0, got %d", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable: types.NewMutableState("页面分配时序图"),

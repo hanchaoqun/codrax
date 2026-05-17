@@ -588,15 +588,24 @@ func implicitDiagramRelationKind(diagramBlock *types.AnswerBlock, edge mermaidEd
 	if diagramBlock == nil || diagramBlock.Diagram == nil {
 		return types.DiagramRelUnknown
 	}
-	if diagramBlock.Diagram.Kind == types.DiagramSequence && strings.TrimSpace(edge.label) == "" {
-		// In Mermaid sequence diagrams an unlabelled directed message
-		// arrow still semantically represents one participant sending
-		// control to another. Treat this as the typed default `call`
-		// relation so call-chain/root-cause sequence spines do not burn
-		// retries purely for omitting a redundant edge label.
+	if diagramBlock.Diagram.Kind == types.DiagramSequence && sequenceArrowImpliesCall(edge.operator) {
+		// In Mermaid sequence diagrams a solid directed message arrow is
+		// already structural call evidence, whether or not the model labels
+		// it with a vocabulary word. Treat it as the default `call` relation
+		// so method-name labels like "BuildAnalysisSkill" do not burn retries
+		// merely because they are not relation words.
 		return types.DiagramRelCall
 	}
 	return types.DiagramRelUnknown
+}
+
+func sequenceArrowImpliesCall(operator string) bool {
+	switch strings.TrimSpace(operator) {
+	case "->", "->>":
+		return true
+	default:
+		return false
+	}
 }
 
 // edgeKey is the (lowercase from, lowercase to) lookup key for the
@@ -665,6 +674,7 @@ type mermaidEdge struct {
 	from      string
 	to        string
 	label     string
+	operator  string
 	fromLabel string
 	toLabel   string
 }
@@ -696,7 +706,7 @@ func parseMermaidEdges(body string) []mermaidEdge {
 			seqLabel = strings.TrimSpace(line[idx+1:])
 			line = strings.TrimSpace(line[:idx])
 		}
-		from, to, label, ok := splitMermaidEdgeLine(line)
+		from, to, label, operator, ok := splitMermaidEdgeLine(line)
 		if !ok {
 			continue
 		}
@@ -713,6 +723,7 @@ func parseMermaidEdges(body string) []mermaidEdge {
 			from:      from,
 			to:        to,
 			label:     label,
+			operator:  operator,
 			fromLabel: fromLabel,
 			toLabel:   toLabel,
 		})
@@ -730,7 +741,7 @@ func parseMermaidEdges(body string) []mermaidEdge {
 //	-->>  -.->  -->  -->|...|  ==>  ==>|...|
 //	-.->|...|  --|text|-->  -- text -->
 //	---  ->>  -->>
-func splitMermaidEdgeLine(line string) (string, string, string, bool) {
+func splitMermaidEdgeLine(line string) (string, string, string, string, bool) {
 	// Capture the FIRST `|inline label|` block before stripping —
 	// Mermaid flowchart's `A -->|cond| B` puts the relation marker
 	// between pipes. Subsequent `|...|` groups (rare) are stripped
@@ -779,17 +790,17 @@ func splitMermaidEdgeLine(line string) (string, string, string, bool) {
 			// recurse on the rightmost portion; preserve any
 			// pipe-label captured in the outer call (the recursion
 			// only re-parses the trailing `to` segment).
-			f2, t2, innerLabel, ok := splitMermaidEdgeLine(to)
+			f2, t2, innerLabel, innerOp, ok := splitMermaidEdgeLine(to)
 			if ok {
 				if innerLabel != "" {
-					return f2, t2, innerLabel, true
+					return f2, t2, innerLabel, innerOp, true
 				}
-				return f2, t2, pipeLabel, true
+				return f2, t2, pipeLabel, innerOp, true
 			}
 		}
-		return from, to, pipeLabel, true
+		return from, to, pipeLabel, op, true
 	}
-	return "", "", "", false
+	return "", "", "", "", false
 }
 
 // stripMermaidNodeShape collapses a node declaration with a shape

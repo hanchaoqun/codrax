@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -344,18 +345,17 @@ func (r *llmSelfConsistencyReviewer) Review(ctx context.Context, in SelfConsiste
 // non-fatal reviewer failure (records LearningFailure).
 func unmarshalSelfConsistencyResult(raw json.RawMessage) (*SelfConsistencyResult, error) {
 	var parsed struct {
-		Consistent     bool `json:"consistent"`
-		Contradictions []struct {
-			Topic        string `json:"topic"`
-			Kind         string `json:"contradiction_kind"`
-			SummaryClaim string `json:"summary_claim"`
-			BodyClaim    string `json:"body_claim"`
-		} `json:"contradictions"`
-		Confidence float64 `json:"confidence"`
-		Reasoning  string  `json:"reasoning"`
+		Consistent     bool            `json:"consistent"`
+		Contradictions json.RawMessage `json:"contradictions"`
+		Confidence     float64         `json:"confidence"`
+		Reasoning      string          `json:"reasoning"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("decode emit_self_consistency_review: %w", err)
+	}
+	contradictions, err := decodeSelfConsistencyContradictions(parsed.Contradictions)
+	if err != nil {
+		return nil, err
 	}
 	if parsed.Confidence < 0 || parsed.Confidence > 1 {
 		return nil, fmt.Errorf("self_consistency_reviewer: confidence %.2f out of [0,1]", parsed.Confidence)
@@ -365,7 +365,7 @@ func unmarshalSelfConsistencyResult(raw json.RawMessage) (*SelfConsistencyResult
 		Confidence: parsed.Confidence,
 		Reasoning:  strings.TrimSpace(parsed.Reasoning),
 	}
-	for _, c := range parsed.Contradictions {
+	for _, c := range contradictions {
 		topic := strings.TrimSpace(c.Topic)
 		kind := SelfConsistencyContradictionKind(strings.TrimSpace(c.Kind))
 		if !kind.IsValid() {
@@ -393,6 +393,46 @@ func unmarshalSelfConsistencyResult(raw json.RawMessage) (*SelfConsistencyResult
 		return nil, fmt.Errorf("self_consistency_reviewer: consistent=false but no contradictions named")
 	}
 	return out, nil
+}
+
+type rawSelfConsistencyContradiction struct {
+	Topic        string `json:"topic"`
+	Kind         string `json:"contradiction_kind"`
+	SummaryClaim string `json:"summary_claim"`
+	BodyClaim    string `json:"body_claim"`
+}
+
+func decodeSelfConsistencyContradictions(raw json.RawMessage) ([]rawSelfConsistencyContradiction, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil, nil
+	}
+	if raw[0] == '[' {
+		var out []rawSelfConsistencyContradiction
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return nil, fmt.Errorf("decode emit_self_consistency_review.contradictions: %w", err)
+		}
+		return out, nil
+	}
+	if raw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil, fmt.Errorf("decode emit_self_consistency_review.contradictions string: %w", err)
+		}
+		s = strings.TrimSpace(s)
+		if s == "" || s == "[]" {
+			return nil, nil
+		}
+		if strings.HasPrefix(s, "[") {
+			var out []rawSelfConsistencyContradiction
+			if err := json.Unmarshal([]byte(s), &out); err != nil {
+				return nil, fmt.Errorf("decode emit_self_consistency_review.contradictions stringified array: %w", err)
+			}
+			return out, nil
+		}
+		return nil, nil
+	}
+	return nil, fmt.Errorf("self_consistency_reviewer: contradictions must be an array or stringified array")
 }
 
 // renderSelfConsistencyUserMessage formats the comparison input

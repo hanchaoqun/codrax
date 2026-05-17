@@ -3050,6 +3050,10 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 		kind := semanticQualityViolationKind(c)
 		normalizedKind := normaliseSemanticQualityConcernKind(c.Kind)
 		repairLocus := normaliseSemanticQualityRepairLocus(c.RepairLocus, normalizedKind)
+		if normalizedKind == semanticConcernDiagramGap && !semanticQualityInputHasHardDiagramGap(in) {
+			logging.Info("[semantic_quality_reviewer] dropped diagram_gap concern because deterministic diagram contract is already satisfied")
+			continue
+		}
 		detailPrefix := "answer_underfilled"
 		rootField := "answer_semantic_quality"
 		repair := semanticQualityConcernRepairText(i+1, len(concerns), c, kind, repairLocus)

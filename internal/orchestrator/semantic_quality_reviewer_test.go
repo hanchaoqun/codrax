@@ -263,6 +263,14 @@ func TestBuildSemanticQualityInput_FacetCoverageProjection(t *testing.T) {
 func TestBuildSemanticQualityInput_DiagramContractProjection(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
+			{
+				ID:   "anchors",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "a", Label: "A"},
+					{ID: "b", Label: "B"},
+				},
+			},
 			{ID: "d1", Kind: types.BlockDiagram,
 				Diagram: &types.AnswerDiagramBlock{Body: "flowchart LR\n  A --> B\n"},
 				EdgeAnchors: []types.DiagramEdgeAnchor{
@@ -298,6 +306,84 @@ func TestBuildSemanticQualityInput_DiagramContractProjection(t *testing.T) {
 	if in.DiagramContract.Edges[1].MinSatisfied != 0 || in.DiagramContract.Edges[1].MinExpected != 1 {
 		t.Errorf("Guard min_satisfied/min_expected = %d/%d, want 0/1",
 			in.DiagramContract.Edges[1].MinSatisfied, in.DiagramContract.Edges[1].MinExpected)
+	}
+}
+
+func TestBuildSemanticQualityInput_DiagramContractCountsVisibleSequenceCalls(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			EdgeRelations: []types.DiagramEdgeRelationContract{
+				{Kind: types.DiagramRelCall, Min: 1, ClaimForm: types.ClaimCallEdge},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "anchors",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "auth", Label: "Auth"},
+					{ID: "worker", Label: "Worker"},
+				},
+			},
+			{
+				ID:   "d1",
+				Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramSequence,
+					Language: "mermaid",
+					Body:     "sequenceDiagram\n  Auth->>Worker: BuildAnalysisSkill\n  Worker-->>Auth: result\n",
+				},
+			},
+		},
+	}
+	in := BuildSemanticQualityInput("o", "s", "b", doc, view, nil)
+	if in.DiagramContract == nil || len(in.DiagramContract.Edges) != 1 {
+		t.Fatalf("missing diagram contract projection: %+v", in.DiagramContract)
+	}
+	if got := in.DiagramContract.Edges[0].MinSatisfied; got != 1 {
+		t.Fatalf("solid sequence call should satisfy visible call minimum, got %d", got)
+	}
+}
+
+func TestBuildSemanticQualityInput_DiagramContractDoesNotCountDashedReplyAsCall(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			EdgeRelations: []types.DiagramEdgeRelationContract{
+				{Kind: types.DiagramRelCall, Min: 1, ClaimForm: types.ClaimCallEdge},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "anchors",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "auth", Label: "Auth"},
+					{ID: "worker", Label: "Worker"},
+				},
+			},
+			{
+				ID:   "d1",
+				Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramSequence,
+					Language: "mermaid",
+					Body:     "sequenceDiagram\n  Worker-->>Auth: result\n",
+				},
+			},
+		},
+	}
+	in := BuildSemanticQualityInput("o", "s", "b", doc, view, nil)
+	if in.DiagramContract == nil || len(in.DiagramContract.Edges) != 1 {
+		t.Fatalf("missing diagram contract projection: %+v", in.DiagramContract)
+	}
+	if got := in.DiagramContract.Edges[0].MinSatisfied; got != 0 {
+		t.Fatalf("dashed sequence reply must not satisfy call minimum, got %d", got)
 	}
 }
 
@@ -577,6 +663,37 @@ func TestRunSemanticQualityReview_PresentationAdvisoryDoesNotHardTopicRetry(t *t
 	}
 }
 
+func TestRunSemanticQualityReview_DiagramGapWithoutHardContractDropped(t *testing.T) {
+	mut := types.NewMutableState("show sequence")
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Ctx: context.Background(), Mutable: mut}
+	o.SetSemanticQualityReviewer(fakeSemanticQualityReviewer{
+		verdict: &SemanticQualityResult{
+			Sufficient: false,
+			Confidence: 0.95,
+			Concerns: []SemanticQualityConcern{{
+				Kind:        semanticConcernDiagramGap,
+				Topic:       "diagram",
+				Observation: "reviewer thinks a diagram edge is missing",
+				Suggestion:  "add an edge",
+			}},
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
+			{ID: "d1", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+				Kind:     types.DiagramSequence,
+				Language: "mermaid",
+				Body:     "sequenceDiagram\n  Auth->>Worker: BuildAnalysisSkill\n",
+			}},
+		},
+	}
+	if got := o.runSemanticQualityReview(doc, mut); len(got) != 0 {
+		t.Fatalf("diagram_gap without deterministic hard contract should be dropped, got %+v", got)
+	}
+}
+
 func TestRunSemanticQualityReview_InputIncludesCitationLineIdentifier(t *testing.T) {
 	mut := types.NewMutableState("explain opencode read limits")
 	var seen SemanticQualityInput
@@ -666,6 +783,26 @@ func TestSemanticQualityStrictCoverageViolation_RequiredDiagramGap(t *testing.T)
 	}
 	if got != types.ViolDiagramEdgeUnsupported {
 		t.Fatalf("kind=%q, want %q", got, types.ViolDiagramEdgeUnsupported)
+	}
+}
+
+func TestSemanticQualityStrictCoverageViolation_SatisfiedDiagramGapStaysNonStrict(t *testing.T) {
+	in := SemanticQualityInput{
+		DiagramContract: &SemanticDiagramSummary{
+			Required:       true,
+			BlockPresent:   true,
+			BodyTrimmedLen: 42,
+			Edges: []SemanticDiagramEdgeContract{
+				{RelationKind: "call", MinExpected: 1, MinSatisfied: 1},
+			},
+		},
+	}
+	concern := SemanticQualityConcern{
+		Kind:  semanticConcernDiagramGap,
+		Topic: "diagram",
+	}
+	if got, ok := semanticQualityStrictCoverageViolation(concern, in); ok {
+		t.Fatalf("satisfied deterministic diagram contract must not become strict, got %q", got)
 	}
 }
 

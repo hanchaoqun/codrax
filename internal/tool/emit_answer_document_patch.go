@@ -338,11 +338,33 @@ func normalizeAnswerDocumentPatchBlockOps(prev *types.AnswerDocumentV2, patch *t
 }
 
 func normalizeAnswerDocumentPatchCitationOps(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) (bool, []string) {
-	if prev == nil || patch == nil || patch.ReplaceCitations == nil || len(patch.AppendCitations) > 0 {
+	if prev == nil || patch == nil {
 		return false, nil
 	}
+	var fields []string
+	if patch.ReplaceCitations != nil && len(patch.AppendCitations) > 0 {
+		merged := append([]types.Citation(nil), patch.ReplaceCitations...)
+		added := 0
+		for _, cit := range patch.AppendCitations {
+			if findEquivalentCitation(merged, cit) >= 0 {
+				continue
+			}
+			merged = append(merged, cit)
+			added++
+		}
+		patch.ReplaceCitations = merged
+		patch.AppendCitations = nil
+		if added > 0 {
+			fields = append(fields, fmt.Sprintf("append_citations→replace_citations merged=%d", added))
+		} else {
+			fields = append(fields, "append_citations duplicate of replace_citations dropped")
+		}
+	}
+	if patch.ReplaceCitations == nil {
+		return len(fields) > 0, fields
+	}
 	if !patchPreservesCitationBearingBlock(prev, patch) {
-		return false, nil
+		return len(fields) > 0, fields
 	}
 	mergedPool := append([]types.Citation(nil), prev.Citations...)
 	remap := make(map[int]int, len(patch.ReplaceCitations))
@@ -360,7 +382,7 @@ func normalizeAnswerDocumentPatchCitationOps(prev *types.AnswerDocumentV2, patch
 		remapPatchBlockCitationRefs(patch.AddBlocks, remap)
 	patch.ReplaceCitations = nil
 	patch.AppendCitations = appendCitations
-	fields := []string{"replace_citations→append_citations"}
+	fields = append(fields, "replace_citations→append_citations")
 	if remapped > 0 {
 		fields = append(fields, fmt.Sprintf("items[].citation_ref remapped=%d", remapped))
 	}

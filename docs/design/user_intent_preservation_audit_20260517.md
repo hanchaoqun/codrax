@@ -705,6 +705,32 @@
 - [x] `emit_answer_symbol` 只用已 grounded 的结构化证据或 surface backbone 修复同文件同符号错行；多候选或跨文件不自动改。
 - [x] 回归测试覆盖 schema-shape repair 与 wrong-line-to-grounded-definition canonicalization，防止后续开发重新引入“让模型重猜”的硬 gate。
 
+### UIP-030（P1）finalizer patch/reviewer/diagram 小错仍会诱发整轮重写
+
+代码位置：`internal/tool/emit_answer_document_patch.go`、`internal/orchestrator/contract_check_block.go`、`internal/orchestrator/self_consistency_reviewer.go`
+
+状态：**已修复（Batch G/H 延伸段）**。`emit_answer_document_patch` 在本地把 `append_citations` 无损合入 `replace_citations`，再根据是否保留 citation-bearing block 继续走已有 preserved-pool normalization。`sequenceDiagram` 的实线消息箭头 `->` / `->>` 结构性计为 `call`，虚线返回 `-->>` 不计为 call。`self_consistency_reviewer` 兼容 `contradictions` 的空字符串、说明字符串和 stringified array；`consistent=false` 但没有结构化 contradiction 仍然拒绝。
+
+触发证据：
+
+- `../small/codrax-small/.codrax/logs` 最新运行中，finalizer 的 patch 同时给出 `replace_citations` 和 `append_citations`，系统直接按 contract invariant 5 拒绝，随后切到 full rewrite，模型又发出 `{}`，触发 `blocks[] is required and must be non-empty`。
+- 同一轮里，sequenceDiagram 的实线调用边使用方法名作为 label（如 `BuildAnalysisSkill`），但系统只把“关系词 label”或无 label 箭头计为 `call`，导致图已经能表达用户意图时仍要求模型补 `edge_anchors`。
+- 第二层 semantic quality reviewer 的 diagram contract 输入只统计 `edge_anchors`，没有复用 deterministic diagram validator 的可见边解析；因此当前图已经通过 label/implicit relation 满足时，reviewer 仍会看到 `min_satisfied=0` 并把软提示升级成返工。
+- 自一致 reviewer 把 `contradictions` 发成字符串时直接 decode 失败，虽然当前是非致命失败，但会污染日志并增加“系统不稳定”的噪声。
+
+风险：
+
+- 这三类都不是用户意图变化，也不是答案主体必须重写；把它们交给模型修，会把 finalizer 变成协议学习循环。
+- `{}` 空 full emit 不能被当作成功，因为没有可用答案 payload；正确治理方式是修掉上游 patch 兼容缺口，避免把模型逼到空 full rewrite。
+
+修复方向：
+
+- [x] citation op 合并只读取 typed citation 池，不读取用户问题或模型散文。
+- [x] sequence arrow default 只读取 Mermaid 结构操作符，不读取关系词，也不改变模型原始图源码。
+- [x] semantic quality reviewer 的 diagram contract 投影复用同一套可见边解析：typed edge anchor、label inference、sequence solid-arrow implicit call 都统一计数；deterministic contract 已满足时，reviewer 的 `diagram_gap` 不再转成返工 violation。
+- [x] reviewer schema tolerance 只修结构形状；真实 `consistent=false` 且无 contradiction 仍按 malformed verdict 处理。
+- [x] 回归测试覆盖 citation op 合并、preserved citation-pool remap、sequence solid/dashed 区分、reviewer string/stringified-array 兼容，防止后续开发重新把协议小错升级成 finalizer 重写。
+
 ## 分批修复建议
 
 ### Batch A：先消除明确红线

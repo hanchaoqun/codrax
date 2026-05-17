@@ -218,6 +218,57 @@ func TestSelfConsistencyReviewer_ContradictionEmitted(t *testing.T) {
 	}
 }
 
+func TestSelfConsistencyReviewer_ContradictionsStringToleratedWhenConsistent(t *testing.T) {
+	resp := llm.Response{
+		ToolCalls: []llm.ToolCall{{
+			Name: selfConsistencyTool.Name,
+			Params: json.RawMessage(`{
+                "consistent": true,
+                "confidence": 0.9,
+                "contradictions": "none",
+                "reasoning": "no contradiction"
+            }`),
+		}},
+	}
+	r := NewSelfConsistencyReviewer(&stubSelfConsistencyAdapter{resp: resp})
+	got, err := r.Review(context.Background(), SelfConsistencyInput{
+		AnswerSummary: "x", AnswerBody: "x",
+	})
+	if err != nil {
+		t.Fatalf("string contradictions should be tolerated for consistent=true: %v", err)
+	}
+	if got == nil || !got.Consistent || len(got.Contradictions) != 0 {
+		t.Fatalf("unexpected reviewer result: %+v", got)
+	}
+}
+
+func TestSelfConsistencyReviewer_StringifiedContradictionArrayParsed(t *testing.T) {
+	resp := llm.Response{
+		ToolCalls: []llm.ToolCall{{
+			Name: selfConsistencyTool.Name,
+			Params: json.RawMessage(`{
+                "consistent": false,
+                "confidence": 0.9,
+                "contradictions": "[{\"topic\":\"mode\",\"contradiction_kind\":\"assignment_inversion\",\"summary_claim\":\"read writes files\",\"body_claim\":\"read preserves files\"}]",
+                "reasoning": "summary and body invert read mode"
+            }`),
+		}},
+	}
+	r := NewSelfConsistencyReviewer(&stubSelfConsistencyAdapter{resp: resp})
+	got, err := r.Review(context.Background(), SelfConsistencyInput{
+		AnswerSummary: "read writes files", AnswerBody: "read preserves files",
+	})
+	if err != nil {
+		t.Fatalf("stringified contradiction array should parse: %v", err)
+	}
+	if got == nil || got.Consistent || len(got.Contradictions) != 1 {
+		t.Fatalf("unexpected reviewer result: %+v", got)
+	}
+	if got.Contradictions[0].Kind != SelfConsistencyContradictionAssignment {
+		t.Fatalf("kind = %q, want %q", got.Contradictions[0].Kind, SelfConsistencyContradictionAssignment)
+	}
+}
+
 // TestSelfConsistencyReviewer_InconsistentNoContradictionsRejected
 // pins the cross-check: emit declares inconsistent but lists no
 // contradictions = malformed; caller should see error.

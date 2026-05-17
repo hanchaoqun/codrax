@@ -2339,15 +2339,15 @@ func TestParseMermaidEdges_PipeLabelStripsBeforeNodeShape(t *testing.T) {
 	}
 }
 
-// TestSplitMermaidEdgeLine_SignatureCarriesLabel — defensive
-// signature test: the new 4-return form MUST be the only callable
+// TestSplitMermaidEdgeLine_SignatureCarriesLabelAndOperator — defensive
+// signature test: the new 5-return form MUST be the only callable
 // surface. (Compile-time check; if signature drifts back, this fails
 // to build.)
-func TestSplitMermaidEdgeLine_SignatureCarriesLabel(t *testing.T) {
-	from, to, label, ok := splitMermaidEdgeLine("A -->|cond| B")
-	if !ok || from != "A" || to != "B" || label != "cond" {
-		t.Errorf("splitMermaidEdgeLine = (%q,%q,%q,%v), want (A,B,cond,true)",
-			from, to, label, ok)
+func TestSplitMermaidEdgeLine_SignatureCarriesLabelAndOperator(t *testing.T) {
+	from, to, label, op, ok := splitMermaidEdgeLine("A -->|cond| B")
+	if !ok || from != "A" || to != "B" || label != "cond" || op != "-->" {
+		t.Errorf("splitMermaidEdgeLine = (%q,%q,%q,%q,%v), want (A,B,cond,-->,true)",
+			from, to, label, op, ok)
 	}
 }
 
@@ -2542,6 +2542,32 @@ func TestValidateDiagramEdgeSupport_UnlabelledSequenceDefaultsToCall(t *testing.
 		if v.Kind == types.ViolDiagramEdgeUnsupported {
 			t.Fatalf("unlabelled sequence edge should satisfy the call-edge minimum; got %+v", v)
 		}
+	}
+}
+
+func TestValidateDiagramEdgeSupport_LabelledSolidSequenceDefaultsToCall(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := docWithDiagramBody("sequenceDiagram\n  Auth->>Worker: BuildAnalysisSkill\n")
+	vs := validateDiagramEdgeSupport(doc, view)
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			t.Fatalf("solid sequence edge with method-name label should satisfy call minimum; got %+v", v)
+		}
+	}
+}
+
+func TestValidateDiagramEdgeSupport_DashedSequenceReplyDoesNotDefaultToCall(t *testing.T) {
+	view := callChainViewWithDiagram()
+	doc := docWithDiagramBody("sequenceDiagram\n  Auth-->>Worker: result\n")
+	vs := validateDiagramEdgeSupport(doc, view)
+	var found bool
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("dashed sequence reply must not satisfy the call-edge minimum by default; got %+v", vs)
 	}
 }
 
