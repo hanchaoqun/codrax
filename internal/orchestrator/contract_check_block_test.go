@@ -2427,6 +2427,43 @@ func TestValidateDiagramEdgeSupport_LabelledEdgePassesViaLabelInference(t *testi
 	}
 }
 
+func TestValidateDiagramEdgeSupport_LabelInferenceCoversAllRelationKinds(t *testing.T) {
+	cases := []struct {
+		name  string
+		rel   types.DiagramRelationKind
+		label string
+	}{
+		{name: "call", rel: types.DiagramRelCall, label: "invoke"},
+		{name: "guard", rel: types.DiagramRelGuard, label: "if ready"},
+		{name: "import", rel: types.DiagramRelImport, label: "depends on module"},
+		{name: "precedence", rel: types.DiagramRelPrecedence, label: "override default"},
+		{name: "contain", rel: types.DiagramRelContain, label: "contain module"},
+		{name: "observe", rel: types.DiagramRelObserve, label: "metric observation"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			view := &types.AnswerSemanticView{
+				DiagramPlan: &types.DiagramFacetGraph{
+					Required: true,
+					Kind:     types.DiagramSequence,
+					EdgeRelations: []types.DiagramEdgeRelationContract{{
+						Kind:      tc.rel,
+						Min:       1,
+						ClaimForm: types.ClaimFormForRelation(tc.rel),
+					}},
+				},
+			}
+			doc := docWithDiagramBody("sequenceDiagram\n  Auth->>Worker: " + tc.label + "\n")
+			vs := validateDiagramEdgeSupport(doc, view)
+			for _, v := range vs {
+				if v.Kind == types.ViolDiagramEdgeUnsupported {
+					t.Fatalf("label-only relation %s should satisfy min via unified relation resolver, got %+v", tc.rel, v)
+				}
+			}
+		})
+	}
+}
+
 // Layer 2 passes when an anchored edge entry covers the labelled edge.
 //
 // B3 v3 (2026-05-04): the anchor must declare BOTH RelationKind AND

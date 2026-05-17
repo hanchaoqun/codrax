@@ -428,35 +428,27 @@ func validateDiagramRelationLegality(
 		//   1. Typed RelationKind on a matching EdgeAnchor (from,to) →
 		//      authoritative.
 		//   2. Otherwise InferRelationFromLabel(e.label).
+		//   3. Otherwise a narrow syntax fallback may classify a relation
+		//      when the carrier itself has an unambiguous semantics.
 		// Unknown (no typed AND no recognised label keyword) keeps the
 		// pre-G3 "label-free edge" semantic — legitimate, no violation.
-		typedRel, hasTyped := typedRelIndex[edgeKey{
-			from: strings.ToLower(strings.TrimSpace(e.from)),
-			to:   strings.ToLower(strings.TrimSpace(e.to)),
-		}]
-		labelRel := types.InferRelationFromLabel(e.label)
-		var rel types.DiagramRelationKind
+		resolved := resolveDiagramEdgeRelation(diagramBlock, e, typedRelIndex)
 		switch {
-		case hasTyped:
-			rel = typedRel
-			typedRelCounts[typedRel]++
+		case resolved.HasTyped:
+			typedRelCounts[resolved.Relation]++
 			// Advisory drift signal: typed says X, label parses to Y, X≠Y.
 			// SOFT-only — labels are noisy; never promote.
-			if labelRel != types.DiagramRelUnknown && labelRel != typedRel {
+			if resolved.LabelRelation != types.DiagramRelUnknown && resolved.LabelRelation != resolved.Relation {
 				mismatches = append(mismatches, labelMismatch{
 					from: e.from, to: e.to, label: e.label,
-					typed: typedRel, labelInferred: labelRel,
+					typed: resolved.Relation, labelInferred: resolved.LabelRelation,
 				})
 			}
 		default:
-			rel = labelRel
-			if rel == types.DiagramRelUnknown {
-				rel = implicitDiagramRelationKind(diagramBlock, e)
-			}
-			if rel != types.DiagramRelUnknown {
-				labelRelCounts[rel]++
-				labelOnlyEdges[rel] = append(labelOnlyEdges[rel],
-					labelOnlyEdge{from: e.from, to: e.to, label: e.label, labelInferred: rel})
+			if resolved.Relation != types.DiagramRelUnknown {
+				labelRelCounts[resolved.Relation]++
+				labelOnlyEdges[resolved.Relation] = append(labelOnlyEdges[resolved.Relation],
+					labelOnlyEdge{from: e.from, to: e.to, label: e.label, labelInferred: resolved.Relation})
 			}
 		}
 		// Per-edge claim_form match check is fully retired:
@@ -482,7 +474,7 @@ func validateDiagramRelationLegality(
 		// inference fills the count, and diagram_edge_label_mismatch
 		// (SOFT) still surfaces typed-vs-label drift for operator
 		// visibility.
-		_ = rel
+		_ = resolved
 	}
 
 	var violations []types.Violation
@@ -582,6 +574,41 @@ func validateDiagramRelationLegality(
 		})
 	}
 	return violations
+}
+
+type diagramEdgeRelationResolution struct {
+	Relation      types.DiagramRelationKind
+	LabelRelation types.DiagramRelationKind
+	HasTyped      bool
+}
+
+func resolveDiagramEdgeRelation(
+	diagramBlock *types.AnswerBlock,
+	edge mermaidEdge,
+	typedRelIndex map[edgeKey]types.DiagramRelationKind,
+) diagramEdgeRelationResolution {
+	labelRel := types.InferRelationFromLabel(edge.label)
+	key := edgeKey{
+		from: strings.ToLower(strings.TrimSpace(edge.from)),
+		to:   strings.ToLower(strings.TrimSpace(edge.to)),
+	}
+	if typedRelIndex != nil {
+		if rel, ok := typedRelIndex[key]; ok {
+			return diagramEdgeRelationResolution{
+				Relation:      rel,
+				LabelRelation: labelRel,
+				HasTyped:      true,
+			}
+		}
+	}
+	rel := labelRel
+	if rel == types.DiagramRelUnknown {
+		rel = implicitDiagramRelationKind(diagramBlock, edge)
+	}
+	return diagramEdgeRelationResolution{
+		Relation:      rel,
+		LabelRelation: labelRel,
+	}
 }
 
 func implicitDiagramRelationKind(diagramBlock *types.AnswerBlock, edge mermaidEdge) types.DiagramRelationKind {

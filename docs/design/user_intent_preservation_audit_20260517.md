@@ -727,7 +727,7 @@
 
 - [x] citation op 合并只读取 typed citation 池，不读取用户问题或模型散文。
 - [x] sequence arrow default 只读取 Mermaid 结构操作符，不读取关系词，也不改变模型原始图源码；默认范围锁定为 `->>`，其它 sequence arrow 需要显式 `edge_anchors.relation_kind=call` 或关系 label 才进入 call。
-- [x] semantic quality reviewer 的 diagram contract 投影复用同一套可见边解析：typed edge anchor、label inference、sequence `->>` implicit call 都统一计数；deterministic contract 已满足时，reviewer 的 `diagram_gap` 不再转成返工 violation。
+- [x] validator 与 semantic quality reviewer 共用同一套 diagram edge relation resolver：`edge_anchors.relation_kind` / edge-capable `claim_form` 优先，闭集 label vocabulary 覆盖 call、guard、import、precedence、contain、observe，最后才允许 `sequenceDiagram ->>` 这种结构安全 fallback；deterministic contract 已满足时，reviewer 的 `diagram_gap` 不再转成返工 violation。
 - [x] reviewer schema tolerance 只修结构形状；真实 `consistent=false` 且无 contradiction 仍按 malformed verdict 处理。
 - [x] 回归测试覆盖 citation op 合并、preserved citation-pool remap、sequence solid/dashed 区分、reviewer string/stringified-array 兼容，防止后续开发重新把协议小错升级成 finalizer 重写。
 

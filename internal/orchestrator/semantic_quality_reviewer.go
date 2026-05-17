@@ -870,16 +870,8 @@ func semanticQualityDiagramRelationCounts(doc *types.AnswerDocumentV2, diagramBl
 		if !diagramTokenSupported(edge.from, support) || !diagramTokenSupported(edge.to, support) {
 			continue
 		}
-		rel, hasTyped := typedRelIndex[edgeKey{
-			from: strings.ToLower(strings.TrimSpace(edge.from)),
-			to:   strings.ToLower(strings.TrimSpace(edge.to)),
-		}]
-		if !hasTyped {
-			rel = types.InferRelationFromLabel(edge.label)
-			if rel == types.DiagramRelUnknown {
-				rel = implicitDiagramRelationKind(diagramBlock, edge)
-			}
-		}
+		resolved := resolveDiagramEdgeRelation(diagramBlock, edge, typedRelIndex)
+		rel := resolved.Relation
 		if rel != types.DiagramRelUnknown {
 			counts[rel]++
 		}

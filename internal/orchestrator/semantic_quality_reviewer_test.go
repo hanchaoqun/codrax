@@ -348,6 +348,64 @@ func TestBuildSemanticQualityInput_DiagramContractCountsVisibleSequenceCalls(t *
 	}
 }
 
+func TestBuildSemanticQualityInput_DiagramContractCountsLabelRelations(t *testing.T) {
+	cases := []struct {
+		name  string
+		rel   types.DiagramRelationKind
+		label string
+	}{
+		{name: "call", rel: types.DiagramRelCall, label: "invoke"},
+		{name: "guard", rel: types.DiagramRelGuard, label: "if ready"},
+		{name: "import", rel: types.DiagramRelImport, label: "depends on module"},
+		{name: "precedence", rel: types.DiagramRelPrecedence, label: "override default"},
+		{name: "contain", rel: types.DiagramRelContain, label: "contain module"},
+		{name: "observe", rel: types.DiagramRelObserve, label: "metric observation"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			view := &types.AnswerSemanticView{
+				DiagramPlan: &types.DiagramFacetGraph{
+					Required: true,
+					Kind:     types.DiagramSequence,
+					EdgeRelations: []types.DiagramEdgeRelationContract{{
+						Kind:      tc.rel,
+						Min:       1,
+						ClaimForm: types.ClaimFormForRelation(tc.rel),
+					}},
+				},
+			}
+			doc := &types.AnswerDocumentV2{
+				Blocks: []types.AnswerBlock{
+					{
+						ID:   "anchors",
+						Kind: types.BlockOrderedList,
+						Items: []types.AnswerBlockItem{
+							{ID: "auth", Label: "Auth"},
+							{ID: "worker", Label: "Worker"},
+						},
+					},
+					{
+						ID:   "d1",
+						Kind: types.BlockDiagram,
+						Diagram: &types.AnswerDiagramBlock{
+							Kind:     types.DiagramSequence,
+							Language: "mermaid",
+							Body:     "sequenceDiagram\n  Auth->>Worker: " + tc.label + "\n",
+						},
+					},
+				},
+			}
+			in := BuildSemanticQualityInput("o", "s", "b", doc, view, nil)
+			if in.DiagramContract == nil || len(in.DiagramContract.Edges) != 1 {
+				t.Fatalf("missing diagram contract projection: %+v", in.DiagramContract)
+			}
+			if got := in.DiagramContract.Edges[0].MinSatisfied; got != 1 {
+				t.Fatalf("label-only relation %s should satisfy min via unified relation resolver, got %d", tc.rel, got)
+			}
+		})
+	}
+}
+
 func TestBuildSemanticQualityInput_DiagramContractDoesNotCountDashedReplyAsCall(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		DiagramPlan: &types.DiagramFacetGraph{
