@@ -3,6 +3,8 @@ package orchestrator
 import (
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestSoftMessages_LocalizeOnLanguage pins that the forced-read and
@@ -347,5 +349,48 @@ func TestMultiRepoScanMessages_ElapsedFormat(t *testing.T) {
 		if got := formatScanElapsed(c.ms); got != c.want {
 			t.Errorf("formatScanElapsed(%d) = %q, want %q", c.ms, got, c.want)
 		}
+	}
+}
+
+func TestRepoMapScanMessagesCarryFileCounts(t *testing.T) {
+	ev := types.RepoMapScanEvent{
+		RepoRoot:       "/work/linux",
+		Mode:           types.RepoMapScanFull,
+		TotalFiles:     93459,
+		ParseableFiles: 12000,
+		ParsedFiles:    4000,
+	}
+	start := repoMapScanMessage("zh", ev)
+	if !strings.HasPrefix(start, "· ") || !strings.Contains(start, "`linux`") || !strings.Contains(start, "93459 个文件") || !strings.Contains(start, "12000 个源文件") {
+		t.Fatalf("scan start should carry repo label and counts, got %q", start)
+	}
+	ev.Progress = true
+	progress := repoMapScanMessage("zh", ev)
+	if !strings.Contains(progress, "已解析 4000/12000") || strings.Contains(progress, "⟳") {
+		t.Fatalf("scan progress should carry parsed/total without retry glyph, got %q", progress)
+	}
+	ev.Progress = false
+	ev.Finished = true
+	ev.OK = true
+	ev.ElapsedMs = 1234
+	done := repoMapScanMessage("en", ev)
+	if !strings.HasPrefix(done, "✓ ") || !strings.Contains(done, "repo index `linux` ready") || !strings.Contains(done, "1.2s") {
+		t.Fatalf("scan end should carry success glyph, repo label, elapsed time; got %q", done)
+	}
+}
+
+func TestRepoMapScanMessagesUseSubRepoLabelWhenPresent(t *testing.T) {
+	ev := types.RepoMapScanEvent{
+		RepoRoot:       "/work/mono/services/api",
+		DisplayName:    "services/api",
+		SubRepoRootRel: "services/api",
+		Mode:           types.RepoMapScanCacheHit,
+		Finished:       true,
+		OK:             true,
+		TotalFiles:     42,
+	}
+	got := repoMapScanMessage("zh", ev)
+	if !strings.Contains(got, "子仓索引 `services/api`") || !strings.Contains(got, "缓存命中") {
+		t.Fatalf("multi-repo scan should use RootRel label and cache-hit wording, got %q", got)
 	}
 }

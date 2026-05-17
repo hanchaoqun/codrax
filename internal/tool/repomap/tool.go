@@ -193,10 +193,13 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		}, nil
 	}
 
-	// Build or load the graph. The scope check above runs before cache
-	// selection and file discovery, so refused paths never reach
-	// index.CacheDir / index.ScanFiles.
-	graph, err := buildOrLoadGraph(repoRoot, p.Query)
+	// Build, load, or reuse the graph. The scope check above runs
+	// before cache selection and file discovery, so refused paths never
+	// reach index.CacheDir / index.ScanFiles. Route through the context
+	// facade so an analyzer prewarm stored on Mutable.SearchGraph or a
+	// single-repo MultiGraph resident can satisfy this tool call without
+	// triggering a second full scan.
+	graph, err := GraphFromBusContextOrLoad(ctx, repoRoot, p.Query)
 	if err != nil {
 		return ctypes.ToolResult{
 			ToolName:  t.Name(),
@@ -369,7 +372,8 @@ func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 	// No cache at all → full scan
 	if index.NeedsFullRescan(cacheDir) {
 		logging.Info("repo_map: full scan (%d files, no cache)", len(entries))
-		return fullScan(repoRoot, cacheDir, entries, query)
+		progress := newRepoMapScanProgress(repoRoot, ctypes.RepoMapScanFull, len(entries), len(entries))
+		return fullScan(repoRoot, cacheDir, entries, query, progress)
 	}
 
 	// Detect which files changed
@@ -378,18 +382,38 @@ func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 	// Nothing changed → load from cache directly
 	if len(changed) == 0 {
 		logging.Info("repo_map: cache hit (%d files, 0 changed)", len(entries))
+		notifyRepoMapScan(ctypes.RepoMapScanEvent{
+			RepoRoot:       repoRoot,
+			Mode:           ctypes.RepoMapScanCacheHit,
+			Finished:       true,
+			OK:             true,
+			TotalFiles:     len(entries),
+			ParseableFiles: countParseableEntries(entries),
+		})
 		return loadFromCache(repoRoot, cacheDir, query)
 	}
 
 	// >30% changed → full rescan is faster than incremental
 	if float64(len(changed))/float64(len(entries)) > 0.3 {
 		logging.Info("repo_map: full rescan (%d files, %d changed >30%%)", len(entries), len(changed))
-		return fullScan(repoRoot, cacheDir, entries, query)
+		progress := newRepoMapScanProgress(repoRoot, ctypes.RepoMapScanFullRescan, len(entries), len(changed))
+		return fullScan(repoRoot, cacheDir, entries, query, progress)
 	}
 
 	// Incremental: reparse only changed files, merge with cached data
 	logging.Info("repo_map: incremental (%d files, %d changed)", len(entries), len(changed))
-	return incrementalScan(repoRoot, cacheDir, entries, changed, query)
+	progress := newRepoMapScanProgress(repoRoot, ctypes.RepoMapScanIncremental, len(entries), len(changed))
+	return incrementalScan(repoRoot, cacheDir, entries, changed, query, progress)
+}
+
+func countParseableEntries(entries []FileEntry) int {
+	n := 0
+	for _, e := range entries {
+		if e.Language != "" {
+			n++
+		}
+	}
+	return n
 }
 
 func loadFromCache(repoRoot, cacheDir, query string) (*Graph, error) {
@@ -400,7 +424,8 @@ func loadFromCache(repoRoot, cacheDir, query string) (*Graph, error) {
 		if err != nil {
 			return nil, fmt.Errorf("file scan: %w", err)
 		}
-		return fullScan(repoRoot, cacheDir, entries, query)
+		progress := newRepoMapScanProgress(repoRoot, ctypes.RepoMapScanFull, len(entries), len(entries))
+		return fullScan(repoRoot, cacheDir, entries, query, progress)
 	}
 
 	graph := index.BuildGraph(repoRoot, cached)
@@ -408,10 +433,14 @@ func loadFromCache(repoRoot, cacheDir, query string) (*Graph, error) {
 	return graph, nil
 }
 
-func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []string, query string) (*Graph, error) {
+func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []string, query string, progress *repoMapScanProgress) (*Graph, error) {
 	cached := index.LoadFileInfos(cacheDir)
 	if cached == nil {
-		return fullScan(repoRoot, cacheDir, entries, query)
+		if progress != nil {
+			progress.mode = ctypes.RepoMapScanFull
+			progress.changedFiles = len(entries)
+		}
+		return fullScan(repoRoot, cacheDir, entries, query, progress)
 	}
 
 	// Build lookup of cached files by path
@@ -447,18 +476,19 @@ func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []s
 		}
 	}
 
-	freshInfos := index.ParseFiles(parseable, repoRoot)
+	progress.startScan(len(parseable))
+	var scanErr error
+	defer func() {
+		progress.finish(scanErr == nil, scanErr)
+	}()
+
+	var onProgress func(done, total int)
+	if progress != nil {
+		onProgress = progress.parsed
+	}
+	freshInfos := index.ParseFilesWithProgress(parseable, repoRoot, onProgress)
 	for _, e := range unparseable {
-		fi := &FileInfo{
-			RelPath:  e.RelPath,
-			Language: "",
-			Size:     e.Size,
-		}
-		if ok, stype := index.IsSpecialFile(e.RelPath); ok {
-			fi.IsSpecial = true
-			fi.SpecialType = stype
-		}
-		freshInfos = append(freshInfos, fi)
+		freshInfos = append(freshInfos, index.BasicFileInfo(e))
 	}
 
 	// Build fresh lookup
@@ -485,7 +515,7 @@ func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []s
 	return graph, nil
 }
 
-func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string) (*Graph, error) {
+func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string, progress *repoMapScanProgress) (*Graph, error) {
 	// Filter to only parseable files (with known language)
 	var parseable []FileEntry
 	var unparseable []FileEntry
@@ -498,20 +528,21 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string) (*Gr
 	}
 
 	// Parse all files in parallel
-	fileInfos := index.ParseFiles(parseable, repoRoot)
+	progress.startScan(len(parseable))
+	var scanErr error
+	defer func() {
+		progress.finish(scanErr == nil, scanErr)
+	}()
+
+	var onProgress func(done, total int)
+	if progress != nil {
+		onProgress = progress.parsed
+	}
+	fileInfos := index.ParseFilesWithProgress(parseable, repoRoot, onProgress)
 
 	// Add unparseable files with basic metadata
 	for _, e := range unparseable {
-		fi := &FileInfo{
-			RelPath:  e.RelPath,
-			Language: "",
-			Size:     e.Size,
-		}
-		if ok, stype := index.IsSpecialFile(e.RelPath); ok {
-			fi.IsSpecial = true
-			fi.SpecialType = stype
-		}
-		fileInfos = append(fileInfos, fi)
+		fileInfos = append(fileInfos, index.BasicFileInfo(e))
 	}
 
 	// Build graph

@@ -598,8 +598,14 @@ func TestRenderV2_WithRecoveredDiagramAttachment(t *testing.T) {
 	if !strings.Contains(out, "主体答案。") {
 		t.Fatalf("summary lost:\n%s", out)
 	}
-	if !strings.Contains(out, "未能完整进入结构化答案") {
-		t.Fatalf("fallback lead missing:\n%s", out)
+	for _, want := range []string{
+		"主体答案。\n\n---\n\n> **系统保留内容**",
+		"> 下面内容来自模型已生成但未能完整进入结构化答案的输出",
+		"#### 保留的图",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("recovered diagram attachment missing %q:\n%s", want, out)
+		}
 	}
 	if !strings.Contains(out, "```mermaid\nsequenceDiagram\n    User->>Agent: ask\n```") {
 		t.Fatalf("recovered diagram not rendered:\n%s", out)
@@ -641,7 +647,9 @@ func TestRenderV2_WithRecoveredTextAttachmentUsesDivider(t *testing.T) {
 	}}, "zh")
 	for _, want := range []string{
 		"主体答案。",
-		"---\n\n**保留的原文**",
+		"---\n\n> **系统保留内容**",
+		"> 下面内容来自模型已生成但未能完整进入结构化答案的输出",
+		"#### 保留的原文",
 		"模型最后一轮保留下来的原文。",
 		"\n---\n",
 	} {

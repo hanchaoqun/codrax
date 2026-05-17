@@ -2132,6 +2132,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 				Diagram: &types.DiagramContract{
 					Required:       true,
 					Minimum:        1,
+					RequiredKind:   types.DiagramCallDAG,
 					PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
 					ScopeHint:      types.DiagramScopeOverall,
 					Reasons:        []string{"axis_call"},
@@ -2163,6 +2164,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 	for _, want := range []string{
 		"## Diagram Contract",
 		"Required: yes",
+		"Required kind: call_dag",
 		"Preferred kinds: call_dag",
 		"Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3`",
 		"Do not synthesize bare line-number aliases such as `L877`, `Line 42`",
@@ -3991,6 +3993,7 @@ func TestRenderRetryDiagramSeedFenceForRepair_SequencePrefersAnswerChainsOverFlo
 			AnswerContract: types.AnswerContract{
 				Diagram: &types.DiagramContract{
 					Required:       true,
+					RequiredKind:   types.DiagramSequence,
 					PreferredKinds: []types.DiagramKind{types.DiagramSequence},
 				},
 			},
@@ -4024,6 +4027,37 @@ func TestRenderRetryDiagramSeedFenceForRepair_SequencePrefersAnswerChainsOverFlo
 	}
 	if strings.Contains(got, "Evidence Gaps") || strings.Contains(got, "Cross-References") {
 		t.Fatalf("sequence retry seed should not let generic flow-finding prose shadow answer-chain nodes:\n%s", got)
+	}
+}
+
+func TestRenderRetryDiagramSeedFenceForRepair_SequenceFallbackKeepsSequenceSyntax(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Scenario: types.ScenarioArchitectureExplain},
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					RequiredKind:   types.DiagramSequence,
+					PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			Source:          "mm/page_alloc.c",
+			LineStart:       3943,
+			GroundingStatus: types.GroundingGrounded,
+			AnchorKind:      types.AnchorCall,
+			Subject:         "get_page_from_freelist",
+			Object:          "rmqueue",
+		}},
+	}
+
+	got := renderRetryDiagramSeedFenceForRepair(ctx, nil)
+	if !strings.Contains(got, "sequenceDiagram") {
+		t.Fatalf("explicit sequence retry seed must keep sequence syntax:\n%s", got)
+	}
+	if strings.Contains(got, "flowchart TD") {
+		t.Fatalf("explicit sequence retry seed must not hand finalizer a flowchart:\n%s", got)
 	}
 }
 

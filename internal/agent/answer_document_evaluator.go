@@ -2739,6 +2739,18 @@ func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
 	b.WriteString("## Diagram Contract\n\n")
 	b.WriteString("- Required: yes\n")
 	fmt.Fprintf(&b, "- Minimum diagrams: %d\n", minimum)
+	requiredKind := dc.RequiredKind
+	if requiredKind == types.DiagramNone || !requiredKind.IsValid() {
+		for _, kind := range dc.PreferredKinds {
+			if kind != types.DiagramNone && kind.IsValid() {
+				requiredKind = kind
+				break
+			}
+		}
+	}
+	if requiredKind != types.DiagramNone && requiredKind.IsValid() {
+		fmt.Fprintf(&b, "- Required kind: %s\n", requiredKind)
+	}
 	if len(dc.PreferredKinds) > 0 {
 		kinds := make([]string, 0, len(dc.PreferredKinds))
 		for _, kind := range dc.PreferredKinds {
@@ -2751,6 +2763,9 @@ func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
 		fmt.Fprintf(&b, "- Reasons: %s\n", strings.Join(dc.Reasons, ", "))
 	}
 	b.WriteString("- This requirement is independent of question family: if it says `Required: yes`, the dispatch must contain at least one grounded fenced diagram via a principal `diagram` block (preferred) or a fenced block embedded in the `summary` block's text.\n")
+	if requiredKind != types.DiagramNone && requiredKind.IsValid() {
+		fmt.Fprintf(&b, "- The required kind is authoritative: set `diagram.kind=%s` and use the matching Mermaid body syntax for that semantic family.\n", requiredKind)
+	}
 	b.WriteString("- PREFERRED form: a ` ```mermaid ` fenced block. For flow / architecture / call_dag families, default to `flowchart TD` and switch to LR / RL / BT only when that genuinely improves readability; vertical is preferred because code-bearing labels are often long. For `sequenceDiagram`, keep participant labels short and move detailed prose into messages / surrounding text because actors render horizontally. The renderer applies a deterministic-alignment pass to Mermaid bodies so the diagram looks clean across terminals / locales / CJK content. ASCII art (a bare ``` fence with `+ - | > <` connectors) is the FALLBACK ONLY when the supported Mermaid subset cannot express the shape.\n")
 	b.WriteString("- Reuse grounded labels directly inside the fence. Do not rename, normalize, or abstract a cited file / symbol / path literal into a different label unless that alternate label is itself grounded in citations or log frames.\n")
 	b.WriteString("- Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3` unless those exact labels appear in grounded evidence.\n\n")
@@ -2819,7 +2834,11 @@ func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
 	// Log Triage frames.
 	b.WriteString("Below is a grounded starting reference — every node listed here is already corroborated by evidence in this dispatch, and some scenarios may supply prevalidated role labels whose supporting anchors are listed elsewhere in the prompt. Use it as a FLOOR, not a ceiling:\n\n")
 	b.WriteString("- You SHOULD extend it with additional grounded nodes when the investigation supports a richer mechanism (e.g. more call-chain hops, branch points, fan-out, error paths).\n")
-	b.WriteString("- You MAY change the direction (`flowchart TD` ↔ `LR` / `RL` / `BT`), introduce subgraph-like clusters as flat nodes, or switch to `sequenceDiagram` if actor-to-actor better fits the mechanism — none of these are forbidden.\n")
+	if dc := answerDocDiagramContract(ctx); dc != nil && dc.RequiredKind != types.DiagramNone && dc.RequiredKind.IsValid() {
+		fmt.Fprintf(&b, "- Required semantic kind for this dispatch: `%s`; keep `diagram.kind` and the Mermaid syntax aligned with that kind.\n", dc.RequiredKind)
+	} else {
+		b.WriteString("- You MAY change the direction (`flowchart TD` ↔ `LR` / `RL` / `BT`), introduce subgraph-like clusters as flat nodes, or switch to `sequenceDiagram` if actor-to-actor better fits the mechanism — none of these are forbidden.\n")
+	}
 	b.WriteString("- You MAY add branches / fan-out / multi-source / multi-sink shapes; the linear chain in the reference is just the safest default skeleton, not a structural requirement.\n")
 	b.WriteString("- HARD RULE: every node label must remain grounded in citations[] or Log Triage frames. Renaming an existing node, abstracting it, or inventing a node without grounded backing is rejected by the diagram-grounding gate.\n\n")
 	b.WriteString(fence)
@@ -6482,6 +6501,15 @@ func extractFirstFencedBlock(text string) string {
 
 func retryDiagramKinds(ctx *types.AgentContext) []types.DiagramKind {
 	dc := answerDocDiagramContract(ctx)
+	if dc != nil && dc.Required && dc.RequiredKind != types.DiagramNone && dc.RequiredKind.IsValid() {
+		kinds := []types.DiagramKind{dc.RequiredKind}
+		for _, kind := range dc.PreferredKinds {
+			if kind != dc.RequiredKind {
+				kinds = append(kinds, kind)
+			}
+		}
+		return kinds
+	}
 	if dc != nil && len(dc.PreferredKinds) > 0 {
 		return append([]types.DiagramKind(nil), dc.PreferredKinds...)
 	}
@@ -6557,6 +6585,9 @@ func renderRetryDiagramSeedFenceForKind(ctx *types.AgentContext, kind types.Diag
 	}
 	merged := mergeRetrySeedNodes(allowed)
 	if len(merged) >= 2 {
+		if kind == types.DiagramSequence {
+			return types.RenderSequenceDiagramFence(merged, retryDiagramSeedNodeCap)
+		}
 		return types.RenderLinearDiagramFence(merged, retryDiagramSeedNodeCap)
 	}
 	// Fallback: at least surface the strongest single seed's fence

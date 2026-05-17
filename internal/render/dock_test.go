@@ -130,6 +130,7 @@ func TestActivityPhrase_AllKindsLocalized(t *testing.T) {
 		activitySwitchingProvider,
 		activityPreparingWorktree,
 		activityCapturingBaseline,
+		activityRepoMapScanning,
 		activityErrorRecoverable,
 		activityErrorFatal,
 		activityCancelled,
@@ -189,6 +190,18 @@ func TestComposeDockRow1_RequestingNoTail(t *testing.T) {
 	}
 	if strings.Contains(plain, "▸") {
 		t.Errorf("requesting row must NOT include the ▸ tail segment; got %q", plain)
+	}
+}
+
+func TestComposeDockRow1_RepoMapScanShowsProgressTail(t *testing.T) {
+	plain := stripAnsiEscapes(composeDockRow1(dockRowState{
+		activity:   activityState{kind: activityRepoMapScanning},
+		streamTail: "已解析 4000/12000 个源文件（总文件 93459）",
+		frame:      "⠋",
+		lang:       "zh",
+	}))
+	if !strings.Contains(plain, "扫描仓库索引中") || !strings.Contains(plain, "4000/12000") {
+		t.Fatalf("repo-map scan row should show live count detail, got %q", plain)
 	}
 }
 
@@ -856,6 +869,24 @@ func TestRenderer_FinalizingNoticeUpdatesActivity(t *testing.T) {
 	rows := r.composeCurrentDockRows()
 	if row1 := stripAnsiEscapes(rows[0]); !strings.Contains(row1, "撰写最终答案") {
 		t.Errorf("finalizing notice should update row 1; got %q", row1)
+	}
+}
+
+func TestRenderer_RepoMapScanProgressUpdatesActivity(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	emit(Event{
+		Kind:       EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		NoticeKind: NoticeRepoMapScanProgress,
+		Reasoning:  "· 仓库索引 `linux` 扫描中：已解析 4000/12000 个源文件（总文件 93459）",
+	})
+
+	if r.activity.kind != activityRepoMapScanning {
+		t.Fatalf("repo-map scan progress must switch dock activity; got %v", r.activity.kind)
+	}
+	if !strings.Contains(r.streamTail, "4000/12000") {
+		t.Fatalf("repo-map scan progress should populate live tail, got %q", r.streamTail)
 	}
 }
 

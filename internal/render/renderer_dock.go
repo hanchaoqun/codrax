@@ -103,6 +103,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		// no stage-round trace label — the user must be able to tell at a
 		// glance whether a line is the LLM thinking aloud or the
 		// orchestrator announcing a control-flow decision.
+		scanProgressOnly := ev.NoticeKind == NoticeRepoMapScanProgress
 		line := r.formatOrchestratorNoticeLocked(ev.NoticeKind, ev.Reasoning)
 		if line == "" {
 			return
@@ -111,9 +112,25 @@ func (r *Renderer) handleEvent(ev Event) {
 			r.activity = activityState{kind: activityFinalizing}
 			r.streamTail = ""
 			r.streamChars = 0
+		} else if ev.NoticeKind == NoticeRepoMapScanStart || ev.NoticeKind == NoticeRepoMapScanProgress {
+			_, body := peelGlyphPrefix(ev.Reasoning)
+			if body == "" {
+				body = ev.Reasoning
+			}
+			r.activity = activityState{kind: activityRepoMapScanning}
+			r.streamTail = strings.TrimSpace(body)
+		} else if ev.NoticeKind == NoticeRepoMapScanOK || ev.NoticeKind == NoticeRepoMapScanFail {
+			if r.activity.kind == activityRepoMapScanning {
+				r.activity = activityState{kind: activityWaitingNode}
+				r.streamTail = ""
+			}
 		}
 		if !r.dockEnabled && r.dock == nil {
 			r.handleEventNonTTY(ev)
+			return
+		}
+		if scanProgressOnly {
+			r.paintDockLocked()
 			return
 		}
 		r.commitLineLocked(line)
@@ -1759,9 +1776,11 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		NoticeSelfConsistencyStart,
 		NoticeSemanticQualityReviewStart,
 		NoticeProceedingWithoutExtract,
-		NoticeInvestigationReady:
+		NoticeInvestigationReady,
+		NoticeRepoMapScanStart,
+		NoticeRepoMapScanProgress:
 		return statusObjective
-	case NoticeMultiRepoScanOK:
+	case NoticeMultiRepoScanOK, NoticeRepoMapScanOK:
 		// Match the canonical glyphSuccess (✓) / statusSuccessMuted
 		// (FgGreen) pairing already used by the dock state row's
 		// "stage finished OK" tick — the operator sees the same
@@ -1769,7 +1788,7 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 		// repo scan, so the success palette stays consistent across
 		// the dock chrome.
 		return statusSuccessMuted
-	case NoticeMultiRepoScanFail:
+	case NoticeMultiRepoScanFail, NoticeRepoMapScanFail:
 		// Match the canonical glyphFatal (✗) / statusFatal (FgRed)
 		// pairing used by the dock state row's "stage finished with
 		// fatal error" marker. A failed sub-repo scan is genuinely

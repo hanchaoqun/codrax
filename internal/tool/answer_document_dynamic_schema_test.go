@@ -196,6 +196,7 @@ func TestBuildAnswerDocumentParametersFor_ExplicitDiagramKindOverridesFamilyDefa
 	}, &types.AnswerSurfacePlan{
 		Diagram: &types.DiagramContract{
 			Required:       true,
+			RequiredKind:   types.DiagramSequence,
 			PreferredKinds: []types.DiagramKind{types.DiagramSequence},
 		},
 	})

@@ -265,6 +265,19 @@ func gitHeadSHA(repoRoot string) string {
 	return strings.TrimSpace(string(out))
 }
 
+func contentHash(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:8])
+}
+
+func hashFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return contentHash(data), nil
+}
+
 func saveHashes(dir string, g *types.Graph) error {
 	var b strings.Builder
 	b.WriteString("# File Hashes\n\n")
@@ -431,14 +444,11 @@ func ChangedFiles(repoRoot, cacheDir string, entries []FileEntry) []string {
 			changed = append(changed, entry.RelPath) // new file
 			continue
 		}
-		// read and hash to compare
-		data, err := os.ReadFile(entry.AbsPath)
+		newHash, err := hashFile(entry.AbsPath)
 		if err != nil {
 			changed = append(changed, entry.RelPath)
 			continue
 		}
-		h := sha256.Sum256(data)
-		newHash := hex.EncodeToString(h[:8])
 		if newHash != oldHash {
 			changed = append(changed, entry.RelPath)
 		}

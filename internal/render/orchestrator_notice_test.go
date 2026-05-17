@@ -17,7 +17,7 @@ import (
 // at the byte level: the formatter MUST NOT emit the reasoning glyph
 // or a stage-round trace label for any NoticeKind.
 func TestFormatOrchestratorNotice_NoLLMThinkingPrefix(t *testing.T) {
-	for kind := NoticeRetry; kind <= NoticeInvestigationReady; kind++ {
+	for kind := NoticeRetry; kind <= NoticeRepoMapScanFail; kind++ {
 		out := formatOrchestratorNotice(kind, "⟳ test message")
 		if strings.Contains(out, string(glyphReasoning)) {
 			t.Errorf("kind=%d: orchestrator notice MUST NOT carry the LLM-thinking glyph; got %q", kind, out)
@@ -98,6 +98,10 @@ func TestFormatOrchestratorNotice_ColorByBucket(t *testing.T) {
 		{"semantic-quality-start", NoticeSemanticQualityReviewStart, statusObjective.Sprint(body)},
 		{"proceeding-without-extract", NoticeProceedingWithoutExtract, statusObjective.Sprint(body)},
 		{"investigation-ready", NoticeInvestigationReady, statusObjective.Sprint(body)},
+		{"repo-map-scan-start", NoticeRepoMapScanStart, statusObjective.Sprint(body)},
+		{"repo-map-scan-progress", NoticeRepoMapScanProgress, statusObjective.Sprint(body)},
+		{"repo-map-scan-ok", NoticeRepoMapScanOK, statusSuccessMuted.Sprint(body)},
+		{"repo-map-scan-fail", NoticeRepoMapScanFail, statusFatal.Sprint(body)},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

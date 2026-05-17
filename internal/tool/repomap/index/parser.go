@@ -2,8 +2,6 @@ package index
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"runtime"
 	"sync"
@@ -17,6 +15,14 @@ import (
 // Unparseable files (unsupported language, read errors) are included with
 // basic metadata but no symbols.
 func ParseFiles(entries []FileEntry, repoRoot string) []*types.FileInfo {
+	return ParseFilesWithProgress(entries, repoRoot, nil)
+}
+
+// ParseFilesWithProgress is ParseFiles plus a best-effort completion
+// callback. The callback receives parsed/total counts on the collector
+// goroutine, so callers can throttle UI notifications without adding
+// locks to the worker hot path.
+func ParseFilesWithProgress(entries []FileEntry, repoRoot string, progress func(done, total int)) []*types.FileInfo {
 	workers := runtime.GOMAXPROCS(0)
 	if workers < 1 {
 		workers = 4
@@ -53,8 +59,13 @@ func ParseFiles(entries []FileEntry, repoRoot string) []*types.FileInfo {
 	}()
 
 	infos := make([]*types.FileInfo, len(entries))
+	done := 0
 	for r := range results {
 		infos[r.idx] = r.info
+		done++
+		if progress != nil {
+			progress(done, len(entries))
+		}
 	}
 
 	// filter nil (shouldn't happen but be safe)
@@ -65,6 +76,25 @@ func ParseFiles(entries []FileEntry, repoRoot string) []*types.FileInfo {
 		}
 	}
 	return out
+}
+
+// BasicFileInfo returns metadata for files that repomap deliberately
+// indexes but does not parse into symbols. It still records the content
+// hash so cache invalidation does not treat every unsupported file as
+// changed forever.
+func BasicFileInfo(entry FileEntry) *types.FileInfo {
+	hash, _ := hashFile(entry.AbsPath)
+	fi := &types.FileInfo{
+		RelPath:  entry.RelPath,
+		Language: entry.Language,
+		Size:     entry.Size,
+		Hash:     hash,
+	}
+	if ok, stype := IsSpecialFile(entry.RelPath); ok {
+		fi.IsSpecial = true
+		fi.SpecialType = stype
+	}
+	return fi
 }
 
 func parseOneFile(entry FileEntry) *types.FileInfo {
@@ -78,14 +108,11 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 		}
 	}
 
-	h := sha256.Sum256(source)
-	hash := hex.EncodeToString(h[:8])
-
 	fi := &types.FileInfo{
 		RelPath:  entry.RelPath,
 		Language: entry.Language,
 		Size:     entry.Size,
-		Hash:     hash,
+		Hash:     contentHash(source),
 	}
 
 	// Check for special files

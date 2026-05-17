@@ -855,6 +855,9 @@ func TestBuildAnalysisIR_DiagramContractPropagates(t *testing.T) {
 	if len(ir.AnswerContract.Diagram.PreferredKinds) == 0 || ir.AnswerContract.Diagram.PreferredKinds[0] != types.DiagramCallDAG {
 		t.Fatalf("Diagram.PreferredKinds = %v, want first call_dag", ir.AnswerContract.Diagram.PreferredKinds)
 	}
+	if ir.AnswerContract.Diagram.RequiredKind != types.DiagramCallDAG {
+		t.Fatalf("Diagram.RequiredKind = %q, want call_dag", ir.AnswerContract.Diagram.RequiredKind)
+	}
 }
 
 // TestReconcileIntent — defense-in-depth against (intent=enumerate +

@@ -347,6 +347,7 @@ func reconcileDiagramContract(rm types.RequestModel, bundle *types.LogBundle) *t
 	var preferred []types.DiagramKind
 	var reasons []string
 	required := false
+	requiredKind := types.DiagramNone
 
 	addKind := func(kind types.DiagramKind) {
 		if kind == types.DiagramNone || !kind.IsValid() {
@@ -374,6 +375,9 @@ func reconcileDiagramContract(rm types.RequestModel, bundle *types.LogBundle) *t
 		required = true
 		addReason(reason)
 		for _, kind := range kinds {
+			if requiredKind == types.DiagramNone && kind != types.DiagramNone && kind.IsValid() {
+				requiredKind = kind
+			}
 			addKind(kind)
 		}
 	}
@@ -434,6 +438,7 @@ func reconcileDiagramContract(rm types.RequestModel, bundle *types.LogBundle) *t
 	return &types.DiagramContract{
 		Required:       required,
 		Minimum:        mapDiagramMinimum(required),
+		RequiredKind:   requiredKind,
 		PreferredKinds: preferred,
 		ScopeHint:      scope,
 		Reasons:        reasons,

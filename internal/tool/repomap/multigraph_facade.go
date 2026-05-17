@@ -3,7 +3,9 @@ package repomap
 import (
 	"fmt"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -145,6 +147,11 @@ func GraphFromBusContextOrLoad(ctx *types.BusContext, repoRoot, query string) (*
 			return mg.EnsureLoaded(pickPrimarySubRepo(mg, topo).Slug)
 		}
 	}
+	if ctx != nil && ctx.Mutable != nil {
+		if g, ok := reusableSearchGraph(repoRoot, ctx.Mutable.SearchGraph(), query); ok {
+			return g, nil
+		}
+	}
 	if repoRoot == "" {
 		return nil, fmt.Errorf("repomap: no MultiGraph and empty repoRoot")
 	}
@@ -165,6 +172,16 @@ func GraphFromAgentContextOrLoad(ctx *types.AgentContext, repoRoot, query string
 			return mg.EnsureLoaded(pickPrimarySubRepo(mg, topo).Slug)
 		}
 	}
+	if ctx != nil {
+		if g, ok := reusableSearchGraph(repoRoot, ctx.SearchGraph, query); ok {
+			return g, nil
+		}
+		if ctx.Mutable != nil {
+			if g, ok := reusableSearchGraph(repoRoot, ctx.Mutable.SearchGraph(), query); ok {
+				return g, nil
+			}
+		}
+	}
 	if repoRoot == "" {
 		return nil, fmt.Errorf("repomap: no MultiGraph and empty repoRoot")
 	}
@@ -172,6 +189,39 @@ func GraphFromAgentContextOrLoad(ctx *types.AgentContext, repoRoot, query string
 		return BuildOrLoadGraphWithin(repoRoot, ctx.RepoRoot, query)
 	}
 	return BuildOrLoadGraph(repoRoot, query)
+}
+
+func reusableSearchGraph(repoRoot string, handle any, query string) (*Graph, bool) {
+	g, ok := handle.(*Graph)
+	if !ok || g == nil || !sameRepoMapRoot(g.Root, repoRoot) {
+		return nil, false
+	}
+	clone := cloneGraphForRanking(g)
+	retrieve.RankGraph(clone, query)
+	logging.Info("repo_map: reused in-memory graph (%d files)", clone.Metadata.FileCount)
+	return clone, true
+}
+
+func cloneGraphForRanking(g *Graph) *Graph {
+	if g == nil {
+		return nil
+	}
+	clone := *g
+	clone.Scores = make(map[string]float64, len(g.Scores))
+	clone.QueryScores = make(map[string]float64, len(g.QueryScores))
+	return &clone
+}
+
+func sameRepoMapRoot(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	ca, errA := canonicalRepoMapPath(a)
+	cb, errB := canonicalRepoMapPath(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return ca == cb
 }
 
 // pickPrimarySubRepo returns the SubRepo a "best-effort single

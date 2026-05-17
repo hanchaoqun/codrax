@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
@@ -593,6 +594,106 @@ func multiRepoScanEndMessage(lang, rootRel string, elapsedMs int64, ok bool) str
 		return "✓ 子仓 `" + rootRel + "` 已就绪 (" + elapsed + ")"
 	}
 	return "✓ Sub-repo `" + rootRel + "` ready (" + elapsed + ")"
+}
+
+func repoMapScanMessage(lang string, ev types.RepoMapScanEvent) string {
+	label := repoMapScanLabel(ev)
+	if ev.Finished {
+		return repoMapScanEndMessage(lang, label, ev)
+	}
+	if ev.Progress {
+		return repoMapScanProgressMessage(lang, label, ev)
+	}
+	return repoMapScanStartMessage(lang, label, ev)
+}
+
+func repoMapScanStartMessage(lang, label string, ev types.RepoMapScanEvent) string {
+	subjectZH, subjectEN := repoMapScanSubject(ev)
+	if preferZhMessage(lang) {
+		return fmt.Sprintf("· 正在扫描%s `%s`：%s", subjectZH, label, repoMapScanCountsZH(ev, false))
+	}
+	return fmt.Sprintf("· Scanning %s `%s`: %s", subjectEN, label, repoMapScanCountsEN(ev, false))
+}
+
+func repoMapScanProgressMessage(lang, label string, ev types.RepoMapScanEvent) string {
+	subjectZH, subjectEN := repoMapScanSubject(ev)
+	if preferZhMessage(lang) {
+		return fmt.Sprintf("· %s `%s` 扫描中：%s", subjectZH, label, repoMapScanCountsZH(ev, true))
+	}
+	return fmt.Sprintf("· %s `%s` scanning: %s", subjectEN, label, repoMapScanCountsEN(ev, true))
+}
+
+func repoMapScanEndMessage(lang, label string, ev types.RepoMapScanEvent) string {
+	elapsed := formatScanElapsed(ev.ElapsedMs)
+	subjectZH, subjectEN := repoMapScanSubject(ev)
+	if !ev.OK {
+		if preferZhMessage(lang) {
+			return fmt.Sprintf("✗ %s `%s` 扫描失败 (%s)", subjectZH, label, elapsed)
+		}
+		return fmt.Sprintf("✗ %s `%s` scan failed (%s)", subjectEN, label, elapsed)
+	}
+	if preferZhMessage(lang) {
+		return fmt.Sprintf("✓ %s `%s` 已就绪：%s (%s)", subjectZH, label, repoMapScanCountsZH(ev, false), elapsed)
+	}
+	return fmt.Sprintf("✓ %s `%s` ready: %s (%s)", subjectEN, label, repoMapScanCountsEN(ev, false), elapsed)
+}
+
+func repoMapScanCountsZH(ev types.RepoMapScanEvent, progress bool) string {
+	total := ev.TotalFiles
+	parseable := ev.ParseableFiles
+	if ev.Mode == types.RepoMapScanCacheHit {
+		return fmt.Sprintf("缓存命中，%d 个文件", total)
+	}
+	if parseable <= 0 {
+		return fmt.Sprintf("%d 个文件", total)
+	}
+	if progress {
+		return fmt.Sprintf("已解析 %d/%d 个源文件（总文件 %d）", ev.ParsedFiles, parseable, total)
+	}
+	if (ev.Mode == types.RepoMapScanIncremental || ev.Mode == types.RepoMapScanFullRescan) && ev.ChangedFiles > 0 && ev.ChangedFiles < total {
+		return fmt.Sprintf("%d 个文件，需更新 %d 个，解析 %d 个源文件", total, ev.ChangedFiles, parseable)
+	}
+	return fmt.Sprintf("%d 个文件，解析 %d 个源文件", total, parseable)
+}
+
+func repoMapScanCountsEN(ev types.RepoMapScanEvent, progress bool) string {
+	total := ev.TotalFiles
+	parseable := ev.ParseableFiles
+	if ev.Mode == types.RepoMapScanCacheHit {
+		return fmt.Sprintf("cache hit, %d files", total)
+	}
+	if parseable <= 0 {
+		return fmt.Sprintf("%d files", total)
+	}
+	if progress {
+		return fmt.Sprintf("parsed %d/%d source files (%d files total)", ev.ParsedFiles, parseable, total)
+	}
+	if (ev.Mode == types.RepoMapScanIncremental || ev.Mode == types.RepoMapScanFullRescan) && ev.ChangedFiles > 0 && ev.ChangedFiles < total {
+		return fmt.Sprintf("%d files, %d changed, %d source files to parse", total, ev.ChangedFiles, parseable)
+	}
+	return fmt.Sprintf("%d files, %d source files to parse", total, parseable)
+}
+
+func repoMapScanSubject(ev types.RepoMapScanEvent) (string, string) {
+	if strings.TrimSpace(ev.SubRepoRootRel) != "" {
+		return "子仓索引", "sub-repo index"
+	}
+	return "仓库索引", "repo index"
+}
+
+func repoMapScanLabel(ev types.RepoMapScanEvent) string {
+	if label := strings.TrimSpace(ev.DisplayName); label != "" {
+		return label
+	}
+	root := strings.TrimSpace(ev.RepoRoot)
+	if root == "" {
+		return "."
+	}
+	label := filepath.Base(filepath.Clean(root))
+	if label == "." || label == string(filepath.Separator) || label == "" {
+		return root
+	}
+	return label
 }
 
 // formatScanElapsed renders the per-sub-repo scan duration for the

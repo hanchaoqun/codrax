@@ -1,9 +1,12 @@
 package orchestrator
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -178,6 +181,39 @@ func TestFixI_PackageQualifiedInlineBacktickSupportedByEvidenceEndpoint(t *testi
 	oracle := &stubOracleFixB{tiers: map[string]int{}}
 	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
 		t.Fatalf("package-qualified inline identifiers backed by evidence endpoints should pass; got %+v", vs)
+	}
+}
+
+func TestFixI_InlineIdentifierInCitedCurrentSourceFilePasses(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "mm"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "mm", "page_alloc.c"),
+		[]byte("#define ALLOC_KSWAPD 0x01\nstatic int gfp_to_alloc_flags(void) { return ALLOC_KSWAPD; }\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "section_fast",
+			Kind: types.BlockSection,
+			Text: "The fast path uses `ALLOC_KSWAPD` while preparing alloc flags.",
+		}},
+		Citations: []types.Citation{{File: "mm/page_alloc.c", Line: 1}},
+	}
+	mut := types.NewMutableState("page allocation")
+	mut.SetSearchGraph(&repotypes.Graph{
+		Root: root,
+		FileIndex: map[string]*repotypes.FileInfo{
+			"mm/page_alloc.c": &repotypes.FileInfo{RelPath: "mm/page_alloc.c"},
+		},
+	})
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("inline identifier present verbatim in a cited current source file should pass; got %+v", vs)
 	}
 }
 

@@ -1016,6 +1016,34 @@ func RenderLogDiagramFence(bundle *LogBundle) string {
 	return b.String()
 }
 
+// RenderLogSequenceDiagramFence emits the same grounded stack-frame
+// sequence as RenderLogDiagramFence, but preserves an explicit sequence
+// contract by using Mermaid sequenceDiagram syntax instead of handing
+// the finalizer a flowchart seed to reinterpret.
+func RenderLogSequenceDiagramFence(bundle *LogBundle) string {
+	frames := collectDiagramLogFrames(bundle)
+	if len(frames) < 2 {
+		return ""
+	}
+	labels := make([]string, 0, len(frames))
+	for i, frame := range frames {
+		location := fmt.Sprintf("%s:%d", frame.File, frame.Line)
+		name := strings.TrimSpace(frame.Func)
+		if name == "" {
+			name = "(no symbol)"
+		}
+		switch {
+		case i == 0:
+			labels = append(labels, fmt.Sprintf("innermost: %s in %s", location, name))
+		case i == len(frames)-1:
+			labels = append(labels, fmt.Sprintf("outermost caller: %s in %s", location, name))
+		default:
+			labels = append(labels, fmt.Sprintf("caller: %s in %s", location, name))
+		}
+	}
+	return RenderSequenceDiagramFence(labels, 0)
+}
+
 // RenderLogAnchorDiagramFence emits a grounded Mermaid call chain from
 // already-reconciled log anchors. Unlike RenderLogDiagramFence, which
 // mirrors the observed log frames directly, this helper prefers the
@@ -1075,9 +1103,54 @@ func RenderLogAnchorDiagramFence(anchors []LogSourceDriftAnchor) string {
 	return b.String()
 }
 
+// RenderLogAnchorSequenceDiagramFence is the sequence-preserving twin of
+// RenderLogAnchorDiagramFence for hard sequence diagram contracts.
+func RenderLogAnchorSequenceDiagramFence(anchors []LogSourceDriftAnchor) string {
+	if len(anchors) < 2 {
+		return ""
+	}
+	labels := make([]string, 0, len(anchors))
+	for i, anchor := range anchors {
+		file := strings.TrimSpace(anchor.File)
+		if file == "" {
+			file = strings.TrimSpace(anchor.OriginalFile)
+		}
+		line := anchor.AnchoredLine
+		if line <= 0 {
+			line = anchor.ObservedLine
+		}
+		if file == "" || line <= 0 {
+			return ""
+		}
+		location := fmt.Sprintf("%s:%d", file, line)
+		name := strings.TrimSpace(firstNonEmptySurfaceString(anchor.Func, anchor.OriginalFunc))
+		if name == "" {
+			name = "(no symbol)"
+		}
+		switch {
+		case i == 0:
+			labels = append(labels, fmt.Sprintf("innermost: %s in %s", location, name))
+		case i == len(anchors)-1:
+			labels = append(labels, fmt.Sprintf("outermost caller: %s in %s", location, name))
+		default:
+			labels = append(labels, fmt.Sprintf("caller: %s in %s", location, name))
+		}
+	}
+	return RenderSequenceDiagramFence(labels, 0)
+}
+
 func RenderFlowFindingDiagramFence(findings []FlowFindingDigest) string {
 	for _, finding := range findings {
 		if fence := RenderLinearDiagramFence(flowFindingDiagramNodes(finding), 6); fence != "" {
+			return fence
+		}
+	}
+	return ""
+}
+
+func RenderFlowFindingSequenceDiagramFence(findings []FlowFindingDigest) string {
+	for _, finding := range findings {
+		if fence := RenderSequenceDiagramFence(flowFindingDiagramNodes(finding), 6); fence != "" {
 			return fence
 		}
 	}
@@ -1178,6 +1251,68 @@ func RenderEvidenceArchitectureDiagramFence(items []EvidenceItem) string {
 // flowchart subset is the renderer-supported, terminal-stable carrier.
 func RenderEvidenceCallDiagramFence(items []EvidenceItem) string {
 	return renderEvidenceRelationDiagramFence(items, ClaimCallEdge)
+}
+
+// RenderEvidenceSequenceDiagramFence uses the same validated call-edge
+// pool as RenderEvidenceCallDiagramFence, but emits actor-to-actor
+// sequence syntax for explicit sequence diagram requests.
+func RenderEvidenceSequenceDiagramFence(items []EvidenceItem) string {
+	return renderEvidenceRelationSequenceFence(items, ClaimCallEdge)
+}
+
+func renderEvidenceRelationSequenceFence(items []EvidenceItem, forms ...ClaimForm) string {
+	edges := evidenceDiagramEdges(items, 8, forms...)
+	if len(edges) == 0 {
+		return ""
+	}
+	return renderMermaidSequenceEdgeFence(edges)
+}
+
+func renderMermaidSequenceEdgeFence(edges []evidenceDiagramEdge) string {
+	type participant struct {
+		id    string
+		label string
+	}
+	byLabel := make(map[string]participant)
+	order := make([]string, 0, len(edges)*2)
+	ensure := func(label string) participant {
+		label = strings.TrimSpace(label)
+		if p, ok := byLabel[label]; ok {
+			return p
+		}
+		p := participant{
+			id:    fmt.Sprintf("p%d", len(byLabel)),
+			label: label,
+		}
+		byLabel[label] = p
+		order = append(order, label)
+		return p
+	}
+	for _, edge := range edges {
+		ensure(edge.From)
+		ensure(edge.To)
+	}
+	if len(order) < 2 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("```mermaid\n")
+	b.WriteString("sequenceDiagram\n")
+	for _, label := range order {
+		p := byLabel[label]
+		fmt.Fprintf(&b, "    participant %s as %q\n", p.id, p.label)
+	}
+	for _, edge := range edges {
+		from := ensure(edge.From)
+		to := ensure(edge.To)
+		label := strings.TrimSpace(edge.Label)
+		if label == "" {
+			label = "calls"
+		}
+		fmt.Fprintf(&b, "    %s->>%s: %s\n", from.id, to.id, mermaidEdgeLabel(label))
+	}
+	b.WriteString("```")
+	return b.String()
 }
 
 func renderEvidenceRelationDiagramFence(items []EvidenceItem, forms ...ClaimForm) string {
@@ -1490,12 +1625,26 @@ func CompileDiagramSurfaceFence(
 			if fence := RenderFlowFindingDiagramFence(flowFindings); fence != "" {
 				return kind, fence
 			}
-		case DiagramSequence, DiagramCallDAG:
-			if kind == DiagramSequence {
-				if fence := RenderAnswerChainSequenceDiagramFence(answerChains); fence != "" {
-					return kind, fence
-				}
+		case DiagramSequence:
+			if fence := RenderAnswerChainSequenceDiagramFence(answerChains); fence != "" {
+				return kind, fence
 			}
+			if fence := RenderLogAnchorSequenceDiagramFence(logObserved); fence != "" {
+				return kind, fence
+			}
+			if fence := RenderLogAnchorSequenceDiagramFence(logDrift); fence != "" {
+				return kind, fence
+			}
+			if fence := RenderLogSequenceDiagramFence(logBundle); fence != "" {
+				return kind, fence
+			}
+			if fence := RenderEvidenceSequenceDiagramFence(evidence); fence != "" {
+				return kind, fence
+			}
+			if fence := RenderFlowFindingSequenceDiagramFence(flowFindings); fence != "" {
+				return kind, fence
+			}
+		case DiagramCallDAG:
 			if fence := RenderLogAnchorDiagramFence(logObserved); fence != "" {
 				return kind, fence
 			}
@@ -1508,10 +1657,8 @@ func CompileDiagramSurfaceFence(
 			if fence := RenderEvidenceCallDiagramFence(evidence); fence != "" {
 				return kind, fence
 			}
-			if kind == DiagramCallDAG {
-				if fence := RenderFlowFindingDiagramFence(flowFindings); fence != "" {
-					return kind, fence
-				}
+			if fence := RenderFlowFindingDiagramFence(flowFindings); fence != "" {
+				return kind, fence
 			}
 		case DiagramArchitecture:
 			if fence := RenderAnswerChainDiagramFence(answerChains); fence != "" {

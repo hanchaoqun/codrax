@@ -32,6 +32,7 @@ const (
 	activityPreparingWorktree              // applyPreHook (write mode)
 	activityCapturingBaseline              // captureBaseline (write mode)
 	activityAcceptanceReview               // multi-phase acceptance check (commit 44)
+	activityRepoMapScanning                // local repomap index parse (with file counts)
 	activityErrorRecoverable               // EventTaskNodeEnd with recoverable error, before requeue
 	activityErrorFatal                     // terminal error before StopSpinner
 	activityCancelled                      // Ctrl+C path before StopSpinner
@@ -123,6 +124,11 @@ func activityPhrase(s activityState, lang string) string {
 			return "验收审查中"
 		}
 		return "Acceptance review"
+	case activityRepoMapScanning:
+		if zh {
+			return "扫描仓库索引中"
+		}
+		return "Scanning repo index"
 	case activityErrorRecoverable:
 		if zh {
 			return "错误恢复中"
@@ -148,7 +154,7 @@ func activityPhrase(s activityState, lang string) string {
 // renders as a bare status word.
 func activityHasStreamTail(kind activityKind) bool {
 	switch kind {
-	case activityReceiving, activityFinalizing, activityCallingTool:
+	case activityReceiving, activityFinalizing, activityCallingTool, activityRepoMapScanning:
 		return true
 	}
 	return false

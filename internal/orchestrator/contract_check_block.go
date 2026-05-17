@@ -3,6 +3,8 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -3467,6 +3470,7 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 		surface string
 	}
 	perBlock := make(map[string][]hallucinated)
+	sourceTokenSupport := newInlineIdentifierSourceSupport(doc, mut)
 	checkText := func(blockID, text, surface string, seen map[string]struct{}, hits *[]hallucinated) {
 		if text == "" {
 			return
@@ -3491,6 +3495,9 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 				continue
 			}
 			if answerItemLabelSupportedByEvidenceEndpoint(token, mut) {
+				continue
+			}
+			if sourceTokenSupport.supports(ident) {
 				continue
 			}
 			if inlineIdentifierSupportedByAggregateMemberSet(ident, mut) {
@@ -3559,6 +3566,131 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 		})
 	}
 	return out
+}
+
+type inlineIdentifierSourceSupport struct {
+	root    string
+	files   []string
+	cache   map[string]string
+	missing map[string]bool
+}
+
+func newInlineIdentifierSourceSupport(doc *types.AnswerDocumentV2, mut *types.MutableState) *inlineIdentifierSourceSupport {
+	if mut == nil {
+		return nil
+	}
+	graph, _ := mut.SearchGraph().(*repotypes.Graph)
+	if graph == nil || strings.TrimSpace(graph.Root) == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var files []string
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		key := filepath.ToSlash(filepath.Clean(path))
+		if key == "." || key == "" || strings.HasPrefix(key, "../") || filepath.IsAbs(path) {
+			return
+		}
+		if graph.FileIndex != nil {
+			if _, ok := graph.FileIndex[key]; !ok {
+				return
+			}
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		files = append(files, key)
+	}
+	if doc != nil {
+		for _, cit := range doc.Citations {
+			add(cit.File)
+		}
+	}
+	for _, ev := range answerItemLabelSupportEvidenceItems(mut) {
+		add(ev.Source)
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	return &inlineIdentifierSourceSupport{
+		root:    graph.Root,
+		files:   files,
+		cache:   make(map[string]string, len(files)),
+		missing: make(map[string]bool),
+	}
+}
+
+func (s *inlineIdentifierSourceSupport) supports(ident string) bool {
+	ident = strings.TrimSpace(ident)
+	if s == nil || ident == "" || !types.IsCodeIdentitySurface(ident) {
+		return false
+	}
+	for _, file := range s.files {
+		body, ok := s.read(file)
+		if !ok {
+			continue
+		}
+		if textContainsIdentifierToken(body, ident) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *inlineIdentifierSourceSupport) read(rel string) (string, bool) {
+	if s == nil || rel == "" || s.missing[rel] {
+		return "", false
+	}
+	if body, ok := s.cache[rel]; ok {
+		return body, true
+	}
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if clean == "." || clean == "" || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) {
+		s.missing[rel] = true
+		return "", false
+	}
+	body, err := os.ReadFile(filepath.Join(s.root, clean))
+	if err != nil {
+		s.missing[rel] = true
+		return "", false
+	}
+	s.cache[rel] = string(body)
+	return s.cache[rel], true
+}
+
+func textContainsIdentifierToken(text, ident string) bool {
+	if text == "" || ident == "" {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(text[start:], ident)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		beforeOK := pos == 0 || !isASCIISymbolIdentByte(text[pos-1])
+		after := pos + len(ident)
+		afterOK := after >= len(text) || !isASCIISymbolIdentByte(text[after])
+		if beforeOK && afterOK {
+			return true
+		}
+		start = pos + len(ident)
+		if start >= len(text) {
+			return false
+		}
+	}
+}
+
+func isASCIISymbolIdentByte(b byte) bool {
+	return (b >= 'A' && b <= 'Z') ||
+		(b >= 'a' && b <= 'z') ||
+		(b >= '0' && b <= '9') ||
+		b == '_'
 }
 
 func inlineIdentifierSupportedByAggregateMemberSet(ident string, mut *types.MutableState) bool {

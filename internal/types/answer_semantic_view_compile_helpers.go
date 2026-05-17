@@ -51,6 +51,9 @@ func firstConcreteDiagramKind(kinds []DiagramKind) DiagramKind {
 // component flowchart downstream.
 func resolvedDiagramKindForPlan(plan *AnswerSurfacePlan, familyDefault DiagramKind) DiagramKind {
 	if plan != nil && plan.Diagram != nil && plan.Diagram.Required {
+		if kind := plan.Diagram.RequiredKind; kind != DiagramNone && kind.IsValid() {
+			return kind
+		}
 		if kind := firstConcreteDiagramKind(plan.Diagram.PreferredKinds); kind != DiagramNone {
 			return kind
 		}

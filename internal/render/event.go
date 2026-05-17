@@ -297,6 +297,15 @@ const (
 	NoticeMultiRepoScanStart // · scan begins for one sub-repo
 	NoticeMultiRepoScanOK    // ✓ scan complete (success)
 	NoticeMultiRepoScanFail  // ✗ scan failed
+
+	// 2026-05-17 — single-repo repomap scan progress. Unlike
+	// multi-repo scan notices, these include file-count progress from
+	// the repomap parser so a large single repository no longer leaves
+	// the dock on a vague "preparing pipeline" state.
+	NoticeRepoMapScanStart    // · repo index scan begins
+	NoticeRepoMapScanProgress // · repo index scan progress
+	NoticeRepoMapScanOK       // ✓ repo index ready
+	NoticeRepoMapScanFail     // ✗ repo index scan failed
 )
 
 // TaskNodeInfo is the renderable summary of a TaskGraph node carried

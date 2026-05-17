@@ -59,6 +59,57 @@ func TestSupportedDiagramKindsForAnswer_AnswerChainsSupportSequencePreference(t 
 	}
 }
 
+func TestEffectiveDiagramContract_PreservesRequiredKindAndSequenceFence(t *testing.T) {
+	items := []EvidenceItem{{
+		ID:              "ev-call",
+		Source:          "mm/page_alloc.c",
+		LineStart:       3943,
+		Scope:           ScopeLine,
+		GroundingStatus: GroundingGrounded,
+		AnchorKind:      AnchorCall,
+		Subject:         "get_page_from_freelist",
+		Object:          "rmqueue",
+	}}
+	supported := SupportedDiagramKindsForAnswer(ScenarioArchitectureExplain, false, nil, nil, nil, nil, nil, items)
+	if !diagramKindSliceContains(supported, DiagramSequence) {
+		t.Fatalf("call-edge evidence should support sequence diagrams, got %v", supported)
+	}
+	dc := EffectiveDiagramContract(&DiagramContract{
+		Required:       true,
+		Minimum:        1,
+		RequiredKind:   DiagramSequence,
+		PreferredKinds: []DiagramKind{DiagramSequence, DiagramArchitecture},
+	}, supported)
+	if dc == nil || !dc.Required || dc.RequiredKind != DiagramSequence {
+		t.Fatalf("required sequence contract not preserved: %+v", dc)
+	}
+	kind, fence := CompileDiagramSurfaceFence(dc, ScenarioArchitectureExplain, nil, nil, nil, nil, nil, items, nil)
+	if kind != DiagramSequence {
+		t.Fatalf("compiled diagram kind=%s, want sequence", kind)
+	}
+	if !strings.Contains(fence, "sequenceDiagram") || strings.Contains(fence, "flowchart TD") {
+		t.Fatalf("sequence contract must compile a sequenceDiagram seed, got %q", fence)
+	}
+}
+
+func TestEffectiveDiagramContract_DoesNotSubstituteRequiredKind(t *testing.T) {
+	dc := EffectiveDiagramContract(&DiagramContract{
+		Required:       true,
+		Minimum:        1,
+		RequiredKind:   DiagramSequence,
+		PreferredKinds: []DiagramKind{DiagramSequence, DiagramArchitecture},
+	}, []DiagramKind{DiagramArchitecture})
+	if dc == nil {
+		t.Fatal("got nil contract")
+	}
+	if dc.Required {
+		t.Fatalf("unsupported required kind should downgrade the hard requirement instead of substituting another kind: %+v", dc)
+	}
+	if dc.RequiredKind != DiagramNone {
+		t.Fatalf("downgraded contract must clear RequiredKind, got %+v", dc)
+	}
+}
+
 func TestSupportedDiagramKindsForAnswer_EvidenceSupportsExplicitArchitectureDiagram(t *testing.T) {
 	items := []EvidenceItem{
 		{

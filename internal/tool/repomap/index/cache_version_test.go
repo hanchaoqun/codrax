@@ -174,6 +174,35 @@ func TestChangedFilesUsesHashesForCleanCommittedRepo(t *testing.T) {
 	}
 }
 
+func TestBasicFileInfoPersistsHashForUnsupportedFiles(t *testing.T) {
+	repo := t.TempDir()
+	const rel = "notes.txt"
+	body := []byte("plain text still participates in cache invalidation\n")
+	abs := filepath.Join(repo, rel)
+	if err := os.WriteFile(abs, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	info := BasicFileInfo(FileEntry{RelPath: rel, AbsPath: abs, Size: int64(len(body))})
+	if info.Hash == "" {
+		t.Fatal("unsupported-file cache entry must carry a content hash")
+	}
+
+	cacheDir := t.TempDir()
+	graph := BuildGraph(repo, []*types.FileInfo{info})
+	if err := SaveCache(cacheDir, graph); err != nil {
+		t.Fatalf("SaveCache: %v", err)
+	}
+	changed := ChangedFiles(repo, cacheDir, []FileEntry{{
+		RelPath: rel,
+		AbsPath: abs,
+		Size:    int64(len(body)),
+	}})
+	if len(changed) != 0 {
+		t.Fatalf("fresh unsupported file should be a cache hit, changed=%v", changed)
+	}
+}
+
 func runGitForCacheTest(repo string, args ...string) error {
 	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
 	out, err := cmd.CombinedOutput()

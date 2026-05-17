@@ -14,23 +14,37 @@ func EffectiveDiagramContract(contract *DiagramContract, supportedKinds []Diagra
 		return nil
 	}
 	out := *contract
+	if out.Required && (out.RequiredKind == DiagramNone || !out.RequiredKind.IsValid()) {
+		out.RequiredKind = firstConcreteDiagramKindInContract(out.PreferredKinds)
+	}
 	supported := normalizeSupportedDiagramKinds(supportedKinds)
 	if len(supported) == 0 {
 		if out.Required {
 			out.Required = false
+			out.RequiredKind = DiagramNone
 			return &out
 		}
 		return nil
+	}
+	supportedSet := make(map[DiagramKind]bool, len(supported))
+	for _, kind := range supported {
+		supportedSet[kind] = true
+	}
+	if out.Required && out.RequiredKind != DiagramNone && out.RequiredKind.IsValid() {
+		if !supportedSet[out.RequiredKind] {
+			out.Required = false
+			out.RequiredKind = DiagramNone
+			out.PreferredKinds = supported
+			return &out
+		}
+		out.PreferredKinds = requiredKindFirst(out.RequiredKind, out.PreferredKinds, supported)
+		return &out
 	}
 	if len(out.PreferredKinds) == 0 {
 		if len(supported) > 0 {
 			out.PreferredKinds = supported
 		}
 		return &out
-	}
-	supportedSet := make(map[DiagramKind]bool, len(supported))
-	for _, kind := range supported {
-		supportedSet[kind] = true
 	}
 	filtered := make([]DiagramKind, 0, len(out.PreferredKinds))
 	for _, kind := range out.PreferredKinds {
@@ -44,6 +58,41 @@ func EffectiveDiagramContract(contract *DiagramContract, supportedKinds []Diagra
 		out.PreferredKinds = supported
 	}
 	return &out
+}
+
+func firstConcreteDiagramKindInContract(kinds []DiagramKind) DiagramKind {
+	for _, kind := range kinds {
+		if kind != DiagramNone && kind.IsValid() {
+			return kind
+		}
+	}
+	return DiagramNone
+}
+
+func requiredKindFirst(required DiagramKind, preferred []DiagramKind, supported []DiagramKind) []DiagramKind {
+	if required == DiagramNone || !required.IsValid() {
+		return normalizeSupportedDiagramKinds(preferred)
+	}
+	allowed := make(map[DiagramKind]bool, len(supported))
+	for _, kind := range supported {
+		allowed[kind] = true
+	}
+	out := []DiagramKind{required}
+	seen := map[DiagramKind]bool{required: true}
+	add := func(kind DiagramKind) {
+		if kind == DiagramNone || !kind.IsValid() || seen[kind] || !allowed[kind] {
+			return
+		}
+		seen[kind] = true
+		out = append(out, kind)
+	}
+	for _, kind := range preferred {
+		add(kind)
+	}
+	for _, kind := range supported {
+		add(kind)
+	}
+	return out
 }
 
 // SupportedDiagramKindsForAnswer derives which diagram kinds the

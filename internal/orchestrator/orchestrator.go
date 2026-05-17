@@ -588,6 +588,36 @@ func (o *Orchestrator) EmitMultiRepoScanNotice(rootRel, slug string, started, ok
 	})
 }
 
+// EmitRepoMapScanNotice surfaces single-repo repomap scan progress.
+// The scan often happens before EventPipelineStart while analyzer
+// context is being prepared, so this path intentionally goes through
+// the already-wired emitter instead of waiting for a stage row.
+func (o *Orchestrator) EmitRepoMapScanNotice(ev types.RepoMapScanEvent) {
+	if o == nil || o.emit == nil {
+		return
+	}
+	lang := o.language
+	if lang == "" && o.busCtx != nil {
+		lang = o.busCtx.Language
+	}
+	noticeKind := render.NoticeRepoMapScanStart
+	switch {
+	case ev.Finished && ev.OK:
+		noticeKind = render.NoticeRepoMapScanOK
+	case ev.Finished:
+		noticeKind = render.NoticeRepoMapScanFail
+	case ev.Progress:
+		noticeKind = render.NoticeRepoMapScanProgress
+	}
+	o.emit(render.Event{
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: noticeKind,
+		Reasoning:  repoMapScanMessage(lang, ev),
+	})
+}
+
 // SetMaxSteps overrides the maximum number of pipeline steps (default 50).
 func (o *Orchestrator) SetMaxSteps(n int) {
 	o.maxSteps = n

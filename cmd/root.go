@@ -460,15 +460,6 @@ type appContext struct {
 	// graph at the field level — the actual access goes through
 	// repomap.MultiGraphFromContext / direct cast in the provider.
 	multigraph any
-
-	// multiRepoScanNotifier is the closure forwarded into
-	// MultiGraph.Config.ScanNotifier so per-sub-repo scan progress
-	// (Phase 4, 2026-05-08) reaches the dock as transient
-	// EventOrchestratorNotice push lines. Captures app at closure
-	// build time and reads app.orch dynamically — initApp builds
-	// the multigraph at startup BEFORE app.orch is wired, so the
-	// closure must lazy-resolve.
-	multiRepoScanNotifier func(rootRel, slug string, started bool, ok bool, elapsedMs int64)
 }
 
 var app appContext
@@ -1250,7 +1241,7 @@ func runREPL(_ *cobra.Command) error {
 			// so the next Run sees the new sub-repo set + a clean LRU.
 			app.topology = newTopo
 			if app.multiRepoEnabled {
-				if mg, err := repomap.BuildOrLoadMultiGraph(newTopo, "", app.multiRepoMaxActive, nil, app.multiRepoScanNotifier); err == nil {
+				if mg, err := repomap.BuildOrLoadMultiGraph(newTopo, "", app.multiRepoMaxActive, nil, nil); err == nil {
 					app.multigraph = mg
 				}
 			}
@@ -1716,17 +1707,19 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// populated AND multi_repo_enabled (default true). nil here =
 	// orchestrator falls back to legacy single-graph behaviour.
 	//
-	// Initialise the scan notifier closure FIRST so MultiGraph picks
-	// it up at construction. The closure reads app.orch lazily — orch
-	// is wired later in initApp, so at MultiGraph build time it may
-	// be nil. EmitMultiRepoScanNotice tolerates a nil receiver and
-	// nil emit.
-	app.multiRepoScanNotifier = func(rootRel, slug string, started bool, ok bool, elapsedMs int64) {
+	// Single- and multi-repo repomap builds now use the same typed
+	// scan-progress channel. In multi-repo mode the app layer enriches
+	// the event with RootRel so the renderer can say "sub-repo index"
+	// without MultiGraph also emitting its older start/end wrapper
+	// lines. That keeps one visible source of truth for scan progress:
+	// start/done in permanent scrollback, live counts in the status row.
+	repomap.SetScanNotifier(func(ev types.RepoMapScanEvent) {
 		if app.orch == nil {
 			return
 		}
-		app.orch.EmitMultiRepoScanNotice(rootRel, slug, started, ok, elapsedMs)
-	}
+		ev = annotateRepoMapScanEvent(ev)
+		app.orch.EmitRepoMapScanNotice(ev)
+	})
 	if app.topology != nil && app.multiRepoEnabled {
 		// Resolve --focus inputs (slug-or-path) against the topology.
 		// Single-repo / no-git workspaces have no sub-repo to match
@@ -1735,7 +1728,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		focusSlugs := resolveFocusFlagAgainstTopology(app.topology, flagFocus)
 		mg, err := repomap.BuildOrLoadMultiGraph(
 			app.topology, "", app.multiRepoMaxActive, focusSlugs,
-			app.multiRepoScanNotifier,
+			nil,
 		)
 		if err != nil {
 			logging.Info("multi-repo: BuildOrLoadMultiGraph failed (%v) — falling back to single-graph", err)
@@ -3860,4 +3853,40 @@ func resolveFocusFlagAgainstTopology(topo *topology.RepoTopology, raw []string) 
 		logging.Warning("multi-repo: --focus values did not match any sub-repo and were dropped: %v (run with --log-level=info to see the discovered sub-repo list)", unresolved)
 	}
 	return slugs
+}
+
+func annotateRepoMapScanEvent(ev types.RepoMapScanEvent) types.RepoMapScanEvent {
+	if app.topology == nil || app.topology.IsSingle() {
+		return ev
+	}
+	root := canonicalScanRoot(ev.RepoRoot)
+	if root == "" {
+		return ev
+	}
+	for _, sr := range app.topology.Repos {
+		if sr.RootRel == "." {
+			continue
+		}
+		if canonicalScanRoot(sr.RootAbs) != root {
+			continue
+		}
+		ev.DisplayName = sr.RootRel
+		ev.SubRepoRootRel = sr.RootRel
+		return ev
+	}
+	return ev
+}
+
+func canonicalScanRoot(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	return filepath.Clean(path)
 }

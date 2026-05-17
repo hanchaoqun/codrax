@@ -300,6 +300,8 @@ func composeDockRow1(s dockRowState) string {
 	switch s.activity.kind {
 	case activityWaitingPipeline, activityWaitingDispatch, activityWaitingNode:
 		wordStyle = statusMeta // calmer hue when nothing is actively happening
+	case activityRepoMapScanning:
+		wordStyle = statusObjective
 	case activityErrorRecoverable, activityRetrying, activitySwitchingProvider:
 		wordStyle = statusRecoverable
 	case activityErrorFatal, activityCancelled:

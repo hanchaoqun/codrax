@@ -1326,6 +1326,7 @@ type DiagramHint struct {
 type DiagramContract struct {
 	Required       bool          `json:"required"`
 	Minimum        int           `json:"minimum,omitempty"`
+	RequiredKind   DiagramKind   `json:"required_kind,omitempty"`
 	PreferredKinds []DiagramKind `json:"preferred_kinds,omitempty"`
 	ScopeHint      DiagramScope  `json:"scope_hint,omitempty"`
 	Reasons        []string      `json:"reasons,omitempty"`

@@ -107,6 +107,25 @@ func TestRepoMapExecuteRejectsParentEscapeBeforeScan(t *testing.T) {
 	}
 }
 
+func TestRepoMapExecuteReusesMutableSearchGraph(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("repo map reuse")
+	mut.SetSearchGraph(BuildGraph(repo, []*FileInfo{{
+		RelPath:  "virtual.go",
+		Language: "go",
+		Size:     12,
+	}}))
+	ctx := &types.BusContext{RepoRoot: repo, Mutable: mut}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{"path":".","view":"overview","query":"virtual"}`))
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected repo_map to reuse the in-memory graph instead of scanning the empty repo: %+v", res)
+	}
+}
+
 func TestBuildOrLoadGraphWithinRejectsBeforeScanner(t *testing.T) {
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "repo")
