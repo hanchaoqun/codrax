@@ -1,6 +1,8 @@
 package index
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -51,19 +53,9 @@ func TestCacheVersionMismatchInvalidates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(dir, cacheFileInfosFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload cachePayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
-	payload.SchemaVersion = cacheSchemaVersion + 99
-	out, _ := json.Marshal(&payload)
-	if err := os.WriteFile(filepath.Join(dir, cacheFileInfosFile), out, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	manifest := readFileInfosManifestForTest(t, dir)
+	manifest.SchemaVersion = cacheSchemaVersion + 99
+	writeFileInfosManifestForTest(t, dir, manifest)
 
 	if got := LoadFileInfos(dir); got != nil {
 		t.Errorf("expected nil on schema mismatch, got %d files", len(got))
@@ -81,19 +73,9 @@ func TestCacheExtractorVersionMismatchInvalidates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(dir, cacheFileInfosFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload cachePayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
-	payload.ExtractorVersions[types.LangGo] = 99
-	out, _ := json.Marshal(&payload)
-	if err := os.WriteFile(filepath.Join(dir, cacheFileInfosFile), out, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	manifest := readFileInfosManifestForTest(t, dir)
+	manifest.ExtractorVersions[types.LangGo] = 99
+	writeFileInfosManifestForTest(t, dir, manifest)
 
 	if got := LoadFileInfos(dir); got != nil {
 		t.Errorf("expected nil on extractor version mismatch, got %d files", len(got))
@@ -110,24 +92,83 @@ func TestCacheChecksumMismatchInvalidates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(dir, cacheFileInfosFile))
+	manifest := readFileInfosManifestForTest(t, dir)
+	if len(manifest.Chunks) == 0 {
+		t.Fatal("expected at least one fileinfos chunk")
+	}
+	chunkPath := filepath.Join(dir, manifest.ChunkDir, manifest.Chunks[0].File)
+	raw, err := os.ReadFile(chunkPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload cachePayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	var chunkFiles []*types.FileInfo
+	if err := json.Unmarshal(raw, &chunkFiles); err != nil {
 		t.Fatal(err)
 	}
-	// Flip the path on the persisted copy to corrupt the payload
-	// without touching the checksum field.
-	payload.Files = []*types.FileInfo{{RelPath: "TAMPERED.go", Language: types.LangGo}}
-	out, _ := json.Marshal(&payload)
-	if err := os.WriteFile(filepath.Join(dir, cacheFileInfosFile), out, 0o644); err != nil {
+	chunkFiles[0].RelPath = "TAMPERED.go"
+	out, _ := json.Marshal(chunkFiles)
+	if err := os.WriteFile(chunkPath, out, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	if got := LoadFileInfos(dir); got != nil {
 		t.Errorf("expected nil on checksum mismatch, got %+v", got)
+	}
+}
+
+func TestLegacyCachePayloadStillLoads(t *testing.T) {
+	dir := t.TempDir()
+	files := []*types.FileInfo{{RelPath: "legacy.go", Language: types.LangGo}}
+	writeLegacyCachePayloadForTest(t, dir, files)
+	got := LoadFileInfos(dir)
+	if len(got) != 1 || got[0].RelPath != "legacy.go" {
+		t.Fatalf("legacy cache payload should still load, got %+v", got)
+	}
+}
+
+func readFileInfosManifestForTest(t *testing.T, dir string) cacheFileInfosManifest {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, cacheFileInfosManifestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest cacheFileInfosManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	return manifest
+}
+
+func writeFileInfosManifestForTest(t *testing.T, dir string, manifest cacheFileInfosManifest) {
+	t.Helper()
+	out, err := json.Marshal(&manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, cacheFileInfosManifestFile), out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeLegacyCachePayloadForTest(t *testing.T, dir string, files []*types.FileInfo) {
+	t.Helper()
+	filesData, err := json.Marshal(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(filesData)
+	payload := cachePayload{
+		SchemaVersion:     cacheSchemaVersion,
+		ExtractorVersions: cloneExtractorVersions(),
+		Checksum:          hex.EncodeToString(sum[:8]),
+		Files:             files,
+	}
+	out, err := json.Marshal(&payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, cacheFileInfosFile), out, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

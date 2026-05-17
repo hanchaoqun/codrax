@@ -23,6 +23,18 @@ func ParseFiles(entries []FileEntry, repoRoot string) []*types.FileInfo {
 // goroutine, so callers can throttle UI notifications without adding
 // locks to the worker hot path.
 func ParseFilesWithProgress(entries []FileEntry, repoRoot string, progress func(done, total int)) []*types.FileInfo {
+	infos, _ := ParseFilesWithProgressAndSink(entries, repoRoot, progress, nil)
+	return infos
+}
+
+// ParseFilesWithProgressAndSink streams parsed FileInfo records to sink
+// in repository scan order as soon as contiguous results are available.
+// This lets large full scans persist cache chunks while parser workers
+// are still running instead of building one huge JSON blob at the end.
+// A sink error does not stop parsing; it is returned after all results
+// are collected so callers can keep serving the current in-memory graph
+// and merely degrade cache persistence.
+func ParseFilesWithProgressAndSink(entries []FileEntry, repoRoot string, progress func(done, total int), sink func(*types.FileInfo) error) ([]*types.FileInfo, error) {
 	workers := runtime.GOMAXPROCS(0)
 	if workers < 1 {
 		workers = 4
@@ -59,10 +71,20 @@ func ParseFilesWithProgress(entries []FileEntry, repoRoot string, progress func(
 	}()
 
 	infos := make([]*types.FileInfo, len(entries))
+	ready := make([]bool, len(entries))
 	done := 0
+	nextSink := 0
+	var sinkErr error
 	for r := range results {
 		infos[r.idx] = r.info
+		ready[r.idx] = true
 		done++
+		for sink != nil && nextSink < len(infos) && ready[nextSink] {
+			if sinkErr == nil {
+				sinkErr = sink(infos[nextSink])
+			}
+			nextSink++
+		}
 		if progress != nil {
 			progress(done, len(entries))
 		}
@@ -75,7 +97,7 @@ func ParseFilesWithProgress(entries []FileEntry, repoRoot string, progress func(
 			out = append(out, fi)
 		}
 	}
-	return out
+	return out, sinkErr
 }
 
 // BasicFileInfo returns metadata for files that repomap deliberately

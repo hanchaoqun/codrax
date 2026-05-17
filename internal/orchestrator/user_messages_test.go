@@ -365,11 +365,18 @@ func TestRepoMapScanMessagesCarryFileCounts(t *testing.T) {
 		t.Fatalf("scan start should carry repo label and counts, got %q", start)
 	}
 	ev.Progress = true
+	ev.Phase = types.RepoMapScanPhaseParse
 	progress := repoMapScanMessage("zh", ev)
 	if !strings.Contains(progress, "已解析 4000/12000") || strings.Contains(progress, "⟳") {
 		t.Fatalf("scan progress should carry parsed/total without retry glyph, got %q", progress)
 	}
+	ev.Phase = types.RepoMapScanPhaseCacheWrite
+	cacheWrite := repoMapScanMessage("zh", ev)
+	if !strings.Contains(cacheWrite, "正在写入索引缓存") || !strings.Contains(cacheWrite, "源文件已解析 12000/12000") {
+		t.Fatalf("cache-write progress should switch wording after parsing, got %q", cacheWrite)
+	}
 	ev.Progress = false
+	ev.Phase = ""
 	ev.Finished = true
 	ev.OK = true
 	ev.ElapsedMs = 1234

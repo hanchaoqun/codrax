@@ -382,15 +382,9 @@ func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 	// Nothing changed → load from cache directly
 	if len(changed) == 0 {
 		logging.Info("repo_map: cache hit (%d files, 0 changed)", len(entries))
-		notifyRepoMapScan(ctypes.RepoMapScanEvent{
-			RepoRoot:       repoRoot,
-			Mode:           ctypes.RepoMapScanCacheHit,
-			Finished:       true,
-			OK:             true,
-			TotalFiles:     len(entries),
-			ParseableFiles: countParseableEntries(entries),
-		})
-		return loadFromCache(repoRoot, cacheDir, query)
+		progress := newRepoMapScanProgress(repoRoot, ctypes.RepoMapScanCacheHit, len(entries), 0)
+		progress.startPhase(ctypes.RepoMapScanPhaseCacheLoad, countParseableEntries(entries))
+		return loadFromCache(repoRoot, cacheDir, entries, query, progress)
 	}
 
 	// >30% changed → full rescan is faster than incremental
@@ -416,21 +410,47 @@ func countParseableEntries(entries []FileEntry) int {
 	return n
 }
 
-func loadFromCache(repoRoot, cacheDir, query string) (*Graph, error) {
+func loadFromCache(repoRoot, cacheDir string, entries []FileEntry, query string, progress *repoMapScanProgress) (*Graph, error) {
 	cached := index.LoadFileInfos(cacheDir)
 	if cached == nil {
 		// Cache corrupt or missing JSON → fall back to full scan
-		entries, err := index.ScanFiles(repoRoot)
-		if err != nil {
-			return nil, fmt.Errorf("file scan: %w", err)
+		if len(entries) == 0 {
+			var err error
+			entries, err = index.ScanFiles(repoRoot)
+			if err != nil {
+				return nil, fmt.Errorf("file scan: %w", err)
+			}
 		}
-		progress := newRepoMapScanProgress(repoRoot, ctypes.RepoMapScanFull, len(entries), len(entries))
+		if progress != nil {
+			progress.mode = ctypes.RepoMapScanFull
+			progress.changedFiles = len(entries)
+		}
 		return fullScan(repoRoot, cacheDir, entries, query, progress)
 	}
 
+	if progress != nil {
+		progress.parseableFiles = countParseableFileInfos(cached)
+		progress.setPhase(ctypes.RepoMapScanPhaseBuildGraph)
+	}
 	graph := index.BuildGraph(repoRoot, cached)
+	if progress != nil {
+		progress.setPhase(ctypes.RepoMapScanPhaseRank)
+	}
 	retrieve.RankGraph(graph, query)
+	if progress != nil {
+		progress.finish(true, nil)
+	}
 	return graph, nil
+}
+
+func countParseableFileInfos(files []*FileInfo) int {
+	n := 0
+	for _, fi := range files {
+		if fi != nil && fi.Language != "" {
+			n++
+		}
+	}
+	return n
 }
 
 func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []string, query string, progress *repoMapScanProgress) (*Graph, error) {
@@ -509,9 +529,14 @@ func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []s
 	}
 
 	// Build graph, rank, save
+	progress.setPhase(ctypes.RepoMapScanPhaseBuildGraph)
 	graph := index.BuildGraph(repoRoot, merged)
+	progress.setPhase(ctypes.RepoMapScanPhaseRank)
 	retrieve.RankGraph(graph, query)
-	_ = index.SaveCache(cacheDir, graph)
+	progress.setPhase(ctypes.RepoMapScanPhaseCacheWrite)
+	if err := index.SaveCache(cacheDir, graph); err != nil {
+		logging.Warning("repo_map: cache save failed: %v", err)
+	}
 	return graph, nil
 }
 
@@ -538,21 +563,56 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string, prog
 	if progress != nil {
 		onProgress = progress.parsed
 	}
-	fileInfos := index.ParseFilesWithProgress(parseable, repoRoot, onProgress)
+	var cacheWriter *index.FileInfoCacheWriter
+	var cacheSink func(*FileInfo) error
+	if cacheDir != "" {
+		if w, err := index.NewFileInfoCacheWriter(cacheDir, repoRoot); err != nil {
+			logging.Warning("repo_map: cache stream setup failed: %v", err)
+		} else {
+			cacheWriter = w
+			cacheSink = w.Append
+		}
+	}
+	fileInfos, cacheStreamErr := index.ParseFilesWithProgressAndSink(parseable, repoRoot, onProgress, cacheSink)
 
 	// Add unparseable files with basic metadata
 	for _, e := range unparseable {
-		fileInfos = append(fileInfos, index.BasicFileInfo(e))
+		fi := index.BasicFileInfo(e)
+		fileInfos = append(fileInfos, fi)
+		if cacheWriter != nil && cacheStreamErr == nil {
+			cacheStreamErr = cacheWriter.Append(fi)
+		}
+	}
+	if cacheWriter != nil {
+		if cacheStreamErr != nil {
+			cacheWriter.Abort()
+			logging.Warning("repo_map: streaming fileinfo cache failed: %v", cacheStreamErr)
+		} else if err := cacheWriter.Close(); err != nil {
+			cacheStreamErr = err
+			cacheWriter.Abort()
+			logging.Warning("repo_map: streaming fileinfo cache finalize failed: %v", err)
+		}
 	}
 
 	// Build graph
+	progress.setPhase(ctypes.RepoMapScanPhaseBuildGraph)
 	graph := index.BuildGraph(repoRoot, fileInfos)
 
 	// Rank
+	progress.setPhase(ctypes.RepoMapScanPhaseRank)
 	retrieve.RankGraph(graph, query)
 
 	// Save cache (non-blocking — errors are tolerable)
-	_ = index.SaveCache(cacheDir, graph)
+	progress.setPhase(ctypes.RepoMapScanPhaseCacheWrite)
+	var saveErr error
+	if cacheStreamErr == nil && cacheWriter != nil {
+		saveErr = index.SaveCacheWithoutFileInfos(cacheDir, graph)
+	} else {
+		saveErr = index.SaveCache(cacheDir, graph)
+	}
+	if saveErr != nil {
+		logging.Warning("repo_map: cache save failed: %v", saveErr)
+	}
 
 	return graph, nil
 }

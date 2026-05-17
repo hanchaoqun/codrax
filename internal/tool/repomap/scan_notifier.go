@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	ctypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -39,6 +40,7 @@ type repoMapScanProgress struct {
 	totalFiles     int
 	parseableFiles int
 	changedFiles   int
+	phase          ctypes.RepoMapScanPhase
 
 	started  bool
 	start    time.Time
@@ -56,10 +58,15 @@ func newRepoMapScanProgress(repoRoot string, mode ctypes.RepoMapScanMode, totalF
 }
 
 func (p *repoMapScanProgress) startScan(parseableFiles int) {
+	p.startPhase(ctypes.RepoMapScanPhaseParse, parseableFiles)
+}
+
+func (p *repoMapScanProgress) startPhase(phase ctypes.RepoMapScanPhase, parseableFiles int) {
 	if p == nil {
 		return
 	}
 	p.parseableFiles = parseableFiles
+	p.phase = phase
 	p.started = true
 	p.start = time.Now()
 	p.lastEmit = p.start
@@ -74,6 +81,7 @@ func (p *repoMapScanProgress) parsed(done, total int) {
 		p.parseableFiles = total
 	}
 	if done >= total {
+		p.lastDone = done
 		return
 	}
 	now := time.Now()
@@ -83,6 +91,18 @@ func (p *repoMapScanProgress) parsed(done, total int) {
 	p.lastDone = done
 	p.lastEmit = now
 	notifyRepoMapScan(p.event(true, false, done, true, ""))
+}
+
+func (p *repoMapScanProgress) setPhase(phase ctypes.RepoMapScanPhase) {
+	if p == nil || !p.started || phase == "" {
+		return
+	}
+	p.phase = phase
+	p.lastDone = p.parseableFiles
+	p.lastEmit = time.Now()
+	logging.Info("repo_map: phase %s (%d source files, %d files total, elapsed=%dms)",
+		phase, p.parseableFiles, p.totalFiles, time.Since(p.start).Milliseconds())
+	notifyRepoMapScan(p.event(true, false, p.parseableFiles, true, ""))
 }
 
 func (p *repoMapScanProgress) finish(ok bool, err error) {
@@ -104,6 +124,7 @@ func (p *repoMapScanProgress) event(progress, finished bool, parsed int, ok bool
 	return ctypes.RepoMapScanEvent{
 		RepoRoot:       p.repoRoot,
 		Mode:           p.mode,
+		Phase:          p.phase,
 		Started:        !progress && !finished,
 		Progress:       progress,
 		Finished:       finished,

@@ -13,6 +13,19 @@ const (
 	RepoMapScanCacheHit    RepoMapScanMode = "cache_hit"
 )
 
+// RepoMapScanPhase names the local CPU/IO phase currently responsible
+// for repo_map latency. It keeps UI wording honest after parsing
+// completes but graph construction or cache IO is still running.
+type RepoMapScanPhase string
+
+const (
+	RepoMapScanPhaseParse      RepoMapScanPhase = "parse"
+	RepoMapScanPhaseBuildGraph RepoMapScanPhase = "build_graph"
+	RepoMapScanPhaseRank       RepoMapScanPhase = "rank"
+	RepoMapScanPhaseCacheLoad  RepoMapScanPhase = "cache_load"
+	RepoMapScanPhaseCacheWrite RepoMapScanPhase = "cache_write"
+)
+
 // RepoMapScanEvent is the typed progress payload emitted by the
 // single-repo repomap builder while it is parsing a large repository.
 // It deliberately carries counts and booleans, not rendered strings,
@@ -28,6 +41,7 @@ type RepoMapScanEvent struct {
 	// instead of the generic "repo index".
 	SubRepoRootRel string
 	Mode           RepoMapScanMode
+	Phase          RepoMapScanPhase
 
 	Started  bool
 	Progress bool

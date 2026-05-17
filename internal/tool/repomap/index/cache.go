@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,11 +88,12 @@ func CacheDirSlug(repoRoot string) string {
 }
 
 const (
-	cacheSymbolsFile   = "symbols.md"
-	cacheRelationsFile = "relations.md"
-	cacheMetaFile      = "meta.md"
-	cacheHashesFile    = "hashes.md"
-	cacheFileInfosFile = "fileinfos.json"
+	cacheSymbolsFile           = "symbols.md"
+	cacheRelationsFile         = "relations.md"
+	cacheMetaFile              = "meta.md"
+	cacheHashesFile            = "hashes.md"
+	cacheFileInfosFile         = "fileinfos.json"
+	cacheFileInfosManifestFile = "fileinfos.manifest.json"
 
 	// cacheSchemaVersion tracks the cache-file layout. Bump this
 	// whenever the fileinfos.json wrapper shape changes (fields
@@ -100,6 +103,8 @@ const (
 	// a full rescan on the next BuildOrLoadGraph.
 	cacheSchemaVersion = 3
 )
+
+const cacheFileInfosChunkSize = 1024
 
 // extractorVersions tracks per-language extractor generations.
 // Bump the relevant entry whenever an extract_*.go file changes
@@ -141,9 +146,56 @@ type cachePayload struct {
 	Files             []*types.FileInfo `json:"files"`
 }
 
+type cacheFileInfosManifest struct {
+	SchemaVersion     int                   `json:"schema_version"`
+	ExtractorVersions map[string]int        `json:"extractor_versions"`
+	RepoHead          string                `json:"repo_head,omitempty"`
+	WrittenAt         string                `json:"written_at,omitempty"`
+	TotalFiles        int                   `json:"total_files"`
+	ChunkSize         int                   `json:"chunk_size"`
+	ChunkDir          string                `json:"chunk_dir"`
+	Checksum          string                `json:"checksum,omitempty"`
+	Chunks            []cacheFileInfosChunk `json:"chunks"`
+}
+
+type cacheFileInfosChunk struct {
+	File     string `json:"file"`
+	Count    int    `json:"count"`
+	Checksum string `json:"checksum"`
+}
+
+// FileInfoCacheWriter persists FileInfo records in bounded JSON chunks.
+// It is intentionally append-only until Close installs the manifest:
+// interrupted scans leave only an unreferenced temp directory, while
+// readers keep using the previous manifest/cache.
+type FileInfoCacheWriter struct {
+	dir        string
+	repoRoot   string
+	generation string
+	chunkDir   string
+
+	buf     []*types.FileInfo
+	chunks  []cacheFileInfosChunk
+	total   int
+	overall hash.Hash
+	closed  bool
+}
+
 // SaveCache writes the graph index to markdown files and a JSON snapshot
 // of types.FileInfo data (for incremental reload) in the cache directory.
 func SaveCache(dir string, g *types.Graph) error {
+	return saveCache(dir, g, true)
+}
+
+// SaveCacheWithoutFileInfos writes the derived cache sidecars while
+// preserving an already-installed fileinfos manifest. Full scans use
+// this after streaming FileInfo chunks during parsing, avoiding a second
+// giant fileinfos write at the end of the scan.
+func SaveCacheWithoutFileInfos(dir string, g *types.Graph) error {
+	return saveCache(dir, g, false)
+}
+
+func saveCache(dir string, g *types.Graph, includeFileInfos bool) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -153,10 +205,12 @@ func SaveCache(dir string, g *types.Graph) error {
 		return err
 	}
 
-	// Save types.FileInfo JSON for incremental reload, wrapped in a
-	// versioned payload so loaders can reject stale caches.
-	if err := saveFileInfos(dir, g.Root, g.Files); err != nil {
-		return err
+	if includeFileInfos {
+		// Save types.FileInfo JSON for incremental reload, wrapped in a
+		// versioned payload so loaders can reject stale caches.
+		if err := saveFileInfos(dir, g.Root, g.Files); err != nil {
+			return err
+		}
 	}
 
 	// Save symbols (markdown, for grep)
@@ -174,36 +228,21 @@ func SaveCache(dir string, g *types.Graph) error {
 }
 
 func saveFileInfos(dir, repoRoot string, files []*types.FileInfo) error {
-	// Marshal the Files slice first so we can checksum it before
-	// wrapping. The checksum is over the data payload only, not
-	// the header, so changes to the header schema don't
-	// retroactively invalidate an otherwise-fresh cache.
-	filesData, err := json.Marshal(files)
+	w, err := NewFileInfoCacheWriter(dir, repoRoot)
 	if err != nil {
-		return fmt.Errorf("marshal fileinfos files: %w", err)
+		return err
 	}
-	sum := sha256.Sum256(filesData)
-
-	// Copy extractorVersions so the serialized value is not a
-	// live reference to the package-global map.
-	extractors := make(map[string]int, len(extractorVersions))
-	for k, v := range extractorVersions {
-		extractors[k] = v
+	for _, fi := range files {
+		if err := w.Append(fi); err != nil {
+			w.Abort()
+			return err
+		}
 	}
-
-	payload := cachePayload{
-		SchemaVersion:     cacheSchemaVersion,
-		ExtractorVersions: extractors,
-		RepoHead:          gitHeadSHA(repoRoot),
-		WrittenAt:         time.Now().UTC().Format(time.RFC3339),
-		Checksum:          hex.EncodeToString(sum[:8]),
-		Files:             files,
+	if err := w.Close(); err != nil {
+		w.Abort()
+		return err
 	}
-	out, err := json.Marshal(&payload)
-	if err != nil {
-		return fmt.Errorf("marshal cache payload: %w", err)
-	}
-	return os.WriteFile(filepath.Join(dir, cacheFileInfosFile), out, 0o644)
+	return nil
 }
 
 // LoadFileInfos reads the cached types.FileInfo data from a previous scan.
@@ -218,6 +257,179 @@ func saveFileInfos(dir, repoRoot string, files []*types.FileInfo) error {
 //   - the Checksum doesn't match SHA-256 over the Files payload
 //     (on-disk corruption or truncation)
 func LoadFileInfos(dir string) []*types.FileInfo {
+	if files := loadChunkedFileInfos(dir); files != nil {
+		return files
+	}
+	return loadLegacyFileInfos(dir)
+}
+
+func NewFileInfoCacheWriter(dir, repoRoot string) (*FileInfoCacheWriter, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	generation := "fileinfos." + strconv.FormatInt(time.Now().UnixNano(), 36) + ".d"
+	chunkDir := filepath.Join(dir, generation)
+	if err := os.MkdirAll(chunkDir, 0o755); err != nil {
+		return nil, err
+	}
+	return &FileInfoCacheWriter{
+		dir:        dir,
+		repoRoot:   repoRoot,
+		generation: generation,
+		chunkDir:   chunkDir,
+		buf:        make([]*types.FileInfo, 0, cacheFileInfosChunkSize),
+		overall:    sha256.New(),
+	}, nil
+}
+
+func (w *FileInfoCacheWriter) Append(fi *types.FileInfo) error {
+	if w == nil || w.closed || fi == nil {
+		return nil
+	}
+	w.buf = append(w.buf, fi)
+	w.total++
+	if len(w.buf) < cacheFileInfosChunkSize {
+		return nil
+	}
+	return w.flush()
+}
+
+func (w *FileInfoCacheWriter) Close() error {
+	if w == nil || w.closed {
+		return nil
+	}
+	if err := w.flush(); err != nil {
+		return err
+	}
+	manifest := cacheFileInfosManifest{
+		SchemaVersion:     cacheSchemaVersion,
+		ExtractorVersions: cloneExtractorVersions(),
+		RepoHead:          gitHeadSHA(w.repoRoot),
+		WrittenAt:         time.Now().UTC().Format(time.RFC3339),
+		TotalFiles:        w.total,
+		ChunkSize:         cacheFileInfosChunkSize,
+		ChunkDir:          w.generation,
+		Checksum:          hex.EncodeToString(w.overall.Sum(nil)[:8]),
+		Chunks:            w.chunks,
+	}
+	out, err := json.Marshal(&manifest)
+	if err != nil {
+		return fmt.Errorf("marshal fileinfos manifest: %w", err)
+	}
+	tmpManifest := filepath.Join(w.dir, cacheFileInfosManifestFile+".tmp-"+strconv.FormatInt(time.Now().UnixNano(), 36))
+	if err := os.WriteFile(tmpManifest, out, 0o644); err != nil {
+		return fmt.Errorf("write fileinfos manifest: %w", err)
+	}
+	if err := os.Rename(tmpManifest, filepath.Join(w.dir, cacheFileInfosManifestFile)); err != nil {
+		_ = os.Remove(tmpManifest)
+		return fmt.Errorf("install fileinfos manifest: %w", err)
+	}
+	w.closed = true
+	_ = os.Remove(filepath.Join(w.dir, cacheFileInfosFile))
+	pruneOldFileInfoChunkDirs(w.dir, w.generation)
+	return nil
+}
+
+func (w *FileInfoCacheWriter) Abort() {
+	if w == nil || w.closed {
+		return
+	}
+	_ = os.RemoveAll(w.chunkDir)
+	w.closed = true
+}
+
+func (w *FileInfoCacheWriter) flush() error {
+	if w == nil || len(w.buf) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(w.buf)
+	if err != nil {
+		return fmt.Errorf("marshal fileinfos chunk %d: %w", len(w.chunks), err)
+	}
+	sum := sha256.Sum256(data)
+	name := fmt.Sprintf("chunk-%05d.json", len(w.chunks))
+	if err := os.WriteFile(filepath.Join(w.chunkDir, name), data, 0o644); err != nil {
+		return fmt.Errorf("write fileinfos chunk %s: %w", name, err)
+	}
+	chunk := cacheFileInfosChunk{
+		File:     name,
+		Count:    len(w.buf),
+		Checksum: hex.EncodeToString(sum[:8]),
+	}
+	w.chunks = append(w.chunks, chunk)
+	w.overall.Write([]byte(chunk.File))
+	w.overall.Write([]byte{0})
+	w.overall.Write([]byte(strconv.Itoa(chunk.Count)))
+	w.overall.Write([]byte{0})
+	w.overall.Write([]byte(chunk.Checksum))
+	w.overall.Write([]byte{'\n'})
+	w.buf = w.buf[:0]
+	return nil
+}
+
+func loadChunkedFileInfos(dir string) []*types.FileInfo {
+	raw, err := os.ReadFile(filepath.Join(dir, cacheFileInfosManifestFile))
+	if err != nil {
+		return nil
+	}
+	var manifest cacheFileInfosManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return nil
+	}
+	if !cacheManifestVersionValid(manifest.SchemaVersion, manifest.ExtractorVersions) {
+		return nil
+	}
+	if manifest.TotalFiles < 0 || manifest.ChunkDir == "" || len(manifest.Chunks) == 0 {
+		return nil
+	}
+	if filepath.Clean(manifest.ChunkDir) != manifest.ChunkDir ||
+		filepath.IsAbs(manifest.ChunkDir) ||
+		strings.HasPrefix(manifest.ChunkDir, "..") ||
+		strings.Contains(manifest.ChunkDir, string(filepath.Separator)+".."+string(filepath.Separator)) {
+		return nil
+	}
+
+	chunkDir := filepath.Join(dir, manifest.ChunkDir)
+	files := make([]*types.FileInfo, 0, manifest.TotalFiles)
+	overall := sha256.New()
+	for _, chunk := range manifest.Chunks {
+		if chunk.File == "" || filepath.Clean(chunk.File) != chunk.File ||
+			filepath.IsAbs(chunk.File) || strings.Contains(chunk.File, string(filepath.Separator)) {
+			return nil
+		}
+		data, err := os.ReadFile(filepath.Join(chunkDir, chunk.File))
+		if err != nil {
+			return nil
+		}
+		sum := sha256.Sum256(data)
+		if chunk.Checksum != hex.EncodeToString(sum[:8]) {
+			return nil
+		}
+		var part []*types.FileInfo
+		if err := json.Unmarshal(data, &part); err != nil {
+			return nil
+		}
+		if len(part) != chunk.Count {
+			return nil
+		}
+		files = append(files, part...)
+		overall.Write([]byte(chunk.File))
+		overall.Write([]byte{0})
+		overall.Write([]byte(strconv.Itoa(chunk.Count)))
+		overall.Write([]byte{0})
+		overall.Write([]byte(chunk.Checksum))
+		overall.Write([]byte{'\n'})
+	}
+	if len(files) != manifest.TotalFiles {
+		return nil
+	}
+	if manifest.Checksum != "" && manifest.Checksum != hex.EncodeToString(overall.Sum(nil)[:8]) {
+		return nil
+	}
+	return files
+}
+
+func loadLegacyFileInfos(dir string) []*types.FileInfo {
 	data, err := os.ReadFile(filepath.Join(dir, cacheFileInfosFile))
 	if err != nil {
 		return nil
@@ -226,13 +438,8 @@ func LoadFileInfos(dir string) []*types.FileInfo {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return nil
 	}
-	if payload.SchemaVersion != cacheSchemaVersion {
+	if !cacheManifestVersionValid(payload.SchemaVersion, payload.ExtractorVersions) {
 		return nil
-	}
-	for lang, ver := range extractorVersions {
-		if payload.ExtractorVersions[lang] != ver {
-			return nil
-		}
 	}
 	if payload.Checksum != "" {
 		filesData, err := json.Marshal(payload.Files)
@@ -245,6 +452,43 @@ func LoadFileInfos(dir string) []*types.FileInfo {
 		}
 	}
 	return payload.Files
+}
+
+func cacheManifestVersionValid(schemaVersion int, versions map[string]int) bool {
+	if schemaVersion != cacheSchemaVersion {
+		return false
+	}
+	for lang, ver := range extractorVersions {
+		if versions[lang] != ver {
+			return false
+		}
+	}
+	return true
+}
+
+func cloneExtractorVersions() map[string]int {
+	extractors := make(map[string]int, len(extractorVersions))
+	for k, v := range extractorVersions {
+		extractors[k] = v
+	}
+	return extractors
+}
+
+func pruneOldFileInfoChunkDirs(dir, keep string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if name == keep || !strings.HasPrefix(name, "fileinfos.") || !strings.HasSuffix(name, ".d") {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(dir, name))
+	}
 }
 
 // gitHeadSHA returns the short SHA of repoRoot's current HEAD or
