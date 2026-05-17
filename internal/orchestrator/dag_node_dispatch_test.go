@@ -2,7 +2,10 @@ package orchestrator
 
 import (
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -292,14 +295,17 @@ func dagIRMultiTopic(siblingCount int) *types.AnalysisIR {
 func TestRunTaskGraph_PerNodeDispatch_TwoEvidenceSiblings(t *testing.T) {
 	var explorerCalls int
 	var observedExplorerHints []string
+	var mu sync.Mutex
 
 	ir := dagIRMultiTopic(2)
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
 		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			mu.Lock()
 			explorerCalls++
 			observedExplorerHints = append(observedExplorerHints, ctx.RetryHint)
+			mu.Unlock()
 			return &agent.StageOutput{
 				MissingPiece:  types.MissingNone,
 				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
@@ -323,6 +329,8 @@ func TestRunTaskGraph_PerNodeDispatch_TwoEvidenceSiblings(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
+	mu.Lock()
+	defer mu.Unlock()
 	// E': 2 sibling evidence nodes → 2 explorer dispatches (not 1
 	// merged).
 	if explorerCalls != 2 {
@@ -332,24 +340,25 @@ func TestRunTaskGraph_PerNodeDispatch_TwoEvidenceSiblings(t *testing.T) {
 		t.Fatalf("expected 2 hints, got %d", len(observedExplorerHints))
 	}
 
-	// E': each hint should focus on ONE sub-topic. Concretely:
-	//   - dispatch 0 mentions sub-topic 0 (entity e0); does NOT
-	//     mention sub-topic 1's entity e1
-	//   - dispatch 1 mentions sub-topic 1's objective; does NOT
-	//     re-list sub-topic 0
-	hint0 := observedExplorerHints[0]
-	hint1 := observedExplorerHints[1]
-	if !strings.Contains(hint0, "sub-topic 0") {
-		t.Errorf("dispatch 0 hint must mention 'sub-topic 0'; got %q", hint0)
+	// E': each hint should focus on ONE sub-topic. Parallel dispatch may
+	// invoke the stub in either goroutine order, so assert the set shape
+	// instead of relying on append order.
+	var saw0, saw1 bool
+	for _, hint := range observedExplorerHints {
+		has0 := strings.Contains(hint, "sub-topic 0")
+		has1 := strings.Contains(hint, "sub-topic 1")
+		if has0 && has1 {
+			t.Errorf("focused hint must not contain both sub-topics; got %q", hint)
+		}
+		if has0 {
+			saw0 = true
+		}
+		if has1 {
+			saw1 = true
+		}
 	}
-	if strings.Contains(hint0, "sub-topic 1") {
-		t.Errorf("dispatch 0 hint must NOT mention 'sub-topic 1' (would defeat per-node focus); got %q", hint0)
-	}
-	if !strings.Contains(hint1, "sub-topic 1") {
-		t.Errorf("dispatch 1 hint must mention 'sub-topic 1'; got %q", hint1)
-	}
-	if strings.Contains(hint1, "sub-topic 0") {
-		t.Errorf("dispatch 1 hint must NOT mention 'sub-topic 0' (sibling already done); got %q", hint1)
+	if !saw0 || !saw1 {
+		t.Errorf("expected one focused hint per sub-topic, got %q", observedExplorerHints)
 	}
 }
 
@@ -393,5 +402,107 @@ func TestRunTaskGraph_SingleEvidenceNode_ByteEquivalent(t *testing.T) {
 	// Single-sub_topic → exactly 1 explorer dispatch (unchanged).
 	if explorerCalls != 1 {
 		t.Errorf("single-sub_topic: expected 1 explorer dispatch (byte-equivalent path), got %d", explorerCalls)
+	}
+}
+
+func TestRunTaskGraph_ParallelDispatch_UsesConfiguredCap(t *testing.T) {
+	ir := dagIRMultiTopic(3)
+	var inFlight int32
+	var maxInFlight int32
+	var calls int32
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			cur := atomic.AddInt32(&inFlight, 1)
+			for {
+				prev := atomic.LoadInt32(&maxInFlight)
+				if cur <= prev || atomic.CompareAndSwapInt32(&maxInFlight, prev, cur) {
+					break
+				}
+			}
+			atomic.AddInt32(&calls, 1)
+			time.Sleep(40 * time.Millisecond)
+			atomic.AddInt32(&inFlight, -1)
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				EvidenceItems: []types.EvidenceItem{{ID: "ev", Source: "src.go", LineStart: 1}},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "- `Foo` (file.go:1)"}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxParallelism: 2}, ar, sr, sar)
+	o.SetMaxSteps(30)
+	if _, err := o.Run("compare A, B, and C", "/tmp/repo", "main"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Fatalf("explorer calls = %d, want 3", got)
+	}
+	if got := atomic.LoadInt32(&maxInFlight); got != 2 {
+		t.Fatalf("max concurrent explorer dispatches = %d, want configured cap 2", got)
+	}
+}
+
+func TestRunTaskGraph_ParallelDispatch_CanBeForcedSerial(t *testing.T) {
+	ir := dagIRMultiTopic(3)
+	var inFlight int32
+	var maxInFlight int32
+	var mu sync.Mutex
+	var dispatchKeys []string
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			mu.Lock()
+			dispatchKeys = append(dispatchKeys, ctx.ExploreDispatchKey)
+			mu.Unlock()
+			cur := atomic.AddInt32(&inFlight, 1)
+			if cur > atomic.LoadInt32(&maxInFlight) {
+				atomic.StoreInt32(&maxInFlight, cur)
+			}
+			time.Sleep(10 * time.Millisecond)
+			atomic.AddInt32(&inFlight, -1)
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				EvidenceItems: []types.EvidenceItem{{ID: "ev", Source: "src.go", LineStart: 1}},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "- `Foo` (file.go:1)"}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxParallelism: 1}, ar, sr, sar)
+	o.SetMaxSteps(30)
+	if _, err := o.Run("compare A, B, and C", "/tmp/repo", "main"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := atomic.LoadInt32(&maxInFlight); got != 1 {
+		t.Fatalf("max concurrent explorer dispatches = %d, want serial cap 1", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(dispatchKeys) != 3 {
+		t.Fatalf("dispatch keys = %v, want 3 focused keys", dispatchKeys)
+	}
+	for _, want := range []string{"n1_evidence_t0", "n1_evidence_t1", "n1_evidence_t2"} {
+		var found bool
+		for _, key := range dispatchKeys {
+			if strings.Contains(key, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("dispatch keys %v missing %s", dispatchKeys, want)
+		}
 	}
 }

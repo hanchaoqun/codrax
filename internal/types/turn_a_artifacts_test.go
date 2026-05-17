@@ -152,6 +152,69 @@ func TestTurnAArtifacts_Reset(t *testing.T) {
 	}
 }
 
+func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
+	parent := NewMutableState("")
+	parent.SetTurnAArtifacts(TurnAArtifacts{
+		UserQuestion:          "q",
+		InvestigationNotes:    []string{"base-note"},
+		ReadFiles:             []string{"base.go"},
+		ToolResults:           []ToolResult{{ToolName: "grep", Summary: "base", Success: true}},
+		FlowFindings:          []FlowFindingDigest{{Path: []string{"base"}, Confidence: 0.5}},
+		TerminalEvidenceCount: 1,
+	})
+
+	fork1 := parent.ForkForExploreDispatch()
+	fork2 := parent.ForkForExploreDispatch()
+
+	ta1 := fork1.TurnAArtifacts()
+	ta1.InvestigationNotes = append(ta1.InvestigationNotes, "fork1-note")
+	ta1.ReadFiles = append(ta1.ReadFiles, "fork1.go")
+	ta1.ToolResults = append(ta1.ToolResults, ToolResult{ToolName: "read_file", Summary: "fork1", Success: true})
+	ta1.FlowFindings = append(ta1.FlowFindings, FlowFindingDigest{Path: []string{"fork1"}, Confidence: 0.7})
+	ta1.TerminalEvidenceCount = 2
+	fork1.SetTurnAArtifacts(*ta1)
+
+	ta2 := fork2.TurnAArtifacts()
+	ta2.InvestigationNotes = append(ta2.InvestigationNotes, "fork2-note")
+	ta2.ReadFiles = append(ta2.ReadFiles, "fork2.go")
+	ta2.ToolResults = append(ta2.ToolResults, ToolResult{ToolName: "read_file", Summary: "fork2", Success: true})
+	ta2.FlowFindings = append(ta2.FlowFindings, FlowFindingDigest{Path: []string{"fork2"}, Confidence: 0.8})
+	ta2.TerminalEvidenceCount = 3
+	fork2.SetTurnAArtifacts(*ta2)
+
+	parent.MergeExploreFork(fork1)
+	parent.MergeExploreFork(fork2)
+
+	got := parent.TurnAArtifacts()
+	if got == nil {
+		t.Fatal("expected merged TurnAArtifacts")
+	}
+	if len(got.InvestigationNotes) != 3 {
+		t.Fatalf("notes = %+v, want base + two fork deltas", got.InvestigationNotes)
+	}
+	if len(got.ToolResults) != 3 {
+		t.Fatalf("tool results = %+v, want base + two fork deltas", got.ToolResults)
+	}
+	if len(got.FlowFindings) != 3 {
+		t.Fatalf("flow findings = %+v, want base + two fork deltas", got.FlowFindings)
+	}
+	if got.TerminalEvidenceCount != 3 {
+		t.Fatalf("terminal evidence count = %d, want max 3", got.TerminalEvidenceCount)
+	}
+	for _, want := range []string{"base.go", "fork1.go", "fork2.go"} {
+		var found bool
+		for _, file := range got.ReadFiles {
+			if file == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("read files %+v missing %s", got.ReadFiles, want)
+		}
+	}
+}
+
 func TestTurnAArtifacts_NilMutableStateSafe(t *testing.T) {
 	var m *MutableState
 	// All four operations must be no-ops, not panics.

@@ -504,12 +504,14 @@ type Orchestrator struct {
 
 // New creates a new Orchestrator.
 func New(settings types.PipelineSettings, agents *agent.Registry, skills *skill.Registry, subAgents *agent.SubAgentRegistry) *Orchestrator {
+	subRuntime := agent.NewSubAgentRuntime(subAgents)
+	subRuntime.SetMaxParallelism(settings.MaxParallelism)
 	return &Orchestrator{
 		settings:   settings,
 		agents:     agents,
 		skills:     skills,
 		maxSteps:   50,
-		subRuntime: agent.NewSubAgentRuntime(subAgents),
+		subRuntime: subRuntime,
 		emit:       render.NopEmitter,
 	}
 }
@@ -4053,13 +4055,21 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// markRunning → markDone state machine and emits its own
 			// EventTaskNodeStart/End so the /dag UI shows N rows
 			// transitioning independently. See
-			// dag_node_dispatch.go for the typed-signal predicate +
-			// design rationale (no parallelism here — that's Phase 2;
-			// serial-per-node alone is the architecturally-correct
-			// foundation that respects the DAG's independence
-			// relations).
+			// dag_node_dispatch.go for the typed-signal predicate and
+			// split helper. When pipeline_max_parallelism permits, the
+			// split windows below run concurrently; when the cap is 1,
+			// the same helper degrades to the original serial-per-node
+			// flow.
+			var parallelWindows [][]*types.TaskNode
+			parallelism := 1
 			if shouldDispatchExploreNodesIndividually(window) {
-				window = trimExploreWindowToFirstEvidence(window)
+				splitWindows := splitExploreWindowForDispatch(window)
+				parallelism = effectiveParallelism(o.orchestratorMaxParallelism(), len(splitWindows))
+				if parallelism > 1 {
+					parallelWindows = splitWindows
+				} else if len(splitWindows) > 0 {
+					window = splitWindows[0]
+				}
 			}
 			// CGEC D2: drain pending RepairDirectives from the
 			// closure so each fires exactly once. ConsumeRepairs is
@@ -4070,7 +4080,30 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				pendingRepairs = o.busCtx.Mutable.EvidenceClosure().ConsumeRepairs()
 			}
 			stopLocal = o.startSchedulerLocalWork(types.StageExplore, "window_hint")
-			hint, err := renderWindowHintContext(o.CancelContext(), window, blocked, pendingValidationTargets, resolveSurface, pendingViolation, pendingStageRetry, pendingRepairs)
+			var hint string
+			var parallelHints []string
+			if len(parallelWindows) > 0 {
+				parallelHints = make([]string, len(parallelWindows))
+				for i, w := range parallelWindows {
+					var bw []nodeBlock
+					var vt []string
+					var pv, ps string
+					var repairs []types.RepairDirective
+					if i == 0 {
+						bw = blocked
+						vt = pendingValidationTargets
+						pv = pendingViolation
+						ps = pendingStageRetry
+						repairs = pendingRepairs
+					}
+					parallelHints[i], err = renderWindowHintContext(o.CancelContext(), w, bw, vt, resolveSurface, pv, ps, repairs)
+					if err != nil {
+						break
+					}
+				}
+			} else {
+				hint, err = renderWindowHintContext(o.CancelContext(), window, blocked, pendingValidationTargets, resolveSurface, pendingViolation, pendingStageRetry, pendingRepairs)
+			}
 			if o.finishSchedulerLocalWork(stopLocal, "window_hint", stepsUsed) || err != nil {
 				if err != nil {
 					o.busCtx.TaskState.LastError = err.Error()
@@ -4080,7 +4113,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			pendingViolation = ""
 			pendingStageRetry = ""
 			pendingValidationTargets = nil
-			o.applyWindowHint(hint)
+			if len(parallelWindows) > 0 {
+				o.applyWindowHint("")
+			} else {
+				o.applyWindowHint(hint)
+			}
 			for _, n := range window {
 				state.markRunning(n.ID)
 				o.emitNodeStart(n.ID)
@@ -4115,18 +4152,46 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if read > 0 {
 				logging.Info("[CGEC] E2 pre-dispatch forced-read %d file(s) before explore retry", read)
 			}
-			if out, err := o.dispatchStage(types.StageExplore); err != nil {
-				logging.Error("[orchestrator] DAG explore window failed: %v", err)
-				if o.retryReadStageDispatchError(state, types.StageExplore, window, nil, err) {
+			var out *agent.StageOutput
+			var dispatchErr error
+			dispatchStepCount := 1
+			if len(parallelWindows) > 0 {
+				stageStart := emitParallelExploreStageStart(o)
+				out, dispatchErr = o.dispatchExploreWindowsParallel(parallelWindows, parallelHints, parallelism)
+				stageErr := ""
+				if dispatchErr != nil {
+					stageErr = dispatchErr.Error()
+				} else if out != nil && out.Error != "" {
+					stageErr = out.Error
+				}
+				o.emit(render.Event{
+					Kind:      render.EventStageEnd,
+					Timestamp: time.Now(),
+					Stage:     types.StageExplore,
+					Agent:     types.AgentExplorer,
+					Error:     stageErr,
+				})
+				logging.Debug("[orchestrator] parallel explore stage elapsed=%s windows=%d parallelism=%d",
+					time.Since(stageStart).Round(time.Millisecond), len(parallelWindows), parallelism)
+				dispatchStepCount = len(parallelWindows)
+			} else {
+				prevDispatchKey := o.busCtx.ExploreDispatchKey
+				o.busCtx.ExploreDispatchKey = exploreDispatchKeyForWindow(window)
+				out, dispatchErr = o.dispatchStage(types.StageExplore)
+				o.busCtx.ExploreDispatchKey = prevDispatchKey
+			}
+			if dispatchErr != nil {
+				logging.Error("[orchestrator] DAG explore window failed: %v", dispatchErr)
+				if o.retryReadStageDispatchError(state, types.StageExplore, window, nil, dispatchErr) {
 					continue
 				}
-				stepsUsed++
+				stepsUsed += dispatchStepCount
 				for _, n := range window {
 					state.markFailed(n.ID)
-					o.emitNodeEnd(n.ID, false, err.Error())
+					o.emitNodeEnd(n.ID, false, dispatchErr.Error())
 				}
 			} else {
-				stepsUsed++
+				stepsUsed += dispatchStepCount
 				if o.requeueExploreWindowForFactRetry(state, window, out) {
 					pendingStageRetry = out.RetryHint
 					continue

@@ -84,18 +84,33 @@ func (v *SubAgentValidator) Validate(bus *types.BusContext, proposal *types.SubA
 // SubAgentRuntime validates, executes, and reduces SubAgent proposals.
 // Orchestrator calls Run() with a proposal; Runtime handles the rest internally.
 type SubAgentRuntime struct {
-	registry  *SubAgentRegistry
-	validator *SubAgentValidator
-	reducer   *SubAgentReducer
+	registry       *SubAgentRegistry
+	validator      *SubAgentValidator
+	reducer        *SubAgentReducer
+	maxParallelism int
 }
 
 // NewSubAgentRuntime creates a new runtime with built-in validator and reducer.
 func NewSubAgentRuntime(registry *SubAgentRegistry) *SubAgentRuntime {
 	return &SubAgentRuntime{
-		registry:  registry,
-		validator: NewSubAgentValidator(registry),
-		reducer:   &SubAgentReducer{},
+		registry:       registry,
+		validator:      NewSubAgentValidator(registry),
+		reducer:        &SubAgentReducer{},
+		maxParallelism: types.DefaultPipelineMaxParallelism,
 	}
+}
+
+func (r *SubAgentRuntime) SetMaxParallelism(v int) {
+	if r == nil {
+		return
+	}
+	if v < 0 {
+		v = types.DefaultPipelineMaxParallelism
+	}
+	if v > types.MaxPipelineParallelismCeil {
+		v = types.MaxPipelineParallelismCeil
+	}
+	r.maxParallelism = v
 }
 
 // Run is the single entry point for the Orchestrator.
@@ -120,27 +135,57 @@ func (r *SubAgentRuntime) Run(bus *types.BusContext, proposal *types.SubAgentPro
 func (r *SubAgentRuntime) execute(requests []*types.SubAgentRequest) ([]*types.SubAgentResult, error) {
 	results := make([]*types.SubAgentResult, len(requests))
 	errs := make([]error, len(requests))
-	var wg sync.WaitGroup
-
-	for i, req := range requests {
-		wg.Add(1)
-		go func(i int, req *types.SubAgentRequest) {
-			defer wg.Done()
-
-			sub, err := r.registry.Get(req.SubAgent)
-			if err != nil {
-				errs[i] = err
-				return
-			}
-
-			logging.Info("[subagent-runtime] start[%d] %s: %s", i, req.SubAgent, req.Objective)
-			results[i], errs[i] = sub.Run(req)
-			logging.Info("[subagent-runtime] done[%d] %s: err=%v", i, req.SubAgent, errs[i])
-		}(i, req)
+	workers := subAgentEffectiveParallelism(r.maxParallelism, len(requests))
+	if workers <= 1 {
+		for i, req := range requests {
+			results[i], errs[i] = r.executeOne(i, req)
+		}
+		return results, combineErrors(errs)
 	}
+
+	var wg sync.WaitGroup
+	jobs := make(chan int)
+
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				results[i], errs[i] = r.executeOne(i, requests[i])
+			}
+		}()
+	}
+	for i := range requests {
+		jobs <- i
+	}
+	close(jobs)
 	wg.Wait()
 
 	return results, combineErrors(errs)
+}
+
+func (r *SubAgentRuntime) executeOne(i int, req *types.SubAgentRequest) (*types.SubAgentResult, error) {
+	sub, err := r.registry.Get(req.SubAgent)
+	if err != nil {
+		return nil, err
+	}
+	logging.Info("[subagent-runtime] start[%d] %s: %s", i, req.SubAgent, req.Objective)
+	result, err := sub.Run(req)
+	logging.Info("[subagent-runtime] done[%d] %s: err=%v", i, req.SubAgent, err)
+	return result, err
+}
+
+func subAgentEffectiveParallelism(configured, candidateCount int) int {
+	if candidateCount <= 0 {
+		return 0
+	}
+	if configured < 0 {
+		configured = types.DefaultPipelineMaxParallelism
+	}
+	if configured == 0 || configured > candidateCount {
+		return candidateCount
+	}
+	return configured
 }
 
 func combineErrors(errs []error) error {

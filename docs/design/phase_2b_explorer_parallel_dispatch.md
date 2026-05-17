@@ -1,317 +1,201 @@
-# Phase 2B — Explorer parallel dispatch (design)
+# Phase 2B — Explorer parallel dispatch
 
-**Status**: BLOCKED on explorerEvaluator architecture refactor. NOT
-ready to land in one session. Estimated 2-3 independent sessions.
+**Status**: IMPLEMENTED in bounded batches.
 
-**Baseline commit**: `86d8c84d` (Phase 2A wired
-`pipeline_max_parallelism` config + reviewer gate; explorer side
-gated to 1 = strict serial via the same knob).
+**Updated**: 2026-05-17.
 
-**Forensic anchor**: 2026-05-17 audit during Phase 2 session.
-Discovered AFTER user authorisation to ship 2B but BEFORE
-implementing — see "Critical discovery" below. Mitigated by holding
-2B and shipping only 2A.
+## Goal
 
-## 1 What 2B is supposed to deliver
+Improve read-mode exploration wall clock for analyzer-emitted
+multi-sub_topic DAGs. When the task graph contains independent
+`NodeEvidence` siblings, the scheduler may dispatch those focused
+explorer windows concurrently instead of running them one by one.
 
-Wall-clock parallelism for the multi-sub_topic explorer fan-out that
-E' Phase 1 already wired structurally. Today (post-E'-Phase-1):
+The design is graph-driven and language-agnostic. It does not inspect
+the user's raw question text, does not parse model prose, and does not
+branch on programming-language keywords. The only hard scheduling
+signals are typed runtime facts:
 
-- analyzer's `expandEvidenceNodes` emits N independent evidence
-  sibling nodes (`{prefix}_t0` / `_t1` / `_tN`) for N sub-topics
-- scheduler's E' helper trims the ready window to one evidence
-  sibling per outer-loop iteration
-- outcome: N **sequential** explorer dispatches, each focused on its
-  own sub-topic
+- `TaskNode.Type == NodeEvidence`
+- DAG ready-window membership and node IDs
+- `PipelineSettings.MaxParallelism`
+- `RequestModel.SubTopics` only for existing iteration-budget scaling
 
-2B replaces the sequential loop with parallel goroutines so total
-wall time approaches `max(t_i)` instead of `sum(t_i)`. The
-goroutine count obeys `pipeline_max_parallelism` (Phase 2A):
+This preserves the project red line: precise structural signals drive
+hard gates; noisy text and heuristic matches stay advisory only.
 
-- `=1` → keep the E' Phase 1 sequential loop (default fallback)
-- `>=2` → spawn min(cap, N) goroutines
-- `=0` → unlimited; spawn N goroutines
+## Prior baseline
 
-## 2 Critical discovery — explorerEvaluator is a singleton mutable struct
+E' Phase 1 already stopped merging all sub-topic evidence siblings into
+one huge explorer prompt. The scheduler detects a ready window with
+multiple `NodeEvidence` entries and trims it to the first evidence node,
+so the outer loop dispatches one focused explorer window per sub-topic.
 
-**File**: `internal/agent/explorer.go:38-200+`.
+That fixed focus, but it is still sequential:
 
-`explorerEvaluator` is constructed ONCE in `cmd/root.go` (when the
-agent registry is set up) and shared across every `dispatchStage`
-call. It holds ~80 mutable fields that are read AND written across
-the lifetime of one `Execute()` call:
-
-```
-phase, broadenAttempts, preScannedFiles, allScoredFiles,
-fileSymbols, searchResult, searchFingerprint,
-multiGraphHandle, pendingSubRepos, analyzerKeywords,
-exactAnchorFiles, declarativeAnchorFiles,
-declarativeCandidateFiles, primaryEntitiesRegistrationShape,
-requiredFileHints, irrelevantFilesSet,
-investigationNotes, userQuestion, repoRoot,
-preScannedPushCount, lastPreScannedUnreadCount,
-grepRedirectedFiles, isEnumerationQuery, isOrientationQuery,
-phase0ExtraRound, hasPrescanRepoMap,
-structuredEvidence, flowFindings, ermRequirements,
-cachedConcreteValues,
-midLoopLastResultsLen, midLoopSerialStreak,
-midLoopParallelInjected, midLoopSymbolRefInjected,
-midLoopPostPrimaryInjected, midLoopBudgetExhaustedSent,
-midLoopEvidenceRepairSent, midLoopEvidenceRepairResultsLen,
-midLoopSurfaceTermReviewSent, midLoopClosureRepairSent,
-midLoopClosureRepairResultsLen, midLoopIntentWindowSent,
-midLoopRankerCoverageSent, midLoopAbsentRedirectSent,
-midLoopExternalArtifactSent, midLoopExactAbsenceContextSent,
-midLoopExactAbsenceSent, midLoopSchemaLevelHintSent,
-midLoopAuthoritativeTier1Sent, midLoopEnumInjected,
-midLoopOrientationFinalizeSent, midLoopNoEmitPushSent,
-midLoopNoEmitEscalated, midLoopExecRedirectSent,
-... (~40 more)
+```text
+evidence_t0 → evidence_t1 → evidence_t2
 ```
 
-`BuildInitialInstruction` and `ParseOutput` directly write these
-fields (no mutex). N concurrent `ag.Execute()` calls on the same
-evaluator would:
+Phase 2B turns this into capped fan-out:
 
-- overwrite `phase` / `broadenAttempts` mid-iteration
-- race on `investigationNotes` / `structuredEvidence` appends
-- corrupt midLoop* one-shot flags so the per-dispatch nudge logic
-  fires in the wrong dispatch
-- pollute `ermRequirements` / `cachedConcreteValues` across topics
+```text
+evidence_t0 ┐
+evidence_t1 ├─ capped by pipeline_max_parallelism
+evidence_t2 ┘
+```
 
-**This is the SAME pattern that bit the reverted method-E ship**:
-`subExplorerEvaluator` (`internal/agent/sub_explorer.go:87-95`) holds
-~6 mutable fields that get clobbered when SubAgentRuntime runs N
-sub_explorers concurrently. The reverted commits (`d6ca6352`,
-`37298341`) document the failure mode. Method-E's `sub_explorer`
-problem and 2B's `explorer` problem are the SAME architectural issue
-at different scales.
+## Configuration contract
 
-## 2.5 Production forensic confirmation (2026-05-17 09:09 run)
+The existing code already has the canonical cap:
 
-A first post-E'-Phase-1 production run on a 2-sub_topic question
-generated explicit evidence that the singleton-evaluator state leak
-fires under SEQUENTIAL dispatch too (independent of any future
-parallel dispatch). Details in
-`docs/design/post_phase2a_forensic_followups.md` §2.1.E.
+- runtime yaml key: `pipeline_max_parallelism`
+- internal field: `PipelineSettings.MaxParallelism`
+- helper: `effectiveParallelism(configured, candidateCount)`
+- hard ceiling: `MaxPipelineParallelismCeil == 16`
 
-Highlight: at D2 iter=0 the explorer LLM's opening `<think>` block
-analyzes D1's failure pathology in detail despite a FRESH
-~26k-token context window (no conversation carryover from D1's
-~70k-token final iter). The analysis can only have arrived via the
-shared `explorerEvaluator` fields (or via `BaseAgent.Execute`'s
-retry-hint synthesis pulling from those fields) — exactly the
-~80-field mutable singleton documented in §2 above.
+Phase 2B makes that user-visible in `codrax.yaml.example` and seeds
+the production default to `DefaultPipelineMaxParallelism == 2`.
 
-This upgrades the singleton concern from "code-read-only worry" to
-"verified production symptom". The Approach A refactor (per-Run
-evaluator construction) now has two motivations of equal weight:
+Semantics:
 
-1. Original: enable safe parallel dispatch for Phase 2B Session C.
-2. New: stop the cross-dispatch state bleed visible in sequential
-   E'-Phase-1 dispatches today.
+- `pipeline_max_parallelism: 1` forces strict serial execution.
+- `pipeline_max_parallelism: 2` is the production default.
+- `pipeline_max_parallelism: 0` means unlimited for each fan-out surface.
+- values above 16 are clamped by the orchestrator.
 
-Session A's test plan should pin a `D2 iter=0 think-block
-isolation` invariant: with a stub LLM that records its input
-prompt, run two back-to-back `Execute()` calls on the same
-Explorer; the second's prompt MUST NOT contain analysis-text
-derived from the first's evaluator state.
+The same cap is shared by explorer sibling dispatch, post-emit reviewer
+fan-out, sub-agent runtime fan-out, and future orchestrator-owned
+parallel surfaces. There must not be a second, explorer-only knob.
 
-## 3 Why race detector did not catch it
+## Architecture
 
-`go test -race ./internal/orchestrator/ ./internal/agent/`
-passes today because no test exercises N concurrent
-`ExplorerEvaluator.Execute` calls. The race detector reports
-unsynchronised memory access on a struct field that is actually
-read+written simultaneously — but every test runs sequentially. The
-hazard is dormant until a parallel-dispatch path is wired up.
+### 1. Evaluator lifecycle
 
-This is the same reason method-E shipped with `go test -race` green:
-the sub_explorer race was dormant. The first time it bit us was the
-forensic 08:14 run on a real two-sub_topic question.
+`explorerEvaluator` is mutable and stateful. It tracks phase, search
+cache handles, notes, evidence, mid-loop one-shot flags, ERM state,
+exact-resolution fields, and concrete-value caches. Running two
+`Execute()` calls on the same evaluator would corrupt both dispatches.
 
-**Lesson for future sessions**: a `-race` clean test suite does
-NOT guarantee evaluator-level concurrency safety when evaluators
-are singletons. Concurrent-safety must be proven by either
-constructing an actual parallel test (spawn 2 Execute goroutines
-against the same evaluator instance with stub LLM responses) OR by
-architectural argument (per-Run evaluator construction).
+Phase 2B replaces the singleton evaluator with an `ExplorerAgent`
+wrapper:
 
-## 4 The fix surface — explorerEvaluator architecture refactor
+- the wrapper owns stable construction inputs and an optional shared
+  search-result cache;
+- each dispatch gets an evaluator keyed by
+  `TraceID + ExploreDispatchKey`;
+- re-dispatch of the same node in the same run reuses that node's
+  evaluator, preserving legitimate explore self-loop state;
+- different sibling evidence nodes get different evaluators, so
+  parallel dispatches do not share mutable ReAct state.
 
-Three viable approaches, in order of soundness:
+The search-result cache remains keyed by the existing deterministic
+`keywordSearchFingerprint`. It is a performance cache only. It must
+never decide control flow.
 
-### 4.1 Approach A — per-Run evaluator construction (recommended)
+### 2. Per-dispatch Mutable isolation
 
-Move evaluator construction from `NewExplorer(deps)` (once per
-process) to `Explorer.Run()` (once per `Execute()` call).
+`MutableState` is lock-protected but semantically shared. A parallel
+top-level explorer dispatch cannot share it because these fields are
+per-dispatch or per-window:
 
-**Required changes**:
+- dispatch tool-result buffer
+- investigation-complete latch
+- explore budget counters
+- emitted evidence tail used by `emit_evidence` and
+  `emit_investigation_complete`
+- Turn A handoff snapshot
+- EvidenceClosure read-set and repair queues
 
-- `Explorer` keeps only construction inputs (`deps *Dependencies`).
-- `Explorer.Run()` (or `BaseAgent.Execute()` for the Explorer path)
-  constructs a fresh `explorerEvaluator` whose Run-scoped fields
-  start at zero values.
-- Cache-scoped fields (`searchResult`, `searchFingerprint`,
-  `fileSymbols`, `multiGraphHandle`, …) move out of the evaluator
-  onto an `*ExplorerCache` owned by `Orchestrator` and looked up by
-  key (e.g. `searchFingerprint`) when the evaluator wants the
-  pre-scan reuse.
-- All evaluator methods stay the same signature; only the
-  construction site changes.
+Parallel explorer workers therefore run with a forked `MutableState`.
+The fork copies read-only run state and the prior accumulated evidence
+surface. Workers write to their own fork. After all workers return,
+the scheduler merges each fork back into the parent in task-graph
+declaration order, not goroutine completion order.
 
-**Risk**: identifying which fields are Run-scoped vs. cache-scoped
-requires reading every field's write site. The ~40 `midLoop*`
-fields are clearly Run-scoped (per-dispatch one-shot flags). The
-`searchResult` family is cache-scoped (T1.2 forensic anchor says it
-deliberately reuses across redispatches within a Run). The
-`investigationNotes` field looks Run-scoped from the field name but
-its actual lifecycle needs verification.
+Merge rules:
 
-**Estimated LOC**: 400-600 (refactor + tests). Cache lookups need
-proper key invalidation when sub_topic / scope changes.
+- tool results and facts append;
+- evidence, chains, symbols, and flow findings use existing stable
+  merge semantics at `applyStageOutput`;
+- Mutable emitted evidence dedupes by `StableEvidenceID`;
+- EvidenceClosure read coverage is unioned;
+- repair directives dedupe through the existing repair key;
+- event streams such as violations, fingerprints, and
+  symbol-emission rejection counters merge only the fork-created tail,
+  so a worker never re-appends the parent baseline;
+- Turn A artifacts merge from the fork-created tail: union read files,
+  append only new notes/tool results/flow findings, merge evidence, and
+  keep the maximum terminal-evidence count.
 
-### 4.2 Approach B — evaluator factory + registry change
+### 3. Scheduler fan-out
 
-`agents.Registry` becomes a factory: every `Get(name)` returns a new
-agent instance. Existing single-call sites continue to work; the
-parallel-dispatch site spawns N goroutines, each calling `Get` to
-get its own instance.
+Only a ready explore window with at least two `NodeEvidence` entries is
+eligible. Non-evidence companions retain the E' Phase 1 behavior:
+companions stay with the first sub-window, and later sibling windows
+stay focused on their evidence node.
 
-**Risk**: changes every agent registry consumer (analyzer, extractor,
-finalizer, planner, coder, verifier all use the same registry).
-Larger blast radius than 4.1.
+Execution path:
 
-**Estimated LOC**: 800+.
+1. Build the ready window from the typed graph.
+2. Split it into declaration-ordered focused sub-windows.
+3. Compute `effectiveParallelism(orchestratorMaxParallelism(), len(subWindows))`.
+4. If the result is `1`, use the existing serial path.
+5. Otherwise run a bounded worker pool.
+6. Apply outputs and forked mutable deltas in declaration order.
+7. Mark node status and emit node events per sub-window.
 
-### 4.3 Approach C — mutex over evaluator fields
+All hard decisions are based on typed node/window data. Prompt text is
+rendered after the sub-window is chosen; prompt content never decides
+whether parallelism is allowed.
 
-Add `sync.Mutex` to every evaluator field write. Holds mutex during
-the entire `Execute()` call (which spans LLM rounds taking ~30s
-each). Effectively serialises the explorer even when the scheduler
-spawns N goroutines.
+### 4. Commercial safety invariants
 
-**Risk**: defeats the entire purpose of 2B. Not viable.
+- `pipeline_max_parallelism: 1` keeps explorer dispatch serial.
+- Single-sub_topic behavior is unchanged.
+- Evidence/fact/ToolResult application order is stable by DAG
+  declaration order.
+- Parallel workers do not write to parent `busCtx.Mutable`.
+- Parent `busCtx.TaskState.RetryHint` is not used as a shared mutable
+  mailbox between sibling dispatches; each worker receives its rendered
+  hint through its forked bus context.
+- Cancellation still flows through the same `BusContext.Context()`.
+- The solution is language-agnostic. Repository language support stays
+  in repomap, graph, tool, and evidence layers.
 
-## 5 dispatchStage shared-state issues (separate axis)
+## Delivered batches
 
-Even with the evaluator refactor done, `dispatchStage` itself writes
-to `o.busCtx` from inside the call:
+### Batch A — foundation
 
-| Write | Line | Risk under parallel dispatch |
-|---|---|---|
-| `o.busCtx.ActiveAgent = agentName` | ~6046 | All goroutines write "explorer"; values equal, race benign but vet-flagged |
-| `o.busCtx.TaskState.LastError = ""` | ~6053 | Same as above (all clear to "") |
-| `o.emitStageRetryAttempt = 0` | ~6075 | Orchestrator field; needs mutex |
-| `o.busCtx.PipelineStage = StageExplore` | ~4069 (caller) | All goroutines write same value, benign race |
-| `o.busCtx.TaskState.RetryHint = hint` (via `applyWindowHint`) | ~5587 | DIFFERENT hints per goroutine; clobbers each other |
-| `o.busCtx.Mutable.ResetInvestigationComplete()` | ~4074 (caller) | One goroutine's reset wipes another's emit-complete signal |
-| `o.applyStageOutput(output)` | ~6431 | EvidenceItems / FlowFindings / RepoFacts read-modify-write |
+- Added `TraceID` and `ExploreDispatchKey` to `AgentContext`.
+- Converted `NewExplorerAgent` to a keyed evaluator wrapper.
+- Added fork/merge helpers for `MutableState` and `EvidenceClosure`.
+- Exported `pipeline_max_parallelism` in `codrax.yaml.example` and seeded
+  the production default.
 
-**The `RetryHint` write is the load-bearing problem** — each parallel
-dispatch needs ITS OWN hint (a per-sub_topic objective), but
-`applyWindowHint` writes to a shared bus field that `BuildAgentContext`
-later reads.
+### Batch B — scheduler fan-out
 
-### 5.1 Required refactor
+- Added `splitExploreWindowForDispatch`.
+- Added a bounded worker-pool runner for focused explorer windows.
+- Kept the existing serial path when cap resolves to `1`.
+- Merged outputs/forks in declaration order.
 
-- `dispatchStage` splits into:
-  - `runStageAgent(stage, perDispatchInputs) → output` — pure;
-    no `o.busCtx` writes.
-  - `applyStageOutput(output)` — already exists; serialised by
-    the orchestrator main goroutine.
-- `perDispatchInputs` carries the (formerly bus-resident) hint,
-  retry attempt counter, prior-conv visibility flag, etc.
-- `BuildAgentContext` reads `perDispatchInputs` directly OR receives
-  an already-populated agentCtx.
+### Batch C — tests
 
-**Estimated LOC**: 400 + tests.
+- Pinned `pipeline_max_parallelism: 1` serial behavior.
+- Pinned configured cap behavior for multi-sub_topic explorer dispatch.
+- Pinned closure fork merge so baseline event streams are not duplicated
+  by the number of parallel workers.
+- Pinned Turn A fork merge so sibling deltas accumulate without
+  duplicating the parent handoff snapshot.
+- Ran targeted orchestrator, agent, types, and race-sensitive tests plus
+  `go test ./...`.
 
-## 6 graphState.status concurrency
+## Out of scope
 
-`scheduler.go` `graphState.status` is a `map[string]nodeStatus`
-mutated by `markRunning` / `markDone` / `requeue`. Currently
-unlocked because the scheduler is single-threaded. Parallel dispatch
-needs a mutex (or atomic per-node status fields).
-
-**Estimated LOC**: 50.
-
-## 7 Recommended session breakdown
-
-### Session A — evaluator refactor (foundational)
-
-1. Read every `explorerEvaluator` field write site. Classify each as
-   Run-scoped vs cache-scoped.
-2. Implement Approach A: extract `ExplorerCache` for cache-scoped
-   fields; move Run-scoped fields into per-`Execute()` evaluator
-   construction.
-3. Mirror the same refactor for `subExplorerEvaluator` (so the
-   reverted method-E path is no longer dormant-broken). Optional
-   bonus.
-4. **Concurrent-safety test**: spawn 2 `Execute()` goroutines on the
-   same Explorer instance with stub LLM responses; assert each
-   returns isolated `EvidenceItems` matching its own input. Race
-   detector must stay green.
-5. No behavioral change at single-dispatch; all e2e tests pass.
-
-### Session B — dispatchStage decoupling
-
-1. Extract `runStageAgent` from `dispatchStage`. Keep
-   `dispatchStage = runStageAgent + applyStageOutput` as the public
-   single-dispatch entry point.
-2. Move `RetryHint` from `o.busCtx.TaskState` to a `perDispatchInputs`
-   struct passed into `runStageAgent`.
-3. graphState mutex.
-4. Re-verify single-sub_topic byte-equivalence.
-
-### Session C — parallel dispatch + e2e
-
-1. In `runReadSchedulerLoop`, when the trimmed window flag fires AND
-   `effectiveParallelism(orchestratorMaxParallelism(), nSiblings) >=
-   2`, spawn `errgroup` over the sibling evidence nodes.
-2. Each goroutine calls `runStageAgent(StageExplore,
-   perDispatchInputs)`; main goroutine `wg.Wait` then serially
-   `applyStageOutput` each result.
-3. Cancellation propagation: parent `ctx` cancel reaches every
-   goroutine.
-4. e2e tests: a 3-sub_topic IR with stub explorer agent that sleeps
-   100ms per call — wall-clock assertion `< 3 * 100ms + epsilon`.
-5. Forensic re-run: rerun the 08:14 case under
-   `pipeline_max_parallelism: 2` and confirm wall-clock improvement.
-
-## 8 Invariants to preserve across A→B→C
-
-- `pipeline_max_parallelism = 1` MUST keep the E' Phase 1 sequential
-  for-loop verbatim. The Phase 2A reviewer gate already pins this for
-  the reviewer path; the explorer side mirrors the same gate.
-- Single sub_topic questions MUST be byte-equivalent to current
-  pre-2B behavior at default settings.
-- Append order of evidence items / facts / tool results MUST match
-  declaration order of the sub-topic nodes (NOT goroutine completion
-  order) so EvidenceClosure cluster keys + downstream dedup stay
-  stable.
-- `EventTaskNodeStart` / `EventTaskNodeEnd` MUST fire per-node so
-  /dag UI rows transition independently — already correct in E'
-  Phase 1.
-
-## 9 Open questions for Session A
-
-- Is `searchResult` REALLY cache-scoped? `searchFingerprint` suggests
-  yes, but a multi-sub_topic question may have different
-  `analyzerKeywords` per topic — the cache key MUST include the
-  topic identifier to avoid serving topic-A's prescan to topic-B.
-- Does `BaseAgent.Execute` itself hold mutable state besides the
-  evaluator pointer? Need to audit `internal/agent/agent.go`.
-- Do the analyzer's `expandEvidenceNodes` siblings share any other
-  field that becomes a race surface (e.g. `Inputs`/`Outputs` slots
-  on `TaskNode`)?
-
-## 10 Why this lives as a design doc, not a stub commit
-
-A half-implemented 2B (e.g. dispatchStage decoupled but
-evaluator still singleton) would PASS unit tests + race detector
-green AND silently corrupt evidence pools on the first real
-multi-sub_topic run. That is the exact failure mode method-E shipped
-with. The fix sequence must be A → B → C; A is the load-bearing
-foundation, and shipping any later step without A introduces a
-dormant race.
+This phase does not add language-specific dispatch policy, does not
+infer independence from user/model keywords, and does not change the
+analyzer's sub-topic compiler. If future analyzer templates add explicit
+edges between evidence siblings, the scheduler should honor those edges
+through the existing ready-window calculation rather than adding text
+heuristics.

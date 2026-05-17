@@ -12,22 +12,22 @@ import (
 // EvidenceClosure is the per-Run cross-stage tracker for the four
 // CGEC (Citation-Grounded Evidence Closure) invariants:
 //
-//   I1: every file:line surfaced in a downstream prompt must be in
-//       ReadSet (chain promotion enforces this — chains anchored
-//       outside ReadSet get demoted to PendingReads).
+//	I1: every file:line surfaced in a downstream prompt must be in
+//	    ReadSet (chain promotion enforces this — chains anchored
+//	    outside ReadSet get demoted to PendingReads).
 //
-//   I2: every emit_*-accepted citation must be in ReadSet
-//       (emit_answer_document grounder writes RepairDirectives
-//       describing the gap when a citation is rejected).
+//	I2: every emit_*-accepted citation must be in ReadSet
+//	    (emit_answer_document grounder writes RepairDirectives
+//	    describing the gap when a citation is rejected).
 //
-//   I3: emit_investigation_complete may not flip the flag unless the
-//       contract checker would pass on the current EvidenceItems +
-//       ReadSet snapshot (pre-complete simulation lives in
-//       emit_investigation_complete.Execute).
+//	I3: emit_investigation_complete may not flip the flag unless the
+//	    contract checker would pass on the current EvidenceItems +
+//	    ReadSet snapshot (pre-complete simulation lives in
+//	    emit_investigation_complete.Execute).
 //
-//   I4: between two retries at least one of (ReadSet, EvidenceCount,
-//       ChainTermSet) must change — otherwise the orchestrator is
-//       in a stall and triggers Lazy Auto-Read.
+//	I4: between two retries at least one of (ReadSet, EvidenceCount,
+//	    ChainTermSet) must change — otherwise the orchestrator is
+//	    in a stall and triggers Lazy Auto-Read.
 //
 // EvidenceClosure is the single source of truth that all four
 // enforcers read from / write to. Lives on MutableState so every
@@ -202,6 +202,14 @@ type EvidenceClosure struct {
 	// amplifies explorer redispatches. Stall soft/hard still guards
 	// the "explorer keeps spinning" case.
 	phase1UnreadFired bool
+
+	// mergeBase* fields are stamped only on forked explorer closures.
+	// Forks need the parent ledger in order to make in-dispatch
+	// decisions, but MergeFrom must fold back only the events created
+	// by the fork, not re-append the parent baseline once per worker.
+	mergeBaseFingerprintLen       int
+	mergeBaseViolationLen         int
+	mergeBaseSymbolEmitRejections int
 }
 
 // ClosureStats is the structured per-task counter snapshot the
@@ -218,16 +226,16 @@ type EvidenceClosure struct {
 // and "the framework asked the LLM to swap answer shape" as
 // distinct signals worth their own column in the task summary.
 type ClosureStats struct {
-	ChainsDemoted         int // I1: chains stripped from prompt by chain promotion
-	UnverifiedFinds       int // I1: hallucinated paths/symbols flagged by findings_validator
-	RepairsRaised         int // I2: structured RepairDirectives written to closure (any kind)
-	ExpandSearchRaised    int // B1: RepairExpandSearch directives raised (Phase0 / stall / preComplete)
-	ViewSwapRaised       int // B2: RepairSwapView directives raised (grounder / preComplete / retry)
-	PreCompleteDowngrades int // I3: emit_investigation_complete downgrade events
-	ForcedReads           int // I4: files read on the LLM's behalf (Lazy Auto-Read)
-	StallSoftHits         int // I4: convergence soft threshold hits
-	StallHardHits         int // I4: convergence hard threshold hits (force-complete)
-	ViolationsLogged      int // Session 11 F1: ledger entries recorded (any kind)
+	ChainsDemoted              int // I1: chains stripped from prompt by chain promotion
+	UnverifiedFinds            int // I1: hallucinated paths/symbols flagged by findings_validator
+	RepairsRaised              int // I2: structured RepairDirectives written to closure (any kind)
+	ExpandSearchRaised         int // B1: RepairExpandSearch directives raised (Phase0 / stall / preComplete)
+	ViewSwapRaised             int // B2: RepairSwapView directives raised (grounder / preComplete / retry)
+	PreCompleteDowngrades      int // I3: emit_investigation_complete downgrade events
+	ForcedReads                int // I4: files read on the LLM's behalf (Lazy Auto-Read)
+	StallSoftHits              int // I4: convergence soft threshold hits
+	StallHardHits              int // I4: convergence hard threshold hits (force-complete)
+	ViolationsLogged           int // Session 11 F1: ledger entries recorded (any kind)
 	AutoPairedRoleDescriptions int // Plan 2 v2 (2026-05-05): role-description mechanism evidence auto-paired by emit_evidence from leading doc-comment
 
 	// PerStage carries stage-wise breakdown of the same activity the
@@ -376,6 +384,148 @@ func NewEvidenceClosure(repoRoot string) *EvidenceClosure {
 		citedRefs:      make(map[string][]int),
 		subjectMatches: make(map[string]float64),
 	}
+}
+
+// Clone returns a deep copy of the closure. It is used by parallel
+// explorer workers so each dispatch can update read coverage, repairs, and
+// violations without mutating the parent Run state until the scheduler
+// serially merges results in DAG order.
+func (c *EvidenceClosure) Clone() *EvidenceClosure {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := NewEvidenceClosure(c.repoRoot)
+	out.readSet = cloneBoolMap(c.readSet)
+	out.readRanges = cloneLineRangeMap(c.readRanges)
+	out.fileTotalLines = cloneIntMap(c.fileTotalLines)
+	out.scannedSet = cloneBoolMap(c.scannedSet)
+	out.citedRefs = cloneIntSliceMap(c.citedRefs)
+	out.pendingReads = clonePendingReads(c.pendingReads)
+	out.unverifiedFinds = append([]UnverifiedFinding(nil), c.unverifiedFinds...)
+	out.subjectMatches = cloneFloatMap(c.subjectMatches)
+	out.fingerprints = append([]ClosureFingerprint(nil), c.fingerprints...)
+	out.repairs = cloneRepairDirectives(c.repairs)
+	out.stats = cloneClosureStats(c.stats)
+	out.symbolEmitRejections = c.symbolEmitRejections
+	out.violations = cloneViolations(c.violations)
+	out.phase1UnreadFired = c.phase1UnreadFired
+	out.mergeBaseFingerprintLen = c.mergeBaseFingerprintLen
+	out.mergeBaseViolationLen = c.mergeBaseViolationLen
+	out.mergeBaseSymbolEmitRejections = c.mergeBaseSymbolEmitRejections
+	return out
+}
+
+// CloneForExploreDispatch returns a fork-ready closure snapshot. Set-like
+// state is preserved so the worker can make the same decisions a serial
+// dispatch would make; event counters start at zero and baseline lengths are
+// stamped so MergeFrom folds back only worker-created events.
+func (c *EvidenceClosure) CloneForExploreDispatch() *EvidenceClosure {
+	out := c.Clone()
+	if out == nil {
+		return nil
+	}
+	out.mu.Lock()
+	out.stats = ClosureStats{}
+	out.mergeBaseFingerprintLen = len(out.fingerprints)
+	out.mergeBaseViolationLen = len(out.violations)
+	out.mergeBaseSymbolEmitRejections = out.symbolEmitRejections
+	out.mu.Unlock()
+	return out
+}
+
+// MergeFrom folds a forked closure back into the parent. Coverage fields
+// union, telemetry fields append/add, and repair directives keep their
+// existing AddRepair de-dup semantics.
+func (c *EvidenceClosure) MergeFrom(other *EvidenceClosure) {
+	if c == nil || other == nil {
+		return
+	}
+	snap := other.Clone()
+	if snap == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.readSet == nil {
+		c.readSet = make(map[string]bool)
+	}
+	for f, v := range snap.readSet {
+		if v {
+			c.readSet[f] = true
+		}
+	}
+	if c.readRanges == nil {
+		c.readRanges = make(map[string][]LineRange)
+	}
+	for file, ranges := range snap.readRanges {
+		combined := append(cloneLineRanges(c.readRanges[file]), ranges...)
+		c.readRanges[file] = mergeLineRanges(combined)
+	}
+	if c.fileTotalLines == nil {
+		c.fileTotalLines = make(map[string]int)
+	}
+	for file, total := range snap.fileTotalLines {
+		if total > c.fileTotalLines[file] {
+			c.fileTotalLines[file] = total
+		}
+	}
+	if c.scannedSet == nil {
+		c.scannedSet = make(map[string]bool)
+	}
+	for f, v := range snap.scannedSet {
+		if v {
+			c.scannedSet[f] = true
+		}
+	}
+	if c.citedRefs == nil {
+		c.citedRefs = make(map[string][]int)
+	}
+	for file, lines := range snap.citedRefs {
+		c.citedRefs[file] = mergeSortedUniqueInts(c.citedRefs[file], lines)
+	}
+	for _, p := range snap.pendingReads {
+		c.mergePendingReadLocked(p)
+	}
+	c.unverifiedFinds = mergeUnverifiedFindings(c.unverifiedFinds, snap.unverifiedFinds)
+	if c.subjectMatches == nil {
+		c.subjectMatches = make(map[string]float64)
+	}
+	for k, v := range snap.subjectMatches {
+		if v > c.subjectMatches[k] {
+			c.subjectMatches[k] = v
+		}
+	}
+	if base := clampMergeBaseLen(snap.mergeBaseFingerprintLen, len(snap.fingerprints)); base > 0 {
+		c.fingerprints = append(c.fingerprints, snap.fingerprints[base:]...)
+	} else {
+		c.fingerprints = append(c.fingerprints, snap.fingerprints...)
+	}
+	for _, r := range snap.repairs {
+		duplicate := false
+		for _, existing := range c.repairs {
+			if existing.Kind == r.Kind && existing.Subject == r.Subject && sameFileSet(existing.Files, r.Files) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			c.repairs = append(c.repairs, r)
+		}
+	}
+	c.stats = addClosureStats(c.stats, snap.stats)
+	if base := clampMergeBaseLen(snap.mergeBaseSymbolEmitRejections, snap.symbolEmitRejections); base > 0 {
+		c.symbolEmitRejections += snap.symbolEmitRejections - base
+	} else {
+		c.symbolEmitRejections += snap.symbolEmitRejections
+	}
+	if base := clampMergeBaseLen(snap.mergeBaseViolationLen, len(snap.violations)); base > 0 {
+		c.violations = append(c.violations, cloneViolations(snap.violations[base:])...)
+	} else {
+		c.violations = append(c.violations, cloneViolations(snap.violations)...)
+	}
+	c.phase1UnreadFired = c.phase1UnreadFired || snap.phase1UnreadFired
 }
 
 // SetRepoRoot updates the closure's cached repo root. Called by
@@ -999,6 +1149,35 @@ func (c *EvidenceClosure) addPendingReadLocked(p PendingRead) {
 	}
 }
 
+// mergePendingReadLocked folds a forked PendingRead into the parent without
+// changing counters. The fork's own stats already include any accounting for
+// newly-created or refreshed pending reads; merge must preserve the state
+// transition without charging the same event a second time.
+func (c *EvidenceClosure) mergePendingReadLocked(p PendingRead) {
+	if p.File == "" {
+		return
+	}
+	if canon := c.canonicalize(p.File); canon != "" {
+		p.File = canon
+	}
+	for i, existing := range c.pendingReads {
+		if existing.File != p.File || existing.Origin != p.Origin {
+			continue
+		}
+		if len(p.LineRanges) > 0 || len(existing.LineRanges) > 0 {
+			c.pendingReads[i].LineRanges = append([]LineRange(nil), p.LineRanges...)
+			if p.Rationale != "" {
+				c.pendingReads[i].Rationale = p.Rationale
+			}
+		}
+		if p.Stage != "" && existing.Stage == "" {
+			c.pendingReads[i].Stage = p.Stage
+		}
+		return
+	}
+	c.pendingReads = append(c.pendingReads, p)
+}
+
 // bumpStagePendingReadsLocked is the lock-held PerStage[Stage].PendingReads
 // bumper called from addPendingReadLocked. Kept separate so the
 // dedup-vs-fresh-insert paths share the same accounting and a future
@@ -1461,6 +1640,13 @@ func (c *EvidenceClosure) AddRepair(r RepairDirective) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.addRepairLocked(r)
+}
+
+func (c *EvidenceClosure) addRepairLocked(r RepairDirective) {
+	if c == nil || r.Kind == "" {
+		return
+	}
 	for _, existing := range c.repairs {
 		if existing.Kind == r.Kind && existing.Subject == r.Subject && sameFileSet(existing.Files, r.Files) {
 			return
@@ -2099,6 +2285,208 @@ func sameFileSet(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func cloneBoolMap(in map[string]bool) map[string]bool {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneIntMap(in map[string]int) map[string]int {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneFloatMap(in map[string]float64) map[string]float64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]float64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneIntSliceMap(in map[string][]int) map[string][]int {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]int, len(in))
+	for k, v := range in {
+		out[k] = append([]int(nil), v...)
+	}
+	return out
+}
+
+func cloneLineRangeMap(in map[string][]LineRange) map[string][]LineRange {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]LineRange, len(in))
+	for k, v := range in {
+		out[k] = cloneLineRanges(v)
+	}
+	return out
+}
+
+func clonePendingReads(in []PendingRead) []PendingRead {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]PendingRead, len(in))
+	for i, p := range in {
+		out[i] = p
+		out[i].LineRanges = cloneLineRanges(p.LineRanges)
+	}
+	return out
+}
+
+func cloneRepairDirectives(in []RepairDirective) []RepairDirective {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]RepairDirective, len(in))
+	for i, r := range in {
+		out[i] = r
+		out[i].Files = append([]string(nil), r.Files...)
+		out[i].Keywords = append([]string(nil), r.Keywords...)
+		out[i].LineRanges = cloneLineRanges(r.LineRanges)
+	}
+	return out
+}
+
+func cloneViolations(in []Violation) []Violation {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]Violation, len(in))
+	for i, v := range in {
+		out[i] = v
+		out[i].EvidenceRefs = append([]string(nil), v.EvidenceRefs...)
+	}
+	return out
+}
+
+func cloneClosureStats(in ClosureStats) ClosureStats {
+	out := in
+	if len(in.PerStage) > 0 {
+		out.PerStage = make(map[string]StageStats, len(in.PerStage))
+		for k, v := range in.PerStage {
+			out.PerStage[k] = v
+		}
+	}
+	return out
+}
+
+func addClosureStats(a, b ClosureStats) ClosureStats {
+	out := a
+	out.ChainsDemoted += b.ChainsDemoted
+	out.UnverifiedFinds += b.UnverifiedFinds
+	out.RepairsRaised += b.RepairsRaised
+	out.ExpandSearchRaised += b.ExpandSearchRaised
+	out.ViewSwapRaised += b.ViewSwapRaised
+	out.PreCompleteDowngrades += b.PreCompleteDowngrades
+	out.ForcedReads += b.ForcedReads
+	out.StallSoftHits += b.StallSoftHits
+	out.StallHardHits += b.StallHardHits
+	out.ViolationsLogged += b.ViolationsLogged
+	out.AutoPairedRoleDescriptions += b.AutoPairedRoleDescriptions
+	if len(b.PerStage) > 0 {
+		if out.PerStage == nil {
+			out.PerStage = make(map[string]StageStats, len(b.PerStage))
+		}
+		for stage, st := range b.PerStage {
+			cur := out.PerStage[stage]
+			cur.Retries += st.Retries
+			cur.Violations += st.Violations
+			cur.Repairs += st.Repairs
+			cur.Contradictions += st.Contradictions
+			cur.PendingReads += st.PendingReads
+			cur.ForcedReads += st.ForcedReads
+			out.PerStage[stage] = cur
+		}
+	}
+	return out
+}
+
+func clampMergeBaseLen(base, n int) int {
+	if base < 0 {
+		return 0
+	}
+	if base > n {
+		return n
+	}
+	return base
+}
+
+func mergeUnverifiedFindings(existing, incoming []UnverifiedFinding) []UnverifiedFinding {
+	if len(existing) == 0 {
+		return append([]UnverifiedFinding(nil), incoming...)
+	}
+	out := append([]UnverifiedFinding(nil), existing...)
+	seen := make(map[string]bool, len(out)+len(incoming))
+	for _, u := range out {
+		if u.Token == "" {
+			continue
+		}
+		seen[u.Token+"\x00"+u.Kind] = true
+	}
+	for _, u := range incoming {
+		if u.Token == "" {
+			continue
+		}
+		key := u.Token + "\x00" + u.Kind
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, u)
+	}
+	return out
+}
+
+func mergeSortedUniqueInts(a, b []int) []int {
+	if len(a) == 0 {
+		out := append([]int(nil), b...)
+		sort.Ints(out)
+		return uniqueSortedInts(out)
+	}
+	if len(b) == 0 {
+		out := append([]int(nil), a...)
+		sort.Ints(out)
+		return uniqueSortedInts(out)
+	}
+	out := append(append([]int(nil), a...), b...)
+	sort.Ints(out)
+	return uniqueSortedInts(out)
+}
+
+func uniqueSortedInts(in []int) []int {
+	if len(in) <= 1 {
+		return in
+	}
+	out := in[:0]
+	last := 0
+	for i, v := range in {
+		if i == 0 || v != last {
+			out = append(out, v)
+			last = v
+		}
+	}
+	return out
 }
 
 // MutableState accessors below — they live in this file (instead of

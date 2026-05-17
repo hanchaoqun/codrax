@@ -1837,6 +1837,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		// re-investigation passes per Run; further attempts force
 		// FailLoud so wall-clock stays bounded.
 		MaxUpstreamFallbacksPerRun: 2,
+		// MaxParallelism=2: shared cap for orchestrator-owned fan-out
+		// surfaces (reviewers, sub-agents, multi-sub_topic explorer).
+		// Operators can set pipeline_max_parallelism: 1 for serial
+		// debug/rate-limit mode or 0 for uncapped fan-out.
+		MaxParallelism: types.DefaultPipelineMaxParallelism,
 		// B4-F1 (2026-05-04) — wire DefaultViolationBudgetSettings
 		// into the production seed so the documented defaults
 		// (FailLoudEnabled=true, UserVisibleViolationCaveat=false)

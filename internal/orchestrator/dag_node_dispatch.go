@@ -46,14 +46,11 @@ import (
 //     so N sequential dispatches fit the budget the analyzer already
 //     reserved for multi-topic questions.
 //
-//   - PARALLELISM is a Phase-2 concern. Serial-per-node alone is the
-//     architecturally-correct foundation: it respects the DAG's
-//     independence relations, surfaces them to the user, and gives
-//     each sub-topic its own focused explorer dispatch (instead of
-//     one explorer juggling N objectives). True wall-clock
-//     parallelism via errgroup needs busCtx.TaskState.RetryHint
-//     to move from shared state to per-dispatch parameter — out of
-//     scope for this commit.
+//   - Phase 2B builds on this foundation with splitExploreWindowForDispatch:
+//     the same typed sibling detection now produces declaration-ordered
+//     focused windows that the scheduler may run concurrently under
+//     pipeline_max_parallelism. The serial trim helper remains the exact
+//     fallback when the cap is 1.
 //
 // Single-sub_topic / non-evidence-window paths are byte-identical to
 // the prior behavior: the helper returns the same window slice with
@@ -149,5 +146,38 @@ func trimExploreWindowToFirstEvidence(window []*types.TaskNode) []*types.TaskNod
 		}
 		out = append(out, n)
 	}
+	return out
+}
+
+// splitExploreWindowForDispatch turns a multi-evidence ready window into
+// declaration-ordered focused windows. It preserves the E' Phase 1 companion
+// semantics: non-evidence companion nodes travel with the first evidence
+// window, and later sibling windows contain only their evidence node.
+func splitExploreWindowForDispatch(window []*types.TaskNode) [][]*types.TaskNode {
+	if len(window) == 0 {
+		return nil
+	}
+	if !shouldDispatchExploreNodesIndividually(window) {
+		cp := append([]*types.TaskNode(nil), window...)
+		return [][]*types.TaskNode{cp}
+	}
+	first := make([]*types.TaskNode, 0, len(window))
+	var rest [][]*types.TaskNode
+	keptFirstEvidence := false
+	for _, n := range window {
+		if n == nil || n.Type != types.NodeEvidence {
+			first = append(first, n)
+			continue
+		}
+		if !keptFirstEvidence {
+			first = append(first, n)
+			keptFirstEvidence = true
+			continue
+		}
+		rest = append(rest, []*types.TaskNode{n})
+	}
+	out := make([][]*types.TaskNode, 0, 1+len(rest))
+	out = append(out, first)
+	out = append(out, rest...)
 	return out
 }

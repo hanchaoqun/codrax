@@ -125,6 +125,9 @@ type MutableState struct {
 	emittedAnswerSymbolDeclaredCount int
 	emittedHypothesisVerdicts        []HypothesisVerdict
 	turnAArtifacts                   *TurnAArtifacts
+	exploreForkTurnABaseNotesLen     int
+	exploreForkTurnABaseToolLen      int
+	exploreForkTurnABaseFlowLen      int
 	// cachedLabelSupport memoises the dot-qualified selector / anchor /
 	// subject / object support pool drawn from turnAArtifacts.EvidenceItems.
 	// Built lazily on first call to CachedLabelSupportTokens; cleared
@@ -877,6 +880,152 @@ type HypothesisVerdict struct {
 // literals so the internal mutex is paired correctly with its data.
 func NewMutableState(objective string) *MutableState {
 	return &MutableState{objective: objective}
+}
+
+// ForkForExploreDispatch creates an isolated MutableState for one
+// concurrently running explorer dispatch. The fork inherits run-level
+// read-only state and accumulated evidence context, but per-dispatch
+// buffers, completion latches, tool-result history, and closure updates are
+// written only to the fork until MergeExploreFork folds them back.
+func (m *MutableState) ForkForExploreDispatch() *MutableState {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	out := &MutableState{
+		objective:                           m.objective,
+		repoRoot:                            m.repoRoot,
+		result:                              m.result,
+		resultIsPlain:                       m.resultIsPlain,
+		finalAnswerMarkdownPath:             m.finalAnswerMarkdownPath,
+		searchGraph:                         m.searchGraph,
+		symbolOracle:                        m.symbolOracle,
+		logTriage:                           m.logTriage,
+		perfTrace:                           m.perfTrace,
+		writeAnalysisIR:                     m.writeAnalysisIR,
+		investigationComplete:               m.investigationComplete,
+		investigationCompleteReason:         m.investigationCompleteReason,
+		absenceJustification:                m.absenceJustification,
+		investigationResultKind:             m.investigationResultKind,
+		retainedAbsenceJustification:        m.retainedAbsenceJustification,
+		retainedInvestigationResultKind:     m.retainedInvestigationResultKind,
+		retainedInvestigationCompleteReason: m.retainedInvestigationCompleteReason,
+		answerSurfaceRevision:               m.answerSurfaceRevision,
+	}
+	if m.requestModel != nil {
+		cp := *m.requestModel
+		out.requestModel = &cp
+	}
+	out.emittedEvidence = append([]EvidenceItem(nil), m.emittedEvidence...)
+	out.emittedAnswerSymbols = append([]AnswerSymbol(nil), m.emittedAnswerSymbols...)
+	out.emittedAnswerSymbolCompleteness = m.emittedAnswerSymbolCompleteness
+	out.emittedAnswerSymbolDeclaredCount = m.emittedAnswerSymbolDeclaredCount
+	out.emittedHypothesisVerdicts = append([]HypothesisVerdict(nil), m.emittedHypothesisVerdicts...)
+	if m.turnAArtifacts != nil {
+		out.turnAArtifacts = cloneTurnAArtifactsPtr(m.turnAArtifacts)
+		out.exploreForkTurnABaseNotesLen = len(out.turnAArtifacts.InvestigationNotes)
+		out.exploreForkTurnABaseToolLen = len(out.turnAArtifacts.ToolResults)
+		out.exploreForkTurnABaseFlowLen = len(out.turnAArtifacts.FlowFindings)
+	}
+	out.phase1Ranking = append([]Phase1RankedFile(nil), m.phase1Ranking...)
+	out.investigationAggregateFacts = cloneAnswerAggregateFacts(m.investigationAggregateFacts)
+	out.retainedInvestigationAggregateFacts = cloneAnswerAggregateFacts(m.retainedInvestigationAggregateFacts)
+	out.exactContextRequiredFiles = append([]string(nil), m.exactContextRequiredFiles...)
+	if m.exploreBudget != nil {
+		out.exploreBudget = m.exploreBudget.Clone()
+	}
+	closure := m.evidenceClosure
+	m.mu.RUnlock()
+	if closure != nil {
+		out.evidenceClosure = closure.CloneForExploreDispatch()
+	}
+	return out
+}
+
+// MergeExploreFork folds the mutable side effects from a forked explorer
+// dispatch back into the parent Run state. The scheduler calls this
+// serially in DAG declaration order after parallel workers finish.
+func (m *MutableState) MergeExploreFork(fork *MutableState) {
+	if m == nil || fork == nil {
+		return
+	}
+	fork.mu.RLock()
+	emitted := append([]EvidenceItem(nil), fork.emittedEvidence...)
+	turnA := cloneTurnAArtifactsPtr(fork.turnAArtifacts)
+	turnABase := turnAArtifactsMergeBase{
+		NotesLen: fork.exploreForkTurnABaseNotesLen,
+		ToolLen:  fork.exploreForkTurnABaseToolLen,
+		FlowLen:  fork.exploreForkTurnABaseFlowLen,
+	}
+	phase1 := append([]Phase1RankedFile(nil), fork.phase1Ranking...)
+	searchGraph := fork.searchGraph
+	investigationComplete := fork.investigationComplete
+	investigationCompleteReason := fork.investigationCompleteReason
+	absenceJustification := fork.absenceJustification
+	investigationResultKind := fork.investigationResultKind
+	investigationAggregateFacts := cloneAnswerAggregateFacts(fork.investigationAggregateFacts)
+	retainedAbsenceJustification := fork.retainedAbsenceJustification
+	retainedInvestigationResultKind := fork.retainedInvestigationResultKind
+	retainedInvestigationCompleteReason := fork.retainedInvestigationCompleteReason
+	retainedInvestigationAggregateFacts := cloneAnswerAggregateFacts(fork.retainedInvestigationAggregateFacts)
+	exactContextRequiredFiles := append([]string(nil), fork.exactContextRequiredFiles...)
+	closure := fork.evidenceClosure
+	fork.mu.RUnlock()
+
+	m.mu.Lock()
+	m.emittedEvidence = mergeEvidenceByStableID(m.emittedEvidence, emitted)
+	if turnA != nil {
+		merged := mergeTurnAArtifactsForMutable(m.turnAArtifacts, *turnA, turnABase)
+		m.turnAArtifacts = cloneTurnAArtifactsPtr(&merged)
+		m.cachedLabelSupport = nil
+		m.cachedLabelSupportSource = nil
+	}
+	if len(phase1) > 0 {
+		m.phase1Ranking = append([]Phase1RankedFile(nil), phase1...)
+	}
+	if m.searchGraph == nil && searchGraph != nil {
+		m.searchGraph = searchGraph
+	}
+	if investigationComplete {
+		m.investigationComplete = true
+		m.investigationCompleteReason = investigationCompleteReason
+		m.absenceJustification = absenceJustification
+		m.investigationResultKind = investigationResultKind
+		m.investigationAggregateFacts = investigationAggregateFacts
+		if investigationCompleteReason != "" {
+			m.retainedInvestigationCompleteReason = investigationCompleteReason
+		}
+		if investigationResultKind != "" {
+			m.retainedInvestigationResultKind = investigationResultKind
+		}
+		if absenceJustification != "" {
+			m.retainedAbsenceJustification = absenceJustification
+		}
+		if len(investigationAggregateFacts) > 0 {
+			m.retainedInvestigationAggregateFacts = cloneAnswerAggregateFacts(investigationAggregateFacts)
+		}
+	}
+	if retainedInvestigationCompleteReason != "" {
+		m.retainedInvestigationCompleteReason = retainedInvestigationCompleteReason
+	}
+	if retainedInvestigationResultKind != "" {
+		m.retainedInvestigationResultKind = retainedInvestigationResultKind
+	}
+	if retainedAbsenceJustification != "" {
+		m.retainedAbsenceJustification = retainedAbsenceJustification
+	}
+	if len(retainedInvestigationAggregateFacts) > 0 {
+		m.retainedInvestigationAggregateFacts = retainedInvestigationAggregateFacts
+	}
+	if len(exactContextRequiredFiles) > 0 {
+		m.exactContextRequiredFiles = exactContextRequiredFiles
+	}
+	m.bumpAnswerSurfaceRevisionLocked()
+	m.mu.Unlock()
+
+	if closure != nil {
+		m.EvidenceClosure().MergeFrom(closure)
+	}
 }
 
 // SetRepoRoot caches the orchestrator's -repo root so lazy-init of
@@ -2744,8 +2893,177 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.turnAArtifacts = nil
+	m.exploreForkTurnABaseNotesLen = 0
+	m.exploreForkTurnABaseToolLen = 0
+	m.exploreForkTurnABaseFlowLen = 0
 	m.cachedLabelSupport = nil
 	m.cachedLabelSupportSource = nil
+}
+
+func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.InvestigationNotes = append([]string(nil), in.InvestigationNotes...)
+	out.ReadFiles = append([]string(nil), in.ReadFiles...)
+	out.ToolResults = append([]ToolResult(nil), in.ToolResults...)
+	out.EvidenceItems = append([]EvidenceItem(nil), in.EvidenceItems...)
+	out.FlowFindings = cloneFlowFindingDigests(in.FlowFindings)
+	out.AcceptedAggregateFacts = cloneAnswerAggregateFacts(in.AcceptedAggregateFacts)
+	return &out
+}
+
+type turnAArtifactsMergeBase struct {
+	NotesLen int
+	ToolLen  int
+	FlowLen  int
+}
+
+func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts, base turnAArtifactsMergeBase) TurnAArtifacts {
+	if prior == nil {
+		if cloned := cloneTurnAArtifactsPtr(&current); cloned != nil {
+			return *cloned
+		}
+		return current
+	}
+	merged := *cloneTurnAArtifactsPtr(prior)
+	if current.UserQuestion != "" {
+		merged.UserQuestion = current.UserQuestion
+	}
+	merged.InvestigationNotes = append(
+		append([]string(nil), prior.InvestigationNotes...),
+		current.InvestigationNotes[clampMergeSliceBase(base.NotesLen, len(current.InvestigationNotes)):]...,
+	)
+	merged.ReadFiles = mergeStringsForMutable(prior.ReadFiles, current.ReadFiles)
+	merged.ToolResults = append(
+		append([]ToolResult(nil), prior.ToolResults...),
+		current.ToolResults[clampMergeSliceBase(base.ToolLen, len(current.ToolResults)):]...,
+	)
+	if current.AcceptedClosureReason != "" {
+		merged.AcceptedClosureReason = current.AcceptedClosureReason
+	}
+	if current.AcceptedResultKind != "" {
+		merged.AcceptedResultKind = current.AcceptedResultKind
+	}
+	if len(current.AcceptedAggregateFacts) > 0 {
+		merged.AcceptedAggregateFacts = cloneAnswerAggregateFacts(current.AcceptedAggregateFacts)
+	}
+	merged.RuntimeObservationOnlyCompletion = prior.RuntimeObservationOnlyCompletion || current.RuntimeObservationOnlyCompletion
+	merged.EvidenceItems = mergeEvidenceByStableID(prior.EvidenceItems, current.EvidenceItems)
+	flowBase := clampMergeSliceBase(base.FlowLen, len(current.FlowFindings))
+	merged.FlowFindings = mergeFlowFindingsForMutable(prior.FlowFindings, current.FlowFindings[flowBase:])
+	if prior.TerminalEvidenceCount > merged.TerminalEvidenceCount {
+		merged.TerminalEvidenceCount = prior.TerminalEvidenceCount
+	}
+	if current.TerminalEvidenceCount > merged.TerminalEvidenceCount {
+		merged.TerminalEvidenceCount = current.TerminalEvidenceCount
+	}
+	return merged
+}
+
+func clampMergeSliceBase(base, n int) int {
+	if base < 0 {
+		return 0
+	}
+	if base > n {
+		return n
+	}
+	return base
+}
+
+func mergeEvidenceByStableID(existing, incoming []EvidenceItem) []EvidenceItem {
+	if len(existing) == 0 {
+		out := append([]EvidenceItem(nil), incoming...)
+		for i := range out {
+			if out[i].ID == "" {
+				out[i].ID = StableEvidenceID(out[i])
+			}
+		}
+		return out
+	}
+	out := append([]EvidenceItem(nil), existing...)
+	seen := make(map[string]int, len(out)+len(incoming))
+	for i := range out {
+		id := out[i].ID
+		if id == "" {
+			id = StableEvidenceID(out[i])
+			out[i].ID = id
+		}
+		seen[id] = i
+	}
+	for _, item := range incoming {
+		id := item.ID
+		if id == "" {
+			id = StableEvidenceID(item)
+			item.ID = id
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = len(out)
+		out = append(out, item)
+	}
+	return out
+}
+
+func mergeFlowFindingsForMutable(existing, incoming []FlowFindingDigest) []FlowFindingDigest {
+	if len(existing) == 0 {
+		return cloneFlowFindingDigests(incoming)
+	}
+	out := cloneFlowFindingDigests(existing)
+	seen := make(map[string]bool, len(out)+len(incoming))
+	for _, f := range out {
+		if f.ID != "" {
+			seen[f.ID] = true
+		}
+	}
+	for _, f := range incoming {
+		if f.ID != "" && seen[f.ID] {
+			continue
+		}
+		if f.ID != "" {
+			seen[f.ID] = true
+		}
+		out = append(out, cloneFlowFindingDigest(f))
+	}
+	return out
+}
+
+func cloneFlowFindingDigests(in []FlowFindingDigest) []FlowFindingDigest {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]FlowFindingDigest, len(in))
+	for i, f := range in {
+		out[i] = cloneFlowFindingDigest(f)
+	}
+	return out
+}
+
+func cloneFlowFindingDigest(in FlowFindingDigest) FlowFindingDigest {
+	out := in
+	out.Path = append([]string(nil), in.Path...)
+	out.Conditions = append([]string(nil), in.Conditions...)
+	out.Sources = append([]string(nil), in.Sources...)
+	out.Sinks = append([]string(nil), in.Sinks...)
+	out.Hops = append([]string(nil), in.Hops...)
+	out.EvidenceIDs = append([]string(nil), in.EvidenceIDs...)
+	return out
+}
+
+func mergeStringsForMutable(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, s := range append(append([]string(nil), a...), b...) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // CachedLabelSupportTokens returns the dot-qualified selector / anchor /
@@ -3890,6 +4208,12 @@ type BusContext struct {
 	LastTransitionReason string `json:"last_transition_reason,omitempty"`
 	TraceID              string `json:"trace_id"`
 
+	// ExploreDispatchKey is a scheduler-owned key for focused explorer
+	// windows. It lets the explorer agent isolate mutable evaluator state
+	// per DAG evidence node even when the scheduler uses the normal serial
+	// dispatchStage path instead of the parallel fork runner.
+	ExploreDispatchKey string `json:"-"`
+
 	// AnalysisIR is the Analyzer v3 structured output. Set once by the
 	// analyze stage via StageOutput.AnalysisIR → applyStageOutput and
 	// never rewritten thereafter — the analyzer is the sole writer.
@@ -4087,6 +4411,17 @@ type BusContext struct {
 type AgentContext struct {
 	AgentName AgentName     `json:"agent_name"`
 	Stage     PipelineStage `json:"stage"`
+
+	// TraceID mirrors BusContext.TraceID so agent implementations that
+	// maintain per-run caches can separate one Run() from the next
+	// without reading the full BusContext.
+	TraceID string `json:"trace_id,omitempty"`
+
+	// ExploreDispatchKey is set by the read scheduler for focused
+	// explorer windows. The explorer agent uses it to keep evaluator
+	// state isolated per DAG evidence node while preserving legitimate
+	// self-loop state for a re-dispatch of the same node.
+	ExploreDispatchKey string `json:"-"`
 
 	// Mode mirrors BusContext.Mode for the agent's narrowed view.
 	// The analyzer reads it to gate read-mode-only quality checks

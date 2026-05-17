@@ -25,19 +25,21 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	}
 
 	ac := &types.AgentContext{
-		AgentName:    agentName,
-		Stage:        stage,
-		Objective:    objective,
-		MissingPiece: bus.TaskState.Missing,
-		Constraints:  bus.Constraints,
-		Preferences:  bus.Preferences,
-		Language:     bus.Language,
-		RepoRoot:     bus.RepoRoot,
-		Branch:       bus.Branch,
-		Commit:       bus.Commit,
-		WorkDir:      bus.WorkDir,
-		MainRepoRoot: bus.MainRepoRoot,
-		Mutable:      bus.Mutable,
+		AgentName:          agentName,
+		Stage:              stage,
+		TraceID:            bus.TraceID,
+		ExploreDispatchKey: bus.ExploreDispatchKey,
+		Objective:          objective,
+		MissingPiece:       bus.TaskState.Missing,
+		Constraints:        bus.Constraints,
+		Preferences:        bus.Preferences,
+		Language:           bus.Language,
+		RepoRoot:           bus.RepoRoot,
+		Branch:             bus.Branch,
+		Commit:             bus.Commit,
+		WorkDir:            bus.WorkDir,
+		MainRepoRoot:       bus.MainRepoRoot,
+		Mutable:            bus.Mutable,
 		// Multi-repo mirrors. Phase 4.1 introduced these on
 		// BusContext + AgentContext; the builder copies them across
 		// so agent-scoped tools and the agent prompt builder can

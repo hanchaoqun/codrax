@@ -35,9 +35,40 @@ const (
 	explorerParseSlowEvery = 10 * time.Second
 )
 
+type explorerSearchCache struct {
+	mu      sync.RWMutex
+	entries map[string]*keywordSearchResult
+}
+
+func (c *explorerSearchCache) Get(fp string) (*keywordSearchResult, bool) {
+	if c == nil || fp == "" {
+		return nil, false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.entries == nil {
+		return nil, false
+	}
+	sr, ok := c.entries[fp]
+	return sr, ok && sr != nil
+}
+
+func (c *explorerSearchCache) Put(fp string, sr *keywordSearchResult) {
+	if c == nil || fp == "" || sr == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = make(map[string]*keywordSearchResult)
+	}
+	c.entries[fp] = sr
+}
+
 type explorerEvaluator struct {
 	heuristics                types.ExploreHeuristics
 	tools                     *tool.Registry
+	sharedSearchCache         *explorerSearchCache
 	phase                     int                  // 0 = breadth scan, 1 = depth read
 	broadenAttempts           int                  // times we pushed for broader grep in Phase 0
 	preScannedFiles           []string             // top files from keyword search, for coverage tracking
@@ -705,11 +736,22 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			exactPolicy = string(exactContract.RelatedContextPolicy)
 		}
 		fp := keywordSearchFingerprint(analyzerKeywords, analyzerEntities, irMentionedEntities(ctx), irPrimaryEntities(ctx), domainHints, exactTargets, exactPolicy, maxFiles, false, sourceScope.Fingerprint())
+		sharedFP := fp
+		if ctx != nil && ctx.RepoRoot != "" {
+			sharedFP = ctx.RepoRoot + "|" + fp
+		}
 		var sr *keywordSearchResult
 		if e.searchResult != nil && e.searchFingerprint != "" && e.searchFingerprint == fp {
 			logging.Debug("[keyword_search] cache hit fp=%s (%d files, %d keywords)",
 				fp, len(e.searchResult.Files), len(analyzerKeywords))
 			sr = e.searchResult
+		} else if cached, ok := e.sharedSearchCache.Get(sharedFP); ok {
+			logging.Debug("[keyword_search] shared cache hit fp=%s (%d files, %d keywords)",
+				fp, len(cached.Files), len(analyzerKeywords))
+			sr = cached
+			e.searchResult = sr
+			e.searchFingerprint = fp
+			e.multiGraphHandle = ctx.MultiGraph
 		} else {
 			sr = keywordSearchWithOptions(analyzerKeywords, ctx.RepoRoot, keywordSearchOptions{
 				Entities:          analyzerEntities,
@@ -728,6 +770,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			// (observeMidLoop) that don't get ctx — Sc 1
 			// implementer fan-out at line 6406 reads e.multiGraphHandle.
 			e.multiGraphHandle = ctx.MultiGraph
+			e.sharedSearchCache.Put(sharedFP, sr)
 		}
 		if sr != nil {
 			e.exactAnchorFiles = exactAnchorFilesFromScores(sr.Files)
@@ -15556,12 +15599,100 @@ func isConditionNoise(s string) bool {
 	return false
 }
 
+type explorerEvalSlot struct {
+	mu   sync.Mutex
+	eval *explorerEvaluator
+}
+
+// ExplorerAgent owns keyed explorer evaluator instances. A top-level
+// explorer dispatch needs evaluator-local ReAct state, but a re-dispatch of
+// the same DAG node must still see its previous notes and search state. The
+// key is supplied by the scheduler through AgentContext.ExploreDispatchKey.
+type ExplorerAgent struct {
+	deps        *Dependencies
+	searchCache *explorerSearchCache
+	mu          sync.Mutex
+	slots       map[string]*explorerEvalSlot
+}
+
 // NewExplorerAgent creates the explorer agent (used in explore stage).
 func NewExplorerAgent(deps *Dependencies) Agent {
-	return NewBaseAgent(types.AgentExplorer, deps, &explorerEvaluator{
-		heuristics: deps.ExploreHeuristics,
-		tools:      deps.Tools,
-	})
+	if deps == nil {
+		deps = &Dependencies{}
+	}
+	return &ExplorerAgent{
+		deps:        deps,
+		searchCache: &explorerSearchCache{},
+		slots:       make(map[string]*explorerEvalSlot),
+	}
+}
+
+func (a *ExplorerAgent) Name() types.AgentName {
+	return types.AgentExplorer
+}
+
+func (a *ExplorerAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {
+	slot := a.slotFor(ctx)
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	base := NewBaseAgent(types.AgentExplorer, a.deps, slot.eval)
+	return base.Execute(ctx, sk)
+}
+
+func (a *ExplorerAgent) slotFor(ctx *types.AgentContext) *explorerEvalSlot {
+	key := explorerDispatchEvaluatorKey(ctx)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.slots == nil {
+		a.slots = make(map[string]*explorerEvalSlot)
+	}
+	if slot := a.slots[key]; slot != nil {
+		return slot
+	}
+	if len(a.slots) > 64 {
+		prefix := explorerDispatchTracePrefix(ctx)
+		for k := range a.slots {
+			if prefix == "" || !strings.HasPrefix(k, prefix) {
+				delete(a.slots, k)
+			}
+		}
+	}
+	slot := &explorerEvalSlot{eval: &explorerEvaluator{
+		heuristics:        a.deps.ExploreHeuristics,
+		tools:             a.deps.Tools,
+		sharedSearchCache: a.searchCache,
+	}}
+	a.slots[key] = slot
+	return slot
+}
+
+func explorerDispatchEvaluatorKey(ctx *types.AgentContext) string {
+	prefix := explorerDispatchTracePrefix(ctx)
+	focus := ""
+	if ctx != nil {
+		focus = strings.TrimSpace(ctx.ExploreDispatchKey)
+	}
+	if focus == "" {
+		focus = "default"
+	}
+	if prefix == "" {
+		return focus
+	}
+	return prefix + focus
+}
+
+func explorerDispatchTracePrefix(ctx *types.AgentContext) string {
+	if ctx == nil {
+		return ""
+	}
+	trace := strings.TrimSpace(ctx.TraceID)
+	if trace == "" {
+		trace = strings.TrimSpace(ctx.Objective)
+	}
+	if trace == "" {
+		return ""
+	}
+	return trace + "|"
 }
 
 // countGhostAnchorsForFile walks the ledger and counts how many

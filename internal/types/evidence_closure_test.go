@@ -4,6 +4,64 @@ import (
 	"testing"
 )
 
+func TestEvidenceClosure_ExploreForkMergeDoesNotDuplicateBaselineEvents(t *testing.T) {
+	parent := NewEvidenceClosure("")
+	parent.AddPendingRead(PendingRead{File: "a.go", Origin: "base", Stage: "explore"})
+	parent.AddRepair(RepairDirective{Kind: RepairExpandSearch, Subject: "base", Stage: "explore"})
+	parent.AppendUnverifiedFinding(UnverifiedFinding{Token: "missing.go", Kind: "path"})
+	parent.AppendViolation(Violation{Kind: ViolGhostAnchor, Stage: "explore", Detail: "base"})
+	parent.AppendFingerprint(ClosureFingerprint{ReadSetHash: 1})
+	parent.IncrementSymbolEmitRejection()
+
+	fork := parent.CloneForExploreDispatch()
+	fork.AddPendingRead(PendingRead{
+		File:       "a.go",
+		Origin:     "base",
+		Stage:      "explore",
+		LineRanges: []LineRange{{Start: 3, End: 4}},
+	})
+	fork.AddPendingRead(PendingRead{File: "b.go", Origin: "fork", Stage: "explore"})
+	fork.AddRepair(RepairDirective{Kind: RepairExpandSearch, Subject: "base", Stage: "explore"})
+	fork.AddRepair(RepairDirective{Kind: RepairExpandSearch, Subject: "fork", Stage: "explore"})
+	fork.AppendUnverifiedFinding(UnverifiedFinding{Token: "missing.go", Kind: "path"})
+	fork.AppendUnverifiedFinding(UnverifiedFinding{Token: "other.go", Kind: "path"})
+	fork.AppendViolation(Violation{Kind: ViolGhostAnchor, Stage: "explore", Detail: "base"})
+	fork.AppendViolation(Violation{Kind: ViolGhostAnchor, Stage: "explore", Detail: "fork"})
+	fork.AppendFingerprint(ClosureFingerprint{ReadSetHash: 2})
+	fork.IncrementSymbolEmitRejection()
+
+	parent.MergeFrom(fork)
+
+	if got := len(parent.PendingReads()); got != 2 {
+		t.Fatalf("pending reads = %d, want 2", got)
+	}
+	if got := len(parent.PendingRepairs()); got != 2 {
+		t.Fatalf("pending repairs = %d, want 2", got)
+	}
+	if got := len(parent.UnverifiedFindings()); got != 2 {
+		t.Fatalf("unverified findings = %d, want 2", got)
+	}
+	if got := len(parent.Violations()); got != 3 {
+		t.Fatalf("violations = %d, want 3 (baseline + two fork events)", got)
+	}
+	if got := len(parent.Fingerprints()); got != 2 {
+		t.Fatalf("fingerprints = %d, want 2", got)
+	}
+	if got := parent.SymbolEmitRejections(); got != 2 {
+		t.Fatalf("symbol emit rejections = %d, want 2", got)
+	}
+	stats := parent.Stats()
+	if got := stats.RepairsRaised; got != 2 {
+		t.Fatalf("repairs raised = %d, want 2", got)
+	}
+	if got := stats.ViolationsLogged; got != 3 {
+		t.Fatalf("violations logged = %d, want 3", got)
+	}
+	if got := stats.PerStage["explore"].PendingReads; got != 2 {
+		t.Fatalf("explore pending-read stats = %d, want 2", got)
+	}
+}
+
 // TestEvidenceClosure_AbsolutePathCanonicalizesAgainstRepoRoot pins
 // the session-22 canonicalisation fix on the CGEC ReadSet layer.
 // Before the fix, SetReadSet / HasRead / HasReadLine all called
