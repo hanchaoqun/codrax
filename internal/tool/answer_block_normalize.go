@@ -68,6 +68,7 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		Kind:        kind,
 		Title:       raw.Title,
 		Text:        raw.Text,
+		Columns:     normalizeTableStringSlice(raw.Columns),
 		ClaimUses:   raw.ClaimUses,
 		EdgeAnchors: raw.EdgeAnchors,
 		FacetIDs:    raw.FacetIDs,
@@ -123,6 +124,7 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 				ID:            it.ID,
 				Label:         it.Label,
 				Text:          it.Text,
+				Cells:         normalizeTableStringSlice(it.Cells),
 				CandidateRole: candidateRole,
 				CitationRef:   int(it.CitationRef),
 			})
@@ -146,6 +148,23 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If the diagram body is currently in the block-level `text` field, move it into `diagram.body` and set diagram.kind to the SEMANTIC family the contract names (NOT the Mermaid keyword)", fieldPath)
 	}
 	return blk, nil
+}
+
+func normalizeTableStringSlice(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = strings.TrimSpace(s)
+	}
+	for len(out) > 0 && out[len(out)-1] == "" {
+		out = out[:len(out)-1]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func normalizeEmitAnswerDiagram(diag *emitAnswerDiagramV2) {

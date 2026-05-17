@@ -397,6 +397,7 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 		Kind:     kind,
 		Title:    block.Title,
 		Text:     block.Text,
+		Columns:  normalizeTableStringSlice(block.Columns),
 		FacetIDs: block.FacetIDs,
 	}
 	if role, ok := types.NormalizeSurfaceRole(block.SurfaceRole); ok {
@@ -408,15 +409,20 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 	if verdict, ok := types.NormalizeCurrentStatusVerdict(block.CurrentStatusVerdict); ok && kind == types.BlockDecision {
 		blk.CurrentStatusVerdict = verdict
 	}
+	if disclosure, ok := types.NormalizeScopeDisclosureKind(block.ScopeDisclosure); ok {
+		blk.ScopeDisclosure = disclosure
+	}
 	for _, item := range block.Items {
 		candidateRole, _ := types.NormalizeAnswerCandidateRole(item.CandidateRole)
-		if strings.TrimSpace(item.Label) == "" && strings.TrimSpace(item.Text) == "" {
+		cells := normalizeTableStringSlice(item.Cells)
+		if strings.TrimSpace(item.Label) == "" && strings.TrimSpace(item.Text) == "" && len(cells) == 0 {
 			continue
 		}
 		blk.Items = append(blk.Items, types.AnswerBlockItem{
 			ID:            item.ID,
 			Label:         item.Label,
 			Text:          item.Text,
+			Cells:         cells,
 			CandidateRole: candidateRole,
 			CitationRef:   int(item.CitationRef),
 		})
@@ -438,7 +444,7 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 	}
 	if blk.Kind == types.BlockSummary || blk.Kind == types.BlockSection || blk.Kind == types.BlockCaveat ||
 		blk.Kind == types.BlockScalar || blk.Kind == types.BlockDecision || blk.Kind == types.BlockTable {
-		if strings.TrimSpace(blk.Text) != "" || strings.TrimSpace(blk.Title) != "" || len(blk.Items) > 0 || blk.Diagram != nil {
+		if strings.TrimSpace(blk.Text) != "" || strings.TrimSpace(blk.Title) != "" || len(blk.Columns) > 0 || len(blk.Items) > 0 || blk.Diagram != nil {
 			return blk, true
 		}
 		return types.AnswerBlock{}, false

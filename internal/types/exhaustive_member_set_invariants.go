@@ -130,8 +130,8 @@ func ComputeExhaustiveMemberCoverage(doc *AnswerDocumentV2, fact AnswerAggregate
 			continue
 		}
 		for _, item := range block.Items {
-			label := strings.TrimSpace(item.Label)
-			if label == "" {
+			labels := exhaustiveItemMemberSurfaces(item)
+			if len(labels) == 0 {
 				continue
 			}
 			cov.PrincipalItemCount++
@@ -142,31 +142,40 @@ func ComputeExhaustiveMemberCoverage(doc *AnswerDocumentV2, fact AnswerAggregate
 					citationSeen[item.CitationRef]++
 				}
 			}
-			key := exhaustiveMemberKey(label)
-			if key == "" {
-				continue
-			}
-			if _, ok := memberKeys[key]; ok {
-				matched[key] = true
-				continue
-			}
-			// Qualified-tail relaxation in both directions, so
-			// the deterministic checker tolerates the C++/Java/
-			// Cangjie/Go selector renderings the aggregate parser
-			// already accepts.
-			//   item="Foo" + member="pkg.Foo" → tailIndex[Foo]=pkg.foo
-			//   item="pkg.Foo" + member="Foo" → exhaustiveMemberTail(pkg.foo)=foo
-			if memberKey, ok := memberTailIndex[key]; ok && memberKey != "" {
-				matched[memberKey] = true
-				continue
-			}
-			if tail := exhaustiveMemberTail(key); tail != "" {
-				if _, ok := memberKeys[tail]; ok {
-					matched[tail] = true
+			itemMatched := false
+			for _, label := range labels {
+				key := exhaustiveMemberKey(label)
+				if key == "" {
 					continue
 				}
+				if _, ok := memberKeys[key]; ok {
+					matched[key] = true
+					itemMatched = true
+					break
+				}
+				// Qualified-tail relaxation in both directions, so
+				// the deterministic checker tolerates the C++/Java/
+				// Cangjie/Go selector renderings the aggregate parser
+				// already accepts.
+				//   item="Foo" + member="pkg.Foo" → tailIndex[Foo]=pkg.foo
+				//   item="pkg.Foo" + member="Foo" → exhaustiveMemberTail(pkg.foo)=foo
+				if memberKey, ok := memberTailIndex[key]; ok && memberKey != "" {
+					matched[memberKey] = true
+					itemMatched = true
+					break
+				}
+				if tail := exhaustiveMemberTail(key); tail != "" {
+					if _, ok := memberKeys[tail]; ok {
+						matched[tail] = true
+						itemMatched = true
+						break
+					}
+				}
 			}
-			unexpected = append(unexpected, label)
+			if itemMatched {
+				continue
+			}
+			unexpected = append(unexpected, labels[0])
 		}
 	}
 
@@ -180,6 +189,24 @@ func ComputeExhaustiveMemberCoverage(doc *AnswerDocumentV2, fact AnswerAggregate
 	cov.DuplicateCitations = duplicateCitationRefs(citationSeen)
 	sort.Ints(cov.InvalidCitationRefs)
 	return cov
+}
+
+func exhaustiveItemMemberSurfaces(item AnswerBlockItem) []string {
+	var out []string
+	if label := strings.TrimSpace(item.Label); label != "" {
+		out = append(out, label)
+	}
+	if len(out) == 0 {
+		for _, cell := range item.Cells {
+			cell = strings.TrimSpace(cell)
+			if cell == "" {
+				continue
+			}
+			out = append(out, cell)
+			break
+		}
+	}
+	return out
 }
 
 func exhaustiveBlockCarriesPrincipalMembers(block AnswerBlock) bool {

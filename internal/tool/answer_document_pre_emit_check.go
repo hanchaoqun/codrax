@@ -488,20 +488,8 @@ func answerDocumentVisibleText(doc *types.AnswerDocumentV2) string {
 	}
 	var b strings.Builder
 	for _, block := range doc.Blocks {
-		b.WriteString(block.Title)
+		b.WriteString(types.AnswerBlockVisibleSurface(block))
 		b.WriteByte('\n')
-		b.WriteString(block.Text)
-		b.WriteByte('\n')
-		for _, item := range block.Items {
-			b.WriteString(item.Label)
-			b.WriteByte('\n')
-			b.WriteString(item.Text)
-			b.WriteByte('\n')
-		}
-		if block.Diagram != nil {
-			b.WriteString(block.Diagram.Body)
-			b.WriteByte('\n')
-		}
 	}
 	for _, caveat := range doc.Caveats {
 		b.WriteString(caveat)
@@ -552,6 +540,7 @@ func viewRequiresSummaryBlock(view *types.AnswerSemanticView) bool {
 func answerBlockHasRenderableSurface(block types.AnswerBlock) bool {
 	if strings.TrimSpace(block.Text) != "" ||
 		strings.TrimSpace(block.Title) != "" ||
+		len(block.Columns) > 0 ||
 		len(block.Items) > 0 ||
 		block.Diagram != nil {
 		return true
@@ -589,6 +578,7 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 			if label == "" || !preEmitLabelNeedsCitationAlignment(label) {
 				continue
 			}
+			text := preEmitItemNonLabelSurface(item)
 			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
 				continue
 			}
@@ -609,7 +599,7 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 				})
 				continue
 			}
-			if preEmitCitationSupportsAggregateItemWithContext(pctx, label, item.Text, cit) {
+			if preEmitCitationSupportsAggregateItemWithContext(pctx, label, text, cit) {
 				continue
 			}
 			if surface, ok := types.ParseAnswerSourceLocationSurface(label); ok {
@@ -627,7 +617,7 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 			}
 			evidence, found := pctx.citedEvidenceItems(cit)
 			if !found {
-				if candidates := preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, item.Text, 4); len(candidates) > 0 {
+				if candidates := preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, text, 4); len(candidates) > 0 {
 					mismatches = append(mismatches, mismatch{
 						blockID:    b.ID,
 						itemID:     item.ID,
@@ -641,7 +631,7 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 			if preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence) {
 				continue
 			}
-			if candidates := preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, item.Text, 4); len(candidates) > 0 {
+			if candidates := preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, text, 4); len(candidates) > 0 {
 				mismatches = append(mismatches, mismatch{
 					blockID:    b.ID,
 					itemID:     item.ID,
@@ -706,8 +696,9 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 			if label == "" || !preEmitLabelNeedsCitationAlignment(label) {
 				continue
 			}
+			text := preEmitItemNonLabelSurface(*item)
 			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
-				preEmitItemCitationAlignedWithContext(pctx, label, item.Text, doc.Citations[item.CitationRef]) {
+				preEmitItemCitationAlignedWithContext(pctx, label, text, doc.Citations[item.CitationRef]) {
 				continue
 			}
 			match := -1
@@ -716,7 +707,7 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 					if ci == item.CitationRef {
 						continue
 					}
-					if !preEmitItemCitationAlignedWithContext(pctx, label, item.Text, cit) {
+					if !preEmitItemCitationAlignedWithContext(pctx, label, text, cit) {
 						continue
 					}
 					match = ci
@@ -728,7 +719,7 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				fixed++
 				continue
 			}
-			if cit, ok := preEmitPreferredCandidateCitationForItemWithContext(pctx, label, item.Text); ok {
+			if cit, ok := preEmitPreferredCandidateCitationForItemWithContext(pctx, label, text); ok {
 				item.CitationRef = appendOrReusePreEmitCitation(doc, cit)
 				fixed++
 			}
@@ -762,7 +753,7 @@ func normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc *types.AnswerDocu
 			if !ok {
 				continue
 			}
-			candidateIndex, candidateLabel, ok := preEmitUniqueEnclosingFunctionForMemberMention(doc.Citations, member, item.Text)
+			candidateIndex, candidateLabel, ok := preEmitUniqueEnclosingFunctionForMemberMention(doc.Citations, member, preEmitItemNonLabelSurface(*item))
 			if !ok || candidateLabel == "" {
 				continue
 			}
@@ -980,7 +971,7 @@ func preCheckCallChainItemCitationRoleAlignmentWithContext(doc *types.AnswerDocu
 	}
 	return []emitFixHint{{
 		Field: "blocks[].items[].citation_ref",
-		ExpectedShape: "each item whose visible label/text names a typed evidence role must cite the evidence line for that same role: " +
+		ExpectedShape: "each item whose visible label/text/cells name a typed evidence role must cite the evidence line for that same role: " +
 			strings.Join(parts, "; "),
 		Reason: "item citations must support the typed role asserted by the item; definition lines or adjacent items cannot stand in for a different role named in the item surface.",
 	}}
@@ -1121,7 +1112,7 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 				item.CitationRef = appendOrReusePreEmitCitation(doc, cit)
 			}
 			doc.Blocks[blockIdx].Items = append(doc.Blocks[blockIdx].Items, item)
-			surface += "\n" + item.Label + "\n" + item.Text
+			surface += "\n" + types.AnswerBlockItemVisibleSurface(item)
 			added++
 		}
 	}
@@ -1615,7 +1606,7 @@ func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ..
 		}
 	}
 	return []emitFixHint{{
-		Field: "blocks[].text OR blocks[].items[].label/text",
+		Field: "blocks[].text OR blocks[].items[].label/text/cells",
 		ExpectedShape: "include every model-emitted scalar_value aggregate in the visible answer surface: " +
 			strings.Join(parts, "; "),
 		Reason: "the investigation already handed these scalar values to the final answer as structured data; leaving them only in thinking, citations, or closure notes drops the user's requested literal.",
@@ -1687,7 +1678,7 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 		parts = append(parts, fmt.Sprintf("... %d more omitted member(s)", len(missing)-len(parts)))
 	}
 	return []emitFixHint{{
-		Field: "blocks[].items[].label/text OR blocks[].text",
+		Field: "blocks[].items[].label/text/cells OR blocks[].text",
 		ExpectedShape: "include every model-emitted principal member_set member in the visible answer: " +
 			strings.Join(parts, "; "),
 		Reason: "the investigation handed off this complete principal member set as structured data; finalization must preserve those model-authored members even when the request family was routed as architecture, scalar, relation, or generic prose.",
@@ -2192,7 +2183,7 @@ func preEmitStructuredMemberBlockCoversFact(doc *types.AnswerDocumentV2, fact ty
 
 func preEmitStructuredBlockCoversAggregateMember(block types.AnswerBlock, member string) bool {
 	for _, item := range block.Items {
-		itemSurface := strings.TrimSpace(item.Label + "\n" + item.Text)
+		itemSurface := types.AnswerBlockItemVisibleSurface(item)
 		if itemSurface == "" {
 			continue
 		}
@@ -2274,7 +2265,7 @@ func preEmitMultiTargetRelationCoveredByStructuredBlock(member string, block typ
 	for _, target := range targets {
 		covered := false
 		for _, item := range block.Items {
-			itemSurface := strings.TrimSpace(item.Label + "\n" + item.Text)
+			itemSurface := types.AnswerBlockItemVisibleSurface(item)
 			if preEmitTextContainsAllAggregateParts(itemSurface, left, target) {
 				covered = true
 				break
@@ -2444,7 +2435,7 @@ func preEmitRelationPartsAppearInSameAnswerUnit(left, right string, doc *types.A
 			return true
 		}
 		for _, item := range block.Items {
-			if preEmitTextContainsAllAggregateParts(item.Label+"\n"+item.Text, left, right) {
+			if preEmitTextContainsAllAggregateParts(types.AnswerBlockItemVisibleSurface(item), left, right) {
 				return true
 			}
 		}
@@ -2471,15 +2462,7 @@ func preEmitVisibleAnswerSurface(doc *types.AnswerDocumentV2) string {
 	}
 	var b strings.Builder
 	for _, block := range doc.Blocks {
-		appendPreEmitSurface(&b, block.Title)
-		appendPreEmitSurface(&b, block.Text)
-		for _, item := range block.Items {
-			appendPreEmitSurface(&b, item.Label)
-			appendPreEmitSurface(&b, item.Text)
-		}
-		if block.Diagram != nil {
-			appendPreEmitSurface(&b, block.Diagram.Body)
-		}
+		appendPreEmitSurface(&b, types.AnswerBlockVisibleSurface(block))
 	}
 	for _, caveat := range doc.Caveats {
 		appendPreEmitSurface(&b, caveat)
@@ -2965,7 +2948,15 @@ func preEmitBlockSharesFacet(b types.AnswerBlock, facets []string) bool {
 
 func preEmitClaimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []types.ClaimForm, evidence []types.EvidenceItem) (types.EvidenceItem, bool) {
 	label := strings.TrimSpace(item.Label)
-	text := strings.TrimSpace(item.Text)
+	if label == "" {
+		for _, cell := range item.Cells {
+			if strings.TrimSpace(cell) != "" {
+				label = strings.TrimSpace(cell)
+				break
+			}
+		}
+	}
+	text := preEmitItemNonLabelSurface(item)
 	if label == "" && text == "" {
 		return types.EvidenceItem{}, false
 	}
@@ -2975,6 +2966,20 @@ func preEmitClaimRoleMentionedByItemSurface(item types.AnswerBlockItem, forms []
 		}
 	}
 	return types.EvidenceItem{}, false
+}
+
+func preEmitItemNonLabelSurface(item types.AnswerBlockItem) string {
+	var parts []string
+	if text := strings.TrimSpace(item.Text); text != "" {
+		parts = append(parts, text)
+	}
+	for _, cell := range item.Cells {
+		cell = strings.TrimSpace(cell)
+		if cell != "" {
+			parts = append(parts, cell)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func preEmitBlockUsesNonSymbolLabelSurface(b types.AnswerBlock, view *types.AnswerSemanticView) bool {
@@ -3603,13 +3608,13 @@ func preCheckModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusContex
 			if len(missing) == 0 {
 				continue
 			}
-			field := fmt.Sprintf("blocks[id=%q].items[id=%q].text", b.ID, it.ID)
+			field := fmt.Sprintf("blocks[id=%q].items[id=%q].label/text/cells", b.ID, it.ID)
 			if strings.TrimSpace(it.ID) == "" {
-				field = fmt.Sprintf("blocks[id=%q].items[].text", b.ID)
+				field = fmt.Sprintf("blocks[id=%q].items[].label/text/cells", b.ID)
 			}
 			hints = append(hints, emitFixHint{
 				Field: field,
-				ExpectedShape: "include these model-emitted surface_terms in the cited item text or label: " +
+				ExpectedShape: "include these model-emitted surface_terms in the cited item label, text, or table cells: " +
 					strings.Join(missing, ", "),
 				Reason: "the investigation explicitly structured these source-visible labels; preserve them when they are relevant to the visible answer instead of relying on downstream synthesis to infer them.",
 			})
@@ -3657,7 +3662,7 @@ func appendSurfaceTermsToItem(item *types.AnswerBlockItem, terms []string, langu
 		return false
 	}
 	var kept []string
-	hay := strings.ToLower(item.Label + "\n" + item.Text)
+	hay := strings.ToLower(types.AnswerBlockItemVisibleSurface(*item))
 	seen := make(map[string]bool, len(terms))
 	for _, term := range terms {
 		term = strings.TrimSpace(term)
@@ -3724,7 +3729,7 @@ func missingSurfaceTermsForItem(item types.AnswerBlockItem, cite types.Citation,
 	if strings.TrimSpace(cite.File) == "" {
 		return nil
 	}
-	hay := strings.ToLower(item.Label + "\n" + item.Text)
+	hay := strings.ToLower(types.AnswerBlockItemVisibleSurface(item))
 	seen := make(map[string]bool)
 	var missing []string
 	for _, ev := range evidence {
@@ -3774,7 +3779,7 @@ func surfaceTermLineClose(ev types.EvidenceItem, cite types.Citation) bool {
 }
 
 func surfaceTermEvidenceAppliesToItem(ev types.EvidenceItem, item types.AnswerBlockItem) bool {
-	hay := strings.ToLower(item.Label + "\n" + item.Text)
+	hay := strings.ToLower(types.AnswerBlockItemVisibleSurface(item))
 	for _, key := range []string{ev.Subject, ev.AnchorSymbol, ev.Object, ev.OwnerSymbol} {
 		key = strings.TrimSpace(key)
 		if key == "" {
@@ -3911,8 +3916,8 @@ func preEmitLabelSupportedByAggregateMemberSet(label string, item types.AnswerBl
 			if preEmitAggregateMemberLabelMatches(label, member) {
 				return true
 			}
-			if strings.TrimSpace(item.Text) != "" &&
-				preEmitAggregateMemberLabelTextMatches(label, item.Text, member) {
+			if surface := preEmitItemNonLabelSurface(item); surface != "" &&
+				preEmitAggregateMemberLabelTextMatches(label, surface, member) {
 				return true
 			}
 		}

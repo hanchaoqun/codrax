@@ -337,12 +337,13 @@ func TestNormalizeEmitAnswerBlock_NormalizesDiagramKindFromMermaidSyntax(t *test
 // until the new field is wired into NormalizeEmitAnswerBlock.
 func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 	in := emitAnswerBlockV2{
-		ID:    "b1",
-		Kind:  string(types.BlockDiagram),
-		Title: "Title",
-		Text:  "body text",
+		ID:      "b1",
+		Kind:    string(types.BlockDiagram),
+		Title:   "Title",
+		Text:    "body text",
+		Columns: []string{"维度", "结论"},
 		Items: []emitAnswerBlockItemV2{
-			{ID: "i1", Label: "L", Text: "T", CandidateRole: string(types.AnswerCandidateRoleFunction), CitationRef: 3},
+			{ID: "i1", Label: "L", Text: "T", Cells: []string{"C1", "C2"}, CandidateRole: string(types.AnswerCandidateRoleFunction), CitationRef: 3},
 		},
 		Diagram: &emitAnswerDiagramV2{
 			Kind: string(types.DiagramFlow), Body: "flowchart LR\n  A --> B",
@@ -387,6 +388,7 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		"Kind":        func() bool { return got.Kind != "" },
 		"Title":       func() bool { return got.Title != "" },
 		"Text":        func() bool { return got.Text != "" },
+		"Columns":     func() bool { return len(got.Columns) == 2 && got.Columns[0] == "维度" },
 		"Items":       func() bool { return len(got.Items) > 0 },
 		"Diagram":     func() bool { return got.Diagram != nil && got.Diagram.Body != "" },
 		"ClaimUses":   func() bool { return len(got.ClaimUses) > 0 },
@@ -407,6 +409,9 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		if !check() {
 			t.Errorf("field %q dropped by normalizer (got AnswerBlock = %+v)", name, got)
 		}
+	}
+	if len(got.Items) != 1 || len(got.Items[0].Cells) != 2 || got.Items[0].Cells[1] != "C2" {
+		t.Errorf("items[].cells dropped by normalizer; got %+v", got.Items)
 	}
 
 	// Sanity: the JSON shape and the typed shape must have field-name

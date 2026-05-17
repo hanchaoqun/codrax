@@ -82,6 +82,37 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_AcceptsStructuredTableColumnsCells(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "Hello"},
+			{"id": "t1", "kind": "table", "columns": ["维度", "codrax", "opencode"], "items": [
+				{"id": "r1", "cells": ["证据追踪", "citations[]", "none"], "citation_ref": -1}
+			]}
+		]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("structured table emit should succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("doc not written: %+v", doc)
+	}
+	table := doc.Blocks[1]
+	if len(table.Columns) != 3 || table.Columns[1] != "codrax" {
+		t.Fatalf("columns not preserved: %+v", table.Columns)
+	}
+	if len(table.Items) != 1 || len(table.Items[0].Cells) != 3 || table.Items[0].Cells[0] != "证据追踪" {
+		t.Fatalf("cells not preserved: %+v", table.Items)
+	}
+}
+
 func TestEmitAnswerDocumentV2_CaveatAliasAcceptedForCaveatBlock(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

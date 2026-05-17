@@ -47,13 +47,15 @@ type answerDraftPreviewBlock struct {
 	Kind    string                     `json:"kind"`
 	Title   string                     `json:"title"`
 	Text    string                     `json:"text"`
+	Columns []string                   `json:"columns"`
 	Items   []answerDraftPreviewItem   `json:"items"`
 	Diagram *answerDraftPreviewDiagram `json:"diagram"`
 }
 
 type answerDraftPreviewItem struct {
-	Label string `json:"label"`
-	Text  string `json:"text"`
+	Label string   `json:"label"`
+	Text  string   `json:"text"`
+	Cells []string `json:"cells"`
 }
 
 type answerDraftPreviewDiagram struct {
@@ -76,7 +78,7 @@ func formatAnswerDocumentDraftPreviewLines(paramsJSON, lang string) []scrollback
 		text: "  " + statusObjective.Sprint("•") + " " + statusObjective.Sprint(header),
 	}}
 	for _, block := range doc.Blocks {
-		lines = appendAnswerDraftBlockLines(lines, block)
+		lines = appendAnswerDraftBlockLines(lines, block, zh)
 	}
 	return trimScrollbackPreviewBlankLines(lines)
 }
@@ -147,7 +149,7 @@ func decodeAnswerDraftPreviewBlocks(raw json.RawMessage) ([]answerDraftPreviewBl
 	return nil, false
 }
 
-func appendAnswerDraftBlockLines(lines []scrollbackLine, block answerDraftPreviewBlock) []scrollbackLine {
+func appendAnswerDraftBlockLines(lines []scrollbackLine, block answerDraftPreviewBlock, zh bool) []scrollbackLine {
 	title := strings.TrimSpace(block.Title)
 	if title != "" {
 		lines = appendPlainAnswerDraftLines(lines, title)
@@ -156,6 +158,12 @@ func appendAnswerDraftBlockLines(lines []scrollbackLine, block answerDraftPrevie
 		lines = appendPlainAnswerDraftLines(lines, block.Text)
 	}
 	if len(block.Items) > 0 {
+		if strings.EqualFold(strings.TrimSpace(block.Kind), "table") && strings.TrimSpace(block.Text) == "" {
+			if table, ok := formatAnswerDraftStructuredTable(block, zh); ok {
+				lines = appendPlainAnswerDraftLines(lines, table)
+				return lines
+			}
+		}
 		for i, item := range block.Items {
 			text := formatAnswerDraftItem(i+1, item)
 			if text == "" {
@@ -209,6 +217,17 @@ func appendAnswerDraftDiagramLines(lines []scrollbackLine, diagram answerDraftPr
 func formatAnswerDraftItem(index int, item answerDraftPreviewItem) string {
 	label := strings.TrimSpace(item.Label)
 	text := strings.TrimSpace(item.Text)
+	cells := trimAnswerDraftStringSlice(item.Cells)
+	if len(cells) > 0 {
+		row := strings.Join(cells, " | ")
+		if label != "" {
+			row = label + " | " + row
+		}
+		if text != "" {
+			row = row + " | " + text
+		}
+		return fmt.Sprintf("%d. %s", index, row)
+	}
 	switch {
 	case label != "" && text != "":
 		return fmt.Sprintf("%d. %s — %s", index, label, text)
@@ -219,6 +238,141 @@ func formatAnswerDraftItem(index int, item answerDraftPreviewItem) string {
 	default:
 		return ""
 	}
+}
+
+func formatAnswerDraftStructuredTable(block answerDraftPreviewBlock, zh bool) (string, bool) {
+	columns := trimAnswerDraftStringSlice(block.Columns)
+	hasStructured := len(columns) > 0
+	hasLabel := false
+	maxCells := 0
+	type row struct {
+		label string
+		cells []string
+	}
+	var rows []row
+	for _, item := range block.Items {
+		label := strings.TrimSpace(item.Label)
+		cells := trimAnswerDraftStringSlice(item.Cells)
+		if len(cells) > 0 {
+			hasStructured = true
+		}
+		text := strings.TrimSpace(item.Text)
+		if len(cells) == 0 && text != "" && len(columns) > 0 {
+			cells = []string{text}
+		} else if len(cells) > 0 && text != "" {
+			cells = append(cells, text)
+		}
+		if label == "" && len(cells) == 0 {
+			continue
+		}
+		if label != "" {
+			hasLabel = true
+		}
+		if len(cells) > maxCells {
+			maxCells = len(cells)
+		}
+		rows = append(rows, row{label: label, cells: cells})
+	}
+	if !hasStructured || len(rows) == 0 {
+		return "", false
+	}
+	headers := answerDraftTableHeaders(columns, hasLabel, maxCells, zh)
+	if len(headers) == 0 {
+		return "", false
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "| %s |\n", strings.Join(escapeAnswerDraftTableCells(headers), " | "))
+	b.WriteString("|")
+	for range headers {
+		b.WriteString("---|")
+	}
+	b.WriteString("\n")
+	for _, row := range rows {
+		cells := make([]string, 0, len(headers))
+		if hasLabel {
+			cells = append(cells, row.label)
+		}
+		cells = append(cells, row.cells...)
+		for len(cells) < len(headers) {
+			cells = append(cells, "")
+		}
+		if len(cells) > len(headers) {
+			cells = cells[:len(headers)]
+		}
+		fmt.Fprintf(&b, "| %s |\n", strings.Join(escapeAnswerDraftTableCells(cells), " | "))
+	}
+	return strings.TrimRight(b.String(), "\n"), true
+}
+
+func answerDraftTableHeaders(columns []string, hasLabel bool, maxCells int, zh bool) []string {
+	itemHeader, detailHeader := "Item", "Details"
+	if zh {
+		itemHeader, detailHeader = "项目", "说明"
+	}
+	if hasLabel {
+		if len(columns) == maxCells+1 {
+			return answerDraftFillHeaders(columns, len(columns), zh, hasLabel)
+		}
+		headers := append([]string{itemHeader}, columns...)
+		if len(headers) == 1 && maxCells == 1 {
+			headers = append(headers, detailHeader)
+		}
+		return answerDraftFillHeaders(headers, maxCells+1, zh, hasLabel)
+	}
+	width := maxCells
+	if len(columns) > width {
+		width = len(columns)
+	}
+	return answerDraftFillHeaders(columns, width, zh, hasLabel)
+}
+
+func answerDraftFillHeaders(headers []string, width int, zh bool, hasLabel bool) []string {
+	if width <= 0 {
+		return nil
+	}
+	out := append([]string(nil), headers...)
+	for len(out) < width {
+		n := len(out) + 1
+		if zh {
+			out = append(out, fmt.Sprintf("列 %d", n))
+		} else {
+			out = append(out, fmt.Sprintf("Column %d", n))
+		}
+	}
+	if hasLabel && strings.TrimSpace(out[0]) == "" {
+		if zh {
+			out[0] = "项目"
+		} else {
+			out[0] = "Item"
+		}
+	}
+	return out
+}
+
+func trimAnswerDraftStringSlice(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = strings.TrimSpace(s)
+	}
+	for len(out) > 0 && out[len(out)-1] == "" {
+		out = out[:len(out)-1]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func escapeAnswerDraftTableCells(cells []string) []string {
+	out := make([]string, len(cells))
+	for i, cell := range cells {
+		cell = strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(cell), "\r\n", "\n"), "\n", "<br>")
+		out[i] = strings.ReplaceAll(cell, "|", "\\|")
+	}
+	return out
 }
 
 func trimScrollbackPreviewBlankLines(lines []scrollbackLine) []scrollbackLine {

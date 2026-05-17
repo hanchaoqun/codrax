@@ -44,11 +44,12 @@ func samplePrevDoc() *AnswerDocumentV2 {
 			},
 			{
 				ID: "list1", Kind: BlockOrderedList,
+				Columns: []string{"维度", "codrax", "opencode"},
 				ClaimUses: []RenderedClaimUse{
 					{ClaimForm: ClaimCallEdge},
 				},
 				Items: []AnswerBlockItem{
-					{ID: "i1", Label: "A", CitationRef: 0},
+					{ID: "i1", Label: "A", Cells: []string{"证据追踪", "有结构化 citations", "未验证"}, CitationRef: 0},
 					{ID: "i2", Label: "B", CitationRef: 1},
 				},
 			},
@@ -123,6 +124,10 @@ func TestApplyPatch_PureUnchangedPreservesAllFields(t *testing.T) {
 	}
 	if len(got.MissingRequestedRoles) != 1 || got.MissingRequestedRoles[0].Role != EvidenceDiagramRoleOverride {
 		t.Errorf("missing requested roles not preserved; got %+v", got.MissingRequestedRoles)
+	}
+	if len(got.Blocks[2].Columns) != 3 || got.Blocks[2].Columns[1] != "codrax" ||
+		len(got.Blocks[2].Items) != 2 || len(got.Blocks[2].Items[0].Cells) != 3 {
+		t.Errorf("structured table columns/cells not preserved; got %+v", got.Blocks)
 	}
 }
 

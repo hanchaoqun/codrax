@@ -72,6 +72,7 @@ type emitAnswerBlockV2 struct {
 	ErrorGranularityVerdict string                    `json:"error_granularity_verdict,omitempty"`
 	CurrentStatusVerdict    string                    `json:"current_status_verdict,omitempty"`
 	ScopeDisclosure         string                    `json:"scope_disclosure,omitempty"`
+	Columns                 []string                  `json:"columns,omitempty"`
 	Items                   []emitAnswerBlockItemV2   `json:"items,omitempty"`
 	Diagram                 *emitAnswerDiagramV2      `json:"diagram,omitempty"`
 	ClaimUses               []types.RenderedClaimUse  `json:"claim_uses,omitempty"`
@@ -81,11 +82,12 @@ type emitAnswerBlockV2 struct {
 }
 
 type emitAnswerBlockItemV2 struct {
-	ID            string  `json:"id,omitempty"`
-	Label         string  `json:"label,omitempty"`
-	Text          string  `json:"text,omitempty"`
-	CandidateRole string  `json:"candidate_role,omitempty"`
-	CitationRef   FlexInt `json:"citation_ref,omitempty"`
+	ID            string   `json:"id,omitempty"`
+	Label         string   `json:"label,omitempty"`
+	Text          string   `json:"text,omitempty"`
+	Cells         []string `json:"cells,omitempty"`
+	CandidateRole string   `json:"candidate_role,omitempty"`
+	CitationRef   FlexInt  `json:"citation_ref,omitempty"`
 }
 
 type emitAnswerDiagramV2 struct {
@@ -2030,8 +2032,9 @@ func mergeWholeDocStringifyVariants(probe map[string]json.RawMessage, key, trimm
 
 // repairNestedAnswerBlockFields detects the same "JSON-encoded string where a
 // native JSON array/object is expected" failure mode for structured fields
-// inside each block. It repairs block arrays (items, claim_uses, edge_anchors,
-// facet_ids) and block objects (diagram). Mirrors repairBlocksAsString
+// inside each block. It repairs block arrays (items, columns, claim_uses,
+// edge_anchors, facet_ids), item arrays (items[].cells), and block objects
+// (diagram). Mirrors repairBlocksAsString
 // conservatively — only known structured fields are patched; everything else
 // passes through verbatim so downstream V1-field detection + schema validation
 // still fire on whatever else may be wrong.
@@ -2085,6 +2088,12 @@ func repairNestedAnswerBlockFields(raw json.RawMessage) (json.RawMessage, []stri
 			}
 		}
 		if fields, ok := repairMisplacedItemClaimUses(blkObj); ok {
+			for _, field := range fields {
+				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
+			}
+			repaired = true
+		}
+		if fields, ok := repairAnswerBlockItemArrayFields(blkObj); ok {
 			for _, field := range fields {
 				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
 			}
@@ -2212,6 +2221,12 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 				}
 				blockChanged = true
 			}
+			if fields, ok := repairAnswerBlockItemArrayFields(blkObj); ok {
+				for _, field := range fields {
+					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
+				}
+				blockChanged = true
+			}
 			if fields, ok := repairAnswerBlockAnnotationShape(blkObj); ok {
 				for _, field := range fields {
 					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
@@ -2242,7 +2257,7 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 	return out, paths, true
 }
 
-var answerBlockArrayFieldNames = []string{"items", "claim_uses", "edge_anchors", "facet_ids"}
+var answerBlockArrayFieldNames = []string{"items", "columns", "claim_uses", "edge_anchors", "facet_ids"}
 var answerBlockObjectFieldNames = []string{"diagram"}
 var answerBlockFieldsAllowedFromDiagram = []string{"claim_uses", "edge_anchors", "facet_ids", "surface_role"}
 
@@ -2301,6 +2316,35 @@ func repairMisplacedItemClaimUses(blkObj map[string]json.RawMessage) ([]string, 
 	blkObj["items"] = mustMarshal(items)
 	blkObj["claim_uses"] = mustMarshal(existing)
 	return []string{"items[].claim_use(s)->claim_uses"}, true
+}
+
+func repairAnswerBlockItemArrayFields(blkObj map[string]json.RawMessage) ([]string, bool) {
+	if len(blkObj) == 0 {
+		return nil, false
+	}
+	rawItems, ok := blkObj["items"]
+	rawItems = bytes.TrimSpace(rawItems)
+	if !ok || len(rawItems) == 0 || rawItems[0] != '[' {
+		return nil, false
+	}
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(rawItems, &items); err != nil || len(items) == 0 {
+		return nil, false
+	}
+	var paths []string
+	changed := false
+	for i := range items {
+		if r, ok := repairBlockArrayField(items[i], "cells"); ok {
+			items[i]["cells"] = r
+			paths = append(paths, fmt.Sprintf("items[%d].cells", i))
+			changed = true
+		}
+	}
+	if !changed {
+		return nil, false
+	}
+	blkObj["items"] = mustMarshal(items)
+	return paths, true
 }
 
 func decodeClaimUseArrayRaw(raw json.RawMessage) ([]json.RawMessage, bool) {

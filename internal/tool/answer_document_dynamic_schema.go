@@ -203,10 +203,15 @@ func projectDiagramField(blockProps map[string]any, view *types.AnswerSemanticVi
 //
 //   - summary / section / scalar / decision / caveat → block.text
 //     (the prose / literal / verdict / scope-note carrier)
-//   - ordered_list / bullet_list / table → block.items[]
+//   - ordered_list / bullet_list → block.items[]
 //     (rows / list entries — empty list is a structural failure)
 //   - diagram → block.diagram (the {kind, language, body} payload
 //     object — diagram body never goes in block.text)
+//
+// Table is intentionally omitted: it has three compatible visible carriers
+// (block.text markdown table, columns[] + items[].cells[] structured rows,
+// and legacy label/text rows). Requiring one fixed field at schema level made
+// valid markdown-table emits fail before the renderer could preserve them.
 var blockKindPayloadField = map[string]string{
 	"summary":      "text",
 	"section":      "text",
@@ -215,7 +220,6 @@ var blockKindPayloadField = map[string]string{
 	"caveat":       "text",
 	"ordered_list": "items",
 	"bullet_list":  "items",
-	"table":        "items",
 	"diagram":      "diagram",
 }
 

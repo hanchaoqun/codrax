@@ -1034,7 +1034,7 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 | `bullet_list` | 同上 | 序无关枚举（选项 / 同级成员） |
 | `scalar` | `text`（字面值）+ 一元 `items[]`（`citation_ref`） | 单字面答案（count / 路径 / config 值） |
 | `decision` | `text`（开头 yes/no/是/否 + rationale）+ 一元 `items[]` | 判决答案 |
-| `table` | markdown 表 inside `text` 或 `items[]` 行式 | 多列对比 |
+| `table` | markdown 表 inside `text`，或 `columns[]` + `items[].cells[]`，或两列 `items[].label/text` 兜底 | 多列对比 |
 | `diagram` | `diagram{kind, language, body}` | 结构图（`diagram.kind` 是语义家族 flow/sequence/architecture/call_dag，`body` 是 mermaid 源码） |
 | `caveat` | `title` + `text` | 范围声明 / 出口外提醒 / 不确定性 |
 

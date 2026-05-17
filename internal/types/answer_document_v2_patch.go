@@ -52,8 +52,9 @@ import (
 // Op semantics:
 //
 //   - UnchangedBlockIDs: block ids from prev emit copied verbatim
-//     (every annotation field — claim_use / facet_ids / surface_role
-//     / items / diagram — preserved byte-identical). The id MUST
+//     (every annotation/display field — columns / claim_use /
+//     facet_ids / surface_role / items including cells / diagram —
+//     preserved byte-identical). The id MUST
 //     exist in prev (invariant 4). LLM never re-emits fields on
 //     these blocks; structural preservation against drop-on-retry.
 //   - ReplaceBlocks: full block payloads override the prev emit's

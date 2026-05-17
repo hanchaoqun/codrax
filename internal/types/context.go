@@ -2073,7 +2073,11 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 				Text:                    b.Text,
 				ErrorGranularityVerdict: b.ErrorGranularityVerdict,
 				CurrentStatusVerdict:    b.CurrentStatusVerdict,
+				ScopeDisclosure:         b.ScopeDisclosure,
 				SurfaceRole:             b.SurfaceRole,
+			}
+			if len(b.Columns) > 0 {
+				cloned.Columns = append([]string(nil), b.Columns...)
 			}
 			if len(b.Items) > 0 {
 				cloned.Items = make([]AnswerBlockItem, len(b.Items))
@@ -2082,6 +2086,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 						ID:            it.ID,
 						Label:         it.Label,
 						Text:          it.Text,
+						Cells:         append([]string(nil), it.Cells...),
 						CandidateRole: it.CandidateRole,
 						CitationRef:   it.CitationRef,
 					}

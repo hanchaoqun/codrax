@@ -240,7 +240,7 @@ func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types
 	b.WriteString("\n\n")
 }
 
-func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.AnswerDocumentV2, _ answerDocLang) {
+func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.AnswerDocumentV2, lang answerDocLang) {
 	if strings.TrimSpace(blk.Title) != "" {
 		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
 	}
@@ -252,9 +252,9 @@ func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.Answ
 	if len(blk.Items) == 0 {
 		return
 	}
-	// Two-column rendering: Label | Text. More elaborate column
-	// shapes are postponed to a later refinement; the V2 schema
-	// already gives Label + Text + CitationRef on each item.
+	if renderV2StructuredTable(b, blk, lang) {
+		return
+	}
 	rendered := 0
 	for _, it := range blk.Items {
 		if strings.TrimSpace(it.Label) == "" && strings.TrimSpace(it.Text) == "" {
@@ -265,7 +265,8 @@ func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.Answ
 	if rendered == 0 {
 		return
 	}
-	b.WriteString("| Item | Detail |\n|---|---|\n")
+	labelHeader, detailHeader := renderV2TableFallbackHeaders(lang)
+	fmt.Fprintf(b, "| %s | %s |\n|---|---|\n", labelHeader, detailHeader)
 	for _, it := range blk.Items {
 		label := strings.TrimSpace(it.Label)
 		text := strings.TrimSpace(it.Text)
@@ -280,6 +281,181 @@ func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.Answ
 func renderV2TableText(blk types.AnswerBlock) string {
 	text := renderUserSurfaceText(blk.Text)
 	return text
+}
+
+func renderV2StructuredTable(b *strings.Builder, blk types.AnswerBlock, lang answerDocLang) bool {
+	columns := renderV2NormalizeTableStrings(blk.Columns)
+	hasStructuredCarrier := len(columns) > 0
+	rows := make([]renderV2TableRow, 0, len(blk.Items))
+	hasLabel := false
+	maxCells := 0
+	for _, it := range blk.Items {
+		label := strings.TrimSpace(it.Label)
+		if len(renderV2NormalizeTableStrings(it.Cells)) > 0 {
+			hasStructuredCarrier = true
+		}
+		cells := renderV2TableItemCells(it)
+		if label == "" && len(cells) == 0 {
+			continue
+		}
+		if label != "" {
+			hasLabel = true
+		}
+		if len(cells) > maxCells {
+			maxCells = len(cells)
+		}
+		rows = append(rows, renderV2TableRow{label: label, cells: cells})
+	}
+	if !hasStructuredCarrier || len(rows) == 0 || (len(columns) == 0 && maxCells == 0) {
+		return false
+	}
+	headers := renderV2StructuredTableHeaders(columns, hasLabel, maxCells, lang)
+	if len(headers) == 0 {
+		return false
+	}
+	fmt.Fprintf(b, "| %s |\n", strings.Join(renderV2EscapedTableCells(headers), " | "))
+	b.WriteString("|")
+	for range headers {
+		b.WriteString("---|")
+	}
+	b.WriteString("\n")
+	for _, row := range rows {
+		cells := make([]string, 0, len(headers))
+		if hasLabel {
+			cells = append(cells, row.label)
+		}
+		cells = append(cells, row.cells...)
+		for len(cells) < len(headers) {
+			cells = append(cells, "")
+		}
+		if len(cells) > len(headers) {
+			cells = cells[:len(headers)]
+		}
+		fmt.Fprintf(b, "| %s |\n", strings.Join(renderV2EscapedTableCells(cells), " | "))
+	}
+	b.WriteString("\n")
+	return true
+}
+
+type renderV2TableRow struct {
+	label string
+	cells []string
+}
+
+func renderV2TableItemCells(it types.AnswerBlockItem) []string {
+	cells := renderV2NormalizeTableStrings(it.Cells)
+	text := strings.TrimSpace(it.Text)
+	if len(cells) == 0 {
+		if text == "" {
+			return nil
+		}
+		return []string{text}
+	}
+	if text != "" && !renderV2TableCellsContain(cells, text) {
+		cells = append(cells, text)
+	}
+	return cells
+}
+
+func renderV2TableCellsContain(cells []string, text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return true
+	}
+	for _, cell := range cells {
+		if strings.TrimSpace(cell) == text {
+			return true
+		}
+	}
+	return false
+}
+
+func renderV2StructuredTableHeaders(columns []string, hasLabel bool, maxCells int, lang answerDocLang) []string {
+	if hasLabel {
+		switch {
+		case len(columns) == maxCells+1:
+			return renderV2FillTableHeaders(columns, len(columns), lang, true)
+		case len(columns) >= maxCells+1 && maxCells > 0:
+			return renderV2FillTableHeaders(columns[:maxCells+1], maxCells+1, lang, true)
+		case len(columns) > 0:
+			headers := append([]string{renderV2TableRowHeader(lang)}, columns...)
+			return renderV2FillTableHeaders(headers, maxCells+1, lang, true)
+		default:
+			return renderV2FillTableHeaders([]string{renderV2TableRowHeader(lang)}, maxCells+1, lang, true)
+		}
+	}
+	width := maxCells
+	if len(columns) > width {
+		width = len(columns)
+	}
+	return renderV2FillTableHeaders(columns, width, lang, false)
+}
+
+func renderV2FillTableHeaders(headers []string, width int, lang answerDocLang, hasLabel bool) []string {
+	if width <= 0 {
+		return nil
+	}
+	out := append([]string(nil), headers...)
+	for len(out) < width {
+		out = append(out, renderV2SyntheticTableHeader(len(out), width, lang, hasLabel))
+	}
+	for i, h := range out {
+		if strings.TrimSpace(h) == "" {
+			out[i] = renderV2SyntheticTableHeader(i, width, lang, hasLabel)
+		}
+	}
+	return out
+}
+
+func renderV2SyntheticTableHeader(index, width int, lang answerDocLang, hasLabel bool) string {
+	if hasLabel && index == 0 {
+		return renderV2TableRowHeader(lang)
+	}
+	if width == 2 && hasLabel && index == 1 {
+		_, detail := renderV2TableFallbackHeaders(lang)
+		return detail
+	}
+	if lang == answerDocLangZH {
+		return fmt.Sprintf("列 %d", index+1)
+	}
+	return fmt.Sprintf("Column %d", index+1)
+}
+
+func renderV2TableRowHeader(lang answerDocLang) string {
+	label, _ := renderV2TableFallbackHeaders(lang)
+	return label
+}
+
+func renderV2NormalizeTableStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = strings.TrimSpace(s)
+	}
+	for len(out) > 0 && out[len(out)-1] == "" {
+		out = out[:len(out)-1]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func renderV2EscapedTableCells(cells []string) []string {
+	out := make([]string, len(cells))
+	for i, cell := range cells {
+		out[i] = escapePipe(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(cell), "\r\n", "\n"), "\n", "<br>"))
+	}
+	return out
+}
+
+func renderV2TableFallbackHeaders(lang answerDocLang) (string, string) {
+	if lang == answerDocLangZH {
+		return "项目", "说明"
+	}
+	return "Item", "Details"
 }
 
 func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, _ answerDocLang) {

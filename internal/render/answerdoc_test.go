@@ -25,6 +25,41 @@ func TestRenderV2_BlockSummary(t *testing.T) {
 	}
 }
 
+func TestRenderV2_PreservesAuthoredTextAcrossBlockKinds(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "summary-authored-text"},
+			{ID: "section", Kind: types.BlockSection, Text: "section-authored-text"},
+			{ID: "ordered", Kind: types.BlockOrderedList, Text: "ordered-authored-text", Items: []types.AnswerBlockItem{{Label: "first"}}},
+			{ID: "bullets", Kind: types.BlockBulletList, Text: "bullet-authored-text", Items: []types.AnswerBlockItem{{Label: "one"}}},
+			{ID: "scalar", Kind: types.BlockScalar, Text: "scalar-authored-text"},
+			{ID: "decision", Kind: types.BlockDecision, Text: "decision-authored-text"},
+			{ID: "table", Kind: types.BlockTable, Text: "| A | B |\n|---|---|\n| table-authored-text | value |"},
+			{ID: "diagram", Kind: types.BlockDiagram, Text: "diagram-authored-text", Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramFlow,
+				Body: "flowchart LR\n  A --> B",
+			}},
+			{ID: "caveat", Kind: types.BlockCaveat, Text: "caveat-authored-text"},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	for _, want := range []string{
+		"summary-authored-text",
+		"section-authored-text",
+		"ordered-authored-text",
+		"bullet-authored-text",
+		"scalar-authored-text",
+		"decision-authored-text",
+		"table-authored-text",
+		"diagram-authored-text",
+		"caveat-authored-text",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("renderer dropped authored block text %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderV2_BlockSection(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
@@ -231,6 +266,81 @@ func TestRenderV2_BlockTable(t *testing.T) {
 	out := RenderAnswerDocument(doc, "en")
 	if !strings.Contains(out, "| L1 | first |") || !strings.Contains(out, "| L2 | second |") {
 		t.Errorf("table rendering wrong; got %q", out)
+	}
+	if !strings.Contains(out, "| Item | Details |") {
+		t.Errorf("english fallback table header should be polished; got %q", out)
+	}
+}
+
+func TestRenderV2_BlockTableFallbackHeaderZH(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "t1",
+				Kind:  types.BlockTable,
+				Title: "配置来源",
+				Items: []types.AnswerBlockItem{
+					{Label: "codrax.yaml", Text: "运行时配置"},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	if !strings.Contains(out, "| 项目 | 说明 |") || strings.Contains(out, "| Item | Detail |") {
+		t.Fatalf("zh fallback table header should be localized and not leak Item/Detail:\n%s", out)
+	}
+	if !strings.Contains(out, "**配置来源**") || !strings.Contains(out, "| codrax.yaml | 运行时配置 |") {
+		t.Fatalf("fallback table lost title or row:\n%s", out)
+	}
+}
+
+func TestRenderV2_BlockTableStructuredCellsPreserveMultipleColumns(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:      "comparison",
+				Kind:    types.BlockTable,
+				Title:   "读模式防幻觉对比",
+				Columns: []string{"维度", "codrax", "opencode"},
+				Items: []types.AnswerBlockItem{
+					{ID: "r1", Cells: []string{"证据追踪", "EvidenceItem + citation_ref", "无结构化追踪"}},
+					{ID: "r2", Cells: []string{"交验策略", "ContractCheck + PreEmitCheck", "主要依赖模型自检"}},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	for _, want := range []string{
+		"| 维度 | codrax | opencode |",
+		"| 证据追踪 | EvidenceItem + citation_ref | 无结构化追踪 |",
+		"| 交验策略 | ContractCheck + PreEmitCheck | 主要依赖模型自检 |",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("structured table should preserve multi-column cell %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "| 项目 | 说明 |") || strings.Contains(out, "| Item | Details |") {
+		t.Fatalf("structured multi-column table must not collapse to two-column fallback:\n%s", out)
+	}
+}
+
+func TestRenderV2_BlockTableStructuredCellsWithRowLabels(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:      "comparison",
+				Kind:    types.BlockTable,
+				Columns: []string{"codrax", "opencode"},
+				Items: []types.AnswerBlockItem{
+					{ID: "r1", Label: "证据追踪", Cells: []string{"citations[] 池", "无等价结构"}},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	if !strings.Contains(out, "| 项目 | codrax | opencode |") ||
+		!strings.Contains(out, "| 证据追踪 | citations[] 池 | 无等价结构 |") {
+		t.Fatalf("row label should become the first column without losing cells:\n%s", out)
 	}
 }
 

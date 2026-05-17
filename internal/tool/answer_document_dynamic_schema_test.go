@@ -287,6 +287,36 @@ func TestBuildAnswerDocumentParametersFor_PerKindPayloadConditionals(t *testing.
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_TableDoesNotForceItemsPayload(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFComparison,
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, Required: true},
+			{Kind: types.BlockTable, Required: true},
+		},
+	}
+	got := BuildAnswerDocumentParametersFor(view)
+	var root map[string]any
+	if err := json.Unmarshal(got, &root); err != nil {
+		t.Fatalf("schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	blocks := props["blocks"].(map[string]any)
+	bItems := blocks["items"].(map[string]any)
+	if schemaBlockKindRequiresField(bItems, "table", "items") {
+		t.Fatalf("table blocks must not force items[]; markdown block.text and columns/cells are valid carriers: %+v", bItems["allOf"])
+	}
+	blockProps := bItems["properties"].(map[string]any)
+	if _, ok := blockProps["columns"]; !ok {
+		t.Fatalf("projected table schema should expose optional columns[]")
+	}
+	items := blockProps["items"].(map[string]any)
+	itemProps := items["items"].(map[string]any)["properties"].(map[string]any)
+	if _, ok := itemProps["cells"]; !ok {
+		t.Fatalf("projected table schema should expose optional items[].cells[]")
+	}
+}
+
 func TestBuildAnswerDocumentParametersFor_RequiredBlockCardinalityAndTypedDecision(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		Family: types.QFRootCauseTrace,

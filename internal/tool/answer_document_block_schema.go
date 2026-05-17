@@ -57,11 +57,11 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"ordered_list / bullet_list (items[] each with id, optional label, text, optional top-level citation_ref), " +
 		"scalar (block.text carries the literal; optional one-element items=[{citation_ref:N}] anchors the cite), " +
 		"decision (block.text carries verdict + rationale; same one-element items pattern for the cite), " +
-		"table (markdown table inside text, OR items[] with one item per row), " +
+		"table (complete markdown table inside text, OR optional columns[] + items[].cells[] structured rows, OR label/text rows when two columns are enough), " +
 		"diagram (diagram{kind, language, body}), caveat (text only). " +
 		"\n\n" +
 		"Each block has an `id` (any non-empty string the LLM picks; load-bearing — your retry hints reference it back to you) and `kind` " +
-		"(text for prose blocks, items[] for list/table blocks, diagram for diagram blocks). " +
+		"(text for prose blocks, items[] for list blocks, flexible text/columns/items carriers for table blocks, diagram for diagram blocks). " +
 		"\n\n" +
 		"List/table items may carry `candidate_role` when a row's category or scalar/literal role matters: function, method, type, constant, variable, field, package, file, test, generated, private, documentation, example, fixture, helper, tool_name, config_key, route, import_path, literal_value, commit_hash, budget_cap, attempt_counter, guard_condition, or other. When the user explicitly excludes a candidate category, or when the user-section's typed answer-role contract requires a positive role, set this field on principal row items so the validator can enforce the contract from typed row metadata instead of prose. " +
 		"Principal decision blocks may carry `error_granularity_verdict` when the user-section's typed error-granularity contract requires a canonical failure-scope verdict. Allowed values: `per_item_rejection`, `whole_batch_failure`, `partial_success`, `fail_fast`, `collect_errors`, `not_enough_evidence`. Set this field on the decision block itself; do not encode the verdict only in prose. " +

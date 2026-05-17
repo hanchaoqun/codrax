@@ -566,15 +566,34 @@ func (index *answerSupportDocumentIndex) labelsFileOutputMember(ob AnswerSupport
 		if !citationCoversSupportMember(entry.citation, ob) {
 			continue
 		}
-		labelFile, ok := ParseAnswerFilePathSurface(entry.item.Label)
-		if !ok {
-			continue
-		}
-		if answerLocationFileMatches(labelFile, want) {
-			return true
+		for _, surface := range answerSupportItemIdentitySurfaces(entry.item) {
+			labelFile, ok := ParseAnswerFilePathSurface(surface)
+			if !ok {
+				continue
+			}
+			if answerLocationFileMatches(labelFile, want) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func answerSupportItemIdentitySurfaces(item AnswerBlockItem) []string {
+	var out []string
+	if label := strings.TrimSpace(item.Label); label != "" {
+		out = append(out, label)
+	}
+	if len(out) == 0 {
+		for _, cell := range item.Cells {
+			cell = strings.TrimSpace(cell)
+			if cell != "" {
+				out = append(out, cell)
+				break
+			}
+		}
+	}
+	return out
 }
 
 func appendUniqueClaimForm(in []ClaimForm, form ClaimForm) []ClaimForm {
@@ -710,7 +729,7 @@ func answerBlockCanCarryPrincipalMember(block AnswerBlock) bool {
 }
 
 func answerItemSurfaceMentionsSupportMember(item AnswerBlockItem, ob AnswerSupportMemberObligation) bool {
-	return answerTextMentionsSupportMember(item.Label+"\n"+item.Text, ob)
+	return answerTextMentionsSupportMember(AnswerBlockItemVisibleSurface(item), ob)
 }
 
 func answerTextMentionsSupportMember(text string, ob AnswerSupportMemberObligation) bool {

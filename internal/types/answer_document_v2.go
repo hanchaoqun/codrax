@@ -155,11 +155,20 @@ type AnswerBlock struct {
 	// scope keywords.
 	ScopeDisclosure ScopeDisclosureKind `json:"scope_disclosure,omitempty"`
 
+	// Columns is the optional header row for structured table blocks.
+	// It is never required: table blocks may still carry a complete
+	// model-authored markdown table in Text. When Text is empty,
+	// Columns + Items[].Cells gives the renderer a low-friction
+	// multi-column carrier; Items[].Label/Text remains the legacy
+	// two-column fallback.
+	Columns []string `json:"columns,omitempty"`
+
 	// Items is the collection for OrderedList / BulletList / Table.
 	// For Table, block.Text is the canonical visible carrier when it
-	// contains a markdown multi-column table. Items remain the
-	// visible two-column fallback only when Text is empty; otherwise
-	// they are row-support / citation carriers for validators.
+	// contains a markdown table authored by the model. When Text is
+	// empty, Items may render as structured rows via Cells, or as the
+	// legacy Label | Text fallback. Items can also carry citations
+	// for rows described by block.Text.
 	Items []AnswerBlockItem `json:"items,omitempty"`
 
 	// Diagram is the block's diagram payload when Kind=BlockDiagram.
@@ -260,7 +269,7 @@ func (e *DiagramEdgeAnchor) HasTypedRelation() bool {
 
 // AnswerBlockItem is one item inside a list / table block. Claim
 // annotations live on the parent block's ClaimUses (block-level only)
-// — items carry just the rendered surface (label / text / citation).
+// — items carry the rendered surface (label / text / cells) and citation.
 type AnswerBlockItem struct {
 	// ID is optional; useful when a downstream block needs to
 	// reference this specific item.
@@ -273,6 +282,13 @@ type AnswerBlockItem struct {
 	// Text is the item's body text (description / rationale / row
 	// content). Markdown-flavoured.
 	Text string `json:"text,omitempty"`
+
+	// Cells is the optional multi-column table row payload. It is
+	// rendered only for table blocks whose block.Text is empty; it
+	// lets the model emit one array per row instead of hand-building
+	// markdown table syntax. Label remains available as a row key /
+	// first column, and Text remains a compatibility detail field.
+	Cells []string `json:"cells,omitempty"`
 
 	// CandidateRole is an optional typed category or scalar/literal role for
 	// this visible row. It is used when the current request carries an

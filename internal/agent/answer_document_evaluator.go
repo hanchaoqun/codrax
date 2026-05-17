@@ -568,7 +568,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 			if attributeBearingEnumeration {
 				b.WriteString("Two-axis enumeration label rule: the principal `ordered_list.items[].label` is the enumerated member itself (package / module / directory / namespace / type / route), not the per-member attribute discovered for it. Prefer the evidence `subject` or a required-term floor member as the label, and place the related attribute (for example the entry function / owner / default / handler) in `items[].text`, the citation, and any companion table row. Do not use the extracted AnswerSymbol name as the item label when that symbol is the attribute of a member.\n\n")
 			}
-			b.WriteString("Model-emitted `surface_terms` in Evidence Items are exact source/log/trace labels or aliases that the investigation structured explicitly. Preserve each relevant term in the cited item text or label; do not invent terms that are not present in the structured evidence.\n\n")
+			b.WriteString("Model-emitted `surface_terms` in Evidence Items are exact source/log/trace labels or aliases that the investigation structured explicitly. Preserve each relevant term in the cited item label, text, or table cells; do not invent terms that are not present in the structured evidence.\n\n")
 
 			if ctx != nil && len(ctx.AnswerSymbols) > 0 {
 				b.WriteString("## Prior slate from the extraction pipeline\n\n")
@@ -581,7 +581,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 				b.WriteString("Use it as the starting point; adding items requires evidence from the ")
 				b.WriteString("Evidence Items section, removing items requires a rationale in the ")
 				b.WriteString("symbol's `rationale` field. When a slate line includes model-emitted `surface_terms`, ")
-				b.WriteString("preserve those exact structured terms in the row text or label; keep the repo-relative path as the citation.\n\n")
+				b.WriteString("preserve those exact structured terms in the row label, text, or table cells; keep the repo-relative path as the citation.\n\n")
 				for _, s := range ctx.AnswerSymbols {
 					if s.File != "" && s.Line > 0 {
 						fmt.Fprintf(&b, "- %s (%s:%d)", s.Name, s.File, s.Line)
@@ -797,7 +797,7 @@ func renderAnswerDocSourceHeaderContextsFromEvidence(ctx *types.AgentContext, ev
 	}
 	var b strings.Builder
 	b.WriteString("## Model-Emitted Surface Terms\n\n")
-	b.WriteString("The rows below are exact user-visible labels or aliases that the investigation emitted as structured `surface_terms` and the tool validated against already-read source/log/trace lines. When your answer cites the same source or symbol, preserve the relevant terms in the item text or label. Do not add surface terms that are not listed here.\n\n")
+	b.WriteString("The rows below are exact user-visible labels or aliases that the investigation emitted as structured `surface_terms` and the tool validated against already-read source/log/trace lines. When your answer cites the same source or symbol, preserve the relevant terms in the item label, text, or table cells. Do not add surface terms that are not listed here.\n\n")
 	for _, r := range rows {
 		if r.symbol != "" {
 			fmt.Fprintf(&b, "- %s @ %s:%d — %s\n", r.symbol, r.source, r.line, r.text)
@@ -976,7 +976,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				)
 			case types.BlockTable:
 				items = append(items,
-					"Emit the principal `table` block as one canonical visible table: for multi-column output, put the complete markdown table in block `text`; only use visible `items[]` rows with `label`/`text` when `text` is empty and a two-column table is sufficient. If `text` already contains the markdown table, any `items[]` are citation/row-support carriers and MUST NOT be a second user-visible table. Each visible row must correspond to a grounded entity, with citations[] entries for every cited file:line.",
+					"Emit the principal `table` block as one canonical visible table. If you already authored a markdown table, put that complete table in block `text` and do not convert it. If you want a lower-friction structured multi-column table, use optional `columns[]` plus one `items[].cells[]` array per row. Use `items[].label`/`text` only when a two-column fallback is genuinely enough. If `text` already contains the markdown table, any `items[]` are citation/row-support carriers and MUST NOT be a second user-visible table. Each visible row must correspond to a grounded entity, with citations[] entries for every cited file:line.",
 				)
 			case types.BlockSummary:
 				items = append(items,
@@ -1316,7 +1316,7 @@ func renderAnswerDocRetryState(ctx *types.AgentContext) string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Hard Rule (retry attempt %d)\n\n", rs.Attempt)
-	b.WriteString("Your last `emit_answer_document` was rejected. Re-emit by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths or global rewrite items listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
+	b.WriteString("Your last `emit_answer_document` was rejected. Re-emit by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths or global rewrite items listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].columns[]`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `blocks[].items[].cells[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
 
 	// 2. Required Changes (phase partitioned, soft excluded).
 	if changes := renderRetryRequiredChanges(rs); changes != "" {
@@ -3458,9 +3458,9 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Required Principal Member Set\n\n")
 	b.WriteString("The investigator handed off the following principal `member_set` aggregate fact(s) via `emit_investigation_complete.aggregate_facts`. ")
-	b.WriteString("**Every member listed below MUST appear verbatim — including any decorator in parentheses (e.g. `(9 checks)`, `(路径边界)`), arrow (e.g. ` → `), or separator (e.g. `::`, `/`) — in some `blocks[].items[].label`, `blocks[].items[].text`, or `blocks[].text` of the emitted answer document.** ")
-	b.WriteString("The pre-emit oracle rejects the call (with field `blocks[].items[].label/text OR blocks[].text`) if any member is missing, paraphrased, abbreviated, or has its decorator stripped. Mirror each string byte-for-byte; do NOT rewrite the wording.\n\n")
-	b.WriteString("Concretely: a member rendered as `gate.Run (9 checks)` is NOT satisfied by `gate.Run` alone, `gate.Run / gate.RunWith`, or `gate.Run 函数`. The full string `gate.Run (9 checks)` must appear together inside one block's label/text/items.\n\n")
+	b.WriteString("**Every member listed below MUST appear verbatim — including any decorator in parentheses (e.g. `(9 checks)`, `(路径边界)`), arrow (e.g. ` → `), or separator (e.g. `::`, `/`) — in some `blocks[].items[].label`, `blocks[].items[].text`, `blocks[].items[].cells[]`, or `blocks[].text` of the emitted answer document.** ")
+	b.WriteString("The pre-emit oracle rejects the call (with field `blocks[].items[].label/text/cells OR blocks[].text`) if any member is missing, paraphrased, abbreviated, or has its decorator stripped. Mirror each string byte-for-byte; do NOT rewrite the wording.\n\n")
+	b.WriteString("Concretely: a member rendered as `gate.Run (9 checks)` is NOT satisfied by `gate.Run` alone, `gate.Run / gate.RunWith`, or `gate.Run 函数`. The full string `gate.Run (9 checks)` must appear together inside one block's label/text/cells/items.\n\n")
 	b.WriteString("Upstream contract for decorator-shape members: for each member rendered as `code_identifier (qualifier)` (e.g. `Orchestrator (4-stage pipeline)`, `assertExternalDirectoryEffect (路径边界)`), the investigator was required to attach `support_refs[i] = file:line` per member on `emit_investigation_complete` — empty `support_refs` on a decorated `member_set` is rejected at that boundary because the decorator changes the surface so the framework cannot auto-resolve the member against an evidence anchor named by the bare leading identifier alone. When the matching support file:line is available on the bus, cite it as the decorated member's `citation_ref` in the answer document so the visible decorator carries a citation back to its evidence source.\n\n")
 
 	for _, rf := range rendered {
