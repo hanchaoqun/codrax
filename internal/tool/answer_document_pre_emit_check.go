@@ -56,6 +56,7 @@ import (
 	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -306,7 +307,11 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 		hints = append(hints, h...)
 	}
 	if h := preCheckAggregateMemberSetCoverage(doc, ctxOpt...); len(h) > 0 {
-		hints = append(hints, h...)
+		if preEmitAggregateMemberSetCoverageHardGate(ctxOpt...) {
+			hints = append(hints, h...)
+		} else {
+			logging.Warning("[emit_answer_document] aggregate member_set coverage advisory not hard-rejected: %s", formatEmitFixHints(h))
+		}
 	}
 	if h := preCheckAggregateCardinalityConsistency(doc, ctxOpt...); len(h) > 0 {
 		hints = append(hints, h...)
@@ -1048,99 +1053,20 @@ func preCheckPrincipalSupportMemberCoverage(doc *types.AnswerDocumentV2, ctxOpt 
 }
 
 func normalizePrincipalSupportMemberCarriers(doc *types.AnswerDocumentV2, supportPlan *types.AnswerSupportPlan) int {
-	if doc == nil || supportPlan == nil {
-		return 0
-	}
-	missing := types.MissingPrincipalSupportMembers(doc, supportPlan)
-	if len(missing) == 0 {
-		return 0
-	}
-	blockIdx := principalSupportMemberCarrierBlockIndex(doc)
-	if blockIdx < 0 {
-		blockIdx = appendPrincipalSupportMemberCarrierBlock(doc)
-	}
-	if blockIdx < 0 || blockIdx >= len(doc.Blocks) {
-		return 0
-	}
-	added := 0
-	for _, ob := range missing {
-		cit, ok := citationForPrincipalSupportMember(ob)
-		if !ok {
-			continue
-		}
-		item := types.AnswerBlockItem{
-			ID:          nextPrincipalSupportMemberItemID(doc.Blocks[blockIdx], ob),
-			Label:       principalSupportMemberItemLabel(ob),
-			Text:        principalSupportMemberItemText(ob),
-			CitationRef: appendOrReusePreEmitCitation(doc, cit),
-		}
-		if strings.TrimSpace(item.Label) == "" && strings.TrimSpace(item.Text) == "" {
-			continue
-		}
-		doc.Blocks[blockIdx].Items = append(doc.Blocks[blockIdx].Items, item)
-		added++
-	}
-	return added
+	// User-intent preservation Batch F: normalizers may repair
+	// structure, citations, and lossless schema carriers, but they
+	// must not author new user-visible answer claims after the model
+	// has emitted its document. Missing support members are handled by
+	// the validator / caveat machinery; this compatibility shim stays
+	// in place so older call sites remain harmless.
+	return 0
 }
 
 func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
-	if doc == nil || ctx == nil || ctx.Mutable == nil {
-		return 0
-	}
-	facts := ctx.Mutable.StableInvestigationAggregateFacts()
-	if len(facts) == 0 {
-		return 0
-	}
-	principalRefs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts)
-	if len(principalRefs) == 0 {
-		return 0
-	}
-	surface := preEmitVisibleAnswerSurface(doc)
-	added := 0
-	for _, ref := range principalRefs {
-		fact := ref.Fact
-		if preEmitAggregateMemberSetIsScalarCountSupport(ctx, fact) {
-			continue
-		}
-		type missingAggregateMember struct {
-			index  int
-			member string
-		}
-		var missing []missingAggregateMember
-		for memberIdx, member := range fact.Members {
-			member = strings.TrimSpace(member)
-			if member == "" || preEmitAggregateMemberAppearsInDocument(member, doc, surface) {
-				continue
-			}
-			missing = append(missing, missingAggregateMember{index: memberIdx, member: member})
-		}
-		if len(missing) == 0 {
-			continue
-		}
-		blockIdx := appendAggregateMemberSetCarrierBlock(doc, ref.Index, fact.Label)
-		if blockIdx < 0 || blockIdx >= len(doc.Blocks) {
-			continue
-		}
-		for _, missingMember := range missing {
-			label := aggregateMemberSetCarrierLabel(missingMember.member)
-			if label == "" {
-				continue
-			}
-			item := types.AnswerBlockItem{
-				ID:          nextAggregateMemberSetItemID(doc.Blocks[blockIdx], label),
-				Label:       label,
-				Text:        aggregateMemberSetCarrierText(fact.Label),
-				CitationRef: -1,
-			}
-			if cit, ok := citationForAggregateMemberSetMember(fact, missingMember.index, missingMember.member, ctx); ok {
-				item.CitationRef = appendOrReusePreEmitCitation(doc, cit)
-			}
-			doc.Blocks[blockIdx].Items = append(doc.Blocks[blockIdx].Items, item)
-			surface += "\n" + types.AnswerBlockItemVisibleSurface(item)
-			added++
-		}
-	}
-	return added
+	// See normalizePrincipalSupportMemberCarriers: aggregate facts can
+	// justify checks or caveats, but the system must not materialize a
+	// new principal list/table on the model's behalf.
+	return 0
 }
 
 func appendAggregateMemberSetCarrierBlock(doc *types.AnswerDocumentV2, factIdx int, label string) int {
@@ -1715,6 +1641,15 @@ func preEmitAggregateMemberSetIsScalarCountSupport(ctx *types.BusContext, fact t
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	return types.AggregateMemberSetIsScalarCountSupport(&rm, fact)
+}
+
+func preEmitAggregateMemberSetCoverageHardGate(ctxOpt ...*types.BusContext) bool {
+	if len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].AnalysisIR == nil {
+		return true
+	}
+	rm := ctxOpt[0].AnalysisIR.RequestModel
+	return types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		types.RequiresRelationMemberSetHandoff(rm)
 }
 
 func preEmitPrincipalAggregateMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {

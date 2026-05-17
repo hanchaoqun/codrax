@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -26,6 +27,16 @@ const (
 	queryBoostMultiplier = 3.0
 )
 
+// Ranking is the per-query rank output. Query-biased scores are request-local:
+// callers that need a transient view should use RankGraphScores instead of
+// mutating Graph.Scores / Graph.QueryScores on the shared in-memory graph.
+type Ranking struct {
+	Scores      map[string]float64
+	QueryScores map[string]float64
+}
+
+var graphRankMu sync.Mutex
+
 // RankGraph scores every file in the graph by importance.
 // If query is non-empty, symbols/files matching the query get a bonus.
 //
@@ -47,18 +58,26 @@ func RankGraph(g *types.Graph, query string) {
 	if g == nil {
 		return
 	}
-	if g.Scores == nil {
-		g.Scores = make(map[string]float64, len(g.Files))
-	} else {
-		clear(g.Scores)
-	}
-	if g.QueryScores == nil {
-		g.QueryScores = make(map[string]float64)
-	} else {
-		clear(g.QueryScores)
-	}
+	ranking := RankGraphScores(g, query)
+	graphRankMu.Lock()
+	g.Scores = ranking.Scores
+	g.QueryScores = ranking.QueryScores
+	graphRankMu.Unlock()
+}
 
-	idx := types.EnsureRankIndex(g)
+// RankGraphScores computes query-biased ranking into fresh maps and never
+// mutates Graph. This is the safe path for concurrent repo_map rendering where
+// multiple tool calls can rank the same graph with different queries.
+func RankGraphScores(g *types.Graph, query string) Ranking {
+	if g == nil {
+		return Ranking{}
+	}
+	scores := make(map[string]float64, len(g.Files))
+	queryScores := make(map[string]float64)
+	idx := g.RankIndex
+	if idx == nil {
+		idx = types.BuildRankIndex(g)
+	}
 	recentFiles := getRecentlyChanged(g.Root, 50)
 	entrypoints := idx.Entrypoints
 
@@ -117,7 +136,7 @@ func RankGraph(g *types.Graph, query string) {
 		if query != "" {
 			qScore := queryMatchScore(fi, query)
 			if qScore > 0 {
-				g.QueryScores[fi.RelPath] = qScore
+				queryScores[fi.RelPath] = qScore
 			}
 			score += qScore * wQueryMatch
 			if qScore > 0 {
@@ -145,8 +164,9 @@ func RankGraph(g *types.Graph, query string) {
 		// byte-identical with pre-commit-53.
 		score = applyParseTierFloor(score, fi.ParseTier)
 
-		g.Scores[fi.RelPath] = score
+		scores[fi.RelPath] = score
 	}
+	return Ranking{Scores: scores, QueryScores: queryScores}
 }
 
 // applyParseTierFloor zeroes the score when fi.ParseTier exceeds
@@ -206,10 +226,25 @@ func parseTierDiscount(tier int) float64 {
 
 // TopFiles returns files sorted by importance score, limited to topN.
 func TopFiles(g *types.Graph, topN int) []*types.FileInfo {
+	if g == nil {
+		return nil
+	}
+	graphRankMu.Lock()
+	defer graphRankMu.Unlock()
+	return TopFilesByScore(g, g.Scores, topN)
+}
+
+// TopFilesByScore returns files sorted by a caller-provided score map. It does
+// not read or mutate Graph.Scores, so query-local renderers can stay fully
+// concurrency-safe.
+func TopFilesByScore(g *types.Graph, scores map[string]float64, topN int) []*types.FileInfo {
+	if g == nil {
+		return nil
+	}
 	sorted := make([]*types.FileInfo, len(g.Files))
 	copy(sorted, g.Files)
 	sort.Slice(sorted, func(i, j int) bool {
-		return g.Scores[sorted[i].RelPath] > g.Scores[sorted[j].RelPath]
+		return scores[sorted[i].RelPath] > scores[sorted[j].RelPath]
 	})
 	if topN > 0 && topN < len(sorted) {
 		sorted = sorted[:topN]
@@ -219,6 +254,9 @@ func TopFiles(g *types.Graph, topN int) []*types.FileInfo {
 
 // getRecentlyChanged returns files modified in the last N commits.
 func getRecentlyChanged(repoRoot string, n int) map[string]bool {
+	if strings.TrimSpace(repoRoot) == "" {
+		return nil
+	}
 	cmd, cancel := tool.NewGitCommand(nil, "-C", repoRoot, "log",
 		"--pretty=format:", "--name-only", "-n", itoa(n))
 	defer cancel()

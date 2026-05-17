@@ -113,6 +113,38 @@ func TestEmitAnswerDocumentV2_AcceptsStructuredTableColumnsCells(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_QuarantinesUnknownSchemaMetadata(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"claim_uses": [{"claim_form": "definition"}],
+		"metadata": {"model": "local"},
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "Hello", "metadata": {"dropped": true}},
+			{"id": "l1", "kind": "ordered_list", "items": [
+				{"id": "i1", "label": "Item", "text": "Detail", "citation_ref": 0, "debug": "drop me"}
+			]}
+		],
+		"citations": [
+			{"file": "x.go", "line": 10, "quote": "func x()", "confidence": 0.95}
+		]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unknown schema metadata should be quarantined instead of forcing retry: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Citations) != 1 {
+		t.Fatalf("core document was not preserved after quarantine: %+v", doc)
+	}
+	if got := doc.Blocks[1].Items[0].CitationRef; got != 0 {
+		t.Fatalf("known item fields should survive quarantine, citation_ref=%d", got)
+	}
+}
+
 func TestEmitAnswerDocumentV2_CaveatAliasAcceptedForCaveatBlock(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

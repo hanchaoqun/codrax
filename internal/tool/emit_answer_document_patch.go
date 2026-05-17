@@ -185,6 +185,11 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			strings.Join(paths, ", "))
 		params = repaired
 	}
+	if repaired, paths, ok := quarantineUnknownAnswerDocumentFields(params, answerDocumentPatchQuarantineProfile); ok {
+		logging.Warning("[emit_answer_document_patch] quarantined schema-unknown answer-document patch field(s) without retry: %s",
+			strings.Join(paths, ", "))
+		params = repaired
+	}
 
 	// Decode params.
 	dec := json.NewDecoder(bytes.NewReader(params))

@@ -35,6 +35,7 @@
 2. **Batch B 第一段已落地**：Generic 语义视图仍只强制 Summary，但已允许可选 `BlockTable` / `BlockScalar` / `BlockDecision`，避免 schema 把模型合理的表格、数值、结论表达挤回 prose。渲染层新增对 item 文本内 markdown table 的保留能力，避免模型表格被压成两列 fallback。
 3. **Batch C 第一段已落地**：`surface_terms` 不再自动追加到用户可见正文；缺失 surface term 只保留为 advisory 日志，不触发 hard retry，也不污染最终答案 item text。
 4. **第二轮审计完成（文档刷新）**：继续沿 read-mode 主链排查仍会替代用户/LLM 表达的机制，新增 UIP-015 到 UIP-021。结论是后续不能继续补 validator 文案，而要优先治理“系统补正文、schema 兼容、gate 分层、upstream repair routing”四条主线。
+5. **Batch F/G/H 第一段已落地**：`emit_answer_document` 与 patch 持久化路径不再 materialize aggregate/principal support 成员到用户可见正文；新增 answer-document 字段隔离层，schema-unknown 的无害 metadata 在严格 decode 前本地 quarantine，保留核心 blocks/citations，避免小错触发 finalizer 重试。`aggregate member_set` emit-time coverage 只在 typed exhaustive/relation enumeration 下 hard gate，叙事/解释类 member_set 降为 advisory。
 
 ## 问题清单
 
@@ -329,6 +330,8 @@
 
 代码位置：`internal/tool/answer_document_pre_emit_check.go::normalizePrincipalSupportMemberCarriers`、`normalizeAggregateMemberSetCarriers`、`internal/tool/answer_document_mutation_runtime.go::persistMergedAnswerDocument`
 
+状态：**第一段已修复（Batch F）**。full emit / patch persist 路径已移除 materializer 调用；两个 legacy normalizer 函数保留为 no-op 兼容 shim，并有测试确保不会新增 block/item/citation。
+
 当前行为：
 
 - principal support 或 aggregate `member_set` 的可见 carrier 缺失时，normalizer 会追加 block/item，把 support 成员补进最终答案正文。
@@ -348,6 +351,8 @@
 ### UIP-016（P1）emit_answer_document strict unknown-field decode 仍缺少泛化兼容层
 
 代码位置：`internal/tool/emit_answer_document_v2.go::executeAnswerDocumentV2`、`answerDocumentV2MisplacedHints`
+
+状态：**部分修复（Batch G 第一段）**。新增 `answer_document_field_quarantine.go`，对 full emit / patch 的 top-level、block、item、citation、snippet、diagram、claim_use、edge_anchor、exact_resolution 等已知结构容器执行 schema-aware quarantine。保留 `value/boolean` 等可见 payload 错位字段和 claim/edge 可恢复错位字段给 strict remap，避免静默丢内容。
 
 当前行为：
 
@@ -500,20 +505,20 @@
 
 ### Batch F：停止系统替模型补正文
 
-1. 禁止 normalizer 默认新增 principal 可见 block/item。
+1. [x] 禁止 normalizer 默认新增 principal 可见 block/item。
 2. `principal support`、`aggregate member_set`、inactive scope 等系统补充信息统一进入隔离补充区或保留原文区。
-3. 审计所有 normalizer：允许本地修引用、顺序、无损 schema 搬运；不允许新增 answer claims。
+3. [~] 审计所有 normalizer：允许本地修引用、顺序、无损 schema 搬运；不允许新增 answer claims。（已覆盖 aggregate/principal support materializer，仍需继续审 inactive scope 与其它 caveat materializer）
 
 ### Batch G：JSON/schema 兼容层泛化
 
-1. 建立 schema-aware relocation/quarantine registry，替代无限扩张的错位字段提示表。
-2. core doc 已有效时，未知无害 metadata 进入 diagnostics，不触发 LLM 重试。
-3. 回归覆盖 top-level/misplaced `claim_uses`、`facet_ids`、`edge_anchors`、table 字段和旧 schema 残留字段。
+1. [~] 建立 schema-aware relocation/quarantine registry，替代无限扩张的错位字段提示表。（已覆盖 schema-unknown metadata quarantine；可见 payload 错位仍走 strict remap）
+2. [~] core doc 已有效时，未知无害 metadata 进入 diagnostics，不触发 LLM 重试。（当前进入 operator WARN/quarantine，后续补 typed diagnostics 展示）
+3. [~] 回归覆盖 top-level/misplaced `claim_uses`、`facet_ids`、`edge_anchors`、table 字段和旧 schema 残留字段。（已覆盖 top-level claim_uses / block/item/citation metadata，保留旧错位字段 reject 测试）
 
 ### Batch H：gate taxonomy + upstream routing
 
-1. 每个 finalizer violation 必须分类为 `local_doc_defect`、`evidence_gap`、`analysis_gap`、`presentation_advisory`、`safety`。
-2. finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。
+1. [~] 每个 finalizer violation 必须分类为 `local_doc_defect`、`evidence_gap`、`analysis_gap`、`presentation_advisory`、`safety`。（aggregate member_set emit-time gate 已先分出 hard/advisory）
+2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景已停止同轮硬重试）
 3. 同类错误 fingerprint 连续失败后，停止硬重写，接受核心答案并用“补充说明/保留原文”交代缺陷。
 
 ### Batch I：scope / presentation contract 贯穿

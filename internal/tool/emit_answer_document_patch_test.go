@@ -86,6 +86,29 @@ func TestEmitAnswerDocumentPatch_EmptyPatchRejects(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_QuarantinesUnknownSchemaMetadata(t *testing.T) {
+	bus := newPatchTestBusContext()
+	tool := &EmitAnswerDocumentPatch{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids": ["s1", "list1"],
+		"add_blocks": [
+			{"id": "scope_note", "kind": "caveat", "text": "Scope note.", "metadata": {"dropped": true}}
+		],
+		"claim_uses": [{"claim_form": "definition"}],
+		"metadata": {"model": "local"}
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unknown patch metadata should be quarantined instead of forcing retry: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 || doc.Blocks[2].ID != "scope_note" {
+		t.Fatalf("merged document missing quarantined add block: %+v", doc)
+	}
+}
+
 // TestEmitAnswerDocumentPatch_PureUnchangedAppliesAndPreserves is
 // the **R16 load-bearing tool-level test**. LLM declares "all
 // blocks unchanged"; tool clones them verbatim; result has every

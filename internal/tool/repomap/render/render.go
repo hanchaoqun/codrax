@@ -621,8 +621,7 @@ func buildEditImpactData(g *types.Graph, params types.ViewParams) *ViewData {
 }
 
 // buildTaskMapData produces the structured form of the task_map
-// view. Runs a query-biased retrieve.RankGraph pass (same side-effect as
-// the legacy viewTaskMap function), then emits one "Relevant
+// view. Runs a query-biased retrieve.RankGraphScores pass, then emits one "Relevant
 // Files" section with one ViewSection per file and matched
 // symbols as Items on that file's subsection. Matched-symbol
 // filtering uses the same retrieve.TokenizeQuery tokens that drive
@@ -635,13 +634,13 @@ func buildEditImpactData(g *types.Graph, params types.ViewParams) *ViewData {
 // at the end of the file's Items slice with the same visible
 // prefix, giving identical rendered markdown.
 func buildTaskMapData(g *types.Graph, params types.ViewParams) *ViewData {
-	retrieve.RankGraph(g, params.Query)
+	ranking := retrieve.RankGraphScores(g, params.Query)
 
 	topN := params.TopN
 	if topN <= 0 {
 		topN = 20
 	}
-	relevant := retrieve.TopFiles(g, topN)
+	relevant := retrieve.TopFilesByScore(g, ranking.Scores, topN)
 
 	// Primary-weight tokens only: sub-tokens would over-match the
 	// rendered "matched symbols" list and clutter the human view
@@ -657,7 +656,7 @@ func buildTaskMapData(g *types.Graph, params types.ViewParams) *ViewData {
 
 	body := ViewSection{Heading: "Relevant Files"}
 	for _, fi := range relevant {
-		score := g.Scores[fi.RelPath]
+		score := ranking.Scores[fi.RelPath]
 		if score <= 0 {
 			continue
 		}

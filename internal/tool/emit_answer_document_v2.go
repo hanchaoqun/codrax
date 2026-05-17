@@ -144,6 +144,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			strings.Join(paths, ", "))
 		raw = repaired
 	}
+	if repaired, paths, ok := quarantineUnknownAnswerDocumentFields(raw, answerDocumentFullEmitQuarantineProfile); ok {
+		logging.Warning("[emit_answer_document] quarantined schema-unknown answer-document field(s) without retry: %s",
+			strings.Join(paths, ", "))
+		raw = repaired
+	}
 
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -505,12 +510,6 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	}
 	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, pctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by typed label/citation corroboration", toolName, fixed)
-	}
-	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed > 0 {
-		logging.Warning("[%s] materialized %d aggregate member_set carrier(s)", toolName, fixed)
-	}
-	if fixed := normalizePrincipalSupportMemberCarriers(doc, types.BuildAnswerSupportPlanForBusContext(ctx)); fixed > 0 {
-		logging.Warning("[%s] materialized %d principal support member carrier(s)", toolName, fixed)
 	}
 	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
 		logging.Warning("[%s] repaired %d view-compatible typed lane field(s)", toolName, fixed)

@@ -849,14 +849,14 @@ func analyzerTopFilesForQuery(graph *repomap.Graph, query string, topN int) []*r
 	if graph == nil || strings.TrimSpace(query) == "" {
 		return nil
 	}
-	retrieve.RankGraph(graph, query)
-	files := retrieve.TopFiles(graph, topN)
+	ranking := retrieve.RankGraphScores(graph, query)
+	files := retrieve.TopFilesByScore(graph, ranking.Scores, topN)
 	out := make([]*repomap.FileInfo, 0, len(files))
 	for _, fi := range files {
 		if fi == nil || strings.TrimSpace(fi.RelPath) == "" {
 			continue
 		}
-		if graph.Scores[fi.RelPath] <= 0 {
+		if ranking.Scores[fi.RelPath] <= 0 {
 			continue
 		}
 		out = append(out, fi)

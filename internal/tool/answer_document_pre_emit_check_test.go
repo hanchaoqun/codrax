@@ -468,7 +468,7 @@ func TestPreCheckAggregateMemberSetCoverage_PrincipalFactsDoNotDependOnRequestFa
 	}
 }
 
-func TestNormalizeAggregateMemberSetCarriers_MaterializesComparisonMembers(t *testing.T) {
+func TestNormalizeAggregateMemberSetCarriers_DoesNotAuthorComparisonMembers(t *testing.T) {
 	mu := types.NewMutableState("comparison aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:  types.AnswerAggregateMemberSet,
@@ -534,39 +534,90 @@ func TestNormalizeAggregateMemberSetCarriers_MaterializesComparisonMembers(t *te
 		t.Fatal("test setup should miss every aggregate member")
 	}
 
-	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 3 {
-		t.Fatalf("fixed=%d, want 3", fixed)
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("fixed=%d, want 0; normalizer must not author visible answer members", fixed)
 	}
-	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
-		t.Fatalf("materialized aggregate members should satisfy coverage, got %+v", hints)
+	if len(doc.Blocks) != 1 || len(doc.Blocks[0].Items) != 0 {
+		t.Fatalf("normalizer must leave model-authored visible content unchanged: %+v", doc.Blocks)
 	}
-	if len(doc.Blocks) != 3 {
-		t.Fatalf("blocks=%d, want summary plus two carrier blocks: %+v", len(doc.Blocks), doc.Blocks)
+	if len(doc.Citations) != 0 {
+		t.Fatalf("normalizer must not append citations for system-authored members: %+v", doc.Citations)
 	}
-	gotLabels := map[string]bool{}
-	for _, block := range doc.Blocks {
-		for _, item := range block.Items {
-			gotLabels[item.Label] = true
-		}
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) == 0 {
+		t.Fatal("coverage checker should remain responsible for missing aggregate members")
 	}
-	for _, want := range []string{
-		"codrax/internal/types/evidence.go: EvidenceKind（11种分类）",
-		"codrax/internal/types/violation_registry.go: ViolKindRegistry（单点注册表）",
-		"opencode/packages/opencode/src/agent/prompt/scout.txt: 文本层面引用要求",
-	} {
-		if !gotLabels[want] {
-			t.Fatalf("materialized labels missing %q in %+v", want, gotLabels)
-		}
+}
+
+func TestRunPreEmitChecks_AggregateMemberSetCoverageAdvisoryForNarrative(t *testing.T) {
+	mu := types.NewMutableState("narrative aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "supporting mechanisms",
+		Value: "2",
+		Members: []string{
+			"codrax/internal/types/evidence.go: EvidenceKind（11种分类）",
+			"codrax/internal/types/violation_registry.go: ViolKindRegistry（单点注册表）",
+		},
+	}})
+	mu.SetInvestigationComplete("member set handoff ready")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Buckets: []types.QuestionBucket{
+				{Label: "codrax", Index: 1},
+			},
+		}},
 	}
-	if len(doc.Citations) != 3 {
-		t.Fatalf("citations=%d, want 3: %+v", len(doc.Citations), doc.Citations)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "这是机制说明，不是穷举清单。",
+	}}}
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) == 0 {
+		t.Fatal("test setup should have aggregate coverage hints")
 	}
-	for _, block := range doc.Blocks[1:] {
-		for _, item := range block.Items {
-			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
-				t.Fatalf("materialized item lacks usable citation_ref: %+v citations=%+v", item, doc.Citations)
-			}
-		}
+	if hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx); len(hints) != 0 {
+		t.Fatalf("narrative aggregate coverage should be advisory at emit-time, got %+v", hints)
+	}
+}
+
+func TestRunPreEmitChecks_AggregateMemberSetCoverageHardForExhaustiveEnumeration(t *testing.T) {
+	mu := types.NewMutableState("exhaustive aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "all handlers",
+		Value: "2",
+		Members: []string{
+			"pkg/a.go: HandleA",
+			"pkg/b.go: HandleB",
+		},
+	}})
+	mu.SetInvestigationComplete("member set handoff ready")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all handlers",
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "HandleA is present.",
+	}}}
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx)
+	if len(hints) == 0 {
+		t.Fatal("exhaustive enumeration member_set coverage should remain hard at emit-time")
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "HandleB") {
+		t.Fatalf("hint should name the missing member, got %+v", hints)
 	}
 }
 
@@ -2046,7 +2097,7 @@ func TestRunPreEmitChecks_AggregatesAcrossAllAxes(t *testing.T) {
 	}
 }
 
-func TestNormalizePrincipalSupportMemberCarriers_MaterializesMissingTypedMembers(t *testing.T) {
+func TestNormalizePrincipalSupportMemberCarriers_DoesNotAuthorMissingTypedMembers(t *testing.T) {
 	plan := &types.AnswerSupportPlan{
 		Family:                  types.QFEnumeration,
 		PrincipalMemberCoverage: types.PrincipalMemberCoveragePolicyRequired,
@@ -2089,18 +2140,14 @@ func TestNormalizePrincipalSupportMemberCarriers_MaterializesMissingTypedMembers
 	if missing := types.MissingPrincipalSupportMembers(doc, plan); len(missing) != 1 {
 		t.Fatalf("test setup missing=%d, want 1: %+v", len(missing), missing)
 	}
-	if fixed := normalizePrincipalSupportMemberCarriers(doc, plan); fixed != 1 {
-		t.Fatalf("fixed=%d, want 1", fixed)
+	if fixed := normalizePrincipalSupportMemberCarriers(doc, plan); fixed != 0 {
+		t.Fatalf("fixed=%d, want 0; normalizer must not author visible answer members", fixed)
 	}
-	if missing := types.MissingPrincipalSupportMembers(doc, plan); len(missing) != 0 {
-		t.Fatalf("materialized support members should satisfy coverage, got %+v", missing)
+	if missing := types.MissingPrincipalSupportMembers(doc, plan); len(missing) != 1 {
+		t.Fatalf("coverage obligation should remain visible to the checker, got %+v", missing)
 	}
-	if len(doc.Citations) != 2 {
-		t.Fatalf("citations=%d, want 2", len(doc.Citations))
-	}
-	last := doc.Blocks[0].Items[len(doc.Blocks[0].Items)-1]
-	if last.Label != "IAncoActivityManager" || last.CitationRef != 1 {
-		t.Fatalf("unexpected materialized item: %+v", last)
+	if len(doc.Citations) != 1 || len(doc.Blocks[0].Items) != 1 {
+		t.Fatalf("normalizer must leave citations/items unchanged: citations=%+v items=%+v", doc.Citations, doc.Blocks[0].Items)
 	}
 }
 
