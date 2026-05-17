@@ -2,7 +2,6 @@ package retrieve
 
 import (
 	"math"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -45,92 +44,23 @@ const (
 //     structural importance overtake a utility file with high
 //     structural importance when the query clearly targets the domain.
 func RankGraph(g *types.Graph, query string) {
+	if g == nil {
+		return
+	}
+	if g.Scores == nil {
+		g.Scores = make(map[string]float64, len(g.Files))
+	} else {
+		clear(g.Scores)
+	}
+	if g.QueryScores == nil {
+		g.QueryScores = make(map[string]float64)
+	} else {
+		clear(g.QueryScores)
+	}
+
+	idx := types.EnsureRankIndex(g)
 	recentFiles := getRecentlyChanged(g.Root, 50)
-	entrypoints := detectEntrypoints(g)
-	totalFiles := float64(len(g.Files))
-
-	// Phase 1 receiver-aware accounting. For every call / reference
-	// relation, try to resolve it to a canonical types.Symbol via
-	// MethodIndex. Resolved edges credit the one target types.Symbol by
-	// ID. Unresolved edges (unknown receiver, external packages)
-	// fall back to name-keyed counters that still get divided by
-	// ambiguity at scoring time so the noise doesn't dominate.
-	callCountByID := make(map[types.SymbolID]int)
-	refCountByID := make(map[types.SymbolID]int)
-	callCount := make(map[string]int)
-	refCount := make(map[string]int)
-	for _, fi := range g.Files {
-		for _, rel := range fi.Relations {
-			switch rel.Kind {
-			case "call":
-				if s := g.ResolveCallTarget(fi, rel); s != nil && s.ID != "" {
-					callCountByID[s.ID]++
-				} else {
-					callCount[rel.To]++
-				}
-			case "type_usage", "reference":
-				refCount[rel.To]++
-			}
-		}
-	}
-
-	// types.Symbol name ambiguity: count how many files define the same
-	// symbol name. Common interface methods (Name, Execute, String,
-	// Error, etc.) are defined in many files. Used ONLY for the
-	// name-keyed fallback counters — resolved-by-ID counters already
-	// pick a single definition and do not need damping.
-	symDefCount := make(map[string]int)
-	for _, fi := range g.Files {
-		localNames := make(map[string]bool)
-		for _, sym := range fi.Symbols {
-			if !localNames[sym.Name] {
-				symDefCount[sym.Name]++
-				localNames[sym.Name] = true
-			}
-		}
-	}
-
-	// Compute per-file fan-out using the resolved call edges so a
-	// file with 7 tools implementing Name() no longer gets credited
-	// with the global call count for "Name". The symbol→file index
-	// is keyed by types.SymbolID for resolved edges; name-keyed fallback
-	// reproduces the legacy behavior for unresolved edges.
-	symbolIDToFile := make(map[types.SymbolID]string, len(g.Files)*10)
-	symbolToFile := make(map[string]string, len(g.Files)*10)
-	for _, fi := range g.Files {
-		for idx := range fi.Symbols {
-			sym := &fi.Symbols[idx]
-			if sym.ID != "" {
-				symbolIDToFile[sym.ID] = fi.RelPath
-			}
-			symbolToFile[sym.Name] = fi.RelPath
-		}
-	}
-	// Count distinct files that reference each file's symbols.
-	fileReferrers := make(map[string]map[string]bool)
-	for _, fi := range g.Files {
-		for _, rel := range fi.Relations {
-			var defFile string
-			if s := g.ResolveCallTarget(fi, rel); s != nil && s.ID != "" {
-				defFile = symbolIDToFile[s.ID]
-			} else if f, ok := symbolToFile[rel.To]; ok {
-				defFile = f
-			}
-			if defFile == "" || defFile == fi.RelPath {
-				continue
-			}
-			if fileReferrers[defFile] == nil {
-				fileReferrers[defFile] = make(map[string]bool)
-			}
-			fileReferrers[defFile][fi.RelPath] = true
-		}
-	}
-	fileFanout := make(map[string]float64, len(g.Files))
-	for path, refs := range fileReferrers {
-		if totalFiles > 0 {
-			fileFanout[path] = float64(len(refs)) / totalFiles
-		}
-	}
+	entrypoints := idx.Entrypoints
 
 	// score each file
 	for _, fi := range g.Files {
@@ -142,16 +72,16 @@ func RankGraph(g *types.Graph, query string) {
 		// name-keyed fallback counters are divided by the symbol's
 		// name-level ambiguity as before.
 		for _, sym := range fi.Symbols {
-			ambiguity := float64(symDefCount[sym.Name])
+			ambiguity := float64(idx.SymbolDefCount[sym.Name])
 			if ambiguity < 1 {
 				ambiguity = 1
 			}
 			if sym.ID != "" {
-				score += float64(callCountByID[sym.ID]) * wInbound
-				score += float64(refCountByID[sym.ID]) * wReference
+				score += float64(idx.CallCountByID[sym.ID]) * wInbound
+				score += float64(idx.RefCountByID[sym.ID]) * wReference
 			}
-			score += float64(refCount[sym.Name]) * wReference / ambiguity
-			score += float64(callCount[sym.Name]) * wInbound / ambiguity
+			score += float64(idx.RefCount[sym.Name]) * wReference / ambiguity
+			score += float64(idx.CallCount[sym.Name]) * wInbound / ambiguity
 			if sym.Exported {
 				score += wExported
 			}
@@ -177,7 +107,7 @@ func RankGraph(g *types.Graph, query string) {
 		//   fanout = 0.30 → factor ≈ 0.55
 		//   fanout = 0.50 → factor ≈ 0.32
 		//   fanout ≥ 0.80 → factor ≈ 0.15
-		fanout := fileFanout[fi.RelPath]
+		fanout := idx.FileFanout[fi.RelPath]
 		if fanout > 0.15 {
 			dampener := math.Sqrt(0.15 / fanout)
 			score *= dampener
@@ -307,68 +237,7 @@ func getRecentlyChanged(repoRoot string, n int) map[string]bool {
 }
 
 func detectEntrypoints(g *types.Graph) map[string]bool {
-	ep := make(map[string]bool)
-	for _, fi := range g.Files {
-		base := filepath.Base(fi.RelPath)
-		switch {
-		case fi.Language == types.LangGo && base == "main.go":
-			ep[fi.RelPath] = true
-		case fi.Language == types.LangGo && fi.Package == "main":
-			ep[fi.RelPath] = true
-		case fi.Language == types.LangPython && (base == "__main__.py" || base == "manage.py" || base == "app.py"):
-			ep[fi.RelPath] = true
-		case fi.Language == types.LangRust && base == "main.rs":
-			ep[fi.RelPath] = true
-		case fi.Language == types.LangJava && hasMainLikeSymbol(fi):
-			ep[fi.RelPath] = true
-		case fi.Language == types.LangKotlin &&
-			(strings.EqualFold(base, "main.kt") || strings.EqualFold(base, "main.kts") || hasMainLikeSymbol(fi)):
-			ep[fi.RelPath] = true
-		case fi.Language == types.LangSwift &&
-			(strings.EqualFold(base, "main.swift") || hasMainLikeSymbol(fi)):
-			ep[fi.RelPath] = true
-		case fi.Language == types.LangRuby &&
-			(base == "main.rb" || strings.HasPrefix(filepath.ToSlash(fi.RelPath), "bin/") || strings.HasPrefix(filepath.ToSlash(fi.RelPath), "exe/")):
-			ep[fi.RelPath] = true
-		case fi.Language == types.LangLua &&
-			(strings.EqualFold(base, "main.lua") || strings.EqualFold(base, "init.lua")):
-			ep[fi.RelPath] = true
-		case base == "index.js" || base == "index.ts" || base == "index.tsx":
-			ep[fi.RelPath] = true
-		case fi.Language == types.LangArkTS &&
-			(base == "Index.ets" || base == "EntryAbility.ts" || base == "EntryAbility.ets"):
-			ep[fi.RelPath] = true
-		case fi.Language == types.LangCangjie && base == "main.cj":
-			ep[fi.RelPath] = true
-		case fi.IsSpecial && fi.SpecialType == "dockerfile":
-			ep[fi.RelPath] = true
-		}
-
-		// files with no importers are potential entrypoints
-		if len(g.ReverseImports[fi.RelPath]) == 0 && len(fi.Symbols) > 0 {
-			// weak entrypoint signal — only if the file exports something
-			for _, sym := range fi.Symbols {
-				if sym.Exported {
-					ep[fi.RelPath] = true
-					break
-				}
-			}
-		}
-	}
-	return ep
-}
-
-func hasMainLikeSymbol(fi *types.FileInfo) bool {
-	for _, sym := range fi.Symbols {
-		if sym.Name != "main" {
-			continue
-		}
-		switch strings.ToLower(sym.Kind) {
-		case "function", "method":
-			return true
-		}
-	}
-	return false
+	return types.DetectEntrypoints(g)
 }
 
 // queryMatchScore scores a file by how well its RelPath, symbol

@@ -414,9 +414,28 @@ type Graph struct {
 	MethodIndex    map[MethodKey]*Symbol `json:"-"` // (pkg, receiver, name) → method def; used by the receiver-aware call resolver
 	ImportGraph    map[string][]string   `json:"-"` // file → imported file paths
 	ReverseImports map[string][]string   `json:"-"` // file → files that import it
+	RankIndex      *RankIndex            `json:"-"` // derived structural ranking index; rebuilt from Files/graph edges
 	Scores         map[string]float64    `json:"-"` // key → importance score
 	QueryScores    map[string]float64    `json:"-"` // key → query match score (>0 only for files matching the query)
 	Metadata       Metadata              `json:"metadata"`
+}
+
+// RankIndex is the query-independent structural index used by
+// retrieve.RankGraph. It is deliberately not persisted: cache files
+// store source-level FileInfo records, and this compact index is
+// rebuilt after BuildGraph resolves imports and symbol IDs.
+//
+// The index replaces several large temporary maps that RankGraph used
+// to rebuild on every query: symbol-name ambiguity, call/reference
+// fan-in counters, fan-out dampening input, and entrypoint detection.
+type RankIndex struct {
+	SymbolDefCount map[string]int
+	CallCountByID  map[SymbolID]int
+	RefCountByID   map[SymbolID]int
+	CallCount      map[string]int
+	RefCount       map[string]int
+	FileFanout     map[string]float64
+	Entrypoints    map[string]bool
 }
 
 // Metadata holds scan-level statistics.

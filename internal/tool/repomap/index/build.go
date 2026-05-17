@@ -13,7 +13,7 @@ import (
 // Populates SymbolDefs (legacy name-keyed index), SymbolByID (the
 // canonical drift-proof index), MethodIndex (receiver-aware method
 // lookup), ImportGraph / ReverseImports (via resolveImportGraph),
-// and the types.Metadata summary.
+// RankIndex, and the types.Metadata summary.
 func BuildGraph(repoRoot string, files []*types.FileInfo) *types.Graph {
 	g := &types.Graph{
 		Root:           repoRoot,
@@ -32,6 +32,7 @@ func BuildGraph(repoRoot string, files []*types.FileInfo) *types.Graph {
 	var specialFiles []string
 	symCount := 0
 	relCount := 0
+	rankBuilder := types.NewRankIndexBuilder(len(files))
 
 	for _, fi := range files {
 		g.FileIndex[fi.RelPath] = fi
@@ -81,6 +82,7 @@ func BuildGraph(repoRoot string, files []*types.FileInfo) *types.Graph {
 				g.MethodIndex[key] = s
 			}
 		}
+		rankBuilder.AddFileSymbols(fi)
 	}
 
 	g.Metadata = types.Metadata{
@@ -94,6 +96,10 @@ func BuildGraph(repoRoot string, files []*types.FileInfo) *types.Graph {
 
 	resolveImportGraph(g)
 	populateImplementers(g)
+	for _, fi := range files {
+		rankBuilder.AddFileRelations(g, fi)
+	}
+	g.RankIndex = rankBuilder.Finish(g)
 	return g
 }
 
