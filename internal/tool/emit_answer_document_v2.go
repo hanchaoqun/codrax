@@ -250,10 +250,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	mutation := types.NewReplaceAllMutation(doc)
 	res, err := ApplyAndPersistMutation(ctx, toolName, mutation, nil, now)
 	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil {
-		ctx.Mutable.SetAnswerDisplayAttachments(recovery.Attachments)
-		if len(recovery.Attachments) > 0 {
+		attachments := filterAcceptedAnswerDisplayAttachments(doc, recovery.Attachments)
+		ctx.Mutable.SetAnswerDisplayAttachments(attachments)
+		if len(attachments) > 0 {
 			logging.Warning("[emit_answer_document] preserved %d recovered display attachment(s) after %s recovery (candidate_blocks=%d recovered_blocks=%d)",
-				len(recovery.Attachments), recovery.Mode, recovery.CandidateBlocks, recovery.RecoveredBlocks)
+				len(attachments), recovery.Mode, recovery.CandidateBlocks, recovery.RecoveredBlocks)
 		}
 	}
 	return res, err

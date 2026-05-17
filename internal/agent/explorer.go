@@ -5472,6 +5472,7 @@ type explorerCompletionReadiness struct {
 	ToolSources              int
 	ReadCount                int
 	DirectCount              int
+	MinDirectCount           int
 	ScopeReadCount           int
 	ScopeTotalCount          int
 	DiscoveredCount          int
@@ -5549,7 +5550,8 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 	if authoritativeCoverage {
 		fileCoverage = true
 	}
-	evidenceQuality := directCount >= 2
+	minDirect := 2
+	evidenceQuality := directCount >= minDirect
 	if !e.isEnumerationQuery && (hasGroundedTerminalEvidence(e.structuredEvidence) || len(e.flowFindings) > 0) {
 		evidenceQuality = true
 	}
@@ -5562,7 +5564,7 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 	}
 	if e.isEnumerationQuery {
 		fileCoverage = coverage >= 0.8 || (len(scope) > 0 && scopeReadCount >= len(scope))
-		minDirect := len(scope) / 3
+		minDirect = len(scope) / 3
 		if minDirect == 0 {
 			minDirect = len(discovered) / 3
 		}
@@ -5645,6 +5647,7 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 		ToolSources:              sourceCount,
 		ReadCount:                len(readSet),
 		DirectCount:              directCount,
+		MinDirectCount:           minDirect,
 		ScopeReadCount:           scopeReadCount,
 		ScopeTotalCount:          len(scope),
 		DiscoveredCount:          len(discovered),
@@ -9167,7 +9170,10 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. Use both grep and read_file."
 		} else if !readiness.EvidenceQuality {
 			hintKey = "explorer.retry.evidence-quality"
-			out.RetryHint = fmt.Sprintf("Previous attempt collected only %d [DIRECT]/[REGISTRATION] evidence entries (need ≥2). Read more files and extract structured evidence with [DIRECT], [REGISTRATION], [CONDITIONAL] tags.", readiness.DirectCount)
+			out.RetryHint = fmt.Sprintf("Previous attempt collected %d [DIRECT]/[REGISTRATION] evidence entries, but this answer shape needs ≥%d. Read more files and extract structured evidence with [DIRECT], [REGISTRATION], [CONDITIONAL] tags.", readiness.DirectCount, readiness.MinDirectCount)
+		} else if !readiness.ExplanationAnchorReady {
+			hintKey = "explorer.retry.explanation-anchor"
+			out.RetryHint = fmt.Sprintf("Previous attempt covered %d of %d required explanation anchors. Read the missing topic anchors and emit grounded evidence for each before completing.", readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)
 		} else if len(e.ermRequirements) > 0 && !ermAllSatisfied(e.ermRequirements) {
 			hintKey = "explorer.retry.erm-unsatisfied"
 			out.RetryHint = "Previous attempt left evidence requirements unsatisfied. " + ermUnsatisfiedGaps(e.ermRequirements)

@@ -598,6 +598,16 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 			if preEmitCitationEnclosingFunctionSupportsLabel(label, cit) {
 				continue
 			}
+			if preEmitCitationEnclosingFunctionConflictsWithQualifiedLabel(label, cit) {
+				mismatches = append(mismatches, mismatch{
+					blockID:    b.ID,
+					itemID:     item.ID,
+					label:      label,
+					cite:       fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line),
+					candidates: preEmitCandidateCitationLocationsForLabelWithContext(pctx, label, 4),
+				})
+				continue
+			}
 			if preEmitCitationSupportsAggregateItemWithContext(pctx, label, item.Text, cit) {
 				continue
 			}
@@ -895,6 +905,9 @@ func preEmitItemCitationAlignedWithContext(pctx *preEmitCheckContext, label, tex
 	}
 	if preEmitCitationEnclosingFunctionSupportsLabel(label, cit) {
 		return true
+	}
+	if preEmitCitationEnclosingFunctionConflictsWithQualifiedLabel(label, cit) {
+		return false
 	}
 	if preEmitCitationSupportsAggregateItemWithContext(pctx, label, text, cit) {
 		return true
@@ -1360,11 +1373,10 @@ func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt
 		return nil
 	}
 	ctx := ctxOpt[0]
-	refs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
+	refs := preEmitAggregateCardinalityFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
 	if len(refs) == 0 {
 		return nil
 	}
-	uniquePrincipalSet := len(refs) == 1
 	type mismatch struct {
 		label    string
 		expected int
@@ -1387,7 +1399,7 @@ func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt
 			})
 			continue
 		}
-		for _, claim := range preEmitAggregateScopedCountClaims(doc, fact, uniquePrincipalSet) {
+		for _, claim := range preEmitAggregateScopedCountClaims(doc, fact, ref.MemberBindingMin) {
 			if claim.value == expected {
 				continue
 			}
@@ -1421,10 +1433,84 @@ func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt
 	}
 	return []emitFixHint{{
 		Field: "blocks[].text/count claims",
-		ExpectedShape: "make every visible count claim for a model-emitted principal member_set equal the member_set cardinality: " +
+		ExpectedShape: "make every visible count claim for a model-emitted aggregate member list equal the aggregate cardinality: " +
 			strings.Join(parts, "; "),
-		Reason: "aggregate_facts.member_set is the authoritative model-authored principal set; final text may display it, but it must not introduce a different count for that same set.",
+		Reason: "aggregate_facts carries the authoritative model-authored member cardinality; final text may display it, but it must not introduce a different count for that same set.",
 	}}
+}
+
+type preEmitAggregateCardinalityRef struct {
+	Index            int
+	Fact             types.AnswerAggregateFact
+	MemberBindingMin int
+}
+
+func preEmitAggregateCardinalityFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []preEmitAggregateCardinalityRef {
+	if len(facts) == 0 {
+		return nil
+	}
+	principalRefs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts)
+	out := make([]preEmitAggregateCardinalityRef, 0, len(principalRefs))
+	principalByIndex := make(map[int]bool, len(principalRefs))
+	uniquePrincipalSet := len(principalRefs) == 1
+	for _, ref := range principalRefs {
+		principalByIndex[ref.Index] = true
+		min := 0
+		if uniquePrincipalSet {
+			min = 1
+		}
+		out = append(out, preEmitAggregateCardinalityRef{
+			Index:            ref.Index,
+			Fact:             ref.Fact,
+			MemberBindingMin: min,
+		})
+	}
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return out
+	}
+	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(facts) {
+		if principalByIndex[ref.Index] || !preEmitNarrativeAggregateCountCanBindByMembers(ref.Fact) {
+			continue
+		}
+		min := 2
+		if len(ref.Fact.Members) < min {
+			min = len(ref.Fact.Members)
+		}
+		out = append(out, preEmitAggregateCardinalityRef{
+			Index:            ref.Index,
+			Fact:             ref.Fact,
+			MemberBindingMin: min,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func preEmitNarrativeAggregateCountCanBindByMembers(fact types.AnswerAggregateFact) bool {
+	switch fact.Kind {
+	case types.AnswerAggregateGroupedCount, types.AnswerAggregateBucketCount:
+	default:
+		return false
+	}
+	if len(fact.Members) == 0 {
+		return false
+	}
+	for _, member := range fact.Members {
+		member = strings.TrimSpace(member)
+		if member == "" {
+			return false
+		}
+		if _, ok := types.ParseAnswerFilePathSurface(member); ok {
+			continue
+		}
+		if _, ok := types.ParseAnswerSourceLocationSurface(member); ok {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func preCheckRelationMemberSetAnswerShape(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
@@ -1479,7 +1565,7 @@ func preEmitParseAggregateFactCount(value string) (int, bool) {
 	return n, true
 }
 
-func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact, uniquePrincipalSet bool) []preEmitAggregateCountClaim {
+func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact, memberBindingMin int) []preEmitAggregateCountClaim {
 	if doc == nil {
 		return nil
 	}
@@ -1493,7 +1579,7 @@ func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.A
 		if surface == "" {
 			continue
 		}
-		if !preEmitBlockBindsToAggregateCount(block, surface, fact, uniquePrincipalSet) {
+		if !preEmitBlockBindsToAggregateCount(block, surface, fact, memberBindingMin) {
 			continue
 		}
 		for _, value := range preEmitScopedCountValues(surface, expected) {
@@ -1506,16 +1592,19 @@ func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.A
 	return out
 }
 
-func preEmitBlockBindsToAggregateCount(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, uniquePrincipalSet bool) bool {
+func preEmitBlockBindsToAggregateCount(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, memberBindingMin int) bool {
 	if preEmitAggregateDisplayPartAppears(strings.TrimSpace(fact.Label), surface) {
 		return true
 	}
-	if !uniquePrincipalSet {
-		return false
-	}
-	for _, member := range fact.Members {
-		if preEmitAggregateMemberAppearsInText(member, surface) {
-			return true
+	if memberBindingMin > 0 {
+		matched := 0
+		for _, member := range fact.Members {
+			if preEmitAggregateMemberAppearsInText(member, surface) {
+				matched++
+				if matched >= memberBindingMin {
+					return true
+				}
+			}
 		}
 	}
 	switch block.Kind {
@@ -1571,7 +1660,124 @@ func preEmitCountLikeIntegers(surface string) []int {
 		}
 		out = append(out, value)
 	}
+	out = append(out, preEmitChineseCountLikeIntegers(surface)...)
 	return out
+}
+
+func preEmitChineseCountLikeIntegers(surface string) []int {
+	runes := []rune(surface)
+	var out []int
+	for i := 0; i < len(runes); {
+		if !preEmitIsChineseCountRune(runes[i]) {
+			i++
+			continue
+		}
+		start := i
+		for i < len(runes) && preEmitIsChineseCountRune(runes[i]) {
+			i++
+		}
+		end := i
+		j := end
+		for j < len(runes) && unicode.IsSpace(runes[j]) {
+			j++
+		}
+		if j >= len(runes) || !preEmitIsChineseCountClassifier(runes[j]) {
+			continue
+		}
+		if start > 0 && (preEmitIsASCIIAlnum(runes[start-1]) || runes[start-1] == '_' || runes[start-1] == '/' || runes[start-1] == '.') {
+			continue
+		}
+		value, ok := preEmitParseChineseCountToken(string(runes[start:end]))
+		if !ok {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
+func preEmitIsChineseCountRune(r rune) bool {
+	switch r {
+	case '零', '〇', '一', '二', '两', '三', '四', '五', '六', '七', '八', '九', '十':
+		return true
+	default:
+		return false
+	}
+}
+
+func preEmitIsChineseCountClassifier(r rune) bool {
+	switch r {
+	case '层', '个', '项', '类', '种', '条', '组', '段', '轮', '次', '处', '份':
+		return true
+	default:
+		return false
+	}
+}
+
+func preEmitParseChineseCountToken(token string) (int, bool) {
+	runes := []rune(strings.TrimSpace(token))
+	if len(runes) == 0 || len(runes) > 3 {
+		return 0, false
+	}
+	if len(runes) == 1 {
+		return preEmitChineseDigitValue(runes[0])
+	}
+	tenAt := -1
+	for i, r := range runes {
+		if r == '十' {
+			tenAt = i
+			break
+		}
+	}
+	if tenAt < 0 {
+		return 0, false
+	}
+	left := 1
+	if tenAt > 0 {
+		var ok bool
+		left, ok = preEmitChineseDigitValue(runes[tenAt-1])
+		if !ok || left == 0 {
+			return 0, false
+		}
+	}
+	right := 0
+	if tenAt+1 < len(runes) {
+		var ok bool
+		right, ok = preEmitChineseDigitValue(runes[tenAt+1])
+		if !ok {
+			return 0, false
+		}
+	}
+	return left*10 + right, true
+}
+
+func preEmitChineseDigitValue(r rune) (int, bool) {
+	switch r {
+	case '零', '〇':
+		return 0, true
+	case '一':
+		return 1, true
+	case '二', '两':
+		return 2, true
+	case '三':
+		return 3, true
+	case '四':
+		return 4, true
+	case '五':
+		return 5, true
+	case '六':
+		return 6, true
+	case '七':
+		return 7, true
+	case '八':
+		return 8, true
+	case '九':
+		return 9, true
+	case '十':
+		return 10, true
+	default:
+		return 0, false
+	}
 }
 
 func preEmitIntegerLooksLikeSourceOrIdentifier(surface string, start, end int) bool {
@@ -2819,16 +3025,58 @@ func preEmitQualifiedCodeSurfaceMatchesEvidence(surface string, ev types.Evidenc
 	}
 	if preEmitCodeSurfaceAppearsVerbatim(surface, ev.Summary) &&
 		preEmitEvidenceEndpointSupportsToken(ev, member) &&
-		(preEmitEvidenceEndpointSupportsToken(ev, owner) ||
-			preEmitCodeSurfaceAppearsVerbatim(owner, ev.Snippet) ||
-			(strings.TrimSpace(ev.Snippet) == "" && preEmitPathSegmentsSupportToken(ev.Source, owner))) {
+		preEmitQualifiedOwnerSupportedByEvidence(ev, owner, member) {
 		return true, true
 	}
-	ownerOK := preEmitEvidenceEndpointSupportsToken(ev, owner) ||
-		preEmitCodeSurfaceAppearsVerbatim(owner, ev.Snippet)
+	ownerOK := preEmitQualifiedOwnerSupportedByEvidence(ev, owner, member)
 	memberOK := preEmitEvidenceEndpointSupportsToken(ev, member) ||
-		preEmitCodeSurfaceAppearsVerbatim(member, ev.Snippet)
+		preEmitCodeSurfaceAppearsVerbatim(member, ev.Snippet) ||
+		preEmitPathSegmentsSupportToken(ev.Source, member)
 	return ownerOK && memberOK, true
+}
+
+func preEmitQualifiedOwnerSupportedByEvidence(ev types.EvidenceItem, owner, member string) bool {
+	if preEmitEvidenceEndpointSupportsToken(ev, owner) ||
+		preEmitCodeSurfaceAppearsVerbatim(owner, ev.Snippet) {
+		return true
+	}
+	if !preEmitPathSegmentsSupportToken(ev.Source, owner) {
+		return false
+	}
+	return !preEmitEvidenceSnippetConflictsWithQualifiedOwner(ev.Snippet, owner, member)
+}
+
+func preEmitEvidenceSnippetConflictsWithQualifiedOwner(snippet, owner, member string) bool {
+	snippet = strings.TrimSpace(snippet)
+	if snippet == "" || !preEmitCodeSurfaceAppearsVerbatim(member, snippet) ||
+		preEmitCodeSurfaceAppearsVerbatim(owner, snippet) {
+		return false
+	}
+	recvOwner := preEmitGoReceiverOwnerForMethodSnippet(snippet, member)
+	return recvOwner != "" && preEmitCodeIdentityKey(recvOwner) != preEmitCodeIdentityKey(owner)
+}
+
+func preEmitGoReceiverOwnerForMethodSnippet(snippet, member string) string {
+	snippet = strings.TrimSpace(snippet)
+	member = strings.Trim(strings.TrimSpace(member), "`'\" ")
+	if snippet == "" || member == "" || !strings.HasPrefix(snippet, "func (") {
+		return ""
+	}
+	closeIdx := strings.Index(snippet, ")")
+	if closeIdx <= len("func (") {
+		return ""
+	}
+	receiver := strings.TrimSpace(snippet[len("func ("):closeIdx])
+	fields := strings.Fields(receiver)
+	if len(fields) == 0 {
+		return ""
+	}
+	owner := strings.Trim(strings.TrimSpace(fields[len(fields)-1]), "*")
+	rest := strings.TrimSpace(snippet[closeIdx+1:])
+	if !strings.HasPrefix(rest, member) {
+		return ""
+	}
+	return owner
 }
 
 func preEmitCitationEnclosingFunctionSupportsLabel(label string, cit types.Citation) bool {
@@ -2845,6 +3093,19 @@ func preEmitCitationEnclosingFunctionSupportsLabel(label string, cit types.Citat
 		}
 	}
 	return false
+}
+
+func preEmitCitationEnclosingFunctionConflictsWithQualifiedLabel(label string, cit types.Citation) bool {
+	_, member, qualified := preEmitQualifiedCodeSurfaceParts(label)
+	if !qualified {
+		return false
+	}
+	fn := preEmitNormalizeCallableSurface(cit.EnclosingFunction)
+	if fn == "" || preEmitEnclosingFunctionSurfaceMatches(label, fn) {
+		return false
+	}
+	_, fnMember, fnQualified := preEmitQualifiedCodeSurfaceParts(fn)
+	return fnQualified && preEmitCodeIdentityKey(fnMember) == preEmitCodeIdentityKey(member)
 }
 
 func preEmitEnclosingFunctionSurfaceMatches(surface, fn string) bool {

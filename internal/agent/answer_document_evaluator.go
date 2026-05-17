@@ -96,6 +96,13 @@ type answerDocumentEvaluator struct {
 	// so cross-key spacing can't swallow the nudge a second time.
 	emitPatchNudgeFired bool
 
+	// forceFullEmitNext is set after a rejected patch attempt where the
+	// repair signal explicitly asks for a fresh full emit. It makes the
+	// next tool schema pass prefer emit_answer_document over the patch
+	// tool, preventing the retry policy from telling the model "full
+	// rewrite" while the schema filter exposes only patch.
+	forceFullEmitNext bool
+
 	// Shrinkage-salvage knobs, populated from AgentSettings at
 	// construction. See salvagePriorDraftIntoSummary for the
 	// triggering conditions and the salvage contract.
@@ -2374,9 +2381,9 @@ func renderAnswerDocRequestedCandidateRoles(view *types.AnswerSemanticView) stri
 //   - SurfaceForms render as a parenthetical aside on entries that
 //     carry alternative spellings, so the model knows the symbol
 //     oracle accepts the equivalent forms.
-//   - Truncation past MaxVisibleAnchorWhitelistEntries emits a
-//     "+N more groundable entries omitted for brevity" tail so the
-//     model knows the slate is bounded.
+//   - Truncation past MaxVisibleAnchorWhitelistEntries emits a note
+//     that the guide is bounded but support-lane anchors remain
+//     valid when copied verbatim from typed evidence.
 func renderAnswerDocVisibleAnchorWhitelist(ctx *types.AgentContext) string {
 	if ctx == nil {
 		return ""
@@ -2388,8 +2395,8 @@ func renderAnswerDocVisibleAnchorWhitelist(ctx *types.AgentContext) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## Visible-Anchor Whitelist (Authoritative)\n\n")
-	b.WriteString("The symbols below are the COMPLETE pre-flight set the answer document may cite as `blocks[].items[].label`, inline backtick references in prose `text`, or diagram edge endpoints. Surfaces outside this slate will fail the post-emit hallucination oracles — pre-emit visibility lets you place every anchor on the first attempt.\n\n")
+	b.WriteString("## Preferred Visible Anchors (Pre-flight Guide)\n\n")
+	b.WriteString("The symbols below are the strongest pre-flight anchors for `blocks[].items[].label`, inline backtick references in prose `text`, and diagram edge endpoints. This guide is not an exclusive list: anchors copied verbatim from Typed Answer Support Lanes, evidence endpoints, citations, or aggregate support_refs can also be valid. Prefer entries in this guide when they fit; when you use another supported anchor, copy the exact surface and cite the same evidence line.\n\n")
 	if len(whitelist.Required) > 0 {
 		b.WriteString("### Required anchors (must surface in structured fields)\n\n")
 		for _, e := range whitelist.Required {
@@ -2408,7 +2415,7 @@ func renderAnswerDocVisibleAnchorWhitelist(ctx *types.AgentContext) string {
 			}
 		}
 		if len(highConfidence) > 0 {
-			b.WriteString("### Groundable anchors — safe to cite\n\n")
+			b.WriteString("### Preferred anchors — safe to cite\n\n")
 			b.WriteString("These symbols resolved directly against the codebase — exact file:line evidence or typed symbol-graph match. Use them freely as item labels, inline references, or diagram endpoints.\n\n")
 			for _, e := range highConfidence {
 				writeVisibleAnchorBullet(&b, e)
@@ -2416,8 +2423,8 @@ func renderAnswerDocVisibleAnchorWhitelist(ctx *types.AgentContext) string {
 			b.WriteString("\n")
 		}
 		if len(caveatTier) > 0 {
-			b.WriteString("### Groundable anchors — cite with caveat\n\n")
-			b.WriteString("These symbols resolved via approximate / recovery paths — snippet-fuzzy match, package-symbol fallback, or nearest-call/condition heuristic. The post-emit oracle accepts the surfaces, but prose using them should acknowledge the approximation (mark uncertain phrases, or add a `caveat` block) so readers know the citation is best-effort.\n\n")
+			b.WriteString("### Supported anchors — cite with caveat\n\n")
+			b.WriteString("These symbols resolved via approximate / recovery paths — snippet-fuzzy match, package-symbol fallback, or nearest-call/condition heuristic. They can be cited, but prose using them should acknowledge the approximation (mark uncertain phrases, or add a `caveat` block) so readers know the citation is best-effort.\n\n")
 			for _, e := range caveatTier {
 				writeVisibleAnchorBullet(&b, e)
 			}
@@ -2426,10 +2433,10 @@ func renderAnswerDocVisibleAnchorWhitelist(ctx *types.AgentContext) string {
 	}
 	totalRendered := len(whitelist.Required) + len(whitelist.Groundable)
 	if totalRendered >= types.MaxVisibleAnchorWhitelistEntries {
-		fmt.Fprintf(&b, "_Note: the slate is capped at %d entries; additional groundable surfaces from longer support lanes are omitted for brevity. The post-emit oracle still accepts any verbatim AnchorSymbol / Subject / Object surface from the Typed Answer Support Lanes section below._\n\n",
+		fmt.Fprintf(&b, "_Note: this guide is capped at %d entries; additional supported surfaces from longer support lanes are omitted for brevity. Anchors copied verbatim from Typed Answer Support Lanes, evidence endpoints, citations, or aggregate support_refs may still be valid when citation-aligned._\n\n",
 			types.MaxVisibleAnchorWhitelistEntries)
 	}
-	b.WriteString("- Surfaces NOT in this slate will trigger `enumeration_label_hallucinated`, `inline_identifier_hallucinated`, or `diagram_edge_endpoint_hallucinated` at emit time. Do NOT promote names from retry diagnostics, Evidence notes, raw tool output, or generic prose into authoritative code references.\n\n")
+	b.WriteString("- Do NOT promote names from retry diagnostics, Evidence notes, raw tool output, or generic prose into authoritative code references. Any surface not listed in this guide must be copied verbatim from Typed Answer Support Lanes, evidence endpoints, citations, or aggregate support_refs and must be citation-aligned.\n\n")
 	return b.String()
 }
 
@@ -5535,6 +5542,30 @@ func (e *answerDocumentEvaluator) FilterToolSchemas(ctx *types.AgentContext, sch
 	if e == nil {
 		return schemas
 	}
+	if e.forceFullEmitNext {
+		hasFull := false
+		for _, s := range schemas {
+			if s.Name == "emit_answer_document" {
+				hasFull = true
+				break
+			}
+		}
+		if hasFull {
+			out := make([]llm.ToolSchema, 0, len(schemas))
+			droppedPatch := false
+			for _, s := range schemas {
+				if s.Name == "emit_answer_document_patch" {
+					droppedPatch = true
+					continue
+				}
+				out = append(out, s)
+			}
+			if droppedPatch {
+				logging.Debug("[finalizer/answer_document] patch-reject full rewrite: dropped emit_answer_document_patch for one schema pass")
+			}
+			return out
+		}
+	}
 	if e.emitFullDocFailStreak < 2 {
 		return schemas
 	}
@@ -5775,6 +5806,7 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 	// retry gets a fresh count.
 	if tn == "emit_answer_document_patch" {
 		e.emitPatchNudgeFired = true
+		e.forceFullEmitNext = false
 		if obs.LastToolResult.Success {
 			e.emitFullDocFailStreak = 0
 		}
@@ -5784,6 +5816,7 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 	// progress; further attempts shouldn't be told to switch).
 	if obs.LastToolResult.Success && tn == "emit_answer_document" {
 		e.emitFullDocFailStreak = 0
+		e.forceFullEmitNext = false
 		return LoopSignal{}
 	}
 	// Only count failures of the FULL emit path. Other tool failures
@@ -5791,6 +5824,7 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 	if tn != "emit_answer_document" {
 		return LoopSignal{}
 	}
+	e.forceFullEmitNext = false
 	// Failed emit_answer_document → bump the streak.
 	e.emitFullDocFailStreak++
 	if e.emitFullDocFailStreak < 2 {
@@ -5863,6 +5897,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
 		return LoopSignal{}
 	}
+	e.forceFullEmitNext = true
 	e.rejectHintsUsed++
 	hint := "Your last `emit_answer_document_patch` call was rejected. Stop patching for this repair and re-emit a complete `emit_answer_document` payload instead: build a fresh `citations[]` array, then renumber every `blocks[].items[].citation_ref` against that fresh zero-based citation pool. Preserve the same user-facing facts from the previous answer and the typed support lanes, but do not reuse stale patch-only block ids or citation indexes from rejected patch attempts. If the repair needs many list/table member or citation changes, a full emit is safer than piecemeal patching. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call."
 	hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)

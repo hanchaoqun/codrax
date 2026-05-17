@@ -1,21 +1,17 @@
 package render
 
-import (
-	"fmt"
-)
-
 // focusRow picks the row whose state the dock should display this
 // frame. Selection rules (in priority order):
 //
-//   1. r.current if it's a NodeRow that's actively running and no
-//      upstream evidence_t* row is still in flight.
-//   2. Otherwise, the first NodeRow whose endTime is zero, pending
-//      is false, AND no upstream evidence_t* is still in flight
-//      (Symptom 2 fix: prevents "validate shows before evidence done").
-//   3. Otherwise, the first stage row that's running (analyze /
-//      log_triage / perf_triage).
-//   4. Otherwise, nil — composeDockRow1 then renders the bare
-//      activity word with no stage context.
+//  1. r.current if it's a NodeRow that's actively running and no
+//     upstream evidence_t* row is still in flight.
+//  2. Otherwise, the first NodeRow whose endTime is zero, pending
+//     is false, AND no upstream evidence_t* is still in flight
+//     (Symptom 2 fix: prevents "validate shows before evidence done").
+//  3. Otherwise, the first stage row that's running (analyze /
+//     log_triage / perf_triage).
+//  4. Otherwise, nil — composeDockRow1 then renders the bare
+//     activity word with no stage context.
 //
 // Caller MUST hold r.mu.
 func (r *Renderer) focusRow() *taskRow {
@@ -120,8 +116,8 @@ func (r *Renderer) fallbackRow() *taskRow {
 	return newest
 }
 
-// topicProgressFor returns "关注点 K/M" / "focus K/M" when the focus
-// is one of multiple evidence_tN siblings. Empty otherwise.
+// topicProgressFor returns the ordinal focus segment when the focus is
+// one of multiple evidence_tN siblings. Empty otherwise.
 func (r *Renderer) topicProgressFor(focus *taskRow, lang string) string {
 	if focus == nil || !focus.isNodeRow || focus.nodeKind != "evidence" {
 		return ""
@@ -134,10 +130,7 @@ func (r *Renderer) topicProgressFor(focus *taskRow, lang string) string {
 	if total < 2 {
 		return ""
 	}
-	if isZh(lang) {
-		return fmt.Sprintf("关注点 %d/%d", idx+1, total)
-	}
-	return fmt.Sprintf("focus %d/%d", idx+1, total)
+	return topicProgressPhrase(idx, total, lang)
 }
 
 // liveBarPrimaryText resolves the focus's stage label via the

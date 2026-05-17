@@ -508,6 +508,20 @@ func topicLabelPhrase(idx int, lang string) string {
 	return fmt.Sprintf("Focus %d: ", idx)
 }
 
+// topicProgressPhrase produces the compact ordinal segment used in the
+// dock stage row and commit lines. It describes which focus is currently
+// being handled, not how much of that focus has completed.
+func topicProgressPhrase(idxZero int, total int, lang string) string {
+	if total < 2 || idxZero < 0 {
+		return ""
+	}
+	idx := idxZero + 1
+	if isZh(lang) {
+		return fmt.Sprintf("第 %d 个关注点，共 %d 个", idx, total)
+	}
+	return fmt.Sprintf("focus %d of %d", idx, total)
+}
+
 // topicOverflowPhrase covers the >5 topics case: first 5 are shown
 // individually, the rest collapse into a single line.
 func topicOverflowPhrase(extra int, lang string) string {

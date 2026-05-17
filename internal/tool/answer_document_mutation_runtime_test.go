@@ -77,6 +77,46 @@ func TestApplyAndPersistMutation_PartialPersistsDocAndSetsPatchFlag(t *testing.T
 	}
 }
 
+func TestApplyAndPersistMutation_AcceptedDocDropsRejectedTextAttachments(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.Mutable.SetAnswerDisplayAttachments([]types.AnswerDisplayAttachment{
+		{
+			Kind:   types.AnswerDisplayAttachmentMarkdown,
+			Body:   "stale rejected prose",
+			Source: "emit_answer_document.rejected_payload",
+			Reason: "rejected structured answer draft contained user-visible text",
+		},
+		{
+			Kind:     types.AnswerDisplayAttachmentDiagram,
+			Language: "mermaid",
+			Body:     "flowchart TD\n  A --> B",
+			Source:   "emit_answer_document.rejected_payload",
+		},
+	})
+	prev := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "old"},
+		},
+	}
+	patch := &types.AnswerDocumentV2Patch{
+		ReplaceBlocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "accepted"},
+		},
+	}
+	res, err := ApplyAndPersistMutation(bus, "test_patch", types.NewPartialMutation(patch), prev, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	attachments := bus.Mutable.AnswerDisplayAttachments()
+	if len(attachments) != 1 || attachments[0].Kind != types.AnswerDisplayAttachmentDiagram {
+		t.Fatalf("accepted structured doc should drop stale text but preserve diagram attachments, got %+v", attachments)
+	}
+}
+
 // TestApplyAndPersistMutation_DuplicateBlockIDRejected — merged-doc
 // validation enforces unique block ids. Both paths get the same
 // rejection message.

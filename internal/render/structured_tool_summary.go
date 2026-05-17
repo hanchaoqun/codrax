@@ -73,7 +73,7 @@ func formatAnswerDocumentDraftPreviewLines(paramsJSON, lang string) []scrollback
 		header = "第一稿答案"
 	}
 	lines := []scrollbackLine{{
-		text: "  " + statusMeta.Sprint("•") + " " + statusMeta.Sprint(header),
+		text: "  " + statusObjective.Sprint("•") + " " + statusObjective.Sprint(header),
 	}}
 	for _, block := range doc.Blocks {
 		lines = appendAnswerDraftBlockLines(lines, block)

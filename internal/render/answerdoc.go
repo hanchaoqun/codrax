@@ -520,7 +520,7 @@ func renderDisplayAttachment(b *strings.Builder, att types.AnswerDisplayAttachme
 				title = "Preserved text"
 			}
 		}
-		fmt.Fprintf(b, "**%s**\n\n%s\n\n", title, renderUserSurfaceText(body))
+		fmt.Fprintf(b, "---\n\n**%s**\n\n%s\n\n---\n\n", title, renderUserSurfaceText(body))
 	}
 }
 

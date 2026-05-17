@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pterm/pterm"
 )
 
 // stripAnsi removes ANSI colour escape sequences so tests can assert
@@ -28,7 +30,7 @@ func stripAnsi(s string) string {
 }
 
 // TestFormatStageDoneLine_TopicProgressPositionAndColor pins the
-// 2026-05-17 visual fix for the "关注点 N/M" sub-topic tag:
+// 2026-05-17 visual fix for the ordinal sub-topic tag:
 //
 //  1. POSITION: the topic tag MUST appear IMMEDIATELY AFTER the
 //     stage progress ("2/4") and BEFORE the stage-done label
@@ -42,9 +44,9 @@ func stripAnsi(s string) string {
 //     it look like a different KIND of information than its
 //     adjacent stage-progress sibling.
 //
-// Together these fix the user-reported issue: "关注点 2/2 看不到
-// 意义在哪里" — the tag now sits next to its semantic sibling
-// (stage progress) and shares the same colour grammar.
+// Together these fix the user-reported issue: the tag now sits next to
+// its semantic sibling (stage progress), shares the same colour grammar,
+// and reads as an ordinal "which focus" label rather than completion.
 func TestFormatStageDoneLine_TopicProgressPositionAndColor(t *testing.T) {
 	r := New(nil, false)
 	r.lang = "zh"
@@ -63,18 +65,18 @@ func TestFormatStageDoneLine_TopicProgressPositionAndColor(t *testing.T) {
 		dispatchGen: 1,
 	}
 
-	line := r.formatStageDoneLine(row, /*topicTotal*/ 2)
+	line := r.formatStageDoneLine(row, 2)
 	plain := stripAnsi(line)
 
 	// (1) Topic tag MUST appear.
-	if !strings.Contains(plain, "关注点 2/2") {
+	if !strings.Contains(plain, "第 2 个关注点，共 2 个") {
 		t.Fatalf("topic tag missing: %q", plain)
 	}
 
 	// (2) POSITION: topic tag MUST appear BEFORE the stage-done
 	// label ("已完成证据收集") so it sits next to the stage
 	// progress, not at the row tail.
-	topicAt := strings.Index(plain, "关注点 2/2")
+	topicAt := strings.Index(plain, "第 2 个关注点，共 2 个")
 	labelAt := strings.Index(plain, "已完成证据收集")
 	if labelAt < 0 {
 		t.Fatalf("stage-done label missing: %q", plain)
@@ -100,8 +102,60 @@ func TestFormatStageDoneLine_TopicProgressPositionAndColor(t *testing.T) {
 	// (4) Topic tag MUST be tail-free: no longer at the very end of
 	// the row (the old position). Concretely: there must be content
 	// after the topic tag (the stage label + meta fields).
-	if strings.HasSuffix(strings.TrimSpace(plain), "关注点 2/2") {
+	if strings.HasSuffix(strings.TrimSpace(plain), "第 2 个关注点，共 2 个") {
 		t.Errorf("topic tag MUST NOT be at the row tail anymore; got: %q", plain)
+	}
+}
+
+// TestComposeDockRow2_TopicProgressPositionAndColor pins the same
+// visual contract for the live dock row the user watches while explore
+// is running:
+//
+//	▪ 2/4 · 第 2 个关注点，共 2 个 · 正在探索代码并收集证据 · 模型 ... · 约 ... tok
+//
+// Topic progress is navigation state, so it belongs beside stage
+// progress at the front of the row. It must not trail after model/token
+// telemetry, and it must use statusMeta instead of the brighter
+// statusObjective marker color.
+func TestComposeDockRow2_TopicProgressPositionAndColor(t *testing.T) {
+	pterm.EnableColor()
+	defer pterm.DisableColor()
+
+	topicText := "第 2 个关注点，共 2 个"
+	row := composeDockRow2(dockRowState{
+		stageProgress:         "2/4",
+		topicProgress:         topicText,
+		stageLabel:            "正在探索代码并收集证据",
+		modelID:               "MiniMax-M2.7-highspeed",
+		contextTokensEstimate: 61000,
+		contextWindowTokens:   200000,
+		lang:                  "zh",
+	})
+	plain := stripAnsiEscapes(row)
+
+	for _, want := range []string{"2/4", topicText, "正在探索代码并收集证据", "模型 MiniMax-M2.7-highspeed", "约 61k/200k tok"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("live dock row missing %q; got %q", want, plain)
+		}
+	}
+
+	ordered := []string{"2/4", topicText, "正在探索代码并收集证据", "模型 MiniMax-M2.7-highspeed", "约 61k/200k tok"}
+	prev := -1
+	for _, part := range ordered {
+		idx := strings.Index(plain, part)
+		if idx <= prev {
+			t.Fatalf("live dock row order drift: %q appeared at %d after previous index %d; row=%q", part, idx, prev, plain)
+		}
+		prev = idx
+	}
+	if strings.HasSuffix(strings.TrimSpace(plain), topicText) {
+		t.Fatalf("topic progress must not be the tail metadata field anymore; got %q", plain)
+	}
+	if !strings.Contains(row, statusMeta.Sprint(topicText)) {
+		t.Fatalf("topic progress must use statusMeta styling; row=%q", row)
+	}
+	if strings.Contains(row, statusObjective.Sprint(topicText)) {
+		t.Fatalf("topic progress must not use bright statusObjective styling; row=%q", row)
 	}
 }
 
@@ -174,11 +228,45 @@ func TestFormatStageDoneLine_TopicTagEnglish(t *testing.T) {
 	}
 
 	plain := stripAnsi(r.formatStageDoneLine(row, 3))
-	if !strings.Contains(plain, "focus 1/3") {
-		t.Fatalf("EN topic tag 'focus 1/3' missing: %q", plain)
+	if !strings.Contains(plain, "focus 1 of 3") {
+		t.Fatalf("EN topic tag 'focus 1 of 3' missing: %q", plain)
 	}
 	// MUST NOT carry zh tag.
 	if strings.Contains(plain, "关注点") {
 		t.Errorf("EN mode must NOT carry zh topic tag; got %q", plain)
+	}
+}
+
+func TestFormatStageDoneLine_UsesAggregateExploreSlotElapsed(t *testing.T) {
+	r := New(nil, false)
+	r.lang = "zh"
+
+	t0 := time.Unix(100, 0)
+	first := &taskRow{
+		startTime:  t0,
+		firstStart: t0,
+		endTime:    t0.Add(90 * time.Second),
+		okFinished: true,
+		isNodeRow:  true,
+		nodeID:     "n1_evidence_t0",
+		nodeKind:   "evidence",
+	}
+	second := &taskRow{
+		startTime:  t0.Add(120 * time.Second),
+		firstStart: t0.Add(120 * time.Second),
+		endTime:    t0.Add(200 * time.Second),
+		okFinished: true,
+		isNodeRow:  true,
+		nodeID:     "n1_evidence_t1",
+		nodeKind:   "evidence",
+	}
+	r.tasks = []*taskRow{first, second}
+
+	plain := stripAnsi(r.formatStageDoneLine(second, 2))
+	if !strings.Contains(plain, "本 3m20s") {
+		t.Fatalf("explore completion should show aggregate stage-slot elapsed, got %q", plain)
+	}
+	if strings.Contains(plain, "本 1m20s") {
+		t.Fatalf("explore completion must not show only the last node window, got %q", plain)
 	}
 }

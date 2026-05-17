@@ -91,6 +91,7 @@ func ApplyAndPersistMutation(
 	}
 
 	ctx.Mutable.SetAnswerDocumentV2WithMutation(mutation.Kind, merged)
+	ctx.Mutable.SetAnswerDisplayAttachments(filterAcceptedAnswerDisplayAttachments(merged, ctx.Mutable.AnswerDisplayAttachments()))
 	logging.Info("[%s] mutation: %s", toolName, mutation.Summary())
 
 	return types.ToolResult{
@@ -102,6 +103,41 @@ func ApplyAndPersistMutation(
 			summarizeV2Blocks(merged.Blocks)),
 		Timestamp: now,
 	}, nil
+}
+
+func filterAcceptedAnswerDisplayAttachments(doc *types.AnswerDocumentV2, in []types.AnswerDisplayAttachment) []types.AnswerDisplayAttachment {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.AnswerDisplayAttachment, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for _, att := range in {
+		if !answerDisplayAttachmentSurvivesAcceptedDoc(doc, att) {
+			continue
+		}
+		key := att.Hash
+		if key == "" {
+			key = answerDisplayAttachmentHash(att.Kind, att.Language, att.Body)
+			att.Hash = key
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, att)
+	}
+	return out
+}
+
+func answerDisplayAttachmentSurvivesAcceptedDoc(doc *types.AnswerDocumentV2, att types.AnswerDisplayAttachment) bool {
+	switch strings.TrimSpace(att.Kind) {
+	case types.AnswerDisplayAttachmentDiagram:
+		return strings.TrimSpace(att.Body) != ""
+	case types.AnswerDisplayAttachmentMarkdown, types.AnswerDisplayAttachmentText:
+		return false
+	default:
+		return strings.TrimSpace(att.Body) != "" && doc == nil
+	}
 }
 
 // validateMergedV2Doc runs the merged-doc invariants both write

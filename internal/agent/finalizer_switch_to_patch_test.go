@@ -285,6 +285,9 @@ func TestEmitPatchRejectFullRewriteSignal_FailedPatchRequestsFreshFullEmit(t *te
 	if !got.BypassThrottle || !got.BypassBudget {
 		t.Errorf("patch rewrite hint must bypass throttle/budget; got %+v", got)
 	}
+	if !e.forceFullEmitNext {
+		t.Fatal("patch rewrite signal must force a full-emit schema pass next")
+	}
 }
 
 func TestEmitSwitchToPatchSignal_HintIsLanguageNeutral(t *testing.T) {
@@ -407,6 +410,28 @@ func TestFilterToolSchemas_T2_PatchFirstEnforcement(t *testing.T) {
 		if !sameSchemaNamesT2(got, schemasWithoutPatch) {
 			t.Errorf("safety check failed — filter stripped emit_answer_document despite patch tool absent; got %+v want %+v",
 				got, schemasWithoutPatch)
+		}
+	})
+
+	t.Run("patch_reject_full_rewrite_keeps_full_emit_and_drops_patch_once", func(t *testing.T) {
+		e := &answerDocumentEvaluator{
+			emitFullDocFailStreak: 5,
+			forceFullEmitNext:     true,
+		}
+		ctx := ctxWithAnswerPatchBase()
+		got := callFilterToolSchemasT2(e, ctx, baseSchemas)
+		hasFull := false
+		hasPatch := false
+		for _, s := range got {
+			if s.Name == "emit_answer_document" {
+				hasFull = true
+			}
+			if s.Name == "emit_answer_document_patch" {
+				hasPatch = true
+			}
+		}
+		if !hasFull || hasPatch {
+			t.Fatalf("full-rewrite pass should expose full emit only, got %+v", got)
 		}
 	})
 }

@@ -41,6 +41,7 @@ type taskRow struct {
 	stage       string    // "analyze" / "explore" / "extract" / "finalize"
 	agent       string    // concrete agent name
 	startTime   time.Time // when EventStageStart / EventSubAgentStart / EventTaskNodeStart fired
+	firstStart  time.Time // first start across retries; preserves aggregate stage-slot duration
 	endTime     time.Time // zero while running
 	okFinished  bool      // true when endTime > 0 and error == ""
 	errorMsg    string    // populated by EventStageEnd with non-empty Error

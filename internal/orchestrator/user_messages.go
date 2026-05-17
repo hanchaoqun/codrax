@@ -165,17 +165,15 @@ func selfConsistencyContradictionMessage(lang string, rewrite bool, count int) s
 // requeues for another pass) and the pre-finalize Tier-1 floor
 // backtrack — both are "need more evidence before answering" from
 // the user's point of view.
-// P7 (2026-05-10) wording polish: "调查证据" was technical jargon
-// for what is, from the user's point of view, "information / context
-// the system needs to write a good answer". The new phrasing keeps
-// the same trigger surface but reads cleaner. R6 / R4 / CN+EN-only
-// audit clean — no internal vocab; generic; one natural language
-// per branch.
+// P7 follow-up (2026-05-17): the previous "更多上下文信息" wording was
+// too vague for evidence-gate retries and made users think the
+// system was wandering. Keep the copy user-facing, but name the
+// actual action: a validation pass needs steadier evidence.
 func softRetryHintMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 正在补充更多上下文信息"
+		return "⟳ 证据还不够稳，正在补一轮验证"
 	}
-	return "⟳ Gathering additional context"
+	return "⟳ Evidence needs one more validation pass"
 }
 
 // plannerProseFallbackMessage is the user-visible explanation when

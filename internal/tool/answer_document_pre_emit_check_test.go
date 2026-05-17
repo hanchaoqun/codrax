@@ -468,6 +468,77 @@ func TestPreCheckAggregateMemberSetCoverage_PrincipalFactsDoNotDependOnRequestFa
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_GroupedCountNarrativeIsSupportOnly(t *testing.T) {
+	mu := types.NewMutableState("architecture grouped count handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateGroupedCount,
+		Label:   "codrax 四层架构成员",
+		Value:   "4",
+		Unit:    "layers",
+		Members: []string{"Ground (ground/ground.go)", "Gate (analysis/gate/gate.go)", "Reviewer (orchestrator/)", "Contract (orchestrator/contract_check.go)"},
+	}})
+	mu.SetInvestigationComplete("structured grouped count accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentExplain,
+				Scenario:   types.ScenarioArchitectureExplain,
+				Complexity: types.ComplexityComplex,
+				Predicates: types.SemanticPredicates{IsCrossComponent: true},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "codrax 的四层架构包括 Ground 层、Gate 层、Reviewer 层和 Contract 层，重点是比较职责分层而不是输出逐字枚举。",
+	}}}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("architecture grouped_count members should not force verbatim visible strings, got %+v", got)
+	}
+	if got := preCheckAggregateCardinalityConsistency(doc, ctx); len(got) != 0 {
+		t.Fatalf("architecture grouped_count support should not bind narrative count claims, got %+v", got)
+	}
+}
+
+func TestPreCheckAggregateCardinalityConsistency_GroupedCountNarrativeBindsVisibleMemberCounts(t *testing.T) {
+	mu := types.NewMutableState("architecture grouped count visible count drift")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateGroupedCount,
+		Label:   "opencode 防护机制成员",
+		Value:   "5",
+		Unit:    "mechanisms",
+		Members: []string{"evaluate", "assertExternalDirectory", "Permission.ask", "ToolRegistry", "ApplyPatchTool"},
+	}})
+	mu.SetInvestigationComplete("structured grouped count accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentExplain,
+				Scenario:   types.ScenarioArchitectureExplain,
+				Complexity: types.ComplexityComplex,
+				Predicates: types.SemanticPredicates{IsCrossComponent: true},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "opencode",
+		Kind: types.BlockSection,
+		Text: "opencode 的三层机制包括 evaluate、ToolRegistry 和 ApplyPatchTool。",
+	}}}
+
+	hints := preCheckAggregateCardinalityConsistency(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("visible grouped_count member count drift should be deterministic, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "expected_count=5") || !strings.Contains(hints[0].ExpectedShape, "visible_count=3") {
+		t.Fatalf("hint should name grouped_count drift, got %+v", hints[0])
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_PathSetsAreCoverageForArchitecture(t *testing.T) {
 	mu := types.NewMutableState("architecture coverage aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

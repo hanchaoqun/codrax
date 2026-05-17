@@ -768,6 +768,34 @@ func TestEnumerationIntentForContext_StructuredNonEnumerationSuppressesRawListVe
 	}
 }
 
+func TestEnumerationIntentForContext_ArchitectureNarrativeSuppressesCategoryDrift(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: "对比一下 codrax 和 opencode 在防止模型幻觉方面各有什么优缺点？",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentExplain,
+				Scenario:   types.ScenarioArchitectureExplain,
+				Complexity: types.ComplexityComplex,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsCrossComponent:      true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqMechanism),
+					Entities: []string{"codrax", "opencode"},
+				},
+				SubTopics: []types.SubTopic{
+					{Summary: "codrax hallucination defenses", Entities: []string{"codrax"}},
+					{Summary: "opencode hallucination defenses", Entities: []string{"opencode"}},
+				},
+			},
+		},
+	}
+	if enumerationIntentForContext(ctx) {
+		t.Fatal("architecture/mechanism comparisons must not inherit exhaustive enumeration gates from category drift")
+	}
+}
+
 // TestEnumerationIntentForContext_FallsBackWithoutStructuredModel
 // was retired 2026-05-03 (Phase 6 stage 17). The test pinned the
 // retired raw-question keyword fallback ("列出所有 agent 的类型"

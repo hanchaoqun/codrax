@@ -28,6 +28,33 @@ func TestExtractEvidenceRequirements_NoMatch(t *testing.T) {
 	}
 }
 
+func TestExtractEvidenceRequirementsFromStructuredSignals_ArchitectureNarrativeSuppressesSecondaryEnumeration(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityComplex,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCrossComponent:      true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     string(types.ReqMechanism),
+			Entities: []string{"codrax", "opencode"},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "codrax hallucination defenses", Entities: []string{"codrax"}},
+			{Summary: "opencode hallucination defenses", Entities: []string{"opencode"}},
+		},
+	}
+	reqs := extractEvidenceRequirementsFromStructuredSignals([]string{"codrax", "opencode"}, rm)
+	if len(reqs) != 1 {
+		t.Fatalf("expected only the declared mechanism requirement, got %+v", reqs)
+	}
+	if reqs[0].Kind != types.ReqMechanism {
+		t.Fatalf("requirement kind = %q, want %q", reqs[0].Kind, types.ReqMechanism)
+	}
+}
+
 func TestCheckRequirementSatisfaction_Registration(t *testing.T) {
 	// Phase 6 stage 14 (2026-05-03) fixture update: typed
 	// EvidenceRegistration replaces the retired LLM-notes

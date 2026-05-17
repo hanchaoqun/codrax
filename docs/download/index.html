@@ -718,7 +718,7 @@
       <div class="brand">
         <div class="eyebrow">CODRAX</div>
         <h1>下载安装</h1>
-        <div class="sub">这里提供两套入口：普通环境用短命令脚本安装；受限网络或企业网关环境请直接下载每个平台对应的离线总包，再拷入目标机安装。手动下载仍然保留在下面作为备选。</div>
+        <div class="sub">这里只提供 Linux 和 macOS 发布包。每个包只包含 <code>codrax</code> 编译结果、<code>codrax.yaml.example</code>、<code>providers.yaml.example</code> 和 <code>docs/user_guide.md</code>，不附带第三方依赖包或安装脚本。</div>
       </div>
       <nav class="top-actions" aria-label="页面导航">
         <a class="action" href="../index.html">返回首页</a>
@@ -728,18 +728,18 @@
 
     <section class="hero">
       <div class="hero-copy">
-        <div class="hero-note">双通道安装 · 按环境选择</div>
-        <h2>先判断环境，再选入口。能在线就走短命令；不能在线就直接下载离线总包。</h2>
-        <p>短命令方案会自动检查依赖、按需安装并显示进度；如果企业网关会拦截脚本文本入口，或者目标环境根本不能直连 <code>codrax.net</code>，就不要再反复尝试在线安装，直接改走离线总包。</p>
+        <div class="hero-note">Linux / macOS 发布包</div>
+        <h2>按系统和 CPU 架构下载。Linux 使用静态编译版本，macOS 使用原生编译版本。</h2>
+        <p>发布包是最小可运行布局：二进制和配置样例放在包根目录，Markdown 用户手册放在 <code>docs/user_guide.md</code>。如果你需要 <code>git</code>、<code>ripgrep</code>、<code>patch</code> 等外部工具，请按目标系统自行安装。</p>
       </div>
-      <div class="decision-grid" aria-label="安装方式判断">
+      <div class="decision-grid" aria-label="下载方式判断">
         <div class="decision">
-          <strong>能直接访问 codrax.net</strong>
-          <span>选“在线安装”。复制一条短命令执行即可，依赖检查、下载和覆盖更新都会自动完成。</span>
+          <strong>Linux 服务器或容器</strong>
+          <span>下载 <code>codrax-linux-amd64.tar.gz</code>。该二进制通过 musl 静态链接，适合 x64 Linux 环境直接运行。</span>
         </div>
         <div class="decision">
-          <strong>代理返回 403，或去掉代理也连不通</strong>
-          <span>选“离线总包安装”。先在可访问机器下载总包，再拷到目标机本地解压并执行里面的安装脚本。</span>
+          <strong>macOS 开发机</strong>
+          <span>下载 <code>codrax-macos-universal.tar.gz</code>。包内是 macOS universal 二进制，同时支持 Apple Silicon 和 Intel。</span>
         </div>
       </div>
     </section>
@@ -747,92 +747,70 @@
     <section class="cards" aria-label="平台下载安装">
       <article class="card">
         <div class="card-head">
-          <div class="badge">Windows</div>
-          <div class="platform">Windows x64</div>
+          <div class="badge">Linux</div>
+          <div class="platform">Linux x64 静态版</div>
         </div>
-        <p class="desc">适合本地 PowerShell、CMD 和常规开发机环境。脚本会把程序安装到当前用户目录，并把命令入口加入 PATH。</p>
+        <p class="desc">适合服务器、容器和远程终端环境。Linux 发布包只包含 Codrax 自身产物和文档配置样例，二进制由 musl 静态编译。</p>
 
-        <section class="quick" aria-label="Windows 普通环境安装">
-          <div class="section-head">
-            <h3>在线安装</h3>
-            <span class="tag">短命令</span>
-          </div>
-          <p>适合可以直接执行远程安装脚本的环境。建议在 PowerShell 中执行。<strong>这条路径不需要先下载任何离线包。</strong></p>
-          <div class="command-shell">
-            <div class="command-top">
-              <div class="command-meta">
-                <div class="command-label">PowerShell</div>
-              </div>
-              <div class="command-actions">
-                <a class="inline-link" href="../install.ps1">查看在线脚本</a>
-                <button class="copy-button" type="button">复制命令</button>
-              </div>
-            </div>
-            <pre class="command-line"><code>$p=Join-Path $env:TEMP 'codrax-install.ps1'; iwr 'http://codrax.net/install.ps1' -OutFile $p -UseBasicParsing -UserAgent 'Mozilla/5.0'; &amp; powershell -ExecutionPolicy Bypass -File $p</code></pre>
-          </div>
-        </section>
-
-        <section class="quick" aria-label="Windows 受限环境安装">
+        <section class="quick" aria-label="Linux 发布包下载">
           <div class="section-head">
             <div class="section-head-main">
-              <h3>离线总包安装</h3>
-              <span class="tag">一包式</span>
+              <h3>下载发布包</h3>
+              <span class="tag">static</span>
             </div>
-            <a class="mini-action" href="./codrax-windows-amd64-offline.zip">下载离线总包</a>
+            <a class="mini-action" href="./codrax-linux-amd64.tar.gz">下载 Linux x64</a>
           </div>
-          <p>适合会拦截脚本文本入口，或者目标机器根本不能直连 <code>codrax.net</code> 的环境。先在可访问机器下载 <code>Windows 离线总包</code>，再把它解压到目标机的 <code>下载</code> 目录，最后在目标机本地执行。</p>
+          <p>包内固定包含以下内容，不包含额外依赖、安装器或脚本。</p>
           <ul class="install-points">
-            <li>先下载 Windows 离线总包</li>
-            <li>再拷到目标 Windows 机器的 Downloads 目录</li>
-            <li>解压后目录里已经带安装脚本和依赖包</li>
-            <li>最后在本机 PowerShell 执行</li>
+            <li><code>codrax</code> 静态二进制</li>
+            <li><code>codrax.yaml.example</code></li>
+            <li><code>providers.yaml.example</code></li>
+            <li><code>docs/user_guide.md</code></li>
           </ul>
           <div class="command-shell">
             <div class="command-top">
               <div class="command-meta">
-                <div class="command-label">PowerShell</div>
+                <div class="command-label">Bash</div>
               </div>
               <div class="command-actions">
-                <a class="inline-link" href="../install-local.ps1">查看本地脚本</a>
                 <button class="copy-button" type="button">复制命令</button>
               </div>
             </div>
-            <pre class="command-line"><code>powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\Downloads\codrax-windows-amd64-offline\install-local.ps1"</code></pre>
+            <pre class="command-line"><code>tar -xzf codrax-linux-amd64.tar.gz
+cd codrax-linux-amd64
+cp providers.yaml.example providers.yaml
+chmod +x ./codrax
+./codrax version</code></pre>
           </div>
-          <p>也就是先下载 <code>codrax-windows-amd64-offline.zip</code>，把它解压成 <code>C:\Users\你的用户名\Downloads\codrax-windows-amd64-offline\</code>，再直接复制执行上面的命令。</p>
         </section>
 
-        <details class="manual-block" aria-label="Windows 手动说明">
-          <summary class="fold-summary">展开手动依赖与手动启动</summary>
+        <details class="manual-block" aria-label="Linux 补充说明">
+          <summary class="fold-summary">展开运行建议</summary>
           <div class="manual-body">
             <div class="manual-grid">
-            <div class="setup">
-              <h4>手动准备依赖</h4>
-              <p>如果你不想跑一键脚本，也可以先自己装好依赖。Windows 上最省事的是先装 Portable Git 或 Git for Windows，它会把 <code>git / sh / bash / grep / find / patch</code> 一起补齐，再额外装 <code>ripgrep</code>。</p>
-              <div class="command-list">
-                <div class="command-line">Portable Git:
-./PortableGit-2.54.0-64-bit.7z.exe</div>
-                <div class="command-line">ripgrep:
-./ripgrep-15.1.0-x86_64-pc-windows-msvc.zip</div>
-                <div class="command-line">git --version
-sh -c "exit 0"
-bash -lc "exit 0"
-grep --version
-find --version
-patch --version
-rg --version</div>
+              <div class="setup">
+                <h4>常用外部工具</h4>
+                <p>Codrax 可以启动，但代码搜索和变更流程通常会用到 <code>git / ripgrep / grep / findutils / patch</code>。这些工具不随发布包分发。</p>
+                <div class="command-list">
+                  <div class="command-line">Debian / Ubuntu:
+sudo apt-get update
+sudo apt-get install -y git ripgrep grep findutils patch bash</div>
+                  <div class="command-line">RHEL / Rocky / CentOS:
+sudo yum install -y git ripgrep grep findutils patch bash</div>
+                  <div class="command-line">Alpine:
+sudo apk add --no-cache git ripgrep grep findutils patch bash</div>
+                </div>
               </div>
-            </div>
-            <div class="setup">
-              <h4>手动启动</h4>
-              <p>把压缩包解压到任意目录，首次把 <code>providers.yaml.example</code> 复制成 <code>providers.yaml</code>，再填入你的模型配置。</p>
-              <div class="command-list">
-                <div class="command-line">PowerShell:
-cd C:\tools\codrax
-Copy-Item .\providers.yaml.example .\providers.yaml
-.\codrax.exe</div>
+              <div class="setup">
+                <h4>首次配置</h4>
+                <p>第一次运行前至少复制 <code>providers.yaml.example</code>，填入模型地址、模型名和密钥。需要调整运行时参数时再复制 <code>codrax.yaml.example</code>。</p>
+                <div class="command-list">
+                  <div class="command-line">cp providers.yaml.example providers.yaml
+$EDITOR providers.yaml
+cp codrax.yaml.example codrax.yaml
+$EDITOR codrax.yaml</div>
+                </div>
               </div>
-            </div>
             </div>
           </div>
         </details>
@@ -840,107 +818,80 @@ Copy-Item .\providers.yaml.example .\providers.yaml
 
       <article class="card">
         <div class="card-head">
-          <div class="badge">Linux</div>
-          <div class="platform">Linux x64 静态包</div>
+          <div class="badge">macOS</div>
+          <div class="platform">macOS Universal</div>
         </div>
-        <p class="desc">适合服务器、容器和远程终端环境。安装脚本会优先补齐常用依赖，再把静态链接版本装进你的用户目录。</p>
+        <p class="desc">适合本地开发机和终端环境。请按芯片选择对应包，包内同样只包含 Codrax 编译结果、配置样例和 Markdown 用户手册。</p>
 
-        <section class="quick" aria-label="Linux 普通环境安装">
-          <div class="section-head">
-            <h3>在线安装</h3>
-            <span class="tag">短命令</span>
-          </div>
-          <p>适合可以直接执行远程安装脚本的环境。请在 Bash 中执行。<strong>这条路径不需要先下载任何离线包。</strong></p>
-          <div class="command-shell">
-            <div class="command-top">
-              <div class="command-meta">
-                <div class="command-label">Bash</div>
-              </div>
-              <div class="command-actions">
-                <a class="inline-link" href="../install.sh">查看在线脚本</a>
-                <button class="copy-button" type="button">复制命令</button>
-              </div>
-            </div>
-            <pre class="command-line"><code>wget --user-agent="Mozilla/5.0" -qO- http://codrax.net/install.sh | bash</code></pre>
-          </div>
-        </section>
-
-        <section class="quick" aria-label="Linux 受限环境安装">
+        <section class="quick" aria-label="macOS 发布包下载">
           <div class="section-head">
             <div class="section-head-main">
-              <h3>离线总包安装</h3>
-              <span class="tag">一包式</span>
+              <h3>下载发布包</h3>
+              <span class="tag">native</span>
             </div>
-            <a class="mini-action" href="./codrax-linux-amd64-offline.tar.gz">下载离线总包</a>
+            <a class="mini-action" href="./codrax-macos-universal.tar.gz">下载 macOS</a>
           </div>
-          <p>适合会拦截脚本文本入口，或者目标机器根本不能直连 <code>codrax.net</code> 的环境。先在可访问机器下载 <code>Linux 离线总包</code>，再把它解压到目标 Linux 机器的 <code>~/Downloads</code> 目录，最后在目标机本地执行。</p>
+          <p>该包使用 universal 二进制，Apple Silicon 和 Intel macOS 都可直接运行。</p>
           <ul class="install-points">
-            <li>先下载 Linux 离线总包</li>
-            <li>再拷到目标 Linux 机器的 ~/Downloads 目录</li>
-            <li>解压后目录里已经带安装脚本和依赖包</li>
-            <li>最后在本机 Bash 执行</li>
+            <li><code>codrax</code> macOS 二进制</li>
+            <li><code>codrax.yaml.example</code></li>
+            <li><code>providers.yaml.example</code></li>
+            <li><code>docs/user_guide.md</code></li>
           </ul>
           <div class="command-shell">
             <div class="command-top">
               <div class="command-meta">
-                <div class="command-label">Bash</div>
+                <div class="command-label">zsh / Bash</div>
               </div>
               <div class="command-actions">
-                <a class="inline-link" href="../install-local.sh">查看本地脚本</a>
                 <button class="copy-button" type="button">复制命令</button>
               </div>
             </div>
-            <pre class="command-line"><code>bash "$HOME/Downloads/codrax-linux-amd64-offline/install-local.sh"</code></pre>
+            <pre class="command-line"><code>tar -xzf codrax-macos-universal.tar.gz
+cd codrax-macos-universal
+cp providers.yaml.example providers.yaml
+xattr -d com.apple.quarantine ./codrax 2&gt;/dev/null || true
+./codrax version</code></pre>
           </div>
-          <p>也就是先下载 <code>codrax-linux-amd64-offline.tar.gz</code>，把它解压成 <code>~/Downloads/codrax-linux-amd64-offline/</code>，再直接复制执行上面的命令。</p>
         </section>
 
-        <details class="manual-block" aria-label="Linux 手动说明">
-          <summary class="fold-summary">展开手动依赖与手动启动</summary>
+        <details class="manual-block" aria-label="macOS 补充说明">
+          <summary class="fold-summary">展开运行建议</summary>
           <div class="manual-body">
             <div class="manual-grid">
-            <div class="setup">
-              <h4>手动准备依赖</h4>
-              <p>Linux 侧的最佳状态建议至少具备 <code>git / ripgrep / grep / findutils / patch</code>。下面给的是最常见的安装方式。</p>
-              <div class="command-list">
-                <div class="command-line">Debian / Ubuntu:
-sudo apt-get update
-sudo apt-get install -y git ripgrep grep findutils patch bash</div>
-                <div class="command-line">RHEL / Rocky / CentOS:
-sudo yum install -y git ripgrep grep findutils patch bash</div>
-                <div class="command-line">Alpine:
-sudo apk add --no-cache git ripgrep grep findutils patch bash</div>
+              <div class="setup">
+                <h4>架构检查</h4>
+                <p>如果你想确认当前机器架构或二进制内容，可以用下面的命令查看。</p>
+                <div class="command-list">
+                  <div class="command-line">uname -m
+lipo -info ./codrax</div>
+                </div>
               </div>
-            </div>
-            <div class="setup">
-              <h4>手动启动</h4>
-              <p>解压后进入目录，把示例配置复制成正式配置，再运行静态链接二进制即可。</p>
-              <div class="command-list">
-                <div class="command-line">tar -xzf codrax-linux-amd64-musl.tar.gz
-cd codrax-linux-amd64-musl
-cp ./providers.yaml.example ./providers.yaml
-chmod +x ./codrax
-./codrax</div>
+              <div class="setup">
+                <h4>常用外部工具</h4>
+                <p>建议准备 <code>git</code> 和 <code>ripgrep</code>。如果系统没有命令行开发工具，可先安装 Xcode Command Line Tools。</p>
+                <div class="command-list">
+                  <div class="command-line">xcode-select --install
+brew install ripgrep</div>
+                </div>
               </div>
-            </div>
             </div>
           </div>
         </details>
       </article>
     </section>
 
-    <details class="install-note" aria-label="安装补充说明">
+    <details class="install-note" aria-label="发布包补充说明">
       <summary class="fold-summary">展开补充说明</summary>
       <div class="note-body">
-        <p><strong>普通环境方案</strong> 会自动检查依赖、按需安装、覆盖更新 Codrax；已有的 <code>providers.yaml</code> 和 <code>codrax.yaml</code> 不会被覆盖。</p>
-        <p><strong>受限环境方案</strong> 现在已经是一包式离线总包，不再要求你自己分别下载脚本、主程序包和依赖包。如果你的环境走代理会被 403，去掉代理又直连卡住，这就说明它应该直接走离线总包安装。</p>
-        <p><strong>离线总包里已经包含</strong>：本地安装脚本、Codrax 主程序包，以及脚本会优先使用的依赖包。Windows 总包内含 <code>Portable Git</code> 和 <code>ripgrep</code>；Linux 总包内含 <code>ripgrep</code>。如果目标机仍缺 <code>git / grep / find / patch</code> 这类基础工具，请继续参考上面的手动说明。</p>
+        <p><strong>包内容固定：</strong> <code>codrax</code>、<code>codrax.yaml.example</code>、<code>providers.yaml.example</code>、<code>docs/user_guide.md</code>。除此之外不再放入依赖压缩包、安装脚本或其它工具。</p>
+        <p><strong>Linux 构建要求：</strong> Linux x64 包必须来自静态编译，发布侧使用 <code>make release</code> 时会用 <code>musl-gcc</code> 构建 <code>dist/codrax-linux-amd64</code> 后再打包。</p>
         <p><strong>安装完成后的第一件事</strong> 是打开 <code>providers.yaml</code>，填入你的模型地址、模型名和密钥；更完整的配置说明、日志和 trace 的使用方法，请直接看上面的 <a href="../user_guide.html">使用手册</a>。</p>
       </div>
     </details>
 
     <p class="footnote">
-      <strong>说明：</strong> 这页只保留和安装直接相关的内容。如果你更关心如何提问、如何带日志分析、如何切换模式，或者想看完整的配置说明，请打开上方的“使用手册”。
+      <strong>说明：</strong> 这页只保留 Linux 和 macOS 下载信息。如果你更关心如何提问、如何带日志分析、如何切换模式，或者想看完整的配置说明，请打开上方的“使用手册”。
     </p>
   </main>
 
@@ -1001,4 +952,3 @@ chmod +x ./codrax
   </script>
 </body>
 </html>
-

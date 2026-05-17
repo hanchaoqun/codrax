@@ -52,12 +52,13 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			if strings.HasPrefix(got, "⟳") == false {
 				t.Errorf("retry-hint must start with the ⟳ soft symbol, got %q", got)
 			}
-			// P7 (2026-05-10) wording polish: "证据" → "上下文信息";
-			// "evidence" → "context".
-			if c.zh && !strings.Contains(got, "上下文") {
+			// P7 follow-up (2026-05-17): keep retry copy
+			// user-facing, but avoid the vague "上下文信息"
+			// phrase that hid the evidence-validation action.
+			if c.zh && !strings.Contains(got, "证据") {
 				t.Errorf("zh: retry-hint must be Chinese, got %q", got)
 			}
-			if !c.zh && !strings.Contains(got, "context") {
+			if !c.zh && !strings.Contains(got, "Evidence") {
 				t.Errorf("en: retry-hint must be English, got %q", got)
 			}
 

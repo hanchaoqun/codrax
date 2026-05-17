@@ -808,6 +808,85 @@ func TestPreCheckItemCitationAlignment_AcceptsProseLabelWithExplicitCodeQualifie
 	}
 }
 
+func TestPreCheckItemCitationAlignment_QualifiedLabelMayUsePathOwnerAndEndpointMember(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "permission-list",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "evaluate",
+				Label:       "Permission.evaluate",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "opencode/packages/opencode/src/permission/evaluate.ts", Line: 9},
+		},
+	}
+	mut := types.NewMutableState("explain permission flow")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "opencode/packages/opencode/src/permission/evaluate.ts",
+		LineStart:       9,
+		AnchorKind:      types.AnchorDefinition,
+		Subject:         "evaluate",
+		AnchorSymbol:    "evaluate",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("qualified module/member label should align with path owner + endpoint member, got %v", hints)
+	}
+}
+
+func TestPreCheckItemCitationAlignment_QualifiedLabelCandidatesUsePathOwnerAndEndpointMember(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "permission-list",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "evaluate",
+				Label:       "Permission.evaluate",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "opencode/packages/opencode/src/permission/index.ts", Line: 1},
+		},
+	}
+	mut := types.NewMutableState("explain permission flow")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "opencode/packages/opencode/src/permission/index.ts",
+			LineStart:       1,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "Permission",
+			AnchorSymbol:    "Permission",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "opencode/packages/opencode/src/permission/evaluate.ts",
+			LineStart:       9,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "evaluate",
+			AnchorSymbol:    "evaluate",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	hints := preCheckItemCitationAlignment(doc, nil, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("wrong qualified-label citation should produce one hint, got %v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "candidate_citations=[opencode/packages/opencode/src/permission/evaluate.ts:9]") {
+		t.Fatalf("qualified-label candidates should include path-owner endpoint member citation, got %+v", hints[0])
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsUniqueCandidate(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

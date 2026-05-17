@@ -171,7 +171,7 @@ func extractEvidenceRequirementsFromStructuredSignals(entities []string, rm type
 		return nil
 	}
 	reqs := requirementsForKind(declaredKind, entities, structuredRequirementReason(declaredKind, rm))
-	return appendSecondaryKinds(reqs, entities, rm.Predicates)
+	return appendSecondaryKindsForModel(reqs, entities, rm)
 }
 
 func inferPrimaryRequirementKindFromSignals(rm types.RequestModel) types.RequirementKind {
@@ -302,6 +302,14 @@ func requirementsForKind(kind types.RequirementKind, entities []string, reason s
 }
 
 func isEnumerationRequestModel(rm types.RequestModel) bool {
+	// Architecture / mechanism narratives often mention many
+	// components, but those names are context for a prose answer, not
+	// a closed principal-member slate. Keep this boundary above every
+	// looser enumeration cue so a reconciled category predicate cannot
+	// turn an architecture comparison into an exhaustive coverage gate.
+	if types.IsArchitectureNarrativeExplanation(rm) {
+		return false
+	}
 	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqEnumeration {
 		return true
 	}
@@ -309,6 +317,13 @@ func isEnumerationRequestModel(rm types.RequestModel) bool {
 		return true
 	}
 	return types.ResolveQuestionFamily(rm) == types.QFEnumeration
+}
+
+func appendSecondaryKindsForModel(reqs []EvidenceRequirement, entities []string, rm types.RequestModel) []EvidenceRequirement {
+	if types.IsArchitectureNarrativeExplanation(rm) {
+		return reqs
+	}
+	return appendSecondaryKinds(reqs, entities, rm.Predicates)
 }
 
 // appendSecondaryKinds consults inferSecondaryKinds for structural
@@ -1242,9 +1257,9 @@ func forEachMatchingDef(
 	// prefix segments the caller's symbolMatchesQualifier checks
 	// against Symbol.Receiver / Symbol.Parent / FileInfo.Package.
 	type entityAlias struct {
-		orig    string
-		entLow  string // pre-normalisation lower
-		prefix  []string
+		orig   string
+		entLow string // pre-normalisation lower
+		prefix []string
 	}
 	keyToAliases := make(map[string][]entityAlias, len(entities))
 	for entLower, entOrig := range entities {

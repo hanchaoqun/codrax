@@ -243,7 +243,7 @@ type dockRowState struct {
 	stageKey              string // canonical stage key for stagePhrase / progress
 	stageProgress         string // "K/N" or "—"
 	stageLabel            string // localized stage name (running form)
-	topicProgress         string // "关注点 K/M" / "focus K/M" or empty
+	topicProgress         string // ordinal focus segment or empty; shown next to stageProgress
 	iteration             int    // 0 = hide, ≥1 shows "第 N 轮"
 	modelID               string // effective model id for the latest request
 	contextTokensEstimate int    // rough request token estimate; 0 = hide
@@ -322,10 +322,12 @@ func composeDockRow1(s dockRowState) string {
 
 // composeDockRow2 renders the stage row:
 //
-//	"  ▪ 2/4 探索证据 · 关注点 1/3 · 第 1 轮 · 5 工具 · 已收到 312 字"
+//	"  ▪ 2/4 · 第 1 个关注点，共 3 个 · 探索证据 · 第 1 轮 · 5 工具 · 已收到 312 字"
 //
-// glyph ▪ in statusObjective (cyan). K/N + stage label always
-// rendered; counters appended only when > 0. streamChars is finalize-
+// glyph ▪ in statusObjective (cyan). K/N always renders; stageLabel
+// renders when available. topicProgress sits with K/N because both are
+// navigation progress, not request telemetry. Counters append only when
+// > 0. streamChars is finalize-
 // specific (rendered as "已收到 N 字" / "received N chars").
 func composeDockRow2(s dockRowState) string {
 	var b strings.Builder
@@ -337,6 +339,12 @@ func composeDockRow2(s dockRowState) string {
 		progress = "—"
 	}
 	b.WriteString(statusMeta.Sprint(progress))
+	if s.topicProgress != "" {
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint("·"))
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint(s.topicProgress))
+	}
 	if s.stageLabel != "" {
 		b.WriteString(" ")
 		b.WriteString(statusMeta.Sprint("·"))
@@ -358,12 +366,6 @@ func composeDockRow2(s dockRowState) string {
 			s.contextWindowTokens,
 			s.lang,
 		)))
-	}
-	if s.topicProgress != "" {
-		b.WriteString(" ")
-		b.WriteString(statusMeta.Sprint("·"))
-		b.WriteString(" ")
-		b.WriteString(statusObjective.Sprint(s.topicProgress))
 	}
 	if s.iteration > 0 {
 		b.WriteString(" ")

@@ -212,6 +212,9 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 	}
 	out := make([]AnswerAggregateFactRef, 0, len(refs))
 	for _, ref := range refs {
+		if aggregateCountMemberSetIsNarrativeCoverageOnly(ref.Fact, *rm) {
+			continue
+		}
 		if aggregateMemberSetIsSourcePathCoverageOnly(ref.Fact, *rm) {
 			continue
 		}
@@ -284,6 +287,34 @@ func aggregateRequestRequiresPathMemberSetAsPrincipal(rm RequestModel) bool {
 		return true
 	}
 	return false
+}
+
+func aggregateCountMemberSetIsNarrativeCoverageOnly(fact AnswerAggregateFact, rm RequestModel) bool {
+	if fact.Kind == AnswerAggregateMemberSet {
+		return false
+	}
+	if !answerAggregateFactCarriesCompleteMemberSet(fact) {
+		return false
+	}
+	if aggregateRequestRequiresPathMemberSetAsPrincipal(rm) {
+		return false
+	}
+	if IsArchitectureNarrativeExplanation(rm) || IsSingleTopicMechanismExplanation(rm) {
+		return true
+	}
+	if rm.Intent != IntentExplain {
+		return false
+	}
+	if IsCategoryEnumerationAnswerShape(rm) ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup {
+		return false
+	}
+	return true
 }
 
 func aggregateMemberSetIsSourcePathCoverageOnly(fact AnswerAggregateFact, rm RequestModel) bool {

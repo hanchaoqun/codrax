@@ -131,6 +131,36 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesPathCoverageForArc
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesNarrativeGroupedCountsForArchitecture(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:    AnswerAggregateGroupedCount,
+		Label:   "codrax 四层架构成员",
+		Value:   "4",
+		Unit:    "layers",
+		Members: []string{"Ground (ground/ground.go)", "Gate (analysis/gate/gate.go)", "Reviewer (orchestrator/)", "Contract (orchestrator/contract_check.go)"},
+	}}
+	arch := RequestModel{
+		Intent:     IntentExplain,
+		Scenario:   ScenarioArchitectureExplain,
+		Complexity: ComplexityComplex,
+		Predicates: SemanticPredicates{IsCrossComponent: true},
+	}
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &arch); len(got) != 0 {
+		t.Fatalf("architecture grouped_count should remain support context, got %+v", got)
+	}
+
+	enum := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "全部架构成员"},
+	}
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &enum); len(got) != 1 {
+		t.Fatalf("enumeration grouped_count should remain principal, got %+v", got)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_CanonicalizesMemberSetValueFromMembers(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:    AnswerAggregateMemberSet,

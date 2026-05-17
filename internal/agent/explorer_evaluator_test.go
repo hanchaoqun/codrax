@@ -243,6 +243,45 @@ func TestParseOutput_EvidenceQualityFails(t *testing.T) {
 	}
 }
 
+func TestParseOutput_EnumerationEvidenceQualityHintUsesDynamicFloor(t *testing.T) {
+	var evidence []types.EvidenceItem
+	var notes []string
+	for i := 0; i < 4; i++ {
+		file := fmt.Sprintf("pkg/f%d.go", i)
+		subject := fmt.Sprintf("Thing%d", i)
+		evidence = append(evidence, pinnedEvidenceItem(file, subject, i+1))
+		notes = append(notes, fmt.Sprintf("- [DIRECT] %s line %d: returns true", subject, i+1))
+	}
+	var grepLines []string
+	for i := 0; i < 15; i++ {
+		grepLines = append(grepLines, fmt.Sprintf("pkg/f%d.go:1:match", i))
+	}
+	eval := &explorerEvaluator{
+		userQuestion:       "list all things",
+		isEnumerationQuery: true,
+		structuredEvidence: evidence,
+		investigationNotes: []string{strings.Join(notes, "\n")},
+	}
+	out, err := eval.ParseOutput(parseOutputCtx(string(types.ReqEnumeration), ""), nil, []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: strings.Join(grepLines, "\n")},
+		{ToolName: "read_file", Success: true, Summary: "[pkg/f0.go: showing lines 1-20 of 20 total]\n"},
+		{ToolName: "read_file", Success: true, Summary: "[pkg/f1.go: showing lines 1-20 of 20 total]\n"},
+		{ToolName: "read_file", Success: true, Summary: "[pkg/f2.go: showing lines 1-20 of 20 total]\n"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	if out.SignalUpdates == nil || out.SignalUpdates.HasEnoughFacts {
+		t.Fatal("enumeration query must keep exploring when direct evidence is below the dynamic floor")
+	}
+	if !strings.Contains(out.RetryHint, "needs ≥5") {
+		t.Fatalf("RetryHint should report the dynamic evidence floor, got: %q", out.RetryHint)
+	}
+	if strings.Contains(out.RetryHint, "need ≥2") {
+		t.Fatalf("RetryHint must not report the generic floor for enumeration coverage, got: %q", out.RetryHint)
+	}
+}
+
 func TestParseOutput_ERMUnsatisfiedDemotes(t *testing.T) {
 	// All quantitative floors pass (2 tool types, 3 reads, 2 DIRECT
 	// tags) but ERM has an unsatisfied requirement. Expect demote.

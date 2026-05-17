@@ -211,6 +211,7 @@ func (r *Renderer) handleEvent(ev Event) {
 			stage:       string(ev.Stage),
 			agent:       string(ev.Agent),
 			startTime:   ev.Timestamp,
+			firstStart:  ev.Timestamp,
 			detailStart: ev.Timestamp,
 		}
 		r.tasks = append(r.tasks, row)
@@ -370,6 +371,9 @@ func (r *Renderer) handleEvent(ev Event) {
 				}
 			}
 			row.startTime = ev.Timestamp
+			if row.firstStart.IsZero() {
+				row.firstStart = ev.Timestamp
+			}
 			row.detailStart = ev.Timestamp
 			row.endTime = time.Time{}
 			row.okFinished = false
@@ -530,6 +534,7 @@ func (r *Renderer) handleEvent(ev Event) {
 			stage:       string(ev.Stage),
 			agent:       ev.SubAgentName,
 			startTime:   ev.Timestamp,
+			firstStart:  ev.Timestamp,
 			detailStart: ev.Timestamp,
 			isSubAgent:  true,
 			subAgentID:  ev.SubAgentID,
@@ -829,7 +834,7 @@ func stripDockAnsi(s string) string {
 }
 
 // commitStageDoneLocked formats and commits the durable stage-done
-// line for the given row. topicTotal > 1 surfaces the "关注点 K/M"
+// line for the given row. topicTotal > 1 surfaces the ordinal focus
 // suffix. On error the line uses ✗ + red palette.
 //
 // Caller MUST hold r.mu.
@@ -1053,7 +1058,6 @@ func (r *Renderer) formatStageDoneLine(row *taskRow, topicTotal int) string {
 	}
 	totalElapsed := r.totalElapsedString()
 	errKind := classifyStatusError(row)
-	zh := isZh(r.lang)
 	var glyph string
 	var glyphStyle, labelStyle = statusSuccessMuted, statusPrimaryDone
 	var label string
@@ -1104,29 +1108,22 @@ func (r *Renderer) formatStageDoneLine(row *taskRow, topicTotal int) string {
 		}
 	}
 	progress := r.stageProgressForFocus(row)
-	stageElapsed := ""
-	if !row.endTime.IsZero() {
-		stageElapsed = row.endTime.Sub(row.startTime).Truncate(time.Second).String()
-	}
-	// Sub-topic progress (关注点 N/M) is rendered IMMEDIATELY AFTER the
+	stageElapsed := r.stageDoneElapsedString(row)
+	// Sub-topic progress is rendered IMMEDIATELY AFTER the
 	// stage progress (e.g. "2/4") so the two related "this is the K-th
 	// out of N" indicators sit together at the front of the row, where
 	// the eye lands first. Pre-2026-05-17 it was tacked onto the very
 	// end of the row after stage/total elapsed, which made it (a)
 	// visually disconnected from the related "2/4" stage counter, (b)
 	// rendered in a different (cyan) colour that broke the row's
-	// monochrome-meta convention, and (c) confusing because the
-	// trailing "关注点 2/2" looked like a 7th unrelated metadata field.
+	// monochrome-meta convention, and (c) confusing because the trailing
+	// ratio-style tag looked like a 7th unrelated metadata field.
 	// Colour is now statusMeta (gray) to match every other meta
 	// segment on the row.
 	topicTag := ""
 	if topicTotal > 1 && row.isNodeRow && row.nodeKind == "evidence" {
 		if idx, ok := topicIndexFromNodeID(row.nodeID); ok {
-			if zh {
-				topicTag = fmt.Sprintf("关注点 %d/%d", idx+1, topicTotal)
-			} else {
-				topicTag = fmt.Sprintf("focus %d/%d", idx+1, topicTotal)
-			}
+			topicTag = topicProgressPhrase(idx, topicTotal, r.lang)
 		}
 	}
 	var b strings.Builder
@@ -1167,6 +1164,45 @@ func (r *Renderer) formatStageDoneLine(row *taskRow, topicTotal int) string {
 		b.WriteString(statusMeta.Sprint(totalElapsedPhrase(totalElapsed, r.lang)))
 	}
 	return b.String()
+}
+
+func (r *Renderer) stageDoneElapsedString(row *taskRow) string {
+	if row == nil || row.endTime.IsZero() {
+		return ""
+	}
+	start := rowFirstStart(row)
+	if row.isNodeRow {
+		progress := r.stageProgressForFocus(row)
+		for _, other := range r.tasks {
+			if other == nil || !other.isNodeRow {
+				continue
+			}
+			if r.stageProgressForFocus(other) != progress {
+				continue
+			}
+			otherStart := rowFirstStart(other)
+			if otherStart.IsZero() {
+				continue
+			}
+			if start.IsZero() || otherStart.Before(start) {
+				start = otherStart
+			}
+		}
+	}
+	if start.IsZero() || row.endTime.Before(start) {
+		return ""
+	}
+	return row.endTime.Sub(start).Truncate(time.Second).String()
+}
+
+func rowFirstStart(row *taskRow) time.Time {
+	if row == nil {
+		return time.Time{}
+	}
+	if !row.firstStart.IsZero() {
+		return row.firstStart
+	}
+	return row.startTime
 }
 
 // formatSubTopicsBlock returns the multi-line "分析识别到 N 个关注点：" enumeration
@@ -1704,7 +1740,7 @@ func progressForStageKey(key string, total int) string {
 }
 
 // countTopicSiblings returns how many evidence_tN nodes are present
-// in r.tasks. Used by commit to decide whether the "关注点 K/M"
+// in r.tasks. Used by commit to decide whether the ordinal focus
 // suffix should appear on the completion line.
 //
 // Caller MUST hold r.mu.

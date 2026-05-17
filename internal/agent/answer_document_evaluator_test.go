@@ -134,6 +134,19 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequiredMechanis
 	if !strings.Contains(prompt, "## Typed Mechanism Anchor Contract") {
 		t.Fatalf("prompt missing typed mechanism-anchor contract:\n%s", prompt)
 	}
+	if !strings.Contains(prompt, "## Preferred Visible Anchors (Pre-flight Guide)") {
+		t.Fatalf("visible-anchor guide missing:\n%s", prompt)
+	}
+	for _, forbidden := range []string{
+		"## Visible-Anchor Whitelist (Authoritative)",
+		"COMPLETE pre-flight set",
+		"Surfaces outside this slate will fail",
+		"Surfaces NOT in this slate",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("visible-anchor guide should not frame the bounded prompt slate as an exclusive whitelist (%q):\n%s", forbidden, prompt)
+		}
+	}
 	for _, want := range []string{"runTaskGraph", "blocks[].items[].label", "edge_anchors", "prose-only"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q in typed mechanism-anchor contract:\n%s", want, prompt)
@@ -832,9 +845,9 @@ func TestRenderAnswerDocFacetCoverage_NoElevatedWhenNoEvidence(t *testing.T) {
 func TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList(t *testing.T) {
 	mut := types.NewMutableState("compare codrax and opencode")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "codrax 四层",
-		Value:   "4",
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "codrax 四层",
+		Value: "4",
 		Members: []string{
 			"SelfConsistencyReviewer",
 			"SemanticQualityReviewer",
@@ -968,8 +981,8 @@ func TestRenderAnswerDocPrincipalMemberSetContract_SkipsScalarCountSupport(t *te
 			RequestModel: types.RequestModel{
 				Intent: types.IntentReturnValue,
 				Predicates: types.SemanticPredicates{
-					IsCountQuestion:  true,
-					IsScalarAnswer:   true,
+					IsCountQuestion: true,
+					IsScalarAnswer:  true,
 				},
 				AnswerSubject: types.AnswerSubject{Kind: types.SubjectNumeric},
 				CompletenessObligation: &types.CompletenessObligation{

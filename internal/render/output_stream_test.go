@@ -254,6 +254,9 @@ func TestFormatAnswerDocumentDraftPreviewLinesExtractsReadableDraft(t *testing.T
 		]
 	}`
 	lines := formatAnswerDocumentDraftPreviewLines(params, "zh")
+	if got := lines[0].text; !strings.Contains(got, statusObjective.Sprint("第一稿答案")) {
+		t.Fatalf("draft preview header should use objective color, got %q", got)
+	}
 	plain := stripAnsiEscapes(formatScrollbackBody(lines, false))
 	for _, want := range []string{
 		"• 第一稿答案",

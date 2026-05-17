@@ -431,6 +431,30 @@ func TestRenderV2_WithRecoveredDiagramAttachmentDedupesStructuredDiagram(t *test
 	}
 }
 
+func TestRenderV2_WithRecoveredTextAttachmentUsesDivider(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "主体答案。",
+		}},
+	}
+	out := RenderAnswerDocumentWithAttachments(doc, []types.AnswerDisplayAttachment{{
+		Kind: types.AnswerDisplayAttachmentText,
+		Body: "模型最后一轮保留下来的原文。",
+	}}, "zh")
+	for _, want := range []string{
+		"主体答案。",
+		"---\n\n**保留的原文**",
+		"模型最后一轮保留下来的原文。",
+		"\n---\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("recovered text attachment missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderV2_BlockCaveat(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
