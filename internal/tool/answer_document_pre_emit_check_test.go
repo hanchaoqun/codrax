@@ -1408,6 +1408,41 @@ func TestPreCheckCitationPoolIntegrity_CatchesMissingAndOutOfRangeRefs(t *testin
 	}
 }
 
+func TestRunPreEmitChecks_CitationPoolShortCircuitsSemanticMemberHints(t *testing.T) {
+	mut := types.NewMutableState("citation carrier failure")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "mechanisms",
+		Value:   "1",
+		Members: []string{"PreEmitCheck"},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	ctx := &types.BusContext{Mutable: mut}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "mechanisms",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "other",
+				Label:       "OtherMechanism",
+				Text:        "not the aggregate member",
+				CitationRef: 2,
+			}},
+		}},
+	}
+
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("citation-carrier failure should short-circuit downstream semantic hints, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].Field, "citations") {
+		t.Fatalf("first and only hint should repair citation carrier, got %+v", hints[0])
+	}
+	if strings.Contains(hints[0].ExpectedShape+hints[0].Reason, "PreEmitCheck") {
+		t.Fatalf("carrier short-circuit should not mix member_set diagnostics into citation repair, got %+v", hints[0])
+	}
+}
+
 func TestPreCheckSummaryLeadBlock_RequiresSummaryFirstWhenViewRequiresIt(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		RequiredBlocks: []types.BlockRequirement{

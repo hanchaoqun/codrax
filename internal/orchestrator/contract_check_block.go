@@ -3493,6 +3493,9 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 			if answerItemLabelSupportedByEvidenceEndpoint(token, mut) {
 				continue
 			}
+			if inlineIdentifierSupportedByAggregateMemberSet(ident, mut) {
+				continue
+			}
 			found, tier := oracle.SymbolExistsFlat(ident)
 			if found && tier < 3 {
 				continue
@@ -3556,6 +3559,24 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 		})
 	}
 	return out
+}
+
+func inlineIdentifierSupportedByAggregateMemberSet(ident string, mut *types.MutableState) bool {
+	ident = strings.TrimSpace(ident)
+	if ident == "" || mut == nil {
+		return false
+	}
+	for _, fact := range mut.StableInvestigationAggregateFacts() {
+		if fact.Kind != types.AnswerAggregateMemberSet {
+			continue
+		}
+		for _, member := range fact.Members {
+			if answerAggregateMemberLabelMatches(ident, member) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func inlineIdentifierSupportedByRuntimeArtifact(ident string, mut *types.MutableState) bool {

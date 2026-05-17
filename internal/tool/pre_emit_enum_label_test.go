@@ -444,6 +444,32 @@ func TestPreCheckEnumLabel_AggregateMemberSetColonPackageLabelNoOracle(t *testin
 	}
 }
 
+func TestPreCheckEnumLabel_AggregateMemberSetDirectLabelNoCitationNoOracle(t *testing.T) {
+	oracle := &stubOracle{known: map[string]int{}}
+	mut := types.NewMutableState("principal mechanism labels from aggregate member set")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "codrax hallucination guard mechanisms",
+		Value:   "1",
+		Members: []string{"PreEmitCheck"},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	ctx := &types.BusContext{Mutable: mut}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "mechanisms",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:    "preemit",
+				Label: "PreEmitCheck",
+			}},
+		}},
+	}
+	if hints := preCheckEnumerationLabelGrounding(doc, oracle, ctx); hints != nil {
+		t.Fatalf("direct principal member_set labels should not require item text, citation_ref, or graph oracle support; got %v", hints)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_AggregateMemberSetPackageLabelRejectsCitationDrift(t *testing.T) {
 	mut := types.NewMutableState("package label citation drift")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -1905,7 +1931,7 @@ func TestRunPreEmitChecks_EnumLabelHallucination_FiresAlongsideOtherChecks(t *te
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
 			{ID: "hops", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{
-				{Label: "fabricatedFunctionName — fake"},
+				{Label: "fabricatedFunctionName — fake", CitationRef: -1},
 			}},
 		},
 	}

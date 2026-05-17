@@ -208,16 +208,16 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// an out-of-range index gets a direct schema repair instead of a
 	// misleading "all principal members are missing" diagnosis.
 	if h := preCheckCitationPoolIntegrity(doc); len(h) > 0 {
-		hints = append(hints, h...)
+		return h
 	}
 	if h := preCheckNegativeCitationBounds(doc); len(h) > 0 {
-		hints = append(hints, h...)
+		return h
 	}
 	if h := preCheckRuntimeObservationRepoContamination(doc, ctxOpt...); len(h) > 0 {
-		hints = append(hints, h...)
+		return h
 	}
 	if h := preCheckArtifactObservedFrameCitations(doc, ctxOpt...); len(h) > 0 {
-		hints = append(hints, h...)
+		return h
 	}
 	// Carrier visibility is governed by LLM-facing schema/prompt wording and
 	// typed row roles, not by post-hoc keyword matching over RawRequest or the
@@ -3499,12 +3499,12 @@ func preCheckEnumerationLabelGroundingWithContext(doc *types.AnswerDocumentV2, o
 			if preEmitLabelSupportedByRuntimeArtifact(label, ctx) {
 				continue
 			}
+			if preEmitLabelSupportedByAggregateMemberSet(label, it, types.Citation{}, ctx) {
+				continue
+			}
 			if ctx != nil && it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) {
 				if evidence, found := pctx.citedEvidenceItems(doc.Citations[it.CitationRef]); found &&
 					preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence) {
-					continue
-				}
-				if preEmitLabelSupportedByAggregateMemberSet(label, it, doc.Citations[it.CitationRef], ctx) {
 					continue
 				}
 			}
@@ -3544,7 +3544,7 @@ func preEmitLabelSupportedByAggregateMemberSet(label string, item types.AnswerBl
 		return false
 	}
 	label = strings.TrimSpace(label)
-	if label == "" || strings.TrimSpace(item.Text) == "" {
+	if label == "" {
 		return false
 	}
 	facts := ctx.Mutable.StableInvestigationAggregateFacts()
@@ -3554,10 +3554,44 @@ func preEmitLabelSupportedByAggregateMemberSet(label string, item types.AnswerBl
 	for _, ref := range preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts) {
 		fact := ref.Fact
 		for _, member := range fact.Members {
-			if !preEmitAggregateMemberLabelTextMatches(label, item.Text, member) {
-				continue
+			if preEmitAggregateMemberLabelMatches(label, member) {
+				return true
 			}
+			if strings.TrimSpace(item.Text) != "" &&
+				preEmitAggregateMemberLabelTextMatches(label, item.Text, member) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func preEmitAggregateMemberLabelMatches(label, member string) bool {
+	label = strings.TrimSpace(label)
+	member = strings.TrimSpace(member)
+	if label == "" || member == "" {
+		return false
+	}
+	for _, surface := range preEmitAggregateMemberDisplayCandidates(member) {
+		if preEmitTypedLabelTokenSupportsLabel(surface, label) ||
+			preEmitTypedLabelTokenSupportsLabel(label, surface) {
 			return true
+		}
+	}
+	for _, surface := range preEmitAggregateMemberRelationSurfaces(member) {
+		left, right, ok := preEmitAggregateMemberLabelRelationParts(surface)
+		if !ok {
+			continue
+		}
+		if preEmitTypedLabelTokenSupportsLabel(left, label) ||
+			preEmitTypedLabelTokenSupportsLabel(right, label) {
+			return true
+		}
+		for _, rightDisplay := range preEmitAggregateMemberDisplayCandidates(right) {
+			if preEmitTypedLabelTokenSupportsLabel(rightDisplay, label) ||
+				preEmitTypedLabelTokenSupportsLabel(label, rightDisplay) {
+				return true
+			}
 		}
 	}
 	return false

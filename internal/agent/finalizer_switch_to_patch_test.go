@@ -254,7 +254,7 @@ func TestEmitSwitchToPatchSignal_FailedPatch_LatchesNudge(t *testing.T) {
 	}
 }
 
-func TestEmitPatchRejectFullRewriteSignal_FailedPatchRequestsFreshFullEmit(t *testing.T) {
+func TestEmitPatchRejectFullRewriteSignal_FailedPatchRequestsCarryForwardFullEmit(t *testing.T) {
 	e := &answerDocumentEvaluator{}
 	ctx := ctxWithAnswerPatchBase()
 	obs := LoopObservation{
@@ -274,8 +274,8 @@ func TestEmitPatchRejectFullRewriteSignal_FailedPatchRequestsFreshFullEmit(t *te
 	}
 	for _, want := range []string{
 		"emit_answer_document",
-		"fresh `citations[]` array",
-		"renumber every `blocks[].items[].citation_ref`",
+		"carry forward its existing `citations[]` pool",
+		"ensure every non-negative `blocks[].items[].citation_ref` resolves",
 		"Stop patching",
 	} {
 		if !strings.Contains(got.Hint, want) {

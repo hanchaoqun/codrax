@@ -204,6 +204,28 @@ func TestFixI_ChangeImpactCurrentRequestProposalSurfacePasses(t *testing.T) {
 	}
 }
 
+func TestFixI_AggregateMemberSetInlineIdentifierPasses(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "The guard stack includes `PreEmitCheck` as a principal mechanism.",
+		}},
+	}
+	mut := types.NewMutableState("principal mechanism lookup")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "codrax hallucination guard mechanisms",
+		Value:   "1",
+		Members: []string{"PreEmitCheck"},
+	}})
+	mut.SetInvestigationComplete("accepted aggregate member set")
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("inline identifiers copied from principal member_set should not be forced through graph oracle; got %+v", vs)
+	}
+}
+
 func TestFixI_NonChangeImpactCurrentRequestIdentifierStillRequiresEvidence(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

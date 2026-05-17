@@ -2397,6 +2397,7 @@ func renderAnswerDocVisibleAnchorWhitelist(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Preferred Visible Anchors (Pre-flight Guide)\n\n")
 	b.WriteString("The symbols below are the strongest pre-flight anchors for `blocks[].items[].label`, inline backtick references in prose `text`, and diagram edge endpoints. This guide is not an exclusive list: anchors copied verbatim from Typed Answer Support Lanes, evidence endpoints, citations, or aggregate support_refs can also be valid. Prefer entries in this guide when they fit; when you use another supported anchor, copy the exact surface and cite the same evidence line.\n\n")
+	b.WriteString("If the later Required Principal Member Set section lists a member that is absent from this guide, the principal member_set contract takes precedence: render that member exactly from the aggregate fact instead of treating this guide as a closed whitelist.\n\n")
 	if len(whitelist.Required) > 0 {
 		b.WriteString("### Required anchors (must surface in structured fields)\n\n")
 		for _, e := range whitelist.Required {
@@ -5899,7 +5900,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	}
 	e.forceFullEmitNext = true
 	e.rejectHintsUsed++
-	hint := "Your last `emit_answer_document_patch` call was rejected. Stop patching for this repair and re-emit a complete `emit_answer_document` payload instead: build a fresh `citations[]` array, then renumber every `blocks[].items[].citation_ref` against that fresh zero-based citation pool. Preserve the same user-facing facts from the previous answer and the typed support lanes, but do not reuse stale patch-only block ids or citation indexes from rejected patch attempts. If the repair needs many list/table member or citation changes, a full emit is safer than piecemeal patching. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call."
+	hint := "Your last `emit_answer_document_patch` call was rejected. Stop patching for this repair and re-emit a complete `emit_answer_document` payload instead. Start from the previous complete document: carry forward its existing `citations[]` pool unless the repair truly changes the cited evidence; if you add or replace citations, emit one complete zero-based pool and ensure every non-negative `blocks[].items[].citation_ref` resolves to it. Preserve the same user-facing facts from the previous answer and the typed support lanes, but do not reuse stale patch-only block ids or citation indexes from rejected patch attempts. If the repair needs many list/table member or citation changes, a full emit is safer than piecemeal patching. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call."
 	hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 	return LoopSignal{
 		HintRequested:  true,
