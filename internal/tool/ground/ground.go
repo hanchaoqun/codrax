@@ -1310,11 +1310,15 @@ func VerifyLineAnchor(gc *Context, source string, line int, anchor string, radiu
 	if matched, ok := findNonCommentAnchorLine(fileLines, line, radius, anchor, source); ok {
 		return matched, true
 	}
-	if matched, ok := findAdjacentDocCommentDefinitionLine(fileLines, line, 12, anchor, source); ok {
+	if matched, ok := findAdjacentDocCommentDefinitionLine(fileLines, line, docCommentDefinitionLookahead, anchor, source); ok {
 		return matched, true
 	}
 	return 0, false
 }
+
+// docCommentDefinitionLookahead covers long Go/JSDoc-style field and
+// method comments while still stopping at the first non-comment line.
+const docCommentDefinitionLookahead = 48
 
 // ResolveSymbolLineAnchor verifies or canonicalises a symbol definition
 // anchor without treating an unread line window as contrary evidence.
@@ -2684,11 +2688,11 @@ func sourceLineStartsWithControlKeyword(lineText string) bool {
 		// patterns then fail anchor_kind="call" grounding with
 		// "definition-shaped source line" — the model has no path
 		// to ground the obvious call site.
-		"yield*",         // JS / TS generator delegation: `yield* funcName(args)`
-		"yield*\t",       // tab-separated form
-		"await ",         // JS / TS async expression: `await funcName(args)`
+		"yield*",   // JS / TS generator delegation: `yield* funcName(args)`
+		"yield*\t", // tab-separated form
+		"await ",   // JS / TS async expression: `await funcName(args)`
 		"await\t",
-		"await(",         // `await(promise)` — parenthesized await
+		"await(", // `await(promise)` — parenthesized await
 		// Python `yield from` — same delegation shape as JS `yield*`.
 		"yield from ",
 		"yield from\t",

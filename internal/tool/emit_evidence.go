@@ -3179,7 +3179,10 @@ func missingSurfaceTermReviewCandidates(item types.EvidenceItem, gc *ground.Cont
 	seen := make(map[string]bool, len(candidates))
 	for _, term := range candidates {
 		key := strings.ToLower(term)
-		if seen[key] || surfaceTermReviewContains(existing, term) || !types.SurfaceTermShouldBeRequiredForEvidence(term, item) {
+		if seen[key] ||
+			surfaceTermReviewContains(existing, term) ||
+			surfaceTermReviewDuplicatesEvidenceSource(term, item) ||
+			!types.SurfaceTermShouldBeRequiredForEvidence(term, item) {
 			continue
 		}
 		seen[key] = true
@@ -3247,6 +3250,45 @@ func surfaceTermReviewContains(existing, term string) bool {
 		return true
 	}
 	return strings.Contains(existing, term)
+}
+
+func surfaceTermReviewDuplicatesEvidenceSource(term string, item types.EvidenceItem) bool {
+	termPath := normalizeSurfaceTermReviewPath(term)
+	sourcePath := normalizeSurfaceTermReviewPath(item.Source)
+	if termPath == "" || sourcePath == "" {
+		return false
+	}
+	if strings.EqualFold(termPath, sourcePath) {
+		return true
+	}
+	if !strings.Contains(termPath, "/") {
+		return strings.EqualFold(path.Base(sourcePath), termPath)
+	}
+	return sourcePathHasSegmentSuffix(sourcePath, termPath)
+}
+
+func normalizeSurfaceTermReviewPath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.Trim(raw, "`'\"")
+	raw = strings.ReplaceAll(raw, `\`, `/`)
+	raw = strings.Trim(raw, "/")
+	if raw == "" {
+		return ""
+	}
+	return path.Clean(raw)
+}
+
+func sourcePathHasSegmentSuffix(sourcePath, suffix string) bool {
+	if suffix == "" || sourcePath == "" {
+		return false
+	}
+	sourcePath = strings.Trim(sourcePath, "/")
+	suffix = strings.Trim(suffix, "/")
+	if strings.EqualFold(sourcePath, suffix) {
+		return true
+	}
+	return len(sourcePath) > len(suffix) &&
+		strings.HasSuffix(strings.ToLower(sourcePath), strings.ToLower("/"+suffix))
 }
 
 func sourceLabelCandidatesFromText(text, source string) []string {

@@ -538,6 +538,92 @@ func TestRenderer_EventLocalWorkStartClearsRequestingActivity(t *testing.T) {
 	}
 }
 
+func TestRenderer_DockGapAfterExploreShowsExtractBeforeFinalize(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{Kind: EventStageStart, Timestamp: t0, Stage: "analyze", Agent: "analyzer"})
+	emit(Event{Kind: EventStageEnd, Timestamp: t0.Add(10 * time.Millisecond), Stage: "analyze", Agent: "analyzer"})
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: t0.Add(20 * time.Millisecond),
+		TaskNodes: []TaskNodeInfo{
+			{ID: "n1_evidence_t0", Type: "evidence", Objective: "topic A"},
+			{ID: "final", Type: "finalize", Objective: "render"},
+		},
+	})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(30 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{Kind: EventTaskNodeEnd, Timestamp: t0.Add(40 * time.Millisecond), NodeID: "n1_evidence_t0"})
+
+	row := stripAnsiEscapes(r.composeCurrentDockRows()[1])
+	if !strings.Contains(row, "3/4") || !strings.Contains(row, "待提炼关键发现") {
+		t.Fatalf("after explore completes, stage-only extract must own the next slot; got %q", row)
+	}
+	if strings.Contains(row, "4/4") || strings.Contains(row, "撰写最终答案") {
+		t.Fatalf("pending finalize must not leapfrog extract in the dock row; got %q", row)
+	}
+}
+
+func TestRenderer_DockSuppressesPreFinalizeLocalLeapfrogBeforeExtract(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{Kind: EventStageStart, Timestamp: t0, Stage: "analyze", Agent: "analyzer"})
+	emit(Event{Kind: EventStageEnd, Timestamp: t0.Add(10 * time.Millisecond), Stage: "analyze", Agent: "analyzer"})
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: t0.Add(20 * time.Millisecond),
+		TaskNodes: []TaskNodeInfo{
+			{ID: "n1_evidence_t0", Type: "evidence", Objective: "topic A"},
+			{ID: "final", Type: "finalize", Objective: "render"},
+		},
+	})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(30 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{Kind: EventTaskNodeEnd, Timestamp: t0.Add(40 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{Kind: EventLocalWorkStart, Timestamp: t0.Add(50 * time.Millisecond), Stage: "finalize"})
+
+	row := stripAnsiEscapes(r.composeCurrentDockRows()[1])
+	if !strings.Contains(row, "3/4") || !strings.Contains(row, "正在提炼关键发现") {
+		t.Fatalf("pre-finalize local checks must not display final answer before extract; got %q", row)
+	}
+	if strings.Contains(row, "4/4") || strings.Contains(row, "撰写最终答案") {
+		t.Fatalf("local StageFinalize must not leapfrog mandatory extract; got %q", row)
+	}
+}
+
+func TestRenderer_DockBacktrackKeepsProgressAndNamesRepairStage(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{Kind: EventStageStart, Timestamp: t0, Stage: "analyze", Agent: "analyzer"})
+	emit(Event{Kind: EventStageEnd, Timestamp: t0.Add(10 * time.Millisecond), Stage: "analyze", Agent: "analyzer"})
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: t0.Add(20 * time.Millisecond),
+		TaskNodes: []TaskNodeInfo{
+			{ID: "n1_evidence_t0", Type: "evidence", Objective: "topic A"},
+			{ID: "final", Type: "finalize", Objective: "render"},
+		},
+	})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(30 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{Kind: EventTaskNodeEnd, Timestamp: t0.Add(40 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{Kind: EventStageStart, Timestamp: t0.Add(50 * time.Millisecond), Stage: "extract", Agent: "extractor"})
+	emit(Event{Kind: EventStageEnd, Timestamp: t0.Add(60 * time.Millisecond), Stage: "extract", Agent: "extractor"})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(70 * time.Millisecond), NodeID: "final"})
+	emit(Event{Kind: EventLocalWorkStart, Timestamp: t0.Add(80 * time.Millisecond), Stage: "explore"})
+
+	row := stripAnsiEscapes(r.composeCurrentDockRows()[1])
+	if !strings.Contains(row, "4/4") || !strings.Contains(row, "修复中：正在探索代码并收集证据") {
+		t.Fatalf("post-finalize backtrack should keep primary progress and name repair sub-stage; got %q", row)
+	}
+	if strings.Contains(row, "2/4") {
+		t.Fatalf("repair backtrack must not make the primary progress regress; got %q", row)
+	}
+}
+
 func TestRenderer_EventAgentThinkingWithoutCurrentRowShowsRequesting(t *testing.T) {
 	r := newTestRenderer("zh")
 	emit := r.Emitter()

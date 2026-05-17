@@ -195,6 +195,40 @@ func TestVerifyLineAnchor_DocCommentLineCanonicalizesToDefinition(t *testing.T) 
 	}
 }
 
+func TestVerifyLineAnchor_LongDocCommentCanonicalizesToDefinition(t *testing.T) {
+	gc := &Context{
+		LineIndex: map[string]map[int]string{
+			"internal/types/violation_registry.go": {
+				132: "// SchemaDescriptionFragment is a sentence-level structural rule",
+				133: "// the LLM should know AT EMIT TIME (rather than learn",
+				134: "// post-rejection from a retry hint). When non-empty, the",
+				135: "// fragment is automatically pulled into the LLM-facing tool",
+				136: "// Description() — so the constraint preview is single-source-",
+				137: "// of-truth with the validator that enforces it.",
+				138: "//",
+				139: "// Per W3 (docs/design/iteration_inflation_remediation.md), the",
+				140: "// system migrates from \"validate after emit\" to \"guide before",
+				141: "// emit\" by giving the LLM the structural requirement at the",
+				142: "// point of generation.",
+				143: "//",
+				144: "// Format: ONE complete sentence in LLM-facing language. No",
+				145: "// internal Go terminology, no ViolKind names, no IRField",
+				146: "// strings, no operator jargon. Empty (the common case) means",
+				147: "// the validator is post-hoc only — the LLM cannot prevent the",
+				148: "// violation by knowing the rule (e.g. self-contradiction).",
+				149: "SchemaDescriptionFragment string",
+			},
+		},
+	}
+	matched, ok := VerifyLineAnchor(gc, "internal/types/violation_registry.go", 132, "SchemaDescriptionFragment", 2)
+	if !ok {
+		t.Fatalf("long doc-comment line should verify through adjacent definition")
+	}
+	if matched != 149 {
+		t.Fatalf("matched line = %d, want definition line 149", matched)
+	}
+}
+
 // TestRecoverSnippetFuzzy_UnicodeSubstringFallback covers the
 // recoverSnippetFuzzy path: when the LLM-supplied evidence Snippet
 // contains zero ASCII identifier tokens (Chinese / Japanese), the

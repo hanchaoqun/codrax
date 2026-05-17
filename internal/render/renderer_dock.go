@@ -161,6 +161,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.objectiveDone = true
 
 	case EventStageStart:
+		r.localStageKey = ""
 		// Read-mode post-analysisReady: most stages are owned by
 		// the per-node lifecycle (EventTaskNodeStart / End). Two
 		// exceptions: analyze still pre-dates the node graph (its
@@ -221,6 +222,9 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.streamChars = 0
 
 	case EventStageEnd:
+		if canonicalStageKey(string(ev.Stage)) == r.localStageKey {
+			r.localStageKey = ""
+		}
 		if r.analysisReady && ev.Stage != "" &&
 			string(ev.Stage) != "analyze" && string(ev.Stage) != "extract" {
 			break
@@ -257,6 +261,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 
 	case EventAnalysisReady:
+		r.localStageKey = ""
 		var analyzeDone *taskRow
 		for _, row := range r.tasks {
 			if row.isSubAgent || row.isNodeRow {
@@ -296,6 +301,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 
 	case EventTaskNodeStart:
+		r.localStageKey = ""
 		if row := r.findNodeRow(ev.NodeID); row != nil {
 			// Retry-aware reclassification for write-mode node rows.
 			// When this row is firing for the SECOND+ time (i.e.
@@ -388,6 +394,9 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 
 	case EventTaskNodeEnd:
+		if r.current == nil {
+			r.localStageKey = ""
+		}
 		if row := r.findNodeRow(ev.NodeID); row != nil {
 			row.pending = false
 			row.paused = false
@@ -490,6 +499,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		// Scheduler / validator local work is not an LLM request. Keep
 		// the dock honest without committing a noisy scrollback line for
 		// every fast local phase.
+		r.localStageKey = canonicalStageKey(string(ev.Stage))
 		r.activity = activityState{kind: activityWaitingNode}
 		r.streamTail = ""
 
@@ -946,10 +956,12 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 		state.totalElapsed = truncDurationToString(now.Sub(r.startTime))
 	}
 	focus := r.focusRow()
-	if focus != nil {
-		state.stageKey = stageKeyFor(focus)
-		state.stageProgress = r.stageProgressForFocus(focus)
-		state.stageLabel = liveBarPrimaryText(focus, r.lang)
+	localKey := r.localStagePresentationKeyLocked()
+	if localKey != "" && r.localStageOverridesFocusLocked(focus, localKey) {
+		r.applyDockStagePresentationLocked(&state, localKey, syntheticStageLabelForKey(localKey, r.lang, r.activity.kind))
+	} else if focus != nil {
+		key := stageKeyFor(focus)
+		r.applyDockStagePresentationLocked(&state, key, liveBarPrimaryText(focus, r.lang))
 		state.topicProgress = r.topicProgressFor(focus, r.lang)
 		state.iteration = focus.iteration
 		state.toolCount = focus.toolCount
@@ -960,6 +972,10 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 			}
 			state.stageElapsed = truncDurationToString(now.Sub(start))
 		}
+	} else if localKey != "" {
+		r.applyDockStagePresentationLocked(&state, localKey, syntheticStageLabelForKey(localKey, r.lang, r.activity.kind))
+	} else if key := r.topologyNextStageKeyLocked(); key != "" {
+		r.applyDockStagePresentationLocked(&state, key, syntheticStageLabelForKey(key, r.lang, r.activity.kind))
 	} else if fallback := r.fallbackRow(); fallback != nil {
 		// focus=nil time windows: post-EventTaskNodeEnd before next
 		// EventTaskNodeStart, post-EventAnalysisReady before first
@@ -977,9 +993,8 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 		// so row 2 doesn't read as contradictory with row 1's
 		// "请求模型中" / "调用工具中". Pending nodes still render
 		// as "待 X" when no activity is in flight (genuinely queued).
-		state.stageKey = stageKeyFor(fallback)
-		state.stageProgress = r.stageProgressForFocus(fallback)
-		state.stageLabel = fallbackBarPrimaryText(fallback, r.lang, r.activity.kind)
+		key := stageKeyFor(fallback)
+		r.applyDockStagePresentationLocked(&state, key, fallbackBarPrimaryText(fallback, r.lang, r.activity.kind))
 		state.topicProgress = r.topicProgressFor(fallback, r.lang)
 		state.iteration = fallback.iteration
 	} else if r.routeSummary != nil {
@@ -1093,6 +1108,170 @@ func (r *Renderer) stageProgressForFocus(row *taskRow) string {
 		}
 	}
 	return ""
+}
+
+// applyDockStagePresentationLocked writes the row-2 stage fields for
+// an actual execution key while keeping the visible K/N monotonic.
+// When a finalizer contract failure legitimately sends work back to
+// extract/explore, the user should not see the primary progress bar
+// jump from 4/4 to 2/4. Instead row 2 keeps the highest reached slot
+// and names the active repair sub-stage: "4/4 · 修复中：正在探索...".
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) applyDockStagePresentationLocked(state *dockRowState, key, label string) {
+	if state == nil {
+		return
+	}
+	state.stageKey = key
+	progress, repairing := r.displayProgressForStageKeyLocked(key)
+	state.stageProgress = progress
+	if repairing && strings.TrimSpace(label) != "" {
+		label = repairStageLabel(label, r.lang)
+	}
+	state.stageLabel = label
+}
+
+// displayProgressForStageKeyLocked returns the visible K/N for key.
+// The underlying stage may move backwards during repair, but the
+// visible primary progress is high-water monotonic; the label carries
+// the repair detail instead.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) displayProgressForStageKeyLocked(key string) (string, bool) {
+	total := normalizedTotalStages(r.totalStages)
+	slot := stageSlotForKey(key, total)
+	if slot <= 0 {
+		return progressForStageKey(key, total), false
+	}
+	maxSlot := r.maxStartedStageSlotLocked()
+	if maxSlot > slot {
+		return progressForSlot(maxSlot, total), true
+	}
+	return progressForSlot(slot, total), false
+}
+
+func syntheticStageLabelForKey(key, lang string, activity activityKind) string {
+	state := stagePhrasePending
+	if activityIsLive(activity) || activity == activityWaitingNode {
+		state = stagePhraseRunning
+	}
+	return stagePhrase(key, lang, state)
+}
+
+func repairStageLabel(label, lang string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return ""
+	}
+	if isZh(lang) {
+		return "修复中：" + label
+	}
+	return "Repairing: " + label
+}
+
+func normalizedTotalStages(total int) int {
+	if total <= 0 {
+		return 4
+	}
+	return total
+}
+
+func stageSlotForKey(key string, total int) int {
+	key = canonicalStageKey(key)
+	switch total {
+	case 4:
+		switch key {
+		case "analyze":
+			return 1
+		case "explore", "evidence", "validate", "reconcile", "plan", "planner":
+			return 2
+		case "extract", "apply", "coder":
+			return 3
+		case "finalize", "verify", "verifier":
+			return 4
+		}
+	case 3:
+		switch key {
+		case "plan", "planner":
+			return 1
+		case "apply", "coder":
+			return 2
+		case "verify", "verifier":
+			return 3
+		}
+	case 2:
+		switch key {
+		case "analyze":
+			return 1
+		case "plan", "planner", "verify", "verifier":
+			return 2
+		}
+	}
+	return 0
+}
+
+func progressForSlot(slot, total int) string {
+	if slot <= 0 || total <= 0 || slot > total {
+		return ""
+	}
+	return fmt.Sprintf("%d/%d", slot, total)
+}
+
+// maxStartedStageSlotLocked returns the highest main-pipeline slot
+// that has actually started. Pending TaskNode rows declared by
+// EventAnalysisReady are excluded; they are future topology, not
+// completed progress.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) maxStartedStageSlotLocked() int {
+	total := normalizedTotalStages(r.totalStages)
+	maxSlot := 0
+	for _, row := range r.tasks {
+		if row == nil || row.isSubAgent {
+			continue
+		}
+		if row.isNodeRow && row.pending && rowFirstStart(row).IsZero() && row.endTime.IsZero() {
+			continue
+		}
+		if rowFirstStart(row).IsZero() && row.endTime.IsZero() {
+			continue
+		}
+		if slot := stageSlotForKey(stageKeyFor(row), total); slot > maxSlot {
+			maxSlot = slot
+		}
+	}
+	return maxSlot
+}
+
+func (r *Renderer) localStagePresentationKeyLocked() string {
+	key := canonicalStageKey(r.localStageKey)
+	if key == "" {
+		return ""
+	}
+	if key == "explore" && r.hasStageKeyLocked("evidence") {
+		key = "evidence"
+	}
+	total := normalizedTotalStages(r.totalStages)
+	localSlot := stageSlotForKey(key, total)
+	maxSlot := r.maxStartedStageSlotLocked()
+	// Some pre-finalize local gates are emitted as StageFinalize even
+	// before the mandatory stage-only extract dispatch has run. Do not
+	// let such local bookkeeping leapfrog the topology on the live
+	// status row; the next required user-visible stage owns the label.
+	if localSlot > 0 && maxSlot > 0 && localSlot > maxSlot+1 {
+		return ""
+	}
+	return key
+}
+
+func (r *Renderer) localStageOverridesFocusLocked(focus *taskRow, localKey string) bool {
+	if focus == nil || localKey == "" {
+		return true
+	}
+	total := normalizedTotalStages(r.totalStages)
+	localSlot := stageSlotForKey(localKey, total)
+	focusSlot := stageSlotForKey(stageKeyFor(focus), total)
+	return localSlot > 0 && focusSlot > 0 && localSlot < focusSlot
 }
 
 // formatStageDoneLine renders the durable "✓ K/N 已 X · ..." line
@@ -1635,7 +1814,12 @@ func softNoticeBodyStyle(kind OrchestratorNoticeKind) *pterm.Style {
 // Caller MUST hold r.mu.
 func (r *Renderer) softNoticeStageProgressLocked() string {
 	if row := r.focusRow(); row != nil {
-		return r.stageProgressForFocus(row)
+		progress, _ := r.displayProgressForStageKeyLocked(stageKeyFor(row))
+		return progress
+	}
+	if key := r.localStagePresentationKeyLocked(); key != "" {
+		progress, _ := r.displayProgressForStageKeyLocked(key)
+		return progress
 	}
 	// Soft-notice gap handling: between two sequential stage
 	// dispatches there is a brief window where r.current is nil and
@@ -1651,81 +1835,147 @@ func (r *Renderer) softNoticeStageProgressLocked() string {
 		return progress
 	}
 	if row := r.fallbackRow(); row != nil {
-		return r.stageProgressForFocus(row)
+		progress, _ := r.displayProgressForStageKeyLocked(stageKeyFor(row))
+		return progress
 	}
 	if r.current != nil {
-		return r.stageProgressForFocus(r.current)
+		progress, _ := r.displayProgressForStageKeyLocked(stageKeyFor(r.current))
+		return progress
 	}
 	return ""
 }
 
-// topologyNextStageProgressLocked returns the K/N progress label for
-// the topologically-next stage after the most-recently-ended stage
-// row. Read-mode topology: log_triage/perf_triage → analyze → explore
-// → extract → finalize. Returns "" when no stage row has ended yet,
-// when the most-recent-ended stage is terminal, when totalStages does
-// not match a known mapping (e.g. ModeApply 4-stage write topology
-// has the same shape but different keys, handled below), or when
-// the renderer's stage cursor cannot be derived structurally.
+// topologyNextStageProgressLocked returns the visible K/N progress
+// label for the topologically-next stage. See topologyNextStageKeyLocked.
 //
 // Caller MUST hold r.mu.
 func (r *Renderer) topologyNextStageProgressLocked() string {
+	next := r.topologyNextStageKeyLocked()
+	if next == "" {
+		return ""
+	}
+	progress, _ := r.displayProgressForStageKeyLocked(next)
+	return progress
+}
+
+// topologyNextStageKeyLocked returns the next required stage key from
+// the pipeline topology, not from the first pending TaskNode. This is
+// load-bearing for read mode because extract is stage-only: after the
+// evidence nodes complete, the only pending TaskNode may be finalize,
+// but the real next dispatch is extract. Picking pending finalize here
+// makes the live dock jump 2/4 → 4/4 → 3/4.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) topologyNextStageKeyLocked() string {
+	total := normalizedTotalStages(r.totalStages)
+	maxSlot := r.maxStartedStageSlotLocked()
+	if maxSlot <= 0 {
+		if latest := r.latestEndedPreStageKeyLocked(); latest == "log_triage" || latest == "perf_triage" {
+			return "analyze"
+		}
+		return ""
+	}
+	nextSlot := maxSlot + 1
+	if nextSlot > total {
+		return ""
+	}
+	return r.stageKeyForTopologySlotLocked(nextSlot)
+}
+
+func (r *Renderer) latestEndedPreStageKeyLocked() string {
 	var newestKey string
 	var newestTime time.Time
 	for _, row := range r.tasks {
-		if row == nil || row.isSubAgent || row.isNodeRow {
+		if row == nil || row.isSubAgent || row.isNodeRow || row.endTime.IsZero() {
 			continue
 		}
-		if row.endTime.IsZero() {
+		key := canonicalStageKey(row.stage)
+		if key != "log_triage" && key != "perf_triage" {
 			continue
 		}
 		if row.endTime.After(newestTime) {
-			newestKey = canonicalStageKey(row.stage)
+			newestKey = key
 			newestTime = row.endTime
 		}
 	}
-	if newestKey == "" {
-		return ""
-	}
-	next := readModeStageAfter(newestKey)
-	if next == "" {
-		next = writeModeStageAfter(newestKey)
-	}
-	if next == "" {
-		return ""
-	}
-	return progressForStageKey(next, r.totalStages)
+	return newestKey
 }
 
-// readModeStageAfter maps a read-mode stage key to the next stage in
-// the canonical pipeline. Empty for terminal / unknown keys.
-func readModeStageAfter(prev string) string {
-	switch prev {
-	case "log_triage", "perf_triage":
-		return "analyze"
-	case "analyze":
-		return "explore"
-	case "explore":
-		return "extract"
-	case "extract":
-		return "finalize"
+func (r *Renderer) stageKeyForTopologySlotLocked(slot int) string {
+	total := normalizedTotalStages(r.totalStages)
+	if r.usesWriteModeSlotsLocked() {
+		switch total {
+		case 4:
+			switch slot {
+			case 1:
+				return "analyze"
+			case 2:
+				return "plan"
+			case 3:
+				return "apply"
+			case 4:
+				return "verify"
+			}
+		case 3:
+			switch slot {
+			case 1:
+				return "plan"
+			case 2:
+				return "apply"
+			case 3:
+				return "verify"
+			}
+		case 2:
+			switch slot {
+			case 1:
+				return "analyze"
+			case 2:
+				if r.hasStageKeyLocked("verify") {
+					return "verify"
+				}
+				return "plan"
+			}
+		}
+		return ""
+	}
+	switch total {
+	case 4:
+		switch slot {
+		case 1:
+			return "analyze"
+		case 2:
+			return "explore"
+		case 3:
+			return "extract"
+		case 4:
+			return "finalize"
+		}
 	}
 	return ""
 }
 
-// writeModeStageAfter maps a write-mode stage key to the next stage
-// in the canonical apply-mode pipeline. Empty for terminal / unknown
-// keys.
-func writeModeStageAfter(prev string) string {
-	switch prev {
-	case "write_analyze", "analyze":
-		return "plan"
-	case "plan":
-		return "apply"
-	case "apply":
-		return "verify"
+func (r *Renderer) usesWriteModeSlotsLocked() bool {
+	if normalizedTotalStages(r.totalStages) == 3 {
+		return true
 	}
-	return ""
+	for _, row := range r.tasks {
+		key := stageKeyFor(row)
+		switch key {
+		case "plan", "apply", "verify":
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Renderer) hasStageKeyLocked(want string) bool {
+	want = canonicalStageKey(want)
+	for _, row := range r.tasks {
+		if stageKeyFor(row) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // progressForStageKey returns the K/N string for a stage key using

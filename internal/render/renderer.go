@@ -178,6 +178,14 @@ type Renderer struct {
 	streamTail  string
 	streamChars int
 
+	// localStageKey is the stage currently doing orchestrator-local
+	// CPU work (contract checks, scheduler bookkeeping, forced-read
+	// setup) when no agent / node row is active. It is intentionally
+	// a renderer-side stage cursor, not a task row: local phases are
+	// often short and should not add durable timeline rows, but the
+	// live dock still needs an honest stage label while they run.
+	localStageKey string
+
 	// parallel carries the currently active bounded fan-out group,
 	// if any. It is render-only telemetry: orchestrator events open
 	// and close the group, while agent/tool events tagged with the

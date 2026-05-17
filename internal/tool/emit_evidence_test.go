@@ -497,6 +497,41 @@ func TestEmitEvidence_SurfaceTermReviewIgnoresUnrelatedSourcePathLabels(t *testi
 	}
 }
 
+func TestEmitEvidence_SurfaceTermReviewSkipsSelfSourceBasenameLabel(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/orchestrator/contract_check.go", 23,
+		"// contract_check.go is the orchestrator-side hook that runs the",
+		"// Analyzer-v3 AnswerContract checker after the finalizer produces its",
+		"// draft answer and before runTaskGraph marks the finalize node done.",
+		"//",
+		"// The checker itself lives in internal/analysis/contract; this file",
+		"// only handles the orchestrator-facing glue: extracting citations",
+		"// from the rendered answer text and translating contract.Result into",
+		"// the orchestrator's backtrack signal.",
+		"//",
+		"// P1.3 design notes:",
+		"//",
+		"//   - Citations are extracted by a structural file:line regex, NOT",
+		"//     a curated list of valid citations.",
+	)
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "ContractCheck", "source": "internal/orchestrator/contract_check.go", "line_start": 34, "summary": "Citations are extracted by a structural file:line regex", "anchor_kind": "text_reference", "anchor_symbol": "Citations"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	if res.Repair != nil && strings.Contains(res.Repair.Hint, "contract_check.go") {
+		t.Fatalf("source basename already represented by evidence source should not trigger review: %q", res.Repair.Hint)
+	}
+}
+
 func TestEmitEvidence_SurfaceTermReviewSatisfiedWhenHeaderLabelAuthored(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
