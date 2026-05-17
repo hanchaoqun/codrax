@@ -1205,7 +1205,16 @@ func TestEmitAnalysis_Execute_PersistsEnumerationBoundary(t *testing.T) {
 	}
 }
 
-func TestEmitAnalysis_Execute_RejectsEnumerationBoundaryQuoteOutsideRequest(t *testing.T) {
+// TestEmitAnalysis_Execute_WarnAndStripsEnumerationBoundaryQuoteOutsideRequest
+// pins the soft-strip behaviour: enumeration_boundary is schema-OPTIONAL
+// and downstream consumers tolerate nil, so a quote that does not appear
+// verbatim in the request is stripped + warned instead of rejected. The
+// LLM still gets the corrective message in the tool summary, but the
+// emit succeeds and the RequestModel persists without spending a heavy
+// LLM retry round on an optional handoff. Mirrors the pattern used by
+// ErrorGranularityCountsAreContextual (line ~912) and
+// sanitizeExactContextTerms (line ~1960).
+func TestEmitAnalysis_Execute_WarnAndStripsEnumerationBoundaryQuoteOutsideRequest(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -1224,18 +1233,31 @@ func TestEmitAnalysis_Execute_RejectsEnumerationBoundaryQuoteOutsideRequest(t *t
 	}`
 
 	res, mu := runEmitAnalysisWithObjective(t, "What order do gate.Run's 7 checks execute in?", payload)
-	if res.Success {
-		t.Fatalf("Execute should reject mismatched enumeration boundary, got summary=%q", res.Summary)
+	if !res.Success {
+		t.Fatalf("Execute should accept + warn, got reject summary=%q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "enumeration_boundary.source_quote must appear in the current request text and contain the declared count") {
-		t.Fatalf("unexpected reject summary: %q", res.Summary)
+	if !strings.Contains(res.Summary, "ignored enumeration_boundary because source_quote") {
+		t.Fatalf("summary missing strip-warn message: %q", res.Summary)
 	}
-	if mu.RequestModel() != nil {
-		t.Fatal("RequestModel should not persist on rejected enumeration boundary")
+	if !strings.Contains(res.Summary, "must appear verbatim in the request and contain the declared count") {
+		t.Fatalf("summary missing strip-warn rationale: %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel must persist after soft-strip of optional enumeration_boundary")
+	}
+	if rm.EnumerationBoundary != nil {
+		t.Fatalf("EnumerationBoundary must be stripped to nil, got %+v", rm.EnumerationBoundary)
 	}
 }
 
-func TestEmitAnalysis_Execute_RejectsEnumerationBoundaryCountNotInQuote(t *testing.T) {
+// TestEmitAnalysis_Execute_WarnAndStripsEnumerationBoundaryCountNotInQuote
+// pins the strip+warn behaviour when the source_quote is present in the
+// request but does not contain the declared count literal. Same rationale
+// as TestEmitAnalysis_Execute_WarnAndStripsEnumerationBoundaryQuoteOutsideRequest:
+// optional field, downstream tolerates nil, hard reject would waste a
+// full analyzer round on a non-load-bearing field.
+func TestEmitAnalysis_Execute_WarnAndStripsEnumerationBoundaryCountNotInQuote(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -1254,14 +1276,18 @@ func TestEmitAnalysis_Execute_RejectsEnumerationBoundaryCountNotInQuote(t *testi
 	}`
 
 	res, mu := runEmitAnalysisWithObjective(t, "列出 internal/analysis 下所有子包及各自入口点", payload)
-	if res.Success {
-		t.Fatalf("Execute should reject enumeration boundary whose quote lacks the count, got summary=%q", res.Summary)
+	if !res.Success {
+		t.Fatalf("Execute should accept + warn, got reject summary=%q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "enumeration_boundary.source_quote must appear in the current request text and contain the declared count") {
-		t.Fatalf("unexpected reject summary: %q", res.Summary)
+	if !strings.Contains(res.Summary, "ignored enumeration_boundary because source_quote") {
+		t.Fatalf("summary missing strip-warn message: %q", res.Summary)
 	}
-	if mu.RequestModel() != nil {
-		t.Fatal("RequestModel should not persist on rejected enumeration boundary")
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel must persist after soft-strip of optional enumeration_boundary")
+	}
+	if rm.EnumerationBoundary != nil {
+		t.Fatalf("EnumerationBoundary must be stripped to nil, got %+v", rm.EnumerationBoundary)
 	}
 }
 

@@ -911,8 +911,8 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		types.ErrorGranularityCountsAreContextual(intent, predicates, errorGranularityProfile) {
 		val.Warnings = append(val.Warnings, "ignored enumeration_boundary because error_granularity_profile makes count-like phrases contextual")
 	} else {
-		var enumerationBoundaryErr string
-		enumerationBoundary, enumerationBoundaryErr = parseEnumerationBoundary(raw, p.EnumerationBoundary)
+		var enumerationBoundaryErr, enumerationBoundaryWarn string
+		enumerationBoundary, enumerationBoundaryErr, enumerationBoundaryWarn = parseEnumerationBoundary(raw, p.EnumerationBoundary)
 		if enumerationBoundaryErr != "" {
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -920,6 +920,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 				Summary:   "emit_analysis rejected: " + enumerationBoundaryErr,
 				Timestamp: time.Now(),
 			}, nil
+		}
+		if enumerationBoundaryWarn != "" {
+			val.Warnings = append(val.Warnings, enumerationBoundaryWarn)
 		}
 	}
 	// Plan E (2026-05-02) — completeness + buckets parsing. Both
@@ -2075,24 +2078,47 @@ func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
 	return &types.DiagramHint{Kind: kind}, ""
 }
 
-func parseEnumerationBoundary(raw string, p *emitEnumerationBoundaryParam) (*types.RequestedEnumerationBoundary, string) {
+// parseEnumerationBoundary validates and normalises the optional
+// enumeration_boundary handoff. Returns (boundary, rejectMsg, warnMsg).
+//
+// Field is schema-OPTIONAL (omitempty pointer). Downstream consumers
+// (answer_surface_plan, facet_plan, request_traits, erm_completeness,
+// question_structure) all guard on nil + DeclaredCount > 0, so a
+// missing value is benign.
+//
+// Reject vs warn policy:
+//   - DeclaredCount <= 0 or empty SourceQuote → hard reject (true
+//     schema violation; the LLM emitted a structurally invalid
+//     payload and must fix it).
+//   - source_quote fails NormalizeRequestedEnumerationBoundary (quote
+//     not in raw OR quote does not contain the count literal) → soft
+//     strip + warn (the field is optional, downstream tolerates nil,
+//     and a hard reject costs a full LLM retry round just to drop
+//     one optional handoff). Mirrors the strip+warn precedent used
+//     for ErrorGranularityCountsAreContextual (line ~912) and the
+//     sanitizeExactContextTerms / sanitizeExactContextRoles pattern.
+func parseEnumerationBoundary(raw string, p *emitEnumerationBoundaryParam) (*types.RequestedEnumerationBoundary, string, string) {
 	if p == nil {
-		return nil, ""
+		return nil, "", ""
 	}
 	if p.DeclaredCount <= 0 {
-		return nil, "enumeration_boundary.declared_count must be >= 1"
+		return nil, "enumeration_boundary.declared_count must be >= 1", ""
 	}
 	if strings.TrimSpace(p.SourceQuote) == "" {
-		return nil, "enumeration_boundary.source_quote must be copied verbatim from the current request"
+		return nil, "enumeration_boundary.source_quote must be copied verbatim from the current request", ""
 	}
 	boundary := types.NormalizeRequestedEnumerationBoundary(raw, &types.RequestedEnumerationBoundary{
 		DeclaredCount: p.DeclaredCount,
 		SourceQuote:   p.SourceQuote,
 	})
 	if boundary == nil {
-		return nil, "enumeration_boundary.source_quote must appear in the current request text and contain the declared count"
+		warn := fmt.Sprintf(
+			"ignored enumeration_boundary because source_quote %q must appear verbatim in the request and contain the declared count %d",
+			strings.TrimSpace(p.SourceQuote), p.DeclaredCount,
+		)
+		return nil, "", warn
 	}
-	return boundary, ""
+	return boundary, "", ""
 }
 
 // parseCompletenessObligation (Plan E, 2026-05-02) validates the
