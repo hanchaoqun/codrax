@@ -689,6 +689,102 @@ func TestAnalyzer_PrescanBudget_MustEmitHintOnLastLegalRound(t *testing.T) {
 	}
 }
 
+func TestAnalyzer_FilterToolSchemas_NormalDropsContentTools(t *testing.T) {
+	e := &analyzerEvaluator{}
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: types.NewMutableState("question")}
+	ctx.Mutable.SetPrescanRoundLimit(3)
+	schemas := []llm.ToolSchema{
+		{Name: "emit_analysis"},
+		{Name: "repo_map"},
+		{Name: "grep"},
+		{Name: "list_files"},
+		{Name: "read_file"},
+		{Name: "exec_command"},
+	}
+
+	got := e.FilterToolSchemas(ctx, schemas)
+	names := analyzerSchemaNames(got)
+	for _, want := range []string{"emit_analysis", "repo_map", "grep", "list_files"} {
+		if !names[want] {
+			t.Fatalf("normal analyze schema missing %s; got %+v", want, got)
+		}
+	}
+	for _, forbidden := range []string{"read_file", "exec_command"} {
+		if names[forbidden] {
+			t.Fatalf("normal analyze schema exposed forbidden content tool %s; got %+v", forbidden, got)
+		}
+	}
+}
+
+func TestAnalyzer_FilterToolSchemas_EmitOnlyAfterPrescanLimit(t *testing.T) {
+	e := &analyzerEvaluator{}
+	mu := types.NewMutableState("question")
+	mu.SetPrescanRoundLimit(2)
+	mu.AppendPrescanSummary("round one")
+	mu.AppendPrescanSummary("round two")
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+	schemas := []llm.ToolSchema{
+		{Name: "emit_analysis"},
+		{Name: "repo_map"},
+		{Name: "grep"},
+		{Name: "list_files"},
+	}
+
+	got := e.FilterToolSchemas(ctx, schemas)
+	if len(got) != 1 || got[0].Name != "emit_analysis" {
+		t.Fatalf("prescan limit should leave only emit_analysis, got %+v", got)
+	}
+}
+
+func TestAnalyzer_RejectsContentToolBeforeExecution(t *testing.T) {
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: types.NewMutableState("question")}
+	res := validateAnalyzerToolBoundary(ctx, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"internal/agent/analyzer.go","limit":"200"}`)})
+	if res == nil {
+		t.Fatal("expected analyzer tool-boundary rejection for read_file")
+	}
+	if res.Success {
+		t.Fatalf("rejected read_file must be unsuccessful: %+v", res)
+	}
+	if res.Repair == nil || res.Repair.Code != analyzerToolNotAllowedCode {
+		t.Fatalf("expected structured repair code %q, got %+v", analyzerToolNotAllowedCode, res.Repair)
+	}
+	if !strings.Contains(res.Summary, "emit_analysis") {
+		t.Fatalf("rejection should direct the model to emit_analysis, got %q", res.Summary)
+	}
+}
+
+func TestAnalyzer_Observe_BudgetRejectedPrescanGetsEmitOnlyHint(t *testing.T) {
+	e := &analyzerEvaluator{}
+	result := types.ToolResult{
+		ToolName: "grep",
+		Success:  false,
+		Summary:  "pre-scan budget already reached",
+		Repair:   &types.ToolRepair{Code: analyzerPrescanBudgetReachedCode},
+	}
+	sig := e.Observe(&types.AgentContext{Stage: types.StageAnalyze}, LoopObservation{
+		Phase:          PhaseMidLoop,
+		LastToolResult: &result,
+		AllToolResults: []types.ToolResult{result},
+	})
+	if sig.StopRequested {
+		t.Fatalf("budget-rejected prescan should get one emit-only correction before stage retry, got stop=%q", sig.StopReason)
+	}
+	if !sig.HintRequested || !strings.Contains(sig.Hint, "emit_analysis") {
+		t.Fatalf("expected emit_analysis hint, got %+v", sig)
+	}
+	if e.prescanRounds != 0 {
+		t.Fatalf("rejected over-budget tool should not increment prescanRounds; got %d", e.prescanRounds)
+	}
+}
+
+func analyzerSchemaNames(schemas []llm.ToolSchema) map[string]bool {
+	out := make(map[string]bool, len(schemas))
+	for _, schema := range schemas {
+		out[schema.Name] = true
+	}
+	return out
+}
+
 // TestAnalyzer_PrescanBudget_OverBudget_ForcesStop verifies that a
 // third pre-scan tool after two in-budget rounds triggers a
 // force-stop with a descriptive StopReason.

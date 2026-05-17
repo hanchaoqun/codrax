@@ -879,11 +879,41 @@ func (e *analyzerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	return false
 }
 
-// Observe enforces the pre-scan budget at runtime. Once the counter
-// strictly exceeds AnalysisLimits.MaxPrescanRounds, the next pre-scan
-// triggers a force-stop. After the force-stop ParseOutput will see
-// Mutable.RequestModel()==nil if the LLM never called emit_analysis,
-// and will emit a hard StageOutput.Error — no silent synthesis.
+// FilterToolSchemas keeps the analyzer's runtime tool surface aligned
+// with the evidence-lite contract, even when MCP tools or future
+// skill edits accidentally expose broader read tools. Normal analyze
+// turns may see only emit_analysis plus the three navigation pre-scan
+// tools. Once the pre-scan budget is closed, the next LLM request is
+// physically emit-only instead of relying on prompt prose to stop
+// another grep/repo_map/list_files call.
+func (e *analyzerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema {
+	if ctx == nil || ctx.Stage != types.StageAnalyze || len(schemas) == 0 {
+		return schemas
+	}
+	emitOnly := analyzerTerminalEmitOnly(ctx)
+	out := make([]llm.ToolSchema, 0, len(schemas))
+	for _, schema := range schemas {
+		name := strings.TrimSpace(schema.Name)
+		if emitOnly {
+			if name == "emit_analysis" {
+				out = append(out, schema)
+			}
+			continue
+		}
+		if isAnalyzerStageAllowedTool(name) {
+			out = append(out, schema)
+		}
+	}
+	return out
+}
+
+// Observe enforces the pre-scan budget at runtime. The final legal
+// pre-scan round injects a must-emit hint; after that the schema filter
+// exposes only emit_analysis. If a provider still returns a blocked
+// pre-scan tool call, the structured repair result gets one emit-only
+// correction turn instead of immediately failing the whole analyze
+// attempt. A genuinely executed over-budget pre-scan is still a hard
+// stop, preserving the fail-loud contract for impossible states.
 func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	// PhaseSoftStop: when the LLM produces content-only (e.g. Think
 	// Aloud plan statement) without calling any tool, inject a
@@ -914,6 +944,22 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	// dispatch, which is cheaper than a full runAnalyzePhase retry.
 	if obs.LastToolResult.ToolName == "emit_analysis" && obs.LastToolResult.Success {
 		return LoopSignal{StopRequested: true, StopReason: "emit_analysis called"}
+	}
+	if obs.LastToolResult.Repair != nil {
+		switch obs.LastToolResult.Repair.Code {
+		case analyzerPrescanBudgetReachedCode, analyzerPrescanTerminalEmitModeCode:
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       "analyzer.emit-only.after-prescan-reject",
+				Hint:          "The pre-scan budget is closed. Do not call repo_map, grep, list_files, read_file, or any other tool. The next response must call emit_analysis exactly once with the best classification you already have; unresolved targets belong in the structured fields for explore to verify.",
+			}
+		case analyzerToolNotAllowedCode:
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       "analyzer.tool-boundary",
+				Hint:          "That tool is outside the analyze-stage boundary. Analyze is classification-only: use only repo_map, grep(files_only=true), list_files for light location checks, or call emit_analysis now. Do not call read_file or content-reading tools in analyze.",
+			}
+		}
 	}
 	if !isPrescanTool(obs.LastToolResult.ToolName) {
 		return LoopSignal{}

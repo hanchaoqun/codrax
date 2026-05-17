@@ -80,14 +80,13 @@ type AnalysisLimits struct {
 	// supposed to own.
 	//
 	// Behavior:
-	//   - N > 0: after `N` successful pre-scan rounds, the next
-	//     observed pre-scan tool triggers a force-stop via
-	//     LoopSignal{StopRequested: true} with a descriptive
-	//     StopReason. The analyzer's ParseOutput then synthesises a
-	//     zero-value RequestModel via readOrSynthesizeRequestModel
-	//     (the same failsafe the 0-call branch uses), and the
-	//     `analysis_prescan_budget_exhausted` diagnostic is surfaced
-	//     on StageOutput.Data so operators see the cause.
+	//   - N > 0: after `N` successful pre-scan rounds, the next request
+	//     is narrowed to emit_analysis only by the analyzer's dynamic
+	//     tool-schema filter. If a provider still returns a pre-scan tool
+	//     call, the execution gate returns a structured repair result and
+	//     the loop gets one emit-only correction turn; a genuinely
+	//     executed over-budget pre-scan still force-stops with a
+	//     descriptive StopReason.
 	//   - N == 0: the runtime gate is DISABLED. Observe returns an
 	//     empty signal regardless of how many pre-scan rounds fired.
 	//     This is the escape hatch for tuning or debugging.

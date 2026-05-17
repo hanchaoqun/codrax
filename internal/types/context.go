@@ -659,6 +659,8 @@ type ReconcileObservation struct {
 //     completeness=complete → lower_bound
 //   - "prescan_rejected"             — analyzer prescan tool call rejected
 //     (budget exhausted / terminal-emit mode)
+//   - "analyzer_tool_rejected"       — analyze-stage tool boundary rejected a
+//     content-reading or otherwise non-allowlisted tool before execution
 //   - "subtopic_coherence_failed"    — gate.Run emitted subtopic_coherence
 //     hard fail; analyzer is about to retry
 type AnalyzerDecisionSignal struct {

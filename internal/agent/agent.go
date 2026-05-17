@@ -2187,6 +2187,20 @@ func (b *BaseAgent) normalizeAnalyzerPrescanGrepCompat(ctx *types.AgentContext, 
 	return out, true
 }
 
+func analyzerTerminalEmitOnly(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Stage != types.StageAnalyze {
+		return false
+	}
+	if ctx.EmitStageRetryAttempt > 0 {
+		return true
+	}
+	if ctx.Mutable == nil {
+		return false
+	}
+	limit := ctx.Mutable.PrescanRoundLimit()
+	return limit > 0 && ctx.Mutable.PrescanRoundCount() >= limit
+}
+
 // buildInitialMessages is the sole entry point for producing the
 // ReAct loop's initial message stream. It owns the ORCHESTRATION
 // (assemble → render → append) and nothing else; every business
@@ -2306,6 +2320,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	// hit-ratio measurement stays honest (line-level grep
 	// summaries would flood the seen-blob with irrelevant code
 	// snippets and mask true hit ratios).
+	if violation := validateAnalyzerToolBoundary(ctx, tc); violation != nil {
+		return violation, nil
+	}
 	if violation := validateAnalyzerPrescanToolCall(ctx, tc); violation != nil {
 		return violation, nil
 	}
@@ -2483,13 +2500,13 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 		return nil
 	}
 	if ctx.EmitStageRetryAttempt > 0 {
-		return rejectAnalyzerPrescanTool(ctx, tc,
+		return rejectAnalyzerPrescanTool(ctx, tc, analyzerPrescanTerminalEmitModeCode,
 			"analyze retry is already in terminal emit mode; do not call repo_map / grep / list_files again. Call emit_analysis now with the best classification you have.")
 	}
 	if ctx.Mutable != nil {
 		limit := ctx.Mutable.PrescanRoundLimit()
 		if limit > 0 && ctx.Mutable.PrescanRoundCount() >= limit {
-			return rejectAnalyzerPrescanTool(ctx, tc,
+			return rejectAnalyzerPrescanTool(ctx, tc, analyzerPrescanBudgetReachedCode,
 				fmt.Sprintf("pre-scan budget already reached (%d/%d rounds used). Do not call repo_map / grep / list_files again; call emit_analysis now with the fields you have.",
 					ctx.Mutable.PrescanRoundCount(), limit))
 		}
@@ -2511,8 +2528,30 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 		// Round 1 happy path — evidence-lite boundary honoured.
 		return nil
 	}
-	return rejectAnalyzerPrescanTool(ctx, tc,
+	return rejectAnalyzerPrescanTool(ctx, tc, analyzerGrepFilesOnlyRequiredCode,
 		"grep in analyze stage must use files_only=true; line-level matches are exploration evidence, not classification input. Retry with files_only=true or call emit_analysis with the fields you have.")
+}
+
+const (
+	analyzerToolNotAllowedCode          = "analyzer_tool_not_allowed"
+	analyzerPrescanTerminalEmitModeCode = "analyzer_terminal_emit_mode"
+	analyzerPrescanBudgetReachedCode    = "analyzer_prescan_budget_reached"
+	analyzerGrepFilesOnlyRequiredCode   = "analyzer_grep_files_only_required"
+)
+
+func validateAnalyzerToolBoundary(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+	if ctx == nil || ctx.Stage != types.StageAnalyze {
+		return nil
+	}
+	if isAnalyzerStageAllowedTool(tc.Name) {
+		return nil
+	}
+	return rejectAnalyzerTool(ctx, tc, "analyzer_tool_rejected", analyzerToolNotAllowedCode,
+		fmt.Sprintf("tool %q is not available in analyze stage. Analyze is classification-only: use repo_map / grep(files_only=true) / list_files for light location checks, or call emit_analysis now. Deep content-reading tools such as read_file belong to explore.", tc.Name))
+}
+
+func isAnalyzerStageAllowedTool(name string) bool {
+	return name == "emit_analysis" || isPrescanTool(name)
 }
 
 // rejectAnalyzerPrescanTool synthesises the failed ToolResult
@@ -2523,11 +2562,15 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 // 2026-05-04): also records an AnalyzerDecisionSignal on Mutable
 // so the end-of-Run summary surfaces the rejection, not just the
 // log line.
-func rejectAnalyzerPrescanTool(ctx *types.AgentContext, tc llm.ToolCall, reason string) *types.ToolResult {
-	logging.Warning("[analyzer] prescan tool %q rejected: %s", tc.Name, reason)
+func rejectAnalyzerPrescanTool(ctx *types.AgentContext, tc llm.ToolCall, code, reason string) *types.ToolResult {
+	return rejectAnalyzerTool(ctx, tc, "prescan_rejected", code, reason)
+}
+
+func rejectAnalyzerTool(ctx *types.AgentContext, tc llm.ToolCall, decisionKind, code, reason string) *types.ToolResult {
+	logging.Warning("[analyzer] tool %q rejected: %s", tc.Name, reason)
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
-			Kind:   "prescan_rejected",
+			Kind:   decisionKind,
 			Stage:  string(types.StageAnalyze),
 			Reason: reason,
 			Detail: tc.Name,
@@ -2537,6 +2580,7 @@ func rejectAnalyzerPrescanTool(ctx *types.AgentContext, tc llm.ToolCall, reason 
 		ToolName:  tc.Name,
 		Success:   false,
 		Summary:   reason,
+		Repair:    &types.ToolRepair{Code: code, Hint: reason},
 		Timestamp: time.Now(),
 	}
 }

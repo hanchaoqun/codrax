@@ -57,6 +57,7 @@
 4. **Batch I 第三段落地**：`presentation_directive` 不再拼进 runner request / `Mutable.Objective`，而是通过 `SetPresentationDirective` → `BusContext.PresentationDirective` → `AgentContext.PresentationDirective` 进入独立 `Presentation Directive` prompt 段。UI 状态行、repo_map task map、memory 不再出现 `## Presentation directive...` 这类系统 header；analysis contract 明确该段只能影响 `diagram_hint` / table / scalar / decision 等展示字段，不能作为代码实体、检索词、事实或仓范围。
 5. **Batch B 第三段落地**：显式 diagram/逻辑视图/时序图/调用图/架构图请求在 comparison 等“默认无图 family”下不再因为严格 diagram-node seed 不足被降级掉。`BuildAnswerSurfacePlan` 会在已有 typed comparison/architecture 结构与可承载证据时保留 `DiagramContract.RequiredKind`，让 semantic view/schema 要求对应 `BlockDiagram`，避免 analyzer 已识别 `diagram_hint` 但最终答案缺少用户明确要求的图。
 6. **Batch H 第六段落地**：analyzer `subtopic_coherence` 的 R1.3 在多仓 cross-component 对比下改为 advisory。多仓问题的 sub_topics 可以按机制分面、文件线索或内部组件拆解，不必每个 sub_topic 都重复仓名；单仓/普通场景的真正 entity orphan 仍保持 hard gate。
+7. **Batch G/H 第七段落地**：analyzer 预扫描预算关闭后动态收窄工具 schema，只保留 `emit_analysis`；分析阶段同时增加工具边界硬拦截，任何绕过 schema 的 `read_file` / `exec_command` / MCP 内容工具在执行前被结构化拒绝，不再进入工具反序列化错误或整轮 analyze 重试。预算到顶后的越界预扫描调用会获得一次 emit-only 就地修正机会，而不是立刻触发 `⟳ 1/4 模型响应出错`。
 
 ## 问题清单
 
@@ -730,6 +731,29 @@
 - [x] validator 与 semantic quality reviewer 共用同一套 diagram edge relation resolver：`edge_anchors.relation_kind` / edge-capable `claim_form` 优先，闭集 label vocabulary 覆盖 call、guard、import、precedence、contain、observe，最后才允许结构安全 fallback：`sequenceDiagram ->>` 计为 call、`DiagramCallDAG` 有向 flowchart 边计为 call、`DiagramFlow` decision/diamond 出边计为 guard；architecture/class 等无确定结构语义的图不做默认关系推断。deterministic contract 已满足时，reviewer 的 `diagram_gap` 不再转成返工 violation。
 - [x] reviewer schema tolerance 只修结构形状；真实 `consistent=false` 且无 contradiction 仍按 malformed verdict 处理。
 - [x] 回归测试覆盖 citation op 合并、preserved citation-pool remap、sequence solid/dashed 区分、reviewer string/stringified-array 兼容，防止后续开发重新把协议小错升级成 finalizer 重写。
+
+### UIP-031（P1）analyzer 预扫描预算到顶后仍暴露预扫描/内容工具导致 analyze 重试
+
+代码位置：`internal/agent/analyzer.go`、`internal/agent/agent.go`
+
+状态：**已修复（Batch G/H 延伸段）**。analyzer 实现 `ToolSchemaFilter`：正常分析阶段只暴露 `emit_analysis`、`repo_map`、`grep`、`list_files`；一旦 `PrescanRoundCount >= PrescanRoundLimit` 或处于 emit-stage retry，下一轮 LLM 请求只暴露 `emit_analysis`。同时执行层新增 analyzer 工具边界：即使 provider 或旧模型绕过 schema 发来 `read_file` / `exec_command` / MCP 内容工具，也会在真正执行前用结构化 `ToolRepair.Code` 拒绝并提示回到 `emit_analysis`，避免参数反序列化小错污染 analyze 轮次。
+
+触发证据：
+
+- `../small/codrax-small/.codrax/logs` 最新运行中，分析阶段在系统提示 “Pre-scan budget reached (3 of 3 rounds used)” 后仍然看到 `tools=4`，模型继续调用 `grep`，随即触发 `pre-scan budget exhausted` 和 `⟳ 1/4 模型响应出错,正在重新理解问题`。
+- 同一日志里 analyzer 早期还调用了 `read_file`，并把 `limit/offset` 发成字符串，导致 `json: cannot unmarshal string into Go struct field readFileParams.limit/offset of type int`。这类内容读取本就不属于 analyze 阶段，不应依赖工具参数兼容层兜住。
+
+风险：
+
+- 这是系统工具面和阶段契约不一致：prompt 要求“必须 emit_analysis / 禁止内容读取”，但 schema 仍给了模型继续探索的入口。
+- 整轮 analyze retry 不是用户意图问题，也不是模型答案必须重写；上游应收窄工具面并本地处理越界工具调用。
+
+修复方向：
+
+- [x] analyzer schema filter 正常只允许分类与轻量定位工具，预算关闭后只允许 `emit_analysis`。
+- [x] analyzer 执行前边界拒绝所有非允许工具，避免内容工具进入真实执行和 JSON decode 错误。
+- [x] 预算关闭后的越界预扫描调用用 typed repair code 识别，给一次 emit-only 修正机会，不把同一 dispatch 立刻 fail loud。
+- [x] 回归测试覆盖正常 schema 过滤、预算到顶 emit-only、内容工具边界拒绝、预算拒绝不递增 prescan round，防止后续开发重新把 read/explore 工具暴露给 analyzer。
 
 ## 分批修复建议
 
