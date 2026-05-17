@@ -162,6 +162,7 @@ func (r *Renderer) handleEvent(ev Event) {
 
 	case EventStageStart:
 		r.localStageKey = ""
+		r.clearParallelIfStageKeyOutsideLocked(canonicalStageKey(string(ev.Stage)))
 		// Read-mode post-analysisReady: most stages are owned by
 		// the per-node lifecycle (EventTaskNodeStart / End). Two
 		// exceptions: analyze still pre-dates the node graph (its
@@ -224,6 +225,9 @@ func (r *Renderer) handleEvent(ev Event) {
 	case EventStageEnd:
 		if canonicalStageKey(string(ev.Stage)) == r.localStageKey {
 			r.localStageKey = ""
+		}
+		if canonicalStageKey(string(ev.Stage)) == "explore" {
+			r.parallel = nil
 		}
 		if r.analysisReady && ev.Stage != "" &&
 			string(ev.Stage) != "analyze" && string(ev.Stage) != "extract" {
@@ -303,6 +307,7 @@ func (r *Renderer) handleEvent(ev Event) {
 	case EventTaskNodeStart:
 		r.localStageKey = ""
 		if row := r.findNodeRow(ev.NodeID); row != nil {
+			r.clearParallelIfStageKeyOutsideLocked(stageKeyFor(row))
 			// Retry-aware reclassification for write-mode node rows.
 			// When this row is firing for the SECOND+ time (i.e.
 			// retry: prior endTime was set by a previous
@@ -500,6 +505,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		// the dock honest without committing a noisy scrollback line for
 		// every fast local phase.
 		r.localStageKey = canonicalStageKey(string(ev.Stage))
+		r.clearParallelIfStageKeyOutsideLocked(r.localStageKey)
 		r.activity = activityState{kind: activityWaitingNode}
 		r.streamTail = ""
 
@@ -1156,6 +1162,23 @@ func syntheticStageLabelForKey(key, lang string, activity activityKind) string {
 		state = stagePhraseRunning
 	}
 	return stagePhrase(key, lang, state)
+}
+
+// clearParallelIfStageKeyOutsideLocked enforces the display ownership
+// boundary for parallel telemetry. Parallel dispatch state belongs to the
+// stage that declared it (currently the explore family); when a later
+// typed stage/node/local-work event moves the dock to another family, stale
+// parallel counters must not be appended to that new stage row.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) clearParallelIfStageKeyOutsideLocked(stageKey string) {
+	if r == nil || r.parallel == nil {
+		return
+	}
+	if r.parallel.appliesToStageKey(stageKey) {
+		return
+	}
+	r.parallel = nil
 }
 
 func repairStageLabel(label, lang string) string {

@@ -195,9 +195,11 @@ func TestComposeDockRow1_RequestingNoTail(t *testing.T) {
 func TestComposeDockRow1_ParallelRequestingAggregatesLanes(t *testing.T) {
 	state := dockRowState{
 		activity: activityState{kind: activityRequesting},
+		stageKey: "evidence",
 		frame:    "⠋",
 		lang:     "zh",
 		parallel: &parallelActivitySnapshot{
+			stage:       "explore",
 			active:      true,
 			total:       3,
 			parallelism: 2,
@@ -217,12 +219,38 @@ func TestComposeDockRow1_ParallelRequestingAggregatesLanes(t *testing.T) {
 	}
 }
 
-func TestComposeDockRow1_ParallelMultiReceivingSuppressesAmbiguousTail(t *testing.T) {
+func TestComposeDockRow1_ParallelSnapshotDoesNotCrossStageFamily(t *testing.T) {
 	state := dockRowState{
-		activity: activityState{kind: activityReceiving},
+		activity: activityState{kind: activityRequesting},
+		stageKey: "extract",
 		frame:    "⠋",
 		lang:     "zh",
 		parallel: &parallelActivitySnapshot{
+			stage:       "explore",
+			active:      true,
+			total:       2,
+			parallelism: 2,
+			activeUnits: 2,
+			requesting:  2,
+		},
+	}
+	plain := stripAnsiEscapes(composeDockRow1(state))
+	if strings.Contains(plain, "并行") || strings.Contains(plain, "2 路") {
+		t.Fatalf("explore parallel activity must not render on extract row; got %q", plain)
+	}
+	if !strings.Contains(plain, "请求模型中") {
+		t.Fatalf("mismatched parallel snapshot should fall back to regular activity; got %q", plain)
+	}
+}
+
+func TestComposeDockRow1_ParallelMultiReceivingSuppressesAmbiguousTail(t *testing.T) {
+	state := dockRowState{
+		activity: activityState{kind: activityReceiving},
+		stageKey: "evidence",
+		frame:    "⠋",
+		lang:     "zh",
+		parallel: &parallelActivitySnapshot{
+			stage:       "explore",
 			active:      true,
 			total:       3,
 			parallelism: 2,
@@ -283,11 +311,13 @@ func TestComposeDockRow2_HidesZeroCounters(t *testing.T) {
 
 func TestComposeDockRow2_ParallelMetaSitsWithStageBeforeModel(t *testing.T) {
 	state := dockRowState{
+		stageKey:      "evidence",
 		stageProgress: "2/4",
 		stageLabel:    "正在探索代码并收集证据",
 		modelID:       "MiniMax-M2.7-highspeed",
 		lang:          "zh",
 		parallel: &parallelActivitySnapshot{
+			stage:       "explore",
 			active:      true,
 			total:       3,
 			parallelism: 2,
@@ -301,6 +331,27 @@ func TestComposeDockRow2_ParallelMetaSitsWithStageBeforeModel(t *testing.T) {
 	}
 	if strings.Index(plain, "并行 2 路") > strings.Index(plain, "模型 MiniMax-M2.7-highspeed") {
 		t.Fatalf("parallel stage meta should appear before model telemetry; got %q", plain)
+	}
+}
+
+func TestComposeDockRow2_ParallelMetaDoesNotCrossStageFamily(t *testing.T) {
+	for _, key := range []string{"analyze", "extract", "finalize", "plan", "apply", "verify"} {
+		state := dockRowState{
+			stageKey:      key,
+			stageProgress: "3/4",
+			stageLabel:    "正在提炼关键发现",
+			lang:          "zh",
+			parallel: &parallelActivitySnapshot{
+				stage:       "explore",
+				active:      true,
+				total:       2,
+				parallelism: 2,
+			},
+		}
+		plain := stripAnsiEscapes(composeDockRow2(state))
+		if strings.Contains(plain, "并行") || strings.Contains(plain, "关注点") {
+			t.Fatalf("parallel explore meta leaked onto %s row: %q", key, plain)
+		}
 	}
 }
 
@@ -590,6 +641,47 @@ func TestRenderer_DockSuppressesPreFinalizeLocalLeapfrogBeforeExtract(t *testing
 	}
 	if strings.Contains(row, "4/4") || strings.Contains(row, "撰写最终答案") {
 		t.Fatalf("local StageFinalize must not leapfrog mandatory extract; got %q", row)
+	}
+}
+
+func TestRenderer_ExtractStageClearsStaleParallelExploreTelemetry(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: t0,
+		TaskNodes: []TaskNodeInfo{
+			{ID: "n1_evidence_t0", Type: "evidence", Objective: "topic A"},
+			{ID: "final", Type: "finalize", Objective: "render"},
+		},
+	})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(10 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{
+		Kind:            EventParallelDispatchStart,
+		Timestamp:       t0.Add(20 * time.Millisecond),
+		Stage:           "explore",
+		Agent:           "explorer",
+		ParallelGroupID: "g",
+		ParallelTotal:   2,
+		Parallelism:     2,
+		ParallelUnitIDs: []string{"n1_evidence_t0", "n1_evidence_t1"},
+	})
+	emit(Event{Kind: EventTaskNodeEnd, Timestamp: t0.Add(30 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{Kind: EventStageStart, Timestamp: t0.Add(40 * time.Millisecond), Stage: "extract", Agent: "extractor"})
+
+	if r.parallel != nil {
+		t.Fatal("extract stage start must clear stale explore parallel state")
+	}
+	rows := r.composeCurrentDockRows()
+	row1 := stripAnsiEscapes(rows[0])
+	row2 := stripAnsiEscapes(rows[1])
+	if strings.Contains(row1, "并行") || strings.Contains(row2, "并行") || strings.Contains(row2, "关注点") {
+		t.Fatalf("stale parallel/focus telemetry must not leak into extract rows; row1=%q row2=%q", row1, row2)
+	}
+	if !strings.Contains(row2, "3/4") || !strings.Contains(row2, "正在提炼关键发现") {
+		t.Fatalf("extract stage must retain its own progress and label; got %q", row2)
 	}
 }
 

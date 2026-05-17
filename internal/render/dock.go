@@ -282,7 +282,7 @@ func composeDockRows(s dockRowState) [dockRowCount]string {
 // data for kinds where data exists (receiving / finalizing /
 // callingTool).
 func composeDockRow1(s dockRowState) string {
-	if s.parallel != nil && s.parallel.active {
+	if parallelSnapshotAppliesToStageKey(s.parallel, s.stageKey) {
 		return composeParallelDockRow1(s)
 	}
 	glyph := s.frame
@@ -373,7 +373,7 @@ func composeDockRow2(s dockRowState) string {
 		b.WriteString(" ")
 		b.WriteString(statusPrimary.Sprint(s.stageLabel))
 	}
-	if s.parallel != nil && s.parallel.active {
+	if parallelSnapshotAppliesToStageKey(s.parallel, s.stageKey) {
 		if seg := parallelStagePhrase(s.parallel, s.lang); seg != "" {
 			b.WriteString(" ")
 			b.WriteString(statusMeta.Sprint("·"))

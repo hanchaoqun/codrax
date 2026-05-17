@@ -72,6 +72,13 @@ func (p *parallelActivity) matches(ev Event) bool {
 	return p.groupID == "" || ev.ParallelGroupID == p.groupID
 }
 
+func (p *parallelActivity) appliesToStageKey(stageKey string) bool {
+	if p == nil {
+		return false
+	}
+	return parallelStageAppliesToStageKey(p.stage, stageKey)
+}
+
 func (p *parallelActivity) ensureUnit(id string) *parallelActivityUnit {
 	if p == nil {
 		return nil
@@ -190,4 +197,34 @@ func (p *parallelActivity) snapshot() *parallelActivitySnapshot {
 		s.parallelism = s.activeUnits
 	}
 	return s
+}
+
+func parallelSnapshotAppliesToStageKey(p *parallelActivitySnapshot, stageKey string) bool {
+	if p == nil || !p.active {
+		return false
+	}
+	return parallelStageAppliesToStageKey(p.stage, stageKey)
+}
+
+func parallelStageAppliesToStageKey(parallelStage types.PipelineStage, stageKey string) bool {
+	key := canonicalStageKey(stageKey)
+	if key == "" {
+		return true
+	}
+	pKey := canonicalStageKey(string(parallelStage))
+	if pKey == "" {
+		return true
+	}
+	if pKey == "explore" {
+		return isExploreFamilyStageKey(key)
+	}
+	return pKey == key
+}
+
+func isExploreFamilyStageKey(key string) bool {
+	switch canonicalStageKey(key) {
+	case "explore", "evidence", "validate", "reconcile":
+		return true
+	}
+	return false
 }
