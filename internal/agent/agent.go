@@ -710,12 +710,14 @@ func truncForLog(s string, max int) string {
 // the user sees the final tail. Nil emit (tests, headless) makes the
 // whole thing a no-op.
 type streamPreviewBuffer struct {
-	emit       render.EventEmitter
-	agent      types.AgentName
-	stage      types.PipelineStage
-	iter       int
-	buf        strings.Builder
-	lastEmitAt time.Time
+	emit            render.EventEmitter
+	agent           types.AgentName
+	stage           types.PipelineStage
+	iter            int
+	parallelGroupID string
+	parallelUnitID  string
+	buf             strings.Builder
+	lastEmitAt      time.Time
 }
 
 // streamPreviewThrottle is the minimum gap between consecutive
@@ -724,8 +726,15 @@ type streamPreviewBuffer struct {
 // logging pipeline.
 const streamPreviewThrottle = 250 * time.Millisecond
 
-func newStreamPreviewBuffer(emit render.EventEmitter, agent types.AgentName, stage types.PipelineStage, iter int) *streamPreviewBuffer {
-	return &streamPreviewBuffer{emit: emit, agent: agent, stage: stage, iter: iter}
+func newStreamPreviewBuffer(emit render.EventEmitter, agent types.AgentName, stage types.PipelineStage, iter int, parallelGroupID, parallelUnitID string) *streamPreviewBuffer {
+	return &streamPreviewBuffer{
+		emit:            emit,
+		agent:           agent,
+		stage:           stage,
+		iter:            iter,
+		parallelGroupID: parallelGroupID,
+		parallelUnitID:  parallelUnitID,
+	}
 }
 
 func (b *streamPreviewBuffer) onDelta(delta string) {
@@ -738,12 +747,14 @@ func (b *streamPreviewBuffer) onDelta(delta string) {
 	}
 	b.lastEmitAt = time.Now()
 	b.emit(render.Event{
-		Kind:      render.EventAgentContent,
-		Timestamp: b.lastEmitAt,
-		Agent:     b.agent,
-		Stage:     b.stage,
-		Iteration: b.iter,
-		Reasoning: b.buf.String(),
+		Kind:            render.EventAgentContent,
+		Timestamp:       b.lastEmitAt,
+		Agent:           b.agent,
+		Stage:           b.stage,
+		Iteration:       b.iter,
+		Reasoning:       b.buf.String(),
+		ParallelGroupID: b.parallelGroupID,
+		ParallelUnitID:  b.parallelUnitID,
 	})
 }
 
@@ -754,12 +765,14 @@ func (b *streamPreviewBuffer) flush() {
 		return
 	}
 	b.emit(render.Event{
-		Kind:      render.EventAgentContent,
-		Timestamp: time.Now(),
-		Agent:     b.agent,
-		Stage:     b.stage,
-		Iteration: b.iter,
-		Reasoning: b.buf.String(),
+		Kind:            render.EventAgentContent,
+		Timestamp:       time.Now(),
+		Agent:           b.agent,
+		Stage:           b.stage,
+		Iteration:       b.iter,
+		Reasoning:       b.buf.String(),
+		ParallelGroupID: b.parallelGroupID,
+		ParallelUnitID:  b.parallelUnitID,
 	})
 }
 
@@ -1258,13 +1271,15 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			ContextTokensEstimate: telemetry.ContextTokensEstimate,
 			ContextWindowTokens:   telemetry.ContextWindowTokens,
 			ModelID:               telemetry.ModelID,
+			ParallelGroupID:       ctx.ParallelGroupID,
+			ParallelUnitID:        ctx.ExploreDispatchKey,
 		})
 		// Streaming preview: when the LLM adapter supports streaming,
 		// each content chunk fires onDelta. Buffer the chunks and emit
 		// an EventAgentContent event at most every 250ms so the row
 		// detail updates live without flooding the renderer with
 		// per-token events. Non-streaming adapters never call onDelta.
-		streamBuf := newStreamPreviewBuffer(b.deps.Emit, b.name, ctx.Stage, i)
+		streamBuf := newStreamPreviewBuffer(b.deps.Emit, b.name, ctx.Stage, i, ctx.ParallelGroupID, ctx.ExploreDispatchKey)
 		// Finalizer-only live summary preview. When this dispatch is
 		// the finalize stage's emit_answer_document call, install a
 		// SummaryExtractor on the tool-call argument stream so the
@@ -1292,13 +1307,15 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				return
 			}
 			emit(render.Event{
-				Kind:         render.EventAdapterRetry,
-				Timestamp:    time.Now(),
-				Stage:        stage,
-				Agent:        agentName,
-				RetryAttempt: attempt,
-				RetryDelay:   delay,
-				RetryReason:  reason,
+				Kind:            render.EventAdapterRetry,
+				Timestamp:       time.Now(),
+				Stage:           stage,
+				Agent:           agentName,
+				RetryAttempt:    attempt,
+				RetryDelay:      delay,
+				RetryReason:     reason,
+				ParallelGroupID: ctx.ParallelGroupID,
+				ParallelUnitID:  ctx.ExploreDispatchKey,
 			})
 		}
 		onFallback := func(from, to, reason string) {
@@ -1306,13 +1323,15 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				return
 			}
 			emit(render.Event{
-				Kind:         render.EventAdapterFallback,
-				Timestamp:    time.Now(),
-				Stage:        stage,
-				Agent:        agentName,
-				FallbackFrom: from,
-				FallbackTo:   to,
-				RetryReason:  reason,
+				Kind:            render.EventAdapterFallback,
+				Timestamp:       time.Now(),
+				Stage:           stage,
+				Agent:           agentName,
+				FallbackFrom:    from,
+				FallbackTo:      to,
+				RetryReason:     reason,
+				ParallelGroupID: ctx.ParallelGroupID,
+				ParallelUnitID:  ctx.ExploreDispatchKey,
 			})
 		}
 		resp, err := b.deps.LLM.Chat(ctx.Context(), messages, effectiveTools, llm.ChatOptions{
@@ -1328,11 +1347,13 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// non-finalize stages don't pay any cost.
 		summaryPreview.flush()
 		b.deps.Emit(render.Event{
-			Kind:      render.EventAgentResponse,
-			Timestamp: time.Now(),
-			Agent:     b.name,
-			Stage:     ctx.Stage,
-			Iteration: i,
+			Kind:            render.EventAgentResponse,
+			Timestamp:       time.Now(),
+			Agent:           b.name,
+			Stage:           ctx.Stage,
+			Iteration:       i,
+			ParallelGroupID: ctx.ParallelGroupID,
+			ParallelUnitID:  ctx.ExploreDispatchKey,
 		})
 		if err != nil {
 			// Salvage accumulated side-effects before bubbling the LLM
@@ -1566,13 +1587,15 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			for idx, tc := range resp.ToolCalls {
 				toolStarts[idx] = time.Now()
 				b.deps.Emit(render.Event{
-					Kind:       render.EventToolCallStart,
-					Timestamp:  toolStarts[idx],
-					Agent:      b.name,
-					Stage:      ctx.Stage,
-					ToolName:   tc.Name,
-					ToolCallID: tc.ID,
-					ToolDetail: toolDetailForCall(tc),
+					Kind:            render.EventToolCallStart,
+					Timestamp:       toolStarts[idx],
+					Agent:           b.name,
+					Stage:           ctx.Stage,
+					ToolName:        tc.Name,
+					ToolCallID:      tc.ID,
+					ToolDetail:      toolDetailForCall(tc),
+					ParallelGroupID: ctx.ParallelGroupID,
+					ParallelUnitID:  ctx.ExploreDispatchKey,
 				})
 			}
 
@@ -1629,6 +1652,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolOK:            toolOK,
 					ToolTime:          time.Since(toolStarts[idx]),
 					ToolResultSummary: toolResultSummary(er.result),
+					ParallelGroupID:   ctx.ParallelGroupID,
+					ParallelUnitID:    ctx.ExploreDispatchKey,
 				})
 			}
 		} else {
@@ -1636,13 +1661,15 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			for _, tc := range resp.ToolCalls {
 				toolStart := time.Now()
 				b.deps.Emit(render.Event{
-					Kind:       render.EventToolCallStart,
-					Timestamp:  toolStart,
-					Agent:      b.name,
-					Stage:      ctx.Stage,
-					ToolName:   tc.Name,
-					ToolCallID: tc.ID,
-					ToolDetail: toolDetailForCall(tc),
+					Kind:            render.EventToolCallStart,
+					Timestamp:       toolStart,
+					Agent:           b.name,
+					Stage:           ctx.Stage,
+					ToolName:        tc.Name,
+					ToolCallID:      tc.ID,
+					ToolDetail:      toolDetailForCall(tc),
+					ParallelGroupID: ctx.ParallelGroupID,
+					ParallelUnitID:  ctx.ExploreDispatchKey,
 				})
 
 				result, mcpResp := b.executeTool(ctx, tc)
@@ -1686,6 +1713,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolOK:            toolOK,
 					ToolTime:          time.Since(toolStart),
 					ToolResultSummary: toolResultSummary(result),
+					ParallelGroupID:   ctx.ParallelGroupID,
+					ParallelUnitID:    ctx.ExploreDispatchKey,
 				})
 			}
 		}

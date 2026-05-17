@@ -4423,6 +4423,13 @@ type AgentContext struct {
 	// self-loop state for a re-dispatch of the same node.
 	ExploreDispatchKey string `json:"-"`
 
+	// ParallelGroupID is render-only telemetry for orchestrator-owned
+	// bounded fan-out. When set, BaseAgent mirrors it onto LLM/tool
+	// activity events together with ExploreDispatchKey so the renderer
+	// can aggregate concurrent worker state without parsing prompt text
+	// or inferring from focus labels.
+	ParallelGroupID string `json:"-"`
+
 	// Mode mirrors BusContext.Mode for the agent's narrowed view.
 	// The analyzer reads it to gate read-mode-only quality checks
 	// (hypothesis_coverage / contract_complete) so write-mode

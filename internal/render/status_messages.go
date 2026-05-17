@@ -522,6 +522,135 @@ func topicProgressPhrase(idxZero int, total int, lang string) string {
 	return fmt.Sprintf("focus %d of %d", idx, total)
 }
 
+func parallelActivityPhrase(p *parallelActivitySnapshot, lang string) string {
+	if p == nil {
+		if isZh(lang) {
+			return "并行探索中"
+		}
+		return "Parallel exploration"
+	}
+	allActive := p.activeUnits > 0
+	if allActive && p.retrying == p.activeUnits {
+		if isZh(lang) {
+			return "并行重新请求模型中"
+		}
+		return "Retrying parallel model requests"
+	}
+	if allActive && p.requesting == p.activeUnits {
+		if isZh(lang) {
+			return "并行请求模型中"
+		}
+		return "Calling models in parallel"
+	}
+	if allActive && p.receiving == p.activeUnits {
+		if isZh(lang) {
+			return "并行接收模型输出"
+		}
+		return "Receiving parallel model output"
+	}
+	if allActive && p.tool == p.activeUnits {
+		if isZh(lang) {
+			return "并行调用工具中"
+		}
+		return "Calling tools in parallel"
+	}
+	if isZh(lang) {
+		return "并行探索中"
+	}
+	return "Parallel exploration"
+}
+
+func parallelActivitySegments(p *parallelActivitySnapshot, lang string) []string {
+	if p == nil {
+		return nil
+	}
+	var parts []string
+	if p.total > 0 && p.doneUnits > 0 && p.doneUnits < p.total {
+		if isZh(lang) {
+			parts = append(parts, fmt.Sprintf("%d/%d 已完成", p.doneUnits, p.total))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d/%d done", p.doneUnits, p.total))
+		}
+	}
+	if p.activeUnits > 0 {
+		allOneKind := p.requesting == p.activeUnits ||
+			p.receiving == p.activeUnits ||
+			p.tool == p.activeUnits ||
+			p.retrying == p.activeUnits
+		if isZh(lang) {
+			if allOneKind && p.doneUnits == 0 {
+				parts = append(parts, fmt.Sprintf("%d 路", p.activeUnits))
+			} else {
+				parts = append(parts, fmt.Sprintf("%d 路活跃", p.activeUnits))
+			}
+		} else if allOneKind && p.doneUnits == 0 {
+			parts = append(parts, fmt.Sprintf("%d lanes", p.activeUnits))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d active lanes", p.activeUnits))
+		}
+	}
+	nonZeroKinds := 0
+	for _, n := range []int{p.requesting, p.receiving, p.tool, p.retrying} {
+		if n > 0 {
+			nonZeroKinds++
+		}
+	}
+	if nonZeroKinds > 1 {
+		if p.requesting > 0 {
+			if isZh(lang) {
+				parts = append(parts, fmt.Sprintf("请求 %d", p.requesting))
+			} else {
+				parts = append(parts, fmt.Sprintf("%d requesting", p.requesting))
+			}
+		}
+		if p.receiving > 0 {
+			if isZh(lang) {
+				parts = append(parts, fmt.Sprintf("接收 %d", p.receiving))
+			} else {
+				parts = append(parts, fmt.Sprintf("%d receiving", p.receiving))
+			}
+		}
+		if p.tool > 0 {
+			if isZh(lang) {
+				parts = append(parts, fmt.Sprintf("工具 %d", p.tool))
+			} else {
+				parts = append(parts, fmt.Sprintf("%d in tools", p.tool))
+			}
+		}
+		if p.retrying > 0 {
+			if isZh(lang) {
+				parts = append(parts, fmt.Sprintf("重试 %d", p.retrying))
+			} else {
+				parts = append(parts, fmt.Sprintf("%d retrying", p.retrying))
+			}
+		}
+	}
+	return parts
+}
+
+func parallelStagePhrase(p *parallelActivitySnapshot, lang string) string {
+	if p == nil || p.parallelism <= 1 {
+		return ""
+	}
+	if isZh(lang) {
+		return fmt.Sprintf("并行 %d 路", p.parallelism)
+	}
+	return fmt.Sprintf("%d-way parallel", p.parallelism)
+}
+
+func parallelFocusTotalPhrase(total int, lang string) string {
+	if total < 2 {
+		return ""
+	}
+	if isZh(lang) {
+		return fmt.Sprintf("%d 个关注点", total)
+	}
+	if total == 1 {
+		return "1 focus area"
+	}
+	return fmt.Sprintf("%d focus areas", total)
+}
+
 // topicOverflowPhrase covers the >5 topics case: first 5 are shown
 // individually, the rest collapse into a single line.
 func topicOverflowPhrase(extra int, lang string) string {

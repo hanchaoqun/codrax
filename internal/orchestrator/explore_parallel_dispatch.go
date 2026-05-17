@@ -31,6 +31,30 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 	if parallelism <= 1 {
 		return nil, fmt.Errorf("parallel explorer dispatch called with parallelism=%d", parallelism)
 	}
+	groupID := fmt.Sprintf("explore:%d", time.Now().UnixNano())
+	unitIDs := make([]string, len(windows))
+	for i, w := range windows {
+		unitIDs[i] = exploreDispatchKeyForWindow(w)
+	}
+	o.emit(render.Event{
+		Kind:            render.EventParallelDispatchStart,
+		Timestamp:       time.Now(),
+		Stage:           types.StageExplore,
+		Agent:           types.AgentExplorer,
+		ParallelGroupID: groupID,
+		ParallelTotal:   len(windows),
+		Parallelism:     parallelism,
+		ParallelUnitIDs: unitIDs,
+	})
+	defer o.emit(render.Event{
+		Kind:            render.EventParallelDispatchEnd,
+		Timestamp:       time.Now(),
+		Stage:           types.StageExplore,
+		Agent:           types.AgentExplorer,
+		ParallelGroupID: groupID,
+		ParallelTotal:   len(windows),
+		Parallelism:     parallelism,
+	})
 	results := make([]exploreParallelResult, len(windows))
 	jobs := make(chan int)
 	var wg sync.WaitGroup
@@ -44,7 +68,35 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 					hint = hints[i]
 				}
 				fork := o.busCtx.Mutable.ForkForExploreDispatch()
-				out, err := o.runExploreAgentOnFork(fork, hint, exploreDispatchKeyForWindow(windows[i]))
+				unitID := unitIDs[i]
+				o.emit(render.Event{
+					Kind:            render.EventParallelDispatchUnitStart,
+					Timestamp:       time.Now(),
+					Stage:           types.StageExplore,
+					Agent:           types.AgentExplorer,
+					ParallelGroupID: groupID,
+					ParallelUnitID:  unitID,
+					ParallelTotal:   len(windows),
+					Parallelism:     parallelism,
+				})
+				out, err := o.runExploreAgentOnFork(fork, hint, unitID, groupID)
+				unitErr := ""
+				if err != nil {
+					unitErr = err.Error()
+				} else if out != nil && out.Error != "" {
+					unitErr = out.Error
+				}
+				o.emit(render.Event{
+					Kind:            render.EventParallelDispatchUnitEnd,
+					Timestamp:       time.Now(),
+					Stage:           types.StageExplore,
+					Agent:           types.AgentExplorer,
+					ParallelGroupID: groupID,
+					ParallelUnitID:  unitID,
+					ParallelTotal:   len(windows),
+					Parallelism:     parallelism,
+					Error:           unitErr,
+				})
 				results[i] = exploreParallelResult{
 					window: windows[i],
 					output: out,
@@ -85,6 +137,7 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	mut *types.MutableState,
 	hint string,
 	dispatchKey string,
+	parallelGroupID string,
 ) (*agent.StageOutput, error) {
 	stage := types.StageExplore
 	if err := o.checkCanceled(string(stage), 0); err != nil {
@@ -114,6 +167,7 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	workerBus.TaskState.RetryHint = hint
 	workerBus.TaskState.LastError = ""
 	agentCtx := ctxbuilder.BuildAgentContext(&workerBus, agentName, stage)
+	agentCtx.ParallelGroupID = parallelGroupID
 	if ta, ok := o.thinkAloudMap[agentName]; ok {
 		agentCtx.ThinkAloud = ta
 	}

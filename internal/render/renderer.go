@@ -178,6 +178,14 @@ type Renderer struct {
 	streamTail  string
 	streamChars int
 
+	// parallel carries the currently active bounded fan-out group,
+	// if any. It is render-only telemetry: orchestrator events open
+	// and close the group, while agent/tool events tagged with the
+	// group/unit IDs update per-worker activity. composeCurrentDockRows
+	// folds it into row 1 and row 2 so parallel exploration reads as
+	// parallel work, not as the last worker's single-lane status.
+	parallel *parallelActivity
+
 	// dockSuppressed forces the dock off even on TTY stdout. Set by
 	// SetDockEnabled(false) when --log-stdout is in effect — logger
 	// writes to stdout would interleave with paintDock and break the
@@ -423,6 +431,7 @@ func (r *Renderer) MarkRunFatal() {
 	}
 	r.activity = activityState{kind: activityErrorFatal}
 	r.streamTail = ""
+	r.parallel = nil
 	r.paintDockLocked()
 }
 
@@ -443,6 +452,7 @@ func (r *Renderer) MarkRunCancelled() {
 	}
 	r.activity = activityState{kind: activityCancelled}
 	r.streamTail = ""
+	r.parallel = nil
 	r.paintDockLocked()
 }
 
@@ -974,6 +984,7 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 	r.activity = activityState{kind: activityWaitingPipeline}
 	r.streamTail = ""
 	r.streamChars = 0
+	r.parallel = nil
 	r.answerDraftPreviewEmitted = false
 	if r.totalStages == 0 {
 		// Default matches read mode: 4 dispatch boundaries
@@ -1076,6 +1087,7 @@ func (r *Renderer) StopSpinner() {
 		r.activity = activityState{}
 		r.streamTail = ""
 		r.streamChars = 0
+		r.parallel = nil
 		return
 	}
 	// Stop animation goroutine first so it can't race the shutdown
@@ -1100,6 +1112,7 @@ func (r *Renderer) StopSpinner() {
 	r.activity = activityState{}
 	r.streamTail = ""
 	r.streamChars = 0
+	r.parallel = nil
 }
 
 // printRunSummaryLocked prints a closing single-line summary of the

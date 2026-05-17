@@ -415,8 +415,33 @@ func (r *Renderer) handleEvent(ev Event) {
 			r.commitStageDoneLocked(row, topicTotal)
 		}
 
+	case EventParallelDispatchStart:
+		r.parallel = newParallelActivity(ev)
+		r.activity = activityState{kind: activityWaitingNode}
+		r.streamTail = ""
+
+	case EventParallelDispatchUnitStart:
+		if r.parallel != nil {
+			r.parallel.startUnit(ev)
+			r.activity = activityState{kind: activityWaitingNode}
+			r.streamTail = ""
+		}
+
+	case EventParallelDispatchUnitEnd:
+		if r.parallel != nil {
+			r.parallel.endUnit(ev)
+		}
+
+	case EventParallelDispatchEnd:
+		r.parallel = nil
+		r.activity = activityState{kind: activityWaitingDispatch}
+		r.streamTail = ""
+
 	case EventAgentThinking:
 		r.recordLLMRequestTelemetry(ev)
+		if r.parallel != nil {
+			r.parallel.setUnitActivity(ev, activityRequesting, "", "")
+		}
 		r.activity = activityState{kind: activityRequesting}
 		r.streamTail = ""
 		if r.current != nil {
@@ -424,7 +449,7 @@ func (r *Renderer) handleEvent(ev Event) {
 			r.current.detail = "thinking"
 			r.current.detailDone = false
 			r.current.detailStart = ev.Timestamp
-			if r.current.isNodeRow {
+			if r.current.isNodeRow && !(r.parallel != nil && r.parallel.matches(ev)) {
 				for _, other := range r.tasks {
 					if other == r.current || !other.isNodeRow {
 						continue
@@ -439,6 +464,9 @@ func (r *Renderer) handleEvent(ev Event) {
 
 	case EventLLMRequestStart:
 		r.recordLLMRequestTelemetry(ev)
+		if r.parallel != nil {
+			r.parallel.setUnitActivity(ev, activityRequesting, "", "")
+		}
 		r.activity = activityState{kind: activityRequesting}
 		r.streamTail = ""
 		if r.current != nil && r.current.endTime.IsZero() && r.current.detail == "" {
@@ -452,6 +480,9 @@ func (r *Renderer) handleEvent(ev Event) {
 		// next visible tool/stage event is local parsing, validation, or
 		// context assembly. Do not leave row 1 claiming "请求模型中"
 		// during CPU-bound post-processing.
+		if r.parallel != nil {
+			r.parallel.setUnitActivity(ev, activityWaitingNode, "", "")
+		}
 		r.activity = activityState{kind: activityWaitingNode}
 		r.streamTail = ""
 
@@ -463,13 +494,18 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.streamTail = ""
 
 	case EventAgentContent:
-		if r.current != nil && ev.Reasoning != "" {
+		if ev.Reasoning != "" {
 			preview := stripMarkdown(ev.Reasoning)
 			preview = strings.Join(strings.Fields(preview), " ")
 			tail := tailByDisplayWidth(preview, streamTailDisplayCols)
-			r.current.detail = "thinking: " + tail
-			r.current.detailDone = false
-			r.current.detailStart = ev.Timestamp
+			if r.parallel != nil {
+				r.parallel.setUnitActivity(ev, activityReceiving, "", tail)
+			}
+			if r.current != nil {
+				r.current.detail = "thinking: " + tail
+				r.current.detailDone = false
+				r.current.detailStart = ev.Timestamp
+			}
 			r.activity = activityState{kind: activityReceiving}
 			r.streamTail = tail
 		}
@@ -482,11 +518,14 @@ func (r *Renderer) handleEvent(ev Event) {
 		// row's okFinished/errorMsg state stays correct. In normal
 		// flow this branch is unreachable; the guard hardens against
 		// pathological event ordering.
+		detail := ev.ToolName
+		if ev.ToolDetail != "" {
+			detail += " " + ev.ToolDetail
+		}
+		if r.parallel != nil {
+			r.parallel.setUnitActivity(ev, activityCallingTool, detail, "")
+		}
 		if r.current != nil && r.current.endTime.IsZero() {
-			detail := ev.ToolName
-			if ev.ToolDetail != "" {
-				detail += " " + ev.ToolDetail
-			}
 			r.current.detail = detail
 			r.current.detailDone = false
 			r.current.detailStart = ev.Timestamp
@@ -494,6 +533,9 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 
 	case EventToolCallEnd:
+		if r.parallel != nil {
+			r.parallel.setUnitActivity(ev, activityRequesting, "", "")
+		}
 		if r.current != nil && r.current.endTime.IsZero() {
 			detail := ev.ToolName
 			if ev.ToolDetail != "" {
@@ -563,6 +605,9 @@ func (r *Renderer) handleEvent(ev Event) {
 			retryAttempt:  ev.RetryAttempt,
 			retryDelaySec: delaySec,
 			detail:        ev.RetryReason,
+		}
+		if r.parallel != nil {
+			r.parallel.setUnitActivity(ev, activityRetrying, ev.RetryReason, "")
 		}
 		r.adapterRetryTotal++
 		// Also commit a permanent record so the run log shows the
@@ -640,6 +685,9 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.activity = activityState{
 			kind:   activitySwitchingProvider,
 			detail: ev.FallbackTo,
+		}
+		if r.parallel != nil {
+			r.parallel.setUnitActivity(ev, activitySwitchingProvider, ev.FallbackTo, "")
 		}
 		r.adapterFallbackTotal++
 		body := fmt.Sprintf("切换 LLM 服务 %s → %s", ev.FallbackFrom, ev.FallbackTo)
@@ -891,6 +939,7 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 		frame:      spinnerFrames[r.animFrame%len(spinnerFrames)],
 		lang:       r.lang,
 		cancelHint: r.cancelHint,
+		parallel:   r.parallel.snapshot(),
 	}
 	now := time.Now()
 	if !r.startTime.IsZero() {

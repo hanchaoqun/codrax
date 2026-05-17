@@ -238,6 +238,7 @@ type dockRowState struct {
 	activity   activityState
 	streamTail string // truncated tail used when activity has stream
 	frame      string // current spinner glyph (one of spinnerFrames)
+	parallel   *parallelActivitySnapshot
 
 	// Row 2 — stage layer.
 	stageKey              string // canonical stage key for stagePhrase / progress
@@ -281,6 +282,9 @@ func composeDockRows(s dockRowState) [dockRowCount]string {
 // data for kinds where data exists (receiving / finalizing /
 // callingTool).
 func composeDockRow1(s dockRowState) string {
+	if s.parallel != nil && s.parallel.active {
+		return composeParallelDockRow1(s)
+	}
 	glyph := s.frame
 	glyphStyle := statusSpinner
 	switch activityGlyphFor(s.activity.kind) {
@@ -320,6 +324,29 @@ func composeDockRow1(s dockRowState) string {
 	return b.String()
 }
 
+func composeParallelDockRow1(s dockRowState) string {
+	glyph := s.frame
+	glyphStyle := statusSpinner
+	word := parallelActivityPhrase(s.parallel, s.lang)
+	var b strings.Builder
+	b.WriteString("  ")
+	b.WriteString(glyphStyle.Sprint(glyph))
+	b.WriteString(" ")
+	b.WriteString(statusStream.Sprint(word))
+	for _, seg := range parallelActivitySegments(s.parallel, s.lang) {
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint("·"))
+		b.WriteString(" ")
+		b.WriteString(statusMeta.Sprint(seg))
+	}
+	if s.parallel.receiving == 1 && strings.TrimSpace(s.parallel.streamTail) != "" {
+		b.WriteString(" ")
+		b.WriteString(statusStream.Sprint("▸ "))
+		b.WriteString(statusStream.Sprint(strings.TrimSpace(s.parallel.streamTail)))
+	}
+	return b.String()
+}
+
 // composeDockRow2 renders the stage row:
 //
 //	"  ▪ 2/4 · 探索证据 · 第 1 轮 · 5 工具 · 已收到 312 字"
@@ -345,6 +372,20 @@ func composeDockRow2(s dockRowState) string {
 		b.WriteString(statusMeta.Sprint("·"))
 		b.WriteString(" ")
 		b.WriteString(statusPrimary.Sprint(s.stageLabel))
+	}
+	if s.parallel != nil && s.parallel.active {
+		if seg := parallelStagePhrase(s.parallel, s.lang); seg != "" {
+			b.WriteString(" ")
+			b.WriteString(statusMeta.Sprint("·"))
+			b.WriteString(" ")
+			b.WriteString(statusMeta.Sprint(seg))
+		}
+		if seg := parallelFocusTotalPhrase(s.parallel.total, s.lang); seg != "" {
+			b.WriteString(" ")
+			b.WriteString(statusMeta.Sprint("·"))
+			b.WriteString(" ")
+			b.WriteString(statusMeta.Sprint(seg))
+		}
 	}
 	if strings.TrimSpace(s.modelID) != "" {
 		b.WriteString(" ")

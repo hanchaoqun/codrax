@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -410,10 +411,16 @@ func TestRunTaskGraph_ParallelDispatch_UsesConfiguredCap(t *testing.T) {
 	var inFlight int32
 	var maxInFlight int32
 	var calls int32
+	var missingParallelGroup int32
+	var evMu sync.Mutex
+	var parallelEvents []render.EventKind
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
 		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			if ctx.ParallelGroupID == "" || ctx.ExploreDispatchKey == "" {
+				atomic.AddInt32(&missingParallelGroup, 1)
+			}
 			cur := atomic.AddInt32(&inFlight, 1)
 			for {
 				prev := atomic.LoadInt32(&maxInFlight)
@@ -438,6 +445,17 @@ func TestRunTaskGraph_ParallelDispatch_UsesConfiguredCap(t *testing.T) {
 	ar, sr, sar := buildRegistries(agentFns)
 	o := New(types.PipelineSettings{MaxParallelism: 2}, ar, sr, sar)
 	o.SetMaxSteps(30)
+	o.SetEmitter(func(ev render.Event) {
+		switch ev.Kind {
+		case render.EventParallelDispatchStart,
+			render.EventParallelDispatchUnitStart,
+			render.EventParallelDispatchUnitEnd,
+			render.EventParallelDispatchEnd:
+			evMu.Lock()
+			parallelEvents = append(parallelEvents, ev.Kind)
+			evMu.Unlock()
+		}
+	})
 	if _, err := o.Run("compare A, B, and C", "/tmp/repo", "main"); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -446,6 +464,21 @@ func TestRunTaskGraph_ParallelDispatch_UsesConfiguredCap(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&maxInFlight); got != 2 {
 		t.Fatalf("max concurrent explorer dispatches = %d, want configured cap 2", got)
+	}
+	if got := atomic.LoadInt32(&missingParallelGroup); got != 0 {
+		t.Fatalf("parallel explorer contexts missing group/unit telemetry: %d", got)
+	}
+	evMu.Lock()
+	defer evMu.Unlock()
+	counts := map[render.EventKind]int{}
+	for _, k := range parallelEvents {
+		counts[k]++
+	}
+	if counts[render.EventParallelDispatchStart] != 1 || counts[render.EventParallelDispatchEnd] != 1 {
+		t.Fatalf("parallel dispatch must emit one start/end event; got counts=%v", counts)
+	}
+	if counts[render.EventParallelDispatchUnitStart] != 3 || counts[render.EventParallelDispatchUnitEnd] != 3 {
+		t.Fatalf("parallel dispatch must emit per-unit start/end events; got counts=%v", counts)
 	}
 }
 

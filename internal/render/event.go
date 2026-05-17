@@ -80,6 +80,20 @@ const (
 	EventTaskNodeStart
 	EventTaskNodeEnd
 
+	// Parallel dispatch lifecycle. Emitted by orchestrator-owned
+	// bounded fan-out surfaces, currently the multi-sub_topic explorer
+	// dispatch. These events are typed UI telemetry only: orchestration
+	// decisions are made before prompt rendering, from TaskGraph data
+	// and PipelineSettings.MaxParallelism. Renderers use the group/unit
+	// IDs to aggregate concurrent "requesting / receiving / tool" agent
+	// activity into honest row-1 prose such as "并行请求模型中 · 2 路",
+	// instead of letting the latest worker event overwrite the screen
+	// with a misleading single-lane "请求模型中".
+	EventParallelDispatchStart
+	EventParallelDispatchUnitStart
+	EventParallelDispatchUnitEnd
+	EventParallelDispatchEnd
+
 	// Live preview of streaming assistant content. Emitted by
 	// BaseAgent when the LLM adapter surfaces content chunks mid-
 	// response (streaming opt-in). Renderer updates the current
@@ -387,6 +401,19 @@ type Event struct {
 	// regular "已 X" — the LLM didn't actually run, so claiming the
 	// stage's normal completion phrase would mislead the user.
 	NodeSkipped bool
+
+	// Parallel dispatch payload. ParallelGroupID is stable for one
+	// bounded fan-out wave. ParallelUnitID identifies one worker inside
+	// that group, usually the focused explorer dispatch key derived
+	// from the TaskNode window. ParallelTotal is the number of units in
+	// the wave; Parallelism is the configured concurrent worker cap
+	// after clamping. ParallelUnitIDs is declaration-ordered and is
+	// populated on EventParallelDispatchStart.
+	ParallelGroupID string
+	ParallelUnitID  string
+	ParallelTotal   int
+	Parallelism     int
+	ParallelUnitIDs []string
 
 	// EventLivePreviewChunk / EventLivePreviewClear payload.
 	//   PreviewText     — cumulative decoded summary text so far

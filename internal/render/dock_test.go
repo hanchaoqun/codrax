@@ -192,6 +192,54 @@ func TestComposeDockRow1_RequestingNoTail(t *testing.T) {
 	}
 }
 
+func TestComposeDockRow1_ParallelRequestingAggregatesLanes(t *testing.T) {
+	state := dockRowState{
+		activity: activityState{kind: activityRequesting},
+		frame:    "⠋",
+		lang:     "zh",
+		parallel: &parallelActivitySnapshot{
+			active:      true,
+			total:       3,
+			parallelism: 2,
+			activeUnits: 2,
+			requesting:  2,
+		},
+	}
+	plain := stripAnsiEscapes(composeDockRow1(state))
+	if !strings.Contains(plain, "并行请求模型中") {
+		t.Fatalf("parallel requesting row must use aggregate wording; got %q", plain)
+	}
+	if !strings.Contains(plain, "2 路") {
+		t.Fatalf("parallel requesting row must show active lane count; got %q", plain)
+	}
+	if strings.Contains(plain, "▸") {
+		t.Fatalf("parallel requesting row must not show a stream tail; got %q", plain)
+	}
+}
+
+func TestComposeDockRow1_ParallelMultiReceivingSuppressesAmbiguousTail(t *testing.T) {
+	state := dockRowState{
+		activity: activityState{kind: activityReceiving},
+		frame:    "⠋",
+		lang:     "zh",
+		parallel: &parallelActivitySnapshot{
+			active:      true,
+			total:       3,
+			parallelism: 2,
+			activeUnits: 2,
+			receiving:   2,
+			streamTail:  "tail from one worker",
+		},
+	}
+	plain := stripAnsiEscapes(composeDockRow1(state))
+	if !strings.Contains(plain, "并行接收模型输出") {
+		t.Fatalf("parallel receiving row must use aggregate wording; got %q", plain)
+	}
+	if strings.Contains(plain, "tail from one worker") || strings.Contains(plain, "▸") {
+		t.Fatalf("parallel multi-stream row must not present one worker's tail as the whole group; got %q", plain)
+	}
+}
+
 // TestComposeDockRow1_RetryFreezesGlyph confirms that retry / fatal
 // states freeze the spinner glyph to ⟳ / ✗ instead of cycling
 // through spinnerFrames. Animated braille on an error state would
@@ -230,6 +278,29 @@ func TestComposeDockRow2_HidesZeroCounters(t *testing.T) {
 	}
 	if !strings.Contains(plain, "2/6") || !strings.Contains(plain, "探索证据") {
 		t.Errorf("non-zero core (K/N + label) must always render; got %q", plain)
+	}
+}
+
+func TestComposeDockRow2_ParallelMetaSitsWithStageBeforeModel(t *testing.T) {
+	state := dockRowState{
+		stageProgress: "2/4",
+		stageLabel:    "正在探索代码并收集证据",
+		modelID:       "MiniMax-M2.7-highspeed",
+		lang:          "zh",
+		parallel: &parallelActivitySnapshot{
+			active:      true,
+			total:       3,
+			parallelism: 2,
+		},
+	}
+	plain := stripAnsiEscapes(composeDockRow2(state))
+	for _, want := range []string{"并行 2 路", "3 个关注点", "模型 MiniMax-M2.7-highspeed"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("row2 missing %q: %q", want, plain)
+		}
+	}
+	if strings.Index(plain, "并行 2 路") > strings.Index(plain, "模型 MiniMax-M2.7-highspeed") {
+		t.Fatalf("parallel stage meta should appear before model telemetry; got %q", plain)
 	}
 }
 
@@ -320,6 +391,47 @@ func TestRenderer_StateMutationsWithoutDock(t *testing.T) {
 	if r.requestModelID != "qwen3.5:9b" || r.requestContextTokensEstimate != 1200 || r.requestContextWindowTokens != 260000 {
 		t.Errorf("EventAgentThinking must store renderer-level request telemetry; got model=%q tokens=%d window=%d",
 			r.requestModelID, r.requestContextTokensEstimate, r.requestContextWindowTokens)
+	}
+}
+
+func TestRenderer_ParallelActivityEventsAggregateRequesting(t *testing.T) {
+	r := newTestRenderer("zh")
+	emit := r.Emitter()
+	now := time.Now()
+	emit(Event{
+		Kind:            EventParallelDispatchStart,
+		Timestamp:       now,
+		Stage:           "explore",
+		Agent:           "explorer",
+		ParallelGroupID: "g",
+		ParallelTotal:   2,
+		Parallelism:     2,
+		ParallelUnitIDs: []string{"u0", "u1"},
+	})
+	for _, unit := range []string{"u0", "u1"} {
+		emit(Event{
+			Kind:            EventParallelDispatchUnitStart,
+			Timestamp:       now,
+			Stage:           "explore",
+			Agent:           "explorer",
+			ParallelGroupID: "g",
+			ParallelUnitID:  unit,
+			ParallelTotal:   2,
+			Parallelism:     2,
+		})
+		emit(Event{
+			Kind:            EventAgentThinking,
+			Timestamp:       now,
+			Stage:           "explore",
+			Agent:           "explorer",
+			ParallelGroupID: "g",
+			ParallelUnitID:  unit,
+		})
+	}
+	rows := r.composeCurrentDockRows()
+	plain := stripAnsiEscapes(rows[0])
+	if !strings.Contains(plain, "并行请求模型中") || !strings.Contains(plain, "2 路") {
+		t.Fatalf("renderer should aggregate parallel worker request state; got %q", plain)
 	}
 }
 
