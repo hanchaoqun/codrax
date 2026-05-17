@@ -58,6 +58,7 @@
 5. **Batch B 第三段落地**：显式 diagram/逻辑视图/时序图/调用图/架构图请求在 comparison 等“默认无图 family”下不再因为严格 diagram-node seed 不足被降级掉。`BuildAnswerSurfacePlan` 会在已有 typed comparison/architecture 结构与可承载证据时保留 `DiagramContract.RequiredKind`，让 semantic view/schema 要求对应 `BlockDiagram`，避免 analyzer 已识别 `diagram_hint` 但最终答案缺少用户明确要求的图。
 6. **Batch H 第六段落地**：analyzer `subtopic_coherence` 的 R1.3 在多仓 cross-component 对比下改为 advisory。多仓问题的 sub_topics 可以按机制分面、文件线索或内部组件拆解，不必每个 sub_topic 都重复仓名；单仓/普通场景的真正 entity orphan 仍保持 hard gate。
 7. **Batch G/H 第七段落地**：analyzer 预扫描预算关闭后动态收窄工具 schema，只保留 `emit_analysis`；分析阶段同时增加工具边界硬拦截，任何绕过 schema 的 `read_file` / `exec_command` / MCP 内容工具在执行前被结构化拒绝，不再进入工具反序列化错误或整轮 analyze 重试。预算到顶后的越界预扫描调用会获得一次 emit-only 就地修正机会，而不是立刻触发 `⟳ 1/4 模型响应出错`。
+8. **Batch H 第八段落地**：explorer chain promotion 不再把 `concrete_values_tracer` 这种宽扫描辅助链路缺失的新文件升级成 CGEC E2 forced-read；系统会先从提示/证据中移除未读链路，只有已读文件里的未覆盖锚点行才发起 surgical read。非 concrete 的高置信链路仍可补读，且有行号时统一走 LineRanges，避免整文件补读造成 `› 2/4 正在补充关键信息` 噪声和探索返工。
 
 ## 问题清单
 
@@ -754,6 +755,30 @@
 - [x] analyzer 执行前边界拒绝所有非允许工具，避免内容工具进入真实执行和 JSON decode 错误。
 - [x] 预算关闭后的越界预扫描调用用 typed repair code 识别，给一次 emit-only 修正机会，不把同一 dispatch 立刻 fail loud。
 - [x] 回归测试覆盖正常 schema 过滤、预算到顶 emit-only、内容工具边界拒绝、预算拒绝不递增 prescan round，防止后续开发重新把 read/explore 工具暴露给 analyzer。
+
+### UIP-032（P1）concrete-values 链路补读把系统辅助推断升级成探索返工
+
+代码位置：`internal/agent/explorer.go::applyChainPromotion`
+
+状态：**已修复（Batch H 第八段）**。chain promotion 仍会把未读锚点的 resolution chain 从 synthesis markdown 和 `dataflow_path` evidence 中移除，避免模型看见未验证链路；但当缺失锚点来自 `concrete_values_tracer` 且指向一个调查阶段未读过的新文件时，不再写入 `PendingRead`，从而不触发 CGEC E2 forced-read 和 `› 2/4 正在补充关键信息`。如果 concrete-values 链路缺的是已读文件中的未覆盖锚点行，系统仍补救，但改用 `LineRanges` surgical read。其它高置信来源（如 `bridge_literal`）继续允许补读；有行号时同样走 surgical read。
+
+触发证据：
+
+- `../small/codrax-small/.codrax/logs` 最新运行中，探索阶段已经出现 `✓ 2/4 已完成证据收集`、`✓ 2/4 已交叉验证证据` 后，又输出 `INFO [CGEC] E2 forced-read: file=internal/types/context.go origin=chain_promotion.concrete_values_tracer` 和 `› 2/4 正在补充关键信息`。
+- 该文件来自 concrete-values 宽扫描的 resolution chain，日志里 `concrete values: scanning 24 files`、`internal/types/context.go → 863 values / relevant 248 values`，不是用户显式要求或模型最终答案的主证据。
+- 后续最终答案并未依赖 `internal/types/context.go`，说明这次补读更像系统辅助链路自我扩张，而不是必要的用户意图满足。
+
+风险：
+
+- concrete-values tracer 是确定性辅助检索面，信号噪声高于模型显式引用和 analyzer required files。把它的缺失新文件升级成 hard forced-read，会让系统在探索结束后自作主张扩张问题范围。
+- 对大仓/多仓尤其危险：宽扫描链路容易指向上下文类型、公共结构体、注册表等“相关但非主线”的文件，造成状态行看起来已经收敛却又回探索补读。
+
+修复方向：
+
+- [x] concrete-values missing-new-file：只 demote 链路和证据，不触发 PendingRead。
+- [x] concrete-values same-file missing-line：保留补救，但写入 `PendingRead.LineRanges`，让 forced-read 只读锚点附近的小范围。
+- [x] 非 concrete 高置信链路：保留补读能力；有行号时统一 surgical，没行号时才保留 legacy full-file fallback。
+- [x] 回归测试覆盖 concrete-values 新文件不补读、非 concrete 新文件仍补读、行号锚点 surgical read、pending subrepo guard 不被新规则旁路。
 
 ## 分批修复建议
 

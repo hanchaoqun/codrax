@@ -144,9 +144,12 @@ func TestApplyChainPromotion_AllAnchorsRead_NoOp(t *testing.T) {
 	}
 }
 
-// Conservative: a chain whose anchor list is ONE-IN-ONE-OUT (one
-// anchor read, the other not) is demoted entirely. The chain
-// depends on both anchors being legitimate cite sources.
+// Conservative: a concrete-values chain whose anchor list is
+// ONE-IN-ONE-OUT (one anchor read, the other not) is demoted entirely.
+// The chain depends on both anchors being legitimate cite sources, but
+// the missing new file is not forced into exploration because the chain
+// came from a broad deterministic tracer rather than a model-authored
+// citation.
 func TestApplyChainPromotion_PartialAnchorMissing_Demoted(t *testing.T) {
 	chain := "`A.foo()` binds NewB → `B.bar()` returns \"x\""
 	in := concreteValuesResult{
@@ -155,7 +158,7 @@ func TestApplyChainPromotion_PartialAnchorMissing_Demoted(t *testing.T) {
 			{Kind: types.EvidenceDataflowPath, Predicate: "resolution_chain", Subject: chain, Summary: chain},
 		},
 		chainAnchors: []chainAnchorInfo{
-			{Summary: chain, Files: []string{"internal/a.go", "internal/b.go"}, Origin: "concrete_values_tracer"},
+			{Summary: chain, Files: []string{"internal/a.go", "internal/b.go"}, FileLines: []int{10, 42}, Origin: "concrete_values_tracer"},
 		},
 	}
 	readSet := map[string]bool{"internal/a.go": true} // b.go missing
@@ -170,8 +173,62 @@ func TestApplyChainPromotion_PartialAnchorMissing_Demoted(t *testing.T) {
 		t.Errorf("partial-miss chain should be dropped from evidence, got %v", out.evidence)
 	}
 	pendings := closure.PendingReads()
+	if len(pendings) != 0 {
+		t.Errorf("concrete-values missing new file should be demoted without forced-read, got %v", pendings)
+	}
+}
+
+func TestApplyChainPromotion_NonConcretePartialAnchorQueuesPendingRead(t *testing.T) {
+	chain := "`A.foo()` binds NewB → `B.bar()` returns \"x\""
+	in := concreteValuesResult{
+		markdown: "### Resolution Chains\n\n- " + chain + "\n\n",
+		evidence: []types.EvidenceItem{
+			{Kind: types.EvidenceDataflowPath, Predicate: "resolution_chain", Subject: chain, Summary: chain},
+		},
+		chainAnchors: []chainAnchorInfo{
+			{Summary: chain, Files: []string{"internal/a.go", "internal/b.go"}, Origin: "bridge_literal"},
+		},
+	}
+	readSet := map[string]bool{"internal/a.go": true}
+	closure := types.NewEvidenceClosure("")
+
+	_ = applyChainPromotion(in, readSet, closure, "", 0, nil)
+
+	pendings := closure.PendingReads()
 	if len(pendings) != 1 || pendings[0].File != "internal/b.go" {
-		t.Errorf("expected one PendingRead for internal/b.go, got %v", pendings)
+		t.Fatalf("expected one PendingRead for non-concrete missing anchor, got %v", pendings)
+	}
+	if len(pendings[0].LineRanges) != 0 {
+		t.Errorf("zero-line non-concrete anchor should preserve legacy full-file fallback, got %+v", pendings[0].LineRanges)
+	}
+}
+
+func TestApplyChainPromotion_NonConcreteLineAnchorQueuesSurgicalRead(t *testing.T) {
+	chain := "`A.foo()` binds NewB → `B.bar()` returns \"x\""
+	in := concreteValuesResult{
+		markdown: "### Resolution Chains\n\n- " + chain + "\n\n",
+		evidence: []types.EvidenceItem{
+			{Kind: types.EvidenceDataflowPath, Predicate: "resolution_chain", Subject: chain, Summary: chain},
+		},
+		chainAnchors: []chainAnchorInfo{
+			{Summary: chain, Files: []string{"internal/a.go", "internal/b.go"}, FileLines: []int{0, 42}, Origin: "bridge_literal"},
+		},
+	}
+	readSet := map[string]bool{"internal/a.go": true}
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(readSet)
+
+	_ = applyChainPromotion(in, readSet, closure, "", 0, nil)
+
+	pendings := closure.PendingReads()
+	if len(pendings) != 1 || pendings[0].File != "internal/b.go" {
+		t.Fatalf("expected one PendingRead for non-concrete missing line anchor, got %v", pendings)
+	}
+	if len(pendings[0].LineRanges) == 0 {
+		t.Fatalf("non-concrete line anchor should use surgical read, got %+v", pendings[0])
+	}
+	if got := pendings[0].LineRanges[0]; got.Start > 42 || got.End < 42 {
+		t.Errorf("surgical range must cover anchor line 42, got %+v", got)
 	}
 }
 
@@ -194,7 +251,7 @@ func TestApplyChainPromotion_SkipsPendingSubRepoAnchor(t *testing.T) {
 			{
 				Summary: chain,
 				Files:   []string{"active-repo/internal/a.go", "pending-repo/internal/b.go"},
-				Origin:  "concrete_values_tracer",
+				Origin:  "bridge_literal",
 			},
 		},
 	}

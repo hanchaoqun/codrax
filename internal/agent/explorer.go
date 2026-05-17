@@ -9819,11 +9819,13 @@ type chainAnchorInfo struct {
 // closure (CGEC) is optional. When non-nil the cached unfiltered
 // result is run through applyChainPromotion: chains anchored outside
 // ReadSet are stripped from the markdown and from the dataflow_path
-// evidence items, and the missing anchor files are appended to
-// closure.PendingReads. The cache itself stores the unfiltered
-// version because closure state mutates over the explore loop and
-// freezing a closure-aware snapshot would serve stale filters to a
-// later caller.
+// evidence items. Missing anchor files are only appended to
+// closure.PendingReads when the anchor source is strong enough to
+// justify another read; noisy concrete-value chains are demoted
+// instead of expanding the investigation to a brand-new file. The
+// cache itself stores the unfiltered version because closure state
+// mutates over the explore loop and freezing a closure-aware snapshot
+// would serve stale filters to a later caller.
 //
 // subject (CGEC C2) is the answer-subject classification produced by
 // the analyzer. When non-Unknown the chain ranker scores each chain
@@ -9854,9 +9856,10 @@ func (e *explorerEvaluator) getConcreteValuesCached(ctx context.Context, repoRoo
 // ReadSet, it returns a new result whose markdown's "### Resolution
 // Chains" section drops any chain anchored outside ReadSet, whose
 // evidence slice drops dataflow_path EvidenceItems with Source
-// outside ReadSet, and which records every missing anchor file as a
-// PendingRead on the closure (so the next explore round's retry
-// hint surfaces them via the structured RepairReadFile directive).
+// outside ReadSet, and which records only high-confidence missing
+// anchors as PendingReads on the closure (so the next explore round's
+// retry hint surfaces them via the structured RepairReadFile
+// directive).
 //
 // Pure of side effects on the input — the input result is shared
 // from the cache and must remain unfiltered.
@@ -9923,9 +9926,10 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 	//
 	// Crucially, this is per-chain — a chain whose anchors are
 	// [a.go, b.go] with a.go inside readSet and b.go outside is the
-	// "on-target but incomplete" shape (paginated / partial-read);
-	// such chains DO promote PendingReads on the missing slice, so
-	// the partial-anchor unit tests continue to pass.
+	// "on-target but incomplete" shape. Such chains may still promote
+	// PendingReads when the anchor source is high-confidence; noisy
+	// concrete-value tracer chains are only demoted, while already
+	// touched files with a missing line slice promote surgical reads.
 	//
 	// The markdown / cvEvidence demote of every demoted chain still
 	// fires so the LLM doesn't see misleading chains; only the
@@ -9964,8 +9968,9 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 			continue
 		}
 		// Append PendingRead for every anchor file the closure has
-		// not seen. Origin tags the source so the operator can grep
-		// the trace for which enforcer raised the read.
+		// not seen AND whose origin is strong enough to justify a
+		// system-initiated read. Origin tags the source so the operator
+		// can grep the trace for which enforcer raised the read.
 		//
 		// CGEC D2: filter by ScannedSet membership. A chain anchor
 		// pointing at a file the explorer's pre-scan never saw is
@@ -9987,6 +9992,9 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 				continue
 			}
 			if readSetContains(readSet, f) && line == 0 {
+				continue
+			}
+			if readSetContains(readSet, f) && line > 0 && len(closure.ReadRanges(f)) == 0 {
 				continue
 			}
 			// X2 def-vs-usage filter: skip when the anchor file does
@@ -10059,10 +10067,30 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 					f, anchor.Origin)
 				continue
 			}
+			// Concrete-value resolution chains are useful synthesis
+			// hints, but they are derived from broad deterministic
+			// scans rather than a model-authored citation or a user-
+			// requested file. If such a chain points at a brand-new
+			// file, demoting the chain is safer than pulling the whole
+			// pipeline back into exploration. When the file was already
+			// touched and only the specific anchor line is outside the
+			// fetched slice, keep the corrective read, but make it
+			// surgical via LineRanges below.
+			if anchor.Origin == "concrete_values_tracer" && !readSetContains(readSet, f) {
+				logging.Debug("[CGEC] chain_promotion: demoted concrete-values chain %q without forced-read; missing new file=%s",
+					anchor.Summary, f)
+				continue
+			}
+			lineRanges := chainPromotionPendingLineRanges(closure, f, line)
+			rationale := "Resolution Chain anchors here but file is outside the investigation's read-files list — read it before next emit_investigation_complete"
+			if len(lineRanges) > 0 {
+				rationale = "Resolution Chain anchor line is outside the fetched slices — read the surgical range before next emit_investigation_complete"
+			}
 			closure.AddPendingRead(types.PendingRead{
-				File:      f,
-				Rationale: "Resolution Chain anchors here but file is outside the investigation's read-files list — read it before next emit_investigation_complete",
-				Origin:    "chain_promotion." + anchor.Origin,
+				File:       f,
+				Rationale:  rationale,
+				Origin:     "chain_promotion." + anchor.Origin,
+				LineRanges: lineRanges,
 			})
 		}
 	}
@@ -10100,9 +10128,34 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 		}
 		out.evidence = filtered
 	}
-	logging.Debug("[explorer] chain promotion: kept %d / demoted %d chains; pending reads queued",
+	logging.Debug("[explorer] chain promotion: kept %d / demoted %d chains; eligible pending reads queued",
 		len(keptSummaries), len(demotedSummaries))
 	return out
+}
+
+// chainPromotionPendingLineRanges turns a precise chain anchor line
+// into the smallest read_file demand needed to cover it. Nil preserves
+// the legacy full-file fallback for older/no-line anchors; non-nil
+// lets runForcedReads issue surgical reads instead of paginating the
+// whole file.
+func chainPromotionPendingLineRanges(closure *types.EvidenceClosure, file string, line int) []types.LineRange {
+	if line <= 0 {
+		return nil
+	}
+	window := tool.CurrentAnalysisLimits().MultiPathSymbolContextLines
+	if window <= 0 {
+		window = 15
+	}
+	if closure != nil {
+		if missing := closure.MissingContextRegions(file, []int{line, line}, window); len(missing) > 0 {
+			return missing
+		}
+	}
+	start := line - window
+	if start < 1 {
+		start = 1
+	}
+	return []types.LineRange{{Start: start, End: line + window}}
 }
 
 // filterResolutionChainSection rewrites the "### Resolution Chains"

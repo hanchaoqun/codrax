@@ -49,9 +49,20 @@ func TestApplyChainPromotion_RangeAware_DemoteOutsideSlice(t *testing.T) {
 			t.Errorf("dataflow_path evidence must be dropped when chain is demoted")
 		}
 	}
-	// PendingRead should be queued.
-	if len(closure.PendingReads()) == 0 {
-		t.Error("expected a PendingRead for the demoted chain's file")
+	// PendingRead should be queued as a surgical slice because the
+	// model already touched the file and only missed the anchor line.
+	pendings := closure.PendingReads()
+	if len(pendings) != 1 {
+		t.Fatalf("expected one PendingRead for the demoted chain's file, got %+v", pendings)
+	}
+	if pendings[0].File != file {
+		t.Fatalf("PendingRead file = %q, want %q", pendings[0].File, file)
+	}
+	if len(pendings[0].LineRanges) == 0 {
+		t.Fatalf("range-aware concrete-values forced-read must be surgical, got %+v", pendings[0])
+	}
+	if got := pendings[0].LineRanges[0]; got.Start > 350 || got.End < 350 {
+		t.Errorf("surgical range must cover anchor line 350, got %+v", got)
 	}
 }
 
@@ -158,4 +169,3 @@ func TestApplyChainPromotion_RangeAware_OldTestsStillPass(t *testing.T) {
 		t.Error("closure without ranges must grant file-level coverage")
 	}
 }
-
