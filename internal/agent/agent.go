@@ -778,6 +778,79 @@ func softNoToolCallMessage(lang string) string {
 	return "⟳ Model returned no tool call — re-prompting"
 }
 
+// softMidLoopCapMessage renders the dock notice the BaseAgent emits
+// the first time a per-key mid-loop hint cap saturates AND the gate
+// the hint targets is still unsatisfied. The hint key itself is
+// internal vocab (e.g. `explorer.mid-loop.closure-repair`) so it is
+// kept out of the user-facing message and surfaced only on the
+// trace log and the LearningFailure reason.
+//
+// docs/design/post_phase2a_forensic_followups.md §2.1.G #4 + #7.
+func softMidLoopCapMessage(lang string, capCount int) string {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "zh", "zh-cn", "cn", "chinese", "简体中文":
+		return fmt.Sprintf("· 同类提示已达上限 (%d/%d)，模型仍未推进对应卡点；按现有证据继续", capCount, capCount)
+	}
+	return fmt.Sprintf("· Mid-loop hint cap reached (%d/%d) — model is not advancing the gated state; continuing with what we have", capCount, capCount)
+}
+
+// escalateMidLoopCapSaturation surfaces a per-key cap-saturation
+// event onto the three channels the user + the rest of the pipeline
+// need:
+//
+//   - dock: typed EventOrchestratorNotice with NoticeUpstreamCap
+//     so the user observes that the loop hit a structural cap
+//     instead of silent quota burn followed by a fail-loud header.
+//   - trace + cross-Run telemetry: AppendLearningFailure with stage
+//     `explorer` and the cap reason; the orchestrator's end-of-Run
+//     summary surfaces the count so operators notice a pattern.
+//   - success-criteria layer: NoteMidLoopHintExhausted records the
+//     (HintKey, Reason) on Mut so downstream criterion expressions
+//     and the orchestrator's fallback gate can pivot earlier on
+//     "model structurally unable to satisfy" instead of waiting for
+//     the dispatch's max-step quota.
+//
+// One-shot per (dispatch, key) — the loop-policy de-duplicates
+// CapSaturatedHintKey to "" after the first fire, so this helper
+// only runs once per saturated key. Safe to call with nil ctx /
+// Mutable / Emit; missing pieces simply skip their channel.
+//
+// docs/design/post_phase2a_forensic_followups.md §2.1.G #4 + #7.
+func (b *BaseAgent) escalateMidLoopCapSaturation(ctx *types.AgentContext, iteration int, hintKey, reason string) {
+	if hintKey == "" {
+		return
+	}
+	logging.Info("[diag %s] iter=%d phase=midloop_cap_saturated key=%q %s",
+		b.name, iteration, hintKey, reason)
+	capCount := DefaultLoopPolicy().MaxPerKeyInjects
+	if b.deps != nil && b.deps.LoopPolicy.MaxPerKeyInjects > 0 {
+		capCount = b.deps.LoopPolicy.MaxPerKeyInjects
+	}
+	if b.deps != nil && b.deps.Emit != nil {
+		var (
+			lang  string
+			stage types.PipelineStage
+		)
+		if ctx != nil {
+			lang = ctx.Language
+			stage = ctx.Stage
+		}
+		b.deps.Emit(render.Event{
+			Kind:       render.EventOrchestratorNotice,
+			Timestamp:  time.Now(),
+			Agent:      b.name,
+			Stage:      stage,
+			Iteration:  iteration,
+			NoticeKind: render.NoticeUpstreamCap,
+			Reasoning:  softMidLoopCapMessage(lang, capCount),
+		})
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.AppendLearningFailure(string(b.name), fmt.Sprintf("midloop hint cap saturated: key=%s; %s", hintKey, reason))
+		ctx.Mutable.NoteMidLoopHintExhausted(hintKey, reason)
+	}
+}
+
 // toolChoiceForStage returns the OpenAI-style tool_choice value to
 // attach to the LLM request for this dispatch stage. The stages whose
 // terminal action is a specific emit_* call — analyze, extract,
@@ -1666,6 +1739,20 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				logging.Debug("[diag %s] iter=%d phase=midloop_force_stop MIDLOOP force-stop: %s",
 					b.name, i, result.Reason)
 				forceStop = true
+			}
+			// Per-key cap-saturation escalation. One-shot per
+			// (dispatch, key) — the loop-policy fills
+			// CapSaturatedHintKey only on the first cap-reached
+			// rejection for a given key. Surfacing the event keeps
+			// the loop from silently burning its remaining iteration
+			// quota on a gate the model is structurally unable to
+			// satisfy: the user sees a typed notice; the per-Run
+			// LearningFailure feeds cross-Run telemetry; the typed
+			// marker on Mut is what the success-criteria layer will
+			// read to pivot fallback earlier.
+			// docs/design/post_phase2a_forensic_followups.md §2.1.G #4 + #7.
+			if result.CapSaturatedHintKey != "" {
+				b.escalateMidLoopCapSaturation(ctx, i, result.CapSaturatedHintKey, result.Reason)
 			}
 		}
 	}

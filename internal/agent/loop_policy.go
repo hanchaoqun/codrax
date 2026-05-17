@@ -190,6 +190,17 @@ type loopPolicyState struct {
 	// 2026-05-10 P2.
 	perKeyMidLoopInjects map[string]int
 
+	// capSaturationReported tracks per-key cap-saturation events
+	// already surfaced to the caller via LoopResult.CapSaturatedHintKey.
+	// The cap-reached branch fires every subsequent Apply call for the
+	// saturated key, but the BaseAgent only wants ONE notice + ONE
+	// LearningFailure record per (dispatch, key) — repeated notices
+	// would spam the dock and dilute the LearningFailure cross-Run
+	// signal. Empty until the first cap-saturation; lazy-initialised.
+	//
+	// docs/design/post_phase2a_forensic_followups.md §2.1.G #4 + #7.
+	capSaturationReported map[string]bool
+
 	// lastAcceptedKey is the HintKey of the most recently accepted
 	// injection. Used for dedup: when the next signal carries the
 	// same non-empty HintKey, the hint is dropped regardless of
@@ -331,10 +342,21 @@ func (o LoopOutcome) String() string {
 // carries the final outcome BaseAgent should act on plus optional
 // metadata: Hint (only when Outcome == OutcomeInjectHint) and
 // Reason (a short tag the BaseAgent.Execute debug trace surfaces).
+//
+// CapSaturatedHintKey is non-empty exactly once per (dispatch, key)
+// — the first time a per-key mid-loop hint cap rejects an inject —
+// so the BaseAgent caller can escalate (emit a user-visible notice,
+// record a LearningFailure on Mut, surface a typed marker for the
+// success-criteria layer to read) instead of silently continuing
+// while the loop burns its remaining iteration quota on a gate the
+// model is structurally unable to satisfy.
+//
+// docs/design/post_phase2a_forensic_followups.md §2.1.G #4 + #7.
 type LoopResult struct {
-	Outcome LoopOutcome
-	Hint    string
-	Reason  string
+	Outcome             LoopOutcome
+	Hint                string
+	Reason              string
+	CapSaturatedHintKey string
 }
 
 // Apply runs the throttling / dedup / budget rules against one raw
@@ -531,10 +553,30 @@ func (s *loopPolicyState) Apply(phase LoopPhase, obs LoopObservation, sig LoopSi
 			// hints from the same evaluator branch still trips
 			// the cap because the key collides under "".
 			if s.policy.MaxPerKeyInjects > 0 && s.perKeyMidLoopInjects[sig.HintKey] >= s.policy.MaxPerKeyInjects {
+				// One-shot per (dispatch, key) escalation channel:
+				// the FIRST time the cap rejects an inject for a
+				// given key, populate CapSaturatedHintKey so the
+				// BaseAgent caller can emit a user-visible notice,
+				// record a LearningFailure, and surface a typed
+				// marker for the success-criteria layer to read.
+				// Subsequent Apply calls for the same saturated
+				// key still return OutcomeContinue + cap-reached
+				// Reason but leave CapSaturatedHintKey empty so the
+				// dock and Mut are not spammed with duplicates.
+				// docs/design/post_phase2a_forensic_followups.md §2.1.G #4 + #7.
+				cap := ""
+				if !s.capSaturationReported[sig.HintKey] {
+					if s.capSaturationReported == nil {
+						s.capSaturationReported = make(map[string]bool, 2)
+					}
+					s.capSaturationReported[sig.HintKey] = true
+					cap = sig.HintKey
+				}
 				return LoopResult{
 					Outcome: OutcomeContinue,
 					Reason: fmt.Sprintf("per-key mid-loop inject cap reached (key=%q, count=%d/%d)",
 						sig.HintKey, s.perKeyMidLoopInjects[sig.HintKey], s.policy.MaxPerKeyInjects),
+					CapSaturatedHintKey: cap,
 				}
 			}
 			if !sig.BypassBudget {

@@ -313,6 +313,18 @@ type MutableState struct {
 	// notices "10 Runs, 8 learning failures" and investigates.
 	learningFailures []LearningFailure
 
+	// midLoopHintExhaustions records each (HintKey, Reason) pair the
+	// loop-policy per-key cap saturated during the current Run. The
+	// loop-policy returns OutcomeContinue on cap-saturate to avoid
+	// force-stopping a dispatch whose other hint keys may still be
+	// productive, but the saturated key itself is a "model is
+	// structurally unable to satisfy this gate" signal — surfacing
+	// it here lets the success-criteria layer and downstream Runs
+	// pivot to fallback instead of paying for the dispatch's
+	// remaining iteration quota in silence.
+	// docs/design/post_phase2a_forensic_followups.md §2.1.G #4 + #7.
+	midLoopHintExhaustions []MidLoopHintExhaustion
+
 	// iterationLedger accumulates one IterationRecord per completed
 	// verify→plan retry attempt. The orchestrator's clearForReplan
 	// appends to it BEFORE resetting ChangePlan / ChangeReport, so
@@ -2541,6 +2553,67 @@ func (m *MutableState) ResetLearningFailures() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.learningFailures = nil
+}
+
+// MidLoopHintExhaustion records one per-key mid-loop hint cap
+// saturation event. HintKey is the loop-policy bucket the cap fired
+// on (internal-vocab — for trace + cross-Run learning, not
+// user-facing); Reason carries the cap counter for context.
+//
+// docs/design/post_phase2a_forensic_followups.md §2.1.G #4 + #7.
+type MidLoopHintExhaustion struct {
+	HintKey string `json:"hint_key"`
+	Reason  string `json:"reason"`
+}
+
+// NoteMidLoopHintExhausted records that a per-key mid-loop hint cap
+// saturated for the given key during this Run. Idempotent per key —
+// the loop-policy already de-duplicates the cap-saturation signal,
+// but defending here keeps the record set stable if a future caller
+// fires twice. Concurrency-safe; appends to the per-Run slice.
+//
+// docs/design/post_phase2a_forensic_followups.md §2.1.G #4 + #7.
+func (m *MutableState) NoteMidLoopHintExhausted(hintKey, reason string) {
+	if m == nil {
+		return
+	}
+	hintKey = strings.TrimSpace(hintKey)
+	if hintKey == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range m.midLoopHintExhaustions {
+		if e.HintKey == hintKey {
+			return
+		}
+	}
+	m.midLoopHintExhaustions = append(m.midLoopHintExhaustions, MidLoopHintExhaustion{
+		HintKey: hintKey,
+		Reason:  strings.TrimSpace(reason),
+	})
+}
+
+// MidLoopHintExhaustions returns a snapshot of the per-Run mid-loop
+// hint cap saturations. Empty = no cap fired during this Run.
+// Success-criteria expressions / the orchestrator's fallback gate
+// can read this to detect "model is structurally unable to satisfy
+// some gate" and pivot earlier instead of waiting for the
+// dispatch's max-step quota.
+//
+// docs/design/post_phase2a_forensic_followups.md §2.1.G #4 + #7.
+func (m *MutableState) MidLoopHintExhaustions() []MidLoopHintExhaustion {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.midLoopHintExhaustions) == 0 {
+		return nil
+	}
+	out := make([]MidLoopHintExhaustion, len(m.midLoopHintExhaustions))
+	copy(out, m.midLoopHintExhaustions)
+	return out
 }
 
 // AppendPlanStageProbeReport records one plan-stage dry-run probe
