@@ -92,39 +92,6 @@ func TestSemanticQualityReviewStartMessage_RedlineAudit(t *testing.T) {
 	}
 }
 
-// TestSystemSubAgentFanoutStartMessage_RedlineAudit pins the
-// system-driven explorer fan-out cue (2026-05-17). Same redline contract
-// as the two reviewer-start messages: progress glyph (›), no internal
-// vocabulary, CN+EN-only, user-vocabulary phrasing.
-func TestSystemSubAgentFanoutStartMessage_RedlineAudit(t *testing.T) {
-	zh := systemSubAgentFanoutStartMessage("zh", 3)
-	en := systemSubAgentFanoutStartMessage("en", 3)
-	if !strings.Contains(zh, "›") || !strings.Contains(en, "›") {
-		t.Errorf("progress glyph › should appear in both branches; got zh=%q en=%q", zh, en)
-	}
-	if !strings.Contains(zh, "3") || !strings.Contains(en, "3") {
-		t.Errorf("sub-task count must surface in the prose; got zh=%q en=%q", zh, en)
-	}
-	for _, msg := range []string{zh, en} {
-		for _, banned := range []string{
-			// Internal pipeline / red-line §6 vocabulary that must not
-			// leak to user-facing status lines.
-			"sub_topic", "SubTopic", "fan-out", "fanout", "SubAgentRuntime",
-			"SubAgent", "sub_explorer", "BaseAgent", "AnalysisIR",
-			"propose_sub_agents", "explorer.go", "orchestrator",
-		} {
-			if strings.Contains(msg, banned) {
-				t.Errorf("must not leak internal token %q; got %q", banned, msg)
-			}
-		}
-	}
-	// English must read as user-facing prose (no snake_case, no
-	// PascalCase, no backticked identifiers).
-	if strings.Contains(en, "_") || strings.Contains(en, "`") {
-		t.Errorf("English message must avoid snake_case and backticks; got %q", en)
-	}
-}
-
 // TestPolishedMessages_NoTechnicalJargon — pin the 4 P7 polish
 // targets (BackToExplore / completeness gap / answer-check retry /
 // generic retry hint). Each must read in user vocabulary, not the

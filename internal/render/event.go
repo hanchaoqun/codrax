@@ -258,7 +258,6 @@ const (
 	NoticeNoToolCall                                                          // must-emit stage got zero tool_calls; re-prompting
 	NoticeProceedingWithoutExtract                                            // pre-finalize extract dispatch failed; proceeding with prior evidence (progress-class ›)
 	NoticeSemanticQualityReviewStart                                          // P7 (2026-05-10) — semantic-quality reviewer dispatching (progress-class ›)
-	NoticeSystemSubAgentFanoutStart                                           // 2026-05-17 — system-driven multi-sub-topic explorer fan-out begins (progress-class ›)
 
 	// info-class — gray (passive informational)
 	NoticeConvergenceStall                   // CGEC I4 plateau finalizing on current evidence

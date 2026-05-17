@@ -109,27 +109,6 @@ func selfConsistencyReviewStartMessage(lang string) string {
 	return "› Checking the answer for inconsistencies"
 }
 
-// systemSubAgentFanoutStartMessage (2026-05-17): renders the
-// user-visible status line shown when the orchestrator's system-driven
-// gate decides to dispatch N parallel sub_explorers based on typed
-// sub-topic decomposition (see explorer_fanout.go). Bilingual.
-//
-// Red-line audit (mirrors selfConsistencyReviewStartMessage):
-//   - R3 typed: static prose, no mutable token
-//   - R4 generic: no project / case names
-//   - R6 no internal vocab: "并行 / parallel" is user vocab; the
-//     internal terms "sub_topic" / "fan-out" / "SubAgentRuntime"
-//     never surface
-//   - SST: shape mirrors selfConsistencyReviewStartMessage's "›
-//     {action}" pattern
-//   - CN+EN-only per 2026-05-10 user direction
-func systemSubAgentFanoutStartMessage(lang string, count int) string {
-	if preferZhMessage(lang) {
-		return fmt.Sprintf("› 并行探索 %d 个独立方向", count)
-	}
-	return fmt.Sprintf("› Exploring %d independent directions in parallel", count)
-}
-
 // semanticQualityReviewStartMessage (P7, 2026-05-10): renders the
 // user-visible status line shown when the G5 semantic-quality
 // reviewer LLM dispatches. Symmetric counterpart of
