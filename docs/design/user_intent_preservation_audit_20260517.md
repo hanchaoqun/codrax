@@ -36,6 +36,7 @@
 3. **Batch C 第一段已落地**：`surface_terms` 不再自动追加到用户可见正文；缺失 surface term 只保留为 advisory 日志，不触发 hard retry，也不污染最终答案 item text。
 4. **第二轮审计完成（文档刷新）**：继续沿 read-mode 主链排查仍会替代用户/LLM 表达的机制，新增 UIP-015 到 UIP-021。结论是后续不能继续补 validator 文案，而要优先治理“系统补正文、schema 兼容、gate 分层、upstream repair routing”四条主线。
 5. **Batch F/G/H 第一段已落地**：`emit_answer_document` 与 patch 持久化路径不再 materialize aggregate/principal support 成员到用户可见正文；新增 answer-document 字段隔离层，schema-unknown 的无害 metadata 在严格 decode 前本地 quarantine，保留核心 blocks/citations，避免小错触发 finalizer 重试。`aggregate member_set` emit-time coverage 只在 typed exhaustive/relation enumeration 下 hard gate，叙事/解释类 member_set 降为 advisory。
+6. **Batch H 第二段已落地**：semantic-quality reviewer 的 concern schema 增加 `repair_locus`，并由 violation 的 typed `RepairLocusOverride` 进入 repair routing。`evidence_gap` 回流 explore，`analysis_gap` / `presentation_advisory` 不再触发 finalizer-only 硬重写，`local_doc_defect` / `safety` 才留在本地修正文档路径。
 
 ## 问题清单
 
@@ -396,6 +397,8 @@
 
 代码位置：`internal/orchestrator/contract_check.go::runSemanticQualityReview`、`internal/agent/answer_document_evaluator.go::retryRepairPhaseForViolation`
 
+状态：**第一段已修复（Batch H）**。`emit_semantic_quality_review.concerns[]` 增加结构化 `repair_locus`，运行时不再仅凭 concern kind 把问题全部压给 finalizer。`evidence_gap` 设置 typed `RepairLocusOverride=LocusExplore`，`analysis_gap` / `presentation_advisory` 设置 terminal/soft caveat 路径，只有 `local_doc_defect` / `safety` 保留本地重写。后续仍需做 same-error-class governor，把重复同指纹失败更早转成隔离补充说明。
+
 当前行为：
 
 - reviewer 产出的 structured concerns 会被转换为 contract violations。
@@ -520,7 +523,7 @@
 ### Batch H：gate taxonomy + upstream routing
 
 1. [~] 每个 finalizer violation 必须分类为 `local_doc_defect`、`evidence_gap`、`analysis_gap`、`presentation_advisory`、`safety`。（aggregate member_set 与 enum-label emit-time gate 已先分出 hard/advisory）
-2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景、非主枚举标签场景已停止同轮硬重试）
+2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景、非主枚举标签场景已停止同轮硬重试；semantic-quality reviewer 已接入 `repair_locus` typed routing）
 3. 同类错误 fingerprint 连续失败后，停止硬重写，接受核心答案并用“补充说明/保留原文”交代缺陷。
 
 ### Batch I：scope / presentation contract 贯穿

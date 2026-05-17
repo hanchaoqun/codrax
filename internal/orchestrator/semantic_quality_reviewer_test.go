@@ -37,6 +37,15 @@ func (f *fakeSemanticQualityAdapter) MaxOutputTokens() int          { return 100
 func (f *fakeSemanticQualityAdapter) RequestTimeout() time.Duration { return time.Second }
 func (f *fakeSemanticQualityAdapter) RetryMaxAttempts() int         { return 1 }
 
+type fakeSemanticQualityReviewer struct {
+	verdict *SemanticQualityResult
+	err     error
+}
+
+func (f fakeSemanticQualityReviewer) Review(context.Context, SemanticQualityInput) (*SemanticQualityResult, error) {
+	return f.verdict, f.err
+}
+
 func TestSemanticQualityReviewer_NilAdapterDisabled(t *testing.T) {
 	r := NewSemanticQualityReviewer(nil)
 	got, err := r.Review(context.Background(), SemanticQualityInput{
@@ -72,8 +81,8 @@ func TestSemanticQualityReviewer_ConcernsRequireBothPartsOfThePair(t *testing.T)
 			"confidence": 0.92,
 			"concerns": [
 				{"topic": "facet:principal_mechanism", "kind": "coverage_gap", "observation": "body lists API surfaces but does not name the dispatching call site",
-				 "suggestion": "add a body item naming the call edge with file:line"},
-				{"topic": "weak", "kind": "coverage_gap", "observation": "", "suggestion": "fix"}
+				 "suggestion": "add a body item naming the call edge with file:line", "repair_locus": "evidence_gap"},
+				{"topic": "weak", "kind": "coverage_gap", "observation": "", "suggestion": "fix", "repair_locus": "local_doc_defect"}
 			]
 		}`,
 	}
@@ -93,6 +102,39 @@ func TestSemanticQualityReviewer_ConcernsRequireBothPartsOfThePair(t *testing.T)
 	}
 	if got.Concerns[0].Kind != semanticConcernCoverageGap {
 		t.Errorf("concern Kind = %q, want %q", got.Concerns[0].Kind, semanticConcernCoverageGap)
+	}
+	if got.Concerns[0].RepairLocus != semanticRepairEvidenceGap {
+		t.Errorf("concern RepairLocus = %q, want %q", got.Concerns[0].RepairLocus, semanticRepairEvidenceGap)
+	}
+}
+
+func TestSemanticQualityReviewer_RepairLocusSchemaAndBackCompat(t *testing.T) {
+	corpus := string(semanticQualityTool.Parameters)
+	for _, want := range []string{
+		`"repair_locus"`,
+		`"local_doc_defect"`,
+		`"evidence_gap"`,
+		`"analysis_gap"`,
+		`"presentation_advisory"`,
+		`"safety"`,
+		`"required": ["topic", "kind", "observation", "suggestion", "repair_locus"]`,
+	} {
+		if !strings.Contains(corpus, want) {
+			t.Fatalf("semantic quality tool schema missing %q:\n%s", want, corpus)
+		}
+	}
+	got, err := unmarshalSemanticQualityResult(json.RawMessage(`{
+		"sufficient": false,
+		"confidence": 0.91,
+		"concerns": [
+			{"topic": "requested topic", "kind": "topic_mismatch", "observation": "wrong subject", "suggestion": "answer the requested subject"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("unmarshal old-shape concern: %v", err)
+	}
+	if len(got.Concerns) != 1 || got.Concerns[0].RepairLocus != semanticRepairLocalDocDefect {
+		t.Fatalf("old-shape concern should default to local_doc_defect, got %+v", got.Concerns)
 	}
 }
 
@@ -451,6 +493,83 @@ func TestSemanticQualityMinConfidenceDefault_P4(t *testing.T) {
 func TestSemanticQualityTopicMismatchMinConfidence(t *testing.T) {
 	if SemanticQualityTopicMismatchMinConfidence != 0.85 {
 		t.Errorf("topic mismatch floor should be 0.85, got %v", SemanticQualityTopicMismatchMinConfidence)
+	}
+}
+
+func TestRunSemanticQualityReview_TopicMismatchEvidenceGapRoutesUpstream(t *testing.T) {
+	mut := types.NewMutableState("compare codrax and opencode hallucination prevention")
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		Ctx:      context.Background(),
+		Mutable:  mut,
+		Language: "zh",
+	}
+	o.SetSemanticQualityReviewer(fakeSemanticQualityReviewer{
+		verdict: &SemanticQualityResult{
+			Sufficient: false,
+			Confidence: 0.91,
+			Concerns: []SemanticQualityConcern{{
+				Kind:        semanticConcernTopicMismatch,
+				Topic:       "requested topic",
+				Observation: "body answers a different subject",
+				Suggestion:  "collect the missing comparison evidence before revising",
+				RepairLocus: semanticRepairEvidenceGap,
+			}},
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "summary", FacetIDs: []string{"principal_mechanism"}},
+			{ID: "b1", Kind: types.BlockSection, Text: "body", FacetIDs: []string{"principal_mechanism"}},
+		},
+	}
+	got := o.runSemanticQualityReview(doc, mut)
+	if len(got) != 1 {
+		t.Fatalf("violations len=%d, want 1: %+v", len(got), got)
+	}
+	if got[0].Kind != types.ViolAnswerTopicMismatch {
+		t.Fatalf("kind=%q, want %q", got[0].Kind, types.ViolAnswerTopicMismatch)
+	}
+	if got[0].RepairLocusOverride != types.LocusExplore {
+		t.Fatalf("repair locus override=%q, want explore", got[0].RepairLocusOverride)
+	}
+	if target := FallbackTargetForViolation(got[0]); target != FallbackBackToExplore {
+		t.Fatalf("fallback target=%s, want %s", target, FallbackBackToExplore)
+	}
+}
+
+func TestRunSemanticQualityReview_PresentationAdvisoryDoesNotHardTopicRetry(t *testing.T) {
+	mut := types.NewMutableState("explain module")
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Ctx: context.Background(), Mutable: mut}
+	o.SetSemanticQualityReviewer(fakeSemanticQualityReviewer{
+		verdict: &SemanticQualityResult{
+			Sufficient: false,
+			Confidence: 0.95,
+			Concerns: []SemanticQualityConcern{{
+				Kind:        semanticConcernTopicMismatch,
+				Topic:       "section title",
+				Observation: "title is awkward but body is relevant",
+				Suggestion:  "surface as a note if needed",
+				RepairLocus: semanticRepairPresentationAdvisor,
+			}},
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "summary", FacetIDs: []string{"principal_mechanism"}},
+			{ID: "b1", Kind: types.BlockSection, Text: "body", FacetIDs: []string{"principal_mechanism"}},
+		},
+	}
+	got := o.runSemanticQualityReview(doc, mut)
+	if len(got) != 1 {
+		t.Fatalf("violations len=%d, want 1: %+v", len(got), got)
+	}
+	if got[0].Kind != types.ViolAnswerSemanticUnderfilled {
+		t.Fatalf("presentation advisory should be soft semantic underfill, got %q", got[0].Kind)
+	}
+	if got[0].RepairLocusOverride != types.LocusTerminal {
+		t.Fatalf("presentation advisory override=%q, want terminal", got[0].RepairLocusOverride)
 	}
 }
 

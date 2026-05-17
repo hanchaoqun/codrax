@@ -184,6 +184,7 @@ type SemanticQualityConcern struct {
 	Topic       string // ≤ 60 chars
 	Observation string // ≤ 200 chars: what the reviewer saw in the answer
 	Suggestion  string // ≤ 200 chars: what to add / expand
+	RepairLocus string // local_doc_defect / evidence_gap / analysis_gap / presentation_advisory / safety
 }
 
 const (
@@ -192,6 +193,14 @@ const (
 	semanticConcernGroundingGap  = "grounding_gap"
 	semanticConcernDiagramGap    = "diagram_gap"
 	semanticConcernRichnessGap   = "richness_gap"
+)
+
+const (
+	semanticRepairLocalDocDefect      = "local_doc_defect"
+	semanticRepairEvidenceGap         = "evidence_gap"
+	semanticRepairAnalysisGap         = "analysis_gap"
+	semanticRepairPresentationAdvisor = "presentation_advisory"
+	semanticRepairSafety              = "safety"
 )
 
 // SemanticQualityTopicMismatchMinConfidence is the lower floor for a
@@ -257,9 +266,14 @@ var semanticQualityTool = llm.ToolSchema{
             "type": "string",
             "maxLength": 200,
             "description": "What to add / surface. Reference the typed evidence available (do not invent new claims)."
+          },
+          "repair_locus": {
+            "type": "string",
+            "enum": ["local_doc_defect", "evidence_gap", "analysis_gap", "presentation_advisory", "safety"],
+            "description": "Where the issue can honestly be repaired: local_doc_defect = revise the answer using already supplied evidence; evidence_gap = more investigation or source evidence is needed before the answer can be fixed; analysis_gap = the initial understanding/coverage plan appears wrong; presentation_advisory = clarity/format concern that should not force a rewrite; safety = unsafe or materially wrong answer that must be corrected before shipping."
           }
         },
-        "required": ["topic", "kind", "observation", "suggestion"]
+        "required": ["topic", "kind", "observation", "suggestion", "repair_locus"]
       }
     },
     "confidence": {
@@ -313,11 +327,18 @@ DECISION DISCIPLINE (apply before reporting):
   5. Stylistic preferences ("the answer would read better if it added a section on X") are NOT concerns. Only wrong-topic answers or typed-evidence-available coverage gaps qualify.
   6. When a promoted facet is covered=true AND the body engages the cited evidence — that is NOT a concern (abstraction is editorial choice; coverage with grounding is the gate).
   7. PROMOTED FACET COVERAGE depth: when a facet has DeclaredCount > 0 but AnchoredCount == 0, the declaration is shallow (label-only). Flag only when the shortfall is structurally important (multiple shallow declarations, or the principal facet is shallow).
+  8. REPAIR LOCUS: every concern must classify where repair belongs:
+     - local_doc_defect: the answer can be revised with the already supplied evidence.
+     - evidence_gap: the answer cannot be corrected without more investigation/source evidence.
+     - analysis_gap: the initial understanding or coverage plan appears wrong.
+     - presentation_advisory: formatting/clarity issue only; do not force a rewrite.
+     - safety: materially wrong or unsafe answer that must be corrected before shipping.
 
 Output via emit_semantic_quality_review:
   - sufficient=true is the COMMON case; mark it true unless you can name a SPECIFIC ADDITIONAL gap supported by the attestations.
   - confidence >= 0.85 to report a gap; below 0.85 mark sufficient=true (rather miss a thin spot than force a rewrite on a defensible answer).
   - When reporting, choose concern kind carefully. Use topic_mismatch only for wrong-subject answers; use coverage_gap / grounding_gap / diagram_gap / richness_gap for missing-surface concerns.
+  - Choose repair_locus carefully. Do not call a missing-evidence problem a local_doc_defect. Do not call a formatting preference safety.
   - If you cannot name at least one concrete concern, emit sufficient=true. Never emit sufficient=false with an empty concerns array.
   - When reporting, name the public semantic label (facet label / relation kind / enrichment label, or "requested topic" for topic_mismatch). Use the same language as the answer text in the prose fields. Do NOT restate SYSTEM-DETECTED GAPS — concerns must be ADDITIONS.`
 
@@ -374,6 +395,7 @@ func unmarshalSemanticQualityResult(raw json.RawMessage) (*SemanticQualityResult
 			Topic       string `json:"topic"`
 			Observation string `json:"observation"`
 			Suggestion  string `json:"suggestion"`
+			RepairLocus string `json:"repair_locus"`
 		} `json:"concerns"`
 		Confidence float64 `json:"confidence"`
 		Reasoning  string  `json:"reasoning"`
@@ -392,13 +414,14 @@ func unmarshalSemanticQualityResult(raw json.RawMessage) (*SemanticQualityResult
 	for _, c := range parsed.Concerns {
 		topic := strings.TrimSpace(c.Topic)
 		kind := normaliseSemanticQualityConcernKind(c.Kind)
+		repairLocus := normaliseSemanticQualityRepairLocus(c.RepairLocus, kind)
 		obs := strings.TrimSpace(c.Observation)
 		sug := strings.TrimSpace(c.Suggestion)
 		if topic == "" || obs == "" || sug == "" {
 			continue
 		}
 		out.Concerns = append(out.Concerns, SemanticQualityConcern{
-			Kind: kind, Topic: topic, Observation: obs, Suggestion: sug,
+			Kind: kind, Topic: topic, Observation: obs, Suggestion: sug, RepairLocus: repairLocus,
 		})
 	}
 	if !out.Sufficient && len(out.Concerns) == 0 {
@@ -417,6 +440,7 @@ func semanticQualityFallbackConcern(reasoning string) SemanticQualityConcern {
 		Topic:       "semantic quality review",
 		Observation: observation,
 		Suggestion:  "rewrite using only the typed evidence already supplied, and make the missing coverage or topic alignment described by the reviewer rationale explicit",
+		RepairLocus: semanticRepairLocalDocDefect,
 	}
 }
 
@@ -434,6 +458,27 @@ func normaliseSemanticQualityConcernKind(kind string) string {
 		return semanticConcernCoverageGap
 	default:
 		return semanticConcernCoverageGap
+	}
+}
+
+func normaliseSemanticQualityRepairLocus(locus, concernKind string) string {
+	switch strings.TrimSpace(locus) {
+	case semanticRepairLocalDocDefect:
+		return semanticRepairLocalDocDefect
+	case semanticRepairEvidenceGap:
+		return semanticRepairEvidenceGap
+	case semanticRepairAnalysisGap:
+		return semanticRepairAnalysisGap
+	case semanticRepairPresentationAdvisor:
+		return semanticRepairPresentationAdvisor
+	case semanticRepairSafety:
+		return semanticRepairSafety
+	default:
+		// Back-compat for older adapters/tests that predate
+		// repair_locus. Preserve the historical hard behaviour for
+		// explicit wrong-topic verdicts; ordinary coverage concerns
+		// remain soft unless separately promoted by operator config.
+		return semanticRepairLocalDocDefect
 	}
 }
 
@@ -468,7 +513,8 @@ func filterSemanticQualityConcernsByKind(concerns []SemanticQualityConcern, kind
 }
 
 func semanticQualityViolationKind(concern SemanticQualityConcern) types.ViolationKind {
-	if normaliseSemanticQualityConcernKind(concern.Kind) == semanticConcernTopicMismatch {
+	if normaliseSemanticQualityConcernKind(concern.Kind) == semanticConcernTopicMismatch &&
+		normaliseSemanticQualityRepairLocus(concern.RepairLocus, concern.Kind) != semanticRepairPresentationAdvisor {
 		return types.ViolAnswerTopicMismatch
 	}
 	return types.ViolAnswerSemanticUnderfilled

@@ -2798,28 +2798,26 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 	for i, c := range concerns {
 		kind := semanticQualityViolationKind(c)
 		normalizedKind := normaliseSemanticQualityConcernKind(c.Kind)
+		repairLocus := normaliseSemanticQualityRepairLocus(c.RepairLocus, normalizedKind)
 		detailPrefix := "answer_underfilled"
 		rootField := "answer_semantic_quality"
-		repair := fmt.Sprintf("[%d/%d] expand the answer to address %q. %s",
-			i+1, len(concerns), c.Topic, c.Suggestion)
+		repair := semanticQualityConcernRepairText(i+1, len(concerns), c, kind, repairLocus)
 		if kind == types.ViolAnswerTopicMismatch {
 			detailPrefix = "answer_topic_mismatch"
 			rootField = "answer_semantic_topic"
-			repair = fmt.Sprintf("[%d/%d] rewrite the answer around the requested topic %q. %s",
-				i+1, len(concerns), c.Topic, c.Suggestion)
-		} else if strictKind, ok := semanticQualityStrictCoverageViolation(c, in); ok {
-			kind = strictKind
-			switch strictKind {
-			case types.ViolPrincipalProseUnderfilled:
-				detailPrefix = "answer_prose_underfilled"
-				rootField = "answer_prose_density"
-				repair = fmt.Sprintf("[%d/%d] add inline grounded identifiers for the shallow required facet %q. %s",
-					i+1, len(concerns), c.Topic, c.Suggestion)
-			case types.ViolDiagramEdgeUnsupported:
-				detailPrefix = "answer_diagram_gap"
-				rootField = "diagram_block"
-				repair = fmt.Sprintf("[%d/%d] repair the required diagram coverage for %q. %s",
-					i+1, len(concerns), c.Topic, c.Suggestion)
+		} else if repairLocus != semanticRepairPresentationAdvisor {
+			if strictKind, ok := semanticQualityStrictCoverageViolation(c, in); ok {
+				kind = strictKind
+				switch strictKind {
+				case types.ViolPrincipalProseUnderfilled:
+					detailPrefix = "answer_prose_underfilled"
+					rootField = "answer_prose_density"
+					repair = semanticQualityConcernRepairText(i+1, len(concerns), c, kind, repairLocus)
+				case types.ViolDiagramEdgeUnsupported:
+					detailPrefix = "answer_diagram_gap"
+					rootField = "diagram_block"
+					repair = semanticQualityConcernRepairText(i+1, len(concerns), c, kind, repairLocus)
+				}
 			}
 		}
 		if reasoning != "" {
@@ -2830,38 +2828,42 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 		clusterKey := topicClusterKey(c.Topic, "answer_semantic_quality")
 		root := types.SuspectedRoot{
 			IRField:    rootField,
-			Reason:     "reviewer detected " + normalizedKind,
+			Reason:     fmt.Sprintf("reviewer detected %s repair_locus=%s", normalizedKind, repairLocus),
 			Confidence: verdict.Confidence,
 		}
+		locusOverride := semanticQualityRepairLocusOverride(repairLocus)
 		if kind == types.ViolAnswerTopicMismatch {
 			out = append(out, types.Violation{
-				Kind:          types.ViolAnswerTopicMismatch,
-				Detail:        detail,
-				Repair:        repair,
-				ClusterKey:    clusterKey,
-				SuspectedRoot: root,
-				Stage:         string(types.StageFinalize),
+				Kind:                types.ViolAnswerTopicMismatch,
+				Detail:              detail,
+				Repair:              repair,
+				ClusterKey:          clusterKey,
+				SuspectedRoot:       root,
+				Stage:               string(types.StageFinalize),
+				RepairLocusOverride: locusOverride,
 			})
 			continue
 		}
 		if kind == types.ViolPrincipalProseUnderfilled || kind == types.ViolDiagramEdgeUnsupported {
 			out = append(out, types.Violation{
-				Kind:          kind,
-				Detail:        detail,
-				Repair:        repair,
-				ClusterKey:    clusterKey,
-				SuspectedRoot: root,
-				Stage:         string(types.StageFinalize),
+				Kind:                kind,
+				Detail:              detail,
+				Repair:              repair,
+				ClusterKey:          clusterKey,
+				SuspectedRoot:       root,
+				Stage:               string(types.StageFinalize),
+				RepairLocusOverride: locusOverride,
 			})
 			continue
 		}
 		out = append(out, types.Violation{
-			Kind:          types.ViolAnswerSemanticUnderfilled,
-			Detail:        detail,
-			Repair:        repair,
-			ClusterKey:    clusterKey,
-			SuspectedRoot: root,
-			Stage:         string(types.StageFinalize),
+			Kind:                types.ViolAnswerSemanticUnderfilled,
+			Detail:              detail,
+			Repair:              repair,
+			ClusterKey:          clusterKey,
+			SuspectedRoot:       root,
+			Stage:               string(types.StageFinalize),
+			RepairLocusOverride: locusOverride,
 		})
 	}
 	logging.Info("[semantic_quality_reviewer] emitted %d concern(s) at confidence=%.2f reasoning=%q",
@@ -2884,6 +2886,54 @@ func semanticQualityStrictCoverageViolation(
 		}
 	}
 	return "", false
+}
+
+func semanticQualityRepairLocusOverride(locus string) types.RepairLocus {
+	switch normaliseSemanticQualityRepairLocus(locus, "") {
+	case semanticRepairEvidenceGap:
+		return types.LocusExplore
+	case semanticRepairAnalysisGap, semanticRepairPresentationAdvisor:
+		return types.LocusTerminal
+	case semanticRepairLocalDocDefect, semanticRepairSafety:
+		return types.LocusFinalizer
+	}
+	return ""
+}
+
+func semanticQualityConcernRepairText(
+	idx int,
+	total int,
+	concern SemanticQualityConcern,
+	kind types.ViolationKind,
+	repairLocus string,
+) string {
+	topic := strings.TrimSpace(concern.Topic)
+	if topic == "" {
+		topic = "requested topic"
+	}
+	suggestion := strings.TrimSpace(concern.Suggestion)
+	prefix := fmt.Sprintf("[%d/%d] ", idx, total)
+	quotedTopic := fmt.Sprintf("%q", topic)
+	switch normaliseSemanticQualityRepairLocus(repairLocus, concern.Kind) {
+	case semanticRepairEvidenceGap:
+		return strings.TrimSpace(prefix + "collect or surface more grounded evidence for " + quotedTopic + " before revising the answer. " + suggestion)
+	case semanticRepairAnalysisGap:
+		return strings.TrimSpace(prefix + "the answer appears tied to an incorrect request interpretation for " + quotedTopic + "; avoid repeated document rewrites and surface the boundary unless a fresh interpretation is available. " + suggestion)
+	case semanticRepairPresentationAdvisor:
+		return strings.TrimSpace(prefix + "treat " + quotedTopic + " as a presentation-only note; preserve the substantive answer and surface a supplemental note if needed. " + suggestion)
+	case semanticRepairSafety:
+		return strings.TrimSpace(prefix + "correct the materially wrong answer for " + quotedTopic + " using only grounded evidence before shipping. " + suggestion)
+	}
+	switch kind {
+	case types.ViolAnswerTopicMismatch:
+		return strings.TrimSpace(prefix + "revise the answer around the requested topic " + quotedTopic + " using only the supplied evidence. " + suggestion)
+	case types.ViolPrincipalProseUnderfilled:
+		return strings.TrimSpace(prefix + "add inline grounded identifiers for the shallow required facet " + quotedTopic + ". " + suggestion)
+	case types.ViolDiagramEdgeUnsupported:
+		return strings.TrimSpace(prefix + "repair the required diagram coverage for " + quotedTopic + ". " + suggestion)
+	default:
+		return strings.TrimSpace(prefix + "expand the answer to address " + quotedTopic + ". " + suggestion)
+	}
 }
 
 func semanticQualityConcernTargetsShallowPromotedFacet(
