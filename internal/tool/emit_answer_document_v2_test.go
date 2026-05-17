@@ -1348,12 +1348,12 @@ func TestEmitAnswerDocumentV2_CitationRefInsideClaimUseRemapped(t *testing.T) {
 	}
 }
 
-// TestEmitAnswerDocumentV2_FacetIDsInsideClaimUseRemapped pins the
-// recurring V2 retry failure where the model copies block.facet_ids
-// into claim_uses[] as a plural field. The schema only allows
-// singular facet_id on each claim annotation object; plural facet_ids
-// belongs on the block itself.
-func TestEmitAnswerDocumentV2_FacetIDsInsideClaimUseRemapped(t *testing.T) {
+// TestEmitAnswerDocumentV2_FacetIDsInsideClaimUseSingleValueRepairs pins the
+// recurring V2 retry failure where the model copies block.facet_ids into
+// claim_uses[] as a plural field. When the plural field has exactly one value,
+// the schema intent is unambiguous, so the local compatibility layer repairs it
+// to singular facet_id instead of forcing a finalizer retry.
+func TestEmitAnswerDocumentV2_FacetIDsInsideClaimUseSingleValueRepairs(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}
 	misplaced := json.RawMessage(`{
@@ -1365,18 +1365,36 @@ func TestEmitAnswerDocumentV2_FacetIDsInsideClaimUseRemapped(t *testing.T) {
 		}]
 	}`)
 	res, _ := tool.Execute(bus, misplaced)
-	if res.Success {
-		t.Fatal("expected misplaced facet_ids reject")
+	if !res.Success {
+		t.Fatalf("single facet_ids value inside claim_uses should be repaired, got: %s", res.Summary)
 	}
-	for _, want := range []string{
-		`field "facet_ids"`,
-		"blocks[i].facet_ids",
-		"blocks[i].claim_uses[j].facet_id",
-		"NOT inside",
-	} {
-		if !strings.Contains(res.Summary, want) {
-			t.Errorf("error message missing %q; got: %s", want, res.Summary)
-		}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].ClaimUses) != 1 {
+		t.Fatalf("expected repaired claim use, got %+v", doc)
+	}
+	got := doc.Blocks[0].ClaimUses[0].FacetID
+	if got != "resolved_literal_or_symbol" {
+		t.Fatalf("facet_id = %q, want resolved_literal_or_symbol", got)
+	}
+}
+
+func TestEmitAnswerDocumentV2_FacetIDsInsideClaimUseMultiValueStillRejects(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	misplaced := json.RawMessage(`{
+		"blocks": [{
+			"id": "b1",
+			"kind": "summary",
+			"text": "x",
+			"claim_uses": [{"claim_form": "definition_fact", "facet_ids": ["current_code_path", "diagram_spine"]}]
+		}]
+	}`)
+	res, _ := tool.Execute(bus, misplaced)
+	if res.Success {
+		t.Fatal("multi-value claim_uses[].facet_ids must stay rejected; the system cannot choose one facet for the model")
+	}
+	if !strings.Contains(res.Summary, `field "facet_ids"`) {
+		t.Fatalf("rejection should still name ambiguous facet_ids; got: %s", res.Summary)
 	}
 }
 

@@ -720,6 +720,36 @@ func TestEmitAnswerDocumentPatch_RepairsAnnotationCamelCaseShape(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RepairsSingleFacetIDsInsideClaimUse(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+		},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"add_blocks": [{
+			"id": "detail",
+			"kind": "section",
+			"text": "detail",
+			"claim_uses": [{"claim_form": "definition_fact", "facet_ids": ["current_code_path"]}]
+		}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must repair single claim_uses[].facet_ids value; got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].ClaimUses) != 1 {
+		t.Fatalf("repaired patch did not persist claim use: %+v", doc)
+	}
+	if got := doc.Blocks[1].ClaimUses[0].FacetID; got != "current_code_path" {
+		t.Fatalf("facet_id = %q, want current_code_path", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_HoistsItemLevelClaimUses(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

@@ -43,6 +43,7 @@
 10. **Batch C 第二段落地**：`aggregate_facts` 增加 typed `role/provenance`，支持 `principal_answer`、`supporting_coverage`、`audit_ledger`。explorer 可以明确区分“最终答案主集合”和“探索覆盖账本”；finalizer hard gate 只消费有效角色为 principal 的 aggregate fact，prompt 与 retry 合并也保留该结构化角色，不再用伪标记或标签猜测。
 11. **Batch H 第四段落地**：reviewer anchor set 统一改为 `buildReviewerEvidenceAnchorSet`，优先读取最终 AnswerDocument 的行级 citation、read_file gutter 与 repomap 符号，再合并 explorer evidence；self-consistency 与 semantic-quality reviewer 不再只看 explorer evidence。Mermaid endpoint gate 同步区分内部 node id 与用户可见 label，避免把图表语法 alias 当代码事实打回 finalizer。新增回归测试锁住 citation-backed identifier、graph fallback、semantic/self reviewer 输入和 Mermaid label 行为。
 12. **Batch B/E 边界澄清**：REPL Mermaid→ASCII 属于终端呈现层友好降级，不再作为“系统替代模型意图”整改项；边界是 raw markdown 必须仍作为 truth source 写入日志、output dump、memory，且该渲染结果不得进入 gate / reviewer / 后续模型上下文。已补测试锁住 pipeline REPL 记忆保存 raw Mermaid，而不是终端渲染后的 text fence。
+13. **Batch G 第二段落地**：annotation JSON 兼容层新增唯一可恢复的 `claim_uses[].facet_ids` → `claim_uses[].facet_id` 归一化。full emit 与 patch 共用同一 repair；单值自动修复，避免小 schema 错误触发 finalizer 重试；多值保持拒绝，防止系统替模型选择 facet。新增 full/patch 回归测试。
 
 ## 问题清单
 
@@ -368,7 +369,7 @@
 
 代码位置：`internal/tool/emit_answer_document_v2.go::executeAnswerDocumentV2`、`answerDocumentV2MisplacedHints`
 
-状态：**部分修复（Batch G 第一段）**。新增 `answer_document_field_quarantine.go`，对 full emit / patch 的 top-level、block、item、citation、snippet、diagram、claim_use、edge_anchor、exact_resolution 等已知结构容器执行 schema-aware quarantine。保留 `value/boolean` 等可见 payload 错位字段和 claim/edge 可恢复错位字段给 strict remap，避免静默丢内容。
+状态：**部分修复（Batch G 第一段 + 第二段）**。新增 `answer_document_field_quarantine.go`，对 full emit / patch 的 top-level、block、item、citation、snippet、diagram、claim_use、edge_anchor、exact_resolution 等已知结构容器执行 schema-aware quarantine。保留 `value/boolean` 等可见 payload 错位字段和 claim/edge 可恢复错位字段给 strict remap，避免静默丢内容。第二段进一步把唯一可恢复的 `claim_uses[].facet_ids=["x"]` 本地归一化为 `claim_uses[].facet_id="x"`；`facet_ids` 多值仍 hard reject，因为系统无法不改变模型意图地替它选一个 facet。
 
 当前行为：
 
@@ -385,6 +386,7 @@
 - 增加 schema-aware tolerant quarantine：能唯一归位的字段自动搬运，不能归位但无害的 metadata 放入 diagnostics 并丢弃，不破坏核心文档。
 - 只有语义载体冲突、版本 carrier 冲突、安全/引用不可恢复时才 hard reject。
 - 为 top-level/misplaced `claim_uses`、`facet_ids`、`edge_anchors`、table 字段建立泛化回归测试，而不是逐案补提示。
+- 防回归：schema repair 只处理“唯一可恢复”的结构错位；一旦存在多值、冲突 alias 或语义选择，保持 strict reject，让模型明确决定。
 
 ### UIP-017（P1）enumeration label grounding 对展示标签过硬
 
@@ -584,9 +586,9 @@
 
 ### Batch G：JSON/schema 兼容层泛化
 
-1. [~] 建立 schema-aware relocation/quarantine registry，替代无限扩张的错位字段提示表。（已覆盖 schema-unknown metadata quarantine；可见 payload 错位仍走 strict remap）
+1. [~] 建立 schema-aware relocation/quarantine registry，替代无限扩张的错位字段提示表。（已覆盖 schema-unknown metadata quarantine；单值 `claim_uses[].facet_ids` 已本地修复；可见 payload 错位仍走 strict remap）
 2. [~] core doc 已有效时，未知无害 metadata 进入 diagnostics，不触发 LLM 重试。（当前进入 operator WARN/quarantine，后续补 typed diagnostics 展示）
-3. [~] 回归覆盖 top-level/misplaced `claim_uses`、`facet_ids`、`edge_anchors`、table 字段和旧 schema 残留字段。（已覆盖 top-level claim_uses / block/item/citation metadata，保留旧错位字段 reject 测试）
+3. [~] 回归覆盖 top-level/misplaced `claim_uses`、`facet_ids`、`edge_anchors`、table 字段和旧 schema 残留字段。（已覆盖 top-level claim_uses / block/item/citation metadata、full/patch 单值 `claim_uses[].facet_ids` 修复、多值歧义拒绝；保留旧错位字段 reject 测试）
 
 ### Batch H：gate taxonomy + upstream routing
 

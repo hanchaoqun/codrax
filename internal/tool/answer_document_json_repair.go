@@ -93,6 +93,12 @@ func repairAnnotationObjectArray(obj map[string]json.RawMessage, field string, a
 				itemChanged = true
 			}
 		}
+		if field == "claim_uses" {
+			if repairClaimUsePluralFacetIDs(item) {
+				paths = append(paths, fmt.Sprintf("%s[%d].facet_ids->facet_id", field, i))
+				itemChanged = true
+			}
+		}
 		for _, normalizer := range enumNormalizers {
 			if repairJSONStringEnumField(item, normalizer.Field, normalizer.Normalize) {
 				paths = append(paths, fmt.Sprintf("%s[%d].%s", field, i, normalizer.Field))
@@ -126,6 +132,58 @@ func repairJSONFieldAlias(item map[string]json.RawMessage, alias jsonFieldAlias)
 	item[alias.Canonical] = rawAlias
 	delete(item, alias.Alias)
 	return true
+}
+
+func repairClaimUsePluralFacetIDs(item map[string]json.RawMessage) bool {
+	rawPlural, ok := item["facet_ids"]
+	if !ok {
+		return false
+	}
+	facet, ok := uniqueJSONStringValue(rawPlural)
+	if !ok || facet == "" {
+		return false
+	}
+	if rawCanonical, exists := item["facet_id"]; exists {
+		existing, sameShape := uniqueJSONStringValue(rawCanonical)
+		if sameShape && existing == facet {
+			delete(item, "facet_ids")
+			return true
+		}
+		return false
+	}
+	item["facet_id"] = mustMarshal(facet)
+	delete(item, "facet_ids")
+	return true
+}
+
+func uniqueJSONStringValue(raw json.RawMessage) (string, bool) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return "", false
+	}
+	if raw[0] == '"' {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return "", false
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return "", false
+		}
+		if strings.HasPrefix(value, "[") {
+			return uniqueJSONStringValue(json.RawMessage(value))
+		}
+		return value, true
+	}
+	if raw[0] == '[' {
+		var values []string
+		if err := json.Unmarshal(raw, &values); err != nil || len(values) != 1 {
+			return "", false
+		}
+		value := strings.TrimSpace(values[0])
+		return value, value != ""
+	}
+	return "", false
 }
 
 func repairJSONStringEnumField(item map[string]json.RawMessage, field string, normalize func(string) (string, bool)) bool {
