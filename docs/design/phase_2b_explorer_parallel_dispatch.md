@@ -87,6 +87,36 @@ sub_explorers concurrently. The reverted commits (`d6ca6352`,
 problem and 2B's `explorer` problem are the SAME architectural issue
 at different scales.
 
+## 2.5 Production forensic confirmation (2026-05-17 09:09 run)
+
+A first post-E'-Phase-1 production run on a 2-sub_topic question
+generated explicit evidence that the singleton-evaluator state leak
+fires under SEQUENTIAL dispatch too (independent of any future
+parallel dispatch). Details in
+`docs/design/post_phase2a_forensic_followups.md` §2.1.E.
+
+Highlight: at D2 iter=0 the explorer LLM's opening `<think>` block
+analyzes D1's failure pathology in detail despite a FRESH
+~26k-token context window (no conversation carryover from D1's
+~70k-token final iter). The analysis can only have arrived via the
+shared `explorerEvaluator` fields (or via `BaseAgent.Execute`'s
+retry-hint synthesis pulling from those fields) — exactly the
+~80-field mutable singleton documented in §2 above.
+
+This upgrades the singleton concern from "code-read-only worry" to
+"verified production symptom". The Approach A refactor (per-Run
+evaluator construction) now has two motivations of equal weight:
+
+1. Original: enable safe parallel dispatch for Phase 2B Session C.
+2. New: stop the cross-dispatch state bleed visible in sequential
+   E'-Phase-1 dispatches today.
+
+Session A's test plan should pin a `D2 iter=0 think-block
+isolation` invariant: with a stub LLM that records its input
+prompt, run two back-to-back `Execute()` calls on the same
+Explorer; the second's prompt MUST NOT contain analysis-text
+derived from the first's evaluator state.
+
 ## 3 Why race detector did not catch it
 
 `go test -race ./internal/orchestrator/ ./internal/agent/`

@@ -44,86 +44,193 @@ asserts position by character offsets, and zh/EN mode parity.
 
 ## 2 ⏸ DEFERRED to Phase 2B session (architecture-blocked)
 
-### 2.1 Explorer dispatch count increase
+### 2.1 Explorer dispatch count + retry deep forensic (EXHAUSTIVE)
 
-**Symptom**: User reported "探索阶段返工次数变多了". After E'
-Phase 1, the 09:09 run shows 3 explorer dispatches for a 2-sub_topic
-question; pre-E' would have shown 1 merged dispatch.
+**Symptom**: User reported "探索阶段返工次数变多了" + "模型有
+抱怨被迫重试". The 09:09 log shows 3 explorer dispatches across
+56 iterations for a 2-sub_topic question.
 
-**Forensic timeline**:
+Initial pass missed the depth. Below is the exhaustive ground-truth
+forensic — every dispatch, every iter symptom.
 
-```
-09:10:54  DISPATCH stage=explore attempt=0  (window: probe + evidence_t0 + validate, trimmed to first evidence)
-09:14:20  DISPATCH stage=explore attempt=0  (retry on t0: "Previous attempt collected only 11 entries; need ≥2", forced reads)
-09:18:25  DISPATCH stage=explore attempt=0  (window: evidence_t1 — opencode sub_topic)
-```
+#### 2.1.A Dispatch summary table
 
-**Analysis**:
+| | D1 | D2 | D3 |
+|---|---|---|---|
+| Lines | 780–3909 | 4652–6269 | 7333–7655 (incomplete in excerpt) |
+| Window after E' trim | probe + evidence_t0 + validate | retry-on-t0 (SuccessCriteria fail) | evidence_t1 |
+| Wall time | 206 s | 237 s | ~29 s sampled |
+| Iterations | 26 | 26 | 4+ |
+| `emit_investigation_complete DOWNGRADED` | **6×** | **4×** | ? |
+| Per-key midloop cap saturated | YES (closure-repair 5/5 at iter 23) | likely | ? |
+| Tool failures (read_file/grep/list_files/exec) | 5 | 2 | ? |
 
-1. Dispatch 1 = t0 (codrax sub_topic) — E' Phase 1 working as
-   designed
-2. Dispatch 2 = t0 RETRY because SuccessCriteria failed (`need ≥2
-   [DIRECT] entries; forced reads`) — this is the EXISTING retry
-   mechanism, not new in E'
-3. Dispatch 3 = t1 (opencode sub_topic) — E' Phase 1 picks up next
-   sibling after t0 finally markDone
+#### 2.1.B The phantom forced-read path bug (load-bearing root)
 
-**The retry (dispatch 2) is NOT introduced by E'**. Pre-E', the same
-SuccessCriteria failure would have triggered the same retry; it just
-would have run inside the merged window so it wasn't visible as a
-separate dispatch.
+**This is the SINGLE root cause for 10× DOWNGRADED + 56-iter
+dispatch storm**, not the user's "retry mechanism" frustration.
 
-**The "increase" is largely cosmetic** — total LLM iterations are
-comparable to pre-E', but the dispatch boundary is now drawn
-per-sub_topic, making it look like more work.
-
-**However**: there IS a real concern lurking under this. The
-`explorerEvaluator` is a process-lifetime singleton (see
-`docs/design/phase_2b_explorer_parallel_dispatch.md` §2). Three
-sequential dispatches against the SAME evaluator means
-`investigationNotes` / `structuredEvidence` / `midLoop*` flags are
-NOT reset between dispatches, even though each dispatch is on a
-different sub_topic. The pre-2026-05-17 code path had this same
-issue (it always reused the singleton across DAG rounds), but E'
-Phase 1 makes it more visible because the "rounds" now align with
-"sub_topics" instead of "validate retries". The evaluator refactor
-in Phase 2B Approach A (per-Run evaluator construction) fixes both
-problems simultaneously.
-
-**Schedulable as**: Phase 2B Session A (evaluator refactor) —
-already documented in `phase_2b_explorer_parallel_dispatch.md` §7.
-
-### 2.2 Model "complaining about forced retries"
-
-**Symptom**: User reported assistant text expressing frustration
-about being forced to retry. The closest evidence in the 09:09 log:
+The pre-scanner at D1 iter=8 (line 2882–2885) queued these
+forced-reads as bare paths:
 
 ```
-emit_investigation_complete DOWNGRADED — pending forced reads block the closure.
+phase1_unread: queued forced-read file=packages/opencode/src/tool/apply_patch.ts score=1.3
+phase1_unread: queued forced-read file=packages/opencode/src/tool/shell.ts       score=1.3
 ```
 
-(this pattern repeats ~9 times across the 3 dispatches)
-
-And one explicit assistant note:
+The actual files live at:
 
 ```
-系统对 packages/opencode/ 路径的解析指向错误的基础目录
+opencode/packages/opencode/src/tool/apply_patch.ts
+opencode/packages/opencode/src/tool/shell.ts
 ```
 
-**Analysis**: The "complaint" is the assistant noting that the
-system's forced-read path resolution is pointing to a non-existent
-base directory (`packages/opencode/...` instead of
-`opencode/packages/opencode/...`). This is a **path resolution
-bug** in the multi-repo forced-read seed, NOT a retry-mechanism
-flaw. The retries themselves are correct; the file paths the
-retries target are wrong.
+The forced-read queue's path-canonicalisation prepends the
+alphabetically-first active sub_repo prefix (`codrax/...`), yielding
+the **non-existent path** `codrax/packages/opencode/src/tool/...`.
+The LLM reads the REAL files (multiple times across iters 9, 12,
+14, 19), but the queue does NOT match them and refuses to clear
+the entry.
 
-**Fix**: Identify the path canonicalisation that emits seeded
-forced reads. Check whether the multi-repo sub_repo prefix is
-correctly applied. May require auditing
-`internal/tool/repomap/multigraph` and
-`internal/agent/explorer.go`'s exact-anchor selection path. **Not
-in this session's scope**.
+D1 iter=24 (line 3878), the LLM ran `list_files codrax/packages`
+explicitly and got:
+
+```
+readdir failed: open /Users/han/opt/codrax/packages: no such file or directory
+```
+
+This proves the LLM correctly diagnosed the bug. The next iter
+(iter=25, line 3889) the LLM `<think>` block says verbatim:
+
+> "`codrax/packages` doesn't exist! So
+> `codrax/packages/opencode/src/tool/apply_patch.ts` is not a real
+> file… the queue's block seems to be a bug. My evidence is solid
+> and the paths are legitimate — I just need to try completing the
+> investigation again."
+
+The LLM understood the system was broken. Iter=25 then re-emitted
+`emit_investigation_complete` and was DOWNGRADED a 6th time for
+the same phantom-path reason. End of dispatch.
+
+#### 2.1.C LLM thinking complaints (verbatim, sampled)
+
+The user asked specifically about model `<think>` complaints. The
+three most explicit are:
+
+**D1 iter=23 (09:14:02, line 3812–3820)** — first acknowledgment
+that something is wrong:
+
+> "There's clearly some path overlap happening here that I'm trying
+> to untangle… The forced-read queue is looking for
+> `packages/opencode/src/tool/apply_patch.ts`, and when I read that
+> path without the full prefix, the tool says it resolves to both
+> `codrax/packages/opencode/…` and `opencode/packages/opencode/…`."
+
+**D1 iter=24 (09:14:08, line 3853–3869)** — explicit "queue keeps
+requiring the same files":
+
+> "The forced-read queue keeps requiring the same files with bare
+> `packages/opencode/...` paths. But every time I read them, the
+> queue doesn't acknowledge them… The queue tracks bare paths and
+> doesn't recognize my full-path reads."
+
+**D1 iter=25 (09:14:20, line 3889–3897)** — diagnostic conclusion:
+
+> "the queue's block seems to be a bug."
+
+These are the model "complaints" the user observed. They are NOT
+generic retry frustration — they are diagnostic notes about a real
+system bug.
+
+#### 2.1.D MidLoop hint saturation
+
+D1 fired `explorer.mid-loop.closure-repair` **≥8 times** with
+identical body. Each time the LLM followed the instruction (read
+files, re-emit) but the hint was never marked satisfied because the
+underlying forced-read queue was deadlocked on phantom paths.
+
+D1 iter=23 (line 3846):
+
+```
+continue (per-key mid-loop inject cap reached (key="explorer.mid-loop.closure-repair", count=5/5))
+```
+
+The cap saturation is correct safety behaviour; the design
+assumption was that 5 hint reinjects should suffice if the LLM is
+following instructions. **In phantom-path cases the assumption
+breaks** — the LLM IS following but the system never accepts.
+
+#### 2.1.E Evaluator singleton state leakage (Phase 2B preview)
+
+D2 iter=0 (line 4657) has `context_tokens=26626` — a FRESH context
+window, not the ~70k carryover from D1's final iter. Yet the LLM's
+opening `<think>` block (line 4657-4678) reads:
+
+> "The previous attempt collected 13 evidence items but apparently
+> only 11 were tagged as [DIRECT]/[REGISTRATION]. I need to collect
+> more… The core issue is that I need to shift my evidence emission
+> strategy."
+
+The LLM has analyzed D1's failure pathology without seeing D1's
+conversation history. This is `explorerEvaluator` singleton state
+(or `BaseAgent.Execute` retry-hint synthesis) leaking the analysis
+across dispatches without going through the explicit message
+channel.
+
+This is **direct forensic evidence** for the architectural
+observation in
+`docs/design/phase_2b_explorer_parallel_dispatch.md` §2 (the
+80-field singleton evaluator). The doc had been written from
+code-reading alone; this log confirms the leak fires in production.
+
+The 2B Approach A refactor (per-Run evaluator construction) closes
+this leak alongside the parallel-dispatch foundation.
+
+#### 2.1.F Real schema rejection mixed in (NOT phantom-path)
+
+D1 iter=7 (line 2859) hit a different, legitimate, rejection:
+
+```
+emit_investigation_complete = emit_investigation_complete REJECTED
+member_set "codrax防幻觉核心组件" has 4 member(s) shaped as
+"<code identifier> (<qualifier>)" but support_refs is empty
+```
+
+This is the analyzer's decorated-member-set contract (P1A
+companion path): when a model emits members of the form
+`Foo (qualifier)`, they cannot auto-resolve against evidence
+anchors so `support_refs` must be populated. The LLM had emitted
+`SelfConsistencyReviewer (摘要vs正文独立LLM)` etc. without
+`support_refs`. This is a real prompt-side opportunity (the
+LLM didn't know it needed `support_refs`). After this reject the
+LLM retried with members + got tangled in the phantom-path loop
+above.
+
+#### 2.1.G Summary of all problems found in this run
+
+| # | Problem | Source | Fix surface | Severity |
+|---|---|---|---|---|
+| 1 | Forced-read queue prepends wrong sub_repo prefix → phantom path | path canonicalisation in multi-repo forced-read seed | `internal/tool/repomap/multigraph` + forced-read seed code path | **CRITICAL** — caused 10× DOWNGRADED + ~5min wasted |
+| 2 | Queue does not match full-path read against bare-path entry | forced-read queue dequeue logic | same surface as #1 | CRITICAL (same root) |
+| 3 | LLM diagnoses bug in `<think>` block but cannot escape | system-side path bug, LLM behaviour correct | fixing #1+#2 makes #3 moot | observable symptom |
+| 4 | `explorer.mid-loop.closure-repair` reinjected ≥8× identical body when underlying gate cannot satisfy | midloop policy doesn't detect "LLM is following but gate refuses" | add detection: if same hint body + LLM same response shape 3×, escalate to fallback instead of reinjecting | medium |
+| 5 | Evaluator singleton leaks D1 analysis into D2 via non-message channel | `explorerEvaluator` 80-field singleton | Phase 2B Session A (per-Run evaluator construction) | medium (latent until parallel) |
+| 6 | Decorated-member-set without `support_refs` not surfaced as prompt-side requirement | P1A prompt covers the principal contract but not the support_refs requirement for decorator-shape members | extend P1A renderer or its companion section | medium |
+| 7 | Per-key midloop cap saturates at 5/5 but caller continues without re-routing | mid-loop policy | escalate to "report unable to satisfy" caveat instead of silent continue | medium |
+
+**Schedulable as**:
+- #1, #2, #3 — single focused session, called out in §2.4 below as
+  the highest-ROI fix
+- #4, #7 — together as a midloop-policy session
+- #5 — Phase 2B Session A
+- #6 — P1A follow-up
+
+### 2.2 Model "complaining about forced retries" — RESOLVED INTO §2.1.C
+
+See §2.1.C above for verbatim `<think>` quotes. The "complaints"
+are LLM diagnostic notes about the forced-read phantom-path bug,
+not generic retry frustration. The fix in §2.4 makes the entire
+complaint pattern moot.
 
 ### 2.3 Finalizer not converging, falling back to raw
 
