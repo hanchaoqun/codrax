@@ -131,6 +131,18 @@ func TestRenderMarkdownHTMLNormalizesSequenceStop(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownHTMLPlainFenceWithoutInfo(t *testing.T) {
+	body := []byte("```\nStart -> Execute -> Result\n```\n")
+	got, err := RenderMarkdownHTML(body)
+	if err != nil {
+		t.Fatalf("RenderMarkdownHTML: %v", err)
+	}
+	if !strings.Contains(got, "<pre><code>") ||
+		!strings.Contains(got, "Start -&gt; Execute -&gt; Result") {
+		t.Fatalf("plain info-less fence not rendered safely:\n%s", got)
+	}
+}
+
 func TestServerRequiresToken(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "answer.md")

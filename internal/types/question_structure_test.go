@@ -184,6 +184,33 @@ func TestEffectiveQuestionBuckets_NoInferWithoutTypedParallelShape(t *testing.T)
 	}
 }
 
+func TestEffectiveQuestionBuckets_CallAxisDoesNotInferComparisonBuckets(t *testing.T) {
+	rm := RequestModel{
+		RawRequest:    "explorer 如何调用 subagent？输出调用逻辑视图。",
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisCall,
+		Predicates: SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		SubTopics: []SubTopic{
+			{Summary: "explorer side", Entities: []string{"explorer"}},
+			{Summary: "subagent side", Entities: []string{"subagent"}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind:              string(ReqMechanism),
+			MentionedEntities: []string{"explorer", "subagent"},
+			RequiredFileHints: []RequiredFileHint{
+				{Path: "internal/agent/explorer.go", Confidence: 0.95},
+				{Path: "internal/agent/subagent.go", Confidence: 0.95},
+			},
+		},
+	}
+	if buckets := rm.QuestionStructure().Buckets; len(buckets) != 0 {
+		t.Fatalf("call-axis participants must not become comparison buckets: %+v", buckets)
+	}
+}
+
 // TestEffectiveQuestionBuckets_InferFromMentionedEntities is the F3
 // regression for the 2026-05-16 architectural-comparison finalize
 // loop. The analyzer correctly identifies "codrax" and "opencode"

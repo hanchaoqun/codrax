@@ -1307,7 +1307,7 @@ func splitStringArray(s string) ([]any, bool) {
 }
 
 func parseJSONStringInteger(s string) (int64, bool) {
-	s = strings.TrimSpace(s)
+	s = trimJSONStringNumericArtifactPrefix(s)
 	if s == "" {
 		return 0, false
 	}
@@ -1324,7 +1324,7 @@ func parseJSONStringInteger(s string) (int64, bool) {
 }
 
 func parseJSONStringNumber(s string) (float64, bool) {
-	s = strings.TrimSpace(s)
+	s = trimJSONStringNumericArtifactPrefix(s)
 	if s == "" {
 		return 0, false
 	}
@@ -1333,6 +1333,25 @@ func parseJSONStringNumber(s string) (float64, bool) {
 		return 0, false
 	}
 	return v, true
+}
+
+func trimJSONStringNumericArtifactPrefix(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) == 0 {
+		return ""
+	}
+	switch s[0] {
+	case ':', '=':
+		candidate := strings.TrimSpace(s[1:])
+		if candidate == "" {
+			return s
+		}
+		switch candidate[0] {
+		case '+', '-', '.', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			return candidate
+		}
+	}
+	return s
 }
 
 func parseJSONStringBool(s string) (bool, bool) {

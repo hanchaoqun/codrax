@@ -48,6 +48,32 @@ func TestNormalize_StringScalarsAgainstSchema(t *testing.T) {
 	}
 }
 
+func TestNormalize_StringScalarsWithStructuralNumericPrefix(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "count":{"type":"integer"},
+	    "threshold":{"type":"number"}
+	  }
+	}`)
+	raw := json.RawMessage(`{"count":": 7","threshold":": 0.95"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !report.Changed() {
+		t.Fatal("expected scalar repairs")
+	}
+	var decoded struct {
+		Count     int     `json:"count"`
+		Threshold float64 `json:"threshold"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if decoded.Count != 7 || decoded.Threshold != 0.95 {
+		t.Fatalf("unexpected normalized values: %+v", decoded)
+	}
+}
+
 func TestNormalize_StringEnumJSONLiteralArtifacts(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",

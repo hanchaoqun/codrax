@@ -54,7 +54,10 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 	if !ok {
 		return ast.WalkContinue, nil
 	}
-	info := string(block.Info.Segment.Value(source))
+	info := ""
+	if block.Info != nil {
+		info = string(block.Info.Segment.Value(source))
+	}
 	lang := firstInfoToken(info)
 	body := fencedCodeBody(block, source)
 	if strings.EqualFold(lang, "mermaid") {

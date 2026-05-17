@@ -1891,6 +1891,11 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 				repaired = append(repaired, key)
 				continue
 			}
+			if repairedArray, ok := repairStringWrappedArrayJSON(trimmed); ok {
+				probe[key] = repairedArray
+				repaired = append(repaired, key)
+				continue
+			}
 			// Path A2: direct array decode after trimming redundant
 			// trailing JSON closers. Some local models produce a valid
 			// stringified array followed by an extra ']' or '}' while the
@@ -1977,6 +1982,20 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 		return patched, []string{"<outer-normalisation>"}, true
 	}
 	return patched, repaired, true
+}
+
+func repairStringWrappedArrayJSON(trimmed string) (json.RawMessage, bool) {
+	for _, candidate := range toolparam.JSONRepairCandidates(trimmed) {
+		if candidate == trimmed {
+			continue
+		}
+		var inner []json.RawMessage
+		if err := json.Unmarshal([]byte(candidate), &inner); err != nil {
+			continue
+		}
+		return mustMarshal(inner), true
+	}
+	return nil, false
 }
 
 func topLevelArrayFieldAcceptsSingletonObject(field string) bool {

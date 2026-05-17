@@ -2087,9 +2087,13 @@ func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
 // missing value is benign.
 //
 // Reject vs warn policy:
-//   - DeclaredCount <= 0 or empty SourceQuote → hard reject (true
-//     schema violation; the LLM emitted a structurally invalid
-//     payload and must fix it).
+//   - DeclaredCount <= 0 AND empty SourceQuote → soft strip + warn
+//     because the LLM emitted an inactive optional object. Downstream
+//     already treats nil as no boundary, so a retry just to delete this
+//     object is waste.
+//   - DeclaredCount <= 0 OR empty SourceQuote when the other side is
+//     populated → hard reject (partial active payload; the LLM emitted
+//     an ambiguous boundary and must fix it).
 //   - source_quote fails NormalizeRequestedEnumerationBoundary (quote
 //     not in raw OR quote does not contain the count literal) → soft
 //     strip + warn (the field is optional, downstream tolerates nil,
@@ -2100,6 +2104,9 @@ func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
 func parseEnumerationBoundary(raw string, p *emitEnumerationBoundaryParam) (*types.RequestedEnumerationBoundary, string, string) {
 	if p == nil {
 		return nil, "", ""
+	}
+	if p.DeclaredCount <= 0 && strings.TrimSpace(p.SourceQuote) == "" {
+		return nil, "", "ignored inactive enumeration_boundary with declared_count<=0 and empty source_quote"
 	}
 	if p.DeclaredCount <= 0 {
 		return nil, "enumeration_boundary.declared_count must be >= 1", ""

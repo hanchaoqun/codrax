@@ -1135,6 +1135,30 @@ func TestRepairStringWrappedArrayFields_TopLevelSingletonShapes(t *testing.T) {
 	}
 }
 
+func TestRepairStringWrappedArrayFields_RepairsUnescapedQuotesInsideSnippet(t *testing.T) {
+	raw := json.RawMessage(`{
+		"items": "[{\"anchor_kind\":\"definition\",\"anchor_symbol\":\"slotFor\",\"snippet\":\"focus = \"default\"\\nif prefix == \"\" {\",\"source\":\"internal/agent/explorer.go\",\"line_start\":15760}]"
+	}`)
+	patched, paths, ok := repairStringWrappedArrayFields(raw)
+	if !ok {
+		t.Fatal("string-wrapped items array with snippet quotes must be repaired")
+	}
+	if !slices.Contains(paths, "items") {
+		t.Fatalf("repair paths missing items in %v; patched=%s", paths, patched)
+	}
+	var decoded struct {
+		Items []struct {
+			Snippet string `json:"snippet"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(patched, &decoded); err != nil {
+		t.Fatalf("patched payload must decode: %v\n%s", err, patched)
+	}
+	if len(decoded.Items) != 1 || !strings.Contains(decoded.Items[0].Snippet, `focus = "default"`) {
+		t.Fatalf("snippet quote content not preserved: %+v", decoded.Items)
+	}
+}
+
 func TestRepairNestedArraysAsString_DiagramObjectAsString(t *testing.T) {
 	raw := json.RawMessage(`{
 		"blocks": [

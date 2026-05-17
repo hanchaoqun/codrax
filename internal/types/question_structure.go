@@ -260,7 +260,23 @@ func EffectiveQuestionBuckets(rm RequestModel) []QuestionBucket {
 	if buckets := inferRequiredFileComparisonBuckets(rm); len(buckets) > 0 {
 		return buckets
 	}
+	if entityBucketInferenceDisabledByTypedAxis(rm) {
+		return nil
+	}
 	return inferEntityComparisonBuckets(rm)
+}
+
+func entityBucketInferenceDisabledByTypedAxis(rm RequestModel) bool {
+	switch rm.PredicateAxis {
+	case AxisCall:
+		return true
+	}
+	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case ReqCallChain:
+		return true
+	default:
+		return false
+	}
 }
 
 // inferEntityComparisonBuckets is the entity-fallback companion to

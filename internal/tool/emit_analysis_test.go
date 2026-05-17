@@ -1251,6 +1251,40 @@ func TestEmitAnalysis_Execute_WarnAndStripsEnumerationBoundaryQuoteOutsideReques
 	}
 }
 
+func TestEmitAnalysis_Execute_WarnAndStripsInactiveEnumerationBoundary(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "complex",
+		"keywords": ["explorer", "subagent", "call"],
+		"entities": ["explorer", "subagent"],
+		"question_kind": "mechanism",
+		"enumeration_boundary": {
+			"declared_count": 0,
+			"source_quote": ""
+		}
+	}`
+
+	res, mu := runEmitAnalysisWithObjective(t, "explorer 如何调用 subagent？", payload)
+	if !res.Success {
+		t.Fatalf("Execute should accept + warn, got reject summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "ignored inactive enumeration_boundary") {
+		t.Fatalf("summary missing inactive-boundary warning: %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel must persist after soft-strip of inactive optional enumeration_boundary")
+	}
+	if rm.EnumerationBoundary != nil {
+		t.Fatalf("EnumerationBoundary must be stripped to nil, got %+v", rm.EnumerationBoundary)
+	}
+}
+
 // TestEmitAnalysis_Execute_WarnAndStripsEnumerationBoundaryCountNotInQuote
 // pins the strip+warn behaviour when the source_quote is present in the
 // request but does not contain the declared count literal. Same rationale
