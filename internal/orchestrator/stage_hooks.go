@@ -1047,19 +1047,20 @@ func clearForReplan(o *Orchestrator, attempt int) {
 		} else if out != nil {
 			critique := out.Observation
 			if strings.TrimSpace(critique) != "" {
-				// When the critic emitted a "Preserve:" clause naming aspects
-				// of the previous plan that should be kept, the heuristic's
-				// "the regression is in the edits to these files" framing
-				// directly contradicts it. Soften the heuristic suspect list
-				// to a neutral "files modified" so the planner does not
-				// receive contradictory orders in the same prompt.
-				heuristic := heuristicHint
-				if strings.Contains(critique, "Preserve:") {
-					heuristic = strings.ReplaceAll(heuristic,
-						"Files modified by the previous plan (suspect list — the regression is in the edits to these files):",
-						"Files modified by the previous plan (review for compatibility; the critic above identified what to preserve):",
-					)
-				}
+				// When the critic emitted typed preservation_clauses
+				// naming aspects of the previous plan that should be
+				// kept, the heuristic's "the regression is in the
+				// edits to these files" framing directly contradicts
+				// it. Soften the heuristic suspect list to a neutral
+				// "files modified" so the planner does not receive
+				// contradictory orders in the same prompt.
+				//
+				// Keyword-gate audit HIGH-2 (2026-05-17): the gate
+				// reads the typed slice len(out.PreservationClauses)
+				// instead of grepping the LLM-prose Observation for
+				// the substring "Preserve:" — a CLAUDE.md "precise
+				// signals for hard gates" red-line requirement.
+				heuristic := softenSuspectListForPreservation(heuristicHint, len(out.PreservationClauses) > 0)
 				hint = critique + "\n\n" + heuristic
 				// Block 1 (architecture overhaul 2026-05-02) — also fold
 				// the per-iteration Observation into the EvidenceClosure
@@ -1285,6 +1286,35 @@ func buildReflectorInput(busCtx *types.BusContext, report *types.ChangeReport, p
 		}
 	}
 	return in
+}
+
+// softenSuspectListForPreservation rewrites the heuristic suspect-
+// list framing when the reflector emitted typed preservation
+// clauses. The pre-audit (2026-05-17) implementation grep'd the
+// reflector's free-form Observation prose for the substring
+// "Preserve:" — a CLAUDE.md "precise signals for hard gates"
+// red-line violation (HIGH-2 in docs/design/keyword_gate_audit_
+// 2026_05_17.md): a wording polish or a Chinese critique that
+// said "保留" silently bypassed the rewrite, and a critique that
+// quoted "Preserve:" inside an unrelated code example falsely
+// triggered it.
+//
+// The replacement gate reads the typed
+// ReflectorOutput.PreservationClauses slice in the caller and
+// hands the boolean "any preservation clause emitted" to this
+// helper. The slice's content is informational (planner reads the
+// observation directly); the gate cares only about emit-vs-absent.
+//
+// Pure function — no orchestrator state — so it can be unit-tested
+// without mocking the reflector LLM call path.
+func softenSuspectListForPreservation(heuristic string, hasPreservationClause bool) string {
+	if !hasPreservationClause {
+		return heuristic
+	}
+	return strings.ReplaceAll(heuristic,
+		"Files modified by the previous plan (suspect list — the regression is in the edits to these files):",
+		"Files modified by the previous plan (review for compatibility; the critic above identified what to preserve):",
+	)
 }
 
 // appendReflectorObservationToClosure is the dual-track helper for

@@ -69,6 +69,22 @@ type ReflectorOutput struct {
 	// returns. May be empty when the LLM emitted only a Pattern.
 	Observation string
 
+	// PreservationClauses is the typed channel (2026-05-17,
+	// keyword-gate audit HIGH-2) the reviewer uses to name aspects
+	// of the previous plan the next iteration SHOULD KEEP — e.g.
+	// "the new helper function in foo.go", "the migration ordering
+	// in 0042_users.sql". Empty when the reviewer named nothing to
+	// preserve.
+	//
+	// Consumed by clearForReplan to soften the heuristic suspect
+	// list (which assumes "everything the previous plan touched is
+	// guilty until proven otherwise") when the reviewer disagrees
+	// in part. The typed slice replaces the pre-audit
+	// strings.Contains(Observation, "Preserve:") prose grep — a
+	// CLAUDE.md "precise signals for hard gates" red-line
+	// requirement.
+	PreservationClauses []string
+
 	// Pattern is the abstract pitfall the reviewer distilled
 	// from the failure (stage 3, Failure Taxonomy). Nil when
 	// the failure was too specific / too unclear to abstract,
@@ -159,6 +175,11 @@ var reflectorTool = llm.ToolSchema{
     "uncertainty": {
       "type": "string",
       "description": "Optional. 1 sentence naming what you are NOT sure about — a place where the input data is insufficient to draw a confident observation. Empty when the data is clear."
+    },
+    "preservation_clauses": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Optional. Aspects of the PREVIOUS plan that the next iteration should KEEP, not undo — short phrases naming functions, files, helpers, migrations, or invariants that were correct in the failed plan and should be preserved on the retry. Use whenever the failure is partial (the plan got something right alongside what went wrong). Empty when the whole plan needs reconsideration. Examples: [\"the new validateInput helper in parser.go\", \"the migration ordering in 0042_users.sql\"]."
     }
   },
   "required": ["observation"]
@@ -250,6 +271,8 @@ How to write a good observation:
 - One paragraph. 2-4 sentences in observation, optionally 1 sentence in uncertainty.
 - Do not prescribe a fix. Do not write "the planner should…" or "next attempt must…". Describe what is true; the planner decides what to do.
 - Use the same language as the original user request.
+
+If you can identify parts of the previous plan that were CORRECT and should be KEPT on the retry (a partial-success failure where some edits landed right and others broke things), list them in preservation_clauses as short phrases naming the specific helper / file / migration / invariant. Leave preservation_clauses empty when the whole plan needs reconsideration or when the failure data does not let you isolate what worked.
 
 Optionally, you may ALSO emit a second tool call: emit_failure_pattern. Use this to distill the failure into an abstract reusable pitfall — the KIND of mistake, not the specific instance. The planner will see this on FUTURE plans in this repo and try to avoid it. Emit a pattern only when:
 - The underlying mistake generalises (other plans in this repo could repeat it).
@@ -357,14 +380,16 @@ func (r *llmReflector) ReflectFull(ctx context.Context, in ReflectorInput) (*Ref
 		switch call.Name {
 		case reflectorTool.Name:
 			var parsed struct {
-				Observation string `json:"observation"`
-				Uncertainty string `json:"uncertainty"`
+				Observation         string   `json:"observation"`
+				Uncertainty         string   `json:"uncertainty"`
+				PreservationClauses []string `json:"preservation_clauses"`
 			}
 			if err := json.Unmarshal(call.Params, &parsed); err != nil {
 				logging.Warning("[reflector] observation unmarshal failed (skipping): %v", err)
 				continue
 			}
 			out.Observation = assembleObservation(parsed.Observation, parsed.Uncertainty)
+			out.PreservationClauses = trimPreservationClauses(parsed.PreservationClauses)
 		case failurePatternTool.Name:
 			pattern, perr := unmarshalFailurePattern(call.Params)
 			if perr != nil {
@@ -433,6 +458,29 @@ func unmarshalFailurePattern(raw json.RawMessage) (*types.FailurePattern, error)
 			pattern.Name)
 	}
 	return pattern, nil
+}
+
+// trimPreservationClauses normalises the reflector's
+// preservation_clauses[] emit: whitespace-trims each entry and
+// drops empties, returning nil when no usable clause remains.
+// Keeps downstream consumers (clearForReplan via
+// softenSuspectListForPreservation) on a single len()>0 typed
+// signal instead of mixing "field absent" with "field present but
+// all-whitespace".
+func trimPreservationClauses(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, c := range in {
+		if s := strings.TrimSpace(c); s != "" {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // isASCII reports whether s contains only 7-bit ASCII bytes.

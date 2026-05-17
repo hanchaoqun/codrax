@@ -381,6 +381,135 @@ func TestSetFailureTaxonomyStore_TogglesReflectorPatternTool(t *testing.T) {
 	}
 }
 
+// TestReflectFull_PreservationClausesParsed pins keyword-gate audit
+// HIGH-2 (2026-05-17): emit_failure_observation now accepts a typed
+// preservation_clauses[] array; the parse path unmarshals it into
+// ReflectorOutput.PreservationClauses, trimming whitespace and
+// dropping empties so a non-nil populated slice is the
+// authoritative downstream signal.
+func TestReflectFull_PreservationClausesParsed(t *testing.T) {
+	cases := []struct {
+		name      string
+		args      string
+		wantLen   int
+		wantFirst string
+	}{
+		{
+			name: "two clauses preserved verbatim",
+			args: `{
+				"observation": "the plan's new helper function is correct but the call-site rename broke the existing import",
+				"preservation_clauses": [
+					"the new validateInput helper in parser.go",
+					"the migration ordering in 0042_users.sql"
+				]
+			}`,
+			wantLen:   2,
+			wantFirst: "the new validateInput helper in parser.go",
+		},
+		{
+			name: "whitespace-only entries dropped; empties dropped",
+			args: `{
+				"observation": "obs text long enough to land",
+				"preservation_clauses": ["  ", "", "real clause", "   "]
+			}`,
+			wantLen:   1,
+			wantFirst: "real clause",
+		},
+		{
+			name: "field absent → nil slice",
+			args: `{
+				"observation": "obs text long enough to land"
+			}`,
+			wantLen: 0,
+		},
+		{
+			name: "empty array → nil slice",
+			args: `{
+				"observation": "obs text long enough to land",
+				"preservation_clauses": []
+			}`,
+			wantLen: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &reflectorStubAdapter{
+				resp: llm.Response{
+					ToolCalls: []llm.ToolCall{{
+						Name:   "emit_failure_observation",
+						Params: json.RawMessage(tc.args),
+					}},
+				},
+			}
+			r := NewReflector(stub).(*llmReflector)
+			out, err := r.ReflectFull(context.Background(), ReflectorInput{
+				Attempt:      1,
+				FailingTests: []ReflectorFailedTest{{Suite: "x", AssertionID: "y"}},
+			})
+			if err != nil {
+				t.Fatalf("ReflectFull: %v", err)
+			}
+			if out == nil {
+				t.Fatal("expected non-nil output")
+			}
+			if got := len(out.PreservationClauses); got != tc.wantLen {
+				t.Fatalf("len(PreservationClauses) = %d, want %d (got %#v)", got, tc.wantLen, out.PreservationClauses)
+			}
+			if tc.wantLen > 0 && out.PreservationClauses[0] != tc.wantFirst {
+				t.Errorf("PreservationClauses[0] = %q, want %q", out.PreservationClauses[0], tc.wantFirst)
+			}
+		})
+	}
+}
+
+// TestReflectorTool_PreservationClausesInSchema pins the schema-side
+// contract: emit_failure_observation MUST advertise the
+// preservation_clauses array so the LLM has a typed channel to
+// populate. Without the schema declaration, the LLM has no way to
+// emit the field and the HIGH-2 typed gate stays dormant.
+func TestReflectorTool_PreservationClausesInSchema(t *testing.T) {
+	if !strings.Contains(string(reflectorTool.Parameters), `"preservation_clauses"`) {
+		t.Errorf("reflectorTool schema must declare preservation_clauses; got:\n%s", string(reflectorTool.Parameters))
+	}
+	// Ensure observation stays required; preservation_clauses must
+	// NOT be required (it's optional and signals "partial-success
+	// failure"; mandatory would force the LLM to invent clauses for
+	// total-failure cases).
+	if !strings.Contains(string(reflectorTool.Parameters), `"required": ["observation"]`) {
+		t.Errorf("preservation_clauses must remain OPTIONAL — observation alone is required; schema:\n%s", string(reflectorTool.Parameters))
+	}
+}
+
+// TestTrimPreservationClauses_Edge pins the trim helper's edge
+// behaviour independent of the reflector's parse loop, so future
+// refactors can move the helper without losing pin coverage.
+func TestTrimPreservationClauses_Edge(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{name: "nil → nil", in: nil, want: nil},
+		{name: "empty → nil", in: []string{}, want: nil},
+		{name: "all whitespace → nil", in: []string{"  ", "\t\n", ""}, want: nil},
+		{name: "trims around content", in: []string{"  keep me  "}, want: []string{"keep me"}},
+		{name: "preserves order", in: []string{"a", "b", "c"}, want: []string{"a", "b", "c"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := trimPreservationClauses(tc.in)
+			if len(got) != len(tc.want) {
+				t.Fatalf("len = %d, want %d (got %#v)", len(got), len(tc.want), got)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("[%d] = %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 // TestReflectFull_PatternToolGatedByStore pins commit 40 P1:
 // the dispatch tool list includes emit_failure_pattern ONLY
 // when the orchestrator wired a FailureTaxonomyStore (signalled
