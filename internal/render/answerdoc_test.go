@@ -236,13 +236,13 @@ func TestRenderV2_BlockTableTextOnly(t *testing.T) {
 	}
 }
 
-func TestRenderV2_BlockTableItemsSuppressMarkdownText(t *testing.T) {
+func TestRenderV2_BlockTableMarkdownTextWinsOverRowItems(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
 			{
 				ID:   "t1",
 				Kind: types.BlockTable,
-				Text: "| Layer | Source |\n|---|---|\n| override | stale.go:1 |",
+				Text: "| Layer | Source | Mode |\n|---|---|---|\n| override | stale.go:1 | read |",
 				Items: []types.AnswerBlockItem{
 					{Label: "override", Text: "cmd/root.go:1430"},
 					{Label: "default", Text: "cmd/root.go:71"},
@@ -251,13 +251,55 @@ func TestRenderV2_BlockTableItemsSuppressMarkdownText(t *testing.T) {
 		},
 	}
 	out := RenderAnswerDocument(doc, "en")
-	if strings.Contains(out, "stale.go:1") {
-		t.Fatalf("structured table items must be canonical when both items[] and markdown text are present:\n%s", out)
-	}
-	for _, want := range []string{"| override | cmd/root.go:1430 |", "| default | cmd/root.go:71 |"} {
+	for _, want := range []string{
+		"| Layer | Source | Mode |",
+		"| override | stale.go:1 | read |",
+	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("structured table output missing %q:\n%s", want, out)
+			t.Fatalf("markdown table text should be authoritative for multi-column tables; missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "| Item | Detail |") || strings.Contains(out, "| default | cmd/root.go:71 |") {
+		t.Fatalf("table renderer must not synthesize an alternate two-column table when block text is present:\n%s", out)
+	}
+}
+
+func TestRenderV2_BlockTablePreservesComparisonColumnsWithRowCitationItems(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "comparison_table",
+				Kind:  types.BlockTable,
+				Title: "防幻觉机制对比",
+				Text: strings.Join([]string{
+					"| 对比维度 | codrax (读模式) | opencode (读模式) |",
+					"|---|---|---|",
+					"| 证据追踪 | EvidenceClosure 追踪 readSet/readRanges/fileTotalLines | 无任何追踪机制 |",
+					"| 引用验证 | ContractCheck 校验 citation_ref | 无引用验证 |",
+				}, "\n"),
+				Items: []types.AnswerBlockItem{
+					{ID: "r1", Label: "证据追踪", CitationRef: 0},
+					{ID: "r2", Label: "引用验证", CitationRef: 1},
+				},
+			},
+		},
+		Citations: []types.Citation{
+			{File: "internal/agent/evidence_closure.go", Line: 10},
+			{File: "internal/orchestrator/contract_check.go", Line: 784},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	for _, want := range []string{
+		"**防幻觉机制对比**",
+		"| 对比维度 | codrax (读模式) | opencode (读模式) |",
+		"| 证据追踪 | EvidenceClosure 追踪 readSet/readRanges/fileTotalLines | 无任何追踪机制 |",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("comparison table lost markdown column surface %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "| Item | Detail |") || strings.Contains(out, "| 证据追踪 |  |") {
+		t.Fatalf("row citation carriers must not collapse a multi-column table to Item/Detail:\n%s", out)
 	}
 }
 
