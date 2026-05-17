@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestExpandPackageExports_PathC pins the Phase 2.C path (c)
@@ -217,10 +218,10 @@ func TestExpandPackageExports_FiltersUnexportedAndNested(t *testing.T) {
 			"internal/x/file.go": {
 				RelPath: "internal/x/file.go",
 				Symbols: []repomap.Symbol{
-					{Name: "Foo", Kind: "type", Exported: true},                         // ✓
-					{Name: "fooHelper", Kind: "function", Exported: false},              // ✗ unexported
-					{Name: "Method", Kind: "method", Exported: true, Parent: "Foo"},     // ✗ nested
-					{Name: "Field", Kind: "field", Exported: true, Parent: "Foo"},       // ✗ wrong kind
+					{Name: "Foo", Kind: "type", Exported: true},                     // ✓
+					{Name: "fooHelper", Kind: "function", Exported: false},          // ✗ unexported
+					{Name: "Method", Kind: "method", Exported: true, Parent: "Foo"}, // ✗ nested
+					{Name: "Field", Kind: "field", Exported: true, Parent: "Foo"},   // ✗ wrong kind
 				},
 			},
 		},
@@ -247,10 +248,10 @@ func TestExpandPackageExports_EmptyDirectoryReturnsNil(t *testing.T) {
 func TestExpandChildPackages_PathD(t *testing.T) {
 	graph := &repomap.Graph{
 		FileIndex: map[string]*repomap.FileInfo{
-			"internal/analysis/budget/budget.go":      {RelPath: "internal/analysis/budget/budget.go"},
-			"internal/analysis/compiler/compiler.go":  {RelPath: "internal/analysis/compiler/compiler.go"},
-			"internal/analysis/criterion/grammar.go":  {RelPath: "internal/analysis/criterion/grammar.go"},
-			"internal/analysis/criterion/eval.go":     {RelPath: "internal/analysis/criterion/eval.go"},
+			"internal/analysis/budget/budget.go":        {RelPath: "internal/analysis/budget/budget.go"},
+			"internal/analysis/compiler/compiler.go":    {RelPath: "internal/analysis/compiler/compiler.go"},
+			"internal/analysis/criterion/grammar.go":    {RelPath: "internal/analysis/criterion/grammar.go"},
+			"internal/analysis/criterion/eval.go":       {RelPath: "internal/analysis/criterion/eval.go"},
 			"internal/analysis/normalizer/normalize.go": {RelPath: "internal/analysis/normalizer/normalize.go"},
 		},
 	}
@@ -296,9 +297,9 @@ func TestExpandChildPackages_SingleChildReturnsNil(t *testing.T) {
 func TestExpandChildPackages_FilesAtPrefixDontCount(t *testing.T) {
 	graph := &repomap.Graph{
 		FileIndex: map[string]*repomap.FileInfo{
-			"internal/x/leaf.go":           {RelPath: "internal/x/leaf.go"},          // skip
-			"internal/x/sub1/file.go":      {RelPath: "internal/x/sub1/file.go"},     // count sub1
-			"internal/x/sub2/file.go":      {RelPath: "internal/x/sub2/file.go"},     // count sub2
+			"internal/x/leaf.go":      {RelPath: "internal/x/leaf.go"},      // skip
+			"internal/x/sub1/file.go": {RelPath: "internal/x/sub1/file.go"}, // count sub1
+			"internal/x/sub2/file.go": {RelPath: "internal/x/sub2/file.go"}, // count sub2
 		},
 	}
 	got := expandChildPackages(graph, "internal/x")
@@ -315,17 +316,17 @@ func TestExpandChildPackages_MultiLanguage(t *testing.T) {
 	graph := &repomap.Graph{
 		FileIndex: map[string]*repomap.FileInfo{
 			// Go-style sub-package
-			"src/services/auth/auth.go":              {RelPath: "src/services/auth/auth.go"},
+			"src/services/auth/auth.go": {RelPath: "src/services/auth/auth.go"},
 			// Python-style package with __init__.py
-			"src/services/billing/__init__.py":       {RelPath: "src/services/billing/__init__.py"},
-			"src/services/billing/charge.py":         {RelPath: "src/services/billing/charge.py"},
+			"src/services/billing/__init__.py": {RelPath: "src/services/billing/__init__.py"},
+			"src/services/billing/charge.py":   {RelPath: "src/services/billing/charge.py"},
 			// Rust-style module
-			"src/services/inventory/mod.rs":          {RelPath: "src/services/inventory/mod.rs"},
-			"src/services/inventory/item.rs":         {RelPath: "src/services/inventory/item.rs"},
+			"src/services/inventory/mod.rs":  {RelPath: "src/services/inventory/mod.rs"},
+			"src/services/inventory/item.rs": {RelPath: "src/services/inventory/item.rs"},
 			// Java/Kotlin-style package
 			"src/services/notifications/Notifier.java": {RelPath: "src/services/notifications/Notifier.java"},
 			// Cangjie-style
-			"src/services/profile/profile.cj":        {RelPath: "src/services/profile/profile.cj"},
+			"src/services/profile/profile.cj": {RelPath: "src/services/profile/profile.cj"},
 			// Proto-style sub-directory
 			"src/services/messaging/v1/message.proto": {RelPath: "src/services/messaging/v1/message.proto"},
 		},
@@ -346,14 +347,12 @@ func TestExpandChildPackages_MultiLanguage(t *testing.T) {
 	}
 }
 
-// TestIsTestSourcePath pins the cross-language test-source-path
-// filter used by Path (c) and Path (d) to drop test functions /
-// test directories from entity expansion. Without this filter the
-// criterion package's 50+ Test* functions (Go test funcs are
-// Exported=true syntactically) would drown the 9 real exports in
-// the entity hint, leading the LLM to enumerate fewer than 5 of
-// the actual API.
-func TestIsTestSourcePath(t *testing.T) {
+// TestSourceRoleClassifierCoversExpansionTestPaths pins the shared
+// source-role classifier used by Path (c) and Path (d). The package
+// expansion code must not grow its own test-path matcher; otherwise
+// keyword search and package expansion drift on what "test source"
+// means across languages.
+func TestSourceRoleClassifierCoversExpansionTestPaths(t *testing.T) {
 	cases := []struct {
 		path string
 		want bool
@@ -370,34 +369,33 @@ func TestIsTestSourcePath(t *testing.T) {
 		{"main.swift", false},
 		{"server.cpp", false},
 		// Test source — MUST match
-		{"internal/agent/explorer_test.go", true},                  // Go suffix
-		{"internal/types/types_test.go", true},                     // Go suffix
-		{"src/services/auth/auth_test.py", true},                   // Python suffix
-		{"src/services/test_login.py", true},                       // Python prefix
-		{"tests/integration_test.py", true},                        // Python tests dir
-		{"src/lib_test.rs", true},                                  // Rust suffix
-		{"tests/integration.rs", true},                             // Rust tests dir
-		{"src/main_test.cj", true},                                 // Cangjie suffix
-		{"src/utils_test.lua", true},                               // Lua suffix
-		{"src/parser_spec.lua", true},                              // Lua spec suffix
-		{"test/foo_test.rb", true},                                 // Ruby test dir
-		{"spec/login_spec.rb", true},                               // Ruby spec dir
-		{"src/main/java/AuthTest.java", true},                      // Java Test suffix
-		{"src/test/java/AuthTests.java", true},                     // Java src/test/
-		{"src/utils.test.ts", true},                                // TS .test.
-		{"src/utils.spec.tsx", true},                               // TSX .spec.
-		{"src/__tests__/utils.ts", true},                           // JS __tests__/
-		{"src/HandlerTests.swift", true},                           // Swift Tests
-		{"src/AuthTests.m", true},                                  // Obj-C Tests.m
-		{"src/auth/AuthSpec.scala", true},                          // Scala Spec
+		{"internal/agent/explorer_test.go", true}, // Go suffix
+		{"internal/types/types_test.go", true},    // Go suffix
+		{"src/services/auth/auth_test.py", true},  // Python suffix
+		{"src/services/test_login.py", true},      // Python prefix
+		{"tests/integration_test.py", true},       // Python tests dir
+		{"src/lib_test.rs", true},                 // Rust suffix
+		{"tests/integration.rs", true},            // Rust tests dir
+		{"src/main_test.cj", true},                // Cangjie suffix
+		{"src/utils_test.lua", true},              // Lua suffix
+		{"src/parser_spec.lua", true},             // Lua spec suffix
+		{"test/foo_test.rb", true},                // Ruby test dir
+		{"spec/login_spec.rb", true},              // Ruby spec dir
+		{"src/main/java/AuthTest.java", true},     // Java Test suffix
+		{"src/test/java/AuthTests.java", true},    // Java src/test/
+		{"src/utils.test.ts", true},               // TS .test.
+		{"src/utils.spec.tsx", true},              // TSX .spec.
+		{"src/__tests__/utils.ts", true},          // JS __tests__/
+		{"src/HandlerTests.swift", true},          // Swift Tests
+		{"src/AuthTests.m", true},                 // Obj-C Tests.m
 		// Edge cases
 		{"", false},
 		{"foo/contestant.go", false}, // contains "test" but not as suffix/prefix
 	}
 	for _, c := range cases {
-		got := isTestSourcePath(c.path)
+		got := types.ClassifySourcePathRole(c.path) == types.SourcePathRoleTest
 		if got != c.want {
-			t.Errorf("isTestSourcePath(%q) = %v, want %v", c.path, got, c.want)
+			t.Errorf("ClassifySourcePathRole(%q)==test is %v, want %v", c.path, got, c.want)
 		}
 	}
 }
@@ -431,14 +429,60 @@ func TestExpandPackageExports_FiltersTestSources(t *testing.T) {
 	}
 }
 
+func TestExpandPackageExports_RespectsSourceScopeProfile(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"pkg/x/api.go": {
+				RelPath: "pkg/x/api.go",
+				Symbols: []repomap.Symbol{
+					{Name: "RealAPI", Kind: "function", Exported: true},
+				},
+			},
+			"pkg/x/api_test.go": {
+				RelPath: "pkg/x/api_test.go",
+				Symbols: []repomap.Symbol{
+					{Name: "TestRealAPI", Kind: "function", Exported: true},
+				},
+			},
+			"pkg/x/docs/design.md": {
+				RelPath: "pkg/x/docs/design.md",
+				Symbols: []repomap.Symbol{
+					{Name: "DesignNote", Kind: "module", Exported: true},
+				},
+			},
+		},
+	}
+	prod := expandPackageExportsWithSourceScope(graph, "pkg/x",
+		&types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction})
+	if len(prod) != 1 || prod[0] != "RealAPI" {
+		t.Fatalf("production scope should include only production exports, got %v", prod)
+	}
+	testOnly := expandPackageExportsWithSourceScope(graph, "pkg/x",
+		&types.SourceScopeProfile{RequestedScope: types.SourceScopeTest})
+	if len(testOnly) != 1 || testOnly[0] != "TestRealAPI" {
+		t.Fatalf("test scope should include test exports, got %v", testOnly)
+	}
+	all := expandPackageExportsWithSourceScope(graph, "pkg/x",
+		&types.SourceScopeProfile{RequestedScope: types.SourceScopeAll})
+	gotSet := map[string]bool{}
+	for _, name := range all {
+		gotSet[name] = true
+	}
+	for _, want := range []string{"RealAPI", "TestRealAPI", "DesignNote"} {
+		if !gotSet[want] {
+			t.Fatalf("all scope missing %q from %v", want, all)
+		}
+	}
+}
+
 // TestExpandChildPackages_FiltersTestDirs pins that test-only
 // child directories (`tests/` / `__tests__/` / `spec/`) are
 // excluded from path (d) expansion.
 func TestExpandChildPackages_FiltersTestDirs(t *testing.T) {
 	graph := &repomap.Graph{
 		FileIndex: map[string]*repomap.FileInfo{
-			"src/services/auth/auth.go":       {RelPath: "src/services/auth/auth.go"},        // ✓ real pkg
-			"src/services/billing/charge.py":  {RelPath: "src/services/billing/charge.py"},   // ✓ real pkg
+			"src/services/auth/auth.go":         {RelPath: "src/services/auth/auth.go"},         // ✓ real pkg
+			"src/services/billing/charge.py":    {RelPath: "src/services/billing/charge.py"},    // ✓ real pkg
 			"src/services/tests/integration.go": {RelPath: "src/services/tests/integration.go"}, // ✗ test dir
 			"src/services/__tests__/utils.ts":   {RelPath: "src/services/__tests__/utils.ts"},   // ✗ test dir
 		},
@@ -452,6 +496,31 @@ func TestExpandChildPackages_FiltersTestDirs(t *testing.T) {
 		if !wantSet[n] {
 			t.Errorf("unexpected child name: %q", n)
 		}
+	}
+}
+
+func TestExpandChildPackages_RespectsSourceScopeProfile(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"src/services/auth/auth.go":              {RelPath: "src/services/auth/auth.go"},
+			"src/services/tests/integration_test.go": {RelPath: "src/services/tests/integration_test.go"},
+			"src/services/docs/architecture.md":      {RelPath: "src/services/docs/architecture.md"},
+		},
+	}
+	prod := expandChildPackagesWithSourceScope(graph, "src/services",
+		&types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction})
+	if len(prod) != 1 || prod[0] != "auth" {
+		t.Fatalf("production scope should include only production child, got %v", prod)
+	}
+	testOnly := expandChildPackagesWithSourceScope(graph, "src/services",
+		&types.SourceScopeProfile{RequestedScope: types.SourceScopeTest})
+	if len(testOnly) != 1 || testOnly[0] != "tests" {
+		t.Fatalf("test scope should include test child, got %v", testOnly)
+	}
+	docsOnly := expandChildPackagesWithSourceScope(graph, "src/services",
+		&types.SourceScopeProfile{RequestedScope: types.SourceScopeDocumentation})
+	if len(docsOnly) != 1 || docsOnly[0] != "docs" {
+		t.Fatalf("documentation scope should include docs child, got %v", docsOnly)
 	}
 }
 

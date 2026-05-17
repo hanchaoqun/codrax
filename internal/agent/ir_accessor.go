@@ -117,7 +117,10 @@ func irSourceScopeProfile(ctx *types.AgentContext) *types.SourceScopeProfile {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil
 	}
-	rm := ctx.AnalysisIR.RequestModel
+	return sourceScopeProfileForRequestModel(ctx.AnalysisIR.RequestModel)
+}
+
+func sourceScopeProfileForRequestModel(rm types.RequestModel) *types.SourceScopeProfile {
 	if rm.SourceScopeProfile != nil {
 		return rm.SourceScopeProfile
 	}

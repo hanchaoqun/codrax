@@ -91,6 +91,9 @@ func LooksLikeTestFilePath(relPath string) bool {
 		strings.HasSuffix(base, "_test.mm") || strings.HasSuffix(base, "_unittest.cc") ||
 		strings.HasSuffix(base, "_unittest.cpp") || strings.HasSuffix(base, "_unittest.cu"):
 		return true
+	case strings.HasSuffix(baseRaw, "Test.m") || strings.HasSuffix(baseRaw, "Tests.m") ||
+		strings.HasSuffix(baseRaw, "Test.mm") || strings.HasSuffix(baseRaw, "Tests.mm"):
+		return true
 	}
 
 	for _, ext := range []string{".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".ets"} {

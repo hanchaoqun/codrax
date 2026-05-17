@@ -2848,7 +2848,8 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 	// Triggers ONLY when distinctNamedEntities=1 (the L0-B-gate
 	// precondition this function exists to repair) — same as paths
 	// (a) and (b).
-	if pkgExports := expandPackageExports(graph, bare); len(pkgExports) >= 1 {
+	sourceScope := sourceScopeProfileForRequestModel(rm)
+	if pkgExports := expandPackageExportsWithSourceScope(graph, bare, sourceScope); len(pkgExports) >= 1 {
 		return mergeExpandedEntities(original, pkgExports)
 	}
 
@@ -2874,7 +2875,7 @@ func expandEntitiesWithImplementers(ctx *types.AgentContext, rm types.RequestMod
 	// not an enumeration. Empty directory or single-package directory
 	// falls through to the existing L0-B reject (which is the
 	// correct behavior — no enumeration to do).
-	if children := expandChildPackages(graph, bare); len(children) >= 2 {
+	if children := expandChildPackagesWithSourceScope(graph, bare, sourceScope); len(children) >= 2 {
 		return mergeExpandedEntities(original, children)
 	}
 
@@ -2923,14 +2924,13 @@ func entityIsInterfaceLikeInGraph(graph *repomap.Graph, entity string) bool {
 // by expandEntitiesWithImplementers Path (c) — see the docstring
 // there for the full design rationale.
 //
-// Test source files (`_test.go` / `_test.py` / `*Test.java` /
-// `tests/...` / `__tests__/...` / `spec/...` / etc., across all
-// 17 supported languages) are deliberately excluded — test
-// functions are technically Exported=true but they are not the
-// "package API" the user is asking about. Without this filter a
-// 9-export package can return 70+ entries (50+ test functions)
-// that drown out the real API in the entity hint, leading the
-// LLM to enumerate fewer than 5 of the actual exports.
+// Source-scope filtering is driven by the analyzer's typed
+// SourceScopeProfile. Production scope excludes tests/docs/fixtures/
+// examples/prompt-support paths; test/docs/all scopes opt those roles
+// back in without scanning the user's prose. Without this filter a
+// 9-export package can return 70+ entries (50+ test functions) that
+// drown out the real API in the entity hint, while without the typed
+// opt-in test/doc questions lose their principal evidence.
 //
 // Returns nil when the directory has no exported symbols, or when
 // `bare` doesn't resolve to a directory prefix OR a package name in
@@ -2965,6 +2965,10 @@ func entityIsInterfaceLikeInGraph(graph *repomap.Graph, entity string) bool {
 // Package field is "differentpkg" does NOT match a query for
 // "criterion" — the typed Package field is the source of truth.
 func expandPackageExports(graph *repomap.Graph, bare string) []string {
+	return expandPackageExportsWithSourceScope(graph, bare, nil)
+}
+
+func expandPackageExportsWithSourceScope(graph *repomap.Graph, bare string, profile *types.SourceScopeProfile) []string {
 	if graph == nil || bare == "" {
 		return nil
 	}
@@ -2979,7 +2983,7 @@ func expandPackageExports(graph *repomap.Graph, bare string) []string {
 		if !matchesPrefix && !matchesPackage {
 			continue
 		}
-		if isTestSourcePath(path) {
+		if !sourceScopeAllowsExpansionPath(path, profile) {
 			continue
 		}
 		if fi == nil {
@@ -3064,88 +3068,6 @@ func packageMatchesBare(pkg, bare string) bool {
 	return false
 }
 
-// isTestSourcePath reports whether `path` looks like a test source
-// file under any of the 17 supported language ecosystems. Used by
-// expandPackageExports (Path c) and expandChildPackages (Path d) so
-// test functions / test directories don't drown the package's real
-// API surface in the entity-hint output.
-//
-// Cross-language conventions covered:
-//   - Go             — *_test.go
-//   - Python         — *_test.py / test_*.py / pytests/* / tests/*
-//   - Rust           — *_test.rs / tests/*.rs
-//   - Cangjie        — *_test.cj
-//   - Lua            — *_test.lua / *_spec.lua
-//   - Ruby           — *_test.rb / test_*.rb / spec/*.rb
-//   - Java / Kotlin  — *Test.java / *Tests.java / src/test/...
-//   - JS / TS / TSX  — *.test.{js,ts,tsx,jsx} / *.spec.{js,ts,tsx,jsx}
-//     / __tests__/* / __test__/*
-//   - Swift          — *Tests.swift
-//   - Obj-C          — *Tests.m / *Tests.mm
-//   - Scala          — *Spec.scala / *Test.scala
-//   - C / C++ / CUDA — typically `*_test.cc` / `tests/*` / `test/*`
-//   - Proto          — proto files normally have no test variant;
-//     proto test fixtures live under tests/
-//
-// Heuristic: union of basename suffix patterns + leading prefix
-// patterns + path-segment markers. Matches the conventions the
-// repomap extractors themselves use to decide whether to mark a
-// file Test=true (where that field exists). No keyword-grep over
-// file content — purely path-based.
-func isTestSourcePath(path string) bool {
-	if path == "" {
-		return false
-	}
-	// Path-segment markers (Java/Maven /src/test/, JS __tests__,
-	// Rust tests/, Python tests/, Ruby spec/, etc.).
-	if strings.Contains(path, "/__tests__/") ||
-		strings.Contains(path, "/__test__/") ||
-		strings.Contains(path, "/src/test/") ||
-		strings.Contains(path, "/tests/") ||
-		strings.HasPrefix(path, "tests/") ||
-		strings.Contains(path, "/test/") ||
-		strings.HasPrefix(path, "test/") ||
-		strings.Contains(path, "/spec/") ||
-		strings.HasPrefix(path, "spec/") {
-		return true
-	}
-	// Basename suffix / prefix patterns.
-	slash := strings.LastIndexByte(path, '/')
-	base := path
-	if slash >= 0 {
-		base = path[slash+1:]
-	}
-	if strings.HasPrefix(base, "test_") || strings.HasPrefix(base, "Test_") {
-		return true
-	}
-	// Generic *_test.<ext> — covers Go / Python / Rust / Cangjie /
-	// Lua / Ruby / C / C++.
-	if strings.Contains(base, "_test.") {
-		return true
-	}
-	// Generic *_spec.<ext> — covers Lua / Ruby / Scala-style.
-	if strings.Contains(base, "_spec.") {
-		return true
-	}
-	// JS / TS / TSX *.test.<ext> / *.spec.<ext>.
-	if strings.Contains(base, ".test.") || strings.Contains(base, ".spec.") {
-		return true
-	}
-	// Java / Kotlin / Swift *Test.<ext> / *Tests.<ext> / *Spec.<ext>.
-	for _, suffix := range []string{
-		"Test.java", "Tests.java",
-		"Test.kt", "Tests.kt",
-		"Test.scala", "Spec.scala",
-		"Tests.swift",
-		"Tests.m", "Tests.mm",
-	} {
-		if strings.HasSuffix(base, suffix) {
-			return true
-		}
-	}
-	return false
-}
-
 // expandChildPackages walks graph.FileIndex looking for files whose
 // RelPath starts with `<bare>/` and collects distinct immediate
 // child directory names. Used by expandEntitiesWithImplementers
@@ -3156,6 +3078,10 @@ func isTestSourcePath(path string) bool {
 // empty directories fall through to the existing L0-B reject —
 // the correct behavior because there is no enumeration to perform.
 func expandChildPackages(graph *repomap.Graph, bare string) []string {
+	return expandChildPackagesWithSourceScope(graph, bare, nil)
+}
+
+func expandChildPackagesWithSourceScope(graph *repomap.Graph, bare string, profile *types.SourceScopeProfile) []string {
 	if graph == nil || bare == "" {
 		return nil
 	}
@@ -3166,7 +3092,7 @@ func expandChildPackages(graph *repomap.Graph, bare string) []string {
 		if !strings.HasPrefix(path, prefix) {
 			continue
 		}
-		if isTestSourcePath(path) {
+		if !sourceScopeAllowsExpansionPath(path, profile) {
 			continue
 		}
 		// Extract the immediate child directory: the segment
@@ -3185,6 +3111,14 @@ func expandChildPackages(graph *repomap.Graph, bare string) []string {
 		}
 	}
 	return out
+}
+
+func sourceScopeAllowsExpansionPath(path string, profile *types.SourceScopeProfile) bool {
+	scope := types.SourceScopeProduction
+	if profile != nil && profile.RequestedScope.IsValid() {
+		scope = profile.RequestedScope
+	}
+	return types.SourceScopeAllowsPathRole(scope, types.ClassifySourcePathRole(path))
 }
 
 // lookupFileInfoWithSuffix resolves an entity that may be a full

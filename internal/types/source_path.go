@@ -71,7 +71,7 @@ func ClassifySourcePathRole(relPath string) SourcePathRole {
 		return SourcePathRoleUnknown
 	}
 	lower = strings.TrimPrefix(lower, "./")
-	if LooksLikeTestFilePath(lower) {
+	if LooksLikeTestFilePath(normalized) {
 		return SourcePathRoleTest
 	}
 	switch {

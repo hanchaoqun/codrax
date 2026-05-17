@@ -287,9 +287,9 @@
 
 ### UIP-013（P2）test/source 辅助过滤可能忽略用户明确关注测试代码
 
-代码位置：`internal/agent/analyzer.go::expandPackageExports`、`expandChildPackages`、`isTestSourcePath`
+代码位置：`internal/agent/analyzer.go::expandPackageExportsWithSourceScope`、`expandChildPackagesWithSourceScope`、`internal/types/source_path.go::ClassifySourcePathRole`
 
-状态：**部分修复**。`SourceScopeProfile` 已存在，`keyword_search` 已按 source scope 降权 auxiliary results；但包导出和子包展开路径仍会无条件跳过测试源。
+状态：**已修复（Batch I 第一段）**。`SourceScopeProfile` 已贯穿 package export / child package expansion；运行时不再使用 analyzer 局部 `isTestSourcePath` 过滤，统一走 `types.ClassifySourcePathRole` + `types.SourceScopeAllowsPathRole`。默认 production scope 仍过滤测试/文档/fixture/example/prompt-support；typed test/docs/all scope 会把对应路径恢复为 principal expansion 候选。
 
 当前行为：
 
@@ -419,6 +419,8 @@
 
 代码位置：`internal/agent/analyzer.go::expandPackageExports`、`expandChildPackages`、`internal/agent/keyword_search.go::shouldDeprioritizeAuxiliaryBySourceScope`
 
+状态：**已修复（Batch I 第一段）**。`expandEntitiesWithImplementers` 从 `RequestModel.SourceScopeProfile`（含 ChangeImpact/Profile fallback）取 typed scope，调用 `expandPackageExportsWithSourceScope` / `expandChildPackagesWithSourceScope`。包展开与 keyword search 现在共用同一个 source-role classifier，避免一个入口看见测试/文档、另一个入口丢掉测试/文档。
+
 当前行为：
 
 - keyword search 已可按 source scope 降权 auxiliary source。
@@ -506,7 +508,7 @@
 
 1. [~] 表格 fallback 不截断，多列稳定展示。（已支持多列补 header 和 markdown table 优先，仍需 contract 贯穿）
 2. inactive subrepo disclosure 改成系统生成的隔离 caveat。
-3. [~] SourceScope 控制 production/test/docs 过滤。（keyword search 已接入，package expansion 未接入）
+3. [x] SourceScope 控制 production/test/docs 过滤。（keyword search、package export、child package expansion 已接入同一 source-role classifier）
 
 ### Batch F：停止系统替模型补正文
 
@@ -528,7 +530,7 @@
 
 ### Batch I：scope / presentation contract 贯穿
 
-1. `SourceScopeProfile` 贯穿 exact target、keyword search、package export、child package expansion。
+1. [~] `SourceScopeProfile` 贯穿 exact target、keyword search、package export、child package expansion。（keyword search、package export、child package expansion 已完成；exact target 后续继续审计）
 2. `raw_mermaid`、`markdown_table`、`structured_table`、`scalar`、`decision` 等展示偏好从 analyzer typed 输出进入 schema、renderer、REPL。
 3. raw scope detector 保持 advisory，analyzer 之后统一用 typed scope 更新状态、上下文和最终 caveat。
 
