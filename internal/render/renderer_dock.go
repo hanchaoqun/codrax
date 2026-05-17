@@ -1109,33 +1109,16 @@ func (r *Renderer) formatStageDoneLine(row *taskRow, topicTotal int) string {
 	}
 	progress := r.stageProgressForFocus(row)
 	stageElapsed := r.stageDoneElapsedString(row)
-	// Sub-topic progress is rendered IMMEDIATELY AFTER the
-	// stage progress (e.g. "2/4") so the two related "this is the K-th
-	// out of N" indicators sit together at the front of the row, where
-	// the eye lands first. Pre-2026-05-17 it was tacked onto the very
-	// end of the row after stage/total elapsed, which made it (a)
-	// visually disconnected from the related "2/4" stage counter, (b)
-	// rendered in a different (cyan) colour that broke the row's
-	// monochrome-meta convention, and (c) confusing because the trailing
-	// ratio-style tag looked like a 7th unrelated metadata field.
-	// Colour is now statusMeta (gray) to match every other meta
-	// segment on the row.
-	topicTag := ""
-	if topicTotal > 1 && row.isNodeRow && row.nodeKind == "evidence" {
-		if idx, ok := topicIndexFromNodeID(row.nodeID); ok {
-			topicTag = topicProgressPhrase(idx, topicTotal, r.lang)
-		}
-	}
+	// Topic ordinals are intentionally not rendered in the stage-
+	// completion row. They read like completion progress when shown
+	// beside K/N stage state, while the topic block below already
+	// carries the stable per-focus labels.
 	var b strings.Builder
 	b.WriteString("  ")
 	b.WriteString(glyphStyle.Sprint(glyph))
 	if progress != "" {
 		b.WriteString(" ")
 		b.WriteString(statusMeta.Sprint(progress))
-	}
-	if topicTag != "" {
-		b.WriteString(" ")
-		b.WriteString(statusMeta.Sprint(topicTag))
 	}
 	b.WriteString(" ")
 	b.WriteString(labelStyle.Sprint(label))

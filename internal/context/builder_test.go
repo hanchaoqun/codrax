@@ -3343,6 +3343,28 @@ func TestFormatMultiRepoActiveSetAdvisory_TruncatesInactivePreview(t *testing.T)
 	}
 }
 
+func TestFormatMultiRepoActiveSetAdvisory_FinalizerHidesInactiveNames(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		SubRepos: []types.SubRepoSnapshot{
+			{RootRel: "repo-a", PrimaryLangs: []string{"Go"}},
+			{RootRel: "repo-b", PrimaryLangs: []string{"Python"}},
+			{RootRel: "repo-c", PrimaryLangs: []string{"Rust"}},
+		},
+		PendingSubRepos:               []string{"repo-b", "repo-c"},
+		MultiRepoInactivePreviewCount: 2,
+	}
+	got := formatMultiRepoActiveSetAdvisory(ac)
+	if !strings.Contains(got, "- repo-a (Go)") {
+		t.Fatalf("finalizer advisory must still list active scope: %q", got)
+	}
+	if strings.Contains(got, "repo-b") || strings.Contains(got, "repo-c") ||
+		strings.Contains(got, "Out of active set") ||
+		strings.Contains(got, "adjust the workspace scope") {
+		t.Fatalf("finalizer prompt must not leak inactive sub-repo names or scope-retry prose: %q", got)
+	}
+}
+
 func TestFormatMultiRepoActiveSetAdvisory_ZeroCountFallsBackToConfigDefault(t *testing.T) {
 	ac := &types.AgentContext{
 		SubRepos: []types.SubRepoSnapshot{

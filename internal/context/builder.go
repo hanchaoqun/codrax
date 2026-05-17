@@ -4088,7 +4088,8 @@ func formatMultiRepoActiveSetAdvisory(ac *types.AgentContext) string {
 	for _, sr := range active {
 		writeSubRepoLine(&b, sr)
 	}
-	if len(inactive) > 0 {
+	showInactivePreview := ac.AgentName != types.AgentFinalizer
+	if len(inactive) > 0 && showInactivePreview {
 		visible := previewN
 		if visible > len(inactive) {
 			visible = len(inactive)
@@ -4101,7 +4102,9 @@ func formatMultiRepoActiveSetAdvisory(ac *types.AgentContext) string {
 			fmt.Fprintf(&b, "  ... and %d more\n", extra)
 		}
 	}
-	b.WriteString("\nIf the user's question genuinely needs to consult a sub-repo currently out of the active set, surface that requirement in plain prose at the top of your final answer — the user will adjust the workspace scope and re-ask. Do not attempt file-system tool calls against an out-of-set path; they will be refused.\n")
+	if showInactivePreview {
+		b.WriteString("\nIf the user's question genuinely needs to consult a sub-repo currently out of the active set, surface that requirement in plain prose at the top of your final answer — the user will adjust the workspace scope and re-ask. Do not attempt file-system tool calls against an out-of-set path; they will be refused.\n")
+	}
 	b.WriteString("\nWhen citing a path inside an active sub-repo, prefer the full sub-repo-prefixed form (e.g. `<sub-repo>/path/to/file.go`). If you supply a bare relative path that is not prefixed by any active sub-repo, the file-system tools will try to resolve it under each active sub-repo in alphabetical order and use the first unique match; an ambiguous bare path (matching multiple active sub-repos) or one that matches none is refused.\n")
 	return b.String()
 }

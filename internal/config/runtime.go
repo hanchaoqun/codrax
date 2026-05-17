@@ -525,6 +525,14 @@ type RuntimeSettings struct {
 	// genuine facet-coverage gaps.
 	PipelineSemanticQualityMinConfidence *float64 `yaml:"pipeline_semantic_quality_min_confidence"`
 
+	// PipelineStrictAnswerReviewEnabled is the coarse final-answer
+	// quality gate. Default true preserves the full post-finalizer
+	// contract/reviewer/rewrite loop. Operators can set false to ship
+	// the first accepted AnswerDocument draft immediately; deterministic
+	// post-emit concerns are surfaced as supplementary notes instead
+	// of driving reviewer dispatches or rewrite retries.
+	PipelineStrictAnswerReviewEnabled *bool `yaml:"pipeline_strict_answer_review_enabled"`
+
 	// PipelineExhaustiveDeterministicReviewThreshold (2026-05-16)
 	// above which the deterministic exhaustive member-set reviewer
 	// replaces self-consistency + semantic-quality LLM dispatchers.

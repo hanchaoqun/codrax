@@ -277,6 +277,13 @@ type Orchestrator struct {
 	// pipeline_semantic_quality_min_confidence.
 	semanticQualityMinConfidence float64
 
+	// strictAnswerReviewDisabled gates the post-finalizer review and
+	// rewrite loop. Zero value keeps commercial-grade contract
+	// enforcement. True ships the first accepted structured draft and
+	// renders deterministic concerns as supplementary context instead
+	// of burning reviewer / rewrite rounds.
+	strictAnswerReviewDisabled bool
+
 	// finalizeRepairHardCap (P6 2026-05-10) caps the number of
 	// finalize-stage repair-loop iterations a single Run will
 	// attempt before degrading to "accept doc + residual-concerns
@@ -1071,6 +1078,24 @@ func (o *Orchestrator) SetSemanticQualityReviewer(r SemanticQualityReviewer) {
 		return
 	}
 	o.semanticQualityReviewer = r
+}
+
+// SetStrictAnswerReviewEnabled toggles the post-finalizer review and
+// rewrite loop. The zero-value orchestrator keeps strict mode enabled
+// through strictAnswerReviewEnabledValue so older tests and fixtures
+// preserve behaviour unless they explicitly opt out.
+func (o *Orchestrator) SetStrictAnswerReviewEnabled(enabled bool) {
+	if o == nil {
+		return
+	}
+	o.strictAnswerReviewDisabled = !enabled
+}
+
+func (o *Orchestrator) strictAnswerReviewEnabledValue() bool {
+	if o == nil {
+		return true
+	}
+	return !o.strictAnswerReviewDisabled
 }
 
 // FinalizeRepairHardCapDefault is the conservative default cap on
@@ -3852,6 +3877,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 
 	stepsUsed := 0
 	var lastFinalize *agent.StageOutput
+	var firstFinalizeDraft string
+	var firstFinalizeConcerns []types.Violation
 
 	// lastFallbackFinalizerOnly latches when the previous loop
 	// iteration picked FallbackFinalizerOnly as the fallback target —
@@ -4623,6 +4650,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 		stepsUsed++
 		lastFinalize = out
+		if strings.TrimSpace(firstFinalizeDraft) == "" {
+			firstFinalizeDraft = strings.TrimSpace(out.FinalAnswer)
+		}
 
 		// Evaluate finalize node's SuccessCriteria alongside
 		// the AnswerContract check. SuccessCriteria on finalize
@@ -4833,6 +4863,25 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if o.finishSchedulerLocalWork(stopLocal, "tier2_completeness", stepsUsed) {
 				return stepsUsed
 			}
+		}
+
+		if len(firstFinalizeConcerns) == 0 && strings.TrimSpace(out.FinalAnswer) == firstFinalizeDraft {
+			firstFinalizeConcerns = append([]types.Violation(nil), res.Violations...)
+		}
+		if !o.strictAnswerReviewEnabledValue() {
+			if len(res.Violations) > 0 {
+				o.attachDraftReviewNote(out, strictReviewDisabledTitle(o.busCtx.Language), res.Violations)
+			}
+			o.emit(render.Event{
+				Kind:            render.EventLivePreviewClear,
+				Timestamp:       time.Now(),
+				Stage:           types.StageFinalize,
+				PreviewRejected: false,
+			})
+			logEvidenceUtilization(o, lastFinalize)
+			state.markDone(fin.ID)
+			o.emitNodeEnd(fin.ID, true, "")
+			break
 		}
 
 		if res.Passed {
@@ -5392,6 +5441,9 @@ contractFailureBreak:
 		lastFinalize = out
 	}
 
+	if o.strictAnswerReviewEnabledValue() {
+		o.attachFirstDraftReference(lastFinalize, firstFinalizeDraft, firstFinalizeConcerns)
+	}
 	o.recordTaskFinalize(lastFinalize)
 	o.emitCGECSummary()
 	return stepsUsed
@@ -6043,6 +6095,120 @@ func (o *Orchestrator) injectInconclusiveForStuckHypotheses(stuckNodeID string) 
 	logging.Info("[scheduler/stuck] validate %s: injected %d inconclusive verdict(s) (evidence stable across retries)",
 		stuckNodeID, len(injected))
 	return len(injected)
+}
+
+func (o *Orchestrator) attachFirstDraftReference(out *agent.StageOutput, firstDraft string, concerns []types.Violation) {
+	if o == nil || out == nil {
+		return
+	}
+	firstDraft = strings.TrimSpace(firstDraft)
+	finalAnswer := strings.TrimSpace(out.FinalAnswer)
+	if firstDraft == "" || finalAnswer == "" || firstDraft == finalAnswer {
+		return
+	}
+	lang := ""
+	if o.busCtx != nil {
+		lang = o.busCtx.Language
+	}
+	body := firstDraft
+	if note := draftConcernSummary(lang, concerns, true); note != "" {
+		body = note + "\n\n" + body
+	}
+	o.appendAnswerDisplayAttachment(out, types.AnswerDisplayAttachment{
+		Kind:   types.AnswerDisplayAttachmentMarkdown,
+		Title:  draftReferenceTitle(lang),
+		Body:   body,
+		Source: "orchestrator.first_finalize_draft",
+	})
+}
+
+func (o *Orchestrator) attachDraftReviewNote(out *agent.StageOutput, title string, concerns []types.Violation) {
+	if o == nil || out == nil || len(concerns) == 0 {
+		return
+	}
+	lang := ""
+	if o.busCtx != nil {
+		lang = o.busCtx.Language
+	}
+	body := draftConcernSummary(lang, concerns, false)
+	if body == "" {
+		return
+	}
+	if strings.TrimSpace(title) == "" {
+		title = draftReviewNoteTitle(lang)
+	}
+	o.appendAnswerDisplayAttachment(out, types.AnswerDisplayAttachment{
+		Kind:   types.AnswerDisplayAttachmentMarkdown,
+		Title:  title,
+		Body:   body,
+		Source: "orchestrator.strict_review_disabled",
+	})
+}
+
+func (o *Orchestrator) appendAnswerDisplayAttachment(out *agent.StageOutput, att types.AnswerDisplayAttachment) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || out == nil {
+		return
+	}
+	if strings.TrimSpace(att.Body) == "" {
+		return
+	}
+	attachments := o.busCtx.Mutable.AnswerDisplayAttachments()
+	attachments = append(attachments, att)
+	o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)
+	if doc := o.busCtx.Mutable.AnswerDocumentV2(); doc != nil {
+		out.FinalAnswer = render.RenderAnswerDocumentWithAttachments(
+			doc,
+			o.busCtx.Mutable.AnswerDisplayAttachments(),
+			o.busCtx.Language,
+		)
+		return
+	}
+	out.FinalAnswer = strings.TrimRight(out.FinalAnswer, "\n") + "\n\n---\n\n**" +
+		strings.TrimSpace(att.Title) + "**\n\n" + strings.TrimSpace(att.Body) + "\n\n---\n"
+}
+
+func draftReferenceTitle(lang string) string {
+	if lang == "zh" {
+		return "第一稿答案（校验前参考）"
+	}
+	return "First Draft Answer (Pre-review Reference)"
+}
+
+func draftReviewNoteTitle(lang string) string {
+	if lang == "zh" {
+		return "第一稿校验提示"
+	}
+	return "First Draft Review Notes"
+}
+
+func strictReviewDisabledTitle(lang string) string {
+	if lang == "zh" {
+		return "第一稿答案：强校验已关闭"
+	}
+	return "First Draft Answer: Strict Review Disabled"
+}
+
+func draftConcernSummary(lang string, concerns []types.Violation, rewritten bool) string {
+	count := 0
+	for _, v := range concerns {
+		if v.IsDerived {
+			continue
+		}
+		count++
+	}
+	if count == 0 {
+		return ""
+	}
+	if lang == "zh" {
+		if rewritten {
+			return fmt.Sprintf("系统在强校验中发现第一稿仍有 %d 项待补充，所以下方最终稿可能已经调整；这里保留第一稿，便于对照。", count)
+		}
+		return fmt.Sprintf("强校验模式已关闭。系统检测到这份第一稿仍有 %d 项可能待补充，本次不会触发 reviewer 或重写。", count)
+	}
+	if rewritten {
+		return fmt.Sprintf("Strict review found %d remaining concern(s) in the first draft, so the final answer may have changed; the draft is preserved here for comparison.", count)
+	}
+	return fmt.Sprintf("Strict review mode is disabled. The first draft still has %d potential concern(s), but this run will not invoke reviewers or rewrite it.", count)
 }
 
 // recordTaskFinalize copies the finalizer's FinalAnswer into

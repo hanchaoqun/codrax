@@ -243,7 +243,7 @@ type dockRowState struct {
 	stageKey              string // canonical stage key for stagePhrase / progress
 	stageProgress         string // "K/N" or "—"
 	stageLabel            string // localized stage name (running form)
-	topicProgress         string // ordinal focus segment or empty; shown next to stageProgress
+	topicProgress         string // legacy ordinal focus segment; kept out of the top status row
 	iteration             int    // 0 = hide, ≥1 shows "第 N 轮"
 	modelID               string // effective model id for the latest request
 	contextTokensEstimate int    // rough request token estimate; 0 = hide
@@ -322,13 +322,14 @@ func composeDockRow1(s dockRowState) string {
 
 // composeDockRow2 renders the stage row:
 //
-//	"  ▪ 2/4 · 第 1 个关注点，共 3 个 · 探索证据 · 第 1 轮 · 5 工具 · 已收到 312 字"
+//	"  ▪ 2/4 · 探索证据 · 第 1 轮 · 5 工具 · 已收到 312 字"
 //
 // glyph ▪ in statusObjective (cyan). K/N always renders; stageLabel
-// renders when available. topicProgress sits with K/N because both are
-// navigation progress, not request telemetry. Counters append only when
-// > 0. streamChars is finalize-
-// specific (rendered as "已收到 N 字" / "received N chars").
+// renders when available. Topic ordinals are deliberately omitted from
+// this top status row: they are focus labels, not completion state, and
+// the detailed topic block below already owns that information. Counters
+// append only when > 0. streamChars is finalize-specific (rendered as
+// "已收到 N 字" / "received N chars").
 func composeDockRow2(s dockRowState) string {
 	var b strings.Builder
 	b.WriteString("  ")
@@ -339,12 +340,6 @@ func composeDockRow2(s dockRowState) string {
 		progress = "—"
 	}
 	b.WriteString(statusMeta.Sprint(progress))
-	if s.topicProgress != "" {
-		b.WriteString(" ")
-		b.WriteString(statusMeta.Sprint("·"))
-		b.WriteString(" ")
-		b.WriteString(statusMeta.Sprint(s.topicProgress))
-	}
 	if s.stageLabel != "" {
 		b.WriteString(" ")
 		b.WriteString(statusMeta.Sprint("·"))

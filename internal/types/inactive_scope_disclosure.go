@@ -172,6 +172,9 @@ func inactiveScopeIntentEligible(busCtx *BusContext) bool {
 		return false
 	}
 	rm := busCtx.AnalysisIR.RequestModel
+	if ResolveQuestionFamily(rm) == QFComparison {
+		return false
+	}
 	switch rm.Intent {
 	case IntentExplain, IntentEnumerate, IntentReturnValue, IntentTrace:
 		return true

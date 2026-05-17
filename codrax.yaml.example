@@ -238,6 +238,14 @@
 # with no answer at all. Hard-capped at 5 inside the orchestrator.
 # pipeline_force_finalize_attempts: 3
 
+# Final-answer strong review. Default true runs deterministic
+# contract checks, self-consistency / semantic-quality reviewers
+# when enabled, and bounded finalizer rewrites. Set false to return
+# the first accepted structured answer draft immediately; any
+# deterministic concerns are rendered as supplementary notes instead
+# of triggering reviewer calls or rewrite loops.
+# pipeline_strict_answer_review_enabled: true
+
 # Absolute ceilings on per-Run multi-topic budget scaling. Non-zero
 # overrides the historical hardcoded literals; zero falls back to the
 # code default shown after each key.

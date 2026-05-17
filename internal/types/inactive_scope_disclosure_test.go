@@ -61,6 +61,31 @@ func TestBuildInactiveScopeDisclosureObligation_AbsenceFires(t *testing.T) {
 	}
 }
 
+func TestBuildInactiveScopeDisclosureObligation_ComparisonSkipsInactiveDisclosure(t *testing.T) {
+	busCtx := &BusContext{
+		PendingSubRepos: []string{"inactive-c"},
+		AnalysisIR: &AnalysisIR{
+			RequestModel: RequestModel{
+				Intent:     IntentExplain,
+				RawRequest: "compare repo-a and repo-b",
+				Predicates: SemanticPredicates{IsCrossComponent: true},
+				SubTopics:  []SubTopic{{Summary: "a"}, {Summary: "b"}},
+				AnalyzerHints: AnalyzerHints{
+					MentionedEntities: []string{"repo-a", "repo-b"},
+					ExactTargets:      []string{"repo-a", "repo-b"},
+				},
+			},
+		},
+	}
+	doc := &AnswerDocumentV2{
+		ExactResolution: &AnswerExactResolution{Status: AnswerExactResolutionAbsent},
+	}
+	got := BuildInactiveScopeDisclosureObligationFromBus(busCtx, doc)
+	if got.Active() {
+		t.Fatalf("comparison answers must not require inactive-scope disclosure for unrelated pending repos: %+v", got)
+	}
+}
+
 func TestBuildInactiveScopeDisclosureObligation_RoleLocateEmptyPrincipalFires(t *testing.T) {
 	busCtx := &BusContext{
 		PendingSubRepos: []string{"repo-tools-py"},

@@ -171,6 +171,9 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			oracle = repomap.NewSymbolOracle(g)
 		}
 	}
+	if mut != nil {
+		c = relaxUnsupportedAnalyzerMustIncludeTerms(c, mut, oracle)
+	}
 	stopCore := trace.start("contract_core")
 	result := contract.CheckWithOracle(draft, c, oracle)
 	stopCore(len(result.Violations))
@@ -395,7 +398,8 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	//   - runReviewerWithDeadline is synchronous and operates on its
 	//     own derived context (reviewer_deadline.go:39) so the two
 	//     deadlines do not interfere.
-	if !deterministicReviewerHandled {
+	strictReview := o == nil || o.strictAnswerReviewEnabledValue()
+	if strictReview && !deterministicReviewerHandled {
 		// Evaluate both reviewer-eligibility gates up-front so the
 		// dispatch decision does not depend on the order of LLM
 		// completion.
@@ -548,6 +552,137 @@ func runtimeArtifactCitationFloorWaived(mut *types.MutableState, o *Orchestrator
 		}
 	}
 	return false
+}
+
+func relaxUnsupportedAnalyzerMustIncludeTerms(c types.AnswerContract, mut *types.MutableState, oracle types.SymbolOracle) types.AnswerContract {
+	if mut == nil || (len(c.MustIncludeTerms) == 0 && len(c.MustInclude) == 0) {
+		return c
+	}
+	index := buildAnalyzerMustIncludeSupportIndex(mut)
+	dropped := make(map[string]bool)
+	filteredTerms := make([]types.ContractTerm, 0, len(c.MustIncludeTerms))
+	for _, term := range c.MustIncludeTerms {
+		text := strings.TrimSpace(term.Text)
+		if text == "" {
+			continue
+		}
+		if term.Source == types.ContractTermSourceAnalyzerEntity &&
+			!analyzerMustIncludeTermSupported(term, index, oracle) {
+			dropped[strings.ToLower(text)] = true
+			logging.Info("[contract] demoted unsupported analyzer must_include term %q kind=%s", text, term.Kind)
+			continue
+		}
+		filteredTerms = append(filteredTerms, term)
+	}
+	if len(dropped) == 0 {
+		return c
+	}
+	filteredLegacy := make([]string, 0, len(c.MustInclude))
+	for _, text := range c.MustInclude {
+		key := strings.ToLower(strings.TrimSpace(text))
+		if key != "" && dropped[key] {
+			continue
+		}
+		filteredLegacy = append(filteredLegacy, text)
+	}
+	c.MustInclude = filteredLegacy
+	c.MustIncludeTerms = filteredTerms
+	return c
+}
+
+type analyzerMustIncludeSupportIndex struct {
+	fileKeys       map[string]bool
+	hasFileSignals bool
+}
+
+func buildAnalyzerMustIncludeSupportIndex(mut *types.MutableState) analyzerMustIncludeSupportIndex {
+	idx := analyzerMustIncludeSupportIndex{fileKeys: map[string]bool{}}
+	addFile := func(path string) {
+		for _, key := range fileTermKeys(path) {
+			idx.fileKeys[key] = true
+			idx.hasFileSignals = true
+		}
+	}
+	for _, ev := range mut.EmittedEvidence() {
+		addFile(ev.Source)
+	}
+	if doc := mut.AnswerDocumentV2(); doc != nil {
+		for _, cit := range doc.Citations {
+			addFile(cit.File)
+		}
+	}
+	if g, ok := mut.SearchGraph().(*repotypes.Graph); ok && g != nil {
+		for _, fi := range g.Files {
+			if fi != nil {
+				addFile(fi.RelPath)
+			}
+		}
+		for path := range g.FileIndex {
+			addFile(path)
+		}
+	}
+	return idx
+}
+
+func analyzerMustIncludeTermSupported(term types.ContractTerm, idx analyzerMustIncludeSupportIndex, oracle types.SymbolOracle) bool {
+	text := strings.TrimSpace(term.Text)
+	if text == "" {
+		return false
+	}
+	kind := term.Kind
+	if !kind.IsValid() {
+		kind = types.InferContractTermKind(text)
+	}
+	switch kind {
+	case types.ContractTermToolName, types.ContractTermUserPhrase:
+		return true
+	case types.ContractTermFileStem:
+		if !idx.hasFileSignals {
+			return true
+		}
+		for _, key := range fileTermKeys(text) {
+			if idx.fileKeys[key] {
+				return true
+			}
+		}
+		return false
+	default:
+		if oracle == nil {
+			return true
+		}
+		return contractOracleHasReliableSymbol(oracle, text)
+	}
+}
+
+func contractOracleHasReliableSymbol(oracle types.SymbolOracle, name string) bool {
+	if oracle == nil {
+		return false
+	}
+	if found, tier := oracle.SymbolExists(name); found && tier < 3 {
+		return true
+	}
+	if found, tier := oracle.SymbolExistsFlat(name); found && tier < 3 {
+		return true
+	}
+	return false
+}
+
+func fileTermKeys(path string) []string {
+	clean := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(path, `\`, `/`)))
+	if clean == "" {
+		return nil
+	}
+	if i := strings.LastIndex(clean, "/"); i >= 0 && i+1 < len(clean) {
+		clean = clean[i+1:]
+	}
+	if clean == "" {
+		return nil
+	}
+	out := []string{clean}
+	if dot := strings.LastIndex(clean, "."); dot > 0 {
+		out = append(out, clean[:dot])
+	}
+	return out
 }
 
 func dropCitationCountGEContract(crits []types.Criterion) []types.Criterion {
@@ -1698,11 +1833,11 @@ func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 		// concerns caveat instead of burning a finalize retry round.
 		// Operators promote via pipeline_contract_strict_kinds; the
 		// strict path lands them back in the retry loop at High.
-		types.ViolRichnessGlaringGap:            true,
-		types.ViolPrincipalProseUnderfilled:     true,
-		types.ViolUncertaintyBlockMissing:       true,
+		types.ViolRichnessGlaringGap:              true,
+		types.ViolPrincipalProseUnderfilled:       true,
+		types.ViolUncertaintyBlockMissing:         true,
 		types.ViolStructuralEnumerationDivergence: true,
-		types.ViolSymbolAnchorMismatch:          true,
+		types.ViolSymbolAnchorMismatch:            true,
 
 		// Multi-repo write fail-loud (design §4.5.5, 2026-05-08).
 		// SOFT here means "no auto-retry pathway" — the actual

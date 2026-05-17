@@ -322,7 +322,8 @@ var (
 // pipeline_semantic_quality_review_enabled when the cost is too
 // high or the false-positive rate exceeds tolerance.
 var (
-	semanticQualityEnabled = true
+	semanticQualityEnabled    = true
+	strictAnswerReviewEnabled = true
 	// P4 (2026-05-10): default floor for the G5 reviewer.
 	// orchestrator.SemanticQualityMinConfidenceDefault is 0.92 — keep this
 	// in sync (mirrored here as a Go var so the
@@ -2144,6 +2145,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineSemanticQualityMinConfidence != nil {
 			semanticQualityMinConfidence = *rs.PipelineSemanticQualityMinConfidence
 		}
+		if rs.PipelineStrictAnswerReviewEnabled != nil {
+			strictAnswerReviewEnabled = *rs.PipelineStrictAnswerReviewEnabled
+		}
 		// P6 (2026-05-10) — operator-tunable finalize repair hard cap.
 		// nil → orchestrator falls back to FinalizeRepairHardCapDefault (2).
 		if rs.PipelineFinalizeRepairHardCap != nil {
@@ -2162,7 +2166,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		extraSoft := append([]string{}, rs.PipelineContractSoftKinds...)
 		extraStrict := append([]string{}, rs.PipelineContractStrictKinds...)
-		if selfConsistencyEnabled && selfConsistencyRewrite {
+		if strictAnswerReviewEnabled && selfConsistencyEnabled && selfConsistencyRewrite {
 			extraStrict = append(extraStrict, "self_contradiction")
 		} else {
 			// reviewer off OR soft mode → ViolSelfContradiction is soft
@@ -3000,6 +3004,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	orch.SetExhaustiveDeterministicReviewThreshold(exhaustiveDeterministicReviewThreshold)
 	// 2026-05-16 — per-reviewer wall budget fraction.
 	orch.SetReviewerWallBudgetFraction(reviewerWallBudgetFraction)
+	orch.SetStrictAnswerReviewEnabled(strictAnswerReviewEnabled)
 	// Reflexion-pattern critic. Resolved above; nil-safe inside
 	// orchestrator (clearForReplan falls back to heuristic-only hint
 	// when adapter is missing). Tied to the same retry-budget knob —
@@ -3165,7 +3170,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// agents.self_consistency_reviewer (cheap-model recommended;
 	// task is plain prose↔prose comparison). Falls back to
 	// chitchat_classifier or default LLM when absent.
-	if selfConsistencyEnabled {
+	if selfConsistencyEnabled && strictAnswerReviewEnabled {
 		resolved := config.ResolveProvider(providersCfg, "self_consistency_reviewer")
 		if adapter, err := llm.NewFromConfig(resolved); err == nil {
 			app.orch.SetSelfConsistencyReviewer(orchestrator.NewSelfConsistencyReviewer(
@@ -3185,7 +3190,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// agents.semantic_quality_reviewer when present, falls back to
 	// the self_consistency_reviewer slot (same task class:
 	// independent reviewer LLM with structured emit).
-	if semanticQualityEnabled {
+	if semanticQualityEnabled && strictAnswerReviewEnabled {
 		resolved := config.ResolveProvider(providersCfg, "semantic_quality_reviewer")
 		if adapter, err := llm.NewFromConfig(resolved); err == nil {
 			app.orch.SetSemanticQualityReviewer(orchestrator.NewSemanticQualityReviewer(
