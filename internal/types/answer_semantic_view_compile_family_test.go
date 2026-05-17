@@ -795,6 +795,28 @@ func TestCompileGeneric_AllowsOptionalPresentationBlocks(t *testing.T) {
 	}
 }
 
+func TestCompilePresentationContract_AllowsDisplayBlocksWithoutPromptRequirements(t *testing.T) {
+	view := BuildAnswerSemanticView(irForRoleLookup(), nil)
+	if view == nil {
+		t.Fatal("expected role lookup semantic view")
+	}
+	for _, kind := range []AnswerBlockKind{BlockTable, BlockDecision} {
+		if !view.Presentation.AllowsBlock(kind) {
+			t.Fatalf("presentation contract should schema-allow %s", kind)
+		}
+		for _, req := range view.RequiredBlocks {
+			if req.Kind == kind {
+				t.Fatalf("presentation-only block %s must not become a required role-lookup block: %+v", kind, view.RequiredBlocks)
+			}
+		}
+		for _, opt := range view.OptionalBlocks {
+			if opt.Kind == kind {
+				t.Fatalf("presentation-only block %s must not inflate the optional prompt contract: %+v", kind, view.OptionalBlocks)
+			}
+		}
+	}
+}
+
 // ── R4.4 QFComparison family compile tests ─────────────────────
 
 // TestCompileComparison_ResolvesFamily covers the basic family
@@ -954,15 +976,15 @@ func TestDefaultEdgeRelationsForKind_DefensiveCopy(t *testing.T) {
 	}
 }
 
-// 8-family lock: TestCompile<Family>_DiagramEdgeRelationsContract
-// for the 3 emit-diagram families + an exhaustive negative for the 5
-// no-diagram families.
+// 8-family lock: TestCompile<Family>_DiagramEdgeRelationsContract for the
+// native diagram families plus presentation-contract coverage for families
+// whose principal answer is not diagram-shaped by default.
 
 // planRequiringDiagram is a minimal AnswerSurfacePlan for the
-// 8-family lock test — sets Diagram.Required=true so the diagram-
-// emitting families' compile_*.go calls produce a non-nil
-// DiagramFacetGraph (otherwise diagramPlanFor returns nil and
-// EdgeRelations is unobservable).
+// 8-family lock test — sets Diagram.Required=true so diagram-emitting families
+// and the family-independent presentation contract produce a non-nil
+// DiagramFacetGraph (otherwise diagramPlanFor returns nil and EdgeRelations is
+// unobservable).
 func planRequiringDiagram() *AnswerSurfacePlan {
 	return &AnswerSurfacePlan{
 		Diagram: &DiagramContract{Required: true},
@@ -1108,11 +1130,7 @@ func TestCompileRootCauseTrace_DiagramEdgeRelationsContract(t *testing.T) {
 	}
 }
 
-// 4 no-diagram families MUST yield nil DiagramPlan even when the
-// upstream AnswerSurfacePlan offers a diagram contract — these
-// families' compile_*.go simply does not call diagramPlanFor. So
-// EdgeRelations is moot; the validator never reads it.
-func TestCompileNoDiagramFamilies_NilDiagramPlan(t *testing.T) {
+func TestCompileNoDiagramFamilies_HonorRequiredDiagramContract(t *testing.T) {
 	cases := []struct {
 		name    string
 		builder func() *AnalysisIR
@@ -1123,9 +1141,53 @@ func TestCompileNoDiagramFamilies_NilDiagramPlan(t *testing.T) {
 		{"comparison", irForComparison},
 	}
 	for _, c := range cases {
-		view := BuildAnswerSemanticView(c.builder(), planRequiringDiagram())
+		view := BuildAnswerSemanticView(c.builder(), planRequiringDiagramKind(DiagramSequence))
+		if view == nil || view.DiagramPlan == nil {
+			t.Fatalf("%s: required diagram contract must survive family compile; got %+v", c.name, view)
+		}
+		if !view.DiagramPlan.Required || view.DiagramPlan.Kind != DiagramSequence {
+			t.Fatalf("%s: DiagramPlan=%+v, want required sequence", c.name, view.DiagramPlan)
+		}
+		if !view.Presentation.DiagramRequired || !view.Presentation.AllowsBlock(BlockDiagram) {
+			t.Fatalf("%s: presentation contract must mark required diagram; got %+v", c.name, view.Presentation)
+		}
+		req := requiredDiagramRequirement(view)
+		if req == nil {
+			t.Fatalf("%s: required BlockDiagram missing from RequiredBlocks: %+v", c.name, view.RequiredBlocks)
+		}
+		if !strings.Contains(req.Rationale, "sequenceDiagram") {
+			t.Fatalf("%s: required diagram rationale=%q, want sequenceDiagram guidance", c.name, req.Rationale)
+		}
+		for _, opt := range view.OptionalBlocks {
+			if opt.Kind == BlockDiagram {
+				t.Fatalf("%s: required diagram must not also linger as optional prompt burden: %+v", c.name, view.OptionalBlocks)
+			}
+		}
+	}
+}
+
+func TestCompileNoDiagramFamilies_SoftDiagramPreferenceStaysNonHard(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		Diagram: &DiagramContract{
+			Required:       false,
+			PreferredKinds: []DiagramKind{DiagramSequence},
+		},
+	}
+	for _, c := range []struct {
+		name    string
+		builder func() *AnalysisIR
+	}{
+		{"config_precedence", irForConfigPrecedence},
+		{"role_lookup", irForRoleLookup},
+		{"enumeration", irForEnumeration},
+		{"comparison", irForComparison},
+	} {
+		view := BuildAnswerSemanticView(c.builder(), plan)
 		if view.DiagramPlan != nil {
-			t.Errorf("%s: DiagramPlan must be nil; got %+v", c.name, view.DiagramPlan)
+			t.Fatalf("%s: soft diagram preference must not create a hard/noisy diagram plan; got %+v", c.name, view.DiagramPlan)
+		}
+		if view.Presentation.DiagramRequired || view.Presentation.AllowsBlock(BlockDiagram) {
+			t.Fatalf("%s: soft preference must not schema-encourage diagrams for no-diagram family; got %+v", c.name, view.Presentation)
 		}
 	}
 }

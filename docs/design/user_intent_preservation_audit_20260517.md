@@ -44,6 +44,7 @@
 11. **Batch H 第四段落地**：reviewer anchor set 统一改为 `buildReviewerEvidenceAnchorSet`，优先读取最终 AnswerDocument 的行级 citation、read_file gutter 与 repomap 符号，再合并 explorer evidence；self-consistency 与 semantic-quality reviewer 不再只看 explorer evidence。Mermaid endpoint gate 同步区分内部 node id 与用户可见 label，避免把图表语法 alias 当代码事实打回 finalizer。新增回归测试锁住 citation-backed identifier、graph fallback、semantic/self reviewer 输入和 Mermaid label 行为。
 12. **Batch B/E 边界澄清**：REPL Mermaid→ASCII 属于终端呈现层友好降级，不再作为“系统替代模型意图”整改项；边界是 raw markdown 必须仍作为 truth source 写入日志、output dump、memory，且该渲染结果不得进入 gate / reviewer / 后续模型上下文。已补测试锁住 pipeline REPL 记忆保存 raw Mermaid，而不是终端渲染后的 text fence。
 13. **Batch G 第二段落地**：annotation JSON 兼容层新增唯一可恢复的 `claim_uses[].facet_ids` → `claim_uses[].facet_id` 归一化。full emit 与 patch 共用同一 repair；单值自动修复，避免小 schema 错误触发 finalizer 重试；多值保持拒绝，防止系统替模型选择 facet。新增 full/patch 回归测试。
+14. **Batch B 第二段落地**：新增 family-independent `AnswerPresentationContract`。schema 现在可在不增加 finalizer prompt 负担的前提下允许 table/scalar/decision 展示载体；用户显式 diagram contract 跨所有 QuestionFamily 生效，config/role/enumeration/comparison 等旧“无图 family”不再吞掉时序图/流程图需求。软 diagram preference 仍不升级为硬要求，避免证据偏好替代用户意图。
 
 ## 问题清单
 
@@ -71,9 +72,9 @@
 
 ### UIP-002（P1）QuestionFamily + SemanticView 会过早限定最终表达形态
 
-代码位置：`internal/types/facet_plan.go::ResolveQuestionFamily`、`answer_semantic_view_compile_generic.go`
+代码位置：`internal/types/facet_plan.go::ResolveQuestionFamily`、`answer_semantic_view_compile_generic.go`、`answer_presentation_contract.go`、`internal/tool/answer_document_dynamic_schema.go`
 
-状态：**部分修复（Batch B 第一段）**。Generic 已允许可选 table/scalar/decision，后续仍需把 analyzer typed presentation 扩展成独立 `PresentationContract` 并投影到所有 family/schema。
+状态：**部分修复（Batch B 第一段 + 第二段）**。Generic 已允许可选 table/scalar/decision；现新增独立 `AnswerPresentationContract`，由 typed contract 编译展示载体并投影到动态 schema。table/scalar/decision 作为 schema-only 展示 affordance，不额外塞进每个 family 的 prompt；用户显式 diagram contract 会跨所有 family 生成 required diagram block 与 DiagramPlan。
 
 历史行为：
 
@@ -90,6 +91,7 @@
 - 引入独立于 QuestionFamily 的 `PresentationContract`：table、raw_markdown_table、diagram、raw_mermaid、decision、scalar 等是用户表达偏好，不应完全绑定 family。
 - SemanticView 应采用“family 默认 + presentation union”的开放策略：用户/LLM 明确需要某种展示能力时，schema 必须允许。
 - Generic 不应天然排斥 table；至少允许 `BlockTable` optional，且不强迫 LLM 把表格塞进 summary。
+- 防回归：presentation union 只读取 typed contract / deterministic display affordance，不读 RawRequest 或模型散文关键字；schema 放宽不等于新增 hard gate。
 
 ### UIP-003（P1）动态 schema 投影把 block.kind / diagram 字段裁剪得过硬
 
@@ -100,6 +102,8 @@
 - block.kind enum 被限制为 `RequiredBlocks ∪ OptionalBlocks`。
 - 没有 `DiagramPlan` 时直接移除 `block.diagram` / `edge_anchors`。
 - required block 使用 `minContains/maxContains` 约束数量。
+
+状态：**部分修复（Batch B 第二段）**。block.kind enum 已扩大到 `RequiredBlocks ∪ OptionalBlocks ∪ Presentation.AllowedBlocks`；presentation-only block 不进入 optional prompt，降低 LLM 心智负担。`BlockDiagram` 仍必须有 `DiagramPlan` 才进入 schema，避免“允许 diagram kind 但删除 diagram payload”的自相矛盾。用户显式 required diagram 会在所有 family 生成 DiagramPlan。
 
 风险：
 
@@ -553,8 +557,8 @@
 
 ### Batch B：建立 PresentationContract
 
-1. [ ] 从 analyzer typed 输出承接用户明确要求：table、markdown table、diagram kind、raw Mermaid、sequenceDiagram、decision/scalar 等。
-2. [~] SemanticView/schema 使用 family default + presentation union。（已先放宽 Generic 可选 table/scalar/decision）
+1. [~] 从 analyzer typed 输出承接用户明确要求：table、markdown table、diagram kind、raw Mermaid、sequenceDiagram、decision/scalar 等。（diagram contract 已跨 family；table/scalar/decision 已作为 schema-only display affordance；后续补 analyzer 显式 presentation lane）
+2. [~] SemanticView/schema 使用 family default + presentation union。（已先放宽 Generic 可选 table/scalar/decision；新增 AnswerPresentationContract 投影到 schema）
 3. [~] renderer 读取 contract，避免两列表格压缩；Mermaid→ASCII 在 REPL 中是 terminal-only 友好展示例外，raw markdown 仍进入 memory/output dump。（已先兼容 item markdown table，并补 pipeline memory raw 保存）
 
 ### Batch C：finalizer gate 分层治理
@@ -573,7 +577,7 @@
 
 ### Batch E：render 与 scope 统一收口
 
-1. [~] 表格 fallback 不截断，多列稳定展示。（已支持多列补 header 和 markdown table 优先，仍需 contract 贯穿）
+1. [~] 表格 fallback 不截断，多列稳定展示。（已支持多列补 header、markdown table 优先，并通过 PresentationContract 允许 table 载体；后续补 analyzer 显式 table preference lane）
 2. [x] inactive subrepo disclosure 改成系统生成的隔离 caveat。
 3. [x] SourceScope 控制 production/test/docs 过滤。（keyword search、package export、child package expansion 已接入同一 source-role classifier）
 4. [x] Mermaid endpoint gate 区分内部 node id 与用户可见 label；图表语法 alias 不再触发 finalizer rewrite。

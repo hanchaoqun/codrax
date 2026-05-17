@@ -26,7 +26,9 @@ package types
 //	0..1× BlockCaveat  — disclose any axis asymmetry between
 //	                     buckets.
 //
-// Diagram is NOT required — comparisons are typically prose-led.
+// Diagram is NOT required by the comparison family itself — comparisons are
+// typically prose-led. A user-explicit DiagramContract is applied later by the
+// family-independent presentation contract.
 //
 // FacetBucketLabel is HARD per bucket per the family template
 // (compile_facet_coverage's QFComparison branch); the renderer +
@@ -99,9 +101,9 @@ func compileComparison(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticV
 		),
 	}
 
-	// No DiagramPlan — comparison is prose-led; LLM may still emit
-	// a diagram via OptionalBlocks future-extension if it adds
-	// signal, but the family does not require it.
+	// No family-native DiagramPlan — comparison is prose-led. A user-explicit
+	// required diagram is applied by AnswerPresentationContract after family
+	// compilation, keeping display preference separate from principal content.
 
 	view.RichnessCandidates = richnessCandidatesFromOptionalFacets(view.FacetCoverage)
 	// v3 B2 — comparison answers benefit from component_relation

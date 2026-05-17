@@ -395,6 +395,67 @@ func TestBuildAnswerDocumentParametersFor_BlockKindEnumRestricted(t *testing.T) 
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_PresentationAllowedBlocksWidenKindEnum(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFRoleLookup,
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, Required: true},
+			{Kind: types.BlockScalar, Required: true},
+		},
+		OptionalBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSection},
+			{Kind: types.BlockCaveat},
+		},
+		Presentation: types.AnswerPresentationContract{
+			AllowedBlocks: []types.AnswerBlockKind{types.BlockTable, types.BlockDecision, types.BlockDiagram},
+		},
+	}
+	got := BuildAnswerDocumentParametersFor(view)
+	var root map[string]any
+	if err := json.Unmarshal(got, &root); err != nil {
+		t.Fatalf("projected schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	blocks := props["blocks"].(map[string]any)
+	bItems := blocks["items"].(map[string]any)
+	bProps := bItems["properties"].(map[string]any)
+	kind := bProps["kind"].(map[string]any)
+	enum := kind["enum"].([]any)
+	for _, want := range []string{"summary", "section", "scalar", "decision", "table", "caveat"} {
+		found := false
+		for _, got := range enum {
+			if got == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("presentation block kind %q missing from projected enum %v", want, enum)
+		}
+	}
+	for _, got := range enum {
+		if got == "diagram" {
+			t.Fatalf("diagram must not be schema-allowed without a DiagramPlan, got enum %v", enum)
+		}
+	}
+	if schemaBlockKindRequiresField(bItems, "decision", "text") == false {
+		t.Fatalf("presentation decision block should still receive payload conditional; got %+v", bItems["allOf"])
+	}
+	if schemaBlockKindRequiresField(bItems, "table", "items") {
+		t.Fatalf("presentation table block must preserve markdown-table/text carriers; got %+v", bItems["allOf"])
+	}
+	if claimUses, ok := bProps["claim_uses"].(map[string]any); ok {
+		if claimItems, ok := claimUses["items"].(map[string]any); ok {
+			claimProps, _ := claimItems["properties"].(map[string]any)
+			if claimForm, ok := claimProps["claim_form"].(map[string]any); ok {
+				if enum, ok := claimForm["enum"].([]any); ok && len(enum) != len(types.AllClaimForms()) {
+					t.Fatalf("presentation-only carriers must not inherit scalar-only claim_form narrowing; got %v", enum)
+				}
+			}
+		}
+	}
+}
+
 func schemaArrayHasKindCardinality(blocks map[string]any, kind string, min, max int) bool {
 	allOf, _ := blocks["allOf"].([]any)
 	for _, raw := range allOf {

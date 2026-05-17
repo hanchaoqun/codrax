@@ -91,7 +91,9 @@ func compileConfigPrecedence(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 			string(FacetUncertaintyBoundary),
 		),
 	}
-	// No diagram for config precedence — table / list is more readable.
+	// Config precedence is table/list-led by family default. A user-explicit
+	// DiagramContract is handled later by the family-independent presentation
+	// contract so this compiler does not need a diagram-specific branch.
 	view.UncertaintyRules = []UncertaintyRule{
 		{
 			TriggerFacet:      string(FacetUncertaintyBoundary),

@@ -14,7 +14,8 @@ import (
 //
 // Projections:
 //   - block.kind enum is restricted to view.RequiredBlocks ∪
-//     view.OptionalBlocks kinds (canonical set when both are empty).
+//     view.OptionalBlocks ∪ view.Presentation.AllowedBlocks kinds
+//     (canonical set when all are empty).
 //   - block.diagram is dropped entirely when view.DiagramPlan is nil.
 //     When present, diagram.kind is pinned to view.DiagramPlan.Kind.
 //   - block.edge_anchors is dropped entirely when view.DiagramPlan
@@ -76,25 +77,15 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 }
 
 // projectBlockKindEnum restricts the block.kind enum to the kinds
-// declared in view.RequiredBlocks ∪ view.OptionalBlocks. When the
-// view declares no kinds at all, the enum is left at the canonical
-// full list so the schema stays usable.
+// declared in view.RequiredBlocks ∪ view.OptionalBlocks ∪
+// view.Presentation.AllowedBlocks. When the view declares no kinds at
+// all, the enum is left at the canonical full list so the schema stays usable.
 func projectBlockKindEnum(blockProps map[string]any, view *types.AnswerSemanticView) {
 	kindField, _ := blockProps["kind"].(map[string]any)
 	if kindField == nil {
 		return
 	}
-	seen := make(map[string]bool, 8)
-	for _, br := range view.RequiredBlocks {
-		if br.Kind != "" {
-			seen[string(br.Kind)] = true
-		}
-	}
-	for _, br := range view.OptionalBlocks {
-		if br.Kind != "" {
-			seen[string(br.Kind)] = true
-		}
-	}
+	seen := allowedKindSet(view)
 	if len(seen) == 0 {
 		return
 	}
@@ -115,6 +106,9 @@ func projectBlockKindEnum(blockProps map[string]any, view *types.AnswerSemanticV
 func projectClaimUsesEnum(blockProps map[string]any, view *types.AnswerSemanticView) {
 	claimUsesField, _ := blockProps["claim_uses"].(map[string]any)
 	if claimUsesField == nil {
+		return
+	}
+	if presentationAddsUnconstrainedClaimCarrier(view) {
 		return
 	}
 	seen := make(map[types.ClaimForm]bool, 9)
@@ -163,6 +157,35 @@ func projectClaimUsesEnum(blockProps map[string]any, view *types.AnswerSemanticV
 		"type": "string",
 		"enum": enum,
 	}
+}
+
+func presentationAddsUnconstrainedClaimCarrier(view *types.AnswerSemanticView) bool {
+	if view == nil || len(view.Presentation.AllowedBlocks) == 0 {
+		return false
+	}
+	contractKinds := make(map[types.AnswerBlockKind]bool, len(view.RequiredBlocks)+len(view.OptionalBlocks))
+	for _, br := range view.RequiredBlocks {
+		if br.Kind != "" {
+			contractKinds[br.Kind] = true
+		}
+	}
+	for _, br := range view.OptionalBlocks {
+		if br.Kind != "" {
+			contractKinds[br.Kind] = true
+		}
+	}
+	for _, kind := range view.Presentation.AllowedBlocks {
+		if kind == "" {
+			continue
+		}
+		if kind == types.BlockDiagram && view.DiagramPlan == nil {
+			continue
+		}
+		if !contractKinds[kind] {
+			return true
+		}
+	}
+	return false
 }
 
 // projectDiagramField drops the block.diagram payload entirely when
@@ -387,9 +410,9 @@ func projectRequiredBlockArrayCardinality(blocksField map[string]any, view *type
 }
 
 // allowedKindSet returns the set of block-kind strings this dispatch
-// allows the LLM to emit, as restricted by the view's RequiredBlocks
-// + OptionalBlocks. Empty when the view declares neither — the caller
-// then treats every canonical kind as allowed.
+// allows the LLM to emit, as restricted by the view's RequiredBlocks,
+// OptionalBlocks, and Presentation.AllowedBlocks. Empty when the view
+// declares none — the caller then treats every canonical kind as allowed.
 func allowedKindSet(view *types.AnswerSemanticView) map[string]bool {
 	out := make(map[string]bool, 9)
 	for _, br := range view.RequiredBlocks {
@@ -401,6 +424,15 @@ func allowedKindSet(view *types.AnswerSemanticView) map[string]bool {
 		if br.Kind != "" {
 			out[string(br.Kind)] = true
 		}
+	}
+	for _, kind := range view.Presentation.AllowedBlocks {
+		if kind == "" {
+			continue
+		}
+		if kind == types.BlockDiagram && view.DiagramPlan == nil {
+			continue
+		}
+		out[string(kind)] = true
 	}
 	return out
 }

@@ -18,12 +18,13 @@ func emitSemanticViewTrace(source string, view *AnswerSemanticView, ir *Analysis
 	if ir != nil {
 		intent = ir.RequestModel.Intent
 	}
-	logging.Debug("[trace/sv] source=%s family=%s intent=%s required_blocks=%d optional_blocks=%d has_diagram=%v uncertainty_rules=%d richness_candidates=%d required_candidate_roles=%d required_mechanism_anchors=%d error_granularity=%v facet_coverage_present=%v exact_resolution_present=%v summary_mode=%q",
+	logging.Debug("[trace/sv] source=%s family=%s intent=%s required_blocks=%d optional_blocks=%d presentation_allowed_blocks=%d has_diagram=%v uncertainty_rules=%d richness_candidates=%d required_candidate_roles=%d required_mechanism_anchors=%d error_granularity=%v facet_coverage_present=%v exact_resolution_present=%v summary_mode=%q",
 		source,
 		view.Family,
 		intent,
 		len(view.RequiredBlocks),
 		len(view.OptionalBlocks),
+		len(view.Presentation.AllowedBlocks),
 		hasDiagram,
 		len(view.UncertaintyRules),
 		len(view.RichnessCandidates),
@@ -90,7 +91,86 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 	applyRequestedCandidateRoles(view, ir)
 	applyRequiredMechanismAnchors(view, ir, plan)
 	applyErrorGranularityProfile(view, ir)
+	applyPresentationContract(view, ir, plan)
 	return view
+}
+
+func applyPresentationContract(view *AnswerSemanticView, ir *AnalysisIR, plan *AnswerSurfacePlan) {
+	if view == nil {
+		return
+	}
+	view.Presentation = CompileAnswerPresentationContract(ir, plan)
+	if !view.Presentation.DiagramRequired {
+		return
+	}
+	if view.DiagramPlan == nil {
+		kind := view.Presentation.DiagramKind
+		view.DiagramPlan = diagramPlanFor(plan, kind, nil, nil, DefaultEdgeRelationsForKind(kind))
+	}
+	if view.DiagramPlan == nil {
+		view.DiagramPlan = &DiagramFacetGraph{
+			Required:      true,
+			Kind:          view.Presentation.DiagramKind,
+			EdgeRelations: DefaultEdgeRelationsForKind(view.Presentation.DiagramKind),
+		}
+	} else {
+		view.DiagramPlan.Required = true
+		if view.DiagramPlan.Kind == DiagramNone {
+			view.DiagramPlan.Kind = view.Presentation.DiagramKind
+		}
+	}
+	ensureRequiredPresentationDiagramBlock(view, plan)
+}
+
+func ensureRequiredPresentationDiagramBlock(view *AnswerSemanticView, plan *AnswerSurfacePlan) {
+	if view == nil {
+		return
+	}
+	rationale := diagramRequirementRationale(
+		plan,
+		view.Presentation.DiagramKind,
+		"The user explicitly requested a diagram. Preserve that visual output as a diagram block when the answer is grounded.",
+	)
+	req := BlockRequirement{
+		Kind:      BlockDiagram,
+		MinCount:  1,
+		MaxCount:  1,
+		Required:  true,
+		Rationale: rationale,
+	}
+	for i := range view.RequiredBlocks {
+		if view.RequiredBlocks[i].Kind != BlockDiagram {
+			continue
+		}
+		view.RequiredBlocks[i].Required = true
+		if view.RequiredBlocks[i].MinCount < 1 {
+			view.RequiredBlocks[i].MinCount = 1
+		}
+		if view.RequiredBlocks[i].MaxCount == 0 || view.RequiredBlocks[i].MaxCount > 1 {
+			view.RequiredBlocks[i].MaxCount = 1
+		}
+		if view.RequiredBlocks[i].Rationale == "" {
+			view.RequiredBlocks[i].Rationale = rationale
+		}
+		view.OptionalBlocks = withoutOptionalBlockKind(view.OptionalBlocks, BlockDiagram)
+		return
+	}
+	view.RequiredBlocks = append(view.RequiredBlocks, req)
+	view.OptionalBlocks = withoutOptionalBlockKind(view.OptionalBlocks, BlockDiagram)
+}
+
+func withoutOptionalBlockKind(blocks []BlockRequirement, kind AnswerBlockKind) []BlockRequirement {
+	if len(blocks) == 0 || kind == "" {
+		return blocks
+	}
+	out := blocks[:0]
+	for _, block := range blocks {
+		if block.Kind == kind {
+			continue
+		}
+		out = append(out, block)
+	}
+	return out
 }
 
 func applyRequiredMechanismAnchors(view *AnswerSemanticView, ir *AnalysisIR, plan *AnswerSurfacePlan) {

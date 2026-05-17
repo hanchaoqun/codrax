@@ -52,6 +52,16 @@ type AnswerSemanticView struct {
 	// would not aid comprehension.
 	DiagramPlan *DiagramFacetGraph
 
+	// Presentation is the family-independent display contract. It widens
+	// the schema surface for blocks that are presentational carriers
+	// (tables, scalars, decisions, and user-requested diagrams) without
+	// forcing those carriers into the family prompt as required content.
+	//
+	// This is deliberately typed: it is compiled from analyzer/contract
+	// lanes such as DiagramContract and deterministic display affordances,
+	// never by keyword-scanning the user's prose or the model's answer.
+	Presentation AnswerPresentationContract
+
 	// ExactResolution is a pointer alias to the answer contract's
 	// ExactResolutionContract when the question demands the LLM
 	// explicitly state status=resolved/absent/unknown. Nil for
