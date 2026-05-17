@@ -374,6 +374,8 @@
 
 代码位置：`internal/tool/answer_document_pre_emit_check.go::preCheckEnumerationLabelGrounding`
 
+状态：**第一段已修复（Batch H）**。`runPreEmitChecks` 只在 typed exhaustive / relation enumeration 或 analyzer principal category member lane 下把 label grounding 作为 hard gate；叙事说明、优缺点对比、表格维度等场景降为 advisory，不再同轮强制 finalizer 重写。
+
 当前行为：
 
 - 对 ordered/bullet/table block 的 item label 抽取 leading identifier，走 symbol oracle 校验。
@@ -517,8 +519,8 @@
 
 ### Batch H：gate taxonomy + upstream routing
 
-1. [~] 每个 finalizer violation 必须分类为 `local_doc_defect`、`evidence_gap`、`analysis_gap`、`presentation_advisory`、`safety`。（aggregate member_set emit-time gate 已先分出 hard/advisory）
-2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景已停止同轮硬重试）
+1. [~] 每个 finalizer violation 必须分类为 `local_doc_defect`、`evidence_gap`、`analysis_gap`、`presentation_advisory`、`safety`。（aggregate member_set 与 enum-label emit-time gate 已先分出 hard/advisory）
+2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景、非主枚举标签场景已停止同轮硬重试）
 3. 同类错误 fingerprint 连续失败后，停止硬重写，接受核心答案并用“补充说明/保留原文”交代缺陷。
 
 ### Batch I：scope / presentation contract 贯穿

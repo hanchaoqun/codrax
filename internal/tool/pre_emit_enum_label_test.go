@@ -2037,3 +2037,54 @@ func TestRunPreEmitChecks_EnumLabelHallucination_FiresAlongsideOtherChecks(t *te
 		t.Errorf("enum-label hint missing from runPreEmitChecks output; got %v", hints)
 	}
 }
+
+func TestRunPreEmitChecks_EnumLabelHallucination_AdvisoryForNarrativeComparison(t *testing.T) {
+	oracle := &stubOracle{known: map[string]int{}}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "comparison", Kind: types.BlockTable, Items: []types.AnswerBlockItem{
+				{Label: "EvidenceItem — 证据模型维度", Text: "对比说明", CitationRef: -1},
+			}},
+		},
+	}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain,
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true,
+		},
+	}}}
+	if direct := preCheckEnumerationLabelGrounding(doc, oracle, ctx); len(direct) == 0 {
+		t.Fatal("test setup should still detect an ungrounded identifier-shaped label")
+	}
+	if hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, oracle, ctx); len(hints) != 0 {
+		t.Fatalf("narrative comparison labels should be advisory at emit-time, got %+v", hints)
+	}
+}
+
+func TestRunPreEmitChecks_EnumLabelHallucination_HardForTypedPrincipalEnumeration(t *testing.T) {
+	oracle := &stubOracle{known: map[string]int{}}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "members", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{
+				{Label: "fabricatedFunctionName — fake", CitationRef: -1},
+			}},
+		},
+	}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     string(types.ReqEnumeration),
+			Entities: []string{"MemberA", "MemberB"},
+		},
+	}}}
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, oracle, ctx)
+	if len(hints) == 0 {
+		t.Fatal("typed principal enumeration labels should remain hard-gated")
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "fabricatedFunctionName") {
+		t.Fatalf("hint should name the ungrounded label, got %+v", hints)
+	}
+}

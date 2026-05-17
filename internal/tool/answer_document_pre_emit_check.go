@@ -337,7 +337,11 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// at the chokepoint so the LLM gets the fix hint inside the
 	// SAME dispatch instead of paying a full retry round.
 	if h := preCheckEnumerationLabelGroundingWithContext(doc, oracle, pctx); len(h) > 0 {
-		hints = append(hints, h...)
+		if preEmitEnumerationLabelGroundingHardGate(pctx) {
+			hints = append(hints, h...)
+		} else {
+			logging.Warning("[emit_answer_document] enumeration label grounding advisory not hard-rejected: %s", formatEmitFixHints(h))
+		}
 	}
 
 	return hints
@@ -3777,6 +3781,18 @@ func surfaceTermEvidenceAppliesToItem(ev types.EvidenceItem, item types.AnswerBl
 // 2026-05-10 P1.
 func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, ctxOpt ...*types.BusContext) []emitFixHint {
 	return preCheckEnumerationLabelGroundingWithContext(doc, oracle, newPreEmitCheckContext(ctxOpt...))
+}
+
+func preEmitEnumerationLabelGroundingHardGate(pctx *preEmitCheckContext) bool {
+	if pctx == nil || pctx.ctx == nil || pctx.ctx.AnalysisIR == nil {
+		return true
+	}
+	rm := pctx.ctx.AnalysisIR.RequestModel
+	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		types.RequiresRelationMemberSetHandoff(rm) {
+		return true
+	}
+	return types.HasPrincipalCategoryEnumerationMemberLane(rm)
 }
 
 func preCheckEnumerationLabelGroundingWithContext(doc *types.AnswerDocumentV2, oracle types.SymbolOracle, pctx *preEmitCheckContext) []emitFixHint {
