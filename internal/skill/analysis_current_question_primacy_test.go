@@ -138,6 +138,20 @@ func TestAnalysisSkill_CurrentQuestionPrimacy_NamesEveryIntentField(t *testing.T
 	}
 }
 
+func TestAnalysisSkill_PresentationDirectiveRequiresDiagramHint(t *testing.T) {
+	out := analysisSkillPrompt(t)
+	for _, want := range []string{
+		"Presentation Directive",
+		"MUST emit `diagram_hint`",
+		"diagram_hint is optional for ordinary prose questions, but REQUIRED",
+		"typed Presentation Directive explicitly asks for a diagram",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("analysis prompt must pin diagram_hint from typed presentation directive; missing %q", want)
+		}
+	}
+}
+
 func TestAnalysisSkill_DiagnosticPredicatePromptPinned(t *testing.T) {
 	paragraph := diagnosticPredicateParagraph(t)
 	for _, want := range []string{

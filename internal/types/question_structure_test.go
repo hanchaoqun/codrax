@@ -211,6 +211,57 @@ func TestEffectiveQuestionBuckets_CallAxisDoesNotInferComparisonBuckets(t *testi
 	}
 }
 
+func TestEffectiveQuestionBuckets_CallAxisPreservesAnalyzerBuckets(t *testing.T) {
+	rm := RequestModel{
+		RawRequest:    "对比 explorer 和 subagent 在调用链路里的职责差异。",
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisCall,
+		Predicates: SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		Buckets: []QuestionBucket{
+			{Label: "explorer", Index: 1},
+			{Label: "subagent", Index: 2},
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind:              string(ReqMechanism),
+			MentionedEntities: []string{"explorer", "subagent"},
+		},
+	}
+	buckets := rm.QuestionStructure().Buckets
+	if len(buckets) != 2 || buckets[0].Label != "explorer" || buckets[1].Label != "subagent" {
+		t.Fatalf("explicit analyzer buckets must win over call-axis guard: %+v", buckets)
+	}
+}
+
+func TestEffectiveQuestionBuckets_CallAxisPreservesRequiredFileFallback(t *testing.T) {
+	rm := RequestModel{
+		RawRequest:    "对比 explorer.go 和 subagent.go 的调用链路差异。",
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisCall,
+		Predicates: SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		SubTopics: []SubTopic{
+			{Summary: "explorer.go side"},
+			{Summary: "subagent.go side"},
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqMechanism),
+			RequiredFileHints: []RequiredFileHint{
+				{Path: "internal/agent/explorer.go", Confidence: 0.95},
+				{Path: "internal/agent/subagent.go", Confidence: 0.95},
+			},
+		},
+	}
+	buckets := rm.QuestionStructure().Buckets
+	if len(buckets) != 2 || buckets[0].Label != "explorer.go" || buckets[1].Label != "subagent.go" {
+		t.Fatalf("file-derived comparison buckets must survive call-axis guard: %+v", buckets)
+	}
+}
+
 // TestEffectiveQuestionBuckets_InferFromMentionedEntities is the F3
 // regression for the 2026-05-16 architectural-comparison finalize
 // loop. The analyzer correctly identifies "codrax" and "opencode"
