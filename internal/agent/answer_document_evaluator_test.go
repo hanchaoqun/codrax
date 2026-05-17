@@ -704,6 +704,97 @@ func TestRenderAnswerDocFacetCoverage_ElevatedMarkerOnPromotedSoft(t *testing.T)
 	}
 }
 
+// TestRenderAnswerDocFacetCoverage_MustDeclareContractSurfacesPromotedFacets
+// pins P1B (2026-05-17): the rendered prompt MUST surface the must-declare
+// set of promoted facet_ids in a single header line + tag each promoted
+// facet line with the "MUST declare" contract clause that mirrors the
+// pre-emit oracle reject message at answer_document_pre_emit_check.go:4225.
+// This eliminates the iter=0 facet rejection where the LLM mis-reads the
+// `(elevated)` marker as decorative styling instead of a contractual demand.
+func TestRenderAnswerDocFacetCoverage_MustDeclareContractSurfacesPromotedFacets(t *testing.T) {
+	// IntentTrace + AnchorDefinition evidence → at least FacetCurrentCodePath
+	// promotes to elevated SOFT; FacetCallChainSpine fires HARD.
+	defEvidence := types.EvidenceItem{
+		Kind:       types.EvidenceDirect,
+		Subject:    "DefSym",
+		Source:     "x.go",
+		LineStart:  10,
+		LineEnd:    10,
+		AnchorKind: types.AnchorDefinition,
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentTrace,
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{defEvidence},
+	}
+	got := renderAnswerDocFacetCoverage(ctx)
+
+	// (1) Header MUST list at least one must-declare facet_id.
+	if !strings.Contains(got, "Must declare (emit-time rejection if any are missing") {
+		t.Errorf("header missing 'Must declare' summary line; got\n%s", got)
+	}
+
+	// (2) At least one promoted facet line MUST carry the
+	// "→ **MUST declare**" contract suffix.
+	lines := strings.Split(got, "\n")
+	mustDeclareLineCount := 0
+	for _, line := range lines {
+		if !strings.HasPrefix(strings.TrimSpace(line), "-") {
+			continue
+		}
+		if strings.Contains(line, "→ **MUST declare** via `block.facet_ids[]` or `claim_uses[].facet_id`") {
+			mustDeclareLineCount++
+		}
+	}
+	if mustDeclareLineCount < 1 {
+		t.Errorf("expected ≥1 facet line with MUST-declare contract suffix; got %d\n%s",
+			mustDeclareLineCount, got)
+	}
+
+	// (3) MUST-declare suffix MUST NOT leak onto unpromoted/OPTIONAL
+	// facet lines (those would mislead the LLM into declaring
+	// non-enforced facets and bloating the doc).
+	for _, line := range lines {
+		trim := strings.TrimSpace(line)
+		if !strings.HasPrefix(trim, "- **OPTIONAL**") {
+			continue
+		}
+		if strings.Contains(line, "MUST declare") {
+			t.Errorf("OPTIONAL facet line carries MUST declare suffix (should be promoted-only): %q", line)
+		}
+	}
+}
+
+// TestRenderAnswerDocFacetCoverage_NoMustDeclareWhenNoPromoted pins
+// that the must-declare header is OMITTED when no facet is promoted.
+// Avoids leaking an empty "Must declare: ." line.
+func TestRenderAnswerDocFacetCoverage_NoMustDeclareWhenNoPromoted(t *testing.T) {
+	// IntentTrace WITHOUT any matching evidence → all SOFT facets stay
+	// unpromoted. The FacetCallChainSpine HARD facet's gate behavior
+	// depends on family-specific resolution; this test focuses on the
+	// SOFT-without-evidence case.
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+			},
+		},
+	}
+	got := renderAnswerDocFacetCoverage(ctx)
+	// When there are no promoted facets, the must-declare header MUST
+	// be absent (we cannot list zero entries cleanly).
+	if got == "" {
+		return // section omitted entirely is fine
+	}
+	if strings.Contains(got, "Must declare (emit-time rejection if any are missing):") &&
+		!strings.Contains(got, "facet_id") {
+		t.Errorf("must-declare header present but no facet_id listed; got\n%s", got)
+	}
+}
+
 // G6-3: facet line WITHOUT typed evidence (SOFT, SourceCandidate=0)
 // MUST NOT carry the (elevated) bare marker — IsPromoted=false
 // keeps the gate skipped per Phase 5-E1 evidence-sufficient
@@ -730,6 +821,191 @@ func TestRenderAnswerDocFacetCoverage_NoElevatedWhenNoEvidence(t *testing.T) {
 		if strings.Contains(line, " (elevated)") {
 			t.Errorf("no-evidence SOFT facet must NOT carry bare (elevated); got line %q", line)
 		}
+	}
+}
+
+// TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList
+// pins P1A (2026-05-17): when the investigator hands off a principal
+// member_set fact with decorated members, the new prompt section MUST
+// surface those members verbatim under a "MUST appear verbatim" contract
+// statement so the LLM does not paraphrase them away into iter=0 failure.
+func TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList(t *testing.T) {
+	mut := types.NewMutableState("compare codrax and opencode")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "codrax 四层",
+		Value:   "4",
+		Members: []string{
+			"SelfConsistencyReviewer",
+			"SemanticQualityReviewer",
+			"gate.Run (9 checks)",
+			"contract_check (violRegistry)",
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsCrossComponent:      true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: string(types.ReqEnumeration),
+				},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "compare codrax and opencode",
+				},
+			},
+		},
+		Mutable: mut,
+	}
+
+	got := renderAnswerDocPrincipalMemberSetContract(ctx)
+	if got == "" {
+		t.Fatal("expected non-empty contract section for principal member_set with non-path members")
+	}
+
+	// (1) Section header MUST be present.
+	if !strings.Contains(got, "## Required Principal Member Set") {
+		t.Errorf("section header missing; got\n%s", got)
+	}
+
+	// (2) MUST-appear-verbatim contract MUST appear.
+	if !strings.Contains(got, "MUST appear verbatim") {
+		t.Errorf("contract clause missing; got\n%s", got)
+	}
+
+	// (3) Every member MUST appear in backticked form so the LLM sees
+	// the exact byte sequence to copy.
+	for _, member := range []string{
+		"`SelfConsistencyReviewer`",
+		"`SemanticQualityReviewer`",
+		"`gate.Run (9 checks)`",
+		"`contract_check (violRegistry)`",
+	} {
+		if !strings.Contains(got, member) {
+			t.Errorf("missing verbatim member %s; got\n%s", member, got)
+		}
+	}
+
+	// (4) Label header MUST appear so the LLM knows which set the
+	// members belong to.
+	if !strings.Contains(got, `principal set "codrax 四层"`) {
+		t.Errorf("missing principal set label; got\n%s", got)
+	}
+
+	// (5) Decorator-stripping anti-pattern MUST be called out by
+	// example so the LLM does not "improve" `gate.Run (9 checks)` to
+	// `gate.Run / gate.RunWith`.
+	if !strings.Contains(got, "is NOT satisfied by") {
+		t.Errorf("missing decorator-stripping anti-pattern guidance; got\n%s", got)
+	}
+}
+
+// TestRenderAnswerDocPrincipalMemberSetContract_EmptyWhenNoPrincipalFacts
+// pins that the section is omitted entirely when no principal member_set
+// is on the bus, so the prompt budget is not consumed by an empty header.
+func TestRenderAnswerDocPrincipalMemberSetContract_EmptyWhenNoPrincipalFacts(t *testing.T) {
+	// nil ctx
+	if got := renderAnswerDocPrincipalMemberSetContract(nil); got != "" {
+		t.Errorf("nil ctx must produce empty section; got %q", got)
+	}
+	// ctx without AnalysisIR
+	ctxNoIR := &types.AgentContext{}
+	if got := renderAnswerDocPrincipalMemberSetContract(ctxNoIR); got != "" {
+		t.Errorf("ctx without AnalysisIR must produce empty section; got %q", got)
+	}
+	// ctx with mutable but no aggregate facts
+	mut := types.NewMutableState("test")
+	ctxNoFacts := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentEnumerate},
+		},
+		Mutable: mut,
+	}
+	if got := renderAnswerDocPrincipalMemberSetContract(ctxNoFacts); got != "" {
+		t.Errorf("no facts must produce empty section; got %q", got)
+	}
+}
+
+// TestRenderAnswerDocPrincipalMemberSetContract_SkipsScalarCountSupport
+// pins that the contract section is OMITTED for scalar-count questions
+// where the member_set is just supporting evidence for the count
+// (e.g. "how many X are there?"). In that case the count IS the answer
+// and verbatim members are not required — matches the oracle filter
+// AggregateMemberSetIsScalarCountSupport.
+func TestRenderAnswerDocPrincipalMemberSetContract_SkipsScalarCountSupport(t *testing.T) {
+	mut := types.NewMutableState("how many checks are there")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "checks",
+		Value:   "9",
+		Members: []string{"checkA", "checkB", "checkC"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentReturnValue,
+				Predicates: types.SemanticPredicates{
+					IsCountQuestion:  true,
+					IsScalarAnswer:   true,
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectNumeric},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "how many",
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	got := renderAnswerDocPrincipalMemberSetContract(ctx)
+	if got != "" {
+		t.Errorf("scalar count support must skip section; got\n%s", got)
+	}
+}
+
+// TestRenderAnswerDocPrincipalMemberSetContract_BuildInitialInstructionWiring
+// pins that the new section is wired into BuildInitialInstruction so the
+// finalizer prompt actually sees it.
+func TestRenderAnswerDocPrincipalMemberSetContract_BuildInitialInstructionWiring(t *testing.T) {
+	mut := types.NewMutableState("compare X and Y")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "X layers",
+		Value:   "2",
+		Members: []string{"LayerA", "LayerB (boundary)"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsCrossComponent:      true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: string(types.ReqEnumeration),
+				},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "compare X and Y",
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "## Required Principal Member Set") {
+		t.Errorf("BuildInitialInstruction must include the principal_member_set_contract section; got\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "`LayerB (boundary)`") {
+		t.Errorf("BuildInitialInstruction must include verbatim members; got\n%s", prompt)
 	}
 }
 

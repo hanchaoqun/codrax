@@ -223,6 +223,41 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 	return out
 }
 
+// AggregateMemberSetIsScalarCountSupport reports whether a model-emitted
+// member_set fact is acting as support evidence for a scalar count answer
+// (e.g. "how many X are there?") rather than as the principal member slate
+// itself. When this returns true, downstream consumers (pre-emit oracle,
+// prompt renderers) MUST NOT demand that every member of the fact appear
+// verbatim in the visible answer: the scalar count IS the answer, and the
+// member list is corroborating evidence.
+//
+// Single source of truth for both
+//   - internal/tool/answer_document_pre_emit_check.go
+//     (preCheckAggregateMemberSetCoverage skips these facts when filtering
+//     missing members)
+//   - internal/agent/answer_document_evaluator.go
+//     (renderAnswerDocPrincipalMemberSetContract skips these facts when
+//     surfacing the must-verbatim prompt section)
+//
+// Keeping the predicate here ensures the two surfaces — emit-time reject
+// message and pre-emit prompt hint — read the same shape.
+func AggregateMemberSetIsScalarCountSupport(rm *RequestModel, fact AnswerAggregateFact) bool {
+	if rm == nil || fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
+		return false
+	}
+	if !rm.Predicates.IsCountQuestion || !rm.Predicates.IsScalarAnswer {
+		return false
+	}
+	if rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCrossComponent ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	return rm.Intent == IntentReturnValue || rm.AnswerSubject.Kind == SubjectNumeric
+}
+
 func PrincipalRelationMemberSetFactRefsForRequest(facts []AnswerAggregateFact, rm *RequestModel) []AnswerAggregateFactRef {
 	refs := PrincipalAggregateMemberSetFactRefsForRequest(facts, rm)
 	if len(refs) == 0 {

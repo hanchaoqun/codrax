@@ -1334,21 +1334,11 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 }
 
 func preEmitAggregateMemberSetIsScalarCountSupport(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
-	if ctx == nil || ctx.AnalysisIR == nil || fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	if !rm.Predicates.IsCountQuestion || !rm.Predicates.IsScalarAnswer {
-		return false
-	}
-	if rm.Predicates.IsCategoryEnumeration ||
-		rm.Predicates.IsRelationalLookup ||
-		rm.Predicates.IsCrossComponent ||
-		rm.Predicates.IsHistoryLookup ||
-		rm.Predicates.IsDiagnosticQuestion {
-		return false
-	}
-	return rm.Intent == types.IntentReturnValue || rm.AnswerSubject.Kind == types.SubjectNumeric
+	return types.AggregateMemberSetIsScalarCountSupport(&rm, fact)
 }
 
 func preEmitPrincipalAggregateMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {

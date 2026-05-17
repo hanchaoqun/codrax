@@ -433,6 +433,21 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	// P1A (2026-05-17, finalize-retry budget audit): emit-time hard
+	// contract for principal member_set members rendered immediately
+	// after the aggregate_facts audit listing. The oracle reject path
+	// (preCheckAggregateMemberSetCoverage) demands every model-emitted
+	// member appear verbatim in the visible answer; surface that demand
+	// up front so the LLM does not paraphrase decorated members like
+	// `gate.Run (9 checks)` into `gate.Run / gate.RunWith` and then
+	// burn an extra finalize iter on the resulting reject. Mirrors the
+	// T1 (visible_anchor_whitelist) "oracle-reject → prompt positive
+	// whitelist" pattern on the member_set axis.
+	if !trace.appendSection(&b, "principal_member_set_contract", func() string {
+		return renderAnswerDocPrincipalMemberSetContract(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "runtime_grounding_disposition", func() string {
 		return renderAnswerDocRuntimeGroundingDisposition(ctx)
 	}) {
@@ -2585,6 +2600,36 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 		"A SOFT facet with N≥1 is **elevated** — its line carries an `(elevated)` marker AFTER the evidence count, and you must cover it as if it were HARD; the typed evidence is available, so the answer must surface it. " +
 		"If an elevated facet is not already listed on a Required Answer Blocks row, attach that facet_id to the closest existing block whose payload actually covers it; do not wait for a tool rejection and do not create an unrelated block just to carry the id.\n\n")
 
+	// P1B (2026-05-17, finalize-retry budget audit): enumerate the
+	// facet_ids that the pre-emit oracle will hard-reject if absent
+	// from any block. The downstream check
+	// (preCheckFacetCoverage at answer_document_pre_emit_check.go:4203)
+	// rejects iff req.IsPromoted() == true AND the kind is not in any
+	// block.FacetIDs[] or claim_uses[].FacetID. Surface that exact set
+	// here, ahead of the per-facet detail, so the LLM does not have to
+	// scan elevated markers to recover the must-declare list.
+	mustDeclare := make([]string, 0, len(fc.Required))
+	mustDeclareSeen := map[types.AnswerFacetKind]bool{}
+	for _, req := range fc.Required {
+		if !req.IsPromoted() {
+			continue
+		}
+		if req.EffectivePromotionPolicy() == types.PromotionAdvisoryOnly {
+			continue
+		}
+		if mustDeclareSeen[req.Kind] {
+			continue
+		}
+		mustDeclareSeen[req.Kind] = true
+		mustDeclare = append(mustDeclare, fmt.Sprintf("`%q`", string(req.Kind)))
+	}
+	if len(mustDeclare) > 0 {
+		fmt.Fprintf(&b,
+			"**Must declare (emit-time rejection if any are missing from every block's `facet_ids` and `claim_uses[].facet_id`):** %s.\n\n",
+			strings.Join(mustDeclare, ", "),
+		)
+	}
+
 	emit := func(req types.FacetRequirement) {
 		label := types.AnswerFacetPublicLabel(req.Kind)
 		var tag string
@@ -2628,6 +2673,16 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, " Place on block kind: %s.", formatBlocks(owners))
 		} else if fallback := types.BlockKindForFacetForPrompt(req.Kind); fallback != "" {
 			fmt.Fprintf(&b, " Place on block kind: `%s`.", string(fallback))
+		}
+		// P1B (2026-05-17): for every promoted facet, append the exact
+		// MUST-declare contract so the LLM cannot mistake the
+		// (elevated) marker for advisory styling. Mirrors the wording
+		// of the pre-emit oracle's reject message
+		// (answer_document_pre_emit_check.go:4225) so the LLM sees
+		// the same surface string in success-path prompt and
+		// failure-path tool result.
+		if req.IsPromoted() && req.EffectivePromotionPolicy() != types.PromotionAdvisoryOnly {
+			b.WriteString(" → **MUST declare** via `block.facet_ids[]` or `claim_uses[].facet_id` (NOT prose); emit-time rejection if missing.")
 		}
 		b.WriteString("\n")
 	}
@@ -3314,6 +3369,102 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	b.WriteString("- Treat this closure as a structured exploration handoff, not as a citation and not as system-written answer text.\n")
 	b.WriteString("- Preserve resolved counts, listed members, excluded candidates, scope boundaries, and verdicts from the closure only when the same value is carried by structured aggregate facts, typed support lanes, current citations, or raw tool outputs below. If unstructured closure prose conflicts with typed member obligations, principal support lanes, or structured aggregate facts, prefer the typed/structured handoff.\n")
 	b.WriteString("- Rebuild the user-visible prose yourself inside `emit_answer_document`; do not invent facts beyond the closure/evidence boundary.\n\n")
+	return b.String()
+}
+
+// renderAnswerDocPrincipalMemberSetContract surfaces the strong-contract
+// must-verbatim list of principal member_set members so the LLM sees the
+// exact strings the pre-emit oracle
+// (preCheckAggregateMemberSetCoverage at
+// internal/tool/answer_document_pre_emit_check.go:1264) will check for.
+//
+// Why this exists (P1A, 2026-05-17):
+// The existing `renderAnswerDocAggregateFacts` already prints every fact
+// with its members in an audit-style listing, but its prose reads as
+// "preserve when applicable" guidance — the LLM treats decorated members
+// like `gate.Run (9 checks)` or `assertExternalDirectoryEffect (路径边界)`
+// as paraphrasable display strings and rewrites them to `gate.Run /
+// gate.RunWith` or strips the parenthetical. The oracle then rejects the
+// emit because the verbatim member is missing from the visible answer.
+// This section reframes the same data as a hard pre-emit contract,
+// matching the wording of the oracle reject so the LLM gets the same
+// instruction on the success path and the failure path.
+//
+// This is the T1-style symmetric fix for member sets (visible_anchor_whitelist
+// did the same for grounded anchors). Mirrors the
+// AggregateMemberSetIsScalarCountSupport filter so we do not demand
+// verbatim members for scalar-count questions where the count IS the
+// answer.
+func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || len(plan.StableAggregateFacts) == 0 {
+		return ""
+	}
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(plan.StableAggregateFacts, &rm)
+	if len(refs) == 0 {
+		return ""
+	}
+
+	type renderedFact struct {
+		label   string
+		members []string
+	}
+	rendered := make([]renderedFact, 0, len(refs))
+	totalMembers := 0
+	for _, ref := range refs {
+		fact := ref.Fact
+		if types.AggregateMemberSetIsScalarCountSupport(&rm, fact) {
+			continue
+		}
+		members := make([]string, 0, len(fact.Members))
+		seen := map[string]bool{}
+		for _, member := range fact.Members {
+			trimmed := strings.TrimSpace(member)
+			if trimmed == "" {
+				continue
+			}
+			key := strings.ToLower(trimmed)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			members = append(members, trimmed)
+		}
+		if len(members) == 0 {
+			continue
+		}
+		rendered = append(rendered, renderedFact{
+			label:   strings.TrimSpace(fact.Label),
+			members: members,
+		})
+		totalMembers += len(members)
+	}
+	if len(rendered) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Required Principal Member Set\n\n")
+	b.WriteString("The investigator handed off the following principal `member_set` aggregate fact(s) via `emit_investigation_complete.aggregate_facts`. ")
+	b.WriteString("**Every member listed below MUST appear verbatim — including any decorator in parentheses (e.g. `(9 checks)`, `(路径边界)`), arrow (e.g. ` → `), or separator (e.g. `::`, `/`) — in some `blocks[].items[].label`, `blocks[].items[].text`, or `blocks[].text` of the emitted answer document.** ")
+	b.WriteString("The pre-emit oracle rejects the call (with field `blocks[].items[].label/text OR blocks[].text`) if any member is missing, paraphrased, abbreviated, or has its decorator stripped. Mirror each string byte-for-byte; do NOT rewrite the wording.\n\n")
+	b.WriteString("Concretely: a member rendered as `gate.Run (9 checks)` is NOT satisfied by `gate.Run` alone, `gate.Run / gate.RunWith`, or `gate.Run 函数`. The full string `gate.Run (9 checks)` must appear together inside one block's label/text/items.\n\n")
+
+	for _, rf := range rendered {
+		if rf.label != "" {
+			fmt.Fprintf(&b, "- principal set %q (%d member(s)):\n", rf.label, len(rf.members))
+		} else {
+			fmt.Fprintf(&b, "- principal set (%d member(s)):\n", len(rf.members))
+		}
+		for _, member := range rf.members {
+			fmt.Fprintf(&b, "  - `%s`\n", member)
+		}
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 
