@@ -25,7 +25,7 @@
 
 1. `reconcileIntent` 已删除“附带 panic log 就强制 root_cause”的系统替代行为，当前信任 LLM 的 intent 判断。
 2. 旧 `reconcileShape` 已删除，V2 主链不再依赖 legacy answer shape 强改最终答案形态。
-3. `DiagramContract.RequiredKind` 已接入，用户明确要“时序图”时不会被系统改成 flowchart。
+3. `DiagramContract.RequiredKind` 已接入，用户明确要的图类型会作为硬契约保留，不会被系统改成其它图或静默降级。
 4. `ExactResolutionTargets` 只从 RawRequest 对齐的 mention lane 取 exact target，不把上下文实体偷偷提升成用户主目标。
 5. table renderer 已支持“模型自己生成的 markdown 表格文本优先展示”，这是兼容 LLM 表达的正确方向。
 
@@ -48,6 +48,15 @@
 15. **Batch G 第三段落地**：schema-aware tool-param 兼容层新增 string enum JSON-literal 修复。若 schema 声明字段是 `string enum`，模型却发出 `"\"explain\""` / `"\"\""` 这类双重 JSON 字符串，系统会在本地无损解包；解包后仍不属于 enum 的值继续交给工具 gate 拒绝。该修复覆盖 `emit_analysis.intent/scenario/complexity/question_kind/language/predicate_axis` 等字段，避免 analyze 阶段因机械参数形态返工，也避免静默降级为 `unknown/generic`。
 16. **Batch D 第一段落地**：`reconcileQualifiedCodeSymbolConfigDrift` 不再在 typed `MentionedEntities` 缺失时回退扫描 `RawRequest` / generic entity lanes 来强改 config→architecture/comparison。该 reconcile 现在要求 analyzer 先给出结构化对比信号（显式 buckets，或 `is_cross_component=true` + 多个 sub_topics），再用 mentioned surfaces + repomap qualified-name resolver 证明至少两个对象是代码符号；只有符号表面而没有 typed comparison signal 时保持 config 主链。同步清理 `AnalyzerReconcileStrictMode` / `SetReconcileStrictMode` 注释中退役的 `reconcileShape` 描述，避免后续开发者误以为还能恢复旧 shape override。
 17. **Batch D 第二段落地**：`reconcileChangeImpactProfile` 的硬路由修正加上 confidence floor。active change-impact typed lane 仍可进入下游提示/支撑计划，但只有 `confidence>=0.75` 且 `requested_output` 明确是 files/sites/symbols 时，才允许把粗分类修成 set-valued enumeration；低置信 profile 不再改写 intent/question_kind/predicates。新增回归测试覆盖低置信 profile 只做 advisory。
+
+## 2026-05-18 批次进展
+
+1. **Batch I 第二段落地**：REPL `turn_policy` 在 `route=repo` 时不再丢弃 typed `presentation_directive`；先通过 `composeEffectiveRequest` 放在 `## Current request` 内，确保“输出逻辑视图 / 表格 / 图”等当前轮展示意图能随 repo 流水线进入 analyzer/finalizer。
+2. **Batch G 第四段落地**：answer-document JSON repair 增加 singleton array-shape 兼容。full emit 与 patch 共用同一 repair：顶层 `blocks` / `citations` / patch `add_blocks` / `append_citations` 等数组字段若被模型发成单个对象，系统本地包成单元素数组；block 内 `items` / `claim_uses` / `edge_anchors` 单对象、`columns` / `facet_ids` 单字符串也会本地归一化。该修复只处理唯一可恢复的机械形态，冲突 alias、多值语义选择和非法 enum 仍保持 strict reject。
+3. **Batch H 第五段落地**：`diagram_relation_label_only` 从“可被 operator promote 的 finalizer rewrite/caveat”降为纯 telemetry。Mermaid 可见边标签已经能推断关系时，答案对用户是成立的；缺少 `edge_anchors` typed metadata 不再触发重写、不再产生用户可见 caveat，只保留结构化观测。横向检查同类 `diagram_edge_label_mismatch`：它已是不可 promote 的 soft 信号，且因可见标签与 typed 关系冲突会影响读者理解，暂保留用户补充说明通道。
+4. **Batch I 第三段落地**：`presentation_directive` 不再拼进 runner request / `Mutable.Objective`，而是通过 `SetPresentationDirective` → `BusContext.PresentationDirective` → `AgentContext.PresentationDirective` 进入独立 `Presentation Directive` prompt 段。UI 状态行、repo_map task map、memory 不再出现 `## Presentation directive...` 这类系统 header；analysis contract 明确该段只能影响 `diagram_hint` / table / scalar / decision 等展示字段，不能作为代码实体、检索词、事实或仓范围。
+5. **Batch B 第三段落地**：显式 diagram/逻辑视图/时序图/调用图/架构图请求在 comparison 等“默认无图 family”下不再因为严格 diagram-node seed 不足被降级掉。`BuildAnswerSurfacePlan` 会在已有 typed comparison/architecture 结构与可承载证据时保留 `DiagramContract.RequiredKind`，让 semantic view/schema 要求对应 `BlockDiagram`，避免 analyzer 已识别 `diagram_hint` 但最终答案缺少用户明确要求的图。
+6. **Batch H 第六段落地**：analyzer `subtopic_coherence` 的 R1.3 在多仓 cross-component 对比下改为 advisory。多仓问题的 sub_topics 可以按机制分面、文件线索或内部组件拆解，不必每个 sub_topic 都重复仓名；单仓/普通场景的真正 entity orphan 仍保持 hard gate。
 
 ## 问题清单
 
@@ -383,7 +392,7 @@
 
 代码位置：`internal/tool/emit_answer_document_v2.go::executeAnswerDocumentV2`、`answerDocumentV2MisplacedHints`
 
-状态：**部分修复（Batch G 第一段 + 第二段）**。新增 `answer_document_field_quarantine.go`，对 full emit / patch 的 top-level、block、item、citation、snippet、diagram、claim_use、edge_anchor、exact_resolution 等已知结构容器执行 schema-aware quarantine。保留 `value/boolean` 等可见 payload 错位字段和 claim/edge 可恢复错位字段给 strict remap，避免静默丢内容。第二段进一步把唯一可恢复的 `claim_uses[].facet_ids=["x"]` 本地归一化为 `claim_uses[].facet_id="x"`；`facet_ids` 多值仍 hard reject，因为系统无法不改变模型意图地替它选一个 facet。
+状态：**部分修复（Batch G 第一段 + 第二段 + 第四段）**。新增 `answer_document_field_quarantine.go`，对 full emit / patch 的 top-level、block、item、citation、snippet、diagram、claim_use、edge_anchor、exact_resolution 等已知结构容器执行 schema-aware quarantine。保留 `value/boolean` 等可见 payload 错位字段和 claim/edge 可恢复错位字段给 strict remap，避免静默丢内容。第二段进一步把唯一可恢复的 `claim_uses[].facet_ids=["x"]` 本地归一化为 `claim_uses[].facet_id="x"`；`facet_ids` 多值仍 hard reject，因为系统无法不改变模型意图地替它选一个 facet。第四段补齐 singleton array-shape 兼容：顶层数组字段单对象/单字符串，以及 block 内 `items` / `claim_uses` / `edge_anchors` 单对象、`columns` / `facet_ids` 单字符串，会在 full emit / patch 两条路径本地归一化为单元素数组。
 
 当前行为：
 
@@ -580,6 +589,99 @@
 - 回归测试覆盖：合法双重编码 enum 自动解包；自由文本保留外层引号；非法 enum 不修复并留给工具 gate。
 - 新增 analyzer 侧测试保证 `emit_analysis` 的双重编码 enum 在执行工具前被归一化，并与既有 required profile default 修复共存。
 
+### UIP-025（P1）repo 路由识别到展示意图但没有传入当前流水线
+
+代码位置：`internal/repl/repl.go::dispatch`、`internal/repl/turn_policy.go::composeEffectiveRequest`
+
+状态：**已修复（Batch I 第二段 + 第三段）**。`RouteRepo` 现在和 `RouteHybrid` 一样携带 typed `PresentationDirective`；第三段进一步把它从 runner request body 移到 `SetPresentationDirective` typed metadata。prompt builder 渲染独立 `Presentation Directive` 段，既让 analyzer/finalizer 能看到展示意图，又不污染 `Mutable.Objective`、UI 状态行、repo_map task map 或 memory。
+
+历史行为：
+
+- `turn_policy` 已能把“输出逻辑视图”识别为 `presentation_directive="logic flow diagram..."`。
+- 但 `RouteRepo` 分支只记录日志，不把 directive 传给 pipeline。
+- 第二段曾把 `## Presentation directive` 放进 `## Current request` 来避免 prior conversation 误分，但这仍会污染 `Mutable.Objective`，导致 UI/任务图把系统 header 当成用户问题首行展示。
+
+风险：
+
+- 用户明确要求的答案形态被系统路由层吞掉，最终 analyzer 可能不 emit `diagram_hint`，semantic view 显示 `has_diagram=false`，finalizer 输出缺少逻辑视图。
+- 这是 typed 信号在跨层传递时丢失，不是模型不听话；靠 finalizer 重试无法稳定修复。
+
+修复方向：
+
+- [x] repo/hybrid 都把 typed presentation directive 传入流水线，但不进入 runner request body。
+- [x] memory 仍保存用户原文，不写入系统 header，避免下一轮上下文污染。
+- [x] 回归测试锁住 repo/hybrid route 通过 typed setter 传递展示指令、request body 不含 directive、无 directive 的 repo route 清空 typed metadata。
+
+### UIP-027（P1）显式图表请求被 comparison family 的 diagram support 降级吞掉
+
+代码位置：`internal/types/answer_surface_plan.go::BuildAnswerSurfacePlan`、`internal/types/diagram_contract_support.go::EffectiveDiagramContract`、`internal/types/answer_semantic_view_compile.go::applyPresentationContract`
+
+状态：**已修复（Batch B 第三段）**。新增 `augmentSupportedDiagramKindsForRequiredDiagram`：当 analyzer 已经给出硬 `DiagramContract.Required`，并且当前 RequestModel 有 typed relational/comparison/architecture 结构，同时 evidence surface 至少有可承载的 grounded/recovered 证据时，保留用户显式 diagram kind 进入 `EffectiveDiagramContract`。这样 comparison/config/role/enumeration 等默认无图 family 仍会通过 family-independent presentation contract 暴露 required `BlockDiagram`，且回归覆盖当前所有支持的 concrete diagram kind，避免只修“逻辑视图/flow”单点。
+
+历史行为：
+
+- analyzer 能正确 emit `diagram_hint`，日志中也能看到模型理解“输出各自逻辑视图/时序图/调用图/架构图”等显式图表要求。
+- 但 `SupportedDiagramKindsForAnswer` 只看严格 diagram seed（行级节点、call/import edge、validated log/flow/config roles）。当探索证据是 recovered/file-level 或叙事比较证据时，support 列表为空。
+- `EffectiveDiagramContract` 因 support 为空把 hard required diagram 降为 soft preference；semantic view trace 变成 `has_diagram=false`，finalizer schema 不要求 diagram，最终答案只剩 prose/table。
+
+风险：
+
+- 这是下游 surface plan 对“证据能否画图”的判断过窄，不是用户意图不明确，也不是 finalizer 不听话。
+- 靠 semantic reviewer 事后说“缺图”只能触发返工或 advisory，无法稳定让 schema 允许/要求图。
+
+修复方向：
+
+- [x] 保留 `EffectiveDiagramContract` 的“无支撑不硬画图”原则，避免软偏好变硬。
+- [x] 在更上游的 `BuildAnswerSurfacePlan` 中用 typed RequestModel + typed evidence carrier 判定用户显式 diagram 是否可承载，补齐 support kinds。
+- [x] 回归测试覆盖 comparison/cross-component + recovered file-level evidence 场景，并遍历 `AllDiagramKinds()` 中所有 concrete kind，确保 `DiagramContract.RequiredKind` 和 semantic view `BlockDiagram` 都保留。
+
+### UIP-028（P1）多仓 subtopic_coherence 把合法分面拆解硬拒成 analyze 重试
+
+代码位置：`internal/analysis/gate/coherence.go::checkSubtopicCoherence`、`internal/analysis/gate/coherence_test.go`
+
+状态：**已修复（Batch H 第六段）**。`R1.3 entity_orphan` 在普通单仓/单 scope 场景仍是 hard gate；但当 analyzer 已给出 `is_cross_component=true` 且存在至少两个 typed `PrimaryScopes` 时，R1.3 降为 advisory telemetry。该场景下 sub_topics 可以按机制、文件、内部组件或比较维度拆解，不能要求每个 sub_topic 的 `entities[]` 都和顶层仓名相交。
+
+触发证据：
+
+- 最新日志中 analyzer 第一次已经成功 emit `diagram_hint=architecture`，且主实体是 `codrax/opencode`。
+- LLM 将 sub_topics 拆成 `ground.go/claim_citation.go/...`、`answer_reviewer.go/...`、`read.ts/agent.ts/tool.ts` 这类机制/文件分面。
+- gate 同时输出“cross-cutting decomposition intentional 可忽略”的 advisory 文案，却因为 R1.3 hard fail 导致 `⟳ 1/4 模型响应出错,正在重新理解问题`。
+
+风险：
+
+- 这是系统用“sub_topic 必须和 primary entity 文本相交”的内部形状偏好，覆盖了模型对比较问题的合理分面拆解。
+- 下游探索阶段本来可以验证这些文件/机制锚点；在 analyzer 阶段硬拒会浪费一整轮模型调用，并可能把更好的机制分面改写成更粗的“codrax/opencode”两块。
+
+修复方向：
+
+- [x] 保留 R1.3 对普通 entity orphan 的 hard fail，避免真正漂移 sub_topic 进入下游。
+- [x] 多 scope cross-component 场景只发 advisory，不阻断 IR。
+- [x] 回归测试覆盖 `PrimaryScopes=[codrax,opencode]` + file/facet sub_topics 不相交的场景，确保 gate 通过但保留结构化 telemetry。
+
+### UIP-026（P1）diagram label-only metadata advisory 会被升级成 finalizer rewrite/caveat
+
+代码位置：`internal/orchestrator/contract_check_block.go::validateDiagramRelationLegality`、`internal/types/violation_registry.go::ViolDiagramRelationLabelOnly`
+
+状态：**已修复（Batch H 第五段）**。`ViolDiagramRelationLabelOnly` 现在是 permanently soft、`Promotable=false`、`FallbackLocus=LocusTerminal`、`CaveatFamilyID=""`。validator 仍可发出结构化 telemetry 供 dashboards/日志分析，但该信号不再进入 retry eligibility，也不会物化成用户最终答案里的补充 caveat。
+
+历史行为：
+
+- 当 Mermaid edge label（例如 `invoke`）已能通过 relation vocabulary 推断为 call，但 `edge_anchors[].relation_kind` 没有显式声明时，contract 已满足。
+- 系统仍发出 `diagram_relation_label_only`，并允许 operator strict-promote，把“缺少 typed metadata”变成 finalizer rewrite。
+- 同时它挂在 `diagram_fidelity` caveat family 下，可能把内部 metadata 缺口展示给用户。
+
+风险：
+
+- 这是 presentation/metadata advisory，不是用户答案错误。用户看到的是清晰的图边标签，系统不应为了内部 typed authority 让模型返工。
+- 继续允许 promote 会让“兼容模型可见输出”的设计退回到“强迫模型补 schema 细节”。
+
+修复方向：
+
+- [x] label-only relation 保持 validator telemetry，但永不触发 rewrite。
+- [x] 清空 caveat family，避免把内部 `edge_anchors` metadata 缺口暴露给用户。
+- [x] 回归测试锁住 `ViolationProfileFor(strict=true)` 仍为 `SeveritySoft` 且 `RetryEligible=false`。
+- [x] 横向检查 sibling signal：`diagram_edge_label_mismatch` 已不可 promote；因它代表用户可见 label 与 typed relation 冲突，仍保留 soft caveat 以提示读者可能的图语义歧义。
+
 ## 分批修复建议
 
 ### Batch A：先消除明确红线
@@ -590,8 +692,8 @@
 
 ### Batch B：建立 PresentationContract
 
-1. [~] 从 analyzer typed 输出承接用户明确要求：table、markdown table、diagram kind、raw Mermaid、sequenceDiagram、decision/scalar 等。（diagram contract 已跨 family；table/scalar/decision 已作为 schema-only display affordance；后续补 analyzer 显式 presentation lane）
-2. [~] SemanticView/schema 使用 family default + presentation union。（已先放宽 Generic 可选 table/scalar/decision；新增 AnswerPresentationContract 投影到 schema）
+1. [~] 从 analyzer typed 输出承接用户明确要求：table、markdown table、diagram kind、raw Mermaid、sequenceDiagram、decision/scalar 等。（diagram contract 已跨 family；显式 diagram 在 typed relational evidence 可承载时不再被 comparison 等默认无图 family 吞掉；table/scalar/decision 已作为 schema-only display affordance；后续补 analyzer 显式 presentation lane）
+2. [~] SemanticView/schema 使用 family default + presentation union。（已先放宽 Generic 可选 table/scalar/decision；新增 AnswerPresentationContract 投影到 schema；显式 required diagram 会生成 `BlockDiagram`）
 3. [~] renderer 读取 contract，避免两列表格压缩；Mermaid→ASCII 在 REPL 中是 terminal-only 友好展示例外，raw markdown 仍进入 memory/output dump。（已先兼容 item markdown table，并补 pipeline memory raw 保存）
 
 ### Batch C：finalizer gate 分层治理
@@ -623,21 +725,21 @@
 
 ### Batch G：JSON/schema 兼容层泛化
 
-1. [~] 建立 schema-aware relocation/quarantine registry，替代无限扩张的错位字段提示表。（已覆盖 schema-unknown metadata quarantine；单值 `claim_uses[].facet_ids` 已本地修复；string enum JSON-literal 已在通用 tool-param normalizer 修复；可见 payload 错位仍走 strict remap）
+1. [~] 建立 schema-aware relocation/quarantine registry，替代无限扩张的错位字段提示表。（已覆盖 schema-unknown metadata quarantine；单值 `claim_uses[].facet_ids`、singleton array-shape 已本地修复；string enum JSON-literal 已在通用 tool-param normalizer 修复；可见 payload 错位仍走 strict remap）
 2. [~] core doc 已有效时，未知无害 metadata 进入 diagnostics，不触发 LLM 重试。（当前进入 operator WARN/quarantine，后续补 typed diagnostics 展示）
-3. [~] 回归覆盖 top-level/misplaced `claim_uses`、`facet_ids`、`edge_anchors`、table 字段和旧 schema 残留字段。（已覆盖 top-level claim_uses / block/item/citation metadata、full/patch 单值 `claim_uses[].facet_ids` 修复、多值歧义拒绝、tool-param string enum JSON-literal 修复；保留旧错位字段 reject 测试）
+3. [~] 回归覆盖 top-level/misplaced `claim_uses`、`facet_ids`、`edge_anchors`、table 字段和旧 schema 残留字段。（已覆盖 top-level claim_uses / block/item/citation metadata、full/patch 单值 `claim_uses[].facet_ids` 修复、full/patch singleton array-shape 修复、多值歧义拒绝、tool-param string enum JSON-literal 修复；保留旧错位字段 reject 测试）
 
 ### Batch H：gate taxonomy + upstream routing
 
 1. [~] 每个 finalizer violation 必须分类为 `local_doc_defect`、`evidence_gap`、`analysis_gap`、`presentation_advisory`、`safety`。（aggregate member_set、enum-label、facet metadata emit-time gate 已先分出 hard/advisory）
-2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景、非主枚举标签场景、soft facet metadata 场景已停止同轮硬重试；semantic-quality reviewer 已接入 `repair_locus` typed routing）
+2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景、非主枚举标签场景、soft facet metadata 场景已停止同轮硬重试；semantic-quality reviewer 已接入 `repair_locus` typed routing；diagram label-only metadata 缺口已降为 telemetry-only；多仓 subtopic entity-orphan 已在 cross-scope 场景降为 advisory）
 3. [x] 同类错误 fingerprint / typed repair family 连续失败后，停止硬重写，接受核心答案并用“补充说明/保留原文”交代缺陷。
 4. [x] reviewer hard/soft 判断的 anchor truth source 统一：AnswerDocument citations 优先，explorer evidence 补充，禁止 reviewer 只读滞后 explorer slate 后要求 finalizer 重写。
 
 ### Batch I：scope / presentation contract 贯穿
 
 1. [~] `SourceScopeProfile` 贯穿 exact target、keyword search、package export、child package expansion。（keyword search、package export、child package expansion 已完成；exact target 后续继续审计）
-2. `markdown_table`、`structured_table`、`scalar`、`decision` 等展示偏好从 analyzer typed 输出进入 schema、renderer、REPL；Mermaid 偏好只约束模型输出 raw markdown，不禁止 REPL terminal-only 预览。
+2. [~] `markdown_table`、`structured_table`、`scalar`、`decision` 等展示偏好从 analyzer typed 输出进入 schema、renderer、REPL；Mermaid 偏好只约束模型输出 raw markdown，不禁止 REPL terminal-only 预览。（repo/hybrid route typed presentation directive 已通过 `SetPresentationDirective` 进入当前流水线且不污染 objective；后续补 analyzer 显式 presentation lane）
 3. raw scope detector 保持 advisory，analyzer 之后统一用 typed scope 更新状态、上下文和最终 caveat。
 
 ## 结论

@@ -155,6 +155,76 @@ func TestSupportedDiagramKindsForAnswer_EvidenceSupportsExplicitArchitectureDiag
 	}
 }
 
+func TestBuildAnswerSurfacePlan_PreservesExplicitDiagramForComparisonWithTypedEvidence(t *testing.T) {
+	for _, kind := range AllDiagramKinds() {
+		if kind == DiagramNone {
+			continue
+		}
+		t.Run(string(kind), func(t *testing.T) {
+			ir := &AnalysisIR{
+				RequestModel: RequestModel{
+					Intent:      IntentExplain,
+					Scenario:    ScenarioArchitectureExplain,
+					DiagramHint: &DiagramHint{Kind: kind},
+					Predicates: SemanticPredicates{
+						IsCrossComponent: true,
+					},
+					SubTopics: []SubTopic{
+						{Summary: "codrax read-mode anti-hallucination view", Entities: []string{"codrax"}},
+						{Summary: "opencode read-mode anti-hallucination view", Entities: []string{"opencode"}},
+					},
+					Buckets: []QuestionBucket{
+						{Label: "codrax", Index: 1},
+						{Label: "opencode", Index: 2},
+					},
+				},
+				AnswerContract: AnswerContract{
+					Diagram: &DiagramContract{
+						Required:       true,
+						Minimum:        1,
+						RequiredKind:   kind,
+						PreferredKinds: []DiagramKind{kind},
+					},
+				},
+			}
+			evidence := []EvidenceItem{
+				{
+					ID:              "ev-codrax",
+					Source:          "codrax/internal/orchestrator/contract_check.go",
+					Scope:           ScopeFile,
+					GroundingStatus: GroundingRecovered,
+					AnchorSymbol:    "ContractCheck",
+				},
+				{
+					ID:              "ev-opencode",
+					Source:          "opencode/packages/opencode/src/tool/read.ts",
+					Scope:           ScopeFile,
+					GroundingStatus: GroundingRecovered,
+					AnchorSymbol:    "read",
+				},
+			}
+
+			plan := BuildAnswerSurfacePlan(ir, NewMutableState("compare codrax and opencode"), nil, nil, nil, evidence)
+			if plan == nil || plan.Diagram == nil || !plan.Diagram.Required {
+				t.Fatalf("explicit diagram request should remain required with typed comparison evidence, got plan=%+v", plan)
+			}
+			if plan.Diagram.RequiredKind != kind {
+				t.Fatalf("Diagram.RequiredKind=%q, want %q", plan.Diagram.RequiredKind, kind)
+			}
+			view := BuildAnswerSemanticView(ir, plan)
+			if view == nil || view.DiagramPlan == nil || !view.DiagramPlan.Required {
+				t.Fatalf("semantic view must expose required diagram block, got %+v", view)
+			}
+			if view.DiagramPlan.Kind != kind {
+				t.Fatalf("DiagramPlan.Kind=%q, want %q", view.DiagramPlan.Kind, kind)
+			}
+			if !view.Presentation.AllowsBlock(BlockDiagram) {
+				t.Fatalf("presentation contract must allow diagram block, got %+v", view.Presentation)
+			}
+		})
+	}
+}
+
 func diagramKindSliceContains(kinds []DiagramKind, want DiagramKind) bool {
 	for _, got := range kinds {
 		if got == want {

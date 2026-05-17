@@ -1865,8 +1865,9 @@ func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 		// once eval validates the false-positive rate is low.
 		types.ViolEnumerationEvidenceUnderspecified: true,
 		// B3 v3 (2026-05-04) — diagram relation typed-first label-only
-		// advisory. SOFT-by-default; promotable when operator wants
-		// typed declarations enforced.
+		// advisory. Permanently SOFT: label inference is sufficient for
+		// the user-visible diagram, and missing edge_anchors metadata is
+		// telemetry-only.
 		types.ViolDiagramRelationLabelOnly: true,
 		// 2026-05-17 T3 soft-demote: five oracle kinds whose
 		// violation.go comments name them SOFT-by-default and whose

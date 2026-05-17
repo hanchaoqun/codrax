@@ -41,30 +41,31 @@ const (
 	SectionProhibitions        = "Prohibitions"
 
 	// User-role sections (rendered into the dispatch user message).
-	SectionRetryDirective       = "Retry Directive (READ FIRST)"
-	SectionAnswerCoverageNotes  = "Answer Coverage Notes (READ FIRST)"
-	SectionUserRequest          = "User Request"
-	SectionAnalyzerPrescan      = "Analyzer Pre-scan Findings"
-	SectionPriorConversation    = "Prior Conversation (reference only)"
-	SectionLogTriageExtraction  = "Log Triage — Validated Extraction"
-	SectionPerfTriageExtraction = "Perf Triage — Validated Extraction"
-	SectionAttachedRuntimeLog   = "Attached Runtime Log"
-	SectionAttachedPerfTrace    = "Attached Performance Trace (HiTrace / atrace / systrace / perfetto)"
-	SectionPriorStageFindings   = "Prior Stage Findings"
-	SectionUnverifiedAnalyzer   = "Unverified Analyzer Findings"
-	SectionExactResolution      = "Exact Resolution"
-	SectionMultiRepoActiveSet   = "Multi-Repo Active Set"
-	SectionToolSourcedValue     = "Tool-Sourced Value"
-	SectionSubjectMatchSummary  = "Subject Match Summary"
-	SectionRawToolOutputs       = "Raw Tool Outputs from the Investigation"
-	SectionKnownFacts           = "Known Facts"
-	SectionAnswerSymbolsAuth    = "Extracted Answer Symbols (authoritative)"
-	SectionAnswerSymbolsFloor   = "Answer Symbols (lower-bound floor, may extend with cited evidence)"
-	SectionEvidencePool         = "Knowledge & Evidence Pool"
-	SectionUnverifiedLeads      = "Unverified Leads (not for citation)"
-	SectionDataflowFindings     = "Dataflow Findings"
-	SectionHypothesisVerdicts   = "Hypothesis Verdicts"
-	SectionRelevantFiles        = "Relevant Files"
+	SectionRetryDirective        = "Retry Directive (READ FIRST)"
+	SectionAnswerCoverageNotes   = "Answer Coverage Notes (READ FIRST)"
+	SectionUserRequest           = "User Request"
+	SectionPresentationDirective = "Presentation Directive"
+	SectionAnalyzerPrescan       = "Analyzer Pre-scan Findings"
+	SectionPriorConversation     = "Prior Conversation (reference only)"
+	SectionLogTriageExtraction   = "Log Triage — Validated Extraction"
+	SectionPerfTriageExtraction  = "Perf Triage — Validated Extraction"
+	SectionAttachedRuntimeLog    = "Attached Runtime Log"
+	SectionAttachedPerfTrace     = "Attached Performance Trace (HiTrace / atrace / systrace / perfetto)"
+	SectionPriorStageFindings    = "Prior Stage Findings"
+	SectionUnverifiedAnalyzer    = "Unverified Analyzer Findings"
+	SectionExactResolution       = "Exact Resolution"
+	SectionMultiRepoActiveSet    = "Multi-Repo Active Set"
+	SectionToolSourcedValue      = "Tool-Sourced Value"
+	SectionSubjectMatchSummary   = "Subject Match Summary"
+	SectionRawToolOutputs        = "Raw Tool Outputs from the Investigation"
+	SectionKnownFacts            = "Known Facts"
+	SectionAnswerSymbolsAuth     = "Extracted Answer Symbols (authoritative)"
+	SectionAnswerSymbolsFloor    = "Answer Symbols (lower-bound floor, may extend with cited evidence)"
+	SectionEvidencePool          = "Knowledge & Evidence Pool"
+	SectionUnverifiedLeads       = "Unverified Leads (not for citation)"
+	SectionDataflowFindings      = "Dataflow Findings"
+	SectionHypothesisVerdicts    = "Hypothesis Verdicts"
+	SectionRelevantFiles         = "Relevant Files"
 )
 
 // canonicalSystemSectionOrder lists every system-role section title
@@ -96,6 +97,7 @@ var canonicalSystemSectionOrder = []string{
 var canonicalUserSectionOrder = []string{
 	SectionRetryDirective,
 	SectionUserRequest,
+	SectionPresentationDirective,
 	SectionAnalyzerPrescan, // write-mode (StagePlan) only — structured fields from AnalysisIR
 	SectionPriorConversation,
 	SectionPriorStageFindings, // carries the canonical Resolution Chains subsection

@@ -1811,13 +1811,12 @@ func convertEmitCodeSnippetsToTyped(in []emitCodeSnippetV2) []types.CodeSnippet 
 	return out
 }
 
-// repairStringWrappedArrayFields scans every top-level key of raw
-// and repairs any value that arrived as a JSON-encoded string
-// wrapping a JSON array. Same MiniMax streaming-bug pattern that
-// repairBlocksAsString targets for the `blocks` field, generalised
-// to every top-level array slot — used by tools (patch / full emit)
-// whose schema has multiple array fields any of which may be
-// stringified by the LLM.
+// repairStringWrappedArrayFields scans every top-level key of raw and repairs
+// uniquely recoverable array-shape mistakes. It covers the same MiniMax
+// streaming-bug pattern that repairBlocksAsString targets for the `blocks`
+// field, generalised to every top-level array slot, and also accepts singleton
+// object/string values for known array fields where wrapping into a one-element
+// array is lossless.
 //
 // Layered:
 //
@@ -1826,14 +1825,16 @@ func convertEmitCodeSnippetsToTyped(in []emitCodeSnippetV2) []types.CodeSnippet 
 //     (not just array-typed fields). When the bare unmarshal fails
 //     and normalisation changes the bytes, retry the unmarshal on
 //     the normalised payload.
-//  2. Per-field Path A: each top-level value that looks like a
-//     JSON-encoded string starting with `[` gets unwrapped and
-//     parsed as a real array. Success → replace; failure → fall
-//     through.
-//  3. Per-field Path C: re-run the per-field parse on the
-//     normalised inner string when Path A fails (the inner
-//     stringified content may itself carry unescaped control chars
-//     for the same reason the outer payload did).
+//  2. Per-field singleton object: known object-array fields that arrive as a
+//     raw object are wrapped as a one-element array.
+//  3. Per-field Path A: each top-level value that looks like a JSON-encoded
+//     string starting with `[` gets unwrapped and parsed as a real array.
+//     Success → replace; failure → fall through.
+//  4. Per-field Path C: re-run the per-field parse on the normalised inner
+//     string when Path A fails (the inner stringified content may itself carry
+//     unescaped control chars for the same reason the outer payload did).
+//  5. Per-field singleton string/object: known string-array/object-array fields
+//     that arrive as a single value are wrapped as one-element arrays.
 //
 // Returns (raw, nil, false) when nothing needed repair. Returns
 // (patched, [list of repaired field names], true) when at least one
@@ -1862,7 +1863,19 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 
 	var repaired []string
 	for key, val := range probe {
-		if len(val) == 0 || val[0] != '"' {
+		val = bytes.TrimSpace(val)
+		if len(val) == 0 {
+			continue
+		}
+		if val[0] == '{' && topLevelArrayFieldAcceptsSingletonObject(key) {
+			var item json.RawMessage
+			if err := json.Unmarshal(val, &item); err == nil {
+				probe[key] = mustMarshal([]json.RawMessage{item})
+				repaired = append(repaired, key)
+			}
+			continue
+		}
+		if val[0] != '"' {
 			continue
 		}
 		var encoded string
@@ -1870,64 +1883,83 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 			continue
 		}
 		trimmed := strings.TrimSpace(encoded)
-		if !strings.HasPrefix(trimmed, "[") {
-			continue
-		}
-		// Path A: direct array decode after the string unwrap.
-		var inner []json.RawMessage
-		if err := json.Unmarshal([]byte(trimmed), &inner); err == nil {
-			probe[key] = mustMarshal(inner)
-			repaired = append(repaired, key)
-			continue
-		}
-		// Path A2: direct array decode after trimming redundant
-		// trailing JSON closers. Some local models produce a valid
-		// stringified array followed by an extra ']' or '}' while the
-		// outer tool-call JSON remains valid, e.g.
-		// `"replace_citations":"[{...}]]"`. Only accept this when
-		// the suffix after the first balanced array contains closers
-		// and whitespace exclusively; comma-led whole-document
-		// stringify remains Path B below.
-		if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(trimmed); ok {
-			if err := json.Unmarshal([]byte(trimmedArray), &inner); err == nil {
+		if strings.HasPrefix(trimmed, "[") {
+			// Path A: direct array decode after the string unwrap.
+			var inner []json.RawMessage
+			if err := json.Unmarshal([]byte(trimmed), &inner); err == nil {
 				probe[key] = mustMarshal(inner)
 				repaired = append(repaired, key)
 				continue
 			}
-		}
-		// Path B: whole-document stringify — the LLM put MULTIPLE
-		// top-level fields inside this string value (typical when
-		// the blocks array is followed by replace_citations / etc
-		// inside the same stringified blob). Wrap as
-		// `{"<key>": <trimmed>}` and parse; the merged document
-		// then has the array at `key` plus the other top-level keys
-		// re-surfaced. Outer keys not in the wrapped doc are
-		// preserved (the outer probe wins on conflict).
-		if patched, ok := mergeWholeDocStringifyVariants(probe, key, trimmed); ok {
-			probe = patched
-			repaired = append(repaired, key)
-			continue
-		}
-		// Path C inner: normalise control chars inside the inner
-		// string and retry both Path A and Path B.
-		if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
-			if err := json.Unmarshal([]byte(normalised), &inner); err == nil {
-				probe[key] = mustMarshal(inner)
-				repaired = append(repaired, key)
-				continue
-			}
-			if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(normalised); ok {
+			// Path A2: direct array decode after trimming redundant
+			// trailing JSON closers. Some local models produce a valid
+			// stringified array followed by an extra ']' or '}' while the
+			// outer tool-call JSON remains valid, e.g.
+			// `"replace_citations":"[{...}]]"`. Only accept this when
+			// the suffix after the first balanced array contains closers
+			// and whitespace exclusively; comma-led whole-document
+			// stringify remains Path B below.
+			if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(trimmed); ok {
 				if err := json.Unmarshal([]byte(trimmedArray), &inner); err == nil {
 					probe[key] = mustMarshal(inner)
 					repaired = append(repaired, key)
 					continue
 				}
 			}
-			if patched, ok := mergeWholeDocStringifyVariants(probe, key, normalised); ok {
+			// Path B: whole-document stringify — the LLM put MULTIPLE
+			// top-level fields inside this string value (typical when
+			// the blocks array is followed by replace_citations / etc
+			// inside the same stringified blob). Wrap as
+			// `{"<key>": <trimmed>}` and parse; the merged document
+			// then has the array at `key` plus the other top-level keys
+			// re-surfaced. Outer keys not in the wrapped doc are
+			// preserved (the outer probe wins on conflict).
+			if patched, ok := mergeWholeDocStringifyVariants(probe, key, trimmed); ok {
 				probe = patched
 				repaired = append(repaired, key)
 				continue
 			}
+			// Path C inner: normalise control chars inside the inner
+			// string and retry both Path A and Path B.
+			if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
+				if err := json.Unmarshal([]byte(normalised), &inner); err == nil {
+					probe[key] = mustMarshal(inner)
+					repaired = append(repaired, key)
+					continue
+				}
+				if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(normalised); ok {
+					if err := json.Unmarshal([]byte(trimmedArray), &inner); err == nil {
+						probe[key] = mustMarshal(inner)
+						repaired = append(repaired, key)
+						continue
+					}
+				}
+				if patched, ok := mergeWholeDocStringifyVariants(probe, key, normalised); ok {
+					probe = patched
+					repaired = append(repaired, key)
+					continue
+				}
+			}
+		}
+		if strings.HasPrefix(trimmed, "{") && topLevelArrayFieldAcceptsSingletonObject(key) {
+			var item json.RawMessage
+			if err := json.Unmarshal([]byte(trimmed), &item); err == nil {
+				probe[key] = mustMarshal([]json.RawMessage{item})
+				repaired = append(repaired, key)
+				continue
+			}
+			if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
+				if err := json.Unmarshal([]byte(normalised), &item); err == nil {
+					probe[key] = mustMarshal([]json.RawMessage{item})
+					repaired = append(repaired, key)
+					continue
+				}
+			}
+		}
+		if topLevelArrayFieldAcceptsSingletonString(key) && trimmed != "" {
+			probe[key] = mustMarshal([]string{trimmed})
+			repaired = append(repaired, key)
+			continue
 		}
 	}
 
@@ -1945,6 +1977,36 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 		return patched, []string{"<outer-normalisation>"}, true
 	}
 	return patched, repaired, true
+}
+
+func topLevelArrayFieldAcceptsSingletonObject(field string) bool {
+	switch field {
+	case "blocks",
+		"citations",
+		"snippets",
+		"missing_requested_roles",
+		"replace_blocks",
+		"add_blocks",
+		"replace_citations",
+		"append_citations",
+		"replace_missing_requested_roles",
+		"replace_snippets":
+		return true
+	default:
+		return false
+	}
+}
+
+func topLevelArrayFieldAcceptsSingletonString(field string) bool {
+	switch field {
+	case "caveats",
+		"replace_caveats",
+		"unchanged_block_ids",
+		"remove_block_ids":
+		return true
+	default:
+		return false
+	}
 }
 
 // repairStringWrappedObjectFields repairs selected top-level object fields
@@ -2468,7 +2530,8 @@ func misplacedDiagramFieldShapeOK(field string, raw json.RawMessage) bool {
 	}
 	switch field {
 	case "claim_uses", "edge_anchors", "facet_ids":
-		return raw[0] == '[' || raw[0] == '"'
+		return raw[0] == '[' || raw[0] == '"' ||
+			(raw[0] == '{' && answerBlockArrayFieldAcceptsSingletonObject(field))
 	case "surface_role":
 		return raw[0] == '"'
 	default:
@@ -2476,50 +2539,92 @@ func misplacedDiagramFieldShapeOK(field string, raw json.RawMessage) bool {
 	}
 }
 
-// repairBlockArrayField detects a JSON-encoded string at obj[field]
-// where a JSON array is expected, and returns the re-encoded array
-// RawMessage. Returns (raw, false) when the field is absent OR is
-// already a real array OR the string content cannot be decoded as
-// an array. Conservative: any decode failure leaves the field
-// untouched so the regular validator surfaces the real schema
-// violation.
+// repairBlockArrayField detects uniquely recoverable array-shape
+// mistakes at obj[field] and returns the re-encoded array RawMessage:
+// JSON-encoded arrays, JSON-encoded singleton objects for object-array
+// fields, raw singleton objects for object-array fields, and raw singleton
+// strings for string-array fields. Conservative: any ambiguous shape is left
+// untouched so the regular validator surfaces the real schema violation.
 func repairBlockArrayField(obj map[string]json.RawMessage, field string) (json.RawMessage, bool) {
 	rawField, ok := obj[field]
+	rawField = bytes.TrimSpace(rawField)
 	if !ok || len(rawField) == 0 {
 		return nil, false
 	}
-	if rawField[0] != '"' {
-		// Already a real array (or another shape) — nothing to do.
+	switch rawField[0] {
+	case '[':
 		return nil, false
-	}
-	var encoded string
-	if err := json.Unmarshal(rawField, &encoded); err != nil {
-		return nil, false
-	}
-	trimmed := strings.TrimSpace(encoded)
-	if !strings.HasPrefix(trimmed, "[") {
-		return nil, false
-	}
-	var inner []json.RawMessage
-	if err := json.Unmarshal([]byte(trimmed), &inner); err == nil {
-		return mustMarshal(inner), true
-	}
-	if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(trimmed); ok {
-		if err := json.Unmarshal([]byte(trimmedArray), &inner); err == nil {
-			return mustMarshal(inner), true
-		}
-	}
-	if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
-		if err := json.Unmarshal([]byte(normalised), &inner); err == nil {
-			return mustMarshal(inner), true
-		}
-		if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(normalised); ok {
-			if err := json.Unmarshal([]byte(trimmedArray), &inner); err == nil {
-				return mustMarshal(inner), true
+	case '{':
+		if answerBlockArrayFieldAcceptsSingletonObject(field) {
+			var item json.RawMessage
+			if err := json.Unmarshal(rawField, &item); err == nil {
+				return mustMarshal([]json.RawMessage{item}), true
 			}
 		}
+		return nil, false
+	case '"':
+		var encoded string
+		if err := json.Unmarshal(rawField, &encoded); err != nil {
+			return nil, false
+		}
+		trimmed := strings.TrimSpace(encoded)
+		if strings.HasPrefix(trimmed, "[") {
+			var inner []json.RawMessage
+			if err := json.Unmarshal([]byte(trimmed), &inner); err == nil {
+				return mustMarshal(inner), true
+			}
+			if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(trimmed); ok {
+				if err := json.Unmarshal([]byte(trimmedArray), &inner); err == nil {
+					return mustMarshal(inner), true
+				}
+			}
+			if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
+				if err := json.Unmarshal([]byte(normalised), &inner); err == nil {
+					return mustMarshal(inner), true
+				}
+				if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(normalised); ok {
+					if err := json.Unmarshal([]byte(trimmedArray), &inner); err == nil {
+						return mustMarshal(inner), true
+					}
+				}
+			}
+		}
+		if strings.HasPrefix(trimmed, "{") && answerBlockArrayFieldAcceptsSingletonObject(field) {
+			var item json.RawMessage
+			if err := json.Unmarshal([]byte(trimmed), &item); err == nil {
+				return mustMarshal([]json.RawMessage{item}), true
+			}
+			if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
+				if err := json.Unmarshal([]byte(normalised), &item); err == nil {
+					return mustMarshal([]json.RawMessage{item}), true
+				}
+			}
+		}
+		if answerBlockArrayFieldAcceptsSingletonString(field) && trimmed != "" {
+			return mustMarshal([]string{trimmed}), true
+		}
+		return nil, false
+	default:
+		return nil, false
 	}
-	return nil, false
+}
+
+func answerBlockArrayFieldAcceptsSingletonObject(field string) bool {
+	switch field {
+	case "items", "claim_uses", "edge_anchors":
+		return true
+	default:
+		return false
+	}
+}
+
+func answerBlockArrayFieldAcceptsSingletonString(field string) bool {
+	switch field {
+	case "columns", "facet_ids":
+		return true
+	default:
+		return false
+	}
 }
 
 // repairObjectField is the object-shaped sibling of repairBlockArrayField. It

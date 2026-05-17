@@ -4213,6 +4213,14 @@ type BusContext struct {
 	LastTransitionReason string `json:"last_transition_reason,omitempty"`
 	TraceID              string `json:"trace_id"`
 
+	// PresentationDirective is typed current-turn display metadata
+	// derived by the REPL turn policy from the user's own request
+	// (for example "logic flow diagram" or "markdown table"). It is
+	// deliberately separate from Mutable.Objective so render status
+	// lines, repo_map queries, and memory never show system-generated
+	// markdown headers as if they were user text.
+	PresentationDirective string `json:"presentation_directive,omitempty"`
+
 	// ExploreDispatchKey is a scheduler-owned key for focused explorer
 	// windows. It lets the explorer agent isolate mutable evaluator state
 	// per DAG evidence node even when the scheduler uses the normal serial
@@ -4444,6 +4452,12 @@ type AgentContext struct {
 	Mode PipelineMode `json:"mode,omitempty"`
 
 	Objective string `json:"objective"`
+
+	// PresentationDirective mirrors BusContext.PresentationDirective
+	// for prompt construction. It may affect answer presentation
+	// affordances only; it is not repository evidence, not a code
+	// entity, and not a search query.
+	PresentationDirective string `json:"presentation_directive,omitempty"`
 
 	// AnalysisIR aliases BusContext.AnalysisIR for agents that have
 	// opted into the v3 pipeline. Still nil for legacy call paths —

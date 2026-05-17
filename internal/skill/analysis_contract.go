@@ -339,6 +339,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("The single exception: when the current request leans on a pronoun / demonstrative (\"它\", \"那个\", \"它们\", \"this\", \"that\", \"them\", \"上次\", \"刚才\", \"the same\", \"continue with\") " +
 		"that has no antecedent inside the current request itself, you MAY consult Prior Conversation to resolve the antecedent and copy the resolved CONCRETE identifier verbatim into the relevant field (most often `entities`). " +
 		"This is disambiguation, not lifting: only the resolved name crosses over, never the framing / topic / structural shape of the prior turn.\n\n")
+	of.WriteString("If a \"Presentation Directive\" section is present, it is typed current-turn presentation metadata derived from the user's current request, not Prior Conversation. Use it only for presentation-shaped fields such as `diagram_hint`, language, table/scalar/decision preference, or final-answer form. Do NOT derive entities, sub_topics, required_files, facts, repository scope, or search terms from that section alone.\n\n")
 	of.WriteString("Lifting any of the following from Prior Conversation / memory / historical material is a STRUCTURAL ERROR — the answer the user actually receives is computed from the CURRENT request:\n" +
 		"- A topic / framing / sub-topic from a prior turn (an earlier UI tweak, layout change, performance discussion, design debate)\n" +
 		"- A predicate flag value (`is_cross_component`, `is_category_enumeration`, etc.) inferred from prior-turn shape\n" +

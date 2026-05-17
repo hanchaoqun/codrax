@@ -23,23 +23,25 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	if bus.Mutable != nil {
 		objective = bus.Mutable.Objective()
 	}
+	presentationDirective := strings.TrimSpace(bus.PresentationDirective)
 
 	ac := &types.AgentContext{
-		AgentName:          agentName,
-		Stage:              stage,
-		TraceID:            bus.TraceID,
-		ExploreDispatchKey: bus.ExploreDispatchKey,
-		Objective:          objective,
-		MissingPiece:       bus.TaskState.Missing,
-		Constraints:        bus.Constraints,
-		Preferences:        bus.Preferences,
-		Language:           bus.Language,
-		RepoRoot:           bus.RepoRoot,
-		Branch:             bus.Branch,
-		Commit:             bus.Commit,
-		WorkDir:            bus.WorkDir,
-		MainRepoRoot:       bus.MainRepoRoot,
-		Mutable:            bus.Mutable,
+		AgentName:             agentName,
+		Stage:                 stage,
+		TraceID:               bus.TraceID,
+		ExploreDispatchKey:    bus.ExploreDispatchKey,
+		Objective:             objective,
+		PresentationDirective: presentationDirective,
+		MissingPiece:          bus.TaskState.Missing,
+		Constraints:           bus.Constraints,
+		Preferences:           bus.Preferences,
+		Language:              bus.Language,
+		RepoRoot:              bus.RepoRoot,
+		Branch:                bus.Branch,
+		Commit:                bus.Commit,
+		WorkDir:               bus.WorkDir,
+		MainRepoRoot:          bus.MainRepoRoot,
+		Mutable:               bus.Mutable,
 		// Multi-repo mirrors. Phase 4.1 introduced these on
 		// BusContext + AgentContext; the builder copies them across
 		// so agent-scoped tools and the agent prompt builder can
@@ -503,6 +505,12 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionUserRequest,
 				Content: currentReq,
+			})
+		}
+		if section := formatPresentationDirective(ac.PresentationDirective); section != "" {
+			pc.UserSections = append(pc.UserSections, types.PromptSection{
+				Title:   SectionPresentationDirective,
+				Content: section,
 			})
 		}
 		// Analyzer Pre-scan Findings — write-mode StagePlan only.
@@ -1915,6 +1923,17 @@ func formatNumberedList(items []string) string {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, item)
 	}
 	return b.String()
+}
+
+func formatPresentationDirective(directive string) string {
+	directive = strings.TrimSpace(directive)
+	if directive == "" {
+		return ""
+	}
+	return "Structured current-turn presentation requirement derived from the user's current request. " +
+		"Use it only to choose final-answer presentation fields such as diagram_hint, table, scalar, or decision. " +
+		"Do NOT treat it as repository code, a code entity, a search query, factual evidence, or prior-conversation content.\n\n" +
+		directive
 }
 
 func finalizerUsesTypedAnswerSupport(ac *types.AgentContext) bool {

@@ -60,6 +60,83 @@ func EffectiveDiagramContract(contract *DiagramContract, supportedKinds []Diagra
 	return &out
 }
 
+func augmentSupportedDiagramKindsForRequiredDiagram(
+	supportedKinds []DiagramKind,
+	contract *DiagramContract,
+	rm RequestModel,
+	evidence []EvidenceItem,
+) []DiagramKind {
+	if contract == nil || !contract.Required {
+		return supportedKinds
+	}
+	kind := contract.RequiredKind
+	if kind == DiagramNone || !kind.IsValid() {
+		kind = firstConcreteDiagramKindInContract(contract.PreferredKinds)
+	}
+	if kind == DiagramNone || !kind.IsValid() {
+		return supportedKinds
+	}
+	supported := normalizeSupportedDiagramKinds(supportedKinds)
+	for _, existing := range supported {
+		if existing == kind {
+			return supported
+		}
+	}
+	if !explicitRequiredDiagramHasTypedSupport(rm, evidence) {
+		return supported
+	}
+	return append(supported, kind)
+}
+
+func explicitRequiredDiagramHasTypedSupport(rm RequestModel, evidence []EvidenceItem) bool {
+	if len(EvidenceDiagramNodes(evidence, 2)) >= 2 {
+		return true
+	}
+	if diagramCarrierEvidenceCount(evidence, 2) < 2 {
+		return false
+	}
+	qs := rm.QuestionStructure()
+	return rm.Predicates.IsCrossComponent ||
+		len(rm.SubTopics) > 0 ||
+		len(qs.Buckets) >= 2 ||
+		IsArchitectureNarrativeExplanation(rm)
+}
+
+func diagramCarrierEvidenceCount(evidence []EvidenceItem, limit int) int {
+	seen := make(map[string]bool)
+	for _, item := range evidence {
+		if !diagramCarrierEvidenceEligible(item) {
+			continue
+		}
+		key := strings.TrimSpace(item.DisplayLocation(true))
+		if key == "" {
+			key = strings.TrimSpace(item.Source)
+		}
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		if limit > 0 && len(seen) >= limit {
+			return len(seen)
+		}
+	}
+	return len(seen)
+}
+
+func diagramCarrierEvidenceEligible(ev EvidenceItem) bool {
+	if strings.TrimSpace(ev.Source) == "" {
+		return false
+	}
+	if ev.ContextRole == EvidenceContextRoleIllustrativeOnly ||
+		ev.ContextRole == EvidenceContextRoleAbsenceSupport {
+		return false
+	}
+	if ev.Kind == EvidenceUnresolved || ev.Kind == EvidenceTruncated {
+		return false
+	}
+	return ev.GroundingStatus != GroundingUngrounded
+}
+
 func firstConcreteDiagramKindInContract(kinds []DiagramKind) DiagramKind {
 	for _, kind := range kinds {
 		if kind != DiagramNone && kind.IsValid() {

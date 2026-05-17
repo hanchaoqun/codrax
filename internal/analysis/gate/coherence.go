@@ -80,6 +80,9 @@ const (
 //	no element with PrimaryEntities. Either the SubTopics were
 //	improvised after-the-fact or PrimaryEntities is incomplete.
 //	Either way the ChainGraph cannot trace the answer.
+//	In multi-scope cross-component comparisons this is advisory:
+//	legitimate facet/file decompositions often name internal anchors
+//	instead of repeating every sub-repo slug in every sub-topic.
 //
 // All three routes return the SAME check name so the retry hint
 // renderer can ladder a single "subtopic_coherence" follow-up across
@@ -116,8 +119,9 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	//     but single mechanism question
 	// Per R3 red line ("noisy signals only as soft guidance"), R1.1
 	// produces an advisory, not a hard fail. R1.2 (precise predicate
-	// contradiction) and R1.3-R1.5 (typed entity orphan / asymmetry /
-	// axis-collapse) remain hard rules — they are typed-precise.
+	// contradiction), single-scope R1.3, R1.4, and R1.5 remain hard
+	// rules — they are typed-precise. Multi-scope R1.3 is advisory
+	// because facet/file decomposition is a valid comparison shape.
 	if len(domains) >= 2 && nSub <= 1 {
 		softAdvisories = append(softAdvisories, fmt.Sprintf(
 			"R1.1 domain_divergence (advisory): the question's identifiers span %d distinct code areas %s but only %d sub-topic emitted — if the question genuinely spans independent topics, consider re-emitting with sub_topics; if it is a single cross-area control-flow / behaviour question, the current emit is fine",
@@ -157,9 +161,15 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		primaryTokens := unionStringLists(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.PrimaryScopes)
 		if len(subTokens) > 0 && len(primaryTokens) > 0 {
 			if !anyOverlap(subTokens, primaryTokens) {
-				details = append(details, fmt.Sprintf(
+				msg := fmt.Sprintf(
 					"R1.3 entity_orphan: sub-topic entities %s share no element with primary entities %s",
-					formatStringList(subTokens), formatStringList(primaryTokens)))
+					formatStringList(subTokens), formatStringList(primaryTokens))
+				if subtopicEntityOrphanShouldBeAdvisory(rm) {
+					softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.3 entity_orphan:", "R1.3 entity_orphan (advisory):", 1)+
+						" — cross-scope comparisons may decompose by mechanism, facet, or file anchors without repeating each sub-repo slug; let exploration verify the anchors before forcing a rewrite")
+				} else {
+					details = append(details, msg)
+				}
 			}
 		}
 	}
@@ -428,7 +438,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		// TermGraph package distribution, not an LLM self-
 		// contradiction) only steer with soft hints; hard gates
 		// stay reserved for precise typed contradictions (R1.2 +
-		// R1.3 + R1.4 + R1.5).
+		// single-scope R1.3 + R1.4 + R1.5).
 		return types.GateCheck{
 			Name:   "subtopic_coherence",
 			Passed: true,
@@ -444,6 +454,10 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		Detail: fmt.Sprintf("sub-topics=%d domains=%d primary_entities=%d buckets=%d",
 			nSub, len(domains), len(rm.AnalyzerHints.PrimaryEntities), len(rm.Buckets)),
 	}
+}
+
+func subtopicEntityOrphanShouldBeAdvisory(rm types.RequestModel) bool {
+	return rm.Predicates.IsCrossComponent && len(rm.AnalyzerHints.PrimaryScopes) >= 2
 }
 
 func diagnosticFacetSubTopicsBypassResolverAsymmetry(rm types.RequestModel) bool {

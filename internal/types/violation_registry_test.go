@@ -93,6 +93,39 @@ func TestNotPromotable_IgnoresStrictAtProfileLayer(t *testing.T) {
 	}
 }
 
+// TestDiagramRelationLabelOnly_TelemetryOnly locks the intent-
+// preservation boundary for diagram relation metadata: a visible
+// Mermaid label that infers the relation is enough for the answer, so
+// missing edge_anchors metadata is observable but never user-facing and
+// never retry-eligible.
+func TestDiagramRelationLabelOnly_TelemetryOnly(t *testing.T) {
+	spec, ok := ViolKindSpecFor(ViolDiagramRelationLabelOnly)
+	if !ok {
+		t.Fatal("ViolDiagramRelationLabelOnly must be registered")
+	}
+	if spec.DefaultSeverity != SeveritySoft {
+		t.Fatalf("DefaultSeverity = %q, want %q", spec.DefaultSeverity, SeveritySoft)
+	}
+	if !spec.SoftByDefault {
+		t.Fatal("SoftByDefault = false, want true")
+	}
+	if spec.Promotable {
+		t.Fatal("Promotable = true, want false")
+	}
+	if spec.FallbackLocus != LocusTerminal {
+		t.Fatalf("FallbackLocus = %q, want %q", spec.FallbackLocus, LocusTerminal)
+	}
+	if spec.CaveatFamilyID != "" {
+		t.Fatalf("CaveatFamilyID = %q, want empty telemetry-only kind", spec.CaveatFamilyID)
+	}
+	for _, strict := range []bool{false, true} {
+		profile := ViolationProfileFor(ViolDiagramRelationLabelOnly, strict)
+		if profile.Severity != SeveritySoft || profile.RetryEligible {
+			t.Fatalf("strict=%v profile = %+v, want permanent SOFT with no retry", strict, profile)
+		}
+	}
+}
+
 // TestRegisterViolKind_RejectsInvalidSpec ensures bad specs panic
 // at registration time so a typo cannot ship.
 func TestRegisterViolKind_RejectsInvalidSpec(t *testing.T) {

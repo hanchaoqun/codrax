@@ -469,7 +469,11 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		// diagram edge label-vs-typed drift. Permanently SOFT
 		// (label inference is noisy; isStrict has no effect — the
 		// operator-promote path is intentionally a no-op).
-		ViolDiagramEdgeLabelMismatch:
+		// Diagram relation label-only is even weaker: the visible label
+		// already satisfies the contract, and the missing edge_anchors
+		// metadata is telemetry only.
+		ViolDiagramEdgeLabelMismatch,
+		ViolDiagramRelationLabelOnly:
 		return SeveritySoft
 	}
 	// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic
@@ -491,14 +495,6 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 	// promotes to Medium so an operator with high-confidence
 	// explorer pipelines can lift it into the retry loop.
 	if kind == ViolEnumerationEvidenceUnderspecified {
-		if isStrict {
-			return SeverityMedium
-		}
-		return SeveritySoft
-	}
-	// B3 v3 (2026-05-04) — diagram relation label-only advisory.
-	// SOFT-by-default; isStrict promotes to Medium.
-	if kind == ViolDiagramRelationLabelOnly {
 		if isStrict {
 			return SeverityMedium
 		}

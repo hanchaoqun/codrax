@@ -490,15 +490,15 @@ const (
 	// satisfied for some relation kind ONLY because label-inferred
 	// edges fill the gap (i.e. typed RelationKind on edge_anchors[]
 	// is below Min on its own; total typed + label-only counts
-	// reach Min). The contract is satisfied so the answer ships,
-	// but the validator emits a SOFT advisory encouraging the LLM
-	// to declare `relation_kind` directly on edge_anchors[] for the
-	// label-only edges so future readers see the typed authority.
+	// reach Min). The contract is satisfied, so this is telemetry
+	// only: the visible diagram label already carries the relation
+	// for readers, and missing edge_anchors metadata must not trigger
+	// a rewrite or a user-visible caveat.
 	//
-	// SOFT-by-default; promotable via pipeline_contract_strict_kinds
-	// when the operator wants typed declarations enforced. Stage =
-	// "finalize". Layer = "v2_oracle". B3 (v3 runtime consolidation,
-	// 2026-05-04).
+	// Permanently SOFT; not promotable via pipeline_contract_strict_kinds.
+	// Stage = "finalize". Layer = "v2_oracle". B3 (v3 runtime
+	// consolidation, 2026-05-04), intent-preservation update
+	// (2026-05-18).
 	ViolDiagramRelationLabelOnly ViolationKind = "diagram_relation_label_only"
 
 	// ViolEnumerationEvidenceUnderspecified fires when the user's

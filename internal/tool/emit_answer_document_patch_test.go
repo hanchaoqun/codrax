@@ -681,6 +681,40 @@ func TestEmitAnswerDocumentPatch_DiagramEdgeAnchorsPromotedToBlock(t *testing.T)
 	}
 }
 
+func TestEmitAnswerDocumentPatch_DiagramSingletonEdgeAnchorPromotedAndRepaired(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+		},
+	})
+	params := json.RawMessage(`{
+		"remove_block_ids": ["s1"],
+		"add_blocks": [{
+			"id": "d1",
+			"kind": "diagram",
+			"diagram": {
+				"kind": "sequence",
+				"language": "mermaid",
+				"body": "sequenceDiagram\nA->>B: hi",
+				"edge_anchors": {"fromNode":"A","toNode":"B","relationKind":"Call"}
+			}
+		}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must promote and repair singleton diagram.edge_anchors; got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Blocks[0].EdgeAnchors) != 1 {
+		t.Fatalf("promoted singleton edge anchor not persisted: %+v", doc)
+	}
+	if got := doc.Blocks[0].EdgeAnchors[0].RelationKind; got != types.DiagramRelCall {
+		t.Fatalf("relation_kind = %q, want call", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_RepairsAnnotationCamelCaseShape(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
@@ -717,6 +751,71 @@ func TestEmitAnswerDocumentPatch_RepairsAnnotationCamelCaseShape(t *testing.T) {
 		got[0].RelationKind != types.DiagramRelCall ||
 		got[0].ClaimForm != types.ClaimCallEdge {
 		t.Fatalf("edge_anchors not normalized: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_RepairsSingletonArrayShapes(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+		},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"add_blocks": [{
+			"id": "d1",
+			"kind": "diagram",
+			"diagram": {"kind": "sequence", "language": "mermaid", "body": "sequenceDiagram\nA->>B: hi"},
+			"items": {"id": "i1", "label": "A", "text": "entry"},
+			"columns": "Component",
+			"facet_ids": "current_code_path",
+			"claim_uses": {"claimForm": "definitionFact", "facetId": "current_code_path"},
+			"edge_anchors": {"fromNode": "A", "toNode": "B", "relationKind": "Call"}
+		}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must repair singleton array shapes; got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("repaired patch did not persist added block: %+v", doc)
+	}
+	added := doc.Blocks[1]
+	if len(added.Items) != 1 || len(added.Columns) != 1 ||
+		len(added.FacetIDs) != 1 || len(added.ClaimUses) != 1 ||
+		len(added.EdgeAnchors) != 1 {
+		t.Fatalf("singleton fields not repaired into arrays: %+v", added)
+	}
+	if added.ClaimUses[0].ClaimForm != types.ClaimDefinitionFact ||
+		added.EdgeAnchors[0].RelationKind != types.DiagramRelCall {
+		t.Fatalf("singleton annotation aliases not normalized: %+v / %+v", added.ClaimUses, added.EdgeAnchors)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_RepairsTopLevelSingletonArrayShapes(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+		},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": "s1",
+		"add_blocks": {"id": "extra", "kind": "summary", "text": "extra", "items": {"id": "c0", "citation_ref": 0}},
+		"append_citations": {"file": "a.go", "line": 1},
+		"replace_caveats": "bounded scope"
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must repair top-level singleton array shapes; got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Citations) != 1 || len(doc.Caveats) != 1 {
+		t.Fatalf("top-level singleton fields not repaired into arrays: %+v", doc)
 	}
 }
 

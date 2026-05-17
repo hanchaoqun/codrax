@@ -418,7 +418,8 @@ func validateDiagramRelationLegality(
 	// EdgeRelations.Min check can distinguish "typed satisfies the
 	// minimum" from "label-only inference saved the minimum". Typed
 	// counts are authoritative; label-only counts also fill the
-	// contract but trigger ViolDiagramRelationLabelOnly SOFT advisory.
+	// contract and only emit a telemetry-only
+	// ViolDiagramRelationLabelOnly advisory.
 	typedRelCounts := make(map[types.DiagramRelationKind]int)
 	labelRelCounts := make(map[types.DiagramRelationKind]int)
 	labelOnlyEdges := make(map[types.DiagramRelationKind][]labelOnlyEdge)
@@ -477,9 +478,10 @@ func validateDiagramRelationLegality(
 		//     failure mode this drop cures.
 		//
 		// The EdgeRelations.Min contract still fires
-		// ViolDiagramRelationLabelOnly (SOFT) when label inference fills
-		// the count, and diagram_edge_label_mismatch (SOFT) still
-		// surfaces typed-vs-label drift for operator visibility.
+		// ViolDiagramRelationLabelOnly (telemetry-only SOFT) when label
+		// inference fills the count, and diagram_edge_label_mismatch
+		// (SOFT) still surfaces typed-vs-label drift for operator
+		// visibility.
 		_ = rel
 	}
 
@@ -494,8 +496,9 @@ func validateDiagramRelationLegality(
 		case typedSatisfied:
 			// All Min met by typed declarations — clean pass.
 		case totalSatisfied:
-			// Label-only inference filled the gap. Emit SOFT advisory
-			// encouraging typed declaration on the label-only edges.
+			// Label-only inference filled the gap. Emit telemetry-only
+			// SOFT advisory for dashboards; the visible diagram is already
+			// valid and must not be rewritten solely to add metadata.
 			edges := labelOnlyEdges[contract.Kind]
 			edgeStrs := make([]string, 0, len(edges))
 			for _, e := range edges {

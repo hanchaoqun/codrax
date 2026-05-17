@@ -304,11 +304,11 @@ var composerExactFixSkipWhitelist = map[types.ViolationKind]string{
 	// the missing N − K count + the gap-filling guidance verbatim;
 	// composer fallback pairs.
 	types.ViolEnumerationEvidenceUnderspecified: "uses violation.Repair for fix prose",
-	// B3 v3 (2026-05-04) — diagram relation typed-first label-only
-	// advisory. SOFT-only; validator's Violation.Repair names the
-	// label-only edges + the typed declaration the LLM should add,
-	// so the generic composer fallback pairs naturally.
-	types.ViolDiagramRelationLabelOnly: "uses violation.Repair for fix prose",
+	// B3 v3 (2026-05-04), updated 2026-05-18 — diagram relation
+	// label-only metadata is telemetry-only. The visible label already
+	// satisfies the answer contract, so this kind must not drive an LLM
+	// repair prompt.
+	types.ViolDiagramRelationLabelOnly: "telemetry only — visible diagram relation already satisfied, no LLM repair",
 	// B2 v3 (2026-05-04) — three-layer quality contract.
 	// Validator Violation.Repair names the offending facet kind /
 	// block id with actionable language; composer fallback pairs.

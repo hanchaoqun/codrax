@@ -514,7 +514,7 @@ coherence 用到的 `coherenceTermSymbolMinConfidence = 0.7` / `coherenceSubject
 
 `gate.Run(ir, thresholds, mode)`：
 
-- **Hard**：`nil_ir` / `dag_closure` / `contract_complete` / `coverage` / `budget_sanity` / `hypothesis_coverage` / `subtopic_coherence` / `shape_subject_coherence` / `criterion_resolvable`。Coverage 加权（Symbol=1.0, Config=0.7, Concept=0.4），阈值由 `gate_coverage_*` / `gate_hypothesis_min_priority` 调节。
+- **Hard**：`nil_ir` / `dag_closure` / `contract_complete` / `coverage` / `budget_sanity` / `hypothesis_coverage` / `subtopic_coherence` 的精确信号分支 / `shape_subject_coherence` / `criterion_resolvable`。`subtopic_coherence` 中依赖多仓分面形态判断的 R1.3/R1.8 只能 advisory，不得因为 sub_topic 未重复仓名而硬拒。Coverage 加权（Symbol=1.0, Config=0.7, Concept=0.4），阈值由 `gate_coverage_*` / `gate_hypothesis_min_priority` 调节。
 - **Soft**：`pending_fields_wellformed` → warning，继续跑。
 - **Mode-aware**：写模式跳 hypothesis_coverage / contract_complete / subtopic_coherence / shape_subject_coherence——写流水线有自己的 criterion 套件（CritPlanReady / CritPatchApplies / CritTestsPass / CritNoRegression）替代读模式的多 sub-topic / shape 假设。否则"用 python 写一个猜数字游戏"这种从零起步的 plan 请求会因为没有可调查的代码实体导致所有 hypothesis priority 不够 → check fail → retry budget 烧光在凭空捏造假设上。
 

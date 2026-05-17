@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1071,6 +1072,69 @@ func TestRepairNestedArraysAsString_FacetIDsAndEdgeAnchorsAsString(t *testing.T)
 	}
 }
 
+func TestRepairNestedArraysAsString_SingletonArrayShapes(t *testing.T) {
+	raw := json.RawMessage(`{
+		"blocks": [{
+			"id": "d1",
+			"kind": "diagram",
+			"items": {"id":"i1","label":"A"},
+			"columns": "Component",
+			"facet_ids": "current_code_path",
+			"claim_uses": {"claimForm":"definitionFact","facetId":"current_code_path"},
+			"edge_anchors": "{\"fromNode\":\"A\",\"toNode\":\"B\",\"relationKind\":\"Call\"}"
+		}]
+	}`)
+	patched, paths, ok := repairNestedArraysAsString(raw)
+	if !ok {
+		t.Fatal("singleton object/string array-shape repair must fire")
+	}
+	for _, want := range []string{
+		"blocks[0].items",
+		"blocks[0].columns",
+		"blocks[0].facet_ids",
+		"blocks[0].claim_uses",
+		"blocks[0].edge_anchors",
+		"blocks[0].claim_uses[0].claimForm->claim_form",
+		"blocks[0].claim_uses[0].facetId->facet_id",
+		"blocks[0].edge_anchors[0].fromNode->from_node",
+		"blocks[0].edge_anchors[0].toNode->to_node",
+		"blocks[0].edge_anchors[0].relationKind->relation_kind",
+	} {
+		if !slices.Contains(paths, want) {
+			t.Fatalf("repair paths missing %q in %v; patched=%s", want, paths, patched)
+		}
+	}
+	if !strings.Contains(string(patched), `"facet_ids":["current_code_path"]`) ||
+		!strings.Contains(string(patched), `"columns":["Component"]`) ||
+		!strings.Contains(string(patched), `"items":[{`) ||
+		!strings.Contains(string(patched), `"claim_uses":[{`) ||
+		!strings.Contains(string(patched), `"edge_anchors":[{`) {
+		t.Fatalf("singleton array-shape fields not repaired: %s", patched)
+	}
+}
+
+func TestRepairStringWrappedArrayFields_TopLevelSingletonShapes(t *testing.T) {
+	raw := json.RawMessage(`{
+		"blocks": {"id":"s1","kind":"summary","text":"lead"},
+		"citations": {"file":"a.go","line":1},
+		"caveats": "bounded scope"
+	}`)
+	patched, paths, ok := repairStringWrappedArrayFields(raw)
+	if !ok {
+		t.Fatal("top-level singleton array-shape repair must fire")
+	}
+	for _, want := range []string{"blocks", "citations", "caveats"} {
+		if !slices.Contains(paths, want) {
+			t.Fatalf("repair paths missing %q in %v; patched=%s", want, paths, patched)
+		}
+	}
+	if !strings.Contains(string(patched), `"blocks":[{`) ||
+		!strings.Contains(string(patched), `"citations":[{`) ||
+		!strings.Contains(string(patched), `"caveats":["bounded scope"]`) {
+		t.Fatalf("top-level singleton fields not repaired: %s", patched)
+	}
+}
+
 func TestRepairNestedArraysAsString_DiagramObjectAsString(t *testing.T) {
 	raw := json.RawMessage(`{
 		"blocks": [
@@ -1150,6 +1214,65 @@ func TestEmitAnswerDocumentV2_RepairsAnnotationCamelCaseShape(t *testing.T) {
 		got[0].RelationKind != types.DiagramRelCall ||
 		got[0].ClaimForm != types.ClaimCallEdge {
 		t.Fatalf("edge_anchors not normalized: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentV2_RepairsSingletonArrayShapes(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [{
+			"id": "d1",
+			"kind": "diagram",
+			"diagram": {"kind": "sequence", "language": "mermaid", "body": "sequenceDiagram\nA->>B: hi"},
+			"items": {"id": "i1", "label": "A", "text": "entry"},
+			"columns": "Component",
+			"facet_ids": "current_code_path",
+			"claim_uses": {"claimForm": "definitionFact", "facetId": "current_code_path"},
+			"edge_anchors": {"fromNode": "A", "toNode": "B", "relationKind": "Call"}
+		}]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("singleton array shapes should be repaired; got %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 {
+		t.Fatalf("expected persisted doc, got %+v", doc)
+	}
+	got := doc.Blocks[0]
+	if len(got.Items) != 1 || len(got.Columns) != 1 ||
+		len(got.FacetIDs) != 1 || len(got.ClaimUses) != 1 ||
+		len(got.EdgeAnchors) != 1 {
+		t.Fatalf("singleton fields not repaired into arrays: %+v", got)
+	}
+	if got.ClaimUses[0].ClaimForm != types.ClaimDefinitionFact ||
+		got.EdgeAnchors[0].RelationKind != types.DiagramRelCall {
+		t.Fatalf("singleton annotation aliases not normalized: %+v / %+v", got.ClaimUses, got.EdgeAnchors)
+	}
+}
+
+func TestEmitAnswerDocumentV2_RepairsTopLevelSingletonArrayShapes(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": {"id": "s1", "kind": "summary", "text": "lead", "items": {"id": "c0", "citation_ref": 0}},
+		"citations": {"file": "a.go", "line": 1},
+		"caveats": "bounded scope"
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("top-level singleton array shapes should be repaired; got %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || len(doc.Citations) != 1 || len(doc.Caveats) != 1 {
+		t.Fatalf("top-level singleton fields not persisted as arrays: %+v", doc)
 	}
 }
 

@@ -1776,6 +1776,12 @@ func BuildAnswerSurfacePlan(
 		answerChains,
 		plan.SurfaceEvidence,
 	)
+	supported = augmentSupportedDiagramKindsForRequiredDiagram(
+		supported,
+		ir.AnswerContract.Diagram,
+		ir.RequestModel,
+		plan.SurfaceEvidence,
+	)
 	plan.Diagram = EffectiveDiagramContract(ir.AnswerContract.Diagram, supported)
 	plan.DiagramHardRequirementDropped = ir.AnswerContract.Diagram != nil &&
 		ir.AnswerContract.Diagram.Required &&

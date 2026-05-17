@@ -2405,22 +2405,22 @@ func docWithDiagramBody(body string, edgeAnchors ...types.DiagramEdgeAnchor) *ty
 // is recognised by InferRelationFromLabel is treated as self-anchored
 // — the label IS the typed declaration. Per-edge HARD reject was the
 // largest remaining diagram-block retry source on architecture / call-
-// chain answers, so the validator only fires SOFT
-// ViolDiagramRelationLabelOnly to advise typed declarations on the
-// label-only edges; the EdgeRelations.Min contract is satisfied via
-// label inference.
+// chain answers, so the validator only fires telemetry-only SOFT
+// ViolDiagramRelationLabelOnly; the EdgeRelations.Min contract is
+// satisfied via label inference.
 func TestValidateDiagramEdgeSupport_LabelledEdgePassesViaLabelInference(t *testing.T) {
 	view := callChainViewWithDiagram()
 	doc := docWithDiagramBody("sequenceDiagram\n  Auth->>Worker: invoke\n")
 	vs := validateDiagramEdgeSupport(doc, view)
-	// One SOFT advisory expected; no HARD ViolDiagramEdgeUnsupported.
+	// One telemetry-only SOFT advisory expected; no HARD
+	// ViolDiagramEdgeUnsupported.
 	for _, v := range vs {
 		if v.Kind == types.ViolDiagramEdgeUnsupported {
 			t.Errorf("HARD ViolDiagramEdgeUnsupported must not fire when the label vocabulary already types the relation; got %+v", v)
 		}
 	}
 	if len(vs) == 0 {
-		t.Fatal("expected SOFT ViolDiagramRelationLabelOnly advisory")
+		t.Fatal("expected telemetry-only SOFT ViolDiagramRelationLabelOnly advisory")
 	}
 	if vs[0].Kind != types.ViolDiagramRelationLabelOnly {
 		t.Errorf("kind = %q, want ViolDiagramRelationLabelOnly", vs[0].Kind)
@@ -2433,7 +2433,7 @@ func TestValidateDiagramEdgeSupport_LabelledEdgePassesViaLabelInference(t *testi
 // ClaimForm to count as typed-first. RelationKind is what the v3
 // validator reads to fill EdgeRelations.Min via typed declarations;
 // without it the contract is satisfied via label-only inference and
-// the SOFT advisory ViolDiagramRelationLabelOnly fires.
+// the telemetry-only SOFT advisory ViolDiagramRelationLabelOnly fires.
 func TestValidateDiagramEdgeSupport_LabelledEdgeWithAnchoredClaimUsePasses(t *testing.T) {
 	view := callChainViewWithDiagram()
 	doc := docWithDiagramBody(
@@ -2732,6 +2732,29 @@ func TestViolDiagramEdgeLabelMismatch_PermanentlySoft(t *testing.T) {
 		got := types.DeriveSeverity(types.ViolDiagramEdgeLabelMismatch, isStrict)
 		if got != types.SeveritySoft {
 			t.Errorf("isStrict=%v: DeriveSeverity = %v, want SeveritySoft (permanent SOFT, R3 noisy-signal red line)", isStrict, got)
+		}
+	}
+}
+
+// Batch H: relation label-only is also permanently telemetry-only.
+// A Mermaid edge label that clearly says "invoke" already preserves
+// the user's visible diagram; missing edge_anchors metadata must not
+// become an operator-promoted finalizer rewrite.
+func TestViolDiagramRelationLabelOnly_PermanentlyTelemetryOnly(t *testing.T) {
+	spec, ok := types.ViolKindSpecFor(types.ViolDiagramRelationLabelOnly)
+	if !ok {
+		t.Fatal("ViolDiagramRelationLabelOnly must have a registry spec")
+	}
+	if spec.CaveatFamilyID != "" {
+		t.Fatalf("CaveatFamilyID = %q, want empty telemetry-only kind", spec.CaveatFamilyID)
+	}
+	if spec.FallbackLocus != types.LocusTerminal {
+		t.Fatalf("FallbackLocus = %q, want terminal", spec.FallbackLocus)
+	}
+	for _, isStrict := range []bool{false, true} {
+		profile := types.ViolationProfileFor(types.ViolDiagramRelationLabelOnly, isStrict)
+		if profile.Severity != types.SeveritySoft || profile.RetryEligible {
+			t.Errorf("isStrict=%v: profile = %+v, want permanent SOFT with no retry", isStrict, profile)
 		}
 	}
 }

@@ -40,15 +40,16 @@ package types
 //     telemetry / dashboards / commit messages — NEVER rendered to LLM
 //     prompts (R4 red line).
 //   - DefaultSeverity drives ViolationProfileFor().Severity. Promotion
-//     via pipeline_contract_strict_kinds yaml bumps Soft → Medium
-//     uniformly (matches existing isStrict path in DeriveSeverity).
+//     via pipeline_contract_strict_kinds yaml bumps Soft → Medium for
+//     Promotable=true kinds (matches existing isStrict path in
+//     DeriveSeverity).
 //   - SoftByDefault drives membership in defaultSoftKinds(). The two
 //     fields are independent: a kind may be Severity=Medium and also
 //     SoftByDefault=true (existing pattern for ViolFacetUncovered:
 //     Severity Medium per R14 but in the soft map per Phase-4 default).
 //   - Promotable=false means operator yaml CANNOT promote this kind to
-//     STRICT. Currently the only such kind is ViolDiagramEdgeLabelMismatch
-//     (label inference is permanently noisy per R3). Honoured by
+//     STRICT. Used for permanently noisy or telemetry-only signals such
+//     as diagram label inference and frequency bridges. Honoured by
 //     SetSoftViolationKinds.
 //   - FallbackLocus drives DefaultFallbackPolicy(); the policy map then
 //     derives FallbackTarget via targetForLocus.
@@ -763,13 +764,14 @@ func init() {
 	})
 
 	// ── B3 v3 (2026-05-04) — diagram relation typed-first ──
-	// SOFT-by-default; promotable. Encourages typed relation_kind
-	// declaration when label-only inference would fill the contract
-	// minimum.
+	// 2026-05-18 intent-preservation update: label-only inference is
+	// sufficient for readers and for the contract. Missing edge_anchors
+	// metadata is telemetry, not a reason to rewrite or surface a user
+	// caveat.
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramRelationLabelOnly, DefaultSeverity: SeveritySoft,
-		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
+		SoftByDefault: true, Promotable: false, FallbackLocus: LocusTerminal,
+		Layer: "v2_oracle",
 	})
 
 	// ── B2 v3 (2026-05-04) — three-layer quality contract ──

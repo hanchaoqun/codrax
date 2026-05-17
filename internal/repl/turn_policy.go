@@ -60,8 +60,9 @@ const (
 	// came from the previous answer or the user's framing. RouteRepo
 	// may also carry presentation_directive when the current fresh
 	// investigation itself asks for a specific view. In both cases
-	// the dispatcher carries presentation_directive into the pipeline
-	// request body; the finalizer's user-preference channel renders it.
+	// the dispatcher carries presentation_directive as typed pipeline
+	// metadata; the prompt builder renders it separately from the user
+	// request body.
 	RouteHybrid TurnRoute = "hybrid"
 
 	// RouteClarify — the user's message references state that
@@ -159,7 +160,7 @@ var turnPolicyTool = llm.ToolSchema{
     },
     "presentation_directive": {
       "type": "string",
-      "description": "Optional. Free-form directive describing the desired final-answer form ('mermaid', 'markdown table', 'brief 3-bullet summary', 'logic flow diagram'). Echoed verbatim into the local responder's system prompt when local, or prepended to the pipeline request body when repo/hybrid. Omit when not applicable."
+      "description": "Optional. Free-form directive describing the desired final-answer form ('mermaid', 'markdown table', 'brief 3-bullet summary', 'logic flow diagram'). Echoed verbatim into the local responder's system prompt when local, or carried as typed pipeline metadata when repo/hybrid. It must not be prepended to or rewrite the user request body. Omit when not applicable."
     }
   },
   "required": ["route", "needs_repo_access", "operation", "source", "confidence", "reason"]
@@ -230,10 +231,11 @@ repo because the cost of being wrong is higher for local / hybrid
 (merely wastes cycles re-reading).
 
 presentation_directive: free-form text echoed verbatim into the
-local responder's system prompt (when route=local) OR prepended to
-the pipeline request (when route=repo/hybrid). Use it for any
+local responder's system prompt (when route=local) OR carried as
+typed pipeline metadata (when route=repo/hybrid). Use it for any
 current-turn display request, including fresh investigations that ask
-for a logic view / table / diagram. Examples:
+for a logic view / table / diagram. Do NOT rewrite or prepend the
+user request with this directive. Examples:
   "mermaid sequence diagram"
   "markdown table with columns: file, function, behaviour"
   "brief 3-bullet summary"
@@ -517,36 +519,25 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 }
 
 // composeEffectiveRequest assembles the runner-bound request from
-// (a) the optional prior-conversation block from BuildContext, (b)
-// the user's current-turn presentation directive (route=repo/hybrid),
-// and (c) the user's original request line. Sections render in fixed
-// order so SplitConversation keeps all current-turn requirements under
-// "## Current request"; otherwise the directive is misclassified as
-// prior conversation before the analyzer sees it. With no directive,
-// the legacy "## Prior conversation / ## Current request" shape is
-// preserved.
+// (a) the optional prior-conversation block from BuildContext and
+// (b) the user's original request line. Presentation directives are
+// carried out-of-band via presentationDirectiveSetter; they must not
+// be concatenated into the objective because the objective feeds the
+// UI status line, repo_map task maps, and memory.
 //
 // This helper is the SINGLE site that synthesises the effective
 // request; callers no longer mutate `line` directly. The sole
 // caller is dispatch(); test code reaches it via that path.
-func composeEffectiveRequest(directive, prior, line string) string {
-	d := strings.TrimSpace(directive)
+func composeEffectiveRequest(prior, line string) string {
 	p := strings.TrimSpace(prior)
-	if d == "" && p == "" {
+	if p == "" {
 		return line
 	}
 	var b strings.Builder
-	if p != "" {
-		b.WriteString("## Prior conversation\n")
-		b.WriteString(p)
-		b.WriteString("\n\n")
-	}
+	b.WriteString("## Prior conversation\n")
+	b.WriteString(p)
+	b.WriteString("\n\n")
 	b.WriteString("## Current request\n")
-	if d != "" {
-		b.WriteString("## Presentation directive (apply to final answer)\n")
-		b.WriteString(d)
-		b.WriteString("\n\n")
-	}
 	b.WriteString(line)
 	return b.String()
 }
@@ -689,15 +680,12 @@ func clipForLog(s string, n int) string {
 }
 
 // hybridRequestPrefix is a thin wrapper retained so external test
-// fixtures continue to compile after composeEffectiveRequest became
-// the single producer of the effective-request string. New callers
-// should use composeEffectiveRequest directly so the prior-
-// conversation block can also be folded in atomically — the wire
-// format is the SAME (directive header → optional prior → request
-// section) so a test that locks the wrapper format also locks the
-// real production output.
+// fixtures continue to compile after presentation directives moved to
+// typed runner metadata. It intentionally does NOT embed directive in
+// the request body.
 func hybridRequestPrefix(directive, request string) string {
-	return composeEffectiveRequest(directive, "", request)
+	_ = directive
+	return composeEffectiveRequest("", request)
 }
 
 // localRouteSummary returns the (label, segments) pair the renderer

@@ -216,6 +216,34 @@ func TestSubtopicCoherence_R1_3_EntityOrphan_OverlapPasses(t *testing.T) {
 	}
 }
 
+func TestSubtopicCoherence_R1_3_MultiScopeFacetDecompositionIsAdvisory(t *testing.T) {
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCrossComponent: true},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"codrax", "opencode"},
+			PrimaryScopes:   []string{"codrax", "opencode"},
+		},
+		SubTopics: []types.SubTopic{
+			{
+				Summary:  "codrax grounding and contract checks",
+				Entities: []string{"ground.go", "claim_citation.go", "contract_check.go"},
+			},
+			{
+				Summary:  "opencode read path",
+				Entities: []string{"read.ts", "agent.ts"},
+			},
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	check := checkSubtopicCoherence(ir, nil)
+	if !check.Passed {
+		t.Fatalf("R1.3 must be advisory for multi-scope facet/file decompositions; got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "R1.3 entity_orphan (advisory)") {
+		t.Fatalf("detail should preserve R1.3 advisory telemetry; got %q", check.Detail)
+	}
+}
+
 // ── R1.5 entity_unresolvable ──────────────────────────────────────
 
 func TestSubtopicCoherence_R1_5_AllEntitiesUnresolved_Fails(t *testing.T) {

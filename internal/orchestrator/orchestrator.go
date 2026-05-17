@@ -53,6 +53,11 @@ type Orchestrator struct {
 	blobSessionDir  string                   // persistent per-process blob dir; empty = tmpdir fallback
 	attachedLog     string                   // runtime log excerpt attached via --log / /log
 	attachedHitrace string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
+	// presentationDirective is a per-run typed display requirement
+	// from the REPL turn policy. It is intentionally not concatenated
+	// into the objective string, because the objective feeds status
+	// lines, repo_map task-map queries, and memory.
+	presentationDirective string
 
 	// outputDumpDir is the absolute directory final-answer markdown
 	// transcripts are written into. Empty string disables the dump
@@ -824,6 +829,14 @@ func (o *Orchestrator) AttachedHitrace() string {
 	return o.attachedHitrace
 }
 
+// SetPresentationDirective installs the current turn's typed display
+// requirement for the next Run. Unlike /log and /htrace this is not
+// sticky: Run consumes and clears it at entry, and REPL dispatch calls
+// the setter with "" on turns without a directive.
+func (o *Orchestrator) SetPresentationDirective(directive string) {
+	o.presentationDirective = strings.TrimSpace(directive)
+}
+
 // SetMode installs the pipeline mode for subsequent Run() calls. Any
 // invalid value (not one of ModeRead / ModePlan / ModeApply /
 // ModeVerify and not empty) is still stored verbatim — SetMode does
@@ -1497,6 +1510,8 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.phaseContextPrefix = ""
 	o.nextPhaseHint = ""
 	o.continuationClassification = nil
+	presentationDirective := strings.TrimSpace(o.presentationDirective)
+	o.presentationDirective = ""
 
 	// Wall-clock deadline for write-mode Runs. The timer fires at
 	// most once per Run; the AfterFunc closure cancels the token
@@ -1547,9 +1562,10 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// preserves the original so the worktree-cleanup defer can
 		// run `git worktree prune` against the canonical repo.
 		// Read-mode Runs see MainRepoRoot == RepoRoot throughout.
-		MainRepoRoot: repoRoot,
-		Branch:       branch,
-		TraceID:      fmt.Sprintf("trace-%d", time.Now().UnixNano()),
+		MainRepoRoot:          repoRoot,
+		Branch:                branch,
+		TraceID:               fmt.Sprintf("trace-%d", time.Now().UnixNano()),
+		PresentationDirective: presentationDirective,
 		// Mode normalization turns zero-value ("") into ModeRead so
 		// downstream switch equality is exact. The L1 red line
 		// depends on this — a caller who never invokes SetMode

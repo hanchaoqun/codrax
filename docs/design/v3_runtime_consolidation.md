@@ -364,7 +364,7 @@ for each EdgeRelations contract (kind, min):
     if typedRelCounts[kind] >= min:
         // pass clean
     elif typedRelCounts[kind] + labelRelCounts[kind] >= min:
-        // pass + emit ViolDiagramRelationLabelOnly (new SOFT, Promotable)
+        // pass + emit ViolDiagramRelationLabelOnly (SOFT telemetry only)
     else:
         // existing HARD ViolDiagramEdgeUnsupported
 ```
@@ -376,9 +376,14 @@ edges with the contract's keyword didn't help.
 ### New ViolKind
 `ViolDiagramRelationLabelOnly` registry spec:
 ```
-Severity=Soft, SoftByDefault=true, Promotable=true,
-FallbackLocus=LocusFinalizer, Layer="v2_oracle"
+Severity=Soft, SoftByDefault=true, Promotable=false,
+FallbackLocus=LocusTerminal, Layer="v2_oracle", CaveatFamilyID=""
 ```
+
+2026-05-18 intent-preservation update: visible Mermaid labels that
+infer a relation already satisfy the user-facing diagram contract.
+Missing `edge_anchors` typed metadata is observable telemetry, not a
+reason to rewrite the answer or emit a user-visible caveat.
 
 ### Skill prompt SST
 New file `internal/skill/diagram_relation_doc.go`:

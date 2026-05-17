@@ -97,17 +97,26 @@ func (s *stubLocalResponder) RespondLocal(_ context.Context, userLine, prior, la
 }
 
 // requestCapturingRunner is a Runner that records every Run() call's
-// request string AND counts attached-log/SetMode invocations the
-// dispatch path forwards. Used by the hybrid-route test to assert
-// the directive prefix reaches Run() verbatim.
+// request string and the typed presentation directive visible at Run
+// entry. The directive must stay out of the request body while still
+// reaching the orchestrator-equivalent setter.
 type requestCapturingRunner struct {
 	logAwareRunner
-	requests []string
+	requests          []string
+	directiveSetCalls []string
+	seenDirectives    []string
+	curDirective      string
 }
 
 func (r *requestCapturingRunner) Run(req, repo, branch string) (*types.BusContext, error) {
 	r.requests = append(r.requests, req)
+	r.seenDirectives = append(r.seenDirectives, r.curDirective)
 	return r.logAwareRunner.Run(req, repo, branch)
+}
+
+func (r *requestCapturingRunner) SetPresentationDirective(directive string) {
+	r.directiveSetCalls = append(r.directiveSetCalls, directive)
+	r.curDirective = directive
 }
 
 // seedPriorAnswer appends a recent pipeline turn to the store so
@@ -665,6 +674,10 @@ func TestTurnPolicyDispatch_RepoRouteEntersPipeline(t *testing.T) {
 	if strings.Contains(runner.requests[0], "Presentation directive") {
 		t.Errorf("repo route without directive must not carry a presentation directive prefix; got %q", runner.requests[0])
 	}
+	if len(runner.seenDirectives) != 1 || runner.seenDirectives[0] != "" {
+		t.Errorf("repo route without directive must clear typed presentation metadata; seen=%q setCalls=%q",
+			runner.seenDirectives, runner.directiveSetCalls)
+	}
 }
 
 func TestTurnPolicyDispatch_RepoRouteCarriesCurrentPresentationDirective(t *testing.T) {
@@ -691,11 +704,14 @@ func TestTurnPolicyDispatch_RepoRouteCarriesCurrentPresentationDirective(t *test
 		t.Fatalf("runner.Run: got %d, want 1", len(runner.requests))
 	}
 	req := runner.requests[0]
-	if !strings.Contains(req, "## Presentation directive (apply to final answer)") {
-		t.Fatalf("repo request with typed presentation directive must carry directive header; got %q", req)
+	if strings.Contains(req, "Presentation directive") ||
+		strings.Contains(req, "logic flow diagram showing anti-hallucination mechanisms") {
+		t.Fatalf("repo request must not be polluted by typed presentation metadata; got %q", req)
 	}
-	if !strings.Contains(req, "logic flow diagram showing anti-hallucination mechanisms") {
-		t.Fatalf("repo request lost presentation directive; got %q", req)
+	if len(runner.seenDirectives) != 1 ||
+		runner.seenDirectives[0] != "logic flow diagram showing anti-hallucination mechanisms" {
+		t.Fatalf("repo directive not delivered through typed setter: seen=%q setCalls=%q",
+			runner.seenDirectives, runner.directiveSetCalls)
 	}
 	if !strings.Contains(req, "输出各自的逻辑视图") {
 		t.Fatalf("repo request must preserve original user wording; got %q", req)
@@ -706,9 +722,9 @@ func TestTurnPolicyDispatch_RepoRouteCarriesCurrentPresentationDirective(t *test
 }
 
 // TestTurnPolicyDispatch_HybridCarriesDirectiveIntoPipeline is the
-// route=hybrid contract: pipeline runs AND the directive prefix
-// reaches the runner so the finalizer can render the requested
-// shape.
+// route=hybrid contract: pipeline runs AND the typed directive
+// reaches the runner so the finalizer can render the requested shape,
+// without polluting the user-authored objective string.
 func TestTurnPolicyDispatch_HybridCarriesDirectiveIntoPipeline(t *testing.T) {
 	store := newPolicyStore(t)
 	seedPriorAnswer(t, store, "原流程", "原流程的描述。")
@@ -734,11 +750,12 @@ func TestTurnPolicyDispatch_HybridCarriesDirectiveIntoPipeline(t *testing.T) {
 		t.Fatalf("runner.Run: got %d, want 1", len(runner.requests))
 	}
 	req := runner.requests[0]
-	if !strings.Contains(req, "## Presentation directive (apply to final answer)") {
-		t.Errorf("hybrid request must carry directive header; got %q", req)
+	if strings.Contains(req, "Presentation directive") || strings.Contains(req, "mermaid 流程图") {
+		t.Errorf("hybrid request must not embed typed directive text; got %q", req)
 	}
-	if !strings.Contains(req, "mermaid 流程图") {
-		t.Errorf("hybrid request must embed directive text; got %q", req)
+	if len(runner.seenDirectives) != 1 || runner.seenDirectives[0] != "mermaid 流程图" {
+		t.Fatalf("hybrid directive not delivered through typed setter: seen=%q setCalls=%q",
+			runner.seenDirectives, runner.directiveSetCalls)
 	}
 	if !strings.Contains(req, "重新读仓库确认有没有 IO 分析") {
 		t.Errorf("hybrid request must preserve original user intent; got %q", req)
@@ -1049,55 +1066,46 @@ func TestTurnPolicyDispatch_LegacyClassifierUsesBinaryPath(t *testing.T) {
 // ─── Layer 5: helpers ─────────────────────────────────────────
 
 // TestComposeEffectiveRequest locks the wire format for the
-// prior-conversation block + current-turn directive + user request
-// assembly. The pipeline splits conversation by header name, so the
-// directive must remain inside the Current request section instead of
-// being misfiled as prior conversation.
+// prior-conversation block + user request assembly. Presentation
+// directives are carried through typed runner metadata and must not
+// appear in this string.
 func TestComposeEffectiveRequest(t *testing.T) {
-	// Directive only.
-	got := composeEffectiveRequest("mermaid 流程图", "", "重新读仓库确认有没有 IO 分析")
-	if !strings.HasPrefix(got, "## Current request\n## Presentation directive (apply to final answer)\n") {
-		t.Errorf("missing directive header: %q", got)
-	}
-	if !strings.Contains(got, "重新读仓库确认有没有 IO 分析") {
-		t.Errorf("missing user request body: %q", got)
-	}
-	if prior, current := types.SplitConversation(got); strings.Contains(prior, "Presentation directive") || !strings.Contains(current, "Presentation directive") {
-		t.Errorf("directive must be parsed as current request; prior=%q current=%q", prior, current)
+	// No prior conversation: raw request is preserved byte-for-byte.
+	got := composeEffectiveRequest("", "重新读仓库确认有没有 IO 分析")
+	if got != "重新读仓库确认有没有 IO 分析" {
+		t.Errorf("no-prior request should pass through; got %q", got)
 	}
 
-	// Directive + prior conversation interleave.
-	combo := composeEffectiveRequest("mermaid", "(recent: turn-1)", "second turn")
-	if !strings.Contains(combo, "## Presentation directive") {
-		t.Errorf("combo missing directive: %q", combo)
-	}
+	// Prior conversation stays separated from the current request.
+	combo := composeEffectiveRequest("(recent: turn-1)", "second turn")
 	if !strings.Contains(combo, "## Prior conversation\n(recent: turn-1)") {
 		t.Errorf("combo missing prior block: %q", combo)
 	}
-	if !strings.Contains(combo, "## Current request\n## Presentation directive (apply to final answer)\nmermaid\n\nsecond turn") {
+	if !strings.Contains(combo, "## Current request\nsecond turn") {
 		t.Errorf("combo missing current request: %q", combo)
 	}
-	if prior, current := types.SplitConversation(combo); strings.Contains(prior, "Presentation directive") || !strings.Contains(current, "Presentation directive") {
-		t.Errorf("combo directive must be parsed as current request; prior=%q current=%q", prior, current)
+	if strings.Contains(combo, "Presentation directive") {
+		t.Errorf("combo must not contain presentation directive header: %q", combo)
 	}
-	// Section ordering: prior must precede current; directive lives inside current.
-	dpos := strings.Index(combo, "## Presentation directive")
+	if prior, current := types.SplitConversation(combo); strings.Contains(prior, "second turn") || current != "second turn" {
+		t.Errorf("conversation split wrong; prior=%q current=%q", prior, current)
+	}
+	// Section ordering: prior must precede current.
 	ppos := strings.Index(combo, "## Prior conversation")
 	cpos := strings.Index(combo, "## Current request")
-	if !(ppos < cpos && cpos < dpos) {
-		t.Errorf("section ordering wrong: directive=%d prior=%d current=%d", dpos, ppos, cpos)
+	if !(ppos < cpos) {
+		t.Errorf("section ordering wrong: prior=%d current=%d", ppos, cpos)
 	}
 
-	// Empty directive AND empty prior must round-trip the request
-	// verbatim (legacy "no decoration" behaviour preserved).
-	if got := composeEffectiveRequest("   ", "  ", "raw"); got != "raw" {
-		t.Errorf("empty directive+prior must pass-through; got %q", got)
+	// Empty prior must round-trip the request verbatim.
+	if got := composeEffectiveRequest("  ", "raw"); got != "raw" {
+		t.Errorf("empty prior must pass-through; got %q", got)
 	}
 
-	// hybridRequestPrefix wrapper still works for callers that
-	// only care about the directive (no prior).
-	if got := hybridRequestPrefix("brief", "show me"); !strings.Contains(got, "## Presentation directive") {
-		t.Errorf("hybridRequestPrefix wrapper broken: %q", got)
+	// hybridRequestPrefix wrapper remains source-compatible but no
+	// longer embeds the directive.
+	if got := hybridRequestPrefix("brief", "show me"); got != "show me" {
+		t.Errorf("hybridRequestPrefix should not embed directive; got %q", got)
 	}
 }
 

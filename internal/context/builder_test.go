@@ -2050,6 +2050,32 @@ func TestBuildPromptContext_PriorConvHiddenFlag(t *testing.T) {
 	}
 }
 
+func TestBuildPromptContext_PresentationDirectiveIsTypedMetadata(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:               types.NewMutableState("读取代码，对比 codrax 和 opencode"),
+		PresentationDirective: "输出各自的逻辑视图",
+	}
+	ac := BuildAgentContext(bus, types.AgentAnalyzer, types.StageAnalyze)
+	pc := BuildPromptContext(ac, &skill.Config{Name: "analysis-skill"})
+
+	userReq := findSectionTitle(pc, SectionUserRequest)
+	if userReq == nil {
+		t.Fatal("missing User Request section")
+	}
+	if strings.Contains(userReq.Content, "Presentation Directive") ||
+		strings.Contains(userReq.Content, "输出各自的逻辑视图") {
+		t.Fatalf("presentation directive must not pollute User Request: %q", userReq.Content)
+	}
+	sec := findSectionTitle(pc, SectionPresentationDirective)
+	if sec == nil {
+		t.Fatal("missing Presentation Directive section")
+	}
+	if !strings.Contains(sec.Content, "输出各自的逻辑视图") ||
+		!strings.Contains(sec.Content, "Do NOT treat it as repository code") {
+		t.Fatalf("presentation directive section missing guardrails/content: %q", sec.Content)
+	}
+}
+
 // TestExtractRelevantFacts_TrimsGrepPathListBody pins session-8
 // Fix δ (trace 1776450670620195562): the Known Facts section used
 // to quote each grep tool result's Summary verbatim, and because

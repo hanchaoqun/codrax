@@ -96,6 +96,16 @@ type attachedHitraceGetter interface {
 	AttachedHitrace() string
 }
 
+// presentationDirectiveSetter is the typed current-turn display
+// requirement channel. It deliberately stays out of the runner
+// request string: the request string is user-authored objective text
+// and feeds status lines, repo_map task maps, and memory. Real
+// orchestrators copy this into BusContext.PresentationDirective so
+// prompt construction can render it as scoped presentation metadata.
+type presentationDirectiveSetter interface {
+	SetPresentationDirective(string)
+}
+
 // modeSetter is the optional capability the REPL probes on its
 // Runner to propagate the current pipeline Mode before dispatch.
 // Real orchestrators implement SetMode; test stubs that omit it
@@ -1753,7 +1763,7 @@ func (r *REPL) dispatch(line, display string) {
 	// attached log correctly routes to chitchat (chitchat doesn't
 	// consume the attachment).
 	// presentationDirective carries a typed current-turn display
-	// request into the runner-bound effective request below. It can
+	// request into the runner via SetPresentationDirective. It can
 	// come from route=hybrid (fresh repo + previous-answer transform)
 	// or route=repo (fresh repo question whose own wording asks for a
 	// specific view such as a diagram/table). Critical invariant:
@@ -1762,8 +1772,7 @@ func (r *REPL) dispatch(line, display string) {
 	// at the end of dispatch persists `line` into memory verbatim.
 	// Mutating line would inject "## Presentation directive ..."
 	// headers into BuildContext on every subsequent turn (#6). The
-	// directive instead rides on the separate effective-request
-	// channel.
+	// directive instead rides on a separate typed metadata channel.
 	presentationDirective := ""
 	hasAttach := r.attachedLog != "" || r.attachedHitrace != "" ||
 		r.attachedLogAutoRouted
@@ -1850,12 +1859,19 @@ func (r *REPL) dispatch(line, display string) {
 		Kind:      memory.KindPipeline,
 		SessionID: r.sessionID,
 	})
-	// Effective request = optional directive header + optional
-	// prior-conversation block + ORIGINAL line. `line` itself is
-	// untouched so recordTurn below stores user-authentic text.
-	effective := composeEffectiveRequest(presentationDirective, prior, line)
+	// Effective request = optional prior-conversation block + ORIGINAL line.
+	// The presentation directive is propagated out-of-band below so status
+	// lines, repo_map task maps, and memory stay user-authentic.
+	effective := composeEffectiveRequest(prior, line)
 
 	logging.Info("[repl] dispatching request: %s", oneLine(line))
+
+	// Propagate the typed current-turn display directive. Always call the
+	// setter, including with "", so a reused orchestrator cannot leak a
+	// previous turn's diagram/table preference into the next request.
+	if setter, ok := r.runner.(presentationDirectiveSetter); ok {
+		setter.SetPresentationDirective(presentationDirective)
+	}
 
 	// Propagate sticky attached-log to the runner. Runners without
 	// SetAttachedLog simply skip this step (tests).
