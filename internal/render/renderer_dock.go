@@ -963,7 +963,28 @@ func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
 	}
 	focus := r.focusRow()
 	localKey := r.localStagePresentationKeyLocked()
-	if localKey != "" && r.localStageOverridesFocusLocked(focus, localKey) {
+	if key, label, parallelFocus := r.parallelStagePresentationLocked(focus, localKey); key != "" {
+		r.applyDockStagePresentationLocked(&state, key, label)
+		// Parallel dispatch is an active stage owner, not a stale
+		// repair/fallback row. Keep its visible K/N on the stage it
+		// actually belongs to so exploration cannot read as extract's
+		// 3/4 while fan-out workers are still running.
+		if progress := progressForStageKey(key, normalizedTotalStages(r.totalStages)); progress != "" {
+			state.stageProgress = progress
+		}
+		if parallelFocus != nil {
+			state.topicProgress = r.topicProgressFor(parallelFocus, r.lang)
+			state.iteration = parallelFocus.iteration
+			state.toolCount = parallelFocus.toolCount
+			if !parallelFocus.startTime.IsZero() {
+				start := parallelFocus.startTime
+				if !parallelFocus.detailStart.IsZero() && parallelFocus.detailStart.After(start) {
+					start = parallelFocus.detailStart
+				}
+				state.stageElapsed = truncDurationToString(now.Sub(start))
+			}
+		}
+	} else if localKey != "" && r.localStageOverridesFocusLocked(focus, localKey) {
 		r.applyDockStagePresentationLocked(&state, localKey, syntheticStageLabelForKey(localKey, r.lang, r.activity.kind))
 	} else if focus != nil {
 		key := stageKeyFor(focus)
@@ -1162,6 +1183,49 @@ func syntheticStageLabelForKey(key, lang string, activity activityKind) string {
 		state = stagePhraseRunning
 	}
 	return stagePhrase(key, lang, state)
+}
+
+// parallelStagePresentationLocked returns the stage surface that owns
+// an active bounded fan-out. This is intentionally stronger than the
+// ordinary focus/local/fallback ordering: while explore parallelism is
+// still in flight, a pending extract/finalize row or high-water repair
+// cursor must not make the live dock look like a sequential downstream
+// stage. Later typed stage events still clear stale parallel telemetry
+// via clearParallelIfStageKeyOutsideLocked.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) parallelStagePresentationLocked(focus *taskRow, localKey string) (string, string, *taskRow) {
+	if r == nil || r.parallel == nil {
+		return "", "", nil
+	}
+	key := parallelPresentationStageKey(string(r.parallel.stage))
+	if key == "" {
+		return "", "", nil
+	}
+	label := parallelStageLabelForKey(key, r.lang)
+	if focus != nil {
+		focusKey := stageKeyFor(focus)
+		if r.parallel.appliesToStageKey(focusKey) {
+			return focusKey, liveBarPrimaryText(focus, r.lang), focus
+		}
+	}
+	if localKey != "" && r.parallel.appliesToStageKey(localKey) {
+		key = localKey
+		label = parallelStageLabelForKey(key, r.lang)
+	}
+	return key, label, nil
+}
+
+func parallelStageLabelForKey(key, lang string) string {
+	return stagePhrase(key, lang, stagePhraseRunning)
+}
+
+func parallelPresentationStageKey(stageKey string) string {
+	key := canonicalStageKey(stageKey)
+	if key == "explore" {
+		return "evidence"
+	}
+	return key
 }
 
 // clearParallelIfStageKeyOutsideLocked enforces the display ownership

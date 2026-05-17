@@ -685,6 +685,87 @@ func TestRenderer_ExtractStageClearsStaleParallelExploreTelemetry(t *testing.T) 
 	}
 }
 
+func TestRenderer_ActiveExploreParallelAnchorsDockBeforeExtract(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: t0,
+		TaskNodes: []TaskNodeInfo{
+			{ID: "n1_evidence_t0", Type: "evidence", Objective: "topic A"},
+			{ID: "final", Type: "finalize", Objective: "render"},
+		},
+	})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(10 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{
+		Kind:            EventParallelDispatchStart,
+		Timestamp:       t0.Add(20 * time.Millisecond),
+		Stage:           "explore",
+		Agent:           "explorer",
+		ParallelGroupID: "g",
+		ParallelTotal:   2,
+		Parallelism:     2,
+		ParallelUnitIDs: []string{"n1_evidence_t0", "n1_evidence_t1"},
+	})
+	emit(Event{Kind: EventTaskNodeEnd, Timestamp: t0.Add(30 * time.Millisecond), NodeID: "n1_evidence_t0"})
+
+	rows := r.composeCurrentDockRows()
+	row1 := stripAnsiEscapes(rows[0])
+	row2 := stripAnsiEscapes(rows[1])
+	if !strings.Contains(row1, "并行") {
+		t.Fatalf("active parallel dispatch must own row1 until the dispatch ends; got %q", row1)
+	}
+	for _, want := range []string{"2/4", "正在探索代码并收集证据", "并行 2 路", "2 个关注点"} {
+		if !strings.Contains(row2, want) {
+			t.Fatalf("active parallel explore row missing %q: %q", want, row2)
+		}
+	}
+	if strings.Contains(row2, "3/4") || strings.Contains(row2, "提炼关键发现") {
+		t.Fatalf("active parallel explore must not be presented as extract; got %q", row2)
+	}
+}
+
+func TestRenderer_ActiveExploreParallelUsesExploreSlotAfterHighWater(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: t0,
+		TaskNodes: []TaskNodeInfo{
+			{ID: "n1_evidence_t0", Type: "evidence", Objective: "topic A"},
+			{ID: "final", Type: "finalize", Objective: "render"},
+		},
+	})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(10 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{Kind: EventTaskNodeEnd, Timestamp: t0.Add(20 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{Kind: EventStageStart, Timestamp: t0.Add(30 * time.Millisecond), Stage: "extract", Agent: "extractor"})
+	emit(Event{Kind: EventStageEnd, Timestamp: t0.Add(40 * time.Millisecond), Stage: "extract", Agent: "extractor"})
+	emit(Event{
+		Kind:            EventParallelDispatchStart,
+		Timestamp:       t0.Add(50 * time.Millisecond),
+		Stage:           "explore",
+		Agent:           "explorer",
+		ParallelGroupID: "g",
+		ParallelTotal:   2,
+		Parallelism:     2,
+		ParallelUnitIDs: []string{"n1_evidence_t0", "n1_evidence_t1"},
+	})
+
+	row := stripAnsiEscapes(r.composeCurrentDockRows()[1])
+	for _, want := range []string{"2/4", "正在探索代码并收集证据", "并行 2 路"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("active parallel explore after high-water missing %q: %q", want, row)
+		}
+	}
+	if strings.Contains(row, "3/4") || strings.Contains(row, "提炼关键发现") {
+		t.Fatalf("active parallel explore must use its own stage slot, not high-water extract; got %q", row)
+	}
+}
+
 func TestRenderer_DockBacktrackKeepsProgressAndNamesRepairStage(t *testing.T) {
 	r := newTestRenderer("zh")
 	r.totalStages = 4
