@@ -903,6 +903,23 @@ func TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList(t *te
 	if !strings.Contains(got, "is NOT satisfied by") {
 		t.Errorf("missing decorator-stripping anti-pattern guidance; got\n%s", got)
 	}
+
+	// (6) docs/design/post_phase2a_forensic_followups.md §2.1.G #6 —
+	// the upstream contract that decorated members require non-empty
+	// `support_refs` on emit_investigation_complete (otherwise the
+	// investigator's call is rejected) MUST appear so the finalizer
+	// knows where the file:line for each decorated member came from
+	// and can cite it.
+	for _, phrase := range []string{
+		"Upstream contract for decorator-shape members",
+		"support_refs[i] = file:line",
+		"empty `support_refs` on a decorated `member_set` is rejected",
+		"cite it as the decorated member's `citation_ref`",
+	} {
+		if !strings.Contains(got, phrase) {
+			t.Errorf("missing upstream support_refs contract phrase %q; got\n%s", phrase, got)
+		}
+	}
 }
 
 // TestRenderAnswerDocPrincipalMemberSetContract_EmptyWhenNoPrincipalFacts
