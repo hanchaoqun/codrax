@@ -2608,6 +2608,73 @@ func TestValidateDiagramEdgeSupport_PlainSolidSequenceDoesNotDefaultToCall(t *te
 	}
 }
 
+func TestValidateDiagramEdgeSupport_CallDAGDirectedFlowchartDefaultsToCall(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			Kind:     types.DiagramCallDAG,
+			EdgeRelations: []types.DiagramEdgeRelationContract{{
+				Kind:      types.DiagramRelCall,
+				Min:       1,
+				ClaimForm: types.ClaimCallEdge,
+			}},
+		},
+	}
+	doc := docWithDiagramKind("call_dag", "flowchart TD\n  Auth[Auth] --> Worker[Worker]\n", types.DiagramCallDAG)
+	vs := validateDiagramEdgeSupport(doc, view)
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			t.Fatalf("directed CallDAG flowchart edge should satisfy call minimum; got %+v", v)
+		}
+	}
+}
+
+func TestValidateDiagramEdgeSupport_FlowDecisionEdgeDefaultsToGuard(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			Kind:     types.DiagramFlow,
+			EdgeRelations: []types.DiagramEdgeRelationContract{{
+				Kind:      types.DiagramRelGuard,
+				Min:       1,
+				ClaimForm: types.ClaimGuardCondition,
+			}},
+		},
+	}
+	doc := docWithDiagramKind("flow", "flowchart TD\n  Check{ready?} --> Handle[Handle]\n", types.DiagramFlow)
+	vs := validateDiagramEdgeSupport(doc, view)
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			t.Fatalf("decision-node flow edge should satisfy guard minimum; got %+v", v)
+		}
+	}
+}
+
+func TestValidateDiagramEdgeSupport_PlainFlowEdgeDoesNotDefaultToGuard(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			Kind:     types.DiagramFlow,
+			EdgeRelations: []types.DiagramEdgeRelationContract{{
+				Kind:      types.DiagramRelGuard,
+				Min:       1,
+				ClaimForm: types.ClaimGuardCondition,
+			}},
+		},
+	}
+	doc := docWithDiagramKind("flow", "flowchart TD\n  Start[Start] --> Handle[Handle]\n", types.DiagramFlow)
+	vs := validateDiagramEdgeSupport(doc, view)
+	var found bool
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("plain flow edge must not imply guard by default; got %+v", vs)
+	}
+}
+
 func TestValidateDiagramEdgeSupport_DashedSequenceReplyDoesNotDefaultToCall(t *testing.T) {
 	view := callChainViewWithDiagram()
 	doc := docWithDiagramBody("sequenceDiagram\n  Auth-->>Worker: result\n")
@@ -2642,6 +2709,27 @@ func TestSequenceArrowImpliesCall_NarrowClosedArrowOnly(t *testing.T) {
 		if got := sequenceArrowImpliesCall(tc.op); got != tc.want {
 			t.Fatalf("sequenceArrowImpliesCall(%q)=%t, want %t", tc.op, got, tc.want)
 		}
+	}
+}
+
+func TestFlowchartSyntaxFallbackHelpers_AreNarrow(t *testing.T) {
+	if !flowchartDirectedOperator("-->") || !flowchartDirectedOperator("==>") || !flowchartDirectedOperator("-.->") {
+		t.Fatal("directed flowchart operators should be recognised")
+	}
+	if flowchartDirectedOperator("---") || flowchartDirectedOperator("==") || flowchartDirectedOperator("->>") {
+		t.Fatal("undirected or sequence operators must not be recognised as flowchart directed operators")
+	}
+	decision := mermaidEdge{operator: "-->", fromShape: mermaidNodeShapeDecision, fromLabel: "ready?"}
+	if !flowchartDecisionEdgeImpliesGuard(decision) {
+		t.Fatal("decision node with condition label should imply guard")
+	}
+	plain := mermaidEdge{operator: "-->", fromLabel: "Start"}
+	if flowchartDecisionEdgeImpliesGuard(plain) {
+		t.Fatal("plain flowchart source must not imply guard")
+	}
+	emptyDecision := mermaidEdge{operator: "-->", fromShape: mermaidNodeShapeDecision}
+	if flowchartDecisionEdgeImpliesGuard(emptyDecision) {
+		t.Fatal("empty decision node without edge/source label must not imply guard")
 	}
 }
 

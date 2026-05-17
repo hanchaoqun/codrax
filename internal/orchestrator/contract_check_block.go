@@ -615,7 +615,11 @@ func implicitDiagramRelationKind(diagramBlock *types.AnswerBlock, edge mermaidEd
 	if diagramBlock == nil || diagramBlock.Diagram == nil {
 		return types.DiagramRelUnknown
 	}
-	if diagramBlock.Diagram.Kind == types.DiagramSequence && sequenceArrowImpliesCall(edge.operator) {
+	switch diagramBlock.Diagram.Kind {
+	case types.DiagramSequence:
+		if !sequenceArrowImpliesCall(edge.operator) {
+			return types.DiagramRelUnknown
+		}
 		// In Mermaid sequence diagrams a solid closed-arrow message (`->>`)
 		// is the narrow structural default for call-like execution. Do not
 		// broaden this to every solid sequence message: `->` has no arrowhead,
@@ -623,6 +627,21 @@ func implicitDiagramRelationKind(diagramBlock *types.AnswerBlock, edge mermaidEd
 		// bidirectional/half-arrow forms are presentation-specific unless the
 		// model also supplies a typed edge anchor or a relation label.
 		return types.DiagramRelCall
+	case types.DiagramCallDAG:
+		if flowchartDirectedOperator(edge.operator) {
+			// Call-DAG is itself a semantic carrier: a directed edge between
+			// grounded nodes is a call edge unless the model supplied a more
+			// specific typed anchor or label, both of which are resolved before
+			// this fallback.
+			return types.DiagramRelCall
+		}
+	case types.DiagramFlow:
+		if flowchartDecisionEdgeImpliesGuard(edge) {
+			// A Mermaid diamond/decision node structurally carries the
+			// condition; its outgoing directed edge is a guard/branch even
+			// when the label is "yes"/"no" or omitted.
+			return types.DiagramRelGuard
+		}
 	}
 	return types.DiagramRelUnknown
 }
@@ -634,6 +653,22 @@ func sequenceArrowImpliesCall(operator string) bool {
 	default:
 		return false
 	}
+}
+
+func flowchartDirectedOperator(operator string) bool {
+	switch strings.TrimSpace(operator) {
+	case "-->", "==>", "-.->":
+		return true
+	default:
+		return false
+	}
+}
+
+func flowchartDecisionEdgeImpliesGuard(edge mermaidEdge) bool {
+	if !flowchartDirectedOperator(edge.operator) || edge.fromShape != mermaidNodeShapeDecision {
+		return false
+	}
+	return strings.TrimSpace(edge.fromLabel) != "" || strings.TrimSpace(edge.label) != ""
 }
 
 // edgeKey is the (lowercase from, lowercase to) lookup key for the
@@ -705,6 +740,8 @@ type mermaidEdge struct {
 	operator  string
 	fromLabel string
 	toLabel   string
+	fromShape string
+	toShape   string
 }
 
 // parseMermaidEdges scans a Mermaid body and returns every edge
@@ -741,9 +778,9 @@ func parseMermaidEdges(body string) []mermaidEdge {
 		if label == "" {
 			label = seqLabel
 		}
-		var fromLabel, toLabel string
-		from, fromLabel = parseMermaidNodeToken(from)
-		to, toLabel = parseMermaidNodeToken(to)
+		var fromLabel, toLabel, fromShape, toShape string
+		from, fromLabel, fromShape = parseMermaidNodeTokenWithShape(from)
+		to, toLabel, toShape = parseMermaidNodeTokenWithShape(to)
 		if from == "" || to == "" {
 			continue
 		}
@@ -754,6 +791,8 @@ func parseMermaidEdges(body string) []mermaidEdge {
 			operator:  operator,
 			fromLabel: fromLabel,
 			toLabel:   toLabel,
+			fromShape: fromShape,
+			toShape:   toShape,
 		})
 	}
 	return edges
@@ -850,9 +889,16 @@ func stripMermaidNodeShape(tok string) string {
 }
 
 func parseMermaidNodeToken(tok string) (id, label string) {
+	id, label, _ = parseMermaidNodeTokenWithShape(tok)
+	return id, label
+}
+
+const mermaidNodeShapeDecision = "decision"
+
+func parseMermaidNodeTokenWithShape(tok string) (id, label, shape string) {
 	t := strings.TrimSpace(tok)
 	if t == "" {
-		return "", ""
+		return "", "", ""
 	}
 	// Strip optional class binding suffix `:::clsName`
 	if i := strings.Index(t, ":::"); i > 0 {
@@ -867,12 +913,15 @@ func parseMermaidNodeToken(tok string) (id, label string) {
 		}
 	}
 	if cutAt > 0 {
+		if t[cutAt] == '{' {
+			shape = mermaidNodeShapeDecision
+		}
 		label = strings.TrimSpace(extractMermaidNodeLabel(t, cutAt))
 		t = strings.TrimSpace(t[:cutAt])
 	}
 	// Drop leading `&` cosmetic prefix
 	t = strings.TrimPrefix(t, "&")
-	return t, label
+	return t, label, shape
 }
 
 func extractMermaidNodeLabel(tok string, openerAt int) string {
