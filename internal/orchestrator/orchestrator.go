@@ -6357,7 +6357,20 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 		Skill:     skillName,
 	})
 
-	output, err := ag.Execute(agentCtx, sk)
+	// System-driven explorer fan-out (2026-05-17 architecture §1.5/§1.6):
+	// for StageExplore, check the precise-typed-signal gate first and
+	// dispatch parallel sub_explorers when the analyzer's typed
+	// sub-topic decomposition is disjoint cross-component. Falls back
+	// to the LLM single explorer transparently on gate-off /
+	// validator-reject / runtime-error so original semantics are fully
+	// preserved. See explorer_fanout.go for the gate predicate and
+	// proposal builder.
+	var output *agent.StageOutput
+	if stage == types.StageExplore {
+		output, err = o.executeExplorerStageAgent(ag, agentCtx, sk, stage, agentName)
+	} else {
+		output, err = ag.Execute(agentCtx, sk)
+	}
 	if err != nil {
 		o.emit(render.Event{
 			Kind:      render.EventStageEnd,
