@@ -50,6 +50,7 @@ package tool
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
@@ -1065,6 +1066,353 @@ func normalizePrincipalSupportMemberCarriers(doc *types.AnswerDocumentV2, suppor
 		added++
 	}
 	return added
+}
+
+func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return 0
+	}
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) == 0 {
+		return 0
+	}
+	principalRefs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, facts)
+	if len(principalRefs) == 0 {
+		return 0
+	}
+	surface := preEmitVisibleAnswerSurface(doc)
+	added := 0
+	for _, ref := range principalRefs {
+		fact := ref.Fact
+		if preEmitAggregateMemberSetIsScalarCountSupport(ctx, fact) {
+			continue
+		}
+		type missingAggregateMember struct {
+			index  int
+			member string
+		}
+		var missing []missingAggregateMember
+		for memberIdx, member := range fact.Members {
+			member = strings.TrimSpace(member)
+			if member == "" || preEmitAggregateMemberAppearsInDocument(member, doc, surface) {
+				continue
+			}
+			missing = append(missing, missingAggregateMember{index: memberIdx, member: member})
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		blockIdx := appendAggregateMemberSetCarrierBlock(doc, ref.Index, fact.Label)
+		if blockIdx < 0 || blockIdx >= len(doc.Blocks) {
+			continue
+		}
+		for _, missingMember := range missing {
+			label := aggregateMemberSetCarrierLabel(missingMember.member)
+			if label == "" {
+				continue
+			}
+			item := types.AnswerBlockItem{
+				ID:          nextAggregateMemberSetItemID(doc.Blocks[blockIdx], label),
+				Label:       label,
+				Text:        aggregateMemberSetCarrierText(fact.Label),
+				CitationRef: -1,
+			}
+			if cit, ok := citationForAggregateMemberSetMember(fact, missingMember.index, missingMember.member, ctx); ok {
+				item.CitationRef = appendOrReusePreEmitCitation(doc, cit)
+			}
+			doc.Blocks[blockIdx].Items = append(doc.Blocks[blockIdx].Items, item)
+			surface += "\n" + item.Label + "\n" + item.Text
+			added++
+		}
+	}
+	return added
+}
+
+func appendAggregateMemberSetCarrierBlock(doc *types.AnswerDocumentV2, factIdx int, label string) int {
+	if doc == nil {
+		return -1
+	}
+	title := strings.TrimSpace(label)
+	if title == "" {
+		title = "Principal member set"
+	}
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:    nextAggregateMemberSetBlockID(doc, factIdx, title),
+		Kind:  types.BlockOrderedList,
+		Title: title,
+	})
+	return len(doc.Blocks) - 1
+}
+
+func nextAggregateMemberSetBlockID(doc *types.AnswerDocumentV2, factIdx int, label string) string {
+	base := "aggregate-member-set"
+	if suffix := sanitizeRequiredMechanismAnchorID(label); suffix != "" {
+		base += "-" + suffix
+	} else if factIdx >= 0 {
+		base += fmt.Sprintf("-%d", factIdx+1)
+	}
+	used := make(map[string]bool, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		if id := strings.TrimSpace(block.ID); id != "" {
+			used[id] = true
+		}
+	}
+	if !used[base] {
+		return base
+	}
+	for i := 2; ; i++ {
+		id := fmt.Sprintf("%s-%d", base, i)
+		if !used[id] {
+			return id
+		}
+	}
+}
+
+func nextAggregateMemberSetItemID(block types.AnswerBlock, label string) string {
+	base := "member-" + sanitizeRequiredMechanismAnchorID(label)
+	if base == "member-" {
+		base = "member"
+	}
+	used := make(map[string]bool, len(block.Items))
+	for _, item := range block.Items {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			used[id] = true
+		}
+	}
+	if !used[base] {
+		return base
+	}
+	for i := 2; ; i++ {
+		id := fmt.Sprintf("%s-%d", base, i)
+		if !used[id] {
+			return id
+		}
+	}
+}
+
+func aggregateMemberSetCarrierLabel(member string) string {
+	candidates := preEmitAggregateMemberDisplayCandidates(member)
+	if len(candidates) > 0 {
+		return strings.TrimSpace(candidates[0])
+	}
+	return strings.TrimSpace(member)
+}
+
+func aggregateMemberSetCarrierText(factLabel string) string {
+	factLabel = strings.TrimSpace(factLabel)
+	if factLabel == "" {
+		return "来自已验收的调查成员清单。"
+	}
+	return "来自已验收的调查成员清单：" + factLabel + "。"
+}
+
+func citationForAggregateMemberSetMember(fact types.AnswerAggregateFact, memberIdx int, member string, ctx *types.BusContext) (types.Citation, bool) {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return types.Citation{}, false
+	}
+	if _, location, ok := types.ParseAnswerSupportRefMemberLocation(member); ok && location.File != "" && location.LineStart > 0 {
+		return types.Citation{File: location.File, Line: location.LineStart}, true
+	}
+	if location, ok := types.ParseAnswerSourceLocationSurface(member); ok && location.File != "" && location.LineStart > 0 {
+		return types.Citation{File: location.File, Line: location.LineStart}, true
+	}
+	if cit, ok := citationForAggregateMemberSetSupportRef(fact, memberIdx, member); ok {
+		return cit, true
+	}
+	if cit, ok := citationForAggregateMemberSetEvidence(member, ctx); ok {
+		return cit, true
+	}
+	return types.Citation{}, false
+}
+
+func citationForAggregateMemberSetSupportRef(fact types.AnswerAggregateFact, memberIdx int, member string) (types.Citation, bool) {
+	if len(fact.SupportRefs) == 0 {
+		return types.Citation{}, false
+	}
+	memberKey := strings.ToLower(strings.TrimSpace(member))
+	var bare []types.AnswerSourceLocationSurface
+	var generic []types.AnswerSourceLocationSurface
+	for _, ref := range fact.SupportRefs {
+		refMember, location, ok := types.ParseAnswerSupportRefMemberLocation(ref)
+		if !ok || location.File == "" || location.LineStart <= 0 {
+			continue
+		}
+		if strings.TrimSpace(refMember) == "" {
+			bare = append(bare, location)
+			continue
+		}
+		if types.AnswerSupportRefLabelIsGeneric(refMember) {
+			generic = append(generic, location)
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(refMember), memberKey) ||
+			aggregateSupportRefLabelMatchesMember(refMember, member) {
+			return types.Citation{File: location.File, Line: location.LineStart}, true
+		}
+	}
+	if len(generic) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(generic) {
+		location := generic[memberIdx]
+		return types.Citation{File: location.File, Line: location.LineStart}, true
+	}
+	if len(generic) == 1 && len(fact.Members) == 1 {
+		location := generic[0]
+		return types.Citation{File: location.File, Line: location.LineStart}, true
+	}
+	if len(bare) == len(fact.Members) && memberIdx >= 0 && memberIdx < len(bare) {
+		location := bare[memberIdx]
+		return types.Citation{File: location.File, Line: location.LineStart}, true
+	}
+	if len(bare) == 1 && len(fact.Members) == 1 {
+		location := bare[0]
+		return types.Citation{File: location.File, Line: location.LineStart}, true
+	}
+	return types.Citation{}, false
+}
+
+func aggregateSupportRefLabelMatchesMember(refMember, member string) bool {
+	refMember = strings.TrimSpace(refMember)
+	member = strings.TrimSpace(member)
+	if refMember == "" || member == "" {
+		return false
+	}
+	for _, candidate := range preEmitAggregateMemberDisplayCandidates(member) {
+		if strings.EqualFold(refMember, candidate) {
+			return true
+		}
+	}
+	if tail := types.NormalizedSurfaceSymbolTail(member); tail != "" {
+		return strings.EqualFold(types.NormalizedSurfaceSymbolTail(refMember), tail)
+	}
+	return false
+}
+
+func citationForAggregateMemberSetEvidence(member string, ctx *types.BusContext) (types.Citation, bool) {
+	evidence := aggregateMemberSetEvidencePool(ctx)
+	if len(evidence) == 0 {
+		return types.Citation{}, false
+	}
+	if file := aggregateMemberSetMemberFilePrefix(member); file != "" {
+		for _, ev := range evidence {
+			if aggregateMemberSetEvidenceLocationUsable(ev) && aggregateMemberSetPathMatches(file, ev.Source) {
+				return types.Citation{File: ev.Source, Line: ev.LineStart}, true
+			}
+		}
+	}
+	candidates := aggregateMemberSetEvidenceCandidates(member)
+	for _, ev := range evidence {
+		if !aggregateMemberSetEvidenceLocationUsable(ev) {
+			continue
+		}
+		if aggregateMemberSetEvidenceMatchesAny(ev, candidates) {
+			return types.Citation{File: ev.Source, Line: ev.LineStart}, true
+		}
+	}
+	return types.Citation{}, false
+}
+
+func aggregateMemberSetEvidencePool(ctx *types.BusContext) []types.EvidenceItem {
+	if ctx == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []types.EvidenceItem
+	appendItems := func(items []types.EvidenceItem) {
+		for _, item := range items {
+			key := fmt.Sprintf("%s:%d:%s", strings.TrimSpace(item.Source), item.LineStart, strings.TrimSpace(item.ID))
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, item)
+		}
+	}
+	if plan := types.BuildAnswerSurfacePlanForBusContext(ctx); plan != nil {
+		appendItems(plan.SurfaceEvidence)
+	}
+	if ctx.Mutable != nil {
+		appendItems(ctx.Mutable.EmittedEvidence())
+	}
+	appendItems(ctx.EvidenceItems)
+	return out
+}
+
+func aggregateMemberSetEvidenceLocationUsable(ev types.EvidenceItem) bool {
+	return strings.TrimSpace(ev.Source) != "" &&
+		ev.LineStart > 0 &&
+		ev.GroundingStatus != types.GroundingUngrounded
+}
+
+func aggregateMemberSetMemberFilePrefix(member string) string {
+	member = strings.TrimSpace(member)
+	idx := strings.Index(member, ": ")
+	if idx <= 0 {
+		return ""
+	}
+	file := strings.TrimSpace(member[:idx])
+	ext := filepath.Ext(file)
+	if file == "" || ext == "" {
+		return ""
+	}
+	if !types.IsCodeOrConfigPathExtension(ext) && !strings.Contains(file, "/") {
+		return ""
+	}
+	return strings.ReplaceAll(file, `\`, `/`)
+}
+
+func aggregateMemberSetPathMatches(memberFile, evidenceFile string) bool {
+	memberFile = strings.Trim(strings.TrimSpace(strings.ReplaceAll(memberFile, `\`, `/`)), "./")
+	evidenceFile = strings.Trim(strings.TrimSpace(strings.ReplaceAll(evidenceFile, `\`, `/`)), "./")
+	if memberFile == "" || evidenceFile == "" {
+		return false
+	}
+	return memberFile == evidenceFile || strings.HasSuffix(evidenceFile, "/"+memberFile)
+}
+
+func aggregateMemberSetEvidenceCandidates(member string) []string {
+	var out []string
+	out = append(out, preEmitAggregateMemberDisplayCandidates(member)...)
+	if idx := strings.Index(member, ": "); idx > 0 {
+		right := strings.TrimSpace(member[idx+2:])
+		if right != "" {
+			out = append(out, right)
+			if paren := strings.IndexAny(right, "（("); paren > 0 {
+				out = append(out, strings.TrimSpace(right[:paren]))
+			}
+		}
+	}
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		out = append(out, label)
+	}
+	if tail := types.NormalizedSurfaceSymbolTail(member); tail != "" {
+		out = append(out, tail)
+	}
+	return dedupPreEmitStringCandidates(out)
+}
+
+func aggregateMemberSetEvidenceMatchesAny(ev types.EvidenceItem, candidates []string) bool {
+	if len(candidates) == 0 {
+		return false
+	}
+	hay := strings.Join([]string{
+		ev.AnchorSymbol,
+		ev.Subject,
+		ev.Object,
+		ev.OwnerSymbol,
+		strings.Join(ev.SurfaceTerms, "\n"),
+		ev.Snippet,
+		ev.Summary,
+	}, "\n")
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if types.AnswerCodeSurfaceAppearsInText(hay, candidate) || strings.EqualFold(candidate, strings.TrimSpace(ev.AnchorSymbol)) {
+			return true
+		}
+	}
+	return false
 }
 
 func principalSupportMemberCarrierBlockIndex(doc *types.AnswerDocumentV2) int {

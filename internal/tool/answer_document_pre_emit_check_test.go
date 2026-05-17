@@ -468,6 +468,108 @@ func TestPreCheckAggregateMemberSetCoverage_PrincipalFactsDoNotDependOnRequestFa
 	}
 }
 
+func TestNormalizeAggregateMemberSetCarriers_MaterializesComparisonMembers(t *testing.T) {
+	mu := types.NewMutableState("comparison aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "codrax 核心防幻觉子系统",
+		Value: "2",
+		Members: []string{
+			"codrax/internal/types/evidence.go: EvidenceKind（11种分类）",
+			"codrax/internal/types/violation_registry.go: ViolKindRegistry（单点注册表）",
+		},
+	}, {
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "opencode 防幻觉机制",
+		Value: "1",
+		Members: []string{
+			"opencode/packages/opencode/src/agent/prompt/scout.txt: 文本层面引用要求",
+		},
+	}})
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:              "ev-evidence-kind",
+		Kind:            types.EvidenceDirect,
+		Source:          "codrax/internal/types/evidence.go",
+		LineStart:       11,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "EvidenceKind",
+		GroundingStatus: types.GroundingGrounded,
+	}, {
+		ID:              "ev-registry",
+		Kind:            types.EvidenceDirect,
+		Source:          "codrax/internal/types/violation_registry.go",
+		LineStart:       1,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "ViolKindRegistry",
+		GroundingStatus: types.GroundingGrounded,
+	}, {
+		ID:              "ev-scout",
+		Kind:            types.EvidenceMechanism,
+		Source:          "opencode/packages/opencode/src/agent/prompt/scout.txt",
+		LineStart:       1,
+		AnchorKind:      types.AnchorTextReference,
+		AnchorSymbol:    "scout.txt",
+		SurfaceTerms:    []string{"文本层面引用要求"},
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	mu.SetInvestigationComplete("structured comparison member sets accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Buckets: []types.QuestionBucket{
+					{Label: "codrax", Index: 1},
+					{Label: "opencode", Index: 2},
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "codrax 和 opencode 的防幻觉设计差异很大。",
+	}}}
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) == 0 {
+		t.Fatal("test setup should miss every aggregate member")
+	}
+
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 3 {
+		t.Fatalf("fixed=%d, want 3", fixed)
+	}
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("materialized aggregate members should satisfy coverage, got %+v", hints)
+	}
+	if len(doc.Blocks) != 3 {
+		t.Fatalf("blocks=%d, want summary plus two carrier blocks: %+v", len(doc.Blocks), doc.Blocks)
+	}
+	gotLabels := map[string]bool{}
+	for _, block := range doc.Blocks {
+		for _, item := range block.Items {
+			gotLabels[item.Label] = true
+		}
+	}
+	for _, want := range []string{
+		"codrax/internal/types/evidence.go: EvidenceKind（11种分类）",
+		"codrax/internal/types/violation_registry.go: ViolKindRegistry（单点注册表）",
+		"opencode/packages/opencode/src/agent/prompt/scout.txt: 文本层面引用要求",
+	} {
+		if !gotLabels[want] {
+			t.Fatalf("materialized labels missing %q in %+v", want, gotLabels)
+		}
+	}
+	if len(doc.Citations) != 3 {
+		t.Fatalf("citations=%d, want 3: %+v", len(doc.Citations), doc.Citations)
+	}
+	for _, block := range doc.Blocks[1:] {
+		for _, item := range block.Items {
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				t.Fatalf("materialized item lacks usable citation_ref: %+v citations=%+v", item, doc.Citations)
+			}
+		}
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_GroupedCountNarrativeIsSupportOnly(t *testing.T) {
 	mu := types.NewMutableState("architecture grouped count handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

@@ -220,6 +220,9 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, preEmitCtx); fixed > 0 {
 			logging.Warning("[emit_answer_document] repaired %d item citation_ref value(s) by typed label/citation corroboration", fixed)
 		}
+		if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed > 0 {
+			logging.Warning("[emit_answer_document] materialized %d aggregate member_set carrier(s)", fixed)
+		}
 		if fixed := normalizePrincipalSupportMemberCarriers(doc, types.BuildAnswerSupportPlanForBusContext(ctx)); fixed > 0 {
 			logging.Warning("[emit_answer_document] materialized %d principal support member carrier(s)", fixed)
 		}

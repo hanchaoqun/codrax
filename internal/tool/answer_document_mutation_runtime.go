@@ -80,6 +80,12 @@ func ApplyAndPersistMutation(
 	if canonicalizeSummaryLeadBlock(merged) {
 		logging.Info("[%s] canonicalized summary block to lead position before persist", toolName)
 	}
+	if fixed := normalizeAggregateMemberSetCarriers(merged, ctx); fixed > 0 {
+		logging.Warning("[%s] materialized %d aggregate member_set carrier(s) before persist", toolName, fixed)
+	}
+	if fixed := normalizePrincipalSupportMemberCarriers(merged, types.BuildAnswerSupportPlanForBusContext(ctx)); fixed > 0 {
+		logging.Warning("[%s] materialized %d principal support member carrier(s) before persist", toolName, fixed)
+	}
 	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
 		if fixed := normalizeViewCompatibleAnswerDocument(merged, view); fixed > 0 {
 			logging.Warning("[%s] repaired %d view-compatible typed lane field(s) before persist", toolName, fixed)
