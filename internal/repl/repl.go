@@ -1999,6 +1999,12 @@ func (r *REPL) dispatch(line, display string) {
 	// See memory/project_repl_memory_error_pollution.md for the
 	// diagnostic trail.
 	memResponse := response
+	if rawMarkdown != "" {
+		// Memory is model-facing context for later turns, so keep the
+		// authoritative markdown answer rather than terminal-only
+		// presentation transforms such as Mermaid-to-ASCII rendering.
+		memResponse = rawMarkdown
+	}
 	if busCtx != nil && busCtx.TaskState.LastError != "" {
 		memResponse = "(previous attempt ended in error — details omitted from memory)"
 	}

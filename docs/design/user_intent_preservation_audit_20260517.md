@@ -42,6 +42,7 @@
 9. **Batch H 第三段落地**：新增 same-error-class retry governor。除既有 per-kind / per-root / hard-cap 外，调度层按 typed `FallbackTarget + CaveatFamilyID` 记录更高层的错误类预算；同类机械问题已重试后即使换成 sibling kind，也停止继续 finalizer rewrite，交付当前答案并转入补充说明。该判断只读结构化 violation registry，不扫描用户问题或模型散文。
 10. **Batch C 第二段落地**：`aggregate_facts` 增加 typed `role/provenance`，支持 `principal_answer`、`supporting_coverage`、`audit_ledger`。explorer 可以明确区分“最终答案主集合”和“探索覆盖账本”；finalizer hard gate 只消费有效角色为 principal 的 aggregate fact，prompt 与 retry 合并也保留该结构化角色，不再用伪标记或标签猜测。
 11. **Batch H 第四段落地**：reviewer anchor set 统一改为 `buildReviewerEvidenceAnchorSet`，优先读取最终 AnswerDocument 的行级 citation、read_file gutter 与 repomap 符号，再合并 explorer evidence；self-consistency 与 semantic-quality reviewer 不再只看 explorer evidence。Mermaid endpoint gate 同步区分内部 node id 与用户可见 label，避免把图表语法 alias 当代码事实打回 finalizer。新增回归测试锁住 citation-backed identifier、graph fallback、semantic/self reviewer 输入和 Mermaid label 行为。
+12. **Batch B/E 边界澄清**：REPL Mermaid→ASCII 属于终端呈现层友好降级，不再作为“系统替代模型意图”整改项；边界是 raw markdown 必须仍作为 truth source 写入日志、output dump、memory，且该渲染结果不得进入 gate / reviewer / 后续模型上下文。已补测试锁住 pipeline REPL 记忆保存 raw Mermaid，而不是终端渲染后的 text fence。
 
 ## 问题清单
 
@@ -155,25 +156,27 @@
 - 不自动追加到主答案正文。
 - 若必须展示，进入专门的证据详情/引用 tooltip/保留内容区，不污染正文 item。
 
-### UIP-006（P1）Mermaid 渲染层可能把“源码意图”替换成 ASCII 图
+### UIP-006（P3）Mermaid 终端渲染是允许的展示层例外，但 raw truth 必须保留
 
 代码位置：`internal/render/renderer.go::RenderMermaidBlocks` 调用、`internal/render/mermaid_render.go`
+
+状态：**改判为允许例外，边界已固化（Batch B/E）**。REPL 当前无法直接渲染 Mermaid 图，终端层把 Mermaid fence 转成 ASCII/text fence 是为了用户可读性，允许保留。该行为不得成为 finalizer gate、reviewer 输入或后续模型上下文的事实来源；raw markdown 仍是唯一答案真源。pipeline output dump 已由 orchestrator 写 raw final answer；local/chitchat markdown transcript 也写 raw reply；本批补齐 pipeline REPL memory raw 保存。
 
 当前行为：
 
 - REPL 默认把 `mermaid` fence 转成 ASCII text fence。
 - single-shot CLI 默认保留源码，只有 `--mermaid-render` 才转换。
 
-风险：
+风险边界：
 
-- 用户若明确要 Mermaid 源码，REPL 渲染层仍可能替换成 ASCII。
-- 这是 render 层的系统展示意图覆盖用户输出形态。
+- 允许：仅在终端呈现时做 Mermaid→ASCII/text fence，让用户不依赖外部渲染器也能看懂。
+- 禁止：把终端渲染后的 ASCII/text fence 写回 memory、output dump、reviewer 输入、finalizer retry/gate，或让模型在下一轮把它当成原始答案。
 
-修复方向：
+防回归措施：
 
-- PresentationContract 加 `raw_mermaid_source`。
-- REPL 渲染前读取该 contract，明确要源码时跳过 `RenderMermaidBlocks`。
-- 对 unsupported Mermaid，继续保留源码并给出明显但隔离的渲染失败提示。
+- `Mutable.Result()` / output dump / log INFO 保持 raw markdown。
+- REPL pipeline memory 保存 raw markdown；终端 response 只用于当前屏幕展示。
+- 已加测试：`TestPipelineMemoryStoresRawMarkdownNotTerminalMermaidRender`。
 
 ### UIP-007（P2）scenario / predicate reconcile 会为“降低开销”降级分析形态
 
@@ -469,25 +472,28 @@
 - analyzer emit 后用 typed `PrimaryScopes` / `SubTopic.Scopes` 重算 scope projection。
 - 为“raw detector 只能影响 pre-prompt、不能写入 RequestModel hard fields”加结构测试。
 
-### UIP-021（P2）REPL Mermaid 渲染仍缺少 raw-source PresentationContract
+### UIP-021（P3）REPL Mermaid 渲染边界：terminal-only，不进模型上下文
 
 代码位置：`internal/repl/repl.go::renderRichResponse`、`internal/render/mermaid_render.go::RenderMermaidBlocks`、`cmd/root.go` 的 `--mermaid-render`
+
+状态：**改判为展示层例外，非整改阻断项（Batch B/E）**。无需为了“用户要求源码”关闭 REPL 的友好 ASCII 预览；用户需要复制源码时，应以 raw markdown transcript / output dump / memory 中的原文为准。后续若增加真正的图形预览，可以作为 renderer capability，而不是改变模型输出或 finalizer gate。
 
 当前行为：
 
 - CLI 默认保留 Mermaid source，显式 `--mermaid-render` 才转换。
 - REPL rich response 仍会默认调用 `RenderMermaidBlocks`，把 Mermaid fence 转成 ASCII text fence 或渲染警告。
 
-风险：
+风险边界：
 
-- 当用户明确要求“给我 Mermaid 时序图源码”时，REPL 展示层仍可能替换输出形态。
-- 这不是模型错误，而是 renderer 没有读取用户/LLM 的 presentation preference。
+- 终端展示可变，答案真源不可变。
+- 不允许 renderer 结果参与 gate、reviewer、retry 或 memory context。
+- 不允许渲染失败触发 LLM-facing hard retry；失败只能转 text fence/警告，且保持 raw markdown 可追溯。
 
-修复方向：
+后续方向：
 
-- `PresentationContract` 增加 `raw_mermaid_source` / `render_mermaid_preview`。
-- REPL 根据 contract 决定是否转换；不支持的 Mermaid 子集保留源码并隔离警告。
-- 渲染失败必须遵守 L7/L8：改写为 text fence 并加警告，但不能把失败传播成 LLM-facing hard retry。
+- 保持现有 terminal-only ASCII 预览。
+- 优先完善 raw transcript / preview 能力，让用户能拿到原始 Mermaid。
+- 若未来引入 `PresentationContract`，它应描述“用户希望答案包含 Mermaid/表格/决策块”等模型输出偏好，而不是禁止 REPL 做终端友好展示。
 
 ### UIP-022（P1）reviewer anchor set 滞后于最终 AnswerDocument citations
 
@@ -547,7 +553,7 @@
 
 1. [ ] 从 analyzer typed 输出承接用户明确要求：table、markdown table、diagram kind、raw Mermaid、sequenceDiagram、decision/scalar 等。
 2. [~] SemanticView/schema 使用 family default + presentation union。（已先放宽 Generic 可选 table/scalar/decision）
-3. [~] renderer 读取 contract，避免把 raw source 转成 ASCII、避免两列表格压缩。（已先兼容 item markdown table）
+3. [~] renderer 读取 contract，避免两列表格压缩；Mermaid→ASCII 在 REPL 中是 terminal-only 友好展示例外，raw markdown 仍进入 memory/output dump。（已先兼容 item markdown table，并补 pipeline memory raw 保存）
 
 ### Batch C：finalizer gate 分层治理
 
@@ -592,7 +598,7 @@
 ### Batch I：scope / presentation contract 贯穿
 
 1. [~] `SourceScopeProfile` 贯穿 exact target、keyword search、package export、child package expansion。（keyword search、package export、child package expansion 已完成；exact target 后续继续审计）
-2. `raw_mermaid`、`markdown_table`、`structured_table`、`scalar`、`decision` 等展示偏好从 analyzer typed 输出进入 schema、renderer、REPL。
+2. `markdown_table`、`structured_table`、`scalar`、`decision` 等展示偏好从 analyzer typed 输出进入 schema、renderer、REPL；Mermaid 偏好只约束模型输出 raw markdown，不禁止 REPL terminal-only 预览。
 3. raw scope detector 保持 advisory，analyzer 之后统一用 typed scope 更新状态、上下文和最终 caveat。
 
 ## 结论

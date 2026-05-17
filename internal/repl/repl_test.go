@@ -60,6 +60,14 @@ func (r markdownPathRunner) Run(_, _, _ string) (*types.BusContext, error) {
 	return &types.BusContext{Mutable: mut}, nil
 }
 
+type mermaidAnswerRunner struct{}
+
+func (mermaidAnswerRunner) Run(_, _, _ string) (*types.BusContext, error) {
+	mut := types.NewMutableState("probe")
+	mut.SetResult("```mermaid\nflowchart LR\n  A --> B\n```\n")
+	return &types.BusContext{Mutable: mut}, nil
+}
+
 type stubMarkdownPreviewer struct {
 	url  string
 	path string
@@ -459,6 +467,52 @@ func renderResultFromBus(bc *types.BusContext) string {
 		return ""
 	}
 	return bc.Mutable.Result()
+}
+
+func renderMermaidTerminalFromBus(bc *types.BusContext) string {
+	if bc == nil || bc.Mutable == nil {
+		return ""
+	}
+	return render.RenderMermaidBlocks(bc.Mutable.Result())
+}
+
+func TestPipelineMemoryStoresRawMarkdownNotTerminalMermaidRender(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	in := strings.NewReader("draw it\n/exit\n")
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:     mermaidAnswerRunner{},
+		Store:      store,
+		Render:     renderMermaidTerminalFromBus,
+		RepoRoot:   ".",
+		Branch:     "main",
+		In:         in,
+		Out:        out,
+		Prompt:     ">",
+		PromptCont: ".",
+		Banner:     "test-banner",
+		Language:   "en",
+	})
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	recent := store.Recent()
+	if len(recent) != 1 {
+		t.Fatalf("expected one persisted turn, got %d", len(recent))
+	}
+	if !strings.Contains(recent[0].Response, "```mermaid") {
+		t.Fatalf("memory must keep raw Mermaid markdown, got %q", recent[0].Response)
+	}
+	if strings.Contains(recent[0].Response, "```text") {
+		t.Fatalf("terminal Mermaid rendering must not be persisted to memory: %q", recent[0].Response)
+	}
 }
 
 func TestPipelineResponseShowsMarkdownOutputPathWithoutPersistingIt(t *testing.T) {
