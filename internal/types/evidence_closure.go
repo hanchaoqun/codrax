@@ -605,7 +605,32 @@ func (c *EvidenceClosure) HasRead(file string) bool {
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.readSet[file]
+	_, ok := c.readAliasLocked(file)
+	return ok
+}
+
+func (c *EvidenceClosure) readAliasLocked(file string) (string, bool) {
+	if c == nil || file == "" {
+		return "", false
+	}
+	if c.readSet[file] {
+		return file, true
+	}
+	matches := 0
+	alias := ""
+	for readFile := range c.readSet {
+		if readFile == "" {
+			continue
+		}
+		if evidenceClosureRelativeAliasMatch(readFile, file) {
+			matches++
+			alias = readFile
+			if matches > 1 {
+				return "", false
+			}
+		}
+	}
+	return alias, matches == 1
 }
 
 // AddReadRanges merges the supplied ranges into the existing per-file
@@ -999,7 +1024,8 @@ func (c *EvidenceClosure) HasReadLine(file string, line int) bool {
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if !c.readSet[file] {
+	file, ok := c.readAliasLocked(file)
+	if !ok {
 		return false
 	}
 	if line <= 0 {
@@ -1323,8 +1349,10 @@ func (c *EvidenceClosure) ClearPendingReadFor(file string) {
 	kept := c.pendingReads[:0]
 	for _, p := range c.pendingReads {
 		// p.File is already canonical because addPendingReadLocked
-		// canonicalizes at insert. Direct equality is correct.
-		if p.File == canon {
+		// canonicalizes at insert. Accept a unique active-sub-repo alias
+		// too, so a user-driven read_file using the tool-resolved
+		// prefixed path can clear a previously queued bare demand.
+		if p.File == canon || evidenceClosureRelativeAliasMatch(p.File, canon) {
 			continue
 		}
 		kept = append(kept, p)
@@ -1370,7 +1398,8 @@ func (c *EvidenceClosure) DrainSatisfiedPendingReads() int {
 	drained := 0
 	for _, p := range c.pendingReads {
 		canon := c.canonicalize(p.File)
-		if !c.readSet[canon] {
+		readCanon, ok := c.readAliasLocked(canon)
+		if !ok {
 			kept = append(kept, p)
 			continue
 		}
@@ -1383,7 +1412,7 @@ func (c *EvidenceClosure) DrainSatisfiedPendingReads() int {
 		// the same range-walk logic HasContextAroundRegion exposes,
 		// inline here so we hold the closure mutex once for the whole
 		// drain pass instead of re-acquiring per check.
-		if c.everyRangeCoveredLocked(canon, p.LineRanges) {
+		if c.everyRangeCoveredLocked(readCanon, p.LineRanges) {
 			drained++
 			continue
 		}
@@ -1391,6 +1420,25 @@ func (c *EvidenceClosure) DrainSatisfiedPendingReads() int {
 	}
 	c.pendingReads = kept
 	return drained
+}
+
+func evidenceClosureRelativeAliasMatch(a, b string) bool {
+	a = strings.TrimSpace(strings.ReplaceAll(a, `\`, `/`))
+	b = strings.TrimSpace(strings.ReplaceAll(b, `\`, `/`))
+	if a == "" || b == "" || evidenceClosureLooksAbsolutePath(a) || evidenceClosureLooksAbsolutePath(b) {
+		return false
+	}
+	return strings.HasSuffix(a, "/"+b) || strings.HasSuffix(b, "/"+a)
+}
+
+func evidenceClosureLooksAbsolutePath(path string) bool {
+	if strings.HasPrefix(path, "/") {
+		return true
+	}
+	if len(path) >= 3 && path[1] == ':' && path[2] == '/' {
+		return true
+	}
+	return false
 }
 
 // everyRangeCoveredLocked reports whether every entry in `ranges` is

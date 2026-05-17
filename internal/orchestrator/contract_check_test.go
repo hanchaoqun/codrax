@@ -139,6 +139,29 @@ func TestRunContractCheck_CitationGap_ZeroRejects(t *testing.T) {
 	}
 }
 
+func TestRunContractCheck_DocV2SkipsFileOnlySupplementalCitations(t *testing.T) {
+	out := &agent.StageOutput{FinalAnswer: "structured answer rendered from V2"}
+	mut := types.NewMutableState("q")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "packages/opencode/src/tool/read.ts"},
+			{File: "packages/opencode/src/tool/read.ts", Line: 37},
+		},
+	})
+	c := types.AnswerContract{
+		CitationReq: types.CitationReq{
+			Required:     true,
+			Granularity:  "file_line",
+			MinCitations: 1,
+		},
+	}
+
+	res := runContractCheck(out, c, mut, nil)
+	if !res.Passed {
+		t.Fatalf("file-only supplemental V2 citations should not force a rewrite when line citations exist: %+v", res.Violations)
+	}
+}
+
 func TestRunContractCheck_PassingCase(t *testing.T) {
 	out := &agent.StageOutput{
 		FinalAnswer: `- ` + "`" + `Foo` + "`" + ` at internal/a.go:1

@@ -4,22 +4,56 @@
 // across EvidenceClosure surfaces. Without these, three classes of
 // silent bugs slip through:
 //
-//   1. SetScannedSet stored raw paths but IsScanned looked up raw —
-//      consistent with itself but inconsistent with ReadSet's
-//      canonical-only contract; cross-surface comparisons in
-//      runForcedReads silently misclassify.
-//   2. AddPendingRead's dedup compared raw existing.File against
-//      raw p.File; two callers raising "./foo.go" and "foo.go"
-//      bypass dedup and produce duplicate forced-read demands.
-//   3. ClearPendingReadFor compared raw input against stored raw
-//      p.File; runForcedReads's post-success clear with a
-//      different prefix form leaves the entry in pendingReads,
-//      causing the same forced-read directive to re-fire.
+//  1. SetScannedSet stored raw paths but IsScanned looked up raw —
+//     consistent with itself but inconsistent with ReadSet's
+//     canonical-only contract; cross-surface comparisons in
+//     runForcedReads silently misclassify.
+//  2. AddPendingRead's dedup compared raw existing.File against
+//     raw p.File; two callers raising "./foo.go" and "foo.go"
+//     bypass dedup and produce duplicate forced-read demands.
+//  3. ClearPendingReadFor compared raw input against stored raw
+//     p.File; runForcedReads's post-success clear with a
+//     different prefix form leaves the entry in pendingReads,
+//     causing the same forced-read directive to re-fire.
 package types
 
 import (
 	"testing"
 )
+
+// === Multi-repo read aliases ===
+
+func TestEvidenceClosureReadSet_MultiRepoUniqueAlias(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.SetReadSet(map[string]bool{
+		"opencode/packages/opencode/src/tool/read.ts": true,
+	})
+	c.SetReadRanges(map[string][]LineRange{
+		"opencode/packages/opencode/src/tool/read.ts": {{Start: 37, End: 42}},
+	})
+
+	if !c.HasRead("packages/opencode/src/tool/read.ts") {
+		t.Fatalf("bare active-set alias should match unique prefixed read")
+	}
+	if !c.HasReadLine("packages/opencode/src/tool/read.ts", 40) {
+		t.Fatalf("bare active-set alias should use prefixed read ranges")
+	}
+	if c.HasReadLine("packages/opencode/src/tool/read.ts", 99) {
+		t.Fatalf("line outside the prefixed read range should remain unread")
+	}
+}
+
+func TestEvidenceClosureReadSet_MultiRepoAmbiguousAliasRejected(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.SetReadSet(map[string]bool{
+		"codrax/packages/opencode/src/tool/read.ts":   true,
+		"opencode/packages/opencode/src/tool/read.ts": true,
+	})
+
+	if c.HasRead("packages/opencode/src/tool/read.ts") {
+		t.Fatalf("ambiguous bare alias must not satisfy read coverage")
+	}
+}
 
 // === IsScanned canonicalization ===
 

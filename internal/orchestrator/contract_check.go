@@ -136,12 +136,8 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	if mut != nil {
 		// Read V2 carrier's typed citation pool when present.
 		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && len(docV2.Citations) > 0 {
-			draft.Citations = make([]contract.Citation, 0, len(docV2.Citations))
-			for _, c := range docV2.Citations {
-				draft.Citations = append(draft.Citations, contract.Citation{
-					File: c.File,
-					Line: c.Line,
-				})
+			if docCitations := contractCitationsFromAnswerDocument(docV2, c.CitationReq); len(docCitations) > 0 {
+				draft.Citations = docCitations
 			}
 		}
 	}
@@ -2121,6 +2117,35 @@ var citationRegex = regexp.MustCompile(
 // slice. Duplicates (same file, same line) are de-duplicated so a
 // single reference repeated three times in the prose still counts
 // as one citation (the contract checker measures distinct anchors).
+func contractCitationsFromAnswerDocument(doc *types.AnswerDocumentV2, req types.CitationReq) []contract.Citation {
+	if doc == nil || len(doc.Citations) == 0 {
+		return nil
+	}
+	out := make([]contract.Citation, 0, len(doc.Citations))
+	for _, c := range doc.Citations {
+		file := strings.TrimSpace(c.File)
+		if file == "" {
+			continue
+		}
+		cit := contract.Citation{File: file, Line: c.Line}
+		if c.Line > 0 && c.LineEnd >= c.Line {
+			cit.Lines = []int{c.Line, c.LineEnd}
+		}
+		switch req.Granularity {
+		case "file_line":
+			if cit.Line <= 0 {
+				continue
+			}
+		case "file_line_range":
+			if cit.Line <= 0 && len(cit.Lines) == 0 {
+				continue
+			}
+		}
+		out = append(out, cit)
+	}
+	return out
+}
+
 func extractCitationsFromAnswer(text string) []contract.Citation {
 	if text == "" {
 		return nil

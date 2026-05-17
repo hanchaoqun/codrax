@@ -3,15 +3,17 @@
 // L3-T3 of the forced-read remediation: explorer-side threshold-band
 // consumption of analyzer-emitted RequiredFileHints. The two hooks:
 //
-//   1. effectivePrimaryFiles — high-confidence (≥0.8) hints join
-//      the primary-files set alongside analyzer-derived primary +
-//      emit-cited files.
-//   2. preReadEligibleHintFiles / mergeHintFilesIntoPreRead — soft
-//      (≥0.5) hints are eligible for the pre-read pool, with
-//      high-confidence hints prioritised in the limited slot budget.
+//  1. effectivePrimaryFiles — high-confidence (≥0.8) hints join
+//     the primary-files set alongside analyzer-derived primary +
+//     emit-cited files.
+//  2. preReadEligibleHintFiles / mergeHintFilesIntoPreRead — soft
+//     (≥0.5) hints are eligible for the pre-read pool, with
+//     high-confidence hints prioritised in the limited slot budget.
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -22,6 +24,21 @@ import (
 
 func makeEvaluatorWithHints(hints []types.RequiredFileHint) *explorerEvaluator {
 	return &explorerEvaluator{requiredFileHints: hints}
+}
+
+type requiredFileHintAliasGater struct {
+	aliases map[string]string
+}
+
+func (g requiredFileHintAliasGater) ResolveActiveSetPath(_ *types.BusContext, _, llmPath string, _ func(string) bool) types.ActiveSetGateResult {
+	if dst, ok := g.aliases[llmPath]; ok {
+		return types.ActiveSetGateResult{Allowed: true, ResolvedPath: dst, AutoPrefixed: true}
+	}
+	return types.ActiveSetGateResult{Allowed: true, ResolvedPath: llmPath}
+}
+
+func (g requiredFileHintAliasGater) ResolveActiveSetCommand(_ *types.BusContext, _, _ string) types.ActiveSetGateResult {
+	return types.ActiveSetGateResult{Allowed: true}
 }
 
 // === preReadEligibleHintFiles ===
@@ -235,6 +252,39 @@ func TestFilterValidRequiredFileHints_CanonicalisesBeforeLookup(t *testing.T) {
 	got := filterValidRequiredFileHints(hints, graph)
 	if len(got) != 1 {
 		t.Errorf("canonical path should match; got %v", got)
+	}
+}
+
+func TestFilterValidRequiredFileHints_MultiRepoAliasSurvivesPrimaryGraphMiss(t *testing.T) {
+	root := t.TempDir()
+	prefixed := filepath.Join(root, "opencode", "packages", "opencode", "src", "tool")
+	if err := os.MkdirAll(prefixed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prefixed, "read.ts"), []byte("export const ReadTool = {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hints := []types.RequiredFileHint{
+		{Path: "packages/opencode/src/tool/read.ts", Confidence: 0.9},
+	}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomaptypes.FileInfo{
+			"internal/primary.go": {RelPath: "internal/primary.go"},
+		},
+	}
+	ctx := &types.AgentContext{
+		RepoRoot: root,
+		MultiGraph: requiredFileHintAliasGater{aliases: map[string]string{
+			"packages/opencode/src/tool/read.ts": "opencode/packages/opencode/src/tool/read.ts",
+		}},
+	}
+
+	got := filterValidRequiredFileHints(hints, graph, ctx)
+	if len(got) != 1 {
+		t.Fatalf("active-set alias should survive primary graph miss, got %+v", got)
+	}
+	if got[0].Path != "opencode/packages/opencode/src/tool/read.ts" {
+		t.Fatalf("hint path should be normalized into active-set namespace, got %q", got[0].Path)
 	}
 }
 

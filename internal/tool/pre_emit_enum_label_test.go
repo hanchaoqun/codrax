@@ -33,6 +33,21 @@ func (s *stubOracle) SymbolExistsFlat(name string) (bool, int) {
 	return ok, t
 }
 
+type preEmitActiveSetAliasGater struct {
+	aliases map[string]string
+}
+
+func (g preEmitActiveSetAliasGater) ResolveActiveSetPath(_ *types.BusContext, _, llmPath string, _ func(string) bool) types.ActiveSetGateResult {
+	if dst, ok := g.aliases[llmPath]; ok {
+		return types.ActiveSetGateResult{Allowed: true, ResolvedPath: dst, AutoPrefixed: true}
+	}
+	return types.ActiveSetGateResult{Allowed: true, ResolvedPath: llmPath}
+}
+
+func (g preEmitActiveSetAliasGater) ResolveActiveSetCommand(_ *types.BusContext, _, _ string) types.ActiveSetGateResult {
+	return types.ActiveSetGateResult{Allowed: true}
+}
+
 // === preEmitLabelLeadingIdentifier ===
 
 func TestPreEmitLabelLeadingIdentifier_Empty(t *testing.T) {
@@ -150,6 +165,58 @@ func TestPreCheckItemCitationAlignment_SourceLocationLabelsMatchCitation(t *test
 	ctx := &types.BusContext{Mutable: types.NewMutableState("q")}
 	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
 		t.Fatalf("source-location display labels should align to citation file:line, got %+v", hints)
+	}
+}
+
+func TestPreCheckItemCitationAlignment_MultiRepoAliasSourceLocation(t *testing.T) {
+	ctx := &types.BusContext{
+		Mutable: types.NewMutableState("q"),
+		MultiGraph: preEmitActiveSetAliasGater{aliases: map[string]string{
+			"packages/opencode/src/tool/read.ts": "opencode/packages/opencode/src/tool/read.ts",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "packages/opencode/src/tool/read.ts", Line: 37}},
+		Blocks: []types.AnswerBlock{{
+			ID:        "locations",
+			Kind:      types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimAssignmentFact}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "loc",
+				Label:       "opencode/packages/opencode/src/tool/read.ts:37",
+				Text:        "The displayed location is the active sub-repo path.",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("active-set alias should align source-location labels to bare citations, got %+v", hints)
+	}
+}
+
+func TestPreEmitCitedEvidenceItems_MultiRepoAlias(t *testing.T) {
+	ctx := &types.BusContext{
+		Mutable: types.NewMutableState("q"),
+		MultiGraph: preEmitActiveSetAliasGater{aliases: map[string]string{
+			"packages/opencode/src/tool/read.ts": "opencode/packages/opencode/src/tool/read.ts",
+		}},
+	}
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		ID:              "read-tool",
+		Source:          "opencode/packages/opencode/src/tool/read.ts",
+		LineStart:       37,
+		LineEnd:         37,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "ReadTool",
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+
+	items, ok := preEmitCitedEvidenceItems(ctx, types.Citation{File: "packages/opencode/src/tool/read.ts", Line: 37})
+	if !ok || len(items) != 1 {
+		t.Fatalf("bare citation should resolve to prefixed evidence source, ok=%t items=%+v", ok, items)
+	}
+	if items[0].Source != "opencode/packages/opencode/src/tool/read.ts" {
+		t.Fatalf("evidence source should stay in active-set namespace, got %q", items[0].Source)
 	}
 }
 

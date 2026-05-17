@@ -1284,14 +1284,15 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 	if !callLikePredicates[strings.ToLower(strings.TrimSpace(it.Predicate))] {
 		return false
 	}
-	fi, ok := gc.Graph.FileIndex[it.Source]
+	source := ground.CanonicalContextPath(gc, it.Source)
+	fi, ok := gc.Graph.FileIndex[source]
 	if !ok || fi == nil {
 		return false
 	}
 	candidates := emitPreferredCallTargetNames(it)
 	caller := enclosingCallableSymbolName(fi, it.LineStart)
 	callee := ""
-	if exact, ok := sourceLineCallTargetForCandidates(gc, it.Source, it.LineStart, candidates); ok {
+	if exact, ok := sourceLineCallTargetForCandidates(gc, source, it.LineStart, candidates); ok {
 		callee = exact
 	} else if rel, ok := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); ok {
 		callee = callRelationTargetName(gc.Graph, fi, rel)
@@ -1496,7 +1497,8 @@ func stabilizeLineLocalCallableOwner(it *types.EvidenceItem, gc *ground.Context)
 	if gc == nil || gc.Graph == nil {
 		return false
 	}
-	fi, ok := gc.Graph.FileIndex[it.Source]
+	source := ground.CanonicalContextPath(gc, it.Source)
+	fi, ok := gc.Graph.FileIndex[source]
 	if !ok || fi == nil {
 		return false
 	}
@@ -1665,7 +1667,8 @@ func enclosingEvidenceCallableOwner(it *types.EvidenceItem, gc *ground.Context) 
 	default:
 		return ""
 	}
-	fi, ok := gc.Graph.FileIndex[it.Source]
+	source := ground.CanonicalContextPath(gc, it.Source)
+	fi, ok := gc.Graph.FileIndex[source]
 	if !ok || fi == nil {
 		return ""
 	}
@@ -2638,7 +2641,7 @@ func exactResolutionDiagramRequiredFiles(ctx *types.BusContext, contract *types.
 	}
 	out := make([]string, 0, len(files))
 	for _, file := range files {
-		canon := ground.CanonicalRepoRelative(file, ctx.RepoRoot)
+		canon := ground.CanonicalBusPath(ctx, file)
 		if canon == "" {
 			continue
 		}
@@ -2654,7 +2657,7 @@ func emitSourceMatchesAnyRequiredFile(source string, requiredFiles []string) boo
 	}
 	for _, file := range requiredFiles {
 		file = ground.CanonicalRepoRelative(file, "")
-		if file != "" && file == source {
+		if file != "" && (file == source || strings.HasSuffix(file, "/"+source) || strings.HasSuffix(source, "/"+file)) {
 			return true
 		}
 	}

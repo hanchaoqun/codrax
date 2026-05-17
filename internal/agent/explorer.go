@@ -785,7 +785,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				// exploration proves the target concretely.
 				e.exactAnchorFiles = nil
 			}
-			e.requiredFiles = e.filterRequiredFiles(e.requiredFiles)
+			e.requiredFiles = e.filterRequiredFiles(e.requiredFiles, ctx)
 			// L1 (2026-05-10) — cache the structural registration-shape
 			// check once per dispatch. The result gates
 			// declarativeFocusRelevant's enumeration branch on whether
@@ -808,7 +808,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				// files) and free (no extra I/O).
 				if ctx.AnalysisIR != nil {
 					rawHints := ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints
-					e.requiredFileHints = filterValidRequiredFileHints(rawHints, sr.Graph)
+					e.requiredFileHints = filterValidRequiredFileHints(rawHints, sr.Graph, ctx)
 					// L3 observability — log the high/soft/dropped
 					// distribution per dispatch so operators can
 					// audit how often the analyzer emits useful
@@ -872,15 +872,17 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 						droppedNoGraph := 0
 						droppedCited := 0
 						for _, p := range raw {
-							canon := canonicalExplorerPath(p)
+							canon := canonicalExplorerAgentPath(ctx, p)
 							if canon == "" {
 								continue
 							}
 							// Layer (i): graph membership.
 							if sr.Graph != nil && sr.Graph.FileIndex != nil {
 								if _, ok := sr.Graph.FileIndex[canon]; !ok {
-									droppedNoGraph++
-									continue
+									if !explorerAgentPathExists(ctx, canon) {
+										droppedNoGraph++
+										continue
+									}
 								}
 							}
 							// Layer (ii): defer to explorer's own citations.
@@ -1259,7 +1261,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			}
 			if e.shouldStartPrimaryEntityDepth(analyzerKind) {
 				e.phase = 1
-				e.requiredFiles = e.filterRequiredFiles(e.requiredFiles)
+				e.requiredFiles = e.filterRequiredFiles(e.requiredFiles, ctx)
 				e.tightenPrimaryEntityFrontier()
 				return e.buildPrimaryEntityDepthStartInstruction(ctx, analyzerKeywords)
 			}
@@ -1543,9 +1545,13 @@ const (
 // Cross-language: works for every language codrax's repomap
 // supports — graph.FileIndex is populated identically across all
 // scanners (Go / Python / Java / Rust / C++ / Ruby / Swift / etc.).
-func filterValidRequiredFileHints(hints []types.RequiredFileHint, graph *repomap.Graph) []types.RequiredFileHint {
+func filterValidRequiredFileHints(hints []types.RequiredFileHint, graph *repomap.Graph, ctxOpt ...*types.AgentContext) []types.RequiredFileHint {
 	if len(hints) == 0 {
 		return nil
+	}
+	var ctx *types.AgentContext
+	if len(ctxOpt) > 0 {
+		ctx = ctxOpt[0]
 	}
 	if graph == nil || len(graph.FileIndex) == 0 {
 		// Fail-open — graph not available, can't validate.
@@ -1554,15 +1560,18 @@ func filterValidRequiredFileHints(hints []types.RequiredFileHint, graph *repomap
 	out := make([]types.RequiredFileHint, 0, len(hints))
 	var dropped []string
 	for _, h := range hints {
-		canon := canonicalExplorerPath(h.Path)
+		canon := canonicalExplorerAgentPath(ctx, h.Path)
 		if canon == "" {
 			dropped = append(dropped, h.Path)
 			continue
 		}
 		if _, ok := graph.FileIndex[canon]; !ok {
-			dropped = append(dropped, canon)
-			continue
+			if !explorerAgentPathExists(ctx, canon) {
+				dropped = append(dropped, canon)
+				continue
+			}
 		}
+		h.Path = canon
 		out = append(out, h)
 	}
 	if len(dropped) > 0 {
@@ -1572,6 +1581,23 @@ func filterValidRequiredFileHints(hints []types.RequiredFileHint, graph *repomap
 		return nil
 	}
 	return out
+}
+
+func canonicalExplorerAgentPath(ctx *types.AgentContext, path string) string {
+	if ctx != nil {
+		if canon := ground.CanonicalAgentPath(ctx, path); canon != "" {
+			return canonicalExplorerPath(canon)
+		}
+	}
+	return canonicalExplorerPath(path)
+}
+
+func explorerAgentPathExists(ctx *types.AgentContext, path string) bool {
+	if ctx == nil || ctx.RepoRoot == "" || path == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(ctx.RepoRoot, path))
+	return err == nil && !info.IsDir()
 }
 
 // preReadEligibleHintFiles returns the canonical paths from
@@ -1949,7 +1975,39 @@ func readSetContains(readSet map[string]bool, path string) bool {
 	if path == "" {
 		return false
 	}
-	return readSet[path]
+	if readSet[path] {
+		return true
+	}
+	matches := 0
+	for readPath := range readSet {
+		readPath = canonicalExplorerPath(readPath)
+		if readPath == "" {
+			continue
+		}
+		if explorerRelativeAliasMatch(readPath, path) {
+			matches++
+			if matches > 1 {
+				return false
+			}
+		}
+	}
+	return matches == 1
+}
+
+func explorerRelativeAliasMatch(a, b string) bool {
+	a = canonicalExplorerPath(a)
+	b = canonicalExplorerPath(b)
+	if a == "" || b == "" || explorerLooksAbsolutePath(a) || explorerLooksAbsolutePath(b) {
+		return false
+	}
+	return strings.HasSuffix(a, "/"+b) || strings.HasSuffix(b, "/"+a)
+}
+
+func explorerLooksAbsolutePath(path string) bool {
+	if strings.HasPrefix(path, "/") {
+		return true
+	}
+	return len(path) >= 3 && path[1] == ':' && path[2] == '/'
 }
 
 func sameRepoDir(a, b string) bool {
@@ -2226,7 +2284,7 @@ func (e *explorerEvaluator) authoritativeFailureCovered(allResults []types.ToolR
 		if canon == "" {
 			canon = f
 		}
-		if !readSet[canon] {
+		if !readSetContains(readSet, canon) {
 			return false
 		}
 	}
@@ -2267,14 +2325,18 @@ func (e *explorerEvaluator) authoritativeFailureResolvedFiles() []string {
 	return out
 }
 
-func (e *explorerEvaluator) filterRequiredFiles(files []string) []string {
+func (e *explorerEvaluator) filterRequiredFiles(files []string, ctxOpt ...*types.AgentContext) []string {
 	if len(files) == 0 {
 		return nil
+	}
+	var ctx *types.AgentContext
+	if len(ctxOpt) > 0 {
+		ctx = ctxOpt[0]
 	}
 	seen := make(map[string]bool, len(files))
 	out := make([]string, 0, len(files))
 	for _, path := range files {
-		canon := canonicalExplorerPath(path)
+		canon := canonicalExplorerAgentPath(ctx, path)
 		if canon == "" || isNoisePath(canon) || seen[canon] {
 			continue
 		}
@@ -5149,7 +5211,7 @@ func (e *explorerEvaluator) pendingConfigTraceCoverageHops(readSet map[string]bo
 	bestByFile := make(map[string]configTraceCoverageHop)
 	add := func(file string, score int, via string) {
 		file = canonicalExplorerPath(file)
-		if file == "" || readSet[file] || types.LooksLikeAuxiliaryEvidencePath(file) || !e.activeFocusAllowsFile(file) {
+		if file == "" || readSetContains(readSet, file) || types.LooksLikeAuxiliaryEvidencePath(file) || !e.activeFocusAllowsFile(file) {
 			return
 		}
 		if score <= 0 {
@@ -5180,7 +5242,7 @@ func (e *explorerEvaluator) pendingConfigTraceCoverageHops(readSet map[string]bo
 			continue
 		}
 		source := canonicalExplorerPath(item.Source)
-		if source == "" || !readSet[source] {
+		if source == "" || !readSetContains(readSet, source) {
 			continue
 		}
 		for _, consumer := range e.searchResult.Graph.FilesImporting(source) {
@@ -7416,7 +7478,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			filteredUnread := make([]string, 0, len(unread))
 			for _, f := range unread {
 				cf := canonicalExplorerPath(f)
-				if readSet[cf] && !cited[cf] {
+				if readSetContains(readSet, cf) && !cited[cf] {
 					continue
 				}
 				// L4 (2026-05-10) — analyzer-declared irrelevant
@@ -7615,7 +7677,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 				if isNoisePath(canon) {
 					continue
 				}
-				if readSet[canon] {
+				if readSetContains(readSet, canon) {
 					continue
 				}
 				missing = append(missing, f)
@@ -9764,7 +9826,7 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 	var demoteList []pendingDemote
 	for _, anchor := range in.chainAnchors {
 		// Row-level check: for each anchor file, require either
-		//   (a) file-level readSet[f] covers it (pure fallback for
+		//   (a) file-level readSet covers it (pure fallback for
 		//       callers / tests that do not populate ranges), OR
 		//   (b) closure.HasReadLine(f, line) confirms the specific
 		//       terminal line sits inside a fetched slice.
@@ -9783,7 +9845,7 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 			if closure.HasReadLine(f, line) {
 				continue
 			}
-			if readSet[f] && line == 0 {
+			if readSetContains(readSet, f) && line == 0 {
 				continue
 			}
 			allRead = false
@@ -9834,7 +9896,7 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 		// anchor file of THIS chain is in readSet at the file level.
 		anyAnchorFileInReadSet := false
 		for _, f := range anchor.Files {
-			if readSet[f] {
+			if readSetContains(readSet, f) {
 				anyAnchorFileInReadSet = true
 				break
 			}
@@ -9868,7 +9930,7 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 			if closure.HasReadLine(f, line) {
 				continue
 			}
-			if readSet[f] && line == 0 {
+			if readSetContains(readSet, f) && line == 0 {
 				continue
 			}
 			// X2 def-vs-usage filter: skip when the anchor file does
@@ -10484,7 +10546,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 			// keyword-search-scored). These are deterministic facts
 			// and must not depend on LLM notes content.
 			if isStringLit || isBoolOrNil {
-				if readSet[v.file] {
+				if readSetContains(readSet, v.file) {
 					relevant = append(relevant, v)
 					cntB1Read++
 					continue
@@ -11007,7 +11069,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 				continue
 			}
 			for _, v := range vals {
-				if v.file != "" && !readSet[v.file] {
+				if v.file != "" && !readSetContains(readSet, v.file) {
 					skippedHierarchyCount++
 					continue
 				}

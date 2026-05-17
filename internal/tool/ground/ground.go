@@ -193,6 +193,53 @@ func buildActiveSetPathResolver(ctx *types.BusContext) func(string) string {
 	}
 }
 
+func canonicalBusPath(ctx *types.BusContext, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = ctx.RepoRoot
+	}
+	canon := CanonicalRepoRelative(raw, repoRoot)
+	if canon == "" {
+		return ""
+	}
+	if resolver := buildActiveSetPathResolver(ctx); resolver != nil {
+		if resolved := resolver(canon); resolved != "" {
+			return CanonicalRepoRelative(resolved, repoRoot)
+		}
+	}
+	return canon
+}
+
+// CanonicalBusPath canonicalises a path against the full BusContext. It is the
+// non-grounding entrypoint for code that needs to compare paths with the same
+// multi-repo active-set aliasing used by read_file/grep/repo_map, but does not
+// otherwise need a grounding Context.
+func CanonicalBusPath(ctx *types.BusContext, raw string) string {
+	return canonicalBusPath(ctx, raw)
+}
+
+// CanonicalAgentPath is the AgentContext variant of CanonicalBusPath. Agents
+// normally do not hold a BusContext, so this builds the narrow bus shape needed
+// by MultiRepoActiveSetGater and keeps explorer/extractor path keys in the same
+// namespace as tool execution and grounding.
+func CanonicalAgentPath(ctx *types.AgentContext, raw string) string {
+	if ctx == nil {
+		return canonicalBusPath(nil, raw)
+	}
+	return canonicalBusPath(&types.BusContext{
+		RepoRoot:        ctx.RepoRoot,
+		MainRepoRoot:    ctx.MainRepoRoot,
+		MultiGraph:      ctx.MultiGraph,
+		SubRepos:        ctx.SubRepos,
+		ActiveSubRepo:   ctx.ActiveSubRepo,
+		PendingSubRepos: ctx.PendingSubRepos,
+	}, raw)
+}
+
 func canonicalContextPath(gc *Context, raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

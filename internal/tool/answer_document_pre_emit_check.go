@@ -57,6 +57,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -81,8 +82,9 @@ func preEmitOracleFromCtx(ctx *types.BusContext) types.SymbolOracle {
 }
 
 type preEmitCheckContext struct {
-	ctx      *types.BusContext
-	evidence *preEmitEvidenceIndex
+	ctx       *types.BusContext
+	groundCtx *ground.Context
+	evidence  *preEmitEvidenceIndex
 }
 
 type preEmitEvidenceIndex struct {
@@ -110,7 +112,7 @@ func (c *preEmitCheckContext) evidenceItems() []types.EvidenceItem {
 		return nil
 	}
 	if c.evidence == nil {
-		c.evidence = newPreEmitEvidenceIndex(c.ctx)
+		c.evidence = newPreEmitEvidenceIndex(c)
 	}
 	return c.evidence.items
 }
@@ -120,27 +122,56 @@ func (c *preEmitCheckContext) citedEvidenceItems(cit types.Citation) ([]types.Ev
 		return nil, false
 	}
 	if c.evidence == nil {
-		c.evidence = newPreEmitEvidenceIndex(c.ctx)
+		c.evidence = newPreEmitEvidenceIndex(c)
 	}
-	return c.evidence.citedEvidenceItems(cit)
+	return c.evidence.citedEvidenceItems(c.canonicalCitation(cit))
 }
 
-func newPreEmitEvidenceIndex(ctx *types.BusContext) *preEmitEvidenceIndex {
+func (c *preEmitCheckContext) canonicalPath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if c != nil && c.ctx != nil {
+		if c.groundCtx == nil {
+			c.groundCtx = ground.BuildContext(c.ctx)
+		}
+		if canon := ground.CanonicalContextPath(c.groundCtx, raw); canon != "" {
+			return canon
+		}
+	}
+	return ground.CanonicalRepoRelative(raw, "")
+}
+
+func (c *preEmitCheckContext) canonicalCitation(cit types.Citation) types.Citation {
+	cit.File = c.canonicalPath(cit.File)
+	return cit
+}
+
+func newPreEmitEvidenceIndex(pctx *preEmitCheckContext) *preEmitEvidenceIndex {
 	idx := &preEmitEvidenceIndex{}
+	var ctx *types.BusContext
+	if pctx != nil {
+		ctx = pctx.ctx
+	}
 	if ctx == nil || ctx.Mutable == nil {
 		return idx
 	}
+	var raw []types.EvidenceItem
 	if artifacts := ctx.Mutable.TurnAArtifacts(); artifacts != nil && len(artifacts.EvidenceItems) > 0 {
-		idx.items = append(idx.items, artifacts.EvidenceItems...)
+		raw = append(raw, artifacts.EvidenceItems...)
 	}
 	if emitted := ctx.Mutable.EmittedEvidence(); len(emitted) > 0 {
-		idx.items = append(idx.items, emitted...)
+		raw = append(raw, emitted...)
 	}
-	if len(idx.items) == 0 {
+	if len(raw) == 0 {
 		return idx
 	}
 	idx.byFile = make(map[string][]types.EvidenceItem)
-	for _, ev := range idx.items {
+	idx.items = make([]types.EvidenceItem, 0, len(raw))
+	for _, ev := range raw {
+		ev.Source = pctx.canonicalPath(ev.Source)
+		idx.items = append(idx.items, ev)
 		file := strings.TrimSpace(ev.Source)
 		if file == "" {
 			continue
@@ -591,7 +622,7 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
 				continue
 			}
-			cit := doc.Citations[item.CitationRef]
+			cit := pctx.canonicalCitation(doc.Citations[item.CitationRef])
 			if types.AnswerLocationLabelMatchesCitation(label, cit) {
 				continue
 			}
@@ -837,7 +868,7 @@ func preEmitUniqueCandidateCitationForItemWithContext(pctx *preEmitCheckContext,
 	var out []types.Citation
 	seen := make(map[string]bool)
 	add := func(cit types.Citation) {
-		cit.File = strings.TrimSpace(cit.File)
+		cit = pctx.canonicalCitation(cit)
 		if cit.File == "" || cit.Line <= 0 {
 			return
 		}
@@ -887,7 +918,7 @@ func appendOrReusePreEmitCitation(doc *types.AnswerDocumentV2, cit types.Citatio
 	}
 	want := preEmitCitationLocationKey(cit)
 	for i, existing := range doc.Citations {
-		if preEmitCitationLocationKey(existing) == want {
+		if preEmitCitationLocationKey(existing) == want || preEmitCitationSameLocation(existing, cit) {
 			return i
 		}
 	}
@@ -925,6 +956,7 @@ func preEmitItemCitationAlignedWithContext(pctx *preEmitCheckContext, label, tex
 }
 
 func preEmitItemCitationStrictlyAlignedWithContext(pctx *preEmitCheckContext, label, text string, cit types.Citation) bool {
+	cit = pctx.canonicalCitation(cit)
 	if types.AnswerLocationLabelMatchesCitation(label, cit) {
 		return true
 	}
@@ -2828,13 +2860,13 @@ func preEmitSourcePrincipalObligationMatchesItem(ob types.AnswerSupportMemberObl
 		if !ok {
 			return false
 		}
-		if preEmitNormalizePath(ob.Source) != preEmitNormalizePath(labelFile) {
+		if !preEmitPathMatches(ob.Source, labelFile) {
 			return false
 		}
-		return preEmitNormalizePath(cit.File) == preEmitNormalizePath(labelFile)
+		return preEmitPathMatches(cit.File, labelFile)
 	case types.ImpactOutputSites:
 		surface, ok := types.ParseAnswerSourceLocationSurface(label)
-		if !ok || !types.AnswerSourceLocationSurfaceMatchesCitation(surface, cit) {
+		if !ok || !preEmitCitationMatchesSourceLocation(cit, surface) {
 			return false
 		}
 		return preEmitSupportObligationHasCitation(ob, cit)
@@ -2848,11 +2880,11 @@ func preEmitSupportObligationHasCitation(ob types.AnswerSupportMemberObligation,
 	if want == "" {
 		return false
 	}
-	if preEmitNormalizeLocation(ob.Location) == want {
+	if preEmitNormalizeLocation(ob.Location) == want || preEmitLocationMatchesCitation(ob.Location, cit) {
 		return true
 	}
 	for _, loc := range ob.EquivalentLocations {
-		if preEmitNormalizeLocation(loc) == want {
+		if preEmitNormalizeLocation(loc) == want || preEmitLocationMatchesCitation(loc, cit) {
 			return true
 		}
 	}
@@ -2873,6 +2905,35 @@ func preEmitNormalizeLocation(location string) string {
 
 func preEmitNormalizePath(path string) string {
 	return strings.ToLower(strings.TrimSpace(strings.ReplaceAll(path, `\`, `/`)))
+}
+
+func preEmitPathMatches(a, b string) bool {
+	a = preEmitNormalizePath(strings.TrimPrefix(strings.TrimSpace(a), "./"))
+	b = preEmitNormalizePath(strings.TrimPrefix(strings.TrimSpace(b), "./"))
+	if a == "" || b == "" {
+		return false
+	}
+	return a == b || strings.HasSuffix(a, "/"+b) || strings.HasSuffix(b, "/"+a)
+}
+
+func preEmitCitationSameLocation(a, b types.Citation) bool {
+	return a.Line > 0 && a.Line == b.Line && preEmitPathMatches(a.File, b.File)
+}
+
+func preEmitLocationMatchesCitation(location string, cit types.Citation) bool {
+	location = strings.TrimSpace(location)
+	if location == "" || cit.Line <= 0 {
+		return false
+	}
+	idx := strings.LastIndex(location, ":")
+	if idx <= 0 || idx >= len(location)-1 {
+		return false
+	}
+	line, err := strconv.Atoi(strings.TrimSpace(location[idx+1:]))
+	if err != nil || line != cit.Line {
+		return false
+	}
+	return preEmitPathMatches(location[:idx], cit.File)
 }
 
 func preEmitAnswerEvidenceItems(ctx *types.BusContext) []types.EvidenceItem {
@@ -3058,7 +3119,7 @@ func preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx *preEmitC
 	var out []string
 	seen := make(map[string]bool)
 	add := func(file string, line int) {
-		file = strings.TrimSpace(file)
+		file = pctx.canonicalPath(file)
 		if file == "" || line <= 0 || len(out) >= limit {
 			return
 		}
@@ -3100,6 +3161,7 @@ func preEmitCitationSupportsAggregateItemWithContext(pctx *preEmitCheckContext, 
 	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
 		return false
 	}
+	cit = pctx.canonicalCitation(cit)
 	ctx := pctx.ctx
 	label = strings.TrimSpace(label)
 	text = strings.TrimSpace(text)
@@ -3717,9 +3779,7 @@ func missingSurfaceTermsForItem(item types.AnswerBlockItem, cite types.Citation,
 }
 
 func sameSurfaceTermSource(a, b string) bool {
-	a = strings.TrimPrefix(strings.TrimSpace(a), "./")
-	b = strings.TrimPrefix(strings.TrimSpace(b), "./")
-	return a != "" && b != "" && a == b
+	return preEmitPathMatches(a, b)
 }
 
 func surfaceTermLineClose(ev types.EvidenceItem, cite types.Citation) bool {
@@ -3809,7 +3869,7 @@ func preCheckEnumerationLabelGroundingWithContext(doc *types.AnswerDocumentV2, o
 				continue
 			}
 			if ctx != nil && it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) &&
-				types.AnswerLocationLabelMatchesCitation(label, doc.Citations[it.CitationRef]) {
+				types.AnswerLocationLabelMatchesCitation(label, pctx.canonicalCitation(doc.Citations[it.CitationRef])) {
 				continue
 			}
 			ident := preEmitLabelLeadingIdentifier(label)
@@ -4225,8 +4285,7 @@ func preEmitAggregateSupportRefMemberLocation(ref string) (member string, locati
 }
 
 func preEmitCitationMatchesSourceLocation(cit types.Citation, loc types.AnswerSourceLocationSurface) bool {
-	return strings.TrimSpace(strings.ReplaceAll(cit.File, `\`, `/`)) == strings.TrimSpace(strings.ReplaceAll(loc.File, `\`, `/`)) &&
-		cit.Line == loc.LineStart
+	return cit.Line == loc.LineStart && preEmitPathMatches(cit.File, loc.File)
 }
 
 func preEmitLabelSupportedByQuestionBucket(label string, ctx *types.BusContext) bool {
@@ -4850,7 +4909,7 @@ func citationRefForRequiredMechanismAnchorWithContext(doc *types.AnswerDocumentV
 			continue
 		}
 		for i, cit := range doc.Citations {
-			if preEmitNormalizePath(cit.File) == preEmitNormalizePath(file) && cit.Line == line {
+			if cit.Line == line && preEmitPathMatches(cit.File, file) {
 				return i
 			}
 		}

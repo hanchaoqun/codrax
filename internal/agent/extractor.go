@@ -1376,8 +1376,8 @@ func extractorEvidenceRepoSource(ctx *types.AgentContext, source string) string 
 	if source == "" {
 		return ""
 	}
-	if ctx != nil && ctx.RepoRoot != "" {
-		source = ground.CanonicalRepoRelative(source, ctx.RepoRoot)
+	if ctx != nil {
+		source = ground.CanonicalAgentPath(ctx, source)
 	} else {
 		source = canonicalExplorerPath(source)
 	}

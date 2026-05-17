@@ -1068,7 +1068,7 @@ func ermSuggestFiles(graph *repomap.Graph, reqs []EvidenceRequirement, readSet m
 	var candidates []scored
 
 	for _, fi := range graph.Files {
-		if readSet[fi.RelPath] {
+		if readSetContains(readSet, fi.RelPath) {
 			continue // already read
 		}
 		s := ermFileScore(fi, reqs)

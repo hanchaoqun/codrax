@@ -3657,7 +3657,7 @@ func refreshClosureReadSnapshot(ctx *types.BusContext, closure *types.EvidenceCl
 	}
 	changed := false
 	for file := range gc.LineIndex {
-		if file == "" || readSet[file] {
+		if file == "" || readSet[file] || closure.HasRead(file) {
 			continue
 		}
 		readSet[file] = true
