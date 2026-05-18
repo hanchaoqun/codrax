@@ -196,6 +196,21 @@ func parseTextToolCallEnvelope(content string, tools []ToolSchema, allowEmbedded
 	}
 	if blocks, ok := explicitTaggedOnlyTextToolCallBlocks(content); ok {
 		out := make([]ToolCall, 0, len(blocks))
+		explicitOK := true
+		for _, block := range blocks {
+			calls, ok := parseTextToolCallJSON(block, allowed, schemaInfos, forcedName, true)
+			if !ok || len(calls) == 0 {
+				explicitOK = false
+				break
+			}
+			out = append(out, calls...)
+		}
+		if explicitOK && len(out) > 0 {
+			return renumberGeneratedContentToolCallIDs(out), true
+		}
+	}
+	if blocks, ok := lenientExplicitTaggedOnlyTextToolCallBlocks(content); ok {
+		out := make([]ToolCall, 0, len(blocks))
 		for _, block := range blocks {
 			calls, ok := parseTextToolCallJSON(block, allowed, schemaInfos, forcedName, true)
 			if !ok || len(calls) == 0 {
@@ -1286,6 +1301,76 @@ func explicitTaggedOnlyTextToolCallBlocks(s string) ([]string, bool) {
 		bodies = append(bodies, body)
 	}
 	return bodies, true
+}
+
+func lenientExplicitTaggedOnlyTextToolCallBlocks(s string) ([]string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, false
+	}
+	var bodies []string
+	for pos := 0; pos < len(s); {
+		for pos < len(s) && isJSONSpace(s[pos]) {
+			pos++
+		}
+		if pos >= len(s) {
+			break
+		}
+		open, close := textToolCallOpenCloseAt(s, pos)
+		if open == "" {
+			return nil, false
+		}
+		bodyStart := pos + len(open)
+		nextOpen := nextTextToolCallOpenIndex(s, bodyStart)
+		closeRel := strings.Index(s[bodyStart:], close)
+		bodyEnd := len(s)
+		nextPos := len(s)
+		if closeRel >= 0 {
+			closeAbs := bodyStart + closeRel
+			if nextOpen < 0 || closeAbs < nextOpen {
+				bodyEnd = closeAbs
+				nextPos = closeAbs + len(close)
+			}
+		}
+		if nextPos == len(s) && nextOpen >= 0 {
+			bodyEnd = nextOpen
+			nextPos = nextOpen
+		}
+		body := strings.TrimSpace(s[bodyStart:bodyEnd])
+		if body == "" {
+			return nil, false
+		}
+		bodies = append(bodies, body)
+		pos = nextPos
+	}
+	if len(bodies) == 0 {
+		return nil, false
+	}
+	return bodies, true
+}
+
+func textToolCallOpenCloseAt(s string, pos int) (string, string) {
+	for _, tag := range []string{"tool_call", "minimax:tool_call"} {
+		open := "<" + tag + ">"
+		if strings.HasPrefix(s[pos:], open) {
+			return open, "</" + tag + ">"
+		}
+	}
+	return "", ""
+}
+
+func nextTextToolCallOpenIndex(s string, pos int) int {
+	best := -1
+	for _, tag := range []string{"tool_call", "minimax:tool_call"} {
+		open := "<" + tag + ">"
+		if rel := strings.Index(s[pos:], open); rel >= 0 {
+			abs := pos + rel
+			if best < 0 || abs < best {
+				best = abs
+			}
+		}
+	}
+	return best
 }
 
 func embeddedTextToolCallBlocks(s string) []string {

@@ -1127,6 +1127,74 @@ func TestLooksLikeEmbeddedToolCallRecognizesTaggedToolCalls(t *testing.T) {
 	}
 }
 
+type embeddedToolTextLLM struct {
+	calls int
+}
+
+func (l *embeddedToolTextLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	l.calls++
+	if l.calls == 1 {
+		return llm.Response{
+			Content: `<tool_call>{"name":"trace_tool","arguments":{"path":"internal/example.go"}}</tool_call>`,
+		}, nil
+	}
+	return llm.Response{
+		ToolCalls: []llm.ToolCall{{
+			ID:     "call-trace",
+			Name:   "trace_tool",
+			Params: json.RawMessage(`{"path":"internal/example.go"}`),
+		}},
+	}, nil
+}
+
+func (*embeddedToolTextLLM) ModelID() string               { return "embedded-tool-text" }
+func (*embeddedToolTextLLM) MaxContextTokens() int         { return 128000 }
+func (*embeddedToolTextLLM) MaxOutputTokens() int          { return 4096 }
+func (*embeddedToolTextLLM) RequestTimeout() time.Duration { return 0 }
+func (*embeddedToolTextLLM) RetryMaxAttempts() int         { return 0 }
+
+func TestBaseAgent_DoesNotRenderRawEmbeddedToolCallText(t *testing.T) {
+	registry := tool.NewRegistry()
+	registry.Register(traceTool{})
+
+	var events []render.Event
+	b := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		LLM:           &embeddedToolTextLLM{},
+		Tools:         registry,
+		MaxIterations: 2,
+		Emit: func(ev render.Event) {
+			events = append(events, ev)
+		},
+	}, &stubEvaluator{})
+
+	out, err := b.Execute(&types.AgentContext{
+		Stage:    types.StageExplore,
+		Mutable:  types.NewMutableState(""),
+		Language: "zh",
+	}, &skill.Config{ToolSuggestions: []string{"trace_tool"}})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if out == nil || len(out.ToolResults) != 1 || out.ToolResults[0].ToolName != "trace_tool" {
+		t.Fatalf("tool did not execute after protocol correction, output=%+v", out)
+	}
+	var sawPlaceholder bool
+	for _, ev := range events {
+		if ev.Kind != render.EventAgentReasoning {
+			continue
+		}
+		if strings.Contains(ev.Reasoning, "<tool_call>") || strings.Contains(ev.Reasoning, `"trace_tool"`) {
+			t.Fatalf("raw embedded tool-call text leaked to renderer: %q", ev.Reasoning)
+		}
+		if strings.Contains(ev.Reasoning, "工具调用协议") {
+			sawPlaceholder = true
+		}
+	}
+	if !sawPlaceholder {
+		t.Fatalf("expected sanitized embedded-tool-call placeholder, events=%+v", events)
+	}
+}
+
 func TestToolResultSummarySurfacesAnswerDocumentRejectsOnly(t *testing.T) {
 	answerReject := &types.ToolResult{
 		ToolName: "emit_answer_document",

@@ -582,6 +582,25 @@ func noToolTextShouldStayProtocolOnly(ctx *types.AgentContext, resp llm.Response
 	return ctx.Stage == types.StageExplore || toolChoiceForStage(ctx.Stage) == "required"
 }
 
+func reasoningContentForDisplay(ctx *types.AgentContext, resp llm.Response) string {
+	content := resp.Content
+	if len(resp.ToolCalls) == 0 && looksLikeEmbeddedToolCall(content) {
+		lang := ""
+		if ctx != nil {
+			lang = ctx.Language
+		}
+		return embeddedToolCallDisplayPlaceholder(lang)
+	}
+	return content
+}
+
+func embeddedToolCallDisplayPlaceholder(lang string) string {
+	if lang == "zh" || strings.HasPrefix(strings.ToLower(lang), "zh") {
+		return "模型把工具调用写进了文本，系统正在改用工具调用协议重试。"
+	}
+	return "The model wrote a tool call into text; retrying with the tool-call protocol."
+}
+
 func shouldRouteNoToolThroughStageProtocolController(ctx *types.AgentContext, resp llm.Response, loopCtrl LoopController) bool {
 	if loopCtrl == nil || ctx == nil || len(resp.ToolCalls) != 0 || strings.TrimSpace(resp.Content) == "" {
 		return false
@@ -1458,6 +1477,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if resp.Content != "" {
 			logging.Debug("[diag %s] iter=%d ASSISTANT content:\n%s\n---",
 				b.name, i, truncForLog(resp.Content, 4000))
+			displayReasoning := reasoningContentForDisplay(ctx, resp)
 			// Surface the LLM's reasoning text so the user can follow
 			// the investigation in real time. The renderer decides how
 			// to present it (dimmed text above the spinner, etc.).
@@ -1467,7 +1487,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Agent:     b.name,
 				Stage:     ctx.Stage,
 				Iteration: i,
-				Reasoning: resp.Content,
+				Reasoning: displayReasoning,
 			})
 		}
 		if len(resp.ToolCalls) > 0 {

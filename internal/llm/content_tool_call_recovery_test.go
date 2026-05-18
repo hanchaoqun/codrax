@@ -206,6 +206,32 @@ func TestRecoverTextToolCalls_AutoModeExplicitTaggedOnlyBlocks(t *testing.T) {
 	}
 }
 
+func TestRecoverTextToolCalls_AutoModeRepairsMissingCloseBeforeNextTaggedCall(t *testing.T) {
+	tools := []ToolSchema{
+		{
+			Name:       "emit_evidence",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object"}}},"required":["items"]}`),
+		},
+		{
+			Name:       "read_file",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`),
+		},
+	}
+	content := `<tool_call>{"name":"emit_evidence","arguments":{"items":[{"source":"a.go","line_start":7,"summary":"x"}]}}` +
+		` <tool_call>{"name":"read_file","arguments":{"path":"a.go"}}</tool_call>`
+
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "auto"})
+	if len(got.ToolCalls) != 2 {
+		t.Fatalf("expected two recovered auto-mode tagged calls, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+	if got.Content != "" || got.StopReason != "tool_use" {
+		t.Fatalf("recovered response should clear content and mark tool_use, got content=%q stop=%q", got.Content, got.StopReason)
+	}
+	if got.ToolCalls[0].Name != "emit_evidence" || got.ToolCalls[1].Name != "read_file" {
+		t.Fatalf("tool order/name mismatch: %+v", got.ToolCalls)
+	}
+}
+
 func TestRecoverTextToolCalls_AutoModeExplicitTaggedOnlyCompatibilityMatrix(t *testing.T) {
 	tools := []ToolSchema{{Name: "read_file"}, {Name: "grep"}, {Name: "emit_evidence"}}
 	cases := []struct {
