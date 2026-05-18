@@ -222,6 +222,26 @@ func plannerProseFallbackMessage(ctx *types.BusContext) string {
 func softRetryHintForStage(lang string, stage types.PipelineStage) string {
 	zh := preferZhMessage(lang)
 	switch stage {
+	case types.StageAnalyze:
+		if zh {
+			return "⟳ 模型响应出错,正在重新理解问题"
+		}
+		return "⟳ Model response error, re-understanding the question"
+	case types.StageExplore:
+		if zh {
+			return "⟳ 模型响应出错,正在重新收集证据"
+		}
+		return "⟳ Model response error, re-collecting evidence"
+	case types.StageExtract:
+		if zh {
+			return "⟳ 模型响应出错,正在重新提炼关键发现"
+		}
+		return "⟳ Model response error, re-extracting key findings"
+	case types.StageFinalize:
+		if zh {
+			return "⟳ 模型响应出错,正在重新撰写答案"
+		}
+		return "⟳ Model response error, re-composing the final answer"
 	case types.StagePlan:
 		// "正在补完" / "Refining" implied a plan was already drafted
 		// and we were just polishing it. On real plan-stage retries
@@ -242,6 +262,16 @@ func softRetryHintForStage(lang string, stage types.PipelineStage) string {
 			return "⟳ 正在重新跑测试"
 		}
 		return "⟳ Re-running verification tests"
+	}
+	return softRetryHintMessage(lang)
+}
+
+func softAgentOutputRetryMessage(lang string, stage types.PipelineStage, missing types.MissingPiece) string {
+	if stage == types.StageExplore && missing == types.MissingFacts {
+		if preferZhMessage(lang) {
+			return "⟳ 正在补充关键信息"
+		}
+		return "⟳ Filling in key context"
 	}
 	return softRetryHintMessage(lang)
 }

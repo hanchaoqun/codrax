@@ -956,11 +956,12 @@ func TestSemanticQualityStrictCoverageViolation_RichnessGapRemainsSoft(t *testin
 	}
 }
 
-func TestSemanticQualityStrictCoverageViolation_RequiredDiagramGap(t *testing.T) {
+func TestSemanticQualityStrictCoverageViolation_RequiredDiagramRelationGapStaysSoft(t *testing.T) {
 	in := SemanticQualityInput{
 		DiagramContract: &SemanticDiagramSummary{
-			Required:     true,
-			BlockPresent: true,
+			Required:       true,
+			BlockPresent:   true,
+			BodyTrimmedLen: 42,
 			Edges: []SemanticDiagramEdgeContract{
 				{RelationKind: "call", MinExpected: 2, MinSatisfied: 1},
 			},
@@ -970,9 +971,25 @@ func TestSemanticQualityStrictCoverageViolation_RequiredDiagramGap(t *testing.T)
 		Kind:  semanticConcernDiagramGap,
 		Topic: "diagram",
 	}
+	if got, ok := semanticQualityStrictCoverageViolation(concern, in); ok {
+		t.Fatalf("relation-min diagram shortfall should stay soft when a diagram body exists; got %q", got)
+	}
+}
+
+func TestSemanticQualityStrictCoverageViolation_MissingRequiredDiagramStaysStrict(t *testing.T) {
+	in := SemanticQualityInput{
+		DiagramContract: &SemanticDiagramSummary{
+			Required:     true,
+			BlockPresent: false,
+		},
+	}
+	concern := SemanticQualityConcern{
+		Kind:  semanticConcernDiagramGap,
+		Topic: "diagram",
+	}
 	got, ok := semanticQualityStrictCoverageViolation(concern, in)
 	if !ok {
-		t.Fatal("required diagram edge shortfall should become a strict runtime violation")
+		t.Fatal("missing required diagram should remain a strict runtime violation")
 	}
 	if got != types.ViolDiagramEdgeUnsupported {
 		t.Fatalf("kind=%q, want %q", got, types.ViolDiagramEdgeUnsupported)

@@ -397,6 +397,10 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	//     deadlines do not interfere.
 	strictReview := o == nil || o.strictAnswerReviewEnabledValue()
 	if strictReview && !deterministicReviewerHandled {
+		preReviewerStrict := hasAnyStrictViolation(result.Violations)
+		if preReviewerStrict {
+			logging.Info("[orchestrator] skipping LLM answer reviewers until deterministic strict contract violations are repaired")
+		}
 		// Evaluate both reviewer-eligibility gates up-front so the
 		// dispatch decision does not depend on the order of LLM
 		// completion.
@@ -404,12 +408,12 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			scDocV2 *types.AnswerDocumentV2
 			sqDocV2 *types.AnswerDocumentV2
 		)
-		runSC := o != nil && o.selfConsistencyReviewer != nil && mut != nil
+		runSC := !preReviewerStrict && o != nil && o.selfConsistencyReviewer != nil && mut != nil
 		if runSC {
 			scDocV2 = mut.AnswerDocumentV2()
 			runSC = scDocV2 != nil && shouldReviewConsistencyV2(scDocV2)
 		}
-		runSQ := o != nil && o.semanticQualityReviewer != nil && mut != nil
+		runSQ := !preReviewerStrict && o != nil && o.semanticQualityReviewer != nil && mut != nil
 		if runSQ {
 			sqDocV2 = mut.AnswerDocumentV2()
 			runSQ = sqDocV2 != nil && semanticQualityReviewerEligible(sqDocV2, result.Violations)
@@ -3315,11 +3319,6 @@ func semanticQualityInputHasHardDiagramGap(in SemanticQualityInput) bool {
 	}
 	if !d.BlockPresent || d.BodyTrimmedLen == 0 {
 		return true
-	}
-	for _, edge := range d.Edges {
-		if edge.MinExpected > edge.MinSatisfied {
-			return true
-		}
 	}
 	return false
 }

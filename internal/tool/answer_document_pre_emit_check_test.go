@@ -2040,6 +2040,90 @@ func TestNormalizeViewCompatibleAnswerDocument_CoalescesExtraSummaryBlocks(t *te
 	}
 }
 
+func TestNormalizeViewCompatibleAnswerDocument_AddsImplicitDefinitionClaimUse(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind:     types.BlockSection,
+			MinCount: 1,
+			Required: true,
+			AcceptableClaimForms: []types.ClaimForm{
+				types.ClaimDefinitionFact,
+				types.ClaimCallEdge,
+				types.ClaimImportEdge,
+			},
+			SurfaceRoleHint: types.SurfacePrincipal,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:       "sec_top",
+			Kind:     types.BlockSection,
+			Text:     "Top-level service responsibilities are already visible here.",
+			FacetIDs: []string{"component_relation"},
+		}},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
+		t.Fatalf("expected one implicit claim_use repair, got %d", fixed)
+	}
+	got := doc.Blocks[0].ClaimUses
+	if len(got) != 1 || got[0].ClaimForm != types.ClaimDefinitionFact || got[0].FacetID != "component_relation" {
+		t.Fatalf("implicit definition claim_use not attached safely: %+v", got)
+	}
+	if hints := preCheckPrincipalClaimUse(doc, view); len(hints) != 0 {
+		t.Fatalf("normalized principal block should not ask the model to retry: %+v", hints)
+	}
+}
+
+func TestNormalizeViewCompatibleAnswerDocument_DoesNotInventNonDefinitionClaimUse(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind:                 types.BlockSection,
+			MinCount:             1,
+			Required:             true,
+			AcceptableClaimForms: []types.ClaimForm{types.ClaimCallEdge, types.ClaimGuardCondition},
+			SurfaceRoleHint:      types.SurfacePrincipal,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "sec_call",
+			Kind: types.BlockSection,
+			Text: "A call/guard relation would need an explicit typed carrier.",
+		}},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("normalizer must not choose among non-definition relation forms, got %d", fixed)
+	}
+	if len(doc.Blocks[0].ClaimUses) != 0 {
+		t.Fatalf("unexpected claim_use invention: %+v", doc.Blocks[0].ClaimUses)
+	}
+}
+
+func TestNormalizeViewCompatibleAnswerDocument_DoesNotAutoClaimListRelations(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind:                 types.BlockOrderedList,
+			MinCount:             1,
+			Required:             true,
+			AcceptableClaimForms: []types.ClaimForm{types.ClaimDefinitionFact, types.ClaimCallEdge},
+			SurfaceRoleHint:      types.SurfacePrincipal,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:    "steps",
+			Kind:  types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{ID: "i1", Label: "A -> B"}},
+		}},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("list relation carriers need explicit model intent, got %d repair(s)", fixed)
+	}
+	if len(doc.Blocks[0].ClaimUses) != 0 {
+		t.Fatalf("unexpected list claim_use invention: %+v", doc.Blocks[0].ClaimUses)
+	}
+}
+
 // TestPreCheckPrincipalClaimUse_SingleFormRelaxation — when contract
 // declares exactly one AcceptableClaimForm AND the block carries
 // structural grounding (facet_ids + cited items), the missing

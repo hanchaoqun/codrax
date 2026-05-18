@@ -266,6 +266,105 @@ func TestMultiGraph_GraphFor_NotActive(t *testing.T) {
 	}
 }
 
+func TestMultiGraph_EnsureManyLoadsInParallel(t *testing.T) {
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "repo-a", RootAbs: "/parent/repo-a", RootRel: "repo-a"},
+		{Slug: "repo-b", RootAbs: "/parent/repo-b", RootRel: "repo-b"},
+	})
+	startedA := make(chan struct{}, 1)
+	startedB := make(chan struct{}, 1)
+	release := make(chan struct{})
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		switch root {
+		case "/parent/repo-a":
+			startedA <- struct{}{}
+		case "/parent/repo-b":
+			startedB <- struct{}{}
+		default:
+			return nil, fmt.Errorf("unknown root %q", root)
+		}
+		select {
+		case <-release:
+		case <-time.After(2 * time.Second):
+			return nil, fmt.Errorf("test timed out waiting for release")
+		}
+		return makeGraph(root, []string{"x.go"}, nil), nil
+	}
+	mg, err := New(Config{Topology: topo, Build: build, Cap: 2})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- mg.EnsureMany([]string{"repo-a", "repo-b"})
+	}()
+	select {
+	case <-startedA:
+	case <-time.After(time.Second):
+		t.Fatal("repo-a build did not start")
+	}
+	select {
+	case <-startedB:
+	case <-time.After(time.Second):
+		t.Fatal("repo-b build did not start; EnsureMany appears serialized")
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("EnsureMany: %v", err)
+	}
+}
+
+func TestMultiGraph_EnsureLoadedCoalescesSameSlug(t *testing.T) {
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "repo-a", RootAbs: "/parent/repo-a", RootRel: "repo-a"},
+	})
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	builds := atomic.Int32{}
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		builds.Add(1)
+		started <- struct{}{}
+		select {
+		case <-release:
+		case <-time.After(2 * time.Second):
+			return nil, fmt.Errorf("test timed out waiting for release")
+		}
+		return makeGraph(root, []string{"x.go"}, nil), nil
+	}
+	mg, err := New(Config{Topology: topo, Build: build, Cap: 1})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	done := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			_, err := mg.EnsureLoaded("repo-a")
+			done <- err
+		}()
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("repo-a build did not start")
+	}
+	select {
+	case <-started:
+		t.Fatal("duplicate same-slug build started before first completed")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	for i := 0; i < 2; i++ {
+		if err := <-done; err != nil {
+			t.Fatalf("EnsureLoaded[%d]: %v", i, err)
+		}
+	}
+	if got := builds.Load(); got != 1 {
+		t.Fatalf("same-slug load should coalesce to 1 build, got %d", got)
+	}
+}
+
 // === Oracle fan-out ===
 
 func TestMultiGraph_OracleFanOut(t *testing.T) {

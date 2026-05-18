@@ -3829,6 +3829,17 @@ func structurallyEmptyAnswerForUser(lang string) string {
 	return "The system could not gather enough code evidence to answer this question reliably. Please refine the request or narrow the search scope and retry."
 }
 
+func appendFinalizerTransientFailureCaveat(answer, lang string) string {
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return answer
+	}
+	if isChineseLang(lang) {
+		return answer + "\n\n## 补充说明\n\n后续成文重试因为模型响应中断未能完成，系统保留上一版草稿给你参考；其中可能仍有未完全通过结构化校验的表达。"
+	}
+	return answer + "\n\n## Note\n\nA later final-answer retry was interrupted by the model response stream, so the system preserved the previous draft for reference; some structural checks may still be incomplete."
+}
+
 // runReadSchedulerLoop walks the read-mode AnalysisIR.TaskGraph with
 // criterion-aware scheduling. Each round:
 //
@@ -4727,9 +4738,17 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				PreviewRejected: true,
 			})
 			if o.retryReadStageDispatchError(state, types.StageFinalize, nil, fin, err) {
+				lastFallbackFinalizerOnly = true
 				continue
 			}
 			stepsUsed++
+			if lastFinalize != nil && strings.TrimSpace(lastFinalize.FinalAnswer) != "" {
+				logging.Warning("[orchestrator] finalize dispatch failed after retry budget; delivering previous draft with transient-failure caveat")
+				lastFinalize.FinalAnswer = appendFinalizerTransientFailureCaveat(lastFinalize.FinalAnswer, o.busCtx.Language)
+				state.markDone(fin.ID)
+				o.emitNodeEnd(fin.ID, true, "")
+				break
+			}
 			state.markFailed(fin.ID)
 			o.emitNodeEnd(fin.ID, false, err.Error())
 			break
@@ -7119,7 +7138,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 			Timestamp:  time.Now(),
 			Agent:      "orchestrator",
 			NoticeKind: render.NoticeRetry,
-			Reasoning:  softRetryHintMessage(o.busCtx.Language),
+			Reasoning:  softAgentOutputRetryMessage(o.busCtx.Language, o.busCtx.PipelineStage, output.MissingPiece),
 		})
 	}
 

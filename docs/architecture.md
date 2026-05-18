@@ -2725,6 +2725,8 @@ multi_repo_discovery_depth: 4           # 父目录 BFS 深度
 multi_repo_min_files: 1                 # 子仓 file count 下限,过滤空目录
 ```
 
+启动性能约束(2026-05-18):拓扑缓存只用“父目录存在 + 子仓 root 存在 + 子仓 manifest 指纹未变”判新鲜,**不再使用父目录 mtime**。原因是默认 `<cwd>/.codrax` 会写 logs/blob/cache,父目录 mtime 会被运行时文件频繁 bump,不能作为 hard stale 信号。冷启动发现多个子仓时,子仓 Tier-1 metadata probe (`git ls-files`) 以有界并行执行(默认 4 路);若 REPL 启动前发现耗时超过 2s,CLI 会先输出“正在发现工作区子仓拓扑(仅元数据,不构建 repo_map 索引)”和完成行,避免 banner 前长时间无反馈。
+
 **CLI flag**(2026-05-08 add):
 - `--focus <slug-or-path>`(repeatable / 逗号分隔)— 启动时预 pin 子仓,等价 REPL 启动后立即 `/repos focus`,但适用 scripted / non-REPL 调用。每 token 经 `topology.Resolve` 解 slug-or-RootRel,匹配不到的 token 一行 Warning + 丢弃,不阻断 Run。**单仓 / 无 git workspace 静默忽略**(无 sub-repo 可匹配)。
 
@@ -2754,10 +2756,12 @@ internal/tool/repomap/
 
 **单仓退化保障**:`IsSingle()==true` 时 LRU 容量强制 1,所有方法行为字节级等价于直接操作底层 `*Graph`。
 
+**加载并行保障**:`BuildOrLoadMultiGraph` 只构造 lazy carrier,不构建 graph。真正的子仓 graph 加载发生在 `EnsureLoaded/EnsureMany`;`EnsureMany` 在 active-set cap 内并行加载不同子仓,同一 slug 的并发加载通过 in-flight table 合并,避免重复 full scan。
+
 ### 16.4 关键不变量(红线)
 
 - **R3 partial_typed_lane**:某 active 子仓集 ⊊ topology 时 `MultiGraph.PartialTypedLane()==true`,LLM-facing 摘要必须 disclose `PendingSubRepoNames()`(只暴露 RootRel,**永不暴露 slug** — R6)
-- **EnsureMany 超 cap fail-loud**:`ErrTooManyActive` 是 R3 兜底,正常路径 routing fold 已 pre-trim
+- **EnsureMany 超 cap fail-loud**:`ErrTooManyActive` 是 R3 兜底,正常路径 routing fold 已 pre-trim;cap 内加载可并行,但绝不越过 cap 做后台预热
 - **Thrashing 检测 fail-loud**:60s 滑动窗口 > 5 evict 触发 trip,Phase 6 telemetry 在 Run 退出时打 `multigraph: thrashing detected` Warning,提示用户调高 cap
 - **跨仓 import edge 不解析**:子仓间 namespace 独立(Go module / Java pom / Cargo crate),`ImportEdges()` flatten 时各子仓内部 path 加 RootRel 前缀避免假阳性
 - **写模式跨仓 ChangePlan 禁止**(设计 §4.5.5):`task.scope=micro` 强制 `kind=patch` 锁定单一 sub-repo;`ViolKind=WriteCrossSubRepoForbidden` 在 write_analyzer 收敛失败时 fail-loud

@@ -83,6 +83,38 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_DiagramBodyStripsNestedFences(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	params, err := json.Marshal(map[string]any{
+		"blocks": []map[string]any{
+			{"id": "s1", "kind": "summary", "text": "Architecture flow."},
+			{"id": "d1", "kind": "diagram", "diagram": map[string]any{
+				"kind":     "flow",
+				"language": "mermaid",
+				"body":     "```mermaid\n```mermaid\nflowchart TD\n  A --> B\n```\n```",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected nested diagram fences to be normalized, got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || doc.Blocks[1].Diagram == nil {
+		t.Fatalf("diagram block not written: %+v", doc)
+	}
+	if got := strings.TrimSpace(doc.Blocks[1].Diagram.Body); got != "flowchart TD\n  A --> B" {
+		t.Fatalf("diagram body still has wrapper fences: %q", got)
+	}
+}
+
 func TestEmitAnswerDocumentV2_AcceptsStructuredTableColumnsCells(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

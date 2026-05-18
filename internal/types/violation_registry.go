@@ -764,10 +764,10 @@ func init() {
 	})
 
 	// ── B3 v3 (2026-05-04) — diagram relation typed-first ──
-	// 2026-05-18 intent-preservation update: label-only inference is
-	// sufficient for readers and for the contract. Missing edge_anchors
-	// metadata is telemetry, not a reason to rewrite or surface a user
-	// caveat.
+	// 2026-05-18 intent-preservation update: label-only inference or
+	// a present endpoint-grounded diagram is sufficient for readers.
+	// Missing edge_anchors / relation labels are telemetry, not a
+	// reason to rewrite or surface a user caveat.
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolDiagramRelationLabelOnly, DefaultSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: false, FallbackLocus: LocusTerminal,

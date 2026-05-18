@@ -4895,7 +4895,59 @@ func normalizeViewCompatibleAnswerDocument(doc *types.AnswerDocumentV2, view *ty
 	fixed := 0
 	fixed += normalizeInactiveTypedDecisionVerdictFields(doc, view)
 	fixed += normalizeExcessRequiredSummaryBlocks(doc, view)
+	fixed += normalizeImplicitDefinitionClaimUses(doc, view)
 	return fixed
+}
+
+func normalizeImplicitDefinitionClaimUses(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
+	if doc == nil || view == nil {
+		return 0
+	}
+	reqByKind := make(map[types.AnswerBlockKind]types.BlockRequirement, len(view.RequiredBlocks))
+	for _, r := range view.RequiredBlocks {
+		for _, kind := range r.AcceptedKinds() {
+			if _, ok := reqByKind[kind]; !ok {
+				reqByKind[kind] = r
+			}
+		}
+	}
+	fixed := 0
+	for i := range doc.Blocks {
+		b := &doc.Blocks[i]
+		req, ok := reqByKind[b.Kind]
+		if !ok || len(req.AcceptableClaimForms) == 0 {
+			continue
+		}
+		isPrincipal := b.SurfaceRole == types.SurfacePrincipal ||
+			(b.SurfaceRole == "" && req.SurfaceRoleHint == types.SurfacePrincipal)
+		if !isPrincipal || hasAnyClaimUse(*b) || types.AnswerBlockHasActiveTypedDecisionCarrier(*b, view) {
+			continue
+		}
+		if !claimFormAllowed(req.AcceptableClaimForms, types.ClaimDefinitionFact) {
+			continue
+		}
+		switch b.Kind {
+		case types.BlockSummary, types.BlockSection:
+		default:
+			continue
+		}
+		claim := types.RenderedClaimUse{ClaimForm: types.ClaimDefinitionFact}
+		if len(b.FacetIDs) == 1 {
+			claim.FacetID = strings.TrimSpace(b.FacetIDs[0])
+		}
+		b.ClaimUses = append(b.ClaimUses, claim)
+		fixed++
+	}
+	return fixed
+}
+
+func claimFormAllowed(forms []types.ClaimForm, want types.ClaimForm) bool {
+	for _, form := range forms {
+		if form == want {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeInactiveTypedDecisionVerdictFields(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {

@@ -1901,6 +1901,11 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 				repaired = append(repaired, key)
 				continue
 			}
+			if repairedArray, ok := repairStringWrappedObjectFragmentArray(trimmed); ok {
+				probe[key] = repairedArray
+				repaired = append(repaired, key)
+				continue
+			}
 			// Path A2: direct array decode after trimming redundant
 			// trailing JSON closers. Some local models produce a valid
 			// stringified array followed by an extra ']' or '}' while the
@@ -1943,6 +1948,11 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 						repaired = append(repaired, key)
 						continue
 					}
+				}
+				if repairedArray, ok := repairStringWrappedObjectFragmentArray(normalised); ok {
+					probe[key] = repairedArray
+					repaired = append(repaired, key)
+					continue
 				}
 				if patched, ok := mergeWholeDocStringifyVariants(probe, key, normalised); ok {
 					probe = patched
@@ -2001,6 +2011,155 @@ func repairStringWrappedArrayJSON(trimmed string) (json.RawMessage, bool) {
 		return mustMarshal(inner), true
 	}
 	return nil, false
+}
+
+func repairStringWrappedObjectFragmentArray(trimmed string) (json.RawMessage, bool) {
+	candidate, changed := insertMissingObjectBracesInArray(trimmed)
+	if !changed {
+		return nil, false
+	}
+	candidate, _ = attachTrailingArrayObjectField(candidate, "load_bearing_summary")
+	var inner []json.RawMessage
+	if err := json.Unmarshal([]byte(candidate), &inner); err != nil {
+		return nil, false
+	}
+	return mustMarshal(inner), true
+}
+
+func insertMissingObjectBracesInArray(s string) (string, bool) {
+	trimmed := strings.TrimSpace(s)
+	if !strings.HasPrefix(trimmed, "[") {
+		return s, false
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	inString := false
+	escape := false
+	arrayDepth := 0
+	objectDepth := 0
+	changed := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inString {
+			b.WriteByte(ch)
+			if escape {
+				escape = false
+				continue
+			}
+			if ch == '\\' {
+				escape = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+			b.WriteByte(ch)
+		case '[':
+			arrayDepth++
+			b.WriteByte(ch)
+		case ']':
+			if arrayDepth > 0 {
+				arrayDepth--
+			}
+			b.WriteByte(ch)
+		case '{':
+			objectDepth++
+			b.WriteByte(ch)
+		case '}':
+			if objectDepth > 0 {
+				objectDepth--
+			}
+			b.WriteByte(ch)
+		case ',':
+			b.WriteByte(ch)
+			if arrayDepth == 1 && objectDepth == 0 {
+				j := i + 1
+				for j < len(s) && isJSONSpaceByte(s[j]) {
+					b.WriteByte(s[j])
+					j++
+				}
+				if j < len(s) && s[j] == '"' {
+					key, ok := quotedObjectKeyAt(s, j)
+					if ok && stringWrappedArrayObjectStartKey(key) {
+						b.WriteByte('{')
+						objectDepth++
+						changed = true
+					}
+				}
+				i = j - 1
+			}
+		default:
+			b.WriteByte(ch)
+		}
+	}
+	if !changed {
+		return s, false
+	}
+	return b.String(), true
+}
+
+func attachTrailingArrayObjectField(s, field string) (string, bool) {
+	if strings.TrimSpace(field) == "" {
+		return s, false
+	}
+	needle := `}, "` + field + `":`
+	idx := strings.LastIndex(s, needle)
+	if idx < 0 {
+		return s, false
+	}
+	tail := strings.TrimSpace(s[idx+len(needle):])
+	if !strings.HasSuffix(tail, "}]") {
+		return s, false
+	}
+	return s[:idx] + `, "` + field + `":` + s[idx+len(needle):], true
+}
+
+func isJSONSpaceByte(b byte) bool {
+	return b == ' ' || b == '\n' || b == '\r' || b == '\t'
+}
+
+func quotedObjectKeyAt(s string, start int) (string, bool) {
+	if start < 0 || start >= len(s) || s[start] != '"' {
+		return "", false
+	}
+	i := start + 1
+	var b strings.Builder
+	escape := false
+	for ; i < len(s); i++ {
+		ch := s[i]
+		if escape {
+			b.WriteByte(ch)
+			escape = false
+			continue
+		}
+		if ch == '\\' {
+			escape = true
+			continue
+		}
+		if ch == '"' {
+			j := i + 1
+			for j < len(s) && isJSONSpaceByte(s[j]) {
+				j++
+			}
+			return b.String(), j < len(s) && s[j] == ':'
+		}
+		b.WriteByte(ch)
+	}
+	return "", false
+}
+
+func stringWrappedArrayObjectStartKey(key string) bool {
+	switch key {
+	case "id", "label", "text", "source", "subject", "anchor_kind", "anchor_symbol", "evidence_kind", "scope", "file", "line":
+		return true
+	default:
+		return false
+	}
 }
 
 func topLevelArrayFieldAcceptsSingletonObject(field string) bool {

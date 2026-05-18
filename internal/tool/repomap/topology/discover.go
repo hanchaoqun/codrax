@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -26,11 +27,20 @@ type Options struct {
 	// this threshold. Zero → 1 (only purely-empty roots dropped).
 	MinFiles int
 
+	// ProbeConcurrency caps the number of concurrent Tier-1 metadata
+	// probes (`git ls-files`) after BFS has found git roots. Zero → 4.
+	// Discovery runs before the REPL prompt, so this is deliberately
+	// bounded: parallel enough to avoid N×slow-git cold starts, not so
+	// high that a repo forest floods the disk or process table.
+	ProbeConcurrency int
+
 	// RuntimeAnchor lets Discover skip codrax's own per-session
 	// worktree directories under <runtime-anchor>/worktrees/.
 	// Empty → no skip.
 	RuntimeAnchor string
 }
+
+const defaultProbeConcurrency = 4
 
 // Discover walks parentAbs and returns a populated *RepoTopology.
 //
@@ -79,12 +89,20 @@ func Discover(parentAbs string, opts Options) (*RepoTopology, error) {
 	if opts.RuntimeAnchor != "" {
 		worktreePrefix = filepath.Join(opts.RuntimeAnchor, "worktrees") + string(os.PathSeparator)
 	}
+	probeConcurrency := opts.ProbeConcurrency
+	if probeConcurrency <= 0 {
+		probeConcurrency = defaultProbeConcurrency
+	}
 
 	type walkItem struct {
 		abs   string
 		depth int
 	}
-	var subRepoRoots []string
+	type discoveredRoot struct {
+		abs  string
+		mode string
+	}
+	var subRepoRoots []discoveredRoot
 	queue := []walkItem{{abs: parentAbs, depth: 0}}
 	for len(queue) > 0 {
 		item := queue[0]
@@ -110,7 +128,7 @@ func Discover(parentAbs string, opts Options) (*RepoTopology, error) {
 			}
 			child := filepath.Join(item.abs, name)
 			if mode := gitMode(child); mode != "" {
-				subRepoRoots = append(subRepoRoots, child)
+				subRepoRoots = append(subRepoRoots, discoveredRoot{abs: child, mode: mode})
 				continue // prune: don't descend into a sub-repo
 			}
 			queue = append(queue, walkItem{abs: child, depth: item.depth + 1})
@@ -118,17 +136,46 @@ func Discover(parentAbs string, opts Options) (*RepoTopology, error) {
 	}
 
 	// Step 3 — build SubRepo entries.
+	type buildResult struct {
+		repo SubRepo
+		ok   bool
+	}
+	results := make([]buildResult, len(subRepoRoots))
+	if len(subRepoRoots) > 0 {
+		if probeConcurrency > len(subRepoRoots) {
+			probeConcurrency = len(subRepoRoots)
+		}
+		jobs := make(chan int)
+		var wg sync.WaitGroup
+		for i := 0; i < probeConcurrency; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for idx := range jobs {
+					root := subRepoRoots[idx]
+					rel, err := filepath.Rel(parentAbs, root.abs)
+					if err != nil {
+						continue
+					}
+					sr := buildSubRepo(parentAbs, root.abs, filepath.ToSlash(rel), root.mode)
+					if sr.FileCount < minFiles {
+						continue
+					}
+					results[idx] = buildResult{repo: sr, ok: true}
+				}
+			}()
+		}
+		for i := range subRepoRoots {
+			jobs <- i
+		}
+		close(jobs)
+		wg.Wait()
+	}
 	repos := make([]SubRepo, 0, len(subRepoRoots))
-	for _, root := range subRepoRoots {
-		rel, err := filepath.Rel(parentAbs, root)
-		if err != nil {
-			continue
+	for _, result := range results {
+		if result.ok {
+			repos = append(repos, result.repo)
 		}
-		sr := buildSubRepo(parentAbs, root, filepath.ToSlash(rel), gitMode(root))
-		if sr.FileCount < minFiles {
-			continue
-		}
-		repos = append(repos, sr)
 	}
 	sort.Slice(repos, func(i, j int) bool { return repos[i].RootRel < repos[j].RootRel })
 

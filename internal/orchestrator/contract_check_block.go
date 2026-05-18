@@ -517,31 +517,33 @@ func validateDiagramRelationLegality(
 				Stage: string(types.StageFinalize),
 			})
 		default:
-			// Even total counts (typed + label) below minimum — HARD
-			// reject. Detail describes the typed surface as primary.
-			// When typed has occupied an edge with a different
-			// RelationKind than this contract's Kind, the surfaced
-			// detail explains why label inference can't save the
-			// minimum (the edge is already typed-occupied).
+			// Even total counts (typed + label) below minimum. The
+			// diagram itself is present and Layer 1 has already proven
+			// its endpoints are grounded, so this is relation-metadata
+			// under-specification rather than a user-visible diagram
+			// absence or fabricated edge. Keep it SOFT telemetry-only:
+			// relation labels / typed edge anchors are guidance surfaces
+			// and should not burn another finalizer round when the model
+			// already produced a useful code flow diagram.
 			short := contract.Min - typedRelCounts[contract.Kind] - labelRelCounts[contract.Kind]
 			detailExtra := ""
 			if typedRelCounts[contract.Kind] == 0 && len(labelOnlyEdges[contract.Kind]) == 0 {
 				detailExtra = fmt.Sprintf(" — typed declarations exist for other relation kinds; if you intended an edge to carry kind=%s, set its edge_anchors[] entry's relation_kind accordingly", contract.Kind)
 			}
 			violations = append(violations, types.Violation{
-				Kind: types.ViolDiagramEdgeUnsupported,
+				Kind: types.ViolDiagramRelationLabelOnly,
 				Detail: fmt.Sprintf(
 					"diagram block id=%q expected at least %d edge(s) of relation kind=%s but found %d typed + %d label-only (need %d more)%s",
 					diagramBlock.ID, contract.Min, contract.Kind,
 					typedRelCounts[contract.Kind], labelRelCounts[contract.Kind], short, detailExtra),
 				Repair: fmt.Sprintf(
-					"add at least %d edge(s) of relation kind=%s. PREFERRED: declare relation_kind=%s on a block-level edge_anchors entry along with from_node / to_node / claim_form=%s. ALTERNATIVE: label the Mermaid edge with vocabulary that resolves to this relation (see the %q section above for the recognised label vocabulary).",
-					short, contract.Kind, contract.Kind, contract.ClaimForm, types.SectionDiagramEdgeLabelVocabulary),
+					"diagram relation metadata is under-specified; optionally add %d edge(s) of relation kind=%s by declaring relation_kind=%s on edge_anchors[] or by labelling an existing Mermaid edge with recognised relation vocabulary. The answer can ship because the visible diagram and endpoints are already grounded.",
+					short, contract.Kind, contract.Kind),
 				ClusterKey: relationClusterKey(contract.Kind, "diagram_edges"),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "diagram_edges",
-					Reason:     "minimum-count contract for typed relation not satisfied",
-					Confidence: 0.55,
+					Reason:     "relation minimum not fully declared; visible diagram is present and grounded",
+					Confidence: 0.45,
 				},
 				Stage: string(types.StageFinalize),
 			})

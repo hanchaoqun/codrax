@@ -313,7 +313,7 @@ OUTPUT: *RepoTopology
          发现 → 创建 SubRepo,**剪枝**:不再深入该 SubRepo 内部(避免吃下子仓的 nested submodule)
          未发现 → 继续 BFS
 
-3. 每个 SubRepo:
+3. 每个 SubRepo(有界并行 probe,默认 4 路):
      - Slug = cacheDirSlug(RootAbs)         # 复用 index.CacheDir 同源逻辑
      - PrimaryLangs:用 tool.NewGitCommand(nil, "-C", RootAbs, "ls-files", ...) ms 级
                     扩展名 top-3 + special-file 修正 (oh-package.json5/cjpm.toml/build.gradle/Cargo.toml)
@@ -322,6 +322,12 @@ OUTPUT: *RepoTopology
      - ManifestFingerprint:hash 该子仓 root 下 special files 列表
 
 4. min_files 过滤(default 1):FileCount < N 的 SubRepo 弃掉
+
+5. 缓存新鲜度:
+     - parentAbs 存在
+     - 每个 cached SubRepo.RootAbs 存在
+     - 每个 cached SubRepo.ManifestFingerprint 与当前 root 下 manifest 指纹一致
+     - 禁止用 parentAbs mtime 作为 stale hard gate:默认 .codrax 日志/缓存写入会 bump 父目录 mtime,会把 warm REPL 启动误打回 cold discovery
 
 5. 按 RootRel 字典序排序 → 持久化到 <runtime-anchor>/cache/topology/<parent-slug>.json
 ```
@@ -339,14 +345,16 @@ OUTPUT: *RepoTopology
 
 manifest cache 在父目录路径不变的情况下复用。失效条件:
 - topology.json 不存在
-- 父目录最后修改时间 > topology.DiscoveredAt(便宜路径,有限信任)
 - 任一 SubRepo.RootAbs 已不存在(子仓被删)
+- 任一 SubRepo manifest fingerprint 变化
 - 用户显式触发 `/repos refresh`(REPL,§4.4)
+
+禁止用父目录 mtime 作为失效条件:默认 `<cwd>/.codrax` 会写 logs/blob/cache,运行时文件会频繁 bump 父目录 mtime,导致 warm REPL 启动误判为 cold discovery。
 
 ### 3.4 Active-set 与 LRU(Phase 3)
 
 ```
-ACTIVE 上限 cap = codrax.yaml::multi_repo_max_active (default 3)
+ACTIVE 上限 cap = codrax.yaml::multi_repo_max_active (default 2, hard ceiling 3)
 
 EnsureLoaded(slug) 流程:
   if slug in active:
@@ -446,7 +454,7 @@ func IsArkTSProject(subRepoRoot, relPath string) bool
 
 ```go
 MultiRepoEnabled         *bool   `yaml:"multi_repo_enabled"`         // default TRUE  (§9 #2)
-MultiRepoMaxActive       *int    `yaml:"multi_repo_max_active"`      // default 3
+MultiRepoMaxActive       *int    `yaml:"multi_repo_max_active"`      // default 2, ceiling 3
 MultiRepoDiscoveryDepth  *int    `yaml:"multi_repo_discovery_depth"` // default 4    (§9 #1)
 MultiRepoMinFiles        *int    `yaml:"multi_repo_min_files"`       // default 1
 ```

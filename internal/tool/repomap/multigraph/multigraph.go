@@ -32,7 +32,7 @@ type Config struct {
 	// rank.go QueryScores signal hot for the user's request.
 	Query string
 
-	// Cap is the LRU active-set ceiling. Zero or negative → 3.
+	// Cap is the LRU active-set ceiling. Zero or negative → 2.
 	Cap int
 
 	// FocusSlugs are user-pinned slugs (from REPL /repos focus).
@@ -59,8 +59,9 @@ type Config struct {
 	// notice per scan via EventOrchestratorNotice). started=true is
 	// the start event; ok / elapsedMs apply to the end event. Nil
 	// disables the notification path entirely (single-shot CLI
-	// runs / tests). Callbacks fire synchronously inside the
-	// MultiGraph mutex so consumers MUST be non-blocking.
+	// runs / tests). Callbacks fire synchronously from the loader
+	// goroutine, outside the MultiGraph mutex, so consumers should
+	// still keep them non-blocking.
 	ScanNotifier func(rootRel, slug string, started bool, ok bool, elapsedMs int64)
 }
 
@@ -76,24 +77,32 @@ type Config struct {
 //     (Files/ImportEdges) or owner-routes (FileInfoFor/ScoreFor) per
 //     the design's audit table.
 //
-// All public methods are safe for concurrent use. Build calls
-// (triggered by EnsureLoaded on cache miss) are serialised through
-// the embedded mutex to keep the LRU + thrashing trackers
-// consistent.
+// All public methods are safe for concurrent use. Build calls for
+// different sub-repos may run in parallel (bounded by the caller's
+// active-set cap); duplicate calls for the same slug are coalesced
+// through an in-flight table. LRU + thrashing state remains serialized
+// under mu.
 type MultiGraph struct {
 	topo  *topology.RepoTopology
 	build BuildFunc
 	query string
 
-	mu        sync.Mutex // guards active + thrash + focus
-	active    *LRU
-	thrash    *ThrashingTracker
-	focusSet  map[string]bool
+	mu       sync.Mutex // guards active + thrash + focus + loading
+	active   *LRU
+	thrash   *ThrashingTracker
+	focusSet map[string]bool
+	loading  map[string]*loadState
 
 	oracleFactory  func(*rmtypes.Graph) types.SymbolOracle
 	locatorFactory func(*rmtypes.Graph) types.SymbolLocator
 
 	scanNotifier func(rootRel, slug string, started bool, ok bool, elapsedMs int64)
+}
+
+type loadState struct {
+	done chan struct{}
+	g    *rmtypes.Graph
+	err  error
 }
 
 // New constructs a MultiGraph from cfg. Returns an error if topology
@@ -131,6 +140,7 @@ func New(cfg Config) (*MultiGraph, error) {
 		active:         NewLRU(capN),
 		thrash:         NewThrashingTracker(),
 		focusSet:       make(map[string]bool, len(cfg.FocusSlugs)),
+		loading:        make(map[string]*loadState),
 		oracleFactory:  cfg.OracleFactory,
 		locatorFactory: cfg.LocatorFactory,
 		scanNotifier:   cfg.ScanNotifier,
@@ -241,24 +251,54 @@ func (m *MultiGraph) EnsureLoaded(slug string) (*rmtypes.Graph, error) {
 	if sr == nil {
 		return nil, fmt.Errorf("multigraph.EnsureLoaded: no sub-repo with slug %q", slug)
 	}
-	// Fast path — already resident.
-	if g, ok := m.active.Get(slug); ok {
-		return g, nil
-	}
 
 	m.mu.Lock()
-	// Re-check under the lock — another goroutine may have loaded
-	// the same slug while we waited.
 	if g, ok := m.active.Get(slug); ok {
 		m.mu.Unlock()
 		return g, nil
 	}
-	// We hold the write fence; the build call itself we run with
-	// the lock held to keep eviction ordering deterministic. The
-	// build is bounded by the per-sub-repo cache (warm second
-	// run is ms-class), so this serialisation does not hurt
-	// throughput in practice.
-	//
+	if state := m.loading[slug]; state != nil {
+		done := state.done
+		m.mu.Unlock()
+		<-done
+		if state.err != nil {
+			return nil, state.err
+		}
+		return state.g, nil
+	}
+	if m.loading == nil {
+		m.loading = make(map[string]*loadState)
+	}
+	state := &loadState{done: make(chan struct{})}
+	m.loading[slug] = state
+	m.mu.Unlock()
+
+	g, finalErr := m.buildSubRepoGraph(slug, sr)
+
+	m.mu.Lock()
+	if finalErr == nil {
+		evictedSlug, _, evicted := m.active.Put(slug, g)
+		if evicted {
+			m.thrash.Record()
+		}
+		_ = evictedSlug // future telemetry hook
+	}
+	state.g = g
+	state.err = finalErr
+	delete(m.loading, slug)
+	close(state.done)
+	m.mu.Unlock()
+
+	if finalErr != nil {
+		return nil, finalErr
+	}
+	return g, nil
+}
+
+func (m *MultiGraph) buildSubRepoGraph(slug string, sr *topology.SubRepo) (*rmtypes.Graph, error) {
+	if m == nil || sr == nil {
+		return nil, fmt.Errorf("multigraph.EnsureLoaded(%s): empty sub-repo metadata", slug)
+	}
 	// Phase 2 (2026-05-08): Log per-sub-repo scan start + end with
 	// the human-readable RootRel and the slug — without these the
 	// only "repo_map: full scan / cache hit" lines from the build
@@ -294,7 +334,6 @@ func (m *MultiGraph) EnsureLoaded(slug string) (*rmtypes.Graph, error) {
 				m.scanNotifier(sr.RootRel, slug, false /*ended*/, false /*ok=false*/, elapsedMs)
 			}
 		}
-		m.mu.Unlock()
 		return nil, fmt.Errorf("multigraph.EnsureLoaded(%s): %w", slug, err)
 	}
 	if g == nil {
@@ -306,7 +345,6 @@ func (m *MultiGraph) EnsureLoaded(slug string) (*rmtypes.Graph, error) {
 				m.scanNotifier(sr.RootRel, slug, false, false, elapsedMs)
 			}
 		}
-		m.mu.Unlock()
 		return nil, fmt.Errorf("multigraph.EnsureLoaded(%s): build returned nil graph", slug)
 	}
 	elapsedMs := time.Since(scanStart).Milliseconds()
@@ -317,12 +355,6 @@ func (m *MultiGraph) EnsureLoaded(slug string) (*rmtypes.Graph, error) {
 			m.scanNotifier(sr.RootRel, slug, false, true, elapsedMs)
 		}
 	}
-	evictedSlug, _, evicted := m.active.Put(slug, g)
-	if evicted {
-		m.thrash.Record()
-	}
-	_ = evictedSlug // future telemetry hook
-	m.mu.Unlock()
 	return g, nil
 }
 
@@ -347,8 +379,38 @@ func (m *MultiGraph) EnsureMany(slugs []string) error {
 	if len(slugs) > m.Cap() {
 		return fmt.Errorf("multigraph.EnsureMany: too many active slugs (%d > cap %d) — caller must routing-fold first (R3 red line)", len(slugs), m.Cap())
 	}
+	unique := make([]string, 0, len(slugs))
+	seen := make(map[string]bool, len(slugs))
 	for _, slug := range slugs {
-		if _, err := m.EnsureLoaded(slug); err != nil {
+		if slug == "" || seen[slug] {
+			continue
+		}
+		seen[slug] = true
+		unique = append(unique, slug)
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+	if len(unique) == 1 {
+		_, err := m.EnsureLoaded(unique[0])
+		return err
+	}
+	errCh := make(chan error, len(unique))
+	var wg sync.WaitGroup
+	for _, slug := range unique {
+		slug := slug
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := m.EnsureLoaded(slug); err != nil {
+				errCh <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
 			return err
 		}
 	}

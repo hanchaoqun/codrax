@@ -195,22 +195,30 @@ func normalizeEmitAnswerDiagram(diag *emitAnswerDiagramV2) {
 }
 
 func stripOuterDiagramFence(body string) string {
-	trimmed := strings.TrimSpace(body)
-	if !strings.HasPrefix(trimmed, "```") {
-		return body
+	out := body
+	for i := 0; i < 4; i++ {
+		trimmed := strings.TrimSpace(out)
+		if !strings.HasPrefix(trimmed, "```") {
+			return out
+		}
+		lines := strings.Split(trimmed, "\n")
+		if len(lines) < 3 {
+			return out
+		}
+		if strings.TrimSpace(lines[len(lines)-1]) != "```" {
+			return out
+		}
+		info := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lines[0]), "```")))
+		switch info {
+		case "", "mermaid", "text":
+		default:
+			return out
+		}
+		next := strings.Join(lines[1:len(lines)-1], "\n")
+		if strings.TrimSpace(next) == strings.TrimSpace(out) {
+			return out
+		}
+		out = next
 	}
-	lines := strings.Split(trimmed, "\n")
-	if len(lines) < 3 {
-		return body
-	}
-	if strings.TrimSpace(lines[len(lines)-1]) != "```" {
-		return body
-	}
-	info := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lines[0]), "```")))
-	switch info {
-	case "", "mermaid", "text":
-	default:
-		return body
-	}
-	return strings.Join(lines[1:len(lines)-1], "\n")
+	return out
 }

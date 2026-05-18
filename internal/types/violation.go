@@ -487,13 +487,11 @@ const (
 	ViolPrincipalProseUnderfilled ViolationKind = "principal_prose_underfilled"
 
 	// ViolDiagramRelationLabelOnly fires when EdgeRelations.Min is
-	// satisfied for some relation kind ONLY because label-inferred
-	// edges fill the gap (i.e. typed RelationKind on edge_anchors[]
-	// is below Min on its own; total typed + label-only counts
-	// reach Min). The contract is satisfied, so this is telemetry
-	// only: the visible diagram label already carries the relation
-	// for readers, and missing edge_anchors metadata must not trigger
-	// a rewrite or a user-visible caveat.
+	// satisfied only via label-inferred edges OR when a present,
+	// endpoint-grounded diagram under-declares the requested relation
+	// metadata. In both cases the visible diagram itself is usable;
+	// missing edge_anchors / relation labels are telemetry, not a
+	// reason to rewrite or surface a user-visible caveat.
 	//
 	// Permanently SOFT; not promotable via pipeline_contract_strict_kinds.
 	// Stage = "finalize". Layer = "v2_oracle". B3 (v3 runtime

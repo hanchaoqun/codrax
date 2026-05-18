@@ -2615,18 +2615,17 @@ func TestValidateDiagramEdgeSupport_LabelledSolidSequenceDefaultsToCall(t *testi
 	}
 }
 
-func TestValidateDiagramEdgeSupport_PlainSolidSequenceDoesNotDefaultToCall(t *testing.T) {
+func TestValidateDiagramEdgeSupport_PlainSolidSequenceDoesNotDefaultToCallOrHardFail(t *testing.T) {
 	view := callChainViewWithDiagram()
 	doc := docWithDiagramBody("sequenceDiagram\n  Auth->Worker: notify\n")
 	vs := validateDiagramEdgeSupport(doc, view)
-	var found bool
 	for _, v := range vs {
 		if v.Kind == types.ViolDiagramEdgeUnsupported {
-			found = true
+			t.Fatalf("plain solid sequence line must not imply call, but relation shortfall is telemetry-only; got %+v", v)
 		}
 	}
-	if !found {
-		t.Fatalf("plain solid sequence line without arrowhead must not imply call by default; got %+v", vs)
+	if len(vs) == 0 {
+		t.Fatalf("plain solid sequence line should leave a soft relation advisory; got %+v", vs)
 	}
 }
 
@@ -2672,7 +2671,7 @@ func TestValidateDiagramEdgeSupport_FlowDecisionEdgeDefaultsToGuard(t *testing.T
 	}
 }
 
-func TestValidateDiagramEdgeSupport_PlainFlowEdgeDoesNotDefaultToGuard(t *testing.T) {
+func TestValidateDiagramEdgeSupport_PlainFlowEdgeDoesNotDefaultToGuardOrHardFail(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		DiagramPlan: &types.DiagramFacetGraph{
 			Required: true,
@@ -2686,29 +2685,27 @@ func TestValidateDiagramEdgeSupport_PlainFlowEdgeDoesNotDefaultToGuard(t *testin
 	}
 	doc := docWithDiagramKind("flow", "flowchart TD\n  Start[Start] --> Handle[Handle]\n", types.DiagramFlow)
 	vs := validateDiagramEdgeSupport(doc, view)
-	var found bool
 	for _, v := range vs {
 		if v.Kind == types.ViolDiagramEdgeUnsupported {
-			found = true
+			t.Fatalf("plain flow edge must not imply guard, but relation shortfall is telemetry-only; got %+v", v)
 		}
 	}
-	if !found {
-		t.Fatalf("plain flow edge must not imply guard by default; got %+v", vs)
+	if len(vs) == 0 {
+		t.Fatalf("plain flow edge should leave a soft relation advisory; got %+v", vs)
 	}
 }
 
-func TestValidateDiagramEdgeSupport_DashedSequenceReplyDoesNotDefaultToCall(t *testing.T) {
+func TestValidateDiagramEdgeSupport_DashedSequenceReplyDoesNotDefaultToCallOrHardFail(t *testing.T) {
 	view := callChainViewWithDiagram()
 	doc := docWithDiagramBody("sequenceDiagram\n  Auth-->>Worker: result\n")
 	vs := validateDiagramEdgeSupport(doc, view)
-	var found bool
 	for _, v := range vs {
 		if v.Kind == types.ViolDiagramEdgeUnsupported {
-			found = true
+			t.Fatalf("dashed sequence reply must not imply call, but relation shortfall is telemetry-only; got %+v", v)
 		}
 	}
-	if !found {
-		t.Fatalf("dashed sequence reply must not satisfy the call-edge minimum by default; got %+v", vs)
+	if len(vs) == 0 {
+		t.Fatalf("dashed sequence reply should leave a soft relation advisory; got %+v", vs)
 	}
 }
 

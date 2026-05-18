@@ -803,6 +803,38 @@ func TestEmitEvidence_RepairsAnchorKindInEvidenceKindAndFileScopeLineAnchor(t *t
 	}
 }
 
+func TestEmitEvidence_RepairsStringifiedItemsWithObjectFragment(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "ressched.gni", 1,
+		"# gni",
+		"",
+		`ressched_path = "//foundation/resourceschedule"`,
+		`ressched_libs = "${ressched_path}/ressched/libs"`,
+		`ressched_services = "${ressched_path}/ressched/services"`,
+		`ressched_plugins = "${ressched_path}/ressched/plugins"`,
+		`ressched_resschedd = "${ressched_path}/ressched/resschedd"`,
+		`ressched_serviceinterfaces = "${ressched_path}/ressched/interfaces"`,
+	)
+	items := `[` +
+		`{"anchor_kind":"definition","anchor_symbol":"ressched_path","evidence_kind":"direct","line_start":3,"scope":"line","source":"ressched.gni","summary":"path root"}, ` +
+		`"subject":"ressched.gni","object":"BUILD.gn","predicate":"maps","anchor_kind":"definition","anchor_symbol":"ressched_path","evidence_kind":"relationship","scope":"line_range","line_start":3,"line_end":8,"source":"ressched.gni","summary":"build path map"}, "load_bearing_summary":true}]`
+	params, err := json.Marshal(map[string]string{"items": items})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("stringified object-fragment items should be repaired, got: %s", res.Summary)
+	}
+	if got := len(ctx.Mutable.EmittedEvidence()); got != 2 {
+		t.Fatalf("expected two repaired evidence items, got %d", got)
+	}
+}
+
 func TestEmitEvidence_SelfRefLiteralEmitsTypedClusterKey(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

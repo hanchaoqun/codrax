@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // initGitRepo creates a real git repo at path and writes one tracked
@@ -281,7 +282,7 @@ func TestLoadOrDiscover_CacheFresh(t *testing.T) {
 	}
 }
 
-func TestLoadOrDiscover_StaleCacheRediscover(t *testing.T) {
+func TestLoadOrDiscover_ParentMTimeDoesNotInvalidateCache(t *testing.T) {
 	parent := resolvedAbs(t, t.TempDir())
 	initGitRepo(t, parent, map[string]string{"main.go": "package main\n"})
 	anchor := filepath.Join(parent, ".codrax")
@@ -290,12 +291,45 @@ func TestLoadOrDiscover_StaleCacheRediscover(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first LoadOrDiscover: %v", err)
 	}
-	// Force the cached DiscoveredAt to the past so the parent mtime
-	// (now) appears newer than the cache. This simulates a real-world
-	// "user touched a directory after the cache was written".
-	first.DiscoveredAt = first.DiscoveredAt.Add(-1 * 24 * 60 * 60 * 1e9 /* 1 day */)
+	// Force the cached DiscoveredAt to the past and then touch the
+	// runtime anchor. Warm REPL starts write logs/cache under .codrax;
+	// that must not make topology discovery cold-start again.
+	first.DiscoveredAt = first.DiscoveredAt.Add(-24 * time.Hour)
 	if err := first.Save(anchor); err != nil {
 		t.Fatalf("Save back-dated: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(anchor, "logs"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime logs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(anchor, "logs", "startup.log"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write runtime log: %v", err)
+	}
+
+	second, err := LoadOrDiscover(parent, anchor, Options{}, first.ParentSlug)
+	if err != nil {
+		t.Fatalf("second LoadOrDiscover: %v", err)
+	}
+	if !second.DiscoveredAt.Equal(first.DiscoveredAt) {
+		t.Errorf("runtime artifact mtime should not invalidate cache, first=%v second=%v",
+			first.DiscoveredAt, second.DiscoveredAt)
+	}
+}
+
+func TestLoadOrDiscover_ManifestChangeRediscover(t *testing.T) {
+	parent := resolvedAbs(t, t.TempDir())
+	initGitRepo(t, parent, map[string]string{
+		"go.mod":  "module example.com/cachetest\n",
+		"main.go": "package main\n",
+	})
+	anchor := filepath.Join(parent, ".codrax")
+
+	first, err := LoadOrDiscover(parent, anchor, Options{}, "")
+	if err != nil {
+		t.Fatalf("first LoadOrDiscover: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(parent, "go.mod"), []byte("module example.com/cachetest/v2\n"), 0o644); err != nil {
+		t.Fatalf("modify go.mod: %v", err)
 	}
 
 	second, err := LoadOrDiscover(parent, anchor, Options{}, first.ParentSlug)
@@ -303,7 +337,7 @@ func TestLoadOrDiscover_StaleCacheRediscover(t *testing.T) {
 		t.Fatalf("second LoadOrDiscover: %v", err)
 	}
 	if !second.DiscoveredAt.After(first.DiscoveredAt) {
-		t.Errorf("expected fresh re-discovery (newer DiscoveredAt), first=%v second=%v",
+		t.Errorf("manifest change should force re-discovery, first=%v second=%v",
 			first.DiscoveredAt, second.DiscoveredAt)
 	}
 }

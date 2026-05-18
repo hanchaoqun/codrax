@@ -7,7 +7,8 @@
 // and the REPL `/repos` command. The snapshot is also persisted under
 // <runtime-anchor>/cache/topology/<parent-slug>.json so subsequent
 // runs in the same parent directory can short-circuit the BFS walk
-// when the parent's special-files fingerprint hasn't changed.
+// when the cached sub-repo roots still exist and their recognised
+// manifest fingerprints have not changed.
 //
 // SubRepo.Slug is byte-identical to the slug index.CacheDir mints for
 // the same RootAbs (single canonical "slug source", design §9 #7).
@@ -216,7 +217,13 @@ func (t *RepoTopology) Save(runtimeAnchor string) error {
 // (design §3.3.3):
 //   - parentAbs still exists
 //   - every cached SubRepo.RootAbs still exists
-//   - parentAbs mtime ≤ topology.DiscoveredAt (cheap drift signal)
+//   - every cached SubRepo manifest fingerprint still matches
+//
+// It intentionally does NOT use parentAbs directory mtime. In the
+// common <cwd>/.codrax layout, starting codrax writes logs / blob /
+// cache artifacts under the same parent, which bumps the parent mtime
+// without changing the sub-repo topology. Treating that as stale made
+// warm REPL starts pay the cold BFS + git-ls-files probe repeatedly.
 //
 // On cache miss / staleness the fresh topology is saved best-effort
 // (save failure is non-fatal — the in-memory result is returned).
@@ -247,15 +254,20 @@ func isCacheFresh(t *RepoTopology, parentAbs string) bool {
 	if t == nil || t.ParentRoot != parentAbs {
 		return false
 	}
-	parentInfo, err := os.Stat(parentAbs)
-	if err != nil {
+	if _, err := os.Stat(parentAbs); err != nil {
 		return false
 	}
-	if parentInfo.ModTime().After(t.DiscoveredAt) {
+	if len(t.Repos) == 0 {
 		return false
 	}
 	for _, sr := range t.Repos {
+		if sr.RootAbs == "" {
+			return false
+		}
 		if _, err := os.Stat(sr.RootAbs); err != nil {
+			return false
+		}
+		if got := manifestFingerprint(sr.RootAbs); got != sr.ManifestFingerprint {
 			return false
 		}
 	}

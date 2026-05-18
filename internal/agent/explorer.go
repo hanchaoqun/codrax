@@ -2892,7 +2892,7 @@ func (e *explorerEvaluator) buildCapabilityFocusedStartInstruction(ctx *types.Ag
 	b.WriteString("- Treat helper subsets and validator functions as supporting detail only after the capability surface is settled.\n")
 	b.WriteString("- If implementation detail matters, expand only to the specific helper file already named in these authority files.\n\n")
 	if ctx != nil && ctx.RepoRoot != "" {
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(files), 3, 220, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFilesTracked(ctx, ctx.RepoRoot, e.mergeHintFilesIntoPreRead(files), 3, 220, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -3038,7 +3038,7 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 			}
 			preReadFiles = append(preReadFiles, f)
 		}
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 200, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFilesTracked(ctx, ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 200, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -3155,7 +3155,7 @@ func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.A
 			}
 			preReadFiles = append(preReadFiles, f)
 		}
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 200, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFilesTracked(ctx, ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 200, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -3274,7 +3274,7 @@ func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.A
 			}
 			preReadFiles = append(preReadFiles, f)
 		}
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 220, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFilesTracked(ctx, ctx.RepoRoot, e.mergeHintFilesIntoPreRead(preReadFiles), 2, 220, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -3318,7 +3318,7 @@ func (e *explorerEvaluator) buildDeclarativeCandidateStartInstruction(ctx *types
 		b.WriteString("`\n\n")
 	}
 	if ctx != nil && ctx.RepoRoot != "" {
-		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.mergeHintFilesIntoPreRead(e.declarativeCandidateFiles), 2, 220, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
+		if preReadInjected := preReadRequiredFilesTracked(ctx, ctx.RepoRoot, e.mergeHintFilesIntoPreRead(e.declarativeCandidateFiles), 2, 220, e.excludeReadAndIrrelevantFromCtx(ctx)); preReadInjected != "" {
 			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 			b.WriteString(preReadInjected)
 		}
@@ -14707,6 +14707,32 @@ type partialReadHint struct {
 // the LLM's own judgment when it had already chosen not to evidence
 // them. Pass nil for legacy unconditional injection.
 func preReadRequiredFiles(repoRoot string, files []string, maxFiles, maxLines int, excludeRead map[string]bool) string {
+	return preReadRequiredFilesWithObserver(repoRoot, files, maxFiles, maxLines, excludeRead, nil)
+}
+
+func preReadRequiredFilesTracked(ctx *types.AgentContext, repoRoot string, files []string, maxFiles, maxLines int, excludeRead map[string]bool) string {
+	var closure *types.EvidenceClosure
+	if ctx != nil && ctx.Mutable != nil {
+		closure = ctx.Mutable.EvidenceClosure()
+	}
+	return preReadRequiredFilesWithObserver(repoRoot, files, maxFiles, maxLines, excludeRead, func(file string, totalLines, readLines int) {
+		if closure == nil || file == "" || totalLines <= 0 || readLines <= 0 {
+			return
+		}
+		readSet := closure.ReadSet()
+		if readSet == nil {
+			readSet = make(map[string]bool, 1)
+		}
+		readSet[canonicalExplorerPath(file)] = true
+		closure.SetReadSet(readSet)
+		closure.AddReadRanges(map[string][]types.LineRange{
+			file: {{Start: 1, End: readLines}},
+		})
+		closure.RecordFileTotalLines(file, totalLines)
+	})
+}
+
+func preReadRequiredFilesWithObserver(repoRoot string, files []string, maxFiles, maxLines int, excludeRead map[string]bool, observe func(file string, totalLines, readLines int)) string {
 	if repoRoot == "" || len(files) == 0 || maxFiles <= 0 {
 		return ""
 	}
@@ -14747,6 +14773,9 @@ func preReadRequiredFiles(repoRoot string, files []string, maxFiles, maxLines in
 			fmt.Fprintf(&b, "%d\t%s\n", i+1, line)
 		}
 		b.WriteString("```\n\n")
+		if observe != nil {
+			observe(f, totalLines, len(lines))
+		}
 		injected++
 	}
 	return b.String()

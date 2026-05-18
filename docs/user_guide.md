@@ -588,7 +588,7 @@ codrax --repo ~/single --multi-repo=false --request "..."
 
 | 项 | 单仓 | cap=3 多仓 | 备注 |
 |---|---|---|---|
-| 启动开销 | ~50µs | <1s(典型 5 子仓) | BFS + per-sub-repo `git ls-files` |
+| 启动开销 | ~50µs | warm cache 通常 ms 级; cold discovery 取决于子仓数 | BFS + 有界并行 per-sub-repo `git ls-files`(默认 4 路) |
 | Active 内存 | ~100 MB / 万文件 | ~300 MB | 与 cap 线性 |
 | 拓扑 cache 磁盘 | 0 | <100 KB | 100 子仓也只 1 MB |
 | 跨仓 typed lane 查询 | n/a | O(active 子仓数) | LRU 命中 → ms 级,miss → 子仓全量 build |
@@ -604,6 +604,7 @@ codrax --repo ~/single --multi-repo=false --request "..."
 | `thrashing detected` Warning | 同上,LRU 抖动 | 同上 |
 | 写模式跨仓 fail-loud | 设计限制 | cd 进具体子仓重跑 |
 | 没看到 banner 多仓行 | 父目录是单 git 仓(不是 workspace) | 这是预期 — 单仓 quiet UX |
+| banner 前等待较久 | 多仓 cold discovery 正在找子仓/统计 metadata | 2s 后会显示“正在发现工作区子仓拓扑”;后续 warm cache 不会被 `.codrax` 日志/缓存 mtime 误判失效 |
 | `/repos` 列出空 / 漏子仓 | BFS 深度不够 / 子仓 file count < min | yaml `multi_repo_discovery_depth: 6` 或 `multi_repo_min_files: 0` |
 
 ### 完全关闭(回到单图)
@@ -614,7 +615,7 @@ multi_repo_enabled: false
 ```
 
 这时:
-- topology discovery 仍跑(REPL `/repos` 命令展示用),~50µs 开销
+- topology discovery 仍跑(REPL `/repos` 命令展示用);单仓是 ~50µs fast path,多仓父目录 cold discovery 会显示启动进度并走拓扑缓存
 - BusContext.MultiGraph 不接入 → 5 个 BuildOrLoadGraph caller 全走 legacy `BuildOrLoadGraph(parent_root, query)`(等同 ship 之前行为)
 - ArkTS leak 修复(Phase 0)依然生效(它绕过 MultiGraph 在 `IsArkTSProject` 内修)
 

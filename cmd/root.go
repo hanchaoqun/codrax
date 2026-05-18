@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -1257,7 +1258,7 @@ func runREPL(_ *cobra.Command) error {
 // initApp implements the 3-tier config precedence and initializes all
 // subsystems. It runs as PersistentPreRunE so it executes before any
 // subcommand, including the implicit root run.
-func initApp(cmd *cobra.Command, _ []string) error {
+func initApp(cmd *cobra.Command, args []string) error {
 	// Skip init for version subcommand.
 	if cmd.Name() == "version" {
 		return nil
@@ -1678,7 +1679,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		logging.Info("[multi-repo] CLI override: enabled=%t (--multi-repo flag)", flagMultiRepoEnabled)
 	}
 	parentSlug := repomapindex.CacheDirSlug(flagRepo)
-	if topo, err := topology.LoadOrDiscover(flagRepo, runtimeAnchor, topoOpts, parentSlug); err == nil && topo != nil {
+	finishTopoNotice := startTopologyStartupNotice(strings.TrimSpace(flagRequest) == "" && len(args) == 0, flagLang)
+	topoStart := time.Now()
+	topo, topoErr := topology.LoadOrDiscover(flagRepo, runtimeAnchor, topoOpts, parentSlug)
+	finishTopoNotice(topo, topoErr, time.Since(topoStart))
+	if topoErr == nil && topo != nil {
 		app.topology = topo
 		// One INFO line summarising what we found. Single-repo
 		// (RootRel == ".") gets a terse form; multi-repo lists count
@@ -1697,10 +1702,10 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			}
 			logging.Info("multi-repo: discovered %d sub-repos under %s preview=%v", len(topo.Repos), topo.ParentRoot, preview)
 		}
-	} else if err != nil {
+	} else if topoErr != nil {
 		// Discovery should never fail for a well-formed flagRepo, but
 		// surface any non-nil error rather than swallowing — fail-loud.
-		logging.Info("multi-repo: discovery error for %s: %v (falling back to single-repo behaviour)", flagRepo, err)
+		logging.Info("multi-repo: discovery error for %s: %v (falling back to single-repo behaviour)", flagRepo, topoErr)
 	}
 
 	// Build the session-shared *MultiGraph carrier when topology is
@@ -3206,32 +3211,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// failure from the orchestrator's default switch branch.
 	//
 	// Single-shot detection: flagRequest is the --request / -r flag;
-	// cobra's positional arg is handled in rootRun, but by initApp
-	// time it has not yet been stored into a flag variable. For the
-	// L4 --auto-apply check resolveWriteMode uses HasRequest which
-	// counts both --request and the first positional. We
-	// approximate by checking flagRequest OR len(args)>=1 — done at
-	// rootRun time before Run(). Here in initApp we only have
-	// flagRequest; that's fine because the L4 check is also re-
-	// validated at rootRun entry if needed. In practice single-
-	// shot is always flagRequest or positional, and cobra routes
-	// positional into rootRun args, so initApp's flagRequest
-	// value captures the --request subset.
-	hasRequest := strings.TrimSpace(flagRequest) != ""
-	if !hasRequest && len(os.Args) > 1 {
-		// Heuristic fallback for the positional-arg case. The args
-		// slice isn't directly accessible in initApp, but if any
-		// non-flag arg was passed, single-shot mode applies.
-		for _, a := range os.Args[1:] {
-			if a == "--" {
-				break
-			}
-			if len(a) > 0 && a[0] != '-' {
-				hasRequest = true
-				break
-			}
-		}
-	}
+	// cobra passes the positional request into initApp's args before
+	// rootRun stores it in the local request variable. Count both so
+	// write-mode validation and startup-only REPL notices do not
+	// accidentally treat positional single-shot CLI as interactive.
+	hasRequest := strings.TrimSpace(flagRequest) != "" || len(args) > 0
 	writeInputs := writeModeInputs{
 		CLIFlagPassed: cmd.Flags().Changed("mode"),
 		CLIFlagMode:   flagMode,
@@ -3889,4 +3873,66 @@ func canonicalScanRoot(path string) string {
 		path = resolved
 	}
 	return filepath.Clean(path)
+}
+
+func startTopologyStartupNotice(enabled bool, lang string) func(*topology.RepoTopology, error, time.Duration) {
+	if !enabled {
+		return func(*topology.RepoTopology, error, time.Duration) {}
+	}
+	done := make(chan struct{})
+	printed := make(chan struct{}, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			if prefersChineseStartup(lang) {
+				fmt.Fprintln(os.Stdout, "· 正在发现工作区子仓拓扑（仅元数据，不构建 repo_map 索引）...")
+			} else {
+				fmt.Fprintln(os.Stdout, "· Discovering workspace sub-repo topology (metadata only; not building repo_map indexes)...")
+			}
+			printed <- struct{}{}
+		case <-done:
+		}
+	}()
+	return func(topo *topology.RepoTopology, err error, elapsed time.Duration) {
+		close(done)
+		wg.Wait()
+		select {
+		case <-printed:
+			if err != nil {
+				if prefersChineseStartup(lang) {
+					fmt.Fprintf(os.Stdout, "✗ 工作区子仓拓扑发现失败：%v (%s)\n", err, formatStartupElapsed(elapsed))
+				} else {
+					fmt.Fprintf(os.Stdout, "✗ Workspace topology discovery failed: %v (%s)\n", err, formatStartupElapsed(elapsed))
+				}
+				return
+			}
+			count := 0
+			if topo != nil {
+				count = len(topo.Repos)
+			}
+			if prefersChineseStartup(lang) {
+				fmt.Fprintf(os.Stdout, "✓ 工作区子仓拓扑已就绪：%d 个子仓 (%s)\n", count, formatStartupElapsed(elapsed))
+			} else {
+				fmt.Fprintf(os.Stdout, "✓ Workspace topology ready: %d sub-repo(s) (%s)\n", count, formatStartupElapsed(elapsed))
+			}
+		default:
+		}
+	}
+}
+
+func prefersChineseStartup(lang string) bool {
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	return lang == "" || strings.HasPrefix(lang, "zh")
+}
+
+func formatStartupElapsed(d time.Duration) string {
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
 }

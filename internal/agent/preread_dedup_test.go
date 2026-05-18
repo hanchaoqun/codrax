@@ -103,6 +103,33 @@ func TestPreReadRequiredFiles_HonorsMaxFiles(t *testing.T) {
 	}
 }
 
+func TestPreReadRequiredFilesTrackedSeedsReadCoverage(t *testing.T) {
+	repoRoot := t.TempDir()
+	writePreReadTempFile(t, repoRoot, "ressched.gni", "line1\nline2\nline3\n")
+	mut := types.NewMutableState("q")
+	closure := mut.EvidenceClosure()
+	closure.AddPendingRead(types.PendingRead{
+		File:      "ressched.gni",
+		Origin:    "pre_complete.primary_anchor",
+		Rationale: "pre-read should count as model-visible read coverage",
+	})
+	ctx := &types.AgentContext{Mutable: mut}
+
+	got := preReadRequiredFilesTracked(ctx, repoRoot, []string{"./ressched.gni"}, 1, 100, nil)
+	if !strings.Contains(got, "ressched.gni") {
+		t.Fatalf("expected pre-read content, got:\n%s", got)
+	}
+	if !closure.HasRead("ressched.gni") {
+		t.Fatal("tracked pre-read must seed EvidenceClosure readSet")
+	}
+	if !closure.HasReadLine("ressched.gni", 2) {
+		t.Fatal("tracked pre-read must seed visible line ranges")
+	}
+	if drained := closure.DrainSatisfiedPendingReads(); drained != 1 {
+		t.Fatalf("pre-read coverage should drain pending forced read, drained=%d pending=%+v", drained, closure.PendingReads())
+	}
+}
+
 // === excludeReadFromCtx ===
 
 func TestExcludeReadFromCtx_NilCtx_ReturnsNil(t *testing.T) {
@@ -122,9 +149,9 @@ func TestExcludeReadFromCtx_PopulatedReadSet_CanonicalizesEntries(t *testing.T) 
 	mut := types.NewMutableState("test")
 	closure := mut.EvidenceClosure()
 	closure.SetReadSet(map[string]bool{
-		"./internal/foo.go":  true,
-		`internal\bar.go`:    true, // Windows-shaped (canonical fn handles this)
-		"internal/baz.go":    true,
+		"./internal/foo.go": true,
+		`internal\bar.go`:   true, // Windows-shaped (canonical fn handles this)
+		"internal/baz.go":   true,
 	})
 	ctx := &types.AgentContext{Mutable: mut}
 	got := excludeReadFromCtx(ctx)
