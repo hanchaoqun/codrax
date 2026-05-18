@@ -307,18 +307,12 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	exactAnchors := exactEntityAnchorsForKeywordSearchOptions(graph, opts)
 
 	// --- Phase 2: grep IDF-weighted scoring ---
-	grepScores, grepHits := grepIDFSearch(keywords, repoRoot)
-	// grepIDFSearch shells out to ripgrep from repoRoot, which in
-	// multi-repo workspaces is the parent root spanning every
-	// sub-repo (active AND pending). The structural phase already
-	// dropped pending sub-repos via repoMapRank's filter, but grep
-	// has no such filter built in. Strip pending-sub-repo paths
-	// from both scores and hits before merge so the candidate pool
-	// matches MultiRepoActiveSetGater's "topology - PendingSubRepos"
-	// view — otherwise inactive paths leak into Phase1Ranking and
-	// the CGEC phase1_unread gate queues forced-reads the FS tools
-	// will refuse, reproducing the 2026-05-16 loop pattern through
-	// a different door than the repo_map leak.
+	grepScores, grepHits := grepIDFSearchForOptions(keywords, repoRoot, opts)
+	// Defense in depth: grepIDFSearchForOptions restricts multi-repo
+	// searches to LRU-active sub-repo roots when the MultiGraph carrier
+	// is available. Keep the pending-sub-repo filter here for callers
+	// without a carrier and for any future fallback that has to scan the
+	// parent workspace.
 	if len(opts.PendingSubRepos) > 0 {
 		for f := range grepScores {
 			if types.PathInsidePendingSubRepo(f, opts.PendingSubRepos) {
@@ -888,6 +882,21 @@ func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle
 	return scores, graph
 }
 
+type keywordSearchRootScope struct {
+	RootAbs string
+	RootRel string
+}
+
+type keywordPathMatch struct {
+	path      string
+	matchType string
+}
+
+type keywordGrepResult struct {
+	paths     []string
+	matchType string
+}
+
 // grepIDFSearch runs grep/rg for each keyword and weights matches by IDF
 // (inverse document frequency). Keywords matching fewer files are more
 // informative and contribute more to a file's score.
@@ -895,84 +904,128 @@ func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle
 // When ripgrep is available, all keywords are searched in a single rg
 // call using multiple -e patterns, reducing process spawns from N*2 to 1.
 func grepIDFSearch(keywords []string, repoRoot string) (scores map[string]float64, hits map[string]map[string]string) {
+	return grepIDFSearchAcrossRoots(keywords, []keywordSearchRootScope{{RootAbs: repoRoot}})
+}
+
+func grepIDFSearchForOptions(keywords []string, repoRoot string, opts keywordSearchOptions) (scores map[string]float64, hits map[string]map[string]string) {
+	return grepIDFSearchAcrossRoots(keywords, keywordSearchActiveRoots(repoRoot, opts.MultiGraph, opts.PendingSubRepos))
+}
+
+func keywordSearchActiveRoots(repoRoot string, mgHandle any, pendingSubRepos []string) []keywordSearchRootScope {
+	if strings.TrimSpace(repoRoot) == "" {
+		return nil
+	}
+	fallback := []keywordSearchRootScope{{RootAbs: repoRoot}}
+	mg := repomap.MultiGraphFromContext(&types.BusContext{MultiGraph: mgHandle})
+	if mg == nil || mg.IsSingle() {
+		return fallback
+	}
+	topo := mg.Topology()
+	if topo == nil {
+		return fallback
+	}
+	active := mg.AllGraphs()
+	if len(active) == 0 {
+		return fallback
+	}
+	roots := make([]keywordSearchRootScope, 0, len(active))
+	for i := range topo.Repos {
+		sr := topo.Repos[i]
+		if _, ok := active[sr.Slug]; !ok {
+			continue
+		}
+		if types.PathInsidePendingSubRepo(sr.RootRel, pendingSubRepos) {
+			continue
+		}
+		if strings.TrimSpace(sr.RootAbs) == "" {
+			continue
+		}
+		roots = append(roots, keywordSearchRootScope{
+			RootAbs: sr.RootAbs,
+			RootRel: sr.RootRel,
+		})
+	}
+	if len(roots) == 0 {
+		return fallback
+	}
+	sort.Slice(roots, func(i, j int) bool {
+		return roots[i].RootRel < roots[j].RootRel
+	})
+	if len(roots) > 1 {
+		logging.Debug("[keyword_search] grep scoped to %d active sub-repo roots", len(roots))
+	}
+	return roots
+}
+
+func grepIDFSearchAcrossRoots(keywords []string, roots []keywordSearchRootScope) (scores map[string]float64, hits map[string]map[string]string) {
 	scores = make(map[string]float64)
 	hits = make(map[string]map[string]string)
+	if len(keywords) == 0 || len(roots) == 0 {
+		return scores, hits
+	}
 
 	// Count total source files for IDF denominator.
-	totalFiles := countSourceFiles(repoRoot)
+	totalFiles := 0
+	for _, root := range roots {
+		totalFiles += countSourceFiles(root.RootAbs)
+	}
 	if totalFiles < 1 {
 		totalFiles = 100 // fallback
 	}
 
-	// Build per-keyword file lists. When rg is available, batch all
-	// keywords into a single call.
-	type kwResult struct {
-		paths     []string
-		matchType string
-	}
-	kwResults := make(map[string]kwResult, len(keywords))
-
-	if tool.UseRipgrep() {
-		// Batch: one rg call with multiple -e patterns using smart-case.
-		// Smart-case handles the exact-first/icase-fallback automatically:
-		// patterns with uppercase → case-sensitive; all-lowercase → insensitive.
-		filesByKw := rgBatchFiles(keywords, repoRoot)
-		for _, kw := range keywords {
-			paths := filesByKw[kw]
-			if len(paths) > 0 {
-				// Determine match type: if keyword has uppercase it was
-				// exact; otherwise smart-case made it case-insensitive.
-				mt := "exact"
-				if !strings.ContainsAny(kw, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
-					mt = "icase"
+	kwResults := make(map[string][]keywordPathMatch, len(keywords))
+	var kwResultsMu sync.Mutex
+	addResults := func(root keywordSearchRootScope, local map[string]keywordGrepResult) {
+		kwResultsMu.Lock()
+		defer kwResultsMu.Unlock()
+		seen := make(map[keywordPathMatch]bool)
+		for kw, kr := range local {
+			for _, p := range kr.paths {
+				rel := normalizeSearchPath(p, root.RootAbs)
+				rel = prefixKeywordSearchPath(root.RootRel, rel)
+				match := keywordPathMatch{path: rel, matchType: kr.matchType}
+				if seen[match] {
+					continue
 				}
-				kwResults[kw] = kwResult{paths: paths, matchType: mt}
+				seen[match] = true
+				kwResults[kw] = append(kwResults[kw], match)
 			}
 		}
-	} else {
-		// Parallel: grep calls run concurrently to reduce wall-clock
-		// time from 2N sequential spawns to ~2 (limited by I/O, not CPU).
-		var mu sync.Mutex
-		var wg sync.WaitGroup
-		for _, kw := range keywords {
-			wg.Add(1)
-			go func(kw string) {
-				defer wg.Done()
-				paths := grepFiles(kw, repoRoot, false)
-				matchType := "exact"
-				if len(paths) == 0 {
-					paths = grepFiles(kw, repoRoot, true)
-					matchType = "icase"
-				}
-				if len(paths) > 0 {
-					mu.Lock()
-					kwResults[kw] = kwResult{paths: paths, matchType: matchType}
-					mu.Unlock()
-				}
-			}(kw)
-		}
-		wg.Wait()
 	}
+
+	var wg sync.WaitGroup
+	for _, root := range roots {
+		root := root
+		if strings.TrimSpace(root.RootAbs) == "" {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			addResults(root, grepKeywordMatchesInRoot(keywords, root.RootAbs))
+		}()
+	}
+	wg.Wait()
 
 	// Score files by IDF.
 	for _, kw := range keywords {
-		kr, ok := kwResults[kw]
-		if !ok {
+		matches := kwResults[kw]
+		if len(matches) == 0 {
 			continue
 		}
 
-		df := float64(len(kr.paths))
+		df := float64(len(matches))
 		idf := math.Log2(float64(totalFiles)/df) + 1.0
 		kwLower := strings.ToLower(kw)
 
-		for _, p := range kr.paths {
-			p = normalizeSearchPath(p, repoRoot)
+		for _, match := range matches {
+			p := match.path
 			if isNoisePath(p) {
 				continue
 			}
 
 			fileScore := idf * fileTypeWeight(p)
-			matchType := kr.matchType
+			matchType := match.matchType
 
 			baseLower := strings.ToLower(filepath.Base(p))
 			if strings.Contains(baseLower, kwLower) {
@@ -991,12 +1044,74 @@ func grepIDFSearch(keywords []string, repoRoot string) (scores map[string]float6
 	return scores, hits
 }
 
-// sourceFileCount caches the result of countSourceFiles so the IDF
-// denominator is computed at most once per process. The count is
-// approximate and does not need to track real-time mutations.
+func grepKeywordMatchesInRoot(keywords []string, repoRoot string) map[string]keywordGrepResult {
+	kwResults := make(map[string]keywordGrepResult, len(keywords))
+	if tool.UseRipgrep() {
+		// Batch: one rg call with multiple -e patterns using smart-case.
+		// Smart-case handles the exact-first/icase-fallback automatically:
+		// patterns with uppercase → case-sensitive; all-lowercase → insensitive.
+		filesByKw := rgBatchFiles(keywords, repoRoot)
+		for _, kw := range keywords {
+			paths := filesByKw[kw]
+			if len(paths) > 0 {
+				// Determine match type: if keyword has uppercase it was
+				// exact; otherwise smart-case made it case-insensitive.
+				mt := "exact"
+				if !strings.ContainsAny(kw, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+					mt = "icase"
+				}
+				kwResults[kw] = keywordGrepResult{paths: paths, matchType: mt}
+			}
+		}
+		return kwResults
+	}
+
+	// Parallel: grep calls run concurrently to reduce wall-clock
+	// time from 2N sequential spawns to ~2 (limited by I/O, not CPU).
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, kw := range keywords {
+		wg.Add(1)
+		go func(kw string) {
+			defer wg.Done()
+			paths := grepFiles(kw, repoRoot, false)
+			matchType := "exact"
+			if len(paths) == 0 {
+				paths = grepFiles(kw, repoRoot, true)
+				matchType = "icase"
+			}
+			if len(paths) > 0 {
+				mu.Lock()
+				kwResults[kw] = keywordGrepResult{paths: paths, matchType: matchType}
+				mu.Unlock()
+			}
+		}(kw)
+	}
+	wg.Wait()
+	return kwResults
+}
+
+func prefixKeywordSearchPath(rootRel, rel string) string {
+	rel = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(rel)), "./")
+	rootRel = strings.TrimSuffix(strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(rootRel)), "./"), "/")
+	if rootRel == "" || rootRel == "." {
+		return rel
+	}
+	if rel == "" || rel == "." {
+		return rootRel
+	}
+	if rel == rootRel || strings.HasPrefix(rel, rootRel+"/") {
+		return rel
+	}
+	return rootRel + "/" + rel
+}
+
+// sourceFileCount caches the result of countSourceFiles per root so
+// multi-repo pre-scans do not rescan `rg --files` for the same sub-repo
+// and do not reuse a count from a different workspace.
 var (
-	sourceCountOnce  sync.Once
-	sourceCountCache int
+	sourceCountMu     sync.Mutex
+	sourceCountByRoot = make(map[string]int)
 )
 
 // countSourceFiles returns an approximate count of source files in the repo.
@@ -1004,13 +1119,36 @@ var (
 // Go-native filepath.WalkDir with the shared SearchDirFilter policy.
 // Result is cached for the process lifetime.
 func countSourceFiles(repoRoot string) int {
-	sourceCountOnce.Do(func() {
-		sourceCountCache = countSourceFilesOnce(repoRoot)
-	})
-	if sourceCountCache < 1 {
+	key := canonicalKeywordSearchRoot(repoRoot)
+	sourceCountMu.Lock()
+	if cached, ok := sourceCountByRoot[key]; ok {
+		sourceCountMu.Unlock()
+		if cached < 1 {
+			return 100
+		}
+		return cached
+	}
+	sourceCountMu.Unlock()
+
+	count := countSourceFilesOnce(repoRoot)
+	sourceCountMu.Lock()
+	sourceCountByRoot[key] = count
+	sourceCountMu.Unlock()
+	if count < 1 {
 		return 100 // fallback
 	}
-	return sourceCountCache
+	return count
+}
+
+func canonicalKeywordSearchRoot(repoRoot string) string {
+	if repoRoot == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return filepath.Clean(repoRoot)
+	}
+	return filepath.Clean(abs)
 }
 
 func countSourceFilesOnce(repoRoot string) int {
