@@ -360,12 +360,26 @@ func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 	cacheDir := index.CacheDir(repoRoot)
 
 	// Scan files
+	inventoryProgress := newRepoMapScanProgress(repoRoot, "", 0, 0)
+	inventoryProgress.startPhase(ctypes.RepoMapScanPhaseFileScan, 0)
 	entries, err := index.ScanFiles(repoRoot)
 	if err != nil {
+		inventoryProgress.finish(false, err)
 		return nil, fmt.Errorf("file scan: %w", err)
 	}
+	notifyRepoMapScan(ctypes.RepoMapScanEvent{
+		RepoRoot:       repoRoot,
+		Phase:          ctypes.RepoMapScanPhaseFileScan,
+		Progress:       true,
+		OK:             true,
+		TotalFiles:     len(entries),
+		ParseableFiles: countParseableEntries(entries),
+		ParsedFiles:    len(entries),
+		ElapsedMs:      time.Since(inventoryProgress.start).Milliseconds(),
+	})
 
 	if len(entries) == 0 {
+		inventoryProgress.finish(false, fmt.Errorf("no source files found"))
 		return nil, fmt.Errorf("no source files found in %s", repoRoot)
 	}
 
@@ -377,7 +391,11 @@ func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 	}
 
 	// Detect which files changed
-	changed := index.ChangedFiles(repoRoot, cacheDir, entries)
+	changeProgress := newRepoMapScanProgress(repoRoot, "", len(entries), 0)
+	changeProgress.startPhase(ctypes.RepoMapScanPhaseChangeScan, 0)
+	changed := index.ChangedFilesWithProgress(repoRoot, cacheDir, entries, func(done, total int) {
+		changeProgress.parsed(done, total)
+	})
 
 	// Nothing changed → load from cache directly
 	if len(changed) == 0 {

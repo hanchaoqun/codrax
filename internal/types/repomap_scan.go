@@ -19,6 +19,8 @@ const (
 type RepoMapScanPhase string
 
 const (
+	RepoMapScanPhaseFileScan   RepoMapScanPhase = "file_scan"
+	RepoMapScanPhaseChangeScan RepoMapScanPhase = "change_scan"
 	RepoMapScanPhaseParse      RepoMapScanPhase = "parse"
 	RepoMapScanPhaseBuildGraph RepoMapScanPhase = "build_graph"
 	RepoMapScanPhaseRank       RepoMapScanPhase = "rank"

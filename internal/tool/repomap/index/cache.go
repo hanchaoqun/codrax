@@ -8,8 +8,11 @@ import (
 	"hash"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -669,6 +672,19 @@ func LoadCachedHashes(dir string) map[string]string {
 // repomap cache. Correct symbol spans matter more than the small hashing
 // cost.
 func ChangedFiles(repoRoot, cacheDir string, entries []FileEntry) []string {
+	return ChangedFilesWithProgress(repoRoot, cacheDir, entries, nil)
+}
+
+// ChangedFilesWithProgress returns the list of files whose current
+// bytes differ from the cached hash snapshot and reports bounded
+// progress while hashing large repositories.
+//
+// The public ChangedFiles wrapper keeps the legacy API. This variant
+// lets repo_map surface "checking cache differences" immediately
+// after file inventory, which avoids a long silent gap on large repos
+// whose cache is hot but whose hash verification still touches tens
+// of thousands of files.
+func ChangedFilesWithProgress(repoRoot, cacheDir string, entries []FileEntry, progress func(done, total int)) []string {
 	cachedHashes := LoadCachedHashes(cacheDir)
 	if cachedHashes == nil {
 		// no cache → everything is new
@@ -676,34 +692,101 @@ func ChangedFiles(repoRoot, cacheDir string, entries []FileEntry) []string {
 		for i, e := range entries {
 			all[i] = e.RelPath
 		}
+		reportProgress(progress, len(entries), len(entries))
 		return all
 	}
 
-	var changed []string
 	currentFiles := make(map[string]bool)
-	for _, entry := range entries {
+	changedFlags := make([]bool, len(entries))
+
+	type hashJob struct {
+		index int
+		entry FileEntry
+		old   string
+	}
+	jobs := make(chan hashJob)
+	workers := changedFilesWorkers(len(entries))
+	var (
+		wg         sync.WaitGroup
+		progressMu sync.Mutex
+		done       int
+	)
+	reportOne := func() {
+		if progress == nil {
+			return
+		}
+		progressMu.Lock()
+		done++
+		progress(done, len(entries))
+		progressMu.Unlock()
+	}
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				newHash, err := hashFile(job.entry.AbsPath)
+				if err != nil || newHash != job.old {
+					changedFlags[job.index] = true
+				}
+				reportOne()
+			}
+		}()
+	}
+
+	for i, entry := range entries {
 		currentFiles[entry.RelPath] = true
 		oldHash, exists := cachedHashes[entry.RelPath]
 		if !exists {
-			changed = append(changed, entry.RelPath) // new file
+			changedFlags[i] = true // new file
+			reportOne()
 			continue
 		}
-		newHash, err := hashFile(entry.AbsPath)
-		if err != nil {
-			changed = append(changed, entry.RelPath)
-			continue
-		}
-		if newHash != oldHash {
+		jobs <- hashJob{index: i, entry: entry, old: oldHash}
+	}
+	close(jobs)
+	wg.Wait()
+
+	changed := make([]string, 0)
+	for i, entry := range entries {
+		if changedFlags[i] {
 			changed = append(changed, entry.RelPath)
 		}
 	}
+
 	// deleted files count as changed for graph invalidation
+	deleted := make([]string, 0)
 	for path := range cachedHashes {
 		if !currentFiles[path] {
-			changed = append(changed, path)
+			deleted = append(deleted, path)
 		}
 	}
+	sort.Strings(deleted)
+	changed = append(changed, deleted...)
 	return changed
+}
+
+func changedFilesWorkers(total int) int {
+	if total <= 1 {
+		return 1
+	}
+	n := runtime.GOMAXPROCS(0) * 2
+	if n < 2 {
+		n = 2
+	}
+	if n > 16 {
+		n = 16
+	}
+	if n > total {
+		n = total
+	}
+	return n
+}
+
+func reportProgress(progress func(done, total int), done, total int) {
+	if progress != nil {
+		progress(done, total)
+	}
 }
 
 // NeedsFullRescan returns true if the cache is missing or too stale.

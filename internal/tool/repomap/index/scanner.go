@@ -91,6 +91,7 @@ func ScanFiles(repoRoot string) ([]FileEntry, error) {
 // snapshot the pre-processed list for diagnostics.
 func applyHarmonyOSPostProcess(repoRoot string, entries []FileEntry) []FileEntry {
 	out := make([]FileEntry, 0, len(entries))
+	arkTSDirCache := make(map[string]bool)
 	for _, e := range entries {
 		relSlash := filepath.ToSlash(e.RelPath)
 		ext := strings.ToLower(filepath.Ext(e.RelPath))
@@ -103,8 +104,16 @@ func applyHarmonyOSPostProcess(repoRoot string, entries []FileEntry) []FileEntry
 			strings.Contains(relSlash, "/.cangjie-cache/") {
 			continue
 		}
-		if e.Language == types.LangTypeScript && types.IsArkTSProject(repoRoot, e.RelPath) {
-			e.Language = types.LangArkTS
+		if e.Language == types.LangTypeScript {
+			dir := filepath.ToSlash(filepath.Dir(e.RelPath))
+			isArkTS, ok := arkTSDirCache[dir]
+			if !ok {
+				isArkTS = types.IsArkTSProject(repoRoot, e.RelPath)
+				arkTSDirCache[dir] = isArkTS
+			}
+			if isArkTS {
+				e.Language = types.LangArkTS
+			}
 		}
 		out = append(out, e)
 	}

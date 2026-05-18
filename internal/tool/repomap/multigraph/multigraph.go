@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1083,14 +1084,12 @@ func (m *MultiGraph) RouteActiveSet(inputs RoutingInputs) RoutingDecision {
 	if len(seen) < cap {
 		bySize := make([]topology.SubRepo, len(m.topo.Repos))
 		copy(bySize, m.topo.Repos)
-		// Stable sort by FileCount desc (largest first).
-		for i := 0; i < len(bySize); i++ {
-			for j := i + 1; j < len(bySize); j++ {
-				if bySize[j].FileCount > bySize[i].FileCount {
-					bySize[i], bySize[j] = bySize[j], bySize[i]
-				}
-			}
-		}
+		// Stable sort by FileCount desc (largest first). This can run
+		// on every REPL turn before the first pipeline event, so keep
+		// it O(n log n) for large multi-repo workspaces.
+		sort.SliceStable(bySize, func(i, j int) bool {
+			return bySize[i].FileCount > bySize[j].FileCount
+		})
 		for _, sr := range bySize {
 			if len(seen) >= cap {
 				break

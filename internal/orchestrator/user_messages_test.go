@@ -387,6 +387,30 @@ func TestRepoMapScanMessagesCarryFileCounts(t *testing.T) {
 	}
 }
 
+func TestRepoMapScanMessagesShowInventoryAndChangePhases(t *testing.T) {
+	inventory := types.RepoMapScanEvent{
+		RepoRoot: "/work/linux",
+		Phase:    types.RepoMapScanPhaseFileScan,
+		Started:  true,
+	}
+	got := repoMapScanMessage("zh", inventory)
+	if !strings.Contains(got, "仓库索引 `linux` 正在统计文件") || strings.Contains(got, "0 个文件") {
+		t.Fatalf("inventory phase should be immediate and not claim zero files, got %q", got)
+	}
+
+	change := types.RepoMapScanEvent{
+		RepoRoot:    "/work/linux",
+		Phase:       types.RepoMapScanPhaseChangeScan,
+		Progress:    true,
+		TotalFiles:  93459,
+		ParsedFiles: 4000,
+	}
+	got = repoMapScanMessage("zh", change)
+	if !strings.Contains(got, "正在校验缓存差异") || !strings.Contains(got, "已校验 4000/93459 个文件") {
+		t.Fatalf("change-check phase should report checked file counts, got %q", got)
+	}
+}
+
 func TestRepoMapScanMessagesUseSubRepoLabelWhenPresent(t *testing.T) {
 	ev := types.RepoMapScanEvent{
 		RepoRoot:       "/work/mono/services/api",

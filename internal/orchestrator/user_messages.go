@@ -647,13 +647,25 @@ func repoMapScanMessage(lang string, ev types.RepoMapScanEvent) string {
 func repoMapScanStartMessage(lang, label string, ev types.RepoMapScanEvent) string {
 	subjectZH, subjectEN := repoMapScanSubject(ev)
 	if preferZhMessage(lang) {
+		if action := repoMapScanPhaseActionZH(ev.Phase); action != "" && ev.TotalFiles <= 0 {
+			return fmt.Sprintf("· %s `%s` %s", subjectZH, label, action)
+		}
 		if ev.Phase == types.RepoMapScanPhaseCacheLoad {
 			return fmt.Sprintf("· 正在读取%s `%s` 缓存：%s", subjectZH, label, repoMapScanCountsZH(ev, false))
 		}
+		if action := repoMapScanPhaseActionZH(ev.Phase); action != "" {
+			return fmt.Sprintf("· %s `%s` %s：%s", subjectZH, label, action, repoMapScanCountsZH(ev, false))
+		}
 		return fmt.Sprintf("· 正在扫描%s `%s`：%s", subjectZH, label, repoMapScanCountsZH(ev, false))
+	}
+	if action := repoMapScanPhaseActionEN(ev.Phase); action != "" && ev.TotalFiles <= 0 {
+		return fmt.Sprintf("· %s `%s` %s", subjectEN, label, action)
 	}
 	if ev.Phase == types.RepoMapScanPhaseCacheLoad {
 		return fmt.Sprintf("· Loading cached %s `%s`: %s", subjectEN, label, repoMapScanCountsEN(ev, false))
+	}
+	if action := repoMapScanPhaseActionEN(ev.Phase); action != "" {
+		return fmt.Sprintf("· %s `%s` %s: %s", subjectEN, label, action, repoMapScanCountsEN(ev, false))
 	}
 	return fmt.Sprintf("· Scanning %s `%s`: %s", subjectEN, label, repoMapScanCountsEN(ev, false))
 }
@@ -690,6 +702,21 @@ func repoMapScanEndMessage(lang, label string, ev types.RepoMapScanEvent) string
 func repoMapScanCountsZH(ev types.RepoMapScanEvent, progress bool) string {
 	total := ev.TotalFiles
 	parseable := ev.ParseableFiles
+	if ev.Phase == types.RepoMapScanPhaseFileScan && total <= 0 {
+		return "文件统计中"
+	}
+	if ev.Phase == types.RepoMapScanPhaseFileScan && progress {
+		if parseable > 0 {
+			return fmt.Sprintf("已统计 %d 个文件，%d 个源文件", total, parseable)
+		}
+		return fmt.Sprintf("已统计 %d 个文件", total)
+	}
+	if ev.Phase == types.RepoMapScanPhaseChangeScan && progress {
+		return fmt.Sprintf("已校验 %d/%d 个文件", ev.ParsedFiles, total)
+	}
+	if ev.Phase == types.RepoMapScanPhaseChangeScan {
+		return fmt.Sprintf("%d 个文件", total)
+	}
 	if ev.Mode == types.RepoMapScanCacheHit {
 		return fmt.Sprintf("缓存命中，%d 个文件", total)
 	}
@@ -711,6 +738,21 @@ func repoMapScanCountsZH(ev types.RepoMapScanEvent, progress bool) string {
 func repoMapScanCountsEN(ev types.RepoMapScanEvent, progress bool) string {
 	total := ev.TotalFiles
 	parseable := ev.ParseableFiles
+	if ev.Phase == types.RepoMapScanPhaseFileScan && total <= 0 {
+		return "counting files"
+	}
+	if ev.Phase == types.RepoMapScanPhaseFileScan && progress {
+		if parseable > 0 {
+			return fmt.Sprintf("counted %d files, %d source files", total, parseable)
+		}
+		return fmt.Sprintf("counted %d files", total)
+	}
+	if ev.Phase == types.RepoMapScanPhaseChangeScan && progress {
+		return fmt.Sprintf("checked %d/%d files", ev.ParsedFiles, total)
+	}
+	if ev.Phase == types.RepoMapScanPhaseChangeScan {
+		return fmt.Sprintf("%d files", total)
+	}
 	if ev.Mode == types.RepoMapScanCacheHit {
 		return fmt.Sprintf("cache hit, %d files", total)
 	}
@@ -738,6 +780,10 @@ func repoMapScanSubject(ev types.RepoMapScanEvent) (string, string) {
 
 func repoMapScanPhaseActionZH(phase types.RepoMapScanPhase) string {
 	switch phase {
+	case types.RepoMapScanPhaseFileScan:
+		return "正在统计文件"
+	case types.RepoMapScanPhaseChangeScan:
+		return "正在校验缓存差异"
 	case types.RepoMapScanPhaseBuildGraph:
 		return "正在构建符号关系图"
 	case types.RepoMapScanPhaseRank:
@@ -752,6 +798,10 @@ func repoMapScanPhaseActionZH(phase types.RepoMapScanPhase) string {
 
 func repoMapScanPhaseActionEN(phase types.RepoMapScanPhase) string {
 	switch phase {
+	case types.RepoMapScanPhaseFileScan:
+		return "counting files"
+	case types.RepoMapScanPhaseChangeScan:
+		return "checking cache differences"
 	case types.RepoMapScanPhaseBuildGraph:
 		return "building the symbol graph"
 	case types.RepoMapScanPhaseRank:

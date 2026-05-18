@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -241,6 +242,65 @@ func TestBasicFileInfoPersistsHashForUnsupportedFiles(t *testing.T) {
 	}})
 	if len(changed) != 0 {
 		t.Fatalf("fresh unsupported file should be a cache hit, changed=%v", changed)
+	}
+}
+
+func TestChangedFilesWithProgressReportsHashProgress(t *testing.T) {
+	repo := t.TempDir()
+	cacheDir := t.TempDir()
+	files := []struct {
+		rel  string
+		body string
+	}{
+		{rel: "a.go", body: "package main\nfunc A() {}\n"},
+		{rel: "b.go", body: "package main\nfunc B() {}\n"},
+	}
+	entries := make([]FileEntry, 0, len(files))
+	var hashes strings.Builder
+	hashes.WriteString("# File Hashes\n\n")
+	for _, f := range files {
+		abs := filepath.Join(repo, f.rel)
+		if err := os.WriteFile(abs, []byte(f.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		entries = append(entries, FileEntry{
+			RelPath:  f.rel,
+			AbsPath:  abs,
+			Language: types.LangGo,
+			Size:     int64(len(f.body)),
+		})
+		hashes.WriteString(f.rel)
+		hashes.WriteString("\t")
+		hashes.WriteString(contentHash([]byte(f.body)))
+		hashes.WriteString("\tgo\t1\n")
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, cacheHashesFile), []byte(hashes.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		mu       sync.Mutex
+		seen     []int
+		badTotal int
+	)
+	changed := ChangedFilesWithProgress(repo, cacheDir, entries, func(done, total int) {
+		mu.Lock()
+		defer mu.Unlock()
+		if total != len(entries) {
+			badTotal = total
+		}
+		seen = append(seen, done)
+	})
+	if len(changed) != 0 {
+		t.Fatalf("fresh files should not be changed: %v", changed)
+	}
+	if badTotal != 0 {
+		t.Fatalf("progress total = %d, want %d", badTotal, len(entries))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) == 0 || seen[len(seen)-1] != len(entries) {
+		t.Fatalf("progress did not reach final count: %v", seen)
 	}
 }
 
