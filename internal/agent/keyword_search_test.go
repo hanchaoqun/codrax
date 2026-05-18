@@ -489,6 +489,81 @@ func TestKeywordSearchWithOptions_GrepPhaseUsesActiveMultiRepoRoots(t *testing.T
 	}
 }
 
+func TestKeywordSearchWithOptions_GrepPhaseScansEveryActiveMultiRepoRoot(t *testing.T) {
+	workspace := t.TempDir()
+	repoARoot := filepath.Join(workspace, "repo-a")
+	repoBRoot := filepath.Join(workspace, "repo-b")
+	repoCRoot := filepath.Join(workspace, "repo-c")
+	for _, root := range []string{repoARoot, repoBRoot, repoCRoot} {
+		if err := os.MkdirAll(filepath.Join(root, "internal"), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", root, err)
+		}
+	}
+	const token = "CROSSREPOCOMPAREKEYWORD"
+	if err := os.WriteFile(filepath.Join(repoARoot, "internal", "a.go"), []byte("package a\n// "+token+"\n"), 0o644); err != nil {
+		t.Fatalf("write repo-a: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoBRoot, "internal", "b.go"), []byte("package b\n// "+token+"\n"), 0o644); err != nil {
+		t.Fatalf("write repo-b: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoCRoot, "internal", "c.go"), []byte("package c\n// "+token+"\n"), 0o644); err != nil {
+		t.Fatalf("write repo-c: %v", err)
+	}
+
+	topo := &topology.RepoTopology{
+		ParentRoot: workspace,
+		ParentSlug: "workspace",
+		Repos: []topology.SubRepo{
+			{Slug: "repo-a", RootAbs: repoARoot, RootRel: "repo-a", FileCount: 1},
+			{Slug: "repo-b", RootAbs: repoBRoot, RootRel: "repo-b", FileCount: 1},
+			{Slug: "repo-c", RootAbs: repoCRoot, RootRel: "repo-c", FileCount: 1},
+		},
+		DiscoveredAt: time.Now(),
+	}
+	mg, err := multigraph.New(multigraph.Config{
+		Topology: topo,
+		Build: func(repoRoot, query string) (*rmtypes.Graph, error) {
+			switch repoRoot {
+			case repoARoot:
+				return rmTestGraphWithScore("repo-a", "internal/a.go", 1.0), nil
+			case repoBRoot:
+				return rmTestGraphWithScore("repo-b", "internal/b.go", 1.0), nil
+			case repoCRoot:
+				return rmTestGraphWithScore("repo-c", "internal/c.go", 1.0), nil
+			default:
+				t.Fatalf("unexpected repo root %q", repoRoot)
+				return nil, nil
+			}
+		},
+		Cap: 3,
+	})
+	if err != nil {
+		t.Fatalf("multigraph.New: %v", err)
+	}
+	if err := mg.EnsureMany([]string{"repo-a", "repo-b"}); err != nil {
+		t.Fatalf("EnsureMany(active pair): %v", err)
+	}
+
+	got := keywordSearchWithOptions([]string{token}, workspace, keywordSearchOptions{
+		MultiGraph: mg,
+	})
+	if got == nil {
+		t.Fatal("keywordSearchWithOptions returned nil")
+	}
+	found := map[string]bool{}
+	for _, f := range got.Files {
+		found[f.Path] = true
+		if strings.HasPrefix(f.Path, "repo-c/") {
+			t.Fatalf("inactive repo-c was scanned despite not being active: %+v", got.Files)
+		}
+	}
+	for _, want := range []string{"repo-a/internal/a.go", "repo-b/internal/b.go"} {
+		if !found[want] {
+			t.Fatalf("active repo %q should survive; got %+v", want, got.Files)
+		}
+	}
+}
+
 func TestCountSourceFilesCachesPerRoot(t *testing.T) {
 	sourceCountMu.Lock()
 	old := sourceCountByRoot
