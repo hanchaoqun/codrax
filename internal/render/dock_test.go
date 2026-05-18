@@ -802,6 +802,60 @@ func TestRenderer_DockSuppressesPreFinalizeLocalLeapfrogBeforeExtract(t *testing
 	}
 }
 
+func TestRenderer_LocalExtractWorkCannotLeapfrogUnstartedExplore(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{Kind: EventStageStart, Timestamp: t0, Stage: "analyze", Agent: "analyzer"})
+	emit(Event{Kind: EventStageEnd, Timestamp: t0.Add(10 * time.Millisecond), Stage: "analyze", Agent: "analyzer"})
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: t0.Add(20 * time.Millisecond),
+		TaskNodes: []TaskNodeInfo{
+			{ID: "n1_evidence_t0", Type: "evidence", Objective: "topic A"},
+			{ID: "final", Type: "finalize", Objective: "render"},
+		},
+	})
+	emit(Event{Kind: EventLocalWorkStart, Timestamp: t0.Add(30 * time.Millisecond), Stage: "extract"})
+
+	row := stripAnsiEscapes(r.composeCurrentDockRows()[1])
+	for _, want := range []string{"2/4", "正在探索代码并收集证据"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("local extract prep must stay on unstarted upstream explore, missing %q: %q", want, row)
+		}
+	}
+	if strings.Contains(row, "3/4") || strings.Contains(row, "提炼关键发现") {
+		t.Fatalf("local extract prep must not leapfrog an unstarted explore node; got %q", row)
+	}
+}
+
+func TestRenderer_LocalFinalizeWorkCannotLeapfrogUnstartedExploreWithoutAnalyzeRow(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: t0,
+		TaskNodes: []TaskNodeInfo{
+			{ID: "n1_evidence_t0", Type: "evidence", Objective: "topic A"},
+			{ID: "final", Type: "finalize", Objective: "render"},
+		},
+	})
+	emit(Event{Kind: EventLocalWorkStart, Timestamp: t0.Add(10 * time.Millisecond), Stage: "finalize"})
+
+	row := stripAnsiEscapes(r.composeCurrentDockRows()[1])
+	for _, want := range []string{"2/4", "正在探索代码并收集证据"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("downstream local prep must stay on unstarted upstream explore even without an analyze row, missing %q: %q", want, row)
+		}
+	}
+	if strings.Contains(row, "3/4") || strings.Contains(row, "4/4") || strings.Contains(row, "提炼关键发现") || strings.Contains(row, "撰写最终答案") {
+		t.Fatalf("downstream local prep must not leapfrog an unstarted explore node; got %q", row)
+	}
+}
+
 func TestRenderer_ExtractStageClearsStaleParallelExploreTelemetry(t *testing.T) {
 	r := newTestRenderer("zh")
 	r.totalStages = 4

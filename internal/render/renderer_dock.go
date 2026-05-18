@@ -1386,6 +1386,9 @@ func (r *Renderer) localStagePresentationKeyLocked() string {
 	}
 	total := normalizedTotalStages(r.totalStages)
 	localSlot := stageSlotForKey(key, total)
+	if upstream := r.pendingUpstreamStageKeyLocked(localSlot, total); upstream != "" {
+		return upstream
+	}
 	maxSlot := r.maxStartedStageSlotLocked()
 	// Some pre-finalize local gates are emitted as StageFinalize even
 	// before the mandatory stage-only extract dispatch has run. Do not
@@ -1395,6 +1398,40 @@ func (r *Renderer) localStagePresentationKeyLocked() string {
 		return ""
 	}
 	return key
+}
+
+// pendingUpstreamStageKeyLocked returns the earliest declared but not-yet-started
+// node whose visible stage slot is before localSlot. Local scheduler work can be
+// tagged with a downstream stage while it is preparing context for the next graph
+// window; the dock must not present that downstream slot before an upstream node
+// has even started. This is structural topology state only: no model/user prose is
+// inspected.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) pendingUpstreamStageKeyLocked(localSlot, total int) string {
+	if localSlot <= 0 {
+		return ""
+	}
+	bestSlot := 0
+	bestKey := ""
+	for _, row := range r.tasks {
+		if row == nil || row.isSubAgent || !row.isNodeRow {
+			continue
+		}
+		if !row.pending || !rowFirstStart(row).IsZero() || !row.endTime.IsZero() {
+			continue
+		}
+		key := stageKeyFor(row)
+		slot := stageSlotForKey(key, total)
+		if slot <= 0 || slot >= localSlot {
+			continue
+		}
+		if bestSlot == 0 || slot < bestSlot {
+			bestSlot = slot
+			bestKey = key
+		}
+	}
+	return bestKey
 }
 
 // bindLiveEventStageLocked makes row 2 follow the typed stage carried
