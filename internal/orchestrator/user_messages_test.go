@@ -394,7 +394,7 @@ func TestRepoMapScanMessagesShowInventoryAndChangePhases(t *testing.T) {
 		Started:  true,
 	}
 	got := repoMapScanMessage("zh", inventory)
-	if !strings.Contains(got, "仓库索引 `linux` 正在统计文件") || strings.Contains(got, "0 个文件") {
+	if !strings.Contains(got, "正在统计仓库索引 `linux` 文件") || strings.Contains(got, "0 个文件") {
 		t.Fatalf("inventory phase should be immediate and not claim zero files, got %q", got)
 	}
 

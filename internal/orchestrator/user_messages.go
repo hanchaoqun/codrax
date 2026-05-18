@@ -647,6 +647,9 @@ func repoMapScanMessage(lang string, ev types.RepoMapScanEvent) string {
 func repoMapScanStartMessage(lang, label string, ev types.RepoMapScanEvent) string {
 	subjectZH, subjectEN := repoMapScanSubject(ev)
 	if preferZhMessage(lang) {
+		if ev.Phase == types.RepoMapScanPhaseFileScan && ev.TotalFiles <= 0 {
+			return fmt.Sprintf("· 正在统计%s `%s` 文件", subjectZH, label)
+		}
 		if action := repoMapScanPhaseActionZH(ev.Phase); action != "" && ev.TotalFiles <= 0 {
 			return fmt.Sprintf("· %s `%s` %s", subjectZH, label, action)
 		}
@@ -657,6 +660,9 @@ func repoMapScanStartMessage(lang, label string, ev types.RepoMapScanEvent) stri
 			return fmt.Sprintf("· %s `%s` %s：%s", subjectZH, label, action, repoMapScanCountsZH(ev, false))
 		}
 		return fmt.Sprintf("· 正在扫描%s `%s`：%s", subjectZH, label, repoMapScanCountsZH(ev, false))
+	}
+	if ev.Phase == types.RepoMapScanPhaseFileScan && ev.TotalFiles <= 0 {
+		return fmt.Sprintf("· Counting files for %s `%s`", subjectEN, label)
 	}
 	if action := repoMapScanPhaseActionEN(ev.Phase); action != "" && ev.TotalFiles <= 0 {
 		return fmt.Sprintf("· %s `%s` %s", subjectEN, label, action)
