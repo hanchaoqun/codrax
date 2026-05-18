@@ -71,7 +71,7 @@ type OpenAIAdapter struct {
 	// streamStallTimeout is the SSE no-bytes ceiling the watchdog
 	// uses to abort hung upstream streams. Resolved from
 	// codrax.yaml :: llm_stream_stall_timeout_seconds; zero falls
-	// through to defaultStreamStallTimeout (60s).
+	// through to defaultStreamStallTimeout (120s).
 	streamStallTimeout time.Duration
 
 	// streamFirstByteTimeout is the no-usable-SSE-data ceiling the
@@ -79,7 +79,7 @@ type OpenAIAdapter struct {
 	// Distinct from streamStallTimeout because "request accepted but
 	// server never speaks" must fail fast (typical first-byte is
 	// 100-500ms even on slow providers), while mid-stream pauses on
-	// thinking models legitimately reach 30-60s.
+	// thinking models legitimately reach 60s+.
 	// Resolved from providers.yaml :: stream_first_byte_timeout_seconds;
 	// zero falls through to defaultStreamFirstByteTimeout (20s).
 	streamFirstByteTimeout time.Duration
@@ -138,7 +138,7 @@ type AdapterOptions struct {
 	// StreamStallTimeout is how long the SSE scanner may go without
 	// receiving a single byte before the watchdog aborts the request.
 	// Zero falls through to the package default
-	// defaultStreamStallTimeout (60s). Surfaces in codrax.yaml as
+	// defaultStreamStallTimeout (120s). Surfaces in codrax.yaml as
 	// llm_stream_stall_timeout_seconds; cmd/root.go threads the
 	// resolved value here.
 	StreamStallTimeout time.Duration
@@ -596,7 +596,7 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 				idle := time.Since(time.Unix(0, lastReadNano.Load()))
 				// Two-threshold gate: pre-firstByte uses the SHORTER
 				// firstByteTimeout (typical 20s); post-firstByte
-				// switches to the LONGER stallTimeout (typical 60s).
+				// switches to the LONGER stallTimeout (typical 120s).
 				// Keeps the dead-on-arrival "provider never speaks"
 				// case failing fast without compromising thinking-
 				// model mid-stream pauses.
@@ -657,16 +657,16 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 // per-adapter o.streamStallTimeout. Hit when AdapterOptions doesn't
 // supply a value and providers.yaml didn't tune the knob. Thinking
 // models pause for several seconds between content chunks, deep-
-// reasoning models routinely pause 30+ seconds between thinking
-// blocks, so anything below ~30 s false-positives on legitimate slow
-// upstreams. 60 s is the conservative middle ground; operators tune
+// reasoning models routinely pause 60+ seconds between thinking
+// blocks, so anything below ~60 s false-positives on legitimate slow
+// upstreams. 120 s is the conservative middle ground; operators tune
 // per-provider via providers.yaml :: stream_stall_timeout_seconds.
 //
 // streamStallTickInterval is how often the watchdog goroutine polls
 // the idle counter. 5 s gives sub-default-cap reaction time without
 // consuming meaningful CPU on long streams.
 const (
-	defaultStreamStallTimeout     = 60 * time.Second
+	defaultStreamStallTimeout     = 120 * time.Second
 	defaultStreamFirstByteTimeout = 20 * time.Second
 	streamStallTickInterval       = 5 * time.Second
 	// streamWatchdogMinTickInterval is the floor on the watchdog's

@@ -2066,6 +2066,23 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.lastRejectedAnswerDocumentV2 = nil
 }
 
+// ResetActiveAnswerDocumentV2ForFinalizeDispatch clears only the active
+// accepted answer-document buffer before a fresh finalizer dispatch. It
+// deliberately preserves the most recent rejected draft and recovered display
+// attachments: those are same-turn recovery aids for transient stream failures,
+// not accepted answer state. Per-task resets and fallback resets should keep
+// using ResetAnswerDocumentV2 so stale rejected drafts cannot leak across
+// unrelated tasks or deeper retry scopes.
+func (m *MutableState) ResetActiveAnswerDocumentV2ForFinalizeDispatch() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.answerDocumentV2 = nil
+	m.lastEmitFromPatch = false
+}
+
 // cloneAnswerDocumentV2 makes a defensive deep copy of an
 // AnswerDocumentV2. Returns nil when the input is nil. Mirror of
 // CloneAnswerDocument; the per-field cloning ensures slices /

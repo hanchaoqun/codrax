@@ -110,17 +110,17 @@ llm:
     #                        Used only if non-zero AND max_output_tokens
     #                        is zero.
     # request_timeout_seconds: outer HTTP timeout for non-streaming
-    #                        requests. Code default 120s.
+    #                        requests. Code default 240s.
     # retry_max_attempts:    transient 429 / 5xx retry cap. Code
     #                        default 6 (≈62s of total backoff
     #                        coverage at base = 2s exponential).
     # stream_stall_timeout_seconds: SSE no-bytes ceiling AFTER the
     #                        first chunk arrives — for mid-stream
-    #                        pauses. 60s default; deep-thinking
-    #                        models routinely pause 30+ s between
-    #                        thinking blocks, so set higher (90-
-    #                        120s) on those and lower (15-30s) on
-    #                        fast small models.
+    #                        pauses. 120s default; deep-thinking
+    #                        models routinely pause 60+ s between
+    #                        thinking blocks, so keep 90-120s on
+    #                        those and lower (15-30s) on fast small
+    #                        models.
     # stream_first_byte_timeout_seconds: distinct ceiling that
     #                        applies BEFORE the first SSE chunk —
     #                        catches "request accepted, server
@@ -134,9 +134,9 @@ llm:
     # context_window: 128000
     # max_output_tokens: 0
     # max_output_fraction: 0.5
-    # request_timeout_seconds: 120
+    # request_timeout_seconds: 240
     # retry_max_attempts: 6
-    # stream_stall_timeout_seconds: 60
+    # stream_stall_timeout_seconds: 120
     # stream_first_byte_timeout_seconds: 20
 
   # --- Per-agent overrides ------------------------------------------------

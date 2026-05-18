@@ -4711,7 +4711,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// from a clean slate. Safe for round 0 (doc was already nil),
 		// correct for round 1+ (clears the stale doc from round N-1).
 		if o.busCtx.Mutable != nil {
-			o.busCtx.Mutable.ResetAnswerDocumentV2()
+			o.busCtx.Mutable.ResetActiveAnswerDocumentV2ForFinalizeDispatch()
 		}
 		// Pre-dispatch cue: finalize runs one synchronous LLM call
 		// without intermediate tool activity, so without this the task
@@ -4745,6 +4745,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			if lastFinalize != nil && strings.TrimSpace(lastFinalize.FinalAnswer) != "" {
 				logging.Warning("[orchestrator] finalize dispatch failed after retry budget; delivering previous draft with transient-failure caveat")
 				lastFinalize.FinalAnswer = appendFinalizerTransientFailureCaveat(lastFinalize.FinalAnswer, o.busCtx.Language)
+				state.markDone(fin.ID)
+				o.emitNodeEnd(fin.ID, true, "")
+				break
+			}
+			if recovered := o.recoverRejectedFinalizerDraftAfterTransientFailure(ir.AnswerContract); recovered != nil {
+				logging.Warning("[orchestrator] finalize dispatch failed after retry budget; delivering repaired rejected draft instead of re-running upstream stages")
+				lastFinalize = recovered
 				state.markDone(fin.ID)
 				o.emitNodeEnd(fin.ID, true, "")
 				break
@@ -5482,9 +5489,16 @@ contractFailureBreak:
 		// with a Result.
 		logging.Warning("[orchestrator] DAG run produced no finalize output; forcing finalize")
 
-		if out, _, handled := o.handleStructurallyEmptyInvestigation(state, ""); handled {
-			if out != nil {
-				lastFinalize = out
+		if recovered := o.recoverRejectedFinalizerDraftAfterTransientFailure(ir.AnswerContract); recovered != nil {
+			logging.Warning("[orchestrator] recovered prior rejected finalizer draft before forced finalize; skipping upstream extract replay")
+			lastFinalize = recovered
+		}
+
+		if lastFinalize == nil {
+			if out, _, handled := o.handleStructurallyEmptyInvestigation(state, ""); handled {
+				if out != nil {
+					lastFinalize = out
+				}
 			}
 		}
 		if lastFinalize != nil {
@@ -5493,37 +5507,49 @@ contractFailureBreak:
 			return stepsUsed
 		}
 
-		// Extract before forced finalize.
-		o.busCtx.PipelineStage = types.StageExtract
-		o.busCtx.TaskState.Stage = types.StageExtract
-		for {
-			if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
-				if o.retryReadStandaloneDispatchError(state, types.StageExtract, exErr) {
-					continue
+		if lastFinalize == nil {
+			// Extract before forced finalize only when upstream state is
+			// genuinely missing. A finalizer-only retry already preserved
+			// AnswerSymbols; replaying extract after a finalizer transport
+			// failure causes visible 4/4 → 3/4 stage regression and burns
+			// another LLM round without adding evidence.
+			if lastFallbackFinalizerOnly && len(o.busCtx.AnswerSymbols) > 0 {
+				logging.Info("[orchestrator] skip pre-forced-finalize extract: prior FinalizerOnly retry preserved upstream state (AnswerSymbols=%d)",
+					len(o.busCtx.AnswerSymbols))
+				lastFallbackFinalizerOnly = false
+			} else {
+				o.busCtx.PipelineStage = types.StageExtract
+				o.busCtx.TaskState.Stage = types.StageExtract
+				for {
+					if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
+						if o.retryReadStandaloneDispatchError(state, types.StageExtract, exErr) {
+							continue
+						}
+						stepsUsed++
+						logging.Warning("[orchestrator] pre-forced-finalize extract dispatch failed (continuing): %v", exErr)
+						// Force-finalize escape path: same transparency requirement
+						// as the normal DAG branch — let the user see that we are
+						// dropping extract results before finalize starts, instead
+						// of silently jumping from "未能提炼关键发现" to "正在生成
+						// 最终答案".
+						o.emit(render.Event{
+							Kind:       render.EventOrchestratorNotice,
+							Timestamp:  time.Now(),
+							Agent:      "orchestrator",
+							NoticeKind: render.NoticeProceedingWithoutExtract,
+							Reasoning:  softProceedingWithoutExtractMessage(o.busCtx.Language),
+						})
+						break
+					}
+					stepsUsed++
+					stopLocal := o.startSchedulerLocalWork(types.StageExtract, "drain_hypothesis_verdicts")
+					o.drainHypothesisVerdicts()
+					if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
+						return stepsUsed
+					}
+					break
 				}
-				stepsUsed++
-				logging.Warning("[orchestrator] pre-forced-finalize extract dispatch failed (continuing): %v", exErr)
-				// Force-finalize escape path: same transparency requirement
-				// as the normal DAG branch — let the user see that we are
-				// dropping extract results before finalize starts, instead
-				// of silently jumping from "未能提炼关键发现" to "正在生成
-				// 最终答案".
-				o.emit(render.Event{
-					Kind:       render.EventOrchestratorNotice,
-					Timestamp:  time.Now(),
-					Agent:      "orchestrator",
-					NoticeKind: render.NoticeProceedingWithoutExtract,
-					Reasoning:  softProceedingWithoutExtractMessage(o.busCtx.Language),
-				})
-				break
 			}
-			stepsUsed++
-			stopLocal := o.startSchedulerLocalWork(types.StageExtract, "drain_hypothesis_verdicts")
-			o.drainHypothesisVerdicts()
-			if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
-				return stepsUsed
-			}
-			break
 		}
 
 		o.busCtx.PipelineStage = types.StageFinalize
@@ -5559,6 +5585,9 @@ contractFailureBreak:
 			err error
 		)
 		for attempt := 0; attempt < forceFinalizeMaxAttempts; attempt++ {
+			if o.busCtx.Mutable != nil {
+				o.busCtx.Mutable.ResetActiveAnswerDocumentV2ForFinalizeDispatch()
+			}
 			out, err = o.dispatchStage(types.StageFinalize)
 			if err == nil {
 				stepsUsed++

@@ -116,7 +116,7 @@ type LLMProviderConfig struct {
 	// completion requests. Long emit_change_plan generations on slow
 	// providers can take several minutes; the legacy hard-coded 120s
 	// was tuned for short single-shot stages and silently aborted long
-	// streams. Zero (the absent form) inherits the code default (120s).
+	// streams. Zero (the absent form) inherits the code default (240s).
 	// Per-agent override uses the same non-zero-overrides rule.
 	RequestTimeoutSeconds int `yaml:"request_timeout_seconds"`
 
@@ -132,8 +132,8 @@ type LLMProviderConfig struct {
 	// may go without receiving a single byte before the watchdog
 	// aborts the request. Tuned per-provider — fast small models can
 	// use 15-30s, deep-thinking / reasoning models often need 90-
-	// 120s because they pause 30+ s between thinking blocks. Zero
-	// (the absent form) inherits the code default (60s).
+	// 120s because they pause 60+ s between thinking blocks. Zero
+	// (the absent form) inherits the code default (120s).
 	StreamStallTimeoutSeconds int `yaml:"stream_stall_timeout_seconds"`
 
 	// StreamFirstByteTimeoutSeconds caps the maximum time between

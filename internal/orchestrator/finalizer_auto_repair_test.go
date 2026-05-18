@@ -116,3 +116,67 @@ func TestFinalizerAutoRepairDoesNotInventShapeBearingFacetCoverage(t *testing.T)
 		t.Fatalf("unexpected facet mutation: %+v", doc.Blocks[0].FacetIDs)
 	}
 }
+
+func TestRecoverRejectedFinalizerDraftAfterTransientFailure_MetadataOnly(t *testing.T) {
+	mut := types.NewMutableState("recover rejected draft")
+	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/foo.go", Line: 12}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "Current code path is already visible as internal/foo.go:12.",
+			Items: []types.AnswerBlockItem{{
+				ID:          "i1",
+				Label:       "Foo",
+				Text:        "grounded row",
+				CitationRef: 0,
+			}},
+		}},
+	})
+	mut.SetRetryState(&types.RetryState{
+		ActiveViolations: []types.ScoredViolation{{
+			Kind:   types.ViolFacetUncovered,
+			Detail: `required facet "current_code_path" is not covered`,
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut, Language: "zh"}}
+
+	out := o.recoverRejectedFinalizerDraftAfterTransientFailure(types.AnswerContract{})
+	if out == nil || strings.TrimSpace(out.FinalAnswer) == "" {
+		t.Fatal("expected rejected draft to recover after metadata-only repair")
+	}
+	if !strings.Contains(out.FinalAnswer, "补充说明") {
+		t.Fatalf("recovered answer should disclose transient recovery:\n%s", out.FinalAnswer)
+	}
+	doc := mut.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) == 0 {
+		t.Fatalf("expected recovered document to be installed: %+v", doc)
+	}
+	if got := strings.Join(doc.Blocks[0].FacetIDs, ","); !strings.Contains(got, "current_code_path") {
+		t.Fatalf("metadata facet not repaired: %+v", doc.Blocks[0].FacetIDs)
+	}
+}
+
+func TestRecoverRejectedFinalizerDraftAfterTransientFailure_RefusesShapeBearingFacet(t *testing.T) {
+	mut := types.NewMutableState("recover rejected draft")
+	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "No diagram is present.",
+		}},
+	})
+	mut.SetRetryState(&types.RetryState{
+		ActiveViolations: []types.ScoredViolation{{
+			Kind:   types.ViolFacetUncovered,
+			Detail: `required facet "diagram_spine" is not covered`,
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut, Language: "zh"}}
+
+	if out := o.recoverRejectedFinalizerDraftAfterTransientFailure(types.AnswerContract{}); out != nil {
+		t.Fatalf("shape-bearing diagram_spine rejection must not recover as final answer: %+v", out)
+	}
+}

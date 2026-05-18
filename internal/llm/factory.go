@@ -13,9 +13,9 @@ import (
 // other LLM client does and what we want by default. Capping output
 // client-side is opt-in via providers.yaml::max_output_tokens.
 const (
-	defaultRequestTimeoutSeconds         = 120
+	defaultRequestTimeoutSeconds         = 240
 	defaultRetryMaxAttempts              = 6
-	defaultStreamStallTimeoutSeconds     = 60
+	defaultStreamStallTimeoutSeconds     = 120
 	defaultStreamFirstByteTimeoutSeconds = 20
 )
 

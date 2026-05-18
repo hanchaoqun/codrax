@@ -8,6 +8,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/render"
+	answertool "github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -231,6 +232,140 @@ func stripUnsupportedInlineIdentifierBackticksFromText(text string, idents map[s
 	}
 	b.WriteString(text[last:])
 	return b.String(), true
+}
+
+func (o *Orchestrator) recoverRejectedFinalizerDraftAfterTransientFailure(c types.AnswerContract) *agent.StageOutput {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return nil
+	}
+	doc, source := o.finalizerRecoveryDraftCandidate()
+	if doc == nil || len(doc.Blocks) == 0 {
+		return nil
+	}
+	changed := false
+	if view := types.BuildAnswerSemanticViewForBusContext(o.busCtx); view != nil {
+		viewChanged, ok := answertool.NormalizeAnswerDocumentForRecovery(doc, view, o.busCtx)
+		if !ok {
+			return nil
+		}
+		changed = viewChanged || changed
+	}
+	if rs := o.busCtx.Mutable.RetryState(); rs != nil {
+		facets, inlineIdents, ok := recoverableRetryStateFinalizerMetadata(rs)
+		if ok {
+			changed = addFacetIDsToPrincipalAnswerBlock(doc, facets) || changed
+			changed = stripUnsupportedInlineIdentifierBackticks(doc, inlineIdents) || changed
+		}
+	}
+	if !changed && source != "accepted" {
+		return nil
+	}
+	renderDoc := doc
+	render.ApplyAuthorityHedging(renderDoc, finalizerAutoRepairAuthorityEvidencePool(o.busCtx), o.busCtx.Language)
+	answer := render.RenderAnswerDocumentWithAttachments(
+		renderDoc,
+		o.busCtx.Mutable.AnswerDisplayAttachments(),
+		o.busCtx.Language,
+	)
+	if strings.TrimSpace(answer) == "" {
+		return nil
+	}
+	out := &agent.StageOutput{
+		FinalAnswer: answer,
+		Data:        marshalFinalizerAutoRepairStageData(answer),
+	}
+	o.busCtx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	res := runContractCheck(out, c, o.busCtx.Mutable, o)
+	if len(res.Violations) > 0 {
+		// Do not turn a genuinely invalid structured draft into a final
+		// answer. The recovery path is only for deterministic metadata
+		// repairs that pass the same contract check normal finalizer output
+		// must pass.
+		o.busCtx.Mutable.ResetAnswerDocumentV2()
+		if source == "rejected" {
+			o.busCtx.Mutable.SetLastRejectedAnswerDocumentV2(doc)
+		}
+		return nil
+	}
+	out.FinalAnswer = appendFinalizerRecoveredDraftCaveat(out.FinalAnswer, o.busCtx.Language)
+	out.Data = marshalFinalizerAutoRepairStageData(out.FinalAnswer)
+	return out
+}
+
+func (o *Orchestrator) finalizerRecoveryDraftCandidate() (*types.AnswerDocumentV2, string) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return nil, ""
+	}
+	if doc := o.busCtx.Mutable.LastRejectedAnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
+		return doc, "rejected"
+	}
+	if rs := o.busCtx.Mutable.RetryState(); rs != nil && len(rs.PrevEmitJSON) > 0 {
+		var doc types.AnswerDocumentV2
+		if err := json.Unmarshal(rs.PrevEmitJSON, &doc); err == nil && len(doc.Blocks) > 0 {
+			return &doc, "retry_state"
+		}
+	}
+	if doc := o.busCtx.Mutable.AnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
+		return doc, "accepted"
+	}
+	return nil, ""
+}
+
+func recoverableRetryStateFinalizerMetadata(rs *types.RetryState) ([]string, map[string]bool, bool) {
+	if rs == nil || len(rs.ActiveViolations) == 0 {
+		return nil, nil, true
+	}
+	seenFacets := map[string]bool{}
+	var facets []string
+	inlineIdents := map[string]bool{}
+	for _, v := range rs.ActiveViolations {
+		switch v.Kind {
+		case types.ViolFacetUncovered:
+			m := finalizerAutoRepairFacetRE.FindStringSubmatch(v.Detail)
+			if len(m) < 2 {
+				return nil, nil, false
+			}
+			facet := strings.TrimSpace(m[1])
+			if facet == "" || !isFinalizerAutoRepairableFacet(facet) {
+				return nil, nil, false
+			}
+			if !seenFacets[facet] {
+				seenFacets[facet] = true
+				facets = append(facets, facet)
+			}
+		case types.ViolInlineIdentifierHallucinated:
+			found := false
+			for _, m := range finalizerAutoRepairInlineIdentRE.FindAllStringSubmatch(v.Detail, -1) {
+				if len(m) < 2 {
+					continue
+				}
+				ident := strings.TrimSpace(m[1])
+				if ident == "" {
+					continue
+				}
+				inlineIdents[ident] = true
+				found = true
+			}
+			if !found {
+				return nil, nil, false
+			}
+		default:
+			return nil, nil, false
+		}
+	}
+	sort.Strings(facets)
+	return facets, inlineIdents, true
+}
+
+func appendFinalizerRecoveredDraftCaveat(answer, lang string) string {
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
+		return answer + "\n\n---\n\n**Supplement:** The final answer pass hit a transient model stream failure after producing this structured draft. Codrax preserved the draft and only completed deterministic non-visible metadata repairs before rendering it."
+	}
+	return answer + "\n\n---\n\n**补充说明：** 成文阶段在产出这版结构化草稿后遇到模型流式响应瞬时失败；系统保留该草稿，仅补齐确定性的非可见结构元数据后展示。"
 }
 
 func finalizerAutoRepairAuthorityEvidencePool(ctx *types.BusContext) []types.EvidenceItem {

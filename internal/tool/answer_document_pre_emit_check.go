@@ -49,6 +49,8 @@
 package tool
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -4896,7 +4898,138 @@ func normalizeViewCompatibleAnswerDocument(doc *types.AnswerDocumentV2, view *ty
 	fixed += normalizeInactiveTypedDecisionVerdictFields(doc, view)
 	fixed += normalizeExcessRequiredSummaryBlocks(doc, view)
 	fixed += normalizeImplicitDefinitionClaimUses(doc, view)
+	fixed += normalizeAutoRepairableRequiredFacetIDs(doc, view)
 	return fixed
+}
+
+// NormalizeAnswerDocumentForRecovery applies the same deterministic
+// compatibility repairs used by emit_answer_document, then re-runs the
+// pre-emit hard checks. It is intentionally exported for orchestrator's
+// transient-failure salvage path: a rejected draft may be shown to users only
+// after it passes the exact same hard structural gate the normal tool path
+// would have enforced.
+func NormalizeAnswerDocumentForRecovery(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) (changed bool, ok bool) {
+	if doc == nil || view == nil {
+		return false, false
+	}
+	before, _ := json.Marshal(doc)
+	pctx := newPreEmitCheckContext(ctx)
+	normalizeAnswerDocumentForPreEmit("answer_document_recovery", doc, view, ctx, pctx)
+	after, _ := json.Marshal(doc)
+	hints := runPreEmitChecksWithContext(doc, view, preEmitOracleFromCtx(ctx), pctx)
+	return !bytes.Equal(before, after), len(hints) == 0
+}
+
+func normalizeAutoRepairableRequiredFacetIDs(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
+	if doc == nil || view == nil || view.FacetCoverage == nil || len(view.FacetCoverage.Required) == 0 {
+		return 0
+	}
+	target := -1
+	fixed := 0
+	for _, req := range view.FacetCoverage.Required {
+		facet := strings.TrimSpace(string(req.Kind))
+		if facet == "" || !req.RequiresHardDeclaration() || !preEmitAutoRepairableFacetID(facet) {
+			continue
+		}
+		if answerDocumentDeclaresFacetID(doc, facet) {
+			continue
+		}
+		if target < 0 {
+			target = preEmitAutoRepairFacetTarget(doc)
+		}
+		if target < 0 {
+			continue
+		}
+		doc.Blocks[target].FacetIDs = mergeStringSet(doc.Blocks[target].FacetIDs, []string{facet})
+		fixed++
+	}
+	return fixed
+}
+
+func preEmitAutoRepairableFacetID(facet string) bool {
+	switch types.AnswerFacetKind(strings.TrimSpace(facet)) {
+	case types.FacetCurrentCodePath, types.FacetResolvedLiteralOrSymbol:
+		// These are carrier metadata over already-rendered code paths /
+		// symbols. Adding the missing facet_id to a visible principal
+		// block does not invent a user-visible claim or change the answer
+		// shape, and avoids a full finalizer rewrite for non-visible JSON
+		// metadata.
+		return true
+	default:
+		// Shape-bearing facets (diagram_spine, enumeration_item, bucket
+		// labels, path edges, guards, etc.) stay with the normal hard gate:
+		// auto-declaring them could hide a genuinely missing block, row, or
+		// diagram.
+		return false
+	}
+}
+
+func answerDocumentDeclaresFacetID(doc *types.AnswerDocumentV2, facet string) bool {
+	if doc == nil || facet == "" {
+		return false
+	}
+	for i := range doc.Blocks {
+		for _, fid := range doc.Blocks[i].FacetIDs {
+			if strings.TrimSpace(fid) == facet {
+				return true
+			}
+		}
+		for _, claim := range doc.Blocks[i].ClaimUses {
+			if strings.TrimSpace(claim.FacetID) == facet {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func preEmitAutoRepairFacetTarget(doc *types.AnswerDocumentV2) int {
+	if doc == nil || len(doc.Blocks) == 0 {
+		return -1
+	}
+	for i, block := range doc.Blocks {
+		if block.Kind == types.BlockCaveat || block.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		if preEmitBlockCanCarryAutoFacet(doc, block) {
+			return i
+		}
+	}
+	for i, block := range doc.Blocks {
+		if block.Kind == types.BlockCaveat {
+			continue
+		}
+		if preEmitBlockCanCarryAutoFacet(doc, block) {
+			return i
+		}
+	}
+	return -1
+}
+
+func preEmitBlockCanCarryAutoFacet(doc *types.AnswerDocumentV2, block types.AnswerBlock) bool {
+	if !preEmitBlockHasVisiblePayload(block) {
+		return false
+	}
+	if preEmitBlockHasCitationSurface(block) {
+		return true
+	}
+	return doc != nil && len(doc.Citations) > 0
+}
+
+func preEmitBlockHasVisiblePayload(block types.AnswerBlock) bool {
+	if strings.TrimSpace(block.Title) != "" || strings.TrimSpace(block.Text) != "" || len(block.Items) > 0 {
+		return true
+	}
+	return block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != ""
+}
+
+func preEmitBlockHasCitationSurface(block types.AnswerBlock) bool {
+	for _, item := range block.Items {
+		if item.CitationRef >= 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeImplicitDefinitionClaimUses(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {

@@ -2074,6 +2074,64 @@ func TestNormalizeViewCompatibleAnswerDocument_AddsImplicitDefinitionClaimUse(t 
 	}
 }
 
+func TestNormalizeViewCompatibleAnswerDocument_AddsAutoRepairableRequiredFacetID(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{{
+				Kind:     types.FacetCurrentCodePath,
+				Required: types.FacetHardRequired,
+			}},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/foo.go", Line: 12}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "The answer already cites internal/foo.go:12 and names the current code path.",
+		}},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
+		t.Fatalf("expected one auto-repairable facet_id repair, got %d", fixed)
+	}
+	if got := doc.Blocks[0].FacetIDs; len(got) != 1 || got[0] != string(types.FacetCurrentCodePath) {
+		t.Fatalf("current_code_path facet not attached to visible principal block: %+v", got)
+	}
+	if hints := preCheckFacetCoverage(doc, view); len(hints) != 0 {
+		t.Fatalf("auto-repaired facet should avoid a finalizer rewrite hint: %+v", hints)
+	}
+}
+
+func TestNormalizeViewCompatibleAnswerDocument_DoesNotInventShapeBearingFacetID(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{{
+				Kind:     types.FacetDiagramSpine,
+				Required: types.FacetHardRequired,
+			}},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/foo.go", Line: 12}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "Plain prose cannot stand in for a requested diagram spine.",
+		}},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("shape-bearing facet must not be auto-declared, got %d repair(s)", fixed)
+	}
+	if len(doc.Blocks[0].FacetIDs) != 0 {
+		t.Fatalf("unexpected shape-bearing facet mutation: %+v", doc.Blocks[0].FacetIDs)
+	}
+	if hints := preCheckFacetCoverage(doc, view); len(hints) == 0 {
+		t.Fatal("missing diagram_spine should remain a hard hint")
+	}
+}
+
 func TestNormalizeViewCompatibleAnswerDocument_DoesNotInventNonDefinitionClaimUse(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		RequiredBlocks: []types.BlockRequirement{{
