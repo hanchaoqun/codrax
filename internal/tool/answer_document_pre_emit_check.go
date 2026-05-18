@@ -2925,7 +2925,7 @@ func preEmitBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemant
 	}
 	if view != nil {
 		for _, req := range append(append([]types.BlockRequirement(nil), view.RequiredBlocks...), view.OptionalBlocks...) {
-			if req.Kind != b.Kind || len(req.AcceptableClaimForms) == 0 {
+			if !req.AcceptsKind(b.Kind) || len(req.AcceptableClaimForms) == 0 {
 				continue
 			}
 			if len(req.FacetIDs) > 0 && !preEmitBlockSharesFacet(b, req.FacetIDs) {
@@ -4617,22 +4617,22 @@ func preCheckRequiredBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSeman
 	if len(view.RequiredBlocks) == 0 {
 		return nil
 	}
-	counts := make(map[types.AnswerBlockKind]int, len(doc.Blocks))
-	for _, b := range doc.Blocks {
-		counts[b.Kind]++
-	}
 	var out []emitFixHint
 	for _, req := range view.RequiredBlocks {
 		if !req.Required {
 			continue
 		}
-		got := counts[req.Kind]
+		got := types.CountAnswerBlocksForRequirement(doc.Blocks, req)
+		kindLabel := req.AcceptedKindsLabel()
+		if kindLabel == "" {
+			kindLabel = string(req.Kind)
+		}
 		if got < req.MinCount {
 			out = append(out, emitFixHint{
 				Field: fmt.Sprintf("blocks[].kind=%s", req.Kind),
 				ExpectedShape: fmt.Sprintf(
 					"emit at least %d block(s) of kind=%s (currently emitted: %d)",
-					req.MinCount, req.Kind, got),
+					req.MinCount, kindLabel, got),
 				Reason: strings.TrimSpace(req.Rationale),
 			})
 			continue
@@ -4642,7 +4642,7 @@ func preCheckRequiredBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSeman
 				Field: fmt.Sprintf("blocks[].kind=%s", req.Kind),
 				ExpectedShape: fmt.Sprintf(
 					"reduce kind=%s blocks to at most %d (currently emitted: %d)",
-					req.Kind, req.MaxCount, got),
+					kindLabel, req.MaxCount, got),
 				Reason: strings.TrimSpace(req.Rationale),
 			})
 		}
@@ -4661,8 +4661,10 @@ func preCheckRequiredBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSeman
 func preCheckPrincipalClaimUse(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
 	reqByKind := make(map[types.AnswerBlockKind]types.BlockRequirement, len(view.RequiredBlocks))
 	for _, r := range view.RequiredBlocks {
-		if _, ok := reqByKind[r.Kind]; !ok {
-			reqByKind[r.Kind] = r
+		for _, kind := range r.AcceptedKinds() {
+			if _, ok := reqByKind[kind]; !ok {
+				reqByKind[kind] = r
+			}
 		}
 	}
 	var out []emitFixHint

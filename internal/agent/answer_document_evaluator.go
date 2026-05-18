@@ -953,14 +953,14 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				if br.SurfaceRoleHint == types.SurfacePrincipal && view.Family == types.QFEnumeration {
 					if ctx != nil && ctx.AnalysisIR != nil && types.HasAttributeBearingEnumeration(ctx.AnalysisIR.RequestModel) {
 						items = append(items,
-							"Emit the principal `ordered_list` block with one item per principal member, not one item per related attribute. In a two-axis enumeration, `items[].label` is the member label (for example package / module / directory / namespace / type / route); the related attribute (for example entry function / owner / default / handler) belongs in `items[].text`, citations, and any companion table row.",
+							"Emit the principal enumeration as one accepted carrier (`ordered_list`, `table`, or `bullet_list`) with one visible row/item per principal member, not one row/item per related attribute. Prefer `table` when members have multiple attributes. In a two-axis enumeration, the member label stays on the row/item label (for example package / module / directory / namespace / type / route); the related attribute (for example entry function / owner / default / handler) belongs in the row/item detail, citations, and table cells when present.",
 							"Ground member labels from the evidence `subject`, required-term floor, or a verbatim member name already surfaced by the typed enumeration profile. Do not use an AnswerSymbol name as the item label when that symbol is the per-member attribute; using the attribute as the label makes the answer look complete while dropping the member axis.",
 						)
 					}
 					items = append(items,
-						"Emit the principal `ordered_list` block with `items[]` (each item carries `id`, optional `label`, `text`, top-level `citation_ref=N` (zero-based index into doc.citations[])); declare the block-level `claim_uses=[{claim_form=definition_fact}]` (or `call_edge` / `assignment_fact` when the cited lines are call sites or assignments). EVERY item.label MUST be grounded in the evidence pool: prefer a verbatim anchor_symbol / subject / object, or a selector-qualified identifier visibly present on a grounded snippet line (for example a qualified call or type name). Fabricated labels are rejected by the structural enumeration grounding oracle.",
+						"Emit the principal enumeration carrier as `ordered_list`, `table`, or `bullet_list` according to which is clearest. For list/bullet carriers, use `items[]` (each item carries `id`, optional `label`, `text`, top-level `citation_ref=N` zero-based into doc.citations[]). For table carriers, keep the complete markdown table in block `text` or use `columns[]` plus `items[].cells[]`; `items[]` may also carry row citations. Declare the block-level `claim_uses=[{claim_form=definition_fact}]` (or `call_edge` / `assignment_fact` when the cited lines are call sites or assignments). EVERY visible member label MUST be grounded in the evidence pool: prefer a verbatim anchor_symbol / subject / object, or a selector-qualified identifier visibly present on a grounded snippet line (for example a qualified call or type name). Fabricated labels are rejected by the structural enumeration grounding oracle.",
 						"Preserve every grounded member from the prior slate / required-member floor. If the investigation only established a lower bound or an unknown full set, disclose that bound in prose or a `caveat` block; do NOT invent a retired completeness field.",
-						"Use the lead summary block to frame what the list enumerates; do not let the list stand alone without context.",
+						"Use the lead summary block to frame what the enumeration covers; do not let the principal carrier stand alone without context.",
 					)
 				} else {
 					items = append(items,
@@ -1694,10 +1694,6 @@ func liveBlockKindBalance(prev *types.AnswerDocumentV2, view *types.AnswerSemant
 	if prev == nil || view == nil || len(view.RequiredBlocks) == 0 {
 		return ""
 	}
-	counts := make(map[types.AnswerBlockKind]int, len(prev.Blocks))
-	for _, b := range prev.Blocks {
-		counts[b.Kind]++
-	}
 	var b strings.Builder
 	b.WriteString("**Block kind balance:**\n\n")
 	any := false
@@ -1705,7 +1701,11 @@ func liveBlockKindBalance(prev *types.AnswerDocumentV2, view *types.AnswerSemant
 		if !req.Required {
 			continue
 		}
-		got := counts[req.Kind]
+		got := types.CountAnswerBlocksForRequirement(prev.Blocks, req)
+		kindLabel := req.AcceptedKindsLabel()
+		if kindLabel == "" {
+			kindLabel = string(req.Kind)
+		}
 		marker := "✓"
 		var detail string
 		if got < req.MinCount {
@@ -1720,7 +1720,7 @@ func liveBlockKindBalance(prev *types.AnswerDocumentV2, view *types.AnswerSemant
 			detail = fmt.Sprintf("required at least %d", req.MinCount)
 		}
 		fmt.Fprintf(&b, "  %s `%s` — emitted %d (%s)\n",
-			marker, string(req.Kind), got, detail)
+			marker, kindLabel, got, detail)
 		any = true
 	}
 	if !any {
@@ -2262,7 +2262,11 @@ func renderAnswerDocBlockRequirement(b *strings.Builder, req types.BlockRequirem
 	default:
 		countTag = fmt.Sprintf("%d-%d", req.MinCount, req.MaxCount)
 	}
-	fmt.Fprintf(b, "- **%s** (%s)", req.Kind, countTag)
+	kindLabel := req.AcceptedKindsLabel()
+	if kindLabel == "" {
+		kindLabel = string(req.Kind)
+	}
+	fmt.Fprintf(b, "- **%s** (%s)", kindLabel, countTag)
 	rationale := strings.TrimSpace(req.Rationale)
 	if rationale != "" {
 		fmt.Fprintf(b, " — %s", rationale)
@@ -2570,7 +2574,7 @@ func renderAnswerDocFacetCoverage(ctx *types.AgentContext) string {
 			for _, blk := range blocks {
 				for _, fid := range blk.FacetIDs {
 					k := types.AnswerFacetKind(fid)
-					facetToBlocks[k] = append(facetToBlocks[k], blk.Kind)
+					facetToBlocks[k] = append(facetToBlocks[k], blk.AcceptedKinds()...)
 				}
 			}
 		}

@@ -1688,6 +1688,33 @@ func TestPreCheckRequiredBlocks_HappyPath(t *testing.T) {
 	}
 }
 
+func TestPreCheckRequiredBlocks_AlternativeKindSatisfiesMin(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{
+			{
+				Kind:             types.BlockOrderedList,
+				AlternativeKinds: []types.AnswerBlockKind{types.BlockTable, types.BlockBulletList},
+				Required:         true,
+				MinCount:         1,
+				Rationale:        "enumeration",
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:      "members",
+				Kind:    types.BlockTable,
+				Columns: []string{"file", "role"},
+				Text:    "| file | role |\n|---|---|\n| a.go:1 | member |",
+			},
+		},
+	}
+	if hints := preCheckRequiredBlocks(doc, view); len(hints) != 0 {
+		t.Fatalf("table should satisfy flexible enumeration carrier; got %v", hints)
+	}
+}
+
 // TestPreCheckPrincipalClaimUse_Missing — principal block missing claim_uses.
 func TestPreCheckPrincipalClaimUse_Missing(t *testing.T) {
 	view := &types.AnswerSemanticView{
@@ -1721,6 +1748,36 @@ func TestPreCheckPrincipalClaimUse_Missing(t *testing.T) {
 	}
 	if !strings.Contains(hints[0].ExpectedShape, "definition_fact") {
 		t.Errorf("hint should list the acceptable forms; got %q", hints[0].ExpectedShape)
+	}
+}
+
+func TestPreCheckPrincipalClaimUse_AlternativeKindInheritsClaimContract(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{
+			{
+				Kind:                 types.BlockOrderedList,
+				AlternativeKinds:     []types.AnswerBlockKind{types.BlockTable, types.BlockBulletList},
+				Required:             true,
+				MinCount:             1,
+				AcceptableClaimForms: []types.ClaimForm{types.ClaimDefinitionFact, types.ClaimCallEdge},
+				SurfaceRoleHint:      types.SurfacePrincipal,
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "members",
+				Kind:        types.BlockTable,
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "| member |\n|---|\n| A |",
+				Items:       []types.AnswerBlockItem{{ID: "i1"}},
+			},
+		},
+	}
+	hints := preCheckPrincipalClaimUse(doc, view)
+	if len(hints) != 1 {
+		t.Fatalf("alternative table carrier should inherit principal claim_use contract; got %v", hints)
 	}
 }
 

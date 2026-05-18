@@ -2177,6 +2177,12 @@ func repairNestedAnswerBlockFields(raw json.RawMessage) (json.RawMessage, []stri
 				repaired = true
 			}
 		}
+		if fields, ok := repairAnswerBlockItemScalarFragments(blkObj); ok {
+			for _, field := range fields {
+				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
+			}
+			repaired = true
+		}
 		if fields, ok := repairMisplacedItemClaimUses(blkObj); ok {
 			for _, field := range fields {
 				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
@@ -2304,6 +2310,12 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
 					blockChanged = true
 				}
+			}
+			if fields, ok := repairAnswerBlockItemScalarFragments(blkObj); ok {
+				for _, field := range fields {
+					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
+				}
+				blockChanged = true
 			}
 			if fields, ok := repairMisplacedItemClaimUses(blkObj); ok {
 				for _, field := range fields {
@@ -2435,6 +2447,94 @@ func repairAnswerBlockItemArrayFields(blkObj map[string]json.RawMessage) ([]stri
 	}
 	blkObj["items"] = mustMarshal(items)
 	return paths, true
+}
+
+// repairAnswerBlockItemScalarFragments handles a narrow local-model
+// corruption mode inside block.items[]:
+//   - a complete item object is JSON-encoded as a string; or
+//   - a display-rich block already has block.text, and the items[]
+//     array contains stray scalar fragments around at least one valid
+//     object.
+//
+// The first case is lossless. The second case is intentionally gated
+// by non-empty block.text so visible answer content is preserved by
+// the markdown/table prose while invalid scalar fragments are removed
+// from the typed citation sidecar instead of forcing an LLM retry.
+func repairAnswerBlockItemScalarFragments(blkObj map[string]json.RawMessage) ([]string, bool) {
+	if len(blkObj) == 0 {
+		return nil, false
+	}
+	rawItems, ok := blkObj["items"]
+	rawItems = bytes.TrimSpace(rawItems)
+	if !ok || len(rawItems) == 0 || rawItems[0] != '[' {
+		return nil, false
+	}
+	var rawList []json.RawMessage
+	if err := json.Unmarshal(rawItems, &rawList); err != nil || len(rawList) == 0 {
+		return nil, false
+	}
+	hasVisibleText := jsonStringFieldNonEmpty(blkObj["text"])
+	kept := make([]json.RawMessage, 0, len(rawList))
+	changed := false
+	invalidScalar := false
+	for _, raw := range rawList {
+		trimmedRaw := bytes.TrimSpace(raw)
+		if len(trimmedRaw) == 0 || bytes.Equal(trimmedRaw, []byte("null")) {
+			invalidScalar = true
+			changed = true
+			continue
+		}
+		switch trimmedRaw[0] {
+		case '{':
+			kept = append(kept, trimmedRaw)
+		case '"':
+			var encoded string
+			if err := json.Unmarshal(trimmedRaw, &encoded); err != nil {
+				return nil, false
+			}
+			inner := strings.TrimSpace(encoded)
+			if strings.HasPrefix(inner, "{") {
+				var item json.RawMessage
+				if err := json.Unmarshal([]byte(inner), &item); err == nil {
+					kept = append(kept, item)
+					changed = true
+					continue
+				}
+				if normalised, normChanged := normalizeControlCharsInJSONStrings(inner); normChanged {
+					if err := json.Unmarshal([]byte(normalised), &item); err == nil {
+						kept = append(kept, item)
+						changed = true
+						continue
+					}
+				}
+			}
+			invalidScalar = true
+			changed = true
+		default:
+			invalidScalar = true
+			changed = true
+		}
+	}
+	if !changed || len(kept) == 0 {
+		return nil, false
+	}
+	if invalidScalar && !hasVisibleText {
+		return nil, false
+	}
+	blkObj["items"] = mustMarshal(kept)
+	return []string{"items[] scalar fragments"}, true
+}
+
+func jsonStringFieldNonEmpty(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || raw[0] != '"' {
+		return false
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return false
+	}
+	return strings.TrimSpace(s) != ""
 }
 
 func decodeClaimUseArrayRaw(raw json.RawMessage) ([]json.RawMessage, bool) {

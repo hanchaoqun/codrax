@@ -33,6 +33,28 @@ func TestRequiredBlockCoverage_MeetsMinPasses(t *testing.T) {
 	}
 }
 
+func TestRequiredBlockCoverage_AlternativeKindSatisfiesMin(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFEnumeration,
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind:             types.BlockOrderedList,
+			AlternativeKinds: []types.AnswerBlockKind{types.BlockTable, types.BlockBulletList},
+			MinCount:         1,
+			Required:         true,
+			Rationale:        "enumeration",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:      "members",
+		Kind:    types.BlockTable,
+		Columns: []string{"file", "role"},
+		Text:    "| file | role |\n|---|---|\n| a.go:1 | member |",
+	}}}
+	if vs := validateRequiredBlockCoverage(doc, view); len(vs) != 0 {
+		t.Fatalf("table should satisfy flexible enumeration carrier; got %+v", vs)
+	}
+}
+
 func TestRequiredBlockCoverage_MissingBlockFires(t *testing.T) {
 	view := minimalSummaryView()
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{

@@ -56,28 +56,20 @@ func compileEnumeration(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemantic
 				"so the reader understands what kind of item each row is and why these belong (and none of the others)."),
 		{
 			Kind:                 BlockOrderedList,
+			AlternativeKinds:     []AnswerBlockKind{BlockTable, BlockBulletList},
 			MinCount:             1,
 			MaxCount:             0, // no bucket / member count assumption
 			Required:             true,
 			FacetIDs:             []string{string(FacetEnumerationItem)},
 			AcceptableClaimForms: acceptableClaimForms,
 			Rationale: "The enumeration itself. Each item names the member with its authoritative " +
-				"file:line. Order is alphabetic OR meaningful (e.g. precedence) — describe which in " +
-				"the summary block.",
+				"file:line. Use an ordered_list, table, or bullet_list depending on which is clearest; " +
+				"a table is preferred when members have multiple attributes. Order is alphabetic OR " +
+				"meaningful (e.g. precedence) — describe which in the summary block.",
 			SurfaceRoleHint: SurfacePrincipal,
 		},
 	}
 	view.OptionalBlocks = []BlockRequirement{
-		{
-			Kind:     BlockTable,
-			MinCount: 0,
-			MaxCount: 1,
-			Required: false,
-			FacetIDs: []string{string(FacetEnumerationItem)},
-			Rationale: "When each enumerated member has multiple attributes worth surfacing " +
-				"(e.g. role + file + role-rationale), a table reads better than an ordered list.",
-			SurfaceRoleHint: SurfacePrincipal,
-		},
 		{
 			Kind:     BlockSection,
 			MinCount: 0,

@@ -494,16 +494,22 @@ func TestCompileEnumeration_ResolvesFamily(t *testing.T) {
 	}
 }
 
-func TestCompileEnumeration_HasOrderedListRequired(t *testing.T) {
+func TestCompileEnumeration_HasFlexiblePrincipalCarrierRequired(t *testing.T) {
 	view := BuildAnswerSemanticView(irForEnumeration(), nil)
-	hasList := false
+	var principal *BlockRequirement
 	for _, b := range view.RequiredBlocks {
 		if b.Kind == BlockOrderedList && b.Required {
-			hasList = true
+			principal = &b
+			break
 		}
 	}
-	if !hasList {
-		t.Error("enumeration must require ordered/bullet list")
+	if principal == nil {
+		t.Fatal("enumeration must require a canonical principal ordered_list carrier")
+	}
+	for _, kind := range []AnswerBlockKind{BlockOrderedList, BlockTable, BlockBulletList} {
+		if !principal.AcceptsKind(kind) {
+			t.Fatalf("enumeration principal carrier should accept %s; got %+v", kind, principal.AcceptedKinds())
+		}
 	}
 }
 

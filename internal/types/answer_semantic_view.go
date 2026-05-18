@@ -135,6 +135,10 @@ type AnswerSemanticView struct {
 //
 // Key invariants:
 //   - Kind is always set; "" is invalid.
+//   - AlternativeKinds, when present, are structurally equivalent
+//     carriers for the SAME obligation. Kind remains the preferred
+//     / canonical prompt label; validators count Kind and every
+//     AlternativeKind together for MinCount / MaxCount.
 //   - MaxCount == 0 means "no upper limit" — never "exactly zero".
 //     For "must-not-emit" semantics use Required=false + MinCount=0.
 //   - FacetIDs may be empty when no facet-coverage check is required
@@ -144,10 +148,11 @@ type AnswerSemanticView struct {
 //   - Rationale is LLM-facing prose, NEVER internal Go terminology
 //     (R4 red line).
 type BlockRequirement struct {
-	Kind     AnswerBlockKind
-	MinCount int
-	MaxCount int // 0 means "no upper limit"
-	Required bool
+	Kind             AnswerBlockKind
+	AlternativeKinds []AnswerBlockKind
+	MinCount         int
+	MaxCount         int // 0 means "no upper limit"
+	Required         bool
 
 	// FacetIDs names the FacetCoverageContract.Required[i].Kind
 	// values this block must cover. Cross-checked at V2 validator

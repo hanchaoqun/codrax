@@ -5420,6 +5420,25 @@ func TestRenderAnswerDocBlockRequirement_VerbatimTypedSets(t *testing.T) {
 	}
 }
 
+func TestRenderAnswerDocBlockRequirement_RendersAlternativeKinds(t *testing.T) {
+	req := types.BlockRequirement{
+		Kind:             types.BlockOrderedList,
+		AlternativeKinds: []types.AnswerBlockKind{types.BlockTable, types.BlockBulletList},
+		MinCount:         1,
+		Required:         true,
+		Rationale:        "enumeration carrier",
+	}
+	var b strings.Builder
+	renderAnswerDocBlockRequirement(&b, req, nil, true)
+	got := b.String()
+	if !strings.Contains(got, "**ordered_list/table/bullet_list**") {
+		t.Fatalf("required-block prompt should render equivalent carrier kinds, got:\n%s", got)
+	}
+	if !strings.Contains(got, "enumeration carrier") {
+		t.Fatalf("rationale should still render, got:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocBlockRequirement_TypedDecisionCarrierDoesNotRequireClaimUse(t *testing.T) {
 	req := types.BlockRequirement{
 		Kind:                 types.BlockDecision,

@@ -303,6 +303,7 @@ func cloneBlockRequirements(in []BlockRequirement) []BlockRequirement {
 	}
 	out := append([]BlockRequirement(nil), in...)
 	for i := range out {
+		out[i].AlternativeKinds = append([]AnswerBlockKind(nil), in[i].AlternativeKinds...)
 		out[i].FacetIDs = append([]string(nil), in[i].FacetIDs...)
 		out[i].AcceptableClaimForms = append([]ClaimForm(nil), in[i].AcceptableClaimForms...)
 	}

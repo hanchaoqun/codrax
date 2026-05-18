@@ -358,6 +358,47 @@ func TestBuildAnswerDocumentParametersFor_RequiredBlockCardinalityAndTypedDecisi
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_AlternativeKindsWidenKindEnumAndCardinality(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFEnumeration,
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, MinCount: 1, Required: true},
+			{
+				Kind:             types.BlockOrderedList,
+				AlternativeKinds: []types.AnswerBlockKind{types.BlockTable, types.BlockBulletList},
+				MinCount:         1,
+				Required:         true,
+			},
+		},
+	}
+	got := BuildAnswerDocumentParametersFor(view)
+	var root map[string]any
+	if err := json.Unmarshal(got, &root); err != nil {
+		t.Fatalf("projected schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	blocks := props["blocks"].(map[string]any)
+	bItems := blocks["items"].(map[string]any)
+	bProps := bItems["properties"].(map[string]any)
+	kind := bProps["kind"].(map[string]any)
+	enum := kind["enum"].([]any)
+	for _, want := range []string{"ordered_list", "table", "bullet_list"} {
+		found := false
+		for _, got := range enum {
+			if got == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("alternative carrier %q missing from block.kind enum %v", want, enum)
+		}
+	}
+	if !schemaArrayHasAnyKindCardinality(blocks, []string{"ordered_list", "table", "bullet_list"}, 1, 0) {
+		t.Fatalf("blocks[] schema must accept one of the alternative carriers; got %+v", blocks["allOf"])
+	}
+}
+
 // TestBuildAnswerDocumentParametersFor_BlockKindEnumRestricted
 // confirms block.kind is narrowed to the kinds the view declares.
 func TestBuildAnswerDocumentParametersFor_BlockKindEnumRestricted(t *testing.T) {
@@ -464,6 +505,38 @@ func schemaArrayHasKindCardinality(blocks map[string]any, kind string, min, max 
 		props, _ := contains["properties"].(map[string]any)
 		kindNode, _ := props["kind"].(map[string]any)
 		if kindNode["const"] != kind {
+			continue
+		}
+		return intFromSchemaNumber(entry["minContains"]) == min &&
+			intFromSchemaNumber(entry["maxContains"]) == max
+	}
+	return false
+}
+
+func schemaArrayHasAnyKindCardinality(blocks map[string]any, kinds []string, min, max int) bool {
+	want := map[string]bool{}
+	for _, kind := range kinds {
+		want[kind] = true
+	}
+	allOf, _ := blocks["allOf"].([]any)
+	for _, raw := range allOf {
+		entry, _ := raw.(map[string]any)
+		contains, _ := entry["contains"].(map[string]any)
+		props, _ := contains["properties"].(map[string]any)
+		kindNode, _ := props["kind"].(map[string]any)
+		enumRaw, _ := kindNode["enum"].([]any)
+		if len(enumRaw) != len(want) {
+			continue
+		}
+		matches := true
+		for _, rawKind := range enumRaw {
+			kind, _ := rawKind.(string)
+			if !want[kind] {
+				matches = false
+				break
+			}
+		}
+		if !matches {
 			continue
 		}
 		return intFromSchemaNumber(entry["minContains"]) == min &&

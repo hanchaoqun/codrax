@@ -83,24 +83,24 @@ func validateRequiredBlockCoverage(doc *types.AnswerDocumentV2, view *types.Answ
 		return nil
 	}
 	var out []types.Violation
-	counts := make(map[types.AnswerBlockKind]int, len(doc.Blocks))
-	for _, b := range doc.Blocks {
-		counts[b.Kind]++
-	}
 	for _, req := range view.RequiredBlocks {
 		if !req.Required {
 			continue
 		}
-		got := counts[req.Kind]
+		got := types.CountAnswerBlocksForRequirement(doc.Blocks, req)
+		kindLabel := req.AcceptedKindsLabel()
+		if kindLabel == "" {
+			kindLabel = string(req.Kind)
+		}
 		if got < req.MinCount {
 			out = append(out, types.Violation{
 				Kind: types.ViolBlockCoverageMissing,
 				Detail: fmt.Sprintf(
 					"required block kind=%s appears %d time(s) in answer; the family contract requires at least %d",
-					req.Kind, got, req.MinCount),
+					kindLabel, got, req.MinCount),
 				Repair: fmt.Sprintf(
 					"emit at least %d block(s) of kind=%s. Per the rationale: %s",
-					req.MinCount, req.Kind, req.Rationale),
+					req.MinCount, kindLabel, req.Rationale),
 				ClusterKey: blockKindClusterKey(req.Kind, "answer_block_coverage"),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "answer_block_coverage",
@@ -117,10 +117,10 @@ func validateRequiredBlockCoverage(doc *types.AnswerDocumentV2, view *types.Answ
 				Kind: types.ViolBlockCoverageMissing,
 				Detail: fmt.Sprintf(
 					"required block kind=%s appears %d time(s); the family contract caps it at %d",
-					req.Kind, got, req.MaxCount),
+					kindLabel, got, req.MaxCount),
 				Repair: fmt.Sprintf(
 					"reduce kind=%s blocks to at most %d. Per the rationale: %s",
-					req.Kind, req.MaxCount, req.Rationale),
+					kindLabel, req.MaxCount, req.Rationale),
 				ClusterKey: blockKindClusterKey(req.Kind, "answer_block_coverage"),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    "answer_block_coverage",
@@ -152,8 +152,10 @@ func validatePrincipalClaimUse(doc *types.AnswerDocumentV2, view *types.AnswerSe
 	// not currently the case).
 	reqByKind := make(map[types.AnswerBlockKind]types.BlockRequirement, len(view.RequiredBlocks))
 	for _, r := range view.RequiredBlocks {
-		if _, ok := reqByKind[r.Kind]; !ok {
-			reqByKind[r.Kind] = r
+		for _, kind := range r.AcceptedKinds() {
+			if _, ok := reqByKind[kind]; !ok {
+				reqByKind[kind] = r
+			}
 		}
 	}
 	var out []types.Violation
@@ -1833,7 +1835,7 @@ func answerBlockCitationRoleForms(b types.AnswerBlock, view *types.AnswerSemanti
 	}
 	if view != nil {
 		for _, req := range append(append([]types.BlockRequirement(nil), view.RequiredBlocks...), view.OptionalBlocks...) {
-			if req.Kind != b.Kind || len(req.AcceptableClaimForms) == 0 {
+			if !req.AcceptsKind(b.Kind) || len(req.AcceptableClaimForms) == 0 {
 				continue
 			}
 			if len(req.FacetIDs) > 0 && !answerBlockSharesFacet(b, req.FacetIDs) {

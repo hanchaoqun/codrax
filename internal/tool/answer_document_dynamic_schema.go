@@ -165,13 +165,17 @@ func presentationAddsUnconstrainedClaimCarrier(view *types.AnswerSemanticView) b
 	}
 	contractKinds := make(map[types.AnswerBlockKind]bool, len(view.RequiredBlocks)+len(view.OptionalBlocks))
 	for _, br := range view.RequiredBlocks {
-		if br.Kind != "" {
-			contractKinds[br.Kind] = true
+		for _, kind := range br.AcceptedKinds() {
+			if kind != "" {
+				contractKinds[kind] = true
+			}
 		}
 	}
 	for _, br := range view.OptionalBlocks {
-		if br.Kind != "" {
-			contractKinds[br.Kind] = true
+		for _, kind := range br.AcceptedKinds() {
+			if kind != "" {
+				contractKinds[kind] = true
+			}
 		}
 	}
 	for _, kind := range view.Presentation.AllowedBlocks {
@@ -362,36 +366,46 @@ func projectRequiredBlockArrayCardinality(blocksField map[string]any, view *type
 	if blocksField == nil || view == nil {
 		return
 	}
-	type bounds struct {
-		min int
-		max int
+	type requirementBounds struct {
+		kinds []types.AnswerBlockKind
+		min   int
+		max   int
 	}
-	byKind := make(map[types.AnswerBlockKind]bounds)
+	var requirements []requirementBounds
 	for _, req := range view.RequiredBlocks {
-		if !req.Required || req.Kind == "" {
+		if !req.Required {
 			continue
 		}
-		b := byKind[req.Kind]
-		b.min += req.MinCount
-		if req.MaxCount > 0 && (b.max == 0 || req.MaxCount < b.max) {
-			b.max = req.MaxCount
+		kinds := req.AcceptedKinds()
+		if len(kinds) == 0 || (req.MinCount <= 0 && req.MaxCount <= 0) {
+			continue
 		}
-		byKind[req.Kind] = b
+		requirements = append(requirements, requirementBounds{
+			kinds: kinds,
+			min:   req.MinCount,
+			max:   req.MaxCount,
+		})
 	}
-	if len(byKind) == 0 {
+	if len(requirements) == 0 {
 		return
 	}
 	conditionals := schemaAllOfEntries(blocksField)
-	for _, kind := range types.AllAnswerBlockKinds() {
-		b, ok := byKind[kind]
-		if !ok || (b.min <= 0 && b.max <= 0) {
-			continue
+	for _, b := range requirements {
+		kindSchema := map[string]any{}
+		if len(b.kinds) == 1 {
+			kindSchema["const"] = string(b.kinds[0])
+		} else {
+			enum := make([]string, 0, len(b.kinds))
+			for _, kind := range b.kinds {
+				enum = append(enum, string(kind))
+			}
+			kindSchema["enum"] = enum
 		}
 		entry := map[string]any{
 			"contains": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"kind": map[string]any{"const": string(kind)},
+					"kind": kindSchema,
 				},
 				"required": []string{"kind"},
 			},
@@ -416,13 +430,17 @@ func projectRequiredBlockArrayCardinality(blocksField map[string]any, view *type
 func allowedKindSet(view *types.AnswerSemanticView) map[string]bool {
 	out := make(map[string]bool, 9)
 	for _, br := range view.RequiredBlocks {
-		if br.Kind != "" {
-			out[string(br.Kind)] = true
+		for _, kind := range br.AcceptedKinds() {
+			if kind != "" {
+				out[string(kind)] = true
+			}
 		}
 	}
 	for _, br := range view.OptionalBlocks {
-		if br.Kind != "" {
-			out[string(br.Kind)] = true
+		for _, kind := range br.AcceptedKinds() {
+			if kind != "" {
+				out[string(kind)] = true
+			}
 		}
 	}
 	for _, kind := range view.Presentation.AllowedBlocks {

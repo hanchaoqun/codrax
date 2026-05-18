@@ -447,6 +447,44 @@ func TestEmitAnswerDocumentPatch_StringWrappedReplaceBlocks(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_PrunesScalarItemFragmentsWhenTextPreservesDisplay(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "a.go", Line: 1}},
+		Blocks: []types.AnswerBlock{
+			{ID: "members", Kind: types.BlockTable, Text: "| 文件 | 角色 |\n|---|---|\n| a.go:1 | A |"},
+		},
+	})
+	params := json.RawMessage(`{
+		"replace_blocks": [{
+			"id": "members",
+			"kind": "table",
+			"columns": ["文件", "角色"],
+			"text": "| 文件 | 角色 |\n|---|---|\n| a.go:1 | A |\n| a.go:1 | B |",
+			"items": [
+				{"id":"r1", "label":"A", "citation_ref":0},
+				"citation_ref:8",
+				"{\"id\":\"r2\",\"label\":\"B\",\"citation_ref\":0}"
+			]
+		}]
+	}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch should tolerate item scalar fragments when block.text preserves display: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 {
+		t.Fatalf("missing patched doc: %+v", doc)
+	}
+	if got := len(doc.Blocks[0].Items); got != 2 {
+		t.Fatalf("expected two typed item objects after pruning scalar fragment; got %d (%+v)", got, doc.Blocks[0].Items)
+	}
+	if doc.Blocks[0].Items[1].ID != "r2" {
+		t.Fatalf("stringified item object should be preserved as typed item, got %+v", doc.Blocks[0].Items[1])
+	}
+}
+
 func TestEmitAnswerDocumentPatch_StringWrappedReplaceCitationsWithExtraCloser(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
