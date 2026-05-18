@@ -128,16 +128,16 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			len(domains), formatDomainList(domains), nSub))
 	}
 
-	// R1.2 — Predicate self-contradiction.
-	// Repair guidance is LLM-actionable: name the structural fix
-	// (emit sub_topics) rather than restating the contradiction.
-	// Pre-2026-05-02 analyzer_predicate.go used to auto-demote
-	// IsCrossComponent here as a workaround; that path was removed
-	// because it discarded the LLM's hard signal — the retry hint
-	// is the correct repair surface.
+	// R1.2 — Cross-component breadth without an explicit topic
+	// partition. `is_cross_component` is a typed breadth signal, not
+	// by itself a user partition contract. A single mechanism or
+	// architecture question can legitimately cross files/components
+	// while staying one answer topic. Keep this as advisory so the
+	// analyzer can add sub_topics when it meant independent topics,
+	// but the system does not force a retry or invent a partition.
 	if rm.Predicates.IsCrossComponent && nSub <= 1 {
-		details = append(details, fmt.Sprintf(
-			"R1.2 predicate_contradiction: predicates.is_cross_component=true but only %d sub-topic emitted — re-emit emit_analysis with at least 2 sub_topics (\"cross-component\" implies >=2 components by definition). Each sub_topic.summary names one component, and sub_topic.entities lists identifiers visible in the repo overview that anchor that component. OR if the question is actually single-topic after all, set is_cross_component=false explicitly",
+		softAdvisories = append(softAdvisories, fmt.Sprintf(
+			"R1.2 cross_component_without_partition (advisory): predicates.is_cross_component=true but only %d sub-topic emitted — if the question genuinely has independently-answerable parts, consider re-emitting with sub_topics; if it is one cross-component mechanism / behavior / trace question, the current emit is fine",
 			nSub))
 	}
 

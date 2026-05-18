@@ -1316,7 +1316,11 @@ func renderAnswerDocRetryState(ctx *types.AgentContext) string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Hard Rule (retry attempt %d)\n\n", rs.Attempt)
-	b.WriteString("Your last `emit_answer_document` was rejected. Re-emit by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths or global rewrite items listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].columns[]`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `blocks[].items[].cells[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
+	if retryStateHasPreviousEmit(rs) {
+		b.WriteString("Your last `emit_answer_document` was rejected. Re-emit by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths or global rewrite items listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].columns[]`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `blocks[].items[].cells[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
+	} else {
+		b.WriteString("Your previous attempt did not leave a usable structured answer document. Re-emit a complete `emit_answer_document` payload now. Do NOT use patch operations and do NOT refer to a Previous Emit. Build the full document from the already-provided evidence, support lanes, required answer blocks, and the required changes below. Do not reopen files or write free-form prose outside the tool call.\n\n")
+	}
 
 	// 2. Required Changes (phase partitioned, soft excluded).
 	if changes := renderRetryRequiredChanges(rs); changes != "" {
@@ -1357,6 +1361,13 @@ func renderAnswerDocRetryState(ctx *types.AgentContext) string {
 		b.WriteString(mech)
 	}
 	return b.String()
+}
+
+func retryStateHasPreviousEmit(rs *types.RetryState) bool {
+	if rs == nil {
+		return false
+	}
+	return len(rs.PrevEmitJSON) > 0 || len(rs.PrevEmitSummary.BlockSummaries) > 0
 }
 
 // renderRetryStructuredFixList is the P3 surface — emits a
@@ -3899,7 +3910,7 @@ func supportLaneScopeForContext(ctx *types.AgentContext, supportRendered bool) *
 	return supportLaneScopeFromPlan(plan, supportRendered, extractorValueEvidenceRankProfileFor(ctx))
 }
 
-func supportLaneScopeFromPlan(plan *types.AnswerSupportPlan, supportRendered bool, profile extractorValueRankProfile) *supportLaneScope {
+func supportLaneScopeFromPlan(plan *types.AnswerSupportPlan, supportRendered bool, _ extractorValueRankProfile) *supportLaneScope {
 	if plan == nil {
 		return nil
 	}
@@ -3955,8 +3966,10 @@ func supportLaneScopeFromPlan(plan *types.AnswerSupportPlan, supportRendered boo
 			scope.lanes[types.SupportLaneUncertaintyBound] ||
 			scope.lanes[types.SupportLaneCurrentVerdict]
 	scope.constrain = supportRendered &&
-		profile == extractorValueRankDiagnostic &&
-		scope.diagnosticLanes
+		(len(scope.evidenceIDs) > 0 ||
+			len(scope.locations) > 0 ||
+			len(scope.files) > 0 ||
+			len(scope.anchors) > 0)
 	return scope
 }
 
@@ -7057,6 +7070,9 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	warning := answerDocumentEmissionMissingWarning(e.language)
 	safeFallback := sanitizePriorDraftForSummary(lastContent)
 	if safeFallback == "" {
+		safeFallback = answerDocumentEmptyModelEvidenceFallback(ctx, e.language)
+	}
+	if safeFallback == "" {
 		safeFallback = strings.TrimSpace(lastContent)
 	}
 	combined := warning
@@ -7080,6 +7096,65 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: combined})
 	out.FinalAnswer = combined
 	return out, nil
+}
+
+func answerDocumentEmptyModelEvidenceFallback(ctx *types.AgentContext, lang string) string {
+	pool := answerDocumentAuthorityEvidencePool(ctx)
+	if len(pool) == 0 {
+		return ""
+	}
+	type row struct {
+		loc  string
+		text string
+	}
+	rows := make([]row, 0, 8)
+	seen := map[string]bool{}
+	for _, item := range pool {
+		file := strings.TrimSpace(item.Source)
+		if file == "" || item.LineStart <= 0 {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d", file, item.LineStart)
+		if seen[key] {
+			continue
+		}
+		text := strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(item, false))
+		if text == "" {
+			text = strings.TrimSpace(item.Summary)
+		}
+		if text == "" {
+			text = strings.TrimSpace(item.Snippet)
+		}
+		if text == "" {
+			continue
+		}
+		seen[key] = true
+		rows = append(rows, row{
+			loc:  key,
+			text: truncateAnswerDocPromptText(text, 260),
+		})
+		if len(rows) >= 8 {
+			break
+		}
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
+		b.WriteString("**Verified code evidence collected before the answering pass failed to draft**\n\n")
+		for _, row := range rows {
+			fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
+		}
+		b.WriteString("\n**Boundary:** the answering pass returned no usable prose or structured tool call, so the system is showing collected evidence only and is not adding a conclusion.")
+		return b.String()
+	}
+	b.WriteString("**已收集到的可验证代码证据（模型未完成成文）**\n\n")
+	for _, row := range rows {
+		fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
+	}
+	b.WriteString("\n**边界说明：** 成文阶段模型没有返回可用正文或结构化工具调用，系统只展示已落地证据，不补写结论。")
+	return b.String()
 }
 
 func answerDocumentEmissionMissingWarning(lang string) string {

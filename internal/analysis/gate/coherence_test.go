@@ -148,18 +148,21 @@ func TestSubtopicCoherence_R1_1_LowConfidenceTermsExcluded(t *testing.T) {
 	}
 }
 
-func TestSubtopicCoherence_R1_2_PredicateContradiction_Fails(t *testing.T) {
+func TestSubtopicCoherence_R1_2_CrossComponentWithoutPartition_Advisory(t *testing.T) {
 	rm := types.RequestModel{
 		Predicates: types.SemanticPredicates{IsCrossComponent: true},
 		// no sub-topics
 	}
 	ir := coherenceFixtureIR(rm)
 	check := checkSubtopicCoherence(ir, nil)
-	if check.Passed {
-		t.Fatalf("R1.2 must fail when IsCrossComponent=true and ≤1 sub-topic; got %+v", check)
+	if !check.Passed {
+		t.Fatalf("R1.2 must be advisory when IsCrossComponent=true and no explicit partition exists; got %+v", check)
 	}
 	if !strings.Contains(check.Detail, "R1.2") {
 		t.Errorf("detail must cite R1.2; got %q", check.Detail)
+	}
+	if check.Score >= 1.0 {
+		t.Errorf("advisory should lower score without rejecting; got score=%f detail=%q", check.Score, check.Detail)
 	}
 }
 

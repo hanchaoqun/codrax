@@ -887,6 +887,24 @@ func (*protocolSoftStopLLM) MaxOutputTokens() int          { return 4096 }
 func (*protocolSoftStopLLM) RequestTimeout() time.Duration { return 0 }
 func (*protocolSoftStopLLM) RetryMaxAttempts() int         { return 0 }
 
+type protocolEmptyFirstLLM struct {
+	calls int
+}
+
+func (l *protocolEmptyFirstLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	l.calls++
+	if l.calls == 1 {
+		return llm.Response{}, nil
+	}
+	return llm.Response{Content: "structured draft after empty response"}, nil
+}
+
+func (*protocolEmptyFirstLLM) ModelID() string               { return "protocol-empty-first" }
+func (*protocolEmptyFirstLLM) MaxContextTokens() int         { return 128000 }
+func (*protocolEmptyFirstLLM) MaxOutputTokens() int          { return 4096 }
+func (*protocolEmptyFirstLLM) RequestTimeout() time.Duration { return 0 }
+func (*protocolEmptyFirstLLM) RetryMaxAttempts() int         { return 0 }
+
 type protocolSoftStopEvaluator struct {
 	observeCalls   int
 	shouldStopSeen int
@@ -940,13 +958,49 @@ func TestProtocolStagesRouteNoToolProseThroughLoopControllerBeforeShouldStop(t *
 			if out == nil {
 				t.Fatal("Execute returned nil output")
 			}
-			if eval.observeCalls != 1 {
-				t.Fatalf("no-tool prose in %s must reach soft-stop controller before ShouldStop, observeCalls=%d", stage, eval.observeCalls)
+			wantObserveCalls := 1
+			if stage == types.StageExtract {
+				wantObserveCalls = 2
+			}
+			if eval.observeCalls != wantObserveCalls {
+				t.Fatalf("no-tool prose in %s must reach soft-stop controller before ShouldStop, observeCalls=%d want=%d", stage, eval.observeCalls, wantObserveCalls)
 			}
 			if llmStub.calls != 2 {
 				t.Fatalf("controller hint should trigger one continuation, calls=%d", llmStub.calls)
 			}
 		})
+	}
+}
+
+func TestRequiredToolStageRoutesEmptyNoToolThroughLoopController(t *testing.T) {
+	llmStub := &protocolEmptyFirstLLM{}
+	eval := &protocolSoftStopEvaluator{}
+	var events []render.Event
+	b := NewBaseAgent(types.AgentFinalizer, &Dependencies{
+		LLM:           llmStub,
+		MaxIterations: 2,
+		Emit: func(ev render.Event) {
+			events = append(events, ev)
+		},
+	}, eval)
+	out, err := b.Execute(&types.AgentContext{
+		Stage:   types.StageFinalize,
+		Mutable: types.NewMutableState(""),
+	}, &skill.Config{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if out == nil {
+		t.Fatal("Execute returned nil output")
+	}
+	if eval.observeCalls != 1 {
+		t.Fatalf("empty required-tool response must reach soft-stop controller, observeCalls=%d", eval.observeCalls)
+	}
+	if llmStub.calls != 2 {
+		t.Fatalf("controller hint should trigger one continuation after empty response, calls=%d", llmStub.calls)
+	}
+	if countNoticeKind(events, render.NoticeNoToolCall) != 1 {
+		t.Fatalf("empty required-tool repair should surface one retry notice, events=%+v", events)
 	}
 }
 

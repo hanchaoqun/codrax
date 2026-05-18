@@ -60,6 +60,7 @@
 7. **Batch G/H 第七段落地**：analyzer 预扫描预算关闭后动态收窄工具 schema，只保留 `emit_analysis`；分析阶段同时增加工具边界硬拦截，任何绕过 schema 的 `read_file` / `exec_command` / MCP 内容工具在执行前被结构化拒绝，不再进入工具反序列化错误或整轮 analyze 重试。预算到顶后的越界预扫描调用会获得一次 emit-only 就地修正机会，而不是立刻触发 `⟳ 1/4 模型响应出错`。
 8. **Batch H 第八段落地**：explorer chain promotion 不再把 `concrete_values_tracer` 这种宽扫描辅助链路缺失的新文件升级成 CGEC E2 forced-read；系统会先从提示/证据中移除未读链路，只有已读文件里的未覆盖锚点行才发起 surgical read。非 concrete 的高置信链路仍可补读，且有行号时统一走 LineRanges，避免整文件补读造成 `› 2/4 正在补充关键信息` 噪声和探索返工。
 9. **Batch H 第九段落地**：accepted `emit_investigation_complete` 后若 DAG validation criteria 仍未满足，默认 soft policy 不再重开探索；系统会把未满足的 typed criterion 记录为 `TurnAArtifacts.ValidationBoundaryNotes` 并传给 extractor/finalizer。finalizer 应基于已收集证据做收敛、分组、排序或诚实说明边界，而不是为了 `answer_set_bounded` / unresolved hypothesis / evidence threshold 等天然不一定可满足的条件反复打回探索。
+10. **Batch H/G 第十段落地**：客户日志里的 `is_cross_component=true + 0 sub_topics` 不再触发 analyzer 硬失败；R1.2 改为 advisory，因为跨组件是 breadth signal，不等于用户要求多主题分区。required-tool 阶段的空响应现在先进入 loop controller 的结构化纠偏，避免 finalizer 空输出被当成 voluntary stop；若最终仍没有可用 document 或原文，系统用已落地 evidence 生成“只列证据、不补结论”的诚实兜底。retry prompt 也按是否真的存在 previous emit 分叉，避免要求模型从不存在的 previous payload 修补。support lane 已渲染时，typed enrichment 统一收窄在 support 边界内，防止 demoted/noisy flow facts 污染成文。
 
 ## 问题清单
 
@@ -803,6 +804,54 @@
 - [x] 将未满足 criterion 作为 typed validation boundary 写入 Turn A handoff，而不是丢失或只写日志。
 - [x] extractor/finalizer 显式看到这些边界，并被要求收敛呈现或说明边界，不能 invent facts 以满足 criterion。
 - [x] 回归测试覆盖 `answer_set_bounded` 失败时 explorer 不被二次 dispatch，且 extractor/finalizer 都收到 boundary note。
+
+### UIP-034（P1）cross_component breadth 被误当成多主题分区契约
+
+代码位置：`internal/analysis/gate/coherence.go::checkSubtopicCoherence`
+
+状态：**已修复（Batch H/G 第十段）**。R1.2 从 hard gate 改为 advisory。`predicates.is_cross_component=true` 只说明问题横跨多个组件/文件/系统，不自动证明用户要求“至少两个 sub_topics”或最终答案必须分成多个章节；只有 analyzer typed 输出真的给出分区结构时，下游才按分区组织。
+
+触发证据：
+
+- 客户 `analyzer_err.log` 中 analyzer 已成功 `emit_analysis`，但 gate 因 `is_cross_component=true` 且 `sub_topics=0` 触发 `subtopic_coherence` hard fail，界面出现 `⟳ 1/4 模型响应出错,正在重新理解问题`。
+- 后续 finalizer prompt 出现多主题结构，甚至把用户明确排除的“进程级”又拉回结构中，体现了系统把 breadth signal 错当 partition contract 的风险。
+
+风险：
+
+- 系统会为了满足自己发明的分区要求，逼 analyzer 重试或让 finalizer 按错误章节组织答案。
+- 单仓内部的跨组件问题、单条机制链路、日志驱动的一条跨文件路径，都可能被误拆成多主题。
+
+修复方向：
+
+- [x] R1.2 降为 advisory，只降低 coherence score，不触发 analyze 重试。
+- [x] `reconcileSemanticPredicates` 仍保留 analyzer 的 `is_cross_component` typed signal，不再自动 demote；但是否需要 sub_topics 交给更精确的 typed partition 信号。
+- [x] 回归测试锁住：cross_component + 无 sub_topics 必须通过 gate，并在 detail 中保留 R1.2 advisory。
+
+### UIP-035（P1）finalizer 空响应可被交付成空最终答案
+
+代码位置：`internal/agent/agent.go::BaseAgent.Execute`、`internal/agent/answer_document_evaluator.go::ParseOutput`、`renderAnswerDocRetryState`
+
+状态：**已修复（Batch H/G 第十段）**。required-tool 阶段的空响应不再先走 evaluator voluntary stop；系统会先交给 loop controller 注入“调用结构化工具”的纠偏。若重试耗尽且没有可恢复 document / raw prose，ParseOutput 会从已落地 citation-grade evidence 生成“模型未完成成文”的证据清单，并明确不补写结论。
+
+触发证据：
+
+- 客户 `finalizer_err.log` 中 finalizer response `output_tokens=0 / content_len=0 / tool_calls=0`，随后系统记录 `emit_answer_document missing after retries; falling back to raw content (len=0)`，最终只输出空壳和补充说明。
+- 同一日志的 retry prompt 要求 “starting from your previous payload”，但 retry state 没有 previous emit，给模型提供了不存在的修复基准。
+- support lanes 已存在时，prompt 仍塞入大量 demoted / noisy typed enrichment facts，增加 finalizer 的注意力负担和跑偏概率。
+
+风险：
+
+- 用户会看到“系统回答了”，但实际没有模型正文，也没有可验证证据清单。
+- 假 previous payload 会诱导模型 patch 不存在的内容，引发更多 invalid params / empty blocks / citation pool 错误。
+- support 边界外的 enrichment 会把开放式候选和弱相关 flow fact 混进 finalizer，造成重试和内容跑偏。
+
+修复方向：
+
+- [x] 空 required-tool response 先经 LoopController，复用各阶段已有结构化 tool-call repair hint。
+- [x] missing document 的最终兜底：优先恢复 embedded JSON / retry-state / rejected draft；都没有时列出已落地 evidence 并声明边界，不补写结论。
+- [x] retry prompt 按 `PrevEmitJSON/PrevEmitSummary` 是否存在分叉；没有 previous emit 时明确要求 full `emit_answer_document`，禁止 patch。
+- [x] support lane 已渲染且存在边界时，typed enrichment across all profiles 收窄到 lane evidence/location/anchor 范围；不再只对 diagnostic profile 生效。
+- [x] 回归测试覆盖空响应纠偏、无 previous emit retry prompt、空兜底证据清单、support scope 过滤跨 profile 生效。
 
 ## 分批修复建议
 

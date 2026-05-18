@@ -457,7 +457,7 @@ func TestSelectAnswerDocTypedEnrichmentFacts_DiagnosticSupportScopeFiltersUnrela
 	}
 }
 
-func TestSelectAnswerDocTypedEnrichmentFacts_NonDiagnosticScopeKeepsContextRows(t *testing.T) {
+func TestSelectAnswerDocTypedEnrichmentFacts_SupportScopeFiltersUnrelatedRowsAcrossProfiles(t *testing.T) {
 	supportScope := supportLaneScopeFromPlan(&types.AnswerSupportPlan{
 		Lanes: []types.AnswerSupportLane{{
 			Kind: types.SupportLaneCurrentCodePath,
@@ -493,8 +493,8 @@ func TestSelectAnswerDocTypedEnrichmentFacts_NonDiagnosticScopeKeepsContextRows(
 	}}
 
 	got := selectAnswerDocTypedEnrichmentFacts(ctx, evidence, true, supportScope)
-	if len(got) != 1 || got[0].item.ID != "architecture-context" {
-		t.Fatalf("non-diagnostic prompt enrichment should keep context rows, got %+v", got)
+	if len(got) != 0 {
+		t.Fatalf("support-rendered enrichment should stay inside support lanes across profiles, got %+v", got)
 	}
 }
 
@@ -5149,6 +5149,39 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_SynthesizesAuthorityCave
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_EmptyResponseUsesEvidenceFallback(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(""),
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev1",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/agent/answer_document_evaluator.go",
+			LineStart:       7000,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ParseOutput",
+			Subject:         "ParseOutput",
+			Summary:         "成文输出缺失时只展示已落地证据，不补写结论",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, []llm.Message{{Role: "assistant"}}, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"模型未完成成文",
+		"internal/agent/answer_document_evaluator.go:7000",
+		"ParseOutput",
+		"不补写结论",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("fallback answer missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutputV2_AuthorityCaveatUsesMergedEvidencePool(t *testing.T) {
 	ctx := &types.AgentContext{
 		Mutable: types.NewMutableState(""),
@@ -5565,6 +5598,42 @@ func TestRenderAnswerDocRetryState_NilOrEmpty(t *testing.T) {
 	ctx = &types.AgentContext{Mutable: mut}
 	if got := renderAnswerDocRetryState(ctx); got != "" {
 		t.Errorf("Attempt=0 RetryState: got %q, want empty", got)
+	}
+}
+
+func TestRenderAnswerDocRetryState_NoPreviousEmitAsksFullDocument(t *testing.T) {
+	mut := &types.MutableState{}
+	mut.SetRetryState(&types.RetryState{
+		Attempt: 1,
+		ActiveViolations: []types.ScoredViolation{{
+			Kind:      types.ViolBlockCoverageMissing,
+			Severity:  types.SeverityHigh,
+			Layer:     "v2_oracle",
+			FieldPath: "blocks[]",
+			Detail:    "blocks[] is required and must be non-empty",
+			Repair:    "emit a complete document",
+		}},
+	})
+	ctx := &types.AgentContext{Mutable: mut}
+	got := renderAnswerDocRetryState(ctx)
+	for _, want := range []string{
+		"## Hard Rule (retry attempt 1)",
+		"did not leave a usable structured answer document",
+		"complete `emit_answer_document` payload",
+		"Do NOT use patch operations",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("retry state missing %q:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{
+		"starting from your previous payload",
+		"byte-identical to your Previous Emit",
+		"## Previous Emit",
+	} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("retry state without previous emit should not mention %q:\n%s", bad, got)
+		}
 	}
 }
 

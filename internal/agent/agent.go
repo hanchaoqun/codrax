@@ -562,6 +562,18 @@ func shouldRouteNoToolThroughStageProtocolController(ctx *types.AgentContext, re
 	}
 }
 
+func shouldRouteEmptyNoToolThroughStageProtocolController(ctx *types.AgentContext, resp llm.Response, loopCtrl LoopController) bool {
+	if loopCtrl == nil || ctx == nil || len(resp.ToolCalls) != 0 || strings.TrimSpace(resp.Content) != "" {
+		return false
+	}
+	switch ctx.Stage {
+	case types.StageAnalyze, types.StageExtract, types.StageFinalize, types.StageLogTriage, types.StagePerfTriage:
+		return toolChoiceForStage(ctx.Stage) == "required"
+	default:
+		return false
+	}
+}
+
 func looksLikeStructuredAnswerDraft(content string) bool {
 	s := strings.TrimSpace(content)
 	if s == "" {
@@ -1459,13 +1471,18 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 
 		routeNoToolThroughController := shouldRouteNoToolThroughStageProtocolController(ctx, resp, loopCtrl)
+		routeEmptyNoToolThroughController := shouldRouteEmptyNoToolThroughStageProtocolController(ctx, resp, loopCtrl)
 		if routeNoToolThroughController {
 			logging.Debug("[diag %s] iter=%d phase=protocol_softstop route no-tool content through %s controller before evaluator stop",
 				b.name, i, ctx.Stage)
 		}
+		if routeEmptyNoToolThroughController {
+			logging.Debug("[diag %s] iter=%d phase=protocol_softstop route empty required-tool response through %s controller before evaluator stop",
+				b.name, i, ctx.Stage)
+		}
 
 		// Hard stop from the evaluator (e.g., finalizer always stops at iter=0).
-		if !routeNoToolThroughController && b.eval.ShouldStop(resp, i) {
+		if !routeNoToolThroughController && !routeEmptyNoToolThroughController && b.eval.ShouldStop(resp, i) {
 			messages = append(messages, llm.Message{
 				Role:      "assistant",
 				Content:   resp.Content,
@@ -1484,8 +1501,44 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// silently accept that as the final answer.
 		if len(resp.ToolCalls) == 0 {
 			// Empty response (no content, no tools) — treat as
-			// voluntary stop to avoid an infinite thinking loop.
+			// a protocol failure on required-tool stages before
+			// falling back to voluntary stop. This lets analyzers,
+			// extractors, and finalizers inject their normal
+			// "call the structured emit tool" repair hint instead of
+			// shipping an empty answer shell.
 			if resp.Content == "" {
+				if routeEmptyNoToolThroughController {
+					idle, conts, midLoopInjects := policyState.snapshot()
+					obs := LoopObservation{
+						Phase:              PhaseSoftStop,
+						Iteration:          i,
+						Response:           resp,
+						AllToolResults:     allToolResults,
+						IdleStreak:         idle,
+						ContinuationsUsed:  conts,
+						MidLoopInjectsUsed: midLoopInjects,
+					}
+					sig := loopCtrl.Observe(ctx, obs)
+					result := policyState.Apply(PhaseSoftStop, obs, sig)
+					logging.Debug("[diag %s] iter=%d phase=empty_softstop_signal hint=%t progress=%t stop=%t key=%q → %s (%s)",
+						b.name, i, sig.HintRequested, sig.Progress, sig.StopRequested,
+						sig.HintKey, result.Outcome, result.Reason)
+					if result.Outcome == OutcomeInjectHint {
+						emitRequiredNoToolNotice()
+						messages = append(messages, llm.Message{
+							Role:      "assistant",
+							Content:   "",
+							ToolCalls: historyToolCalls,
+						})
+						messages = append(messages, llm.Message{
+							Role:    "user",
+							Content: result.Hint,
+						})
+						logging.Debug("[diag %s] iter=%d phase=empty_softstop_inject SOFT-STOP inject len=%d:\n%s\n---",
+							b.name, i, len(result.Hint), logging.Truncate(result.Hint, logging.HintBodyMax))
+						continue
+					}
+				}
 				logging.Debug("[diag %s] STOP at iter=%d (empty response)", b.name, i)
 				break
 			}

@@ -130,14 +130,14 @@ func TestReconcileSemanticPredicates(t *testing.T) {
 		}
 	})
 
-	t.Run("cross_component without sub_topics preserved (defer to gate retry)", func(t *testing.T) {
+	t.Run("cross_component without sub_topics preserved as breadth signal", func(t *testing.T) {
 		// Pre-2026-05-02 the now-removed R1.2 auto-fix demoted
 		// IsCrossComponent=true → false whenever SubTopics was empty.
 		// Run 3 of the audit (2026-05-02) showed this swallows the
-		// LLM's hard signal and short-circuits the gate's retry path.
-		// Reconcile must now LEAVE IsCrossComponent=true and let
-		// gate.checkSubtopicCoherence R1.2 fire so the analyzer can
-		// retry with a hint to add sub_topics.
+		// LLM's hard signal. Reconcile must now LEAVE
+		// IsCrossComponent=true. The coherence gate treats missing
+		// sub_topics as advisory because cross-component breadth is not
+		// the same thing as a user-requested partition.
 		rm := types.RequestModel{
 			RawRequest: "对比 read 模式的 explorer 阶段和 write 模式的 verify 阶段，它们的 retry 机制有什么不同？",
 			Intent:     types.IntentExplain,
@@ -154,7 +154,7 @@ func TestReconcileSemanticPredicates(t *testing.T) {
 		}
 		got, reason := reconcileSemanticPredicates(rm)
 		if !got.IsCrossComponent {
-			t.Fatalf("IsCrossComponent demoted; want preserved (gate R1.2 should drive the retry instead)")
+			t.Fatalf("IsCrossComponent demoted; want preserved as breadth signal")
 		}
 		if reason != "" {
 			t.Fatalf("reason = %q; want empty (no auto-fix applied)", reason)
