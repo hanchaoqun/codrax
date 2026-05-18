@@ -460,17 +460,24 @@ func (b *BaseAgent) Name() types.AgentName {
 // in its text content instead of using the function-calling mechanism.
 //
 // Trigger conditions (ALL must be true):
-//  1. Content contains a JSON code block (```json ... ```) or a
-//     top-level '{' followed by a closing '}'.
-//  2. Inside that JSON block, a concrete emit_* tool name appears
+//  1. Content contains either an explicit <tool_call> envelope or a
+//     JSON code block (```json ... ```) / top-level '{...}' object.
+//  2. The explicit envelope carries JSON-looking name + arguments
+//     fields, OR the JSON block carries a concrete emit_* tool name
 //     as a quoted string value (e.g. "emit_answer_symbol",
 //     "emit_answer_document", "emit_evidence").
 //
 // This avoids false positives from LLM prose that merely discusses
-// tool names or JSON structures — the combination of a JSON block
-// with an actual tool name as a string value is the signature of a
-// serialized-but-not-executed tool call.
+// tool names or JSON structures. Explicit tool_call tags are already
+// a tool-call syntax, so they are treated as serialized-but-not-
+// executed calls even for non-emit tools such as grep/read_file.
 func looksLikeEmbeddedToolCall(content string) bool {
+	lower := strings.ToLower(content)
+	if (strings.Contains(lower, "<tool_call>") || strings.Contains(lower, "<minimax:tool_call>")) &&
+		(strings.Contains(content, `"name"`) || strings.Contains(content, `"tool"`) || strings.Contains(content, `"tool_name"`)) &&
+		(strings.Contains(content, `"arguments"`) || strings.Contains(content, `"parameters"`) || strings.Contains(content, `"args"`)) {
+		return true
+	}
 	// Must contain a JSON-like block.
 	hasJSONBlock := strings.Contains(content, "```json") ||
 		(strings.Contains(content, `{"`) && strings.Contains(content, `"}`))

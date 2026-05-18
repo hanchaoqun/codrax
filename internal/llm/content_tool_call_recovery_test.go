@@ -187,6 +187,46 @@ func TestRecoverTextToolCalls_RequiredModeEmbeddedBlocks(t *testing.T) {
 	}
 }
 
+func TestRecoverTextToolCalls_AutoModeExplicitTaggedOnlyBlocks(t *testing.T) {
+	tools := []ToolSchema{{Name: "read_file"}, {Name: "grep"}}
+	content := "<tool_call>{\"name\":\"read_file\",\"arguments\":{\"path\":\"a.go\"}}</tool_call>\n" +
+		"<tool_call>{\"name\":\"grep\",\"arguments\":{\"pattern\":\"Agent\",\"files_only\":true}}</tool_call>"
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "auto"})
+	if len(got.ToolCalls) != 2 {
+		t.Fatalf("expected two recovered auto-mode tagged calls, got %+v", got.ToolCalls)
+	}
+	if got.Content != "" {
+		t.Fatalf("recovered tool-call content should be cleared, got %q", got.Content)
+	}
+	if got.ToolCalls[0].Name != "read_file" || got.ToolCalls[1].Name != "grep" {
+		t.Fatalf("tool order/name mismatch: %+v", got.ToolCalls)
+	}
+	if got.ToolCalls[0].ID != "content_tool_call_0" || got.ToolCalls[1].ID != "content_tool_call_1" {
+		t.Fatalf("generated ids should be stable across multiple auto-mode tags: %+v", got.ToolCalls)
+	}
+}
+
+func TestRecoverTextToolCalls_AutoModeTaggedBlocksRejectWrapperProse(t *testing.T) {
+	tools := []ToolSchema{{Name: "read_file"}, {Name: "grep"}}
+	content := "I will call the tools now:\n\n" +
+		"<tool_call>{\"name\":\"read_file\",\"arguments\":{\"path\":\"a.go\"}}</tool_call>\n" +
+		"<tool_call>{\"name\":\"grep\",\"arguments\":{\"pattern\":\"Agent\",\"files_only\":true}}</tool_call>"
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "auto"})
+	if len(got.ToolCalls) != 0 || got.Content != content {
+		t.Fatalf("auto mode must not recover prose-wrapped tagged calls, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+}
+
+func TestRecoverTextToolCalls_AutoModeTaggedBlocksRejectUnknownTool(t *testing.T) {
+	tools := []ToolSchema{{Name: "read_file"}}
+	content := "<tool_call>{\"name\":\"read_file\",\"arguments\":{\"path\":\"a.go\"}}</tool_call>\n" +
+		"<tool_call>{\"name\":\"grep\",\"arguments\":{\"pattern\":\"Agent\",\"files_only\":true}}</tool_call>"
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "auto"})
+	if len(got.ToolCalls) != 0 || got.Content != content {
+		t.Fatalf("auto mode must not partially recover tagged calls with unknown tools, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+}
+
 func TestRecoverTextToolCalls_RequiredModeEmbeddedJSONObjects(t *testing.T) {
 	tools := []ToolSchema{{Name: "repo_map"}, {Name: "grep"}}
 	content := `I will call them: ` +

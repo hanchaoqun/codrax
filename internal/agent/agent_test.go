@@ -1004,6 +1004,42 @@ func TestRequiredToolStageRoutesEmptyNoToolThroughLoopController(t *testing.T) {
 	}
 }
 
+func TestLooksLikeEmbeddedToolCallRecognizesTaggedToolCalls(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{
+			name: "tagged grep call",
+			in:   `<tool_call>{"name":"grep","arguments":{"pattern":"Agent","files_only":true}}</tool_call>`,
+			want: true,
+		},
+		{
+			name: "tagged read file call with parameters alias",
+			in:   `<tool_call>{"name":"read_file","parameters":{"path":"a.go"}}</tool_call>`,
+			want: true,
+		},
+		{
+			name: "existing emit json path",
+			in:   "```json\n{\"name\":\"emit_evidence\",\"arguments\":{\"items\":[]}}\n```",
+			want: true,
+		},
+		{
+			name: "prose mention only",
+			in:   "The model should call <tool_call> in some providers, but no concrete arguments are present.",
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := looksLikeEmbeddedToolCall(tc.in); got != tc.want {
+				t.Fatalf("looksLikeEmbeddedToolCall()=%v want=%v for %q", got, tc.want, tc.in)
+			}
+		})
+	}
+}
+
 func TestToolResultSummarySurfacesAnswerDocumentRejectsOnly(t *testing.T) {
 	answerReject := &types.ToolResult{
 		ToolName: "emit_answer_document",

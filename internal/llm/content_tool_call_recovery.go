@@ -194,6 +194,19 @@ func parseTextToolCallEnvelope(content string, tools []ToolSchema, allowEmbedded
 	if calls, ok := parseTextToolCallJSON(content, allowed, schemaInfos, forcedName, allowEmbedded); ok {
 		return calls, true
 	}
+	if blocks, ok := explicitTaggedOnlyTextToolCallBlocks(content); ok {
+		out := make([]ToolCall, 0, len(blocks))
+		for _, block := range blocks {
+			calls, ok := parseTextToolCallJSON(block, allowed, schemaInfos, forcedName, true)
+			if !ok || len(calls) == 0 {
+				return nil, false
+			}
+			out = append(out, calls...)
+		}
+		if len(out) > 0 {
+			return renumberGeneratedContentToolCallIDs(out), true
+		}
+	}
 	if !allowEmbedded {
 		return nil, false
 	}
@@ -1234,7 +1247,37 @@ func trimWholeTextToolCallEnvelope(content string) string {
 
 type embeddedToolCallBlock struct {
 	start int
+	end   int
 	body  string
+}
+
+func explicitTaggedOnlyTextToolCallBlocks(s string) ([]string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, false
+	}
+	var blocks []embeddedToolCallBlock
+	for _, tag := range []string{"tool_call", "minimax:tool_call"} {
+		blocks = append(blocks, embeddedTaggedBlocks(s, "<"+tag+">", "</"+tag+">")...)
+	}
+	if len(blocks) == 0 {
+		return nil, false
+	}
+	sort.Slice(blocks, func(i, j int) bool { return blocks[i].start < blocks[j].start })
+	pos := 0
+	for _, block := range blocks {
+		if block.start < pos || block.end <= block.start {
+			return nil, false
+		}
+		if strings.TrimSpace(s[pos:block.start]) != "" {
+			return nil, false
+		}
+		pos = block.end
+	}
+	if strings.TrimSpace(s[pos:]) != "" {
+		return nil, false
+	}
+	return embeddedBlockBodies(blocks), true
 }
 
 func embeddedTextToolCallBlocks(s string) []string {
@@ -1278,8 +1321,9 @@ func embeddedFencedBlocks(s string) []embeddedToolCallBlock {
 			break
 		}
 		bodyEnd := bodyStart + endRel
-		blocks = append(blocks, embeddedToolCallBlock{start: start, body: s[bodyStart:bodyEnd]})
-		pos = bodyEnd + 3
+		end := bodyEnd + 3
+		blocks = append(blocks, embeddedToolCallBlock{start: start, end: end, body: s[bodyStart:bodyEnd]})
+		pos = end
 	}
 	return blocks
 }
@@ -1298,8 +1342,9 @@ func embeddedTaggedBlocks(s, open, close string) []embeddedToolCallBlock {
 			break
 		}
 		bodyEnd := bodyStart + endRel
-		blocks = append(blocks, embeddedToolCallBlock{start: start, body: s[bodyStart:bodyEnd]})
-		pos = bodyEnd + len(close)
+		end := bodyEnd + len(close)
+		blocks = append(blocks, embeddedToolCallBlock{start: start, end: end, body: s[bodyStart:bodyEnd]})
+		pos = end
 	}
 	return blocks
 }
