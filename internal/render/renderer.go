@@ -270,12 +270,14 @@ type Renderer struct {
 	thinkingTruncate bool
 
 	// answerDraftPreviewEmitted gates the scrollback copy of the
-	// first full emit_answer_document payload. The finalizer may
-	// retry several times; showing every rejected draft would bury the
-	// actual progress log, while showing the first one gives operators
-	// an immediate transparent view of what the model tried to answer
-	// before validators start editing the trajectory.
+	// first full emit_answer_document payload. The first payload is
+	// initially parked in pendingAnswerDraftPreview: when the same
+	// draft is accepted as the final answer, printing it permanently
+	// would duplicate the final answer. Commit it only if a tool/gate
+	// rejection or a later rewrite proves it is genuinely useful as a
+	// first-draft reference.
 	answerDraftPreviewEmitted bool
+	pendingAnswerDraftPreview []scrollbackLine
 
 	// cancelHint is rendered as a dim trailer line under the task
 	// list while the spinner is live. Used by the REPL to surface a
@@ -994,6 +996,7 @@ func (r *Renderer) startSpinnerWithHint(hint string) {
 	r.streamChars = 0
 	r.parallel = nil
 	r.answerDraftPreviewEmitted = false
+	r.pendingAnswerDraftPreview = nil
 	if r.totalStages == 0 {
 		// Default matches read mode: 4 dispatch boundaries
 		// (analyze + explore + extract + finalize). See the

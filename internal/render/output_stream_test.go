@@ -349,7 +349,7 @@ func TestFormatAnswerDocumentDraftPreviewPreservesVisualRows(t *testing.T) {
 	}
 }
 
-func TestRenderer_EmitsFirstAnswerDraftPreviewOnce(t *testing.T) {
+func TestRenderer_DropsFirstAnswerDraftPreviewWhenAccepted(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(&buf, false)
 	r.SetOutput(&buf)
@@ -358,12 +358,44 @@ func TestRenderer_EmitsFirstAnswerDraftPreviewOnce(t *testing.T) {
 	emit(Event{
 		Kind:           EventToolCallEnd,
 		ToolName:       "emit_answer_document",
+		ToolOK:         true,
+		ToolParamsJSON: `{"blocks":[{"id":"summary","kind":"summary","text":"accepted draft"}]}`,
+		Timestamp:      time.Now(),
+	})
+	emit(Event{
+		Kind:            EventLivePreviewClear,
+		PreviewRejected: false,
+		Timestamp:       time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	if strings.Contains(out, "第一稿答案") || strings.Contains(out, "accepted draft") {
+		t.Fatalf("accepted first draft should not duplicate final answer in scrollback; got:\n%s", out)
+	}
+}
+
+func TestRenderer_EmitsRejectedFirstAnswerDraftPreviewOnce(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:           EventToolCallEnd,
+		ToolName:       "emit_answer_document",
+		ToolOK:         true,
 		ToolParamsJSON: `{"blocks":[{"id":"summary","kind":"summary","text":"first draft"}]}`,
 		Timestamp:      time.Now(),
 	})
 	emit(Event{
+		Kind:            EventLivePreviewClear,
+		PreviewRejected: true,
+		Timestamp:       time.Now(),
+	})
+	emit(Event{
 		Kind:           EventToolCallEnd,
 		ToolName:       "emit_answer_document",
+		ToolOK:         true,
 		ToolParamsJSON: `{"blocks":[{"id":"summary","kind":"summary","text":"second draft"}]}`,
 		Timestamp:      time.Now(),
 	})
@@ -377,6 +409,26 @@ func TestRenderer_EmitsFirstAnswerDraftPreviewOnce(t *testing.T) {
 	}
 	if strings.Contains(out, "second draft") {
 		t.Fatalf("later drafts should not flood scrollback preview; got:\n%s", out)
+	}
+}
+
+func TestRenderer_EmitsToolRejectedFirstAnswerDraftPreview(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:           EventToolCallEnd,
+		ToolName:       "emit_answer_document",
+		ToolOK:         false,
+		ToolParamsJSON: `{"blocks":[{"id":"summary","kind":"summary","text":"rejected by tool"}]}`,
+		Timestamp:      time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	if !strings.Contains(out, "第一稿答案") || !strings.Contains(out, "rejected by tool") {
+		t.Fatalf("tool-rejected first draft should remain visible for diagnosis; got:\n%s", out)
 	}
 }
 

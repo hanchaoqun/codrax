@@ -70,6 +70,13 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.dockHandlePreviewChunk(ev)
 		return
 	case EventLivePreviewClear:
+		if lines := r.answerDraftPreviewLinesOnPreviewClear(ev); len(lines) > 0 {
+			if !r.dockEnabled && r.dock == nil {
+				r.emitNonTTYLines(lines)
+			} else {
+				r.commitScrollbackLinesLocked(lines)
+			}
+		}
 		r.dockHandlePreviewClear(ev)
 		return
 	case EventAgentReasoning:
@@ -614,7 +621,7 @@ func (r *Renderer) handleEvent(ev Event) {
 			r.activity = activityState{kind: activityRequesting}
 		}
 		if r.dockEnabled || r.dock != nil {
-			if lines := r.answerDraftPreviewLines(ev); len(lines) > 0 {
+			if lines := r.answerDraftPreviewLinesOnToolEnd(ev); len(lines) > 0 {
 				r.commitScrollbackLinesLocked(lines)
 			}
 			if shouldRenderStructuredToolSummary(ev) {
@@ -2295,7 +2302,7 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 			r.emitNonTTYLine(line)
 		}
 	case EventToolCallEnd:
-		if lines := r.answerDraftPreviewLines(ev); len(lines) > 0 {
+		if lines := r.answerDraftPreviewLinesOnToolEnd(ev); len(lines) > 0 {
 			r.emitNonTTYLines(lines)
 		}
 		if shouldRenderStructuredToolSummary(ev) {
@@ -2398,19 +2405,56 @@ func (r *Renderer) emitNonTTYLines(lines []scrollbackLine) {
 	}
 }
 
-func (r *Renderer) answerDraftPreviewLines(ev Event) []scrollbackLine {
+func (r *Renderer) answerDraftPreviewLinesOnToolEnd(ev Event) []scrollbackLine {
+	toolName := strings.TrimSpace(ev.ToolName)
 	if r.answerDraftPreviewEmitted {
 		return nil
 	}
-	if strings.TrimSpace(ev.ToolName) != "emit_answer_document" {
+	if toolName == "emit_answer_document_patch" {
+		return r.takePendingAnswerDraftPreview()
+	}
+	if toolName != "emit_answer_document" {
 		return nil
+	}
+	if len(r.pendingAnswerDraftPreview) > 0 {
+		return r.takePendingAnswerDraftPreview()
 	}
 	lines := formatAnswerDocumentDraftPreviewLines(ev.ToolParamsJSON, r.lang)
 	if len(lines) == 0 {
 		return nil
 	}
+	r.pendingAnswerDraftPreview = cloneScrollbackLines(lines)
+	if ev.ToolOK {
+		return nil
+	}
+	return r.takePendingAnswerDraftPreview()
+}
+
+func (r *Renderer) answerDraftPreviewLinesOnPreviewClear(ev Event) []scrollbackLine {
+	if ev.PreviewRejected {
+		return r.takePendingAnswerDraftPreview()
+	}
+	r.pendingAnswerDraftPreview = nil
+	return nil
+}
+
+func (r *Renderer) takePendingAnswerDraftPreview() []scrollbackLine {
+	if r.answerDraftPreviewEmitted || len(r.pendingAnswerDraftPreview) == 0 {
+		return nil
+	}
+	lines := cloneScrollbackLines(r.pendingAnswerDraftPreview)
+	r.pendingAnswerDraftPreview = nil
 	r.answerDraftPreviewEmitted = true
 	return lines
+}
+
+func cloneScrollbackLines(in []scrollbackLine) []scrollbackLine {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]scrollbackLine, len(in))
+	copy(out, in)
+	return out
 }
 
 // commitDockShutdownLocked prints the closing run-summary line and
