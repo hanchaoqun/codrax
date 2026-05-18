@@ -1153,7 +1153,7 @@ func (*embeddedToolTextLLM) MaxOutputTokens() int          { return 4096 }
 func (*embeddedToolTextLLM) RequestTimeout() time.Duration { return 0 }
 func (*embeddedToolTextLLM) RetryMaxAttempts() int         { return 0 }
 
-func TestBaseAgent_DoesNotRenderRawEmbeddedToolCallText(t *testing.T) {
+func TestBaseAgent_RendersRawEmbeddedToolCallTextWhenNotRecovered(t *testing.T) {
 	registry := tool.NewRegistry()
 	registry.Register(traceTool{})
 
@@ -1178,20 +1178,17 @@ func TestBaseAgent_DoesNotRenderRawEmbeddedToolCallText(t *testing.T) {
 	if out == nil || len(out.ToolResults) != 1 || out.ToolResults[0].ToolName != "trace_tool" {
 		t.Fatalf("tool did not execute after protocol correction, output=%+v", out)
 	}
-	var sawPlaceholder bool
+	var sawRawToolCall bool
 	for _, ev := range events {
 		if ev.Kind != render.EventAgentReasoning {
 			continue
 		}
 		if strings.Contains(ev.Reasoning, "<tool_call>") || strings.Contains(ev.Reasoning, `"trace_tool"`) {
-			t.Fatalf("raw embedded tool-call text leaked to renderer: %q", ev.Reasoning)
-		}
-		if strings.Contains(ev.Reasoning, "工具调用协议") {
-			sawPlaceholder = true
+			sawRawToolCall = true
 		}
 	}
-	if !sawPlaceholder {
-		t.Fatalf("expected sanitized embedded-tool-call placeholder, events=%+v", events)
+	if !sawRawToolCall {
+		t.Fatalf("unrecovered embedded tool-call text should stay visible for diagnostics, events=%+v", events)
 	}
 }
 
