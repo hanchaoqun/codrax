@@ -56,11 +56,12 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			}
 			// P7 follow-up (2026-05-17): keep retry copy
 			// user-facing, but avoid the vague "上下文信息"
-			// phrase that hid the evidence-validation action.
-			if c.zh && !strings.Contains(got, "证据") {
+			// phrase and avoid implying every retry is evidence
+			// collection; some are answer-shape validation retries.
+			if c.zh && !strings.Contains(got, "验证") {
 				t.Errorf("zh: retry-hint must be Chinese, got %q", got)
 			}
-			if !c.zh && !strings.Contains(got, "Evidence") {
+			if !c.zh && !strings.Contains(got, "Validation") {
 				t.Errorf("en: retry-hint must be English, got %q", got)
 			}
 

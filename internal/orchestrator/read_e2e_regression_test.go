@@ -41,7 +41,7 @@ func TestE2E_ReadMode_DispatchRoutesToReadLoop(t *testing.T) {
 	finalizeCalls := 0
 
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
+		Language: "en",
 	})
 	if IsWriteGraph(ir.TaskGraph) {
 		t.Fatal("dagIR is supposed to be a read graph; IsWriteGraph wrongly classifying it as write")
@@ -259,6 +259,57 @@ func TestE2E_ReadMode_ValidateFeedbackRetry(t *testing.T) {
 	}
 	if busCtx.TaskState.LastError != "" {
 		t.Errorf("retry-success should clear LastError; got %q", busCtx.TaskState.LastError)
+	}
+}
+
+func TestE2E_ReadMode_AcceptedInvestigationCompleteStopsValidateReExplore(t *testing.T) {
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	for i := range ir.TaskGraph.Nodes {
+		if ir.TaskGraph.Nodes[i].Type == types.NodeValidate {
+			ir.TaskGraph.Nodes[i].SuccessCriteria = []types.Criterion{
+				{Kind: string(types.CritAnswerSetBounded), Expr: "<=1"},
+			}
+		}
+	}
+
+	explorerDispatches := 0
+	finalizeCalls := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerDispatches++
+			ctx.Mutable.SetInvestigationComplete("model completed investigation after tool preflight")
+			return &agent.StageOutput{
+				MissingPiece: types.MissingFacts,
+				AnswerSymbols: []types.AnswerSymbol{
+					{Name: "A"}, {Name: "B"}, {Name: "C"},
+				},
+			}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "done"}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain completed investigation", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if explorerDispatches != 1 {
+		t.Fatalf("accepted investigation completion should not re-open explore on validate criteria; got %d dispatches", explorerDispatches)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalizer should run once after accepted completion; got %d", finalizeCalls)
+	}
+	if !busCtx.TaskState.IsTerminal {
+		t.Fatal("want terminal task")
 	}
 }
 

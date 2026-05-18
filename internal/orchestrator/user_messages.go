@@ -153,8 +153,8 @@ func selfConsistencyContradictionMessage(lang string, rewrite bool, count int) s
 }
 
 // softRetryHintMessage renders the user-visible line for the generic
-// stage-retry cue ("the previous agent turn did not cover every
-// evidence requirement the question needs; running one more pass").
+// stage-retry cue ("the previous agent turn did not satisfy every
+// validation requirement yet; running one more pass").
 // Replaces the raw RetryHint body dump that used to land in the
 // reasoning feed — the body is an internal LLM-directed prompt
 // (with `## Evidence Gaps`, `[MISSING]`, `(entities: ...)` markup)
@@ -164,17 +164,17 @@ func selfConsistencyContradictionMessage(lang string, rewrite bool, count int) s
 // Also used for the scheduler-level node SC retry cue (when an
 // evidence/validate node's SuccessCriteria fails and the scheduler
 // requeues for another pass) and the pre-finalize Tier-1 floor
-// backtrack — both are "need more evidence before answering" from
-// the user's point of view.
+// backtrack — both are "one more validation pass before answering"
+// from the user's point of view.
 // P7 follow-up (2026-05-17): the previous "更多上下文信息" wording was
 // too vague for evidence-gate retries and made users think the
 // system was wandering. Keep the copy user-facing, but name the
 // actual action: a validation pass needs steadier evidence.
 func softRetryHintMessage(lang string) string {
 	if preferZhMessage(lang) {
-		return "⟳ 证据还不够稳，正在补一轮验证"
+		return "⟳ 验证还不够稳，正在补一轮"
 	}
-	return "⟳ Evidence needs one more validation pass"
+	return "⟳ Validation needs one more pass"
 }
 
 // plannerProseFallbackMessage is the user-visible explanation when

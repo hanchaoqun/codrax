@@ -4117,6 +4117,19 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				o.applyWindowHint("")
 				continue
 			}
+			if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(pendingValidationTargets, pendingViolation, pendingStageRetry) {
+				if o.busCtx != nil {
+					o.busCtx.Signals.HasEnoughFacts = true
+				}
+				for _, n := range window {
+					state.markRunning(n.ID)
+					o.emitNodeStart(n.ID)
+					state.markDone(n.ID)
+					o.emitNodeEnd(n.ID, true, "skipped: accepted investigation closure")
+				}
+				logging.Info("[orchestrator] auto-completed %d explore node(s) from accepted investigation closure", len(window))
+				continue
+			}
 			// E' (2026-05-17 architecture §1.5/§1.6) — DAG node-level
 			// dispatch. When the analyzer's expandEvidenceNodes
 			// produced N independent evidence sibling nodes
@@ -4276,14 +4289,18 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				// requeueValidationTargets, others just mark the
 				// node requeued.
 				icComplete := o.busCtx.Mutable != nil && o.busCtx.Mutable.IsInvestigationComplete()
-				icPolicy := o.settings.Agent.InvestigationCompletePolicy
+				icPolicy := o.effectiveInvestigationCompletePolicy()
 
-				// "override" policy: when the LLM called
-				// emit_investigation_complete, skip all criteria and
-				// mark every explore-type node done immediately. The
-				// AnswerContract checker at finalize is the sole quality
-				// gate in this mode.
-				if icComplete && icPolicy == types.ICPolicyOverride {
+				// When emit_investigation_complete has passed the tool
+				// layer's pre-complete gates, the model has made an
+				// explicit typed closure decision. In the default "soft"
+				// policy, trust that accepted closure for DAG-level
+				// explore criteria and let extractor/finalizer contracts
+				// handle answer-surface quality. The "strict" policy is
+				// the opt-in mode for deployments that still want template
+				// SuccessCriteria to reopen exploration after completion.
+				if icComplete && (icPolicy == types.ICPolicySoft || icPolicy == types.ICPolicyOverride) {
+					o.busCtx.Signals.HasEnoughFacts = true
 					for _, n := range window {
 						state.markDone(n.ID)
 						o.emitNodeEnd(n.ID, true, "")
@@ -4312,11 +4329,6 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				envAfter := buildEnv("", 0)
 				if o.finishSchedulerLocalWork(stopLocal, "build_env_after_explore", stepsUsed) {
 					return stepsUsed
-				}
-				// "soft" policy: inject the completion signal into the
-				// criterion env so evidence_count lowers to >=1.
-				if icComplete && icPolicy == types.ICPolicySoft {
-					envAfter.InvestigationComplete = true
 				}
 				var valFailed *types.TaskNode
 				stopLocal = o.startSchedulerLocalWork(types.StageExplore, "success_criteria")
@@ -5872,6 +5884,43 @@ func (o *Orchestrator) shouldAutoCompleteReadyReconcileNode(n *types.TaskNode, e
 		return false
 	}
 	return !o.hasBlockingReconcileRepair()
+}
+
+func (o *Orchestrator) shouldAutoCompleteExploreWindowFromAcceptedClosure(pendingValidationTargets []string, pendingViolation, pendingStageRetry string) bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return false
+	}
+	policy := o.effectiveInvestigationCompletePolicy()
+	if policy != types.ICPolicySoft && policy != types.ICPolicyOverride {
+		return false
+	}
+	mut := o.busCtx.Mutable
+	if !mut.IsInvestigationComplete() && strings.TrimSpace(mut.StableInvestigationCompleteReason()) == "" {
+		return false
+	}
+	if policy == types.ICPolicyOverride {
+		return true
+	}
+	if len(pendingValidationTargets) > 0 || strings.TrimSpace(pendingViolation) != "" || strings.TrimSpace(pendingStageRetry) != "" {
+		return false
+	}
+	closure := mut.EvidenceClosure()
+	if closure == nil {
+		return true
+	}
+	return len(closure.PendingRepairs()) == 0 && len(closure.PendingReads()) == 0
+}
+
+func (o *Orchestrator) effectiveInvestigationCompletePolicy() string {
+	if o == nil {
+		return types.ICPolicySoft
+	}
+	switch o.settings.Agent.InvestigationCompletePolicy {
+	case types.ICPolicySoft, types.ICPolicyOverride, types.ICPolicyStrict:
+		return o.settings.Agent.InvestigationCompletePolicy
+	default:
+		return types.ICPolicySoft
+	}
 }
 
 func (o *Orchestrator) hasReconcileEvidenceContext() bool {

@@ -543,10 +543,10 @@ type AgentSettings struct {
 	// InvestigationCompletePolicy controls how the DAG scheduler treats
 	// nodes when the LLM has called emit_investigation_complete.
 	//
-	//   "soft"     (default) — inject InvestigationComplete=true into
-	//              criterion.Env so evidence_count thresholds drop to
-	//              >=1 instead of the template's declared floor. The
-	//              node still needs at least 1 evidence item.
+	//   "soft"     (default) — honor an accepted emit_investigation_complete
+	//              as the terminal DAG-level explore signal after the
+	//              tool's pre-complete gates pass. Extractor/finalizer
+	//              contracts still validate the answer surface.
 	//
 	//   "override" — skip SuccessCriteria evaluation entirely for
 	//              explore-type nodes and mark them done. Fastest, but
@@ -610,7 +610,8 @@ type AgentSettings struct {
 }
 
 const (
-	// ICPolicySoft is the default: lower evidence_count threshold to 1.
+	// ICPolicySoft is the default: honor accepted investigation closure
+	// for DAG-level explore criteria.
 	ICPolicySoft = "soft"
 	// ICPolicyOverride skips criteria entirely.
 	ICPolicyOverride = "override"
