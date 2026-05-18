@@ -60,7 +60,8 @@ func (t *EmitInvestigationComplete) Description() string {
 		"move to the extraction and finalization stages. Call this ONCE when " +
 		"you have collected enough evidence to answer the user's question. " +
 		"Do NOT call this if you still have files to read or hypotheses to verify. " +
-		"Requires a reason and a confidence level (high or medium)."
+		"Requires a reason that carries the concise terminal conclusion for later " +
+		"answer writing, plus a confidence level (high or medium)."
 }
 
 func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
@@ -69,7 +70,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 		"properties": {
 			"reason": {
 				"type": "string",
-				"description": "Why you believe investigation is complete — e.g. 'all hypotheses have supporting evidence' or 'the answer chain is fully traced from entry to return value'."
+				"description": "Concise completion conclusion for later answer writing: state what the investigation found, why it is complete, and any important scope boundary, no-hit/exclusion finding, cross-repository or cross-component distinction, or caveat that should not be lost. Do not leave the conclusion only in free-form text before the tool call. Keep counts, complete member lists, and per-bucket facts in aggregate_facts; use absence_justification for a genuine zero or not-found result. This field is preserved as context, not as a citation."
 			},
 			"confidence": {
 				"type": "string",

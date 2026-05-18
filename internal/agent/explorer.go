@@ -592,6 +592,12 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- Abbreviations and full forms (e.g. config → configuration, ctx → context)\n")
 	b.WriteString("- CamelCase and snake_case variants (e.g. getUser, get_user, GetUser)\n")
 	b.WriteString("Keep variants tied to the user's concrete nouns, symbols, config keys, or error frames; do not let generic domain words expand the search frontier by themselves.\n\n")
+	b.WriteString("### Completion Handoff\n\n")
+	b.WriteString("When you call `emit_investigation_complete`, make `reason` the concise investigation conclusion you want later answer writing to preserve, not just a generic \"done\" statement.\n")
+	b.WriteString("- Include the terminal judgment, important scope boundaries, cross-repository or cross-component distinctions, no-hit/exclusion findings, and caveats that should not disappear.\n")
+	b.WriteString("- Do not leave those conclusions only in free-form text before the tool call; put them in `reason` so the next stages receive them even when prose is absent or parallel investigations are merged.\n")
+	b.WriteString("- Keep counts, complete member sets, and per-bucket facts in `aggregate_facts`; use `absence_justification` for a genuine zero or not-found result.\n")
+	b.WriteString("- Ground the conclusion in tool output and emitted evidence. The `reason` is preserved as context, not as a citation.\n\n")
 
 	analyzerKeywords := irKeywords(ctx)
 	analyzerEntities := irEntities(ctx)
@@ -5968,7 +5974,7 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	e.midLoopCompletionReadyIter = obs.Iteration
 	var b strings.Builder
 	b.WriteString("MID-LOOP CHECK: you already have enough evidence to answer this question on the current branch. ")
-	b.WriteString("Stop widening scope and close the investigation now with `emit_investigation_complete(reason, confidence, result_kind)` instead of reading more neighboring files. ")
+	b.WriteString("Stop widening scope and close the investigation now with `emit_investigation_complete(reason, confidence, result_kind)` instead of reading more neighboring files. Put the concise conclusion and any important boundary in `reason`. ")
 	b.WriteString("Use `result_kind=\"resolved\"` unless this is a genuine honest-zero / not-found answer.\n")
 	if len(e.ermRequirements) > 0 && readiness.ERMSatisfied {
 		b.WriteString("- all current evidence requirements are satisfied\n")
@@ -8593,7 +8599,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			HintKey:       "explorer.completion-tool-reminder",
 			Hint: "You stopped without calling emit_investigation_complete. " +
 				"Continue the investigation yourself — do not ask the user what to do next. " +
-				"If you have collected enough evidence to answer the user's question, call emit_investigation_complete(reason, confidence, result_kind) now. " +
+				"If you have collected enough evidence to answer the user's question, call emit_investigation_complete(reason, confidence, result_kind) now, with the concise conclusion and boundary in reason. " +
 				"If you still need more evidence, keep reading files / running greps, and avoid `Answer:` / `Evidence:` style headings in your notes.",
 			Progress: progress,
 		}

@@ -8,6 +8,35 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestEmitInvestigationCompleteSchemaDescribesClosureHandoff(t *testing.T) {
+	tool := &EmitInvestigationComplete{}
+	desc := tool.Description()
+	for _, want := range []string{
+		"concise terminal conclusion",
+		"later answer writing",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("Description missing %q:\n%s", want, desc)
+		}
+	}
+
+	schema := string(tool.Parameters())
+	for _, want := range []string{
+		"Concise completion conclusion",
+		"scope boundary",
+		"no-hit/exclusion finding",
+		"cross-repository or cross-component distinction",
+		"Do not leave the conclusion only in free-form text",
+		"aggregate_facts",
+		"absence_justification",
+		"not as a citation",
+	} {
+		if !strings.Contains(schema, want) {
+			t.Fatalf("schema missing %q:\n%s", want, schema)
+		}
+	}
+}
+
 // TestEmitInvestigationComplete_AbsenceWithGroundedEvidenceRejected
 // pins the 2026-04-17 contradiction gate: when the explorer already
 // buffered grounded/recovered evidence, an emit_investigation_complete

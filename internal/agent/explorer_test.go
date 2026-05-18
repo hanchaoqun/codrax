@@ -892,6 +892,36 @@ func TestBuildInitialInstructionRetry(t *testing.T) {
 	}
 }
 
+func TestBuildInitialInstructionCompletionHandoff(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "compare two modules and say whether they interact",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+			},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Completion Handoff",
+		"make `reason` the concise investigation conclusion",
+		"scope boundaries",
+		"cross-repository or cross-component distinctions",
+		"Do not leave those conclusions only in free-form text",
+		"`aggregate_facts`",
+		"`absence_justification`",
+		"not as a citation",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("completion handoff prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestBuildInitialInstructionArchitectureRoleOutputHandoff(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{
