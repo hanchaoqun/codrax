@@ -3245,6 +3245,45 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateA
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersSanitizedInvestigationNarrativeHandoff(t *testing.T) {
+	mu := types.NewMutableState("compare repos")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		InvestigationNotes: []string{
+			"early stale note",
+			"<think>internal reasoning</think>\n<minimax:tool_call>{\"name\":\"grep\"}</minimax:tool_call>\n调查完成：`frameworks/base` 与 `hm_z/foundation/resourceschedule/ressched` 没有直接接口交互；一个仓是 Android framework，另一个仓是 OHOS 资源调度子系统。",
+		},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Investigation Narrative Handoff",
+		"advisory synthesis only",
+		"cross-bucket / cross-repository distinctions",
+		"没有直接接口交互",
+		"Android framework",
+		"OHOS 资源调度子系统",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, banned := range []string{"<think>", "<minimax:tool_call>", "{\"name\":\"grep\"}"} {
+		if strings.Contains(prompt, banned) {
+			t.Fatalf("prompt leaked sanitized scaffold %q:\n%s", banned, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrimaryAbsenceProofCitationSeeds(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetInvestigationComplete("bounded search already confirmed the exact key is absent")

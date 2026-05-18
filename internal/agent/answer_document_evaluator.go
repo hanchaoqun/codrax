@@ -142,6 +142,9 @@ const (
 	// omitted; the tool schema and already-rendered prompt remain the
 	// authority.
 	answerDocDynamicSoftBudget = 20 * time.Second
+
+	answerDocMaxInvestigationNarrativeNotes     = 3
+	answerDocMaxInvestigationNarrativeNoteBytes = 1400
 )
 
 type answerDocDynamicTrace struct {
@@ -444,6 +447,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}
 	if !trace.appendSection(&b, "accepted_closure", func() string {
 		return renderAnswerDocAcceptedClosure(ctx)
+	}) {
+		return b.String()
+	}
+	if !trace.appendSection(&b, "investigation_narrative_handoff", func() string {
+		return renderAnswerDocInvestigationNarrativeHandoff(ctx)
 	}) {
 		return b.String()
 	}
@@ -3433,6 +3441,53 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	b.WriteString("- When post-closure validation boundaries say the supported candidate set remains broad, unresolved, or under-constrained, converge the answer by prioritizing/grouping the supported facts and disclose the boundary in summary/caveat text. Do not invent missing precision solely to satisfy a validation criterion.\n")
 	b.WriteString("- Rebuild the user-visible prose yourself inside `emit_answer_document`; do not invent facts beyond the closure/evidence boundary.\n\n")
 	return b.String()
+}
+
+func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	ta := ctx.Mutable.TurnAArtifacts()
+	if ta == nil || len(ta.InvestigationNotes) == 0 {
+		return ""
+	}
+	notes := recentSanitizedInvestigationNarrativeNotes(ta.InvestigationNotes)
+	if len(notes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Investigation Narrative Handoff\n\n")
+	b.WriteString("- These are bounded, model-authored exploration notes from the accepted investigation window. They are advisory synthesis only: not citations, not source code, not a hard gate, and not a replacement for typed support lanes.\n")
+	b.WriteString("- Use them to preserve scope boundaries, negative-search conclusions, cross-bucket / cross-repository distinctions, and investigator caveats that would otherwise be lost when the structured evidence is one-sided.\n")
+	b.WriteString("- If these notes conflict with typed support lanes, structured aggregate facts, current citations, or tool outputs, prefer the typed/structured evidence and disclose the boundary instead of silently dropping a user-requested side.\n\n")
+	if len(ta.InvestigationNotes) > len(notes) {
+		fmt.Fprintf(&b, "*(showing the %d most recent usable note(s) of %d total)*\n\n", len(notes), len(ta.InvestigationNotes))
+	}
+	for i, note := range notes {
+		fmt.Fprintf(&b, "**Note %d:**\n%s\n\n", i+1, note)
+	}
+	return b.String()
+}
+
+func recentSanitizedInvestigationNarrativeNotes(raw []string) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	start := len(raw) - answerDocMaxInvestigationNarrativeNotes
+	if start < 0 {
+		start = 0
+	}
+	out := make([]string, 0, len(raw)-start)
+	for _, note := range raw[start:] {
+		clean := sanitizePriorDraftForSummary(note)
+		clean = truncateAnswerDocPromptText(clean, answerDocMaxInvestigationNarrativeNoteBytes)
+		clean = strings.TrimSpace(clean)
+		if clean == "" {
+			continue
+		}
+		out = append(out, clean)
+	}
+	return out
 }
 
 // renderAnswerDocPrincipalMemberSetContract surfaces the strong-contract
