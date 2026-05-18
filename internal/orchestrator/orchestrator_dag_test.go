@@ -363,6 +363,8 @@ func TestRunTaskGraph_ExplorerRetryHintRequeuesBeforeExtract(t *testing.T) {
 }
 
 func TestRunTaskGraph_ContractFailureBacktracks(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolCitation)})
 
 	var explorerCalls, finalizeCalls int
 
@@ -427,6 +429,9 @@ func TestRunTaskGraph_ContractFailureBacktracks(t *testing.T) {
 // the criterion fails. The fix merges that failure into res so the
 // retry branch fires; the second draft emits 3 citations and passes.
 func TestRunTaskGraph_FinalizeSuccessCriterionFailureBacktracks(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolSuccessCriterion)})
+
 	var explorerCalls, finalizeCalls int
 
 	ir := dagIR(types.AnswerContract{
@@ -482,6 +487,8 @@ func TestRunTaskGraph_FinalizeSuccessCriterionFailureBacktracks(t *testing.T) {
 }
 
 func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolCitation)})
 
 	ir := dagIR(types.AnswerContract{
 		Language: "en",

@@ -197,13 +197,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	visibleRecovery := mergeAnswerDocumentRecoveryAttachments(recovery, doc)
 
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint.
-	// Before we persist the doc, run the four STRICT structural
-	// checks (block coverage / principal claim_use / uncertainty
-	// block / facet coverage). When the check fails, the LLM
-	// retries WITHIN THE SAME tool dispatch (BaseAgent's
-	// emitAnswerDocumentRejectSignal captures !LastToolResult.Success
-	// and re-prompts) — saves a full orchestrator-level repair
-	// round (~3-5min wall-clock).
+	// Before we persist the doc, run the structural checks and split
+	// their typed hints through the central ViolationKind registry.
+	// SoftByDefault hints are logged as advisories and allowed to
+	// reach the post-emit caveat path; only genuinely hard hints
+	// reject the tool call.
 	//
 	// View-aware: when no view is available (single-shot tests,
 	// pre-AnalysisIR paths) the pre-check returns nil and the
@@ -224,10 +222,14 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 				logging.Warning("[emit_answer_document] materialized %d required caveat block(s) from uncertainty contract", fixed)
 				hints = runPreEmitChecksWithContext(doc, view, preEmitOracleFromCtx(ctx), preEmitCtx)
 			}
-			if len(hints) > 0 {
+			hardHints, advisoryHints := splitPreEmitHintsByGate(hints)
+			if len(advisoryHints) > 0 {
+				logging.Warning("[emit_answer_document] pre-emit advisory not hard-rejected: %s", formatEmitFixHints(advisoryHints))
+			}
+			if len(hardHints) > 0 {
 				rememberRejectedAnswerDocumentDraft(ctx, doc)
 				persistRecoveredAnswerDraft(ctx, raw, visibleRecovery, doc)
-				return failEmit(toolName, now, "%s", formatEmitFixHints(hints))
+				return failEmit(toolName, now, "%s", formatEmitFixHints(hardHints))
 			}
 		}
 	}

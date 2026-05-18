@@ -26,6 +26,9 @@ import (
 // triggers the retry path. Block 3's selective fallback puts the
 // explore stage back in the queue.
 func TestBlock123_E2E_SelfContradictionDrivesBackToExplore(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolMustInclude)})
+
 	ir := &types.AnalysisIR{
 		Version: types.AnalysisIRVersion,
 		RequestModel: types.RequestModel{
@@ -47,8 +50,8 @@ func TestBlock123_E2E_SelfContradictionDrivesBackToExplore(t *testing.T) {
 			},
 		},
 		AnswerContract: types.AnswerContract{
-			Language:            "en",
-			MustInclude:         []string{"FORCE_RETRY"},
+			Language:    "en",
+			MustInclude: []string{"FORCE_RETRY"},
 		},
 	}
 
@@ -134,6 +137,9 @@ func TestBlock123_E2E_SelfContradictionDrivesBackToExplore(t *testing.T) {
 // everything; post-Block-3 the savings are real for FinalizerOnly
 // kinds.
 func TestBlock123_E2E_FinalizerOnlyKeepsExploreIntact(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolMustInclude)})
+
 	ir := &types.AnalysisIR{
 		Version: types.AnalysisIRVersion,
 		RequestModel: types.RequestModel{
@@ -155,7 +161,7 @@ func TestBlock123_E2E_FinalizerOnlyKeepsExploreIntact(t *testing.T) {
 			},
 		},
 		AnswerContract: types.AnswerContract{
-			Language:            "en",
+			Language: "en",
 			// MustInclude triggers ViolMustInclude → FinalizerOnly
 			// per the default policy (no override here).
 			MustInclude: []string{"FORCE_RETRY"},

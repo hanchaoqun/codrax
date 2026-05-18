@@ -1,28 +1,23 @@
 // Package tool — answer_document_pre_emit_check.go (P1, 2026-05-10).
 //
 // Emit-time pre-validation chokepoint. When the LLM calls
-// emit_answer_document, this layer runs the four most common
-// structural-compliance checks BEFORE the doc lands on Mutable.
-// Violations are surfaced as a structured user-vocab fix-list
-// inside failEmit's rejection envelope — the LLM retries within
-// the same dispatch (BaseAgent.emitAnswerDocumentRejectSignal
-// captures !LastToolResult.Success and re-prompts), so the cost is
-// one tool-call round trip, NOT a full repair-loop iteration with
-// orchestrator dispatch overhead.
+// emit_answer_document, this layer runs common structural-compliance
+// checks BEFORE the doc lands on Mutable. Each hint is tagged with the
+// matching ViolationKind; the executor only hard-rejects kinds that are
+// not SoftByDefault in the central registry. Soft hints are logged as
+// advisories and later materialized through the normal caveat path.
 //
-// Pre-emit only covers the four STRICT-classified validator axes
-// that the post-emit chain in internal/orchestrator/contract_check.go
-// runs after persist:
+// Pre-emit covers the validator axes that the post-emit chain in
+// internal/orchestrator/contract_check.go runs after persist:
 //
 //   - block_coverage_missing   (validateRequiredBlockCoverage)
 //   - principal_claim_use_missing (validatePrincipalClaimUse)
 //   - uncertainty_block_missing  (validateUncertaintyBlockPresence)
 //   - facet_uncovered          (validateFacetCoverage)
 //
-// SOFT validators (richness regression / inline-code density / etc.)
-// stay in the post-emit chain — they're advisory in nature and
-// pre-empting them at emit time would add noise without reducing
-// load-bearing failures.
+// Soft validators remain advisory at the tool boundary. This preserves
+// the structured diagnostics for operators without turning uncertain
+// shape/citation/member-set observations into same-turn LLM rewrites.
 //
 // Forensic anchor: May-9 sweep showed block_coverage_missing +
 // facet_uncovered + uncertainty_block + principal_claim_use_missing
@@ -213,14 +208,53 @@ type emitFixHint struct {
 	Field         string
 	ExpectedShape string
 	Reason        string
+	Kind          types.ViolationKind
 }
 
-// runPreEmitChecks runs the STRICT chokepoint checks on the
-// just-built (but-not-yet-persisted) document. Returns nil when the
-// shape is compliant; otherwise a non-empty list of fix hints the
-// caller wraps in failEmit. view nil → returns nil (no view, no
-// expected shape — pre-emit silently passes through and the
-// post-emit chain takes over).
+func tagPreEmitHints(kind types.ViolationKind, hints []emitFixHint) []emitFixHint {
+	for i := range hints {
+		if hints[i].Kind == "" {
+			hints[i].Kind = kind
+		}
+	}
+	return hints
+}
+
+func appendPreEmitHints(dst []emitFixHint, kind types.ViolationKind, hints []emitFixHint) []emitFixHint {
+	if len(hints) == 0 {
+		return dst
+	}
+	return append(dst, tagPreEmitHints(kind, hints)...)
+}
+
+func splitPreEmitHintsByGate(hints []emitFixHint) (hard []emitFixHint, advisory []emitFixHint) {
+	for _, hint := range hints {
+		if preEmitHintHardByDefault(hint) {
+			hard = append(hard, hint)
+		} else {
+			advisory = append(advisory, hint)
+		}
+	}
+	return hard, advisory
+}
+
+func preEmitHintHardByDefault(hint emitFixHint) bool {
+	if hint.Kind == "" {
+		return true
+	}
+	if spec, ok := types.ViolKindSpecFor(hint.Kind); ok {
+		return !spec.SoftByDefault
+	}
+	return types.ViolationProfileFor(hint.Kind, false).RetryEligible
+}
+
+// runPreEmitChecks runs chokepoint checks on the just-built
+// (but-not-yet-persisted) document. Returns nil when the shape is
+// compliant; otherwise a non-empty list of typed fix hints. The executor
+// decides whether each hint is hard or advisory from the central
+// ViolationKind registry. view nil → returns nil (no view, no expected
+// shape — pre-emit silently passes through and the post-emit chain takes
+// over).
 //
 // oracle is OPTIONAL — when nil, the enum-label grounding check
 // (P1 2026-05-10) silently passes; the post-emit chain still
@@ -243,16 +277,16 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// an out-of-range index gets a direct schema repair instead of a
 	// misleading "all principal members are missing" diagnosis.
 	if h := preCheckCitationPoolIntegrity(doc); len(h) > 0 {
-		return h
+		return tagPreEmitHints(types.ViolCitation, h)
 	}
 	if h := preCheckNegativeCitationBounds(doc); len(h) > 0 {
-		return h
+		return tagPreEmitHints(types.ViolAbsenceScopeExceeded, h)
 	}
 	if h := preCheckRuntimeObservationRepoContamination(doc, ctxOpt...); len(h) > 0 {
-		return h
+		return tagPreEmitHints(types.ViolExternalArtifactUnderdecoded, h)
 	}
 	if h := preCheckArtifactObservedFrameCitations(doc, ctxOpt...); len(h) > 0 {
-		return h
+		return tagPreEmitHints(types.ViolCitation, h)
 	}
 	// Carrier visibility is governed by LLM-facing schema/prompt wording and
 	// typed row roles, not by post-hoc keyword matching over RawRequest or the
@@ -260,47 +294,47 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 
 	// 1. Required block kind + count compliance.
 	if h := preCheckRequiredBlocks(doc, view); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolBlockCoverageMissing, h)
 	}
 	if h := preCheckSummaryLeadBlock(doc, view); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolFamilyMismatch, h)
 	}
 
 	// 2. Principal-block claim_use presence.
 	if h := preCheckPrincipalClaimUse(doc, view); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolPrincipalClaimUseMissing, h)
 	}
 	if h := preCheckRequiredCandidateRoles(doc, view); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolMissingRequestedRoleUndisclosed, h)
 	}
 	if h := preCheckRequiredMechanismAnchors(doc, view); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolPrincipalSupportMemberOmitted, h)
 	}
 	if h := preCheckInactiveTypedDecisionVerdicts(doc, view); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolAcceptance, h)
 	}
 	if h := preCheckErrorGranularityVerdict(doc, view); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolAcceptance, h)
 	}
 	if h := preCheckCurrentStatusVerdict(doc, view); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolCurrentStatusVerdictMissing, h)
 	}
 
 	// 3. Uncertainty block presence (when contract requires it).
 	if h := preCheckUncertaintyBlock(doc, view); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolUncertaintyBlockMissing, h)
 	}
 
 	// 4. Required facet coverage.
 	if h := preCheckFacetCoverage(doc, view); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolFacetUncovered, h)
 	}
 
 	// 5. Per-item label/citation alignment. A symbol-like list label with
 	// a citation must name the same cited evidence endpoint; otherwise the
 	// rendered answer silently shifts file:line proof across adjacent hops.
 	if h := preCheckItemCitationAlignmentWithContext(doc, view, pctx); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
 
 	// 5b. Typed item/citation role alignment. An item that explicitly
@@ -310,7 +344,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// (import/path/span/route/etc.) extend the central contract instead
 	// of adding validator-specific patches.
 	if h := preCheckCallChainItemCitationRoleAlignmentWithContext(doc, view, pctx); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
 
 	// 5c. Principal support member coverage. For enumeration answers,
@@ -318,7 +352,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// support lane must be rendered as a cited item/row; the finalizer
 	// should not compress away explorer-emitted members.
 	if h := preCheckPrincipalSupportMemberCoverage(doc, ctxOpt...); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolPrincipalSupportMemberOmitted, h)
 	}
 
 	// 2026-05-16 (Fix 1) — multi-repo inactive-scope disclosure.
@@ -329,7 +363,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// dispatch so the model rewrites with disclosure instead of
 	// burning a retry round.
 	if h := preCheckInactiveScopeDisclosure(doc, ctxOpt...); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolInactiveScopeDisclosureMissing, h)
 	}
 
 	// 5d. Model-authored scalar aggregate preservation. A scalar_value
@@ -337,27 +371,27 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// scratchpad prose; the finalizer must carry the value into visible
 	// answer blocks instead of remembering it only in thinking.
 	if h := preCheckAggregateScalarValueCoverage(doc, ctxOpt...); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolAcceptance, h)
 	}
 	if h := preCheckAggregateMemberSetCoverage(doc, ctxOpt...); len(h) > 0 {
 		if preEmitAggregateMemberSetCoverageHardGate(ctxOpt...) {
-			hints = append(hints, h...)
+			hints = appendPreEmitHints(hints, types.ViolExhaustiveMemberSetCoverageDrift, h)
 		} else {
 			logging.Warning("[emit_answer_document] aggregate member_set coverage advisory not hard-rejected: %s", formatEmitFixHints(h))
 		}
 	}
 	if h := preCheckAggregateCardinalityConsistency(doc, ctxOpt...); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolCardinalityShort, h)
 	}
 	if h := preCheckRelationMemberSetAnswerShape(doc, ctxOpt...); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolExhaustiveMemberSetCoverageDrift, h)
 	}
 
-	// 5e. Bounded exact absence. Keep the absence hard gate inside
-	// the emit dispatch too, so missing negative-scope citations are
-	// repaired before the doc reaches the orchestrator retry loop.
+	// 5e. Bounded exact absence. Keep the same typed check inside the
+	// emit dispatch, but route it through the soft/hard split so the
+	// default path can ship with a bounded-scope caveat.
 	if h := preCheckAbsenceScopeBound(doc); len(h) > 0 {
-		hints = append(hints, h...)
+		hints = appendPreEmitHints(hints, types.ViolAbsenceScopeExceeded, h)
 	}
 	// Multi-repo absence disclosure is prompted from typed PendingSubRepos /
 	// exact_resolution state. This pre-emit chokepoint must not inspect the
@@ -371,7 +405,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// SAME dispatch instead of paying a full retry round.
 	if h := preCheckEnumerationLabelGroundingWithContext(doc, oracle, pctx); len(h) > 0 {
 		if preEmitEnumerationLabelGroundingHardGate(pctx) {
-			hints = append(hints, h...)
+			hints = appendPreEmitHints(hints, types.ViolEnumerationLabelHallucinated, h)
 		} else {
 			logging.Warning("[emit_answer_document] enumeration label grounding advisory not hard-rejected: %s", formatEmitFixHints(h))
 		}
@@ -4162,7 +4196,7 @@ func preCheckEnumerationLabelGroundingWithContext(doc *types.AnswerDocumentV2, o
 				"replace these item label leading identifiers with names that exist in the codebase OR drop the items: %s",
 				strings.Join(hallucinatedIdents, ", "),
 			),
-			Reason: "enumeration item labels must lead with codebase-grounded identifiers; the post-emit shape contract rejects fabricated names and forces a full repair retry.",
+			Reason: "enumeration item labels should lead with codebase-grounded identifiers; otherwise the post-emit shape contract records a citation-grounding caveat unless this kind is strict-promoted.",
 		})
 	}
 	return hints
@@ -4904,10 +4938,9 @@ func normalizeViewCompatibleAnswerDocument(doc *types.AnswerDocumentV2, view *ty
 
 // NormalizeAnswerDocumentForRecovery applies the same deterministic
 // compatibility repairs used by emit_answer_document, then re-runs the
-// pre-emit hard checks. It is intentionally exported for orchestrator's
-// transient-failure salvage path: a rejected draft may be shown to users only
-// after it passes the exact same hard structural gate the normal tool path
-// would have enforced.
+// pre-emit checks through the same hard/advisory split. It is intentionally
+// exported for orchestrator's transient-failure salvage path: a rejected draft
+// may be shown to users when it has no currently-hard structural blocker.
 func NormalizeAnswerDocumentForRecovery(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) (changed bool, ok bool) {
 	if doc == nil || view == nil {
 		return false, false
@@ -4917,7 +4950,8 @@ func NormalizeAnswerDocumentForRecovery(doc *types.AnswerDocumentV2, view *types
 	normalizeAnswerDocumentForPreEmit("answer_document_recovery", doc, view, ctx, pctx)
 	after, _ := json.Marshal(doc)
 	hints := runPreEmitChecksWithContext(doc, view, preEmitOracleFromCtx(ctx), pctx)
-	return !bytes.Equal(before, after), len(hints) == 0
+	hardHints, _ := splitPreEmitHintsByGate(hints)
+	return !bytes.Equal(before, after), len(hardHints) == 0
 }
 
 func normalizeAutoRepairableRequiredFacetIDs(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
@@ -4957,7 +4991,7 @@ func preEmitAutoRepairableFacetID(facet string) bool {
 		return true
 	default:
 		// Shape-bearing facets (diagram_spine, enumeration_item, bucket
-		// labels, path edges, guards, etc.) stay with the normal hard gate:
+		// labels, path edges, guards, etc.) stay with the normal typed gate:
 		// auto-declaring them could hide a genuinely missing block, row, or
 		// diagram.
 		return false
@@ -5545,7 +5579,7 @@ func preCheckUncertaintyBlock(doc *types.AnswerDocumentV2, view *types.AnswerSem
 
 // preCheckFacetCoverage mirrors the emit-time hard subset of the
 // post-emit facet coverage check. Only facets that are hard by template
-// are rejected here. Evidence-sufficient SOFT facets remain advisory:
+// are checked here and then routed through the central hard/advisory split:
 // their absence may be recorded later, but it must not burn a finalizer
 // retry when the answer already cites the underlying code.
 func preCheckFacetCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {

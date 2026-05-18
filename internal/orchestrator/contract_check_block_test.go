@@ -325,6 +325,16 @@ func diagramFlowView() *types.AnswerSemanticView {
 	}
 }
 
+func diagramCallDAGView() *types.AnswerSemanticView {
+	return &types.AnswerSemanticView{
+		Family: types.QFCallChain,
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			Kind:     types.DiagramCallDAG,
+		},
+	}
+}
+
 // TestDiagramEdgeSupport_AllEdgesGroundedInBodyDecls — every edge's
 // endpoint is a declared node in the same body, so grounding succeeds
 // purely from the body itself with no other doc content needed.
@@ -379,12 +389,78 @@ func TestDiagramEdgeSupport_AllEdgesGroundedInItemsAndTitles(t *testing.T) {
 	}
 }
 
+func TestDiagramEdgeSupport_CallDAGEndpointsGroundedByInlineCode(t *testing.T) {
+	view := diagramCallDAGView()
+	body := "flowchart LR\n  realCheckCoverage --> validateCoverage\n"
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "`realCheckCoverage` calls `validateCoverage` on the accepted path.",
+		},
+		{
+			ID:   "d1",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramCallDAG,
+				Body: body,
+			},
+		},
+	}}
+	for _, v := range validateDiagramEdgeSupport(doc, view) {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			t.Fatalf("inline-code endpoint anchors should ground call_dag edges; got %+v", v)
+		}
+	}
+}
+
+func TestDiagramEdgeSupport_ArchitectureComponentNodesDoNotNeedDuplicateLabels(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFArchitecture,
+		DiagramPlan: &types.DiagramFacetGraph{
+			Required: true,
+			Kind:     types.DiagramArchitecture,
+		},
+	}
+	body := "flowchart TD\n" +
+		"    ResSchedService -->|IPC call| ResSchedMgr\n" +
+		"    ResSchedMgr -->|coordination| PluginMgr\n" +
+		"    ResSchedMgr -->|coordination| EventListenerMgr\n" +
+		"    ResSchedMgr -->|coordination| NotifierMgr\n"
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "ResourceSchedule uses `ResSchedMgr`, `PluginMgr`, `EventListenerMgr`, and `NotifierMgr` as architecture components.",
+		},
+		{
+			ID:   "d1",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramArchitecture,
+				Body: body,
+			},
+			EdgeAnchors: []types.DiagramEdgeAnchor{
+				{FromNode: "ResSchedService", ToNode: "ResSchedMgr", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+				{FromNode: "ResSchedMgr", ToNode: "PluginMgr", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+				{FromNode: "ResSchedMgr", ToNode: "EventListenerMgr", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+				{FromNode: "ResSchedMgr", ToNode: "NotifierMgr", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge},
+			},
+		},
+	}}
+	for _, v := range validateDiagramEdgeSupport(doc, view) {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			t.Fatalf("architecture component-call nodes should not require duplicate item labels; got %+v", v)
+		}
+	}
+}
+
 // TestDiagramEdgeSupport_HallucinatedMiddleNodeFires — Login and
 // Dashboard are grounded but InternalGate is not. Both edges
 // (Login -> InternalGate) and (InternalGate -> Dashboard) cite
 // InternalGate as an endpoint, so both fire.
 func TestDiagramEdgeSupport_HallucinatedMiddleNodeFires(t *testing.T) {
-	view := diagramFlowView()
+	view := diagramCallDAGView()
 	body := "flowchart LR\n  Login --> InternalGate\n  InternalGate --> Dashboard\n"
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{
@@ -399,7 +475,7 @@ func TestDiagramEdgeSupport_HallucinatedMiddleNodeFires(t *testing.T) {
 			ID:   "d1",
 			Kind: types.BlockDiagram,
 			Diagram: &types.AnswerDiagramBlock{
-				Kind: types.DiagramFlow,
+				Kind: types.DiagramCallDAG,
 				Body: body,
 			},
 		},
@@ -422,14 +498,14 @@ func TestDiagramEdgeSupport_HallucinatedMiddleNodeFires(t *testing.T) {
 // TestDiagramEdgeSupport_FullyHallucinatedEdgesFire — neither
 // endpoint of either edge is grounded; every edge is reported.
 func TestDiagramEdgeSupport_FullyHallucinatedEdgesFire(t *testing.T) {
-	view := diagramFlowView()
+	view := diagramCallDAGView()
 	body := "flowchart LR\n  Phantom1 --> Phantom2\n  Phantom2 --> Phantom3\n"
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{
 			ID:   "d1",
 			Kind: types.BlockDiagram,
 			Diagram: &types.AnswerDiagramBlock{
-				Kind: types.DiagramFlow,
+				Kind: types.DiagramCallDAG,
 				Body: body,
 			},
 		},
@@ -467,10 +543,11 @@ func TestDiagramEdgeSupport_BodyWithLabelsButEmptyClaimsPasses(t *testing.T) {
 	}
 }
 
-// TestDiagramEdgeSupport_SequenceDiagramArrowsAreParsed — the
-// sequence-diagram arrow operators (->>, -->>) are recognised as
-// edges by the parser.
-func TestDiagramEdgeSupport_SequenceDiagramArrowsAreParsed(t *testing.T) {
+// TestDiagramEdgeSupport_SequenceDiagramArrowsArePresentationNodes —
+// the sequence-diagram arrow operators (->>, -->>) are recognised by
+// the parser, but sequence actors are presentation nodes. Missing actor
+// labels should not trigger code-endpoint grounding rewrites.
+func TestDiagramEdgeSupport_SequenceDiagramArrowsArePresentationNodes(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		Family: types.QFCallChain,
 		DiagramPlan: &types.DiagramFacetGraph{
@@ -499,11 +576,10 @@ func TestDiagramEdgeSupport_SequenceDiagramArrowsAreParsed(t *testing.T) {
 		},
 	}}
 	vs := validateDiagramEdgeSupport(doc, view)
-	if len(vs) != 1 {
-		t.Fatalf("expected one violation listing the PhantomDB edges; got %+v", vs)
-	}
-	if !strings.Contains(vs[0].Detail, "PhantomDB") {
-		t.Errorf("Detail should name PhantomDB; got %q", vs[0].Detail)
+	for _, v := range vs {
+		if v.Kind == types.ViolDiagramEdgeUnsupported {
+			t.Fatalf("sequence actor endpoints must not force code-endpoint grounding; got %+v", vs)
+		}
 	}
 }
 
@@ -2758,12 +2834,23 @@ func TestFlowchartSyntaxFallbackHelpers_AreNarrow(t *testing.T) {
 	}
 }
 
-// Layer 1 failure short-circuits Layer 2 — when endpoints aren't
-// grounded, ask the LLM to fix the bigger problem first.
+// Code-endpoint Layer 1 failure short-circuits Layer 2 — when call_dag
+// endpoints aren't grounded, ask the LLM to fix the bigger problem
+// first. Presentation diagrams (sequence / architecture / flow) skip
+// this endpoint gate by design.
 func TestValidateDiagramEdgeSupport_Layer1FailureShortCircuitsLayer2(t *testing.T) {
-	view := callChainViewWithDiagram()
+	view := diagramCallDAGView()
 	// "Ghost" endpoint not in any block / item / declaration.
-	doc := docWithDiagramBody("sequenceDiagram\n  Ghost->>Phantom: invoke\n")
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "d1",
+			Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramCallDAG,
+				Body: "flowchart LR\n  Ghost --> Phantom\n",
+			},
+		},
+	}}
 	vs := validateDiagramEdgeSupport(doc, view)
 	if len(vs) != 1 {
 		t.Fatalf("want exactly 1 violation (Layer 1); got %d (%+v)", len(vs), vs)

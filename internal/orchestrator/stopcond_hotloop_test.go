@@ -64,7 +64,7 @@ func TestStopCondFired_TerminatesInsteadOfHotLooping(t *testing.T) {
 			},
 		},
 		AnswerContract: types.AnswerContract{
-			Language:            "en",
+			Language: "en",
 		},
 	}
 
@@ -159,7 +159,7 @@ func TestStopCondFired_RetryAfterFinalizeFailure_UsesExplorer(t *testing.T) {
 			},
 		},
 		AnswerContract: types.AnswerContract{
-			Language:            "en",
+			Language: "en",
 			// Answer will never contain this sentinel — forces contract
 			// violation on every finalize dispatch so the retry path
 			// engages.
@@ -188,6 +188,8 @@ func TestStopCondFired_RetryAfterFinalizeFailure_UsesExplorer(t *testing.T) {
 	ar, sr, sar := buildRegistries(agentFns)
 	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolMustInclude)})
 	// Block 3 (architecture overhaul 2026-05-02): the test exercises
 	// the latch's ability to keep explore running on retry. The
 	// default fallback policy maps ViolMustInclude→FinalizerOnly,

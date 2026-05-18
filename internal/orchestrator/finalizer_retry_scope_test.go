@@ -12,6 +12,9 @@ import (
 )
 
 func TestRunTaskGraph_FinalizerOnlyRetryReusesHypothesisVerdicts(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolMustInclude)})
+
 	ir := dagIR(types.AnswerContract{
 		Language:    "en",
 		MustInclude: []string{"SENTINEL_REQUIRES_FINALIZER_RETRY"},
@@ -81,6 +84,9 @@ func TestRunTaskGraph_FinalizerOnlyRetryReusesHypothesisVerdicts(t *testing.T) {
 }
 
 func TestRunTaskGraph_FinalizerOnlyRetryDoesNotReplayEmptyExtract(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolMustInclude)})
+
 	ir := dagIR(types.AnswerContract{
 		Language:    "en",
 		MustInclude: []string{"SENTINEL_REQUIRES_FINALIZER_RETRY"},

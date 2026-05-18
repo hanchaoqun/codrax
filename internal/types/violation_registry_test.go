@@ -56,6 +56,68 @@ func TestSoftDemotedKinds_T3_RouteToCaveat(t *testing.T) {
 	}
 }
 
+// TestCommercialGateKinds_DefaultToCaveat locks the 2026-05-18 policy:
+// contract/reviewer/completeness validators whose signals may be noisy,
+// incomplete, upstream-owned, or system-caveatable must not force a
+// finalizer retry by default. They retain Medium/High/Critical severity
+// where appropriate so telemetry stays honest and operators can opt into
+// strict promotion explicitly.
+func TestCommercialGateKinds_DefaultToCaveat(t *testing.T) {
+	kinds := []ViolationKind{
+		ViolFamilyMismatch,
+		ViolCitation,
+		ViolMustInclude,
+		ViolMustExclude,
+		ViolAcceptance,
+		ViolSuccessCriterion,
+		ViolGhostAnchor,
+		ViolChainDemoted,
+		ViolSelfRefLiteral,
+		ViolPreCompleteDowngrade,
+		ViolLiteralFormFailed,
+		ViolViewSwap,
+		ViolSelfContradiction,
+		ViolAuthorityOverreach,
+		ViolClaimFormUnsupported,
+		ViolAbsenceScopeExceeded,
+		ViolMissingRequestedRoleUndisclosed,
+		ViolBlockCoverageMissing,
+		ViolPrincipalClaimUseMissing,
+		ViolDiagramEdgeUnsupported,
+		ViolAnswerTopicMismatch,
+		ViolCurrentStatusVerdictMissing,
+		ViolExhaustiveMemberSetCoverageDrift,
+		ViolEnumerationLabelUngrounded,
+		ViolEnumerationItemLabelExtractorDrift,
+		ViolEnumerationLabelHallucinated,
+		ViolInlineIdentifierHallucinated,
+		ViolDiagramEdgeEndpointHallucinated,
+		ViolLaneBlockKindMismatch,
+		ViolPrincipalSupportMemberOmitted,
+		ViolScalarCountUnsourced,
+		ViolPathDepthInsufficient,
+		ViolCardinalityShort,
+		ViolEntityParityImbalanced,
+	}
+	for _, kind := range kinds {
+		spec, ok := ViolKindSpecFor(kind)
+		if !ok {
+			t.Errorf("kind=%q: no registry spec", kind)
+			continue
+		}
+		if !spec.SoftByDefault {
+			t.Errorf("kind=%q: SoftByDefault=false; commercial default must caveat instead of retry", kind)
+		}
+		if !spec.Promotable {
+			t.Errorf("kind=%q: Promotable=false; operator strict promotion must stay available", kind)
+		}
+		strict := ViolationProfileFor(kind, true)
+		if !strict.RetryEligible {
+			t.Errorf("kind=%q strict-promote: RetryEligible=false want true", kind)
+		}
+	}
+}
+
 // TestLegacyDeriveSeverityMatchesRegistry — every kind in
 // AllViolationKinds must have legacyDeriveSeverity agree with the
 // registry-declared DefaultSeverity. Migration window invariant.

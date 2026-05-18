@@ -199,12 +199,11 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 
 		// V2 block-carrier validators. When a block-only answer has
 		// been persisted, AnswerDocumentV2 is non-nil on Mutable; we
-		// run the V2 oracle suite against it. Default
-		// classification leans SOFT for telemetry-only kinds and
-		// STRICT for structural correctness kinds (single source of
-		// truth: types.ViolationProfileFor / DeriveSeverity);
-		// operators flip individual kinds via
-		// pipeline_contract_strict_kinds yaml.
+		// run the V2 oracle suite against it. Default classification
+		// is soft unless the active soft/strict policy explicitly
+		// promotes the kind; this keeps structural observations from
+		// becoming broad finalizer rewrite triggers. Operators flip
+		// individual kinds via pipeline_contract_strict_kinds yaml.
 		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && o != nil && o.busCtx != nil {
 			view := types.BuildAnswerSemanticViewForBusContext(o.busCtx)
 			if view != nil {
@@ -222,13 +221,16 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 						return runV2BlockOraclesWithOracleContext(trace.ctx, docV2, view, mut, oracle)
 					})...)
 			}
-			// validateLaneBlockKindCompliance — typed-signal hard
-			// gate on AnswerSupportLane.AllowedBlocks. Compiled here
-			// instead of inside runV2BlockOraclesWithMut because the
-			// support plan needs the BusContext (RequestModel +
-			// AnswerSurfacePlan), not just the Mutable handle.
-			// Returns no violations when the active family has no
-			// support-lane plan or no lane declares AllowedBlocks.
+			// validateLaneBlockKindCompliance — typed observation on
+			// AnswerSupportLane.AllowedBlocks. It is classified by
+			// softViolationKinds like every other contract signal, so
+			// a lane-shape mismatch can be surfaced as a caveat instead
+			// of forcing a rewrite. Compiled here instead of inside
+			// runV2BlockOraclesWithMut because the support plan needs
+			// the BusContext (RequestModel + AnswerSurfacePlan), not
+			// just the Mutable handle. Returns no violations when the
+			// active family has no support-lane plan or no lane declares
+			// AllowedBlocks.
 			stopSupportPlan := trace.start("support_plan")
 			supportPlan := types.BuildAnswerSupportPlanForBusContext(o.busCtx)
 			stopSupportPlan(0)
@@ -1584,11 +1586,12 @@ var (
 //     in the facet's AcceptableForms — inferred coverage when the
 //     LLM omitted ClaimUse but the evidence shape implies the facet.
 //
-// Phase 1's HARD-degrade-to-SOFT pre-compile rule guarantees that any
-// facet remaining FacetHardRequired here had at least one bound
-// SourceCandidate at compile time — so a "no coverage" verdict is
-// not noise, it means the LLM had evidence available but did not
-// surface it in the rendered answer.
+// Phase 1's hard-to-soft pre-compile rule guarantees that any facet
+// remaining FacetHardRequired here had at least one bound SourceCandidate
+// at compile time. The finalizer gate still treats the resulting
+// violation through softViolationKinds, because the user-facing repair
+// can be a caveat instead of a forced rewrite when the evidence shape
+// was incomplete upstream.
 //
 // runRichnessTelemetryOracle (Phase 5 of Semantic Surface Contract,
 // 2026-05-02) walks the FacetCoverageContract.Optional entries
@@ -1613,8 +1616,10 @@ var (
 // claim_form=call_edge but the cited evidence has AnchorKind=Definition
 // (ClaimDefinitionFact), the annotation is internally inconsistent.
 //
-// Default classification: STRICT — explicit LLM self-contradiction
-// the finalizer can fix without new evidence (FinalizerOnly).
+// Default classification: SOFT — explicit annotation/evidence drift is
+// important telemetry, but broad post-emit rewrites are no longer the
+// default. Operators can strict-promote this kind when their workload
+// requires the finalizer to repair every annotation.
 //
 // Empty ClaimUse / nil ClaimUse / empty ClaimForm → skipped (no
 // annotation, nothing to validate). Phase 3's emit_answer_document
@@ -1717,11 +1722,11 @@ var identifierTokenizer = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]+`)
 // non-empty NegativePattern (the pattern that was searched for and
 // found absent), otherwise the absence is unfounded.
 //
-// Default classification: STRICT — safety-critical for config-trace /
-// absence questions where downstream consumers act on the negative
-// finding (operator removes a config knob, etc.). Fallback target is
-// BackToExtract: the next pass must either surface the bounded
-// negative citation or re-frame the finding.
+// Default classification: SOFT — absence scope drift is important and
+// user-visible, but the safer default is to ship a bounded-scope caveat
+// instead of repeatedly forcing the model to reframe. Operators can
+// strict-promote this kind when a workflow requires hard rejection for
+// negative findings.
 //
 // inferClaimFormsFromCitations returns, per citation index, the set
 // of ClaimForm values projected from the underlying evidence (when
@@ -1741,9 +1746,11 @@ func abs(x int) int {
 // defaultSoftKinds is the set of ViolationKinds that, by default,
 // do NOT hard-fail the contract gate (they are mirrored to closure
 // for telemetry / future learning but don't trigger finalize retry).
-// The pre-commit-53 violation kinds (ViolFamilyMismatch / ViolCitation / ...)
-// are NOT in this set; their hard-gate behaviour is preserved
-// byte-identically. Only the 3 commit-53 newcomers default to soft.
+// Commercial default (2026-05-18): any validator whose signal may be
+// noisy, incomplete, auto-caveatable, or upstream-owned defaults to
+// soft. The violation is still mirrored to EvidenceClosure and may be
+// promoted by operator config, but it does not force a finalizer rewrite
+// unless the operator explicitly asks for strict handling.
 //
 // Operators promote a kind to strict (or demote one to soft) via
 // yaml pipeline_contract_strict_kinds + pipeline_contract_soft_kinds;
@@ -1769,10 +1776,10 @@ func abs(x int) int {
 //
 // defaultSoftKinds returns the canonical soft-by-default map. v3 B0
 // (2026-05-04) derives this from each kind's ViolKindSpec.SoftByDefault
-// in the registry; the legacy literal below is retained for
-// migration-window byte-identical verification
-// (TestRegistryDerivesAllLegacyTables). Unregistered kinds fall through
-// to the legacy literal so back-compat is preserved.
+// in the registry; the legacy literal below is retained for migration-
+// window verification (TestRegistryDerivesAllLegacyTables).
+// Unregistered kinds fall through to the legacy literal so back-compat
+// is preserved.
 func defaultSoftKinds() map[types.ViolationKind]bool {
 	out := map[types.ViolationKind]bool{}
 	for _, spec := range types.AllViolKindSpecs() {
@@ -1792,6 +1799,46 @@ func defaultSoftKinds() map[types.ViolationKind]bool {
 // during the migration window only.
 func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 	return map[types.ViolationKind]bool{
+		// 2026-05-18 commercial-gate policy: broad contract /
+		// reviewer / completeness signals must not hard-loop the
+		// finalizer by default. Ship the answer, materialize a
+		// supplemental caveat, and let operators promote specific
+		// kinds once their workload proves the signal precise.
+		types.ViolFamilyMismatch:                     true,
+		types.ViolCitation:                           true,
+		types.ViolMustInclude:                        true,
+		types.ViolMustExclude:                        true,
+		types.ViolAcceptance:                         true,
+		types.ViolSuccessCriterion:                   true,
+		types.ViolGhostAnchor:                        true,
+		types.ViolChainDemoted:                       true,
+		types.ViolSelfRefLiteral:                     true,
+		types.ViolPreCompleteDowngrade:               true,
+		types.ViolLiteralFormFailed:                  true,
+		types.ViolViewSwap:                           true,
+		types.ViolSelfContradiction:                  true,
+		types.ViolAuthorityOverreach:                 true,
+		types.ViolClaimFormUnsupported:               true,
+		types.ViolAbsenceScopeExceeded:               true,
+		types.ViolMissingRequestedRoleUndisclosed:    true,
+		types.ViolBlockCoverageMissing:               true,
+		types.ViolPrincipalClaimUseMissing:           true,
+		types.ViolDiagramEdgeUnsupported:             true,
+		types.ViolAnswerTopicMismatch:                true,
+		types.ViolCurrentStatusVerdictMissing:        true,
+		types.ViolExhaustiveMemberSetCoverageDrift:   true,
+		types.ViolEnumerationLabelUngrounded:         true,
+		types.ViolEnumerationItemLabelExtractorDrift: true,
+		types.ViolEnumerationLabelHallucinated:       true,
+		types.ViolInlineIdentifierHallucinated:       true,
+		types.ViolDiagramEdgeEndpointHallucinated:    true,
+		types.ViolLaneBlockKindMismatch:              true,
+		types.ViolPrincipalSupportMemberOmitted:      true,
+		types.ViolScalarCountUnsourced:               true,
+		types.ViolPathDepthInsufficient:              true,
+		types.ViolCardinalityShort:                   true,
+		types.ViolEntityParityImbalanced:             true,
+
 		types.ViolViewIntentMismatch:           true,
 		types.ViolSubTopicCountMismatch:        true,
 		types.ViolDiagramIdentifier:            true,
@@ -1812,17 +1859,11 @@ func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 		types.ViolIntentConfigNoTrail:    true,
 		types.ViolSubjectAnchorMissing:   true,
 		types.ViolPredicateAxisMissing:   true,
-		// Phase 4 (Semantic Surface Contract) — default classification:
-		//   ViolFacetUncovered      → SOFT (covering a facet often
-		//     requires fresh evidence; a missed HARD facet is a hint
-		//     to re-explore, not a finalizer self-failure).
-		//   ViolClaimFormUnsupported → STRICT (LLM emitted an annotation
-		//     incompatible with the cited evidence — a finalizer rewrite
-		//     fixes it, no new evidence needed).
-		//   ViolAbsenceScopeExceeded → STRICT (safety-critical: the
-		//     answer overstates the searched scope on a negative claim;
-		//     downstream consumers act on the absence, must not be
-		//     overstated).
+		// Phase 4 (Semantic Surface Contract): these signals are all
+		// soft by default. They still produce caveats and operator
+		// telemetry; strict promotion is available when a deployment
+		// intentionally wants retry-loop enforcement for a specific
+		// contract kind.
 		types.ViolFacetUncovered: true,
 		// Phase 4 extension (2026-05-02) — step-identifier-backed-by-
 		// evidence oracle. SOFT-by-default: the signal is precise but
@@ -1958,20 +1999,20 @@ func SetSoftViolationKinds(extraSoft []string, extraStrict []string) {
 // hasAnyStrictViolation + the soft-violation-only renderer.
 //
 // R15 (post_shape_residual_audit.md, 2026-05-04): refactored to
-// read from types.ViolationProfileFor — the single source of truth
-// shared with R14 Severity. Legacy softViolationKinds map is
-// preserved for operator-yaml override fidelity (extraSoft +
-// extraStrict), but the underlying classification reads R14
-// Severity to ensure Critical/High/Medium kinds are never
-// mis-classified as soft (which was the m1a r2 retry-skipped bug).
+// read from the active softViolationKinds policy first, with
+// types.ViolationProfileFor as the fallback for unregistered kinds.
+// The default policy intentionally allows Medium/High/Critical
+// severity kinds to be soft-by-default: severity is for telemetry and
+// operator promotion, while the gate default decides whether a finalizer
+// retry is justified.
 //
 // Resolution rule (R15):
 //   - operator-yaml extraStrict overrides win (kind absent from
 //     softViolationKinds → strict)
 //   - operator-yaml extraSoft overrides win (kind present in
 //     softViolationKinds → soft, even if R14 says Critical)
-//   - default (no operator override): consult ViolationProfile —
-//     Severity == Soft → soft; otherwise strict
+//   - default (no operator override): if defaultSoftKinds named the
+//     kind, honour it; otherwise consult ViolationProfile
 func isSoftViolationKind(k types.ViolationKind) bool {
 	softKindsMu.RLock()
 	_, strictOverride := strictViolationKinds[k]

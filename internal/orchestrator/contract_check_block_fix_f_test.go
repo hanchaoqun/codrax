@@ -122,12 +122,13 @@ func TestFixF_CallDAGKind_ExplicitCodeLabelStillFires(t *testing.T) {
 	}
 }
 
-// TestFixF_FlowKindWithTypedCallRelation_Fires confirms the
-// edge-level branch of Fix F: even when the diagram kind is
-// non-call (here Flow), an individual edge that the LLM typed as
-// `relation_kind=call` enters code context for THAT edge — so
-// hallucinations on that edge fire.
-func TestFixF_FlowKindWithTypedCallRelation_Fires(t *testing.T) {
+// TestFixF_FlowKindWithTypedCallRelation_Skips confirms the
+// 2026-05-18 intent-preservation refinement: relation_kind=call is
+// not, by itself, a precise enough signal to treat a flow/architecture
+// diagram as code-endpoint context. Component-level "calls" are common
+// in presentation diagrams, and forcing every endpoint through the
+// symbol oracle causes finalizer rewrites for valid role diagrams.
+func TestFixF_FlowKindWithTypedCallRelation_Skips(t *testing.T) {
 	body := "graph TD\n" +
 		"    realCheckCoverage --> validateFakeCoherenceCheck\n" +
 		"    AbstractRoleNode --> AnotherAbstractRole\n"
@@ -147,14 +148,8 @@ func TestFixF_FlowKindWithTypedCallRelation_Fires(t *testing.T) {
 		// AbstractRoleNode / AnotherAbstractRole / validateFakeCoherenceCheck absent.
 	}}
 	vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
-	if len(vs) != 1 {
-		t.Fatalf("typed-call edge hallucination MUST fire; got %d:\n  %+v", len(vs), vs)
-	}
-	if !strings.Contains(vs[0].Detail, "validateFakeCoherenceCheck") {
-		t.Errorf("violation must list the hallucinated CALL endpoint; got: %s", vs[0].Detail)
-	}
-	if strings.Contains(vs[0].Detail, "AbstractRoleNode") || strings.Contains(vs[0].Detail, "AnotherAbstractRole") {
-		t.Errorf("untyped abstract-role endpoints MUST NOT fire (Fix F per-edge skip); got: %s", vs[0].Detail)
+	if len(vs) != 0 {
+		t.Fatalf("flow-kind typed-call presentation diagram must not force symbol-oracle endpoint checks; got %d:\n  %+v", len(vs), vs)
 	}
 }
 
@@ -232,15 +227,14 @@ func TestFixF_CallDAGKind_TypedCallEdgeStillFires_AdditiveSemantics(t *testing.T
 	}
 }
 
-// TestFixF_FlowKindMixedEdges_ScopedToCallEdgesOnly is the most
-// nuanced case: a single flow-kind diagram with multiple edges,
-// some typed as `call` and some untyped. The Fix F gate applies
-// per-edge, so hallucinations on `call` edges fire and abstract
-// role labels on untyped edges are tolerated — even within the
-// same diagram block.
-func TestFixF_FlowKindMixedEdges_ScopedToCallEdgesOnly(t *testing.T) {
+// TestFixF_FlowKindMixedEdges_AllPresentationEdgesSkip covers a
+// mixed-edge flow diagram. Even when one edge carries relation_kind=call,
+// the diagram's semantic kind remains presentation/role context; only
+// DiagramCallDAG asserts code endpoints strongly enough for a hard
+// hallucination gate.
+func TestFixF_FlowKindMixedEdges_AllPresentationEdgesSkip(t *testing.T) {
 	body := "graph TD\n" +
-		"    realCheckCoverage --> fabricatedCallTarget\n" + // typed call → check
+		"    realCheckCoverage --> fabricatedCallTarget\n" + // typed call, but flow kind → presentation skip
 		"    StartEventNode --> ProcessingState\n" + // untyped → skip
 		"    ProcessingState --> EndEventNode\n" // untyped → skip
 	anchors := []types.DiagramEdgeAnchor{
@@ -257,17 +251,8 @@ func TestFixF_FlowKindMixedEdges_ScopedToCallEdgesOnly(t *testing.T) {
 		// fabricatedCallTarget / StartEventNode / ProcessingState / EndEventNode all absent
 	}}
 	vs := validateDiagramEdgeEndpointHallucination(doc, oracle)
-	if len(vs) != 1 {
-		t.Fatalf("mixed-flow Fix F: only typed-call edge hallucination should fire; got %d:\n  %+v", len(vs), vs)
-	}
-	if !strings.Contains(vs[0].Detail, "fabricatedCallTarget") {
-		t.Errorf("violation must list the typed-call hallucination; got: %s", vs[0].Detail)
-	}
-	for _, untyped := range []string{"StartEventNode", "ProcessingState", "EndEventNode"} {
-		if strings.Contains(vs[0].Detail, untyped) {
-			t.Errorf("untyped flow node %q MUST NOT fire (per-edge code-context skip); got: %s",
-				untyped, vs[0].Detail)
-		}
+	if len(vs) != 0 {
+		t.Fatalf("mixed flow presentation diagram must not force endpoint symbol checks; got %d:\n  %+v", len(vs), vs)
 	}
 }
 
@@ -385,28 +370,27 @@ func TestDiagramKindBodyCoherence_UnsupportedKnownMermaidDirectiveFails(t *testi
 	}
 }
 
-// TestFixF_IsCodeContextRelationKind_Table pins the relation-kind
-// branch.
-func TestFixF_IsCodeContextRelationKind_Table(t *testing.T) {
-	cases := []struct {
-		rel  types.DiagramRelationKind
-		want bool
-		note string
-	}{
-		{types.DiagramRelCall, true, "call edges connect function/method endpoints"},
-		{types.DiagramRelImport, false, "import edges connect package paths, not Go symbols"},
-		{types.DiagramRelContain, false, "contain edges connect subsystems/roles, not Go symbols"},
-		{types.DiagramRelGuard, false, "guard edges are conditions, endpoints are flow states"},
-		{types.DiagramRelPrecedence, false, "precedence edges are config/role layering"},
-		{types.DiagramRelObserve, false, "observe edges connect log frames to nodes"},
-		{types.DiagramRelUnknown, false, "unknown / unlabelled edges have no typed assertion"},
+func TestFixF_CallRelationDoesNotUpgradeArchitectureDiagram(t *testing.T) {
+	body := "graph TD\n" +
+		"    ResSchedService --> ResSchedMgr\n" +
+		"    ResSchedMgr --> PluginMgr\n"
+	anchors := []types.DiagramEdgeAnchor{
+		{
+			FromNode:     "ResSchedService",
+			ToNode:       "ResSchedMgr",
+			RelationKind: types.DiagramRelCall,
+			ClaimForm:    types.ClaimCallEdge,
+		},
+		{
+			FromNode:     "ResSchedMgr",
+			ToNode:       "PluginMgr",
+			RelationKind: types.DiagramRelCall,
+			ClaimForm:    types.ClaimCallEdge,
+		},
 	}
-	for _, tc := range cases {
-		t.Run(string(tc.rel)+"_relation", func(t *testing.T) {
-			if got := isCodeContextRelationKind(tc.rel); got != tc.want {
-				t.Errorf("isCodeContextRelationKind(%q) = %v, want %v\n  note: %s",
-					tc.rel, got, tc.want, tc.note)
-			}
-		})
+	doc := docWithDiagramAndEdgeAnchors("arch_component_calls", body, types.DiagramArchitecture, anchors)
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateDiagramEdgeEndpointHallucination(doc, oracle); len(vs) != 0 {
+		t.Fatalf("architecture component-call diagram must not be treated as a code call DAG; got %+v", vs)
 	}
 }

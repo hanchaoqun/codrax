@@ -79,6 +79,12 @@ func TestShouldStopForLowRetryYield_SkipsFinalizerOnlyRepairs(t *testing.T) {
 }
 
 func TestDominantViolationKind_PicksMostCommon(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{
+		string(types.ViolFamilyMismatch),
+		string(types.ViolCitation),
+	})
+
 	res := contract.Result{
 		Violations: []types.Violation{
 			{Kind: types.ViolFamilyMismatch},
@@ -132,6 +138,9 @@ func TestViolationRetryClass_GroupsTypedSiblingKinds(t *testing.T) {
 }
 
 func TestDominantViolationClass_IgnoresDerivedSymptoms(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolCurrentStatusVerdictMissing)})
+
 	res := contract.Result{
 		Violations: []types.Violation{
 			{Kind: types.ViolDiagramEdgeLabelMismatch, IsDerived: true, RootKind: types.ViolDiagramEdgeUnsupported},

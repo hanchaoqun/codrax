@@ -165,8 +165,13 @@ func TestRunContractCheck_CitationGap_SoftDegrade(t *testing.T) {
 	}
 }
 
-func TestRunContractCheck_CitationGap_ZeroRejects(t *testing.T) {
-	// Contract requires 3 file_line citations; answer has 0 → reject.
+func TestRunContractCheck_CitationGap_ZeroSoftPassesByDefault(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	// Contract requires 3 file_line citations; answer has 0. Commercial
+	// default ships the answer with a citation caveat instead of forcing a
+	// finalizer retry.
 	out := &agent.StageOutput{
 		FinalAnswer: "- foo\n- bar\nNo citations at all",
 	}
@@ -178,8 +183,26 @@ func TestRunContractCheck_CitationGap_ZeroRejects(t *testing.T) {
 		},
 	}
 	res := runContractCheck(out, c, nil, nil)
+	if !res.Passed {
+		t.Errorf("0 citations should soft-pass by default; got violations: %+v", res.Violations)
+	}
+}
+
+func TestRunContractCheck_CitationGap_StrictPromotionRejects(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolCitation)})
+
+	out := &agent.StageOutput{FinalAnswer: "- foo\n- bar\nNo citations at all"}
+	c := types.AnswerContract{
+		CitationReq: types.CitationReq{
+			Required:     true,
+			Granularity:  "file_line",
+			MinCitations: 3,
+		},
+	}
+	res := runContractCheck(out, c, nil, nil)
 	if res.Passed {
-		t.Error("0 citations should hard-reject")
+		t.Error("strict-promoted citation gap should hard-reject")
 	}
 }
 
@@ -336,6 +359,12 @@ func TestRunExternalArtifactTypedCoverageCheck_PerfTraceUsesSameCarrier(t *testi
 }
 
 func TestRenderViolations_Ordering(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{
+		string(types.ViolFamilyMismatch),
+		string(types.ViolCitation),
+	})
+
 	res := contract.Result{
 		Passed: false,
 		Violations: []contract.Violation{
@@ -367,6 +396,9 @@ func TestRenderViolations_EmptyOnPassed(t *testing.T) {
 // the channel decision (user panel vs operator log) lives in
 // orchestrator.go::applyContractViolations.
 func TestFormatViolationsForLogger_FailLoudPattern(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolFamilyMismatch)})
+
 	res := contract.Result{Passed: false, Violations: []contract.Violation{
 		{Kind: contract.ViolFamilyMismatch, Detail: "wrong"},
 	}}

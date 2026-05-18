@@ -69,8 +69,8 @@ func TestAppendSoftContractCaveatsToAnswer_MaterializesDefaultSoftConcerns(t *te
 	if strings.Contains(out, "uncertainty_block_missing") || strings.Contains(out, "success_criterion") {
 		t.Fatalf("soft caveat leaked internal violation names:\n%s", out)
 	}
-	if strings.Count(out, "- ") != 1 {
-		t.Fatalf("expected exactly one soft caveat bullet; got output:\n%s", out)
+	if strings.Count(out, "- ") != 2 {
+		t.Fatalf("expected two soft caveat bullets; got output:\n%s", out)
 	}
 }
 

@@ -74,9 +74,10 @@ func DiagramKindAllowsMermaidSyntax(kind DiagramKind, family MermaidSyntaxFamily
 }
 
 // DiagramKindUsesCodeEndpoints centralizes the "diagram nodes are code
-// symbols" decision. Edge-level relation_kind=call still upgrades an
-// individual edge separately; this function is only the diagram-wide
-// semantic signal.
+// symbols" decision. This is intentionally diagram-kind based: a
+// component-level relation_kind=call in an architecture / flow /
+// sequence diagram does not by itself make the visible node ids code
+// symbols.
 func DiagramKindUsesCodeEndpoints(kind DiagramKind) bool {
 	return DiagramSyntaxProfileFor(kind).CodeEndpoint
 }

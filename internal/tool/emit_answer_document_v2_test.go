@@ -83,6 +83,32 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_PreEmitSoftHintsDoNotReject(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+		},
+	}
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "Only a partial first draft."}
+		]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("soft pre-emit structural hints should not fail the tool call: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || doc.Blocks[0].ID != "s1" {
+		t.Fatalf("document should persist despite soft pre-emit hints: %+v", doc)
+	}
+}
+
 func TestEmitAnswerDocumentV2_DiagramBodyStripsNestedFences(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

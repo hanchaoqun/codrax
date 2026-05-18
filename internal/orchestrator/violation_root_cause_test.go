@@ -164,6 +164,9 @@ func TestRenderViolations_SkipsDerived(t *testing.T) {
 // TestRenderViolations_KeepsRoot — a root violation co-existing
 // with its derivation surfaces only the root in the retry hint.
 func TestRenderViolations_KeepsRoot(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolDiagramEdgeUnsupported)})
+
 	res := stubResultWithViolations(
 		types.Violation{Kind: types.ViolDiagramEdgeUnsupported, Detail: "edge needs typed anchor"},
 		types.Violation{
@@ -179,6 +182,9 @@ func TestRenderViolations_KeepsRoot(t *testing.T) {
 }
 
 func TestFilterActionableRootViolations_DropsSoftTelemetry(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolSuccessCriterion)})
+
 	in := []types.Violation{
 		{Kind: types.ViolRichnessRegression, Detail: "optional richness telemetry"},
 		{Kind: types.ViolDiagramRelationLabelOnly, Detail: "label-only diagram telemetry"},
@@ -217,11 +223,8 @@ func TestFilterFinalizerRetryRootViolations_DropsDefaultSoftPromotableKinds(t *t
 		{Kind: types.ViolSuccessCriterion, Detail: "citation count failed"},
 	}
 	out := FilterFinalizerRetryRootViolations(in)
-	if len(out) != 1 {
-		t.Fatalf("expected only the strict hard root, got %d: %+v", len(out), out)
-	}
-	if out[0].Kind != types.ViolSuccessCriterion {
-		t.Fatalf("kind = %q, want %q", out[0].Kind, types.ViolSuccessCriterion)
+	if len(out) != 0 {
+		t.Fatalf("default-soft promotable kinds should not drive finalizer retry, got %d: %+v", len(out), out)
 	}
 }
 
@@ -242,6 +245,9 @@ func TestFilterFinalizerRetryRootViolations_StrictPromotionKeepsKindActionable(t
 }
 
 func TestRenderViolations_SuppressesSoftTelemetryBesideHardFailure(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolSuccessCriterion)})
+
 	res := stubResultWithViolations(
 		types.Violation{Kind: types.ViolRichnessRegression, Detail: "optional richness telemetry"},
 		types.Violation{Kind: types.ViolDiagramRelationLabelOnly, Detail: "label-only diagram telemetry"},

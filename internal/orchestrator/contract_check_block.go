@@ -316,37 +316,39 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 	if len(edges) == 0 {
 		return nil
 	}
-	support := buildDiagramSupportTokens(doc, diagramBlock)
-	var unsupported []mermaidEdge
-	for _, e := range edges {
-		if !diagramTokenSupported(e.from, support) || !diagramTokenSupported(e.to, support) {
-			unsupported = append(unsupported, e)
+	if diagramKindRequiresGroundedEndpoints(diagramBlock.Diagram.Kind) {
+		support := buildDiagramSupportTokens(doc, diagramBlock)
+		var unsupported []mermaidEdge
+		for _, e := range edges {
+			if !diagramTokenSupported(e.from, support) || !diagramTokenSupported(e.to, support) {
+				unsupported = append(unsupported, e)
+			}
 		}
-	}
-	if len(unsupported) > 0 {
-		// Aggregate as a single violation — the LLM should see the full
-		// list of broken edges in one repair pass instead of being
-		// re-prompted per edge. When Layer 1 fails, skip Layer 2: ask
-		// the LLM to ground endpoints first, then re-check relations on
-		// the next attempt.
-		pairs := make([]string, 0, len(unsupported))
-		for _, e := range unsupported {
-			pairs = append(pairs, fmt.Sprintf("%s -> %s", e.from, e.to))
+		if len(unsupported) > 0 {
+			// Aggregate as a single violation — the LLM should see the full
+			// list of broken edges in one repair pass instead of being
+			// re-prompted per edge. When Layer 1 fails, skip Layer 2: ask
+			// the LLM to ground endpoints first, then re-check relations on
+			// the next attempt.
+			pairs := make([]string, 0, len(unsupported))
+			for _, e := range unsupported {
+				pairs = append(pairs, fmt.Sprintf("%s -> %s", e.from, e.to))
+			}
+			return []types.Violation{{
+				Kind: types.ViolDiagramEdgeUnsupported,
+				Detail: fmt.Sprintf(
+					"diagram block id=%q has %d edge(s) whose endpoints are not grounded in any item, block title, inline-code text, claim_use annotation, or declared node label: [%s]",
+					diagramBlock.ID, len(unsupported), strings.Join(pairs, ", ")),
+				Repair:     "for each listed edge in this code-endpoint diagram, either (a) declare its endpoints as labelled nodes in the same Mermaid body (e.g. A[\"Label A\"] --> B[\"Label B\"]), (b) name the endpoints in an item label, block title, or inline-code text in this answer, or (c) drop the edge if it represents an inference not backed by any grounded claim.",
+				ClusterKey: blockClusterKey(diagramBlock.ID, "diagram_edges"),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "diagram_edges",
+					Reason:     "code-endpoint edge endpoints lack grounding in the rest of the answer",
+					Confidence: 0.65,
+				},
+				Stage: string(types.StageFinalize),
+			}}
 		}
-		return []types.Violation{{
-			Kind: types.ViolDiagramEdgeUnsupported,
-			Detail: fmt.Sprintf(
-				"diagram block id=%q has %d edge(s) whose endpoints are not grounded in any item, block title, claim_use annotation, or declared node label: [%s]",
-				diagramBlock.ID, len(unsupported), strings.Join(pairs, ", ")),
-			Repair:     "for each listed edge, either (a) declare its endpoints as labelled nodes in the same Mermaid body (e.g. A[\"Label A\"] --> B[\"Label B\"]), (b) name the endpoints in an item label or block title in this answer, or (c) drop the edge if it represents an inference not backed by any grounded claim.",
-			ClusterKey: blockClusterKey(diagramBlock.ID, "diagram_edges"),
-			SuspectedRoot: types.SuspectedRoot{
-				IRField:    "diagram_edges",
-				Reason:     "edge endpoints lack grounding in the rest of the answer",
-				Confidence: 0.65,
-			},
-			Stage: string(types.StageFinalize),
-		}}
 	}
 	// Layer 2 (Phase 3-C5) — relation legality. For each labelled
 	// edge whose label resolves to a typed DiagramRelationKind with
@@ -355,6 +357,10 @@ func validateDiagramEdgeSupport(doc *types.AnswerDocumentV2, view *types.AnswerS
 	// endpoints. Plus each DiagramFacetGraph.EdgeRelations contract
 	// with Min>0 must be met by at least Min labelled edges.
 	return validateDiagramRelationLegality(doc, view, diagramBlock, edges)
+}
+
+func diagramKindRequiresGroundedEndpoints(kind types.DiagramKind) bool {
+	return types.DiagramKindUsesCodeEndpoints(kind)
 }
 
 func validateDiagramKindBodyCoherence(diagramBlock *types.AnswerBlock) *types.Violation {
@@ -391,10 +397,13 @@ func validateDiagramKindBodyCoherence(diagramBlock *types.AnswerBlock) *types.Vi
 }
 
 // validateDiagramRelationLegality is the Phase 3-C5 Layer-2 check.
-// Pre-condition: every edge endpoint already passes Layer 1
-// grounding; this function only inspects label-based relation
-// legality. Returns one aggregated violation for missing anchored
-// claim_uses + one per EdgeRelations.Min shortfall.
+// Code-endpoint diagrams pass through Layer 1 grounding before this
+// function; presentation diagrams (architecture / flow / sequence)
+// intentionally skip endpoint grounding and still arrive here so their
+// relation labels / typed edge anchors can be checked without forcing
+// role nodes to be source-code symbols. Returns one aggregated
+// violation for missing anchored claim_uses + one per EdgeRelations.Min
+// shortfall.
 func validateDiagramRelationLegality(
 	doc *types.AnswerDocumentV2,
 	view *types.AnswerSemanticView,
@@ -969,6 +978,10 @@ func extractMermaidNodeLabel(tok string, openerAt int) string {
 //     block-level / item-level / diagram-level RenderedClaimUse's
 //     FacetID + EvidenceID.
 //  3. Every Item.Label across all blocks in the doc.
+//  4. Inline-code identifiers in visible block/item prose. This is
+//     deliberately narrower than arbitrary text tokens: an inline
+//     code span is an explicit user-visible anchor (`ResSchedMgr`),
+//     while free prose words are too noisy for a hard gate.
 //
 // Why doc-level (not Mutable) sources only: the V2 carrier is
 // intentionally self-describing — the answer the user reads must
@@ -1016,14 +1029,54 @@ func buildDiagramSupportTokens(doc *types.AnswerDocumentV2, diagramBlock *types.
 	if doc != nil {
 		for _, b := range doc.Blocks {
 			add(b.Title)
+			for _, tok := range inlineCodeIdentifierTokens(b.Title) {
+				add(tok)
+			}
+			for _, tok := range inlineCodeIdentifierTokens(b.Text) {
+				add(tok)
+			}
 			for _, cu := range b.ClaimUses {
 				add(cu.FacetID)
 				add(cu.EvidenceID)
 			}
 			for _, it := range b.Items {
 				add(it.Label)
+				for _, tok := range inlineCodeIdentifierTokens(it.Label) {
+					add(tok)
+				}
+				for _, tok := range inlineCodeIdentifierTokens(it.Text) {
+					add(tok)
+				}
 			}
 		}
+	}
+	return out
+}
+
+func inlineCodeIdentifierTokens(text string) []string {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	matches := inlineBacktickIdentRE.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		tok := strings.TrimSpace(m[1])
+		if tok == "" {
+			continue
+		}
+		key := strings.ToLower(tok)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, tok)
 	}
 	return out
 }
@@ -3356,18 +3409,6 @@ func isCodeContextDiagramKind(k types.DiagramKind) bool {
 	return types.DiagramKindUsesCodeEndpoints(k)
 }
 
-// isCodeContextRelationKind reports whether a typed relation
-// declares the SPECIFIC edge as connecting code-callable entities.
-// Only DiagramRelCall qualifies — call edges are by definition
-// caller→callee where both ends are function/method names. Other
-// relations connect packages (Import), conceptual roles (Contain
-// in architecture), abstract states (Guard / Precedence /
-// Observe) where endpoints aren't required to be Go-source
-// symbols.
-func isCodeContextRelationKind(r types.DiagramRelationKind) bool {
-	return r == types.DiagramRelCall
-}
-
 // validateDiagramEdgeEndpointHallucination (Fix D, 2026-05-07
 // post-Fix-C diagram audit; refined by Fix F, 2026-05-07
 // post-m1a-r1 false-positive forensic) verifies that every mermaid
@@ -3387,17 +3428,19 @@ func isCodeContextRelationKind(r types.DiagramRelationKind) bool {
 //
 //   - Diagram-level: diagram.Kind == DiagramCallDAG. Call DAGs by
 //     declaration require nodes to be code-callable entities.
-//   - Edge-level: the LLM-declared EdgeAnchor.RelationKind ==
-//     DiagramRelCall. A typed `call` relation by definition
-//     connects function/method endpoints regardless of the
-//     containing diagram's kind.
 //
-// An edge passes through the oracle gate iff EITHER signal holds.
-// Edges that satisfy neither — architecture role nodes, flow
-// state nodes, sequence actors, import edges between packages —
-// skip the validator entirely. Both signals are typed enums LLM
-// authors deliberately, mirroring R3's "precise typed signals
-// drive hard gates, noisy signals drive soft guidance".
+// Edge-level `relation_kind=call` is NOT enough by itself to upgrade a
+// conceptual architecture / flow / sequence diagram into code context:
+// "IPC call", "component calls service", and "actor calls API" are
+// normal architecture prose, not assertions that the visible Mermaid
+// node ids are function or type declarations. Only the diagram-level
+// semantic kind may hard-require code endpoints.
+//
+// Edges in architecture role nodes, flow state nodes, sequence actors,
+// import edges between packages, and component-level call arrows skip
+// the validator entirely. This keeps the hard gate on the precise
+// typed signal (DiagramCallDAG) and prevents presentation diagrams from
+// causing finalizer rewrites.
 //
 // Why this gate is needed (independent of Fix F):
 // validateDiagramEdgeSupport's diagramTokenSupported uses
@@ -3418,8 +3461,7 @@ func isCodeContextRelationKind(r types.DiagramRelationKind) bool {
 //     validator.
 //   - block.Kind == BlockDiagram with a non-empty Diagram.Body —
 //     other shapes don't carry mermaid edges.
-//   - The edge is in a CODE CONTEXT — diagram.Kind ==
-//     DiagramCallDAG OR EdgeAnchor.RelationKind == DiagramRelCall.
+//   - The diagram is in a CODE CONTEXT — diagram.Kind == DiagramCallDAG.
 //   - endpoint is shaped <identifier>[<separator><prose>] —
 //     prose-id endpoints (e.g. "Step 1") skip via
 //     labelLeadingSymbolIdentifier returning "" when the leading
@@ -3442,11 +3484,6 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 		endpoint string
 		ident    string
 	}
-	// Build the typed (from,to) → RelationKind index once for the
-	// whole document; reused per block to decide whether each edge
-	// is in a code context. Keys are case-folded trimmed strings to
-	// match the parseMermaidEdges normalisation.
-	typedRel := buildTypedRelationIndex(doc)
 	perBlock := make(map[string][]hallucinated)
 	for i := range doc.Blocks {
 		b := &doc.Blocks[i]
@@ -3470,9 +3507,12 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 				nodeLabels[strings.ToLower(strings.TrimSpace(e.to))] = label
 			}
 		}
-		// Fix F: a CallDAG-kind diagram puts every edge in a code
-		// context regardless of edge-level relation declarations.
-		kindIsCodeContext := isCodeContextDiagramKind(b.Diagram.Kind)
+		// A CallDAG-kind diagram puts every edge in a code context.
+		// Other diagram kinds are presentation / role context even
+		// when an edge anchor says relation_kind=call.
+		if !isCodeContextDiagramKind(b.Diagram.Kind) {
+			continue
+		}
 		// Track the hallucinated endpoints encountered in this block;
 		// dedupe so the same endpoint named in 5 edges only reports
 		// once per block.
@@ -3516,22 +3556,6 @@ func validateDiagramEdgeEndpointHallucination(doc *types.AnswerDocumentV2, oracl
 			})
 		}
 		for _, e := range edges {
-			// Fix F: per-edge code-context decision. Skip the gate
-			// entirely when neither the diagram kind nor the edge's
-			// own typed relation says "this is a code-call edge".
-			edgeIsCodeContext := kindIsCodeContext
-			if !edgeIsCodeContext {
-				key := edgeKey{
-					from: strings.ToLower(strings.TrimSpace(e.from)),
-					to:   strings.ToLower(strings.TrimSpace(e.to)),
-				}
-				if rel, ok := typedRel[key]; ok && isCodeContextRelationKind(rel) {
-					edgeIsCodeContext = true
-				}
-			}
-			if !edgeIsCodeContext {
-				continue
-			}
 			check(e.from, e.fromLabel)
 			check(e.to, e.toLabel)
 		}

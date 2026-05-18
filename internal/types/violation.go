@@ -715,16 +715,17 @@ const (
 	//
 	// Distinct from ViolDiagramEdgeUnsupported:
 	//
-	//   - Unsupported = "edge endpoint not vouched by any item /
-	//     title / claim_use / declared node label" (the LLM cited
-	//     a name that's not in the answer's grounding pool).
+	//   - Unsupported = "code-endpoint edge endpoint not vouched by
+	//     any item / title / inline-code text / claim_use /
+	//     declared node label" (the LLM cited a name that's not in
+	//     the answer's grounding pool).
 	//   - EndpointHallucinated = "the typed graph does not contain
 	//     the named symbol at all" (the LLM fabricated a node
 	//     name; the substring vouch was prose noise).
 	//
 	// Detected risk profile (mirrors s1a r1 enumeration case
-	// extended to diagrams): finalizer emits a call_dag /
-	// class_diagram with a fabricated compound symbol name like
+	// extended to diagrams): finalizer emits a call_dag with a
+	// fabricated compound symbol name like
 	// `validateFakeCoherenceCheck` and the support pool's prose
 	// (e.g. "coherence" / "validate") substring-vouches the bad
 	// name. Without this gate, the user receives a mermaid
