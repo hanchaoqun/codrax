@@ -74,6 +74,74 @@ func TestEmitEvidence_AcceptsValidBatch(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_DuplicateBatchIsNoProgress(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "isOK", "source": "internal/agent/foo.go", "line_start": 30, "summary": "isOK returns true", "anchor_kind": "definition", "anchor_symbol": "isOK"}
+        ]
+    }`)
+	first, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("first execute: %v", err)
+	}
+	if !first.Success {
+		t.Fatalf("first emit should succeed, got: %s", first.Summary)
+	}
+	second, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("second execute: %v", err)
+	}
+	if !second.Success {
+		t.Fatalf("duplicate emit should be a successful no-op, got: %s", second.Summary)
+	}
+	if second.Repair == nil || second.Repair.Code != EmitEvidenceDuplicateNoopCode {
+		t.Fatalf("duplicate emit should expose %s repair metadata, got %+v", EmitEvidenceDuplicateNoopCode, second.Repair)
+	}
+	if got := strings.TrimSpace(second.Repair.Metadata["progress"]); got != "none" {
+		t.Fatalf("duplicate emit progress metadata = %q, want none", got)
+	}
+	if got := len(ctx.Mutable.EmittedEvidence()); got != 1 {
+		t.Fatalf("duplicate emit should not grow evidence buffer, got %d", got)
+	}
+	if !strings.Contains(second.Summary, "accepted 0 new item(s)") || !strings.Contains(second.Summary, "skipped 1 duplicate") {
+		t.Fatalf("duplicate summary should tell the model no new evidence was recorded, got: %s", second.Summary)
+	}
+}
+
+func TestEmitEvidence_MixedBatchRecordsOnlyNewEvidence(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	first := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "isOK", "source": "internal/agent/foo.go", "line_start": 30, "summary": "isOK returns true", "anchor_kind": "definition", "anchor_symbol": "isOK"}
+        ]
+    }`)
+	if res, err := tool.Execute(ctx, first); err != nil || !res.Success {
+		t.Fatalf("seed emit failed: res=%+v err=%v", res, err)
+	}
+	mixed := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "isOK", "source": "internal/agent/foo.go", "line_start": 30, "summary": "isOK returns true", "anchor_kind": "definition", "anchor_symbol": "isOK"},
+          {"kind": "direct", "subject": "isReady", "source": "internal/agent/foo.go", "line_start": 42, "summary": "isReady returns true", "anchor_kind": "definition", "anchor_symbol": "isReady"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, mixed)
+	if err != nil {
+		t.Fatalf("mixed execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("mixed emit should succeed, got: %s", res.Summary)
+	}
+	if got := len(ctx.Mutable.EmittedEvidence()); got != 2 {
+		t.Fatalf("mixed emit should record only the new item, got evidence buffer len %d", got)
+	}
+	if !strings.Contains(res.Summary, "emit_evidence accepted 1 item(s)") || !strings.Contains(res.Summary, "Skipped 1 duplicate") {
+		t.Fatalf("mixed summary should report accepted and skipped counts, got: %s", res.Summary)
+	}
+}
+
 func TestEmitEvidence_RepairsStringWrappedItemsArray(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
@@ -2722,19 +2790,26 @@ func TestEmitEvidence_RejectsMissingMutable(t *testing.T) {
 }
 
 func TestEmitEvidence_StableIDDedups(t *testing.T) {
-	// Same content emitted twice produces identical IDs so the
-	// downstream merger can dedup. Verify the IDs are stable.
+	// Same content emitted twice produces identical IDs. The tool now
+	// drops the second call before it can inflate the mutable evidence
+	// buffer; downstream mergers still see the same stable ID.
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
 	body := `{"items":[{"kind":"direct","subject":"Foo","source":"a/b.go","line_start":7,"summary":"x","anchor_kind":"definition","anchor_symbol":"Foo"}]}`
-	_, _ = tool.Execute(ctx, json.RawMessage(body))
-	_, _ = tool.Execute(ctx, json.RawMessage(body))
+	first, _ := tool.Execute(ctx, json.RawMessage(body))
+	second, _ := tool.Execute(ctx, json.RawMessage(body))
 	got := ctx.Mutable.EmittedEvidence()
-	if len(got) != 2 {
-		t.Fatalf("want 2 items in buffer (dedup happens later), got %d", len(got))
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer after duplicate no-op, got %d", len(got))
 	}
-	if got[0].ID == "" || got[0].ID != got[1].ID {
-		t.Errorf("IDs should match for identical content: %q vs %q", got[0].ID, got[1].ID)
+	if got[0].ID == "" {
+		t.Fatal("stable ID should be assigned")
+	}
+	if first.Repair != nil && first.Repair.Code == EmitEvidenceDuplicateNoopCode {
+		t.Fatalf("first emit must not be marked duplicate: %+v", first.Repair)
+	}
+	if second.Repair == nil || second.Repair.Code != EmitEvidenceDuplicateNoopCode {
+		t.Fatalf("second emit should be duplicate no-op, got %+v", second.Repair)
 	}
 }
 

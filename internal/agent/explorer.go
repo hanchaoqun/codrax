@@ -5292,8 +5292,9 @@ func currentBatchHasSuccessfulTool(results []types.ToolResult, prevLen int, tool
 }
 
 func lastSuccessfulToolIndex(results []types.ToolResult, toolName string) int {
+	names := map[string]bool{toolName: true}
 	for i := len(results) - 1; i >= 0; i-- {
-		if results[i].Success && results[i].ToolName == toolName {
+		if toolResultCountsAsProgress(results[i], names) {
 			return i
 		}
 	}
@@ -5328,11 +5329,26 @@ func successfulToolCountSince(results []types.ToolResult, prevLen int, names map
 	}
 	count := 0
 	for _, r := range results[prevLen:] {
-		if r.Success && names[r.ToolName] {
+		if toolResultCountsAsProgress(r, names) {
 			count++
 		}
 	}
 	return count
+}
+
+func toolResultCountsAsProgress(r types.ToolResult, names map[string]bool) bool {
+	if !r.Success || !names[r.ToolName] {
+		return false
+	}
+	if r.Repair != nil {
+		if r.Repair.Code == tool.EmitEvidenceDuplicateNoopCode {
+			return false
+		}
+		if strings.EqualFold(strings.TrimSpace(r.Repair.Metadata["progress"]), "none") {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *explorerEvaluator) syncEmitBacklogWindow(results []types.ToolResult) {

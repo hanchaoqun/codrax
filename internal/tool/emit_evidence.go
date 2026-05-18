@@ -202,6 +202,13 @@ const EmitEvidenceProducer = "explorer.emit_evidence"
 // load-bearing; it never auto-fills answer text.
 const EmitEvidenceSurfaceTermReviewCode = "evidence_surface_terms_review"
 
+// EmitEvidenceDuplicateNoopCode marks a successful emit_evidence call
+// that was schema-valid but recorded no new or enriching evidence
+// because every item was already present in the mutable evidence
+// buffer. Downstream loop controllers treat this typed repair code as
+// "no progress" so duplicate emits do not keep exploration alive.
+const EmitEvidenceDuplicateNoopCode = "evidence_duplicate_noop"
+
 func (t *EmitEvidence) Name() string { return "emit_evidence" }
 
 func (t *EmitEvidence) Description() string {
@@ -707,10 +714,25 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Debug("[emit_evidence] Plan 2 v2 auto-paired %d role-description mechanism evidence items", len(autoPaired))
 	}
 
-	ctx.Mutable.AppendEvidence(built)
+	priorEvidence := ctx.Mutable.EmittedEvidence()
+	var duplicateItems []types.EvidenceItem
+	built, reports, duplicateItems = filterNoopDuplicateEmitEvidence(priorEvidence, built, reports)
+	if len(built) > 0 {
+		ctx.Mutable.AppendEvidence(built)
+	}
 
 	surfaceReview := buildEmitEvidenceSurfaceTermReview(built, gc)
-	summary := renderEmitSummary(ctx, built, reports, ctx.Mutable.EmittedEvidence())
+	allEvidence := ctx.Mutable.EmittedEvidence()
+	summary := ""
+	if len(built) > 0 {
+		summary = renderEmitSummary(ctx, built, reports, allEvidence)
+	} else if len(duplicateItems) > 0 {
+		summary = renderEmitEvidenceDuplicateNoopSummary(duplicateItems, allEvidence)
+	}
+	if len(duplicateItems) > 0 && len(built) > 0 {
+		summary = strings.TrimRight(summary, "\n") + "\n\n" +
+			renderEmitEvidenceDuplicateSkipNote(duplicateItems)
+	}
 	if surfaceReview != nil && strings.TrimSpace(surfaceReview.Hint) != "" {
 		summary = strings.TrimRight(summary, "\n") + "\n\n" + surfaceReview.Hint + "\n"
 	}
@@ -753,6 +775,9 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		if surfaceReview != nil {
 			repair = surfaceReview
 		}
+	}
+	if len(built) == 0 && len(duplicateItems) > 0 {
+		repair = emitEvidenceDuplicateNoopRepair(len(duplicateItems))
 	}
 	return types.ToolResult{
 		ToolName:  t.Name(),
@@ -2030,6 +2055,188 @@ func evidenceSemantic(it types.EvidenceItem) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func filterNoopDuplicateEmitEvidence(existing, items []types.EvidenceItem, reports []ground.Report) ([]types.EvidenceItem, []ground.Report, []types.EvidenceItem) {
+	if len(existing) == 0 || len(items) == 0 {
+		return items, reports, nil
+	}
+	seen := make(map[string]types.EvidenceItem, len(existing)+len(items))
+	for _, item := range existing {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = types.StableEvidenceID(item)
+			item.ID = id
+		}
+		seen[id] = item
+	}
+	kept := make([]types.EvidenceItem, 0, len(items))
+	keptReports := make([]ground.Report, 0, len(reports))
+	duplicates := make([]types.EvidenceItem, 0)
+	for i, item := range items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = types.StableEvidenceID(item)
+			item.ID = id
+		}
+		if prior, ok := seen[id]; ok && emitEvidenceNoopDuplicate(prior, item) {
+			duplicates = append(duplicates, item)
+			continue
+		}
+		kept = append(kept, item)
+		if i < len(reports) {
+			keptReports = append(keptReports, reports[i])
+		} else {
+			keptReports = append(keptReports, ground.Report{
+				ItemID:       item.ID,
+				Status:       item.GroundingStatus,
+				Tier:         item.GroundingTier,
+				OriginalLine: item.LineStart,
+				AdjustedLine: item.LineStart,
+				Note:         item.GroundingNote,
+			})
+		}
+		seen[id] = item
+	}
+	return kept, keptReports, duplicates
+}
+
+func emitEvidenceNoopDuplicate(existing, incoming types.EvidenceItem) bool {
+	existingID := strings.TrimSpace(existing.ID)
+	if existingID == "" {
+		existingID = types.StableEvidenceID(existing)
+	}
+	incomingID := strings.TrimSpace(incoming.ID)
+	if incomingID == "" {
+		incomingID = types.StableEvidenceID(incoming)
+	}
+	if existingID == "" || existingID != incomingID {
+		return false
+	}
+	if existing.AnchorKind != incoming.AnchorKind ||
+		strings.TrimSpace(existing.AnchorSymbol) != strings.TrimSpace(incoming.AnchorSymbol) ||
+		strings.TrimSpace(existing.OwnerSymbol) != strings.TrimSpace(incoming.OwnerSymbol) {
+		return false
+	}
+	if emitEvidenceGroundingRank(incoming.GroundingStatus) > emitEvidenceGroundingRank(existing.GroundingStatus) {
+		return false
+	}
+	if existing.EvidenceRef == "" && incoming.EvidenceRef != "" {
+		return false
+	}
+	if incoming.Confidence > existing.Confidence {
+		return false
+	}
+	if !emitEvidenceStringSliceContainsAll(existing.SurfaceTerms, incoming.SurfaceTerms) ||
+		!emitEvidenceStringSliceContainsAll(existing.DerivedFrom, incoming.DerivedFrom) {
+		return false
+	}
+	if existing.ContextRole == types.EvidenceContextRoleUnknown && incoming.ContextRole != types.EvidenceContextRoleUnknown {
+		return false
+	}
+	if existing.DiagramRole == types.EvidenceDiagramRoleUnknown && incoming.DiagramRole != types.EvidenceDiagramRoleUnknown {
+		return false
+	}
+	if existing.RequestedDiagramRole == types.EvidenceDiagramRoleUnknown && incoming.RequestedDiagramRole != types.EvidenceDiagramRoleUnknown {
+		return false
+	}
+	return true
+}
+
+func emitEvidenceGroundingRank(status types.GroundingStatus) int {
+	switch status {
+	case types.GroundingGrounded:
+		return 3
+	case types.GroundingRecovered:
+		return 2
+	case types.GroundingUngrounded:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func emitEvidenceStringSliceContainsAll(haystack, needles []string) bool {
+	if len(needles) == 0 {
+		return true
+	}
+	set := make(map[string]struct{}, len(haystack))
+	for _, item := range haystack {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			set[item] = struct{}{}
+		}
+	}
+	for _, item := range needles {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := set[item]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func renderEmitEvidenceDuplicateNoopSummary(duplicates, allEvidence []types.EvidenceItem) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "emit_evidence accepted 0 new item(s); skipped %d duplicate item(s) already present in the evidence buffer.\n\n", len(duplicates))
+	b.WriteString(renderDuplicateEvidencePreview(duplicates))
+	cumulative := evidenceGroundingTally(allEvidence)
+	fmt.Fprintf(&b, "\nEvidence buffer (audit, cumulative): %d grounded / %d recovered / %d ungrounded across %d file(s).\n",
+		cumulative.grounded, cumulative.recovered, cumulative.ungrounded, emitEvidenceSourceCount(allEvidence))
+	b.WriteString("No new evidence was recorded. Do not re-emit the same facts; either emit genuinely new or enriched evidence from a different anchor, or call `emit_investigation_complete` if the investigation is ready to close.\n")
+	return b.String()
+}
+
+func renderEmitEvidenceDuplicateSkipNote(duplicates []types.EvidenceItem) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Skipped %d duplicate item(s) already present in the evidence buffer; they were not recorded again:\n", len(duplicates))
+	b.WriteString(renderDuplicateEvidencePreview(duplicates))
+	b.WriteString("Duplicate rows are audit context only; they do not require a consolidated re-emit.\n")
+	return b.String()
+}
+
+func renderDuplicateEvidencePreview(items []types.EvidenceItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+	const max = 5
+	var b strings.Builder
+	limit := len(items)
+	if limit > max {
+		limit = max
+	}
+	for i := 0; i < limit; i++ {
+		it := items[i]
+		semantic := evidenceSemantic(it)
+		if semantic != "" {
+			fmt.Fprintf(&b, "  [%d] duplicate %s %s @ %s:%d — %s\n",
+				i+1, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, it.LineStart, semantic)
+		} else {
+			fmt.Fprintf(&b, "  [%d] duplicate %s %s @ %s:%d\n",
+				i+1, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, it.LineStart)
+		}
+	}
+	if len(items) > max {
+		fmt.Fprintf(&b, "  ... %d more duplicate item(s)\n", len(items)-max)
+	}
+	return b.String()
+}
+
+func emitEvidenceDuplicateNoopRepair(count int) *types.ToolRepair {
+	return &types.ToolRepair{
+		Code: EmitEvidenceDuplicateNoopCode,
+		Hint: fmt.Sprintf(
+			"All %d emit_evidence item(s) were duplicates of already-recorded structured evidence. Do not re-emit those rows; emit only genuinely new/enriched evidence or close with emit_investigation_complete.",
+			count,
+		),
+		Metadata: map[string]string{
+			"progress":        "none",
+			"duplicate_count": strconv.Itoa(count),
+		},
+	}
 }
 
 // renderEmitSummary builds the per-item + global grounding feedback

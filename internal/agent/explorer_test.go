@@ -3299,6 +3299,32 @@ func TestParseEmitEvidenceRepairTargets_SkipsDropOnlyMentions(t *testing.T) {
 	}
 }
 
+func TestExplorerProgressCountersIgnoreDuplicateEvidenceNoop(t *testing.T) {
+	duplicateNoop := types.ToolResult{
+		ToolName: "emit_evidence",
+		Success:  true,
+		Summary:  "emit_evidence accepted 0 new item(s); skipped 1 duplicate item(s)",
+		Repair: &types.ToolRepair{
+			Code:     tool.EmitEvidenceDuplicateNoopCode,
+			Metadata: map[string]string{"progress": "none"},
+		},
+	}
+	if got := successfulToolCountSince([]types.ToolResult{duplicateNoop}, 0, completionProgressToolNames); got != 0 {
+		t.Fatalf("duplicate no-op should not count as completion progress, got %d", got)
+	}
+	if got := lastSuccessfulToolIndex([]types.ToolResult{duplicateNoop}, "emit_evidence"); got != -1 {
+		t.Fatalf("duplicate no-op should not reset the emit backlog window, got index %d", got)
+	}
+	realEmit := types.ToolResult{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"}
+	history := []types.ToolResult{duplicateNoop, realEmit}
+	if got := successfulToolCountSince(history, 0, completionProgressToolNames); got != 1 {
+		t.Fatalf("only the real emit should count as progress, got %d", got)
+	}
+	if got := lastSuccessfulToolIndex(history, "emit_evidence"); got != 1 {
+		t.Fatalf("last progressful emit index = %d, want 1", got)
+	}
+}
+
 func TestObserveMidLoop_EvidenceRepairPrefersStructuredTargets(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:            1,
