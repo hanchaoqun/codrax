@@ -55,6 +55,37 @@ func TestMaterializeCaveats_GroupsByFamily(t *testing.T) {
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswer_MaterializesDefaultSoftConcerns(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	out := AppendSoftContractCaveatsToAnswer("正文", []types.Violation{
+		{Kind: types.ViolUncertaintyBlockMissing},
+		{Kind: types.ViolSuccessCriterion},
+	}, "zh")
+	if !strings.Contains(out, "**补充说明：**") {
+		t.Fatalf("soft caveat heading missing:\n%s", out)
+	}
+	if strings.Contains(out, "uncertainty_block_missing") || strings.Contains(out, "success_criterion") {
+		t.Fatalf("soft caveat leaked internal violation names:\n%s", out)
+	}
+	if strings.Count(out, "- ") != 1 {
+		t.Fatalf("expected exactly one soft caveat bullet; got output:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswer_SkipsStrictPromotedConcern(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolUncertaintyBlockMissing)})
+
+	out := AppendSoftContractCaveatsToAnswer("正文", []types.Violation{
+		{Kind: types.ViolUncertaintyBlockMissing},
+	}, "zh")
+	if out != "正文" {
+		t.Fatalf("strict-promoted concern should stay actionable, not become a soft caveat:\n%s", out)
+	}
+}
+
 // TestMaterializeCaveats_NoInternalJargon — output strings must not
 // contain ViolKind names, IR field names, confidence numbers, or
 // orchestration tokens.

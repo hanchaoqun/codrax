@@ -128,11 +128,13 @@ func FilterDerivedViolations(violations []types.Violation) []types.Violation {
 // retry / repair control flow: root-cause entries that are not
 // permanently telemetry-only.
 //
-// Soft telemetry still belongs in the contract ledger and operator
-// logs, but it must not be sent back to the LLM as a repair task.
-// This is the central guard for permanently-soft kinds such as
-// richness_regression and diagram_relation_label_only when they
-// co-occur with one real hard failure.
+// Some soft/default-soft kinds still have a meaningful fallback locus
+// when an upstream repair planner is explicitly asked to route them.
+// This generic filter therefore drops only permanently non-retryable
+// kinds. Finalizer retry prompt selection uses
+// FilterFinalizerRetryRootViolations below to apply the stricter
+// "soft ships as caveat" policy without weakening repair-plan tests
+// and callers.
 func FilterActionableRootViolations(violations []types.Violation) []types.Violation {
 	roots := FilterDerivedViolations(violations)
 	if len(roots) == 0 {
@@ -150,6 +152,25 @@ func FilterActionableRootViolations(violations []types.Violation) []types.Violat
 
 func isPermanentlyTelemetryOnlyViolationKind(k types.ViolationKind) bool {
 	return !types.ViolationProfileFor(k, true).RetryEligible
+}
+
+// FilterFinalizerRetryRootViolations returns the strict root
+// violations that are worth sending back to the finalizer LLM. Soft
+// concerns under the current runtime configuration should ship via
+// supplemental caveats instead of inflating rewrite prompts.
+func FilterFinalizerRetryRootViolations(violations []types.Violation) []types.Violation {
+	roots := FilterDerivedViolations(violations)
+	if len(roots) == 0 {
+		return nil
+	}
+	out := make([]types.Violation, 0, len(roots))
+	for _, v := range roots {
+		if isSoftViolationKind(v.Kind) {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 // IncrementAttemptsAndCheckExhausted bumps the per-(kind, fp)

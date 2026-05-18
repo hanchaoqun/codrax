@@ -116,6 +116,34 @@ func AppendUserCaveatsToAnswer(answer string, violations []types.Violation, lang
 	return appendSystemCaveatBullets(answer, caveats, lang)
 }
 
+// AppendSoftContractCaveatsToAnswer appends user-facing caveats only
+// for soft root violations under the current runtime policy.
+//
+// This is the accept-path companion to FilterActionableRootViolations:
+// default-soft contract concerns should not burn another finalizer
+// retry, but if the registry has a CaveatFamilyID the shipped answer
+// should still tell the user about the residual boundary. Operator
+// promotion via pipeline_contract_strict_kinds removes the kind from
+// this soft set, keeping promoted gates actionable.
+func AppendSoftContractCaveatsToAnswer(answer string, violations []types.Violation, lang string) string {
+	return AppendUserCaveatsToAnswer(answer, softContractCaveatViolations(violations), lang)
+}
+
+func softContractCaveatViolations(violations []types.Violation) []types.Violation {
+	roots := FilterDerivedViolations(violations)
+	if len(roots) == 0 {
+		return nil
+	}
+	out := make([]types.Violation, 0, len(roots))
+	for _, v := range roots {
+		if !isSoftViolationKind(v.Kind) {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
 // AppendSystemCaveatString renders ONE pre-formatted system caveat
 // as a trailing markdown section appended to the answer text. Same
 // channel as AppendUserCaveatsToAnswer (the "**补充说明：**" /

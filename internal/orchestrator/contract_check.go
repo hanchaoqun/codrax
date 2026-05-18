@@ -1919,8 +1919,9 @@ func legacyDefaultSoftKinds() map[types.ViolationKind]bool {
 // t.Cleanup-restored overrides are race-free regardless of go
 // test -parallel.
 var (
-	softKindsMu        sync.RWMutex
-	softViolationKinds = defaultSoftKinds()
+	softKindsMu          sync.RWMutex
+	softViolationKinds   = defaultSoftKinds()
+	strictViolationKinds = map[types.ViolationKind]bool{}
 )
 
 // SetSoftViolationKinds replaces the active soft-kind set. Empty
@@ -1929,6 +1930,7 @@ var (
 // remove `extraStrict`.
 func SetSoftViolationKinds(extraSoft []string, extraStrict []string) {
 	out := defaultSoftKinds()
+	strictOut := map[types.ViolationKind]bool{}
 	for _, name := range extraSoft {
 		k := strings.TrimSpace(name)
 		if k != "" {
@@ -1936,10 +1938,19 @@ func SetSoftViolationKinds(extraSoft []string, extraStrict []string) {
 		}
 	}
 	for _, name := range extraStrict {
-		delete(out, types.ViolationKind(strings.TrimSpace(name)))
+		k := strings.TrimSpace(name)
+		if k == "" {
+			continue
+		}
+		kind := types.ViolationKind(k)
+		delete(out, kind)
+		if types.IsViolKindPromotable(kind) {
+			strictOut[kind] = true
+		}
 	}
 	softKindsMu.Lock()
 	softViolationKinds = out
+	strictViolationKinds = strictOut
 	softKindsMu.Unlock()
 }
 
@@ -1963,8 +1974,12 @@ func SetSoftViolationKinds(extraSoft []string, extraStrict []string) {
 //     Severity == Soft → soft; otherwise strict
 func isSoftViolationKind(k types.ViolationKind) bool {
 	softKindsMu.RLock()
+	_, strictOverride := strictViolationKinds[k]
 	mapVal, hasOverride := softViolationKinds[k]
 	softKindsMu.RUnlock()
+	if strictOverride {
+		return false
+	}
 	if hasOverride {
 		// Operator-yaml or initialised default explicitly named this
 		// kind — honour the override exactly.
@@ -2215,7 +2230,7 @@ func renderViolations(res contract.Result) string {
 	// flagged as derivations of a higher-level root carry no
 	// independent fix instruction; suppressing them stops the
 	// "fix one, three new ones rotate in" loop seen pre-W2.
-	roots := FilterActionableRootViolations([]types.Violation(res.Violations))
+	roots := FilterFinalizerRetryRootViolations([]types.Violation(res.Violations))
 	if len(roots) == 0 {
 		return ""
 	}

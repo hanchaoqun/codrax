@@ -193,6 +193,54 @@ func TestFilterActionableRootViolations_DropsSoftTelemetry(t *testing.T) {
 	}
 }
 
+func TestFilterActionableRootViolations_KeepsDefaultSoftPromotableForRepairPlanning(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	in := []types.Violation{
+		{Kind: types.ViolUncertaintyBlockMissing, Detail: "uncertainty disclosure is absent"},
+		{Kind: types.ViolRichnessGlaringGap, Detail: "optional facet is underfilled"},
+	}
+	out := FilterActionableRootViolations(in)
+	if len(out) != 2 {
+		t.Fatalf("generic repair planning should retain promotable soft roots, got %d: %+v", len(out), out)
+	}
+}
+
+func TestFilterFinalizerRetryRootViolations_DropsDefaultSoftPromotableKinds(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	in := []types.Violation{
+		{Kind: types.ViolUncertaintyBlockMissing, Detail: "uncertainty disclosure is absent"},
+		{Kind: types.ViolRichnessGlaringGap, Detail: "optional facet is underfilled"},
+		{Kind: types.ViolSuccessCriterion, Detail: "citation count failed"},
+	}
+	out := FilterFinalizerRetryRootViolations(in)
+	if len(out) != 1 {
+		t.Fatalf("expected only the strict hard root, got %d: %+v", len(out), out)
+	}
+	if out[0].Kind != types.ViolSuccessCriterion {
+		t.Fatalf("kind = %q, want %q", out[0].Kind, types.ViolSuccessCriterion)
+	}
+}
+
+func TestFilterFinalizerRetryRootViolations_StrictPromotionKeepsKindActionable(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolUncertaintyBlockMissing)})
+
+	in := []types.Violation{
+		{Kind: types.ViolUncertaintyBlockMissing, Detail: "uncertainty disclosure is absent"},
+	}
+	out := FilterFinalizerRetryRootViolations(in)
+	if len(out) != 1 {
+		t.Fatalf("strict-promoted kind should remain actionable, got %d: %+v", len(out), out)
+	}
+	if out[0].Kind != types.ViolUncertaintyBlockMissing {
+		t.Fatalf("kind = %q, want %q", out[0].Kind, types.ViolUncertaintyBlockMissing)
+	}
+}
+
 func TestRenderViolations_SuppressesSoftTelemetryBesideHardFailure(t *testing.T) {
 	res := stubResultWithViolations(
 		types.Violation{Kind: types.ViolRichnessRegression, Detail: "optional richness telemetry"},

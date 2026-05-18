@@ -5019,7 +5019,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			firstFinalizeConcerns = append([]types.Violation(nil), res.Violations...)
 		}
 		if !o.strictAnswerReviewEnabledValue() {
-			if actionable := FilterActionableRootViolations(res.Violations); len(actionable) > 0 {
+			if actionable := FilterFinalizerRetryRootViolations(res.Violations); len(actionable) > 0 {
 				o.attachDraftReviewNote(out, strictReviewDisabledTitle(o.busCtx.Language), actionable)
 			}
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
@@ -5036,6 +5036,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 
 		if res.Passed {
+			out.FinalAnswer = AppendSoftContractCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			// Live preview cleanup: contract pass means the draft
 			// just streamed IS the final answer (modulo the
@@ -5058,9 +5059,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			o.emitNodeEnd(fin.ID, true, "")
 			break
 		}
-		retryViolations := FilterActionableRootViolations(res.Violations)
+		retryViolations := FilterFinalizerRetryRootViolations(res.Violations)
 		if len(retryViolations) == 0 {
 			logging.Info("[orchestrator] contract check produced only soft/non-actionable violation(s); accepting answer without LLM retry")
+			out.FinalAnswer = AppendSoftContractCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			o.emit(render.Event{
 				Kind:            render.EventLivePreviewClear,
@@ -7300,7 +7302,7 @@ func dominantViolationKind(res contract.Result) types.ViolationKind {
 	if res.Passed || len(res.Violations) == 0 {
 		return ""
 	}
-	violations := FilterActionableRootViolations(res.Violations)
+	violations := FilterFinalizerRetryRootViolations(res.Violations)
 	if len(violations) == 0 {
 		return ""
 	}
@@ -7327,7 +7329,7 @@ func dominantViolationClass(res contract.Result) string {
 	if res.Passed || len(res.Violations) == 0 {
 		return ""
 	}
-	roots := FilterActionableRootViolations(res.Violations)
+	roots := FilterFinalizerRetryRootViolations(res.Violations)
 	if len(roots) == 0 {
 		return ""
 	}
