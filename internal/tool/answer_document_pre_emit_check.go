@@ -1212,13 +1212,56 @@ func preCheckPrincipalSupportMemberCoverage(doc *types.AnswerDocumentV2, ctxOpt 
 }
 
 func normalizePrincipalSupportMemberCarriers(doc *types.AnswerDocumentV2, supportPlan *types.AnswerSupportPlan) int {
-	// User-intent preservation Batch F: normalizers may repair
-	// structure, citations, and lossless schema carriers, but they
-	// must not author new user-visible answer claims after the model
-	// has emitted its document. Missing support members are handled by
-	// the validator / caveat machinery; this compatibility shim stays
-	// in place so older call sites remain harmless.
-	return 0
+	if doc == nil || supportPlan == nil {
+		return 0
+	}
+	missing := types.MissingPrincipalSupportMembers(doc, supportPlan)
+	if len(missing) == 0 {
+		return 0
+	}
+	fixed := 0
+	for _, ob := range missing {
+		if !principalSupportMemberVisibleForCarrierNormalization(doc, ob) {
+			continue
+		}
+		cit, ok := citationForPrincipalSupportMember(ob)
+		if !ok {
+			continue
+		}
+		ref := appendOrReusePreEmitCitation(doc, cit)
+		if ref < 0 {
+			continue
+		}
+		if normalizeExistingPrincipalSupportMemberItem(doc, ob, ref) {
+			fixed++
+			continue
+		}
+		if appendHiddenPrincipalSupportMemberItem(doc, ob, ref) {
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func principalSupportMemberVisibleForCarrierNormalization(doc *types.AnswerDocumentV2, ob types.AnswerSupportMemberObligation) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if !preEmitBlockCanCarryPrincipalSupportMember(block) {
+			continue
+		}
+		for _, item := range block.Items {
+			if types.AnswerTextMentionsSupportMember(types.AnswerBlockItemVisibleSurface(item), ob) {
+				return true
+			}
+		}
+		if strings.TrimSpace(block.Text) != "" &&
+			types.AnswerTextMentionsSupportMember(types.AnswerBlockVisibleSurface(block), ob) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
@@ -1445,6 +1488,13 @@ func aggregateMemberSetEvidenceLocationUsable(ev types.EvidenceItem) bool {
 
 func aggregateMemberSetMemberFilePrefix(member string) string {
 	member = strings.TrimSpace(member)
+	if base, _, ok := types.AnswerAggregateDecoratedLabelParts(member); ok {
+		base = strings.TrimSpace(base)
+		if ext := filepath.Ext(base); base != "" && ext != "" &&
+			(types.IsCodeOrConfigPathExtension(ext) || strings.Contains(base, "/")) {
+			return strings.ReplaceAll(base, `\`, `/`)
+		}
+	}
 	idx := strings.Index(member, ": ")
 	if idx <= 0 {
 		return ""
@@ -1545,6 +1595,64 @@ func appendPrincipalSupportMemberCarrierBlock(doc *types.AnswerDocumentV2) int {
 		FacetIDs: []string{string(types.FacetEnumerationItem)},
 	})
 	return len(doc.Blocks) - 1
+}
+
+func normalizeExistingPrincipalSupportMemberItem(doc *types.AnswerDocumentV2, ob types.AnswerSupportMemberObligation, citationRef int) bool {
+	if doc == nil || citationRef < 0 {
+		return false
+	}
+	for bi := range doc.Blocks {
+		if !preEmitBlockCanCarryPrincipalSupportMember(doc.Blocks[bi]) {
+			continue
+		}
+		for ii := range doc.Blocks[bi].Items {
+			item := &doc.Blocks[bi].Items[ii]
+			if !types.AnswerTextMentionsSupportMember(types.AnswerBlockItemVisibleSurface(*item), ob) {
+				continue
+			}
+			changed := false
+			if item.CitationRef != citationRef {
+				item.CitationRef = citationRef
+				changed = true
+			}
+			if strings.TrimSpace(item.ID) == "" {
+				item.ID = nextPrincipalSupportMemberItemID(doc.Blocks[bi], ob)
+				changed = true
+			}
+			return changed
+		}
+	}
+	return false
+}
+
+func appendHiddenPrincipalSupportMemberItem(doc *types.AnswerDocumentV2, ob types.AnswerSupportMemberObligation, citationRef int) bool {
+	if doc == nil || citationRef < 0 {
+		return false
+	}
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if !preEmitBlockCanCarryPrincipalSupportMember(*block) {
+			continue
+		}
+		// When a table/list block has an authored markdown/table text
+		// surface, the renderer treats block.Text as authoritative and
+		// does not render items[] as a second table. Adding an item here is
+		// therefore a hidden citation sidecar for already-visible content,
+		// not a new user-facing claim.
+		if strings.TrimSpace(block.Text) == "" {
+			continue
+		}
+		if !types.AnswerTextMentionsSupportMember(types.AnswerBlockVisibleSurface(*block), ob) {
+			continue
+		}
+		block.Items = append(block.Items, types.AnswerBlockItem{
+			ID:          nextPrincipalSupportMemberItemID(*block, ob),
+			Label:       principalSupportMemberItemLabel(ob),
+			CitationRef: citationRef,
+		})
+		return true
+	}
+	return false
 }
 
 func preEmitBlockCanCarryPrincipalSupportMember(block types.AnswerBlock) bool {
@@ -2302,12 +2410,19 @@ func preEmitStructuredBlockCoversAggregateMember(block types.AnswerBlock, member
 			return true
 		}
 	}
+	if block.Kind == types.BlockTable && strings.TrimSpace(block.Text) != "" &&
+		preEmitAggregateMemberAppearsInText(member, block.Text) {
+		return true
+	}
 	return preEmitMultiTargetRelationCoveredByStructuredBlock(member, block)
 }
 
 func preEmitAggregateMemberAppearsInText(member string, surface string) bool {
 	candidates := preEmitAggregateMemberDisplayCandidates(member)
 	if len(candidates) == 0 {
+		return true
+	}
+	if preEmitDecoratedAggregateMemberAppearsInText(member, surface) {
 		return true
 	}
 	if preEmitAnyAggregateMemberAppears(candidates, surface) {
@@ -2331,6 +2446,9 @@ func preEmitAggregateMemberAppearsInText(member string, surface string) bool {
 func preEmitAggregateMemberAppearsInDocument(member string, doc *types.AnswerDocumentV2, surface string) bool {
 	candidates := preEmitAggregateMemberDisplayCandidates(member)
 	if len(candidates) == 0 {
+		return true
+	}
+	if preEmitDecoratedAggregateMemberAppearsInText(member, surface) {
 		return true
 	}
 	if preEmitAnyAggregateMemberAppears(candidates, surface) {
@@ -4111,6 +4229,9 @@ func preEmitAggregateMemberLabelTextMatches(label, text, member string) bool {
 	if member == "" {
 		return false
 	}
+	if preEmitDecoratedAggregateMemberAppearsInText(member, strings.Join([]string{label, text}, "\n")) {
+		return true
+	}
 	for _, candidate := range preEmitAggregateMemberDisplayCandidates(member) {
 		if preEmitTypedLabelTokenSupportsLabel(candidate, label) ||
 			preEmitTypedLabelTokenSupportsLabel(label, candidate) {
@@ -4138,6 +4259,59 @@ func preEmitAggregateMemberLabelTextMatches(label, text, member string) bool {
 		}
 	}
 	return false
+}
+
+func preEmitDecoratedAggregateMemberAppearsInText(member, surface string) bool {
+	base, qualifier, ok := types.AnswerAggregateDecoratedLabelParts(member)
+	if !ok {
+		return false
+	}
+	if !preEmitAggregateDisplayPartAppears(base, surface) &&
+		!types.CodeSurfaceAppearsAsToken(base, surface) {
+		return false
+	}
+	return preEmitDecoratedQualifierAppearsInText(qualifier, surface)
+}
+
+func preEmitDecoratedQualifierAppearsInText(qualifier, surface string) bool {
+	qualifier = strings.TrimSpace(qualifier)
+	if qualifier == "" {
+		return true
+	}
+	if preEmitAggregateDisplayPartAppears(qualifier, surface) ||
+		types.CodeSurfaceAppearsAsToken(qualifier, surface) {
+		return true
+	}
+	parts := preEmitDecoratedQualifierParts(qualifier)
+	if len(parts) <= 1 {
+		return false
+	}
+	for _, part := range parts {
+		if !preEmitAggregateDisplayPartAppears(part, surface) &&
+			!types.CodeSurfaceAppearsAsToken(part, surface) {
+			return false
+		}
+	}
+	return true
+}
+
+func preEmitDecoratedQualifierParts(qualifier string) []string {
+	fields := strings.FieldsFunc(qualifier, func(r rune) bool {
+		switch r {
+		case '/', '|', ',', '，', ';', '；':
+			return true
+		default:
+			return false
+		}
+	})
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field != "" {
+			out = append(out, field)
+		}
+	}
+	return out
 }
 
 func preEmitAggregateMemberLabelRelationParts(member string) (left string, right string, ok bool) {

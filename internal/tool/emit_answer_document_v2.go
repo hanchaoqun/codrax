@@ -514,6 +514,11 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext(doc, view, ctx, pctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d out-of-range item citation_ref value(s) by evidence-surface corroboration", toolName, fixed)
 	}
+	if ctx != nil {
+		if fixed := normalizePrincipalSupportMemberCarriers(doc, types.BuildAnswerSupportPlanForBusContext(ctx)); fixed > 0 {
+			logging.Warning("[%s] repaired %d principal support member citation carrier(s) from visible answer surface", toolName, fixed)
+		}
+	}
 	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
 		logging.Warning("[%s] repaired %d view-compatible typed lane field(s)", toolName, fixed)
 	}

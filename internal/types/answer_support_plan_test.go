@@ -2293,6 +2293,51 @@ func TestMissingPrincipalSupportMembers_AcceptsSplitRelationMemberSurface(t *tes
 	}
 }
 
+func TestMissingPrincipalSupportMembers_AcceptsDecoratedFileMemberSplitAcrossItemSurface(t *testing.T) {
+	member := "ActivityManagerService.java (前后台状态通知/mForegroundPackages系统级聚合)"
+	plan := &AnswerSupportPlan{
+		Family:                  QFEnumeration,
+		PrincipalMemberCoverage: PrincipalMemberCoveragePolicyRequired,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{{
+				Text:         member,
+				Location:     "java/com/android/server/am/ActivityManagerService.java:1618",
+				ClaimForm:    ClaimDefinitionFact,
+				SurfaceTerms: []string{member},
+				Source:       "java/com/android/server/am/ActivityManagerService.java",
+				LineStart:    1618,
+			}},
+		}},
+	}
+	obligations := PrincipalSupportMemberObligations(plan)
+	if len(obligations) != 1 {
+		t.Fatalf("expected one obligation, got %+v", obligations)
+	}
+	surface := "| ActivityManagerService.java | 前后台状态通知/mForegroundPackages系统级聚合 |"
+	if !AnswerTextMentionsSupportMember(surface, obligations[0]) {
+		t.Fatalf("decorated file member split across table cells should be recognized")
+	}
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "java/com/android/server/am/ActivityManagerService.java", Line: 1618}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockTable,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Items: []AnswerBlockItem{{
+				Label:       "ActivityManagerService.java",
+				Text:        "前后台状态通知/mForegroundPackages系统级聚合",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if got := MissingPrincipalSupportMembers(doc, plan); len(got) != 0 {
+		t.Fatalf("split decorated file member should satisfy support-member coverage, got %+v", got)
+	}
+}
+
 func TestMissingPrincipalSupportMembers_AcceptsModelRelationWithoutSymbolEndpoint(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Family: QFEnumeration,

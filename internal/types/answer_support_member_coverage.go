@@ -732,6 +732,14 @@ func answerItemSurfaceMentionsSupportMember(item AnswerBlockItem, ob AnswerSuppo
 	return answerTextMentionsSupportMember(AnswerBlockItemVisibleSurface(item), ob)
 }
 
+// AnswerTextMentionsSupportMember reports whether a user-visible text surface
+// preserves a typed principal support member. It is exported for emit-time
+// schema normalizers that need to add/repair citation sidecars only when the
+// model has already rendered the member visibly.
+func AnswerTextMentionsSupportMember(text string, ob AnswerSupportMemberObligation) bool {
+	return answerTextMentionsSupportMember(text, ob)
+}
+
 func answerTextMentionsSupportMember(text string, ob AnswerSupportMemberObligation) bool {
 	surface := strings.TrimSpace(text)
 	if surface == "" {
@@ -754,6 +762,9 @@ func supportMemberTermAppears(term, surface string) bool {
 	if term == "" || surface == "" {
 		return false
 	}
+	if supportMemberDecoratedTermAppears(term, surface) {
+		return true
+	}
 	for _, candidate := range supportMemberDisplayCandidates(term) {
 		if supportMemberDisplaySurfaceAppears(candidate, surface) ||
 			CodeSurfaceAppearsAsToken(candidate, surface) ||
@@ -762,6 +773,56 @@ func supportMemberTermAppears(term, surface string) bool {
 		}
 	}
 	return false
+}
+
+func supportMemberDecoratedTermAppears(term, surface string) bool {
+	base, qualifier, ok := AnswerAggregateDecoratedLabelParts(term)
+	if !ok {
+		return false
+	}
+	if !supportMemberDisplaySurfaceAppears(base, surface) && !CodeSurfaceAppearsAsToken(base, surface) {
+		return false
+	}
+	return supportMemberQualifierAppears(qualifier, surface)
+}
+
+func supportMemberQualifierAppears(qualifier, surface string) bool {
+	qualifier = strings.TrimSpace(qualifier)
+	if qualifier == "" {
+		return true
+	}
+	if supportMemberDisplaySurfaceAppears(qualifier, surface) || CodeSurfaceAppearsAsToken(qualifier, surface) {
+		return true
+	}
+	parts := splitSupportMemberQualifierParts(qualifier)
+	if len(parts) <= 1 {
+		return false
+	}
+	for _, part := range parts {
+		if !supportMemberDisplaySurfaceAppears(part, surface) && !CodeSurfaceAppearsAsToken(part, surface) {
+			return false
+		}
+	}
+	return true
+}
+
+func splitSupportMemberQualifierParts(qualifier string) []string {
+	fields := strings.FieldsFunc(qualifier, func(r rune) bool {
+		switch r {
+		case '/', '|', ',', '，', ';', '；':
+			return true
+		default:
+			return false
+		}
+	})
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field != "" {
+			out = append(out, field)
+		}
+	}
+	return out
 }
 
 func supportMemberDisplaySurfaceAppears(term, surface string) bool {

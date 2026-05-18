@@ -905,6 +905,37 @@ func TestPreCheckRelationMemberSetAnswerShape_RequiresStructuredRowsForMultiMemb
 	}
 }
 
+func TestPreCheckRelationMemberSetAnswerShape_AcceptsMarkdownTableTextRows(t *testing.T) {
+	mu := types.NewMutableState("decorated file member set handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "东湖前后台感知机制涉及的核心文件",
+		Value: "2",
+		Members: []string{
+			"ActivityManagerService.java (前后台状态通知/mForegroundPackages系统级聚合)",
+			"ProcessList.java (进程生命周期通知/topApp前台临时提示)",
+		},
+		SupportRefs: []string{
+			"ActivityManagerService.java (前后台状态通知/mForegroundPackages系统级聚合) @ java/com/android/server/am/ActivityManagerService.java:1618",
+			"ProcessList.java (进程生命周期通知/topApp前台临时提示) @ java/com/android/server/am/ProcessList.java:3180",
+		},
+	}})
+	mu.SetInvestigationComplete("decorated file table accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "files_table",
+		Kind: types.BlockTable,
+		Text: "| 文件 | 感知机制类型 |\n|---|---|\n| ActivityManagerService.java | 前后台状态通知/mForegroundPackages系统级聚合 |\n| ProcessList.java | 进程生命周期通知/topApp前台临时提示 |",
+	}}}
+
+	if got := preCheckAggregateMemberSetCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("markdown table text with split decorated members should satisfy member_set coverage, got %+v", got)
+	}
+	if got := preCheckRelationMemberSetAnswerShape(doc, ctx); len(got) != 0 {
+		t.Fatalf("markdown table text rows should satisfy relation member_set shape, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_AcceptsRelationDisplayVariants(t *testing.T) {
 	mu := types.NewMutableState("entry function aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -2276,6 +2307,144 @@ func TestNormalizePrincipalSupportMemberCarriers_DoesNotAuthorMissingTypedMember
 	}
 	if len(doc.Citations) != 1 || len(doc.Blocks[0].Items) != 1 {
 		t.Fatalf("normalizer must leave citations/items unchanged: citations=%+v items=%+v", doc.Citations, doc.Blocks[0].Items)
+	}
+}
+
+func TestNormalizePrincipalSupportMemberCarriers_AddsHiddenCitationSidecarForVisibleMarkdownTable(t *testing.T) {
+	member := "ActivityManagerService.java (前后台状态通知/mForegroundPackages系统级聚合)"
+	plan := &types.AnswerSupportPlan{
+		Family:                  types.QFEnumeration,
+		PrincipalMemberCoverage: types.PrincipalMemberCoveragePolicyRequired,
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{{
+				Text:         member,
+				Location:     "java/com/android/server/am/ActivityManagerService.java:1618",
+				Source:       "java/com/android/server/am/ActivityManagerService.java",
+				LineStart:    1618,
+				ClaimForm:    types.ClaimDefinitionFact,
+				SurfaceTerms: []string{member},
+			}},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "files_table",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Text:        "| 文件 | 感知机制类型 |\n|---|---|\n| ActivityManagerService.java | 前后台状态通知/mForegroundPackages系统级聚合 |",
+		}},
+	}
+
+	if missing := types.MissingPrincipalSupportMembers(doc, plan); len(missing) != 1 {
+		t.Fatalf("test setup missing=%d, want 1: %+v", len(missing), missing)
+	}
+	if fixed := normalizePrincipalSupportMemberCarriers(doc, plan); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1", fixed)
+	}
+	if len(doc.Citations) != 1 ||
+		!strings.EqualFold(doc.Citations[0].File, "java/com/android/server/am/ActivityManagerService.java") ||
+		doc.Citations[0].Line != 1618 {
+		t.Fatalf("expected appended typed citation, got %+v", doc.Citations)
+	}
+	if len(doc.Blocks[0].Items) != 1 || doc.Blocks[0].Items[0].CitationRef != 0 {
+		t.Fatalf("expected hidden citation sidecar item, got %+v", doc.Blocks[0].Items)
+	}
+	if missing := types.MissingPrincipalSupportMembers(doc, plan); len(missing) != 0 {
+		t.Fatalf("hidden citation sidecar should satisfy visible markdown table member, got %+v", missing)
+	}
+}
+
+func TestNormalizePrincipalSupportMemberCarriers_RepairsVisibleSplitItemCitation(t *testing.T) {
+	member := "ActivityManagerService.java (前后台状态通知/mForegroundPackages系统级聚合)"
+	plan := &types.AnswerSupportPlan{
+		Family:                  types.QFEnumeration,
+		PrincipalMemberCoverage: types.PrincipalMemberCoveragePolicyRequired,
+		Lanes: []types.AnswerSupportLane{{
+			Kind: types.SupportLanePrincipalEvidence,
+			Entries: []types.AnswerSupportEntry{{
+				Text:         member,
+				Location:     "java/com/android/server/am/ActivityManagerService.java:1618",
+				Source:       "java/com/android/server/am/ActivityManagerService.java",
+				LineStart:    1618,
+				ClaimForm:    types.ClaimDefinitionFact,
+				SurfaceTerms: []string{member},
+			}},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "java/com/android/server/wm/ActivityTaskManagerService.java", Line: 1153},
+			{File: "java/com/android/server/am/ActivityManagerService.java", Line: 1618},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "files_table",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "f2",
+				Label:       "ActivityManagerService.java",
+				Text:        "前后台状态通知/mForegroundPackages系统级聚合",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if missing := types.MissingPrincipalSupportMembers(doc, plan); len(missing) != 1 {
+		t.Fatalf("test setup missing=%d, want 1: %+v", len(missing), missing)
+	}
+	if fixed := normalizePrincipalSupportMemberCarriers(doc, plan); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref=%d, want 1", got)
+	}
+	if missing := types.MissingPrincipalSupportMembers(doc, plan); len(missing) != 0 {
+		t.Fatalf("repaired split visible item should satisfy support-member coverage, got %+v", missing)
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_UsesDecoratedAggregateFileMemberSupportRef(t *testing.T) {
+	member := "ActivityManagerService.java (前后台状态通知/mForegroundPackages系统级聚合)"
+	mu := types.NewMutableState("decorated file aggregate citation repair")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "东湖前后台感知机制涉及的核心文件",
+		Value:       "1",
+		Members:     []string{member},
+		SupportRefs: []string{member + " @ java/com/android/server/am/ActivityManagerService.java:1618"},
+	}})
+	mu.SetInvestigationComplete("decorated citation repair")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "java/com/android/server/wm/ActivityTaskManagerService.java", Line: 1153},
+			{File: "java/com/android/server/am/ActivityManagerService.java", Line: 1618},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "files_table",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "f2",
+				Label:       "ActivityManagerService.java",
+				Text:        "前后台状态通知/mForegroundPackages系统级聚合",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref=%d, want 1", got)
+	}
+	if got := preCheckItemCitationAlignmentWithContext(doc, nil, newPreEmitCheckContext(ctx)); len(got) != 0 {
+		t.Fatalf("repaired decorated aggregate file item should pass citation alignment, got %+v", got)
 	}
 }
 
