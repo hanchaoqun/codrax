@@ -59,6 +59,7 @@
 6. **Batch H 第六段落地**：analyzer `subtopic_coherence` 的 R1.3 在多仓 cross-component 对比下改为 advisory。多仓问题的 sub_topics 可以按机制分面、文件线索或内部组件拆解，不必每个 sub_topic 都重复仓名；单仓/普通场景的真正 entity orphan 仍保持 hard gate。
 7. **Batch G/H 第七段落地**：analyzer 预扫描预算关闭后动态收窄工具 schema，只保留 `emit_analysis`；分析阶段同时增加工具边界硬拦截，任何绕过 schema 的 `read_file` / `exec_command` / MCP 内容工具在执行前被结构化拒绝，不再进入工具反序列化错误或整轮 analyze 重试。预算到顶后的越界预扫描调用会获得一次 emit-only 就地修正机会，而不是立刻触发 `⟳ 1/4 模型响应出错`。
 8. **Batch H 第八段落地**：explorer chain promotion 不再把 `concrete_values_tracer` 这种宽扫描辅助链路缺失的新文件升级成 CGEC E2 forced-read；系统会先从提示/证据中移除未读链路，只有已读文件里的未覆盖锚点行才发起 surgical read。非 concrete 的高置信链路仍可补读，且有行号时统一走 LineRanges，避免整文件补读造成 `› 2/4 正在补充关键信息` 噪声和探索返工。
+9. **Batch H 第九段落地**：accepted `emit_investigation_complete` 后若 DAG validation criteria 仍未满足，默认 soft policy 不再重开探索；系统会把未满足的 typed criterion 记录为 `TurnAArtifacts.ValidationBoundaryNotes` 并传给 extractor/finalizer。finalizer 应基于已收集证据做收敛、分组、排序或诚实说明边界，而不是为了 `answer_set_bounded` / unresolved hypothesis / evidence threshold 等天然不一定可满足的条件反复打回探索。
 
 ## 问题清单
 
@@ -779,6 +780,29 @@
 - [x] concrete-values same-file missing-line：保留补救，但写入 `PendingRead.LineRanges`，让 forced-read 只读锚点附近的小范围。
 - [x] 非 concrete 高置信链路：保留补读能力；有行号时统一 surgical，没行号时才保留 legacy full-file fallback。
 - [x] 回归测试覆盖 concrete-values 新文件不补读、非 concrete 新文件仍补读、行号锚点 surgical read、pending subrepo guard 不被新规则旁路。
+
+### UIP-033（P1）accepted closure 后仍用 DAG validation 反复重开探索
+
+代码位置：`internal/orchestrator/orchestrator.go`、`internal/types/context.go`、`internal/agent/extractor.go`、`internal/agent/answer_document_evaluator.go`
+
+状态：**已修复（Batch H 第九段）**。默认 `investigation_complete_policy=soft` 下，成功通过 tool pre-complete gate 的 `emit_investigation_complete` 是探索阶段的 typed closure；DAG SuccessCriteria 未满足时不再把探索重开，而是记录结构化 `ValidationBoundaryNotes`。该边界进入 extractor/finalizer prompt 与 `AnswerSurfacePlan`，要求后续成文在已证据范围内做收敛/分组/排序或 caveat 说明。`strict` policy 仍保留给需要旧式 DAG criteria 强回流的部署。
+
+触发证据：
+
+- 客户日志 `customlogs/error4.txt` 中，模型多次 `emit_investigation_complete` 后，界面又出现 `3/4 证据还不够稳，正在补一轮证据`，随后继续读取与重复提交证据。
+- 具体 case 里 `AnswerSetBounded` 失败的根因是候选答案集合过散/过多；用户问题本身可能无法唯一收敛，继续探索不能保证把集合压小，反而会放大候选池和重试成本。
+
+风险：
+
+- 这是系统用模板 validation 结果覆盖模型已通过 pre-complete gate 的调查闭环，容易表现为“模型已经说完成，系统又自己补一轮”。
+- 对天然开放、枚举边界不清、候选集很宽的问题，硬重开探索会让 finalizer 永远拿不到“诚实说明边界”的机会。
+
+修复方向：
+
+- [x] accepted closure + soft/override policy 下停止把 DAG SuccessCriteria 失败作为探索重开理由；`strict` 保留原行为。
+- [x] 将未满足 criterion 作为 typed validation boundary 写入 Turn A handoff，而不是丢失或只写日志。
+- [x] extractor/finalizer 显式看到这些边界，并被要求收敛呈现或说明边界，不能 invent facts 以满足 criterion。
+- [x] 回归测试覆盖 `answer_set_bounded` 失败时 explorer 不被二次 dispatch，且 extractor/finalizer 都收到 boundary note。
 
 ## 分批修复建议
 

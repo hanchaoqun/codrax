@@ -156,6 +156,9 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		if closure := renderExtractorAcceptedClosure(ctx, ta); closure != "" {
 			b.WriteString(closure)
 		}
+		if boundary := renderExtractorValidationBoundaryNotes(ta); boundary != "" {
+			b.WriteString(boundary)
+		}
 
 		// Investigation notes: up to 6 entries, trimmed for prompt length
 		if len(ta.InvestigationNotes) > 0 {
@@ -530,6 +533,27 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 		b.WriteString(renderStructuredAggregateFactsForContext(ctx, aggregateFacts))
 	}
 	b.WriteString("- Treat this as the investigator's structured handoff, not as a citation. Preserve resolved counts, listed members, excluded candidates, and scope boundaries when they are supported by the evidence/tool outputs below; do not fall back to earlier stale notes that conflict with this accepted closure.\n\n")
+	return b.String()
+}
+
+func renderExtractorValidationBoundaryNotes(ta *types.TurnAArtifacts) string {
+	if ta == nil || len(ta.ValidationBoundaryNotes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Accepted closure validation boundaries\n\n")
+	b.WriteString("These are scheduler-owned structural validation results from after the accepted exploration closure. They are not citations and do not override evidence. Preserve user-visible implications as answer boundaries or caveats instead of reopening investigation or inventing facts.\n")
+	for i, note := range ta.ValidationBoundaryNotes {
+		trimmed := strings.TrimSpace(note)
+		if trimmed == "" {
+			continue
+		}
+		if len(trimmed) > extractorMaxNoteChars {
+			trimmed = trimmed[:extractorMaxNoteChars] + "…"
+		}
+		fmt.Fprintf(&b, "- boundary %d: %s\n", i+1, trimmed)
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 

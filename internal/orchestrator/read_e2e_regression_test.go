@@ -274,6 +274,8 @@ func TestE2E_ReadMode_AcceptedInvestigationCompleteStopsValidateReExplore(t *tes
 
 	explorerDispatches := 0
 	finalizeCalls := 0
+	var extractorBoundaryNotes []string
+	var finalizerBoundaryNotes []string
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
 		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
@@ -281,17 +283,34 @@ func TestE2E_ReadMode_AcceptedInvestigationCompleteStopsValidateReExplore(t *tes
 			ctx.Mutable.SetInvestigationComplete("model completed investigation after tool preflight")
 			return &agent.StageOutput{
 				MissingPiece: types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{
+					{
+						ID:        "ev-a",
+						Predicate: "test",
+						Subject:   "A",
+						Object:    "supported",
+						Summary:   "A is supported",
+						Source:    "a.go",
+						LineStart: 1,
+					},
+				},
 				AnswerSymbols: []types.AnswerSymbol{
 					{Name: "A"}, {Name: "B"}, {Name: "C"},
 				},
 			}, nil
 		},
 		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+				extractorBoundaryNotes = append([]string(nil), ta.ValidationBoundaryNotes...)
+			}
 			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
 		},
 		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			finalizeCalls++
-			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "done"}, nil
+			if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+				finalizerBoundaryNotes = append([]string(nil), ta.ValidationBoundaryNotes...)
+			}
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "- `A` (a.go:1)"}, nil
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
@@ -308,9 +327,24 @@ func TestE2E_ReadMode_AcceptedInvestigationCompleteStopsValidateReExplore(t *tes
 	if finalizeCalls != 1 {
 		t.Fatalf("finalizer should run once after accepted completion; got %d", finalizeCalls)
 	}
+	if !boundaryNotesContain(extractorBoundaryNotes, types.CritAnswerSetBounded) {
+		t.Fatalf("extractor should receive answer_set_bounded boundary note; got %+v", extractorBoundaryNotes)
+	}
+	if !boundaryNotesContain(finalizerBoundaryNotes, types.CritAnswerSetBounded) {
+		t.Fatalf("finalizer should receive answer_set_bounded boundary note; got %+v", finalizerBoundaryNotes)
+	}
 	if !busCtx.TaskState.IsTerminal {
 		t.Fatal("want terminal task")
 	}
+}
+
+func boundaryNotesContain(notes []string, kind string) bool {
+	for _, note := range notes {
+		if strings.Contains(note, "criterion="+kind) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestE2E_ReadMode_AnalyzeRetrySuccessClearsLastError verifies the

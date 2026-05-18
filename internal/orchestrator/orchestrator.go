@@ -4121,6 +4121,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				if o.busCtx != nil {
 					o.busCtx.Signals.HasEnoughFacts = true
 				}
+				env.Signals.HasEnoughFacts = true
+				o.recordAcceptedClosureValidationBoundaries(window, env, "pre_dispatch_auto_complete")
 				for _, n := range window {
 					state.markRunning(n.ID)
 					o.emitNodeStart(n.ID)
@@ -4301,6 +4303,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				// SuccessCriteria to reopen exploration after completion.
 				if icComplete && (icPolicy == types.ICPolicySoft || icPolicy == types.ICPolicyOverride) {
 					o.busCtx.Signals.HasEnoughFacts = true
+					stopLocal = o.startSchedulerLocalWork(types.StageExplore, "accepted_closure_validation_boundary")
+					envAfterClosure := buildEnv("", 0)
+					o.recordAcceptedClosureValidationBoundaries(window, envAfterClosure, "post_dispatch_accept")
+					if o.finishSchedulerLocalWork(stopLocal, "accepted_closure_validation_boundary", stepsUsed) {
+						return stepsUsed
+					}
 					for _, n := range window {
 						state.markDone(n.ID)
 						o.emitNodeEnd(n.ID, true, "")
@@ -5884,6 +5892,127 @@ func (o *Orchestrator) shouldAutoCompleteReadyReconcileNode(n *types.TaskNode, e
 		return false
 	}
 	return !o.hasBlockingReconcileRepair()
+}
+
+func (o *Orchestrator) recordAcceptedClosureValidationBoundaries(window []*types.TaskNode, env criterion.Env, source string) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || len(window) == 0 {
+		return
+	}
+	notes := acceptedClosureValidationBoundaryNotes(window, env, source)
+	if len(notes) == 0 {
+		return
+	}
+	var snapshot types.TurnAArtifacts
+	if existing := o.busCtx.Mutable.TurnAArtifacts(); existing != nil {
+		snapshot = *existing
+	}
+	seen := make(map[string]bool, len(snapshot.ValidationBoundaryNotes)+len(notes))
+	for _, note := range snapshot.ValidationBoundaryNotes {
+		if trimmed := strings.TrimSpace(note); trimmed != "" {
+			seen[trimmed] = true
+		}
+	}
+	added := 0
+	for _, note := range notes {
+		note = strings.TrimSpace(note)
+		if note == "" || seen[note] {
+			continue
+		}
+		snapshot.ValidationBoundaryNotes = append(snapshot.ValidationBoundaryNotes, note)
+		seen[note] = true
+		added++
+	}
+	if added == 0 {
+		return
+	}
+	o.busCtx.Mutable.SetTurnAArtifacts(snapshot)
+	logging.Info("[orchestrator] recorded %d accepted-closure validation boundary note(s)", added)
+}
+
+func acceptedClosureValidationBoundaryNotes(window []*types.TaskNode, env criterion.Env, source string) []string {
+	const maxBoundaryNotes = 8
+	var notes []string
+	for _, n := range window {
+		if n == nil || len(n.SuccessCriteria) == 0 {
+			continue
+		}
+		if ok, failed := criterion.EvalAll(n.SuccessCriteria, env); !ok {
+			for _, result := range failed {
+				note := formatAcceptedClosureValidationBoundary(n, result, source)
+				if note == "" {
+					continue
+				}
+				notes = append(notes, note)
+				if len(notes) >= maxBoundaryNotes {
+					return notes
+				}
+			}
+		}
+	}
+	return notes
+}
+
+func formatAcceptedClosureValidationBoundary(n *types.TaskNode, result criterion.Result, source string) string {
+	kind := strings.TrimSpace(string(result.Kind))
+	if kind == "" {
+		kind = "unknown"
+	}
+	nodeID := ""
+	if n != nil {
+		nodeID = strings.TrimSpace(n.ID)
+	}
+	if nodeID == "" {
+		nodeID = "unknown"
+	}
+	source = strings.TrimSpace(source)
+	if source == "" {
+		source = "accepted_closure"
+	}
+	expr := strings.TrimSpace(result.Expr)
+	detail := truncateBoundaryNoteField(result.Detail, 260)
+	advice := acceptedClosureBoundaryAdvice(kind)
+	parts := []string{
+		fmt.Sprintf("source=%s", source),
+		fmt.Sprintf("node=%s", nodeID),
+		fmt.Sprintf("criterion=%s", kind),
+	}
+	if expr != "" {
+		parts = append(parts, fmt.Sprintf("expr=%q", expr))
+	}
+	if detail != "" {
+		parts = append(parts, fmt.Sprintf("detail=%q", detail))
+	}
+	if advice != "" {
+		parts = append(parts, fmt.Sprintf("downstream=%q", advice))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func acceptedClosureBoundaryAdvice(kind string) string {
+	switch kind {
+	case types.CritAnswerSetBounded:
+		return "candidate set remained broader than the requested/compiled bound; answer composition should group, rank, or summarize the supported candidates and disclose the boundary instead of forcing another exploration pass"
+	case types.CritAllHypothesesDecided:
+		return "some hypotheses remain unresolved; answer composition should preserve the unresolved branch as uncertainty/caveat rather than inventing a decision"
+	case types.CritEvidenceCount, types.CritHasEnoughFacts, types.CritNoRelevantEvidence:
+		return "evidence remained below the preferred validation threshold after accepted closure; answer composition should stay within collected evidence and disclose the scope/evidence boundary"
+	default:
+		return "answer composition should make the user-facing boundary clear when it affects certainty; do not invent facts solely to satisfy the validation criterion"
+	}
+}
+
+func truncateBoundaryNoteField(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	if max == 1 {
+		return "."
+	}
+	if max <= 3 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
 }
 
 func (o *Orchestrator) shouldAutoCompleteExploreWindowFromAcceptedClosure(pendingValidationTargets []string, pendingViolation, pendingStageRetry string) bool {

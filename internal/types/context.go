@@ -126,6 +126,7 @@ type MutableState struct {
 	emittedHypothesisVerdicts        []HypothesisVerdict
 	turnAArtifacts                   *TurnAArtifacts
 	exploreForkTurnABaseNotesLen     int
+	exploreForkTurnABaseBoundaryLen  int
 	exploreForkTurnABaseToolLen      int
 	exploreForkTurnABaseFlowLen      int
 	// cachedLabelSupport memoises the dot-qualified selector / anchor /
@@ -749,6 +750,15 @@ type TurnAArtifacts struct {
 	// language Turn A used.
 	InvestigationNotes []string
 
+	// ValidationBoundaryNotes are system-authored, criterion-derived
+	// notes recorded when an accepted investigation closure is allowed
+	// to proceed even though one or more DAG validation criteria remain
+	// unsatisfied. They are not model prose, not citations, and not a
+	// reason to invent facts; downstream stages use them to converge the
+	// answer surface or disclose an evidence/scope boundary instead of
+	// reopening exploration for inherently under-constrained questions.
+	ValidationBoundaryNotes []string
+
 	// ReadFiles is the de-duplicated list of repository-relative file
 	// paths Turn A fetched via read_file. Used by Turn B to constrain
 	// its emit_evidence / emit_answer_symbol Source citations to
@@ -926,6 +936,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	if m.turnAArtifacts != nil {
 		out.turnAArtifacts = cloneTurnAArtifactsPtr(m.turnAArtifacts)
 		out.exploreForkTurnABaseNotesLen = len(out.turnAArtifacts.InvestigationNotes)
+		out.exploreForkTurnABaseBoundaryLen = len(out.turnAArtifacts.ValidationBoundaryNotes)
 		out.exploreForkTurnABaseToolLen = len(out.turnAArtifacts.ToolResults)
 		out.exploreForkTurnABaseFlowLen = len(out.turnAArtifacts.FlowFindings)
 	}
@@ -955,9 +966,10 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	emitted := append([]EvidenceItem(nil), fork.emittedEvidence...)
 	turnA := cloneTurnAArtifactsPtr(fork.turnAArtifacts)
 	turnABase := turnAArtifactsMergeBase{
-		NotesLen: fork.exploreForkTurnABaseNotesLen,
-		ToolLen:  fork.exploreForkTurnABaseToolLen,
-		FlowLen:  fork.exploreForkTurnABaseFlowLen,
+		NotesLen:              fork.exploreForkTurnABaseNotesLen,
+		ValidationBoundaryLen: fork.exploreForkTurnABaseBoundaryLen,
+		ToolLen:               fork.exploreForkTurnABaseToolLen,
+		FlowLen:               fork.exploreForkTurnABaseFlowLen,
 	}
 	phase1 := append([]Phase1RankedFile(nil), fork.phase1Ranking...)
 	searchGraph := fork.searchGraph
@@ -2833,6 +2845,9 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	if a.InvestigationNotes != nil {
 		snap.InvestigationNotes = append([]string(nil), a.InvestigationNotes...)
 	}
+	if a.ValidationBoundaryNotes != nil {
+		snap.ValidationBoundaryNotes = append([]string(nil), a.ValidationBoundaryNotes...)
+	}
 	if a.ReadFiles != nil {
 		snap.ReadFiles = append([]string(nil), a.ReadFiles...)
 	}
@@ -2871,6 +2886,9 @@ func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
 	if m.turnAArtifacts.InvestigationNotes != nil {
 		out.InvestigationNotes = append([]string(nil), m.turnAArtifacts.InvestigationNotes...)
 	}
+	if m.turnAArtifacts.ValidationBoundaryNotes != nil {
+		out.ValidationBoundaryNotes = append([]string(nil), m.turnAArtifacts.ValidationBoundaryNotes...)
+	}
 	if m.turnAArtifacts.ReadFiles != nil {
 		out.ReadFiles = append([]string(nil), m.turnAArtifacts.ReadFiles...)
 	}
@@ -2901,6 +2919,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	defer m.mu.Unlock()
 	m.turnAArtifacts = nil
 	m.exploreForkTurnABaseNotesLen = 0
+	m.exploreForkTurnABaseBoundaryLen = 0
 	m.exploreForkTurnABaseToolLen = 0
 	m.exploreForkTurnABaseFlowLen = 0
 	m.cachedLabelSupport = nil
@@ -2913,6 +2932,7 @@ func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
 	}
 	out := *in
 	out.InvestigationNotes = append([]string(nil), in.InvestigationNotes...)
+	out.ValidationBoundaryNotes = append([]string(nil), in.ValidationBoundaryNotes...)
 	out.ReadFiles = append([]string(nil), in.ReadFiles...)
 	out.ToolResults = append([]ToolResult(nil), in.ToolResults...)
 	out.EvidenceItems = append([]EvidenceItem(nil), in.EvidenceItems...)
@@ -2922,9 +2942,10 @@ func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
 }
 
 type turnAArtifactsMergeBase struct {
-	NotesLen int
-	ToolLen  int
-	FlowLen  int
+	NotesLen              int
+	ValidationBoundaryLen int
+	ToolLen               int
+	FlowLen               int
 }
 
 func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts, base turnAArtifactsMergeBase) TurnAArtifacts {
@@ -2941,6 +2962,10 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 	merged.InvestigationNotes = append(
 		append([]string(nil), prior.InvestigationNotes...),
 		current.InvestigationNotes[clampMergeSliceBase(base.NotesLen, len(current.InvestigationNotes)):]...,
+	)
+	merged.ValidationBoundaryNotes = append(
+		append([]string(nil), prior.ValidationBoundaryNotes...),
+		current.ValidationBoundaryNotes[clampMergeSliceBase(base.ValidationBoundaryLen, len(current.ValidationBoundaryNotes)):]...,
 	)
 	merged.ReadFiles = mergeStringsForMutable(prior.ReadFiles, current.ReadFiles)
 	merged.ToolResults = append(

@@ -3375,7 +3375,9 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	if plan == nil {
 		return ""
 	}
-	if strings.TrimSpace(plan.StableInvestigationReason) == "" && strings.TrimSpace(plan.StableAbsenceJustification) == "" {
+	if strings.TrimSpace(plan.StableInvestigationReason) == "" &&
+		strings.TrimSpace(plan.StableAbsenceJustification) == "" &&
+		len(plan.StableValidationBoundaryNotes) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -3393,8 +3395,19 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	if justification := strings.TrimSpace(plan.StableAbsenceJustification); justification != "" {
 		fmt.Fprintf(&b, "- absence justification: %s\n", truncateAnswerDocPromptText(justification, 500))
 	}
+	if len(plan.StableValidationBoundaryNotes) > 0 {
+		b.WriteString("- post-closure validation boundaries:\n")
+		for i, note := range plan.StableValidationBoundaryNotes {
+			trimmed := strings.TrimSpace(note)
+			if trimmed == "" {
+				continue
+			}
+			fmt.Fprintf(&b, "  %d. %s\n", i+1, truncateAnswerDocPromptText(trimmed, 700))
+		}
+	}
 	b.WriteString("- Treat this closure as a structured exploration handoff, not as a citation and not as system-written answer text.\n")
 	b.WriteString("- Preserve resolved counts, listed members, excluded candidates, scope boundaries, and verdicts from the closure only when the same value is carried by structured aggregate facts, typed support lanes, current citations, or raw tool outputs below. If unstructured closure prose conflicts with typed member obligations, principal support lanes, or structured aggregate facts, prefer the typed/structured handoff.\n")
+	b.WriteString("- When post-closure validation boundaries say the supported candidate set remains broad, unresolved, or under-constrained, converge the answer by prioritizing/grouping the supported facts and disclose the boundary in summary/caveat text. Do not invent missing precision solely to satisfy a validation criterion.\n")
 	b.WriteString("- Rebuild the user-visible prose yourself inside `emit_answer_document`; do not invent facts beyond the closure/evidence boundary.\n\n")
 	return b.String()
 }

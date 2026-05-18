@@ -18,7 +18,10 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 	original := TurnAArtifacts{
 		UserQuestion:       "what does Foo return?",
 		InvestigationNotes: []string{"iter 1 narrative", "iter 2 narrative"},
-		ReadFiles:          []string{"a.go", "b.go"},
+		ValidationBoundaryNotes: []string{
+			"criterion=answer_set_bounded; downstream=disclose boundary",
+		},
+		ReadFiles: []string{"a.go", "b.go"},
 		ToolResults: []ToolResult{
 			{ToolName: "grep", Summary: "a.go:1", Success: true},
 		},
@@ -44,6 +47,9 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 	}
 	if len(got.InvestigationNotes) != 2 || got.InvestigationNotes[1] != "iter 2 narrative" {
 		t.Errorf("InvestigationNotes not preserved: %+v", got.InvestigationNotes)
+	}
+	if len(got.ValidationBoundaryNotes) != 1 || got.ValidationBoundaryNotes[0] != original.ValidationBoundaryNotes[0] {
+		t.Errorf("ValidationBoundaryNotes not preserved: %+v", got.ValidationBoundaryNotes)
 	}
 	if len(got.ReadFiles) != 2 || got.ReadFiles[0] != "a.go" {
 		t.Errorf("ReadFiles not preserved: %+v", got.ReadFiles)
@@ -113,7 +119,8 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	// pointer must not affect the next read.
 	m := NewMutableState("")
 	m.SetTurnAArtifacts(TurnAArtifacts{
-		ReadFiles: []string{"a.go", "b.go"},
+		ReadFiles:               []string{"a.go", "b.go"},
+		ValidationBoundaryNotes: []string{"boundary 1"},
 		AcceptedAggregateFacts: []AnswerAggregateFact{{
 			Kind:    AnswerAggregateTotalCount,
 			Label:   "matches",
@@ -124,6 +131,7 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	first := m.TurnAArtifacts()
 	first.ReadFiles[0] = "MUTATED.go"
 	first.ReadFiles = append(first.ReadFiles, "c.go")
+	first.ValidationBoundaryNotes[0] = "mutated boundary"
 	first.AcceptedAggregateFacts[0].Members[0] = "mutated.go:1"
 
 	second := m.TurnAArtifacts()
@@ -132,6 +140,9 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	}
 	if len(second.ReadFiles) != 2 {
 		t.Errorf("read-side append leaked back: len=%d", len(second.ReadFiles))
+	}
+	if second.ValidationBoundaryNotes[0] != "boundary 1" {
+		t.Errorf("boundary-note mutation leaked back: %+v", second.ValidationBoundaryNotes)
 	}
 	if second.AcceptedAggregateFacts[0].Members[0] != "a.go:1" {
 		t.Errorf("aggregate fact mutation leaked back: %+v", second.AcceptedAggregateFacts)
@@ -155,12 +166,13 @@ func TestTurnAArtifacts_Reset(t *testing.T) {
 func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 	parent := NewMutableState("")
 	parent.SetTurnAArtifacts(TurnAArtifacts{
-		UserQuestion:          "q",
-		InvestigationNotes:    []string{"base-note"},
-		ReadFiles:             []string{"base.go"},
-		ToolResults:           []ToolResult{{ToolName: "grep", Summary: "base", Success: true}},
-		FlowFindings:          []FlowFindingDigest{{Path: []string{"base"}, Confidence: 0.5}},
-		TerminalEvidenceCount: 1,
+		UserQuestion:            "q",
+		InvestigationNotes:      []string{"base-note"},
+		ValidationBoundaryNotes: []string{"base-boundary"},
+		ReadFiles:               []string{"base.go"},
+		ToolResults:             []ToolResult{{ToolName: "grep", Summary: "base", Success: true}},
+		FlowFindings:            []FlowFindingDigest{{Path: []string{"base"}, Confidence: 0.5}},
+		TerminalEvidenceCount:   1,
 	})
 
 	fork1 := parent.ForkForExploreDispatch()
@@ -168,6 +180,7 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 
 	ta1 := fork1.TurnAArtifacts()
 	ta1.InvestigationNotes = append(ta1.InvestigationNotes, "fork1-note")
+	ta1.ValidationBoundaryNotes = append(ta1.ValidationBoundaryNotes, "fork1-boundary")
 	ta1.ReadFiles = append(ta1.ReadFiles, "fork1.go")
 	ta1.ToolResults = append(ta1.ToolResults, ToolResult{ToolName: "read_file", Summary: "fork1", Success: true})
 	ta1.FlowFindings = append(ta1.FlowFindings, FlowFindingDigest{Path: []string{"fork1"}, Confidence: 0.7})
@@ -176,6 +189,7 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 
 	ta2 := fork2.TurnAArtifacts()
 	ta2.InvestigationNotes = append(ta2.InvestigationNotes, "fork2-note")
+	ta2.ValidationBoundaryNotes = append(ta2.ValidationBoundaryNotes, "fork2-boundary")
 	ta2.ReadFiles = append(ta2.ReadFiles, "fork2.go")
 	ta2.ToolResults = append(ta2.ToolResults, ToolResult{ToolName: "read_file", Summary: "fork2", Success: true})
 	ta2.FlowFindings = append(ta2.FlowFindings, FlowFindingDigest{Path: []string{"fork2"}, Confidence: 0.8})
@@ -191,6 +205,9 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 	}
 	if len(got.InvestigationNotes) != 3 {
 		t.Fatalf("notes = %+v, want base + two fork deltas", got.InvestigationNotes)
+	}
+	if len(got.ValidationBoundaryNotes) != 3 {
+		t.Fatalf("boundary notes = %+v, want base + two fork deltas", got.ValidationBoundaryNotes)
 	}
 	if len(got.ToolResults) != 3 {
 		t.Fatalf("tool results = %+v, want base + two fork deltas", got.ToolResults)
