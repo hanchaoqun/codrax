@@ -80,6 +80,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		if len(lines) == 0 {
 			return
 		}
+		r.bindLiveEventStageLocked(string(ev.Stage))
 		if !r.dockEnabled && r.dock == nil {
 			r.handleEventNonTTY(ev)
 			return
@@ -92,6 +93,18 @@ func (r *Renderer) handleEvent(ev Event) {
 		if line == "" {
 			return
 		}
+		r.bindLiveEventStageLocked(string(ev.Stage))
+		detail := ev.ToolName
+		if detail == "" && len(ev.ToolNames) > 0 {
+			detail = strings.Join(ev.ToolNames, ", ")
+		}
+		if ev.ToolDetail != "" {
+			if detail != "" {
+				detail += " "
+			}
+			detail += ev.ToolDetail
+		}
+		r.activity = activityState{kind: activityCallingTool, detail: detail}
 		if !r.dockEnabled && r.dock == nil {
 			r.handleEventNonTTY(ev)
 			return
@@ -104,7 +117,11 @@ func (r *Renderer) handleEvent(ev Event) {
 		// glance whether a line is the LLM thinking aloud or the
 		// orchestrator announcing a control-flow decision.
 		scanProgressOnly := ev.NoticeKind == NoticeRepoMapScanProgress
-		line := r.formatOrchestratorNoticeLocked(ev.NoticeKind, ev.Reasoning)
+		scanDone := ev.NoticeKind == NoticeRepoMapScanOK || ev.NoticeKind == NoticeRepoMapScanFail
+		if ev.Stage != "" && !scanDone {
+			r.bindLiveEventStageLocked(string(ev.Stage))
+		}
+		line := r.formatOrchestratorNoticeLocked(ev.NoticeKind, ev.Reasoning, string(ev.Stage))
 		if line == "" {
 			return
 		}
@@ -123,6 +140,9 @@ func (r *Renderer) handleEvent(ev Event) {
 			if r.activity.kind == activityRepoMapScanning {
 				r.activity = activityState{kind: activityWaitingNode}
 				r.streamTail = ""
+			}
+			if localStageKeyMatchesStageKey(r.localStageKey, string(ev.Stage)) {
+				r.localStageKey = ""
 			}
 		}
 		if !r.dockEnabled && r.dock == nil {
@@ -420,6 +440,9 @@ func (r *Renderer) handleEvent(ev Event) {
 			r.localStageKey = ""
 		}
 		if row := r.findNodeRow(ev.NodeID); row != nil {
+			if localStageKeyMatchesStageKey(r.localStageKey, stageKeyFor(row)) {
+				r.localStageKey = ""
+			}
 			row.pending = false
 			row.paused = false
 			row.endTime = ev.Timestamp
@@ -469,6 +492,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.streamTail = ""
 
 	case EventAgentThinking:
+		r.bindLiveEventStageLocked(string(ev.Stage))
 		r.recordLLMRequestTelemetry(ev)
 		if r.parallel != nil {
 			r.parallel.setUnitActivity(ev, activityRequesting, "", "")
@@ -494,6 +518,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 
 	case EventLLMRequestStart:
+		r.bindLiveEventStageLocked(string(ev.Stage))
 		r.recordLLMRequestTelemetry(ev)
 		if r.parallel != nil {
 			r.parallel.setUnitActivity(ev, activityRequesting, "", "")
@@ -507,6 +532,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 
 	case EventAgentResponse:
+		r.bindLiveEventStageLocked(string(ev.Stage))
 		// The LLM call has returned; any remaining work before the
 		// next visible tool/stage event is local parsing, validation, or
 		// context assembly. Do not leave row 1 claiming "请求模型中"
@@ -528,6 +554,7 @@ func (r *Renderer) handleEvent(ev Event) {
 
 	case EventAgentContent:
 		if ev.Reasoning != "" {
+			r.bindLiveEventStageLocked(string(ev.Stage))
 			preview := stripMarkdown(ev.Reasoning)
 			preview = strings.Join(strings.Fields(preview), " ")
 			tail := tailByDisplayWidth(preview, streamTailDisplayCols)
@@ -544,6 +571,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 
 	case EventToolCallStart:
+		r.bindLiveEventStageLocked(string(ev.Stage))
 		// Skip detail mutation when the active row has already
 		// terminated (endTime != 0). A late tool-call event on a
 		// finished row would otherwise reactivate its detail line
@@ -566,6 +594,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 
 	case EventToolCallEnd:
+		r.bindLiveEventStageLocked(string(ev.Stage))
 		if r.parallel != nil {
 			r.parallel.setUnitActivity(ev, activityRequesting, "", "")
 		}
@@ -1368,6 +1397,36 @@ func (r *Renderer) localStagePresentationKeyLocked() string {
 	return key
 }
 
+// bindLiveEventStageLocked makes row 2 follow the typed stage carried
+// by live LLM/tool/progress events. This is deliberately event-field
+// based: the renderer must not infer stage ownership from prose tails
+// such as "接收中 ▸ ...", because those tails are noisy model/output
+// content. A live explore event may arrive while the topology fallback
+// already points at extract; in that window the status line should
+// still name the work that is actually producing bytes right now.
+//
+// Caller MUST hold r.mu.
+func (r *Renderer) bindLiveEventStageLocked(stage string) {
+	key := canonicalStageKey(stage)
+	if key == "" {
+		return
+	}
+	r.localStageKey = key
+	r.clearParallelIfStageKeyOutsideLocked(key)
+}
+
+func localStageKeyMatchesStageKey(localKey, stageKey string) bool {
+	localKey = canonicalStageKey(localKey)
+	stageKey = canonicalStageKey(stageKey)
+	if localKey == "" || stageKey == "" {
+		return false
+	}
+	if localKey == stageKey {
+		return true
+	}
+	return isExploreFamilyStageKey(localKey) && isExploreFamilyStageKey(stageKey)
+}
+
 func (r *Renderer) localStageOverridesFocusLocked(focus *taskRow, localKey string) bool {
 	if focus == nil || localKey == "" {
 		return true
@@ -1804,8 +1863,15 @@ func orchestratorNoticeStyle(kind OrchestratorNoticeKind) *pterm.Style {
 // inserted between the glyph and the body when available.
 //
 // Caller MUST hold r.mu.
-func (r *Renderer) formatOrchestratorNoticeLocked(kind OrchestratorNoticeKind, text string) string {
-	return formatOrchestratorNoticeWithProgress(kind, text, r.softNoticeStageProgressLocked())
+func (r *Renderer) formatOrchestratorNoticeLocked(kind OrchestratorNoticeKind, text string, stage string) string {
+	progress := ""
+	if key := canonicalStageKey(stage); key != "" {
+		progress = progressForStageKey(key, normalizedTotalStages(r.totalStages))
+	}
+	if progress == "" {
+		progress = r.softNoticeStageProgressLocked()
+	}
+	return formatOrchestratorNoticeWithProgress(kind, text, progress)
 }
 
 // formatOrchestratorNotice keeps the old test/non-context entry point.
@@ -2206,7 +2272,7 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 		// LLM-thinking prefix or stage-round trace label so log scrapers and
 		// CI operators read the same "this is the orchestrator
 		// talking, not the LLM" cue.
-		if line := r.formatOrchestratorNoticeLocked(ev.NoticeKind, ev.Reasoning); line != "" {
+		if line := r.formatOrchestratorNoticeLocked(ev.NoticeKind, ev.Reasoning, string(ev.Stage)); line != "" {
 			r.emitNonTTYLine(line)
 		}
 	case EventAdapterRetry:

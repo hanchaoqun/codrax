@@ -588,6 +588,7 @@ func (o *Orchestrator) EmitMultiRepoScanNotice(rootRel, slug string, started, ok
 		Kind:       render.EventOrchestratorNotice,
 		Timestamp:  time.Now(),
 		Agent:      "orchestrator",
+		Stage:      o.currentNoticeStage(),
 		NoticeKind: noticeKind,
 		Reasoning:  msg,
 	})
@@ -618,9 +619,20 @@ func (o *Orchestrator) EmitRepoMapScanNotice(ev types.RepoMapScanEvent) {
 		Kind:       render.EventOrchestratorNotice,
 		Timestamp:  time.Now(),
 		Agent:      "orchestrator",
+		Stage:      o.currentNoticeStage(),
 		NoticeKind: noticeKind,
 		Reasoning:  repoMapScanMessage(lang, ev),
 	})
+}
+
+func (o *Orchestrator) currentNoticeStage() types.PipelineStage {
+	if o == nil || o.busCtx == nil {
+		return ""
+	}
+	if o.busCtx.PipelineStage != "" {
+		return o.busCtx.PipelineStage
+	}
+	return o.busCtx.TaskState.Stage
 }
 
 // SetMaxSteps overrides the maximum number of pipeline steps (default 50).

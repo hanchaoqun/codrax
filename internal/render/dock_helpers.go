@@ -179,7 +179,7 @@ func fallbackBarPrimaryText(row *taskRow, lang string, activity activityKind) st
 // streaming response). Idle / queued / waiting states return false.
 func activityIsLive(kind activityKind) bool {
 	switch kind {
-	case activityRequesting, activityReceiving, activityCallingTool, activityFinalizing:
+	case activityRequesting, activityReceiving, activityCallingTool, activityRepoMapScanning, activityFinalizing:
 		return true
 	}
 	return false

@@ -629,6 +629,151 @@ func TestRenderer_DockGapAfterExploreShowsExtractBeforeFinalize(t *testing.T) {
 	}
 }
 
+func TestRenderer_LiveExploreContentAnchorsDockBeforeExtractFallback(t *testing.T) {
+	var out strings.Builder
+	r := newTestRenderer("zh")
+	r.SetOutput(&out)
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	seedRendererAfterExploreComplete(emit, t0)
+
+	emit(Event{
+		Kind:      EventAgentContent,
+		Timestamp: t0.Add(50 * time.Millisecond),
+		Stage:     "explore",
+		Agent:     "explorer",
+		Reasoning: `ents": {"path": "java/com/android/server/am/ActivityManagerService.java"`,
+	})
+
+	rows := r.composeCurrentDockRows()
+	row1 := stripAnsiEscapes(rows[0])
+	row2 := stripAnsiEscapes(rows[1])
+	if !strings.Contains(row1, "接收中") {
+		t.Fatalf("explore stream content must show receiving activity; got row1=%q", row1)
+	}
+	for _, want := range []string{"2/4", "正在探索代码并收集证据"} {
+		if !strings.Contains(row2, want) {
+			t.Fatalf("live explore content must anchor row2 to explore, missing %q: %q", want, row2)
+		}
+	}
+	if strings.Contains(row2, "3/4") || strings.Contains(row2, "提炼关键发现") {
+		t.Fatalf("live explore content must not be presented as extract; got %q", row2)
+	}
+}
+
+func TestRenderer_LiveExploreToolBatchAnchorsDockBeforeExtractFallback(t *testing.T) {
+	var out strings.Builder
+	r := newTestRenderer("zh")
+	r.SetOutput(&out)
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	seedRendererAfterExploreComplete(emit, t0)
+
+	emit(Event{
+		Kind:          EventAgentToolCallBatch,
+		Timestamp:     t0.Add(50 * time.Millisecond),
+		Stage:         "explore",
+		Agent:         "explorer",
+		Iteration:     0,
+		ToolNames:     []string{"grep"},
+		ToolCallCount: 5,
+	})
+
+	row2 := stripAnsiEscapes(r.composeCurrentDockRows()[1])
+	for _, want := range []string{"2/4", "正在探索代码并收集证据"} {
+		if !strings.Contains(row2, want) {
+			t.Fatalf("explore tool batch must anchor row2 to explore, missing %q: %q", want, row2)
+		}
+	}
+	if strings.Contains(row2, "3/4") || strings.Contains(row2, "提炼关键发现") {
+		t.Fatalf("explore tool batch must not be presented as extract; got %q", row2)
+	}
+}
+
+func TestRenderer_RepoMapNoticeUsesExplicitEventStage(t *testing.T) {
+	var out strings.Builder
+	r := newTestRenderer("zh")
+	r.SetOutput(&out)
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	seedRendererAfterExploreComplete(emit, t0)
+
+	emit(Event{
+		Kind:       EventOrchestratorNotice,
+		Timestamp:  t0.Add(50 * time.Millisecond),
+		Stage:      "explore",
+		NoticeKind: NoticeRepoMapScanProgress,
+		Reasoning:  "· 仓库索引 `core` 扫描中：已解析 400/1200 个源文件",
+	})
+
+	persistent := stripAnsiEscapes(out.String())
+	if !strings.Contains(persistent, "· 2/4 仓库索引 `core` 扫描中") {
+		t.Fatalf("repo_map notice must use its explicit explore stage, got output:\n%s", persistent)
+	}
+	if strings.Contains(persistent, "· 3/4 仓库索引") {
+		t.Fatalf("repo_map notice must not inherit extract fallback progress, got output:\n%s", persistent)
+	}
+	row2 := stripAnsiEscapes(r.composeCurrentDockRows()[1])
+	for _, want := range []string{"2/4", "正在探索代码并收集证据"} {
+		if !strings.Contains(row2, want) {
+			t.Fatalf("repo_map scan activity must anchor row2 to explore, missing %q: %q", want, row2)
+		}
+	}
+}
+
+func TestRenderer_LiveExploreStageClearsWhenNodeEnds(t *testing.T) {
+	var out strings.Builder
+	r := newTestRenderer("zh")
+	r.SetOutput(&out)
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: t0,
+		TaskNodes: []TaskNodeInfo{
+			{ID: "n1_evidence_t0", Type: "evidence", Objective: "topic A"},
+			{ID: "final", Type: "finalize", Objective: "render"},
+		},
+	})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(10 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{
+		Kind:      EventAgentContent,
+		Timestamp: t0.Add(20 * time.Millisecond),
+		Stage:     "explore",
+		Agent:     "explorer",
+		Reasoning: "reading ActivityManagerService",
+	})
+	if row2 := stripAnsiEscapes(r.composeCurrentDockRows()[1]); !strings.Contains(row2, "2/4") {
+		t.Fatalf("live explore content should own row2 before node end; got %q", row2)
+	}
+
+	emit(Event{Kind: EventTaskNodeEnd, Timestamp: t0.Add(30 * time.Millisecond), NodeID: "n1_evidence_t0"})
+
+	row2 := stripAnsiEscapes(r.composeCurrentDockRows()[1])
+	if !strings.Contains(row2, "3/4") || !strings.Contains(row2, "待提炼关键发现") {
+		t.Fatalf("finished explore node must release live-stage ownership to extract fallback; got %q", row2)
+	}
+}
+
+func seedRendererAfterExploreComplete(emit EventEmitter, t0 time.Time) {
+	emit(Event{Kind: EventStageStart, Timestamp: t0, Stage: "analyze", Agent: "analyzer"})
+	emit(Event{Kind: EventStageEnd, Timestamp: t0.Add(10 * time.Millisecond), Stage: "analyze", Agent: "analyzer"})
+	emit(Event{
+		Kind:      EventAnalysisReady,
+		Timestamp: t0.Add(20 * time.Millisecond),
+		TaskNodes: []TaskNodeInfo{
+			{ID: "n1_evidence_t0", Type: "evidence", Objective: "topic A"},
+			{ID: "final", Type: "finalize", Objective: "render"},
+		},
+	})
+	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(30 * time.Millisecond), NodeID: "n1_evidence_t0"})
+	emit(Event{Kind: EventTaskNodeEnd, Timestamp: t0.Add(40 * time.Millisecond), NodeID: "n1_evidence_t0"})
+}
+
 func TestRenderer_DockSuppressesPreFinalizeLocalLeapfrogBeforeExtract(t *testing.T) {
 	r := newTestRenderer("zh")
 	r.totalStages = 4
