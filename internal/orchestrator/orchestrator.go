@@ -4850,6 +4850,18 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			}
 		}
 
+		if scOK && len(res.Violations) > 0 && o.tryAutoRepairFinalizerAnswerDocument(out, res.Violations) {
+			logging.Info("[orchestrator] finalizer auto-repair applied for deterministic answer-document metadata/inline-code issues; re-running contract check")
+			stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "answer_contract_check_auto_repair")
+			res = runContractCheck(out, ir.AnswerContract, o.busCtx.Mutable, o)
+			if len(res.Violations) > 0 {
+				res.Violations = ComputeRootCauseClosure(res.Violations)
+			}
+			if o.finishSchedulerLocalWork(stopLocal, "answer_contract_check_auto_repair", stepsUsed) {
+				return stepsUsed
+			}
+		}
+
 		// Phase 2.B Tier 2 ERM completeness hard gate (post-finalize,
 		// answer-aware). Runs AFTER finalize composes the
 		// AnswerDocumentV2 + AFTER contract violations have been
