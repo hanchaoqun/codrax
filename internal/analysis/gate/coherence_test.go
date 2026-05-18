@@ -303,6 +303,10 @@ func TestSubtopicCoherence_R1_5_ArchitectureDesignAxisAdvisoryOnly(t *testing.T)
 	rm := types.RequestModel{
 		Intent:   types.IntentExplain,
 		Scenario: types.ScenarioArchitectureExplain,
+		AnswerSubject: types.AnswerSubject{
+			Kind:       types.SubjectGeneric,
+			Confidence: 0.9,
+		},
 		Predicates: types.SemanticPredicates{
 			IsCrossComponent: true,
 		},

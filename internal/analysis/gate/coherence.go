@@ -488,7 +488,8 @@ func subtopicResolverAsymmetryShouldBeAdvisory(rm types.RequestModel) bool {
 	// Keep exact lookup / enumeration / diagnostic / scalar shapes on the
 	// stricter path: in those families an unresolvable sub-topic entity is
 	// much more likely to be a real IR contradiction than a broad design
-	// axis.
+	// axis. SubjectGeneric is intentionally not treated as precise; it is
+	// the broad fallback used by design/architecture answers.
 	if rm.Intent != types.IntentExplain || rm.Scenario != types.ScenarioArchitectureExplain {
 		return false
 	}
@@ -499,10 +500,12 @@ func subtopicResolverAsymmetryShouldBeAdvisory(rm types.RequestModel) bool {
 		rm.Predicates.IsDiagnosticQuestion {
 		return false
 	}
-	if rm.AnswerSubject.Kind != "" &&
-		rm.AnswerSubject.Kind != types.SubjectUnknown &&
-		float32(rm.AnswerSubject.Confidence) >= coherenceSubjectConfidenceFloor {
-		return false
+	switch rm.AnswerSubject.Kind {
+	case types.SubjectUnknown, types.SubjectGeneric:
+	default:
+		if float32(rm.AnswerSubject.Confidence) >= coherenceSubjectConfidenceFloor {
+			return false
+		}
 	}
 	return true
 }
