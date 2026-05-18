@@ -9,6 +9,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -299,6 +300,76 @@ func TestRunTaskGraph_AutoCompletesReconcileFromExistingEvidence(t *testing.T) {
 	}
 }
 
+func TestRunTaskGraph_InvestigationReadyNoticeAfterReconcileDone(t *testing.T) {
+	ir := dagIR(types.AnswerContract{Language: "zh"})
+	reconcile := types.TaskNode{
+		ID:              "n_reconcile",
+		Type:            types.NodeReconcile,
+		Objective:       "归纳已经收集到的探索结果",
+		EntryConditions: []types.Criterion{{Kind: types.CritHasEnoughFacts}},
+	}
+	finalize := ir.TaskGraph.Nodes[len(ir.TaskGraph.Nodes)-1]
+	ir.TaskGraph.Nodes = append(append([]types.TaskNode(nil), ir.TaskGraph.Nodes[:3]...), reconcile, finalize)
+	ir.TaskGraph.Edges = []types.TaskEdge{
+		{From: "n0", To: "n1", EdgeType: types.EdgeHardDependency},
+		{From: "n1", To: "n2", EdgeType: types.EdgeHardDependency},
+		{From: "n2", To: "n_reconcile", EdgeType: types.EdgeHardDependency},
+		{From: "n_reconcile", To: "n3", EdgeType: types.EdgeHardDependency},
+		{From: "n2", To: "n1", EdgeType: types.EdgeValidationFeedback},
+	}
+	ir.TaskGraph.ExecutionPolicy.CriticalPath = []string{"n0", "n1", "n2", "n_reconcile", "n3"}
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			ctx.Mutable.SetInvestigationComplete("模型已明确完成探索")
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				EvidenceItems: []types.EvidenceItem{{ID: "ev", Source: "src.go", LineStart: 1}},
+			}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "ok"}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	var events []render.Event
+	o.SetEmitter(func(ev render.Event) {
+		events = append(events, ev)
+	})
+
+	if _, err := o.Run("解释当前实现", "/tmp/repo", "main"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	reconcileEnd := -1
+	notice := -1
+	for i, ev := range events {
+		if ev.Kind == render.EventTaskNodeEnd && ev.NodeID == "n_reconcile" {
+			reconcileEnd = i
+		}
+		if ev.Kind == render.EventOrchestratorNotice && ev.NoticeKind == render.NoticeInvestigationReady {
+			notice = i
+		}
+	}
+	if reconcileEnd < 0 {
+		t.Fatalf("missing reconcile terminal event; events=%v", events)
+	}
+	if notice < 0 {
+		t.Fatalf("missing investigation-ready notice; events=%v", events)
+	}
+	if notice < reconcileEnd {
+		t.Fatalf("investigation-ready notice must come after reconcile completion, got notice=%d reconcileEnd=%d", notice, reconcileEnd)
+	}
+}
+
 func TestRunTaskGraph_ExplorerRetryHintRequeuesBeforeExtract(t *testing.T) {
 	var explorerCalls, extractorCalls, finalizeCalls int
 	var observedExplorerHints []string
@@ -413,6 +484,53 @@ func TestRunTaskGraph_ContractFailureBacktracks(t *testing.T) {
 	}
 	if finalizeCalls != 2 {
 		t.Errorf("finalize calls: want 2, got %d", finalizeCalls)
+	}
+}
+
+func TestRunTaskGraph_SoftConcernDoesNotAttachFirstDraftReference(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	var finalizeCalls int
+	ir := dagIR(types.AnswerContract{
+		Language: "zh",
+		CitationReq: types.CitationReq{
+			Required:     true,
+			Granularity:  "file_line",
+			MinCitations: 3,
+		},
+	})
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "这是一份可交付答案，但没有足够的 file:line 引用。",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("解释 X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("soft concern should not trigger a finalizer rewrite, finalizeCalls=%d", finalizeCalls)
+	}
+	got := busCtx.Mutable.Result()
+	for _, forbidden := range []string{"第一稿答案", "第一稿仍有", "便于对照"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("accepted first draft with only soft concerns must not be duplicated as a reference attachment; found %q in:\n%s", forbidden, got)
+		}
 	}
 }
 

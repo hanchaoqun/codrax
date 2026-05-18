@@ -554,7 +554,7 @@ func renderAnswerDisplayAttachments(doc *types.AnswerDocumentV2, attachments []t
 	if len(attachments) == 0 {
 		return ""
 	}
-	seen := answerDocumentVisibleAttachmentKeys(doc)
+	seen := answerDocumentVisibleAttachmentKeys(doc, lang)
 	var b strings.Builder
 	rendered := 0
 	for _, att := range attachments {
@@ -583,10 +583,14 @@ func renderAnswerDisplayAttachments(doc *types.AnswerDocumentV2, attachments []t
 	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
-func answerDocumentVisibleAttachmentKeys(doc *types.AnswerDocumentV2) map[string]bool {
+func answerDocumentVisibleAttachmentKeys(doc *types.AnswerDocumentV2, lang answerDocLang) map[string]bool {
 	seen := map[string]bool{}
 	if doc == nil {
 		return seen
+	}
+	if full := strings.TrimSpace(RenderAnswerDocument(doc, answerDocLangCode(lang))); full != "" {
+		seen[displayAttachmentKey(types.AnswerDisplayAttachmentMarkdown, full)] = true
+		seen[displayAttachmentKey(types.AnswerDisplayAttachmentText, full)] = true
 	}
 	for _, blk := range doc.Blocks {
 		if blk.Diagram != nil {
@@ -601,6 +605,13 @@ func answerDocumentVisibleAttachmentKeys(doc *types.AnswerDocumentV2) map[string
 		}
 	}
 	return seen
+}
+
+func answerDocLangCode(lang answerDocLang) string {
+	if lang == answerDocLangZH {
+		return "zh"
+	}
+	return "en"
 }
 
 func answerDocumentStructuredDiagramBodyKeys(doc *types.AnswerDocumentV2) map[string]bool {

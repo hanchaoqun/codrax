@@ -3956,6 +3956,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	var lastFinalize *agent.StageOutput
 	var firstFinalizeDraft string
 	var firstFinalizeConcerns []types.Violation
+	firstFinalizeRejectedForRewrite := false
 	preFinalizeExtractCompleted := false
 
 	// lastFallbackFinalizerOnly latches when the previous loop
@@ -4008,6 +4009,14 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	// This matches the doc's "jump directly" wording and saves one
 	// loop tick of no-op work.
 	forceFinalizeTriggered := false
+
+	// Defer the "investigation done, preparing the answer" notice
+	// until the scheduler has emitted every explore-family terminal
+	// row. Accepted emit_investigation_complete can arrive while the
+	// current window is still validate/evidence; the following loop
+	// may auto-complete a reconcile node. Emitting the notice at the
+	// acceptance point makes the scrollback read 2/4 → 3/4 → 2/4.
+	investigationReadyNoticePending := false
 
 	// Shape-guard state for the scheduler's pure-read predicates.
 	// `lastStopShape` holds the envShape from the iteration where
@@ -4344,13 +4353,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 						state.markDone(n.ID)
 						o.emitNodeEnd(n.ID, true, "")
 					}
-					o.emit(render.Event{
-						Kind:       render.EventOrchestratorNotice,
-						Timestamp:  time.Now(),
-						Agent:      "orchestrator",
-						NoticeKind: render.NoticeInvestigationReady,
-						Reasoning:  softInvestigationReadyMessage(o.busCtx.Language),
-					})
+					investigationReadyNoticePending = true
 					stopLocal = o.startSchedulerLocalWork(types.StageExplore, "auto_verdicts")
 					o.runAutoVerdicts()
 					if o.finishSchedulerLocalWork(stopLocal, "auto_verdicts", stepsUsed) {
@@ -4602,6 +4605,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				}
 				state.recordRetry()
 				pendingViolation = msg
+				investigationReadyNoticePending = false
 				// Tier-1 floor violation is semantically "we do not yet
 				// have enough evidence to build a trustworthy answer,
 				// running one more pass". The full msg (with tool-name
@@ -4628,12 +4632,23 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		if handled {
 			if out == nil {
 				pendingViolation = retryMsg
+				investigationReadyNoticePending = false
 				continue
 			}
 			lastFinalize = out
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")
 			break
+		}
+		if investigationReadyNoticePending {
+			o.emit(render.Event{
+				Kind:       render.EventOrchestratorNotice,
+				Timestamp:  time.Now(),
+				Agent:      "orchestrator",
+				NoticeKind: render.NoticeInvestigationReady,
+				Reasoning:  softInvestigationReadyMessage(o.busCtx.Language),
+			})
+			investigationReadyNoticePending = false
 		}
 
 		// Full Turn B extract dispatch — runs once, just before
@@ -5015,9 +5030,6 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			}
 		}
 
-		if len(firstFinalizeConcerns) == 0 && strings.TrimSpace(out.FinalAnswer) == firstFinalizeDraft {
-			firstFinalizeConcerns = append([]types.Violation(nil), res.Violations...)
-		}
 		if !o.strictAnswerReviewEnabledValue() {
 			if actionable := FilterFinalizerRetryRootViolations(res.Violations); len(actionable) > 0 {
 				o.attachDraftReviewNote(out, strictReviewDisabledTitle(o.busCtx.Language), actionable)
@@ -5074,6 +5086,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")
 			break
+		}
+		if !firstFinalizeRejectedForRewrite {
+			firstFinalizeRejectedForRewrite = true
+			firstFinalizeConcerns = append([]types.Violation(nil), retryViolations...)
 		}
 		retryRes := res
 		retryRes.Violations = retryViolations
@@ -5669,7 +5685,7 @@ contractFailureBreak:
 	}
 
 	if o.strictAnswerReviewEnabledValue() {
-		o.attachFirstDraftReference(lastFinalize, firstFinalizeDraft, firstFinalizeConcerns)
+		o.attachFirstDraftReference(lastFinalize, firstFinalizeDraft, firstFinalizeConcerns, firstFinalizeRejectedForRewrite)
 	}
 	o.recordTaskFinalize(lastFinalize)
 	o.emitCGECSummary()
@@ -6517,8 +6533,16 @@ func (o *Orchestrator) injectInconclusiveForStuckHypotheses(stuckNodeID string) 
 	return len(injected)
 }
 
-func (o *Orchestrator) attachFirstDraftReference(out *agent.StageOutput, firstDraft string, concerns []types.Violation) {
+func (o *Orchestrator) attachFirstDraftReference(out *agent.StageOutput, firstDraft string, concerns []types.Violation, rejectedForRewrite bool) {
 	if o == nil || out == nil {
+		return
+	}
+	// This is the only final-answer path that may show a full
+	// "first draft" reference. It must be reserved for an actually
+	// rejected draft that caused a later finalizer rewrite. Soft
+	// concerns on an accepted first draft are surfaced as caveats or
+	// notes, not by duplicating the answer under a comparison panel.
+	if !rejectedForRewrite {
 		return
 	}
 	firstDraft = strings.TrimSpace(firstDraft)

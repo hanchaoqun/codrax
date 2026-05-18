@@ -695,6 +695,26 @@ func TestRenderV2_WithRecoveredTextAttachmentUsesDivider(t *testing.T) {
 	}
 }
 
+func TestRenderV2_DedupesRecoveredTextAttachmentMatchingRenderedAnswer(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "主体答案。",
+		}},
+	}
+	out := RenderAnswerDocumentWithAttachments(doc, []types.AnswerDisplayAttachment{{
+		Kind: types.AnswerDisplayAttachmentText,
+		Body: RenderAnswerDocument(doc, "zh"),
+	}}, "zh")
+	if strings.Contains(out, "系统保留内容") || strings.Contains(out, "保留的原文") {
+		t.Fatalf("attachment identical to the final rendered answer must be suppressed:\n%s", out)
+	}
+	if strings.Count(out, "主体答案。") != 1 {
+		t.Fatalf("final answer should render exactly once:\n%s", out)
+	}
+}
+
 func TestRenderV2_BlockCaveat(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
