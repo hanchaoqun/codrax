@@ -284,8 +284,13 @@ func (e *answerDocumentEvaluator) rejectHintBudget() int {
 // repeats the skill's contract text.
 func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	e.retriesUsed = 0
+	e.proseFallbackRequested = false
 	e.rejectHintsUsed = 0
+	e.emitFullDocFailStreak = 0
+	e.emitPatchNudgeFired = false
+	e.forceFullEmitNext = false
 	e.language = extractAnswerDocLang(ctx)
+	e.mu = nil
 	e.diagramRequired = false
 	e.diagramMinimum = 0
 	e.diagramKinds = nil

@@ -3660,6 +3660,39 @@ func TestAnswerDocumentEvaluator_LanguageCapture(t *testing.T) {
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstructionResetsDispatchState(t *testing.T) {
+	staleMu := types.NewMutableState("")
+	freshMu := types.NewMutableState("")
+	e := &answerDocumentEvaluator{
+		mu:                     staleMu,
+		retriesUsed:            2,
+		proseFallbackRequested: true,
+		rejectHintsUsed:        3,
+		emitFullDocFailStreak:  4,
+		emitPatchNudgeFired:    true,
+		forceFullEmitNext:      true,
+		diagramRequired:        true,
+		diagramMinimum:         1,
+		diagramKinds:           []types.DiagramKind{types.DiagramSequence},
+		configTraceDiagram:     true,
+	}
+	e.BuildInitialInstruction(&types.AgentContext{
+		Mutable: freshMu,
+	}, nil)
+	if e.mu != freshMu {
+		t.Fatalf("mutable state should be rebound per dispatch")
+	}
+	if e.retriesUsed != 0 || e.proseFallbackRequested || e.rejectHintsUsed != 0 ||
+		e.emitFullDocFailStreak != 0 || e.emitPatchNudgeFired || e.forceFullEmitNext {
+		t.Fatalf("dispatch counters/latches not reset: retries=%d prose=%t reject=%d fullStreak=%d patchNudge=%t forceFull=%t",
+			e.retriesUsed, e.proseFallbackRequested, e.rejectHintsUsed, e.emitFullDocFailStreak, e.emitPatchNudgeFired, e.forceFullEmitNext)
+	}
+	if e.diagramRequired || e.diagramMinimum != 0 || len(e.diagramKinds) != 0 || e.configTraceDiagram {
+		t.Fatalf("dispatch presentation state not reset: required=%t min=%d kinds=%v configTrace=%t",
+			e.diagramRequired, e.diagramMinimum, e.diagramKinds, e.configTraceDiagram)
+	}
+}
+
 // softStopObs builds a minimal PhaseSoftStop LoopObservation for the
 // Observe tests — all the answer-document evaluator cares about is
 // Phase; the rest of the fields can stay zero.
