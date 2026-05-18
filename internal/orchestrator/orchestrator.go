@@ -6726,7 +6726,11 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	preflightStart := time.Now()
 	ctxBuildStart := time.Now()
 	logging.Debug("[orchestrator] preflight: stage=%s agent=%s phase=build_agent_context start", stage, agentName)
+	stopLocal := o.startSchedulerLocalWork(stage, "build_agent_context")
 	agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, agentName, stage)
+	if stopLocal != nil {
+		stopLocal()
+	}
 	logging.Debug("[orchestrator] preflight: stage=%s agent=%s phase=build_agent_context done elapsed=%s evidence=%d reports=%d symbols=%d",
 		stage, agentName, time.Since(ctxBuildStart).Round(time.Millisecond),
 		len(agentCtx.EvidenceItems), len(agentCtx.PriorReports), len(agentCtx.AnswerSymbols))

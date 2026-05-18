@@ -2371,6 +2371,14 @@ func (b *BaseAgent) startPreflightWatchdog(ctx *types.AgentContext, phase string
 	if ctx != nil {
 		stage = string(ctx.Stage)
 	}
+	if b.deps.Emit != nil && ctx != nil {
+		b.deps.Emit(render.Event{
+			Kind:      render.EventLocalWorkStart,
+			Timestamp: time.Now(),
+			Agent:     agentName,
+			Stage:     ctx.Stage,
+		})
+	}
 	start := time.Now()
 	logging.Debug("[diag %s] phase=%s stage=%s start", agentName, phase, stage)
 

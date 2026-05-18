@@ -370,6 +370,20 @@ func (r *Renderer) SetTotalStages(total int) {
 	r.totalStages = total
 }
 
+// SpinnerActive reports whether the live dock is currently attached.
+// REPL routing starts the spinner before turn-policy classification so
+// slow classifiers do not leave a blank terminal; light-route handlers
+// use this to decide whether to close that pre-armed dock or emit their
+// standalone summary line.
+func (r *Renderer) SpinnerActive() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.dock != nil
+}
+
 // SetDockEnabled controls whether the live 3-row dock is drawn. Set
 // to false when --log-stdout is active so logger output to stdout
 // can't tear the dock's anchor. When false, every event still

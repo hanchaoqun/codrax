@@ -920,6 +920,10 @@ func (r *REPL) lastAnswerText() string {
 // so the local-route guarantees still hold (no runner.Run call).
 func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer string) {
 	if r.chitchatResponder == nil {
+		if r.renderer != nil && r.renderer.SpinnerActive() {
+			r.renderer.MarkRunFatal()
+			r.renderer.StopSpinner()
+		}
 		r.warn("local-route fallback: chit-chat responder not configured\n")
 		return
 	}
@@ -1049,6 +1053,12 @@ func (r *REPL) clarifyDispatch(line, display string, policy TurnPolicy) {
 	_ = display // intentional: we don't echo or persist
 	label, segs := clarifyRouteSummary(r.language)
 	if r.renderer != nil {
+		if r.renderer.SpinnerActive() {
+			r.renderer.SetTotalStages(0)
+			r.renderer.SetRouteSummary(label, segs)
+			r.renderer.StopSpinner()
+			return
+		}
 		r.renderer.EmitLightRouteSummary(label, segs)
 		return
 	}
@@ -1675,6 +1685,32 @@ func (r *REPL) readInputLines(prompt string) (string, error) {
 	return "", io.EOF
 }
 
+func (r *REPL) setRendererTotalStagesForCurrentMode() {
+	if r == nil || r.renderer == nil {
+		return
+	}
+	// Mode-aware K/N denominator. Write modes always run the analyzer
+	// first as a classifier, then BuildWriteTaskGraph slices to the
+	// per-mode subset:
+	//
+	//   ModePlan:   analyze + plan                  = 2
+	//   ModeApply:  analyze + plan + apply + verify = 4
+	//   ModeVerify: analyze + verify                = 2
+	//
+	// Read mode has four visible dispatch boundaries: analyze +
+	// explore + extract + finalize.
+	switch r.currentMode {
+	case types.ModePlan:
+		r.renderer.SetTotalStages(2)
+	case types.ModeApply:
+		r.renderer.SetTotalStages(4)
+	case types.ModeVerify:
+		r.renderer.SetTotalStages(2)
+	default:
+		r.renderer.SetTotalStages(4)
+	}
+}
+
 // dispatch runs one user request through the orchestrator and prints
 // the result, then records the turn in memory.
 //
@@ -1735,6 +1771,13 @@ func (r *REPL) dispatch(line, display string) {
 			}
 		}
 	}()
+
+	spinnerStarted := false
+	if r.renderer != nil {
+		r.setRendererTotalStagesForCurrentMode()
+		r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
+		spinnerStarted = true
+	}
 
 	// Auto chit-chat classification. Opt-in; nil classifier means the
 	// REPL falls back to explicit /chat only. An attached log (sticky
@@ -1894,38 +1937,10 @@ func (r *REPL) dispatch(line, display string) {
 	}
 
 	if r.renderer != nil {
-		// Mode-aware K/N denominator. Write modes always run the
-		// analyzer first as a classifier (per CLAUDE.md), then
-		// BuildWriteTaskGraph slices to the per-mode subset:
-		//
-		//   ModePlan:   analyze + plan                    = 2
-		//   ModeApply:  analyze + plan + apply + verify   = 4
-		//   ModeVerify: analyze + verify                  = 2
-		//
-		// Pre-fix this was hardcoded to 3 across all write modes,
-		// which produced misleading K/N counts on plan-only and
-		// verify-only flows (the user reported "1/3 已理解问题"
-		// stuck in plan mode where the second slot would never
-		// fire). Read mode default 6 (log_triage + perf_triage +
-		// analyze + explore + extract + finalize) stays unchanged.
-		switch r.currentMode {
-		case types.ModePlan:
-			r.renderer.SetTotalStages(2)
-		case types.ModeApply:
-			r.renderer.SetTotalStages(4)
-		case types.ModeVerify:
-			r.renderer.SetTotalStages(2)
-		default:
-			// Read mode: 4 dispatch boundaries (analyze + explore +
-			// extract + finalize). evidence / validate / reconcile
-			// share a single explore dispatch with one start/end, so
-			// they fold under explore=2/4 — the dock has no
-			// observable transition between them and giving them
-			// separate slots would mean a counter the user never
-			// sees advance. Yields a monotonic 1/4 → 4/4 progression.
-			r.renderer.SetTotalStages(4)
+		r.setRendererTotalStagesForCurrentMode()
+		if !spinnerStarted {
+			r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
 		}
-		r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
 	}
 
 	busCtx, err := r.runInFlightWrap(func() (*types.BusContext, error) {

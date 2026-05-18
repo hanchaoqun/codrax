@@ -685,6 +685,10 @@ func (r *REPL) runToolableChitchat(ctx context.Context, line, prior string) (str
 // silently from memory's point of view — try again".
 func (r *REPL) chitchatDispatch(line, display string) {
 	if r.chitchatResponder == nil {
+		if r.renderer != nil && r.renderer.SpinnerActive() {
+			r.renderer.MarkRunFatal()
+			r.renderer.StopSpinner()
+		}
 		r.warn("chit-chat is disabled (no responder wired). Ask your operator to enable chitchat_enabled in codrax.yaml.\n")
 		return
 	}

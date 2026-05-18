@@ -374,6 +374,24 @@ func TestRenderer_DropsFirstAnswerDraftPreviewWhenAccepted(t *testing.T) {
 	}
 }
 
+func TestRenderer_SpinnerActiveTracksLiveDock(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	if r.SpinnerActive() {
+		t.Fatal("fresh renderer must not report an active spinner")
+	}
+	r.dock = newDock(&buf)
+	if !r.SpinnerActive() {
+		t.Fatal("attached dock should report an active spinner")
+	}
+	r.StopSpinner()
+	if r.SpinnerActive() {
+		t.Fatal("StopSpinner should clear the live dock active flag")
+	}
+}
+
 func TestRenderer_EmitsRejectedFirstAnswerDraftPreviewOnce(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(&buf, false)
