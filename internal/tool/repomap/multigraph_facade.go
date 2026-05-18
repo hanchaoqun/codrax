@@ -119,32 +119,41 @@ func MultiGraphFromAgentContext(ctx *types.AgentContext) *multigraph.MultiGraph 
 }
 
 // GraphFromBusContextOrLoad is the unified read-side entry for
-// callers that want a *Graph at the analyze / explore stages and
-// don't care whether they're in single-repo or multi-repo mode.
+// callers that want a *Graph at the analyze / explore stages.
 //
 // Resolution order:
 //  1. ctx.MultiGraph populated AND single-repo posture → mg.Single()
 //     returns the byte-equivalent legacy graph.
-//  2. ctx.MultiGraph populated AND multi-repo posture → caller is
-//     wrong to be asking for "the" graph (multi-repo can't collapse
-//     into one *Graph without losing per-sub-repo isolation). The
-//     fallback path runs anyway because the alternative (fail-loud
-//     here) would brick the entire pipeline; a Warning is logged so
-//     operators see the partial-correctness state until the raw
-//     consumer migration (design §11) lands.
-//  3. ctx.MultiGraph nil → legacy repomap.BuildOrLoadGraph(repoRoot, query)
+//  2. ctx.MultiGraph populated AND repoRoot exactly names a topology
+//     sub-repo root → load that sub-repo graph. This precise path
+//     signal always beats the migration fallback below; repo_map
+//     calls with path="repo-a" and path="repo-b" must never collapse
+//     to the same primary graph.
+//  3. ctx.MultiGraph populated AND repoRoot is empty or the parent
+//     workspace root → return the historical best-effort primary
+//     graph. This exists only for raw consumers that have not yet
+//     migrated to per-sub-repo routing (design §11).
+//  4. ctx.MultiGraph nil → legacy repomap.BuildOrLoadGraph(repoRoot, query)
 //     direct call.
 //
 // Used by the 5 BuildOrLoadGraph callers identified in design §11
 // (analyzer.go:342/1672/1771, keyword_search.go:667, sub_explorer.go:366)
-// and any future caller that wants the same migration semantics.
+// and any future caller that wants the same migration semantics. New
+// precise tool paths should prefer an exact sub-repo root and must
+// not rely on the parent-root primary fallback.
 func GraphFromBusContextOrLoad(ctx *types.BusContext, repoRoot, query string) (*Graph, error) {
 	if mg := MultiGraphFromContext(ctx); mg != nil {
 		if mg.IsSingle() {
 			return mg.Single()
 		}
+		if g, ok, err := graphFromMultiGraphExactRoot(mg, repoRoot, query); ok || err != nil {
+			return g, err
+		}
 		if topo := mg.Topology(); topo != nil && len(topo.Repos) > 0 {
-			return mg.EnsureLoaded(pickPrimarySubRepo(mg, topo).Slug)
+			if multiGraphPrimaryFallbackAllowed(mg, repoRoot) {
+				logging.Warning("repo_map: multi-repo caller requested parent graph; using primary sub-repo compatibility fallback")
+				return rankedLoadedGraph(mg, pickPrimarySubRepo(mg, topo).Slug, query)
+			}
 		}
 	}
 	if ctx != nil && ctx.Mutable != nil {
@@ -168,8 +177,14 @@ func GraphFromAgentContextOrLoad(ctx *types.AgentContext, repoRoot, query string
 		if mg.IsSingle() {
 			return mg.Single()
 		}
+		if g, ok, err := graphFromMultiGraphExactRoot(mg, repoRoot, query); ok || err != nil {
+			return g, err
+		}
 		if topo := mg.Topology(); topo != nil && len(topo.Repos) > 0 {
-			return mg.EnsureLoaded(pickPrimarySubRepo(mg, topo).Slug)
+			if multiGraphPrimaryFallbackAllowed(mg, repoRoot) {
+				logging.Warning("repo_map: multi-repo agent requested parent graph; using primary sub-repo compatibility fallback")
+				return rankedLoadedGraph(mg, pickPrimarySubRepo(mg, topo).Slug, query)
+			}
 		}
 	}
 	if ctx != nil {
@@ -189,6 +204,45 @@ func GraphFromAgentContextOrLoad(ctx *types.AgentContext, repoRoot, query string
 		return BuildOrLoadGraphWithin(repoRoot, ctx.RepoRoot, query)
 	}
 	return BuildOrLoadGraph(repoRoot, query)
+}
+
+func graphFromMultiGraphExactRoot(mg *multigraph.MultiGraph, repoRoot, query string) (*Graph, bool, error) {
+	if mg == nil || repoRoot == "" {
+		return nil, false, nil
+	}
+	topo := mg.Topology()
+	if topo == nil {
+		return nil, false, nil
+	}
+	for i := range topo.Repos {
+		sr := topo.Repos[i]
+		if !sameRepoMapRoot(sr.RootAbs, repoRoot) {
+			continue
+		}
+		g, err := rankedLoadedGraph(mg, sr.Slug, query)
+		return g, true, err
+	}
+	return nil, false, nil
+}
+
+func multiGraphPrimaryFallbackAllowed(mg *multigraph.MultiGraph, repoRoot string) bool {
+	if mg == nil {
+		return false
+	}
+	if repoRoot == "" {
+		return true
+	}
+	return sameRepoMapRoot(mg.Root(), repoRoot)
+}
+
+func rankedLoadedGraph(mg *multigraph.MultiGraph, slug, query string) (*Graph, error) {
+	g, err := mg.EnsureLoaded(slug)
+	if err != nil {
+		return nil, err
+	}
+	clone := cloneGraphForRanking(g)
+	retrieve.RankGraph(clone, query)
+	return clone, nil
 }
 
 func reusableSearchGraph(repoRoot string, handle any, query string) (*Graph, bool) {

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -126,6 +128,78 @@ func TestRepoMapExecuteReusesMutableSearchGraph(t *testing.T) {
 	}
 }
 
+func TestRepoMapExecuteMultiRepoHonorsEachExplicitSubRepoPath(t *testing.T) {
+	parent := t.TempDir()
+	baseRoot := filepath.Join(parent, "frameworks", "base")
+	resschedRoot := filepath.Join(parent, "hm_z", "foundation", "resourceschedule", "ressched")
+	if err := os.MkdirAll(baseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(resschedRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	mg := newTestMultiGraph(t, parent, baseRoot, resschedRoot)
+	ctx := &types.BusContext{RepoRoot: parent, MultiGraph: mg}
+
+	base, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{"path":"frameworks/base","view":"overview"}`))
+	if err != nil {
+		t.Fatalf("base repo_map returned error: %v", err)
+	}
+	if !base.Success {
+		t.Fatalf("base repo_map failed: %+v", base)
+	}
+	ressched, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{"path":"hm_z/foundation/resourceschedule/ressched","view":"overview"}`))
+	if err != nil {
+		t.Fatalf("ressched repo_map returned error: %v", err)
+	}
+	if !ressched.Success {
+		t.Fatalf("ressched repo_map failed: %+v", ressched)
+	}
+
+	if !strings.Contains(base.Summary, "- java: 1 files") {
+		t.Fatalf("base overview should describe the base graph, got:\n%s", base.Summary)
+	}
+	if strings.Contains(base.Summary, "- cpp: 1 files") {
+		t.Fatalf("base overview leaked the ressched graph:\n%s", base.Summary)
+	}
+	if !strings.Contains(ressched.Summary, "- cpp: 1 files") {
+		t.Fatalf("ressched overview should describe the ressched graph, got:\n%s", ressched.Summary)
+	}
+	if strings.Contains(ressched.Summary, "- java: 1 files") {
+		t.Fatalf("ressched overview leaked the base graph:\n%s", ressched.Summary)
+	}
+}
+
+func TestGraphFromAgentContextOrLoadMultiRepoHonorsExplicitSubRepoRoot(t *testing.T) {
+	parent := t.TempDir()
+	baseRoot := filepath.Join(parent, "frameworks", "base")
+	resschedRoot := filepath.Join(parent, "hm_z", "foundation", "resourceschedule", "ressched")
+	if err := os.MkdirAll(baseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(resschedRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	mg := newTestMultiGraph(t, parent, baseRoot, resschedRoot)
+	ctx := &types.AgentContext{RepoRoot: parent, MultiGraph: mg}
+
+	graph, err := GraphFromAgentContextOrLoad(ctx, resschedRoot, "ressched")
+	if err != nil {
+		t.Fatalf("GraphFromAgentContextOrLoad returned error: %v", err)
+	}
+	if graph == nil {
+		t.Fatal("GraphFromAgentContextOrLoad returned nil graph")
+	}
+	if !sameRepoMapRoot(graph.Root, resschedRoot) {
+		t.Fatalf("explicit ressched root was routed to %q", graph.Root)
+	}
+	if graph.Metadata.Languages["cpp"] != 1 || graph.Metadata.Languages["java"] != 0 {
+		t.Fatalf("explicit ressched root got wrong graph metadata: %+v", graph.Metadata.Languages)
+	}
+}
+
 func TestBuildOrLoadGraphWithinRejectsBeforeScanner(t *testing.T) {
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "repo")
@@ -143,4 +217,52 @@ func TestBuildOrLoadGraphWithinRejectsBeforeScanner(t *testing.T) {
 	if _, err := BuildOrLoadGraphWithin(outside, repo, ""); err == nil {
 		t.Fatal("expected scoped graph loader to reject before scanning outside root")
 	}
+}
+
+func newTestMultiGraph(t *testing.T, parent, baseRoot, resschedRoot string) *multigraph.MultiGraph {
+	t.Helper()
+	topo := &topology.RepoTopology{
+		ParentRoot: parent,
+		Repos: []topology.SubRepo{
+			{
+				Slug:      "base-10eb2a5e",
+				RootAbs:   baseRoot,
+				RootRel:   "frameworks/base",
+				FileCount: 41530,
+			},
+			{
+				Slug:      "ressched-c088d3ed",
+				RootAbs:   resschedRoot,
+				RootRel:   "hm_z/foundation/resourceschedule/ressched",
+				FileCount: 259,
+			},
+		},
+	}
+	mg, err := multigraph.New(multigraph.Config{
+		Topology: topo,
+		Build: func(root, query string) (*Graph, error) {
+			switch {
+			case sameRepoMapRoot(root, baseRoot):
+				return BuildGraph(root, []*FileInfo{{
+					RelPath:  "core/Foo.java",
+					Language: "java",
+					Size:     1,
+				}}), nil
+			case sameRepoMapRoot(root, resschedRoot):
+				return BuildGraph(root, []*FileInfo{{
+					RelPath:  "services/Scheduler.cpp",
+					Language: "cpp",
+					Size:     1,
+				}}), nil
+			default:
+				t.Fatalf("unexpected graph root %q", root)
+				return nil, nil
+			}
+		},
+		Cap: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mg
 }
