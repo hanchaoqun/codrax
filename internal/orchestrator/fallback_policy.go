@@ -402,8 +402,11 @@ func legacyDefaultFallbackPolicy() FallbackPolicy {
 		// during B4-B5 (telemetry only — never reach this fallback
 		// switch under default classification). B6 promotes to
 		// STRICT and the fallback target activates:
-		//   - BlockCoverageMissing: extractor re-emits the missing
-		//     block kind (FallbackBackToExtract).
+		//   - BlockCoverageMissing: legacy/default maps to
+		//     BackToExtract, but typed producers now stamp
+		//     RepairLocusOverride=Finalizer for required-block
+		//     under/over-emits because adding/merging answer carriers
+		//     is a finalizer-local shape repair.
 		//   - PrincipalClaimUseMissing: finalizer re-emits with
 		//     claim_use annotations (FallbackFinalizerOnly).
 		//   - DiagramEdgeUnsupported: finalizer re-emits diagram
@@ -523,17 +526,16 @@ func FallbackTargetForKind(kind types.ViolationKind) FallbackTarget {
 }
 
 // FallbackTargetForViolation returns the FallbackTarget for one
-// specific violation, including any per-violation overrides that
-// inspect violation.Detail. Introduced in B3-F2 (2026-05-04) to
-// fix P36: ViolBlockCoverageMissing was statically mapped to
-// BackToExtract, but when the missing block is `diagram` or
-// `table` (kinds the finalizer alone can re-emit from existing
-// evidence) the upstream fallback is wasteful and slow.
+// specific violation, including producer-owned typed repair-locus
+// overrides. Introduced in B3-F2 (2026-05-04) to fix P36:
+// ViolBlockCoverageMissing was statically mapped to BackToExtract,
+// but many block-coverage failures are finalizer-local presentation
+// repairs (add/merge a required answer carrier from existing evidence).
 //
-// The override rule is conservative: only the Detail patterns we
-// can confidently classify trigger a non-default target. Any
-// uncertain Detail falls back to the kind's default policy entry,
-// preserving pre-B3 behaviour for those cases.
+// Typed override fields are authoritative. Any uncertain violation
+// falls back to the kind's default policy entry, preserving pre-B3
+// behaviour for hand-written or legacy violations that lack typed
+// producer context.
 func FallbackTargetForViolation(v types.Violation) FallbackTarget {
 	switch v.RepairLocusOverride {
 	case LocusFinalizer, LocusExtract, LocusExplore, LocusTerminal:
@@ -541,12 +543,13 @@ func FallbackTargetForViolation(v types.Violation) FallbackTarget {
 	}
 	def := FallbackTargetForKind(v.Kind)
 	if v.Kind == types.ViolBlockCoverageMissing {
-		// kind=diagram / kind=table missing blocks are pure
-		// finalizer-emit failures (the visualisation / tabulation
-		// is constructed from already-present evidence; the
+		// Legacy compatibility for hand-built violations that predate
+		// RepairLocusOverride: kind=diagram / kind=table missing
+		// blocks are pure finalizer-emit failures (visualisation /
+		// tabulation is constructed from already-present evidence; the
 		// extractor has no diagram/table channel to re-pick from).
-		// Overflow / count-cap variants stay BackToExtract because
-		// the extractor's slate may need to drop items.
+		// Current validators stamp RepairLocusOverride=Finalizer for
+		// all required-block under/over-emits before this branch.
 		//
 		// Typed gate (2026-05-17, keyword-gate audit HIGH-1):
 		// v.MissingBlockKind is populated ONLY by the

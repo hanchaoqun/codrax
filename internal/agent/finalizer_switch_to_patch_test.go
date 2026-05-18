@@ -111,6 +111,67 @@ func TestEmitSwitchToPatchSignal_SecondFailure_NudgeFires(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentRejectSignal_FirstRejectPrefersPatchWhenDraftAvailable(t *testing.T) {
+	e := &answerDocumentEvaluator{}
+	ctx := ctxWithAnswerPatchBase()
+	obs := LoopObservation{
+		Phase: PhaseMidLoop,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "Field: blocks[].kind=ordered_list\nAction: emit at least 1 block(s) of kind=ordered_list",
+		},
+	}
+
+	got := e.emitAnswerDocumentRejectSignal(ctx, obs)
+	if !got.HintRequested {
+		t.Fatalf("first full-doc reject should request a repair hint; got %+v", got)
+	}
+	for _, want := range []string{
+		"Use `emit_answer_document_patch` now",
+		"unchanged_block_ids",
+		"replace_blocks",
+		"add_blocks",
+		"`blocks[].kind=ordered_list`",
+	} {
+		if !strings.Contains(got.Hint, want) {
+			t.Fatalf("patch-first hint missing %q:\n%s", want, got.Hint)
+		}
+	}
+	if strings.Contains(got.Hint, "paste the FULL previous payload") {
+		t.Fatalf("patch-first hint must not ask for full-payload paste:\n%s", got.Hint)
+	}
+	if !e.preferPatchNext {
+		t.Fatal("patch-first full-doc reject should prefer patch on the next schema pass")
+	}
+}
+
+func TestEmitAnswerDocumentRejectSignal_NoPatchBaseKeepsFullEmit(t *testing.T) {
+	e := &answerDocumentEvaluator{}
+	obs := LoopObservation{
+		Phase: PhaseMidLoop,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "Field: blocks[].kind=ordered_list\nAction: emit at least 1 block(s) of kind=ordered_list",
+		},
+	}
+
+	got := e.emitAnswerDocumentRejectSignal(&types.AgentContext{Mutable: types.NewMutableState("q")}, obs)
+	if !got.HintRequested {
+		t.Fatalf("full-doc reject without patch base should still request a repair hint; got %+v", got)
+	}
+	if !strings.Contains(got.Hint, "complete `emit_answer_document` payload") {
+		t.Fatalf("without a patch base the hint should ask for a complete full emit:\n%s", got.Hint)
+	}
+	if strings.Contains(got.Hint, "paste the FULL previous payload") {
+		t.Fatalf("without a patch base the hint must not ask for an unavailable previous payload:\n%s", got.Hint)
+	}
+	if e.preferPatchNext {
+		t.Fatal("no patch base must not prefer patch")
+	}
+}
+
 func TestEmitSwitchToPatchSignal_NoPatchBase_NoNudge(t *testing.T) {
 	e := &answerDocumentEvaluator{}
 	obs := LoopObservation{
@@ -254,7 +315,7 @@ func TestEmitSwitchToPatchSignal_FailedPatch_LatchesNudge(t *testing.T) {
 	}
 }
 
-func TestEmitPatchRejectFullRewriteSignal_FailedPatchRequestsCarryForwardFullEmit(t *testing.T) {
+func TestEmitPatchRejectFullRewriteSignal_FailedPatchRequestsPatchCorrection(t *testing.T) {
 	e := &answerDocumentEvaluator{}
 	ctx := ctxWithAnswerPatchBase()
 	obs := LoopObservation{
@@ -267,26 +328,30 @@ func TestEmitPatchRejectFullRewriteSignal_FailedPatchRequestsCarryForwardFullEmi
 
 	got := e.emitPatchRejectFullRewriteSignal(ctx, obs)
 	if !got.HintRequested {
-		t.Fatalf("failed patch should request a full rewrite hint; got %+v", got)
+		t.Fatalf("failed patch should request a patch correction hint; got %+v", got)
 	}
-	if got.HintKey != "answer_doc.patch_rewrite" {
-		t.Fatalf("HintKey=%q, want answer_doc.patch_rewrite", got.HintKey)
+	if got.HintKey != "answer_doc.patch_correct" {
+		t.Fatalf("HintKey=%q, want answer_doc.patch_correct", got.HintKey)
 	}
 	for _, want := range []string{
-		"emit_answer_document",
-		"carry forward its existing `citations[]` pool",
-		"ensure every non-negative `blocks[].items[].citation_ref` resolves",
-		"Stop patching",
+		"Keep using `emit_answer_document_patch`",
+		"replace_blocks",
+		"add_blocks",
+		"unchanged_block_ids",
+		"Preserve the inherited `citations[]` pool",
 	} {
 		if !strings.Contains(got.Hint, want) {
-			t.Errorf("patch rewrite hint missing %q:\n%s", want, got.Hint)
+			t.Errorf("patch correction hint missing %q:\n%s", want, got.Hint)
 		}
 	}
 	if !got.BypassThrottle || !got.BypassBudget {
-		t.Errorf("patch rewrite hint must bypass throttle/budget; got %+v", got)
+		t.Errorf("patch correction hint must bypass throttle/budget; got %+v", got)
 	}
-	if !e.forceFullEmitNext {
-		t.Fatal("patch rewrite signal must force a full-emit schema pass next")
+	if e.forceFullEmitNext {
+		t.Fatal("patch correction must not force a full-emit schema pass next")
+	}
+	if !e.preferPatchNext {
+		t.Fatal("patch correction must keep patch preferred for the next schema pass")
 	}
 }
 
@@ -323,6 +388,9 @@ func TestEmitPatchRejectFullRewriteSignal_SectionCountKeepsPatchPath(t *testing.
 	}
 	if e.forceFullEmitNext {
 		t.Fatal("section-cardinality reject should keep the patch path available")
+	}
+	if !e.preferPatchNext {
+		t.Fatal("section-cardinality reject should keep patch preferred")
 	}
 }
 
@@ -404,6 +472,17 @@ func TestFilterToolSchemas_T2_PatchFirstEnforcement(t *testing.T) {
 		}
 		if !foundUnrelated {
 			t.Errorf("unrelated tools must be preserved; got %+v", got)
+		}
+	})
+
+	t.Run("drops_full_emit_when_first_reject_prefers_patch", func(t *testing.T) {
+		e := &answerDocumentEvaluator{preferPatchNext: true}
+		ctx := ctxWithAnswerPatchBase()
+		got := callFilterToolSchemasT2(e, ctx, baseSchemas)
+		for _, s := range got {
+			if s.Name == "emit_answer_document" {
+				t.Fatalf("preferPatchNext should filter full emit; got %+v", got)
+			}
 		}
 	})
 

@@ -107,8 +107,9 @@ func validateRequiredBlockCoverage(doc *types.AnswerDocumentV2, view *types.Answ
 					Reason:     "required block kind under-emitted",
 					Confidence: 0.85,
 				},
-				Stage:            string(types.StageFinalize),
-				MissingBlockKind: req.Kind,
+				Stage:               string(types.StageFinalize),
+				MissingBlockKind:    req.Kind,
+				RepairLocusOverride: types.LocusFinalizer,
 			})
 			continue
 		}
@@ -127,7 +128,8 @@ func validateRequiredBlockCoverage(doc *types.AnswerDocumentV2, view *types.Answ
 					Reason:     "required block kind over-emitted",
 					Confidence: 0.7,
 				},
-				Stage: string(types.StageFinalize),
+				Stage:               string(types.StageFinalize),
+				RepairLocusOverride: types.LocusFinalizer,
 			})
 		}
 	}

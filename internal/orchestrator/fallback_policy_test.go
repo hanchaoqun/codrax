@@ -244,18 +244,15 @@ func TestFallbackTargetForViolations_RootCauseClustering(t *testing.T) {
 
 // TestFallbackTargetForViolation_BlockCoverageSubClassification pins
 // B3-F2's per-violation override on ViolBlockCoverageMissing: when
-// the missing block kind is `diagram` or `table` (visualisation
-// blocks the finalizer can re-emit from existing evidence), the
-// fallback target overrides the kind's default BackToExtract to
-// FinalizerOnly. Other missing block kinds retain the default.
+// the validator has a typed under-emitted block kind, the producer
+// marks the repair finalizer-local. Required answer carriers are a
+// presentation-shape omission; if evidence is actually missing, a
+// separate evidence/facet violation owns the upstream fallback.
 //
 // Keyword-gate audit HIGH-1 (2026-05-17): the gate routes on the
-// typed Violation.MissingBlockKind field that the under-emit
-// validateRequiredBlockCoverage path populates verbatim with the
-// AnswerBlockKind. The over-cap path leaves MissingBlockKind zero,
-// so over-cap violations never trigger the override regardless of
-// kind. Detail prose is kept for human / log readability but is no
-// longer load-bearing.
+// typed RepairLocusOverride / MissingBlockKind fields populated by
+// validateRequiredBlockCoverage. Detail prose is kept for human / log
+// readability but is no longer load-bearing.
 func TestFallbackTargetForViolation_BlockCoverageSubClassification(t *testing.T) {
 	cases := []struct {
 		name string
@@ -281,48 +278,52 @@ func TestFallbackTargetForViolation_BlockCoverageSubClassification(t *testing.T)
 			want: FallbackFinalizerOnly,
 		},
 		{
-			name: "missing scalar → back_to_extract (default)",
+			name: "missing scalar → finalizer_only (typed shape repair)",
 			v: types.Violation{
-				Kind:             types.ViolBlockCoverageMissing,
-				Detail:           `required block kind=scalar appears 0 time(s); the family requires at least 1`,
-				MissingBlockKind: types.BlockScalar,
+				Kind:                types.ViolBlockCoverageMissing,
+				Detail:              `required block kind=scalar appears 0 time(s); the family requires at least 1`,
+				MissingBlockKind:    types.BlockScalar,
+				RepairLocusOverride: types.LocusFinalizer,
 			},
-			want: FallbackBackToExtract,
+			want: FallbackFinalizerOnly,
 		},
 		{
 			// Over-cap path emits without MissingBlockKind set
-			// (the block isn't "missing", it's over-emitted).
-			// The typed gate ignores it and falls through to the
-			// kind's default — matching the pre-audit prose-grep
-			// behaviour that only matched "appears 0 time(s)".
-			name: "scalar over-cap → back_to_extract (typed field empty)",
+			// (the block isn't "missing", it's over-emitted), but
+			// the producer still marks the repair as finalizer-local:
+			// deleting/merging excess answer blocks is a render
+			// repair, not an extract repair.
+			name: "scalar over-cap → finalizer_only (typed locus override)",
 			v: types.Violation{
-				Kind:   types.ViolBlockCoverageMissing,
-				Detail: `required block kind=scalar appears 2 time(s); the family contract caps it at 1`,
+				Kind:                types.ViolBlockCoverageMissing,
+				Detail:              `required block kind=scalar appears 2 time(s); the family contract caps it at 1`,
+				RepairLocusOverride: types.LocusFinalizer,
 			},
-			want: FallbackBackToExtract,
+			want: FallbackFinalizerOnly,
 		},
 		{
 			// Defensive: even if a future caller (mis)populates
 			// MissingBlockKind on an over-cap-shaped Violation
-			// (Detail wording with "caps it at"), a non-visual
-			// kind must still route to BackToExtract.
-			name: "ordered_list over-cap with typed kind → back_to_extract",
+			// (Detail wording with "caps it at"), the explicit
+			// producer-owned locus override is still the authority.
+			name: "ordered_list over-cap with typed kind → finalizer_only when producer says so",
 			v: types.Violation{
-				Kind:             types.ViolBlockCoverageMissing,
-				Detail:           `required block kind=ordered_list appears 5 time(s); the family contract caps it at 3`,
-				MissingBlockKind: types.BlockOrderedList,
+				Kind:                types.ViolBlockCoverageMissing,
+				Detail:              `required block kind=ordered_list appears 5 time(s); the family contract caps it at 3`,
+				MissingBlockKind:    types.BlockOrderedList,
+				RepairLocusOverride: types.LocusFinalizer,
 			},
-			want: FallbackBackToExtract,
+			want: FallbackFinalizerOnly,
 		},
 		{
-			name: "missing ordered_list → back_to_extract (default; not visual)",
+			name: "missing ordered_list → finalizer_only (typed shape repair)",
 			v: types.Violation{
-				Kind:             types.ViolBlockCoverageMissing,
-				Detail:           `required block kind=ordered_list appears 0 time(s)`,
-				MissingBlockKind: types.BlockOrderedList,
+				Kind:                types.ViolBlockCoverageMissing,
+				Detail:              `required block kind=ordered_list appears 0 time(s)`,
+				MissingBlockKind:    types.BlockOrderedList,
+				RepairLocusOverride: types.LocusFinalizer,
 			},
-			want: FallbackBackToExtract,
+			want: FallbackFinalizerOnly,
 		},
 		{
 			// Visual-kind override still applies when the LLM

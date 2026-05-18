@@ -77,6 +77,9 @@ func TestRequiredBlockCoverage_MissingBlockFires(t *testing.T) {
 	if got := vs[0].MissingBlockKind; got != types.BlockSummary {
 		t.Errorf("missing-block violation MissingBlockKind = %q, want %q", got, types.BlockSummary)
 	}
+	if got := vs[0].RepairLocusOverride; got != types.LocusFinalizer {
+		t.Errorf("missing-block RepairLocusOverride = %q, want %q", got, types.LocusFinalizer)
+	}
 }
 
 func TestRequiredBlockCoverage_OverEmittedFires(t *testing.T) {
@@ -90,12 +93,15 @@ func TestRequiredBlockCoverage_OverEmittedFires(t *testing.T) {
 		t.Fatalf("expected violation on over-emit; got %+v", vs)
 	}
 	// Keyword-gate audit HIGH-1 (2026-05-17): the over-cap path is
-	// "over-emitted", NOT "missing", so the typed MissingBlockKind
-	// field MUST stay empty. The fallback policy's visual-kind
-	// override is gated on this field being set; an over-cap
-	// violation must never accidentally trigger the override.
+	// "over-emitted", NOT "missing", so MissingBlockKind stays
+	// empty. The producer still marks the repair finalizer-local via
+	// RepairLocusOverride because merging/removing excess answer
+	// blocks is a presentation repair.
 	if got := vs[0].MissingBlockKind; got != "" {
 		t.Errorf("over-cap violation MissingBlockKind = %q, want empty", got)
+	}
+	if got := vs[0].RepairLocusOverride; got != types.LocusFinalizer {
+		t.Errorf("over-cap RepairLocusOverride = %q, want %q", got, types.LocusFinalizer)
 	}
 }
 

@@ -713,7 +713,7 @@
 
 代码位置：`internal/tool/emit_answer_document_patch.go`、`internal/orchestrator/contract_check_block.go`、`internal/orchestrator/self_consistency_reviewer.go`
 
-状态：**已修复（Batch G/H 延伸段）**。`emit_answer_document_patch` 在本地把 `append_citations` 无损合入 `replace_citations`，再根据是否保留 citation-bearing block 继续走已有 preserved-pool normalization。`sequenceDiagram` 只把实线闭合箭头 `->>` 结构性计为 `call`；实线无箭头 `->`、虚线返回 `-->>`、异步开箭头 `-)`、cross `-x`、双向/half-arrow 等都不默认计为 call。`self_consistency_reviewer` 兼容 `contradictions` 的空字符串、说明字符串和 stringified array；`consistent=false` 但没有结构化 contradiction 仍然拒绝。
+状态：**已修复（Batch G/H 延伸段 + 2026-05-18 finalizer audit）**。`emit_answer_document_patch` 在本地把 `append_citations` 无损合入 `replace_citations`，再根据是否保留 citation-bearing block 继续走已有 preserved-pool normalization。finalizer 第一次 full emit 只要留下可用 rejected draft，下一轮即优先暴露 `emit_answer_document_patch` 并隐藏 full emit，避免“小修”诱发整份答案重写、丢列、丢图、丢 citation。patch 自身被拒时也默认继续修 patch（纠正 `replace_blocks` / `add_blocks` / `unchanged_block_ids` / diagram payload 等结构问题），不再把普通 patch 参数错误升级为 full rewrite。`sequenceDiagram` 只把实线闭合箭头 `->>` 结构性计为 `call`；实线无箭头 `->`、虚线返回 `-->>`、异步开箭头 `-)`、cross `-x`、双向/half-arrow 等都不默认计为 call。`self_consistency_reviewer` 兼容 `contradictions` 的空字符串、说明字符串和 stringified array；`consistent=false` 但没有结构化 contradiction 仍然拒绝。
 
 触发证据：
 
@@ -730,10 +730,12 @@
 修复方向：
 
 - [x] citation op 合并只读取 typed citation 池，不读取用户问题或模型散文。
+- [x] finalizer tool-level reject 走 patch-first：有 previous/rejected draft 时用 typed `emit_answer_document_patch` 修局部块；无 previous draft 时才要求完整 full emit，避免向模型发出“不存在的上一版 payload”指令。
+- [x] patch reject 不再默认 “Stop patching” 切 full rewrite；普通 patch op/diagram payload/id 错误继续在 patch 通道修，降低整份答案二次损坏概率。
 - [x] sequence arrow default 只读取 Mermaid 结构操作符，不读取关系词，也不改变模型原始图源码；默认范围锁定为 `->>`，其它 sequence arrow 需要显式 `edge_anchors.relation_kind=call` 或关系 label 才进入 call。
 - [x] validator 与 semantic quality reviewer 共用同一套 diagram edge relation resolver：`edge_anchors.relation_kind` / edge-capable `claim_form` 优先，闭集 label vocabulary 覆盖 call、guard、import、precedence、contain、observe，最后才允许结构安全 fallback：`sequenceDiagram ->>` 计为 call、`DiagramCallDAG` 有向 flowchart 边计为 call、`DiagramFlow` decision/diamond 出边计为 guard；architecture/class 等无确定结构语义的图不做默认关系推断。deterministic contract 已满足时，reviewer 的 `diagram_gap` 不再转成返工 violation。
 - [x] reviewer schema tolerance 只修结构形状；真实 `consistent=false` 且无 contradiction 仍按 malformed verdict 处理。
-- [x] 回归测试覆盖 citation op 合并、preserved citation-pool remap、sequence solid/dashed 区分、reviewer string/stringified-array 兼容，防止后续开发重新把协议小错升级成 finalizer 重写。
+- [x] 回归测试覆盖 citation op 合并、preserved citation-pool remap、sequence solid/dashed 区分、reviewer string/stringified-array 兼容、first-reject patch-first、patch-reject staying on patch，防止后续开发重新把协议小错升级成 finalizer 重写。
 
 ### UIP-031（P1）analyzer 预扫描预算到顶后仍暴露预扫描/内容工具导致 analyze 重试
 
@@ -850,6 +852,7 @@
 - [x] 空 required-tool response 先经 LoopController，复用各阶段已有结构化 tool-call repair hint。
 - [x] missing document 的最终兜底：优先恢复 embedded JSON / retry-state / rejected draft；都没有时列出已落地 evidence 并声明边界，不补写结论。
 - [x] retry prompt 按 `PrevEmitJSON/PrevEmitSummary` 是否存在分叉；没有 previous emit 时明确要求 full `emit_answer_document`，禁止 patch。
+- [x] mid-loop tool reject 也按 previous draft 是否存在分叉：没有 previous/rejected draft 时要求 complete full emit，不再要求“paste previous payload”。
 - [x] support lane 已渲染且存在边界时，typed enrichment across all profiles 收窄到 lane evidence/location/anchor 范围；不再只对 diagnostic profile 生效。
 - [x] 回归测试覆盖空响应纠偏、无 previous emit retry prompt、空兜底证据清单、support scope 过滤跨 profile 生效。
 
@@ -903,7 +906,7 @@
 ### Batch H：gate taxonomy + upstream routing
 
 1. [~] 每个 finalizer violation 必须分类为 `local_doc_defect`、`evidence_gap`、`analysis_gap`、`presentation_advisory`、`safety`。（aggregate member_set、enum-label、facet metadata emit-time gate 已先分出 hard/advisory）
-2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景、非主枚举标签场景、soft facet metadata 场景已停止同轮硬重试；semantic-quality reviewer 已接入 `repair_locus` typed routing；diagram label-only metadata 缺口已降为 telemetry-only；多仓 subtopic entity-orphan 已在 cross-scope 场景降为 advisory）
+2. [~] finalizer rewrite 只处理 `local_doc_defect` / `safety`；上游缺口回流 explore/extract；presentation 问题优先本地容错/补充说明。（member_set 叙事场景、非主枚举标签场景、soft facet metadata 场景已停止同轮硬重试；semantic-quality reviewer 已接入 `repair_locus` typed routing；diagram label-only metadata 缺口已降为 telemetry-only；多仓 subtopic entity-orphan 已在 cross-scope 场景降为 advisory；`ViolBlockCoverageMissing` 的 under/over required block carrier 由 producer 标记 `RepairLocusOverride=finalizer`，避免纯答案形状问题回拉 extract）
 3. [x] 同类错误 fingerprint / typed repair family 连续失败后，停止硬重写，接受核心答案并用“补充说明/保留原文”交代缺陷。
 4. [x] reviewer hard/soft 判断的 anchor truth source 统一：AnswerDocument citations 优先，explorer evidence 补充，禁止 reviewer 只读滞后 explorer slate 后要求 finalizer 重写。
 

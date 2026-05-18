@@ -103,12 +103,19 @@ type answerDocumentEvaluator struct {
 	// so cross-key spacing can't swallow the nudge a second time.
 	emitPatchNudgeFired bool
 
-	// forceFullEmitNext is set after a rejected patch attempt where the
-	// repair signal explicitly asks for a fresh full emit. It makes the
-	// next tool schema pass prefer emit_answer_document over the patch
-	// tool, preventing the retry policy from telling the model "full
-	// rewrite" while the schema filter exposes only patch.
+	// forceFullEmitNext is a reserved escape hatch for catastrophic
+	// patch-base invalidation where the next schema pass must expose a
+	// full emit instead of patch. Ordinary patch parameter/shape rejects
+	// do NOT set this; they stay patch-local to avoid whole-document
+	// rewrites.
 	forceFullEmitNext bool
+
+	// preferPatchNext is set after a full emit produces a usable rejected
+	// draft and the next repair only needs to edit that draft. The next
+	// schema pass drops the full-emit tool when the patch tool is
+	// available, avoiding token-heavy whole-document rewrites for
+	// mechanical finalizer repairs.
+	preferPatchNext bool
 
 	// Shrinkage-salvage knobs, populated from AgentSettings at
 	// construction. See salvagePriorDraftIntoSummary for the
@@ -292,6 +299,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	e.emitFullDocFailStreak = 0
 	e.emitPatchNudgeFired = false
 	e.forceFullEmitNext = false
+	e.preferPatchNext = false
 	e.language = extractAnswerDocLang(ctx)
 	e.mu = nil
 	e.diagramRequired = false
@@ -1337,7 +1345,7 @@ func renderAnswerDocRetryState(ctx *types.AgentContext) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Hard Rule (retry attempt %d)\n\n", rs.Attempt)
 	if retryStateHasPreviousEmit(rs) {
-		b.WriteString("Your last `emit_answer_document` was rejected. Re-emit by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths or global rewrite items listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].columns[]`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `blocks[].items[].cells[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
+		b.WriteString("Your last answer document was rejected, but a previous structured payload is available. If `emit_answer_document_patch` is available, prefer it: list unchanged prior block ids in `unchanged_block_ids`, edit only the blocks named by Required Changes via `replace_blocks`, and use `add_blocks` only for genuinely missing blocks. If patch is not available, re-emit `emit_answer_document` by **starting from your previous payload (shown in 'Previous Emit' below) and changing ONLY the field paths or global rewrite items listed in 'Required Changes' below**. Every other field — `blocks[].id`, `blocks[].kind`, `blocks[].columns[]`, `blocks[].facet_ids`, `blocks[].claim_uses[]`, `blocks[].surface_role`, `blocks[].items[]`, `blocks[].items[].cells[]`, `citations[]`, `exact_resolution` — MUST appear byte-identical to your Previous Emit. Do NOT regenerate from scratch. The validator will reject any retry that loses fields you already filled correctly.\n\n")
 	} else {
 		b.WriteString("Your previous attempt did not leave a usable structured answer document. Re-emit a complete `emit_answer_document` payload now. Do NOT use patch operations and do NOT refer to a Previous Emit. Build the full document from the already-provided evidence, support lanes, required answer blocks, and the required changes below. Do not reopen files or write free-form prose outside the tool call.\n\n")
 	}
@@ -5680,6 +5688,30 @@ func (e *answerDocumentEvaluator) FilterToolSchemas(ctx *types.AgentContext, sch
 			return out
 		}
 	}
+	if e.preferPatchNext && answerDocumentPatchBaseAvailable(ctx, e.mu) {
+		hasPatch := false
+		for _, s := range schemas {
+			if s.Name == "emit_answer_document_patch" {
+				hasPatch = true
+				break
+			}
+		}
+		if hasPatch {
+			out := make([]llm.ToolSchema, 0, len(schemas))
+			dropped := false
+			for _, s := range schemas {
+				if s.Name == "emit_answer_document" {
+					dropped = true
+					continue
+				}
+				out = append(out, s)
+			}
+			if dropped {
+				logging.Debug("[finalizer/answer_document] first-reject patch-first: dropped emit_answer_document from schema list")
+			}
+			return out
+		}
+	}
 	if e.emitFullDocFailStreak < 2 {
 		return schemas
 	}
@@ -6019,6 +6051,7 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 	if tn == "emit_answer_document_patch" {
 		e.emitPatchNudgeFired = true
 		e.forceFullEmitNext = false
+		e.preferPatchNext = false
 		if obs.LastToolResult.Success {
 			e.emitFullDocFailStreak = 0
 		}
@@ -6029,6 +6062,7 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 	if obs.LastToolResult.Success && tn == "emit_answer_document" {
 		e.emitFullDocFailStreak = 0
 		e.forceFullEmitNext = false
+		e.preferPatchNext = false
 		return LoopSignal{}
 	}
 	// Only count failures of the FULL emit path. Other tool failures
@@ -6111,6 +6145,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	}
 	if answerDocumentPatchRejectIsBlockCardinality(obs.LastToolResult.Summary) {
 		e.rejectHintsUsed++
+		e.preferPatchNext = true
 		hint := "Your last `emit_answer_document_patch` call was rejected because the document already has the allowed number of that block kind. Keep using `emit_answer_document_patch`; do not add another `kind=section` block. Fold the missing content into the existing related section with `replace_blocks`, or update an existing table/list/caveat block when that better preserves the user's requested shape. Keep unrelated blocks in `unchanged_block_ids`. Preserve the existing `citations[]` pool and use `append_citations` only for genuinely new evidence. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call."
 		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 		return LoopSignal{
@@ -6122,13 +6157,13 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 			BypassBudget:   true,
 		}
 	}
-	e.forceFullEmitNext = true
 	e.rejectHintsUsed++
-	hint := "Your last `emit_answer_document_patch` call was rejected. Stop patching for this repair and re-emit a complete `emit_answer_document` payload instead. Start from the previous complete document: carry forward its existing `citations[]` pool unless the repair truly changes the cited evidence; if you add or replace citations, emit one complete zero-based pool and ensure every non-negative `blocks[].items[].citation_ref` resolves to it. Preserve the same user-facing facts from the previous answer and the typed support lanes, but do not reuse stale patch-only block ids or citation indexes from rejected patch attempts. If the repair needs many list/table member or citation changes, a full emit is safer than piecemeal patching. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call."
+	e.preferPatchNext = true
+	hint := answerDocPatchRejectCorrectionHint(obs.LastToolResult.Summary)
 	hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 	return LoopSignal{
 		HintRequested:  true,
-		HintKey:        "answer_doc.patch_rewrite",
+		HintKey:        "answer_doc.patch_correct",
 		Hint:           hint,
 		Progress:       true,
 		BypassThrottle: true,
@@ -6143,6 +6178,21 @@ func answerDocumentPatchRejectIsBlockCardinality(summary string) bool {
 	}
 	return strings.Contains(summary, "blocks[].kind=section") &&
 		strings.Contains(summary, "reduce kind=section blocks")
+}
+
+func answerDocPatchRejectCorrectionHint(summary string) string {
+	detail := compactToolRejectSummary(summary)
+	if detail == "" {
+		detail = strings.TrimSpace(summary)
+	}
+	var b strings.Builder
+	b.WriteString("Your last `emit_answer_document_patch` call was rejected, but the repair is still patch-local. Keep using `emit_answer_document_patch`; do not switch to a full `emit_answer_document` rewrite. Correct only the patch operation named by the tool error")
+	if detail != "" {
+		b.WriteString(": ")
+		b.WriteString(detail)
+	}
+	b.WriteString(". Use `replace_blocks` for existing block ids, `add_blocks` for new block ids, and `unchanged_block_ids` only for blocks that already exist in the previous draft. If a diagram block is edited, keep the sibling `diagram` object with `language`, `kind`, and `body`. Preserve the inherited `citations[]` pool; use `append_citations` only for genuinely new evidence. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call.")
+	return b.String()
 }
 
 func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
@@ -6161,20 +6211,21 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		return LoopSignal{}
 	}
 
-	hint := answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in the tool error. Every other field — `blocks[]` (every block id and item id you previously emitted), `citations[]`, `claim_uses[]` annotations, `exact_resolution` — must reproduce the prior emit byte-identical. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
+	hasPatchBase := answerDocumentPatchBaseAvailable(ctx, e.mu)
+	hint := answerDocDefaultFullRejectHint(hasPatchBase)
 	reasonKey := "tool-reject"
 	if repair != nil && strings.TrimSpace(repair.Hint) != "" {
 		hint = strings.TrimSpace(repair.Hint)
 		reasonKey = firstNonEmptyString(rejectCode, "tool-reject")
 		if len(repair.Fields) > 0 && !repairHintMentionsFields(hint, repair.Fields) {
-			hint = answerDocFixOnlyDirective(repair.Fields) + " " + hint
+			hint = answerDocFixOnlyDirective(repair.Fields, hasPatchBase) + " " + hint
 		}
 		if !strings.Contains(hint, "Do not write free-form prose outside the tool call.") {
 			hint += " Do not write free-form prose outside the tool call."
 		}
 	}
 	if detail := compactToolRejectSummary(summary); detail != "" && (repair == nil || strings.TrimSpace(repair.Hint) == "") {
-		hint = answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in this exact tool error: " + detail + ". Every other field must stay byte-identical to the prior emit; do not reopen files. Do not write free-form prose outside the tool call."
+		hint = answerDocStructuredRejectHint(detail, hasPatchBase)
 	}
 
 	var summaryLen, summaryCap int
@@ -6352,7 +6403,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		}
 	}
 	if repair != nil && len(repair.Fields) > 0 && !repairHintMentionsFields(hint, repair.Fields) {
-		hint = answerDocFixOnlyDirective(repair.Fields) + " " + hint
+		hint = answerDocFixOnlyDirective(repair.Fields, hasPatchBase) + " " + hint
 	}
 	// Catastrophic-regression override: when the tool flagged
 	// payload_regression in the Repair code, the existing hint is
@@ -6376,6 +6427,11 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		}
 		hint = answerDocPayloadRegressionHint(regressionSummary, fields)
 		reasonKey = "payload-regression"
+	}
+	if answerDocShouldPreferPatchForFullReject(ctx, e, repair) {
+		e.preferPatchNext = true
+		hint = answerDocFullRejectPatchHint(repair, summary, hint)
+		reasonKey = "patch-" + reasonKey
 	}
 	if !strings.Contains(hint, "Do not write free-form prose outside the tool call.") {
 		hint += " Do not write free-form prose outside the tool call."
@@ -6402,6 +6458,43 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func answerDocShouldPreferPatchForFullReject(ctx *types.AgentContext, e *answerDocumentEvaluator, repair *types.ToolRepair) bool {
+	if e == nil || e.forceFullEmitNext {
+		return false
+	}
+	if answerDocRepairIsRegression(repair) {
+		return false
+	}
+	return answerDocumentPatchBaseAvailable(ctx, e.mu)
+}
+
+func answerDocFullRejectPatchHint(repair *types.ToolRepair, summary string, existingHint string) string {
+	detail := compactToolRejectSummary(summary)
+	if detail == "" && repair != nil {
+		detail = strings.TrimSpace(repair.Hint)
+	}
+	if detail == "" {
+		detail = strings.TrimSpace(summary)
+	}
+	if detail == "" {
+		detail = strings.TrimSpace(existingHint)
+	}
+	fields := ""
+	if repair != nil && len(repair.Fields) > 0 {
+		fields = " Target field(s): `" + strings.Join(repair.Fields, "`, `") + "`."
+	}
+	var b strings.Builder
+	b.WriteString("Your last `emit_answer_document` call produced a usable structured draft but was rejected by validation. Use `emit_answer_document_patch` now instead of re-emitting the full document: put every unchanged prior block id in `unchanged_block_ids`, use `replace_blocks` for existing blocks that need edits, and use `add_blocks` only for genuinely missing new blocks. Apply only this repair")
+	if detail != "" {
+		b.WriteString(": ")
+		b.WriteString(detail)
+	}
+	b.WriteString(".")
+	b.WriteString(fields)
+	b.WriteString(" Keep the inherited `citations[]` pool unless the repair truly needs a new citation; prefer `append_citations` for additive evidence. Do not regenerate, compress, or paraphrase unrelated blocks. Do not reopen files or call read/search tools; use only the already-provided evidence, support lanes, prior slate, and repair diagnostics. Do not write free-form prose outside the tool call.")
+	return b.String()
 }
 
 // answerDocAttachEscalation prepends a retry-iteration aware
@@ -6577,14 +6670,35 @@ func repairHintMentionsFields(hint string, fields []string) bool {
 // language nails down what "preserve" means without ambiguity.
 const answerDocPreserveHintIntro = "Your last `emit_answer_document` call was rejected by the tool."
 
+// answerDocDefaultFullRejectHint renders the default full-emit reject
+// hint. When a previous structured draft exists it uses the positive
+// preserve wording; when no draft exists it asks for a complete fresh
+// document instead of the impossible "paste previous payload" action.
+func answerDocDefaultFullRejectHint(hasPreviousDraft bool) string {
+	if !hasPreviousDraft {
+		return answerDocPreserveHintIntro + " Re-emit a complete `emit_answer_document` payload now, fixing the field(s) named in the tool error. Build the full document from the already-provided evidence, support lanes, required answer blocks, and repair diagnostics. Do not refer to a previous structured payload because none is usable for this repair. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
+	}
+	return answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in the tool error. Every other field — `blocks[]` (every block id and item id you previously emitted), `citations[]`, `claim_uses[]` annotations, `exact_resolution` — must reproduce the prior emit byte-identical. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
+}
+
+func answerDocStructuredRejectHint(detail string, hasPreviousDraft bool) string {
+	if !hasPreviousDraft {
+		return answerDocPreserveHintIntro + " Re-emit a complete `emit_answer_document` payload now and fix this exact tool error: " + detail + ". Build every required block and citation from the already-provided evidence; do not reopen files. Do not write free-form prose outside the tool call."
+	}
+	return answerDocPreserveHintIntro + " Re-emit `emit_answer_document` now: paste the FULL previous payload byte-identical, then change ONLY the field(s) named in this exact tool error: " + detail + ". Every other field must stay byte-identical to the prior emit; do not reopen files. Do not write free-form prose outside the tool call."
+}
+
 // answerDocFixOnlyDirective renders the "preserve everything except
-// these fields" directive in the new positive-preserve wording.
-// Replaces the bare "Fix ONLY these field(s): `X`. " prefix used
-// pre-2026-04-30, which empirically caused models to drop the rest
-// of the payload on the retry round.
-func answerDocFixOnlyDirective(fields []string) string {
+// these fields" directive in the new positive-preserve wording when a
+// previous draft exists. Without a previous draft it requests a
+// complete document and names the target fields, avoiding an impossible
+// byte-identical-paste instruction.
+func answerDocFixOnlyDirective(fields []string, hasPreviousDraft bool) string {
 	if len(fields) == 0 {
 		return ""
+	}
+	if !hasPreviousDraft {
+		return "Re-emit a complete `emit_answer_document` payload and ensure these field(s) are populated correctly: `" + strings.Join(fields, "`, `") + "`. Build the rest of the document from the already-provided evidence and required answer blocks; do not emit only the named fields."
 	}
 	return "Re-emit `emit_answer_document` with the FULL previous payload byte-identical, then change ONLY these field(s): `" + strings.Join(fields, "`, `") + "`. Every other field — `blocks[]` (each block id, kind, payload, item ids, item text, item claim_use), `citations[]`, doc-level `claim_use` annotations, `exact_resolution` — must reproduce the prior emit byte-identical. Do not drop, blank, or shrink any other field."
 }

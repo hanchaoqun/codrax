@@ -3710,6 +3710,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstructionResetsDispatchState(t *t
 		emitFullDocFailStreak:  4,
 		emitPatchNudgeFired:    true,
 		forceFullEmitNext:      true,
+		preferPatchNext:        true,
 		diagramRequired:        true,
 		diagramMinimum:         1,
 		diagramKinds:           []types.DiagramKind{types.DiagramSequence},
@@ -3722,9 +3723,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstructionResetsDispatchState(t *t
 		t.Fatalf("mutable state should be rebound per dispatch")
 	}
 	if e.retriesUsed != 0 || e.proseFallbackRequested || e.rejectHintsUsed != 0 ||
-		e.emitFullDocFailStreak != 0 || e.emitPatchNudgeFired || e.forceFullEmitNext {
-		t.Fatalf("dispatch counters/latches not reset: retries=%d prose=%t reject=%d fullStreak=%d patchNudge=%t forceFull=%t",
-			e.retriesUsed, e.proseFallbackRequested, e.rejectHintsUsed, e.emitFullDocFailStreak, e.emitPatchNudgeFired, e.forceFullEmitNext)
+		e.emitFullDocFailStreak != 0 || e.emitPatchNudgeFired || e.forceFullEmitNext || e.preferPatchNext {
+		t.Fatalf("dispatch counters/latches not reset: retries=%d prose=%t reject=%d fullStreak=%d patchNudge=%t forceFull=%t preferPatch=%t",
+			e.retriesUsed, e.proseFallbackRequested, e.rejectHintsUsed, e.emitFullDocFailStreak, e.emitPatchNudgeFired, e.forceFullEmitNext, e.preferPatchNext)
 	}
 	if e.diagramRequired || e.diagramMinimum != 0 || len(e.diagramKinds) != 0 || e.configTraceDiagram {
 		t.Fatalf("dispatch presentation state not reset: required=%t min=%d kinds=%v configTrace=%t",
@@ -4680,14 +4681,12 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopGenericRejectSurfacesToolError(t
 	for _, want := range []string{
 		"symbols[0].file is required when symbols[0].line is set",
 		"emit_answer_document",
-		// Reworded post-2026-04-30: the hint now uses the explicit
-		// "paste the FULL previous payload byte-identical" preserve
-		// directive instead of the ambiguous "Only change the named
-		// field(s)" wording, which empirically caused models to
-		// drop the rest of the payload on retry. Assert on the new
-		// preserve language.
-		"paste the FULL previous payload byte-identical",
-		"Every other field must stay byte-identical",
+		// No previous structured draft exists in this path, so the
+		// repair must ask for a complete fresh payload rather than
+		// an impossible byte-identical paste from a missing prior
+		// emit. Separate patch-base tests cover the preserve wording.
+		"complete `emit_answer_document` payload",
+		"Build every required block and citation",
 		"Do not write free-form prose outside the tool call",
 	} {
 		if !strings.Contains(sig.Hint, want) {
@@ -5803,6 +5802,8 @@ func TestRenderAnswerDocRetryState_FullPayload(t *testing.T) {
 	// 1. Hard Rule
 	for _, want := range []string{
 		"## Hard Rule (retry attempt 2)",
+		"If `emit_answer_document_patch` is available, prefer it",
+		"`unchanged_block_ids`",
 		"byte-identical to your Previous Emit",
 		"Do NOT regenerate from scratch",
 	} {
