@@ -2160,6 +2160,131 @@ func TestEmitAnalysis_Execute_PersistsConversationReferenceProfile(t *testing.T)
 	}
 }
 
+func TestEmitAnalysis_Execute_DropsCurrentRequestOnlyConversationSubjects(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("explore_mid_loop_hint_budget 默认值是什么")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "config_trace",
+		"complexity": "simple",
+		"keywords": ["config", "default", "explore"],
+		"entities": ["explore_mid_loop_hint_budget"],
+		"question_kind": "config_mapping",
+		"intent_confidence": 0.91,
+		"complexity_confidence": 0.86,
+		"kind_confidence": 0.82,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"conversation_reference_profile": {
+			"requires_prior_context": false,
+			"needs_repo_verification": true,
+			"ambiguity": "none",
+			"resolved_subjects": [{
+				"surface": "explore_mid_loop_hint_budget",
+				"kind": "config_key",
+				"source": "current_request",
+				"role": "primary_subject",
+				"use_as_exact_target": false,
+				"confidence": 0.91
+			}]
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("current-request-only conversation subjects should be dropped, not rejected: %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.ConversationReferenceProfile != nil {
+		t.Fatalf("current-request-only subjects should not pollute prior-conversation profile: %+v", rm.ConversationReferenceProfile)
+	}
+}
+
+func TestEmitAnalysis_Execute_NormalizesPriorSubjectRequiresPriorContext(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("那个配置项默认值是什么")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "config_trace",
+		"complexity": "simple",
+		"keywords": ["config", "default", "explore"],
+		"entities": ["explore_mid_loop_hint_budget"],
+		"question_kind": "config_mapping",
+		"intent_confidence": 0.91,
+		"complexity_confidence": 0.86,
+		"kind_confidence": 0.82,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"conversation_reference_profile": {
+			"requires_prior_context": false,
+			"needs_repo_verification": true,
+			"ambiguity": "none",
+			"resolved_subjects": [{
+				"surface": "explore_mid_loop_hint_budget",
+				"kind": "config_key",
+				"source": "prior_context",
+				"role": "primary_subject",
+				"use_as_exact_target": true,
+				"confidence": 0.91
+			}]
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("prior-context subject should normalize requires_prior_context, not reject: %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ConversationReferenceProfile == nil {
+		t.Fatalf("ConversationReferenceProfile not persisted: %+v", rm)
+	}
+	if !rm.ConversationReferenceProfile.RequiresPriorContext {
+		t.Fatalf("requires_prior_context should be normalized true: %+v", rm.ConversationReferenceProfile)
+	}
+	if got := rm.ConversationReferenceProfile.ResolvedSubjects; len(got) != 1 ||
+		got[0].Source != types.ConversationReferenceSourcePriorContext ||
+		!got[0].UseAsExactTarget {
+		t.Fatalf("resolved prior subject not preserved: %+v", got)
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsSourceScopeProfile(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

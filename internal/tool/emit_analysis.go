@@ -382,7 +382,7 @@ func buildEmitAnalysisSchema() {
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
-								"surface":             map[string]any{"type": "string", "description": "Concrete identifier, path, config key, route, or symbol surface copied from Prior Conversation or current+prior context."},
+								"surface":             map[string]any{"type": "string", "description": "Concrete identifier, path, config key, route, or symbol surface copied from Prior Conversation or current+prior context. Current-request-only subjects belong in entities / exact_targets, not here."},
 								"kind":                map[string]any{"type": "string", "enum": skill.AnalysisAnswerSubjectValues(), "description": "What kind of target this resolved subject is."},
 								"source":              map[string]any{"type": "string", "enum": conversationReferenceSourceValues(), "description": "Where this resolved surface came from."},
 								"role":                map[string]any{"type": "string", "description": "Short role label such as primary_subject, exact_answer_target, context, comparator."},
@@ -1424,12 +1424,6 @@ func parseConversationReferenceProfile(p *emitConversationReferenceProfileParam)
 			p.Ambiguity, strings.Join(conversationReferenceAmbiguityValues(), ", "),
 		)
 	}
-	if !*p.RequiresPriorContext && len(p.ResolvedSubjects) == 0 {
-		return nil, ""
-	}
-	if !*p.RequiresPriorContext && len(p.ResolvedSubjects) > 0 {
-		return nil, "conversation_reference_profile.resolved_subjects require requires_prior_context=true"
-	}
 	out := &types.ConversationReferenceProfile{
 		RequiresPriorContext:  *p.RequiresPriorContext,
 		NeedsRepoVerification: *p.NeedsRepoVerification,
@@ -1459,12 +1453,23 @@ func parseConversationReferenceProfile(p *emitConversationReferenceProfileParam)
 				i, raw.Source, strings.Join(conversationReferenceSourceValues(), ", "),
 			)
 		}
+		if source == types.ConversationReferenceSourceCurrentRequest {
+			// Current-request subjects are already represented by
+			// entities/exact_targets. Treat this as a redundant local-model
+			// emission rather than forcing an analyzer retry or polluting the
+			// prior-conversation lane.
+			continue
+		}
 		kind := types.AnswerSubjectKind(strings.TrimSpace(raw.Kind))
 		if !kind.IsValid() {
 			return nil, fmt.Sprintf(
 				"conversation_reference_profile.resolved_subjects[%d].kind %q is invalid",
 				i, raw.Kind,
 			)
+		}
+		if !out.RequiresPriorContext {
+			out.RequiresPriorContext = true
+			logging.Warning("[emit_analysis] normalized conversation_reference_profile.requires_prior_context false→true because resolved_subjects source=%s", source)
 		}
 		out.ResolvedSubjects = append(out.ResolvedSubjects, types.ResolvedConversationSubject{
 			Surface:          surface,
@@ -1479,6 +1484,9 @@ func parseConversationReferenceProfile(p *emitConversationReferenceProfileParam)
 		out.Ambiguity == types.ConversationReferenceAmbiguityNone &&
 		len(out.ResolvedSubjects) == 0 {
 		return nil, "conversation_reference_profile.ambiguity=none requires at least one resolved_subject"
+	}
+	if !out.RequiresPriorContext {
+		return nil, ""
 	}
 	return out, ""
 }
