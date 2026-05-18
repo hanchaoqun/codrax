@@ -1277,7 +1277,15 @@ func explicitTaggedOnlyTextToolCallBlocks(s string) ([]string, bool) {
 	if strings.TrimSpace(s[pos:]) != "" {
 		return nil, false
 	}
-	return embeddedBlockBodies(blocks), true
+	bodies := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		body := strings.TrimSpace(block.body)
+		if body == "" {
+			return nil, false
+		}
+		bodies = append(bodies, body)
+	}
+	return bodies, true
 }
 
 func embeddedTextToolCallBlocks(s string) []string {

@@ -206,6 +206,50 @@ func TestRecoverTextToolCalls_AutoModeExplicitTaggedOnlyBlocks(t *testing.T) {
 	}
 }
 
+func TestRecoverTextToolCalls_AutoModeExplicitTaggedOnlyCompatibilityMatrix(t *testing.T) {
+	tools := []ToolSchema{{Name: "read_file"}, {Name: "grep"}, {Name: "emit_evidence"}}
+	cases := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "single standard tag with whitespace",
+			input: "\n <tool_call>\n{\"name\":\"read_file\",\"arguments\":{\"path\":\"a.go\"}}\n</tool_call>\n",
+			want:  []string{"read_file"},
+		},
+		{
+			name: "mixed standard and minimax tags preserve order",
+			input: "<minimax:tool_call>{\"name\":\"grep\",\"arguments\":{\"pattern\":\"Agent\",\"files_only\":true}}</minimax:tool_call>\n" +
+				"<tool_call>{\"name\":\"read_file\",\"arguments\":{\"path\":\"a.go\"}}</tool_call>",
+			want: []string{"grep", "read_file"},
+		},
+		{
+			name:  "tagged openai tool_calls envelope",
+			input: "<tool_call>{\"tool_calls\":[{\"function\":{\"name\":\"grep\",\"arguments\":\"{\\\"pattern\\\":\\\"Agent\\\",\\\"files_only\\\":true}\"}}]}</tool_call>",
+			want:  []string{"grep"},
+		},
+		{
+			name:  "tagged array envelope",
+			input: "<tool_call>[{\"name\":\"grep\",\"arguments\":{\"pattern\":\"Agent\",\"files_only\":true}},{\"name\":\"read_file\",\"arguments\":{\"path\":\"a.go\"}}]</tool_call>",
+			want:  []string{"grep", "read_file"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := recoverTextToolCalls(Response{Content: tc.input}, tools, ChatOptions{ToolChoice: "auto"})
+			if len(got.ToolCalls) != len(tc.want) {
+				t.Fatalf("expected %d recovered calls, got %+v", len(tc.want), got.ToolCalls)
+			}
+			for i, want := range tc.want {
+				if got.ToolCalls[i].Name != want {
+					t.Fatalf("call[%d].Name=%q want %q; calls=%+v", i, got.ToolCalls[i].Name, want, got.ToolCalls)
+				}
+			}
+		})
+	}
+}
+
 func TestRecoverTextToolCalls_AutoModeTaggedBlocksRejectWrapperProse(t *testing.T) {
 	tools := []ToolSchema{{Name: "read_file"}, {Name: "grep"}}
 	content := "I will call the tools now:\n\n" +
@@ -214,6 +258,16 @@ func TestRecoverTextToolCalls_AutoModeTaggedBlocksRejectWrapperProse(t *testing.
 	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "auto"})
 	if len(got.ToolCalls) != 0 || got.Content != content {
 		t.Fatalf("auto mode must not recover prose-wrapped tagged calls, got content=%q calls=%+v", got.Content, got.ToolCalls)
+	}
+}
+
+func TestRecoverTextToolCalls_AutoModeTaggedBlocksRejectEmptyBlock(t *testing.T) {
+	tools := []ToolSchema{{Name: "read_file"}}
+	content := "<tool_call></tool_call>\n" +
+		"<tool_call>{\"name\":\"read_file\",\"arguments\":{\"path\":\"a.go\"}}</tool_call>"
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "auto"})
+	if len(got.ToolCalls) != 0 || got.Content != content {
+		t.Fatalf("auto mode must not partially recover when a tagged block is empty, got content=%q calls=%+v", got.Content, got.ToolCalls)
 	}
 }
 
