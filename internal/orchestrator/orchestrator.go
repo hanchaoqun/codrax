@@ -3956,6 +3956,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	var lastFinalize *agent.StageOutput
 	var firstFinalizeDraft string
 	var firstFinalizeConcerns []types.Violation
+	preFinalizeExtractCompleted := false
 
 	// lastFallbackFinalizerOnly latches when the previous loop
 	// iteration picked FallbackFinalizerOnly as the fallback target —
@@ -4650,9 +4651,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// valid from the prior iteration. (The skip is one-shot:
 		// we reset the latch immediately so any later non-Finalizer
 		// fallback re-runs extract as before.)
-		if lastFallbackFinalizerOnly && len(o.busCtx.AnswerSymbols) > 0 {
-			logging.Info("[orchestrator] B3-F3 skip pre-finalize extract: prior FinalizerOnly fallback preserved upstream state (AnswerSymbols=%d)",
-				len(o.busCtx.AnswerSymbols))
+		if lastFallbackFinalizerOnly && (preFinalizeExtractCompleted || o.hasReusableTurnBSlateForFinalize()) {
+			logging.Info("[orchestrator] B3-F3 skip pre-finalize extract: prior FinalizerOnly fallback preserved Turn-B state (extract_completed=%t %s)",
+				preFinalizeExtractCompleted, o.reusableTurnBSlateSummary())
 			lastFallbackFinalizerOnly = false
 		} else {
 			o.busCtx.PipelineStage = types.StageExtract
@@ -4679,6 +4680,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					break
 				}
 				stepsUsed++
+				preFinalizeExtractCompleted = true
 				stopLocal = o.startSchedulerLocalWork(types.StageExtract, "drain_hypothesis_verdicts")
 				o.drainHypothesisVerdicts()
 				if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
@@ -5509,13 +5511,14 @@ contractFailureBreak:
 
 		if lastFinalize == nil {
 			// Extract before forced finalize only when upstream state is
-			// genuinely missing. A finalizer-only retry already preserved
-			// AnswerSymbols; replaying extract after a finalizer transport
-			// failure causes visible 4/4 → 3/4 stage regression and burns
-			// another LLM round without adding evidence.
-			if lastFallbackFinalizerOnly && len(o.busCtx.AnswerSymbols) > 0 {
-				logging.Info("[orchestrator] skip pre-forced-finalize extract: prior FinalizerOnly retry preserved upstream state (AnswerSymbols=%d)",
-					len(o.busCtx.AnswerSymbols))
+			// genuinely missing. If Turn B has already produced typed
+			// answer symbols, chains, or hypothesis verdicts, replaying
+			// extract after a finalizer transport/schema failure causes a
+			// visible 4/4 → 3/4 stage regression and burns another LLM
+			// round without adding evidence.
+			if preFinalizeExtractCompleted || o.hasReusableTurnBSlateForFinalize() {
+				logging.Info("[orchestrator] skip pre-forced-finalize extract: Turn-B state already available (extract_completed=%t %s)",
+					preFinalizeExtractCompleted, o.reusableTurnBSlateSummary())
 				lastFallbackFinalizerOnly = false
 			} else {
 				o.busCtx.PipelineStage = types.StageExtract
@@ -5542,6 +5545,7 @@ contractFailureBreak:
 						break
 					}
 					stepsUsed++
+					preFinalizeExtractCompleted = true
 					stopLocal := o.startSchedulerLocalWork(types.StageExtract, "drain_hypothesis_verdicts")
 					o.drainHypothesisVerdicts()
 					if o.finishSchedulerLocalWork(stopLocal, "drain_hypothesis_verdicts", stepsUsed) {
@@ -6175,6 +6179,41 @@ func (o *Orchestrator) hasReconcileEvidenceContext() bool {
 		}
 	}
 	return false
+}
+
+func (o *Orchestrator) hasReusableTurnBSlateForFinalize() bool {
+	if o == nil || o.busCtx == nil {
+		return false
+	}
+	if len(o.busCtx.AnswerSymbols) > 0 || len(o.busCtx.AnswerChains) > 0 {
+		return true
+	}
+	if o.busCtx.Mutable == nil {
+		return false
+	}
+	if symbols, _ := o.busCtx.Mutable.EmittedAnswerSymbols(); len(symbols) > 0 {
+		return true
+	}
+	if len(o.busCtx.Mutable.EmittedHypothesisVerdicts()) > 0 {
+		return true
+	}
+	return false
+}
+
+func (o *Orchestrator) reusableTurnBSlateSummary() string {
+	if o == nil || o.busCtx == nil {
+		return "none"
+	}
+	mutableSymbols := 0
+	verdicts := 0
+	if o.busCtx.Mutable != nil {
+		if symbols, _ := o.busCtx.Mutable.EmittedAnswerSymbols(); len(symbols) > 0 {
+			mutableSymbols = len(symbols)
+		}
+		verdicts = len(o.busCtx.Mutable.EmittedHypothesisVerdicts())
+	}
+	return fmt.Sprintf("answer_symbols=%d emitted_answer_symbols=%d answer_chains=%d hypothesis_verdicts=%d",
+		len(o.busCtx.AnswerSymbols), mutableSymbols, len(o.busCtx.AnswerChains), verdicts)
 }
 
 func (o *Orchestrator) hasBlockingReconcileRepair() bool {

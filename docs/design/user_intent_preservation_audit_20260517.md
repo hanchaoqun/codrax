@@ -856,6 +856,32 @@
 - [x] support lane 已渲染且存在边界时，typed enrichment across all profiles 收窄到 lane evidence/location/anchor 范围；不再只对 diagnostic profile 生效。
 - [x] 回归测试覆盖空响应纠偏、无 previous emit retry prompt、空兜底证据清单、support scope 过滤跨 profile 生效。
 
+### UIP-036（P1）finalizer-only / forced-finalize 仍可能倒退到 3/4 重新提炼
+
+代码位置：`internal/orchestrator/orchestrator.go::runReadSchedulerLoop`
+
+状态：**已修复（2026-05-18 finalizer 二次审计）**。此前跳过 pre-finalize extract 的条件只看 `lastFallbackFinalizerOnly && len(BusContext.AnswerSymbols)>0`，因此对机制解释、对比、图示等不需要 answer-symbol slate 但已有 `HypothesisVerdict` / `AnswerChain` 的问题仍会白跑一次 extract；forced-finalize 逃生路径也只有在上一轮显式 finalizer-only 且有 answer symbols 时才跳过 extract。现在统一读取本轮 typed Turn-B 状态：只要当前任务已经成功跑过 extract，或存在 `AnswerSymbols`、`Mutable.EmittedAnswerSymbols()`、`AnswerChains`、`Mutable.EmittedHypothesisVerdicts()` 任一结构化产物，即认为提炼阶段已有可复用结果，不再从 4/4 倒退到 3/4。
+
+触发证据：
+
+- 客户 `render_log.log` / `retry_log.log` 中 finalizer 流式超时后进入 `DAG run produced no finalize output; forcing finalize`，随后又显示 3/4 提炼；旧二进制还会再次 dispatch extractor。
+- 机制类/对比类问题常常只产出 hypothesis verdict，不一定产出 answer symbols；旧条件把这类有效 Turn-B 状态当作“无提炼结果”。
+- 部分解释类问题的 extractor 合法地产出空 slate；旧条件会把“成功但无需结构化符号”的提炼也重新跑一遍。
+
+风险：
+
+- 用户界面出现 `4/4 → 3/4 → 4/4` 的阶段倒退，像系统状态错乱。
+- finalizer 的传输失败或纯成文形状问题会额外烧一次 extractor LLM 调用，拉长等待时间，并可能把已经收敛的提炼结果重写成另一版。
+- 对非枚举问题不友好：系统把“没有 answer symbols”误等价为“没有提炼结果”。
+
+修复方向：
+
+- [x] 新增 `hasReusableTurnBSlateForFinalize()`，只读取结构化 typed stage outputs，不扫描用户问题或模型散文。
+- [x] 调度器用本轮 `preFinalizeExtractCompleted` 布尔值记录 extract 是否已成功完成，避免空 slate 问题被误判为未提炼。
+- [x] normal finalizer-only retry：已有可复用 Turn-B slate 时跳过 pre-finalize extract。
+- [x] forced-finalize escape：已有可复用 Turn-B slate 时跳过 extract replay，直接成文。
+- [x] 回归测试覆盖 `HypothesisVerdict`-only、空 slate 成功提炼、finalizer dispatch error 后 forced-finalize 三条路径，防止后续开发者又把条件收窄回 `AnswerSymbols`。
+
 ## 分批修复建议
 
 ### Batch A：先消除明确红线
