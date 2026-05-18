@@ -87,6 +87,24 @@ type StageOutput struct {
 	// agents leave this empty.
 	FinalAnswer string `json:"final_answer,omitempty"`
 
+	// AnswerDegraded marks a finalizer answer that intentionally bypassed
+	// the structured AnswerDocument carrier, typically because the model
+	// repeatedly failed the tool-call protocol. The answer is still
+	// user-visible, but downstream answer-document gates must treat it as
+	// a terminal fallback rather than another structured draft to repair.
+	AnswerDegraded bool `json:"answer_degraded,omitempty"`
+
+	// SkipAnswerChecks is set with AnswerDegraded when re-running success
+	// criteria / contract / reviewer gates would only reject the degraded
+	// fallback for not being an AnswerDocument. This is a finalizer-only
+	// escape hatch and must not be set by upstream stages.
+	SkipAnswerChecks bool `json:"skip_answer_checks,omitempty"`
+
+	// DegradeReason is a stable, telemetry-friendly reason for
+	// AnswerDegraded. Keep it structural (for example
+	// "answer_document_missing") rather than derived from user/model prose.
+	DegradeReason string `json:"degrade_reason,omitempty"`
+
 	// RetryHint is the agent's own diagnosis of why it could not
 	// progress this turn. When the orchestrator self-loops the same
 	// stage, it copies this into TaskState.RetryHint so the next
@@ -385,6 +403,19 @@ type LoopSignal struct {
 	// that should not compete with ordinary exploratory nudges for the
 	// same finite mid-loop budget.
 	BypassBudget bool
+
+	// DisableToolsNextTurn asks BaseAgent to make the next LLM call with
+	// an empty tool schema and no tool_choice. This is only for isolated
+	// degraded fallbacks, such as finalizer prose recovery when a provider
+	// repeatedly ignores a required structured emit. Normal protocol
+	// retries must leave this false.
+	DisableToolsNextTurn bool
+
+	// IsolateNextPrompt asks BaseAgent to replace the message history for
+	// the next turn with Hint as the sole user message. Pair with
+	// DisableToolsNextTurn when a degraded fallback prompt must not inherit
+	// the normal tool-only instructions from the structured stage.
+	IsolateNextPrompt bool
 }
 
 // LoopController is the unified replacement for ContinuingEvaluator +
@@ -1173,6 +1204,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	// pre-refactor control-flow shape without requiring a labeled
 	// break inside the tool-batch loop.
 	forceStop := false
+	disableToolsNextTurn := false
 	finalizerNoToolDraftsPreserved := 0
 	historyContentForNoTool := func(resp llm.Response) string {
 		content, preserved := contentForNoToolHistoryWithFinalizerDraftBudget(ctx, resp, finalizerNoToolDraftsPreserved)
@@ -1186,6 +1218,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		maxIter = ctx.MaxIterOverride
 	}
 	for i := 0; i < maxIter; i++ {
+		disableToolsThisTurn := disableToolsNextTurn
+		disableToolsNextTurn = false
 		if forceStop {
 			break
 		}
@@ -1276,6 +1310,11 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if filter, ok := b.eval.(ToolSchemaFilter); ok {
 			effectiveTools = filter.FilterToolSchemas(ctx, iterToolSchemas)
 		}
+		if disableToolsThisTurn {
+			logging.Debug("[diag %s] iter=%d phase=isolated_no_tool tools disabled for this fallback turn",
+				b.name, i)
+			effectiveTools = nil
+		}
 
 		// Reason — call LLM
 		telemetry := llm.BuildRequestTelemetry(b.deps.LLM, messages, effectiveTools)
@@ -1353,8 +1392,12 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				ParallelUnitID:  ctx.ExploreDispatchKey,
 			})
 		}
+		toolChoice := resolveToolChoice(ctx)
+		if disableToolsThisTurn || len(effectiveTools) == 0 {
+			toolChoice = ""
+		}
 		resp, err := b.deps.LLM.Chat(ctx.Context(), messages, effectiveTools, llm.ChatOptions{
-			ToolChoice:      resolveToolChoice(ctx),
+			ToolChoice:      toolChoice,
 			OnContentDelta:  streamBuf.onDelta,
 			OnToolCallDelta: onToolCallDelta,
 			OnRetry:         onRetry,
@@ -1532,15 +1575,22 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 						sig.HintKey, result.Outcome, result.Reason)
 					if result.Outcome == OutcomeInjectHint {
 						emitRequiredNoToolNotice()
-						messages = append(messages, llm.Message{
-							Role:      "assistant",
-							Content:   "",
-							ToolCalls: historyToolCalls,
-						})
-						messages = append(messages, llm.Message{
-							Role:    "user",
-							Content: result.Hint,
-						})
+						if sig.IsolateNextPrompt {
+							messages = []llm.Message{{Role: "user", Content: result.Hint}}
+						} else {
+							messages = append(messages, llm.Message{
+								Role:      "assistant",
+								Content:   "",
+								ToolCalls: historyToolCalls,
+							})
+							messages = append(messages, llm.Message{
+								Role:    "user",
+								Content: result.Hint,
+							})
+						}
+						if sig.DisableToolsNextTurn {
+							disableToolsNextTurn = true
+						}
 						logging.Debug("[diag %s] iter=%d phase=empty_softstop_inject SOFT-STOP inject len=%d:\n%s\n---",
 							b.name, i, len(result.Hint), logging.Truncate(result.Hint, logging.HintBodyMax))
 						continue
@@ -1594,15 +1644,22 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					sig.HintKey, result.Outcome, result.Reason)
 				if result.Outcome == OutcomeInjectHint {
 					emitRequiredNoToolNotice()
-					messages = append(messages, llm.Message{
-						Role:      "assistant",
-						Content:   historyContentForNoTool(resp),
-						ToolCalls: historyToolCalls,
-					})
-					messages = append(messages, llm.Message{
-						Role:    "user",
-						Content: result.Hint,
-					})
+					if sig.IsolateNextPrompt {
+						messages = []llm.Message{{Role: "user", Content: result.Hint}}
+					} else {
+						messages = append(messages, llm.Message{
+							Role:      "assistant",
+							Content:   historyContentForNoTool(resp),
+							ToolCalls: historyToolCalls,
+						})
+						messages = append(messages, llm.Message{
+							Role:    "user",
+							Content: result.Hint,
+						})
+					}
+					if sig.DisableToolsNextTurn {
+						disableToolsNextTurn = true
+					}
 					logging.Debug("[diag %s] iter=%d phase=softstop_inject SOFT-STOP inject len=%d:\n%s\n---",
 						b.name, i, len(result.Hint), logging.Truncate(result.Hint, logging.HintBodyMax))
 					continue

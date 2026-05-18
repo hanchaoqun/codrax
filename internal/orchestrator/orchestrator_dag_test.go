@@ -123,6 +123,56 @@ func TestRunTaskGraph_HappyPath(t *testing.T) {
 	}
 }
 
+func TestRunTaskGraph_DegradedFinalizerSkipsStructuredAnswerChecks(t *testing.T) {
+	var finalizeCalls int
+	ir := dagIR(types.AnswerContract{
+		Language: "en",
+		CitationReq: types.CitationReq{
+			Required:     true,
+			Granularity:  "line",
+			MinCitations: 99,
+		},
+	})
+	ir.TaskGraph.ExecutionPolicy.RetryBudget = 3
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{{ID: "ev", Source: "src.go", LineStart: 1}},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece:     types.MissingNone,
+				FinalAnswer:      "degraded prose without structured citations",
+				AnswerDegraded:   true,
+				SkipAnswerChecks: true,
+				DegradeReason:    "answer_document_missing",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("degraded finalizer answer should not be sent through contract retry loops, finalizeCalls=%d", finalizeCalls)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
+	}
+	if got := busCtx.Mutable.Result(); !strings.Contains(got, "degraded prose") {
+		t.Fatalf("degraded final answer was not recorded: %q", got)
+	}
+}
+
 func TestRunTaskGraph_AutoCompletesReconcileFromExistingEvidence(t *testing.T) {
 	var explorerCalls, extractorCalls, finalizeCalls int
 

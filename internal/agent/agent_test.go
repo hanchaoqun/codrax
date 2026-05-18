@@ -905,6 +905,30 @@ func (*protocolEmptyFirstLLM) MaxOutputTokens() int          { return 4096 }
 func (*protocolEmptyFirstLLM) RequestTimeout() time.Duration { return 0 }
 func (*protocolEmptyFirstLLM) RetryMaxAttempts() int         { return 0 }
 
+type isolatedPromptLLM struct {
+	calls       int
+	toolCounts  []int
+	toolChoices []string
+	messages    [][]llm.Message
+}
+
+func (l *isolatedPromptLLM) Chat(_ context.Context, messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
+	l.calls++
+	l.toolCounts = append(l.toolCounts, len(tools))
+	l.toolChoices = append(l.toolChoices, opts.ToolChoice)
+	l.messages = append(l.messages, append([]llm.Message(nil), messages...))
+	if l.calls == 1 {
+		return llm.Response{}, nil
+	}
+	return llm.Response{Content: "isolated prose fallback answer"}, nil
+}
+
+func (*isolatedPromptLLM) ModelID() string               { return "isolated-prompt" }
+func (*isolatedPromptLLM) MaxContextTokens() int         { return 128000 }
+func (*isolatedPromptLLM) MaxOutputTokens() int          { return 4096 }
+func (*isolatedPromptLLM) RequestTimeout() time.Duration { return 0 }
+func (*isolatedPromptLLM) RetryMaxAttempts() int         { return 0 }
+
 type protocolSoftStopEvaluator struct {
 	observeCalls   int
 	shouldStopSeen int
@@ -937,6 +961,40 @@ func (e *protocolSoftStopEvaluator) Observe(_ *types.AgentContext, obs LoopObser
 		HintKey:       "test.protocol_softstop",
 		Hint:          "Use the stage's structured tool call instead of prose.",
 	}
+}
+
+type isolatedPromptEvaluator struct{}
+
+func (e *isolatedPromptEvaluator) BuildInitialInstruction(_ *types.AgentContext, _ *skill.Config) string {
+	return ""
+}
+
+func (e *isolatedPromptEvaluator) ShouldStop(_ llm.Response, _ int) bool { return false }
+
+func (e *isolatedPromptEvaluator) ParseOutput(_ *types.AgentContext, _ []llm.Message, _ []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {
+	return &StageOutput{}, nil
+}
+
+func (e *isolatedPromptEvaluator) DetermineMissingPiece(_ *types.AgentContext, _ *StageOutput) types.MissingPiece {
+	return types.MissingNone
+}
+
+func (e *isolatedPromptEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
+	if obs.Phase != PhaseSoftStop {
+		return LoopSignal{}
+	}
+	if strings.TrimSpace(obs.Response.Content) == "" {
+		return LoopSignal{
+			HintRequested:        true,
+			HintKey:              "test.isolated",
+			Hint:                 "isolated fallback prompt",
+			DisableToolsNextTurn: true,
+			IsolateNextPrompt:    true,
+			BypassBudget:         true,
+			BypassThrottle:       true,
+		}
+	}
+	return LoopSignal{StopRequested: true, StopReason: "accepted isolated prose"}
 }
 
 func TestProtocolStagesRouteNoToolProseThroughLoopControllerBeforeShouldStop(t *testing.T) {
@@ -1001,6 +1059,35 @@ func TestRequiredToolStageRoutesEmptyNoToolThroughLoopController(t *testing.T) {
 	}
 	if countNoticeKind(events, render.NoticeNoToolCall) != 1 {
 		t.Fatalf("empty required-tool repair should surface one retry notice, events=%+v", events)
+	}
+}
+
+func TestLoopSignalCanIsolateNextPromptAndDisableTools(t *testing.T) {
+	llmStub := &isolatedPromptLLM{}
+	b := NewBaseAgent(types.AgentFinalizer, &Dependencies{
+		LLM:           llmStub,
+		MaxIterations: 3,
+	}, &isolatedPromptEvaluator{})
+	out, err := b.Execute(&types.AgentContext{
+		Stage:   types.StageFinalize,
+		Mutable: types.NewMutableState(""),
+	}, &skill.Config{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if out == nil {
+		t.Fatal("Execute returned nil output")
+	}
+	if llmStub.calls != 2 {
+		t.Fatalf("isolated fallback should make exactly two calls, got %d", llmStub.calls)
+	}
+	if len(llmStub.messages) != 2 || len(llmStub.messages[1]) != 1 ||
+		llmStub.messages[1][0].Role != "user" || llmStub.messages[1][0].Content != "isolated fallback prompt" {
+		t.Fatalf("second turn must use only the isolated fallback prompt, got %#v", llmStub.messages)
+	}
+	if llmStub.toolCounts[1] != 0 || llmStub.toolChoices[1] != "" {
+		t.Fatalf("isolated fallback turn must disable tools and tool_choice, got tools=%d choice=%q",
+			llmStub.toolCounts[1], llmStub.toolChoices[1])
 	}
 }
 

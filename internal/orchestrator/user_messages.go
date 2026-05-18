@@ -327,6 +327,13 @@ func softFallbackTargetMessage(lang string, target FallbackTarget) string {
 	return softAnswerCheckRetryMessage(lang)
 }
 
+func softFinalizerProseFallbackMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "· 结构化成文未完成，已降级展示模型散文或已收集证据"
+	}
+	return "· Structured answer rendering did not complete — showing model prose or collected evidence"
+}
+
 // noticeKindForFallbackTarget maps a Block 3 fallback target to the
 // dock NoticeKind used when surfacing the corresponding soft message.
 // FailLoud is the terminal "shipping with caveat" path — informational,

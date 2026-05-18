@@ -62,6 +62,13 @@ type answerDocumentEvaluator struct {
 	// bounded by e.maxRetries.
 	retriesUsed int
 
+	// proseFallbackRequested latches the isolated no-tool prose fallback
+	// pass. This pass is deliberately outside the normal answer_document
+	// protocol: it disables tools for exactly one finalizer turn and
+	// replaces the message history with a compact evidence-only prompt so
+	// the fallback cannot contaminate the structured path.
+	proseFallbackRequested bool
+
 	// rejectHintsUsed tracks targeted mid-loop repair hints after a
 	// failed emit_answer_document tool call. Kept separate from the
 	// soft-stop retry budget so a tool-level schema rejection can be
@@ -5717,6 +5724,44 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 			return LoopSignal{}
 		}
 	}
+	hasVisibleDraft := strings.TrimSpace(obs.Response.Content) != ""
+	if e.proseFallbackRequested {
+		if hasVisibleDraft {
+			logging.Debug("[finalizer/answer_document] accepting isolated prose fallback after tool protocol failed")
+			return LoopSignal{StopRequested: true, StopReason: "isolated answer prose fallback"}
+		}
+		logging.Debug("[finalizer/answer_document] isolated prose fallback returned empty output; accepting evidence-only fallback")
+		return LoopSignal{StopRequested: true, StopReason: "empty isolated answer prose fallback"}
+	}
+	// Tool-protocol nudges are useful once: many providers recover after
+	// a direct "call emit_answer_document" reminder. Repeating the same
+	// required-tool prompt against a single model that keeps returning
+	// no tool call just lengthens the failure path. After one miss, a
+	// visible prose draft is accepted as degraded output; an empty miss
+	// switches to a strictly isolated no-tool prose pass.
+	toolNudgeBudget := e.maxRetries
+	if toolNudgeBudget > 1 {
+		toolNudgeBudget = 1
+	}
+	if hasVisibleDraft && e.retriesUsed >= toolNudgeBudget {
+		logging.Debug("[finalizer/answer_document] accepting no-tool prose draft after %d structured nudge(s)",
+			e.retriesUsed)
+		return LoopSignal{StopRequested: true, StopReason: "answer prose fallback"}
+	}
+	if !hasVisibleDraft && e.retriesUsed >= toolNudgeBudget {
+		e.proseFallbackRequested = true
+		logging.Debug("[finalizer/answer_document] switching to isolated no-tool prose fallback after %d structured nudge(s)",
+			e.retriesUsed)
+		return LoopSignal{
+			HintRequested:        true,
+			BypassThrottle:       true,
+			BypassBudget:         true,
+			DisableToolsNextTurn: true,
+			IsolateNextPrompt:    true,
+			HintKey:              "answer_doc.prose_fallback",
+			Hint:                 isolatedFinalizerProseFallbackPrompt(ctx, e.language),
+		}
+	}
 	if e.retriesUsed >= e.maxRetries {
 		logging.Debug("[finalizer/answer_document] correction retries exhausted (%d); accepting response",
 			e.retriesUsed)
@@ -5729,7 +5774,6 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 	// window does NOT swallow the second retry. The finalizer's
 	// retry budget is an evaluator-owned contract; dedup by a
 	// shared key would silently truncate it to the first attempt.
-	hasVisibleDraft := strings.TrimSpace(obs.Response.Content) != ""
 	return LoopSignal{
 		HintRequested:  true,
 		BypassThrottle: true,
@@ -5762,6 +5806,67 @@ func missingAnswerDocumentHint(hasVisibleDraft bool) string {
 		"inside `summary`. Derive the remaining required structured fields (citations[] and any other " +
 		"block payloads the user-section's Required Answer Blocks list calls for) from the same draft. " +
 		"Do NOT rewrite, compress, or paraphrase the content — the richness of the original draft is the answer."
+}
+
+func isolatedFinalizerProseFallbackPrompt(ctx *types.AgentContext, lang string) string {
+	question := ""
+	directive := ""
+	if ctx != nil {
+		question = strings.TrimSpace(ctx.Objective)
+		directive = strings.TrimSpace(ctx.PresentationDirective)
+		if question == "" && ctx.AnalysisIR != nil {
+			question = strings.TrimSpace(ctx.AnalysisIR.RequestModel.RawRequest)
+		}
+	}
+	rows := answerDocumentFallbackEvidenceRows(ctx, 16, 320)
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	var b strings.Builder
+	if zh {
+		b.WriteString("这是独立的降级散文回答通道。上一轮结构化工具调用没有产出可用答案；本轮不会提供任何工具 schema，也不会要求你输出 JSON 或工具调用。\n\n")
+		b.WriteString("请直接用 Markdown 散文回答用户问题。必须优先尊重用户原始意图和展示要求；如果用户明确要求图、表或逻辑视图，并且下面证据足够支持，可以直接输出对应的 Markdown / Mermaid 内容。只使用下面列出的已验证证据；证据不足的地方要如实说明边界，不要补写未经证实的结论。\n\n")
+		if question != "" {
+			b.WriteString("## 用户问题\n\n")
+			b.WriteString(question)
+			b.WriteString("\n\n")
+		}
+		if directive != "" {
+			b.WriteString("## 展示要求\n\n")
+			b.WriteString(directive)
+			b.WriteString("\n\n")
+		}
+		b.WriteString("## 已验证证据\n\n")
+		if len(rows) == 0 {
+			b.WriteString("- 当前没有可列出的代码证据；请明确说明无法形成可靠代码结论。\n")
+		} else {
+			for _, row := range rows {
+				fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
+			}
+		}
+		b.WriteString("\n请只输出最终给用户看的回答正文，不要解释本降级通道，不要输出工具调用 JSON。")
+		return b.String()
+	}
+	b.WriteString("This is an isolated degraded prose-answer pass. The previous structured tool-call path did not produce a usable answer; this turn provides no tool schema and does not require JSON or tool calls.\n\n")
+	b.WriteString("Answer the user's question directly in Markdown prose. Preserve the user's original intent and presentation request first; if the user explicitly asked for a diagram, table, or logical view and the evidence below supports it, include the appropriate Markdown / Mermaid content directly. Use only the verified evidence below; state boundaries honestly where evidence is insufficient.\n\n")
+	if question != "" {
+		b.WriteString("## User Question\n\n")
+		b.WriteString(question)
+		b.WriteString("\n\n")
+	}
+	if directive != "" {
+		b.WriteString("## Presentation Directive\n\n")
+		b.WriteString(directive)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("## Verified Evidence\n\n")
+	if len(rows) == 0 {
+		b.WriteString("- No verified code evidence is available; say that a reliable code conclusion cannot be formed.\n")
+	} else {
+		for _, row := range rows {
+			fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
+		}
+	}
+	b.WriteString("\nReturn only the final user-facing answer. Do not explain this fallback channel and do not output tool-call JSON.")
+	return b.String()
 }
 
 func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservation) LoopSignal {
@@ -7003,7 +7108,10 @@ func parseLiteralGroundingStepIndex(firstLine string) (int, bool) {
 // AnswerDocument field is gone. parseOutputV2 maintains a parallel
 // data shape (final_answer + answer_document_v2) via its own type.
 type answerDocumentStageData struct {
-	FinalAnswer string `json:"final_answer"`
+	FinalAnswer      string `json:"final_answer"`
+	AnswerDegraded   bool   `json:"answer_degraded,omitempty"`
+	SkipAnswerChecks bool   `json:"skip_answer_checks,omitempty"`
+	DegradeReason    string `json:"degrade_reason,omitempty"`
 }
 
 // ParseOutput reads the final AnswerDocument from Mutable, renders
@@ -7093,21 +7201,59 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	}
 	logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; falling back to raw content (len=%d)",
 		len(lastContent))
-	out.Data = marshalStageData(answerDocumentStageData{FinalAnswer: combined})
-	out.FinalAnswer = combined
+	markAnswerDocumentDegradedFallback(out, combined, "answer_document_missing")
 	return out, nil
 }
 
+func markAnswerDocumentDegradedFallback(out *StageOutput, finalAnswer, reason string) {
+	if out == nil {
+		return
+	}
+	out.Data = marshalStageData(answerDocumentStageData{
+		FinalAnswer:      finalAnswer,
+		AnswerDegraded:   true,
+		SkipAnswerChecks: true,
+		DegradeReason:    reason,
+	})
+	out.FinalAnswer = finalAnswer
+	out.AnswerDegraded = true
+	out.SkipAnswerChecks = true
+	out.DegradeReason = reason
+}
+
 func answerDocumentEmptyModelEvidenceFallback(ctx *types.AgentContext, lang string) string {
-	pool := answerDocumentAuthorityEvidencePool(ctx)
-	if len(pool) == 0 {
+	rows := answerDocumentFallbackEvidenceRows(ctx, 8, 260)
+	if len(rows) == 0 {
 		return ""
 	}
-	type row struct {
-		loc  string
-		text string
+	var b strings.Builder
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
+		b.WriteString("**Verified code evidence collected before the answering pass failed to draft**\n\n")
+		for _, row := range rows {
+			fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
+		}
+		b.WriteString("\n**Boundary:** the answering pass returned no usable prose or structured tool call, so the system is showing collected evidence only and is not adding a conclusion.")
+		return b.String()
 	}
-	rows := make([]row, 0, 8)
+	b.WriteString("**已收集到的可验证代码证据（模型未完成成文）**\n\n")
+	for _, row := range rows {
+		fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
+	}
+	b.WriteString("\n**边界说明：** 成文阶段模型没有返回可用正文或结构化工具调用，系统只展示已落地证据，不补写结论。")
+	return b.String()
+}
+
+type answerDocumentFallbackEvidenceRow struct {
+	loc  string
+	text string
+}
+
+func answerDocumentFallbackEvidenceRows(ctx *types.AgentContext, limit, textLimit int) []answerDocumentFallbackEvidenceRow {
+	pool := answerDocumentAuthorityEvidencePool(ctx)
+	if len(pool) == 0 || limit <= 0 {
+		return nil
+	}
+	rows := make([]answerDocumentFallbackEvidenceRow, 0, limit)
 	seen := map[string]bool{}
 	for _, item := range pool {
 		file := strings.TrimSpace(item.Source)
@@ -7129,32 +7275,15 @@ func answerDocumentEmptyModelEvidenceFallback(ctx *types.AgentContext, lang stri
 			continue
 		}
 		seen[key] = true
-		rows = append(rows, row{
+		rows = append(rows, answerDocumentFallbackEvidenceRow{
 			loc:  key,
-			text: truncateAnswerDocPromptText(text, 260),
+			text: truncateAnswerDocPromptText(text, textLimit),
 		})
-		if len(rows) >= 8 {
+		if len(rows) >= limit {
 			break
 		}
 	}
-	if len(rows) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en") {
-		b.WriteString("**Verified code evidence collected before the answering pass failed to draft**\n\n")
-		for _, row := range rows {
-			fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
-		}
-		b.WriteString("\n**Boundary:** the answering pass returned no usable prose or structured tool call, so the system is showing collected evidence only and is not adding a conclusion.")
-		return b.String()
-	}
-	b.WriteString("**已收集到的可验证代码证据（模型未完成成文）**\n\n")
-	for _, row := range rows {
-		fmt.Fprintf(&b, "- `%s` — %s\n", row.loc, row.text)
-	}
-	b.WriteString("\n**边界说明：** 成文阶段模型没有返回可用正文或结构化工具调用，系统只展示已落地证据，不补写结论。")
-	return b.String()
+	return rows
 }
 
 func answerDocumentEmissionMissingWarning(lang string) string {

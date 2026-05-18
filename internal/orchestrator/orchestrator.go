@@ -4732,6 +4732,28 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		if strings.TrimSpace(firstFinalizeDraft) == "" {
 			firstFinalizeDraft = strings.TrimSpace(out.FinalAnswer)
 		}
+		if out.SkipAnswerChecks {
+			logging.Warning("[orchestrator] finalizer returned degraded answer; skipping structured answer checks reason=%s",
+				out.DegradeReason)
+			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
+			o.emit(render.Event{
+				Kind:       render.EventOrchestratorNotice,
+				Timestamp:  time.Now(),
+				Agent:      "orchestrator",
+				NoticeKind: render.NoticeFallbackFailLoud,
+				Reasoning:  softFinalizerProseFallbackMessage(o.busCtx.Language),
+			})
+			o.emit(render.Event{
+				Kind:            render.EventLivePreviewClear,
+				Timestamp:       time.Now(),
+				Stage:           types.StageFinalize,
+				PreviewRejected: false,
+			})
+			logEvidenceUtilization(o, lastFinalize)
+			state.markDone(fin.ID)
+			o.emitNodeEnd(fin.ID, true, "")
+			break
+		}
 
 		// Evaluate finalize node's SuccessCriteria alongside
 		// the AnswerContract check. SuccessCriteria on finalize

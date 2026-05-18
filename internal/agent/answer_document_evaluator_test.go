@@ -3671,25 +3671,45 @@ func softStopObs(continuationCount int) LoopObservation {
 	}
 }
 
-// TestAnswerDocumentEvaluator_Observe_RetryBounded exercises the
-// evaluator-owned retry budget. After maxFinalizerCorrectionRetries
-// retries, Observe must stop returning HintRequested so the policy
-// accepts the soft-stop. The retries counter is an
-// evaluator-internal contract (fail-loud when the LLM stays off-
-// contract after N corrections), distinct from LoopPolicy's
-// MaxContinuations which applies loop-wide.
-func TestAnswerDocumentEvaluator_Observe_RetryBounded(t *testing.T) {
-	maxRetries := types.DefaultAgentSettings().FinalizerMaxCorrectionRetries
-	e := &answerDocumentEvaluator{maxRetries: maxRetries}
-	for i := 0; i < maxRetries; i++ {
-		sig := e.Observe(nil, softStopObs(i))
-		if !sig.HintRequested {
-			t.Errorf("retry %d: HintRequested = false, want true (still within budget)", i)
-		}
+// TestAnswerDocumentEvaluator_Observe_EmptyNoToolFallsBackToIsolatedProse
+// pins the single-model failure mode from noanswer.log: after one
+// structured-tool nudge, another empty required-tool response should switch
+// to a strictly isolated no-tool prose pass instead of burning the full
+// finalizer correction budget on the same prompt.
+func TestAnswerDocumentEvaluator_Observe_EmptyNoToolFallsBackToIsolatedProse(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: types.DefaultAgentSettings().FinalizerMaxCorrectionRetries}
+	first := e.Observe(nil, softStopObs(0))
+	if !first.HintRequested || first.DisableToolsNextTurn || first.IsolateNextPrompt {
+		t.Fatalf("first empty soft-stop should request the structured tool once, got %+v", first)
 	}
-	sig := e.Observe(nil, softStopObs(maxRetries))
-	if sig.HintRequested {
-		t.Error("after budget: HintRequested = true, want false")
+	second := e.Observe(nil, softStopObs(1))
+	if !second.HintRequested || !second.DisableToolsNextTurn || !second.IsolateNextPrompt {
+		t.Fatalf("second empty soft-stop should switch to isolated no-tool prose fallback, got %+v", second)
+	}
+	if second.HintKey != "answer_doc.prose_fallback" {
+		t.Fatalf("isolated fallback hint key = %q", second.HintKey)
+	}
+	third := e.Observe(nil, softStopObs(2))
+	if !third.StopRequested || third.HintRequested {
+		t.Fatalf("empty isolated fallback result should stop and let ParseOutput show evidence fallback, got %+v", third)
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_AcceptsVisibleProseAfterOneStructuredNudge(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: types.DefaultAgentSettings().FinalizerMaxCorrectionRetries}
+	first := e.Observe(nil, LoopObservation{
+		Phase:    PhaseSoftStop,
+		Response: llm.Response{Content: "rich prose answer"},
+	})
+	if !first.HintRequested {
+		t.Fatalf("first visible no-tool answer should still get one structured emit nudge, got %+v", first)
+	}
+	second := e.Observe(nil, LoopObservation{
+		Phase:    PhaseSoftStop,
+		Response: llm.Response{Content: "rich prose answer after one nudge"},
+	})
+	if !second.StopRequested || second.HintRequested {
+		t.Fatalf("second visible no-tool answer should be accepted as degraded prose fallback, got %+v", second)
 	}
 }
 
@@ -4862,6 +4882,10 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_FailLoud(t *testing.T) {
 	if !strings.Contains(out.FinalAnswer, "raw fallback text") {
 		t.Errorf("raw content lost: %q", out.FinalAnswer)
 	}
+	if !out.AnswerDegraded || !out.SkipAnswerChecks || out.DegradeReason != "answer_document_missing" {
+		t.Fatalf("missing-doc raw fallback must be marked degraded and skip structured checks, got degraded=%t skip=%t reason=%q",
+			out.AnswerDegraded, out.SkipAnswerChecks, out.DegradeReason)
+	}
 }
 
 func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_FailLoudZh(t *testing.T) {
@@ -4884,6 +4908,10 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_FailLoudZh(t *testing.T)
 	}
 	if !strings.Contains(out.FinalAnswer, "原始兜底内容") {
 		t.Errorf("raw content lost: %q", out.FinalAnswer)
+	}
+	if !out.AnswerDegraded || !out.SkipAnswerChecks || out.DegradeReason != "answer_document_missing" {
+		t.Fatalf("missing-doc raw fallback must be marked degraded and skip structured checks, got degraded=%t skip=%t reason=%q",
+			out.AnswerDegraded, out.SkipAnswerChecks, out.DegradeReason)
 	}
 }
 
@@ -5179,6 +5207,10 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_EmptyResponseUsesEvidenc
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("fallback answer missing %q:\n%s", want, out.FinalAnswer)
 		}
+	}
+	if !out.AnswerDegraded || !out.SkipAnswerChecks || out.DegradeReason != "answer_document_missing" {
+		t.Fatalf("empty-response evidence fallback must be marked degraded and skip structured checks, got degraded=%t skip=%t reason=%q",
+			out.AnswerDegraded, out.SkipAnswerChecks, out.DegradeReason)
 	}
 }
 
