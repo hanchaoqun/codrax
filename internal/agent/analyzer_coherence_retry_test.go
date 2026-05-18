@@ -88,6 +88,7 @@ func TestPrependEmitRetryDirective_RendersAnalyzerRetryHint(t *testing.T) {
 	ctx := &types.AgentContext{
 		EmitStageRetryAttempt: 1,
 		Mutable:               mu,
+		Language:              "en",
 	}
 	out := prependEmitRetryDirective(ctx, "## existing prompt\n")
 	if !strings.Contains(out, "Structural contradiction in your previous emit_analysis") {

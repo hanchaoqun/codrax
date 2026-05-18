@@ -2019,6 +2019,13 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			// for user-panel hint composition without blocking the
 			// scheduler.
 			o.busCtx.TaskState.SoftAnalyzerError = fmt.Sprintf("analyze: %v", err)
+			// dispatchStage/applyStageOutput records the failed analyzer
+			// StageOutput.Error on LastError before runAnalyzePhase can
+			// decide to degrade. Clear that stale hard-fail marker here;
+			// otherwise the Phase-2 guard below skips the degraded graph
+			// and the REPL renders the raw analyzer gate text instead of
+			// letting explorer/finalizer produce an honest fallback answer.
+			o.busCtx.TaskState.LastError = ""
 			// Continue execution with the recovery IR. Step budget is
 			// bounded by the per-stage caps already in place.
 			_ = used

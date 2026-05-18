@@ -301,6 +301,7 @@ func TestAnalyzer_BuildInitialInstruction_RetryDirective(t *testing.T) {
 	got1 := eval.BuildInitialInstruction(&types.AgentContext{
 		Stage:                 types.StageAnalyze,
 		EmitStageRetryAttempt: 1,
+		Language:              "en",
 	}, nil)
 	required := []string{
 		"TERMINAL FORCING",
@@ -318,9 +319,21 @@ func TestAnalyzer_BuildInitialInstruction_RetryDirective(t *testing.T) {
 	got2 := eval.BuildInitialInstruction(&types.AgentContext{
 		Stage:                 types.StageAnalyze,
 		EmitStageRetryAttempt: 2,
+		Language:              "en",
 	}, nil)
 	if !strings.Contains(got2, "Retry attempt 2") {
 		t.Errorf("attempt 2 directive should report counter 2:\n%s", got2)
+	}
+
+	gotZh := eval.BuildInitialInstruction(&types.AgentContext{
+		Stage:                 types.StageAnalyze,
+		EmitStageRetryAttempt: 1,
+		Language:              "zh",
+	}, nil)
+	for _, marker := range []string{"终止式重试约束", "第 1 次重试", "emit_analysis", "不要输出额外散文"} {
+		if !strings.Contains(gotZh, marker) {
+			t.Errorf("zh retry directive missing marker %q in:\n%s", marker, gotZh)
+		}
 	}
 }
 

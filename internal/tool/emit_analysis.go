@@ -2099,9 +2099,13 @@ func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
 //     because the LLM emitted an inactive optional object. Downstream
 //     already treats nil as no boundary, so a retry just to delete this
 //     object is waste.
-//   - DeclaredCount <= 0 OR empty SourceQuote when the other side is
-//     populated → hard reject (partial active payload; the LLM emitted
-//     an ambiguous boundary and must fix it).
+//   - DeclaredCount <= 0 with a non-empty SourceQuote → hard reject
+//     (partial active payload; the LLM emitted an ambiguous boundary
+//     and must fix it).
+//   - DeclaredCount > 0 with an empty SourceQuote → soft strip + warn.
+//     The count lane is optional and not load-bearing unless it carries
+//     a verbatim user quote; spending a full analyzer retry just to
+//     delete an inert optional object is waste.
 //   - source_quote fails NormalizeRequestedEnumerationBoundary (quote
 //     not in raw OR quote does not contain the count literal) → soft
 //     strip + warn (the field is optional, downstream tolerates nil,
@@ -2120,7 +2124,10 @@ func parseEnumerationBoundary(raw string, p *emitEnumerationBoundaryParam) (*typ
 		return nil, "enumeration_boundary.declared_count must be >= 1", ""
 	}
 	if strings.TrimSpace(p.SourceQuote) == "" {
-		return nil, "enumeration_boundary.source_quote must be copied verbatim from the current request", ""
+		return nil, "", fmt.Sprintf(
+			"ignored enumeration_boundary because source_quote is empty and cannot prove the declared count %d came from the current request",
+			p.DeclaredCount,
+		)
 	}
 	boundary := types.NormalizeRequestedEnumerationBoundary(raw, &types.RequestedEnumerationBoundary{
 		DeclaredCount: p.DeclaredCount,

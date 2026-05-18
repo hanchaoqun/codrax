@@ -286,6 +286,44 @@ func TestSubtopicCoherence_R1_5_AllEntitiesUnresolved_Fails(t *testing.T) {
 	}
 }
 
+func TestSubtopicCoherence_R1_5_ArchitectureDesignAxisAdvisoryOnly(t *testing.T) {
+	// Broad architecture/design-document questions legitimately use
+	// subsystem or directory axes as exploration leads. Even when one
+	// axis does not resolve as a symbol, the analyzer should not burn
+	// retries trying to force every design-doc sub-topic into the symbol
+	// table; exploration/finalization can ground or caveat the axis.
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"OHOS":                {{Canonical: "OHOS", Domain: "OHOS"}},
+			"ResourceSchedule":    {{Canonical: "ResourceSchedule", Domain: "OHOS::ResourceSchedule"}},
+			"socperf_plugin":      {{Canonical: "SocPerfPlugin", Domain: "plugins"}},
+			"cgroup_sched_plugin": {{Canonical: "CgroupSchedPlugin", Domain: "plugins"}},
+		},
+	}
+	rm := types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioArchitectureExplain,
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"OHOS", "ResourceSchedule", "socperf_plugin", "cgroup_sched_plugin", "resched", "resched_executor"},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "OHOS ResourceSchedule 核心调度框架与模块架构", Entities: []string{"OHOS", "ResourceSchedule"}},
+			{Summary: "插件生态体系", Entities: []string{"socperf_plugin", "cgroup_sched_plugin"}},
+			{Summary: "调度服务与执行器的运行流程与线程模型", Entities: []string{"resched", "resched_executor"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	if !check.Passed {
+		t.Fatalf("architecture design axes should be advisory, got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
+		t.Fatalf("expected advisory R1.5 detail, got %q", check.Detail)
+	}
+}
+
 func TestSubtopicCoherence_R1_5_OneEntityResolves_Passes(t *testing.T) {
 	// A sub-topic with one unresolvable + one resolvable entity must
 	// PASS R1.5 — the rule requires at least ONE hit per sub-topic,

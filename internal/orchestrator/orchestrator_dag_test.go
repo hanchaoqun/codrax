@@ -173,6 +173,66 @@ func TestRunTaskGraph_DegradedFinalizerSkipsStructuredAnswerChecks(t *testing.T)
 	}
 }
 
+func TestRun_AnalyzerGateErrorClearedBeforeDegradedSemanticPhase(t *testing.T) {
+	partial := dagIR(types.AnswerContract{Language: "zh"})
+	partial.RequestModel.Intent = types.IntentExplain
+	partial.RequestModel.Scenario = types.ScenarioArchitectureExplain
+	partial.RequestModel.Language = "zh"
+	partial.RequestModel.AnalyzerHints.Keywords = []string{"architecture", "design"}
+	partial.RequestModel.AnalyzerHints.Entities = []string{"ResourceSchedule"}
+
+	var explorerCalls, extractorCalls, finalizerCalls int
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				Error:      "analyzer quality gate rejected: subtopic_coherence: raw internal detail",
+				AnalysisIR: partial,
+			}, nil
+		},
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				EvidenceItems: []types.EvidenceItem{{ID: "ev", Source: "src.go", LineStart: 1}},
+			}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			extractorCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizerCalls++
+			return &agent.StageOutput{
+				MissingPiece:     types.MissingNone,
+				FinalAnswer:      "降级但可用的答案",
+				AnswerDegraded:   true,
+				SkipAnswerChecks: true,
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxRetriesPerStage: 1}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	busCtx, err := o.Run("帮我解析当前目录下的代码，做一个详细的设计文档", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if busCtx.TaskState.SoftAnalyzerError == "" {
+		t.Fatal("SoftAnalyzerError should preserve the analyzer diagnostic")
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("stale analyzer gate error must be cleared before degraded Phase 2; got %q", busCtx.TaskState.LastError)
+	}
+	if explorerCalls == 0 || finalizerCalls != 1 {
+		t.Fatalf("degraded semantic graph should still run explorer/finalizer; explorer=%d extractor=%d finalizer=%d",
+			explorerCalls, extractorCalls, finalizerCalls)
+	}
+	if got := busCtx.Mutable.Result(); !strings.Contains(got, "降级但可用") {
+		t.Fatalf("degraded final answer was not recorded: %q", got)
+	}
+}
+
 func TestRunTaskGraph_AutoCompletesReconcileFromExistingEvidence(t *testing.T) {
 	var explorerCalls, extractorCalls, finalizeCalls int
 

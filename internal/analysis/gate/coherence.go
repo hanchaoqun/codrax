@@ -267,8 +267,14 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 					s.index+1, summaryShort(s.topic.Summary, 40),
 					formatStringList(s.topic.Entities)))
 			}
-			details = append(details, "R1.5 entity_unresolvable: "+strings.Join(unresolved, "; ")+
-				" — these sub-topics' entities don't resolve to any repo symbol, while sibling sub-topics did; the asymmetry suggests one sub-topic was hallucinated. Rename the entities to identifiers visible in the repo overview, or drop the unresolvable sub-topic and merge its content into a sibling")
+			msg := "R1.5 entity_unresolvable: " + strings.Join(unresolved, "; ") +
+				" — these sub-topics' entities don't resolve to any repo symbol, while sibling sub-topics did; the asymmetry suggests one sub-topic was hallucinated. Rename the entities to identifiers visible in the repo overview, or drop the unresolvable sub-topic and merge its content into a sibling"
+			if subtopicResolverAsymmetryShouldBeAdvisory(rm) {
+				softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)+
+					" — broad architecture/design-document questions often use module, directory, subsystem, or conceptual axes that are valid search leads even when they are not declared symbols; let exploration verify or discard the axis before forcing an analyzer rewrite")
+			} else {
+				details = append(details, msg)
+			}
 		}
 	}
 
@@ -470,6 +476,35 @@ func diagnosticFacetSubTopicsBypassResolverAsymmetry(rm types.RequestModel) bool
 	// answer.
 	return rm.Predicates.IsDiagnosticQuestion ||
 		rm.DiagnosticProfile.RequiresDiagnosticRootCause()
+}
+
+func subtopicResolverAsymmetryShouldBeAdvisory(rm types.RequestModel) bool {
+	// Architecture/design-document questions frequently decompose the
+	// answer into module, directory, subsystem, lifecycle, or thread-model
+	// axes. Those axes are valid exploration leads even when they are not
+	// Tier-1 symbol declarations. Resolver hit/miss asymmetry is therefore
+	// a noisy signal for this family and must not hard-stop analysis.
+	//
+	// Keep exact lookup / enumeration / diagnostic / scalar shapes on the
+	// stricter path: in those families an unresolvable sub-topic entity is
+	// much more likely to be a real IR contradiction than a broad design
+	// axis.
+	if rm.Intent != types.IntentExplain || rm.Scenario != types.ScenarioArchitectureExplain {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	if rm.AnswerSubject.Kind != "" &&
+		rm.AnswerSubject.Kind != types.SubjectUnknown &&
+		float32(rm.AnswerSubject.Confidence) >= coherenceSubjectConfidenceFloor {
+		return false
+	}
+	return true
 }
 
 // summaryShort truncates a sub-topic summary for inclusion in a gate

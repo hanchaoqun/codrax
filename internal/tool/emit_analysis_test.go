@@ -1251,6 +1251,40 @@ func TestEmitAnalysis_Execute_WarnAndStripsEnumerationBoundaryQuoteOutsideReques
 	}
 }
 
+func TestEmitAnalysis_Execute_WarnAndStripsEnumerationBoundaryEmptyQuote(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "complex",
+		"keywords": ["design", "architecture", "module"],
+		"entities": ["ResourceSchedule", "resched"],
+		"question_kind": "mechanism",
+		"enumeration_boundary": {
+			"declared_count": 1,
+			"source_quote": ""
+		}
+	}`
+
+	res, mu := runEmitAnalysisWithObjective(t, "帮我解析当前目录下的代码，做一个详细的设计文档", payload)
+	if !res.Success {
+		t.Fatalf("Execute should accept + warn, got reject summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "ignored enumeration_boundary because source_quote is empty") {
+		t.Fatalf("summary missing empty-quote strip warning: %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel must persist after soft-strip of optional enumeration_boundary")
+	}
+	if rm.EnumerationBoundary != nil {
+		t.Fatalf("EnumerationBoundary must be stripped to nil, got %+v", rm.EnumerationBoundary)
+	}
+}
+
 func TestEmitAnalysis_Execute_WarnAndStripsInactiveEnumerationBoundary(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

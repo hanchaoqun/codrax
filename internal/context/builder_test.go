@@ -2071,7 +2071,7 @@ func TestBuildPromptContext_PresentationDirectiveIsTypedMetadata(t *testing.T) {
 		t.Fatal("missing Presentation Directive section")
 	}
 	if !strings.Contains(sec.Content, "输出各自的逻辑视图") ||
-		!strings.Contains(sec.Content, "Do NOT treat it as repository code") {
+		!strings.Contains(sec.Content, "不要把它当作仓库代码") {
 		t.Fatalf("presentation directive section missing guardrails/content: %q", sec.Content)
 	}
 }

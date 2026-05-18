@@ -197,7 +197,22 @@ func prependEmitRetryDirective(ctx *types.AgentContext, base string) string {
 	if ctx == nil || ctx.EmitStageRetryAttempt <= 0 {
 		return base
 	}
-	directive := fmt.Sprintf(`## TERMINAL FORCING — Retry attempt %d
+	zh := analyzerPromptLangIsZh(ctx.Language)
+	var directive string
+	if zh {
+		directive = fmt.Sprintf(`## 终止式重试约束 - 第 %d 次重试
+
+上一次尝试没有形成可执行的结构化分析结果。分析阶段必须以一次 `+"`emit_analysis`"+` 工具调用结束。下一次回复必须只包含一个 `+"`emit_analysis`"+` 的 tool_call，并使用你已经判断出的字段。不要输出额外散文，不要调用预扫描工具（repo_map / grep / list_files）。需要的调用形态是：
+
+`+"```json"+`
+{"name": "emit_analysis", "arguments": "<json-encoded fields>"}
+`+"```"+`
+
+如果调用其它工具，或只输出散文而没有工具调用，本次分析会失败并退出。
+
+`, ctx.EmitStageRetryAttempt)
+	} else {
+		directive = fmt.Sprintf(`## TERMINAL FORCING — Retry attempt %d
 
 The previous attempt produced text-only output and FAILED. The analyze stage MUST end with a single emit_analysis tool call. Your next response MUST contain exactly one tool_call to emit_analysis with the fields you already have. Do NOT emit additional thinking or prose. Do NOT call any pre-scan tool (repo_map / grep / list_files). The exact wire shape required:
 
@@ -208,6 +223,7 @@ The previous attempt produced text-only output and FAILED. The analyze stage MUS
 If you call any other tool or produce text without a tool call, this dispatch will fail loud and the analyze stage will exit.
 
 `, ctx.EmitStageRetryAttempt)
+	}
 
 	// Coherence retry hint: when buildAnalysisIR's previous attempt
 	// rejected the IR for a cross-signal coherence violation, the
@@ -217,9 +233,15 @@ If you call any other tool or produce text without a tool call, this dispatch wi
 	if ctx.Mutable != nil {
 		if hint := ctx.Mutable.AnalyzerRetryHint(); hint != "" {
 			ctx.Mutable.ResetAnalyzerRetryHint()
-			directive += "## Structural contradiction in your previous emit_analysis\n\n" +
-				hint + "\n\n" +
-				"Re-emit emit_analysis with these contradictions resolved. The fields above are LLM-emitted IR cross-references — the system has not changed your repo, only verified the relationships you yourself declared.\n\n"
+			if zh {
+				directive += "## 上一次 emit_analysis 的结构诊断\n\n" +
+					hint + "\n\n" +
+					"请在下一次 emit_analysis 中修正这些结构关系。上面的字段是你自己输出的 IR 交叉引用；系统没有改动仓库，只是校验了你声明的关系。\n\n"
+			} else {
+				directive += "## Structural contradiction in your previous emit_analysis\n\n" +
+					hint + "\n\n" +
+					"Re-emit emit_analysis with these contradictions resolved. The fields above are LLM-emitted IR cross-references — the system has not changed your repo, only verified the relationships you yourself declared.\n\n"
+			}
 		}
 	}
 
@@ -227,6 +249,10 @@ If you call any other tool or produce text without a tool call, this dispatch wi
 		return directive
 	}
 	return directive + base
+}
+
+func analyzerPromptLangIsZh(lang string) bool {
+	return !strings.EqualFold(strings.TrimSpace(lang), "en")
 }
 
 // composeCoherenceRetryHint inspects a rejected GateReport and
@@ -401,6 +427,7 @@ func stripCoherencePrefix(d string) string {
 		"R1.2 predicate_contradiction: ",
 		"R1.3 entity_orphan: ",
 		"R1.4 axis_collapse: ",
+		"R1.5 entity_unresolvable (advisory): ",
 		"R1.5 entity_unresolvable: ",
 		"R1.6 completeness_obligation_missing: ",
 		"R1.7 bucket_partition_missing: ",

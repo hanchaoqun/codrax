@@ -507,7 +507,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 				Content: currentReq,
 			})
 		}
-		if section := formatPresentationDirective(ac.PresentationDirective); section != "" {
+		if section := formatPresentationDirective(ac.PresentationDirective, ac.Language); section != "" {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionPresentationDirective,
 				Content: section,
@@ -1925,10 +1925,15 @@ func formatNumberedList(items []string) string {
 	return b.String()
 }
 
-func formatPresentationDirective(directive string) string {
+func formatPresentationDirective(directive, lang string) string {
 	directive = strings.TrimSpace(directive)
 	if directive == "" {
 		return ""
+	}
+	if !strings.EqualFold(strings.TrimSpace(lang), "en") {
+		return "这是从用户当前请求中提取的结构化展示要求。只用于选择最终答案的展示字段，例如 diagram_hint、表格、标量答案或决策结论。" +
+			"不要把它当作仓库代码、代码实体、搜索查询、事实证据或历史对话内容。\n\n" +
+			directive
 	}
 	return "Structured current-turn presentation requirement derived from the user's current request. " +
 		"Use it only to choose final-answer presentation fields such as diagram_hint, table, scalar, or decision. " +

@@ -160,7 +160,7 @@ var turnPolicyTool = llm.ToolSchema{
     },
     "presentation_directive": {
       "type": "string",
-      "description": "Optional. Free-form directive describing the desired final-answer form ('mermaid', 'markdown table', 'brief 3-bullet summary', 'logic flow diagram'). Echoed verbatim into the local responder's system prompt when local, or carried as typed pipeline metadata when repo/hybrid. It must not be prepended to or rewrite the user request body. Omit when not applicable."
+      "description": "Optional. Free-form directive describing the desired final-answer form ('mermaid', 'markdown table', 'brief 3-bullet summary', 'logic flow diagram'). Echoed verbatim into the local responder's system prompt when local, or carried as typed pipeline metadata when repo/hybrid. Preserve the user's wording and language when deriving it from the current message; do not translate Chinese user phrasing into English. It must not be prepended to or rewrite the user request body. Omit when not applicable."
     }
   },
   "required": ["route", "needs_repo_access", "operation", "source", "confidence", "reason"]
@@ -234,8 +234,11 @@ presentation_directive: free-form text echoed verbatim into the
 local responder's system prompt (when route=local) OR carried as
 typed pipeline metadata (when route=repo/hybrid). Use it for any
 current-turn display request, including fresh investigations that ask
-for a logic view / table / diagram. Do NOT rewrite or prepend the
-user request with this directive. Examples:
+for a logic view / table / diagram. Preserve the user's original
+wording and language when possible: if the current message says
+"详细的设计文档", emit "详细的设计文档", not "detailed design
+document". Do NOT rewrite or prepend the user request with this
+directive. Examples:
   "mermaid sequence diagram"
   "markdown table with columns: file, function, behaviour"
   "brief 3-bullet summary"
