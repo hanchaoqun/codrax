@@ -226,6 +226,47 @@ func keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEnti
 	return b.String()
 }
 
+// keywordSearchScopedFingerprint adds run-scope inputs that affect
+// keywordSearchWithOptions but do not belong in the semantic search
+// fingerprint itself. This keeps same-question intra-Run redispatches
+// cacheable while preventing REPL turns in another repo or multi-repo
+// active set from reusing a stale ranked graph.
+func keywordSearchScopedFingerprint(ctx *types.AgentContext, fp string) string {
+	if ctx == nil {
+		return fp
+	}
+	cp := func(s []string) []string {
+		if len(s) == 0 {
+			return nil
+		}
+		out := make([]string, len(s))
+		copy(out, s)
+		sort.Strings(out)
+		return out
+	}
+	var topology []string
+	for _, sr := range ctx.SubRepos {
+		rootRel := strings.TrimSpace(sr.RootRel)
+		if rootRel == "" {
+			rootRel = "."
+		}
+		topology = append(topology, strings.TrimSpace(sr.Slug)+"="+rootRel)
+	}
+	sort.Strings(topology)
+
+	var b strings.Builder
+	b.WriteString(fp)
+	b.WriteString("|repo=")
+	if repo := strings.TrimSpace(ctx.RepoRoot); repo != "" {
+		b.WriteString(filepath.Clean(repo))
+	}
+	b.WriteString("|pending=")
+	b.WriteString(strings.Join(cp(ctx.PendingSubRepos), "\x00"))
+	b.WriteString("|topology=")
+	b.WriteString(strings.Join(topology, "\x00"))
+	return b.String()
+}
+
 // keywordSearchWithOptions combines repo_map's structural ranking
 // with grep-based keyword matching to produce a scored file list.
 //

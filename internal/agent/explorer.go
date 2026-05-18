@@ -319,8 +319,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.allScoredFiles = nil
 		e.searchResult = nil
 		e.searchFingerprint = ""
+		e.multiGraphHandle = nil
+		e.pendingSubRepos = nil
+		e.analyzerKeywords = nil
 		e.ermRequirements = nil
 		e.fileSymbols = nil
+		e.primaryEntitiesRegistrationShape = false
+		e.requiredFileHints = nil
+		e.irrelevantFilesSet = nil
 		e.phase0ExtraRound = false
 		e.hasPrescanRepoMap = false
 		e.grepRedirectedFiles = nil
@@ -332,6 +338,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopParallelInjected = false
 		e.midLoopSymbolRefInjected = false
 		e.midLoopPostPrimaryInjected = false
+		e.midLoopBudgetExhaustedSent = nil
 		e.midLoopEvidenceRepairSent = false
 		e.midLoopEvidenceRepairResultsLen = 0
 		e.midLoopSurfaceTermReviewSent = false
@@ -341,14 +348,19 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopRankerCoverageSent = false
 		e.midLoopAbsentRedirectSent = false
 		e.midLoopExternalArtifactSent = false
+		e.midLoopExactAbsenceContextSent = false
 		e.midLoopExactAbsenceSent = false
 		e.midLoopSchemaLevelHintSent = false
+		e.midLoopAuthoritativeTier1Sent = false
 		e.midLoopEnumInjected = false
 		e.midLoopOrientationFinalizeSent = false
 		e.midLoopNoEmitPushSent = false
 		e.midLoopNoEmitEscalated = false
 		e.midLoopExecRedirectSent = false
 		e.midLoopExplanationAnchorSent = false
+		e.midLoopCompletionReadySent = false
+		e.midLoopCompletionReadyEscalated = false
+		e.midLoopCompletionReadyIter = 0
 		e.midLoopNoEmitPushIter = 0
 		e.midLoopNoEmitPushResultsLen = 0
 		e.midLoopEmitBacklogBaseLen = 0
@@ -356,6 +368,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.primaryReadIter = 0
 		e.notesLenAtPrimaryRead = 0
 		e.complexity = ""
+		e.scenario = ""
+		e.answerSubject = types.AnswerSubject{}
+		e.predicateAxis = types.AxisUnknown
 		e.kindConfidence = 0
 		e.requiredFiles = nil
 		e.exactAnchorFiles = nil
@@ -368,6 +383,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.logTriage = nil
 		e.perfTrace = nil
 		e.mutable = nil
+		e.investigationComplete = false
+		e.mergedEmittedEvidenceLen = 0
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -389,6 +406,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	}
 	e.analysisIR = ctx.AnalysisIR
 	e.mutable = ctx.Mutable
+	e.multiGraphHandle = ctx.MultiGraph
 	e.pendingSubRepos = append(e.pendingSubRepos[:0], ctx.PendingSubRepos...)
 	e.requiredFiles = analyzerRequiredFilesFromIR(ctx)
 	// Session-22 fix F2.1: cache the log-triage bundle so Check 6's
@@ -413,6 +431,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// the chain ranker can score chain terminals against the
 	// expected subject kind. Empty when AnalysisIR not yet available
 	// (analyzer dispatch did not run, or sub-agent context).
+	e.answerSubject = types.AnswerSubject{}
+	e.predicateAxis = types.AxisUnknown
+	e.kindConfidence = 0
 	if ctx.Mutable != nil {
 		if rm := ctx.Mutable.RequestModel(); rm != nil {
 			e.answerSubject = rm.AnswerSubject
@@ -442,14 +463,20 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.structuredEvidence = nil
 	e.flowFindings = nil
 	e.cachedConcreteValues = nil
+	e.primaryEntitiesRegistrationShape = false
+	e.requiredFileHints = nil
+	e.irrelevantFilesSet = nil
 	e.midLoopLastResultsLen = 0
 	e.midLoopSerialStreak = 0
 	e.midLoopParallelInjected = false
 	e.midLoopSymbolRefInjected = false
 	e.midLoopPostPrimaryInjected = false
+	e.midLoopBudgetExhaustedSent = nil
 	e.midLoopEvidenceRepairSent = false
 	e.midLoopEvidenceRepairResultsLen = 0
 	e.midLoopSurfaceTermReviewSent = false
+	e.midLoopClosureRepairSent = false
+	e.midLoopClosureRepairResultsLen = 0
 	e.midLoopIntentWindowSent = false
 	e.midLoopRankerCoverageSent = false
 	e.midLoopAbsentRedirectSent = false
@@ -457,11 +484,13 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopExactAbsenceContextSent = false
 	e.midLoopExactAbsenceSent = false
 	e.midLoopSchemaLevelHintSent = false
+	e.midLoopAuthoritativeTier1Sent = false
 	e.midLoopEnumInjected = false
 	e.midLoopOrientationFinalizeSent = false
 	e.midLoopNoEmitPushSent = false
 	e.midLoopNoEmitEscalated = false
 	e.midLoopExecRedirectSent = false
+	e.midLoopExplanationAnchorSent = false
 	e.midLoopCompletionReadySent = false
 	e.midLoopCompletionReadyEscalated = false
 	e.midLoopCompletionReadyIter = 0
@@ -735,11 +764,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			exactTargets = exactContract.Targets
 			exactPolicy = string(exactContract.RelatedContextPolicy)
 		}
-		fp := keywordSearchFingerprint(analyzerKeywords, analyzerEntities, irMentionedEntities(ctx), irPrimaryEntities(ctx), domainHints, exactTargets, exactPolicy, maxFiles, false, sourceScope.Fingerprint())
+		fp := keywordSearchScopedFingerprint(ctx, keywordSearchFingerprint(analyzerKeywords, analyzerEntities, irMentionedEntities(ctx), irPrimaryEntities(ctx), domainHints, exactTargets, exactPolicy, maxFiles, false, sourceScope.Fingerprint()))
 		sharedFP := fp
-		if ctx != nil && ctx.RepoRoot != "" {
-			sharedFP = ctx.RepoRoot + "|" + fp
-		}
 		var sr *keywordSearchResult
 		if e.searchResult != nil && e.searchFingerprint != "" && e.searchFingerprint == fp {
 			logging.Debug("[keyword_search] cache hit fp=%s (%d files, %d keywords)",

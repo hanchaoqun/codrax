@@ -183,6 +183,52 @@ func TestKeywordSearchFingerprint_DistinguishesInputs(t *testing.T) {
 	}
 }
 
+func TestKeywordSearchScopedFingerprint_DistinguishesRepoAndActiveSet(t *testing.T) {
+	base := keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, nil, nil, "", 20, false, "")
+	ctxA := &types.AgentContext{
+		RepoRoot:        "/tmp/repo-a",
+		PendingSubRepos: []string{"inactive-a"},
+		SubRepos: []types.SubRepoSnapshot{
+			{Slug: "core", RootRel: "."},
+			{Slug: "tools", RootRel: "tools"},
+		},
+	}
+	ctxB := &types.AgentContext{
+		RepoRoot:        "/tmp/repo-b",
+		PendingSubRepos: []string{"inactive-a"},
+		SubRepos: []types.SubRepoSnapshot{
+			{Slug: "core", RootRel: "."},
+			{Slug: "tools", RootRel: "tools"},
+		},
+	}
+	ctxC := &types.AgentContext{
+		RepoRoot:        "/tmp/repo-a",
+		PendingSubRepos: []string{"inactive-b"},
+		SubRepos: []types.SubRepoSnapshot{
+			{Slug: "core", RootRel: "."},
+			{Slug: "tools", RootRel: "tools"},
+		},
+	}
+	ctxD := &types.AgentContext{
+		RepoRoot:        "/tmp/repo-a",
+		PendingSubRepos: []string{"inactive-a"},
+		SubRepos: []types.SubRepoSnapshot{
+			{Slug: "core", RootRel: "."},
+			{Slug: "alt", RootRel: "alt"},
+		},
+	}
+	a := keywordSearchScopedFingerprint(ctxA, base)
+	for name, fp := range map[string]string{
+		"repo":     keywordSearchScopedFingerprint(ctxB, base),
+		"pending":  keywordSearchScopedFingerprint(ctxC, base),
+		"topology": keywordSearchScopedFingerprint(ctxD, base),
+	} {
+		if fp == a {
+			t.Fatalf("scoped fingerprint did not distinguish %s: %q", name, fp)
+		}
+	}
+}
+
 func TestShouldDeprioritizeAuxiliaryExactHit(t *testing.T) {
 	contract := &types.ExactResolutionContract{
 		TargetKind:   types.SubjectConfigKey,

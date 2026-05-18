@@ -1275,25 +1275,45 @@ func contains(s, sub string) bool {
 // question.
 func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 	eval := &explorerEvaluator{
-		userQuestion:                "how many agents can invoke subagent",
-		investigationNotes:          []string{"[DIRECT] prior turn note"},
-		preScannedFiles:             []string{"internal/agent/explorer.go"},
-		allScoredFiles:              []string{"internal/agent/explorer.go"},
-		searchResult:                &keywordSearchResult{}, // non-nil stale pointer
-		ermRequirements:             []EvidenceRequirement{{Kind: "registration", Entities: []string{"subagent"}}},
-		fileSymbols:                 map[string][]string{"stale.go": {"Foo"}},
-		phase0ExtraRound:            true,
-		hasPrescanRepoMap:           true,
-		grepRedirectedFiles:         map[string]bool{"stale.go": true},
-		preScannedPushCount:         3,
-		lastPreScannedUnreadCount:   2,
-		broadenAttempts:             1,
-		midLoopNoEmitPushSent:       true,
-		midLoopNoEmitEscalated:      true,
-		midLoopExecRedirectSent:     true,
-		midLoopCompletionReadySent:  true,
-		midLoopNoEmitPushIter:       5,
-		midLoopNoEmitPushResultsLen: 8,
+		userQuestion:                     "how many agents can invoke subagent",
+		investigationNotes:               []string{"[DIRECT] prior turn note"},
+		preScannedFiles:                  []string{"internal/agent/explorer.go"},
+		allScoredFiles:                   []string{"internal/agent/explorer.go"},
+		searchResult:                     &keywordSearchResult{}, // non-nil stale pointer
+		searchFingerprint:                "stale-fp",
+		multiGraphHandle:                 "stale-multigraph",
+		pendingSubRepos:                  []string{"old-subrepo"},
+		analyzerKeywords:                 []string{"old-keyword"},
+		ermRequirements:                  []EvidenceRequirement{{Kind: "registration", Entities: []string{"subagent"}}},
+		fileSymbols:                      map[string][]string{"stale.go": {"Foo"}},
+		primaryEntitiesRegistrationShape: true,
+		requiredFileHints:                []types.RequiredFileHint{{Path: "stale.go", Confidence: 1}},
+		irrelevantFilesSet:               map[string]bool{"stale.go": true},
+		phase0ExtraRound:                 true,
+		hasPrescanRepoMap:                true,
+		grepRedirectedFiles:              map[string]bool{"stale.go": true},
+		preScannedPushCount:              3,
+		lastPreScannedUnreadCount:        2,
+		broadenAttempts:                  1,
+		midLoopBudgetExhaustedSent:       map[string]bool{"read_file": true},
+		midLoopClosureRepairSent:         true,
+		midLoopClosureRepairResultsLen:   7,
+		midLoopExactAbsenceContextSent:   true,
+		midLoopAuthoritativeTier1Sent:    true,
+		midLoopNoEmitPushSent:            true,
+		midLoopNoEmitEscalated:           true,
+		midLoopExecRedirectSent:          true,
+		midLoopExplanationAnchorSent:     true,
+		midLoopCompletionReadySent:       true,
+		midLoopCompletionReadyEscalated:  true,
+		midLoopCompletionReadyIter:       4,
+		midLoopNoEmitPushIter:            5,
+		midLoopNoEmitPushResultsLen:      8,
+		answerSubject:                    types.AnswerSubject{Kind: types.SubjectFunctionName, Confidence: 0.9},
+		predicateAxis:                    types.AxisCall,
+		kindConfidence:                   0.9,
+		investigationComplete:            true,
+		mergedEmittedEvidenceLen:         3,
 		// idleStreakInDepth and lastToolResultCount used to live on
 		// this struct too; they moved to LoopPolicy and are rebuilt
 		// per dispatch, so there is nothing to stuff into the fixture.
@@ -1325,6 +1345,18 @@ func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 	if eval.searchResult != nil {
 		t.Errorf("searchResult not reset")
 	}
+	if eval.searchFingerprint != "" {
+		t.Errorf("searchFingerprint not reset: %q", eval.searchFingerprint)
+	}
+	if eval.multiGraphHandle != nil {
+		t.Errorf("multiGraphHandle not reset")
+	}
+	if len(eval.pendingSubRepos) != 0 {
+		t.Errorf("pendingSubRepos not reset: %v", eval.pendingSubRepos)
+	}
+	if len(eval.analyzerKeywords) != 0 {
+		t.Errorf("analyzerKeywords not reset: %v", eval.analyzerKeywords)
+	}
 	if len(eval.ermRequirements) != 0 {
 		t.Errorf("ermRequirements not reset: %v", eval.ermRequirements)
 	}
@@ -1341,12 +1373,34 @@ func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 		eval.broadenAttempts != 0 {
 		t.Error("per-run counters not reset")
 	}
+	if eval.primaryEntitiesRegistrationShape || len(eval.requiredFileHints) != 0 || len(eval.irrelevantFilesSet) != 0 {
+		t.Error("dispatch-scoped analyzer caches not reset")
+	}
+	if eval.midLoopBudgetExhaustedSent != nil ||
+		eval.midLoopClosureRepairSent ||
+		eval.midLoopClosureRepairResultsLen != 0 ||
+		eval.midLoopExactAbsenceContextSent ||
+		eval.midLoopAuthoritativeTier1Sent ||
+		eval.midLoopExplanationAnchorSent {
+		t.Error("mid-loop repair/closure latches not reset")
+	}
 	if eval.midLoopNoEmitPushSent || eval.midLoopNoEmitEscalated ||
-		eval.midLoopExecRedirectSent || eval.midLoopCompletionReadySent {
+		eval.midLoopExecRedirectSent || eval.midLoopCompletionReadySent ||
+		eval.midLoopCompletionReadyEscalated {
 		t.Error("per-dispatch one-shot hint flags not reset")
 	}
-	if eval.midLoopNoEmitPushIter != 0 || eval.midLoopNoEmitPushResultsLen != 0 {
+	if eval.midLoopCompletionReadyIter != 0 ||
+		eval.midLoopNoEmitPushIter != 0 ||
+		eval.midLoopNoEmitPushResultsLen != 0 {
 		t.Error("mid-loop no-emit counters not reset")
+	}
+	if eval.answerSubject.Kind != types.SubjectUnknown ||
+		eval.predicateAxis != types.AxisUnknown ||
+		eval.kindConfidence != 0 {
+		t.Error("answer subject / predicate-axis cache not reset")
+	}
+	if eval.investigationComplete || eval.mergedEmittedEvidenceLen != 0 {
+		t.Error("completion counters not reset")
 	}
 	// New userQuestion should reflect the new task.
 	if eval.userQuestion != "how does BuildContext cap turn file size" {
@@ -1360,8 +1414,19 @@ func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 // retry branch below must activate as before.
 func TestBuildInitialInstruction_SameQuestionKeepsRetryState(t *testing.T) {
 	eval := &explorerEvaluator{
-		userQuestion:       "investigate strategies",
-		investigationNotes: []string{"[DIRECT] strategy A from iter 1"},
+		userQuestion:                    "investigate strategies",
+		investigationNotes:              []string{"[DIRECT] strategy A from iter 1"},
+		midLoopBudgetExhaustedSent:      map[string]bool{"grep": true},
+		midLoopClosureRepairSent:        true,
+		midLoopClosureRepairResultsLen:  3,
+		midLoopAuthoritativeTier1Sent:   true,
+		midLoopExplanationAnchorSent:    true,
+		midLoopCompletionReadySent:      true,
+		midLoopCompletionReadyEscalated: true,
+		midLoopCompletionReadyIter:      2,
+		answerSubject:                   types.AnswerSubject{Kind: types.SubjectFunctionName, Confidence: 0.9},
+		predicateAxis:                   types.AxisCall,
+		kindConfidence:                  0.9,
 	}
 	ctx := &types.AgentContext{Objective: "investigate strategies"}
 	prompt := eval.BuildInitialInstruction(ctx, nil)
@@ -1371,6 +1436,21 @@ func TestBuildInitialInstruction_SameQuestionKeepsRetryState(t *testing.T) {
 	}
 	if len(eval.investigationNotes) != 1 {
 		t.Errorf("investigationNotes wiped on same-question retry: %v", eval.investigationNotes)
+	}
+	if eval.midLoopBudgetExhaustedSent != nil ||
+		eval.midLoopClosureRepairSent ||
+		eval.midLoopClosureRepairResultsLen != 0 ||
+		eval.midLoopAuthoritativeTier1Sent ||
+		eval.midLoopExplanationAnchorSent ||
+		eval.midLoopCompletionReadySent ||
+		eval.midLoopCompletionReadyEscalated ||
+		eval.midLoopCompletionReadyIter != 0 {
+		t.Error("dispatch-scoped mid-loop latches must reset even on same-question retries")
+	}
+	if eval.answerSubject.Kind != types.SubjectUnknown ||
+		eval.predicateAxis != types.AxisUnknown ||
+		eval.kindConfidence != 0 {
+		t.Error("dispatch-scoped ranking caches must reset when analyzer IR is absent")
 	}
 }
 

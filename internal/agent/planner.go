@@ -64,8 +64,9 @@ type plannerEvaluator struct {
 	// pattern the explorer uses (explorer.go:553-570): when the
 	// planner re-dispatches within the same Run with identical
 	// analyzer signal, skip the keyword-search rebuild and reuse
-	// the cached result. Fresh REPL turn → orchestrator constructs a
-	// new plannerEvaluator → cache starts empty.
+	// the cached result. The stored key is scoped by repo root,
+	// sub-repo topology, and active-set pending list so a REPL turn in
+	// another repository or multi-repo focus cannot reuse a stale rank.
 	searchResult      *keywordSearchResult
 	searchFingerprint string
 }
@@ -261,7 +262,7 @@ func (e *plannerEvaluator) buildInvestigationSeed(ctx *types.AgentContext) strin
 		exactPolicy = string(exactContract.RelatedContextPolicy)
 	}
 	suppressExactAnchors := observationOnlyRuntimeArtifactForExplorer(ctx)
-	fp := keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints, exactTargets, exactPolicy, maxFiles, suppressExactAnchors, sourceScope.Fingerprint())
+	fp := keywordSearchScopedFingerprint(ctx, keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints, exactTargets, exactPolicy, maxFiles, suppressExactAnchors, sourceScope.Fingerprint()))
 
 	var sr *keywordSearchResult
 	switch {
