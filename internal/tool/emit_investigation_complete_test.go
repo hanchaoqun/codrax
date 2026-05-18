@@ -28,6 +28,8 @@ func TestEmitInvestigationCompleteSchemaDescribesClosureHandoff(t *testing.T) {
 		"cross-repository or cross-component distinction",
 		"Do not leave the conclusion only in free-form text",
 		"aggregate_facts",
+		"negative_search",
+		"repo, query or pattern, scope, and searched_at",
 		"absence_justification",
 		"not as a citation",
 	} {
@@ -134,6 +136,43 @@ func TestEmitInvestigationComplete_AcceptsStructuredAggregateFacts(t *testing.T)
 	got := mut.StableInvestigationAggregateFacts()
 	if len(got) != 2 || got[0].Kind != types.AnswerAggregateTotalCount || got[1].Value != "2" {
 		t.Fatalf("stable aggregate facts not stored: %+v", got)
+	}
+}
+
+func TestEmitInvestigationComplete_AcceptsNegativeSearchAggregateFact(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"frameworks/base had zero Ressched bridge hits while ressched contains the local IPC surface",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"negative_search",
+				"label":"frameworks/base Ressched bridge search",
+				"value":"0",
+				"unit":"matches",
+				"dimensions":[
+					{"name":"repo","value":"frameworks/base"},
+					{"name":"pattern","value":"ResSched|IRemoteBroker|SAMR"},
+					{"name":"scope","value":"frameworks/base"},
+					{"name":"searched_at","value":"explore iteration 20"}
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("negative_search aggregate completion should be accepted: %s", res.Summary)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || got[0].Kind != types.AnswerAggregateNegativeSearch || got[0].Value != "0" {
+		t.Fatalf("negative_search aggregate not stored: %+v", got)
 	}
 }
 

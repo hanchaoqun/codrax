@@ -3659,6 +3659,9 @@ func validateInlineIdentifierHallucination(doc *types.AnswerDocumentV2, oracle t
 			if inlineIdentifierSupportedByAggregateMemberSet(ident, mut) {
 				continue
 			}
+			if inlineIdentifierSupportedByNegativeSearchAggregate(token, ident, mut) {
+				continue
+			}
 			found, tier := oracle.SymbolExistsFlat(ident)
 			if found && tier < 3 {
 				continue
@@ -3862,6 +3865,65 @@ func inlineIdentifierSupportedByAggregateMemberSet(ident string, mut *types.Muta
 			if answerAggregateMemberLabelMatches(ident, member) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func inlineIdentifierSupportedByNegativeSearchAggregate(token, ident string, mut *types.MutableState) bool {
+	token = strings.TrimSpace(token)
+	ident = strings.TrimSpace(ident)
+	if token == "" || ident == "" || mut == nil {
+		return false
+	}
+	for _, fact := range mut.StableInvestigationAggregateFacts() {
+		if fact.Kind != types.AnswerAggregateNegativeSearch {
+			continue
+		}
+		for _, dim := range fact.Dimensions {
+			name := strings.ToLower(strings.TrimSpace(dim.Name))
+			value := strings.TrimSpace(dim.Value)
+			if value == "" {
+				continue
+			}
+			switch name {
+			case "repo", "scope":
+				if strings.EqualFold(token, value) {
+					return true
+				}
+			case "query", "pattern":
+				if negativeSearchDimensionContainsToken(value, token, ident) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func negativeSearchDimensionContainsToken(value, token, ident string) bool {
+	value = strings.TrimSpace(value)
+	token = strings.TrimSpace(token)
+	ident = strings.TrimSpace(ident)
+	if value == "" || token == "" || ident == "" {
+		return false
+	}
+	if strings.EqualFold(value, token) {
+		return true
+	}
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return !(r == '_' || r == '-' || r == '.' || r == '/' ||
+			(r >= '0' && r <= '9') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= 'a' && r <= 'z'))
+	})
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		if strings.EqualFold(field, token) || strings.EqualFold(field, ident) {
+			return true
 		}
 	}
 	return false

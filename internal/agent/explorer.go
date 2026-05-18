@@ -597,6 +597,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- Include the terminal judgment, important scope boundaries, cross-repository or cross-component distinctions, no-hit/exclusion findings, and caveats that should not disappear.\n")
 	b.WriteString("- Do not leave those conclusions only in free-form text before the tool call; put them in `reason` so the next stages receive them even when prose is absent or parallel investigations are merged.\n")
 	b.WriteString("- Keep counts, complete member sets, and per-bucket facts in `aggregate_facts`; use `absence_justification` for a genuine zero or not-found result.\n")
+	b.WriteString("- For a verified zero-result search inside a repository or sub-repo, use `aggregate_facts` with `kind=\"negative_search\"`, `value=\"0\"`, and dimensions for `repo`, `query` or `pattern`, `scope`, and `searched_at`. Do not emit fake file:line evidence such as `repo:0` for a not-found result.\n")
 	b.WriteString("- Ground the conclusion in tool output and emitted evidence. The `reason` is preserved as context, not as a citation.\n\n")
 
 	analyzerKeywords := irKeywords(ctx)

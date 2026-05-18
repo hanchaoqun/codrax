@@ -94,8 +94,8 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 					"properties": {
 						"kind": {
 							"type": "string",
-							"enum": ["total_count", "unique_count", "grouped_count", "bucket_count", "excluded_count", "scalar_value", "member_set"],
-							"description": "total_count = total principal hits or a typed pre-filter candidate pool when dimensions name that stage; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members)."
+							"enum": ["total_count", "unique_count", "grouped_count", "bucket_count", "excluded_count", "scalar_value", "member_set", "negative_search"],
+							"description": "total_count = total principal hits or a typed pre-filter candidate pool when dimensions name that stage; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members); negative_search = a verified zero-result repository search. For negative_search, set value=\"0\", unit=\"matches\", and dimensions for repo, query or pattern, scope, and searched_at; do NOT fake a file:line evidence item such as repo:0 for not-found proof."
 						},
 						"label": {
 							"type": "string",
@@ -103,7 +103,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"value": {
 							"type": "string",
-							"description": "Exact value to preserve. For count kinds use a non-negative integer string such as \"0\", \"3\", or \"12\"; put words like files/locations in unit. For kind=member_set only, this may be omitted when members is the complete exact set."
+							"description": "Exact value to preserve. For count kinds use a non-negative integer string such as \"0\", \"3\", or \"12\"; put words like files/locations in unit. For kind=negative_search, value must be \"0\". For kind=member_set only, this may be omitted when members is the complete exact set."
 						},
 						"role": {
 							"type": "string",
@@ -120,7 +120,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"dimensions": {
 							"type": "array",
-							"description": "Optional typed axes that make the aggregate precise, e.g. [{name:\"scope\", value:\"production\"}, {name:\"syntax\", value:\"struct_literal\"}, {name:\"stage\", value:\"candidate_pre_filter\"}, {name:\"basis\", value:\"verified_member_set\"}]. If a broad candidate search count differs from the final verified member_set, emit companion total_count/excluded_count facts with dimensions that explain the stage/basis instead of burying the discrepancy in prose.",
+							"description": "Optional typed axes that make the aggregate precise, e.g. [{name:\"scope\", value:\"production\"}, {name:\"syntax\", value:\"struct_literal\"}, {name:\"stage\", value:\"candidate_pre_filter\"}, {name:\"basis\", value:\"verified_member_set\"}]. For kind=negative_search, include repo, query or pattern, scope, and searched_at. Use searched_at=\"current_investigation\" when no wall-clock timestamp is available. If a broad candidate search count differs from the final verified member_set, emit companion total_count/excluded_count facts with dimensions that explain the stage/basis instead of burying the discrepancy in prose.",
 							"items": {
 								"type": "object",
 								"properties": {

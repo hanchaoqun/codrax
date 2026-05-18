@@ -262,6 +262,33 @@ func TestFixI_AggregateMemberSetInlineIdentifierPasses(t *testing.T) {
 	}
 }
 
+func TestFixI_NegativeSearchAggregateInlineSurfacesPass(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "The search found no bridge hits in `frameworks/base` for `IRemoteBroker`.",
+		}},
+	}
+	mut := types.NewMutableState("cross repo interface search")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateNegativeSearch,
+		Label: "frameworks/base Ressched bridge search",
+		Value: "0",
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "repo", Value: "frameworks/base"},
+			{Name: "pattern", Value: "ResSched|IRemoteBroker|SAMR"},
+			{Name: "scope", Value: "frameworks/base"},
+			{Name: "searched_at", Value: "current_investigation"},
+		},
+	}})
+	mut.SetInvestigationComplete("accepted negative-search aggregate")
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateInlineIdentifierHallucination(doc, oracle, mut); len(vs) != 0 {
+		t.Fatalf("inline surfaces copied from negative_search aggregate dimensions should not be forced through graph oracle; got %+v", vs)
+	}
+}
+
 func TestFixI_NonChangeImpactCurrentRequestIdentifierStillRequiresEvidence(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

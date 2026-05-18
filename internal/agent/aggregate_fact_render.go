@@ -182,7 +182,8 @@ func aggregateFactPromptPriority(fact types.AnswerAggregateFact, principal bool)
 	case types.AnswerAggregateTotalCount,
 		types.AnswerAggregateUniqueCount,
 		types.AnswerAggregateGroupedCount,
-		types.AnswerAggregateBucketCount:
+		types.AnswerAggregateBucketCount,
+		types.AnswerAggregateNegativeSearch:
 		return 3
 	case types.AnswerAggregateExcluded:
 		return 4

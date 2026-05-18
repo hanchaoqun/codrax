@@ -17,14 +17,15 @@ import (
 type AnswerAggregateKind string
 
 const (
-	AnswerAggregateUnknown      AnswerAggregateKind = ""
-	AnswerAggregateTotalCount   AnswerAggregateKind = "total_count"
-	AnswerAggregateUniqueCount  AnswerAggregateKind = "unique_count"
-	AnswerAggregateGroupedCount AnswerAggregateKind = "grouped_count"
-	AnswerAggregateBucketCount  AnswerAggregateKind = "bucket_count"
-	AnswerAggregateExcluded     AnswerAggregateKind = "excluded_count"
-	AnswerAggregateScalar       AnswerAggregateKind = "scalar_value"
-	AnswerAggregateMemberSet    AnswerAggregateKind = "member_set"
+	AnswerAggregateUnknown        AnswerAggregateKind = ""
+	AnswerAggregateTotalCount     AnswerAggregateKind = "total_count"
+	AnswerAggregateUniqueCount    AnswerAggregateKind = "unique_count"
+	AnswerAggregateGroupedCount   AnswerAggregateKind = "grouped_count"
+	AnswerAggregateBucketCount    AnswerAggregateKind = "bucket_count"
+	AnswerAggregateExcluded       AnswerAggregateKind = "excluded_count"
+	AnswerAggregateScalar         AnswerAggregateKind = "scalar_value"
+	AnswerAggregateMemberSet      AnswerAggregateKind = "member_set"
+	AnswerAggregateNegativeSearch AnswerAggregateKind = "negative_search"
 )
 
 var allAnswerAggregateKinds = []AnswerAggregateKind{
@@ -35,6 +36,7 @@ var allAnswerAggregateKinds = []AnswerAggregateKind{
 	AnswerAggregateExcluded,
 	AnswerAggregateScalar,
 	AnswerAggregateMemberSet,
+	AnswerAggregateNegativeSearch,
 }
 
 // AllAnswerAggregateKinds returns the canonical non-empty aggregate
@@ -725,6 +727,10 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 	fact.Members = normalizeAggregateStrings(raw.Members, maxAnswerAggregateMembers)
 	fact.Excluded = normalizeAggregateStrings(raw.Excluded, maxAnswerAggregateMembers)
 	fact.SupportRefs = normalizeAggregateStrings(raw.SupportRefs, maxAnswerAggregateMembers)
+	fact, err = normalizeNegativeSearchAggregateFact(fact)
+	if err != nil {
+		return AnswerAggregateFact{}, err
+	}
 	if fact.Kind == AnswerAggregateMemberSet && fact.Value == "" && len(fact.Members) > 0 {
 		fact.Value = strconv.Itoa(len(fact.Members))
 	}
@@ -732,6 +738,111 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 		return AnswerAggregateFact{}, fmt.Errorf("value is required")
 	}
 	return fact, nil
+}
+
+func normalizeNegativeSearchAggregateFact(fact AnswerAggregateFact) (AnswerAggregateFact, error) {
+	if fact.Kind != AnswerAggregateNegativeSearch {
+		return fact, nil
+	}
+	fact.Dimensions = canonicalNegativeSearchDimensions(fact.Dimensions)
+	dims := aggregateDimensionMap(fact.Dimensions)
+	if fact.Value == "" {
+		fact.Value = dims["result_count"]
+	}
+	if fact.Value == "" {
+		fact.Value = "0"
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(fact.Value))
+	if err != nil || n != 0 {
+		return AnswerAggregateFact{}, fmt.Errorf("%s %q must use value \"0\" for a verified zero-result search",
+			fact.Kind, fact.Label)
+	}
+	fact.Value = "0"
+	if fact.Unit == "" {
+		fact.Unit = "matches"
+	}
+	if dims["repo"] == "" {
+		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension repo=<active repository or sub-repo>",
+			fact.Kind, fact.Label)
+	}
+	if dims["query"] == "" && dims["pattern"] == "" {
+		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension query=<search query> or pattern=<search regex>",
+			fact.Kind, fact.Label)
+	}
+	if dims["scope"] == "" {
+		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
+			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension scope=<searched repository path or bounded search surface>",
+				fact.Kind, fact.Label)
+		}
+		fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "scope", Value: dims["repo"]})
+		dims["scope"] = dims["repo"]
+	}
+	if dims["searched_at"] == "" {
+		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
+			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension searched_at=<search timestamp or current_investigation>",
+				fact.Kind, fact.Label)
+		}
+		fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "searched_at", Value: "current_investigation"})
+	}
+	return fact, nil
+}
+
+func canonicalNegativeSearchDimensions(dims []AnswerAggregateDimension) []AnswerAggregateDimension {
+	if len(dims) == 0 {
+		return nil
+	}
+	out := make([]AnswerAggregateDimension, 0, len(dims))
+	seen := map[string]bool{}
+	for _, dim := range dims {
+		name := canonicalNegativeSearchDimensionName(dim.Name)
+		value := trimAggregateText(dim.Value)
+		if name == "" || value == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, AnswerAggregateDimension{Name: name, Value: value})
+	}
+	return out
+}
+
+func canonicalNegativeSearchDimensionName(raw string) string {
+	name := strings.ToLower(trimAggregateText(raw))
+	name = strings.ReplaceAll(name, "-", "_")
+	name = strings.ReplaceAll(name, " ", "_")
+	switch name {
+	case "repo", "repository", "sub_repo", "subrepository", "active_repo", "active_repository":
+		return "repo"
+	case "query", "search_query", "term", "terms":
+		return "query"
+	case "pattern", "regex", "regexp", "search_pattern":
+		return "pattern"
+	case "scope", "search_scope", "path", "search_path", "root", "root_rel":
+		return "scope"
+	case "searched_at", "search_time", "searched_in", "tool_time", "time":
+		return "searched_at"
+	case "result_count", "count", "matches", "match_count":
+		return "result_count"
+	case "tool", "file_type", "files_only", "ignore_case":
+		return name
+	default:
+		return trimAggregateText(raw)
+	}
+}
+
+func aggregateDimensionMap(dims []AnswerAggregateDimension) map[string]string {
+	out := make(map[string]string, len(dims))
+	for _, dim := range dims {
+		name := strings.ToLower(strings.TrimSpace(dim.Name))
+		if name == "" || out[name] != "" {
+			continue
+		}
+		out[name] = strings.TrimSpace(dim.Value)
+	}
+	return out
 }
 
 // AnswerAggregateFactIdentity returns the stable semantic identity for a

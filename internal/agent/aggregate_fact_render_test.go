@@ -79,6 +79,38 @@ func TestRenderStructuredAggregateFactsUsesExplicitRoleAndProvenance(t *testing.
 	}
 }
 
+func TestRenderStructuredAggregateFactsIncludesNegativeSearchDimensions(t *testing.T) {
+	facts, err := types.NormalizeAnswerAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateNegativeSearch,
+		Label: "frameworks/base ressched interface search",
+		Value: "0",
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "repo", Value: "frameworks/base"},
+			{Name: "pattern", Value: "ResSched|IRemoteBroker|SAMR"},
+			{Name: "scope", Value: "frameworks/base"},
+			{Name: "searched_at", Value: "explore iteration 20"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("negative_search aggregate should validate: %v", err)
+	}
+	got := renderStructuredAggregateFacts(facts, 16)
+	for _, want := range []string{
+		"kind=`negative_search`",
+		"label=frameworks/base ressched interface search",
+		"value=`0`",
+		"unit=matches",
+		"repo=frameworks/base",
+		"pattern=ResSched|IRemoteBroker|SAMR",
+		"scope=frameworks/base",
+		"searched_at=explore iteration 20",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rendered aggregate facts missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestStructuredAggregatePromptFactLimitExpandsForComplexTypedQuestions(t *testing.T) {
 	var facts []types.AnswerAggregateFact
 	for i := 0; i < 24; i++ {

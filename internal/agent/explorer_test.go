@@ -913,6 +913,8 @@ func TestBuildInitialInstructionCompletionHandoff(t *testing.T) {
 		"cross-repository or cross-component distinctions",
 		"Do not leave those conclusions only in free-form text",
 		"`aggregate_facts`",
+		"`kind=\"negative_search\"`",
+		"Do not emit fake file:line evidence",
 		"`absence_justification`",
 		"not as a citation",
 	} {

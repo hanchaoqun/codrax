@@ -115,6 +115,76 @@ func TestNormalizeAnswerAggregateFacts_PreservesRoleAndProvenance(t *testing.T) 
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_AcceptsNegativeSearch(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateNegativeSearch,
+		Label: "frameworks/base ressched interface search",
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "repository", Value: "frameworks/base"},
+			{Name: "search_pattern", Value: "ResSched|IRemoteBroker|SAMR"},
+			{Name: "search_path", Value: "frameworks/base"},
+			{Name: "searched_in", Value: "explore iteration 20"},
+			{Name: "matches", Value: "0"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("negative_search aggregate should validate: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d facts, want 1", len(got))
+	}
+	fact := got[0]
+	if fact.Kind != AnswerAggregateNegativeSearch || fact.Value != "0" || fact.Unit != "matches" {
+		t.Fatalf("negative_search not normalized: %+v", fact)
+	}
+	dims := aggregateDimensionMap(fact.Dimensions)
+	for _, name := range []string{"repo", "pattern", "scope", "searched_at", "result_count"} {
+		if dims[name] == "" {
+			t.Fatalf("missing canonical dimension %q in %+v", name, fact.Dimensions)
+		}
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_NegativeSearchRejectsNonZeroAndMissingQuery(t *testing.T) {
+	cases := []struct {
+		name string
+		in   AnswerAggregateFact
+	}{
+		{
+			name: "nonzero",
+			in: AnswerAggregateFact{
+				Kind:  AnswerAggregateNegativeSearch,
+				Label: "frameworks/base ressched search",
+				Value: "2",
+				Dimensions: []AnswerAggregateDimension{
+					{Name: "repo", Value: "frameworks/base"},
+					{Name: "pattern", Value: "ResSched"},
+					{Name: "scope", Value: "frameworks/base"},
+				},
+			},
+		},
+		{
+			name: "missing query",
+			in: AnswerAggregateFact{
+				Kind:  AnswerAggregateNegativeSearch,
+				Label: "frameworks/base ressched search",
+				Value: "0",
+				Dimensions: []AnswerAggregateDimension{
+					{Name: "repo", Value: "frameworks/base"},
+					{Name: "scope", Value: "frameworks/base"},
+				},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{tc.in}); err == nil {
+				t.Fatalf("expected negative_search validation error")
+			}
+		})
+	}
+}
+
 func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesPathCoverageForArchitecture(t *testing.T) {
 	facts := []AnswerAggregateFact{
 		{
