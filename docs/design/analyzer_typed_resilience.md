@@ -64,7 +64,8 @@ git log --oneline 7ac49a35..HEAD -- \
 | Batch 1 | Phase 4 + Phase 3：软化 `error_granularity_profile.source_quotes`；新增 diagnostic mirror typed normalizer；收紧 diagnostic reconciler 入口 | **DONE (2026-05-19)** | `internal/tool/emit_analysis.go`, `internal/agent/analyzer_intent.go`, `internal/tool/emit_analysis_test.go`, `internal/agent/analyzer_intent_test.go` | forensic case 不再因 granularity quote 重试；`diagnostic_profile.is_diagnostic=true` 不再在 predicate=false 且无强诊断信号时把 explain 题升级 root_cause |
 | Batch 2 | Phase 1：EntityProvenance producer telemetry-only，不接 consumer | **DONE (2026-05-19)** | `internal/types/analysis_ir.go`, `internal/agent/entity_provenance_projection.go`, `internal/agent/analyzer.go`, `internal/agent/entity_provenance_projection_test.go` | 只新增 typed side-lane 与 summary telemetry；下游行为不变 |
 | Batch 3 | Phase 2：consumer wiring，search/shape 分流读取 provenance，nil provenance 全 keep | **DONE (2026-05-19)** | `internal/agent/entity_provenance_filter.go`, `internal/agent/keyword_search.go`, `internal/agent/explorer.go`, `internal/agent/ir_accessor.go` | full eval 不增加 retry；多仓/单仓均不误伤合法 entity |
-| Batch 4 | Phase 5：schema 文案同步已交付；blocklist drop→noise 降级等待 telemetry 决策 | **DONE / BLOCKLIST DEFERRED (2026-05-19)** | `internal/tool/emit_analysis.go` schema；`internal/tool/analysis_limits.go` 保持不变 | schema 与已交付能力一致；无 telemetry 前不得扩大噪声流 |
+| Batch 4 | Phase 5：schema 文案同步已交付；blocklist drop→noise 降级等待 telemetry 决策 | **DONE / BLOCKLIST DEFERRED (2026-05-19)** | `internal/tool/emit_analysis.go` schema；`internal/tool/analysis_limits.go` 行为保持不变 | schema 与已交付能力一致；无 telemetry 前不得扩大噪声流 |
+| Batch 5 | Blocklist shadow telemetry：保持 drop 行为，仅记录未来 drop→noise 路径会如何处理被丢弃实体 | **DONE (2026-05-19)** | `internal/tool/analysis_limits.go`, `internal/tool/emit_analysis.go`, `internal/tool/emit_analysis_test.go` | `DroppedEntities` 和 user-facing warnings 不变；日志新增 `blocklist_shadow`，证明 dropped generic entity 在未来降级时默认不会进入 search/shape |
 
 Batch 1 verification:
 
@@ -100,6 +101,13 @@ Batch 4 verification:
 
 ```bash
 go test ./internal/tool -run 'TestEmitAnalysisSchema|TestEmitAnalysis_Execute'
+go test ./internal/tool
+```
+
+Batch 5 verification:
+
+```bash
+go test ./internal/tool -run 'TestValidateAnalysisInput_(DropsGenericEntities|EmptyBlocklistSkipsFilter|WhitelistKeepsVerifiedGenericEntity|WhitelistRejectsPathOnlyGenericEntity)$'
 go test ./internal/tool
 ```
 
@@ -589,7 +597,7 @@ new behavior:
 
 **目标**：让 LLM 看到的 schema 描述真实反映系统能力（"系统会自动 derive，你不必精填"），同时把 `GenericEntityBlocklist` 从 drop 路径降级为 NoiseScore 快速近似。
 
-**2026-05-19 修订**：Phase 5 不再建议先跑。Schema 文案已随 Batch 4 小步同步到已交付能力；`GenericEntityBlocklist` 的 drop→noise 降级必须等 EntityProvenance telemetry 跑过 forensic/eval 后再做。否则在 provenance consumer 未接线前改变 entity 流，会把一个"标注系统"问题变成 search/shape 噪声扩大问题。
+**2026-05-19 修订**：Phase 5 不再建议先跑。Schema 文案已随 Batch 4 小步同步到已交付能力；`GenericEntityBlocklist` 的 drop→noise 降级必须等 EntityProvenance telemetry 跑过 forensic/eval 后再做。否则在 provenance consumer 未接线前改变 entity 流，会把一个"标注系统"问题变成 search/shape 噪声扩大问题。Batch 5 已先补一条 shadow telemetry：当前仍按旧逻辑 drop，但日志会记录这些被 drop 的 generic entity 在未来降级路径下默认会被标为 `inferred_concept` 且 `use_for_search=false/use_for_shape=false`，供真实日志证明安全性。
 
 **Files / changes**：
 
@@ -597,6 +605,8 @@ new behavior:
 |---|---|---|
 | `internal/tool/analysis_limits.go:633-690` `filterGenericEntitiesWithWhitelist` | **DEFER** | 不再 drop，全部 keep；返回值改为带 NoiseScore 的 tagging 结构。**延后到 EntityProvenance telemetry 证明安全后再做** |
 | `internal/tool/analysis_limits.go:502-560` `validateAnalysisInput` | **DEFER** | DroppedEntities 永远空（保留 struct field 兼容旧测试）。同样延后到 blocklist 降级落地时修改 |
+| `internal/tool/analysis_limits.go` `BlocklistShadow` | **DONE** | 保持现有 drop 行为；对 `DroppedEntities` 生成 log-only shadow metadata，不进入 `Warnings`，不改变 `FilteredEntities` |
+| `internal/tool/emit_analysis.go` `blocklist_shadow` logging | **DONE** | `logging.Info("[emit_analysis] %s", val.BlocklistShadowSummary)`，便于 forensic/eval grep；不污染 REPL 分析结果 |
 | `internal/tool/emit_analysis.go:344-357` `entities` schema desc | 改 ~5 LOC | 追加："entities can be code symbols, file paths, OR answer-shape vocabulary the user explicitly asked about (categories, outcomes, comparison axes). The system classifies provenance automatically." |
 | `internal/tool/emit_analysis.go:344-358` `predicates / diagnostic_profile` schema desc | 改 ~10 LOC | 在 `is_diagnostic_question` 和 `is_diagnostic` 描述末尾追加：" These two fields are mirrors; the system auto-aligns the profile copy to match the predicate. Always set both consistently, but the system tolerates mirror drift." |
 | `internal/tool/emit_analysis.go:473` `is_granularity_question` schema desc | 改 ~5 LOC | 追加："The system normalizes source_quotes against the current request; exact verbatim is preferred, and unanchored optional quotes may be ignored instead of retried." |

@@ -756,6 +756,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	seenBlob := ctx.Mutable.PrescanSummaryBlob()
 	prescanRounds := countPrescanRounds(seenBlob)
 	val := validateAnalysisInput(keywords, entities, limits, seenBlob, prescanRounds)
+	if val.BlocklistShadowSummary != "" {
+		logging.Info("[emit_analysis] %s", val.BlocklistShadowSummary)
+	}
 	if val.RejectReason != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),

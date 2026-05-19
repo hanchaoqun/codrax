@@ -443,6 +443,19 @@ type analysisValidationResult struct {
 	// paths are independently observable.
 	KeptVerifiedEntities []string
 
+	// BlocklistShadow records what the deferred drop->noise path would
+	// have done for currently dropped generic entities. This is
+	// telemetry only: validateAnalysisInput still drops the same
+	// entities, and Execute must not surface this as a user-facing
+	// warning. Once forensic/eval logs prove the shadow lane is safe,
+	// a later batch may switch behavior.
+	BlocklistShadow []blocklistShadowEntity
+
+	// BlocklistShadowSummary is a compact log-only rendering of
+	// BlocklistShadow. It is deliberately separate from Warnings so
+	// REPL output remains unchanged while operators can grep logs.
+	BlocklistShadowSummary string
+
 	// Warnings is a list of human-readable messages the caller should
 	// append to the ToolResult.Summary. Present but non-fatal.
 	Warnings []string
@@ -458,6 +471,14 @@ type analysisValidationResult struct {
 	// as "no data". Otherwise the KeywordHitRatio / EntityHitRatio
 	// helpers return the usable fractions.
 	Probe AnalysisQualityProbe
+}
+
+type blocklistShadowEntity struct {
+	Surface      string
+	Resolution   string
+	UseForSearch bool
+	UseForShape  bool
+	Reason       string
 }
 
 // validateAnalysisInput applies the runtime AnalysisLimits policy to
@@ -515,6 +536,8 @@ func validateAnalysisInput(keywords, entities []string, limits AnalysisLimits, s
 		sort.Strings(dropped)
 		res.Warnings = append(res.Warnings,
 			"dropped_generic_entities: "+strings.Join(dropped, ", "))
+		res.BlocklistShadow = buildBlocklistShadow(res.DroppedEntities)
+		res.BlocklistShadowSummary = summarizeBlocklistShadow(res.BlocklistShadow)
 	}
 	if len(res.KeptVerifiedEntities) > 0 {
 		kept := append([]string(nil), res.KeptVerifiedEntities...)
@@ -578,6 +601,92 @@ func formatHitRatioWarning(label string, ratio, floor float64, hits, total int) 
 	b.WriteString(") below floor ")
 	writeFloat2(&b, floor)
 	return b.String()
+}
+
+func buildBlocklistShadow(dropped []string) []blocklistShadowEntity {
+	if len(dropped) == 0 {
+		return nil
+	}
+	out := make([]blocklistShadowEntity, 0, len(dropped))
+	for _, surface := range dropped {
+		surface = strings.TrimSpace(surface)
+		if surface == "" {
+			continue
+		}
+		out = append(out, blocklistShadowEntity{
+			Surface:      surface,
+			Resolution:   "inferred_concept",
+			UseForSearch: false,
+			UseForShape:  false,
+			Reason:       "blocked_generic_entity_not_prescan_verified",
+		})
+	}
+	return out
+}
+
+func summarizeBlocklistShadow(items []blocklistShadowEntity) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var wouldSearch, wouldShape int
+	resolutionCounts := make(map[string]int)
+	surfaces := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.UseForSearch {
+			wouldSearch++
+		}
+		if item.UseForShape {
+			wouldShape++
+		}
+		resolution := strings.TrimSpace(item.Resolution)
+		if resolution == "" {
+			resolution = "unknown"
+		}
+		resolutionCounts[resolution]++
+		surfaces = append(surfaces, item.Surface)
+	}
+	sort.Strings(surfaces)
+	var b strings.Builder
+	b.WriteString("blocklist_shadow: dropped=")
+	itoa(&b, len(items))
+	b.WriteString(" would_search=")
+	itoa(&b, wouldSearch)
+	b.WriteString(" would_shape=")
+	itoa(&b, wouldShape)
+	resolutions := make([]string, 0, len(resolutionCounts))
+	for resolution := range resolutionCounts {
+		resolutions = append(resolutions, resolution)
+	}
+	sort.Strings(resolutions)
+	for _, resolution := range resolutions {
+		b.WriteByte(' ')
+		b.WriteString(resolution)
+		b.WriteByte('=')
+		itoa(&b, resolutionCounts[resolution])
+	}
+	b.WriteString(" sample=")
+	writeLimitedCSV(&b, surfaces, 8)
+	return b.String()
+}
+
+func writeLimitedCSV(b *strings.Builder, items []string, limit int) {
+	if limit <= 0 || len(items) == 0 {
+		return
+	}
+	n := len(items)
+	if n > limit {
+		n = limit
+	}
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(items[i])
+	}
+	if len(items) > limit {
+		b.WriteString(", +")
+		itoa(b, len(items)-limit)
+	}
 }
 
 // writeFloat2 writes a 0.00-formatted float to b. Used by

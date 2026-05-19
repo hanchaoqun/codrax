@@ -593,6 +593,32 @@ func TestValidateAnalysisInput_DropsGenericEntities(t *testing.T) {
 	if !strings.Contains(res.Warnings[0], "dropped_generic_entities") {
 		t.Errorf("warning text missing label, got %q", res.Warnings[0])
 	}
+	if strings.Contains(res.Warnings[0], "blocklist_shadow") {
+		t.Fatalf("shadow telemetry must stay log-only, got user-facing warning %q", res.Warnings[0])
+	}
+	if len(res.BlocklistShadow) != 3 {
+		t.Fatalf("BlocklistShadow count = %d, want 3; got %v", len(res.BlocklistShadow), res.BlocklistShadow)
+	}
+	for _, item := range res.BlocklistShadow {
+		if item.Surface == "" {
+			t.Fatalf("BlocklistShadow contains empty surface: %v", res.BlocklistShadow)
+		}
+		if item.Resolution != "inferred_concept" {
+			t.Fatalf("BlocklistShadow resolution = %q, want inferred_concept", item.Resolution)
+		}
+		if item.UseForSearch || item.UseForShape {
+			t.Fatalf("dropped generic shadow must not be search/shape eligible: %+v", item)
+		}
+		if item.Reason != "blocked_generic_entity_not_prescan_verified" {
+			t.Fatalf("unexpected BlocklistShadow reason: %+v", item)
+		}
+	}
+	if !strings.Contains(res.BlocklistShadowSummary, "blocklist_shadow: dropped=3") ||
+		!strings.Contains(res.BlocklistShadowSummary, "would_search=0") ||
+		!strings.Contains(res.BlocklistShadowSummary, "would_shape=0") ||
+		!strings.Contains(res.BlocklistShadowSummary, "inferred_concept=3") {
+		t.Fatalf("BlocklistShadowSummary missing counters: %q", res.BlocklistShadowSummary)
+	}
 }
 
 func TestValidateAnalysisInput_EmptyBlocklistSkipsFilter(t *testing.T) {
@@ -609,6 +635,10 @@ func TestValidateAnalysisInput_EmptyBlocklistSkipsFilter(t *testing.T) {
 	}
 	if len(res.FilteredEntities) != 3 {
 		t.Errorf("nil blocklist must pass all entities through, got %v", res.FilteredEntities)
+	}
+	if len(res.BlocklistShadow) != 0 || res.BlocklistShadowSummary != "" {
+		t.Errorf("nil blocklist must not emit shadow telemetry, got shadow=%v summary=%q",
+			res.BlocklistShadow, res.BlocklistShadowSummary)
 	}
 }
 
@@ -674,6 +704,9 @@ func TestValidateAnalysisInput_WhitelistKeepsVerifiedGenericEntity(t *testing.T)
 	if !haveKept {
 		t.Errorf("Warnings missing kept_generic_verified_entities line, got %v", res.Warnings)
 	}
+	if len(res.BlocklistShadow) != 1 || res.BlocklistShadow[0].Surface != "Count" {
+		t.Errorf("shadow telemetry should cover only dropped Count, got %v", res.BlocklistShadow)
+	}
 }
 
 func TestValidateAnalysisInput_WhitelistRejectsPathOnlyGenericEntity(t *testing.T) {
@@ -707,6 +740,9 @@ func TestValidateAnalysisInput_WhitelistRejectsPathOnlyGenericEntity(t *testing.
 		if strings.Contains(w, "kept_generic_verified_entities") {
 			t.Fatalf("path-only hits should not emit kept warning, got %v", res.Warnings)
 		}
+	}
+	if len(res.BlocklistShadow) != 2 {
+		t.Fatalf("path-only generic entities should be shadowed as dropped, got %v", res.BlocklistShadow)
 	}
 }
 
