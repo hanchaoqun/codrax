@@ -6801,7 +6801,7 @@ func (e *explorerEvaluator) filterPartialReadsForPostPrimary(hints []partialRead
 	}
 	hints = e.filterPartialReadsByAuthoritativeFrames(hints)
 	hints = e.filterPartialReadsBySurfaceIntent(hints)
-	hints = filterPartialReadsByRelevance(hints, e.userQuestion)
+	hints = e.filterPartialReadsByTypedRelevance(hints)
 	return hints
 }
 
@@ -6811,7 +6811,7 @@ func (e *explorerEvaluator) filterPartialReadsForCurrentContext(hints []partialR
 	}
 	hints = e.filterPartialReadsByAuthoritativeFrames(hints)
 	hints = e.filterPartialReadsBySurfaceIntent(hints)
-	hints = filterPartialReadsByRelevance(hints, e.userQuestion)
+	hints = e.filterPartialReadsByTypedRelevance(hints)
 	hints = e.filterPartialReadsByGroundedEvidence(hints)
 	return hints
 }
@@ -6871,6 +6871,102 @@ func (e *explorerEvaluator) scalarSourceLiteralPartialReadTails() map[string]boo
 		return nil
 	}
 	return allowed
+}
+
+func (e *explorerEvaluator) filterPartialReadsByTypedRelevance(hints []partialReadHint) []partialReadHint {
+	if len(hints) == 0 || e == nil || e.analysisIR == nil {
+		return hints
+	}
+	allowed := e.partialReadTypedRelevanceTails()
+	if len(allowed) == 0 {
+		return hints
+	}
+	out := make([]partialReadHint, 0, len(hints))
+	for _, hint := range hints {
+		if partialReadHintMatchesTypedTails(hint, allowed) {
+			out = append(out, hint)
+		}
+	}
+	return out
+}
+
+func (e *explorerEvaluator) partialReadTypedRelevanceTails() map[string]bool {
+	if e == nil || e.analysisIR == nil {
+		return nil
+	}
+	allowed := make(map[string]bool)
+	add := func(raw string) {
+		for _, tail := range partialReadSurfaceTails(raw) {
+			allowed[tail] = true
+		}
+	}
+	rm := e.analysisIR.RequestModel
+	for _, s := range rm.AnalyzerHints.PrimaryEntities {
+		add(s)
+	}
+	for _, s := range rm.AnalyzerHints.MentionedEntities {
+		add(s)
+	}
+	for _, s := range rm.AnalyzerHints.ExactTargets {
+		add(s)
+	}
+	for _, topic := range rm.SubTopics {
+		for _, s := range topic.Entities {
+			add(s)
+		}
+	}
+	for _, item := range e.structuredEvidence {
+		switch item.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered:
+		default:
+			continue
+		}
+		add(item.AnchorSymbol)
+		add(item.Subject)
+		add(item.Object)
+		add(item.OwnerSymbol)
+	}
+	if len(allowed) == 0 {
+		return nil
+	}
+	return allowed
+}
+
+func partialReadHintMatchesTypedTails(hint partialReadHint, allowed map[string]bool) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, tail := range partialReadSurfaceTails(hint.symbolName) {
+		if allowed[tail] {
+			return true
+		}
+	}
+	return false
+}
+
+func partialReadSurfaceTails(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, 3)
+	add := func(s string) {
+		tail := types.NormalizedSurfaceSymbolTail(s)
+		if tail == "" || seen[tail] {
+			return
+		}
+		seen[tail] = true
+		out = append(out, tail)
+	}
+	add(raw)
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '.' || r == ':' || r == '/' || r == '\\'
+	})
+	for _, part := range parts {
+		add(part)
+	}
+	return out
 }
 
 func (e *explorerEvaluator) filterPartialReadsByGroundedEvidence(hints []partialReadHint) []partialReadHint {
@@ -14707,10 +14803,6 @@ type partialReadHint struct {
 	coverage   float64 // fraction of function body covered (0.0-1.0)
 }
 
-// filterPartialReadsByRelevance removes partial-read hints for
-// functions whose name is not related to the user's question. Uses
-// a simple heuristic: split the question into words (≥4 chars),
-// check if any word appears case-insensitively in the function's
 // preReadRequiredFiles reads the first `maxFiles` files (each capped
 // at `maxLines` lines) and formats their content as a prompt section.
 // Narrowly used by buildFocusedDepthStartInstruction: only fires when
@@ -14863,57 +14955,6 @@ func (e *explorerEvaluator) excludeReadAndIrrelevantFromCtx(ctx *types.AgentCont
 		rs[k] = true
 	}
 	return rs
-}
-
-// qualified name. Functions that match are kept; functions that
-// don't are dropped so the LLM's attention budget is spent on
-// reading new relevant files instead of finishing irrelevant large
-// functions.
-//
-// Also unconditionally keeps functions with very high coverage gaps
-// (< 30% read) because those represent a structural "you barely
-// started reading this" signal that should always fire.
-func filterPartialReadsByRelevance(hints []partialReadHint, question string) []partialReadHint {
-	if len(hints) == 0 || question == "" {
-		return hints
-	}
-	// Build a token set from the question (words ≥ 4 chars).
-	lower := strings.ToLower(question)
-	words := strings.Fields(lower)
-	tokens := make([]string, 0, len(words))
-	for _, w := range words {
-		// Strip punctuation
-		w = strings.Trim(w, "?？！!.,;:()[]{}\"'")
-		if len(w) >= 4 {
-			tokens = append(tokens, w)
-		}
-	}
-	if len(tokens) == 0 {
-		return hints // can't filter without tokens
-	}
-
-	var kept []partialReadHint
-	for _, h := range hints {
-		// Always keep very-low-coverage reads (< 30%).
-		if h.coverage < 0.3 {
-			kept = append(kept, h)
-			continue
-		}
-		// Check if function name or file matches any question token.
-		nameLower := strings.ToLower(h.symbolName)
-		fileLower := strings.ToLower(h.file)
-		relevant := false
-		for _, tok := range tokens {
-			if strings.Contains(nameLower, tok) || strings.Contains(fileLower, tok) {
-				relevant = true
-				break
-			}
-		}
-		if relevant {
-			kept = append(kept, h)
-		}
-	}
-	return kept
 }
 
 // crossFileSymbolGap is one hit returned by detectCrossFileSymbolGaps:

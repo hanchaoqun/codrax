@@ -20,8 +20,9 @@ The next delivery wave is intentionally evidence-first:
 12. **DONE** — telemetry no longer counts ordinary `[llm] request ... timeout=...` configuration lines as LLM failures. Timeout/error totals now reflect actual error lines or user-visible model-response failures.
 13. **DONE** — explorer mid-loop telemetry now reports `midloop_signal`, `midloop_inject`, `midloop_force_stop`, stable hint keys, and actions. This makes the fresh `qf_logic_view_read_pipeline` long tail diagnosable without reading full transcripts by hand.
 14. **DONE** — `emit_evidence` now safely repairs a narrow class of anchor-shape drift: `anchor_kind=string_literal` with an identifier anchor on a non-comment declaration/binding line is treated as a definition anchor. Call sites and arbitrary references remain ungrounded and repairable.
-15. **NEXT / POST-FIX EVAL** — use the new explorer telemetry to distinguish necessary investigation from redundant read-without-emit / completion-ready nudges, then improve explorer evidence batching / answer-ready stop.
-16. **NEXT / AFTER TELEMETRY SWEEP** — decide whether `GenericEntityBlocklist` can move from hard drop to typed noise. This must be based on aggregate telemetry, not on a single hand-picked log.
+15. **DONE** — explorer partial-read relevance no longer tokenizes the raw user question. It now uses analyzer typed entities / sub-topics / exact targets plus grounded evidence surfaces.
+16. **NEXT / POST-FIX EVAL** — use the new explorer telemetry to distinguish necessary investigation from redundant read-without-emit / completion-ready nudges, then improve explorer evidence batching / answer-ready stop.
+17. **NEXT / AFTER TELEMETRY SWEEP** — decide whether `GenericEntityBlocklist` can move from hard drop to typed noise. This must be based on aggregate telemetry, not on a single hand-picked log.
 
 This document tracks cross-case shortcomings found by recent REPL/eval audits.
 It is intentionally a code-location ledger, not a new architecture. Each fix
@@ -107,6 +108,7 @@ structured data, not raw thinking text or system-invented answer content.
 | G65 | Fresh post-fix eval shows `qf_logic_view_read_pipeline` can pass with no finalizer retry, but still spend 20 explorer iterations and 12 mid-loop evidence nudges before reaching a valid answer. This suggests the next performance win is upstream explorer convergence, not another finalizer gate softening. | `internal/agent/explorer.go`, `internal/tool/emit_evidence.go`, `internal/agent/stage_report_render.go`, eval result `postfix_telemetry_20260519_104011/qf_logic_view_read_pipeline-*` | Next batch should use clean telemetry to distinguish necessary investigation from redundant read-without-emit nudges, then improve explorer evidence batching / answer-ready stop without parsing thinking text or suppressing legitimate reads. | Needs investigation |
 | G66 | Explorer long-tail analysis previously had only aggregate `midloop_inject` counts from eval summaries. Customer/runtime logs did not show which stable hint keys or actions caused the tail, so runtime tuning risked weakening the wrong branch. | `eval/telemetry/main.go`, `eval/telemetry/main_test.go`, `eval/telemetry/README.md` | Parse `[diag explorer] phase=midloop_signal`, `midloop_inject`, and `midloop_force_stop` lines into report sections grouped by stable hint key and action. Hot-log ranking includes explorer injects so convergence-heavy runs surface even when finalizer does not retry. | Implemented in this phase |
 | G67 | Explorer spent extra rounds repairing evidence where the model emitted `anchor_kind=string_literal` for an identifier declared/bound on the cited source line (for example stage constants). The system could verify the identifier from `read_file`, but forced the model to re-read and re-emit because string-literal grounding quite correctly looks only for literal spans. | `internal/tool/emit_evidence.go`, `internal/tool/emit_evidence_test.go` | Add a narrow deterministic compatibility repair after initial grounding: if a string-literal item is not grounded, the exact cited non-comment line contains the anchor as an identifier token, and that token is in a declaration/binding shape rather than a call/reference, re-ground it as `anchor_kind=definition` and record the repair note. Call sites stay ungrounded so the model must use `anchor_kind=call`. | Implemented in this phase |
+| G68 | Explorer partial-read filtering still used raw user-question token matching to decide which incomplete function reads deserve a hint. Even though the hint is soft, this is a control-flow decision derived from noisy prose and can preserve irrelevant low-coverage hints just because a word overlaps the request. | `internal/agent/explorer.go`, `internal/agent/explorer_test.go` | Replace raw-question token filtering with typed relevance tails from analyzer `PrimaryEntities`, `MentionedEntities`, `ExactTargets`, `SubTopics.Entities`, and already-grounded evidence surfaces. If no typed surfaces exist, preserve the legacy no-filter fallback; otherwise only issue partial-read hints for symbols that intersect typed surfaces. | Implemented in this phase |
 
 ## Implementation Order
 
@@ -255,9 +257,12 @@ structured data, not raw thinking text or system-invented answer content.
 44. G67 is now implemented. Future anchor-kind compatibility repairs must stay
     line-structural and source-backed; do not repair arbitrary wrong anchor
     kinds from model prose or answer labels.
-45. G65 remains the next high-value runtime gap from fresh data: prioritize
+45. G68 is now implemented. Future explorer relevance filters must consume
+    analyzer/evidence typed surfaces, not raw user-question tokens or model
+    thinking prose.
+46. G65 remains the next high-value runtime gap from fresh data: prioritize
     explorer convergence and evidence batching before more finalizer-gate changes.
-46. Continue telemetry sampling before touching `GenericEntityBlocklist`; the
+47. Continue telemetry sampling before touching `GenericEntityBlocklist`; the
     current aggregate sweep showed no drops in recent logs, so moving it now
     would be speculative rather than evidence-backed.
 

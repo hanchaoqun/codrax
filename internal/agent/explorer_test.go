@@ -4827,6 +4827,45 @@ func TestFilterPartialReadsForPostPrimary_DropsUnrelatedScalarHints(t *testing.T
 	}
 }
 
+func TestFilterPartialReadsForPostPrimary_UsesTypedRelevanceNotRawQuestion(t *testing.T) {
+	eval := &explorerEvaluator{
+		userQuestion: "请重点看看 BuildInitialInstruction 是否完整",
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					PrimaryEntities: []string{"Orchestrator"},
+				},
+			},
+		},
+	}
+	hints := []partialReadHint{
+		{
+			file:       "internal/agent/analyzer.go",
+			symbolName: "analyzerEvaluator.BuildInitialInstruction",
+			symStart:   61,
+			symEnd:     140,
+			readEnd:    80,
+			coverage:   0.25,
+		},
+		{
+			file:       "internal/orchestrator/orchestrator.go",
+			symbolName: "Orchestrator.dispatchStage",
+			symStart:   6756,
+			symEnd:     7194,
+			readEnd:    6790,
+			coverage:   0.08,
+		},
+	}
+
+	filtered := eval.filterPartialReadsForPostPrimary(hints)
+	if len(filtered) != 1 {
+		t.Fatalf("filtered partial hints = %d, want 1", len(filtered))
+	}
+	if filtered[0].symbolName != "Orchestrator.dispatchStage" {
+		t.Fatalf("remaining hint = %q, want Orchestrator.dispatchStage", filtered[0].symbolName)
+	}
+}
+
 func TestObserveMidLoop_ReadWithoutEmitHint_AddsAuthoritativeLogDriftReminder(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
 		return types.ToolResult{
