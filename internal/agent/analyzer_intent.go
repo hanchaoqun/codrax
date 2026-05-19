@@ -113,11 +113,16 @@ func reconcileScenario(rm types.RequestModel) (types.Scenario, string) {
 // reconcileDiagnosticQuestionProfile consumes the analyzer LLM's
 // language-neutral diagnostic predicate. It deliberately does not read
 // raw request text: the semantic judgment lives in emit_analysis, and
-// this helper only keeps the typed fields coherent so downstream
-// TaskGraph / AnswerContract selection cannot drift into architecture
-// or role-lookup lanes.
+// emit_analysis has already normalized the diagnostic profile mirror to
+// this predicate unless an independent strong diagnostic signal was
+// present. This helper accepts the predicate or those strong signals
+// (current risk / historical regression) for direct RequestModel callers,
+// but deliberately ignores profile-only IsDiagnostic drift; profile OR
+// semantics would let a noisy support lane steal ordinary architecture
+// questions into the root-cause family.
 func reconcileDiagnosticQuestionProfile(rm types.RequestModel) (types.RequestModel, string) {
-	if !rm.Predicates.IsDiagnosticQuestion && !rm.DiagnosticProfile.RequiresDiagnosticRootCause() {
+	strongProfileSignal := rm.DiagnosticProfile.CurrentRisk || rm.DiagnosticProfile.HistoricalRegression
+	if !rm.Predicates.IsDiagnosticQuestion && !strongProfileSignal {
 		return rm, ""
 	}
 	var changes []string

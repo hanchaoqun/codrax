@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/prescan"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -799,6 +800,12 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	var mirrorWarnings []string
+	predicates, diagnosticProfile, mirrorWarnings = normalizeDiagnosticMirrorSignals(predicates, diagnosticProfile)
+	for _, warning := range mirrorWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	conversationReferenceProfile, conversationReferenceErr := parseConversationReferenceProfile(p.ConversationReferenceProfile)
 	if conversationReferenceErr != "" {
 		return types.ToolResult{
@@ -888,7 +895,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	errorGranularityProfile, errorGranularityErr := parseErrorGranularityProfile(raw, p.ErrorGranularityProfile)
+	errorGranularityProfile, errorGranularityErr, errorGranularityWarnings := parseErrorGranularityProfile(raw, p.ErrorGranularityProfile)
 	if errorGranularityErr != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -896,6 +903,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Summary:   "emit_analysis rejected: " + errorGranularityErr,
 			Timestamp: time.Now(),
 		}, nil
+	}
+	for _, warning := range errorGranularityWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
 	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
@@ -1397,6 +1408,51 @@ func parseDiagnosticProfile(p *emitDiagnosticProfileParam) (types.DiagnosticInte
 	}, ""
 }
 
+// normalizeDiagnosticMirrorSignals consumes the two typed diagnostic
+// lanes after both have parsed successfully. The predicate is the
+// primary routing signal; the profile mirror is a support lane. Strong
+// diagnostic facts (current risk / historical regression) may promote
+// the predicate, but an isolated current_version_check never does: many
+// ordinary code/config lookups also inspect the current checkout.
+func normalizeDiagnosticMirrorSignals(
+	preds types.SemanticPredicates,
+	diagnostic types.DiagnosticIntentProfile,
+) (types.SemanticPredicates, types.DiagnosticIntentProfile, []string) {
+	var warnings []string
+	addWarning := func(format string, args ...any) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	}
+
+	strongDiagnostic := diagnostic.CurrentRisk || diagnostic.HistoricalRegression
+	if !preds.IsDiagnosticQuestion && strongDiagnostic {
+		preds.IsDiagnosticQuestion = true
+		addWarning("mirror auto-align: predicates.is_diagnostic_question false→true because diagnostic_profile.current_risk/historical_regression is true")
+		if !diagnostic.IsDiagnostic {
+			diagnostic.IsDiagnostic = true
+			addWarning("mirror auto-align: diagnostic_profile.is_diagnostic false→true because a strong diagnostic profile signal is true")
+		}
+		return preds, diagnostic, warnings
+	}
+
+	if preds.IsDiagnosticQuestion {
+		if !diagnostic.IsDiagnostic {
+			diagnostic.IsDiagnostic = true
+			addWarning("mirror auto-align: diagnostic_profile.is_diagnostic false→true to match predicates.is_diagnostic_question")
+		}
+		return preds, diagnostic, warnings
+	}
+
+	if diagnostic.IsDiagnostic {
+		diagnostic.IsDiagnostic = false
+		addWarning("mirror auto-align: diagnostic_profile.is_diagnostic true→false to match predicates.is_diagnostic_question")
+	}
+	if diagnostic.CurrentVersionCheck {
+		diagnostic.CurrentVersionCheck = false
+		addWarning("mirror auto-align: diagnostic_profile.current_version_check true→false because no diagnostic predicate/current-risk/regression signal is active")
+	}
+	return preds, diagnostic, warnings
+}
+
 func parseConversationReferenceProfile(p *emitConversationReferenceProfileParam) (*types.ConversationReferenceProfile, string) {
 	if p == nil {
 		return nil, ""
@@ -1797,9 +1853,9 @@ func parseAnswerRoleProfile(raw string, p *emitAnswerRoleProfileParam) (*types.A
 	}, ""
 }
 
-func parseErrorGranularityProfile(raw string, p *emitErrorGranularityProfileParam) (*types.ErrorGranularityProfile, string) {
+func parseErrorGranularityProfile(raw string, p *emitErrorGranularityProfileParam) (*types.ErrorGranularityProfile, string, []string) {
 	if p == nil {
-		return nil, "error_granularity_profile object missing — emit `error_granularity_profile` with is_granularity_question set to true or false, plus confidence in [0,1]"
+		return nil, "error_granularity_profile object missing — emit `error_granularity_profile` with is_granularity_question set to true or false, plus confidence in [0,1]", nil
 	}
 	var missing []string
 	if p.IsGranularityQuestion == nil {
@@ -1812,22 +1868,30 @@ func parseErrorGranularityProfile(raw string, p *emitErrorGranularityProfilePara
 		return nil, fmt.Sprintf(
 			"error_granularity_profile missing required field(s): %s",
 			strings.Join(missing, ", "),
-		)
+		), nil
 	}
 	if *p.Confidence < 0 || *p.Confidence > 1 {
-		return nil, fmt.Sprintf("error_granularity_profile.confidence %.2f out of [0,1]", *p.Confidence)
+		return nil, fmt.Sprintf("error_granularity_profile.confidence %.2f out of [0,1]", *p.Confidence), nil
 	}
 	if !*p.IsGranularityQuestion {
-		return nil, ""
+		return nil, "", nil
 	}
+	var warnings []string
 	sourceQuotes := trimStringSlice(p.SourceQuotes)
 	if len(sourceQuotes) == 0 {
-		return nil, "error_granularity_profile.source_quotes is required when is_granularity_question=true"
+		return nil, "", []string{"error_granularity_profile auto-softened: source_quotes missing while is_granularity_question=true; optional profile ignored"}
 	}
+	anchoredQuotes := make([]string, 0, len(sourceQuotes))
 	for _, quote := range sourceQuotes {
-		if !sourceQuotePresentInCurrentRequest(raw, quote) {
-			return nil, "error_granularity_profile.source_quotes entries must be copied verbatim from the current request"
+		if sourceQuoteAnchoredInCurrentRequest(raw, quote) {
+			anchoredQuotes = append(anchoredQuotes, quote)
+			continue
 		}
+		warnings = append(warnings, fmt.Sprintf("error_granularity_profile ignored unanchored source_quote %q", quote))
+	}
+	if len(anchoredQuotes) == 0 {
+		warnings = append(warnings, "error_granularity_profile auto-softened: no source_quote anchors the current request; optional profile ignored")
+		return nil, "", warnings
 	}
 	options := make([]types.ErrorGranularityVerdict, 0, len(p.RequestedVerdictOptions))
 	seenOptions := make(map[types.ErrorGranularityVerdict]struct{}, len(p.RequestedVerdictOptions))
@@ -1837,10 +1901,10 @@ func parseErrorGranularityProfile(raw string, p *emitErrorGranularityProfilePara
 			return nil, fmt.Sprintf(
 				"error_granularity_profile.requested_verdict_options contains invalid verdict %q; use one of %s",
 				rawOption, strings.Join(errorGranularityRequestedOptionValues(), ", "),
-			)
+			), nil
 		}
 		if option == types.ErrorGranularityNotEnoughEvidence {
-			return nil, "error_granularity_profile.requested_verdict_options must list user-stated alternatives, not not_enough_evidence"
+			return nil, "error_granularity_profile.requested_verdict_options must list user-stated alternatives, not not_enough_evidence", nil
 		}
 		if _, dup := seenOptions[option]; dup {
 			continue
@@ -1851,16 +1915,50 @@ func parseErrorGranularityProfile(raw string, p *emitErrorGranularityProfilePara
 	return &types.ErrorGranularityProfile{
 		IsGranularityQuestion:   true,
 		RequestedVerdictOptions: options,
-		SourceQuotes:            sourceQuotes,
+		SourceQuotes:            anchoredQuotes,
 		Confidence:              *p.Confidence,
 		Rationale:               strings.TrimSpace(p.Rationale),
-	}, ""
+	}, "", warnings
 }
 
 func sourceQuotePresentInCurrentRequest(raw, quote string) bool {
 	raw = strings.TrimSpace(raw)
 	quote = strings.TrimSpace(quote)
 	return raw != "" && quote != "" && strings.Contains(raw, quote)
+}
+
+func sourceQuoteAnchoredInCurrentRequest(raw, quote string) bool {
+	if sourceQuotePresentInCurrentRequest(raw, quote) {
+		return true
+	}
+	normalizedRaw := normalizeForSourceQuoteMatch(raw)
+	normalizedQuote := normalizeForSourceQuoteMatch(quote)
+	return normalizedRaw != "" && normalizedQuote != "" && strings.Contains(normalizedRaw, normalizedQuote)
+}
+
+func normalizeForSourceQuoteMatch(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range s {
+		r = normalizeFullWidthASCII(r)
+		if unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r) {
+			continue
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
+}
+
+func normalizeFullWidthASCII(r rune) rune {
+	if r == '\u3000' {
+		return ' '
+	}
+	if r >= '\uff01' && r <= '\uff5e' {
+		return r - 0xfee0
+	}
+	return r
 }
 
 func sourceQuoteContainsTargetAndLiteral(sourceQuote, target, literal string) bool {

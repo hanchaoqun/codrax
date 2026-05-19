@@ -89,6 +89,14 @@ func withRequiredAnswerRoleProfile(payload string) string {
 	return string(out)
 }
 
+func testBoolPtr(v bool) *bool {
+	return &v
+}
+
+func testFloatPtr(v float64) *float64 {
+	return &v
+}
+
 // -----------------------------------------------------------------------------
 // Validator tests (pure, no tool wiring)
 // -----------------------------------------------------------------------------
@@ -377,6 +385,128 @@ func TestValidateSelfConsistency_RootCauseRequiresDiagnosticPredicate(t *testing
 	)
 	if reason == "" || !strings.Contains(reason, "is_diagnostic_question=true") {
 		t.Fatalf("expected root_cause/predicate alignment reject, got %q", reason)
+	}
+}
+
+func TestNormalizeDiagnosticMirrorSignals_PredicateWinsWithoutStrongSignal(t *testing.T) {
+	preds := types.SemanticPredicates{IsDiagnosticQuestion: false}
+	diagnostic := types.DiagnosticIntentProfile{
+		IsDiagnostic:        true,
+		CurrentVersionCheck: true,
+		Confidence:          0.9,
+	}
+
+	gotPreds, gotDiagnostic, warnings := normalizeDiagnosticMirrorSignals(preds, diagnostic)
+
+	if gotPreds.IsDiagnosticQuestion {
+		t.Fatalf("predicate should stay false without strong diagnostic signals: %+v", gotPreds)
+	}
+	if gotDiagnostic.IsDiagnostic {
+		t.Fatalf("diagnostic mirror should align false: %+v", gotDiagnostic)
+	}
+	if gotDiagnostic.CurrentVersionCheck {
+		t.Fatalf("isolated current_version_check should be softened false: %+v", gotDiagnostic)
+	}
+	if len(warnings) < 2 {
+		t.Fatalf("expected mirror softening warnings, got %v", warnings)
+	}
+}
+
+func TestNormalizeDiagnosticMirrorSignals_StrongSignalPromotesPredicate(t *testing.T) {
+	preds := types.SemanticPredicates{IsDiagnosticQuestion: false}
+	diagnostic := types.DiagnosticIntentProfile{
+		CurrentRisk: true,
+		Confidence:  0.9,
+	}
+
+	gotPreds, gotDiagnostic, warnings := normalizeDiagnosticMirrorSignals(preds, diagnostic)
+
+	if !gotPreds.IsDiagnosticQuestion {
+		t.Fatalf("current_risk should promote diagnostic predicate: %+v", gotPreds)
+	}
+	if !gotDiagnostic.IsDiagnostic {
+		t.Fatalf("strong diagnostic signal should align profile mirror true: %+v", gotDiagnostic)
+	}
+	if len(warnings) < 2 {
+		t.Fatalf("expected promotion warnings, got %v", warnings)
+	}
+}
+
+func TestNormalizeDiagnosticMirrorSignals_PredicatePromotesMirror(t *testing.T) {
+	preds := types.SemanticPredicates{IsDiagnosticQuestion: true}
+	diagnostic := types.DiagnosticIntentProfile{Confidence: 0.9}
+
+	gotPreds, gotDiagnostic, warnings := normalizeDiagnosticMirrorSignals(preds, diagnostic)
+
+	if !gotPreds.IsDiagnosticQuestion {
+		t.Fatalf("predicate should remain true: %+v", gotPreds)
+	}
+	if !gotDiagnostic.IsDiagnostic {
+		t.Fatalf("predicate should align diagnostic profile mirror true: %+v", gotDiagnostic)
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("expected one mirror warning, got %v", warnings)
+	}
+}
+
+func TestParseErrorGranularityProfile_SoftensUnanchoredQuotes(t *testing.T) {
+	raw := "全面排查finalyzer阶段的各种重试是否真的必要，哪些其实是可以靠系统进行修复的"
+	profile, err, warnings := parseErrorGranularityProfile(raw, &emitErrorGranularityProfileParam{
+		IsGranularityQuestion:   testBoolPtr(true),
+		RequestedVerdictOptions: []string{string(types.ErrorGranularityPerItemRejection)},
+		SourceQuotes:            []string{"按是否可系统修复原则评估"},
+		Confidence:              testFloatPtr(0.8),
+	})
+
+	if err != "" {
+		t.Fatalf("unanchored optional quotes should not reject, got %q", err)
+	}
+	if profile != nil {
+		t.Fatalf("unanchored quote should soften the optional profile to nil, got %+v", profile)
+	}
+	if len(warnings) == 0 {
+		t.Fatal("expected softening warning")
+	}
+}
+
+func TestParseErrorGranularityProfile_NormalizedQuoteMatch(t *testing.T) {
+	raw := "哪些其实是可以靠系统进行修复的？"
+	quote := "哪些 其实 是 可以 靠 系统 进行 修复 的"
+	profile, err, warnings := parseErrorGranularityProfile(raw, &emitErrorGranularityProfileParam{
+		IsGranularityQuestion:   testBoolPtr(true),
+		RequestedVerdictOptions: []string{string(types.ErrorGranularityPerItemRejection)},
+		SourceQuotes:            []string{quote},
+		Confidence:              testFloatPtr(0.8),
+	})
+
+	if err != "" {
+		t.Fatalf("normalized quote should not reject, got %q", err)
+	}
+	if profile == nil || len(profile.SourceQuotes) != 1 || profile.SourceQuotes[0] != quote {
+		t.Fatalf("normalized anchored quote should be preserved, got %+v", profile)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("normalized match should not warn, got %v", warnings)
+	}
+}
+
+func TestParseErrorGranularityProfile_DoesNotAcceptShortSubstring(t *testing.T) {
+	raw := "finalizer 重试"
+	profile, err, warnings := parseErrorGranularityProfile(raw, &emitErrorGranularityProfileParam{
+		IsGranularityQuestion:   testBoolPtr(true),
+		RequestedVerdictOptions: []string{string(types.ErrorGranularityPerItemRejection)},
+		SourceQuotes:            []string{"finalizer 重试要保留还是移除"},
+		Confidence:              testFloatPtr(0.8),
+	})
+
+	if err != "" {
+		t.Fatalf("unanchored optional quote should not reject, got %q", err)
+	}
+	if profile != nil {
+		t.Fatalf("short-substring overlap must not keep the profile active, got %+v", profile)
+	}
+	if len(warnings) == 0 {
+		t.Fatal("expected softening warning")
 	}
 }
 
@@ -2843,7 +2973,7 @@ func TestEmitAnalysis_Execute_PersistsErrorGranularityProfile(t *testing.T) {
 	}
 }
 
-func TestEmitAnalysis_Execute_RejectsUngroundedErrorGranularityProfile(t *testing.T) {
+func TestEmitAnalysis_Execute_SoftensUngroundedErrorGranularityProfile(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -2883,11 +3013,18 @@ func TestEmitAnalysis_Execute_RejectsUngroundedErrorGranularityProfile(t *testin
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
-	if res.Success {
-		t.Fatalf("Execute should reject ungrounded error_granularity_profile, got %q", res.Summary)
+	if !res.Success {
+		t.Fatalf("Execute should soften ungrounded error_granularity_profile, got %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "error_granularity_profile.source_quotes") {
-		t.Fatalf("rejection should name error_granularity_profile.source_quotes, got %q", res.Summary)
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.ErrorGranularityProfile != nil {
+		t.Fatalf("ungrounded optional profile should be ignored, got %+v", rm.ErrorGranularityProfile)
+	}
+	if !strings.Contains(res.Summary, "error_granularity_profile auto-softened") {
+		t.Fatalf("summary should report softening warning, got %q", res.Summary)
 	}
 }
 

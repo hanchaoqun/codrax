@@ -30,11 +30,51 @@ git log --oneline 7ac49a35..HEAD -- \
 
 1. **Entity 污染** — sub_topic.Entities 写入答案形态词（"清单"/"keep"/"remove"），当前完全不过滤；新黑名单类目无穷，硬卡不可持续
 2. **Mirror 字段自相矛盾** — `predicates.is_diagnostic_question=false` 但 `diagnostic_profile.is_diagnostic=true`，当前 reconciler 用 OR 升级到 root_cause；正确做法是按 precedence 静默对齐（参考 `d21ac637` 在 `conversation_reference_profile` 上的先例）
-3. **Optional typed profile 硬卡 verbatim** — `error_granularity_profile.source_quotes` 精确字符串匹配，转写问题让 LLM 3 轮重试只为对齐一个 quote；正确做法是 fuzz match 后软清空
+3. **Optional typed profile 硬卡 verbatim** — `error_granularity_profile.source_quotes` 精确字符串匹配，转写问题让 LLM 3 轮重试只为对齐一个 quote；正确做法是 deterministic normalization 后仍无法锚定则软清空
 
 **为什么这次方案 stable + 收敛**：三类问题的根因都是 *"系统让 LLM 为系统的精度负责"*——本设计反过来，让系统按 typed precedence 消化 LLM 的小不一致，LLM 只对**结构性**错误负责（degenerate classification / 必填字段缺失）。新增任何 LLM-facing hard reject 前先问"能否做成 typed cleanup 或并行 metadata lane？"——这是本设计的**单一红线**。
 
 **为什么是 EntityProvenance 而不是黑名单**：黑名单和 oracle 解析是正交两轴（噪声 vs 解析度），且都存在合法但解析失败的 entity（答案形态词、外部库、未来标识符）——见 §3.2。新方案给每个 entity 打 typed metadata（origin / resolved / noise_score / use_for_search / use_for_shape），下游 8 个消费点按用途读 metadata，**不在 analyzer 阶段 drop / demote 任何 LLM 写下的 entity**。
+
+---
+
+## 0.1 2026-05-19 审阅修订结论
+
+远端同步后对 `docs/design/analyzer_typed_resilience_forensic_log_20260518_172241.log` 与当前代码重新核对，本文档的根因判断成立：这次 analyzer 重试不是"模型主判断错误"，而是 optional typed lane 与 mirror lane 让系统把小不一致放大成硬失败 / root_cause 路由。
+
+但原实施顺序不是最优，需调整：
+
+1. **先修直接造成重试的确定性硬 gate**：`error_granularity_profile.source_quotes` 缺失 / 转写不应 reject；`diagnostic_profile.is_diagnostic` 不应在 predicate 明确为 false 时反向劫持 intent。两者都能在系统侧 typed normalize，改动小、ROI 最高。
+2. **EntityProvenance 先 telemetry-only，后接 consumer**：这是正确的长期方案，但不是本 forensic case 的最短止血路径。Producer 上线前不得先放宽 blocklist/drop 行为，否则可能扩大噪声实体流入 search/shape。
+3. **`GenericEntityBlocklist` 降级必须排在 EntityProvenance telemetry 之后**：原文建议 Phase 5 先跑以提供 NoiseScore，这会在尚无 provenance consumer 时改变现有 entity 集合语义。新的顺序是先保守打标，再用真实 telemetry 决定是否降级 drop。
+4. **quote 兼容只能做确定性 normalization，不用"最长子串 ≥4"作为通过依据**：中文短语和通用词太容易误命中。无 exact / normalized anchor 时应软清空该 optional profile，而不是用子串把 profile 留真。
+5. **retry-hint leak / user-verbatim 只能作用在 typed 字段，不得扫描用户问题或模型散文做流程决策**：允许对 `entities[]` 里的系统自有泄漏 token 打 provenance 标签；不得用 raw request / free prose keyword match 驱动 hard gate。
+6. **SoftByDefault 相关说法需以当前代码为准**：当前 `defaultSoftKinds()` 已从 `ViolKindSpec.SoftByDefault` 派生，`isSoftViolationKind()` 也以 active soft policy / `ViolationProfileFor` 为准。若日志中模型声称"未查 SoftByDefault"，应作为待核验的模型判断，不能直接纳入本 analyzer 设计的前提。
+
+修订后的推荐落地顺序见 §8：Phase 4 → Phase 3 → Phase 1 → Phase 2 → Phase 5。
+
+---
+
+## 0.2 Implementation Tracker
+
+> 每批提交前后都刷新本表，避免后续接手者忘记当前边界。状态只描述本设计范围内的实现进度。
+
+| Batch | Scope | Status | Code paths | Exit criteria |
+|---|---|---|---|---|
+| Batch 1 | Phase 4 + Phase 3：软化 `error_granularity_profile.source_quotes`；新增 diagnostic mirror typed normalizer；收紧 diagnostic reconciler 入口 | **DONE (2026-05-19)** | `internal/tool/emit_analysis.go`, `internal/agent/analyzer_intent.go`, `internal/tool/emit_analysis_test.go`, `internal/agent/analyzer_intent_test.go` | forensic case 不再因 granularity quote 重试；`diagnostic_profile.is_diagnostic=true` 不再在 predicate=false 且无强诊断信号时把 explain 题升级 root_cause |
+| Batch 2 | Phase 1：EntityProvenance producer telemetry-only，不接 consumer | TODO | `internal/types/analysis_ir.go`, `internal/agent/entity_provenance_projection.go`, `internal/agent/analyzer.go` | 只新增 typed side-lane 与 summary telemetry；下游行为不变 |
+| Batch 3 | Phase 2：consumer wiring，search/shape 分流读取 provenance，nil provenance 全 keep | TODO | `internal/tool/keyword_search.go`, `internal/agent/explorer.go`, ERM/evidence plan consumers | full eval 不增加 retry；多仓/单仓均不误伤合法 entity |
+| Batch 4 | Phase 5：基于 telemetry 决定 blocklist drop→noise 降级与 schema 文案小步更新 | TODO | `internal/tool/analysis_limits.go`, `internal/tool/emit_analysis.go` schema | `DroppedEntities` fixture 有明确迁移；不得在无 telemetry 时扩大噪声流 |
+
+Batch 1 verification:
+
+```bash
+go test ./internal/tool
+go test ./internal/agent
+go test ./internal/orchestrator
+go test ./internal/types
+go test ./internal/analysis/...
+```
 
 ---
 
@@ -137,11 +177,11 @@ git log --oneline 7ac49a35..HEAD -- \
 
 当两个 schema-级声明的 mirror 字段冲突时（schema 注释明示 mirror 关系，如 `analysis_ir.go:583-586`），系统按 precedence 选一个权威源，另一个静默对齐 + Warning。**不算硬 gate**（R2 红线"自相矛盾不该用 escape"在 §1.6 第 95 行明确：模型自相矛盾不该用 escape 跳过——但 mirror 类是 precedence 明确而非歧义，归 auto-align 不归 escape）。
 
-→ Phase 3 在 `parseDiagnosticProfile` 内部做 mirror align，参照 `d21ac637` 的 `parseConversationReferenceProfile` 写法（emit_analysis.go:1456-1473）。
+→ Phase 3 新增一个 post-parse typed normalizer（同时拿到 `predicates` 与 `diagnostic_profile` 后再处理），参照 `d21ac637` 的 `parseConversationReferenceProfile` 写法记录 Warning。不要在 `parsePredicates` 或 `parseDiagnosticProfile` 单侧读取另一侧，避免 parse order 变成隐性约束。
 
 ### P3 — Optional typed profile 的硬卡退化为软清空
 
-`error_granularity_profile` 等 "advisory typed lane"（schema 描述本来就强调可选）不该让 LLM 撞墙重试。verbatim 之类的精度问题 → 系统 fuzz match 后静默清空字段 + Warning，profile 主 boolean 自动翻 false。
+`error_granularity_profile` 等 "advisory typed lane"（schema 描述本来就强调可选）不该让 LLM 撞墙重试。verbatim 之类的精度问题 → 系统做确定性 normalization（空白 / 标点 / 全半角等可逆规范化）后仍无法锚定时，静默清空字段 + Warning，profile 主 boolean 自动翻 false。不要用短子串命中作为保留 profile 的正信号。
 
 → Phase 4 软化 `internal/tool/emit_analysis.go:1820-1830`。
 
@@ -331,7 +371,7 @@ Downstream consumers (8 sites — see §1.4 audit + Phase 2 list):
 LLM emit predicates.is_diagnostic_question = X
 LLM emit diagnostic_profile.is_diagnostic   = Y
   │
-  ▼ parseDiagnosticProfile (emit_analysis.go:1357-1396), at end of parser
+  ▼ normalizeDiagnosticMirrorSignals(predicates, diagnostic_profile), after both parsers
   │
 mirror_auto_align:
   if X == Y:
@@ -348,8 +388,13 @@ mirror_auto_align:
   else if Y == true && (current_risk == true || historical_regression == true):
     # independent strong signal active → flip predicate to true
     # (this is the rare "LLM forgot to set predicate but set the profile right" case)
-    # — handled in parsePredicates output, see Phase 3.B
+    # — handled inside the post-parse normalizer with both structs visible
     [predicates.IsDiagnosticQuestion → true with Warning]
+  else if current_version_check == true:
+    # current_version_check alone is not diagnostic. It only becomes
+    # current-status diagnostic when paired with is_diagnostic/current_risk/
+    # historical_regression; never let it promote a config/exact lookup.
+    no promotion
   │
   ▼ validateSelfConsistency now sees consistent pair → no new reject
   │
@@ -375,10 +420,7 @@ new behavior:
   for each Q in quotes:
     match = strings.Contains(rm.RawRequest, Q)
     if !match:
-      match = fuzzMatch(rm.RawRequest, Q)  # normalize whitespace + punct
-    if !match:
-      # find longest ≥4-char substring of Q present in rm.RawRequest
-      match = bestSubstringMatch(rm.RawRequest, Q) >= 4
+      match = normalizedExactMatch(rm.RawRequest, Q)  # whitespace/punct/fullwidth normalization
     if !match:
       keep := false (drop this quote)
       log.Warning
@@ -472,9 +514,8 @@ new behavior:
 
 | 文件 | 操作 | 描述 |
 |---|---|---|
-| `internal/tool/emit_analysis.go:1357-1396` `parseDiagnosticProfile` | `+~40 LOC` | 在 `out := types.DiagnosticIntentProfile{...}` 之后、return 之前，加 mirror align block（见 §3.3.2 决策树）|
-| `internal/tool/emit_analysis.go:1309-1357` `parsePredicates` | `+~20 LOC` | 同样在 return 之前加 reverse mirror align（profile 独立强信号 active → predicate 也升级到 true） |
-| `internal/tool/emit_analysis.go` `Execute` | 改 ~5 LOC | 让 `parsePredicates` 和 `parseDiagnosticProfile` 串联调用顺序明确：先 parsePredicates → 再 parseDiagnosticProfile（后者读已 align 的 predicate）；如果当前调用顺序已经如此则只加注释 |
+| `internal/tool/emit_analysis.go` | `+~60 LOC` | 新增 `normalizeDiagnosticMirrorSignals(preds, diag)`，在 `parsePredicates` 与 `parseDiagnosticProfile` 都完成后调用；normalizer 才能同时读取两边，避免 parse-order 隐性依赖 |
+| `internal/tool/emit_analysis.go` call site | 改 ~10 LOC | 将 normalized `predicates` / `diagnostic_profile` 写回 payload 变量，再进入 `validateSelfConsistency` |
 | `internal/agent/analyzer_intent.go:119-160` `reconcileDiagnosticQuestionProfile` | 改 ~5 LOC | 入口 `!rm.Predicates.IsDiagnosticQuestion && !rm.DiagnosticProfile.RequiresDiagnosticRootCause()` 收紧为 `!rm.Predicates.IsDiagnosticQuestion`。**注释解释**：parser-time mirror align 已保证两边一致，OR 形式冗余 + 残留误升级风险 |
 | `internal/tool/emit_analysis_test.go` | `+~150 LOC` | 表驱动测试覆盖 4 种 mirror 组合 × 独立信号 on/off |
 
@@ -486,14 +527,14 @@ new behavior:
 **风险**：中-高。涉及 diagnostic 主决策路径。重点 watch perf_triage / log_triage 联动（它们可能依赖 reconciler 自动升级 intent，需要确认不依赖）。
 
 **Commit 拆分**（建议 4 commits）：
-1. tool: parseDiagnosticProfile mirror align (predicate-wins)
-2. tool: parsePredicates reverse align (independent-signal-wins)
+1. tool: add normalizeDiagnosticMirrorSignals (predicate-wins unless independent strong signal wins)
+2. tool: wire diagnostic mirror normalization before self-consistency validation
 3. agent: tighten reconcileDiagnosticQuestionProfile entry condition
 4. tests: cover 4 mirror combinations × 2 strong-signal states
 
 ---
 
-### Phase 4 — Granularity Quote 软化（低 ROI 但低风险，可与 P3 同 session）
+### Phase 4 — Granularity Quote 软化（高 ROI 且低风险，可与 P3 同 session）
 
 **目标**：`error_granularity_profile.source_quotes` 转写 / 标点差异不再触发 LLM 重试。
 
@@ -501,9 +542,9 @@ new behavior:
 
 | 文件 | 操作 | 描述 |
 |---|---|---|
-| `internal/tool/emit_analysis.go:1820-1830` | 改 ~40 LOC | verbatim match 失败 → 跑 fuzzMatch（normalize whitespace + 全/半角 + 标点）→ 失败再跑 bestSubstringMatch（最长 ≥4 char）→ 全失败则静默 drop quote + Warning；所有 quote drop 后 IsGranularityQuestion 自动 false + Warning |
-| `internal/tool/emit_analysis.go` 添加 helper | `+~30 LOC` | `normalizeForFuzzMatch(s string) string` + `bestSubstringMatchLen(haystack, needle string, minLen int) int` |
-| `internal/tool/emit_analysis_test.go` | `+~80 LOC` | 表驱动覆盖：精确匹配 / 转写匹配 / 部分匹配 / 全失败软化 |
+| `internal/tool/emit_analysis.go:1820-1830` | 改 ~40 LOC | verbatim match 失败 → 跑 deterministic normalized exact match（空白 / 全半角 / 标点规范化）→ 全失败则静默 drop quote + Warning；所有 quote drop 后 IsGranularityQuestion 自动 false + Warning |
+| `internal/tool/emit_analysis.go` 添加 helper | `+~30 LOC` | `normalizeForSourceQuoteMatch(s string) string`；不实现短子串通过逻辑 |
+| `internal/tool/emit_analysis_test.go` | `+~80 LOC` | 表驱动覆盖：精确匹配 / 规范化匹配 / 全失败软化；短子串命中不得保留 profile |
 
 **Eval bar**：
 - 全集 58 case × 1 round：使用 granularity profile 的 case（u11b / m1b 等）行为不变
@@ -512,29 +553,31 @@ new behavior:
 **风险**：低。仅放松校验，不引入新行为。
 
 **Commit 拆分**（建议 2 commits）：
-1. tool: fuzz-match + best-substring helpers
+1. tool: normalized source-quote matching helper
 2. tool: parseErrorGranularityProfile softened quote matching
 
 ---
 
-### Phase 5 — Schema 描述文案 + 黑名单角色降级（低风险，可与 P4 同 session）
+### Phase 5 — Schema 描述文案 + 黑名单角色降级（延后到 telemetry 后）
 
 **目标**：让 LLM 看到的 schema 描述真实反映系统能力（"系统会自动 derive，你不必精填"），同时把 `GenericEntityBlocklist` 从 drop 路径降级为 NoiseScore 快速近似。
+
+**2026-05-19 修订**：Phase 5 不再建议先跑。Schema 文案可以随 Phase 3/4 的实际能力一起小步更新；`GenericEntityBlocklist` 的 drop→noise 降级必须等 Phase 1 telemetry 跑过 forensic/eval 后再做。否则在 provenance consumer 未接线前改变 entity 流，会把一个"标注系统"问题变成 search/shape 噪声扩大问题。
 
 **Files / changes**：
 
 | 文件 | 操作 | 描述 |
 |---|---|---|
-| `internal/tool/analysis_limits.go:633-690` `filterGenericEntitiesWithWhitelist` | 改 ~30 LOC | 不再 drop，全部 keep；返回值改为带 NoiseScore 的 tagging 结构。**这条直接影响 Phase 1 producer** — 实际实现时建议 **Phase 5 先跑**（让 Phase 1 consumer 可以拿到一致的 NoiseScore） |
-| `internal/tool/analysis_limits.go:502-560` `validateAnalysisInput` | 改 ~10 LOC | DroppedEntities 永远空（保留 struct field 兼容旧测试） |
+| `internal/tool/analysis_limits.go:633-690` `filterGenericEntitiesWithWhitelist` | 改 ~30 LOC | 不再 drop，全部 keep；返回值改为带 NoiseScore 的 tagging 结构。**延后到 Phase 1 telemetry 证明安全后再做** |
+| `internal/tool/analysis_limits.go:502-560` `validateAnalysisInput` | 改 ~10 LOC | DroppedEntities 永远空（保留 struct field 兼容旧测试）。同样延后到 blocklist 降级落地时修改 |
 | `internal/tool/emit_analysis.go:344-357` `entities` schema desc | 改 ~5 LOC | 追加："entities can be code symbols, file paths, OR answer-shape vocabulary the user explicitly asked about (categories, outcomes, comparison axes). The system classifies provenance automatically." |
 | `internal/tool/emit_analysis.go:344-358` `predicates / diagnostic_profile` schema desc | 改 ~10 LOC | 在 `is_diagnostic_question` 和 `is_diagnostic` 描述末尾追加：" These two fields are mirrors; the system auto-aligns the profile copy to match the predicate. Always set both consistently, but the system tolerates mirror drift." |
-| `internal/tool/emit_analysis.go:473` `is_granularity_question` schema desc | 改 ~5 LOC | 追加："The system fuzz-matches source_quotes against the current request; exact verbatim is preferred but transcription drift is tolerated." |
+| `internal/tool/emit_analysis.go:473` `is_granularity_question` schema desc | 改 ~5 LOC | 追加："The system normalizes source_quotes against the current request; exact verbatim is preferred, and unanchored optional quotes may be ignored instead of retried." |
 
 **Eval bar**：
 - 全集 58 case × 1 round：DroppedEntities 测试 fixture 全部为空数组（更新 expected）；其他 ZERO regression
 
-**风险**：低。Schema 文案不破 wire format。Blocklist drop 行为变化已被 Phase 1 EntityProvenance 接住。
+**风险**：中。Schema 文案不破 wire format；但 blocklist drop 行为变化会影响 downstream 候选集合，必须建立在 Phase 1 telemetry + Phase 2 consumer fallback 已验证的基础上。
 
 **Commit 拆分**（建议 3 commits）：
 1. tool: blocklist downgrade to NoiseScore fast-path (no drop)
@@ -575,11 +618,11 @@ new behavior:
 
 ## 6. Open Questions
 
-### 6.1 `OriginUserVerbatim` 触发条件用 TermGraph 还是 raw substring？
+### 6.1 `OriginUserVerbatim` 触发条件用 TermGraph 还是 typed request surfaces？
 
-TermGraph (`internal/types/analysis_ir.go:860-` 起的注释) 是 normalizer 的 canonical 表，但仅在 `analyzer.go:1703 Normalize()` 之后填充。`projectEntityProvenance` 跑在 normalize 之后（`analyzer.go:1758` 之后），所以 TermGraph 可用。但是 `raw substring (NormalizeCodeKey)` 更简单。
+TermGraph (`internal/types/analysis_ir.go:860-` 起的注释) 是 normalizer 的 canonical 表，但仅在 `analyzer.go:1703 Normalize()` 之后填充。`projectEntityProvenance` 跑在 normalize 之后（`analyzer.go:1758` 之后），所以 TermGraph 可用。
 
-**建议**：先用 raw substring（确定性、零依赖），Phase 1 SHIPPED 后跑 forensic 看 OriginUserVerbatim 漏检率，若 >5% 再切 TermGraph。
+**建议**：第一版不要用 raw request substring 驱动任何消费决策。`OriginUserVerbatim` 若要落地，只能作为 telemetry/advisory origin；search/shape consumer 仍以 prescan/oracle/typed hints 为准。若确需更准的用户显式性，优先用已构建的 TermGraph 或 analyzer typed request surfaces，而不是重新扫描用户问题文本。
 
 ### 6.2 `NoiseScore` 阈值 0.5？
 
@@ -633,22 +676,21 @@ Phase 1 引入的 logging.Info 行（per buildAnalysisIR 一行）：
 
 | Phase | Session | Commits | LOC（净增） | 风险 | Eval 触发 |
 |---|---|---|---|---|---|
-| Phase 5 (blocklist downgrade + schema) | Session 1 | 3 | ~60 | 低 | DroppedEntities fixture |
+| Phase 4 (granularity quote 软化) | Session 1 | 2 | ~120 | 低 | 触发 case retry count |
+| Phase 3 (diagnostic mirror align) | Session 1 | 3 | ~180 | 中 | 全诊断类 case |
 | Phase 1 (EntityProvenance producer) | Session 2 | 4 | ~440 | 低 | 触发 case telemetry only |
-| Phase 4 (granularity quote 软化) | Session 2 | 2 | ~150 | 低 | 触发 case retry count |
-| Phase 3 (diagnostic mirror align) | Session 3 | 4 | ~220 | 中 | 全诊断类 case |
-| Phase 2 (consumer wiring + cleanup registry) | Session 4 | 5 | ~280 | 中 | 全 58 case |
+| Phase 2 (consumer wiring + cleanup registry) | Session 3 | 5 | ~280 | 中 | 全 58 case |
+| Phase 5 (blocklist downgrade + schema) | Session 4 | 3 | ~60 | 中 | DroppedEntities fixture |
 
-**总计**：4 sessions, ~18 commits, ~1150 LOC（含测试），4 类 eval gate
+**总计**：4 sessions, ~17 commits, ~1080 LOC（含测试），4 类 eval gate
 
-**建议落地顺序**：Phase 5 → Phase 1 → Phase 4 → Phase 3 → Phase 2
+**建议落地顺序**：Phase 4 → Phase 3 → Phase 1 → Phase 2 → Phase 5
 
 **为什么这个顺序**：
-- Phase 5 先：让 Phase 1 producer 能拿到一致的 NoiseScore（blocklist 已降级）
+- Phase 4/3 先：它们直接命中 forensic case 的重试与 root_cause 误路由，改动最小且不扩大 entity 候选集合
 - Phase 1 producer 先于 Phase 2 consumer：dead code 阶段验证 telemetry 无副作用
-- Phase 4 与 Phase 1 同 session：风险都低，可一起 ship
-- Phase 3 单独 session：诊断主路径需要专门 eval
-- Phase 2 最后：消费方接线，全 case 综合验证
+- Phase 2 接 consumer 前必须有 Phase 1 telemetry，否则无法判断 search/shape 过滤是否误伤
+- Phase 5 最后：blocklist 降级会改变现有 drop 语义，必须等 telemetry 和 consumer fallback 都稳定后再做
 
 ---
 

@@ -132,6 +132,51 @@ func TestReconcileChangeImpactProfile_LeavesStepOutputAlone(t *testing.T) {
 	}
 }
 
+func TestReconcileDiagnosticQuestionProfile_IgnoresProfileOnlyMirrorDrift(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioArchitectureExplain,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: false,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentVersionCheck: true,
+			Confidence:          0.9,
+		},
+	}
+
+	got, reason := reconcileDiagnosticQuestionProfile(rm)
+	if reason != "" {
+		t.Fatalf("profile-only diagnostic mirror drift should not reconcile downstream, got %q", reason)
+	}
+	if got.Intent != rm.Intent || got.Scenario != rm.Scenario || got.Predicates != rm.Predicates {
+		t.Fatalf("profile-only drift changed routing: %+v", got)
+	}
+}
+
+func TestReconcileDiagnosticQuestionProfile_PredicateStillRoutesDiagnostic(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioArchitectureExplain,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+			Confidence:   0.9,
+		},
+	}
+
+	got, reason := reconcileDiagnosticQuestionProfile(rm)
+	if reason == "" {
+		t.Fatal("diagnostic predicate should still reconcile routing")
+	}
+	if got.Intent != types.IntentRootCause || got.Scenario != types.ScenarioRootCause {
+		t.Fatalf("diagnostic predicate should route root_cause, got intent=%s scenario=%s", got.Intent, got.Scenario)
+	}
+}
+
 func TestReconcileQualifiedCodeSymbolConfigDrift_RoutesQualifiedSymbolsToComparison(t *testing.T) {
 	graph := &repomap.Graph{SymbolDefs: map[string][]*repomap.Symbol{
 		"templateArchitectureExplain": {{
