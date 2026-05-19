@@ -202,6 +202,119 @@ func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateF
 	return out, nil
 }
 
+// MergeAnswerAggregateFacts folds multiple explorer/fork aggregate handoffs
+// into one stable typed payload. It preserves exact facts and unions compatible
+// member_set rows that share the same structured bucket (kind, label, role,
+// dimensions, unit). This is intentionally narrower than semantic inference:
+// it never derives members from raw evidence or prose, it only combines
+// model-emitted structured member_set payloads from sibling explore dispatches.
+func MergeAnswerAggregateFacts(groups ...[]AnswerAggregateFact) []AnswerAggregateFact {
+	type memberSlot struct {
+		index int
+	}
+	var out []AnswerAggregateFact
+	identitySeen := map[string]bool{}
+	memberSlots := map[string]memberSlot{}
+	for _, group := range groups {
+		for _, raw := range group {
+			fact, err := normalizeAnswerAggregateFact(raw)
+			if err != nil {
+				continue
+			}
+			identity := AnswerAggregateFactIdentity(fact)
+			if AnswerAggregateFactCarriesCompleteMemberSet(fact) {
+				if identitySeen[identity] {
+					continue
+				}
+				key := answerAggregateMemberSetMergeKey(fact)
+				if slot, ok := memberSlots[key]; ok {
+					out[slot.index] = mergeAnswerAggregateMemberSet(out[slot.index], fact)
+					identitySeen[AnswerAggregateFactIdentity(out[slot.index])] = true
+					continue
+				}
+				memberSlots[key] = memberSlot{index: len(out)}
+				identitySeen[identity] = true
+			} else {
+				if identitySeen[identity] {
+					continue
+				}
+				identitySeen[identity] = true
+			}
+			out = append(out, fact)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return cloneAnswerAggregateFacts(out)
+}
+
+func answerAggregateMemberSetMergeKey(fact AnswerAggregateFact) string {
+	var b strings.Builder
+	b.WriteString(strings.ToLower(strings.TrimSpace(string(fact.Kind))))
+	b.WriteByte('\x00')
+	b.WriteString(strings.ToLower(strings.TrimSpace(fact.Label)))
+	b.WriteByte('\x00')
+	b.WriteString(strings.ToLower(strings.TrimSpace(string(NormalizeAnswerAggregateRole(fact.Role)))))
+	b.WriteByte('\x00')
+	b.WriteString(strings.ToLower(strings.TrimSpace(fact.Unit)))
+	b.WriteByte('\x00')
+	b.WriteString(strings.ToLower(renderAggregateDimensionsKey(fact.Dimensions)))
+	return b.String()
+}
+
+func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregateFact {
+	dst = cloneAnswerAggregateFacts([]AnswerAggregateFact{dst})[0]
+	memberKeys := make(map[string]bool, len(dst.Members)+len(src.Members))
+	for _, member := range dst.Members {
+		key := AnswerAggregateMemberSurfaceKey(member)
+		if key != "" {
+			memberKeys[key] = true
+		}
+	}
+	for i, member := range src.Members {
+		member = strings.TrimSpace(member)
+		if member == "" {
+			continue
+		}
+		key := AnswerAggregateMemberSurfaceKey(member)
+		if key == "" || memberKeys[key] {
+			continue
+		}
+		memberKeys[key] = true
+		dst.Members = append(dst.Members, member)
+		if len(src.SupportRefs) > i {
+			dst.SupportRefs = appendAggregateSupportRefAtMemberIndex(dst.SupportRefs, len(dst.Members)-1, src.SupportRefs[i])
+		}
+	}
+	if AnswerAggregateRolePriority(src.Role) > AnswerAggregateRolePriority(dst.Role) {
+		dst.Role = NormalizeAnswerAggregateRole(src.Role)
+	}
+	if dst.Provenance == "" {
+		dst.Provenance = src.Provenance
+	}
+	if dst.Unit == "" {
+		dst.Unit = src.Unit
+	}
+	dst.Value = strconv.Itoa(len(dst.Members))
+	return dst
+}
+
+func appendAggregateSupportRefAtMemberIndex(refs []string, memberIndex int, ref string) []string {
+	ref = strings.TrimSpace(ref)
+	for len(refs) < memberIndex {
+		refs = append(refs, "")
+	}
+	if len(refs) == memberIndex {
+		refs = append(refs, ref)
+		return refs
+	}
+	if refs[memberIndex] == "" {
+		refs[memberIndex] = ref
+	}
+	return refs
+}
+
 // PrincipalAggregateMemberSetFactRefs returns the member_set facts that should
 // act as the user-visible principal slate. When the model emits both a left-axis
 // set ("packages") and a richer relation set ("package -> entry"), the relation
@@ -586,6 +699,15 @@ func answerAggregateFactCarriesCompleteMemberSet(fact AnswerAggregateFact) bool 
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(fact.Value))
 	return err == nil && n == len(fact.Members)
+}
+
+// AnswerAggregateFactCarriesCompleteMemberSet reports whether an aggregate fact
+// carries an exact principal member list, regardless of whether the model used
+// the dedicated member_set kind or a count kind with members whose cardinality
+// equals value. Callers use this to consume the schema's typed member carrier
+// uniformly instead of hard-coding only one aggregate kind.
+func AnswerAggregateFactCarriesCompleteMemberSet(fact AnswerAggregateFact) bool {
+	return answerAggregateFactCarriesCompleteMemberSet(fact)
 }
 
 func aggregateMemberSetIsSubsumedLeftAxis(fact AnswerAggregateFact, relationFacts []aggregateRelationMemberSetFact) bool {

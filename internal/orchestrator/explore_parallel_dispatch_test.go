@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -58,6 +59,91 @@ func TestDispatchExploreWindowsParallel_CancelsSiblingAfterConvergence(t *testin
 	}
 	if atomic.LoadInt32(&slowCanceled) != 1 {
 		t.Fatal("running sibling explorer did not observe cancellation after convergence")
+	}
+}
+
+func TestDispatchExploreWindowsParallel_EnumerationWaitsForSiblingHandoffs(t *testing.T) {
+	var slowStarted sync.Once
+	slowStartedCh := make(chan struct{})
+	doneFinishedCh := make(chan struct{})
+	var slowCanceled int32
+
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			switch ctx.ExploreDispatchKey {
+			case "done":
+				<-slowStartedCh
+				ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+					Kind:    types.AnswerAggregateMemberSet,
+					Label:   "public functions",
+					Value:   "1",
+					Role:    types.AnswerAggregateRolePrincipalAnswer,
+					Members: []string{"Eval"},
+				}})
+				ctx.Mutable.SetInvestigationComplete("parallel branch reached partial enum closure")
+				ctx.Mutable.RetainInvestigationAggregateFacts()
+				close(doneFinishedCh)
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			case "slow":
+				slowStarted.Do(func() { close(slowStartedCh) })
+				select {
+				case <-ctx.Context().Done():
+					atomic.StoreInt32(&slowCanceled, 1)
+					return nil, ctx.Context().Err()
+				case <-doneFinishedCh:
+				}
+				ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+					Kind:    types.AnswerAggregateMemberSet,
+					Label:   "public functions",
+					Value:   "2",
+					Role:    types.AnswerAggregateRolePrincipalAnswer,
+					Members: []string{"EvalAll", "RegisteredKinds"},
+				}})
+				ctx.Mutable.SetInvestigationComplete("parallel sibling completed enum closure")
+				ctx.Mutable.RetainInvestigationAggregateFacts()
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			default:
+				t.Fatalf("unexpected dispatch key %q", ctx.ExploreDispatchKey)
+				return nil, nil
+			}
+		},
+	})
+	o := New(types.PipelineSettings{MaxParallelism: 2}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		Mutable: types.NewMutableState("parallel explore enumeration"),
+		Signals: types.ExecutionSignals{},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+
+	_, err := o.dispatchExploreWindowsParallel([][]*types.TaskNode{
+		{{ID: "done"}},
+		{{ID: "slow"}},
+	}, nil, 2)
+	if err != nil {
+		t.Fatalf("enumeration siblings should finish instead of being canceled: %v", err)
+	}
+	if atomic.LoadInt32(&slowCanceled) != 0 {
+		t.Fatal("enumeration sibling was canceled even though its member_set handoff is required")
+	}
+	facts := o.busCtx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) != 1 {
+		t.Fatalf("stable aggregate facts = %+v, want merged function member_set", facts)
+	}
+	got := strings.Join(facts[0].Members, ",")
+	want := "Eval,EvalAll,RegisteredKinds"
+	if got != want {
+		t.Fatalf("merged members = %q, want %q", got, want)
 	}
 }
 

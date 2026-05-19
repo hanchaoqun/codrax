@@ -145,6 +145,60 @@ func TestNormalizeAnswerAggregateFacts_AcceptsNegativeSearch(t *testing.T) {
 	}
 }
 
+func TestMergeAnswerAggregateFacts_UnionsCompatibleMemberSets(t *testing.T) {
+	got := MergeAnswerAggregateFacts(
+		[]AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "public functions",
+			Value:       "2",
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"Eval", "EvalAll"},
+			SupportRefs: []string{"eval.go:15", "eval.go:36"},
+		}},
+		[]AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "public functions",
+			Value:       "2",
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"EvalAll", "RegisteredKinds"},
+			SupportRefs: []string{"eval.go:36", "grammar.go:106"},
+		}},
+	)
+	if len(got) != 1 {
+		t.Fatalf("merged facts = %+v, want one compatible member_set", got)
+	}
+	if got[0].Value != "3" {
+		t.Fatalf("merged value = %q, want cardinality 3", got[0].Value)
+	}
+	wantMembers := []string{"Eval", "EvalAll", "RegisteredKinds"}
+	if strings.Join(got[0].Members, ",") != strings.Join(wantMembers, ",") {
+		t.Fatalf("merged members = %+v, want %+v", got[0].Members, wantMembers)
+	}
+	if len(got[0].SupportRefs) != 3 || got[0].SupportRefs[2] != "grammar.go:106" {
+		t.Fatalf("support refs not aligned with merged members: %+v", got[0].SupportRefs)
+	}
+}
+
+func TestMergeAnswerAggregateFacts_KeepsDistinctMemberSetBuckets(t *testing.T) {
+	got := MergeAnswerAggregateFacts(
+		[]AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "public types",
+			Value:   "1",
+			Members: []string{"Kind"},
+		}},
+		[]AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "public functions",
+			Value:   "1",
+			Members: []string{"Eval"},
+		}},
+	)
+	if len(got) != 2 {
+		t.Fatalf("distinct labels must stay separate; got %+v", got)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_NegativeSearchRejectsNonZeroAndMissingQuery(t *testing.T) {
 	cases := []struct {
 		name string
@@ -892,5 +946,45 @@ func TestMutableState_StableInvestigationAggregateFactsRetention(t *testing.T) {
 	again := mu.StableInvestigationAggregateFacts()
 	if again[0].Members[0] != "--foo" {
 		t.Fatalf("StableInvestigationAggregateFacts must return a defensive copy: %+v", again)
+	}
+}
+
+func TestMutableState_MergeExploreForkUnionsStableAggregateFacts(t *testing.T) {
+	parent := NewMutableState("q")
+	fork1 := parent.ForkForExploreDispatch()
+	fork2 := parent.ForkForExploreDispatch()
+
+	fork1.SetInvestigationAggregateFacts([]AnswerAggregateFact{{
+		Kind:        AnswerAggregateMemberSet,
+		Label:       "public functions",
+		Value:       "2",
+		Role:        AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Eval", "EvalAll"},
+		SupportRefs: []string{"eval.go:15", "eval.go:36"},
+	}})
+	fork1.SetInvestigationComplete("branch one complete")
+	fork1.RetainInvestigationAggregateFacts()
+
+	fork2.SetInvestigationAggregateFacts([]AnswerAggregateFact{{
+		Kind:        AnswerAggregateMemberSet,
+		Label:       "public functions",
+		Value:       "2",
+		Role:        AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"EvalAll", "RegisteredKinds"},
+		SupportRefs: []string{"eval.go:36", "grammar.go:106"},
+	}})
+	fork2.SetInvestigationComplete("branch two complete")
+	fork2.RetainInvestigationAggregateFacts()
+
+	parent.MergeExploreFork(fork1)
+	parent.MergeExploreFork(fork2)
+
+	got := parent.StableInvestigationAggregateFacts()
+	if len(got) != 1 {
+		t.Fatalf("stable aggregate facts = %+v, want one merged member_set", got)
+	}
+	want := []string{"Eval", "EvalAll", "RegisteredKinds"}
+	if strings.Join(got[0].Members, ",") != strings.Join(want, ",") {
+		t.Fatalf("stable merged members = %+v, want %+v", got[0].Members, want)
 	}
 }

@@ -116,7 +116,7 @@ func RelaxAnalyzerEntityMustIncludeWithAggregateMemberSet(c AnswerContract, fact
 
 func answerAggregateFactsHaveMemberSet(facts []AnswerAggregateFact) bool {
 	for _, fact := range facts {
-		if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
+		if AnswerAggregateFactCarriesCompleteMemberSet(fact) {
 			return true
 		}
 	}

@@ -3134,3 +3134,70 @@ Verification:
     `replace_citations cannot preserve citation-bearing block` rejection. The
     only remaining same-turn finalizer correction was the separate
     `nearest_mechanism` facet-anchor issue tracked under E20260514-G60.
+
+### E20260514-G66: Parallel Exhaustive Enumeration Must Not Drop Or Widen Typed Member Sets (`qf_multi_member_set_count_caveat`, fixed 2026-05-19)
+
+Observed data flow:
+
+1. `qf_multi_member_set_count_caveat` initially passed the diagram/pipeline
+   regressions but exposed two aggregate handoff failures under parallel
+   exploration.
+2. First failure: one explorer fork completed with a partial public-function
+   member set while another fork later found the complete set. The scheduler
+   canceled siblings on first convergence, so the finalizer never saw the
+   stronger typed set.
+3. Second failure after enabling all-fork completion: sibling aggregate facts
+   with similar user-facing categories could disagree. A noisy fork widened a
+   "public functions" set with private helpers and a variable, then finalizer
+   correctly preserved the wrong principal aggregate because the handoff was
+   marked `role=principal_answer`.
+4. The visible answer also leaked concrete excluded variable names in summary
+   prose, even though the user explicitly excluded variables. This was a
+   compatibility miss: the model's answer was otherwise usable, and forcing a
+   finalizer rewrite was unnecessary.
+
+Root cause: parallel exploration convergence and aggregate merge treated
+"finished" and "principal member_set" as sufficient authority without checking
+typed question shape and typed exclusion/export scope. The system needed two
+precise typed safeguards: wait for all exhaustive sibling forks, and normalize
+excluded candidate roles before finalizer consumes aggregate facts.
+
+Batch 6a progress:
+
+- Parallel explorer now disables first-fork early cancellation for
+  enumerate/category-enumeration/relation-member/cross-component/multi-topic
+  shapes. These are typed RequestModel/SemanticView signals, not prompt text.
+- `MergeExploreFork` uses `MergeAnswerAggregateFacts`, so stable aggregate
+  facts from sibling forks merge rather than replace each other.
+- Complete aggregate carriers are now recognized beyond `member_set`: exact
+  `bucket_count` / grouped count facts with `members[]` can satisfy principal
+  handoff terms and avoid downstream forced reads.
+- `answer_exclusion_policy` now treats explicit public/exported-only requests
+  as a typed `private` exclusion, while preserving the existing rule that
+  production-only scope is not a private-symbol exclusion.
+- `emit_investigation_complete` normalizes aggregate facts through typed
+  exclusions before retention: private/variable members are removed from exact
+  principal sets, support refs stay aligned, and exact counts are recomputed.
+- `emit_answer_document` applies a final visible-surface sanitizer for typed
+  exclusions. It redacts concrete excluded graph symbols from summary/table/
+  citation quote surfaces instead of making finalizer retry.
+
+Anti-seesaw guard:
+
+- No branch scans user prose or model thoughts to decide control flow. Analyzer
+  emits typed exclusion lanes; downstream consumes typed candidate roles plus
+  repo graph symbol kind/export status.
+- The sanitizer is a salvage layer, not a hard gate. If the core answer is
+  structurally usable, it is accepted with deterministic redaction rather than
+  another LLM rewrite.
+
+Verification:
+
+- `go test ./internal/types ./internal/tool ./internal/orchestrator ./internal/agent ./internal/skill`
+- `bash eval/run.sh eval/cases/qf_multi_member_set_count_caveat.case 1`
+  - `eval/results/qf_multi_member_set_count_caveat-20260519-154652`
+  - PASS; `explorer_iters=5`, `extractor_iters=1`, `finalizer_iters=1`, no
+    repair/rewrite lines.
+- `bash eval/run.sh eval/cases/qf_logic_view_read_pipeline.case 1`
+  - `eval/results/qf_logic_view_read_pipeline-20260519-155033`
+  - PASS; explicit Mermaid logic-view requirement still survives end-to-end.

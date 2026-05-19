@@ -638,6 +638,7 @@ func TestExtractor_BuildPrompt_MemberSetSuppressesAnalyzerSoftGuidanceNames(t *t
 	mu := types.NewMutableState("list enum types")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
 		TerminalEvidenceCount: 1,
+		AcceptedClosureReason: "complete set found; variable defaultExternalArtifactFloor was excluded",
 		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
 			Kind:    types.AnswerAggregateMemberSet,
 			Label:   "verified enum members",
@@ -665,6 +666,16 @@ func TestExtractor_BuildPrompt_MemberSetSuppressesAnalyzerSoftGuidanceNames(t *t
 	}
 	if !contains(prompt, "members=[`Intent`, `Scenario`]") {
 		t.Fatalf("accepted member_set should remain visible as typed handoff:\n%s", prompt)
+	}
+	if !contains(prompt, "principal aggregate member_set obligations") ||
+		!contains(prompt, "copy every member below into the answer-symbol slate") {
+		t.Fatalf("accepted principal member_set should be rendered as an explicit extractor slate obligation:\n%s", prompt)
+	}
+	if contains(prompt, "defaultExternalArtifactFloor") {
+		t.Fatalf("principal member_set prompt should not project unstructured closure prose candidates:\n%s", prompt)
+	}
+	if !contains(prompt, "model-authored closure reason omitted") {
+		t.Fatalf("prompt should explain why closure prose was suppressed:\n%s", prompt)
 	}
 }
 

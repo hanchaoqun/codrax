@@ -1001,11 +1001,12 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		m.searchGraph = searchGraph
 	}
 	if investigationComplete {
+		mergedAggregateFacts := MergeAnswerAggregateFacts(m.investigationAggregateFacts, investigationAggregateFacts)
 		m.investigationComplete = true
 		m.investigationCompleteReason = investigationCompleteReason
 		m.absenceJustification = absenceJustification
 		m.investigationResultKind = investigationResultKind
-		m.investigationAggregateFacts = investigationAggregateFacts
+		m.investigationAggregateFacts = mergedAggregateFacts
 		if investigationCompleteReason != "" {
 			m.retainedInvestigationCompleteReason = investigationCompleteReason
 		}
@@ -1015,8 +1016,8 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		if absenceJustification != "" {
 			m.retainedAbsenceJustification = absenceJustification
 		}
-		if len(investigationAggregateFacts) > 0 {
-			m.retainedInvestigationAggregateFacts = cloneAnswerAggregateFacts(investigationAggregateFacts)
+		if len(mergedAggregateFacts) > 0 {
+			m.retainedInvestigationAggregateFacts = cloneAnswerAggregateFacts(mergedAggregateFacts)
 		}
 	}
 	if retainedInvestigationCompleteReason != "" {
@@ -1029,7 +1030,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		m.retainedAbsenceJustification = retainedAbsenceJustification
 	}
 	if len(retainedInvestigationAggregateFacts) > 0 {
-		m.retainedInvestigationAggregateFacts = retainedInvestigationAggregateFacts
+		m.retainedInvestigationAggregateFacts = MergeAnswerAggregateFacts(m.retainedInvestigationAggregateFacts, retainedInvestigationAggregateFacts)
 	}
 	if len(exactContextRequiredFiles) > 0 {
 		m.exactContextRequiredFiles = exactContextRequiredFiles

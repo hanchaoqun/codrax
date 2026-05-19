@@ -2365,7 +2365,7 @@ func renderAnswerDocExclusionPolicy(ctx *types.AgentContext) string {
 		renderQuotedList(roles))
 	b.WriteString("- Do not put excluded-role candidates in principal list/table items.\n")
 	b.WriteString("- When a principal list/table row represents a candidate member, set `items[].candidate_role` to the closest enum value so the validator can enforce this policy structurally.\n")
-	b.WriteString("- It is OK to mention the excluded category as a scope boundary in summary/caveat prose; do not enumerate concrete excluded candidates as principal rows.\n\n")
+	b.WriteString("- It is OK to mention the excluded category or grounded excluded count as a scope boundary in summary/caveat prose. Do not name concrete excluded candidates anywhere in the visible answer unless the user explicitly asked for the excluded items themselves.\n\n")
 	return b.String()
 }
 
@@ -3429,7 +3429,12 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- result_kind: `%s`\n", strings.TrimSpace(plan.StableInvestigationResultKind))
 	}
 	if reason := strings.TrimSpace(plan.StableInvestigationReason); reason != "" {
-		fmt.Fprintf(&b, "- model-authored closure reason: %s\n", truncateAnswerDocPromptText(reason, 900))
+		if suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx, plan.StableAggregateFacts) {
+			b.WriteString("- model-authored closure reason omitted from this prompt because principal `aggregate_facts.member_set` rows are the authoritative enumeration handoff.\n")
+		} else {
+			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, plan.StableAggregateFacts)
+			fmt.Fprintf(&b, "- model-authored closure reason: %s\n", truncateAnswerDocPromptText(reason, 900))
+		}
 	}
 	if justification := strings.TrimSpace(plan.StableAbsenceJustification); justification != "" {
 		fmt.Fprintf(&b, "- absence justification: %s\n", truncateAnswerDocPromptText(justification, 500))
@@ -3445,7 +3450,7 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 		}
 	}
 	b.WriteString("- Treat this closure as a structured exploration handoff, not as a citation and not as system-written answer text.\n")
-	b.WriteString("- Preserve resolved counts, listed members, excluded candidates, scope boundaries, and verdicts from the closure only when the same value is carried by structured aggregate facts, typed support lanes, current citations, or raw tool outputs below. If unstructured closure prose conflicts with typed member obligations, principal support lanes, or structured aggregate facts, prefer the typed/structured handoff.\n")
+	b.WriteString("- Preserve resolved counts, listed members, excluded categories/counts, scope boundaries, and verdicts from the closure only when the same value is carried by structured aggregate facts, typed support lanes, current citations, or raw tool outputs below. If unstructured closure prose conflicts with typed member obligations, principal support lanes, or structured aggregate facts, prefer the typed/structured handoff.\n")
 	b.WriteString("- When post-closure validation boundaries say the supported candidate set remains broad, unresolved, or under-constrained, converge the answer by prioritizing/grouping the supported facts and disclose the boundary in summary/caveat text. Do not invent missing precision solely to satisfy a validation criterion.\n")
 	b.WriteString("- Rebuild the user-visible prose yourself inside `emit_answer_document`; do not invent facts beyond the closure/evidence boundary.\n\n")
 	return b.String()
@@ -3604,6 +3609,9 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("## Structured Aggregate Facts\n\n")
 	b.WriteString("- These aggregate facts were emitted by the investigator through `emit_investigation_complete.aggregate_facts` after exploration. They are model-authored structured handoff values, not system-synthesised answer text.\n")
 	b.WriteString("- Preserve each `value` exactly when the corresponding fact answers the user's requested scalar, unique-set, group, bucket, exclusion, or exhaustive-member question. Use `members` for requested concrete lists such as enum/type names, file paths, or file:line locations.\n")
+	if aggregateFactPromptOmitExcludedCandidates(ctx) {
+		b.WriteString("- The active typed exclusion policy keeps concrete excluded candidates out of the answer surface. Excluded categories and counts may be used as scope boundaries; omitted `excluded[]` names are intentionally not part of the visible answer.\n")
+	}
 	b.WriteString("- `kind=negative_search` is the typed lane for a verified zero-result repository search. It has no citation line by design; use its repo/query-or-pattern/scope/searched_at dimensions to support no-hit conclusions, cross-repository boundaries, and caveats without inventing a file:line citation.\n")
 	b.WriteString("- For `member_set` rows, `role=principal_answer` marks the concrete principal slate. `role=supporting_coverage` / `role=audit_ledger` rows are context or investigation bookkeeping and must not create duplicate principal rows.\n")
 	if relationRefs := answerDocPrincipalRelationMemberSetRefs(ctx, plan.StableAggregateFacts); len(relationRefs) > 0 {
@@ -3693,16 +3701,19 @@ func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportR
 
 	if len(facts) > 0 {
 		b.WriteString("### Evidence enrichment rows\n\n")
+		stableFacts := answerDocStableAggregateFacts(ctx)
 		for _, fact := range facts {
 			loc := fact.item.DisplayLocation(true)
 			fmt.Fprintf(&b, "- lane=%s", fact.lane)
 			if fact.label != "" {
-				fmt.Fprintf(&b, " label=`%s`", fact.label)
+				label := sanitizeAggregateExcludedCandidatesForPrompt(ctx, fact.label, stableFacts)
+				fmt.Fprintf(&b, " label=`%s`", label)
 			}
 			if loc != "" {
 				fmt.Fprintf(&b, " @ %s", loc)
 			}
-			fmt.Fprintf(&b, ": %s", fact.surface)
+			surface := sanitizeAggregateExcludedCandidatesForPrompt(ctx, fact.surface, stableFacts)
+			fmt.Fprintf(&b, ": %s", surface)
 			if role := answerDocEvidenceRoleTag(fact.item); role != "" {
 				fmt.Fprintf(&b, " (%s)", role)
 			}
@@ -3718,6 +3729,14 @@ func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportR
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func answerDocStableAggregateFacts(ctx *types.AgentContext) []types.AnswerAggregateFact {
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return nil
+	}
+	return plan.StableAggregateFacts
 }
 
 func answerDocTypedEnrichmentEvidencePool(ctx *types.AgentContext, limit int) []types.EvidenceItem {

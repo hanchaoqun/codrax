@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -14,7 +15,9 @@ const (
 )
 
 func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []types.AnswerAggregateFact) string {
-	return renderStructuredAggregateFactsWithPrincipalRefs(facts, structuredAggregatePromptFactLimit(ctx, facts), structuredAggregatePrincipalMemberSetRefs(ctx, facts))
+	return renderStructuredAggregateFactsWithOptions(facts, structuredAggregatePromptFactLimit(ctx, facts), structuredAggregatePrincipalMemberSetRefs(ctx, facts), aggregateFactRenderOptions{
+		omitExcludedCandidates: aggregateFactPromptOmitExcludedCandidates(ctx),
+	})
 }
 
 func structuredAggregatePromptFactLimit(ctx *types.AgentContext, facts []types.AnswerAggregateFact) int {
@@ -61,6 +64,14 @@ func renderStructuredAggregateFacts(facts []types.AnswerAggregateFact, maxFacts 
 }
 
 func renderStructuredAggregateFactsWithPrincipalRefs(facts []types.AnswerAggregateFact, maxFacts int, refs []types.AnswerAggregateFactRef) string {
+	return renderStructuredAggregateFactsWithOptions(facts, maxFacts, refs, aggregateFactRenderOptions{})
+}
+
+type aggregateFactRenderOptions struct {
+	omitExcludedCandidates bool
+}
+
+func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact, maxFacts int, refs []types.AnswerAggregateFactRef, opts aggregateFactRenderOptions) string {
 	if len(facts) == 0 {
 		return ""
 	}
@@ -105,8 +116,12 @@ func renderStructuredAggregateFactsWithPrincipalRefs(facts []types.AnswerAggrega
 		if members := renderAggregateStringList(fact.Members, memberLimit); members != "" {
 			fmt.Fprintf(&b, ", members=[%s]", members)
 		}
-		if excluded := renderAggregateStringList(fact.Excluded, 8); excluded != "" {
-			fmt.Fprintf(&b, ", excluded=[%s]", excluded)
+		if len(fact.Excluded) > 0 {
+			if opts.omitExcludedCandidates {
+				fmt.Fprintf(&b, ", excluded_count=%d, excluded_candidates=omitted_by_typed_exclusion_policy", len(fact.Excluded))
+			} else if excluded := renderAggregateStringList(fact.Excluded, 8); excluded != "" {
+				fmt.Fprintf(&b, ", excluded=[%s]", excluded)
+			}
 		}
 		refLimit := 8
 		if fact.Kind == types.AnswerAggregateMemberSet {
@@ -121,6 +136,76 @@ func renderStructuredAggregateFactsWithPrincipalRefs(facts []types.AnswerAggrega
 		fmt.Fprintf(&b, "- ... %d more aggregate fact(s) omitted from prompt\n", len(facts)-maxFacts)
 	}
 	return b.String()
+}
+
+func aggregateFactPromptOmitExcludedCandidates(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	policy := ctx.AnalysisIR.RequestModel.AnswerExclusionPolicy
+	return policy != nil && policy.Active()
+}
+
+func sanitizeAggregateExcludedCandidatesForPrompt(ctx *types.AgentContext, text string, facts []types.AnswerAggregateFact) string {
+	if strings.TrimSpace(text) == "" || !aggregateFactPromptOmitExcludedCandidates(ctx) {
+		return text
+	}
+	replacements := aggregateExcludedCandidateSurfaces(facts)
+	if len(replacements) == 0 {
+		return text
+	}
+	out := text
+	for _, candidate := range replacements {
+		if candidate == "" {
+			continue
+		}
+		out = strings.ReplaceAll(out, candidate, "[excluded candidate omitted]")
+	}
+	return out
+}
+
+func aggregateExcludedCandidateSurfaces(facts []types.AnswerAggregateFact) []string {
+	seen := map[string]bool{}
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || seen[raw] {
+			return
+		}
+		seen[raw] = true
+	}
+	for _, fact := range facts {
+		for _, excluded := range fact.Excluded {
+			add(excluded)
+			add(aggregateExcludedCandidateHead(excluded))
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for candidate := range seen {
+		out = append(out, candidate)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if len(out[i]) != len(out[j]) {
+			return len(out[i]) > len(out[j])
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+func aggregateExcludedCandidateHead(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	for i, r := range raw {
+		if i == 0 {
+			continue
+		}
+		if r == '(' || r == '（' || r == ':' || r == '：' || r == ',' || r == '，' || unicode.IsSpace(r) {
+			return strings.TrimSpace(raw[:i])
+		}
+	}
+	return raw
 }
 
 func aggregatePromptRoleForFact(index int, fact types.AnswerAggregateFact, principal map[int]bool, roleByIndex map[int]types.AnswerAggregateRole) types.AnswerAggregateRole {

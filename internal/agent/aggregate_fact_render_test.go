@@ -111,6 +111,41 @@ func TestRenderStructuredAggregateFactsIncludesNegativeSearchDimensions(t *testi
 	}
 }
 
+func TestRenderStructuredAggregateFactsOmitExcludedCandidatesUnderTypedPolicy(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:     types.AnswerAggregateExcluded,
+		Label:    "excluded variables",
+		Value:    "2",
+		Excluded: []string{"registered", "defaultExternalArtifactFloor"},
+	}}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+			IsExclusionRequested: true,
+			ExcludedCandidateRoles: []types.AnswerCandidateRole{
+				types.AnswerCandidateRoleVariable,
+			},
+		},
+	}}}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	if !strings.Contains(got, "excluded_count=2") ||
+		!strings.Contains(got, "excluded_candidates=omitted_by_typed_exclusion_policy") {
+		t.Fatalf("typed exclusion policy should keep only excluded count/category metadata:\n%s", got)
+	}
+	if strings.Contains(got, "registered") || strings.Contains(got, "defaultExternalArtifactFloor") {
+		t.Fatalf("concrete excluded candidates must not be projected to downstream prompts:\n%s", got)
+	}
+
+	reason := "变量（如 registered map、defaultExternalArtifactFloor）按要求未列入。"
+	sanitized := sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, facts)
+	if strings.Contains(sanitized, "registered") || strings.Contains(sanitized, "defaultExternalArtifactFloor") {
+		t.Fatalf("closure prose should be redacted from concrete excluded candidates, got %q", sanitized)
+	}
+	if !strings.Contains(sanitized, "[excluded candidate omitted]") {
+		t.Fatalf("closure prose should retain an omission marker, got %q", sanitized)
+	}
+}
+
 func TestStructuredAggregatePromptFactLimitExpandsForComplexTypedQuestions(t *testing.T) {
 	var facts []types.AnswerAggregateFact
 	for i := 0; i < 24; i++ {

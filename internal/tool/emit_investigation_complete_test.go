@@ -1961,6 +1961,68 @@ func TestEmitInvestigationComplete_MemberSetNarrowsAnalyzerEntityCandidates(t *t
 	}
 }
 
+func TestEmitInvestigationComplete_BucketCountMembersCoverPrincipalTerms(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List public criterion symbols by bucket")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "criterion",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       1075,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Criterion",
+		Subject:         "Criterion",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "complete public symbols",
+	}
+	ir.AnswerContract.MustIncludeTerms = []types.ContractTerm{{
+		Text:   "Criterion",
+		Kind:   types.ContractTermSymbol,
+		Source: types.ContractTermSourceAnalyzerEntity,
+	}}
+	bus := &types.BusContext{Mutable: mut, AnalysisIR: ir}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"bucket count carries the exact typed principal member list",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"bucket_count",
+			"label":"public types",
+			"value":"1",
+			"unit":"types",
+			"members":["Criterion"],
+			"role":"principal_answer",
+			"support_refs":["internal/types/analysis_ir.go:1075"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("complete bucket_count members should satisfy principal handoff: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "required principal members lack typed handoff") ||
+		strings.Contains(res.Summary, "exhaustive member-set handoff is missing") {
+		t.Fatalf("bucket_count exact members must not trigger member handoff retry: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should be stored after exact bucket_count member carrier")
+	}
+}
+
 func TestEmitInvestigationComplete_MemberSetDoesNotWaiveExplicitRequiredTerms(t *testing.T) {
 	prev := CurrentGroundingPolicy()
 	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})

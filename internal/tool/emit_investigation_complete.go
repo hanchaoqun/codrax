@@ -534,6 +534,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	effectiveAggregateFacts := effectiveCompletionAggregateFacts(ctx, aggregateFacts)
 	effectiveAggregateFacts = enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx, effectiveAggregateFacts, evidenceSnapshot)
 	effectiveAggregateFacts = enrichCompletionAggregateFactsWithDeterministicCount(ctx, effectiveAggregateFacts)
+	effectiveAggregateFacts = normalizeAggregateFactsForTypedExclusion(ctx, effectiveAggregateFacts)
 
 	// Reject the emit when a member_set carries members led by a code
 	// identifier but never publishes per-member grounding. Without
@@ -1944,7 +1945,7 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 
 func aggregateFactsContainMemberSet(facts []types.AnswerAggregateFact) bool {
 	for _, fact := range facts {
-		if fact.Kind == types.AnswerAggregateMemberSet &&
+		if types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
 			types.AnswerAggregateFactRoleForRequest(fact, nil).IsPrincipal() &&
 			len(fact.Members) > 0 {
 			return true
@@ -1965,7 +1966,7 @@ func exhaustiveEnumerationMemberSetUsable(ctx *types.BusContext, facts []types.A
 		rm = &ctx.AnalysisIR.RequestModel
 	}
 	for factIdx, fact := range facts {
-		if fact.Kind != types.AnswerAggregateMemberSet {
+		if !types.AnswerAggregateFactCarriesCompleteMemberSet(fact) {
 			continue
 		}
 		sawMemberSet = true
@@ -3235,7 +3236,7 @@ func completionTermCoveredByAggregateFacts(term types.ContractTerm, facts []type
 		return false
 	}
 	for _, fact := range facts {
-		if fact.Kind != types.AnswerAggregateMemberSet {
+		if !types.AnswerAggregateFactCarriesCompleteMemberSet(fact) {
 			continue
 		}
 		if !types.AnswerAggregateFactRoleForRequest(fact, nil).IsPrincipal() {

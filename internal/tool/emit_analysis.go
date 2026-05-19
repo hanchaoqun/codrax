@@ -351,7 +351,7 @@ func buildEmitAnalysisSchema() {
 				"properties": map[string]any{
 					"is_scalar_answer":        map[string]any{"type": "boolean", "description": "True if the answer is a single scalar (a number, a literal, a path) rather than a set or sequence."},
 					"is_role_locate_lookup":   map[string]any{"type": "boolean", "description": "True only for scalar lookups where the request names a clue / output / context entity, but the answer is one DIFFERENT literal that plays a role relative to that clue (entry function, defining file, config key, route, owner symbol, etc.). For set-valued tables such as every package -> entry function, set this false and use category/relational enumeration predicates. Implies is_scalar_answer=true and requires answer_subject.kind."},
-					"is_count_question":       map[string]any{"type": "boolean", "description": "True when the answer is a single number that must be computed by aggregating values across multiple source units — e.g. counting items, summing lines of code, summing file sizes, totalling bytes across a directory tree. Implies is_scalar_answer. Set false when the answer is a number that already exists as a single source-code literal (a const declaration, a default value, an enum ordinal) — that case is is_scalar_answer=true without is_count_question."},
+					"is_count_question":       map[string]any{"type": "boolean", "description": "True when the answer is a single number that must be computed by aggregating values across multiple source units — e.g. counting items, summing lines of code, summing file sizes, totalling bytes across a directory tree. Implies is_scalar_answer. Set false when the user asks to list/enumerate members and include counts per list/group; those counts are attributes of an enumeration, not a scalar count question. Also set false when the answer is a number that already exists as a single source-code literal (a const declaration, a default value, an enum ordinal) — that case is is_scalar_answer=true without is_count_question."},
 					"is_cross_component":      map[string]any{"type": "boolean", "description": "True if the question genuinely spans multiple distinct components / subsystems / independently-answerable code regions. Leave false for a single named target that merely needs nearby context, precedence layers, or override stages, and also leave false for one ordered source-to-sink call/flow trace even when that chain crosses files or packages."},
 					"is_relational_lookup":    map[string]any{"type": "boolean", "description": "True if filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')."},
 					"is_category_enumeration": map[string]any{"type": "boolean", "description": "True if asking 'what kinds / types / categories of X exist'."},
@@ -448,7 +448,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"answer_exclusion_policy": map[string]any{
 				"type":        "object",
-				"description": "Optional typed profile for current-request candidate categories the user explicitly excludes from the principal answer, such as variables, tests, generated files, or private helpers. Do not infer categories from keywords; emit only when the request states the exclusion.",
+				"description": "Optional typed profile for current-request candidate categories the user explicitly excludes from the principal answer, such as variables, tests, generated files, private helpers, or private symbols excluded by an explicit public/exported-only request. Do not infer categories from keywords; emit only when the request states the exclusion or public/exported-only export scope.",
 				"properties": map[string]any{
 					"is_exclusion_requested":   map[string]any{"type": "boolean", "description": "True only when the current request explicitly excludes one or more candidate roles from the answer."},
 					"excluded_candidate_roles": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": answerCandidateRoleValues()}, "description": "Candidate roles excluded from principal answer rows."},
@@ -798,6 +798,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, nil
 	}
 	if reconciled, reason := reconcileSetValuedRoleLocatePredicates(intent, predicates, p.SubTopics); reason != "" {
+		predicates = reconciled
+		val.Warnings = append(val.Warnings, reason)
+	}
+	if reconciled, reason := reconcileSetValuedCountPredicates(intent, predicates); reason != "" {
 		predicates = reconciled
 		val.Warnings = append(val.Warnings, reason)
 	}
@@ -1196,6 +1200,15 @@ func setValuedRoleLocateShape(intent types.Intent, preds types.SemanticPredicate
 	return len(trimSubTopicsForConsistency(subTopics)) > 1
 }
 
+func reconcileSetValuedCountPredicates(intent types.Intent, preds types.SemanticPredicates) (types.SemanticPredicates, string) {
+	if intent != types.IntentEnumerate || !preds.IsCountQuestion {
+		return preds, ""
+	}
+	preds.IsCountQuestion = false
+	preds.IsScalarAnswer = false
+	return preds, "set-valued enumeration normalized count predicate to false; requested counts remain per-list attributes, not a scalar count answer"
+}
+
 func trimSubTopicsForConsistency(subTopics []types.SubTopic) []types.SubTopic {
 	if len(subTopics) == 0 {
 		return nil
@@ -1256,12 +1269,13 @@ func validateSelfConsistencyDetailed(
 			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_role_locate_lookup=true requires answer_subject.kind to name the located literal kind (function_name / type_name / file_path / handler_route / config_key / interface_name / struct_field / enum_value)"}
 		}
 	}
-	// Count question must resolve to a scalar answer, not a list. If
-	// the LLM marked is_count_question but picked an enumerate intent,
-	// the classification is internally inconsistent.
+	// Count question must resolve to a scalar answer, not a list. The
+	// normal parse path clears this predicate for intent=enumerate, where
+	// counts are per-list attributes. Keep a defensive reject for direct
+	// callers that bypass the normalizer.
 	if preds.IsCountQuestion {
 		if intent == types.IntentEnumerate {
-			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_count_question=true is inconsistent with intent=enumerate — a count question returns a single scalar; pick intent=return_value"}
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_count_question=true is inconsistent with intent=enumerate — set is_count_question=false and is_scalar_answer=false when the answer is a member list with counts per category"}
 		}
 	}
 	// is_count_question implies is_scalar_answer (the prompt says so).

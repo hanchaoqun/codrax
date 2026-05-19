@@ -62,6 +62,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 
 	runCtx, cancel := context.WithCancel(o.CancelContext())
 	defer cancel()
+	allowEarlyConvergence := o.parallelExploreAllowsEarlyConvergence()
 
 	jobs := make(chan int)
 	resultCh := make(chan exploreParallelResult, len(windows))
@@ -143,7 +144,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 	results := make([]exploreParallelResult, 0, len(windows))
 	earlyConverged := false
 	for res := range resultCh {
-		if exploreParallelResultConverged(res) {
+		if allowEarlyConvergence && exploreParallelResultConverged(res) {
 			earlyConverged = true
 			cancel()
 		}
@@ -249,6 +250,21 @@ func exploreParallelResultConverged(res exploreParallelResult) bool {
 		return true
 	}
 	return false
+}
+
+func (o *Orchestrator) parallelExploreAllowsEarlyConvergence() bool {
+	if o == nil || o.busCtx == nil || o.busCtx.AnalysisIR == nil {
+		return true
+	}
+	rm := o.busCtx.AnalysisIR.RequestModel
+	if len(rm.SubTopics) > 1 ||
+		types.IsCategoryEnumerationAnswerShape(rm) ||
+		types.RequiresRelationMemberSetHandoff(rm) ||
+		rm.Predicates.IsCrossComponent ||
+		rm.Intent == types.IntentEnumerate {
+		return false
+	}
+	return true
 }
 
 func (o *Orchestrator) applyExploreIterationScaling(agentCtx *types.AgentContext) {

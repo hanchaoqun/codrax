@@ -2355,15 +2355,15 @@ func TestEmitAnalysis_Execute_SchemaNormalizesLocalModelScalarArtifacts(t *testi
 	}
 }
 
-func TestEmitAnalysis_Execute_RejectsInconsistentCountIntent(t *testing.T) {
+func TestEmitAnalysis_Execute_NormalizesEnumerateWithCountPredicate(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
-	mu := types.NewMutableState("how many agents are there")
+	mu := types.NewMutableState("list agents and include the count")
 	tool := &EmitAnalysis{}
-	// LLM marked is_count_question=true but still picked intent=enumerate.
-	// This is the session-6 failure mode the deleted prose-cue table
-	// used to silently downgrade. Now the LLM must fix it itself.
+	// The user wants a list plus its count. Count is an attribute of the
+	// enumeration; forcing the LLM to switch intent=return_value loses the
+	// member-list obligation downstream.
 	payload := `{
 		"intent": "enumerate",
 		"scenario": "generic",
@@ -2393,11 +2393,18 @@ func TestEmitAnalysis_Execute_RejectsInconsistentCountIntent(t *testing.T) {
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
-	if res.Success {
-		t.Fatal("count question + intent=enumerate must reject")
+	if !res.Success {
+		t.Fatalf("enumerate + count predicate should be normalized, not rejected: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "is_count_question") || !strings.Contains(res.Summary, "intent=enumerate") {
-		t.Errorf("reject summary should name both contradicting fields, got %q", res.Summary)
+	rm := mu.RequestModel()
+	if rm.Intent != types.IntentEnumerate {
+		t.Fatalf("intent = %q, want enumerate", rm.Intent)
+	}
+	if rm.Predicates.IsCountQuestion || rm.Predicates.IsScalarAnswer {
+		t.Fatalf("enumeration should clear count/scalar predicates, got %+v", rm.Predicates)
+	}
+	if !strings.Contains(res.Summary, "per-list attributes") {
+		t.Fatalf("normalization warning should explain per-list counts, got %q", res.Summary)
 	}
 }
 

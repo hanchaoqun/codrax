@@ -112,6 +112,82 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedCandida
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_ExclusionPolicyHidesConcreteCandidates(t *testing.T) {
+	mut := types.NewMutableState("list public symbols")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:     types.AnswerAggregateExcluded,
+		Label:    "excluded variables",
+		Value:    "2",
+		Excluded: []string{"registered", "defaultExternalArtifactFloor"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+					IsExclusionRequested: true,
+					ExcludedCandidateRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleVariable,
+					},
+				},
+			},
+		},
+		Mutable: mut,
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Typed Exclusion Policy",
+		"Do not name concrete excluded candidates anywhere in the visible answer",
+		"excluded_candidates=omitted_by_typed_exclusion_policy",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q for typed exclusion policy:\n%s", want, prompt)
+		}
+	}
+	for _, banned := range []string{"registered", "defaultExternalArtifactFloor"} {
+		if strings.Contains(prompt, banned) {
+			t.Fatalf("prompt leaked concrete excluded candidate %q:\n%s", banned, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalMemberSetSuppressesClosureProse(t *testing.T) {
+	mut := types.NewMutableState("list public symbols")
+	mut.SetInvestigationComplete("complete public set; variables such as defaultExternalArtifactFloor were excluded")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "public functions",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Eval"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+		Mutable: mut,
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "defaultExternalArtifactFloor") {
+		t.Fatalf("finalizer prompt should not project unstructured closure prose candidates when principal member_set exists:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "model-authored closure reason omitted") {
+		t.Fatalf("finalizer prompt should explain closure prose suppression:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "members=[`Eval`]") {
+		t.Fatalf("structured principal member_set must remain visible:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequiredMechanismAnchors(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

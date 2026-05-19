@@ -526,13 +526,67 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 		fmt.Fprintf(&b, "- result_kind: `%s`\n", resultKind)
 	}
 	if reason != "" {
-		fmt.Fprintf(&b, "- model-authored closure reason: %s\n", truncateExtractorPromptText(reason, 900))
+		if suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx, aggregateFacts) {
+			b.WriteString("- model-authored closure reason omitted from this prompt because principal `aggregate_facts.member_set` rows below are the authoritative enumeration handoff.\n")
+		} else {
+			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, aggregateFacts)
+			fmt.Fprintf(&b, "- model-authored closure reason: %s\n", truncateExtractorPromptText(reason, 900))
+		}
 	}
 	if len(aggregateFacts) > 0 {
 		b.WriteString("- structured aggregate facts:\n")
 		b.WriteString(renderStructuredAggregateFactsForContext(ctx, aggregateFacts))
 	}
-	b.WriteString("- Treat this as the investigator's structured handoff, not as a citation. Preserve resolved counts, listed members, excluded candidates, and scope boundaries when they are supported by the evidence/tool outputs below; do not fall back to earlier stale notes that conflict with this accepted closure.\n\n")
+	if principal := renderExtractorPrincipalAggregateSlate(ctx, aggregateFacts); principal != "" {
+		b.WriteString(principal)
+	}
+	b.WriteString("- Treat this as the investigator's structured handoff, not as a citation. Preserve resolved counts, listed members, excluded categories/counts, and scope boundaries when they are supported by the evidence/tool outputs below; do not fall back to earlier stale notes that conflict with this accepted closure.\n\n")
+	return b.String()
+}
+
+func suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx *types.AgentContext, facts []types.AnswerAggregateFact) bool {
+	if len(facts) == 0 || ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent != types.IntentEnumerate && !rm.Predicates.IsCategoryEnumeration {
+		return false
+	}
+	return len(structuredAggregatePrincipalMemberSetRefs(ctx, facts)) > 0
+}
+
+func renderExtractorPrincipalAggregateSlate(ctx *types.AgentContext, facts []types.AnswerAggregateFact) string {
+	if len(facts) == 0 {
+		return ""
+	}
+	refs := structuredAggregatePrincipalMemberSetRefs(ctx, facts)
+	if len(refs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("- principal aggregate member_set obligations:\n")
+	for _, ref := range refs {
+		fact := ref.Fact
+		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 {
+			continue
+		}
+		label := strings.TrimSpace(fact.Label)
+		if label == "" {
+			label = "principal member set"
+		}
+		fmt.Fprintf(&b, "  - %s: %d member(s)", label, len(fact.Members))
+		if strings.TrimSpace(fact.Value) != "" {
+			fmt.Fprintf(&b, ", declared value=%s", fact.Value)
+		}
+		b.WriteString("; copy every member below into the answer-symbol slate when `emit_answer_symbol` is active for this dispatch. Do not downgrade to `lower_bound` merely because earlier transcript prose was truncated; this typed aggregate fact is the accepted closure payload.\n")
+		for _, member := range fact.Members {
+			member = strings.TrimSpace(member)
+			if member == "" {
+				continue
+			}
+			fmt.Fprintf(&b, "    - `%s`\n", member)
+		}
+	}
 	return b.String()
 }
 
@@ -642,11 +696,13 @@ func renderExtractorValueEvidenceFacts(ctx *types.AgentContext, ta *types.TurnAA
 			b.WriteString("These rows are a typed lens over evidence the investigator already emitted. Rows that overlap the request, sub-topics, aggregate facts, or answer contract are shown first, then weighted by the typed question profile (intent/scenario/answer-subject/axis/question-structure); this is soft visibility guidance, not a hard gate. Preserve exact constants, defaults, assignment targets, return literals, and config values from this section when they answer the user's requested dimensions; do not invent values that are not present here or in the evidence list.\n\n")
 		}
 		loc := candidate.item.DisplayLocation(true)
-		fmt.Fprintf(&b, "- `%s`", candidate.label)
+		label := sanitizeAggregateExcludedCandidatesForPrompt(ctx, candidate.label, ta.AcceptedAggregateFacts)
+		surface := sanitizeAggregateExcludedCandidatesForPrompt(ctx, candidate.surface, ta.AcceptedAggregateFacts)
+		fmt.Fprintf(&b, "- `%s`", label)
 		if loc != "" {
 			fmt.Fprintf(&b, " @ %s", loc)
 		}
-		fmt.Fprintf(&b, ": %s\n", candidate.surface)
+		fmt.Fprintf(&b, ": %s\n", surface)
 		if i+1 >= limit {
 			break
 		}

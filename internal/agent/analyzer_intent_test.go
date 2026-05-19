@@ -1078,9 +1078,9 @@ func TestReconcileIntent(t *testing.T) {
 		want       types.Intent
 		wantReason bool
 	}{
-		{"enumerate + is_count_question downgrades to return_value",
+		{"enumerate + is_count_question keeps enumeration intent",
 			types.IntentEnumerate, types.SemanticPredicates{IsCountQuestion: true}, nil,
-			types.IntentReturnValue, true},
+			types.IntentEnumerate, true},
 		{"enumerate without is_count_question untouched",
 			types.IntentEnumerate, types.SemanticPredicates{}, nil,
 			types.IntentEnumerate, false},
@@ -1102,9 +1102,9 @@ func TestReconcileIntent(t *testing.T) {
 		{"log_triage bundle still no-op when already root_cause",
 			types.IntentRootCause, types.SemanticPredicates{}, rootCauseBundle,
 			types.IntentRootCause, false},
-		{"count-question wins over log_triage bundle (exotic but ordered)",
+		{"count predicate does not steal enumerate intent even with log bundle",
 			types.IntentEnumerate, types.SemanticPredicates{IsCountQuestion: true}, rootCauseBundle,
-			types.IntentReturnValue, true},
+			types.IntentEnumerate, true},
 		{"nil bundle skips the log-triage override",
 			types.IntentExplain, types.SemanticPredicates{}, nil,
 			types.IntentExplain, false},

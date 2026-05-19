@@ -191,6 +191,32 @@ whether parallelism is allowed.
 - Ran targeted orchestrator, agent, types, and race-sensitive tests plus
   `go test ./...`.
 
+### Batch D — convergence safety for exhaustive typed handoffs
+
+- Parallel explorer no longer cancels sibling windows after the first
+  converged fork for typed set-valued questions: multi-subtopic,
+  cross-component, relation-member, category-enumeration, and enumerate
+  requests wait for all focused explorer forks and merge their typed handoffs
+  deterministically.
+- `MutableState.MergeExploreFork` now merges stable aggregate facts instead of
+  replacing them, so a later sibling cannot erase an earlier complete
+  `member_set` / count handoff.
+- Aggregate merge is still typed and bucketed: compatible complete member
+  carriers union by structured kind/label/role/unit/dimensions; distinct
+  buckets remain separate. This avoids single-fork data loss without using
+  user/model prose keywords as a dispatch decision.
+- Follow-up guard after eval: typed exclusion/export-scope filtering now runs
+  before aggregate handoff reaches finalizer, so a noisy sibling cannot widen a
+  public/exported member set with private or variable symbols.
+
+Verification:
+
+- `go test ./internal/orchestrator -run TestDispatchExploreWindowsParallel`
+- `go test ./internal/types -run TestMergeAnswerAggregateFacts`
+- `bash eval/run.sh eval/cases/qf_multi_member_set_count_caveat.case 1`
+  - `eval/results/qf_multi_member_set_count_caveat-20260519-154652`
+  - PASS; `explorer_iters=5`, `finalizer_iters=1`, no repair/rewrite lines.
+
 ## Out of scope
 
 This phase does not add language-specific dispatch policy, does not

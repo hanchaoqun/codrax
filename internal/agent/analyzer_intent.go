@@ -165,14 +165,11 @@ func reconcileDiagnosticQuestionProfile(rm types.RequestModel) (types.RequestMod
 	return rm, "diagnostic semantic predicate aligned " + strings.Join(changes, ", ")
 }
 
-// reconcileIntent is preserved as a thin sanity check that traps the
-// rare case where the LLM marked is_count_question=true but still
-// picked intent=enumerate. validateSelfConsistency in emit_analysis
-// already rejects this combination upstream, so by the time
-// reconcileIntent runs it should be a no-op. The function survives
-// only as a defense-in-depth assertion: if a future schema change
-// loosens the upstream check, the analyzer still produces the
-// correct downstream behaviour.
+// reconcileIntent is preserved as a thin sanity check. Count predicates used to
+// downgrade intent=enumerate to return_value, but that overrode list-with-counts
+// questions where the user wants members plus per-category totals. The normal
+// emit_analysis path now clears is_count_question for enumerate-shaped answers
+// before the RequestModel is stored, so this layer must not steal user intent.
 //
 // Log-triage override: when the log_triage pre-stage emitted a
 // bundle whose IntentHint is IntentRootCause (i.e. the log carried
@@ -191,8 +188,8 @@ func reconcileDiagnosticQuestionProfile(rm types.RequestModel) (types.RequestMod
 // attached log; the function nil-checks and skips the override.
 func reconcileIntent(declared types.Intent, preds types.SemanticPredicates, bundle *types.LogBundle) (types.Intent, string) {
 	if declared == types.IntentEnumerate && preds.IsCountQuestion {
-		return types.IntentReturnValue,
-			"predicates.is_count_question=true overrides intent=enumerate (defense-in-depth; should be caught by self-consistency)"
+		return declared,
+			"predicates.is_count_question=true left advisory for intent=enumerate; per-list counts do not downgrade enumeration intent"
 	}
 	// Commit 61 Batch F.3 (audit MEDIUM #3, red line "no system
 	// hard-cap"): pre-fix this branch forced IntentRootCause when

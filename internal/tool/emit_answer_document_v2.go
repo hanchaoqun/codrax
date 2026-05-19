@@ -195,6 +195,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	}
 	canonicalizeSummaryLeadBlock(doc)
 	visibleRecovery := mergeAnswerDocumentRecoveryAttachments(recovery, doc)
+	normalizeTypedExcludedAnswerSurface(doc, ctx)
 
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint.
 	// Before we persist the doc, run the structural checks and split

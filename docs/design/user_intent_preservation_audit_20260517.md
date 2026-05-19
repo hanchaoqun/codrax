@@ -903,6 +903,7 @@
 3. [x] surface_terms 不再自动追加正文。
 4. [x] 同类错误连续失败时降级为隔离补充展示，不再反复重写。
 5. [x] reviewer anchor set 改为最终文档 citation 优先，避免 reviewer 用滞后 evidence 误判真实标识符。
+6. [x] typed exclusion/export scope 双层兜底：analyzer 明确 public/exported-only → `private` typed exclusion；`emit_investigation_complete` 在 aggregate facts 入库前按 repo 图 kind/exported 状态移除 excluded-role 成员并重算精确数量；`emit_answer_document` 只做可见面确定性 redaction，不把小型排除项泄漏交给 finalizer 重写。
 
 ### Batch D：reconcile 只做一致性，不做意图重写
 
