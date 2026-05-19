@@ -166,8 +166,9 @@ const (
 // kind enum, required label/value, bounded list sizes, and whitespace
 // trimming. They do not infer or repair values from evidence. The one
 // derived canonicalization is member_set.value: when the model emitted
-// the complete members array but omitted value, value is set to
-// len(members) from that same model-authored structured payload.
+// the complete members array but omitted a value, or emitted a numeric
+// value that drifted from the array length, value is set to len(members)
+// from that same model-authored structured payload.
 func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateFact, error) {
 	if len(in) == 0 {
 		return nil, nil
@@ -731,8 +732,12 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 	if err != nil {
 		return AnswerAggregateFact{}, err
 	}
-	if fact.Kind == AnswerAggregateMemberSet && fact.Value == "" && len(fact.Members) > 0 {
-		fact.Value = strconv.Itoa(len(fact.Members))
+	if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
+		if fact.Value == "" {
+			fact.Value = strconv.Itoa(len(fact.Members))
+		} else if n, err := strconv.Atoi(fact.Value); err == nil && n >= 0 && n != len(fact.Members) {
+			fact.Value = strconv.Itoa(len(fact.Members))
+		}
 	}
 	if fact.Value == "" {
 		return AnswerAggregateFact{}, fmt.Errorf("value is required")

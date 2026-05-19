@@ -849,6 +849,47 @@ func TestEnrichCompletionAggregateFactsWithMemberSupport_ReadFileGutter(t *testi
 	}
 }
 
+func TestEnrichCompletionAggregateFactsWithMemberSupport_DecoratedLineMembers(t *testing.T) {
+	mut := types.NewMutableState("x")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[internal/agent/analyzer.go: showing lines 1377-1378 of 2500 total]",
+			"  1377│ graph, graphOrigin := analyzerGraphForNormalize(ctx, rm)",
+			"  1378│ rm = reconcileEnumerationBoundaryScope(rm)",
+			"[internal/agent/analyzer.go: showing lines 1702-1703 of 2500 total]",
+			"  1702│ resolver := analyzerSymbolResolver(ctx, rm)",
+			"  1703│ rm.TermGraph = normalizer.Normalize(rm.TermGraph, resolver)",
+		}, "\n"),
+	})
+	got := enrichCompletionAggregateFactsWithMemberSupport(&types.BusContext{Mutable: mut}, []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "call chain",
+		Value: "3",
+		Members: []string{
+			"analyzerGraphForNormalize (L1377)",
+			"reconcileEnumerationBoundaryScope (line 1378)",
+			"normalizer.Normalize (第1703行)",
+			"analyzerSymbolResolver (analyzer.go:1702)",
+		},
+	}})
+	if len(got) != 1 || len(got[0].SupportRefs) != 4 {
+		t.Fatalf("enriched facts = %+v", got)
+	}
+	want := []string{
+		"analyzerGraphForNormalize: internal/agent/analyzer.go:1377",
+		"reconcileEnumerationBoundaryScope: internal/agent/analyzer.go:1378",
+		"normalizer.Normalize: internal/agent/analyzer.go:1703",
+		"analyzerSymbolResolver: internal/agent/analyzer.go:1702",
+	}
+	for i, ref := range want {
+		if got[0].SupportRefs[i] != ref {
+			t.Fatalf("support ref[%d] = %q, want %q (all=%+v)", i, got[0].SupportRefs[i], ref, got[0].SupportRefs)
+		}
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_ReadFileGutterRequiresRelationPathMatch(t *testing.T) {
 	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
 	mut.AppendDispatchToolResult(types.ToolResult{

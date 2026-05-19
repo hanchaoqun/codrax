@@ -88,7 +88,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"aggregate_facts": {
 				"type": "array",
-				"description": "OPTIONAL but expected for derived scalar/count answers and exhaustive member enumerations. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, and excluded-candidate counts. Use this instead of burying aggregates or complete member lists only in reason prose. Count values must be numeric strings with units kept in unit. For kind=member_set, value may be omitted when members contains the complete set; the framework canonicalizes value to len(members) from that same model-authored payload. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream and no value is inferred from raw evidence.",
+				"description": "OPTIONAL but expected for derived scalar/count answers and exhaustive member enumerations. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, and excluded-candidate counts. Use this instead of burying aggregates or complete member lists only in reason prose. Count values must be numeric strings with units kept in unit. For kind=member_set, value may be omitted when members contains the complete set; if a numeric value drifts from members length, the framework canonicalizes value to len(members) from that same model-authored payload. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream and no value is inferred from raw evidence.",
 				"items": {
 					"type": "object",
 					"properties": {
@@ -424,6 +424,37 @@ func decodeMisplacedStringField(fields map[string]json.RawMessage, name string) 
 	return strings.TrimSpace(s)
 }
 
+func aggregateFactValueCanonicalizationNotes(raw, normalized []types.AnswerAggregateFact) []string {
+	if len(raw) == 0 || len(normalized) == 0 {
+		return nil
+	}
+	limit := len(raw)
+	if len(normalized) < limit {
+		limit = len(normalized)
+	}
+	var notes []string
+	for i := 0; i < limit; i++ {
+		rawFact := raw[i]
+		fact := normalized[i]
+		if rawFact.Kind != types.AnswerAggregateMemberSet || fact.Kind != types.AnswerAggregateMemberSet {
+			continue
+		}
+		rawValue := strings.TrimSpace(rawFact.Value)
+		if rawValue == "" || rawValue == fact.Value || len(fact.Members) == 0 {
+			continue
+		}
+		if _, err := strconv.Atoi(rawValue); err != nil {
+			continue
+		}
+		want := strconv.Itoa(len(fact.Members))
+		if fact.Value != want {
+			continue
+		}
+		notes = append(notes, fmt.Sprintf("member_set[%d].value %s->%s from members", i, rawValue, fact.Value))
+	}
+	return notes
+}
+
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return types.ToolResult{
@@ -491,6 +522,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	aggregateFactNormalizationNotes := aggregateFactValueCanonicalizationNotes(p.AggregateFacts, aggregateFacts)
 	if err := validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx, aggregateFacts, evidenceSnapshot); err != nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -1015,6 +1047,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	if len(effectiveAggregateFacts) > 0 {
 		summary += fmt.Sprintf(" | aggregate_facts: %d", len(effectiveAggregateFacts))
+	}
+	if len(aggregateFactNormalizationNotes) > 0 {
+		summary += " | aggregate_facts normalized: " + strings.Join(aggregateFactNormalizationNotes, "; ")
 	}
 
 	return types.ToolResult{
@@ -2150,6 +2185,10 @@ func enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx *types.BusC
 			continue
 		}
 		for _, member := range out[factIdx].Members {
+			if ref, ok := aggregateDecoratedMemberReadFileSupportRef(member, support); ok {
+				out[factIdx].SupportRefs = append(out[factIdx].SupportRefs, ref)
+				continue
+			}
 			if aggregateMemberSetMemberUsable(out[factIdx], member, support) {
 				continue
 			}
@@ -2188,6 +2227,7 @@ func aggregateSupportToolResultEligible(name string) bool {
 var aggregateToolLocationPattern = regexp.MustCompile(`\b[^\s"'` + "`" + `]+:\d+\b`)
 var aggregateReadFileHeaderPattern = regexp.MustCompile(`^\[([^:\]\n]+): showing `)
 var aggregateReadFileGutterPattern = regexp.MustCompile(`^\s*(\d+)\s*[│|]\s?(.*)$`)
+var aggregateDecoratedLineQualifierPattern = regexp.MustCompile(`(?i)^\s*(?:#|lines?|ln|l|行|第)\s*#?\s*(\d+)\s*(?:行)?\s*$`)
 
 type aggregateToolLine struct {
 	File string
@@ -2314,6 +2354,9 @@ func aggregateSupportLocationMatchesMemberLabels(location string, labels []strin
 }
 
 func aggregateMemberReadFileSupportRef(member string, support aggregateMemberSupportIndex) (string, bool) {
+	if ref, ok := aggregateDecoratedMemberReadFileSupportRef(member, support); ok {
+		return ref, true
+	}
 	left, _, ok := types.AnswerAggregateMemberRelationParts(member)
 	if !ok || strings.TrimSpace(left) == "" {
 		return "", false
@@ -2336,6 +2379,110 @@ func aggregateMemberReadFileSupportRef(member string, support aggregateMemberSup
 		return "Member @ " + loc, true
 	}
 	return "", false
+}
+
+func aggregateDecoratedMemberReadFileSupportRef(member string, support aggregateMemberSupportIndex) (string, bool) {
+	base, qualifier, ok := types.AnswerAggregateDecoratedLabelParts(member)
+	if !ok {
+		return "", false
+	}
+	base = strings.TrimSpace(base)
+	if base == "" || !types.IsCodeIdentitySurface(base) {
+		return "", false
+	}
+	labels := aggregateMemberDisplayCandidates(base)
+	if tail := types.NormalizedSurfaceSymbolTail(base); tail != "" {
+		labels = append(labels, tail)
+	}
+	labels = dedupStringsPreserveOrder(labels)
+	if ref, ok := aggregateDecoratedLocationQualifierSupportRef(base, qualifier, labels, support); ok {
+		return ref, true
+	}
+	lineNo, ok := aggregateDecoratedLineQualifierNumber(qualifier)
+	if !ok {
+		return "", false
+	}
+	var matches []string
+	seen := map[string]bool{}
+	for _, line := range support.readFileLines {
+		if line.Line != lineNo {
+			continue
+		}
+		if !aggregateToolLineSupportsLabels(line.Text, labels) {
+			continue
+		}
+		loc := aggregateSupportLocationKey(line.File, line.Line)
+		if loc == "" || seen[loc] {
+			continue
+		}
+		seen[loc] = true
+		matches = append(matches, loc)
+	}
+	if len(matches) != 1 {
+		return "", false
+	}
+	return base + ": " + matches[0], true
+}
+
+func aggregateDecoratedLocationQualifierSupportRef(base, qualifier string, labels []string, support aggregateMemberSupportIndex) (string, bool) {
+	surface, ok := types.ParseAnswerSourceLocationSurface(qualifier)
+	if !ok || surface.File == "" || surface.LineStart <= 0 {
+		return "", false
+	}
+	var matches []string
+	seen := map[string]bool{}
+	for _, line := range support.readFileLines {
+		if line.Line != surface.LineStart {
+			continue
+		}
+		if !aggregateReadFilePathMatchesQualifier(line.File, surface.File) {
+			continue
+		}
+		if !aggregateToolLineSupportsLabels(line.Text, labels) {
+			continue
+		}
+		loc := aggregateSupportLocationKey(line.File, line.Line)
+		if loc == "" || seen[loc] {
+			continue
+		}
+		seen[loc] = true
+		matches = append(matches, loc)
+	}
+	if len(matches) != 1 {
+		return "", false
+	}
+	return base + ": " + matches[0], true
+}
+
+func aggregateReadFilePathMatchesQualifier(readFile, qualifierFile string) bool {
+	readFile = strings.ToLower(strings.Trim(strings.TrimSpace(strings.ReplaceAll(readFile, `\`, `/`)), "/"))
+	qualifierFile = strings.ToLower(strings.Trim(strings.TrimSpace(strings.ReplaceAll(qualifierFile, `\`, `/`)), "/"))
+	if readFile == "" || qualifierFile == "" {
+		return false
+	}
+	if readFile == qualifierFile {
+		return true
+	}
+	if strings.Contains(qualifierFile, "/") {
+		return strings.HasSuffix(readFile, "/"+qualifierFile)
+	}
+	return path.Base(readFile) == qualifierFile
+}
+
+func aggregateDecoratedLineQualifierNumber(qualifier string) (int, bool) {
+	qualifier = strings.TrimSpace(qualifier)
+	if qualifier == "" {
+		return 0, false
+	}
+	m := aggregateDecoratedLineQualifierPattern.FindStringSubmatch(qualifier)
+	if len(m) != 2 {
+		return 0, false
+	}
+	line, err := strconv.Atoi(m[1])
+	if err != nil || line <= 0 {
+		return 0, false
+	}
+	return line, true
 }
 
 func aggregateRelationRightSupportLabels(member string) []string {
@@ -2616,17 +2763,28 @@ func aggregateToolLocationMatchesLabels(location string, labels []string, byLoca
 		return false
 	}
 	for _, line := range lines {
-		for _, label := range labels {
-			label = strings.TrimSpace(label)
-			if label == "" {
-				continue
-			}
-			if types.AnswerSupportRefLabelIsGeneric(label) {
-				continue
-			}
-			if types.AnswerCodeSurfaceAppearsInText(line, label) {
-				return true
-			}
+		if aggregateToolLineSupportsLabels(line, labels) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateToolLineSupportsLabels(line string, labels []string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" || aggregateReadFileLineIsComment(line) {
+		return false
+	}
+	for _, label := range labels {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			continue
+		}
+		if types.AnswerSupportRefLabelIsGeneric(label) {
+			continue
+		}
+		if types.AnswerCodeSurfaceAppearsInText(line, label) {
+			return true
 		}
 	}
 	return false

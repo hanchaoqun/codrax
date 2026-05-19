@@ -58,8 +58,12 @@ For `kind=member_set` only:
 - Normalize `members` first.
 - If `value` is empty and `members` is non-empty, set `value` to
   `strconv.Itoa(len(members))`.
-- Keep the existing cardinality validator: if `value` is present and does not
-  equal `len(members)`, reject.
+- If `value` is present as a non-negative integer but does not equal
+  `len(members)`, canonicalize it to `len(members)`. For `member_set`,
+  `members[]` is the model-authored exact set and `value` is a derived
+  cardinality, so this is a structural repair rather than answer synthesis.
+- Keep non-integer `value` invalid and keep `member_set` without members
+  invalid.
 - Keep all non-`member_set` count-like facts strict. A `total_count` or
   `unique_count` with omitted `value` remains invalid because its `members`
   may be samples rather than the full set.
@@ -67,8 +71,26 @@ For `kind=member_set` only:
 ### Tests
 
 - `member_set` without `value` is accepted and stored with canonical count.
-- `member_set` with mismatched explicit `value` is still rejected.
+- `member_set` with mismatched numeric explicit `value` is accepted and stored
+  with canonical count from the structured members.
 - `total_count` without `value` remains rejected.
+
+### 2026-05-19 extension: source-line decorators
+
+The same post-fix eval also showed a related compatibility gap: the model
+emitted exact members such as `foo (L123)`, but omitted `support_refs`. Because
+the line decorator is already structured on the member, the tool now fills
+`support_refs` from already-read `read_file` gutter lines when all of these
+precise checks pass:
+
+- the qualifier is a single source-line marker (`L123`, `line 123`, `第123行`)
+  or a file-line marker (`file.go:123`, `path/to/file.go:123`);
+- the already-read gutter contains exactly one matching file:line;
+- that line is not a comment and contains the member's code identity as a
+  bounded code surface.
+
+Non-line decorators such as `(8 checks)` or `(runtime bucket)` still require
+explicit support refs or ordinary typed evidence.
 
 ## Workstream B: Principal Anchor Coverage for Forced Reads
 

@@ -60,7 +60,7 @@ func TestNormalizeAnswerAggregateFacts_RejectsInvalid(t *testing.T) {
 		{name: "count value unit drift", in: []AnswerAggregateFact{{Kind: AnswerAggregateTotalCount, Label: "x", Value: "3 files"}}},
 		{name: "member cardinality", in: []AnswerAggregateFact{{Kind: AnswerAggregateBucketCount, Label: "runtime bucket", Value: "3", Members: []string{"a.go:1", "b.go:2"}}}},
 		{name: "member set requires members", in: []AnswerAggregateFact{{Kind: AnswerAggregateMemberSet, Label: "enum types", Value: "2"}}},
-		{name: "member set cardinality", in: []AnswerAggregateFact{{Kind: AnswerAggregateMemberSet, Label: "enum types", Value: "2", Members: []string{"Intent"}}}},
+		{name: "member set noninteger value", in: []AnswerAggregateFact{{Kind: AnswerAggregateMemberSet, Label: "enum types", Value: "two", Members: []string{"Intent"}}}},
 		{name: "excluded cardinality", in: []AnswerAggregateFact{{Kind: AnswerAggregateExcluded, Label: "tests", Value: "2", Excluded: []string{"a_test.go"}}}},
 	}
 	for _, tc := range cases {
@@ -301,6 +301,28 @@ func TestNormalizeAnswerAggregateFacts_CanonicalizesMemberSetValueFromMembers(t 
 	}})
 	if err != nil {
 		t.Fatalf("member_set without value should validate from structured members: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d facts, want 1: %+v", len(got), got)
+	}
+	if got[0].Value != "4" {
+		t.Fatalf("member_set value = %q, want canonical len(members)=4", got[0].Value)
+	}
+	if len(got[0].Members) != 4 {
+		t.Fatalf("members not preserved: %+v", got[0].Members)
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_CanonicalizesNumericMemberSetValueDrift(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "pipeline stages",
+		Value:   "3",
+		Unit:    "stages",
+		Members: []string{"analyze", "explore", "extract", "finalize"},
+	}})
+	if err != nil {
+		t.Fatalf("member_set with numeric value drift should canonicalize from structured members: %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("got %d facts, want 1: %+v", len(got), got)
