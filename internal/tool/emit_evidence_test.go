@@ -729,6 +729,110 @@ func TestEmitEvidence_LoadBearingSummaryDefaultsToFalse(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_AcceptsSalience(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "TargetSymbol", "source": "internal/agent/foo.go", "line_start": 30, "summary": "principal proof", "anchor_kind": "definition", "anchor_symbol": "TargetSymbol", "salience": "load_bearing"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item, got %d", len(got))
+	}
+	if got[0].Salience != types.SalienceLoadBearing {
+		t.Fatalf("Salience = %q, want load_bearing", got[0].Salience)
+	}
+}
+
+func TestEmitEvidence_RejectsUnknownSalience(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "TargetSymbol", "source": "internal/agent/foo.go", "line_start": 30, "summary": "principal proof", "anchor_kind": "definition", "anchor_symbol": "TargetSymbol", "salience": "primary"}
+        ]
+    }`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("expected failure, got success: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "salience") || !strings.Contains(res.Summary, "load_bearing") {
+		t.Fatalf("expected targeted salience enum error, got: %s", res.Summary)
+	}
+	if len(ctx.Mutable.EmittedEvidence()) != 0 {
+		t.Errorf("buffer should not be touched on failure")
+	}
+}
+
+func TestEmitEvidence_SalienceDefaultsToUnset(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "TargetSymbol", "source": "internal/agent/foo.go", "line_start": 30, "summary": "ordinary proof", "anchor_kind": "definition", "anchor_symbol": "TargetSymbol"}
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item, got %d", len(got))
+	}
+	if got[0].Salience != types.SalienceUnset {
+		t.Fatalf("Salience = %q, want unset", got[0].Salience)
+	}
+	if got[0].Salience.Resolve() != types.SalienceSupporting {
+		t.Fatalf("unset Resolve = %q, want supporting", got[0].Salience.Resolve())
+	}
+}
+
+func TestEmitEvidence_SalienceSchemaSyncedWithGo(t *testing.T) {
+	var schema struct {
+		Properties struct {
+			Items struct {
+				Items struct {
+					Properties map[string]struct {
+						Enum []string `json:"enum"`
+					} `json:"properties"`
+				} `json:"items"`
+			} `json:"items"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(emitEvidenceParametersSchema(), &schema); err != nil {
+		t.Fatalf("schema unmarshal: %v", err)
+	}
+	got := schema.Properties.Items.Items.Properties["salience"].Enum
+	if !reflect.DeepEqual(got, types.EvidenceSalienceStrings()) {
+		t.Fatalf("schema salience enum = %v, want %v", got, types.EvidenceSalienceStrings())
+	}
+}
+
+func TestEmitEvidenceToolDescription_NoSalienceInternalLeakage(t *testing.T) {
+	desc := (&EmitEvidence{}).Description()
+	for _, forbidden := range []string{"tier1_floor", "extractor", "finalizer", "producer rank", "display cap"} {
+		if strings.Contains(desc, forbidden) {
+			t.Fatalf("description leaks internal term %q:\n%s", forbidden, desc)
+		}
+	}
+	if !strings.Contains(desc, "salience") || !strings.Contains(desc, "load_bearing") || !strings.Contains(desc, "exhaust_listed") {
+		t.Fatalf("description should teach salience values:\n%s", desc)
+	}
+}
+
 func TestEmitEvidence_RejectsUnknownKind(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

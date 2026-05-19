@@ -613,3 +613,20 @@ Current code locations still line up with the design's main intent:
 - `internal/context/builder.go::formatEvidenceItems` is telemetry-only; it must not start using salience for producer-band selection.
 
 The highest-value first implementation is B0a+B0b+B1. It gives us typed data and the safest protection path while leaving scoring/cap policy measurable before broader prompt exposure.
+
+---
+
+## §13 Implementation task list (2026-05-19)
+
+This section is the live delivery ledger for the implementation pass. Update it after each batch so follow-up work does not depend on memory.
+
+1. **DONE — B0a/B0b typed wire foundation.**
+   Added `EvidenceSalience`, `EvidenceItem.Salience`, merge preservation in both general and exact-resolution evidence merge paths, parser validation, schema sync tests, invalid-value tests, and explicit default/no-op tests.
+2. **DONE — B1 locked-row diversity protection.**
+   Explicit `load_bearing` / `exhaust_listed` rows bypass the `(source, subject, anchor_symbol) <= 2` diversity cap. Unset/supporting/context rows keep the legacy path.
+3. **DONE — B2 extractor visibility protection.**
+   Explicit locked rows survive score-zero filtering, unset rows still receive no boost, caps widen to cover locked rows before context up to the existing hard cap, and overflow telemetry warns instead of silently hiding the condition.
+4. **DONE — B3 finalizer mirror.**
+   Finalizer enrichment mirrors extractor protection without double-counting the salience boost; block ordering remains model-owned.
+5. **DONE — B4 prompt teaching + telemetry + eval.**
+   `emit_evidence` schema/description and explorer skill now teach `salience`; structured evidence trace logs include salience histograms. Targeted eval `qf_diagram_pipeline-20260519-142807` passed after the prompt/schema change, with finalizer staying at one dispatch and no document/patch reject.

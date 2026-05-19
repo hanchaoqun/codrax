@@ -619,13 +619,16 @@ func renderExtractorValueEvidenceFacts(ctx *types.AgentContext, ta *types.TurnAA
 	if hasRelevant {
 		filtered := candidates[:0]
 		for _, candidate := range candidates {
-			if candidate.score > 0 {
+			if candidate.score > 0 || candidate.item.SalienceLockedForScoring() {
 				filtered = append(filtered, candidate)
 			}
 		}
 		candidates = filtered
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].item.SalienceLockedForScoring() != candidates[j].item.SalienceLockedForScoring() {
+			return candidates[i].item.SalienceLockedForScoring()
+		}
 		if candidates[i].score != candidates[j].score {
 			return candidates[i].score > candidates[j].score
 		}
@@ -673,6 +676,7 @@ func extractorValueEvidenceDisplayLimit(ctx *types.AgentContext, ta *types.TurnA
 		if len(ta.AcceptedAggregateFacts) > 0 {
 			limit += extractorMinInt(len(ta.AcceptedAggregateFacts)*2, 6)
 		}
+		limit = widenEvidenceLimitForSalience(limit, extractorMinValueFacts, extractorMaxValueFacts, ta.EvidenceItems, "extractor")
 	}
 	switch profile {
 	case extractorValueRankComparison, extractorValueRankEnumeration, extractorValueRankDiagnostic:
@@ -694,6 +698,41 @@ func extractorMinInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func extractorMaxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func countLoadBearingOrExhaust(items []types.EvidenceItem) int {
+	count := 0
+	for _, item := range items {
+		if item.SalienceLockedForScoring() {
+			count++
+		}
+	}
+	return count
+}
+
+func widenEvidenceLimitForSalience(limit, minLimit, maxLimit int, items []types.EvidenceItem, site string) int {
+	locked := countLoadBearingOrExhaust(items)
+	if locked > 0 {
+		const contextReserve = 4
+		limit = extractorMaxInt(limit, locked+contextReserve)
+		if locked > maxLimit {
+			logging.Warning("[%s] salience-locked evidence rows exceed display cap: locked=%d cap=%d", site, locked, maxLimit)
+		}
+	}
+	if limit < minLimit {
+		return minLimit
+	}
+	if limit > maxLimit {
+		return maxLimit
+	}
+	return limit
 }
 
 func extractorValueEvidenceRankProfileFor(ctx *types.AgentContext) extractorValueRankProfile {
@@ -826,11 +865,12 @@ func extractorValueEvidenceScore(item types.EvidenceItem, label, surface string,
 			}
 		}
 	}
-	if score == 0 {
+	if score == 0 && !item.SalienceLockedForScoring() {
 		return 0
 	}
 	score += extractorValueEvidenceKindBoost(item.Kind, profile)
 	score += extractorValueEvidenceAnchorBoost(item.AnchorKind, profile)
+	score += extractorValueEvidenceSalienceBoost(item.Salience, profile)
 	if item.LoadBearingSummary {
 		score += extractorValueEvidenceLoadBearingBoost(profile)
 	}
@@ -933,6 +973,22 @@ func extractorValueEvidenceLoadBearingBoost(profile extractorValueRankProfile) i
 		return 14
 	default:
 		return 10
+	}
+}
+
+func extractorValueEvidenceSalienceBoost(salience types.EvidenceSalience, profile extractorValueRankProfile) int {
+	switch salience {
+	case types.SalienceLoadBearing, types.SalienceExhaustListed:
+		switch profile {
+		case extractorValueRankEnumeration, extractorValueRankDiagnostic, extractorValueRankTrace:
+			return 8
+		default:
+			return 6
+		}
+	case types.SalienceSupporting:
+		return 3
+	default:
+		return 0
 	}
 }
 

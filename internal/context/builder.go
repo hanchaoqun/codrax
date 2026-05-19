@@ -1425,15 +1425,31 @@ func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts 
 	// does NOT change emission or grounding behaviour.
 	if len(items) > 0 {
 		counts := map[string]int{}
+		salienceCounts := map[string]int{}
+		lockedSalience := 0
 		for i, it := range items {
 			if i >= 25 {
 				break
 			}
-			logging.Debug("[trace/fev] %d producer=%q src=%s:%d subj=%q kind=%q claim_form=%q grounding=%s",
-				i, it.Producer, it.Source, it.LineStart, it.Subject, it.Kind, types.ClaimFormOf(it), it.GroundingStatus)
+			salience := string(it.Salience.Resolve())
+			if it.Salience.IsSet() {
+				salience = string(it.Salience)
+			} else {
+				salience = "unset"
+			}
+			salienceCounts[salience]++
+			if it.SalienceLockedForScoring() {
+				lockedSalience++
+			}
+			logging.Debug("[trace/fev] %d producer=%q src=%s:%d subj=%q kind=%q claim_form=%q grounding=%s salience=%q",
+				i, it.Producer, it.Source, it.LineStart, it.Subject, it.Kind, types.ClaimFormOf(it), it.GroundingStatus, salience)
 			counts[it.Producer]++
 		}
 		logging.Debug("[trace/fev] total=%d top25 producer histogram: %v", len(items), counts)
+		logging.Debug("[trace/fev] total=%d top25 salience histogram: %v", len(items), salienceCounts)
+		if lockedSalience > 8 {
+			logging.Warning("[trace/fev] high salience-locked evidence count in top25: locked=%d", lockedSalience)
+		}
 	}
 	var b strings.Builder
 	written := 0

@@ -32,6 +32,17 @@ func TestCountTier1Evidence(t *testing.T) {
 	}
 }
 
+func TestCountTier1EvidenceIgnoresSalience(t *testing.T) {
+	items := []types.EvidenceItem{
+		{GroundingStatus: types.GroundingRecovered, Salience: types.SalienceLoadBearing},
+		{GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText, Salience: types.SalienceContext},
+	}
+	tier1, total := countTier1Evidence(items, nil, types.ScenarioGeneric, false, nil, types.RequestModel{})
+	if tier1 != 1 || total != 2 {
+		t.Fatalf("tier1/total = %d/%d, want 1/2; salience must not affect grounding floor", tier1, total)
+	}
+}
+
 // TestCountTier1Evidence_AllRecovered — pure-recovery investigation
 // (the log 172408 scenario): zero Tier-1 against total evidence.
 func TestCountTier1Evidence_AllRecovered(t *testing.T) {

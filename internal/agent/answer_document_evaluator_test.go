@@ -395,6 +395,68 @@ func TestSelectAnswerDocTypedEnrichmentFactsTruncatesLargeSurface(t *testing.T) 
 	}
 }
 
+func TestSelectAnswerDocTypedEnrichmentFacts_SalienceLockedSurvivesScoreFilter(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: "needle",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentExplain, RawRequest: "needle"},
+		},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			ID:              "scored",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/scored.go",
+			LineStart:       10,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "Scored",
+			Subject:         "Scored",
+			Object:          "needle",
+			Snippet:         "Scored = \"needle\"",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "locked",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/locked.go",
+			LineStart:       11,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "LockedDefinition",
+			Subject:         "LockedDefinition",
+			Snippet:         "type LockedDefinition struct{}",
+			Salience:        types.SalienceLoadBearing,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	got := selectAnswerDocTypedEnrichmentFacts(ctx, evidence, false, nil)
+	if len(got) != 2 {
+		t.Fatalf("expected scored + locked facts, got %+v", got)
+	}
+	if got[0].item.ID != "locked" {
+		t.Fatalf("locked salience row should sort before context rows, got first=%q", got[0].item.ID)
+	}
+}
+
+func TestAnswerDocEnrichmentDisplayLimit_WidensForLockedSalience(t *testing.T) {
+	evidence := make([]types.EvidenceItem, 0, answerDocMaxEnrichmentFacts)
+	for i := 0; i < answerDocMaxEnrichmentFacts; i++ {
+		evidence = append(evidence, types.EvidenceItem{Salience: types.SalienceExhaustListed})
+	}
+	limit := answerDocEnrichmentDisplayLimit(nil, extractorValueRankGeneric, evidence)
+	if limit != answerDocMaxEnrichmentFacts {
+		t.Fatalf("limit=%d, want max cap %d", limit, answerDocMaxEnrichmentFacts)
+	}
+	for i := range evidence {
+		evidence[i].Salience = types.SalienceUnset
+	}
+	limit = answerDocEnrichmentDisplayLimit(nil, extractorValueRankGeneric, evidence)
+	if limit != answerDocDefaultEnrichmentFacts {
+		t.Fatalf("unset salience must keep default limit, got %d", limit)
+	}
+}
+
 func TestSelectAnswerDocTypedEnrichmentFacts_DiagnosticSupportScopeFiltersUnrelatedRows(t *testing.T) {
 	supportScope := supportLaneScopeFromPlan(&types.AnswerSupportPlan{
 		Lanes: []types.AnswerSupportLane{{

@@ -353,6 +353,7 @@ func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 				if item.Confidence > existing.Confidence {
 					existing.Confidence = item.Confidence
 				}
+				existing.Salience = types.MergeEvidenceSalience(existing.Salience, item.Salience)
 				existing.SurfaceTerms = mergeStrings(existing.SurfaceTerms, item.SurfaceTerms)
 				// Merge Producer too: when two producers contribute to the
 				// same item, prefer the question-relevant one (non-dataflow)
@@ -728,6 +729,10 @@ func rankEvidenceByRelevanceWithSubject(question string, items []types.EvidenceI
 	counts := make(map[dedupKey]int)
 	result := make([]types.EvidenceItem, 0, len(items))
 	for _, si := range scored_items {
+		if si.item.SalienceLockedForScoring() {
+			result = append(result, si.item)
+			continue
+		}
 		key := dedupKey{si.item.Source, si.item.Subject, si.item.AnchorSymbol}
 		if counts[key] >= 2 {
 			continue

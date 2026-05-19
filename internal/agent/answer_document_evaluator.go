@@ -3764,7 +3764,7 @@ func selectAnswerDocTypedEnrichmentFacts(
 	}
 	needles := extractorValueEvidenceNeedles(ctx, nil)
 	profile := extractorValueEvidenceRankProfileFor(ctx)
-	limit := answerDocEnrichmentDisplayLimit(ctx, profile)
+	limit := answerDocEnrichmentDisplayLimit(ctx, profile, evidence)
 	candidates := make([]answerDocEnrichmentFact, 0, len(evidence))
 	hasRelevant := false
 	for i, item := range evidence {
@@ -3806,13 +3806,16 @@ func selectAnswerDocTypedEnrichmentFacts(
 	if hasRelevant {
 		filtered := candidates[:0]
 		for _, candidate := range candidates {
-			if candidate.score > 0 {
+			if candidate.score > 0 || candidate.item.SalienceLockedForScoring() {
 				filtered = append(filtered, candidate)
 			}
 		}
 		candidates = filtered
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].item.SalienceLockedForScoring() != candidates[j].item.SalienceLockedForScoring() {
+			return candidates[i].item.SalienceLockedForScoring()
+		}
 		if candidates[i].score != candidates[j].score {
 			return candidates[i].score > candidates[j].score
 		}
@@ -3839,7 +3842,7 @@ func answerDocEvidenceIsCurrentRepoOnly(item types.EvidenceItem) bool {
 	return strings.Contains(source, "/")
 }
 
-func answerDocEnrichmentDisplayLimit(ctx *types.AgentContext, profile extractorValueRankProfile) int {
+func answerDocEnrichmentDisplayLimit(ctx *types.AgentContext, profile extractorValueRankProfile, evidence []types.EvidenceItem) int {
 	limit := answerDocDefaultEnrichmentFacts
 	if ctx != nil && ctx.AnalysisIR != nil {
 		rm := ctx.AnalysisIR.RequestModel
@@ -3862,6 +3865,7 @@ func answerDocEnrichmentDisplayLimit(ctx *types.AgentContext, profile extractorV
 	case extractorValueRankScalar:
 		limit -= 2
 	}
+	limit = widenEvidenceLimitForSalience(limit, 8, answerDocMaxEnrichmentFacts, evidence, "answer_document")
 	if limit < 8 {
 		return 8
 	}
@@ -3891,6 +3895,9 @@ func answerDocEnrichmentLaneForEvidence(item types.EvidenceItem) string {
 		return "chain_or_intermediate_fact"
 	}
 	if item.LoadBearingSummary || len(item.SurfaceTerms) > 0 {
+		return "context_enrichment_fact"
+	}
+	if item.SalienceLockedForScoring() {
 		return "context_enrichment_fact"
 	}
 	switch item.Authority {

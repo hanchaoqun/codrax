@@ -1081,3 +1081,55 @@ func TestRankEvidenceWithAxis_NoEntitiesStillUsesAxis(t *testing.T) {
 		t.Fatalf("AxisCall should rank call evidence first even with no extracted entities; got %q", ranked[0].Subject)
 	}
 }
+
+func TestRankEvidenceByRelevance_SalienceExemptsDiversityCap(t *testing.T) {
+	var items []types.EvidenceItem
+	for i := 0; i < 5; i++ {
+		salience := types.SalienceUnset
+		if i < 3 {
+			salience = types.SalienceLoadBearing
+		}
+		items = append(items, types.EvidenceItem{
+			Kind:         types.EvidenceDirect,
+			Subject:      "SharedSubject",
+			Object:       "pipeline",
+			Source:       "internal/shared.go",
+			LineStart:    10 + i,
+			AnchorKind:   types.AnchorCall,
+			AnchorSymbol: "SharedCall",
+			Salience:     salience,
+		})
+	}
+	ranked := rankEvidenceByRelevanceWithSubject("pipeline SharedSubject", items, nil, types.AnswerSubject{}, nil, types.AxisCall)
+	if got, want := len(ranked), 5; got != want {
+		t.Fatalf("locked salience rows should bypass diversity cap: got %d, want %d", got, want)
+	}
+	locked := 0
+	for _, item := range ranked {
+		if item.SalienceLockedForScoring() {
+			locked++
+		}
+	}
+	if locked != 3 {
+		t.Fatalf("locked survivor count = %d, want 3", locked)
+	}
+
+	for i := range items {
+		items[i].Salience = types.SalienceUnset
+	}
+	ranked = rankEvidenceByRelevanceWithSubject("pipeline SharedSubject", items, nil, types.AnswerSubject{}, nil, types.AxisCall)
+	if got, want := len(ranked), 2; got != want {
+		t.Fatalf("legacy diversity cap should remain for unset salience: got %d, want %d", got, want)
+	}
+}
+
+func TestEvidenceSortRankIgnoresSalience(t *testing.T) {
+	base := types.EvidenceItem{Producer: "explorer.emit_evidence"}
+	loadBearing := base
+	loadBearing.Salience = types.SalienceLoadBearing
+	context := base
+	context.Salience = types.SalienceContext
+	if evidenceSortRank(loadBearing) != evidenceSortRank(context) {
+		t.Fatalf("producer band must ignore salience")
+	}
+}

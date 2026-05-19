@@ -54,6 +54,39 @@ func TestMergeEvidenceItemsIfChangedFallsBackOnEnrichment(t *testing.T) {
 	}
 }
 
+func TestMergeEvidenceItemsCarriesExplicitSalience(t *testing.T) {
+	base := types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Subject:      "A",
+		Predicate:    "calls",
+		Object:       "B",
+		Source:       "a.go",
+		LineStart:    10,
+		AnchorKind:   types.AnchorCall,
+		AnchorSymbol: "B",
+		Producer:     "dataflow.engine",
+		Salience:     types.SalienceContext,
+	}
+	incoming := base
+	incoming.Producer = "explorer.emit_evidence"
+	incoming.Salience = types.SalienceLoadBearing
+
+	got := mergeEvidenceItems([]types.EvidenceItem{base}, []types.EvidenceItem{incoming})
+	if len(got) != 1 {
+		t.Fatalf("got %d items, want 1", len(got))
+	}
+	if got[0].Salience != types.SalienceLoadBearing {
+		t.Fatalf("salience = %q, want load_bearing", got[0].Salience)
+	}
+
+	unset := base
+	unset.Salience = types.SalienceUnset
+	got = mergeEvidenceItems([]types.EvidenceItem{incoming}, []types.EvidenceItem{unset})
+	if got[0].Salience != types.SalienceLoadBearing {
+		t.Fatalf("unset merge must not clear explicit salience, got %q", got[0].Salience)
+	}
+}
+
 func TestMergeFlowFindingsIfChangedSkipsNoopSnapshot(t *testing.T) {
 	item := types.FlowFindingDigest{
 		Path:       []string{"A", "B"},

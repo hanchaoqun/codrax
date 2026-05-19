@@ -119,6 +119,10 @@ func emitEvidenceDiagramRoleNames() []string {
 	return names
 }
 
+func emitEvidenceSalienceNames() []string {
+	return types.EvidenceSalienceStrings()
+}
+
 type emitEvidenceParams struct {
 	Items []emitEvidenceItem `json:"items"`
 }
@@ -158,7 +162,8 @@ type emitEvidenceItem struct {
 	// anchor_symbol / snippet) alone. Schema validation rejects the
 	// flag when summary is empty (an empty summary cannot be load-
 	// bearing).
-	LoadBearingSummary bool `json:"load_bearing_summary,omitempty"`
+	LoadBearingSummary bool   `json:"load_bearing_summary,omitempty"`
+	Salience           string `json:"salience,omitempty"`
 
 	// Scope-specific bundles. Each bundle is read only when the Scope
 	// field selects it; ValidateScope enforces that the required
@@ -253,6 +258,7 @@ func (t *EmitEvidence) Description() string {
 		"`config`, `runtime`, or `override` for config-precedence traces (`config` = grounded repo/user config-file layer such as YAML/JSON/TOML/INI/etc.). These are recommendations only: the tool " +
 		"validates them structurally and may downgrade or ignore inconsistent hints.\n\n" +
 		"surface_terms is optional model-authored structured data for exact user-visible labels / aliases copied verbatim from already-read source, log, or trace lines (for example route names, package/module labels, config keys, macro names, trace span names, original file labels, and labels in leading documentation/header comments attached to the cited anchor). The tool rejects any surface term that is not grounded in the read window; downstream synthesis treats accepted terms as preservation guidance when they are relevant to the visible answer.\n\n" +
+		"salience is optional structured data for answer participation: load_bearing means the answer cannot honor a visible claim without this row; exhaust_listed means this row is one member of a complete list the user asked for; supporting means an intermediate fact the answer chain uses; context means background the answer does not lean on. Omit it when unsure. This field helps preserve important rows in long investigations but does not replace member_set, answer_symbol, citations, or final answer obligations.\n\n" +
 		"snippet is optional but recommended for conditional / mechanism / registration items: paste " +
 		"1-2 lines of the actual code so the snippet_fuzzy recovery tier can re-anchor if your " +
 		"line_start is off by one.\n\n" +
@@ -327,6 +333,11 @@ func emitEvidenceParametersSchema() json.RawMessage {
 						"load_bearing_summary": map[string]any{
 							"type":        "boolean",
 							"description": "OPTIONAL. Default false. Set true ONLY when the `summary` text holds a scalar (commit hash, version string, count, single concrete identifier, value derived from a tool / shell / git command output) that the user-facing answer must reproduce verbatim AND the typed fields (subject / predicate / object / anchor_symbol / snippet) cannot themselves carry that scalar. False is correct for the common case where summary is a paraphrase / rationale that the typed fields already encode. The tool rejects this flag when summary is empty.",
+						},
+						"salience": map[string]any{
+							"type":        "string",
+							"enum":        emitEvidenceSalienceNames(),
+							"description": "OPTIONAL. Names how this fact participates in the user-facing answer. load_bearing = the answer cannot honor a visible claim without this row; exhaust_listed = this row is one member of a complete list the user asked for; supporting = an intermediate fact the answer chain uses; context = background the answer does not lean on. Omit when unsure; unset preserves ordinary behavior. This field helps preserve important rows in long investigations but does not replace member_set, answer_symbol, citations, or final answer obligations.",
 						},
 						"surface_terms": map[string]any{
 							"type":        "array",
@@ -1074,6 +1085,10 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	if err != nil {
 		return types.EvidenceItem{}, err
 	}
+	salience, ok := types.ParseEvidenceSalience(in.Salience)
+	if !ok {
+		return types.EvidenceItem{}, fmt.Errorf("items[%d]: salience=%q is not one of %v", index, in.Salience, types.EvidenceSalienceStrings())
+	}
 	lineStart := lineStartN
 	lineEnd := lineEndN
 	if scope == types.ScopeLine && lineEnd == 0 {
@@ -1100,6 +1115,7 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 		Snippet:              snippet,
 		Scope:                scope,
 		LoadBearingSummary:   in.LoadBearingSummary,
+		Salience:             salience,
 		SurfaceTerms:         normalizeEvidenceSurfaceTerms(in.SurfaceTerms),
 	}
 
@@ -2385,6 +2401,9 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 		} else {
 			fmt.Fprintf(&b, "  [%d] %s %s @ %s:%d\n",
 				i+1, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, line)
+		}
+		if it.Salience.IsSet() {
+			fmt.Fprintf(&b, "      salience: %s\n", it.Salience)
 		}
 		switch it.GroundingStatus {
 		case types.GroundingGrounded:

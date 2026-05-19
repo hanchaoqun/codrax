@@ -692,6 +692,13 @@ type EvidenceItem struct {
 	// empty (an empty summary cannot be load-bearing).
 	LoadBearingSummary bool `json:"load_bearing_summary,omitempty"`
 
+	// Salience is the model-authored typed lane for how this evidence
+	// row participates in the user-facing answer. Empty means "no
+	// salience claim" and must remain a no-op for ranking/cap policy.
+	// Explicit load_bearing / exhaust_listed rows are protected from
+	// silent noisy-ranker loss; supporting/context are advisory.
+	Salience EvidenceSalience `json:"salience,omitempty"`
+
 	// SurfaceTerms are model-authored, source-grounded user-visible
 	// aliases / labels that should survive into the final answer even
 	// when they are not the code symbol itself. Examples include
@@ -967,6 +974,10 @@ func (e EvidenceItem) IsCitable() bool {
 	// Empty status — only line-shaped scopes get the legacy
 	// deterministic-emitter pass.
 	return e.Scope.IsLineShaped()
+}
+
+func (e EvidenceItem) SalienceLockedForScoring() bool {
+	return e.Salience.IsLocked()
 }
 
 // DisplayLocation renders the "file:line" marker appropriate for a
@@ -1248,6 +1259,7 @@ func mergeExactResolutionSurfaceEvidence(dst, src EvidenceItem) EvidenceItem {
 	if dst.Confidence < src.Confidence {
 		dst.Confidence = src.Confidence
 	}
+	dst.Salience = MergeEvidenceSalience(dst.Salience, src.Salience)
 	if dst.Producer == "" {
 		dst.Producer = src.Producer
 	}
