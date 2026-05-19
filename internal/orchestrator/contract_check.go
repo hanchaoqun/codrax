@@ -3050,8 +3050,8 @@ func aggregateEnumerationPathLineKey(file string, line int) string {
 // reviewer (post_v2_runtime_gap_remediation, 2026-05-04; P4 prefilter
 // 2026-05-10; pre-flight rename 2026-05-17) should be dispatched. Skips
 // when:
-//   - any HARD violation already present (we'd double-noise the
-//     answer that's already failing other gates)
+//   - any currently retry-actionable finalizer root is already present
+//     (we'd double-noise the answer that's already failing a strict gate)
 //   - the doc has no body to evaluate (single-block summary-only)
 //   - the doc has emitted no facet declarations at all (no
 //     surface for AnchoredCount/DeclaredCount to evaluate)
@@ -3062,14 +3062,13 @@ func aggregateEnumerationPathLineKey(file string, line int) string {
 // evaluated AFTER the self_consistency reviewer completed, on the
 // assumption that self_consistency's verdict could contribute to the
 // gate. In practice, self_consistency emits ONLY ViolSelfContradiction
-// (see runSelfConsistencyReviewV2 at line ~2204), and that kind is NOT
-// in the gate's hard-violation list. Every kind in the gate
-// (ViolBlockCoverageMissing / ViolPrincipalClaimUseMissing /
-// ViolFacetUncovered / ViolDiagramEdgeUnsupported / ViolFamilyMismatch
-// / ViolViewIntentMismatch / ViolViewSwap) is produced by the block
-// oracles + facet_coverage check that run BEFORE either reviewer. The
-// gate decision is therefore fully determined ahead of the reviewer
-// dispatches, which is what lets the two reviewers run concurrently.
+// (see runSelfConsistencyReviewV2 at line ~2204), and that kind is not
+// part of the finalizer retry-root set. The strict/soft policy is
+// resolved before either reviewer through
+// FilterFinalizerRetryRootViolations(), so the gate decision is fully
+// determined ahead of reviewer dispatch; this is what lets the two
+// reviewers run concurrently without keeping a second, drifting
+// hard-kind list.
 //
 // P4 prefilter rationale: the reviewer's load-bearing axis is
 // per-facet AnchoredCount vs DeclaredCount mismatch. A doc that
@@ -3083,18 +3082,9 @@ func semanticQualityReviewerEligible(doc *types.AnswerDocumentV2, existing []typ
 		// No body — reviewer has nothing to judge.
 		return false
 	}
-	// Hard violations present — defer reviewer to a clean run.
-	for _, v := range existing {
-		switch v.Kind {
-		case types.ViolBlockCoverageMissing,
-			types.ViolPrincipalClaimUseMissing,
-			types.ViolFacetUncovered,
-			types.ViolDiagramEdgeUnsupported,
-			types.ViolFamilyMismatch,
-			types.ViolViewIntentMismatch,
-			types.ViolViewSwap:
-			return false
-		}
+	// Strict retry roots present — defer reviewer to a clean run.
+	if len(FilterFinalizerRetryRootViolations(existing)) > 0 {
+		return false
 	}
 	// P4 prefilter: skip when no block declared any facet via
 	// block.facet_ids[] OR claim_uses[].facet_id. Walking once is

@@ -645,6 +645,9 @@ func TestBuildSemanticQualityInput_NilGuards(t *testing.T) {
 // the new "no-facet-declared → skip" branch doesn't make every
 // fixture vacuously skip.
 func TestSemanticQualityReviewerEligible_GateSemantics(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
 	body := []types.AnswerBlock{
 		{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
 		{ID: "b1", Kind: types.BlockOrderedList, FacetIDs: []string{"enumeration_item"}, Items: []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
@@ -662,13 +665,24 @@ func TestSemanticQualityReviewerEligible_GateSemantics(t *testing.T) {
 		t.Error("body present + facet declared + no hard violations → reviewer should fire")
 	}
 
-	// Hard violation present → skip.
-	hardViolations := []types.Violation{
+	// Default-soft finalizer roots should not block the reviewer.
+	defaultSoftViolations := []types.Violation{
+		{Kind: types.ViolFacetUncovered, Detail: "x"},
+		{Kind: types.ViolDiagramEdgeUnsupported, Detail: "x"},
+	}
+	if !semanticQualityReviewerEligible(docFull, defaultSoftViolations) {
+		t.Error("default-soft finalizer roots → reviewer should still fire")
+	}
+
+	// Strict-promoted retry root present → skip.
+	SetSoftViolationKinds(nil, []string{string(types.ViolFacetUncovered)})
+	strictViolations := []types.Violation{
 		{Kind: types.ViolFacetUncovered, Detail: "x"},
 	}
-	if semanticQualityReviewerEligible(docFull, hardViolations) {
-		t.Error("hard violation present → reviewer should skip")
+	if semanticQualityReviewerEligible(docFull, strictViolations) {
+		t.Error("strict-promoted retry root present → reviewer should skip")
 	}
+	SetSoftViolationKinds(nil, nil)
 
 	// SOFT violation present → review still fires.
 	softViolations := []types.Violation{
@@ -732,6 +746,9 @@ func TestSemanticQualityReviewerEligible_P4_NoFacetDeclared_Skip(t *testing.T) {
 // kinds in the gate list, this test fails and the parallelism must be
 // re-evaluated (or this test updated to reflect the new gate semantics).
 func TestSemanticQualityReviewerEligible_DecisionStableAcrossSelfConsistencyOutput(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
 	body := []types.AnswerBlock{
 		{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
 		{ID: "b1", Kind: types.BlockOrderedList, FacetIDs: []string{"enumeration_item"}, Items: []types.AnswerBlockItem{{ID: "i1", Label: "x"}}},
@@ -757,12 +774,13 @@ func TestSemanticQualityReviewerEligible_DecisionStableAcrossSelfConsistencyOutp
 		t.Fatalf("gate decision changed by self_consistency output (pre=%v post=%v); P2C parallel dispatch is unsafe", wantEligible, gotEligible)
 	}
 
-	// Sanity: if a pre-existing hard kind blocks the gate, BOTH
-	// pre-flight and post-SC evaluations must skip — also stable.
+	// Sanity: if an operator strict-promotes a pre-existing kind,
+	// BOTH pre-flight and post-SC evaluations must skip — also stable.
+	SetSoftViolationKinds(nil, []string{string(types.ViolFacetUncovered)})
 	preFlightHard := []types.Violation{{Kind: types.ViolFacetUncovered}}
 	postSCHard := append(append([]types.Violation(nil), preFlightHard...), types.Violation{Kind: types.ViolSelfContradiction})
 	if semanticQualityReviewerEligible(doc, preFlightHard) || semanticQualityReviewerEligible(doc, postSCHard) {
-		t.Fatal("hard violation in pre-flight must block reviewer regardless of self_consistency output")
+		t.Fatal("strict-promoted violation in pre-flight must block reviewer regardless of self_consistency output")
 	}
 }
 
