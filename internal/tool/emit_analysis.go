@@ -126,10 +126,12 @@ type emitPredicatesParam struct {
 	IsDiagnosticQuestion  *bool `json:"is_diagnostic_question"`
 }
 
-// emitDiagnosticProfileParam is the required second typed diagnostic
-// lane. Pointer bools make missing fields fail loudly just like
-// predicates, so a stale prompt cannot silently erase the current-risk
-// / historical-regression safety net.
+// emitDiagnosticProfileParam is the second typed diagnostic lane.
+// Predicates.IsDiagnosticQuestion is the primary route; this profile
+// carries richer diagnostic facets. Pointer fields let the parser
+// distinguish explicit false from omitted so it can conservatively
+// default missing mirror data without inventing current-risk /
+// historical-regression / current-version obligations.
 type emitDiagnosticProfileParam struct {
 	IsDiagnostic         *bool    `json:"is_diagnostic"`
 	CurrentRisk          *bool    `json:"current_risk"`
@@ -360,7 +362,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"diagnostic_profile": map[string]any{
 				"type":        "object",
-				"description": "Required typed diagnostic-intent profile. Use this as a second safety lane for diagnosis, current-risk, historical-regression, and current-version verification questions. Every boolean field is required; emit true OR false explicitly. Do not infer from raw artifact presence alone. The system tolerates mirror drift by aligning is_diagnostic to predicates.is_diagnostic_question unless current_risk or historical_regression is true.",
+				"description": "Required typed diagnostic-intent profile. Use this as a second safety lane for diagnosis, current-risk, historical-regression, and current-version verification questions. Every boolean field should be emitted true OR false explicitly. Do not infer from raw artifact presence alone. The system tolerates mirror drift by aligning is_diagnostic to predicates.is_diagnostic_question unless current_risk or historical_regression is true; if this mirror profile is accidentally omitted, runtime defaults it conservatively from predicates without inventing current-risk/regression/current-version flags.",
 				"properties": map[string]any{
 					"is_diagnostic":         map[string]any{"type": "boolean", "description": "Profile-level mirror of predicates.is_diagnostic_question. Set both consistently; the system can auto-align this mirror when it drifts."},
 					"current_risk":          map[string]any{"type": "boolean", "description": "True when the current request asks whether a known or observed issue can still happen in the current checkout."},
@@ -799,7 +801,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		predicates = reconciled
 		val.Warnings = append(val.Warnings, reason)
 	}
-	diagnosticProfile, diagnosticErr := parseDiagnosticProfile(p.DiagnosticProfile)
+	diagnosticProfile, diagnosticErr, diagnosticWarnings := parseDiagnosticProfile(p.DiagnosticProfile, predicates)
 	if diagnosticErr != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -807,6 +809,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Summary:   "emit_analysis rejected: " + diagnosticErr,
 			Timestamp: time.Now(),
 		}, nil
+	}
+	for _, warning := range diagnosticWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
 	}
 	var mirrorWarnings []string
 	predicates, diagnosticProfile, mirrorWarnings = normalizeDiagnosticMirrorSignals(predicates, diagnosticProfile)
@@ -1414,47 +1420,67 @@ func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) 
 	}, ""
 }
 
-func parseDiagnosticProfile(p *emitDiagnosticProfileParam) (types.DiagnosticIntentProfile, string) {
+func parseDiagnosticProfile(p *emitDiagnosticProfileParam, preds types.SemanticPredicates) (types.DiagnosticIntentProfile, string, []string) {
+	const defaultConfidence = 0.5
 	if p == nil {
-		return types.DiagnosticIntentProfile{},
-			"diagnostic_profile object missing — emit `diagnostic_profile` with is_diagnostic / current_risk / historical_regression / current_version_check each set to true or false, plus confidence in [0,1]"
+		return types.DiagnosticIntentProfile{
+				IsDiagnostic: preds.IsDiagnosticQuestion,
+				Confidence:   defaultConfidence,
+			}, "",
+			[]string{"diagnostic_profile auto-defaulted: object missing; mirrored predicates.is_diagnostic_question and left current_risk/historical_regression/current_version_check=false"}
 	}
 	missing := []string{}
+	currentRisk := false
 	if p.IsDiagnostic == nil {
 		missing = append(missing, "is_diagnostic")
 	}
 	if p.CurrentRisk == nil {
 		missing = append(missing, "current_risk")
+	} else {
+		currentRisk = *p.CurrentRisk
 	}
+	historicalRegression := false
 	if p.HistoricalRegression == nil {
 		missing = append(missing, "historical_regression")
+	} else {
+		historicalRegression = *p.HistoricalRegression
 	}
+	currentVersionCheck := false
 	if p.CurrentVersionCheck == nil {
 		missing = append(missing, "current_version_check")
+	} else {
+		currentVersionCheck = *p.CurrentVersionCheck
 	}
+	confidence := defaultConfidence
 	if p.Confidence == nil {
 		missing = append(missing, "confidence")
+	} else {
+		confidence = *p.Confidence
 	}
-	if len(missing) > 0 {
-		return types.DiagnosticIntentProfile{}, fmt.Sprintf(
-			"diagnostic_profile missing required field(s): %s — every boolean field must be set explicitly and confidence must be present",
-			strings.Join(missing, ", "),
-		)
-	}
-	if *p.Confidence < 0 || *p.Confidence > 1 {
+	if confidence < 0 || confidence > 1 {
 		return types.DiagnosticIntentProfile{}, fmt.Sprintf(
 			"diagnostic_profile.confidence %.2f out of [0,1]",
-			*p.Confidence,
-		)
+			confidence,
+		), nil
+	}
+	isDiagnostic := preds.IsDiagnosticQuestion || currentRisk || historicalRegression
+	if p.IsDiagnostic != nil {
+		isDiagnostic = *p.IsDiagnostic
+	}
+	var warnings []string
+	if len(missing) > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"diagnostic_profile auto-defaulted missing field(s): %s; used typed predicates/profile defaults without inferring from prose",
+			strings.Join(missing, ", ")))
 	}
 	return types.DiagnosticIntentProfile{
-		IsDiagnostic:         *p.IsDiagnostic,
-		CurrentRisk:          *p.CurrentRisk,
-		HistoricalRegression: *p.HistoricalRegression,
-		CurrentVersionCheck:  *p.CurrentVersionCheck,
+		IsDiagnostic:         isDiagnostic,
+		CurrentRisk:          currentRisk,
+		HistoricalRegression: historicalRegression,
+		CurrentVersionCheck:  currentVersionCheck,
 		ObservationSummary:   strings.TrimSpace(p.ObservationSummary),
-		Confidence:           *p.Confidence,
-	}, ""
+		Confidence:           confidence,
+	}, "", warnings
 }
 
 // normalizeDiagnosticMirrorSignals consumes the two typed diagnostic

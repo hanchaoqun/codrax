@@ -1959,15 +1959,15 @@ func TestEmitAnalysis_Execute_RejectsMissingPredicateField(t *testing.T) {
 	}
 }
 
-func TestEmitAnalysis_Execute_RejectsMissingDiagnosticProfile(t *testing.T) {
+func TestEmitAnalysis_Execute_DefaultsMissingDiagnosticProfile(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
-	mu := types.NewMutableState("explain the analyzer")
+	mu := types.NewMutableState("diagnose whether the current failure is still present")
 	tool := &EmitAnalysis{}
 	payload := `{
-		"intent": "explain",
-		"scenario": "architecture_explain",
+		"intent": "root_cause",
+		"scenario": "root_cause",
 		"complexity": "moderate",
 		"keywords": ["a"],
 		"entities": ["Foo"],
@@ -1983,15 +1983,29 @@ func TestEmitAnalysis_Execute_RejectsMissingDiagnosticProfile(t *testing.T) {
 			"is_relational_lookup": false,
 			"is_category_enumeration": false,
 			"is_history_lookup": false,
-			"is_diagnostic_question": false
+			"is_diagnostic_question": true
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
-	if res.Success {
-		t.Fatal("missing diagnostic_profile object must reject")
+	if !res.Success {
+		t.Fatalf("missing diagnostic_profile mirror should default instead of retrying, got %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "diagnostic_profile object missing") {
-		t.Errorf("reject summary should name the missing diagnostic_profile object, got %q", res.Summary)
+	if !strings.Contains(res.Summary, "diagnostic_profile auto-defaulted") {
+		t.Errorf("summary should disclose diagnostic defaulting, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if !rm.Predicates.IsDiagnosticQuestion || !rm.DiagnosticProfile.IsDiagnostic {
+		t.Fatalf("diagnostic predicate should mirror into defaulted profile, got preds=%+v profile=%+v",
+			rm.Predicates, rm.DiagnosticProfile)
+	}
+	if rm.DiagnosticProfile.CurrentRisk || rm.DiagnosticProfile.HistoricalRegression || rm.DiagnosticProfile.CurrentVersionCheck {
+		t.Fatalf("missing profile must not invent diagnostic sub-flags, got %+v", rm.DiagnosticProfile)
+	}
+	if rm.DiagnosticProfile.Confidence != 0.5 {
+		t.Fatalf("default confidence = %.2f, want 0.5", rm.DiagnosticProfile.Confidence)
 	}
 }
 
