@@ -254,14 +254,24 @@ func TestRun_HypothesisCoverage_FailsWhenNodeUnbound(t *testing.T) {
 	}
 }
 
-func TestRun_HypothesisCoverage_FailsWhenAllLowPriority(t *testing.T) {
+func TestRun_HypothesisCoverage_LowPriorityOnlyIsAdvisory(t *testing.T) {
 	ir := validIR()
 	for i := range ir.HypothesisSet {
 		ir.HypothesisSet[i].Priority = 10
 	}
 	report := Run(ir, Thresholds{HypothesisMinPrio: 50}, "")
-	if findCheck(report, "hypothesis_coverage").Passed {
-		t.Fatal("low-priority-only hypotheses must fail")
+	check := findCheck(report, "hypothesis_coverage")
+	if check == nil {
+		t.Fatal("hypothesis_coverage check missing")
+	}
+	if !check.Passed {
+		t.Fatalf("low-priority-only hypotheses are score noise and must be advisory, got %+v", *check)
+	}
+	if check.Score >= 1.0 {
+		t.Fatalf("advisory should lower score without rejecting, got %+v", *check)
+	}
+	if report.Rejected {
+		t.Fatalf("low-priority-only hypotheses must not reject analyzer IR, got report %+v", report)
 	}
 }
 

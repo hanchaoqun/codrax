@@ -10,9 +10,9 @@ import (
 // trigger: "用 python 写一个猜数字游戏" in plan mode generated an IR
 // with HypothesisSet entries that all scored below the 30-point
 // floor (no codebase to investigate → no high-priority hypotheses).
-// The pre-fix gate rejected on hypothesis_coverage and the planner
-// never saw the request. Run(... "plan") must skip that check so
-// the classifier hands off to the write pipeline.
+// Write mode still skips read-mode-only checks entirely so the
+// classifier hands off to the write pipeline; read mode now keeps the
+// low-priority score as advisory telemetry rather than a hard retry.
 func TestRun_WriteModeSkipsHypothesisCoverage(t *testing.T) {
 	// Build an IR with the failure shape: one low-priority hypothesis,
 	// HypothesisMinPrio=30 default, len > 0.

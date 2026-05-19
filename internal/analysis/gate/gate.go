@@ -338,8 +338,9 @@ func checkHypothesisCoverage(ir *types.AnalysisIR, th Thresholds) types.GateChec
 		}
 	}
 	if len(ir.HypothesisSet) > 0 && highPrio == 0 {
-		return types.GateCheck{Name: "hypothesis_coverage", Passed: false,
-			Detail: "no hypothesis at or above min priority"}
+		return types.GateCheck{Name: "hypothesis_coverage", Passed: true,
+			Score: 0.7, Threshold: 1.0,
+			Detail: "hypothesis_priority_floor (advisory): no hypothesis at or above min priority"}
 	}
 	if miss := hdp.Validate(ir.TaskGraph); len(miss) > 0 {
 		return types.GateCheck{Name: "hypothesis_coverage", Passed: false,
