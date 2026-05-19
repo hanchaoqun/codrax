@@ -1574,6 +1574,104 @@ func TestEmitAnalysis_Execute_WarnAndStripsEnumerationBoundaryCountNotInQuote(t 
 	}
 }
 
+func TestEmitAnalysis_Execute_WarnAndStripsUngroundedBuckets(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "complex",
+		"keywords": ["codrax", "opencode", "comparison"],
+		"entities": ["codrax", "opencode"],
+		"question_kind": "mechanism",
+		"buckets": [
+			{"label": "codrax side", "anchors": ["codrax"]},
+			{"label": "opencode side", "anchors": ["opencode"]}
+		]
+	}`
+
+	res, mu := runEmitAnalysisWithObjective(t, "对比 codrax 和 opencode 的读模式防幻觉机制", payload)
+	if !res.Success {
+		t.Fatalf("Execute should accept + warn, got reject summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "ignored buckets because no label survived current-request provenance validation") {
+		t.Fatalf("summary missing bucket strip warning: %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel must persist after soft-strip of optional buckets")
+	}
+	if len(rm.Buckets) != 0 {
+		t.Fatalf("invalid buckets must be stripped to nil, got %+v", rm.Buckets)
+	}
+}
+
+func TestEmitAnalysis_Execute_WarnAndStripsSingleBucket(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["explorer", "subagent"],
+		"entities": ["explorer"],
+		"question_kind": "mechanism",
+		"buckets": [
+			{"label": "explorer", "anchors": ["explorer"]}
+		]
+	}`
+
+	res, mu := runEmitAnalysisWithObjective(t, "解释 explorer 如何调用 subagent", payload)
+	if !res.Success {
+		t.Fatalf("Execute should accept + warn, got reject summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "ignored buckets because a comparison partition needs at least 2 current-request labels") {
+		t.Fatalf("summary missing single-bucket strip warning: %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel must persist after soft-strip of optional single bucket")
+	}
+	if len(rm.Buckets) != 0 {
+		t.Fatalf("single bucket must be stripped to nil, got %+v", rm.Buckets)
+	}
+}
+
+func TestEmitAnalysis_Execute_PreservesValidBuckets(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "complex",
+		"keywords": ["codrax", "opencode", "comparison"],
+		"entities": ["codrax", "opencode"],
+		"question_kind": "mechanism",
+		"buckets": [
+			{"label": "codrax", "anchors": ["codrax"]},
+			{"label": "opencode", "anchors": ["opencode"]}
+		]
+	}`
+
+	res, mu := runEmitAnalysisWithObjective(t, "对比 codrax 和 opencode 的读模式防幻觉机制", payload)
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got summary=%q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel should persist")
+	}
+	if len(rm.Buckets) != 2 || rm.Buckets[0].Label != "codrax" || rm.Buckets[1].Label != "opencode" {
+		t.Fatalf("valid buckets not preserved: %+v", rm.Buckets)
+	}
+}
+
 func TestEmitAnalysis_Execute_ErrorGranularitySuppressesContextualEnumerationBoundary(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

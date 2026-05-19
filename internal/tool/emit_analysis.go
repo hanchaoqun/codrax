@@ -950,13 +950,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			val.Warnings = append(val.Warnings, enumerationBoundaryWarn)
 		}
 	}
-	// Plan E (2026-05-02) — completeness + buckets parsing. Both
-	// follow the EnumerationBoundary's verbatim-quote contract: a
-	// fabricated quote / bucket label that does not appear in raw is
-	// silently dropped (returns nil), an explicit emit with a quote
-	// that fails validation rejects loudly so the LLM gets corrective
-	// feedback. The single-quote checker requestedEnumerationQuotePresent
-	// is reused implicitly via Normalize* helpers.
+	// Plan E (2026-05-02) — completeness + buckets parsing.
+	// Completeness remains load-bearing when required=true. Buckets are
+	// an optional comparison partition: malformed bucket labels are
+	// stripped with an audit warning so analyzer retries are reserved
+	// for missing primary typed signals.
 	completenessObligation, completenessErr := parseCompletenessObligation(raw, p.CompletenessObligation)
 	if completenessErr != "" {
 		return types.ToolResult{
@@ -966,7 +964,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	buckets, bucketsErr := parseQuestionBuckets(raw, p.Buckets)
+	buckets, bucketsErr, bucketsWarn := parseQuestionBuckets(raw, p.Buckets)
 	if bucketsErr != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -974,6 +972,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Summary:   "emit_analysis rejected: " + bucketsErr,
 			Timestamp: time.Now(),
 		}, nil
+	}
+	if bucketsWarn != "" {
+		val.Warnings = append(val.Warnings, bucketsWarn)
 	}
 	exactTargets, exactTargetErr := validateExactTargets(raw, p.ExactTargets)
 	if exactTargetErr != "" {
@@ -2346,21 +2347,21 @@ func parseCompletenessObligation(raw string, p *emitCompletenessObligationParam)
 	return out, ""
 }
 
-// parseQuestionBuckets (Plan E, 2026-05-02) validates the LLM-emitted
-// bucket partition. The system-side normalisation
-// (types.NormalizeBuckets) already drops malformed entries silently;
-// here we additionally surface a loud rejection when the LLM emitted
-// a non-empty buckets array but every entry was dropped — that
-// signals the LLM thought there were buckets but couldn't ground
-// any label, and we want corrective feedback rather than silently
-// degrading to "no buckets".
+// parseQuestionBuckets (Plan E, 2026-05-02) validates the optional
+// LLM-emitted bucket partition. The shared NormalizeBuckets helper
+// still enforces precise user provenance by dropping labels that do
+// not verbatim-appear in the current request.
 //
-// Single-bucket emits also reject loudly: a partition by definition
-// requires ≥2 named groups; one bucket is structurally meaningless
-// (use sub_topics instead).
-func parseQuestionBuckets(raw string, in []emitQuestionBucketParam) ([]types.QuestionBucket, string) {
+// Commercial retry policy: buckets are a helpful comparison scaffold,
+// not the primary analyzer classification. If a non-empty bucket array
+// normalizes to zero or one usable bucket, strip the optional partition
+// and warn. Downstream can still infer buckets from user-mentioned
+// entities / required files through RequestModel.QuestionStructure().
+// Re-prompting the analyzer just to delete or rename optional buckets
+// is too expensive and can degrade otherwise-good intent analysis.
+func parseQuestionBuckets(raw string, in []emitQuestionBucketParam) ([]types.QuestionBucket, string, string) {
 	if len(in) == 0 {
-		return nil, ""
+		return nil, "", ""
 	}
 	prelim := make([]types.QuestionBucket, 0, len(in))
 	for _, b := range in {
@@ -2372,12 +2373,12 @@ func parseQuestionBuckets(raw string, in []emitQuestionBucketParam) ([]types.Que
 	}
 	out := types.NormalizeBuckets(raw, prelim)
 	if out == nil {
-		return nil, "buckets emitted but no entry survived validation; every label must verbatim-appear in the current request and be non-empty"
+		return nil, "", "ignored buckets because no label survived current-request provenance validation"
 	}
 	if len(out) < 2 {
-		return nil, "buckets must have at least 2 entries — a partition needs ≥2 named groups; for single-topic asks use sub_topics instead, or omit buckets"
+		return nil, "", "ignored buckets because a comparison partition needs at least 2 current-request labels"
 	}
-	return out, ""
+	return out, "", ""
 }
 
 // parseAnswerSubject coerces the optional emit_analysis.answer_subject
