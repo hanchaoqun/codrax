@@ -27,6 +27,7 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 		`2026-05-19T10:00:00.070 INFO [orchestrator] repair_plan: primary=finalizer clusters=1 kinds=[diagram_edge_endpoint_hallucinated citation_ref_missing] target=finalizer_only`,
 		`2026-05-19T10:00:00.080 WARN [diag] sanitized invalid tool-call arguments for history tool=emit_answer_document id=x len=10`,
 		`2026-05-19T10:00:00.090 WARN [agent] tool "emit_answer_document" params auto-repaired (LLM-corrupted JSON: structural repair)`,
+		`2026-05-19T10:00:00.095 DEBUG [llm] request: model=qwen3 stream=true timeout=4m0s first_byte_timeout=20s stall_timeout=2m0s`,
 		`2026-05-19T10:00:00.100 ERROR [llm] chat failed: context deadline exceeded`,
 		``,
 	}, "\n")

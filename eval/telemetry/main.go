@@ -643,18 +643,29 @@ func compactReason(s string) string {
 }
 
 func isLLMErrorLine(line string) bool {
-	if !strings.Contains(line, "[llm]") && !strings.Contains(line, "模型响应出错") {
+	if strings.Contains(line, "模型响应出错") {
+		return true
+	}
+	if !strings.Contains(line, "[llm]") {
 		return false
 	}
 	lower := strings.ToLower(line)
+	if strings.Contains(lower, "[llm] request:") || strings.Contains(lower, "[llm] response:") {
+		return false
+	}
 	return strings.Contains(lower, "error") ||
+		strings.Contains(lower, "fail") ||
 		strings.Contains(lower, "timeout") ||
 		strings.Contains(lower, "deadline") ||
-		strings.Contains(line, "模型响应出错")
+		strings.Contains(lower, "stall") ||
+		strings.Contains(lower, "eof")
 }
 
 func isTimeoutLine(line string) bool {
 	lower := strings.ToLower(line)
+	if strings.Contains(lower, "[llm] request:") || strings.Contains(lower, "[llm] response:") {
+		return false
+	}
 	return strings.Contains(lower, "timeout") ||
 		strings.Contains(lower, "deadline") ||
 		strings.Contains(lower, "first_byte") ||

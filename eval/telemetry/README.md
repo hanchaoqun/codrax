@@ -26,7 +26,7 @@ Important counters:
 - `Finalizer / repair kinds`: typed repair root causes from `repair_plan`.
 - `Richness`: `[richness] facet_softened` and `family_underrepresented` signals, so softening and family-fit fallbacks remain measurable after hard gates are relaxed.
 - `Render`: REPL/status transcript anomalies such as numeric stage regressions, backtracks after a `4/4` status, and first-draft previews that appear without any finalizer retry evidence.
-- `Compatibility And Transport`: tool-parameter repair and LLM timeout/error lines.
+- `Compatibility And Transport`: tool-parameter repair and actual LLM timeout/error lines. Ordinary `[llm] request:` / `[llm] response:` lines are ignored even though they include timeout configuration fields.
 
 Decision rule for the deferred blocklist downgrade:
 

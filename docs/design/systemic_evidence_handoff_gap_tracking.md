@@ -17,7 +17,9 @@ The next delivery wave is intentionally evidence-first:
 9. **DONE** — optional analyzer `buckets[]` now soft-strip when labels cannot be proven from the current request or only one bucket survives. The RequestModel still persists, and downstream can infer comparison buckets from typed entities / required files.
 10. **DONE** — analyzer `hypothesis_coverage` now separates structural binding failures from noisy priority-score floors. Unbound task nodes remain hard; all-low-priority hypotheses are advisory telemetry.
 11. **DONE** — telemetry aggregation now includes `[richness]` softening/family-fit signals and REPL render status anomalies. This lets eval distinguish “gate safely softened” from “answer richness silently regressed,” and catches stage-order UX regressions without manual transcript review.
-12. **NEXT / AFTER TELEMETRY SWEEP** — decide whether `GenericEntityBlocklist` can move from hard drop to typed noise. This must be based on aggregate telemetry, not on a single hand-picked log.
+12. **DONE** — telemetry no longer counts ordinary `[llm] request ... timeout=...` configuration lines as LLM failures. Timeout/error totals now reflect actual error lines or user-visible model-response failures.
+13. **NEXT / POST-FIX EVAL** — investigate the fresh `qf_logic_view_read_pipeline` smoke result: it PASSed without finalizer retry, but needed 20 explorer iterations and 12 mid-loop evidence nudges. This is likely an explorer evidence-emission/early-stop efficiency gap, not a finalizer gate gap.
+14. **NEXT / AFTER TELEMETRY SWEEP** — decide whether `GenericEntityBlocklist` can move from hard drop to typed noise. This must be based on aggregate telemetry, not on a single hand-picked log.
 
 This document tracks cross-case shortcomings found by recent REPL/eval audits.
 It is intentionally a code-location ledger, not a new architecture. Each fix
@@ -99,6 +101,8 @@ structured data, not raw thinking text or system-invented answer content.
 | G61 | Analyzer `hypothesis_coverage` used one hard check for two very different signals: task nodes without any bound hypothesis, and hypothesis priorities below a numeric score threshold. The latter is a score/ranking signal and can be noisy on broad or low-codebase questions, so hard rejection violates the “precise signals for hard gates” rule. | `internal/analysis/gate/gate.go`, `internal/analysis/gate/gate_test.go`, `internal/analysis/gate/gate_writemode_test.go` | Keep `hdp.Validate` unbound-node failures hard because downstream scheduling needs those bindings. Convert the “no hypothesis above min priority” branch to a passing advisory (`Score<1`) so telemetry can still flag weak analysis without spending an analyzer retry on ranker-score noise. | Implemented in this phase |
 | G62 | After several hard gates were softened, eval could no longer prove whether a run stayed rich or merely stopped retrying: `[richness] facet_softened` / `family_underrepresented` existed in runtime logs but the aggregate telemetry report ignored them. | `eval/telemetry/main.go`, `eval/telemetry/README.md` | Parse richness warning lines into first-class report sections by kind, family, and facet kind. This keeps the runtime behavior unchanged while making “softening safety” measurable before changing any more gates. | Implemented in this phase |
 | G63 | REPL status-order regressions such as `4/4 → 2/4` or `3/4 → 2/4`, plus first-draft previews appearing without any finalizer retry evidence, were only visible by manually reading transcripts. That made repeated UX regressions easy to miss in eval. | `eval/telemetry/main.go`, `eval/telemetry/main_test.go` | Add render-log telemetry for stage counts, numeric stage regressions, backtracks after a `4/4` status, and suspicious first-draft previews. The signal is observational only; runtime render behavior is not changed in this batch. | Implemented in this phase |
+| G64 | Telemetry over-counted LLM timeout/errors because `[llm] request:` lines include timeout configuration fields such as `timeout=4m0s`, `first_byte_timeout=20s`, and `stall_timeout=2m0s`. Aggregate reports therefore made transport failures look far worse than they were. | `eval/telemetry/main.go`, `eval/telemetry/main_test.go` | Treat `[llm] request:` / `[llm] response:` as non-error telemetry even when they mention timeout settings. Count only actual `[llm]` failure/error lines or user-visible `模型响应出错` render lines. | Implemented in this phase |
+| G65 | Fresh post-fix eval shows `qf_logic_view_read_pipeline` can pass with no finalizer retry, but still spend 20 explorer iterations and 12 mid-loop evidence nudges before reaching a valid answer. This suggests the next performance win is upstream explorer convergence, not another finalizer gate softening. | `internal/agent/explorer.go`, `internal/tool/emit_evidence.go`, `internal/agent/stage_report_render.go`, eval result `postfix_telemetry_20260519_104011/qf_logic_view_read_pipeline-*` | Next batch should use clean telemetry to distinguish necessary investigation from redundant read-without-emit nudges, then improve explorer evidence batching / answer-ready stop without parsing thinking text or suppressing legitimate reads. | Needs investigation |
 
 ## Implementation Order
 
@@ -238,7 +242,12 @@ structured data, not raw thinking text or system-invented answer content.
 41. G62/G63 are now implemented. Before softening additional gates, compare
     retry reduction with richness/render telemetry; a lower retry count is not
     sufficient evidence if richness softening or status-order anomalies rise.
-42. Continue telemetry sampling before touching `GenericEntityBlocklist`; the
+42. G64 is now implemented. Transport telemetry must ignore configuration
+    fields on request/response lines; only actual error/failure lines may
+    drive timeout-related architecture decisions.
+43. G65 is the next high-value runtime gap from fresh data: prioritize explorer
+    convergence and evidence batching before more finalizer-gate changes.
+44. Continue telemetry sampling before touching `GenericEntityBlocklist`; the
     current aggregate sweep showed no drops in recent logs, so moving it now
     would be speculative rather than evidence-backed.
 
