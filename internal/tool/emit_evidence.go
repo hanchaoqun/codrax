@@ -616,6 +616,12 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		// cascade; schema-level scopes (File / Crossfile / Negative)
 		// route to their own grounders.
 		r := ground.GroundItemScoped(&built[i], gc)
+		if stabilizeStringLiteralIdentifierAnchor(&built[i], gc) {
+			r = ground.GroundItemScoped(&built[i], gc)
+			if appendGroundingNoteOnce(&built[i], "anchor_kind=string_literal was treated as definition because anchor_symbol matched a non-comment identifier on the cited source line, while no source-code literal span matched that exact value") {
+				r.Note = built[i].GroundingNote
+			}
+		}
 		normalizeCallEvidenceDirection(&built[i], gc)
 		if stampEvidenceOwnerSymbol(&built[i], gc) {
 			r.Status = built[i].GroundingStatus
@@ -1411,6 +1417,100 @@ func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) 
 			it.Source, it.LineStart, it.Subject, it.Predicate, it.Object)
 	}
 	return changed
+}
+
+func stabilizeStringLiteralIdentifierAnchor(it *types.EvidenceItem, gc *ground.Context) bool {
+	if it == nil || gc == nil || it.Scope != types.ScopeLine || it.AnchorKind != types.AnchorStringLiteral {
+		return false
+	}
+	if it.GroundingStatus == types.GroundingGrounded || strings.TrimSpace(it.AnchorSymbol) == "" {
+		return false
+	}
+	if _, ok := ground.VerifyLineAnchor(gc, it.Source, it.LineStart, it.AnchorSymbol, 0); !ok {
+		return false
+	}
+	if !lineLooksIdentifierBindingAtAnchor(gc, it.Source, it.LineStart, it.AnchorSymbol) {
+		return false
+	}
+	it.AnchorKind = types.AnchorDefinition
+	it.GroundingStatus = ""
+	it.GroundingTier = ""
+	it.GroundingNote = ""
+	return true
+}
+
+func lineLooksIdentifierBindingAtAnchor(gc *ground.Context, source string, line int, anchor string) bool {
+	if gc == nil || source == "" || line <= 0 || strings.TrimSpace(anchor) == "" {
+		return false
+	}
+	source = ground.CanonicalContextPath(gc, source)
+	text := strings.TrimSpace(gc.LineIndex[source][line])
+	if text == "" {
+		return false
+	}
+	idx := indexIdentifierToken(text, anchor)
+	if idx < 0 {
+		return false
+	}
+	before := strings.TrimSpace(text[:idx])
+	after := strings.TrimSpace(text[idx+len(anchor):])
+	if after == "" {
+		return false
+	}
+	if strings.HasPrefix(after, "(") || strings.HasPrefix(after, ".") || strings.HasPrefix(after, "->") || strings.HasPrefix(after, "::") {
+		return false
+	}
+	if hasDeclarationPrefix(before) {
+		return true
+	}
+	if eq := strings.Index(after, "="); eq >= 0 {
+		openParen := strings.Index(after, "(")
+		return openParen < 0 || eq < openParen
+	}
+	return false
+}
+
+func indexIdentifierToken(text, anchor string) int {
+	if text == "" || anchor == "" {
+		return -1
+	}
+	for start := 0; start < len(text); {
+		idx := strings.Index(text[start:], anchor)
+		if idx < 0 {
+			return -1
+		}
+		idx += start
+		end := idx + len(anchor)
+		if (idx == 0 || !isIdentifierByte(text[idx-1])) && (end == len(text) || !isIdentifierByte(text[end])) {
+			return idx
+		}
+		start = end
+	}
+	return -1
+}
+
+func hasDeclarationPrefix(before string) bool {
+	if before == "" {
+		return false
+	}
+	fields := strings.Fields(before)
+	if len(fields) == 0 {
+		return false
+	}
+	switch fields[len(fields)-1] {
+	case "type", "func", "class", "interface", "enum", "struct", "const", "var", "let", "def", "function", "trait", "namespace":
+		return true
+	default:
+		return false
+	}
+}
+
+func isIdentifierByte(b byte) bool {
+	return (b >= 'A' && b <= 'Z') ||
+		(b >= 'a' && b <= 'z') ||
+		(b >= '0' && b <= '9') ||
+		b == '_' ||
+		b == '$'
 }
 
 func emitPreferredCallTargetNames(it *types.EvidenceItem) []string {

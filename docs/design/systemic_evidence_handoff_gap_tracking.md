@@ -18,8 +18,10 @@ The next delivery wave is intentionally evidence-first:
 10. **DONE** — analyzer `hypothesis_coverage` now separates structural binding failures from noisy priority-score floors. Unbound task nodes remain hard; all-low-priority hypotheses are advisory telemetry.
 11. **DONE** — telemetry aggregation now includes `[richness]` softening/family-fit signals and REPL render status anomalies. This lets eval distinguish “gate safely softened” from “answer richness silently regressed,” and catches stage-order UX regressions without manual transcript review.
 12. **DONE** — telemetry no longer counts ordinary `[llm] request ... timeout=...` configuration lines as LLM failures. Timeout/error totals now reflect actual error lines or user-visible model-response failures.
-13. **NEXT / POST-FIX EVAL** — investigate the fresh `qf_logic_view_read_pipeline` smoke result: it PASSed without finalizer retry, but needed 20 explorer iterations and 12 mid-loop evidence nudges. This is likely an explorer evidence-emission/early-stop efficiency gap, not a finalizer gate gap.
-14. **NEXT / AFTER TELEMETRY SWEEP** — decide whether `GenericEntityBlocklist` can move from hard drop to typed noise. This must be based on aggregate telemetry, not on a single hand-picked log.
+13. **DONE** — explorer mid-loop telemetry now reports `midloop_signal`, `midloop_inject`, `midloop_force_stop`, stable hint keys, and actions. This makes the fresh `qf_logic_view_read_pipeline` long tail diagnosable without reading full transcripts by hand.
+14. **DONE** — `emit_evidence` now safely repairs a narrow class of anchor-shape drift: `anchor_kind=string_literal` with an identifier anchor on a non-comment declaration/binding line is treated as a definition anchor. Call sites and arbitrary references remain ungrounded and repairable.
+15. **NEXT / POST-FIX EVAL** — use the new explorer telemetry to distinguish necessary investigation from redundant read-without-emit / completion-ready nudges, then improve explorer evidence batching / answer-ready stop.
+16. **NEXT / AFTER TELEMETRY SWEEP** — decide whether `GenericEntityBlocklist` can move from hard drop to typed noise. This must be based on aggregate telemetry, not on a single hand-picked log.
 
 This document tracks cross-case shortcomings found by recent REPL/eval audits.
 It is intentionally a code-location ledger, not a new architecture. Each fix
@@ -103,6 +105,8 @@ structured data, not raw thinking text or system-invented answer content.
 | G63 | REPL status-order regressions such as `4/4 → 2/4` or `3/4 → 2/4`, plus first-draft previews appearing without any finalizer retry evidence, were only visible by manually reading transcripts. That made repeated UX regressions easy to miss in eval. | `eval/telemetry/main.go`, `eval/telemetry/main_test.go` | Add render-log telemetry for stage counts, numeric stage regressions, backtracks after a `4/4` status, and suspicious first-draft previews. The signal is observational only; runtime render behavior is not changed in this batch. | Implemented in this phase |
 | G64 | Telemetry over-counted LLM timeout/errors because `[llm] request:` lines include timeout configuration fields such as `timeout=4m0s`, `first_byte_timeout=20s`, and `stall_timeout=2m0s`. Aggregate reports therefore made transport failures look far worse than they were. | `eval/telemetry/main.go`, `eval/telemetry/main_test.go` | Treat `[llm] request:` / `[llm] response:` as non-error telemetry even when they mention timeout settings. Count only actual `[llm]` failure/error lines or user-visible `模型响应出错` render lines. | Implemented in this phase |
 | G65 | Fresh post-fix eval shows `qf_logic_view_read_pipeline` can pass with no finalizer retry, but still spend 20 explorer iterations and 12 mid-loop evidence nudges before reaching a valid answer. This suggests the next performance win is upstream explorer convergence, not another finalizer gate softening. | `internal/agent/explorer.go`, `internal/tool/emit_evidence.go`, `internal/agent/stage_report_render.go`, eval result `postfix_telemetry_20260519_104011/qf_logic_view_read_pipeline-*` | Next batch should use clean telemetry to distinguish necessary investigation from redundant read-without-emit nudges, then improve explorer evidence batching / answer-ready stop without parsing thinking text or suppressing legitimate reads. | Needs investigation |
+| G66 | Explorer long-tail analysis previously had only aggregate `midloop_inject` counts from eval summaries. Customer/runtime logs did not show which stable hint keys or actions caused the tail, so runtime tuning risked weakening the wrong branch. | `eval/telemetry/main.go`, `eval/telemetry/main_test.go`, `eval/telemetry/README.md` | Parse `[diag explorer] phase=midloop_signal`, `midloop_inject`, and `midloop_force_stop` lines into report sections grouped by stable hint key and action. Hot-log ranking includes explorer injects so convergence-heavy runs surface even when finalizer does not retry. | Implemented in this phase |
+| G67 | Explorer spent extra rounds repairing evidence where the model emitted `anchor_kind=string_literal` for an identifier declared/bound on the cited source line (for example stage constants). The system could verify the identifier from `read_file`, but forced the model to re-read and re-emit because string-literal grounding quite correctly looks only for literal spans. | `internal/tool/emit_evidence.go`, `internal/tool/emit_evidence_test.go` | Add a narrow deterministic compatibility repair after initial grounding: if a string-literal item is not grounded, the exact cited non-comment line contains the anchor as an identifier token, and that token is in a declaration/binding shape rather than a call/reference, re-ground it as `anchor_kind=definition` and record the repair note. Call sites stay ungrounded so the model must use `anchor_kind=call`. | Implemented in this phase |
 
 ## Implementation Order
 
@@ -245,9 +249,15 @@ structured data, not raw thinking text or system-invented answer content.
 42. G64 is now implemented. Transport telemetry must ignore configuration
     fields on request/response lines; only actual error/failure lines may
     drive timeout-related architecture decisions.
-43. G65 is the next high-value runtime gap from fresh data: prioritize explorer
-    convergence and evidence batching before more finalizer-gate changes.
-44. Continue telemetry sampling before touching `GenericEntityBlocklist`; the
+43. G66 is now implemented. Use explorer mid-loop key/action aggregates before
+    changing `explorer.go`; do not infer convergence issues from the total
+    `midloop_inject` count alone.
+44. G67 is now implemented. Future anchor-kind compatibility repairs must stay
+    line-structural and source-backed; do not repair arbitrary wrong anchor
+    kinds from model prose or answer labels.
+45. G65 remains the next high-value runtime gap from fresh data: prioritize
+    explorer convergence and evidence batching before more finalizer-gate changes.
+46. Continue telemetry sampling before touching `GenericEntityBlocklist`; the
     current aggregate sweep showed no drops in recent logs, so moving it now
     would be speculative rather than evidence-backed.
 

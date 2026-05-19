@@ -803,6 +803,85 @@ func TestEmitEvidence_RepairsAnchorKindInEvidenceKindAndFileScopeLineAnchor(t *t
 	}
 }
 
+func TestEmitEvidence_RepairsStringLiteralIdentifierAnchorToDefinition(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/types/enums.go", 24,
+		"const (",
+		"\tStageAnalyze  PipelineStage = \"analyze\"",
+		"\tStageExplore  PipelineStage = \"explore\"",
+		")",
+	)
+	params := json.RawMessage(`{
+		"items": [{
+			"scope": "line",
+			"evidence_kind": "direct",
+			"source": "internal/types/enums.go",
+			"line_start": 25,
+			"anchor_kind": "string_literal",
+			"anchor_symbol": "StageAnalyze",
+			"summary": "StageAnalyze names the analyze pipeline stage."
+		}]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected identifier-anchor repair to succeed, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted evidence item, got %d", len(got))
+	}
+	if got[0].AnchorKind != types.AnchorDefinition {
+		t.Fatalf("anchor_kind=%q, want %q", got[0].AnchorKind, types.AnchorDefinition)
+	}
+	if got[0].GroundingStatus != types.GroundingGrounded || got[0].GroundingTier != types.TierLineText {
+		t.Fatalf("grounding=%s/%s, want grounded/%s; summary:\n%s",
+			got[0].GroundingStatus, got[0].GroundingTier, types.TierLineText, res.Summary)
+	}
+	if !strings.Contains(got[0].GroundingNote, "treated as definition") {
+		t.Fatalf("grounding note should record compatibility repair, got %q", got[0].GroundingNote)
+	}
+}
+
+func TestEmitEvidence_DoesNotRepairStringLiteralIdentifierOnCallSite(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/orchestrator/orchestrator.go", 7107,
+		"output, err := ag.Execute(agentCtx, sk)",
+	)
+	params := json.RawMessage(`{
+		"items": [{
+			"scope": "line",
+			"evidence_kind": "direct",
+			"source": "internal/orchestrator/orchestrator.go",
+			"line_start": 7107,
+			"anchor_kind": "string_literal",
+			"anchor_symbol": "Execute",
+			"summary": "Execute is called here."
+		}]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("tool should preserve the ungrounded item as repairable evidence, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted evidence item, got %d", len(got))
+	}
+	if got[0].AnchorKind != types.AnchorStringLiteral {
+		t.Fatalf("anchor_kind=%q, want %q", got[0].AnchorKind, types.AnchorStringLiteral)
+	}
+	if got[0].GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("grounding=%s, want ungrounded for call-site mismatch; summary:\n%s", got[0].GroundingStatus, res.Summary)
+	}
+}
+
 func TestEmitEvidence_RepairsStringifiedItemsWithObjectFragment(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

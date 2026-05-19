@@ -16,6 +16,10 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 		`2026-05-19T10:00:00.010 INFO [emit_analysis] blocklist_shadow: dropped=2 would_search=0 would_shape=0 inferred_concept=2 sample=Agent, Handler`,
 		`2026-05-19T10:00:00.015 WARN [richness] facet_softened family=architecture facet_id= facet_kind=current_code_path buckets=0 reason=hard requirement had no surface evidence`,
 		`2026-05-19T10:00:00.020 ERROR [analyzer-v3] quality gate HARD failure: subtopic_coherence: unresolved asymmetric sub-topic`,
+		`2026-05-19T10:00:00.025 DEBUG [diag explorer] iter=3 phase=midloop_signal hint=true progress=true stop=false key="explorer.mid-loop.read-without-emit" → inject_hint ()`,
+		`2026-05-19T10:00:00.026 DEBUG [diag explorer] iter=3 phase=midloop_inject MIDLOOP inject len=675:`,
+		`2026-05-19T10:00:00.027 DEBUG [diag explorer] iter=5 phase=midloop_signal hint=true progress=true stop=false key="explorer.mid-loop.completion-ready" → stop ()`,
+		`2026-05-19T10:00:00.028 DEBUG [diag explorer] iter=5 phase=midloop_force_stop MIDLOOP force-stop: evaluator stop: completion ready`,
 		`2026-05-19T10:00:00.030 INFO [render]   ⟳ 1/4 模型响应出错,正在重新理解问题`,
 		`2026-05-19T10:00:00.040 DEBUG [diag analyzer] iter=0 phase=toolresult TOOLRESULT emit_analysis ok=false len=32: emit_analysis rejected: keywords below hard floor got=1 want≥3`,
 		`2026-05-19T10:00:00.050 DEBUG [diag finalizer] iter=0 phase=toolresult TOOLRESULT emit_answer_document ok=false len=99: bad citation`,
@@ -54,6 +58,15 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 	if rep.Analyzer.RetryRenders != 1 || rep.Analyzer.ToolRejects != 1 || rep.Analyzer.HardGateFailures != 1 {
 		t.Fatalf("analyzer retry/reject counters wrong: %+v", rep.Analyzer)
 	}
+	if rep.Explorer.MidLoopSignals != 2 ||
+		rep.Explorer.MidLoopInjects != 1 ||
+		rep.Explorer.MidLoopForceStops != 1 ||
+		rep.Explorer.ByKey["explorer.mid-loop.read-without-emit"] != 1 ||
+		rep.Explorer.ByKey["explorer.mid-loop.completion-ready"] != 1 ||
+		rep.Explorer.ByAction["inject_hint"] != 1 ||
+		rep.Explorer.ByAction["stop"] != 1 {
+		t.Fatalf("explorer mid-loop counters wrong: %+v", rep.Explorer)
+	}
 	if rep.Finalizer.DocumentRejects != 1 || rep.Finalizer.RewriteRenders != 1 || rep.Finalizer.RepairPlans != 1 {
 		t.Fatalf("finalizer counters wrong: %+v", rep.Finalizer)
 	}
@@ -86,6 +99,7 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 	}
 	if len(rep.FilesByRetryScore) != 1 ||
 		rep.FilesByRetryScore[0].BlocklistDropped != 2 ||
+		rep.FilesByRetryScore[0].ExplorerInjects != 1 ||
 		rep.FilesByRetryScore[0].RenderAnomalies != 2 {
 		t.Fatalf("hot-log snapshot wrong: %+v", rep.FilesByRetryScore)
 	}
@@ -117,6 +131,13 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 			ContractViolationBySection: map[string]int{"support_plan": 2},
 			RepairKinds:                map[string]int{"diagram_edge_endpoint_hallucinated": 1},
 		},
+		Explorer: explorerSummary{
+			MidLoopSignals:    2,
+			MidLoopInjects:    1,
+			MidLoopForceStops: 1,
+			ByKey:             map[string]int{"explorer.mid-loop.read-without-emit": 1},
+			ByAction:          map[string]int{"inject_hint": 1},
+		},
 		Richness: richnessSummary{
 			Events:      1,
 			ByKind:      map[string]int{"facet_softened": 1},
@@ -139,6 +160,8 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 	for _, want := range []string{
 		"# Codrax Telemetry Report",
 		"blocklist shadow: events=1 dropped=1 would_search=0 would_shape=0",
+		"mid-loop: signals=2 injects=1 force_stops=1",
+		"explorer.mid-loop.read-without-emit",
 		"diagram_edge_endpoint_hallucinated",
 		"support_plan",
 		"facet_softened",

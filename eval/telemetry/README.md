@@ -22,6 +22,7 @@ Important counters:
 
 - `Analyzer / provenance totals`: distribution from `[analyzer] entity provenance summary`.
 - `Analyzer / blocklist shadow`: dropped generic entities and whether the deferred drop-to-noise path would have allowed search/shape usage.
+- `Explorer`: `midloop_signal`, `midloop_inject`, and `midloop_force_stop` counts, grouped by stable hint key and action. This separates genuine exploration long tails from finalizer retry loops.
 - `Finalizer / contract violations`: `answer_contract_check section=... violations=N`, including non-tool-reject repairs.
 - `Finalizer / repair kinds`: typed repair root causes from `repair_plan`.
 - `Richness`: `[richness] facet_softened` and `family_underrepresented` signals, so softening and family-fit fallbacks remain measurable after hard gates are relaxed.

@@ -25,6 +25,7 @@ type report struct {
 	Files             int                 `json:"files"`
 	Lines             int                 `json:"lines"`
 	Analyzer          analyzerSummary     `json:"analyzer"`
+	Explorer          explorerSummary     `json:"explorer"`
 	Finalizer         finalizerSummary    `json:"finalizer"`
 	Richness          richnessSummary     `json:"richness"`
 	Render            renderSummary       `json:"render"`
@@ -42,6 +43,14 @@ type analyzerSummary struct {
 	ToolRejects      int            `json:"tool_rejects"`
 	HardGateFailures int            `json:"hard_gate_failures"`
 	RejectReasons    map[string]int `json:"reject_reasons,omitempty"`
+}
+
+type explorerSummary struct {
+	MidLoopSignals    int            `json:"midloop_signals"`
+	MidLoopInjects    int            `json:"midloop_injects"`
+	MidLoopForceStops int            `json:"midloop_force_stops"`
+	ByKey             map[string]int `json:"by_key,omitempty"`
+	ByAction          map[string]int `json:"by_action,omitempty"`
 }
 
 type provenanceSum struct {
@@ -112,6 +121,7 @@ type fileRetrySnapshot struct {
 	Score             int    `json:"score"`
 	AnalyzerRetries   int    `json:"analyzer_retries"`
 	AnalyzerRejects   int    `json:"analyzer_rejects"`
+	ExplorerInjects   int    `json:"explorer_injects"`
 	FinalizerRejects  int    `json:"finalizer_rejects"`
 	FinalizerRewrites int    `json:"finalizer_rewrites"`
 	RepairPlans       int    `json:"repair_plans"`
@@ -124,6 +134,7 @@ type fileMetrics struct {
 	lines              int
 	analyzerRetries    int
 	analyzerRejects    int
+	explorerInjects    int
 	finalizerRejects   int
 	finalizerRewrites  int
 	repairPlans        int
@@ -147,6 +158,7 @@ var (
 	contractCheckRe = regexp.MustCompile(`answer_contract_check\s+section=([a-zA-Z0-9_]+).*violations=([0-9]+)`)
 	richnessRe      = regexp.MustCompile(`\[richness\]\s+([a-zA-Z0-9_]+)\s+(.*)$`)
 	renderStageRe   = regexp.MustCompile(`(?:^|[^0-9])([1-4])/4(?:[^0-9]|$)`)
+	midLoopSignalRe = regexp.MustCompile(`phase=midloop_signal.*key="([^"]*)".*→\s*([a-zA-Z_]+)`)
 	compatToolRe    = regexp.MustCompile(`tool\s+"([^"]+)"\s+params auto-repaired`)
 	llmRequestRe    = regexp.MustCompile(`\[llm\]\s+request:\s+model=([^ ]+)`)
 	diagAgentRe     = regexp.MustCompile(`\[diag ([a-zA-Z0-9_]+)\]`)
@@ -193,6 +205,8 @@ func collect(paths []string) (report, error) {
 	}
 	c.report.Analyzer.RejectReasons = map[string]int{}
 	c.report.Analyzer.BlocklistShadow.Samples = map[string]int{}
+	c.report.Explorer.ByKey = map[string]int{}
+	c.report.Explorer.ByAction = map[string]int{}
 	c.report.Finalizer.ContractViolationBySection = map[string]int{}
 	c.report.Finalizer.RepairKinds = map[string]int{}
 	c.report.Finalizer.RepairTargets = map[string]int{}
@@ -293,6 +307,9 @@ func (c *collector) observeLine(line string, fm *fileMetrics) {
 	if strings.Contains(line, "[richness]") {
 		c.observeRichness(line)
 	}
+	if strings.Contains(line, "[diag explorer]") {
+		c.observeExplorerLine(line, fm)
+	}
 	c.observeRenderLine(line, fm)
 	if strings.Contains(line, "TOOLRESULT emit_analysis ok=false") ||
 		strings.Contains(line, "emit_analysis rejected:") ||
@@ -361,6 +378,29 @@ func (c *collector) observeLine(line string, fm *fileMetrics) {
 		if m := llmRequestRe.FindStringSubmatch(line); len(m) == 2 {
 			c.report.LLM.ByModel[m[1]]++
 		}
+	}
+}
+
+func (c *collector) observeExplorerLine(line string, fm *fileMetrics) {
+	if strings.Contains(line, "phase=midloop_signal") {
+		c.report.Explorer.MidLoopSignals++
+		if m := midLoopSignalRe.FindStringSubmatch(line); len(m) == 3 {
+			key := strings.TrimSpace(m[1])
+			action := strings.TrimSpace(m[2])
+			if key != "" {
+				c.report.Explorer.ByKey[key]++
+			}
+			if action != "" {
+				c.report.Explorer.ByAction[action]++
+			}
+		}
+	}
+	if strings.Contains(line, "phase=midloop_inject") {
+		c.report.Explorer.MidLoopInjects++
+		fm.explorerInjects++
+	}
+	if strings.Contains(line, "phase=midloop_force_stop") {
+		c.report.Explorer.MidLoopForceStops++
 	}
 }
 
@@ -495,7 +535,7 @@ func (c *collector) finalize() {
 			c.report.Render.Anomalies["first_draft_without_retry"] += fm.firstDraftPreviews
 			fm.renderAnomalies += fm.firstDraftPreviews
 		}
-		score := fm.analyzerRetries + fm.analyzerRejects*2 + fm.finalizerRejects*3 + fm.finalizerRewrites*2 + fm.repairPlans*2 + fm.renderAnomalies*2
+		score := fm.analyzerRetries + fm.analyzerRejects*2 + fm.explorerInjects + fm.finalizerRejects*3 + fm.finalizerRewrites*2 + fm.repairPlans*2 + fm.renderAnomalies*2
 		if score == 0 && fm.blocklistDropped == 0 {
 			continue
 		}
@@ -504,6 +544,7 @@ func (c *collector) finalize() {
 			Score:             score,
 			AnalyzerRetries:   fm.analyzerRetries,
 			AnalyzerRejects:   fm.analyzerRejects,
+			ExplorerInjects:   fm.explorerInjects,
 			FinalizerRejects:  fm.finalizerRejects,
 			FinalizerRewrites: fm.finalizerRewrites,
 			RepairPlans:       fm.repairPlans,
@@ -708,6 +749,17 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 	writeTopMap(w, "Blocklist samples", rep.Analyzer.BlocklistShadow.Samples, 8)
 
 	fmt.Fprintln(w)
+	fmt.Fprintln(w, "## Explorer")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "- mid-loop: signals=%d injects=%d force_stops=%d\n",
+		rep.Explorer.MidLoopSignals,
+		rep.Explorer.MidLoopInjects,
+		rep.Explorer.MidLoopForceStops,
+	)
+	writeTopMap(w, "Explorer mid-loop keys", rep.Explorer.ByKey, 12)
+	writeTopMap(w, "Explorer mid-loop actions", rep.Explorer.ByAction, 8)
+
+	fmt.Fprintln(w)
 	fmt.Fprintln(w, "## Finalizer")
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "- rejects: total=%d document=%d patch=%d\n",
@@ -764,18 +816,19 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "## Hot Logs")
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "| file | score | ana_retry | ana_reject | fin_reject | fin_rewrite | repair | blocklist_drop | render_anom |")
-		fmt.Fprintln(w, "|------|------:|----------:|-----------:|-----------:|------------:|-------:|---------------:|------------:|")
+		fmt.Fprintln(w, "| file | score | ana_retry | ana_reject | exp_inject | fin_reject | fin_rewrite | repair | blocklist_drop | render_anom |")
+		fmt.Fprintln(w, "|------|------:|----------:|-----------:|-----------:|-----------:|------------:|-------:|---------------:|------------:|")
 		n := len(rep.FilesByRetryScore)
 		if n > top {
 			n = top
 		}
 		for _, f := range rep.FilesByRetryScore[:n] {
-			fmt.Fprintf(w, "| `%s` | %d | %d | %d | %d | %d | %d | %d | %d |\n",
+			fmt.Fprintf(w, "| `%s` | %d | %d | %d | %d | %d | %d | %d | %d | %d |\n",
 				escapePipe(f.Path),
 				f.Score,
 				f.AnalyzerRetries,
 				f.AnalyzerRejects,
+				f.ExplorerInjects,
 				f.FinalizerRejects,
 				f.FinalizerRewrites,
 				f.RepairPlans,
