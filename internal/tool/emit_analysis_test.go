@@ -388,6 +388,44 @@ func TestValidateSelfConsistency_RootCauseRequiresDiagnosticPredicate(t *testing
 	}
 }
 
+func TestEmitAnalysis_WriteModeToleratesAdvisoryRootCauseClassifierDrift(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := withV4Required(`{
+		"intent": "root_cause",
+		"scenario": "root_cause",
+		"complexity": "moderate",
+		"keywords": ["main.cpp", "return", "typo"],
+		"entities": ["main.cpp", "greet"],
+		"question_kind": "mechanism"
+	}`)
+
+	res, mu := runEmitAnalysisPayloadWithMode(t, "fix the typo in main.cpp", payload, types.ModePlan)
+	if !res.Success {
+		t.Fatalf("write-mode advisory read analyzer drift should not reject, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "write-mode tolerated read-analyzer root_cause") {
+		t.Fatalf("summary should disclose the tolerance path, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.Intent != types.IntentRootCause {
+		t.Fatalf("intent should preserve the LLM-emitted read classifier for observability, got %q", rm.Intent)
+	}
+
+	readRes, _ := runEmitAnalysisPayloadWithMode(t, "fix the typo in main.cpp", payload, types.ModeRead)
+	if readRes.Success {
+		t.Fatalf("read mode must keep rejecting root_cause without diagnostic typed signal, got %q", readRes.Summary)
+	}
+	if !strings.Contains(readRes.Summary, "intent=root_cause requires a diagnostic typed signal") {
+		t.Fatalf("read-mode rejection reason drifted: %q", readRes.Summary)
+	}
+}
+
 func TestNormalizeDiagnosticMirrorSignals_PredicateWinsWithoutStrongSignal(t *testing.T) {
 	preds := types.SemanticPredicates{IsDiagnosticQuestion: false}
 	diagnostic := types.DiagnosticIntentProfile{
@@ -1254,6 +1292,17 @@ func runEmitAnalysisPayload(t *testing.T, objective, payload string) (types.Tool
 	mu := types.NewMutableState(objective)
 	tool := &EmitAnalysis{}
 	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	return res, mu
+}
+
+func runEmitAnalysisPayloadWithMode(t *testing.T, objective, payload string, mode types.PipelineMode) (types.ToolResult, *types.MutableState) {
+	t.Helper()
+	mu := types.NewMutableState(objective)
+	tool := &EmitAnalysis{}
+	res, err := tool.Execute(&types.BusContext{Mutable: mu, Mode: mode}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}

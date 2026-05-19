@@ -981,13 +981,17 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// versus an explanation of the named entity itself, reject here so
 	// the retry hint forces the LLM to reconcile its own classification
 	// instead of a Go reconcile rule papering over the inconsistency.
-	if reason := validateSelfConsistency(intent, scenario, kind, predicates, diagnosticProfile, axis, entities, p.SubTopics, answerSubject); reason != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_analysis rejected: " + reason,
-			Timestamp: time.Now(),
-		}, nil
+	if issue := validateSelfConsistencyDetailed(intent, scenario, kind, predicates, diagnosticProfile, axis, entities, p.SubTopics, answerSubject); issue.Reason != "" {
+		if writeModeAnalysisRootCauseTolerance(ctx, issue.Kind) {
+			val.Warnings = append(val.Warnings, "write-mode tolerated read-analyzer root_cause without diagnostic typed signal; write_analyzer will provide the code-change task framing")
+		} else {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   "emit_analysis rejected: " + issue.Reason,
+				Timestamp: time.Now(),
+			}, nil
+		}
 	}
 	exactContextTerms, exactContextWarn := sanitizeExactContextTerms(exactTargets, mentionedEntities, p.ExactContextTerms)
 	exactContextRoles, exactContextRoleWarn := sanitizeExactContextRoles(
@@ -1190,6 +1194,19 @@ func trimSubTopicsForConsistency(subTopics []types.SubTopic) []types.SubTopic {
 	return out
 }
 
+type selfConsistencyIssueKind string
+
+const (
+	selfConsistencyIssueNone                       selfConsistencyIssueKind = ""
+	selfConsistencyIssueRootCauseMissingDiagnostic selfConsistencyIssueKind = "root_cause_missing_diagnostic"
+	selfConsistencyIssueOther                      selfConsistencyIssueKind = "other"
+)
+
+type selfConsistencyIssue struct {
+	Kind   selfConsistencyIssueKind
+	Reason string
+}
+
 func validateSelfConsistency(
 	intent types.Intent,
 	scenario types.Scenario,
@@ -1201,12 +1218,26 @@ func validateSelfConsistency(
 	subTopics []types.SubTopic,
 	answerSubject types.AnswerSubject,
 ) string {
+	return validateSelfConsistencyDetailed(intent, scenario, kind, preds, diagnostic, axis, entities, subTopics, answerSubject).Reason
+}
+
+func validateSelfConsistencyDetailed(
+	intent types.Intent,
+	scenario types.Scenario,
+	kind string,
+	preds types.SemanticPredicates,
+	diagnostic types.DiagnosticIntentProfile,
+	axis types.PredicateAxis,
+	entities []string,
+	subTopics []types.SubTopic,
+	answerSubject types.AnswerSubject,
+) selfConsistencyIssue {
 	if preds.IsRoleLocateLookup {
 		if !preds.IsScalarAnswer {
-			return "is_role_locate_lookup=true requires is_scalar_answer=true — a role-locate question still resolves to one literal answer"
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_role_locate_lookup=true requires is_scalar_answer=true — a role-locate question still resolves to one literal answer"}
 		}
 		if !roleLocateSubjectKindAllowed(answerSubject.Kind) {
-			return "is_role_locate_lookup=true requires answer_subject.kind to name the located literal kind (function_name / type_name / file_path / handler_route / config_key / interface_name / struct_field / enum_value)"
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_role_locate_lookup=true requires answer_subject.kind to name the located literal kind (function_name / type_name / file_path / handler_route / config_key / interface_name / struct_field / enum_value)"}
 		}
 	}
 	// Count question must resolve to a scalar answer, not a list. If
@@ -1214,53 +1245,63 @@ func validateSelfConsistency(
 	// the classification is internally inconsistent.
 	if preds.IsCountQuestion {
 		if intent == types.IntentEnumerate {
-			return "is_count_question=true is inconsistent with intent=enumerate — a count question returns a single scalar; pick intent=return_value"
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_count_question=true is inconsistent with intent=enumerate — a count question returns a single scalar; pick intent=return_value"}
 		}
 	}
 	// is_count_question implies is_scalar_answer (the prompt says so).
 	// LLM can still get this wrong; reject so it has to fix one or
 	// the other.
 	if preds.IsCountQuestion && !preds.IsScalarAnswer {
-		return "is_count_question=true requires is_scalar_answer=true — a count question always yields a single scalar"
+		return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_count_question=true requires is_scalar_answer=true — a count question always yields a single scalar"}
 	}
 	// Category enumeration ("what kinds of X exist") implies a list
 	// answer, not a single scalar. If both predicates are set the
 	// question is contradictory.
 	if preds.IsCategoryEnumeration && preds.IsScalarAnswer {
-		return "is_category_enumeration=true and is_scalar_answer=true are mutually exclusive — a 'what kinds of X' question yields a list, not a scalar"
+		return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_category_enumeration=true and is_scalar_answer=true are mutually exclusive — a 'what kinds of X' question yields a list, not a scalar"}
 	}
 	if preds.IsHistoryLookup {
 		if intent == types.IntentEnumerate {
-			return "is_history_lookup=true is inconsistent with intent=enumerate — repository-history questions yield a single scalar / literal, not a list"
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_history_lookup=true is inconsistent with intent=enumerate — repository-history questions yield a single scalar / literal, not a list"}
 		}
 		if !preds.IsScalarAnswer {
-			return "is_history_lookup=true requires is_scalar_answer=true — history / authorship lookups yield a single scalar / literal"
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_history_lookup=true requires is_scalar_answer=true — history / authorship lookups yield a single scalar / literal"}
 		}
 	}
 	diagnosticRequired := preds.IsDiagnosticQuestion || diagnostic.RequiresDiagnosticRootCause()
 	if diagnostic.CurrentVersionCheck && !preds.IsDiagnosticQuestion &&
 		!diagnostic.IsDiagnostic && !diagnostic.CurrentRisk && !diagnostic.HistoricalRegression {
-		return "diagnostic_profile.current_version_check=true is only valid for diagnostic current-status questions — pair it with predicates.is_diagnostic_question=true or diagnostic_profile.is_diagnostic/current_risk/historical_regression=true when the user asks whether an observed issue is still present; for ordinary current-code exact/config/value/location lookup, set current_version_check=false"
+		return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "diagnostic_profile.current_version_check=true is only valid for diagnostic current-status questions — pair it with predicates.is_diagnostic_question=true or diagnostic_profile.is_diagnostic/current_risk/historical_regression=true when the user asks whether an observed issue is still present; for ordinary current-code exact/config/value/location lookup, set current_version_check=false"}
 	}
 	if preds.IsDiagnosticQuestion {
 		if intent != types.IntentRootCause {
-			return "is_diagnostic_question=true requires intent=root_cause — diagnostic questions ask for cause / current-risk analysis, not a general mechanism tour or scalar lookup"
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_diagnostic_question=true requires intent=root_cause — diagnostic questions ask for cause / current-risk analysis, not a general mechanism tour or scalar lookup"}
 		}
 		switch scenario {
 		case types.ScenarioRootCause, types.ScenarioPerformanceBottleneck:
 			// ok
 		default:
-			return "is_diagnostic_question=true requires scenario=root_cause or scenario=performance_bottleneck — architecture_explain is for ordinary mechanism tours, not failure diagnosis"
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_diagnostic_question=true requires scenario=root_cause or scenario=performance_bottleneck — architecture_explain is for ordinary mechanism tours, not failure diagnosis"}
 		}
 	}
 	if intent == types.IntentRootCause && !diagnosticRequired {
-		return "intent=root_cause requires a diagnostic typed signal — set predicates.is_diagnostic_question=true or diagnostic_profile.is_diagnostic/current_risk/historical_regression=true"
+		return selfConsistencyIssue{Kind: selfConsistencyIssueRootCauseMissingDiagnostic, Reason: "intent=root_cause requires a diagnostic typed signal — set predicates.is_diagnostic_question=true or diagnostic_profile.is_diagnostic/current_risk/historical_regression=true"}
 	}
 	if needsRoleLocateDisambiguation(axis, intent, preds, entities, subTopics) &&
 		answerSubject.Kind == types.SubjectUnknown {
-		return "single-target define-axis lookup is under-specified: set answer_subject.kind explicitly so the system can tell whether this is a role-locate scalar lookup (function / type / file / route / config key) or an explanation of the named entity itself; also set predicates.is_role_locate_lookup to true or false explicitly"
+		return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "single-target define-axis lookup is under-specified: set answer_subject.kind explicitly so the system can tell whether this is a role-locate scalar lookup (function / type / file / route / config key) or an explanation of the named entity itself; also set predicates.is_role_locate_lookup to true or false explicitly"}
 	}
-	return ""
+	return selfConsistencyIssue{}
+}
+
+func writeModeAnalysisRootCauseTolerance(ctx *types.BusContext, kind selfConsistencyIssueKind) bool {
+	if kind != selfConsistencyIssueRootCauseMissingDiagnostic {
+		return false
+	}
+	if ctx == nil {
+		return false
+	}
+	return ctx.Mode.Normalize().IsWrite()
 }
 
 func roleLocateSubjectKindAllowed(kind types.AnswerSubjectKind) bool {

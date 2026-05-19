@@ -2751,7 +2751,55 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 	if lastErr == nil {
 		lastErr = fmt.Errorf("write_analyze produced no IR after %d attempts", maxAttempts)
 	}
+	if o.busCtx != nil && o.busCtx.Mutable != nil && o.busCtx.Mutable.WriteAnalysisIR() == nil {
+		ir := fallbackWriteAnalysisIR(o.busCtx.Mutable.Objective(), lastErr)
+		o.busCtx.Mutable.SetWriteAnalysisIR(ir)
+		logging.Warning("[orchestrator] write_analyze degraded; installed fallback WriteAnalysisIR (kind=%s scope=%s): %v",
+			ir.Request.Task.Kind, ir.Request.Task.Scope, lastErr)
+	}
 	return used, lastErr
+}
+
+func fallbackWriteAnalysisIR(objective string, cause error) *types.WriteAnalysisIR {
+	raw := strings.TrimSpace(types.StripConversationPrefix(objective))
+	summary := "Follow the user's requested code-change task"
+	if raw != "" {
+		summary = firstLineTrimmed(raw)
+	}
+	if cause != nil {
+		summary = summary + " (write-analysis fallback)"
+	}
+	return &types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			RawRequest: raw,
+			Task: types.WriteTask{
+				Kind:    types.WriteTaskMisc,
+				Scope:   types.ScopeMicro,
+				Summary: summary,
+			},
+			Risk: types.WriteRiskProfile{Overall: types.RiskBandLow},
+			Constraints: []types.WriteConstraint{{
+				Kind: "preserve_user_request",
+				Note: "write_analyzer did not emit a structured IR; planner must follow the original user request directly and avoid inheriting read-analyzer diagnostic framing",
+			}},
+		},
+		PhaseProposal: types.PhaseProposal{Split: "single"},
+	}
+}
+
+func firstLineTrimmed(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	if len([]rune(s)) <= 140 {
+		return s
+	}
+	runes := []rune(s)
+	return strings.TrimSpace(string(runes[:140])) + "..."
 }
 
 // runTaskPhase dispatches the single task graph for the run. After

@@ -17,7 +17,7 @@ import (
 func TestWriteAnalyze_DispatchedInPlanMode(t *testing.T) {
 	dispatchCount := 0
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
+		Language: "en",
 	})
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
@@ -71,7 +71,7 @@ func TestWriteAnalyze_DispatchedInPlanMode(t *testing.T) {
 func TestWriteAnalyze_NotDispatchedInReadMode(t *testing.T) {
 	dispatchCount := 0
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
+		Language: "en",
 	})
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
@@ -115,11 +115,12 @@ func TestWriteAnalyze_NotDispatchedInReadMode(t *testing.T) {
 
 // TestWriteAnalyze_DegradesOnEmitFailure pins the non-fatal contract:
 // when write_analyzer returns an error, the Run continues into the
-// rest of the write pipeline. WriteAnalysisIR is nil afterwards but
-// downstream stages (planner / coder / verifier) still run.
+// rest of the write pipeline. A conservative fallback WriteAnalysisIR
+// is installed so the planner still sees write-task framing instead
+// of inheriting read-analyzer diagnostic/root-cause framing.
 func TestWriteAnalyze_DegradesOnEmitFailure(t *testing.T) {
 	ir := dagIR(types.AnswerContract{
-		Language:            "en",
+		Language: "en",
 	})
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: dagAnalyzerFn(ir),
@@ -144,11 +145,24 @@ func TestWriteAnalyze_DegradesOnEmitFailure(t *testing.T) {
 	// Run must terminate cleanly; LastError gets populated by the
 	// downstream planner stub (no ChangePlan produced) — that's
 	// expected. The point of this test is that write_analyze failure
-	// is non-fatal: the pipeline still reaches the plan stage.
+	// is non-fatal and still leaves typed write framing for planner.
 	if !bus.TaskState.IsTerminal {
 		t.Error("Run should terminate even when write_analyze degrades")
 	}
-	if bus.Mutable.WriteAnalysisIR() != nil {
-		t.Error("WriteAnalysisIR should be nil after a failed emit")
+	got := bus.Mutable.WriteAnalysisIR()
+	if got == nil {
+		t.Fatal("fallback WriteAnalysisIR should be installed after a failed emit")
+	}
+	if got.Request.Task.Kind != types.WriteTaskMisc {
+		t.Fatalf("fallback kind = %q, want misc", got.Request.Task.Kind)
+	}
+	if got.Request.Task.Scope != types.ScopeMicro {
+		t.Fatalf("fallback scope = %q, want micro", got.Request.Task.Scope)
+	}
+	if got.Request.RawRequest != "add feature" {
+		t.Fatalf("fallback raw request = %q", got.Request.RawRequest)
+	}
+	if len(got.Request.Constraints) == 0 || got.Request.Constraints[0].Kind != "preserve_user_request" {
+		t.Fatalf("fallback should carry a preservation constraint, got %+v", got.Request.Constraints)
 	}
 }
