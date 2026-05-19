@@ -75,6 +75,57 @@ func (ob AnswerSupportMemberObligation) LocationHint() string {
 	return fmt.Sprintf("one of %s, ... (%d equivalent typed anchors)", strings.Join(locations[:maxShown], ", "), len(locations))
 }
 
+// StableItemID is a deterministic item-id suggestion for the finalizer's
+// principal list/table row. It is a handoff aid, not an answer fact: the
+// model still owns the visible prose, while validators and normalizers can
+// share one stable id surface instead of re-deriving different ids from the
+// same member.
+func (ob AnswerSupportMemberObligation) StableItemID() string {
+	label := strings.TrimSpace(ob.Label)
+	if label == "" && len(ob.SurfaceTerms) > 0 {
+		label = strings.TrimSpace(ob.SurfaceTerms[0])
+	}
+	if label == "" {
+		label = strings.TrimSpace(ob.Location)
+	}
+	base := sanitizeAnswerSupportStableID(label)
+	if base == "" {
+		base = "member"
+	}
+	return "support-" + base
+}
+
+// StableCitationKey returns the preferred file:line key for the member.
+// When several equivalent anchors exist, the key is the first typed
+// coverage location; LocationHint() remains the user-facing "one of..."
+// rendering for repair text.
+func (ob AnswerSupportMemberObligation) StableCitationKey() string {
+	locations := supportMemberCoverageLocations(ob)
+	if len(locations) == 0 {
+		return strings.TrimSpace(ob.Location)
+	}
+	return locations[0]
+}
+
+func sanitizeAnswerSupportStableID(label string) string {
+	label = strings.ToLower(strings.TrimSpace(label))
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range label {
+		ok := r >= 'a' && r <= 'z' || r >= '0' && r <= '9'
+		if ok {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
 // PrincipalSupportMemberObligations returns the answer-grade
 // principal evidence entries whose locations should appear as
 // cited list/table items in QFEnumeration answers when the support plan

@@ -1748,12 +1748,8 @@ func nextPrincipalSupportMemberBlockID(doc *types.AnswerDocumentV2) string {
 }
 
 func nextPrincipalSupportMemberItemID(block types.AnswerBlock, ob types.AnswerSupportMemberObligation) string {
-	label := principalSupportMemberItemLabel(ob)
-	if label == "" {
-		label = ob.Location
-	}
-	base := "support-" + sanitizeRequiredMechanismAnchorID(label)
-	if base == "support-" {
+	base := strings.TrimSpace(ob.StableItemID())
+	if base == "" || base == "support-" {
 		base = "support-member"
 	}
 	used := make(map[string]bool, len(block.Items))

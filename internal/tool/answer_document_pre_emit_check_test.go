@@ -2493,6 +2493,9 @@ func TestNormalizePrincipalSupportMemberCarriers_AddsHiddenCitationSidecarForVis
 	if len(doc.Blocks[0].Items) != 1 || doc.Blocks[0].Items[0].CitationRef != 0 {
 		t.Fatalf("expected hidden citation sidecar item, got %+v", doc.Blocks[0].Items)
 	}
+	if got, want := doc.Blocks[0].Items[0].ID, "support-activitymanagerservice_java_mforegroundpackages"; got != want {
+		t.Fatalf("hidden sidecar item id = %q, want stable id %q", got, want)
+	}
 	if missing := types.MissingPrincipalSupportMembers(doc, plan); len(missing) != 0 {
 		t.Fatalf("hidden citation sidecar should satisfy visible markdown table member, got %+v", missing)
 	}

@@ -1438,6 +1438,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalMemberO
 		"### Principal Member Obligations",
 		"Intent",
 		"internal/types/analysis_ir.go:642",
+		"item_id=support-intent",
+		"citation_key=internal/types/analysis_ir.go:642",
 		"evidence_id=enum-intent",
 		"fresh `citations[]` pool",
 	} {

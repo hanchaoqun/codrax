@@ -4490,6 +4490,7 @@ func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan) st
 	var b strings.Builder
 	b.WriteString("### Principal Member Obligations\n\n")
 	fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s). Render each member as a principal `ordered_list`, `bullet_list`, or `table` item with a citation to the listed location or one of its equivalent typed anchors. These rows are a stable member-to-citation map; do not satisfy them by prose-only mentions in `summary`.\n", len(obligations))
+	b.WriteString("Use the shown `item_id` for the row id when possible, and use `citation_key` as the stable file:line target when building `citations[]`; after you build the citation pool, `citation_ref` is simply the zero-based index whose citation matches that key. Do not count indexes from memory when a key is shown.\n")
 	b.WriteString("When one member has both a definition/declaration anchor and an implementation/proof anchor, keep it as one principal member. Do not churn `citation_ref` just to swap between those equivalent anchors; cite one accepted anchor and mention the other only as same-row enrichment when it helps the user.\n")
 	if plan != nil && plan.ChangeImpactProfile != nil && plan.ChangeImpactProfile.Active() &&
 		plan.ChangeImpactProfile.RequestedOutput == types.ImpactOutputFiles {
@@ -4509,10 +4510,15 @@ func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan) st
 		if form == "" {
 			form = "principal_evidence"
 		}
+		itemID := strings.TrimSpace(ob.StableItemID())
+		citationKey := strings.TrimSpace(ob.StableCitationKey())
 		if id := strings.TrimSpace(ob.EvidenceID); id != "" {
-			fmt.Fprintf(&b, "- %s — %s — %s — evidence_id=%s\n", label, loc, form, id)
+			fmt.Fprintf(&b, "- item_id=%s — label=%s — citation_key=%s — %s — evidence_id=%s\n", itemID, label, citationKey, form, id)
 		} else {
-			fmt.Fprintf(&b, "- %s — %s — %s\n", label, loc, form)
+			fmt.Fprintf(&b, "- item_id=%s — label=%s — citation_key=%s — %s\n", itemID, label, citationKey, form)
+		}
+		if loc != "" && loc != citationKey {
+			fmt.Fprintf(&b, "  accepted_locations=%s\n", loc)
 		}
 	}
 	b.WriteString("\n")
