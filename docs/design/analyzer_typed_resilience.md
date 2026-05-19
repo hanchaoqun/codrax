@@ -62,7 +62,7 @@ git log --oneline 7ac49a35..HEAD -- \
 | Batch | Scope | Status | Code paths | Exit criteria |
 |---|---|---|---|---|
 | Batch 1 | Phase 4 + Phase 3：软化 `error_granularity_profile.source_quotes`；新增 diagnostic mirror typed normalizer；收紧 diagnostic reconciler 入口 | **DONE (2026-05-19)** | `internal/tool/emit_analysis.go`, `internal/agent/analyzer_intent.go`, `internal/tool/emit_analysis_test.go`, `internal/agent/analyzer_intent_test.go` | forensic case 不再因 granularity quote 重试；`diagnostic_profile.is_diagnostic=true` 不再在 predicate=false 且无强诊断信号时把 explain 题升级 root_cause |
-| Batch 2 | Phase 1：EntityProvenance producer telemetry-only，不接 consumer | TODO | `internal/types/analysis_ir.go`, `internal/agent/entity_provenance_projection.go`, `internal/agent/analyzer.go` | 只新增 typed side-lane 与 summary telemetry；下游行为不变 |
+| Batch 2 | Phase 1：EntityProvenance producer telemetry-only，不接 consumer | **DONE (2026-05-19)** | `internal/types/analysis_ir.go`, `internal/agent/entity_provenance_projection.go`, `internal/agent/analyzer.go`, `internal/agent/entity_provenance_projection_test.go` | 只新增 typed side-lane 与 summary telemetry；下游行为不变 |
 | Batch 3 | Phase 2：consumer wiring，search/shape 分流读取 provenance，nil provenance 全 keep | TODO | `internal/tool/keyword_search.go`, `internal/agent/explorer.go`, ERM/evidence plan consumers | full eval 不增加 retry；多仓/单仓均不误伤合法 entity |
 | Batch 4 | Phase 5：基于 telemetry 决定 blocklist drop→noise 降级与 schema 文案小步更新 | TODO | `internal/tool/analysis_limits.go`, `internal/tool/emit_analysis.go` schema | `DroppedEntities` fixture 有明确迁移；不得在无 telemetry 时扩大噪声流 |
 
@@ -71,6 +71,16 @@ Batch 1 verification:
 ```bash
 go test ./internal/tool
 go test ./internal/agent
+go test ./internal/orchestrator
+go test ./internal/types
+go test ./internal/analysis/...
+```
+
+Batch 2 verification:
+
+```bash
+go test ./internal/agent
+go test ./internal/tool
 go test ./internal/orchestrator
 go test ./internal/types
 go test ./internal/analysis/...

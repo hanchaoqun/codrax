@@ -1766,6 +1766,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.1.
 	rm.AnalyzerHints.PrimaryScopes = projectPrimaryScopes(ctx, rm.AnalyzerHints.PrimaryEntities)
 	projectSubTopicScopes(ctx, rm.SubTopics)
+	projectEntityProvenance(ctx, &rm)
 
 	// L0-B (2026-05-05) — Enumeration cardinality structural sanity.
 	// When the analyzer LLM (or amplifier R1 flip) declares the

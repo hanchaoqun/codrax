@@ -672,6 +672,14 @@ type AnalyzerHints struct {
 	//
 	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.1.
 	PrimaryScopes []string `json:"primary_scopes,omitempty"`
+	// EntityProvenance is the typed side-lane for AnalyzerHints.Entities.
+	// It does not remove or rewrite any LLM-emitted entity. Producers
+	// copy each surface into this lane with deterministic metadata so
+	// downstream consumers can opt in later without treating every entity
+	// as an equally grounded code symbol.
+	//
+	// Design doc: docs/design/analyzer_typed_resilience.md §0.2 / Batch 2.
+	EntityProvenance []EntityProvenance `json:"entity_provenance,omitempty"`
 	// MentionedEntities is the deterministic subset of PrimaryEntities
 	// whose surface forms are explicitly present in RawRequest. This is
 	// the provenance-carrying "user mentioned it" lane: exact-resolution
@@ -787,6 +795,39 @@ type RequiredFileHint struct {
 	Rationale string `json:"rationale,omitempty"`
 }
 
+type EntityOrigin string
+
+const (
+	EntityOriginUnknown        EntityOrigin = ""
+	EntityOriginAnalyzerEntity EntityOrigin = "analyzer_entity"
+	EntityOriginSubTopicEntity EntityOrigin = "sub_topic_entity"
+)
+
+type EntityResolution string
+
+const (
+	EntityResolutionUnknown         EntityResolution = ""
+	EntityResolutionScope           EntityResolution = "scope"
+	EntityResolutionSymbol          EntityResolution = "symbol"
+	EntityResolutionFile            EntityResolution = "file"
+	EntityResolutionPrescanAnchor   EntityResolution = "prescan_anchor"
+	EntityResolutionInferredConcept EntityResolution = "inferred_concept"
+)
+
+// EntityProvenance describes how one analyzer-emitted entity should be
+// interpreted by future consumers. Batch 2 is producer/telemetry-only:
+// no existing flow reads UseForSearch / UseForShape until a later batch
+// explicitly wires a consumer with nil-provenance fallback.
+type EntityProvenance struct {
+	Surface      string           `json:"surface"`
+	Origin       EntityOrigin     `json:"origin,omitempty"`
+	Resolution   EntityResolution `json:"resolution,omitempty"`
+	Resolved     bool             `json:"resolved"`
+	NoiseScore   float64          `json:"noise_score,omitempty"`
+	UseForSearch bool             `json:"use_for_search,omitempty"`
+	UseForShape  bool             `json:"use_for_shape,omitempty"`
+}
+
 type Intent string
 
 const (
@@ -855,6 +896,9 @@ type SubTopic struct {
 	//
 	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.1.
 	Scopes []string `json:"scopes,omitempty"`
+	// EntityProvenance is the typed side-lane for SubTopic.Entities.
+	// Same COPY semantics as AnalyzerHints.EntityProvenance.
+	EntityProvenance []EntityProvenance `json:"entity_provenance,omitempty"`
 }
 
 // ── TermGraph ───────────────────────────────────────────────────────────
