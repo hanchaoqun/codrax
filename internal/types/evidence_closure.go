@@ -505,7 +505,7 @@ func (c *EvidenceClosure) MergeFrom(other *EvidenceClosure) {
 	for _, r := range snap.repairs {
 		duplicate := false
 		for _, existing := range c.repairs {
-			if existing.Kind == r.Kind && existing.Subject == r.Subject && sameFileSet(existing.Files, r.Files) {
+			if existing.Kind == r.Kind && existing.Subject == r.Subject && existing.Advisory == r.Advisory && sameFileSet(existing.Files, r.Files) {
 				duplicate = true
 				break
 			}
@@ -1299,7 +1299,7 @@ func (c *EvidenceClosure) ActiveRepairs() []RepairDirective {
 	var out []RepairDirective
 	out = append(out, c.activeReadRepairsLocked()...)
 	for _, repair := range c.repairs {
-		if repair.Kind == RepairReadFile {
+		if repair.Kind == RepairReadFile || repair.Advisory {
 			continue
 		}
 		out = append(out, repair)
@@ -1324,6 +1324,22 @@ func (c *EvidenceClosure) ClearPendingReads() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.pendingReads = nil
+}
+
+// ClearRepairs drops queued repair directives without touching read coverage,
+// pending forced reads, violations, or statistics. It is used at accepted
+// investigation-completion boundaries: a later accepted closure supersedes
+// stale repair directives raised by earlier downgraded completion attempts,
+// especially from sibling parallel explorer forks.
+func (c *EvidenceClosure) ClearRepairs() int {
+	if c == nil {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := len(c.repairs)
+	c.repairs = nil
+	return n
 }
 
 // ClearPendingReadFor removes every PendingRead whose File equals the
@@ -2133,7 +2149,7 @@ func (c *EvidenceClosure) ConsumeRepairs() []RepairDirective {
 	var out []RepairDirective
 	out = append(out, c.activeReadRepairsLocked()...)
 	for _, repair := range c.repairs {
-		if repair.Kind == RepairReadFile {
+		if repair.Kind == RepairReadFile || repair.Advisory {
 			continue
 		}
 		out = append(out, repair)

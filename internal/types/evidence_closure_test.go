@@ -303,6 +303,59 @@ func TestActiveRepairs_PrefersPendingReadsOverHistoricalReadRepairs(t *testing.T
 	}
 }
 
+func TestActiveRepairs_SkipsAdvisoryRepairs(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddRepair(RepairDirective{
+		Kind:      RepairEmitEvidence,
+		Files:     []string{"internal/agent/analyzer.go"},
+		Rationale: "optional extra call-chain detail",
+		Origin:    "pre_complete.call_chain_qualified_intermediate",
+		Advisory:  true,
+		Stage:     "explore",
+	})
+	if got := c.ActiveRepairs(); len(got) != 0 {
+		t.Fatalf("advisory repairs must not be active/blocking, got %+v", got)
+	}
+	pending := c.PendingRepairs()
+	if len(pending) != 1 || !pending[0].Advisory {
+		t.Fatalf("advisory repair should remain in audit ledger, got %+v", pending)
+	}
+	if got := c.ConsumeRepairs(); len(got) != 0 {
+		t.Fatalf("advisory repairs must not render as retry directives, got %+v", got)
+	}
+	if got := c.PendingRepairs(); len(got) != 0 {
+		t.Fatalf("ConsumeRepairs should drain advisory ledger after audit handoff, got %+v", got)
+	}
+}
+
+func TestMergeExploreFork_AcceptedCompletionClearsSiblingRepairs(t *testing.T) {
+	parent := NewMutableState("trace call chain")
+
+	blocked := parent.ForkForExploreDispatch()
+	blocked.EvidenceClosure().AddRepair(RepairDirective{
+		Kind:      RepairEmitEvidence,
+		Files:     []string{"internal/agent/analyzer.go"},
+		Rationale: "stale sibling span repair",
+		Origin:    "pre_complete.call_chain_principal_span",
+		Stage:     "explore",
+	})
+	parent.MergeExploreFork(blocked)
+	if got := parent.EvidenceClosure().ActiveRepairs(); len(got) == 0 {
+		t.Fatalf("blocking sibling repair should be active before accepted completion")
+	}
+
+	complete := parent.ForkForExploreDispatch()
+	complete.SetInvestigationComplete("complete branch has accepted closure")
+	parent.MergeExploreFork(complete)
+
+	if got := parent.EvidenceClosure().ActiveRepairs(); len(got) != 0 {
+		t.Fatalf("accepted parallel completion must clear stale sibling repairs, got %+v", got)
+	}
+	if got := parent.EvidenceClosure().PendingRepairs(); len(got) != 0 {
+		t.Fatalf("accepted parallel completion must clear repair ledger, got %+v", got)
+	}
+}
+
 // TestConsumeRepairs_RetainsLivePendingReadRepairs ensures scheduler
 // prompts keep seeing unresolved forced reads even after the queued
 // repairs ledger is drained. Read-file surfacing is anchored to

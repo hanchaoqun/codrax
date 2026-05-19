@@ -110,6 +110,14 @@ type RepairDirective struct {
 	Rationale string
 	Origin    string
 
+	// Advisory marks telemetry-only guidance. Advisory directives are
+	// recorded for audit/statistics but must not drive ActiveRepairs,
+	// reopen an otherwise-complete explore window, or render as a
+	// blocking "retry before completion" demand. Use this only when the
+	// framework has a noisy or optional improvement signal, not a
+	// precise structural defect.
+	Advisory bool
+
 	// LineRanges (Kind == RepairReadFile only) carries surgical
 	// 1-based [Start, End] line ranges. When non-empty AND propagated
 	// through the AddRepair → addPendingReadLocked auto-bridge, the
@@ -143,16 +151,17 @@ func MergeRepairs(in []RepairDirective) []RepairDirective {
 		return in
 	}
 	type key struct {
-		kind    RepairKind
-		subject string
-		files   string
+		kind     RepairKind
+		subject  string
+		files    string
+		advisory bool
 	}
 	seen := make(map[key]bool, len(in))
 	out := in[:0]
 	for _, r := range in {
 		dup := append([]string(nil), r.Files...)
 		sort.Strings(dup)
-		k := key{kind: r.Kind, subject: r.Subject, files: strings.Join(dup, "\x00")}
+		k := key{kind: r.Kind, subject: r.Subject, files: strings.Join(dup, "\x00"), advisory: r.Advisory}
 		if seen[k] {
 			continue
 		}
@@ -190,6 +199,58 @@ func MergeRepairs(in []RepairDirective) []RepairDirective {
 //	  No progress detected across retries; close out with current evidence.
 func (r RepairDirective) Render() string {
 	var b strings.Builder
+	if r.Advisory {
+		switch r.Kind {
+		case RepairReadFile:
+			b.WriteString("## Optional Read Advisory\n")
+			if len(r.Files) > 0 {
+				b.WriteString("If you continue investigating this same branch, these files may add context, but they are not blocking completion:\n")
+				for _, f := range r.Files {
+					if f == "" {
+						continue
+					}
+					if r.Rationale != "" {
+						b.WriteString("- " + f + " — " + r.Rationale + "\n")
+					} else {
+						b.WriteString("- " + f + "\n")
+					}
+				}
+			} else if r.Rationale != "" {
+				b.WriteString(r.Rationale + "\n")
+			}
+		case RepairEmitEvidence:
+			b.WriteString("## Optional Evidence Advisory\n")
+			if len(r.Files) > 0 {
+				b.WriteString("The current answer can proceed; if another investigation round happens anyway, prefer materializing any useful extra evidence from:\n")
+				for _, f := range r.Files {
+					if f == "" {
+						continue
+					}
+					if r.Rationale != "" {
+						b.WriteString("- " + f + " — " + r.Rationale + "\n")
+					} else {
+						b.WriteString("- " + f + "\n")
+					}
+				}
+			} else if r.Rationale != "" {
+				b.WriteString(r.Rationale + "\n")
+			}
+		default:
+			b.WriteString("## Optional Investigation Advisory\n")
+			if len(r.Keywords) > 0 {
+				b.WriteString("Non-blocking keyword stems: ")
+				b.WriteString(strings.Join(r.Keywords, ", "))
+				b.WriteString("\n")
+			}
+			if r.Subject != "" {
+				b.WriteString(r.Subject + "\n")
+			}
+			if r.Rationale != "" {
+				b.WriteString(r.Rationale + "\n")
+			}
+		}
+		return b.String()
+	}
 	switch r.Kind {
 	case RepairReadFile:
 		b.WriteString("## Forced Read List (read these files before emit_investigation_complete)\n")

@@ -1040,6 +1040,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	ctx.Mutable.SetInvestigationResultKind(resultKind)
 	ctx.Mutable.RetainInvestigationAggregateFacts()
 	ctx.Mutable.RetainEvidenceFloorWaiver()
+	if drained := ctx.Mutable.EvidenceClosure().ClearRepairs(); drained > 0 {
+		logging.Info("[emit_investigation_complete] cleared %d stale repair directive(s) after accepted completion", drained)
+	}
 	summary := fmt.Sprintf("Investigation marked complete (confidence=%s, result_kind=%s): %s", conf, resultKind, reason)
 	if justification != "" {
 		ctx.Mutable.SetAbsenceJustification(justification)
@@ -4803,6 +4806,7 @@ func callChainAddQualifiedIntermediateAdvisoryRepair(closure *types.EvidenceClos
 		Keywords:  dedupStringsPreserveOrder(keywords),
 		Rationale: "already-read source-to-sink call-chain span contains qualified call candidates that were not carried through typed evidence",
 		Origin:    "pre_complete.call_chain_qualified_intermediate",
+		Advisory:  true,
 		Stage:     string(types.StageExplore),
 	})
 }

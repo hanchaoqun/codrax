@@ -1040,6 +1040,9 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	if closure != nil {
 		m.EvidenceClosure().MergeFrom(closure)
 	}
+	if investigationComplete {
+		m.EvidenceClosure().ClearRepairs()
+	}
 }
 
 // SetRepoRoot caches the orchestrator's -repo root so lazy-init of

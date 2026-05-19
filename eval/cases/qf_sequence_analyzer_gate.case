@@ -9,5 +9,5 @@ NAME="diagram — sequence buildAnalysisIR to gate.Run"
 QUESTION="请用 Mermaid 时序图展示 analyzer.go 里 buildAnalysisIR 到 gate.Run 的调用顺序，并在图后列出关键中间函数。"
 EXPECT_CONTAINS="buildAnalysisIR gate.Run"
 EXPECT_MATCHES_REGEX='(```mermaid|sequenceDiagram)
-(normalizer\\.Normalize|compiler\\.Compile|hdp\\.Plan|binder\\.BindByRelevance|RecomputeBudget)'
+(normalizer\.Normalize|compiler\.Compile|hdp\.Plan|binder\.BindByRelevance|RecomputeBudget)'
 EXPECT_NOT_CONTAINS="runTaskGraph DesignReviewer"

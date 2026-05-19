@@ -414,15 +414,20 @@ func TestCallChainQualifiedIntermediateDowngrade_DenseCoverageKeepsCandidatesAdv
 	if got := callChainQualifiedIntermediateDowngrade(ctx, closure); got != "" {
 		t.Fatalf("dense structured call-chain coverage should keep residual qualified calls advisory, got:\n%s", got)
 	}
-	var found bool
 	for _, repair := range closure.ActiveRepairs() {
-		if repair.Origin == "pre_complete.call_chain_qualified_intermediate" && repair.Kind == types.RepairEmitEvidence {
+		if repair.Origin == "pre_complete.call_chain_qualified_intermediate" {
+			t.Fatalf("dense residual qualified calls must not become an active/blocking repair, got %+v", closure.ActiveRepairs())
+		}
+	}
+	var found bool
+	for _, repair := range closure.PendingRepairs() {
+		if repair.Origin == "pre_complete.call_chain_qualified_intermediate" && repair.Kind == types.RepairEmitEvidence && repair.Advisory {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("residual qualified calls should remain visible as advisory repair, got %+v", closure.ActiveRepairs())
+		t.Fatalf("residual qualified calls should remain visible as advisory repair, got %+v", closure.PendingRepairs())
 	}
 }
 
