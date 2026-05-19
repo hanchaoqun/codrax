@@ -4275,6 +4275,13 @@ type BusContext struct {
 	// dispatchStage path instead of the parallel fork runner.
 	ExploreDispatchKey string `json:"-"`
 
+	// ExploreDispatchKind is the structured TaskNode type for the current
+	// focused explorer dispatch. It is render-only metadata: the evaluator
+	// still keys state by ExploreDispatchKey, while the UI can distinguish a
+	// serial reconcile pass from ordinary evidence collection without parsing
+	// prompt text or node ids.
+	ExploreDispatchKind TaskNodeType `json:"-"`
+
 	// AnalysisIR is the Analyzer v3 structured output. Set once by the
 	// analyze stage via StageOutput.AnalysisIR → applyStageOutput and
 	// never rewritten thereafter — the analyzer is the sole writer.
@@ -4483,6 +4490,10 @@ type AgentContext struct {
 	// state isolated per DAG evidence node while preserving legitimate
 	// self-loop state for a re-dispatch of the same node.
 	ExploreDispatchKey string `json:"-"`
+
+	// ExploreDispatchKind mirrors BusContext.ExploreDispatchKind for
+	// render-only activity labels. It must not drive evaluator behavior.
+	ExploreDispatchKind TaskNodeType `json:"-"`
 
 	// ParallelGroupID is render-only telemetry for orchestrator-owned
 	// bounded fan-out. When set, BaseAgent mirrors it onto LLM/tool

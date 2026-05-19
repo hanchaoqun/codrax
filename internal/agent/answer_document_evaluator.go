@@ -2350,13 +2350,12 @@ func answerBlockRequirementHasTypedDecisionCarrier(req types.BlockRequirement, v
 }
 
 func renderAnswerDocExclusionPolicy(ctx *types.AgentContext) string {
-	rm := answerDocRequestModel(ctx)
-	policy := rm.AnswerExclusionPolicy
-	if policy == nil || !policy.Active() {
+	effectiveRoles := tool.EffectiveAnswerExclusionRolesForAgentContext(ctx)
+	if len(effectiveRoles) == 0 {
 		return ""
 	}
-	roles := make([]string, 0, len(policy.ExcludedCandidateRoles))
-	for _, role := range policy.ExcludedCandidateRoles {
+	roles := make([]string, 0, len(effectiveRoles))
+	for _, role := range effectiveRoles {
 		roles = append(roles, string(role))
 	}
 	var b strings.Builder
@@ -3581,7 +3580,12 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Required Principal Member Set\n\n")
 	b.WriteString("The investigator handed off the following principal `member_set` aggregate fact(s) via `emit_investigation_complete.aggregate_facts`. ")
-	b.WriteString("**Every member listed below MUST appear verbatim — including any decorator in parentheses (e.g. `(9 checks)`, `(路径边界)`), arrow (e.g. ` → `), or separator (e.g. `::`, `/`) — in some `blocks[].items[].label`, `blocks[].items[].text`, `blocks[].items[].cells[]`, or `blocks[].text` of the emitted answer document.** ")
+	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) || types.RequiresRelationMemberSetHandoff(rm) {
+		b.WriteString("**Every member listed below MUST appear verbatim — including any decorator in parentheses (e.g. `(9 checks)`, `(路径边界)`), arrow (e.g. ` → `), or separator (e.g. `::`, `/`) — as a principal `ordered_list`, `bullet_list`, or `table` item. Prefer one titled block per principal set when multiple sets are present.** ")
+		b.WriteString("Prose-only mentions inside `summary` or `section` text may enrich the answer, but they are not the principal member carrier for this typed exhaustive/member-set request.\n\n")
+	} else {
+		b.WriteString("**Every member listed below MUST appear verbatim — including any decorator in parentheses (e.g. `(9 checks)`, `(路径边界)`), arrow (e.g. ` → `), or separator (e.g. `::`, `/`) — in some `blocks[].items[].label`, `blocks[].items[].text`, `blocks[].items[].cells[]`, or `blocks[].text` of the emitted answer document.** ")
+	}
 	b.WriteString("The pre-emit oracle rejects the call (with field `blocks[].items[].label/text/cells OR blocks[].text`) if any member is missing, paraphrased, abbreviated, or has its decorator stripped. Mirror each string byte-for-byte; do NOT rewrite the wording.\n\n")
 	b.WriteString("Concretely: a member rendered as `gate.Run (9 checks)` is NOT satisfied by `gate.Run` alone, `gate.Run / gate.RunWith`, or `gate.Run 函数`. The full string `gate.Run (9 checks)` must appear together inside one block's label/text/cells/items.\n\n")
 	b.WriteString("Upstream contract for decorator-shape members: for each member rendered as `code_identifier (qualifier)` (e.g. `Orchestrator (4-stage pipeline)`, `assertExternalDirectoryEffect (路径边界)`), the investigator was required to attach `support_refs[i] = file:line` per member on `emit_investigation_complete` — empty `support_refs` on a decorated `member_set` is rejected at that boundary because the decorator changes the surface so the framework cannot auto-resolve the member against an evidence anchor named by the bare leading identifier alone. When the matching support file:line is available on the bus, cite it as the decorated member's `citation_ref` in the answer document so the visible decorator carries a citation back to its evidence source.\n\n")
@@ -3609,11 +3613,13 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("## Structured Aggregate Facts\n\n")
 	b.WriteString("- These aggregate facts were emitted by the investigator through `emit_investigation_complete.aggregate_facts` after exploration. They are model-authored structured handoff values, not system-synthesised answer text.\n")
 	b.WriteString("- Preserve each `value` exactly when the corresponding fact answers the user's requested scalar, unique-set, group, bucket, exclusion, or exhaustive-member question. Use `members` for requested concrete lists such as enum/type names, file paths, or file:line locations.\n")
+	b.WriteString("- Facts marked `role=principal_answer` are answer payloads even when they have no file:line citation: preserve principal `total_count`, `unique_count`, `grouped_count`, `bucket_count`, `scalar_value`, and `negative_search` values with their typed dimensions, or explain the boundary in a caveat instead of dropping them.\n")
 	if aggregateFactPromptOmitExcludedCandidates(ctx) {
 		b.WriteString("- The active typed exclusion policy keeps concrete excluded candidates out of the answer surface. Excluded categories and counts may be used as scope boundaries; omitted `excluded[]` names are intentionally not part of the visible answer.\n")
 	}
 	b.WriteString("- `kind=negative_search` is the typed lane for a verified zero-result repository search. It has no citation line by design; use its repo/query-or-pattern/scope/searched_at dimensions to support no-hit conclusions, cross-repository boundaries, and caveats without inventing a file:line citation.\n")
 	b.WriteString("- For `member_set` rows, `role=principal_answer` marks the concrete principal slate. `role=supporting_coverage` / `role=audit_ledger` rows are context or investigation bookkeeping and must not create duplicate principal rows.\n")
+	b.WriteString("- Grounded definition evidence from read files and the requested source scope is the detail/citation authority for those principal members. Aggregate facts organize the slate/counts; they must not cause you to drop richer per-member summaries already present in the evidence pool or typed exploration enrichment rows.\n")
 	if relationRefs := answerDocPrincipalRelationMemberSetRefs(ctx, plan.StableAggregateFacts); len(relationRefs) > 0 {
 		b.WriteString("- Relation contract: principal relation `member_set` rows answer a qualifying-member lookup. Start from the qualifying member(s) in that typed set, then explain the relation evidence; do not substitute a mechanism-only architecture explanation for the direct member answer.\n")
 		if answerDocHasMultiMemberAggregateRef(relationRefs) {
@@ -3622,7 +3628,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, `Member | file.ext:line`, or `Member (file.ext:line)`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Reserve `citation_ref:-1` only for member labels that have no citable source-location handoff.\n")
 	b.WriteString("- Do not render internal provenance strings such as `source=emit_investigation_complete.aggregate_facts` in the user-visible answer text. Use provenance only to choose the correct member set and citations.\n")
-	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, typed support lanes, citations, or raw tool outputs conflict with these facts, prefer rows marked `role=principal_answer` for the principal list and treat `role=supporting_coverage` / `role=audit_ledger` rows as support context.\n\n")
+	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, unstructured prose, or raw tool snippets conflict with these facts, prefer rows marked `role=principal_answer` for the principal list. If a same-member grounded definition evidence row provides richer detail, use that evidence to explain the member instead of deleting the detail.\n\n")
 	b.WriteString(renderStructuredAggregateFactsForContext(ctx, plan.StableAggregateFacts))
 	b.WriteString("\n")
 	return b.String()
@@ -3694,6 +3700,7 @@ func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportR
 	b.WriteString("- This section is a typed replay of structured exploration handoff only: model-emitted `EvidenceItems`, deterministic evidence projections, and `FlowFindings`. It does not read raw thinking text, raw investigation notes, or unstructured closure prose.\n")
 	b.WriteString("- Use these facts to enrich the same principal subject, block, facet, hop, scalar, or verdict that the current request asks for. They are not a member slate by themselves.\n")
 	b.WriteString("- Do not promote an enrichment fact into a new principal ordered-list member, diagram node/edge, exact target, or countable bucket unless a typed support lane, exact-resolution contract, answer-symbol slate, structured aggregate fact, or cited source line independently makes it principal.\n")
+	b.WriteString("- Rows marked `lane=principal_definition_fact` are grounded definition details from files read during exploration and within the requested source scope. They are the highest-priority detail/citation source for already-principal members; preserve their summaries when the answer asks for per-member explanations.\n")
 	if supportRendered {
 		b.WriteString("- Because typed support lanes are present, those lanes remain the principal boundary. Treat rows here as context, detail, exclusions, or same-item explanation only.\n")
 	}
@@ -3796,13 +3803,20 @@ func selectAnswerDocTypedEnrichmentFacts(
 		if supportScope != nil && !supportScope.allowsEvidence(item) {
 			continue
 		}
+		principalDefinition := answerDocEvidenceIsPrincipalDefinitionFact(ctx, item)
 		lane := answerDocEnrichmentLaneForEvidence(item)
+		if principalDefinition {
+			lane = "principal_definition_fact"
+		}
 		if lane == "" {
 			continue
 		}
 		surface := strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(item, false))
 		if surface == "" {
 			continue
+		}
+		if principalDefinition {
+			surface = answerDocDefinitionSurfaceWithSummary(item, surface)
 		}
 		surface = truncateAnswerDocPromptText(surface, answerDocMaxEnrichmentSurfaceBytes)
 		label := answerDocEnrichmentEvidenceLabel(item)
@@ -3948,6 +3962,8 @@ func answerDocEnrichmentEvidenceScore(
 ) int {
 	score := extractorValueEvidenceScore(item, label, surface, needles, profile)
 	switch lane {
+	case "principal_definition_fact":
+		score += 16
 	case "value_fact":
 		score += 8
 	case "flow_fact":
@@ -3982,6 +3998,73 @@ func answerDocEnrichmentEvidenceScore(
 		return 1
 	}
 	return score
+}
+
+func answerDocEvidenceIsPrincipalDefinitionFact(ctx *types.AgentContext, item types.EvidenceItem) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !types.IsCategoryEnumerationAnswerShape(rm) && len(answerDocStableAggregateFacts(ctx)) == 0 {
+		return false
+	}
+	if item.Kind != types.EvidenceDirect ||
+		item.AnchorKind != types.AnchorDefinition ||
+		item.GroundingStatus == types.GroundingUngrounded ||
+		strings.TrimSpace(item.Source) == "" ||
+		item.LineStart <= 0 {
+		return false
+	}
+	scope := types.SourceScopeProduction
+	if rm.SourceScopeProfile != nil && rm.SourceScopeProfile.RequestedScope != "" {
+		scope = rm.SourceScopeProfile.RequestedScope
+	}
+	if !types.SourceScopeAllowsPathRole(scope, types.ClassifySourcePathRole(item.Source)) {
+		return false
+	}
+	return answerDocEvidenceSourceWasRead(ctx, item.Source)
+}
+
+func answerDocEvidenceSourceWasRead(ctx *types.AgentContext, source string) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return true
+	}
+	ta := ctx.Mutable.TurnAArtifacts()
+	if ta == nil || len(ta.ReadFiles) == 0 {
+		return true
+	}
+	for _, readFile := range ta.ReadFiles {
+		if answerDocPathMatches(readFile, source) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocPathMatches(a, b string) bool {
+	a = strings.ToLower(strings.Trim(strings.TrimSpace(strings.ReplaceAll(a, `\`, `/`)), "/"))
+	b = strings.ToLower(strings.Trim(strings.TrimSpace(strings.ReplaceAll(b, `\`, `/`)), "/"))
+	a = strings.TrimPrefix(a, "./")
+	b = strings.TrimPrefix(b, "./")
+	if a == "" || b == "" {
+		return false
+	}
+	return a == b || strings.HasSuffix(a, "/"+b) || strings.HasSuffix(b, "/"+a)
+}
+
+func answerDocDefinitionSurfaceWithSummary(item types.EvidenceItem, surface string) string {
+	summary := strings.TrimSpace(item.Summary)
+	if summary == "" {
+		return surface
+	}
+	if strings.Contains(surface, summary) {
+		return surface
+	}
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return summary
+	}
+	return surface + " — " + summary
 }
 
 func answerDocEvidenceRoleTag(item types.EvidenceItem) string {

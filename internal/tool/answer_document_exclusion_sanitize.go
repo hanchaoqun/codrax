@@ -22,15 +22,16 @@ func normalizeTypedExcludedAnswerSurface(doc *types.AnswerDocumentV2, ctx *types
 		return 0
 	}
 	policy := ctx.AnalysisIR.RequestModel.AnswerExclusionPolicy
-	if policy == nil || !policy.Active() {
-		return 0
+	var facts []types.AnswerAggregateFact
+	if ctx.Mutable != nil {
+		facts = ctx.Mutable.StableInvestigationAggregateFacts()
 	}
-	roles := answerDocumentExcludedRoleSet(policy)
+	roles := answerDocumentEffectiveExcludedRoleSet(ctx, policy, facts, nil)
 	if len(roles) == 0 {
 		return 0
 	}
-	changed := pruneExcludedPrincipalRows(doc, policy)
-	candidates := answerDocumentExcludedCandidateNames(ctx, roles)
+	changed := pruneExcludedPrincipalRows(doc, roles)
+	candidates := answerDocumentExcludedCandidateNamesForTextRedaction(ctx, roles)
 	if len(candidates) == 0 {
 		return changed
 	}
@@ -117,10 +118,7 @@ func normalizeAggregateFactsForTypedExclusion(ctx *types.BusContext, facts []typ
 		return facts
 	}
 	policy := ctx.AnalysisIR.RequestModel.AnswerExclusionPolicy
-	if policy == nil || !policy.Active() {
-		return facts
-	}
-	roles := answerDocumentExcludedRoleSet(policy)
+	roles := answerDocumentEffectiveExcludedRoleSet(ctx, policy, facts, nil)
 	candidates := answerDocumentExcludedCandidateNames(ctx, roles)
 	if len(candidates) == 0 {
 		return facts
@@ -160,6 +158,39 @@ func normalizeAggregateFactsForTypedExclusion(ctx *types.BusContext, facts []typ
 	return out
 }
 
+// EffectiveAnswerExclusionRolesForAgentContext returns the exclusion roles that
+// remain safe to show to the finalizer after principal aggregate facts have
+// been considered. Analyzer-emitted exclusions are advisory typed intent; a
+// grounded, same-role principal member_set emitted by exploration is the
+// stronger handoff for the current answer slate, so its role is protected from
+// downstream pruning/prompting.
+func EffectiveAnswerExclusionRolesForAgentContext(ctx *types.AgentContext) []types.AnswerCandidateRole {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	policy := ctx.AnalysisIR.RequestModel.AnswerExclusionPolicy
+	bus := &types.BusContext{
+		AnalysisIR: ctx.AnalysisIR,
+		Mutable:    ctx.Mutable,
+		MultiGraph: ctx.MultiGraph,
+	}
+	var facts []types.AnswerAggregateFact
+	if ctx.Mutable != nil {
+		facts = ctx.Mutable.StableInvestigationAggregateFacts()
+	}
+	roles := answerDocumentEffectiveExcludedRoleSet(bus, policy, facts, nil)
+	if len(roles) == 0 {
+		return nil
+	}
+	out := make([]types.AnswerCandidateRole, 0, len(roles))
+	for _, role := range types.AllAnswerCandidateRoles() {
+		if roles[role] {
+			out = append(out, role)
+		}
+	}
+	return out
+}
+
 func answerDocumentExcludedRoleSet(policy *types.AnswerExclusionPolicy) map[types.AnswerCandidateRole]bool {
 	out := map[types.AnswerCandidateRole]bool{}
 	if policy == nil || !policy.Active() {
@@ -172,6 +203,67 @@ func answerDocumentExcludedRoleSet(policy *types.AnswerExclusionPolicy) map[type
 		out[role] = true
 	}
 	return out
+}
+
+func answerDocumentEffectiveExcludedRoleSet(
+	ctx *types.BusContext,
+	policy *types.AnswerExclusionPolicy,
+	facts []types.AnswerAggregateFact,
+	evidence []types.EvidenceItem,
+) map[types.AnswerCandidateRole]bool {
+	roles := answerDocumentExcludedRoleSet(policy)
+	if ctx != nil && ctx.AnalysisIR != nil &&
+		ctx.AnalysisIR.RequestModel.AnswerVisibilityProfile != nil &&
+		ctx.AnalysisIR.RequestModel.AnswerVisibilityProfile.ExcludesPrivateSymbols() {
+		roles[types.AnswerCandidateRolePrivate] = true
+	}
+	if len(roles) == 0 {
+		return roles
+	}
+	protected := answerDocumentPrincipalAggregateProtectedRoles(ctx, facts, evidence)
+	if len(protected) == 0 {
+		return roles
+	}
+	out := make(map[types.AnswerCandidateRole]bool, len(roles))
+	for role := range roles {
+		if protected[role] {
+			continue
+		}
+		out[role] = true
+	}
+	return out
+}
+
+func answerDocumentPrincipalAggregateProtectedRoles(
+	ctx *types.BusContext,
+	facts []types.AnswerAggregateFact,
+	evidence []types.EvidenceItem,
+) map[types.AnswerCandidateRole]bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(facts) == 0 {
+		return nil
+	}
+	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(facts, &ctx.AnalysisIR.RequestModel)
+	if len(refs) == 0 {
+		return nil
+	}
+	protected := map[types.AnswerCandidateRole]bool{}
+	for _, ref := range refs {
+		if len(ref.Fact.Members) == 0 {
+			continue
+		}
+		profile, ok := aggregateMemberSetDefinitionProfile(ctx, ref.Fact, evidence)
+		if !ok || profile.role == types.AnswerCandidateRoleUnknown {
+			continue
+		}
+		if profile.known == 0 || profile.known != profile.total {
+			continue
+		}
+		protected[profile.role] = true
+	}
+	if len(protected) == 0 {
+		return nil
+	}
+	return protected
 }
 
 func aggregateMemberMatchesExcludedCandidate(member string, excluded map[string]bool) bool {
@@ -188,8 +280,8 @@ func aggregateMemberMatchesExcludedCandidate(member string, excluded map[string]
 	return false
 }
 
-func pruneExcludedPrincipalRows(doc *types.AnswerDocumentV2, policy *types.AnswerExclusionPolicy) int {
-	if doc == nil || policy == nil || !policy.Active() {
+func pruneExcludedPrincipalRows(doc *types.AnswerDocumentV2, excludedRoles map[types.AnswerCandidateRole]bool) int {
+	if doc == nil || len(excludedRoles) == 0 {
 		return 0
 	}
 	removed := 0
@@ -203,7 +295,7 @@ func pruneExcludedPrincipalRows(doc *types.AnswerDocumentV2, policy *types.Answe
 		}
 		kept := items[:0]
 		for _, item := range items {
-			if policy.ExcludesRole(item.CandidateRole) {
+			if excludedRoles[item.CandidateRole] {
 				removed++
 				continue
 			}
@@ -243,6 +335,77 @@ func answerDocumentExcludedCandidateNames(ctx *types.BusContext, roles map[types
 		return out[i] < out[j]
 	})
 	return out
+}
+
+func answerDocumentExcludedCandidateNamesForTextRedaction(ctx *types.BusContext, roles map[types.AnswerCandidateRole]bool) []string {
+	seen := map[string]bool{}
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || seen[raw] {
+			return
+		}
+		seen[raw] = true
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		addExcludedAggregateCandidates(ctx.Mutable.StableInvestigationAggregateFacts(), add)
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			addExcludedAggregateCandidates(ta.AcceptedAggregateFacts, add)
+		}
+	}
+	for _, graph := range answerDocumentExclusionGraphs(ctx) {
+		addExcludedGraphSymbolsForTextRedaction(graph, roles, add)
+	}
+	out := make([]string, 0, len(seen))
+	for candidate := range seen {
+		out = append(out, candidate)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if len(out[i]) != len(out[j]) {
+			return len(out[i]) > len(out[j])
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+func addExcludedGraphSymbolsForTextRedaction(graph *repotypes.Graph, roles map[types.AnswerCandidateRole]bool, add func(string)) {
+	if graph == nil || len(roles) == 0 {
+		return
+	}
+	for _, defs := range graph.SymbolDefs {
+		if !graphSymbolNameIsOnlyExcludedRole(defs, roles) {
+			continue
+		}
+		for _, sym := range defs {
+			if !answerDocumentSymbolMatchesExcludedRole(sym, roles) ||
+				!answerDocumentGraphExcludedCandidateSafeForTextRedaction(sym.Name) {
+				continue
+			}
+			add(sym.Name)
+			break
+		}
+	}
+}
+
+func answerDocumentGraphExcludedCandidateSafeForTextRedaction(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if len(raw) < 16 {
+		return false
+	}
+	hasLower := false
+	hasUpper := false
+	hasDigitOrUnderscore := false
+	for _, r := range raw {
+		switch {
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsDigit(r) || r == '_':
+			hasDigitOrUnderscore = true
+		}
+	}
+	return (hasLower && hasUpper) || hasDigitOrUnderscore
 }
 
 func addExcludedAggregateCandidates(facts []types.AnswerAggregateFact, add func(string)) {
@@ -303,12 +466,32 @@ func addExcludedGraphSymbols(graph *repotypes.Graph, roles map[types.AnswerCandi
 		return
 	}
 	for _, defs := range graph.SymbolDefs {
+		if !graphSymbolNameIsOnlyExcludedRole(defs, roles) {
+			continue
+		}
 		for _, sym := range defs {
 			if answerDocumentSymbolMatchesExcludedRole(sym, roles) {
 				add(sym.Name)
+				break
 			}
 		}
 	}
+}
+
+func graphSymbolNameIsOnlyExcludedRole(defs []*repotypes.Symbol, roles map[types.AnswerCandidateRole]bool) bool {
+	hasExcluded := false
+	hasAllowed := false
+	for _, sym := range defs {
+		if sym == nil || strings.TrimSpace(sym.Name) == "" {
+			continue
+		}
+		if answerDocumentSymbolMatchesExcludedRole(sym, roles) {
+			hasExcluded = true
+			continue
+		}
+		hasAllowed = true
+	}
+	return hasExcluded && !hasAllowed
 }
 
 func answerDocumentSymbolMatchesExcludedRole(sym *repotypes.Symbol, roles map[types.AnswerCandidateRole]bool) bool {

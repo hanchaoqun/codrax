@@ -85,6 +85,7 @@ func TestDispatchExploreWindowsParallel_EnumerationWaitsForSiblingHandoffs(t *te
 				close(doneFinishedCh)
 				return &agent.StageOutput{
 					MissingPiece:  types.MissingNone,
+					StageReport:   "done branch report",
 					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
 				}, nil
 			case "slow":
@@ -106,6 +107,7 @@ func TestDispatchExploreWindowsParallel_EnumerationWaitsForSiblingHandoffs(t *te
 				ctx.Mutable.RetainInvestigationAggregateFacts()
 				return &agent.StageOutput{
 					MissingPiece:  types.MissingNone,
+					StageReport:   "slow branch report",
 					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
 				}, nil
 			default:
@@ -116,8 +118,10 @@ func TestDispatchExploreWindowsParallel_EnumerationWaitsForSiblingHandoffs(t *te
 	})
 	o := New(types.PipelineSettings{MaxParallelism: 2}, ar, sr, sar)
 	o.busCtx = &types.BusContext{
-		Mutable: types.NewMutableState("parallel explore enumeration"),
-		Signals: types.ExecutionSignals{},
+		PipelineStage: types.StageAnalyze,
+		ActiveAgent:   types.AgentAnalyzer,
+		Mutable:       types.NewMutableState("parallel explore enumeration"),
+		Signals:       types.ExecutionSignals{},
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent: types.IntentEnumerate,
 			Predicates: types.SemanticPredicates{
@@ -144,6 +148,14 @@ func TestDispatchExploreWindowsParallel_EnumerationWaitsForSiblingHandoffs(t *te
 	want := "Eval,EvalAll,RegisteredKinds"
 	if got != want {
 		t.Fatalf("merged members = %q, want %q", got, want)
+	}
+	if len(o.busCtx.StageReports) != 2 {
+		t.Fatalf("stage reports = %+v, want one per completed parallel branch", o.busCtx.StageReports)
+	}
+	for _, report := range o.busCtx.StageReports {
+		if report.Stage != types.StageExplore || report.Agent != types.AgentExplorer {
+			t.Fatalf("parallel stage report metadata = %+v, want explore/explorer", report)
+		}
 	}
 }
 

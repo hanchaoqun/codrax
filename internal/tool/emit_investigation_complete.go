@@ -258,6 +258,15 @@ func (p *emitInvestigationCompleteParams) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+	if raw.Reason == "" {
+		raw.Reason = decodeMisplacedStringField(misplaced, "reason")
+	}
+	if raw.Confidence == "" {
+		raw.Confidence = decodeMisplacedStringField(misplaced, "confidence")
+	}
+	if raw.ResultKind == "" {
+		raw.ResultKind = decodeMisplacedStringField(misplaced, "result_kind")
+	}
 	if raw.AbsenceJustification == "" && strings.EqualFold(strings.TrimSpace(raw.ResultKind), "absence") {
 		raw.AbsenceJustification = decodeMisplacedStringField(misplaced, "absence_justification")
 	}
@@ -533,6 +542,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	effectiveAggregateFacts := effectiveCompletionAggregateFacts(ctx, aggregateFacts)
 	effectiveAggregateFacts = enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx, effectiveAggregateFacts, evidenceSnapshot)
+	effectiveAggregateFacts = reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx, effectiveAggregateFacts, evidenceSnapshot)
 	effectiveAggregateFacts = enrichCompletionAggregateFactsWithDeterministicCount(ctx, effectiveAggregateFacts)
 	effectiveAggregateFacts = normalizeAggregateFactsForTypedExclusion(ctx, effectiveAggregateFacts)
 
@@ -3135,7 +3145,7 @@ func principalRequiredTermHandoffDowngrade(ctx *types.BusContext, closure *types
 	if view == nil || !view.NeedsEnumerationSlate() {
 		return ""
 	}
-	terms := completionPrincipalHandoffTerms(ctx.AnalysisIR.AnswerContract)
+	terms := completionPrincipalHandoffTerms(ctx.AnalysisIR.AnswerContract, rm)
 	if len(terms) == 0 {
 		return ""
 	}
@@ -3143,7 +3153,7 @@ func principalRequiredTermHandoffDowngrade(ctx *types.BusContext, closure *types
 	if plan == nil {
 		return ""
 	}
-	support := types.PrincipalSupportEvidenceItemsForFamily(view.Family, plan)
+	support := completionPrincipalEvidencePool(ctx, types.PrincipalSupportEvidenceItemsForFamily(view.Family, plan))
 	syms, _ := ctx.Mutable.EmittedAnswerSymbols()
 	missing := completionMissingPrincipalHandoffTerms(terms, support, syms, aggregateFacts)
 	if len(missing) == 0 {
@@ -3174,18 +3184,80 @@ func principalRequiredTermHandoffDowngrade(ctx *types.BusContext, closure *types
 	return b.String()
 }
 
-func completionPrincipalHandoffTerms(contract types.AnswerContract) []types.ContractTerm {
+func completionPrincipalHandoffTerms(contract types.AnswerContract, rm types.RequestModel) []types.ContractTerm {
 	all := types.NormalizedMustIncludeTerms(contract)
 	if len(all) == 0 {
 		return nil
 	}
 	out := make([]types.ContractTerm, 0, len(all))
 	for _, term := range all {
+		if completionAnalyzerEntityTermIsSoftForStructuredEnumeration(term, rm) {
+			continue
+		}
 		if completionContractTermNeedsPrincipalHandoff(term) {
 			out = append(out, term)
 		}
 	}
 	return out
+}
+
+func completionAnalyzerEntityTermIsSoftForStructuredEnumeration(term types.ContractTerm, rm types.RequestModel) bool {
+	if term.Source != types.ContractTermSourceAnalyzerEntity {
+		return false
+	}
+	if !rm.Predicates.IsCategoryEnumeration {
+		return false
+	}
+	if rm.Predicates.IsRelationalLookup || rm.Predicates.IsScalarAnswer {
+		return false
+	}
+	if rm.QuestionStructure().HasAnyObligation() {
+		return true
+	}
+	kind := term.Kind
+	if !kind.IsValid() {
+		kind = types.InferContractTermKind(term.Text)
+	}
+	if kind == types.ContractTermFileStem {
+		return true
+	}
+	if len(rm.SubTopics) >= 2 {
+		return true
+	}
+	if len(rm.QuestionStructure().Buckets) >= 2 {
+		return true
+	}
+	return false
+}
+
+func completionPrincipalEvidencePool(ctx *types.BusContext, support []types.EvidenceItem) []types.EvidenceItem {
+	var out []types.EvidenceItem
+	out = append(out, support...)
+	if ctx != nil && ctx.Mutable != nil {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			out = append(out, ta.EvidenceItems...)
+		}
+		out = append(out, ctx.Mutable.EmittedEvidence()...)
+	}
+	if len(out) < 2 {
+		return out
+	}
+	seen := make(map[string]bool, len(out))
+	deduped := out[:0]
+	for _, item := range out {
+		key := strings.ToLower(strings.TrimSpace(item.ID)) + "\x00" +
+			strings.ToLower(strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))) + "\x00" +
+			strconv.Itoa(item.LineStart) + "\x00" +
+			strings.ToLower(strings.TrimSpace(item.AnchorSymbol)) + "\x00" +
+			strings.ToLower(strings.TrimSpace(item.Subject)) + "\x00" +
+			strings.ToLower(strings.TrimSpace(item.Object))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		deduped = append(deduped, item)
+	}
+	return deduped
 }
 
 func completionContractTermNeedsPrincipalHandoff(term types.ContractTerm) bool {
@@ -3323,6 +3395,7 @@ func completionEvidenceStructuredSurfaces(item types.EvidenceItem, kind types.Co
 	if kind == types.ContractTermFileStem {
 		src := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
 		add(src)
+		add(path.Dir(src))
 		add(path.Base(src))
 		ext := path.Ext(src)
 		if ext != "" {

@@ -1716,7 +1716,19 @@ func BuildAnswerSurfacePlan(
 		plan.ExactContextRequiredFiles = mutable.ExactContextRequiredFiles()
 		if syms, claim := mutable.EmittedAnswerSymbols(); len(syms) > 0 {
 			ApplyAnswerSymbolStepBackbone(plan, ir, syms, claim)
+			if ResolveQuestionFamily(ir.RequestModel) == QFEnumeration {
+				plan.StableAggregateFacts = ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols(
+					plan.StableAggregateFacts,
+					&ir.RequestModel,
+					syms,
+					claim,
+				)
+			}
 		}
+		plan.StableAggregateFacts = DemoteAggregateCountFactsConflictingWithPrincipalMemberSets(
+			plan.StableAggregateFacts,
+			&ir.RequestModel,
+		)
 		if logBundle == nil {
 			logBundle = mutable.LogTriage()
 		}

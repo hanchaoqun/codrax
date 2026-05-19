@@ -768,6 +768,71 @@ func TestRenderV2_MissingRequestedRoles(t *testing.T) {
 	}
 }
 
+func TestRenderV2_SkipsSectionItemsDuplicatedByPrincipalList(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "types_section",
+				Kind:  types.BlockSection,
+				Title: "Types",
+				Text:  "Types are listed below.",
+				Items: []types.AnswerBlockItem{
+					{ID: "t1", Label: "Kind", Text: "type alias", CitationRef: 0},
+					{ID: "t2", Label: "Env", Text: "runtime data", CitationRef: 1},
+				},
+			},
+			{
+				ID:   "types_list",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "t1", Label: "Kind", Text: "type alias", CitationRef: 0},
+					{ID: "t2", Label: "Env", Text: "runtime data", CitationRef: 1},
+				},
+			},
+		},
+		Citations: []types.Citation{
+			{File: "internal/analysis/criterion/grammar.go", Line: 26},
+			{File: "internal/analysis/criterion/grammar.go", Line: 124},
+		},
+	}
+
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "Types are listed below.") {
+		t.Fatalf("section prose should remain visible:\n%s", out)
+	}
+	if strings.Count(out, "**Kind**") != 1 || strings.Count(out, "**Env**") != 1 {
+		t.Fatalf("duplicated section items should render only through the principal list:\n%s", out)
+	}
+}
+
+func TestRenderV2_KeepsDistinctSectionItems(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "context",
+				Kind:  types.BlockSection,
+				Title: "Context",
+				Items: []types.AnswerBlockItem{
+					{ID: "note", Label: "Kind", Text: "extra section-only context", CitationRef: 0},
+				},
+			},
+			{
+				ID:   "types_list",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "t1", Label: "Kind", Text: "type alias", CitationRef: 0},
+				},
+			},
+		},
+		Citations: []types.Citation{{File: "internal/analysis/criterion/grammar.go", Line: 26}},
+	}
+
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "extra section-only context") || !strings.Contains(out, "type alias") {
+		t.Fatalf("distinct section items must remain visible:\n%s", out)
+	}
+}
+
 func TestRenderV2_StripsAuthorityMarkersFromPrincipalBlocks(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

@@ -465,6 +465,80 @@ func TestNormalize_RepairsGeneralSchemaPropertyKeyVariants(t *testing.T) {
 	}
 }
 
+func TestNormalize_RepairsCompositePropertyKeyFragment(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "items":{
+	      "type":"array",
+	      "items":{
+	        "type":"object",
+	        "properties":{
+	          "file":{"type":"string"},
+	          "kind":{"type":"string"},
+	          "line":{"type":"integer"},
+	          "name":{"type":"string"}
+	        }
+	      }
+	    }
+	  }
+	}`)
+	raw := json.RawMessage(`{
+	  "items":[{
+	    "file":"internal/analysis/criterion/grammar.go",
+	    "kind":"const",
+	    "const\", \"line":37,
+	    "name":"KindNoRelevantEvidence"
+	  }]
+	}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, `$.items[0].const", "line`, "property_key_composite_fragment") {
+		t.Fatalf("expected composite key fragment repair, got %+v", report)
+	}
+	var decoded struct {
+		Items []struct {
+			File string `json:"file"`
+			Kind string `json:"kind"`
+			Line int    `json:"line"`
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if len(decoded.Items) != 1 || decoded.Items[0].Line != 37 || decoded.Items[0].Kind != "const" {
+		t.Fatalf("unexpected normalized payload: %+v\n%s", decoded, got)
+	}
+}
+
+func TestNormalize_DoesNotRepairAmbiguousCompositePropertyKeyFragment(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "items":{
+	      "type":"array",
+	      "items":{
+	        "type":"object",
+	        "properties":{
+	          "kind":{"type":"string"},
+	          "line":{"type":"integer"}
+	        }
+	      }
+	    }
+	  }
+	}`)
+	raw := json.RawMessage(`{"items":[{"kind\", \"line":37}]}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if report.Changed() {
+		t.Fatalf("ambiguous composite key must not be repaired: %+v", report)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("ambiguous payload changed: got %s want %s", got, raw)
+	}
+}
+
 func TestNormalize_DoesNotRepairAmbiguousSchemaPropertyKeyCollision(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",

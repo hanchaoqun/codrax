@@ -113,9 +113,9 @@ type TypedPredicateCarveOut struct {
 // RegisteredHardGates is the canonical list of all analyzer /
 // coherence hard reject gates. Adding a new hard gate to the codebase
 // requires adding an entry here so:
-//   1. The build-time test verifies the source contains the carve-out
-//   2. The skill prompt advisory auto-includes the new gate
-//   3. Future audits can iterate the registry instead of grepping
+//  1. The build-time test verifies the source contains the carve-out
+//  2. The skill prompt advisory auto-includes the new gate
+//  3. Future audits can iterate the registry instead of grepping
 //
 // Order is documentation-driven (functional → structural). Tests
 // index by Name.
@@ -123,7 +123,7 @@ var RegisteredHardGates = []HardGate{
 	{
 		Name:           "L0-B",
 		SourceFile:     "internal/agent/analyzer.go",
-		TriggerSummary: "Question is classified as a categorical enumeration but only one named entity is supplied — the answer set has nothing to enumerate.",
+		TriggerSummary: "Question is classified as a categorical enumeration but only one named entity is supplied, with no relational lookup or scoped source-inventory carrier to explain where the members will be discovered.",
 		CarveOuts: []TypedPredicateCarveOut{
 			{
 				Predicate:     "IsRelationalLookup",
@@ -131,7 +131,7 @@ var RegisteredHardGates = []HardGate{
 				Reason:        "Filter-set-by-relation-to-target questions (e.g. 'which packages import X', 'list X's exports') legitimately carry one entity (the relation target); the values come from later investigation.",
 			},
 		},
-		LLMAdvisoryHint: "If the question filters a set by a relationship to a named target (e.g. 'which packages import X', 'list X's exports'), set BOTH `is_category_enumeration=true` AND `is_relational_lookup=true` even when entities contains only the relation target — the values are looked up after classification.",
+		LLMAdvisoryHint: "If the question filters a set by a relationship to a named target (e.g. 'which packages import X', 'list X's exports'), set BOTH `is_category_enumeration=true` AND `is_relational_lookup=true` even when entities contains only the relation target. If it asks for an inventory under a package/path/source scope, keep the scope entity and fill `required_files` plus `source_scope_profile` when known — the values are looked up after classification.",
 	},
 	{
 		Name:           "R2.2",
@@ -147,31 +147,31 @@ var RegisteredHardGates = []HardGate{
 		LLMAdvisoryHint: "If the question asks for a single computed number that aggregates across multiple source units (e.g. 'how many lines', 'total of N items', 'count of registered handlers'), set BOTH `is_count_question=true` AND `is_scalar_answer=true`. Without `is_count_question=true` the long-form-explanation surface conflicts with the numeric subject and the question is rejected.",
 	},
 	{
-		Name:           "R2.1",
-		SourceFile:     "internal/analysis/gate/coherence.go",
-		TriggerSummary: "The question is declared as having a single scalar answer yet two or more independent sub-topics are emitted — a scalar answer cannot decompose into multiple sub-answers.",
-		CarveOuts:      nil, // direct contradiction; no legitimate carve-out
+		Name:            "R2.1",
+		SourceFile:      "internal/analysis/gate/coherence.go",
+		TriggerSummary:  "The question is declared as having a single scalar answer yet two or more independent sub-topics are emitted — a scalar answer cannot decompose into multiple sub-answers.",
+		CarveOuts:       nil, // direct contradiction; no legitimate carve-out
 		LLMAdvisoryHint: "",
 	},
 	{
-		Name:           "R1.2",
-		SourceFile:     "internal/analysis/gate/coherence.go",
-		TriggerSummary: "The question is declared as cross-component (comparing or relating two distinct subsystems) yet zero or one sub-topic is emitted — a cross-component answer requires at least two component sub-topics.",
-		CarveOuts:      nil, // direct contradiction
+		Name:            "R1.2",
+		SourceFile:      "internal/analysis/gate/coherence.go",
+		TriggerSummary:  "The question is declared as cross-component (comparing or relating two distinct subsystems) yet zero or one sub-topic is emitted — a cross-component answer requires at least two component sub-topics.",
+		CarveOuts:       nil, // direct contradiction
 		LLMAdvisoryHint: "",
 	},
 	{
-		Name:           "R1.4",
-		SourceFile:     "internal/analysis/gate/coherence.go",
-		TriggerSummary: "Two or more sub-topics are emitted but the question is neither cross-component nor a categorical enumeration — the multiple sub-topics have no structural axis to organise them.",
-		CarveOuts:      nil, // structural inconsistency check
+		Name:            "R1.4",
+		SourceFile:      "internal/analysis/gate/coherence.go",
+		TriggerSummary:  "Two or more sub-topics are emitted but the question is neither cross-component nor a categorical enumeration — the multiple sub-topics have no structural axis to organise them.",
+		CarveOuts:       nil, // structural inconsistency check
 		LLMAdvisoryHint: "",
 	},
 	{
-		Name:           "R1.5",
-		SourceFile:     "internal/analysis/gate/coherence.go",
-		TriggerSummary: "Sub-topic entity resolution is inconsistent — at least one sub-topic mixes resolver-verified and unresolved entities or shares an entity with another sub-topic.",
-		CarveOuts:      nil, // structural check
+		Name:            "R1.5",
+		SourceFile:      "internal/analysis/gate/coherence.go",
+		TriggerSummary:  "Sub-topic entity resolution is inconsistent — at least one sub-topic mixes resolver-verified and unresolved entities or shares an entity with another sub-topic.",
+		CarveOuts:       nil, // structural check
 		LLMAdvisoryHint: "",
 	},
 }

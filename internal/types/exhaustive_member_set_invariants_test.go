@@ -46,6 +46,32 @@ func TestLargestExhaustiveMemberSet_RequiresMembersValueExhaustiveSignature(t *t
 		}
 	})
 
+	t.Run("rejects supporting coverage member sets", func(t *testing.T) {
+		facts := []AnswerAggregateFact{
+			{
+				Kind:    AnswerAggregateMemberSet,
+				Label:   "supporting candidate pool",
+				Value:   "94",
+				Role:    AnswerAggregateRoleSupportingCoverage,
+				Members: makeSeqMembers(94),
+			},
+			{
+				Kind:    AnswerAggregateMemberSet,
+				Label:   "principal set",
+				Value:   "31",
+				Role:    AnswerAggregateRolePrincipalAnswer,
+				Members: makeSeqMembers(31),
+			},
+		}
+		got, ok := LargestExhaustiveMemberSet(facts, 30)
+		if !ok {
+			t.Fatalf("expected principal exhaustive set match, got none")
+		}
+		if got.Label != "principal set" {
+			t.Fatalf("supporting coverage set must not drive deterministic review, got %q", got.Label)
+		}
+	})
+
 	t.Run("rejects mismatched value", func(t *testing.T) {
 		facts := []AnswerAggregateFact{
 			{
@@ -120,6 +146,40 @@ func TestComputeExhaustiveMemberCoverage_SetEquality(t *testing.T) {
 		}
 		if cov.PrincipalItemCount != 4 {
 			t.Fatalf("expected 4 principal items, got %d", cov.PrincipalItemCount)
+		}
+	})
+
+	t.Run("matching titled block avoids cross-category unexpected rows", func(t *testing.T) {
+		doc := &AnswerDocumentV2{
+			Blocks: []AnswerBlock{{
+				ID:          "types",
+				Kind:        BlockOrderedList,
+				Title:       "Types",
+				SurfaceRole: SurfacePrincipal,
+				Items: []AnswerBlockItem{
+					{Label: "Intent", CitationRef: -1},
+				},
+			}, {
+				ID:          "kind-constants",
+				Kind:        BlockOrderedList,
+				Title:       "Kind constants（4）",
+				SurfaceRole: SurfacePrincipal,
+				Items: []AnswerBlockItem{
+					{Label: "Intent", CitationRef: -1},
+					{Label: "Scenario", CitationRef: -1},
+					{Label: "Complexity", CitationRef: -1},
+					{Label: "QuestionFamily", CitationRef: -1},
+				},
+			}},
+		}
+		factWithLabel := fact
+		factWithLabel.Label = "Kind constants"
+		cov := ComputeExhaustiveMemberCoverage(doc, factWithLabel)
+		if cov.HasFailures() {
+			t.Fatalf("coverage should ignore sibling category blocks when a matching title exists: %+v", cov)
+		}
+		if cov.PrincipalItemCount != 4 {
+			t.Fatalf("expected 4 matching principal items, got %d", cov.PrincipalItemCount)
 		}
 	})
 

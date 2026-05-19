@@ -1912,19 +1912,42 @@ func orderedFacetSupportEvidenceItems(family QuestionFamily, items []EvidenceIte
 	return out
 }
 
-func facetSupportEvidencePriority(_ QuestionFamily, item EvidenceItem) int {
+func facetSupportEvidencePriority(family QuestionFamily, item EvidenceItem) int {
+	if supportEvidenceIsGroundedAnswerAnchor(item) {
+		switch {
+		case item.Kind == EvidenceDirect && item.AnchorKind == AnchorDefinition:
+			if family == QFEnumeration || family == QFRoleLookup {
+				return 0
+			}
+			return 1
+		case item.Kind == EvidenceRegistration:
+			return 2
+		case item.Kind == EvidenceDirect:
+			return 3
+		case item.Kind == EvidenceRelationship || item.Kind == EvidenceMechanism:
+			return 4
+		case item.Kind == EvidenceConditional:
+			return 5
+		}
+	}
 	switch {
 	case item.Producer == "explorer.emit_evidence":
-		return 0
+		return 20
 	case item.Kind.IsLLMEmittable() && item.Producer != "":
-		return 1
+		return 21
 	case item.Kind == EvidenceConcrete || item.Producer == "concrete_values":
-		return 2
+		return 22
 	case strings.HasPrefix(item.Producer, "dataflow."):
-		return 3
+		return 23
 	default:
-		return 2
+		return 22
 	}
+}
+
+func supportEvidenceIsGroundedAnswerAnchor(item EvidenceItem) bool {
+	return item.GroundingStatus == GroundingGrounded &&
+		supportEvidenceHasUsableLocation(item) &&
+		item.IsCitable()
 }
 
 func principalEvidenceItemEligible(item EvidenceItem) bool {

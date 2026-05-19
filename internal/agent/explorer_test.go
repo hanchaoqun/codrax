@@ -1899,6 +1899,44 @@ func TestCoverageScopeFiles_UsesFocusedDeclarativeFrontier(t *testing.T) {
 	}
 }
 
+func TestCoverageScopeFiles_UsesRequiredPackageScopeForExhaustiveEnumeration(t *testing.T) {
+	eval := &explorerEvaluator{
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all public symbols",
+			},
+		}},
+		requiredFiles: []string{
+			"internal/analysis/criterion/grammar.go",
+			"internal/analysis/criterion/eval.go",
+		},
+	}
+	readSet := map[string]bool{
+		"internal/analysis/criterion/grammar.go": true,
+		"internal/analysis/criterion/eval.go":    true,
+	}
+	discovered := []string{
+		"internal/analysis/criterion/grammar.go",
+		"internal/analysis/criterion/eval.go",
+		"internal/agent/explorer.go",
+		"internal/types/analysis_ir.go",
+	}
+
+	scope := eval.coverageScopeFiles(discovered, readSet, "")
+	if strings.Join(scope, ",") != "internal/analysis/criterion/eval.go,internal/analysis/criterion/grammar.go" {
+		t.Fatalf("exhaustive package enumeration should not widen coverage to unrelated discovered files, got %v", scope)
+	}
+	readCount, coverage, unread := coverageSnapshot(scope, readSet)
+	if readCount != 2 || coverage != 1 || len(unread) != 0 {
+		t.Fatalf("required package scope should be complete, got read=%d coverage=%.2f unread=%v", readCount, coverage, unread)
+	}
+}
+
 func TestActiveFrontierFiles_UsesUniquePrimaryEntityFocus(t *testing.T) {
 	eval := &explorerEvaluator{
 		searchResult: &keywordSearchResult{Graph: driftFixGraph()},

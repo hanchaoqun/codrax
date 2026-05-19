@@ -766,6 +766,7 @@ type streamPreviewBuffer struct {
 	iter            int
 	parallelGroupID string
 	parallelUnitID  string
+	dispatchKind    string
 	buf             strings.Builder
 	lastEmitAt      time.Time
 }
@@ -776,7 +777,7 @@ type streamPreviewBuffer struct {
 // logging pipeline.
 const streamPreviewThrottle = 250 * time.Millisecond
 
-func newStreamPreviewBuffer(emit render.EventEmitter, agent types.AgentName, stage types.PipelineStage, iter int, parallelGroupID, parallelUnitID string) *streamPreviewBuffer {
+func newStreamPreviewBuffer(emit render.EventEmitter, agent types.AgentName, stage types.PipelineStage, iter int, parallelGroupID, parallelUnitID, dispatchKind string) *streamPreviewBuffer {
 	return &streamPreviewBuffer{
 		emit:            emit,
 		agent:           agent,
@@ -784,6 +785,7 @@ func newStreamPreviewBuffer(emit render.EventEmitter, agent types.AgentName, sta
 		iter:            iter,
 		parallelGroupID: parallelGroupID,
 		parallelUnitID:  parallelUnitID,
+		dispatchKind:    dispatchKind,
 	}
 }
 
@@ -805,6 +807,7 @@ func (b *streamPreviewBuffer) onDelta(delta string) {
 		Reasoning:       b.buf.String(),
 		ParallelGroupID: b.parallelGroupID,
 		ParallelUnitID:  b.parallelUnitID,
+		DispatchKind:    b.dispatchKind,
 	})
 }
 
@@ -823,6 +826,7 @@ func (b *streamPreviewBuffer) flush() {
 		Reasoning:       b.buf.String(),
 		ParallelGroupID: b.parallelGroupID,
 		ParallelUnitID:  b.parallelUnitID,
+		DispatchKind:    b.dispatchKind,
 	})
 }
 
@@ -1331,13 +1335,14 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			ModelID:               telemetry.ModelID,
 			ParallelGroupID:       ctx.ParallelGroupID,
 			ParallelUnitID:        ctx.ExploreDispatchKey,
+			DispatchKind:          string(ctx.ExploreDispatchKind),
 		})
 		// Streaming preview: when the LLM adapter supports streaming,
 		// each content chunk fires onDelta. Buffer the chunks and emit
 		// an EventAgentContent event at most every 250ms so the row
 		// detail updates live without flooding the renderer with
 		// per-token events. Non-streaming adapters never call onDelta.
-		streamBuf := newStreamPreviewBuffer(b.deps.Emit, b.name, ctx.Stage, i, ctx.ParallelGroupID, ctx.ExploreDispatchKey)
+		streamBuf := newStreamPreviewBuffer(b.deps.Emit, b.name, ctx.Stage, i, ctx.ParallelGroupID, ctx.ExploreDispatchKey, string(ctx.ExploreDispatchKind))
 		// Finalizer-only live summary preview. When this dispatch is
 		// the finalize stage's emit_answer_document call, install a
 		// SummaryExtractor on the tool-call argument stream so the
@@ -1374,6 +1379,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				RetryReason:     reason,
 				ParallelGroupID: ctx.ParallelGroupID,
 				ParallelUnitID:  ctx.ExploreDispatchKey,
+				DispatchKind:    string(ctx.ExploreDispatchKind),
 			})
 		}
 		onFallback := func(from, to, reason string) {
@@ -1390,6 +1396,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				RetryReason:     reason,
 				ParallelGroupID: ctx.ParallelGroupID,
 				ParallelUnitID:  ctx.ExploreDispatchKey,
+				DispatchKind:    string(ctx.ExploreDispatchKind),
 			})
 		}
 		toolChoice := resolveToolChoice(ctx)
@@ -1416,6 +1423,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			Iteration:       i,
 			ParallelGroupID: ctx.ParallelGroupID,
 			ParallelUnitID:  ctx.ExploreDispatchKey,
+			DispatchKind:    string(ctx.ExploreDispatchKind),
 		})
 		if err != nil {
 			// Salvage accumulated side-effects before bubbling the LLM
@@ -1470,6 +1478,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Reasoning:       resp.Content,
 				ParallelGroupID: ctx.ParallelGroupID,
 				ParallelUnitID:  ctx.ExploreDispatchKey,
+				DispatchKind:    string(ctx.ExploreDispatchKind),
 			})
 		}
 		if len(resp.ToolCalls) > 0 {
@@ -1486,6 +1495,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				ToolNames:       toolCallNames(resp.ToolCalls),
 				ParallelGroupID: ctx.ParallelGroupID,
 				ParallelUnitID:  ctx.ExploreDispatchKey,
+				DispatchKind:    string(ctx.ExploreDispatchKind),
 			})
 		}
 		for j, tc := range resp.ToolCalls {
@@ -1717,6 +1727,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolDetail:      toolDetailForCall(tc),
 					ParallelGroupID: ctx.ParallelGroupID,
 					ParallelUnitID:  ctx.ExploreDispatchKey,
+					DispatchKind:    string(ctx.ExploreDispatchKind),
 				})
 			}
 
@@ -1775,6 +1786,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolResultSummary: toolResultSummary(er.result),
 					ParallelGroupID:   ctx.ParallelGroupID,
 					ParallelUnitID:    ctx.ExploreDispatchKey,
+					DispatchKind:      string(ctx.ExploreDispatchKind),
 				})
 			}
 		} else {
@@ -1791,6 +1803,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolDetail:      toolDetailForCall(tc),
 					ParallelGroupID: ctx.ParallelGroupID,
 					ParallelUnitID:  ctx.ExploreDispatchKey,
+					DispatchKind:    string(ctx.ExploreDispatchKind),
 				})
 
 				result, mcpResp := b.executeTool(ctx, tc)
@@ -1836,6 +1849,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolResultSummary: toolResultSummary(result),
 					ParallelGroupID:   ctx.ParallelGroupID,
 					ParallelUnitID:    ctx.ExploreDispatchKey,
+					DispatchKind:      string(ctx.ExploreDispatchKind),
 				})
 			}
 		}

@@ -227,6 +227,28 @@ func TestCardinalityValidator(t *testing.T) {
 			t.Errorf("must pass when answer count == declared; got %+v", fail)
 		}
 	})
+
+	t.Run("declared_count_member_set_table_text_passes", func(t *testing.T) {
+		v := CardinalityValidator{}
+		input := ValidatorInput{
+			IR: makeIR(3),
+			AggregateFacts: []types.AnswerAggregateFact{{
+				Kind:    types.AnswerAggregateMemberSet,
+				Label:   "known constants",
+				Value:   "3",
+				Members: []string{"KindAlpha", "KindBeta", "KindGamma"},
+			}},
+			AnswerDocumentV2: &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID:      "table",
+				Kind:    types.BlockTable,
+				Columns: []string{"名称", "说明"},
+				Text:    "| 名称 | 说明 |\n|---|---|\n| KindAlpha | A |\n| KindBeta | B |\n| KindGamma | C |",
+			}}},
+		}
+		if fail := v.Validate(input); fail != nil {
+			t.Errorf("cardinality validator should accept visible aggregate member_set rows in tables/prose; got %+v", fail)
+		}
+	})
 }
 
 // TestPathDepthValidator pins call-chain closure semantics: distinct

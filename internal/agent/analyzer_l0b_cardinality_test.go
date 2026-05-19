@@ -100,37 +100,51 @@ func TestL0B_GateClassification_TableDriven(t *testing.T) {
 		cat        bool
 		rel        bool
 		entities   []string
+		configure  func(*types.RequestModel)
 		wantReject bool
 	}{
 		// Original L0-B contract — relational lookup unset.
-		{"cat_true_zero_entities", true, false, nil, true},
-		{"cat_true_one_entity", true, false, []string{"PipelineStage"}, true},
-		{"cat_true_one_entity_with_blanks", true, false, []string{"PipelineStage", ""}, true},
-		{"cat_true_one_entity_dup", true, false, []string{"Foo", "FOO"}, true},
-		{"cat_true_two_distinct", true, false, []string{"StageAnalyze", "StageExplore"}, false},
-		{"cat_true_four_distinct", true, false, []string{"a", "b", "c", "d"}, false},
-		{"cat_false_one_entity", false, false, []string{"PipelineStage"}, false},
-		{"cat_false_zero_entities", false, false, nil, false},
-		{"cat_false_two_distinct", false, false, []string{"a", "b"}, false},
+		{"cat_true_zero_entities", true, false, nil, nil, true},
+		{"cat_true_one_entity", true, false, []string{"PipelineStage"}, nil, true},
+		{"cat_true_one_entity_with_blanks", true, false, []string{"PipelineStage", ""}, nil, true},
+		{"cat_true_one_entity_dup", true, false, []string{"Foo", "FOO"}, nil, true},
+		{"cat_true_two_distinct", true, false, []string{"StageAnalyze", "StageExplore"}, nil, false},
+		{"cat_true_four_distinct", true, false, []string{"a", "b", "c", "d"}, nil, false},
+		{"cat_false_one_entity", false, false, []string{"PipelineStage"}, nil, false},
+		{"cat_false_zero_entities", false, false, nil, nil, false},
+		{"cat_false_two_distinct", false, false, []string{"a", "b"}, nil, false},
 
 		// 2026-05-08 carve-out — IsRelationalLookup=true + cat=true +
 		// single entity is the structurally correct shape for "filter
 		// set X by relation to Y" questions. Gate must NOT fire.
 		{"relational_lookup_single_entity_pkg_importers",
-			true, true, []string{"internal/analysis/criterion"}, false}, // u4a shape
+			true, true, []string{"internal/analysis/criterion"}, nil, false}, // u4a shape
 		{"relational_lookup_single_entity_pkg_dependents",
-			true, true, []string{"internal/tool/ground"}, false}, // u4b shape
+			true, true, []string{"internal/tool/ground"}, nil, false}, // u4b shape
 		{"relational_lookup_single_entity_pkg_exports",
-			true, true, []string{"criterion"}, false}, // u8a shape
+			true, true, []string{"criterion"}, nil, false}, // u8a shape
 		{"relational_lookup_zero_entities",
-			true, true, nil, false}, // pre-classification, allow through
+			true, true, nil, nil, false}, // pre-classification, allow through
 		// Edge case: relational lookup with multi-entity emit is also
 		// fine (the LLM resolved more than just the target — bonus).
 		{"relational_lookup_multi_entity",
-			true, true, []string{"X", "Y"}, false},
+			true, true, []string{"X", "Y"}, nil, false},
 		// Edge case: cat=false + rel=true single-entity is unaffected
 		// (gate already passes when cat=false).
-		{"cat_false_rel_true_single", false, true, []string{"X"}, false},
+		{"cat_false_rel_true_single", false, true, []string{"X"}, nil, false},
+		{"scoped_inventory_single_entity_with_required_files",
+			true, false, []string{"criterion"}, func(rm *types.RequestModel) {
+				rm.SourceScopeProfile = &types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction, Confidence: 0.9}
+				rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{Path: "internal/analysis/criterion/grammar.go", Confidence: 0.95}}
+			}, false},
+		{"scoped_inventory_single_entity_with_subtopics",
+			true, false, []string{"criterion"}, func(rm *types.RequestModel) {
+				rm.SubTopics = []types.SubTopic{{Summary: "types"}, {Summary: "functions"}}
+			}, false},
+		{"required_files_without_scope_still_rejects",
+			true, false, []string{"criterion"}, func(rm *types.RequestModel) {
+				rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{Path: "internal/analysis/criterion/grammar.go", Confidence: 0.95}}
+			}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -141,9 +155,10 @@ func TestL0B_GateClassification_TableDriven(t *testing.T) {
 				},
 				AnalyzerHints: types.AnalyzerHints{Entities: c.entities},
 			}
-			gotReject := rm.Predicates.IsCategoryEnumeration &&
-				!rm.Predicates.IsRelationalLookup &&
-				distinctNamedEntities(rm.AnalyzerHints.Entities) <= 1
+			if c.configure != nil {
+				c.configure(&rm)
+			}
+			gotReject := shouldRejectEnumerationCardinality(&rm)
 			if gotReject != c.wantReject {
 				t.Errorf("classification: cat=%v rel=%v entities=%v → got reject=%v, want %v",
 					c.cat, c.rel, c.entities, gotReject, c.wantReject)

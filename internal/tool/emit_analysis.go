@@ -75,6 +75,7 @@ type emitAnalysisParams struct {
 	DiagnosticProfile            *emitDiagnosticProfileParam            `json:"diagnostic_profile"`
 	ConversationReferenceProfile *emitConversationReferenceProfileParam `json:"conversation_reference_profile,omitempty"`
 	SourceScopeProfile           *emitSourceScopeProfileParam           `json:"source_scope_profile,omitempty"`
+	AnswerVisibilityProfile      *emitAnswerVisibilityProfileParam      `json:"answer_visibility_profile,omitempty"`
 	ChangeImpactProfile          *emitChangeImpactProfileParam          `json:"change_impact_profile,omitempty"`
 	FieldValueProfile            *emitFieldValueProfileParam            `json:"field_value_profile,omitempty"`
 	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
@@ -162,6 +163,13 @@ type emitSourceScopeProfileParam struct {
 	IncludeAuxiliaryAsPrincipal *bool    `json:"include_auxiliary_as_principal,omitempty"`
 	Confidence                  *float64 `json:"confidence"`
 	Rationale                   string   `json:"rationale,omitempty"`
+}
+
+type emitAnswerVisibilityProfileParam struct {
+	SymbolVisibility string   `json:"symbol_visibility"`
+	SourceQuotes     []string `json:"source_quotes,omitempty"`
+	Confidence       *float64 `json:"confidence"`
+	Rationale        string   `json:"rationale,omitempty"`
 }
 
 type emitChangeImpactProfileParam struct {
@@ -410,6 +418,17 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"requested_scope", "confidence"},
 			},
+			"answer_visibility_profile": map[string]any{
+				"type":        "object",
+				"description": "Optional typed symbol-visibility intent for code-symbol inventory/list/count questions. Use public_exported when the current request asks for public/exported symbols or API surface only; use all when private/internal members are explicitly included; use private_only when only private/internal symbols are requested. This controls graph Exported filtering downstream and is separate from source_scope_profile path filtering.",
+				"properties": map[string]any{
+					"symbol_visibility": map[string]any{"type": "string", "enum": answerSymbolVisibilityValues(), "description": "public_exported, all, private_only, or unknown."},
+					"source_quotes":     map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that state the symbol visibility scope."},
+					"confidence":        map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this symbol visibility scope in [0,1]."},
+					"rationale":         map[string]any{"type": "string", "description": "Short audit rationale for why this visibility scope applies."},
+				},
+				"required": []string{"symbol_visibility", "confidence"},
+			},
 			"change_impact_profile": map[string]any{
 				"type":        "object",
 				"description": "Optional typed profile for migration / affected-site questions. Use only when the CURRENT request asks which code sites, files, symbols, APIs, config locations, or downstream artifacts would need changes if a named target changed. Do not use for ordinary mechanism explanations, current-status diagnostics, or simple value lookups.",
@@ -448,7 +467,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"answer_exclusion_policy": map[string]any{
 				"type":        "object",
-				"description": "Optional typed profile for current-request candidate categories the user explicitly excludes from the principal answer, such as variables, tests, generated files, private helpers, or private symbols excluded by an explicit public/exported-only request. Do not infer categories from keywords; emit only when the request states the exclusion or public/exported-only export scope.",
+				"description": "Optional typed profile for current-request candidate categories the user explicitly excludes from the principal answer, such as variables, tests, generated files, private helpers, or private symbols excluded by an explicit public/exported-only request. Explicit Chinese exclusions such as `不要列变量`, `不包含测试`, or `排除生成文件` should use roles variable/test/generated with the exact phrase in source_quotes. Do not infer categories from keywords; emit only when the request states the exclusion or public/exported-only export scope.",
 				"properties": map[string]any{
 					"is_exclusion_requested":   map[string]any{"type": "boolean", "description": "True only when the current request explicitly excludes one or more candidate roles from the answer."},
 					"excluded_candidate_roles": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": answerCandidateRoleValues()}, "description": "Candidate roles excluded from principal answer rows."},
@@ -596,6 +615,15 @@ func impactScopeValues() []string {
 
 func sourceScopeValues() []string {
 	values := types.AllSourceScopes()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func answerSymbolVisibilityValues() []string {
+	values := types.AllAnswerSymbolVisibilities()
 	out := make([]string, 0, len(values))
 	for _, v := range values {
 		out = append(out, string(v))
@@ -904,6 +932,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	answerVisibilityProfile, answerVisibilityErr, answerVisibilityWarnings := parseAnswerVisibilityProfile(raw, p.AnswerVisibilityProfile)
+	if answerVisibilityErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + answerVisibilityErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	for _, warning := range answerVisibilityWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	answerRoleProfile, answerRoleErr := parseAnswerRoleProfile(raw, p.AnswerRoleProfile)
 	if answerRoleErr != "" {
 		return types.ToolResult{
@@ -1062,6 +1103,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		DiagnosticProfile:            diagnosticProfile,
 		ConversationReferenceProfile: conversationReferenceProfile,
 		SourceScopeProfile:           sourceScopeProfile,
+		AnswerVisibilityProfile:      answerVisibilityProfile,
 		ChangeImpactProfile:          changeImpactProfile,
 		FieldValueProfile:            fieldValueProfile,
 		AnswerExclusionPolicy:        answerExclusionPolicy,
@@ -1702,6 +1744,58 @@ func parseSourceScopeProfile(p *emitSourceScopeProfileParam) (*types.SourceScope
 		Confidence:                  *p.Confidence,
 		Rationale:                   strings.TrimSpace(p.Rationale),
 	}, ""
+}
+
+func parseAnswerVisibilityProfile(raw string, p *emitAnswerVisibilityProfileParam) (*types.AnswerVisibilityProfile, string, []string) {
+	if p == nil {
+		return nil, "", nil
+	}
+	var missing []string
+	if strings.TrimSpace(p.SymbolVisibility) == "" {
+		missing = append(missing, "symbol_visibility")
+	}
+	if p.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Sprintf(
+			"answer_visibility_profile missing required field(s): %s",
+			strings.Join(missing, ", "),
+		), nil
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("answer_visibility_profile.confidence %.2f out of [0,1]", *p.Confidence), nil
+	}
+	visibility := types.AnswerSymbolVisibility(strings.TrimSpace(p.SymbolVisibility))
+	if !visibility.IsValid() {
+		return nil, fmt.Sprintf(
+			"answer_visibility_profile.symbol_visibility %q is invalid; use one of %s",
+			p.SymbolVisibility, strings.Join(answerSymbolVisibilityValues(), ", "),
+		), nil
+	}
+	sourceQuotes := trimStringSlice(p.SourceQuotes)
+	var warnings []string
+	keptQuotes := sourceQuotes[:0]
+	for _, quote := range sourceQuotes {
+		if sourceQuotePresentInCurrentRequest(raw, quote) {
+			keptQuotes = append(keptQuotes, quote)
+			continue
+		}
+		warnings = append(warnings, "answer_visibility_profile.source_quotes entry ignored because it is not copied verbatim from the current request")
+	}
+	sourceQuotes = keptQuotes
+	if visibility == types.AnswerSymbolVisibilityUnknown {
+		return nil, "", warnings
+	}
+	if visibility != types.AnswerSymbolVisibilityAll && len(sourceQuotes) == 0 {
+		warnings = append(warnings, "answer_visibility_profile kept without source_quotes; downstream will treat it as advisory typed scope only")
+	}
+	return &types.AnswerVisibilityProfile{
+		SymbolVisibility: visibility,
+		SourceQuotes:     append([]string(nil), sourceQuotes...),
+		Confidence:       *p.Confidence,
+		Rationale:        strings.TrimSpace(p.Rationale),
+	}, "", warnings
 }
 
 func parseChangeImpactProfile(p *emitChangeImpactProfileParam) (*types.ChangeImpactProfile, string) {
@@ -2506,6 +2600,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.SourceScopeProfile != nil {
 		fmt.Fprintf(&b, " source_scope=%s", rm.SourceScopeProfile.RequestedScope)
+	}
+	if rm.AnswerVisibilityProfile != nil && rm.AnswerVisibilityProfile.Active() {
+		fmt.Fprintf(&b, " symbol_visibility=%s", rm.AnswerVisibilityProfile.SymbolVisibility)
 	}
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.IsChangeImpact {
 		fmt.Fprintf(&b, " change_impact=%s", rm.ChangeImpactProfile.Target)

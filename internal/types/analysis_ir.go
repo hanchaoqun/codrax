@@ -108,6 +108,12 @@ type RequestModel struct {
 	// intent so rankers do not keyword-match prose like "test".
 	SourceScopeProfile *SourceScopeProfile `json:"source_scope_profile,omitempty"`
 
+	// AnswerVisibilityProfile is the analyzer LLM's typed answer-member
+	// visibility lane for code-symbol inventory questions. Downstream uses it
+	// together with repo graph Exported bits to keep private/internal symbols
+	// out of public/exported answer sets without scanning raw request prose.
+	AnswerVisibilityProfile *AnswerVisibilityProfile `json:"answer_visibility_profile,omitempty"`
+
 	// ChangeImpactProfile is the analyzer LLM's typed lane for
 	// migration / affected-site questions: "which files/sites would
 	// need changes if target X changed shape". Downstream planners use

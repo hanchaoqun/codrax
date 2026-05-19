@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -15,6 +16,10 @@ const (
 )
 
 func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []types.AnswerAggregateFact) string {
+	facts = types.PruneAggregateMemberSetsByStructuredExclusions(facts)
+	if ctx != nil && ctx.AnalysisIR != nil {
+		facts = types.DemoteAggregateCountFactsConflictingWithPrincipalMemberSets(facts, &ctx.AnalysisIR.RequestModel)
+	}
 	return renderStructuredAggregateFactsWithOptions(facts, structuredAggregatePromptFactLimit(ctx, facts), structuredAggregatePrincipalMemberSetRefs(ctx, facts), aggregateFactRenderOptions{
 		omitExcludedCandidates: aggregateFactPromptOmitExcludedCandidates(ctx),
 	})
@@ -25,7 +30,7 @@ func structuredAggregatePromptFactLimit(ctx *types.AgentContext, facts []types.A
 		return 0
 	}
 	limit := structuredAggregateDefaultPromptFacts
-	principalCount := len(structuredAggregatePrincipalMemberSetRefs(ctx, facts))
+	principalCount := len(structuredAggregatePrincipalFactIndexes(ctx, facts))
 	if principalCount > 0 {
 		limit += aggregateFactMinInt(principalCount*2, 16)
 	}
@@ -48,9 +53,11 @@ func structuredAggregatePromptFactLimit(ctx *types.AgentContext, facts []types.A
 		limit = structuredAggregateMaxPromptFacts
 	}
 	if limit < principalCount {
-		// The max cap is for auxiliary aggregate context. Principal member_set
-		// rows are the answer slate and must not disappear behind prompt-budget
-		// projection after the model has emitted them structurally.
+		// The max cap is for auxiliary aggregate context. Principal aggregate
+		// facts are answer payloads: they may be file:line member sets, tool-
+		// sourced counts, negative searches, or other structured scalars. Once
+		// exploration emitted them structurally, prompt-budget projection must
+		// not hide them from the finalizer.
 		limit = principalCount
 	}
 	if limit > len(facts) {
@@ -75,11 +82,11 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 	if len(facts) == 0 {
 		return ""
 	}
-	principalMemberSets := map[int]bool{}
+	principalFacts := map[int]bool{}
 	roleByIndex := map[int]types.AnswerAggregateRole{}
 	provenanceByIndex := map[int]string{}
 	for _, ref := range refs {
-		principalMemberSets[ref.Index] = true
+		principalFacts[ref.Index] = true
 		if ref.Role != "" {
 			roleByIndex[ref.Index] = ref.Role
 		}
@@ -87,7 +94,12 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 			provenanceByIndex[ref.Index] = ref.Provenance
 		}
 	}
-	order := orderedAggregateFactIndexes(facts, principalMemberSets)
+	for i, fact := range facts {
+		if types.NormalizeAnswerAggregateRole(fact.Role).IsPrincipal() {
+			principalFacts[i] = true
+		}
+	}
+	order := orderedAggregateFactIndexes(facts, principalFacts)
 	if maxFacts <= 0 || maxFacts > len(order) {
 		maxFacts = len(order)
 	}
@@ -97,7 +109,7 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		fact := facts[i]
 		fmt.Fprintf(&b, "- kind=`%s`, label=%s, value=`%s`",
 			fact.Kind, fact.Label, fact.Value)
-		if role := aggregatePromptRoleForFact(i, fact, principalMemberSets, roleByIndex); role != "" {
+		if role := aggregatePromptRoleForFact(i, fact, principalFacts, roleByIndex); role != "" {
 			fmt.Fprintf(&b, ", role=`%s`", role)
 		}
 		if provenance := aggregatePromptProvenanceForFact(i, fact, provenanceByIndex); provenance != "" {
@@ -109,10 +121,7 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		if dims := renderAggregateDimensions(fact.Dimensions); dims != "" {
 			fmt.Fprintf(&b, ", dimensions=[%s]", dims)
 		}
-		memberLimit := 12
-		if fact.Kind == types.AnswerAggregateMemberSet {
-			memberLimit = 200
-		}
+		memberLimit := aggregateFactPromptMemberLimit(fact)
 		if members := renderAggregateStringList(fact.Members, memberLimit); members != "" {
 			fmt.Fprintf(&b, ", members=[%s]", members)
 		}
@@ -123,10 +132,7 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 				fmt.Fprintf(&b, ", excluded=[%s]", excluded)
 			}
 		}
-		refLimit := 8
-		if fact.Kind == types.AnswerAggregateMemberSet {
-			refLimit = 200
-		}
+		refLimit := aggregateFactPromptSupportRefLimit(fact)
 		if refs := renderAggregateStringList(fact.SupportRefs, refLimit); refs != "" {
 			fmt.Fprintf(&b, ", support_refs=[%s]", refs)
 		}
@@ -138,12 +144,22 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 	return b.String()
 }
 
-func aggregateFactPromptOmitExcludedCandidates(ctx *types.AgentContext) bool {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return false
+func aggregateFactPromptMemberLimit(fact types.AnswerAggregateFact) int {
+	if types.AnswerAggregateFactCarriesCompleteMemberSet(fact) {
+		return 200
 	}
-	policy := ctx.AnalysisIR.RequestModel.AnswerExclusionPolicy
-	return policy != nil && policy.Active()
+	return 12
+}
+
+func aggregateFactPromptSupportRefLimit(fact types.AnswerAggregateFact) int {
+	if types.AnswerAggregateFactCarriesCompleteMemberSet(fact) {
+		return 200
+	}
+	return 8
+}
+
+func aggregateFactPromptOmitExcludedCandidates(ctx *types.AgentContext) bool {
+	return len(tool.EffectiveAnswerExclusionRolesForAgentContext(ctx)) > 0
 }
 
 func sanitizeAggregateExcludedCandidatesForPrompt(ctx *types.AgentContext, text string, facts []types.AnswerAggregateFact) string {
@@ -238,15 +254,28 @@ func structuredAggregatePrincipalMemberSetRefs(ctx *types.AgentContext, facts []
 	return types.PrincipalAggregateMemberSetFactRefsForRequest(facts, &ctx.AnalysisIR.RequestModel)
 }
 
-func orderedAggregateFactIndexes(facts []types.AnswerAggregateFact, principalMemberSets map[int]bool) []int {
+func structuredAggregatePrincipalFactIndexes(ctx *types.AgentContext, facts []types.AnswerAggregateFact) map[int]bool {
+	out := map[int]bool{}
+	for _, ref := range structuredAggregatePrincipalMemberSetRefs(ctx, facts) {
+		out[ref.Index] = true
+	}
+	for i, fact := range facts {
+		if types.NormalizeAnswerAggregateRole(fact.Role).IsPrincipal() {
+			out[i] = true
+		}
+	}
+	return out
+}
+
+func orderedAggregateFactIndexes(facts []types.AnswerAggregateFact, principalFacts map[int]bool) []int {
 	indexes := make([]int, len(facts))
 	for i := range facts {
 		indexes[i] = i
 	}
 	sort.SliceStable(indexes, func(a, b int) bool {
 		ia, ib := indexes[a], indexes[b]
-		pa := aggregateFactPromptPriority(facts[ia], principalMemberSets[ia])
-		pb := aggregateFactPromptPriority(facts[ib], principalMemberSets[ib])
+		pa := aggregateFactPromptPriority(facts[ia], principalFacts[ia])
+		pb := aggregateFactPromptPriority(facts[ib], principalFacts[ib])
 		if pa != pb {
 			return pa < pb
 		}
@@ -256,7 +285,7 @@ func orderedAggregateFactIndexes(facts []types.AnswerAggregateFact, principalMem
 }
 
 func aggregateFactPromptPriority(fact types.AnswerAggregateFact, principal bool) int {
-	if principal {
+	if principal || types.NormalizeAnswerAggregateRole(fact.Role).IsPrincipal() {
 		return 0
 	}
 	switch fact.Kind {

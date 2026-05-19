@@ -573,6 +573,47 @@ func TestRenderer_ParallelExplorerScrollbackShowsLaneOrdinal(t *testing.T) {
 	}
 }
 
+func TestRenderer_SerialReconcileExploreScrollbackShowsAggregateLabel(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:         EventAgentReasoning,
+		Agent:        types.AgentExplorer,
+		Stage:        types.StageExplore,
+		Iteration:    4,
+		Reasoning:    "reconcile findings",
+		DispatchKind: string(types.NodeReconcile),
+		Timestamp:    time.Now(),
+	})
+	emit(Event{
+		Kind:          EventAgentToolCallBatch,
+		Agent:         types.AgentExplorer,
+		Stage:         types.StageExplore,
+		Iteration:     4,
+		ToolName:      "emit_investigation_complete",
+		ToolNames:     []string{"emit_investigation_complete"},
+		ToolCallCount: 1,
+		DispatchKind:  string(types.NodeReconcile),
+		Timestamp:     time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{
+		"⋯ 探索 · 汇总 · 第 5 轮 reconcile findings",
+		"⇢ 探索 · 汇总 · 第 5 轮 调用工具 emit_investigation_complete",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("serial reconcile scrollback missing %q; got %q", want, out)
+		}
+	}
+	if strings.Contains(out, "探索 · 第 5 轮 reconcile findings") {
+		t.Fatalf("serial reconcile should not use ambiguous bare explore label: %q", out)
+	}
+}
+
 func TestFormatEvidenceToolResultSummaryZh(t *testing.T) {
 	summary := `emit_evidence accepted 4 item(s)
 

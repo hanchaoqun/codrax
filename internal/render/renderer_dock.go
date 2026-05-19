@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/pterm/pterm"
 )
 
@@ -83,7 +84,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		if ev.Reasoning == "" {
 			return
 		}
-		lines := formatReasoningLinesWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang, r.parallelUnitTraceLabelLocked(ev))
+		lines := formatReasoningLinesWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang, r.activityTraceUnitLabelLocked(ev))
 		if len(lines) == 0 {
 			return
 		}
@@ -96,7 +97,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		return
 	case EventAgentToolCallBatch:
 		line := formatToolCallBatchWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
-			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang, r.parallelUnitTraceLabelLocked(ev))
+			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang, r.activityTraceUnitLabelLocked(ev))
 		if line == "" {
 			return
 		}
@@ -2268,6 +2269,38 @@ func (r *Renderer) parallelUnitTraceLabelLocked(ev Event) string {
 	return fmt.Sprintf("Lane %d", ordinal)
 }
 
+func (r *Renderer) activityTraceUnitLabelLocked(ev Event) string {
+	if label := r.parallelUnitTraceLabelLocked(ev); label != "" {
+		return label
+	}
+	return focusedExploreDispatchTraceLabel(ev, r.lang)
+}
+
+func focusedExploreDispatchTraceLabel(ev Event, lang string) string {
+	if ev.Stage != types.StageExplore || ev.Agent != types.AgentExplorer {
+		return ""
+	}
+	switch types.TaskNodeType(strings.TrimSpace(ev.DispatchKind)) {
+	case types.NodeReconcile:
+		if isZh(lang) {
+			return "汇总"
+		}
+		return "Reconcile"
+	case types.NodeValidate:
+		if isZh(lang) {
+			return "校验"
+		}
+		return "Validate"
+	case types.NodeProbe:
+		if isZh(lang) {
+			return "探查"
+		}
+		return "Probe"
+	default:
+		return ""
+	}
+}
+
 // handleEventNonTTY handles events when the dock is disabled (non-
 // TTY stdout, --log-stdout in TTY mode, etc.). Each event maps to
 // at most one Println-style line so CI logs and piped output remain
@@ -2309,10 +2342,10 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 			mirrorDockBlockToLog(block)
 		}
 	case EventAgentReasoning:
-		r.emitNonTTYLines(formatReasoningLinesWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang, r.parallelUnitTraceLabelLocked(ev)))
+		r.emitNonTTYLines(formatReasoningLinesWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang, r.activityTraceUnitLabelLocked(ev)))
 	case EventAgentToolCallBatch:
 		if line := formatToolCallBatchWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
-			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang, r.parallelUnitTraceLabelLocked(ev)); line != "" {
+			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang, r.activityTraceUnitLabelLocked(ev)); line != "" {
 			r.emitNonTTYLine(line)
 		}
 	case EventToolCallEnd:

@@ -337,6 +337,9 @@ func schemaPropertyKeyAliasFromNames(key string, names map[string]struct{}) (str
 			return quoteTrimmed, "property_key_quote_artifact", true
 		}
 	}
+	if canonical, ok := compositeSchemaPropertyKeyAlias(quoteTrimmed, names); ok {
+		return canonical, "property_key_composite_fragment", true
+	}
 	snake := schemaStyleKeyAlias(quoteTrimmed)
 	if snake != quoteTrimmed {
 		if _, ok := names[snake]; ok {
@@ -350,6 +353,50 @@ func schemaPropertyKeyAliasFromNames(key string, names map[string]struct{}) (str
 		return canonical, "property_key_id_plural", true
 	}
 	return "", "", false
+}
+
+func compositeSchemaPropertyKeyAlias(key string, names map[string]struct{}) (string, bool) {
+	if key == "" || len(names) == 0 || !strings.ContainsAny(key, ",\"'`\\") {
+		return "", false
+	}
+	fragments := strings.FieldsFunc(key, func(r rune) bool {
+		switch r {
+		case ',', '"', '\'', '`', '\\':
+			return true
+		default:
+			return false
+		}
+	})
+	matched := ""
+	for _, fragment := range fragments {
+		fragment = trimJSONKeyQuoteArtifacts(strings.TrimSpace(fragment))
+		if fragment == "" {
+			continue
+		}
+		candidates := []string{fragment}
+		if styled := schemaStyleKeyAlias(fragment); styled != fragment {
+			candidates = append(candidates, styled)
+		}
+		for _, candidate := range candidates {
+			if _, ok := names[candidate]; !ok {
+				continue
+			}
+			if matched != "" && matched != candidate {
+				return "", false
+			}
+			matched = candidate
+		}
+		if canonical, ok := uniqueSchemaPropertyFingerprintAlias(fragment, names, false); ok {
+			if matched != "" && matched != canonical {
+				return "", false
+			}
+			matched = canonical
+		}
+	}
+	if matched == "" || matched == key {
+		return "", false
+	}
+	return matched, true
 }
 
 func trimJSONKeyQuoteArtifacts(s string) string {

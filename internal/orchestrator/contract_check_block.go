@@ -1247,19 +1247,24 @@ func validateUncertaintyBlockPresence(doc *types.AnswerDocumentV2, view *types.A
 	for _, b := range doc.Blocks {
 		hasKind[b.Kind] = true
 	}
-	requiredFacets := make(map[string]bool)
+	promotedFacets := make(map[string]bool)
 	if view.FacetCoverage != nil {
 		for _, r := range view.FacetCoverage.Required {
-			requiredFacets[string(r.Kind)] = true
+			if r.IsPromoted() {
+				promotedFacets[string(r.Kind)] = true
+			}
 		}
 	}
 	var out []types.Violation
 	for _, rule := range view.UncertaintyRules {
 		// Empty TriggerFacet means "always-required disclosure" —
 		// e.g. shape=value families' bounded-scope caveat. Otherwise
-		// require the trigger facet to be in the family's required
-		// facet set.
-		if rule.TriggerFacet != "" && !requiredFacets[rule.TriggerFacet] {
+		// require the trigger facet to be promoted by typed evidence
+		// or an always-hard family contract. A soft facet sitting in
+		// Required without boundary-class evidence is advisory only;
+		// it must not force a caveat block on an otherwise complete
+		// answer.
+		if rule.TriggerFacet != "" && !promotedFacets[rule.TriggerFacet] {
 			continue
 		}
 		if hasKind[rule.ExpectedBlockKind] {

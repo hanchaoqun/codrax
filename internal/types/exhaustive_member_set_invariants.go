@@ -40,6 +40,10 @@ func LargestExhaustiveMemberSet(facts []AnswerAggregateFact, threshold int) (Ans
 		if fact.Kind != AnswerAggregateMemberSet {
 			continue
 		}
+		role := NormalizeAnswerAggregateRole(fact.Role)
+		if role != AnswerAggregateRoleUnknown && role != AnswerAggregateRolePrincipalAnswer {
+			continue
+		}
 		size := len(fact.Members)
 		if size < threshold || size <= bestSize {
 			continue
@@ -125,7 +129,8 @@ func ComputeExhaustiveMemberCoverage(doc *AnswerDocumentV2, fact AnswerAggregate
 	matched := make(map[string]bool, len(memberKeys))
 	var unexpected []string
 
-	for _, block := range doc.Blocks {
+	blocks := exhaustiveMemberCoverageBlocks(doc.Blocks, fact)
+	for _, block := range blocks {
 		if !exhaustiveBlockCarriesPrincipalMembers(block) {
 			continue
 		}
@@ -189,6 +194,47 @@ func ComputeExhaustiveMemberCoverage(doc *AnswerDocumentV2, fact AnswerAggregate
 	cov.DuplicateCitations = duplicateCitationRefs(citationSeen)
 	sort.Ints(cov.InvalidCitationRefs)
 	return cov
+}
+
+func exhaustiveMemberCoverageBlocks(blocks []AnswerBlock, fact AnswerAggregateFact) []AnswerBlock {
+	label := exhaustiveMemberSetLabelKey(fact.Label)
+	if label == "" {
+		return blocks
+	}
+	var matched []AnswerBlock
+	for _, block := range blocks {
+		for _, surface := range []string{block.Title, block.ID} {
+			key := exhaustiveMemberSetLabelKey(surface)
+			if key == "" {
+				continue
+			}
+			if strings.Contains(key, label) || strings.Contains(label, key) {
+				matched = append(matched, block)
+				break
+			}
+		}
+	}
+	if len(matched) == 0 {
+		return blocks
+	}
+	return matched
+}
+
+func exhaustiveMemberSetLabelKey(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return ""
+	}
+	label = strings.ToLower(label)
+	label = strings.ReplaceAll(label, "_", "")
+	label = strings.ReplaceAll(label, "-", "")
+	label = strings.ReplaceAll(label, " ", "")
+	label = strings.ReplaceAll(label, "\t", "")
+	label = strings.ReplaceAll(label, "（", "(")
+	if idx := strings.Index(label, "("); idx > 0 {
+		label = label[:idx]
+	}
+	return strings.TrimSpace(label)
 }
 
 func exhaustiveItemMemberSurfaces(item AnswerBlockItem) []string {

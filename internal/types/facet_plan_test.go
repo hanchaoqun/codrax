@@ -298,6 +298,76 @@ func TestCompileFacetCoverage_HardDegradesToSoftWhenNoCandidate(t *testing.T) {
 	}
 }
 
+func TestCompileFacetCoverage_UncertaintyBoundaryIgnoresOrdinaryDefinitionEvidence(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}
+	surface := []EvidenceItem{
+		{ID: "def", Source: "internal/analysis/criterion/grammar.go", LineStart: 25, Scope: ScopeLine, AnchorKind: AnchorDefinition},
+	}
+	plan := CompileFacetCoverage(rm, surface)
+	if plan == nil {
+		t.Fatal("plan must be non-nil")
+	}
+	var boundary *FacetRequirement
+	for i := range plan.Required {
+		if plan.Required[i].Kind == FacetUncertaintyBoundary {
+			boundary = &plan.Required[i]
+			break
+		}
+	}
+	if boundary == nil {
+		t.Fatal("enumeration should still carry the advisory uncertainty boundary facet")
+	}
+	if len(boundary.SourceCandidate) != 0 {
+		t.Fatalf("ordinary definition evidence must not promote uncertainty boundary, got candidates %+v", boundary.SourceCandidate)
+	}
+	if boundary.IsPromoted() {
+		t.Fatalf("uncertainty boundary must stay unpromoted without absence/external/text-reference evidence: %+v", boundary)
+	}
+}
+
+func TestCompileFacetCoverage_UncertaintyBoundaryPromotesOnNegativeEvidence(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}
+	surface := []EvidenceItem{
+		{
+			ID:            "absent",
+			Source:        "internal/analysis/criterion",
+			Scope:         ScopeNegative,
+			NegativeScope: NegativeScopeFile,
+			NegativeQuery: &NegativeQuery{File: "internal/analysis/criterion", Pattern: "DeprecatedKind"},
+		},
+	}
+	plan := CompileFacetCoverage(rm, surface)
+	if plan == nil {
+		t.Fatal("plan must be non-nil")
+	}
+	var boundary *FacetRequirement
+	for i := range plan.Required {
+		if plan.Required[i].Kind == FacetUncertaintyBoundary {
+			boundary = &plan.Required[i]
+			break
+		}
+	}
+	if boundary == nil {
+		t.Fatal("enumeration should carry the advisory uncertainty boundary facet")
+	}
+	if len(boundary.SourceCandidate) != 1 || boundary.SourceCandidate[0] != "absent" {
+		t.Fatalf("negative search evidence should promote uncertainty boundary, got %+v", boundary)
+	}
+	if !boundary.IsPromoted() {
+		t.Fatalf("uncertainty boundary should promote when absence evidence exists: %+v", boundary)
+	}
+}
+
 func TestCompileFacetCoverage_ExternalOnlyRuntimeDoesNotPromoteCurrentCodePath(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentRootCause,

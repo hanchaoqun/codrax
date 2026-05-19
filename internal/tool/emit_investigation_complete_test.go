@@ -245,6 +245,40 @@ func TestEmitInvestigationComplete_RepairsStringEncodedAggregateFactsWithMisplac
 	}
 }
 
+func TestEmitInvestigationComplete_RepairsStringEncodedAggregateFactsWithMisplacedTopLevelFields(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	paramsBytes, err := json.Marshal(map[string]any{
+		"aggregate_facts": `[
+			{"kind":"scalar_value","label":"类型数量","value":"3"},
+			{"kind":"member_set","label":"类型完整列表","value":"3","members":["Kind","Env","Result"]}
+		], "confidence": "high", "reason": "complete typed handoff", "result_kind": "resolved"`,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	res, err := tool.Execute(bus, paramsBytes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("misplaced confidence/reason/result_kind tail should be recovered: %s", res.Summary)
+	}
+	if got := mut.InvestigationResultKind(); got != "resolved" {
+		t.Fatalf("result_kind = %q, want recovered resolved", got)
+	}
+	if got := mut.InvestigationCompleteReason(); got != "complete typed handoff" {
+		t.Fatalf("reason = %q, want recovered misplaced reason", got)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 2 || got[1].Kind != types.AnswerAggregateMemberSet || got[1].Value != "3" {
+		t.Fatalf("aggregate facts not recovered with misplaced top-level fields: %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_PromotesMisplacedAbsenceTailForAbsenceResult(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}
@@ -2189,6 +2223,93 @@ func TestEmitInvestigationComplete_DowngradesWhenRequiredEnumerationTermsLackTyp
 	repairs := mut.EvidenceClosure().PendingRepairs()
 	if len(repairs) == 0 || repairs[len(repairs)-1].Origin != "pre_complete.principal_required_term_handoff" {
 		t.Fatalf("expected principal required-term handoff repair, got %+v", repairs)
+	}
+}
+
+func TestCompletionPrincipalHandoffTerms_SoftensAnalyzerEntitiesForGroupedEnumeration(t *testing.T) {
+	contract := types.AnswerContract{MustIncludeTerms: []types.ContractTerm{
+		{Text: "Criterion", Kind: types.ContractTermSymbol, Source: types.ContractTermSourceAnalyzerEntity},
+		{Text: "block", Kind: types.ContractTermFileStem, Source: types.ContractTermSourceAnalyzerEntity},
+		{Text: "ExplicitSymbol", Kind: types.ContractTermSymbol},
+	}}
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "types"},
+			{Summary: "functions"},
+			{Summary: "constants"},
+		},
+	}
+
+	got := completionPrincipalHandoffTerms(contract, rm)
+	if len(got) != 1 || got[0].Text != "ExplicitSymbol" {
+		t.Fatalf("grouped enumeration should soften analyzer-entity terms only, got %+v", got)
+	}
+
+	rm.SubTopics = nil
+	got = completionPrincipalHandoffTerms(contract, rm)
+	if len(got) != 2 {
+		t.Fatalf("ungrouped enumeration should preserve analyzer symbol guard terms while softening scope file-stems, got %+v", got)
+	}
+	for _, term := range got {
+		if term.Kind == types.ContractTermFileStem {
+			t.Fatalf("analyzer file-stem terms name the scoped package/directory, not principal members: %+v", got)
+		}
+	}
+
+	rm.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "complete members",
+	}
+	got = completionPrincipalHandoffTerms(contract, rm)
+	if len(got) != 1 || got[0].Text != "ExplicitSymbol" {
+		t.Fatalf("exhaustive enumeration should get hard members from aggregate_facts/evidence, not analyzer entities, got %+v", got)
+	}
+}
+
+func TestCompletionMissingPrincipalHandoffTerms_GroundedEvidenceCoversAnalyzerSymbols(t *testing.T) {
+	terms := []types.ContractTerm{
+		{Text: "Eval", Kind: types.ContractTermSymbol, Source: types.ContractTermSourceAnalyzerEntity},
+		{Text: "EvalAll", Kind: types.ContractTermSymbol, Source: types.ContractTermSourceAnalyzerEntity},
+		{Text: "SetExternalArtifactFloor", Kind: types.ContractTermSymbol, Source: types.ContractTermSourceAnalyzerEntity},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/analysis/criterion/eval.go",
+			LineStart:       15,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Eval",
+			Subject:         "Eval",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/analysis/criterion/eval.go",
+			LineStart:       36,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "EvalAll",
+			Subject:         "EvalAll",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/analysis/criterion/eval.go",
+			LineStart:       982,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "SetExternalArtifactFloor",
+			Subject:         "SetExternalArtifactFloor",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	if missing := completionMissingPrincipalHandoffTerms(terms, evidence, nil, nil); len(missing) != 0 {
+		t.Fatalf("grounded direct definition evidence should satisfy analyzer symbol handoff terms, got %+v", missing)
 	}
 }
 

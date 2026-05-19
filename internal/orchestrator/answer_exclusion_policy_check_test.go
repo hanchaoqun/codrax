@@ -63,6 +63,35 @@ func TestRunTypedAnswerExclusionPolicyCheck_DoesNotReadProse(t *testing.T) {
 	}
 }
 
+func TestRunTypedAnswerExclusionPolicyCheck_UsesVisibilityProfile(t *testing.T) {
+	rm := &types.RequestModel{
+		AnswerVisibilityProfile: &types.AnswerVisibilityProfile{
+			SymbolVisibility: types.AnswerSymbolVisibilityPublicExported,
+			Confidence:       0.95,
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "exports",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "public", Label: "Eval", CandidateRole: types.AnswerCandidateRoleFunction},
+				{ID: "private", Label: "parseIntThreshold", CandidateRole: types.AnswerCandidateRolePrivate},
+			},
+		}},
+	}
+
+	got := runTypedAnswerExclusionPolicyCheck(doc, rm)
+	if len(got) != 1 {
+		t.Fatalf("violations = %d, want 1: %+v", len(got), got)
+	}
+	if got[0].Kind != types.ViolMustExclude ||
+		!strings.Contains(got[0].Detail, `candidate_role="private"`) {
+		t.Fatalf("unexpected violation: %+v", got[0])
+	}
+}
+
 func TestRunTypedAnswerRoleProfileCheck_RejectsMissingRequiredRole(t *testing.T) {
 	rm := &types.RequestModel{
 		AnswerRoleProfile: &types.AnswerRoleProfile{

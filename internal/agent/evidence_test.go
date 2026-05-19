@@ -126,6 +126,36 @@ func TestMergeEvidenceItemsUnionsSurfaceTermsOnSameFact(t *testing.T) {
 	}
 }
 
+func TestMergeEvidenceItemsPrefersRicherSummaryForSameEvidence(t *testing.T) {
+	base := types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Subject:      "KindSymbolPresent",
+		Predicate:    "defines",
+		Source:       "internal/analysis/criterion/grammar.go",
+		LineStart:    29,
+		AnchorSymbol: "KindSymbolPresent",
+		Producer:     "explorer.emit_evidence",
+		Scope:        types.ScopeLine,
+		Summary:      "Kind const block 第 1 个常量",
+	}
+	base.ID = types.StableEvidenceID(base)
+	rich := base
+	rich.Summary = "KindSymbolPresent 表示符号存在于证据槽或答案标牌，是 Criterion 成功条件的一种。"
+
+	merged := mergeEvidenceItems([]types.EvidenceItem{base}, []types.EvidenceItem{rich})
+	if len(merged) != 1 {
+		t.Fatalf("mergeEvidenceItems count = %d, want 1", len(merged))
+	}
+	if merged[0].Summary != rich.Summary {
+		t.Fatalf("richer same-anchor summary should win:\n got: %q\nwant: %q", merged[0].Summary, rich.Summary)
+	}
+
+	merged = mergeEvidenceItems([]types.EvidenceItem{rich}, []types.EvidenceItem{base})
+	if merged[0].Summary != rich.Summary {
+		t.Fatalf("later generic summary must not replace richer summary, got %q", merged[0].Summary)
+	}
+}
+
 func TestEntityHitsBoundsShortGenericEntities(t *testing.T) {
 	cases := []struct {
 		name     string

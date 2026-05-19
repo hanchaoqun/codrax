@@ -253,6 +253,24 @@ func TestCanUseAnalyzerEntitiesAsHardPrincipalMembers_TypedOnly(t *testing.T) {
 		t.Fatal("plain category enumeration entities should be eligible as hard principal members")
 	}
 
+	rm.CompletenessObligation = &CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all members",
+	}
+	if CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) {
+		t.Fatal("exhaustive enumeration entities are search hints until exploration emits the verified member set")
+	}
+	rm.CompletenessObligation = nil
+
+	rm.EnumerationBoundary = &RequestedEnumerationBoundary{
+		DeclaredCount: 2,
+		SourceQuote:   "2 members",
+	}
+	if CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) {
+		t.Fatal("declared-count enumeration entities must not seed hard members before exploration")
+	}
+	rm.EnumerationBoundary = nil
+
 	rm.Predicates.IsRelationalLookup = true
 	rm.EnumerationBoundary = &RequestedEnumerationBoundary{
 		DeclaredCount: 2,
@@ -443,12 +461,12 @@ func TestIsCodeIdentitySurface_CrossLanguage(t *testing.T) {
 		// symbol at the cited file:line, which no Chinese-only label
 		// can satisfy. Pure-CJK and CJK-mixed labels are display prose
 		// in this codebase.
-		"引用锚定",     // citation grounding
-		"自审查机制",   // self-review mechanism
-		"质量门",        // quality gate
-		"Foo 函数",     // mixed: code symbol + CJK prose
-		"Привет",       // Cyrillic
-		"αβγ",          // Greek
+		"引用锚定",   // citation grounding
+		"自审查机制",  // self-review mechanism
+		"质量门",    // quality gate
+		"Foo 函数", // mixed: code symbol + CJK prose
+		"Привет", // Cyrillic
+		"αβγ",    // Greek
 	}
 	for _, surface := range rejected {
 		if IsCodeIdentitySurface(surface) {

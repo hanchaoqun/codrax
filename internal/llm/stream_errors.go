@@ -85,12 +85,11 @@ var ErrStreamFirstByteTimeout = errors.New("llm: upstream first-byte timeout")
 // count as usable chunks because they do not carry assistant progress.
 //
 // Why two timeouts: thinking models routinely pause 30-60s between
-// thinking blocks, so stallTimeout sits at 60s. But "request
-// accepted, server just won't speak" needs to fail much faster
-// (typical first-byte in any healthy provider is 100-500ms; even
-// slow provisioning rarely exceeds 5s). Sharing a single 60s
-// timeout for both cases burns 60s on a dead-on-arrival request
-// instead of failing fast and letting the agent retry.
+// thinking blocks, so stallTimeout sits much higher. But "request
+// accepted, server just won't speak" still needs a bounded pre-output
+// watchdog. The default first-byte window is intentionally shorter
+// than the mid-stream stall ceiling, while leaving enough cold-start
+// headroom for slower OpenAI-compatible providers.
 //
 // IdleFor records how long the request was open with no usable SSE
 // chunks before the watchdog fired. Unwrap returns the underlying ctx

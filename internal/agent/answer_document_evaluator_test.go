@@ -515,6 +515,74 @@ func TestSelectAnswerDocTypedEnrichmentFacts_SalienceLockedSurvivesScoreFilter(t
 	}
 }
 
+func TestSelectAnswerDocTypedEnrichmentFacts_PrincipalDefinitionRowsPreserveDetails(t *testing.T) {
+	mut := types.NewMutableState("list functions")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"internal/types/grammar.go"},
+		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "functions",
+			Value:   "1",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"RegisteredKinds"},
+		}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				SourceScopeProfile: &types.SourceScopeProfile{
+					RequestedScope: types.SourceScopeProduction,
+				},
+			},
+		},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			ID:              "context",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/types/grammar.go",
+			LineStart:       10,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "helper",
+			Subject:         "helper",
+			Summary:         "context call",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "registered-kinds",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/types/grammar.go",
+			LineStart:       106,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "RegisteredKinds",
+			Subject:         "RegisteredKinds",
+			Summary:         "returns all registered kinds with stable ordering",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	got := selectAnswerDocTypedEnrichmentFacts(ctx, evidence, false, nil)
+	if len(got) == 0 {
+		t.Fatal("expected enrichment rows")
+	}
+	if got[0].item.ID != "registered-kinds" {
+		t.Fatalf("principal definition detail should sort first, got %+v", got)
+	}
+	if got[0].lane != "principal_definition_fact" {
+		t.Fatalf("lane=%q, want principal_definition_fact", got[0].lane)
+	}
+	if !strings.Contains(got[0].surface, "stable ordering") {
+		t.Fatalf("definition summary detail was not preserved: %q", got[0].surface)
+	}
+}
+
 func TestAnswerDocEnrichmentDisplayLimit_WidensForLockedSalience(t *testing.T) {
 	evidence := make([]types.EvidenceItem, 0, answerDocMaxEnrichmentFacts)
 	for i := 0; i < answerDocMaxEnrichmentFacts; i++ {
@@ -717,7 +785,7 @@ func TestRenderAnswerDocTypedExplorationEnrichment_CoversQuestionFamilies(t *tes
 			name: "enumeration",
 			rm:   types.RequestModel{Intent: types.IntentEnumerate, Predicates: types.SemanticPredicates{IsCategoryEnumeration: true}},
 			item: types.EvidenceItem{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, Subject: "ExplorerAgent", Object: "agent implementation", SurfaceTerms: []string{"ExplorerAgent"}},
-			want: "lane=context_enrichment_fact",
+			want: "lane=principal_definition_fact",
 		},
 		{
 			name: "generic",

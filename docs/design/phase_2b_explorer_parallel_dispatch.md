@@ -217,6 +217,26 @@ Verification:
   - `eval/results/qf_multi_member_set_count_caveat-20260519-154652`
   - PASS; `explorer_iters=5`, `finalizer_iters=1`, no repair/rewrite lines.
 
+### Batch E — operator-visible lane identity and retry hygiene
+
+- Render events now carry `DispatchKind` as render-only metadata. Parallel
+  worker lanes still show `探索 · 第 X 路 · 第 N 轮`; serial post-merge
+  reconcile/probe/validation windows show explicit aggregate labels such as
+  `探索 · 汇总 · 第 N 轮` instead of dropping back to an unqualified
+  `探索 · 第 N 轮`.
+- The label is intentionally presentation-only. It is copied from typed
+  `TaskNodeType` into `AgentContext`/render events and must not drive
+  evaluator or scheduler behavior.
+- Prompt context for post-parallel stages now filters same-stage/current-agent
+  reports and scopes retry hints to their owning stage. This prevents a
+  parallel worker's retry directive from becoming the next analyzer/extractor
+  instruction, and avoids duplicate `Prior request analysis result` sections.
+- Follow-up verification target:
+  - `qf_logic_view_read_pipeline`: early parallel lanes must keep
+    `第 X 路`; later serial reconcile must show `汇总`.
+  - Prompt dumps must not contain `### [explore / analyzer]` style internal
+    titles or duplicate prior-analysis sections for one recipient.
+
 ## Out of scope
 
 This phase does not add language-specific dispatch policy, does not

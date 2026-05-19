@@ -219,7 +219,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		}
 		normalizeAnswerDocumentForPreEmit(toolName, doc, view, ctx, preEmitCtx)
 		if hints := runPreEmitChecksWithContext(doc, view, preEmitOracleFromCtx(ctx), preEmitCtx); len(hints) > 0 {
-			if fixed := materializeRequiredCaveatWhenOnlyMissing(doc, view, hints); fixed > 0 {
+			if fixed := materializeRequiredCaveatWhenOnlyMissing(doc, view, hints, ctx); fixed > 0 {
 				logging.Warning("[emit_answer_document] materialized %d required caveat block(s) from uncertainty contract", fixed)
 				hints = runPreEmitChecksWithContext(doc, view, preEmitOracleFromCtx(ctx), preEmitCtx)
 			}
@@ -517,7 +517,13 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext(doc, view, ctx, pctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d out-of-range item citation_ref value(s) by evidence-surface corroboration", toolName, fixed)
 	}
+	if fixed := compileCitationBackedTableRows(doc); fixed > 0 {
+		logging.Warning("[%s] compiled %d citation-backed table row(s) from incomplete structured table carriers", toolName, fixed)
+	}
 	if ctx != nil {
+		if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed > 0 {
+			logging.Warning("[%s] materialized %d principal aggregate member row(s) from accepted exhaustive enumeration handoff", toolName, fixed)
+		}
 		if fixed := normalizePrincipalSupportMemberCarriers(doc, types.BuildAnswerSupportPlanForBusContext(ctx)); fixed > 0 {
 			logging.Warning("[%s] repaired %d principal support member citation carrier(s) from visible answer surface", toolName, fixed)
 		}
@@ -700,7 +706,7 @@ func uniqueAnswerBlockID(doc *types.AnswerDocumentV2, base string) string {
 	}
 }
 
-func materializeRequiredCaveatWhenOnlyMissing(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, hints []emitFixHint) int {
+func materializeRequiredCaveatWhenOnlyMissing(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, hints []emitFixHint, ctx *types.BusContext) int {
 	if doc == nil || view == nil || len(hints) != 1 || len(view.UncertaintyRules) == 0 {
 		return 0
 	}
@@ -710,13 +716,32 @@ func materializeRequiredCaveatWhenOnlyMissing(doc *types.AnswerDocumentV2, view 
 	if answerDocumentHasBlockKind(doc, types.BlockCaveat) {
 		return 0
 	}
+	title, text := materializedScopeCaveatCopy(ctx)
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
 		ID:    uniqueAnswerBlockID(doc, "scope_caveat"),
 		Kind:  types.BlockCaveat,
-		Title: "Scope note",
-		Text:  "This answer is limited to the evidence that was read and validated in this run; unresolved or unsearched areas are not treated as proven.",
+		Title: title,
+		Text:  text,
 	})
 	return 1
+}
+
+func materializedScopeCaveatCopy(ctx *types.BusContext) (title string, text string) {
+	lang := ""
+	if ctx != nil {
+		lang = ctx.Language
+	}
+	if answerDocumentToolLangIsZh(lang) {
+		return "范围说明", "以下结论仅限于本轮已经读取并校验过的证据；未解析或未搜索到的区域不视为已经被证明。"
+	}
+	return "Scope note", "This answer is limited to the evidence that was read and validated in this run; unresolved or unsearched areas are not treated as proven."
+}
+
+func answerDocumentToolLangIsZh(lang string) bool {
+	if strings.TrimSpace(lang) == "" {
+		return true
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
 }
 
 // repairBlocksAsString detects the "blocks[] arrived as JSON

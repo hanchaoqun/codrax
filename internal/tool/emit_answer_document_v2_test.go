@@ -920,8 +920,15 @@ func TestEmitAnswerDocumentV2_MaterializesRequiredCaveatWhenOnlyMissing(t *testi
 	if len(hints) != 1 || hints[0].Field != "blocks[].kind=caveat" {
 		t.Fatalf("expected single caveat hint before materialization, got %+v", hints)
 	}
-	if fixed := materializeRequiredCaveatWhenOnlyMissing(doc, view, hints); fixed != 1 {
+	bus := &types.BusContext{Language: "zh"}
+	if fixed := materializeRequiredCaveatWhenOnlyMissing(doc, view, hints, bus); fixed != 1 {
 		t.Fatalf("expected caveat materialized, got %d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[len(doc.Blocks)-1].Title; got != "范围说明" {
+		t.Fatalf("materialized caveat title = %q, want zh copy", got)
+	}
+	if got := doc.Blocks[len(doc.Blocks)-1].Text; strings.Contains(got, "Scope note") || strings.Contains(got, "This answer is limited") {
+		t.Fatalf("materialized zh caveat leaked English copy: %q", got)
 	}
 	if hints = runPreEmitChecks(doc, view, nil); len(hints) != 0 {
 		t.Fatalf("materialized caveat should satisfy uncertainty precheck, got %+v", hints)

@@ -81,7 +81,7 @@ type OpenAIAdapter struct {
 	// 100-500ms even on slow providers), while mid-stream pauses on
 	// thinking models legitimately reach 60s+.
 	// Resolved from providers.yaml :: stream_first_byte_timeout_seconds;
-	// zero falls through to defaultStreamFirstByteTimeout (20s).
+	// zero falls through to defaultStreamFirstByteTimeout (40s).
 	streamFirstByteTimeout time.Duration
 
 	stream bool
@@ -145,7 +145,7 @@ type AdapterOptions struct {
 
 	// StreamFirstByteTimeout is the no-usable-SSE-data ceiling that
 	// applies BEFORE the first assistant progress chunk arrives. Zero
-	// falls through to defaultStreamFirstByteTimeout (20s). Distinct
+	// falls through to defaultStreamFirstByteTimeout (40s). Distinct
 	// from StreamStallTimeout — see field doc on OpenAIAdapter.
 	StreamFirstByteTimeout time.Duration
 }
@@ -595,7 +595,7 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 			case <-ticker.C:
 				idle := time.Since(time.Unix(0, lastReadNano.Load()))
 				// Two-threshold gate: pre-firstByte uses the SHORTER
-				// firstByteTimeout (typical 20s); post-firstByte
+				// firstByteTimeout (typical 40s); post-firstByte
 				// switches to the LONGER stallTimeout (typical 120s).
 				// Keeps the dead-on-arrival "provider never speaks"
 				// case failing fast without compromising thinking-
@@ -667,7 +667,7 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 // consuming meaningful CPU on long streams.
 const (
 	defaultStreamStallTimeout     = 120 * time.Second
-	defaultStreamFirstByteTimeout = 20 * time.Second
+	defaultStreamFirstByteTimeout = 40 * time.Second
 	streamStallTickInterval       = 5 * time.Second
 	// streamWatchdogMinTickInterval is the floor on the watchdog's
 	// poll interval when firstByteTimeout / 4 would otherwise drop

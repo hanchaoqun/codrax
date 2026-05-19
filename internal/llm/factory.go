@@ -16,7 +16,7 @@ const (
 	defaultRequestTimeoutSeconds         = 240
 	defaultRetryMaxAttempts              = 6
 	defaultStreamStallTimeoutSeconds     = 120
-	defaultStreamFirstByteTimeoutSeconds = 20
+	defaultStreamFirstByteTimeoutSeconds = 40
 )
 
 // NewFromConfig creates an Adapter from a resolved provider config.

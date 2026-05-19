@@ -114,6 +114,24 @@ func TestBuildAgentContext_AttachedLogEmpty_SafeDefault(t *testing.T) {
 	}
 }
 
+func TestBuildAgentContext_RetryHintScopedToOwningStage(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("q"),
+		TaskState: types.TaskState{
+			Stage:     types.StageExplore,
+			RetryHint: "DAG-scheduled investigation window",
+		},
+	}
+	analyzer := BuildAgentContext(bus, types.AgentAnalyzer, types.StageAnalyze)
+	if analyzer.RetryHint != "" {
+		t.Fatalf("analyzer must not inherit explore retry hint, got %q", analyzer.RetryHint)
+	}
+	explorer := BuildAgentContext(bus, types.AgentExplorer, types.StageExplore)
+	if explorer.RetryHint != "DAG-scheduled investigation window" {
+		t.Fatalf("explorer should receive its own retry hint, got %q", explorer.RetryHint)
+	}
+}
+
 // TestBuildPromptContext_AttachedLogSection_Rendered verifies the
 // session-19 eval-FAIL fix: when AttachedLog is non-empty, the user
 // prompt MUST include an "Attached Runtime Log" section containing the
@@ -1587,11 +1605,11 @@ func TestReasoningHygiene_NilSkillFallsBackSafely(t *testing.T) {
 // Rationale: the extractor has no investigation tools (grep /
 // read_file / repo_map / list_files / exec_command are all outside
 // its ToolSuggestions), so raw tool dumps and the full evidence list
-// are inert. The Prior Stage Findings section already carries the
-// curated Primary Evidence top-12 and the Resolution Chains; the
-// extractor's BuildInitialInstruction appends a separate Turn A
-// digest. Three tests below pin the gate on the skill-name axis so
-// a rename of either skill breaks them loudly.
+// are inert. The extractor's BuildInitialInstruction appends the
+// accepted Turn A digest; StageReports are suppressed when that digest
+// is present so parallel exploration reports cannot compete with the
+// structured handoff. Three tests below pin the gate on the skill-name
+// axis so a rename of either skill breaks them loudly.
 
 func extractorSkill() *skill.Config {
 	return &skill.Config{
@@ -1640,6 +1658,77 @@ func TestBuildPromptContext_ExtractSkill_SkipsKnownFactsAndStructuredEvidence(t 
 	}
 	if findSectionTitle(pc, SectionEvidencePool) != nil {
 		t.Error("extract-skill must drop Structured Evidence (duplicates Primary Evidence + Turn A digest)")
+	}
+}
+
+func TestStageReportsForExtractorSuppressedWhenTurnADigestPresent(t *testing.T) {
+	mu := types.NewMutableState("q")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedClosureReason: "resolved from structured handoff",
+		EvidenceItems: []types.EvidenceItem{{
+			Kind:       types.EvidenceDirect,
+			Source:     "a.go",
+			LineStart:  1,
+			AnchorKind: types.AnchorDefinition,
+		}},
+	})
+	ac := &types.AgentContext{
+		AgentName: types.AgentExtractor,
+		Stage:     types.StageExtract,
+		Mutable:   mu,
+	}
+	reports := []types.StageReport{
+		{Stage: types.StageExplore, Agent: types.AgentExplorer, Findings: "## Primary Evidence\n- stale branch"},
+		{Stage: types.StageExplore, Agent: types.AgentExplorer, Findings: "## Primary Evidence\n- sibling branch"},
+	}
+	if got := stageReportsForAgent(reports, ac); len(got) != 0 {
+		t.Fatalf("extractor should trust Turn A digest instead of duplicate StageReports, got %+v", got)
+	}
+}
+
+func TestStageReportsForAgent_DropsCurrentStageAndDedupesPriorReports(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+	}
+	reports := []types.StageReport{
+		{Stage: types.StageAnalyze, Agent: types.AgentAnalyzer, Findings: "analysis result"},
+		{Stage: types.StageAnalyze, Agent: types.AgentAnalyzer, Findings: "analysis result"},
+		{Stage: types.StageAnalyze, Agent: types.AgentAnalyzer, Findings: " \n\t "},
+		{Stage: types.StageExplore, Agent: types.AgentExplorer, Findings: "same-stage explore report"},
+		{Stage: types.StageLogTriage, Agent: types.AgentLogTriager, Findings: "log pre-stage report"},
+	}
+	got := stageReportsForAgent(reports, ac)
+	if len(got) != 2 {
+		t.Fatalf("stageReportsForAgent len=%d, want 2; got %+v", len(got), got)
+	}
+	if got[0].Agent != types.AgentAnalyzer || got[0].Findings != "analysis result" {
+		t.Fatalf("first retained report = %+v, want one analyzer analysis result", got[0])
+	}
+	if got[1].Agent != types.AgentLogTriager || got[1].Findings != "log pre-stage report" {
+		t.Fatalf("second retained report = %+v, want log triage pre-stage", got[1])
+	}
+	out := formatStageReports(got)
+	if strings.Count(out, "### Prior request analysis result") != 1 {
+		t.Fatalf("deduped prompt should contain one analyzer heading, got:\n%s", out)
+	}
+	if strings.Contains(out, "same-stage explore report") {
+		t.Fatalf("same-stage explorer report leaked into explorer prompt:\n%s", out)
+	}
+}
+
+func TestStageReportsForAgent_AnalyzerRetryDoesNotReadOwnReport(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+	}
+	reports := []types.StageReport{
+		{Stage: types.StageAnalyze, Agent: types.AgentAnalyzer, Findings: "previous failed analyzer summary"},
+		{Stage: types.StageLogTriage, Agent: types.AgentLogTriager, Findings: "log pre-stage report"},
+	}
+	got := stageReportsForAgent(reports, ac)
+	if len(got) != 1 || got[0].Agent != types.AgentLogTriager {
+		t.Fatalf("analyzer retry should only keep true pre-stage reports, got %+v", got)
 	}
 }
 
@@ -3003,8 +3092,11 @@ func TestFormatStageReports_StripsThinkBlocks(t *testing.T) {
 	if !strings.Contains(out, "main.go confirmed present") {
 		t.Errorf("formatStageReports dropped visible content:\n%s", out)
 	}
-	if !strings.Contains(out, "### [analyze / analyzer]") {
+	if !strings.Contains(out, "### Prior request analysis result") {
 		t.Errorf("formatStageReports dropped section header:\n%s", out)
+	}
+	if strings.Contains(out, "[analyze / analyzer]") {
+		t.Errorf("formatStageReports leaked internal stage/agent codenames:\n%s", out)
 	}
 }
 

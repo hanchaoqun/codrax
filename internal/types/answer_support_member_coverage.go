@@ -306,6 +306,11 @@ func principalSupportMemberDedupKey(ob AnswerSupportMemberObligation) string {
 	if form == "" {
 		form = string(ClaimUnknown)
 	}
+	if strings.TrimSpace(ob.Source) != "" && ob.LineStart > 0 && label != "" &&
+		(strings.HasPrefix(strings.TrimSpace(ob.EvidenceID), "aggregate_fact:member_set:") ||
+			ob.ClaimForm == ClaimDefinitionFact) {
+		return "member_anchor\x00" + normalizeAnswerSupportPath(ob.Source) + "\x00" + label
+	}
 	if ob.ClaimForm == ClaimDefinitionFact && strings.TrimSpace(ob.Source) != "" && label != "" {
 		return form + "\x00" + normalizeAnswerSupportPath(ob.Source) + "\x00" + label
 	}
@@ -1093,6 +1098,9 @@ func normalizeAnswerSupportLocation(location string) string {
 		return ""
 	}
 	location = strings.ReplaceAll(location, `\`, `/`)
+	if source, line := splitAnswerSupportLocation(location); source != "" && line > 0 {
+		return fmt.Sprintf("%s:%d", source, line)
+	}
 	return strings.ToLower(location)
 }
 
@@ -1127,13 +1135,45 @@ func splitAnswerSupportLocation(location string) (string, int) {
 	}
 	idx := strings.LastIndex(location, ":")
 	if idx < 0 || idx == len(location)-1 {
-		return normalizeAnswerSupportPath(location), 0
+		return normalizeAnswerSupportPath(stripSupportLocationQualifier(location)), 0
 	}
 	line, err := strconv.Atoi(location[idx+1:])
 	if err != nil || line <= 0 {
-		return normalizeAnswerSupportPath(location), 0
+		return normalizeAnswerSupportPath(stripSupportLocationQualifier(location)), 0
 	}
-	return normalizeAnswerSupportPath(location[:idx]), line
+	return normalizeAnswerSupportPath(stripSupportLocationQualifier(location[:idx])), line
+}
+
+func stripSupportLocationQualifier(source string) string {
+	source = strings.TrimSpace(strings.ReplaceAll(source, `\`, `/`))
+	if source == "" {
+		return ""
+	}
+	idx := strings.LastIndex(source, ":")
+	if idx < 0 || idx == len(source)-1 {
+		return source
+	}
+	head := strings.TrimSpace(source[:idx])
+	tail := strings.TrimSpace(source[idx+1:])
+	if head == "" || tail == "" {
+		return source
+	}
+	if supportLocationLooksLikePath(tail) && !supportLocationLooksLikePath(head) {
+		return tail
+	}
+	return source
+}
+
+func supportLocationLooksLikePath(s string) bool {
+	s = strings.TrimSpace(strings.ReplaceAll(s, `\`, `/`))
+	if s == "" || strings.ContainsAny(s, " \t\r\n") {
+		return false
+	}
+	if strings.Contains(s, "/") {
+		return true
+	}
+	dot := strings.LastIndex(s, ".")
+	return dot > 0 && dot < len(s)-1 && len(s)-dot <= 10
 }
 
 func normalizedSupportMemberIdentity(label string) string {

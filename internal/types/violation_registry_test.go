@@ -220,6 +220,22 @@ func TestDiagramRelationLabelOnly_TelemetryOnly(t *testing.T) {
 	}
 }
 
+func TestLaneBlockKindMismatch_NoAcceptedPathCaveat(t *testing.T) {
+	spec, ok := ViolKindSpecFor(ViolLaneBlockKindMismatch)
+	if !ok {
+		t.Fatal("ViolLaneBlockKindMismatch must be registered")
+	}
+	if !spec.SoftByDefault {
+		t.Fatal("SoftByDefault = false, want true")
+	}
+	if !spec.Promotable {
+		t.Fatal("Promotable = false, want true so operators can strict-promote precise workloads")
+	}
+	if spec.CaveatFamilyID != "" {
+		t.Fatalf("CaveatFamilyID = %q, want empty; lane/block shape telemetry must not add generic acceptance caveats to accepted answers", spec.CaveatFamilyID)
+	}
+}
+
 // TestRegisterViolKind_RejectsInvalidSpec ensures bad specs panic
 // at registration time so a typo cannot ship.
 func TestRegisterViolKind_RejectsInvalidSpec(t *testing.T) {

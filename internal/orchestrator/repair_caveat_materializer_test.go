@@ -86,6 +86,18 @@ func TestAppendSoftContractCaveatsToAnswer_SkipsStrictPromotedConcern(t *testing
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswer_SkipsLaneBlockKindTelemetry(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	out := AppendSoftContractCaveatsToAnswer("正文", []types.Violation{
+		{Kind: types.ViolLaneBlockKindMismatch},
+	}, "zh")
+	if out != "正文" {
+		t.Fatalf("lane/block-kind metadata mismatch should remain telemetry-only on the accepted path:\n%s", out)
+	}
+}
+
 // TestMaterializeCaveats_NoInternalJargon — output strings must not
 // contain ViolKind names, IR field names, confidence numbers, or
 // orchestration tokens.

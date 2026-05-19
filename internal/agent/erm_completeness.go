@@ -452,6 +452,10 @@ func (CardinalityValidator) Validate(input ValidatorInput) *CompletenessFailure 
 	}
 	declared := rm.EnumerationBoundary.DeclaredCount
 
+	if aggregateFactsProvideVisibleMemberCardinality(input.AggregateFacts, input.AnswerDocumentV2, &rm, declared) {
+		return nil
+	}
+
 	// Tier 1: typed BlockBulletList / BlockOrderedList items.
 	if input.AnswerDocumentV2 != nil {
 		typedItems := 0
@@ -489,6 +493,44 @@ func (CardinalityValidator) Validate(input ValidatorInput) *CompletenessFailure 
 		Reason:        "enumerated item count below declared boundary",
 		FixHint:       "The question stated an explicit count, but the answer surfaces fewer items than that count requires. Continue investigation to find the missing items, or, if no further items can be located, explicitly acknowledge the count mismatch in the answer (e.g., 'the question mentions N but only M are present in the codebase').",
 	}
+}
+
+func aggregateFactsProvideVisibleMemberCardinality(facts []types.AnswerAggregateFact, doc *types.AnswerDocumentV2, rm *types.RequestModel, declared int) bool {
+	if declared <= 0 || len(facts) == 0 || doc == nil || rm == nil {
+		return false
+	}
+	for _, ref := range types.PrincipalAggregateMemberSetFactRefsForRequest(facts, rm) {
+		if len(ref.Fact.Members) < declared {
+			continue
+		}
+		visible := 0
+		for _, member := range ref.Fact.Members {
+			if answerDocumentMentionsAggregateMember(doc, member) {
+				visible++
+			}
+			if visible >= declared {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func answerDocumentMentionsAggregateMember(doc *types.AnswerDocumentV2, member string) bool {
+	member = strings.TrimSpace(member)
+	if doc == nil || member == "" {
+		return false
+	}
+	ob := types.AnswerSupportMemberObligation{
+		Label:        member,
+		SurfaceTerms: []string{member},
+	}
+	for _, block := range doc.Blocks {
+		if types.AnswerTextMentionsSupportMember(types.AnswerBlockVisibleSurface(block), ob) {
+			return true
+		}
+	}
+	return false
 }
 
 // countMarkdownListItems counts lines beginning with a markdown

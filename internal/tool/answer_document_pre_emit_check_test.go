@@ -319,6 +319,144 @@ func TestPreCheckAggregateScalarValueCoverage_RequiresModelAuthoredScalarFacts(t
 	}
 }
 
+func TestPreCheckAggregateScalarValueCoverage_DoesNotHardGateConflictingParallelCount(t *testing.T) {
+	mu := types.NewMutableState("conflicting parallel aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:  types.AnswerAggregateScalar,
+			Label: "func 数量",
+			Value: "8",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+		},
+		{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "公开函数",
+			Value:   "5",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Eval", "EvalAll", "IsRegistered", "RegisteredKinds", "SetExternalArtifactFloor"},
+		},
+	})
+	mu.SetInvestigationComplete("structured enumeration facts accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all public symbols",
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "公开函数共 5 个：Eval、EvalAll、IsRegistered、RegisteredKinds、SetExternalArtifactFloor。",
+	}}}
+
+	if got := preCheckAggregateScalarValueCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("conflicting stale count should not force finalizer rewrite, got %+v", got)
+	}
+}
+
+func TestPreCheckAggregateScalarValueCoverage_RequiresPrincipalCommandCount(t *testing.T) {
+	mu := types.NewMutableState("principal command count handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateTotalCount,
+		Label: "production matches",
+		Value: "7",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Unit:  "locations",
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "tool", Value: "rg"},
+			{Name: "scope", Value: "production"},
+		},
+	}, {
+		Kind:  types.AnswerAggregateTotalCount,
+		Label: "candidate prefilter",
+		Value: "21",
+		Role:  types.AnswerAggregateRoleSupportingCoverage,
+		Unit:  "candidates",
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "stage", Value: "candidate_pre_filter"},
+		},
+	}})
+	mu.SetInvestigationComplete("structured count facts accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "搜索完成，最终答案只保留了文字结论。",
+		}},
+	}
+
+	hints := preCheckAggregateScalarValueCoverage(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("missing principal count should produce one advisory hint, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "production matches") ||
+		!strings.Contains(hints[0].ExpectedShape, "value=\"7\"") ||
+		!strings.Contains(hints[0].ExpectedShape, "scope=\"production\"") {
+		t.Fatalf("hint should describe the omitted principal count with dimensions, got %+v", hints[0])
+	}
+	if strings.Contains(hints[0].ExpectedShape, "candidate prefilter") ||
+		strings.Contains(hints[0].ExpectedShape, "21") {
+		t.Fatalf("supporting count should not be promoted to visible-value obligation, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Text += " 其中 production 范围内共有 7 locations。"
+	if got := preCheckAggregateScalarValueCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("visible principal count should satisfy aggregate coverage, got %+v", got)
+	}
+}
+
+func TestPreCheckAggregateScalarValueCoverage_RequiresAbsenceNegativeSearchDimensions(t *testing.T) {
+	mu := types.NewMutableState("negative search handoff")
+	facts, err := types.NormalizeAnswerAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateNegativeSearch,
+		Label: "frameworks/base ressched interface search",
+		Value: "0",
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "repo", Value: "frameworks/base"},
+			{Name: "pattern", Value: "ResSched|IRemoteBroker|SAMR"},
+			{Name: "scope", Value: "frameworks/base"},
+			{Name: "searched_at", Value: "current_investigation"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("negative search aggregate should normalize: %v", err)
+	}
+	mu.SetInvestigationAggregateFacts(facts)
+	mu.SetInvestigationComplete("zero-hit search accepted")
+	mu.SetInvestigationResultKind("absence")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "没有发现两个仓库之间的直接接口交互。",
+		}},
+	}
+
+	hints := preCheckAggregateScalarValueCoverage(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("missing negative-search dimensions should produce one advisory hint, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "negative_search") ||
+		!strings.Contains(hints[0].ExpectedShape, "frameworks/base") ||
+		!strings.Contains(hints[0].ExpectedShape, "ResSched|IRemoteBroker|SAMR") {
+		t.Fatalf("hint should preserve the typed no-hit dimensions, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Text += " 在 frameworks/base 范围内对 ResSched 相关接口搜索结果为 0 matches。"
+	if got := preCheckAggregateScalarValueCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("visible zero-hit value and dimensions should satisfy aggregate coverage, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_RequiresVisibleModelAuthoredMembers(t *testing.T) {
 	mu := types.NewMutableState("enum aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -579,6 +717,126 @@ func TestRunPreEmitChecks_AggregateMemberSetCoverageAdvisoryForNarrative(t *test
 	}
 	if hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx); len(hints) != 0 {
 		t.Fatalf("narrative aggregate coverage should be advisory at emit-time, got %+v", hints)
+	}
+}
+
+func TestNormalizeAggregateMemberSetCarriers_MaterializesExhaustiveEnumerationRows(t *testing.T) {
+	mu := types.NewMutableState("exhaustive aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "Kind constants",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"KindA", "KindB", "KindC"},
+		SupportRefs: []string{
+			"KindA: internal/analysis/criterion/grammar.go:29",
+			"KindB: internal/analysis/criterion/grammar.go:30",
+			"KindC: internal/analysis/criterion/grammar.go:31",
+		},
+	}})
+	mu.SetInvestigationComplete("member set handoff ready")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "完整成员名称",
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "KindA、KindB、KindC。",
+	}}}
+
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 3 {
+		t.Fatalf("fixed=%d, want 3", fixed)
+	}
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("expected appended carrier block, got %+v", doc.Blocks)
+	}
+	block := doc.Blocks[1]
+	if block.Kind != types.BlockOrderedList || block.SurfaceRole != types.SurfacePrincipal || len(block.Items) != 3 {
+		t.Fatalf("unexpected materialized block: %+v", block)
+	}
+	if block.Items[0].Label != "KindA" || block.Items[0].CitationRef < 0 || len(doc.Citations) != 3 {
+		t.Fatalf("items should preserve member labels and cite support_refs: block=%+v citations=%+v", block, doc.Citations)
+	}
+}
+
+func TestNormalizeAggregateMemberSetCarriers_UsesEvidenceSummaryText(t *testing.T) {
+	mu := types.NewMutableState("rich aggregate handoff")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "kind_a",
+			Kind:            types.EvidenceDirect,
+			Subject:         "KindA",
+			Summary:         "KindA 表示按布尔条件求值的 criterion 类型。",
+			Source:          "internal/analysis/criterion/grammar.go",
+			LineStart:       29,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "KindA",
+			GroundingStatus: types.GroundingGrounded,
+			Scope:           types.ScopeLine,
+		},
+		{
+			ID:              "kind_b",
+			Kind:            types.EvidenceDirect,
+			Subject:         "KindB",
+			Summary:         "KindB 表示按外部 artifact 下限求值的 criterion 类型。",
+			Source:          "internal/analysis/criterion/grammar.go",
+			LineStart:       30,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "KindB",
+			GroundingStatus: types.GroundingGrounded,
+			Scope:           types.ScopeLine,
+		},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "Kind constants",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"KindA", "KindB"},
+		SupportRefs: []string{
+			"KindA: internal/analysis/criterion/grammar.go:29",
+			"KindB: internal/analysis/criterion/grammar.go:30",
+		},
+	}})
+	mu.SetInvestigationComplete("member set handoff ready")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all public symbols",
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "KindA、KindB。",
+	}}}
+
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 2 {
+		t.Fatalf("fixed=%d, want 2", fixed)
+	}
+	if len(doc.Blocks) != 2 || len(doc.Blocks[1].Items) != 2 {
+		t.Fatalf("expected materialized rows, got %+v", doc.Blocks)
+	}
+	if !strings.Contains(doc.Blocks[1].Items[0].Text, "布尔条件求值") ||
+		!strings.Contains(doc.Blocks[1].Items[1].Text, "artifact 下限") {
+		t.Fatalf("materialized rows should carry evidence summaries, got %+v", doc.Blocks[1].Items)
 	}
 }
 

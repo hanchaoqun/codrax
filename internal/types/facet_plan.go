@@ -950,7 +950,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 					ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact}},
 			{Kind: FacetNearestMechanism, Required: nearestRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
-			{Kind: FacetUncertaintyBoundary, Required: FacetSoftRequired},
+			uncertaintyBoundaryFacet(FacetSoftRequired),
 			{Kind: FacetDiagramSpine, Required: diagramRequired,
 				AcceptableForms: diagramForms},
 		}, common...)
@@ -961,7 +961,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			{Kind: FacetResolvedLiteralOrSymbol, Required: FacetHardRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimAssignmentFact,
 					ClaimLiteralValueFact, ClaimAbsenceFact}},
-			{Kind: FacetUncertaintyBoundary, Required: FacetSoftRequired},
+			uncertaintyBoundaryFacet(FacetSoftRequired),
 			{Kind: FacetDiagramSpine, Required: FacetOptional,
 				AcceptableForms: []ClaimForm{ClaimPrecedenceRole}},
 		}, common...)
@@ -972,7 +972,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 					ClaimReturnFact, ClaimLiteralValueFact}},
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
-			{Kind: FacetUncertaintyBoundary, Required: FacetOptional},
+			uncertaintyBoundaryFacet(FacetOptional),
 		}, common...)
 	case QFCallChain:
 		return append([]FacetRequirement{
@@ -1005,7 +1005,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		return append([]FacetRequirement{
 			{Kind: FacetEnumerationItem, Required: FacetHardRequired,
 				AcceptableForms: forms},
-			{Kind: FacetUncertaintyBoundary, Required: FacetSoftRequired},
+			uncertaintyBoundaryFacet(FacetSoftRequired),
 		}, common...)
 	case QFArchitecture:
 		return append([]FacetRequirement{
@@ -1015,7 +1015,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 				AcceptableForms: []ClaimForm{ClaimImportEdge, ClaimCallEdge}},
 			{Kind: FacetDiagramSpine, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimCallEdge, ClaimImportEdge}},
-			{Kind: FacetUncertaintyBoundary, Required: FacetOptional},
+			uncertaintyBoundaryFacet(FacetOptional),
 		}, common...)
 	case QFComparison:
 		// R4.4 (post_shape_residual_audit.md, 2026-05-04): the
@@ -1029,7 +1029,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		return append([]FacetRequirement{
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge}},
-			{Kind: FacetUncertaintyBoundary, Required: FacetSoftRequired},
+			uncertaintyBoundaryFacet(FacetSoftRequired),
 		}, common...)
 	case QFGeneric:
 		facets := []FacetRequirement{
@@ -1037,7 +1037,7 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,
 					ClaimGuardCondition, ClaimAssignmentFact, ClaimReturnFact,
 					ClaimImportEdge}},
-			{Kind: FacetUncertaintyBoundary, Required: FacetOptional},
+			uncertaintyBoundaryFacet(FacetOptional),
 		}
 		if rm.Predicates.IsScalarAnswer || rm.Predicates.IsCountQuestion ||
 			rm.Intent == IntentReturnValue || rm.AnswerSubject.Kind != SubjectUnknown {
@@ -1050,6 +1050,18 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		return append(facets, common...)
 	}
 	return nil
+}
+
+func uncertaintyBoundaryFacet(required FacetRequiredness) FacetRequirement {
+	return FacetRequirement{
+		Kind:     FacetUncertaintyBoundary,
+		Required: required,
+		AcceptableForms: []ClaimForm{
+			ClaimAbsenceFact,
+			ClaimExternalObservation,
+			ClaimTextReferenceFact,
+		},
+	}
 }
 
 func observationOnlyRuntimeSuppressesRepoFacet(rm RequestModel, kind AnswerFacetKind) bool {

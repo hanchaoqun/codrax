@@ -35,6 +35,9 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 	if parallelism <= 1 {
 		return nil, fmt.Errorf("parallel explorer dispatch called with parallelism=%d", parallelism)
 	}
+	o.busCtx.PipelineStage = types.StageExplore
+	o.busCtx.ActiveAgent = types.AgentExplorer
+	o.busCtx.TaskState.Stage = types.StageExplore
 	groupID := fmt.Sprintf("explore:%d", time.Now().UnixNano())
 	unitIDs := make([]string, len(windows))
 	for i, w := range windows {
@@ -98,7 +101,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 					ParallelTotal:   len(windows),
 					Parallelism:     parallelism,
 				})
-				out, err := o.runExploreAgentOnFork(runCtx, fork, hint, unitID, groupID)
+				out, err := o.runExploreAgentOnFork(runCtx, fork, hint, unitID, groupID, exploreDispatchKindForWindow(windows[i]))
 				unitErr := ""
 				if err != nil {
 					unitErr = err.Error()
@@ -190,6 +193,7 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	hint string,
 	dispatchKey string,
 	parallelGroupID string,
+	dispatchKind types.TaskNodeType,
 ) (*agent.StageOutput, error) {
 	stage := types.StageExplore
 	if err := o.checkCanceled(string(stage), 0); err != nil {
@@ -216,6 +220,7 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	workerBus.ActiveAgent = agentName
 	workerBus.PipelineStage = stage
 	workerBus.ExploreDispatchKey = dispatchKey
+	workerBus.ExploreDispatchKind = dispatchKind
 	workerBus.TaskState.Stage = stage
 	workerBus.TaskState.RetryHint = hint
 	workerBus.TaskState.LastError = ""
@@ -327,6 +332,23 @@ func exploreDispatchKeyForWindow(window []*types.TaskNode) string {
 		return "explore"
 	}
 	return strings.Join(ids, "+")
+}
+
+func exploreDispatchKindForWindow(window []*types.TaskNode) types.TaskNodeType {
+	var kind types.TaskNodeType
+	for _, n := range window {
+		if n == nil || n.Type == "" {
+			continue
+		}
+		if kind == "" {
+			kind = n.Type
+			continue
+		}
+		if kind != n.Type {
+			return ""
+		}
+	}
+	return kind
 }
 
 func emitParallelExploreStageStart(o *Orchestrator) time.Time {

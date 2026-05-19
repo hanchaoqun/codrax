@@ -3068,6 +3068,59 @@ func TestEmitAnalysis_Execute_PersistsAnswerExclusionPolicy(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_PersistsAnswerVisibilityProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("列出公开符号。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["symbol", "public"],
+		"entities": ["API"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.93,
+		"complexity_confidence": 0.76,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"answer_visibility_profile": {
+			"symbol_visibility": "public_exported",
+			"source_quotes": ["公开符号"],
+			"confidence": 0.94,
+			"rationale": "current request asks for public symbols"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "symbol_visibility=public_exported") {
+		t.Fatalf("summary should surface symbol visibility lane, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.AnswerVisibilityProfile == nil || !rm.AnswerVisibilityProfile.ExcludesPrivateSymbols() {
+		t.Fatalf("AnswerVisibilityProfile not persisted: %+v", rm)
+	}
+}
+
 func TestEmitAnalysis_Execute_RejectsUngroundedAnswerExclusionPolicy(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

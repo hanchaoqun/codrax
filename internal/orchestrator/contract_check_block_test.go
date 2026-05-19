@@ -716,6 +716,52 @@ func TestUncertaintyBlockPresence_TriggerNotInRequiredSkipped(t *testing.T) {
 	}
 }
 
+func TestUncertaintyBlockPresence_UnpromotedSoftTriggerSkipped(t *testing.T) {
+	view := uncertaintyView()
+	view.FacetCoverage.Required = []types.FacetRequirement{
+		{
+			Kind:            types.FacetUncertaintyBoundary,
+			Required:        types.FacetSoftRequired,
+			AcceptableForms: []types.ClaimForm{types.ClaimAbsenceFact},
+		},
+	}
+	view.UncertaintyRules = []types.UncertaintyRule{
+		{
+			TriggerFacet:      string(types.FacetUncertaintyBoundary),
+			ExpectedBlockKind: types.BlockCaveat,
+			MissingMessage:    "emit caveat for bounded search",
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{summaryBlock("b1")}}
+	if vs := validateUncertaintyBlockPresence(doc, view); len(vs) != 0 {
+		t.Fatalf("unpromoted soft boundary must stay advisory; got %+v", vs)
+	}
+}
+
+func TestUncertaintyBlockPresence_PromotedSoftTriggerFires(t *testing.T) {
+	view := uncertaintyView()
+	view.FacetCoverage.Required = []types.FacetRequirement{
+		{
+			Kind:            types.FacetUncertaintyBoundary,
+			Required:        types.FacetSoftRequired,
+			AcceptableForms: []types.ClaimForm{types.ClaimAbsenceFact},
+			SourceCandidate: []string{"negative-search"},
+		},
+	}
+	view.UncertaintyRules = []types.UncertaintyRule{
+		{
+			TriggerFacet:      string(types.FacetUncertaintyBoundary),
+			ExpectedBlockKind: types.BlockCaveat,
+			MissingMessage:    "emit caveat for bounded search",
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{summaryBlock("b1")}}
+	vs := validateUncertaintyBlockPresence(doc, view)
+	if len(vs) != 1 || vs[0].Kind != types.ViolUncertaintyBlockMissing {
+		t.Fatalf("promoted boundary should require caveat block; got %+v", vs)
+	}
+}
+
 func TestUncertaintyBlockPresence_NoRulesSkipped(t *testing.T) {
 	view := &types.AnswerSemanticView{Family: types.QFGeneric}
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{summaryBlock("b1")}}

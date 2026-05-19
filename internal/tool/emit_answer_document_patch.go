@@ -255,7 +255,21 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			preEmitCtx := newPreEmitCheckContext(ctx)
 			normalizeAnswerDocumentForPreEmit(t.Name(), merged, view, ctx, preEmitCtx)
 			if hints := runPreEmitChecksWithContext(merged, view, preEmitOracleFromCtx(ctx), preEmitCtx); len(hints) > 0 {
-				return failEmit(t.Name(), now, "%s", formatEmitFixHints(hints))
+				if fixed := materializeRequiredCaveatWhenOnlyMissing(merged, view, hints, ctx); fixed > 0 {
+					logging.Warning("[emit_answer_document_patch] materialized %d required caveat block(s) from uncertainty contract", fixed)
+					hints = runPreEmitChecksWithContext(merged, view, preEmitOracleFromCtx(ctx), preEmitCtx)
+				}
+				hardHints, advisoryHints := splitPreEmitHintsByGate(hints)
+				if len(advisoryHints) > 0 {
+					logging.Warning("[emit_answer_document_patch] pre-emit advisory not hard-rejected: %s", formatEmitFixHints(advisoryHints))
+				}
+				if len(hardHints) > 0 {
+					rememberRejectedAnswerDocumentDraft(ctx, merged)
+					return failEmit(t.Name(), now, "%s", formatEmitFixHints(hardHints))
+				}
+			}
+			if hints := preCheckModelSurfaceTerms(merged, ctx); len(hints) > 0 {
+				logging.Warning("[emit_answer_document_patch] model-emitted surface_terms advisory not hard-rejected: %s", formatEmitFixHints(hints))
 			}
 			return persistMergedAnswerDocument(ctx, t.Name(), types.MutationPartial, mutation.Summary(), merged, now)
 		}

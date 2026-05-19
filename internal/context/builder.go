@@ -30,6 +30,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		Stage:                 stage,
 		TraceID:               bus.TraceID,
 		ExploreDispatchKey:    bus.ExploreDispatchKey,
+		ExploreDispatchKind:   bus.ExploreDispatchKind,
 		Objective:             objective,
 		PresentationDirective: presentationDirective,
 		MissingPiece:          bus.TaskState.Missing,
@@ -184,12 +185,27 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		}
 	}
 
-	// Propagate any pending retry hint from the previous self-looped
-	// dispatch. Forward transitions clear this on the BusContext side,
-	// so an agent only sees a hint that was meant for itself.
-	ac.RetryHint = bus.TaskState.RetryHint
+	// Propagate pending retry hints only to the stage that owns them.
+	// Analyzer has a separate consume-once AnalyzerRetryHint lane; letting
+	// the generic TaskState.RetryHint flow into analyzer retries can leak a
+	// downstream DAG window directive back into request classification.
+	ac.RetryHint = retryHintForAgentContext(bus, stage)
 
 	return ac
+}
+
+func retryHintForAgentContext(bus *types.BusContext, stage types.PipelineStage) string {
+	if bus == nil {
+		return ""
+	}
+	switch stage {
+	case types.StageAnalyze, types.StageWriteAnalyze:
+		return ""
+	}
+	if bus.TaskState.Stage != "" && bus.TaskState.Stage != stage {
+		return ""
+	}
+	return bus.TaskState.RetryHint
 }
 
 // thinkAloudDirective is injected into every agent's system prompt.
@@ -3572,9 +3588,51 @@ func formatStageReports(reports []types.StageReport) string {
 			b.WriteString("\n\n")
 		}
 		findings := stripThinkBlocks(r.Findings)
-		fmt.Fprintf(&b, "### [%s / %s]\n%s", r.Stage, r.Agent, findings)
+		fmt.Fprintf(&b, "### %s\n%s", stageReportPromptTitle(r), findings)
 	}
 	return b.String()
+}
+
+func stageReportPromptTitle(r types.StageReport) string {
+	switch r.Agent {
+	case types.AgentAnalyzer, types.AgentWriteAnalyzer:
+		return "Prior request analysis result"
+	case types.AgentExplorer, "sub_explorer":
+		return "Prior code investigation result"
+	case types.AgentExtractor:
+		return "Prior answer-slate extraction result"
+	case types.AgentFinalizer:
+		return "Prior answer drafting result"
+	case types.AgentLogTriager:
+		return "Prior runtime-log extraction result"
+	case types.AgentPerfTriager:
+		return "Prior performance-trace extraction result"
+	case types.AgentPlanner:
+		return "Prior change-planning result"
+	case types.AgentCoder:
+		return "Prior patch-application result"
+	case types.AgentVerifier:
+		return "Prior verification result"
+	default:
+		switch r.Stage {
+		case types.StageAnalyze, types.StageWriteAnalyze:
+			return "Prior request analysis result"
+		case types.StageExplore:
+			return "Prior code investigation result"
+		case types.StageExtract:
+			return "Prior answer-slate extraction result"
+		case types.StageFinalize:
+			return "Prior answer drafting result"
+		case types.StagePlan:
+			return "Prior change-planning result"
+		case types.StageApply:
+			return "Prior patch-application result"
+		case types.StageVerify:
+			return "Prior verification result"
+		default:
+			return "Prior stage result"
+		}
+	}
 }
 
 func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) []types.StageReport {
@@ -3582,7 +3640,7 @@ func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) [
 		return nil
 	}
 	if ac == nil {
-		return reports
+		return dedupeStageReportsForPrompt(reports, nil)
 	}
 	// In typed-support finalizer mode, *all* free-form StageReports
 	// become competing semantic channels beside the compiled support
@@ -3595,8 +3653,16 @@ func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) [
 	if ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac) {
 		return nil
 	}
+	if ac.AgentName == types.AgentExtractor && ac.Mutable != nil {
+		if ta := ac.Mutable.TurnAArtifacts(); ta != nil && (len(ta.EvidenceItems) > 0 || strings.TrimSpace(ta.AcceptedClosureReason) != "") {
+			return nil
+		}
+	}
 	filtered := make([]types.StageReport, 0, len(reports))
 	for _, report := range reports {
+		if report.Stage == ac.Stage || report.Agent == ac.AgentName {
+			continue
+		}
 		switch report.Agent {
 		case types.AgentLogTriager:
 			if ac.LogTriage != nil {
@@ -3607,6 +3673,33 @@ func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) [
 				continue
 			}
 		}
+		filtered = append(filtered, report)
+	}
+	return dedupeStageReportsForPrompt(filtered, ac)
+}
+
+func dedupeStageReportsForPrompt(reports []types.StageReport, _ *types.AgentContext) []types.StageReport {
+	if len(reports) == 0 {
+		return nil
+	}
+	filtered := make([]types.StageReport, 0, len(reports))
+	seen := make(map[string]struct{}, len(reports))
+	for _, report := range reports {
+		findings := strings.TrimSpace(stripThinkBlocks(report.Findings))
+		if findings == "" {
+			continue
+		}
+		report.Findings = findings
+		key := strings.Join([]string{
+			string(report.Stage),
+			string(report.Agent),
+			stageReportPromptTitle(report),
+			findings,
+		}, "\x00")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
 		filtered = append(filtered, report)
 	}
 	if len(filtered) == 0 {

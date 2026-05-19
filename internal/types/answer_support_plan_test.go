@@ -2048,6 +2048,52 @@ func TestBuildAnswerSupportPlan_EnumerationPrioritizesModelAuthoredSurfaceEviden
 	}
 }
 
+func TestBuildAnswerSupportPlan_EnumerationPrioritizesGroundedDefinitions(t *testing.T) {
+	importItem := EvidenceItem{
+		ID:              "import-helper",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/agent/explorer.go",
+		LineStart:       12,
+		AnchorKind:      AnchorImport,
+		AnchorSymbol:    "helper",
+		Producer:        "explorer.emit_evidence",
+		SurfaceTerms:    []string{"github.com/hanchaoqun/codrax/internal/helper"},
+		GroundingStatus: GroundingGrounded,
+	}
+	definitionItem := EvidenceItem{
+		ID:              "definition-family",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/types/facet_plan.go",
+		LineStart:       200,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "QFEnumeration",
+		Producer:        "explorer.emit_evidence",
+		Summary:         "QFEnumeration is the grounded definition for the requested member",
+		GroundingStatus: GroundingGrounded,
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence: []EvidenceItem{importItem, definitionItem},
+		FacetCoverage: &FacetCoverageContract{
+			Family: QFEnumeration,
+			Required: []FacetRequirement{{
+				Kind:            FacetEnumerationItem,
+				SourceCandidate: []string{importItem.ID, definitionItem.ID},
+			}},
+		},
+	}
+
+	got := BuildAnswerSupportPlan(RequestModel{Intent: IntentEnumerate}, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) < 2 {
+		t.Fatalf("expected definition and import evidence in principal lane, got %+v", got)
+	}
+	if !strings.Contains(lane.Entries[0].Text, "QFEnumeration") {
+		t.Fatalf("grounded definition evidence must outrank adjacent import/support evidence, got entries=%+v", lane.Entries)
+	}
+}
+
 func TestMissingPrincipalSupportMembers_EnumerationRequiresCitedPrincipalRows(t *testing.T) {
 	plan := &AnswerSupportPlan{
 		Family: QFEnumeration,

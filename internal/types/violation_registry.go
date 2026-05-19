@@ -970,7 +970,7 @@ func init() {
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolLaneBlockKindMismatch, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "contract_check", CaveatFamilyID: CaveatFamilyAcceptance,
+		Layer: "contract_check",
 		SchemaDescriptionFragment: "Each support lane (Observed artifact / Principal evidence / Current grounded code path / Nearest grounded mechanism / Boundary disclosures / Current-status verdict) declares an Allowed block kinds list. A principal block whose citations come from a lane MUST be one of that lane's allowed kinds — for example, an Observed artifact lane that allows only summary/caveat cannot be rendered as a principal ordered_list or diagram.",
 		FixableByAgents:           []AgentName{AgentFinalizer},
 	})

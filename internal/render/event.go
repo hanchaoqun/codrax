@@ -424,6 +424,14 @@ type Event struct {
 	Parallelism     int
 	ParallelUnitIDs []string
 
+	// DispatchKind is optional render-only metadata for a focused
+	// scheduler dispatch that runs through a broader pipeline stage. For
+	// example, a TaskNode of kind "reconcile" is executed by the explorer
+	// agent/stage, but scrollback should say "探索 · 汇总" rather than a
+	// bare "探索" so it does not look like a parallel lane regressed to an
+	// earlier round. Orchestration must not read this field.
+	DispatchKind string
+
 	// EventLivePreviewChunk / EventLivePreviewClear payload.
 	//   PreviewText     — cumulative decoded summary text so far
 	//   PreviewRound    — 1-based round counter (1 = first finalize

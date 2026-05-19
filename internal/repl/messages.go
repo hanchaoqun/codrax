@@ -850,7 +850,7 @@ func friendlyRunError(lang string, err error) string {
 	}
 	// Streaming-watchdog first-byte timeout: handshake completed
 	// (provider returned 200 OK) but never emitted any SSE chunk
-	// within streamFirstByteTimeout (default 20s). Match BEFORE
+	// within streamFirstByteTimeout (default 40s). Match BEFORE
 	// the StreamStalledError branch because the typed error chain
 	// preserves both signatures and we want the more specific
 	// "never started" prose to surface — different operator

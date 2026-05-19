@@ -28,10 +28,14 @@ func RenderAnswerDocument(doc *types.AnswerDocumentV2, lang string) string {
 	}
 	docLang := normalizeAnswerDocLang(lang)
 	structuredDiagramBodies := answerDocumentStructuredDiagramBodyKeys(doc)
+	duplicatedSectionItems := answerDocumentDuplicatedSectionItemBlocks(doc)
 	var b strings.Builder
 
 	for _, blk := range doc.Blocks {
 		blk = stripDuplicateStructuredDiagramFencesFromBlock(blk, structuredDiagramBodies)
+		if duplicatedSectionItems[strings.TrimSpace(blk.ID)] {
+			blk.Items = nil
+		}
 		renderAnswerDocV2Block(&b, blk, doc, docLang)
 	}
 
@@ -54,6 +58,66 @@ func RenderAnswerDocument(doc *types.AnswerDocumentV2, lang string) string {
 	}
 
 	return strings.TrimRight(b.String(), "\n") + "\n"
+}
+
+func answerDocumentDuplicatedSectionItemBlocks(doc *types.AnswerDocumentV2) map[string]bool {
+	out := map[string]bool{}
+	if doc == nil || len(doc.Blocks) == 0 {
+		return out
+	}
+	carrierItems := map[string]bool{}
+	for _, blk := range doc.Blocks {
+		switch blk.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			continue
+		}
+		for _, it := range blk.Items {
+			if key := answerDocumentVisibleItemKey(it); key != "" {
+				carrierItems[key] = true
+			}
+		}
+	}
+	if len(carrierItems) == 0 {
+		return out
+	}
+	for _, blk := range doc.Blocks {
+		if blk.Kind != types.BlockSection || strings.TrimSpace(blk.ID) == "" || len(blk.Items) == 0 {
+			continue
+		}
+		visible := 0
+		covered := 0
+		for _, it := range blk.Items {
+			key := answerDocumentVisibleItemKey(it)
+			if key == "" {
+				continue
+			}
+			visible++
+			if carrierItems[key] {
+				covered++
+			}
+		}
+		if visible > 0 && covered == visible {
+			out[strings.TrimSpace(blk.ID)] = true
+		}
+	}
+	return out
+}
+
+func answerDocumentVisibleItemKey(it types.AnswerBlockItem) string {
+	parts := []string{
+		strings.TrimSpace(it.Label),
+		strings.TrimSpace(it.Text),
+		fmt.Sprintf("%d", it.CitationRef),
+	}
+	for _, cell := range it.Cells {
+		parts = append(parts, strings.TrimSpace(cell))
+	}
+	joined := strings.Join(parts, "\x00")
+	if strings.Trim(joined, "\x00 \t\r\n") == "" {
+		return ""
+	}
+	return strings.ToLower(joined)
 }
 
 // RenderAnswerDocumentWithAttachments renders the structured V2 answer

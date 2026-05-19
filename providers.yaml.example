@@ -126,10 +126,11 @@ llm:
     #                        catches "request accepted, server
     #                        never speaks" (provider deadlock,
     #                        middlebox interference, model cold-
-    #                        start hang). 20s default. Healthy
+    #                        start hang). 40s default. Healthy
     #                        providers serve first byte in 100-
-    #                        500ms; raise only when chasing a
-    #                        provider-specific cold-start spike.
+    #                        500ms, but self-hosted / queued
+    #                        OpenAI-compatible providers can take
+    #                        longer before the first usable chunk.
     #
     # context_window: 128000
     # max_output_tokens: 0
@@ -137,7 +138,7 @@ llm:
     # request_timeout_seconds: 240
     # retry_max_attempts: 6
     # stream_stall_timeout_seconds: 120
-    # stream_first_byte_timeout_seconds: 20
+    # stream_first_byte_timeout_seconds: 40
 
   # --- Per-agent overrides ------------------------------------------------
   # Valid agent keys are `analyzer`, `explorer`, `extractor`,

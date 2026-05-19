@@ -35,6 +35,107 @@ func TestRenderStructuredAggregateFactsPrioritizesPrincipalMemberSet(t *testing.
 	}
 }
 
+func TestRenderStructuredAggregateFactsDemotesConflictingParallelCounts(t *testing.T) {
+	facts := []types.AnswerAggregateFact{
+		{
+			Kind:  types.AnswerAggregateScalar,
+			Label: "func 数量",
+			Value: "8",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+		},
+		{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "公开函数",
+			Value:   "5",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Eval", "EvalAll", "IsRegistered", "RegisteredKinds", "SetExternalArtifactFloor"},
+		},
+	}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &types.CompletenessObligation{
+			Required:    true,
+			SourceQuote: "all public symbols",
+		},
+	}}}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	if !strings.Contains(got, "label=func 数量") ||
+		!strings.Contains(got, "role=`supporting_coverage`") ||
+		!strings.Contains(got, "demoted:conflicts_with_principal_member_set_cardinality") {
+		t.Fatalf("conflicting count should remain visible only as support context:\n%s", got)
+	}
+	if !strings.Contains(got, "label=公开函数") ||
+		!strings.Contains(got, "role=`principal_answer`") {
+		t.Fatalf("principal member_set should remain authoritative:\n%s", got)
+	}
+}
+
+func TestRenderStructuredAggregateFactsDoesNotTruncateCompleteCountMembers(t *testing.T) {
+	var members []string
+	var refs []string
+	for i := 1; i <= 25; i++ {
+		members = append(members, fmt.Sprintf("Kind%02d", i))
+		refs = append(refs, fmt.Sprintf("Kind%02d @ internal/analysis/criterion/grammar.go:%d", i, 28+i))
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateBucketCount,
+		Label:       "Kind 常量",
+		Value:       "25",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     members,
+		SupportRefs: refs,
+	}}
+
+	got := renderStructuredAggregateFacts(facts, 16)
+	if strings.Contains(got, "... +") {
+		t.Fatalf("complete count-carried member set must not be prompt-truncated:\n%s", got)
+	}
+	if !strings.Contains(got, "`Kind25`") ||
+		!strings.Contains(got, "`Kind25 @ internal/analysis/criterion/grammar.go:53`") {
+		t.Fatalf("last complete member/support ref should survive prompt projection:\n%s", got)
+	}
+}
+
+func TestRenderStructuredAggregateFactsPrioritizesPrincipalNonFileAggregate(t *testing.T) {
+	var facts []types.AnswerAggregateFact
+	for i := 0; i < 18; i++ {
+		facts = append(facts, types.AnswerAggregateFact{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   fmt.Sprintf("coverage bucket %02d", i),
+			Value:   "1",
+			Role:    types.AnswerAggregateRoleSupportingCoverage,
+			Members: []string{fmt.Sprintf("helper-%02d", i)},
+		})
+	}
+	facts = append(facts, types.AnswerAggregateFact{
+		Kind:  types.AnswerAggregateTotalCount,
+		Label: "verified command count",
+		Value: "42",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Unit:  "matches",
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "tool", Value: "rg"},
+			{Name: "scope", Value: "production"},
+		},
+	})
+
+	got := renderStructuredAggregateFacts(facts, 16)
+	if !strings.Contains(got, "label=verified command count") ||
+		!strings.Contains(got, "kind=`total_count`") ||
+		!strings.Contains(got, "role=`principal_answer`") ||
+		!strings.Contains(got, "value=`42`") ||
+		!strings.Contains(got, "tool=rg") {
+		t.Fatalf("principal non-file aggregate should survive prompt projection:\n%s", got)
+	}
+	if strings.Index(got, "label=verified command count") > strings.Index(got, "label=coverage bucket 00") {
+		t.Fatalf("principal non-file aggregate should render before coverage facts:\n%s", got)
+	}
+}
+
 func TestRenderStructuredAggregateFactsMarksPathSetsAsCoverageForArchitecture(t *testing.T) {
 	facts := []types.AnswerAggregateFact{{
 		Kind:    types.AnswerAggregateMemberSet,
@@ -184,5 +285,22 @@ func TestStructuredAggregatePromptFactLimitDoesNotOmitPrincipalMemberSetRows(t *
 	got := structuredAggregatePromptFactLimit(nil, facts)
 	if got != len(facts) {
 		t.Fatalf("principal member_set fact rows should not be capped below principal count, got %d want %d", got, len(facts))
+	}
+}
+
+func TestStructuredAggregatePromptFactLimitDoesNotOmitPrincipalNonFileRows(t *testing.T) {
+	var facts []types.AnswerAggregateFact
+	for i := 0; i < structuredAggregateMaxPromptFacts+3; i++ {
+		facts = append(facts, types.AnswerAggregateFact{
+			Kind:  types.AnswerAggregateTotalCount,
+			Label: fmt.Sprintf("principal count %02d", i),
+			Value: fmt.Sprintf("%d", i),
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+		})
+	}
+
+	got := structuredAggregatePromptFactLimit(nil, facts)
+	if got != len(facts) {
+		t.Fatalf("principal non-file aggregate facts should not be capped below principal count, got %d want %d", got, len(facts))
 	}
 }

@@ -199,6 +199,95 @@ func TestMergeAnswerAggregateFacts_KeepsDistinctMemberSetBuckets(t *testing.T) {
 	}
 }
 
+func TestMergeAnswerAggregateFacts_DemotesImplicitSupersetShadowedByExplicitPrincipal(t *testing.T) {
+	got := MergeAnswerAggregateFacts(
+		[]AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "functions",
+			Value:   "4",
+			Members: []string{"Eval", "EvalAll", "dispatch", "parseIntThreshold"},
+		}},
+		[]AnswerAggregateFact{{
+			Kind:    AnswerAggregateGroupedCount,
+			Label:   "public functions",
+			Value:   "2",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Eval", "EvalAll"},
+		}},
+	)
+	if len(got) != 2 {
+		t.Fatalf("merged facts = %+v, want two facts", got)
+	}
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("implicit member_set superset should be supporting once explicit principal subset exists: %+v", got[0])
+	}
+	if got[1].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("explicit principal fact should stay principal: %+v", got[1])
+	}
+}
+
+func TestMergeAnswerAggregateFacts_DemotesCompatiblePrincipalSubset(t *testing.T) {
+	got := MergeAnswerAggregateFacts(
+		[]AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "Kind 常量成员",
+			Value:       "2",
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"KindSymbolPresent", "KindNoCallSites"},
+			SupportRefs: []string{"grammar.go:29", "grammar.go:30"},
+		}},
+		[]AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "Kind常量完整清单",
+			Value:       "3",
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"KindSymbolPresent", "KindNoCallSites", "KindAnswerSetBounded"},
+			SupportRefs: []string{"grammar.go:29", "grammar.go:30", "grammar.go:31"},
+		}},
+	)
+
+	if len(got) != 2 {
+		t.Fatalf("facts len=%d want 2: %+v", len(got), got)
+	}
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage ||
+		!strings.Contains(got[0].Provenance, "demoted:shadowed_by_principal_member_set_superset") {
+		t.Fatalf("smaller compatible set should be supporting: %+v", got[0])
+	}
+	if got[1].Role != AnswerAggregateRolePrincipalAnswer || got[1].Value != "3" {
+		t.Fatalf("larger compatible set should remain principal: %+v", got[1])
+	}
+	refs := PrincipalAggregateMemberSetFactRefs(got)
+	if len(refs) != 1 || len(refs[0].Fact.Members) != 3 {
+		t.Fatalf("principal refs should expose only the larger set: %+v", refs)
+	}
+}
+
+func TestMergeAnswerAggregateFacts_KeepsDistinctPrincipalSubsetBuckets(t *testing.T) {
+	got := MergeAnswerAggregateFacts(
+		[]AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "public types",
+			Value:   "2",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Kind", "Env"},
+		}},
+		[]AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "public symbols",
+			Value:   "3",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Kind", "Env", "Eval"},
+		}},
+	)
+
+	if len(got) != 2 {
+		t.Fatalf("facts len=%d want 2: %+v", len(got), got)
+	}
+	if got[0].Role != AnswerAggregateRolePrincipalAnswer || got[1].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("different structured buckets must remain principal: %+v", got)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_NegativeSearchRejectsNonZeroAndMissingQuery(t *testing.T) {
 	cases := []struct {
 		name string
@@ -918,6 +1007,375 @@ func TestPrincipalAggregateMemberSetFactRefs_DoesNotSuppressRightAxisOrDifferent
 	got := PrincipalAggregateMemberSetFactRefs(facts)
 	if len(got) != 3 {
 		t.Fatalf("right-axis and different-dimension sets should remain principal, got %+v", got)
+	}
+}
+
+func TestProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols_PrunesConflictingCountLedgersAtSource(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "Kind constants",
+			Value:   "2",
+			Members: []string{"KindSymbolPresent", "KindNoCallSites"},
+			SupportRefs: []string{
+				"KindSymbolPresent: internal/analysis/criterion/grammar.go:29",
+				"KindNoCallSites: internal/analysis/criterion/grammar.go:30",
+			},
+		},
+		{
+			Kind:    AnswerAggregateGroupedCount,
+			Label:   "functions",
+			Value:   "3",
+			Members: []string{"Eval", "EvalAll", "parseIntThreshold"},
+			SupportRefs: []string{
+				"Eval: internal/analysis/criterion/eval.go:15",
+				"EvalAll: internal/analysis/criterion/eval.go:36",
+				"parseIntThreshold: internal/analysis/criterion/eval.go:190",
+			},
+		},
+		{
+			Kind:    AnswerAggregateGroupedCount,
+			Label:   "internal evaluators",
+			Value:   "2",
+			Members: []string{"evalSymbolPresent", "evalNoCallSites"},
+			SupportRefs: []string{
+				"evalSymbolPresent: internal/analysis/criterion/eval.go:434",
+				"evalNoCallSites: internal/analysis/criterion/eval.go:481",
+			},
+		},
+	}
+	symbols := []AnswerSymbol{
+		{Name: "KindSymbolPresent"},
+		{Name: "KindNoCallSites"},
+		{Name: "Eval"},
+		{Name: "EvalAll"},
+	}
+
+	got := ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols(
+		facts,
+		&RequestModel{Intent: IntentEnumerate},
+		symbols,
+		CompletenessComplete,
+	)
+
+	if len(got) != 3 {
+		t.Fatalf("facts len=%d want 3", len(got))
+	}
+	if got[1].Value != "2" || strings.Join(got[1].Members, ",") != "Eval,EvalAll" {
+		t.Fatalf("conflicting function aggregate was not projected onto complete answer symbols: %+v", got[1])
+	}
+	if len(got[1].SupportRefs) != 2 || strings.Contains(strings.Join(got[1].SupportRefs, ","), "parseIntThreshold") {
+		t.Fatalf("support_refs should remain aligned with kept members: %+v", got[1].SupportRefs)
+	}
+	if got[2].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("non-overlapping stale aggregate should be demoted to supporting coverage: %+v", got[2])
+	}
+}
+
+func TestProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols_PreservesExplicitPrincipalInventory(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "Kind constants",
+			Value:   "3",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"KindPlanReady", "KindPatchApplies", "KindTestsPass"},
+			SupportRefs: []string{
+				"KindPlanReady: internal/analysis/criterion/grammar.go:54",
+				"KindPatchApplies: internal/analysis/criterion/grammar.go:55",
+				"KindTestsPass: internal/analysis/criterion/grammar.go:56",
+			},
+		},
+	}
+	symbols := []AnswerSymbol{
+		{Name: "KindPlanReady"},
+		{Name: "KindTestsPass"},
+	}
+
+	got := ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols(
+		facts,
+		&RequestModel{Intent: IntentEnumerate},
+		symbols,
+		CompletenessComplete,
+	)
+
+	if len(got) != 1 {
+		t.Fatalf("facts len=%d want 1", len(got))
+	}
+	if got[0].Role != AnswerAggregateRolePrincipalAnswer ||
+		got[0].Value != "3" ||
+		strings.Join(got[0].Members, ",") != "KindPlanReady,KindPatchApplies,KindTestsPass" {
+		t.Fatalf("explicit principal member_set must not be pruned by a partial answer-symbol slate: %+v", got[0])
+	}
+	if len(got[0].SupportRefs) != 3 {
+		t.Fatalf("support_refs should remain aligned with explicit principal members: %+v", got[0].SupportRefs)
+	}
+}
+
+func TestProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols_DemotesConflictingMemberSetNotCoveredByCompleteSymbols(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "公开函数成员",
+			Value:   "5",
+			Members: []string{"Eval", "EvalAll", "IsRegistered", "RegisteredKinds", "parseIntThreshold"},
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "公开函数完整清单",
+			Value:   "5",
+			Members: []string{"Eval", "EvalAll", "IsRegistered", "RegisteredKinds", "SetExternalArtifactFloor"},
+		},
+	}
+	symbols := []AnswerSymbol{
+		{Name: "Eval"},
+		{Name: "EvalAll"},
+		{Name: "IsRegistered"},
+		{Name: "RegisteredKinds"},
+		{Name: "SetExternalArtifactFloor"},
+	}
+
+	got := ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols(
+		facts,
+		&RequestModel{Intent: IntentEnumerate},
+		symbols,
+		CompletenessComplete,
+	)
+
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage ||
+		!strings.Contains(got[0].Provenance, "demoted:conflicts_with_complete_answer_symbol_slate") {
+		t.Fatalf("stale same-size member_set should be support: %+v", got[0])
+	}
+	if AnswerAggregateFactRoleForRequest(got[1], &RequestModel{Intent: IntentEnumerate}) != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("answer-symbol-covered member_set should stay principal: %+v", got[1])
+	}
+}
+
+func TestProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols_DemotesDuplicateProjectedSet(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateGroupedCount,
+			Label:   "functions",
+			Value:   "2",
+			Members: []string{"Eval", "EvalAll"},
+		},
+		{
+			Kind:    AnswerAggregateGroupedCount,
+			Label:   "internal helpers",
+			Value:   "3",
+			Members: []string{"Eval", "EvalAll", "parseIntThreshold"},
+		},
+	}
+	symbols := []AnswerSymbol{{Name: "Eval"}, {Name: "EvalAll"}}
+
+	got := ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols(
+		facts,
+		&RequestModel{Intent: IntentEnumerate},
+		symbols,
+		CompletenessComplete,
+	)
+	if got[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("first matching principal set should stay principal: %+v", got[0])
+	}
+	if got[1].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("duplicate projected principal set should be demoted: %+v", got[1])
+	}
+}
+
+func TestPruneAggregateMemberSetsByStructuredExclusions(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "public functions",
+			Value:   "5",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Eval", "EvalAll", "IsRegistered", "RegisteredKinds", "SetExternalArtifactFloor"},
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "public function symbols",
+			Value:   "8",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Eval (eval.go:15)", "EvalAll (eval.go:36)", "dispatch (eval.go:51)", "IsRegistered (grammar.go:100)", "RegisteredKinds (grammar.go:106)", "SetExternalArtifactFloor (eval.go:982)", "parseComparison (eval.go:918)", "parseIntThreshold (eval.go:190)"},
+			SupportRefs: []string{
+				"Eval: internal/analysis/criterion/eval.go:15",
+				"EvalAll: internal/analysis/criterion/eval.go:36",
+				"dispatch: internal/analysis/criterion/eval.go:51",
+				"IsRegistered: internal/analysis/criterion/grammar.go:100",
+				"RegisteredKinds: internal/analysis/criterion/grammar.go:106",
+				"SetExternalArtifactFloor: internal/analysis/criterion/eval.go:982",
+				"parseComparison: internal/analysis/criterion/eval.go:918",
+				"parseIntThreshold: internal/analysis/criterion/eval.go:190",
+			},
+		},
+		{
+			Kind:    AnswerAggregateExcluded,
+			Label:   "excluded unexported functions",
+			Value:   "3",
+			Members: []string{"dispatch", "parseComparison", "parseIntThreshold"},
+		},
+	}
+
+	got := PruneAggregateMemberSetsByStructuredExclusions(facts)
+	if got[1].Value != "5" {
+		t.Fatalf("value=%q want 5: %+v", got[1].Value, got[1])
+	}
+	joined := strings.Join(got[1].Members, ",")
+	for _, banned := range []string{"dispatch", "parseComparison", "parseIntThreshold"} {
+		if strings.Contains(joined, banned) || strings.Contains(strings.Join(got[1].SupportRefs, ","), banned) {
+			t.Fatalf("excluded member %q leaked after prune: %+v", banned, got[1])
+		}
+	}
+	if !strings.Contains(joined, "SetExternalArtifactFloor") {
+		t.Fatalf("allowed exported member was lost: %+v", got[1])
+	}
+}
+
+func TestProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols_IgnoresCategoryLevelSlateWithoutMemberOverlap(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateGroupedCount,
+			Label:   "public types",
+			Value:   "3",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Kind", "Env", "Result"},
+		},
+		{
+			Kind:    AnswerAggregateGroupedCount,
+			Label:   "public functions",
+			Value:   "4",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"IsRegistered", "RegisteredKinds", "Eval", "EvalAll"},
+		},
+	}
+	symbols := []AnswerSymbol{
+		{Name: "types", Kind: KindLiteral},
+		{Name: "functions", Kind: KindLiteral},
+		{Name: "Kind constants", Kind: KindLiteral},
+	}
+
+	got := ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols(
+		facts,
+		&RequestModel{Intent: IntentEnumerate},
+		symbols,
+		CompletenessComplete,
+	)
+
+	if len(got) != len(facts) {
+		t.Fatalf("facts len=%d want %d", len(got), len(facts))
+	}
+	for i := range got {
+		if got[i].Role != AnswerAggregateRolePrincipalAnswer || strings.Join(got[i].Members, ",") != strings.Join(facts[i].Members, ",") {
+			t.Fatalf("category-level answer symbols must not demote or prune principal members: got[%d]=%+v", i, got[i])
+		}
+	}
+}
+
+func TestBuildAnswerSurfacePlan_ProjectsAggregateFactsAfterCompleteAnswerSymbols(t *testing.T) {
+	mut := NewMutableState("public functions")
+	mut.SetInvestigationAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateGroupedCount,
+		Label:   "functions",
+		Value:   "3",
+		Members: []string{"Eval", "EvalAll", "parseIntThreshold"},
+	}})
+	mut.SetInvestigationComplete("done")
+	mut.RetainInvestigationAggregateFacts()
+	mut.SetEmittedAnswerSymbols([]AnswerSymbol{
+		{Name: "Eval", Kind: KindFunction},
+		{Name: "EvalAll", Kind: KindFunction},
+	}, CompletenessComplete)
+
+	plan := BuildAnswerSurfacePlan(&AnalysisIR{RequestModel: RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}}, mut, nil, nil, nil, nil)
+	if plan == nil || len(plan.StableAggregateFacts) != 1 {
+		t.Fatalf("plan aggregate facts = %+v", plan)
+	}
+	got := plan.StableAggregateFacts[0]
+	if got.Value != "2" || strings.Join(got.Members, ",") != "Eval,EvalAll" {
+		t.Fatalf("BuildAnswerSurfacePlan must project stale aggregate facts at source, got %+v", got)
+	}
+}
+
+func TestBuildAnswerSurfacePlan_DoesNotNarrowAcceptedMemberSetWithIncompleteAnswerSymbols(t *testing.T) {
+	mut := NewMutableState("public constants")
+	mut.SetInvestigationAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "Kind 常量成员",
+		Value:   "3",
+		Members: []string{"KindSymbolPresent", "KindNoCallSites", "KindExternalArtifactDecoded"},
+	}})
+	mut.SetInvestigationComplete("done")
+	mut.RetainInvestigationAggregateFacts()
+	mut.SetEmittedAnswerSymbols([]AnswerSymbol{
+		{Name: "KindSymbolPresent", Kind: KindConst},
+		{Name: "KindNoCallSites", Kind: KindConst},
+	}, CompletenessComplete)
+
+	plan := BuildAnswerSurfacePlan(&AnalysisIR{RequestModel: RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}}, mut, nil, nil, nil, nil)
+
+	if plan == nil || len(plan.StableAggregateFacts) != 1 {
+		t.Fatalf("plan aggregate facts = %+v", plan)
+	}
+	got := plan.StableAggregateFacts[0]
+	if got.Value != "3" || strings.Join(got.Members, ",") != "KindSymbolPresent,KindNoCallSites,KindExternalArtifactDecoded" {
+		t.Fatalf("complete member_set must remain authoritative over incomplete answer symbols: %+v", got)
+	}
+}
+
+func TestBuildAnswerSurfacePlan_DemotesConflictingParallelCountFacts(t *testing.T) {
+	mut := NewMutableState("parallel enumeration facts")
+	mut.SetInvestigationAggregateFacts([]AnswerAggregateFact{
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "func 数量",
+			Value: "8",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+		},
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "Kind const block 数量",
+			Value: "1",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "公开函数",
+			Value:   "5",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Eval", "EvalAll", "IsRegistered", "RegisteredKinds", "SetExternalArtifactFloor"},
+		},
+	})
+	mut.SetInvestigationComplete("done")
+	mut.RetainInvestigationAggregateFacts()
+
+	plan := BuildAnswerSurfacePlan(&AnalysisIR{RequestModel: RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{
+			Required:    true,
+			SourceQuote: "all public symbols",
+		},
+	}}, mut, nil, nil, nil, nil)
+	if plan == nil || len(plan.StableAggregateFacts) != 3 {
+		t.Fatalf("plan aggregate facts = %+v", plan)
+	}
+	if got := plan.StableAggregateFacts[0]; got.Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("conflicting stale count should be demoted to support, got %+v", got)
+	}
+	if got := plan.StableAggregateFacts[1]; got.Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("independent boundary count of 1 should remain principal, got %+v", got)
 	}
 }
 

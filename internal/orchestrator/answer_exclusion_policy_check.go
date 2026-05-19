@@ -8,21 +8,26 @@ import (
 )
 
 // runTypedAnswerExclusionPolicyCheck enforces user-stated candidate exclusions
-// from typed carriers only: RequestModel.AnswerExclusionPolicy and
-// AnswerDocumentV2 item candidate_role annotations. It deliberately does not
-// inspect the raw request or rendered answer prose.
+// from typed carriers only: RequestModel.AnswerExclusionPolicy /
+// AnswerVisibilityProfile and AnswerDocumentV2 item candidate_role
+// annotations. It deliberately does not inspect the raw request or rendered
+// answer prose.
 func runTypedAnswerExclusionPolicyCheck(doc *types.AnswerDocumentV2, rm *types.RequestModel) []types.Violation {
-	if doc == nil || rm == nil || rm.AnswerExclusionPolicy == nil || !rm.AnswerExclusionPolicy.Active() {
+	if doc == nil || rm == nil {
 		return nil
 	}
-	policy := rm.AnswerExclusionPolicy
+	excludedRoles := typedAnswerExcludedRoles(rm)
+	if len(excludedRoles) == 0 {
+		return nil
+	}
+	confidence := typedAnswerExclusionConfidence(rm)
 	var out []types.Violation
 	for bi, block := range doc.Blocks {
 		if block.SurfaceRole != types.SurfacePrincipal || len(block.Items) == 0 {
 			continue
 		}
 		for ii, item := range block.Items {
-			if !policy.ExcludesRole(item.CandidateRole) {
+			if !excludedRoles[item.CandidateRole] {
 				continue
 			}
 			itemID := item.ID
@@ -39,13 +44,45 @@ func runTypedAnswerExclusionPolicyCheck(doc *types.AnswerDocumentV2, rm *types.R
 				ClusterKey: fmt.Sprintf("typed_answer_exclusion:%s:%s:%s", role, block.ID, itemID),
 				SuspectedRoot: types.SuspectedRoot{
 					IRField:    fieldPath,
-					Reason:     "principal answer row conflicts with analyzer-emitted answer_exclusion_policy",
-					Confidence: policy.Confidence,
+					Reason:     "principal answer row conflicts with analyzer-emitted typed exclusion / visibility scope",
+					Confidence: confidence,
 				},
 			})
 		}
 	}
 	return out
+}
+
+func typedAnswerExcludedRoles(rm *types.RequestModel) map[types.AnswerCandidateRole]bool {
+	out := map[types.AnswerCandidateRole]bool{}
+	if rm == nil {
+		return out
+	}
+	if policy := rm.AnswerExclusionPolicy; policy != nil && policy.Active() {
+		for _, role := range policy.ExcludedCandidateRoles {
+			if role != types.AnswerCandidateRoleUnknown {
+				out[role] = true
+			}
+		}
+	}
+	if rm.AnswerVisibilityProfile != nil && rm.AnswerVisibilityProfile.ExcludesPrivateSymbols() {
+		out[types.AnswerCandidateRolePrivate] = true
+	}
+	return out
+}
+
+func typedAnswerExclusionConfidence(rm *types.RequestModel) float64 {
+	if rm == nil {
+		return 0
+	}
+	confidence := 0.0
+	if policy := rm.AnswerExclusionPolicy; policy != nil && policy.Active() && policy.Confidence > confidence {
+		confidence = policy.Confidence
+	}
+	if profile := rm.AnswerVisibilityProfile; profile != nil && profile.Active() && profile.Confidence > confidence {
+		confidence = profile.Confidence
+	}
+	return confidence
 }
 
 // runTypedAnswerRoleProfileCheck enforces positive answer-role bindings from

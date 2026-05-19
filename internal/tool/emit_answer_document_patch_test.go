@@ -86,6 +86,28 @@ func TestEmitAnswerDocumentPatch_EmptyPatchRejects(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_PreEmitSoftHintsStayAdvisory(t *testing.T) {
+	bus := newPatchTestBusContext()
+	bus.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "compare A and B",
+			Intent:     types.IntentExplain,
+			Buckets: []types.QuestionBucket{
+				{Label: "A", Anchors: []string{"A"}, Index: 1},
+				{Label: "B", Anchors: []string{"B"}, Index: 2},
+			},
+		},
+	}
+	tool := &EmitAnswerDocumentPatch{}
+	res, err := tool.Execute(bus, json.RawMessage(`{"unchanged_block_ids":["s1","list1"]}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("patch path should split pre-emit soft hints into advisory instead of hard retrying: %s", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_QuarantinesUnknownSchemaMetadata(t *testing.T) {
 	bus := newPatchTestBusContext()
 	tool := &EmitAnswerDocumentPatch{}

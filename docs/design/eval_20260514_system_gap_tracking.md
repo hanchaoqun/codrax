@@ -3179,8 +3179,10 @@ Batch 6a progress:
   exclusions before retention: private/variable members are removed from exact
   principal sets, support refs stay aligned, and exact counts are recomputed.
 - `emit_answer_document` applies a final visible-surface sanitizer for typed
-  exclusions. It redacts concrete excluded graph symbols from summary/table/
-  citation quote surfaces instead of making finalizer retry.
+  exclusions. It prunes principal rows marked with excluded `candidate_role`
+  and may redact only concrete candidates that the investigation explicitly
+  carried in `aggregate_facts.excluded[]`; it no longer scans final prose with
+  broad repo-graph variable/field names.
 
 Anti-seesaw guard:
 
@@ -3201,3 +3203,279 @@ Verification:
 - `bash eval/run.sh eval/cases/qf_logic_view_read_pipeline.case 1`
   - `eval/results/qf_logic_view_read_pipeline-20260519-155033`
   - PASS; explicit Mermaid logic-view requirement still survives end-to-end.
+
+2026-05-19 follow-up audit:
+
+- A later `qf_multi_member_set_count_caveat` replay showed that the root cause
+  was broader than blank/current-stage `StageReport` pollution. Three separate
+  typed-boundary defects interacted:
+  1. Analyzer L0-B still hard-rejected scoped source-inventory enumerations
+     when `entities` named only the package/scope, even though the LLM had
+     already emitted `required_files` and `source_scope_profile`. That forced
+     an unnecessary analyzer retry before exploration could enumerate members.
+  2. Prompt context could leak same-stage reports and stale retry hints across
+     attempts, including an explorer retry directive in an analyzer retry.
+  3. Typed exclusion salvage treated a graph symbol name as globally excluded
+     if any definition with that name matched an excluded role. In Go packages
+     with homonyms such as `Kind` appearing as both a field and an exported
+     type/const category, this over-redacted the valid principal member and
+     changed a correct "3 types" answer into "2 types".
+- Fixes added in this follow-up:
+  - `stageReportsForAgent` drops same-stage/self reports, strips blank reports,
+    dedupes stable content, suppresses extractor reports when Turn-A evidence
+    already carries the digest, and typed-support finalizer mode receives no
+    generic report replay.
+  - Generic `TaskState.RetryHint` is now scoped to the owning stage; analyzer
+    retries cannot inherit explorer/extractor/finalizer repair directives.
+  - L0-B keeps rejecting true categorical-wrapper mistakes, but carves out
+    scoped source-inventory enumerations when precise typed carriers are
+    present (`required_files` + `source_scope_profile`, or multiple typed
+    `sub_topics` / `buckets`). This avoids asking the classifier to know
+    source members before investigation.
+  - Typed exclusion graph salvage now excludes a symbol surface only when all
+    graph definitions for that surface are in excluded roles. A homonym with
+    any allowed definition is preserved, while pure variables/private helpers
+    are still redacted or pruned.
+  - Multi-column citation-backed tables with empty cells are compiled
+    deterministically from `columns[]`, `items[].label`, and citations so the
+    final answer does not render blank trailing columns.
+  - System scope caveats are localized through the answer language, and
+    serial reconcile exploration is labelled `探索 · 汇总 · 第 N 轮` so it no
+    longer looks like a parallel lane regressed from `第 4 路` to an unscoped
+    `第 5 轮`.
+- Guard tests:
+  - `TestBuildAgentContext_RetryHintScopedToOwningStage`
+  - `TestStageReportsForAgent_DropsCurrentStageAndDedupesPriorReports`
+  - `TestL0B_GateClassification_TableDriven`
+  - `TestNormalizeTypedExcludedAnswerSurface_PreservesAllowedHomonym`
+  - `TestNormalizeAggregateFactsForTypedExclusion_PreservesAllowedHomonym`
+  - `TestCompileCitationBackedTableRows_*`
+
+2026-05-19 evidence-priority follow-up:
+
+- A replay after the StageReport cleanup still exposed a deeper authority
+  mismatch: the evidence pool had grounded, read, definition-scoped rows for
+  `IsRegistered` and `RegisteredKinds`, but the explorer's principal function
+  `member_set` omitted them. The finalizer prompt then treated the incomplete
+  aggregate slate as stronger than the already-grounded definition evidence.
+- Contract clarified: for scoped inventory / enumeration questions, a grounded
+  evidence row that is direct + definition + read-file-backed + requested
+  source-scope-compatible is the highest-priority detail/citation source.
+  `aggregate_facts.member_set` organizes the principal slate and counts, but
+  it must not suppress richer summaries already carried by such evidence.
+- Fixes added:
+  - `emit_investigation_complete` now reconciles principal `member_set` facts
+    against same-role grounded definition evidence before retention. The pass
+    is typed-only: category-enumeration shape, source scope / required files /
+    sub-topic or bucket structure, repo graph symbol kind/export status, and
+    grounded evidence coordinates. It does not parse user/model prose.
+  - The reconciliation appends missing same-role definition members, preserves
+    member-specific support refs, updates only adjacent count facts whose value
+    exactly matched the old member count, and refuses mixed-role or non-scoped
+    cases.
+  - Finalizer enrichment now marks read, grounded, scope-compatible definition
+    evidence as `lane=principal_definition_fact`. These rows sort as
+    high-priority enrichment and append `EvidenceItem.Summary`, so future
+    "give a short description for each function/member" answers keep the rich
+    exploration summaries without relying on free-form explorer prose.
+  - Typed exclusion surface salvage was narrowed again: graph-derived variable
+    or field names are used to prune structured member sets and typed rows, but
+    are not global replacement tokens over summary/citation prose. This avoids
+    `[excluded]` corruption of ordinary words such as "block" or valid
+    homonyms such as `Kind`.
+- Guard tests:
+  - `TestReconcileCompletionAggregateFactsWithDefinitionEvidence_AppendsMissingSameRoleDefinitions`
+  - `TestReconcileCompletionAggregateFactsWithDefinitionEvidence_DisabledWithoutTypedScopedInventory`
+  - `TestSelectAnswerDocTypedEnrichmentFacts_PrincipalDefinitionRowsPreserveDetails`
+  - `TestNormalizeTypedExcludedAnswerSurface_DoesNotRedactGraphVariableNamesFromProse`
+  - `TestNormalizeTypedExcludedAnswerSurface_RedactsExplicitExcludedAggregateCandidates`
+
+2026-05-19 evidence-priority gate audit follow-up:
+
+- New architectural contract: once evidence is read/grounded, direct or
+  registration-grade, definition/scope compatible, and selected into a
+  principal answer lane, later gates may only preserve, enrich, repair metadata,
+  or honestly disclose boundaries. They must not demote it behind weaker
+  analyzer entities, broad exclusion roles, block-shape preferences, patch
+  mechanics, or prose/list-count heuristics.
+- Current batch fixes:
+  - `PrincipalSupportEvidenceItemsForFamily` now sorts grounded direct
+    definition evidence ahead of adjacent support/import/concrete rows. This is
+    a shared support-plan contract, so enumeration, role lookup, architecture,
+    comparison, config, and generic finalizer prompts all inherit the same
+    evidence priority instead of each re-ranking locally.
+  - `emit_answer_document_patch` now mirrors full emit's hard/advisory split
+    for pre-emit checks. Soft structural hints such as required-block shape
+    drift no longer become hard finalizer patch rejects simply because the model
+    chose a patch payload.
+  - `CardinalityValidator` now accepts visible aggregate `member_set` rows in
+    tables or prose when the declared count is satisfied. This prevents a valid
+    table from being rejected only because the count was not rendered as
+    `ordered_list.items[]`.
+  - `emit_investigation_complete` pre-complete handoff now checks the full
+    grounded evidence pool in addition to support-plan rows before demanding
+    `AnswerSymbol`-style carriers. For scoped category enumerations,
+    analyzer-derived `file_stem` terms are treated as scope anchors rather than
+    principal members, so a package path such as `internal/analysis/criterion`
+    no longer triggers repeated "missing AnswerSymbol" exploration after the
+    actual exported symbols are already grounded.
+  - The earlier same-role aggregate reconciliation, effective typed-exclusion
+    policy, and analyzer-entity softening form the upstream half of the same
+    contract: do not let noisy classifier hints or over-broad exclusion roles
+    overrule grounded principal evidence.
+- Gate sweep status:
+  - ✅ Support-plan ranking: fixed in the shared principal-evidence ordering
+    entry point.
+  - ✅ Patch/full emit parity: fixed; patch no longer hardens soft checks.
+  - ✅ Declared-count cardinality: fixed for aggregate member sets visible via
+    table/prose/list carriers.
+  - ✅ Aggregate member-set preservation: fixed for scoped typed inventory and
+    protected against over-broad typed exclusions.
+  - ✅ Pre-complete required-term handoff: fixed so grounded definition evidence
+    satisfies analyzer symbol terms, and analyzer file-stem scope terms do not
+    override the requested principal symbol categories.
+  - ⚠️ ERM path-depth closure: still uses a `len(entities)+3` depth heuristic.
+    It is bounded to call-chain family and answer-aware paths, but it should be
+    converted in a later batch to typed chain rows/support-plan obligations, or
+    downgraded to caveat when the answer already carries grounded start/end and
+    an explicit boundary.
+  - ⚠️ Ungrounded optional evidence repair loops: surface-term / grounding
+    repair can still spend a mid-loop turn on evidence that effective typed
+    exclusion would later drop. Later batch should filter repair prompts by the
+    effective principal/support roles before asking the model to re-emit.
+  - ⚠️ Generic reviewer caveat text: some successful evals still receive a
+    broad "coverage may be insufficient" note even when semantic quality
+    concerns are zero. This should become typed-boundary-only, not a generic
+    fallback.
+  - ⚠️ Comparison section cardinality: comparison still asks for one section per
+    typed bucket. This is useful for true user partitions, but table-first
+    answers should keep passing when bucket labels and evidence rows are visible
+    through a structured table. Keep this under telemetry before changing the
+    hard contract.
+- Guard tests added in this batch:
+  - `TestBuildAnswerSupportPlan_EnumerationPrioritizesGroundedDefinitions`
+  - `TestEmitAnswerDocumentPatch_PreEmitSoftHintsStayAdvisory`
+  - `TestCardinalityValidator/declared_count_member_set_table_text_passes`
+  - `TestCompletionPrincipalHandoffTerms_SoftensAnalyzerEntitiesForGroupedEnumeration`
+  - `TestCompletionMissingPrincipalHandoffTerms_GroundedEvidenceCoversAnalyzerSymbols`
+
+2026-05-19 non-file structured evidence contract follow-up:
+
+- Contract extension: `file:line` is not the only high-authority evidence
+  carrier. Exploration can produce answer-grade facts through tool commands,
+  repository searches, aggregate counters, member-set reconciliation, and
+  verified zero-hit probes. When those facts are typed (`aggregate_facts.kind`,
+  `role`, `value`, `dimensions`, `members`, `support_refs`, or
+  `result_kind=absence`), they follow the same preservation rule as grounded
+  source anchors: principal values must stay visible, supporting/audit values
+  may inform caveats, and no finalizer gate may demote them merely because they
+  lack a source line.
+- Current batch fixes:
+  - Structured aggregate prompt rendering now protects every explicit
+    `role=principal_answer` fact, not just `member_set`. Principal command
+    counts, grouped/bucket counts, scalar values, and `negative_search` rows
+    are sorted before auxiliary context and are not hidden behind the prompt
+    budget cap.
+  - Full emit pre-checks now cover principal aggregate values beyond
+    `scalar_value`: explicit principal counts, count-style answers, and
+    accepted absence `negative_search` facts get advisory visibility hints
+    using typed dimensions such as `repo`, `pattern/query`, `scope`, `unit`,
+    and `value`. These remain `ViolAcceptance` soft advisories, so the system
+    records or caveats small omissions instead of forcing expensive finalizer
+    retries.
+  - Finalizer instructions now state that principal non-file aggregate facts
+    are answer payloads. A verified `repo + query/pattern + result_count=0 +
+    scope + searched_at` record should be rendered as a no-hit boundary or
+    caveat, never faked into a `repo:0` citation and never dropped because it
+    has no file coordinate.
+  - Analyzer contract examples now explicitly include Chinese exclusion
+    phrases such as `不要列变量`, `不包含测试`, and `排除生成文件`, so the LLM
+    has a bilingual path to emit the existing `answer_exclusion_policy`
+    carrier. Downstream still consumes only typed roles/source quotes; product
+    logic does not keyword-match user prose.
+- Guard tests added in this batch:
+  - `TestRenderStructuredAggregateFactsPrioritizesPrincipalNonFileAggregate`
+  - `TestStructuredAggregatePromptFactLimitDoesNotOmitPrincipalNonFileRows`
+  - `TestPreCheckAggregateScalarValueCoverage_RequiresPrincipalCommandCount`
+  - `TestPreCheckAggregateScalarValueCoverage_RequiresAbsenceNegativeSearchDimensions`
+- Residual watch item:
+  - A replay of `qf_multi_member_set_count_caveat` showed analyzer omission of
+    `answer_exclusion_policy` for an explicit Chinese "do not list variables"
+    phrase, allowing the finalizer to mention an excluded variable as a scope
+    note. The prompt/schema examples were tightened in this batch. If telemetry
+    still shows misses, the next fix should be a typed analyzer self-check or
+    deterministic row-role compiler, not a raw keyword gate over user text.
+
+2026-05-19 boundary-facet hard/soft audit follow-up:
+
+- New finding: the same replay showed `v2_block_oracles` adding two soft
+  violations (`answer_facet_coverage`, `uncertainty_block`) even though both
+  LLM reviewers accepted the answer and no substantive evidence gap existed.
+  Root cause was structural: `FacetUncertaintyBoundary` had an empty
+  `AcceptableForms` whitelist, and the shared facet binder treats an empty
+  list as "any non-unknown claim form". Ordinary definition evidence could
+  therefore promote a boundary/disclosure facet, after which
+  `validateUncertaintyBlockPresence` required a caveat block and the accept
+  path appended the generic "coverage may be incomplete" note.
+- Fix: boundary promotion is now typed-boundary-only. Every
+  `FacetUncertaintyBoundary` template uses a shared helper that accepts only
+  `ClaimAbsenceFact`, `ClaimExternalObservation`, and
+  `ClaimTextReferenceFact`. Ordinary source definitions/calls still carry the
+  principal answer, but they no longer masquerade as uncertainty evidence.
+- Fix: `validateUncertaintyBlockPresence` now reads `FacetRequirement.IsPromoted()`
+  instead of mere membership in `FacetCoverage.Required`. A soft boundary facet
+  with no boundary-class source candidate stays advisory and cannot force a
+  caveat block on a complete answer. True absence/log/text-reference boundary
+  evidence still promotes and still requires visible disclosure.
+- This is a generalized correction, not a case patch: the consumer reads typed
+  `ClaimForm`, `FacetRequirement`, and `UncertaintyRule` enums only. It does
+  not inspect the user request, model prose, labels, or keywords.
+- Guard tests added:
+  - `TestCompileFacetCoverage_UncertaintyBoundaryIgnoresOrdinaryDefinitionEvidence`
+  - `TestCompileFacetCoverage_UncertaintyBoundaryPromotesOnNegativeEvidence`
+  - `TestUncertaintyBlockPresence_UnpromotedSoftTriggerSkipped`
+  - `TestUncertaintyBlockPresence_PromotedSoftTriggerFires`
+
+2026-05-19 prompt evidence truncation / aggregate authority follow-up:
+
+- Finding: the visible `+13` / lower-bound-style symptom was not caused by the
+  model context window being too small. Two system-side projections were at
+  fault:
+  1. Prompt rendering used small generic list caps for aggregate members and
+     support refs, so a complete `aggregate_facts.member_set` could be shown to
+     downstream agents as a sample-like list instead of the authoritative
+     exhaustive payload.
+  2. Parallel exploration / retry paths could leave several same-bucket
+     aggregate facts alive. A smaller stale set, an incompatible same-size set,
+     or an incomplete `emit_answer_symbol` slate could then compete with the
+     accepted member set and make the finalizer dry, incomplete, or overly
+     cautious.
+- Contract update: typed principal aggregate facts are answer payloads, not
+  expendable prompt context. For a complete member carrier (`member_set`, or a
+  count-like aggregate whose `members[]` cardinality matches `value`), prompt
+  projection may cap auxiliary facts but must preserve every principal member
+  and member-level support ref within the schema bound.
+- Fixes added:
+  - Structured aggregate prompt rendering now renders complete member carriers
+    up to the schema member/support bound and keeps principal facts outside the
+    auxiliary prompt-budget cap.
+  - Compatible smaller principal `member_set` rows from sibling explorers are
+    demoted behind a structured superset. The compatibility check consumes only
+    aggregate kind/label/dimensions/unit/members/support coverage, never user
+    prose or model thoughts.
+  - Complete `member_set` rows are no longer narrowed by later incomplete
+    answer-symbol slates. Answer symbols can add anchors/presentation, but they
+    cannot subtract members from the explorer's accepted structured handoff.
+  - When two same-bucket same-size member sets conflict, a complete
+    answer-symbol slate can demote the set it does not cover. This handles stale
+    parallel results without inventing members from evidence or prose.
+  - Exclusion redaction was narrowed so graph-derived variable names can prune
+    structured members/rows but do not globally replace ordinary summary prose;
+    explicit excluded candidates still get deterministic redaction.
+- Verification:
+  - `go test ./internal/types ./internal/orchestrator ./internal/agent ./internal/tool ./internal/toolparam -run 'Test(LaneBlockKindMismatch_NoAcceptedPathCaveat|AppendSoftContractCaveatsToAnswer_SkipsLaneBlockKindTelemetry|PruneAggregateMemberSetsByStructuredExclusions|MergeAnswerAggregateFacts_(DemotesCompatiblePrincipalSubset|KeepsDistinctPrincipalSubsetBuckets)|RenderStructuredAggregateFacts(DoesNotTruncateCompleteCountMembers|DemotesConflictingParallelCounts)|NormalizeAggregateFactsForTypedVisibilityPrunesPrivateMembers|NormalizeTypedExcludedAnswerSurface_(RedactsSafeGraphVariableNamesFromProse|RedactsGraphOnlyExcludedVariables)|RunTypedAnswerExclusionPolicyCheck_UsesVisibilityProfile|EmitAnalysis_Execute_PersistsAnswerVisibilityProfile|Normalize_(RepairsCompositePropertyKeyFragment|DoesNotRepairAmbiguousCompositePropertyKeyFragment)|MergeEvidenceItemsPrefersRicherSummaryForSameEvidence|BuildAnswerSurfacePlan_DoesNotNarrowAcceptedMemberSetWithIncompleteAnswerSymbols)'`
+  - `bash eval/run.sh eval/cases/qf_multi_member_set_count_caveat.case 1`
+    - `eval/results/qf_multi_member_set_count_caveat-20260519-220132`
+    - PASS; `finalizer_iters=1`; no finalizer reject/rewrite; no `+13`, no
+      stale `Kind 常量共 24`, and no excluded variable leakage in the visible
+      final answer.

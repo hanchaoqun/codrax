@@ -3457,6 +3457,9 @@ func (e *explorerEvaluator) coverageScopeFiles(discovered []string, readSet map[
 			return scope
 		}
 	}
+	if scope := e.requiredFilePackageScopeForEnumeration(discovered, readSet); len(scope) > 0 {
+		return scope
+	}
 	if len(discovered) == 0 {
 		return nil
 	}
@@ -3470,6 +3473,75 @@ func (e *explorerEvaluator) coverageScopeFiles(discovered []string, readSet map[
 		seen[file] = true
 		out = append(out, file)
 	}
+	return out
+}
+
+func (e *explorerEvaluator) requiredFilePackageScopeForEnumeration(discovered []string, readSet map[string]bool) []string {
+	if e == nil || e.analysisIR == nil || len(e.requiredFiles) == 0 {
+		return nil
+	}
+	rm := e.analysisIR.RequestModel
+	if !rm.Predicates.IsCategoryEnumeration || rm.Predicates.IsRelationalLookup {
+		return nil
+	}
+	if !types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) && !rm.QuestionStructure().HasAnyObligation() {
+		return nil
+	}
+	required := make([]string, 0, len(e.requiredFiles))
+	seenRequired := make(map[string]bool, len(e.requiredFiles))
+	for _, file := range e.requiredFiles {
+		file = e.repoRelativeExplorerPath(file)
+		if file == "" || isNoisePath(file) || !e.activeFocusAllowsFile(file) || seenRequired[file] {
+			continue
+		}
+		seenRequired[file] = true
+		required = append(required, file)
+	}
+	if len(required) == 0 {
+		return nil
+	}
+	requiredDir := ""
+	for _, file := range required {
+		dir := filepath.Dir(file)
+		if dir == "." || dir == "" {
+			return nil
+		}
+		if requiredDir == "" {
+			requiredDir = dir
+			continue
+		}
+		if dir != requiredDir {
+			return nil
+		}
+	}
+	scopeSet := make(map[string]bool, len(required)+len(discovered)+len(readSet))
+	addIfSameDir := func(file string) {
+		file = e.repoRelativeExplorerPath(file)
+		if file == "" || isNoisePath(file) || !e.activeFocusAllowsFile(file) {
+			return
+		}
+		if filepath.Dir(file) != requiredDir {
+			return
+		}
+		scopeSet[file] = true
+	}
+	for _, file := range required {
+		addIfSameDir(file)
+	}
+	for _, file := range discovered {
+		addIfSameDir(file)
+	}
+	for file := range readSet {
+		addIfSameDir(file)
+	}
+	if len(required) == 1 && len(scopeSet) <= 1 {
+		return nil
+	}
+	out := make([]string, 0, len(scopeSet))
+	for file := range scopeSet {
+		out = append(out, file)
+	}
+	sort.Strings(out)
 	return out
 }
 

@@ -199,6 +199,8 @@ func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateF
 	if err := validateAggregateFileLineMemberCompanions(out); err != nil {
 		return nil, err
 	}
+	out = PruneAggregateMemberSetsByStructuredExclusions(out)
+	out = reconcilePrincipalAggregateMemberSetSupersets(out)
 	return out, nil
 }
 
@@ -246,7 +248,393 @@ func MergeAnswerAggregateFacts(groups ...[]AnswerAggregateFact) []AnswerAggregat
 	if len(out) == 0 {
 		return nil
 	}
+	out = PruneAggregateMemberSetsByStructuredExclusions(out)
+	out = reconcilePrincipalAggregateMemberSetSupersets(out)
+	out = demoteImplicitAggregateMemberSetsShadowedByExplicitPrincipal(out)
 	return cloneAnswerAggregateFacts(out)
+}
+
+// PruneAggregateMemberSetsByStructuredExclusions reconciles two structured
+// aggregate lanes emitted by exploration: an exclusion ledger
+// (`excluded_count.excluded[]` or `excluded_count.members[]`) and a concrete
+// member_set. When the same excluded member also appears inside a principal
+// member_set, the exclusion ledger is the narrower typed signal and the member
+// set is repaired at source. This consumes only model-emitted structured
+// arrays; it never scans raw user text, thoughts, or rendered answer prose.
+func PruneAggregateMemberSetsByStructuredExclusions(facts []AnswerAggregateFact) []AnswerAggregateFact {
+	if len(facts) == 0 {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	excluded := aggregateStructuredExcludedMemberKeys(facts)
+	if len(excluded) == 0 {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	out := cloneAnswerAggregateFacts(facts)
+	changed := false
+	for i := range out {
+		if out[i].Kind == AnswerAggregateExcluded ||
+			!answerAggregateFactCarriesCompleteMemberSet(out[i]) ||
+			len(out[i].Members) == 0 {
+			continue
+		}
+		keptMembers := make([]string, 0, len(out[i].Members))
+		keptRefs := make([]string, 0, len(out[i].SupportRefs))
+		removed := 0
+		for memberIdx, member := range out[i].Members {
+			if aggregateMemberMatchesStructuredExclusion(member, excluded) {
+				removed++
+				continue
+			}
+			keptMembers = append(keptMembers, member)
+			if memberIdx < len(out[i].SupportRefs) {
+				keptRefs = append(keptRefs, out[i].SupportRefs[memberIdx])
+			}
+		}
+		if removed == 0 {
+			continue
+		}
+		changed = true
+		out[i].Members = keptMembers
+		out[i].SupportRefs = keptRefs
+		if len(keptMembers) == 0 {
+			out[i].Role = AnswerAggregateRoleSupportingCoverage
+			out[i].Value = "0"
+			continue
+		}
+		out[i].Value = strconv.Itoa(len(keptMembers))
+	}
+	if !changed {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	return out
+}
+
+func aggregateStructuredExcludedMemberKeys(facts []AnswerAggregateFact) map[string]bool {
+	keys := map[string]bool{}
+	for _, fact := range facts {
+		if fact.Kind != AnswerAggregateExcluded {
+			continue
+		}
+		for _, member := range fact.Excluded {
+			addAggregateStructuredExclusionKeys(keys, member)
+		}
+		for _, member := range fact.Members {
+			addAggregateStructuredExclusionKeys(keys, member)
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return keys
+}
+
+func addAggregateStructuredExclusionKeys(keys map[string]bool, raw string) {
+	for _, candidate := range AnswerAggregateMemberDisplayCandidates(raw) {
+		addAggregateStructuredExclusionKey(keys, candidate)
+		if base, _, ok := AnswerAggregateDecoratedLabelParts(candidate); ok {
+			addAggregateStructuredExclusionKey(keys, base)
+		}
+		if label, _, ok := ParseAnswerSupportRefMemberLocation(candidate); ok {
+			addAggregateStructuredExclusionKey(keys, label)
+		}
+	}
+	addAggregateStructuredExclusionKey(keys, raw)
+	addAggregateStructuredExclusionKey(keys, aggregateMemberKey(raw))
+	addAggregateStructuredExclusionKey(keys, NormalizedSurfaceSymbolTail(raw))
+}
+
+func addAggregateStructuredExclusionKey(keys map[string]bool, raw string) {
+	key := strings.ToLower(strings.Trim(strings.TrimSpace(raw), "`"))
+	if key != "" {
+		keys[key] = true
+	}
+}
+
+func aggregateMemberMatchesStructuredExclusion(member string, excluded map[string]bool) bool {
+	if len(excluded) == 0 {
+		return false
+	}
+	for _, candidate := range AnswerAggregateMemberDisplayCandidates(member) {
+		if aggregateStructuredExclusionKeyExists(candidate, excluded) {
+			return true
+		}
+		if base, _, ok := AnswerAggregateDecoratedLabelParts(candidate); ok &&
+			aggregateStructuredExclusionKeyExists(base, excluded) {
+			return true
+		}
+		if label, _, ok := ParseAnswerSupportRefMemberLocation(candidate); ok &&
+			aggregateStructuredExclusionKeyExists(label, excluded) {
+			return true
+		}
+	}
+	return aggregateStructuredExclusionKeyExists(member, excluded)
+}
+
+func aggregateStructuredExclusionKeyExists(raw string, excluded map[string]bool) bool {
+	for _, candidate := range []string{raw, aggregateMemberKey(raw), NormalizedSurfaceSymbolTail(raw)} {
+		key := strings.ToLower(strings.Trim(strings.TrimSpace(candidate), "`"))
+		if key != "" && excluded[key] {
+			return true
+		}
+	}
+	return false
+}
+
+func demoteImplicitAggregateMemberSetsShadowedByExplicitPrincipal(facts []AnswerAggregateFact) []AnswerAggregateFact {
+	if len(facts) < 2 {
+		return facts
+	}
+	explicit := explicitPrincipalAggregateMemberSetKeys(facts)
+	if len(explicit) == 0 {
+		return facts
+	}
+	out := cloneAnswerAggregateFacts(facts)
+	for i := range out {
+		if NormalizeAnswerAggregateRole(out[i].Role) != AnswerAggregateRoleUnknown ||
+			!answerAggregateFactCarriesCompleteMemberSet(out[i]) {
+			continue
+		}
+		candidate := aggregateMemberSetProjectionKeySet(out[i].Members)
+		if len(candidate) == 0 {
+			continue
+		}
+		for _, principal := range explicit {
+			if aggregateMemberProjectionSetSubsumes(candidate, principal) {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				break
+			}
+		}
+	}
+	return out
+}
+
+// reconcilePrincipalAggregateMemberSetSupersets resolves a typed handoff
+// conflict that can happen when parallel explorers or retry repairs emit two
+// complete principal member sets for the same structured bucket, and a later
+// set is a strict superset of an earlier stale set. The larger set is the
+// higher-fidelity accepted handoff; the smaller one remains available as
+// support/audit context but must not compete as a second principal slate.
+//
+// The compatibility check is deliberately narrow: it consumes only structured
+// aggregate labels, dimensions, units, and member arrays. It never reads the
+// user prompt, model thinking, closure prose, or rendered answer text.
+func reconcilePrincipalAggregateMemberSetSupersets(facts []AnswerAggregateFact) []AnswerAggregateFact {
+	if len(facts) < 2 {
+		return facts
+	}
+	out := cloneAnswerAggregateFacts(facts)
+	changed := false
+	for i := range out {
+		if !answerAggregateFactCanYieldToSuperset(out[i]) {
+			continue
+		}
+		candidateSet := aggregateMemberSetProjectionKeySet(out[i].Members)
+		if len(candidateSet) == 0 {
+			continue
+		}
+		for j := range out {
+			if i == j || !answerAggregateFactCanActAsMemberSuperset(out[j]) {
+				continue
+			}
+			if !aggregateMemberSetYieldAllowed(out[i], out[j]) {
+				continue
+			}
+			if !aggregateMemberSetFactsSameBucketForSuperset(out[i], out[j]) {
+				continue
+			}
+			superset := aggregateMemberSetProjectionKeySet(out[j].Members)
+			if !aggregateMemberProjectionStrictSubsetOf(candidateSet, superset) {
+				continue
+			}
+			if !aggregateMemberSetSupportCompatibleForSuperset(out[i], out[j]) {
+				continue
+			}
+			out[i].Role = AnswerAggregateRoleSupportingCoverage
+			out[i].Provenance = appendAggregateFactProvenance(
+				out[i].Provenance,
+				"demoted:shadowed_by_principal_member_set_superset",
+			)
+			if AnswerAggregateFactRoleForRequest(out[j], nil) != AnswerAggregateRolePrincipalAnswer {
+				out[j].Role = AnswerAggregateRolePrincipalAnswer
+			}
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return facts
+	}
+	return out
+}
+
+func answerAggregateFactCanYieldToSuperset(fact AnswerAggregateFact) bool {
+	return answerAggregateFactCarriesCompleteMemberSet(fact) &&
+		AnswerAggregateFactRoleForRequest(fact, nil) == AnswerAggregateRolePrincipalAnswer &&
+		len(fact.Members) > 0
+}
+
+func answerAggregateFactCanActAsMemberSuperset(fact AnswerAggregateFact) bool {
+	return answerAggregateFactCarriesCompleteMemberSet(fact) &&
+		len(fact.Members) > 0 &&
+		AnswerAggregateFactRoleForRequest(fact, nil) != AnswerAggregateRoleAuditLedger
+}
+
+func aggregateMemberSetYieldAllowed(candidate, superset AnswerAggregateFact) bool {
+	candidateRole := NormalizeAnswerAggregateRole(candidate.Role)
+	supersetRole := NormalizeAnswerAggregateRole(superset.Role)
+	if candidateRole == AnswerAggregateRolePrincipalAnswer && supersetRole != AnswerAggregateRolePrincipalAnswer {
+		return false
+	}
+	return true
+}
+
+func aggregateMemberSetFactsSameBucketForSuperset(a, b AnswerAggregateFact) bool {
+	if !aggregateFactDimensionsCompatible(a.Dimensions, b.Dimensions) {
+		return false
+	}
+	if strings.TrimSpace(a.Unit) != "" && strings.TrimSpace(b.Unit) != "" &&
+		!strings.EqualFold(strings.TrimSpace(a.Unit), strings.TrimSpace(b.Unit)) {
+		return false
+	}
+	return aggregateMemberSetLabelsCompatibleForSuperset(a.Label, b.Label)
+}
+
+func aggregateMemberSetLabelsCompatibleForSuperset(a, b string) bool {
+	ac := canonicalAggregateMemberSetLabelCore(a)
+	bc := canonicalAggregateMemberSetLabelCore(b)
+	if ac == "" || bc == "" {
+		return false
+	}
+	if ac == bc {
+		return true
+	}
+	// Allow narrow display drift such as "Kind 常量" versus "Kind const"
+	// only when one canonical label fully contains the other after generic
+	// list/member suffixes have been removed. A shared broad prefix like
+	// "public" is intentionally insufficient, so category subsets (for
+	// example public functions inside public symbols) remain independent.
+	return len([]rune(ac)) >= 4 && len([]rune(bc)) >= 4 &&
+		(strings.Contains(ac, bc) || strings.Contains(bc, ac))
+}
+
+func canonicalAggregateMemberSetLabelCore(label string) string {
+	label = strings.ToLower(strings.TrimSpace(label))
+	if label == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range label {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	s := b.String()
+	if s == "" {
+		return ""
+	}
+	suffixes := []string{
+		"members", "member", "items", "item", "inventory", "list", "set", "complete", "full",
+		"成员", "清单", "列表", "集合", "完整", "全部", "所有",
+	}
+	prefixes := []string{"complete", "full", "all", "全部", "所有"}
+	changed := true
+	for changed {
+		changed = false
+		for _, suffix := range suffixes {
+			if suffix != "" && strings.HasSuffix(s, suffix) && len(s) > len(suffix) {
+				s = strings.TrimSuffix(s, suffix)
+				changed = true
+			}
+		}
+		for _, prefix := range prefixes {
+			if prefix != "" && strings.HasPrefix(s, prefix) && len(s) > len(prefix) {
+				s = strings.TrimPrefix(s, prefix)
+				changed = true
+			}
+		}
+	}
+	return s
+}
+
+func aggregateMemberProjectionStrictSubsetOf(candidate, superset map[string]bool) bool {
+	if len(candidate) == 0 || len(superset) == 0 || len(candidate) >= len(superset) {
+		return false
+	}
+	for member := range candidate {
+		if !superset[member] {
+			return false
+		}
+	}
+	return true
+}
+
+func aggregateMemberSetSupportCompatibleForSuperset(candidate, superset AnswerAggregateFact) bool {
+	candidateCoverage := aggregateMemberSetSupportCoverage(candidate)
+	supersetCoverage := aggregateMemberSetSupportCoverage(superset)
+	if candidateCoverage == 0 {
+		return true
+	}
+	if supersetCoverage == 0 {
+		return false
+	}
+	if supersetCoverage >= candidateCoverage {
+		return true
+	}
+	return supersetCoverage == len(superset.Members)
+}
+
+func appendAggregateFactProvenance(current, addition string) string {
+	current = strings.TrimSpace(current)
+	addition = strings.TrimSpace(addition)
+	if addition == "" {
+		return current
+	}
+	if current == "" {
+		return addition
+	}
+	for _, part := range strings.Split(current, ";") {
+		if strings.TrimSpace(part) == addition {
+			return current
+		}
+	}
+	return current + "; " + addition
+}
+
+func explicitPrincipalAggregateMemberSetKeys(facts []AnswerAggregateFact) []map[string]bool {
+	var out []map[string]bool
+	for _, fact := range facts {
+		if NormalizeAnswerAggregateRole(fact.Role) != AnswerAggregateRolePrincipalAnswer ||
+			!answerAggregateFactCarriesCompleteMemberSet(fact) {
+			continue
+		}
+		keys := aggregateMemberSetProjectionKeySet(fact.Members)
+		if len(keys) >= 2 {
+			out = append(out, keys)
+		}
+	}
+	return out
+}
+
+func aggregateMemberProjectionSetSubsumes(candidate, principal map[string]bool) bool {
+	if len(candidate) == 0 || len(principal) == 0 || len(candidate) < len(principal) {
+		return false
+	}
+	for member := range principal {
+		if !candidate[member] {
+			return false
+		}
+	}
+	return true
+}
+
+func aggregateMemberSetProjectionKeySet(members []string) map[string]bool {
+	keys := make(map[string]bool, len(members))
+	for _, member := range members {
+		if key := aggregateMemberSetProjectionMemberKey(member); key != "" {
+			keys[key] = true
+		}
+	}
+	return keys
 }
 
 func answerAggregateMemberSetMergeKey(fact AnswerAggregateFact) string {
@@ -414,6 +802,357 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 		return nil
 	}
 	return out
+}
+
+// ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols resolves a typed
+// authority conflict before finalization: exploration may emit broad count-like
+// aggregate rows with members, while extraction later emits a complete
+// emit_answer_symbol slate for the same enumeration. Projection is allowed for
+// implicit count/group ledgers; a model-emitted member_set is the
+// investigator's accepted handoff and must not be narrowed by a later
+// answer-symbol slate, even when the older payload omitted an explicit role
+// field. Answer symbols can provide anchors and presentation structure, but
+// they cannot subtract verified principal members. The projection consumes only
+// structured member strings and AnswerSymbol names; it never scans user wording
+// or model prose.
+func ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols(
+	facts []AnswerAggregateFact,
+	rm *RequestModel,
+	symbols []AnswerSymbol,
+	claim CompletenessClaim,
+) []AnswerAggregateFact {
+	facts = PruneAggregateMemberSetsByStructuredExclusions(facts)
+	if len(facts) == 0 || len(symbols) == 0 || claim != CompletenessComplete {
+		return facts
+	}
+	symbolKeys := answerSymbolSurfaceKeySet(symbols)
+	if len(symbolKeys) == 0 {
+		return facts
+	}
+	if !principalAggregateFactsHaveMemberLevelAnswerSymbolOverlap(facts, rm, symbolKeys) {
+		return facts
+	}
+	out := cloneAnswerAggregateFacts(facts)
+	changed := false
+	seenPrincipalSets := map[string]int{}
+	for i := range out {
+		if !answerAggregateFactCarriesCompleteMemberSet(out[i]) ||
+			AnswerAggregateFactRoleForRequest(out[i], rm) != AnswerAggregateRolePrincipalAnswer ||
+			len(out[i].Members) == 0 {
+			continue
+		}
+		wasCompleteMemberSetCarrier := answerAggregateFactCarriesCompleteMemberSet(out[i])
+		if out[i].Kind == AnswerAggregateMemberSet ||
+			NormalizeAnswerAggregateRole(out[i].Role) == AnswerAggregateRolePrincipalAnswer {
+			setKey := aggregateMemberSetSymbolProjectionKey(out[i].Members)
+			if setKey == "" {
+				continue
+			}
+			if prev, ok := seenPrincipalSets[setKey]; ok {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				if NormalizeAnswerAggregateRole(out[prev].Role) != AnswerAggregateRolePrincipalAnswer {
+					out[prev].Role = AnswerAggregateRolePrincipalAnswer
+				}
+				changed = true
+				continue
+			}
+			seenPrincipalSets[setKey] = i
+			continue
+		}
+		keptMembers := make([]string, 0, len(out[i].Members))
+		keptRefs := make([]string, 0, len(out[i].SupportRefs))
+		for memberIdx, member := range out[i].Members {
+			if !aggregateMemberCoveredByAnswerSymbolSet(member, symbolKeys) {
+				continue
+			}
+			keptMembers = append(keptMembers, member)
+			if memberIdx < len(out[i].SupportRefs) {
+				keptRefs = append(keptRefs, out[i].SupportRefs[memberIdx])
+			}
+		}
+		switch {
+		case len(keptMembers) == 0:
+			out[i].Role = AnswerAggregateRoleSupportingCoverage
+			changed = true
+			continue
+		case len(keptMembers) != len(out[i].Members):
+			out[i].Members = keptMembers
+			out[i].SupportRefs = keptRefs
+			if out[i].Kind == AnswerAggregateMemberSet || wasCompleteMemberSetCarrier {
+				out[i].Value = strconv.Itoa(len(keptMembers))
+			}
+			changed = true
+		}
+		setKey := aggregateMemberSetSymbolProjectionKey(out[i].Members)
+		if setKey == "" {
+			continue
+		}
+		if prev, ok := seenPrincipalSets[setKey]; ok {
+			out[i].Role = AnswerAggregateRoleSupportingCoverage
+			if NormalizeAnswerAggregateRole(out[prev].Role) != AnswerAggregateRolePrincipalAnswer {
+				out[prev].Role = AnswerAggregateRolePrincipalAnswer
+			}
+			changed = true
+			continue
+		}
+		seenPrincipalSets[setKey] = i
+	}
+	if demoteConflictingPrincipalMemberSetsByCompleteAnswerSymbols(out, rm, symbolKeys, claim) {
+		changed = true
+	}
+	if !changed {
+		return facts
+	}
+	return out
+}
+
+func demoteConflictingPrincipalMemberSetsByCompleteAnswerSymbols(
+	facts []AnswerAggregateFact,
+	rm *RequestModel,
+	symbolKeys map[string]bool,
+	claim CompletenessClaim,
+) bool {
+	if len(facts) < 2 || len(symbolKeys) == 0 || claim != CompletenessComplete {
+		return false
+	}
+	changed := false
+	for i := range facts {
+		if !aggregateMemberSetEligibleForAnswerSymbolTieBreak(facts[i], rm) {
+			continue
+		}
+		iCoverage := aggregateMemberSetAnswerSymbolCoverage(facts[i], symbolKeys)
+		for j := range facts {
+			if i == j || !aggregateMemberSetEligibleForAnswerSymbolTieBreak(facts[j], rm) {
+				continue
+			}
+			if len(facts[i].Members) != len(facts[j].Members) ||
+				len(facts[i].Members) == 0 ||
+				!aggregateMemberSetFactsSameBucketForSuperset(facts[i], facts[j]) {
+				continue
+			}
+			jCoverage := aggregateMemberSetAnswerSymbolCoverage(facts[j], symbolKeys)
+			if iCoverage == len(facts[i].Members) && jCoverage < len(facts[j].Members) {
+				facts[j].Role = AnswerAggregateRoleSupportingCoverage
+				facts[j].Provenance = appendAggregateFactProvenance(
+					facts[j].Provenance,
+					"demoted:conflicts_with_complete_answer_symbol_slate",
+				)
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+func aggregateMemberSetEligibleForAnswerSymbolTieBreak(fact AnswerAggregateFact, rm *RequestModel) bool {
+	return fact.Kind == AnswerAggregateMemberSet &&
+		answerAggregateFactCarriesCompleteMemberSet(fact) &&
+		AnswerAggregateFactRoleForRequest(fact, rm) == AnswerAggregateRolePrincipalAnswer
+}
+
+func aggregateMemberSetAnswerSymbolCoverage(fact AnswerAggregateFact, symbolKeys map[string]bool) int {
+	if len(symbolKeys) == 0 || len(fact.Members) == 0 {
+		return 0
+	}
+	covered := 0
+	for _, member := range fact.Members {
+		if aggregateMemberCoveredByAnswerSymbolSet(member, symbolKeys) {
+			covered++
+		}
+	}
+	return covered
+}
+
+// DemoteAggregateCountFactsConflictingWithPrincipalMemberSets keeps stale
+// count/scalar handoffs from competing with the authoritative principal
+// member_set slate on exhaustive category enumerations. Parallel explorers can
+// legitimately finish with different intermediate counts; once at least one
+// principal member_set is available, a count-like fact whose numeric value does
+// not match any principal set cardinality is support/audit context, not a hard
+// visible-answer obligation.
+func DemoteAggregateCountFactsConflictingWithPrincipalMemberSets(facts []AnswerAggregateFact, rm *RequestModel) []AnswerAggregateFact {
+	if len(facts) == 0 || rm == nil {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	out := cloneAnswerAggregateFacts(facts)
+	changed := false
+	for i := range out {
+		if !AggregateFactConflictsWithPrincipalMemberSetCounts(out, rm, i) {
+			continue
+		}
+		out[i].Role = AnswerAggregateRoleSupportingCoverage
+		if strings.TrimSpace(out[i].Provenance) == "" {
+			out[i].Provenance = "demoted:conflicts_with_principal_member_set_cardinality"
+		}
+		changed = true
+	}
+	if !changed {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	return out
+}
+
+func AggregateFactConflictsWithPrincipalMemberSetCounts(facts []AnswerAggregateFact, rm *RequestModel, idx int) bool {
+	if rm == nil || idx < 0 || idx >= len(facts) {
+		return false
+	}
+	if !rm.Predicates.IsCategoryEnumeration || rm.Predicates.IsRelationalLookup {
+		return false
+	}
+	if !RequiresExhaustiveEnumerationMemberSetHandoff(*rm) && !rm.QuestionStructure().HasAnyObligation() {
+		return false
+	}
+	fact := facts[idx]
+	if !aggregateFactKindCanRepresentVisibleCount(fact.Kind) {
+		return false
+	}
+	value, ok := aggregateFactNumericValue(fact)
+	if !ok || value <= 1 {
+		return false
+	}
+	refs := PrincipalAggregateMemberSetFactRefsForRequest(facts, rm)
+	if len(refs) == 0 {
+		return false
+	}
+	for _, ref := range refs {
+		if len(ref.Fact.Members) == value {
+			return false
+		}
+	}
+	return true
+}
+
+func aggregateFactKindCanRepresentVisibleCount(kind AnswerAggregateKind) bool {
+	switch kind {
+	case AnswerAggregateTotalCount,
+		AnswerAggregateUniqueCount,
+		AnswerAggregateGroupedCount,
+		AnswerAggregateBucketCount,
+		AnswerAggregateScalar:
+		return true
+	default:
+		return false
+	}
+}
+
+func aggregateFactNumericValue(fact AnswerAggregateFact) (int, bool) {
+	value := strings.TrimSpace(fact.Value)
+	if value == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+func principalAggregateFactsHaveMemberLevelAnswerSymbolOverlap(facts []AnswerAggregateFact, rm *RequestModel, symbolKeys map[string]bool) bool {
+	if len(facts) == 0 || len(symbolKeys) == 0 {
+		return false
+	}
+	matchedMembers := map[string]bool{}
+	for _, fact := range facts {
+		if !answerAggregateFactCarriesCompleteMemberSet(fact) ||
+			AnswerAggregateFactRoleForRequest(fact, rm) != AnswerAggregateRolePrincipalAnswer {
+			continue
+		}
+		for _, member := range fact.Members {
+			if aggregateMemberCoveredByAnswerSymbolSet(member, symbolKeys) {
+				if key := aggregateMemberSetProjectionMemberKey(member); key != "" {
+					matchedMembers[key] = true
+				}
+				if len(matchedMembers) >= 2 {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func answerSymbolSurfaceKeySet(symbols []AnswerSymbol) map[string]bool {
+	out := map[string]bool{}
+	for _, sym := range symbols {
+		addAggregateSymbolProjectionKey(out, sym.Name)
+	}
+	return out
+}
+
+func aggregateMemberCoveredByAnswerSymbolSet(member string, symbolKeys map[string]bool) bool {
+	if len(symbolKeys) == 0 {
+		return false
+	}
+	for _, candidate := range AnswerAggregateMemberDisplayCandidates(member) {
+		if aggregateSymbolProjectionKeyExists(candidate, symbolKeys) {
+			return true
+		}
+		if base, _, ok := AnswerAggregateDecoratedLabelParts(candidate); ok &&
+			aggregateSymbolProjectionKeyExists(base, symbolKeys) {
+			return true
+		}
+		if label, _, ok := ParseAnswerSupportRefMemberLocation(candidate); ok &&
+			aggregateSymbolProjectionKeyExists(label, symbolKeys) {
+			return true
+		}
+	}
+	if base, _, ok := AnswerAggregateDecoratedLabelParts(member); ok {
+		return aggregateSymbolProjectionKeyExists(base, symbolKeys)
+	}
+	return aggregateSymbolProjectionKeyExists(member, symbolKeys)
+}
+
+func aggregateSymbolProjectionKeyExists(raw string, keys map[string]bool) bool {
+	for _, candidate := range []string{raw, aggregateMemberKey(raw), NormalizedSurfaceSymbolTail(raw)} {
+		if key := strings.ToLower(strings.TrimSpace(candidate)); key != "" && keys[key] {
+			return true
+		}
+	}
+	return false
+}
+
+func addAggregateSymbolProjectionKey(keys map[string]bool, raw string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return
+	}
+	for _, candidate := range []string{raw, aggregateMemberKey(raw), NormalizedSurfaceSymbolTail(raw)} {
+		if key := strings.ToLower(strings.TrimSpace(candidate)); key != "" {
+			keys[key] = true
+		}
+	}
+}
+
+func aggregateMemberSetSymbolProjectionKey(members []string) string {
+	keys := make([]string, 0, len(members))
+	seen := map[string]bool{}
+	for _, member := range members {
+		key := aggregateMemberSetProjectionMemberKey(member)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "\x1f")
+}
+
+func aggregateMemberSetProjectionMemberKey(member string) string {
+	key := ""
+	for _, candidate := range AnswerAggregateMemberDisplayCandidates(member) {
+		if candidateKey := aggregateMemberKey(candidate); candidateKey != "" {
+			key = strings.ToLower(candidateKey)
+			break
+		}
+	}
+	if key == "" {
+		key = strings.ToLower(strings.TrimSpace(member))
+	}
+	return strings.TrimSpace(key)
 }
 
 func answerAggregateFactRef(index int, fact AnswerAggregateFact, role AnswerAggregateRole) AnswerAggregateFactRef {

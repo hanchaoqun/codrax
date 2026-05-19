@@ -27,3 +27,64 @@ func TestAnswerSupportMemberObligationStableItemIDFallsBackToLocation(t *testing
 		t.Fatalf("StableItemID fallback = %q, want %q", got, want)
 	}
 }
+
+func TestPrincipalSupportMemberObligations_StripsAggregateCitationQualifier(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Family: QFEnumeration,
+		Lanes: []AnswerSupportLane{{
+			Kind: SupportLanePrincipalEvidence,
+			Entries: []AnswerSupportEntry{
+				{
+					EvidenceID:    "aggregate_fact:member_set:1:0",
+					Text:          "Kind",
+					Location:      "kind: internal/analysis/criterion/grammar.go:26",
+					SurfaceTerms:  []string{"Kind"},
+					LabelSurface:  ClaimLabelSurfaceDisplayLabel,
+					MemberSurface: PrincipalMemberSurfaceDisplayLabel,
+				},
+				{
+					EvidenceID:    "aggregate_fact:member_set:2:0",
+					Text:          "Kind definition",
+					Location:      "internal/analysis/criterion/grammar.go:26",
+					Source:        "internal/analysis/criterion/grammar.go",
+					LineStart:     26,
+					ClaimForm:     ClaimDefinitionFact,
+					AnchorSymbol:  "Kind",
+					SurfaceTerms:  []string{"Kind"},
+					LabelSurface:  ClaimLabelSurfaceSymbolLike,
+					MemberSurface: PrincipalMemberSurfaceSymbolLike,
+				},
+			},
+		}},
+	}
+
+	obligations := PrincipalSupportMemberObligations(plan)
+	if len(obligations) != 1 {
+		t.Fatalf("same aggregate member/location should coalesce across claim lanes, got %+v", obligations)
+	}
+	if got, want := obligations[0].Source, "internal/analysis/criterion/grammar.go"; got != want {
+		t.Fatalf("qualified citation source = %q, want %q", got, want)
+	}
+	if got, want := obligations[0].Location, "internal/analysis/criterion/grammar.go:26"; got != want {
+		t.Fatalf("qualified citation location = %q, want %q", got, want)
+	}
+
+	doc := &AnswerDocumentV2{
+		Citations: []Citation{{File: "internal/analysis/criterion/grammar.go", Line: 26}},
+		Blocks: []AnswerBlock{{
+			ID:          "items",
+			Kind:        BlockTable,
+			SurfaceRole: SurfacePrincipal,
+			FacetIDs:    []string{string(FacetEnumerationItem)},
+			Text:        "| 名称 | 定义位置 |\n|---|---|\n| Kind | grammar.go:26 |",
+			Items: []AnswerBlockItem{{
+				ID:          "support-kind",
+				Label:       "Kind",
+				CitationRef: 0,
+			}},
+		}},
+	}
+	if missing := MissingPrincipalSupportMembers(doc, plan); len(missing) != 0 {
+		t.Fatalf("real file:line citation should satisfy coalesced aggregate member, got %+v", missing)
+	}
+}

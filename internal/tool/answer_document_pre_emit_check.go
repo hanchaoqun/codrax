@@ -1301,10 +1301,57 @@ func principalSupportMemberVisibleForCarrierNormalization(doc *types.AnswerDocum
 }
 
 func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
-	// See normalizePrincipalSupportMemberCarriers: aggregate facts can
-	// justify checks or caveats, but the system must not materialize a
-	// new principal list/table on the model's behalf.
-	return 0
+	if doc == nil || ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil ||
+		!preEmitAggregateMemberSetCoverageHardGate(ctx) {
+		return 0
+	}
+	refs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
+	if len(refs) == 0 {
+		return 0
+	}
+	fixed := 0
+	for _, ref := range refs {
+		fact := ref.Fact
+		if preEmitAggregateMemberSetIsScalarCountSupport(ctx, fact) ||
+			len(fact.Members) == 0 ||
+			preEmitStructuredMemberBlockCoversFact(doc, fact) {
+			continue
+		}
+		blockIdx := appendAggregateMemberSetCarrierBlock(doc, ref.Index, aggregateMemberSetCarrierTitle(fact))
+		if blockIdx < 0 || blockIdx >= len(doc.Blocks) {
+			continue
+		}
+		block := &doc.Blocks[blockIdx]
+		block.SurfaceRole = types.SurfacePrincipal
+		block.FacetIDs = mergeStringSet(block.FacetIDs, []string{string(types.FacetEnumerationItem)})
+		block.ClaimUses = append(block.ClaimUses, types.RenderedClaimUse{
+			FacetID:   string(types.FacetEnumerationItem),
+			ClaimForm: types.ClaimDefinitionFact,
+		})
+		block.Text = aggregateMemberSetCarrierText(fact.Label)
+		for memberIdx, member := range fact.Members {
+			member = strings.TrimSpace(member)
+			if member == "" {
+				continue
+			}
+			citationRef := -1
+			if cit, ok := citationForAggregateMemberSetMember(fact, memberIdx, member, ctx); ok {
+				citationRef = appendOrReusePreEmitCitation(doc, cit)
+			}
+			itemText := ""
+			if ev, ok := evidenceForAggregateMemberSetMember(fact, memberIdx, member, ctx); ok {
+				itemText = aggregateMemberSetEvidenceSummaryText(ev)
+			}
+			block.Items = append(block.Items, types.AnswerBlockItem{
+				ID:          aggregateMemberSetCarrierItemID(block.ID, memberIdx, member),
+				Label:       member,
+				Text:        itemText,
+				CitationRef: citationRef,
+			})
+			fixed++
+		}
+	}
+	return fixed
 }
 
 func appendAggregateMemberSetCarrierBlock(doc *types.AnswerDocumentV2, factIdx int, label string) int {
@@ -1321,6 +1368,28 @@ func appendAggregateMemberSetCarrierBlock(doc *types.AnswerDocumentV2, factIdx i
 		Title: title,
 	})
 	return len(doc.Blocks) - 1
+}
+
+func aggregateMemberSetCarrierTitle(fact types.AnswerAggregateFact) string {
+	label := strings.TrimSpace(fact.Label)
+	if label == "" {
+		label = "Principal member set"
+	}
+	if n := len(fact.Members); n > 0 && !strings.Contains(label, strconv.Itoa(n)) {
+		label = fmt.Sprintf("%s（%d）", label, n)
+	}
+	return label
+}
+
+func aggregateMemberSetCarrierItemID(blockID string, idx int, member string) string {
+	base := strings.TrimSpace(blockID)
+	if base == "" {
+		base = "aggregate-member-set"
+	}
+	if suffix := sanitizeRequiredMechanismAnchorID(member); suffix != "" {
+		return base + "-" + suffix
+	}
+	return fmt.Sprintf("%s-%d", base, idx+1)
 }
 
 func nextAggregateMemberSetBlockID(doc *types.AnswerDocumentV2, factIdx int, label string) string {
@@ -1488,6 +1557,66 @@ func citationForAggregateMemberSetEvidence(member string, ctx *types.BusContext)
 		}
 	}
 	return types.Citation{}, false
+}
+
+func evidenceForAggregateMemberSetMember(fact types.AnswerAggregateFact, memberIdx int, member string, ctx *types.BusContext) (types.EvidenceItem, bool) {
+	evidence := aggregateMemberSetEvidencePool(ctx)
+	if len(evidence) == 0 {
+		return types.EvidenceItem{}, false
+	}
+	candidates := aggregateMemberSetEvidenceCandidates(member)
+	if file := aggregateMemberSetMemberFilePrefix(member); file != "" {
+		for _, ev := range evidence {
+			if !aggregateMemberSetEvidenceLocationUsable(ev) || !aggregateMemberSetPathMatches(file, ev.Source) {
+				continue
+			}
+			if aggregateMemberSetEvidenceMatchesAny(ev, candidates) {
+				return ev, true
+			}
+		}
+	}
+	if cit, ok := citationForAggregateMemberSetSupportRef(fact, memberIdx, member); ok {
+		for _, ev := range evidence {
+			if !aggregateMemberSetEvidenceLocationUsable(ev) || !aggregateMemberSetEvidenceMatchesCitation(ev, cit) {
+				continue
+			}
+			if aggregateMemberSetEvidenceMatchesAny(ev, candidates) {
+				return ev, true
+			}
+		}
+		for _, ev := range evidence {
+			if aggregateMemberSetEvidenceLocationUsable(ev) && aggregateMemberSetEvidenceMatchesCitation(ev, cit) {
+				return ev, true
+			}
+		}
+	}
+	for _, ev := range evidence {
+		if !aggregateMemberSetEvidenceLocationUsable(ev) {
+			continue
+		}
+		if aggregateMemberSetEvidenceMatchesAny(ev, candidates) {
+			return ev, true
+		}
+	}
+	return types.EvidenceItem{}, false
+}
+
+func aggregateMemberSetEvidenceMatchesCitation(ev types.EvidenceItem, cit types.Citation) bool {
+	if strings.TrimSpace(cit.File) == "" || cit.Line <= 0 {
+		return false
+	}
+	if !aggregateMemberSetPathMatches(cit.File, ev.Source) {
+		return false
+	}
+	if ev.LineStart == cit.Line {
+		return true
+	}
+	return ev.LineStart > 0 && ev.LineEnd >= ev.LineStart &&
+		cit.Line >= ev.LineStart && cit.Line <= ev.LineEnd
+}
+
+func aggregateMemberSetEvidenceSummaryText(ev types.EvidenceItem) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(ev.Summary)), " ")
 }
 
 func aggregateMemberSetEvidencePool(ctx *types.BusContext) []types.EvidenceItem {
@@ -1802,27 +1931,33 @@ func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ..
 		return nil
 	}
 	type missingScalar struct {
+		kind  types.AnswerAggregateKind
 		label string
 		value string
+		unit  string
+		dims  []types.AnswerAggregateDimension
 	}
 	var missing []missingScalar
 	seen := make(map[string]bool)
-	for _, fact := range facts {
-		if fact.Kind != types.AnswerAggregateScalar {
+	for idx, fact := range facts {
+		if !preEmitAggregateFactRequiresVisibleValue(ctxOpt[0], facts, idx, fact) {
 			continue
 		}
 		value := strings.TrimSpace(fact.Value)
-		if value == "" || preEmitAggregateScalarValueAppears(value, surface) {
+		if value == "" || preEmitAggregateFactValueAppears(fact, surface) {
 			continue
 		}
-		key := strings.ToLower(value)
+		key := preEmitAggregateFactVisibilityKey(fact)
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 		missing = append(missing, missingScalar{
+			kind:  fact.Kind,
 			label: strings.TrimSpace(fact.Label),
 			value: value,
+			unit:  strings.TrimSpace(fact.Unit),
+			dims:  fact.Dimensions,
 		})
 	}
 	if len(missing) == 0 {
@@ -1830,18 +1965,164 @@ func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ..
 	}
 	parts := make([]string, 0, len(missing))
 	for _, m := range missing {
-		if m.label != "" {
-			parts = append(parts, fmt.Sprintf("label=%q value=%q", m.label, m.value))
-		} else {
-			parts = append(parts, fmt.Sprintf("value=%q", m.value))
-		}
+		parts = append(parts, preEmitAggregateFactExpectedShape(m.kind, m.label, m.value, m.unit, m.dims))
 	}
 	return []emitFixHint{{
 		Field: "blocks[].text OR blocks[].items[].label/text/cells",
-		ExpectedShape: "include every model-emitted scalar_value aggregate in the visible answer surface: " +
+		ExpectedShape: "include every principal model-emitted aggregate value in the visible answer surface: " +
 			strings.Join(parts, "; "),
-		Reason: "the investigation already handed these scalar values to the final answer as structured data; leaving them only in thinking, citations, or closure notes drops the user's requested literal.",
+		Reason: "the investigation already handed these scalar/count/no-hit values to the final answer as structured data; leaving them only in thinking, citations, or closure notes drops the user's requested literal or boundary.",
 	}}
+}
+
+func preEmitAggregateFactRequiresVisibleValue(ctx *types.BusContext, facts []types.AnswerAggregateFact, idx int, fact types.AnswerAggregateFact) bool {
+	if ctx != nil && ctx.AnalysisIR != nil &&
+		types.AggregateFactConflictsWithPrincipalMemberSetCounts(facts, &ctx.AnalysisIR.RequestModel, idx) {
+		return false
+	}
+	role := types.NormalizeAnswerAggregateRole(fact.Role)
+	switch role {
+	case types.AnswerAggregateRolePrincipalAnswer:
+		return true
+	case types.AnswerAggregateRoleSupportingCoverage, types.AnswerAggregateRoleAuditLedger:
+		return false
+	}
+	switch fact.Kind {
+	case types.AnswerAggregateScalar:
+		return true
+	case types.AnswerAggregateNegativeSearch:
+		return ctx != nil && ctx.Mutable != nil &&
+			strings.EqualFold(strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()), "absence")
+	case types.AnswerAggregateTotalCount,
+		types.AnswerAggregateUniqueCount,
+		types.AnswerAggregateGroupedCount,
+		types.AnswerAggregateBucketCount,
+		types.AnswerAggregateExcluded:
+		return preEmitAggregateRequestWantsCountValue(ctx)
+	default:
+		return false
+	}
+}
+
+func preEmitAggregateRequestWantsCountValue(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	return rm.Predicates.IsCountQuestion || rm.Predicates.IsScalarAnswer || rm.Intent == types.IntentReturnValue
+}
+
+func preEmitAggregateFactValueAppears(fact types.AnswerAggregateFact, surface string) bool {
+	value := strings.TrimSpace(fact.Value)
+	if value == "" || !preEmitAggregateScalarValueAppears(value, surface) {
+		return false
+	}
+	if fact.Kind != types.AnswerAggregateNegativeSearch {
+		return true
+	}
+	return preEmitNegativeSearchFactDimensionsAppear(fact, surface)
+}
+
+func preEmitNegativeSearchFactDimensionsAppear(fact types.AnswerAggregateFact, surface string) bool {
+	dims := preEmitAggregateDimensionMap(fact.Dimensions)
+	repo := dims["repo"]
+	if repo != "" && !preEmitAggregateDisplayPartAppears(repo, surface) {
+		return false
+	}
+	query := dims["query"]
+	if query == "" {
+		query = dims["pattern"]
+	}
+	if query != "" && !preEmitAggregateSearchPatternAppears(query, surface) {
+		return false
+	}
+	scope := dims["scope"]
+	if scope != "" && !strings.EqualFold(scope, repo) && !preEmitAggregateDisplayPartAppears(scope, surface) {
+		return false
+	}
+	return repo != "" || query != "" || scope != ""
+}
+
+func preEmitAggregateSearchPatternAppears(pattern, surface string) bool {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return true
+	}
+	if preEmitAggregateDisplayPartAppears(pattern, surface) {
+		return true
+	}
+	for _, token := range strings.FieldsFunc(pattern, func(r rune) bool {
+		switch r {
+		case '|', ',', '，', ';', '；', '/', '\\', '(', ')', '[', ']', '{', '}', '^', '$', '*', '+', '?':
+			return true
+		default:
+			return unicode.IsSpace(r)
+		}
+	}) {
+		token = strings.TrimSpace(token)
+		if len([]rune(token)) < 3 {
+			continue
+		}
+		if preEmitAggregateDisplayPartAppears(token, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitAggregateDimensionMap(dims []types.AnswerAggregateDimension) map[string]string {
+	out := make(map[string]string, len(dims))
+	for _, dim := range dims {
+		name := strings.ToLower(strings.TrimSpace(dim.Name))
+		value := strings.TrimSpace(dim.Value)
+		if name == "" || value == "" || out[name] != "" {
+			continue
+		}
+		out[name] = value
+	}
+	return out
+}
+
+func preEmitAggregateFactVisibilityKey(fact types.AnswerAggregateFact) string {
+	var b strings.Builder
+	b.WriteString(strings.ToLower(strings.TrimSpace(string(fact.Kind))))
+	b.WriteByte('\x00')
+	b.WriteString(strings.ToLower(strings.TrimSpace(fact.Label)))
+	b.WriteByte('\x00')
+	b.WriteString(strings.ToLower(strings.TrimSpace(fact.Value)))
+	b.WriteByte('\x00')
+	b.WriteString(strings.ToLower(preEmitAggregateDimensionSummary(fact.Dimensions)))
+	return b.String()
+}
+
+func preEmitAggregateFactExpectedShape(kind types.AnswerAggregateKind, label, value, unit string, dims []types.AnswerAggregateDimension) string {
+	parts := []string{fmt.Sprintf("kind=%q", string(kind)), fmt.Sprintf("value=%q", value)}
+	if label != "" {
+		parts = append(parts, fmt.Sprintf("label=%q", label))
+	}
+	if unit != "" {
+		parts = append(parts, fmt.Sprintf("unit=%q", unit))
+	}
+	if dimText := preEmitAggregateDimensionSummary(dims); dimText != "" {
+		parts = append(parts, "dimensions=["+dimText+"]")
+	}
+	return strings.Join(parts, " ")
+}
+
+func preEmitAggregateDimensionSummary(dims []types.AnswerAggregateDimension) string {
+	if len(dims) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(dims))
+	for _, dim := range dims {
+		name := strings.TrimSpace(dim.Name)
+		value := strings.TrimSpace(dim.Value)
+		if name == "" || value == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%q", name, value))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
@@ -1934,6 +2215,7 @@ func preEmitAggregateMemberSetCoverageHardGate(ctxOpt ...*types.BusContext) bool
 }
 
 func preEmitPrincipalAggregateMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	facts = types.PruneAggregateMemberSetsByStructuredExclusions(facts)
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return types.PrincipalAggregateMemberSetFactRefs(facts)
 	}
@@ -1941,6 +2223,7 @@ func preEmitPrincipalAggregateMemberSetFactRefs(ctx *types.BusContext, facts []t
 }
 
 func preEmitPrincipalRelationMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	facts = types.PruneAggregateMemberSetsByStructuredExclusions(facts)
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return types.PrincipalRelationMemberSetFactRefs(facts)
 	}

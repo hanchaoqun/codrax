@@ -879,7 +879,7 @@ llm:
     request_timeout_seconds: 240        # 非流式 HTTP 超时
     retry_max_attempts: 6               # 429 / 5xx 重试上限,默认 6
     stream_stall_timeout_seconds: 120   # SSE 启动后 N 秒无新字节,主动中止
-    stream_first_byte_timeout_seconds: 20  # 请求被接受后 N 秒还没首字节(provider 死锁/cold-start),中止
+    stream_first_byte_timeout_seconds: 40  # 请求被接受后 N 秒还没首字节(provider 死锁/cold-start),中止
     think_aloud: true                   # 是否要求模型在工具调用旁夹 1-2 句推理摘要
 ```
 

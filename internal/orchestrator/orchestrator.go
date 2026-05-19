@@ -4353,9 +4353,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				dispatchStepCount = len(parallelWindows)
 			} else {
 				prevDispatchKey := o.busCtx.ExploreDispatchKey
+				prevDispatchKind := o.busCtx.ExploreDispatchKind
 				o.busCtx.ExploreDispatchKey = exploreDispatchKeyForWindow(window)
+				o.busCtx.ExploreDispatchKind = exploreDispatchKindForWindow(window)
 				out, dispatchErr = o.dispatchStage(types.StageExplore)
 				o.busCtx.ExploreDispatchKey = prevDispatchKey
+				o.busCtx.ExploreDispatchKind = prevDispatchKind
 			}
 			if dispatchErr != nil {
 				logging.Error("[orchestrator] DAG explore window failed: %v", dispatchErr)
@@ -7255,7 +7258,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// Append the stage's synthesized narrative so downstream stages
 	// can read prior reasoning. The active agent/stage at this point
 	// is whatever just executed.
-	if output.StageReport != "" {
+	if strings.TrimSpace(output.StageReport) != "" {
 		o.busCtx.StageReports = append(o.busCtx.StageReports, types.StageReport{
 			Stage:    o.busCtx.PipelineStage,
 			Agent:    o.busCtx.ActiveAgent,

@@ -213,11 +213,21 @@ func IsCategoryEnumerationAnswerShape(rm RequestModel) bool {
 // separate typed member field for that shape, those mixed entities must
 // not become hard answer-member floors.
 //
+// Exhaustive, bounded, or bucketed enumerations are deliberately
+// excluded: their answer members must come from exploration-time
+// structured handoff (`aggregate_facts.member_set`) or grounded
+// evidence, not from the analyzer's early entity shortlist. That
+// shortlist can contain package names, scope anchors, helper concepts,
+// and category labels even when it is useful for search.
+//
 // The signal is schema-only and language-neutral. It does not scan
 // RawRequest text, so it applies uniformly to Go, C/C++, ArkTS,
 // Cangjie, Java/Kotlin, JS/TS, Python, Rust, and path/module surfaces.
 func CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm RequestModel) bool {
 	if IsArchitectureNarrativeExplanation(rm) {
+		return false
+	}
+	if rm.QuestionStructure().HasAnyObligation() {
 		return false
 	}
 	if !IsCategoryEnumerationAnswerShape(rm) {

@@ -1824,9 +1824,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// CATEGORY wrapper, not a relation criterion. So the carve-out
 	// preserves L0-B's true-positive coverage while closing the
 	// false-positive on relational lookups.
-	if rm.Predicates.IsCategoryEnumeration &&
-		!rm.Predicates.IsRelationalLookup &&
-		distinctNamedEntities(rm.AnalyzerHints.Entities) <= 1 {
+	if shouldRejectEnumerationCardinality(&rm) {
 		return nil, fmt.Errorf(
 			"analyzer: enumeration intent with ≤1 distinct named entity is structurally inconsistent — " +
 				"is_category_enumeration=true means the user is asking 'what kinds/types exist', " +
@@ -3373,4 +3371,25 @@ func distinctNamedEntities(entities []string) int {
 		seen[key] = struct{}{}
 	}
 	return len(seen)
+}
+
+func shouldRejectEnumerationCardinality(rm *types.RequestModel) bool {
+	return rm != nil &&
+		rm.Predicates.IsCategoryEnumeration &&
+		!rm.Predicates.IsRelationalLookup &&
+		!hasScopedInventoryEnumerationCarveOut(rm) &&
+		distinctNamedEntities(rm.AnalyzerHints.Entities) <= 1
+}
+
+func hasScopedInventoryEnumerationCarveOut(rm *types.RequestModel) bool {
+	if rm == nil {
+		return false
+	}
+	if len(rm.SubTopics) >= 2 || len(rm.Buckets) >= 2 {
+		return true
+	}
+	if len(rm.AnalyzerHints.RequiredFileHints) > 0 && rm.SourceScopeProfile != nil {
+		return true
+	}
+	return false
 }

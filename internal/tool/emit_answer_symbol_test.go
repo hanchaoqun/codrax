@@ -391,6 +391,35 @@ func TestEmitAnswerSymbol_PartialDropKeepsValidItems(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerSymbol_PartialDropDowngradesCompleteClaim(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "Bad",  "file": "a.go", "line": 0,  "kind": "function"},
+          {"name": "Good", "file": "a.go", "line": 42, "kind": "function"}
+        ],
+        "completeness": "complete"
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected partial success, got failure: %s", res.Summary)
+	}
+	got, claim := ctx.Mutable.EmittedAnswerSymbols()
+	if len(got) != 1 || got[0].Name != "Good" {
+		t.Fatalf("expected only valid item kept, got %d items: %+v", len(got), got)
+	}
+	if claim != types.CompletenessUnknown {
+		t.Fatalf("partial structural drop must not retain completeness=complete, got %q", claim)
+	}
+	if !strings.Contains(res.Summary, "completeness downgraded from complete to unknown") {
+		t.Fatalf("expected downgrade note in summary, got: %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerSymbol_RejectsBeyondRequestedEnumerationBoundary(t *testing.T) {
 	tool := &EmitAnswerSymbol{}
 	ctx := newAnswerSymbolCtx()

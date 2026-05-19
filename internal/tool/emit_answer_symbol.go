@@ -302,6 +302,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	built := make([]types.AnswerSymbol, 0, len(p.Items))
 	var dropped []string
 	var repaired []string
+	var notes []string
 	for i, in := range p.Items {
 		sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle, groundCtx, stepCandidates, groundedCandidates, &repaired)
 		if perr != nil {
@@ -324,6 +325,10 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	// the whole ProposeSubAgents list → finalizer answered 0.
 	if len(built) == 0 && len(dropped) > 0 {
 		return failEmit(t.Name(), now, "%s", strings.Join(dropped, "; "))
+	}
+	if len(dropped) > 0 && claim == types.CompletenessComplete {
+		claim = types.CompletenessUnknown
+		notes = append(notes, "completeness downgraded from complete to unknown because some emitted answer-symbol items were dropped by structural validation")
 	}
 
 	// AuthorityCeiling axis: pin each AnswerSymbol's Authority to the
@@ -354,7 +359,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   renderEmitAnswerSymbolSummary(built, claim, dropped, repaired),
+		Summary:   renderEmitAnswerSymbolSummary(built, claim, dropped, repaired, notes),
 		Timestamp: now,
 	}, nil
 }
@@ -710,7 +715,7 @@ func isInsideWorkDir(filePath, workDir string) bool {
 	return strings.HasPrefix(filePath, clean+"/")
 }
 
-func renderEmitAnswerSymbolSummary(items []types.AnswerSymbol, claim types.CompletenessClaim, dropped []string, repaired []string) string {
+func renderEmitAnswerSymbolSummary(items []types.AnswerSymbol, claim types.CompletenessClaim, dropped []string, repaired []string, notes []string) string {
 	var b strings.Builder
 	claimText := string(claim)
 	if claimText == "" {
@@ -730,6 +735,12 @@ func renderEmitAnswerSymbolSummary(items []types.AnswerSymbol, claim types.Compl
 		fmt.Fprintf(&b, "auto-canonicalized %d item(s) from grounded evidence:\n", len(repaired))
 		for _, r := range repaired {
 			fmt.Fprintf(&b, "  - %s\n", r)
+		}
+	}
+	if len(notes) > 0 {
+		fmt.Fprintf(&b, "notes:\n")
+		for _, note := range notes {
+			fmt.Fprintf(&b, "  - %s\n", note)
 		}
 	}
 	return b.String()
