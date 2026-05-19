@@ -64,7 +64,7 @@ git log --oneline 7ac49a35..HEAD -- \
 | Batch 1 | Phase 4 + Phase 3：软化 `error_granularity_profile.source_quotes`；新增 diagnostic mirror typed normalizer；收紧 diagnostic reconciler 入口 | **DONE (2026-05-19)** | `internal/tool/emit_analysis.go`, `internal/agent/analyzer_intent.go`, `internal/tool/emit_analysis_test.go`, `internal/agent/analyzer_intent_test.go` | forensic case 不再因 granularity quote 重试；`diagnostic_profile.is_diagnostic=true` 不再在 predicate=false 且无强诊断信号时把 explain 题升级 root_cause |
 | Batch 2 | Phase 1：EntityProvenance producer telemetry-only，不接 consumer | **DONE (2026-05-19)** | `internal/types/analysis_ir.go`, `internal/agent/entity_provenance_projection.go`, `internal/agent/analyzer.go`, `internal/agent/entity_provenance_projection_test.go` | 只新增 typed side-lane 与 summary telemetry；下游行为不变 |
 | Batch 3 | Phase 2：consumer wiring，search/shape 分流读取 provenance，nil provenance 全 keep | **DONE (2026-05-19)** | `internal/agent/entity_provenance_filter.go`, `internal/agent/keyword_search.go`, `internal/agent/explorer.go`, `internal/agent/ir_accessor.go` | full eval 不增加 retry；多仓/单仓均不误伤合法 entity |
-| Batch 4 | Phase 5：基于 telemetry 决定 blocklist drop→noise 降级与 schema 文案小步更新 | TODO | `internal/tool/analysis_limits.go`, `internal/tool/emit_analysis.go` schema | `DroppedEntities` fixture 有明确迁移；不得在无 telemetry 时扩大噪声流 |
+| Batch 4 | Phase 5：schema 文案同步已交付；blocklist drop→noise 降级等待 telemetry 决策 | **DONE / BLOCKLIST DEFERRED (2026-05-19)** | `internal/tool/emit_analysis.go` schema；`internal/tool/analysis_limits.go` 保持不变 | schema 与已交付能力一致；无 telemetry 前不得扩大噪声流 |
 
 Batch 1 verification:
 
@@ -94,6 +94,13 @@ go test ./internal/tool
 go test ./internal/orchestrator
 go test ./internal/types
 go test ./internal/analysis/...
+```
+
+Batch 4 verification:
+
+```bash
+go test ./internal/tool -run 'TestEmitAnalysisSchema|TestEmitAnalysis_Execute'
+go test ./internal/tool
 ```
 
 ---
@@ -582,14 +589,14 @@ new behavior:
 
 **目标**：让 LLM 看到的 schema 描述真实反映系统能力（"系统会自动 derive，你不必精填"），同时把 `GenericEntityBlocklist` 从 drop 路径降级为 NoiseScore 快速近似。
 
-**2026-05-19 修订**：Phase 5 不再建议先跑。Schema 文案可以随 Phase 3/4 的实际能力一起小步更新；`GenericEntityBlocklist` 的 drop→noise 降级必须等 Phase 1 telemetry 跑过 forensic/eval 后再做。否则在 provenance consumer 未接线前改变 entity 流，会把一个"标注系统"问题变成 search/shape 噪声扩大问题。
+**2026-05-19 修订**：Phase 5 不再建议先跑。Schema 文案已随 Batch 4 小步同步到已交付能力；`GenericEntityBlocklist` 的 drop→noise 降级必须等 EntityProvenance telemetry 跑过 forensic/eval 后再做。否则在 provenance consumer 未接线前改变 entity 流，会把一个"标注系统"问题变成 search/shape 噪声扩大问题。
 
 **Files / changes**：
 
 | 文件 | 操作 | 描述 |
 |---|---|---|
-| `internal/tool/analysis_limits.go:633-690` `filterGenericEntitiesWithWhitelist` | 改 ~30 LOC | 不再 drop，全部 keep；返回值改为带 NoiseScore 的 tagging 结构。**延后到 Phase 1 telemetry 证明安全后再做** |
-| `internal/tool/analysis_limits.go:502-560` `validateAnalysisInput` | 改 ~10 LOC | DroppedEntities 永远空（保留 struct field 兼容旧测试）。同样延后到 blocklist 降级落地时修改 |
+| `internal/tool/analysis_limits.go:633-690` `filterGenericEntitiesWithWhitelist` | **DEFER** | 不再 drop，全部 keep；返回值改为带 NoiseScore 的 tagging 结构。**延后到 EntityProvenance telemetry 证明安全后再做** |
+| `internal/tool/analysis_limits.go:502-560` `validateAnalysisInput` | **DEFER** | DroppedEntities 永远空（保留 struct field 兼容旧测试）。同样延后到 blocklist 降级落地时修改 |
 | `internal/tool/emit_analysis.go:344-357` `entities` schema desc | 改 ~5 LOC | 追加："entities can be code symbols, file paths, OR answer-shape vocabulary the user explicitly asked about (categories, outcomes, comparison axes). The system classifies provenance automatically." |
 | `internal/tool/emit_analysis.go:344-358` `predicates / diagnostic_profile` schema desc | 改 ~10 LOC | 在 `is_diagnostic_question` 和 `is_diagnostic` 描述末尾追加：" These two fields are mirrors; the system auto-aligns the profile copy to match the predicate. Always set both consistently, but the system tolerates mirror drift." |
 | `internal/tool/emit_analysis.go:473` `is_granularity_question` schema desc | 改 ~5 LOC | 追加："The system normalizes source_quotes against the current request; exact verbatim is preferred, and unanchored optional quotes may be ignored instead of retried." |
@@ -597,7 +604,7 @@ new behavior:
 **Eval bar**：
 - 全集 58 case × 1 round：DroppedEntities 测试 fixture 全部为空数组（更新 expected）；其他 ZERO regression
 
-**风险**：中。Schema 文案不破 wire format；但 blocklist drop 行为变化会影响 downstream 候选集合，必须建立在 Phase 1 telemetry + Phase 2 consumer fallback 已验证的基础上。
+**风险**：中。Schema 文案不破 wire format；但 blocklist drop 行为变化会影响 downstream 候选集合，必须建立在 EntityProvenance telemetry + consumer fallback 已验证的基础上。本批不改 blocklist 行为。
 
 **Commit 拆分**（建议 3 commits）：
 1. tool: blocklist downgrade to NoiseScore fast-path (no drop)

@@ -353,15 +353,15 @@ func buildEmitAnalysisSchema() {
 					"is_relational_lookup":    map[string]any{"type": "boolean", "description": "True if filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')."},
 					"is_category_enumeration": map[string]any{"type": "boolean", "description": "True if asking 'what kinds / types / categories of X exist'."},
 					"is_history_lookup":       map[string]any{"type": "boolean", "description": "True when the literal answer should come from repository history / authorship metadata (git log / blame / commit history), not from a repo file:line."},
-					"is_diagnostic_question":  map[string]any{"type": "boolean", "description": "True when the current request asks to diagnose a failure, regression, runtime symptom, observed bad behaviour, or whether a similar problem still exists, and expects cause / current-risk / remediation analysis. Applies with or without an attached runtime artifact. False for ordinary architecture tours, code walkthroughs, or log/trace parser mechanism questions."},
+					"is_diagnostic_question":  map[string]any{"type": "boolean", "description": "True when the current request asks to diagnose a failure, regression, runtime symptom, observed bad behaviour, or whether a similar problem still exists, and expects cause / current-risk / remediation analysis. Applies with or without an attached runtime artifact. False for ordinary architecture tours, code walkthroughs, or log/trace parser mechanism questions. This is the primary diagnostic routing predicate; the system aligns diagnostic_profile.is_diagnostic to it unless independent current-risk / historical-regression signals are present."},
 				},
 				"required": []string{"is_scalar_answer", "is_role_locate_lookup", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration", "is_history_lookup", "is_diagnostic_question"},
 			},
 			"diagnostic_profile": map[string]any{
 				"type":        "object",
-				"description": "Required typed diagnostic-intent profile. Use this as a second safety lane for diagnosis, current-risk, historical-regression, and current-version verification questions. Every boolean field is required; emit true OR false explicitly. Do not infer from raw artifact presence alone.",
+				"description": "Required typed diagnostic-intent profile. Use this as a second safety lane for diagnosis, current-risk, historical-regression, and current-version verification questions. Every boolean field is required; emit true OR false explicitly. Do not infer from raw artifact presence alone. The system tolerates mirror drift by aligning is_diagnostic to predicates.is_diagnostic_question unless current_risk or historical_regression is true.",
 				"properties": map[string]any{
-					"is_diagnostic":         map[string]any{"type": "boolean", "description": "True when the current request expects diagnosis / cause / remediation analysis."},
+					"is_diagnostic":         map[string]any{"type": "boolean", "description": "Profile-level mirror of predicates.is_diagnostic_question. Set both consistently; the system can auto-align this mirror when it drifts."},
 					"current_risk":          map[string]any{"type": "boolean", "description": "True when the current request asks whether a known or observed issue can still happen in the current checkout."},
 					"historical_regression": map[string]any{"type": "boolean", "description": "True when the request compares a historical observed symptom against the current version."},
 					"current_version_check": map[string]any{"type": "boolean", "description": "True only for diagnostic current-status questions where the answer must verify current code separately from historical artifact observations; false for ordinary exact/config/value/location lookups."},
@@ -473,7 +473,7 @@ func buildEmitAnalysisSchema() {
 				"properties": map[string]any{
 					"is_granularity_question":   map[string]any{"type": "boolean", "description": "True only when the current request asks how failures are scoped, such as per-item rejection, whole-batch failure, partial success, fail-fast stop, or collected errors."},
 					"requested_verdict_options": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": errorGranularityRequestedOptionValues()}, "description": "Optional enum options explicitly contrasted by the current request. This is not the answer verdict; it constrains the final decision to one of the request's alternatives when evidence supports one."},
-					"source_quotes":             map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that state the failure-scope question."},
+					"source_quotes":             map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Current-request phrase(s) that state the failure-scope question. Exact verbatim is preferred; the system performs deterministic normalization and may ignore unanchored optional quotes instead of forcing a retry."},
 					"confidence":                map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this failure-scope profile in [0,1]."},
 					"rationale":                 map[string]any{"type": "string", "description": "Short audit rationale for why a canonical failure-scope verdict is or is not required."},
 				},
