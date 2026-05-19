@@ -66,6 +66,7 @@ git log --oneline 7ac49a35..HEAD -- \
 | Batch 3 | Phase 2：consumer wiring，search/shape 分流读取 provenance，nil provenance 全 keep | **DONE (2026-05-19)** | `internal/agent/entity_provenance_filter.go`, `internal/agent/keyword_search.go`, `internal/agent/explorer.go`, `internal/agent/ir_accessor.go` | full eval 不增加 retry；多仓/单仓均不误伤合法 entity |
 | Batch 4 | Phase 5：schema 文案同步已交付；blocklist drop→noise 降级等待 telemetry 决策 | **DONE / BLOCKLIST DEFERRED (2026-05-19)** | `internal/tool/emit_analysis.go` schema；`internal/tool/analysis_limits.go` 行为保持不变 | schema 与已交付能力一致；无 telemetry 前不得扩大噪声流 |
 | Batch 5 | Blocklist shadow telemetry：保持 drop 行为，仅记录未来 drop→noise 路径会如何处理被丢弃实体 | **DONE (2026-05-19)** | `internal/tool/analysis_limits.go`, `internal/tool/emit_analysis.go`, `internal/tool/emit_analysis_test.go` | `DroppedEntities` 和 user-facing warnings 不变；日志新增 `blocklist_shadow`，证明 dropped generic entity 在未来降级时默认不会进入 search/shape |
+| Batch 6 | Telemetry/eval 聚合器：把 analyzer provenance、blocklist shadow、finalizer contract violation / repair kind 汇总成 Markdown/JSON 报告 | **DONE (2026-05-19)** | `eval/telemetry`, `eval/telemetry/README.md` | 可对 `eval/results` / `.codrax/logs` / `../customlogs` 做离线聚合；后续 blocklist 降级必须先用本报告证明安全 |
 
 Batch 1 verification:
 
@@ -109,6 +110,13 @@ Batch 5 verification:
 ```bash
 go test ./internal/tool -run 'TestValidateAnalysisInput_(DropsGenericEntities|EmptyBlocklistSkipsFilter|WhitelistKeepsVerifiedGenericEntity|WhitelistRejectsPathOnlyGenericEntity)$'
 go test ./internal/tool
+```
+
+Batch 6 verification:
+
+```bash
+go test ./eval/telemetry
+go run ./eval/telemetry --format markdown --top 8 ../customlogs
 ```
 
 ---

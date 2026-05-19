@@ -2,6 +2,15 @@
 
 Status: active (2026-05-13)
 
+## 2026-05-19 Batch Plan
+
+The next delivery wave is intentionally evidence-first:
+
+1. **DONE** — telemetry/eval aggregation (`eval/telemetry`): summarize analyzer provenance, `blocklist_shadow`, finalizer contract-violation sections, repair kinds, tool-param repair, and LLM timeout/error lines from `eval/results`, `.codrax/logs`, or customer snippets.
+2. **NEXT** — G45 citation-index pressure: reduce finalizer retries caused by adjacent anchors by improving the support handoff surface with stable labels/ids. Keep the existing citation correctness hard gate; do not relax it unless a separate typed proof shows it is over-broad.
+3. **AFTER G45** — G43 write-mode EOF/stall + write classifier reconciliation: transport failures must not consume semantic budget, and typo/fix/apply requests should route to plan/change lanes unless the user explicitly asks for analysis only.
+4. **AFTER TELEMETRY SWEEP** — decide whether `GenericEntityBlocklist` can move from hard drop to typed noise. This must be based on aggregate telemetry, not on a single hand-picked log.
+
 This document tracks cross-case shortcomings found by recent REPL/eval audits.
 It is intentionally a code-location ledger, not a new architecture. Each fix
 must reuse the existing typed pipeline:
