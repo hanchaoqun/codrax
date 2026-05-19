@@ -433,7 +433,6 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		ViolEnumerationLabelUngrounded,
 		ViolEnumerationLabelHallucinated,
 		ViolInlineIdentifierHallucinated,
-		ViolDiagramEdgeEndpointHallucinated,
 		ViolEnumerationItemLabelExtractorDrift,
 		ViolCrossCitationConflict,
 		ViolDeclaredCountDrift,
@@ -472,8 +471,14 @@ func legacyDeriveSeverity(kind ViolationKind, isStrict bool) Severity {
 		// Diagram relation label-only is even weaker: the visible label
 		// already satisfies the contract, and the missing edge_anchors
 		// metadata is telemetry only.
+		// Diagram endpoint resolution is also a visual-carrier signal:
+		// Mermaid nodes may be component labels rather than exact code
+		// declarations, and graph coverage differs by language. Keep it
+		// permanent SOFT so diagrams requested by the user are caveated,
+		// not rewritten away.
 		ViolDiagramEdgeLabelMismatch,
-		ViolDiagramRelationLabelOnly:
+		ViolDiagramRelationLabelOnly,
+		ViolDiagramEdgeEndpointHallucinated:
 		return SeveritySoft
 	}
 	// G5 (post_v2_runtime_gap_remediation, 2026-05-04) — semantic

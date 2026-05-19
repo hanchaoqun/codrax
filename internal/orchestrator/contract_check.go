@@ -1968,7 +1968,10 @@ var (
 // SetSoftViolationKinds replaces the active soft-kind set. Empty
 // args restore defaults. Called from cmd/root.go after reading
 // runtime config. Order: start from defaults, add `extraSoft`,
-// remove `extraStrict`.
+// then promote only registry-promotable `extraStrict` kinds. A
+// non-promotable kind is permanently soft/terminal; deleting it from
+// the soft map would accidentally re-harden it through the legacy
+// profile fallback.
 func SetSoftViolationKinds(extraSoft []string, extraStrict []string) {
 	out := defaultSoftKinds()
 	strictOut := map[types.ViolationKind]bool{}
@@ -1984,10 +1987,11 @@ func SetSoftViolationKinds(extraSoft []string, extraStrict []string) {
 			continue
 		}
 		kind := types.ViolationKind(k)
-		delete(out, kind)
-		if types.IsViolKindPromotable(kind) {
-			strictOut[kind] = true
+		if !types.IsViolKindPromotable(kind) {
+			continue
 		}
+		delete(out, kind)
+		strictOut[kind] = true
 	}
 	softKindsMu.Lock()
 	softViolationKinds = out

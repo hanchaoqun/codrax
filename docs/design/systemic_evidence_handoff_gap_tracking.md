@@ -13,7 +13,8 @@ The next delivery wave is intentionally evidence-first:
 5. **DONE** — `emit_analysis` now runs existing schema-aware scalar normalization at the tool boundary. String-wrapped enum values and numeric strings are repaired before strict unmarshal, even when the call path did not go through the agent-level compatibility shim.
 6. **DONE** — analyzer gate acceptance now has one hard/soft policy in `analysis/gate`. Soft hygiene checks can still fail their own check for telemetry, but they no longer stamp `GateReport.Rejected` / retry fingerprints or rely on analyzer-local skip lists.
 7. **DONE** — missing `diagnostic_profile` no longer burns an analyzer retry when `predicates` already supplied the primary diagnostic route. Runtime defaults only the mirror profile from typed predicates and leaves current-risk/regression/current-version flags false unless the model explicitly emitted them.
-8. **NEXT / AFTER TELEMETRY SWEEP** — decide whether `GenericEntityBlocklist` can move from hard drop to typed noise. This must be based on aggregate telemetry, not on a single hand-picked log.
+8. **DONE** — diagram endpoint oracle retries are now permanently soft/caveat-only. Mermaid node ids are visual carriers, so unresolved component-like endpoints no longer burn finalizer rewrite rounds or let `pipeline_contract_strict_kinds` re-harden a non-promotable kind.
+9. **NEXT / AFTER TELEMETRY SWEEP** — decide whether `GenericEntityBlocklist` can move from hard drop to typed noise. This must be based on aggregate telemetry, not on a single hand-picked log.
 
 This document tracks cross-case shortcomings found by recent REPL/eval audits.
 It is intentionally a code-location ledger, not a new architecture. Each fix
@@ -90,6 +91,7 @@ structured data, not raw thinking text or system-invented answer content.
 | G56 | Analyzer retries can still be spent on mechanically wrong JSON scalar types when a call path bypasses agent-level `tool_param_compat` normalization: string-wrapped enums such as `"\"explain\""`, empty predicate axes like `"\"\""`, and numeric strings like `": 0.95"` reach `emit_analysis` strict unmarshal / enum validation and force a retry. | `internal/tool/emit_analysis.go`, `internal/tool/emit_analysis_test.go` | Reuse the existing schema-aware `toolparam.Normalize` at the `emit_analysis` tool boundary with the production repair defaults. This repairs only schema-proven scalar equivalences before strict unmarshal; it does not invent missing required fields or read user/model prose. | Implemented in this phase |
 | G57 | Analyzer soft checks relied on split semantics: `gate.RunWith` marked any failed check as `Rejected`, while `analyzer.classifyGateFailure` locally skipped `pending_fields_wellformed`. That meant a future consumer of `GateReport.Rejected` could spend retry budget on a check that was supposed to be telemetry-only. | `internal/analysis/gate/gate.go`, `internal/agent/analyzer.go`, `internal/analysis/gate/gate_test.go` | Add `gate.IsHardRejectingCheck` as the single typed hard/soft policy. `RunWith` uses it for `Passed` / `Rejected` / `Retryable` / fingerprint stamping, and analyzer retry classification delegates to the same helper. Soft-only hygiene failures remain visible in `Checks` but cannot trigger analyzer retries or retry-storm accounting. | Implemented in this phase |
 | G58 | Analyzer local-model calls can omit the support-only `diagnostic_profile` object even after successfully emitting the primary `predicates.is_diagnostic_question` route. The old fail-loud parser forced another 1/4 retry for a mirror-lane omission, despite the primary typed diagnostic signal being available. | `internal/tool/emit_analysis.go`, `internal/tool/emit_analysis_test.go` | Keep `predicates` fail-loud, but make the diagnostic mirror profile tolerant: if the object or individual mirror fields are missing, default from typed predicates/profile fields only, never from raw prose. The system mirrors `is_diagnostic` from `predicates.is_diagnostic_question` and defaults current-risk / historical-regression / current-version to false unless explicitly emitted. The warning remains visible in the tool summary for audit. | Implemented in this phase |
+| G59 | Architecture / logic-view answers can include Mermaid component node ids that do not resolve to exact code symbols. The `diagram_edge_endpoint_hallucinated` oracle was default-soft, but operator strict config could still promote it and force finalizer to rewrite or delete a user-requested diagram. | `internal/types/violation_registry.go`, `internal/types/retry_state.go`, `internal/orchestrator/contract_check.go`, `internal/orchestrator/fallback_policy.go`, `internal/orchestrator/violation_root_cause_test.go` | Treat diagram endpoints as visual-carrier fidelity signals, not direct code-symbol assertions. The kind is permanent `SeveritySoft`, non-promotable, terminal/caveat-only, and `SetSoftViolationKinds` refuses to delete soft policy entries for non-promotable kinds. This keeps typed telemetry and diagram-fidelity caveats while preventing finalizer hard retries from a noisy graph-resolution signal. | Implemented in this phase |
 
 ## Implementation Order
 
@@ -214,6 +216,15 @@ structured data, not raw thinking text or system-invented answer content.
 36. G56 is now implemented. Future analyzer parameter compatibility fixes should
     extend the shared schema-aware `toolparam` normalizer, not add per-field
     ad hoc unmarshalling to `emit_analysis`.
+37. G57/G58 are now implemented. Analyzer retries should now be reserved for
+    missing primary typed signals, not soft hygiene checks or omitted mirror
+    profiles.
+38. G59 is now implemented. Future diagram validators must distinguish visible
+    answer correctness from visual-carrier metadata or graph-resolution noise:
+    only the former may become retry-eligible.
+39. Continue telemetry sampling before touching `GenericEntityBlocklist`; the
+    current aggregate sweep showed no drops in recent logs, so moving it now
+    would be speculative rather than evidence-backed.
 
 ## Non-Goals
 

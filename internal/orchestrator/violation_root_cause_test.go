@@ -244,6 +244,19 @@ func TestFilterFinalizerRetryRootViolations_StrictPromotionKeepsKindActionable(t
 	}
 }
 
+func TestFilterFinalizerRetryRootViolations_StrictCannotPromoteNonPromotableKind(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolDiagramEdgeEndpointHallucinated)})
+
+	in := []types.Violation{
+		{Kind: types.ViolDiagramEdgeEndpointHallucinated, Detail: "diagram endpoint is a component label"},
+	}
+	out := FilterFinalizerRetryRootViolations(in)
+	if len(out) != 0 {
+		t.Fatalf("non-promotable diagram endpoint concern must not drive finalizer retry, got %d: %+v", len(out), out)
+	}
+}
+
 func TestRenderViolations_SuppressesSoftTelemetryBesideHardFailure(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, []string{string(types.ViolSuccessCriterion)})

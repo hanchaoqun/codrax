@@ -375,14 +375,12 @@ func legacyDefaultFallbackPolicy() FallbackPolicy {
 		// already in the existing extractor slate / evidence pool.
 		// Recovery: finalizer single-agent re-emit with a real name.
 		types.ViolEnumerationLabelHallucinated: FallbackFinalizerOnly,
-		// Fix D, 2026-05-07 diagram audit — finalizer emitted a
-		// mermaid edge endpoint identifier the typed-graph
-		// SymbolOracle reports as Tier 0. Re-running explore wastes
-		// budget; the diagram body is LLM-rendered and the existing
-		// slate / evidence pool already names the right symbols.
-		// Recovery: finalizer single-agent re-emit the diagram with
-		// node names the codebase confirms.
-		types.ViolDiagramEdgeEndpointHallucinated: FallbackFinalizerOnly,
+		// 2026-05-19 commercial softening — Mermaid node ids are a
+		// visual carrier, and architecture diagrams often use
+		// component labels that are not exact graph symbols. Ship with
+		// a diagram-fidelity caveat instead of forcing a rewrite that
+		// may delete the user-requested diagram.
+		types.ViolDiagramEdgeEndpointHallucinated: FallbackFailLoud,
 		// Fix I, 2026-05-07 post-batch eval forensic — finalizer
 		// rendered fabricated identifiers inside prose backticks of
 		// Summary / Section / Scalar / Decision blocks. The

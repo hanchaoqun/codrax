@@ -693,10 +693,11 @@ const (
 	//   - ViolDiagramEdgeEndpointHallucinated — mermaid edge endpoints
 	//   - ViolInlineIdentifierHallucinated   — prose-text inline backticks
 	//
-	// Together these three cover every surface where the LLM may
-	// render a symbol-shape token; collectively they enforce the
-	// "every visible identifier MUST be a real codebase symbol"
-	// contract across all V2 block kinds.
+	// Together these three observe every surface where the LLM may
+	// render a symbol-shape token. Prose/list identifiers remain
+	// retry-eligible because they claim code symbols directly; diagram
+	// endpoint identifiers are Mermaid carriers and are caveated by
+	// default because architecture diagrams often use component labels.
 	//
 	// Default classification: Medium severity, retry-eligible
 	// finalizer-only. Operators promote via
@@ -731,9 +732,9 @@ const (
 	// name. Without this gate, the user receives a mermaid
 	// diagram referencing identifiers no source file declares.
 	//
-	// Default classification: Medium severity, retry-eligible
-	// finalizer-only. Operators promote via
-	// pipeline_contract_strict_kinds.
+	// Default classification: Soft severity, not retry-eligible.
+	// Endpoint resolution failures are surfaced through diagram-fidelity
+	// caveats / telemetry rather than forcing a finalizer rewrite.
 	ViolDiagramEdgeEndpointHallucinated ViolationKind = "diagram_edge_endpoint_hallucinated"
 
 	// ViolEnumerationLabelHallucinated (Fix C, s1a-20260507

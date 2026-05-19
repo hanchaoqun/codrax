@@ -956,13 +956,15 @@ func init() {
 		FixableByAgents: []AgentName{AgentFinalizer},
 	})
 	RegisterViolKind(ViolKindSpec{
-		Kind: ViolDiagramEdgeEndpointHallucinated, DefaultSeverity: SeverityMedium,
-		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
+		Kind: ViolDiagramEdgeEndpointHallucinated, DefaultSeverity: SeveritySoft,
+		SoftByDefault: true, Promotable: false, FallbackLocus: LocusTerminal,
 		Layer: "contract_check", CaveatFamilyID: CaveatFamilyDiagramFidelity,
-		SchemaDescriptionFragment: "For diagram blocks, every mermaid edge endpoint (the `from` and `to` node identifiers) whose leading identifier is ≥10 chars MUST be a real function / type / constant declared in the codebase. Fabricated node names that no source file declares are rejected — the rendered diagram cannot reference identifiers that don't exist.",
-		// Fix path: finalizer single-agent — the diagram body is
-		// LLM-rendered and the extractor's slate is fine; the only
-		// fix is re-emitting the diagram with a real identifier.
+		SchemaDescriptionFragment: "For diagram blocks, mermaid edge endpoint identifiers should prefer real function / type / constant names when the diagram is a code-level call/data-flow view. Unresolved endpoint identifiers are surfaced as diagram-fidelity caveats instead of forcing a rewrite because architecture diagrams often use component labels or Mermaid node ids.",
+		// Fix path: no automatic retry. The diagram body is a
+		// user-facing visual carrier, and endpoint resolution is noisy
+		// across architecture/component diagrams and language graph
+		// coverage. Ship with a diagram-fidelity caveat instead of
+		// burning a finalizer round that may delete the requested view.
 		FixableByAgents: []AgentName{AgentFinalizer},
 	})
 	RegisterViolKind(ViolKindSpec{

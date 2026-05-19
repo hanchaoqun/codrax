@@ -91,7 +91,6 @@ func TestCommercialGateKinds_DefaultToCaveat(t *testing.T) {
 		ViolEnumerationItemLabelExtractorDrift,
 		ViolEnumerationLabelHallucinated,
 		ViolInlineIdentifierHallucinated,
-		ViolDiagramEdgeEndpointHallucinated,
 		ViolLaneBlockKindMismatch,
 		ViolPrincipalSupportMemberOmitted,
 		ViolScalarCountUnsourced,
@@ -114,6 +113,39 @@ func TestCommercialGateKinds_DefaultToCaveat(t *testing.T) {
 		strict := ViolationProfileFor(kind, true)
 		if !strict.RetryEligible {
 			t.Errorf("kind=%q strict-promote: RetryEligible=false want true", kind)
+		}
+	}
+}
+
+// TestDiagramEdgeEndpointHallucinated_CaveatOnly locks the commercial
+// boundary for visual diagrams. Mermaid node identifiers are a carrier
+// for the rendered diagram, not always a direct code-symbol assertion,
+// so unresolved endpoints must never trigger a finalizer retry even
+// when an operator lists the kind under strict config.
+func TestDiagramEdgeEndpointHallucinated_CaveatOnly(t *testing.T) {
+	spec, ok := ViolKindSpecFor(ViolDiagramEdgeEndpointHallucinated)
+	if !ok {
+		t.Fatal("ViolDiagramEdgeEndpointHallucinated must be registered")
+	}
+	if spec.DefaultSeverity != SeveritySoft {
+		t.Fatalf("DefaultSeverity = %q, want %q", spec.DefaultSeverity, SeveritySoft)
+	}
+	if !spec.SoftByDefault {
+		t.Fatal("SoftByDefault = false, want true")
+	}
+	if spec.Promotable {
+		t.Fatal("Promotable = true, want false")
+	}
+	if spec.FallbackLocus != LocusTerminal {
+		t.Fatalf("FallbackLocus = %q, want %q", spec.FallbackLocus, LocusTerminal)
+	}
+	if spec.CaveatFamilyID != CaveatFamilyDiagramFidelity {
+		t.Fatalf("CaveatFamilyID = %q, want %q", spec.CaveatFamilyID, CaveatFamilyDiagramFidelity)
+	}
+	for _, strict := range []bool{false, true} {
+		profile := ViolationProfileFor(ViolDiagramEdgeEndpointHallucinated, strict)
+		if profile.Severity != SeveritySoft || profile.RetryEligible {
+			t.Fatalf("strict=%v profile = %+v, want permanent SOFT with no retry", strict, profile)
 		}
 	}
 }
