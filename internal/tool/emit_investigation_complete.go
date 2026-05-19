@@ -1377,11 +1377,15 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 		b.WriteString("Read the scanned files (if any) and/or verify the suspicious anchors, then re-call emit_investigation_complete. Marking complete now will drop every chain anchored in them.")
 		return b.String()
 	}
-	if downgrade := callChainPrincipalSpanDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
-		return downgrade
-	}
-	if downgrade := callChainQualifiedIntermediateDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
-		return downgrade
+	if callChainAggregateMemberSetCompletesPrincipalBoundary(ctx, aggregateFacts, evidence) {
+		logging.Info("[emit_investigation_complete] call-chain closure gates satisfied by principal aggregate member_set")
+	} else {
+		if downgrade := callChainPrincipalSpanDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
+			return downgrade
+		}
+		if downgrade := callChainQualifiedIntermediateDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
+			return downgrade
+		}
 	}
 	if justification == "" {
 		if downgrade := fieldValueCountCoverageDowngradeWithEvidence(ctx, closure, evidence); downgrade != "" {
@@ -2633,6 +2637,9 @@ func aggregateMemberDisplayCandidates(member string) []string {
 	}
 	out := []string{member}
 	out = append(out, types.AnswerAggregateMemberDisplayCandidates(member)...)
+	if base, ok := aggregateDecoratedSourceSupportBase(member); ok {
+		out = append(out, base)
+	}
 	for _, sep := range []string{" @ ", "\t", " | "} {
 		if idx := strings.Index(member, sep); idx > 0 {
 			prefix := strings.TrimSpace(member[:idx])
@@ -2642,6 +2649,24 @@ func aggregateMemberDisplayCandidates(member string) []string {
 		}
 	}
 	return dedupStringsPreserveOrder(out)
+}
+
+func aggregateDecoratedSourceSupportBase(member string) (string, bool) {
+	base, qualifier, ok := types.AnswerAggregateDecoratedLabelParts(member)
+	if !ok {
+		return "", false
+	}
+	base = strings.TrimSpace(base)
+	if base == "" || !types.IsCodeIdentitySurface(base) {
+		return "", false
+	}
+	if _, ok := aggregateDecoratedLineQualifierNumber(qualifier); ok {
+		return base, true
+	}
+	if surface, ok := types.ParseAnswerSourceLocationSurface(qualifier); ok && surface.File != "" && surface.LineStart > 0 {
+		return base, true
+	}
+	return "", false
 }
 
 func aggregateMemberNeedsTypedSupport(labels []string) bool {
@@ -2689,11 +2714,36 @@ func aggregateMemberCoveredByEvidenceLabels(labels []string, byLabel map[string]
 }
 
 func aggregateMemberSupportRefParts(raw string) (label string, location string, ok bool) {
+	if label, loc, parsed := aggregateColonSupportRefMemberLocation(raw); parsed {
+		return label, aggregateSupportLocationKey(loc.File, loc.LineStart), true
+	}
 	label, loc, parsed := types.ParseAnswerSupportRefMemberLocation(raw)
 	if !parsed {
 		return "", "", false
 	}
 	return label, aggregateSupportLocationKey(loc.File, loc.LineStart), true
+}
+
+func aggregateColonSupportRefMemberLocation(raw string) (label string, location types.AnswerSourceLocationSurface, ok bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", types.AnswerSourceLocationSurface{}, false
+	}
+	for _, sep := range []string{": ", ":\t"} {
+		idx := strings.Index(raw, sep)
+		if idx <= 0 || idx+len(sep) >= len(raw) {
+			continue
+		}
+		label := strings.TrimSpace(raw[:idx])
+		location := strings.TrimSpace(raw[idx+len(sep):])
+		if label == "" || location == "" {
+			continue
+		}
+		if surface, parsed := types.ParseAnswerSourceLocationSurface(location); parsed {
+			return label, surface, true
+		}
+	}
+	return "", types.AnswerSourceLocationSurface{}, false
 }
 
 func aggregateSupportLocationFromSurface(raw string) string {
@@ -4630,6 +4680,116 @@ func callChainQualifiedIntermediateDowngradeWithEvidence(ctx *types.BusContext, 
 		fmt.Fprintf(&b, "  - %s:%d `%s` — %s\n", span.source, call.Line, call.Name, strings.TrimSpace(call.Text))
 	}
 	return b.String()
+}
+
+func callChainAggregateMemberSetCompletesPrincipalBoundary(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact, evidence []types.EvidenceItem) bool {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || len(aggregateFacts) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent != types.IntentTrace && types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain {
+		return false
+	}
+	if types.IsProjectOrientationQuestion(rm) {
+		return false
+	}
+	startHint, endHint, ok := callChainPrincipalEndpointHints(rm)
+	if !ok {
+		return false
+	}
+	span, ok := callChainPrincipalSpanContextForEvidence(evidence, startHint, endHint)
+	if !ok {
+		return false
+	}
+	support := buildAggregateMemberSupportIndexWithEvidence(ctx, evidence)
+	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(aggregateFacts, &rm)
+	if len(refs) == 0 {
+		refs = types.PrincipalAggregateMemberSetFactRefs(aggregateFacts)
+	}
+	var candidateFacts []types.AnswerAggregateFact
+	for _, ref := range refs {
+		candidateFacts = append(candidateFacts, ref.Fact)
+	}
+	if len(candidateFacts) == 0 {
+		for _, fact := range aggregateFacts {
+			if fact.Kind == types.AnswerAggregateMemberSet && types.NormalizeAnswerAggregateRole(fact.Role).IsPrincipal() {
+				candidateFacts = append(candidateFacts, fact)
+			}
+		}
+	}
+	for _, fact := range candidateFacts {
+		if len(fact.Members) < 2 {
+			continue
+		}
+		if !aggregateMemberSetAllMembersUsable(fact, support) {
+			continue
+		}
+		if !aggregateMemberSetHasSupportInsideCallChainSpan(fact, span) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func aggregateMemberSetAllMembersUsable(fact types.AnswerAggregateFact, support aggregateMemberSupportIndex) bool {
+	if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 {
+		return false
+	}
+	for _, member := range fact.Members {
+		if !aggregateMemberSetMemberUsable(fact, member, support) {
+			return false
+		}
+	}
+	return true
+}
+
+func aggregateMemberSetHasSupportInsideCallChainSpan(fact types.AnswerAggregateFact, span callChainPrincipalSpanContext) bool {
+	source := canonicalCallChainSource(span.source)
+	if source == "" || span.endLine <= span.startLine {
+		return false
+	}
+	seen := map[int]bool{}
+	for _, ref := range fact.SupportRefs {
+		_, loc, ok := aggregateMemberSupportRefParts(ref)
+		if !ok {
+			continue
+		}
+		file, line, ok := parseAggregateSupportLocationKey(loc)
+		if !ok || canonicalCallChainSource(file) != source {
+			continue
+		}
+		if line <= span.startLine || line > span.endLine {
+			continue
+		}
+		seen[line] = true
+	}
+	// Two citable points inside the source→sink span are enough to
+	// prove the model emitted a structured principal path boundary.
+	// The exact members remain model-owned; this only prevents the
+	// generic span oracle from expanding the requested set to every
+	// nearby helper call found in read_file gutters.
+	return len(seen) >= 2
+}
+
+func parseAggregateSupportLocationKey(loc string) (string, int, bool) {
+	loc = strings.TrimSpace(strings.ReplaceAll(loc, `\`, `/`))
+	if loc == "" {
+		return "", 0, false
+	}
+	idx := strings.LastIndex(loc, ":")
+	if idx <= 0 || idx == len(loc)-1 {
+		return "", 0, false
+	}
+	line, err := strconv.Atoi(strings.TrimSpace(loc[idx+1:]))
+	if err != nil || line <= 0 {
+		return "", 0, false
+	}
+	file := strings.TrimSpace(loc[:idx])
+	if file == "" {
+		return "", 0, false
+	}
+	return file, line, true
 }
 
 func callChainPrincipalSpanContextForEvidence(evidence []types.EvidenceItem, startHint, endHint string) (callChainPrincipalSpanContext, bool) {

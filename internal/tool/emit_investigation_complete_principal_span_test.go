@@ -373,3 +373,70 @@ func TestCallChainQualifiedIntermediateDowngrade_PassesWhenCandidatesAreTyped(t 
 		t.Fatalf("typed qualified candidates should satisfy the gate, got:\n%s", got)
 	}
 }
+
+func TestPreCompleteCallChain_PrincipalAggregateMemberSetSkipsSpanExpansion(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{ID: "start", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildAnalysisIR", Subject: "buildAnalysisIR", Source: "internal/agent/analyzer.go", LineStart: 100},
+		{ID: "mid", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "normalizer.Normalize", Subject: "buildAnalysisIR", Object: "normalizer.Normalize", Source: "internal/agent/analyzer.go", LineStart: 160},
+		{ID: "gate", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith", Subject: "buildAnalysisIR", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 300},
+	}
+	makeCtx := func() *types.BusContext {
+		mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
+		mut.AppendEvidence(evidence)
+		mut.AppendDispatchToolResult(types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary: strings.Join([]string{
+				"[internal/agent/analyzer.go: showing lines 160-160 of 320 total]",
+				"  160│ rm.TermGraph = normalizer.Normalize(rm.TermGraph, resolver)",
+				"[internal/agent/analyzer.go: showing lines 300-300 of 320 total]",
+				"  300│ ir.QualityGate = gate.RunWith(ir, gate.GlobalThresholds(), mode, gate.RunOptions{Resolver: resolver})",
+			}, "\n"),
+		})
+		return &types.BusContext{
+			Mutable: mut,
+			AnalysisIR: &types.AnalysisIR{
+				RequestModel: types.RequestModel{
+					RawRequest: "trace buildAnalysisIR to gate.Run",
+					Intent:     types.IntentTrace,
+					AnalyzerHints: types.AnalyzerHints{
+						Kind:              string(types.ReqCallChain),
+						MentionedEntities: []string{"buildAnalysisIR", "gate.Run"},
+					},
+				},
+			},
+		}
+	}
+
+	if got := preCompleteContractCheckWithEvidence(makeCtx(), "", evidence); !strings.Contains(got, "call-chain principal span") {
+		t.Fatalf("precondition: span gate should fire without aggregate member_set, got:\n%s", got)
+	}
+
+	aggregateFacts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "principal call chain",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"normalizer.Normalize (internal/agent/analyzer.go:160)", "gate.RunWith (internal/agent/analyzer.go:300)"},
+		SupportRefs: []string{
+			"normalizer.Normalize: internal/agent/analyzer.go:160",
+			"gate.RunWith: internal/agent/analyzer.go:300",
+		},
+	}}
+	skipCtx := makeCtx()
+	if !callChainAggregateMemberSetCompletesPrincipalBoundary(skipCtx, aggregateFacts, evidence) {
+		support := buildAggregateMemberSupportIndexWithEvidence(skipCtx, evidence)
+		var unusable []string
+		for _, member := range aggregateFacts[0].Members {
+			if !aggregateMemberSetMemberUsable(aggregateFacts[0], member, support) {
+				unusable = append(unusable, member)
+			}
+		}
+		startHint, endHint, _ := callChainPrincipalEndpointHints(skipCtx.AnalysisIR.RequestModel)
+		span, spanOK := callChainPrincipalSpanContextForEvidence(evidence, startHint, endHint)
+		t.Fatalf("helper should accept principal member_set; spanOK=%v spanSupport=%v span=%+v unusable=%v support_refs=%v", spanOK, aggregateMemberSetHasSupportInsideCallChainSpan(aggregateFacts[0], span), span, unusable, aggregateFacts[0].SupportRefs)
+	}
+	if got := preCompleteContractCheckWithEvidence(skipCtx, "", evidence, aggregateFacts); got != "" {
+		t.Fatalf("principal aggregate member_set should define the model-owned call-chain boundary, got:\n%s", got)
+	}
+}

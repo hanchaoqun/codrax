@@ -92,6 +92,23 @@ precise checks pass:
 Non-line decorators such as `(8 checks)` or `(runtime bucket)` still require
 explicit support refs or ordinary typed evidence.
 
+### 2026-05-19 extension: call-chain closure boundary
+
+For source-to-sink / call-chain questions, a principal `member_set` may be the
+investigator's model-owned answer boundary rather than a request to enumerate
+every qualified helper call visible in the already-read span. The pre-complete
+call-chain span and qualified-intermediate oracles now skip their broad
+expansion when:
+
+- the analyzer typed the request as trace / call-chain;
+- endpoint evidence already proves the source-to-sink span;
+- a principal `member_set` is present;
+- every member is structurally usable through evidence or `support_refs`;
+- at least two member support refs land inside the proven source-to-sink span.
+
+This keeps hard closure gates on precise typed handoffs while avoiding a noisy
+read-gutter expansion from replacing the model's selected principal slate.
+
 ## Workstream B: Principal Anchor Coverage for Forced Reads
 
 ### Problem
