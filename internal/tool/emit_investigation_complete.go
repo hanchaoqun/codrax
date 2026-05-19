@@ -4753,20 +4753,16 @@ func callChainQualifiedIntermediateDowngradeWithEvidence(ctx *types.BusContext, 
 	if len(missing) == 0 {
 		return ""
 	}
-	if closure != nil {
-		keywords := make([]string, 0, len(missing)+2)
-		keywords = append(keywords, span.startHint, span.endHint)
-		for _, call := range missing {
-			keywords = append(keywords, call.Name)
+	if callChainSpanHasDenseStructuredCoverage(span) {
+		if closure != nil {
+			callChainAddQualifiedIntermediateAdvisoryRepair(closure, span, missing)
 		}
-		closure.AddRepair(types.RepairDirective{
-			Kind:      types.RepairEmitEvidence,
-			Files:     []string{span.source},
-			Keywords:  dedupStringsPreserveOrder(keywords),
-			Rationale: "already-read source-to-sink call-chain span contains qualified call candidates that were not carried through typed evidence",
-			Origin:    "pre_complete.call_chain_qualified_intermediate",
-			Stage:     string(types.StageExplore),
-		})
+		logging.Info("[emit_investigation_complete] call-chain qualified intermediates kept advisory: dense structured coverage already present source=%s items=%d missing_candidates=%d",
+			span.source, len(span.items), len(missing))
+		return ""
+	}
+	if closure != nil {
+		callChainAddQualifiedIntermediateAdvisoryRepair(closure, span, missing)
 	}
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — call-chain qualified intermediates lack typed handoff.\n\n")
@@ -4776,6 +4772,39 @@ func callChainQualifiedIntermediateDowngradeWithEvidence(ctx *types.BusContext, 
 		fmt.Fprintf(&b, "  - %s:%d `%s` — %s\n", span.source, call.Line, call.Name, strings.TrimSpace(call.Text))
 	}
 	return b.String()
+}
+
+func callChainSpanHasDenseStructuredCoverage(span callChainPrincipalSpanContext) bool {
+	if len(span.items) < 8 {
+		return false
+	}
+	seenLines := map[int]bool{}
+	for _, item := range span.items {
+		if !callChainPrincipalSpanEvidenceEligible(item) || item.LineStart <= 0 {
+			continue
+		}
+		seenLines[item.LineStart] = true
+	}
+	return len(seenLines) >= 8
+}
+
+func callChainAddQualifiedIntermediateAdvisoryRepair(closure *types.EvidenceClosure, span callChainPrincipalSpanContext, missing []callChainMissingQualifiedCall) {
+	if closure == nil || len(missing) == 0 {
+		return
+	}
+	keywords := make([]string, 0, len(missing)+2)
+	keywords = append(keywords, span.startHint, span.endHint)
+	for _, call := range missing {
+		keywords = append(keywords, call.Name)
+	}
+	closure.AddRepair(types.RepairDirective{
+		Kind:      types.RepairEmitEvidence,
+		Files:     []string{span.source},
+		Keywords:  dedupStringsPreserveOrder(keywords),
+		Rationale: "already-read source-to-sink call-chain span contains qualified call candidates that were not carried through typed evidence",
+		Origin:    "pre_complete.call_chain_qualified_intermediate",
+		Stage:     string(types.StageExplore),
+	})
 }
 
 func callChainAggregateMemberSetCompletesPrincipalBoundary(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact, evidence []types.EvidenceItem) bool {

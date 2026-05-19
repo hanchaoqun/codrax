@@ -374,6 +374,58 @@ func TestCallChainQualifiedIntermediateDowngrade_PassesWhenCandidatesAreTyped(t 
 	}
 }
 
+func TestCallChainQualifiedIntermediateDowngrade_DenseCoverageKeepsCandidatesAdvisory(t *testing.T) {
+	mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
+	evidence := []types.EvidenceItem{
+		{ID: "start", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildAnalysisIR", Subject: "buildAnalysisIR", Source: "internal/agent/analyzer.go", LineStart: 100},
+		{ID: "a", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "compiler.Compile", Subject: "buildAnalysisIR", Object: "compiler.Compile", Source: "internal/agent/analyzer.go", LineStart: 120},
+		{ID: "b", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "risk.Evaluate", Subject: "buildAnalysisIR", Object: "risk.Evaluate", Source: "internal/agent/analyzer.go", LineStart: 140},
+		{ID: "c", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "hdp.Plan", Subject: "buildAnalysisIR", Object: "hdp.Plan", Source: "internal/agent/analyzer.go", LineStart: 160},
+		{ID: "d", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "amplifier.AmplifyPostCompile", Subject: "buildAnalysisIR", Object: "amplifier.AmplifyPostCompile", Source: "internal/agent/analyzer.go", LineStart: 180},
+		{ID: "e", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "binder.BindByRelevance", Subject: "buildAnalysisIR", Object: "binder.BindByRelevance", Source: "internal/agent/analyzer.go", LineStart: 200},
+		{ID: "f", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "analyzerRequiredFiles", Subject: "buildAnalysisIR", Object: "analyzerRequiredFiles", Source: "internal/agent/analyzer.go", LineStart: 220},
+		{ID: "gate", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith", Subject: "buildAnalysisIR", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 240},
+	}
+	mut.AppendEvidence(evidence)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "trace buildAnalysisIR to gate.Run",
+				Intent:     types.IntentTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					MentionedEntities: []string{"buildAnalysisIR", "gate.RunWith"},
+				},
+			},
+		},
+	}
+	seedReadFileHistory(ctx, "internal/agent/analyzer.go", 120,
+		"out := compiler.Compile(rm, sig)",
+		"ctx.Mutable.RequestModel()",
+		"rm.RiskMatrix = risk.Evaluate(rm, rm.RiskMatrix)",
+		"hypotheses := hdp.Plan(rm)",
+		"for _, obs := range amplifier.AmplifyPostCompile(rm, &out.AnswerContract) {",
+		"if err := binder.BindByRelevance(&out.TaskGraph, hypotheses, binder.Options{}); err != nil {",
+		"required := analyzerRequiredFiles(rm)",
+		"ir.QualityGate = gate.RunWith(ir, gate.GlobalThresholds(), mode, gate.RunOptions{Resolver: resolver})",
+	)
+
+	closure := &types.EvidenceClosure{}
+	if got := callChainQualifiedIntermediateDowngrade(ctx, closure); got != "" {
+		t.Fatalf("dense structured call-chain coverage should keep residual qualified calls advisory, got:\n%s", got)
+	}
+	var found bool
+	for _, repair := range closure.ActiveRepairs() {
+		if repair.Origin == "pre_complete.call_chain_qualified_intermediate" && repair.Kind == types.RepairEmitEvidence {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("residual qualified calls should remain visible as advisory repair, got %+v", closure.ActiveRepairs())
+	}
+}
+
 func TestPreCompleteCallChain_PrincipalAggregateMemberSetSkipsSpanExpansion(t *testing.T) {
 	evidence := []types.EvidenceItem{
 		{ID: "start", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildAnalysisIR", Subject: "buildAnalysisIR", Source: "internal/agent/analyzer.go", LineStart: 100},
