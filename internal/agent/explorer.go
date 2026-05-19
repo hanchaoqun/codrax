@@ -762,6 +762,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// dispatch repeats identical work. Cross-run reset clears
 		// searchFingerprint so a fresh REPL turn still recomputes.
 		domainHints := irDomainHints(ctx)
+		entityProvenance := irEntityProvenance(ctx)
+		searchEntities := filterEntitiesByProvenance(analyzerEntities, entityProvenance, entityProvenanceRoleSearch)
 		maxFiles := MaxFilesForComplexity(irComplexity(ctx))
 		exactContract := irExactResolutionContract(ctx)
 		sourceScope := irSourceScopeProfile(ctx)
@@ -771,7 +773,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			exactTargets = exactContract.Targets
 			exactPolicy = string(exactContract.RelatedContextPolicy)
 		}
-		fp := keywordSearchScopedFingerprint(ctx, keywordSearchFingerprint(analyzerKeywords, analyzerEntities, irMentionedEntities(ctx), irPrimaryEntities(ctx), domainHints, exactTargets, exactPolicy, maxFiles, false, sourceScope.Fingerprint()))
+		fp := keywordSearchScopedFingerprint(ctx, keywordSearchFingerprint(analyzerKeywords, searchEntities, irMentionedEntities(ctx), irPrimaryEntities(ctx), domainHints, exactTargets, exactPolicy, maxFiles, false, sourceScope.Fingerprint()))
 		sharedFP := fp
 		var sr *keywordSearchResult
 		if e.searchResult != nil && e.searchFingerprint != "" && e.searchFingerprint == fp {
@@ -788,6 +790,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		} else {
 			sr = keywordSearchWithOptions(analyzerKeywords, ctx.RepoRoot, keywordSearchOptions{
 				Entities:          analyzerEntities,
+				EntityProvenance:  entityProvenance,
 				MentionedEntities: irMentionedEntities(ctx),
 				PrimaryEntities:   irPrimaryEntities(ctx),
 				DomainHints:       domainHints,
@@ -5679,14 +5682,26 @@ func (e *explorerEvaluator) groundedRequirementCarrierCount() int {
 			continue
 		}
 		for _, req := range reqs {
+			reqEntities := e.filterRequirementEntitiesForShape(req.Entities)
 			if types.EvidenceStructurallyMatchesRequirement(ev, req.Kind) &&
-				evidenceMatchesRequirementEntities(ev, req.Entities) {
+				evidenceMatchesRequirementEntities(ev, reqEntities) {
 				count++
 				break
 			}
 		}
 	}
 	return count
+}
+
+func (e *explorerEvaluator) filterRequirementEntitiesForShape(entities []string) []string {
+	if e == nil || e.analysisIR == nil {
+		return entities
+	}
+	return filterEntitiesByProvenance(
+		entities,
+		e.analysisIR.RequestModel.AnalyzerHints.EntityProvenance,
+		entityProvenanceRoleShape,
+	)
 }
 
 func cloneEvidenceRequirements(reqs []EvidenceRequirement) []EvidenceRequirement {
@@ -9526,6 +9541,13 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	var entityBias []string
 	for _, r := range e.ermRequirements {
 		entityBias = append(entityBias, r.Entities...)
+	}
+	if e.analysisIR != nil {
+		entityBias = filterEntitiesByProvenance(
+			entityBias,
+			e.analysisIR.RequestModel.AnalyzerHints.EntityProvenance,
+			entityProvenanceRoleSearch,
+		)
 	}
 	result := dataflow.Analyze(e.searchResult.Graph, dataflow.Options{
 		Context:         ctx.Context(),

@@ -80,6 +80,11 @@ type keywordSearchResult struct {
 //     dispatch-path files below the LLM's eyeline.
 type keywordSearchOptions struct {
 	Entities []string
+	// EntityProvenance is an optional typed side-lane for Entities.
+	// When present, keyword_search uses UseForSearch to keep shape
+	// vocabulary from becoming repo_map / exact-anchor / boost input.
+	// Empty/nil preserves pre-provenance behavior.
+	EntityProvenance []types.EntityProvenance
 	// MentionedEntities is the deterministic subset of Entities whose
 	// surfaces are explicitly present in the user's RawRequest. When
 	// non-empty, exactEntityAnchors should prefer this provenance lane
@@ -296,9 +301,13 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	}
 
 	keywords = expandKeywords(keywords)
+	searchEntities := filterEntitiesByProvenance(opts.Entities, opts.EntityProvenance, entityProvenanceRoleSearch)
+	if len(opts.EntityProvenance) > 0 && len(searchEntities) != len(opts.Entities) {
+		logging.Debug("[keyword_search] entities pre-filter=%d post-filter=%d", len(opts.Entities), len(searchEntities))
+	}
 
 	// --- Phase 1: repo_map structural ranking ---
-	repoMapScores, graph := repoMapRank(keywords, opts.Entities, repoRoot, opts.MultiGraph, opts.PendingSubRepos)
+	repoMapScores, graph := repoMapRank(keywords, searchEntities, repoRoot, opts.MultiGraph, opts.PendingSubRepos)
 	// exactEntityAnchors wants user-named entities only. When the
 	// exactEntityAnchors wants the strongest provenance lane available.
 	// Prefer deterministic MentionedEntities (verbatim RawRequest
@@ -393,7 +402,7 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 		// cause where `subagent_runtime.go` ranked below
 		// `explorer.go` because the latter's 6000+ lines
 		// drowned it on pure-grep IDF scoring.
-		if boost := entityBoostFactor(f, graph, opts.Entities); boost > 1.0 {
+		if boost := entityBoostFactor(f, graph, searchEntities); boost > 1.0 {
 			combined *= boost
 		}
 
@@ -486,7 +495,7 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	}
 
 	logging.Debug("[keyword_search] %d keywords, %d entities → %d files scored (cap=%d)",
-		len(keywords), len(opts.Entities), len(results), maxFiles)
+		len(keywords), len(searchEntities), len(results), maxFiles)
 	return &keywordSearchResult{Files: results, Graph: graph, MultiGraph: opts.MultiGraph}
 }
 
@@ -511,6 +520,7 @@ func exactEntityAnchorsForKeywordSearchOptions(graph *repomap.Graph, opts keywor
 	if len(anchorEntities) == 0 {
 		anchorEntities = opts.Entities
 	}
+	anchorEntities = filterEntitiesByProvenance(anchorEntities, opts.EntityProvenance, entityProvenanceRoleSearch)
 	return exactEntityAnchors(graph, anchorEntities)
 }
 

@@ -63,7 +63,7 @@ git log --oneline 7ac49a35..HEAD -- \
 |---|---|---|---|---|
 | Batch 1 | Phase 4 + Phase 3：软化 `error_granularity_profile.source_quotes`；新增 diagnostic mirror typed normalizer；收紧 diagnostic reconciler 入口 | **DONE (2026-05-19)** | `internal/tool/emit_analysis.go`, `internal/agent/analyzer_intent.go`, `internal/tool/emit_analysis_test.go`, `internal/agent/analyzer_intent_test.go` | forensic case 不再因 granularity quote 重试；`diagnostic_profile.is_diagnostic=true` 不再在 predicate=false 且无强诊断信号时把 explain 题升级 root_cause |
 | Batch 2 | Phase 1：EntityProvenance producer telemetry-only，不接 consumer | **DONE (2026-05-19)** | `internal/types/analysis_ir.go`, `internal/agent/entity_provenance_projection.go`, `internal/agent/analyzer.go`, `internal/agent/entity_provenance_projection_test.go` | 只新增 typed side-lane 与 summary telemetry；下游行为不变 |
-| Batch 3 | Phase 2：consumer wiring，search/shape 分流读取 provenance，nil provenance 全 keep | TODO | `internal/tool/keyword_search.go`, `internal/agent/explorer.go`, ERM/evidence plan consumers | full eval 不增加 retry；多仓/单仓均不误伤合法 entity |
+| Batch 3 | Phase 2：consumer wiring，search/shape 分流读取 provenance，nil provenance 全 keep | **DONE (2026-05-19)** | `internal/agent/entity_provenance_filter.go`, `internal/agent/keyword_search.go`, `internal/agent/explorer.go`, `internal/agent/ir_accessor.go` | full eval 不增加 retry；多仓/单仓均不误伤合法 entity |
 | Batch 4 | Phase 5：基于 telemetry 决定 blocklist drop→noise 降级与 schema 文案小步更新 | TODO | `internal/tool/analysis_limits.go`, `internal/tool/emit_analysis.go` schema | `DroppedEntities` fixture 有明确迁移；不得在无 telemetry 时扩大噪声流 |
 
 Batch 1 verification:
@@ -77,6 +77,16 @@ go test ./internal/analysis/...
 ```
 
 Batch 2 verification:
+
+```bash
+go test ./internal/agent
+go test ./internal/tool
+go test ./internal/orchestrator
+go test ./internal/types
+go test ./internal/analysis/...
+```
+
+Batch 3 verification:
 
 ```bash
 go test ./internal/agent
@@ -490,15 +500,15 @@ new behavior:
 
 | 文件 | 操作 | 描述 |
 |---|---|---|
-| `internal/tool/keyword_search.go:301` | 改 ~5 LOC | `repoMapRank(keywords, opts.Entities, ...)` 改为先 filter `opts.Entities` by `EntityProvenance.UseForSearch==true`。如果 ctx 没 provenance（旧 caller / 测试），全 keep（向后兼容） |
-| `internal/tool/keyword_search.go:396` | 改 ~5 LOC | `entityBoostFactor` 同样 filter |
-| `internal/tool/keyword_search.go:512` | 改 ~3 LOC | `anchorEntities` rescue path 同样 filter |
-| `internal/agent/explorer.go:5683` `evidenceMatchesRequirementEntities` | 改 ~5 LOC | ERM evidence closure 仅对 `Resolved==true` 的 entity 跑硬 require；`Resolved==false` 降级为软提示（"this entity hint did not resolve in repo; skip required-proof check"） |
+| `internal/agent/keyword_search.go:301` | 改 ~5 LOC | `repoMapRank(keywords, opts.Entities, ...)` 改为先 filter `opts.Entities` by `EntityProvenance.UseForSearch==true`。如果 ctx 没 provenance（旧 caller / 测试），全 keep（向后兼容） |
+| `internal/agent/keyword_search.go:396` | 改 ~5 LOC | `entityBoostFactor` 同样 filter |
+| `internal/agent/keyword_search.go:512` | 改 ~3 LOC | `anchorEntities` rescue path 同样 filter |
+| `internal/agent/explorer.go:5683` `evidenceMatchesRequirementEntities` | 改 ~5 LOC | ERM evidence closure 的 hard shape count 先用 `UseForShape==true` 过滤；被标为 unresolved/inferred 的实体不再要求证据强制匹配 |
 | `internal/agent/explorer.go:1402,2518,3719,3818,4178` | 不动 | ERM 收集所有 entity 到 flat map —— 保留；filter 发生在 5683 的 closure check |
 | `internal/agent/explorer.go:9528` `entityBias dataflow re-rank` | 改 ~3 LOC | 只用 `UseForSearch==true` 的做 bias（其余不进 grep 路径无意义） |
 | 其他 5 个消费点（analyzer.go:1367/1417/1442/1672/1758/15182/14658/559） | 不动 | 这些是 producer / 内部展开 / 计数器，不读 metadata |
-| `internal/agent/explorer.go` | `+~30 LOC` | 新增 helper `filterEntitiesByProvenance(entities []string, prov []EntityProvenance, role string) []string`，role ∈ {"search", "shape"}，nil prov fallthrough |
-| `internal/orchestrator/analyzer_cleanup_registry.go` | 新文件 `+~150 LOC` | Registry pattern，沿用 `finalizer_auto_repair.go` 的 extractor → mutator 模板。Phase 2 上线时空注册（占位），后续按需要追加 typed-cleanup entry |
+| `internal/agent/entity_provenance_filter.go` | `+~70 LOC` | 新增 helper `filterEntitiesByProvenance(entities []string, prov []EntityProvenance, role string) []string`，role ∈ {"search", "shape"}，nil prov fallthrough；单个 entity 缺 provenance 也 fail-open |
+| `internal/orchestrator/analyzer_cleanup_registry.go` | **DEFER** | 空 registry 不交付。当前 cleanup 形态不足以证明抽象收益；按 §6.4，等 cleanup spec ≥10 个再抽象，避免重复造轮子 |
 
 **Eval bar**：
 - 全集 58 case × 1 round：keyword_search 行为差异允许（更少的噪声 token 进 grep），但 evidence closure / 答案正确率 ZERO regression
@@ -512,7 +522,7 @@ new behavior:
 2. tool: keyword_search filter entities by UseForSearch
 3. agent: explorer ERM evidence_closure soft-skip on unresolved
 4. agent: explorer dataflow entityBias filter
-5. orchestrator: introduce empty analyzer_cleanup_registry scaffolding
+5. docs: mark analyzer_cleanup_registry deferred until cleanup volume justifies abstraction
 
 ---
 

@@ -24,6 +24,13 @@ func irEntities(ctx *types.AgentContext) []string {
 	return ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities
 }
 
+func irEntityProvenance(ctx *types.AgentContext) []types.EntityProvenance {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	return ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance
+}
+
 // irPrimaryEntities returns the pre-merge top-level entity snapshot
 // captured by the analyzer before sub-topic entities were unioned into
 // Entities for breadth ranking. Returns nil when no sub-topic merge

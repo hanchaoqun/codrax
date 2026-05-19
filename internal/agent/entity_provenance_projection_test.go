@@ -71,6 +71,38 @@ func TestProjectEntityProvenance_EmptyInputKeepsNilLanes(t *testing.T) {
 	}
 }
 
+func TestFilterEntitiesByProvenance_FailOpenWhenMissing(t *testing.T) {
+	entities := []string{"清单", "Analyzer"}
+	got := filterEntitiesByProvenance(entities, nil, entityProvenanceRoleSearch)
+	if len(got) != 2 || got[0] != "清单" || got[1] != "Analyzer" {
+		t.Fatalf("nil provenance should keep entities, got %v", got)
+	}
+	got = filterEntitiesByProvenance(entities, []types.EntityProvenance{
+		{Surface: "Analyzer", UseForSearch: true, UseForShape: true},
+	}, entityProvenanceRoleSearch)
+	if len(got) != 2 || got[0] != "清单" || got[1] != "Analyzer" {
+		t.Fatalf("missing per-entity provenance should fail-open for that entity, got %v", got)
+	}
+}
+
+func TestFilterEntitiesByProvenance_SearchAndShapeRoles(t *testing.T) {
+	entities := []string{"Analyzer", "RetryBudget", "清单"}
+	provenance := []types.EntityProvenance{
+		{Surface: "Analyzer", UseForSearch: true, UseForShape: true},
+		{Surface: "RetryBudget", UseForSearch: true, UseForShape: false},
+		{Surface: "清单", UseForSearch: false, UseForShape: false},
+	}
+
+	search := filterEntitiesByProvenance(entities, provenance, entityProvenanceRoleSearch)
+	if len(search) != 2 || search[0] != "Analyzer" || search[1] != "RetryBudget" {
+		t.Fatalf("search filter = %v, want [Analyzer RetryBudget]", search)
+	}
+	shape := filterEntitiesByProvenance(entities, provenance, entityProvenanceRoleShape)
+	if len(shape) != 1 || shape[0] != "Analyzer" {
+		t.Fatalf("shape filter = %v, want [Analyzer]", shape)
+	}
+}
+
 func assertEntityProvenance(
 	t *testing.T,
 	provenance []types.EntityProvenance,
