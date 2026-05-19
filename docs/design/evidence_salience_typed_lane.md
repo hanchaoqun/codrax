@@ -1,7 +1,7 @@
 # Evidence Salience Typed Lane — Design Doc
 
-**Status**: Draft (2026-05-19) — not yet greenlit
-**Baseline**: `58881dba` HEAD at design time. Every `file:line` in §3 / §5 / §6 is pinned to this commit; re-grep helper names rather than absolute line numbers if you re-land after rebases.
+**Status**: Draft (2026-05-19) — reviewed after rebase; greenlight requires the §12 corrections below
+**Baseline**: `58881dba` HEAD at design time; reviewed against `1d1dd49b` after the architecture-closure gate fixes landed. Every `file:line` in §3 / §5 / §6 is pinned to the original design commit; re-grep helper names rather than absolute line numbers before implementation.
 **Scope**: 5 phases (B0–B4) producing ~700–1000 net LOC + tests. **Single-repo / current-default-behavior MUST stay byte-identical when the new lane is empty.** L1 red line. **L2**: this lane is opt-in for the LLM; the system never reorders evidence purely because the lane is absent.
 
 ---
@@ -124,6 +124,8 @@ func (s EvidenceSalience) Resolve() EvidenceSalience {
 ```
 
 The `Resolve()` method centralises the "unset → supporting" projection so downstream consumers never branch on the empty string.
+
+**Review correction (2026-05-19)**: `Resolve()` is safe for human-facing/default semantics, but scoring/cap behavior MUST preserve raw unset as a no-op. If `SalienceSupporting` receives any boost, that boost applies only to explicitly emitted `salience="supporting"` rows, never to `SalienceUnset`. Otherwise the empty-lane path is no longer byte-identical to current behavior.
 
 ### 2.2 System-side consumption
 
@@ -417,7 +419,7 @@ This section is the implementation contract. Each row names the exact line(s) an
 
 Five phases. Each phase ships independently (tests + commit + go test ./... green) and the salience-empty case is byte-identical to baseline at every phase boundary.
 
-### B0 — Types and wire (foundational, no behavior change)
+### B0 — Types and wire (foundational, no deterministic ranking behavior change)
 
 **Scope**: `internal/types/evidence_salience.go` (new), `internal/types/evidence_salience_test.go` (new), `EvidenceItem.Salience` field, `MergeFrom` carry-forward, schema enum, `emitEvidenceItem` field, `buildEmitEvidenceItem` validation, `Description()` paragraph.
 
@@ -531,3 +533,83 @@ These are deliberate non-decisions; flag them to the user before B0 lands.
 ## §11 Speed-check (after every phase)
 
 `go test ./...` must stay 50/50 packages green at every commit. After B4, run the eval fixture × 4 to confirm the bar. After B4 commit lands, update `MEMORY.md` with a one-line entry pointing here.
+
+---
+
+## §12 Codex architecture review (2026-05-19)
+
+### 12.1 Verdict
+
+The typed salience lane is architecturally worthwhile and matches the standing red line: precise model-authored typed signals may protect evidence from noisy rank/display heuristics. It directly targets real recurring failures: evidence rows were emitted correctly, then later stages hid or truncated them because token-overlap rankers and fixed display caps were the only available visibility signals.
+
+Do not implement the draft verbatim yet. The current draft has several conflicts with the repository's existing invariants and with its own L1 promise. The changes below are mandatory before B0 lands.
+
+### 12.2 Required design corrections
+
+1. **Preserve empty-lane byte identity.**
+   `SalienceUnset` may resolve to `supporting` for display/default interpretation, but ranking, cap widening, and dedup protection must treat raw unset as "no salience signal." In particular, if explicit `supporting` gets a +3 boost, `unset` gets +0. Otherwise every legacy evidence row silently changes score.
+
+2. **Separate default projection from scoring policy.**
+   Add helpers with distinct meanings:
+   - `Resolve()` for semantic/default display.
+   - `Explicit()` or `IsSet()` for "did the model actually emit a lane value?"
+   - `IsLocked()` only true for explicit `load_bearing` / `exhaust_listed`.
+   - `ScoreBoost(profile)` or a package-local boost helper that returns 0 for unset.
+
+3. **Do not double-boost finalizer enrichment.**
+   `answerDocEnrichmentEvidenceScore` already calls `extractorValueEvidenceScore`. Once extractor scoring includes salience, the finalizer must not add the same salience boost again. Finalizer changes should focus on drop-loop protection, display-cap inclusion, and lane-specific boosts that are independent from salience.
+
+4. **"Hard-protected against truncation" must be real.**
+   `limit += min(lockedCount, 8)` is not enough for exhaustive lists. Replace it with `limit = max(limit, lockedCount + contextReserve)` before the normal clamp. If `lockedCount` exceeds the hard prompt budget, do not silently drop: render a compact locked-overflow ledger or raise telemetry/advisory explaining that structured aggregate handoff is required. Silent loss of `exhaust_listed` rows would recreate the same class of bug.
+
+5. **Salience is not a principal-member contract.**
+   `exhaust_listed` protects visibility of evidence rows; it must not replace `aggregate_facts.member_set`, `emit_answer_symbol`, exact-resolution contracts, or final answer principal block obligations. Finalizer may use salience to keep rows visible, but the answer boundary still comes from the existing typed contracts.
+
+6. **Correct merge-site mapping.**
+   The current code does not have an `EvidenceItem.MergeFrom` method in the general evidence path. Salience merge needs to land in:
+   - `internal/agent/evidence.go::mergeEvidenceItems`
+   - `internal/types/evidence.go::mergeExactResolutionSurfaceEvidence`
+   and any future general merge helper if one is introduced. Prefer the more explicit/lower-rank salience only when the incoming item carries a non-unset salience.
+
+7. **Feature exposure must be phased.**
+   Adding the optional field to the tool schema and `Description()` changes the LLM-visible contract. If we need true "current default behavior unchanged" during rollout, keep prompt teaching behind a runtime/config gate until B4, or land all consumers before teaching the model to emit the lane. B0 can add types and parser support; B4 should expose the lane in prompts/eval.
+
+8. **Lint red line should target branching, not every field reference.**
+   A grep rule that forbids all `.Salience` outside helpers is too strict because schema parsing, assignment, telemetry, and tests must touch the field. The enforceable rule is: production decision branches on salience must go through the approved helpers; assignment/log/schema code is allowed.
+
+9. **Overuse telemetry is required.**
+   Because the model can over-mark `load_bearing`, add per-run counts for unset/supporting/context/load_bearing/exhaust_listed and an advisory when locked rows exceed a small threshold. This is not a hard reject; it is telemetry to decide whether prompt teaching is too broad.
+
+10. **Tier-1 and producer-band isolation are correct and should stay.**
+    The draft is right that salience must not affect `countTier1Evidence`, grounding status, or producer band. Add tests that prove this because these are the easiest accidental regressions for future maintainers.
+
+### 12.3 Revised implementation order
+
+1. **B0a: types and no-op helpers only.**
+   Add `EvidenceSalience`, parse/enum tests, `EvidenceItem.Salience`, and no-op merge preservation. Do not expose prompt teaching yet. Consumers must still behave exactly as before for unset.
+
+2. **B0b: wire compatibility behind parser validation.**
+   Accept `salience` if present and reject unknown values, but keep prompt teaching disabled unless the rollout flag is enabled. Add schema-sync tests and invalid-value tests.
+
+3. **B1: locked-row dedup protection.**
+   Protect only explicit locked rows in `rankEvidenceByRelevanceWithSubject`; leave unset and explicit supporting/context on the existing path.
+
+4. **B2: extractor visibility.**
+   Add score floor/drop-loop protection for explicit locked rows and a 0-or-small boost for explicit supporting only. Use cap widening that covers locked rows before context, with overflow telemetry instead of silent truncation.
+
+5. **B3: finalizer mirror.**
+   Mirror B2's protection without double-counting the extractor salience boost. Keep block ordering model-owned.
+
+6. **B4: prompt teaching, telemetry, and eval.**
+   Expose the lane to the LLM, run the new exhaustive-enumeration eval plus the recent qf architecture/diagram cases, and only then decide whether the rollout flag defaults on.
+
+### 12.4 Immediate code implications
+
+Current code locations still line up with the design's main intent:
+
+- `internal/agent/evidence.go::rankEvidenceByRelevanceWithSubject` is the right diversity-cap hook.
+- `internal/agent/extractor.go::extractorValueEvidenceScore` and `renderExtractorValueEvidenceFacts` are the right score/drop hooks.
+- `internal/agent/answer_document_evaluator.go::selectAnswerDocTypedEnrichmentFacts` and `answerDocEnrichmentDisplayLimit` are the right finalizer hooks.
+- `internal/context/builder.go::formatEvidenceItems` is telemetry-only; it must not start using salience for producer-band selection.
+
+The highest-value first implementation is B0a+B0b+B1. It gives us typed data and the safest protection path while leaving scoring/cap policy measurable before broader prompt exposure.
