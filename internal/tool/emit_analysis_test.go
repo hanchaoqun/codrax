@@ -2134,6 +2134,82 @@ func TestEmitAnalysis_Execute_RejectsInvalidPredicateAxis(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_SchemaNormalizesLocalModelScalarArtifacts(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	mu := types.NewMutableState("读取代码，对比 codrax 和 opencode 的读模式防幻觉机制")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "\"explain\"",
+		"scenario": "\"architecture_explain\"",
+		"complexity": "\"complex\"",
+		"keywords": ["codrax", "opencode", "hallucination"],
+		"entities": ["codrax", "opencode"],
+		"question_kind": "\"mechanism\"",
+		"language": "\"zh\"",
+		"predicate_axis": "\"\"",
+		"intent_confidence": "0.95",
+		"complexity_confidence": ": 0.90",
+		"kind_confidence": "0.85",
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": true,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": "0.7"
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": false,
+			"confidence": "0.7"
+		},
+		"error_granularity_profile": {
+			"is_granularity_question": false,
+			"confidence": "0.7"
+		},
+		"enumeration_boundary": {
+			"declared_count": "0",
+			"source_quote": ""
+		}
+	}`
+	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute should schema-normalize scalar artifacts before unmarshal: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("schema-normalized emit_analysis should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel should persist after schema-normalized emit_analysis")
+	}
+	if rm.Intent != types.IntentExplain || rm.Scenario != types.ScenarioArchitectureExplain ||
+		rm.Complexity != types.ComplexityComplex || rm.AnalyzerHints.Kind != "mechanism" {
+		t.Fatalf("classification enums not normalized: %+v", rm)
+	}
+	if rm.PredicateAxis != types.AxisUnknown {
+		t.Fatalf("empty JSON-string predicate_axis should normalize to AxisUnknown, got %q", rm.PredicateAxis)
+	}
+	if rm.IntentConfidence != 0.95 || rm.ComplexityConfidence != 0.90 || rm.KindConfidence != 0.85 {
+		t.Fatalf("numeric strings not normalized: intent=%.2f complexity=%.2f kind=%.2f",
+			rm.IntentConfidence, rm.ComplexityConfidence, rm.KindConfidence)
+	}
+	if rm.EnumerationBoundary != nil {
+		t.Fatalf("inactive enumeration_boundary should be soft-stripped, got %+v", rm.EnumerationBoundary)
+	}
+}
+
 func TestEmitAnalysis_Execute_RejectsInconsistentCountIntent(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
