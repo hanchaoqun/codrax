@@ -6545,6 +6545,58 @@ func TestObserveMidLoop_MultiTopicExplanationAnchorHint(t *testing.T) {
 	}
 }
 
+func TestObserveMidLoop_ArchitectureDoesNotHardNudgeOptionalAnchorSkeleton(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase: 1,
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:      types.IntentExplain,
+				Scenario:    types.ScenarioArchitectureExplain,
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow},
+				SubTopics: []types.SubTopic{
+					{Summary: "Analyze 阶段", Entities: []string{"StageAnalyze"}},
+					{Summary: "Explore 阶段", Entities: []string{"StageExplore"}},
+					{Summary: "Review 阶段", Entities: []string{"Review"}},
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/types/enums.go",
+				LineStart:       26,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "StageAnalyze",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Source:          "internal/types/enums.go",
+				LineStart:       27,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "StageExplore",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[internal/types/enums.go: showing lines 20-40 of 120 total]\n"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+	}
+
+	sig := eval.postExplanationAnchorSignal(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if sig.HintRequested {
+		t.Fatalf("architecture anchor skeleton is optional and must not hard-nudge, got %+v", sig)
+	}
+}
+
 func TestObserveMidLoop_CompletionReadyClosureOnlyRedirectRepeatsAfterEscalation(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                           1,

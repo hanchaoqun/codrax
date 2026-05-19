@@ -1259,9 +1259,13 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 	// because there is no code-level cross-file flow to balance —
 	// README + manifest + entry-point already cover the answer space.
 	if justification == "" {
-		raisePrimaryAnchorPendingRead(ctx, closure)
-		raisePhase1UnreadPendingReads(ctx, closure)
-		applyMultiPathAnchorChecksWithEvidence(ctx, closure, evidence)
+		if narrativePrincipalMemberSetCompletesBoundary(ctx, aggregateFacts, evidence) {
+			logging.Info("[emit_investigation_complete] generic forced-read gates bypassed by grounded principal aggregate member_set")
+		} else {
+			raisePrimaryAnchorPendingRead(ctx, closure)
+			raisePhase1UnreadPendingReads(ctx, closure)
+			applyMultiPathAnchorChecksWithEvidence(ctx, closure, evidence)
+		}
 	}
 	if label, ok := repoGroundingBypassLabel(ctx); ok {
 		logging.Info("[emit_investigation_complete] multi-topic anchor backbone bypassed by %s", label)
@@ -3777,7 +3781,7 @@ func dedupStringsPreserveOrder(values []string) []string {
 }
 
 func explanationAnchorBackboneDowngrade(ctx *types.BusContext) string {
-	if ctx == nil || ctx.AnalysisIR == nil || !types.IRAllowsAnchorSkeleton(ctx.AnalysisIR) {
+	if ctx == nil || ctx.AnalysisIR == nil || !types.IRRequiresAnchorSkeleton(ctx.AnalysisIR) {
 		return ""
 	}
 	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
@@ -4857,6 +4861,35 @@ func callChainAggregateMemberSetCompletesPrincipalBoundary(ctx *types.BusContext
 			continue
 		}
 		return true
+	}
+	return false
+}
+
+func narrativePrincipalMemberSetCompletesBoundary(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact, evidence []types.EvidenceItem) bool {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || len(aggregateFacts) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if view == nil || view.Family != types.QFArchitecture {
+		return false
+	}
+	if !types.IsArchitectureNarrativeExplanation(rm) {
+		return false
+	}
+	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(aggregateFacts, &rm)
+	if len(refs) == 0 {
+		return false
+	}
+	support := buildAggregateMemberSupportIndexWithEvidence(ctx, evidence)
+	for _, ref := range refs {
+		fact := ref.Fact
+		if len(fact.Members) < 2 {
+			continue
+		}
+		if aggregateMemberSetAllMembersUsable(fact, support) {
+			return true
+		}
 	}
 	return false
 }

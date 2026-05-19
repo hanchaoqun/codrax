@@ -5831,7 +5831,7 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 	explanationAnchorReady := true
 	explanationAnchorCovered := 0
 	explanationAnchorTotal := 0
-	if e.analysisIR != nil && types.IRAllowsAnchorSkeleton(e.analysisIR) {
+	if e.analysisIR != nil && types.IRRequiresAnchorSkeleton(e.analysisIR) {
 		if plan := e.answerSurfacePlan(); plan != nil {
 			explanationAnchorCovered = len(plan.ExplanationAnchorBackbone)
 			explanationAnchorTotal = explanationAnchorCovered + len(plan.ExplanationAnchorMissingTopics)
@@ -6401,7 +6401,7 @@ func (e *explorerEvaluator) postExplanationAnchorSignal(obs LoopObservation) Loo
 	if e.midLoopExplanationAnchorSent || e.phase != 1 || e.investigationComplete || e.analysisIR == nil {
 		return LoopSignal{}
 	}
-	if !types.IRAllowsAnchorSkeleton(e.analysisIR) {
+	if !types.IRRequiresAnchorSkeleton(e.analysisIR) {
 		return LoopSignal{}
 	}
 	if obs.Iteration < e.heuristics.MidLoopMinIteration {

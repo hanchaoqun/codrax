@@ -118,6 +118,20 @@ func (v *AnswerSemanticView) AllowsAnchorSkeleton(rm RequestModel) bool {
 	return len(rm.SubTopics) > 1
 }
 
+// RequiresAnchorSkeleton reports whether a missing multi-topic anchor
+// skeleton is precise enough to block exploration closure. This is narrower
+// than AllowsAnchorSkeleton: architecture / comparison narratives can still
+// benefit from optional key anchors, but their principal answer surface is the
+// prose/diagram/section structure compiled by the family view. Forcing one
+// anchor per analyzer sub-topic there can let analyzer decomposition drift
+// override a later model-owned, grounded conclusion.
+func (v *AnswerSemanticView) RequiresAnchorSkeleton(rm RequestModel) bool {
+	if v == nil || !v.AllowsAnchorSkeleton(rm) {
+		return false
+	}
+	return v.Family == QFGeneric
+}
+
 // NeedsCitationFreeScalarIngest reports whether the prompt builder
 // should surface the Raw Tool Outputs section so the LLM has
 // visibility into command-level scalars (e.g. wc -l, grep -c)
@@ -148,4 +162,19 @@ func IRAllowsAnchorSkeleton(ir *AnalysisIR) bool {
 		return false
 	}
 	return view.AllowsAnchorSkeleton(ir.RequestModel)
+}
+
+// IRRequiresAnchorSkeleton is the hard-gate counterpart to
+// IRAllowsAnchorSkeleton. Use this for exploration-complete downgrades and
+// retry nudges; use IRAllowsAnchorSkeleton only when rendering optional
+// prompt context.
+func IRRequiresAnchorSkeleton(ir *AnalysisIR) bool {
+	if ir == nil {
+		return false
+	}
+	view := BuildAnswerSemanticView(ir, nil)
+	if view == nil {
+		return false
+	}
+	return view.RequiresAnchorSkeleton(ir.RequestModel)
 }

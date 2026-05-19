@@ -191,6 +191,21 @@ func TestAllowsAnchorSkeleton(t *testing.T) {
 	}
 }
 
+func TestRequiresAnchorSkeletonNarrowsOptionalArchitectureAnchors(t *testing.T) {
+	multiTopic := RequestModel{SubTopics: []SubTopic{{Summary: "a"}, {Summary: "b"}}}
+	arch := compileArchitecture(&AnalysisIR{}, nil)
+	if !arch.AllowsAnchorSkeleton(multiTopic) {
+		t.Fatal("architecture narratives may still render optional key anchors")
+	}
+	if arch.RequiresAnchorSkeleton(multiTopic) {
+		t.Fatal("architecture narratives must not hard-block completion on analyzer sub-topic anchors")
+	}
+	generic := compileGeneric(&AnalysisIR{}, nil)
+	if !generic.RequiresAnchorSkeleton(multiTopic) {
+		t.Fatal("generic multi-topic explanations still require the anchor skeleton")
+	}
+}
+
 func TestNeedsCitationFreeScalarIngest(t *testing.T) {
 	tests := []struct {
 		name string

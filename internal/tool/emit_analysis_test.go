@@ -283,6 +283,39 @@ func TestValidateSelfConsistency_DefineAxisSingleTargetAcceptsExplicitRoleLocate
 	}
 }
 
+func TestNormalizeMissingAnswerSubjectForNonScalarExplain(t *testing.T) {
+	preds := types.SemanticPredicates{
+		IsScalarAnswer:     false,
+		IsRoleLocateLookup: false,
+	}
+	got, warning := normalizeMissingAnswerSubjectForNonScalarExplain(
+		types.AxisDefine,
+		types.IntentExplain,
+		preds,
+		[]string{"codrax"},
+		nil,
+		types.AnswerSubject{},
+	)
+	if warning == "" {
+		t.Fatal("expected normalization warning")
+	}
+	if got.Kind != types.SubjectGeneric {
+		t.Fatalf("answer_subject.kind = %q, want generic", got.Kind)
+	}
+
+	kept, warning := normalizeMissingAnswerSubjectForNonScalarExplain(
+		types.AxisDefine,
+		types.IntentReturnValue,
+		preds,
+		[]string{"codrax"},
+		nil,
+		types.AnswerSubject{},
+	)
+	if warning != "" || kept.Kind != types.SubjectUnknown {
+		t.Fatalf("scalar-prone return_value classification must still require explicit subject, got %+v warning=%q", kept, warning)
+	}
+}
+
 func TestValidateSelfConsistency_DiagnosticPredicateAlignsIntentAndScenario(t *testing.T) {
 	base := types.SemanticPredicates{IsDiagnosticQuestion: true}
 	reason := validateSelfConsistency(

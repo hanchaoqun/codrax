@@ -1868,6 +1868,124 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiTopicExplanationAnchors
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_ArchitectureSkipsAnalyzerExtraTopicAnchors(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.EvidenceClosure().SetReadSet(map[string]bool{
+		"internal/types/enums.go": true,
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Source:          "internal/types/enums.go",
+			LineStart:       26,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "StageAnalyze",
+			Kind:            types.EvidenceDirect,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Source:          "internal/types/enums.go",
+			LineStart:       27,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "StageExplore",
+			Kind:            types.EvidenceDirect,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:      types.IntentExplain,
+				Scenario:    types.ScenarioArchitectureExplain,
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow},
+				SubTopics: []types.SubTopic{
+					{Summary: "Analyze 阶段", Entities: []string{"StageAnalyze"}},
+					{Summary: "Explore 阶段", Entities: []string{"StageExplore"}},
+					{Summary: "Review 阶段", Entities: []string{"Review"}},
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "the architecture explanation is bounded by grounded stage evidence",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "multi-topic explanation still lacks") {
+		t.Fatalf("architecture diagrams must not hard-block on optional analyzer sub-topic anchors: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("unexpected downgrade for architecture narrative: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set for architecture narrative despite optional missing topic anchor")
+	}
+}
+
+func TestNarrativePrincipalMemberSetCompletesBoundary(t *testing.T) {
+	mut := types.NewMutableState("test")
+	evidence := []types.EvidenceItem{
+		{
+			Source:          "internal/types/enums.go",
+			LineStart:       26,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "StageAnalyze",
+			Kind:            types.EvidenceDirect,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Source:          "internal/types/enums.go",
+			LineStart:       27,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "StageExplore",
+			Kind:            types.EvidenceDirect,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	mut.AppendEvidence(evidence)
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:      types.IntentExplain,
+				Scenario:    types.ScenarioArchitectureExplain,
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow},
+				SubTopics: []types.SubTopic{
+					{Summary: "Analyze 阶段", Entities: []string{"StageAnalyze"}},
+					{Summary: "Explore 阶段", Entities: []string{"StageExplore"}},
+					{Summary: "Review 阶段", Entities: []string{"Review"}},
+				},
+			},
+		},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "主 stage",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"StageAnalyze", "StageExplore"},
+		SupportRefs: []string{"StageAnalyze @ internal/types/enums.go:26", "StageExplore @ internal/types/enums.go:27"},
+	}}
+	if !narrativePrincipalMemberSetCompletesBoundary(bus, facts, evidence) {
+		t.Fatal("grounded principal architecture member_set should satisfy the narrative boundary")
+	}
+	facts[0].Role = types.AnswerAggregateRoleSupportingCoverage
+	if narrativePrincipalMemberSetCompletesBoundary(bus, facts, evidence) {
+		t.Fatal("supporting member_set must not bypass narrative forced-read gates")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_WaiverBypassesMultiTopicAnchors(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.EvidenceClosure().SetReadSet(map[string]bool{

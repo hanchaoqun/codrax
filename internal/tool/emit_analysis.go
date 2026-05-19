@@ -987,6 +987,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
 	answerSubject := parseAnswerSubject(p.AnswerSubject)
+	if normalized, warning := normalizeMissingAnswerSubjectForNonScalarExplain(axis, intent, predicates, entities, p.SubTopics, answerSubject); warning != "" {
+		answerSubject = normalized
+		val.Warnings = append(val.Warnings, warning)
+	}
 	// Self-consistency: when the LLM's chosen intent / shape contradicts
 	// its own predicates, or when a define-axis single-target question
 	// failed to disambiguate whether it is a role-locate scalar lookup
@@ -1361,6 +1365,30 @@ func needsRoleLocateDisambiguation(
 		return false
 	}
 	return true
+}
+
+func normalizeMissingAnswerSubjectForNonScalarExplain(
+	axis types.PredicateAxis,
+	intent types.Intent,
+	preds types.SemanticPredicates,
+	entities []string,
+	subTopics []types.SubTopic,
+	answerSubject types.AnswerSubject,
+) (types.AnswerSubject, string) {
+	if answerSubject.Kind != types.SubjectUnknown {
+		return answerSubject, ""
+	}
+	if intent != types.IntentExplain || preds.IsScalarAnswer || preds.IsRoleLocateLookup {
+		return answerSubject, ""
+	}
+	if !needsRoleLocateDisambiguation(axis, intent, preds, entities, subTopics) {
+		return answerSubject, ""
+	}
+	answerSubject.Kind = types.SubjectGeneric
+	if answerSubject.Confidence <= 0 {
+		answerSubject.Confidence = 0.55
+	}
+	return answerSubject, "answer_subject.kind defaulted to generic for non-scalar explain classification"
 }
 
 // parsePredicates enforces the schema-v4 fail-loud contract for the
