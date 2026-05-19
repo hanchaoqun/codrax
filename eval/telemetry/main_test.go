@@ -14,12 +14,16 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 	body := strings.Join([]string{
 		`2026-05-19T10:00:00.000 INFO [analyzer] entity provenance summary: total=4 scope=1 symbol=1 file=1 prescan_anchor=0 inferred_concept=1 use_for_search=3 use_for_shape=3 mean_noise=0.17`,
 		`2026-05-19T10:00:00.010 INFO [emit_analysis] blocklist_shadow: dropped=2 would_search=0 would_shape=0 inferred_concept=2 sample=Agent, Handler`,
+		`2026-05-19T10:00:00.015 WARN [richness] facet_softened family=architecture facet_id= facet_kind=current_code_path buckets=0 reason=hard requirement had no surface evidence`,
 		`2026-05-19T10:00:00.020 ERROR [analyzer-v3] quality gate HARD failure: subtopic_coherence: unresolved asymmetric sub-topic`,
 		`2026-05-19T10:00:00.030 INFO [render]   ⟳ 1/4 模型响应出错,正在重新理解问题`,
 		`2026-05-19T10:00:00.040 DEBUG [diag analyzer] iter=0 phase=toolresult TOOLRESULT emit_analysis ok=false len=32: emit_analysis rejected: keywords below hard floor got=1 want≥3`,
 		`2026-05-19T10:00:00.050 DEBUG [diag finalizer] iter=0 phase=toolresult TOOLRESULT emit_answer_document ok=false len=99: bad citation`,
 		`2026-05-19T10:00:00.055 DEBUG [diag finalizer] phase=answer_contract_check section=v2_block_oracles done elapsed=2ms violations=3`,
 		`2026-05-19T10:00:00.060 INFO [render]   ⟳ 4/4 答案待完善，正在重写`,
+		`2026-05-19T10:00:00.061 INFO [render]   › 4/4 正在生成最终答案`,
+		`2026-05-19T10:00:00.062 INFO [render]   ✓ 2/4 已归纳探索结果`,
+		`2026-05-19T10:00:00.063 INFO [render]   • 第一稿答案`,
 		`2026-05-19T10:00:00.070 INFO [orchestrator] repair_plan: primary=finalizer clusters=1 kinds=[diagram_edge_endpoint_hallucinated citation_ref_missing] target=finalizer_only`,
 		`2026-05-19T10:00:00.080 WARN [diag] sanitized invalid tool-call arguments for history tool=emit_answer_document id=x len=10`,
 		`2026-05-19T10:00:00.090 WARN [agent] tool "emit_answer_document" params auto-repaired (LLM-corrupted JSON: structural repair)`,
@@ -55,6 +59,18 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 	if rep.Finalizer.ContractViolations != 3 || rep.Finalizer.ContractViolationBySection["v2_block_oracles"] != 3 {
 		t.Fatalf("contract violations not parsed: %+v", rep.Finalizer)
 	}
+	if rep.Richness.Events != 1 ||
+		rep.Richness.ByKind["facet_softened"] != 1 ||
+		rep.Richness.ByFamily["architecture"] != 1 ||
+		rep.Richness.ByFacetKind["current_code_path"] != 1 {
+		t.Fatalf("richness telemetry not parsed: %+v", rep.Richness)
+	}
+	if rep.Render.StatusEvents != 4 ||
+		rep.Render.StageRegressions != 1 ||
+		rep.Render.BacktracksAfterFinalize != 1 ||
+		rep.Render.FirstDraftPreviews != 1 {
+		t.Fatalf("render telemetry not parsed: %+v", rep.Render)
+	}
 	if rep.Finalizer.RepairKinds["diagram_edge_endpoint_hallucinated"] != 1 ||
 		rep.Finalizer.RepairKinds["citation_ref_missing"] != 1 {
 		t.Fatalf("repair kinds not parsed: %+v", rep.Finalizer.RepairKinds)
@@ -67,7 +83,9 @@ func TestCollectParsesAnalyzerAndFinalizerTelemetry(t *testing.T) {
 	if rep.LLM.Errors != 2 || rep.LLM.Timeouts != 1 {
 		t.Fatalf("llm counters wrong: %+v", rep.LLM)
 	}
-	if len(rep.FilesByRetryScore) != 1 || rep.FilesByRetryScore[0].BlocklistDropped != 2 {
+	if len(rep.FilesByRetryScore) != 1 ||
+		rep.FilesByRetryScore[0].BlocklistDropped != 2 ||
+		rep.FilesByRetryScore[0].RenderAnomalies != 2 {
 		t.Fatalf("hot-log snapshot wrong: %+v", rep.FilesByRetryScore)
 	}
 }
@@ -98,6 +116,21 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 			ContractViolationBySection: map[string]int{"support_plan": 2},
 			RepairKinds:                map[string]int{"diagram_edge_endpoint_hallucinated": 1},
 		},
+		Richness: richnessSummary{
+			Events:      1,
+			ByKind:      map[string]int{"facet_softened": 1},
+			ByFamily:    map[string]int{"architecture": 1},
+			ByFacetKind: map[string]int{"current_code_path": 1},
+		},
+		Render: renderSummary{
+			StatusEvents:                 3,
+			StageCounts:                  map[string]int{"2": 1, "3": 1, "4": 1},
+			StageRegressions:             1,
+			BacktracksAfterFinalize:      1,
+			FirstDraftPreviews:           1,
+			SuspiciousFirstDraftPreviews: 1,
+			Anomalies:                    map[string]int{"stage_regression": 1},
+		},
 	}
 	var b bytes.Buffer
 	writeMarkdown(&b, rep, 5)
@@ -107,6 +140,9 @@ func TestWriteMarkdownIncludesDecisionSignals(t *testing.T) {
 		"blocklist shadow: events=1 dropped=1 would_search=0 would_shape=0",
 		"diagram_edge_endpoint_hallucinated",
 		"support_plan",
+		"facet_softened",
+		"stage_regressions=1",
+		"suspicious_without_retry=1",
 		"Agent",
 	} {
 		if !strings.Contains(out, want) {

@@ -26,6 +26,8 @@ type report struct {
 	Lines             int                 `json:"lines"`
 	Analyzer          analyzerSummary     `json:"analyzer"`
 	Finalizer         finalizerSummary    `json:"finalizer"`
+	Richness          richnessSummary     `json:"richness"`
+	Render            renderSummary       `json:"render"`
 	ToolParamCompat   toolParamCompat     `json:"tool_param_compat"`
 	LLM               llmSummary          `json:"llm"`
 	FilesByRetryScore []fileRetrySnapshot `json:"files_by_retry_score,omitempty"`
@@ -75,6 +77,23 @@ type finalizerSummary struct {
 	RepairTargets              map[string]int `json:"repair_targets,omitempty"`
 }
 
+type richnessSummary struct {
+	Events      int            `json:"events"`
+	ByKind      map[string]int `json:"by_kind,omitempty"`
+	ByFamily    map[string]int `json:"by_family,omitempty"`
+	ByFacetKind map[string]int `json:"by_facet_kind,omitempty"`
+}
+
+type renderSummary struct {
+	StatusEvents                 int            `json:"status_events"`
+	StageCounts                  map[string]int `json:"stage_counts,omitempty"`
+	StageRegressions             int            `json:"stage_regressions"`
+	BacktracksAfterFinalize      int            `json:"backtracks_after_finalize"`
+	FirstDraftPreviews           int            `json:"first_draft_previews"`
+	SuspiciousFirstDraftPreviews int            `json:"suspicious_first_draft_previews"`
+	Anomalies                    map[string]int `json:"anomalies,omitempty"`
+}
+
 type toolParamCompat struct {
 	SanitizedInvalidArgs int            `json:"sanitized_invalid_args"`
 	AutoRepairedParams   int            `json:"auto_repaired_params"`
@@ -97,17 +116,22 @@ type fileRetrySnapshot struct {
 	FinalizerRewrites int    `json:"finalizer_rewrites"`
 	RepairPlans       int    `json:"repair_plans"`
 	BlocklistDropped  int    `json:"blocklist_dropped"`
+	RenderAnomalies   int    `json:"render_anomalies"`
 }
 
 type fileMetrics struct {
-	path              string
-	lines             int
-	analyzerRetries   int
-	analyzerRejects   int
-	finalizerRejects  int
-	finalizerRewrites int
-	repairPlans       int
-	blocklistDropped  int
+	path               string
+	lines              int
+	analyzerRetries    int
+	analyzerRejects    int
+	finalizerRejects   int
+	finalizerRewrites  int
+	repairPlans        int
+	blocklistDropped   int
+	renderAnomalies    int
+	firstDraftPreviews int
+	lastRenderStage    int
+	seenFinalizerStage bool
 }
 
 type collector struct {
@@ -121,6 +145,8 @@ var (
 	toolRejectRe    = regexp.MustCompile(`TOOLRESULT\s+([a-zA-Z0-9_]+)\s+ok=false`)
 	repairPlanRe    = regexp.MustCompile(`repair_plan:\s*(.*)$`)
 	contractCheckRe = regexp.MustCompile(`answer_contract_check\s+section=([a-zA-Z0-9_]+).*violations=([0-9]+)`)
+	richnessRe      = regexp.MustCompile(`\[richness\]\s+([a-zA-Z0-9_]+)\s+(.*)$`)
+	renderStageRe   = regexp.MustCompile(`(?:^|[^0-9])([1-4])/4(?:[^0-9]|$)`)
 	compatToolRe    = regexp.MustCompile(`tool\s+"([^"]+)"\s+params auto-repaired`)
 	llmRequestRe    = regexp.MustCompile(`\[llm\]\s+request:\s+model=([^ ]+)`)
 	diagAgentRe     = regexp.MustCompile(`\[diag ([a-zA-Z0-9_]+)\]`)
@@ -170,6 +196,11 @@ func collect(paths []string) (report, error) {
 	c.report.Finalizer.ContractViolationBySection = map[string]int{}
 	c.report.Finalizer.RepairKinds = map[string]int{}
 	c.report.Finalizer.RepairTargets = map[string]int{}
+	c.report.Richness.ByKind = map[string]int{}
+	c.report.Richness.ByFamily = map[string]int{}
+	c.report.Richness.ByFacetKind = map[string]int{}
+	c.report.Render.StageCounts = map[string]int{}
+	c.report.Render.Anomalies = map[string]int{}
 	c.report.ToolParamCompat.Tools = map[string]int{}
 	c.report.LLM.ByAgent = map[string]int{}
 	c.report.LLM.ByModel = map[string]int{}
@@ -259,6 +290,10 @@ func (c *collector) observeLine(line string, fm *fileMetrics) {
 		dropped := c.observeBlocklist(line)
 		fm.blocklistDropped += dropped
 	}
+	if strings.Contains(line, "[richness]") {
+		c.observeRichness(line)
+	}
+	c.observeRenderLine(line, fm)
 	if strings.Contains(line, "TOOLRESULT emit_analysis ok=false") ||
 		strings.Contains(line, "emit_analysis rejected:") ||
 		strings.Contains(line, "analyzer quality gate rejected") {
@@ -369,6 +404,58 @@ func (c *collector) observeBlocklist(line string) int {
 	return kv["dropped"]
 }
 
+func (c *collector) observeRichness(line string) {
+	m := richnessRe.FindStringSubmatch(line)
+	if len(m) != 3 {
+		return
+	}
+	kind := strings.TrimSpace(m[1])
+	if kind == "" {
+		return
+	}
+	c.report.Richness.Events++
+	c.report.Richness.ByKind[kind]++
+	body := m[2]
+	if family := parseTokenValue(body, "family"); family != "" {
+		c.report.Richness.ByFamily[family]++
+	}
+	if facet := parseTokenValue(body, "facet_kind"); facet != "" {
+		c.report.Richness.ByFacetKind[facet]++
+	}
+}
+
+func (c *collector) observeRenderLine(line string, fm *fileMetrics) {
+	if strings.Contains(line, "第一稿答案") || strings.Contains(line, "First draft answer") {
+		c.report.Render.FirstDraftPreviews++
+		fm.firstDraftPreviews++
+	}
+	if stage := parseRenderStage(line); stage > 0 {
+		c.report.Render.StatusEvents++
+		c.report.Render.StageCounts[strconv.Itoa(stage)]++
+		if fm.lastRenderStage > 0 && stage < fm.lastRenderStage {
+			c.observeRenderAnomaly(fm, "stage_regression")
+			c.report.Render.StageRegressions++
+		}
+		if fm.seenFinalizerStage && stage < 4 {
+			c.observeRenderAnomaly(fm, "backtrack_after_finalize")
+			c.report.Render.BacktracksAfterFinalize++
+		}
+		if stage == 4 {
+			fm.seenFinalizerStage = true
+		}
+		fm.lastRenderStage = stage
+	}
+	if isTurnBoundary(line) {
+		fm.lastRenderStage = 0
+		fm.seenFinalizerStage = false
+	}
+}
+
+func (c *collector) observeRenderAnomaly(fm *fileMetrics, name string) {
+	c.report.Render.Anomalies[name]++
+	fm.renderAnomalies++
+}
+
 func (c *collector) observeRepairPlan(line string) {
 	m := repairPlanRe.FindStringSubmatch(line)
 	if len(m) != 2 {
@@ -403,7 +490,12 @@ func (c *collector) observeContractCheck(line string, fm *fileMetrics) {
 func (c *collector) finalize() {
 	out := make([]fileRetrySnapshot, 0, len(c.files))
 	for _, fm := range c.files {
-		score := fm.analyzerRetries + fm.analyzerRejects*2 + fm.finalizerRejects*3 + fm.finalizerRewrites*2 + fm.repairPlans*2
+		if fm.firstDraftPreviews > 0 && fm.finalizerRejects == 0 && fm.finalizerRewrites == 0 && fm.repairPlans == 0 {
+			c.report.Render.SuspiciousFirstDraftPreviews += fm.firstDraftPreviews
+			c.report.Render.Anomalies["first_draft_without_retry"] += fm.firstDraftPreviews
+			fm.renderAnomalies += fm.firstDraftPreviews
+		}
+		score := fm.analyzerRetries + fm.analyzerRejects*2 + fm.finalizerRejects*3 + fm.finalizerRewrites*2 + fm.repairPlans*2 + fm.renderAnomalies*2
 		if score == 0 && fm.blocklistDropped == 0 {
 			continue
 		}
@@ -416,6 +508,7 @@ func (c *collector) finalize() {
 			FinalizerRewrites: fm.finalizerRewrites,
 			RepairPlans:       fm.repairPlans,
 			BlocklistDropped:  fm.blocklistDropped,
+			RenderAnomalies:   fm.renderAnomalies,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -482,6 +575,46 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+func parseTokenValue(s, key string) string {
+	needle := key + "="
+	idx := strings.Index(s, needle)
+	if idx < 0 {
+		return ""
+	}
+	rest := s[idx+len(needle):]
+	rest = strings.TrimLeft(rest, " \t")
+	if rest == "" {
+		return ""
+	}
+	end := len(rest)
+	for i, r := range rest {
+		if r == ' ' || r == '\t' {
+			end = i
+			break
+		}
+	}
+	return strings.TrimSpace(rest[:end])
+}
+
+func parseRenderStage(line string) int {
+	m := renderStageRe.FindStringSubmatch(line)
+	if len(m) != 2 {
+		return 0
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func isTurnBoundary(line string) bool {
+	return strings.Contains(line, "◆ 已结束") ||
+		strings.Contains(line, "◆ Done") ||
+		strings.Contains(line, "─────────────────────────────────────") ||
+		strings.Contains(line, "] > ")
 }
 
 func analyzerRejectReason(line string) string {
@@ -582,6 +715,29 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 	writeTopMap(w, "Contract violation sections", rep.Finalizer.ContractViolationBySection, 10)
 
 	fmt.Fprintln(w)
+	fmt.Fprintln(w, "## Richness")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "- events: %d\n", rep.Richness.Events)
+	writeTopMap(w, "Richness kinds", rep.Richness.ByKind, 8)
+	writeTopMap(w, "Richness families", rep.Richness.ByFamily, 8)
+	writeTopMap(w, "Richness facet kinds", rep.Richness.ByFacetKind, 8)
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "## Render")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "- status events: %d stage_regressions=%d backtracks_after_finalize=%d\n",
+		rep.Render.StatusEvents,
+		rep.Render.StageRegressions,
+		rep.Render.BacktracksAfterFinalize,
+	)
+	fmt.Fprintf(w, "- first draft previews: total=%d suspicious_without_retry=%d\n",
+		rep.Render.FirstDraftPreviews,
+		rep.Render.SuspiciousFirstDraftPreviews,
+	)
+	writeTopMap(w, "Render stage counts", rep.Render.StageCounts, 4)
+	writeTopMap(w, "Render anomalies", rep.Render.Anomalies, 8)
+
+	fmt.Fprintln(w)
 	fmt.Fprintln(w, "## Compatibility And Transport")
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "- tool param compat: sanitized_invalid_args=%d auto_repaired_params=%d\n",
@@ -597,14 +753,14 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "## Hot Logs")
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "| file | score | ana_retry | ana_reject | fin_reject | fin_rewrite | repair | blocklist_drop |")
-		fmt.Fprintln(w, "|------|------:|----------:|-----------:|-----------:|------------:|-------:|---------------:|")
+		fmt.Fprintln(w, "| file | score | ana_retry | ana_reject | fin_reject | fin_rewrite | repair | blocklist_drop | render_anom |")
+		fmt.Fprintln(w, "|------|------:|----------:|-----------:|-----------:|------------:|-------:|---------------:|------------:|")
 		n := len(rep.FilesByRetryScore)
 		if n > top {
 			n = top
 		}
 		for _, f := range rep.FilesByRetryScore[:n] {
-			fmt.Fprintf(w, "| `%s` | %d | %d | %d | %d | %d | %d | %d |\n",
+			fmt.Fprintf(w, "| `%s` | %d | %d | %d | %d | %d | %d | %d | %d |\n",
 				escapePipe(f.Path),
 				f.Score,
 				f.AnalyzerRetries,
@@ -613,6 +769,7 @@ func writeMarkdown(w io.Writer, rep report, top int) {
 				f.FinalizerRewrites,
 				f.RepairPlans,
 				f.BlocklistDropped,
+				f.RenderAnomalies,
 			)
 		}
 	}

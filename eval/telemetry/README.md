@@ -24,6 +24,8 @@ Important counters:
 - `Analyzer / blocklist shadow`: dropped generic entities and whether the deferred drop-to-noise path would have allowed search/shape usage.
 - `Finalizer / contract violations`: `answer_contract_check section=... violations=N`, including non-tool-reject repairs.
 - `Finalizer / repair kinds`: typed repair root causes from `repair_plan`.
+- `Richness`: `[richness] facet_softened` and `family_underrepresented` signals, so softening and family-fit fallbacks remain measurable after hard gates are relaxed.
+- `Render`: REPL/status transcript anomalies such as numeric stage regressions, backtracks after a `4/4` status, and first-draft previews that appear without any finalizer retry evidence.
 - `Compatibility And Transport`: tool-parameter repair and LLM timeout/error lines.
 
 Decision rule for the deferred blocklist downgrade:
