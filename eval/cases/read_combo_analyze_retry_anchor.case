@@ -1,0 +1,14 @@
+# Read-mode combo — exact mechanism anchors plus scalar retry budget
+#
+# Covers mechanism-anchor preservation together with a scalar identifier. The
+# answer must not drift from the retry budget (`MaxRetriesPerStage`) to nearby
+# attempt counters, and must keep `runTaskGraph` visible as the scheduler
+# anchor.
+ID="read_combo_analyze_retry_anchor"
+NAME="read combo — analyze retry mechanism exact anchors"
+QUESTION="读取代码说明 runTaskGraph 下 analyze 阶段如果一直没有调用 emit_analysis 会怎样重试；必须说明 MaxRetriesPerStage、dynamicAnalyzeRetries、StageOutput/Error 的关系，并说明系统是否会静默使用零值 AnalysisIR。"
+EXPECT_CONTAINS="runTaskGraph emit_analysis MaxRetriesPerStage dynamicAnalyzeRetries StageOutput"
+EXPECT_MATCHES_REGEX="(Error|错误|失败)
+(不会|不|not).*?(零值|zero.?value|silent|静默)"
+EXPECT_NOT_CONTAINS="EmitStageRetryAttempt-only-answer"
+

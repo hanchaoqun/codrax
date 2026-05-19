@@ -1,0 +1,13 @@
+# Read-mode combo — literal tool names, retry protocol, diagram and table
+#
+# Covers source string literals plus final-answer presentation. The answer
+# should distinguish the first full emit tool from the retry patch tool without
+# collapsing both into a generic AnswerDocument carrier discussion.
+ID="read_combo_answer_document_tools"
+NAME="read combo — emit_answer_document vs patch literal tools"
+QUESTION="对比 emit_answer_document 和 emit_answer_document_patch 两个工具：分别给出 Name() 返回的源码字符串 literal、适用时机（首次完整输出 vs retry patch），并用 Mermaid 小流程图和表格说明它们在 finalizer 里的关系。"
+EXPECT_CONTAINS="emit_answer_document emit_answer_document_patch Name retry patch finalizer"
+EXPECT_MATCHES_REGEX='(```mermaid|flowchart|graph[[:space:]]+(TD|LR))
+(首次|first|complete|完整)
+(重试|retry|patch)'
+EXPECT_NOT_CONTAINS="emit_evidence-only-answer"

@@ -1,0 +1,17 @@
+# Read-mode combo — multi-repo negative evidence and symmetric scope coverage
+#
+# Fixture: eval/fixtures/multirepo-basic/. The two named sub-repos do not
+# directly import or call one another. A good answer should still describe both
+# sides and surface bounded negative evidence instead of answering only one
+# repo or fabricating an interface.
+ID="read_combo_multirepo_negative_interaction"
+NAME="read combo — multi-repo no direct interface interaction"
+QUESTION="repo-greet-go 和 repo-tools-py 之间有没有直接接口调用或代码依赖？请先给结论，再分别说明两个子仓各自职责，并给出你搜索过哪些范围/关键字后认为没有直接交互。"
+MULTIREPO="multirepo-basic"
+CAP="3"
+EXPECT_SECTIONS="repo-greet-go repo-tools-py"
+EXPECT_CONTAINS="UserService process_request"
+EXPECT_MATCHES_REGEX="(没有|无|未发现|no direct|not direct|not found)
+(搜索|grep|negative|0|范围|关键字|query|pattern)"
+EXPECT_NOT_CONTAINS="unrelated_constant"
+

@@ -1,0 +1,15 @@
+# Read-mode combo — source-location inventory with qualifiers
+#
+# Covers source-location rows whose visible answer must preserve total count,
+# exact files/lines, and qualifier prose without collapsing labels/citations
+# into one brittle string. The question deliberately asks for categories so
+# the finalizer has to distinguish direct assignments from struct literals.
+ID="read_combo_source_locations_required_false"
+NAME="read combo — CitationReq.Required=false source locations with qualifiers"
+QUESTION="把生产代码里 CitationReq.Required=false 的位点按“直接赋值”和“结构体初始化”分类列出来：给总数、每处文件:行、以及为什么该路径要放宽 citation 要求。不要列测试、注释或文档示例。"
+EXPECT_CONTAINS="CitationReq Required false analyzer.go contract_check.go orchestrator.go"
+EXPECT_MATCHES_REGEX="\\b(4|四)\\b
+(直接赋值|assignment|assign)
+(结构体初始化|initializer|struct literal|literal)"
+EXPECT_NOT_CONTAINS="_test.go emit_evidence_test.go"
+

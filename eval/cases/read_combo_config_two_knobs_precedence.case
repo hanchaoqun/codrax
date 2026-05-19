@@ -1,0 +1,14 @@
+# Read-mode combo — two related config knobs and precedence comparison
+#
+# Covers config-precedence answers that compare two knobs in one response.
+# The finalizer must keep both YAML keys, both CLI flags, and both defaults
+# distinct, rather than compressing them into a single generic precedence note.
+ID="read_combo_config_two_knobs_precedence"
+NAME="read combo — pipeline steps and retry knobs precedence"
+QUESTION="比较 pipeline_max_steps 和 pipeline_max_retries_per_stage 这两个配置项：分别列出 codrax.yaml 字段、CLI flag、代码默认值，并说明默认值、yaml、CLI 三层谁覆盖谁。"
+EXPECT_CONTAINS="pipeline_max_steps pipeline_max_retries_per_stage --pipeline-max-steps --pipeline-max-retries"
+EXPECT_MATCHES_REGEX="(50|五十)
+(3|三)
+(默认|default).*?(yaml|codrax\\.yaml).*?(CLI|flag|命令行|--pipeline)"
+EXPECT_NOT_CONTAINS="Spring Django"
+

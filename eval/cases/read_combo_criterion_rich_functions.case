@@ -1,0 +1,16 @@
+# Read-mode combo — exhaustive function enumeration with rich Chinese notes
+#
+# Covers the evidence-richness contract for closed-set enumerations:
+# the answer must keep the function list complete while preserving useful
+# per-function rationale, especially Eval/EvalAll error semantics. This
+# guards against deterministic row compilation flattening rich summaries into
+# dry "symbol defined at line X" prose.
+ID="read_combo_criterion_rich_functions"
+NAME="read combo — criterion public functions with rich notes"
+QUESTION="internal/analysis/criterion 只列公开函数，不列类型、变量或 Kind 常量；每个函数都要给出文件:行和一句中文职责说明，尤其说明 Eval/EvalAll 与 UnknownKind/failed 结果的关系。"
+EXPECT_CONTAINS="Eval EvalAll IsRegistered RegisteredKinds SetExternalArtifactFloor UnknownKind"
+EXPECT_MATCHES_REGEX="(Eval.*UnknownKind|UnknownKind.*Eval)
+(EvalAll.*failed|failed.*EvalAll|EvalAll.*失败|失败.*EvalAll)
+(IsRegistered|RegisteredKinds)"
+EXPECT_NOT_CONTAINS="KindSymbolPresent defaultExternalArtifactFloor"
+
