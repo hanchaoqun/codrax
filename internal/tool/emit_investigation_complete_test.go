@@ -176,6 +176,53 @@ func TestEmitInvestigationComplete_AcceptsNegativeSearchAggregateFact(t *testing
 	}
 }
 
+func TestEffectiveCompletionAggregateFacts_CurrentPayloadReplacesStaleRetainedFacts(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "stale bucket",
+		Value:       "3",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"old-a", "old-b", "old-c"},
+		SupportRefs: []string{"old.go:1", "old.go:2", "old.go:3"},
+	}})
+	mut.SetInvestigationComplete("previous accepted closure")
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mut}
+
+	current := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "current bucket",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"new-a"},
+		SupportRefs: []string{"new.go:10"},
+	}}
+	got := effectiveCompletionAggregateFacts(ctx, current)
+	if len(got) != 1 || got[0].Label != "current bucket" || got[0].Members[0] != "new-a" {
+		t.Fatalf("current aggregate_facts must replace stale retained facts, got %+v", got)
+	}
+}
+
+func TestEffectiveCompletionAggregateFacts_EmptyPayloadCarriesForwardRetainedFacts(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "accepted bucket",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"accepted"},
+	}})
+	mut.SetInvestigationComplete("previous accepted closure")
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mut}
+
+	got := effectiveCompletionAggregateFacts(ctx, nil)
+	if len(got) != 1 || got[0].Label != "accepted bucket" || got[0].Members[0] != "accepted" {
+		t.Fatalf("empty aggregate_facts should carry forward retained facts, got %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_AcceptsStringEncodedAggregateFacts(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}
@@ -1676,6 +1723,134 @@ func TestEmitInvestigationComplete_AllowsExhaustiveEnumerationMemberSet(t *testi
 	facts := mut.StableInvestigationAggregateFacts()
 	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateMemberSet || len(facts[0].Members) != 1 {
 		t.Fatalf("member_set aggregate should be retained, got %+v", facts)
+	}
+}
+
+func TestEmitInvestigationComplete_DowngradesPrincipalGroupedCountWithoutMembersUnderExhaustiveEnumeration(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all public symbols by category")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "intent",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       642,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Intent",
+		Subject:         "Intent",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all public symbols by category",
+	}
+	bus := &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: ir,
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"one category has a complete member_set, another category only has a count",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"public enum types",
+			"value":"1",
+			"unit":"types",
+			"members":["Intent"],
+			"support_refs":["internal/types/analysis_ir.go:642"]
+		},{
+			"kind":"grouped_count",
+			"label":"public functions",
+			"value":"2",
+			"unit":"functions"
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("grouped-count member gap is a soft pre-complete result, got hard failure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "exhaustive member-set handoff is missing") ||
+		!strings.Contains(res.Summary, "grouped_count") ||
+		!strings.Contains(res.Summary, "public functions") {
+		t.Fatalf("summary should ask for members on positive principal grouped_count, got: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) != "" {
+		t.Fatalf("downgraded completion must not mark investigation complete")
+	}
+}
+
+func TestEmitInvestigationComplete_AllowsSingletonCountBasisWhenMemberSetExists(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0, Tier1Floor: 0})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("List all public symbols by category and explain count basis")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "intent",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       642,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Intent",
+		Subject:         "Intent",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	ir := enumerationPrincipalGateIR()
+	ir.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all public symbols by category",
+	}
+	bus := &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: ir,
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"one complete member_set plus one singleton count-basis scalar",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"public enum types",
+			"value":"1",
+			"unit":"types",
+			"members":["Intent"],
+			"support_refs":["internal/types/analysis_ir.go:642"]
+		},{
+			"kind":"grouped_count",
+			"label":"declaration block count basis",
+			"value":"1",
+			"unit":"blocks"
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("singleton count-basis metadata should not force synthetic members: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "grouped_count") && strings.Contains(res.Summary, "has no members") {
+		t.Fatalf("summary should not ask for synthetic singleton count-basis members: %s", res.Summary)
+	}
+	if strings.TrimSpace(mut.InvestigationCompleteReason()) == "" {
+		t.Fatalf("completion should be stored when real member_set exists and singleton count is metadata")
 	}
 }
 

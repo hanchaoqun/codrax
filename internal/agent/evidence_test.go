@@ -126,7 +126,7 @@ func TestMergeEvidenceItemsUnionsSurfaceTermsOnSameFact(t *testing.T) {
 	}
 }
 
-func TestMergeEvidenceItemsPrefersRicherSummaryForSameEvidence(t *testing.T) {
+func TestMergeEvidenceItemsPreservesDistinctSameAnchorSummaries(t *testing.T) {
 	base := types.EvidenceItem{
 		Kind:         types.EvidenceDirect,
 		Subject:      "KindSymbolPresent",
@@ -146,13 +146,18 @@ func TestMergeEvidenceItemsPrefersRicherSummaryForSameEvidence(t *testing.T) {
 	if len(merged) != 1 {
 		t.Fatalf("mergeEvidenceItems count = %d, want 1", len(merged))
 	}
-	if merged[0].Summary != rich.Summary {
-		t.Fatalf("richer same-anchor summary should win:\n got: %q\nwant: %q", merged[0].Summary, rich.Summary)
+	if !strings.Contains(merged[0].Summary, base.Summary) || !strings.Contains(merged[0].Summary, rich.Summary) {
+		t.Fatalf("same-anchor summaries should be dedup-appended, got %q", merged[0].Summary)
 	}
 
 	merged = mergeEvidenceItems([]types.EvidenceItem{rich}, []types.EvidenceItem{base})
-	if merged[0].Summary != rich.Summary {
-		t.Fatalf("later generic summary must not replace richer summary, got %q", merged[0].Summary)
+	if !strings.Contains(merged[0].Summary, base.Summary) || !strings.Contains(merged[0].Summary, rich.Summary) {
+		t.Fatalf("same-anchor summaries should be preserved regardless of merge order, got %q", merged[0].Summary)
+	}
+
+	merged = mergeEvidenceItems([]types.EvidenceItem{base}, []types.EvidenceItem{base})
+	if merged[0].Summary != base.Summary {
+		t.Fatalf("duplicate same-anchor summary should not be appended twice, got %q", merged[0].Summary)
 	}
 }
 

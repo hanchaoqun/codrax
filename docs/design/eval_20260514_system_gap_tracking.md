@@ -3473,9 +3473,362 @@ Verification:
     structured members/rows but do not globally replace ordinary summary prose;
     explicit excluded candidates still get deterministic redaction.
 - Verification:
-  - `go test ./internal/types ./internal/orchestrator ./internal/agent ./internal/tool ./internal/toolparam -run 'Test(LaneBlockKindMismatch_NoAcceptedPathCaveat|AppendSoftContractCaveatsToAnswer_SkipsLaneBlockKindTelemetry|PruneAggregateMemberSetsByStructuredExclusions|MergeAnswerAggregateFacts_(DemotesCompatiblePrincipalSubset|KeepsDistinctPrincipalSubsetBuckets)|RenderStructuredAggregateFacts(DoesNotTruncateCompleteCountMembers|DemotesConflictingParallelCounts)|NormalizeAggregateFactsForTypedVisibilityPrunesPrivateMembers|NormalizeTypedExcludedAnswerSurface_(RedactsSafeGraphVariableNamesFromProse|RedactsGraphOnlyExcludedVariables)|RunTypedAnswerExclusionPolicyCheck_UsesVisibilityProfile|EmitAnalysis_Execute_PersistsAnswerVisibilityProfile|Normalize_(RepairsCompositePropertyKeyFragment|DoesNotRepairAmbiguousCompositePropertyKeyFragment)|MergeEvidenceItemsPrefersRicherSummaryForSameEvidence|BuildAnswerSurfacePlan_DoesNotNarrowAcceptedMemberSetWithIncompleteAnswerSymbols)'`
+  - `go test ./internal/types ./internal/orchestrator ./internal/agent ./internal/tool ./internal/toolparam -run 'Test(LaneBlockKindMismatch_NoAcceptedPathCaveat|AppendSoftContractCaveatsToAnswer_SkipsLaneBlockKindTelemetry|PruneAggregateMemberSetsByStructuredExclusions|MergeAnswerAggregateFacts_(DemotesCompatiblePrincipalSubset|KeepsDistinctPrincipalSubsetBuckets)|RenderStructuredAggregateFacts(DoesNotTruncateCompleteCountMembers|DemotesConflictingParallelCounts)|NormalizeAggregateFactsForTypedVisibilityPrunesPrivateMembers|NormalizeTypedExcludedAnswerSurface_(RedactsSafeGraphVariableNamesFromProse|RedactsGraphOnlyExcludedVariables)|RunTypedAnswerExclusionPolicyCheck_UsesVisibilityProfile|EmitAnalysis_Execute_PersistsAnswerVisibilityProfile|Normalize_(RepairsCompositePropertyKeyFragment|DoesNotRepairAmbiguousCompositePropertyKeyFragment)|MergeEvidenceItemsPreservesDistinctSameAnchorSummaries|BuildAnswerSurfacePlan_DoesNotNarrowAcceptedMemberSetWithIncompleteAnswerSymbols)'`
   - `bash eval/run.sh eval/cases/qf_multi_member_set_count_caveat.case 1`
     - `eval/results/qf_multi_member_set_count_caveat-20260519-220132`
     - PASS; `finalizer_iters=1`; no finalizer reject/rewrite; no `+13`, no
       stale `Kind 常量共 24`, and no excluded variable leakage in the visible
       final answer.
+
+2026-05-19 deterministic enumeration row compiler execution plan:
+
+- Goal: turn accepted typed enumeration facts into a single reusable row model
+  before finalization. The row compiler should make exhaustive enumeration
+  answers stable and rich: counts, categories, labels, citations, and per-row
+  explanatory notes travel as one object instead of being reassembled by the
+  finalizer from prompt prose.
+- Non-goals / red lines:
+  - Do not infer members from user text, model thoughts, closure prose, or
+    keyword scans. Hard decisions consume only accepted `aggregate_facts`,
+    grounded evidence, explicit `support_refs`, typed exclusion/visibility
+    profiles, and repo-map symbol metadata.
+  - Do not make every answer a dry table. Rows are a stability substrate:
+    finalizer prose may summarize, compare, and explain them, and renderer
+    repair may use them when the model leaves table cells empty.
+  - Do not implement Go-only semantics. Batch 1 consumes language-neutral
+    source coordinates, evidence anchor metadata, symbol kind/export roles, and
+    aggregate members. Language-specific parser-derived rows come later through
+    repo-map adapters.
+- Batch 1a — core row compiler:
+  - Add `EnumerationDisplayRow` / `EnumerationDisplaySet` under `internal/types`.
+  - Compile one row set per principal complete aggregate carrier
+    (`member_set`, or count-like fact where `value == len(members)`).
+  - Resolve each row's display label, category, support ref, file/line,
+    citation key, claim form, candidate role, and rich note from accepted
+    evidence/support refs when available.
+  - Preserve rows without file coordinates as non-file rows instead of faking
+    `repo:0` citations.
+  - Guard tests: multi-category type/function/const rows, support-ref alignment,
+    non-file rows, no narrowing by incomplete answer symbols, no language-name
+    assumptions.
+- Batch 1b — finalizer enrichment:
+  - Render deterministic row sets into finalizer context as "Principal
+    Enumeration Rows": complete members first, then rich evidence notes.
+  - Keep `aggregate_facts.member_set` as the authority, but let row lanes carry
+    user-friendly descriptions so answers do not become dry symbol dumps.
+  - Guard tests: row prompt contains all members and rich notes, and still
+    omits raw closure prose as authority.
+- Batch 1c — visible answer/table repair:
+  - Extend deterministic table repair to fill empty table cells from row fields
+    when the model emits label/citation-only rows.
+  - Preserve model-authored markdown tables when already complete.
+  - Guard tests: no blank trailing columns, Chinese/English column names chosen
+    by existing answer surface, citations untouched.
+- Batch 1d — validator convergence:
+  - Update member-set visibility/cardinality checks to consume row identity
+    first, rendered prose second. A row may satisfy the member contract via
+    table/list item label plus row citation, not by exact composite string
+    duplication in every prose field.
+  - Keep hard rejects only for precise contradictions: missing principal row,
+    count != row count, citation points at a different support ref, or typed
+    exclusion violation that cannot be deterministically repaired.
+  - Prompt de-dup rule: the complete principal member body is rendered exactly
+    once as rich row data. `aggregate_facts` metadata may keep counts,
+    dimensions, roles, and provenance, but must not print a second dry
+    `members[]`/`support_refs[]` copy once deterministic rows are available.
+  - Richness rule: landed/read/in-scope definition rows keep their evidence
+    summary as the highest-priority explanatory text. Principal row notes are
+    not forcibly truncated by the optional-enrichment byte cap; upstream
+    aggregate metadata must not outrank or replace those notes.
+- Batch 1e — eval/telemetry:
+  - Re-run `qf_multi_member_set_count_caveat`, `u8a`/API-surface style cases,
+    and relation/source-location member-set cases.
+  - Track `finalizer_iters`, pre-emit reject count, blank table cells, and
+    visible row-note richness. Success means fewer finalizer repairs without
+    losing explanatory text.
+
+Execution progress:
+
+- Batch 1a completed:
+  - Added `types.EnumerationDisplaySet` / `types.EnumerationDisplayRow`.
+  - The compiler consumes only principal complete aggregate facts plus accepted
+    support refs/evidence; it preserves non-file rows without synthesizing
+    `repo:0` citations.
+  - Rows retain member identity, display label, category, location/citation
+    handle, claim/anchor metadata, equivalent locations, surface terms, and the
+    rich evidence summary note.
+  - Guard coverage includes multi-category rows, non-file rows, and
+    cross-language support refs (`.ets`, `.ts`, `.cpp`, `.java`, `.cj`) through
+    the existing language-neutral location contract.
+- Batch 1b completed:
+  - Finalizer prompt now receives a dedicated `Principal Enumeration Rows`
+    section that carries stable row/citation skeletons plus rich notes.
+  - The existing support lane now consumes the same compiler, so aggregate facts
+    organize the member slate while grounded evidence remains the explanation
+    authority.
+- Batch 1c completed:
+  - Pre-emit normalization fills empty structured table cells from deterministic
+    enumeration rows when every visible row label is a unique exact row match.
+  - Model-authored markdown tables, existing `cells[]`, ambiguous labels, and
+    non-matching rows are preserved untouched.
+  - The repair emits clear multi-column tables (`Name/Category/Location/Notes`
+    or `符号名称/类别/定义位置/说明`) and appends/reuses exact file:line citations
+    from the row contract.
+- Batch 1d partial completed:
+  - Finalizer/extractor prompts now compact principal `member_set` aggregate
+    rows to `member_count` / `support_ref_count` metadata after deterministic
+    row compilation. The full member body is no longer duplicated as a dry
+    `members=[...]` list next to the richer row list.
+  - `Required Principal Member Set` now points at `Principal Enumeration Rows`
+    as the single rich member/citation contract instead of re-listing every
+    member again.
+  - Typed support lanes and principal-member obligations suppress entries that
+    are already covered by `Principal Enumeration Rows`, while preserving lane
+    rules, row count, and equivalent-anchor guidance.
+  - Principal row notes keep the accepted evidence summary intact; the
+    optional-enrichment truncation cap remains in place only for lower-priority
+    enrichment rows.
+  - Support-ref parsing accepts `Member: file:line` alongside `Member @
+    file:line`, `Member | file:line`, and `Member (file:line)`, preventing
+    citable rich notes from being lost when the explorer uses the documented
+    colon form.
+  - Finalizer prompt now explicitly tells the model to render principal rows as
+    actual `ordered_list`, `bullet_list`, or `table` blocks instead of prose-only
+    sections that later trigger visible fallback carriers.
+- Verification:
+  - `go test ./internal/types -run 'TestCompileEnumerationDisplaySets|TestBuildAnswerSupportPlan'`
+  - `go test ./internal/agent -run 'TestAnswerDocumentEvaluator_BuildInitialInstruction_Renders(StructuredAggregateFacts|PrincipalEnumerationRowsWithNotes)'`
+  - `go test ./internal/tool -run 'TestCompile(EnumerationDisplayTableRows|CitationBackedTableRows)'`
+  - `go test ./internal/types ./internal/agent ./internal/tool`
+  - `go test ./internal/types ./internal/tool ./internal/agent`
+  - Focused eval `qf_multi_member_set_count_caveat-20260519-232047`: PASS,
+    `finalizer_iters=1`, no finalizer reject/rewrite. It still showed visible
+    fallback member carriers after prose-only category sections, which motivated
+    the stronger principal-row block guidance above.
+  - Focused eval `qf_multi_member_set_count_caveat-20260519-232810`: PASS,
+    `finalizer_iters=1`, `semantic_quality_concerns=0`, and no visible
+    fallback carrier text. However, it exposed a new upstream correctness gap:
+    one parallel explorer emitted private Go helper functions as "公开函数"
+    because the analyzer did not emit `answer_visibility_profile=public_exported`
+    for this run. The finalizer then trusted the accepted principal member_set.
+    This is not a prompt-duplication issue; it belongs to the next source-of-
+    truth batch: visibility scope must be typed at analyze/explore handoff and
+    principal member_set merge must prefer graph-exported rows when the typed
+    visibility profile is present.
+  - Analyzer schema wording now treats `answer_visibility_profile` as mandatory
+    whenever a code-symbol inventory/list/count/API-surface request expresses a
+    public/exported/all/private/internal visibility scope. This is a prompt-side
+    source fix only; hard pruning still waits for the typed lane plus repo graph
+    `Exported` metadata and does not infer visibility from raw request keywords.
+- Pending follow-up:
+  - Batch 1d should next replace remaining member-set visibility checks that
+    still reason from rendered exact strings with row identity/citation
+    obligations where the row contract is available.
+  - Add a Batch 1f source-quality guard: analyzer visibility profile coverage
+    and aggregate-member merge should preserve only rows matching typed
+    visibility/exclusion/scope contracts. When visibility is absent, the system
+    should not invent it from raw request keywords; it should strengthen the
+    analyzer prompt/repair path so the typed lane exists before hard pruning.
+  - Batch 1e should then rerun focused evals to prove reduced finalizer repair
+    count and no loss of row-note richness.
+
+2026-05-20 evidence summary aggregation / duplicate section shell follow-up:
+
+- Finding: focused eval `qf_multi_member_set_count_caveat-20260520-005043`
+  passed without finalizer retry, but inspection of the finalizer prompt around
+  `### Kind 常量成员 (25 row(s))` showed row notes such as
+  `KindSymbolPresent = Kind(types.CritSymbolPresent)` while the same run's
+  explorer evidence also contained richer Chinese explanations such as
+  `read-mode Kind: 检查符号是否存在于证据槽或答案列表`. The rich text was not lost
+  by context-window pressure; it was lost during duplicate evidence merging.
+- Root cause: parallel explorer fork merge and aggregate support indexing used
+  first-wins / anchor-ranking semantics for duplicate evidence identities. That
+  is wrong for model-authored summaries: the system cannot reliably decide which
+  sentence is "better". It can only establish structural sameness, then preserve
+  all distinct summaries.
+- Contract update: once two evidence rows are structurally the same evidence
+  identity (same stable evidence id, or same grounded source+line anchor in a
+  support index), summary text is a group field. Merge by whitespace-normalized
+  dedupe + append. Do not score, rank, or replace summaries based on perceived
+  richness. This is evidence-layer behavior, not enumeration-specific behavior,
+  so mechanism/comparison/diagnostic answers inherit the same preservation.
+- Fixes added:
+  - Added `types.MergeEvidenceSummaries(existing, incoming)` as the shared
+    deterministic summary-group merge primitive.
+  - `agent.mergeEvidenceItems`, `MutableState.MergeExploreFork`, TurnA artifact
+    evidence merge, and generic aggregate support evidence now preserve all
+    distinct same-anchor summaries instead of choosing one.
+  - Enumeration display rows consume the merged evidence summary, so finalizer
+    row lanes retain both the source/assignment clue and the explorer's richer
+    Chinese explanation when both exist.
+  - Principal enumeration section normalization now rewrites only one section
+    shell per accepted row set and removes redundant canonical section shells,
+    preventing visible duplicates such as three repeated `类型成员（3）` sections
+    with no additional content.
+- Guard tests added:
+  - `TestMergeEvidenceItemsPreservesDistinctSameAnchorSummaries`
+  - `TestMutableStateMergeExploreForkPreservesDistinctSameAnchorSummaries`
+  - `TestCompileEnumerationDisplaySets_DedupAppendsSameAnchorSummaries`
+  - `TestNormalizePrincipalEnumerationRowBlocks_RemovesRedundantSectionShells`
+- Verification:
+  - `go test ./internal/types ./internal/agent ./internal/tool -run 'Test(MutableStateMergeExploreForkPreservesDistinctSameAnchorSummaries|MergeEvidenceItemsPreservesDistinctSameAnchorSummaries|CompileEnumerationDisplaySets_DedupAppendsSameAnchorSummaries|NormalizePrincipalEnumerationRowBlocks_RemovesRedundantSectionShells|NormalizePrincipalEnumerationRowBlocks_PreservesAuthoredRichRowNotes|NormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartialMarkdownTable)'`
+  - `go test ./internal/types ./internal/agent ./internal/tool`
+- Pending follow-up:
+  - Rerun `qf_multi_member_set_count_caveat` and inspect the finalizer prompt to
+    confirm `Principal Enumeration Rows` carries merged Chinese notes for the
+    `Kind` constants, then decide whether additional prompt wording is needed
+    to encourage the finalizer to actually render the merged notes.
+
+2026-05-20 additive repair / extractor-slate boundary follow-up:
+
+- Finding: deterministic row repair still had an older full-carrier rewrite
+  helper. Even if the current entrypoint mostly bypassed it, keeping a second
+  rewrite path is a maintenance hazard: a future caller could again replace a
+  model-authored rich markdown table with the system's dry
+  `Name/Location/Notes` shape.
+- Contract update: deterministic补洞 is additive and localized.
+  - If the model-authored table/list already covers an accepted row, keep that
+    block byte-shape intact. It may be markdown, a categorized table, a list, or
+    another renderer-supported shape.
+  - If accepted rows are missing, append a separate principal table for only the
+    missing rows. The title is localized (`系统按已验证证据补充缺失成员...` /
+    `System-verified supplement...`) so the user can distinguish model answer
+    text from deterministic补洞.
+  - Do not overwrite non-empty model summary prose during row补洞. If no summary
+    exists, the system may add a minimal grounded summary; otherwise the local
+    supplement block carries the repair context. This avoids deleting rich
+    model wording just to fix a partial table.
+- Extractor slate audit:
+  - `## Prior slate from the extraction pipeline` is a finalizer prompt section
+    emitted by `answerDocumentEvaluator.BuildInitialInstruction`. Its purpose is
+    identity/citation continuity from `emit_answer_symbol`, not user-facing
+    explanation.
+  - Treating slate lines as the complete answer surface is a design bug across
+    all families, not only enumeration. Mechanism, comparison, diagnostic,
+    call-chain, and architecture answers also need richer evidence notes,
+    typed-support lanes, diagrams, and narrative conclusions.
+  - Guardrail added in the finalizer prompt: the slate is explicitly described
+    as an identity/citation skeleton and must not replace richer per-member
+    notes from `Principal Enumeration Rows`, `Typed Answer Support Lanes`, or
+    same-row Evidence notes.
+  - Current assessment: the slate design is acceptable only as a narrow skeleton
+    (`member name + file:line + rationale`) if richer lanes remain first-class
+    and are not deduplicated away. It would压扁答案 if downstream code used it
+    as the primary prose source or as the only principal carrier.
+- Fixes added:
+  - Removed the stale principal-enumeration carrier rewrite helpers; the only
+    deterministic row补洞 path now preserves covered model-authored blocks and
+    appends missing rows independently.
+  - Changed summary normalization to preserve non-empty model-authored summaries.
+  - Added finalizer prompt boundary test to make the extractor slate contract
+    visible to future maintainers.
+- Guard tests:
+  - `TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartialMarkdownTable`
+  - `TestNormalizePrincipalEnumerationRowBlocks_UsesEnglishSupplementTitle`
+  - `TestNormalizePrincipalEnumerationRowBlocks_PreservesAuthoredRichRowNotes`
+  - `TestNormalizePrincipalEnumerationRowBlocks_PreservesAuthoredNotesFromCategorizedMarkdownTable`
+  - `TestAnswerDocumentEvaluator_BuildInitialInstruction_SlateDoesNotReplaceRichLanes`
+- Pending verification:
+  - Run `go test ./internal/types ./internal/agent ./internal/tool`.
+  - Rerun `qf_multi_member_set_count_caveat` and inspect both finalizer prompt
+    and rendered answer: rich Chinese notes should survive, complete
+    model-authored tables should not be replaced, and any missing rows should
+    appear only in the localized supplement block.
+
+2026-05-20 model-authored cell text preservation follow-up:
+
+- Finding: even after additive row补洞, a separate table-cell compiler still had
+  a subtle loss path. When the model emitted `items[].text` with richer wording
+  but left `items[].cells` empty, the compiler could fill the `说明` cell from a
+  drier deterministic row note. The renderer then appended the original
+  `item.text` as an extra cell and truncated it to the table width, making a
+  model-authored phrase such as `为兼容性保留，已废弃` disappear from the visible
+  answer.
+- Contract update: model-authored `items[].text` is the first-choice row note
+  during deterministic table-cell filling. Row-contract notes only fill blanks.
+  This is a local repair, not a table rewrite.
+- Related enrichment fix: finalizer prompt already receives extractor
+  rationale in the prior slate; enumeration rows now merge same-member
+  answer-symbol rationale into row notes when the name and file:line match. This
+  keeps richer Chinese explanations such as `符号存在于答案中` available without
+  letting the extractor slate replace the principal evidence/citation contract.
+- Guard tests:
+  - `TestCompileEnumerationDisplayTableRows_PreservesModelItemTextOverDryRowNote`
+  - `TestCompileEnumerationDisplaySets_AppendsExtractorRationaleAsEnrichment`
+
+2026-05-20 final-answer visibility / section-item citation audit:
+
+- Finding: a focused replay showed the richer row notes were restored in the
+  deterministic tables, but model-authored `section.items[]` could still render
+  with stale or shifted `citation_ref` values. The pre-emit citation alignment
+  and auto-rebind paths only visited ordered lists, bullet lists, and tables,
+  while the renderer also displays section items as bullets. This meant the
+  finalizer-produced section prose was visible, but some item citations could
+  silently point at an adjacent symbol line.
+- Contract update: every block kind whose `items[]` are user-visible must use
+  the same citation-rebind/check path. Today that set is `section`,
+  `ordered_list`, `bullet_list`, and structured `table`. Summary/scalar/decision
+  items remain citation anchors unless their renderer becomes user-visible.
+- Fixes added:
+  - Shared the visible-item block-kind predicate across item-citation alignment,
+    unique citation rebinding, out-of-range citation repair, and qualified label
+    normalization.
+  - Added a renderer guard proving structured-table `item.text` survives when
+    it coexists with `cells[]`, so phrases such as `为兼容性保留，已废弃` cannot be
+    lost by table-width handling.
+  - Made doc-level `exact_resolution` render a deterministic lead before the
+    main answer. This closes the prompt/renderer mismatch where the finalizer
+    was told the renderer would insert an exact-resolution lead, but the field
+    previously remained invisible unless the model repeated it in prose.
+  - Made block-level `scope_disclosure` render a localized scope note once per
+    disclosure kind. This keeps active-sub-repo boundary information visible
+    without forcing the model to duplicate the same typed enum in prose.
+  - Changed table rendering so non-markdown `block.text` is treated as visible
+    intro text and no longer suppresses `items[]` / `cells[]` rows. Markdown
+    table text remains the authoritative table carrier.
+  - Recovered display attachments still keep a hard panel-size cap, but the
+    renderer now emits an explicit localized omission note instead of silently
+    dropping attachments beyond the cap.
+- Guard tests:
+  - `TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsSectionItems`
+  - `TestRenderV2_BlockTableStructuredCellsPreserveItemTextOverflow`
+  - `TestRenderV2_ExactResolutionVisibleLead`
+  - `TestRenderV2_ScopeDisclosureVisibleOnce`
+ - `TestRenderV2_BlockTableIntroTextDoesNotHideStructuredRows`
+  - `TestRenderV2_RecoveredAttachmentCapDisclosesOmittedItems`
+
+2026-05-20 same-anchor summary handoff / stale aggregate audit:
+
+- Finding: evidence summary merging existed at the stable EvidenceID layer and
+  in the member-label support index, but the deterministic enumeration row
+  compiler still selected a single best evidence item as the row note. When two
+  grounded evidence items shared the same `file:line` anchor and member
+  identity through different typed fields (`anchor_symbol`, `subject`,
+  `object`, or `surface_terms`), only one summary was guaranteed to reach
+  `Principal Enumeration Rows`. This made finalizer-visible context depend on
+  whichever item won the score tie.
+- Contract update: for accepted principal enumeration rows, the row note is now
+  the de-duplicated union of all grounded summaries whose source location and
+  typed member identity both match the row. This remains structural: the merge
+  consumes accepted aggregate facts, support refs, grounded evidence locations,
+  and typed identity fields only; it does not parse user prose, model thinking,
+  or raw closure text.
+- Related handoff fix: a non-empty `emit_investigation_complete.aggregate_facts`
+  payload now replaces older retained aggregate facts for that successful
+  closure instead of merging retained facts back in. Empty completion payloads
+  still carry forward the last accepted handoff for repair-window continuity.
+  This prevents downgraded/older aggregate slates from polluting extractor or
+  finalizer prompts after the model has emitted a fresh complete handoff.
+- Display-shape fix: deterministic enumeration rows now de-duplicate equivalent
+  complete principal carriers by their typed member set before compiling rows.
+  When a count-like fact with `members[]` and a proper `member_set` carry the
+  same members, the `member_set` / better-supported carrier wins. This prevents
+  pre-emit supplement blocks from creating a second visible list for the same
+  principal slate while still preserving non-member aggregate metadata as
+  scalar/context.
+- Guard tests:
+  - `TestCompileEnumerationDisplaySets_DedupAppendsSameAnchorSummaries`
+  - `TestCompileEnumerationDisplaySets_MergesSameAnchorSummariesAcrossTypedFields`
+  - `TestCompileEnumerationDisplaySets_DedupesEquivalentPrincipalFactRefs`
+  - `TestEffectiveCompletionAggregateFacts_CurrentPayloadReplacesStaleRetainedFacts`
+  - `TestEffectiveCompletionAggregateFacts_EmptyPayloadCarriesForwardRetainedFacts`

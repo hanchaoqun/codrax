@@ -117,6 +117,7 @@ func normalizeAggregateFactsForTypedExclusion(ctx *types.BusContext, facts []typ
 	if len(facts) == 0 || ctx == nil || ctx.AnalysisIR == nil {
 		return facts
 	}
+	facts = types.NormalizeAnswerAggregateMemberSetSurfaces(facts)
 	policy := ctx.AnalysisIR.RequestModel.AnswerExclusionPolicy
 	roles := answerDocumentEffectiveExcludedRoleSet(ctx, policy, facts, nil)
 	candidates := answerDocumentExcludedCandidateNames(ctx, roles)
@@ -155,15 +156,13 @@ func normalizeAggregateFactsForTypedExclusion(ctx *types.BusContext, facts []typ
 			out[i].Value = strconv.Itoa(len(keptMembers))
 		}
 	}
-	return out
+	return types.ReconcilePrincipalAggregateMemberSetSupersets(out)
 }
 
 // EffectiveAnswerExclusionRolesForAgentContext returns the exclusion roles that
-// remain safe to show to the finalizer after principal aggregate facts have
-// been considered. Analyzer-emitted exclusions are advisory typed intent; a
-// grounded, same-role principal member_set emitted by exploration is the
-// stronger handoff for the current answer slate, so its role is protected from
-// downstream pruning/prompting.
+// remain safe to show to the finalizer. Exclusions are typed user-intent
+// boundaries; a later principal aggregate fact cannot protect a same-role
+// candidate from a role the current request explicitly excluded.
 func EffectiveAnswerExclusionRolesForAgentContext(ctx *types.AgentContext) []types.AnswerCandidateRole {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil
@@ -217,21 +216,7 @@ func answerDocumentEffectiveExcludedRoleSet(
 		ctx.AnalysisIR.RequestModel.AnswerVisibilityProfile.ExcludesPrivateSymbols() {
 		roles[types.AnswerCandidateRolePrivate] = true
 	}
-	if len(roles) == 0 {
-		return roles
-	}
-	protected := answerDocumentPrincipalAggregateProtectedRoles(ctx, facts, evidence)
-	if len(protected) == 0 {
-		return roles
-	}
-	out := make(map[types.AnswerCandidateRole]bool, len(roles))
-	for role := range roles {
-		if protected[role] {
-			continue
-		}
-		out[role] = true
-	}
-	return out
+	return roles
 }
 
 func answerDocumentPrincipalAggregateProtectedRoles(

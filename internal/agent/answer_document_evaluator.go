@@ -610,6 +610,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 				b.WriteString("Evidence Items section, removing items requires a rationale in the ")
 				b.WriteString("symbol's `rationale` field. When a slate line includes model-emitted `surface_terms`, ")
 				b.WriteString("preserve those exact structured terms in the row label, text, or table cells; keep the repo-relative path as the citation.\n\n")
+				b.WriteString("This slate is an identity/citation skeleton, not the complete explanation surface. Do not let it replace richer per-member notes from `Principal Enumeration Rows`, `Typed Answer Support Lanes`, or same-row Evidence notes; use those richer lanes for row text when they exist.\n\n")
 				for _, s := range ctx.AnswerSymbols {
 					if s.File != "" && s.Line > 0 {
 						fmt.Fprintf(&b, "- %s (%s:%d)", s.Name, s.File, s.Line)
@@ -3538,6 +3539,9 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 	if len(refs) == 0 {
 		return ""
 	}
+	if sets := answerDocPrincipalEnumerationSets(ctx, plan); len(sets) > 0 {
+		return renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx, refs, sets)
+	}
 
 	type renderedFact struct {
 		label   string
@@ -3604,11 +3608,45 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 	return b.String()
 }
 
+func renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx *types.AgentContext, refs []types.AnswerAggregateFactRef, sets []types.EnumerationDisplaySet) string {
+	if ctx == nil || ctx.AnalysisIR == nil || len(refs) == 0 || len(sets) == 0 {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	totalRows := 0
+	for _, set := range sets {
+		totalRows += len(set.Rows)
+	}
+	if totalRows == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Required Principal Member Set\n\n")
+	b.WriteString("The authoritative principal member rows are rendered once in `Principal Enumeration Rows` above. ")
+	b.WriteString("Every `row.member` there MUST appear verbatim in the visible answer, including decorators in parentheses, arrows, separators, and source-location text. ")
+	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) || types.RequiresRelationMemberSetHandoff(rm) {
+		b.WriteString("Carry those rows as principal `ordered_list`, `bullet_list`, or `table` items; prose-only mentions inside `summary` or `section` text do not satisfy the member carrier; do not paraphrase or abbreviate any row member.\n\n")
+	} else {
+		b.WriteString("The pre-emit oracle checks the same row identities against `blocks[].items[].label/text/cells OR blocks[].text`; do not paraphrase or abbreviate them.\n\n")
+	}
+	b.WriteString("This section intentionally does not duplicate the full member list. Use the row ids, locations, citation keys, and notes from `Principal Enumeration Rows` as the single rich member/citation contract.\n\n")
+	for _, set := range sets {
+		label := strings.TrimSpace(set.Label)
+		if label == "" {
+			label = "principal set"
+		}
+		fmt.Fprintf(&b, "- principal set %q: %d row(s), source aggregate fact index=%d\n", label, len(set.Rows), set.FactIndex)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
 func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	plan := answerSurfacePlan(ctx)
 	if plan == nil || len(plan.StableAggregateFacts) == 0 {
 		return ""
 	}
+	rows := renderAnswerDocPrincipalEnumerationRows(ctx, plan)
 	var b strings.Builder
 	b.WriteString("## Structured Aggregate Facts\n\n")
 	b.WriteString("- These aggregate facts were emitted by the investigator through `emit_investigation_complete.aggregate_facts` after exploration. They are model-authored structured handoff values, not system-synthesised answer text.\n")
@@ -3620,6 +3658,9 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("- `kind=negative_search` is the typed lane for a verified zero-result repository search. It has no citation line by design; use its repo/query-or-pattern/scope/searched_at dimensions to support no-hit conclusions, cross-repository boundaries, and caveats without inventing a file:line citation.\n")
 	b.WriteString("- For `member_set` rows, `role=principal_answer` marks the concrete principal slate. `role=supporting_coverage` / `role=audit_ledger` rows are context or investigation bookkeeping and must not create duplicate principal rows.\n")
 	b.WriteString("- Grounded definition evidence from read files and the requested source scope is the detail/citation authority for those principal members. Aggregate facts organize the slate/counts; they must not cause you to drop richer per-member summaries already present in the evidence pool or typed exploration enrichment rows.\n")
+	if rows != "" {
+		b.WriteString("- Because principal enumeration rows are available, this prompt renders the rich member/citation list exactly once in `Principal Enumeration Rows`; aggregate metadata below keeps counts/dimensions only for those same member sets.\n")
+	}
 	if relationRefs := answerDocPrincipalRelationMemberSetRefs(ctx, plan.StableAggregateFacts); len(relationRefs) > 0 {
 		b.WriteString("- Relation contract: principal relation `member_set` rows answer a qualifying-member lookup. Start from the qualifying member(s) in that typed set, then explain the relation evidence; do not substitute a mechanism-only architecture explanation for the direct member answer.\n")
 		if answerDocHasMultiMemberAggregateRef(relationRefs) {
@@ -3629,8 +3670,79 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, `Member | file.ext:line`, or `Member (file.ext:line)`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Reserve `citation_ref:-1` only for member labels that have no citable source-location handoff.\n")
 	b.WriteString("- Do not render internal provenance strings such as `source=emit_investigation_complete.aggregate_facts` in the user-visible answer text. Use provenance only to choose the correct member set and citations.\n")
 	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, unstructured prose, or raw tool snippets conflict with these facts, prefer rows marked `role=principal_answer` for the principal list. If a same-member grounded definition evidence row provides richer detail, use that evidence to explain the member instead of deleting the detail.\n\n")
+	if rows != "" {
+		b.WriteString(rows)
+		b.WriteString("## Aggregate Fact Metadata\n\n")
+		b.WriteString("- Principal member-set bodies are compacted here to avoid a second dry copy of the same rows. Non-member aggregate values remain exact.\n\n")
+	}
 	b.WriteString(renderStructuredAggregateFactsForContext(ctx, plan.StableAggregateFacts))
 	b.WriteString("\n")
+	return b.String()
+}
+
+func answerDocPrincipalEnumerationSets(ctx *types.AgentContext, plan *types.AnswerSurfacePlan) []types.EnumerationDisplaySet {
+	if ctx == nil || ctx.AnalysisIR == nil || plan == nil {
+		return nil
+	}
+	return types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+}
+
+func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *types.AnswerSurfacePlan) string {
+	if ctx == nil || ctx.AnalysisIR == nil || plan == nil {
+		return ""
+	}
+	sets := answerDocPrincipalEnumerationSets(ctx, plan)
+	if len(sets) == 0 {
+		return ""
+	}
+	stableFacts := answerDocStableAggregateFacts(ctx)
+	var b strings.Builder
+	b.WriteString("## Principal Enumeration Rows\n\n")
+	b.WriteString("- These rows are compiled deterministically from accepted principal aggregate facts, member-specific support refs, and grounded evidence. Use them as the stable row/citation skeleton for enumeration tables or lists.\n")
+	b.WriteString("- Preserve every `member` as the principal row identity. Use `display_label`, `location`, and `citation_key` to build clear table cells; use `note` to keep the answer explanatory instead of a dry symbol dump.\n")
+	b.WriteString("- Render these rows as the actual principal `ordered_list`, `bullet_list`, or `table` blocks for the answer. Do not mention the row set only inside prose sections and rely on system-side fallback carriers; that creates duplicate user-visible lists.\n")
+	b.WriteString("- A row without `citation_key` is a legitimate non-file aggregate member; do not invent a `repo:0` citation for it.\n\n")
+	for _, set := range sets {
+		title := strings.TrimSpace(set.Label)
+		if title == "" {
+			title = "Principal enumeration"
+		}
+		if len(set.Rows) > 0 {
+			fmt.Fprintf(&b, "### %s (%d row(s))\n\n", title, len(set.Rows))
+		}
+		for _, row := range set.Rows {
+			member := sanitizeAggregateExcludedCandidatesForPrompt(ctx, row.Member, stableFacts)
+			label := sanitizeAggregateExcludedCandidatesForPrompt(ctx, row.DisplayLabel, stableFacts)
+			note := sanitizeAggregateExcludedCandidatesForPrompt(ctx, row.Note, stableFacts)
+			fmt.Fprintf(&b, "- row_id=`%s`, member=`%s`", row.RowID, member)
+			if label != "" && label != member {
+				fmt.Fprintf(&b, ", display_label=`%s`", label)
+			}
+			if category := strings.TrimSpace(row.Category); category != "" {
+				fmt.Fprintf(&b, ", category=%s", category)
+			}
+			if location := strings.TrimSpace(row.Location); location != "" {
+				fmt.Fprintf(&b, ", location=`%s`", location)
+			}
+			if citationKey := strings.TrimSpace(row.CitationKey); citationKey != "" {
+				fmt.Fprintf(&b, ", citation_key=`%s`", citationKey)
+			}
+			if row.ClaimForm != types.ClaimUnknown {
+				fmt.Fprintf(&b, ", claim_form=%s", row.ClaimForm)
+			}
+			if row.MemberSurface != types.PrincipalMemberSurfaceUnknown {
+				fmt.Fprintf(&b, ", member_surface=%s", row.MemberSurface)
+			}
+			if equivalents := renderSupportEntryEquivalentLocations(row.EquivalentLocations); equivalents != "" {
+				fmt.Fprintf(&b, ", equivalent_locations=%s", equivalents)
+			}
+			if note != "" {
+				fmt.Fprintf(&b, " — note: %s", note)
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
 	return b.String()
 }
 
@@ -4515,6 +4627,7 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	if plan == nil || len(plan.Lanes) == 0 {
 		return ""
 	}
+	enumerationCoverage := answerDocPrincipalEnumerationCoverage(ctx)
 	var b strings.Builder
 	b.WriteString("## Typed Answer Support Lanes\n\n")
 	if supportPlanAllowsBlockKind(plan, string(types.BlockDecision)) {
@@ -4525,7 +4638,7 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	b.WriteString("- Treat each lane's `Allowed block kinds` as a hard surface boundary. If a lane does not list `ordered_list`, do not turn its entries into principal hop items. If a lane does not list `diagram`, do not turn its entries into diagram edges or nodes.\n\n")
 	b.WriteString("- In principal blocks, put inline backticks around code / file / config surfaces only when that exact surface is visible in a lane entry, a lane `typed_surface` / `surface_terms` value, a structured aggregate fact value/dimension, an exact target, or the cited source line. Names that appear only in `Evidence note`, retry diagnostics, raw tool output, search hints, or nearby context are background: use plain prose for them or omit them.\n")
 	b.WriteString("- If the user's scalar / count question also asks for concrete members, files, paths, or line numbers, the scalar conclusion is not enough: add an `ordered_list` or `table` drawn from the principal lane entries. If the user asked only for the scalar value, do not invent a member list.\n\n")
-	if obligations := renderAnswerDocPrincipalMemberObligations(plan); obligations != "" {
+	if obligations := renderAnswerDocPrincipalMemberObligations(plan, enumerationCoverage); obligations != "" {
 		b.WriteString(obligations)
 	}
 	switch plan.Family {
@@ -4568,7 +4681,15 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		if len(lane.AllowedBlocks) > 0 {
 			fmt.Fprintf(&b, "Allowed block kinds: %s\n\n", strings.Join(lane.AllowedBlocks, ", "))
 		}
-		for _, entry := range lane.Entries {
+		entries := lane.Entries
+		if lane.Kind == types.SupportLanePrincipalEvidence && enumerationCoverage.Active() {
+			rendered, remaining := answerDocSplitEntriesCoveredByPrincipalEnumerationRows(entries, enumerationCoverage)
+			if rendered > 0 {
+				fmt.Fprintf(&b, "Entries already rendered in `Principal Enumeration Rows`: %d. Keep this lane's allowed block kinds and guidance, but do not duplicate those member rows here.\n\n", rendered)
+				entries = remaining
+			}
+		}
+		for _, entry := range entries {
 			text := strings.TrimSpace(entry.Text)
 			if text == "" {
 				continue
@@ -4591,14 +4712,85 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 	return b.String()
 }
 
-func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan) string {
+type answerDocPrincipalEnumerationRowCoverage struct {
+	byEvidenceID map[string]bool
+	rows         []types.EnumerationDisplayRow
+	rowCount     int
+}
+
+func answerDocPrincipalEnumerationCoverage(ctx *types.AgentContext) answerDocPrincipalEnumerationRowCoverage {
+	plan := answerSurfacePlan(ctx)
+	sets := answerDocPrincipalEnumerationSets(ctx, plan)
+	coverage := answerDocPrincipalEnumerationRowCoverage{byEvidenceID: map[string]bool{}}
+	for _, set := range sets {
+		for _, row := range set.Rows {
+			coverage.rowCount++
+			coverage.rows = append(coverage.rows, row)
+			if id := strings.TrimSpace(row.EvidenceID); id != "" {
+				coverage.byEvidenceID[id] = true
+			}
+		}
+	}
+	return coverage
+}
+
+func (c answerDocPrincipalEnumerationRowCoverage) Active() bool {
+	return c.rowCount > 0 && len(c.byEvidenceID) > 0
+}
+
+func (c answerDocPrincipalEnumerationRowCoverage) CoversEvidenceID(id string) bool {
+	id = strings.TrimSpace(id)
+	return id != "" && c.byEvidenceID[id]
+}
+
+func answerDocSplitEntriesCoveredByPrincipalEnumerationRows(entries []types.AnswerSupportEntry, coverage answerDocPrincipalEnumerationRowCoverage) (int, []types.AnswerSupportEntry) {
+	if !coverage.Active() || len(entries) == 0 {
+		return 0, entries
+	}
+	remaining := make([]types.AnswerSupportEntry, 0, len(entries))
+	rendered := 0
+	for _, entry := range entries {
+		if coverage.CoversEvidenceID(entry.EvidenceID) {
+			rendered++
+			continue
+		}
+		remaining = append(remaining, entry)
+	}
+	return rendered, remaining
+}
+
+func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan, coverage answerDocPrincipalEnumerationRowCoverage) string {
 	obligations := types.PrincipalSupportMemberObligations(plan)
 	if len(obligations) == 0 {
 		return ""
 	}
+	coveredCount := 0
+	if coverage.Active() {
+		filtered := obligations[:0]
+		for _, ob := range obligations {
+			if coverage.CoversEvidenceID(ob.EvidenceID) {
+				coveredCount++
+				continue
+			}
+			filtered = append(filtered, ob)
+		}
+		obligations = filtered
+	}
 	var b strings.Builder
 	b.WriteString("### Principal Member Obligations\n\n")
-	fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s). Render each member as a principal `ordered_list`, `bullet_list`, or `table` item with a citation to the listed location or one of its equivalent typed anchors. These rows are a stable member-to-citation map; do not satisfy them by prose-only mentions in `summary`.\n", len(obligations))
+	totalObligations := len(obligations) + coveredCount
+	if coveredCount > 0 {
+		fmt.Fprintf(&b, "%d answer-grade member obligation(s) are already rendered once in `Principal Enumeration Rows` above. Use those rows as the stable member-to-citation map instead of duplicating them here.\n", coveredCount)
+		if equivalents := answerDocCoveredEquivalentAnchorLines(coverage); equivalents != "" {
+			b.WriteString(equivalents)
+		}
+		b.WriteString("When one member has both a definition/declaration anchor and an implementation/proof anchor, keep it as one principal member. Do not churn `citation_ref` just to swap between equivalent anchors; cite one accepted anchor and mention the other only as same-row enrichment when it helps the user.\n")
+	}
+	if len(obligations) == 0 {
+		fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s). Render each member from `Principal Enumeration Rows` as a principal `ordered_list`, `bullet_list`, or `table` item with a citation to the listed location or one of its equivalent typed anchors. Prose-only mentions in `summary` do not satisfy the member carrier.\n\n", totalObligations)
+		return b.String()
+	}
+	fmt.Fprintf(&b, "The typed principal lane contains %d answer-grade member(s); %d still need explicit obligation rows below. Render each listed member as a principal `ordered_list`, `bullet_list`, or `table` item with a citation to the listed location or one of its equivalent typed anchors. These rows are a stable member-to-citation map; do not satisfy them by prose-only mentions in `summary`.\n", totalObligations, len(obligations))
 	b.WriteString("Use the shown `item_id` for the row id when possible, and use `citation_key` as the stable file:line target when building `citations[]`; after you build the citation pool, `citation_ref` is simply the zero-based index whose citation matches that key. Do not count indexes from memory when a key is shown.\n")
 	b.WriteString("When one member has both a definition/declaration anchor and an implementation/proof anchor, keep it as one principal member. Do not churn `citation_ref` just to swap between those equivalent anchors; cite one accepted anchor and mention the other only as same-row enrichment when it helps the user.\n")
 	if plan != nil && plan.ChangeImpactProfile != nil && plan.ChangeImpactProfile.Active() &&
@@ -4632,6 +4824,56 @@ func renderAnswerDocPrincipalMemberObligations(plan *types.AnswerSupportPlan) st
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocCoveredEquivalentAnchorLines(coverage answerDocPrincipalEnumerationRowCoverage) string {
+	if len(coverage.rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	count := 0
+	for _, row := range coverage.rows {
+		targets := answerDocPrincipalEnumerationCitationTargets(row)
+		if len(targets) <= 1 {
+			continue
+		}
+		if count == 0 {
+			b.WriteString("Covered rows with equivalent typed anchors:\n")
+		}
+		fmt.Fprintf(&b, "- item_id=%s — cite one of %s\n", strings.TrimSpace(row.RowID), strings.Join(targets, ", "))
+		count++
+		if count >= 8 {
+			break
+		}
+	}
+	if count == 0 {
+		return ""
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func answerDocPrincipalEnumerationCitationTargets(row types.EnumerationDisplayRow) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		key := strings.ToLower(raw)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, raw)
+	}
+	add(row.CitationKey)
+	add(row.Location)
+	for _, loc := range row.EquivalentLocations {
+		add(loc)
+	}
+	return out
 }
 
 func renderSupportEntryEquivalentLocations(locations []string) string {

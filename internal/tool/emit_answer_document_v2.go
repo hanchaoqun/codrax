@@ -517,6 +517,12 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext(doc, view, ctx, pctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d out-of-range item citation_ref value(s) by evidence-surface corroboration", toolName, fixed)
 	}
+	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] compiled %d deterministic enumeration table row(s) from accepted principal evidence handoff", toolName, fixed)
+	}
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] normalized %d principal enumeration block(s) from accepted evidence-rich row contract", toolName, fixed)
+	}
 	if fixed := compileCitationBackedTableRows(doc); fixed > 0 {
 		logging.Warning("[%s] compiled %d citation-backed table row(s) from incomplete structured table carriers", toolName, fixed)
 	}

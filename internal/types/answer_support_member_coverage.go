@@ -232,6 +232,9 @@ func principalSupportEntryRequiresMemberCoverage(entry AnswerSupportEntry) bool 
 		ClaimExternalObservation, ClaimImportEdge:
 		return true
 	case ClaimUnknown:
+		if supportEntryIsAggregateMemberSet(entry) {
+			return true
+		}
 		surface := principalMemberSurfaceForSupportEntry(entry)
 		return surface == PrincipalMemberSurfaceSourceLocation ||
 			(surface == PrincipalMemberSurfaceDisplayLabel &&

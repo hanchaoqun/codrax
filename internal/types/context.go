@@ -3051,10 +3051,53 @@ func mergeEvidenceByStableID(existing, incoming []EvidenceItem) []EvidenceItem {
 			id = StableEvidenceID(item)
 			item.ID = id
 		}
-		if _, ok := seen[id]; ok {
+		if idx, ok := seen[id]; ok {
+			out[idx] = mergeEvidenceByStableIDItem(out[idx], item)
 			continue
 		}
 		seen[id] = len(out)
+		out = append(out, item)
+	}
+	return out
+}
+
+func mergeEvidenceByStableIDItem(dst, src EvidenceItem) EvidenceItem {
+	dst.Summary = MergeEvidenceSummaries(dst.Summary, src.Summary)
+	if dst.Source == "" {
+		dst.Source = src.Source
+	}
+	if dst.EvidenceRef == "" {
+		dst.EvidenceRef = src.EvidenceRef
+	}
+	if src.Confidence > dst.Confidence {
+		dst.Confidence = src.Confidence
+	}
+	dst.Salience = MergeEvidenceSalience(dst.Salience, src.Salience)
+	dst.SurfaceTerms = mergeStringSetForMutable(dst.SurfaceTerms, src.SurfaceTerms)
+	dst.DerivedFrom = mergeStringSetForMutable(dst.DerivedFrom, src.DerivedFrom)
+	if dst.Producer == "" {
+		dst.Producer = src.Producer
+	}
+	return dst
+}
+
+func mergeStringSetForMutable(dst, src []string) []string {
+	if len(src) == 0 {
+		return append([]string(nil), dst...)
+	}
+	out := append([]string(nil), dst...)
+	seen := make(map[string]bool, len(out)+len(src))
+	for _, item := range out {
+		if s := strings.TrimSpace(item); s != "" {
+			seen[s] = true
+		}
+	}
+	for _, item := range src {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
 		out = append(out, item)
 	}
 	return out

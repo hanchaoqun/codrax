@@ -1,0 +1,645 @@
+package types
+
+import (
+	"sort"
+	"strconv"
+	"strings"
+	"unicode"
+)
+
+// EnumerationDisplaySet is the deterministic row contract for an accepted
+// principal enumeration aggregate. It is compiled from structured investigation
+// payloads and grounded evidence; it never derives members from user text,
+// model thoughts, closure prose, or raw prompt snippets.
+type EnumerationDisplaySet struct {
+	ID        string
+	FactIndex int
+	Label     string
+	Value     string
+	Unit      string
+	Role      AnswerAggregateRole
+	Rows      []EnumerationDisplayRow
+}
+
+// EnumerationDisplayRow is one stable user-visible enumeration row. The row
+// keeps identity, display, citation, and rich explanation together so the
+// finalizer, renderer repair, and validators can consume the same contract.
+type EnumerationDisplayRow struct {
+	RowID        string
+	SetID        string
+	SetLabel     string
+	FactIndex    int
+	MemberIndex  int
+	Member       string
+	DisplayLabel string
+	Category     string
+
+	Source      string
+	LineStart   int
+	LineEnd     int
+	Location    string
+	CitationKey string
+	HasCitation bool
+
+	EvidenceID          string
+	ClaimForm           ClaimForm
+	LabelSurface        ClaimLabelSurfaceKind
+	Subject             string
+	Object              string
+	AnchorSymbol        string
+	OwnerSymbol         string
+	MemberSurface       AnswerPrincipalMemberSurface
+	AnchorKind          AnchorKind
+	SurfaceTerms        []string
+	EquivalentLocations []string
+	Producer            string
+	GroundingTier       GroundingTier
+	Note                string
+	Detail              string
+}
+
+// CompileEnumerationDisplaySets compiles accepted complete principal
+// aggregate facts into deterministic rows. It is intentionally conservative:
+// only complete member carriers are compiled, and per-row evidence enriches an
+// existing member rather than adding or removing members.
+func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []EnumerationDisplaySet {
+	if plan == nil || len(plan.StableAggregateFacts) == 0 {
+		return nil
+	}
+	stableFacts := NormalizeAnswerAggregateMemberSetSurfaces(plan.StableAggregateFacts)
+	refs := PrincipalAggregateMemberSetFactRefsForRequest(stableFacts, rm)
+	if len(refs) == 0 {
+		return nil
+	}
+	refs = dedupeEnumerationDisplayFactRefs(refs)
+	support := genericAggregateSupportEvidenceByMemberLabel(plan.SurfaceEvidence)
+	anchorSummaries := enumerationDisplayAnchorSummaryIndexForEvidence(plan.SurfaceEvidence)
+	stepSupport := enumerationDisplayStepBackboneIndex(plan.StepBackbone)
+	out := make([]EnumerationDisplaySet, 0, len(refs))
+	for _, ref := range refs {
+		fact := ref.Fact
+		if !AnswerAggregateFactCarriesCompleteMemberSet(fact) || len(fact.Members) == 0 {
+			continue
+		}
+		set := EnumerationDisplaySet{
+			ID:        enumerationDisplaySetID(ref.Index, fact),
+			FactIndex: ref.Index,
+			Label:     strings.TrimSpace(fact.Label),
+			Value:     strings.TrimSpace(fact.Value),
+			Unit:      strings.TrimSpace(fact.Unit),
+			Role:      AnswerAggregateFactRoleForRequest(fact, rm),
+		}
+		for memberIdx, member := range fact.Members {
+			row, ok := compileEnumerationDisplayRow(set, fact, ref.Index, memberIdx, member, support, anchorSummaries, stepSupport)
+			if !ok {
+				continue
+			}
+			set.Rows = append(set.Rows, row)
+		}
+		if len(set.Rows) > 0 {
+			out = append(out, set)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func dedupeEnumerationDisplayFactRefs(refs []AnswerAggregateFactRef) []AnswerAggregateFactRef {
+	if len(refs) < 2 {
+		return refs
+	}
+	out := make([]AnswerAggregateFactRef, 0, len(refs))
+	byMembers := map[string]int{}
+	for _, ref := range refs {
+		key := enumerationDisplayFactMemberSetKey(ref.Fact)
+		if key == "" {
+			out = append(out, ref)
+			continue
+		}
+		if idx, ok := byMembers[key]; ok {
+			if enumerationDisplayFactRefPreferred(ref, out[idx]) {
+				out[idx] = ref
+			}
+			continue
+		}
+		byMembers[key] = len(out)
+		out = append(out, ref)
+	}
+	return out
+}
+
+func enumerationDisplayFactMemberSetKey(fact AnswerAggregateFact) string {
+	if !AnswerAggregateFactCarriesCompleteMemberSet(fact) || len(fact.Members) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(fact.Members))
+	for _, member := range fact.Members {
+		key := AnswerAggregateMemberSurfaceKey(member)
+		if key == "" {
+			return ""
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "\x00")
+}
+
+func enumerationDisplayFactRefPreferred(candidate, existing AnswerAggregateFactRef) bool {
+	candidateKind := candidate.Fact.Kind == AnswerAggregateMemberSet
+	existingKind := existing.Fact.Kind == AnswerAggregateMemberSet
+	if candidateKind != existingKind {
+		return candidateKind
+	}
+	if candidate.Role != existing.Role {
+		return AnswerAggregateRolePriority(candidate.Role) > AnswerAggregateRolePriority(existing.Role)
+	}
+	if len(candidate.Fact.SupportRefs) != len(existing.Fact.SupportRefs) {
+		return len(candidate.Fact.SupportRefs) > len(existing.Fact.SupportRefs)
+	}
+	if candidate.Fact.Provenance != "" && existing.Fact.Provenance == "" {
+		return true
+	}
+	return false
+}
+
+func compileEnumerationDisplayRow(
+	set EnumerationDisplaySet,
+	fact AnswerAggregateFact,
+	factIdx int,
+	memberIdx int,
+	member string,
+	support *aggregateMemberEvidenceIndex,
+	anchorSummaries *enumerationDisplayAnchorSummaryIndex,
+	stepSupport *enumerationDisplayStepBackbone,
+) (EnumerationDisplayRow, bool) {
+	entry, ok := genericAggregateMemberSupportEntry(fact, factIdx, memberIdx, member, support)
+	if !ok {
+		return EnumerationDisplayRow{}, false
+	}
+	member = strings.TrimSpace(member)
+	display := enumerationDisplayLabel(member)
+	if display == "" {
+		display = strings.TrimSpace(entry.Text)
+	}
+	note := ""
+	if ev, found := enumerationDisplayEvidenceForEntry(member, entry, support); found {
+		note = enumerationDisplayEvidenceNote(ev)
+	}
+	location := strings.TrimSpace(entry.Location)
+	row := EnumerationDisplayRow{
+		RowID:               enumerationDisplayRowID(set.ID, memberIdx, display, member),
+		SetID:               set.ID,
+		SetLabel:            set.Label,
+		FactIndex:           factIdx,
+		MemberIndex:         memberIdx,
+		Member:              member,
+		DisplayLabel:        display,
+		Category:            enumerationDisplayCategory(fact),
+		Source:              strings.TrimSpace(entry.Source),
+		LineStart:           entry.LineStart,
+		LineEnd:             entry.LineEnd,
+		Location:            location,
+		CitationKey:         location,
+		HasCitation:         location != "" && entry.LineStart > 0,
+		EvidenceID:          strings.TrimSpace(entry.EvidenceID),
+		ClaimForm:           entry.ClaimForm,
+		LabelSurface:        entry.LabelSurface,
+		Subject:             entry.Subject,
+		Object:              entry.Object,
+		AnchorSymbol:        entry.AnchorSymbol,
+		OwnerSymbol:         entry.OwnerSymbol,
+		MemberSurface:       entry.MemberSurface,
+		AnchorKind:          entry.AnchorKind,
+		SurfaceTerms:        append([]string(nil), entry.SurfaceTerms...),
+		EquivalentLocations: append([]string(nil), entry.EquivalentLocations...),
+		Producer:            entry.Producer,
+		GroundingTier:       entry.GroundingTier,
+		Note:                note,
+		Detail:              enumerationDisplayDetail(entry.Detail, note),
+	}
+	if anchorNote := enumerationDisplayAnchorSummaryNoteForRow(row, anchorSummaries); anchorNote != "" {
+		row.Note = MergeEvidenceSummaries(row.Note, anchorNote)
+		row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
+	}
+	if stepNote := enumerationDisplayStepBackboneNoteForRow(row, stepSupport); stepNote != "" {
+		row.Note = MergeEvidenceSummaries(row.Note, stepNote)
+		row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
+	}
+	return row, true
+}
+
+type enumerationDisplayAnchorSummaryIndex struct {
+	byKey map[string]string
+}
+
+func enumerationDisplayAnchorSummaryIndexForEvidence(items []EvidenceItem) *enumerationDisplayAnchorSummaryIndex {
+	if len(items) == 0 {
+		return nil
+	}
+	out := &enumerationDisplayAnchorSummaryIndex{byKey: map[string]string{}}
+	for _, item := range items {
+		if strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 || item.GroundingStatus == GroundingUngrounded {
+			continue
+		}
+		note := enumerationDisplayEvidenceNote(item)
+		if note == "" {
+			continue
+		}
+		for _, key := range enumerationDisplayEvidenceAnchorSummaryKeys(item) {
+			out.byKey[key] = MergeEvidenceSummaries(out.byKey[key], note)
+		}
+	}
+	if len(out.byKey) == 0 {
+		return nil
+	}
+	return out
+}
+
+func enumerationDisplayEvidenceAnchorSummaryKeys(item EvidenceItem) []string {
+	loc := enumerationDisplayAnchorLocationKey(item.Source, item.LineStart)
+	if loc == "" {
+		return nil
+	}
+	var out []string
+	for _, raw := range aggregateEvidenceMemberLabels(item) {
+		for _, candidate := range AnswerAggregateMemberDisplayCandidates(raw) {
+			if key := aggregateMemberKey(candidate); key != "" {
+				out = append(out, loc+"\x00"+key)
+			}
+		}
+		if key := aggregateMemberKey(raw); key != "" {
+			out = append(out, loc+"\x00"+key)
+		}
+	}
+	return dedupeAggregateMemberTerms(out)
+}
+
+func enumerationDisplayAnchorSummaryNoteForRow(row EnumerationDisplayRow, index *enumerationDisplayAnchorSummaryIndex) string {
+	if index == nil || len(index.byKey) == 0 {
+		return ""
+	}
+	var note string
+	for _, loc := range enumerationDisplayRowLocationKeys(row) {
+		for _, identity := range enumerationDisplayRowMatchKeys(row) {
+			if identity == "" {
+				continue
+			}
+			note = MergeEvidenceSummaries(note, index.byKey[loc+"\x00"+identity])
+		}
+	}
+	return note
+}
+
+func enumerationDisplayRowLocationKeys(row EnumerationDisplayRow) []string {
+	var out []string
+	addLocation := func(raw string) {
+		if surface, ok := ParseAnswerSourceLocationSurface(raw); ok {
+			if key := enumerationDisplayAnchorLocationKey(surface.File, surface.LineStart); key != "" {
+				out = append(out, key)
+			}
+		}
+	}
+	if key := enumerationDisplayAnchorLocationKey(row.Source, row.LineStart); key != "" {
+		out = append(out, key)
+	}
+	addLocation(row.Location)
+	for _, loc := range row.EquivalentLocations {
+		addLocation(loc)
+	}
+	return dedupeAggregateMemberTerms(out)
+}
+
+func enumerationDisplayAnchorLocationKey(source string, line int) string {
+	source = normalizeAnswerSupportPath(source)
+	if source == "" || line <= 0 {
+		return ""
+	}
+	return source + ":" + strconv.Itoa(line)
+}
+
+type enumerationDisplayStepBackbone struct {
+	byKey map[string][]StepSurfaceAnchor
+}
+
+func enumerationDisplayStepBackboneIndex(anchors []StepSurfaceAnchor) *enumerationDisplayStepBackbone {
+	if len(anchors) == 0 {
+		return nil
+	}
+	out := &enumerationDisplayStepBackbone{byKey: map[string][]StepSurfaceAnchor{}}
+	for _, anchor := range anchors {
+		if strings.TrimSpace(anchor.Name) == "" {
+			continue
+		}
+		for _, key := range enumerationDisplayStepAnchorKeys(anchor) {
+			out.byKey[key] = append(out.byKey[key], anchor)
+		}
+	}
+	if len(out.byKey) == 0 {
+		return nil
+	}
+	return out
+}
+
+func enumerationDisplayStepAnchorKeys(anchor StepSurfaceAnchor) []string {
+	var out []string
+	for _, raw := range []string{anchor.Name} {
+		if key := aggregateMemberKey(raw); key != "" {
+			out = append(out, key)
+		}
+	}
+	return dedupeAggregateMemberTerms(out)
+}
+
+func enumerationDisplayStepBackboneNoteForRow(row EnumerationDisplayRow, index *enumerationDisplayStepBackbone) string {
+	if index == nil || len(index.byKey) == 0 {
+		return ""
+	}
+	keys := enumerationDisplayRowMatchKeys(row)
+	for _, key := range keys {
+		for _, anchor := range index.byKey[key] {
+			if !enumerationDisplayStepAnchorLocationCompatible(row, anchor) {
+				continue
+			}
+			if note := enumerationDisplayStepAnchorNote(anchor); note != "" {
+				return note
+			}
+		}
+	}
+	return ""
+}
+
+func enumerationDisplayRowMatchKeys(row EnumerationDisplayRow) []string {
+	var out []string
+	for _, raw := range []string{
+		row.DisplayLabel,
+		row.Member,
+		row.AnchorSymbol,
+		row.Subject,
+		row.Object,
+	} {
+		for _, candidate := range AnswerAggregateMemberDisplayCandidates(raw) {
+			if key := aggregateMemberKey(candidate); key != "" {
+				out = append(out, key)
+			}
+		}
+		if key := aggregateMemberKey(raw); key != "" {
+			out = append(out, key)
+		}
+	}
+	return dedupeAggregateMemberTerms(out)
+}
+
+func enumerationDisplayStepAnchorLocationCompatible(row EnumerationDisplayRow, anchor StepSurfaceAnchor) bool {
+	file := normalizeAnswerSupportPath(anchor.File)
+	if file == "" || anchor.Line <= 0 || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
+		return true
+	}
+	rowFile := normalizeAnswerSupportPath(row.Source)
+	if file != rowFile && !strings.HasSuffix(rowFile, "/"+file) && !strings.HasSuffix(file, "/"+rowFile) {
+		return false
+	}
+	if row.LineEnd > 0 {
+		return anchor.Line >= row.LineStart && anchor.Line <= row.LineEnd
+	}
+	return anchor.Line == row.LineStart
+}
+
+func enumerationDisplayStepAnchorNote(anchor StepSurfaceAnchor) string {
+	for _, raw := range []string{anchor.SurfaceText, anchor.Rationale, anchor.Chain} {
+		note := strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
+		if note != "" {
+			return note
+		}
+	}
+	return ""
+}
+
+func enumerationDisplaySetID(index int, fact AnswerAggregateFact) string {
+	base := "enum-set"
+	if label := sanitizeEnumerationDisplayID(fact.Label); label != "" {
+		base += "-" + label
+	} else {
+		base += "-" + strconv.Itoa(index+1)
+	}
+	return base
+}
+
+func enumerationDisplayRowID(setID string, idx int, display string, member string) string {
+	base := strings.TrimSpace(setID)
+	if base == "" {
+		base = "enum-set"
+	}
+	suffix := sanitizeEnumerationDisplayID(display)
+	if suffix == "" {
+		suffix = sanitizeEnumerationDisplayID(member)
+	}
+	if suffix == "" {
+		suffix = strconv.Itoa(idx + 1)
+	}
+	return base + "-row-" + suffix
+}
+
+func sanitizeEnumerationDisplayID(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range strings.ToLower(raw) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+			b.WriteRune(r)
+			lastDash = false
+		default:
+			if !lastDash && b.Len() > 0 {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+		if b.Len() >= 80 {
+			break
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+func enumerationDisplayLabel(member string) string {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return ""
+	}
+	if label, _, ok := ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		return strings.TrimSpace(label)
+	}
+	if surface, ok := ParseAnswerSourceLocationSurface(member); ok {
+		return aggregateMemberStartLocation(surface)
+	}
+	candidates := aggregateMemberDisplayCandidates(member)
+	if len(candidates) > 0 && strings.TrimSpace(candidates[0]) != "" {
+		return strings.TrimSpace(candidates[0])
+	}
+	return member
+}
+
+func enumerationDisplayCategory(fact AnswerAggregateFact) string {
+	if unit := strings.TrimSpace(fact.Unit); unit != "" {
+		return unit
+	}
+	if label := strings.TrimSpace(fact.Label); label != "" {
+		return label
+	}
+	return string(fact.Kind)
+}
+
+func enumerationDisplayEvidenceForEntry(member string, entry AnswerSupportEntry, support *aggregateMemberEvidenceIndex) (EvidenceItem, bool) {
+	if support == nil || len(support.items) == 0 {
+		return EvidenceItem{}, false
+	}
+	var best EvidenceItem
+	bestScore := -1
+	consider := func(ev EvidenceItem) {
+		score := enumerationDisplayEvidenceCandidateScore(member, entry, ev)
+		if score <= bestScore {
+			return
+		}
+		best = ev
+		bestScore = score
+	}
+	if ev, ok := aggregateMemberEvidenceByLabel(member, support); ok {
+		consider(ev)
+	}
+	source := normalizeAnswerSupportPath(entry.Source)
+	line := entry.LineStart
+	if source == "" || line <= 0 {
+		if bestScore > 0 {
+			return best, true
+		}
+		return EvidenceItem{}, false
+	}
+	for i := range support.items {
+		ev := support.items[i]
+		if normalizeAnswerSupportPath(ev.Source) != source || ev.LineStart != line {
+			continue
+		}
+		consider(ev)
+	}
+	if bestScore > 0 {
+		return best, true
+	}
+	return EvidenceItem{}, false
+}
+
+func enumerationDisplayEvidenceCompatibleWithEntry(ev EvidenceItem, entry AnswerSupportEntry) bool {
+	if strings.TrimSpace(entry.Source) == "" || entry.LineStart <= 0 {
+		return true
+	}
+	return normalizeAnswerSupportPath(ev.Source) == normalizeAnswerSupportPath(entry.Source) &&
+		ev.LineStart == entry.LineStart
+}
+
+func enumerationDisplayEvidenceCandidateScore(member string, entry AnswerSupportEntry, ev EvidenceItem) int {
+	if strings.TrimSpace(ev.Source) == "" || ev.LineStart <= 0 || ev.GroundingStatus == GroundingUngrounded {
+		return -1
+	}
+	compatible := enumerationDisplayEvidenceCompatibleWithEntry(ev, entry)
+	supportsMember := aggregateEvidenceTextSupportsMember(ev, member)
+	if !compatible && !supportsMember && strings.TrimSpace(entry.Location) != "" {
+		return -1
+	}
+	score := 0
+	if compatible {
+		score += 1000
+	}
+	if supportsMember {
+		score += 300
+	}
+	if strings.TrimSpace(ev.AnchorSymbol) != "" && strings.EqualFold(strings.TrimSpace(ev.AnchorSymbol), strings.TrimSpace(enumerationDisplayLabel(member))) {
+		score += 180
+	}
+	if form := ClaimFormOf(ev); form == ClaimDefinitionFact {
+		score += 120
+	} else if form != ClaimUnknown {
+		score += 40
+	}
+	switch ev.GroundingStatus {
+	case GroundingGrounded:
+		score += 80
+	case GroundingRecovered:
+		score += 40
+	}
+	note := enumerationDisplayEvidenceNote(ev)
+	if note != "" {
+		score += minEnumerationDisplayInt(120, len([]rune(note))/2)
+	}
+	if ev.LoadBearingSummary {
+		score += 20
+	}
+	return score
+}
+
+func minEnumerationDisplayInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func enumerationDisplayEvidenceNote(ev EvidenceItem) string {
+	summary := strings.Join(strings.Fields(strings.TrimSpace(ev.Summary)), " ")
+	if summary != "" {
+		return summary
+	}
+	surface := strings.Join(strings.Fields(strings.TrimSpace(ev.Snippet)), " ")
+	if surface == "" {
+		surface = strings.Join(strings.Fields(strings.TrimSpace(EvidenceDeterministicSurfaceText(ev, false))), " ")
+	}
+	if surface != "" {
+		return surface
+	}
+	return strings.TrimSpace(EvidenceAuthoritativeSurfaceText(ev, false))
+}
+
+func enumerationDisplayDetail(detail string, note string) string {
+	detail = strings.TrimSpace(detail)
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return detail
+	}
+	if detail == "" {
+		return note
+	}
+	if strings.Contains(detail, note) {
+		return detail
+	}
+	return note + "; " + detail
+}
+
+func enumerationDisplayRowSupportEntry(row EnumerationDisplayRow) AnswerSupportEntry {
+	return AnswerSupportEntry{
+		Text:                row.Member,
+		Detail:              row.Detail,
+		Location:            row.Location,
+		EvidenceID:          row.EvidenceID,
+		ClaimForm:           row.ClaimForm,
+		LabelSurface:        row.LabelSurface,
+		Subject:             row.Subject,
+		Object:              row.Object,
+		AnchorSymbol:        row.AnchorSymbol,
+		OwnerSymbol:         row.OwnerSymbol,
+		SurfaceTerms:        append([]string(nil), row.SurfaceTerms...),
+		EquivalentLocations: append([]string(nil), row.EquivalentLocations...),
+		Source:              row.Source,
+		LineStart:           row.LineStart,
+		LineEnd:             row.LineEnd,
+		AnchorKind:          row.AnchorKind,
+		MemberSurface:       row.MemberSurface,
+		Producer:            row.Producer,
+		GroundingTier:       row.GroundingTier,
+	}
+}

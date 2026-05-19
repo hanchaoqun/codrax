@@ -30,10 +30,14 @@ package types
 //
 // V1 carrier is retired at B8-T3 (2026-05-03).
 //
-// Per the feedback_no_system_backfill_to_user_panel red line, ALL
-// AnswerDocumentV2 fields are LLM-emitted; no system code mutates
-// them post-emit. Renderer / hedging / oracles READ this struct;
-// they never write to it.
+// Per the feedback_no_system_backfill_to_user_panel red line, the
+// user-visible answer must not receive hidden system-authored facts
+// that the LLM did not have an evidence lane for. The tool executor
+// may apply deterministic, evidence-backed compatibility repairs
+// before persisting the document (for example citation_ref rebinding
+// or missing row materialisation from accepted structured evidence).
+// Renderer / hedging / oracles READ the persisted struct; they do not
+// invent new answer facts while displaying it.
 type AnswerDocumentV2 struct {
 	// DocumentModel marks the persisted carrier version. It is an
 	// INTERNAL field on stored/typed V2 documents, not an external

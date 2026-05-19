@@ -243,7 +243,51 @@ func TestNormalizeAggregateFactsForTypedVisibilityPrunesPrivateMembers(t *testin
 	}
 }
 
-func TestNormalizeTypedExcludedAnswerSurface_ProtectsPrincipalAggregateRole(t *testing.T) {
+func TestNormalizeAggregateFactsForTypedVisibilityPrunesSelfLocatedPrivateMembers(t *testing.T) {
+	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{
+		"Eval":              {{Name: "Eval", Kind: "function", File: "internal/pkg/eval.go", Line: 15, EndLine: 20, Exported: true}},
+		"dispatch":          {{Name: "dispatch", Kind: "function", File: "internal/pkg/eval.go", Line: 51, EndLine: 80, Exported: false}},
+		"parseIntThreshold": {{Name: "parseIntThreshold", Kind: "function", File: "internal/pkg/eval.go", Line: 190, EndLine: 220, Exported: false}},
+		"RegisteredKinds":   {{Name: "RegisteredKinds", Kind: "function", File: "internal/pkg/grammar.go", Line: 106, EndLine: 112, Exported: true}},
+	}}
+	mut := types.NewMutableState("test")
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnswerVisibilityProfile: &types.AnswerVisibilityProfile{
+				SymbolVisibility: types.AnswerSymbolVisibilityPublicExported,
+				Confidence:       0.95,
+			},
+		}},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "exported_functions",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Value: "4",
+		Members: []string{
+			"Eval: internal/pkg/eval.go:15",
+			"dispatch: internal/pkg/eval.go:51",
+			"parseIntThreshold: internal/pkg/eval.go:190",
+			"RegisteredKinds: internal/pkg/grammar.go:106",
+		},
+	}}
+
+	got := normalizeAggregateFactsForTypedExclusion(ctx, facts)
+	if len(got) != 1 {
+		t.Fatalf("facts len=%d want 1", len(got))
+	}
+	if got[0].Value != "2" ||
+		strings.Join(got[0].Members, ",") != "Eval,RegisteredKinds" ||
+		len(got[0].SupportRefs) != 2 ||
+		!strings.Contains(got[0].SupportRefs[0], "Eval @ internal/pkg/eval.go:15") ||
+		!strings.Contains(got[0].SupportRefs[1], "RegisteredKinds @ internal/pkg/grammar.go:106") {
+		t.Fatalf("self-located private helper members were not pruned/aligned: %+v", got[0])
+	}
+}
+
+func TestNormalizeTypedExcludedAnswerSurface_HonorsExcludedRoleOverPrincipalAggregate(t *testing.T) {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{
 		"KindSymbolPresent": {{Name: "KindSymbolPresent", Kind: "const", File: "internal/analysis/criterion/grammar.go", Line: 29, EndLine: 29, Exported: true}},
 		"KindCallEdge":      {{Name: "KindCallEdge", Kind: "const", File: "internal/analysis/criterion/grammar.go", Line: 30, EndLine: 30, Exported: true}},
@@ -283,13 +327,11 @@ func TestNormalizeTypedExcludedAnswerSurface_ProtectsPrincipalAggregateRole(t *t
 	}}}
 
 	changed := normalizeTypedExcludedAnswerSurface(doc, ctx)
-	if changed != 1 {
-		t.Fatalf("changed=%d want only variable row pruned; items=%+v", changed, doc.Blocks[0].Items)
+	if changed != 2 {
+		t.Fatalf("changed=%d want both explicitly excluded roles pruned; items=%+v", changed, doc.Blocks[0].Items)
 	}
-	if len(doc.Blocks[0].Items) != 1 ||
-		doc.Blocks[0].Items[0].Label != "KindSymbolPresent" ||
-		doc.Blocks[0].Items[0].CandidateRole != types.AnswerCandidateRoleConstant {
-		t.Fatalf("principal aggregate constant row was not protected: %+v", doc.Blocks[0].Items)
+	if len(doc.Blocks[0].Items) != 0 {
+		t.Fatalf("explicit excluded roles must not be protected by principal aggregate rows: %+v", doc.Blocks[0].Items)
 	}
 }
 
@@ -363,7 +405,7 @@ func TestNormalizeAggregateFactsForTypedExclusion_PrunesExactMemberSets(t *testi
 	if len(got) != 1 {
 		t.Fatalf("facts len=%d want 1", len(got))
 	}
-	if got[0].Value != "1" || len(got[0].Members) != 1 || got[0].Members[0] != "Eval (eval.go:15)" {
+	if got[0].Value != "1" || len(got[0].Members) != 1 || got[0].Members[0] != "Eval" {
 		t.Fatalf("unexpected sanitized member set: %+v", got[0])
 	}
 	if len(got[0].SupportRefs) != 1 || !strings.Contains(got[0].SupportRefs[0], "Eval") {
@@ -371,7 +413,7 @@ func TestNormalizeAggregateFactsForTypedExclusion_PrunesExactMemberSets(t *testi
 	}
 }
 
-func TestNormalizeAggregateFactsForTypedExclusion_ProtectsSameRolePrincipalMemberSet(t *testing.T) {
+func TestNormalizeAggregateFactsForTypedExclusion_HonorsExcludedRoleOverSameRolePrincipalMemberSet(t *testing.T) {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{
 		"KindSymbolPresent": {{Name: "KindSymbolPresent", Kind: "const", File: "internal/analysis/criterion/grammar.go", Line: 29, EndLine: 29, Exported: true}},
 		"KindCallEdge":      {{Name: "KindCallEdge", Kind: "const", File: "internal/analysis/criterion/grammar.go", Line: 30, EndLine: 30, Exported: true}},
@@ -412,12 +454,11 @@ func TestNormalizeAggregateFactsForTypedExclusion_ProtectsSameRolePrincipalMembe
 	if len(got) != 2 {
 		t.Fatalf("facts len=%d want 2", len(got))
 	}
-	if got[0].Value != "2" || len(got[0].Members) != 2 ||
-		got[0].Members[0] != "KindSymbolPresent" || got[0].Members[1] != "KindCallEdge" {
-		t.Fatalf("same-role principal constants should be protected: %+v", got[0])
+	if got[0].Value != "0" || len(got[0].Members) != 0 {
+		t.Fatalf("same-role principal constants should not override explicit exclusion: %+v", got[0])
 	}
-	if got[1].Value != "1" || len(got[1].Members) != 1 || got[1].Members[0] != "KindSymbolPresent" {
-		t.Fatalf("mixed set should still prune truly excluded variable: %+v", got[1])
+	if got[1].Value != "0" || len(got[1].Members) != 0 {
+		t.Fatalf("mixed set should prune all explicitly excluded roles: %+v", got[1])
 	}
 }
 
@@ -460,7 +501,7 @@ func TestNormalizeAggregateFactsForTypedExclusion_PreservesAllowedHomonym(t *tes
 	if len(got) != 1 {
 		t.Fatalf("facts len=%d want 1", len(got))
 	}
-	if got[0].Value != "1" || len(got[0].Members) != 1 || got[0].Members[0] != "Kind (grammar.go:26)" {
+	if got[0].Value != "1" || len(got[0].Members) != 1 || got[0].Members[0] != "Kind" {
 		t.Fatalf("unexpected sanitized member set: %+v", got[0])
 	}
 	if len(got[0].SupportRefs) != 1 || !strings.Contains(got[0].SupportRefs[0], "Kind:") {

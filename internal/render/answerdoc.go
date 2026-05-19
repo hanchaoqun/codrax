@@ -31,12 +31,15 @@ func RenderAnswerDocument(doc *types.AnswerDocumentV2, lang string) string {
 	duplicatedSectionItems := answerDocumentDuplicatedSectionItemBlocks(doc)
 	var b strings.Builder
 
+	renderAnswerDocV2ExactResolution(&b, doc.ExactResolution, docLang)
+	renderedScopeDisclosures := map[types.ScopeDisclosureKind]bool{}
 	for _, blk := range doc.Blocks {
 		blk = stripDuplicateStructuredDiagramFencesFromBlock(blk, structuredDiagramBodies)
 		if duplicatedSectionItems[strings.TrimSpace(blk.ID)] {
 			blk.Items = nil
 		}
 		renderAnswerDocV2Block(&b, blk, doc, docLang)
+		renderAnswerDocV2ScopeDisclosure(&b, blk.ScopeDisclosure, docLang, renderedScopeDisclosures)
 	}
 
 	if len(doc.MissingRequestedRoles) > 0 {
@@ -275,6 +278,9 @@ func renderV2BlockScalar(b *strings.Builder, blk types.AnswerBlock, doc *types.A
 }
 
 func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
+	if strings.TrimSpace(blk.Title) != "" {
+		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
+	}
 	prefix := "Decision:"
 	if lang == answerDocLangZH {
 		prefix = "结论："
@@ -304,11 +310,127 @@ func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types
 	b.WriteString("\n\n")
 }
 
+func renderAnswerDocV2ExactResolution(b *strings.Builder, exact *types.AnswerExactResolution, lang answerDocLang) {
+	if exact == nil || exact.Status == "" {
+		return
+	}
+	line := exactResolutionDisplayLine(exact, lang)
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	fmt.Fprintf(b, "> %s\n\n", line)
+}
+
+func exactResolutionDisplayLine(exact *types.AnswerExactResolution, lang answerDocLang) string {
+	if exact == nil {
+		return ""
+	}
+	anchor := strings.TrimSpace(exact.Anchor)
+	context := exact.ContextMode == types.AnswerExactResolutionContextGroundedOnly
+	if lang == answerDocLangZH {
+		var line string
+		switch exact.Status {
+		case types.AnswerExactResolutionExactMatch:
+			if anchor != "" {
+				line = fmt.Sprintf("精确目标已命中：`%s`。", anchor)
+			} else {
+				line = "精确目标已命中。"
+			}
+		case types.AnswerExactResolutionAliasMatch:
+			if anchor != "" {
+				line = fmt.Sprintf("未找到完全一致的精确目标，但已验证等价/别名锚点：`%s`。", anchor)
+			} else {
+				line = "未找到完全一致的精确目标，但已验证等价/别名锚点。"
+			}
+		case types.AnswerExactResolutionAbsent:
+			line = "当前已验证范围内未找到完全一致的精确目标。"
+		default:
+			return ""
+		}
+		if context {
+			line += " 下文的相关内容仅作为已落地上下文，不代表精确命中。"
+		}
+		return line
+	}
+	var line string
+	switch exact.Status {
+	case types.AnswerExactResolutionExactMatch:
+		if anchor != "" {
+			line = fmt.Sprintf("Exact target resolved: `%s`.", anchor)
+		} else {
+			line = "Exact target resolved."
+		}
+	case types.AnswerExactResolutionAliasMatch:
+		if anchor != "" {
+			line = fmt.Sprintf("No exact target match was found, but a verified alias/equivalent anchor was resolved: `%s`.", anchor)
+		} else {
+			line = "No exact target match was found, but a verified alias/equivalent anchor was resolved."
+		}
+	case types.AnswerExactResolutionAbsent:
+		line = "No exact target match was found within the verified scope."
+	default:
+		return ""
+	}
+	if context {
+		line += " Related content below is grounded context only, not an exact match."
+	}
+	return line
+}
+
+func renderAnswerDocV2ScopeDisclosure(b *strings.Builder, disclosure types.ScopeDisclosureKind, lang answerDocLang, seen map[types.ScopeDisclosureKind]bool) {
+	if disclosure == types.ScopeDisclosureUnknown || !disclosure.IsValid() {
+		return
+	}
+	if seen != nil {
+		if seen[disclosure] {
+			return
+		}
+		seen[disclosure] = true
+	}
+	line := scopeDisclosureDisplayLine(disclosure, lang)
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	fmt.Fprintf(b, "> %s\n\n", line)
+}
+
+func scopeDisclosureDisplayLine(disclosure types.ScopeDisclosureKind, lang answerDocLang) string {
+	if lang == answerDocLangZH {
+		switch disclosure {
+		case types.ScopeDisclosureInactiveScopeNamed:
+			return "范围说明：答案已显式标注当前活跃仓范围之外的相关子仓。"
+		case types.ScopeDisclosureOutOfActiveScope:
+			return "范围说明：目标不在当前活跃仓范围内，本回答只覆盖本次已激活的仓库集合。"
+		case types.ScopeDisclosureRequiresWorkspaceAdjust:
+			return "范围说明：需要调整活跃仓库范围后再验证这个目标。"
+		default:
+			return ""
+		}
+	}
+	switch disclosure {
+	case types.ScopeDisclosureInactiveScopeNamed:
+		return "Scope note: the answer explicitly names relevant sub-repositories outside the current active set."
+	case types.ScopeDisclosureOutOfActiveScope:
+		return "Scope note: the target is outside the current active repository set; this answer only covers the repositories active in this run."
+	case types.ScopeDisclosureRequiresWorkspaceAdjust:
+		return "Scope note: adjust the active repository set before verifying this target."
+	default:
+		return ""
+	}
+}
+
 func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.AnswerDocumentV2, lang answerDocLang) {
 	if strings.TrimSpace(blk.Title) != "" {
 		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
 	}
-	if text := renderV2TableText(blk); text != "" {
+	if text := renderUserSurfaceText(blk.Text); text != "" {
+		b.WriteString(text)
+		b.WriteString("\n\n")
+		if looksLikeMarkdownTable(text) {
+			return
+		}
+	}
+	if text := renderV2TableItemMarkdownText(blk); text != "" {
 		b.WriteString(text)
 		b.WriteString("\n\n")
 		return
@@ -344,9 +466,13 @@ func renderV2BlockTable(b *strings.Builder, blk types.AnswerBlock, _ *types.Answ
 
 func renderV2TableText(blk types.AnswerBlock) string {
 	text := renderUserSurfaceText(blk.Text)
-	if text != "" {
+	if text != "" && looksLikeMarkdownTable(text) {
 		return text
 	}
+	return renderV2TableItemMarkdownText(blk)
+}
+
+func renderV2TableItemMarkdownText(blk types.AnswerBlock) string {
 	var parts []string
 	seen := make(map[string]bool)
 	for _, it := range blk.Items {
@@ -621,10 +747,8 @@ func renderAnswerDisplayAttachments(doc *types.AnswerDocumentV2, attachments []t
 	seen := answerDocumentVisibleAttachmentKeys(doc, lang)
 	var b strings.Builder
 	rendered := 0
+	skipped := 0
 	for _, att := range attachments {
-		if rendered >= maxAnswerDisplayAttachments {
-			break
-		}
 		body := trimDisplayAttachmentBody(att.Body)
 		if body == "" {
 			continue
@@ -634,6 +758,10 @@ func renderAnswerDisplayAttachments(doc *types.AnswerDocumentV2, attachments []t
 			continue
 		}
 		seen[key] = true
+		if rendered >= maxAnswerDisplayAttachments {
+			skipped++
+			continue
+		}
 		if rendered == 0 {
 			b.WriteString(displayAttachmentPanelStart(lang))
 		}
@@ -642,6 +770,9 @@ func renderAnswerDisplayAttachments(doc *types.AnswerDocumentV2, attachments []t
 	}
 	if rendered == 0 {
 		return ""
+	}
+	if skipped > 0 {
+		renderDisplayAttachmentOmissionNote(&b, skipped, lang)
 	}
 	b.WriteString(displayAttachmentPanelEnd())
 	return strings.TrimRight(b.String(), "\n") + "\n"
@@ -787,6 +918,17 @@ func renderDisplayAttachment(b *strings.Builder, att types.AnswerDisplayAttachme
 		}
 		fmt.Fprintf(b, "#### %s\n\n%s\n\n", title, renderUserSurfaceText(body))
 	}
+}
+
+func renderDisplayAttachmentOmissionNote(b *strings.Builder, skipped int, lang answerDocLang) {
+	if skipped <= 0 {
+		return
+	}
+	if lang == answerDocLangZH {
+		fmt.Fprintf(b, "> 另有 %d 条保留内容未显示，以避免答案面板过长；结构化答案主体不受影响。\n\n", skipped)
+		return
+	}
+	fmt.Fprintf(b, "> %d additional preserved item(s) were not shown to keep the answer panel readable; the structured answer body is unaffected.\n\n", skipped)
 }
 
 func displayAttachmentPanelStart(lang answerDocLang) string {

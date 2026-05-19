@@ -1593,19 +1593,22 @@ func effectiveCompletionAggregateFacts(ctx *types.BusContext, current []types.An
 	if ctx == nil || ctx.Mutable == nil {
 		return current
 	}
+	// A non-empty emit_investigation_complete.aggregate_facts payload is the
+	// current closure's complete typed handoff. Do not merge older retained
+	// facts back into it here: failed repairs and sibling exploration attempts
+	// can otherwise leak stale member sets into extraction/finalization. Empty
+	// current payloads still carry forward the last accepted handoff for the
+	// narrow repair-window case described on RetainInvestigationAggregateFacts.
+	if len(current) > 0 {
+		return current
+	}
 	stable := ctx.Mutable.StableInvestigationAggregateFacts()
 	if len(stable) == 0 {
 		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
 			stable = ta.AcceptedAggregateFacts
 		}
 	}
-	if len(current) == 0 {
-		return cloneCompletionAggregateFacts(stable)
-	}
-	if len(stable) == 0 {
-		return current
-	}
-	return mergeCompletionAggregateFacts(current, stable)
+	return cloneCompletionAggregateFacts(stable)
 }
 
 func cloneCompletionAggregateFacts(in []types.AnswerAggregateFact) []types.AnswerAggregateFact {
@@ -1926,10 +1929,11 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 		return ""
 	}
 	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)
-	if ok {
+	countGaps := exhaustiveEnumerationPrincipalGroupedCountGaps(ctx, aggregateFacts)
+	if ok && len(countGaps) == 0 {
 		return ""
 	}
-	if strings.TrimSpace(invalid) == "" {
+	if strings.TrimSpace(invalid) == "" && len(countGaps) == 0 {
 		if syms, claim := ctx.Mutable.EmittedAnswerSymbols(); len(syms) > 0 && claim == types.CompletenessComplete {
 			return ""
 		}
@@ -1948,6 +1952,9 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 	b.WriteString("The current question requires an exhaustive enumeration. Do not close with the complete list only in tool-output memory, thinking text, or the closure reason.\n\n")
 	if strings.TrimSpace(invalid) != "" {
 		fmt.Fprintf(&b, "A `member_set` was present but is not usable as citable principal-member data: %s\n\n", invalid)
+	}
+	if len(countGaps) > 0 {
+		fmt.Fprintf(&b, "Some principal grouped/bucket count facts declare answer categories without handing off their members: %s. Under an exhaustive enumeration request, every positive principal grouped/bucket count must either carry its exact `members[]` or be represented by a matching principal `member_set`.\n\n", strings.Join(countGaps, "; "))
 	}
 	b.WriteString("Either emit the completed `emit_answer_symbol` slate, or include `aggregate_facts` with kind=`member_set`, value equal to the exact member count, and `members` containing every principal answer member copied from your verified search/read/command results. For code symbols, paths, routes, config keys, macros, spans, and source-location members, each member must be backed by typed evidence already emitted through `emit_evidence`, or by member-specific `support_refs` such as `Member @ path/file.ext:123` that point to the same grounded evidence line. Exclude related-context/helper candidates from the principal member_set. If your broad candidate search count is different from the verified member_set count, also emit companion total_count/excluded_count aggregate facts with dimensions that name the candidate stage and exclusion basis. Then re-call `emit_investigation_complete`.")
 	return b.String()
@@ -2010,6 +2017,69 @@ func exhaustiveEnumerationMemberSetUsable(ctx *types.BusContext, facts []types.A
 		return false, ""
 	}
 	return false, strings.Join(invalid, "; ")
+}
+
+func exhaustiveEnumerationPrincipalGroupedCountGaps(ctx *types.BusContext, facts []types.AnswerAggregateFact) []string {
+	if ctx == nil || ctx.AnalysisIR == nil || len(facts) == 0 {
+		return nil
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	if !types.RequiresExhaustiveEnumerationMemberSetHandoff(*rm) {
+		return nil
+	}
+	memberSetLabels := map[string]bool{}
+	for _, fact := range facts {
+		if !types.AnswerAggregateFactCarriesCompleteMemberSet(fact) ||
+			types.AnswerAggregateFactRoleForRequest(fact, rm) != types.AnswerAggregateRolePrincipalAnswer {
+			continue
+		}
+		if key := aggregateFactCategoryKey(fact); key != "" {
+			memberSetLabels[key] = true
+		}
+	}
+	var gaps []string
+	for idx, fact := range facts {
+		if fact.Kind != types.AnswerAggregateGroupedCount && fact.Kind != types.AnswerAggregateBucketCount {
+			continue
+		}
+		if types.AnswerAggregateFactRoleForRequest(fact, rm) != types.AnswerAggregateRolePrincipalAnswer {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(fact.Value))
+		if err != nil || n <= 0 || len(fact.Members) > 0 {
+			continue
+		}
+		if n == 1 && len(memberSetLabels) > 0 {
+			// A singleton grouped/bucket count is often a scalar boundary or
+			// basis note for an already-handed-off exhaustive slate (for
+			// example "one declaration block contains these members"). Forcing
+			// the explorer to manufacture a synthetic singleton member turns
+			// that metadata into a user-visible principal row later. Multi-item
+			// grouped counts still need members or a matching member_set because
+			// they can hide a missing answer category.
+			continue
+		}
+		if key := aggregateFactCategoryKey(fact); key != "" && memberSetLabels[key] {
+			continue
+		}
+		label := strings.TrimSpace(fact.Label)
+		if label == "" {
+			label = string(fact.Kind)
+		}
+		gaps = append(gaps, fmt.Sprintf("aggregate_facts[%d] %s %q value=%d has no members", idx, fact.Kind, label, n))
+		if len(gaps) >= 8 {
+			break
+		}
+	}
+	return gaps
+}
+
+func aggregateFactCategoryKey(fact types.AnswerAggregateFact) string {
+	label := strings.TrimSpace(fact.Label)
+	if label == "" {
+		return ""
+	}
+	return strings.ToLower(label)
 }
 
 type aggregateMemberSupportIndex struct {

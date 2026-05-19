@@ -127,15 +127,10 @@ func compileGenericAggregateMemberSupportLane(rm RequestModel, plan *AnswerSurfa
 	if plan == nil || !enumerationRequestRequiresPrincipalMemberCoverage(rm) {
 		return lane
 	}
-	supportEvidence := genericAggregateSupportEvidenceByMemberLabel(plan.SurfaceEvidence)
 	seen := map[string]bool{}
-	for _, ref := range PrincipalAggregateMemberSetFactRefsForRequest(plan.StableAggregateFacts, &rm) {
-		factIdx, fact := ref.Index, ref.Fact
-		for memberIdx, member := range fact.Members {
-			entry, ok := genericAggregateMemberSupportEntry(fact, factIdx, memberIdx, member, supportEvidence)
-			if !ok {
-				continue
-			}
+	for _, set := range CompileEnumerationDisplaySets(&rm, plan) {
+		for _, row := range set.Rows {
+			entry := enumerationDisplayRowSupportEntry(row)
 			key := strings.ToLower(strings.TrimSpace(entry.Text)) + "\x00" + strings.ToLower(strings.TrimSpace(entry.Location))
 			if seen[key] {
 				continue
@@ -262,7 +257,12 @@ func genericAggregateSupportEvidenceByMemberLabel(items []EvidenceItem) *aggrega
 				continue
 			}
 			itemKeys[key] = true
-			if existing, ok := out[key]; ok && changeImpactSupportEvidenceRank(existing) >= changeImpactSupportEvidenceRank(item) {
+			if existing, ok := out[key]; ok {
+				if aggregateMemberEvidenceSameAnchor(existing, item) {
+					out[key] = mergeAggregateMemberEvidenceSameAnchor(existing, item)
+				} else if aggregateMemberEvidencePrefersAnchor(item, existing) {
+					out[key] = item
+				}
 				continue
 			}
 			out[key] = item
@@ -286,6 +286,9 @@ func aggregateMemberEvidenceByLabel(member string, support *aggregateMemberEvide
 			return ev, true
 		}
 	}
+	if ev, found := aggregateMemberEvidenceByExactIdentity(member, support.items); found {
+		return ev, true
+	}
 	if left, right, ok := AnswerAggregateMemberRelationParts(member); ok {
 		return aggregateRelationMemberEvidence(left, right, support.items)
 	}
@@ -301,22 +304,165 @@ func aggregateMemberEvidenceByLabel(member string, support *aggregateMemberEvide
 	return EvidenceItem{}, false
 }
 
+func aggregateMemberEvidenceByExactIdentity(member string, items []EvidenceItem) (EvidenceItem, bool) {
+	memberKeys := aggregateMemberIdentityKeys(member)
+	if len(memberKeys) == 0 || len(items) == 0 {
+		return EvidenceItem{}, false
+	}
+	bestRank := -1
+	var best EvidenceItem
+	found := false
+	for _, item := range items {
+		if !aggregateEvidenceIdentityMatchesAny(item, memberKeys) {
+			continue
+		}
+		rank := changeImpactSupportEvidenceRank(item)
+		if found && rank < bestRank {
+			continue
+		}
+		if found && rank == bestRank && aggregateMemberEvidenceSameAnchor(best, item) {
+			best = mergeAggregateMemberEvidenceSameAnchor(best, item)
+			continue
+		}
+		if found && rank == bestRank && !aggregateMemberEvidencePrefersAnchor(item, best) {
+			continue
+		}
+		best = item
+		bestRank = rank
+		found = true
+	}
+	return best, found
+}
+
+func aggregateMemberEvidencePrefersAnchor(candidate, existing EvidenceItem) bool {
+	candidateRank := changeImpactSupportEvidenceRank(candidate)
+	existingRank := changeImpactSupportEvidenceRank(existing)
+	if candidateRank != existingRank {
+		return candidateRank > existingRank
+	}
+	if candidate.LoadBearingSummary && !existing.LoadBearingSummary {
+		return true
+	}
+	if candidate.Salience.IsSet() && (!existing.Salience.IsSet() || candidate.Salience.Rank() < existing.Salience.Rank()) {
+		return true
+	}
+	return false
+}
+
+func aggregateMemberEvidenceSameAnchor(a, b EvidenceItem) bool {
+	if a.ID != "" && b.ID != "" && a.ID == b.ID {
+		return true
+	}
+	if strings.TrimSpace(a.Source) == "" || strings.TrimSpace(b.Source) == "" || a.LineStart <= 0 || b.LineStart <= 0 {
+		return false
+	}
+	return normalizeAnswerSupportPath(a.Source) == normalizeAnswerSupportPath(b.Source) && a.LineStart == b.LineStart
+}
+
+func mergeAggregateMemberEvidenceSameAnchor(dst, src EvidenceItem) EvidenceItem {
+	merged := mergeExactResolutionSurfaceEvidence(dst, src)
+	merged.Summary = MergeEvidenceSummaries(dst.Summary, src.Summary)
+	return merged
+}
+
+func aggregateMemberIdentityKeys(member string) map[string]bool {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return nil
+	}
+	out := map[string]bool{}
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		out["literal:"+strings.ToLower(raw)] = true
+		if key := AnswerAggregateMemberSurfaceKey(raw); key != "" {
+			out[strings.ToLower(key)] = true
+		}
+	}
+	for _, candidate := range aggregateMemberDisplayCandidates(member) {
+		add(candidate)
+	}
+	add(member)
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func aggregateEvidenceIdentityMatchesAny(item EvidenceItem, keys map[string]bool) bool {
+	if len(keys) == 0 {
+		return false
+	}
+	for _, label := range aggregateEvidenceMemberLabels(item) {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			continue
+		}
+		if keys["literal:"+strings.ToLower(label)] {
+			return true
+		}
+		if key := AnswerAggregateMemberSurfaceKey(label); key != "" && keys[strings.ToLower(key)] {
+			return true
+		}
+	}
+	return false
+}
+
 func aggregateMemberEvidenceByGenericSupportRefs(fact AnswerAggregateFact, member string, support *aggregateMemberEvidenceIndex) (EvidenceItem, AnswerSourceLocationSurface, bool) {
 	if support == nil || len(support.items) == 0 {
 		return EvidenceItem{}, AnswerSourceLocationSurface{}, false
 	}
+	bestScore := -1
+	var best EvidenceItem
+	var bestLocation AnswerSourceLocationSurface
+	found := false
 	for _, ref := range fact.SupportRefs {
 		refMember, refLocation, ok := aggregateSupportRefMemberLocation(ref)
 		if !ok || !AnswerSupportRefLabelIsGeneric(refMember) {
 			continue
 		}
-		ev, found := aggregateMemberEvidenceByLocationAndText(member, refLocation.File, refLocation.LineStart, support)
-		if !found {
+		ev, ok := aggregateMemberEvidenceByLocationAndText(member, refLocation.File, refLocation.LineStart, support)
+		if !ok {
 			continue
 		}
-		return ev, refLocation, true
+		score := aggregateGenericSupportRefEvidenceScore(member, ev, refLocation)
+		if score <= bestScore {
+			continue
+		}
+		best = ev
+		bestLocation = refLocation
+		bestScore = score
+		found = true
 	}
-	return EvidenceItem{}, AnswerSourceLocationSurface{}, false
+	return best, bestLocation, found
+}
+
+func aggregateGenericSupportRefEvidenceScore(member string, ev EvidenceItem, refLocation AnswerSourceLocationSurface) int {
+	if strings.TrimSpace(ev.Source) == "" || ev.LineStart <= 0 {
+		return -1
+	}
+	score := changeImpactSupportEvidenceRank(ev) * 100
+	if normalizeAnswerSupportPath(ev.Source) == normalizeAnswerSupportPath(refLocation.File) &&
+		ev.LineStart == refLocation.LineStart {
+		score += 1000
+	}
+	if aggregateEvidenceTextSupportsMember(ev, member) {
+		score += 300
+	}
+	if aggregateEvidenceIdentityMatchesAny(ev, aggregateMemberIdentityKeys(member)) {
+		score += 250
+	}
+	if form := ClaimFormOf(ev); form == ClaimDefinitionFact {
+		score += 180
+	} else if form != ClaimUnknown {
+		score += 60
+	}
+	if ev.AnchorKind == AnchorDefinition {
+		score += 120
+	}
+	return score
 }
 
 func aggregateMemberEvidenceByLocationAndText(member string, source string, line int, support *aggregateMemberEvidenceIndex) (EvidenceItem, bool) {

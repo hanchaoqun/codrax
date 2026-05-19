@@ -664,11 +664,13 @@ func TestExtractor_BuildPrompt_MemberSetSuppressesAnalyzerSoftGuidanceNames(t *t
 	if contains(prompt, "HelperThatShouldStaySoft") {
 		t.Fatalf("analyzer soft guidance names must not be expanded once member_set is accepted:\n%s", prompt)
 	}
-	if !contains(prompt, "members=[`Intent`, `Scenario`]") {
-		t.Fatalf("accepted member_set should remain visible as typed handoff:\n%s", prompt)
+	if !contains(prompt, "members_rendered_in=authoritative_principal_member_rows") {
+		t.Fatalf("structured aggregate metadata should compact duplicate member rows:\n%s", prompt)
 	}
 	if !contains(prompt, "principal aggregate member_set obligations") ||
-		!contains(prompt, "copy every member below into the answer-symbol slate") {
+		!contains(prompt, "copy every member below into the answer-symbol slate") ||
+		!contains(prompt, "`Intent`") ||
+		!contains(prompt, "`Scenario`") {
 		t.Fatalf("accepted principal member_set should be rendered as an explicit extractor slate obligation:\n%s", prompt)
 	}
 	if contains(prompt, "defaultExternalArtifactFloor") {

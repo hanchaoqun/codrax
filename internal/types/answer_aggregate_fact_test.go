@@ -179,6 +179,40 @@ func TestMergeAnswerAggregateFacts_UnionsCompatibleMemberSets(t *testing.T) {
 	}
 }
 
+func TestMergeAnswerAggregateFacts_RemovesStaleCountQualifierFromMemberSetLabel(t *testing.T) {
+	members := []string{
+		"KindSymbolPresent", "KindNoCallSites", "KindAnswerSetBounded", "KindAnswerSetUnbounded",
+		"KindMultipleResolutionChains", "KindUserClauseUnresolved", "KindUntrustedReachesSink",
+		"KindInvariantBroken", "KindNoRelevantEvidence", "KindSignalPresent", "KindHasEnoughFacts",
+		"KindAllHypothesesDecided", "KindContractSatisfied", "KindBudgetExhausted", "KindEvidenceCount",
+		"KindCitationCountGE", "KindContainsSymbol", "KindRegexMatch", "KindCounterfactualBranchesDecided",
+		"KindRelationAbsent", "KindPlanReady", "KindPatchApplies", "KindTestsPass", "KindNoRegression",
+		"KindExternalArtifactDecoded",
+	}
+	got := MergeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "Kind const block 成员（读模式 20 个）",
+		Value:   "20",
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Members: members,
+	}})
+	if len(got) != 1 {
+		t.Fatalf("facts=%+v, want one", got)
+	}
+	if got[0].Value != "25" {
+		t.Fatalf("value=%q, want 25", got[0].Value)
+	}
+	if got[0].Label != "Kind const block 成员" {
+		t.Fatalf("stale count qualifier should be removed from display label, got %q", got[0].Label)
+	}
+	if normalizeAggregateMemberSetLabelCardinality("HTTP2 handlers", 3) != "HTTP2 handlers" {
+		t.Fatal("semantic digits outside count qualifiers must be preserved")
+	}
+	if normalizeAggregateMemberSetLabelCardinality("Kind const block 全部成员（25个）", 25) != "Kind const block 全部成员（25个）" {
+		t.Fatal("matching count qualifier should be preserved")
+	}
+}
+
 func TestMergeAnswerAggregateFacts_KeepsDistinctMemberSetBuckets(t *testing.T) {
 	got := MergeAnswerAggregateFacts(
 		[]AnswerAggregateFact{{
@@ -505,6 +539,47 @@ func TestNormalizeAnswerAggregateFacts_DedupesEquivalentMemberSetDisplayVariants
 	candidates := AnswerAggregateMemberDisplayCandidates("compiler: Compile")
 	if !stringSliceContains(candidates, "compiler → Compile") || !stringSliceContains(candidates, "compiler/Compile") {
 		t.Fatalf("colon relation display should expose equivalent renderings, got %+v", candidates)
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_SeparatesMemberIdentityFromSupportLocation(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "exported_types",
+		Value: "3",
+		Members: []string{
+			"Kind: internal/analysis/criterion/grammar.go:26",
+			"Kind",
+			"Kind (grammar.go:26)",
+			"Env: internal/analysis/criterion/grammar.go:124",
+			"Env",
+			"Result: internal/analysis/criterion/grammar.go:184",
+			"Result",
+		},
+		SupportRefs: []string{
+			"",
+			"Kind @ internal/analysis/criterion/grammar.go:26",
+			"",
+			"",
+			"Env @ internal/analysis/criterion/grammar.go:124",
+			"",
+			"Result @ internal/analysis/criterion/grammar.go:184",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("member/support location variants should normalize: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d facts, want 1: %+v", len(got), got)
+	}
+	if got[0].Value != "3" || strings.Join(got[0].Members, ",") != "Kind,Env,Result" {
+		t.Fatalf("support locations leaked into member identity: %+v", got[0])
+	}
+	if len(got[0].SupportRefs) != 3 ||
+		got[0].SupportRefs[0] != "Kind @ internal/analysis/criterion/grammar.go:26" ||
+		got[0].SupportRefs[1] != "Env @ internal/analysis/criterion/grammar.go:124" ||
+		got[0].SupportRefs[2] != "Result @ internal/analysis/criterion/grammar.go:184" {
+		t.Fatalf("support refs not aligned after identity normalization: %+v", got[0].SupportRefs)
 	}
 }
 
@@ -1379,6 +1454,65 @@ func TestBuildAnswerSurfacePlan_DemotesConflictingParallelCountFacts(t *testing.
 	}
 }
 
+func TestBuildAnswerSurfacePlan_DemotesSingletonMetadataMemberSetOutsideCompleteSymbols(t *testing.T) {
+	mut := NewMutableState("enumeration facts with count-basis metadata")
+	mut.SetInvestigationAggregateFacts([]AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "类型成员",
+			Value:   "2",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Kind", "Env"},
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "函数成员",
+			Value:   "2",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Eval", "EvalAll"},
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "Kind const block 数量",
+			Value:   "1",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"const () block @ grammar.go:28-66"},
+		},
+	})
+	mut.SetInvestigationComplete("done")
+	mut.RetainInvestigationAggregateFacts()
+	mut.SetEmittedAnswerSymbols([]AnswerSymbol{
+		{Name: "Kind", Kind: KindType},
+		{Name: "Env", Kind: KindType},
+		{Name: "Eval", Kind: KindFunction},
+		{Name: "EvalAll", Kind: KindFunction},
+	}, CompletenessComplete)
+
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{
+			Required:    true,
+			SourceQuote: "all public symbols by category",
+		},
+	}}
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, nil)
+	if plan == nil {
+		t.Fatal("plan is nil")
+	}
+	refs := PrincipalAggregateMemberSetFactRefsForRequest(plan.StableAggregateFacts, &ir.RequestModel)
+	if len(refs) != 2 {
+		t.Fatalf("only actual answer member sets should remain principal, got %+v", refs)
+	}
+	for _, fact := range plan.StableAggregateFacts {
+		if fact.Label == "Kind const block 数量" && fact.Role != AnswerAggregateRoleSupportingCoverage {
+			t.Fatalf("singleton count-basis metadata must be support context, got %+v", fact)
+		}
+	}
+}
+
 func TestMutableState_StableInvestigationAggregateFactsRetention(t *testing.T) {
 	mu := NewMutableState("q")
 	facts := []AnswerAggregateFact{{
@@ -1444,5 +1578,38 @@ func TestMutableState_MergeExploreForkUnionsStableAggregateFacts(t *testing.T) {
 	want := []string{"Eval", "EvalAll", "RegisteredKinds"}
 	if strings.Join(got[0].Members, ",") != strings.Join(want, ",") {
 		t.Fatalf("stable merged members = %+v, want %+v", got[0].Members, want)
+	}
+}
+
+func TestReconcilePrincipalAggregateMemberSetSupersets_PromotesFilteredSuperset(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "公开函数（func）",
+			Value:   "3",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"Eval", "EvalAll", "SetExternalArtifactFloor"},
+		},
+		{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "公开函数 (Func)",
+			Value:   "5",
+			Role:    AnswerAggregateRoleSupportingCoverage,
+			Members: []string{"IsRegistered", "RegisteredKinds", "Eval", "EvalAll", "SetExternalArtifactFloor"},
+		},
+	}
+
+	got := ReconcilePrincipalAggregateMemberSetSupersets(facts)
+	if len(got) != 2 {
+		t.Fatalf("facts=%+v", got)
+	}
+	if AnswerAggregateFactRoleForRequest(got[0], nil) != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("narrower set should yield after typed filtering: %+v", got)
+	}
+	if AnswerAggregateFactRoleForRequest(got[1], nil) != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("supported superset should become principal: %+v", got)
+	}
+	if strings.Join(got[1].Members, ",") != "IsRegistered,RegisteredKinds,Eval,EvalAll,SetExternalArtifactFloor" {
+		t.Fatalf("superset members changed: %+v", got[1])
 	}
 }

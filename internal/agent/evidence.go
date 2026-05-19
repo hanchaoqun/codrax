@@ -23,7 +23,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/axis"
 	"github.com/hanchaoqun/codrax/internal/analysis/subject"
@@ -318,7 +317,7 @@ func evidenceMergeWouldChange(existing, incoming types.EvidenceItem) bool {
 	if existing.Summary == "" && incoming.Summary != "" {
 		return true
 	}
-	if evidenceSummaryRicher(incoming.Summary, existing.Summary) {
+	if types.MergeEvidenceSummaries(existing.Summary, incoming.Summary) != existing.Summary {
 		return true
 	}
 	if existing.Source == "" && incoming.Source != "" {
@@ -345,11 +344,7 @@ func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 				item.ID = types.StableEvidenceID(item)
 			}
 			if existing, ok := merged[item.ID]; ok {
-				if existing.Summary == "" && item.Summary != "" {
-					existing.Summary = item.Summary
-				} else if evidenceSummaryRicher(item.Summary, existing.Summary) {
-					existing.Summary = item.Summary
-				}
+				existing.Summary = types.MergeEvidenceSummaries(existing.Summary, item.Summary)
 				if existing.Source == "" {
 					existing.Source = item.Source
 				}
@@ -404,64 +399,6 @@ func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 		return result[i].ID < result[j].ID
 	})
 	return result
-}
-
-func evidenceSummaryRicher(candidate, current string) bool {
-	candidate = strings.Join(strings.Fields(candidate), " ")
-	current = strings.Join(strings.Fields(current), " ")
-	if candidate == "" || candidate == current {
-		return false
-	}
-	if current == "" {
-		return true
-	}
-	candidateScore := evidenceSummaryInformationScore(candidate)
-	currentScore := evidenceSummaryInformationScore(current)
-	return candidateScore > currentScore+8
-}
-
-func evidenceSummaryInformationScore(s string) int {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0
-	}
-	score := 0
-	runes := []rune(s)
-	if len(runes) > 240 {
-		score += 240
-	} else {
-		score += len(runes)
-	}
-	tokenRunes := 0
-	transitions := 0
-	var prevClass int
-	for _, r := range runes {
-		class := evidenceSummaryRuneClass(r)
-		if class == 0 {
-			continue
-		}
-		tokenRunes++
-		if prevClass != 0 && class != prevClass {
-			transitions++
-		}
-		prevClass = class
-	}
-	score += tokenRunes / 2
-	score += transitions * 3
-	return score
-}
-
-func evidenceSummaryRuneClass(r rune) int {
-	switch {
-	case unicode.IsLetter(r):
-		return 1
-	case unicode.IsDigit(r):
-		return 2
-	case unicode.IsPunct(r) || unicode.IsSymbol(r):
-		return 3
-	default:
-		return 0
-	}
 }
 
 // evidenceSortRank maps an item to a band used as the primary sort

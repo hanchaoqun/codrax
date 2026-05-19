@@ -211,6 +211,9 @@ func answerSurfacePlan(ctx *types.BusContext) *types.AnswerSurfacePlan {
 	if plan != nil && len(ctx.AnswerSymbols) > 0 {
 		types.ApplyAnswerSymbolStepBackbone(plan, ctx.AnalysisIR, ctx.AnswerSymbols, ctx.AnswerSymbolCompleteness)
 	}
+	if plan != nil {
+		plan.StableAggregateFacts = normalizeAggregateFactsForTypedExclusion(ctx, plan.StableAggregateFacts)
+	}
 	return plan
 }
 

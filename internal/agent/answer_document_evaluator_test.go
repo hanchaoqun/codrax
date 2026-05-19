@@ -183,8 +183,12 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalMemberSetSuppr
 	if !strings.Contains(prompt, "model-authored closure reason omitted") {
 		t.Fatalf("finalizer prompt should explain closure prose suppression:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "members=[`Eval`]") {
-		t.Fatalf("structured principal member_set must remain visible:\n%s", prompt)
+	if !strings.Contains(prompt, "member=`Eval`") ||
+		!strings.Contains(prompt, "members_rendered_in=authoritative_principal_member_rows") {
+		t.Fatalf("principal member_set should render once as authoritative rows with compact metadata:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "members=[`Eval`]") {
+		t.Fatalf("structured aggregate metadata must not duplicate principal member rows:\n%s", prompt)
 	}
 }
 
@@ -1109,16 +1113,20 @@ func TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList(t *te
 		t.Errorf("contract clause missing; got\n%s", got)
 	}
 
-	// (3) Every member MUST appear in backticked form so the LLM sees
-	// the exact byte sequence to copy.
+	// (3) The contract must point at the single rich principal row list
+	// instead of duplicating the member body here.
+	if !strings.Contains(got, "Principal Enumeration Rows") ||
+		!strings.Contains(got, "Every `row.member` there MUST appear verbatim") {
+		t.Errorf("compact principal-row contract missing; got\n%s", got)
+	}
 	for _, member := range []string{
 		"`SelfConsistencyReviewer`",
 		"`SemanticQualityReviewer`",
 		"`gate.Run (9 checks)`",
 		"`contract_check (violRegistry)`",
 	} {
-		if !strings.Contains(got, member) {
-			t.Errorf("missing verbatim member %s; got\n%s", member, got)
+		if strings.Contains(got, member) {
+			t.Errorf("contract should not duplicate member %s when principal rows exist; got\n%s", member, got)
 		}
 	}
 
@@ -1128,28 +1136,9 @@ func TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList(t *te
 		t.Errorf("missing principal set label; got\n%s", got)
 	}
 
-	// (5) Decorator-stripping anti-pattern MUST be called out by
-	// example so the LLM does not "improve" `gate.Run (9 checks)` to
-	// `gate.Run / gate.RunWith`.
-	if !strings.Contains(got, "is NOT satisfied by") {
-		t.Errorf("missing decorator-stripping anti-pattern guidance; got\n%s", got)
-	}
-
-	// (6) docs/design/post_phase2a_forensic_followups.md §2.1.G #6 —
-	// the upstream contract that decorated members require non-empty
-	// `support_refs` on emit_investigation_complete (otherwise the
-	// investigator's call is rejected) MUST appear so the finalizer
-	// knows where the file:line for each decorated member came from
-	// and can cite it.
-	for _, phrase := range []string{
-		"Upstream contract for decorator-shape members",
-		"support_refs[i] = file:line",
-		"empty `support_refs` on a decorated `member_set` is rejected",
-		"cite it as the decorated member's `citation_ref`",
-	} {
-		if !strings.Contains(got, phrase) {
-			t.Errorf("missing upstream support_refs contract phrase %q; got\n%s", phrase, got)
-		}
+	// (5) The no-dup contract still makes the oracle behavior explicit.
+	if !strings.Contains(got, "do not paraphrase or abbreviate") {
+		t.Errorf("missing paraphrase guard; got\n%s", got)
 	}
 }
 
@@ -1252,8 +1241,11 @@ func TestRenderAnswerDocPrincipalMemberSetContract_BuildInitialInstructionWiring
 	if !strings.Contains(prompt, "## Required Principal Member Set") {
 		t.Errorf("BuildInitialInstruction must include the principal_member_set_contract section; got\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "`LayerB (boundary)`") {
-		t.Errorf("BuildInitialInstruction must include verbatim members; got\n%s", prompt)
+	if !strings.Contains(prompt, "member=`LayerB (boundary)`") {
+		t.Errorf("BuildInitialInstruction must include verbatim members in principal rows; got\n%s", prompt)
+	}
+	if strings.Contains(prompt, "  - `LayerB (boundary)`") {
+		t.Errorf("BuildInitialInstruction must not duplicate principal members inside contract bullets; got\n%s", prompt)
 	}
 }
 
@@ -1833,6 +1825,68 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStructuredAggreg
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalEnumerationRowsWithNotes(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "公开函数",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Unit:        "函数",
+		Members:     []string{"Eval"},
+		SupportRefs: []string{"Eval @ internal/analysis/criterion/eval.go:15"},
+	}})
+	mut.SetInvestigationComplete("enumeration complete")
+	mut.SetInvestigationResultKind("resolved")
+	mut.RetainInvestigationAggregateFacts()
+	evidence := []types.EvidenceItem{{
+		ID:              "ev-eval",
+		Kind:            types.EvidenceDirect,
+		Subject:         "Eval",
+		AnchorSymbol:    "Eval",
+		AnchorKind:      types.AnchorDefinition,
+		Source:          "internal/analysis/criterion/eval.go",
+		LineStart:       15,
+		Scope:           types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+		Summary:         "Eval 对单个 Criterion 进行求值并返回 Result。" + strings.Repeat(" 保留富描述", 90) + " END_MARKER",
+	}}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+		Mutable:       mut,
+		EvidenceItems: evidence,
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Principal Enumeration Rows",
+		"row_id=`enum-set-公开函数-row-eval`",
+		"member=`Eval`",
+		"location=`internal/analysis/criterion/eval.go:15`",
+		"citation_key=`internal/analysis/criterion/eval.go:15`",
+		"note: Eval 对单个 Criterion 进行求值并返回 Result。",
+		"END_MARKER",
+		"Use `display_label`, `location`, and `citation_key` to build clear table cells",
+		"members_rendered_in=authoritative_principal_member_rows",
+		"Entries already rendered in `Principal Enumeration Rows`: 1",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("principal enumeration row prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "members=[`Eval`]") {
+		t.Fatalf("principal member rows should not be duplicated as dry structured members:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalBoundaryForPriorContext(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
@@ -2215,6 +2269,45 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclu
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if !strings.Contains(prompt, "Required-member floor is empty") {
 		t.Errorf("no-floor branch missing: %q", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_SlateDoesNotReplaceRichLanes(t *testing.T) {
+	syms := []types.AnswerSymbol{{
+		Name:      "Eval",
+		File:      "internal/analysis/criterion/eval.go",
+		Line:      15,
+		Kind:      types.KindFunction,
+		Rationale: "core evaluator",
+	}}
+	mut := types.NewMutableState("公开函数")
+	mut.SetEmittedAnswerSymbols(syms, types.CompletenessComplete)
+	ctx := &types.AgentContext{
+		Mutable:                  mut,
+		AnswerSymbols:            syms,
+		AnswerSymbolCompleteness: types.CompletenessComplete,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Prior slate from the extraction pipeline",
+		"identity/citation skeleton",
+		"not the complete explanation surface",
+		"Do not let it replace richer per-member notes",
+		"Principal Enumeration Rows",
+		"Typed Answer Support Lanes",
+		"same-row Evidence notes",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("finalizer prompt missing slate boundary %q:\n%s", want, prompt)
+		}
 	}
 }
 

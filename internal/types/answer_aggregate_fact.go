@@ -206,10 +206,12 @@ func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateF
 
 // MergeAnswerAggregateFacts folds multiple explorer/fork aggregate handoffs
 // into one stable typed payload. It preserves exact facts and unions compatible
-// member_set rows that share the same structured bucket (kind, label, role,
-// dimensions, unit). This is intentionally narrower than semantic inference:
-// it never derives members from raw evidence or prose, it only combines
-// model-emitted structured member_set payloads from sibling explore dispatches.
+// member_set rows that share the same explicit structured bucket (kind, label,
+// role, dimensions, unit). Near-duplicate bucket labels are reconciled by the
+// typed superset arbiter below instead of being silently folded here, so
+// support/audit context remains inspectable. This intentionally never derives
+// members from raw evidence or prose; it only combines model-emitted structured
+// member_set payloads from sibling explore dispatches.
 func MergeAnswerAggregateFacts(groups ...[]AnswerAggregateFact) []AnswerAggregateFact {
 	type memberSlot struct {
 		index int
@@ -252,6 +254,41 @@ func MergeAnswerAggregateFacts(groups ...[]AnswerAggregateFact) []AnswerAggregat
 	out = reconcilePrincipalAggregateMemberSetSupersets(out)
 	out = demoteImplicitAggregateMemberSetsShadowedByExplicitPrincipal(out)
 	return cloneAnswerAggregateFacts(out)
+}
+
+// ReconcilePrincipalAggregateMemberSetSupersets reruns the typed member-set
+// arbiter after downstream source-of-truth filters have changed the visible
+// member sets, for example after a typed public/exported visibility policy
+// prunes private helpers. This is deliberately exported for pipeline layers
+// that own request-aware filters; the arbiter itself remains prompt-agnostic.
+func ReconcilePrincipalAggregateMemberSetSupersets(facts []AnswerAggregateFact) []AnswerAggregateFact {
+	facts = NormalizeAnswerAggregateMemberSetSurfaces(facts)
+	out := reconcilePrincipalAggregateMemberSetSupersets(facts)
+	out = demoteImplicitAggregateMemberSetsShadowedByExplicitPrincipal(out)
+	return cloneAnswerAggregateFacts(out)
+}
+
+// NormalizeAnswerAggregateMemberSetSurfaces separates answer-member identity
+// from citation/support location surfaces for already-accepted aggregate facts.
+// It is safe to run at any later pipeline boundary: it consumes only
+// structured member_set.members/support_refs fields, never raw prose, user
+// text, or model thoughts.
+func NormalizeAnswerAggregateMemberSetSurfaces(facts []AnswerAggregateFact) []AnswerAggregateFact {
+	if len(facts) == 0 {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	out := cloneAnswerAggregateFacts(facts)
+	for i := range out {
+		if !answerAggregateFactCarriesCompleteMemberSet(out[i]) || len(out[i].Members) == 0 {
+			continue
+		}
+		out[i].Members, out[i].SupportRefs = normalizeAggregateMemberSetMemberSupportSurfaces(out[i].Members, out[i].SupportRefs)
+		if out[i].Kind == AnswerAggregateMemberSet {
+			out[i].Value = strconv.Itoa(len(out[i].Members))
+			out[i].Label = normalizeAggregateMemberSetLabelCardinality(out[i].Label, len(out[i].Members))
+		}
+	}
+	return out
 }
 
 // PruneAggregateMemberSetsByStructuredExclusions reconciles two structured
@@ -482,7 +519,9 @@ func answerAggregateFactCanActAsMemberSuperset(fact AnswerAggregateFact) bool {
 func aggregateMemberSetYieldAllowed(candidate, superset AnswerAggregateFact) bool {
 	candidateRole := NormalizeAnswerAggregateRole(candidate.Role)
 	supersetRole := NormalizeAnswerAggregateRole(superset.Role)
-	if candidateRole == AnswerAggregateRolePrincipalAnswer && supersetRole != AnswerAggregateRolePrincipalAnswer {
+	if candidateRole == AnswerAggregateRolePrincipalAnswer &&
+		supersetRole != AnswerAggregateRolePrincipalAnswer &&
+		supersetRole != AnswerAggregateRoleSupportingCoverage {
 		return false
 	}
 	return true
@@ -685,7 +724,126 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 		dst.Unit = src.Unit
 	}
 	dst.Value = strconv.Itoa(len(dst.Members))
+	dst.Label = normalizeAggregateMemberSetLabelCardinality(dst.Label, len(dst.Members))
 	return dst
+}
+
+func normalizeAggregateMemberSetLabelCardinality(label string, memberCount int) string {
+	label = strings.TrimSpace(label)
+	if label == "" || memberCount <= 0 {
+		return label
+	}
+	out := removeConflictingAggregateLabelCountSegments(label, memberCount)
+	out = strings.Join(strings.Fields(strings.TrimSpace(out)), " ")
+	if out == "" {
+		return label
+	}
+	return out
+}
+
+type aggregateLabelBracketPair struct {
+	open  rune
+	close rune
+}
+
+func removeConflictingAggregateLabelCountSegments(label string, memberCount int) string {
+	pairs := []aggregateLabelBracketPair{{'（', '）'}, {'(', ')'}, {'[', ']'}, {'【', '】'}}
+	var b strings.Builder
+	runes := []rune(label)
+	for i := 0; i < len(runes); i++ {
+		pair, ok := aggregateLabelOpeningBracket(runes[i], pairs)
+		if !ok {
+			b.WriteRune(runes[i])
+			continue
+		}
+		closeIdx := -1
+		for j := i + 1; j < len(runes); j++ {
+			if runes[j] == pair.close {
+				closeIdx = j
+				break
+			}
+		}
+		if closeIdx < 0 {
+			b.WriteRune(runes[i])
+			continue
+		}
+		segment := string(runes[i+1 : closeIdx])
+		if aggregateLabelCountSegmentConflicts(segment, memberCount) {
+			i = closeIdx
+			continue
+		}
+		b.WriteRune(runes[i])
+		b.WriteString(segment)
+		b.WriteRune(pair.close)
+		i = closeIdx
+	}
+	return b.String()
+}
+
+func aggregateLabelOpeningBracket(r rune, pairs []aggregateLabelBracketPair) (aggregateLabelBracketPair, bool) {
+	for _, pair := range pairs {
+		if r == pair.open {
+			return pair, true
+		}
+	}
+	return aggregateLabelBracketPair{}, false
+}
+
+func aggregateLabelCountSegmentConflicts(segment string, memberCount int) bool {
+	values := aggregateLabelSegmentIntegers(segment)
+	if len(values) == 0 || !aggregateLabelSegmentLooksLikeCount(segment) {
+		return false
+	}
+	for _, value := range values {
+		if value == memberCount {
+			return false
+		}
+	}
+	return true
+}
+
+func aggregateLabelSegmentIntegers(segment string) []int {
+	var out []int
+	var digits strings.Builder
+	flush := func() {
+		if digits.Len() == 0 {
+			return
+		}
+		if n, err := strconv.Atoi(digits.String()); err == nil {
+			out = append(out, n)
+		}
+		digits.Reset()
+	}
+	for _, r := range segment {
+		if r >= '0' && r <= '9' {
+			digits.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return out
+}
+
+func aggregateLabelSegmentLooksLikeCount(segment string) bool {
+	segment = strings.ToLower(strings.TrimSpace(segment))
+	if segment == "" {
+		return false
+	}
+	if _, err := strconv.Atoi(segment); err == nil {
+		return true
+	}
+	for _, marker := range []string{
+		"个", "项", "条", "种",
+		"member", "members", "item", "items", "entry", "entries", "row", "rows",
+		"symbol", "symbols", "const", "consts", "constant", "constants",
+		"function", "functions", "func", "funcs", "type", "types",
+	} {
+		if strings.Contains(segment, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func appendAggregateSupportRefAtMemberIndex(refs []string, memberIndex int, ref string) []string {
@@ -811,10 +969,13 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 // implicit count/group ledgers; a model-emitted member_set is the
 // investigator's accepted handoff and must not be narrowed by a later
 // answer-symbol slate, even when the older payload omitted an explicit role
-// field. Answer symbols can provide anchors and presentation structure, but
-// they cannot subtract verified principal members. The projection consumes only
-// structured member strings and AnswerSymbol names; it never scans user wording
-// or model prose.
+// field. The one exception is a singleton member_set that has zero overlap with
+// a complete answer-symbol slate while sibling principal sets do overlap: that
+// shape is metadata / count-basis bookkeeping, not a principal enumeration row.
+// Answer symbols can provide anchors and presentation structure, but they
+// cannot subtract verified principal members. The projection consumes only
+// structured member strings and AnswerSymbol names; it never scans user
+// wording or model prose.
 func ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols(
 	facts []AnswerAggregateFact,
 	rm *RequestModel,
@@ -829,7 +990,8 @@ func ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols(
 	if len(symbolKeys) == 0 {
 		return facts
 	}
-	if !principalAggregateFactsHaveMemberLevelAnswerSymbolOverlap(facts, rm, symbolKeys) {
+	hasPrincipalSymbolOverlap := principalAggregateFactsHaveMemberLevelAnswerSymbolOverlap(facts, rm, symbolKeys)
+	if !hasPrincipalSymbolOverlap {
 		return facts
 	}
 	out := cloneAnswerAggregateFacts(facts)
@@ -844,6 +1006,15 @@ func ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols(
 		wasCompleteMemberSetCarrier := answerAggregateFactCarriesCompleteMemberSet(out[i])
 		if out[i].Kind == AnswerAggregateMemberSet ||
 			NormalizeAnswerAggregateRole(out[i].Role) == AnswerAggregateRolePrincipalAnswer {
+			if aggregateMemberSetIsSingletonMetadataOutsideAnswerSymbols(out[i], rm, symbolKeys, hasPrincipalSymbolOverlap) {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				out[i].Provenance = appendAggregateFactProvenance(
+					out[i].Provenance,
+					"demoted:singleton_metadata_outside_complete_answer_symbol_slate",
+				)
+				changed = true
+				continue
+			}
 			setKey := aggregateMemberSetSymbolProjectionKey(out[i].Members)
 			if setKey == "" {
 				continue
@@ -904,6 +1075,21 @@ func ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols(
 		return facts
 	}
 	return out
+}
+
+func aggregateMemberSetIsSingletonMetadataOutsideAnswerSymbols(
+	fact AnswerAggregateFact,
+	rm *RequestModel,
+	symbolKeys map[string]bool,
+	hasPrincipalSymbolOverlap bool,
+) bool {
+	if !hasPrincipalSymbolOverlap || rm == nil || len(symbolKeys) == 0 {
+		return false
+	}
+	if !RequiresExhaustiveEnumerationMemberSetHandoff(*rm) || len(fact.Members) != 1 {
+		return false
+	}
+	return aggregateMemberSetAnswerSymbolCoverage(fact, symbolKeys) == 0
 }
 
 func demoteConflictingPrincipalMemberSetsByCompleteAnswerSymbols(
@@ -1144,7 +1330,7 @@ func aggregateMemberSetSymbolProjectionKey(members []string) string {
 func aggregateMemberSetProjectionMemberKey(member string) string {
 	key := ""
 	for _, candidate := range AnswerAggregateMemberDisplayCandidates(member) {
-		if candidateKey := aggregateMemberKey(candidate); candidateKey != "" {
+		if candidateKey := AnswerAggregateMemberSurfaceKey(candidate); candidateKey != "" {
 			key = strings.ToLower(candidateKey)
 			break
 		}
@@ -1589,6 +1775,9 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 	fact.Members = normalizeAggregateStrings(raw.Members, maxAnswerAggregateMembers)
 	fact.Excluded = normalizeAggregateStrings(raw.Excluded, maxAnswerAggregateMembers)
 	fact.SupportRefs = normalizeAggregateStrings(raw.SupportRefs, maxAnswerAggregateMembers)
+	if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
+		fact.Members, fact.SupportRefs = normalizeAggregateMemberSetMemberSupportSurfaces(fact.Members, fact.SupportRefs)
+	}
 	fact, err = normalizeNegativeSearchAggregateFact(fact)
 	if err != nil {
 		return AnswerAggregateFact{}, err
@@ -1599,11 +1788,242 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 		} else if n, err := strconv.Atoi(fact.Value); err == nil && n >= 0 && n != len(fact.Members) {
 			fact.Value = strconv.Itoa(len(fact.Members))
 		}
+		fact.Label = normalizeAggregateMemberSetLabelCardinality(fact.Label, len(fact.Members))
 	}
 	if fact.Value == "" {
 		return AnswerAggregateFact{}, fmt.Errorf("value is required")
 	}
 	return fact, nil
+}
+
+type aggregateMemberSupportSurface struct {
+	member string
+	ref    string
+	label  string
+	loc    AnswerSourceLocationSurface
+	hasLoc bool
+}
+
+func normalizeAggregateMemberSetMemberSupportSurfaces(members []string, refs []string) ([]string, []string) {
+	if len(members) == 0 {
+		return nil, nil
+	}
+	out := make([]aggregateMemberSupportSurface, 0, len(members))
+	for i, member := range members {
+		ref := ""
+		if i < len(refs) {
+			ref = strings.TrimSpace(refs[i])
+		}
+		surface := normalizeAggregateMemberSupportSurface(member, ref)
+		if surface.member == "" {
+			continue
+		}
+		merged := false
+		for j := range out {
+			if !aggregateMemberSupportSurfacesEquivalent(out[j], surface) {
+				continue
+			}
+			out[j] = mergeAggregateMemberSupportSurface(out[j], surface)
+			merged = true
+			break
+		}
+		if !merged {
+			out = append(out, surface)
+		}
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	outMembers := make([]string, 0, len(out))
+	outRefs := make([]string, len(out))
+	seenRefs := make(map[string]bool, len(out)+len(refs))
+	lastRef := -1
+	for i, surface := range out {
+		outMembers = append(outMembers, surface.member)
+		if ref := strings.TrimSpace(surface.ref); ref != "" {
+			outRefs[i] = ref
+			seenRefs[strings.ToLower(ref)] = true
+			lastRef = i
+		}
+	}
+	if len(refs) > len(members) {
+		for _, ref := range refs[len(members):] {
+			ref = normalizeAggregateMemberExtraSupportRef(ref, outMembers)
+			if ref == "" {
+				continue
+			}
+			key := strings.ToLower(ref)
+			if seenRefs[key] {
+				continue
+			}
+			seenRefs[key] = true
+			outRefs = append(outRefs, ref)
+			lastRef = len(outRefs) - 1
+		}
+	}
+	if lastRef < 0 {
+		return outMembers, nil
+	}
+	return outMembers, outRefs[:lastRef+1]
+}
+
+func normalizeAggregateMemberExtraSupportRef(ref string, members []string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ""
+	}
+	refMember, _, ok := ParseAnswerSupportRefMemberLocation(ref)
+	if !ok {
+		return ""
+	}
+	if len(members) == 0 {
+		return ""
+	}
+	refMember = strings.TrimSpace(refMember)
+	if refMember == "" || AnswerSupportRefLabelIsGeneric(refMember) {
+		return ref
+	}
+	for _, member := range members {
+		if aggregateSupportRefCanDescribeMember(refMember, aggregateMemberSupportSurfaceLabel(member)) {
+			return ref
+		}
+	}
+	return ""
+}
+
+func normalizeAggregateMemberSupportSurface(member string, ref string) aggregateMemberSupportSurface {
+	member = strings.TrimSpace(member)
+	ref = strings.TrimSpace(ref)
+	surface := aggregateMemberSupportSurface{member: member, ref: ref}
+	if label, loc, ok := ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		surface.member = strings.TrimSpace(label)
+		surface.label = strings.TrimSpace(label)
+		surface.loc = loc
+		surface.hasLoc = loc.File != "" && loc.LineStart > 0
+		surface.ref = chooseAggregateMemberSupportRef(ref, formatAggregateMemberSupportRef(surface.label, loc))
+		return surface
+	}
+	surface.label = aggregateMemberSupportSurfaceLabel(member)
+	if refLabel, refLoc, ok := ParseAnswerSupportRefMemberLocation(ref); ok && aggregateSupportRefCanDescribeMember(refLabel, surface.label) {
+		surface.loc = refLoc
+		surface.hasLoc = refLoc.File != "" && refLoc.LineStart > 0
+	}
+	if surface.label == "" {
+		surface.label = member
+	}
+	return surface
+}
+
+func aggregateMemberSupportSurfaceLabel(member string) string {
+	if label, _, ok := ParseAnswerSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
+		return strings.TrimSpace(label)
+	}
+	if surface, ok := ParseAnswerSourceLocationSurface(member); ok {
+		return aggregateMemberStartLocation(surface)
+	}
+	if base, _, ok := AnswerAggregateDecoratedLabelParts(member); ok && strings.TrimSpace(base) != "" {
+		return strings.TrimSpace(base)
+	}
+	for _, candidate := range AnswerAggregateMemberDisplayCandidates(member) {
+		if candidate = strings.TrimSpace(candidate); candidate != "" {
+			return candidate
+		}
+	}
+	return strings.TrimSpace(member)
+}
+
+func aggregateSupportRefCanDescribeMember(refLabel string, memberLabel string) bool {
+	refLabel = strings.TrimSpace(refLabel)
+	memberLabel = strings.TrimSpace(memberLabel)
+	if refLabel == "" || AnswerSupportRefLabelIsGeneric(refLabel) {
+		return true
+	}
+	if memberLabel == "" {
+		return false
+	}
+	for _, candidate := range AnswerAggregateMemberDisplayCandidates(memberLabel) {
+		if strings.EqualFold(strings.TrimSpace(candidate), refLabel) {
+			return true
+		}
+	}
+	return false
+}
+
+func formatAggregateMemberSupportRef(label string, loc AnswerSourceLocationSurface) string {
+	label = strings.TrimSpace(label)
+	location := aggregateMemberStartLocation(loc)
+	if label == "" || location == "" {
+		return ""
+	}
+	return label + " @ " + location
+}
+
+func chooseAggregateMemberSupportRef(existing string, candidate string) string {
+	existing = strings.TrimSpace(existing)
+	candidate = strings.TrimSpace(candidate)
+	if existing == "" {
+		return candidate
+	}
+	if candidate == "" {
+		return existing
+	}
+	_, existingLoc, existingOK := ParseAnswerSupportRefMemberLocation(existing)
+	_, candidateLoc, candidateOK := ParseAnswerSupportRefMemberLocation(candidate)
+	if !existingOK || !candidateOK {
+		return existing
+	}
+	if candidateLoc.LineStart == existingLoc.LineStart &&
+		aggregateSupportRefPathCorresponds(candidateLoc.File, existingLoc.File) &&
+		aggregateSupportRefMoreSpecific(candidateLoc.File, existingLoc.File) {
+		return candidate
+	}
+	return existing
+}
+
+func aggregateMemberSupportSurfacesEquivalent(a, b aggregateMemberSupportSurface) bool {
+	aLabel := strings.ToLower(strings.TrimSpace(aggregateMemberSetProjectionMemberKey(a.label)))
+	bLabel := strings.ToLower(strings.TrimSpace(aggregateMemberSetProjectionMemberKey(b.label)))
+	if aLabel == "" || bLabel == "" || aLabel != bLabel {
+		return false
+	}
+	if !a.hasLoc || !b.hasLoc {
+		return true
+	}
+	return a.loc.LineStart == b.loc.LineStart &&
+		aggregateSupportRefPathCorresponds(a.loc.File, b.loc.File)
+}
+
+func mergeAggregateMemberSupportSurface(existing, candidate aggregateMemberSupportSurface) aggregateMemberSupportSurface {
+	out := existing
+	if aggregateMemberSupportSurfacePrefersMember(candidate, existing) {
+		out.member = candidate.member
+		out.label = candidate.label
+	}
+	if !out.hasLoc && candidate.hasLoc {
+		out.loc = candidate.loc
+		out.hasLoc = true
+	}
+	out.ref = chooseAggregateMemberSupportRef(out.ref, candidate.ref)
+	return out
+}
+
+func aggregateMemberSupportSurfacePrefersMember(candidate, existing aggregateMemberSupportSurface) bool {
+	if strings.TrimSpace(candidate.member) == "" {
+		return false
+	}
+	if _, _, ok := ParseAnswerSupportRefMemberLocation(existing.member); ok {
+		return true
+	}
+	if _, ok := ParseAnswerSourceLocationSurface(existing.member); ok {
+		return true
+	}
+	if _, _, ok := ParseAnswerSupportRefMemberLocation(candidate.member); ok {
+		return false
+	}
+	if _, ok := ParseAnswerSourceLocationSurface(candidate.member); ok {
+		return false
+	}
+	return len([]rune(candidate.member)) < len([]rune(existing.member))
 }
 
 func normalizeNegativeSearchAggregateFact(fact AnswerAggregateFact) (AnswerAggregateFact, error) {

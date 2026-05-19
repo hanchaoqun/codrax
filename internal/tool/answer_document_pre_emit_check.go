@@ -474,7 +474,7 @@ func preCheckRuntimeObservationRepoContamination(doc *types.AnswerDocumentV2, ct
 		return nil
 	}
 	ctx := ctxOpt[0]
-	plan := types.BuildAnswerSurfacePlanForBusContext(ctx)
+	plan := answerSurfacePlan(ctx)
 	if plan == nil || !plan.RuntimeGroundingDisposition.IsActive() || plan.CurrentStatusDiagnosticRequired {
 		return nil
 	}
@@ -641,9 +641,7 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 	}
 	var mismatches []mismatch
 	for _, b := range doc.Blocks {
-		switch b.Kind {
-		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
-		default:
+		if !preEmitBlockRendersItemSurface(b.Kind) {
 			continue
 		}
 		if preEmitBlockUsesNonSymbolLabelSurface(b, view) {
@@ -748,6 +746,15 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 	}}
 }
 
+func preEmitBlockRendersItemSurface(kind types.AnswerBlockKind) bool {
+	switch kind {
+	case types.BlockSection, types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		return true
+	default:
+		return false
+	}
+}
+
 func normalizeItemCitationRefsByUniqueLabelCitation(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext) int {
 	return normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, view, ctx, newPreEmitCheckContext(ctx))
 }
@@ -759,9 +766,7 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 	fixed := 0
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
-		switch block.Kind {
-		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
-		default:
+		if !preEmitBlockRendersItemSurface(block.Kind) {
 			continue
 		}
 		if preEmitBlockUsesNonSymbolLabelSurface(*block, view) {
@@ -810,9 +815,7 @@ func normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext(doc *types.
 	fixed := 0
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
-		switch block.Kind {
-		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
-		default:
+		if !preEmitBlockRendersItemSurface(block.Kind) {
 			continue
 		}
 		if preEmitBlockUsesNonSymbolLabelSurface(*block, view) {
@@ -950,9 +953,7 @@ func normalizeQualifiedItemLabelsByUniqueEnclosingFunction(doc *types.AnswerDocu
 	fixed := 0
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
-		switch block.Kind {
-		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
-		default:
+		if !preEmitBlockRendersItemSurface(block.Kind) {
 			continue
 		}
 		if preEmitBlockUsesNonSymbolLabelSurface(*block, view) {
@@ -1309,6 +1310,7 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 	if len(refs) == 0 {
 		return 0
 	}
+	displayRows := aggregateMemberSetDisplayRowsByFactIndex(ctx)
 	fixed := 0
 	for _, ref := range refs {
 		fact := ref.Fact
@@ -1329,22 +1331,35 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 			ClaimForm: types.ClaimDefinitionFact,
 		})
 		block.Text = aggregateMemberSetCarrierText(fact.Label)
+		rows := displayRows[ref.Index]
 		for memberIdx, member := range fact.Members {
 			member = strings.TrimSpace(member)
 			if member == "" {
 				continue
 			}
+			var row types.EnumerationDisplayRow
+			if memberIdx < len(rows) {
+				row = rows[memberIdx]
+			}
 			citationRef := -1
-			if cit, ok := citationForAggregateMemberSetMember(fact, memberIdx, member, ctx); ok {
+			if row.HasCitation && strings.TrimSpace(row.Source) != "" && row.LineStart > 0 {
+				citationRef = appendOrReusePreEmitCitation(doc, types.Citation{File: row.Source, Line: row.LineStart})
+			} else if cit, ok := citationForAggregateMemberSetMember(fact, memberIdx, member, ctx); ok {
 				citationRef = appendOrReusePreEmitCitation(doc, cit)
 			}
 			itemText := ""
-			if ev, ok := evidenceForAggregateMemberSetMember(fact, memberIdx, member, ctx); ok {
+			if strings.TrimSpace(row.Note) != "" {
+				itemText = strings.TrimSpace(row.Note)
+			} else if ev, ok := evidenceForAggregateMemberSetMember(fact, memberIdx, member, ctx); ok {
 				itemText = aggregateMemberSetEvidenceSummaryText(ev)
+			}
+			itemLabel := aggregateMemberSetCarrierLabel(member)
+			if strings.TrimSpace(row.DisplayLabel) != "" {
+				itemLabel = strings.TrimSpace(row.DisplayLabel)
 			}
 			block.Items = append(block.Items, types.AnswerBlockItem{
 				ID:          aggregateMemberSetCarrierItemID(block.ID, memberIdx, member),
-				Label:       member,
+				Label:       itemLabel,
 				Text:        itemText,
 				CitationRef: citationRef,
 			})
@@ -1352,6 +1367,27 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 		}
 	}
 	return fixed
+}
+
+func aggregateMemberSetDisplayRowsByFactIndex(ctx *types.BusContext) map[int][]types.EnumerationDisplayRow {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return nil
+	}
+	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+	if len(sets) == 0 {
+		return nil
+	}
+	out := make(map[int][]types.EnumerationDisplayRow, len(sets))
+	for _, set := range sets {
+		if len(set.Rows) > 0 {
+			out[set.FactIndex] = set.Rows
+		}
+	}
+	return out
 }
 
 func appendAggregateMemberSetCarrierBlock(doc *types.AnswerDocumentV2, factIdx int, label string) int {
@@ -1449,9 +1485,9 @@ func aggregateMemberSetCarrierLabel(member string) string {
 func aggregateMemberSetCarrierText(factLabel string) string {
 	factLabel = strings.TrimSpace(factLabel)
 	if factLabel == "" {
-		return "来自已验收的调查成员清单。"
+		return "以下成员来自已验收的结构化调查清单；系统保留该清单以确保完整枚举。"
 	}
-	return "来自已验收的调查成员清单：" + factLabel + "。"
+	return "以下成员来自已验收的结构化调查清单，分组为：" + factLabel + "；系统保留该清单以确保完整枚举。"
 }
 
 func citationForAggregateMemberSetMember(fact types.AnswerAggregateFact, memberIdx int, member string, ctx *types.BusContext) (types.Citation, bool) {
@@ -2215,6 +2251,7 @@ func preEmitAggregateMemberSetCoverageHardGate(ctxOpt ...*types.BusContext) bool
 }
 
 func preEmitPrincipalAggregateMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	facts = normalizeAggregateFactsForTypedExclusion(ctx, facts)
 	facts = types.PruneAggregateMemberSetsByStructuredExclusions(facts)
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return types.PrincipalAggregateMemberSetFactRefs(facts)
@@ -2223,6 +2260,7 @@ func preEmitPrincipalAggregateMemberSetFactRefs(ctx *types.BusContext, facts []t
 }
 
 func preEmitPrincipalRelationMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	facts = normalizeAggregateFactsForTypedExclusion(ctx, facts)
 	facts = types.PruneAggregateMemberSetsByStructuredExclusions(facts)
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return types.PrincipalRelationMemberSetFactRefs(facts)

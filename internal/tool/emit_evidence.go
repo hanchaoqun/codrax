@@ -259,6 +259,7 @@ func (t *EmitEvidence) Description() string {
 		"validates them structurally and may downgrade or ignore inconsistent hints.\n\n" +
 		"surface_terms is optional model-authored structured data for exact user-visible labels / aliases copied verbatim from already-read source, log, or trace lines (for example route names, package/module labels, config keys, macro names, trace span names, original file labels, and labels in leading documentation/header comments attached to the cited anchor). The tool rejects any surface term that is not grounded in the read window; downstream synthesis treats accepted terms as preservation guidance when they are relevant to the visible answer.\n\n" +
 		"salience is optional structured data for answer participation: load_bearing means the answer cannot honor a visible claim without this row; exhaust_listed means this row is one member of a complete list the user asked for; supporting means an intermediate fact the answer chain uses; context means background the answer does not lean on. Omit it when unsure. This field helps preserve important rows in long investigations but does not replace member_set, answer_symbol, citations, or final answer obligations.\n\n" +
+		"For list/enumeration members such as exported constants, enum values, public functions, fields, routes, or config keys, `summary` should explain the member's role using already-read code (signature, right-hand value, registry mapping, caller/callee relation, or visible comment). Do not use summary only to say that the item is the Nth member of a category; ordinal/count information belongs in aggregate_facts, while evidence summary should carry meaning.\n\n" +
 		"snippet is optional but recommended for conditional / mechanism / registration items: paste " +
 		"1-2 lines of the actual code so the snippet_fuzzy recovery tier can re-anchor if your " +
 		"line_start is off by one.\n\n" +
@@ -318,7 +319,7 @@ func emitEvidenceParametersSchema() json.RawMessage {
 						},
 						"summary": map[string]any{
 							"type":        "string",
-							"description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals.",
+							"description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals. For exhaustive list members, explain the member's role from already-read code (signature, RHS value, registry mapping, caller/callee relation, or visible comment); do not use summary only for ordinal/category wording such as 'Nth item'.",
 						},
 						"context_role_hint": map[string]any{
 							"type":        "string",
@@ -471,7 +472,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
           "line_start":    {"type": "integer", "description": "Exact gutter line number from read_file — NEVER estimated. The grounder uses this to verify the claim; wrong numbers are flagged as ungrounded or auto-recovered."},
           "line_end":      {"type": "integer", "description": "Last line of the cited range. Defaults to line_start when omitted."},
           "condition":     {"type": "string", "description": "For conditional items: the exact IF clause that triggers the behaviour."},
-          "summary":       {"type": "string", "description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals."},
+          "summary":       {"type": "string", "description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals. For exhaustive list members, explain the member's role from already-read code (signature, RHS value, registry mapping, caller/callee relation, or visible comment); do not use summary only for ordinal/category wording such as 'Nth item'."},
           "context_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, absence_support = grounded evidence that helps justify why the exact target is absent but does NOT define it, related_context = grounded nearby context but not the exact target itself, illustrative_only = comment/doc/test/example mention that should NOT be treated as defining proof. The tool validates and may downgrade the hint."},
           "diagram_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, config = repo/user config-file layer (YAML/JSON/TOML/INI/etc.), runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints."},
           "surface_terms": {"type": "array", "items": {"type": "string"}, "description": "OPTIONAL exact source/log/trace strings that should remain visible in the final answer as aliases or labels, including labels from leading documentation/header comments attached to the cited anchor. Every term must appear verbatim in the already-read source window."},

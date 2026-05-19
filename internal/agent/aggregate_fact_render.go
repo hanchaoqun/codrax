@@ -22,6 +22,7 @@ func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []t
 	}
 	return renderStructuredAggregateFactsWithOptions(facts, structuredAggregatePromptFactLimit(ctx, facts), structuredAggregatePrincipalMemberSetRefs(ctx, facts), aggregateFactRenderOptions{
 		omitExcludedCandidates: aggregateFactPromptOmitExcludedCandidates(ctx),
+		compactMemberSetRows:   structuredAggregateCompactPrincipalMemberSetIndexes(ctx, facts),
 	})
 }
 
@@ -76,6 +77,7 @@ func renderStructuredAggregateFactsWithPrincipalRefs(facts []types.AnswerAggrega
 
 type aggregateFactRenderOptions struct {
 	omitExcludedCandidates bool
+	compactMemberSetRows   map[int]bool
 }
 
 func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact, maxFacts int, refs []types.AnswerAggregateFactRef, opts aggregateFactRenderOptions) string {
@@ -121,9 +123,17 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		if dims := renderAggregateDimensions(fact.Dimensions); dims != "" {
 			fmt.Fprintf(&b, ", dimensions=[%s]", dims)
 		}
-		memberLimit := aggregateFactPromptMemberLimit(fact)
-		if members := renderAggregateStringList(fact.Members, memberLimit); members != "" {
-			fmt.Fprintf(&b, ", members=[%s]", members)
+		compactMembers := opts.compactMemberSetRows[i] &&
+			fact.Kind == types.AnswerAggregateMemberSet &&
+			types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
+			len(fact.Members) > 0
+		if compactMembers {
+			fmt.Fprintf(&b, ", member_count=%d, members_rendered_in=authoritative_principal_member_rows", len(fact.Members))
+		} else {
+			memberLimit := aggregateFactPromptMemberLimit(fact)
+			if members := renderAggregateStringList(fact.Members, memberLimit); members != "" {
+				fmt.Fprintf(&b, ", members=[%s]", members)
+			}
 		}
 		if len(fact.Excluded) > 0 {
 			if opts.omitExcludedCandidates {
@@ -132,9 +142,15 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 				fmt.Fprintf(&b, ", excluded=[%s]", excluded)
 			}
 		}
-		refLimit := aggregateFactPromptSupportRefLimit(fact)
-		if refs := renderAggregateStringList(fact.SupportRefs, refLimit); refs != "" {
-			fmt.Fprintf(&b, ", support_refs=[%s]", refs)
+		if compactMembers {
+			if len(fact.SupportRefs) > 0 {
+				fmt.Fprintf(&b, ", support_ref_count=%d", len(fact.SupportRefs))
+			}
+		} else {
+			refLimit := aggregateFactPromptSupportRefLimit(fact)
+			if refs := renderAggregateStringList(fact.SupportRefs, refLimit); refs != "" {
+				fmt.Fprintf(&b, ", support_refs=[%s]", refs)
+			}
 		}
 		b.WriteString("\n")
 	}
@@ -252,6 +268,33 @@ func structuredAggregatePrincipalMemberSetRefs(ctx *types.AgentContext, facts []
 		return types.PrincipalAggregateMemberSetFactRefs(facts)
 	}
 	return types.PrincipalAggregateMemberSetFactRefsForRequest(facts, &ctx.AnalysisIR.RequestModel)
+}
+
+func structuredAggregateCompactPrincipalMemberSetIndexes(ctx *types.AgentContext, facts []types.AnswerAggregateFact) map[int]bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(facts) == 0 {
+		return nil
+	}
+	refs := structuredAggregatePrincipalMemberSetRefs(ctx, facts)
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make(map[int]bool, len(refs))
+	for _, ref := range refs {
+		fact := ref.Fact
+		if ref.Index < 0 || ref.Index >= len(facts) {
+			continue
+		}
+		if fact.Kind != types.AnswerAggregateMemberSet ||
+			!types.AnswerAggregateFactCarriesCompleteMemberSet(fact) ||
+			len(fact.Members) == 0 {
+			continue
+		}
+		out[ref.Index] = true
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func structuredAggregatePrincipalFactIndexes(ctx *types.AgentContext, facts []types.AnswerAggregateFact) map[int]bool {

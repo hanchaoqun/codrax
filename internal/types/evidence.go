@@ -1228,9 +1228,7 @@ func mergeExactResolutionSurfaceEvidence(dst, src EvidenceItem) EvidenceItem {
 	if dst.Snippet == "" {
 		dst.Snippet = src.Snippet
 	}
-	if dst.Summary == "" {
-		dst.Summary = src.Summary
-	}
+	dst.Summary = MergeEvidenceSummaries(dst.Summary, src.Summary)
 	if dst.Source == "" {
 		dst.Source = src.Source
 	}
@@ -1267,6 +1265,34 @@ func mergeExactResolutionSurfaceEvidence(dst, src EvidenceItem) EvidenceItem {
 		dst.EvidenceRef = src.EvidenceRef
 	}
 	return dst
+}
+
+// MergeEvidenceSummaries preserves all distinct same-anchor summaries without
+// asking the system to decide which model-authored sentence is "better". The
+// caller must only use it after structural identity has already established
+// that both summaries describe the same evidence row.
+func MergeEvidenceSummaries(existing, incoming string) string {
+	existing = strings.Join(strings.Fields(strings.TrimSpace(existing)), " ")
+	incoming = strings.Join(strings.Fields(strings.TrimSpace(incoming)), " ")
+	if existing == "" {
+		return incoming
+	}
+	if incoming == "" {
+		return existing
+	}
+	existingKey := evidenceSummaryDedupKey(existing)
+	incomingKey := evidenceSummaryDedupKey(incoming)
+	if existingKey == incomingKey || strings.Contains(existingKey, incomingKey) {
+		return existing
+	}
+	if strings.Contains(incomingKey, existingKey) {
+		return incoming
+	}
+	return existing + "；" + incoming
+}
+
+func evidenceSummaryDedupKey(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), " "))
 }
 
 func mergeExactResolutionContextRole(dst, src EvidenceContextRole) EvidenceContextRole {

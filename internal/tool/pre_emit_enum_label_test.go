@@ -1114,6 +1114,58 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsUniqueCandidate(t
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsSectionItems(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "types",
+			Kind: types.BlockSection,
+			Items: []types.AnswerBlockItem{{
+				ID:          "env",
+				Label:       "Env",
+				Text:        "struct 类型，携带运行时数据的只读快照",
+				CitationRef: 1,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/analysis/criterion/grammar.go", Line: 124},
+			{File: "internal/analysis/criterion/grammar.go", Line: 100},
+		},
+	}
+	mut := types.NewMutableState("list exported criterion symbols")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/analysis/criterion/grammar.go",
+			LineStart:       124,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "Env",
+			AnchorSymbol:    "Env",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/analysis/criterion/grammar.go",
+			LineStart:       100,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "IsRegistered",
+			AnchorSymbol:    "IsRegistered",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx)
+	if fixed != 1 {
+		t.Fatalf("expected one section item citation_ref repair, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("section item citation_ref = %d, want 0", got)
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("rebound section citation should satisfy alignment, got %v", hints)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueLabelCitation_AppendsUniqueEvidenceCandidate(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

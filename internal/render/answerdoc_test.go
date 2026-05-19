@@ -204,12 +204,36 @@ func TestRenderV2_BlockScalarZH(t *testing.T) {
 func TestRenderV2_BlockDecision(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
-			{ID: "d1", Kind: types.BlockDecision, Text: "Yes"},
+			{ID: "d1", Kind: types.BlockDecision, Title: "Availability", Text: "Yes"},
 		},
 	}
 	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "Decision:") || !strings.Contains(out, "Yes") {
+	if !strings.Contains(out, "**Availability**") ||
+		!strings.Contains(out, "Decision:") ||
+		!strings.Contains(out, "Yes") {
 		t.Errorf("decision rendering wrong; got %q", out)
+	}
+}
+
+func TestRenderV2_ExactResolutionVisibleLead(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{
+			Status:      types.AnswerExactResolutionAbsent,
+			ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+		},
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "附近上下文仍然有效。"},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	for _, want := range []string{
+		"当前已验证范围内未找到完全一致的精确目标。",
+		"仅作为已落地上下文",
+		"附近上下文仍然有效。",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("exact_resolution lead missing %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -341,6 +365,65 @@ func TestRenderV2_BlockTableStructuredCellsWithRowLabels(t *testing.T) {
 	if !strings.Contains(out, "| 项目 | codrax | opencode |") ||
 		!strings.Contains(out, "| 证据追踪 | citations[] 池 | 无等价结构 |") {
 		t.Fatalf("row label should become the first column without losing cells:\n%s", out)
+	}
+}
+
+func TestRenderV2_BlockTableStructuredCellsPreserveItemTextOverflow(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:      "kind_rows",
+				Kind:    types.BlockTable,
+				Columns: []string{"符号名称", "定义位置", "说明"},
+				Items: []types.AnswerBlockItem{
+					{
+						ID:    "k_external",
+						Label: "KindExternalArtifactDecoded",
+						Cells: []string{
+							"internal/analysis/criterion/grammar.go:65",
+							"Kind常量",
+						},
+						Text: "Kind = Kind(types.CritExternalArtifactDecoded)，为兼容性保留，已废弃",
+					},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	for _, want := range []string{
+		"| 项目 | 符号名称 | 定义位置 | 说明 |",
+		"KindExternalArtifactDecoded",
+		"为兼容性保留，已废弃",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("structured table renderer dropped item text surface %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderV2_BlockTableIntroTextDoesNotHideStructuredRows(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:      "symbols",
+				Kind:    types.BlockTable,
+				Text:    "下面按公开符号类别列出。",
+				Columns: []string{"符号名称", "说明"},
+				Items: []types.AnswerBlockItem{
+					{Label: "Eval", Cells: []string{"对单个 Criterion 求值"}},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	for _, want := range []string{
+		"下面按公开符号类别列出。",
+		"| 符号名称 | 说明 |",
+		"| Eval | 对单个 Criterion 求值 |",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("table intro text should not hide structured rows %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -715,6 +798,26 @@ func TestRenderV2_DedupesRecoveredTextAttachmentMatchingRenderedAnswer(t *testin
 	}
 }
 
+func TestRenderV2_RecoveredAttachmentCapDisclosesOmittedItems(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "主体答案。"}},
+	}
+	attachments := []types.AnswerDisplayAttachment{
+		{Kind: types.AnswerDisplayAttachmentText, Body: "保留内容 1"},
+		{Kind: types.AnswerDisplayAttachmentText, Body: "保留内容 2"},
+		{Kind: types.AnswerDisplayAttachmentText, Body: "保留内容 3"},
+		{Kind: types.AnswerDisplayAttachmentText, Body: "保留内容 4"},
+		{Kind: types.AnswerDisplayAttachmentText, Body: "保留内容 5"},
+	}
+	out := RenderAnswerDocumentWithAttachments(doc, attachments, "zh")
+	if !strings.Contains(out, "保留内容 4") || strings.Contains(out, "保留内容 5") {
+		t.Fatalf("attachment cap should show first four unique attachments only:\n%s", out)
+	}
+	if !strings.Contains(out, "另有 1 条保留内容未显示") {
+		t.Fatalf("attachment cap should disclose omitted preserved content:\n%s", out)
+	}
+}
+
 func TestRenderV2_BlockCaveat(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
@@ -724,6 +827,22 @@ func TestRenderV2_BlockCaveat(t *testing.T) {
 	out := RenderAnswerDocument(doc, "en")
 	if !strings.Contains(out, "> scope is bounded") {
 		t.Errorf("caveat rendering wrong; got %q", out)
+	}
+}
+
+func TestRenderV2_ScopeDisclosureVisibleOnce(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "没有找到目标。", ScopeDisclosure: types.ScopeDisclosureOutOfActiveScope},
+			{ID: "c1", Kind: types.BlockCaveat, Text: "只检查了当前活跃仓。", ScopeDisclosure: types.ScopeDisclosureOutOfActiveScope},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	if count := strings.Count(out, "目标不在当前活跃仓范围内"); count != 1 {
+		t.Fatalf("scope_disclosure should render once, got %d:\n%s", count, out)
+	}
+	if !strings.Contains(out, "没有找到目标。") || !strings.Contains(out, "只检查了当前活跃仓。") {
+		t.Fatalf("scope_disclosure rendering dropped block prose:\n%s", out)
 	}
 }
 

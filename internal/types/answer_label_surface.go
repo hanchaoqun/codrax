@@ -28,7 +28,7 @@ func ParseAnswerSourceLocationSurface(label string) (AnswerSourceLocationSurface
 		return AnswerSourceLocationSurface{}, false
 	}
 	raw = strings.Trim(raw, "`'\" ")
-	for _, sep := range []string{" @ ", " | ", "\t"} {
+	for _, sep := range []string{" @ ", " | ", "\t", ": "} {
 		if strings.Contains(raw, sep) {
 			return AnswerSourceLocationSurface{}, false
 		}
@@ -126,7 +126,7 @@ func ParseAnswerSupportRefMemberLocation(raw string) (label string, location Ans
 	if raw == "" {
 		return "", AnswerSourceLocationSurface{}, false
 	}
-	for _, sep := range []string{" @ ", "\t", " | "} {
+	for _, sep := range []string{" @ ", "\t", " | ", ": "} {
 		idx := strings.Index(raw, sep)
 		if idx <= 0 {
 			continue
