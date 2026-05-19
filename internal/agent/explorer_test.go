@@ -5384,6 +5384,109 @@ func TestObserveMidLoop_CompletionReadyBeatsReadWithoutEmitBacklog(t *testing.T)
 	}
 }
 
+func TestObserveMidLoop_CompletionReadyFiresForArchitectureNarrativeCarriers(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-40 of 400]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:      types.IntentExplain,
+				Scenario:    types.ScenarioArchitectureExplain,
+				Complexity:  types.ComplexityComplex,
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture},
+			},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceMechanism,
+				Subject:         "Orchestrator",
+				Predicate:       "drives",
+				Object:          "pipeline state machine",
+				Source:          "internal/orchestrator/orchestrator.go",
+				AnchorKind:      types.AnchorDefinition,
+				ContextRole:     types.EvidenceContextRoleDefining,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "dispatchStage",
+				Predicate:       "calls",
+				Object:          "agent.Execute",
+				Source:          "internal/orchestrator/orchestrator.go",
+				AnchorKind:      types.AnchorCall,
+				ContextRole:     types.EvidenceContextRoleDefining,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceMechanism,
+				Subject:         "StageBinding",
+				Predicate:       "binds",
+				Object:          "stage to agent and skill",
+				Source:          "internal/types/stage_binding.go",
+				AnchorKind:      types.AnchorDefinition,
+				ContextRole:     types.EvidenceContextRoleDefining,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/orchestrator/orchestrator.go\ninternal/types/stage_binding.go"},
+		newReadResult("internal/orchestrator/orchestrator.go"),
+		newReadResult("internal/types/stage_binding.go"),
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 3 items"},
+		newReadResult("internal/orchestrator/orchestrator.go"),
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("completion-ready hint should fire for architecture narrative carriers, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "architecture/mechanism explanation") {
+		t.Fatalf("hint should explain narrative carrier basis, got: %s", sig.Hint)
+	}
+}
+
+func TestNarrativeClosureCarrierReady_DoesNotBypassEnumerationShape(t *testing.T) {
+	eval := &explorerEvaluator{
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentEnumerate,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+			},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{Kind: types.EvidenceMechanism, Source: "a.go", AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded},
+			{Kind: types.EvidenceMechanism, Source: "b.go", AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded},
+			{Kind: types.EvidenceMechanism, Source: "c.go", AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded},
+		},
+	}
+	if eval.narrativeClosureCarrierReady() {
+		t.Fatal("enumeration-shaped questions must not use narrative carriers to bypass member-set coverage")
+	}
+}
+
 func TestObserveMidLoop_CompletionReadyHint_UsesAuthoritativeLogCoverage(t *testing.T) {
 	newReadResult := func(path string) types.ToolResult {
 		return types.ToolResult{

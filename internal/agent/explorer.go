@@ -5621,6 +5621,7 @@ type explorerCompletionReadiness struct {
 	ToolDiversity            bool
 	FileCoverage             bool
 	EvidenceQuality          bool
+	NarrativeCarrier         bool
 	AuthoritativeCoverage    bool
 	AuthoritativeClosure     bool
 	ExplanationAnchorReady   bool
@@ -5774,9 +5775,11 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 	}
 	minDirect := 2
 	evidenceQuality := directCount >= minDirect
+	narrativeCarrier := e.narrativeClosureCarrierReady()
 	if !e.strictEnumerationReadinessFloor() &&
 		(hasGroundedTerminalEvidence(e.structuredEvidence) ||
 			e.groundedRequirementCarrierCount() >= minDirect ||
+			narrativeCarrier ||
 			len(e.flowFindings) > 0) {
 		evidenceQuality = true
 	}
@@ -5864,6 +5867,7 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 		ToolDiversity:            toolDiversity,
 		FileCoverage:             fileCoverage,
 		EvidenceQuality:          evidenceQuality,
+		NarrativeCarrier:         narrativeCarrier,
 		AuthoritativeCoverage:    authoritativeCoverage,
 		AuthoritativeClosure:     authoritativeClosure,
 		ExplanationAnchorReady:   explanationAnchorReady,
@@ -5982,6 +5986,7 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	if !hasTerminalEvidence(e.structuredEvidence) &&
 		len(e.flowFindings) == 0 &&
 		!hasGroundedRequirementCarrier(e.structuredEvidence, e.ermRequirements) &&
+		!readiness.NarrativeCarrier &&
 		!readiness.AuthoritativeClosure &&
 		!scalarLocateReady {
 		return LoopSignal{}
@@ -6014,6 +6019,9 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	}
 	if scalarLocateReady {
 		b.WriteString("- a grounded owner / definition anchor already identifies the requested literal and its source location\n")
+	}
+	if readiness.NarrativeCarrier {
+		b.WriteString("- architecture/mechanism explanation has enough grounded defining/mechanism carriers for the requested narrative shape\n")
 	}
 	if readiness.ExplanationAnchorTotal > 0 {
 		fmt.Fprintf(&b, "- topic anchors ready: %d / %d\n",
@@ -6137,6 +6145,66 @@ func (e *explorerEvaluator) postAuthoritativeTier1CompletionSignal(obs LoopObser
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func (e *explorerEvaluator) narrativeClosureCarrierReady() bool {
+	if e == nil || e.analysisIR == nil || len(e.structuredEvidence) == 0 {
+		return false
+	}
+	rm := e.analysisIR.RequestModel
+	architectureNarrative := types.IsArchitectureNarrativeExplanation(rm)
+	singleMechanism := types.IsSingleTopicMechanismExplanation(rm)
+	if !architectureNarrative && !singleMechanism {
+		return false
+	}
+	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		return false
+	}
+	minCarriers := 2
+	if architectureNarrative {
+		minCarriers = 3
+	}
+	carriers := 0
+	sources := make(map[string]bool)
+	for _, ev := range e.structuredEvidence {
+		if !narrativeClosureEvidenceCarrier(ev) {
+			continue
+		}
+		carriers++
+		if source := canonicalEvidenceSourcePath(ev.Source); source != "" {
+			sources[source] = true
+		}
+	}
+	if carriers < minCarriers {
+		return false
+	}
+	if architectureNarrative && len(sources) < 2 && carriers < minCarriers+1 {
+		return false
+	}
+	return true
+}
+
+func narrativeClosureEvidenceCarrier(ev types.EvidenceItem) bool {
+	switch ev.GroundingStatus {
+	case types.GroundingGrounded, types.GroundingRecovered, "":
+	default:
+		return false
+	}
+	switch ev.ContextRole {
+	case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
+		return false
+	}
+	switch ev.Kind {
+	case types.EvidenceMechanism, types.EvidenceRelationship, types.EvidenceRegistration:
+		return true
+	case types.EvidenceDirect:
+		switch ev.AnchorKind {
+		case types.AnchorDefinition, types.AnchorCall, types.AnchorCondition,
+			types.AnchorInitializer, types.AnchorAssignment, types.AnchorReturn:
+			return true
+		}
+	}
+	return false
 }
 
 func (e *explorerEvaluator) scalarRoleLocateClosureReady() bool {
