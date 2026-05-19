@@ -150,6 +150,29 @@ func (p *parallelActivity) setUnitActivity(ev Event, kind activityKind, detail, 
 	return true
 }
 
+func (p *parallelActivity) unitOrdinal(id string) (ordinal int, total int, ok bool) {
+	if p == nil {
+		return 0, 0, false
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return 0, 0, false
+	}
+	if p.units[id] == nil {
+		return 0, 0, false
+	}
+	for i, candidate := range p.order {
+		if candidate == id {
+			total = p.total
+			if total <= 0 {
+				total = len(p.order)
+			}
+			return i + 1, total, true
+		}
+	}
+	return 0, 0, false
+}
+
 func (p *parallelActivity) snapshot() *parallelActivitySnapshot {
 	if p == nil {
 		return nil

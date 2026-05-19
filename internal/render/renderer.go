@@ -1424,7 +1424,11 @@ func formatReasoning(agent string, stage types.PipelineStage, iteration int, tex
 }
 
 func formatReasoningLines(agent string, stage types.PipelineStage, iteration int, text string, truncate bool, lang string) []scrollbackLine {
-	trace := activityTraceLabel(agent, stage, iteration, lang)
+	return formatReasoningLinesWithParallel(agent, stage, iteration, text, truncate, lang, "")
+}
+
+func formatReasoningLinesWithParallel(agent string, stage types.PipelineStage, iteration int, text string, truncate bool, lang string, parallelUnitLabel string) []scrollbackLine {
+	trace := activityTraceLabelWithParallel(agent, stage, iteration, lang, parallelUnitLabel)
 	prefix := "  " + statusReasoningGlyph.Sprint(string(glyphReasoning)) + " " + statusMeta.Sprint(trace) + " "
 	if truncate {
 		summary := legacyReasoningSummary(text, true)
@@ -1732,11 +1736,15 @@ func looksLikeDiagramSyntaxLine(s string) bool {
 }
 
 func formatToolCallBatch(agent string, stage types.PipelineStage, iteration int, names []string, count int, firstName, firstDetail, lang string) string {
+	return formatToolCallBatchWithParallel(agent, stage, iteration, names, count, firstName, firstDetail, lang, "")
+}
+
+func formatToolCallBatchWithParallel(agent string, stage types.PipelineStage, iteration int, names []string, count int, firstName, firstDetail, lang string, parallelUnitLabel string) string {
 	body := toolCallBatchBody(names, count, firstName, firstDetail, lang)
 	if body == "" {
 		return ""
 	}
-	trace := activityTraceLabel(agent, stage, iteration, lang)
+	trace := activityTraceLabelWithParallel(agent, stage, iteration, lang, parallelUnitLabel)
 	// Tool-call batches are model activity, but they are actions
 	// rather than reasoning prose. Brighten only the dispatch marker
 	// so scrollback distinguishes it from thinking without making the
@@ -1745,10 +1753,21 @@ func formatToolCallBatch(agent string, stage types.PipelineStage, iteration int,
 }
 
 func activityTraceLabel(agent string, stage types.PipelineStage, iteration int, lang string) string {
+	return activityTraceLabelWithParallel(agent, stage, iteration, lang, "")
+}
+
+func activityTraceLabelWithParallel(agent string, stage types.PipelineStage, iteration int, lang string, parallelUnitLabel string) string {
 	label := activityDisplayLabel(agent, stage, lang)
 	round := iteration + 1
+	parallelUnitLabel = strings.TrimSpace(parallelUnitLabel)
 	if isZh(lang) {
+		if parallelUnitLabel != "" {
+			return fmt.Sprintf("%s · %s · 第 %d 轮", label, parallelUnitLabel, round)
+		}
 		return fmt.Sprintf("%s · 第 %d 轮", label, round)
+	}
+	if parallelUnitLabel != "" {
+		return fmt.Sprintf("%s · %s · Round %d", label, parallelUnitLabel, round)
 	}
 	return fmt.Sprintf("%s · Round %d", label, round)
 }

@@ -83,7 +83,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		if ev.Reasoning == "" {
 			return
 		}
-		lines := formatReasoningLines(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang)
+		lines := formatReasoningLinesWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang, r.parallelUnitTraceLabelLocked(ev))
 		if len(lines) == 0 {
 			return
 		}
@@ -95,8 +95,8 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.commitScrollbackLinesLocked(lines)
 		return
 	case EventAgentToolCallBatch:
-		line := formatToolCallBatch(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
-			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang)
+		line := formatToolCallBatchWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
+			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang, r.parallelUnitTraceLabelLocked(ev))
 		if line == "" {
 			return
 		}
@@ -2254,6 +2254,20 @@ func (r *Renderer) countTopicSiblings() int {
 	return total
 }
 
+func (r *Renderer) parallelUnitTraceLabelLocked(ev Event) string {
+	if r == nil || r.parallel == nil || !r.parallel.matches(ev) {
+		return ""
+	}
+	ordinal, _, ok := r.parallel.unitOrdinal(ev.ParallelUnitID)
+	if !ok || ordinal <= 0 {
+		return ""
+	}
+	if isZh(r.lang) {
+		return fmt.Sprintf("第 %d 路", ordinal)
+	}
+	return fmt.Sprintf("Lane %d", ordinal)
+}
+
 // handleEventNonTTY handles events when the dock is disabled (non-
 // TTY stdout, --log-stdout in TTY mode, etc.). Each event maps to
 // at most one Println-style line so CI logs and piped output remain
@@ -2295,10 +2309,10 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 			mirrorDockBlockToLog(block)
 		}
 	case EventAgentReasoning:
-		r.emitNonTTYLines(formatReasoningLines(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang))
+		r.emitNonTTYLines(formatReasoningLinesWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang, r.parallelUnitTraceLabelLocked(ev)))
 	case EventAgentToolCallBatch:
-		if line := formatToolCallBatch(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
-			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang); line != "" {
+		if line := formatToolCallBatchWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
+			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang, r.parallelUnitTraceLabelLocked(ev)); line != "" {
 			r.emitNonTTYLine(line)
 		}
 	case EventToolCallEnd:

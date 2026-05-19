@@ -512,6 +512,67 @@ func TestRenderer_ToolCallBatchUsesConfiguredOutput(t *testing.T) {
 	}
 }
 
+func TestRenderer_ParallelExplorerScrollbackShowsLaneOrdinal(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:            EventParallelDispatchStart,
+		Agent:           types.AgentExplorer,
+		Stage:           types.StageExplore,
+		ParallelGroupID: "g",
+		ParallelTotal:   2,
+		Parallelism:     2,
+		ParallelUnitIDs: []string{"u0", "u1"},
+		Timestamp:       time.Now(),
+	})
+	emit(Event{
+		Kind:            EventParallelDispatchUnitStart,
+		Agent:           types.AgentExplorer,
+		Stage:           types.StageExplore,
+		ParallelGroupID: "g",
+		ParallelUnitID:  "u1",
+		Timestamp:       time.Now(),
+	})
+	emit(Event{
+		Kind:            EventAgentReasoning,
+		Agent:           types.AgentExplorer,
+		Stage:           types.StageExplore,
+		Iteration:       9,
+		Reasoning:       "second lane reasoning",
+		ParallelGroupID: "g",
+		ParallelUnitID:  "u1",
+		Timestamp:       time.Now(),
+	})
+	emit(Event{
+		Kind:            EventAgentToolCallBatch,
+		Agent:           types.AgentExplorer,
+		Stage:           types.StageExplore,
+		Iteration:       9,
+		ToolName:        "read_file",
+		ToolNames:       []string{"read_file"},
+		ToolCallCount:   1,
+		ParallelGroupID: "g",
+		ParallelUnitID:  "u1",
+		Timestamp:       time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{
+		"⋯ 探索 · 第 2 路 · 第 10 轮 second lane reasoning",
+		"⇢ 探索 · 第 2 路 · 第 10 轮 调用工具 read_file",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("parallel explorer scrollback missing %q; got %q", want, out)
+		}
+	}
+	if strings.Contains(out, "探索 · 第 10 轮 second lane reasoning") {
+		t.Fatalf("parallel explorer reasoning should not use ambiguous non-lane label: %q", out)
+	}
+}
+
 func TestFormatEvidenceToolResultSummaryZh(t *testing.T) {
 	summary := `emit_evidence accepted 4 item(s)
 

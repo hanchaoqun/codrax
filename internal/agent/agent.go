@@ -1462,26 +1462,30 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			// the investigation in real time. The renderer decides how
 			// to present it (dimmed text above the spinner, etc.).
 			b.deps.Emit(render.Event{
-				Kind:      render.EventAgentReasoning,
-				Timestamp: time.Now(),
-				Agent:     b.name,
-				Stage:     ctx.Stage,
-				Iteration: i,
-				Reasoning: resp.Content,
+				Kind:            render.EventAgentReasoning,
+				Timestamp:       time.Now(),
+				Agent:           b.name,
+				Stage:           ctx.Stage,
+				Iteration:       i,
+				Reasoning:       resp.Content,
+				ParallelGroupID: ctx.ParallelGroupID,
+				ParallelUnitID:  ctx.ExploreDispatchKey,
 			})
 		}
 		if len(resp.ToolCalls) > 0 {
 			firstTool := resp.ToolCalls[0]
 			b.deps.Emit(render.Event{
-				Kind:          render.EventAgentToolCallBatch,
-				Timestamp:     time.Now(),
-				Agent:         b.name,
-				Stage:         ctx.Stage,
-				Iteration:     i,
-				ToolName:      firstTool.Name,
-				ToolDetail:    toolDetailForCall(firstTool),
-				ToolCallCount: len(resp.ToolCalls),
-				ToolNames:     toolCallNames(resp.ToolCalls),
+				Kind:            render.EventAgentToolCallBatch,
+				Timestamp:       time.Now(),
+				Agent:           b.name,
+				Stage:           ctx.Stage,
+				Iteration:       i,
+				ToolName:        firstTool.Name,
+				ToolDetail:      toolDetailForCall(firstTool),
+				ToolCallCount:   len(resp.ToolCalls),
+				ToolNames:       toolCallNames(resp.ToolCalls),
+				ParallelGroupID: ctx.ParallelGroupID,
+				ParallelUnitID:  ctx.ExploreDispatchKey,
 			})
 		}
 		for j, tc := range resp.ToolCalls {
