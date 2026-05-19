@@ -2908,6 +2908,76 @@ func TestApplyMultiPathAnchorChecks_AdvisoryHintNonBlocking(t *testing.T) {
 	}
 }
 
+func TestApplyMultiPathAnchorChecks_CallChainUnrelatedSymbolDemandIsAdvisory(t *testing.T) {
+	mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/agent/analyzer.go", Score: 70, ExactEntityRank: 2},
+		{Path: "internal/analysis/dataflow/engine.go", Score: 60, ExactEntityRank: 2},
+	})
+	mut.SetSearchGraph(&repotypes.Graph{
+		FileIndex: map[string]*repotypes.FileInfo{
+			"internal/agent/analyzer.go": {
+				RelPath: "internal/agent/analyzer.go",
+				Symbols: []repotypes.Symbol{
+					{Name: "buildAnalysisIR", File: "internal/agent/analyzer.go", Line: 100, EndLine: 300},
+					{Name: "RunWith", File: "internal/agent/analyzer.go", Line: 300, EndLine: 300},
+				},
+			},
+			"internal/analysis/dataflow/engine.go": {
+				RelPath: "internal/analysis/dataflow/engine.go",
+				Symbols: []repotypes.Symbol{
+					{Name: "Analyze", File: "internal/analysis/dataflow/engine.go", Line: 22, EndLine: 113},
+				},
+			},
+		},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"internal/agent/analyzer.go": true})
+	closure.SetReadRanges(map[string][]types.LineRange{
+		"internal/agent/analyzer.go": {{Start: 85, End: 315}},
+	})
+	closure.SetFileTotalLines(map[string]int{
+		"internal/agent/analyzer.go":           500,
+		"internal/analysis/dataflow/engine.go": 780,
+	})
+	evidence := []types.EvidenceItem{
+		{ID: "start", Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildAnalysisIR", Subject: "buildAnalysisIR", Source: "internal/agent/analyzer.go", LineStart: 100},
+		{ID: "sink", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, AnchorSymbol: "gate.RunWith", Subject: "buildAnalysisIR", Object: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 300},
+	}
+	mut.AppendEvidence(evidence)
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              string(types.ReqCallChain),
+					MentionedEntities: []string{"buildAnalysisIR", "gate.Run"},
+					PrimaryEntities:   []string{"Analyze"},
+				},
+			},
+		},
+	}
+
+	applyMultiPathAnchorChecksWithEvidence(bus, closure, evidence)
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "pre_complete.multi_path_anchor" && p.File == "internal/analysis/dataflow/engine.go" {
+			t.Fatalf("call-chain should not hard-block on unrelated pre-scan symbol demand, got %+v", p)
+		}
+	}
+	var advisory bool
+	for _, r := range closure.ActiveRepairs() {
+		if r.Origin == "pre_complete.multi_path_anchor" && r.Kind == types.RepairExpandSearch && len(r.Files) == 1 && r.Files[0] == "internal/analysis/dataflow/engine.go" {
+			advisory = true
+			break
+		}
+	}
+	if !advisory {
+		t.Fatalf("unrelated call-chain symbol demand should remain visible as advisory, got repairs=%+v", closure.ActiveRepairs())
+	}
+}
+
 // === Multi-repo forced-read phantom-path fix ===
 //
 // docs/design/post_phase2a_forensic_followups.md §2.1.B — the 09:09

@@ -4040,6 +4040,17 @@ func applyMultiPathAnchorChecksWithEvidence(ctx *types.BusContext, closure *type
 			logging.Debug("[CGEC] multi_path_anchor: file=%s signal=%s action=skip reason=%q",
 				file, dec.Signal, dec.Reason)
 		case multipath.ActionDemandSurgicalRead:
+			if !callChainMultiPathDemandShouldBlock(rm, file, dec, evidence) {
+				closure.AddRepair(types.RepairDirective{
+					Kind:      types.RepairExpandSearch,
+					Files:     []string{file},
+					Rationale: dec.Rationale,
+					Origin:    "pre_complete.multi_path_anchor",
+				})
+				logging.Info("[CGEC] multi_path_anchor: file=%s signal=%s action=advisory_hint reason=%q",
+					file, dec.Signal, "call-chain symbol demand is not an endpoint or model-emitted evidence surface")
+				continue
+			}
 			// Surgical Demand from the engine flows into the
 			// PendingRead's LineRanges. runForcedReads (the Lazy
 			// Auto-Read recovery in cgec_enforcers.go) honours these
@@ -4067,6 +4078,91 @@ func applyMultiPathAnchorChecksWithEvidence(ctx *types.BusContext, closure *type
 				file, dec.Signal)
 		}
 	}
+}
+
+func callChainMultiPathDemandShouldBlock(rm types.RequestModel, file string, dec multipath.Decision, evidence []types.EvidenceItem) bool {
+	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain {
+		return true
+	}
+	if dec.Signal != multipath.SignalSymbolDemand || len(dec.Symbols) == 0 {
+		return true
+	}
+	startHint, endHint, ok := callChainPrincipalEndpointHints(rm)
+	if !ok {
+		return true
+	}
+	var hardSurfaces []string
+	hardSurfaces = append(hardSurfaces, startHint, endHint)
+	fileKey := canonicalCallChainSource(file)
+	for _, item := range evidence {
+		if canonicalCallChainSource(item.Source) != fileKey {
+			continue
+		}
+		hardSurfaces = append(hardSurfaces, item.Subject, item.Object, item.AnchorSymbol, item.OwnerSymbol)
+	}
+	for _, symbol := range dec.Symbols {
+		if callChainSymbolMatchesAnySurface(symbol, hardSurfaces) {
+			return true
+		}
+	}
+	return false
+}
+
+func callChainSymbolMatchesAnySurface(symbol string, surfaces []string) bool {
+	symbol = strings.TrimSpace(symbol)
+	if symbol == "" {
+		return false
+	}
+	symKey := callChainSymbolMatchKey(symbol)
+	if symKey == "" {
+		return false
+	}
+	for _, surface := range surfaces {
+		if callChainSymbolMatchesSurfaceKey(symKey, symbol, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func callChainSymbolMatchesSurfaceKey(symKey, symbol, surface string) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return false
+	}
+	surfaceKey := callChainSymbolMatchKey(surface)
+	if surfaceKey == "" {
+		return false
+	}
+	if strings.EqualFold(symbol, surface) || symKey == surfaceKey {
+		return true
+	}
+	symLeaf := callChainSymbolLeaf(symKey)
+	surfaceLeaf := callChainSymbolLeaf(surfaceKey)
+	return symLeaf != "" && surfaceLeaf != "" && symLeaf == surfaceLeaf
+}
+
+func callChainSymbolMatchKey(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimSuffix(raw, "()")
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	return strings.ToLower(strings.ReplaceAll(raw, "\\", "/"))
+}
+
+func callChainSymbolLeaf(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	for _, sep := range []string{"::", ".", "#"} {
+		if idx := strings.LastIndex(raw, sep); idx >= 0 && idx+len(sep) < len(raw) {
+			raw = raw[idx+len(sep):]
+		}
+	}
+	return strings.TrimSpace(raw)
 }
 
 // canonicaliseAnchorPath collapses an anchor path to repo-relative
