@@ -1181,9 +1181,9 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
-	// Quality gate enforcement. All checks except
-	// pending_fields_wellformed are classified hard — any hard
-	// failure yields an Error that makes runAnalyzePhase retry.
+	// Quality gate enforcement. The gate package owns the hard-vs-soft
+	// policy, so RunWith, classifyGateFailure, and future consumers do
+	// not drift into separate retry lists.
 	if ir.QualityGate.Rejected {
 		if hard, detail := classifyGateFailure(ir.QualityGate); hard {
 			logging.Error("[analyzer-v3] quality gate HARD failure: %s", detail)
@@ -2542,8 +2542,9 @@ func buildGenericGateRetryHint(joinedDetail string) string {
 }
 
 // classifyGateFailure inspects a GateReport and returns whether any
-// failure is HARD. pending_fields_wellformed is the only SOFT check;
-// every other failing check is a hard error.
+// failure is HARD. The hard/soft decision delegates to
+// gate.IsHardRejectingCheck so analyzer retry behavior stays aligned
+// with gate.RunWith's GateReport.Rejected semantics.
 //
 // Commit 55 Batch B (MEDIUM #3 audit fix): when MULTIPLE checks
 // fail in the same dispatch, the detail string lists ALL of them
@@ -2556,10 +2557,7 @@ func buildGenericGateRetryHint(joinedDetail string) string {
 func classifyGateFailure(report types.GateReport) (hard bool, detail string) {
 	var parts []string
 	for _, c := range report.Checks {
-		if c.Passed {
-			continue
-		}
-		if c.Name == "pending_fields_wellformed" {
+		if !gate.IsHardRejectingCheck(c) {
 			continue
 		}
 		// Single-line each failure detail so the joined string stays

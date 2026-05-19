@@ -69,6 +69,35 @@ func TestRun_GoldenPath_Passes(t *testing.T) {
 	}
 }
 
+func TestRun_PendingFieldsWellformedSoftFailureAccepted(t *testing.T) {
+	ir := validIR()
+	if len(ir.TaskGraph.Nodes) == 0 {
+		t.Fatal("validIR must include task nodes")
+	}
+	ir.TaskGraph.Nodes[0].Inputs = append(ir.TaskGraph.Nodes[0].Inputs, "Bad-Input")
+
+	report := Run(ir, Thresholds{}, "")
+	check := findCheck(report, "pending_fields_wellformed")
+	if check == nil {
+		t.Fatal("pending_fields_wellformed check missing")
+	}
+	if check.Passed {
+		t.Fatalf("pending field check should record its own soft failure; got %+v", check)
+	}
+	if report.Rejected {
+		t.Fatalf("pending field hygiene must not reject analyzer output; got %+v", report)
+	}
+	if !report.Passed {
+		t.Fatalf("GateReport.Passed should mean hard-accepted; got %+v", report)
+	}
+	if report.Retryable {
+		t.Fatalf("soft-only gate warning must not be retryable; got %+v", report)
+	}
+	if report.Fingerprint != "" {
+		t.Fatalf("soft-only gate warning must not stamp retry fingerprint; got %q", report.Fingerprint)
+	}
+}
+
 func TestRun_NilIR_RejectedNonRetryable(t *testing.T) {
 	report := Run(nil, Thresholds{}, "")
 	if !report.Rejected {

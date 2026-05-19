@@ -24,8 +24,8 @@ func TestClassifyGateFailure_NoFailuresIsClean(t *testing.T) {
 }
 
 func TestClassifyGateFailure_SoftOnlyIsClean(t *testing.T) {
-	// pending_fields_wellformed is the only SOFT check; failing it
-	// alone must not flag hard.
+	// Soft checks use the gate package's shared hard/soft policy;
+	// failing them alone must not flag hard.
 	report := types.GateReport{
 		Checks: []types.GateCheck{
 			{Name: "pending_fields_wellformed", Passed: false, Detail: "pending field x"},

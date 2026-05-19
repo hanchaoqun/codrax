@@ -8,13 +8,12 @@
 // observational only — fixes happen in the compiler (deterministic)
 // or via LLM retry (non-deterministic).
 //
-// All checks except pending_fields_wellformed are classified hard
-// by classifyGateFailure (in internal/agent/analyzer.go). The one
-// soft check is the format-hygiene sweep over the pending
-// artifact-exchange fields (TaskNode.Inputs/Outputs/ExitArtifacts)
-// and EvidencePlan.SourceMix: those fields have no runtime
-// consumer yet but the gate still verifies they are human-readable,
-// so a pending-field refactor lands with a clean baseline.
+// IsHardRejectingCheck is the single source of truth for whether a
+// failed GateCheck should reject the analyzer output and spend an LLM
+// retry. Keep this list conservative: hard checks must be precise,
+// runtime-consuming invariants. Format-hygiene checks for future or
+// advisory fields may fail their individual GateCheck for telemetry,
+// but they must not flip GateReport.Rejected.
 package gate
 
 import (
@@ -171,14 +170,14 @@ func RunWith(ir *types.AnalysisIR, th Thresholds, mode string, opts RunOptions) 
 	checks = append(checks, checkCriterionResolvable(ir))
 	checks = append(checks, checkPendingFieldsWellformed(ir))
 
-	passed := true
+	hardRejected := false
 	for _, c := range checks {
-		if !c.Passed {
-			passed = false
+		if IsHardRejectingCheck(c) {
+			hardRejected = true
 		}
 	}
 	report := types.GateReport{
-		Passed: passed, Rejected: !passed, Retryable: !passed, Checks: checks,
+		Passed: !hardRejected, Rejected: hardRejected, Retryable: hardRejected, Checks: checks,
 	}
 	// B6 (2026-05-10): stamp a fingerprint of the rejection shape
 	// onto the report so the orchestrator's analyze retry loop can
@@ -187,10 +186,25 @@ func RunWith(ir *types.AnalysisIR, th Thresholds, mode string, opts RunOptions) 
 	// Empty fingerprint when not rejected; never affects passing
 	// reports' wire shape (omitempty in GateReport struct).
 	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.6.
-	if !passed {
+	if hardRejected {
 		report.Fingerprint = computeGateFingerprint(report)
 	}
 	return report
+}
+
+// IsHardRejectingCheck reports whether this individual check should
+// reject the analyzer IR. It intentionally reads only the typed check
+// identity and pass bit, never user text or model prose.
+func IsHardRejectingCheck(c types.GateCheck) bool {
+	if c.Passed {
+		return false
+	}
+	switch c.Name {
+	case "pending_fields_wellformed":
+		return false
+	default:
+		return true
+	}
 }
 
 // ── individual checks ──────────────────────────────────────────
