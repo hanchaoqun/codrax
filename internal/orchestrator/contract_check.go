@@ -414,12 +414,16 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		if runSC {
 			scDocV2 = mut.AnswerDocumentV2()
 			runSC = scDocV2 != nil && shouldReviewConsistencyV2(scDocV2)
+			if runSC && skipLLMAnswerReviewForObservationOnlyArtifact(o.busCtx, scDocV2, result.Violations) {
+				logging.Info("[self_consistency_reviewer] skipped: observation-only runtime artifact answer already has typed artifact carrier and no current-repo citation surface")
+				runSC = false
+			}
 		}
 		runSQ := !preReviewerStrict && o != nil && o.semanticQualityReviewer != nil && mut != nil
 		if runSQ {
 			sqDocV2 = mut.AnswerDocumentV2()
 			runSQ = sqDocV2 != nil && semanticQualityReviewerEligible(sqDocV2, result.Violations)
-			if runSQ && skipSemanticQualityForObservationOnlyArtifact(o.busCtx, sqDocV2, result.Violations) {
+			if runSQ && skipLLMAnswerReviewForObservationOnlyArtifact(o.busCtx, sqDocV2, result.Violations) {
 				logging.Info("[semantic_quality_reviewer] skipped: observation-only runtime artifact answer already has typed artifact carrier and no current-repo citation surface")
 				runSQ = false
 			}
@@ -3111,6 +3115,10 @@ func semanticQualityReviewerEligible(doc *types.AnswerDocumentV2, existing []typ
 }
 
 func skipSemanticQualityForObservationOnlyArtifact(ctx *types.BusContext, doc *types.AnswerDocumentV2, existing []types.Violation) bool {
+	return skipLLMAnswerReviewForObservationOnlyArtifact(ctx, doc, existing)
+}
+
+func skipLLMAnswerReviewForObservationOnlyArtifact(ctx *types.BusContext, doc *types.AnswerDocumentV2, existing []types.Violation) bool {
 	if ctx == nil || ctx.Mutable == nil || doc == nil {
 		return false
 	}
@@ -3121,7 +3129,7 @@ func skipSemanticQualityForObservationOnlyArtifact(ctx *types.BusContext, doc *t
 	if rm == nil || !rm.HasObservationOnlyRuntimeArtifact() {
 		return false
 	}
-	if rm.Complexity != types.ComplexitySimple || rm.DiagramHint != nil {
+	if rm.DiagramHint != nil {
 		return false
 	}
 	if len(doc.Citations) != 0 {

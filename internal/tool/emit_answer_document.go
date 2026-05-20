@@ -48,6 +48,7 @@ func (t *EmitAnswerDocument) Name() string { return "emit_answer_document" }
 // helper.
 func (t *EmitAnswerDocument) Description() string {
 	return "Emit the FULL final answer document as a structured blocks[] array. " +
+		"`blocks` must be a native JSON array in the tool arguments; do not JSON-encode or quote it as a string containing escaped JSON. " +
 		"Use this on first dispatches and whenever the answer needs a complete rewrite. On retry paths where only a few blocks need editing, prefer emit_answer_document_patch which protocol-level preserves typed annotation fields on blocks you do not touch.\n\n" +
 		BuildAnswerDocumentSemanticContractDescription()
 }
@@ -81,7 +82,7 @@ func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {
   "properties": {
     "blocks": {
       "type": "array",
-      "description": "Ordered list of answer blocks. REQUIRED; must be non-empty. Each block is a structured payload tagged by kind.",
+      "description": "Ordered list of answer blocks. REQUIRED; must be non-empty. This field must be a native JSON array, not a JSON-encoded string containing escaped block JSON. Each block is a structured payload tagged by kind.",
       "items": {
         "type": "object",
         "properties": {

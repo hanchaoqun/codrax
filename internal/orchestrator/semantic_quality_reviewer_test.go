@@ -759,7 +759,7 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 			{
 				ID:       "s1",
 				Kind:     types.BlockSummary,
-				Text:     "Rust panic",
+				Text:     "这是 Rust panic：运行时日志观察到 Option::unwrap() 在 None 值上触发崩溃，栈帧属于外部 artifact，不能当作当前仓库源码位置。这里的 src/config.rs:42 和 src/main.rs:12 是日志里的运行时帧位置，不是当前 checkout 已验证的文件行号。",
 				FacetIDs: []string{string(types.FacetObservedArtifactFact)},
 				ClaimUses: []types.RenderedClaimUse{{
 					ClaimForm: types.ClaimExternalObservation,
@@ -774,7 +774,12 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 					ClaimForm: types.ClaimExternalObservation,
 					FacetID:   string(types.FacetObservedArtifactFact),
 				}},
-				Items: []types.AnswerBlockItem{{ID: "f0", Label: "panic", CitationRef: -1}},
+				Items: []types.AnswerBlockItem{
+					{ID: "f0", Label: "panic", CitationRef: -1},
+					{ID: "f1", Label: "rust_begin_unwind", CitationRef: -1},
+					{ID: "f2", Label: "my_app::config::load", CitationRef: -1},
+					{ID: "f3", Label: "my_app::main", CitationRef: -1},
+				},
 			},
 			{
 				ID:       "boundary",
@@ -787,8 +792,14 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 	if !semanticQualityReviewerEligible(pureArtifactDoc, nil) {
 		t.Fatal("fixture should satisfy the normal semantic-quality eligibility gate before artifact skip")
 	}
+	if !shouldReviewConsistencyV2(pureArtifactDoc) {
+		t.Fatal("fixture should satisfy the normal self-consistency eligibility gate before artifact skip")
+	}
 	if !skipSemanticQualityForObservationOnlyArtifact(ctx, pureArtifactDoc, nil) {
 		t.Fatal("simple pure observation-only artifact answer should skip semantic-quality reviewer")
+	}
+	if !skipLLMAnswerReviewForObservationOnlyArtifact(ctx, pureArtifactDoc, nil) {
+		t.Fatal("shared LLM-review gate should skip the same pure observation-only artifact answer")
 	}
 
 	withCitation := *pureArtifactDoc
@@ -814,8 +825,25 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 			IsDiagnostic: true,
 		},
 	})
-	if skipSemanticQualityForObservationOnlyArtifact(&types.BusContext{Mutable: complexMut}, pureArtifactDoc, nil) {
-		t.Fatal("complex artifact analysis should keep semantic-quality review available")
+	if !skipLLMAnswerReviewForObservationOnlyArtifact(&types.BusContext{Mutable: complexMut}, pureArtifactDoc, nil) {
+		t.Fatal("complexity alone is not a safe reason to run LLM reviewers on pure observation-only artifacts")
+	}
+
+	diagramMut := types.NewMutableState("画出这个外部日志的时序图")
+	diagramMut.SetRequestModel(types.RequestModel{
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexityComplex,
+		LogTriage:  bundle,
+		DiagramHint: &types.DiagramHint{
+			Kind: types.DiagramSequence,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+		},
+	})
+	if skipLLMAnswerReviewForObservationOnlyArtifact(&types.BusContext{Mutable: diagramMut}, pureArtifactDoc, nil) {
+		t.Fatal("diagram-requested artifact answers should keep LLM review available")
 	}
 }
 

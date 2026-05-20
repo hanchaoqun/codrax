@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -52,6 +53,41 @@ func TestFinalizerToolSchemas_HidePatchWithInvalidRetryBase(t *testing.T) {
 	names := finalizerSchemaToolNames(agent.buildToolSchemas(sk, ctx))
 	if names["emit_answer_document_patch"] {
 		t.Fatalf("patch tool must be hidden when retry state lacks a usable previous document, got %v", names)
+	}
+}
+
+func TestFinalizerToolSchemas_DocumentBlocksWarnAgainstStringifiedArrays(t *testing.T) {
+	agent := finalizerSchemaTestAgent()
+	sk := finalizerSchemaTestSkill()
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("first finalizer dispatch")}
+
+	var docSchema *llm.ToolSchema
+	for _, schema := range agent.buildToolSchemas(sk, ctx) {
+		if schema.Name == "emit_answer_document" {
+			s := schema
+			docSchema = &s
+			break
+		}
+	}
+	if docSchema == nil {
+		t.Fatal("finalizer must expose emit_answer_document")
+	}
+	for _, want := range []string{
+		"native JSON array",
+		"do not JSON-encode or quote",
+	} {
+		if !strings.Contains(docSchema.Description, want) {
+			t.Fatalf("emit_answer_document description missing %q:\n%s", want, docSchema.Description)
+		}
+	}
+	params := string(docSchema.Parameters)
+	for _, want := range []string{
+		"native JSON array",
+		"not a JSON-encoded string",
+	} {
+		if !strings.Contains(params, want) {
+			t.Fatalf("emit_answer_document parameters missing %q:\n%s", want, params)
+		}
 	}
 }
 

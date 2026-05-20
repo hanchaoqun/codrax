@@ -164,6 +164,26 @@ func TestFinalizerSkill_DoesNotTeachRetiredV1AnswerPayloads(t *testing.T) {
 	}
 }
 
+func TestFinalizerSkill_TeachesNativeBlocksArrayContract(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	blob := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"native JSON array",
+		"do NOT quote it as a string containing escaped JSON",
+		"not as a JSON-encoded string with escaped quotes",
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("answer-document-skill missing native blocks[] guidance %q:\n%s", want, blob)
+		}
+	}
+}
+
 func TestFinalizerSkill_TeachesTypedDiagramRelationAuthority(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
