@@ -204,7 +204,8 @@ the eval cases prove the class is closed.
 
 ### Batch 1 — Deterministic Scalar / Measurement / VCS Guardrails
 
-Status: implemented in the current working tree; awaiting eval rerun.
+Status: first implementation committed as `91651164`; follow-up hardening in
+progress after `s7a` exposed a residual scalar-support role leak.
 
 Scope for this batch:
 
@@ -224,12 +225,35 @@ Scope for this batch:
   `result_count`, `vcs_count`, or `history_count`. Broad unlabeled
   `git log | wc -l` counts remain support-only and still require a structured
   handoff.
+- B1.4 Command-scalar evidence compatibility: if a model mistakenly sends a
+  command-derived scalar such as `70693 total` through `emit_evidence` without
+  a real file:line anchor, the system should not force a fake source line or a
+  full retry. The item is skipped as an advisory no-op and the tool result
+  routes the model to `emit_investigation_complete.aggregate_facts`, where
+  command-backed scalars belong.
+- B1.5 Source-of-truth role normalization: request-aware aggregate role repair
+  must happen before stable aggregate facts enter downstream prompt/render
+  surfaces. Renderers also re-apply the same typed normalizer defensively so a
+  future caller cannot reintroduce explicit `principal_answer` support ledgers
+  into scalar-count finalizer gates.
 
 Validation target: `s7a` should stop relying on manual line arithmetic; `u7b`
 should no longer get a system commit/member table when the user asked for a
 scalar count, and can close on a precisely labeled VCS count proof. `s7b/u7b`
 still need eval confirmation that the prompts choose the deterministic command
 shape consistently.
+
+2026-05-20 follow-up after first `s7a` rerun:
+
+- `s7a` produced the correct scalar (`70693`) with one finalizer iteration, but
+  finalizer prompt still received a file-list `member_set` as
+  `role=principal_answer`, so deterministic exhaustive-member review added a
+  generic weak-support supplement. Root cause: the earlier demotion only
+  affected principal-member-set selectors; the stable aggregate pool and
+  aggregate prompt renderer still trusted the model's explicit role.
+- Explorer also tried to record `70693 total` as `emit_evidence scope=line`
+  with `line_start=0`; this is not a valid file:line citation and should be
+  treated as command measurement support, not as a hard evidence failure.
 
 ## Case Notes So Far
 

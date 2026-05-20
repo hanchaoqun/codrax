@@ -540,6 +540,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	//       envelope with ALL reasons, not a trickle of per-item notes.
 	built := make([]types.EvidenceItem, 0, len(p.Items))
 	rejectedItems := make([]string, 0)
+	softSkippedItems := make([]string, 0)
 	autoSwapped := make([]int, 0)
 	compatRepairs := make([]string, 0)
 	// Session 11 R4 self-reference filter — pre-compute the
@@ -558,6 +559,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	for i, in := range p.Items {
 		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, &autoSwapped, &compatRepairs)
 		if perr != nil {
+			if reason, ok := emitEvidenceCommandScalarSoftSkipReason(in, i, perr); ok {
+				softSkippedItems = append(softSkippedItems, reason)
+				continue
+			}
 			rejectedItems = append(rejectedItems, fmt.Sprintf("items[%d]: %v", i, perr))
 			continue
 		}
@@ -594,6 +599,24 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// reasons via renderEmitSummary so the LLM sees what failed and
 	// can re-emit just the failed ones (mirror of what emit_log_
 	// triage / emit_answer_document do).
+	if len(built) == 0 && len(softSkippedItems) > 0 && len(rejectedItems) == 0 {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Success:  true,
+			Summary:  renderEmitEvidenceCommandScalarSoftSkipSummary(softSkippedItems),
+			Repair: &types.ToolRepair{
+				Code: "evidence_command_scalar_to_aggregate_fact",
+				Hint: "Command-derived scalar/count outputs are not source-line evidence. Carry the verified value through emit_investigation_complete.aggregate_facts as kind=scalar_value or total_count with command provenance.",
+				Fields: []string{
+					"emit_investigation_complete.aggregate_facts",
+				},
+				Metadata: map[string]string{
+					"repair_status": "advisory",
+				},
+			},
+			Timestamp: now,
+		}, nil
+	}
 	if len(built) == 0 {
 		return failEmit(t.Name(), now,
 			"no valid items after per-item validation:\n%s",
@@ -759,9 +782,17 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			"\n\nsurface_terms compatibility: dropped ungrounded optional term(s); evidence items were kept:\n  - " +
 			strings.Join(surfaceTermDrops, "\n  - ") + "\n"
 	}
-	if len(rejectedItems) > 0 || len(autoSwapped) > 0 || len(compatRepairs) > 0 {
+	if len(rejectedItems) > 0 || len(softSkippedItems) > 0 || len(autoSwapped) > 0 || len(compatRepairs) > 0 {
 		var b strings.Builder
 		b.WriteString(summary)
+		if len(softSkippedItems) > 0 {
+			fmt.Fprintf(&b, "\n%d command-derived scalar/count item(s) were SKIPPED because emit_evidence only records source/log evidence anchors:\n",
+				len(softSkippedItems))
+			for _, r := range softSkippedItems {
+				fmt.Fprintf(&b, "  - %s\n", r)
+			}
+			b.WriteString("Carry those verified command values through emit_investigation_complete.aggregate_facts instead of inventing a file:line anchor.\n")
+		}
 		if len(rejectedItems) > 0 {
 			fmt.Fprintf(&b, "\n%d item(s) were SKIPPED due to validation errors and are NOT in the accepted buffer:\n",
 				len(rejectedItems))
@@ -861,6 +892,42 @@ func buildEmitEvidenceItemWithSwap(in *emitEvidenceItem, index int, workDir stri
 	}
 	repairEmitEvidenceItemShape(in, index, compatRepairs)
 	return buildEmitEvidenceItem(*in, index, workDir)
+}
+
+func emitEvidenceCommandScalarSoftSkipReason(in emitEvidenceItem, index int, perr error) (string, bool) {
+	if perr == nil || !in.LoadBearingSummary {
+		return "", false
+	}
+	errText := perr.Error()
+	if !strings.Contains(errText, "scope=line requires line_start > 0") &&
+		!strings.Contains(errText, "source is required") &&
+		!strings.Contains(errText, "does not look like a repo-relative file path") {
+		return "", false
+	}
+	payloadParts := []string{
+		strings.TrimSpace(in.Snippet),
+		strings.TrimSpace(in.AnchorSymbol),
+		strings.TrimSpace(in.Summary),
+	}
+	for _, payload := range payloadParts {
+		if payload == "" {
+			continue
+		}
+		if value, ok := types.DeterministicCountProofInteger(payload); ok {
+			return fmt.Sprintf("items[%d]: command-derived scalar/count `%d` has no source file:line anchor", index, value), true
+		}
+	}
+	return "", false
+}
+
+func renderEmitEvidenceCommandScalarSoftSkipSummary(skipped []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "emit_evidence accepted 0 source evidence item(s); skipped %d command-derived scalar/count item(s).\n\n", len(skipped))
+	for _, s := range skipped {
+		fmt.Fprintf(&b, "  - %s\n", s)
+	}
+	b.WriteString("\nCommand-derived scalar/count outputs are not source-line evidence. Do not invent a file:line anchor for them; carry the verified value through emit_investigation_complete.aggregate_facts as kind=scalar_value or total_count with command provenance.\n")
+	return b.String()
 }
 
 func repairEmitEvidenceItemShape(in *emitEvidenceItem, index int, compatRepairs *[]string) {

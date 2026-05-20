@@ -18,6 +18,7 @@ const (
 func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []types.AnswerAggregateFact) string {
 	facts = types.PruneAggregateMemberSetsByStructuredExclusions(facts)
 	if ctx != nil && ctx.AnalysisIR != nil {
+		facts = types.NormalizeAggregateFactRolesForRequest(facts, &ctx.AnalysisIR.RequestModel)
 		facts = types.DemoteAggregateCountFactsConflictingWithPrincipalMemberSets(facts, &ctx.AnalysisIR.RequestModel)
 	}
 	return renderStructuredAggregateFactsWithOptions(facts, structuredAggregatePromptFactLimit(ctx, facts), structuredAggregatePrincipalMemberSetRefs(ctx, facts), aggregateFactRenderOptions{

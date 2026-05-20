@@ -1350,6 +1350,83 @@ func build() {
 	}
 }
 
+func TestEmitInvestigationComplete_DemotesScalarCountCoverageMemberSetBeforeStablePool(t *testing.T) {
+	mut := types.NewMutableState("internal/tool 下非测试 Go 文件总行数是多少？")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Summary:  "[exec_command: $ find internal/tool -name '*.go' | xargs wc -l | tail -1]\n42 total\n",
+		Success:  true,
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "internal/tool 下非测试 Go 文件总行数是多少？",
+				Intent:     types.IntentReturnValue,
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "line count command and included files were verified",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":       "member_set",
+			"label":      "non-test .go files in internal/tool",
+			"value":      "2",
+			"role":       "principal_answer",
+			"provenance": "command:find internal/tool -name '*.go' | xargs wc -l",
+			"unit":       "files",
+			"members":    []string{"internal/tool/a.go", "internal/tool/b.go"},
+		}, {
+			"kind":       "scalar_value",
+			"label":      "total lines",
+			"value":      "42",
+			"role":       "principal_answer",
+			"provenance": "command:find internal/tool -name '*.go' | xargs wc -l | tail -1",
+			"unit":       "lines",
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success || !mut.IsInvestigationComplete() {
+		t.Fatalf("expected completion, got success=%v complete=%v summary=%s", res.Success, mut.IsInvestigationComplete(), res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) < 2 {
+		t.Fatalf("stable aggregate facts = %+v, want member_set + scalar", facts)
+	}
+	var memberSet, scalar *types.AnswerAggregateFact
+	for i := range facts {
+		switch facts[i].Kind {
+		case types.AnswerAggregateMemberSet:
+			memberSet = &facts[i]
+		case types.AnswerAggregateScalar:
+			scalar = &facts[i]
+		}
+	}
+	if memberSet == nil || scalar == nil {
+		t.Fatalf("stable aggregate facts missing expected lanes: %+v", facts)
+	}
+	if memberSet.Role != types.AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("coverage member_set role = %q, want supporting_coverage: %+v", memberSet.Role, *memberSet)
+	}
+	if scalar.Role != types.AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("scalar role = %q, want principal_answer: %+v", scalar.Role, *scalar)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_ConflictingDeterministicCountsNeedStructuredHandoff(t *testing.T) {
 	mut := types.NewMutableState("internal/tool 下非测试 Go 文件总行数是多少？")
 	mut.AppendDispatchToolResult(types.ToolResult{

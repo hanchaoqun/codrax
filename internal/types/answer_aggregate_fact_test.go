@@ -1405,6 +1405,49 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_ScalarHistoryCountTreatsM
 	}
 }
 
+func TestNormalizeAggregateFactRolesForRequest_DemotesScalarCountMemberSetAtSource(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "non-test Go files",
+		Value:      "2",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "command:find internal/tool -name '*.go' | xargs wc -l",
+		Unit:       "files",
+		Members:    []string{"internal/tool/a.go", "internal/tool/b.go"},
+	}, {
+		Kind:       AnswerAggregateScalar,
+		Label:      "total lines",
+		Value:      "42",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "command:find internal/tool -name '*.go' | xargs wc -l | tail -1",
+		Unit:       "lines",
+	}}
+	rm := RequestModel{
+		Intent: IntentReturnValue,
+		Predicates: SemanticPredicates{
+			IsScalarAnswer:  true,
+			IsCountQuestion: true,
+		},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("member_set role = %q, want supporting_coverage: %+v", got[0].Role, got[0])
+	}
+	if !strings.Contains(got[0].Provenance, "demoted:scalar_count_support_member_set") {
+		t.Fatalf("demotion provenance missing: %+v", got[0])
+	}
+	if got[1].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("scalar answer role changed unexpectedly: %+v", got[1])
+	}
+
+	rm.Predicates.IsCategoryEnumeration = true
+	got = NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("category enumeration must preserve principal member_set role, got %+v", got[0])
+	}
+}
+
 func TestBuildAnswerSurfacePlan_DoesNotNarrowAcceptedMemberSetWithIncompleteAnswerSymbols(t *testing.T) {
 	mut := NewMutableState("public constants")
 	mut.SetInvestigationAggregateFacts([]AnswerAggregateFact{{

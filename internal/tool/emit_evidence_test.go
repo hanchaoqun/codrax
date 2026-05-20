@@ -110,6 +110,43 @@ func TestEmitEvidence_DuplicateBatchIsNoProgress(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_CommandScalarWithoutLineIsAdvisoryNoop(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {
+            "kind": "direct",
+            "scope": "line",
+            "source": "internal/tool",
+            "line_start": 0,
+            "anchor_kind": "text_reference",
+            "anchor_symbol": "70693",
+            "snippet": "70693 total",
+            "summary": "70693 total lines across non-test .go files in internal/tool",
+            "load_bearing_summary": true
+          }
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("command-derived scalar should be advisory no-op, got: %s", res.Summary)
+	}
+	if got := len(ctx.Mutable.EmittedEvidence()); got != 0 {
+		t.Fatalf("command scalar must not be recorded as source evidence, got %d item(s)", got)
+	}
+	if !strings.Contains(res.Summary, "aggregate_facts") ||
+		!strings.Contains(res.Summary, "has no source file:line anchor") {
+		t.Fatalf("summary should route the model to aggregate_facts, got: %s", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != "evidence_command_scalar_to_aggregate_fact" {
+		t.Fatalf("expected advisory repair code, got %+v", res.Repair)
+	}
+}
+
 func TestEmitEvidence_MixedBatchRecordsOnlyNewEvidence(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

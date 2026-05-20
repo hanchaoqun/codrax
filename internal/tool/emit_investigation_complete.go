@@ -546,6 +546,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	effectiveAggregateFacts = reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx, effectiveAggregateFacts, evidenceSnapshot)
 	effectiveAggregateFacts = enrichCompletionAggregateFactsWithDeterministicCount(ctx, effectiveAggregateFacts)
 	effectiveAggregateFacts = enrichCompletionAggregateFactsWithDeterministicHistoryCount(ctx, effectiveAggregateFacts)
+	if ctx.AnalysisIR != nil {
+		effectiveAggregateFacts = types.NormalizeAggregateFactRolesForRequest(effectiveAggregateFacts, &ctx.AnalysisIR.RequestModel)
+	}
 	effectiveAggregateFacts = normalizeAggregateFactsForTypedExclusion(ctx, effectiveAggregateFacts)
 
 	// Reject the emit when a member_set carries members led by a code

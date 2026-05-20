@@ -1181,6 +1181,48 @@ func DemoteAggregateCountFactsConflictingWithPrincipalMemberSets(facts []AnswerA
 	return out
 }
 
+// NormalizeAggregateFactRolesForRequest applies request-aware role repair to
+// aggregate facts before they enter prompt/render surfaces. It only consumes
+// typed RequestModel predicates plus structured aggregate kind/role fields; it
+// never scans user text, model prose, labels, or answer markdown.
+//
+// Scalar count questions are the important edge: explorers often emit a
+// member_set as the verified coverage ledger behind a scalar command result
+// (for example, the files included in a line-count pipeline). If that ledger
+// is explicitly tagged principal_answer, downstream finalizer gates interpret
+// it as an exhaustive visible-answer enumeration and force noisy "missing
+// member" repairs. The scalar value is the principal answer; the member_set is
+// support.
+func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *RequestModel) []AnswerAggregateFact {
+	if len(facts) == 0 || rm == nil {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	out := cloneAnswerAggregateFacts(facts)
+	changed := false
+	for i := range out {
+		role := NormalizeAnswerAggregateRole(out[i].Role)
+		if role == AnswerAggregateRoleAuditLedger {
+			continue
+		}
+		if AggregateMemberSetIsScalarCountSupport(rm, out[i]) {
+			if role != AnswerAggregateRoleSupportingCoverage {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				out[i].Provenance = appendAggregateFactProvenance(
+					out[i].Provenance,
+					"demoted:scalar_count_support_member_set",
+				)
+				changed = true
+			}
+			continue
+		}
+		out[i].Role = role
+	}
+	if !changed {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	return out
+}
+
 func AggregateFactConflictsWithPrincipalMemberSetCounts(facts []AnswerAggregateFact, rm *RequestModel, idx int) bool {
 	if rm == nil || idx < 0 || idx >= len(facts) {
 		return false
