@@ -1,0 +1,11 @@
+# Grid B — U7 History / Authorship (commit comparison)
+#
+# Regression target: comparing two history objects must keep comparison/list
+# shape. The VCS hashes are evidence/provenance, not an instruction to collapse
+# the whole answer into one scalar value.
+ID="u7e"
+NAME="history — compare two commits"
+QUESTION="对比 aa27be48 和 af683718 这两个提交分别做了什么，有哪些共同点和不同点？"
+EXPECT_CONTAINS="aa27be48 af683718"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(共同|相同|共同点).*(不同|差异|不同点)|(不同|差异|不同点).*(共同|相同|共同点)"

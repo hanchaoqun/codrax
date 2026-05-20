@@ -562,11 +562,14 @@ type SemanticPredicates struct {
 	// list_of_symbols even when declared shape was value/config_value.
 	IsCategoryEnumeration bool `json:"is_category_enumeration"`
 
-	// IsHistoryLookup: the answer is a repository-history / authorship
-	// lookup whose literal should come from VCS metadata (git log /
-	// blame / commit history), not from a repo file:line. Replaces the
-	// old VCS keyword tables with an explicit analyzer judgment that the
-	// system can then validate against the rest of the classification.
+	// IsHistoryLookup: the authoritative evidence source is repository-
+	// history / authorship metadata (git log / blame / commit history),
+	// not a repo file:line. This is orthogonal to answer shape: a history
+	// question may ask for one scalar literal, a feature summary, a list
+	// of recent merges, a comparison between commits, or a diagnostic that
+	// combines history with logs/traces. Replaces old VCS keyword tables
+	// with an explicit analyzer judgment that downstream code can combine
+	// with IsScalarAnswer / IsCountQuestion / buckets / diagnostic fields.
 	IsHistoryLookup bool `json:"is_history_lookup"`
 
 	// IsDiagnosticQuestion: the user is asking to diagnose a failure,

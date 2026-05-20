@@ -3503,6 +3503,10 @@ func principalSupportMaterializationRequired(ctx *types.BusContext, view *types.
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil || view == nil {
 		return false
 	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Predicates.IsHistoryLookup {
+		return false
+	}
 	if w := ctx.Mutable.EvidenceFloorWaiver(); w.IsActive() {
 		return false
 	}
@@ -3512,7 +3516,7 @@ func principalSupportMaterializationRequired(ctx *types.BusContext, view *types.
 	if perf := ctx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
 		return false
 	}
-	if aggregateFactsCanCarryPrincipalAnswer(ctx.AnalysisIR.RequestModel, view.Family, aggregateFacts) {
+	if aggregateFactsCanCarryPrincipalAnswer(rm, view.Family, aggregateFacts) {
 		return false
 	}
 	switch view.Family {

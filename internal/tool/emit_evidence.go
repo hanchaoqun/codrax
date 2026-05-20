@@ -559,7 +559,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	for i, in := range p.Items {
 		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, &autoSwapped, &compatRepairs)
 		if perr != nil {
-			if reason, ok := emitEvidenceMeasurementSoftSkipReason(in, i, perr); ok {
+			if reason, ok := emitEvidenceToolValueSoftSkipReason(ctx, in, i, perr); ok {
 				softSkippedItems = append(softSkippedItems, reason)
 				continue
 			}
@@ -605,8 +605,8 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Success:  true,
 			Summary:  renderEmitEvidenceCommandScalarSoftSkipSummary(softSkippedItems),
 			Repair: &types.ToolRepair{
-				Code: "evidence_command_scalar_to_aggregate_fact",
-				Hint: "Command-derived scalar/count outputs are not source-line evidence. Carry the verified value through emit_investigation_complete.aggregate_facts as kind=scalar_value or total_count with command provenance.",
+				Code: "evidence_command_value_to_closure",
+				Hint: "Command/VCS-derived outputs are not source-line evidence. Carry verified scalar/count/list answers through emit_investigation_complete.aggregate_facts when they are the requested principal shape; for non-scalar history summaries or diagnostics, carry the VCS finding in emit_investigation_complete.reason and mark any commit/count metadata aggregate_facts as supporting_coverage.",
 				Fields: []string{
 					"emit_investigation_complete.aggregate_facts",
 				},
@@ -786,12 +786,12 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		var b strings.Builder
 		b.WriteString(summary)
 		if len(softSkippedItems) > 0 {
-			fmt.Fprintf(&b, "\n%d command-derived scalar/count item(s) were SKIPPED because emit_evidence only records source/log evidence anchors:\n",
+			fmt.Fprintf(&b, "\n%d command/VCS-derived item(s) were SKIPPED because emit_evidence only records source/log evidence anchors:\n",
 				len(softSkippedItems))
 			for _, r := range softSkippedItems {
 				fmt.Fprintf(&b, "  - %s\n", r)
 			}
-			b.WriteString("Carry those verified command values through emit_investigation_complete.aggregate_facts instead of inventing a file:line anchor.\n")
+			b.WriteString("Carry verified command values through emit_investigation_complete.aggregate_facts when they are the requested principal scalar/count/list. For non-scalar history summaries or diagnostics, carry the VCS finding in emit_investigation_complete.reason and mark commit/count metadata aggregates as supporting_coverage.\n")
 		}
 		if len(rejectedItems) > 0 {
 			fmt.Fprintf(&b, "\n%d item(s) were SKIPPED due to validation errors and are NOT in the accepted buffer:\n",
@@ -894,7 +894,7 @@ func buildEmitEvidenceItemWithSwap(in *emitEvidenceItem, index int, workDir stri
 	return buildEmitEvidenceItem(*in, index, workDir)
 }
 
-func emitEvidenceMeasurementSoftSkipReason(in emitEvidenceItem, index int, perr error) (string, bool) {
+func emitEvidenceToolValueSoftSkipReason(ctx *types.BusContext, in emitEvidenceItem, index int, perr error) (string, bool) {
 	if perr == nil {
 		return "", false
 	}
@@ -925,7 +925,28 @@ func emitEvidenceMeasurementSoftSkipReason(in emitEvidenceItem, index int, perr 
 			return fmt.Sprintf("items[%d]: command-derived scalar/count `%d` has no source file:line anchor", index, value), true
 		}
 	}
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Predicates.IsHistoryLookup &&
+		emitEvidenceLooksLikeVCSMetadata(in) {
+		label := strings.TrimSpace(in.AnchorSymbol)
+		if label == "" {
+			label = strings.TrimSpace(in.Subject)
+		}
+		if label == "" {
+			label = strings.TrimSpace(in.Summary)
+		}
+		if label == "" {
+			label = "history metadata"
+		}
+		return fmt.Sprintf("items[%d]: VCS/history metadata `%s` has no repo file:line anchor", index, logging.Truncate(label, 80)), true
+	}
 	return "", false
+}
+
+func emitEvidenceLooksLikeVCSMetadata(in emitEvidenceItem) bool {
+	return strings.TrimSpace(in.Summary) != "" ||
+		strings.TrimSpace(in.Snippet) != "" ||
+		strings.TrimSpace(in.AnchorSymbol) != "" ||
+		strings.TrimSpace(in.Subject) != ""
 }
 
 func emitEvidenceLooksLikeDirectoryMeasurement(in emitEvidenceItem) bool {
@@ -943,11 +964,11 @@ func emitEvidenceLooksLikeDirectoryMeasurement(in emitEvidenceItem) bool {
 
 func renderEmitEvidenceCommandScalarSoftSkipSummary(skipped []string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "emit_evidence accepted 0 source evidence item(s); skipped %d measurement/scalar support item(s).\n\n", len(skipped))
+	fmt.Fprintf(&b, "emit_evidence accepted 0 source evidence item(s); skipped %d command/VCS support item(s).\n\n", len(skipped))
 	for _, s := range skipped {
 		fmt.Fprintf(&b, "  - %s\n", s)
 	}
-	b.WriteString("\nDerived scalar/count and directory measurement outputs are not source-line evidence. Do not invent a file:line anchor for them; carry the verified value through emit_investigation_complete.aggregate_facts as kind=scalar_value, total_count, unique_count, or excluded_count with command provenance.\n")
+	b.WriteString("\nDerived scalar/count, directory measurement, and VCS/history outputs are not source-line evidence. Do not invent a file:line anchor for them. Carry verified scalar/count/list answers through emit_investigation_complete.aggregate_facts when that is the requested principal shape; for non-scalar history summaries or diagnostics, carry the VCS finding in emit_investigation_complete.reason and keep commit/count metadata aggregates as supporting_coverage.\n")
 	return b.String()
 }
 

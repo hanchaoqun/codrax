@@ -1,0 +1,14 @@
+# Grid B — U7 History + Runtime Artifact (history-backed diagnostic)
+#
+# Regression target: a diagnostic may combine attached runtime evidence with
+# VCS history. The commit/merge metadata should support the diagnosis instead
+# of becoming a one-value scalar answer.
+ID="u7f"
+NAME="history — merge context plus log diagnostic"
+QUESTION="结合最近一次合入，看看下面日志里的 emit_evidence 返工是否可能和这次合入有关，请给出判断和依据。"
+LOG='2026-05-20T10:38:30.997 WARN [explorer] emit_investigation_complete DOWNGRADED — typed principal evidence handoff is missing
+2026-05-20T10:38:31.007 DEBUG [diag explorer] MID-LOOP CHECK: Evidence Materialization
+2026-05-20T10:38:43.488 INFO [render] 需要从实际源代码文件中提取证据'
+EXPECT_CONTAINS="emit_evidence emit_investigation_complete"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(判断|可能|有关|无关|依据).*(合入|commit|aa27be48|af683718)|(合入|commit|aa27be48|af683718).*(判断|可能|有关|无关|依据)"

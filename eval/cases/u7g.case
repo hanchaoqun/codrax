@@ -1,0 +1,12 @@
+# Grid B — U7 History → Code Explanation + Diagram
+#
+# Regression target: history lookup is an evidence-source lane, not a scalar
+# shape. When the user asks to start from the latest merge and then locate /
+# explain corresponding code with a visual view, the answer must stay rich and
+# diagram-capable instead of collapsing to a commit hash.
+ID="u7g"
+NAME="history — latest merge code explanation with diagram"
+QUESTION="根据最近一次合入，找到对应代码，详细解释这次合入影响了哪些流程，并画出逻辑图。"
+EXPECT_CONTAINS="aa27be48 flowchart"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(mermaid|flowchart|sequenceDiagram|逻辑图|流程图)"

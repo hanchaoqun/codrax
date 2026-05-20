@@ -3593,6 +3593,150 @@ func TestEmitAnalysis_Execute_PersistsExactTargetsAndHistoryPredicate(t *testing
 	}
 }
 
+func TestEmitAnalysis_Execute_AllowsNonScalarHistoryLookup(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("最近一次合入的是什么特性？请说明特性内容。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "explain",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["merge", "合入", "特性", "git log"],
+		"entities": [],
+		"question_kind": "history",
+		"intent_confidence": 0.91,
+		"complexity_confidence": 0.80,
+		"kind_confidence": 0.93,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": true,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("non-scalar history lookup should be accepted, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if !rm.Predicates.IsHistoryLookup || rm.Predicates.IsScalarAnswer {
+		t.Fatalf("predicates = %+v, want history=true scalar=false", rm.Predicates)
+	}
+	if rm.Intent != types.IntentExplain || types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqHistory {
+		t.Fatalf("history summary shape drifted: intent=%s kind=%s", rm.Intent, rm.AnalyzerHints.Kind)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsScalarHistoryWithNarrativeIntent(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("最近一次合入的是什么特性？请说明特性内容。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "trace",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["merge", "合入", "特性", "git log"],
+		"entities": [],
+		"question_kind": "history",
+		"intent_confidence": 0.91,
+		"complexity_confidence": 0.80,
+		"kind_confidence": 0.93,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": true,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if res.Success {
+		t.Fatalf("scalar history with trace intent should be rejected")
+	}
+	if !strings.Contains(res.Summary, "principal history scalar answers must use intent=return_value") {
+		t.Fatalf("summary should guide scalar vs narrative history repair, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_AllowsHistoryTraceDiagramWhenNonScalar(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("根据最近一次合入找到对应代码，详细解释并画出逻辑图。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "trace",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["git log", "合入", "对应代码", "逻辑图", "diagram"],
+		"entities": [],
+		"question_kind": "history",
+		"intent_confidence": 0.91,
+		"complexity_confidence": 0.80,
+		"kind_confidence": 0.93,
+		"diagram_hint": {"kind": "flow"},
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": true,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.7
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("history-backed code trace/diagram should be accepted when non-scalar, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if !rm.Predicates.IsHistoryLookup || rm.Predicates.IsScalarAnswer {
+		t.Fatalf("predicates = %+v, want history=true scalar=false", rm.Predicates)
+	}
+	if rm.Intent != types.IntentTrace || rm.DiagramHint == nil || rm.DiagramHint.Kind != types.DiagramFlow {
+		t.Fatalf("history trace/diagram shape drifted: intent=%s diagram=%+v", rm.Intent, rm.DiagramHint)
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsExactContextTerms(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

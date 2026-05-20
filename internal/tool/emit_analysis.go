@@ -363,7 +363,7 @@ func buildEmitAnalysisSchema() {
 					"is_cross_component":      map[string]any{"type": "boolean", "description": "True if the question genuinely spans multiple distinct components / subsystems / independently-answerable code regions. Leave false for a single named target that merely needs nearby context, precedence layers, or override stages, and also leave false for one ordered source-to-sink call/flow trace even when that chain crosses files or packages."},
 					"is_relational_lookup":    map[string]any{"type": "boolean", "description": "True if filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')."},
 					"is_category_enumeration": map[string]any{"type": "boolean", "description": "True if asking 'what kinds / types / categories of X exist'."},
-					"is_history_lookup":       map[string]any{"type": "boolean", "description": "True when the literal answer should come from repository history / authorship metadata (git log / blame / commit history), not from a repo file:line."},
+					"is_history_lookup":       map[string]any{"type": "boolean", "description": "True when the authoritative evidence source is repository history / authorship metadata (git log / blame / commit history), not a repo file:line. This is an evidence-source flag, not an answer-shape flag: pair it with is_scalar_answer=true only when the principal answer is one literal such as a commit hash/date/author/count; leave is_scalar_answer=false for feature summaries, recent-commit lists, commit comparisons, locating the changed code, explaining the code behind a commit, drawing logic/sequence diagrams from a commit, or history-backed diagnostics."},
 					"is_diagnostic_question":  map[string]any{"type": "boolean", "description": "True when the current request asks to diagnose a failure, regression, runtime symptom, observed bad behaviour, or whether a similar problem still exists, and expects cause / current-risk / remediation analysis. Applies with or without an attached runtime artifact. False for ordinary architecture tours, code walkthroughs, or log/trace parser mechanism questions. This is the primary diagnostic routing predicate; the system aligns diagnostic_profile.is_diagnostic to it unless independent current-risk / historical-regression signals are present."},
 				},
 				"required": []string{"is_scalar_answer", "is_role_locate_lookup", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration", "is_history_lookup", "is_diagnostic_question"},
@@ -1333,11 +1333,11 @@ func validateSelfConsistencyDetailed(
 		return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_category_enumeration=true and is_scalar_answer=true are mutually exclusive — a 'what kinds of X' question yields a list, not a scalar"}
 	}
 	if preds.IsHistoryLookup {
-		if intent == types.IntentEnumerate {
-			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_history_lookup=true is inconsistent with intent=enumerate — repository-history questions yield a single scalar / literal, not a list"}
+		if preds.IsRoleLocateLookup && !preds.IsScalarAnswer {
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_role_locate_lookup=true requires is_scalar_answer=true — if the history question asks for one role-bearing literal, keep both predicates scalar; otherwise set is_role_locate_lookup=false and let the history answer use summary/list/comparison shape"}
 		}
-		if !preds.IsScalarAnswer {
-			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_history_lookup=true requires is_scalar_answer=true — history / authorship lookups yield a single scalar / literal"}
+		if preds.IsScalarAnswer && !preds.IsCountQuestion && intent != types.IntentReturnValue {
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "principal history scalar answers must use intent=return_value — if the user asks to explain, trace corresponding code, compare, list, diagnose, draw diagrams, or summarize repository history, keep is_history_lookup=true but set is_scalar_answer=false and choose the non-scalar intent"}
 		}
 	}
 	diagnosticRequired := preds.IsDiagnosticQuestion || diagnostic.RequiresDiagnosticRootCause()

@@ -319,6 +319,40 @@ func TestPreCheckAggregateScalarValueCoverage_RequiresModelAuthoredScalarFacts(t
 	}
 }
 
+func TestPreCheckAggregateScalarValueCoverage_DoesNotForceNonScalarHistoryMetadata(t *testing.T) {
+	mu := types.NewMutableState("最近一次合入的是什么特性？请说明特性内容。")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "最近一次合入特性",
+		Value: "Tighten explorer guidance and evidence grounding",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+	}, {
+		Kind:  types.AnswerAggregateScalar,
+		Label: "merge commit",
+		Value: "aa27be48",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+	}})
+	mu.SetInvestigationComplete("history metadata accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "最近一次合入的特性是 Tighten explorer guidance and evidence grounding，主要强化 explorer 引导和证据 grounding。",
+	}}}
+
+	if got := preCheckAggregateScalarValueCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("non-scalar history metadata should not force a scalar-value repair, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateScalarValueCoverage_DoesNotHardGateConflictingParallelCount(t *testing.T) {
 	mu := types.NewMutableState("conflicting parallel aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{

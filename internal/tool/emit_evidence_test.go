@@ -142,8 +142,47 @@ func TestEmitEvidence_CommandScalarWithoutLineIsAdvisoryNoop(t *testing.T) {
 		!strings.Contains(res.Summary, "has no source file:line anchor") {
 		t.Fatalf("summary should route the model to aggregate_facts, got: %s", res.Summary)
 	}
-	if res.Repair == nil || res.Repair.Code != "evidence_command_scalar_to_aggregate_fact" {
+	if res.Repair == nil || res.Repair.Code != "evidence_command_value_to_closure" {
 		t.Fatalf("expected advisory repair code, got %+v", res.Repair)
+	}
+}
+
+func TestEmitEvidence_HistoryMetadataWithoutLineIsAdvisoryNoop(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		},
+	}
+	params := json.RawMessage(`{
+        "items": [
+          {
+            "kind": "direct",
+            "scope": "line",
+            "source": "git log",
+            "anchor_kind": "text_reference",
+            "anchor_symbol": "af683718",
+            "summary": "af683718 Tighten explorer guidance and evidence grounding 是最近一次合入的特性提交",
+            "load_bearing_summary": true
+          }
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("history metadata should be advisory no-op, got: %s", res.Summary)
+	}
+	if got := len(ctx.Mutable.EmittedEvidence()); got != 0 {
+		t.Fatalf("history metadata must not be recorded as source evidence, got %d item(s)", got)
+	}
+	if !strings.Contains(res.Summary, "VCS/history metadata") ||
+		!strings.Contains(res.Summary, "emit_investigation_complete.reason") {
+		t.Fatalf("summary should route VCS metadata to closure reason/support facts, got: %s", res.Summary)
 	}
 }
 

@@ -1248,12 +1248,75 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 			}
 			continue
 		}
+		if AggregateFactIsNarrativeHistorySupport(rm, out[i]) {
+			if role != AnswerAggregateRoleSupportingCoverage {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				out[i].Provenance = appendAggregateFactProvenance(
+					out[i].Provenance,
+					"demoted:history_metadata_support",
+				)
+				changed = true
+			}
+			continue
+		}
 		out[i].Role = role
 	}
 	if !changed {
 		return cloneAnswerAggregateFacts(facts)
 	}
 	return out
+}
+
+// AggregateScalarIsNonScalarHistorySupport reports the legacy scalar-only
+// subset of AggregateFactIsNarrativeHistorySupport. Kept as a small exported
+// helper for callers/tests that specifically care about scalar_value facts.
+func AggregateScalarIsNonScalarHistorySupport(rm *RequestModel, fact AnswerAggregateFact) bool {
+	return fact.Kind == AnswerAggregateScalar && AggregateFactIsNarrativeHistorySupport(rm, fact)
+}
+
+// AggregateFactIsNarrativeHistorySupport reports whether a history aggregate
+// fact is metadata for a narrative / diagnostic answer rather than a principal
+// value/list by itself. The distinction is typed-only:
+//
+//   - history source
+//   - not scalar/count
+//   - not a user-structured enumeration/list or bucketed comparison
+//
+// This prevents VCS metadata such as merge commit, source branch, subject
+// line, changed-file count, or one-item commit member_set from forcing generic
+// scalar blocks or system-generated member tables when the user asked for a
+// feature summary or a history-backed diagnostic. It deliberately preserves
+// principal aggregates for history counts, one-literal commit lookups, explicit
+// recent-N lists, and bucketed / cross-component comparisons.
+func AggregateFactIsNarrativeHistorySupport(rm *RequestModel, fact AnswerAggregateFact) bool {
+	if rm == nil {
+		return false
+	}
+	switch fact.Kind {
+	case AnswerAggregateScalar,
+		AnswerAggregateTotalCount,
+		AnswerAggregateUniqueCount,
+		AnswerAggregateGroupedCount,
+		AnswerAggregateBucketCount,
+		AnswerAggregateMemberSet:
+		// eligible for demotion below
+	default:
+		return false
+	}
+	if !rm.Predicates.IsHistoryLookup {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer || rm.Predicates.IsCountQuestion {
+		return false
+	}
+	if rm.Intent == IntentEnumerate ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCrossComponent ||
+		rm.QuestionStructure().HasAnyObligation() {
+		return false
+	}
+	return true
 }
 
 func AggregateFactConflictsWithPrincipalMemberSetCounts(facts []AnswerAggregateFact, rm *RequestModel, idx int) bool {

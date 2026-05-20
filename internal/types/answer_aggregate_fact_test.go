@@ -1447,6 +1447,71 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesScalarCountMemberSetAtSour
 	}
 }
 
+func TestNormalizeAggregateFactRolesForRequest_DemotesNonScalarHistoryScalars(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:       AnswerAggregateScalar,
+		Label:      "最近一次合入特性",
+		Value:      "Tighten explorer guidance and evidence grounding",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "git log --merges -1 --oneline",
+	}, {
+		Kind:       AnswerAggregateScalar,
+		Label:      "merge commit",
+		Value:      "aa27be48",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "git log --merges -1 --oneline",
+	}, {
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "feature commit",
+		Value:      "1",
+		Members:    []string{"af683718 Tighten explorer guidance and evidence grounding"},
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "git log --merges -1 --oneline",
+	}, {
+		Kind:       AnswerAggregateGroupedCount,
+		Label:      "修改文件数",
+		Value:      "18",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "git show --stat",
+	}}
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	for _, fact := range got {
+		if fact.Role != AnswerAggregateRoleSupportingCoverage {
+			t.Fatalf("non-scalar history metadata should become support metadata, got %+v", fact)
+		}
+		if !strings.Contains(fact.Provenance, "demoted:history_metadata_support") {
+			t.Fatalf("demotion provenance missing: %+v", fact)
+		}
+	}
+
+	rm.Predicates.IsScalarAnswer = true
+	got = NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[0].Role != AnswerAggregateRolePrincipalAnswer || got[1].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("true scalar history lookup must keep principal scalar facts, got %+v", got)
+	}
+
+	rm.Predicates.IsScalarAnswer = false
+	rm.Intent = IntentEnumerate
+	got = NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[2].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("explicit history list/enumeration should preserve principal member_set facts, got %+v", got[2])
+	}
+
+	rm.Intent = IntentExplain
+	rm.Predicates.IsCrossComponent = true
+	got = NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[2].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("history comparison should preserve principal member_set facts, got %+v", got[2])
+	}
+}
+
 func TestDropPartialAggregateExcludedLists_KeepsCountAndOmitsNonExactList(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:       AnswerAggregateExcluded,

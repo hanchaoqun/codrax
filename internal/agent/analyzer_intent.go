@@ -62,28 +62,22 @@ func isMeasurementScalarRequest(rm types.RequestModel) bool {
 		rm.AnswerSubject.Kind == types.SubjectNumeric
 }
 
-// isHistoryLookupRequest reports whether the request is a citation-free
-// repository-history/authorship lookup whose literal comes from VCS
-// metadata rather than from a repo file:line.
+// isHistoryLookupRequest reports whether the request has repository-history /
+// authorship metadata as an answer-grade evidence source. The flag is
+// orthogonal to answer shape: a history question may be a scalar commit lookup,
+// a feature-summary explanation, a recent-merge list, or a comparison. All of
+// those need VCS metadata to flow without fake file:line citation floors.
 //
 // Primary signal: analyzer declared question_kind=history.
 //
-// Secondary signal: analyzer emitted predicates.is_history_lookup=true.
-// The system then validates that the rest of the classification is
-// structurally coherent for a scalar history lookup before stripping
-// citations. This keeps the semantic judgment in the LLM lane while
-// preserving a deterministic fail-closed validator.
+// Secondary signal: analyzer emitted predicates.is_history_lookup=true. This
+// keeps the semantic judgment in the LLM lane while preserving a deterministic
+// fail-closed validator keyed on typed fields rather than request keywords.
 func isHistoryLookupRequest(rm types.RequestModel) bool {
 	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqHistory {
 		return true
 	}
-	if !rm.Predicates.IsHistoryLookup {
-		return false
-	}
-	if !rm.Predicates.IsScalarAnswer && rm.Intent != types.IntentReturnValue {
-		return false
-	}
-	return true
+	return rm.Predicates.IsHistoryLookup
 }
 
 func isCitationFreeToolValueRequest(rm types.RequestModel) bool {

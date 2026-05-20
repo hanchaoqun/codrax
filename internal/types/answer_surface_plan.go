@@ -1729,6 +1729,10 @@ func BuildAnswerSurfacePlan(
 			plan.StableAggregateFacts,
 			&ir.RequestModel,
 		)
+		plan.StableAggregateFacts = NormalizeAggregateFactRolesForRequest(
+			plan.StableAggregateFacts,
+			&ir.RequestModel,
+		)
 		if logBundle == nil {
 			logBundle = mutable.LogTriage()
 		}

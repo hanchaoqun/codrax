@@ -1,0 +1,11 @@
+# Grid B — U7 History / Authorship (recent-N merge list)
+#
+# Regression target: history lookup is not a scalar-only lane. Recent-N merge
+# requests should produce multiple described entries, not a single commit id or
+# a system-generated code-symbol table.
+ID="u7d"
+NAME="history — recent merge list with descriptions"
+QUESTION="列出最近 3 次合入分别是什么特性，并各用一句话说明做了什么。"
+EXPECT_CONTAINS="aa27be48"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(最近|合入|merge|commit).*(特性|说明|做了什么)"

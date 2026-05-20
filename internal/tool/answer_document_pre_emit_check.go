@@ -1962,6 +1962,9 @@ func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ..
 	if len(facts) == 0 {
 		return nil
 	}
+	if ctxOpt[0].AnalysisIR != nil {
+		facts = types.NormalizeAggregateFactRolesForRequest(facts, &ctxOpt[0].AnalysisIR.RequestModel)
+	}
 	surface := preEmitVisibleAnswerSurface(doc)
 	if strings.TrimSpace(surface) == "" {
 		return nil

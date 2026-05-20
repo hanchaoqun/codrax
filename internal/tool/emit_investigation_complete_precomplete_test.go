@@ -1603,6 +1603,33 @@ func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCountRejectsBareBroad
 	}
 }
 
+func TestPrincipalSupportMaterializationRequired_SkipsHistoryNarrative(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable: types.NewMutableState("最近一次合入的是什么特性？请说明这个特性做了什么，不要只给 commit id。"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+			},
+		},
+	}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture}
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "feature commit",
+		Value:   "1",
+		Members: []string{"af683718 Tighten explorer guidance and evidence grounding"},
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+	}}
+
+	if principalSupportMaterializationRequired(bus, view, facts) {
+		t.Fatalf("history narrative should close from VCS/raw command evidence without forcing repo file:line principal support")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_RelationalCountAlsoNeedsStructuredProof(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeTestFile(t, repoRoot, "internal/orchestrator/orchestrator.go", `

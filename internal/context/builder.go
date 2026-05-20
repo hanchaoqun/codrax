@@ -738,16 +738,15 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// doesn't have — physically impossible to emit. Surface the raw
 	// summaries here so the finalizer can pull the literal directly.
 	//
-	// NARROW SCOPE — citation-free value questions only. We gate on
-	// AnswerSemanticView.NeedsCitationFreeScalarIngest() AND
-	// CitationReq.Required == false; today that pair is produced by the
-	// analyzer for measurement scalars and VCS/history value lookups.
-	// For every other question shape (explanation / step_list /
-	// list_of_symbols / boolean / config_value / value with
-	// file:line-citable returns) the section stays hidden — otherwise
-	// the finalizer would quote raw read_file dumps instead of the
-	// curated Structured Evidence section, and explain-class answers
-	// would degrade.
+	// NARROW SCOPE — citation-free command/VCS questions only. We gate
+	// on the analyzer's typed citation-free classification. Measurement
+	// scalars need command output for the literal; repository-history
+	// questions need VCS output whether the requested answer is a scalar
+	// hash, a feature summary, a recent-merge list, a comparison, or a
+	// history-backed diagnostic. For ordinary source-code explanation /
+	// step_list / list_of_symbols / config_value answers the section
+	// stays hidden — otherwise the finalizer would quote raw read_file
+	// dumps instead of the curated Structured Evidence section.
 	//
 	// Explorer-only source: reading TurnAArtifacts.ToolResults scopes
 	// the section to the explore stage's work and excludes the
@@ -1796,16 +1795,16 @@ func isCitationFreeValueAnswer(ac *types.AgentContext) bool {
 	if c.CitationReq.Required {
 		return false
 	}
+	rm := ac.AnalysisIR.RequestModel
+	if rm.Predicates.IsHistoryLookup {
+		return true
+	}
 	// Citation-free scalar — the analyzer's measurement-scalar
-	// carve-out drops CitationReq.Required for command-level
-	// returns (wc -l, git log, etc.). Combined with the typed
-	// IsScalarAnswer predicate (the LLM's classification of
-	// "answer is one literal"), this is the precise signal for
-	// surfacing the Raw Tool Outputs section. We DO NOT rely on
-	// the compiled view here because measurement scalars often
-	// land in QFGeneric (no scalar-principal block) yet still
-	// need this carve-out.
-	return ac.AnalysisIR.RequestModel.Predicates.IsScalarAnswer
+	// carve-out drops CitationReq.Required for command-level returns
+	// (wc -l, grep -c, etc.). Combined with the typed IsScalarAnswer
+	// predicate (the LLM's classification of "answer is one literal"),
+	// this is the precise signal for surfacing raw command output.
+	return rm.Predicates.IsScalarAnswer
 }
 
 // shouldRenderRawToolOutputs gates the Raw Tool Outputs section to
@@ -1862,10 +1861,9 @@ var rawToolOutputSkipTools = map[string]bool{
 // BlockScalar with no citation floor), citation_ref=-1 on the value
 // is the correct answer.
 const rawToolOutputPreamble = "These are the raw outputs of commands run during the investigation. " +
-	"Use them as the source of TRUTH for citation-free scalar answers whose literal comes from command / VCS output (counts, totals, sizes, version numbers, commit hashes, subject lines). " +
+	"Use them as the source of TRUTH for citation-free command / VCS answers: scalar measurements, commit hashes, subject lines, feature summaries, recent-merge lists, commit comparisons, and history-backed diagnostics. " +
 	"These tool outputs are NOT repo files — they MUST NOT appear in citations[]. " +
-	"For a citation-free scalar answer (BlockScalar with no citation floor) emit a `scalar` block whose `text` starts with the literal taken directly from the tool output tail, and attach a one-element `items=[{id:\"v\", citation_ref:-1}]` anchor; -1 is the correct choice because the " +
-	"answer is a command-level measurement with no file:line anchor.\n\n"
+	"When the user asked for one literal scalar, emit a `scalar` block whose `text` starts with the literal taken directly from the tool output tail, and attach a one-element `items=[{id:\"v\", citation_ref:-1}]` anchor. When the user asked for a summary, list, comparison, or diagnostic, use `summary` / `section` / `table` / `ordered_list` blocks and cite command/VCS provenance in prose with `citation_ref:-1` only where an item needs an anchor; do not collapse the answer into a bare scalar just because the evidence came from git or a shell command.\n\n"
 
 // formatRawToolOutputs renders the successful subset of Turn A's tool
 // results as a bulleted section. Each call shows head + (mid-trim

@@ -1156,6 +1156,24 @@ func TestIsHistoryLookupRequest(t *testing.T) {
 		}
 	})
 
+	t.Run("non-scalar history summary still uses VCS metadata", func(t *testing.T) {
+		rm := types.RequestModel{
+			RawRequest: "最近一次合入的是什么特性？请说明特性内容。",
+			Intent:     types.IntentExplain,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     "history",
+				Keywords: []string{"merge", "feature"},
+			},
+			Predicates: types.SemanticPredicates{
+				IsScalarAnswer:  false,
+				IsHistoryLookup: true,
+			},
+		}
+		if !isHistoryLookupRequest(rm) {
+			t.Fatal("history predicate should trigger even when the requested answer is a summary, not a scalar")
+		}
+	})
+
 	t.Run("ordinary return value stays citable", func(t *testing.T) {
 		rm := types.RequestModel{
 			RawRequest: "what does Execute return",

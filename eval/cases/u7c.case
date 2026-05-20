@@ -1,0 +1,17 @@
+# Grid B — U7 History / Authorship (feature summary, not scalar compression)
+#
+# Regression target: history metadata is an evidence source, not an answer
+# shape. A user may ask "what feature was merged most recently" and expect a
+# short feature explanation with provenance, not a collapsed `值：commitid` or
+# a bare subject/hash scalar. This complements u7a/u7b, which cover scalar
+# commit metadata and history counts.
+#
+# Ground truth drifts whenever this repository receives a new commit. Keep this
+# case focused on answer shape: it must explain the latest feature/change from
+# VCS history and must not collapse to a generic scalar value panel.
+ID="u7c"
+NAME="history — latest merged feature summary"
+QUESTION="最近一次合入的是什么特性？请说明这个特性做了什么，不要只给 commit id。"
+EXPECT_CONTAINS="commit 特性"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(做了什么|实质性改动|核心|功能|特性|说明|change|feature|implements)"
