@@ -1845,7 +1845,7 @@ func historyCountAggregateHandoffDowngrade(ctx *types.BusContext, closure *types
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — history count aggregate handoff is missing.\n\n")
 	b.WriteString("This is a historical count question. Raw git / shell output can contain broad candidate counts, commit-message matches, and the verified filtered result at the same time; finalization must not choose among those numbers from raw output memory.\n\n")
-	b.WriteString("Emit `aggregate_facts` with kind=`total_count`, `unique_count`, or `member_set` for the verified answer count. Use `dimensions` to name the history window, filter basis, and any broad candidate pool / exclusions when they differ. The value must come from your verified tool output or structured evidence, not from closure prose. If you use a single deterministic VCS command instead, its final output line must label the exact answer as `answer_count=<n>`, `intersection_count=<n>`, `filtered_count=<n>`, `result_count=<n>`, `vcs_count=<n>`, or `history_count=<n>` so the system can distinguish the final answer from broad candidate counts. Then re-call `emit_investigation_complete`.")
+	b.WriteString("Emit `aggregate_facts` with kind=`total_count`, `unique_count`, `scalar_value`, or `member_set` for the verified answer count. Use `dimensions` to name the history window, filter basis, and any broad candidate pool / exclusions when they differ. The value must come from your verified tool output or structured evidence, not from closure prose. If you use a single deterministic VCS command instead, its final output line must label the exact answer as `answer_count=<n>`, `intersection_count=<n>`, `filtered_count=<n>`, `result_count=<n>`, `vcs_count=<n>`, or `history_count=<n>` so the system can distinguish the final answer from broad candidate counts. Then re-call `emit_investigation_complete`.")
 	return b.String()
 }
 
@@ -1887,7 +1887,46 @@ func aggregateFactsContainCountAnswer(facts []types.AnswerAggregateFact) bool {
 			return true
 		}
 	}
+	if aggregateFactsContainUnambiguousScalarCountAnswer(facts) {
+		return true
+	}
 	return false
+}
+
+func aggregateFactsContainUnambiguousScalarCountAnswer(facts []types.AnswerAggregateFact) bool {
+	var value int
+	found := false
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateScalar {
+			continue
+		}
+		role := types.NormalizeAnswerAggregateRole(fact.Role)
+		if role == types.AnswerAggregateRoleSupportingCoverage || role == types.AnswerAggregateRoleAuditLedger {
+			continue
+		}
+		n, ok := parseAggregateScalarIntegerValue(fact)
+		if !ok {
+			continue
+		}
+		if found && n != value {
+			return false
+		}
+		value = n
+		found = true
+	}
+	return found
+}
+
+func parseAggregateScalarIntegerValue(fact types.AnswerAggregateFact) (int, bool) {
+	value := strings.TrimSpace(fact.Value)
+	if value == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {

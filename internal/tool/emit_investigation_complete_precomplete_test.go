@@ -1472,6 +1472,107 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ConflictingDeterministicCoun
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_ScalarAggregateClearsCountDowngrade(t *testing.T) {
+	mut := types.NewMutableState("internal/analysis/criterion/grammar.go 里 Kind 常量有多少个？")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Summary:  "count=51\n",
+		Success:  true,
+	})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Summary:  "count=25\n",
+		Success:  true,
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "internal/analysis/criterion/grammar.go 里 Kind 常量有多少个？",
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "scoped deterministic count was verified after rejecting the broader candidate count",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":       "scalar_value",
+			"label":      "Kind 常量数量",
+			"value":      "25",
+			"provenance": "scoped const-block count",
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success || strings.Contains(res.Summary, "deterministic count proof is missing") {
+		t.Fatalf("scalar_value exact count handoff should clear deterministic-count downgrade: success=%v summary=%s", res.Success, res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should close after model-authored scalar_value count handoff")
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateScalar || facts[0].Value != "25" {
+		t.Fatalf("scalar aggregate handoff not retained: %+v", facts)
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_ConflictingScalarAggregatesDoNotClearCountDowngrade(t *testing.T) {
+	mut := types.NewMutableState("internal/analysis/criterion/grammar.go 里 Kind 常量有多少个？")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "internal/analysis/criterion/grammar.go 里 Kind 常量有多少个？",
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "two scalar candidates were copied from different command scopes",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":  "scalar_value",
+			"label": "broad candidate count",
+			"value": "51",
+		}, {
+			"kind":  "scalar_value",
+			"label": "scoped answer count",
+			"value": "25",
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "deterministic count proof is missing") {
+		t.Fatalf("conflicting scalar_value counts should still require a clearer handoff, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open when scalar aggregate counts conflict")
+	}
+}
+
 func TestDeterministicHistoryCountToolResultValue_AcceptsOnlyLabeledGitProof(t *testing.T) {
 	mut := types.NewMutableState("history count")
 	mut.AppendDispatchToolResult(types.ToolResult{

@@ -121,7 +121,7 @@ thin or misleading answer, record it here before choosing a fix.
 | E20260520-G79 | `s5b` | P0 | Open | PASS answer contains contradictory member sets for `internal/analysis`: opening table says 25 subpackages, system-added tables render 25 and 26 entries, and self-consistency reviewer emitted 4 high-confidence contradictions (`confidence=0.95`) covering `contract`, `dataflow`, `logtriage`, and `normalizer`. UI logged “检测到 4 处前后不一致，正在重写答案,” but the final answer still ships the contradictions plus a generic inconsistency supplement. | High-confidence contradiction handling is still diagnostic rather than corrective in some paths. The system can detect the exact conflicting rows but fail to mutate or suppress the offending system-added sections. | For confidence >= floor contradictions, require deterministic removal/repair of conflicting generated tables or a real rewrite that changes the offending rows. If no repair is applied, fail the case instead of publishing with only a supplement. |
 | E20260520-G80 | `s5b` | P0 | Open | Deterministic normalization added two malformed duplicate tables (`internal/analysis/ 子包及其入口函数（25）` and `各子包单一入口函数（26）`) with blank columns and inconsistent members such as `perftriage/merge`, `normalizer/canonicalize`, and `logtriage/ResolveJavaFile`. | Row compiler can still override a good primary table with conflicting aggregate-derived surfaces. This is the same systemic risk as earlier count/list collapses, now on package-entry enumeration. | Treat compiler tables as subordinate to a complete model-authored table unless a required member is provably absent. Compiler output must pass no-empty-cell, count consistency, and same-member-same-citation invariants before rendering. |
 | E20260520-G81 | `s5b` | P1 | Open | Eval metrics again show `explorer_dispatches=0` despite `explorer_iters=26`, `tool_read_file=74`, and 15 mid-loop injections. | Explorer telemetry inconsistency recurs under heavy enumeration, not just `s1a`. | Same as G65: unify metrics source of truth for dispatch/iteration/tool counters, especially under parallel or scheduler-managed exploration. |
-| E20260520-G82 | `s7b` | P1 | Open | The correct count `25` was available from several deterministic commands, but `emit_investigation_complete` was downgraded five times with `deterministic count proof is missing`; the model explicitly complained that `scalar_value` / provenance were not being accepted. The run needed 18 explorer iterations for a single-file scalar question. | Scalar/count completion lacks a first-class contract for command-backed measurements. The system asks for a deterministic proof but does not reliably recognize the proof once supplied, so the model keeps trying equivalent commands and alternate aggregate shapes. | Add a typed measurement/count aggregate shape that binds `{command, stdout_value, scope, target}` and is accepted by exploration closure. Equivalent deterministic count outputs should converge once, not force repeated `emit_investigation_complete` downgrades. |
+| E20260520-G82 | `s7b` | P1 | Mitigated | The correct count `25` was available from several deterministic commands, but `emit_investigation_complete` was downgraded five times with `deterministic count proof is missing`; the model explicitly complained that `scalar_value` / provenance were not being accepted. Initial run needed 18 explorer iterations for a single-file scalar question. After the scalar aggregate fix, `s7b-20260520-122126` PASSed with no deterministic-count downgrade, 8 explorer iterations, and one mid-loop hint. | Scalar/count completion accepted `total_count` / `unique_count` / `member_set` and system-enriched `scalar_value(answer_axis=count)`, but not the natural model-authored `scalar_value: value=<integer>` form advertised by the prompt. This leaked schema internals to the model and made broad exploratory counts poison later scoped proof recognition. | Count-question closure now accepts an unambiguous model-authored integer `scalar_value` as the exact count handoff when it is not explicitly support/audit and no sibling principal scalar conflicts. Conflicting scalar candidates still require a clearer aggregate or deterministic proof. |
 | E20260520-G83 | `s7b` | P1 | Open | Final answer correctly says `25`, but deterministic normalization appended a `distinct Kind constants（25）` table where every row has blank `符号名称 / 定义位置 / 说明` cells except the first column. The user asked for the exact count, not a list. | Row compiler still renders member-set surfaces for scalar answers even when no row details are available. This creates a low-quality, mostly empty table after a good scalar answer. | For scalar/count-only requests, suppress member-list tables unless the user asked for the list or the compiler has complete non-empty row cells. If a proof set is useful, keep it hidden/support-only or summarize it in one localized sentence. |
 | E20260520-G84 | `u10a` | P0 | Open | Exploration established that `ShapeValue` is not an active Go constant and appears only in comments/docs/tests, but final answer says `internal/types/analysis_ir.go` is the “常量定义处 / 唯一根源” and should rename the constant there. | Upstream negative evidence and premise-invalid findings are not binding enough downstream. Analyzer’s early “definition” assumption and aggregate member-set labels can override later, stronger absence evidence. | Negative/absence facts for the exact target must dominate stale analyzer assumptions and positive member labels. If the premise is invalid, finalizer must lead with that correction, then list optional comment/doc/test text updates separately. |
 | E20260520-G85 | `u10a` | P0 | Open | System-generated supplement adds `internal/types/answer_surface_plan.go:295/312` as missing affected files, but those lines mention `ShapeStepList`, not `ShapeValue`. The table title claims “生产代码受影响文件（含注释引用）,” making unrelated same-family legacy-shape comments look required. | Same-family / regex context evidence (`ShapeStepList`, `ShapeNone`, etc.) can be promoted into the principal affected-file member set for a specific rename target. This is a system-authored false positive. | Principal affected members for rename/change-impact must match the exact target surface or a proven alias. Same-family context may remain background only and must never be rendered as “missing members” for the requested target. |
@@ -233,6 +233,38 @@ Safety contract:
   scalar `25` without appending the previous mostly-empty Kind-member table.
   Remaining unrelated gap: exploration still spends 19 iterations because the
   deterministic count-proof closure is not recognized early enough.
+
+### Batch 3 — Scalar Count Aggregate Handoff Compatibility
+
+Status: completed for G82; committed in the current high-ROI batch after the
+`s7b` rerun proved that the answer was correct but the explorer was still being
+misled by the closure contract.
+
+Safety contract:
+
+- For questions typed by the analyzer as `is_count_question`, a model-authored
+  `aggregate_facts[].kind="scalar_value"` with an integer `value` is a valid
+  exact count handoff. The model does not need to know the system-internal
+  `dimensions.answer_axis=count` marker.
+- This compatibility is deliberately narrow: supporting/audit scalar facts do
+  not close the investigation, and multiple principal/unknown scalar facts with
+  different integer values remain ambiguous and still require a clearer typed
+  handoff.
+- The fix does not read user prose or model free-form text. It only consumes
+  schema-validated aggregate facts after the analyzer has already marked the
+  request as a count question.
+
+2026-05-20 validation:
+
+- Added regression coverage for `scalar_value` clearing the count downgrade
+  even when earlier broad `exec_command` counts conflict with the scoped answer.
+- Added the inverse guard: conflicting scalar aggregate candidates do not clear
+  the deterministic-count gate.
+- `go test ./internal/tool` PASS.
+- `s7b` PASS in `eval/results/s7b-20260520-122126`: no
+  `deterministic count proof is missing` downgrade, explorer iterations
+  improved from 19 to 8, mid-loop injections from 21 to 1, and the final answer
+  stayed scalar/prose without system-added empty member tables.
 
 ### Batch 1 — Deterministic Scalar / Measurement / VCS Guardrails
 
