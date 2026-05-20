@@ -551,6 +551,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
 		logging.Warning("[%s] repaired %d view-compatible typed lane field(s)", toolName, fixed)
 	}
+	if fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] normalized %d runtime-artifact citation carrier(s) to observation provenance", toolName, fixed)
+	}
 }
 
 func carryForwardCitationsFromRejectedDraft(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {

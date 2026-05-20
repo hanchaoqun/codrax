@@ -589,6 +589,27 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 }
 
 func TestValidateObservationOnlyRuntimeToolCall(t *testing.T) {
+	analyzeCtx := &types.AgentContext{
+		Stage: types.StageAnalyze,
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{Type: "RuntimeError"}},
+		},
+	}
+	for _, name := range []string{"grep", "repo_map", "list_files"} {
+		t.Run("analyze blocks "+name, func(t *testing.T) {
+			got := validateObservationOnlyRuntimeToolCall(analyzeCtx, llm.ToolCall{Name: name, Params: json.RawMessage(`{"files_only":true}`)})
+			if got == nil {
+				t.Fatalf("analyzer tool %q should be blocked for external-only runtime artifact", name)
+			}
+			if !strings.Contains(got.Summary, "emit_analysis") {
+				t.Fatalf("analyzer runtime block should redirect to emit_analysis, got %q", got.Summary)
+			}
+		})
+	}
+	if got := validateObservationOnlyRuntimeToolCall(analyzeCtx, llm.ToolCall{Name: "emit_analysis", Params: json.RawMessage(`{}`)}); got != nil {
+		t.Fatalf("emit_analysis must remain available, got %+v", got)
+	}
+
 	observationOnlyCtx := &types.AgentContext{
 		Stage: types.StageExplore,
 		AnalysisIR: &types.AnalysisIR{
@@ -599,7 +620,7 @@ func TestValidateObservationOnlyRuntimeToolCall(t *testing.T) {
 			},
 		},
 	}
-	for _, name := range []string{"grep", "read_file", "repo_map", "list_files", "exec_command", "propose_sub_agents"} {
+	for _, name := range []string{"grep", "read_file", "repo_map", "list_files", "exec_command", "emit_evidence", "propose_sub_agents"} {
 		t.Run("blocks "+name, func(t *testing.T) {
 			got := validateObservationOnlyRuntimeToolCall(observationOnlyCtx, llm.ToolCall{Name: name, Params: json.RawMessage(`{}`)})
 			if got == nil {
@@ -645,6 +666,7 @@ func TestBuildToolSchemas_ObservationOnlyRuntimeHidesRepoTools(t *testing.T) {
 	registry.Register(&tool.ReadFile{})
 	registry.Register(&tool.ListFiles{})
 	registry.Register(&tool.ExecCommand{})
+	registry.Register(&tool.EmitEvidence{})
 	registry.Register(&tool.EmitInvestigationComplete{})
 
 	agent := NewBaseAgent(types.AgentExplorer, &Dependencies{Tools: registry}, &stubEvaluator{})
@@ -659,19 +681,49 @@ func TestBuildToolSchemas_ObservationOnlyRuntimeHidesRepoTools(t *testing.T) {
 		},
 	}
 	schemas := agent.buildToolSchemas(&skill.Config{
-		ToolSuggestions: []string{"grep", "read_file", "list_files", "exec_command", "emit_investigation_complete"},
+		ToolSuggestions: []string{"grep", "read_file", "list_files", "exec_command", "emit_evidence", "emit_investigation_complete"},
 	}, ctx)
 	got := map[string]bool{}
 	for _, s := range schemas {
 		got[s.Name] = true
 	}
-	for _, blocked := range []string{"grep", "read_file", "list_files", "exec_command"} {
+	for _, blocked := range []string{"grep", "read_file", "list_files", "exec_command", "emit_evidence"} {
 		if got[blocked] {
 			t.Fatalf("observation-only runtime schema exposed repo tool %q: %+v", blocked, schemas)
 		}
 	}
 	if !got["emit_investigation_complete"] {
 		t.Fatalf("emit_investigation_complete must stay exposed for artifact-only closure: %+v", schemas)
+	}
+}
+
+func TestBuildToolSchemas_ObservationOnlyRuntimeHidesAnalyzerPrescanTools(t *testing.T) {
+	registry := tool.NewRegistry()
+	registry.Register(&tool.GrepTool{})
+	registry.Register(&tool.ListFiles{})
+	registry.Register(&tool.EmitAnalysis{})
+
+	agent := NewBaseAgent(types.AgentAnalyzer, &Dependencies{Tools: registry}, &stubEvaluator{})
+	ctx := &types.AgentContext{
+		Stage: types.StageAnalyze,
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{Type: "RuntimeError"}},
+		},
+	}
+	schemas := agent.buildToolSchemas(&skill.Config{
+		ToolSuggestions: []string{"grep", "list_files", "emit_analysis"},
+	}, ctx)
+	got := map[string]bool{}
+	for _, s := range schemas {
+		got[s.Name] = true
+	}
+	for _, blocked := range []string{"grep", "list_files"} {
+		if got[blocked] {
+			t.Fatalf("observation-only runtime analyzer schema exposed prescan tool %q: %+v", blocked, schemas)
+		}
+	}
+	if !got["emit_analysis"] {
+		t.Fatalf("emit_analysis must stay exposed for direct classification: %+v", schemas)
 	}
 }
 

@@ -1737,10 +1737,16 @@ func TestExplorerObservationOnlyRuntimeSkipsRepoKeywordSearch(t *testing.T) {
 	if eval.searchResult != nil {
 		t.Fatalf("observation-only runtime artifact should not run repo keyword search, got %+v", eval.searchResult)
 	}
+	if eval.phase != 1 {
+		t.Fatalf("observation-only runtime artifact should skip breadth scan and start in completion-ready depth phase, got phase=%d", eval.phase)
+	}
 	if !strings.Contains(prompt, "Runtime Artifact Only Start") {
 		t.Fatalf("prompt missing runtime-only start guidance:\n%s", prompt)
 	}
-	if strings.Contains(prompt, "Focused Depth Start") || strings.Contains(prompt, "fixture_test.go") {
+	if !strings.Contains(prompt, "Do not call `emit_evidence` for unresolved artifact frames") {
+		t.Fatalf("runtime-only prompt should keep artifact facts out of current-source evidence tool:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Breadth Scan") || strings.Contains(prompt, "Focused Depth Start") || strings.Contains(prompt, "fixture_test.go") {
 		t.Fatalf("runtime-only prompt leaked repo search/focus context:\n%s", prompt)
 	}
 }

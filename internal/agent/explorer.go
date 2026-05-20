@@ -515,6 +515,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// flag is true.
 	e.investigationComplete = false
 
+	if observationOnlyRuntimeArtifactForExplorer(ctx) {
+		e.phase = 1
+		return e.buildRuntimeObservationOnlyStartInstruction(ctx)
+	}
+
 	// Self-loop detection: if we already have investigation notes from
 	// a prior run, this is a retry (explore → explore self-loop). Skip
 	// Phase 0 breadth scan and go directly to Phase 1 depth read with
@@ -759,12 +764,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		}
 	}
 
-	runtimeObservationOnly := observationOnlyRuntimeArtifactForExplorer(ctx)
-	if runtimeObservationOnly {
-		b.WriteString(e.buildRuntimeObservationOnlyStartInstruction(ctx))
-	}
-
-	if len(analyzerKeywords) > 0 && !runtimeObservationOnly {
+	if len(analyzerKeywords) > 0 {
 		// Run graduated keyword search before Phase 1 starts.
 		// This gives the LLM a pre-ranked file list instead of
 		// making it guess which grep patterns to use.
@@ -2948,7 +2948,7 @@ func (e *explorerEvaluator) buildRuntimeObservationOnlyStartInstruction(ctx *typ
 	b.WriteString("Workflow:\n")
 	b.WriteString("- Do not run repo breadth search (`repo_map`, `grep`, `list_files`) and do not read current-repo files just because artifact labels resemble repo symbols.\n")
 	b.WriteString("- Explain the artifact's own observed frames, spans, messages, or cause chain. If those facts are already present in the Log / Trace Triage section, proceed to completion instead of looking for same-named tests or helpers.\n")
-	b.WriteString("- If you emit evidence, keep it artifact-scoped: use the runtime frame / message labels from the attached artifact and do not cite current-repo files as proof of the observation.\n")
+	b.WriteString("- Do not call `emit_evidence` for unresolved artifact frames: that tool is for current-checkout source anchors. Preserve artifact facts in `emit_investigation_complete.reason` and, when useful, `aggregate_facts`.\n")
 	b.WriteString("- If the artifact is sufficient, call `emit_investigation_complete` with a resolved result and, when needed, `evidence_floor_waiver.reason=\"external_only_log\"` or `\"external_only_trace\"` so the final answer preserves the observation-only boundary.\n\n")
 	if ctx != nil && ctx.LogTriage != nil {
 		if len(ctx.LogTriage.Errors) > 0 {

@@ -38,6 +38,100 @@ func TestPreCheckArtifactObservedFrameCitations_RejectsObservedLineAsSourceCitat
 	}
 }
 
+func TestNormalizeRuntimeArtifactCitationRefs_ObservationOnlyDropsCitationPool(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{
+			File: "src/main.cj",
+			Line: 18,
+			Func: "init",
+			Raw:  "src/main.cj:18 init",
+		}}}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: mut.LogTriage(),
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic: true,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "src/main.cj", Line: 18}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "日志显示 init 在运行时栈顶失败。",
+			Items: []types.AnswerBlockItem{{
+				ID:          "runtime",
+				Label:       "init",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx)
+	if fixed == 0 {
+		t.Fatal("expected runtime artifact citations to normalize")
+	}
+	if len(doc.Citations) != 0 {
+		t.Fatalf("observation-only runtime answer should not keep citations: %+v", doc.Citations)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != -1 {
+		t.Fatalf("runtime observation citation_ref = %d, want -1", got)
+	}
+	if hints := preCheckRuntimeObservationRepoContamination(doc, ctx); len(hints) != 0 {
+		t.Fatalf("normalized runtime observation should not be rejected, got %+v", hints)
+	}
+}
+
+func TestNormalizeRuntimeArtifactCitationRefs_DriftedObservedFrameRemapsMixedPool(t *testing.T) {
+	ctx := artifactFrameDriftBusContext()
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 250},
+			{File: "internal/agent/analyzer.go", Line: 861},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "list",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "observed",
+				Label:       "日志帧",
+				Text:        "运行时日志观察到 buildAnalysisIR 旧行号。",
+				CitationRef: 0,
+			}, {
+				ID:          "current",
+				Label:       "当前源码",
+				Text:        "当前源码锚点仍可引用。",
+				CitationRef: 1,
+			}},
+		}},
+	}
+
+	fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx)
+	if fixed == 0 {
+		t.Fatal("expected drifted observed frame citation to normalize")
+	}
+	if len(doc.Citations) != 1 || doc.Citations[0].Line != 861 {
+		t.Fatalf("citation pool = %+v, want only current anchored source line", doc.Citations)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != -1 {
+		t.Fatalf("observed frame citation_ref = %d, want -1", got)
+	}
+	if got := doc.Blocks[0].Items[1].CitationRef; got != 0 {
+		t.Fatalf("current source citation_ref = %d, want remapped 0", got)
+	}
+	if hints := preCheckArtifactObservedFrameCitations(doc, ctx); len(hints) != 0 {
+		t.Fatalf("normalized artifact citation should not be rejected, got %+v", hints)
+	}
+}
+
 func TestPreCheckArtifactObservedFrameCitations_AllowsCurrentAnchoredLine(t *testing.T) {
 	ctx := artifactFrameDriftBusContext()
 	doc := &types.AnswerDocumentV2{

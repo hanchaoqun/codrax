@@ -22,11 +22,11 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
 		return 0
 	}
-	if principalEnumerationSystemSupplementSuppressed(doc, ctx) {
-		return 0
-	}
 	plan := answerSurfacePlan(ctx)
 	if plan == nil {
+		return 0
+	}
+	if answerDocumentRuntimeObservationOnly(ctx) || principalEnumerationSystemSupplementSuppressed(doc, ctx) {
 		return 0
 	}
 	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)

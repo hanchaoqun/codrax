@@ -175,6 +175,27 @@ func observationOnlyRuntimeArtifactForExplorer(ctx *types.AgentContext) bool {
 	return ctx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact()
 }
 
+func observationOnlyRuntimeArtifactForAnalyzer(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Stage != types.StageAnalyze {
+		return false
+	}
+	if ctx.LogTriage != nil && ctx.LogTriage.IsExternalSource() {
+		return true
+	}
+	if ctx.PerfTrace != nil && ctx.PerfTrace.IsExternalSource() {
+		return true
+	}
+	if ctx.Mutable != nil {
+		if log := ctx.Mutable.LogTriage(); log != nil && log.IsExternalSource() {
+			return true
+		}
+		if perf := ctx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
+			return true
+		}
+	}
+	return false
+}
+
 // analyzerRequiredFilesFromIR returns the analyzer's EvidencePlan
 // RequiredFiles list (T3a), or nil when the IR is unavailable. This
 // is a deliberate thin wrapper so the explorer's consumer loop

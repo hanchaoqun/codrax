@@ -66,6 +66,9 @@ func compileEnumerationDisplayTableRows(doc *types.AnswerDocumentV2, ctx *types.
 	if plan == nil {
 		return 0
 	}
+	if answerDocumentRuntimeObservationOnly(ctx) {
+		return 0
+	}
 	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
 	if len(sets) == 0 {
 		return 0

@@ -256,6 +256,45 @@ func TestAnalyzerPrompt_DynamicContentInjectedViaBuilder(t *testing.T) {
 	}
 }
 
+// TestAnalyzerPrompt_RuntimeObservationOnlyShortcut pins the narrow
+// dynamic supplement used when an attached log/trace is known to be
+// outside the current checkout. In that case the analyzer already has
+// structured runtime facts and should classify immediately instead of
+// spending a round searching the repository for files that cannot
+// exist there.
+func TestAnalyzerPrompt_RuntimeObservationOnlyShortcut(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Objective: "分析这个外部 panic 日志说明了什么",
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{Type: "panic"}},
+			// ResolvedFiles intentionally empty: external runtime artifact.
+		},
+	}
+	sk := skill.BuildAnalysisSkill()
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
+	for _, want := range []string{
+		"Runtime Artifact Classification Shortcut",
+		"external to the current checkout",
+		"Do not call repo_map, grep, or list_files in analyze",
+		"call `emit_analysis` now",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("runtime observation shortcut missing %q in:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range bannedStaticPromptPhrases {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("runtime observation shortcut reintroduced static contract phrase %q:\n%s", forbidden, got)
+		}
+	}
+	if strings.Contains(got, "Repository overview") {
+		t.Fatalf("runtime observation shortcut must skip precomputed repo overview; got:\n%s", got)
+	}
+}
+
 // TestAnalyzerPrompt_NoDuplicateSkillTitles is a second-layer
 // boundary guard: IF a future refactor legitimately adds dynamic
 // content to BuildInitialInstruction (the rule is "dynamic content only",

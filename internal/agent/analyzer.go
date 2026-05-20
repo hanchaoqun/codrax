@@ -115,6 +115,10 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		ctx.Mutable.SetPrescanRoundLimit(limit)
 	}
 
+	if observationOnlyRuntimeArtifactForAnalyzer(ctx) {
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerRuntimeObservationOnlyShortcut()))
+	}
+
 	// Pre-inject a repo_map task_map view so the analyzer starts its
 	// first iteration with structural context already visible. Without
 	// this, the LLM always burns its first round calling repo_map itself
@@ -140,6 +144,13 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		}
 	}
 	return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, ""))
+}
+
+func renderAnalyzerRuntimeObservationOnlyShortcut() string {
+	return "## Runtime Artifact Classification Shortcut\n\n" +
+		"The structured Log/Trace Triage for this dispatch is external to the current checkout (`resolved_files=0`). " +
+		"Do not call repo_map, grep, or list_files in analyze. Classify from the current request plus the structured runtime artifact facts and call `emit_analysis` now. " +
+		"Keep `diagnostic_profile.current_version_check=false` when the request asks what the artifact shows; if the request explicitly asks to verify the current checkout, express that through structured current-version / exact-target fields and let explore do the verification.\n\n"
 }
 
 // prependAnswerPitfalls renders the read-mode Answer Taxonomy

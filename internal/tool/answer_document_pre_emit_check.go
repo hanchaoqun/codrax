@@ -1306,6 +1306,9 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 		!preEmitAggregateMemberSetCoverageHardGate(ctx) {
 		return 0
 	}
+	if answerDocumentRuntimeObservationOnly(ctx) {
+		return 0
+	}
 	refs := preEmitPrincipalAggregateMemberSetFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
 	if len(refs) == 0 {
 		return 0
@@ -2236,6 +2239,9 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 		return nil
 	}
 	ctx := ctxOpt[0]
+	if answerDocumentRuntimeObservationOnly(ctx) {
+		return nil
+	}
 	facts := ctx.Mutable.StableInvestigationAggregateFacts()
 	if len(facts) == 0 {
 		return nil
@@ -2343,6 +2349,9 @@ func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt
 		return nil
 	}
 	ctx := ctxOpt[0]
+	if answerDocumentRuntimeObservationOnly(ctx) {
+		return nil
+	}
 	refs := preEmitAggregateCardinalityFactRefs(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
 	if len(refs) == 0 {
 		return nil

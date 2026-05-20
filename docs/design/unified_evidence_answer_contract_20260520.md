@@ -1032,10 +1032,52 @@ Required tests before the contract is considered complete:
   PASS;
   `go test ./internal/tool -run 'TestNormalizePrincipalEnumerationRowBlocks_RuntimeArtifact(GoroutineShorthandPreventsSupplement|ProseCoveragePreventsSupplement|SkipsRuntimeArtifactCoordinateOnlySupplement)'`
   PASS;
-  `bash eval/run.sh eval/cases/logtri_goroutine_dump.case 1`
+ `bash eval/run.sh eval/cases/logtri_goroutine_dump.case 1`
   PASS (`logtri_goroutine_dump-20260521-013104`: `analyzer_iters=1`,
   `tool_read_file=0`, `midloop_inject=0`, `explorer_iters=1`,
   `finalizer_iters=1`, evidence origins only `runtime_artifact`).
+
+2026-05-21 Batch F.9:
+
+- Finalizer emission now performs a safe, local citation normalization for
+  runtime artifacts before pre-emit gates run. If the answer is
+  observation-only (`external_only_log` / `external_only_trace` without a
+  current-checkout verification anchor), the system preserves the visible
+  answer text but removes repo-style `citations[]` entries and downgrades their
+  item carriers to `citation_ref=-1`.
+- Mixed runtime/current answers keep valid current-source citations. Only
+  artifact-side frame coordinates that the typed drift map identifies as
+  observed runtime locations are removed; remaining citation indexes are
+  remapped deterministically. This prevents external paths such as
+  `src/main.cj:18` from rendering as if they were current-checkout source
+  citations, without forcing another finalizer rewrite.
+- Validation:
+  `go test ./internal/tool -run 'TestNormalizeRuntimeArtifactCitationRefs|TestPreCheckArtifactObservedFrameCitations'`
+  PASS.
+
+2026-05-21 Batch F.10:
+
+- Observation-only runtime artifacts now have a decisive analyze/explore route:
+  when structured log/trace triage says the artifact is external to the current
+  checkout (`resolved_files=0`) and the user did not request current-code
+  verification, analyzer/explorer prompts skip repository prescan and source
+  evidence tools. Explorer keeps only `emit_investigation_complete` for
+  runtime-artifact closure facts; `emit_evidence` remains reserved for
+  current-checkout source anchors.
+- Deterministic answer normalizers now respect the same origin boundary.
+  Runtime-only call chains, goroutine IDs, native frames, and artifact members
+  no longer flow through current-source enumeration carriers, aggregate member
+  coverage gates, cardinality gates, or system补表 compilers. The visible model
+  answer remains authoritative unless the user explicitly asks for a raw stack
+  table or current-code verification.
+- Validation:
+  `go test ./internal/tool ./internal/types ./internal/agent ./internal/context ./internal/orchestrator`
+  PASS;
+  `bash eval/run.sh eval/cases/harmony/hilog_cangjie_panic.case 1`
+  PASS (`hilog_cangjie_panic-20260521-021900`: `tool_read_file=0`,
+  `midloop_inject=0`, `analyzer_iters=1`, `explorer_iters=2`,
+  `finalizer_iters=1`, `semantic_quality_dispatches=0`, no runtime citation
+  pool, no system-generated member table).
 
 ## 7. Acceptance Matrix
 

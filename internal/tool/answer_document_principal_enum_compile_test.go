@@ -234,6 +234,110 @@ func TestNormalizePrincipalEnumerationRowBlocks_RuntimeArtifactProseCoveragePrev
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_ObservationOnlyRuntimeDoesNotAppendSystemMemberTable(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{
+				{Func: "Cart.itemAt", Raw: "at demo.cart.Cart.itemAt(src/cart/Cart.cj:78)"},
+				{Func: "Cart.checkout", Raw: "at demo.cart.Cart.checkout(src/cart/Cart.cj:42)"},
+				{Func: "entry", Raw: "at demo.app.entry(src/main.cj:21)"},
+			},
+		}},
+	}
+	mu := types.NewMutableState("这个仓颉应用 panic 日志显示什么问题？追溯根因。")
+	mu.SetLogTriage(logBundle)
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "调用链",
+		Value: "3",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"demo.app.entry",
+			"demo.cart.Cart.checkout",
+			"demo.cart.Cart.itemAt",
+		},
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "evidence_origin", Value: "runtime_artifact"},
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:    types.IntentRootCause,
+			Scenario:  types.ScenarioRootCause,
+			Language:  "zh",
+			LogTriage: logBundle,
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetObservedArtifactFact)},
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimExternalObservation,
+				FacetID:   string(types.FacetObservedArtifactFact),
+			}},
+			Text: "调用链为 demo.app.entry → Cart.checkout → Cart.itemAt，最终在 Cart.itemAt 触发 index out of bounds: index=5, size=3。",
+		},
+		{
+			ID:          "chain",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetObservedArtifactFact)},
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimExternalObservation,
+				FacetID:   string(types.FacetObservedArtifactFact),
+			}},
+			Items: []types.AnswerBlockItem{
+				{ID: "entry", Label: "demo.app.entry", Text: "入口函数。", CitationRef: -1},
+				{ID: "checkout", Label: "Cart.checkout", Text: "结算流程调用 itemAt。", CitationRef: -1},
+				{ID: "itemAt", Label: "Cart.itemAt", Text: "越界点。", CitationRef: -1},
+			},
+		},
+	}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed != 0 {
+		t.Fatalf("observation-only runtime artifacts must not get system member-table normalization, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 0 {
+		t.Fatalf("observation-only runtime artifacts must not get deterministic enum table compilation, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("observation-only runtime artifacts must not materialize aggregate member carriers, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("observation-only runtime aggregate members should be soft artifact context, not a visible-member hard/advisory gate: %+v", hints)
+	}
+	if hints := preCheckAggregateCardinalityConsistency(doc, ctx); len(hints) != 0 {
+		t.Fatalf("observation-only runtime aggregate counts should not gate visible artifact wording: %+v", hints)
+	}
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("normalizers should preserve the model-authored artifact answer shape, got %+v", doc.Blocks)
+	}
+	for _, block := range doc.Blocks {
+		if strings.Contains(block.Title, "系统按已验证证据补充成员") ||
+			testStringSliceContains(block.FacetIDs, string(types.FacetEnumerationItem)) {
+			t.Fatalf("observation-only runtime answer polluted by enumeration supplement/facet: %+v", block)
+		}
+	}
+}
+
+func testStringSliceContains(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_SuppressesExactAbsenceSupplement(t *testing.T) {
 	mu := types.NewMutableState("缺失配置键的三层覆盖")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

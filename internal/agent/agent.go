@@ -1993,19 +1993,25 @@ func isReadFilePathMiss(name string, r *types.ToolResult) bool {
 }
 
 func observationOnlyRuntimeBlocksTool(ctx *types.AgentContext, name string) bool {
-	if ctx == nil || ctx.Stage != types.StageExplore {
+	if ctx == nil {
 		return false
 	}
-	if !observationOnlyRuntimeArtifactForExplorer(ctx) {
+	canonical := types.CanonicalToolName(name)
+	if ctx.Stage == types.StageAnalyze && observationOnlyRuntimeArtifactForAnalyzer(ctx) {
+		switch canonical {
+		case "repo_map", "grep", "list_files":
+			return true
+		}
+	}
+	if ctx.Stage != types.StageExplore || !observationOnlyRuntimeArtifactForExplorer(ctx) {
 		return false
 	}
-	switch types.CanonicalToolName(name) {
+	switch canonical {
 	case "read_file", "grep", "repo_map", "list_files", "exec_command",
-		"git_diff", "git_log", "git_history_search", "propose_sub_agents", "run_tests":
+		"git_diff", "git_log", "git_history_search", "emit_evidence", "propose_sub_agents", "run_tests":
 		return true
-	default:
-		return false
 	}
+	return false
 }
 
 func validateObservationOnlyRuntimeToolCall(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
@@ -2013,10 +2019,14 @@ func validateObservationOnlyRuntimeToolCall(ctx *types.AgentContext, tc llm.Tool
 		return nil
 	}
 	canonical := types.CanonicalToolName(tc.Name)
+	next := "call emit_investigation_complete"
+	if ctx != nil && ctx.Stage == types.StageAnalyze {
+		next = "call emit_analysis"
+	}
 	msg := fmt.Sprintf(
 		"%s rejected: this is an observation-only runtime artifact question. "+
-			"Do not search or read the current repository; use the structured Log/Trace Triage facts already in the prompt and close with emit_investigation_complete.",
-		tc.Name)
+			"Do not search or read the current repository; use the structured Log/Trace Triage facts already in the prompt and %s.",
+		tc.Name, next)
 	return &types.ToolResult{
 		ToolName:  tc.Name,
 		Summary:   msg,
@@ -2024,7 +2034,7 @@ func validateObservationOnlyRuntimeToolCall(ctx *types.AgentContext, tc llm.Tool
 		Timestamp: time.Now(),
 		Repair: &types.ToolRepair{
 			Code: "observation_only_runtime_repo_tool",
-			Hint: "The attached runtime artifact is the answer source for this request. Do not substitute current-repo files, fixtures, helper symbols, sub-agents, or shell output for the artifact. Re-read the Log/Trace Triage section and call emit_investigation_complete with an evidence_floor_waiver when the artifact is sufficient.",
+			Hint: "The attached runtime artifact is the answer source for this request. Do not substitute current-repo files, fixtures, helper symbols, sub-agents, or shell output for the artifact. Re-read the Log/Trace Triage section and " + next + " from the artifact facts.",
 			Metadata: map[string]string{
 				"tool":   canonical,
 				"policy": "runtime_observation_only",
@@ -2126,7 +2136,9 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 	// Add MCP tools. Observation-only runtime artifact answers should
 	// close from the structured triage payload; exposing extra tool
 	// surfaces invites look-alike repo / fixture substitution.
-	if b.deps.MCPServers != nil && !observationOnlyRuntimeArtifactForExplorer(ctx) {
+	if b.deps.MCPServers != nil &&
+		!observationOnlyRuntimeArtifactForExplorer(ctx) &&
+		!observationOnlyRuntimeArtifactForAnalyzer(ctx) {
 		for _, ts := range b.deps.MCPServers.ListAllTools() {
 			schemas = append(schemas, llm.ToolSchema{
 				Name:        ts.Name,
