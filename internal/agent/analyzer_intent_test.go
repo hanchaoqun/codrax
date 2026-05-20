@@ -714,6 +714,57 @@ func TestBuildAnalysisIR_ExternalOnlyCurrentVersionCheckKeepsCurrentStatus(t *te
 	}
 }
 
+func TestBuildAnalysisIR_DiagnosticExplanationClearsScalarAnswerSubjectBeforeGate(t *testing.T) {
+	mut := types.NewMutableState("这是什么错误？")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "panic",
+			Message: "called Option::unwrap() on a None value",
+			Frames: []types.LogFrame{{
+				Lang: "rust",
+				Func: "my_app::config::load",
+				File: "./src/config.rs",
+				Line: 42,
+			}},
+		}},
+	})
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "这是什么错误？",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     "mechanism",
+			Keywords: []string{"panic", "unwrap", "None"},
+			Entities: []string{"my_app::config::load"},
+		},
+		AnswerSubject: types.AnswerSubject{
+			Kind:       types.SubjectStringLiteral,
+			Confidence: 0.9,
+		},
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+			IsScalarAnswer:       false,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+			Confidence:   0.95,
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.QualityGate.Rejected {
+		t.Fatalf("quality gate should pass after subject reconcile: %+v", ir.QualityGate)
+	}
+	if ir.RequestModel.AnswerSubject.Kind != types.SubjectGeneric {
+		t.Fatalf("answer subject = %q, want generic fallback", ir.RequestModel.AnswerSubject.Kind)
+	}
+}
+
 func TestBuildAnalysisIR_DiagnosticPredicateReconcilesNoAttachment(t *testing.T) {
 	mut := types.NewMutableState("diagnose the observed failure and whether a similar risk still exists")
 	mut.SetRequestModel(types.RequestModel{

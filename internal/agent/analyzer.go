@@ -1539,6 +1539,19 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		))
 		rm.Intent = intentResolved
 
+		if resolved, reason := reconcileNonScalarExplanationSubject(rm); reason != "" {
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"subject",
+				string(rm.AnswerSubject.Kind),
+				string(resolved.AnswerSubject.Kind),
+				rm.AnswerSubject.Confidence,
+				reason,
+				resolved.Predicates,
+			))
+			logging.Info("[analyzer] answer subject reconciled: %s", reason)
+			rm = resolved
+		}
+
 		// CGEC: AnswerSubject inference. Classifies what kind of
 		// source-code literal the answer should be (skill_name,
 		// agent_name, config_key, ...). Honours an LLM-supplied

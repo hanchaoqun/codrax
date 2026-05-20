@@ -74,6 +74,45 @@ func TestAppendSoftContractCaveatsToAnswer_MaterializesDefaultSoftConcerns(t *te
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswerForBus_ObservationOnlyUsesBoundaryCaveat(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	mut := types.NewMutableState("这是什么错误？")
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "panic",
+			Message: "called Option::unwrap() on a None value",
+		}},
+	}
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "这是什么错误？",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		LogTriage:  logBundle,
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolBlockCoverageMissing, ClusterKey: types.BlockKindClusterKey(types.BlockSummary, "answer_block_coverage")},
+		{Kind: types.ViolUncertaintyBlockMissing, ClusterKey: types.BlockKindClusterKey(types.BlockCaveat, "uncertainty_block")},
+	}, "zh", ctx)
+
+	if !strings.Contains(out, "**补充说明：**") {
+		t.Fatalf("boundary caveat heading missing:\n%s", out)
+	}
+	if !strings.Contains(out, "栈帧未映射到当前仓库") {
+		t.Fatalf("expected precise runtime-artifact boundary caveat:\n%s", out)
+	}
+	for _, banned := range []string{"覆盖度可能不充分", "结合源码进一步核对", "answer_block_coverage", "uncertainty_block"} {
+		if strings.Contains(out, banned) {
+			t.Fatalf("observation-only soft caveat leaked generic/internal wording %q:\n%s", banned, out)
+		}
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswer_SkipsStrictPromotedConcern(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, []string{string(types.ViolUncertaintyBlockMissing)})

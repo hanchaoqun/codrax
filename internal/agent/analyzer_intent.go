@@ -88,6 +88,52 @@ func isScalarSourceLiteralLookup(rm types.RequestModel) bool {
 	return types.IsScalarSourceLiteralLookup(rm)
 }
 
+func reconcileNonScalarExplanationSubject(rm types.RequestModel) (types.RequestModel, string) {
+	if !scalarAnswerSubjectKind(rm.AnswerSubject.Kind) {
+		return rm, ""
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Intent == types.IntentReturnValue {
+		return rm, ""
+	}
+	if !nonScalarExplanationRoute(rm) {
+		return rm, ""
+	}
+	before := rm.AnswerSubject.Kind
+	rm.AnswerSubject = types.AnswerSubject{}
+	return rm, "cleared scalar answer_subject.kind=" + string(before) + " because the typed route is an explanation-shaped answer, not a scalar literal lookup"
+}
+
+func scalarAnswerSubjectKind(kind types.AnswerSubjectKind) bool {
+	switch kind {
+	case types.SubjectStringLiteral, types.SubjectNumeric, types.SubjectReturnValue:
+		return true
+	default:
+		return false
+	}
+}
+
+func nonScalarExplanationRoute(rm types.RequestModel) bool {
+	switch rm.Intent {
+	case types.IntentRootCause, types.IntentExplain:
+		return true
+	}
+	switch rm.Scenario {
+	case types.ScenarioRootCause,
+		types.ScenarioArchitectureExplain,
+		types.ScenarioPerformanceBottleneck:
+		return true
+	}
+	switch strings.TrimSpace(rm.AnalyzerHints.Kind) {
+	case "mechanism", "call_chain", "conditional":
+		return true
+	default:
+		return false
+	}
+}
+
 func reconcileScenario(rm types.RequestModel) (types.Scenario, string) {
 	if isScalarSourceLiteralLookup(rm) {
 		return types.ScenarioGeneric,

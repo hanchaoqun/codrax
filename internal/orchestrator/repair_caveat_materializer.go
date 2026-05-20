@@ -129,6 +129,25 @@ func AppendSoftContractCaveatsToAnswer(answer string, violations []types.Violati
 	return AppendUserCaveatsToAnswer(answer, softContractCaveatViolations(violations), lang)
 }
 
+func AppendSoftContractCaveatsToAnswerForBus(answer string, violations []types.Violation, lang string, ctx *types.BusContext) string {
+	soft := softContractCaveatViolations(violations)
+	if len(soft) == 0 {
+		return answer
+	}
+	if runtimeObservationOnlyCaveatContext(ctx) {
+		remaining, needsBoundary := splitRuntimeObservationOnlyCaveats(soft)
+		caveats := make([]string, 0, len(remaining)+1)
+		if needsBoundary {
+			if boundary := runtimeObservationBoundaryCaveat(ctx, lang); boundary != "" {
+				caveats = append(caveats, boundary)
+			}
+		}
+		caveats = append(caveats, MaterializeUnresolvedViolationsAsCaveats(remaining, lang)...)
+		return appendSystemCaveatBullets(answer, caveats, lang)
+	}
+	return AppendUserCaveatsToAnswer(answer, soft, lang)
+}
+
 func softContractCaveatViolations(violations []types.Violation) []types.Violation {
 	roots := FilterDerivedViolations(violations)
 	if len(roots) == 0 {
@@ -142,6 +161,85 @@ func softContractCaveatViolations(violations []types.Violation) []types.Violatio
 		out = append(out, v)
 	}
 	return out
+}
+
+func runtimeObservationOnlyCaveatContext(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	if rm := ctx.Mutable.RequestModel(); rm != nil && rm.HasObservationOnlyRuntimeArtifact() {
+		return true
+	}
+	if runtimeWaiverObservationOnly(ctx.Mutable.EvidenceFloorWaiver()) {
+		return true
+	}
+	return runtimeWaiverObservationOnly(ctx.Mutable.StableEvidenceFloorWaiver())
+}
+
+func runtimeWaiverObservationOnly(w *types.EvidenceFloorWaiver) bool {
+	if !w.IsActive() {
+		return false
+	}
+	switch w.Reason {
+	case types.EvidenceFloorWaiverExternalLog,
+		types.EvidenceFloorWaiverExternalTrace,
+		types.EvidenceFloorWaiverNoRepoIntersection,
+		types.EvidenceFloorWaiverInformationalRuntime:
+		return true
+	default:
+		return false
+	}
+}
+
+func splitRuntimeObservationOnlyCaveats(violations []types.Violation) (remaining []types.Violation, needsBoundary bool) {
+	for _, v := range violations {
+		switch v.Kind {
+		case types.ViolUncertaintyBlockMissing:
+			needsBoundary = true
+			continue
+		case types.ViolBlockCoverageMissing:
+			if runtimeObservationOnlyBlockCoverageIsImplicit(v) {
+				continue
+			}
+		}
+		remaining = append(remaining, v)
+	}
+	return remaining, needsBoundary
+}
+
+func runtimeObservationOnlyBlockCoverageIsImplicit(v types.Violation) bool {
+	blockKind := residualClusterValue(v.ClusterKey, "block_kind")
+	switch types.AnswerBlockKind(blockKind) {
+	case types.BlockSummary, types.BlockCaveat:
+		return true
+	default:
+		return false
+	}
+}
+
+func runtimeObservationBoundaryCaveat(ctx *types.BusContext, lang string) string {
+	kind := "log"
+	if ctx != nil && ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil && rm.PerfTrace != nil && rm.PerfTrace.IsExternalSource() {
+			kind = "trace"
+		}
+		if w := ctx.Mutable.EvidenceFloorWaiver(); w != nil && w.Reason == types.EvidenceFloorWaiverExternalTrace {
+			kind = "trace"
+		}
+		if w := ctx.Mutable.StableEvidenceFloorWaiver(); w != nil && w.Reason == types.EvidenceFloorWaiverExternalTrace {
+			kind = "trace"
+		}
+	}
+	if isChineseLang(lang) {
+		if kind == "trace" {
+			return "这份运行时 trace 的帧或 span 未映射到当前仓库；上面的结论只说明附件中实际观察到的现象，不证明当前 checkout 仍存在相同源码路径。"
+		}
+		return "这份运行时日志的栈帧未映射到当前仓库；上面的结论只说明附件中实际观察到的错误，不证明当前 checkout 仍存在相同源码路径。"
+	}
+	if kind == "trace" {
+		return "The runtime trace frames or spans did not resolve to the current repository; the answer states what the attachment observed and does not prove the current checkout still contains the same source path."
+	}
+	return "The runtime log stack frames did not resolve to the current repository; the answer states what the attachment observed and does not prove the current checkout still contains the same source path."
 }
 
 // AppendSystemCaveatString renders ONE pre-formatted system caveat

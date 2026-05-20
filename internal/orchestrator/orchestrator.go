@@ -5099,7 +5099,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 
 		if res.Passed {
-			out.FinalAnswer = AppendSoftContractCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			out.FinalAnswer = AppendSoftContractCaveatsToAnswerForBus(out.FinalAnswer, res.Violations, o.busCtx.Language, o.busCtx)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			// Live preview cleanup: contract pass means the draft
 			// just streamed IS the final answer (modulo the
@@ -5125,7 +5125,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		retryViolations := FilterFinalizerRetryRootViolations(res.Violations)
 		if len(retryViolations) == 0 {
 			logging.Info("[orchestrator] contract check produced only soft/non-actionable violation(s); accepting answer without LLM retry")
-			out.FinalAnswer = AppendSoftContractCaveatsToAnswer(out.FinalAnswer, res.Violations, o.busCtx.Language)
+			out.FinalAnswer = AppendSoftContractCaveatsToAnswerForBus(out.FinalAnswer, res.Violations, o.busCtx.Language, o.busCtx)
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
 			o.emit(render.Event{
 				Kind:            render.EventLivePreviewClear,
