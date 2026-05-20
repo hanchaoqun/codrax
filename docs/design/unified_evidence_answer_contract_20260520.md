@@ -373,6 +373,18 @@ Tasks:
 - Validation:
   `go test ./internal/types ./internal/agent` PASS.
 
+2026-05-20 Batch B.2:
+
+- Redirected the decorated commit-hash `support_refs` exception through
+  `AnswerAggregateFactEvidenceOrigins`. The remaining commit-hash regex now
+  only validates the member surface under a typed VCS origin; ordinary decorated
+  code members still require per-member `support_refs`.
+- Added regression coverage for both sides: decorated commit hashes with
+  `git_history_search` origin pass without fake file:line support, while
+  `Gate.Run (8个独立检查)` still rejects without `support_refs` even if the
+  aggregate carries VCS provenance.
+- Validation: `go test ./internal/tool ./internal/types` PASS.
+
 ### Batch C — Runtime Artifact Origins
 
 Goal: stop treating external logs/traces as repo citations or code members.
@@ -454,7 +466,10 @@ or noisy retries:
 - [x] Batch B.1: project aggregate facts to unified evidence origins in
   finalizer diagnostics.
 - [ ] Batch B: tag VCS and command measurement origins at tool emission.
-- [ ] Batch B: remove decorated commit-hash shim dependency.
+- [x] Batch B.2: route decorated commit-hash support-ref exception through
+  unified VCS origin projection.
+- [ ] Batch B: remove remaining VCS/hash compatibility fallback once structured
+  tool-emitted origin fields land.
 - [ ] Batch C: add runtime artifact frame aggregate/binding.
 - [ ] Batch D: make finalizer support lanes read claim bindings.
 - [ ] Batch D: align reviewer input to final rendered surface.

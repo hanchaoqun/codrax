@@ -34,6 +34,7 @@ const EmitInvestigationCompleteDowngradePrefix = "emit_investigation_complete DO
 
 var callChainQualifiedCallRe = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)+\s*\(`)
 var deterministicHistoryCountLineRe = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_])(?:answer_count|result_count|filtered_count|intersection_count|vcs_count|history_count)\s*[:=]\s*(-?\d+)(?:[^A-Za-z0-9_]|$)`)
+var aggregateMemberVCSCommitHashBaseRe = regexp.MustCompile(`(?i)^[0-9a-f]{7,40}$`)
 
 // EmitInvestigationComplete is the explorer's explicit completion
 // signal. When the LLM has collected enough evidence to answer the
@@ -434,6 +435,70 @@ func decodeMisplacedStringField(fields map[string]json.RawMessage, name string) 
 	return strings.TrimSpace(s)
 }
 
+func normalizeCompletionAggregateFacts(
+	ctx *types.BusContext,
+	resultKind string,
+	raw []types.AnswerAggregateFact,
+) ([]types.AnswerAggregateFact, []string, error) {
+	normalized, err := types.NormalizeAnswerAggregateFacts(raw)
+	if err == nil || len(raw) == 0 || !completionAggregateFactsAreOptional(ctx, resultKind) {
+		return normalized, nil, err
+	}
+	out := make([]types.AnswerAggregateFact, 0, len(raw))
+	var notes []string
+	for i, fact := range raw {
+		one, oneErr := types.NormalizeAnswerAggregateFacts([]types.AnswerAggregateFact{fact})
+		if oneErr != nil {
+			notes = append(notes, fmt.Sprintf("dropped optional aggregate_facts[%d]: %v", i, oneErr))
+			continue
+		}
+		out = append(out, one...)
+	}
+	if len(out) == 0 {
+		notes = append(notes, fmt.Sprintf("ignored optional aggregate_facts payload after validation error: %v", err))
+		return nil, notes, nil
+	}
+	merged, mergeErr := types.NormalizeAnswerAggregateFacts(out)
+	if mergeErr != nil {
+		notes = append(notes, fmt.Sprintf("ignored optional aggregate_facts payload after merge validation error: %v", mergeErr))
+		return nil, notes, nil
+	}
+	notes = append(notes, fmt.Sprintf("kept %d/%d optional aggregate_facts after dropping invalid entries", len(merged), len(raw)))
+	return merged, notes, nil
+}
+
+func completionAggregateFactsAreOptional(ctx *types.BusContext, resultKind string) bool {
+	if !strings.EqualFold(strings.TrimSpace(resultKind), "resolved") {
+		return false
+	}
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent == types.IntentEnumerate ||
+		rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.QuestionStructure().HasAnyObligation() ||
+		types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		types.RequiresRelationMemberSetHandoff(rm) {
+		return false
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return false
+	}
+	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
+		return false
+	}
+	return rm.Intent == types.IntentExplain ||
+		rm.Intent == types.IntentTrace ||
+		rm.Scenario == types.ScenarioArchitectureExplain ||
+		types.IsHistoryBackedCurrentCodeExplanation(rm)
+}
+
 func aggregateFactValueCanonicalizationNotes(raw, normalized []types.AnswerAggregateFact) []string {
 	if len(raw) == 0 || len(normalized) == 0 {
 		return nil
@@ -521,7 +586,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 	evidenceSnapshot := ctx.Mutable.EmittedEvidence()
-	aggregateFacts, err := types.NormalizeAnswerAggregateFacts(p.AggregateFacts)
+	aggregateFacts, softAggregateNotes, err := normalizeCompletionAggregateFacts(ctx, resultKind, p.AggregateFacts)
 	if err != nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -533,6 +598,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	justification := strings.TrimSpace(p.AbsenceJustification)
 	resultKind, justification = normalizeExactAbsenceCompletionWithEvidenceAndAggregates(ctx, resultKind, reason, justification, evidenceSnapshot, aggregateFacts)
 	aggregateFactNormalizationNotes := aggregateFactValueCanonicalizationNotes(p.AggregateFacts, aggregateFacts)
+	aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, softAggregateNotes...)
 	if err := validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx, aggregateFacts, evidenceSnapshot); err != nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -552,7 +618,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	effectiveAggregateFacts = normalizeAggregateFactsForTypedExclusion(ctx, effectiveAggregateFacts)
 	if resultKind == "absence" {
 		var notes []string
-		effectiveAggregateFacts, notes = dropNonPrincipalUnsupportedDecoratedMemberSetsForAbsence(effectiveAggregateFacts)
+		effectiveAggregateFacts, notes = dropNonPrincipalUnsupportedDecoratedMemberSets(effectiveAggregateFacts, "absence handoff")
+		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
+	} else if completionAggregateFactsAreOptional(ctx, resultKind) {
+		var notes []string
+		effectiveAggregateFacts, notes = dropNonPrincipalUnsupportedDecoratedMemberSets(effectiveAggregateFacts, "optional aggregate handoff")
 		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
 	}
 
@@ -568,7 +638,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// match anchor endpoints, so reaching this branch means the model
 	// emitted code-shape members whose evidence does not name them
 	// verbatim — repair belongs at the explorer turn, not in finalize.
-	if err := validateAggregateMemberSetSupportRefs(effectiveAggregateFacts); err != nil {
+	if err := validateAggregateMemberSetSupportRefs(ctx, effectiveAggregateFacts); err != nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Summary:   fmt.Sprintf("emit_investigation_complete rejected: %v", err),
@@ -2254,7 +2324,7 @@ func memberHasDecoratedCodeIdentityBase(member string) bool {
 // empty SupportRefs + decorated code-shape members means the
 // explorer must either attach support_refs explicitly or drop the
 // decorator so the bare symbol can auto-resolve.
-func validateAggregateMemberSetSupportRefs(facts []types.AnswerAggregateFact) error {
+func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) error {
 	for _, fact := range facts {
 		if fact.Kind != types.AnswerAggregateMemberSet {
 			continue
@@ -2264,6 +2334,9 @@ func validateAggregateMemberSetSupportRefs(facts []types.AnswerAggregateFact) er
 		}
 		var decorated []string
 		for _, member := range fact.Members {
+			if decoratedAggregateMemberCanRelyOnVCSProvenance(ctx, fact, member) {
+				continue
+			}
 			if memberHasDecoratedCodeIdentityBase(member) {
 				decorated = append(decorated, member)
 			}
@@ -2302,6 +2375,27 @@ func validateAggregateMemberSetSupportRefs(facts []types.AnswerAggregateFact) er
 		)
 	}
 	return nil
+}
+
+func decoratedAggregateMemberCanRelyOnVCSProvenance(ctx *types.BusContext, fact types.AnswerAggregateFact, member string) bool {
+	base, _, ok := types.AnswerAggregateDecoratedLabelParts(member)
+	if !ok {
+		return false
+	}
+	base = strings.TrimSpace(base)
+	if !aggregateMemberVCSCommitHashBaseRe.MatchString(base) {
+		return false
+	}
+	var rm *types.RequestModel
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+		if origin == types.AnswerEvidenceOriginVCSMetadata || origin == types.AnswerEvidenceOriginVCSDiff {
+			return true
+		}
+	}
+	return false
 }
 
 func enrichCompletionAggregateFactsWithMemberSupport(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {
@@ -4231,6 +4325,10 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
 		return
 	}
+	if historyBackedCurrentCodeSkipsGenericForcedReadGates(ctx) {
+		logging.Info("[CGEC] primary_anchor_unread: skipped for history-backed current-code explanation")
+		return
+	}
 	if capabilitySurfacePlan(ctx) != nil {
 		return
 	}
@@ -4309,6 +4407,10 @@ func applyMultiPathAnchorChecks(ctx *types.BusContext, closure *types.EvidenceCl
 
 func applyMultiPathAnchorChecksWithEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) {
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
+		return
+	}
+	if historyBackedCurrentCodeSkipsGenericForcedReadGates(ctx) {
+		logging.Info("[CGEC] multi_path_anchor: skipped for history-backed current-code explanation")
 		return
 	}
 	if capabilitySurfacePlan(ctx) != nil {
@@ -4692,6 +4794,10 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 		return
 	}
 	if ctx.AnalysisIR == nil {
+		return
+	}
+	if historyBackedCurrentCodeSkipsGenericForcedReadGates(ctx) {
+		logging.Info("[CGEC] phase1_unread: skipped for history-backed current-code explanation")
 		return
 	}
 	// Orientation skip — orientation questions don't carry a
@@ -5718,6 +5824,13 @@ func requiresCrossFileCoverage(k types.RequirementKind, primaryAnchors int) bool
 	return false
 }
 
+func historyBackedCurrentCodeSkipsGenericForcedReadGates(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return types.IsHistoryBackedCurrentCodeExplanation(ctx.AnalysisIR.RequestModel)
+}
+
 func countPrimaryAnchorFiles(ranked []types.Phase1RankedFile) int {
 	if len(ranked) == 0 {
 		return 0
@@ -6530,9 +6643,13 @@ func aggregateFactsContainNegativeSearchForTarget(facts []types.AnswerAggregateF
 	return false
 }
 
-func dropNonPrincipalUnsupportedDecoratedMemberSetsForAbsence(facts []types.AnswerAggregateFact) ([]types.AnswerAggregateFact, []string) {
+func dropNonPrincipalUnsupportedDecoratedMemberSets(facts []types.AnswerAggregateFact, contextLabel string) ([]types.AnswerAggregateFact, []string) {
 	if len(facts) == 0 {
 		return facts, nil
+	}
+	contextLabel = strings.TrimSpace(contextLabel)
+	if contextLabel == "" {
+		contextLabel = "aggregate handoff"
 	}
 	out := make([]types.AnswerAggregateFact, 0, len(facts))
 	var notes []string
@@ -6550,7 +6667,7 @@ func dropNonPrincipalUnsupportedDecoratedMemberSetsForAbsence(facts []types.Answ
 		if label == "" {
 			label = "(unlabeled)"
 		}
-		notes = append(notes, fmt.Sprintf("dropped %s member_set %q without support_refs from absence handoff", role, label))
+		notes = append(notes, fmt.Sprintf("dropped %s member_set %q without support_refs from %s", role, label, contextLabel))
 	}
 	return out, notes
 }

@@ -657,6 +657,88 @@ func TestEmitInvestigationComplete_RejectsInvalidAggregateFacts(t *testing.T) {
 	}
 }
 
+func TestEmitInvestigationComplete_DropsOptionalInvalidAggregateFactsOnNarrativeRequest(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: "从历史提交里找一次相关改动，再结合当前代码解释现在链路怎么工作",
+			Intent:     types.IntentExplain,
+			Scenario:   types.ScenarioArchitectureExplain,
+			Complexity: types.ComplexityComplex,
+			Predicates: types.SemanticPredicates{IsHistoryLookup: true},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind: string(types.ReqMechanism),
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"history evidence plus current implementation evidence are sufficient",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{"kind":"negative_search","label":"not actually negative","value":"3"}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("optional invalid aggregate fact should not force a retry: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "aggregate_facts normalized") {
+		t.Fatalf("summary should disclose the dropped optional aggregate fact: %s", res.Summary)
+	}
+	if got := mut.StableInvestigationAggregateFacts(); len(got) != 0 {
+		t.Fatalf("invalid optional aggregate fact must not be retained: %+v", got)
+	}
+}
+
+func TestEmitInvestigationComplete_DropsOptionalUnsupportedDecoratedMemberSetAfterDemotion(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: "从历史提交里找一次相关改动，再结合当前代码解释现在链路怎么工作",
+			Intent:     types.IntentExplain,
+			Scenario:   types.ScenarioArchitectureExplain,
+			Complexity: types.ComplexityComplex,
+			Predicates: types.SemanticPredicates{IsHistoryLookup: true},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind: string(types.ReqMechanism),
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"the prose conclusion and grounded evidence carry the answer; the member_set is only support",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"supporting modes",
+			"role":"principal_answer",
+			"value":"3",
+			"members":["ScalarSourceLiteral (IsScalarAnswer=true)", "ScalarRoleLocate (IsRoleLocateLookup=true)", "ScalarCount (IsCountQuestion=true)"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("optional demoted decorated member_set should not force a retry: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "dropped supporting_coverage member_set") {
+		t.Fatalf("summary should disclose dropped optional member_set: %s", res.Summary)
+	}
+	if got := mut.StableInvestigationAggregateFacts(); len(got) != 0 {
+		t.Fatalf("unsupported optional member_set must be dropped, got %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_RejectsInconsistentAggregateFacts(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}
@@ -3801,6 +3883,102 @@ func TestEmitInvestigationComplete_RejectsDecoratedMemberSetWithoutSupportRefs(t
 		if !strings.Contains(res.Summary, want) {
 			t.Errorf("reject summary missing %q in:\n%s", want, res.Summary)
 		}
+	}
+}
+
+func TestEmitInvestigationComplete_AllowsDecoratedCommitHashMemberSetForHistoryLookup(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"history commits collected",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"相关提交列表",
+				"value":"2",
+				"members":[
+					"916511448b3b4046d1b265e818b1bde4d07ae133 (最早)",
+					"e4f15cd2074c0eead7a6f835cf9f0c0000012345 (最近)"
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("decorated commit-hash member_set should rely on VCS provenance, not file:line support_refs: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_AllowsDecoratedCommitHashMemberSetWithVCSOrigin(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"history commits collected",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"相关提交列表",
+				"value":"1",
+				"provenance":"git_history_search",
+				"dimensions":[{"name":"proof_source","value":"git_history_search"}],
+				"members":["916511448b3b4046d1b265e818b1bde4d07ae133 (最早)"]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("decorated commit-hash member_set should rely on typed VCS origin projection: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_DecoratedCodeMemberStillRequiresSupportRefsWithVCSOrigin(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"code members collected",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"code members",
+				"value":"1",
+				"provenance":"git_history_search",
+				"dimensions":[{"name":"proof_source","value":"git_history_search"}],
+				"members":["Gate.Run (8个独立检查)"]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("decorated code member should still require support_refs even with VCS origin: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "support_refs is empty") {
+		t.Fatalf("summary should preserve support_refs contract, got: %s", res.Summary)
 	}
 }
 
