@@ -176,6 +176,187 @@ func TestEmitInvestigationComplete_AcceptsNegativeSearchAggregateFact(t *testing
 	}
 }
 
+func TestEmitInvestigationComplete_SynthesizesAbsenceJustificationFromNegativeSearchAggregate(t *testing.T) {
+	const missingKey = "explore_xyz_phantom_unique_budget"
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:   types.SubjectConfigKey,
+					TargetLabel:  "config key",
+					Targets:      []string{missingKey},
+					AllowAbsence: true,
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"the exact config key is absent from every requested layer",
+		"confidence":"high",
+		"result_kind":"absence",
+		"aggregate_facts":[
+			{
+				"kind":"negative_search",
+				"label":"explore_xyz_phantom_unique_budget in production code",
+				"value":"0",
+				"unit":"matches",
+				"dimensions":[
+					{"name":"repo","value":"hanchaoqun/codrax"},
+					{"name":"pattern","value":"explore_xyz_phantom_unique_budget"},
+					{"name":"scope","value":"production Go files + codrax.yaml.example + cmd/root.go"},
+					{"name":"searched_at","value":"current_investigation"}
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("negative_search exact absence should synthesize justification instead of retrying: %s", res.Summary)
+	}
+	if got := mut.StableInvestigationResultKind(); got != "absence" {
+		t.Fatalf("StableInvestigationResultKind = %q, want absence", got)
+	}
+	if got := mut.StableAbsenceJustification(); got == "" {
+		t.Fatal("StableAbsenceJustification = empty, want synthesized justification")
+	}
+}
+
+func TestEmitInvestigationComplete_AbsenceDropsUnsupportedNonPrincipalDecoratedMemberSet(t *testing.T) {
+	const missingKey = "explore_xyz_phantom_unique_budget"
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:   types.SubjectConfigKey,
+					TargetLabel:  "config key",
+					Targets:      []string{missingKey},
+					AllowAbsence: true,
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"the exact config key is absent from every requested layer",
+		"confidence":"high",
+		"result_kind":"absence",
+		"aggregate_facts":[
+			{
+				"kind":"negative_search",
+				"label":"explore_xyz_phantom_unique_budget in production code",
+				"value":"0",
+				"unit":"matches",
+				"dimensions":[
+					{"name":"repo","value":"hanchaoqun/codrax"},
+					{"name":"pattern","value":"explore_xyz_phantom_unique_budget"},
+					{"name":"scope","value":"production Go files"},
+					{"name":"searched_at","value":"current_investigation"}
+				]
+			},
+			{
+				"kind":"member_set",
+				"label":"related explore config keys",
+				"role":"supporting_coverage",
+				"members":[
+					"ExploreSettings.PerToolDefaultCap (config.go:852, yaml标签 per_tool_default_cap)"
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unsupported supporting member_set should not hard-retry an absence closure: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "dropped supporting_coverage member_set") {
+		t.Fatalf("summary should record dropped support aggregate, got: %s", res.Summary)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || got[0].Kind != types.AnswerAggregateNegativeSearch {
+		t.Fatalf("stored aggregate facts = %+v, want only negative_search", got)
+	}
+}
+
+func TestEmitInvestigationComplete_AbsenceDoesNotDropUnknownDecoratedMemberSet(t *testing.T) {
+	const missingKey = "explore_xyz_phantom_unique_budget"
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:   types.SubjectConfigKey,
+					TargetLabel:  "config key",
+					Targets:      []string{missingKey},
+					AllowAbsence: true,
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"the exact config key is absent from every requested layer",
+		"confidence":"high",
+		"result_kind":"absence",
+		"aggregate_facts":[
+			{
+				"kind":"negative_search",
+				"label":"explore_xyz_phantom_unique_budget in production code",
+				"value":"0",
+				"unit":"matches",
+				"dimensions":[
+					{"name":"repo","value":"hanchaoqun/codrax"},
+					{"name":"pattern","value":"explore_xyz_phantom_unique_budget"},
+					{"name":"scope","value":"production Go files"},
+					{"name":"searched_at","value":"current_investigation"}
+				]
+			},
+			{
+				"kind":"member_set",
+				"label":"maybe principal related keys",
+				"members":[
+					"ExploreSettings.PerToolDefaultCap (config.go:852, yaml标签 per_tool_default_cap)"
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("unknown-role decorated member_set must still require support_refs; got success: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "support_refs is empty") {
+		t.Fatalf("summary should preserve the support_refs contract, got: %s", res.Summary)
+	}
+}
+
 func TestEffectiveCompletionAggregateFacts_CurrentPayloadReplacesStaleRetainedFacts(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

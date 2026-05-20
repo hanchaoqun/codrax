@@ -515,6 +515,46 @@ Safety contract:
   supplement was still appended despite the answer passing. Those are next-batch
   absence and supplement-gating targets, not regressions from this softening.
 
+### Batch 11 — Exact Absence Closure Compatibility
+
+Status: implemented after the `s3d` Batch 10 replay showed two avoidable
+explorer retries in an otherwise valid exact-absence answer.
+
+Safety contract:
+
+- `aggregate_facts.kind=negative_search` remains a repo-scoped zero-result
+  search fact. It must keep `repo`, `query` or `pattern`, `scope`, and
+  `searched_at` dimensions so multi-repo negative evidence cannot be mixed
+  across active repositories.
+- The `repo` requirement is not a universal rule for every negative conclusion.
+  File-local negative evidence belongs in typed evidence (`scope=negative` /
+  `negative_query.file`), external log/trace no-intersection facts need a
+  runtime-artifact lane, VCS/history zero-intersection facts need a VCS typed
+  lane, and behavioral outcomes need a `behavior_outcome` /
+  `error_granularity_verdict` style aggregate rather than `negative_search`.
+- When a repo-scoped `negative_search(value=0)` names every exact target and the
+  exact-resolution contract allows absence, the tool can synthesize the
+  deterministic `absence_justification` instead of forcing the model to repeat
+  the same conclusion in another `emit_investigation_complete` turn.
+- For exact-absence closures, a decorated `member_set` without `support_refs`
+  is dropped only when the model explicitly marks it as `supporting_coverage` or
+  `audit_ledger`. Principal and unknown-role member sets still obey the existing
+  hard `support_refs` contract, so the system does not silently discard a
+  possible user-facing answer set.
+
+2026-05-20 validation:
+
+- Added unit coverage for negative-search-driven absence justification
+  synthesis, supporting member-set drop, and the guard that unknown-role
+  decorated member sets still reject without `support_refs`.
+- Re-ran `s3d` in `eval/results/s3d-20260520-143037`: PASS,
+  `finalizer_iters=1`, `strict_decode_remap_events=0`, and no
+  `emit_investigation_complete rejected` / `support_refs is empty` lines.
+- Residual open issue: the final answer still appends the generic “覆盖度可能不充分”
+  supplement after a substantively sufficient semantic review with confidence
+  below floor. That remains G71 / reviewer-supplement gating, not an absence
+  closure retry.
+
 ### Batch 1 — Deterministic Scalar / Measurement / VCS Guardrails
 
 Status: first implementation committed as `91651164`; follow-up hardening in

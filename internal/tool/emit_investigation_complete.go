@@ -521,8 +521,6 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 	evidenceSnapshot := ctx.Mutable.EmittedEvidence()
-	justification := strings.TrimSpace(p.AbsenceJustification)
-	resultKind, justification = normalizeExactAbsenceCompletionWithEvidence(ctx, resultKind, reason, justification, evidenceSnapshot)
 	aggregateFacts, err := types.NormalizeAnswerAggregateFacts(p.AggregateFacts)
 	if err != nil {
 		return types.ToolResult{
@@ -532,6 +530,8 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	justification := strings.TrimSpace(p.AbsenceJustification)
+	resultKind, justification = normalizeExactAbsenceCompletionWithEvidenceAndAggregates(ctx, resultKind, reason, justification, evidenceSnapshot, aggregateFacts)
 	aggregateFactNormalizationNotes := aggregateFactValueCanonicalizationNotes(p.AggregateFacts, aggregateFacts)
 	if err := validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx, aggregateFacts, evidenceSnapshot); err != nil {
 		return types.ToolResult{
@@ -550,6 +550,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		effectiveAggregateFacts = types.NormalizeAggregateFactRolesForRequest(effectiveAggregateFacts, &ctx.AnalysisIR.RequestModel)
 	}
 	effectiveAggregateFacts = normalizeAggregateFactsForTypedExclusion(ctx, effectiveAggregateFacts)
+	if resultKind == "absence" {
+		var notes []string
+		effectiveAggregateFacts, notes = dropNonPrincipalUnsupportedDecoratedMemberSetsForAbsence(effectiveAggregateFacts)
+		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
+	}
 
 	// Reject the emit when a member_set carries members led by a code
 	// identifier but never publishes per-member grounding. Without
@@ -6415,6 +6420,32 @@ func normalizeExactAbsenceCompletion(ctx *types.BusContext, resultKind, reason, 
 	return normalizeExactAbsenceCompletionWithEvidence(ctx, resultKind, reason, justification, evidence)
 }
 
+func normalizeExactAbsenceCompletionWithEvidenceAndAggregates(ctx *types.BusContext, resultKind, reason, justification string, evidence []types.EvidenceItem, aggregateFacts []types.AnswerAggregateFact) (string, string) {
+	resultKind, justification = normalizeExactAbsenceCompletionWithEvidence(ctx, resultKind, reason, justification, evidence)
+	if justification != "" || (resultKind != "absence" && resultKind != "resolved") {
+		return resultKind, justification
+	}
+	if ctx == nil || ctx.Mutable == nil {
+		return resultKind, justification
+	}
+	contract := exactResolutionContractForCompletion(ctx)
+	if contract == nil || !contract.AllowAbsence || len(contract.Targets) == 0 {
+		return resultKind, justification
+	}
+	if evidenceHasAnyDefiningExactTargetProof(contract, evidence, contract.Targets) {
+		return resultKind, justification
+	}
+	if !aggregateFactsSupportExactAbsence(contract, aggregateFacts) {
+		return resultKind, justification
+	}
+	auto := types.ExactResolutionAutoAbsenceJustification(contract)
+	if auto == "" {
+		return resultKind, justification
+	}
+	logging.Info("[emit_investigation_complete] synthesized exact-absence justification from negative_search aggregate (targets=%v)", contract.Targets)
+	return "absence", auto
+}
+
 func normalizeExactAbsenceCompletionWithEvidence(ctx *types.BusContext, resultKind, reason, justification string, evidence []types.EvidenceItem) (string, string) {
 	if ctx == nil || ctx.Mutable == nil {
 		return resultKind, justification
@@ -6455,6 +6486,85 @@ func normalizeExactAbsenceCompletionWithEvidence(ctx *types.BusContext, resultKi
 		return "absence", auto
 	}
 	return resultKind, justification
+}
+
+func aggregateFactsSupportExactAbsence(contract *types.ExactResolutionContract, facts []types.AnswerAggregateFact) bool {
+	if contract == nil || len(contract.Targets) == 0 || len(facts) == 0 {
+		return false
+	}
+	for _, target := range contract.Targets {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+		if !aggregateFactsContainNegativeSearchForTarget(facts, target) {
+			return false
+		}
+	}
+	return true
+}
+
+func aggregateFactsContainNegativeSearchForTarget(facts []types.AnswerAggregateFact, target string) bool {
+	target = strings.ToLower(strings.TrimSpace(target))
+	if target == "" {
+		return false
+	}
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateNegativeSearch || strings.TrimSpace(fact.Value) != "0" {
+			continue
+		}
+		fields := []string{fact.Label, fact.Provenance, fact.Unit}
+		for _, dim := range fact.Dimensions {
+			name := strings.ToLower(strings.TrimSpace(dim.Name))
+			switch name {
+			case "target", "query", "pattern", "literal", "symbol", "config_key", "path", "scope":
+				fields = append(fields, dim.Value)
+			}
+		}
+		for _, field := range fields {
+			if strings.Contains(strings.ToLower(strings.TrimSpace(field)), target) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func dropNonPrincipalUnsupportedDecoratedMemberSetsForAbsence(facts []types.AnswerAggregateFact) ([]types.AnswerAggregateFact, []string) {
+	if len(facts) == 0 {
+		return facts, nil
+	}
+	out := make([]types.AnswerAggregateFact, 0, len(facts))
+	var notes []string
+	for _, fact := range facts {
+		role := types.NormalizeAnswerAggregateRole(fact.Role)
+		if fact.Kind != types.AnswerAggregateMemberSet ||
+			role == types.AnswerAggregateRoleUnknown ||
+			role.IsPrincipal() ||
+			len(fact.SupportRefs) > 0 ||
+			!aggregateMemberSetHasUnsupportedDecoratedCodeMembers(fact) {
+			out = append(out, fact)
+			continue
+		}
+		label := strings.TrimSpace(fact.Label)
+		if label == "" {
+			label = "(unlabeled)"
+		}
+		notes = append(notes, fmt.Sprintf("dropped %s member_set %q without support_refs from absence handoff", role, label))
+	}
+	return out, notes
+}
+
+func aggregateMemberSetHasUnsupportedDecoratedCodeMembers(fact types.AnswerAggregateFact) bool {
+	if fact.Kind != types.AnswerAggregateMemberSet || len(fact.SupportRefs) > 0 {
+		return false
+	}
+	for _, member := range fact.Members {
+		if memberHasDecoratedCodeIdentityBase(member) {
+			return true
+		}
+	}
+	return false
 }
 
 func evidenceHasAnyDefiningExactTargetProof(contract *types.ExactResolutionContract, items []types.EvidenceItem, targets []string) bool {
