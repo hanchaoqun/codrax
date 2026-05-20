@@ -1,0 +1,17 @@
+# Grid B — U7 History / Authorship (search across all commits)
+#
+# Regression target: an all-history search question is not a scalar lookup. The
+# system should search commit history for a topic, return a small relevant set
+# of commits, and explain the evolution/relationship between them without
+# flattening the answer to one commit id or one raw value.
+#
+# Ground truth drifts as history grows. Keep this case focused on answer shape
+# and on a stable repository topic that appears in recent history.
+ID="u7j"
+NAME="history — search all commits for scalar changes"
+QUESTION="从所有历史提交中搜索和 scalar 标量答案处理相关的改动，挑出相关的几次提交，说明各自解决了什么问题，以及这些改动之间的演进关系。"
+EXPECT_CONTAINS="scalar"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(历史|所有|commit|提交).*(scalar|标量)|(scalar|标量).*(历史|所有|commit|提交)
+(提交|commit).*(解决|修复|改动|问题|变更|引入|添加|建立|区分|防止)|(解决|修复|改动|问题|变更|引入|添加|建立|区分|防止).*(提交|commit)
+(关系|演进|先后|递进|共同|总结)"

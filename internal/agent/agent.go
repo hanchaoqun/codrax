@@ -2588,7 +2588,7 @@ func (b *BaseAgent) buildToolBusContext(ctx *types.AgentContext) *types.BusConte
 // canParallelizeToolBatch returns true when all tool calls in the
 // batch are safe to execute concurrently. A batch is parallelizable
 // when it contains ONLY read-safe tools (grep, read_file, repo_map,
-// list_files, exec_command, git_diff, git_log, git_history_search). Batches containing
+// list_files, exec_command, git_diff, git_show, git_log, git_history_search). Batches containing
 // any emit_* or propose_* tool fall back to sequential execution
 // because those tools write to MutableState and may depend on
 // DispatchToolResults from earlier calls in the same batch (e.g.

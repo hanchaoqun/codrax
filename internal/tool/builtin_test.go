@@ -401,6 +401,27 @@ func TestExecCommand(t *testing.T) {
 			t.Fatalf("expected stdout 'hello', got %q", result.Summary)
 		}
 	})
+
+	t.Run("normalizes git show no-stat compatibility", func(t *testing.T) {
+		ctx := gitWorktreeFixture(t, "seed\n")
+		ctx.Mode = types.ModeRead
+		ctx.PipelineStage = types.StageExplore
+		tool := &ExecCommand{}
+		params, _ := json.Marshal(execCommandParams{Command: "git show HEAD --no-stat"})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected normalized command success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "removed unsupported `git show --no-stat`") {
+			t.Fatalf("expected compatibility note, got %q", result.Summary)
+		}
+		if strings.Contains(result.Summary, "unrecognized argument") {
+			t.Fatalf("normalized command should not reach git's --no-stat error: %q", result.Summary)
+		}
+	})
 }
 
 func TestExecCommand_ReadModeShellWriteGate(t *testing.T) {
@@ -1442,6 +1463,58 @@ func TestGitDiff(t *testing.T) {
 	})
 }
 
+func TestGitShow(t *testing.T) {
+	ctx := gitWorktreeFixture(t, "old\n")
+	if err := os.WriteFile(filepath.Join(ctx.RepoRoot, "file.txt"), []byte("old\nnew\n"), 0o644); err != nil {
+		t.Fatalf("modify fixture file: %v", err)
+	}
+	cmd, cancel := NewGitCommand(nil, "add", "file.txt")
+	defer cancel()
+	cmd.Dir = ctx.RepoRoot
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	cmd, cancel = NewGitCommand(nil, "commit", "-q", "-m", "show target")
+	defer cancel()
+	cmd.Dir = ctx.RepoRoot
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+
+	tool := &GitShow{}
+	for _, tc := range []struct {
+		name string
+		in   gitShowParams
+		want string
+	}{
+		{"no-patch", gitShowParams{Ref: "HEAD", NoPatch: true, Format: "oneline"}, "show target"},
+		{"name-only", gitShowParams{Ref: "HEAD", NameOnly: true}, "file.txt"},
+		{"default patch", gitShowParams{Ref: "HEAD"}, "+new"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			params, _ := json.Marshal(tc.in)
+			result, err := tool.Execute(ctx, params)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !result.Success || !strings.Contains(result.Summary, tc.want) {
+				t.Fatalf("git_show %s failed or missed %q: success=%v summary=%q", tc.name, tc.want, result.Success, result.Summary)
+			}
+		})
+	}
+	params, _ := json.Marshal(gitShowParams{Ref: "HEAD", NoPatch: true, Stat: true})
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success || !strings.Contains(result.Summary, "mutually exclusive") {
+		t.Fatalf("no_patch+stat should be rejected, got success=%v summary=%q", result.Success, result.Summary)
+	}
+}
+
 func TestGitLog(t *testing.T) {
 	t.Run("skip if not in git repo", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -1514,6 +1587,56 @@ func TestGitHistorySearchCountsBoundedDiffMatches(t *testing.T) {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
 		}
+	}
+}
+
+func TestGitHistorySearchOldestOrderFindsEarliestMatch(t *testing.T) {
+	ctx := gitWorktreeFixture(t, "seed\n")
+	run := func(args ...string) {
+		t.Helper()
+		cmd, cancel := NewGitCommand(nil, args...)
+		defer cancel()
+		cmd.Dir = ctx.RepoRoot
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	writeAndCommit := func(body, subject string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(ctx.RepoRoot, "file.txt"), []byte(body), 0o644); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+		run("add", "file.txt")
+		run("commit", "-q", "-m", subject)
+	}
+	writeAndCommit("seed\nEvidenceClosure introduced\n", "first EvidenceClosure")
+	writeAndCommit("seed\nEvidenceClosure introduced\nlater mention\n", "later EvidenceClosure")
+
+	tool := &GitHistorySearch{}
+	params, _ := json.Marshal(gitHistorySearchParams{
+		WindowPath:  "file.txt",
+		WindowCount: 1,
+		Order:       "oldest",
+		DiffPath:    "file.txt",
+		Contains:    "EvidenceClosure",
+	})
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("git_history_search failed: %s", res.Summary)
+	}
+	for _, want := range []string{"order=oldest", "window_size=2", "answer_count=1", "first EvidenceClosure"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "later EvidenceClosure") {
+		t.Fatalf("oldest order with window_count=1 should not return the later commit:\n%s", res.Summary)
 	}
 }
 

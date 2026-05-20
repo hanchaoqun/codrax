@@ -132,6 +132,47 @@ func validateReadOnlyExecCommand(command string) error {
 	return nil
 }
 
+func normalizeReadOnlyExecCommand(command string) (string, string) {
+	tokens, err := lexShellCommand(command)
+	if err != nil || len(tokens) == 0 {
+		return command, ""
+	}
+	changed := false
+	for i := 0; i < len(tokens); {
+		i = skipSeparators(tokens, i)
+		if i >= len(tokens) {
+			break
+		}
+		for i < len(tokens) && isShellAssignment(tokens[i]) {
+			i++
+		}
+		if i >= len(tokens) || tokens[i].kind != shellTokenWord {
+			break
+		}
+		cmdIdx := i
+		argsStart := i + 1
+		argsEnd := nextCommandBoundary(tokens, argsStart)
+		if shellCommandName(tokens[cmdIdx].text) == "git" && firstGitSubcommand(shellWords(tokens[argsStart:argsEnd])) == "show" {
+			out := tokens[:argsStart:argsStart]
+			for _, tok := range tokens[argsStart:argsEnd] {
+				if tok.kind == shellTokenWord && tok.text == "--no-stat" {
+					changed = true
+					continue
+				}
+				out = append(out, tok)
+			}
+			out = append(out, tokens[argsEnd:]...)
+			tokens = out
+			argsEnd = nextCommandBoundary(tokens, argsStart)
+		}
+		i = argsEnd
+	}
+	if !changed {
+		return command, ""
+	}
+	return renderShellTokens(tokens), "removed unsupported `git show --no-stat` (git show does not accept it; plain `git show` already omits stat output unless --stat is requested)"
+}
+
 func readOnlyExecRefusal(ctx *types.BusContext, command string, err error) types.ToolResult {
 	rootHint := "the repository root"
 	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
@@ -141,9 +182,59 @@ func readOnlyExecRefusal(ctx *types.BusContext, command string, err error) types
 		ToolName: "exec_command",
 		Success:  false,
 		Summary: fmt.Sprintf(
-			"exec_command refused: read-mode shell commands must be read-only and stay inside the active repository command root. %v. exec_command already runs from %s; use repo-relative paths, plain `git log` / `git show` / `git diff`, or built-in read_file / grep / repo_map / git_log / git_diff / git_history_search. The rejected command was: %s",
+			"exec_command refused: read-mode shell commands must be read-only and stay inside the active repository command root. %v. exec_command already runs from %s; use repo-relative paths, plain `git log` / `git show` / `git diff`, or built-in read_file / grep / repo_map / git_log / git_show / git_diff / git_history_search. The rejected command was: %s",
 			err, rootHint, sanitizeForBanner(command)),
 	}
+}
+
+func shellWords(tokens []shellToken) []string {
+	out := make([]string, 0, len(tokens))
+	for _, tok := range tokens {
+		if tok.kind == shellTokenWord {
+			out = append(out, tok.text)
+		}
+	}
+	return out
+}
+
+func renderShellTokens(tokens []shellToken) string {
+	var b strings.Builder
+	for i, tok := range tokens {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		if tok.kind == shellTokenWord {
+			b.WriteString(shellQuoteWord(tok.text))
+		} else {
+			b.WriteString(tok.text)
+		}
+	}
+	return b.String()
+}
+
+func shellQuoteWord(s string) string {
+	if s == "" {
+		return "''"
+	}
+	if shellWordIsBareSafe(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func shellWordIsBareSafe(s string) bool {
+	for _, r := range s {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		switch r {
+		case '_', '-', '.', '/', ':', '=', '@', '+', ',', '%':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func readOnlyRedirectionDisposition(tokens []shellToken, i int) (bool, int) {

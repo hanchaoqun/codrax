@@ -9,6 +9,7 @@ func RegisterDefaults(r *Registry) {
 	r.Register(&ReadFile{})
 	r.Register(&ListFiles{})
 	r.Register(&GitDiff{})
+	r.Register(&GitShow{})
 	r.Register(&GitLog{})
 	r.Register(&GitHistorySearch{})
 	r.Register(&EmitAnalysis{})

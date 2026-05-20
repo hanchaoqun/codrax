@@ -601,7 +601,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- Ground the conclusion in tool output and emitted evidence. The `reason` is preserved as context, not as a citation.\n\n")
 	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
 		b.WriteString("### Repository Command Scope\n\n")
-		fmt.Fprintf(&b, "`exec_command` runs from the active repository root: `%s`. Use repo-relative paths; do not guess absolute checkout directories or run `cd` / `git -C` / `--git-dir` outside this root. For commit history and diff questions, prefer `git_log`, `git_diff`, and `git_history_search` before free-form shell.\n\n",
+		fmt.Fprintf(&b, "`exec_command` runs from the active repository root: `%s`. Use repo-relative paths; do not guess absolute checkout directories or run `cd` / `git -C` / `--git-dir` outside this root. For commit history and diff questions, prefer `git_log`, `git_show`, `git_diff`, and `git_history_search` before free-form shell; use `git_show` for a specific commit/ref's metadata/patch/stat/name-only output, and use `git_history_search.order=recent` for latest/last-N windows or `order=oldest` for first-introduced / earliest-occurrence windows.\n\n",
 			ctx.RepoRoot)
 	}
 

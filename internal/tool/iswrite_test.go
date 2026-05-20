@@ -20,6 +20,7 @@ func TestBuiltinIsWriteClassification(t *testing.T) {
 		{"read_file", &ReadFile{}, false},
 		{"list_files", &ListFiles{}, false},
 		{"git_diff", &GitDiff{}, false},
+		{"git_show", &GitShow{}, false},
 		{"git_log", &GitLog{}, false},
 		{"propose_sub_agents", &ProposeSubAgents{}, false},
 	}
@@ -46,6 +47,7 @@ func TestBuiltinConfidenceClassification(t *testing.T) {
 		{"read_file", &ReadFile{}, 0.8},
 		{"list_files", &ListFiles{}, 0.8},
 		{"git_diff", &GitDiff{}, 0.8},
+		{"git_show", &GitShow{}, 0.8},
 		{"git_log", &GitLog{}, 0.8},
 		{"propose_sub_agents", &ProposeSubAgents{}, 0.0},
 	}

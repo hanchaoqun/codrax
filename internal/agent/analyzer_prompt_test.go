@@ -386,6 +386,7 @@ func TestAnalysisSkill_HeavyToolsNeverAllowed(t *testing.T) {
 		"emit_hypothesis_verdict",
 		// Git tools — content-ish, no place in classification.
 		"git_diff",
+		"git_show",
 		"git_log",
 	}
 	for _, name := range forbidden {

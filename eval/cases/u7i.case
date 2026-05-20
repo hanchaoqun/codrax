@@ -1,0 +1,16 @@
+# Grid B — U7 History / Authorship (multiple commit diffs)
+#
+# Regression target: a multi-diff history question must stay as a rich
+# per-commit explanation. The system should preserve the user's request to
+# inspect several diffs, summarize changed files and intent per commit, and then
+# relate the changes, instead of collapsing the answer into one scalar commit id
+# or a single-file summary.
+#
+ID="u7i"
+NAME="history — fixed commit diffs rollup"
+QUESTION="请分别查看 0ee3855f、38547ae1、ae3c2da1 这 3 次提交的代码差异，逐个说明每次改了哪些文件、解决了什么问题，并总结三次变更之间的关系。"
+EXPECT_CONTAINS="0ee3855f 38547ae1 ae3c2da1"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(3|三|0ee3855f|38547ae1|ae3c2da1).*(提交|commit).*(差异|diff|变更)|(提交|commit).*(3|三|0ee3855f|38547ae1|ae3c2da1).*(差异|diff|变更)
+(文件|路径|file)
+(关系|共同|递进|连续|对比|总结)"

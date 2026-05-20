@@ -345,9 +345,12 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	if err := json.Unmarshal(params, &p); err != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
+	command := p.Command
+	var compatibilityNote string
 	if shouldGateExecCommandAsReadOnly(ctx) {
-		if err := validateReadOnlyExecCommand(p.Command); err != nil {
-			result := readOnlyExecRefusal(ctx, p.Command, err)
+		command, compatibilityNote = normalizeReadOnlyExecCommand(command)
+		if err := validateReadOnlyExecCommand(command); err != nil {
+			result := readOnlyExecRefusal(ctx, command, err)
 			result.Timestamp = time.Now()
 			return result, nil
 		}
@@ -361,7 +364,7 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	// inside ResolveActiveSetCommand (m.IsSingle()).
 	if ctx != nil && ctx.MultiGraph != nil {
 		if gater, ok := ctx.MultiGraph.(types.MultiRepoActiveSetGater); ok && gater != nil {
-			gate := gater.ResolveActiveSetCommand(ctx, t.Name(), p.Command)
+			gate := gater.ResolveActiveSetCommand(ctx, t.Name(), command)
 			if !gate.Allowed {
 				return types.ToolResult{
 					ToolName:  t.Name(),
@@ -382,7 +385,10 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	// executed command reaches Turn B (extractor / finalizer). Without
 	// it, a `wc -l` scalar arrives in the Raw Tool Outputs section as
 	// just a number, stripped of its provenance.
-	banner := fmt.Sprintf("[exec_command: $ %s]\n", sanitizeForBanner(p.Command))
+	banner := fmt.Sprintf("[exec_command: $ %s]\n", sanitizeForBanner(command))
+	if compatibilityNote != "" {
+		banner = fmt.Sprintf("[exec_command: $ %s]\n[exec_command compatibility: %s]\n", sanitizeForBanner(command), compatibilityNote)
+	}
 
 	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -394,7 +400,7 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	//   - memory + CPU caps so an LLM-typed `find / -exec` style
 	//     blunder can't tip a low-RAM host into OOM
 	caps := verifyResourceCaps()
-	wrappedCmd := wrapShellCommandWithCaps(p.Command, caps)
+	wrappedCmd := wrapShellCommandWithCaps(command, caps)
 	cmd := NewShellCommandContext(execCtx, wrappedCmd)
 	// Anchor the shell at the repo root so `find .`, `wc -l *.go`,
 	// `git ls-files` etc. operate on the user's --repo target rather
@@ -1685,6 +1691,134 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 }
 
 // ---------------------------------------------------------------------------
+// GitShow
+// ---------------------------------------------------------------------------
+
+// GitShow shows a single commit/ref through a structured read-only tool.
+type GitShow struct {
+	ReadOnly
+	EvidenceTool
+}
+
+type gitShowParams struct {
+	RepoPath string `json:"repo_path,omitempty"`
+	Ref      string `json:"ref"`
+	Path     string `json:"path,omitempty"`
+	Format   string `json:"format,omitempty"`
+	NoPatch  bool   `json:"no_patch,omitempty"`
+	Stat     bool   `json:"stat,omitempty"`
+	NameOnly bool   `json:"name_only,omitempty"`
+}
+
+func (t *GitShow) Name() string { return "git_show" }
+func (t *GitShow) Description() string {
+	return "Show a commit/ref safely. Use this instead of shelling out to git show; no_patch gives metadata only, stat gives --stat, name_only gives changed paths, and the default includes the patch without using unsupported --no-stat."
+}
+
+func (t *GitShow) Parameters() json.RawMessage {
+	return json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "repo_path": {"type": "string", "description": "Optional repository working directory, resolved like other path tools"},
+    "ref":       {"type": "string", "description": "Commit hash or git ref to show"},
+    "path":      {"type": "string", "description": "Optional repo-relative pathspec within the commit"},
+    "format":    {"type": "string", "description": "Commit header format: oneline, short, medium, full (default medium)"},
+    "no_patch":  {"type": "boolean", "description": "Show commit metadata only (--no-patch)"},
+    "stat":      {"type": "boolean", "description": "Show --stat"},
+    "name_only": {"type": "boolean", "description": "Show --name-only"}
+  },
+  "required": ["ref"]
+}`)
+}
+
+func (t *GitShow) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
+	var p gitShowParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+	}
+	ref := strings.TrimSpace(p.Ref)
+	if ref == "" {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "invalid params: ref is required", Timestamp: time.Now()}, nil
+	}
+	if strings.HasPrefix(ref, "-") {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "invalid params: ref must not start with '-'", Timestamp: time.Now()}, nil
+	}
+	format := strings.TrimSpace(p.Format)
+	if format == "" {
+		format = "medium"
+	}
+	switch format {
+	case "oneline", "short", "medium", "full":
+	default:
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "invalid params: format must be oneline, short, medium, or full", Timestamp: time.Now()}, nil
+	}
+	modeCount := 0
+	for _, enabled := range []bool{p.NoPatch, p.Stat, p.NameOnly} {
+		if enabled {
+			modeCount++
+		}
+	}
+	dir, pathErr := resolveRepoScopedToolDir(ctx, p.RepoPath)
+	banner := kvBanner("git_show",
+		"repo_path", p.RepoPath,
+		"ref", ref,
+		"path", p.Path,
+		"format", format,
+		"no_patch", fmt.Sprintf("%t", p.NoPatch),
+		"stat", fmt.Sprintf("%t", p.Stat),
+		"name_only", fmt.Sprintf("%t", p.NameOnly),
+	)
+	if pathErr != "" {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + pathErr, Timestamp: time.Now()}, nil
+	}
+	if modeCount > 1 {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + "invalid params: no_patch, stat, and name_only are mutually exclusive", Timestamp: time.Now()}, nil
+	}
+	pathspec := normalizeGitHistoryPathspec(p.Path, dir)
+	if path.IsAbs(pathspec) {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + "invalid params: path must be repo-relative or an absolute path under repo_path", Timestamp: time.Now()}, nil
+	}
+
+	args := []string{"show", "--no-ext-diff", fmt.Sprintf("--format=%s", format)}
+	switch {
+	case p.NoPatch:
+		args = append(args, "--no-patch")
+	case p.Stat:
+		args = append(args, "--stat")
+	case p.NameOnly:
+		args = append(args, "--name-only")
+	}
+	args = append(args, ref)
+	if pathspec != "" {
+		args = append(args, "--", pathspec)
+	}
+	cmd, cancel := NewGitLongCommand(nil, args...)
+	defer cancel()
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   banner + fmt.Sprintf("git show failed: %v: %s", err, strings.TrimSpace(stderr.String())),
+			Timestamp: time.Now(),
+		}, nil
+	}
+	summary, refBlob := StoreBlob(ctx, t.Name(), banner+stdout.String())
+	return types.ToolResult{
+		ToolName:  t.Name(),
+		Success:   true,
+		Summary:   summary,
+		RawRef:    refBlob,
+		Timestamp: time.Now(),
+	}, nil
+}
+
+// ---------------------------------------------------------------------------
 // GitLog
 // ---------------------------------------------------------------------------
 
@@ -1775,7 +1909,7 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 // GitHistorySearch
 // ---------------------------------------------------------------------------
 
-// GitHistorySearch deterministically filters a bounded recent commit window by
+// GitHistorySearch deterministically filters a bounded commit window by
 // fixed-string presence in each commit's diff. It exists so history/count
 // questions do not need shell loops or model-side list intersection.
 type GitHistorySearch struct {
@@ -1787,6 +1921,7 @@ type gitHistorySearchParams struct {
 	RepoPath        string `json:"repo_path,omitempty"`
 	WindowPath      string `json:"window_path"`
 	WindowCount     int    `json:"window_count,omitempty"`
+	Order           string `json:"order,omitempty"`
 	DiffPath        string `json:"diff_path,omitempty"`
 	Contains        string `json:"contains"`
 	CaseInsensitive bool   `json:"case_insensitive,omitempty"`
@@ -1796,7 +1931,7 @@ const gitHistorySearchMaxWindowCount = 100
 
 func (t *GitHistorySearch) Name() string { return "git_history_search" }
 func (t *GitHistorySearch) Description() string {
-	return "Search a bounded recent git history window and count commits whose diff contains a fixed string"
+	return "Search a bounded git history window and count commits whose diff contains a fixed string. Use order=oldest for first-introduced / earliest-occurrence questions; order=recent is the default for latest / last-N questions."
 }
 
 func (t *GitHistorySearch) Parameters() json.RawMessage {
@@ -1805,7 +1940,8 @@ func (t *GitHistorySearch) Parameters() json.RawMessage {
   "properties": {
     "repo_path": {"type": "string", "description": "Optional repository working directory, resolved like other path tools"},
     "window_path": {"type": "string", "description": "Repo-relative pathspec that defines the recent commit window, e.g. internal/orchestrator/"},
-    "window_count": {"type": "integer", "description": "Number of recent commits in the window (default 20, max 100)"},
+    "window_count": {"type": "integer", "description": "For order=recent, number of recent commits to inspect; for order=oldest, maximum matching commits to return while scanning from the earliest commit (default 20, max 100)"},
+    "order": {"type": "string", "enum": ["recent", "oldest"], "description": "History window direction. recent (default) starts from HEAD for latest/last-N questions. oldest starts from the earliest commit for first-introduced / earliest-occurrence questions."},
     "diff_path": {"type": "string", "description": "Optional repo-relative pathspec to inspect inside each commit diff; defaults to window_path"},
     "contains": {"type": "string", "description": "Fixed string that must appear in a commit diff for the commit to count"},
     "case_insensitive": {"type": "boolean", "description": "Whether contains matching ignores case (default false)"}
@@ -1845,32 +1981,45 @@ func (t *GitHistorySearch) Execute(ctx *types.BusContext, params json.RawMessage
 	if count > gitHistorySearchMaxWindowCount {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: window_count max %d", gitHistorySearchMaxWindowCount), Timestamp: time.Now()}, nil
 	}
+	order := strings.ToLower(strings.TrimSpace(p.Order))
+	if order == "" {
+		order = "recent"
+	}
+	if order != "recent" && order != "oldest" {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "invalid params: order must be recent or oldest", Timestamp: time.Now()}, nil
+	}
 
 	banner := kvBanner("git_history_search",
 		"window_path", windowPath,
 		"window_count", fmt.Sprintf("%d", count),
+		"order", order,
 		"diff_path", diffPath,
 		"contains", needle,
 	)
 
-	commits, errSummary := gitHistorySearchWindow(dir, count, windowPath)
+	commits, errSummary := gitHistorySearchWindow(dir, count, windowPath, order)
 	if errSummary != "" {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + errSummary, Timestamp: time.Now()}, nil
 	}
 	matches := make([]gitHistorySearchCommit, 0, len(commits))
+	inspected := 0
 	for _, commit := range commits {
+		inspected++
 		patch, errSummary := gitHistorySearchPatch(dir, commit.Hash, diffPath)
 		if errSummary != "" {
 			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + errSummary, Timestamp: time.Now()}, nil
 		}
 		if gitHistoryPatchContains(patch, needle, p.CaseInsensitive) {
 			matches = append(matches, commit)
+			if order == "oldest" && len(matches) >= count {
+				break
+			}
 		}
 	}
 
 	var b strings.Builder
 	b.WriteString(banner)
-	fmt.Fprintf(&b, "window_size=%d\n", len(commits))
+	fmt.Fprintf(&b, "window_size=%d\n", inspected)
 	fmt.Fprintf(&b, "answer_count=%d\n", len(matches))
 	b.WriteString("matched_commits:\n")
 	if len(matches) == 0 {
@@ -1880,7 +2029,7 @@ func (t *GitHistorySearch) Execute(ctx *types.BusContext, params json.RawMessage
 			fmt.Fprintf(&b, "- %s %s\n", shortGitHash(commit.Hash), commit.Subject)
 		}
 	}
-	fmt.Fprintf(&b, "unmatched=%d\n", len(commits)-len(matches))
+	fmt.Fprintf(&b, "unmatched=%d\n", inspected-len(matches))
 
 	summary, ref := StoreBlob(ctx, t.Name(), b.String())
 	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: summary, RawRef: ref, Timestamp: time.Now()}, nil
@@ -1915,8 +2064,14 @@ func normalizeGitHistoryPathspec(s string, repoRoot string) string {
 	return cleaned
 }
 
-func gitHistorySearchWindow(dir string, count int, windowPath string) ([]gitHistorySearchCommit, string) {
-	args := []string{"log", "--format=%H%x09%s", fmt.Sprintf("-n%d", count), "--", windowPath}
+func gitHistorySearchWindow(dir string, count int, windowPath, order string) ([]gitHistorySearchCommit, string) {
+	args := []string{"log", "--format=%H%x09%s"}
+	if order == "oldest" {
+		args = append(args, "--reverse")
+	} else {
+		args = append(args, fmt.Sprintf("-n%d", count))
+	}
+	args = append(args, "--", windowPath)
 	cmd, cancel := NewGitLongCommand(nil, args...)
 	defer cancel()
 	if dir != "" {

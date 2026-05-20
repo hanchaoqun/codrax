@@ -1,0 +1,17 @@
+# Grid B — U7 History / Authorship (latest commit diff explanation)
+#
+# Regression target: a latest-commit diff question must stay as a rich
+# commit/diff explanation. It should use VCS provenance and changed-file
+# evidence, not collapse to a commit hash/subject scalar and not require
+# checkout-path guessing through exec_command.
+#
+# Ground truth drifts whenever this repository receives a new commit. Keep this
+# case focused on answer shape: the answer must discuss the latest commit's diff
+# and changed files with a concrete explanation, not just return a commit id.
+ID="u7h"
+NAME="history — latest commit diff detailed explanation"
+QUESTION="根据最近一次提交代码的差异，分析一下具体做了哪些事情，详细描述一下，必要时通过合适的图辅助说明。"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(提交|commit).*(差异|diff|变更|修改)|(差异|diff|变更|修改).*(提交|commit)
+(文件|file|路径|path).*(变更|修改|diff|影响)|(变更|修改|diff|影响).*(文件|file|路径|path)
+(具体|详细|说明|分析|做了什么|影响)"
