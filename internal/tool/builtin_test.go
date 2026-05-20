@@ -423,6 +423,27 @@ func TestExecCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("tags git metadata command", func(t *testing.T) {
+		ctx := gitWorktreeFixture(t, "seed\n")
+		ctx.Mode = types.ModeRead
+		ctx.PipelineStage = types.StageExplore
+		tool := &ExecCommand{}
+		params, _ := json.Marshal(execCommandParams{Command: "git log -1 --oneline"})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "evidence_origin=vcs_metadata") {
+			t.Fatalf("git metadata command should be tagged as VCS metadata: %q", result.Summary)
+		}
+		if strings.Contains(result.Summary, "diff_origin=vcs_diff") {
+			t.Fatalf("plain git log should not be tagged as diff evidence: %q", result.Summary)
+		}
+	})
+
 	t.Run("normalizes git show no-stat compatibility", func(t *testing.T) {
 		ctx := gitWorktreeFixture(t, "seed\n")
 		ctx.Mode = types.ModeRead
@@ -443,6 +464,87 @@ func TestExecCommand(t *testing.T) {
 			t.Fatalf("normalized command should not reach git's --no-stat error: %q", result.Summary)
 		}
 	})
+}
+
+func TestExecCommandTypedOrigins(t *testing.T) {
+	tests := []struct {
+		name       string
+		command    string
+		output     string
+		want       []string
+		mustAbsent []string
+	}{
+		{
+			name:    "quoted git text is not command",
+			command: "printf 'git log -1\\n'",
+			output:  "git log -1\n",
+			mustAbsent: []string{
+				"vcs_metadata",
+				"command_measurement",
+			},
+		},
+		{
+			name:    "git show default is metadata and diff",
+			command: "git show HEAD",
+			output:  "commit abc\n--- a/file\n+++ b/file\n",
+			want: []string{
+				"evidence_origin=vcs_metadata",
+				"diff_origin=vcs_diff",
+			},
+		},
+		{
+			name:    "git show no patch is metadata only",
+			command: "git show --no-patch HEAD",
+			output:  "commit abc\n",
+			want: []string{
+				"evidence_origin=vcs_metadata",
+			},
+			mustAbsent: []string{"diff_origin=vcs_diff"},
+		},
+		{
+			name:    "git diff is diff evidence",
+			command: "git -C . diff --stat",
+			output:  " file.go | 2 +-\n",
+			want: []string{
+				"evidence_origin=vcs_diff",
+			},
+			mustAbsent: []string{"vcs_metadata"},
+		},
+		{
+			name:    "git history count carries metadata and measurement",
+			command: "git log --format=%H -20 -- internal/orchestrator | awk 'END { print \"answer_count=3\" }'",
+			output:  "answer_count=3\n",
+			want: []string{
+				"evidence_origin=vcs_metadata",
+				"measurement_origin=command_measurement",
+				"measurement=count",
+			},
+		},
+		{
+			name:    "env wrapper is accepted",
+			command: "GIT_CONFIG_NOSYSTEM=1 env git rev-list --count HEAD",
+			output:  "7\n",
+			want: []string{
+				"evidence_origin=vcs_metadata",
+				"measurement_origin=command_measurement",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := execCommandTypedOriginLine(tt.command, tt.output)
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("origin line missing %q for command %q: %q", want, tt.command, got)
+				}
+			}
+			for _, absent := range tt.mustAbsent {
+				if strings.Contains(got, absent) {
+					t.Fatalf("origin line should not contain %q for command %q: %q", absent, tt.command, got)
+				}
+			}
+		})
+	}
 }
 
 func TestExecCommand_ReadModeShellWriteGate(t *testing.T) {

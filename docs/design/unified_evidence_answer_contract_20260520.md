@@ -429,6 +429,27 @@ Tasks:
   the added marker does not break deterministic count extraction.
 - Validation: `go test ./internal/tool ./internal/types` PASS.
 
+2026-05-20 Batch B.6:
+
+- Covered the fallback path where the model uses `exec_command` to run git
+  directly. The shell command parameter is parsed conservatively as structured
+  tool input: only segments whose effective command is `git` are classified;
+  quoted text such as `printf 'git log'` is ignored.
+- `exec_command` git metadata commands (`git log`, `git rev-list`,
+  `git show --no-patch`, `git rev-parse`, etc.) now emit
+  `evidence_origin=vcs_metadata`; diff commands (`git diff`, default
+  `git show`, `git log -p` / `--stat` / `--name-only`) also emit
+  `diff_origin=vcs_diff` where appropriate.
+- Git history counts produced through `exec_command` now flow into deterministic
+  history aggregate enrichment as `proof_source=exec_command_git_history` with
+  `origin=vcs_metadata`, while still carrying `measurement_origin` /
+  `command_measurement` when the output is a parsed count. This prevents a
+  history answer from collapsing into a generic command scalar.
+- Added regression coverage for quoted non-commands, `git -C` global options,
+  metadata-only git output, diff output, and combined history-count
+  metadata+measurement output.
+- Validation: `go test ./internal/tool ./internal/types` PASS.
+
 ### Batch C — Runtime Artifact Origins
 
 Goal: stop treating external logs/traces as repo citations or code members.
@@ -528,6 +549,8 @@ or noisy retries:
   origins at tool emission.
 - [x] Batch B.5: tag deterministic non-git command measurements at tool
   emission without tagging arbitrary shell output.
+- [x] Batch B.6: classify git commands executed through `exec_command` into
+  VCS metadata/diff origins without relying on user/model prose.
 - [x] Batch B.2: route decorated commit-hash support-ref exception through
   unified VCS origin projection.
 - [ ] Batch B: remove remaining VCS/hash compatibility fallback once structured

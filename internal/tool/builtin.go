@@ -461,7 +461,7 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 		}, nil
 	}
 
-	payload := execCommandPayloadWithMeasurementOrigin(banner, command, output)
+	payload := execCommandPayloadWithTypedOrigins(banner, command, output)
 	summary, ref := StoreBlob(ctx, t.Name(), payload)
 	return types.ToolResult{
 		ToolName:  t.Name(),
@@ -472,13 +472,263 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	}, nil
 }
 
-func execCommandPayloadWithMeasurementOrigin(banner, command, output string) string {
+func execCommandPayloadWithTypedOrigins(banner, command, output string) string {
 	payload := banner + output
-	proofSummary := fmt.Sprintf("[exec_command: $ %s]\n%s", sanitizeForBanner(command), output)
-	if _, ok := types.DeterministicCountProofInteger(proofSummary); !ok {
+	originLine := execCommandTypedOriginLine(command, output)
+	if originLine == "" {
 		return payload
 	}
-	return banner + fmt.Sprintf("[exec_command: evidence_origin=%s measurement=count]\n", types.AnswerEvidenceOriginCommandMeasurement) + output
+	return banner + originLine + output
+}
+
+func execCommandTypedOriginLine(command, output string) string {
+	metadata, diff := execCommandGitOrigins(command)
+	proofSummary := fmt.Sprintf("[exec_command: $ %s]\n%s", sanitizeForBanner(command), output)
+	_, measurement := types.DeterministicCountProofInteger(proofSummary)
+	if !measurement {
+		_, measurement = deterministicHistoryCountProofInteger(proofSummary)
+	}
+	if !metadata && !diff && !measurement {
+		return ""
+	}
+	var kv []string
+	switch {
+	case metadata:
+		kv = append(kv, "evidence_origin", string(types.AnswerEvidenceOriginVCSMetadata))
+	case diff:
+		kv = append(kv, "evidence_origin", string(types.AnswerEvidenceOriginVCSDiff))
+	case measurement:
+		kv = append(kv, "evidence_origin", string(types.AnswerEvidenceOriginCommandMeasurement))
+	}
+	if diff && metadata {
+		kv = append(kv, "diff_origin", string(types.AnswerEvidenceOriginVCSDiff))
+	}
+	if measurement && (metadata || diff) {
+		kv = append(kv, "measurement_origin", string(types.AnswerEvidenceOriginCommandMeasurement))
+	}
+	if measurement {
+		kv = append(kv, "measurement", "count")
+	}
+	return kvBanner("exec_command", kv...)
+}
+
+func execCommandGitOrigins(command string) (metadata bool, diff bool) {
+	for _, segment := range shellCommandSegments(command) {
+		tokens := shellWordsForOrigin(segment)
+		if len(tokens) == 0 {
+			continue
+		}
+		gitIdx := effectiveGitTokenIndex(tokens)
+		if gitIdx < 0 {
+			continue
+		}
+		subIdx, subcmd := gitSubcommand(tokens[gitIdx+1:])
+		if subcmd == "" {
+			continue
+		}
+		subTokens := tokens[gitIdx+1+subIdx:]
+		switch subcmd {
+		case "diff", "diff-tree", "diff-index", "diff-files", "format-patch":
+			diff = true
+		case "show":
+			metadata = true
+			if !gitShowMetadataOnly(subTokens) {
+				diff = true
+			}
+		case "log":
+			metadata = true
+			if gitLogIncludesDiff(subTokens) {
+				diff = true
+			}
+		case "rev-list", "rev-parse", "branch", "tag", "describe", "merge-base", "status", "ls-files", "blame", "shortlog", "for-each-ref":
+			metadata = true
+		}
+	}
+	return metadata, diff
+}
+
+func execCommandHasGitHistoryCommand(command string) bool {
+	for _, segment := range shellCommandSegments(command) {
+		tokens := shellWordsForOrigin(segment)
+		if len(tokens) == 0 {
+			continue
+		}
+		gitIdx := effectiveGitTokenIndex(tokens)
+		if gitIdx < 0 {
+			continue
+		}
+		_, subcmd := gitSubcommand(tokens[gitIdx+1:])
+		if subcmd == "log" || subcmd == "rev-list" {
+			return true
+		}
+	}
+	return false
+}
+
+func shellCommandSegments(command string) []string {
+	var out []string
+	var b strings.Builder
+	var quote rune
+	escaped := false
+	skipNextAmp := false
+	flush := func() {
+		if s := strings.TrimSpace(b.String()); s != "" {
+			out = append(out, s)
+		}
+		b.Reset()
+	}
+	for i, r := range command {
+		if skipNextAmp {
+			skipNextAmp = false
+			continue
+		}
+		if escaped {
+			b.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			b.WriteRune(r)
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			b.WriteRune(r)
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch r {
+		case '\'', '"':
+			quote = r
+			b.WriteRune(r)
+		case '|', ';', '\n':
+			flush()
+		case '&':
+			if i+1 < len(command) && command[i+1] == '&' {
+				flush()
+				skipNextAmp = true
+			} else {
+				b.WriteRune(r)
+			}
+		default:
+			b.WriteRune(r)
+		}
+	}
+	flush()
+	return out
+}
+
+func shellWordsForOrigin(segment string) []string {
+	var out []string
+	var b strings.Builder
+	var quote rune
+	escaped := false
+	flush := func() {
+		if b.Len() > 0 {
+			out = append(out, b.String())
+			b.Reset()
+		}
+	}
+	for _, r := range segment {
+		if escaped {
+			b.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				b.WriteRune(r)
+			}
+			continue
+		}
+		switch r {
+		case '\'', '"':
+			quote = r
+		case ' ', '\t', '\r', '\n':
+			flush()
+		default:
+			b.WriteRune(r)
+		}
+	}
+	flush()
+	return out
+}
+
+func effectiveGitTokenIndex(tokens []string) int {
+	i := 0
+	for i < len(tokens) && strings.Contains(tokens[i], "=") && !strings.HasPrefix(tokens[i], "-") {
+		i++
+	}
+	for i < len(tokens) {
+		switch tokens[i] {
+		case "env", "command":
+			i++
+			continue
+		}
+		break
+	}
+	if i < len(tokens) && tokens[i] == "git" {
+		return i
+	}
+	return -1
+}
+
+func gitSubcommand(tokens []string) (int, string) {
+	for i := 0; i < len(tokens); i++ {
+		tok := tokens[i]
+		if tok == "" {
+			continue
+		}
+		if strings.HasPrefix(tok, "--git-dir=") ||
+			strings.HasPrefix(tok, "--work-tree=") ||
+			strings.HasPrefix(tok, "--namespace=") ||
+			strings.HasPrefix(tok, "--exec-path=") {
+			continue
+		}
+		switch tok {
+		case "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env":
+			i++
+			continue
+		case "--no-pager", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs":
+			continue
+		}
+		if strings.HasPrefix(tok, "-") {
+			continue
+		}
+		return i, tok
+	}
+	return -1, ""
+}
+
+func gitShowMetadataOnly(tokens []string) bool {
+	for _, tok := range tokens[1:] {
+		switch tok {
+		case "--no-patch", "--quiet", "-s":
+			return true
+		}
+	}
+	return false
+}
+
+func gitLogIncludesDiff(tokens []string) bool {
+	for _, tok := range tokens[1:] {
+		switch tok {
+		case "-p", "-u", "--patch", "--stat", "--numstat", "--shortstat", "--summary", "--name-only", "--name-status", "--raw":
+			return true
+		}
+		if strings.HasPrefix(tok, "--stat=") || strings.HasPrefix(tok, "--diff-filter=") {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------

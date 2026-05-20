@@ -3801,7 +3801,7 @@ func appendDeterministicCountAggregateFact(facts []types.AnswerAggregateFact, va
 
 func deterministicCountAggregateOrigin(proofSource string) string {
 	switch strings.ToLower(strings.TrimSpace(proofSource)) {
-	case "git_history_search", "git_log", "git_show":
+	case "git_history_search", "git_log", "git_show", "exec_command_git_history":
 		return string(types.AnswerEvidenceOriginVCSMetadata)
 	case "git_diff":
 		return string(types.AnswerEvidenceOriginVCSDiff)
@@ -3863,11 +3863,13 @@ func deterministicHistoryCountToolResult(ctx *types.BusContext) (int, string, bo
 		if !tr.Success {
 			continue
 		}
+		candidateSource := tr.ToolName
 		switch tr.ToolName {
 		case "exec_command":
 			if !deterministicHistoryCountCommand(tr.Summary) {
 				continue
 			}
+			candidateSource = "exec_command_git_history"
 		case "git_history_search":
 		default:
 			continue
@@ -3880,18 +3882,18 @@ func deterministicHistoryCountToolResult(ctx *types.BusContext) (int, string, bo
 			return 0, "", false
 		}
 		value = n
-		source = tr.ToolName
+		source = candidateSource
 		found = true
 	}
 	return value, source, found
 }
 
 func deterministicHistoryCountCommand(summary string) bool {
-	cmd := strings.ToLower(deterministicCountCommandBanner(summary))
+	cmd := deterministicCountCommandBanner(summary)
 	if cmd == "" {
 		return false
 	}
-	return strings.Contains(cmd, "git log") || strings.Contains(cmd, "git rev-list")
+	return execCommandHasGitHistoryCommand(cmd)
 }
 
 func deterministicCountCommandBanner(summary string) string {

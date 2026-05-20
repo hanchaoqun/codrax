@@ -4010,6 +4010,16 @@ func TestAppendDeterministicCountAggregateFactTagsUnifiedOrigin(t *testing.T) {
 	}
 }
 
+func TestDeterministicHistoryCountExecCommandUsesVCSOrigin(t *testing.T) {
+	summary := "[exec_command: $ git -C . log --format=%H -20 -- internal/orchestrator | awk 'END { print \"answer_count=3\" }']\nanswer_count=3\n"
+	if !deterministicHistoryCountCommand(summary) {
+		t.Fatalf("git history command with global options should be classified as VCS history")
+	}
+	if got := deterministicCountAggregateOrigin("exec_command_git_history"); got != string(types.AnswerEvidenceOriginVCSMetadata) {
+		t.Fatalf("exec git history origin = %q, want %q", got, types.AnswerEvidenceOriginVCSMetadata)
+	}
+}
+
 func assertAggregateDimension(t *testing.T, fact types.AnswerAggregateFact, name, value string) {
 	t.Helper()
 	for _, dim := range fact.Dimensions {

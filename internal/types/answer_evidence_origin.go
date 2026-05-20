@@ -23,7 +23,7 @@ func AnswerAggregateFactEvidenceOrigins(fact AnswerAggregateFact, rm *RequestMod
 	}
 	dims := aggregateDimensionMap(fact.Dimensions)
 	for _, key := range []string{
-		"origin", "evidence_origin", "secondary_origin", "diff_origin", "proof_source", "tool", "source", "measurement_kind",
+		"origin", "evidence_origin", "secondary_origin", "diff_origin", "proof_source", "tool", "source", "measurement_kind", "measurement_origin",
 	} {
 		answerEvidenceOriginFromStructuredToken(dims[key], add)
 	}
@@ -61,7 +61,7 @@ func answerEvidenceOriginFromStructuredToken(raw string, add func(AnswerEvidence
 		return
 	case "current_source", "current_repo", "repo_source", "source_file", "file_line":
 		add(AnswerEvidenceOriginCurrentSource)
-	case "vcs_metadata", "git_metadata", "git_history", "git_history_search", "git_log", "git_show", "vcs_history_count":
+	case "vcs_metadata", "git_metadata", "git_history", "git_history_search", "git_log", "git_show", "exec_command_git_history", "vcs_history_count":
 		add(AnswerEvidenceOriginVCSMetadata)
 	case "vcs_diff", "git_diff", "diff_hunk":
 		add(AnswerEvidenceOriginVCSDiff)

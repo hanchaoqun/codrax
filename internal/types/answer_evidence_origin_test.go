@@ -32,6 +32,26 @@ func TestAnswerAggregateFactEvidenceOrigins_GitHistorySearch(t *testing.T) {
 	}
 }
 
+func TestAnswerAggregateFactEvidenceOrigins_ExecCommandGitHistory(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:  AnswerAggregateScalar,
+		Label: "history count",
+		Value: "3",
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "proof_source", Value: "exec_command_git_history"},
+			{Name: "measurement_origin", Value: "command_measurement"},
+		},
+	}
+	got := AnswerAggregateFactEvidenceOrigins(fact, nil)
+	want := []AnswerEvidenceOrigin{
+		AnswerEvidenceOriginVCSMetadata,
+		AnswerEvidenceOriginCommandMeasurement,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("origins mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestAnswerAggregateFactEvidenceOrigins_GitDiff(t *testing.T) {
 	fact := AnswerAggregateFact{
 		Kind: AnswerAggregateMemberSet,
