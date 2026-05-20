@@ -111,7 +111,7 @@ thin or misleading answer, record it here before choosing a fix.
 | E20260520-G69 | `s3a` | P1 | Open | Final table rendered headers as `项目 / 列 2 / 列 3 / 列 4 / 列 5` because the model supplied item `cells` without explicit `columns`. The row content is useful but the user-facing table is unprofessional. | Table rendering still lacks safe header inference for structured cells when columns are absent. The system accepts the table but exposes generic column labels. | Infer stable localized headers from row labels/cell roles for config-precedence rows, or render as an independent supplement with explicit “层 / 依据 / 结论 / 生效值” headers. Never ship `列 N` in final answers. |
 | E20260520-G70 | `s3a` | P1 | Open | Final answer mentions `internal/skill/glossary.go:35` as proof the key is an eval-only blocklist identifier, but the final citation pool has only `config.go`, `codrax.yaml.example`, and negative `cmd/root.go`; the glossary citation was dropped. | Summary prose can still keep a source path that is not represented in `citations[]`, while reviewers treat it as anchored. | Any visible file:line in principal summary/caveat text must resolve to a citation entry or be removed. Reviewer input should use the final citation pool, not upstream evidence availability alone. |
 | E20260520-G71 | `s3a` | P1 | Open | Semantic reviewer returned `sufficient=true confidence=1.00` with no gaps, yet the final answer still appended the generic “覆盖度可能不充分” supplement. | Generic supplement insertion is not fully gated by reviewer verdicts or concrete defects. It can persist after a clean semantic pass. | Suppress generic coverage supplements when semantic quality is sufficient at/above floor and no concrete contract violations remain. |
-| E20260520-G72 | `s3d` | P1 | Open | Analyzer emitted `answer_role_profile.is_role_binding_requested=true` without `source_quotes[]` and was rejected, consuming a retry turn. | Analyzer role-binding schema remains fragile: source quotes are required when the model infers a positive answer role, but they are often mechanically recoverable from the current request. | Add schema-aware normalization or a typed patch hint for missing `answer_role_profile.source_quotes` copied from the current request. Reserve full analyzer retry for semantically ambiguous role binding. |
+| E20260520-G72 | `s3d` | P1 | Mitigated | Analyzer emitted `answer_role_profile.is_role_binding_requested=true` without `source_quotes[]` and was rejected, consuming a retry turn. | Analyzer role-binding schema remains fragile: source quotes are required when the model infers a positive answer role, but they are often mechanically recoverable from the current request. | Optional positive `answer_role_profile` now softens instead of hard-rejecting when `source_quotes[]` is missing or not copied verbatim from the current request. Anchored role profiles still persist and invalid anchored roles still fail. Re-run `s3d` or equivalent config-absence eval to verify the analyzer retry tail is closed. |
 | E20260520-G73 | `s3d` | P1 | Open | Final answer correctly treats `explore_xyz_phantom_unique_budget` as absent across config/default/CLI layers, but reviewer demanded positive line anchors like `codrax.yaml.example:543`, `cmd/root.go:2396`, and `config.go:160`; auto-repair then spent 27.6s and still ended with a generic supplement. | Absence/config-precedence review is still biased toward positive layer anchors even when the exact target is absent and negative citations are the right evidence shape. | Reviewer criteria for absent config keys should accept negative-scope citations for the missing target plus optional nearby-layer context. Do not require unrelated positive config-key lines as principal anchors for an honest-zero answer. |
 | E20260520-G74 | `s3d` | P2 | Open | `emit_investigation_complete` params were normalized via `$.aggregate_facts string->array`, and several parallel completion reasons described slightly different absence boundaries before finalizer. | Aggregate-fact compatibility recovery works, but parallel absence conclusions can still merge noisy historical/design-doc details into the final context. | Keep recovered aggregate facts only when they pass the stable evidence contract, and dedupe parallel absence summaries by target/scope/query before finalizer. |
 | E20260520-G75 | `s5a` | P0 | Open | Final answer visibly includes a table with all 8 `LoopController` implementation types and file locations, but semantic reviewer said the requested “所在文件” part was “完全缺失” and reported `sufficient=false confidence=0.88`. | Reviewer surface still does not reliably parse final table text/cells after renderer/normalizer repair. It can claim missing file locations that are visibly present to the user. | Reviewer input must be the exact post-normalization rendered answer surface, including Markdown table cells and repaired citation carriers. Table text should be converted to structured rows before reviewer checks. |
@@ -477,6 +477,43 @@ Safety contract:
   `finalizer_iters=1`, `semantic_quality_dispatches=0`,
   `strict_decode_remap_events=0`, no “检测到前后不一致，正在重写答案” render line.
   Logs show both reviewers skipped via the shared observation-only artifact gate.
+
+### Batch 10 — Optional Analyzer Role Binding Softening
+
+Status: implemented after G72 showed an analyzer retry caused by an optional
+positive `answer_role_profile` that lacked grounded `source_quotes[]`.
+
+Safety contract:
+
+- Positive role binding can change the answer shape, so it remains authoritative
+  only when at least one `source_quote` is copied verbatim from the current user
+  request.
+- Missing or unanchored `source_quotes[]` now softens the optional profile:
+  analysis still succeeds, a warning is surfaced in the tool summary/logs, and
+  no downstream hard role gate is installed from that profile.
+- This is intentionally not a prose keyword fallback. The system does not infer
+  a replacement role from model prose or user text; it only decides whether the
+  model's optional typed profile is grounded enough to persist.
+- Anchored profiles are preserved, and invalid anchored role enum values remain
+  hard rejects because they are precise schema errors that can otherwise corrupt
+  downstream role-specific prompts.
+
+2026-05-20 validation:
+
+- Added analyzer unit coverage for the two softening cases: missing
+  `source_quotes[]` and `source_quotes[]` not present verbatim in the current
+  request.
+- Existing anchored-profile coverage still proves grounded `answer_role_profile`
+  values are persisted into the request model.
+- `s3d` PASS in `eval/results/s3d-20260520-141918`: `analyzer_dispatches=1`,
+  `analyzer_iters=3`, no analyzer retry / `answer_role_profile.source_quotes`
+  rejection, and `finalizer_iters=1`.
+- The same replay intentionally leaves G73/G74/G71 open: exact absence closure
+  still required a second `emit_investigation_complete` because
+  `absence_justification` was missing, a supporting `member_set` without
+  `support_refs` caused another explorer retry, and a generic coverage
+  supplement was still appended despite the answer passing. Those are next-batch
+  absence and supplement-gating targets, not regressions from this softening.
 
 ### Batch 1 — Deterministic Scalar / Measurement / VCS Guardrails
 

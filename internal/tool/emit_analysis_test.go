@@ -3336,7 +3336,7 @@ func TestEmitAnalysis_Execute_PersistsAnswerRoleProfile(t *testing.T) {
 	}
 }
 
-func TestEmitAnalysis_Execute_RejectsUngroundedAnswerRoleProfile(t *testing.T) {
+func TestEmitAnalysis_Execute_SoftensUngroundedAnswerRoleProfile(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -3377,11 +3377,65 @@ func TestEmitAnalysis_Execute_RejectsUngroundedAnswerRoleProfile(t *testing.T) {
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
-	if res.Success {
-		t.Fatalf("Execute should reject ungrounded answer_role_profile, got %q", res.Summary)
+	if !res.Success {
+		t.Fatalf("ungrounded optional answer_role_profile should be ignored, not reject: %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "answer_role_profile.source_quotes") {
-		t.Fatalf("rejection should name answer_role_profile.source_quotes, got %q", res.Summary)
+	if !strings.Contains(res.Summary, "answer_role_profile auto-softened") {
+		t.Fatalf("summary should surface answer_role_profile softening, got %q", res.Summary)
+	}
+	if rm := mu.RequestModel(); rm == nil || rm.AnswerRoleProfile != nil {
+		t.Fatalf("unanchored optional answer_role_profile must not become a hard role gate: %+v", rm)
+	}
+}
+
+func TestEmitAnalysis_Execute_SoftensAnswerRoleProfileMissingSourceQuotes(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("Which retry budget parameter controls analyze retries?")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "architecture_explain",
+		"complexity": "simple",
+		"keywords": ["analyze", "retry", "budget"],
+		"entities": ["analyze"],
+		"question_kind": "return_value",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"answer_role_profile": {
+			"is_role_binding_requested": true,
+			"required_candidate_roles": ["budget_cap"],
+			"confidence": 0.94
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("missing source_quotes on optional answer_role_profile should not reject: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "answer_role_profile auto-softened") {
+		t.Fatalf("summary should surface answer_role_profile softening, got %q", res.Summary)
+	}
+	if rm := mu.RequestModel(); rm == nil || rm.AnswerRoleProfile != nil {
+		t.Fatalf("source-quote-free answer_role_profile must not become a hard role gate: %+v", rm)
 	}
 }
 

@@ -951,7 +951,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	answerRoleProfile, answerRoleErr := parseAnswerRoleProfile(raw, p.AnswerRoleProfile)
+	answerRoleProfile, answerRoleErr, answerRoleWarnings := parseAnswerRoleProfile(raw, p.AnswerRoleProfile)
 	if answerRoleErr != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -959,6 +959,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Summary:   "emit_analysis rejected: " + answerRoleErr,
 			Timestamp: time.Now(),
 		}, nil
+	}
+	for _, warning := range answerRoleWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
 	}
 	errorGranularityProfile, errorGranularityErr, errorGranularityWarnings := parseErrorGranularityProfile(raw, p.ErrorGranularityProfile)
 	if errorGranularityErr != "" {
@@ -2046,9 +2050,9 @@ func parseAnswerExclusionPolicy(raw string, p *emitAnswerExclusionPolicyParam) (
 	}, ""
 }
 
-func parseAnswerRoleProfile(raw string, p *emitAnswerRoleProfileParam) (*types.AnswerRoleProfile, string) {
+func parseAnswerRoleProfile(raw string, p *emitAnswerRoleProfileParam) (*types.AnswerRoleProfile, string, []string) {
 	if p == nil {
-		return nil, "answer_role_profile object missing — emit `answer_role_profile` with is_role_binding_requested set to true or false, plus confidence in [0,1]"
+		return nil, "answer_role_profile object missing — emit `answer_role_profile` with is_role_binding_requested set to true or false, plus confidence in [0,1]", nil
 	}
 	var missing []string
 	if p.IsRoleBindingRequested == nil {
@@ -2061,13 +2065,30 @@ func parseAnswerRoleProfile(raw string, p *emitAnswerRoleProfileParam) (*types.A
 		return nil, fmt.Sprintf(
 			"answer_role_profile missing required field(s): %s",
 			strings.Join(missing, ", "),
-		)
+		), nil
 	}
 	if *p.Confidence < 0 || *p.Confidence > 1 {
-		return nil, fmt.Sprintf("answer_role_profile.confidence %.2f out of [0,1]", *p.Confidence)
+		return nil, fmt.Sprintf("answer_role_profile.confidence %.2f out of [0,1]", *p.Confidence), nil
 	}
 	if !*p.IsRoleBindingRequested {
-		return nil, ""
+		return nil, "", nil
+	}
+	var warnings []string
+	sourceQuotes := trimStringSlice(p.SourceQuotes)
+	if len(sourceQuotes) == 0 {
+		return nil, "", []string{"answer_role_profile auto-softened: source_quotes missing while is_role_binding_requested=true; optional positive role binding ignored"}
+	}
+	anchoredQuotes := make([]string, 0, len(sourceQuotes))
+	for _, quote := range sourceQuotes {
+		if sourceQuotePresentInCurrentRequest(raw, quote) {
+			anchoredQuotes = append(anchoredQuotes, quote)
+			continue
+		}
+		warnings = append(warnings, fmt.Sprintf("answer_role_profile ignored unanchored source_quote %q", quote))
+	}
+	if len(anchoredQuotes) == 0 {
+		warnings = append(warnings, "answer_role_profile auto-softened: no source_quote is copied verbatim from the current request; optional positive role binding ignored")
+		return nil, "", warnings
 	}
 	roles := make([]types.AnswerCandidateRole, 0, len(p.RequiredCandidateRoles))
 	seen := make(map[types.AnswerCandidateRole]struct{}, len(p.RequiredCandidateRoles))
@@ -2077,7 +2098,7 @@ func parseAnswerRoleProfile(raw string, p *emitAnswerRoleProfileParam) (*types.A
 			return nil, fmt.Sprintf(
 				"answer_role_profile.required_candidate_roles contains invalid role %q; use one of %s",
 				rawRole, strings.Join(answerCandidateRoleValues(), ", "),
-			)
+			), nil
 		}
 		if _, dup := seen[role]; dup {
 			continue
@@ -2086,24 +2107,15 @@ func parseAnswerRoleProfile(raw string, p *emitAnswerRoleProfileParam) (*types.A
 		roles = append(roles, role)
 	}
 	if len(roles) == 0 {
-		return nil, "answer_role_profile.required_candidate_roles is required when is_role_binding_requested=true"
-	}
-	sourceQuotes := trimStringSlice(p.SourceQuotes)
-	if len(sourceQuotes) == 0 {
-		return nil, "answer_role_profile.source_quotes is required when is_role_binding_requested=true"
-	}
-	for _, quote := range sourceQuotes {
-		if !sourceQuotePresentInCurrentRequest(raw, quote) {
-			return nil, "answer_role_profile.source_quotes entries must be copied verbatim from the current request"
-		}
+		return nil, "answer_role_profile.required_candidate_roles is required when is_role_binding_requested=true", nil
 	}
 	return &types.AnswerRoleProfile{
 		IsRoleBindingRequested: true,
 		RequiredCandidateRoles: roles,
-		SourceQuotes:           sourceQuotes,
+		SourceQuotes:           anchoredQuotes,
 		Confidence:             *p.Confidence,
 		Rationale:              strings.TrimSpace(p.Rationale),
-	}, ""
+	}, "", warnings
 }
 
 func parseErrorGranularityProfile(raw string, p *emitErrorGranularityProfileParam) (*types.ErrorGranularityProfile, string, []string) {
