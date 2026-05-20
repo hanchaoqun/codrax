@@ -2284,7 +2284,7 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 					Timestamp:  time.Now(),
 					Agent:      "orchestrator",
 					NoticeKind: render.NoticeRetry,
-					Reasoning:  softRetryHintMessage(o.busCtx.Language),
+					Reasoning:  softRetryHintForStage(o.busCtx.Language, types.StageAnalyze),
 				})
 				continue
 			}

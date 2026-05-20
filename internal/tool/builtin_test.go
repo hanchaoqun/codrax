@@ -424,6 +424,9 @@ func TestExecCommand_ReadModeShellWriteGate(t *testing.T) {
 		if !strings.Contains(result.Summary, "read-mode shell commands must be read-only") {
 			t.Fatalf("expected read-only refusal, got %q", result.Summary)
 		}
+		if !strings.Contains(result.Summary, tmpDir) {
+			t.Fatalf("refusal should tell the model the active repo command root %q, got %q", tmpDir, result.Summary)
+		}
 		if _, err := os.Stat(filepath.Join(tmpDir, "docs", "ARCHITECTURE.md")); !os.IsNotExist(err) {
 			t.Fatalf("refused command must not create docs/ARCHITECTURE.md; stat err=%v", err)
 		}
@@ -440,6 +443,13 @@ func TestExecCommand_ReadModeShellWriteGate(t *testing.T) {
 			"find . -print0 | xargs -0 git clean -fd",
 			"find . -print0 | xargs -0 sed -i 's/a/b/'",
 			"find . -print0 | xargs -p wc -l",
+			"git -C /home/mindie log -1",
+			"git --git-dir=/home/mindie/.git log -1",
+			"GIT_DIR=/home/mindie/.git git log -1",
+			"cd /home/mindie && git log -1",
+			"cd ../other && git log -1",
+			"git log -1 2>1",
+			"git log -1 1>2",
 		} {
 			if err := validateReadOnlyExecCommand(command); err == nil {
 				t.Fatalf("validateReadOnlyExecCommand(%q) unexpectedly allowed", command)
@@ -455,6 +465,13 @@ func TestExecCommand_ReadModeShellWriteGate(t *testing.T) {
 			"find . -type f -name '*.go' -print0 | xargs -0 -n 50 wc -l",
 			"find . -type f -name '*.go' -print0 | xargs -0r --max-args=50 wc -l",
 			"git status --short && git diff --stat",
+			"git log -1 --format=%H 2>/dev/null || echo not_found",
+			"git diff HEAD~1..HEAD --stat >/dev/null",
+			"git show HEAD 2>&1 | head -20",
+			"git -C . log -1",
+			"git -C subdir log -1",
+			"git --git-dir=.git log -1",
+			"cd subdir && git log -1",
 			"grep -R 'StageExplore' internal | head -5",
 		} {
 			if err := validateReadOnlyExecCommand(command); err != nil {
@@ -1375,6 +1392,54 @@ func TestGitDiff(t *testing.T) {
 		}
 		t.Skip("not in a git repo")
 	})
+
+	t.Run("supports stat and name-only modes", func(t *testing.T) {
+		ctx := gitWorktreeFixture(t, "old\n")
+		if err := os.WriteFile(filepath.Join(ctx.RepoRoot, "file.txt"), []byte("old\nnew\n"), 0o644); err != nil {
+			t.Fatalf("modify fixture file: %v", err)
+		}
+		tool := &GitDiff{}
+		for _, tc := range []struct {
+			name string
+			in   gitDiffParams
+			want string
+		}{
+			{"stat", gitDiffParams{Stat: true}, "file.txt"},
+			{"name-only", gitDiffParams{NameOnly: true}, "file.txt"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				params, _ := json.Marshal(tc.in)
+				result, err := tool.Execute(ctx, params)
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if !result.Success || !strings.Contains(result.Summary, tc.want) {
+					t.Fatalf("git_diff %s failed or missed %q: success=%v summary=%q", tc.name, tc.want, result.Success, result.Summary)
+				}
+			})
+		}
+		params, _ := json.Marshal(gitDiffParams{Stat: true, NameOnly: true})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Success || !strings.Contains(result.Summary, "mutually exclusive") {
+			t.Fatalf("stat+name_only should be rejected, got success=%v summary=%q", result.Success, result.Summary)
+		}
+	})
+
+	t.Run("rejects path outside repo root", func(t *testing.T) {
+		ctx := gitWorktreeFixture(t, "seed\n")
+		tool := &GitDiff{}
+		params, _ := json.Marshal(gitDiffParams{Path: filepath.Dir(ctx.RepoRoot)})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Success || !strings.Contains(result.Summary, "outside repository root") {
+			t.Fatalf("outside git_diff path should be rejected, got success=%v summary=%q", result.Success, result.Summary)
+		}
+	})
 }
 
 func TestGitLog(t *testing.T) {
@@ -1390,6 +1455,19 @@ func TestGitLog(t *testing.T) {
 			return
 		}
 		t.Skip("not in a git repo")
+	})
+
+	t.Run("rejects path outside repo root", func(t *testing.T) {
+		ctx := gitWorktreeFixture(t, "seed\n")
+		tool := &GitLog{}
+		params, _ := json.Marshal(gitLogParams{Path: filepath.Dir(ctx.RepoRoot), Count: 1})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Success || !strings.Contains(result.Summary, "outside repository root") {
+			t.Fatalf("outside git_log path should be rejected, got success=%v summary=%q", result.Success, result.Summary)
+		}
 	})
 }
 
@@ -1480,6 +1558,23 @@ func TestGitHistorySearchRejectsAbsolutePathOutsideRepo(t *testing.T) {
 	}
 	if res.Success || !strings.Contains(res.Summary, "repo-relative") {
 		t.Fatalf("outside absolute path should fail loudly, got success=%v summary=%q", res.Success, res.Summary)
+	}
+}
+
+func TestGitHistorySearchRejectsRepoPathOutsideRepo(t *testing.T) {
+	ctx := gitWorktreeFixture(t, "seed\n")
+	tool := &GitHistorySearch{}
+	params, _ := json.Marshal(gitHistorySearchParams{
+		RepoPath:   filepath.Dir(ctx.RepoRoot),
+		WindowPath: ".",
+		Contains:   "runTaskGraph",
+	})
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "outside repository root") {
+		t.Fatalf("outside repo_path should fail loudly, got success=%v summary=%q", res.Success, res.Summary)
 	}
 }
 

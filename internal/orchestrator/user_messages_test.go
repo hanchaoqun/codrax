@@ -129,6 +129,17 @@ func TestSoftRetryHintMessage_DropsInternalPromptMarkup(t *testing.T) {
 	}
 }
 
+func TestSoftRetryHintForStage_AnalyzeTransientUsesResponseErrorCopy(t *testing.T) {
+	zh := softRetryHintForStage("zh", types.StageAnalyze)
+	if !strings.Contains(zh, "模型响应出错") || strings.Contains(zh, "验证还不够稳") {
+		t.Fatalf("analyze transient retry must describe model response failure, got %q", zh)
+	}
+	en := softRetryHintForStage("en", types.StageAnalyze)
+	if !strings.Contains(en, "Model response error") || strings.Contains(en, "Validation needs") {
+		t.Fatalf("analyze transient retry must describe model response failure, got %q", en)
+	}
+}
+
 // TestSoftMessages_NoInternalJargon pins that the user-facing strings
 // carry no internal identifiers that would leak scheduler mechanics
 // into the UI. The message-owner contract says those names (CGEC,

@@ -599,6 +599,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- Keep counts, complete member sets, and per-bucket facts in `aggregate_facts`; use `absence_justification` for a genuine zero or not-found result.\n")
 	b.WriteString("- For a verified zero-result search inside a repository or sub-repo, use `aggregate_facts` with `kind=\"negative_search\"`, `value=\"0\"`, and dimensions for `repo`, `query` or `pattern`, `scope`, and `searched_at`. Do not emit fake file:line evidence such as `repo:0` for a not-found result.\n")
 	b.WriteString("- Ground the conclusion in tool output and emitted evidence. The `reason` is preserved as context, not as a citation.\n\n")
+	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
+		b.WriteString("### Repository Command Scope\n\n")
+		fmt.Fprintf(&b, "`exec_command` runs from the active repository root: `%s`. Use repo-relative paths; do not guess absolute checkout directories or run `cd` / `git -C` / `--git-dir` outside this root. For commit history and diff questions, prefer `git_log`, `git_diff`, and `git_history_search` before free-form shell.\n\n",
+			ctx.RepoRoot)
+	}
 
 	analyzerKeywords := irKeywords(ctx)
 	analyzerEntities := irEntities(ctx)

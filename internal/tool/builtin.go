@@ -89,6 +89,33 @@ func resolveToolPath(ctx *types.BusContext, p string) string {
 	return filepath.Join(ctx.RepoRoot, p)
 }
 
+func resolveRepoScopedToolDir(ctx *types.BusContext, p string) (string, string) {
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return resolveToolPath(ctx, p), ""
+	}
+	root := normalizeToolAbsolutePath(ctx.RepoRoot)
+	raw := strings.TrimSpace(p)
+	if raw == "" || raw == "." {
+		return root, ""
+	}
+	if normalized, ok := normalizeWindowsPOSIXPath(raw); ok {
+		raw = normalized
+	}
+	if toolPathIsAbs(raw) {
+		abs := normalizeToolAbsolutePath(raw)
+		rel, err := filepath.Rel(root, abs)
+		if err != nil || rel == ".." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
+			return "", fmt.Sprintf("invalid params: path %q is outside repository root %q; use a repo-relative path", p, root)
+		}
+		return abs, ""
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(raw))
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Sprintf("invalid params: path %q escapes repository root %q; use a repo-relative path", p, root)
+	}
+	return filepath.Join(root, raw), ""
+}
+
 func normalizeToolAbsolutePath(p string) string {
 	if normalized, ok := normalizeWindowsPOSIXPath(p); ok {
 		return normalized
@@ -297,14 +324,16 @@ type execCommandParams struct {
 	TimeoutMs int    `json:"timeout_ms,omitempty"`
 }
 
-func (t *ExecCommand) Name() string        { return "exec_command" }
-func (t *ExecCommand) Description() string { return "Run a shell command with configurable timeout" }
+func (t *ExecCommand) Name() string { return "exec_command" }
+func (t *ExecCommand) Description() string {
+	return "Run a read-only shell command with configurable timeout. In read mode it starts in the repository root, so use repo-relative paths and avoid absolute cd/git -C guesses; large output is saved to a blob that can be paged with read_file."
+}
 
 func (t *ExecCommand) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "command":    {"type": "string",  "description": "Shell command to execute"},
+    "command":    {"type": "string",  "description": "Shell command to execute from the repository root in read mode; use repo-relative paths"},
     "timeout_ms": {"type": "integer", "description": "Timeout in milliseconds (default 30000)"}
   },
   "required": ["command"]
@@ -318,7 +347,7 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	}
 	if shouldGateExecCommandAsReadOnly(ctx) {
 		if err := validateReadOnlyExecCommand(p.Command); err != nil {
-			result := readOnlyExecRefusal(p.Command, err)
+			result := readOnlyExecRefusal(ctx, p.Command, err)
 			result.Timestamp = time.Now()
 			return result, nil
 		}
@@ -1553,9 +1582,11 @@ type GitDiff struct {
 }
 
 type gitDiffParams struct {
-	Path   string `json:"path,omitempty"`
-	Staged bool   `json:"staged,omitempty"`
-	Ref    string `json:"ref,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Staged   bool   `json:"staged,omitempty"`
+	Ref      string `json:"ref,omitempty"`
+	Stat     bool   `json:"stat,omitempty"`
+	NameOnly bool   `json:"name_only,omitempty"`
 }
 
 func (t *GitDiff) Name() string        { return "git_diff" }
@@ -1567,7 +1598,9 @@ func (t *GitDiff) Parameters() json.RawMessage {
   "properties": {
     "path":   {"type": "string",  "description": "Repository path (working directory)"},
     "staged": {"type": "boolean", "description": "Show staged changes (--cached)"},
-    "ref":    {"type": "string",  "description": "Git ref to diff against"}
+    "ref":    {"type": "string",  "description": "Git ref or range to diff against"},
+    "stat":   {"type": "boolean", "description": "Show --stat instead of the full patch"},
+    "name_only": {"type": "boolean", "description": "Show --name-only instead of the full patch"}
   }
 }`)
 }
@@ -1586,11 +1619,27 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 		"path", p.Path,
 		"ref", p.Ref,
 		"staged", stagedStr,
+		"stat", fmt.Sprintf("%t", p.Stat),
+		"name_only", fmt.Sprintf("%t", p.NameOnly),
 	)
 
 	args := []string{"diff"}
 	if p.Staged {
 		args = append(args, "--cached")
+	}
+	if p.Stat && p.NameOnly {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   banner + "invalid params: stat and name_only are mutually exclusive",
+			Timestamp: time.Now(),
+		}, nil
+	}
+	if p.Stat {
+		args = append(args, "--stat")
+	}
+	if p.NameOnly {
+		args = append(args, "--name-only")
 	}
 	if p.Ref != "" {
 		args = append(args, p.Ref)
@@ -1600,8 +1649,15 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 	defer cancel()
 	// Anchor at ctx.RepoRoot when the LLM didn't specify a path.
 	// Otherwise resolve the LLM-supplied path against RepoRoot so a
-	// relative `path: "subpkg"` works.
-	if dir := resolveToolPath(ctx, p.Path); dir != "" {
+	// relative `path: "subpkg"` works. Unlike generic file tools,
+	// git tool path overrides are command roots, so reject paths that
+	// escape the active repo instead of silently inspecting another
+	// checkout.
+	dir, pathErr := resolveRepoScopedToolDir(ctx, p.Path)
+	if pathErr != "" {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + pathErr, Timestamp: time.Now()}, nil
+	}
+	if dir != "" {
 		cmd.Dir = dir
 	}
 
@@ -1684,7 +1740,11 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 	cmd, cancel := NewGitLongCommand(nil, args...)
 	defer cancel()
 	// Same RepoRoot anchoring as GitDiff above.
-	if dir := resolveToolPath(ctx, p.Path); dir != "" {
+	dir, pathErr := resolveRepoScopedToolDir(ctx, p.Path)
+	if pathErr != "" {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + pathErr, Timestamp: time.Now()}, nil
+	}
+	if dir != "" {
 		cmd.Dir = dir
 	}
 
@@ -1759,7 +1819,10 @@ func (t *GitHistorySearch) Execute(ctx *types.BusContext, params json.RawMessage
 	if err := json.Unmarshal(params, &p); err != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
-	dir := resolveToolPath(ctx, p.RepoPath)
+	dir, pathErr := resolveRepoScopedToolDir(ctx, p.RepoPath)
+	if pathErr != "" {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: pathErr, Timestamp: time.Now()}, nil
+	}
 	windowPath := normalizeGitHistoryPathspec(p.WindowPath, dir)
 	diffPath := normalizeGitHistoryPathspec(p.DiffPath, dir)
 	if diffPath == "" {

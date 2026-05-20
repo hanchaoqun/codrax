@@ -165,6 +165,7 @@ thin or misleading answer, record it here before choosing a fix.
 | E20260520-G142 | customer report + local repro `u7c` / `u7g` | P0 | Mitigated; perf follow-up open | 用户问“最近一次合入的是什么特性？”时，探索阶段已经得到完整特性说明，但分析阶段硬要求 `is_history_lookup=true` 必须同时 `is_scalar_answer=true`，下游把答案压成 `**值：** commit/subject` 式单值。修复后 `u7c` feature-summary 与 `u7g` “最近合入→对应代码→详细解释→逻辑图”均 PASS，且 finalizer 1 轮收敛、不再出现 `**值：**` 压缩；但 `u7g` 仍有 63 轮 explorer 与 30 次 mid-loop inject，属于性能/收敛尾巴。 | 系统把 history lookup 当成答案形态，而不是证据来源。既有 eval 只覆盖“commit hash/subject”和“历史计数”，导致实现拟合 scalar history，用例多样性不足；同时 architecture principal-support gate 和 aggregate member-set renderer 曾把 VCS 元数据当源码成员处理。 | 已将 `is_history_lookup` 重定义为 VCS/history 元数据来源信号，答案形态仍由 scalar/count/list/comparison/diagnostic typed 字段决定。非标量叙述/诊断型 history 跳过源码 file:line 主证据强制 gate，commit/count aggregate facts 降为 support；已补充 `u7c` feature-summary、`u7d` recent-N list、`u7e` commit comparison、`u7f` history+log diagnostic、`u7g` commit-to-code diagram eval。下一步收敛 VCS+代码解释类探索轮数。 |
 | E20260520-G143 | `u7g` | P1 | Mitigated | `u7g` 首轮 analyzer 已经识别用户要求“最近合入→代码解释→逻辑图”，但 `subtopic_coherence` 因 `git log/merge commit/flow diagram` 等抽象任务实体不能解析为 repo symbol 而硬拒，重新分析后才进入探索。修复后 `u7g` PASS，analyzer 从 5 轮 / 2 dispatch 降到 2 轮 / 1 dispatch，且没有 `subtopic_coherence` 硬拒。 | Analyzer 的子问题一致性 gate 把历史来源、任务步骤、图形输出要求当成源码实体集合校验。对 history-backed explain/trace/diagram 请求，这些是用户意图/输出形态，不是 hallucinated repo symbols。 | 已将 R1.5 resolver asymmetry 调整为 typed-aware：非标量 `is_history_lookup`、非枚举/非标量的显式 `diagram_hint` 只产生 advisory，不硬拒；真实实体枚举、关系查询、标量定位仍保留硬 gate。剩余：u7g 仍有 54 explorer iterations / 21 mid-loop inject，归入 explorer convergence 后续批次。 |
 | E20260520-G144 | `read_combo_config_absent_present_mix` | P2 | Tracking; short-term guard added | Exact-absence scalar suppression can be safe for a single absent target, but it would be too broad for a mixed answer such as “target A absent, target B present.” In that shape, a document-level `exact_resolution.status=absent` must not delete or relabel the present target's scalar/table value. | `exact_resolution` is currently document-level in several paths, while visible blocks and scalar values may refer to only one target. Without a per-target binding, a generic “absent” verdict can be confused with unrelated exact values in the same answer. The same principle applies to VCS/log/trace: typed provenance lanes must bind a negative or positive claim to its own target/scope, not to the whole document. | Short-term mitigation narrows scalar-block suppression to `len(exact_resolution.targets)==1`, so mixed target answers keep unrelated present values. Long-term fix: add per-target `exact_resolution[]` or block/claim-level `target_ref` and validate scalar/absence claims against that target binding. Added medium-priority eval case `read_combo_config_absent_present_mix` to keep this risk visible without blocking higher-ROI P0 work. |
+| E20260520-G145 | customer snippet `../customlogs/git_diff_001.log` | P1 | Mitigated by Batch 14 | 用户问“根据最近一次提交代码差异做详细分析”，analyzer stream stall 后 UI 同时出现正确的“模型响应出错”与错误的“验证还不够稳”；explorer 首轮用 `cd /home/mindie && git ... 2>/dev/null`，随后又用 `git -C /home/mindie` 和 `--git-dir=/home/mindie/.git`；`2>/dev/null` 被当成写文件拒绝，`git -C` 被误解析成子命令 `/home/mindie`。最后答案审阅 consistent/sufficient 后仍进入一次本地 auto-repair contract recheck。 | Read-mode shell guard was simultaneously too strict and too loose: it rejected safe stderr-to-null redirection, but did not parse git global cwd options well enough to produce actionable repo-bound guidance. Explorer prompt/tool surface also under-emphasized that `exec_command` already runs from the active repo root and should not `cd`/`git -C` to arbitrary absolute paths. Analyze transient retry reused a generic validation copy at one call site. VCS history/diff tools existed but were not prominent enough for commit-diff explanation questions, so the model fell back to fragile shell. | Implemented: analyze transient retry now uses the stage-aware “模型响应出错” copy; read-mode shell grammar accepts only provably read-only redirections such as `2>/dev/null` / fd duplication and still rejects `2>1` / `1>2`; git global path options (`-C`, `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) must stay repo-relative and refusals name the active repo command root; structured `git_log` / `git_diff` / `git_history_search` are exposed/preferred and their `path` / `repo_path` parameters are repo-root scoped; `git_diff` supports patch/stat/name-only modes with blob pagination for large outputs. Finalizer metadata auto-repair remains local and does not mean semantic inconsistency or LLM rewrite. |
 | E20260520-G117 | `u8b` | P2 | Open | PASS and independently verified: `internal/types` currently has 104 exported `type X string` declarations and all 104 have typed const-set evidence by heuristic scan. Residual issue: the run still emitted `证据锚点偏弱 ... line-text=12%` for a large exact enumeration and produced a very large citation list. | Large exact inventories can be correct while line-text grounding telemetry looks weak because many rows cite type declarations rather than every const member line. The system needs to distinguish “verified inventory summary” from low-quality grounding. | Keep this as a positive baseline for rich enumeration, but add telemetry that separates exact compiler-backed inventory completeness from per-row line-text density. Do not convert this into a hard retry signal. |
 | E20260520-G118 | `u9a`, `u9b` | P1 | Open | Analyzer took 5 rounds for both direct mechanism/error-granularity questions. In `u9b`, it first emitted `intent=root_cause` for a non-diagnostic error-granularity question and was rejected, then corrected to `intent=explain`. | Analyzer still tries to perform line-level investigation during prescan, and root-cause/error-granularity taxonomy is too easy to confuse. The hard rejection is correct by schema, but the route wastes user-visible time. | Add a schema-aware intent normalizer or stronger classifier contract: error-granularity questions about code behavior should default to `explain` unless a diagnostic typed signal is present. Prescan should stop after file existence for these mechanism questions. |
 | E20260520-G119 | `u9b` | P1 | Open | Explorer had the right conclusion by round 7, but two `emit_investigation_complete` attempts were rejected: `negative_search` required repo dimension, then `bucket_count` rejected categorical values like `item rejected, batch succeeds`. The model eventually removed aggregate facts entirely. | Aggregate fact schema is too narrow for categorical behavioral outcomes. It forces models to misuse count/negative-search shapes, then lose structured closure data after rejection. | Add first-class aggregate kinds for `behavior_outcome` / `error_granularity_verdict` with dimensions and cited support refs. Do not require numeric `value` for categorical behavior facts. |
@@ -622,6 +623,40 @@ Safety contract:
 - Added medium-priority eval case
   `read_combo_config_absent_present_mix` so future broad scalar/absence
   normalizers cannot silently regress this shape.
+
+### Batch 14 — Read-Mode Git Command Ergonomics And Repo Boundary
+
+Status: implemented from customer snippet `../customlogs/git_diff_001.log`.
+
+Safety contract:
+
+- Read-mode `exec_command` runs from the active repository root. The model
+  should not need absolute `cd`, `git -C`, `--git-dir`, or `--work-tree`
+  guesses to inspect the current repo.
+- Shell redirection is not all equally dangerous. Discarding output to the
+  null device or duplicating descriptors is read-only; redirecting to arbitrary
+  names such as `2>1` / `1>2` creates files and remains forbidden.
+- Git global path options are command-scope path changes and must stay
+  repo-relative / active-scope. If rejected, the tool result must tell the
+  model what the current command root is and how to retry safely.
+- VCS explanation questions should prefer structured git tools before free-form
+  shell. The structured git tools' command-root parameters are repo-root scoped
+  too. Free-form shell remains a deterministic fallback and already uses the
+  blob pagination path for large output.
+- Transient model/provider failures and semantic validation retries have
+  different user-facing meanings. UI copy must not call a stream stall
+  “validation not stable.”
+
+Validation:
+
+- Unit tests for `2>/dev/null`, `>/dev/null`, and `2>&1` allowed; `2>1` and
+  `1>2` rejected.
+- Unit tests for `git -C . log`, `git -C subdir log`, `git -C /tmp log`,
+  `git --git-dir=/tmp/.git log`, and `GIT_DIR=/tmp/.git git log` path-scope
+  behavior.
+- Unit / tool tests for `git_diff(stat=true)` and `git_diff(name_only=true)`.
+- Message test proving analyze transient retry uses the
+  stage-aware “模型响应出错” copy.
 
 ### Batch 1 — Deterministic Scalar / Measurement / VCS Guardrails
 

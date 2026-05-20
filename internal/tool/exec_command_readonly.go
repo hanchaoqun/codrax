@@ -25,6 +25,7 @@ var readModeAllowedExecCommands = map[string]bool{
 	"awk":      true,
 	"basename": true,
 	"cat":      true,
+	"cd":       true,
 	"cut":      true,
 	"date":     true,
 	"dirname":  true,
@@ -86,8 +87,13 @@ func validateReadOnlyExecCommand(command string) error {
 	if len(tokens) == 0 {
 		return fmt.Errorf("empty command")
 	}
-	for _, tok := range tokens {
+	for i := 0; i < len(tokens); i++ {
+		tok := tokens[i]
 		if tok.kind == shellTokenOp && shellOperatorWrites(tok.text) {
+			if ok, next := readOnlyRedirectionDisposition(tokens, i); ok {
+				i = next - 1
+				continue
+			}
 			return fmt.Errorf("write-capable shell redirection %q is not allowed in read mode", tok.text)
 		}
 		if tok.kind == shellTokenWord && shellWordContainsCommandSubstitution(tok.text) {
@@ -101,6 +107,9 @@ func validateReadOnlyExecCommand(command string) error {
 		}
 		start := i
 		for i < len(tokens) && isShellAssignment(tokens[i]) {
+			if err := validateReadOnlyShellAssignment(tokens[i]); err != nil {
+				return err
+			}
 			i++
 		}
 		if i >= len(tokens) || tokens[i].kind != shellTokenWord {
@@ -115,7 +124,7 @@ func validateReadOnlyExecCommand(command string) error {
 		}
 		argsStart := i + 1
 		argsEnd := nextCommandBoundary(tokens, argsStart)
-		if err := validateReadOnlyCommandArgs(cmd, tokens[argsStart:argsEnd]); err != nil {
+		if err := validateReadOnlyCommandArgs(cmd, stripReadOnlyRedirectionTokens(tokens[argsStart:argsEnd])); err != nil {
 			return err
 		}
 		i = argsEnd
@@ -123,14 +132,72 @@ func validateReadOnlyExecCommand(command string) error {
 	return nil
 }
 
-func readOnlyExecRefusal(command string, err error) types.ToolResult {
+func readOnlyExecRefusal(ctx *types.BusContext, command string, err error) types.ToolResult {
+	rootHint := "the repository root"
+	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
+		rootHint = fmt.Sprintf("the repository root (%s)", ctx.RepoRoot)
+	}
 	return types.ToolResult{
 		ToolName: "exec_command",
 		Success:  false,
 		Summary: fmt.Sprintf(
-			"exec_command refused: read-mode shell commands must be read-only. %v. Use built-in read_file / grep / repo_map for repository inspection, or use a read-only pipeline such as `find ... | wc -l` for deterministic counts. The rejected command was: %s",
-			err, sanitizeForBanner(command)),
+			"exec_command refused: read-mode shell commands must be read-only and stay inside the active repository command root. %v. exec_command already runs from %s; use repo-relative paths, plain `git log` / `git show` / `git diff`, or built-in read_file / grep / repo_map / git_log / git_diff / git_history_search. The rejected command was: %s",
+			err, rootHint, sanitizeForBanner(command)),
 	}
+}
+
+func readOnlyRedirectionDisposition(tokens []shellToken, i int) (bool, int) {
+	if i < 0 || i >= len(tokens) || tokens[i].kind != shellTokenOp {
+		return false, i
+	}
+	op := strings.TrimLeft(tokens[i].text, "0123456789")
+	switch op {
+	case ">", ">>", ">|", "&>", "&>>", "<":
+		if i+1 < len(tokens) && tokens[i+1].kind == shellTokenWord && isNullDeviceTarget(tokens[i+1].text) {
+			return true, i + 2
+		}
+		if op == ">" && i+2 < len(tokens) &&
+			tokens[i+1].kind == shellTokenOp && tokens[i+1].text == "&" &&
+			tokens[i+2].kind == shellTokenWord && isShellFDNumber(tokens[i+2].text) {
+			return true, i + 3
+		}
+	}
+	return false, i
+}
+
+func stripReadOnlyRedirectionTokens(tokens []shellToken) []shellToken {
+	if len(tokens) == 0 {
+		return nil
+	}
+	out := make([]shellToken, 0, len(tokens))
+	for i := 0; i < len(tokens); {
+		if tokens[i].kind == shellTokenOp && shellOperatorWrites(tokens[i].text) {
+			if ok, next := readOnlyRedirectionDisposition(tokens, i); ok {
+				i = next
+				continue
+			}
+		}
+		out = append(out, tokens[i])
+		i++
+	}
+	return out
+}
+
+func isNullDeviceTarget(s string) bool {
+	trimmed := strings.TrimSpace(s)
+	return trimmed == "/dev/null" || strings.EqualFold(trimmed, "NUL")
+}
+
+func isShellFDNumber(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func lexShellCommand(command string) ([]shellToken, error) {
@@ -318,6 +385,8 @@ func validateReadOnlyCommandArgs(cmd string, args []shellToken) error {
 		}
 	}
 	switch cmd {
+	case "cd":
+		return validateReadOnlyCdArgs(words)
 	case "sed":
 		for _, arg := range words {
 			if arg == "-i" || arg == "--in-place" || strings.HasPrefix(arg, "-i.") || strings.HasPrefix(arg, "-i") && len(arg) > 2 {
@@ -332,6 +401,9 @@ func validateReadOnlyCommandArgs(cmd string, args []shellToken) error {
 			}
 		}
 	case "git":
+		if err := validateReadOnlyGitGlobalPathOptions(words); err != nil {
+			return err
+		}
 		sub := firstGitSubcommand(words)
 		if sub == "" {
 			return nil
@@ -341,6 +413,94 @@ func validateReadOnlyCommandArgs(cmd string, args []shellToken) error {
 		}
 	case "xargs":
 		return validateReadOnlyXargsArgs(words)
+	}
+	return nil
+}
+
+func validateReadOnlyShellAssignment(tok shellToken) error {
+	if tok.kind != shellTokenWord {
+		return nil
+	}
+	text := tok.text
+	idx := strings.IndexByte(text, '=')
+	if idx <= 0 {
+		return nil
+	}
+	name := strings.ToUpper(strings.TrimSpace(text[:idx]))
+	value := strings.TrimSpace(text[idx+1:])
+	switch name {
+	case "GIT_DIR", "GIT_WORK_TREE":
+		return validateRepoRelativeShellPathOption(name, value)
+	default:
+		return nil
+	}
+}
+
+func validateReadOnlyCdArgs(words []string) error {
+	i := 0
+	for i < len(words) {
+		arg := strings.TrimSpace(words[i])
+		switch arg {
+		case "":
+			i++
+		case "--":
+			i++
+			goto pathArg
+		case "-L", "-P":
+			i++
+		default:
+			goto pathArg
+		}
+	}
+pathArg:
+	if i >= len(words) {
+		return fmt.Errorf("cd without an explicit repo-relative path is not allowed in read mode")
+	}
+	if i != len(words)-1 {
+		return fmt.Errorf("cd accepts exactly one repo-relative path in read mode")
+	}
+	return validateRepoRelativeShellPathOption("cd", words[i])
+}
+
+func validateReadOnlyGitGlobalPathOptions(words []string) error {
+	for i := 0; i < len(words); i++ {
+		arg := strings.TrimSpace(words[i])
+		switch arg {
+		case "-C", "--git-dir", "--work-tree":
+			if i+1 >= len(words) {
+				return fmt.Errorf("git option %q requires a repo-relative path", arg)
+			}
+			if err := validateRepoRelativeShellPathOption("git "+arg, words[i+1]); err != nil {
+				return err
+			}
+			i++
+		default:
+			for _, prefix := range []string{"--git-dir=", "--work-tree="} {
+				if strings.HasPrefix(arg, prefix) {
+					if err := validateRepoRelativeShellPathOption("git "+strings.TrimSuffix(prefix, "="), strings.TrimPrefix(arg, prefix)); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateRepoRelativeShellPathOption(label, value string) error {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return fmt.Errorf("%s path is empty; use a repo-relative path", label)
+	}
+	if normalized, ok := normalizeWindowsPOSIXPath(v); ok {
+		v = normalized
+	}
+	if strings.HasPrefix(v, "~") || toolPathIsAbs(v) {
+		return fmt.Errorf("%s path %q is outside the repo command scope; exec_command already runs from the repository root, so use `.` or a repo-relative path", label, v)
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(v))
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return fmt.Errorf("%s path %q escapes the repo command scope; use a path under the repository root", label, v)
 	}
 	return nil
 }
@@ -447,8 +607,16 @@ func readOnlyXargsLongOptionWithInlineValue(arg string) bool {
 }
 
 func firstGitSubcommand(args []string) string {
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if arg == "" {
+			continue
+		}
+		if gitGlobalOptionConsumesNext(arg) {
+			i++
+			continue
+		}
+		if gitGlobalOptionHasInlineValue(arg) {
 			continue
 		}
 		if strings.HasPrefix(arg, "-") {
@@ -457,4 +625,29 @@ func firstGitSubcommand(args []string) string {
 		return strings.ToLower(arg)
 	}
 	return ""
+}
+
+func gitGlobalOptionConsumesNext(arg string) bool {
+	switch arg {
+	case "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env", "--super-prefix":
+		return true
+	default:
+		return false
+	}
+}
+
+func gitGlobalOptionHasInlineValue(arg string) bool {
+	for _, prefix := range []string{
+		"--git-dir=",
+		"--work-tree=",
+		"--namespace=",
+		"--exec-path=",
+		"--config-env=",
+		"--super-prefix=",
+	} {
+		if strings.HasPrefix(arg, prefix) {
+			return true
+		}
+	}
+	return false
 }
