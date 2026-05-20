@@ -5082,7 +5082,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		}
 
 		if !o.strictAnswerReviewEnabledValue() {
-			if actionable := FilterFinalizerRetryRootViolations(res.Violations); len(actionable) > 0 {
+			if actionable := FilterFinalizerRetryRootViolationsForBus(res.Violations, o.busCtx); len(actionable) > 0 {
 				o.attachDraftReviewNote(out, strictReviewDisabledTitle(o.busCtx.Language), actionable)
 			}
 			out.FinalAnswer = o.appendInactiveScopeSystemCaveatToAnswer(out.FinalAnswer)
@@ -5122,7 +5122,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			o.emitNodeEnd(fin.ID, true, "")
 			break
 		}
-		retryViolations := FilterFinalizerRetryRootViolations(res.Violations)
+		retryViolations := FilterFinalizerRetryRootViolationsForBus(res.Violations, o.busCtx)
 		if len(retryViolations) == 0 {
 			logging.Info("[orchestrator] contract check produced only soft/non-actionable violation(s); accepting answer without LLM retry")
 			out.FinalAnswer = AppendSoftContractCaveatsToAnswerForBus(out.FinalAnswer, res.Violations, o.busCtx.Language, o.busCtx)

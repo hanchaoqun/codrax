@@ -260,6 +260,34 @@ func TestBuildSemanticQualityInput_FacetCoverageProjection(t *testing.T) {
 	}
 }
 
+func TestRenderSemanticQualityUserMessage_IncludesClaimBindingBoundary(t *testing.T) {
+	in := SemanticQualityInput{
+		OriginalRequest: "最近一次合入的是什么特性？",
+		AnswerSummary:   "最近一次合入优化了 repo map 缓存。",
+		AnswerBody:      "正文说明特性影响。",
+		ClaimBindings: []SemanticClaimBindingSummary{{
+			ClaimID:         "aggregate_facts[0]#vcs_metadata",
+			Origin:          string(types.AnswerEvidenceOriginVCSMetadata),
+			Policy:          string(types.ClaimGroundingRepairable),
+			Outputs:         []string{string(types.AnswerRequestedOutputSummary), string(types.AnswerRequestedOutputMechanism)},
+			Target:          "latest merge feature",
+			SupportRefCount: 2,
+		}},
+	}
+	got := renderSemanticQualityUserMessage(in)
+	for _, want := range []string{
+		"## CLAIM BINDINGS",
+		"origin=`vcs_metadata`",
+		"policy=`repairable`",
+		"outputs=summary,mechanism",
+		"Do not demand current-source file:line grounding for non-current-source origins",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("semantic reviewer prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestBuildSemanticQualityInput_DiagramContractProjection(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
@@ -956,6 +984,53 @@ func TestRunSemanticQualityReviewWithOutcome_StrongSufficientRequiresFloor(t *te
 	_, outcome = o.runSemanticQualityReviewWithOutcome(doc, mut)
 	if !outcome.Valid || !outcome.Sufficient || outcome.StrongSufficient {
 		t.Fatalf("low-confidence sufficient verdict must not suppress system caveats, got %+v", outcome)
+	}
+}
+
+func TestRunSemanticQualityReviewWithOutcome_PassesClaimBindingsToReviewer(t *testing.T) {
+	mut := types.NewMutableState("最近一次合入的是什么特性？")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "latest merge feature",
+		Value: "优化 repo map 缓存",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "evidence_origin", Value: "vcs_metadata"},
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	seen := SemanticQualityInput{}
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		Ctx:     context.Background(),
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	o.SetSemanticQualityReviewer(fakeSemanticQualityReviewer{
+		seen: &seen,
+		verdict: &SemanticQualityResult{
+			Sufficient: true,
+			Confidence: 0.95,
+		},
+	})
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "s1", Kind: types.BlockSummary, Text: "summary", FacetIDs: []string{"principal_mechanism"}},
+		{ID: "b1", Kind: types.BlockSection, Text: "body", FacetIDs: []string{"principal_mechanism"}},
+	}}
+	o.runSemanticQualityReview(doc, mut)
+	if len(seen.ClaimBindings) != 1 {
+		t.Fatalf("semantic reviewer should receive one claim binding, got %+v", seen.ClaimBindings)
+	}
+	got := seen.ClaimBindings[0]
+	if got.Origin != string(types.AnswerEvidenceOriginVCSMetadata) ||
+		got.Policy != string(types.ClaimGroundingRepairable) ||
+		got.Target != "latest merge feature" {
+		t.Fatalf("unexpected claim binding summary: %+v", got)
 	}
 }
 

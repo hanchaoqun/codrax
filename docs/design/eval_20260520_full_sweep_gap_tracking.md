@@ -243,6 +243,15 @@ the eval cases prove the class is closed.
   count-basis metadata is not rendered as an answer row. Remaining row-compiler
   work in this ledger is eval-driven scoping/ranking (multi-repo buckets,
   config precedence, runtime artifacts), not lack of the base safety primitive.
+- Reviewer/retry routing now consumes the same claim-binding surface as the
+  finalizer prompt. Semantic quality review receives origin/policy/output rows,
+  and strict-promoted generic coverage/support-lane signals are suppressed from
+  finalizer retry when the active principal claim is non-current-source,
+  non-exact-output narrative support. This directly targets VCS feature-summary
+  and artifact/measurement support cases where system gates previously tried to
+  re-prove a narrative answer with current-source shape. Precise defects
+  (citations, must-include, contradictions, success criteria, exact scalar/count
+  outputs, and requested diagram/table/list omissions) remain retry-eligible.
 
 ### Batch 2 — Row Compiler / System Supplement Safety Contract
 

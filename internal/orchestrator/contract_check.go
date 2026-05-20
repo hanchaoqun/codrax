@@ -423,7 +423,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		runSQ := !preReviewerStrict && o != nil && o.semanticQualityReviewer != nil && mut != nil
 		if runSQ {
 			sqDocV2 = mut.AnswerDocumentV2()
-			runSQ = sqDocV2 != nil && semanticQualityReviewerEligible(sqDocV2, result.Violations)
+			runSQ = sqDocV2 != nil && semanticQualityReviewerEligible(sqDocV2, result.Violations, o.busCtx)
 			if runSQ && skipLLMAnswerReviewForObservationOnlyArtifact(o.busCtx, sqDocV2, result.Violations) {
 				logging.Info("[semantic_quality_reviewer] skipped: observation-only runtime artifact answer already has typed artifact carrier and no current-repo citation surface")
 				runSQ = false
@@ -3147,13 +3147,17 @@ func aggregateEnumerationPathLineKey(file string, line int) string {
 // round. Forensic data (May-9 sweep): docs with declared count = 0
 // account for ~7% of reviewer dispatches, ~all of which produced
 // either nil verdicts or sub-floor confidence.
-func semanticQualityReviewerEligible(doc *types.AnswerDocumentV2, existing []types.Violation) bool {
+func semanticQualityReviewerEligible(doc *types.AnswerDocumentV2, existing []types.Violation, busOpt ...*types.BusContext) bool {
 	if doc == nil || len(doc.Blocks) < 2 {
 		// No body — reviewer has nothing to judge.
 		return false
 	}
 	// Strict retry roots present — defer reviewer to a clean run.
-	if len(FilterFinalizerRetryRootViolations(existing)) > 0 {
+	var bus *types.BusContext
+	if len(busOpt) > 0 {
+		bus = busOpt[0]
+	}
+	if len(FilterFinalizerRetryRootViolationsForBus(existing, bus)) > 0 {
 		return false
 	}
 	// P4 prefilter: skip when no block declared any facet via
@@ -3180,7 +3184,7 @@ func skipLLMAnswerReviewForObservationOnlyArtifact(ctx *types.BusContext, doc *t
 	if ctx == nil || ctx.Mutable == nil || doc == nil {
 		return false
 	}
-	if len(FilterFinalizerRetryRootViolations(existing)) > 0 {
+	if len(FilterFinalizerRetryRootViolationsForBus(existing, ctx)) > 0 {
 		return false
 	}
 	rm := ctx.Mutable.RequestModel()
@@ -3290,6 +3294,7 @@ func (o *Orchestrator) runSemanticQualityReviewWithOutcome(doc *types.AnswerDocu
 		doc, view,
 		buildReviewerEvidenceAnchorSet(mut, doc, o.busCtx),
 	)
+	in.ClaimBindings = semanticClaimBindingSummaries(answerClaimBindingsForBusContext(o.busCtx))
 
 	ctx := o.busCtx.Ctx
 	if ctx == nil {

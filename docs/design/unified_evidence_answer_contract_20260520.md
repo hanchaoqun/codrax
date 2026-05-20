@@ -626,6 +626,29 @@ Tasks:
   `go test ./internal/orchestrator -run 'TestRunSemanticQualityReviewWithOutcome|TestSuppressSemanticSufficientCaveatViolations|TestRunSemanticQualityReview|TestAppendSoftContractCaveats'`
   PASS.
 
+2026-05-20 Batch D.6:
+
+- Added claim-binding context to the post-emit semantic-quality reviewer input.
+  The reviewer now receives compact `claim_id / origin / policy / requested
+  outputs / target / support_ref count` rows, so it can distinguish
+  VCS/runtime/measurement/negative-search provenance from current-source
+  file:line obligations.
+- Added `FilterFinalizerRetryRootViolationsForBus`, which applies the normal
+  soft/strict policy and then narrows operator strict-promotion by the active
+  claim bindings. Generic coverage/support-lane signals such as facet,
+  principal-claim-use, prose-density, uncertainty, semantic-underfilled, and
+  principal-support-member omissions do not force another finalizer rewrite
+  when the current principal handoff is non-current-source, non-exact-output
+  narrative support. Precise obligations remain hard: `must_include`,
+  citation/self-contradiction/success criteria, exact scalar/count/absence
+  outputs, and requested diagram/table/list block omissions are not suppressed.
+- The filter is intentionally typed-only. It consumes `AnswerClaimBinding`
+  origins, requested outputs, grounding policy, and `MissingBlockKind`; it does
+  not parse user text, model prose, or violation detail strings.
+- Validation:
+  `go test ./internal/orchestrator -run 'TestRunSemanticQualityReviewWithOutcome|TestRenderSemanticQualityUserMessage_IncludesClaimBindingBoundary|TestFilterFinalizerRetryRootViolations'`
+  PASS.
+
 ### Batch E — System Supplement Safety
 
 Goal: preserve model-authored rich answers and stop system-generated pollution.
@@ -728,7 +751,7 @@ or noisy retries:
   before forcing visible exact values.
 - [x] Batch D.3: add typed VCS-history narrative and mixed current-source
   convergence boundary.
-- [ ] Batch D: make reviewer and pre-emit support lanes consume claim bindings
+- [x] Batch D: make reviewer and pre-emit support lanes consume claim bindings
   for retry/local-repair decisions.
 - [x] Batch D.4: align reviewer input to the final V2 visible surface
   (titles, table columns, structured cells, diagrams for semantic review).

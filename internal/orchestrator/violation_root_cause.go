@@ -173,6 +173,107 @@ func FilterFinalizerRetryRootViolations(violations []types.Violation) []types.Vi
 	return out
 }
 
+// FilterFinalizerRetryRootViolationsForBus applies the global soft/strict
+// policy and then narrows strict-promoted generic coverage signals by the
+// current run's typed claim bindings. Operator strict promotion remains
+// respected for precise defects (citations, must-include/exclude,
+// self-contradiction, requested diagrams/tables, success criteria, etc.).
+// The contextual suppression only applies when the active principal handoff is
+// non-current-source, non-exact-output support such as VCS narrative, runtime
+// artifact, command-measurement context, or negative-search boundary data.
+func FilterFinalizerRetryRootViolationsForBus(violations []types.Violation, bus *types.BusContext) []types.Violation {
+	roots := FilterFinalizerRetryRootViolations(violations)
+	if len(roots) == 0 {
+		return nil
+	}
+	bindings := answerClaimBindingsForBusContext(bus)
+	if !claimBindingsDescribeNonHardNarrativeSupport(bindings) {
+		return roots
+	}
+	out := make([]types.Violation, 0, len(roots))
+	for _, v := range roots {
+		if claimBindingSuppressesGenericFinalizerRetry(v) {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+func answerClaimBindingsForBusContext(bus *types.BusContext) []types.AnswerClaimBinding {
+	if bus == nil || bus.AnalysisIR == nil {
+		return nil
+	}
+	var facts []types.AnswerAggregateFact
+	if bus.Mutable != nil {
+		facts = bus.Mutable.StableInvestigationAggregateFacts()
+	}
+	return types.CompileAnswerClaimBindings(facts, &bus.AnalysisIR.RequestModel, &bus.AnalysisIR.AnswerContract)
+}
+
+func claimBindingsDescribeNonHardNarrativeSupport(bindings []types.AnswerClaimBinding) bool {
+	if len(bindings) == 0 {
+		return false
+	}
+	hasPrincipalNonHardSupport := false
+	for _, binding := range bindings {
+		if !types.NormalizeAnswerAggregateRole(binding.AggregateRole).IsPrincipal() && binding.AggregateIndex >= 0 {
+			continue
+		}
+		if binding.GroundingPolicy == types.ClaimGroundingHard || claimBindingHasExactRequestedOutput(binding) {
+			return false
+		}
+		switch binding.Origin {
+		case types.AnswerEvidenceOriginVCSMetadata,
+			types.AnswerEvidenceOriginVCSDiff,
+			types.AnswerEvidenceOriginRuntimeArtifact,
+			types.AnswerEvidenceOriginCommandMeasurement,
+			types.AnswerEvidenceOriginRepoNegativeSearch,
+			types.AnswerEvidenceOriginCrossRepoIndex:
+			hasPrincipalNonHardSupport = true
+		}
+	}
+	return hasPrincipalNonHardSupport
+}
+
+func claimBindingHasExactRequestedOutput(binding types.AnswerClaimBinding) bool {
+	for _, output := range binding.RequestedOutputs {
+		switch output {
+		case types.AnswerRequestedOutputScalar,
+			types.AnswerRequestedOutputKeyValue,
+			types.AnswerRequestedOutputCount,
+			types.AnswerRequestedOutputAbsence,
+			types.AnswerRequestedOutputEnumeration,
+			types.AnswerRequestedOutputComparison,
+			types.AnswerRequestedOutputTrace,
+			types.AnswerRequestedOutputDiagram,
+			types.AnswerRequestedOutputChangeImpact:
+			return true
+		}
+	}
+	return false
+}
+
+func claimBindingSuppressesGenericFinalizerRetry(v types.Violation) bool {
+	if v.MissingBlockKind != "" {
+		return false
+	}
+	switch v.Kind {
+	case types.ViolBlockCoverageMissing,
+		types.ViolPrincipalClaimUseMissing,
+		types.ViolFacetUncovered,
+		types.ViolRichnessGlaringGap,
+		types.ViolPrincipalProseUnderfilled,
+		types.ViolUncertaintyBlockMissing,
+		types.ViolAnswerSemanticUnderfilled,
+		types.ViolPrincipalSupportMemberOmitted,
+		types.ViolLaneBlockKindMismatch:
+		return true
+	default:
+		return false
+	}
+}
+
 // IncrementAttemptsAndCheckExhausted bumps the per-(kind, fp)
 // counter on history for every ROOT violation in violations, then
 // reports whether every root has reached MaxRepairAttemptsPerRoot.

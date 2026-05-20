@@ -257,6 +257,82 @@ func TestFilterFinalizerRetryRootViolations_StrictCannotPromoteNonPromotableKind
 	}
 }
 
+func TestFilterFinalizerRetryRootViolationsForBus_ClaimBindingSuppressesGenericStrictCoverage(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{string(types.ViolFacetUncovered)})
+
+	mut := types.NewMutableState("最近一次合入的是什么特性？")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "latest merge feature",
+		Value: "优化 repo map 缓存",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "evidence_origin", Value: "vcs_metadata"},
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+
+	in := []types.Violation{{
+		Kind:   types.ViolFacetUncovered,
+		Detail: "generic current-code facet not declared",
+	}}
+	out := FilterFinalizerRetryRootViolationsForBus(in, bus)
+	if len(out) != 0 {
+		t.Fatalf("non-exact VCS narrative support should not force strict finalizer retry, got %+v", out)
+	}
+}
+
+func TestFilterFinalizerRetryRootViolationsForBus_KeepsExactAndRequestedShapeDefects(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, []string{
+		string(types.ViolFacetUncovered),
+		string(types.ViolBlockCoverageMissing),
+		string(types.ViolMustInclude),
+	})
+
+	mut := types.NewMutableState("最近一次合入的 commit id 是多少？")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "latest merge commit",
+		Value: "abc1234",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "evidence_origin", Value: "vcs_metadata"},
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentReturnValue,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+				IsScalarAnswer:  true,
+			},
+		}},
+	}
+
+	in := []types.Violation{
+		{Kind: types.ViolFacetUncovered, Detail: "facet missing"},
+		{Kind: types.ViolBlockCoverageMissing, MissingBlockKind: types.BlockDiagram, Detail: "diagram block missing"},
+		{Kind: types.ViolMustInclude, Detail: "required literal missing"},
+	}
+	out := FilterFinalizerRetryRootViolationsForBus(in, bus)
+	if len(out) != 3 {
+		t.Fatalf("exact scalar / requested-shape / must_include defects must stay actionable, got %+v", out)
+	}
+}
+
 func TestRenderViolations_SuppressesSoftTelemetryBesideHardFailure(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, []string{string(types.ViolSuccessCriterion)})
