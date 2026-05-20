@@ -461,7 +461,8 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 		}, nil
 	}
 
-	summary, ref := StoreBlob(ctx, t.Name(), banner+output)
+	payload := execCommandPayloadWithMeasurementOrigin(banner, command, output)
+	summary, ref := StoreBlob(ctx, t.Name(), payload)
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
@@ -469,6 +470,15 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func execCommandPayloadWithMeasurementOrigin(banner, command, output string) string {
+	payload := banner + output
+	proofSummary := fmt.Sprintf("[exec_command: $ %s]\n%s", sanitizeForBanner(command), output)
+	if _, ok := types.DeterministicCountProofInteger(proofSummary); !ok {
+		return payload
+	}
+	return banner + fmt.Sprintf("[exec_command: evidence_origin=%s measurement=count]\n", types.AnswerEvidenceOriginCommandMeasurement) + output
 }
 
 // ---------------------------------------------------------------------------

@@ -400,6 +400,27 @@ func TestExecCommand(t *testing.T) {
 		if !strings.Contains(normalized, "hello\n") {
 			t.Fatalf("expected stdout 'hello', got %q", result.Summary)
 		}
+		if strings.Contains(result.Summary, "evidence_origin=command_measurement") {
+			t.Fatalf("non-measurement command should not be tagged as measurement: %q", result.Summary)
+		}
+	})
+
+	t.Run("tags deterministic count measurement", func(t *testing.T) {
+		tool := &ExecCommand{}
+		params, _ := json.Marshal(execCommandParams{Command: "printf '7\\n'"})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "evidence_origin=command_measurement") {
+			t.Fatalf("deterministic count command should be tagged as command measurement: %q", result.Summary)
+		}
+		if got, ok := types.DeterministicCountProofInteger(result.Summary); !ok || got != 7 {
+			t.Fatalf("measurement origin line must not break count proof, got (%d,%v) from %q", got, ok, result.Summary)
+		}
 	})
 
 	t.Run("normalizes git show no-stat compatibility", func(t *testing.T) {

@@ -415,6 +415,20 @@ Tasks:
   metadata+diff aggregate origins.
 - Validation: `go test ./internal/tool ./internal/types` PASS.
 
+2026-05-20 Batch B.5:
+
+- Added a narrow `exec_command` emission marker for deterministic count
+  measurements. The tool now appends
+  `evidence_origin=command_measurement measurement=count` only when the
+  successful command output passes the existing `DeterministicCountProofInteger`
+  parser.
+- Ordinary shell output remains untagged, so repository reads, grep listings,
+  and ad-hoc diagnostic commands are not accidentally reclassified as scalar
+  measurements.
+- Added regression coverage that non-measurement output stays untagged and that
+  the added marker does not break deterministic count extraction.
+- Validation: `go test ./internal/tool ./internal/types` PASS.
+
 ### Batch C — Runtime Artifact Origins
 
 Goal: stop treating external logs/traces as repo citations or code members.
@@ -512,8 +526,8 @@ or noisy retries:
   aggregates at tool emission.
 - [x] Batch B.4: tag structured git tool outputs with VCS metadata/diff
   origins at tool emission.
-- [ ] Batch B: tag remaining non-git command measurement tool outputs at tool
-  emission where the output is structurally known to be a measurement.
+- [x] Batch B.5: tag deterministic non-git command measurements at tool
+  emission without tagging arbitrary shell output.
 - [x] Batch B.2: route decorated commit-hash support-ref exception through
   unified VCS origin projection.
 - [ ] Batch B: remove remaining VCS/hash compatibility fallback once structured
