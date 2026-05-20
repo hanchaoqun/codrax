@@ -129,6 +129,43 @@ func TestEmitInvestigationComplete_WaiverStoredOnAcceptance(t *testing.T) {
 	}
 }
 
+func TestEmitInvestigationComplete_IgnoresWaiverForPureVCSHistory(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: "最近 10 次提交都做了什么",
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"reason":"git_log already provides the requested commit history summary",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{
+			"reason":"external_only_trace",
+			"rationale":"git history is outside source file citations"
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("Execute unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("pure VCS waiver misuse should be ignored without forcing a retry: %s", res.Summary)
+	}
+	if mut.EvidenceFloorWaiver() != nil || mut.StableEvidenceFloorWaiver() != nil {
+		t.Fatalf("pure VCS history must not retain runtime-artifact waiver: current=%+v stable=%+v",
+			mut.EvidenceFloorWaiver(), mut.StableEvidenceFloorWaiver())
+	}
+	if !strings.Contains(res.Summary, "ignored evidence_floor_waiver") ||
+		!strings.Contains(res.Summary, "pure VCS history") {
+		t.Fatalf("summary should disclose ignored VCS waiver misuse, got: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_WaiverNotStableWhenLaterGateRejects(t *testing.T) {
 	mut := types.NewMutableState("q")
 	params := `{

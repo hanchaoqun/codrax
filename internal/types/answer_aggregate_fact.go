@@ -1920,6 +1920,7 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 		return AnswerAggregateFact{}, err
 	}
 	fact.Dimensions = dims
+	fact.Dimensions = normalizeAggregateFactOriginDimensions(fact)
 	fact.Members = normalizeAggregateStrings(raw.Members, maxAnswerAggregateMembers)
 	fact.Excluded = normalizeAggregateStrings(raw.Excluded, maxAnswerAggregateMembers)
 	fact.SupportRefs = normalizeAggregateStrings(raw.SupportRefs, maxAnswerAggregateMembers)
@@ -1942,6 +1943,63 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 		return AnswerAggregateFact{}, fmt.Errorf("value is required")
 	}
 	return fact, nil
+}
+
+func normalizeAggregateFactOriginDimensions(fact AnswerAggregateFact) []AnswerAggregateDimension {
+	if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
+		return fact.Dimensions
+	}
+	origins := answerAggregateFactExplicitEvidenceOrigins(fact)
+	if len(origins) == 0 {
+		return fact.Dimensions
+	}
+	out := append([]AnswerAggregateDimension(nil), fact.Dimensions...)
+	dims := aggregateDimensionMap(out)
+	for _, origin := range origins {
+		if origin == AnswerEvidenceOriginUnknown || origin == AnswerEvidenceOriginCurrentSource {
+			continue
+		}
+		name := aggregateFactOriginDimensionName(origin, dims)
+		if name == "" {
+			continue
+		}
+		if len(out) >= maxAnswerAggregateDimensions {
+			break
+		}
+		out = append(out, AnswerAggregateDimension{Name: name, Value: string(origin)})
+		dims[name] = string(origin)
+	}
+	return out
+}
+
+func aggregateFactOriginDimensionName(origin AnswerEvidenceOrigin, dims map[string]string) string {
+	switch origin {
+	case AnswerEvidenceOriginVCSDiff:
+		if dims["origin"] == "" && dims["evidence_origin"] == "" {
+			return "origin"
+		}
+		if dims["diff_origin"] == "" {
+			return "diff_origin"
+		}
+	case AnswerEvidenceOriginCommandMeasurement:
+		if dims["origin"] == "" && dims["evidence_origin"] == "" {
+			return "origin"
+		}
+		if dims["measurement_origin"] == "" {
+			return "measurement_origin"
+		}
+	default:
+		if dims["origin"] == "" {
+			return "origin"
+		}
+		if dims["evidence_origin"] == "" {
+			return "evidence_origin"
+		}
+		if dims["secondary_origin"] == "" {
+			return "secondary_origin"
+		}
+	}
+	return ""
 }
 
 type aggregateMemberSupportSurface struct {

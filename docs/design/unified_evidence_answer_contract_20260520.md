@@ -450,6 +450,40 @@ Tasks:
   metadata+measurement output.
 - Validation: `go test ./internal/tool ./internal/types` PASS.
 
+2026-05-20 Batch B.7:
+
+- Added eval guard `u7l` for "最近 10 次提交都做了哪些事情，作用和影响分别是什么".
+  This protects the customer failure class where a rich history summary was
+  collapsed into a single `value: <commit>` answer.
+- Pure recent-N history enumeration now remains a VCS-principal lane even when
+  the analyzer marks the visible answer shape as `enumeration` /
+  `category_enumeration`. The request may ask for a list; that does not imply
+  current-source file reads or `emit_answer_symbol` extraction.
+- Explorer/extractor prompts now explicitly allow a completed pure VCS history
+  investigation to close through `emit_investigation_complete(reason,
+  aggregate_facts)` without synthetic `read_file` / `emit_evidence` rows.
+- Added JSON compatibility repair for answer-document item objects that contain
+  exactly one schema-unknown non-empty string field and no `text` / `cells`.
+  The repair moves that lone string to `text` losslessly; ambiguous unknown
+  fields still go through the existing quarantine path.
+- Validation:
+  `go test ./internal/context ./internal/types ./internal/tool ./internal/agent ./internal/orchestrator`
+  PASS for the targeted VCS/history tests recorded in the gap document.
+
+2026-05-20 Batch B.8:
+
+- Analyzer skill instructions now carve out obvious repository-history / git
+  classification questions from source-code pre-scan. The analyzer should emit
+  `question_kind=history` and `is_history_lookup=true` directly, then choose
+  visible output shape separately: scalar only for literal hash/date/author/count
+  questions; list/comparison/mechanism/diagram for richer history requests.
+- Finalizer prose guidance now explicitly bans leaking internal carrier terms
+  such as `citation_ref` and `citations[]` into user-visible command/VCS
+  answers.
+- Validation:
+  `go test ./internal/skill ./internal/agent -run 'TestAnalysisSkill_PromptDocumentsDirectHistoryClassification|TestRenderAnswerDocUnifiedIntentContract|TestRenderAnswerDocClaimBindings'`
+  PASS.
+
 ### Batch C — Runtime Artifact Origins
 
 Goal: stop treating external logs/traces as repo citations or code members.
@@ -690,6 +724,182 @@ Tasks:
   external runtime/artifact member supplements remain tracked in
   `eval_20260520_full_sweep_gap_tracking.md`.
 
+2026-05-20 Batch E.2:
+
+- Fixed a role-only aggregate reconciliation hole found by
+  `qf_multi_member_set_count_caveat`. Parallel exploration can legitimately
+  emit multiple principal member sets with the same candidate role but different
+  semantic buckets, for example read-mode and write-mode `Kind` constants.
+  Role-only definition evidence must not expand either sibling bucket into the
+  full same-role universe.
+- `reconcileCompletionAggregateFactsWithDefinitionEvidence` now permits
+  definition-based member-set expansion only when there is exactly one
+  principal complete member set for that candidate role. If multiple same-role
+  principal sets exist, the system preserves the model/explorer bucket boundary
+  and lets the broader surface planner decide whether a true superset should be
+  principal while sub-buckets become support.
+- Added tests that pin both halves of the contract: same-role sibling buckets
+  are not auto-expanded by role-only evidence, and when a broad same-role
+  superset exists it is the only principal set while narrower buckets are kept
+  as `supporting_coverage`.
+- Validation:
+  `go test ./internal/tool -run 'TestReconcileCompletionAggregateFactsWithDefinitionEvidence'`
+  and
+  `go test ./internal/types -run 'TestBuildAnswerSurfacePlan_DemotesSameRoleSubBucketsWhenBroadSupersetExists'`
+  PASS.
+
+### Batch F — Unified Non-Code Evidence Contract
+
+Goal: make VCS, logs, traces, command output, scoped negative searches, and
+repo-index facts first-class evidence without pretending they are current
+source `file:line` anchors.
+
+This is the final commercial target for non-code evidence. It is deliberately
+not a second system: it reuses the existing `AnswerEvidenceOrigin`,
+`CompileAnswerIntentContract`, `AnswerAggregateFactEvidenceOrigins`, and
+`CompileAnswerClaimBindings` primitives. The work is to connect every stage to
+those primitives consistently.
+
+#### F.1 Evidence Producer Contract
+
+Every non-code evidence producer must attach a typed origin at the production
+boundary:
+
+- `git_log`, metadata-only `git_show`, and git-history searches:
+  `origin=vcs_metadata`.
+- `git_diff`, patch/stat/name-only `git_show`, and diff-like `exec_command`
+  git output: `origin=vcs_diff` or `diff_origin=vcs_diff`.
+- `emit_log_triage` and `emit_perf_trace`: `origin=runtime_artifact`.
+- deterministic safe shell measurements: `origin=command_measurement`.
+- scoped zero-result searches: `origin=repo_negative_search` with
+  `repo/scope/query|pattern/result_count/searched_at`.
+- repo-map and multi-repo overview facts: `origin=cross_repo_index`.
+
+The producer contract answers "where did this fact come from"; it does not say
+how the answer should be displayed.
+
+#### F.2 Handoff Contract
+
+Exploration hands off non-code evidence through:
+
+- raw tool outputs for recent command/VCS results when the finalizer needs the
+  exact literal or commit-by-commit summary;
+- `emit_investigation_complete.reason` for model-authored narrative synthesis;
+- `emit_investigation_complete.aggregate_facts` for exact counts, lists,
+  scalar values, groups, exclusions, and bounded absences that must be preserved
+  as structured data;
+- runtime bundles (`LogBundle`, `PerfBundle`) for attached artifacts.
+
+`emit_evidence` remains the current-checkout source citation tool. It is valid
+only when the model has read and grounded a real current source/config/doc line.
+It is not the carrier for old/deleted diff lines, stack-frame coordinates,
+command rows, or zero-result searches.
+
+#### F.3 Claim Binding / Gate Contract
+
+Downstream code must compile one shared `AnswerClaimBinding` view from
+aggregate facts, runtime bundles, and the request intent contract. Hard retry is
+reserved for precise principal violations under the active origin:
+
+- `current_source` principal claims may require current file:line citations.
+- exact scalar/count/absence outputs must visibly preserve their exact value or
+  boundary.
+- `vcs_metadata`, `vcs_diff`, `runtime_artifact`, `command_measurement`,
+  `repo_negative_search`, and `cross_repo_index` principal claims should be
+  locally repaired or disclosed when imperfect; they must not trigger
+  current-source forced reads unless the user also asked for current behavior.
+
+This preserves user intent: a commit-history list remains a list, a diff+current
+code question keeps two lanes, and a log-only diagnostic may answer from the
+log without inventing repo citations.
+
+#### F.4 Finalizer / Renderer Contract
+
+The finalizer must see the same origin boundary as reviewers and pre-emit gates:
+
+- finalizer prompt uses the existing `Evidence Origin / Requested Output
+  Boundary` and `Claim Binding / Gate Policy Handoff` sections;
+- explorer/extractor receive the same contract earlier via the `Evidence Origin
+  Boundary` prompt section;
+- renderer displays non-code evidence as natural localized provenance, never as
+  internal carriers (`citation_ref`, `citations[]`, enum names);
+- system supplements may append clearly marked localized notes, but must not
+  replace a valid model-authored table/prose/diagram.
+
+#### F.5 Test / Eval Matrix
+
+Required tests before the contract is considered complete:
+
+- unit tests for every producer origin banner and aggregate-origin projection;
+- prompt tests proving explorer/extractor see the upstream origin boundary and
+  finalizer does not receive duplicate copies from `BuildPromptContext`;
+- finalizer/reviewer tests proving non-code principal claims do not become
+  current-source citation requirements;
+- eval cases:
+  - latest commit feature summary;
+  - recent 10 commits with purpose and impact;
+  - compare two commits;
+  - diff-only summary;
+  - diff + current code explanation;
+  - diff + current code + diagram;
+  - all-history search plus current implementation;
+  - log-only diagnostic;
+  - trace-only performance diagnosis;
+  - scoped negative search mixed with present current-source facts.
+
+2026-05-20 Batch F.1:
+
+- Added a shared upstream `Evidence Origin Boundary` prompt section for
+  explorer/extractor. It renders the same `CompileAnswerIntentContract`
+  projection used by finalizer, explains that non-current-source facts are
+  first-class evidence in their own lane, and forbids converting VCS/log/trace/
+  command/negative-search facts into fake current-source `emit_evidence` rows.
+- The section intentionally does not render for finalizer because finalizer
+  already receives `renderAnswerDocUnifiedIntentContract` and claim bindings.
+  A regression test pins that no duplicate finalizer origin-boundary prompt is
+  introduced.
+- Tool-sourced finalizer guidance now clarifies that `citation_ref=-1` is an
+  internal carrier and visible prose should say repository history / diff output
+  / command output instead of exposing `citation_ref` or `citations[]`.
+- Validation:
+  `go test ./internal/context -run 'TestBuildPromptContext_ToolSourced|TestBuildPromptContext_EvidenceOriginBoundary|TestBuildPromptContext_AnalysisSkill_NoDuplicateSections'`
+  PASS.
+
+2026-05-20 Batch F.2:
+
+- Moved one more compatibility edge toward the final contract:
+  `NormalizeAnswerAggregateFacts` now canonicalizes exact legacy provenance
+  tokens such as `git_diff`, `git_history_search`, `exec_command`, and
+  `measurement_origin` into structured origin dimensions when those dimensions
+  are missing.
+- This reuses the existing `AnswerAggregateFactEvidenceOrigins` projection and
+  does not create a new inference system. The recognized tokens are closed and
+  typed; arbitrary model prose remains audit-only provenance and does not drive
+  hard gates.
+- Existing explicit dimensions win. The normalizer never duplicates `origin`,
+  `diff_origin`, or `measurement_origin`, and it skips additions when the
+  aggregate dimension budget is already full rather than rejecting a previously
+  usable handoff.
+- Validation:
+  `go test ./internal/types -run 'TestAnswerAggregateFactEvidenceOrigins|TestNormalizeAnswerAggregateFacts_AddsStructuredOriginDimensions|TestNormalizeAnswerAggregateFacts_PreservesExistingOriginDimensions|TestCompileAnswerIntentContract|TestCompileAnswerClaimBindings|TestHistoryLookupPrefersVCSNarrativePrincipal'`
+  PASS.
+
+2026-05-20 Batch F.3:
+
+- Strengthened VCS tool descriptions so the model is taught at the tool boundary
+  that `git_diff` / `git_history_search` results are VCS provenance, not
+  current-checkout `file:line` evidence.
+- `git_diff` now explicitly tells the model to use it for diff-only and
+  diff+current-code questions before deciding whether current source must also
+  be read, and not to mirror old/deleted diff lines through `emit_evidence`.
+- `git_history_search` now says its result should travel through
+  `aggregate_facts` / `reason` unless the model separately reads current source.
+- Added tests that pin this guidance so future tool-description edits do not
+  accidentally reintroduce fake current-source evidence loops.
+- Validation:
+  `go test ./internal/tool -run 'TestGit(Diff|HistorySearch|Log|Show)'`
+  PASS.
+
 ## 7. Acceptance Matrix
 
 The contract is not accepted until these families pass without answer collapse
@@ -739,10 +949,14 @@ or noisy retries:
   emission without tagging arbitrary shell output.
 - [x] Batch B.6: classify git commands executed through `exec_command` into
   VCS metadata/diff origins without relying on user/model prose.
+- [x] Batch B.7: keep pure recent-N history enumeration in the VCS lane and add
+  `u7l` eval coverage for recent 10 commits with purpose/impact.
+- [x] Batch B.8: teach analyzer direct repository-history classification and
+  prevent user-visible leakage of `citation_ref` / `citations[]` in VCS answers.
 - [x] Batch B.2: route decorated commit-hash support-ref exception through
   unified VCS origin projection.
 - [ ] Batch B: remove remaining VCS/hash compatibility fallback once structured
-  tool-emitted origin fields land.
+  tool-emitted origin fields fully cover archived/replayed payloads.
 - [x] Batch C.1: tag log/perf triage tool outputs with runtime artifact origin.
 - [x] Batch C.2: add runtime artifact frame/observation claim bindings.
 - [x] Batch D.1: compile aggregate claim bindings and render them in the final
@@ -759,5 +973,16 @@ or noisy retries:
   high-confidence sufficient semantic-review verdict.
 - [x] Batch E.1: enforce and test system supplement safety invariants for the
   existing deterministic补表 compilers.
+- [x] Batch E.2: prevent role-only aggregate reconciliation from expanding
+  sibling same-role buckets into one another.
+- [x] Batch F.1: add upstream `Evidence Origin Boundary` prompt section for
+  explorer/extractor and pin that finalizer does not get duplicate contract
+  copies from `BuildPromptContext`.
+- [x] Batch F.2: canonicalize exact legacy aggregate provenance tokens into
+  explicit structured origin dimensions during aggregate normalization.
+- [x] Batch F.3: teach VCS tool descriptions to preserve the VCS provenance lane
+  and avoid fake `emit_evidence` rows.
+- [ ] Batch F.4: add reviewer/pre-emit tests for diff-only, trace-only, and
+  negative-search-plus-present-source mixed answers.
 - [ ] Run targeted evals after each batch and update
   `eval_20260520_full_sweep_gap_tracking.md`.

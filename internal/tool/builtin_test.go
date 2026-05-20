@@ -1522,6 +1522,15 @@ func TestFileTypeToGlobs(t *testing.T) {
 // TestRepoMap moved to internal/tool/repomap/ package (tree-sitter powered).
 
 func TestGitDiff(t *testing.T) {
+	t.Run("description teaches VCS diff lane", func(t *testing.T) {
+		desc := (&GitDiff{}).Description()
+		for _, want := range []string{"VCS diff evidence", "not current checkout file:line evidence", "do not mirror old/deleted diff lines through emit_evidence"} {
+			if !strings.Contains(desc, want) {
+				t.Fatalf("git_diff description missing %q:\n%s", want, desc)
+			}
+		}
+	})
+
 	t.Run("skip if not in git repo", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		tool := &GitDiff{}
@@ -1692,9 +1701,74 @@ func TestGitLog(t *testing.T) {
 			t.Fatalf("git_log should tag VCS metadata origin in banner, got %q", result.Summary)
 		}
 	})
+
+	t.Run("supports stat name-only and pathspec for recent summaries", func(t *testing.T) {
+		ctx := gitWorktreeFixture(t, "seed\n")
+		run := func(args ...string) {
+			t.Helper()
+			cmd, cancel := NewGitCommand(nil, args...)
+			defer cancel()
+			cmd.Dir = ctx.RepoRoot
+			cmd.Env = append(os.Environ(),
+				"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+				"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+		}
+		if err := os.MkdirAll(filepath.Join(ctx.RepoRoot, "sub"), 0o755); err != nil {
+			t.Fatalf("mkdir sub: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(ctx.RepoRoot, "sub", "feature.txt"), []byte("feature\n"), 0o644); err != nil {
+			t.Fatalf("write sub file: %v", err)
+		}
+		run("add", "sub/feature.txt")
+		run("commit", "-q", "-m", "feature change")
+
+		tool := &GitLog{}
+		for _, tc := range []struct {
+			name string
+			in   gitLogParams
+			want string
+		}{
+			{"stat", gitLogParams{Count: 2, Format: "medium", Stat: true, Pathspec: "sub/"}, "sub/feature.txt"},
+			{"name-only", gitLogParams{Count: 2, Format: "oneline", NameOnly: true, Pathspec: "sub/"}, "sub/feature.txt"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				params, _ := json.Marshal(tc.in)
+				result, err := tool.Execute(ctx, params)
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if !result.Success || !strings.Contains(result.Summary, tc.want) {
+					t.Fatalf("git_log %s failed or missed %q: success=%v summary=%q", tc.name, tc.want, result.Success, result.Summary)
+				}
+				if !strings.Contains(result.Summary, "pathspec=sub/") ||
+					!strings.Contains(result.Summary, "evidence_origin=vcs_metadata") {
+					t.Fatalf("git_log %s should tag pathspec and VCS metadata, got %q", tc.name, result.Summary)
+				}
+			})
+		}
+
+		params, _ := json.Marshal(gitLogParams{Stat: true, NameOnly: true})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Success || !strings.Contains(result.Summary, "mutually exclusive") {
+			t.Fatalf("stat+name_only should be rejected, got success=%v summary=%q", result.Success, result.Summary)
+		}
+	})
 }
 
 func TestGitHistorySearchCountsBoundedDiffMatches(t *testing.T) {
+	desc := (&GitHistorySearch{}).Description()
+	for _, want := range []string{"VCS metadata/diff provenance", "not current-source file:line evidence", "aggregate_facts/reason"} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("git_history_search description missing %q:\n%s", want, desc)
+		}
+	}
+
 	ctx := gitWorktreeFixture(t, "seed\n")
 	run := func(args ...string) {
 		t.Helper()

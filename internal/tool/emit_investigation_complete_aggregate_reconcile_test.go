@@ -97,6 +97,66 @@ func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_DoesNotExpandMi
 	}
 }
 
+func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_DoesNotExpandSiblingSameRoleBuckets(t *testing.T) {
+	ctx := aggregateReconcileTestContext()
+	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{}}
+	add := func(name string, line int) {
+		graph.SymbolDefs[name] = append(graph.SymbolDefs[name], &repotypes.Symbol{
+			Name:     name,
+			Kind:     "const",
+			File:     "internal/types/grammar.go",
+			Line:     line,
+			EndLine:  line,
+			Exported: true,
+		})
+	}
+	add("KindSymbolPresent", 29)
+	add("KindNoCallSites", 30)
+	add("KindPlanReady", 54)
+	add("KindPatchApplies", 55)
+	ctx.Mutable.SetSearchGraph(graph)
+
+	def := func(symbol string, line int) types.EvidenceItem {
+		return types.EvidenceItem{
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    symbol,
+			Subject:         symbol,
+			Source:          "internal/types/grammar.go",
+			LineStart:       line,
+			GroundingStatus: types.GroundingGrounded,
+		}
+	}
+	evidence := []types.EvidenceItem{
+		def("KindSymbolPresent", 29),
+		def("KindNoCallSites", 30),
+		def("KindPlanReady", 54),
+		def("KindPatchApplies", 55),
+	}
+	facts := []types.AnswerAggregateFact{
+		{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "Kind 常量成员（读模式）",
+			Value:   "2",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"KindSymbolPresent", "KindNoCallSites"},
+		},
+		{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "Kind 常量成员（写模式）",
+			Value:   "2",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"KindPlanReady", "KindPatchApplies"},
+		},
+	}
+
+	got := reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx, facts, evidence)
+	if !reflect.DeepEqual(got, facts) {
+		t.Fatalf("same-role sibling buckets must not be expanded by role-only definition evidence;\ngot  %#v\nwant %#v", got, facts)
+	}
+}
+
 func aggregateReconcileTestContext() *types.BusContext {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{}}
 	add := func(name, kind string, line int, exported bool) {

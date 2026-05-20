@@ -2069,6 +2069,84 @@ func TestBuildPromptContext_ToolSourcedValueGuidance_RenderedForExplore(t *testi
 	}
 }
 
+func TestBuildPromptContext_ToolSourcedValueGuidance_PureHistoryDoesNotAskForReadFile(t *testing.T) {
+	mu := types.NewMutableState("最近 10 次提交都做了什么")
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: "最近 10 次提交都做了什么",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup:       true,
+					IsCategoryEnumeration: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqHistory)},
+			},
+			AnswerContract: types.AnswerContract{CitationReq: types.CitationReq{Required: false}},
+		},
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "explorer-skill"})
+	sec := findSectionTitle(pc, SectionToolSourcedValue)
+	if sec == nil {
+		t.Fatal("expected Tool-Sourced Value section for pure VCS history")
+	}
+	if !strings.Contains(sec.Content, "pure VCS-history handoff") ||
+		!strings.Contains(sec.Content, "do not call `read_file` or `emit_evidence`") {
+		t.Fatalf("pure history guidance should prevent current-source habit reads, got:\n%s", sec.Content)
+	}
+}
+
+func TestBuildPromptContext_EvidenceOriginBoundary_RendersUpstreamOnly(t *testing.T) {
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqHistory)},
+		},
+		AnswerContract: types.AnswerContract{CitationReq: types.CitationReq{Required: false}},
+	}
+	for _, stage := range []types.PipelineStage{types.StageExplore, types.StageExtract} {
+		ac := &types.AgentContext{
+			AgentName:  types.AgentExplorer,
+			Stage:      stage,
+			Objective:  "最近 10 次提交都做了什么",
+			Mutable:    types.NewMutableState("最近 10 次提交都做了什么"),
+			AnalysisIR: ir,
+		}
+		pc := BuildPromptContext(ac, &skill.Config{Name: "test-skill"})
+		sec := findSectionTitle(pc, SectionEvidenceOrigin)
+		if sec == nil {
+			t.Fatalf("stage %s should render Evidence Origin Boundary", stage)
+		}
+		for _, want := range []string{
+			"Non-current-source facts are first-class evidence",
+			"Do not convert VCS history",
+			"fake current-source `emit_evidence` rows",
+		} {
+			if !strings.Contains(sec.Content, want) {
+				t.Fatalf("stage %s evidence-origin section missing %q:\n%s", stage, want, sec.Content)
+			}
+		}
+	}
+
+	ac := &types.AgentContext{
+		AgentName:  types.AgentFinalizer,
+		Stage:      types.StageFinalize,
+		Objective:  "最近 10 次提交都做了什么",
+		Mutable:    types.NewMutableState("最近 10 次提交都做了什么"),
+		AnalysisIR: ir,
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "finalize-answer"})
+	if sec := findSectionTitle(pc, SectionEvidenceOrigin); sec != nil {
+		t.Fatalf("finalizer must not get duplicate Evidence Origin Boundary from BuildPromptContext; evaluator renders the finalizer copy:\n%s", sec.Content)
+	}
+}
+
 // TestBuildPromptContext_RawToolOutputs_SkippedForExplanationShape is
 // the negative regression — the section must NOT appear for deep-
 // investigation (explain-class) questions, or the finalizer will

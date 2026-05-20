@@ -43,6 +43,24 @@ func TestCompileAnswerIntentContract_HistoryNarrativeDoesNotCollapseToScalar(t *
 	}
 }
 
+func TestCompileAnswerIntentContract_PureHistoryEnumerationStaysVCSOnly(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqHistory)},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	assertAnswerIntentContract(t, got,
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginVCSMetadata},
+		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputEnumeration},
+	)
+	if got.HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatalf("pure commit-history enumeration must not require current-source origin: %+v", got)
+	}
+}
+
 func TestCompileAnswerIntentContract_HistoryCurrentCodeMechanismKeepsTwoOrigins(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentExplain,

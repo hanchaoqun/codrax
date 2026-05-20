@@ -2398,6 +2398,9 @@ func viewNeedsBoundedPrincipalList(ctx *types.AgentContext) bool {
 }
 
 func needsAnswerSymbols(ctx *types.AgentContext) bool {
+	if pureVCSMetadataAnswerRendersWithoutAnswerSymbols(ctx) {
+		return false
+	}
 	if isMultiTopicExplanation(ctx) || viewNeedsBoundedPrincipalList(ctx) {
 		return true
 	}
@@ -2405,6 +2408,29 @@ func needsAnswerSymbols(ctx *types.AgentContext) bool {
 		return !enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx)
 	}
 	return false
+}
+
+func pureVCSMetadataAnswerRendersWithoutAnswerSymbols(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !rm.Predicates.IsHistoryLookup {
+		return false
+	}
+	contract := types.CompileAnswerIntentContract(rm, &ctx.AnalysisIR.AnswerContract)
+	if !contract.HasOrigin(types.AnswerEvidenceOriginVCSMetadata) ||
+		contract.HasOrigin(types.AnswerEvidenceOriginCurrentSource) {
+		return false
+	}
+	if contract.HasOutput(types.AnswerRequestedOutputMechanism) ||
+		contract.HasOutput(types.AnswerRequestedOutputTrace) ||
+		contract.HasOutput(types.AnswerRequestedOutputDiagram) ||
+		contract.HasOutput(types.AnswerRequestedOutputDiagnostic) ||
+		contract.HasOutput(types.AnswerRequestedOutputChangeImpact) {
+		return false
+	}
+	return true
 }
 
 func enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx *types.AgentContext) bool {
@@ -2615,9 +2641,13 @@ func InvestigationStructurallyEmpty(ta *types.TurnAArtifacts, evidence []types.E
 // contract_check.go list so the extractor gate and the contract
 // audit agree on what "real investigation work" is. Keep in sync.
 var investigationToolKinds = map[string]bool{
-	"grep":         true,
-	"exec_command": true,
-	"list_files":   true,
-	"read_file":    true,
-	"repo_map":     true,
+	"grep":               true,
+	"exec_command":       true,
+	"list_files":         true,
+	"read_file":          true,
+	"repo_map":           true,
+	"git_log":            true,
+	"git_show":           true,
+	"git_diff":           true,
+	"git_history_search": true,
 }

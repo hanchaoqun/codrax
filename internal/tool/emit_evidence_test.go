@@ -186,6 +186,52 @@ func TestEmitEvidence_HistoryMetadataWithoutLineIsAdvisoryNoop(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_HistoryMetadataCrossfileIsAdvisoryNoop(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		},
+	}
+	params := json.RawMessage(`{
+        "items": [
+          {
+            "kind": "direct",
+            "scope": "crossfile",
+            "source": "git_log",
+            "anchor_kind": "text_reference",
+            "anchor_symbol": "3ae8465",
+            "summary": "3ae8465 orchestrator: route retries through claim bindings 是最近一次提交",
+            "crossfile_query": {
+              "files": ["internal/orchestrator/orchestrator.go"],
+              "pattern": "3ae8465"
+            },
+            "crossfile_assertion": {"kind": "exists"}
+          }
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("history crossfile metadata should be advisory no-op, got: %s", res.Summary)
+	}
+	if got := len(ctx.Mutable.EmittedEvidence()); got != 0 {
+		t.Fatalf("history metadata must not be recorded as source evidence, got %d item(s)", got)
+	}
+	if strings.Contains(res.Summary, "scope=crossfile assertion=exists FAILED") {
+		t.Fatalf("VCS metadata must not be routed through source crossfile grounding, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "VCS/history metadata") ||
+		!strings.Contains(res.Summary, "emit_investigation_complete.reason") {
+		t.Fatalf("summary should route VCS metadata to closure reason/support facts, got: %s", res.Summary)
+	}
+}
+
 func TestEmitEvidence_DirectoryMeasurementFileScopeIsAdvisoryNoop(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

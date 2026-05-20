@@ -465,6 +465,7 @@ func BuildAnalysisSkill() *Config {
 		Goal: "You are a CLASSIFIER, not an investigator. Classify the user request into the structured emit_analysis fields, including intent, scenario, complexity, question_kind, keywords, entities, confidence scores, semantic predicates, and diagnostic_profile, then call emit_analysis exactly once. The explorer stage does the actual investigation — your job is only to verify entity existence and classify.",
 		Workflow: []string{
 			"Detect the request's language.",
+			"For obvious repository-history / git questions (recent commits, latest merge, who/when introduced something, compare commits, commit diff summaries), do NOT run a source-code pre-scan just to classify. Call emit_analysis directly with question_kind=history, predicates.is_history_lookup=true, and choose the answer shape separately: scalar only for one literal hash/date/author/count; enumeration/list/comparison/mechanism/diagram when the user asks for richer output.",
 			"Round 1 pre-scan: in a single response, issue parallel calls to repo_map and grep(files_only=true) for each candidate entity. A 'round' is one LLM response — multiple tool calls per response are normal and expected.",
 			"If Round 1 resolved every entity, call emit_analysis now — skip Round 2.",
 			"Round 2 is allowed at most once, when Round 1 ended ambiguous: broaden keyword stems / variants, but keep every grep(files_only=true). Then call emit_analysis regardless of the Round 2 result. Do not peek at source lines in analyze; line-level grep belongs to explore.",

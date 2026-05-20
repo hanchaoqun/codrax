@@ -69,6 +69,7 @@ func TestL0B_EnumerationCardinalityGate_PresentInSource(t *testing.T) {
 	// 2026-05-08 carve-out: gate must NOT fire on
 	// IsCategoryEnumeration=true + IsRelationalLookup=true + 1 entity.
 	const wantRelationalCarveOut = "!rm.Predicates.IsRelationalLookup"
+	const wantHistoryCarveOut = "!rm.Predicates.IsHistoryLookup"
 
 	src := readAnalyzerSource(t)
 
@@ -86,6 +87,9 @@ func TestL0B_EnumerationCardinalityGate_PresentInSource(t *testing.T) {
 	}
 	if !strings.Contains(src, wantRelationalCarveOut) {
 		t.Errorf("L0-B gate must carry the IsRelationalLookup carve-out (expected substring %q) — without it the gate over-fires on \"filter set X by relation to Y\" questions like \"which packages import X\"", wantRelationalCarveOut)
+	}
+	if !strings.Contains(src, wantHistoryCarveOut) {
+		t.Errorf("L0-B gate must carry the IsHistoryLookup carve-out (expected substring %q) — pure VCS history enumerations list commits discovered by git tools, not analyzer-time code entities", wantHistoryCarveOut)
 	}
 }
 
@@ -132,6 +136,14 @@ func TestL0B_GateClassification_TableDriven(t *testing.T) {
 		// Edge case: cat=false + rel=true single-entity is unaffected
 		// (gate already passes when cat=false).
 		{"cat_false_rel_true_single", false, true, []string{"X"}, nil, false},
+		{"history_lookup_zero_entities",
+			true, false, nil, func(rm *types.RequestModel) {
+				rm.Predicates.IsHistoryLookup = true
+			}, false},
+		{"history_lookup_one_entity",
+			true, false, []string{"commit"}, func(rm *types.RequestModel) {
+				rm.Predicates.IsHistoryLookup = true
+			}, false},
 		{"scoped_inventory_single_entity_with_required_files",
 			true, false, []string{"criterion"}, func(rm *types.RequestModel) {
 				rm.SourceScopeProfile = &types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction, Confidence: 0.9}

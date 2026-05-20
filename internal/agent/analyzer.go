@@ -3401,6 +3401,7 @@ func distinctNamedEntities(entities []string) int {
 func shouldRejectEnumerationCardinality(rm *types.RequestModel) bool {
 	return rm != nil &&
 		rm.Predicates.IsCategoryEnumeration &&
+		!rm.Predicates.IsHistoryLookup &&
 		!rm.Predicates.IsRelationalLookup &&
 		!hasScopedInventoryEnumerationCarveOut(rm) &&
 		distinctNamedEntities(rm.AnalyzerHints.Entities) <= 1

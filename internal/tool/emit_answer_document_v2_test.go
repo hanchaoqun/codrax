@@ -204,6 +204,60 @@ func TestEmitAnswerDocumentV2_QuarantinesUnknownSchemaMetadata(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_RepairsSingleUnknownItemTextAlias(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "最近提交概览。"},
+			{"id": "l1", "kind": "ordered_list", "items": [
+				{"id": "i1", "label": "333707a", "tool": "标记 deterministic command measurements 的稳定化与计量路径", "citation_ref": -1}
+			]}
+		]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("single unknown item text alias should be repaired, got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].Items) != 1 {
+		t.Fatalf("document not written: %+v", doc)
+	}
+	if got := doc.Blocks[1].Items[0].Text; !strings.Contains(got, "deterministic command") {
+		t.Fatalf("unknown item text alias was not preserved as visible text: %q", got)
+	}
+}
+
+func TestEmitAnswerDocumentV2_DoesNotGuessAmbiguousUnknownItemTextAliases(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	payload := json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "最近提交概览。"},
+			{"id": "l1", "kind": "ordered_list", "items": [
+				{"id": "i1", "label": "333707a", "tool": "first", "detail": "second", "citation_ref": -1}
+			]}
+		]
+	}`)
+	res, err := tool.Execute(bus, payload)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ambiguous unknown item fields should still quarantine instead of retrying: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].Items) != 1 {
+		t.Fatalf("document not written: %+v", doc)
+	}
+	if got := doc.Blocks[1].Items[0].Text; got != "" {
+		t.Fatalf("ambiguous unknown item text aliases must not be guessed, got %q", got)
+	}
+}
+
 func TestEmitAnswerDocumentV2_CaveatAliasAcceptedForCaveatBlock(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

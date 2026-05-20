@@ -2,6 +2,7 @@ package types
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -84,6 +85,70 @@ func TestAnswerAggregateFactEvidenceOrigins_GitShowMetadataAndDiff(t *testing.T)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("origins mismatch\ngot:  %#v\nwant: %#v", got, want)
 	}
+}
+
+func TestNormalizeAnswerAggregateFacts_AddsStructuredOriginDimensionsFromLegacyProvenance(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "changed symbols",
+		Value:      "1",
+		Provenance: "git_diff",
+		Members:    []string{"OldSymbol"},
+	}})
+	if err != nil {
+		t.Fatalf("NormalizeAnswerAggregateFacts failed: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("normalized facts = %d, want 1", len(got))
+	}
+	if value := aggregateTestDimensionValue(got[0].Dimensions, "origin"); value != string(AnswerEvidenceOriginVCSDiff) {
+		t.Fatalf("origin dimension = %q, want %q; dims=%+v", value, AnswerEvidenceOriginVCSDiff, got[0].Dimensions)
+	}
+	origins := AnswerAggregateFactEvidenceOrigins(got[0], nil)
+	want := []AnswerEvidenceOrigin{AnswerEvidenceOriginVCSDiff}
+	if !reflect.DeepEqual(origins, want) {
+		t.Fatalf("origins mismatch after normalization\ngot:  %#v\nwant: %#v", origins, want)
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_PreservesExistingOriginDimensions(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:       AnswerAggregateScalar,
+		Label:      "history count",
+		Value:      "3",
+		Provenance: "git_history_search",
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "origin", Value: string(AnswerEvidenceOriginVCSMetadata)},
+			{Name: "measurement_origin", Value: string(AnswerEvidenceOriginCommandMeasurement)},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("NormalizeAnswerAggregateFacts failed: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("normalized facts = %d, want 1", len(got))
+	}
+	var originCount int
+	for _, dim := range got[0].Dimensions {
+		if strings.EqualFold(dim.Name, "origin") {
+			originCount++
+		}
+	}
+	if originCount != 1 {
+		t.Fatalf("origin dimension duplicated: %+v", got[0].Dimensions)
+	}
+	if value := aggregateTestDimensionValue(got[0].Dimensions, "measurement_origin"); value != string(AnswerEvidenceOriginCommandMeasurement) {
+		t.Fatalf("measurement_origin = %q, want %q", value, AnswerEvidenceOriginCommandMeasurement)
+	}
+}
+
+func aggregateTestDimensionValue(dims []AnswerAggregateDimension, name string) string {
+	for _, dim := range dims {
+		if strings.EqualFold(dim.Name, name) {
+			return dim.Value
+		}
+	}
+	return ""
 }
 
 func TestAnswerAggregateFactEvidenceOrigins_CommandMeasurement(t *testing.T) {

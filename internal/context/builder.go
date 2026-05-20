@@ -693,6 +693,12 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			Content: cfgAbsence,
 		})
 	}
+	if originBoundary := formatEvidenceOriginBoundaryHint(ac); originBoundary != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   SectionEvidenceOrigin,
+			Content: originBoundary,
+		})
+	}
 	if toolValue := formatToolSourcedValueHint(ac); toolValue != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   SectionToolSourcedValue,
@@ -4259,12 +4265,106 @@ func formatToolSourcedValueHint(ac *types.AgentContext) string {
 	case types.StageExplore:
 		b.WriteString("- Treat command / VCS output as authoritative when it directly answers the question.\n")
 		b.WriteString("- Do NOT emit file:line evidence just to mirror a command result. Use `emit_evidence` only for real repo anchors you actually read.\n")
+		b.WriteString("- For VCS history/diff answers, do NOT set `evidence_floor_waiver`; that waiver is only for attached external logs/traces. Carry git findings through `emit_investigation_complete.reason` and `aggregate_facts`.\n")
+		if rm := ac.AnalysisIR.RequestModel; rm.Predicates.IsHistoryLookup &&
+			!types.CompileAnswerIntentContract(rm, &ac.AnalysisIR.AnswerContract).HasOrigin(types.AnswerEvidenceOriginCurrentSource) {
+			b.WriteString("- This is a pure VCS-history handoff: after `git_log` / `git_show` / `git_diff` have answered the question, do not call `read_file` or `emit_evidence` just to satisfy source-code habits. Close with `emit_investigation_complete(reason, aggregate_facts)` and preserve commit-by-commit summaries there.\n")
+		}
 		b.WriteString("- If one repo anchor is needed to disambiguate the target, read it once; otherwise a tool-only investigation may complete cleanly.\n")
 	case types.StageExtract, types.StageFinalize:
 		b.WriteString("- When the literal comes from command output / VCS metadata rather than repo code, set `citation_ref=-1` and explain the provenance in `summary`.\n")
 		b.WriteString("- Do NOT copy tool outputs into `citations[]`; those entries are reserved for repo file:line anchors.\n")
+		b.WriteString("- `citation_ref=-1` is an internal carrier. In visible prose, say the fact came from repository history / diff output / command output; never mention `citation_ref` or `citations[]` to the user.\n")
+		b.WriteString("- When summarizing multiple commits, keep grouping/count language exactly aligned with the VCS list; avoid approximate phrases such as 'near half' unless the exact count supports them.\n")
 	}
 	return b.String()
+}
+
+func formatEvidenceOriginBoundaryHint(ac *types.AgentContext) string {
+	if ac == nil || ac.AnalysisIR == nil {
+		return ""
+	}
+	// The finalizer already receives the same unified contract from
+	// answer_document_evaluator.renderAnswerDocUnifiedIntentContract and
+	// renderAnswerDocClaimBindings. Keep this builder section upstream
+	// only, otherwise finalizer prompts carry duplicate, slightly
+	// different copies of the same policy.
+	if ac.Stage != types.StageExplore && ac.Stage != types.StageExtract {
+		return ""
+	}
+	contract := types.CompileAnswerIntentContract(ac.AnalysisIR.RequestModel, &ac.AnalysisIR.AnswerContract)
+	if !answerIntentContractHasNonSourceOrigin(contract) {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Evidence origins are separate from answer shape. Do not collapse the answer to a scalar, list, or table just because one origin supplies a literal value.\n")
+	fmt.Fprintf(&b, "- Active evidence origins: %s.\n", renderEvidenceOriginList(contract.Origins))
+	if len(contract.RequestedOutputs) > 0 {
+		fmt.Fprintf(&b, "- Requested answer shapes to preserve: %s.\n", renderRequestedOutputList(contract.RequestedOutputs))
+	}
+	b.WriteString("- `current_source` facts may use `emit_evidence` and file:line citations after the source line was read and grounded.\n")
+	b.WriteString("- Non-current-source facts are first-class evidence in their own lane. Do not convert VCS history, diff hunks, attached logs/traces, command measurements, negative searches, or repo-index facts into fake current-source `emit_evidence` rows.\n")
+	b.WriteString("- Keep lanes separate when a question mixes origins: VCS diff/log/trace facts prove what happened historically or externally; current-source claims still need current-source evidence.\n")
+	switch ac.Stage {
+	case types.StageExplore:
+		b.WriteString("- During exploration, use the producer tool for the origin (`git_log`/`git_show`/`git_diff`, log/perf triage bundles, `exec_command`, grep negative searches, or repo_map) and hand off the result through `emit_investigation_complete.reason` plus structured `aggregate_facts` when a count, list, scalar, absence, or grouping must be preserved.\n")
+		b.WriteString("- Use `emit_evidence` only when you have a real current-checkout source anchor to cite. Old/deleted diff lines, stack-frame coordinates, command output rows, and zero-result searches are not current-source anchors.\n")
+	case types.StageExtract:
+		b.WriteString("- During extraction, preserve the origin label and requested output together. A VCS/diff/log/command aggregate can be principal without becoming an answer-symbol file:line slate.\n")
+	}
+	if contract.HasOrigin(types.AnswerEvidenceOriginVCSDiff) {
+		b.WriteString("- Diff evidence may refer to old/deleted/renamed paths or line numbers. Treat those as historical patch facts; verify the current checkout separately only when the user also asked about current behavior.\n")
+	}
+	if contract.HasOrigin(types.AnswerEvidenceOriginRuntimeArtifact) {
+		b.WriteString("- Runtime log/trace observations are valid observed facts even when no stack frame maps to the active checkout. Do not invent current-source citations to make them look grounded.\n")
+	}
+	if contract.HasOrigin(types.AnswerEvidenceOriginRepoNegativeSearch) {
+		b.WriteString("- A negative-search fact must preserve its repo/scope/query/result_count boundary. It proves bounded absence, not global unknowability outside that boundary.\n")
+	}
+	return b.String()
+}
+
+func answerIntentContractHasNonSourceOrigin(contract types.AnswerIntentContract) bool {
+	for _, origin := range contract.Origins {
+		if origin != types.AnswerEvidenceOriginUnknown && origin != types.AnswerEvidenceOriginCurrentSource {
+			return true
+		}
+	}
+	return false
+}
+
+func renderEvidenceOriginList(origins []types.AnswerEvidenceOrigin) string {
+	if len(origins) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		if origin == types.AnswerEvidenceOriginUnknown {
+			continue
+		}
+		parts = append(parts, "`"+string(origin)+"`")
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func renderRequestedOutputList(outputs []types.AnswerRequestedOutput) string {
+	if len(outputs) == 0 {
+		return "summary"
+	}
+	parts := make([]string, 0, len(outputs))
+	for _, output := range outputs {
+		if output == types.AnswerRequestedOutputUnknown {
+			continue
+		}
+		parts = append(parts, "`"+string(output)+"`")
+	}
+	if len(parts) == 0 {
+		return "summary"
+	}
+	return strings.Join(parts, ", ")
 }
 
 func formatBulletList(items []string) string {
@@ -4345,7 +4445,7 @@ func languageDirective(lang, question string) string {
 func lockedLanguageDirective(lang string) string {
 	switch lang {
 	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
-		return "You MUST write every natural-language response in Simplified Chinese (简体中文). This is a hard requirement set by the project configuration — do not switch to English prose even if the user writes the question in English. Summaries, step descriptions, rationales, captions, and any other natural-language content are all in Chinese. Always keep code identifiers, file paths, type names, and function names in their original form."
+		return "You MUST write every natural-language response in Simplified Chinese (简体中文). This is a hard requirement set by the project configuration — do not switch to English prose even if the user writes the question in English. Summaries, step descriptions, rationales, captions, and any other natural-language content are all in Chinese. Use Chinese visibility/access-control wording such as 公开、非公开、导出、非导出 in natural-language prose; keep source-code tokens like `public`, `private`, `protected`, code identifiers, file paths, type names, and function names in their original form."
 	case "en", "en-US", "english":
 		return "You MUST write every natural-language response in English. This is a hard requirement set by the project configuration — do not switch to another language even if the user writes the question in a different language. Always keep code identifiers, file paths, type names, and function names in their original form."
 	default:
@@ -4358,7 +4458,7 @@ func lockedLanguageDirective(lang string) string {
 // confidently detectable (too short, pure code). detect-from-question
 // assertion, when it fires, is prepended to this by languageDirective.
 func languageDirectiveAutoBase() string {
-	return "Reply in the same natural language as the user's question. Ignore code identifiers, file paths, and technical terms (e.g. `explorer`, `subagent`, `internal/agent/foo.go`) when judging the question's language — a sentence whose prose is Chinese but which mentions English symbols is still a Chinese question. When the question is ambiguous or contains no natural-language prose, default to Simplified Chinese (简体中文). Always keep code identifiers, file paths, and technical terms in their original form in your reply."
+	return "Reply in the same natural language as the user's question. Ignore code identifiers, file paths, and technical terms (e.g. `explorer`, `subagent`, `internal/agent/foo.go`) when judging the question's language — a sentence whose prose is Chinese but which mentions English symbols is still a Chinese question. When the question is ambiguous or contains no natural-language prose, default to Simplified Chinese (简体中文). Always keep code identifiers, file paths, and technical terms in their original form in your reply. If the answer language is Chinese, use Chinese visibility/access-control wording such as 公开、非公开、导出、非导出 in natural-language prose; keep source-code tokens like `public`, `private`, `protected` unchanged only when quoting or naming code."
 }
 
 // detectedLanguageAssertion returns a hard-assertion directive when
@@ -4386,7 +4486,7 @@ func detectedLanguageAssertion(question string) string {
 	// subagent的？" (6 CJK) reliably signals a Chinese question even
 	// when technical symbols push latin count higher.
 	if cjk >= 3 {
-		return "The user's question is written in Chinese. You MUST write your answer in Simplified Chinese (简体中文). This is a hard requirement — do not switch to English prose for the summary, step descriptions, rationales, captions, or any other natural-language content. Keep code identifiers, file paths, type names, and function names in their original form."
+		return "The user's question is written in Chinese. You MUST write your answer in Simplified Chinese (简体中文). This is a hard requirement — do not switch to English prose for the summary, step descriptions, rationales, captions, or any other natural-language content. Keep code identifiers, file paths, type names, and function names in their original form. Use Chinese visibility/access-control wording such as 公开、非公开、导出、非导出 in natural-language prose; keep source-code tokens like `public`, `private`, `protected` unchanged only when quoting or naming code."
 	}
 	// Latin assertion: require enough letters to avoid flagging a
 	// single-word query. 20 letters is roughly a short English

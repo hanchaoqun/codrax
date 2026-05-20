@@ -1477,6 +1477,56 @@ func TestExtractor_BuildPrompt_HistoryCurrentCodeMechanismSkipsAnswerSymbol(t *t
 	}
 }
 
+func TestExtractor_BuildPrompt_PureHistoryEnumerationSkipsAnswerSymbol(t *testing.T) {
+	mu := types.NewMutableState("最近 10 次提交都做了什么")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "git_log",
+			Success:  true,
+			Summary:  "[git_log: count=10 format=medium evidence_origin=vcs_metadata]\ncommit 3ae8465",
+		}},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "最近10次提交",
+		Value:      "10",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: "git_log",
+		Members: []string{
+			"3ae8465 orchestrator: route retries through claim bindings",
+			"125687ab orchestrator: suppress generic caveats after semantic pass",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	mu.SetInvestigationComplete("git_log provides the requested VCS metadata")
+	ctx := &types.AgentContext{
+		Objective: "最近 10 次提交都做了哪些事情？请逐个说明每次提交的作用和影响。",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqHistory)},
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+			},
+		},
+	}
+
+	contract := types.CompileAnswerIntentContract(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract)
+	if !contract.HasOrigin(types.AnswerEvidenceOriginVCSMetadata) ||
+		contract.HasOrigin(types.AnswerEvidenceOriginCurrentSource) {
+		t.Fatalf("fixture must remain pure VCS metadata, got %+v", contract)
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("pure VCS history enumeration must not force emit_answer_symbol")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "does NOT require `emit_answer_symbol`") {
+		t.Fatalf("prompt should explicitly disable answer-symbol slate for pure VCS history:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_DefinitionEnumerationStillRequiresAnswerSymbols(t *testing.T) {
 	mu := types.NewMutableState("list functions")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

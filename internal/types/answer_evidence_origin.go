@@ -21,13 +21,9 @@ func AnswerAggregateFactEvidenceOrigins(fact AnswerAggregateFact, rm *RequestMod
 	if fact.Kind == AnswerAggregateNegativeSearch {
 		add(AnswerEvidenceOriginRepoNegativeSearch)
 	}
-	dims := aggregateDimensionMap(fact.Dimensions)
-	for _, key := range []string{
-		"origin", "evidence_origin", "secondary_origin", "diff_origin", "proof_source", "tool", "source", "measurement_kind", "measurement_origin",
-	} {
-		answerEvidenceOriginFromStructuredToken(dims[key], add)
+	for _, origin := range answerAggregateFactExplicitEvidenceOrigins(fact) {
+		add(origin)
 	}
-	answerEvidenceOriginFromProvenance(fact.Provenance, add)
 
 	if rm != nil {
 		if rm.Predicates.IsHistoryLookup && aggregateFactKindCanCarryVCSMetadata(fact.Kind) {
@@ -43,6 +39,26 @@ func AnswerAggregateFactEvidenceOrigins(fact AnswerAggregateFact, rm *RequestMod
 	if len(out) == 0 && aggregateFactKindUsuallyCurrentSource(fact.Kind) {
 		add(AnswerEvidenceOriginCurrentSource)
 	}
+	return out
+}
+
+func answerAggregateFactExplicitEvidenceOrigins(fact AnswerAggregateFact) []AnswerEvidenceOrigin {
+	seen := map[AnswerEvidenceOrigin]bool{}
+	var out []AnswerEvidenceOrigin
+	add := func(origin AnswerEvidenceOrigin) {
+		if origin == AnswerEvidenceOriginUnknown || !origin.IsValid() || seen[origin] {
+			return
+		}
+		seen[origin] = true
+		out = append(out, origin)
+	}
+	dims := aggregateDimensionMap(fact.Dimensions)
+	for _, key := range []string{
+		"origin", "evidence_origin", "secondary_origin", "diff_origin", "proof_source", "tool", "source", "measurement_kind", "measurement_origin",
+	} {
+		answerEvidenceOriginFromStructuredToken(dims[key], add)
+	}
+	answerEvidenceOriginFromProvenance(fact.Provenance, add)
 	return out
 }
 

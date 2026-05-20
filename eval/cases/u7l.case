@@ -1,0 +1,19 @@
+# Grid B — U7 History / Authorship (recent 10 commit impact rollup)
+#
+# Regression target: recent-N history summaries are rich VCS-narrative answers,
+# not scalar commit-id answers and not current-source enumeration tasks. The
+# model should use structured VCS tools (git_log with stat/name_only and, when
+# needed, git_show for selected commits), carry commit metadata through the VCS
+# provenance lane, and avoid forcing git metadata into emit_evidence file:line
+# citations.
+#
+# Ground truth drifts on every commit. Keep this case shape-oriented: it must
+# discuss the recent 10 commits, what each did, and their effect/impact, without
+# collapsing to a single value panel.
+ID="u7l"
+NAME="history — recent 10 commits with purpose and impact"
+QUESTION="最近 10 次提交都做了哪些事情？请逐个说明每次提交的作用和影响。"
+EXPECT_CONTAINS="提交"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(10|十|最近).*提交|提交.*(10|十|最近)
+(作用|做了什么|变更|改动|目的|建立|实现|调整|引入|完善).*(影响|结果|效果|提升|减少|防止|支持|确保|提供)|(影响|结果|效果|提升|减少|防止|支持|确保|提供).*(作用|做了什么|变更|改动|目的|建立|实现|调整|引入|完善)"

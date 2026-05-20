@@ -2422,6 +2422,12 @@ func repairNestedAnswerBlockFields(raw json.RawMessage) (json.RawMessage, []stri
 			}
 			repaired = true
 		}
+		if fields, ok := repairAnswerBlockItemTextAliases(blkObj); ok {
+			for _, field := range fields {
+				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
+			}
+			repaired = true
+		}
 		if fields, ok := repairAnswerBlockAnnotationShape(blkObj); ok {
 			for _, field := range fields {
 				paths = append(paths, fmt.Sprintf("blocks[%d].%s", i, field))
@@ -2556,6 +2562,12 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 				}
 				blockChanged = true
 			}
+			if fields, ok := repairAnswerBlockItemTextAliases(blkObj); ok {
+				for _, field := range fields {
+					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
+				}
+				blockChanged = true
+			}
 			if fields, ok := repairAnswerBlockAnnotationShape(blkObj); ok {
 				for _, field := range fields {
 					paths = append(paths, fmt.Sprintf("%s[%d].%s", topField, i, field))
@@ -2676,6 +2688,72 @@ func repairAnswerBlockItemArrayFields(blkObj map[string]json.RawMessage) ([]stri
 	return paths, true
 }
 
+var answerBlockItemKnownFieldNames = map[string]bool{
+	"id":             true,
+	"label":          true,
+	"text":           true,
+	"cells":          true,
+	"candidate_role": true,
+	"citation_ref":   true,
+}
+
+// repairAnswerBlockItemTextAliases preserves user-visible item prose when a
+// local model emits exactly one schema-unknown string field on an item that has
+// no text/cells carrier. The field name itself is intentionally not interpreted:
+// the safe structural signal is "one non-empty string payload would otherwise
+// be quarantined and the row would render empty".
+func repairAnswerBlockItemTextAliases(blkObj map[string]json.RawMessage) ([]string, bool) {
+	if len(blkObj) == 0 {
+		return nil, false
+	}
+	rawItems, ok := blkObj["items"]
+	rawItems = bytes.TrimSpace(rawItems)
+	if !ok || len(rawItems) == 0 || rawItems[0] != '[' {
+		return nil, false
+	}
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(rawItems, &items); err != nil || len(items) == 0 {
+		return nil, false
+	}
+	var paths []string
+	changed := false
+	for i := range items {
+		if jsonStringFieldNonEmpty(items[i]["text"]) || jsonStringArrayFieldNonEmpty(items[i]["cells"]) {
+			continue
+		}
+		aliasField := ""
+		aliasText := ""
+		ambiguous := false
+		for field, raw := range items[i] {
+			if answerBlockItemKnownFieldNames[field] {
+				continue
+			}
+			text, ok := jsonStringFieldValue(raw)
+			if !ok || strings.TrimSpace(text) == "" {
+				continue
+			}
+			if aliasField != "" {
+				ambiguous = true
+				break
+			}
+			aliasField = field
+			aliasText = strings.TrimSpace(text)
+		}
+		if aliasField == "" || ambiguous {
+			continue
+		}
+		items[i]["text"] = mustMarshal(aliasText)
+		delete(items[i], aliasField)
+		paths = append(paths, fmt.Sprintf("items[%d].%s->text", i, aliasField))
+		changed = true
+	}
+	if !changed {
+		return nil, false
+	}
+	blkObj["items"] = mustMarshal(items)
+	return paths, true
+}
+
 // repairAnswerBlockItemScalarFragments handles a narrow local-model
 // corruption mode inside block.items[]:
 //   - a complete item object is JSON-encoded as a string; or
@@ -2753,15 +2831,37 @@ func repairAnswerBlockItemScalarFragments(blkObj map[string]json.RawMessage) ([]
 }
 
 func jsonStringFieldNonEmpty(raw json.RawMessage) bool {
+	text, ok := jsonStringFieldValue(raw)
+	return ok && strings.TrimSpace(text) != ""
+}
+
+func jsonStringFieldValue(raw json.RawMessage) (string, bool) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || raw[0] != '"' {
-		return false
+		return "", false
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err != nil {
+		return "", false
+	}
+	return s, true
+}
+
+func jsonStringArrayFieldNonEmpty(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || raw[0] != '[' {
 		return false
 	}
-	return strings.TrimSpace(s) != ""
+	var cells []string
+	if err := json.Unmarshal(raw, &cells); err != nil {
+		return false
+	}
+	for _, cell := range cells {
+		if strings.TrimSpace(cell) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeClaimUseArrayRaw(raw json.RawMessage) ([]json.RawMessage, bool) {

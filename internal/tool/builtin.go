@@ -1855,8 +1855,10 @@ type gitDiffParams struct {
 	NameOnly bool   `json:"name_only,omitempty"`
 }
 
-func (t *GitDiff) Name() string        { return "git_diff" }
-func (t *GitDiff) Description() string { return "Run git diff" }
+func (t *GitDiff) Name() string { return "git_diff" }
+func (t *GitDiff) Description() string {
+	return "Show a working-tree/staged/range git diff safely. Use this for diff-only and diff+current-code questions before deciding whether current source must also be read. Diff hunks are VCS diff evidence, not current checkout file:line evidence; do not mirror old/deleted diff lines through emit_evidence."
+}
 
 func (t *GitDiff) Parameters() json.RawMessage {
 	return json.RawMessage(`{
@@ -2095,21 +2097,29 @@ type GitLog struct {
 }
 
 type gitLogParams struct {
-	Path   string `json:"path,omitempty"`
-	Count  int    `json:"count,omitempty"`
-	Format string `json:"format,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Pathspec string `json:"pathspec,omitempty"`
+	Count    int    `json:"count,omitempty"`
+	Format   string `json:"format,omitempty"`
+	Stat     bool   `json:"stat,omitempty"`
+	NameOnly bool   `json:"name_only,omitempty"`
 }
 
-func (t *GitLog) Name() string        { return "git_log" }
-func (t *GitLog) Description() string { return "Run git log" }
+func (t *GitLog) Name() string { return "git_log" }
+func (t *GitLog) Description() string {
+	return "List recent git commits safely. Use this for latest/last-N history questions; for “最近 N 次提交做了什么/影响是什么” use count=N with format=medium and stat=true (or name_only=true for only changed paths), then optionally git_show one commit for full patch detail. Git metadata is VCS provenance, not source file:line evidence; do not emit_evidence for commit hashes or subjects."
+}
 
 func (t *GitLog) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "path":   {"type": "string",  "description": "Repository path (working directory)"},
-    "count":  {"type": "integer", "description": "Number of commits to show (default 10)"},
-    "format": {"type": "string",  "description": "Log format: oneline, short, medium, full (default oneline)"}
+    "path":      {"type": "string",  "description": "Optional repository working directory, resolved under the active repo root; omit for the active repo root. This is not a file pathspec."},
+    "pathspec":  {"type": "string",  "description": "Optional repo-relative pathspec to limit commit history, e.g. internal/tool/"},
+    "count":     {"type": "integer", "description": "Number of commits to show (default 10, max 100)"},
+    "format":    {"type": "string",  "description": "Log format: oneline, short, medium, full (default oneline). Use medium with stat=true for commit-impact summaries."},
+    "stat":      {"type": "boolean", "description": "Include --stat changed-file summary for each commit; useful for recent-N feature/impact summaries."},
+    "name_only": {"type": "boolean", "description": "Include --name-only changed paths for each commit without patch text."}
   }
 }`)
 }
@@ -2124,27 +2134,54 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 	if count <= 0 {
 		count = 10
 	}
+	if count > 100 {
+		count = 100
+	}
 	format := p.Format
 	if format == "" {
 		format = "oneline"
 	}
+	switch format {
+	case "oneline", "short", "medium", "full":
+	default:
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "invalid params: format must be oneline, short, medium, or full", Timestamp: time.Now()}, nil
+	}
 
 	banner := kvBanner("git_log",
 		"path", p.Path,
+		"pathspec", p.Pathspec,
 		"count", fmt.Sprintf("%d", count),
 		"format", format,
+		"stat", fmt.Sprintf("%t", p.Stat),
+		"name_only", fmt.Sprintf("%t", p.NameOnly),
 		"evidence_origin", string(types.AnswerEvidenceOriginVCSMetadata),
 	)
+	if p.Stat && p.NameOnly {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + "invalid params: stat and name_only are mutually exclusive", Timestamp: time.Now()}, nil
+	}
 
-	args := []string{"log", fmt.Sprintf("-n%d", count), fmt.Sprintf("--format=%s", format)}
-
-	cmd, cancel := NewGitLongCommand(nil, args...)
-	defer cancel()
 	// Same RepoRoot anchoring as GitDiff above.
 	dir, pathErr := resolveRepoScopedToolDir(ctx, p.Path)
 	if pathErr != "" {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + pathErr, Timestamp: time.Now()}, nil
 	}
+	pathspec := normalizeGitHistoryPathspec(p.Pathspec, dir)
+	if path.IsAbs(pathspec) {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + "invalid params: pathspec must be repo-relative or an absolute path under path", Timestamp: time.Now()}, nil
+	}
+
+	args := []string{"log", fmt.Sprintf("-n%d", count), fmt.Sprintf("--format=%s", format)}
+	if p.Stat {
+		args = append(args, "--stat")
+	}
+	if p.NameOnly {
+		args = append(args, "--name-only")
+	}
+	if pathspec != "" {
+		args = append(args, "--", pathspec)
+	}
+	cmd, cancel := NewGitLongCommand(nil, args...)
+	defer cancel()
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -2198,7 +2235,7 @@ const gitHistorySearchMaxWindowCount = 100
 
 func (t *GitHistorySearch) Name() string { return "git_history_search" }
 func (t *GitHistorySearch) Description() string {
-	return "Search a bounded git history window and count commits whose diff contains a fixed string. Use order=oldest for first-introduced / earliest-occurrence questions; order=recent is the default for latest / last-N questions."
+	return "Search a bounded git history window and count commits whose diff contains a fixed string. Use order=oldest for first-introduced / earliest-occurrence questions; order=recent is the default for latest / last-N questions. The result is VCS metadata/diff provenance, not current-source file:line evidence; carry it through aggregate_facts/reason unless you separately read current source."
 }
 
 func (t *GitHistorySearch) Parameters() json.RawMessage {

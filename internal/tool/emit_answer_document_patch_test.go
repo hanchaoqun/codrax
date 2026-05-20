@@ -131,6 +131,32 @@ func TestEmitAnswerDocumentPatch_QuarantinesUnknownSchemaMetadata(t *testing.T) 
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RepairsSingleUnknownItemTextAlias(t *testing.T) {
+	bus := newPatchTestBusContext()
+	tool := &EmitAnswerDocumentPatch{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids": ["s1"],
+		"replace_blocks": [
+			{"id": "list1", "kind": "ordered_list", "items": [
+				{"id": "i1", "label": "333707a", "tool": "标记 deterministic command measurements 的稳定化与计量路径", "citation_ref": -1}
+			]}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("single unknown item text alias should be repaired on patch path: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].Items) != 1 {
+		t.Fatalf("merged document missing repaired list block: %+v", doc)
+	}
+	if got := doc.Blocks[1].Items[0].Text; !strings.Contains(got, "deterministic command") {
+		t.Fatalf("unknown item text alias was not preserved as visible text: %q", got)
+	}
+}
+
 // TestEmitAnswerDocumentPatch_PureUnchangedAppliesAndPreserves is
 // the **R16 load-bearing tool-level test**. LLM declares "all
 // blocks unchanged"; tool clones them verbatim; result has every

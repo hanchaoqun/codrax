@@ -967,6 +967,46 @@ func TestBuildInitialInstructionHistoryNarrativeUsesVCSLane(t *testing.T) {
 	}
 }
 
+func TestBuildInitialInstructionRecentCommitEnumerationUsesVCSLane(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "最近 10 次提交都做了哪些事情？请逐个说明每次提交的作用和影响。",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentEnumerate,
+				Scenario: types.ScenarioGeneric,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup:       true,
+					IsCategoryEnumeration: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqHistory)},
+			},
+			EvidencePlan: types.EvidencePlan{RequiredFiles: []string{
+				"internal/types/answer_claim_binding.go",
+				"internal/orchestrator/semantic_quality_reviewer.go",
+			}},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"VCS History Narrative Handoff",
+		"do not turn commit metadata into fake source `emit_evidence` rows",
+		"A grounded VCS conclusion may close the investigation without reading preselected current-source files",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("recent commit enumeration prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "Mixed History / Current-source Handoff") {
+		t.Fatalf("pure recent commit enumeration must not be prompted as mixed current-source analysis:\n%s", prompt)
+	}
+	if len(eval.requiredFiles) != 0 {
+		t.Fatalf("pure recent commit enumeration should drop mandatory current-source required files, got %v", eval.requiredFiles)
+	}
+}
+
 func TestBuildInitialInstructionHistoryDiagramKeepsMixedLane(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{

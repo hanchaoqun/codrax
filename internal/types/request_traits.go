@@ -187,15 +187,16 @@ func HistoryLookupPrefersVCSNarrativePrincipal(rm RequestModel, contract *Answer
 	if !rm.Predicates.IsHistoryLookup {
 		return false
 	}
+	intentContract := CompileAnswerIntentContract(rm, contract)
+	if intentContract.HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		return false
+	}
 	kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
 	if rm.Predicates.IsScalarAnswer ||
 		rm.Predicates.IsCountQuestion ||
-		rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.IsRelationalLookup ||
 		rm.Predicates.IsCrossComponent ||
-		rm.Predicates.IsDiagnosticQuestion ||
-		rm.Intent == IntentEnumerate ||
-		rm.QuestionStructure().HasAnyObligation() {
+		rm.Predicates.IsDiagnosticQuestion {
 		return false
 	}
 	if rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||

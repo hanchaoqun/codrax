@@ -143,3 +143,36 @@ func TestHandleStructurallyEmptyInvestigation_AcceptsRuntimeObservationOnlyCompl
 		t.Fatalf("runtime artifact-only completion must not be treated as structurally empty: out=%+v retryMsg=%q", out, retryMsg)
 	}
 }
+
+func TestHandleStructurallyEmptyInvestigation_AcceptsVCSMetadataCompletion(t *testing.T) {
+	graph := testReadGraph()
+	state := newGraphState(graph)
+
+	o := &Orchestrator{
+		emit: render.NopEmitter,
+		busCtx: &types.BusContext{
+			Mutable: func() *types.MutableState {
+				mu := types.NewMutableState("最近 10 次提交都做了什么")
+				mu.SetTurnAArtifacts(types.TurnAArtifacts{
+					UserQuestion: "最近 10 次提交都做了什么",
+					ToolResults: []types.ToolResult{{
+						ToolName: "git_log",
+						Success:  true,
+						Summary:  "[git_log: count=10 format=medium evidence_origin=vcs_metadata]\ncommit 3ae8465",
+					}},
+					AcceptedClosureReason: "git_log provides the requested VCS metadata",
+					AcceptedResultKind:    "resolved",
+				})
+				return mu
+			}(),
+			AnalysisIR: &types.AnalysisIR{TaskGraph: graph, RequestModel: types.RequestModel{
+				Predicates: types.SemanticPredicates{IsHistoryLookup: true},
+			}},
+		},
+	}
+
+	out, retryMsg, handled := o.handleStructurallyEmptyInvestigation(state, "finalize")
+	if handled {
+		t.Fatalf("VCS metadata completion must not be treated as structurally empty: out=%+v retryMsg=%q", out, retryMsg)
+	}
+}

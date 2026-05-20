@@ -1727,6 +1727,62 @@ func TestBuildAnswerSurfacePlan_DemotesSingletonMetadataMemberSetOutsideComplete
 	}
 }
 
+func TestBuildAnswerSurfacePlan_DemotesSameRoleSubBucketsWhenBroadSupersetExists(t *testing.T) {
+	mut := NewMutableState("Kind 常量三分类枚举")
+	mut.SetInvestigationAggregateFacts(MergeAnswerAggregateFacts(
+		[]AnswerAggregateFact{
+			{
+				Kind:    AnswerAggregateMemberSet,
+				Label:   "Kind 常量成员（读模式）",
+				Value:   "2",
+				Role:    AnswerAggregateRolePrincipalAnswer,
+				Members: []string{"KindSymbolPresent", "KindNoCallSites"},
+			},
+			{
+				Kind:    AnswerAggregateMemberSet,
+				Label:   "Kind 常量成员（写模式）",
+				Value:   "2",
+				Role:    AnswerAggregateRolePrincipalAnswer,
+				Members: []string{"KindPlanReady", "KindPatchApplies"},
+			},
+		},
+		[]AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "Kind 常量",
+			Value:   "4",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"KindSymbolPresent", "KindNoCallSites", "KindPlanReady", "KindPatchApplies"},
+		}},
+	))
+	mut.SetInvestigationComplete("done")
+	mut.RetainInvestigationAggregateFacts()
+
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}}
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, nil)
+	if plan == nil {
+		t.Fatal("plan is nil")
+	}
+	refs := PrincipalAggregateMemberSetFactRefsForRequest(plan.StableAggregateFacts, &ir.RequestModel)
+	if len(refs) != 1 {
+		t.Fatalf("only broad same-role superset should remain principal, got %+v", refs)
+	}
+	if got := refs[0].Fact.Label; got != "Kind 常量" {
+		t.Fatalf("principal set label = %q, want broad Kind 常量; refs=%+v", got, refs)
+	}
+	for _, fact := range plan.StableAggregateFacts {
+		if strings.Contains(fact.Label, "读模式") || strings.Contains(fact.Label, "写模式") {
+			if fact.Role != AnswerAggregateRoleSupportingCoverage {
+				t.Fatalf("same-role sub-bucket should be support when broad superset exists: %+v", fact)
+			}
+		}
+	}
+}
+
 func TestMutableState_StableInvestigationAggregateFactsRetention(t *testing.T) {
 	mu := NewMutableState("q")
 	facts := []AnswerAggregateFact{{

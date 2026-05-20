@@ -661,6 +661,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
+	ignoredEvidenceWaiver := ""
 	if p.ClearEvidenceWaiver {
 		ctx.Mutable.ClearEvidenceFloorWaiver()
 		logging.Info("[emit_investigation_complete] evidence_floor_waiver explicitly cleared")
@@ -696,27 +697,34 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
-		ctx.Mutable.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
-			Reason:    typedReason,
-			Rationale: waiverRationale,
-		})
-		// Telemetry: log every fire so post-hoc analysis can spot
-		// misuse patterns. Reason is bounded enum, rationale is
-		// truncated for log hygiene.
-		//
-		// E: also report whether a runtime artifact is actually
-		// attached. The waiver bypasses several floors (forced-read,
-		// citation-floor, multi-topic anchor) on its own; the
-		// finalizer-side observation-only citation policy is a
-		// separate downstream lane that ONLY engages when log/perf
-		// bundle is attached (RuntimeGroundingDispositionFromWaiver).
-		// Surfacing artifact_attached up front lets operators see at
-		// accept time whether the waiver will engage observation-only
-		// or just relax the local floors — eliminates the "waiver
-		// silent but accepted" mystery from the 2026-05-16 trace.
 		artifactAttached := ctx.Mutable.LogTriage() != nil || ctx.Mutable.PerfTrace() != nil
-		logging.Info("[emit_investigation_complete] evidence_floor_waiver accepted: reason=%s artifact_attached=%t rationale=%q",
-			typedReason, artifactAttached, truncateForLog(waiverRationale, 200))
+		if evidenceFloorWaiverIsPureVCSHistoryMisuse(ctx, typedReason, artifactAttached) {
+			ctx.Mutable.SetEvidenceFloorWaiver(nil)
+			ignoredEvidenceWaiver = fmt.Sprintf("ignored evidence_floor_waiver=%s for pure VCS history; carry git findings through reason/aggregate_facts, not runtime-artifact waiver", typedReason)
+			logging.Warning("[emit_investigation_complete] %s rationale=%q",
+				ignoredEvidenceWaiver, truncateForLog(waiverRationale, 200))
+		} else {
+			ctx.Mutable.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
+				Reason:    typedReason,
+				Rationale: waiverRationale,
+			})
+			// Telemetry: log every fire so post-hoc analysis can spot
+			// misuse patterns. Reason is bounded enum, rationale is
+			// truncated for log hygiene.
+			//
+			// E: also report whether a runtime artifact is actually
+			// attached. The waiver bypasses several floors (forced-read,
+			// citation-floor, multi-topic anchor) on its own; the
+			// finalizer-side observation-only citation policy is a
+			// separate downstream lane that ONLY engages when log/perf
+			// bundle is attached (RuntimeGroundingDispositionFromWaiver).
+			// Surfacing artifact_attached up front lets operators see at
+			// accept time whether the waiver will engage observation-only
+			// or just relax the local floors — eliminates the "waiver
+			// silent but accepted" mystery from the 2026-05-16 trace.
+			logging.Info("[emit_investigation_complete] evidence_floor_waiver accepted: reason=%s artifact_attached=%t rationale=%q",
+				typedReason, artifactAttached, truncateForLog(waiverRationale, 200))
+		}
 	}
 
 	// Strict-decode + store principal_span_waiver (typed escape for
@@ -1144,6 +1152,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	if len(aggregateFactNormalizationNotes) > 0 {
 		summary += " | aggregate_facts normalized: " + strings.Join(aggregateFactNormalizationNotes, "; ")
+	}
+	if ignoredEvidenceWaiver != "" {
+		summary += " | " + ignoredEvidenceWaiver
 	}
 
 	return types.ToolResult{
@@ -3808,6 +3819,13 @@ func deterministicCountAggregateOrigin(proofSource string) string {
 	default:
 		return string(types.AnswerEvidenceOriginCommandMeasurement)
 	}
+}
+
+func evidenceFloorWaiverIsPureVCSHistoryMisuse(ctx *types.BusContext, _ types.EvidenceFloorWaiverReason, artifactAttached bool) bool {
+	if artifactAttached || ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return ctx.AnalysisIR.RequestModel.Predicates.IsHistoryLookup
 }
 
 func aggregateFactsContainDeterministicCountScalar(facts []types.AnswerAggregateFact) bool {

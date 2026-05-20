@@ -54,6 +54,7 @@ const (
 	SectionPriorStageFindings    = "Prior Stage Findings"
 	SectionUnverifiedAnalyzer    = "Unverified Analyzer Findings"
 	SectionExactResolution       = "Exact Resolution"
+	SectionEvidenceOrigin        = "Evidence Origin Boundary"
 	SectionMultiRepoActiveSet    = "Multi-Repo Active Set"
 	SectionToolSourcedValue      = "Tool-Sourced Value"
 	SectionSubjectMatchSummary   = "Subject Match Summary"
@@ -103,7 +104,10 @@ var canonicalUserSectionOrder = []string{
 	SectionPriorStageFindings, // carries the canonical Resolution Chains subsection
 	SectionUnverifiedAnalyzer,
 	SectionExactResolution,
+	SectionEvidenceOrigin,
+	SectionToolSourcedValue,
 	SectionMultiRepoActiveSet,
+	SectionRawToolOutputs,
 	SectionKnownFacts,
 	SectionAnswerSymbolsAuth,
 	SectionAnswerSymbolsFloor,

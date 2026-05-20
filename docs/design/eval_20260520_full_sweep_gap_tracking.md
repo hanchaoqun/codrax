@@ -1015,3 +1015,67 @@ external-only artifact routing, row-compiler/system补表 pollution,
 reviewer/render surface mismatch, schema-aware repair gaps, telemetry counter
 drift, scalar/count deterministic-measurement gaps, and high-cost explorer
 convergence tails.
+
+2026-05-20 late contract rerun:
+
+- After Batch D.6, representative contract evals were rerun with the local
+  binary: `u7c-20260520-221501`, `u7k-20260520-221645`,
+  `s7a-20260520-222122`, `qf_logic_view_read_pipeline-20260520-222241`,
+  `qf_multi_member_set_count_caveat-20260520-222601`, and
+  `logtri_rust-20260520-223108`. All PASSed with one finalizer iteration and
+  without hard成文 rejects / heavy rewrite loops in the scanned logs.
+- Manual inspection of `qf_multi_member_set_count_caveat-20260520-222601`
+  found a remaining system-side defect despite PASS: deterministic supplements
+  duplicated member tables and expanded the read-mode/write-mode `Kind` buckets
+  into the same full const universe. Root cause was role-only aggregate
+  reconciliation; it treated every same-role definition anchor as missing
+  members for every same-role principal member set.
+- Batch E.2 fixed that at the source by disabling role-only expansion whenever
+  multiple principal complete member sets share the same candidate role. The
+  rerun `qf_multi_member_set_count_caveat-20260520-224212` PASSed with one
+  finalizer iteration, no “系统按已验证证据补充成员” pollution, no read/write
+  bucket over-expansion, and rich Chinese summaries preserved in the `Kind`
+  rows.
+- Residual telemetry only: the low-confidence self-consistency reviewer noticed
+  wording drift between `Kind` const block ranges (`26-65` vs `29-65`) but did
+  not trigger a rewrite. This is acceptable under the current red line because
+  it is model-authored low-confidence wording, not a precise system-generated
+  contradiction. A future localized line-range formatter could tighten this
+  without changing model content.
+
+2026-05-20 VCS/non-code evidence follow-up:
+
+- Added eval `u7l` for "最近 10 次提交都做了哪些事情，作用和影响分别是什么".
+  This was created after the customer-style failure where a perfect exploration
+  summary about the latest merged feature was collapsed by later stages into a
+  single commit-id value.
+- First local `u7l` replay exposed two system issues:
+  - pure history enumeration was treated as mixed current-source work, causing
+    unnecessary `read_file` / `emit_evidence` behavior;
+  - finalizer could leak internal carrier terminology (`citation_ref=-1`,
+    `citations[]`) when asked to explain command/VCS provenance.
+- Fixes landed in the unified contract path:
+  - pure recent-N history enumeration stays in the VCS lane and may close via
+    `emit_investigation_complete(reason, aggregate_facts)`;
+  - answer-document item JSON with exactly one unknown non-empty string field is
+    repaired losslessly into `text`, avoiding a visible item that keeps only the
+    commit hash;
+  - analyzer prompt now teaches direct repository-history classification
+    without source pre-scan;
+  - finalizer and tool-sourced guidance now prohibit exposing internal
+    `citation_ref` / `citations[]` carriers to the user.
+- `u7l-20260520-234847` passed after the VCS-lane fix with `read_file=0`,
+  `midloop_inject=0`, `finalizer_iters=1`, and no semantic-quality concerns.
+  It should be rerun after the analyzer direct-history prompt change to verify
+  whether the analyzer pre-scan disappears as well.
+- Design decision for git diff evidence: diff output is first-class evidence,
+  but its origin is `vcs_diff`, not current-source `emit_evidence(file:line)`.
+  The short-term carrier is structured git/exec tool output plus
+  `emit_investigation_complete.reason/aggregate_facts`; the long-term target is
+  a dedicated VCS diff evidence item with commit/ref/path/hunk/old-new side.
+  This avoids forcing old/deleted/renamed diff lines through current-checkout
+  citation gates.
+- New Batch F in `unified_evidence_answer_contract_20260520.md` generalizes
+  this beyond git: VCS, logs, traces, command measurements, negative searches,
+  and cross-repo index facts all use typed evidence-origin lanes instead of
+  fake current-source anchors.

@@ -54,6 +54,7 @@ type EmitEvidence struct {
 // IsLLMEmittable in internal/types/evidence.go and nothing else.
 var emitEvidenceAllowedKinds = buildEmitEvidenceAllowedKinds()
 var emitAnchorKinds = buildEmitAnchorKinds()
+var emitEvidenceCommitHashTokenRe = regexp.MustCompile(`(?i)\b[0-9a-f]{7,40}\b`)
 
 func buildEmitEvidenceAllowedKinds() map[string]types.EvidenceKind {
 	out := make(map[string]types.EvidenceKind, len(types.LLMEmittableEvidenceKinds()))
@@ -220,7 +221,8 @@ func (t *EmitEvidence) Description() string {
 	return "Emit one or more structured evidence items as the result of reading a source file. " +
 		"Call this AFTER you have read a file during the depth-investigation stage, with one item per " +
 		"fact you want the synthesis layer to see. The batched 'items' array preserves the " +
-		"existing 'one tool call per file' write pattern; do not call this tool once per item.\n\n" +
+		"existing 'one tool call per file' write pattern; do not call this tool once per item. " +
+		"Do not use this tool for VCS metadata from git_log / git_show / git_diff / exec_command git output; carry those findings in emit_investigation_complete.reason and aggregate_facts unless you also read a real current-repo file line.\n\n" +
 		"Each item MUST set: source (repo-relative path), line_start (exact gutter line number, " +
 		"never estimated), evidence_kind (one of: " + strings.Join(emitEvidenceAllowedKindNames(), ", ") + "), " +
 		"anchor_kind (one of: " + strings.Join(emitAnchorKindNames(), ", ") + "), and anchor_symbol " +
@@ -557,6 +559,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	exactResolutionContract := answerExactResolutionContract(ctx)
 	pendingExactTargets := pendingExactResolutionTargets(ctx, exactResolutionContract)
 	for i, in := range p.Items {
+		if reason, ok := emitEvidenceHistoryMetadataSoftSkipReason(ctx, in, i); ok {
+			softSkippedItems = append(softSkippedItems, reason)
+			continue
+		}
 		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, &autoSwapped, &compatRepairs)
 		if perr != nil {
 			if reason, ok := emitEvidenceToolValueSoftSkipReason(ctx, in, i, perr); ok {
@@ -929,28 +935,90 @@ func emitEvidenceToolValueSoftSkipReason(ctx *types.BusContext, in emitEvidenceI
 			return fmt.Sprintf("items[%d]: command-derived scalar/count `%d` has no source file:line anchor", index, value), true
 		}
 	}
-	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Predicates.IsHistoryLookup &&
-		emitEvidenceLooksLikeVCSMetadata(in) {
-		label := strings.TrimSpace(in.AnchorSymbol)
-		if label == "" {
-			label = strings.TrimSpace(in.Subject)
-		}
-		if label == "" {
-			label = strings.TrimSpace(in.Summary)
-		}
-		if label == "" {
-			label = "history metadata"
-		}
-		return fmt.Sprintf("items[%d]: VCS/history metadata `%s` has no repo file:line anchor", index, logging.Truncate(label, 80)), true
+	if reason, ok := emitEvidenceHistoryMetadataSoftSkipReason(ctx, in, index); ok {
+		return reason, true
 	}
 	return "", false
 }
 
+func emitEvidenceHistoryMetadataSoftSkipReason(ctx *types.BusContext, in emitEvidenceItem, index int) (string, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || !ctx.AnalysisIR.RequestModel.Predicates.IsHistoryLookup {
+		return "", false
+	}
+	if !emitEvidenceLooksLikeVCSMetadata(in) {
+		return "", false
+	}
+	label := strings.TrimSpace(in.AnchorSymbol)
+	if label == "" {
+		label = strings.TrimSpace(in.Subject)
+	}
+	if label == "" {
+		label = strings.TrimSpace(in.Summary)
+	}
+	if label == "" {
+		label = "history metadata"
+	}
+	return fmt.Sprintf("items[%d]: VCS/history metadata `%s` has no repo file:line anchor", index, logging.Truncate(label, 80)), true
+}
+
 func emitEvidenceLooksLikeVCSMetadata(in emitEvidenceItem) bool {
-	return strings.TrimSpace(in.Summary) != "" ||
-		strings.TrimSpace(in.Snippet) != "" ||
-		strings.TrimSpace(in.AnchorSymbol) != "" ||
-		strings.TrimSpace(in.Subject) != ""
+	source := normalizeEmitEvidenceVCSMetadataSource(in.Source)
+	if emitEvidenceSourceIsVCSMetadata(source) {
+		return true
+	}
+	if source == "" || source == "exec_command" || source == "shell" || source == "command" {
+		return emitEvidencePayloadLooksLikeVCSMetadata(in)
+	}
+	return false
+}
+
+func normalizeEmitEvidenceVCSMetadataSource(source string) string {
+	s := strings.TrimSpace(strings.ReplaceAll(source, `\`, `/`))
+	s = strings.Trim(s, "`\"'")
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.TrimPrefix(s, "[")
+	s = strings.TrimSuffix(s, "]")
+	return s
+}
+
+func emitEvidenceSourceIsVCSMetadata(source string) bool {
+	switch source {
+	case "git_log", "git log", "git_show", "git show", "git_diff", "git diff",
+		"git_history_search", "git history search", "exec_command_git_history",
+		"vcs_metadata", "vcs_diff":
+		return true
+	}
+	return strings.HasPrefix(source, "git ") ||
+		strings.HasPrefix(source, "git_") ||
+		strings.HasPrefix(source, "tool:git") ||
+		strings.HasPrefix(source, "exec_command: git ") ||
+		strings.Contains(source, "git_history")
+}
+
+func emitEvidencePayloadLooksLikeVCSMetadata(in emitEvidenceItem) bool {
+	for _, payload := range []string{
+		in.AnchorSymbol,
+		in.Subject,
+		in.Object,
+		in.Snippet,
+		in.Summary,
+	} {
+		payload = strings.TrimSpace(payload)
+		if payload == "" {
+			continue
+		}
+		lower := strings.ToLower(payload)
+		if emitEvidenceCommitHashTokenRe.MatchString(payload) ||
+			strings.Contains(lower, "git log") ||
+			strings.Contains(lower, "git show") ||
+			strings.Contains(lower, "git diff") ||
+			strings.Contains(lower, "commit ") ||
+			strings.Contains(lower, "commit:") ||
+			strings.Contains(lower, "author:") {
+			return true
+		}
+	}
+	return false
 }
 
 func emitEvidenceLooksLikeDirectoryMeasurement(in emitEvidenceItem) bool {

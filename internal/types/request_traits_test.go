@@ -235,6 +235,22 @@ func TestHistoryLookupPrefersVCSNarrativePrincipal_TypedBoundary(t *testing.T) {
 	rm.Scenario = ScenarioGeneric
 	rm.AnalyzerHints = AnalyzerHints{}
 
+	rm.Intent = IntentEnumerate
+	if !HistoryLookupPrefersVCSNarrativePrincipal(rm, nil) {
+		t.Fatal("pure recent-N commit enumeration must remain VCS-principal and must not force current-source reads")
+	}
+	rm.Intent = IntentExplain
+	rm.Predicates.IsCategoryEnumeration = true
+	if !HistoryLookupPrefersVCSNarrativePrincipal(rm, nil) {
+		t.Fatal("pure commit category enumeration is still VCS metadata, not current source evidence")
+	}
+	rm.Predicates.IsCategoryEnumeration = false
+
+	currentSourceContract := &AnswerContract{Diagram: &DiagramContract{Required: true, RequiredKind: DiagramFlow}}
+	if HistoryLookupPrefersVCSNarrativePrincipal(rm, currentSourceContract) {
+		t.Fatal("answer contract current_source origin must keep mixed history/current-source lane")
+	}
+
 	rm.Predicates.IsScalarAnswer = true
 	if HistoryLookupPrefersVCSNarrativePrincipal(rm, nil) {
 		t.Fatal("true scalar history lookup must not enter narrative-only lane")

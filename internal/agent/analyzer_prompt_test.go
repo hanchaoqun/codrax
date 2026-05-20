@@ -475,6 +475,21 @@ func TestAnalysisSkill_PromptDocumentsPreScanBudget(t *testing.T) {
 	t.Errorf("analysis-skill prompt must document the pre-scan budget ceiling somewhere (Workflow / OutputFormat / Prohibitions); searched for any of: %v", phrases)
 }
 
+func TestAnalysisSkill_PromptDocumentsDirectHistoryClassification(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	rendered := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"repository-history / git questions",
+		"do NOT run a source-code pre-scan",
+		"predicates.is_history_lookup=true",
+		"choose the answer shape separately",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("analysis-skill prompt must teach direct VCS/history classification; missing %q in:\n%s", want, rendered)
+		}
+	}
+}
+
 // TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere is the batch
 // 3A 3-way consistency gate: every top-level required field in the
 // emit_analysis JSON schema must also be named in the skill's

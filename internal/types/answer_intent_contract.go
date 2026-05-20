@@ -284,7 +284,6 @@ func shouldIncludeCurrentSourceOrigin(rm RequestModel, contract *AnswerContract)
 			rm.Predicates.IsCrossComponent ||
 			rm.Predicates.IsRelationalLookup ||
 			rm.Intent == IntentTrace ||
-			rm.Intent == IntentEnumerate ||
 			(rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active()) ||
 			(rm.DiagramHint != nil && rm.DiagramHint.Kind != "")
 	}

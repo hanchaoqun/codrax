@@ -40,6 +40,7 @@ func reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx *types.BusConte
 	}
 	out := cloneCompletionAggregateFacts(facts)
 	changed := false
+	roleSetCounts := aggregatePrincipalMemberSetRoleCounts(ctx, out, evidence)
 	for i := range out {
 		if !types.AnswerAggregateFactCarriesCompleteMemberSet(out[i]) ||
 			!types.AnswerAggregateFactRoleForRequest(out[i], &ctx.AnalysisIR.RequestModel).IsPrincipal() ||
@@ -48,6 +49,9 @@ func reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx *types.BusConte
 		}
 		profile, ok := aggregateMemberSetDefinitionProfile(ctx, out[i], evidence)
 		if !ok {
+			continue
+		}
+		if roleSetCounts[profile.role] != 1 {
 			continue
 		}
 		oldLen := len(out[i].Members)
@@ -84,6 +88,26 @@ func reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx *types.BusConte
 	}
 	if !changed {
 		return facts
+	}
+	return out
+}
+
+func aggregatePrincipalMemberSetRoleCounts(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) map[types.AnswerCandidateRole]int {
+	out := map[types.AnswerCandidateRole]int{}
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return out
+	}
+	for _, fact := range facts {
+		if !types.AnswerAggregateFactCarriesCompleteMemberSet(fact) ||
+			!types.AnswerAggregateFactRoleForRequest(fact, &ctx.AnalysisIR.RequestModel).IsPrincipal() ||
+			len(fact.Members) == 0 {
+			continue
+		}
+		profile, ok := aggregateMemberSetDefinitionProfile(ctx, fact, evidence)
+		if !ok {
+			continue
+		}
+		out[profile.role]++
 	}
 	return out
 }
