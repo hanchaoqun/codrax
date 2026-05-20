@@ -924,6 +924,72 @@ func TestSemanticQualityTopicMismatchMinConfidence(t *testing.T) {
 	}
 }
 
+func TestRunSemanticQualityReviewWithOutcome_StrongSufficientRequiresFloor(t *testing.T) {
+	mut := types.NewMutableState("explain module")
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "s1", Kind: types.BlockSummary, Text: "summary", FacetIDs: []string{"principal_mechanism"}},
+		{ID: "b1", Kind: types.BlockSection, Text: "body", FacetIDs: []string{"principal_mechanism"}},
+	}}
+
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Ctx: context.Background(), Mutable: mut}
+	o.SetSemanticQualityReviewer(fakeSemanticQualityReviewer{
+		verdict: &SemanticQualityResult{
+			Sufficient: true,
+			Confidence: 0.92,
+		},
+	})
+	violations, outcome := o.runSemanticQualityReviewWithOutcome(doc, mut)
+	if len(violations) != 0 {
+		t.Fatalf("sufficient reviewer should not emit violations: %+v", violations)
+	}
+	if !outcome.Valid || !outcome.Sufficient || !outcome.StrongSufficient {
+		t.Fatalf("expected strong sufficient outcome, got %+v", outcome)
+	}
+
+	o.SetSemanticQualityReviewer(fakeSemanticQualityReviewer{
+		verdict: &SemanticQualityResult{
+			Sufficient: true,
+			Confidence: 0.50,
+		},
+	})
+	_, outcome = o.runSemanticQualityReviewWithOutcome(doc, mut)
+	if !outcome.Valid || !outcome.Sufficient || outcome.StrongSufficient {
+		t.Fatalf("low-confidence sufficient verdict must not suppress system caveats, got %+v", outcome)
+	}
+}
+
+func TestSuppressSemanticSufficientCaveatViolations_KeepsPreciseAndStrictSignals(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	violations := []types.Violation{
+		{Kind: types.ViolFacetUncovered, Detail: "soft coverage"},
+		{Kind: types.ViolBlockCoverageMissing, Detail: "soft block"},
+		{Kind: types.ViolPrincipalProseUnderfilled, Detail: "soft prose"},
+		{Kind: types.ViolMustInclude, Detail: "exact required term"},
+		{Kind: types.ViolSelfContradiction, Detail: "claims disagree"},
+		{Kind: types.ViolCitation, Detail: "citation problem"},
+	}
+	got := suppressSemanticSufficientCaveatViolations(violations)
+	if len(got) != 3 {
+		t.Fatalf("expected only precise signals to remain, got %+v", got)
+	}
+	for _, v := range got {
+		switch v.Kind {
+		case types.ViolMustInclude, types.ViolSelfContradiction, types.ViolCitation:
+		default:
+			t.Fatalf("unexpected remaining violation after sufficient semantic review: %+v", v)
+		}
+	}
+
+	SetSoftViolationKinds(nil, []string{string(types.ViolFacetUncovered)})
+	got = suppressSemanticSufficientCaveatViolations([]types.Violation{{Kind: types.ViolFacetUncovered}})
+	if len(got) != 1 || got[0].Kind != types.ViolFacetUncovered {
+		t.Fatalf("strict-promoted facet violation must remain actionable, got %+v", got)
+	}
+}
+
 func TestRunSemanticQualityReview_TopicMismatchEvidenceGapRoutesUpstream(t *testing.T) {
 	mut := types.NewMutableState("compare codrax and opencode hallucination prevention")
 	o := New(types.PipelineSettings{}, nil, nil, nil)

@@ -609,6 +609,23 @@ Tasks:
   `go test ./internal/orchestrator -run 'TestRenderConsistencyReviewBodyV2|TestSemanticQualityReviewBodyIncludes'`
   PASS.
 
+2026-05-20 Batch D.5:
+
+- Added a structured semantic-review outcome path. When semantic quality review
+  returns `sufficient=true` with confidence at or above the configured floor,
+  the orchestrator now suppresses only low-precision soft coverage/prose/facet
+  caveat violations from that same accepted draft.
+- The suppressor is intentionally narrow: `must_include`, citation failures,
+  self-contradictions, success criteria, and any operator-promoted strict kind
+  remain actionable. Low-confidence `sufficient=true` verdicts also do not
+  suppress anything.
+- This removes the repeated user-facing pattern where reviewer telemetry says
+  the answer is sufficient but the final panel still appends generic
+  “覆盖度可能不充分 / 未达到预期标准” notes from older soft validators.
+- Validation:
+  `go test ./internal/orchestrator -run 'TestRunSemanticQualityReviewWithOutcome|TestSuppressSemanticSufficientCaveatViolations|TestRunSemanticQualityReview|TestAppendSoftContractCaveats'`
+  PASS.
+
 ### Batch E — System Supplement Safety
 
 Goal: preserve model-authored rich answers and stop system-generated pollution.
@@ -715,6 +732,8 @@ or noisy retries:
   for retry/local-repair decisions.
 - [x] Batch D.4: align reviewer input to the final V2 visible surface
   (titles, table columns, structured cells, diagrams for semantic review).
+- [x] Batch D.5: suppress low-precision generic soft caveats only after a
+  high-confidence sufficient semantic-review verdict.
 - [x] Batch E.1: enforce and test system supplement safety invariants for the
   existing deterministic补表 compilers.
 - [ ] Run targeted evals after each batch and update

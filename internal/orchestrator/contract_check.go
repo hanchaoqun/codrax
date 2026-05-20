@@ -397,6 +397,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	//   - runReviewerWithDeadline is synchronous and operates on its
 	//     own derived context (reviewer_deadline.go:39) so the two
 	//     deadlines do not interfere.
+	var sqOutcome semanticQualityReviewOutcome
 	strictReview := o == nil || o.strictAnswerReviewEnabledValue()
 	if strictReview && !deterministicReviewerHandled {
 		preReviewerStrict := hasAnyStrictViolation(result.Violations)
@@ -462,7 +463,11 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			runSQFn := func() {
 				sqViolations = runReviewerWithDeadline(parent, reviewerSlotSemanticQuality, fraction,
 					func(context.Context) []types.Violation {
-						return o.runSemanticQualityReview(sqDocV2, mut)
+						var outcome semanticQualityReviewOutcome
+						var violations []types.Violation
+						violations, outcome = o.runSemanticQualityReviewWithOutcome(sqDocV2, mut)
+						sqOutcome = outcome
+						return violations
 					})
 			}
 
@@ -511,6 +516,15 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			if len(sqViolations) > 0 {
 				result.Violations = append(result.Violations, sqViolations...)
 			}
+		}
+	}
+
+	if sqOutcome.StrongSufficient && len(result.Violations) > 0 {
+		before := len(result.Violations)
+		result.Violations = suppressSemanticSufficientCaveatViolations(result.Violations)
+		if dropped := before - len(result.Violations); dropped > 0 {
+			logging.Info("[semantic_quality_reviewer] suppressed %d low-precision soft caveat violation(s) after sufficient verdict confidence=%.2f floor=%.2f",
+				dropped, sqOutcome.Confidence, sqOutcome.Floor)
 		}
 	}
 
@@ -3223,8 +3237,22 @@ func observationArtifactAllowedFacet(facet string) bool {
 // nil verdict / sub-floor confidence are non-fatal (answer ships,
 // learning failure recorded, no violations returned).
 func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut *types.MutableState) []types.Violation {
+	violations, _ := o.runSemanticQualityReviewWithOutcome(doc, mut)
+	return violations
+}
+
+type semanticQualityReviewOutcome struct {
+	Valid            bool
+	Sufficient       bool
+	StrongSufficient bool
+	Confidence       float64
+	Floor            float64
+}
+
+func (o *Orchestrator) runSemanticQualityReviewWithOutcome(doc *types.AnswerDocumentV2, mut *types.MutableState) ([]types.Violation, semanticQualityReviewOutcome) {
+	var outcome semanticQualityReviewOutcome
 	if o == nil || o.semanticQualityReviewer == nil || doc == nil || mut == nil {
-		return nil
+		return nil, outcome
 	}
 	// P7 (2026-05-10) — surface the reviewer dispatch to the dock
 	// so the user knows the second reviewer is running. Parallels
@@ -3271,25 +3299,34 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 	if err != nil {
 		if isReviewerNoToolCallError(err) {
 			logging.Info("[semantic_quality_reviewer] skipped: reviewer returned prose without the required tool_call")
-			return nil
+			return nil, outcome
 		}
 		mut.AppendLearningFailure("semantic_quality_reviewer", err.Error())
 		logging.Warning("[semantic_quality_reviewer] dispatch failed (non-fatal): %v", err)
-		return nil
+		return nil, outcome
 	}
 	effectiveFloor := semanticQualityEffectiveConfidenceFloor(floor, verdict)
+	if verdict != nil {
+		outcome = semanticQualityReviewOutcome{
+			Valid:            true,
+			Sufficient:       verdict.Sufficient,
+			Confidence:       verdict.Confidence,
+			Floor:            effectiveFloor,
+			StrongSufficient: verdict.Sufficient && verdict.Confidence >= effectiveFloor,
+		}
+	}
 	if verdict == nil || verdict.Sufficient || verdict.Confidence < effectiveFloor {
 		if verdict != nil {
 			logging.Info("[semantic_quality_reviewer] verdict sufficient=%v confidence=%.2f (floor=%.2f) reasoning=%q",
 				verdict.Sufficient, verdict.Confidence, effectiveFloor, verdict.Reasoning)
 		}
-		return nil
+		return nil, outcome
 	}
 	concerns := verdict.Concerns
 	if effectiveFloor < floor && verdict.Confidence < floor {
 		concerns = filterSemanticQualityConcernsByKind(concerns, semanticConcernTopicMismatch)
 		if len(concerns) == 0 {
-			return nil
+			return nil, outcome
 		}
 	}
 
@@ -3372,7 +3409,39 @@ func (o *Orchestrator) runSemanticQualityReview(doc *types.AnswerDocumentV2, mut
 	}
 	logging.Info("[semantic_quality_reviewer] emitted %d concern(s) at confidence=%.2f reasoning=%q",
 		len(verdict.Concerns), verdict.Confidence, verdict.Reasoning)
+	return out, outcome
+}
+
+func suppressSemanticSufficientCaveatViolations(violations []types.Violation) []types.Violation {
+	if len(violations) == 0 {
+		return nil
+	}
+	out := make([]types.Violation, 0, len(violations))
+	for _, v := range violations {
+		if semanticSufficientSuppressibleViolation(v) {
+			continue
+		}
+		out = append(out, v)
+	}
 	return out
+}
+
+func semanticSufficientSuppressibleViolation(v types.Violation) bool {
+	if !isSoftViolationKind(v.Kind) {
+		return false
+	}
+	switch v.Kind {
+	case types.ViolBlockCoverageMissing,
+		types.ViolFacetUncovered,
+		types.ViolPrincipalClaimUseMissing,
+		types.ViolRichnessGlaringGap,
+		types.ViolPrincipalProseUnderfilled,
+		types.ViolUncertaintyBlockMissing,
+		types.ViolAnswerSemanticUnderfilled:
+		return true
+	default:
+		return false
+	}
 }
 
 func semanticQualityStrictCoverageViolation(
