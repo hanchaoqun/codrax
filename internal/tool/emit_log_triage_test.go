@@ -145,6 +145,9 @@ func TestEmitLogTriage_Execute_ObservationOnlyAccepted(t *testing.T) {
 	if !strings.Contains(res.Summary, "observations=1") {
 		t.Fatalf("summary missing observations count: %q", res.Summary)
 	}
+	if !strings.Contains(res.Summary, "evidence_origin=runtime_artifact") {
+		t.Fatalf("summary should tag runtime artifact origin: %q", res.Summary)
+	}
 }
 
 func TestEmitLogTriage_Execute_SalvagesStringWrappedErrorsFromMalformedSibling(t *testing.T) {
@@ -271,6 +274,9 @@ func TestEmitLogTriage_Execute_HappyPath(t *testing.T) {
 	// Summary should include the before→after frame count.
 	if !strings.Contains(res.Summary, "frames=2→1") {
 		t.Errorf("summary missing frame diff: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "evidence_origin=runtime_artifact") {
+		t.Errorf("summary should tag runtime artifact origin: %q", res.Summary)
 	}
 }
 

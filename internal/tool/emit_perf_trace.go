@@ -34,10 +34,10 @@ type EmitPerfTrace struct {
 // emitPerfTraceParams is the wire shape of the emit. It carries
 // EXACTLY Layer 1-3; the post-handler derives Layer 4.
 type emitPerfTraceParams struct {
-	Meta    emitPerfTraceMeta    `json:"meta"`
-	Frames  []emitPerfTraceFrame `json:"frames,omitempty"`
-	Janks   []emitPerfTraceJank  `json:"janks,omitempty"`
-	Stalls  []emitPerfTraceStall `json:"stalls,omitempty"`
+	Meta    emitPerfTraceMeta     `json:"meta"`
+	Frames  []emitPerfTraceFrame  `json:"frames,omitempty"`
+	Janks   []emitPerfTraceJank   `json:"janks,omitempty"`
+	Stalls  []emitPerfTraceStall  `json:"stalls,omitempty"`
 	Startup *emitPerfTraceStartup `json:"startup,omitempty"`
 	Residue []string              `json:"residue,omitempty"`
 }
@@ -205,9 +205,9 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 		ToolName: t.Name(),
 		Success:  true,
 		Summary: fmt.Sprintf(
-			"perf bundle stored: frames=%d janks=%d stalls=%d signals=%d intent=%s",
+			"[emit_perf_trace: frames=%d janks=%d stalls=%d signals=%d intent=%s evidence_origin=%s]\nperf bundle stored",
 			len(bundle.Frames), len(bundle.Janks), len(bundle.Stalls),
-			len(bundle.Meta.Signals), bundle.IntentHint),
+			len(bundle.Meta.Signals), bundle.IntentHint, string(types.AnswerEvidenceOriginRuntimeArtifact)),
 		Timestamp: time.Now(),
 	}, nil
 }
@@ -426,4 +426,3 @@ func buildEmitPerfTraceSchema() map[string]any {
 		},
 	}
 }
-

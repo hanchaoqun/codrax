@@ -384,12 +384,12 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	ctx.Mutable.SetLogTriage(bundle)
 
 	summary := fmt.Sprintf(
-		"[emit_log_triage: lang=%s signals=%d errors=%d observations=%d frames=%d→%d resolved=%d entities=%d intent=%q coverage=%.2f]\n"+
+		"[emit_log_triage: lang=%s signals=%d errors=%d observations=%d frames=%d→%d resolved=%d entities=%d intent=%q coverage=%.2f evidence_origin=%s]\n"+
 			"emit_log_triage recorded",
 		bundle.Meta.Lang, len(bundle.Meta.Signals),
 		len(bundle.Errors), len(bundle.Observations), rawFrames, keptFrames,
 		len(bundle.ResolvedFiles), len(bundle.Entities),
-		string(bundle.IntentHint), bundle.Coverage)
+		string(bundle.IntentHint), bundle.Coverage, string(types.AnswerEvidenceOriginRuntimeArtifact))
 
 	logging.Info("[log_triage] validated: lang=%s errors=%d observations=%d frames_in=%d frames_kept=%d resolved=%d entities=%d intent=%q coverage=%.2f",
 		bundle.Meta.Lang, len(bundle.Errors), len(bundle.Observations), rawFrames, keptFrames,

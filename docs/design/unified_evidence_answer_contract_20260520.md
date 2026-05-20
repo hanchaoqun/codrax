@@ -428,6 +428,19 @@ Tasks:
 - Keep log/perf frame order, innermost frame, duration, message, and language as
   structured display fields.
 
+2026-05-20 Batch C.1:
+
+- Tagged successful `emit_log_triage` and `emit_perf_trace` summaries with
+  `evidence_origin=runtime_artifact`, making the source boundary visible at
+  the tool-emission layer before analyzer/explorer/finalizer prompts consume
+  the bundles.
+- This does not relax or add any gate. It only preserves typed provenance so
+  runtime observations can answer artifact questions without being rewritten as
+  current-repo file:line claims.
+- Added regression coverage for log observation-only bundles, log frame
+  bundles, and perf trace bundles.
+- Validation: `go test ./internal/tool ./internal/types` PASS.
+
 ### Batch D — Claim Binding In Finalizer And Reviewer
 
 Goal: make finalizer and reviewers consume the same typed claim surface.
@@ -505,6 +518,7 @@ or noisy retries:
   unified VCS origin projection.
 - [ ] Batch B: remove remaining VCS/hash compatibility fallback once structured
   tool-emitted origin fields land.
+- [x] Batch C.1: tag log/perf triage tool outputs with runtime artifact origin.
 - [ ] Batch C: add runtime artifact frame aggregate/binding.
 - [ ] Batch D: make finalizer support lanes read claim bindings.
 - [ ] Batch D: align reviewer input to final rendered surface.
