@@ -479,6 +479,10 @@ func diagnosticFacetSubTopicsBypassResolverAsymmetry(rm types.RequestModel) bool
 }
 
 func subtopicResolverAsymmetryShouldBeAdvisory(rm types.RequestModel) bool {
+	if historyOrDiagramSubTopicsBypassResolverAsymmetry(rm) {
+		return true
+	}
+
 	// Architecture/design-document questions frequently decompose the
 	// answer into module, directory, subsystem, lifecycle, or thread-model
 	// axes. Those axes are valid exploration leads even when they are not
@@ -508,6 +512,31 @@ func subtopicResolverAsymmetryShouldBeAdvisory(rm types.RequestModel) bool {
 		}
 	}
 	return true
+}
+
+func historyOrDiagramSubTopicsBypassResolverAsymmetry(rm types.RequestModel) bool {
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCategoryEnumeration {
+		return false
+	}
+	// History-backed explanation / trace requests use VCS metadata and
+	// output-shape axes (commit lookup, changed-code explanation, diagram)
+	// as valid sub-topics. Those axes are not repo symbols, so resolver
+	// hit/miss asymmetry is noisy and must not hard-retry the analyzer.
+	if rm.Predicates.IsHistoryLookup {
+		return true
+	}
+	// Diagram requests may include a sub-topic for the presentation contract
+	// itself. The diagram is user intent, not a current-repo declaration.
+	if rm.DiagramHint != nil && rm.DiagramHint.Kind != "" {
+		switch rm.Intent {
+		case types.IntentExplain, types.IntentTrace, types.IntentRootCause:
+			return true
+		}
+	}
+	return false
 }
 
 // summaryShort truncates a sub-topic summary for inclusion in a gate

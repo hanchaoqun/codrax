@@ -328,6 +328,86 @@ func TestSubtopicCoherence_R1_5_ArchitectureDesignAxisAdvisoryOnly(t *testing.T)
 	}
 }
 
+func TestSubtopicCoherence_R1_5_HistoryBackedTraceDiagramAdvisoryOnly(t *testing.T) {
+	// History-backed explanation/trace requests often decompose into
+	// VCS lookup, changed-code analysis, and requested presentation
+	// shape. The VCS/output-shape axes are user intent, not repo
+	// declarations, so mixed resolver hits must not force a retry.
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"LoopPolicy": {{Canonical: "LoopPolicy", Domain: "agent"}},
+		},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentTrace,
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow},
+		SubTopics: []types.SubTopic{
+			{Summary: "查找最近一次 merge commit", Entities: []string{"git log", "merge commit"}},
+			{Summary: "定位对应代码", Entities: []string{"LoopPolicy"}},
+			{Summary: "绘制逻辑图", Entities: []string{"architecture diagram", "flow diagram"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	if !check.Passed {
+		t.Fatalf("history-backed trace/diagram axes should be advisory, got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
+		t.Fatalf("expected advisory R1.5 detail, got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_5_DiagramPresentationAxisAdvisoryOnly(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"BuildAgentContext": {{Canonical: "BuildAgentContext", Domain: "context"}},
+		},
+	}
+	rm := types.RequestModel{
+		Intent:      types.IntentExplain,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture},
+		SubTopics: []types.SubTopic{
+			{Summary: "上下文构建", Entities: []string{"BuildAgentContext"}},
+			{Summary: "架构视图呈现", Entities: []string{"architecture diagram"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	if !check.Passed {
+		t.Fatalf("diagram presentation axes should be advisory, got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "R1.5 entity_unresolvable (advisory)") {
+		t.Fatalf("expected advisory R1.5 detail, got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_5_CategoryEnumerationStaysHardDespiteDiagram(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byEntity: map[string][]normalizer.SymbolHit{
+			"KnownKind": {{Canonical: "KnownKind", Domain: "types"}},
+		},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow},
+		SubTopics: []types.SubTopic{
+			{Summary: "known enum member", Entities: []string{"KnownKind"}},
+			{Summary: "invented enum member", Entities: []string{"InventedKind"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	if check.Passed {
+		t.Fatalf("enumeration entity asymmetry should remain hard despite diagram hint, got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "R1.5") {
+		t.Fatalf("expected R1.5 hard failure, got %q", check.Detail)
+	}
+}
+
 func TestSubtopicCoherence_R1_5_OneEntityResolves_Passes(t *testing.T) {
 	// A sub-topic with one unresolvable + one resolvable entity must
 	// PASS R1.5 — the rule requires at least ONE hit per sub-topic,
