@@ -976,6 +976,9 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 		if AggregateMemberSetIsScalarCountSupport(rm, ref.Fact) {
 			continue
 		}
+		if AggregateFactIsNarrativeHistorySupport(rm, ref.Fact) {
+			continue
+		}
 		explicitRole := NormalizeAnswerAggregateRole(ref.Fact.Role)
 		role := AnswerAggregateFactRoleForRequest(ref.Fact, rm)
 		if role != AnswerAggregateRolePrincipalAnswer {
@@ -1308,6 +1311,9 @@ func AggregateFactIsNarrativeHistorySupport(rm *RequestModel, fact AnswerAggrega
 	}
 	if rm.Predicates.IsScalarAnswer || rm.Predicates.IsCountQuestion {
 		return false
+	}
+	if IsHistoryBackedCurrentCodeExplanation(*rm) {
+		return true
 	}
 	if rm.Intent == IntentEnumerate ||
 		rm.Predicates.IsCategoryEnumeration ||

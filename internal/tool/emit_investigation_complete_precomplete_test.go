@@ -2613,6 +2613,98 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks(t *testin
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCurrentCodeSkipsGenericForcedReads(t *testing.T) {
+	mut := types.NewMutableState("history-backed current-code explanation")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/agent/explorer.go", Score: 60, ExactEntityRank: 2},
+		{Path: "internal/tool/emit_evidence.go", Score: 58, ExactEntityRank: 2},
+		{Path: "internal/tool/emit_investigation_complete.go", Score: 56, ExactEntityRank: 2},
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "commit diff establishes the change; current source evidence explains the implementation",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "Forced Read List") ||
+		strings.Contains(res.Summary, "pending forced reads") {
+		t.Fatalf("history+current explanation should not be forced into generic cross-file read gates, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("history+current explanation should complete once the model declares the mixed evidence boundary")
+	}
+	if pending := mut.EvidenceClosure().PendingReads(); len(pending) != 0 {
+		t.Fatalf("generic forced-read gates should not queue pending reads for this shape: %+v", pending)
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCurrentExplicitCallChainStillBlocks(t *testing.T) {
+	mut := types.NewMutableState("history-backed explicit current call-chain")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/agent/explorer.go", Score: 60, ExactEntityRank: 2},
+		{Path: "internal/tool/emit_evidence.go", Score: 58, ExactEntityRank: 2},
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				PredicateAxis: types.AxisCall,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:         string(types.ReqCallChain),
+					ExactTargets: []string{"Start", "Finish"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "not enough current endpoint evidence yet",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("explicit source-to-sink history+current trace must preserve current-code forced-read gates, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("explicit endpoint call-chain should remain open until current-code evidence is gathered")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadSkipsKeywordOnlyAfterReadFocus(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{

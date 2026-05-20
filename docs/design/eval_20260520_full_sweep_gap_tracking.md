@@ -169,8 +169,10 @@ thin or misleading answer, record it here before choosing a fix.
 | E20260520-G144 | `read_combo_config_absent_present_mix` | P2 | Tracking; short-term guard added | Exact-absence scalar suppression can be safe for a single absent target, but it would be too broad for a mixed answer such as “target A absent, target B present.” In that shape, a document-level `exact_resolution.status=absent` must not delete or relabel the present target's scalar/table value. | `exact_resolution` is currently document-level in several paths, while visible blocks and scalar values may refer to only one target. Without a per-target binding, a generic “absent” verdict can be confused with unrelated exact values in the same answer. The same principle applies to VCS/log/trace: typed provenance lanes must bind a negative or positive claim to its own target/scope, not to the whole document. | Short-term mitigation narrows scalar-block suppression to `len(exact_resolution.targets)==1`, so mixed target answers keep unrelated present values. Long-term fix: add per-target `exact_resolution[]` or block/claim-level `target_ref` and validate scalar/absence claims against that target binding. Added medium-priority eval case `read_combo_config_absent_present_mix` to keep this risk visible without blocking higher-ROI P0 work. |
 | E20260520-G145 | customer snippet `../customlogs/git_diff_001.log` | P1 | Mitigated by Batch 14 | 用户问“根据最近一次提交代码差异做详细分析”，analyzer stream stall 后 UI 同时出现正确的“模型响应出错”与错误的“验证还不够稳”；explorer 首轮用 `cd /home/mindie && git ... 2>/dev/null`，随后又用 `git -C /home/mindie` 和 `--git-dir=/home/mindie/.git`；`2>/dev/null` 被当成写文件拒绝，`git -C` 被误解析成子命令 `/home/mindie`。最后答案审阅 consistent/sufficient 后仍进入一次本地 auto-repair contract recheck。 | Read-mode shell guard was simultaneously too strict and too loose: it rejected safe stderr-to-null redirection, but did not parse git global cwd options well enough to produce actionable repo-bound guidance. Explorer prompt/tool surface also under-emphasized that `exec_command` already runs from the active repo root and should not `cd`/`git -C` to arbitrary absolute paths. Analyze transient retry reused a generic validation copy at one call site. VCS history/diff tools existed but were not prominent enough for commit-diff explanation questions, so the model fell back to fragile shell. | Implemented: analyze transient retry now uses the stage-aware “模型响应出错” copy; read-mode shell grammar accepts only provably read-only redirections such as `2>/dev/null` / fd duplication and still rejects `2>1` / `1>2`; git global path options (`-C`, `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) must stay repo-relative and refusals name the active repo command root; structured `git_log` / `git_diff` / `git_history_search` are exposed/preferred and their `path` / `repo_path` parameters are repo-root scoped; `git_diff` supports patch/stat/name-only modes with blob pagination for large outputs. Finalizer metadata auto-repair remains local and does not mean semantic inconsistency or LLM rewrite. |
 | E20260520-G146 | `u7a` rerun while adding `u7h/u7i/u7j` | P0 | Mitigated; rerun required | Existing “first commit introducing EvidenceClosure” case failed: `git_history_search(window_count=1)` returned the most recent matching file-window commit (`58881dba`) and the model treated it as the first introduction, while direct `git log --reverse -S 'type EvidenceClosure'` proves the correct first commit is `01e0864e`. | `git_history_search` encoded only “bounded recent window” semantics, but its name/schema did not let the model express earliest/first-introduced history searches. A precise VCS question was answered with a deterministically wrong recent-window result, not with a model hallucination. | `git_history_search` now exposes explicit `order=recent|oldest`; recent remains default for latest/last-N windows, while oldest scans from the earliest commit and returns up to `window_count` matching commits. Explorer/default skill prompts now tell models which order to use. Added a unit test for symbols introduced after an existing file already existed, plus eval guards `u7h/u7i/u7j` for richer diff/history shapes. |
-| E20260520-G147 | `u7j-20260520-163512` | P1 | Open | 全历史 topic search 最终没有压成标量，但 explorer 花了 159 轮、52 次 read_file、37 次 midloop 注入。多个并行探索路各自反复围绕同一 scalar 历史主题读源码、修 line anchor、补 principal span，远超用户问题所需。 | VCS history topic-search 仍被后续 evidence/dataflow gate 拉回当前源码机制链，导致“提交演进归纳”被当成源码 principal span 调查。对于这类问题，commit metadata + diff/stat/name-only 摘要才是 principal evidence；当前源码只应作为解释补充。 | 后续批次应新增 VCS-history answer family：历史 topic search 的 principal lane 绑定 commit/ref/diff evidence，源码读取限于用户要求“对应代码解释/画图”时；completion gate 不应强制从 commit fact 追出当前源码 principal span。 |
+| E20260520-G147 | `u7j-20260520-163512` | P1 | Mitigated by Batch 15; rerun required | 全历史 topic search 最终没有压成标量，但 explorer 花了 159 轮、52 次 read_file、37 次 midloop 注入。多个并行探索路各自反复围绕同一 scalar 历史主题读源码、修 line anchor、补 principal span，远超用户问题所需。 | VCS history topic-search 仍被后续 evidence/dataflow gate 拉回当前源码机制链，导致“提交演进归纳”被当成源码 principal span 调查。对于这类问题，commit metadata + diff/stat/name-only 摘要才是 principal evidence；当前源码只应作为解释补充。 | Batch 15 已新增 typed-only VCS-history narrative boundary：纯历史叙事不再把当前源码 RequiredFiles 当成强制必读，并允许已完成的 VCS 结论提前取消慢源代码分路；history+diagram/current-code/diagnostic/change-impact 仍保留 mixed evidence lane。新增 `u7k` 覆盖全历史 topic + 当前实现解释组合，后续需重跑 `u7j/u7k` 验证成本下降和答案丰富度。 |
 | E20260520-G148 | customer render snippet `git show <hash> --no-stat` | P1 | Mitigated by structured tool + compatibility shim | 小模型在探索阶段并行执行 `git show <hash> --no-stat` 三次，客户 git 返回 `fatal: unrecognized argument: --no-stat`，界面连续展示三条失败工具结果。 | `git show` 并不支持 `--no-stat`；模型把“不要 stat”当成一个选项，但默认 `git show` 本来就不显示 stat。系统只有 `git_log/git_diff/git_history_search`，缺少针对“查看某个 commit/ref 的 metadata/patch/stat/name-only”的结构化工具，导致模型退回 shell 并撞上跨 git 版本/命令语义差异。 | 新增 `git_show` 结构化工具，支持 `no_patch`/`stat`/`name_only`/默认 patch 四种安全形态；explorer/default skill prompt 推荐 commit/ref 详情使用 `git_show`。同时 read-mode `exec_command` 兼容层会删除确定安全的 `git show ... --no-stat` no-op 并在工具输出中说明，避免旧提示或小模型继续产生可见失败。 |
+| E20260520-G149 | `u7k-20260520-193504` | P1 | Partially mitigated; evidence-origin lane open | diff+当前代码解释没有再压成 commit-id 标量，但探索阶段把历史 diff 中出现过、当前已改名的 `emitEvidenceCommandScalarSoftSkipReason` 当成当前源码锚点去落地，随后 forced-read / evidence repair 反复追逐当前文件里不存在的旧符号。 | 系统缺少一等 VCS/diff evidence origin。历史 hunk 中的旧符号、旧文件名、旧行号是有效历史事实，但不能自动成为 current_source file:line obligation；当前源码 claims 必须由当前 checkout 的 read_file 证据证明。 | 短期已做：history-backed current-code explanation 跳过 generic forced-read gates，保留显式端点 call_chain 强 gate；narrative closure 的可选 aggregate_facts 可以按项丢弃无效支持事实。长期：新增 `vcs_diff` / `vcs_metadata` origin 或 aggregate lane，把旧符号作为历史事实传到 finalizer，并在当前源码 lane 单独绑定“现在叫/现在在”的符号。 |
+| E20260520-G150 | `u7j-20260520-194845` | P1 | Mitigated; rerun required | 全历史 topic search 中，explorer 的 VCS member_set 使用 `916511... (最早)` / `e4f15... (最近)` 这类 decorated commit hash。通用 aggregate gate 把它误当成 `Gate.Run (说明)` 这种代码成员，要求 `support_refs=file:line`，导致一次不必要的 completion reject。 | `support_refs` gate 的设计目标是代码成员 citation 对齐，但 commit hash 是 VCS metadata，不应该被 current-source file:line 证明。缺少 typed provenance 时，系统把所有 decorated ASCII 成员都当成 code identity。 | 已将豁免收窄为 typed history + 结构化 commit hash：只有 `is_history_lookup=true` 且 decorated member base 是 7-40 位 hex commit id 时才不要求 file:line；普通 decorated code members 继续硬要求 `support_refs`。长期仍归入 G149 的一等 `vcs_metadata` evidence origin。 |
 | E20260520-G117 | `u8b` | P2 | Open | PASS and independently verified: `internal/types` currently has 104 exported `type X string` declarations and all 104 have typed const-set evidence by heuristic scan. Residual issue: the run still emitted `证据锚点偏弱 ... line-text=12%` for a large exact enumeration and produced a very large citation list. | Large exact inventories can be correct while line-text grounding telemetry looks weak because many rows cite type declarations rather than every const member line. The system needs to distinguish “verified inventory summary” from low-quality grounding. | Keep this as a positive baseline for rich enumeration, but add telemetry that separates exact compiler-backed inventory completeness from per-row line-text density. Do not convert this into a hard retry signal. |
 | E20260520-G118 | `u9a`, `u9b` | P1 | Open | Analyzer took 5 rounds for both direct mechanism/error-granularity questions. In `u9b`, it first emitted `intent=root_cause` for a non-diagnostic error-granularity question and was rejected, then corrected to `intent=explain`. | Analyzer still tries to perform line-level investigation during prescan, and root-cause/error-granularity taxonomy is too easy to confuse. The hard rejection is correct by schema, but the route wastes user-visible time. | Add a schema-aware intent normalizer or stronger classifier contract: error-granularity questions about code behavior should default to `explain` unless a diagnostic typed signal is present. Prescan should stop after file existence for these mechanism questions. |
 | E20260520-G119 | `u9b` | P1 | Open | Explorer had the right conclusion by round 7, but two `emit_investigation_complete` attempts were rejected: `negative_search` required repo dimension, then `bucket_count` rejected categorical values like `item rejected, batch succeeds`. The model eventually removed aggregate facts entirely. | Aggregate fact schema is too narrow for categorical behavioral outcomes. It forces models to misuse count/negative-search shapes, then lose structured closure data after rejection. | Add first-class aggregate kinds for `behavior_outcome` / `error_granularity_verdict` with dimensions and cited support refs. Do not require numeric `value` for categorical behavior facts. |
@@ -662,6 +664,108 @@ Validation:
 - Unit / tool tests for `git_diff(stat=true)` and `git_diff(name_only=true)`.
 - Message test proving analyze transient retry uses the
   stage-aware “模型响应出错” copy.
+
+### Batch 15 — VCS History Narrative Convergence And Mixed-Code Boundary
+
+Status: implemented after `u7j-20260520-163512` showed a pure history topic
+search spending 159 explorer rounds, 52 `read_file` calls, and 37 mid-loop
+injections after a valid VCS/history conclusion was already available.
+
+Safety contract:
+
+- `is_history_lookup` is an evidence-source lane, not an answer-shape
+  compressor. For non-scalar/non-count history narrative questions, commit/ref
+  metadata, history search results, and diff/stat/name-only output are the
+  principal evidence. Current source files are optional support unless typed
+  analyzer/contract fields require current-code, diagram, diagnostic,
+  comparison, relation, change-impact, or enumerated-list evidence.
+- Pure history narratives may converge after a successful
+  `emit_investigation_complete` even when the analyzer emitted multiple source
+  subtopics. Those subtopics are search hints, not mandatory current-code
+  coverage.
+- Mixed history + current-source questions are protected explicitly:
+  `DiagramHint`, required `AnswerContract.Diagram`, diagnostic/current-status
+  profile, change-impact profile, relation/comparison/enumeration predicates,
+  or structured user buckets keep the mixed lane active. In that lane VCS tools
+  explain what changed and source evidence explains the current implementation;
+  neither lane may erase the other.
+- Explorer prompt now tells the model not to encode commit metadata as fake
+  file:line `emit_evidence` rows. The narrative conclusion belongs in
+  `emit_investigation_complete.reason`; aggregate facts remain supporting VCS
+  metadata unless the typed request really asks for a scalar/count/list.
+
+Validation:
+
+- Added typed helper tests for pure history narrative, history scalar,
+  history+diagram, history+change-impact, and history+current-diagnostic
+  boundaries.
+- Added parallel explorer tests proving pure history subtopics can cancel slow
+  source siblings after convergence, while history+diagram/current-flow keeps
+  sibling handoffs active.
+- Added explorer prompt tests proving pure VCS narrative drops mandatory
+  current-source RequiredFiles, and history+diagram preserves the mixed
+  handoff.
+- Added eval case `u7k` for “all-history topic search + current implementation
+  explanation” so future fixes cannot solve pure history by breaking
+  diff/current-code analysis.
+
+2026-05-20 mixed diff/current follow-up:
+
+- Design decision for “diff + 基于当前代码分析” questions: treat them as a
+  two-lane answer, not as `history scalar`. VCS/diff tools prove what changed
+  and when; current-source `read_file`/grounded evidence proves how the current
+  implementation behaves now. A commit hash, file count, or subject line may be
+  supporting metadata, but it cannot replace the requested explanation,
+  comparison, trace, diagram, or log/diagnostic analysis.
+- Boundary guard is typed-only. History-backed `trace/call_chain` requests
+  preserve strong current-code gates only when the analyzer has explicit source
+  and sink endpoints (`exact_targets` / exactly-bound mentioned entities). A
+  loose phrase such as “解释这条链路怎么工作” remains an architecture/mechanism
+  narrative and must not be forced into source-to-sink endpoint proof.
+- Generic forced-read gates (`primary_anchor_unread`, `phase1_unread`,
+  `multi_path_anchor`) now skip for history-backed current-code explanations.
+  Those gates were designed for ordinary breadth mechanism questions; on
+  diff/current questions they repeatedly pulled the explorer back into adjacent
+  current-source files after VCS + current evidence was already sufficient.
+  Explicit endpoint call-chain questions are not skipped.
+- Optional aggregate facts from narrative explain/trace closures are now
+  normalized item-by-item: invalid support-only facts are dropped with a
+  localized normalization note instead of rejecting the whole closure. Hard
+  aggregate contracts remain hard for count/scalar/enumeration/relation/
+  diagnostic/change-impact shapes.
+- VCS member sets now preserve decorated commit identifiers such as
+  `916511... (最早)` without requiring source `file:line` support refs. The
+  guard is intentionally narrow: it only applies when the analyzer typed the
+  request as `is_history_lookup=true` and the decorated member base is a
+  structural commit hash. Ordinary decorated code members still require
+  `support_refs`, so the architectural-comparison citation alignment fix is not
+  weakened.
+- `u7k-20260520-193504` exposed a still-open architecture gap: a historical
+  diff can mention a symbol name that no longer exists in the current checkout.
+  The model correctly recognized the rename later, but the current-source
+  evidence gate first tried to line-ground the old diff symbol. Long-term fix:
+  add first-class VCS/diff evidence origin (`current_source` vs `vcs_diff` /
+  `vcs_metadata`) so old hunk symbols can be preserved as historical facts
+  without becoming current file:line obligations. This is recorded as a P1
+  follow-up under the deterministic VCS lane rather than patched by keyword
+  matching.
+
+2026-05-20 validation / follow-up:
+
+- `u7j-20260520-195708` PASS on the current branch with finalizer 1 turn and no
+  decorated commit-hash `support_refs` rejection. Cost is still high
+  (41 explorer iterations, 16 mid-loop injections, extractor 3 iterations);
+  this confirms the commit metadata gate is fixed but pure history narrative
+  convergence remains a P1 optimization target.
+- `u7k-20260520-200331` was stopped after ~6 minutes because multiple explore
+  forks had already called `emit_investigation_complete` and the dispatcher
+  still launched / continued later sibling routes. This is a convergence
+  policy problem, not a finalizer answer-shape problem. Short-term fix:
+  distinguish pure history evolution (`kind=history`) from mixed
+  history/current-code mechanism (`kind=mechanism`) and allow early convergence
+  for the latter once one fork passes the `emit_investigation_complete`
+  pre-complete checks. Cross-component, diagram, category enumeration, relation,
+  diagnostic, and change-impact shapes still wait for sibling handoffs.
 
 ### Batch 1 — Deterministic Scalar / Measurement / VCS Guardrails
 

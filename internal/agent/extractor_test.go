@@ -1418,6 +1418,65 @@ func TestExtractor_BuildPrompt_ChangeImpactAggregateMemberSetSkipsAnswerSymbol(t
 	}
 }
 
+func TestExtractor_BuildPrompt_HistoryCurrentCodeMechanismSkipsAnswerSymbol(t *testing.T) {
+	mu := types.NewMutableState("history plus current code mechanism")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{TerminalEvidenceCount: 4})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "相关 commit",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"40f36f93 Accept scalar aggregate count handoffs", "e4f15aa1 Treat scalar count boundaries as scope"},
+	}, {
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "当前实现函数",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"NormalizeAggregateFactRolesForRequest", "AggregateMemberSetIsScalarCountSupport"},
+	}})
+	mu.SetInvestigationComplete("history commits explain why the current scalar chain works this way")
+	ctx := &types.AgentContext{
+		Objective: "从历史提交里找一次和 scalar 相关的改动，再结合当前代码解释现在链路怎么工作",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentExplain,
+				Scenario:      types.ScenarioArchitectureExplain,
+				Complexity:    types.ComplexityComplex,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName, Confidence: 0.8},
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup:  true,
+					IsCrossComponent: true,
+				},
+				AnalyzerHints:       types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+				EnumerationBoundary: &types.RequestedEnumerationBoundary{DeclaredCount: 1, SourceQuote: "一次"},
+			},
+		},
+	}
+
+	if types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) != types.QFArchitecture {
+		t.Fatalf("fixture must route as architecture narrative, got %s", types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel))
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("history + current-code mechanism explanation must not force emit_answer_symbol")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "does NOT require `emit_answer_symbol`") {
+		t.Fatalf("prompt should explicitly disable answer-symbol slate for mixed history/current-code explanations:\n%s", prompt)
+	}
+	if contains(prompt, "list_of_symbols question") {
+		t.Fatalf("mixed history/current-code explanation must not be framed as list_of_symbols:\n%s", prompt)
+	}
+
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	if types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) != types.QFArchitecture {
+		t.Fatalf("trace-labeled mixed history/current-code mechanism should still route as architecture narrative, got %s", types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel))
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("trace-labeled history + current-code mechanism explanation must not force emit_answer_symbol")
+	}
+}
+
 func TestExtractor_BuildPrompt_DefinitionEnumerationStillRequiresAnswerSymbols(t *testing.T) {
 	mu := types.NewMutableState("list functions")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

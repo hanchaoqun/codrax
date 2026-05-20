@@ -1,0 +1,14 @@
+# Grid B — U7 History + Current Source (all-history topic to current code)
+#
+# Regression target: topic search across history may legitimately need a later
+# current-code explanation. The system must not collapse the answer to one
+# commit id, and it must not treat current-source evidence as mandatory for pure
+# history narratives. This case keeps the mixed lane alive: VCS evidence explains
+# the evolution, current source explains the present implementation.
+ID="u7k"
+NAME="history — all-history topic plus current implementation"
+QUESTION="从历史提交里找一次和 scalar 标量答案处理相关的改动，再结合当前代码解释现在这条链路是怎么工作的；请说明 commit 线索、关键文件和当前实现关系，不要只给 commit id。"
+EXPECT_CONTAINS="scalar commit 当前"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(commit|提交).*(当前|现在|关键文件|实现)|(当前|现在|关键文件|实现).*(commit|提交)
+(scalar|标量).*(链路|关系|实现|处理)|(链路|关系|实现|处理).*(scalar|标量)"

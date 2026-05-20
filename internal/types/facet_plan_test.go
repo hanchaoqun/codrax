@@ -107,6 +107,56 @@ func TestResolveQuestionFamily_ObligationOverridesRoleLookup(t *testing.T) {
 	}
 }
 
+func TestResolveQuestionFamily_HistoryCurrentCodeExplanationBeatsOneItemBoundary(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		Complexity:    ComplexityComplex,
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName, Confidence: 0.8},
+		Predicates: SemanticPredicates{
+			IsHistoryLookup:  true,
+			IsCrossComponent: true,
+		},
+		AnalyzerHints:       AnalyzerHints{Kind: string(ReqMechanism)},
+		EnumerationBoundary: &RequestedEnumerationBoundary{DeclaredCount: 1, SourceQuote: "一次"},
+	}
+	if got := ResolveQuestionFamily(rm); got != QFArchitecture {
+		t.Errorf("history + current-code explanation got %q, want QFArchitecture", got)
+	}
+
+	rm.Intent = IntentTrace
+	if got := ResolveQuestionFamily(rm); got != QFArchitecture {
+		t.Errorf("history + current-code trace with define axis got %q, want QFArchitecture", got)
+	}
+
+	rm.Intent = IntentExplain
+	rm.Predicates.IsCategoryEnumeration = true
+	if got := ResolveQuestionFamily(rm); got != QFArchitecture {
+		t.Errorf("history + current-code explanation with category drift got %q, want QFArchitecture", got)
+	}
+	rm.Predicates.IsCategoryEnumeration = false
+	rm.Intent = IntentTrace
+
+	rm.PredicateAxis = AxisCall
+	rm.AnalyzerHints = AnalyzerHints{Kind: string(ReqCallChain)}
+	rm.EnumerationBoundary = nil
+	if got := ResolveQuestionFamily(rm); got != QFArchitecture {
+		t.Errorf("history + current-code explanation misclassified as call_chain should route to architecture, got %q", got)
+	}
+	rm.AnalyzerHints.ExactTargets = []string{"A", "B"}
+	if got := ResolveQuestionFamily(rm); got != QFCallChain {
+		t.Errorf("true history-backed call-chain trace with explicit endpoints should remain call_chain, got %q", got)
+	}
+	rm.PredicateAxis = AxisUnknown
+	rm.AnalyzerHints = AnalyzerHints{Kind: string(ReqMechanism)}
+	rm.EnumerationBoundary = &RequestedEnumerationBoundary{DeclaredCount: 1, SourceQuote: "一次"}
+
+	rm.Intent = IntentEnumerate
+	if got := ResolveQuestionFamily(rm); got != QFEnumeration {
+		t.Errorf("explicit history enumeration should still route to enumeration, got %q", got)
+	}
+}
+
 // TestResolveQuestionFamily_BucketsRouteToComparison: buckets >= 2
 // route to QFComparison (R4.4) — pre-R4.4 fell to QFEnumeration
 // via the obligation rule + family_underrepresented telemetry.

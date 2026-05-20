@@ -174,6 +174,126 @@ func RequiresRelationMemberSetHandoff(rm RequestModel) bool {
 		rm.Predicates.IsCountQuestion
 }
 
+// HistoryLookupPrefersVCSNarrativePrincipal reports whether repository history
+// metadata should be the principal evidence lane and current source files should
+// remain optional support.
+//
+// The rule is intentionally typed-only. It does not scan RawRequest for words
+// like "diff", "current", or localized equivalents. Mixed history+current-code
+// questions must surface through analyzer predicates / profiles / diagram or
+// change-impact contracts; when they do, this helper returns false so VCS and
+// current-source evidence can both stay principal.
+func HistoryLookupPrefersVCSNarrativePrincipal(rm RequestModel, contract *AnswerContract) bool {
+	if !rm.Predicates.IsHistoryLookup {
+		return false
+	}
+	kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCrossComponent ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.Intent == IntentEnumerate ||
+		rm.QuestionStructure().HasAnyObligation() {
+		return false
+	}
+	if rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() {
+		return false
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return false
+	}
+	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
+		return false
+	}
+	if rm.Scenario == ScenarioArchitectureExplain && kind != ReqHistory {
+		return false
+	}
+	if rm.DiagramHint != nil && rm.DiagramHint.Kind != "" {
+		return false
+	}
+	if contract != nil && contract.Diagram != nil && contract.Diagram.Required {
+		return false
+	}
+	return true
+}
+
+// IsHistoryBackedCurrentCodeExplanation reports whether the request combines a
+// history/diff lookup with a current-code mechanism explanation. In this shape
+// VCS facts are provenance/support for "what changed", while current source
+// evidence explains "how it works now"; neither axis is a principal
+// enumeration by itself.
+//
+// This intentionally differs from HistoryLookupPrefersVCSNarrativePrincipal:
+// pure history narratives may skip current-source preselection, but mixed
+// history+code explanations must keep current-source evidence active. The
+// helper is schema-only: it consumes analyzer intent/predicates/scenario/kind
+// and typed bucket partitions, never raw prompt prose or model free text.
+func IsHistoryBackedCurrentCodeExplanation(rm RequestModel) bool {
+	if !rm.Predicates.IsHistoryLookup {
+		return false
+	}
+	if rm.Intent != IntentExplain && rm.Intent != IntentTrace {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	if rm.Intent == IntentEnumerate {
+		return false
+	}
+	if rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() {
+		return false
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return false
+	}
+	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
+		return false
+	}
+	if rm.DiagramHint != nil && rm.DiagramHint.Kind != "" {
+		return false
+	}
+	if len(rm.QuestionStructure().Buckets) >= 2 {
+		return false
+	}
+	kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+	if kind == ReqHistory {
+		return false
+	}
+	if rm.Intent == IntentTrace && (rm.PredicateAxis == AxisCall || kind == ReqCallChain) &&
+		historyBackedTraceHasExplicitEndpoints(rm) {
+		return false
+	}
+	if rm.Scenario == ScenarioArchitectureExplain {
+		return true
+	}
+	switch kind {
+	case ReqMechanism, ReqHistory:
+		return true
+	default:
+		return false
+	}
+}
+
+func historyBackedTraceHasExplicitEndpoints(rm RequestModel) bool {
+	if len(rm.AnalyzerHints.ExactTargets) >= 2 {
+		return true
+	}
+	mentioned := MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.MentionedEntities)
+	if len(mentioned) == 2 && len(mentioned) == len(rm.AnalyzerHints.MentionedEntities) {
+		return true
+	}
+	return false
+}
+
 // IsCategoryEnumerationAnswerShape reports whether the user's answer
 // shape is a set of principal members, as opposed to a single scalar
 // role/literal that happens to be phrased with "which".

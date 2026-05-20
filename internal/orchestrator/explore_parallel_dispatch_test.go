@@ -62,6 +62,65 @@ func TestDispatchExploreWindowsParallel_CancelsSiblingAfterConvergence(t *testin
 	}
 }
 
+func TestDispatchExploreWindowsParallel_HistoryNarrativeSubtopicsCanConvergeEarly(t *testing.T) {
+	var slowStarted sync.Once
+	slowStartedCh := make(chan struct{})
+	var slowCanceled int32
+
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			switch ctx.ExploreDispatchKey {
+			case "history-done":
+				<-slowStartedCh
+				ctx.Mutable.SetInvestigationComplete("history topic search converged with VCS evidence")
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			case "source-slow":
+				slowStarted.Do(func() { close(slowStartedCh) })
+				<-ctx.Context().Done()
+				atomic.StoreInt32(&slowCanceled, 1)
+				return nil, ctx.Context().Err()
+			default:
+				t.Fatalf("unexpected dispatch key %q", ctx.ExploreDispatchKey)
+				return nil, nil
+			}
+		},
+	})
+	o := New(types.PipelineSettings{MaxParallelism: 2}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		PipelineStage: types.StageAnalyze,
+		ActiveAgent:   types.AgentAnalyzer,
+		Mutable:       types.NewMutableState("parallel history narrative"),
+		Signals:       types.ExecutionSignals{},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+			SubTopics: []types.SubTopic{
+				{Summary: "commit topic A", Entities: []string{"ScalarAnswer"}},
+				{Summary: "commit topic B", Entities: []string{"AggregateScalar"}},
+			},
+		}},
+	}
+
+	out, err := o.dispatchExploreWindowsParallel([][]*types.TaskNode{
+		{{ID: "history-done"}},
+		{{ID: "source-slow"}},
+	}, nil, 2)
+	if err != nil {
+		t.Fatalf("history narrative convergence should absorb canceled sibling, got error: %v", err)
+	}
+	if out == nil || out.SignalUpdates == nil || !out.SignalUpdates.HasEnoughFacts {
+		t.Fatalf("merged output should preserve enough-facts signal, got %+v", out)
+	}
+	if atomic.LoadInt32(&slowCanceled) != 1 {
+		t.Fatal("history narrative sibling was not canceled after convergence")
+	}
+}
+
 func TestDispatchExploreWindowsParallel_EnumerationWaitsForSiblingHandoffs(t *testing.T) {
 	var slowStarted sync.Once
 	slowStartedCh := make(chan struct{})
@@ -156,6 +215,80 @@ func TestDispatchExploreWindowsParallel_EnumerationWaitsForSiblingHandoffs(t *te
 		if report.Stage != types.StageExplore || report.Agent != types.AgentExplorer {
 			t.Fatalf("parallel stage report metadata = %+v, want explore/explorer", report)
 		}
+	}
+}
+
+func TestParallelExploreAllowsEarlyConvergence_HistoryDiagramStaysMixed(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioGeneric,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+				SubTopics: []types.SubTopic{
+					{Summary: "commit"},
+					{Summary: "current flow"},
+				},
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow},
+			},
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{Required: true, RequiredKind: types.DiagramFlow},
+			},
+		},
+	}}
+
+	if o.parallelExploreAllowsEarlyConvergence() {
+		t.Fatal("history + required diagram/current-flow evidence must wait for sibling handoffs")
+	}
+}
+
+func TestParallelExploreAllowsEarlyConvergence_HistoryCurrentCodeMechanism(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+				SubTopics: []types.SubTopic{
+					{Summary: "commit clue"},
+					{Summary: "current implementation"},
+					{Summary: "gate relationship"},
+				},
+			},
+		},
+	}}
+
+	if !o.parallelExploreAllowsEarlyConvergence() {
+		t.Fatal("history-backed current-code mechanism can converge once a fork passes emit_investigation_complete prechecks")
+	}
+}
+
+func TestParallelExploreAllowsEarlyConvergence_HistoryCurrentCrossComponentWaits(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup:  true,
+					IsCrossComponent: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+				SubTopics: []types.SubTopic{
+					{Summary: "component A"},
+					{Summary: "component B"},
+				},
+			},
+		},
+	}}
+
+	if o.parallelExploreAllowsEarlyConvergence() {
+		t.Fatal("history-backed cross-component mechanism should wait for sibling handoffs")
 	}
 }
 

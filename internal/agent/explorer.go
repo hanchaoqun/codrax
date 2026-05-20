@@ -409,6 +409,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.multiGraphHandle = ctx.MultiGraph
 	e.pendingSubRepos = append(e.pendingSubRepos[:0], ctx.PendingSubRepos...)
 	e.requiredFiles = analyzerRequiredFilesFromIR(ctx)
+	if explorerHistoryPrefersVCSNarrativePrincipal(ctx) {
+		e.requiredFiles = nil
+	}
 	// Session-22 fix F2.1: cache the log-triage bundle so Check 6's
 	// mid-loop gate can consult bundle.Meta.Signals + ResolvedFiles
 	// without re-reading ctx (observeMidLoop takes only a
@@ -603,6 +606,21 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString("### Repository Command Scope\n\n")
 		fmt.Fprintf(&b, "`exec_command` runs from the active repository root: `%s`. Use repo-relative paths; do not guess absolute checkout directories or run `cd` / `git -C` / `--git-dir` outside this root. For commit history and diff questions, prefer `git_log`, `git_show`, `git_diff`, and `git_history_search` before free-form shell; use `git_show` for a specific commit/ref's metadata/patch/stat/name-only output, and use `git_history_search.order=recent` for latest/last-N windows or `order=oldest` for first-introduced / earliest-occurrence windows.\n\n",
 			ctx.RepoRoot)
+	}
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Predicates.IsHistoryLookup {
+		if explorerHistoryPrefersVCSNarrativePrincipal(ctx) {
+			b.WriteString("### VCS History Narrative Handoff\n\n")
+			b.WriteString("This question's principal evidence is repository history: commits, refs, subjects, authorship, diff/stat/name-only output, and verified history-search results. Use the VCS tools first and do not turn commit metadata into fake source `emit_evidence` rows.\n")
+			b.WriteString("- Put the concise history conclusion in `emit_investigation_complete.reason`, including the relevant commits, what each changed, how the changes relate, and any scope boundary.\n")
+			b.WriteString("- Use `aggregate_facts` only as supporting VCS metadata unless the user asked for a scalar/count/list; the narrative answer should remain richer than one commit hash or one raw value.\n")
+			b.WriteString("- Current-source files are optional support in this lane. Read them only when the VCS diff points to a file whose current state is needed for a caveat; do not keep searching source files solely to satisfy a source-code coverage habit.\n")
+			b.WriteString("- A grounded VCS conclusion may close the investigation without reading preselected current-source files.\n\n")
+		} else {
+			b.WriteString("### Mixed History / Current-source Handoff\n\n")
+			b.WriteString("This history question also needs current-source, diagram, diagnostic, comparison, or change-impact evidence. Keep the lanes separate: VCS tools establish what changed and why; `read_file` evidence establishes current implementation, current risk, or code-flow claims.\n")
+			b.WriteString("- Do not let a commit hash or diff stat replace the user's requested code explanation.\n")
+			b.WriteString("- Do not let current source evidence erase the VCS conclusion. Preserve both in `emit_investigation_complete.reason`, and emit source `emit_evidence` only for current-code claims that the final answer must cite.\n\n")
+		}
 	}
 
 	analyzerKeywords := irKeywords(ctx)
@@ -14899,6 +14917,16 @@ func requestModelFromContext(ctx *types.AgentContext) *types.RequestModel {
 		return ctx.Mutable.RequestModel()
 	}
 	return nil
+}
+
+func explorerHistoryPrefersVCSNarrativePrincipal(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return types.HistoryLookupPrefersVCSNarrativePrincipal(
+		ctx.AnalysisIR.RequestModel,
+		&ctx.AnalysisIR.AnswerContract,
+	)
 }
 
 func hasStructuredRequestModel(ctx *types.AgentContext, rm *types.RequestModel) bool {

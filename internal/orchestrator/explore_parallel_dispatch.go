@@ -262,6 +262,16 @@ func (o *Orchestrator) parallelExploreAllowsEarlyConvergence() bool {
 		return true
 	}
 	rm := o.busCtx.AnalysisIR.RequestModel
+	if types.HistoryLookupPrefersVCSNarrativePrincipal(rm, &o.busCtx.AnalysisIR.AnswerContract) {
+		return true
+	}
+	if types.IsHistoryBackedCurrentCodeExplanation(rm) &&
+		!rm.QuestionStructure().HasAnyObligation() &&
+		!rm.Predicates.IsCrossComponent &&
+		!types.IsCategoryEnumerationAnswerShape(rm) &&
+		!types.RequiresRelationMemberSetHandoff(rm) {
+		return true
+	}
 	if len(rm.SubTopics) > 1 ||
 		types.IsCategoryEnumerationAnswerShape(rm) ||
 		types.RequiresRelationMemberSetHandoff(rm) ||

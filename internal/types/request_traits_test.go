@@ -211,6 +211,129 @@ func TestRequiresRelationMemberSetHandoff_TypedOnly(t *testing.T) {
 	}
 }
 
+func TestHistoryLookupPrefersVCSNarrativePrincipal_TypedBoundary(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioGeneric,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		SubTopics: []SubTopic{
+			{Summary: "commit topic A", Entities: []string{"ScalarAnswer"}},
+			{Summary: "commit topic B", Entities: []string{"AggregateScalar"}},
+		},
+	}
+	if !HistoryLookupPrefersVCSNarrativePrincipal(rm, nil) {
+		t.Fatal("non-scalar history narrative should keep VCS metadata as the principal lane despite analyzer subtopics")
+	}
+
+	rm.Scenario = ScenarioArchitectureExplain
+	rm.AnalyzerHints = AnalyzerHints{Kind: string(ReqHistory)}
+	if !HistoryLookupPrefersVCSNarrativePrincipal(rm, nil) {
+		t.Fatal("history evolution questions may be architecture_explain while still being VCS-principal")
+	}
+	rm.Scenario = ScenarioGeneric
+	rm.AnalyzerHints = AnalyzerHints{}
+
+	rm.Predicates.IsScalarAnswer = true
+	if HistoryLookupPrefersVCSNarrativePrincipal(rm, nil) {
+		t.Fatal("true scalar history lookup must not enter narrative-only lane")
+	}
+	rm.Predicates.IsScalarAnswer = false
+
+	rm.DiagramHint = &DiagramHint{Kind: DiagramFlow}
+	if HistoryLookupPrefersVCSNarrativePrincipal(rm, nil) {
+		t.Fatal("history + diagram/code-flow request needs mixed history/current-source evidence")
+	}
+	rm.DiagramHint = nil
+
+	contract := &AnswerContract{Diagram: &DiagramContract{Required: true, RequiredKind: DiagramFlow}}
+	if HistoryLookupPrefersVCSNarrativePrincipal(rm, contract) {
+		t.Fatal("required diagram contract must keep current-source evidence principal")
+	}
+
+	rm.ChangeImpactProfile = &ChangeImpactProfile{IsChangeImpact: true}
+	if HistoryLookupPrefersVCSNarrativePrincipal(rm, nil) {
+		t.Fatal("history + change-impact request needs current-source principal evidence")
+	}
+	rm.ChangeImpactProfile = nil
+
+	rm.DiagnosticProfile = DiagnosticIntentProfile{IsDiagnostic: true, CurrentVersionCheck: true}
+	if HistoryLookupPrefersVCSNarrativePrincipal(rm, nil) {
+		t.Fatal("history + current diagnostic check needs mixed evidence")
+	}
+}
+
+func TestIsHistoryBackedCurrentCodeExplanation_TypedBoundary(t *testing.T) {
+	rm := RequestModel{
+		RawRequest:    "从历史提交里找一次相关改动，再结合当前代码解释现在链路怎么工作",
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		Complexity:    ComplexityComplex,
+		PredicateAxis: AxisDefine,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup:  true,
+			IsCrossComponent: true,
+		},
+		AnalyzerHints:       AnalyzerHints{Kind: string(ReqMechanism)},
+		EnumerationBoundary: &RequestedEnumerationBoundary{DeclaredCount: 1, SourceQuote: "一次"},
+	}
+	if !IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("history + current-code mechanism explanation should keep a mixed narrative lane")
+	}
+
+	rm.AnalyzerHints = AnalyzerHints{Kind: string(ReqHistory)}
+	if IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("pure history evolution request must not be treated as current-code mixed analysis just because scenario=architecture_explain")
+	}
+	rm.AnalyzerHints = AnalyzerHints{Kind: string(ReqMechanism)}
+
+	rm.Intent = IntentTrace
+	if !IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("history + current-code mechanism trace with define axis should still use mixed narrative lane")
+	}
+	rm.PredicateAxis = AxisCall
+	rm.AnalyzerHints = AnalyzerHints{Kind: string(ReqCallChain)}
+	if !IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("history + current-code explanation misclassified as call_chain should still use mixed narrative lane when no explicit endpoints exist")
+	}
+	rm.AnalyzerHints.ExactTargets = []string{"A", "B"}
+	if IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("true call-chain trace with explicit endpoints must keep call-chain semantics")
+	}
+	rm.PredicateAxis = AxisDefine
+	rm.AnalyzerHints = AnalyzerHints{Kind: string(ReqMechanism)}
+	rm.Intent = IntentExplain
+
+	rm.Intent = IntentEnumerate
+	if IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("explicit history enumeration/list request must not be treated as narrative-only")
+	}
+	rm.Intent = IntentExplain
+
+	rm.Buckets = []QuestionBucket{{Label: "commit A", Index: 1}, {Label: "commit B", Index: 2}}
+	if IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("explicit bucketed history comparison should stay in comparison lane")
+	}
+	rm.Buckets = nil
+
+	rm.Predicates.IsScalarAnswer = true
+	if IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("scalar history lookup must not become mixed current-code narrative")
+	}
+	rm.Predicates.IsScalarAnswer = false
+
+	rm.Intent = IntentEnumerate
+	rm.Predicates.IsCategoryEnumeration = true
+	if IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("explicit history enumeration/list request must not be treated as narrative-only")
+	}
+	rm.Intent = IntentExplain
+	if !IsHistoryBackedCurrentCodeExplanation(rm) {
+		t.Fatal("category-enumeration drift must not override history + current-code mechanism explanation")
+	}
+}
+
 func TestIsCategoryEnumerationAnswerShape_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{IsCategoryEnumeration: true},

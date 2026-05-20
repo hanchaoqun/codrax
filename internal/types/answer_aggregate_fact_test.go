@@ -1505,10 +1505,51 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesNonScalarHistoryScalars(t 
 	}
 
 	rm.Intent = IntentExplain
-	rm.Predicates.IsCrossComponent = true
+	rm.Buckets = []QuestionBucket{{Label: "commit A", Index: 1}, {Label: "commit B", Index: 2}}
 	got = NormalizeAggregateFactRolesForRequest(facts, &rm)
 	if got[2].Role != AnswerAggregateRolePrincipalAnswer {
-		t.Fatalf("history comparison should preserve principal member_set facts, got %+v", got[2])
+		t.Fatalf("explicit bucketed history comparison should preserve principal member_set facts, got %+v", got[2])
+	}
+	rm.Buckets = nil
+	rm.Predicates.IsCrossComponent = true
+	rm.Scenario = ScenarioArchitectureExplain
+	rm.AnalyzerHints = AnalyzerHints{Kind: string(ReqMechanism)}
+	rm.EnumerationBoundary = &RequestedEnumerationBoundary{DeclaredCount: 1, SourceQuote: "一次"}
+	got = NormalizeAggregateFactRolesForRequest(facts, &rm)
+	for _, fact := range got {
+		if fact.Role != AnswerAggregateRoleSupportingCoverage {
+			t.Fatalf("history + current-code mechanism metadata should become support, got %+v", fact)
+		}
+	}
+}
+
+func TestPrincipalAggregateMemberSetFactRefsForRequest_HistoryMechanismTreatsExplicitSetsAsSupport(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "相关 commit",
+		Value:      "2",
+		Members:    []string{"40f36f93 Accept scalar aggregate count handoffs", "e4f15aa1 Treat scalar count boundaries as scope"},
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "git_history_search",
+	}}
+	rm := RequestModel{
+		Intent:     IntentExplain,
+		Scenario:   ScenarioArchitectureExplain,
+		Complexity: ComplexityComplex,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup:  true,
+			IsCrossComponent: true,
+		},
+		AnalyzerHints:       AnalyzerHints{Kind: string(ReqMechanism)},
+		EnumerationBoundary: &RequestedEnumerationBoundary{DeclaredCount: 1, SourceQuote: "一次"},
+	}
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm); len(got) != 0 {
+		t.Fatalf("history + current-code mechanism support sets must not become principal rows, got %+v", got)
+	}
+
+	rm.Intent = IntentEnumerate
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm); len(got) != 1 {
+		t.Fatalf("explicit history enumeration must still preserve principal member_set rows, got %+v", got)
 	}
 }
 

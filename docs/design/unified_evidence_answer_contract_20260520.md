@@ -552,6 +552,44 @@ Tasks:
   `go test ./internal/tool -run 'TestPreCheckAggregateScalarValueCoverage'`
   PASS.
 
+2026-05-20 Batch D.3:
+
+- Added a typed VCS-history narrative boundary for exploration, extraction, and
+  parallel convergence. Pure non-scalar history narratives can now treat
+  `vcs_metadata` / `vcs_diff` as the principal lane and current source files as
+  optional support; mixed history+current-code questions keep both lanes when
+  analyzer fields require mechanism, diagram, diagnostic, comparison, relation,
+  change-impact, or explicit endpoint trace evidence.
+- Explorer prompts now distinguish `VCS History Narrative Handoff` from
+  `Mixed History / Current-source Handoff`. The pure-history lane drops
+  analyzer RequiredFiles as mandatory current-source reads, preventing a valid
+  VCS conclusion from being dragged into unrelated source forced-read loops.
+- Parallel exploration may converge early for pure VCS narratives and for
+  non-bucketed history-backed current-code mechanism explanations once a fork
+  has passed `emit_investigation_complete` prechecks. It still waits for sibling
+  handoffs for diagrams, cross-component comparisons, explicit enumerations,
+  relation lookups, diagnostics, and change-impact shapes.
+- Extractor/family routing now treats history-backed current-code mechanism as
+  architecture/generic narrative rather than answer-symbol enumeration. This
+  prevents commit lists or one historical clue from forcing `emit_answer_symbol`
+  and later system member tables.
+- Generic forced-read gates (`primary_anchor_unread`, `phase1_unread`,
+  `multi_path_anchor`) are skipped for history-backed current-code mechanism
+  narratives, but explicit source-to-sink call-chain traces with typed
+  endpoints keep the hard current-source gates.
+- Added eval guard `u7k` for "all-history topic + current implementation
+  explanation" and recorded the remaining VCS/diff-origin follow-up in
+  `eval_20260520_full_sweep_gap_tracking.md`.
+- Validation:
+  `go test ./internal/types -run 'TestHistoryLookupPrefersVCSNarrativePrincipal|TestIsHistoryBackedCurrentCodeExplanation|TestNormalizeAggregateFactRolesForRequest_DemotesNonScalarHistoryScalars|TestPrincipalAggregateMemberSetFactRefsForRequest_HistoryMechanismTreatsExplicitSetsAsSupport|TestResolveQuestionFamily_HistoryCurrentCodeExplanationBeatsOneItemBoundary'`
+  PASS;
+  `go test ./internal/agent -run 'TestBuildInitialInstructionHistory|TestExtractor_BuildPrompt_HistoryCurrentCodeMechanismSkipsAnswerSymbol'`
+  PASS;
+  `go test ./internal/orchestrator -run 'TestDispatchExploreWindowsParallel_History|TestParallelExploreAllowsEarlyConvergence_History'`
+  PASS;
+  `go test ./internal/tool -run 'TestEmitInvestigationComplete_PreCompleteCheck_HistoryCurrent'`
+  PASS.
+
 ### Batch E — System Supplement Safety
 
 Goal: preserve model-authored rich answers and stop system-generated pollution.
@@ -625,6 +663,8 @@ or noisy retries:
   answer-writing prompt.
 - [x] Batch D.2: make pre-emit scalar/value coverage consume claim bindings
   before forcing visible exact values.
+- [x] Batch D.3: add typed VCS-history narrative and mixed current-source
+  convergence boundary.
 - [ ] Batch D: make reviewer and pre-emit support lanes consume claim bindings
   for retry/local-repair decisions.
 - [ ] Batch D: align reviewer input to final rendered surface.

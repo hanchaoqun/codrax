@@ -924,6 +924,84 @@ func TestBuildInitialInstructionCompletionHandoff(t *testing.T) {
 	}
 }
 
+func TestBuildInitialInstructionHistoryNarrativeUsesVCSLane(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "从所有历史提交中搜索 scalar 标量答案处理相关改动，说明演进关系",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioGeneric,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+				SubTopics: []types.SubTopic{
+					{Summary: "scalar predicate"},
+					{Summary: "aggregate scalar"},
+				},
+			},
+			EvidencePlan: types.EvidencePlan{RequiredFiles: []string{
+				"internal/types/analysis_ir.go",
+				"internal/types/answer_aggregate_fact.go",
+			}},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"VCS History Narrative Handoff",
+		"principal evidence is repository history",
+		"do not turn commit metadata into fake source `emit_evidence` rows",
+		"A grounded VCS conclusion may close the investigation without reading preselected current-source files",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("history narrative prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "Analyzer's Required Files") {
+		t.Fatalf("pure history narrative must not render current-source required files as mandatory:\n%s", prompt)
+	}
+	if len(eval.requiredFiles) != 0 {
+		t.Fatalf("pure history narrative should drop mandatory current-source required files, got %v", eval.requiredFiles)
+	}
+}
+
+func TestBuildInitialInstructionHistoryDiagramKeepsMixedLane(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "根据最近一次合入，找到对应代码，解释流程并画图",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:      types.IntentExplain,
+				Scenario:    types.ScenarioGeneric,
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow},
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{Required: true, RequiredKind: types.DiagramFlow},
+			},
+			EvidencePlan: types.EvidencePlan{RequiredFiles: []string{
+				"internal/agent/explorer.go",
+			}},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "Mixed History / Current-source Handoff") {
+		t.Fatalf("history+diagram prompt should preserve mixed evidence lane:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "A grounded VCS conclusion may close") {
+		t.Fatalf("mixed history/current-source prompt must not claim VCS-only closure:\n%s", prompt)
+	}
+	if len(eval.requiredFiles) == 0 {
+		t.Fatal("history+diagram request should preserve current-source required files")
+	}
+}
+
 func TestBuildInitialInstructionArchitectureRoleOutputHandoff(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{

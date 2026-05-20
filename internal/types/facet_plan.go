@@ -642,6 +642,17 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 		return QFGeneric
 	}
 
+	// Rule 4.5: history/diff + current-code explanation. A request can ask for
+	// a commit/diff clue and then ask how the current implementation works.
+	// Even if the analyzer carries a one-item boundary for the history lookup,
+	// the answer surface is explanatory, not a principal member enumeration.
+	if IsHistoryBackedCurrentCodeExplanation(rm) {
+		if rm.Scenario == ScenarioArchitectureExplain || rm.Predicates.IsCrossComponent || rm.Complexity == ComplexityComplex {
+			return QFArchitecture
+		}
+		return QFGeneric
+	}
+
 	// Rule 5: trace intent without obligation.
 	if !hasObligation {
 		if rm.Intent == IntentTrace {
