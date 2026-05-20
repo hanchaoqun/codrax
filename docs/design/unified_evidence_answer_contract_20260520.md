@@ -323,6 +323,19 @@ Tasks:
 - Remaining Batch A work: expose the projection in debug/prompt diagnostics
   without making it a new hard gate.
 
+2026-05-20 Batch A.2:
+
+- Added a finalizer prompt diagnostic section titled
+  `Evidence Origin / Requested Output Boundary`.
+- The section renders `CompileAnswerIntentContract` as orientation only: it
+  explicitly says evidence origins are not answer shapes and does not replace
+  block requirements, typed support lanes, citations, or aggregate facts.
+- Added prompt tests for history narrative, history+diagram mixed origins, and
+  external runtime artifact boundaries.
+- Validation:
+  `go test ./internal/agent ./internal/types -run 'TestRenderAnswerDocUnifiedIntentContract|TestCompileAnswerIntentContract|TestBuildInitialInstructionHistory'`
+  PASS.
+
 ### Batch B — VCS / Command Origins
 
 Goal: retire commit-hash and count compatibility shims by routing through typed
@@ -420,7 +433,8 @@ or noisy retries:
 ## 9. Implementation Checklist
 
 - [x] Batch A.1: add typed projection and tests.
-- [ ] Batch A: expose projection in debug trace / finalizer prompt diagnostics.
+- [x] Batch A.2: expose projection in finalizer prompt diagnostics without a
+  hard gate.
 - [ ] Batch B: tag VCS and command measurement origins.
 - [ ] Batch B: remove decorated commit-hash shim dependency.
 - [ ] Batch C: add runtime artifact frame aggregate/binding.

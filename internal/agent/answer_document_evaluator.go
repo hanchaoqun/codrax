@@ -453,6 +453,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "answer_intent_contract", func() string {
+		return renderAnswerDocUnifiedIntentContract(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "accepted_closure", func() string {
 		return renderAnswerDocAcceptedClosure(ctx)
 	}) {
@@ -3454,6 +3459,79 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	b.WriteString("- When post-closure validation boundaries say the supported candidate set remains broad, unresolved, or under-constrained, converge the answer by prioritizing/grouping the supported facts and disclose the boundary in summary/caveat text. Do not invent missing precision solely to satisfy a validation criterion.\n")
 	b.WriteString("- Rebuild the user-visible prose yourself inside `emit_answer_document`; do not invent facts beyond the closure/evidence boundary.\n\n")
 	return b.String()
+}
+
+func renderAnswerDocUnifiedIntentContract(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	contract := types.CompileAnswerIntentContract(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract)
+	if len(contract.Origins) == 0 && len(contract.RequestedOutputs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Evidence Origin / Requested Output Boundary\n\n")
+	b.WriteString("- Evidence origins describe where a fact came from. They are not answer shapes by themselves.\n")
+	b.WriteString("- Requested outputs describe what the user-facing answer must preserve. Do not collapse a richer requested output to a scalar merely because one evidence origin supplies a commit id, count, path, or literal.\n")
+	b.WriteString("- Use this section as orientation only. It is not an extra hard gate and does not replace the block requirements, typed support lanes, citations, or aggregate facts below.\n")
+	if len(contract.Origins) > 0 {
+		fmt.Fprintf(&b, "- evidence origins: %s\n", renderAnswerIntentOrigins(contract.Origins))
+	}
+	if len(contract.RequestedOutputs) > 0 {
+		fmt.Fprintf(&b, "- requested outputs: %s\n", renderAnswerIntentOutputs(contract.RequestedOutputs))
+	}
+	if contract.HasOrigin(types.AnswerEvidenceOriginVCSMetadata) &&
+		!contract.HasOutput(types.AnswerRequestedOutputScalar) &&
+		!contract.HasOutput(types.AnswerRequestedOutputCount) {
+		b.WriteString("- Repository-history evidence is provenance for the answer, not a request to emit a `scalar` block. Preserve feature summaries, comparisons, diagrams, diagnostics, or mechanism explanations when those outputs are listed.\n")
+	}
+	if contract.HasOrigin(types.AnswerEvidenceOriginVCSDiff) &&
+		contract.HasOrigin(types.AnswerEvidenceOriginCurrentSource) {
+		b.WriteString("- Keep historical diff facts and current-checkout source facts in separate lanes: old symbols / old lines from a diff prove historical change, while current-source claims still need current-source evidence.\n")
+	}
+	if contract.HasOrigin(types.AnswerEvidenceOriginRuntimeArtifact) &&
+		!contract.HasOrigin(types.AnswerEvidenceOriginCurrentSource) {
+		b.WriteString("- Runtime artifact facts may answer what was observed without current-repo citations. Do not invent current-source file:line citations unless a separate current-source lane is present and grounded.\n")
+	}
+	if contract.HasOrigin(types.AnswerEvidenceOriginCommandMeasurement) {
+		b.WriteString("- Command measurement facts can support exact counts or scalar measurements without pretending the value lives at a source `file:line`.\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerIntentOrigins(origins []types.AnswerEvidenceOrigin) string {
+	if len(origins) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		if origin == types.AnswerEvidenceOriginUnknown {
+			continue
+		}
+		parts = append(parts, "`"+string(origin)+"`")
+	}
+	if len(parts) == 0 {
+		return "(none)"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func renderAnswerIntentOutputs(outputs []types.AnswerRequestedOutput) string {
+	if len(outputs) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(outputs))
+	for _, output := range outputs {
+		if output == types.AnswerRequestedOutputUnknown {
+			continue
+		}
+		parts = append(parts, "`"+string(output)+"`")
+	}
+	if len(parts) == 0 {
+		return "(none)"
+	}
+	return strings.Join(parts, ", ")
 }
 
 func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) string {
