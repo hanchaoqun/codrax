@@ -273,10 +273,7 @@ func historyRequestNeedsVCSDiffOrigin(rm RequestModel, contract *AnswerContract)
 }
 
 func shouldIncludeCurrentSourceOrigin(rm RequestModel, contract *AnswerContract) bool {
-	if rm.HasObservationOnlyRuntimeArtifact() &&
-		!rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() &&
-		!rm.DiagnosticProfile.CurrentVersionCheck &&
-		!rm.DiagnosticProfile.HistoricalRegression {
+	if rm.HasObservationOnlyRuntimeArtifact() {
 		return false
 	}
 	if typesContractRequiresCurrentSource(contract) {

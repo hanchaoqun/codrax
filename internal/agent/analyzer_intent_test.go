@@ -673,7 +673,7 @@ func TestBuildAnalysisIR_ExternalOnlyCurrentRiskWithoutCurrentVersionStaysObserv
 }
 
 func TestBuildAnalysisIR_ExternalOnlyCurrentVersionCheckKeepsCurrentStatus(t *testing.T) {
-	mut := types.NewMutableState("确认这个日志问题当前版本是否还存在")
+	mut := types.NewMutableState("确认这个日志问题当前版本 my_app::config::load 是否还存在")
 	mut.SetLogTriage(&types.LogBundle{
 		Errors: []types.LogError{{
 			Type: "panic",
@@ -686,10 +686,13 @@ func TestBuildAnalysisIR_ExternalOnlyCurrentVersionCheckKeepsCurrentStatus(t *te
 		}},
 	})
 	mut.SetRequestModel(types.RequestModel{
-		RawRequest: "确认这个日志问题当前版本是否还存在",
+		RawRequest: "确认这个日志问题当前版本 my_app::config::load 是否还存在",
 		Intent:     types.IntentRootCause,
 		Scenario:   types.ScenarioRootCause,
 		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			ExactTargets: []string{"my_app::config::load"},
+		},
 		Predicates: types.SemanticPredicates{
 			IsDiagnosticQuestion: true,
 		},
@@ -711,6 +714,58 @@ func TestBuildAnalysisIR_ExternalOnlyCurrentVersionCheckKeepsCurrentStatus(t *te
 	}
 	if ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
 		t.Fatalf("current-version check must not be observation-only: %+v", ir.RequestModel.DiagnosticProfile)
+	}
+}
+
+func TestBuildAnalysisIR_ExternalOnlySpuriousCurrentVersionCheckStaysObservationOnly(t *testing.T) {
+	mut := types.NewMutableState("哪些 goroutine 同时出错？它们的共同问题是什么？")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "fatal error",
+			Message: "concurrent map writes",
+			Frames: []types.LogFrame{{
+				Lang: "go",
+				Func: "main.writeSession",
+				File: "internal/agent/analyzer.go",
+				Line: 100,
+			}},
+		}},
+	})
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "哪些 goroutine 同时出错？它们的共同问题是什么？",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"goroutine", "concurrent map writes"},
+			Entities: []string{"writeSession", "goroutine 15", "goroutine 87", "goroutine 120"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentRisk:         true,
+			CurrentVersionCheck: true,
+			Confidence:          0.95,
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.RequestModel.DiagnosticProfile.CurrentRisk ||
+		ir.RequestModel.DiagnosticProfile.CurrentVersionCheck ||
+		ir.RequestModel.DiagnosticProfile.HistoricalRegression {
+		t.Fatalf("external-only artifact without current-source anchor should clear current-status flags: %+v", ir.RequestModel.DiagnosticProfile)
+	}
+	if !ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
+		t.Fatalf("runtime artifact should be observation-only: %+v", ir.RequestModel)
+	}
+	if ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
+		t.Fatalf("CurrentStatusDiagnostic should not be required: %+v", ir.AnswerContract.CurrentStatusDiagnostic)
 	}
 }
 

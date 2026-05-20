@@ -12,13 +12,14 @@ import (
 // payloads and grounded evidence; it never derives members from user text,
 // model thoughts, closure prose, or raw prompt snippets.
 type EnumerationDisplaySet struct {
-	ID        string
-	FactIndex int
-	Label     string
-	Value     string
-	Unit      string
-	Role      AnswerAggregateRole
-	Rows      []EnumerationDisplayRow
+	ID              string
+	FactIndex       int
+	Label           string
+	Value           string
+	Unit            string
+	Role            AnswerAggregateRole
+	EvidenceOrigins []AnswerEvidenceOrigin
+	Rows            []EnumerationDisplayRow
 }
 
 // EnumerationDisplayRow is one stable user-visible enumeration row. The row
@@ -54,6 +55,7 @@ type EnumerationDisplayRow struct {
 	EquivalentLocations []string
 	Producer            string
 	GroundingTier       GroundingTier
+	EvidenceOrigins     []AnswerEvidenceOrigin
 	Note                string
 	Detail              string
 }
@@ -82,12 +84,13 @@ func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 			continue
 		}
 		set := EnumerationDisplaySet{
-			ID:        enumerationDisplaySetID(ref.Index, fact),
-			FactIndex: ref.Index,
-			Label:     strings.TrimSpace(fact.Label),
-			Value:     strings.TrimSpace(fact.Value),
-			Unit:      strings.TrimSpace(fact.Unit),
-			Role:      AnswerAggregateFactRoleForRequest(fact, rm),
+			ID:              enumerationDisplaySetID(ref.Index, fact),
+			FactIndex:       ref.Index,
+			Label:           strings.TrimSpace(fact.Label),
+			Value:           strings.TrimSpace(fact.Value),
+			Unit:            strings.TrimSpace(fact.Unit),
+			Role:            AnswerAggregateFactRoleForRequest(fact, rm),
+			EvidenceOrigins: cloneEnumerationDisplayOrigins(AnswerAggregateFactEvidenceOrigins(fact, rm)),
 		}
 		for memberIdx, member := range fact.Members {
 			row, ok := compileEnumerationDisplayRow(set, fact, ref.Index, memberIdx, member, support, anchorSummaries, stepSupport)
@@ -174,7 +177,7 @@ func compileEnumerationDisplayRow(
 	anchorSummaries *enumerationDisplayAnchorSummaryIndex,
 	stepSupport *enumerationDisplayStepBackbone,
 ) (EnumerationDisplayRow, bool) {
-	entry, ok := genericAggregateMemberSupportEntry(fact, factIdx, memberIdx, member, support)
+	entry, ok := genericAggregateMemberSupportEntry(fact, factIdx, memberIdx, member, support, set.EvidenceOrigins)
 	if !ok {
 		return EnumerationDisplayRow{}, false
 	}
@@ -216,6 +219,7 @@ func compileEnumerationDisplayRow(
 		EquivalentLocations: append([]string(nil), entry.EquivalentLocations...),
 		Producer:            entry.Producer,
 		GroundingTier:       entry.GroundingTier,
+		EvidenceOrigins:     cloneEnumerationDisplayOrigins(set.EvidenceOrigins),
 		Note:                note,
 		Detail:              enumerationDisplayDetail(entry.Detail, note),
 	}
@@ -228,6 +232,15 @@ func compileEnumerationDisplayRow(
 		row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
 	}
 	return row, true
+}
+
+func cloneEnumerationDisplayOrigins(in []AnswerEvidenceOrigin) []AnswerEvidenceOrigin {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]AnswerEvidenceOrigin, len(in))
+	copy(out, in)
+	return out
 }
 
 type enumerationDisplayAnchorSummaryIndex struct {

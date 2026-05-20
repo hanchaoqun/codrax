@@ -142,39 +142,47 @@ func compileGenericAggregateMemberSupportLane(rm RequestModel, plan *AnswerSurfa
 	return lane
 }
 
-func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, memberIdx int, member string, supportEvidence *aggregateMemberEvidenceIndex) (AnswerSupportEntry, bool) {
+func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, memberIdx int, member string, supportEvidence *aggregateMemberEvidenceIndex, origins []AnswerEvidenceOrigin) (AnswerSupportEntry, bool) {
 	member = strings.TrimSpace(member)
 	if member == "" {
 		return AnswerSupportEntry{}, false
 	}
-	source, line, location := aggregateMemberStructuredLocation(fact, memberIdx, member)
-	ev, hasEvidence := aggregateMemberEvidenceByLabel(member, supportEvidence)
-	if location == "" {
-		if genericEv, genericLocation, ok := aggregateMemberEvidenceByGenericSupportRefs(fact, member, supportEvidence); ok {
-			ev = genericEv
-			hasEvidence = true
-			source = genericLocation.File
-			line = genericLocation.LineStart
-			location = aggregateMemberStartLocation(genericLocation)
+	allowCurrentSourceLocations := aggregateMemberFactAllowsCurrentSourceLocations(origins)
+	var source string
+	var line int
+	var location string
+	var ev EvidenceItem
+	var hasEvidence bool
+	if allowCurrentSourceLocations {
+		source, line, location = aggregateMemberStructuredLocation(fact, memberIdx, member)
+		ev, hasEvidence = aggregateMemberEvidenceByLabel(member, supportEvidence)
+		if location == "" {
+			if genericEv, genericLocation, ok := aggregateMemberEvidenceByGenericSupportRefs(fact, member, supportEvidence); ok {
+				ev = genericEv
+				hasEvidence = true
+				source = genericLocation.File
+				line = genericLocation.LineStart
+				location = aggregateMemberStartLocation(genericLocation)
+			}
 		}
-	}
-	if location == "" {
-		if hasEvidence {
+		if location == "" {
+			if hasEvidence {
+				source = strings.TrimSpace(strings.ReplaceAll(ev.Source, `\`, `/`))
+				line = ev.LineStart
+				location = aggregateMemberStartLocation(AnswerSourceLocationSurface{File: source, LineStart: line})
+			}
+		}
+		if !hasEvidence && location != "" {
+			ev, hasEvidence = aggregateMemberEvidenceByLocationAndText(member, source, line, supportEvidence)
+		}
+		if hasEvidence && location != "" && line > 0 &&
+			ev.LineStart == line &&
+			aggregateSupportRefPathCorresponds(ev.Source, source) &&
+			aggregateSupportRefMoreSpecific(ev.Source, source) {
 			source = strings.TrimSpace(strings.ReplaceAll(ev.Source, `\`, `/`))
 			line = ev.LineStart
 			location = aggregateMemberStartLocation(AnswerSourceLocationSurface{File: source, LineStart: line})
 		}
-	}
-	if !hasEvidence && location != "" {
-		ev, hasEvidence = aggregateMemberEvidenceByLocationAndText(member, source, line, supportEvidence)
-	}
-	if hasEvidence && location != "" && line > 0 &&
-		ev.LineStart == line &&
-		aggregateSupportRefPathCorresponds(ev.Source, source) &&
-		aggregateSupportRefMoreSpecific(ev.Source, source) {
-		source = strings.TrimSpace(strings.ReplaceAll(ev.Source, `\`, `/`))
-		line = ev.LineStart
-		location = aggregateMemberStartLocation(AnswerSourceLocationSurface{File: source, LineStart: line})
 	}
 	displayMember := member
 	if label, _, ok := aggregateSupportRefMemberLocation(member); ok && strings.TrimSpace(label) != "" {
@@ -215,6 +223,19 @@ func genericAggregateMemberSupportEntry(fact AnswerAggregateFact, factIdx, membe
 		}
 	}
 	return entry, true
+}
+
+func aggregateMemberFactAllowsCurrentSourceLocations(origins []AnswerEvidenceOrigin) bool {
+	if len(origins) == 0 {
+		return true
+	}
+	for _, origin := range origins {
+		switch origin {
+		case AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginUnknown:
+			return true
+		}
+	}
+	return false
 }
 
 func alignAggregateMemberSurfaceWithClaimForm(entry *AnswerSupportEntry) {

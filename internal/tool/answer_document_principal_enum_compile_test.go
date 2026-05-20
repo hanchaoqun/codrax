@@ -147,6 +147,93 @@ func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVCSCommitRowsAlr
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_SkipsRuntimeArtifactCoordinateOnlySupplement(t *testing.T) {
+	mu := types.NewMutableState("哪些 goroutine 同时出错？它们的共同问题是什么？")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "运行时帧占位成员",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"<native>@runtime:0"},
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "evidence_origin", Value: "runtime_artifact"},
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			LogTriage: &types.LogBundle{Meta: types.LogMeta{Summary: "goroutine dump"}},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "goroutine 15、87、120 都表现为 concurrent map writes。",
+	}}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+
+	var visible []string
+	for _, block := range doc.Blocks {
+		visible = append(visible, block.Title, types.AnswerBlockVisibleSurface(block))
+	}
+	joined := strings.Join(visible, "\n")
+	if strings.Contains(joined, "<native>@runtime:0") {
+		t.Fatalf("runtime artifact coordinate-only placeholder must not render as a system supplement:\n%s", joined)
+	}
+	if strings.Contains(joined, "系统按已验证证据补充成员：运行时帧占位成员") {
+		t.Fatalf("coordinate-only runtime artifact member supplement should be skipped:\n%s", joined)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_RuntimeArtifactProseCoveragePreventsSupplement(t *testing.T) {
+	mu := types.NewMutableState("哪些 goroutine 同时出错？它们的共同问题是什么？")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "触发错误的函数",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"main.writeSession"},
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "evidence_origin", Value: "runtime_artifact"},
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			LogTriage: &types.LogBundle{Meta: types.LogMeta{Summary: "goroutine dump"}},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "三个 goroutine 的共同入口均为 main.writeSession，根因是 concurrent map writes。",
+	}}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+
+	var visible []string
+	for _, block := range doc.Blocks {
+		visible = append(visible, block.Title, types.AnswerBlockVisibleSurface(block))
+	}
+	joined := strings.Join(visible, "\n")
+	if strings.Contains(joined, "系统按已验证证据补充成员：触发错误的函数") {
+		t.Fatalf("runtime artifact prose already covers member; duplicate supplement should not render:\n%s", joined)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_SuppressesExactAbsenceSupplement(t *testing.T) {
 	mu := types.NewMutableState("缺失配置键的三层覆盖")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -808,6 +895,47 @@ func TestNormalizePrincipalEnumerationRowBlocks_DoesNotAppendSingletonCountBasis
 	if !strings.Contains(joined, "Kind const block 数量说明") ||
 		!strings.Contains(joined, "数量依据只作为范围说明") {
 		t.Fatalf("model-authored count-basis explanation should be preserved:\n%s", joined)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_RuntimeArtifactGoroutineShorthandPreventsSupplement(t *testing.T) {
+	mu := types.NewMutableState("哪些 goroutine 同时出错？")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "同时出错的 goroutine",
+		Value:      "3",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: string(types.AnswerEvidenceOriginRuntimeArtifact),
+		Dimensions: []types.AnswerAggregateDimension{{
+			Name:  "origin",
+			Value: string(types.AnswerEvidenceOriginRuntimeArtifact),
+		}},
+		Members: []string{"goroutine 15", "goroutine 87", "goroutine 120"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Language: "zh",
+			Intent:   types.IntentRootCause,
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			DiagnosticProfile: types.DiagnosticIntentProfile{IsDiagnostic: true},
+			LogTriage:         &types.LogBundle{Errors: []types.LogError{{Type: "fatal error"}}},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "运行时日志显示三个 goroutine（15、87、120）同时触发 fatal error: concurrent map writes。",
+	}}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	for _, block := range doc.Blocks {
+		if strings.Contains(block.Title, "系统按已验证证据补充成员") {
+			t.Fatalf("compact goroutine shorthand should count as visible coverage without a supplement block: %+v", doc.Blocks)
+		}
 	}
 }
 

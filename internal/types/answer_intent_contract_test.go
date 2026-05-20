@@ -150,6 +150,56 @@ func TestCompileAnswerIntentContract_ExternalRuntimeArtifactDoesNotRequireCurren
 	}
 }
 
+func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithoutAnchorStaysRuntimeOnly(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentRootCause,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentRisk:         true,
+			CurrentVersionCheck: true,
+		},
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "fatal error"}},
+		},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	assertAnswerIntentContract(t, got,
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginRuntimeArtifact},
+		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputDiagnostic},
+	)
+	if got.HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatalf("external-only runtime artifact without a current-source anchor should stay runtime-only: %+v", got.Origins)
+	}
+}
+
+func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithExactTargetKeepsCurrentSource(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentRootCause,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentRisk:         true,
+			CurrentVersionCheck: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets: []string{"writeSession"},
+		},
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "fatal error"}},
+		},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	assertAnswerIntentContract(t, got,
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRuntimeArtifact},
+		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputDiagnostic},
+	)
+}
+
 func TestCompileAnswerIntentContract_CurrentSourceMechanismBaseline(t *testing.T) {
 	rm := RequestModel{
 		Intent:     IntentExplain,

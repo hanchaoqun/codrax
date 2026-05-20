@@ -1491,6 +1491,9 @@ func aggregateMemberSetCarrierText(factLabel string) string {
 }
 
 func citationForAggregateMemberSetMember(fact types.AnswerAggregateFact, memberIdx int, member string, ctx *types.BusContext) (types.Citation, bool) {
+	if aggregateFactSuppressesCurrentSourceLocationFallbacks(fact, ctx) {
+		return types.Citation{}, false
+	}
 	member = strings.TrimSpace(member)
 	if member == "" {
 		return types.Citation{}, false
@@ -1596,6 +1599,9 @@ func citationForAggregateMemberSetEvidence(member string, ctx *types.BusContext)
 }
 
 func evidenceForAggregateMemberSetMember(fact types.AnswerAggregateFact, memberIdx int, member string, ctx *types.BusContext) (types.EvidenceItem, bool) {
+	if aggregateFactSuppressesCurrentSourceLocationFallbacks(fact, ctx) {
+		return types.EvidenceItem{}, false
+	}
 	evidence := aggregateMemberSetEvidencePool(ctx)
 	if len(evidence) == 0 {
 		return types.EvidenceItem{}, false
@@ -1635,6 +1641,27 @@ func evidenceForAggregateMemberSetMember(fact types.AnswerAggregateFact, memberI
 		}
 	}
 	return types.EvidenceItem{}, false
+}
+
+func aggregateFactSuppressesCurrentSourceLocationFallbacks(fact types.AnswerAggregateFact, ctx *types.BusContext) bool {
+	var rm *types.RequestModel
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	origins := types.AnswerAggregateFactEvidenceOrigins(fact, rm)
+	if len(origins) == 0 {
+		return false
+	}
+	hasNonCurrent := false
+	for _, origin := range origins {
+		switch origin {
+		case types.AnswerEvidenceOriginCurrentSource, types.AnswerEvidenceOriginUnknown:
+			return false
+		default:
+			hasNonCurrent = true
+		}
+	}
+	return hasNonCurrent
 }
 
 func aggregateMemberSetEvidenceMatchesCitation(ev types.EvidenceItem, cit types.Citation) bool {

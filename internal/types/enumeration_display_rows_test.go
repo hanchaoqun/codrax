@@ -425,6 +425,53 @@ func TestCompileEnumerationDisplaySets_PreservesNonFileRows(t *testing.T) {
 	}
 }
 
+func TestCompileEnumerationDisplaySets_RuntimeArtifactDoesNotPromoteFramePathToCurrentCitation(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "同时出错的 goroutine",
+			Value:   "1",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"goroutine 15 @ internal/agent/analyzer.go:100"},
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "evidence_origin", Value: "runtime_artifact"},
+			},
+		}},
+		SurfaceEvidence: []EvidenceItem{{
+			ID:              "ev_code_same_path",
+			Kind:            EvidenceDirect,
+			Subject:         "writeSession",
+			AnchorSymbol:    "writeSession",
+			AnchorKind:      AnchorDefinition,
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       100,
+			Summary:         "当前源码里同名函数的定义，不等于运行时日志帧本身。",
+			GroundingStatus: GroundingGrounded,
+		}},
+	}
+
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 1 {
+		t.Fatalf("sets = %+v", sets)
+	}
+	row := sets[0].Rows[0]
+	if row.DisplayLabel != "goroutine 15" {
+		t.Fatalf("display label should keep the artifact member label, got %+v", row)
+	}
+	if row.HasCitation || row.Source != "" || row.LineStart != 0 || row.Location != "" {
+		t.Fatalf("runtime artifact member must not become a current-source citation: %+v", row)
+	}
+	if len(row.EvidenceOrigins) != 1 || row.EvidenceOrigins[0] != AnswerEvidenceOriginRuntimeArtifact {
+		t.Fatalf("runtime artifact origin not preserved on display row: %+v", row.EvidenceOrigins)
+	}
+}
+
 func TestCompileEnumerationDisplaySets_CrossLanguageSupportRefs(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

@@ -694,7 +694,36 @@ func (rm RequestModel) HasExternalOnlyRuntimeArtifact() bool {
 // symbols that merely resemble artifact labels.
 func (rm RequestModel) HasObservationOnlyRuntimeArtifact() bool {
 	return rm.HasExternalOnlyRuntimeArtifact() &&
-		!rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic()
+		(!rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() ||
+			!rm.HasRuntimeArtifactCurrentVerificationAnchor())
+}
+
+// HasRuntimeArtifactCurrentVerificationAnchor reports whether an external
+// runtime artifact has a separate, typed current-checkout target strong enough
+// to justify opening the current-source lane. The signal must come from
+// structured analyzer fields; stack-frame labels from an unresolved external
+// log are not enough by themselves.
+func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
+	if !rm.HasExternalOnlyRuntimeArtifact() {
+		return false
+	}
+	if rm.LogTriage != nil && len(rm.LogTriage.ResolvedFiles) > 0 {
+		return true
+	}
+	if rm.PerfTrace != nil && len(rm.PerfTrace.ResolvedFiles) > 0 {
+		return true
+	}
+	for _, target := range rm.AnalyzerHints.ExactTargets {
+		if strings.TrimSpace(target) != "" {
+			return true
+		}
+	}
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if strings.TrimSpace(hint.Path) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func isScalarSourceLiteralSubjectKind(kind AnswerSubjectKind) bool {

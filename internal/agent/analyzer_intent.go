@@ -209,14 +209,16 @@ func reconcileExternalOnlyRuntimeDiagnosticProfile(rm types.RequestModel) (types
 	if !rm.HasExternalOnlyRuntimeArtifact() {
 		return rm, ""
 	}
-	if !rm.DiagnosticProfile.CurrentRisk {
+	if !rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() {
 		return rm, ""
 	}
-	if rm.DiagnosticProfile.CurrentVersionCheck || rm.DiagnosticProfile.HistoricalRegression {
+	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
 		return rm, ""
 	}
 	rm.DiagnosticProfile.CurrentRisk = false
-	return rm, "external-only runtime artifact has no typed current-version or historical-regression requirement; keep the request observation-only instead of opening current-repo verification"
+	rm.DiagnosticProfile.CurrentVersionCheck = false
+	rm.DiagnosticProfile.HistoricalRegression = false
+	return rm, "external-only runtime artifact has no resolved frame, exact target, or required file for current-checkout verification; keep the request observation-only instead of opening current-repo verification"
 }
 
 // reconcileIntent is preserved as a thin sanity check. Count predicates used to

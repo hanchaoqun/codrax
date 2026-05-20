@@ -622,6 +622,9 @@ func TestValidateObservationOnlyRuntimeToolCall(t *testing.T) {
 		Stage: types.StageExplore,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					ExactTargets: []string{"RuntimeError"},
+				},
 				LogTriage: &types.LogBundle{
 					Errors: []types.LogError{{Type: "RuntimeError"}},
 				},

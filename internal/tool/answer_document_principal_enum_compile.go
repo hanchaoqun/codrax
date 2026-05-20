@@ -308,6 +308,9 @@ func principalEnumerationDocumentCoversRow(doc *types.AnswerDocumentV2, row type
 	if doc == nil {
 		return false
 	}
+	if principalEnumerationRuntimeArtifactRowCoveredByAnyVisibleText(doc, row) {
+		return true
+	}
 	for _, block := range doc.Blocks {
 		if !principalEnumerationBlockCanCarryRows(block) {
 			continue
@@ -317,6 +320,97 @@ func principalEnumerationDocumentCoversRow(doc *types.AnswerDocumentV2, row type
 		}
 	}
 	return false
+}
+
+func principalEnumerationRuntimeArtifactRowCoveredByAnyVisibleText(doc *types.AnswerDocumentV2, row types.EnumerationDisplayRow) bool {
+	if !principalEnumerationRowHasOrigin(row, types.AnswerEvidenceOriginRuntimeArtifact) {
+		return false
+	}
+	needles := []string{
+		strings.TrimSpace(row.DisplayLabel),
+		strings.TrimSpace(row.Member),
+	}
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(row.Member); ok {
+		needles = append(needles, strings.TrimSpace(label))
+	}
+	for _, block := range doc.Blocks {
+		surface := types.AnswerBlockVisibleSurface(block)
+		if strings.TrimSpace(surface) == "" {
+			continue
+		}
+		for _, needle := range needles {
+			if strings.TrimSpace(needle) == "" {
+				continue
+			}
+			if strings.Contains(surface, needle) {
+				return true
+			}
+		}
+		if principalEnumerationRuntimeArtifactNumericShorthandCovered(surface, row) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationRuntimeArtifactNumericShorthandCovered(surface string, row types.EnumerationDisplayRow) bool {
+	id, ok := principalEnumerationRuntimeArtifactNumberedMember(row)
+	if !ok {
+		return false
+	}
+	if !strings.Contains(strings.ToLower(surface), "goroutine") {
+		return false
+	}
+	return containsDecimalToken(surface, id)
+}
+
+func principalEnumerationRuntimeArtifactNumberedMember(row types.EnumerationDisplayRow) (string, bool) {
+	for _, candidate := range []string{row.DisplayLabel, row.Member} {
+		candidate = strings.TrimSpace(strings.ToLower(candidate))
+		if !strings.HasPrefix(candidate, "goroutine ") {
+			continue
+		}
+		id := strings.TrimSpace(strings.TrimPrefix(candidate, "goroutine "))
+		if id == "" {
+			continue
+		}
+		allDigits := true
+		for _, r := range id {
+			if r < '0' || r > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			return id, true
+		}
+	}
+	return "", false
+}
+
+func containsDecimalToken(surface, token string) bool {
+	if strings.TrimSpace(token) == "" {
+		return false
+	}
+	for start := 0; start < len(surface); {
+		idx := strings.Index(surface[start:], token)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		beforeOK := pos == 0 || !isASCIIDigit(surface[pos-1])
+		after := pos + len(token)
+		afterOK := after >= len(surface) || !isASCIIDigit(surface[after])
+		if beforeOK && afterOK {
+			return true
+		}
+		start = after
+	}
+	return false
+}
+
+func isASCIIDigit(b byte) bool {
+	return b >= '0' && b <= '9'
 }
 
 func principalEnumerationBlockCoversAnyRow(block types.AnswerBlock, doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) bool {
@@ -455,12 +549,41 @@ func principalEnumerationRenderableSupplementRows(rows []types.EnumerationDispla
 	shape := principalEnumerationTableShapeForRows(rows, nil)
 	out := make([]types.EnumerationDisplayRow, 0, len(rows))
 	for _, row := range rows {
+		if principalEnumerationRuntimeArtifactCoordinateOnly(row) {
+			continue
+		}
 		if !principalEnumerationRowCompatibleWithTableShape(row, nil, shape) {
 			continue
 		}
 		out = append(out, row)
 	}
 	return out
+}
+
+func principalEnumerationRuntimeArtifactCoordinateOnly(row types.EnumerationDisplayRow) bool {
+	if !principalEnumerationRowHasOrigin(row, types.AnswerEvidenceOriginRuntimeArtifact) {
+		return false
+	}
+	if strings.TrimSpace(row.Location) != "" || strings.TrimSpace(row.Note) != "" {
+		return false
+	}
+	surface := strings.TrimSpace(firstNonEmptyAnswerString(row.DisplayLabel, row.Member))
+	if surface == "" {
+		return true
+	}
+	lower := strings.ToLower(surface)
+	return strings.Contains(lower, "@runtime:") ||
+		strings.Contains(lower, "@artifact:") ||
+		strings.HasSuffix(lower, ":0")
+}
+
+func principalEnumerationRowHasOrigin(row types.EnumerationDisplayRow, origin types.AnswerEvidenceOrigin) bool {
+	for _, candidate := range row.EvidenceOrigins {
+		if candidate == origin {
+			return true
+		}
+	}
+	return false
 }
 
 func principalEnumerationRowsBlockTitle(set types.EnumerationDisplaySet, rows []types.EnumerationDisplayRow, zh bool) string {

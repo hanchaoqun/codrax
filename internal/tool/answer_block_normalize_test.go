@@ -240,16 +240,16 @@ func TestNormalizeEmitAnswerBlock_RejectsCurrentStatusVerdictOnNonDecision(t *te
 	}
 }
 
-func TestNormalizeEmitAnswerBlock_RejectsInvalidCandidateRole(t *testing.T) {
-	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+func TestNormalizeEmitAnswerBlock_RepairsInvalidCandidateRoleToOther(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID: "b1", Kind: string(types.BlockOrderedList),
 		Items: []emitAnswerBlockItemV2{{ID: "i1", CandidateRole: "garbage"}},
 	}, "blocks[0]")
-	if err == nil {
-		t.Fatal("must reject bogus candidate_role")
+	if err != nil {
+		t.Fatalf("invalid optional candidate_role should be repaired, not rejected: %v", err)
 	}
-	if !strings.Contains(err.Error(), "candidate_role") {
-		t.Errorf("err must name candidate_role, got %q", err.Error())
+	if got.Items[0].CandidateRole != types.AnswerCandidateRoleOther {
+		t.Fatalf("candidate_role = %q, want other", got.Items[0].CandidateRole)
 	}
 }
 

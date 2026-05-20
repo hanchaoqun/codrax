@@ -490,6 +490,22 @@ func TestAnalysisSkill_PromptDocumentsDirectHistoryClassification(t *testing.T) 
 	}
 }
 
+func TestAnalysisSkill_PromptDocumentsExternalRuntimeDirectClassification(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	rendered := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"external-source log / trace",
+		"resolved_files=0",
+		"do NOT run a source-code pre-scan",
+		"diagnostic_profile.current_version_check=false",
+		"let explore verify it",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("analysis-skill prompt must teach direct external-runtime classification; missing %q in:\n%s", want, rendered)
+		}
+	}
+}
+
 // TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere is the batch
 // 3A 3-way consistency gate: every top-level required field in the
 // emit_analysis JSON schema must also be named in the skill's

@@ -971,6 +971,72 @@ Required tests before the contract is considered complete:
   `go test ./internal/agent -run 'TestAnswerDocumentEvaluator_BuildInitialInstruction_(HistoryMemberSetKeepsClosureProse|PrincipalMemberSetSuppressesClosureProse)'`
   PASS.
 
+2026-05-21 Batch F.7:
+
+- Enumeration display rows now carry the same `AnswerEvidenceOrigin` projection
+  as the aggregate fact that produced them. This closes a runtime/log/diff
+  leakage class where a member such as `goroutine 15 @ internal/foo.go:100` or
+  an old diff hunk path could be promoted into a current-checkout citation just
+  because it looked like `file:line`.
+- Current-source location enrichment is now allowed only when the aggregate
+  origin includes `current_source` (or has no typed origin and therefore follows
+  the legacy current-source path). Pure `runtime_artifact`, `vcs_diff`,
+  `vcs_metadata`, `command_measurement`, `repo_negative_search`, and
+  `cross_repo_index` aggregates remain first-class answer evidence but cannot
+  borrow current-source support refs implicitly.
+- Pre-emit member-set carrier repair follows the same rule: non-current-source
+  aggregate rows do not synthesize citation refs or evidence summaries from the
+  current checkout. Runtime artifact coordinate-only placeholders such as
+  `<native>@runtime:0` are also skipped by the system supplement compiler when
+  they have no user-useful note/location, preventing blank artifact补表 rows.
+- Runtime-artifact member coverage may be satisfied by visible prose, not only
+  by table/list rows. This prevents diagnostic answers that already say
+  `main.writeSession` or a goroutine id in the body from receiving a duplicate
+  system-generated member table.
+- Invalid optional `candidate_role` metadata is normalized to `other` instead
+  of rejecting the entire finalizer emit. This is safe because `other` does not
+  satisfy any more specific required role; hard role checks still fail if the
+  requested typed role is missing.
+- Validation:
+  `go test ./internal/types -run 'TestCompileEnumerationDisplaySets_(RuntimeArtifactDoesNotPromoteFramePathToCurrentCitation|PreservesNonFileRows)'`
+  PASS;
+  `go test ./internal/tool -run 'TestNormalizeEmitAnswerBlock_(RepairsInvalidCandidateRoleToOther|NormalizesCandidateRoleAlias)|TestNormalizePrincipalEnumerationRowBlocks_(RuntimeArtifactProseCoveragePreventsSupplement|SkipsRuntimeArtifactCoordinateOnlySupplement|DoesNotDuplicateVCSCommitRowsAlreadyVisible|SystemSupplementSkipsRowsThatWouldCreateBlankCells)'`
+  PASS;
+ `go test ./internal/types ./internal/tool ./internal/agent ./internal/context ./internal/orchestrator`
+  PASS.
+
+2026-05-21 Batch F.8:
+
+- External runtime artifacts with `resolved_files=0` now stay
+  observation-only unless there is a separate typed current-checkout anchor
+  (`exact_targets`, `required_files`, or resolved runtime frames). This prevents
+  analyzer mirror drift such as `current_version_check=true` from turning a
+  user request like "which goroutines failed?" into a current-source
+  verification task.
+- `HasObservationOnlyRuntimeArtifact` and `CompileAnswerIntentContract` now
+  share that anchor rule, so explorer/finalizer prompts, citation floors,
+  current-status scaffolds, and deterministic row compilers agree on the same
+  origin boundary.
+- The analyzer skill now documents the same direct-classification rule as VCS
+  history: external-source log/trace sections with `resolved_files=0` should not
+  trigger source-code pre-scan merely to classify stack-frame literals. If the
+  user asks for current-code verification, the analyzer should express that as
+  structured current-version / exact-target fields and let explore verify it.
+- Runtime artifact row coverage also recognizes compact numbered prose such as
+  `goroutine（15、87、120）`, avoiding duplicate system supplement tables when the
+  final answer already covers every runtime member naturally.
+- Validation:
+  `go test ./internal/types -run 'TestCompileAnswerIntentContract_ExternalRuntimeArtifact'`
+  PASS;
+  `go test ./internal/agent -run 'TestAnalysisSkill_PromptDocuments(DirectHistoryClassification|ExternalRuntimeDirectClassification)|TestBuildAnalysisIR_ExternalOnly(SpuriousCurrentVersionCheckStaysObservationOnly|CurrentVersionCheckKeepsCurrentStatus)'`
+  PASS;
+  `go test ./internal/tool -run 'TestNormalizePrincipalEnumerationRowBlocks_RuntimeArtifact(GoroutineShorthandPreventsSupplement|ProseCoveragePreventsSupplement|SkipsRuntimeArtifactCoordinateOnlySupplement)'`
+  PASS;
+  `bash eval/run.sh eval/cases/logtri_goroutine_dump.case 1`
+  PASS (`logtri_goroutine_dump-20260521-013104`: `analyzer_iters=1`,
+  `tool_read_file=0`, `midloop_inject=0`, `explorer_iters=1`,
+  `finalizer_iters=1`, evidence origins only `runtime_artifact`).
+
 ## 7. Acceptance Matrix
 
 The contract is not accepted until these families pass without answer collapse
@@ -1030,6 +1096,11 @@ or noisy retries:
   tool-emitted origin fields fully cover archived/replayed payloads.
 - [x] Batch C.1: tag log/perf triage tool outputs with runtime artifact origin.
 - [x] Batch C.2: add runtime artifact frame/observation claim bindings.
+- [x] Batch F.7: make enumeration display/system supplement origin-aware so
+  runtime artifact and VCS/diff members cannot become implicit current-source
+  citations.
+- [x] Batch F.8: keep external-source runtime artifacts observation-only unless
+  a typed current-checkout verification anchor exists.
 - [x] Batch D.1: compile aggregate claim bindings and render them in the final
   answer-writing prompt.
 - [x] Batch D.2: make pre-emit scalar/value coverage consume claim bindings
