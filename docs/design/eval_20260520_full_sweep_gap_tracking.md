@@ -219,6 +219,23 @@ the eval cases prove the class is closed.
 | P1 | Analyzer intent/schema normalization for direct questions | G5, G68, G72, G88, G90, G118, G122-G123 | Analyzer retries and over-expanded subtopics slow simple direct questions and sometimes alter user intent. Typed normalization is cheaper and safer than reclassification loops. | Role-locate/error-granularity/direct mechanism questions classify in one pass where fields are inferable; subtopics/focuses come from explicit user asks; decorator/marker inventories do not fail subtopic coherence because marker tokens differ from file buckets. |
 | P2 | Language inventory adapters and decorator/package metadata lanes | G122-G125, G130-G133 | ArkTS/Cangjie failures show supported repomap languages are not fully supported end-to-end in search, decorator preservation, and package-line rendering. | Every repomap-supported language maps to valid search extensions; decorator stacks and package/module attributes are typed table columns with citations or no line-number claims. |
 
+2026-05-20 implementation note:
+
+- First reviewer/render alignment slice is implemented in `contract_check.go`:
+  post-emit reviewers now see V2 block titles, structured table columns, and
+  structured item cells after deterministic normalization. This directly
+  reduces the G15/G125/G132 class where reviewers judged a partial body view
+  instead of the final visible answer. It is not the whole P0 track:
+  section-scoped table ownership, high-confidence contradiction enforcement,
+  and generic-supplement suppression remain open.
+- The existing deterministic补表 safety invariants have been reverse-audited
+  against code and unit tests:补表 is separate/localized, model-authored
+  Markdown is preserved, empty generated cells are skipped/omitted, scalar
+  history/count support ledgers do not become principal tables, and singleton
+  count-basis metadata is not rendered as an answer row. Remaining row-compiler
+  work in this ledger is eval-driven scoping/ranking (multi-repo buckets,
+  config precedence, runtime artifacts), not lack of the base safety primitive.
+
 ### Batch 2 — Row Compiler / System Supplement Safety Contract
 
 Status: first bottom-layer guard in progress after G83/G116/G131/G135/G141

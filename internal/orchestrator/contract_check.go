@@ -2506,15 +2506,13 @@ func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) strin
 				renderReviewDiagramBlock(&b, blk)
 			}
 		case types.BlockSection:
-			title := strings.TrimSpace(blk.Title)
-			if title != "" {
-				fmt.Fprintf(&b, "## %s\n", title)
-			}
+			renderReviewBlockTitle(&b, blk)
 			text := strings.TrimSpace(blk.Text)
 			if text != "" {
 				fmt.Fprintf(&b, "%s\n\n", text)
 			}
 		case types.BlockOrderedList:
+			renderReviewBlockTitle(&b, blk)
 			if text := strings.TrimSpace(blk.Text); text != "" {
 				fmt.Fprintf(&b, "%s\n\n", text)
 			}
@@ -2524,8 +2522,12 @@ func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) strin
 			}
 			b.WriteString("\n")
 		case types.BlockBulletList, types.BlockTable:
+			renderReviewBlockTitle(&b, blk)
 			if text := strings.TrimSpace(blk.Text); text != "" {
 				fmt.Fprintf(&b, "%s\n\n", text)
+			}
+			if blk.Kind == types.BlockTable && len(blk.Columns) > 0 {
+				fmt.Fprintf(&b, "Columns: %s\n", strings.Join(blk.Columns, " | "))
 			}
 			for _, it := range blk.Items {
 				desc := itemBodyText(it)
@@ -2533,16 +2535,19 @@ func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) strin
 			}
 			b.WriteString("\n")
 		case types.BlockScalar:
+			renderReviewBlockTitle(&b, blk)
 			text := strings.TrimSpace(blk.Text)
 			if text != "" {
 				fmt.Fprintf(&b, "Scalar: %s\n\n", text)
 			}
 		case types.BlockDecision:
+			renderReviewBlockTitle(&b, blk)
 			text := strings.TrimSpace(blk.Text)
 			if text != "" {
 				fmt.Fprintf(&b, "Decision: %s\n\n", text)
 			}
 		case types.BlockCaveat:
+			renderReviewBlockTitle(&b, blk)
 			text := strings.TrimSpace(blk.Text)
 			if text != "" {
 				fmt.Fprintf(&b, "[caveat] %s\n\n", text)
@@ -2550,6 +2555,16 @@ func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) strin
 		}
 	}
 	return b.String()
+}
+
+func renderReviewBlockTitle(b *strings.Builder, blk types.AnswerBlock) {
+	if b == nil {
+		return
+	}
+	title := strings.TrimSpace(blk.Title)
+	if title != "" {
+		fmt.Fprintf(b, "## %s\n", title)
+	}
 }
 
 func renderReviewDiagramBlock(b *strings.Builder, blk types.AnswerBlock) {
@@ -2581,6 +2596,18 @@ func renderReviewDiagramBlock(b *strings.Builder, blk types.AnswerBlock) {
 func itemBodyText(it types.AnswerBlockItem) string {
 	label := strings.TrimSpace(it.Label)
 	text := strings.TrimSpace(it.Text)
+	cells := nonEmptyReviewItemCells(it.Cells)
+	if len(cells) > 0 {
+		base := strings.TrimSpace(types.AnswerBlockItemVisibleSurface(types.AnswerBlockItem{
+			Label: label,
+			Text:  text,
+		}))
+		cellsText := strings.Join(cells, " | ")
+		if base != "" {
+			return strings.ReplaceAll(base, "\n", " — ") + " — " + cellsText
+		}
+		return cellsText
+	}
 	switch {
 	case label != "" && text != "":
 		return label + " — " + text
@@ -2589,6 +2616,17 @@ func itemBodyText(it types.AnswerBlockItem) string {
 	default:
 		return text
 	}
+}
+
+func nonEmptyReviewItemCells(cells []string) []string {
+	out := make([]string, 0, len(cells))
+	for _, cell := range cells {
+		cell = strings.TrimSpace(cell)
+		if cell != "" {
+			out = append(out, cell)
+		}
+	}
+	return out
 }
 
 // runSelfConsistencyReviewV2 dispatches the reviewer LLM with V2

@@ -320,8 +320,8 @@ Tasks:
   bucketed comparison.
 - Validation: `go test ./internal/types -run TestCompileAnswerIntentContract`
   PASS.
-- Remaining Batch A work: expose the projection in debug/prompt diagnostics
-  without making it a new hard gate.
+- Batch A.2 below exposes the projection in prompt diagnostics without making
+  it a new hard gate.
 
 2026-05-20 Batch A.2:
 
@@ -590,6 +590,25 @@ Tasks:
   `go test ./internal/tool -run 'TestEmitInvestigationComplete_PreCompleteCheck_HistoryCurrent'`
   PASS.
 
+2026-05-20 Batch D.4:
+
+- Aligned the post-emit reviewer body with the final visible answer surface for
+  V2 blocks after deterministic normalization. Reviewer input now includes
+  block titles for every body-shaped block, structured table columns, and
+  structured item cells, so localized system-supplement boundaries such as
+  “系统按已验证证据补充成员...” are visible to both self-consistency and
+  semantic-quality review.
+- This keeps the review path typed and renderer-aligned: it reads
+  `AnswerDocumentV2` after the tool-layer normalizers have run, not raw model
+  prose or rejected drafts. The change is intentionally presentation-only; it
+  does not create new retry gates and does not rewrite model-authored content.
+- Regression coverage pins a structured system-supplement table with title,
+  columns, exact location cell, and rich Chinese note, proving the reviewer
+  sees the same facts the user-facing panel can render.
+- Validation:
+  `go test ./internal/orchestrator -run 'TestRenderConsistencyReviewBodyV2|TestSemanticQualityReviewBodyIncludes'`
+  PASS.
+
 ### Batch E — System Supplement Safety
 
 Goal: preserve model-authored rich answers and stop system-generated pollution.
@@ -603,6 +622,33 @@ Tasks:
 - Bucket/repo/scope identity must be part of every generated principal row key.
 - Add regression tests for multi-repo comparisons, config precedence, Cangjie /
   ArkTS inventories, count-only scalar answers, and runtime artifact answers.
+
+2026-05-20 Batch E.1:
+
+- Audited the current deterministic supplement paths:
+  `normalizePrincipalEnumerationRowBlocks`,
+  `compileEnumerationDisplayTableRows`, and
+  `compileCitationBackedTableRows`.
+- Existing implementation already follows the core safety boundary: valid
+  model-authored Markdown/prose is preserved, missing deterministic rows are
+  appended in a separate localized supplement block, exact-absence
+  non-enumeration answers suppress补表, scalar history/count support ledgers do
+  not become principal tables, and generated tables omit or skip columns/rows
+  that would render blank cells.
+- Existing tests also pin the important anti-collapse cases: richer
+  model-authored row notes beat weak evidence summaries, categorized Markdown
+  table notes are preserved, coarse const-block citations are corrected only
+  when the item/file match is unambiguous, explicit conflicting model locations
+  are not overwritten, redundant section shells collapse, excluded candidate
+  sets do not leak, and singleton count-basis metadata is not rendered as a
+  principal member table.
+- Validation:
+  `go test ./internal/tool -run 'TestNormalizePrincipalEnumerationRowBlocks|TestCompileEnumerationDisplayTableRows|TestCompileCitationBackedTableRows'`
+  PASS.
+- Remaining E work is eval-driven hardening, not a known missing primitive:
+  multi-repo bucket identity, config-precedence support-only aggregates, and
+  external runtime/artifact member supplements remain tracked in
+  `eval_20260520_full_sweep_gap_tracking.md`.
 
 ## 7. Acceptance Matrix
 
@@ -667,7 +713,9 @@ or noisy retries:
   convergence boundary.
 - [ ] Batch D: make reviewer and pre-emit support lanes consume claim bindings
   for retry/local-repair decisions.
-- [ ] Batch D: align reviewer input to final rendered surface.
-- [ ] Batch E: enforce system supplement safety invariants.
+- [x] Batch D.4: align reviewer input to the final V2 visible surface
+  (titles, table columns, structured cells, diagrams for semantic review).
+- [x] Batch E.1: enforce and test system supplement safety invariants for the
+  existing deterministic补表 compilers.
 - [ ] Run targeted evals after each batch and update
   `eval_20260520_full_sweep_gap_tracking.md`.

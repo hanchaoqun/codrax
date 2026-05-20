@@ -108,7 +108,7 @@ func TestRenderConsistencyReviewBodyV2_BlockKinds(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
 			{Kind: types.BlockSummary, Text: "summary text"},
-			{Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{
+			{Kind: types.BlockOrderedList, Title: "Steps", Items: []types.AnswerBlockItem{
 				{Label: "Step1", Text: "do A"},
 				{Label: "Step2", Text: "do B"},
 			}},
@@ -127,6 +127,7 @@ func TestRenderConsistencyReviewBodyV2_BlockKinds(t *testing.T) {
 
 	// Body-shape blocks render
 	for _, want := range []string{
+		"## Steps",
 		"1. Step1 — do A",
 		"2. Step2 — do B",
 		"- category",
@@ -150,6 +151,36 @@ func TestRenderConsistencyReviewBodyV2_BlockKinds(t *testing.T) {
 	}
 }
 
+func TestRenderConsistencyReviewBodyV2_IncludesStructuredVisibleSurface(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, Text: "summary text"},
+			{
+				Kind:    types.BlockTable,
+				Title:   "系统按已验证证据补充成员：Kind 常量（1）",
+				Columns: []string{"符号名称", "定义位置", "说明"},
+				Items: []types.AnswerBlockItem{{
+					Label: "KindSymbolPresent",
+					Text:  "符号存在性判定",
+					Cells: []string{"internal/analysis/criterion/grammar.go:29", "read-mode：检查符号是否存在"},
+				}},
+			},
+		},
+	}
+	got := renderConsistencyReviewBodyV2(doc)
+	for _, want := range []string{
+		"## 系统按已验证证据补充成员：Kind 常量（1）",
+		"Columns: 符号名称 | 定义位置 | 说明",
+		"KindSymbolPresent — 符号存在性判定",
+		"internal/analysis/criterion/grammar.go:29",
+		"read-mode：检查符号是否存在",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("review body must include final visible surface %q:\n%s", want, got)
+		}
+	}
+}
+
 // TestRenderConsistencyReviewBodyV2_NilSafe confirms graceful nil.
 func TestRenderConsistencyReviewBodyV2_NilSafe(t *testing.T) {
 	if got := renderConsistencyReviewBodyV2(nil); got != "" {
@@ -166,6 +197,8 @@ func TestItemBodyText(t *testing.T) {
 		{types.AnswerBlockItem{Label: "L", Text: "T"}, "L — T"},
 		{types.AnswerBlockItem{Label: "L"}, "L"},
 		{types.AnswerBlockItem{Text: "T"}, "T"},
+		{types.AnswerBlockItem{Label: "L", Text: "T", Cells: []string{"C1", "C2"}}, "L — T — C1 | C2"},
+		{types.AnswerBlockItem{Cells: []string{"C1", "", "C2"}}, "C1 | C2"},
 		{types.AnswerBlockItem{}, ""},
 	}
 	for _, tc := range cases {
