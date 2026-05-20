@@ -530,6 +530,28 @@ Tasks:
   - the final answer-writing prompt renders origin-specific policies.
 - Validation: `go test ./internal/types ./internal/agent ./internal/tool` PASS.
 
+2026-05-20 Batch D.2:
+
+- Wired the pre-emit scalar/value coverage check to the unified claim-binding
+  contract. A model-authored scalar aggregate whose binding is
+  `vcs_metadata`, `vcs_diff`, `runtime_artifact`, `command_measurement`, or
+  another non-current-source origin no longer forces a hard visible-scalar
+  repair when the requested output is narrative/mechanism/diagnostic/diagram.
+- Exact-output requests remain protected: scalar, key-value, count, and absence
+  outputs still require the aggregate value to appear visibly. This preserves
+  commit-id/count/no-hit answers while preventing feature-summary/history
+  answers from collapsing into a raw commit hash.
+- The rule consumes only typed aggregate origins and requested-output
+  projection. It does not inspect raw user text or model prose, so
+  `exec_command git ...` fallbacks benefit once their aggregate/tool output is
+  tagged with `origin=vcs_metadata` or `diff_origin=vcs_diff`.
+- Added regression coverage for the analyzer-missed-history case
+  (`origin=vcs_metadata` but no `is_history_lookup`) and the exact VCS scalar
+  case that must still be hard-protected.
+- Validation:
+  `go test ./internal/tool -run 'TestPreCheckAggregateScalarValueCoverage'`
+  PASS.
+
 ### Batch E — System Supplement Safety
 
 Goal: preserve model-authored rich answers and stop system-generated pollution.
@@ -601,6 +623,8 @@ or noisy retries:
 - [x] Batch C.2: add runtime artifact frame/observation claim bindings.
 - [x] Batch D.1: compile aggregate claim bindings and render them in the final
   answer-writing prompt.
+- [x] Batch D.2: make pre-emit scalar/value coverage consume claim bindings
+  before forcing visible exact values.
 - [ ] Batch D: make reviewer and pre-emit support lanes consume claim bindings
   for retry/local-repair decisions.
 - [ ] Batch D: align reviewer input to final rendered surface.

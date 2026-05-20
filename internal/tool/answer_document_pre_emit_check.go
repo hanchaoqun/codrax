@@ -2019,6 +2019,9 @@ func preEmitAggregateFactRequiresVisibleValue(ctx *types.BusContext, facts []typ
 		types.AggregateFactConflictsWithPrincipalMemberSetCounts(facts, &ctx.AnalysisIR.RequestModel, idx) {
 		return false
 	}
+	if preEmitAggregateFactIsNonExactOriginSupport(ctx, fact) {
+		return false
+	}
 	role := types.NormalizeAnswerAggregateRole(fact.Role)
 	switch role {
 	case types.AnswerAggregateRolePrincipalAnswer:
@@ -2041,6 +2044,43 @@ func preEmitAggregateFactRequiresVisibleValue(ctx *types.BusContext, facts []typ
 	default:
 		return false
 	}
+}
+
+func preEmitAggregateFactIsNonExactOriginSupport(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	bindings := types.CompileAnswerClaimBindingsFromAggregateFacts(
+		[]types.AnswerAggregateFact{fact},
+		&ctx.AnalysisIR.RequestModel,
+		&ctx.AnalysisIR.AnswerContract,
+	)
+	if len(bindings) == 0 {
+		return false
+	}
+	hasExactOutput := false
+	hasCurrentSource := false
+	hasNonSourceOrigin := false
+	for _, binding := range bindings {
+		for _, output := range binding.RequestedOutputs {
+			switch output {
+			case types.AnswerRequestedOutputScalar,
+				types.AnswerRequestedOutputKeyValue,
+				types.AnswerRequestedOutputCount,
+				types.AnswerRequestedOutputAbsence:
+				hasExactOutput = true
+			}
+		}
+		switch binding.Origin {
+		case types.AnswerEvidenceOriginCurrentSource:
+			hasCurrentSource = true
+		case types.AnswerEvidenceOriginUnknown:
+			// ignore
+		default:
+			hasNonSourceOrigin = true
+		}
+	}
+	return hasNonSourceOrigin && !hasCurrentSource && !hasExactOutput
 }
 
 func preEmitAggregateRequestWantsCountValue(ctx *types.BusContext) bool {

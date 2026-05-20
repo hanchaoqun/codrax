@@ -353,6 +353,72 @@ func TestPreCheckAggregateScalarValueCoverage_DoesNotForceNonScalarHistoryMetada
 	}
 }
 
+func TestPreCheckAggregateScalarValueCoverage_UsesVCSOriginWhenHistoryPredicateMissing(t *testing.T) {
+	mu := types.NewMutableState("最近一次合入的是什么特性？")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "latest merge commit",
+		Value: "aa27be48",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: "vcs_metadata"},
+		},
+	}})
+	mu.SetInvestigationComplete("history metadata accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "最近一次合入主要是强化 explorer 引导和证据 grounding；commit id 只是这条结论的来源元数据。",
+	}}}
+
+	if got := preCheckAggregateScalarValueCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("typed VCS metadata should not force a raw scalar into narrative answers, got %+v", got)
+	}
+}
+
+func TestPreCheckAggregateScalarValueCoverage_StillRequiresExactVCSScalar(t *testing.T) {
+	mu := types.NewMutableState("最近一次合入的 commit id 是什么？")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "latest merge commit",
+		Value: "aa27be48",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: "vcs_metadata"},
+		},
+	}})
+	mu.SetInvestigationComplete("history scalar accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentReturnValue,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+				IsScalarAnswer:  true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "最近一次合入是 explorer grounding 相关修改。",
+	}}}
+
+	hints := preCheckAggregateScalarValueCoverage(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("exact VCS scalar should still require the value, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "aa27be48") {
+		t.Fatalf("hint should preserve the requested exact commit id, got %+v", hints[0])
+	}
+}
+
 func TestPreCheckAggregateScalarValueCoverage_DoesNotHardGateConflictingParallelCount(t *testing.T) {
 	mu := types.NewMutableState("conflicting parallel aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
