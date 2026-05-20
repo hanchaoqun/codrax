@@ -135,3 +135,41 @@ func TestRenderAnswerDocClaimBindings_ShowsOriginSpecificPolicies(t *testing.T) 
 		}
 	}
 }
+
+func TestRenderAnswerDocClaimBindings_RuntimeArtifactWithoutAggregateFacts(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentRootCause,
+				Predicates: types.SemanticPredicates{
+					IsDiagnosticQuestion: true,
+				},
+				LogTriage: &types.LogBundle{
+					Errors: []types.LogError{{
+						Type: "panic",
+						Frames: []types.LogFrame{{
+							Raw:  "panic at src/main.go:9",
+							File: "src/main.go",
+							Line: 9,
+						}},
+					}},
+				},
+			},
+		},
+	}
+
+	got := renderAnswerDocClaimBindings(ctx)
+	for _, want := range []string{
+		"Claim Binding / Gate Policy Handoff",
+		"origin=`runtime_artifact`; policy=`repairable`",
+		"source=`log_triage`",
+		"support_refs=1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("runtime artifact claim binding prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "aggregate_facts[-1]") {
+		t.Fatalf("runtime artifact binding should not render a fake aggregate_facts index:\n%s", got)
+	}
+}

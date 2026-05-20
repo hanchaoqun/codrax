@@ -3510,16 +3510,13 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 		return ""
 	}
 	facts := answerDocStableAggregateFacts(ctx)
-	if len(facts) == 0 {
-		return ""
-	}
-	bindings := types.CompileAnswerClaimBindingsFromAggregateFacts(facts, &ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract)
+	bindings := types.CompileAnswerClaimBindings(facts, &ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract)
 	if len(bindings) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("## Claim Binding / Gate Policy Handoff\n\n")
-	b.WriteString("- The following claim bindings are compiled from typed `aggregate_facts`, evidence origins, and requested outputs. They are the shared interpretation for answer-writing and review lanes.\n")
+	b.WriteString("- The following claim bindings are compiled from typed `aggregate_facts`, runtime artifacts, evidence origins, and requested outputs. They are the shared interpretation for answer-writing and review lanes.\n")
 	b.WriteString("- Do not translate non-`current_source` bindings into current-source file:line requirements. Use each binding's origin-specific support shape.\n")
 	b.WriteString("- `hard` means the principal claim itself must be exact; `repairable` / `soft` defects should be locally repaired or disclosed in a localized supplement rather than forcing a broad rewrite.\n")
 	limit := len(bindings)
@@ -3528,15 +3525,17 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 	}
 	for i := 0; i < limit; i++ {
 		binding := bindings[i]
+		source := fmt.Sprintf("aggregate_facts[%d] kind=`%s` role=`%s`", binding.AggregateIndex, binding.AggregateKind, binding.AggregateRole)
+		if binding.AggregateIndex < 0 {
+			source = fmt.Sprintf("source=`%s`", binding.Source)
+		}
 		fmt.Fprintf(&b,
-			"- `%s`: origin=`%s`; policy=`%s`; outputs=%s; aggregate_facts[%d] kind=`%s` role=`%s`; target=%q; support_refs=%d\n",
+			"- `%s`: origin=`%s`; policy=`%s`; outputs=%s; %s; target=%q; support_refs=%d\n",
 			binding.ClaimID,
 			binding.Origin,
 			binding.GroundingPolicy,
 			renderAnswerIntentOutputs(binding.RequestedOutputs),
-			binding.AggregateIndex,
-			binding.AggregateKind,
-			binding.AggregateRole,
+			source,
 			binding.TargetRef,
 			len(binding.SupportRefs),
 		)

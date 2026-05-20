@@ -72,6 +72,86 @@ func TestCompileAnswerClaimBindingsFromAggregateFacts_RuntimeArtifactDoesNotBeco
 	}
 }
 
+func TestCompileRuntimeArtifactClaimBindings_LogBundleCreatesRuntimeBinding(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentRootCause,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		LogTriage: &LogBundle{
+			Errors: []LogError{{
+				Type: "runtime panic",
+				Frames: []LogFrame{{
+					Raw:  "panic at internal/server.go:42",
+					File: "internal/server.go",
+					Line: 42,
+				}},
+			}},
+			Observations: []LogObservation{{
+				Kind:     LogObservationRetryCycle,
+				Subject:  "finalizer retry",
+				Summary:  "finalizer retried after a schema repair",
+				Evidence: "答案待完善，正在重写",
+			}},
+		},
+	}
+
+	got := CompileAnswerClaimBindings(nil, &rm, nil)
+	panicBinding := assertClaimBinding(t, got, AnswerEvidenceOriginRuntimeArtifact, ClaimGroundingRepairable, AnswerRequestedOutputDiagnostic)
+	if panicBinding.Source != "log_triage" {
+		t.Fatalf("runtime log binding source = %q", panicBinding.Source)
+	}
+	if panicBinding.AggregateIndex != -1 {
+		t.Fatalf("runtime log binding should not point at aggregate_facts: %+v", panicBinding)
+	}
+	if !claimBindingHasSupport(panicBinding, "panic at internal/server.go:42") {
+		t.Fatalf("runtime log frame support was not preserved: %+v", panicBinding.SupportRefs)
+	}
+	var sawObservation bool
+	for _, binding := range got {
+		if binding.TargetRef == "finalizer retry" && claimBindingHasSupport(binding, "finalizer retried after a schema repair") {
+			sawObservation = true
+		}
+		if binding.Origin == AnswerEvidenceOriginCurrentSource {
+			t.Fatalf("runtime log binding should not synthesize current_source: %+v", got)
+		}
+	}
+	if !sawObservation {
+		t.Fatalf("runtime log observation did not become a claim binding: %+v", got)
+	}
+}
+
+func TestCompileRuntimeArtifactClaimBindings_PerfBundleCreatesRuntimeBinding(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentRootCause,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		PerfTrace: &PerfBundle{
+			Frames: []PerfFrame{{FrameNo: 7, DurationMs: 24.5, Phase: "draw", Janky: true}},
+			Janks:  []PerfJank{{StartTsMs: 100, DurationMs: 48, TriggerSpan: "RenderFrame", Reason: "heavy-compute"}},
+			Stalls: []PerfStall{{StartTsMs: 120, DurationMs: 33, Kind: "io", Symbol: "ReadConfig", File: "src/app.cpp", Line: 88}},
+		},
+	}
+
+	got := CompileAnswerClaimBindings(nil, &rm, nil)
+	frameBinding := assertClaimBinding(t, got, AnswerEvidenceOriginRuntimeArtifact, ClaimGroundingRepairable, AnswerRequestedOutputDiagnostic)
+	if frameBinding.Source != "perf_trace" {
+		t.Fatalf("runtime perf binding source = %q", frameBinding.Source)
+	}
+	if frameBinding.AggregateIndex != -1 {
+		t.Fatalf("runtime perf binding should not point at aggregate_facts: %+v", frameBinding)
+	}
+	if !claimBindingHasSupport(frameBinding, "duration_ms=24.500 phase=draw janky=true") {
+		t.Fatalf("runtime perf duration support was not preserved: %+v", frameBinding.SupportRefs)
+	}
+	for _, binding := range got {
+		if binding.Origin == AnswerEvidenceOriginCurrentSource {
+			t.Fatalf("runtime perf binding should not synthesize current_source: %+v", got)
+		}
+	}
+}
+
 func assertClaimBinding(t *testing.T, bindings []AnswerClaimBinding, origin AnswerEvidenceOrigin, policy ClaimGroundingPolicy, output AnswerRequestedOutput) AnswerClaimBinding {
 	t.Helper()
 	for _, binding := range bindings {
@@ -92,6 +172,15 @@ func assertClaimBinding(t *testing.T, bindings []AnswerClaimBinding, origin Answ
 
 func claimBindingHasOutput(binding AnswerClaimBinding, want AnswerRequestedOutput) bool {
 	for _, got := range binding.RequestedOutputs {
+		if got == want {
+			return true
+		}
+	}
+	return false
+}
+
+func claimBindingHasSupport(binding AnswerClaimBinding, want string) bool {
+	for _, got := range binding.SupportRefs {
 		if got == want {
 			return true
 		}

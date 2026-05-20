@@ -476,6 +476,27 @@ Tasks:
   bundles, and perf trace bundles.
 - Validation: `go test ./internal/tool ./internal/types` PASS.
 
+2026-05-20 Batch C.2:
+
+- Added runtime artifact claim bindings for already-validated log/perf bundles.
+  Log errors, observations, perf frames, jank spans, stalls, and startup timing
+  now compile to `origin=runtime_artifact` with `source=log_triage` or
+  `source=perf_trace`, even when no `aggregate_facts` were emitted.
+- These bindings deliberately use `AggregateIndex=-1` and never synthesize
+  `current_source`. Runtime observations can answer artifact/log/trace
+  questions directly, while current checkout claims still require a separate
+  current-source lane.
+- Finalizer prompt rendering now consumes the unified claim binding compiler
+  instead of aggregate facts alone, so runtime-only diagnostics receive the same
+  origin/policy handoff as VCS, command measurement, and current-source facts.
+- Added regression coverage for log stack frames, log observations, perf frame
+  durations, and runtime-only finalizer prompt rendering.
+- Validation:
+  `go test ./internal/types -run 'TestCompileAnswerClaimBindings|TestCompileRuntimeArtifactClaimBindings'`
+  PASS;
+  `go test ./internal/agent -run 'TestRenderAnswerDocClaimBindings|TestRenderAnswerDocUnifiedIntentContract'`
+  PASS.
+
 ### Batch D — Claim Binding In Finalizer And Reviewer
 
 Goal: make finalizer and reviewers consume the same typed claim surface.
@@ -577,7 +598,7 @@ or noisy retries:
 - [ ] Batch B: remove remaining VCS/hash compatibility fallback once structured
   tool-emitted origin fields land.
 - [x] Batch C.1: tag log/perf triage tool outputs with runtime artifact origin.
-- [ ] Batch C: add runtime artifact frame aggregate/binding.
+- [x] Batch C.2: add runtime artifact frame/observation claim bindings.
 - [x] Batch D.1: compile aggregate claim bindings and render them in the final
   answer-writing prompt.
 - [ ] Batch D: make reviewer and pre-emit support lanes consume claim bindings
