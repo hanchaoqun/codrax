@@ -47,6 +47,25 @@ func TestAnswerAggregateFactEvidenceOrigins_GitDiff(t *testing.T) {
 	}
 }
 
+func TestAnswerAggregateFactEvidenceOrigins_GitShowMetadataAndDiff(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind: AnswerAggregateMemberSet,
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "evidence_origin", Value: "vcs_metadata"},
+			{Name: "diff_origin", Value: "vcs_diff"},
+		},
+		Members: []string{"abc1234 latest feature"},
+	}
+	got := AnswerAggregateFactEvidenceOrigins(fact, nil)
+	want := []AnswerEvidenceOrigin{
+		AnswerEvidenceOriginVCSMetadata,
+		AnswerEvidenceOriginVCSDiff,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("origins mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestAnswerAggregateFactEvidenceOrigins_CommandMeasurement(t *testing.T) {
 	fact := AnswerAggregateFact{
 		Kind:       AnswerAggregateTotalCount,

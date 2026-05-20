@@ -23,7 +23,7 @@ func AnswerAggregateFactEvidenceOrigins(fact AnswerAggregateFact, rm *RequestMod
 	}
 	dims := aggregateDimensionMap(fact.Dimensions)
 	for _, key := range []string{
-		"origin", "evidence_origin", "proof_source", "tool", "source", "measurement_kind",
+		"origin", "evidence_origin", "secondary_origin", "diff_origin", "proof_source", "tool", "source", "measurement_kind",
 	} {
 		answerEvidenceOriginFromStructuredToken(dims[key], add)
 	}

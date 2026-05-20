@@ -1627,6 +1627,7 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 		"staged", stagedStr,
 		"stat", fmt.Sprintf("%t", p.Stat),
 		"name_only", fmt.Sprintf("%t", p.NameOnly),
+		"evidence_origin", string(types.AnswerEvidenceOriginVCSDiff),
 	)
 
 	args := []string{"diff"}
@@ -1759,7 +1760,7 @@ func (t *GitShow) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 		}
 	}
 	dir, pathErr := resolveRepoScopedToolDir(ctx, p.RepoPath)
-	banner := kvBanner("git_show",
+	bannerKV := []string{
 		"repo_path", p.RepoPath,
 		"ref", ref,
 		"path", p.Path,
@@ -1767,7 +1768,12 @@ func (t *GitShow) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 		"no_patch", fmt.Sprintf("%t", p.NoPatch),
 		"stat", fmt.Sprintf("%t", p.Stat),
 		"name_only", fmt.Sprintf("%t", p.NameOnly),
-	)
+		"evidence_origin", string(types.AnswerEvidenceOriginVCSMetadata),
+	}
+	if !p.NoPatch {
+		bannerKV = append(bannerKV, "diff_origin", string(types.AnswerEvidenceOriginVCSDiff))
+	}
+	banner := kvBanner("git_show", bannerKV...)
 	if pathErr != "" {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + pathErr, Timestamp: time.Now()}, nil
 	}
@@ -1867,6 +1873,7 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 		"path", p.Path,
 		"count", fmt.Sprintf("%d", count),
 		"format", format,
+		"evidence_origin", string(types.AnswerEvidenceOriginVCSMetadata),
 	)
 
 	args := []string{"log", fmt.Sprintf("-n%d", count), fmt.Sprintf("--format=%s", format)}
@@ -1995,6 +2002,7 @@ func (t *GitHistorySearch) Execute(ctx *types.BusContext, params json.RawMessage
 		"order", order,
 		"diff_path", diffPath,
 		"contains", needle,
+		"evidence_origin", string(types.AnswerEvidenceOriginVCSMetadata),
 	)
 
 	commits, errSummary := gitHistorySearchWindow(dir, count, windowPath, order)

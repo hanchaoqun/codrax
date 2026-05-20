@@ -399,6 +399,22 @@ Tasks:
   through `AnswerAggregateFactEvidenceOrigins` to the expected unified origin.
 - Validation: `go test ./internal/tool ./internal/types` PASS.
 
+2026-05-20 Batch B.4:
+
+- Tagged structured git tool outputs at their banner source:
+  - `git_log` and `git_history_search` emit
+    `evidence_origin=vcs_metadata`;
+  - `git_diff` emits `evidence_origin=vcs_diff`;
+  - `git_show` emits `evidence_origin=vcs_metadata` and, when the result
+    contains patch/stat/name-only diff material, `diff_origin=vcs_diff`.
+- Extended aggregate-origin projection to understand `diff_origin` and
+  `secondary_origin` dimensions so a model-authored aggregate can carry both
+  commit metadata and diff evidence without being forced into one citation
+  shape.
+- Added regression coverage for git tool banners and for mixed
+  metadata+diff aggregate origins.
+- Validation: `go test ./internal/tool ./internal/types` PASS.
+
 ### Batch C — Runtime Artifact Origins
 
 Goal: stop treating external logs/traces as repo citations or code members.
@@ -481,8 +497,10 @@ or noisy retries:
   finalizer diagnostics.
 - [x] Batch B.3: tag deterministic VCS and command measurement count
   aggregates at tool emission.
-- [ ] Batch B: tag remaining VCS and command measurement tool outputs at tool
-  emission.
+- [x] Batch B.4: tag structured git tool outputs with VCS metadata/diff
+  origins at tool emission.
+- [ ] Batch B: tag remaining non-git command measurement tool outputs at tool
+  emission where the output is structurally known to be a measurement.
 - [x] Batch B.2: route decorated commit-hash support-ref exception through
   unified VCS origin projection.
 - [ ] Batch B: remove remaining VCS/hash compatibility fallback once structured

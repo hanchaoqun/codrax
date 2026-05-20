@@ -1437,6 +1437,9 @@ func TestGitDiff(t *testing.T) {
 				if !result.Success || !strings.Contains(result.Summary, tc.want) {
 					t.Fatalf("git_diff %s failed or missed %q: success=%v summary=%q", tc.name, tc.want, result.Success, result.Summary)
 				}
+				if !strings.Contains(result.Summary, "evidence_origin=vcs_diff") {
+					t.Fatalf("git_diff %s should tag VCS diff origin in banner, got %q", tc.name, result.Summary)
+				}
 			})
 		}
 		params, _ := json.Marshal(gitDiffParams{Stat: true, NameOnly: true})
@@ -1486,13 +1489,14 @@ func TestGitShow(t *testing.T) {
 
 	tool := &GitShow{}
 	for _, tc := range []struct {
-		name string
-		in   gitShowParams
-		want string
+		name           string
+		in             gitShowParams
+		want           string
+		wantDiffOrigin bool
 	}{
-		{"no-patch", gitShowParams{Ref: "HEAD", NoPatch: true, Format: "oneline"}, "show target"},
-		{"name-only", gitShowParams{Ref: "HEAD", NameOnly: true}, "file.txt"},
-		{"default patch", gitShowParams{Ref: "HEAD"}, "+new"},
+		{"no-patch", gitShowParams{Ref: "HEAD", NoPatch: true, Format: "oneline"}, "show target", false},
+		{"name-only", gitShowParams{Ref: "HEAD", NameOnly: true}, "file.txt", true},
+		{"default patch", gitShowParams{Ref: "HEAD"}, "+new", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			params, _ := json.Marshal(tc.in)
@@ -1502,6 +1506,13 @@ func TestGitShow(t *testing.T) {
 			}
 			if !result.Success || !strings.Contains(result.Summary, tc.want) {
 				t.Fatalf("git_show %s failed or missed %q: success=%v summary=%q", tc.name, tc.want, result.Success, result.Summary)
+			}
+			if !strings.Contains(result.Summary, "evidence_origin=vcs_metadata") {
+				t.Fatalf("git_show %s should tag VCS metadata origin in banner, got %q", tc.name, result.Summary)
+			}
+			hasDiffOrigin := strings.Contains(result.Summary, "diff_origin=vcs_diff")
+			if hasDiffOrigin != tc.wantDiffOrigin {
+				t.Fatalf("git_show %s diff origin = %v, want %v; summary=%q", tc.name, hasDiffOrigin, tc.wantDiffOrigin, result.Summary)
 			}
 		})
 	}
@@ -1540,6 +1551,22 @@ func TestGitLog(t *testing.T) {
 		}
 		if result.Success || !strings.Contains(result.Summary, "outside repository root") {
 			t.Fatalf("outside git_log path should be rejected, got success=%v summary=%q", result.Success, result.Summary)
+		}
+	})
+
+	t.Run("tags VCS metadata origin", func(t *testing.T) {
+		ctx := gitWorktreeFixture(t, "seed\n")
+		tool := &GitLog{}
+		params, _ := json.Marshal(gitLogParams{Count: 1, Format: "oneline"})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("git_log failed: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "evidence_origin=vcs_metadata") {
+			t.Fatalf("git_log should tag VCS metadata origin in banner, got %q", result.Summary)
 		}
 	})
 }
@@ -1583,7 +1610,7 @@ func TestGitHistorySearchCountsBoundedDiffMatches(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("git_history_search failed: %s", res.Summary)
 	}
-	for _, want := range []string{"window_size=2", "answer_count=1", "touch runTaskGraph", "unmatched=1"} {
+	for _, want := range []string{"evidence_origin=vcs_metadata", "window_size=2", "answer_count=1", "touch runTaskGraph", "unmatched=1"} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
 		}
