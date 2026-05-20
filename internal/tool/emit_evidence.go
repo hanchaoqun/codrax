@@ -559,7 +559,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	for i, in := range p.Items {
 		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, &autoSwapped, &compatRepairs)
 		if perr != nil {
-			if reason, ok := emitEvidenceCommandScalarSoftSkipReason(in, i, perr); ok {
+			if reason, ok := emitEvidenceMeasurementSoftSkipReason(in, i, perr); ok {
 				softSkippedItems = append(softSkippedItems, reason)
 				continue
 			}
@@ -894,11 +894,19 @@ func buildEmitEvidenceItemWithSwap(in *emitEvidenceItem, index int, workDir stri
 	return buildEmitEvidenceItem(*in, index, workDir)
 }
 
-func emitEvidenceCommandScalarSoftSkipReason(in emitEvidenceItem, index int, perr error) (string, bool) {
-	if perr == nil || !in.LoadBearingSummary {
+func emitEvidenceMeasurementSoftSkipReason(in emitEvidenceItem, index int, perr error) (string, bool) {
+	if perr == nil {
 		return "", false
 	}
 	errText := perr.Error()
+	if types.EvidenceScope(strings.ToLower(strings.TrimSpace(in.Scope))) == types.ScopeFile &&
+		strings.Contains(errText, "scope=file requires file_role_label") &&
+		emitEvidenceLooksLikeDirectoryMeasurement(in) {
+		return fmt.Sprintf("items[%d]: directory/file-set measurement `%s` has no file-identity role; it belongs in aggregate_facts", index, strings.TrimSpace(in.Source)), true
+	}
+	if !in.LoadBearingSummary {
+		return "", false
+	}
 	if !strings.Contains(errText, "scope=line requires line_start > 0") &&
 		!strings.Contains(errText, "source is required") &&
 		!strings.Contains(errText, "does not look like a repo-relative file path") {
@@ -920,13 +928,26 @@ func emitEvidenceCommandScalarSoftSkipReason(in emitEvidenceItem, index int, per
 	return "", false
 }
 
+func emitEvidenceLooksLikeDirectoryMeasurement(in emitEvidenceItem) bool {
+	source := strings.TrimSpace(in.Source)
+	if source == "" || path.Ext(path.Base(filepath.ToSlash(source))) != "" {
+		return false
+	}
+	if strings.TrimSpace(in.FileRoleLabel) != "" {
+		return false
+	}
+	return strings.TrimSpace(in.Summary) != "" ||
+		strings.TrimSpace(in.Subject) != "" ||
+		strings.TrimSpace(in.Object) != ""
+}
+
 func renderEmitEvidenceCommandScalarSoftSkipSummary(skipped []string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "emit_evidence accepted 0 source evidence item(s); skipped %d command-derived scalar/count item(s).\n\n", len(skipped))
+	fmt.Fprintf(&b, "emit_evidence accepted 0 source evidence item(s); skipped %d measurement/scalar support item(s).\n\n", len(skipped))
 	for _, s := range skipped {
 		fmt.Fprintf(&b, "  - %s\n", s)
 	}
-	b.WriteString("\nCommand-derived scalar/count outputs are not source-line evidence. Do not invent a file:line anchor for them; carry the verified value through emit_investigation_complete.aggregate_facts as kind=scalar_value or total_count with command provenance.\n")
+	b.WriteString("\nDerived scalar/count and directory measurement outputs are not source-line evidence. Do not invent a file:line anchor for them; carry the verified value through emit_investigation_complete.aggregate_facts as kind=scalar_value, total_count, unique_count, or excluded_count with command provenance.\n")
 	return b.String()
 }
 

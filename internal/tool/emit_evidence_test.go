@@ -147,6 +147,37 @@ func TestEmitEvidence_CommandScalarWithoutLineIsAdvisoryNoop(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_DirectoryMeasurementFileScopeIsAdvisoryNoop(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {
+            "kind": "direct",
+            "scope": "file",
+            "source": "internal/tool",
+            "anchor_kind": "definition",
+            "anchor_symbol": "internal/tool",
+            "summary": "internal/tool 目录包含 118 个非测试 .go 文件，总行数 70763"
+          }
+        ]
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("directory measurement should be advisory no-op, got: %s", res.Summary)
+	}
+	if got := len(ctx.Mutable.EmittedEvidence()); got != 0 {
+		t.Fatalf("directory measurement must not be recorded as file evidence, got %d item(s)", got)
+	}
+	if !strings.Contains(res.Summary, "aggregate_facts") ||
+		!strings.Contains(res.Summary, "directory/file-set measurement") {
+		t.Fatalf("summary should route directory measurements to aggregate_facts, got: %s", res.Summary)
+	}
+}
+
 func TestEmitEvidence_MixedBatchRecordsOnlyNewEvidence(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

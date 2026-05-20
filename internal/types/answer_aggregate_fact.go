@@ -193,6 +193,7 @@ func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateF
 	if len(out) == 0 {
 		return nil, nil
 	}
+	out = DropPartialAggregateExcludedLists(out)
 	if err := validateAggregateCountCardinality(out); err != nil {
 		return nil, err
 	}
@@ -202,6 +203,38 @@ func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateF
 	out = PruneAggregateMemberSetsByStructuredExclusions(out)
 	out = reconcilePrincipalAggregateMemberSetSupersets(out)
 	return out, nil
+}
+
+// DropPartialAggregateExcludedLists keeps excluded_count as a count fact when
+// the model supplied only examples or a prose placeholder in excluded[]. The
+// numeric value is still useful support; treating the partial list as exact is
+// what creates retries and misleading downstream tables. Exact excluded lists
+// (len(excluded)==value) are preserved.
+func DropPartialAggregateExcludedLists(facts []AnswerAggregateFact) []AnswerAggregateFact {
+	if len(facts) == 0 {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	out := cloneAnswerAggregateFacts(facts)
+	changed := false
+	for i := range out {
+		if out[i].Kind != AnswerAggregateExcluded || len(out[i].Excluded) == 0 {
+			continue
+		}
+		want, ok, err := parseAggregateCountValue(out[i])
+		if err != nil || !ok || want == len(out[i].Excluded) || want > maxAnswerAggregateMembers {
+			continue
+		}
+		out[i].Excluded = nil
+		out[i].Provenance = appendAggregateFactProvenance(
+			out[i].Provenance,
+			"normalized:partial_excluded_list_omitted",
+		)
+		changed = true
+	}
+	if !changed {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	return out
 }
 
 // MergeAnswerAggregateFacts folds multiple explorer/fork aggregate handoffs

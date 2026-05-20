@@ -61,7 +61,6 @@ func TestNormalizeAnswerAggregateFacts_RejectsInvalid(t *testing.T) {
 		{name: "member cardinality", in: []AnswerAggregateFact{{Kind: AnswerAggregateBucketCount, Label: "runtime bucket", Value: "3", Members: []string{"a.go:1", "b.go:2"}}}},
 		{name: "member set requires members", in: []AnswerAggregateFact{{Kind: AnswerAggregateMemberSet, Label: "enum types", Value: "2"}}},
 		{name: "member set noninteger value", in: []AnswerAggregateFact{{Kind: AnswerAggregateMemberSet, Label: "enum types", Value: "two", Members: []string{"Intent"}}}},
-		{name: "excluded cardinality", in: []AnswerAggregateFact{{Kind: AnswerAggregateExcluded, Label: "tests", Value: "2", Excluded: []string{"a_test.go"}}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1445,6 +1444,43 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesScalarCountMemberSetAtSour
 	got = NormalizeAggregateFactRolesForRequest(facts, &rm)
 	if got[0].Role != AnswerAggregateRolePrincipalAnswer {
 		t.Fatalf("category enumeration must preserve principal member_set role, got %+v", got[0])
+	}
+}
+
+func TestDropPartialAggregateExcludedLists_KeepsCountAndOmitsNonExactList(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:       AnswerAggregateExcluded,
+		Label:      "排除的测试文件",
+		Value:      "116",
+		Provenance: "find internal/tool -name \"*_test.go\"",
+		Excluded:   []string{"116 个 *_test.go 文件"},
+	}}
+
+	got, err := NormalizeAnswerAggregateFacts(facts)
+	if err != nil {
+		t.Fatalf("partial excluded_count should normalize, not reject: %v", err)
+	}
+	if len(got) != 1 || got[0].Value != "116" {
+		t.Fatalf("normalized excluded_count = %+v", got)
+	}
+	if len(got[0].Excluded) != 0 {
+		t.Fatalf("partial excluded list should be omitted, got %+v", got[0].Excluded)
+	}
+	if !strings.Contains(got[0].Provenance, "normalized:partial_excluded_list_omitted") {
+		t.Fatalf("normalization provenance missing: %+v", got[0])
+	}
+
+	exact, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:     AnswerAggregateExcluded,
+		Label:    "排除项",
+		Value:    "1",
+		Excluded: []string{"internal/tool/foo_test.go"},
+	}})
+	if err != nil {
+		t.Fatalf("exact excluded_count should still pass: %v", err)
+	}
+	if len(exact[0].Excluded) != 1 {
+		t.Fatalf("exact excluded list should be preserved, got %+v", exact[0])
 	}
 }
 

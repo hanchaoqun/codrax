@@ -236,6 +236,13 @@ Scope for this batch:
   surfaces. Renderers also re-apply the same typed normalizer defensively so a
   future caller cannot reintroduce explicit `principal_answer` support ledgers
   into scalar-count finalizer gates.
+- B1.6 Count-support leniency: `excluded_count` may be a count-only support
+  fact. When the model supplies a partial/prose `excluded[]` placeholder whose
+  length does not match the numeric value, normalize by preserving the count
+  and omitting the non-exact list instead of forcing a full excluded-file
+  inventory. Directory/file-set measurement attempts through `scope=file`
+  without a real file-role label are likewise routed to aggregate facts as
+  advisory no-ops.
 
 Validation target: `s7a` should stop relying on manual line arithmetic; `u7b`
 should no longer get a system commit/member table when the user asked for a
@@ -254,6 +261,13 @@ shape consistently.
 - Explorer also tried to record `70693 total` as `emit_evidence scope=line`
   with `line_start=0`; this is not a valid file:line citation and should be
   treated as command measurement support, not as a hard evidence failure.
+- Second `s7a` rerun (`eval/results/s7a-20260520-101348`) fixed the final
+  surface but still needed 10 explorer turns: one `scope=file` directory
+  measurement emit was hard-rejected, and two `excluded_count` emits were
+  rejected because the model provided only a count/prose placeholder instead
+  of all excluded test files. These are support-lane ergonomics issues and
+  should be normalized rather than forcing inventory work the user did not ask
+  for.
 
 ## Case Notes So Far
 
