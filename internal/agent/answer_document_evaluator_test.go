@@ -192,6 +192,42 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalMemberSetSuppr
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_HistoryMemberSetKeepsClosureProse(t *testing.T) {
+	mut := types.NewMutableState("最近 10 次提交都做了什么")
+	mut.SetInvestigationComplete("ae1dd6b 统一 VCS 证据通道；3ae8465 调整重试路由。")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "最近10次提交",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"ae1dd6b", "3ae8465"},
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "evidence_origin", Value: "vcs_metadata"},
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+			},
+		},
+		Mutable: mut,
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "model-authored closure reason:") ||
+		!strings.Contains(prompt, "统一 VCS 证据通道") {
+		t.Fatalf("VCS history member_set may be identity-only; finalizer should still see rich closure prose:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "model-authored closure reason omitted") {
+		t.Fatalf("history member_set must not suppress closure prose:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequiredMechanismAnchors(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

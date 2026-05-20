@@ -97,6 +97,36 @@ func TestRenderAnswerDocUnifiedIntentContract_RuntimeArtifactAvoidsRepoCitationP
 	}
 }
 
+func TestRenderAnswerDocUnifiedIntentContract_PerfTraceAvoidsRepoCitationPressure(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentRootCause,
+				Predicates: types.SemanticPredicates{
+					IsDiagnosticQuestion: true,
+				},
+				DiagnosticProfile: types.DiagnosticIntentProfile{IsDiagnostic: true},
+				PerfTrace: &types.PerfBundle{
+					Frames: []types.PerfFrame{{FrameNo: 1, DurationMs: 33.3, Janky: true}},
+				},
+			},
+		},
+	}
+	got := renderAnswerDocUnifiedIntentContract(ctx)
+	for _, want := range []string{
+		"`runtime_artifact`",
+		"`summary`, `diagnostic`",
+		"without current-repo citations",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("perf trace intent contract prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "`current_source`") {
+		t.Fatalf("external-only perf trace should not list current_source:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocClaimBindings_ShowsOriginSpecificPolicies(t *testing.T) {
 	mut := types.NewMutableState("history count")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

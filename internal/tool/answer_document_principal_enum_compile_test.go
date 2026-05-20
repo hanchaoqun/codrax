@@ -90,6 +90,63 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVCSCommitRowsAlreadyVisible(t *testing.T) {
+	mu := types.NewMutableState("最近 10 次提交都做了哪些事情")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "最近10次提交",
+		Value: "3",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"ae1dd6b256fab219104c09447b6ffe3697239b7a: evidence: unify vcs provenance lanes (34 files, +1521/-76)",
+			"3ae8465b6afe3fb16902d511d51482fefd09a103: orchestrator: route retries through claim bindings (8 files, +356/-7)",
+			"125687ab6f1ff7cd1187183fc459efe65be10fb3: orchestrator: suppress generic caveats after semantic pass (5 files, +170/-8)",
+		},
+		Dimensions: []types.AnswerAggregateDimension{{Name: "evidence_origin", Value: "vcs_metadata"}},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "以下是仓库最近 3 次提交。",
+		},
+		{
+			ID:          "commits",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "c1", Label: "ae1dd6b256fab219104c09447b6ffe3697239b7a", Text: "统一 VCS 证据通道。"},
+				{ID: "c2", Label: "3ae8465b6afe3fb16902d511d51482fefd09a103", Text: "将重试路由绑定到 claim 机制。"},
+				{ID: "c3", Label: "125687ab6f1ff7cd1187183fc459efe65be10fb3", Text: "语义审查通过后抑制通用 caveats。"},
+			},
+		},
+	}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected normalization to annotate the existing principal blocks")
+	}
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("visible commit rows already cover the member_set; no duplicate supplement expected: %+v", doc.Blocks)
+	}
+	for _, block := range doc.Blocks {
+		if strings.Contains(block.Title, "系统按已验证证据补充成员") {
+			t.Fatalf("must not append duplicate VCS member supplement when labels already cover commit hashes: %+v", block)
+		}
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_SuppressesExactAbsenceSupplement(t *testing.T) {
 	mu := types.NewMutableState("缺失配置键的三层覆盖")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

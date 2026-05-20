@@ -307,3 +307,88 @@ func TestFilterDeterministicRowOrderContradictions_DoesNotSuppressUnsortedRows(t
 		t.Fatalf("expected contradiction to remain, got %+v", got)
 	}
 }
+
+func TestFilterVCSHistoryRowOrderContradictions_SuppressesGitLogBackedOrder(t *testing.T) {
+	mut := types.NewMutableState("最近 3 次提交都做了什么")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "git_log",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[git_log: count=3 evidence_origin=vcs_metadata]",
+			"commit ae1dd6b256fab219104c09447b6ffe3697239b7a",
+			"commit 3ae8465b6afe3fb16902d511d51482fefd09a103",
+			"commit 125687ab6f1ff7cd1187183fc459efe65be10fb3",
+		}, "\n"),
+	}}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "commits",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{Label: "ae1dd6b"},
+				{Label: "3ae8465"},
+				{Label: "125687a"},
+			},
+		}},
+	}
+	contradictions := []SelfConsistencyContradiction{
+		{
+			Kind:         SelfConsistencyContradictionRowOrder,
+			Topic:        "commit order",
+			SummaryClaim: "按时间倒序排列",
+			BodyClaim:    "ae1dd6b, 3ae8465, 125687a",
+		},
+		{
+			Kind:         SelfConsistencyContradictionNumeric,
+			Topic:        "count",
+			SummaryClaim: "3 commits",
+			BodyClaim:    "4 commits",
+		},
+	}
+	got, suppressed := filterVCSHistoryRowOrderContradictions(doc, mut, contradictions)
+	if suppressed != 1 {
+		t.Fatalf("suppressed = %d, want 1", suppressed)
+	}
+	if len(got) != 1 || got[0].Kind != SelfConsistencyContradictionNumeric {
+		t.Fatalf("expected only non-row-order contradiction to remain, got %+v", got)
+	}
+}
+
+func TestFilterVCSHistoryRowOrderContradictions_DoesNotSuppressUnsortedGitRows(t *testing.T) {
+	mut := types.NewMutableState("最近 3 次提交都做了什么")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "git_log",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"commit ae1dd6b256fab219104c09447b6ffe3697239b7a",
+			"commit 3ae8465b6afe3fb16902d511d51482fefd09a103",
+			"commit 125687ab6f1ff7cd1187183fc459efe65be10fb3",
+		}, "\n"),
+	}}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "commits",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{Label: "3ae8465"},
+				{Label: "ae1dd6b"},
+				{Label: "125687a"},
+			},
+		}},
+	}
+	contradictions := []SelfConsistencyContradiction{{
+		Kind:         SelfConsistencyContradictionRowOrder,
+		Topic:        "commit order",
+		SummaryClaim: "按时间倒序排列",
+		BodyClaim:    "3ae8465, ae1dd6b, 125687a",
+	}}
+	got, suppressed := filterVCSHistoryRowOrderContradictions(doc, mut, contradictions)
+	if suppressed != 0 {
+		t.Fatalf("suppressed = %d, want 0", suppressed)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected contradiction to remain, got %+v", got)
+	}
+}

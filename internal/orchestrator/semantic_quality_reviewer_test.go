@@ -164,6 +164,58 @@ func TestSemanticQualityReviewer_FallbackConcernForInsufficientWithoutConcerns(t
 	}
 }
 
+func TestSemanticQualityReviewer_RepairsStringConcerns(t *testing.T) {
+	adapter := &fakeSemanticQualityAdapter{
+		wantParams: `{"sufficient": false, "confidence": 0.94, "concerns": "缺少对最近提交影响面的说明"}`,
+	}
+	r := NewSemanticQualityReviewer(adapter)
+	got, err := r.Review(context.Background(), SemanticQualityInput{AnswerSummary: "x", AnswerBody: "y"})
+	if err != nil {
+		t.Fatalf("review err: %v", err)
+	}
+	if got == nil || got.Sufficient || len(got.Concerns) != 1 {
+		t.Fatalf("expected repaired fallback concern, got %+v", got)
+	}
+	if got.Concerns[0].Topic != "semantic quality review" ||
+		!strings.Contains(got.Concerns[0].Observation, "最近提交影响面") {
+		t.Fatalf("string concern should be preserved as fallback rationale, got %+v", got.Concerns[0])
+	}
+}
+
+func TestSemanticQualityReviewer_IgnoresStringConcernsWhenSufficient(t *testing.T) {
+	adapter := &fakeSemanticQualityAdapter{
+		wantParams: `{"sufficient": true, "confidence": 0.94, "concerns": "none"}`,
+	}
+	r := NewSemanticQualityReviewer(adapter)
+	got, err := r.Review(context.Background(), SemanticQualityInput{AnswerSummary: "x", AnswerBody: "y"})
+	if err != nil {
+		t.Fatalf("review err: %v", err)
+	}
+	if got == nil || !got.Sufficient || len(got.Concerns) != 0 {
+		t.Fatalf("sufficient string concern should not create a retry concern, got %+v", got)
+	}
+}
+
+func TestSemanticQualityReviewer_RepairsSingleObjectConcern(t *testing.T) {
+	got, err := unmarshalSemanticQualityResult(json.RawMessage(`{
+		"sufficient": false,
+		"confidence": 0.94,
+		"concerns": {
+			"topic": "history summary",
+			"kind": "coverage_gap",
+			"observation": "missing impact",
+			"suggestion": "add the impact from the git evidence",
+			"repair_locus": "local_doc_defect"
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("unmarshal single-object concern: %v", err)
+	}
+	if got == nil || len(got.Concerns) != 1 || got.Concerns[0].Topic != "history summary" {
+		t.Fatalf("single-object concern should be normalized, got %+v", got)
+	}
+}
+
 func TestSemanticQualityReviewer_RejectsConfidenceOutOfRange(t *testing.T) {
 	adapter := &fakeSemanticQualityAdapter{
 		wantParams: `{"sufficient": true, "confidence": 1.5}`,

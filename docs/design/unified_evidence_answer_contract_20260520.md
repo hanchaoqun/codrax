@@ -900,6 +900,77 @@ Required tests before the contract is considered complete:
   `go test ./internal/tool -run 'TestGit(Diff|HistorySearch|Log|Show)'`
   PASS.
 
+2026-05-20 Batch F.4:
+
+- Wired exact-absence output into `CompileAnswerIntentContract` when
+  `AnswerContract.ExactResolution.AllowAbsence` is set. This keeps bounded
+  absence as a requested output instead of letting negative-search aggregates
+  be demoted to generic support in mixed answers.
+- Negative-search aggregate normalization now materializes
+  `result_count=0` as a structured dimension when the model supplied the count
+  only through `value=0`. This aligns the formal negative-evidence channel with
+  the commercial contract: `repo + query/pattern + result_count=0 + scope +
+  searched_at`.
+- Added regression coverage for:
+  - diff-only aggregates producing `vcs_diff` claim bindings without
+    synthesizing `current_source`;
+  - perf-trace-only finalizer prompt boundaries avoiding current-repo citation
+    pressure;
+  - mixed current-source + negative-search answers preserving the bounded
+    absence detail rather than hiding it behind a present source fact.
+- Validation:
+  `go test ./internal/types -run 'TestCompileAnswerIntentContract|TestCompileAnswerClaimBindings|TestAnswerAggregateFactEvidenceOrigins|TestNormalizeAnswerAggregateFacts'`
+  PASS;
+  `go test ./internal/tool -run 'TestPreCheckAggregateScalarValueCoverage|TestGit(Diff|HistorySearch|Log|Show)'`
+  PASS;
+ `go test ./internal/agent -run 'TestRenderAnswerDocUnifiedIntentContract|TestRenderAnswerDocClaimBindings'`
+  PASS.
+
+2026-05-21 Batch F.5:
+
+- Semantic-quality reviewer JSON compatibility now accepts `concerns` as the
+  normal array, a single object, `null`/missing, or a string rationale. A string
+  rationale is preserved as a fallback structured concern only when
+  `sufficient=false`; `sufficient=true` plus a stray string such as "none" does
+  not create a retry concern. This keeps semantic-review meaning intact while
+  absorbing harmless schema drift.
+- Tool-sourced finalizer guidance now forbids unsupported module/component/
+  category counts unless the exact count is present in VCS/command output or
+  `aggregate_facts`. This is a soft prompt contract, not a hard prose parser:
+  when only a commit list is available, the answer should use qualitative
+  grouping rather than inventing numeric group totals.
+- Validation:
+  `go test ./internal/orchestrator -run 'TestSemanticQualityReviewer_(RepairsStringConcerns|IgnoresStringConcernsWhenSufficient|RepairsSingleObjectConcern|HappyPath|FallbackConcern|RepairLocus)'`
+  PASS;
+ `go test ./internal/context -run 'TestBuildPromptContext_(ToolSourcedValueGuidance|RawToolOutputs)'`
+  PASS.
+
+2026-05-21 Batch F.6:
+
+- VCS row-order self-consistency is now gated by precise tool order. For
+  typed `row_order_mismatch` contradictions on commit-history lists, the
+  system suppresses reviewer complaints when the visible commit labels follow
+  the exact `git_log` commit order. The reviewer prompt also explicitly forbids
+  inferring chronology from patch size, severity, or change magnitude.
+- Principal enumeration coverage now treats commit-hash labels as covering
+  decorated VCS member rows such as `hash: subject (stat)`. This prevents the
+  deterministic row compiler from appending a duplicate "system-verified
+  member supplement" table when the model has already rendered the commit list.
+- Raw tool output rendering now preserves substantially larger `git_log` /
+  `git_history_search` / `git_show` payloads for history answers. VCS history
+  member-set prompts no longer suppress the model-authored closure reason,
+  because the aggregate member set may be an identity skeleton while the closure
+  prose carries useful per-commit summaries.
+- Validation:
+  `go test ./internal/orchestrator -run 'TestFilter(VCSHistoryRowOrderContradictions|DeterministicRowOrderContradictions)|TestSelfConsistencyReviewerPrompt_DocumentsFabricationShape'`
+  PASS;
+  `go test ./internal/tool -run 'TestNormalizePrincipalEnumerationRowBlocks_(DoesNotDuplicateVCSCommitRowsAlreadyVisible|AppendsOnlyMissingRows|SystemSupplement)'`
+  PASS;
+  `go test ./internal/context -run 'TestFormatRawToolOutputs|TestBuildPromptContext_ToolSourcedValueGuidance_FinalizeAvoidsUnsupportedGroupCounts'`
+  PASS;
+  `go test ./internal/agent -run 'TestAnswerDocumentEvaluator_BuildInitialInstruction_(HistoryMemberSetKeepsClosureProse|PrincipalMemberSetSuppressesClosureProse)'`
+  PASS.
+
 ## 7. Acceptance Matrix
 
 The contract is not accepted until these families pass without answer collapse
@@ -982,7 +1053,13 @@ or noisy retries:
   explicit structured origin dimensions during aggregate normalization.
 - [x] Batch F.3: teach VCS tool descriptions to preserve the VCS provenance lane
   and avoid fake `emit_evidence` rows.
-- [ ] Batch F.4: add reviewer/pre-emit tests for diff-only, trace-only, and
-  negative-search-plus-present-source mixed answers.
+- [x] Batch F.4: add reviewer/pre-emit tests for diff-only, trace-only, and
+  negative-search-plus-present-source mixed answers; materialize
+  `result_count=0` on negative-search aggregate dimensions.
+- [x] Batch F.5: harden semantic-quality reviewer JSON compatibility and add
+  soft finalizer guidance against unsupported VCS grouping counts.
+- [x] Batch F.6: suppress imprecise VCS row-order reviewer false positives,
+  avoid duplicate system VCS supplements, and preserve richer VCS raw/closure
+  context for finalization.
 - [ ] Run targeted evals after each batch and update
   `eval_20260520_full_sweep_gap_tracking.md`.

@@ -1837,7 +1837,9 @@ func shouldRenderRawToolOutputs(ac *types.AgentContext) bool {
 const (
 	rawToolOutputPerCallHeadBytes = 800
 	rawToolOutputPerCallTailBytes = 400
-	rawToolOutputTotalCapBytes    = 4000
+	rawToolOutputTotalCapBytes    = 16000
+	rawToolOutputVCSHeadBytes     = 12000
+	rawToolOutputVCSTailBytes     = 2000
 )
 
 // rawToolOutputSkipTools is the set of tool names whose results are
@@ -1918,8 +1920,7 @@ func formatRawToolOutputs(results []types.ToolResult) string {
 // head + tail preview. The tail is always preserved because shell
 // tools put their summarising scalar at the END of output.
 func formatRawToolSummary(toolName, summary string) string {
-	head := rawToolOutputPerCallHeadBytes
-	tail := rawToolOutputPerCallTailBytes
+	head, tail := rawToolOutputCaps(toolName)
 	var body string
 	if len(summary) <= head+tail {
 		body = summary
@@ -1927,6 +1928,17 @@ func formatRawToolSummary(toolName, summary string) string {
 		body = summary[:head] + "\n...[trimmed " + fmt.Sprint(len(summary)-head-tail) + " bytes]...\n" + summary[len(summary)-tail:]
 	}
 	return fmt.Sprintf("- **%s** (%d bytes):\n```\n%s\n```\n", toolName, len(summary), body)
+}
+
+func rawToolOutputCaps(toolName string) (int, int) {
+	switch toolName {
+	case "git_log", "git_history_search":
+		return rawToolOutputVCSHeadBytes, rawToolOutputVCSTailBytes
+	case "git_show":
+		return rawToolOutputVCSHeadBytes / 2, rawToolOutputVCSTailBytes / 2
+	default:
+		return rawToolOutputPerCallHeadBytes, rawToolOutputPerCallTailBytes
+	}
 }
 
 func extractToolSummaries(results []types.ToolResult) []string {
@@ -4276,6 +4288,8 @@ func formatToolSourcedValueHint(ac *types.AgentContext) string {
 		b.WriteString("- Do NOT copy tool outputs into `citations[]`; those entries are reserved for repo file:line anchors.\n")
 		b.WriteString("- `citation_ref=-1` is an internal carrier. In visible prose, say the fact came from repository history / diff output / command output; never mention `citation_ref` or `citations[]` to the user.\n")
 		b.WriteString("- When summarizing multiple commits, keep grouping/count language exactly aligned with the VCS list; avoid approximate phrases such as 'near half' unless the exact count supports them.\n")
+		b.WriteString("- Do not introduce module/component/category counts unless that exact count is present in the VCS/command output or in `aggregate_facts`; prefer qualitative grouping when only the commit list is available.\n")
+		b.WriteString("- For VCS history lists, each commit item should state both the observed change and the effect/impact that follows from the subject/stat/name output. If the available VCS output proves only a subject/stat, say that boundary instead of filling generic path-only prose.\n")
 	}
 	return b.String()
 }

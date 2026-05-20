@@ -259,7 +259,7 @@ Common CONTRADICTION SHAPES (apply the principle, not the surface form — these
   3. Behaviour mismatch — summary describes outcome A, body describes outcome B (return-vs-panic, success-vs-failure, sync-vs-async, returns-vs-writes)
   4. Quantifier mismatch — summary says "always / all / every / never", body says "sometimes / some / only when X / under condition Y"
   5. Direction mismatch — summary says A→B flow, body says B→A; summary says source/sink one way, body says the opposite
-  6. Row order mismatch — summary claims a list/table row order and body shows an incompatible row order. Use this only for ordering of displayed rows, not flow direction.
+  6. Row order mismatch — summary claims a list/table row order and body shows an incompatible row order. Use this only for ordering of displayed rows, not flow direction. Row-order mismatch requires explicit ordering evidence in the visible rows (dates, ordinals, sorted keys, or an opposite displayed sequence). Do NOT infer order from unrelated attributes such as patch size, severity, complexity, or how large a change "usually" is.
   7. Assignment inversion — same set of values is mapped to different categories across the two parts (e.g. summary says "X has property P, Y has property Q"; body shows X gets Q, Y gets P)
   8. Fabricated identifier (ONLY when an EVIDENCE ANCHORS section is supplied) — BODY names a structural identifier (function / type / file path / config key / check / handler / etc.) presented as "the actual code/structure" that has NO member in the supplied EVIDENCE ANCHORS set. Look at: list-item labels, code-fenced identifiers in body items, and identifiers BODY claims are ground-truth. Stylistic terms ("the validator", "the helper") and prose generic phrasing are NOT identifiers — only flag named code-shape tokens. When flagged, set summary_claim to the corresponding SUMMARY mention of the same identifier (or empty when summary doesn't mention it) and body_claim to the verbatim BODY occurrence. This shape is independent of SUMMARY content — fabrication can fire even when SUMMARY agrees with BODY.
 
@@ -272,6 +272,7 @@ Common NOT-CONTRADICTIONS (DO NOT REPORT):
   - Body adds context summary did not need → expansion, not contradiction
   - Different abstraction levels of the same fact → depth difference, not contradiction
   - Qualitative-vs-quantitative framings of compatible claims → framing, not contradiction (e.g. summary "fast", body "100ms p99")
+  - Repository-history row order inferred from patch size / change magnitude → unsupported inference, not contradiction
 
 DECISION DISCIPLINE (apply before reporting):
   1. Re-read SUMMARY and BODY at least twice before deciding

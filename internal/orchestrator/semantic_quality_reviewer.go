@@ -412,16 +412,10 @@ func (r *llmSemanticQualityReviewer) Review(ctx context.Context, in SemanticQual
 // unmarshalSemanticQualityResult decodes the LLM's emit args.
 func unmarshalSemanticQualityResult(raw json.RawMessage) (*SemanticQualityResult, error) {
 	var parsed struct {
-		Sufficient bool `json:"sufficient"`
-		Concerns   []struct {
-			Kind        string `json:"kind"`
-			Topic       string `json:"topic"`
-			Observation string `json:"observation"`
-			Suggestion  string `json:"suggestion"`
-			RepairLocus string `json:"repair_locus"`
-		} `json:"concerns"`
-		Confidence float64 `json:"confidence"`
-		Reasoning  string  `json:"reasoning"`
+		Sufficient bool            `json:"sufficient"`
+		Concerns   json.RawMessage `json:"concerns"`
+		Confidence float64         `json:"confidence"`
+		Reasoning  string          `json:"reasoning"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("decode emit_semantic_quality_review: %w", err)
@@ -434,7 +428,61 @@ func unmarshalSemanticQualityResult(raw json.RawMessage) (*SemanticQualityResult
 		Confidence: parsed.Confidence,
 		Reasoning:  strings.TrimSpace(parsed.Reasoning),
 	}
-	for _, c := range parsed.Concerns {
+	concerns, err := decodeSemanticQualityConcerns(parsed.Concerns, parsed.Sufficient)
+	if err != nil {
+		return nil, fmt.Errorf("decode emit_semantic_quality_review concerns: %w", err)
+	}
+	out.Concerns = append(out.Concerns, concerns...)
+	if !out.Sufficient && len(out.Concerns) == 0 {
+		out.Concerns = append(out.Concerns, semanticQualityFallbackConcern(out.Reasoning))
+	}
+	return out, nil
+}
+
+type semanticQualityConcernWire struct {
+	Kind        string `json:"kind"`
+	Topic       string `json:"topic"`
+	Observation string `json:"observation"`
+	Suggestion  string `json:"suggestion"`
+	RepairLocus string `json:"repair_locus"`
+}
+
+func decodeSemanticQualityConcerns(raw json.RawMessage, sufficient bool) ([]SemanticQualityConcern, error) {
+	if strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
+		return nil, nil
+	}
+	var list []semanticQualityConcernWire
+	if err := json.Unmarshal(raw, &list); err == nil {
+		return normalizeSemanticQualityConcerns(list), nil
+	}
+	var single semanticQualityConcernWire
+	if err := json.Unmarshal(raw, &single); err == nil {
+		return normalizeSemanticQualityConcerns([]semanticQualityConcernWire{single}), nil
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		text = strings.TrimSpace(text)
+		if text == "" || sufficient {
+			return nil, nil
+		}
+		return []SemanticQualityConcern{semanticQualityFallbackConcern(text)}, nil
+	}
+	var original any
+	if err := json.Unmarshal(raw, &original); err == nil {
+		if sufficient {
+			return nil, nil
+		}
+		return []SemanticQualityConcern{semanticQualityFallbackConcern(fmt.Sprintf("%v", original))}, nil
+	}
+	return nil, fmt.Errorf("unsupported concerns payload shape")
+}
+
+func normalizeSemanticQualityConcerns(list []semanticQualityConcernWire) []SemanticQualityConcern {
+	if len(list) == 0 {
+		return nil
+	}
+	out := make([]SemanticQualityConcern, 0, len(list))
+	for _, c := range list {
 		topic := strings.TrimSpace(c.Topic)
 		kind := normaliseSemanticQualityConcernKind(c.Kind)
 		repairLocus := normaliseSemanticQualityRepairLocus(c.RepairLocus, kind)
@@ -443,14 +491,11 @@ func unmarshalSemanticQualityResult(raw json.RawMessage) (*SemanticQualityResult
 		if topic == "" || obs == "" || sug == "" {
 			continue
 		}
-		out.Concerns = append(out.Concerns, SemanticQualityConcern{
+		out = append(out, SemanticQualityConcern{
 			Kind: kind, Topic: topic, Observation: obs, Suggestion: sug, RepairLocus: repairLocus,
 		})
 	}
-	if !out.Sufficient && len(out.Concerns) == 0 {
-		out.Concerns = append(out.Concerns, semanticQualityFallbackConcern(out.Reasoning))
-	}
-	return out, nil
+	return out
 }
 
 func semanticQualityFallbackConcern(reasoning string) SemanticQualityConcern {

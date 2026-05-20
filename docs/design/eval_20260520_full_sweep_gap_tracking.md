@@ -1079,3 +1079,43 @@ convergence tails.
   this beyond git: VCS, logs, traces, command measurements, negative searches,
   and cross-repo index facts all use typed evidence-origin lanes instead of
   fake current-source anchors.
+- Batch F.4 added code-level protection for one mixed-origin edge that evals
+  should cover next: an answer can have a present current-source anchor and a
+  bounded negative-search result at the same time. The negative result remains
+  first-class only when `repo/query|pattern/result_count=0/scope/searched_at`
+  are preserved. A future eval should ask for a relationship where one repo has
+  a concrete implementation and another repo has a verified zero-hit interface
+  search.
+- `u7l-20260521-001605` passed after the direct-history analyzer prompt and
+  unified VCS lane: `read_file=0`, `midloop_inject=0`, `analyzer_iters=1`,
+  `explorer_iters=2`, `extractor_iters=1`, `finalizer_iters=1`. It also exposed
+  two residual, non-blocking system gaps:
+  - semantic-quality review dispatch failed when a model emitted
+    `concerns` as a string instead of the schema's array. This is schema drift,
+    not a semantic answer failure, so Batch F.5 added a schema-aware repair
+    path for string/single-object/null concerns.
+  - self-consistency noticed a low-confidence unsupported grouping count in the
+    VCS summary. This should not force a rewrite, but it is avoidable; Batch
+    F.5 added soft finalizer guidance to avoid module/component/category counts
+    unless they are explicitly present in VCS/command output or
+    `aggregate_facts`.
+- `u7l-20260521-002737` passed structurally, but self-consistency falsely
+  emitted a high-confidence row-order contradiction by inferring chronology
+  from patch size ("large change usually older"). This is a precise red-line
+  violation for reviewer gating: patch size is noisy evidence and must not
+  drive a hard rewrite signal. Batch F.6 added a typed VCS row-order suppressor
+  that compares visible commit labels against `git_log` order, plus prompt
+  guidance forbidding patch-size chronology inference.
+- `u7l-20260521-003544` passed without the reviewer false positive, but the
+  final answer duplicated the already-rendered commit list with a system
+  supplement table. Root cause: aggregate `member_set` rows were decorated as
+  `hash: subject (stat)` while the model's visible list labels were bare
+  commit hashes, so the compiler thought every row was missing. Batch F.6
+  treats 7-40 char commit-hash prefixes as a structural identity match for VCS
+  member rows.
+- `u7l-20260521-004117` removed the duplicate table but failed the quality
+  regex: the explorer closed after one `git_log`, the finalizer prompt showed
+  a trimmed VCS output, and later commit rows degraded into path-only generic
+  prose. Batch F.6 increased VCS raw-output prompt caps, added finalizer
+  guidance to state both change and effect/impact for history lists, and keeps
+  history closure prose visible even when a principal VCS member_set exists.

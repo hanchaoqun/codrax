@@ -511,4 +511,7 @@ func TestSelfConsistencyReviewerPrompt_DocumentsFabricationShape(t *testing.T) {
 	if !strings.Contains(selfConsistencyReviewerSystemPrompt, "EVIDENCE ANCHORS") {
 		t.Error("system prompt missing EVIDENCE ANCHORS reference")
 	}
+	if !strings.Contains(selfConsistencyReviewerSystemPrompt, "patch size") {
+		t.Error("system prompt must forbid inferring VCS history order from patch size")
+	}
 }

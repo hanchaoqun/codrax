@@ -72,6 +72,28 @@ func TestCompileAnswerClaimBindingsFromAggregateFacts_RuntimeArtifactDoesNotBeco
 	}
 }
 
+func TestCompileAnswerClaimBindingsFromAggregateFacts_DiffOnlyDoesNotBecomeCurrentSource(t *testing.T) {
+	rm := RequestModel{Intent: IntentExplain}
+	facts := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "changed methods",
+		Value: "1",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "origin", Value: string(AnswerEvidenceOriginVCSDiff)},
+		},
+		Members: []string{"oldMethod -> newMethod"},
+	}}
+
+	got := CompileAnswerClaimBindingsFromAggregateFacts(facts, &rm, nil)
+	assertClaimBinding(t, got, AnswerEvidenceOriginVCSDiff, ClaimGroundingRepairable, AnswerRequestedOutputMechanism)
+	for _, binding := range got {
+		if binding.Origin == AnswerEvidenceOriginCurrentSource {
+			t.Fatalf("diff-only aggregate must not synthesize current_source: %+v", got)
+		}
+	}
+}
+
 func TestCompileRuntimeArtifactClaimBindings_LogBundleCreatesRuntimeBinding(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentRootCause,

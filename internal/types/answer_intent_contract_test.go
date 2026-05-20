@@ -187,6 +187,30 @@ func TestCompileAnswerIntentContract_BucketedComparisonPreservesOutput(t *testin
 	}
 }
 
+func TestCompileAnswerIntentContract_ExactResolutionAllowsAbsenceOutput(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentExplain,
+		AnswerSubject: AnswerSubject{
+			Kind: SubjectFunctionName,
+		},
+	}
+	contract := &AnswerContract{
+		ExactResolution: &ExactResolutionContract{
+			TargetKind:   SubjectFunctionName,
+			TargetLabel:  "symbol",
+			Targets:      []string{"MissingSymbol"},
+			AllowAbsence: true,
+		},
+	}
+	got := CompileAnswerIntentContract(rm, contract)
+	if !got.HasOutput(AnswerRequestedOutputAbsence) {
+		t.Fatalf("exact-resolution contract that allows absence should preserve absence output: %+v", got.RequestedOutputs)
+	}
+	if !got.HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatalf("exact-resolution source lookup should still require current-source origin: %+v", got.Origins)
+	}
+}
+
 func assertAnswerIntentContract(t *testing.T, got AnswerIntentContract, origins []AnswerEvidenceOrigin, outputs []AnswerRequestedOutput) {
 	t.Helper()
 	if !reflect.DeepEqual(got.Origins, origins) {

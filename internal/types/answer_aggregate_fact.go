@@ -2250,6 +2250,14 @@ func normalizeNegativeSearchAggregateFact(fact AnswerAggregateFact) (AnswerAggre
 			fact.Kind, fact.Label)
 	}
 	fact.Value = "0"
+	if dims["result_count"] == "" {
+		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
+			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension result_count=0 for a verified zero-result search",
+				fact.Kind, fact.Label)
+		}
+		fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "result_count", Value: "0"})
+		dims["result_count"] = "0"
+	}
 	if fact.Unit == "" {
 		fact.Unit = "matches"
 	}

@@ -1996,11 +1996,10 @@ func TestFormatRawToolOutputs_SkipsFailedResults(t *testing.T) {
 // cap engages and the trailing "... more omitted" marker appears when
 // the section would otherwise balloon the prompt.
 func TestFormatRawToolOutputs_TotalCapWithMarker(t *testing.T) {
-	// Build 10 successful tool results each large enough that two fit
-	// in ~1.5KB rendered, so the total cap (rawToolOutputTotalCapBytes
-	// = 4000) trips well before all 10 render.
-	results := make([]types.ToolResult, 0, 10)
-	for i := 0; i < 10; i++ {
+	// Build many successful tool results each large enough that the
+	// total cap trips before all render.
+	results := make([]types.ToolResult, 0, 20)
+	for i := 0; i < 20; i++ {
 		results = append(results, types.ToolResult{
 			ToolName: "exec_command",
 			Success:  true,
@@ -2016,6 +2015,25 @@ func TestFormatRawToolOutputs_TotalCapWithMarker(t *testing.T) {
 	}
 	if len(got) > 2*rawToolOutputTotalCapBytes {
 		t.Errorf("rendered section %d bytes, should be bounded near cap %d", len(got), rawToolOutputTotalCapBytes)
+	}
+}
+
+func TestFormatRawToolOutputs_PreservesGitLogHistoryHead(t *testing.T) {
+	summary := "[git_log: count=10 evidence_origin=vcs_metadata]\n" +
+		"commit ae1dd6b256fab219104c09447b6ffe3697239b7a\n" +
+		strings.Repeat("stat line for commit history\n", 120) +
+		"commit 333707a65de3751cfd099cacd694550a29c7acd0\n"
+	got := formatRawToolOutputs([]types.ToolResult{{
+		ToolName: "git_log",
+		Success:  true,
+		Summary:  summary,
+	}})
+	if !strings.Contains(got, "commit ae1dd6b256fab219104c09447b6ffe3697239b7a") ||
+		!strings.Contains(got, "commit 333707a65de3751cfd099cacd694550a29c7acd0") {
+		t.Fatalf("git_log history output should preserve recent-N commit rows for finalizer enrichment:\n%s", got)
+	}
+	if strings.Contains(got, "...[trimmed") {
+		t.Fatalf("moderate git_log history output should not be trimmed:\n%s", got)
 	}
 }
 
@@ -2047,6 +2065,35 @@ func TestBuildPromptContext_RawToolOutputs_WiredForMeasurementScalar(t *testing.
 	}
 	if strings.Contains(sec.Content, "value{literal") {
 		t.Errorf("raw tool output guidance must not teach retired V1 scalar payloads:\n%s", sec.Content)
+	}
+}
+
+func TestBuildPromptContext_ToolSourcedValueGuidance_FinalizeAvoidsUnsupportedGroupCounts(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		Objective: "最近 10 次提交都做了哪些事情，作用和影响分别是什么",
+		Mutable:   types.NewMutableState("最近 10 次提交都做了哪些事情，作用和影响分别是什么"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqHistory)},
+			},
+			AnswerContract: types.AnswerContract{CitationReq: types.CitationReq{Required: false}},
+		},
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "answer-document-skill"})
+	sec := findSectionTitle(pc, SectionToolSourcedValue)
+	if sec == nil {
+		t.Fatal("expected Tool-Sourced Value section to be present for VCS finalizer prompt")
+	}
+	if !strings.Contains(sec.Content, "Do not introduce module/component/category counts") ||
+		!strings.Contains(sec.Content, "prefer qualitative grouping") ||
+		!strings.Contains(sec.Content, "both the observed change and the effect/impact") {
+		t.Fatalf("finalizer guidance should prevent unsupported VCS group counts, got:\n%s", sec.Content)
 	}
 }
 

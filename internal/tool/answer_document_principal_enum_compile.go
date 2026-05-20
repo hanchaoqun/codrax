@@ -630,7 +630,67 @@ func principalEnumerationAnySurfaceMatchesRow(surfaces []string, row types.Enume
 			return true
 		}
 	}
+	if principalEnumerationCommitSurfaceMatchesRow(surfaces, row) {
+		return true
+	}
 	return false
+}
+
+func principalEnumerationCommitSurfaceMatchesRow(surfaces []string, row types.EnumerationDisplayRow) bool {
+	rowHashes := []string{
+		principalEnumerationLeadingCommitHash(row.DisplayLabel),
+		principalEnumerationLeadingCommitHash(row.Member),
+	}
+	for _, surface := range surfaces {
+		surfaceHash := principalEnumerationLeadingCommitHash(surface)
+		if surfaceHash == "" {
+			continue
+		}
+		for _, rowHash := range rowHashes {
+			if principalEnumerationCommitHashPrefixMatch(surfaceHash, rowHash) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func principalEnumerationCommitHashPrefixMatch(a, b string) bool {
+	a = strings.ToLower(strings.TrimSpace(a))
+	b = strings.ToLower(strings.TrimSpace(b))
+	if len(a) < 7 || len(b) < 7 {
+		return false
+	}
+	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
+}
+
+func principalEnumerationLeadingCommitHash(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.Trim(raw, "`*_[](){}")
+	if raw == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range raw {
+		switch {
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r >= 'a' && r <= 'f':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'F':
+			b.WriteRune(unicode.ToLower(r))
+		default:
+			goto done
+		}
+		if b.Len() > 40 {
+			return ""
+		}
+	}
+done:
+	if b.Len() < 7 {
+		return ""
+	}
+	return b.String()
 }
 
 func principalEnumerationCandidateLocationCompatible(surface string, row types.EnumerationDisplayRow) bool {

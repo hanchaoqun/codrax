@@ -557,6 +557,77 @@ func TestPreCheckAggregateScalarValueCoverage_RequiresAbsenceNegativeSearchDimen
 	}
 }
 
+func TestPreCheckAggregateScalarValueCoverage_MixedNegativeSearchAndCurrentSourceKeepsAbsenceBoundary(t *testing.T) {
+	mu := types.NewMutableState("negative plus present source")
+	facts, err := types.NormalizeAnswerAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "present current source anchors",
+			Value:   "1",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"ResSchedService"},
+			SupportRefs: []string{
+				"ResSchedService: ressched/services/resschedservice/src/res_sched_service.cpp:42",
+			},
+		},
+		{
+			Kind:  types.AnswerAggregateNegativeSearch,
+			Label: "frameworks/base ressched interface search",
+			Value: "0",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "repo", Value: "frameworks/base"},
+				{Name: "query", Value: "ResSched"},
+				{Name: "scope", Value: "frameworks/base"},
+				{Name: "searched_at", Value: "current_investigation"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("aggregate facts should normalize: %v", err)
+	}
+	mu.SetInvestigationAggregateFacts(facts)
+	mu.SetInvestigationComplete("present source and bounded absence")
+	mu.SetInvestigationResultKind("absence")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentExplain},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:   types.SubjectFunctionName,
+					TargetLabel:  "interface",
+					Targets:      []string{"ResSched"},
+					AllowAbsence: true,
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "在 ressched 中能看到 ResSchedService，但没有发现 frameworks/base 与 ressched 的直接接口交互。",
+		}},
+	}
+
+	hints := preCheckAggregateScalarValueCoverage(doc, ctx)
+	if len(hints) != 1 {
+		t.Fatalf("mixed current-source/negative-search answer should still require the bounded absence detail, got %+v", hints)
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "frameworks/base") ||
+		!strings.Contains(hints[0].ExpectedShape, "ResSched") ||
+		!strings.Contains(hints[0].ExpectedShape, "result_count") {
+		t.Fatalf("hint should preserve the negative-search boundary, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Text += " 对 frameworks/base 范围执行 ResSched 搜索，result_count=0，searched_at=current_investigation。"
+	doc.Blocks[0].Text += " 当前源码锚点 1 个：ResSchedService。"
+	if got := preCheckAggregateScalarValueCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("visible bounded absence should satisfy mixed-origin coverage, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_RequiresVisibleModelAuthoredMembers(t *testing.T) {
 	mu := types.NewMutableState("enum aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

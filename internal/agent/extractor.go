@@ -552,6 +552,9 @@ func suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx *types.AgentCon
 	if rm.Intent != types.IntentEnumerate && !rm.Predicates.IsCategoryEnumeration {
 		return false
 	}
+	if rm.Predicates.IsHistoryLookup {
+		return false
+	}
 	return len(structuredAggregatePrincipalMemberSetRefs(ctx, facts)) > 0
 }
 

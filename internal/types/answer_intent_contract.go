@@ -231,6 +231,9 @@ func CompileAnswerIntentContract(rm RequestModel, contract *AnswerContract) Answ
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
 		addOutput(AnswerRequestedOutputChangeImpact)
 	}
+	if contract != nil && contract.ExactResolution != nil && contract.ExactResolution.AllowAbsence {
+		addOutput(AnswerRequestedOutputAbsence)
+	}
 	if rm.DiagramHint != nil && rm.DiagramHint.Kind != "" {
 		addOutput(AnswerRequestedOutputDiagram)
 	}

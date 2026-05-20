@@ -2710,6 +2710,13 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 			return nil
 		}
 	}
+	if filtered, suppressed := filterVCSHistoryRowOrderContradictions(doc, mut, verdict.Contradictions); suppressed > 0 {
+		verdict.Contradictions = filtered
+		logging.Info("[self_consistency_reviewer] suppressed %d typed VCS row-order contradiction(s) after git_log order check", suppressed)
+		if len(verdict.Contradictions) == 0 {
+			return nil
+		}
+	}
 
 	// Surface contradiction count + rewrite-mode to the user. The
 	// NoticeKind tracks the rewrite flag so the dock paints active
