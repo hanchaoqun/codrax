@@ -621,6 +621,99 @@ func TestBuildAnalysisIR_ResolvedRuntimeArtifactKeepsCitationGates(t *testing.T)
 	}
 }
 
+func TestBuildAnalysisIR_ExternalOnlyCurrentRiskWithoutCurrentVersionStaysObservationOnly(t *testing.T) {
+	mut := types.NewMutableState("这是什么错误？")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "panic",
+			Message: "called `Option::unwrap()` on a `None` value",
+			Frames: []types.LogFrame{{
+				Lang: "rust",
+				Func: "my_app::config::load",
+				File: "./src/config.rs",
+				Line: 42,
+			}},
+		}},
+	})
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "这是什么错误？",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"panic", "unwrap", "None"},
+			Entities: []string{"my_app::config::load", "src/config.rs:42"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic:         true,
+			CurrentRisk:          true,
+			CurrentVersionCheck:  false,
+			HistoricalRegression: false,
+			Confidence:           0.95,
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.RequestModel.DiagnosticProfile.CurrentRisk {
+		t.Fatal("external-only artifact without typed current-version check must not open current-repo verification")
+	}
+	if !ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
+		t.Fatalf("request should remain observation-only: %+v", ir.RequestModel.DiagnosticProfile)
+	}
+	if ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
+		t.Fatalf("CurrentStatusDiagnostic should not be required: %+v", ir.AnswerContract.CurrentStatusDiagnostic)
+	}
+}
+
+func TestBuildAnalysisIR_ExternalOnlyCurrentVersionCheckKeepsCurrentStatus(t *testing.T) {
+	mut := types.NewMutableState("确认这个日志问题当前版本是否还存在")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{
+				Lang: "rust",
+				Func: "my_app::config::load",
+				File: "./src/config.rs",
+				Line: 42,
+			}},
+		}},
+	})
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "确认这个日志问题当前版本是否还存在",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexitySimple,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentRisk:         true,
+			CurrentVersionCheck: true,
+			Confidence:          0.95,
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if !ir.RequestModel.DiagnosticProfile.CurrentRisk {
+		t.Fatal("explicit current-version check must preserve current-risk routing")
+	}
+	if ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
+		t.Fatalf("current-version check must not be observation-only: %+v", ir.RequestModel.DiagnosticProfile)
+	}
+}
+
 func TestBuildAnalysisIR_DiagnosticPredicateReconcilesNoAttachment(t *testing.T) {
 	mut := types.NewMutableState("diagnose the observed failure and whether a similar risk still exists")
 	mut.SetRequestModel(types.RequestModel{

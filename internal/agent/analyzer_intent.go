@@ -159,6 +159,20 @@ func reconcileDiagnosticQuestionProfile(rm types.RequestModel) (types.RequestMod
 	return rm, "diagnostic semantic predicate aligned " + strings.Join(changes, ", ")
 }
 
+func reconcileExternalOnlyRuntimeDiagnosticProfile(rm types.RequestModel) (types.RequestModel, string) {
+	if !rm.HasExternalOnlyRuntimeArtifact() {
+		return rm, ""
+	}
+	if !rm.DiagnosticProfile.CurrentRisk {
+		return rm, ""
+	}
+	if rm.DiagnosticProfile.CurrentVersionCheck || rm.DiagnosticProfile.HistoricalRegression {
+		return rm, ""
+	}
+	rm.DiagnosticProfile.CurrentRisk = false
+	return rm, "external-only runtime artifact has no typed current-version or historical-regression requirement; keep the request observation-only instead of opening current-repo verification"
+}
+
 // reconcileIntent is preserved as a thin sanity check. Count predicates used to
 // downgrade intent=enumerate to return_value, but that overrode list-with-counts
 // questions where the user wants members plus per-category totals. The normal

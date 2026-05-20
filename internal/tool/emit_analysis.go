@@ -852,6 +852,12 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	var diagnosticRouteWarnings []string
+	intent, scenario, diagnosticRouteWarnings = normalizeDiagnosticRoute(intent, scenario, predicates)
+	for _, warning := range diagnosticRouteWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	conversationReferenceProfile, conversationReferenceErr := parseConversationReferenceProfile(p.ConversationReferenceProfile)
 	if conversationReferenceErr != "" {
 		return types.ToolResult{
@@ -1038,12 +1044,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		answerSubject = normalized
 		val.Warnings = append(val.Warnings, warning)
 	}
-	// Self-consistency: when the LLM's chosen intent / shape contradicts
-	// its own predicates, or when a define-axis single-target question
-	// failed to disambiguate whether it is a role-locate scalar lookup
-	// versus an explanation of the named entity itself, reject here so
-	// the retry hint forces the LLM to reconcile its own classification
-	// instead of a Go reconcile rule papering over the inconsistency.
+	// Self-consistency: after typed, deterministic normalizers have
+	// absorbed safe drift, reject only contradictions that still need
+	// the LLM to reconcile its own classification.
 	if issue := validateSelfConsistencyDetailed(intent, scenario, kind, predicates, diagnosticProfile, axis, entities, p.SubTopics, answerSubject); issue.Reason != "" {
 		if writeModeAnalysisRootCauseTolerance(ctx, issue.Kind) {
 			val.Warnings = append(val.Warnings, "write-mode tolerated read-analyzer root_cause without diagnostic typed signal; write_analyzer will provide the code-change task framing")
@@ -1613,6 +1616,42 @@ func normalizeDiagnosticMirrorSignals(
 		addWarning("mirror auto-align: diagnostic_profile.current_version_check true→false because no diagnostic predicate/current-risk/regression signal is active")
 	}
 	return preds, diagnostic, warnings
+}
+
+// normalizeDiagnosticRoute absorbs a narrow, typed self-consistency
+// drift: the analyzer already emitted the diagnostic predicate, but
+// left the generic explain/architecture route in place. The existing
+// validator still enforces this invariant for direct callers; the
+// normal Execute path repairs it before validation so an otherwise
+// valid analysis does not burn another model round.
+func normalizeDiagnosticRoute(
+	intent types.Intent,
+	scenario types.Scenario,
+	preds types.SemanticPredicates,
+) (types.Intent, types.Scenario, []string) {
+	if !preds.IsDiagnosticQuestion {
+		return intent, scenario, nil
+	}
+	var warnings []string
+	if intent != types.IntentRootCause {
+		warnings = append(warnings, fmt.Sprintf(
+			"diagnostic route auto-align: intent %q→%q because predicates.is_diagnostic_question=true",
+			intent, types.IntentRootCause,
+		))
+		intent = types.IntentRootCause
+	}
+	switch scenario {
+	case types.ScenarioRootCause, types.ScenarioPerformanceBottleneck:
+		// Keep a specific diagnostic/performance route when the model
+		// already chose one of the allowed typed scenarios.
+	default:
+		warnings = append(warnings, fmt.Sprintf(
+			"diagnostic route auto-align: scenario %q→%q because predicates.is_diagnostic_question=true",
+			scenario, types.ScenarioRootCause,
+		))
+		scenario = types.ScenarioRootCause
+	}
+	return intent, scenario, warnings
 }
 
 func parseConversationReferenceProfile(p *emitConversationReferenceProfileParam) (*types.ConversationReferenceProfile, string) {

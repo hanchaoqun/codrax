@@ -1585,6 +1585,18 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			logging.Info("[analyzer] diagnostic profile reconciled: %s", reason)
 			rm = resolved
 		}
+		if resolved, reason := reconcileExternalOnlyRuntimeDiagnosticProfile(rm); reason != "" {
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"diagnostic_profile",
+				fmt.Sprintf("current_risk=%t current_version=%t historical=%t", rm.DiagnosticProfile.CurrentRisk, rm.DiagnosticProfile.CurrentVersionCheck, rm.DiagnosticProfile.HistoricalRegression),
+				fmt.Sprintf("current_risk=%t current_version=%t historical=%t", resolved.DiagnosticProfile.CurrentRisk, resolved.DiagnosticProfile.CurrentVersionCheck, resolved.DiagnosticProfile.HistoricalRegression),
+				rm.DiagnosticProfile.Confidence,
+				reason,
+				resolved.Predicates,
+			))
+			logging.Info("[analyzer] external runtime diagnostic profile reconciled: %s", reason)
+			rm = resolved
+		}
 		scenarioResolved, scenarioReason := reconcileScenario(rm)
 		if scenarioReason != "" {
 			logScenarioReconcile(rm.Scenario, scenarioResolved, scenarioReason)

@@ -364,6 +364,60 @@ func TestValidateSelfConsistency_DiagnosticPredicateAlignsIntentAndScenario(t *t
 	}
 }
 
+func TestEmitAnalysis_NormalizesDiagnosticExplainRoute(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "complex",
+		"keywords": ["panic", "runtime", "frame"],
+		"entities": ["RuntimeError"],
+		"question_kind": "mechanism",
+	}`)
+	payload = strings.Replace(payload, `"is_diagnostic_question": false`, `"is_diagnostic_question": true`, 1)
+
+	res, mu := runEmitAnalysisPayload(t, "这是什么错误？", payload)
+	if !res.Success {
+		t.Fatalf("Execute should normalize diagnostic route, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.Intent != types.IntentRootCause {
+		t.Fatalf("Intent = %q, want root_cause", rm.Intent)
+	}
+	if rm.Scenario != types.ScenarioRootCause {
+		t.Fatalf("Scenario = %q, want root_cause", rm.Scenario)
+	}
+	if !rm.Predicates.IsDiagnosticQuestion || !rm.DiagnosticProfile.IsDiagnostic {
+		t.Fatalf("diagnostic typed lanes not aligned: predicates=%+v profile=%+v", rm.Predicates, rm.DiagnosticProfile)
+	}
+	if !strings.Contains(res.Summary, "diagnostic route auto-align") {
+		t.Fatalf("Summary missing auto-align warning, got %q", res.Summary)
+	}
+}
+
+func TestNormalizeDiagnosticRouteKeepsPerformanceScenario(t *testing.T) {
+	intent, scenario, warnings := normalizeDiagnosticRoute(
+		types.IntentExplain,
+		types.ScenarioPerformanceBottleneck,
+		types.SemanticPredicates{IsDiagnosticQuestion: true},
+	)
+	if intent != types.IntentRootCause {
+		t.Fatalf("intent = %q, want root_cause", intent)
+	}
+	if scenario != types.ScenarioPerformanceBottleneck {
+		t.Fatalf("scenario = %q, want performance_bottleneck", scenario)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "intent") {
+		t.Fatalf("warnings = %#v, want only intent alignment", warnings)
+	}
+}
+
 func TestValidateSelfConsistency_CurrentVersionCheckRequiresDiagnosticCompanion(t *testing.T) {
 	reason := validateSelfConsistency(
 		types.IntentConfigQuery,
