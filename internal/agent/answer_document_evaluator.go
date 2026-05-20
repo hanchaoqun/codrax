@@ -458,6 +458,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "claim_bindings", func() string {
+		return renderAnswerDocClaimBindings(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "accepted_closure", func() string {
 		return renderAnswerDocAcceptedClosure(ctx)
 	}) {
@@ -3495,6 +3500,49 @@ func renderAnswerDocUnifiedIntentContract(ctx *types.AgentContext) string {
 	}
 	if contract.HasOrigin(types.AnswerEvidenceOriginCommandMeasurement) {
 		b.WriteString("- Command measurement facts can support exact counts or scalar measurements without pretending the value lives at a source `file:line`.\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	facts := answerDocStableAggregateFacts(ctx)
+	if len(facts) == 0 {
+		return ""
+	}
+	bindings := types.CompileAnswerClaimBindingsFromAggregateFacts(facts, &ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract)
+	if len(bindings) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Claim Binding / Gate Policy Handoff\n\n")
+	b.WriteString("- The following claim bindings are compiled from typed `aggregate_facts`, evidence origins, and requested outputs. They are the shared interpretation for answer-writing and review lanes.\n")
+	b.WriteString("- Do not translate non-`current_source` bindings into current-source file:line requirements. Use each binding's origin-specific support shape.\n")
+	b.WriteString("- `hard` means the principal claim itself must be exact; `repairable` / `soft` defects should be locally repaired or disclosed in a localized supplement rather than forcing a broad rewrite.\n")
+	limit := len(bindings)
+	if limit > 12 {
+		limit = 12
+	}
+	for i := 0; i < limit; i++ {
+		binding := bindings[i]
+		fmt.Fprintf(&b,
+			"- `%s`: origin=`%s`; policy=`%s`; outputs=%s; aggregate_facts[%d] kind=`%s` role=`%s`; target=%q; support_refs=%d\n",
+			binding.ClaimID,
+			binding.Origin,
+			binding.GroundingPolicy,
+			renderAnswerIntentOutputs(binding.RequestedOutputs),
+			binding.AggregateIndex,
+			binding.AggregateKind,
+			binding.AggregateRole,
+			binding.TargetRef,
+			len(binding.SupportRefs),
+		)
+	}
+	if len(bindings) > limit {
+		fmt.Fprintf(&b, "- ... %d additional binding(s) omitted from prompt for brevity; use aggregate_facts below as the complete ledger.\n", len(bindings)-limit)
 	}
 	b.WriteString("\n")
 	return b.String()

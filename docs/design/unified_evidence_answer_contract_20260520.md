@@ -488,6 +488,27 @@ Tasks:
 - Hard retry only when a principal claim violates its origin-specific hard
   policy.
 
+2026-05-20 Batch D.1:
+
+- Added `AnswerClaimBinding` as the deterministic bridge from stable
+  `aggregate_facts` to origin-specific answer-writing policy. Each binding
+  carries the aggregate index/kind/role, target, evidence origin, requested
+  outputs, support refs, and `ClaimGroundingPolicy`.
+- Added `CompileAnswerClaimBindingsFromAggregateFacts`, which consumes typed
+  aggregate dimensions and request-model fields only. It does not inspect raw
+  user prose or model answer text.
+- Added a final answer-writing prompt section,
+  `Claim Binding / Gate Policy Handoff`, so the same origin/policy view is
+  visible before closure prose, aggregate facts, and principal member-set
+  requirements. This is still guidance/orientation, not a new hard reject.
+- Regression coverage verifies:
+  - history count aggregates keep both `vcs_metadata` and
+    `command_measurement` bindings;
+  - current-source principal aggregates compile to `hard`;
+  - runtime artifact aggregates do not synthesize `current_source`;
+  - the final answer-writing prompt renders origin-specific policies.
+- Validation: `go test ./internal/types ./internal/agent ./internal/tool` PASS.
+
 ### Batch E — System Supplement Safety
 
 Goal: preserve model-authored rich answers and stop system-generated pollution.
@@ -557,7 +578,10 @@ or noisy retries:
   tool-emitted origin fields land.
 - [x] Batch C.1: tag log/perf triage tool outputs with runtime artifact origin.
 - [ ] Batch C: add runtime artifact frame aggregate/binding.
-- [ ] Batch D: make finalizer support lanes read claim bindings.
+- [x] Batch D.1: compile aggregate claim bindings and render them in the final
+  answer-writing prompt.
+- [ ] Batch D: make reviewer and pre-emit support lanes consume claim bindings
+  for retry/local-repair decisions.
 - [ ] Batch D: align reviewer input to final rendered surface.
 - [ ] Batch E: enforce system supplement safety invariants.
 - [ ] Run targeted evals after each batch and update

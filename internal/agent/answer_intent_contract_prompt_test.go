@@ -96,3 +96,42 @@ func TestRenderAnswerDocUnifiedIntentContract_RuntimeArtifactAvoidsRepoCitationP
 		t.Fatalf("external-only runtime artifact should not list current_source:\n%s", got)
 	}
 }
+
+func TestRenderAnswerDocClaimBindings_ShowsOriginSpecificPolicies(t *testing.T) {
+	mut := types.NewMutableState("history count")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "history count",
+		Value: "3",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: "vcs_metadata"},
+			{Name: "measurement_origin", Value: "command_measurement"},
+		},
+	}})
+	mut.SetInvestigationComplete("done")
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+					IsCountQuestion: true,
+					IsScalarAnswer:  true,
+				},
+			},
+		},
+	}
+	got := renderAnswerDocClaimBindings(ctx)
+	for _, want := range []string{
+		"Claim Binding / Gate Policy Handoff",
+		"origin=`vcs_metadata`; policy=`repairable`",
+		"origin=`command_measurement`; policy=`hard`",
+		"outputs=`summary`, `scalar`, `count`",
+		"Do not translate non-`current_source` bindings into current-source file:line requirements",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("claim binding prompt missing %q:\n%s", want, got)
+		}
+	}
+}
