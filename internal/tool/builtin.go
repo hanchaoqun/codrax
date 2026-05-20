@@ -1710,3 +1710,207 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 		Timestamp: time.Now(),
 	}, nil
 }
+
+// ---------------------------------------------------------------------------
+// GitHistorySearch
+// ---------------------------------------------------------------------------
+
+// GitHistorySearch deterministically filters a bounded recent commit window by
+// fixed-string presence in each commit's diff. It exists so history/count
+// questions do not need shell loops or model-side list intersection.
+type GitHistorySearch struct {
+	ReadOnly
+	EvidenceTool
+}
+
+type gitHistorySearchParams struct {
+	RepoPath        string `json:"repo_path,omitempty"`
+	WindowPath      string `json:"window_path"`
+	WindowCount     int    `json:"window_count,omitempty"`
+	DiffPath        string `json:"diff_path,omitempty"`
+	Contains        string `json:"contains"`
+	CaseInsensitive bool   `json:"case_insensitive,omitempty"`
+}
+
+const gitHistorySearchMaxWindowCount = 100
+
+func (t *GitHistorySearch) Name() string { return "git_history_search" }
+func (t *GitHistorySearch) Description() string {
+	return "Search a bounded recent git history window and count commits whose diff contains a fixed string"
+}
+
+func (t *GitHistorySearch) Parameters() json.RawMessage {
+	return json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "repo_path": {"type": "string", "description": "Optional repository working directory, resolved like other path tools"},
+    "window_path": {"type": "string", "description": "Repo-relative pathspec that defines the recent commit window, e.g. internal/orchestrator/"},
+    "window_count": {"type": "integer", "description": "Number of recent commits in the window (default 20, max 100)"},
+    "diff_path": {"type": "string", "description": "Optional repo-relative pathspec to inspect inside each commit diff; defaults to window_path"},
+    "contains": {"type": "string", "description": "Fixed string that must appear in a commit diff for the commit to count"},
+    "case_insensitive": {"type": "boolean", "description": "Whether contains matching ignores case (default false)"}
+  },
+  "required": ["window_path", "contains"]
+}`)
+}
+
+func (t *GitHistorySearch) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
+	var p gitHistorySearchParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+	}
+	dir := resolveToolPath(ctx, p.RepoPath)
+	windowPath := normalizeGitHistoryPathspec(p.WindowPath, dir)
+	diffPath := normalizeGitHistoryPathspec(p.DiffPath, dir)
+	if diffPath == "" {
+		diffPath = windowPath
+	}
+	needle := strings.TrimSpace(p.Contains)
+	if windowPath == "" {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "invalid params: window_path is required", Timestamp: time.Now()}, nil
+	}
+	if path.IsAbs(windowPath) || path.IsAbs(diffPath) {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "invalid params: paths must be repo-relative or absolute paths under repo_path", Timestamp: time.Now()}, nil
+	}
+	if needle == "" {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "invalid params: contains is required", Timestamp: time.Now()}, nil
+	}
+	count := p.WindowCount
+	if count <= 0 {
+		count = 20
+	}
+	if count > gitHistorySearchMaxWindowCount {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: window_count max %d", gitHistorySearchMaxWindowCount), Timestamp: time.Now()}, nil
+	}
+
+	banner := kvBanner("git_history_search",
+		"window_path", windowPath,
+		"window_count", fmt.Sprintf("%d", count),
+		"diff_path", diffPath,
+		"contains", needle,
+	)
+
+	commits, errSummary := gitHistorySearchWindow(dir, count, windowPath)
+	if errSummary != "" {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + errSummary, Timestamp: time.Now()}, nil
+	}
+	matches := make([]gitHistorySearchCommit, 0, len(commits))
+	for _, commit := range commits {
+		patch, errSummary := gitHistorySearchPatch(dir, commit.Hash, diffPath)
+		if errSummary != "" {
+			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + errSummary, Timestamp: time.Now()}, nil
+		}
+		if gitHistoryPatchContains(patch, needle, p.CaseInsensitive) {
+			matches = append(matches, commit)
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString(banner)
+	fmt.Fprintf(&b, "window_size=%d\n", len(commits))
+	fmt.Fprintf(&b, "answer_count=%d\n", len(matches))
+	b.WriteString("matched_commits:\n")
+	if len(matches) == 0 {
+		b.WriteString("- none\n")
+	} else {
+		for _, commit := range matches {
+			fmt.Fprintf(&b, "- %s %s\n", shortGitHash(commit.Hash), commit.Subject)
+		}
+	}
+	fmt.Fprintf(&b, "unmatched=%d\n", len(commits)-len(matches))
+
+	summary, ref := StoreBlob(ctx, t.Name(), b.String())
+	return types.ToolResult{ToolName: t.Name(), Success: true, Summary: summary, RawRef: ref, Timestamp: time.Now()}, nil
+}
+
+type gitHistorySearchCommit struct {
+	Hash    string
+	Subject string
+}
+
+func normalizeGitHistoryPathspec(s string, repoRoot string) string {
+	raw := strings.TrimSpace(s)
+	if raw == "" {
+		return ""
+	}
+	if repoRoot != "" && filepath.IsAbs(raw) {
+		if rel, err := filepath.Rel(repoRoot, raw); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			raw = rel
+		}
+	}
+	normalized := strings.TrimSpace(filepath.ToSlash(raw))
+	for strings.HasPrefix(normalized, "./") {
+		normalized = strings.TrimPrefix(normalized, "./")
+	}
+	if normalized == "" {
+		return ""
+	}
+	cleaned := path.Clean(normalized)
+	if cleaned == "." && normalized != "." {
+		return normalized
+	}
+	return cleaned
+}
+
+func gitHistorySearchWindow(dir string, count int, windowPath string) ([]gitHistorySearchCommit, string) {
+	args := []string{"log", "--format=%H%x09%s", fmt.Sprintf("-n%d", count), "--", windowPath}
+	cmd, cancel := NewGitLongCommand(nil, args...)
+	defer cancel()
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Sprintf("git log window failed: %v: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	lines := strings.Split(strings.ReplaceAll(stdout.String(), "\r\n", "\n"), "\n")
+	out := make([]gitHistorySearchCommit, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		commit := gitHistorySearchCommit{Hash: strings.TrimSpace(parts[0])}
+		if len(parts) > 1 {
+			commit.Subject = strings.TrimSpace(parts[1])
+		}
+		if commit.Hash != "" {
+			out = append(out, commit)
+		}
+	}
+	return out, ""
+}
+
+func gitHistorySearchPatch(dir, hash, diffPath string) (string, string) {
+	args := []string{"show", "--format=", "--no-ext-diff", "-U0", hash, "--", diffPath}
+	cmd, cancel := NewGitLongCommand(nil, args...)
+	defer cancel()
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Sprintf("git show %s failed: %v: %s", shortGitHash(hash), err, strings.TrimSpace(stderr.String()))
+	}
+	return stdout.String(), ""
+}
+
+func gitHistoryPatchContains(patch, needle string, caseInsensitive bool) bool {
+	if caseInsensitive {
+		return strings.Contains(strings.ToLower(patch), strings.ToLower(needle))
+	}
+	return strings.Contains(patch, needle)
+}
+
+func shortGitHash(hash string) string {
+	hash = strings.TrimSpace(hash)
+	if len(hash) > 8 {
+		return hash[:8]
+	}
+	return hash
+}

@@ -2001,7 +2001,7 @@ func observationOnlyRuntimeBlocksTool(ctx *types.AgentContext, name string) bool
 	}
 	switch types.CanonicalToolName(name) {
 	case "read_file", "grep", "repo_map", "list_files", "exec_command",
-		"git_diff", "git_log", "propose_sub_agents", "run_tests":
+		"git_diff", "git_log", "git_history_search", "propose_sub_agents", "run_tests":
 		return true
 	default:
 		return false
@@ -2588,7 +2588,7 @@ func (b *BaseAgent) buildToolBusContext(ctx *types.AgentContext) *types.BusConte
 // canParallelizeToolBatch returns true when all tool calls in the
 // batch are safe to execute concurrently. A batch is parallelizable
 // when it contains ONLY read-safe tools (grep, read_file, repo_map,
-// list_files, exec_command, git_diff, git_log). Batches containing
+// list_files, exec_command, git_diff, git_log, git_history_search). Batches containing
 // any emit_* or propose_* tool fall back to sequential execution
 // because those tools write to MutableState and may depend on
 // DispatchToolResults from earlier calls in the same batch (e.g.

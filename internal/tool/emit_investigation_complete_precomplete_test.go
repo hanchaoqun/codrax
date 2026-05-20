@@ -1596,6 +1596,75 @@ func TestDeterministicHistoryCountToolResultValue_AcceptsOnlyLabeledGitProof(t *
 	}
 }
 
+func TestDeterministicHistoryCountToolResultValue_AcceptsGitHistorySearchProof(t *testing.T) {
+	mut := types.NewMutableState("history count")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "git_history_search",
+		Summary:  "[git_history_search: window_path=internal/orchestrator window_count=20 diff_path=internal/orchestrator/orchestrator.go contains=runTaskGraph]\nwindow_size=20\nanswer_count=1\nmatched_commits:\n- 5305ef76 Stabilize write-mode analysis fallback\nunmatched=19\n",
+		Success:  true,
+	})
+	got, ok := deterministicHistoryCountToolResultValue(&types.BusContext{Mutable: mut})
+	if !ok || got != 1 {
+		t.Fatalf("deterministicHistoryCountToolResultValue = (%d,%v), want (1,true)", got, ok)
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCountAcceptsGitHistorySearchProof(t *testing.T) {
+	mut := types.NewMutableState("最近 20 个提交里有多少次改到了 runTaskGraph？")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "git_history_search",
+		Summary:  "[git_history_search: window_path=internal/orchestrator window_count=20 diff_path=internal/orchestrator/orchestrator.go contains=runTaskGraph]\nwindow_size=20\nanswer_count=1\nmatched_commits:\n- 5305ef76 Stabilize write-mode analysis fallback\nunmatched=19\n",
+		Success:  true,
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "最近 20 个提交里有多少次改到了 runTaskGraph？",
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+					IsHistoryLookup: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "git_history_search produced answer_count",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "history count aggregate handoff is missing") {
+		t.Fatalf("git_history_search count proof should clear history handoff downgrade: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateScalar || fact.Value != "1" {
+			continue
+		}
+		var hasGitProof bool
+		for _, dim := range fact.Dimensions {
+			if strings.EqualFold(dim.Name, "proof_source") && strings.EqualFold(dim.Value, "git_history_search") {
+				hasGitProof = true
+			}
+		}
+		if !hasGitProof {
+			t.Fatalf("git_history_search scalar should preserve proof source, got %+v", fact)
+		}
+		return
+	}
+	t.Fatalf("git_history_search proof should be carried as scalar aggregate, got %+v", facts)
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCountAcceptsLabeledVCSProof(t *testing.T) {
 	mut := types.NewMutableState("过去 20 个提交里有多少次同时改过 internal/orchestrator 和 runTaskGraph？")
 	mut.AppendDispatchToolResult(types.ToolResult{

@@ -10,6 +10,7 @@ func RegisterDefaults(r *Registry) {
 	r.Register(&ListFiles{})
 	r.Register(&GitDiff{})
 	r.Register(&GitLog{})
+	r.Register(&GitHistorySearch{})
 	r.Register(&EmitAnalysis{})
 
 	// Write-mode tools. All real as of B2: emit_change_plan writes

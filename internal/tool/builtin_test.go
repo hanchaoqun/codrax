@@ -1393,6 +1393,96 @@ func TestGitLog(t *testing.T) {
 	})
 }
 
+func TestGitHistorySearchCountsBoundedDiffMatches(t *testing.T) {
+	ctx := gitWorktreeFixture(t, "seed\n")
+	run := func(args ...string) {
+		t.Helper()
+		cmd, cancel := NewGitCommand(nil, args...)
+		defer cancel()
+		cmd.Dir = ctx.RepoRoot
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	writeAndCommit := func(body, subject string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(ctx.RepoRoot, "file.txt"), []byte(body), 0o644); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+		run("add", "file.txt")
+		run("commit", "-q", "-m", subject)
+	}
+	writeAndCommit("seed\nno match here\n", "other change")
+	writeAndCommit("seed\nno match here\nrunTaskGraph\n", "touch runTaskGraph")
+
+	tool := &GitHistorySearch{}
+	params, _ := json.Marshal(gitHistorySearchParams{
+		WindowPath:  "file.txt",
+		WindowCount: 2,
+		DiffPath:    "file.txt",
+		Contains:    "runTaskGraph",
+	})
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("git_history_search failed: %s", res.Summary)
+	}
+	for _, want := range []string{"window_size=2", "answer_count=1", "touch runTaskGraph", "unmatched=1"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestGitHistorySearchNormalizesAbsolutePathspecs(t *testing.T) {
+	ctx := gitWorktreeFixture(t, "seed\n")
+	path := filepath.Join(ctx.RepoRoot, "file.txt")
+	if got := normalizeGitHistoryPathspec(path, ctx.RepoRoot); got != "file.txt" {
+		t.Fatalf("normalizeGitHistoryPathspec(abs) = %q, want file.txt", got)
+	}
+	if got := normalizeGitHistoryPathspec("./dir/../file.txt", ctx.RepoRoot); got != "file.txt" {
+		t.Fatalf("normalizeGitHistoryPathspec(./) = %q, want file.txt", got)
+	}
+}
+
+func TestGitHistorySearchRejectsOversizedWindow(t *testing.T) {
+	ctx := gitWorktreeFixture(t, "seed\n")
+	tool := &GitHistorySearch{}
+	params, _ := json.Marshal(gitHistorySearchParams{
+		WindowPath:  "file.txt",
+		WindowCount: gitHistorySearchMaxWindowCount + 1,
+		Contains:    "runTaskGraph",
+	})
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "window_count max") {
+		t.Fatalf("oversized window should fail loudly without silent truncation, got success=%v summary=%q", res.Success, res.Summary)
+	}
+}
+
+func TestGitHistorySearchRejectsAbsolutePathOutsideRepo(t *testing.T) {
+	ctx := gitWorktreeFixture(t, "seed\n")
+	tool := &GitHistorySearch{}
+	params, _ := json.Marshal(gitHistorySearchParams{
+		WindowPath: "/tmp/outside-codrax-history.txt",
+		Contains:   "runTaskGraph",
+	})
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "repo-relative") {
+		t.Fatalf("outside absolute path should fail loudly, got success=%v summary=%q", res.Success, res.Summary)
+	}
+}
+
 // TestResolveToolPath_RootsRelativeAtRepoRoot pins the boundary
 // behavior that fixes the Q2 glamour-vs-codrax bug: when the LLM passes
 // "." or a relative path, tools must operate against ctx.RepoRoot, not

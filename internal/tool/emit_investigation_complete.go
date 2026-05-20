@@ -3637,7 +3637,7 @@ func enrichCompletionAggregateFactsWithDeterministicCount(ctx *types.BusContext,
 	if !ok {
 		return facts
 	}
-	return appendDeterministicCountAggregateFact(facts, value, deterministicCountAggregateLabel(ctx, false), "system_deterministic_count_enrichment", nil)
+	return appendDeterministicCountAggregateFact(facts, value, deterministicCountAggregateLabel(ctx, false), "system_deterministic_count_enrichment", "exec_command", nil)
 }
 
 func enrichCompletionAggregateFactsWithDeterministicHistoryCount(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {
@@ -3651,11 +3651,11 @@ func enrichCompletionAggregateFactsWithDeterministicHistoryCount(ctx *types.BusC
 	if aggregateFactsContainCountAnswer(facts) || aggregateFactsContainDeterministicCountScalar(facts) {
 		return facts
 	}
-	value, ok := deterministicHistoryCountToolResultValue(ctx)
+	value, proofSource, ok := deterministicHistoryCountToolResult(ctx)
 	if !ok {
 		return facts
 	}
-	return appendDeterministicCountAggregateFact(facts, value, deterministicCountAggregateLabel(ctx, true), "system_deterministic_history_count_enrichment", []types.AnswerAggregateDimension{
+	return appendDeterministicCountAggregateFact(facts, value, deterministicCountAggregateLabel(ctx, true), "system_deterministic_history_count_enrichment", proofSource, []types.AnswerAggregateDimension{
 		{Name: "measurement_kind", Value: "vcs_history_count"},
 	})
 }
@@ -3678,10 +3678,13 @@ func deterministicCountAggregateLabel(ctx *types.BusContext, history bool) strin
 	return "system-verified count result"
 }
 
-func appendDeterministicCountAggregateFact(facts []types.AnswerAggregateFact, value int, label string, provenance string, extraDims []types.AnswerAggregateDimension) []types.AnswerAggregateFact {
+func appendDeterministicCountAggregateFact(facts []types.AnswerAggregateFact, value int, label string, provenance string, proofSource string, extraDims []types.AnswerAggregateDimension) []types.AnswerAggregateFact {
 	out := cloneCompletionAggregateFacts(facts)
+	if strings.TrimSpace(proofSource) == "" {
+		proofSource = "exec_command"
+	}
 	dims := []types.AnswerAggregateDimension{
-		{Name: "proof_source", Value: "exec_command"},
+		{Name: "proof_source", Value: proofSource},
 		{Name: "answer_axis", Value: "count"},
 	}
 	dims = append(dims, extraDims...)
@@ -3737,13 +3740,25 @@ func deterministicCountToolResultValue(ctx *types.BusContext) (int, bool) {
 }
 
 func deterministicHistoryCountToolResultValue(ctx *types.BusContext) (int, bool) {
+	value, _, ok := deterministicHistoryCountToolResult(ctx)
+	return value, ok
+}
+
+func deterministicHistoryCountToolResult(ctx *types.BusContext) (int, string, bool) {
 	var value int
+	var source string
 	found := false
 	for _, tr := range deterministicCountToolResults(ctx) {
-		if tr.ToolName != "exec_command" || !tr.Success {
+		if !tr.Success {
 			continue
 		}
-		if !deterministicHistoryCountCommand(tr.Summary) {
+		switch tr.ToolName {
+		case "exec_command":
+			if !deterministicHistoryCountCommand(tr.Summary) {
+				continue
+			}
+		case "git_history_search":
+		default:
 			continue
 		}
 		n, ok := deterministicHistoryCountProofInteger(tr.Summary)
@@ -3751,12 +3766,13 @@ func deterministicHistoryCountToolResultValue(ctx *types.BusContext) (int, bool)
 			continue
 		}
 		if found && n != value {
-			return 0, false
+			return 0, "", false
 		}
 		value = n
+		source = tr.ToolName
 		found = true
 	}
-	return value, found
+	return value, source, found
 }
 
 func deterministicHistoryCountCommand(summary string) bool {
