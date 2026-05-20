@@ -47,7 +47,7 @@ thin or misleading answer, record it here before choosing a fix.
 | E20260520-G5 | `logtri_partial` | P1 | Open | Analyzer repeatedly rejected `emit_analysis` because `is_role_locate_lookup=true` lacked `answer_subject.kind`; the first analyzer dispatch consumed multiple failed turns before a second dispatch succeeded. | Simple external-log scalar/role-locate questions still depend on the model remembering a required typed field. The missing field is often safely inferable from typed predicates and question kind. | Add schema-aware analyzer normalization for `is_role_locate_lookup=true` when the located literal kind is structurally inferable, or make the retry hint a typed patch rather than a full reclassification loop. |
 | E20260520-G6 | `logtri_python`, `logtri_rust`, `logtri_node`, `logtri_ruby` | P2 | Open | External-source logs with `resolved_files=0` still trigger analyzer/explorer thoughts and sometimes actual grep/list_files or `emit_evidence` attempts against non-repo frames before using `evidence_floor_waiver`. | The external-only artifact contract is present but not early / strong enough across all agents. It still allows repo-grounding instincts to leak into analyzer/explorer/extractor. | Promote external-only runtime disposition into a first-class stage contract: analyzer and explorer should prefer artifact-only completion unless a typed current-repo bridge is discovered. |
 | E20260520-G7 | `logtri_ruby` | P2 | Open | First `emit_investigation_complete` used `aggregate_facts.kind=negative_search` for external-only metadata and was rejected; the model then retried with `scalar_value`. | The new negative-evidence channel is useful, but the schema boundary is not obvious enough to the model: external-no-intersection metadata is not the same as a verified repo query with `result_count=0`. | Provide a typed aggregate kind for artifact/no-repo-intersection metadata or auto-normalize safe external-only `negative_search` attempts into the correct runtime-disposition fact. |
-| E20260520-G8 | `logtri_rust` | P0 | Open | Finalizer emitted `blocks` as a JSON-encoded string. The compatibility path accepted it, but only recovered one `summary` block; ordered-list and caveat blocks were dropped. Contract oracles reported missing required blocks as advisory, semantic reviewers did not run, and the case still PASSed with a thin answer plus generic supplement. | Tool-param compatibility and advisory contract softening interacted badly: a malformed recoverable payload silently lost model-authored blocks, then the system accepted an answer below the required surface. | The compatibility parser must either recover all blocks losslessly or fail the tool call. Required block loss after recovery must stay hard. Advisory-only softening must never hide a model/system data-loss event. |
+| E20260520-G8 | `logtri_rust` | P0 | Mitigated by guard | Finalizer emitted `blocks` as a JSON-encoded string. The compatibility path accepted it, but only recovered one `summary` block; ordered-list and caveat blocks were dropped. Contract oracles reported missing required blocks as advisory, semantic reviewers did not run, and the case still PASSed with a thin answer plus generic supplement. | Tool-param compatibility and advisory contract softening interacted badly: a malformed recoverable payload silently lost model-authored blocks, then the system accepted an answer below the required surface. | Brace-balance recovery now fails the tool call if a visible block marker was present but not recovered as either a structured block or a preserved display attachment. Current `logtri_rust-20260520-130133` PASS did not reproduce the malformed payload, so the primary guard is unit coverage rather than eval reproduction. |
 | E20260520-G9 | `logtri_rust` | P1 | Open | Extractor emitted hypothesis citations to external log paths (`src/config.rs:42`) and got rejected; parse-output then injected auto-verdicts from criteria and proceeded. | External artifact citations are not consistently isolated from repo-grounded citation fields in extractor tools. The system can recover, but the model still spends a failed tool call. | Extend external-only artifact citation policy to extractor verdict tools: artifact frame references should be accepted as artifact refs or omitted, not treated as repo file:line citations. |
 | E20260520-G10 | `logtri_*` tranche | P3 | Open | Many artifact/logtri cases show `enumeration_push=1` and large answer-document schema/diagram instructions even when the answer is simple artifact explanation. | Generic finalizer/evaluator prompt scaffolding remains heavy for artifact-only scalar or short diagnostic answers. | After correctness gaps are closed, profile prompt sections by answer family and suppress irrelevant diagram/enumeration instructions for artifact-only simple diagnostics. |
 | E20260520-G11 | `m1a` | P0 | Open | PASS answer is materially wrong / polluted: it assigns `emit_analysis` to Explorer Turn A, leaves `emit_answer_document` / `emit_answer_document_patch` as orphaned finalizer-tool rows, has blank bullet citation rows, and ends with generic caveats. Self-consistency reported the Turn A count contradiction and orphaned tools; semantic reviewer reported `sufficient=false`, but both were below confidence floor and no rewrite happened. | A combination of deterministic row normalization, optional anchor skeleton rendering, and low-confidence reviewer gating can ship an internally inconsistent answer. This directly risks system-added rows overriding or polluting the model's intended scoped answer. | Treat reviewer `sufficient=false` / `consistent=false` as structured telemetry requiring either a visible caveat tied to the exact concern or a retry when the concern is about principal answer identity. Also audit row normalization so it cannot import out-of-scope finalizer tools into an Explorer/Extractor question. |
@@ -337,6 +337,43 @@ Safety contract:
   `git_history_search` in turn 1, converged in 3 explorer iterations / 1
   dispatch, had 0 mid-loop injections, 0 `read_file`, finalizer 1 iteration,
   and rendered the correct scalar `0` with VCS provenance in the summary.
+
+### Batch 6 — Lossy Answer-Document Recovery Must Fail Loud
+
+Status: completed as a guard for G8/G49/G54/G67-style JSON-string payload
+compatibility. This batch protects the answer surface from silent data loss; it
+does not try to force a model rewrite for cosmetic or advisory defects.
+
+Safety contract:
+
+- Lossless JSON-string recovery remains accepted. If the model stringifies
+  `blocks[]` but every block and sibling field can be parsed as native JSON,
+  the tool repairs it locally and proceeds.
+- Heuristic brace-balanced recovery may still preserve malformed Mermaid/diagram
+  payloads as display attachments, because REPL rendering can show them without
+  feeding altered content back into model memory.
+- If a visible answer block marker is present but cannot be recovered as either
+  a structured block or a preserved display attachment, the tool call fails
+  before pre-emit advisory softening or renderer normalization. The model must
+  re-emit a complete native JSON `blocks[]` array; the partial recovered
+  document is not published.
+- This is a structural JSON/field-preservation guard. It does not inspect user
+  prose or infer answer quality from model free text.
+
+2026-05-20 validation:
+
+- Added regression coverage where brace-balanced recovery can recover a summary
+  block but drops a malformed ordered-list block. The tool now rejects that
+  partial recovery and does not persist the partial document.
+- Existing recovered-diagram behavior remains covered: a malformed Mermaid
+  diagram can still be preserved as a display attachment when the visible
+  content is not lost.
+- `go test ./internal/tool` PASS.
+- `logtri_rust` PASS in `eval/results/logtri_rust-20260520-130133`: no
+  finalizer retry, no JSON-string recovery event in this run, and no semantic
+  concerns. Because the latest model output did not reproduce the original
+  malformed payload, the G8 closure is guarded primarily by the targeted unit
+  test.
 
 ### Batch 1 — Deterministic Scalar / Measurement / VCS Guardrails
 

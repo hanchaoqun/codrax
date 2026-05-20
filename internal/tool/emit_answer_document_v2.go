@@ -194,6 +194,12 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		doc.Blocks = append(doc.Blocks, blk)
 	}
 	canonicalizeSummaryLeadBlock(doc)
+	if answerDocumentRecoveryLostUnattachedBlocks(recovery) {
+		persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)
+		return failEmit(toolName, now,
+			"structured recovery could not preserve every visible blocks[] item (%d candidate block(s), %d structured block(s), %d recovered attachment(s)); re-emit a complete native JSON blocks[] array, not a JSON-encoded string",
+			recovery.CandidateBlocks, recovery.RecoveredBlocks, len(recovery.Attachments))
+	}
 	visibleRecovery := mergeAnswerDocumentRecoveryAttachments(recovery, doc)
 	normalizeTypedExcludedAnswerSurface(doc, ctx)
 
@@ -376,6 +382,14 @@ func answerDocumentDraftTextAttachment(doc *types.AnswerDocumentV2, source strin
 	}
 	att.Hash = answerDisplayAttachmentHash(att.Kind, att.Language, att.Body)
 	return att, true
+}
+
+func answerDocumentRecoveryLostUnattachedBlocks(report answerDocumentRecoveryReport) bool {
+	if strings.TrimSpace(report.Mode) == "" || report.Lossless {
+		return false
+	}
+	recoveredVisible := report.RecoveredBlocks + len(report.Attachments)
+	return report.CandidateBlocks > recoveredVisible
 }
 
 func renderRecoveredAnswerDocumentDraft(doc *types.AnswerDocumentV2) string {
@@ -1081,6 +1095,10 @@ func extractBlocksByBraceBalanceDetailed(raw json.RawMessage) (json.RawMessage, 
 			trailKeys[k] = v
 		}
 	}
+	candidateBlocks := len(candidateKinds)
+	if markerBlocks := countAnswerBlockKindMarkers(body); markerBlocks > candidateBlocks {
+		candidateBlocks = markerBlocks
+	}
 	// Reconstruct merged payload: leadKeys ∪ {"blocks": elements} ∪
 	// trailKeys. Keys collide only on `blocks`; the recovered array
 	// wins. Other key data is preserved byte-for-byte.
@@ -1098,21 +1116,32 @@ func extractBlocksByBraceBalanceDetailed(raw json.RawMessage) (json.RawMessage, 
 	}
 	report := answerDocumentRecoveryReport{
 		Mode:            "brace_balanced_blocks",
-		Lossless:        !repairedMalformedCandidate && len(candidateKinds) == len(recoveredKinds) && len(attachments) == 0,
-		CandidateBlocks: len(candidateKinds),
+		Lossless:        !repairedMalformedCandidate && candidateBlocks == len(recoveredKinds) && len(attachments) == 0,
+		CandidateBlocks: candidateBlocks,
 		RecoveredBlocks: len(recoveredKinds),
 		CandidateKinds:  candidateKinds,
 		RecoveredKinds:  recoveredKinds,
 		Attachments:     attachments,
 	}
-	report.DroppedVisiblePayload = len(attachments) > 0 || len(candidateKinds) > len(recoveredKinds)
-	if len(candidateKinds) == 0 {
+	report.DroppedVisiblePayload = len(attachments) > 0 || candidateBlocks > len(recoveredKinds)
+	if candidateBlocks == 0 {
 		report.CandidateBlocks = len(recoveredKinds)
 		report.CandidateKinds = append([]types.AnswerBlockKind(nil), recoveredKinds...)
 		report.Lossless = len(attachments) == 0
 		report.DroppedVisiblePayload = len(attachments) > 0
 	}
 	return patched, report, true
+}
+
+func countAnswerBlockKindMarkers(s string) int {
+	decoded := decodeEscapedTextLoose(s)
+	compact := strings.NewReplacer(" ", "", "\n", "", "\r", "", "\t", "").Replace(decoded)
+	total := 0
+	for _, kind := range types.AllAnswerBlockKinds() {
+		k := string(kind)
+		total += strings.Count(compact, `"kind":"`+k+`"`)
+	}
+	return total
 }
 
 // isAnswerBlockCandidate is Path D's structural filter. The brace

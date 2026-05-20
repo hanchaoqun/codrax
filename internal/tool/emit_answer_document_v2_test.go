@@ -820,6 +820,25 @@ func TestEmitAnswerDocumentV2_BraceFallbackPreservesDroppedDiagramAttachment(t *
 	}
 }
 
+func TestEmitAnswerDocumentV2_BraceFallbackRejectsUnattachedDroppedBlock(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{"blocks": "[{\"id\":\"sum1\",\"kind\":\"summary\",\"text\":\"hi\"},{\"id\":\"list1\",\"kind\":\"ordered_list\",\"items\":[{\"id\":\"i1\",\"label\":\"broken \"quote\"}]}], trailing"}`)
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("lossy brace fallback that drops a visible list block must fail, got %+v", res)
+	}
+	if !strings.Contains(res.Summary, "could not preserve every visible blocks[] item") {
+		t.Fatalf("failure should explain lossy structured recovery, got %q", res.Summary)
+	}
+	if doc := bus.Mutable.AnswerDocumentV2(); doc != nil {
+		t.Fatalf("partial recovered document must not be published, got %+v", doc)
+	}
+}
+
 func TestEmitAnswerDocumentV2_PromotesRecoveredDiagramWhenRequired(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
