@@ -1453,6 +1453,61 @@ func TestEmitAnalysis_Execute_PersistsEnumerationBoundary(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_ScalarCountStripsScopeEnumerationBoundary(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "return_value",
+		"scenario": "generic",
+		"complexity": "simple",
+		"intent_confidence": 0.95,
+		"complexity_confidence": 0.95,
+		"kind_confidence": 0.95,
+		"keywords": ["runTaskGraph", "git log", "commit"],
+		"entities": ["runTaskGraph"],
+		"question_kind": "history",
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": true,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": true,
+			"is_diagnostic_question": false
+		},
+		"enumeration_boundary": {
+			"declared_count": 20,
+			"source_quote": "最近 20 次修改 internal/orchestrator/ 目录的 commit"
+		}
+	}`
+
+	mu := types.NewMutableState("最近 20 次修改 internal/orchestrator/ 目录的 commit 中，有多少个直接涉及 runTaskGraph 函数？给出数字。")
+	tool := &EmitAnalysis{}
+	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got summary=%q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.EnumerationBoundary != nil {
+		t.Fatalf("scalar count scope window must not persist as a principal enumeration boundary: %+v", rm.EnumerationBoundary)
+	}
+	if strings.Contains(res.Summary, "boundary=20") {
+		t.Fatalf("summary must not advertise a principal boundary for scalar count scope windows: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "scope windows") {
+		t.Fatalf("summary should explain the soft strip, got %q", res.Summary)
+	}
+}
+
 // TestEmitAnalysis_Execute_WarnAndStripsEnumerationBoundaryQuoteOutsideRequest
 // pins the soft-strip behaviour: enumeration_boundary is schema-OPTIONAL
 // and downstream consumers tolerate nil, so a quote that does not appear

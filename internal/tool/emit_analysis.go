@@ -516,7 +516,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"enumeration_boundary": map[string]any{
 				"type":        "object",
-				"description": "Optional. Use only when the user explicitly declares a bounded principal set with a numeric count such as 'the 7 checks', 'the first 3 handlers', or 'top 5 stages'. Copy the evidence-bearing phrase verbatim from the current request into source_quote and set declared_count to that same user-declared number. Do not infer a count for all/every/complete questions that do not name a number; use completeness_obligation instead.",
+				"description": "Optional. Use only when the user explicitly declares a bounded principal set with a numeric count such as 'the 7 checks', 'the first 3 handlers', or 'top 5 stages'. Copy the evidence-bearing phrase verbatim from the current request into source_quote and set declared_count to that same user-declared number. Do not emit this for scalar count answers where the number is only a search/window/scope constraint, such as 'how many of the last 20 commits ...'. Do not infer a count for all/every/complete questions that do not name a number; use completeness_obligation instead.",
 				"properties": map[string]any{
 					"declared_count": map[string]any{"type": "integer", "minimum": 1},
 					"source_quote":   map[string]string{"type": "string"},
@@ -980,6 +980,8 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if p.EnumerationBoundary != nil &&
 		types.ErrorGranularityCountsAreContextual(intent, predicates, errorGranularityProfile) {
 		val.Warnings = append(val.Warnings, "ignored enumeration_boundary because error_granularity_profile makes count-like phrases contextual")
+	} else if p.EnumerationBoundary != nil && scalarCountBoundaryIsScopeOnly(predicates) {
+		val.Warnings = append(val.Warnings, "ignored enumeration_boundary because scalar count answers treat numeric phrases as scope windows, not principal answer-member boundaries")
 	} else {
 		var enumerationBoundaryErr, enumerationBoundaryWarn string
 		enumerationBoundary, enumerationBoundaryErr, enumerationBoundaryWarn = parseEnumerationBoundary(raw, p.EnumerationBoundary)
@@ -2394,6 +2396,12 @@ func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
 		)
 	}
 	return &types.DiagramHint{Kind: kind}, ""
+}
+
+func scalarCountBoundaryIsScopeOnly(predicates types.SemanticPredicates) bool {
+	return predicates.IsCountQuestion &&
+		predicates.IsScalarAnswer &&
+		!predicates.IsCategoryEnumeration
 }
 
 // parseEnumerationBoundary validates and normalises the optional

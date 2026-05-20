@@ -154,8 +154,8 @@ thin or misleading answer, record it here before choosing a fix.
 | E20260520-G112 | `u5b` | P1 | Open | A direct yes/no test-lookup question took 50 explorer iterations, 30 `read_file` calls, 23 mid-loop injections, and parallel route churn before producing an answer. | Exact test-coverage lookup lacks convergence arbitration; multiple routes keep reading surrounding orchestrator/test files after the core candidate tests are known. | Add a test-lookup fast path: once candidate test functions and the target branch/function evidence are read, force a single verdict synthesis rather than opening broad route tails. |
 | E20260520-G113 | `u8a` | P2 | Open | Rich API inventory answer is mostly good, but the rendered surface shows empty category headings (`导出的类型/函数/Kind 常量/变量`) followed by duplicate same-named tables. A generic “部分项证据支持稍弱” supplement appears even though reviewers marked the answer sufficient. | Section/table title dedupe is not clean for compiler-normalized inventory answers, and generic supplements still attach to otherwise complete exhaustive enumerations. | Collapse empty heading-only blocks into the following table title, and suppress generic weak-support supplements when every listed member has a citation and semantic review is sufficient. |
 | E20260520-G114 | `u7b` | P0 | Open | FAIL. User asked for how many of the last 20 `internal/orchestrator/` commits directly involved `runTaskGraph`; final answer said `5`, but an independent `git log -20 -- internal/orchestrator/` intersected with `git log -L :runTaskGraph:internal/orchestrator/orchestrator.go` yields `0`. | History/count questions are still solved by model comparison over truncated command output instead of deterministic set operations. Read-mode command restrictions rejected safe shell forms, so the model approximated a VCS intersection and shipped the wrong scalar. | Add a VCS scalar/count lane that can run deterministic bounded `git log` + set-intersection operations and preserve command provenance. When command output proves a scalar, finalizer should render that lane directly instead of inferring from prose. |
-| E20260520-G115 | `u7b` | P1 | Open | The same scalar history question consumed 55 explorer iterations, 3 explorer dispatches, 2142 evidence rows, and still produced a wrong count. | No convergence fast path exists for exact VCS metadata questions. Current-code evidence and broad source anchors can dominate even when the authoritative data is git metadata. | For `is_history_lookup=true` count/scalar tasks, stop exploration after bounded command results and exact entity disambiguation. Keep current-code reads only for resolving the named function/path, not for proving the history scalar. |
-| E20260520-G116 | `u7b` | P1 | Open | Final answer appended a system-normalized table titled `直接涉及 runTaskGraph 的 commit（与目录修改列表的交集）（5）` with blank `符号名称/定义位置/说明` cells. | Row compiler still renders commit/history members through code-symbol table templates, producing empty columns and giving false authority to an inferred list. | Add a history/commit presentation shape (`commit`, `subject`, `evidence command`) and block code-symbol row compiler for VCS metadata members. |
+| E20260520-G115 | `u7b` | P1 | Open | The same scalar history question consumed 55 explorer iterations, 3 explorer dispatches, 2142 evidence rows, and still produced a wrong count. Current rerun after scalar-boundary fixes (`u7b-20260520-123245`) no longer retried extraction or rendered enumeration supplements, but still used 22 explorer iterations / 2 explorer dispatches for a VCS set-intersection count. | No convergence fast path exists for exact VCS metadata questions. Current-code evidence and broad source anchors can dominate even when the authoritative data is git metadata. | For `is_history_lookup=true` count/scalar tasks, stop exploration after bounded command results and exact entity disambiguation. Keep current-code reads only for resolving the named function/path, not for proving the history scalar. Add a deterministic VCS set-intersection/count lane rather than asking the LLM to hand-compare commit lists. |
+| E20260520-G116 | `u7b` | P1 | Mitigated | Initial final answer appended a system-normalized table titled `直接涉及 runTaskGraph 的 commit（与目录修改列表的交集）（5）` with blank `符号名称/定义位置/说明` cells. Current rerun after row-compiler and scalar-boundary fixes (`u7b-20260520-123245`) renders a scalar/prose answer with no blank commit table. | Row compiler rendered commit/history members through code-symbol table templates, producing empty columns and giving false authority to an inferred list. The later root was analyzer/extractor treating the `最近 20 次` scope window as a principal answer-member boundary. | System-generated table guards now refuse blank generated cells, and scalar count scope windows are stripped at analysis time so commit windows do not become code-symbol slates. Residual VCS convergence remains under G115. |
 | E20260520-G142 | customer report + local repro `u7c` / `u7g` | P0 | Mitigated; perf follow-up open | 用户问“最近一次合入的是什么特性？”时，探索阶段已经得到完整特性说明，但分析阶段硬要求 `is_history_lookup=true` 必须同时 `is_scalar_answer=true`，下游把答案压成 `**值：** commit/subject` 式单值。修复后 `u7c` feature-summary 与 `u7g` “最近合入→对应代码→详细解释→逻辑图”均 PASS，且 finalizer 1 轮收敛、不再出现 `**值：**` 压缩；但 `u7g` 仍有 63 轮 explorer 与 30 次 mid-loop inject，属于性能/收敛尾巴。 | 系统把 history lookup 当成答案形态，而不是证据来源。既有 eval 只覆盖“commit hash/subject”和“历史计数”，导致实现拟合 scalar history，用例多样性不足；同时 architecture principal-support gate 和 aggregate member-set renderer 曾把 VCS 元数据当源码成员处理。 | 已将 `is_history_lookup` 重定义为 VCS/history 元数据来源信号，答案形态仍由 scalar/count/list/comparison/diagnostic typed 字段决定。非标量叙述/诊断型 history 跳过源码 file:line 主证据强制 gate，commit/count aggregate facts 降为 support；已补充 `u7c` feature-summary、`u7d` recent-N list、`u7e` commit comparison、`u7f` history+log diagnostic、`u7g` commit-to-code diagram eval。下一步收敛 VCS+代码解释类探索轮数。 |
 | E20260520-G143 | `u7g` | P1 | Mitigated | `u7g` 首轮 analyzer 已经识别用户要求“最近合入→代码解释→逻辑图”，但 `subtopic_coherence` 因 `git log/merge commit/flow diagram` 等抽象任务实体不能解析为 repo symbol 而硬拒，重新分析后才进入探索。修复后 `u7g` PASS，analyzer 从 5 轮 / 2 dispatch 降到 2 轮 / 1 dispatch，且没有 `subtopic_coherence` 硬拒。 | Analyzer 的子问题一致性 gate 把历史来源、任务步骤、图形输出要求当成源码实体集合校验。对 history-backed explain/trace/diagram 请求，这些是用户意图/输出形态，不是 hallucinated repo symbols。 | 已将 R1.5 resolver asymmetry 调整为 typed-aware：非标量 `is_history_lookup`、非枚举/非标量的显式 `diagram_hint` 只产生 advisory，不硬拒；真实实体枚举、关系查询、标量定位仍保留硬 gate。剩余：u7g 仍有 54 explorer iterations / 21 mid-loop inject，归入 explorer convergence 后续批次。 |
 | E20260520-G117 | `u8b` | P2 | Open | PASS and independently verified: `internal/types` currently has 104 exported `type X string` declarations and all 104 have typed const-set evidence by heuristic scan. Residual issue: the run still emitted `证据锚点偏弱 ... line-text=12%` for a large exact enumeration and produced a very large citation list. | Large exact inventories can be correct while line-text grounding telemetry looks weak because many rows cite type declarations rather than every const member line. The system needs to distinguish “verified inventory summary” from low-quality grounding. | Keep this as a positive baseline for rich enumeration, but add telemetry that separates exact compiler-backed inventory completeness from per-row line-text density. Do not convert this into a hard retry signal. |
@@ -265,6 +265,37 @@ Safety contract:
   `deterministic count proof is missing` downgrade, explorer iterations
   improved from 19 to 8, mid-loop injections from 21 to 1, and the final answer
   stayed scalar/prose without system-added empty member tables.
+
+### Batch 4 — Scalar Count Scope Windows Are Not Answer Member Sets
+
+Status: completed for the u7b extraction/finalizer loop; VCS convergence remains
+open under G115.
+
+Safety contract:
+
+- If analysis has already typed the request as `is_count_question=true` and
+  `is_scalar_answer=true`, an emitted `enumeration_boundary` is treated as a
+  contextual scope/window count, not as the principal answer member set. The
+  boundary is soft-stripped before the RequestModel is persisted.
+- True bounded-list/mechanism questions keep their boundary. For example, a
+  non-scalar mechanism request such as “the 7 checks” still persists
+  `declared_count=7` and can drive downstream member/step obligations.
+- The rule is typed-only: it reads the schema predicates, not localized prose or
+  model thinking. This prevents “last 20 commits”, “top 5 files considered”,
+  and similar scope windows from forcing `emit_answer_symbol` or finalizer
+  ordered-list/table requirements when the user explicitly asked for a number.
+
+2026-05-20 validation:
+
+- Added unit coverage proving a scalar history count strips
+  `enumeration_boundary`, while the existing bounded mechanism test still
+  persists `boundary=7`.
+- `go test ./internal/tool` PASS.
+- `u7b` PASS in `eval/results/u7b-20260520-123245`: no extractor retry for
+  missing `emit_answer_symbol`, no 20-item commit slate request, no
+  “枚举完整性不足” supplement, and no blank system commit table. Remaining
+  issue: explorer still spends 22 iterations on manual VCS intersection;
+  that is tracked separately as G115.
 
 ### Batch 1 — Deterministic Scalar / Measurement / VCS Guardrails
 
