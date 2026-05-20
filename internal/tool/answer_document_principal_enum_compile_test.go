@@ -90,6 +90,51 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_SuppressesExactAbsenceSupplement(t *testing.T) {
+	mu := types.NewMutableState("缺失配置键的三层覆盖")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "三层配置层中的缺席确认",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"代码默认值层", "配置文件层", "CLI flag 层"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentConfigQuery,
+			Scenario: types.ScenarioConfigTrace,
+			Language: "zh",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "summary",
+				Kind: types.BlockSummary,
+				Text: "`explore_xyz_phantom_unique_budget` 在默认值、配置文件、CLI 三层均不存在。",
+			},
+			{
+				ID:   "layers",
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{
+					{ID: "l1", Label: "代码默认值层", Text: "没有为该精确键提供默认绑定。", CitationRef: -1},
+					{ID: "l2", Label: "配置文件层", Text: "没有为该精确键提供配置项。", CitationRef: -1},
+					{ID: "l3", Label: "CLI flag 层", Text: "没有为该精确键提供 CLI 覆盖。", CitationRef: -1},
+				},
+			},
+		},
+	}
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed != 0 {
+		t.Fatalf("exact-absence non-enumeration answers must not receive system member supplement, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("system supplement should not be appended: %+v", doc.Blocks)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_UsesEnglishSupplementTitle(t *testing.T) {
 	mu := types.NewMutableState("list exported functions")
 	mu.AppendEvidence([]types.EvidenceItem{

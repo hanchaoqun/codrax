@@ -602,6 +602,19 @@ func TestSemanticQualityReviewBodyIncludesDiagramBlocks(t *testing.T) {
 	}
 }
 
+func TestSemanticQualityReviewBodyIncludesTableBlockText(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "summary"},
+			{ID: "t1", Kind: types.BlockTable, Text: "| 覆盖层 | 搜索结果 |\n|---|---|\n| CLI flag | 不存在 |"},
+		},
+	}
+	got := renderSemanticQualityReviewBodyV2(doc)
+	if !strings.Contains(got, "| 覆盖层 | 搜索结果 |") || !strings.Contains(got, "| CLI flag | 不存在 |") {
+		t.Fatalf("semantic quality body must include table text:\n%s", got)
+	}
+}
+
 func TestBuildSemanticQualityInput_DiagramFacetDepthAnchoredByDiagramSurface(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

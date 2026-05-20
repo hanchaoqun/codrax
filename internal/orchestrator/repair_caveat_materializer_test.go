@@ -45,7 +45,7 @@ func TestSoftDemotedKinds_T3_MaterializeToCaveats(t *testing.T) {
 
 func TestMaterializeCaveats_GroupsByFamily(t *testing.T) {
 	violations := []types.Violation{
-		{Kind: types.ViolRichnessRegression},
+		{Kind: types.ViolFacetUncovered},
 		{Kind: types.ViolFacetUncovered},
 		{Kind: types.ViolDiagramEdgeUnsupported},
 	}
@@ -137,6 +137,22 @@ func TestAppendSoftContractCaveatsToAnswer_SkipsLaneBlockKindTelemetry(t *testin
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswer_SkipsRichnessRegressionTelemetry(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	out := AppendSoftContractCaveatsToAnswer("正文", []types.Violation{
+		{
+			Kind:       types.ViolRichnessRegression,
+			Detail:     `optional richness facet "diagram_spine" has 1 evidence candidate(s) but no block surfaced it (telemetry only — answer ships unchanged)`,
+			ClusterKey: types.FacetClusterKey("diagram_spine", "answer_richness_facet_coverage"),
+		},
+	}, "zh")
+	if out != "正文" {
+		t.Fatalf("richness regression must remain telemetry-only, not a generic coverage caveat:\n%s", out)
+	}
+}
+
 // TestMaterializeCaveats_NoInternalJargon — output strings must not
 // contain ViolKind names, IR field names, confidence numbers, or
 // orchestration tokens.
@@ -181,7 +197,7 @@ func TestMaterializeCaveats_SkipsOperatorOnly(t *testing.T) {
 // TestMaterializeCaveats_LangFallback — empty/unknown lang defaults
 // to ZH (project default). Explicit "en" returns English template.
 func TestMaterializeCaveats_LangFallback(t *testing.T) {
-	violations := []types.Violation{{Kind: types.ViolRichnessRegression}}
+	violations := []types.Violation{{Kind: types.ViolFacetUncovered}}
 	zh := MaterializeUnresolvedViolationsAsCaveats(violations, "")
 	en := MaterializeUnresolvedViolationsAsCaveats(violations, "en")
 	if len(zh) != 1 || len(en) != 1 {
@@ -202,7 +218,7 @@ func TestMaterializeCaveats_LangFallback(t *testing.T) {
 // to avoid drowning the user. Test fires 5 distinct families.
 func TestMaterializeCaveats_CapAt3(t *testing.T) {
 	violations := []types.Violation{
-		{Kind: types.ViolRichnessRegression},         // answer_coverage
+		{Kind: types.ViolFacetUncovered},             // answer_coverage
 		{Kind: types.ViolDiagramEdgeUnsupported},     // diagram_fidelity
 		{Kind: types.ViolEnumerationLabelUngrounded}, // enumeration_depth
 		{Kind: types.ViolGhostAnchor},                // citation_grounding
@@ -229,12 +245,12 @@ func TestMaterializeCaveats_EmptyInput(t *testing.T) {
 // repeated runs don't see caveats shuffle order).
 func TestMaterializeCaveats_StableOrder(t *testing.T) {
 	a := []types.Violation{
-		{Kind: types.ViolRichnessRegression},
+		{Kind: types.ViolFacetUncovered},
 		{Kind: types.ViolDiagramEdgeUnsupported},
 	}
 	b := []types.Violation{
 		{Kind: types.ViolDiagramEdgeUnsupported},
-		{Kind: types.ViolRichnessRegression},
+		{Kind: types.ViolFacetUncovered},
 	}
 	out1 := MaterializeUnresolvedViolationsAsCaveats(a, "zh")
 	out2 := MaterializeUnresolvedViolationsAsCaveats(b, "zh")

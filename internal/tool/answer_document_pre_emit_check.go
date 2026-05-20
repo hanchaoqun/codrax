@@ -5253,7 +5253,34 @@ func normalizeViewCompatibleAnswerDocument(doc *types.AnswerDocumentV2, view *ty
 	fixed += normalizeExcessRequiredSummaryBlocks(doc, view)
 	fixed += normalizeImplicitDefinitionClaimUses(doc, view)
 	fixed += normalizeAutoRepairableRequiredFacetIDs(doc, view)
+	fixed += normalizeAbsentExactResolutionScalarBlocks(doc, view)
 	return fixed
+}
+
+func normalizeAbsentExactResolutionScalarBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {
+	if doc == nil || doc.ExactResolution == nil || doc.ExactResolution.Status != types.AnswerExactResolutionAbsent {
+		return 0
+	}
+	if view == nil || view.ExactResolution == nil || len(view.ExactResolution.Targets) != 1 {
+		return 0
+	}
+	if len(doc.Blocks) == 0 {
+		return 0
+	}
+	filtered := doc.Blocks[:0]
+	removed := 0
+	for _, block := range doc.Blocks {
+		if block.Kind == types.BlockScalar {
+			removed++
+			continue
+		}
+		filtered = append(filtered, block)
+	}
+	if removed == 0 {
+		return 0
+	}
+	doc.Blocks = filtered
+	return removed
 }
 
 // NormalizeAnswerDocumentForRecovery applies the same deterministic

@@ -536,6 +536,9 @@ func exactResolutionSubjectLabel(rm RequestModel) string {
 			return label
 		}
 	}
+	if exactResolutionConfigMappingOverridesSubjectLabel(rm) {
+		return "config key"
+	}
 	if label := exactResolutionSubjectLabelForKind(rm.AnswerSubject.Kind); label != "" {
 		return label
 	}
@@ -543,6 +546,40 @@ func exactResolutionSubjectLabel(rm RequestModel) string {
 		return "config key"
 	}
 	return "target"
+}
+
+func exactResolutionConfigMappingOverridesSubjectLabel(rm RequestModel) bool {
+	if !strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "config_mapping") && rm.Scenario != ScenarioConfigTrace {
+		return false
+	}
+	switch rm.AnswerSubject.Kind {
+	case SubjectFilePath, SubjectHandlerRoute:
+		return false
+	}
+	candidates := append([]string(nil), rm.AnalyzerHints.ExactTargets...)
+	if len(candidates) == 0 {
+		candidates = MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.PrimaryEntities)
+	}
+	if len(candidates) == 0 {
+		candidates = MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.Entities)
+	}
+	if len(candidates) == 0 {
+		switch rm.AnswerSubject.Kind {
+		case SubjectUnknown, SubjectGeneric, SubjectNumeric, SubjectStringLiteral:
+			return true
+		default:
+			return false
+		}
+	}
+	for _, candidate := range candidates {
+		if looksLikeExactPathToken(candidate) || looksLikeRouteLikeToken(candidate) {
+			return false
+		}
+		if !exactResolutionCandidateMatchesSubjectKind(SubjectConfigKey, candidate) {
+			return false
+		}
+	}
+	return true
 }
 
 func exactResolutionSubjectLabelForKind(kind AnswerSubjectKind) string {

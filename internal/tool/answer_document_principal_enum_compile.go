@@ -22,6 +22,9 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
 		return 0
 	}
+	if principalEnumerationSystemSupplementSuppressed(doc, ctx) {
+		return 0
+	}
 	plan := answerSurfacePlan(ctx)
 	if plan == nil {
 		return 0
@@ -60,6 +63,20 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 		}
 	}
 	return changed
+}
+
+func principalEnumerationSystemSupplementSuppressed(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil || doc.ExactResolution == nil {
+		return false
+	}
+	if doc.ExactResolution.Status != types.AnswerExactResolutionAbsent {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Predicates.IsCategoryEnumeration || rm.Intent == types.IntentEnumerate {
+		return false
+	}
+	return true
 }
 
 func normalizePrincipalEnumerationItemCitationRefs(doc *types.AnswerDocumentV2, sets []types.EnumerationDisplaySet) int {

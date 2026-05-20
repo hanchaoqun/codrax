@@ -656,7 +656,14 @@ func init() {
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolRichnessRegression, DefaultSeverity: SeveritySoft,
 		SoftByDefault: true, Promotable: false, FallbackLocus: LocusTerminal,
-		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyAnswerCoverage,
+		Layer: "v2_oracle",
+		// Pure telemetry: this kind is recorded for CGEC trend analysis
+		// only. It must not append the generic answer-coverage caveat to
+		// otherwise accepted answers; concrete user-facing limits are
+		// carried by stricter/promotable siblings such as
+		// ViolRichnessGlaringGap, ViolFacetUncovered, or semantic reviewer
+		// concerns with localized observations.
+		CaveatFamilyID: "",
 	})
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolValueSecondaryCitationOffFocus, DefaultSeverity: SeverityMedium,
@@ -970,7 +977,7 @@ func init() {
 	RegisterViolKind(ViolKindSpec{
 		Kind: ViolLaneBlockKindMismatch, DefaultSeverity: SeverityMedium,
 		SoftByDefault: true, Promotable: true, FallbackLocus: LocusFinalizer,
-		Layer: "contract_check",
+		Layer:                     "contract_check",
 		SchemaDescriptionFragment: "Each support lane (Observed artifact / Principal evidence / Current grounded code path / Nearest grounded mechanism / Boundary disclosures / Current-status verdict) declares an Allowed block kinds list. A principal block whose citations come from a lane MUST be one of that lane's allowed kinds — for example, an Observed artifact lane that allows only summary/caveat cannot be rendered as a principal ordered_list or diagram.",
 		FixableByAgents:           []AgentName{AgentFinalizer},
 	})

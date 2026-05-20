@@ -981,6 +981,33 @@ func TestBuildExactResolutionContract_ConfigTraceUsesConfigKeyTargetKindWhenAnsw
 	}
 }
 
+func TestBuildExactResolutionContract_ConfigTraceUsesConfigKeyTargetKindWhenAnswerSubjectDriftsStructField(t *testing.T) {
+	rm := RequestModel{
+		Scenario:      ScenarioConfigTrace,
+		AnswerSubject: AnswerSubject{Kind: SubjectStructField},
+		AnalyzerHints: AnalyzerHints{
+			Kind:              "config_mapping",
+			ExactTargets:      []string{"explore_xyz_phantom_unique_budget"},
+			ExactContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+		},
+		RawRequest: "explore_xyz_phantom_unique_budget 在三层覆盖（默认值 / codrax.yaml / CLI flag）里各自的有效值是什么？给我每一层的来源锚点。",
+	}
+	contract := BuildExactResolutionContract(rm)
+	if contract == nil {
+		t.Fatal("contract = nil, want exact-resolution contract")
+	}
+	if contract.TargetKind != SubjectConfigKey {
+		t.Fatalf("TargetKind = %v, want %v", contract.TargetKind, SubjectConfigKey)
+	}
+	if contract.TargetLabel != "config key" {
+		t.Fatalf("TargetLabel = %q, want config key", contract.TargetLabel)
+	}
+	want := []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride}
+	if !reflect.DeepEqual(contract.RequestedContextRoles, want) {
+		t.Fatalf("RequestedContextRoles = %v, want %v", contract.RequestedContextRoles, want)
+	}
+}
+
 func TestExactResolutionEvidenceSupportsAbsenceUsesNegativeQueryPattern(t *testing.T) {
 	target := syntheticConfigAbsenceKeyForTest()
 	contract := &ExactResolutionContract{

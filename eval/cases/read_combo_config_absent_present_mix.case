@@ -1,0 +1,15 @@
+# Read-mode combo — one absent config key plus one existing config key
+#
+# Medium-priority regression for exact-resolution target binding. A
+# document-level absence verdict for one target must not cause Codrax to drop,
+# flatten, or mislabel a separate present target value. This keeps the
+# short-term single-target scalar suppression honest while tracking the
+# long-term need for per-target exact_resolution / target_ref binding.
+ID="read_combo_config_absent_present_mix"
+NAME="read combo — absent config key plus existing config value"
+QUESTION="同时检查两个配置项：explore_xyz_phantom_unique_budget 和 explore_per_tool_default_cap。前者如果不存在，请说明默认值 / codrax.yaml / CLI flag 三层都无有效值；后者请给出 codrax.yaml.example 中的示例值和源码锚点。不要把后者当成前者的值。"
+EXPECT_CONTAINS="explore_xyz_phantom_unique_budget explore_per_tool_default_cap codrax.yaml.example"
+EXPECT_MATCHES_REGEX="explore_xyz_phantom_unique_budget.*(不存在|未定义|无有效值|absent|not found|no such|undefined)
+explore_per_tool_default_cap.*(codrax\\.yaml\\.example|543|0)
+(不要把后者当成前者|不是.*explore_xyz_phantom_unique_budget|explore_per_tool_default_cap.*(不是|并非|不同于).*explore_xyz_phantom_unique_budget|separate|distinct)"
+EXPECT_NOT_CONTAINS=""

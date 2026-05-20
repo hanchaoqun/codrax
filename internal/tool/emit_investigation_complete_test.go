@@ -232,6 +232,70 @@ func TestEmitInvestigationComplete_SynthesizesAbsenceJustificationFromNegativeSe
 	}
 }
 
+func TestEmitInvestigationComplete_SynthesizesAbsenceForConfigTraceSubjectDriftWithContextEvidence(t *testing.T) {
+	const missingKey = "explore_xyz_phantom_unique_budget"
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/types/config.go",
+		LineStart:       852,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "ExploreSettings",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest:    "explore_xyz_phantom_unique_budget 在三层覆盖（默认值 / codrax.yaml / CLI flag）里各自的有效值是什么？给我每一层的来源锚点。",
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectStructField},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              "config_mapping",
+					ExactTargets:      []string{missingKey},
+					ExactContextRoles: []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault, types.EvidenceDiagramRoleConfig, types.EvidenceDiagramRoleOverride},
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"explore_xyz_phantom_unique_budget 在三层覆盖中均不存在",
+		"confidence":"high",
+		"result_kind":"absence",
+		"aggregate_facts":[
+			{
+				"kind":"negative_search",
+				"label":"explore_xyz_phantom_unique_budget in ExploreSettings fields",
+				"provenance":"grep_negative",
+				"value":"0",
+				"dimensions":[
+					{"name":"repo","value":"."},
+					{"name":"pattern","value":"explore_xyz_phantom_unique_budget"},
+					{"name":"scope","value":"ExploreSettings struct fields (config.go:852-855)"},
+					{"name":"searched_at","value":"current_investigation"}
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("config-trace subject drift with typed negative_search should not retry: %s", res.Summary)
+	}
+	if got := mut.StableInvestigationResultKind(); got != "absence" {
+		t.Fatalf("StableInvestigationResultKind = %q, want absence", got)
+	}
+	if got := mut.StableAbsenceJustification(); got == "" {
+		t.Fatal("StableAbsenceJustification = empty, want synthesized justification")
+	}
+}
+
 func TestEmitInvestigationComplete_AbsenceDropsUnsupportedNonPrincipalDecoratedMemberSet(t *testing.T) {
 	const missingKey = "explore_xyz_phantom_unique_budget"
 	mut := types.NewMutableState("q")

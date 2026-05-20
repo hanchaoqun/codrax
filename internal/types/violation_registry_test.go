@@ -313,6 +313,7 @@ func TestCaveatFamily_OperatorOnlyKindsHaveNoCaveat(t *testing.T) {
 		ViolPlanCritic:              true,
 		ViolReflectorObservation:    true,
 		ViolAnswerReviewerDistilled: true,
+		ViolRichnessRegression:      true,
 		ViolDemotionStorm:           true,
 		ViolForcedReadStorm:         true,
 	}

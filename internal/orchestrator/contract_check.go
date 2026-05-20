@@ -2515,12 +2515,18 @@ func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) strin
 				fmt.Fprintf(&b, "%s\n\n", text)
 			}
 		case types.BlockOrderedList:
+			if text := strings.TrimSpace(blk.Text); text != "" {
+				fmt.Fprintf(&b, "%s\n\n", text)
+			}
 			for i, it := range blk.Items {
 				desc := itemBodyText(it)
 				fmt.Fprintf(&b, "%d. %s\n", i+1, desc)
 			}
 			b.WriteString("\n")
 		case types.BlockBulletList, types.BlockTable:
+			if text := strings.TrimSpace(blk.Text); text != "" {
+				fmt.Fprintf(&b, "%s\n\n", text)
+			}
 			for _, it := range blk.Items {
 				desc := itemBodyText(it)
 				fmt.Fprintf(&b, "- %s\n", desc)

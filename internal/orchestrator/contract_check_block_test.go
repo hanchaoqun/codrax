@@ -134,6 +134,28 @@ func TestMissingRequestedRoleDisclosure_RequiredAndPresentPasses(t *testing.T) {
 	}
 }
 
+func TestMissingRequestedRoleDisclosure_LabelDriftDoesNotFire(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFConfigPrecedence,
+		MissingRequestedRoles: []types.AnswerMissingRequestedRole{
+			{Role: types.EvidenceDiagramRoleDefault, Label: "代码默认值层"},
+			{Role: types.EvidenceDiagramRoleConfig, Label: "codrax.yaml"},
+			{Role: types.EvidenceDiagramRoleOverride, Label: "CLI flag"},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		MissingRequestedRoles: []types.AnswerMissingRequestedRole{
+			{Role: types.EvidenceDiagramRoleDefault, Label: "默认值层"},
+			{Role: types.EvidenceDiagramRoleConfig, Label: "配置文件层"},
+			{Role: types.EvidenceDiagramRoleOverride, Label: "CLI flag 层"},
+		},
+	}
+	if vs := validateMissingRequestedRoleDisclosure(doc, view); len(vs) != 0 {
+		t.Fatalf("role set is complete; label wording drift must not create a user-facing caveat: %+v", vs)
+	}
+}
+
 func TestMissingRequestedRoleDisclosure_MissingEntryFires(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		Family: types.QFConfigPrecedence,

@@ -2395,6 +2395,71 @@ func TestNormalizeViewCompatibleAnswerDocument_AddsAutoRepairableRequiredFacetID
 	}
 }
 
+func TestNormalizeViewCompatibleAnswerDocument_DropsScalarWhenExactResolutionAbsent(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		ExactResolution: &types.ExactResolutionContract{
+			Targets: []string{"missing_key"},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "target is absent"},
+			{ID: "nearby", Kind: types.BlockScalar, Text: "neighbor_key", SurfaceRole: types.SurfacePrincipal},
+			{ID: "layers", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "l1", Label: "default", Text: "absent"}}},
+		},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 1 {
+		t.Fatalf("expected scalar removal repair, got %d", fixed)
+	}
+	for _, block := range doc.Blocks {
+		if block.Kind == types.BlockScalar {
+			t.Fatalf("absent exact-resolution doc must not retain scalar block: %+v", doc.Blocks)
+		}
+	}
+	if len(doc.Blocks) != 2 || doc.Blocks[0].ID != "summary" || doc.Blocks[1].ID != "layers" {
+		t.Fatalf("unexpected blocks after scalar removal: %+v", doc.Blocks)
+	}
+}
+
+func TestNormalizeViewCompatibleAnswerDocument_KeepsScalarWhenAbsentExactResolutionHasMultipleTargets(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		ExactResolution: &types.ExactResolutionContract{
+			Targets: []string{"missing_key", "existing_key"},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "one target is absent; another value is reported separately"},
+			{ID: "existing", Kind: types.BlockScalar, Text: "42", SurfaceRole: types.SurfacePrincipal},
+		},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("multi-target absent exact-resolution must not remove unrelated scalar, got %d", fixed)
+	}
+	if len(doc.Blocks) != 2 || doc.Blocks[1].Kind != types.BlockScalar {
+		t.Fatalf("mixed-target scalar should be retained: %+v", doc.Blocks)
+	}
+}
+
+func TestNormalizeViewCompatibleAnswerDocument_KeepsScalarWhenExactResolutionMatches(t *testing.T) {
+	view := &types.AnswerSemanticView{}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionExactMatch},
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "target resolved"},
+			{ID: "value", Kind: types.BlockScalar, Text: "42", SurfaceRole: types.SurfacePrincipal},
+		},
+	}
+	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed != 0 {
+		t.Fatalf("expected no scalar removal for exact match, got %d", fixed)
+	}
+	if len(doc.Blocks) != 2 || doc.Blocks[1].Kind != types.BlockScalar {
+		t.Fatalf("exact match scalar should be retained: %+v", doc.Blocks)
+	}
+}
+
 func TestNormalizeViewCompatibleAnswerDocument_DoesNotInventShapeBearingFacetID(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		FacetCoverage: &types.FacetCoverageContract{

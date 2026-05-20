@@ -115,6 +115,7 @@ func TestRenderConsistencyReviewBodyV2_BlockKinds(t *testing.T) {
 			{Kind: types.BlockBulletList, Items: []types.AnswerBlockItem{
 				{Label: "category"},
 			}},
+			{Kind: types.BlockTable, Text: "| Layer | Result |\n|---|---|\n| CLI | absent |"},
 			{Kind: types.BlockSection, Title: "Detail", Text: "section body"},
 			{Kind: types.BlockScalar, Text: "42"},
 			{Kind: types.BlockDecision, Text: "yes"},
@@ -129,6 +130,8 @@ func TestRenderConsistencyReviewBodyV2_BlockKinds(t *testing.T) {
 		"1. Step1 — do A",
 		"2. Step2 — do B",
 		"- category",
+		"| Layer | Result |",
+		"| CLI | absent |",
 		"## Detail",
 		"section body",
 		"Scalar: 42",

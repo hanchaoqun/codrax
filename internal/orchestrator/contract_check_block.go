@@ -2147,15 +2147,11 @@ func validateMissingRequestedRoleDisclosure(doc *types.AnswerDocumentV2, view *t
 
 	var missing []string
 	var extra []string
-	var labelMismatch []string
-	for role, expectedLabel := range expected {
-		actualLabel, ok := actual[role]
+	for role := range expected {
+		_, ok := actual[role]
 		if !ok {
 			missing = append(missing, string(role))
 			continue
-		}
-		if expectedLabel != "" && !strings.EqualFold(expectedLabel, actualLabel) {
-			labelMismatch = append(labelMismatch, fmt.Sprintf("%s(label=%q, want %q)", role, actualLabel, expectedLabel))
 		}
 	}
 	for role := range actual {
@@ -2163,17 +2159,16 @@ func validateMissingRequestedRoleDisclosure(doc *types.AnswerDocumentV2, view *t
 			extra = append(extra, string(role))
 		}
 	}
-	if len(missing) == 0 && len(extra) == 0 && len(labelMismatch) == 0 {
+	if len(missing) == 0 && len(extra) == 0 {
 		return nil
 	}
 	sort.Strings(missing)
 	sort.Strings(extra)
-	sort.Strings(labelMismatch)
 	return []types.Violation{{
 		Kind: types.ViolMissingRequestedRoleUndisclosed,
 		Detail: fmt.Sprintf(
-			"document-level missing_requested_roles[] does not match the semantic-view obligation (missing=%v extra=%v label_mismatch=%v)",
-			missing, extra, labelMismatch),
+			"document-level missing_requested_roles[] does not match the semantic-view role obligation (missing=%v extra=%v)",
+			missing, extra),
 		Repair: fmt.Sprintf(
 			"Re-emit the answer with document-level missing_requested_roles[] exactly set to %s. Copy the role set from the semantic-view contract, preserve any user-facing labels (for example `CLI`), and let the renderer materialise the explicit missing-layer prose from this typed field.",
 			formatMissingRequestedRolesForRepair(view.MissingRequestedRoles)),
