@@ -2,7 +2,7 @@
 
 Date: 2026-05-20
 
-Status: draft for incremental implementation
+Status: incremental implementation in progress
 
 Owner goal: stop accumulating one-case compatibility patches. The read-mode
 pipeline should preserve user intent and model-authored rich answers while
@@ -307,6 +307,22 @@ Tasks:
 - Make projection inspectable in debug logs / prompt traces, but keep existing
   routing behavior unchanged in this batch.
 
+2026-05-20 Batch A.1:
+
+- Added `internal/types/answer_intent_contract.go` with closed enums for
+  evidence origin, requested output, and grounding policy.
+- Added `CompileAnswerIntentContract` as a side-effect-free projection from the
+  existing typed request/answer contract. It does not inspect raw user prose or
+  model free text.
+- Added focused tests for the highest-risk boundaries: history scalar, history
+  narrative, history+current mechanism, history+diagram, current-source count /
+  measurement, external runtime artifact, current-source mechanism, and
+  bucketed comparison.
+- Validation: `go test ./internal/types -run TestCompileAnswerIntentContract`
+  PASS.
+- Remaining Batch A work: expose the projection in debug/prompt diagnostics
+  without making it a new hard gate.
+
 ### Batch B — VCS / Command Origins
 
 Goal: retire commit-hash and count compatibility shims by routing through typed
@@ -403,7 +419,7 @@ or noisy retries:
 
 ## 9. Implementation Checklist
 
-- [ ] Batch A: add typed projection and tests.
+- [x] Batch A.1: add typed projection and tests.
 - [ ] Batch A: expose projection in debug trace / finalizer prompt diagnostics.
 - [ ] Batch B: tag VCS and command measurement origins.
 - [ ] Batch B: remove decorated commit-hash shim dependency.
@@ -413,4 +429,3 @@ or noisy retries:
 - [ ] Batch E: enforce system supplement safety invariants.
 - [ ] Run targeted evals after each batch and update
   `eval_20260520_full_sweep_gap_tracking.md`.
-
