@@ -733,6 +733,92 @@ func TestSemanticQualityReviewerEligible_P4_NoFacetDeclared_Skip(t *testing.T) {
 	}
 }
 
+func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifactAnswers(t *testing.T) {
+	bundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "panic",
+			Message: "called Option::unwrap() on a None value",
+		}},
+	}
+	mut := types.NewMutableState("这是什么错误？")
+	mut.SetRequestModel(types.RequestModel{
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexitySimple,
+		LogTriage:  bundle,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+	pureArtifactDoc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:       "s1",
+				Kind:     types.BlockSummary,
+				Text:     "Rust panic",
+				FacetIDs: []string{string(types.FacetObservedArtifactFact)},
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimExternalObservation,
+					FacetID:   string(types.FacetObservedArtifactFact),
+				}},
+			},
+			{
+				ID:       "frames",
+				Kind:     types.BlockOrderedList,
+				FacetIDs: []string{string(types.FacetObservedArtifactFact)},
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimExternalObservation,
+					FacetID:   string(types.FacetObservedArtifactFact),
+				}},
+				Items: []types.AnswerBlockItem{{ID: "f0", Label: "panic", CitationRef: -1}},
+			},
+			{
+				ID:       "boundary",
+				Kind:     types.BlockCaveat,
+				FacetIDs: []string{string(types.FacetUncertaintyBoundary)},
+				Text:     "resolved_files=0",
+			},
+		},
+	}
+	if !semanticQualityReviewerEligible(pureArtifactDoc, nil) {
+		t.Fatal("fixture should satisfy the normal semantic-quality eligibility gate before artifact skip")
+	}
+	if !skipSemanticQualityForObservationOnlyArtifact(ctx, pureArtifactDoc, nil) {
+		t.Fatal("simple pure observation-only artifact answer should skip semantic-quality reviewer")
+	}
+
+	withCitation := *pureArtifactDoc
+	withCitation.Citations = []types.Citation{{File: "src/config.rs", Line: 42}}
+	if skipSemanticQualityForObservationOnlyArtifact(ctx, &withCitation, nil) {
+		t.Fatal("doc with repo-style citations must not skip semantic-quality reviewer")
+	}
+
+	withCurrentCodeFacet := *pureArtifactDoc
+	withCurrentCodeFacet.Blocks = append([]types.AnswerBlock(nil), pureArtifactDoc.Blocks...)
+	withCurrentCodeFacet.Blocks[1].FacetIDs = []string{string(types.FacetCurrentCodePath)}
+	if skipSemanticQualityForObservationOnlyArtifact(ctx, &withCurrentCodeFacet, nil) {
+		t.Fatal("doc that declares current-code facets must not skip semantic-quality reviewer")
+	}
+
+	complexMut := types.NewMutableState("分析完整调用链")
+	complexMut.SetRequestModel(types.RequestModel{
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexityComplex,
+		LogTriage:  bundle,
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+		},
+	})
+	if skipSemanticQualityForObservationOnlyArtifact(&types.BusContext{Mutable: complexMut}, pureArtifactDoc, nil) {
+		t.Fatal("complex artifact analysis should keep semantic-quality review available")
+	}
+}
+
 // TestSemanticQualityReviewerEligible_DecisionStableAcrossSelfConsistencyOutput
 // pins the P2C parallel-dispatch invariant: the gate decision MUST be
 // identical whether evaluated BEFORE self_consistency runs (using only

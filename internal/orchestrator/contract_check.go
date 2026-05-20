@@ -419,6 +419,10 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		if runSQ {
 			sqDocV2 = mut.AnswerDocumentV2()
 			runSQ = sqDocV2 != nil && semanticQualityReviewerEligible(sqDocV2, result.Violations)
+			if runSQ && skipSemanticQualityForObservationOnlyArtifact(o.busCtx, sqDocV2, result.Violations) {
+				logging.Info("[semantic_quality_reviewer] skipped: observation-only runtime artifact answer already has typed artifact carrier and no current-repo citation surface")
+				runSQ = false
+			}
 		}
 
 		if runSC || runSQ {
@@ -3104,6 +3108,57 @@ func semanticQualityReviewerEligible(doc *types.AnswerDocumentV2, existing []typ
 		}
 	}
 	return false
+}
+
+func skipSemanticQualityForObservationOnlyArtifact(ctx *types.BusContext, doc *types.AnswerDocumentV2, existing []types.Violation) bool {
+	if ctx == nil || ctx.Mutable == nil || doc == nil {
+		return false
+	}
+	if len(FilterFinalizerRetryRootViolations(existing)) > 0 {
+		return false
+	}
+	rm := ctx.Mutable.RequestModel()
+	if rm == nil || !rm.HasObservationOnlyRuntimeArtifact() {
+		return false
+	}
+	if rm.Complexity != types.ComplexitySimple || rm.DiagramHint != nil {
+		return false
+	}
+	if len(doc.Citations) != 0 {
+		return false
+	}
+	if !answerDocumentHasObservedArtifactCarrier(doc) {
+		return false
+	}
+	return answerDocumentOnlyDeclaresObservationArtifactFacets(doc)
+}
+
+func answerDocumentOnlyDeclaresObservationArtifactFacets(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, b := range doc.Blocks {
+		for _, facet := range b.FacetIDs {
+			if !observationArtifactAllowedFacet(facet) {
+				return false
+			}
+		}
+		for _, cu := range b.ClaimUses {
+			if strings.TrimSpace(cu.FacetID) != "" && !observationArtifactAllowedFacet(cu.FacetID) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func observationArtifactAllowedFacet(facet string) bool {
+	switch types.AnswerFacetKind(strings.TrimSpace(facet)) {
+	case types.FacetObservedArtifactFact, types.FacetUncertaintyBoundary:
+		return true
+	default:
+		return false
+	}
 }
 
 // runSemanticQualityReview dispatches the G5 reviewer LLM and
