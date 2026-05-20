@@ -136,6 +136,78 @@ func TestEmitHypothesisVerdict_ResolvesEvidenceIDToCitation(t *testing.T) {
 	}
 }
 
+func TestEmitHypothesisVerdict_NormalizesExternalLogFrameCitation(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	logBundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "rust", Signals: []types.LogSignal{types.SignalPanic}},
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{
+				Lang:       "rust",
+				File:       "./src/config.rs",
+				Line:       42,
+				Func:       "my_app::config::load",
+				Raw:        "src/config.rs:42",
+				Confidence: 0.95,
+			}},
+		}},
+		IntentHint: types.IntentRootCause,
+	}
+	mut := types.NewMutableState("")
+	mut.SetLogTriage(logBundle)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			Version: types.AnalysisIRVersion,
+			RequestModel: types.RequestModel{
+				Language:  "zh",
+				Intent:    types.IntentRootCause,
+				LogTriage: logBundle,
+			},
+		},
+	}
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"日志帧显示配置加载阶段 panic","citation":"src/config.rs:42"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("external artifact citation should be accepted as runtime-frame context, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(got))
+	}
+	if got[0].Citation != "" {
+		t.Fatalf("external frame must not leak into repo citation field, got %q", got[0].Citation)
+	}
+	if !strings.Contains(got[0].Rationale, "外部运行时帧：src/config.rs:42") {
+		t.Fatalf("rationale should preserve artifact frame location, got %q", got[0].Rationale)
+	}
+}
+
+func TestEmitHypothesisVerdict_DoesNotNormalizeRepoCitationWithoutExternalArtifact(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	ctx := newVerdictCtx()
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"AllAgentNames is defined","citation":"internal/types/enums.go:146"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo citation should remain accepted when no grounding context is present, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(got))
+	}
+	if got[0].Citation != "internal/types/enums.go:146" {
+		t.Fatalf("repo citation was unexpectedly normalized: %+v", got[0])
+	}
+}
+
 func TestEmitHypothesisVerdict_ConfirmedRequiresCitation(t *testing.T) {
 	tool := &EmitHypothesisVerdict{}
 	ctx := newVerdictCtx()

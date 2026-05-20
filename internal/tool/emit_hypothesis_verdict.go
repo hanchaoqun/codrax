@@ -33,11 +33,16 @@ import (
 // IDs are diagnosed loudly so a typo does not silently disappear a
 // real hypothesis.
 //
-// Citation is required for confirmed/rejected (you cannot confirm or
-// falsify without a concrete cite) and optional for inconclusive
-// (the whole point of inconclusive is "we looked but couldn't find a
-// definitive cite"). The cite shape is the same file:line[-end] used
-// by runContractCheck — structural, no extension list.
+// Citation is required for current-repo confirmed/rejected verdicts
+// (you cannot confirm or falsify code facts without a concrete cite)
+// and optional for inconclusive (the whole point of inconclusive is
+// "we looked but couldn't find a definitive cite"). External-only
+// runtime artifact frames are not current-repo citations: Execute
+// accepts a typed frame citation when it exactly matches the attached
+// log / trace bundle, moves it into the rationale as an artifact
+// location, and leaves Citation empty so downstream renderers do not
+// mistake it for repo proof. The cite shape is the same file:line[-end]
+// used by runContractCheck — structural, no extension list.
 //
 // Like the other emit_* tools: ReadOnly + NonEvidenceTool. Mutating
 // BusContext is not a filesystem write, and the verdict carries
@@ -63,6 +68,9 @@ type emitHypothesisVerdictItem struct {
 	Rationale    string `json:"rationale,omitempty"`
 	Citation     string `json:"citation,omitempty"`
 	EvidenceID   string `json:"evidence_id,omitempty"`
+
+	ArtifactCitationAccepted bool   `json:"-"`
+	ArtifactCitation         string `json:"-"`
 }
 
 const EmitHypothesisVerdictProducer = "explorer.emit_hypothesis_verdict"
@@ -76,9 +84,10 @@ func (t *EmitHypothesisVerdict) Description() string {
 		"judge. hypothesis_id MUST match a real ID from the prior hypothesis set; typos are " +
 		"flagged. status is one of: confirmed (transcript supports it), rejected (transcript " +
 		"falsifies it), inconclusive (investigated but evidence is insufficient — distinct from " +
-		"'never investigated'). Both confirmed and rejected REQUIRE a citation in the form " +
-		"'path:line' or 'path:line-end' — you cannot confirm or falsify without pointing at concrete " +
-		"code. Inconclusive verdicts may omit the citation."
+		"'never investigated'). Current-repo confirmed and rejected verdicts require a citation in " +
+		"the form 'path:line' or 'path:line-end'. For external-only log / trace questions, a citation " +
+		"that exactly matches an attached runtime frame is accepted as artifact context and is not " +
+		"published as a repo citation. Inconclusive verdicts may omit the citation."
 }
 
 func (t *EmitHypothesisVerdict) Parameters() json.RawMessage {
@@ -92,9 +101,9 @@ func (t *EmitHypothesisVerdict) Parameters() json.RawMessage {
         "type": "object",
         "properties": {
           "hypothesis_id": {"type": "string", "description": "Hypothesis ID listed in the Hypotheses section of the prompt. Required. Unknown IDs are diagnosed."},
-          "status":        {"type": "string", "enum": ["confirmed", "rejected", "inconclusive"], "description": "Verdict. confirmed/rejected require a citation; inconclusive may omit it."},
+          "status":        {"type": "string", "enum": ["confirmed", "rejected", "inconclusive"], "description": "Verdict. Current-repo confirmed/rejected verdicts require a citation; external-only runtime-frame citations are accepted as artifact context; inconclusive may omit it."},
           "rationale":     {"type": "string", "description": "Rationale for the verdict — explain the mechanism or invariant that produced the status. Reference load-bearing identifiers with inline ` + "`" + `code` + "`" + `. Strongly recommended."},
-          "citation":      {"type": "string", "description": "Concrete code anchor in the form 'path:line' or 'path:line-end'. Required when status is confirmed or rejected unless evidence_id names an already accepted grounded evidence item."},
+          "citation":      {"type": "string", "description": "Concrete current-repo code anchor in the form 'path:line' or 'path:line-end'. For external-only log / trace questions, this may instead be an exact attached runtime frame location; the tool preserves it as artifact context rather than repo proof. Required for current-repo confirmed/rejected unless evidence_id names an already accepted grounded evidence item."},
           "evidence_id":   {"type": "string", "description": "Optional local-model compatibility shortcut: id of an already accepted grounded evidence item. The tool resolves it to citation automatically; do not invent ids."}
         },
         "required": ["hypothesis_id", "status"]
@@ -128,6 +137,9 @@ func (t *EmitHypothesisVerdict) Execute(ctx *types.BusContext, params json.RawMe
 	}
 	if repaired := resolveHypothesisVerdictEvidenceRefs(ctx, p.Items); repaired > 0 {
 		logging.Warning("[emit_hypothesis_verdict] resolved %d evidence_id reference(s) to citation(s)", repaired)
+	}
+	if normalized := normalizeHypothesisVerdictArtifactCitations(ctx, p.Items); normalized > 0 {
+		logging.Warning("[emit_hypothesis_verdict] normalized %d external artifact citation(s) out of repo citation fields", normalized)
 	}
 
 	groundCtx := ground.BuildContext(ctx)
@@ -252,9 +264,11 @@ func buildEmitHypothesisVerdictItem(in emitHypothesisVerdictItem, index int) (ty
 	switch status {
 	case types.HypConfirmed:
 		if citation == "" {
-			return types.HypothesisVerdict{}, fmt.Errorf("items[%d]: status %q requires a citation (path:line or path:line-end). Use 'inconclusive' if you cannot point at concrete code.", index, status)
+			if !in.ArtifactCitationAccepted || rationale == "" {
+				return types.HypothesisVerdict{}, fmt.Errorf("items[%d]: status %q requires a citation (path:line or path:line-end). Use 'inconclusive' if you cannot point at concrete code.", index, status)
+			}
 		}
-		if !looksLikeCitation(citation) {
+		if citation != "" && !looksLikeCitation(citation) {
 			return types.HypothesisVerdict{}, fmt.Errorf("items[%d]: citation %q does not look like 'path:line' or 'path:line-end'", index, in.Citation)
 		}
 	case types.HypRejected:
@@ -276,6 +290,171 @@ func buildEmitHypothesisVerdictItem(in emitHypothesisVerdictItem, index int) (ty
 		Rationale:    rationale,
 		Citation:     citation,
 	}, nil
+}
+
+func normalizeHypothesisVerdictArtifactCitations(ctx *types.BusContext, items []emitHypothesisVerdictItem) int {
+	if ctx == nil || len(items) == 0 {
+		return 0
+	}
+	normalized := 0
+	for i := range items {
+		citation := strings.TrimSpace(items[i].Citation)
+		if citation == "" {
+			continue
+		}
+		cit, err := parseEmitHypothesisCitation(citation)
+		if err != nil {
+			continue
+		}
+		artifactCitation, ok := hypothesisVerdictExternalArtifactCitation(ctx, cit)
+		if !ok {
+			continue
+		}
+		items[i].ArtifactCitationAccepted = true
+		items[i].ArtifactCitation = artifactCitation
+		items[i].Citation = ""
+		items[i].Rationale = appendHypothesisArtifactCitationNote(ctx, items[i].Rationale, artifactCitation)
+		normalized++
+	}
+	return normalized
+}
+
+func hypothesisVerdictExternalArtifactCitation(ctx *types.BusContext, cit types.Citation) (string, bool) {
+	for _, bundle := range hypothesisVerdictLogBundles(ctx) {
+		if bundle == nil || !bundle.IsExternalSource() {
+			continue
+		}
+		var matched string
+		types.WalkLogFrames(bundle, func(frame types.LogFrame) {
+			if matched != "" {
+				return
+			}
+			if artifactCitationMatchesLogFrame(cit, frame) {
+				matched = artifactFrameCitationSurface(frame)
+			}
+		})
+		if matched != "" {
+			return matched, true
+		}
+	}
+	for _, perf := range hypothesisVerdictPerfBundles(ctx) {
+		if perf == nil || !perf.IsExternalSource() {
+			continue
+		}
+		for _, frame := range perf.LogFrames() {
+			if artifactCitationMatchesLogFrame(cit, frame) {
+				return artifactFrameCitationSurface(frame), true
+			}
+		}
+	}
+	return "", false
+}
+
+func hypothesisVerdictLogBundles(ctx *types.BusContext) []*types.LogBundle {
+	if ctx == nil {
+		return nil
+	}
+	var out []*types.LogBundle
+	add := func(bundle *types.LogBundle) {
+		if bundle != nil {
+			out = append(out, bundle)
+		}
+	}
+	if ctx.Mutable != nil {
+		add(ctx.Mutable.LogTriage())
+	}
+	if ctx.AnalysisIR != nil {
+		add(ctx.AnalysisIR.RequestModel.LogTriage)
+	}
+	return out
+}
+
+func hypothesisVerdictPerfBundles(ctx *types.BusContext) []*types.PerfBundle {
+	if ctx == nil {
+		return nil
+	}
+	var out []*types.PerfBundle
+	add := func(bundle *types.PerfBundle) {
+		if bundle != nil {
+			out = append(out, bundle)
+		}
+	}
+	if ctx.Mutable != nil {
+		add(ctx.Mutable.PerfTrace())
+	}
+	if ctx.AnalysisIR != nil {
+		add(ctx.AnalysisIR.RequestModel.PerfTrace)
+	}
+	return out
+}
+
+func artifactCitationMatchesLogFrame(cit types.Citation, frame types.LogFrame) bool {
+	if cit.Line <= 0 || frame.Line <= 0 {
+		return false
+	}
+	if frame.Line < cit.Line || frame.Line > cit.LineEnd {
+		return false
+	}
+	return artifactCitationPathMatches(cit.File, frame.File)
+}
+
+func artifactCitationPathMatches(citationPath, framePath string) bool {
+	citationPath = canonicalArtifactCitationPath(citationPath)
+	framePath = canonicalArtifactCitationPath(framePath)
+	if citationPath == "" || framePath == "" {
+		return false
+	}
+	if citationPath == framePath {
+		return true
+	}
+	if strings.HasPrefix(citationPath, "/") && strings.HasSuffix(citationPath, "/"+framePath) {
+		return true
+	}
+	if strings.HasPrefix(framePath, "/") && strings.HasSuffix(framePath, "/"+citationPath) {
+		return true
+	}
+	return false
+}
+
+func canonicalArtifactCitationPath(path string) string {
+	path = normalizeArtifactCitationPath(path)
+	path = strings.TrimPrefix(path, "./")
+	for strings.Contains(path, "/./") {
+		path = strings.ReplaceAll(path, "/./", "/")
+	}
+	return path
+}
+
+func artifactFrameCitationSurface(frame types.LogFrame) string {
+	file := canonicalArtifactCitationPath(frame.File)
+	if file == "" || frame.Line <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", file, frame.Line)
+}
+
+func appendHypothesisArtifactCitationNote(ctx *types.BusContext, rationale, artifactCitation string) string {
+	rationale = strings.TrimSpace(rationale)
+	artifactCitation = strings.TrimSpace(artifactCitation)
+	if artifactCitation == "" || strings.Contains(rationale, artifactCitation) {
+		return rationale
+	}
+	note := "External runtime frame: " + artifactCitation
+	if hypothesisVerdictPrefersChinese(ctx) {
+		note = "外部运行时帧：" + artifactCitation
+	}
+	if rationale == "" {
+		return note
+	}
+	return rationale + "\n" + note
+}
+
+func hypothesisVerdictPrefersChinese(ctx *types.BusContext) bool {
+	lang := requestedAnswerDocumentLanguage(ctx)
+	if lang == "" && ctx != nil && ctx.AnalysisIR != nil {
+		lang = strings.ToLower(strings.TrimSpace(ctx.AnalysisIR.RequestModel.Language))
+	}
+	return lang == "" || strings.HasPrefix(lang, "zh")
 }
 
 func validateHypothesisVerdictCitationGrounding(ctx *types.BusContext, gc *ground.Context, v types.HypothesisVerdict, index int) error {

@@ -858,7 +858,7 @@ Turn B 没有文件读取工具——它的 skill `extract-skill` 的 `ToolSugge
 - Floor grounding：每条 item，cited file 已 read_file 过时，验证 claimed 行 ±2 含 symbol；行幻觉（cite 调用点声称是定义）在这里被抓
 - 以 `max(β=TerminalEvidenceCount, γ=len(MustInclude))` 为 baseline——slate 不足就把 complete 自动降级 lower_bound
 
-**2. emit_hypothesis_verdict**：每条 hypothesis 写 status（confirmed / rejected / inconclusive）+ rationale + file:line。confirmed / rejected 强制带 citation。系统额外有确定性兜底——`runAutoVerdicts` 用 `criterion.Eval` 评估 `FalsificationCondition` → rejected、`RequiredEvidence` all-pass → inconclusive，结果通过 `drainHypothesisVerdicts` 写回 IR。
+**2. emit_hypothesis_verdict**：每条 hypothesis 写 status（confirmed / rejected / inconclusive）+ rationale + current-repo file:line。current-repo confirmed / rejected 强制带 citation；external-only log / trace 场景下，精确命中 attached runtime frame 的 file:line 会被工具接收为 artifact context，并从 repo citation 字段移走，避免外部栈帧污染当前仓源码引用。系统额外有确定性兜底——`runAutoVerdicts` 用 `criterion.Eval` 评估 `FalsificationCondition` → rejected、`RequiredEvidence` all-pass → inconclusive，结果通过 `drainHypothesisVerdicts` 写回 IR。
 
 **ShouldStop 设 `iteration >= 2`**——给工具参数校验失败留一次 retry 窗口（LLM 下一轮看到 tool error 修正参数）。`Observe` 在 PhaseMidLoop 检测至少一个成功 emit 后立即 StopRequested。
 

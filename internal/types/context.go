@@ -875,11 +875,12 @@ type Phase1RankedFile struct {
 // drain time; unknown IDs are diagnosed but not silently dropped, so
 // a typo in the LLM's emission cannot disappear a real hypothesis.
 //
-// Citation is a single file:line pointer (the same shape downstream
-// renderers expect for any cite) that the renderer can use to anchor
-// the verdict in the final answer. Empty when the verdict is purely
-// inferential — but inferential verdicts must be 'inconclusive', not
-// 'confirmed' / 'rejected'.
+// Citation is a single current-repo file:line pointer (the same shape
+// downstream renderers expect for any cite) that the renderer can use
+// to anchor the verdict in the final answer. Empty when the verdict is
+// purely inferential, or when the extractor cited an external-only
+// runtime artifact frame that was preserved in Rationale instead of
+// being exposed as a repo citation.
 type HypothesisVerdict struct {
 	HypothesisID string           `json:"hypothesis_id"`
 	Status       HypothesisStatus `json:"status"`
