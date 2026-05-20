@@ -74,6 +74,37 @@ func TestRenderStructuredAggregateFactsDemotesConflictingParallelCounts(t *testi
 	}
 }
 
+func TestRenderStructuredAggregateFactsShowsUnifiedEvidenceOrigin(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateScalar,
+		Label:      "direct history matches",
+		Value:      "0",
+		Provenance: "git_history_search",
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "proof_source", Value: "git_history_search"},
+			{Name: "measurement_kind", Value: "vcs_history_count"},
+		},
+	}}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+			IsCountQuestion: true,
+			IsScalarAnswer:  true,
+		},
+	}}}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	for _, want := range []string{
+		"evidence_origin=[`vcs_metadata`, `command_measurement`]",
+		"provenance=git_history_search",
+		"dimensions=[proof_source=git_history_search, measurement_kind=vcs_history_count]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("aggregate prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderStructuredAggregateFactsDoesNotTruncateCompleteCountMembers(t *testing.T) {
 	var members []string
 	var refs []string

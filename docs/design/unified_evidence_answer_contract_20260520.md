@@ -357,6 +357,22 @@ Tasks:
   - diff + current implementation + diagram;
   - all-history topic search + current implementation explanation.
 
+2026-05-20 Batch B.1:
+
+- Added `AnswerAggregateFactEvidenceOrigins` as a compatibility projection from
+  existing `aggregate_facts` dimensions / narrow tool provenance tokens into
+  the unified `AnswerEvidenceOrigin` enum.
+- The projection recognizes structured sources such as `git_history_search`,
+  `git_diff`, `exec_command`, `negative_search`, and runtime artifact profiles.
+  It is explicitly a soft/projection layer; later batches should replace free
+  provenance-string fallbacks with first-class tool-emitted origin fields.
+- Finalizer aggregate fact diagnostics now render `evidence_origin=[...]` so
+  the model can preserve VCS metadata, VCS diff, command measurement, runtime
+  artifact, and negative-search facts without forcing them through
+  current-source file:line citation rules.
+- Validation:
+  `go test ./internal/types ./internal/agent` PASS.
+
 ### Batch C — Runtime Artifact Origins
 
 Goal: stop treating external logs/traces as repo citations or code members.
@@ -435,7 +451,9 @@ or noisy retries:
 - [x] Batch A.1: add typed projection and tests.
 - [x] Batch A.2: expose projection in finalizer prompt diagnostics without a
   hard gate.
-- [ ] Batch B: tag VCS and command measurement origins.
+- [x] Batch B.1: project aggregate facts to unified evidence origins in
+  finalizer diagnostics.
+- [ ] Batch B: tag VCS and command measurement origins at tool emission.
 - [ ] Batch B: remove decorated commit-hash shim dependency.
 - [ ] Batch C: add runtime artifact frame aggregate/binding.
 - [ ] Batch D: make finalizer support lanes read claim bindings.

@@ -24,6 +24,7 @@ func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []t
 	return renderStructuredAggregateFactsWithOptions(facts, structuredAggregatePromptFactLimit(ctx, facts), structuredAggregatePrincipalMemberSetRefs(ctx, facts), aggregateFactRenderOptions{
 		omitExcludedCandidates: aggregateFactPromptOmitExcludedCandidates(ctx),
 		compactMemberSetRows:   structuredAggregateCompactPrincipalMemberSetIndexes(ctx, facts),
+		requestModel:           aggregateFactRenderRequestModel(ctx),
 	})
 }
 
@@ -79,6 +80,7 @@ func renderStructuredAggregateFactsWithPrincipalRefs(facts []types.AnswerAggrega
 type aggregateFactRenderOptions struct {
 	omitExcludedCandidates bool
 	compactMemberSetRows   map[int]bool
+	requestModel           *types.RequestModel
 }
 
 func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact, maxFacts int, refs []types.AnswerAggregateFactRef, opts aggregateFactRenderOptions) string {
@@ -117,6 +119,9 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		}
 		if provenance := aggregatePromptProvenanceForFact(i, fact, provenanceByIndex); provenance != "" {
 			fmt.Fprintf(&b, ", provenance=%s", provenance)
+		}
+		if origins := renderAggregateEvidenceOrigins(types.AnswerAggregateFactEvidenceOrigins(fact, opts.requestModel)); origins != "" {
+			fmt.Fprintf(&b, ", evidence_origin=[%s]", origins)
 		}
 		if fact.Unit != "" {
 			fmt.Fprintf(&b, ", unit=%s", fact.Unit)
@@ -239,6 +244,27 @@ func aggregateExcludedCandidateHead(raw string) string {
 		}
 	}
 	return raw
+}
+
+func aggregateFactRenderRequestModel(ctx *types.AgentContext) *types.RequestModel {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	return &ctx.AnalysisIR.RequestModel
+}
+
+func renderAggregateEvidenceOrigins(origins []types.AnswerEvidenceOrigin) string {
+	if len(origins) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		if origin == types.AnswerEvidenceOriginUnknown {
+			continue
+		}
+		parts = append(parts, "`"+string(origin)+"`")
+	}
+	return strings.Join(parts, ", ")
 }
 
 func aggregatePromptRoleForFact(index int, fact types.AnswerAggregateFact, principal map[int]bool, roleByIndex map[int]types.AnswerAggregateRole) types.AnswerAggregateRole {
