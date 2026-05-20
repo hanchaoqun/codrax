@@ -385,6 +385,20 @@ Tasks:
   aggregate carries VCS provenance.
 - Validation: `go test ./internal/tool ./internal/types` PASS.
 
+2026-05-20 Batch B.3:
+
+- Tagged deterministic system count aggregates at emission time with the unified
+  `origin` dimension instead of leaving downstream stages to infer them from
+  question shape. `exec_command` count proofs now carry
+  `origin=command_measurement`; git history count proofs carry
+  `origin=vcs_metadata`; git diff count proofs carry `origin=vcs_diff`.
+- Kept the old `proof_source` dimension for compatibility and diagnostics, but
+  made `origin` the primary stable contract field for later finalizer/reviewer
+  work. This is a typed emission improvement, not a new hard gate.
+- Added regression coverage that verifies the emitted count aggregate projects
+  through `AnswerAggregateFactEvidenceOrigins` to the expected unified origin.
+- Validation: `go test ./internal/tool ./internal/types` PASS.
+
 ### Batch C — Runtime Artifact Origins
 
 Goal: stop treating external logs/traces as repo citations or code members.
@@ -465,7 +479,10 @@ or noisy retries:
   hard gate.
 - [x] Batch B.1: project aggregate facts to unified evidence origins in
   finalizer diagnostics.
-- [ ] Batch B: tag VCS and command measurement origins at tool emission.
+- [x] Batch B.3: tag deterministic VCS and command measurement count
+  aggregates at tool emission.
+- [ ] Batch B: tag remaining VCS and command measurement tool outputs at tool
+  emission.
 - [x] Batch B.2: route decorated commit-hash support-ref exception through
   unified VCS origin projection.
 - [ ] Batch B: remove remaining VCS/hash compatibility fallback once structured

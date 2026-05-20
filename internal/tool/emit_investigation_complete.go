@@ -3783,6 +3783,7 @@ func appendDeterministicCountAggregateFact(facts []types.AnswerAggregateFact, va
 		proofSource = "exec_command"
 	}
 	dims := []types.AnswerAggregateDimension{
+		{Name: "origin", Value: deterministicCountAggregateOrigin(proofSource)},
 		{Name: "proof_source", Value: proofSource},
 		{Name: "answer_axis", Value: "count"},
 	}
@@ -3796,6 +3797,17 @@ func appendDeterministicCountAggregateFact(facts []types.AnswerAggregateFact, va
 		Dimensions: dims,
 	})
 	return out
+}
+
+func deterministicCountAggregateOrigin(proofSource string) string {
+	switch strings.ToLower(strings.TrimSpace(proofSource)) {
+	case "git_history_search", "git_log", "git_show":
+		return string(types.AnswerEvidenceOriginVCSMetadata)
+	case "git_diff":
+		return string(types.AnswerEvidenceOriginVCSDiff)
+	default:
+		return string(types.AnswerEvidenceOriginCommandMeasurement)
+	}
 }
 
 func aggregateFactsContainDeterministicCountScalar(facts []types.AnswerAggregateFact) bool {

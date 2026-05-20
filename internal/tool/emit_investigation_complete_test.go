@@ -3982,6 +3982,53 @@ func TestEmitInvestigationComplete_DecoratedCodeMemberStillRequiresSupportRefsWi
 	}
 }
 
+func TestAppendDeterministicCountAggregateFactTagsUnifiedOrigin(t *testing.T) {
+	execFacts := appendDeterministicCountAggregateFact(nil, 7, "count", "system", "exec_command", nil)
+	if len(execFacts) != 1 {
+		t.Fatalf("expected one fact, got %+v", execFacts)
+	}
+	assertAggregateDimension(t, execFacts[0], "origin", string(types.AnswerEvidenceOriginCommandMeasurement))
+	assertAggregateDimension(t, execFacts[0], "proof_source", "exec_command")
+	if origins := types.AnswerAggregateFactEvidenceOrigins(execFacts[0], &types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCountQuestion: true, IsScalarAnswer: true},
+	}); !answerOriginsContain(origins, types.AnswerEvidenceOriginCommandMeasurement) {
+		t.Fatalf("exec count should project command_measurement origin, got %+v", origins)
+	}
+
+	gitFacts := appendDeterministicCountAggregateFact(nil, 2, "history count", "system", "git_history_search", []types.AnswerAggregateDimension{
+		{Name: "measurement_kind", Value: "vcs_history_count"},
+	})
+	if len(gitFacts) != 1 {
+		t.Fatalf("expected one fact, got %+v", gitFacts)
+	}
+	assertAggregateDimension(t, gitFacts[0], "origin", string(types.AnswerEvidenceOriginVCSMetadata))
+	assertAggregateDimension(t, gitFacts[0], "proof_source", "git_history_search")
+	if origins := types.AnswerAggregateFactEvidenceOrigins(gitFacts[0], &types.RequestModel{
+		Predicates: types.SemanticPredicates{IsHistoryLookup: true, IsCountQuestion: true, IsScalarAnswer: true},
+	}); !answerOriginsContain(origins, types.AnswerEvidenceOriginVCSMetadata) {
+		t.Fatalf("git history count should project VCS metadata origin, got %+v", origins)
+	}
+}
+
+func assertAggregateDimension(t *testing.T, fact types.AnswerAggregateFact, name, value string) {
+	t.Helper()
+	for _, dim := range fact.Dimensions {
+		if strings.EqualFold(dim.Name, name) && strings.EqualFold(dim.Value, value) {
+			return
+		}
+	}
+	t.Fatalf("dimension %s=%s missing from %+v", name, value, fact.Dimensions)
+}
+
+func answerOriginsContain(origins []types.AnswerEvidenceOrigin, want types.AnswerEvidenceOrigin) bool {
+	for _, origin := range origins {
+		if origin == want {
+			return true
+		}
+	}
+	return false
+}
+
 // TestEmitInvestigationComplete_AcceptsBareCodeMemberSetWithoutSupportRefs
 // is the negative-control: bare code-identity members (no decorator)
 // can still be auto-grounded by the enrichment pass against verbatim
