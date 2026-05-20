@@ -186,6 +186,62 @@ func TestNormalizePrincipalEnumerationRowBlocks_SystemSupplementOmitsEmptyLocati
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_SystemSupplementSkipsRowsThatWouldCreateBlankCells(t *testing.T) {
+	mu := types.NewMutableState("梳理代码架构")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("eval", "Eval", "internal/analysis/criterion/eval.go", 15, "Eval 对单个 Criterion 求值。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "系统补充候选",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Eval", "coverage-only"},
+		SupportRefs: []string{
+			"Eval @ internal/analysis/criterion/eval.go:15",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			Language: "zh",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "正文已经解释架构。",
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected deterministic supplement for the renderable row")
+	}
+	var supplement *types.AnswerBlock
+	for i := range doc.Blocks {
+		if doc.Blocks[i].Kind == types.BlockTable &&
+			strings.Contains(doc.Blocks[i].Title, "系统补充候选") {
+			supplement = &doc.Blocks[i]
+			break
+		}
+	}
+	if supplement == nil {
+		t.Fatalf("expected system supplement table, got %+v", doc.Blocks)
+	}
+	if len(supplement.Items) != 1 || supplement.Items[0].Label != "Eval" {
+		t.Fatalf("coverage-only row should not render because it would create blank generated cells: %+v", supplement.Items)
+	}
+	for _, item := range supplement.Items {
+		for _, cell := range item.Cells {
+			if strings.TrimSpace(cell) == "" {
+				t.Fatalf("system-generated table must not contain blank cells: %+v", supplement.Items)
+			}
+		}
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_SkipsScalarHistoryCountSupportMembers(t *testing.T) {
 	mu := types.NewMutableState("过去 20 个提交里有多少次改过 runTaskGraph")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

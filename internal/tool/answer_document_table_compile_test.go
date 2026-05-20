@@ -251,6 +251,76 @@ func TestCompileEnumerationDisplayTableRows_OmitsLocationColumnForNonFileRows(t 
 	}
 }
 
+func TestCompileEnumerationDisplayTableRows_RefusesMixedRowsThatWouldCreateBlankCells(t *testing.T) {
+	mut := types.NewMutableState("list public functions")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "ev-eval",
+		Kind:            types.EvidenceDirect,
+		Subject:         "Eval",
+		AnchorSymbol:    "Eval",
+		AnchorKind:      types.AnchorDefinition,
+		Source:          "internal/analysis/criterion/eval.go",
+		LineStart:       15,
+		Scope:           types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+		Summary:         "Eval 对单个 Criterion 求值。",
+	}})
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "公开函数",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Unit:    "函数",
+		Members: []string{"Eval", "coverage-only"},
+		SupportRefs: []string{
+			"Eval @ internal/analysis/criterion/eval.go:15",
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev-eval",
+			Kind:            types.EvidenceDirect,
+			Subject:         "Eval",
+			AnchorSymbol:    "Eval",
+			AnchorKind:      types.AnchorDefinition,
+			Source:          "internal/analysis/criterion/eval.go",
+			LineStart:       15,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Summary:         "Eval 对单个 Criterion 求值。",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:      "public_functions",
+			Kind:    types.BlockTable,
+			Title:   "公开函数",
+			Columns: []string{"符号名称", "定义位置", "说明"},
+			Items: []types.AnswerBlockItem{
+				{ID: "eval", Label: "Eval"},
+				{ID: "coverage", Label: "coverage-only"},
+			},
+		}},
+	}
+
+	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 0 {
+		t.Fatalf("mixed complete/incomplete rows must not be rewritten into a table with blank cells; fixed=%d doc=%+v", fixed, doc.Blocks[0])
+	}
+	if len(doc.Blocks[0].Items[0].Cells) != 0 || len(doc.Blocks[0].Items[1].Cells) != 0 {
+		t.Fatalf("table should remain untouched when safe repair is impossible: %+v", doc.Blocks[0].Items)
+	}
+}
+
 func TestCompileEnumerationDisplayTableRows_PreservesMarkdownTableText(t *testing.T) {
 	mut := types.NewMutableState("list public functions")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

@@ -50,6 +50,7 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 			changed += annotated
 		}
 		missingRows := missingBySet[set.ID]
+		missingRows = principalEnumerationRenderableSupplementRows(missingRows)
 		if len(missingRows) > 0 {
 			doc.Blocks = append(doc.Blocks, buildPrincipalEnumerationRowsBlock(doc, set, missingRows, zh))
 			changed++
@@ -430,6 +431,21 @@ func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.E
 	return block
 }
 
+func principalEnumerationRenderableSupplementRows(rows []types.EnumerationDisplayRow) []types.EnumerationDisplayRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	shape := principalEnumerationTableShapeForRows(rows, nil)
+	out := make([]types.EnumerationDisplayRow, 0, len(rows))
+	for _, row := range rows {
+		if !principalEnumerationRowCompatibleWithTableShape(row, nil, shape) {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 func principalEnumerationRowsBlockTitle(set types.EnumerationDisplaySet, rows []types.EnumerationDisplayRow, zh bool) string {
 	label := strings.TrimSpace(set.Label)
 	if label == "" {
@@ -513,6 +529,16 @@ func principalEnumerationTableCells(row types.EnumerationDisplayRow, note string
 		cells = append(cells, strings.TrimSpace(note))
 	}
 	return cells
+}
+
+func principalEnumerationRowCompatibleWithTableShape(row types.EnumerationDisplayRow, existingNotes map[string]string, shape principalEnumerationTableShape) bool {
+	if shape.includeLocation && strings.TrimSpace(row.Location) == "" {
+		return false
+	}
+	if shape.includeNote && strings.TrimSpace(principalEnumerationRowNote(row, existingNotes)) == "" {
+		return false
+	}
+	return true
 }
 
 func principalEnumerationRowNote(row types.EnumerationDisplayRow, existingNotes map[string]string) string {

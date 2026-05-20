@@ -99,6 +99,9 @@ func compileEnumerationDisplayTableRows(doc *types.AnswerDocumentV2, ctx *types.
 				includeNote = true
 			}
 		}
+		if !enumerationDisplayRowsCompatibleWithTableShape(*block, rows, includeCategory, includeLocation, includeNote) {
+			continue
+		}
 		zh := answerTableCompilePrefersZH(block.Columns)
 		block.Columns = enumerationDisplayTableColumns(zh, includeCategory, includeLocation, includeNote)
 		for ii := range block.Items {
@@ -211,6 +214,35 @@ func enumerationDisplayRowsForIncompleteTable(block types.AnswerBlock, index map
 		return nil, false
 	}
 	return rows, true
+}
+
+func enumerationDisplayRowsCompatibleWithTableShape(block types.AnswerBlock, rows []types.EnumerationDisplayRow, includeCategory bool, includeLocation bool, includeNote bool) bool {
+	if len(rows) == 0 {
+		return false
+	}
+	for ii, row := range rows {
+		note := strings.TrimSpace(row.Note)
+		if ii < len(block.Items) {
+			note = answerTableCompileFirstNonEmptyString(block.Items[ii].Text, note)
+		}
+		if !enumerationDisplayRowCompatibleWithTableShape(row, includeCategory, includeLocation, includeNote, note) {
+			return false
+		}
+	}
+	return true
+}
+
+func enumerationDisplayRowCompatibleWithTableShape(row types.EnumerationDisplayRow, includeCategory bool, includeLocation bool, includeNote bool, note string) bool {
+	if includeCategory && strings.TrimSpace(row.Category) == "" {
+		return false
+	}
+	if includeLocation && strings.TrimSpace(row.Location) == "" {
+		return false
+	}
+	if includeNote && strings.TrimSpace(note) == "" {
+		return false
+	}
+	return true
 }
 
 func normalizeEnumerationDisplayTableKey(raw string) string {

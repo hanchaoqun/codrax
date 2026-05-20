@@ -204,6 +204,36 @@ the eval cases prove the class is closed.
 | P1 | Analyzer intent/schema normalization for direct questions | G5, G68, G72, G88, G90, G118, G122-G123 | Analyzer retries and over-expanded subtopics slow simple direct questions and sometimes alter user intent. Typed normalization is cheaper and safer than reclassification loops. | Role-locate/error-granularity/direct mechanism questions classify in one pass where fields are inferable; subtopics/focuses come from explicit user asks; decorator/marker inventories do not fail subtopic coherence because marker tokens differ from file buckets. |
 | P2 | Language inventory adapters and decorator/package metadata lanes | G122-G125, G130-G133 | ArkTS/Cangjie failures show supported repomap languages are not fully supported end-to-end in search, decorator preservation, and package-line rendering. | Every repomap-supported language maps to valid search extensions; decorator stacks and package/module attributes are typed table columns with citations or no line-number claims. |
 
+### Batch 2 — Row Compiler / System Supplement Safety Contract
+
+Status: first bottom-layer guard in progress after G83/G116/G131/G135/G141
+showed that system-generated tables can visibly degrade otherwise usable
+answers.
+
+Safety contract:
+
+- System-generated supplement tables must never introduce blank generated
+  cells. If a generated column such as location or notes is required by the
+  table shape, every generated row that remains in that table must have that
+  value.
+- If repairing a model-emitted empty structured table would create blank cells,
+  the repair is skipped and the model-authored surface stays untouched.
+- This guard is intentionally local and conservative: it does not parse user
+  prose, does not override model-authored Markdown tables, and does not promote
+  support metadata into the principal answer. It only prevents unsafe
+  deterministic additions.
+
+2026-05-20 validation:
+
+- Added unit coverage for mixed complete/incomplete deterministic rows in both
+  `normalizePrincipalEnumerationRowBlocks` and
+  `compileEnumerationDisplayTableRows`.
+- `go test ./internal/tool ./internal/render ./internal/types` PASS.
+- `s7b` PASS in `eval/results/s7b-20260520-121256`: final answer renders the
+  scalar `25` without appending the previous mostly-empty Kind-member table.
+  Remaining unrelated gap: exploration still spends 19 iterations because the
+  deterministic count-proof closure is not recognized early enough.
+
 ### Batch 1 — Deterministic Scalar / Measurement / VCS Guardrails
 
 Status: first implementation committed as `91651164`; follow-up hardening in
