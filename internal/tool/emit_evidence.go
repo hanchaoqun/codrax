@@ -653,7 +653,11 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		r := ground.GroundItemScoped(&built[i], gc)
 		if stabilizeStringLiteralIdentifierAnchor(&built[i], gc) {
 			r = ground.GroundItemScoped(&built[i], gc)
-			if appendGroundingNoteOnce(&built[i], "anchor_kind=string_literal was treated as definition because anchor_symbol matched a non-comment identifier on the cited source line, while no source-code literal span matched that exact value") {
+			compatNote := "anchor_kind=string_literal was treated as definition because anchor_symbol matched a non-comment identifier on the cited source line, while no source-code literal span matched that exact value"
+			if built[i].AnchorKind == types.AnchorTextReference {
+				compatNote = "anchor_kind=string_literal was treated as text_reference because anchor_symbol matched visible non-comment source text on the cited line, while no source-code literal span matched that exact value"
+			}
+			if appendGroundingNoteOnce(&built[i], compatNote) {
 				r.Note = built[i].GroundingNote
 			}
 		}
@@ -1555,10 +1559,17 @@ func stabilizeStringLiteralIdentifierAnchor(it *types.EvidenceItem, gc *ground.C
 	if _, ok := ground.VerifyLineAnchor(gc, it.Source, it.LineStart, it.AnchorSymbol, 0); !ok {
 		return false
 	}
-	if !lineLooksIdentifierBindingAtAnchor(gc, it.Source, it.LineStart, it.AnchorSymbol) {
+	if lineLooksIdentifierBindingAtAnchor(gc, it.Source, it.LineStart, it.AnchorSymbol) {
+		it.AnchorKind = types.AnchorDefinition
+		it.GroundingStatus = ""
+		it.GroundingTier = ""
+		it.GroundingNote = ""
+		return true
+	}
+	if !lineLooksIdentifierReferenceAtAnchor(gc, it.Source, it.LineStart, it.AnchorSymbol) {
 		return false
 	}
-	it.AnchorKind = types.AnchorDefinition
+	it.AnchorKind = types.AnchorTextReference
 	it.GroundingStatus = ""
 	it.GroundingTier = ""
 	it.GroundingNote = ""
@@ -1594,6 +1605,26 @@ func lineLooksIdentifierBindingAtAnchor(gc *ground.Context, source string, line 
 		return openParen < 0 || eq < openParen
 	}
 	return false
+}
+
+func lineLooksIdentifierReferenceAtAnchor(gc *ground.Context, source string, line int, anchor string) bool {
+	if gc == nil || source == "" || line <= 0 || strings.TrimSpace(anchor) == "" {
+		return false
+	}
+	source = ground.CanonicalContextPath(gc, source)
+	text := strings.TrimSpace(gc.LineIndex[source][line])
+	if text == "" {
+		return false
+	}
+	idx := indexIdentifierToken(text, anchor)
+	if idx < 0 {
+		return false
+	}
+	after := strings.TrimSpace(text[idx+len(anchor):])
+	// Calls have their own anchor kind and direction normalisation path.
+	// Do not silently launder a malformed string-literal call target into a
+	// broad text reference here.
+	return !strings.HasPrefix(after, "(")
 }
 
 func indexIdentifierToken(text, anchor string) int {

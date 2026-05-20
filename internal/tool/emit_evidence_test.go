@@ -1057,6 +1057,53 @@ func TestEmitEvidence_RepairsStringLiteralIdentifierAnchorToDefinition(t *testin
 	}
 }
 
+func TestEmitEvidence_RepairsStringLiteralIdentifierReferenceToTextReference(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "ressched/services/resschedservice/src/res_sched_service.cpp", 186,
+		"        ResType::RES_TYPE_START_INPUT_METHOD_PROCESS,",
+		"        ResType::RES_TYPE_START_UIEXTENSION_PROC,",
+		"        ResType::RES_TYPE_SCHED_MODE_CHANGE,",
+		"        ResType::RES_TYPE_AVCODE_HARDWARE_RESOURCES,",
+		"        ResType::RES_TYPE_FIRST_FRAME_DRAWN,",
+	)
+	params := json.RawMessage(`{
+		"items": [{
+			"scope": "line",
+			"evidence_kind": "direct",
+			"source": "ressched/services/resschedservice/src/res_sched_service.cpp",
+			"line_start": 189,
+			"anchor_kind": "string_literal",
+			"anchor_symbol": "RES_TYPE_AVCODE_HARDWARE_RESOURCES",
+			"summary": "ALLOW_MULTI_UID_REPORT_RES集合中使用RES_TYPE_AVCODE_HARDWARE_RESOURCES"
+		}]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected identifier-reference repair to succeed, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted evidence item, got %d", len(got))
+	}
+	if got[0].AnchorKind != types.AnchorTextReference {
+		t.Fatalf("anchor_kind=%q, want %q", got[0].AnchorKind, types.AnchorTextReference)
+	}
+	if got[0].GroundingStatus != types.GroundingGrounded || got[0].GroundingTier != types.TierLineText {
+		t.Fatalf("grounding=%s/%s, want grounded/%s; summary:\n%s",
+			got[0].GroundingStatus, got[0].GroundingTier, types.TierLineText, res.Summary)
+	}
+	if !strings.Contains(got[0].GroundingNote, "treated as text_reference") {
+		t.Fatalf("grounding note should record compatibility repair, got %q", got[0].GroundingNote)
+	}
+	if strings.Contains(res.Summary, "→ ungrounded") || strings.Contains(res.Summary, "Current actionable repair targets: ressched/services/resschedservice/src/res_sched_service.cpp") {
+		t.Fatalf("summary should not ask for ungrounded repair after compatibility fix:\n%s", res.Summary)
+	}
+}
+
 func TestEmitEvidence_DoesNotRepairStringLiteralIdentifierOnCallSite(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
