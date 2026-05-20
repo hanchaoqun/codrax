@@ -1395,6 +1395,137 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ConflictingDeterministicCoun
 	}
 }
 
+func TestDeterministicHistoryCountToolResultValue_AcceptsOnlyLabeledGitProof(t *testing.T) {
+	mut := types.NewMutableState("history count")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Summary:  "[exec_command: $ git log --format=%H -20 -- internal/orchestrator | awk 'END { print \"answer_count=0\" }']\nanswer_count=0\n",
+		Success:  true,
+	})
+	got, ok := deterministicHistoryCountToolResultValue(&types.BusContext{Mutable: mut})
+	if !ok || got != 0 {
+		t.Fatalf("deterministicHistoryCountToolResultValue = (%d,%v), want (0,true)", got, ok)
+	}
+
+	mut = types.NewMutableState("history count")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Summary:  "[exec_command: $ git log --oneline -20 -- internal/orchestrator | wc -l]\n20\n",
+		Success:  true,
+	})
+	if got, ok := deterministicHistoryCountToolResultValue(&types.BusContext{Mutable: mut}); ok {
+		t.Fatalf("bare git count should not be accepted as exact history proof: (%d,true)", got)
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCountAcceptsLabeledVCSProof(t *testing.T) {
+	mut := types.NewMutableState("过去 20 个提交里有多少次同时改过 internal/orchestrator 和 runTaskGraph？")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Summary:  "[exec_command: $ git log --format=%H -20 -- internal/orchestrator | awk 'END { print \"answer_count=0\" }']\nanswer_count=0\n",
+		Success:  true,
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "过去 20 个提交里有多少次同时改过 internal/orchestrator 和 runTaskGraph？",
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+					IsHistoryLookup: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "exact VCS set operation produced answer_count",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "history count aggregate handoff is missing") {
+		t.Fatalf("labeled VCS count proof should clear history handoff downgrade: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should close after labeled VCS count proof: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	var found bool
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateScalar || fact.Value != "0" ||
+			fact.Provenance != "system_deterministic_history_count_enrichment" {
+			continue
+		}
+		var hasAxis, hasKind bool
+		for _, dim := range fact.Dimensions {
+			switch {
+			case strings.EqualFold(dim.Name, "answer_axis") && strings.EqualFold(dim.Value, "count"):
+				hasAxis = true
+			case strings.EqualFold(dim.Name, "measurement_kind") && strings.EqualFold(dim.Value, "vcs_history_count"):
+				hasKind = true
+			}
+		}
+		if !hasAxis || !hasKind {
+			t.Fatalf("history deterministic scalar should carry typed dimensions, got %+v", fact)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("labeled VCS count proof should be carried as scalar aggregate, got %+v", facts)
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCountRejectsBareBroadGitCount(t *testing.T) {
+	mut := types.NewMutableState("过去 20 个提交里有多少次同时改过 internal/orchestrator 和 runTaskGraph？")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Summary:  "[exec_command: $ git log --oneline -20 -- internal/orchestrator | wc -l]\n20\n",
+		Success:  true,
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "过去 20 个提交里有多少次同时改过 internal/orchestrator 和 runTaskGraph？",
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer:  true,
+					IsCountQuestion: true,
+					IsHistoryLookup: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "broad candidate count only",
+		"confidence":  "medium",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "history count aggregate handoff is missing") {
+		t.Fatalf("bare broad git count must not clear history handoff downgrade: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open after a broad unlabeled history count")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_RelationalCountAlsoNeedsStructuredProof(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeTestFile(t, repoRoot, "internal/orchestrator/orchestrator.go", `

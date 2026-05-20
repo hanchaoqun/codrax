@@ -186,6 +186,42 @@ func TestNormalizePrincipalEnumerationRowBlocks_SystemSupplementOmitsEmptyLocati
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_SkipsScalarHistoryCountSupportMembers(t *testing.T) {
+	mu := types.NewMutableState("过去 20 个提交里有多少次改过 runTaskGraph")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "匹配提交",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"commit a", "commit b"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentReturnValue,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsScalarAnswer:  true,
+				IsCountQuestion: true,
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "答案是 2 次。",
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed != 0 {
+		t.Fatalf("scalar history count support members must not generate principal rows; fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("system must not append commit/member tables to scalar count answers: %+v", doc.Blocks)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_PreservesAuthoredRichRowNotes(t *testing.T) {
 	mu := types.NewMutableState("列出 Kind 常量")
 	mu.AppendEvidence([]types.EvidenceItem{

@@ -180,6 +180,56 @@ thin or misleading answer, record it here before choosing a fix.
 | E20260520-G138 | `hitrace_jank` | P1 | Open | Dedicated `perf_triager` / `emit_perf_trace` did not appear to own the run. The pipeline proceeded through normal analyze/explore, hit analyzer `shape_subject_coherence`, then searched current repo files such as `internal/skill/defaults.go`, `internal/agent/analyzer.go`, and `internal/tool/emit_perf_trace.go` to answer a runtime trace question. | Performance trace dispatch is advisory rather than decisive. Runtime trace questions can fall back to current-code exploration even when the attached artifact alone proves the frame timings and stack. | Add a perf-trace fast path from detected `tracing_mark_write` spans to `perf_triager` output and then to finalizer. Current-code exploration should run only when the user explicitly asks to verify implementation or when artifact frames resolve to repo files. |
 | E20260520-G139 | `hitrace_jank` | P1 | Open | Finalizer prompt required HARD `current_code_path` and the reviewer complained about `Current code path declared=1 anchored=0`, while the correct evidence was runtime observations (`H:RenderService:DoFrame`, `H:Layout:measure`, `H:DataLoader:fetchSync`). The run also logged `citation_count_ge 2 — 0 citations < 2` even though runtime-observation citations were emitted. | Artifact evidence and current-code evidence are still partially conflated. Runtime observations are accepted enough to render an answer, but facet/citation accounting still treats them as missing repo citations. | Give perf/runtime observations first-class facet and citation accounting (`observed_artifact_fact`, frame_order, duration_ms, trigger_span). Do not require `current_code_path` or global repo citation floors for external-only trace answers. |
 | E20260520-G140 | `hitrace_jank` | P2 | Open | The final answer correctly identified the 86ms `RenderService:DoFrame` jank and 84ms `DataLoader:fetchSync` blocker, but still appended generic “未达到预期标准 / 需要补充验证” text due to the mismatched citation/facet checks. | Generic supplements continue to surface internal validation noise even when the user-visible artifact answer is complete and the gap is in system accounting. | Suppress generic supplements caused by known artifact-accounting mismatches; render a precise localized boundary only when the answer truly lacks a user-relevant fact. |
+| E20260520-G141 | `logtri_goroutine_dump` | P1 | Open | PASS answer identified goroutines 15/87/120, but then verified current checkout despite `resolved_files=0`, cited external-binary stack frames through the repo citation pool (`internal/agent/analyzer.go:100`), rendered a system table `并发崩溃的 goroutine（3）` with blank location/description cells, and appended a generic “未达到预期标准” supplement. | External-only log triage still lets artifact frames become code-symbol member sets and repo citations. The system also adds empty member补表 rows to a simple artifact answer instead of preserving the log-frame answer shape. | Treat goroutine IDs / external stack frames as artifact-frame facts, not repo members. For `resolved_files=0`, block repo citation refs for external frames, suppress current-code verification unless explicitly requested, and apply the no-empty-system-table invariant to artifact member supplements. |
+
+## High-ROI Remediation Queue
+
+This queue groups the 141 findings into fixes that should retire whole classes
+of failures. Prefer these over isolated case patches. If a later product commit
+already addresses part of an item, keep the item as a verification target until
+the eval cases prove the class is closed.
+
+| Priority | Track | Covers | Why high ROI | Done When |
+| --- | --- | --- | --- | --- |
+| P0 | Deterministic scalar / measurement / VCS lanes | G77-G78, G82-G83, G114-G116, plus scalar fallout in G71/G89/G92 | Wrong scalar answers are high-trust failures and often waste many explorer turns. A typed `{command, scope, value, provenance}` lane plus bounded VCS set-intersection support should fix LOC/count/history cases and remove model arithmetic from the critical path. | Count/history evals (`s7a`, `s7b`, `u7b`) produce command-backed scalar answers with no manual arithmetic, no blank member tables, and no fake code-symbol citations. |
+| P0 | Row compiler / system补表 safety contract | G11, G13, G16, G18, G20, G25-G28, G35, G79-G80, G83, G116, G131, G135, G141 | The compiler can visibly pollute otherwise good answers, create contradictory counts, empty tables, wrong bucket members, and duplicate surfaces. One renderer/compiler contract can eliminate a large share of unacceptable PASS cases. | System-generated blocks are explicitly marked, never empty, never contradict model-authored principal rows, never override a complete model table, and are bucket/scope keyed. Existing model-authored Markdown/tables stay intact. |
+| P0 | Reviewer/render surface alignment and contradiction enforcement | G1, G11, G15, G21-G22, G71, G75-G76, G79, G92, G121, G125, G132 | Reviewer false negatives/positives currently cause both bad publishes and wasted retries. Feeding reviewers the exact post-normalized rendered surface and making high-confidence contradiction repair deterministic should improve many families at once. | Reviewers consume structured rendered blocks/tables; high-confidence contradictions either mutate/suppress the offending system block or fail the run; generic supplements are suppressed when semantic sufficiency is above floor and no precise visible defect remains. |
+| P0 | External artifact / runtime trace first-class route | G2, G4, G6-G10, G126-G129, G134-G141 | Log/Hilog/HiTrace cases repeatedly conflate artifact frames with repo source, over-explore current code, and leak artifact paths into repo citations. A first-class artifact evidence lane is broad, user-visible, and reduces runtime. | `resolved_files=0` answers use artifact-frame citations/lanes, skip repo exploration unless requested, reject or normalize repo citation leakage, preserve innermost frames, and do not require current-code facets/citation floors. |
+| P1 | Schema-aware compatibility repair without lossy recovery | G5, G8-G9, G12, G14, G67-G68, G72, G74, G87, G119-G120, G136-G137 | Many retries are caused by near-miss fields or schema shapes that are safely repairable; the dangerous part is lossy recovery that silently drops model content. | Safe repairs are typed and lossless; unknown/near-miss fields with obvious mapping are normalized before retry; unrecoverable JSON-string payloads fail instead of publishing thin recovered answers. |
+| P1 | Explorer convergence and authoritative-closure routing | G2-G3, G12, G23, G27, G65/G81/G87, G90, G115, G133 | Long-running cases dominate latency. Most tails come from requiring every grep/repo_map candidate after an authoritative source was already found. | Exploration closes on typed authoritative sources, uses do-not-retry convergence signals, records reliable dispatch/iteration metrics, and keeps broad grep candidates soft unless the answer family requires exhaustive verification. |
+| P1 | Multi-repo bucket / scope isolation | G16-G21, G93, plus `read_combo_multirepo_negative_interaction` notes | Cross-repo contamination creates contradictory, highly visible answers. The fix is structural: principal keys must include repo/bucket/scope identity. | A row from repo A cannot count/render as repo B's principal member; inactive/negative scope answers use negative-search facets instead of positive definition facets; parent-graph fallback is explicit telemetry only. |
+| P1 | Exact target / citation binding and stronger-evidence selection | G24, G66, G70, G76, G84-G86, G91, G93, G97-G100, G130 | Many answers are mostly right but cite adjacent or weaker lines, drop the best definition anchor, or promote same-family false positives. This is a cross-family trust issue. | Principal claims cite matching exact anchors; visible file:line text resolves to a citation; definition/assignment hits outrank package metadata or nearby call sites; same-family context cannot become principal for exact-target asks. |
+| P1 | Analyzer intent/schema normalization for direct questions | G5, G68, G72, G88, G90, G118, G122-G123 | Analyzer retries and over-expanded subtopics slow simple direct questions and sometimes alter user intent. Typed normalization is cheaper and safer than reclassification loops. | Role-locate/error-granularity/direct mechanism questions classify in one pass where fields are inferable; subtopics/focuses come from explicit user asks; decorator/marker inventories do not fail subtopic coherence because marker tokens differ from file buckets. |
+| P2 | Language inventory adapters and decorator/package metadata lanes | G122-G125, G130-G133 | ArkTS/Cangjie failures show supported repomap languages are not fully supported end-to-end in search, decorator preservation, and package-line rendering. | Every repomap-supported language maps to valid search extensions; decorator stacks and package/module attributes are typed table columns with citations or no line-number claims. |
+
+### Batch 1 — Deterministic Scalar / Measurement / VCS Guardrails
+
+Status: implemented in the current working tree; awaiting eval rerun.
+
+Scope for this batch:
+
+- B1.1 Safe read-mode counting pipelines: allow `xargs` only as a wrapper around
+  already allowlisted read-only commands, so large-file count/measurement
+  questions can use `find ... -print0 | xargs -0 wc -l` without falling back to
+  model arithmetic. Mutating nested commands (`rm`, `git clean`, `sed -i`) and
+  interactive `xargs -p` remain rejected.
+- B1.2 Scalar/history count support separation: a `member_set` attached to a
+  scalar count answer is corroborating evidence, not a principal answer table,
+  even when the model marked it `principal_answer`. This prevents commit/file
+  support ledgers from being rendered as system-generated member tables.
+- B1.3 Strict VCS scalar lane: history/count questions may be completed from a
+  deterministic `exec_command` only when the command provenance is VCS-shaped
+  (`git log` / `git rev-list`) and the output explicitly labels the final
+  result as `answer_count`, `intersection_count`, `filtered_count`,
+  `result_count`, `vcs_count`, or `history_count`. Broad unlabeled
+  `git log | wc -l` counts remain support-only and still require a structured
+  handoff.
+
+Validation target: `s7a` should stop relying on manual line arithmetic; `u7b`
+should no longer get a system commit/member table when the user asked for a
+scalar count, and can close on a precisely labeled VCS count proof. `s7b/u7b`
+still need eval confirmation that the prompts choose the deterministic command
+shape consistently.
 
 ## Case Notes So Far
 
@@ -193,6 +243,7 @@ thin or misleading answer, record it here before choosing a fix.
 ### Cost / Quality Outliers
 
 - `logtri_degraded`: PASS but expensive. Main issue is upstream exploration cost on a degraded placeholder artifact.
+- `logtri_goroutine_dump`: PASS but polluted by external-frame repo citations, current-code over-verification, an empty system补表 for goroutine IDs, and a generic supplement; tracked as G141.
 - `logtri_partial`: PASS but analyzer retry path is noisy and user-visible runtime is high for a simple scalar-from-log answer.
 - `logtri_oversized`: PASS but explorer repair tail is avoidable.
 - `logtri_rust`: PASS but answer quality is unacceptable because compatibility recovery lost blocks.
@@ -265,3 +316,23 @@ thin or misleading answer, record it here before choosing a fix.
 ### Write-Mode Baselines
 
 - `patch_c_typo`, `patch_cpp_typo`, `patch_go_typo`, `patch_java_typo`, `patch_python_typo`: PASS. These are not the primary read-mode focus of this sweep, but they provide a sanity baseline that the added read-mode evals did not disturb write-mode apply/verify plumbing.
+
+## Reverse-Audit Coverage Check
+
+2026-05-20 follow-up audit reran a log-pattern cross-check over all 82
+`run-1.out` / `run-1.metrics.txt` files under
+`eval/results/full-20260520-030326` and compared anomaly-bearing cases against
+this ledger. The scan covered finalizer rejects, analyzer retries, schema
+compatibility repairs, reviewer negative verdicts, generic supplements,
+degraded table headers, citation-only list items, multi-repo fallback telemetry,
+external-artifact/current-code conflation, timeout/cost markers, and metric
+outliers such as `explorer_dispatches=0` with positive explorer iterations.
+
+Result: every anomaly-bearing case was already represented in this document
+except `logtri_goroutine_dump`, now recorded as G141. No additional unrecorded
+case-level gaps were found by the reverse-audit pass. The pattern scan also
+confirms the high-level systemic clusters already represented above:
+external-only artifact routing, row-compiler/system补表 pollution,
+reviewer/render surface mismatch, schema-aware repair gaps, telemetry counter
+drift, scalar/count deterministic-measurement gaps, and high-cost explorer
+convergence tails.

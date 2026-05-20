@@ -940,6 +940,9 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 	}
 	out := make([]AnswerAggregateFactRef, 0, len(refs))
 	for _, ref := range refs {
+		if AggregateMemberSetIsScalarCountSupport(rm, ref.Fact) {
+			continue
+		}
 		explicitRole := NormalizeAnswerAggregateRole(ref.Fact.Role)
 		role := AnswerAggregateFactRoleForRequest(ref.Fact, rm)
 		if role != AnswerAggregateRolePrincipalAnswer {
@@ -1405,11 +1408,12 @@ func AggregateMemberSetIsScalarCountSupport(rm *RequestModel, fact AnswerAggrega
 	if rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.IsRelationalLookup ||
 		rm.Predicates.IsCrossComponent ||
-		rm.Predicates.IsHistoryLookup ||
 		rm.Predicates.IsDiagnosticQuestion {
 		return false
 	}
-	return rm.Intent == IntentReturnValue || rm.AnswerSubject.Kind == SubjectNumeric
+	return rm.Predicates.IsHistoryLookup ||
+		rm.Intent == IntentReturnValue ||
+		rm.AnswerSubject.Kind == SubjectNumeric
 }
 
 func PrincipalRelationMemberSetFactRefsForRequest(facts []AnswerAggregateFact, rm *RequestModel) []AnswerAggregateFactRef {

@@ -1376,6 +1376,35 @@ func TestBuildAnswerSurfacePlan_ProjectsAggregateFactsAfterCompleteAnswerSymbols
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefsForRequest_ScalarHistoryCountTreatsMembersAsSupport(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "matching commits",
+		Value:   "2",
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"commit a", "commit b"},
+	}}
+	rm := RequestModel{
+		Predicates: SemanticPredicates{
+			IsScalarAnswer:  true,
+			IsCountQuestion: true,
+			IsHistoryLookup: true,
+		},
+	}
+
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm); len(got) != 0 {
+		t.Fatalf("history count member_set should remain support-only even if explicitly marked principal: %+v", got)
+	}
+	if AggregateMemberSetIsScalarCountSupport(&rm, facts[0]) != true {
+		t.Fatalf("scalar history count member_set should be classified as count support")
+	}
+
+	rm.Predicates.IsCategoryEnumeration = true
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm); len(got) != 1 {
+		t.Fatalf("category enumeration should still allow principal member_set rows, got %+v", got)
+	}
+}
+
 func TestBuildAnswerSurfacePlan_DoesNotNarrowAcceptedMemberSetWithIncompleteAnswerSymbols(t *testing.T) {
 	mut := NewMutableState("public constants")
 	mut.SetInvestigationAggregateFacts([]AnswerAggregateFact{{

@@ -50,6 +50,7 @@ var readModeAllowedExecCommands = map[string]bool{
 	"true":     true,
 	"uniq":     true,
 	"wc":       true,
+	"xargs":    true,
 	"yq":       true,
 }
 
@@ -338,8 +339,111 @@ func validateReadOnlyCommandArgs(cmd string, args []shellToken) error {
 		if !readModeAllowedGitSubcommands[sub] {
 			return fmt.Errorf("git subcommand %q is not allowed in read mode", sub)
 		}
+	case "xargs":
+		return validateReadOnlyXargsArgs(words)
 	}
 	return nil
+}
+
+func validateReadOnlyXargsArgs(words []string) error {
+	i := 0
+	for i < len(words) {
+		arg := strings.TrimSpace(words[i])
+		if arg == "" {
+			i++
+			continue
+		}
+		if arg == "--" {
+			i++
+			break
+		}
+		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			break
+		}
+		advance, err := readOnlyXargsOptionArgCount(arg)
+		if err != nil {
+			return err
+		}
+		if i+advance > len(words) {
+			return fmt.Errorf("xargs option %q requires an argument", arg)
+		}
+		i += advance
+	}
+	if i >= len(words) {
+		// POSIX xargs defaults to echo, which is read-only.
+		return nil
+	}
+	cmd := shellCommandName(words[i])
+	if cmd == "xargs" {
+		return fmt.Errorf("nested xargs is not allowed in read mode")
+	}
+	if !readModeAllowedExecCommands[cmd] {
+		return fmt.Errorf("xargs nested command %q is not allowed in read mode", cmd)
+	}
+	nestedArgs := make([]shellToken, 0, len(words)-i-1)
+	for _, arg := range words[i+1:] {
+		nestedArgs = append(nestedArgs, shellToken{kind: shellTokenWord, text: arg})
+	}
+	if err := validateReadOnlyCommandArgs(cmd, nestedArgs); err != nil {
+		return fmt.Errorf("xargs nested command %q is not read-only: %w", cmd, err)
+	}
+	return nil
+}
+
+func readOnlyXargsOptionArgCount(arg string) (int, error) {
+	switch arg {
+	case "-p", "--interactive":
+		return 0, fmt.Errorf("xargs interactive prompt option %q is not allowed in read mode", arg)
+	case "-0", "--null", "-r", "--no-run-if-empty", "-t", "--verbose", "-x", "--exit", "-o", "--open-tty", "--show-limits":
+		return 1, nil
+	case "-n", "--max-args", "-L", "--max-lines", "-s", "--max-chars", "-P", "--max-procs", "-I", "--replace",
+		"-d", "--delimiter", "-E", "-e", "--eof", "-a", "--arg-file":
+		return 2, nil
+	}
+	if strings.HasPrefix(arg, "--") {
+		if readOnlyXargsLongOptionWithInlineValue(arg) {
+			return 1, nil
+		}
+		return 0, fmt.Errorf("xargs option %q is not allowed in read mode", arg)
+	}
+	if strings.HasPrefix(arg, "-n") || strings.HasPrefix(arg, "-L") ||
+		strings.HasPrefix(arg, "-s") || strings.HasPrefix(arg, "-P") ||
+		strings.HasPrefix(arg, "-I") || strings.HasPrefix(arg, "-d") ||
+		strings.HasPrefix(arg, "-E") || strings.HasPrefix(arg, "-e") {
+		return 1, nil
+	}
+	if strings.HasPrefix(arg, "-") && len(arg) > 1 {
+		for _, r := range strings.TrimPrefix(arg, "-") {
+			switch r {
+			case '0', 'r', 't', 'x', 'o':
+				continue
+			case 'p':
+				return 0, fmt.Errorf("xargs interactive prompt option %q is not allowed in read mode", arg)
+			default:
+				return 0, fmt.Errorf("xargs option %q is not allowed in read mode", arg)
+			}
+		}
+		return 1, nil
+	}
+	return 0, fmt.Errorf("xargs option %q is not allowed in read mode", arg)
+}
+
+func readOnlyXargsLongOptionWithInlineValue(arg string) bool {
+	for _, prefix := range []string{
+		"--max-args=",
+		"--max-lines=",
+		"--max-chars=",
+		"--max-procs=",
+		"--replace=",
+		"--delimiter=",
+		"--eof=",
+		"--arg-file=",
+	} {
+		if strings.HasPrefix(arg, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func firstGitSubcommand(args []string) string {

@@ -436,6 +436,10 @@ func TestExecCommand_ReadModeShellWriteGate(t *testing.T) {
 			"find . -name '*.tmp' -delete",
 			"git clean -fd",
 			"sed -i 's/a/b/' file.txt",
+			"find . -print0 | xargs -0 rm -f",
+			"find . -print0 | xargs -0 git clean -fd",
+			"find . -print0 | xargs -0 sed -i 's/a/b/'",
+			"find . -print0 | xargs -p wc -l",
 		} {
 			if err := validateReadOnlyExecCommand(command); err == nil {
 				t.Fatalf("validateReadOnlyExecCommand(%q) unexpectedly allowed", command)
@@ -447,6 +451,9 @@ func TestExecCommand_ReadModeShellWriteGate(t *testing.T) {
 		for _, command := range []string{
 			"printf 'a > b\\n' | wc -l",
 			"find . -name '*.go' | wc -l",
+			"find . -type f -name '*.go' -print0 | xargs -0 wc -l",
+			"find . -type f -name '*.go' -print0 | xargs -0 -n 50 wc -l",
+			"find . -type f -name '*.go' -print0 | xargs -0r --max-args=50 wc -l",
 			"git status --short && git diff --stat",
 			"grep -R 'StageExplore' internal | head -5",
 		} {

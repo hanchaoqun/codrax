@@ -33,6 +33,7 @@ import (
 const EmitInvestigationCompleteDowngradePrefix = "emit_investigation_complete DOWNGRADED"
 
 var callChainQualifiedCallRe = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)+\s*\(`)
+var deterministicHistoryCountLineRe = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_])(?:answer_count|result_count|filtered_count|intersection_count|vcs_count|history_count)\s*[:=]\s*(-?\d+)(?:[^A-Za-z0-9_]|$)`)
 
 // EmitInvestigationComplete is the explorer's explicit completion
 // signal. When the LLM has collected enough evidence to answer the
@@ -544,6 +545,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	effectiveAggregateFacts = enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx, effectiveAggregateFacts, evidenceSnapshot)
 	effectiveAggregateFacts = reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx, effectiveAggregateFacts, evidenceSnapshot)
 	effectiveAggregateFacts = enrichCompletionAggregateFactsWithDeterministicCount(ctx, effectiveAggregateFacts)
+	effectiveAggregateFacts = enrichCompletionAggregateFactsWithDeterministicHistoryCount(ctx, effectiveAggregateFacts)
 	effectiveAggregateFacts = normalizeAggregateFactsForTypedExclusion(ctx, effectiveAggregateFacts)
 
 	// Reject the emit when a member_set carries members led by a code
@@ -1826,7 +1828,7 @@ func historyCountAggregateHandoffDowngrade(ctx *types.BusContext, closure *types
 	if !rm.Predicates.IsCountQuestion || !rm.Predicates.IsHistoryLookup {
 		return ""
 	}
-	if aggregateFactsContainCountAnswer(aggregateFacts) {
+	if aggregateFactsContainCountAnswer(aggregateFacts) || aggregateFactsContainDeterministicCountScalar(aggregateFacts) {
 		return ""
 	}
 	if closure != nil {
@@ -1840,7 +1842,7 @@ func historyCountAggregateHandoffDowngrade(ctx *types.BusContext, closure *types
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — history count aggregate handoff is missing.\n\n")
 	b.WriteString("This is a historical count question. Raw git / shell output can contain broad candidate counts, commit-message matches, and the verified filtered result at the same time; finalization must not choose among those numbers from raw output memory.\n\n")
-	b.WriteString("Emit `aggregate_facts` with kind=`total_count`, `unique_count`, or `member_set` for the verified answer count. Use `dimensions` to name the history window, filter basis, and any broad candidate pool / exclusions when they differ. The value must come from your verified tool output or structured evidence, not from closure prose. Then re-call `emit_investigation_complete`.")
+	b.WriteString("Emit `aggregate_facts` with kind=`total_count`, `unique_count`, or `member_set` for the verified answer count. Use `dimensions` to name the history window, filter basis, and any broad candidate pool / exclusions when they differ. The value must come from your verified tool output or structured evidence, not from closure prose. If you use a single deterministic VCS command instead, its final output line must label the exact answer as `answer_count=<n>`, `intersection_count=<n>`, `filtered_count=<n>`, `result_count=<n>`, `vcs_count=<n>`, or `history_count=<n>` so the system can distinguish the final answer from broad candidate counts. Then re-call `emit_investigation_complete`.")
 	return b.String()
 }
 
@@ -1852,7 +1854,7 @@ func deterministicCountProofDowngrade(ctx *types.BusContext, closure *types.Evid
 	if !rm.Predicates.IsCountQuestion {
 		return ""
 	}
-	if aggregateFactsContainCountAnswer(aggregateFacts) {
+	if aggregateFactsContainCountAnswer(aggregateFacts) || aggregateFactsContainDeterministicCountScalar(aggregateFacts) {
 		return ""
 	}
 	if hasDeterministicCountToolResult(ctx) {
@@ -3589,17 +3591,61 @@ func enrichCompletionAggregateFactsWithDeterministicCount(ctx *types.BusContext,
 	if !ok {
 		return facts
 	}
+	return appendDeterministicCountAggregateFact(facts, value, deterministicCountAggregateLabel(ctx, false), "system_deterministic_count_enrichment", nil)
+}
+
+func enrichCompletionAggregateFactsWithDeterministicHistoryCount(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return facts
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !rm.Predicates.IsCountQuestion || !rm.Predicates.IsHistoryLookup {
+		return facts
+	}
+	if aggregateFactsContainCountAnswer(facts) || aggregateFactsContainDeterministicCountScalar(facts) {
+		return facts
+	}
+	value, ok := deterministicHistoryCountToolResultValue(ctx)
+	if !ok {
+		return facts
+	}
+	return appendDeterministicCountAggregateFact(facts, value, deterministicCountAggregateLabel(ctx, true), "system_deterministic_history_count_enrichment", []types.AnswerAggregateDimension{
+		{Name: "measurement_kind", Value: "vcs_history_count"},
+	})
+}
+
+func deterministicCountAggregateLabel(ctx *types.BusContext, history bool) string {
+	zh := true
+	if ctx != nil && ctx.AnalysisIR != nil {
+		lang := strings.ToLower(strings.TrimSpace(ctx.AnalysisIR.RequestModel.Language))
+		zh = lang == "" || strings.HasPrefix(lang, "zh")
+	}
+	if zh {
+		if history {
+			return "系统验证的历史计数结果"
+		}
+		return "系统验证的计数结果"
+	}
+	if history {
+		return "system-verified history count result"
+	}
+	return "system-verified count result"
+}
+
+func appendDeterministicCountAggregateFact(facts []types.AnswerAggregateFact, value int, label string, provenance string, extraDims []types.AnswerAggregateDimension) []types.AnswerAggregateFact {
 	out := cloneCompletionAggregateFacts(facts)
+	dims := []types.AnswerAggregateDimension{
+		{Name: "proof_source", Value: "exec_command"},
+		{Name: "answer_axis", Value: "count"},
+	}
+	dims = append(dims, extraDims...)
 	out = append(out, types.AnswerAggregateFact{
 		Kind:       types.AnswerAggregateScalar,
-		Label:      "deterministic count result",
+		Label:      label,
 		Value:      strconv.Itoa(value),
 		Role:       types.AnswerAggregateRolePrincipalAnswer,
-		Provenance: "system_deterministic_count_enrichment",
-		Dimensions: []types.AnswerAggregateDimension{
-			{Name: "proof_source", Value: "exec_command"},
-			{Name: "answer_axis", Value: "count"},
-		},
+		Provenance: provenance,
+		Dimensions: dims,
 	})
 	return out
 }
@@ -3642,6 +3688,79 @@ func deterministicCountToolResultValue(ctx *types.BusContext) (int, bool) {
 		found = true
 	}
 	return value, found
+}
+
+func deterministicHistoryCountToolResultValue(ctx *types.BusContext) (int, bool) {
+	var value int
+	found := false
+	for _, tr := range deterministicCountToolResults(ctx) {
+		if tr.ToolName != "exec_command" || !tr.Success {
+			continue
+		}
+		if !deterministicHistoryCountCommand(tr.Summary) {
+			continue
+		}
+		n, ok := deterministicHistoryCountProofInteger(tr.Summary)
+		if !ok {
+			continue
+		}
+		if found && n != value {
+			return 0, false
+		}
+		value = n
+		found = true
+	}
+	return value, found
+}
+
+func deterministicHistoryCountCommand(summary string) bool {
+	cmd := strings.ToLower(deterministicCountCommandBanner(summary))
+	if cmd == "" {
+		return false
+	}
+	return strings.Contains(cmd, "git log") || strings.Contains(cmd, "git rev-list")
+}
+
+func deterministicCountCommandBanner(summary string) string {
+	for _, line := range strings.Split(strings.ReplaceAll(summary, "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "[exec_command: $ ") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "[exec_command: $ ")
+		line = strings.TrimSuffix(line, "]")
+		return strings.TrimSpace(line)
+	}
+	return ""
+}
+
+func deterministicHistoryCountProofInteger(summary string) (int, bool) {
+	for _, line := range deterministicCountPayloadLines(summary) {
+		match := deterministicHistoryCountLineRe.FindStringSubmatch(line)
+		if len(match) < 2 {
+			continue
+		}
+		value, err := strconv.Atoi(match[1])
+		if err != nil {
+			return 0, false
+		}
+		return value, true
+	}
+	return 0, false
+}
+
+func deterministicCountPayloadLines(summary string) []string {
+	summary = strings.ReplaceAll(summary, "\r\n", "\n")
+	rawLines := strings.Split(summary, "\n")
+	lines := make([]string, 0, len(rawLines))
+	for _, line := range rawLines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "[exec_command:") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 func deterministicCountToolResults(ctx *types.BusContext) []types.ToolResult {
