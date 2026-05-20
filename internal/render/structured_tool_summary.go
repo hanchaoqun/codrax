@@ -280,13 +280,7 @@ func formatAnswerDraftStructuredTable(block answerDraftPreviewBlock, zh bool) (s
 	if len(headers) == 0 {
 		return "", false
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "| %s |\n", strings.Join(escapeAnswerDraftTableCells(headers), " | "))
-	b.WriteString("|")
-	for range headers {
-		b.WriteString("---|")
-	}
-	b.WriteString("\n")
+	renderRows := make([][]string, 0, len(rows))
 	for _, row := range rows {
 		cells := make([]string, 0, len(headers))
 		if hasLabel {
@@ -299,6 +293,20 @@ func formatAnswerDraftStructuredTable(block answerDraftPreviewBlock, zh bool) (s
 		if len(cells) > len(headers) {
 			cells = cells[:len(headers)]
 		}
+		renderRows = append(renderRows, cells)
+	}
+	headers, renderRows = compactAnswerDraftEmptyTableColumns(headers, renderRows)
+	if len(headers) == 0 {
+		return "", false
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "| %s |\n", strings.Join(escapeAnswerDraftTableCells(headers), " | "))
+	b.WriteString("|")
+	for range headers {
+		b.WriteString("---|")
+	}
+	b.WriteString("\n")
+	for _, cells := range renderRows {
 		fmt.Fprintf(&b, "| %s |\n", strings.Join(escapeAnswerDraftTableCells(cells), " | "))
 	}
 	return strings.TrimRight(b.String(), "\n"), true
@@ -313,6 +321,9 @@ func answerDraftTableHeaders(columns []string, hasLabel bool, maxCells int, zh b
 		if len(columns) == maxCells+1 {
 			return answerDraftFillHeaders(columns, len(columns), zh, hasLabel)
 		}
+		if maxCells == 0 && len(columns) > 0 {
+			return answerDraftFillHeaders(columns[:1], 1, zh, hasLabel)
+		}
 		headers := append([]string{itemHeader}, columns...)
 		if len(headers) == 1 && maxCells == 1 {
 			headers = append(headers, detailHeader)
@@ -324,6 +335,52 @@ func answerDraftTableHeaders(columns []string, hasLabel bool, maxCells int, zh b
 		width = len(columns)
 	}
 	return answerDraftFillHeaders(columns, width, zh, hasLabel)
+}
+
+func compactAnswerDraftEmptyTableColumns(headers []string, rows [][]string) ([]string, [][]string) {
+	if len(headers) == 0 || len(rows) == 0 {
+		return headers, rows
+	}
+	keep := make([]bool, len(headers))
+	kept := 0
+	for col := range headers {
+		for _, row := range rows {
+			if col < len(row) && strings.TrimSpace(row[col]) != "" {
+				keep[col] = true
+				kept++
+				break
+			}
+		}
+	}
+	if kept == 0 {
+		keep[0] = true
+		kept = 1
+	}
+	if kept == len(headers) {
+		return headers, rows
+	}
+	outHeaders := make([]string, 0, kept)
+	for col, h := range headers {
+		if keep[col] {
+			outHeaders = append(outHeaders, h)
+		}
+	}
+	outRows := make([][]string, 0, len(rows))
+	for _, row := range rows {
+		out := make([]string, 0, kept)
+		for col := range headers {
+			if !keep[col] {
+				continue
+			}
+			if col < len(row) {
+				out = append(out, row[col])
+			} else {
+				out = append(out, "")
+			}
+		}
+		outRows = append(outRows, out)
+	}
+	return outHeaders, outRows
 }
 
 func answerDraftFillHeaders(headers []string, width int, zh bool, hasLabel bool) []string {

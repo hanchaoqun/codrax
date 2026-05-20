@@ -128,8 +128,61 @@ func TestNormalizePrincipalEnumerationRowBlocks_UsesEnglishSupplementTitle(t *te
 	if len(doc.Blocks) != 3 {
 		t.Fatalf("expected summary, authored table, and English supplement, got %+v", doc.Blocks)
 	}
-	if !strings.Contains(doc.Blocks[2].Title, "System-verified supplement for missing members") {
+	if !strings.Contains(doc.Blocks[2].Title, "System-verified member supplement") {
 		t.Fatalf("supplement title should follow answer language, got %q", doc.Blocks[2].Title)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_SystemSupplementOmitsEmptyLocationAndNoteColumns(t *testing.T) {
+	mu := types.NewMutableState("列出被硬编码覆盖的 yaml 字段")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "被 sameErrorClassRetryCap 硬编码覆盖的 YAML 配置字段",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"shape_violation", "citation_violation", "other"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "YAML 配置字段已在正文说明。",
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected deterministic principal enumeration normalization")
+	}
+	var supplement *types.AnswerBlock
+	for i := range doc.Blocks {
+		if doc.Blocks[i].Kind == types.BlockTable &&
+			strings.Contains(doc.Blocks[i].Title, "被 sameErrorClassRetryCap 硬编码覆盖的 YAML 配置字段") {
+			supplement = &doc.Blocks[i]
+			break
+		}
+	}
+	if supplement == nil {
+		t.Fatalf("expected system supplement table, got %+v", doc.Blocks)
+	}
+	if !strings.Contains(supplement.Title, "系统按已验证证据补充成员") {
+		t.Fatalf("system-generated table should be explicitly marked, got %q", supplement.Title)
+	}
+	if got, want := supplement.Columns, []string{"符号名称"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("member-only supplement must not expose empty location/note columns: %#v", got)
+	}
+	for _, item := range supplement.Items {
+		if len(item.Cells) != 0 || strings.TrimSpace(item.Text) != "" || item.CitationRef >= 0 {
+			t.Fatalf("member-only row should not synthesize empty cells/text/citation: %#v", item)
+		}
 	}
 }
 

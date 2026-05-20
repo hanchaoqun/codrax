@@ -567,12 +567,7 @@ func renderV2StructuredTable(b *strings.Builder, blk types.AnswerBlock, lang ans
 	if len(headers) == 0 {
 		return false
 	}
-	fmt.Fprintf(b, "| %s |\n", strings.Join(renderV2EscapedTableCells(headers), " | "))
-	b.WriteString("|")
-	for range headers {
-		b.WriteString("---|")
-	}
-	b.WriteString("\n")
+	renderRows := make([][]string, 0, len(rows))
 	for _, row := range rows {
 		cells := make([]string, 0, len(headers))
 		if hasLabel {
@@ -585,6 +580,19 @@ func renderV2StructuredTable(b *strings.Builder, blk types.AnswerBlock, lang ans
 		if len(cells) > len(headers) {
 			cells = cells[:len(headers)]
 		}
+		renderRows = append(renderRows, cells)
+	}
+	headers, renderRows = renderV2CompactEmptyStructuredColumns(headers, renderRows)
+	if len(headers) == 0 {
+		return false
+	}
+	fmt.Fprintf(b, "| %s |\n", strings.Join(renderV2EscapedTableCells(headers), " | "))
+	b.WriteString("|")
+	for range headers {
+		b.WriteString("---|")
+	}
+	b.WriteString("\n")
+	for _, cells := range renderRows {
 		fmt.Fprintf(b, "| %s |\n", strings.Join(renderV2EscapedTableCells(cells), " | "))
 	}
 	b.WriteString("\n")
@@ -631,6 +639,8 @@ func renderV2StructuredTableHeaders(columns []string, hasLabel bool, maxCells in
 			return renderV2FillTableHeaders(columns, len(columns), lang, true)
 		case len(columns) >= maxCells+1 && maxCells > 0:
 			return renderV2FillTableHeaders(columns[:maxCells+1], maxCells+1, lang, true)
+		case maxCells == 0 && len(columns) > 0:
+			return renderV2FillTableHeaders(columns[:1], 1, lang, true)
 		case len(columns) > 0:
 			headers := append([]string{renderV2TableRowHeader(lang)}, columns...)
 			return renderV2FillTableHeaders(headers, maxCells+1, lang, true)
@@ -643,6 +653,52 @@ func renderV2StructuredTableHeaders(columns []string, hasLabel bool, maxCells in
 		width = len(columns)
 	}
 	return renderV2FillTableHeaders(columns, width, lang, false)
+}
+
+func renderV2CompactEmptyStructuredColumns(headers []string, rows [][]string) ([]string, [][]string) {
+	if len(headers) == 0 || len(rows) == 0 {
+		return headers, rows
+	}
+	keep := make([]bool, len(headers))
+	kept := 0
+	for col := range headers {
+		for _, row := range rows {
+			if col < len(row) && strings.TrimSpace(row[col]) != "" {
+				keep[col] = true
+				kept++
+				break
+			}
+		}
+	}
+	if kept == 0 {
+		keep[0] = true
+		kept = 1
+	}
+	if kept == len(headers) {
+		return headers, rows
+	}
+	outHeaders := make([]string, 0, kept)
+	for col, h := range headers {
+		if keep[col] {
+			outHeaders = append(outHeaders, h)
+		}
+	}
+	outRows := make([][]string, 0, len(rows))
+	for _, row := range rows {
+		out := make([]string, 0, kept)
+		for col := range headers {
+			if !keep[col] {
+				continue
+			}
+			if col < len(row) {
+				out = append(out, row[col])
+			} else {
+				out = append(out, "")
+			}
+		}
+		outRows = append(outRows, out)
+	}
+	return outHeaders, outRows
 }
 
 func renderV2FillTableHeaders(headers []string, width int, lang answerDocLang, hasLabel bool) []string {

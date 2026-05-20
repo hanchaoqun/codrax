@@ -413,6 +413,7 @@ func principalEnumerationSetLabelMatchScore(surface string, set types.Enumeratio
 func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet, rows []types.EnumerationDisplayRow, zh bool) types.AnswerBlock {
 	blockSet := set
 	blockSet.Rows = append([]types.EnumerationDisplayRow(nil), rows...)
+	shape := principalEnumerationTableShapeForRows(blockSet.Rows, nil)
 	block := types.AnswerBlock{
 		ID:          uniqueAnswerBlockID(doc, "principal_enum_"+sanitizeEnumerationBlockID(set.ID)),
 		Kind:        types.BlockTable,
@@ -423,27 +424,64 @@ func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.E
 			ClaimForm: types.ClaimDefinitionFact,
 			FacetID:   string(types.FacetEnumerationItem),
 		}},
-		Columns: []string{"符号名称", "定义位置", "说明"},
+		Columns: principalEnumerationTableColumns(zh, shape),
 	}
-	block.Items = principalEnumerationItemsForSet(doc, blockSet, block.Kind, nil)
+	block.Items = principalEnumerationItemsForSet(doc, blockSet, block.Kind, nil, shape)
 	return block
 }
 
 func principalEnumerationRowsBlockTitle(set types.EnumerationDisplaySet, rows []types.EnumerationDisplayRow, zh bool) string {
-	if len(rows) == len(set.Rows) {
-		return principalEnumerationBlockTitle(set)
-	}
 	label := strings.TrimSpace(set.Label)
 	if label == "" {
 		label = "成员清单"
 	}
 	if zh {
-		return fmt.Sprintf("系统按已验证证据补充缺失成员：%s（%d）", label, len(rows))
+		return fmt.Sprintf("系统按已验证证据补充成员：%s（%d）", label, len(rows))
 	}
-	return fmt.Sprintf("System-verified supplement for missing members: %s (%d)", label, len(rows))
+	return fmt.Sprintf("System-verified member supplement: %s (%d)", label, len(rows))
 }
 
-func principalEnumerationItemsForSet(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet, kind types.AnswerBlockKind, existingNotes map[string]string) []types.AnswerBlockItem {
+type principalEnumerationTableShape struct {
+	includeLocation bool
+	includeNote     bool
+}
+
+func principalEnumerationTableShapeForRows(rows []types.EnumerationDisplayRow, existingNotes map[string]string) principalEnumerationTableShape {
+	var shape principalEnumerationTableShape
+	for _, row := range rows {
+		if strings.TrimSpace(row.Location) != "" {
+			shape.includeLocation = true
+		}
+		if strings.TrimSpace(principalEnumerationRowNote(row, existingNotes)) != "" {
+			shape.includeNote = true
+		}
+	}
+	return shape
+}
+
+func principalEnumerationTableColumns(zh bool, shape principalEnumerationTableShape) []string {
+	columns := []string{"Name"}
+	if zh {
+		columns = []string{"符号名称"}
+	}
+	if shape.includeLocation {
+		if zh {
+			columns = append(columns, "定义位置")
+		} else {
+			columns = append(columns, "Location")
+		}
+	}
+	if shape.includeNote {
+		if zh {
+			columns = append(columns, "说明")
+		} else {
+			columns = append(columns, "Notes")
+		}
+	}
+	return columns
+}
+
+func principalEnumerationItemsForSet(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet, kind types.AnswerBlockKind, existingNotes map[string]string, shape principalEnumerationTableShape) []types.AnswerBlockItem {
 	items := make([]types.AnswerBlockItem, 0, len(set.Rows))
 	for _, row := range set.Rows {
 		label := firstNonEmptyAnswerString(row.DisplayLabel, row.Member)
@@ -459,11 +497,22 @@ func principalEnumerationItemsForSet(doc *types.AnswerDocumentV2, set types.Enum
 			CitationRef: citationRef,
 		}
 		if kind == types.BlockTable {
-			item.Cells = []string{strings.TrimSpace(row.Location), note}
+			item.Cells = principalEnumerationTableCells(row, note, shape)
 		}
 		items = append(items, item)
 	}
 	return items
+}
+
+func principalEnumerationTableCells(row types.EnumerationDisplayRow, note string, shape principalEnumerationTableShape) []string {
+	cells := make([]string, 0, 2)
+	if shape.includeLocation {
+		cells = append(cells, strings.TrimSpace(row.Location))
+	}
+	if shape.includeNote {
+		cells = append(cells, strings.TrimSpace(note))
+	}
+	return cells
 }
 
 func principalEnumerationRowNote(row types.EnumerationDisplayRow, existingNotes map[string]string) string {

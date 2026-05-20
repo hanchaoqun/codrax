@@ -368,6 +368,33 @@ func TestRenderV2_BlockTableStructuredCellsWithRowLabels(t *testing.T) {
 	}
 }
 
+func TestRenderV2_BlockTableDropsAllEmptyStructuredColumns(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:      "system_supplement",
+				Kind:    types.BlockTable,
+				Title:   "系统按已验证证据补充成员：配置字段（2）",
+				Columns: []string{"符号名称", "定义位置", "说明"},
+				Items: []types.AnswerBlockItem{
+					{ID: "shape", Label: "shape_violation", Cells: []string{"", ""}},
+					{ID: "other", Label: "other", Cells: []string{"", ""}},
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	if !strings.Contains(out, "| 符号名称 |") ||
+		!strings.Contains(out, "| shape_violation |") ||
+		!strings.Contains(out, "| other |") {
+		t.Fatalf("member-only structured table should still render member rows:\n%s", out)
+	}
+	if strings.Contains(out, "定义位置") || strings.Contains(out, "说明") ||
+		strings.Contains(out, "| 项目 |") {
+		t.Fatalf("renderer should drop all-empty structured columns instead of exposing blank cells:\n%s", out)
+	}
+}
+
 func TestRenderV2_BlockTableStructuredCellsPreserveItemTextOverflow(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

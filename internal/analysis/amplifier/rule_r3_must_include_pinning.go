@@ -33,8 +33,13 @@ import (
 //     prose) are dropped. For an explicit exhaustive / bounded
 //     category enumeration, however, the analyzer contract says
 //     Entities already ARE the enumerated members when
-//     IsRelationalLookup=false, so lowercase package/module/directory
-//     names are valid code entities and must be pinned too.
+//     IsRelationalLookup=false. Exhaustive / declared-count obligations
+//     are deliberately excluded by
+//     CanUseAnalyzerEntitiesAsHardPrincipalMembers: those member sets
+//     must be established by exploration-time structured handoff, not by
+//     the analyzer's early search/entity shortlist. When the remaining
+//     typed lane is trusted, lowercase package/module/directory names are
+//     valid code identities and may be pinned too.
 //  4. The entity is not already present in
 //     out.AnswerContract.MustInclude (dedupe).
 //
@@ -57,7 +62,7 @@ func r3TypedIdentifierMustInclude(rm types.RequestModel, contract *types.AnswerC
 	if !types.CanUseAnalyzerEntitiesAsHardPrincipalMembers(rm) {
 		return nil
 	}
-	trustEnumerationMembers := exhaustiveEnumerationPinsMembers(rm)
+	trustEnumerationMembers := trustLowercaseCodeIdentityMembers(rm)
 	if distinctEntityCount(rm.AnalyzerHints.Entities) == 0 {
 		return nil
 	}
@@ -128,7 +133,13 @@ func r3TypedIdentifierMustInclude(rm types.RequestModel, contract *types.AnswerC
 	}
 }
 
-func exhaustiveEnumerationPinsMembers(rm types.RequestModel) bool {
+func trustLowercaseCodeIdentityMembers(rm types.RequestModel) bool {
+	// This helper is evaluated only after
+	// CanUseAnalyzerEntitiesAsHardPrincipalMembers succeeds. That outer
+	// gate keeps completeness / declared-count obligations out of R3, so
+	// the HasBoundedCategoryEnumerationMembers arm here mainly covers
+	// file-hint-backed code identities where lowercase package/module
+	// names are known to be answer-shaped rather than prose.
 	return types.HasBoundedCategoryEnumerationMembers(rm) ||
 		types.HasPrincipalCategoryEnumerationMemberLane(rm)
 }

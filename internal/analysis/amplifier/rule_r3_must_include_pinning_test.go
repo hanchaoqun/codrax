@@ -106,63 +106,62 @@ func TestR3_DropsProseEntities(t *testing.T) {
 	}
 }
 
-func TestR3_PinsLowercaseMembersForExhaustiveEnumeration(t *testing.T) {
-	rm := types.RequestModel{
-		AnalyzerHints: types.AnalyzerHints{
-			Entities: []string{
-				"aggregator",
-				"compiler",
-				"findings_validator",
-				"com.example.api",
-				"react-dom",
-				"@scope/pkg",
-				"foo::bar",
-				"packages/core",
+func TestR3_NoFire_ExhaustiveEnumerationEntitiesAwaitExplorationHandoff(t *testing.T) {
+	cases := []struct {
+		name string
+		rm   types.RequestModel
+	}{
+		{
+			name: "completeness obligation",
+			rm: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Entities: []string{
+						"aggregator",
+						"compiler",
+						"findings_validator",
+						"com.example.api",
+						"react-dom",
+						"@scope/pkg",
+						"foo::bar",
+						"packages/core",
+					},
+				},
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all packages",
+				},
 			},
 		},
-		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
-		CompletenessObligation: &types.CompletenessObligation{
-			Required:    true,
-			SourceQuote: "all packages",
+		{
+			name: "declared count",
+			rm: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Entities: []string{"aggregator", "compiler"},
+				},
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				EnumerationBoundary: &types.RequestedEnumerationBoundary{
+					DeclaredCount: 2,
+					SourceQuote:   "2 packages",
+				},
+			},
 		},
 	}
-	contract := types.AnswerContract{}
-	obs := AmplifyPostCompile(rm, &contract)
-	r3 := collectR3Observations(obs)
-	if len(r3) != 1 {
-		t.Fatalf("expected 1 R3 observation, got %+v", r3)
-	}
-	if len(contract.MustInclude) != 8 {
-		t.Fatalf("expected 8 cross-language package/module members to be pinned, got %d (%+v)",
-			len(contract.MustInclude), contract.MustInclude)
-	}
-	kinds := map[string]types.ContractTermKind{}
-	for _, term := range contract.MustIncludeTerms {
-		kinds[term.Text] = term.Kind
-	}
-	for _, want := range []string{
-		"aggregator",
-		"compiler",
-		"findings_validator",
-		"com.example.api",
-		"react-dom",
-		"@scope/pkg",
-		"foo::bar",
-		"packages/core",
-	} {
-		found := false
-		for _, got := range contract.MustInclude {
-			if got == want {
-				found = true
-				break
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			contract := types.AnswerContract{}
+			obs := AmplifyPostCompile(tc.rm, &contract)
+			r3 := collectR3Observations(obs)
+			if len(r3) != 0 {
+				t.Fatalf("R3 must wait for exploration member_set on exhaustive/bounded enumeration, got %+v", r3)
 			}
-		}
-		if !found {
-			t.Fatalf("missing pinned member %q in %+v", want, contract.MustInclude)
-		}
-		if kinds[want] != types.ContractTermFileStem {
-			t.Fatalf("member %q kind=%q, want file_stem; terms=%+v", want, kinds[want], contract.MustIncludeTerms)
-		}
+			if len(contract.MustInclude) != 0 {
+				t.Fatalf("analyzer entities must remain soft search hints, got MustInclude=%+v", contract.MustInclude)
+			}
+			if len(contract.MustIncludeTerms) != 0 {
+				t.Fatalf("analyzer entities must not become hard terms before exploration, got %+v", contract.MustIncludeTerms)
+			}
+		})
 	}
 }
 
