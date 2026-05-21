@@ -113,11 +113,13 @@
 # memory_soft_limit_enabled: true
 
 # memory_soft_limit_fraction — fraction of detected host RAM to target.
-#   Clamped to (0, 1]; out-of-range values fall back to 0.8. Linux-only
-#   (reads /proc/meminfo); elsewhere set memory_soft_limit_bytes instead.
-#   Default: 0.8.
-#   目标占检测到的宿主 RAM 的比例。范围 (0, 1],超出则回退 0.8。仅 Linux
-#   (读 /proc/meminfo);其他平台请改用 memory_soft_limit_bytes。默认 0.8。
+#   Clamped to (0, 1]; out-of-range values fall back to 0.8. Host RAM is
+#   detected on Linux (/proc/meminfo), macOS (hw.memsize) and Windows
+#   (GlobalMemoryStatusEx); on any other platform set memory_soft_limit_bytes
+#   instead. Default: 0.8.
+#   目标占检测到的宿主 RAM 的比例。范围 (0, 1],超出则回退 0.8。宿主 RAM
+#   检测支持 Linux(/proc/meminfo)、macOS(hw.memsize)、Windows
+#   (GlobalMemoryStatusEx);其他平台请改用 memory_soft_limit_bytes。默认 0.8。
 # memory_soft_limit_fraction: 0.8
 
 # memory_soft_limit_bytes — explicit soft-limit override in bytes. When > 0
@@ -159,12 +161,13 @@
 #   GOMAXPROCS minus this many cores, leaving them entirely free. A hard
 #   headroom guarantee, but unlike niceness it DOES cost scan throughput
 #   even on an idle host (reserving 1 of 4 cores ≈ 25% slower parse).
-#   Default 0 relies on niceness alone. Raise to 1 only if SSH still
-#   struggles, or on platforms without setpriority.
+#   Default 0 relies on niceness alone (Linux/macOS/Windows). Raise to 1
+#   only if SSH still struggles, or on a rare platform with no
+#   scheduling-priority API.
 #   再把每个扫描 worker 池上限压到 GOMAXPROCS 减去该核数,留出空闲核心。
 #   这是硬性余量保证,但与 nice 不同,即使主机空闲也会损失扫描吞吐
-#   (4 核留 1 核 ≈ 解析慢 25%)。默认 0,仅靠 nice 让路。仅当 SSH 仍卡顿
-#   或平台不支持 setpriority 时才设为 1。
+#   (4 核留 1 核 ≈ 解析慢 25%)。默认 0,仅靠 nice 让路(Linux/macOS/
+#   Windows 均支持)。仅当 SSH 仍卡顿或平台无调度优先级接口时才设为 1。
 # repomap_scan_reserve_cpus: 0
 
 # ---------------------------------------------------------------------------

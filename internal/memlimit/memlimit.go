@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
-	"strconv"
 	"strings"
 )
 
@@ -137,31 +136,10 @@ func Apply(cfg Config) Result {
 	}
 }
 
-// systemTotalMemory reports total host RAM in bytes. It reads
-// /proc/meminfo and is therefore Linux-only; on other platforms it
-// returns ok=false and callers fall back to an explicit byte count.
-func systemTotalMemory() (uint64, bool) {
-	data, err := os.ReadFile("/proc/meminfo")
-	if err != nil {
-		return 0, false
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if !strings.HasPrefix(line, "MemTotal:") {
-			continue
-		}
-		fields := strings.Fields(line)
-		// Expected shape: "MemTotal:  3902345 kB"
-		if len(fields) < 2 {
-			return 0, false
-		}
-		kb, err := strconv.ParseUint(fields[1], 10, 64)
-		if err != nil || kb == 0 {
-			return 0, false
-		}
-		return kb * 1024, true
-	}
-	return 0, false
-}
+// systemTotalMemory reports total host RAM in bytes. Its implementation
+// is per-platform (memlimit_linux.go / _darwin.go / _windows.go); on a
+// platform with no implementation it returns ok=false and callers fall
+// back to an explicit byte count.
 
 func humanBytes(n int64) string {
 	const unit = 1024

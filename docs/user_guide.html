@@ -1445,12 +1445,12 @@ multi_repo_enabled: false
 <tr>
 <td><code>memory_soft_limit_fraction</code></td>
 <td><code>0.8</code></td>
-<td>目标占检测到的宿主 RAM 的比例,范围 <code>(0,1]</code>。仅 Linux(读 <code>/proc/meminfo</code>)</td>
+<td>目标占检测到的宿主 RAM 的比例,范围 <code>(0,1]</code>。宿主 RAM 检测支持 Linux(<code>/proc/meminfo</code>)/ macOS(<code>hw.memsize</code>)/ Windows(<code>GlobalMemoryStatusEx</code>)</td>
 </tr>
 <tr>
 <td><code>memory_soft_limit_bytes</code></td>
 <td><code>0</code></td>
-<td>直接以字节指定软上限;<code>&gt;0</code> 时跳过宿主 RAM 检测,低于 512 MiB 抬到该下限。非 Linux 平台用这个键</td>
+<td>直接以字节指定软上限;<code>&gt;0</code> 时跳过宿主 RAM 检测,低于 512 MiB 抬到该下限。RAM 检测覆盖不到的平台用这个键</td>
 </tr>
 <tr>
 <td><code>repomap_resume_interrupted_scan</code></td>
@@ -1460,17 +1460,17 @@ multi_repo_enabled: false
 <tr>
 <td><code>cpu_politeness_enabled</code></td>
 <td><code>true</code></td>
-<td>抬高进程 / 扫描 worker 线程的调度 nice 值,让 CPU 密集的扫描在有交互进程(尤其 sshd)时让路,避免远程 SSH 被饿断。主机空闲时<strong>不损失扫描吞吐</strong></td>
+<td>抬高进程 / 扫描 worker 线程的调度优先级礼让度,让 CPU 密集的扫描在有交互进程(尤其 sshd)时让路,避免远程 SSH 被饿断。主机空闲时<strong>不损失扫描吞吐</strong>。Linux/macOS 用 <code>setpriority</code>,Windows 用 <code>SetPriorityClass</code></td>
 </tr>
 <tr>
 <td><code>cpu_politeness_nice</code></td>
 <td><code>10</code></td>
-<td>目标 nice 值,范围 <code>[0,19]</code>,越大越礼让</td>
+<td>目标 nice 值,范围 <code>[0,19]</code>,越大越礼让(Windows 无细粒度 nice,<code>&gt;0</code> 即归到 below-normal 优先级)</td>
 </tr>
 <tr>
 <td><code>repomap_scan_reserve_cpus</code></td>
 <td><code>0</code></td>
-<td>额外把扫描 worker 池上限压到 <code>GOMAXPROCS</code> 减该核数,硬性留出空闲核心。与 nice 不同,即使主机空闲也会损失吞吐(4 核留 1 ≈ 慢 25%);默认 0 仅靠 nice。仅当 SSH 仍卡顿或平台无 <code>setpriority</code> 时设 1</td>
+<td>额外把扫描 worker 池上限压到 <code>GOMAXPROCS</code> 减该核数,硬性留出空闲核心。与 nice 不同,即使主机空闲也会损失吞吐(4 核留 1 ≈ 慢 25%);默认 0 仅靠 nice。仅当 SSH 仍卡顿或平台无调度优先级接口时设 1</td>
 </tr>
 </tbody>
 </table></div>
@@ -2211,7 +2211,7 @@ codrax --mode=verify --plan-file=/tmp/plan.json
 <p><strong>扫描超大仓库时进程被杀(<code>Killed</code> / dmesg 里有 OOM)</strong>
 → 在内存偏小的机器上扫巨型仓库(如 Linux 内核)时,repomap 全量扫描可能耗尽宿主 RAM。codrax 默认已三管齐下缓解:启动设 GOMEMLIMIT 软上限、解析后立即回收内存、被中断的扫描下次自动从已落盘 chunk 续扫(见 5.2「大仓内存韧性」)。若仍被杀:① 临时加 swap 让首次扫描扛过峰值、把 cache 建出来;② 用 <code>--repo</code> 指向更小的子目录而非整棵树;③ 内存极小的机器可调低 <code>memory_soft_limit_fraction</code>。日志里的 <code>repo_map: resuming interrupted scan</code> 行说明续扫已生效。</p>
 <p><strong>扫描超大仓库时 SSH 断连 / 远程终端卡死</strong>
-→ 全量扫描会占满每个 CPU 核心,可能饿死 sshd。codrax 默认已抬高扫描线程的调度 nice 值(启动日志 <code>cpu: CPU politeness: nice=10</code>),让扫描在 sshd 需要时让路 —— <strong>主机空闲时不损失扫描速度</strong>,只在有交互进程时礼让。若仍卡顿:把 <code>repomap_scan_reserve_cpus</code> 设为 <code>1</code>,硬性留出一个空闲核心(代价是扫描慢约 25%)。该键也适用于不支持 <code>setpriority</code> 的平台。</p>
+→ 全量扫描会占满每个 CPU 核心,可能饿死 sshd。codrax 默认已抬高扫描线程的调度 nice 值(启动日志 <code>cpu: CPU politeness: nice=10</code>),让扫描在 sshd 需要时让路 —— <strong>主机空闲时不损失扫描速度</strong>,只在有交互进程时礼让。若仍卡顿:把 <code>repomap_scan_reserve_cpus</code> 设为 <code>1</code>,硬性留出一个空闲核心(代价是扫描慢约 25%)。礼让在 Linux / macOS / Windows 均原生生效;该 reserve 键则适用于任何平台。</p>
 <h2 id="84-写模式特有">8.4 写模式特有</h2>
 <p><strong><code>/mode plan</code> 报 <code>write_enabled is false</code></strong>
 → <code>codrax.yaml</code> 加 <code>write_enabled: true</code>,重启 codrax。</p>

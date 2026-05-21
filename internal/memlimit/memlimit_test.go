@@ -1,9 +1,23 @@
 package memlimit
 
 import (
+	"runtime"
 	"runtime/debug"
 	"testing"
 )
+
+func TestSystemTotalMemory(t *testing.T) {
+	total, ok := systemTotalMemory()
+	switch runtime.GOOS {
+	case "linux", "darwin", "windows":
+		if !ok || total == 0 {
+			t.Fatalf("host RAM must be detectable on %s: ok=%v total=%d", runtime.GOOS, ok, total)
+		}
+		t.Logf("%s host RAM: %s", runtime.GOOS, humanBytes(int64(total)))
+	default:
+		// Platforms with no detector are expected to report ok=false.
+	}
+}
 
 // readLimit returns the runtime's current soft memory limit without
 // changing it.

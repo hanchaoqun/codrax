@@ -53,14 +53,16 @@ not live data).
 2. `GOMEMLIMIT` already set in the environment → defer to the operator,
    no-op (Go has already applied it).
 3. Explicit `memory_soft_limit_bytes` → use it verbatim.
-4. Otherwise read host RAM (`/proc/meminfo` `MemTotal`) and apply
-   `total × memory_soft_limit_fraction`.
+4. Otherwise read host RAM and apply `total × memory_soft_limit_fraction`.
 5. Clamp to a 512 MiB floor so a misconfigured tiny value cannot
    strangle the process.
 
-Host-RAM detection is Linux-only (`/proc/meminfo`). On platforms where
-it is unavailable the auto path is skipped with a logged note; an
-operator can still pin `memory_soft_limit_bytes` explicitly.
+Host-RAM detection is per-platform (`systemTotalMemory`, build-tagged):
+Linux reads `/proc/meminfo` `MemTotal`; macOS reads the `hw.memsize`
+sysctl; Windows calls `GlobalMemoryStatusEx`. On any other platform the
+auto path is skipped with a logged note and an operator pins
+`memory_soft_limit_bytes` explicitly. All detectors return a 64-bit
+byte count, so they are correct on 64-bit hosts of any size.
 
 Config knobs (`codrax.yaml`, all optional, pointer-typed):
 
@@ -175,9 +177,15 @@ runs at full speed in the common case and merely shares fairly when
 something interactive wakes up — exactly the desired trade-off, with no
 fixed efficiency tax.
 
-Niceness is raised, never lowered, so it never needs privilege. It is
-Linux/Unix-only (`setpriority`); on other platforms `Apply` degrades to
-a logged no-op and the operator can fall back to core reservation.
+Politeness is lowered, never raised, so it never needs privilege.
+`setThreadNice` is build-tagged per platform: Linux/Unix use
+`setpriority` (per-thread); Windows uses `SetPriorityClass` to drop the
+process to `BELOW_NORMAL_PRIORITY_CLASS` — process-wide, so every thread
+is covered and the per-worker calls are simply idempotent. Windows has
+no fine-grained nice scale, so `cpu_politeness_nice` is bucketed there
+(`0` → normal, any positive value → below-normal). On a platform with
+neither API `Apply` degrades to a logged no-op and the operator falls
+back to core reservation.
 
 ### Optional core reservation
 
@@ -240,3 +248,29 @@ that without a lock.
    correct regardless of what concurrent activity produced the orphan
    chunks — concurrency can only affect *how much* is reused, never
    *whether the output is right*.
+
+## Platform support
+
+| Capability | Linux | macOS | Windows | other |
+|------------|-------|-------|---------|-------|
+| Soft heap limit — explicit `memory_soft_limit_bytes` | ✓ | ✓ | ✓ | ✓ |
+| Soft heap limit — auto host-RAM detection | ✓ `/proc/meminfo` | ✓ `hw.memsize` | ✓ `GlobalMemoryStatusEx` | ✗ → use explicit bytes |
+| Post-parse `FreeOSMemory` reclaim | ✓ | ✓ | ✓ | ✓ |
+| Resumable interrupted scan | ✓ | ✓ | ✓ | ✓ |
+| CPU politeness | ✓ `setpriority` | ✓ `setpriority` | ✓ `SetPriorityClass` | ✗ → use core reservation |
+| Core reservation (`repomap_scan_reserve_cpus`) | ✓ | ✓ | ✓ | ✓ |
+
+Every capability either works natively or degrades to a logged no-op —
+nothing crashes or fails to build on any platform. Platform-specific
+code is isolated behind build tags (`*_linux.go` / `*_darwin.go` /
+`*_windows.go` / `*_other.go`, and `//go:build unix`).
+
+Both `internal/memlimit` and `internal/cpulimit` are **pure Go**: they
+reach platform APIs through the standard `syscall` package
+(`syscall.Setpriority`, `syscall.Sysctl`, `syscall.NewLazyDLL`), with no
+`import "C"`. They therefore build with `CGO_ENABLED` either on or off
+and add no C-toolchain requirement — a Windows build via MinGW (needed
+only for the tree-sitter cgo elsewhere in codrax) compiles these
+packages with no extra setup. All host-RAM detectors return a 64-bit
+byte count and all handle values are `uintptr`-typed, so the code is
+correct on 64-bit hosts (amd64, arm64) as well as 32-bit.
