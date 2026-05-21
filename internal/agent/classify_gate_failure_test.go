@@ -55,18 +55,35 @@ func TestClassifyGateFailure_MultiHardFailuresJoined(t *testing.T) {
 	if !hard {
 		t.Fatalf("multi-hard failures should yield hard=true")
 	}
-	for _, want := range []string{"coverage", "dag_closure", "budget_sanity"} {
+	for _, want := range []string{"dag_closure", "budget_sanity"} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("detail %q missing failed check %q", detail, want)
 		}
 	}
-	if strings.Contains(detail, "pending_fields_wellformed") {
-		t.Errorf("soft check leaked into hard detail: %q", detail)
+	for _, soft := range []string{"coverage", "pending_fields_wellformed"} {
+		if strings.Contains(detail, soft) {
+			t.Errorf("soft check %q leaked into hard detail: %q", soft, detail)
+		}
 	}
 	// Joined format = "name: detail; name: detail; …".
 	parts := strings.Split(detail, "; ")
-	if len(parts) != 3 {
-		t.Errorf("expected 3 join parts; got %d in %q", len(parts), detail)
+	if len(parts) != 2 {
+		t.Errorf("expected 2 join parts; got %d in %q", len(parts), detail)
+	}
+}
+
+func TestClassifyGateFailure_CoverageOnlyIsSoft(t *testing.T) {
+	report := types.GateReport{
+		Checks: []types.GateCheck{
+			{Name: "coverage", Passed: false, Detail: "score=0.4 threshold=0.7"},
+		},
+	}
+	hard, detail := classifyGateFailure(report)
+	if hard {
+		t.Fatalf("coverage-only failure should be soft telemetry, got detail=%q", detail)
+	}
+	if detail != "" {
+		t.Errorf("soft check leaked into hard detail: %q", detail)
 	}
 }
 
@@ -76,7 +93,7 @@ func TestClassifyGateFailure_MultiHardFailuresJoined(t *testing.T) {
 func TestClassifyGateFailure_NewlineStripped(t *testing.T) {
 	report := types.GateReport{
 		Checks: []types.GateCheck{
-			{Name: "coverage", Passed: false, Detail: "line1\nline2\rline3"},
+			{Name: "dag_closure", Passed: false, Detail: "line1\nline2\rline3"},
 		},
 	}
 	_, detail := classifyGateFailure(report)

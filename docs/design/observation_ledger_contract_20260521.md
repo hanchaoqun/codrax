@@ -569,3 +569,15 @@ flowchart TD
   semantic-quality concern; residual cost (`explorer_iters=32`,
   `midloop_inject=9`) is tracked as a performance follow-up, not as an answer
   contract failure.
+- 2026-05-21: Batch 7 planned from the attached failure-flow diagnostic image.
+  The remaining risk is not a single case answer: it is gate promotion of
+  support-tier signals. Implementation order:
+  1. analyzer gate hard rejection becomes an explicit allowlist; search-hint
+     coverage is soft telemetry because it is derived from hint coverage rather
+     than a broken runtime graph;
+  2. ERM unsatisfied state remains exploration guidance only and cannot by
+     itself set `MissingFacts` / fact-retry after the model has otherwise
+     completed investigation;
+  3. targeted tests cover analyzer soft coverage, still-hard structural gates,
+     and ERM-only non-retry so future contributors cannot reintroduce the
+     screenshot class by adding a new default-hard check.

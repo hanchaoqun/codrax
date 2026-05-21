@@ -134,8 +134,9 @@ func TestComputeGateFingerprint_LengthBounded(t *testing.T) {
 // TestComputeGateFingerprint_PopulatedByRunWith — end-to-end:
 // gate.Run / RunWith stamps the fingerprint onto the report.
 func TestComputeGateFingerprint_PopulatedByRunWith(t *testing.T) {
-	// Construct a minimal IR that fails coverage (a typical hard-fail
-	// path).
+	// Construct a minimal IR with structural defects. Search-hint
+	// coverage is soft telemetry, so this fixture relies on hard
+	// structural checks such as dag_closure / contract_complete.
 	ir := &types.AnalysisIR{
 		Version:        types.AnalysisIRVersion,
 		RequestModel:   types.RequestModel{},

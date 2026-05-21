@@ -98,6 +98,34 @@ func TestRun_PendingFieldsWellformedSoftFailureAccepted(t *testing.T) {
 	}
 }
 
+func TestIsHardRejectingCheck_ExplicitAllowlist(t *testing.T) {
+	hard := []string{
+		"nil_ir",
+		"dag_closure",
+		"budget_sanity",
+		"contract_complete",
+		"hypothesis_coverage",
+		"subtopic_coherence",
+		"shape_subject_coherence",
+		"criterion_resolvable",
+	}
+	for _, name := range hard {
+		if !IsHardRejectingCheck(types.GateCheck{Name: name, Passed: false}) {
+			t.Fatalf("%s should be hard-rejecting", name)
+		}
+	}
+	soft := []string{
+		"coverage",
+		"pending_fields_wellformed",
+		"future_quality_signal",
+	}
+	for _, name := range soft {
+		if IsHardRejectingCheck(types.GateCheck{Name: name, Passed: false}) {
+			t.Fatalf("%s should not be hard-rejecting by default", name)
+		}
+	}
+}
+
 func TestRun_NilIR_RejectedNonRetryable(t *testing.T) {
 	report := Run(nil, Thresholds{}, "")
 	if !report.Rejected {
@@ -235,8 +263,15 @@ func TestRun_Coverage_FailsWhenSymbolsMissing(t *testing.T) {
 		ir.TaskGraph.Nodes[i].SearchHints = types.SearchHints{}
 	}
 	report := Run(ir, Thresholds{}, "")
-	if findCheck(report, "coverage").Passed {
+	check := findCheck(report, "coverage")
+	if check == nil || check.Passed {
 		t.Fatalf("coverage must fail when no symbols are hinted; report=%+v", report)
+	}
+	if report.Rejected {
+		t.Fatalf("coverage is search-hint telemetry and must not hard-reject analyzer IR by itself; report=%+v", report)
+	}
+	if !report.Passed {
+		t.Fatalf("GateReport.Passed should mean hard-accepted when only coverage failed; report=%+v", report)
 	}
 }
 

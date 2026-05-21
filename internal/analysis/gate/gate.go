@@ -195,15 +195,26 @@ func RunWith(ir *types.AnalysisIR, th Thresholds, mode string, opts RunOptions) 
 // IsHardRejectingCheck reports whether this individual check should
 // reject the analyzer IR. It intentionally reads only the typed check
 // identity and pass bit, never user text or model prose.
+//
+// Keep this as an explicit allowlist. Analyzer gates often mix hard
+// structural facts with advisory quality signals; a newly-added check
+// must prove it is safe to spend an LLM retry before it joins this list.
 func IsHardRejectingCheck(c types.GateCheck) bool {
 	if c.Passed {
 		return false
 	}
 	switch c.Name {
-	case "pending_fields_wellformed":
-		return false
-	default:
+	case "nil_ir",
+		"dag_closure",
+		"budget_sanity",
+		"contract_complete",
+		"hypothesis_coverage",
+		"subtopic_coherence",
+		"shape_subject_coherence",
+		"criterion_resolvable":
 		return true
+	default:
+		return false
 	}
 }
 
