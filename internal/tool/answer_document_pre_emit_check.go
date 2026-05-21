@@ -779,6 +779,16 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				continue
 			}
 			text := preEmitItemNonLabelSurface(*item)
+			if preEmitBlockPrefersExactDefinitionCitation(*block) {
+				if cit, ok := preEmitUniqueExactEndpointDefinitionCitationForLabelWithContext(pctx, label); ok {
+					ref := appendOrReusePreEmitCitation(doc, cit)
+					if ref >= 0 && item.CitationRef != ref {
+						item.CitationRef = ref
+						fixed++
+					}
+					continue
+				}
+			}
 			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
 				preEmitItemCitationAlignedWithContext(pctx, label, text, doc.Citations[item.CitationRef]) {
 				continue
@@ -803,6 +813,29 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 		}
 	}
 	return fixed
+}
+
+func preEmitBlockPrefersExactDefinitionCitation(block types.AnswerBlock) bool {
+	for _, claim := range block.ClaimUses {
+		if claim.ClaimForm == types.ClaimDefinitionFact {
+			return true
+		}
+		switch claim.FacetID {
+		case string(types.FacetEnumerationItem),
+			string(types.FacetResolvedLiteralOrSymbol),
+			string(types.FacetCurrentCodePath):
+			return true
+		}
+	}
+	for _, facet := range block.FacetIDs {
+		switch facet {
+		case string(types.FacetEnumerationItem),
+			string(types.FacetResolvedLiteralOrSymbol),
+			string(types.FacetCurrentCodePath):
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) int {
@@ -3775,6 +3808,103 @@ func preEmitCandidateCitationLocationsForLabelWithContext(pctx *preEmitCheckCont
 		}
 	}
 	return out
+}
+
+func preEmitUniqueExactEndpointDefinitionCitationForLabelWithContext(pctx *preEmitCheckContext, label string) (types.Citation, bool) {
+	if pctx == nil {
+		return types.Citation{}, false
+	}
+	labelKey := preEmitCodeIdentityKey(preEmitDefinitionCitationLabelBase(label))
+	if labelKey == "" {
+		return types.Citation{}, false
+	}
+	type candidate struct {
+		cit   types.Citation
+		score int
+	}
+	var candidates []candidate
+	seen := map[string]bool{}
+	for _, ev := range pctx.evidenceItems() {
+		if ev.GroundingStatus == types.GroundingUngrounded || ev.Source == "" || ev.LineStart <= 0 {
+			continue
+		}
+		if !preEmitEvidenceExactEndpointKeyMatches(ev, labelKey) {
+			continue
+		}
+		score := preEmitExactEndpointDefinitionScore(ev)
+		if score <= 0 {
+			continue
+		}
+		cit := pctx.canonicalCitation(types.Citation{File: ev.Source, Line: ev.LineStart})
+		if cit.File == "" || cit.Line <= 0 {
+			continue
+		}
+		key := preEmitCitationLocationKey(cit)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		candidates = append(candidates, candidate{cit: cit, score: score})
+	}
+	if len(candidates) == 0 {
+		return types.Citation{}, false
+	}
+	bestScore := 0
+	for _, c := range candidates {
+		if c.score > bestScore {
+			bestScore = c.score
+		}
+	}
+	var best []types.Citation
+	for _, c := range candidates {
+		if c.score == bestScore {
+			best = append(best, c.cit)
+		}
+	}
+	if len(best) != 1 {
+		return types.Citation{}, false
+	}
+	return best[0], true
+}
+
+func preEmitDefinitionCitationLabelBase(label string) string {
+	label = strings.TrimSpace(label)
+	if base, _, ok := types.AnswerAggregateDecoratedLabelParts(label); ok {
+		return strings.TrimSpace(base)
+	}
+	return label
+}
+
+func preEmitEvidenceExactEndpointKeyMatches(ev types.EvidenceItem, labelKey string) bool {
+	if labelKey == "" {
+		return false
+	}
+	for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+		if preEmitCodeIdentityKey(endpoint) == labelKey {
+			return true
+		}
+	}
+	return false
+}
+
+func preEmitExactEndpointDefinitionScore(ev types.EvidenceItem) int {
+	switch ev.AnchorKind {
+	case types.AnchorDefinition:
+		if ev.Kind == types.EvidenceDirect || ev.Kind == types.EvidenceRegistration {
+			return 100
+		}
+		return 90
+	case types.AnchorInitializer, types.AnchorAssignment, types.AnchorImport:
+		if ev.Kind == types.EvidenceDirect || ev.Kind == types.EvidenceRegistration {
+			return 70
+		}
+		return 60
+	default:
+		if ev.Kind == types.EvidenceDirect || ev.Kind == types.EvidenceRegistration {
+			return 40
+		}
+		return 0
+	}
 }
 
 func preEmitCandidateCitationLocationsForAggregateItem(ctx *types.BusContext, label, text string, limit int) []string {

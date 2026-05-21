@@ -1258,6 +1258,17 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 			}
 			continue
 		}
+		if AggregateMemberSetIsArchitectureNarrativeSupport(rm, out[i]) {
+			if role != AnswerAggregateRoleSupportingCoverage {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				out[i].Provenance = appendAggregateFactProvenance(
+					out[i].Provenance,
+					"demoted:architecture_narrative_support_member_set",
+				)
+				changed = true
+			}
+			continue
+		}
 		if AggregateMemberSetIsMechanismNarrativeSupport(rm, out[i]) {
 			if role != AnswerAggregateRoleSupportingCoverage {
 				out[i].Role = AnswerAggregateRoleSupportingCoverage
@@ -1286,6 +1297,37 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 		return cloneAnswerAggregateFacts(facts)
 	}
 	return out
+}
+
+// AggregateMemberSetIsArchitectureNarrativeSupport reports whether a
+// model-emitted member_set is a structured decomposition aid for an architecture
+// / logical-view answer rather than a closed user-visible member slate.
+//
+// Architecture answers often need component, agent, stage, function, and data
+// flow sets to keep evidence organized. Those sets should enrich the finalizer
+// context, not force deterministic補表 or hard member-surface gates, unless the
+// request carries an explicit closed-set obligation such as a declared count,
+// bucketed comparison, exhaustive enumeration, or relation lookup.
+//
+// The predicate is intentionally typed-only: RequestModel traits plus
+// aggregate kind/role. It never scans raw user text, model prose, labels, or
+// repository-language syntax.
+func AggregateMemberSetIsArchitectureNarrativeSupport(rm *RequestModel, fact AnswerAggregateFact) bool {
+	if rm == nil || fact.Kind != AnswerAggregateMemberSet {
+		return false
+	}
+	if !answerAggregateFactCarriesCompleteMemberSet(fact) {
+		return false
+	}
+	if aggregateRequestRequiresPathMemberSetAsPrincipal(*rm) ||
+		RequiresExhaustiveEnumerationMemberSetHandoff(*rm) ||
+		RequiresRelationMemberSetHandoff(*rm) {
+		return false
+	}
+	if rm.DiagramHint == nil && len(rm.SubTopics) <= 1 && !rm.Predicates.IsCrossComponent {
+		return false
+	}
+	return IsArchitectureNarrativeExplanation(*rm)
 }
 
 // AggregateScalarIsNonScalarHistorySupport reports the legacy scalar-only

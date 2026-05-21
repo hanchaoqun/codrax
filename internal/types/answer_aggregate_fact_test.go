@@ -1570,6 +1570,54 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesMechanismMemberSetAtSource
 	}
 }
 
+func TestNormalizeAggregateFactRolesForRequest_DemotesArchitectureNarrativeMemberSetAtSource(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:       AnswerAggregateMemberSet,
+		Label:      "read-mode agents",
+		Value:      "3",
+		Role:       AnswerAggregateRolePrincipalAnswer,
+		Provenance: "explorer aggregate",
+		Members:    []string{"AgentAnalyzer", "AgentExplorer", "AgentFinalizer"},
+		SupportRefs: []string{
+			"AgentAnalyzer @ internal/types/enums.go:33",
+			"AgentExplorer @ internal/types/enums.go:34",
+			"AgentFinalizer @ internal/types/enums.go:36",
+		},
+	}}
+	rm := RequestModel{
+		Intent:     IntentExplain,
+		Scenario:   ScenarioArchitectureExplain,
+		Complexity: ComplexityComplex,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true, // analyzer drift must not turn architecture context into a hard set
+			IsCrossComponent:      true,
+		},
+		DiagramHint: &DiagramHint{Kind: DiagramFlow},
+		SubTopics: []SubTopic{
+			{Summary: "pipeline stages", Entities: []string{"StageAnalyze", "StageExplore"}},
+			{Summary: "agent roles", Entities: []string{"AgentAnalyzer", "AgentExplorer"}},
+			{Summary: "final answer", Entities: []string{"AgentFinalizer"}},
+		},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("architecture narrative member_set should be support context, got %+v", got[0])
+	}
+	if !strings.Contains(got[0].Provenance, "demoted:architecture_narrative_support_member_set") {
+		t.Fatalf("architecture demotion provenance missing: %+v", got[0])
+	}
+	if refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &rm); len(refs) != 0 {
+		t.Fatalf("architecture support member_set must not create principal enumeration rows, got %+v", refs)
+	}
+
+	rm.CompletenessObligation = &CompletenessObligation{Required: true, SourceQuote: "列出全部 agents"}
+	got = NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("explicit architecture member obligation should remain principal, got %+v", got[0])
+	}
+}
+
 func TestNormalizeAggregateFactRolesForRequest_DemotesNonScalarHistoryScalars(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:       AnswerAggregateScalar,

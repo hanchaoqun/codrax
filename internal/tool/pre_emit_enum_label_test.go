@@ -1211,6 +1211,126 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_AppendsUniqueEvidenceCan
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_PrefersExactDefinitionOverAlignedSupport(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "stages",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimDefinitionFact,
+				FacetID:   string(types.FacetEnumerationItem),
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "stage-analyze",
+				Label:       "StageAnalyze",
+				Text:        "analyzer agent 负责理解请求并生成 AnalysisIR。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/agent/explorer.go", Line: 68},
+			{File: "internal/types/enums.go", Line: 26},
+		},
+	}
+	mut := types.NewMutableState("codrax 的 read-mode pipeline 由哪几个 stage 组成？")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/agent/explorer.go",
+			LineStart:       68,
+			AnchorKind:      types.AnchorCall,
+			Object:          "StageAnalyze",
+			AnchorSymbol:    "explorerEvaluator",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/enums.go",
+			LineStart:       26,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "StageAnalyze",
+			AnchorSymbol:    "StageAnalyze",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx)
+	if fixed != 1 {
+		t.Fatalf("expected exact definition citation preference repair, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref = %d, want exact StageAnalyze definition ref 1", got)
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("exact definition citation should satisfy alignment, got %v", hints)
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_KeepsAlignedCitationWhenExactDefinitionsAmbiguous(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "constructors",
+			Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimDefinitionFact,
+				FacetID:   string(types.FacetEnumerationItem),
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "new",
+				Label:       "New",
+				Text:        "当前引用已经能支撑该成员；两个同名定义候选存在时不应猜测。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "pkg/a/new.go", Line: 10},
+			{File: "pkg/b/new.go", Line: 20},
+			{File: "pkg/c/caller.go", Line: 30},
+		},
+	}
+	mut := types.NewMutableState("列出 New 构造函数")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "pkg/a/new.go",
+			LineStart:       10,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "New",
+			AnchorSymbol:    "New",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "pkg/b/new.go",
+			LineStart:       20,
+			AnchorKind:      types.AnchorDefinition,
+			Subject:         "New",
+			AnchorSymbol:    "New",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Source:          "pkg/c/caller.go",
+			LineStart:       30,
+			AnchorKind:      types.AnchorCall,
+			Object:          "New",
+			AnchorSymbol:    "callNew",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx)
+	if fixed != 0 {
+		t.Fatalf("ambiguous exact definitions should not trigger citation rewrite, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref = %d, want to preserve current aligned ref 0", got)
+	}
+}
+
 func TestNormalizeOutOfRangeItemCitationRefsByEvidenceSurface(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Citations: []types.Citation{{File: "opencode/packages/opencode/src/util/bom.ts", Line: 18}},
